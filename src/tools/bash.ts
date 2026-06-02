@@ -9,8 +9,15 @@ const BashParams = z.object({
 
 export const bashTool: Tool = {
   name: 'bash',
-  description: 'Execute a shell command and return the output. Use for running commands, git, tests, etc.',
+  description:
+    'Execute a shell command and return the output. Use for running commands, git, tests, etc. ' +
+    'No command allowlist exists yet, so only run conservative workspace-safe commands after permission is granted.',
   parameters: BashParams,
+  safety: {
+    sideEffect: 'shell',
+    permission: 'prompt',
+    reason: 'Shell commands can read, write, or execute programs.',
+  },
   async execute(args) {
     const { command, cwd } = BashParams.parse(args);
 

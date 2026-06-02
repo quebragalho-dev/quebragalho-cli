@@ -8,8 +8,24 @@ function makeTool(name: string): Tool {
     name,
     description: `tool ${name}`,
     parameters: z.object({ x: z.string() }),
-    async execute() {
-      return `ran ${name}`;
+    safety: {
+      sideEffect: 'read',
+      permission: 'allow',
+      reason: 'test tool',
+    },
+    async execute(args) {
+      return `ran ${name}:${args.x}`;
+    },
+  };
+}
+
+function makePromptTool(name: string): Tool {
+  return {
+    ...makeTool(name),
+    safety: {
+      sideEffect: 'write',
+      permission: 'prompt',
+      reason: 'test prompt gate',
     },
   };
 }
@@ -45,5 +61,27 @@ describe('ToolRegistry', () => {
 
     expect(registry.getAll()).toHaveLength(1);
     expect(registry.get('dup')).toBe(second);
+  });
+
+  it('runs tools through the validating registry path', async () => {
+    const registry = new ToolRegistry();
+    registry.register(makeTool('safe'));
+
+    expect(await registry.run('safe', { x: 'ok' })).toBe('ran safe:ok');
+    expect(await registry.run('safe', { x: 1 })).toContain('Invalid arguments');
+  });
+
+  it('reports unknown tools from the registry run path', async () => {
+    const registry = new ToolRegistry();
+    expect(await registry.run('missing', {})).toBe('Error: Unknown tool "missing".');
+  });
+
+  it('does not auto-run prompt-gated tools without a grant', async () => {
+    const registry = new ToolRegistry();
+    registry.register(makePromptTool('mutate'));
+
+    const result = await registry.run('mutate', { x: 'ok' });
+    expect(result).toContain('Permission required');
+    expect(result).toContain('was not executed');
   });
 });

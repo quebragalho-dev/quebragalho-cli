@@ -15,12 +15,27 @@ export class ToolRegistry {
     return Array.from(this.tools.values());
   }
 
-  getDefinitionsForProvider() {
-    return this.getAll().map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters.shape, // We'll convert properly later
-    }));
+  async run(name: string, args: unknown, options: { permissionGranted?: boolean } = {}): Promise<string> {
+    const tool = this.get(name);
+    if (!tool) {
+      return `Error: Unknown tool "${name}".`;
+    }
+
+    if (tool.safety.permission !== 'allow' && !options.permissionGranted) {
+      return `Error: Permission required for ${name}: ${tool.safety.reason} ` +
+        `The tool is marked "${tool.safety.permission}" and was not executed.`;
+    }
+
+    const parsed = tool.parameters.safeParse(args);
+    if (!parsed.success) {
+      return `Error: Invalid arguments for ${name}: ${parsed.error.message}`;
+    }
+
+    try {
+      return await tool.execute(parsed.data);
+    } catch (err: any) {
+      return `Error executing ${name}: ${err?.message ?? String(err)}`;
+    }
   }
 }
 

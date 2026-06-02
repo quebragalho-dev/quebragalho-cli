@@ -71,6 +71,7 @@ export class OpenAIProvider implements Provider {
       id: string; 
       name: string; 
       arguments: string;
+      emittedLength: number;
       started: boolean;
     }>();
 
@@ -96,7 +97,7 @@ export class OpenAIProvider implements Provider {
 
             let acc = toolCallAccumulators.get(tc.index);
             if (!acc) {
-              acc = { id: '', name: '', arguments: '', started: false };
+              acc = { id: '', name: '', arguments: '', emittedLength: 0, started: false };
               toolCallAccumulators.set(tc.index, acc);
             }
 
@@ -106,7 +107,7 @@ export class OpenAIProvider implements Provider {
               if (acc.id) {
                 yield { type: 'tool-call-end', id: acc.id };
               }
-              acc = { id: '', name: '', arguments: '', started: false };
+              acc = { id: '', name: '', arguments: '', emittedLength: 0, started: false };
               toolCallAccumulators.set(tc.index, acc);
             }
 
@@ -114,17 +115,23 @@ export class OpenAIProvider implements Provider {
             if (tc.function?.name) acc.name = tc.function.name;
             if (tc.function?.arguments) {
               acc.arguments += tc.function.arguments;
-              yield {
-                type: 'tool-call-delta',
-                id: acc.id || `pending-${tc.index}`,
-                argumentsFragment: tc.function.arguments,
-              };
             }
 
-            // Emit start event the first time we have both id and name
+            // Emit start before the first argument delta when a provider
+            // sends id, name, and arguments in the same stream chunk.
             if (acc.id && acc.name && !acc.started) {
               yield { type: 'tool-call-start', id: acc.id, name: acc.name };
               acc.started = true;
+            }
+
+            if (acc.id && acc.started && acc.arguments.length > acc.emittedLength) {
+              const argumentsFragment = acc.arguments.slice(acc.emittedLength);
+              acc.emittedLength = acc.arguments.length;
+              yield {
+                type: 'tool-call-delta',
+                id: acc.id,
+                argumentsFragment,
+              };
             }
           }
         }
