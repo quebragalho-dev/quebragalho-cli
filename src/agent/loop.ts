@@ -95,7 +95,7 @@ export async function runAgent(
         
         // Show a sample of the schema for the first tool (very useful for debugging)
         const firstTool = toolDefinitions[0];
-        if (firstTool.parameters) {
+        if (firstTool?.parameters) {
           const schemaPreview = JSON.stringify(firstTool.parameters, null, 2).slice(0, 300);
           console.log(`│ First tool schema sample:\n${schemaPreview}...`);
         }
@@ -179,7 +179,12 @@ export async function runAgent(
         }
 
         try {
-          result = await tool.execute(parsedArgs);
+          // Prefer the safe `run` path (ToolBase) so schema validation
+          // and thrown-error handling kick in for subclasses. Plain
+          // object-literal tools fall back to `execute` directly.
+          result = await (tool.run
+            ? tool.run(parsedArgs)
+            : tool.execute(parsedArgs));
         } catch (e: any) {
           result = `Error executing ${tc.name}: ${e.message}`;
         }
