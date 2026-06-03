@@ -44,9 +44,10 @@ describe('TuiShell render surface', () => {
     expect(output).toContain('zero >');
     expect(output).toContain('/provider');
     expect(output).toContain('status: READY');
-    expect(output).toContain('Enter');
-    expect(output).toContain('Tab');
-    expect(output).toContain('Ctrl+C');
+    expect(output).not.toContain('Enter');
+    expect(output).not.toContain('Tab');
+    expect(output).not.toContain('Ctrl+C');
+    expect(output).not.toContain('Tab accepts');
     expect(output).not.toContain('shift+tab');
     expect(output).not.toContain('Welcome to zero');
     expect(output).not.toContain('WORKSPACE');
@@ -76,5 +77,37 @@ describe('TuiShell render surface', () => {
     expect(output).toContain('"TODO"');
     expect(output).toContain('• Plan mode enabled.');
     expect(output).toContain('commands /model');
+    expect(output).toContain('perms ask');
+    expect(output).not.toContain('Tab accepts');
+  });
+
+  it('renders pending tool approval with a command preview', () => {
+    const messages: ChatMessage[] = [
+      { type: 'user', content: 'run tests' },
+      { type: 'tool-call', name: 'bash', args: '{"command":"bun test ./tests"}' },
+    ];
+    const output = renderShell({
+      messages,
+      visibleMessages: messages,
+      showLogo: false,
+      isThinking: true,
+      pendingApproval: {
+        toolCall: { id: 'call_1', name: 'bash', arguments: '{"command":"bun test ./tests"}' },
+        parsedArgs: { command: 'bun test ./tests', cwd: 'D:\\codings\\Opensource\\Zero' },
+        safety: {
+          sideEffect: 'shell',
+          permission: 'prompt',
+          reason: 'Shell commands can read, write, or execute programs.',
+        },
+        reason: 'Shell commands can read, write, or execute programs.',
+        grantKey: 'prompt:shell',
+      },
+    });
+
+    expect(output).toContain('Allow Bash?');
+    expect(output).toContain('command: bun test ./tests');
+    expect(output).toContain('[y]');
+    expect(output).toContain('[n]');
+    expect(output).toContain('[a]');
   });
 });
