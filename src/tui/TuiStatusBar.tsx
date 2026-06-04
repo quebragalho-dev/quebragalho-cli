@@ -1,7 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { tuiTheme } from './theme';
-import { LiveDot } from './LiveDot';
 import type { TuiModeState } from './types';
 
 interface TuiStatusBarProps extends TuiModeState {
@@ -15,37 +14,20 @@ interface TuiStatusBarProps extends TuiModeState {
   contextPercent?: number;
 }
 
-const Dot: React.FC = () => <Text color={tuiTheme.colors.subtle}>{'  ·  '}</Text>;
-
-/**
- * Footer status bar: model · tokens · cost · context% on the left, and a
- * live/idle indicator on the right. (Usage figures are estimated until the
- * agent loop emits real token usage.)
- */
 export const TuiStatusBar: React.FC<TuiStatusBarProps> = ({
   modelName = 'unknown',
-  totalTokens = 0,
-  costUsd = 0,
-  contextPercent = 0,
-  isThinking,
+  isPlanMode,
 }) => {
-  return (
-    <Box paddingX={1} flexDirection="row" justifyContent="space-between" marginTop={1}>
-      <Box flexDirection="row">
-        <Text color={tuiTheme.colors.model}>{modelName}</Text>
-        <Dot />
-        <Text color={tuiTheme.colors.muted}>{totalTokens.toLocaleString('en-US')} tokens</Text>
-        <Dot />
-        <Text color={tuiTheme.colors.muted}>${costUsd.toFixed(4)}</Text>
-        <Dot />
-        <Text color={tuiTheme.colors.muted}>ctx {contextPercent}%</Text>
-      </Box>
+  const isMissingProvider = modelName.toLowerCase().includes('no provider');
 
-      <Box flexDirection="row">
-        {/* Pulses while the agent is working; steady green otherwise. */}
-        <LiveDot pulsing={!!isThinking} color={tuiTheme.colors.success} />
-        <Text color={tuiTheme.colors.success}> live</Text>
-      </Box>
+  return (
+    <Box paddingX={1} flexDirection="row">
+      <Text color={isMissingProvider ? tuiTheme.colors.warning : tuiTheme.colors.muted}>
+        {isMissingProvider ? modelName : `${modelName} Model`}
+      </Text>
+      {isPlanMode && (
+        <Text color={tuiTheme.colors.success}> · PLAN MODE</Text>
+      )}
     </Box>
   );
 };

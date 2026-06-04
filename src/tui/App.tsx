@@ -1,9 +1,7 @@
 import React, { useRef, useState } from 'react';
-import { useApp, useInput, useWindowSize } from 'ink';
+import { useApp, useInput, useStdout } from 'ink';
 import { runAgent, type ToolApprovalDecision, type ToolApprovalRequest } from '../agent/loop';
 import { configManager } from '../config/manager';
-import { loadProviderConfig } from '../config/provider';
-import { ZERO_DEFAULT_MODEL_ID } from '../zero-model-registry';
 import { redactZeroError, redactZeroSecrets, redactZeroString } from '../zero-redaction';
 import { formatZeroConfigInspection, inspectZeroConfig, type ZeroConfigInspectionReport } from '../zero-config-inspection';
 import { formatZeroDoctorReport, runZeroDoctor, type ZeroDoctorReport } from '../zero-doctor';
@@ -12,10 +10,11 @@ import { createZeroRunContext } from '../zero-runtime';
 import { AddProvider } from './AddProvider';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
+import { ThemePicker } from './ThemePicker';
 import { TuiShell } from './TuiShell';
 import {
   formatTuiHelpLines,
-  listTuiCommandNames,
+  listTuiCommands,
 } from './commands';
 import {
   buildTuiModelStatus,
@@ -24,18 +23,58 @@ import {
   resolveTuiModelProfileSelection,
   resolveTuiModelSelection,
 } from './model-selection';
+import { getAllThemes, getTheme, normalizeHexColor, setTheme } from './theme';
+import { detectFromColorFgBg } from './terminal-background';
 import type { ChatMessage } from './types';
 
-type Screen = 'chat' | 'provider-picker' | 'add-provider' | 'model-picker';
-const KNOWN_COMMANDS = listTuiCommandNames();
+type Screen = 'chat' | 'provider-picker' | 'add-provider' | 'model-picker' | 'theme-picker';
+const KNOWN_COMMANDS = listTuiCommands().map((command) => command.name);
+const hasInitialProvider = Boolean(process.env.ZERO_PROVIDER_COMMAND || configManager.getEffectiveProviderConfig());
 const INITIAL_MESSAGES: ChatMessage[] = [
-  { type: 'system', content: 'Welcome to zero. Type /provider to manage providers.' },
-  { type: 'system', content: 'Type /help for available commands.' },
+  { type: 'system', content: 'Welcome to zero\nUse /help for available commands.' },
+  ...(!hasInitialProvider
+    ? [{ type: 'system' as const, content: 'No provider configured\nRun /provider to add one (OpenGateway recommended)' }]
+    : []),
 ];
 
-export const App: React.FC = () => {
+setTheme(configManager.getTheme());
+
+function blend(a: string, b: string, t: number): string {
+  const ah = parseInt(normalizeHexColor(a).slice(1), 16);
+  const bh = parseInt(normalizeHexColor(b).slice(1), 16);
+  const ar = (ah >> 16) & 0xff, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
+  const br = (bh >> 16) & 0xff, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+  const rr = Math.round(ar + (br - ar) * t);
+  const rg = Math.round(ag + (bg - ag) * t);
+  const rb = Math.round(ab + (bb - ab) * t);
+  return `#${((rr << 16) | (rg << 8) | rb).toString(16).padStart(6, '0')}`;
+}
+
+function isLightColor(color: string): boolean {
+  const n = parseInt(normalizeHexColor(color).slice(1), 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  return (r * 299 + g * 587 + b * 114) / 1000 > 128;
+}
+
+interface AppProps {
+  initialTerminalBackground?: string;
+}
+
+export const App: React.FC<AppProps> = ({ initialTerminalBackground }) => {
   const { exit } = useApp();
-  const { columns, rows } = useWindowSize();
+  const { stdout } = useStdout();
+  const columns = stdout?.columns ?? process.stdout.columns ?? 80;
+  const rows = stdout?.rows ?? process.stdout.rows ?? 24;
+  const colorDepth = process.env.COLORTERM === 'truecolor' || process.env.COLORTERM === '24bit'
+    ? 24
+    : (process.env.TERM ?? '').includes('256color')
+      ? 8
+      : stdout?.getColorDepth?.() ?? process.stdout.getColorDepth?.() ?? 24;
+  const [terminalBackground] = useState<string | undefined>(() => (
+    initialTerminalBackground ?? configManager.getTerminalBackground() ?? detectFromColorFgBg()
+  ));
   const [screen, setScreen] = useState<Screen>('chat');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
@@ -47,27 +86,15 @@ export const App: React.FC = () => {
   const [debugMode, setDebugMode] = useState(false);
   const [lastError, setLastError] = useState<any>(null);
   const [toolsEnabled, setToolsEnabled] = useState(true);
+  const [inputStyle, setInputStyle] = useState<'border' | 'solid'>(configManager.getInputStyle());
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const [inputHistory, setInputHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
   const [scrollOffset, setScrollOffset] = useState(0);
-  const [terminalRows, setTerminalRows] = useState(24);
-  const [git, setGit] = useState<{ branch?: string; ahead: number; behind: number }>({ ahead: 0, behind: 0 });
   const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequest | null>(null);
   const approvalResolverRef = useRef<((decision: ToolApprovalDecision) => void) | null>(null);
   const approvalGrantsRef = useRef(new Set<string>());
-
-  React.useEffect(() => {
-    const checkProvider = async () => {
-      try {
-        await loadProviderConfig();
-      } catch (err: any) {
-        if (err.message?.includes('No LLM provider configured')) {
-          addSystemMessage('No provider configured yet. Use /provider to add one.');
-        }
-      }
-    };
-
-    checkProvider();
-  }, []);
 
   React.useEffect(() => {
     if (!input.startsWith('/')) {
@@ -76,45 +103,9 @@ export const App: React.FC = () => {
     }
 
     const query = input.toLowerCase();
-    setSuggestions(KNOWN_COMMANDS.filter((cmd) => cmd.startsWith(query)).slice(0, 6));
+    setSuggestions(KNOWN_COMMANDS.filter((cmd) => cmd.startsWith(query)));
+    setSuggestionIndex(0);
   }, [input]);
-
-  React.useEffect(() => {
-    const updateSize = () => {
-      setTerminalRows(process.stdout.rows || 24);
-    };
-
-    process.stdout.on('resize', updateSize);
-    updateSize();
-    return () => {
-      process.stdout.off('resize', updateSize);
-    };
-  }, []);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const { execa } = await import('execa');
-        const head = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => null);
-        const branch = head?.stdout?.trim();
-        let ahead = 0;
-        let behind = 0;
-        const counts = await execa('git', ['rev-list', '--left-right', '--count', '@{upstream}...HEAD']).catch(() => null);
-        if (counts?.stdout) {
-          const [b, a] = counts.stdout.trim().split(/\s+/).map((n) => Number(n) || 0);
-          behind = b ?? 0;
-          ahead = a ?? 0;
-        }
-        if (!cancelled && branch) setGit({ branch, ahead, behind });
-      } catch {
-        // Header git status is best effort.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   React.useEffect(() => {
     if (scrollOffset <= 3) {
@@ -122,24 +113,33 @@ export const App: React.FC = () => {
     }
   }, [messages.length]);
 
-  const activeProfile = configManager.getActiveProvider();
-  const modelStatus = buildTuiModelStatus(
-    activeProfile
-      ? {
-          model: activeProfile.model,
-          provider: activeProfile.provider,
-          profileName: activeProfile.name,
-          source: 'profile',
-        }
-      : {
-          model: process.env.OPENAI_MODEL || ZERO_DEFAULT_MODEL_ID,
-          source: process.env.ZERO_PROVIDER_COMMAND ? 'provider-command' : 'environment',
-        },
-    selectedModelOverride
+  const effectiveProviderConfig = configManager.getEffectiveProviderConfig();
+  const modelStatus = effectiveProviderConfig
+    ? buildTuiModelStatus(effectiveProviderConfig, selectedModelOverride)
+    : undefined;
+  const currentProviderName = modelStatus?.providerLabel || 'No provider';
+  const currentModel = modelStatus
+    ? `${modelStatus.label}${modelStatus.sourceLabel === 'session' ? ' *' : ''}`
+    : 'No provider configured';
+  const activeTheme = getTheme();
+  const useTerminalBackground = Boolean(
+    terminalBackground && (activeTheme.type === 'light' ? isLightColor(terminalBackground) : !isLightColor(terminalBackground))
   );
-  const currentProviderName = activeProfile?.name || modelStatus.providerLabel;
-  const currentModel = `${modelStatus.label}${modelStatus.sourceLabel === 'session' ? ' *' : ''}`;
+  const adaptedInputBackground = useTerminalBackground && terminalBackground
+    ? blend(terminalBackground, activeTheme.colors.text.secondary, 0.24)
+    : activeTheme.colors.background.input;
+  const adaptedMessageBackground = useTerminalBackground && terminalBackground
+    ? blend(terminalBackground, activeTheme.colors.text.secondary, 0.16)
+    : activeTheme.colors.background.message;
+  const solidInputBackground = colorDepth < 24
+    ? (useTerminalBackground && terminalBackground ? terminalBackground : activeTheme.colors.background.primary)
+    : adaptedInputBackground;
   const isInChat = screen === 'chat';
+
+  const rememberInput = (value: string) => {
+    setInputHistory((prev) => prev[prev.length - 1] !== value ? [...prev, value] : prev);
+    setHistoryIndex(-1);
+  };
 
   useInput((inputChar, key) => {
     if (key.ctrl && inputChar === 'c') {
@@ -162,9 +162,48 @@ export const App: React.FC = () => {
 
     if (!isInChat) return;
 
-    if (!input) {
+    if (suggestions.length > 0) {
       if (key.upArrow) {
-        setScrollOffset((prev) => Math.min(prev + 1, messages.length - 1));
+        setSuggestionIndex((prev) => prev <= 0 ? suggestions.length - 1 : prev - 1);
+        return;
+      }
+      if (key.downArrow) {
+        setSuggestionIndex((prev) => prev >= suggestions.length - 1 ? 0 : prev + 1);
+        return;
+      }
+    }
+
+    if (key.upArrow && inputHistory.length > 0) {
+      if (historyIndex === -1) {
+        setHistoryIndex(inputHistory.length - 1);
+        setInput(inputHistory[inputHistory.length - 1] ?? '');
+      } else if (historyIndex > 0) {
+        const nextIndex = historyIndex - 1;
+        setHistoryIndex(nextIndex);
+        setInput(inputHistory[nextIndex] ?? '');
+      }
+      return;
+    }
+
+    if (key.downArrow && historyIndex !== -1) {
+      if (historyIndex < inputHistory.length - 1) {
+        const nextIndex = historyIndex + 1;
+        setHistoryIndex(nextIndex);
+        setInput(inputHistory[nextIndex] ?? '');
+      } else {
+        setHistoryIndex(-1);
+        setInput('');
+      }
+      return;
+    }
+
+    if (!input) {
+      const currentTerminalHeight = Math.max(20, rows);
+      const currentChatHeight = Math.max(8, currentTerminalHeight - 6);
+      const currentMaxScrollOffset = Math.max(0, messages.length - currentChatHeight);
+
+      if (key.upArrow) {
+        setScrollOffset((prev) => Math.min(prev + 1, currentMaxScrollOffset));
         return;
       }
       if (key.downArrow) {
@@ -172,7 +211,7 @@ export const App: React.FC = () => {
         return;
       }
       if (key.pageUp) {
-        setScrollOffset((prev) => Math.min(prev + 8, messages.length - 1));
+        setScrollOffset((prev) => Math.min(prev + 8, currentMaxScrollOffset));
         return;
       }
       if (key.pageDown) {
@@ -180,7 +219,7 @@ export const App: React.FC = () => {
         return;
       }
       if (key.home) {
-        setScrollOffset(messages.length - 1);
+        setScrollOffset(currentMaxScrollOffset);
         return;
       }
       if (key.end) {
@@ -190,12 +229,23 @@ export const App: React.FC = () => {
     }
 
     if (key.return) {
+      if (suggestions.length > 0) {
+        const selected = suggestions[suggestionIndex] ?? suggestions[0];
+        setInput('');
+        setSuggestions([]);
+        if (selected) {
+          rememberInput(selected);
+          addMessage({ type: 'user', content: selected });
+          void handleSlashCommand(selected);
+        }
+        return;
+      }
       handleSubmit();
       return;
     }
 
     if (key.tab && suggestions.length > 0) {
-      setInput(`${suggestions[0]} `);
+      setInput(`${suggestions[suggestionIndex] ?? suggestions[0]} `);
       setSuggestions([]);
       return;
     }
@@ -218,6 +268,7 @@ export const App: React.FC = () => {
     setSuggestions([]);
     streamingMessageIndexRef.current = null;
     setStreamingMessageIndex(null);
+    rememberInput(trimmed);
 
     addMessage({ type: 'user', content: trimmed });
 
@@ -250,20 +301,14 @@ export const App: React.FC = () => {
           setIsThinking(false);
           streamingMessageIndexRef.current = null;
           setStreamingMessageIndex(null);
-          addMessage({ type: 'tool-call', name: tc.name, args: redactZeroString(tc.arguments) });
+          addMessage({ type: 'tool-call', id: tc.id, name: tc.name, args: redactZeroString(tc.arguments) });
         },
         onToolResult: (result) => {
-          setMessages((prev) => {
-            const next = [...prev];
-            for (let i = next.length - 1; i >= 0; i--) {
-              const msg = next[i];
-              if (msg?.type === 'tool-call' && msg.result === undefined) {
-                next[i] = { ...msg, result: redactZeroString(result.result) };
-                break;
-              }
-            }
-            return next;
-          });
+          setMessages((prev) => prev.map((msg) => (
+            msg.type === 'tool-call' && msg.id === result.toolCallId
+              ? { ...msg, result: redactZeroString(result.result) }
+              : msg
+          )));
         },
       });
     } catch (err: any) {
@@ -320,6 +365,44 @@ export const App: React.FC = () => {
 
     if (cmd === '/model') {
       handleModelCommand(parts.slice(1).join(' ').trim());
+      return;
+    }
+
+    if (cmd === '/theme') {
+      const themeName = parts.slice(1).join(' ').trim();
+      if (!themeName) {
+        setScreen('theme-picker');
+        return;
+      }
+
+      const found = getAllThemes().find((item) => item.name.toLowerCase() === themeName.toLowerCase());
+      if (!found) {
+        const names = getAllThemes().map((item) => item.name).join(', ');
+        addSystemMessage(`Unknown theme. Available: ${names}`);
+        return;
+      }
+
+      setTheme(found.name);
+      configManager.setTheme(found.name);
+      addSystemMessage(`Theme set to: ${found.name}`);
+      return;
+    }
+
+    if (cmd === '/input-style') {
+      const value = parts[1]?.toLowerCase();
+      if (value && value !== 'border' && value !== 'solid') {
+        addSystemMessage('Usage: /input-style [border|solid]');
+        return;
+      }
+
+      const next: 'border' | 'solid' = value === 'border' || value === 'solid'
+        ? value
+        : inputStyle === 'border'
+          ? 'solid'
+          : 'border';
+      setInputStyle(next);
+      configManager.setInputStyle(next);
+      addSystemMessage(`Input style set to: ${next}`);
       return;
     }
 
@@ -527,6 +610,17 @@ export const App: React.FC = () => {
     setScreen('chat');
   };
 
+  const handleThemeSelected = (name: string) => {
+    setTheme(name);
+    configManager.setTheme(name);
+    addSystemMessage(`Theme set to: ${name}`);
+    setScreen('chat');
+  };
+
+  const handleThemePickerCancel = () => {
+    setScreen('chat');
+  };
+
   const handleOpenAddProvider = () => {
     setScreen('add-provider');
   };
@@ -540,6 +634,9 @@ export const App: React.FC = () => {
     }
 
     const switched = configManager.setActiveProvider(providerName);
+    if (switched) {
+      setSelectedModelOverride(undefined);
+    }
     addSystemMessage(switched
       ? `Added and switched to provider: ${providerName}`
       : `Provider added: ${providerName}`);
@@ -608,22 +705,34 @@ export const App: React.FC = () => {
   if (screen === 'model-picker') {
     return (
       <ModelPicker
-        activeModelId={modelStatus.knownModel?.id || modelStatus.modelId}
+        activeModelId={modelStatus?.knownModel?.id || modelStatus?.modelId || selectedModelOverride}
         onSelect={handleModelSelected}
         onCancel={handleModelPickerCancel}
       />
     );
   }
 
-  const terminalHeight = Math.max(20, rows || terminalRows);
-  const terminalWidth = Math.max(64, columns || process.stdout.columns || 96);
-  const showLogo = messages.every((message) => message.type === 'system');
-  const chatHeight = Math.max(7, terminalHeight - 14);
-  const visibleMessages = showLogo
-    ? messages
-    : messages.slice(scrollOffset, scrollOffset + chatHeight);
-  const canScrollUp = scrollOffset < messages.length - 1;
-  const canScrollDown = scrollOffset > 0;
+  if (screen === 'theme-picker') {
+    return (
+      <ThemePicker
+        onSelect={handleThemeSelected}
+        onCancel={handleThemePickerCancel}
+      />
+    );
+  }
+
+  const terminalHeight = Math.max(20, rows);
+  const terminalColumns = Math.max(1, columns);
+  const terminalWidth = Math.max(64, columns);
+  const chatHeight = Math.max(8, terminalHeight - 6);
+  const showLogo = shouldShowStartupLogo(messages);
+  const maxScrollOffset = Math.max(0, messages.length - chatHeight);
+  const windowEnd = Math.max(0, messages.length - scrollOffset);
+  const windowStart = Math.max(0, windowEnd - chatHeight);
+  const visibleMessages = messages.slice(windowStart, windowEnd);
+  const hasOverflow = !showLogo && messages.length > chatHeight;
+  const canScrollUp = hasOverflow && scrollOffset < maxScrollOffset;
+  const canScrollDown = hasOverflow && scrollOffset > 0;
   const activeFile = deriveActiveFile(messages);
   const estimatedTokens = estimateTokens(messages);
   const contextPercent = Math.min(99, Math.round((estimatedTokens / 200000) * 100));
@@ -640,26 +749,32 @@ export const App: React.FC = () => {
       canScrollDown={canScrollDown}
       input={input}
       suggestions={suggestions}
+      suggestionIndex={suggestionIndex}
       providerName={currentProviderName}
       modelName={currentModel}
       lastError={lastError}
       isPlanMode={isPlanMode}
       debugMode={debugMode}
       toolsEnabled={toolsEnabled}
+      inputStyle={inputStyle}
+      inputBackground={solidInputBackground}
+      messageBackground={adaptedMessageBackground}
       isThinking={isThinking}
       activeFile={activeFile}
-      branch={git.branch}
-      ahead={git.ahead}
-      behind={git.behind}
       totalTokens={estimatedTokens}
       costUsd={estimatedCost}
       contextPercent={contextPercent}
       pendingApproval={pendingApproval}
       terminalWidth={terminalWidth}
+      terminalColumns={terminalColumns}
       terminalHeight={terminalHeight}
     />
   );
 };
+
+export function shouldShowStartupLogo(messages: ChatMessage[]): boolean {
+  return messages.every((message) => message.type === 'system');
+}
 
 function deriveActiveFile(messages: ChatMessage[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {

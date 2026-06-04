@@ -16,6 +16,7 @@ interface StartupScreenProps {
   terminalHeight: number;
   /** Slash-command suggestions, shown above the prompt when the user types `/`. */
   suggestions?: string[];
+  suggestionIndex?: number;
 }
 
 const PLACEHOLDER = 'Ask Zero to inspect, edit, explain, or run a command...';
@@ -43,6 +44,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
   terminalWidth,
   terminalHeight,
   suggestions = [],
+  suggestionIndex = 0,
 }) => {
   // Clamp to sane minimums so the layout never collapses on tiny terminals.
   const width = Math.max(60, terminalWidth - 1);
@@ -69,7 +71,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
 
       {/* Bottom cluster, pinned near the bottom edge. */}
       <Box flexDirection="column" flexShrink={0} paddingBottom={1}>
-        <CommandSuggestions suggestions={suggestions} />
+        <CommandSuggestions suggestions={suggestions} selectedIndex={suggestionIndex} />
         <PromptBox value={input} placeholder={PLACEHOLDER} />
       </Box>
     </Box>

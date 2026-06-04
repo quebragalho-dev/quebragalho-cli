@@ -22,6 +22,18 @@ export const TUI_COMMANDS: readonly TuiCommandDefinition[] = [
     description: 'Browse models, list profiles, or set the model for this session.',
   },
   {
+    name: '/theme',
+    usage: '/theme [name]',
+    group: 'meta',
+    description: 'Change the UI color theme.',
+  },
+  {
+    name: '/input-style',
+    usage: '/input-style [border|solid]',
+    group: 'meta',
+    description: 'Toggle input border style.',
+  },
+  {
     name: '/plan',
     usage: '/plan',
     group: 'runtime',
