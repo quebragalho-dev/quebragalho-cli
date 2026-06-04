@@ -11,8 +11,7 @@ const defaultMaxTurns = 12
 
 func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 	cfg := FileConfig{
-		ActiveProvider: string(ProviderKindOpenAI),
-		MaxTurns:       defaultMaxTurns,
+		MaxTurns: defaultMaxTurns,
 	}
 
 	for _, path := range []string{options.UserConfigPath, options.ProjectConfigPath} {
@@ -26,6 +25,8 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 		mergeConfig(&cfg, fileConfig)
 	}
 
+	applyEnv(&cfg, options.Env)
+
 	if options.ProviderCommand != "" {
 		commandConfig, err := LoadProviderCommand(options.ProviderCommand)
 		if err != nil {
@@ -34,7 +35,6 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 		mergeConfig(&cfg, commandConfig)
 	}
 
-	applyEnv(&cfg, options.Env)
 	applyOverrides(&cfg, options.Overrides)
 
 	providers, active, err := normalizeProviders(cfg.Providers, cfg.ActiveProvider)
@@ -181,6 +181,13 @@ func hasProviderFields(profile ProviderProfile) bool {
 
 func normalizeProviders(providers []ProviderProfile, activeName string) ([]ProviderProfile, ProviderProfile, error) {
 	activeName = strings.TrimSpace(activeName)
+	if len(providers) == 0 {
+		if activeName != "" {
+			return nil, ProviderProfile{}, fmt.Errorf("active provider %q not found", activeName)
+		}
+		return []ProviderProfile{}, ProviderProfile{}, nil
+	}
+
 	if activeName == "" && len(providers) == 1 {
 		activeName = providers[0].Name
 	}
