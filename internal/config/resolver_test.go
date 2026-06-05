@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Gitlawb/zero/internal/modelregistry"
 )
 
 func TestResolveAppliesLayerPrecedence(t *testing.T) {
@@ -136,6 +138,46 @@ func TestResolveUsesOpenAIEnvFallback(t *testing.T) {
 	}
 	if resolved.Provider.BaseURL != "https://env.example/v1" {
 		t.Fatalf("BaseURL = %q, want env URL", resolved.Provider.BaseURL)
+	}
+}
+
+func TestResolveUsesOpenAIAPIKeyOnlyWithDefaultModel(t *testing.T) {
+	resolved, err := Resolve(ResolveOptions{
+		Env: map[string]string{
+			"OPENAI_API_KEY": "sk-env",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+
+	if resolved.ActiveProvider != "openai" {
+		t.Fatalf("ActiveProvider = %q, want openai", resolved.ActiveProvider)
+	}
+	if resolved.Provider.ProviderKind != ProviderKindOpenAI {
+		t.Fatalf("ProviderKind = %q, want openai", resolved.Provider.ProviderKind)
+	}
+	if resolved.Provider.Model != modelregistry.DefaultModelID {
+		t.Fatalf("Model = %q, want registry default model", resolved.Provider.Model)
+	}
+}
+
+func TestResolveDoesNotDefaultOpenAICustomBaseURLModel(t *testing.T) {
+	_, err := Resolve(ResolveOptions{
+		Env: map[string]string{
+			"OPENAI_API_KEY":  "sk-env",
+			"OPENAI_BASE_URL": "https://gateway.example/v1",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected Resolve() error for custom OpenAI-compatible env without model")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "provider openai requires model") {
+		t.Fatalf("expected missing model error, got %q", message)
+	}
+	if strings.Contains(message, "sk-env") {
+		t.Fatalf("error leaked API key: %q", message)
 	}
 }
 
