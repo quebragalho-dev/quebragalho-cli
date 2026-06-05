@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,122 @@ func TestRunExecutesPlanAndRedactsOutput(t *testing.T) {
 	}
 	if got := runner.calls[0].dir; got != root {
 		t.Fatalf("runner dir = %q, want %q", got, root)
+	}
+}
+
+func TestRunParsesStructuredFailureSummary(t *testing.T) {
+	root := t.TempDir()
+	plan := Plan{Root: root, Checks: []Check{
+		{ID: "go.test", Name: "Go tests", Command: []string{"go", "test", "./..."}},
+	}}
+	runner := &fakeCommandRunner{results: []CommandResult{{
+		ExitCode: 1,
+		Stdout: strings.Join([]string{
+			"--- FAIL: TestSecret (0.00s)",
+			"    secret_test.go:12: token sk-proj-abcdefghijklmnopqrstuvwxyz",
+			"FAIL",
+		}, "\n"),
+	}}}
+
+	report := Run(context.Background(), plan, RunOptions{
+		Runner: runner.Run,
+		Now:    fixedVerifyTime("2026-06-05T11:15:00Z"),
+	})
+
+	if report.Results[0].OutputSummary == nil {
+		t.Fatalf("expected output summary, got %#v", report.Results[0])
+	}
+	lines := strings.Join(report.Results[0].OutputSummary.Lines, "\n")
+	if !strings.Contains(lines, "TestSecret") || !strings.Contains(lines, "[REDACTED]") {
+		t.Fatalf("expected redacted failure summary lines, got %q", lines)
+	}
+	if strings.Contains(lines, "sk-proj-abcdefghijklmnopqrstuvwxyz") {
+		t.Fatalf("failure summary leaked secret: %q", lines)
+	}
+}
+
+func TestRunSummarizesPlainCommandErrors(t *testing.T) {
+	root := t.TempDir()
+	plan := Plan{Root: root, Checks: []Check{
+		{ID: "bun.test", Name: "Bun tests", Command: []string{"bun", "test"}},
+	}}
+
+	report := Run(context.Background(), plan, RunOptions{
+		Runner: func(context.Context, string, []string, time.Duration) (CommandResult, error) {
+			return CommandResult{}, errors.New(`exec: "bun": executable file not found in $PATH`)
+		},
+		Now: fixedVerifyTime("2026-06-05T11:16:00Z"),
+	})
+
+	summary := report.Results[0].OutputSummary
+	if summary == nil {
+		t.Fatalf("expected plain command error summary, got %#v", report.Results[0])
+	}
+	if len(summary.Lines) != 1 || !strings.Contains(summary.Lines[0], "executable file not found") {
+		t.Fatalf("unexpected plain command error summary: %#v", summary)
+	}
+	if summary.Truncated {
+		t.Fatalf("plain command error summary should not be truncated: %#v", summary)
+	}
+}
+
+func TestRunFailureSummaryTruncatesOnlyOnOverflow(t *testing.T) {
+	lines := []string{}
+	for index := 0; index < maxOutputSummaryLines; index++ {
+		lines = append(lines, "--- FAIL: TestExact (0.00s)")
+	}
+	exact := summarizeOutput(strings.Join(lines, "\n"))
+	if exact == nil || len(exact.Lines) != maxOutputSummaryLines {
+		t.Fatalf("expected exact-limit summary, got %#v", exact)
+	}
+	if exact.Truncated {
+		t.Fatalf("exact-limit summary should not be truncated: %#v", exact)
+	}
+
+	overflowLines := append(append([]string{}, lines...), "--- FAIL: TestOverflow (0.00s)")
+	overflow := summarizeOutput(strings.Join(overflowLines, "\n"))
+	if overflow == nil || len(overflow.Lines) != maxOutputSummaryLines {
+		t.Fatalf("expected capped overflow summary, got %#v", overflow)
+	}
+	if !overflow.Truncated {
+		t.Fatalf("overflow summary should be truncated: %#v", overflow)
+	}
+}
+
+func TestRunLoopRetriesUntilVerificationPasses(t *testing.T) {
+	root := t.TempDir()
+	plan := Plan{Root: root, Checks: []Check{
+		{ID: "go.test", Name: "Go tests", Command: []string{"go", "test", "./..."}},
+	}}
+	runner := &fakeCommandRunner{results: []CommandResult{
+		{ExitCode: 1, Stdout: "--- FAIL: TestOne\nFAIL\n"},
+		{ExitCode: 0, Stdout: "ok\n"},
+	}}
+	retryCount := 0
+
+	report := RunLoop(context.Background(), plan, LoopOptions{
+		RunOptions: RunOptions{
+			Runner: runner.Run,
+			Now:    fixedVerifyTime("2026-06-05T11:20:00Z"),
+		},
+		MaxAttempts: 2,
+		OnFailure: func(ctx context.Context, attempt Attempt) error {
+			retryCount++
+			if attempt.Number != 1 || attempt.Report.OK {
+				t.Fatalf("unexpected failed attempt passed to hook: %#v", attempt)
+			}
+			return nil
+		},
+	})
+
+	if !report.OK {
+		t.Fatalf("expected loop to pass, got %#v", report)
+	}
+	if len(report.Attempts) != 2 || !report.Attempts[1].Report.OK {
+		t.Fatalf("unexpected attempts: %#v", report.Attempts)
+	}
+	if retryCount != 1 {
+		t.Fatalf("retry hook called %d times, want 1", retryCount)
 	}
 }
 

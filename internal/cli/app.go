@@ -19,6 +19,7 @@ import (
 	"github.com/Gitlawb/zero/internal/update"
 	"github.com/Gitlawb/zero/internal/verify"
 	"github.com/Gitlawb/zero/internal/worktrees"
+	"github.com/Gitlawb/zero/internal/zerogit"
 	"github.com/Gitlawb/zero/internal/zeroruntime"
 )
 
@@ -38,6 +39,9 @@ type appDeps struct {
 	prepareWorktree  func(context.Context, worktrees.Options) (worktrees.Result, error)
 	detectVerifyPlan func(string) (verify.Plan, error)
 	runVerify        func(context.Context, verify.Plan, verify.RunOptions) verify.Report
+	runVerifyLoop    func(context.Context, verify.Plan, verify.LoopOptions) verify.LoopReport
+	inspectChanges   func(context.Context, zerogit.InspectOptions) (zerogit.ChangeSummary, error)
+	commitChanges    func(context.Context, zerogit.CommitOptions) (zerogit.CommitResult, error)
 	runTUI           func(context.Context, tui.Options) int
 	checkUpdate      func(context.Context, update.Options) (update.Result, error)
 	now              func() time.Time
@@ -95,6 +99,9 @@ func defaultAppDeps() appDeps {
 		prepareWorktree:  worktrees.Prepare,
 		detectVerifyPlan: verify.DetectPlan,
 		runVerify:        verify.Run,
+		runVerifyLoop:    verify.RunLoop,
+		inspectChanges:   zerogit.Inspect,
+		commitChanges:    zerogit.Commit,
 		runTUI:           tui.Run,
 		checkUpdate:      update.Check,
 		now:              time.Now,
@@ -155,6 +162,8 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		return runWorktrees(args[1:], stdout, stderr, deps)
 	case "verify":
 		return runVerifyCommand(args[1:], stdout, stderr, deps)
+	case "changes", "change":
+		return runChanges(args[1:], stdout, stderr, deps)
 	case "serve":
 		return runServe(args[1:], stdout, stderr, deps)
 	default:
@@ -208,6 +217,15 @@ func fillAppDeps(deps appDeps) appDeps {
 	}
 	if deps.runVerify == nil {
 		deps.runVerify = defaults.runVerify
+	}
+	if deps.runVerifyLoop == nil {
+		deps.runVerifyLoop = defaults.runVerifyLoop
+	}
+	if deps.inspectChanges == nil {
+		deps.inspectChanges = defaults.inspectChanges
+	}
+	if deps.commitChanges == nil {
+		deps.commitChanges = defaults.commitChanges
 	}
 	if deps.runTUI == nil {
 		deps.runTUI = defaults.runTUI
@@ -318,6 +336,7 @@ Commands:
   update     Check for Zero CLI updates
   worktrees  Prepare isolated git worktrees
   verify     Detect and run local verification checks
+  changes    Inspect and commit local git changes
   serve      Run Zero protocol servers
   help       Show this help
   version    Print version
