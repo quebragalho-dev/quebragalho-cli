@@ -1,4 +1,5 @@
-import { isAbsolute, relative, resolve, win32 } from 'path';
+import { existsSync, realpathSync } from 'fs';
+import { basename, dirname, isAbsolute, relative, resolve, sep, win32 } from 'path';
 import { z } from 'zod';
 import type {
   ZeroLoadedPlugin,
@@ -121,12 +122,57 @@ function resolvePluginPath(pluginDir: string, value: string, fieldPath: string):
     throw new Error(`${fieldPath} must stay inside the plugin directory.`);
   }
 
+  const pluginRoot = resolve(pluginDir);
+  const pluginRootCheck = resolveSymlinkAwarePath(pluginRoot);
   const resolved = resolve(pluginDir, value);
-  const pathWithinPlugin = relative(pluginDir, resolved);
-  if (pathWithinPlugin === '' || pathWithinPlugin.startsWith('..') || pathWithinPlugin.includes('..\\')) {
+  const resolvedCheck = resolveSymlinkAwarePath(resolved);
+  const pathWithinPlugin = relative(pluginRootCheck, resolvedCheck);
+  const rootBoundary = pluginRootCheck.endsWith(sep) ? pluginRootCheck : `${pluginRootCheck}${sep}`;
+  if (
+    pathWithinPlugin === '' ||
+    isAbsolute(pathWithinPlugin) ||
+    win32.isAbsolute(pathWithinPlugin) ||
+    pathWithinPlugin.startsWith('..') ||
+    pathWithinPlugin.includes('..\\') ||
+    (resolvedCheck !== pluginRootCheck && !resolvedCheck.startsWith(rootBoundary))
+  ) {
     throw new Error(`${fieldPath} must stay inside the plugin directory.`);
   }
   return resolved;
+}
+
+function resolveSymlinkAwarePath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch (error) {
+    if (!isENOENT(error)) {
+      throw error;
+    }
+  }
+
+  const missing: string[] = [];
+  let existing = path;
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) {
+      return path;
+    }
+    missing.unshift(basename(existing));
+    existing = parent;
+  }
+
+  try {
+    return resolve(realpathSync(existing), ...missing);
+  } catch (error) {
+    if (!isENOENT(error)) {
+      throw error;
+    }
+    return path;
+  }
+}
+
+function isENOENT(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
 
 function normalizePluginToolPermission(
