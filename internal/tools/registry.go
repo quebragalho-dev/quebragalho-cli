@@ -1,6 +1,10 @@
 package tools
 
-import "context"
+import (
+	"context"
+
+	"github.com/Gitlawb/zero/internal/sandbox"
+)
 
 type Registry struct {
 	tools map[string]Tool
@@ -8,6 +12,9 @@ type Registry struct {
 
 type RunOptions struct {
 	PermissionGranted bool
+	PermissionMode    string
+	Autonomy          string
+	Sandbox           *sandbox.Engine
 }
 
 func NewRegistry() *Registry {
@@ -41,10 +48,31 @@ func (registry *Registry) RunWithOptions(ctx context.Context, name string, args 
 		return errorResult(`Error: Unknown tool "` + name + `".`)
 	}
 
+	sandboxGrantAuthorized := false
+	if options.Sandbox != nil {
+		decision := options.Sandbox.Evaluate(ctx, sandbox.Request{
+			ToolName:          name,
+			SideEffect:        sandbox.SideEffect(tool.Safety().SideEffect),
+			Permission:        sandbox.Permission(tool.Safety().Permission),
+			PermissionGranted: options.PermissionGranted,
+			PermissionMode:    sandbox.PermissionMode(options.PermissionMode),
+			Autonomy:          sandbox.Autonomy(options.Autonomy),
+			Args:              args,
+			Reason:            tool.Safety().Reason,
+		})
+		if decision.Action == sandbox.ActionDeny {
+			return errorResult(decision.ErrorString())
+		}
+		if decision.Action == sandbox.ActionPrompt && !options.PermissionGranted {
+			return errorResult("Error: Sandbox approval required for " + name + ": " + decision.Reason)
+		}
+		sandboxGrantAuthorized = decision.Action == sandbox.ActionAllow && decision.GrantMatched
+	}
+
 	switch tool.Safety().Permission {
 	case PermissionAllow:
 	case PermissionPrompt:
-		if !options.PermissionGranted {
+		if !options.PermissionGranted && !sandboxGrantAuthorized {
 			return errorResult("Error: Permission required for " + name + ": " + tool.Safety().Reason + ` The tool is marked "prompt" and was not executed.`)
 		}
 	default:
