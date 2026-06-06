@@ -384,7 +384,7 @@ func TestContextCommandShowsSessionState(t *testing.T) {
 		"permission mode: ask",
 		"max turns:",
 		"session root:",
-		"tools: 1",
+		"registered tools: 1",
 	} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected context transcript to contain %q, got %#v", want, next.transcript)
@@ -1136,7 +1136,8 @@ func findTranscriptRow(rows []transcriptRow, kind rowKind) (transcriptRow, bool)
 func transcriptHasMarkedModelEntry(rows []transcriptRow) bool {
 	for _, row := range rows {
 		for _, line := range strings.Split(row.text, "\n") {
-			if strings.HasPrefix(line, "* ") && strings.Contains(line, " (") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "* ") && strings.Contains(trimmed, " (") {
 				return true
 			}
 		}

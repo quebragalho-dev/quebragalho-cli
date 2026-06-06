@@ -102,10 +102,13 @@ func TestCompactCommandRecordsShellRequest(t *testing.T) {
 	if next.compactRequests != 1 {
 		t.Fatalf("expected one compact request, got %d", next.compactRequests)
 	}
-	for _, want := range []string{"Compact", "requested, not yet compacted", "future compaction backend"} {
+	for _, want := range []string{"Compact", "requested, not yet compacted", "state: pending integration"} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected compact transcript to contain %q, got %#v", want, next.transcript)
 		}
+	}
+	if transcriptContains(next.transcript, "future compaction backend") || transcriptContains(next.transcript, "not wired") {
+		t.Fatalf("compact transcript should avoid shell-only placeholder text, got %#v", next.transcript)
 	}
 
 	next.input.SetValue("/compact status")
@@ -117,6 +120,9 @@ func TestCompactCommandRecordsShellRequest(t *testing.T) {
 	}
 	if next.compactRequests != 1 {
 		t.Fatalf("status should not add compact requests, got %d", next.compactRequests)
+	}
+	if got := next.transcript[len(next.transcript)-1].text; !strings.Contains(got, "status: info") {
+		t.Fatalf("expected /compact status to render info status, got %q", got)
 	}
 }
 
