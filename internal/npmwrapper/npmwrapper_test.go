@@ -32,8 +32,8 @@ func TestPackageBinPointsToNodeWrapper(t *testing.T) {
 	if pkg.Module != "bin/zero.js" {
 		t.Fatalf("module = %q, want bin/zero.js", pkg.Module)
 	}
-	if pkg.Scripts["dev"] != "go run ./cmd/zero" {
-		t.Fatalf("dev script = %q, want Go CLI", pkg.Scripts["dev"])
+	if len(pkg.Scripts) != 0 {
+		t.Fatalf("package.json scripts = %#v, want no repository build scripts in npm package metadata", pkg.Scripts)
 	}
 }
 
@@ -49,7 +49,7 @@ func TestNodeWrapperIsExecutableAndDoesNotImportBun(t *testing.T) {
 	if firstLine != "#!/usr/bin/env node" {
 		t.Fatalf("wrapper shebang = %q, want node", firstLine)
 	}
-	for _, forbidden := range []string{"#!/usr/bin/env bun", "Bun.", "../scripts/npm-wrapper"} {
+	for _, forbidden := range []string{"#!/usr/bin/env bun", "Bun.", "../scripts/npm-wrapper", "bun run build"} {
 		if strings.Contains(source, forbidden) {
 			t.Fatalf("wrapper still contains %q", forbidden)
 		}
@@ -71,6 +71,9 @@ func TestNodeWrapperReportsMissingNativeBinary(t *testing.T) {
 	defer cancel()
 	command := exec.CommandContext(ctx, node, wrapperPath, "--version")
 	output, err := command.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("wrapper timed out reporting missing native binary: %v; output: %s", ctx.Err(), output)
+	}
 	if err == nil {
 		t.Fatalf("wrapper exited successfully without native binary: %s", output)
 	}
@@ -99,6 +102,9 @@ func TestNodeWrapperLaunchesNativeBinary(t *testing.T) {
 	defer cancel()
 	command := exec.CommandContext(ctx, node, wrapperPath, "--version")
 	output, err := command.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("wrapper timed out launching native binary: %v; output: %s", ctx.Err(), output)
+	}
 	if err != nil {
 		t.Fatalf("wrapper returned error: %v; output: %s", err, output)
 	}
@@ -118,6 +124,9 @@ func copyWrapperFixture(t *testing.T) string {
 	binDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll bin: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"type":"module"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile package fixture: %v", err)
 	}
 	wrapperPath := filepath.Join(binDir, "zero.js")
 	if err := os.WriteFile(wrapperPath, bytes, 0o755); err != nil {
