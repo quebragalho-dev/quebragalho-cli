@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 
+	"github.com/Gitlawb/zero/internal/redaction"
 	"github.com/Gitlawb/zero/internal/sandbox"
 )
 
@@ -57,7 +58,12 @@ func (registry *Registry) Run(ctx context.Context, name string, args map[string]
 	return registry.RunWithOptions(ctx, name, args, RunOptions{})
 }
 
-func (registry *Registry) RunWithOptions(ctx context.Context, name string, args map[string]any, options RunOptions) Result {
+func (registry *Registry) RunWithOptions(ctx context.Context, name string, args map[string]any, options RunOptions) (result Result) {
+	// Every return path passes through scrubResultSecrets exactly once, so denial,
+	// permission, and unknown-tool error messages (which can echo secret-bearing
+	// args/paths) are redacted at the boundary just like tool output.
+	defer func() { result = scrubResultSecrets(result) }()
+
 	tool, ok := registry.Get(name)
 	if !ok {
 		return errorResult(`Error: Unknown tool "` + name + `".`)
@@ -135,12 +141,40 @@ func (registry *Registry) RunWithOptions(ctx context.Context, name string, args 
 	return res
 }
 
+// scrubResultSecrets redacts known secret forms from a tool result's Output at
+// the registry boundary, so a tool can never leak a secret into the transcript.
+func scrubResultSecrets(res Result) Result {
+	if scrubbed := redaction.RedactString(res.Output, redaction.Options{}); scrubbed != res.Output {
+		res.Output = scrubbed
+		res.Redacted = true
+	}
+	// Display.Summary can echo command/output fragments, so scrub it too: a caller
+	// that prefers Display must not bypass the boundary redaction.
+	if scrubbed := redaction.RedactString(res.Display.Summary, redaction.Options{}); scrubbed != res.Display.Summary {
+		res.Display.Summary = scrubbed
+		res.Redacted = true
+	}
+	// Meta values carry model-controlled strings (e.g. glob pattern, bash cwd) and
+	// are forwarded into the transcript, so they are part of the boundary too.
+	for key, value := range res.Meta {
+		if scrubbed := redaction.RedactString(value, redaction.Options{}); scrubbed != value {
+			res.Meta[key] = scrubbed
+			res.Redacted = true
+		}
+	}
+	return res
+}
+
 func CoreReadOnlyTools(workspaceRoot string) []Tool {
 	return []Tool{
 		NewReadFileTool(workspaceRoot),
 		NewListDirectoryTool(workspaceRoot),
 		NewGlobTool(workspaceRoot),
 		NewGrepTool(workspaceRoot),
+		// NOTE: ask_user (NewAskUserTool) is intentionally NOT registered in core
+		// yet. It needs the agent loop's interactive intercept (OnAskUser); without
+		// it the tool only returns the non-interactive fallback. The agent module
+		// registers it in core when that intercept path lands.
 	}
 }
 
