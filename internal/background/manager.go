@@ -198,6 +198,30 @@ func (manager *Manager) UpdateStatus(taskID string, status Status, exitCode int)
 	return nil
 }
 
+func (manager *Manager) MarkExited(taskID string, status Status, exitCode int) error {
+	taskID = strings.TrimSpace(taskID)
+	if status != StatusCompleted && status != StatusError {
+		return fmt.Errorf("invalid background task exit status %q", status)
+	}
+
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	task, ok := manager.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("background task not found: %s", taskID)
+	}
+	if task.Status != StatusRunning {
+		return nil
+	}
+	task.Status = status
+	task.ExitCode = exitCode
+	if task.CompletedAt.IsZero() {
+		task.CompletedAt = manager.now()
+	}
+	manager.tasks[taskID] = task
+	return nil
+}
+
 func (manager *Manager) Get(taskID string) (Task, bool) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -219,6 +243,19 @@ func (manager *Manager) Kill(taskID string) error {
 		return fmt.Errorf("kill background task %s: %w", taskID, err)
 	}
 	return manager.markKilledIfStillRunning(taskID, pid)
+}
+
+func (manager *Manager) KillRunning() error {
+	var errs []error
+	for _, task := range manager.List() {
+		if task.Status != StatusRunning {
+			continue
+		}
+		if err := manager.Kill(task.ID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (manager *Manager) killTarget(taskID string) (int, error) {
