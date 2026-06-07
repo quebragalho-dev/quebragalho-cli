@@ -59,6 +59,19 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 			index = next
 		case strings.HasPrefix(arg, "--file="):
 			options.file = strings.TrimSpace(strings.TrimPrefix(arg, "--file="))
+		case arg == "--mode":
+			value, next, err := nextFlagValue(args, index, arg)
+			if err != nil {
+				return options, false, err
+			}
+			options.mode = strings.TrimSpace(value)
+			index = next
+		case strings.HasPrefix(arg, "--mode="):
+			value, err := requiredInlineFlagValue(arg, "--mode")
+			if err != nil {
+				return options, false, err
+			}
+			options.mode = value
 		case arg == "-m" || arg == "--model":
 			value, next, err := nextFlagValue(args, index, arg)
 			if err != nil {
