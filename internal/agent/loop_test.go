@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/Gitlawb/zero/internal/specmode"
 	"github.com/Gitlawb/zero/internal/tools"
 	"github.com/Gitlawb/zero/internal/zeroruntime"
 )
@@ -853,6 +854,165 @@ func TestBuildSystemPromptInjectsWorkspaceContext(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "Project guidelines (AGENTS.md)") || !strings.Contains(prompt, "make lint") {
 		t.Fatalf("expected AGENTS.md project guidelines injected, got %q", prompt)
+	}
+}
+
+func TestBuildSystemPromptAllowsSpecModeOverride(t *testing.T) {
+	prompt := buildSystemPrompt(Options{SystemPrompt: specmode.DraftSystemPrompt})
+	if !strings.HasPrefix(prompt, "Specification drafting is active.") {
+		t.Fatalf("expected spec prompt override, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "Confirmation Modes") {
+		t.Fatalf("expected confirmation policy to remain appended")
+	}
+}
+
+func TestSpecDraftAdvertisesOnlySafeDraftTools(t *testing.T) {
+	root := t.TempDir()
+	registry := tools.NewRegistry()
+	for _, tool := range tools.CoreTools(root) {
+		registry.Register(tool)
+	}
+	specmode.RegisterDraftTools(registry, root, nil)
+	provider := &mockProvider{
+		turns: [][]zeroruntime.StreamEvent{{
+			{Type: zeroruntime.StreamEventText, Content: "done"},
+			{Type: zeroruntime.StreamEventDone},
+		}},
+	}
+
+	_, err := Run(context.Background(), "draft", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeSpecDraft,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, definition := range provider.requests[0].Tools {
+		names[definition.Name] = true
+	}
+	for _, want := range []string{"read_file", "list_directory", "glob", "grep", "skill", "ask_user", specmode.SubmitToolName} {
+		if !names[want] {
+			t.Fatalf("spec draft tools missing %q from %#v", want, names)
+		}
+	}
+	for _, denied := range []string{"write_file", "edit_file", "apply_patch", "bash", "update_plan", "web_fetch"} {
+		if names[denied] {
+			t.Fatalf("spec draft advertised denied tool %q in %#v", denied, names)
+		}
+	}
+}
+
+func TestSpecDraftDeniesHiddenToolCalls(t *testing.T) {
+	root := t.TempDir()
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewWriteFileTool(root))
+	provider := providerCallingWriteFileThenAnswer("done")
+
+	result, err := Run(context.Background(), "draft", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeSpecDraft,
+		MaxTurns:       2,
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "done" {
+		t.Fatalf("expected final answer after denial, got %q", result.FinalAnswer)
+	}
+	var denied string
+	for _, message := range result.Messages {
+		if message.Role == zeroruntime.MessageRoleTool {
+			denied = message.Content
+			break
+		}
+	}
+	if !strings.Contains(denied, "not available in spec-draft mode") {
+		t.Fatalf("expected spec-draft denial, got %q", denied)
+	}
+	if _, err := os.Stat(filepath.Join(root, "notes.txt")); !os.IsNotExist(err) {
+		t.Fatalf("write_file should not have written notes.txt, stat err=%v", err)
+	}
+}
+
+func TestSpecDraftDeniesBashToolCalls(t *testing.T) {
+	root := t.TempDir()
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewBashTool(root))
+	provider := &mockProvider{
+		turns: [][]zeroruntime.StreamEvent{
+			{
+				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "bash"},
+				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{"command":"printf ran > ran.txt"}`},
+				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+			{
+				{Type: zeroruntime.StreamEventText, Content: "done"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+		},
+	}
+
+	result, err := Run(context.Background(), "draft", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeSpecDraft,
+		MaxTurns:       2,
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "done" {
+		t.Fatalf("expected final answer after denial, got %q", result.FinalAnswer)
+	}
+	var denied string
+	for _, message := range result.Messages {
+		if message.Role == zeroruntime.MessageRoleTool {
+			denied = message.Content
+			break
+		}
+	}
+	if !strings.Contains(denied, "not available in spec-draft mode") {
+		t.Fatalf("expected spec-draft bash denial, got %q", denied)
+	}
+	if _, err := os.Stat(filepath.Join(root, "ran.txt")); !os.IsNotExist(err) {
+		t.Fatalf("bash should not have written ran.txt, stat err=%v", err)
+	}
+}
+
+func TestRunStopsWhenSubmitSpecReturnsReviewControl(t *testing.T) {
+	root := t.TempDir()
+	registry := tools.NewRegistry()
+	specmode.RegisterDraftTools(registry, root, nil)
+	provider := &mockProvider{
+		turns: [][]zeroruntime.StreamEvent{{
+			{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "exit-1", ToolName: specmode.SubmitToolName},
+			{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "exit-1", ArgumentsFragment: `{"title":"Implementation Plan","plan":"# Goal\n\nAdd implementation plan."}`},
+			{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "exit-1"},
+			{Type: zeroruntime.StreamEventDone},
+		}},
+	}
+
+	result, err := Run(context.Background(), "draft", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeSpecDraft,
+		MaxTurns:       3,
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.StopReason != StopReasonSpecReviewRequired {
+		t.Fatalf("StopReason = %q, want %q", result.StopReason, StopReasonSpecReviewRequired)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("expected run to stop after submit_spec, got %d requests", len(provider.requests))
+	}
+	if !strings.Contains(result.FinalAnswer, ".zero/specs/") {
+		t.Fatalf("final answer should mention saved spec, got %q", result.FinalAnswer)
 	}
 }
 

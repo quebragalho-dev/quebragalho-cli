@@ -18,9 +18,16 @@ type PermissionAction string
 type PermissionDecisionAction string
 
 const (
-	PermissionModeAuto   PermissionMode = "auto"
-	PermissionModeAsk    PermissionMode = "ask"
-	PermissionModeUnsafe PermissionMode = "unsafe"
+	PermissionModeAuto      PermissionMode = "auto"
+	PermissionModeAsk       PermissionMode = "ask"
+	PermissionModeUnsafe    PermissionMode = "unsafe"
+	PermissionModeSpecDraft PermissionMode = "spec-draft"
+)
+
+type StopReason string
+
+const (
+	StopReasonSpecReviewRequired StopReason = "spec_review_required"
 )
 
 const (
@@ -129,6 +136,7 @@ type Options struct {
 	Model            string
 	ReasoningEffort  string
 	Cwd              string
+	SystemPrompt     string
 	// Images are optional image attachments to seed onto the initial user turn.
 	// nil for text-only runs (the seeded message then carries no images, exactly
 	// as before).
@@ -164,4 +172,5 @@ type Result struct {
 	FinalAnswer string
 	Turns       int
 	Messages    []Message
+	StopReason  StopReason
 }
