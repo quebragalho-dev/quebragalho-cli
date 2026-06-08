@@ -409,6 +409,71 @@ func TestDefaultRootHonorsXDGDataHome(t *testing.T) {
 	}
 }
 
+// TestManagerKillStaysKilledWhenExitWaiterReapsDuringTerminate reproduces the
+// lifecycle race created by a blocking terminateProcess: while Kill waits for the
+// child to exit, the background Wait-goroutine reaps it and calls MarkExited. The
+// task must stay "killed" (the user's intent), not be clobbered to "error".
+func TestManagerKillStaysKilledWhenExitWaiterReapsDuringTerminate(t *testing.T) {
+	now := sequenceClock(
+		time.Date(2026, 6, 8, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 8, 9, 0, 1, 0, time.UTC),
+		time.Date(2026, 6, 8, 9, 0, 2, 0, time.UTC),
+	)
+	var manager *Manager
+	var err error
+	manager, err = NewManagerWithOptions(ManagerOptions{
+		RootDir: t.TempDir(),
+		Now:     now,
+		KillProcess: func(int) error {
+			// terminateProcess blocks until exit; simulate the Wait-goroutine
+			// reaping the child and marking it exited mid-kill.
+			_ = manager.MarkExited("task_1", StatusError, -1)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewManagerWithOptions returned error: %v", err)
+	}
+	if _, err := manager.Register(RegisterInput{TaskID: "task_1", Type: "specialist", SpecialistName: "worker", ParentID: "p", PID: 4242}); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	if err := manager.Kill("task_1"); err != nil {
+		t.Fatalf("Kill returned error: %v", err)
+	}
+	task, ok := manager.Get("task_1")
+	if !ok {
+		t.Fatal("task_1 not found after Kill")
+	}
+	if task.Status != StatusKilled {
+		t.Fatalf("status = %q, want %q — the exit waiter must not clobber a user-initiated kill", task.Status, StatusKilled)
+	}
+}
+
+func TestMarkKilledIfStillRunningReportsWhetherItMarked(t *testing.T) {
+	manager, err := NewManagerWithOptions(ManagerOptions{
+		RootDir: t.TempDir(),
+		Now:     sequenceClock(time.Date(2026, 6, 8, 9, 0, 0, 0, time.UTC)),
+	})
+	if err != nil {
+		t.Fatalf("NewManagerWithOptions returned error: %v", err)
+	}
+	if _, err := manager.Register(RegisterInput{TaskID: "t", Type: "specialist", PID: 7}); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	marked, err := manager.markKilledIfStillRunning("t", 7)
+	if err != nil || !marked {
+		t.Fatalf("first call: marked=%v err=%v, want true/nil", marked, err)
+	}
+	// Already killed (not running) → must report not-marked so Kill skips signaling
+	// a possibly-stale pid.
+	marked, err = manager.markKilledIfStillRunning("t", 7)
+	if err != nil || marked {
+		t.Fatalf("second call: marked=%v err=%v, want false/nil", marked, err)
+	}
+}
+
 func sequenceClock(times ...time.Time) func() time.Time {
 	index := 0
 	return func() time.Time {
