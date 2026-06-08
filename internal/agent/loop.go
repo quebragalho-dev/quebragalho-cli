@@ -51,7 +51,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		permissionMode = PermissionModeAuto
 	}
 
-	messages := zeroruntime.SeedMessages(buildSystemPrompt(options), prompt)
+	messages := zeroruntime.SeedMessagesWithImages(buildSystemPrompt(options), prompt, options.Images)
 
 	guards := newGuardState()
 	compactor := newCompactionState(options)
@@ -913,6 +913,9 @@ func copyMessages(messages []Message) []Message {
 		if message.ToolCalls != nil {
 			copied[index].ToolCalls = append([]ToolCall{}, message.ToolCalls...)
 		}
+		// Deep-copy image attachments (slice AND each Data byte slice) so the
+		// raw image bytes are never aliased across history/request/result copies.
+		copied[index].Images = zeroruntime.CloneImageBlocks(message.Images)
 	}
 	return copied
 }
