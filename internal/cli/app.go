@@ -208,6 +208,8 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		return runChanges(args[1:], stdout, stderr, deps)
 	case "usage":
 		return runUsage(args[1:], stdout, stderr, deps)
+	case "cron":
+		return runCron(args[1:], stdout, stderr, deps)
 	case "repo-info", "repoinfo":
 		return runRepoInfo(args[1:], stdout, stderr, deps)
 	case "serve":
@@ -482,6 +484,7 @@ Commands:
   verify     Detect and run local verification checks
   changes    Inspect and commit local git changes
   usage      Summarize token usage and estimated cost
+  cron       Schedule agent jobs (foreground, file-backed)
   repo-info  Characterize the current repository (local git only)
   serve      Run Zero protocol servers
   zeroline    Launch the interactive TUI with the Zeroline reskin
