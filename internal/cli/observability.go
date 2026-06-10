@@ -9,6 +9,7 @@ import (
 
 	"github.com/Gitlawb/zero/internal/config"
 	"github.com/Gitlawb/zero/internal/doctor"
+	"github.com/Gitlawb/zero/internal/providerhealth"
 	zsearch "github.com/Gitlawb/zero/internal/search"
 	"github.com/Gitlawb/zero/internal/sessions"
 )
@@ -48,14 +49,26 @@ func runDoctor(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 	if resolved, resolveErr := deps.resolveConfig(workspaceRoot, config.Overrides{}); resolveErr == nil {
 		provider = resolved.Provider
 	}
+	var health *providerhealth.Result
+	if options.connectivity && config.HasProviderProfile(provider) {
+		ctx, stop := signalContext()
+		defer stop()
+		probe := deps.probeProviderHealth(ctx, providerhealth.Options{
+			Profile:      provider,
+			Connectivity: true,
+			UserAgent:    userAgent(),
+		})
+		health = &probe
+	}
 
 	report := doctor.Run(doctor.Options{
-		Now:           deps.now,
-		Runtime:       "go",
-		UserConfig:    userConfig,
-		ProjectConfig: projectConfig,
-		Provider:      provider,
-		Connectivity:  options.connectivity,
+		Now:            deps.now,
+		Runtime:        "go",
+		UserConfig:     userConfig,
+		ProjectConfig:  projectConfig,
+		Provider:       provider,
+		Connectivity:   options.connectivity,
+		ProviderHealth: health,
 	})
 	if options.json {
 		if err := writePrettyJSON(stdout, report); err != nil {
