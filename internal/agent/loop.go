@@ -79,12 +79,16 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	for turn := 0; turn < maxTurns; turn++ {
 		result.Turns = turn + 1
 
+		// Build the per-turn tool list first so proactive compaction can include
+		// the tool-definition tokens (they ride on every request) in its estimate.
+		// partitionTools depends only on registry/permissions/options/loaded, not on
+		// the messages, so computing it before compaction is safe.
+		exposed, reminder := partitionTools(registry, permissionMode, options, loaded)
+
 		// PROACTIVE compaction: if the history is approaching the model's
 		// context window, summarize the oldest middle before building the
 		// request. A no-op when ContextWindow == 0 (compaction disabled).
-		messages = compactor.maybeCompact(ctx, provider, messages)
-
-		exposed, reminder := partitionTools(registry, permissionMode, options, loaded)
+		messages = compactor.maybeCompact(ctx, provider, messages, exposed)
 		request := zeroruntime.CompletionRequest{
 			Messages:        copyMessages(messages),
 			Tools:           exposed,
@@ -110,7 +114,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		if err != nil {
 			// REACTIVE compaction: a context-limit failure on the call itself
 			// can be recovered by compacting once and retrying the same turn.
-			if compacted, retried, retryErr := compactor.recover(ctx, provider, messages, err.Error()); retried {
+			if compacted, retried, retryErr := compactor.recover(ctx, provider, messages, request.Tools, err.Error()); retried {
 				messages = compacted
 				if retryErr != nil {
 					result.Messages = copyMessages(messages)
@@ -151,7 +155,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// REACTIVE compaction: the streamed error may also be a context
 			// limit (some providers surface it mid-stream). Compact and retry
 			// the same turn once before giving up.
-			if compacted, retried, retryErr := compactor.recover(ctx, provider, messages, collected.Error); retried {
+			if compacted, retried, retryErr := compactor.recover(ctx, provider, messages, request.Tools, collected.Error); retried {
 				messages = compacted
 				if retryErr != nil {
 					result.Messages = copyMessages(messages)
@@ -191,13 +195,16 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				})
 			}
 		}
-		if collected.Error != "" {
-			result.Messages = copyMessages(messages)
-			return result, errors.New(collected.Error)
-		}
+		// Check ctx first: on cancellation helpers.go sets collected.Error to
+		// ctx.Err().Error(), so returning errors.New(collected.Error) would lose
+		// the wrapped sentinel and break errors.Is(err, context.Canceled).
 		if ctx.Err() != nil {
 			result.Messages = copyMessages(messages)
 			return result, ctx.Err()
+		}
+		if collected.Error != "" {
+			result.Messages = copyMessages(messages)
+			return result, errors.New(collected.Error)
 		}
 
 		// Carry the turn's terminal stop reason so a final answer cut off at the
@@ -566,13 +573,17 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 			permissionGranted = true
 		case PermissionDecisionAlwaysAllow:
 			permissionGranted = true
-			grant, err := persistPermissionGrant(call.Name, args, decisionReason, options)
-			if err != nil {
-				emitDeniedPermission(options, call, requestEvent, "failed to persist permission grant: "+err.Error())
-				return deniedPermissionResult(call, "failed to persist permission grant: "+err.Error(), requestEvent), nil
+			// "Always allow" also persists a grant so FUTURE calls skip the prompt.
+			// With no sandbox engine there is nowhere to persist it, and persistence
+			// can also fail — neither must deny what the user explicitly allowed, so
+			// honor the allow for THIS call regardless and just skip remembering the
+			// grant (the user is re-prompted next time rather than denied now). This
+			// call's permission event is built from the sandbox decision below
+			// (buildPermissionEvent reads decision.GrantMatched/Grant), so the
+			// persisted grant does not need to be recorded on requestEvent here.
+			if options.Sandbox != nil {
+				_, _ = persistPermissionGrant(call.Name, args, decisionReason, options)
 			}
-			requestEvent.GrantMatched = true
-			requestEvent.Grant = &grant
 		default:
 			emitDeniedPermission(options, call, requestEvent, decisionReason)
 			return deniedPermissionResult(call, decisionReason, requestEvent), nil
@@ -1310,9 +1321,6 @@ func propertyToRuntimeMap(property tools.PropertySchema) map[string]any {
 	}
 	if property.Maximum != nil {
 		schema["maximum"] = *property.Maximum
-	}
-	if property.Items != nil {
-		schema["items"] = propertyToRuntimeMap(*property.Items)
 	}
 	if len(property.Properties) > 0 {
 		properties := make(map[string]any, len(property.Properties))

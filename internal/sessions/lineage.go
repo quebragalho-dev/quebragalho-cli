@@ -81,13 +81,19 @@ func (store *Store) ListChildren(parentSessionID string) ([]Metadata, error) {
 			children = append(children, session)
 		}
 	}
+	sortChildSessions(children)
+	return children, nil
+}
+
+// sortChildSessions orders child sessions newest-spawn-first (then most-recently
+// updated). It is the single source of truth shared by ListChildren and Tree.
+func sortChildSessions(children []Metadata) {
 	sort.SliceStable(children, func(left int, right int) bool {
 		if children[left].SpawnedFromSequence == children[right].SpawnedFromSequence {
 			return children[left].UpdatedAt > children[right].UpdatedAt
 		}
 		return children[left].SpawnedFromSequence > children[right].SpawnedFromSequence
 	})
-	return children, nil
 }
 
 func (store *Store) Lineage(sessionID string) ([]Metadata, error) {
@@ -122,28 +128,57 @@ func (store *Store) Tree(rootSessionID string) (TreeNode, error) {
 	if !ValidSessionID(rootSessionID) {
 		return TreeNode{}, fmt.Errorf("invalid zero session id %q", rootSessionID)
 	}
-	return store.tree(rootSessionID, map[string]bool{})
+	// Fetch the root directly first. store.List() silently skips sessions whose
+	// metadata cannot be read, so a corrupt/unreadable root would otherwise degrade
+	// to a generic "not found"; a direct Get surfaces the real metadata error and
+	// distinguishes corruption from genuine absence.
+	root, err := store.Get(rootSessionID)
+	if err != nil {
+		return TreeNode{}, err
+	}
+	if root == nil {
+		// Get returns (nil, nil) for a session that does not exist; treat that as a
+		// clean not-found rather than dereferencing nil below.
+		return TreeNode{}, fmt.Errorf("zero session not found: %s", rootSessionID)
+	}
+	// Snapshot every session once and index children by parent in memory. The
+	// previous recursion called ListChildren per node, and each ListChildren ran a
+	// full store.List() disk scan (reading every metadata.json), making Tree
+	// O(nodes * total-sessions) reads; this does a single scan up front.
+	all, err := store.List()
+	if err != nil {
+		return TreeNode{}, err
+	}
+	byID := make(map[string]Metadata, len(all))
+	childrenByParent := make(map[string][]Metadata)
+	for _, session := range all {
+		byID[session.SessionID] = session
+		if session.SessionKind == SessionKindChild && session.ParentSessionID != "" {
+			childrenByParent[session.ParentSessionID] = append(childrenByParent[session.ParentSessionID], session)
+		}
+	}
+	// Ensure the validated root is present even if List() skipped it (e.g. a
+	// transient read race), so the tree still builds from it.
+	byID[rootSessionID] = *root
+	for parent := range childrenByParent {
+		sortChildSessions(childrenByParent[parent])
+	}
+	return store.treeFrom(rootSessionID, byID, childrenByParent, map[string]bool{})
 }
 
-func (store *Store) tree(sessionID string, seen map[string]bool) (TreeNode, error) {
+func (store *Store) treeFrom(sessionID string, byID map[string]Metadata, childrenByParent map[string][]Metadata, seen map[string]bool) (TreeNode, error) {
 	if seen[sessionID] {
 		return TreeNode{}, fmt.Errorf("cycle in zero session tree at %s", sessionID)
 	}
 	seen[sessionID] = true
-	session, err := store.Get(sessionID)
-	if err != nil {
-		return TreeNode{}, err
-	}
-	if session == nil {
+	session, ok := byID[sessionID]
+	if !ok {
 		return TreeNode{}, fmt.Errorf("zero session not found: %s", sessionID)
 	}
-	children, err := store.ListChildren(sessionID)
-	if err != nil {
-		return TreeNode{}, err
-	}
-	node := TreeNode{Session: *session, Children: make([]TreeNode, 0, len(children))}
+	children := childrenByParent[sessionID]
+	node := TreeNode{Session: session, Children: make([]TreeNode, 0, len(children))}
 	for _, child := range children {
-		childNode, err := store.tree(child.SessionID, seen)
+		childNode, err := store.treeFrom(child.SessionID, byID, childrenByParent, seen)
 		if err != nil {
 			return TreeNode{}, err
 		}

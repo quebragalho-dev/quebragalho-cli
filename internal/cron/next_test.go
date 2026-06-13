@@ -85,6 +85,49 @@ func TestNextDSTSpringForwardTerminates(t *testing.T) {
 	}
 }
 
+func TestNextDSTFallBackDoesNotRepeatHour(t *testing.T) {
+	// 2026-11-01 is the US fall-back day in America/New_York: at 02:00 EDT the
+	// clock falls back to 01:00 EST, so 01:30 occurs twice. A daily "30 1" job
+	// must fire once that day — Next called with the first (EDT) fire must skip the
+	// repeated 01:30 EST and return the NEXT day's 01:30, not the same-day repeat.
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("tzdata unavailable")
+	}
+	// 05:30 UTC == 01:30 EDT (offset -4), the first of the two 01:30s.
+	firstFireEDT := time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC).In(ny)
+	if h := firstFireEDT.Hour(); h != 1 {
+		t.Fatalf("setup: expected 01:30 EDT, got hour %d (%s)", h, firstFireEDT)
+	}
+
+	got := mustParse(t, "30 1 * * *").Next(firstFireEDT)
+	want := time.Date(2026, 11, 2, 1, 30, 0, 0, ny)
+	if !got.Equal(want) {
+		t.Fatalf("fall-back: Next = %v, want %v (must skip the repeated 01:30 EST)", got, want)
+	}
+}
+
+func TestNextDSTFallBackReturnsRepeatedMinuteWhenAfterHasSubMinutePrecision(t *testing.T) {
+	// The fall-back collapse must only apply when `after` is exactly on the minute
+	// boundary (its "last fire time" form). If `after` carries sub-minute precision,
+	// the first 01:30 fire already preceded it, so the repeated 01:30 EST is the
+	// legitimate next fire and must be returned (strictly-after contract).
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("tzdata unavailable")
+	}
+	// 05:30:30 UTC == 01:30:30 EDT — 30s past the first 01:30 fire (05:30:00 UTC),
+	// which is therefore no longer eligible.
+	afterEDT := time.Date(2026, 11, 1, 5, 30, 30, 0, time.UTC).In(ny)
+
+	got := mustParse(t, "30 1 * * *").Next(afterEDT)
+	// 06:30:00 UTC == 01:30:00 EST, the repeated minute and the next eligible fire.
+	want := time.Date(2026, 11, 1, 6, 30, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("sub-minute after: Next = %v, want %v (must return the repeated 01:30 EST, not skip to the next day)", got.UTC(), want)
+	}
+}
+
 func TestNextLeapYearCenturyGap(t *testing.T) {
 	// 2100 is NOT a leap year, so the next Feb 29 after 2096 is 2104 (an 8-year
 	// gap). The search window must be wide enough to find it (not report zero).

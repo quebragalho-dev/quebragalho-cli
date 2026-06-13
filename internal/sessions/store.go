@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -425,10 +426,19 @@ func (store *Store) Fork(parentSessionID string, input ForkInput) (Metadata, err
 	if err != nil {
 		return Metadata{}, err
 	}
+	copied := 0
 	for _, event := range events {
+		// Do NOT copy usage accounting into the fork. It already counted against the
+		// parent, and a usage report that aggregates the parent and the fork would
+		// otherwise double-count it. The fork only needs the conversation history
+		// (messages, tool calls, checkpoints) to continue; usage is not replayed.
+		if event.Type == EventUsage {
+			continue
+		}
 		if _, err := store.AppendEvent(fork.SessionID, AppendEventInput{Type: event.Type, Payload: event.Payload}); err != nil {
 			return Metadata{}, err
 		}
+		copied++
 	}
 	// Copy the parent's content-addressed checkpoint blobs into the fork so the
 	// copied EventSessionCheckpoint events resolve to real blobs and a rewind on
@@ -442,7 +452,7 @@ func (store *Store) Fork(parentSessionID string, input ForkInput) (Metadata, err
 		Payload: map[string]any{
 			"parentSessionId":    parent.SessionID,
 			"parentEventCount":   parent.EventCount,
-			"copiedEventCount":   len(events),
+			"copiedEventCount":   copied,
 			"forkedFromEventId":  last.ID,
 			"forkedFromSequence": last.Sequence,
 		},
@@ -690,14 +700,63 @@ func (store *Store) writeMetadata(session Metadata) error {
 	}
 	path := store.metadataPath(session.SessionID)
 	tmp := fmt.Sprintf("%s.tmp-%d", path, store.idCounter.Add(1))
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+	// fsync the temp file before renaming it into place. os.WriteFile does not
+	// sync, so a crash right after the rename could surface a metadata file whose
+	// contents were never flushed — a torn or empty file that corrupts the whole
+	// session. Syncing the data before the atomic rename closes that window.
+	if err := writeFileSync(tmp, append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write zero session metadata: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("replace zero session metadata: %w", err)
 	}
+	// fsync the parent directory so the rename itself is durable: the temp file's
+	// contents were synced above, but without syncing the directory a crash can
+	// still lose the rename (the new directory entry), leaving the old/no file.
+	if err := syncDir(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("sync zero session dir: %w", err)
+	}
 	return nil
+}
+
+// syncDir fsyncs a directory so a rename/create within it is durable across a
+// crash. A platform that cannot open a directory for sync (e.g. Windows) reports
+// no error — the rename is best-effort durable there.
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		// Windows does not support fsync on a directory handle; the rename is
+		// best-effort durable there.
+		return nil
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return nil
+	}
+	syncErr := d.Sync()
+	closeErr := d.Close()
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
+}
+
+// writeFileSync writes data to path and fsyncs it before returning, so the bytes
+// are durably on disk (unlike os.WriteFile, which leaves them in the page cache).
+func writeFileSync(path string, data []byte, perm os.FileMode) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 func rawPayload(payload any) (json.RawMessage, error) {

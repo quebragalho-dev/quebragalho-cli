@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -296,4 +298,131 @@ func mustHostPort(t *testing.T, raw string) string {
 	t.Helper()
 	parsed := mustURL(t, raw)
 	return parsed.Host
+}
+
+func TestEgressProxyAuthorizeDomainPrompt(t *testing.T) {
+	var mu sync.Mutex
+	calls := map[string]int{}
+	proxy := &egressProxy{
+		allowed:       normalizeDomains([]string{"allowed.test"}),
+		denied:        normalizeDomains([]string{"denied.test"}),
+		decisionCache: map[string]bool{},
+		promptTimeout: 500 * time.Millisecond,
+		domainPrompt: func(_ context.Context, host string, port int) (bool, error) {
+			mu.Lock()
+			calls[host]++
+			mu.Unlock()
+			return host == "ask-allow.test", nil
+		},
+	}
+
+	if !proxy.authorize("allowed.test", 443) {
+		t.Fatal("allowlisted host must pass without prompting")
+	}
+	if proxy.authorize("denied.test", 443) {
+		t.Fatal("explicitly denied host must be refused without prompting")
+	}
+	mu.Lock()
+	if calls["allowed.test"] != 0 || calls["denied.test"] != 0 {
+		t.Fatalf("allow/deny lists must not trigger the prompt: %#v", calls)
+	}
+	mu.Unlock()
+
+	if !proxy.authorize("ask-allow.test", 443) {
+		t.Fatal("an unknown host the prompt allows must pass")
+	}
+	if !proxy.authorize("ask-allow.test", 443) {
+		t.Fatal("a cached allow must still pass")
+	}
+	mu.Lock()
+	if calls["ask-allow.test"] != 1 {
+		t.Fatalf("the prompt decision must be cached (called once), got %d", calls["ask-allow.test"])
+	}
+	mu.Unlock()
+
+	if proxy.authorize("ask-deny.test", 443) {
+		t.Fatal("an unknown host the prompt denies must be refused")
+	}
+}
+
+func TestEgressProxyDomainPromptTimeoutDenies(t *testing.T) {
+	proxy := &egressProxy{
+		allowed:       normalizeDomains([]string{"allowed.test"}),
+		decisionCache: map[string]bool{},
+		promptTimeout: 20 * time.Millisecond,
+		domainPrompt: func(_ context.Context, host string, port int) (bool, error) {
+			time.Sleep(250 * time.Millisecond) // exceeds promptTimeout
+			return true, nil
+		},
+	}
+	if proxy.authorize("slow.test", 443) {
+		t.Fatal("a prompt that exceeds the timeout must deny (fail closed)")
+	}
+}
+
+func TestEgressProxyDomainPromptTimeoutCancelsContext(t *testing.T) {
+	cancelled := make(chan struct{}, 1)
+	proxy := &egressProxy{
+		decisionCache: map[string]bool{},
+		inflight:      map[string]chan struct{}{},
+		promptTimeout: 20 * time.Millisecond,
+		domainPrompt: func(ctx context.Context, host string, port int) (bool, error) {
+			<-ctx.Done() // a cooperative callback returns when the wait times out
+			cancelled <- struct{}{}
+			return true, ctx.Err()
+		},
+	}
+	if proxy.authorize("slow.test", 443) {
+		t.Fatal("a prompt that doesn't answer before the timeout must deny")
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("the prompt callback's context must be cancelled on timeout so it can abort")
+	}
+}
+
+func TestEgressProxyDeduplicatesConcurrentPrompts(t *testing.T) {
+	var calls int32
+	proxy := &egressProxy{
+		decisionCache: map[string]bool{},
+		inflight:      map[string]chan struct{}{},
+		promptTimeout: time.Second,
+		domainPrompt: func(_ context.Context, host string, port int) (bool, error) {
+			atomic.AddInt32(&calls, 1)
+			time.Sleep(40 * time.Millisecond) // hold the prompt so others pile up
+			return true, nil
+		},
+	}
+
+	const n = 25
+	var wg sync.WaitGroup
+	results := make([]bool, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx] = proxy.authorize("burst.test", 443)
+		}(i)
+	}
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("a burst of concurrent requests for the same target must prompt once, got %d", got)
+	}
+	for i, allowed := range results {
+		if !allowed {
+			t.Fatalf("request %d got deny; all concurrent waiters must see the single allow decision", i)
+		}
+	}
+}
+
+func TestEgressProxyNilPromptFailsClosed(t *testing.T) {
+	proxy := &egressProxy{
+		allowed:       normalizeDomains([]string{"allowed.test"}),
+		decisionCache: map[string]bool{},
+	}
+	if proxy.authorize("unknown.test", 443) {
+		t.Fatal("an unknown host with no prompt callback must fail closed")
+	}
 }

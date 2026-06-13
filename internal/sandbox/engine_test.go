@@ -163,6 +163,43 @@ func TestEngineDeniesOutOfWorkspacePaths(t *testing.T) {
 	}
 }
 
+func TestEnginePrecheckReportsViolationsBeforeExecution(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "escape.txt")
+	engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: DefaultPolicy()})
+
+	// A denied request reports its violation without running anything.
+	violations := engine.Precheck(context.Background(), Request{
+		ToolName:       "write_file",
+		SideEffect:     SideEffectWrite,
+		Permission:     PermissionPrompt,
+		PermissionMode: PermissionUnsafe,
+		Autonomy:       AutonomyHigh,
+		Args:           map[string]any{"path": outside},
+	})
+	if len(violations) != 1 || violations[0].Code != ViolationOutsideWorkspace {
+		t.Fatalf("Precheck(out-of-workspace) = %#v, want one outside-workspace violation", violations)
+	}
+
+	// An in-workspace read is allowed -> no violations.
+	if v := engine.Precheck(context.Background(), Request{
+		ToolName:       "read_file",
+		SideEffect:     SideEffectRead,
+		Permission:     PermissionAllow,
+		PermissionMode: PermissionUnsafe,
+		Autonomy:       AutonomyLow,
+		Args:           map[string]any{"path": filepath.Join(root, "ok.txt")},
+	}); len(v) != 0 {
+		t.Fatalf("Precheck(allowed read) = %#v, want no violations", v)
+	}
+
+	// A nil engine (sandbox disabled) reports nothing.
+	var disabled *Engine
+	if v := disabled.Precheck(context.Background(), Request{ToolName: "write_file"}); v != nil {
+		t.Fatalf("nil-engine Precheck = %#v, want nil", v)
+	}
+}
+
 func TestEngineDeniesWorkspaceSymlinkTraversal(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -671,5 +708,44 @@ func TestNewEngineDerivesWorkspaceRootFromScope(t *testing.T) {
 	})
 	if inside.Action != ActionAllow {
 		t.Fatalf("scope-only engine, in-workspace write Action=%q (%s), want allow", inside.Action, inside.Reason)
+	}
+}
+
+func TestEngineNetworkHostAllowed(t *testing.T) {
+	// scoped enforcement requires a backend that can actually route scoped egress
+	// (only sandbox-exec); otherwise scoped fails closed (collapses to deny).
+	egressBackend := Backend{Name: BackendSandboxExec, Available: true, Executable: "/usr/bin/sandbox-exec", ScopedEgress: true}
+	noEgressBackend := Backend{Name: BackendBubblewrap, Available: true, Executable: "/usr/bin/bwrap"}
+	cases := []struct {
+		name    string
+		policy  Policy
+		backend Backend
+		host    string
+		allowed bool
+		mode    NetworkMode
+	}{
+		{"deny blocks all", Policy{Mode: ModeEnforce, Network: NetworkDeny}, egressBackend, "example.com", false, NetworkDeny},
+		{"allow permits all", Policy{Mode: ModeEnforce, Network: NetworkAllow}, noEgressBackend, "example.com", true, NetworkAllow},
+		{"scoped allows listed host", Policy{Mode: ModeEnforce, Network: NetworkScoped, AllowedDomains: []string{"example.com"}}, egressBackend, "api.example.com", true, NetworkScoped},
+		{"scoped blocks unlisted host", Policy{Mode: ModeEnforce, Network: NetworkScoped, AllowedDomains: []string{"example.com"}}, egressBackend, "evil.test", false, NetworkScoped},
+		{"scoped honors denylist", Policy{Mode: ModeEnforce, Network: NetworkScoped, AllowedDomains: []string{"example.com"}, DeniedDomains: []string{"secret.example.com"}}, egressBackend, "secret.example.com", false, NetworkScoped},
+		{"scoped empty allowlist collapses to deny", Policy{Mode: ModeEnforce, Network: NetworkScoped}, egressBackend, "example.com", false, NetworkDeny},
+		{"scoped without egress-capable backend fails closed", Policy{Mode: ModeEnforce, Network: NetworkScoped, AllowedDomains: []string{"example.com"}}, noEgressBackend, "example.com", false, NetworkDeny},
+		{"disabled policy allows all", Policy{Mode: ModeDisabled, Network: NetworkDeny}, noEgressBackend, "example.com", true, NetworkAllow},
+		{"host with port matched on hostname", Policy{Mode: ModeEnforce, Network: NetworkScoped, AllowedDomains: []string{"example.com"}}, egressBackend, "example.com:443", true, NetworkScoped},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := NewEngine(EngineOptions{Policy: tc.policy, Backend: tc.backend})
+			allowed, mode := engine.NetworkHostAllowed(tc.host)
+			if allowed != tc.allowed || mode != tc.mode {
+				t.Fatalf("NetworkHostAllowed(%q) = (%v, %q), want (%v, %q)", tc.host, allowed, mode, tc.allowed, tc.mode)
+			}
+		})
+	}
+
+	var nilEngine *Engine
+	if allowed, mode := nilEngine.NetworkHostAllowed("example.com"); !allowed || mode != NetworkAllow {
+		t.Fatalf("nil engine NetworkHostAllowed = (%v, %q), want (true, allow)", allowed, mode)
 	}
 }

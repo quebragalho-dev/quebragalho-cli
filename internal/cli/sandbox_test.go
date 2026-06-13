@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -99,6 +100,108 @@ func TestRunSandboxGrantsAllowListDenyRevokeAndClear(t *testing.T) {
 	}
 	if clearPayload.Cleared != 1 {
 		t.Fatalf("cleared = %d, want 1", clearPayload.Cleared)
+	}
+}
+
+func TestRunSandboxGrantsCreateAndRevokeByPath(t *testing.T) {
+	store := newSandboxTestStore(t)
+	deps := appDeps{newSandboxStore: func() (*sandbox.GrantStore, error) { return store, nil }}
+	path := filepath.Join(t.TempDir(), "secret.txt")
+
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) int {
+		stdout.Reset()
+		stderr.Reset()
+		return runWithDeps(args, &stdout, &stderr, deps)
+	}
+
+	// An exact-path grant and a tool-wide grant for the same tool.
+	if exit := run("sandbox", "grants", "allow", "write_file", "--path", path); exit != exitSuccess {
+		t.Fatalf("allow --path exit = %d, stderr %q", exit, stderr.String())
+	}
+	if exit := run("sandbox", "grants", "allow", "write_file"); exit != exitSuccess {
+		t.Fatalf("allow tool-wide exit = %d, stderr %q", exit, stderr.String())
+	}
+
+	// Revoking by path removes only the path-scoped grant.
+	if exit := run("sandbox", "grants", "revoke", "write_file", "--path", path, "--json"); exit != exitSuccess {
+		t.Fatalf("revoke --path exit = %d, stderr %q", exit, stderr.String())
+	}
+	var payload struct {
+		Revoked int `json:"revoked"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode revoke JSON: %v\n%s", err, stdout.String())
+	}
+	if payload.Revoked != 1 {
+		t.Fatalf("revoked = %d, want 1", payload.Revoked)
+	}
+
+	grants, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(grants) != 1 || grants[0].ScopeKind != sandbox.ScopeToolWide {
+		t.Fatalf("expected only the tool-wide grant to remain, got %#v", grants)
+	}
+}
+
+func TestRunSandboxGrantsRejectsEmptyPath(t *testing.T) {
+	store := newSandboxTestStore(t)
+	deps := appDeps{newSandboxStore: func() (*sandbox.GrantStore, error) { return store, nil }}
+
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) int {
+		stdout.Reset()
+		stderr.Reset()
+		return runWithDeps(args, &stdout, &stderr, deps)
+	}
+
+	// Seed a tool-wide grant first so a buggy "revoke all for tool" or "allow
+	// tool-wide" from a rejected call would actually change the store and be caught
+	// (a revoke-all on an empty store is a silent no-op).
+	if _, err := store.Grant(sandbox.GrantInput{ToolName: "write_file", Decision: sandbox.GrantAllow, MaxAutonomy: sandbox.AutonomyHigh}); err != nil {
+		t.Fatalf("seed grant: %v", err)
+	}
+
+	// An explicit but empty --path must fail closed rather than silently widening
+	// an allow to tool-wide or a revoke to all-grants-for-tool. Check immutability
+	// after EACH rejected call so a mutation in one isn't masked by a later call.
+	for _, args := range [][]string{
+		{"sandbox", "grants", "allow", "write_file", "--path", ""},
+		{"sandbox", "grants", "allow", "write_file", "--path="},
+		{"sandbox", "grants", "revoke", "write_file", "--path", ""},
+		{"sandbox", "grants", "revoke", "write_file", "--path="},
+	} {
+		before, err := store.List()
+		if err != nil {
+			t.Fatalf("%v: List before: %v", args, err)
+		}
+		if exit := run(args...); exit == exitSuccess {
+			t.Fatalf("%v: expected a usage error for an empty --path, got success", args)
+		}
+		// Either rejection path is acceptable (the `--path=` form hits the
+		// non-empty check; the `--path ""` form is rejected as a missing value) —
+		// what matters is that an empty --path never silently widens scope.
+		if !strings.Contains(stderr.String(), "path") {
+			t.Fatalf("%v: stderr should explain the empty --path, got %q", args, stderr.String())
+		}
+		after, err := store.List()
+		if err != nil {
+			t.Fatalf("%v: List after: %v", args, err)
+		}
+		if !reflect.DeepEqual(after, before) {
+			t.Fatalf("%v: rejected call mutated grants; before=%#v after=%#v", args, before, after)
+		}
+	}
+
+	// Only the seeded grant remains — nothing added or removed by the rejected calls.
+	grants, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(grants) != 1 || grants[0].ScopeKind != sandbox.ScopeToolWide {
+		t.Fatalf("expected only the seeded tool-wide grant to remain, got %#v", grants)
 	}
 }
 
@@ -535,6 +638,27 @@ func TestApplyConfiguredAutonomyCeiling(t *testing.T) {
 				t.Fatalf("applyConfiguredAutonomyCeiling(_, %q).MaxAutonomy = %q, want %q", tc.maxAutonomy, policy.MaxAutonomy, tc.want)
 			}
 		})
+	}
+}
+
+func TestApplyConfiguredSandboxPolicyHardeningFlags(t *testing.T) {
+	base := sandbox.DefaultPolicy()
+	if base.BlockUnixSockets || base.MonitorDenials {
+		t.Fatalf("precondition: hardening flags must default off, got block=%v monitor=%v", base.BlockUnixSockets, base.MonitorDenials)
+	}
+
+	// Omitted keys leave the (off) defaults untouched.
+	if got := applyConfiguredSandboxPolicy(sandbox.DefaultPolicy(), config.SandboxConfig{}); got.BlockUnixSockets || got.MonitorDenials {
+		t.Fatalf("empty config must not enable hardening flags, got block=%v monitor=%v", got.BlockUnixSockets, got.MonitorDenials)
+	}
+
+	// Each flag opts in independently.
+	got := applyConfiguredSandboxPolicy(sandbox.DefaultPolicy(), config.SandboxConfig{BlockUnixSockets: true, MonitorDenials: true})
+	if !got.BlockUnixSockets {
+		t.Fatal("BlockUnixSockets config not applied to policy")
+	}
+	if !got.MonitorDenials {
+		t.Fatal("MonitorDenials config not applied to policy")
 	}
 }
 

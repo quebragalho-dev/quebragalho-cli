@@ -195,12 +195,36 @@ var wrapperPrograms = map[string]bool{
 	"setsid": true, "ionice": true, "xargs": true,
 }
 
-// wrapperValueOptions are short options of wrapper programs that consume the
-// following token as their value (e.g. `sudo -u root`), so the value must be
-// skipped too rather than being mistaken for the real program.
-var wrapperValueOptions = map[string]bool{
-	"-u": true, "-g": true, "-h": true, "-p": true, "-C": true, "-r": true,
-	"-t": true, "-U": true, "-D": true, "-c": true, "-n": true,
+// wrapperValueOptionsByProg lists, PER wrapper program, the options that consume
+// the FOLLOWING token as their value (both short `-u` and long `--user` spellings,
+// e.g. `sudo -u root` / `sudo --user root` / `timeout -s KILL`). It is keyed by
+// wrapper because the same flag means different things to different launchers —
+// `sudo -n` is valueless (non-interactive) while `nice -n` takes an adjustment —
+// so a single global set would wrongly swallow the real program after a valueless
+// flag (e.g. skip `rm` in `sudo -n rm -rf`). The `--flag=value` spelling is a
+// single token and needs no entry; only the space-separated form consumes a value.
+var wrapperValueOptionsByProg = map[string]map[string]bool{
+	"sudo":    {"-u": true, "--user": true, "-g": true, "--group": true, "-p": true, "--prompt": true, "-C": true, "--close-from": true, "-r": true, "--role": true, "-T": true, "--command-timeout": true, "-U": true, "--other-user": true, "-h": true, "--host": true, "-D": true, "--chdir": true, "-R": true, "--chroot": true},
+	"doas":    {"-u": true, "-C": true},
+	"env":     {"-u": true, "--unset": true, "-S": true, "--split-string": true, "-C": true, "--chdir": true},
+	"timeout": {"-s": true, "--signal": true, "-k": true, "--kill-after": true},
+	"nice":    {"-n": true, "--adjustment": true},
+	"ionice":  {"-c": true, "--class": true, "-n": true, "--classdata": true, "-p": true, "--pid": true},
+	"stdbuf":  {"-i": true, "--input": true, "-o": true, "--output": true, "-e": true, "--error": true},
+	"xargs":   {"-a": true, "--arg-file": true, "-d": true, "--delimiter": true, "-E": true, "-I": true, "--replace": true, "-L": true, "--max-lines": true, "-n": true, "--max-args": true, "-P": true, "--max-procs": true, "-s": true, "--max-chars": true},
+}
+
+// wrapperConsumesValue reports whether option is a value-consuming flag of the
+// active wrapper. With no active wrapper (or an unknown one, or a flag not listed
+// for it) it returns false, so token scanning never skips a token that might be
+// the real program. A `--flag=value` token carries its own value, so it never
+// consumes the next token.
+func wrapperConsumesValue(wrapper, option string) bool {
+	if strings.Contains(option, "=") {
+		return false
+	}
+	opts, ok := wrapperValueOptionsByProg[wrapper]
+	return ok && opts[option]
 }
 
 // firstProgram returns the first executable name in a segment, skipping leading
@@ -208,6 +232,7 @@ var wrapperValueOptions = map[string]bool{
 // nice, timeout, stdbuf, setsid, ionice, xargs, ...), and the option tokens that
 // belong to those wrappers (e.g. `sudo -u root`, `env -i`, `timeout 5`).
 func firstProgram(fields []string) string {
+	wrapper := ""
 	for index := 0; index < len(fields); index++ {
 		field := fields[index]
 		if strings.Contains(field, "=") && !strings.HasPrefix(field, "=") {
@@ -216,9 +241,9 @@ func firstProgram(fields []string) string {
 		}
 		// An option token (or a bare numeric argument such as `timeout 5`)
 		// belongs to a preceding wrapper, not the program; skip it, and also
-		// skip the value of an option that consumes the next token.
+		// skip the value of an option that the active wrapper consumes.
 		if strings.HasPrefix(field, "-") {
-			if wrapperValueOptions[field] && index+1 < len(fields) {
+			if wrapperConsumesValue(wrapper, field) && index+1 < len(fields) {
 				index++
 			}
 			continue
@@ -228,7 +253,9 @@ func firstProgram(fields []string) string {
 		}
 		token := normalizeProgramToken(field)
 		if wrapperPrograms[token] {
-			// Wrapper prefix; the real program follows.
+			// Wrapper prefix; the real program follows. Track it so its options'
+			// value-consumption is interpreted in its own context.
+			wrapper = token
 			continue
 		}
 		return token
@@ -243,13 +270,14 @@ func firstProgram(fields []string) string {
 // command boundary (e.g. `sudo git rebase -i` -> "git rebase -i") instead of
 // matching the segment text anywhere as a raw substring.
 func commandBody(fields []string) string {
+	wrapper := ""
 	for index := 0; index < len(fields); index++ {
 		field := fields[index]
 		if strings.Contains(field, "=") && !strings.HasPrefix(field, "=") {
 			continue
 		}
 		if strings.HasPrefix(field, "-") {
-			if wrapperValueOptions[field] && index+1 < len(fields) {
+			if wrapperConsumesValue(wrapper, field) && index+1 < len(fields) {
 				index++
 			}
 			continue
@@ -257,7 +285,8 @@ func commandBody(fields []string) string {
 		if isNumericToken(field) {
 			continue
 		}
-		if wrapperPrograms[normalizeProgramToken(field)] {
+		if token := normalizeProgramToken(field); wrapperPrograms[token] {
+			wrapper = token
 			continue
 		}
 		// First real command token: the body starts here.
@@ -426,24 +455,130 @@ func programIndex(program string, fields []string) int {
 	return -1
 }
 
-// splitShellSegments splits a command on the common shell operators so each
-// pipeline/list element can be inspected independently.
+// splitShellSegments splits a command on the common shell operators (&&, ||, ;,
+// |) and command-substitution boundaries ($(...), `...`) so each pipeline/list
+// element — and any interactive program hidden inside a substitution (e.g.
+// `echo $(vim x)`) — can be inspected independently.
+//
+// It is quote-aware, which the previous strings.Replacer was not: an operator
+// inside quotes is a literal, not a separator, so `git commit -m "use top | less"`
+// and `echo "a; vim b"` no longer split mid-argument and falsely flag less/vim.
+// The quoting rules mirror the shell:
+//   - single quotes make everything literal (no operator OR substitution inside);
+//   - double quotes keep $(...)/`...` substitution active but make |, ;, &&
+//     literal;
+//   - unquoted text splits on everything.
+//
+// Real, unquoted operators still split, so a genuinely interactive command behind
+// a separator is still caught (no new false negatives).
 func splitShellSegments(command string) []string {
-	// Split on shell operators AND command-substitution boundaries ($(...), `...`)
-	// so an interactive program hidden inside a substitution becomes its own
-	// segment (e.g. `echo $(vim x)` -> segment "vim x").
-	replacer := strings.NewReplacer(
-		"&&", "\n", "||", "\n", ";", "\n", "|", "\n",
-		"$(", "\n", ")", "\n", "`", "\n",
-	)
-	parts := strings.Split(replacer.Replace(command), "\n")
-	segments := make([]string, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed != "" {
-			segments = append(segments, trimmed)
+	segments := make([]string, 0)
+	var current strings.Builder
+	flush := func() {
+		if seg := strings.TrimSpace(current.String()); seg != "" {
+			segments = append(segments, seg)
 		}
+		current.Reset()
 	}
+
+	inSingle := false
+	inDouble := false
+	// substStack saves the quoting state entering each command substitution (`$(`
+	// or a backtick) so the substitution runs in a fresh quoting context (POSIX)
+	// and the outer quoting is restored when it closes. backtick marks which
+	// delimiter opened the frame so `)` only closes `$(` frames and a backtick only
+	// closes a backtick frame.
+	type substFrame struct {
+		inSingle, inDouble bool
+		backtick           bool
+	}
+	var substStack []substFrame
+	runes := []rune(command)
+	for i := 0; i < len(runes); i++ {
+		c := runes[i]
+
+		// Inside single quotes everything is literal until the closing quote.
+		if inSingle {
+			current.WriteRune(c)
+			if c == '\'' {
+				inSingle = false
+			}
+			continue
+		}
+		// Outside single quotes a backslash escapes the next rune (the shell treats
+		// \X as a literal X), so an escaped quote or operator must not toggle quoting
+		// or manufacture a segment boundary — e.g. echo foo\|less or "a \" b".
+		if c == '\\' && i+1 < len(runes) {
+			current.WriteRune(c)
+			current.WriteRune(runes[i+1])
+			i++
+			continue
+		}
+		if c == '\'' && !inDouble {
+			inSingle = true
+			current.WriteRune(c)
+			continue
+		}
+		if c == '"' {
+			inDouble = !inDouble
+			current.WriteRune(c)
+			continue
+		}
+
+		// Command substitution boundaries. `$(` opens a substitution in a fresh
+		// quoting context; its matching `)` closes it and restores the outer
+		// quoting. A `)` is only a boundary when it actually closes an active,
+		// UNQUOTED substitution — a `)` inside quotes (e.g. echo $(printf "a)
+		// less") or a bare "a) less") is literal and must not split.
+		switch {
+		case c == '`':
+			// A backtick opens a substitution, or closes the active one if the top
+			// frame is itself a backtick. Saving/restoring quote state means inner
+			// separators in `echo "`a | less`"` are seen instead of staying hidden
+			// by the outer double quotes.
+			if n := len(substStack); n > 0 && substStack[n-1].backtick {
+				prev := substStack[n-1]
+				substStack = substStack[:n-1]
+				inSingle, inDouble = prev.inSingle, prev.inDouble
+				flush()
+				continue
+			}
+			flush()
+			substStack = append(substStack, substFrame{inSingle, inDouble, true})
+			inSingle, inDouble = false, false
+			continue
+		case c == '$' && i+1 < len(runes) && runes[i+1] == '(':
+			flush()
+			substStack = append(substStack, substFrame{inSingle, inDouble, false})
+			inSingle, inDouble = false, false
+			i++ // consume the '('
+			continue
+		case c == ')' && len(substStack) > 0 && !substStack[len(substStack)-1].backtick && !inSingle && !inDouble:
+			prev := substStack[len(substStack)-1]
+			substStack = substStack[:len(substStack)-1]
+			inSingle, inDouble = prev.inSingle, prev.inDouble
+			flush()
+			continue
+		}
+
+		// Control operators are literal inside double quotes; only split on them
+		// when fully unquoted. Match the original operator set exactly: ;, | (which
+		// also covers ||), and && — never a lone & (background).
+		if !inDouble {
+			switch {
+			case c == ';' || c == '|':
+				flush()
+				continue
+			case c == '&' && i+1 < len(runes) && runes[i+1] == '&':
+				flush()
+				i++
+				continue
+			}
+		}
+
+		current.WriteRune(c)
+	}
+	flush()
 	return segments
 }
 

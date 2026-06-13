@@ -108,6 +108,8 @@ func TestDetectInteractiveThroughWrappersAndShellC(t *testing.T) {
 		{name: "ionice", command: "ionice -c3 vim file.txt", wantCmd: "vim"},
 		{name: "xargs", command: "xargs vim", wantCmd: "vim"},
 		{name: "sudo with option", command: "sudo -u root vim file.txt", wantCmd: "vim"},
+		{name: "sudo with long option value", command: "sudo --user root vim file.txt", wantCmd: "vim"},
+		{name: "sudo with long option joined value", command: "sudo --user=root vim file.txt", wantCmd: "vim"},
 		{name: "env with assignment option", command: "env -i EDITOR=x vim file.txt", wantCmd: "vim"},
 		{name: "sh -c payload", command: "sh -c 'vim file.txt'", wantCmd: "vim"},
 		{name: "bash -c payload", command: `bash -c "less /var/log/syslog"`, wantCmd: "less"},
@@ -163,6 +165,10 @@ func TestDetectInteractiveSegmentBoundary(t *testing.T) {
 		`grep "tail -f" notes.txt`,
 		`echo run docker attach later`,
 		`printf 'kubectl logs -f streams'`,
+		// A literal ')' that does not close a $(...) must not split the command
+		// into a fake `less` segment (regression for unconditional ')' splitting).
+		`echo "a) less"`,
+		`echo "(done) vim later"`,
 	}
 	for _, cmd := range allowed {
 		if got := DetectInteractiveCommand(cmd, "linux"); got.Interactive {
@@ -187,6 +193,69 @@ func TestDetectInteractiveSegmentBoundary(t *testing.T) {
 	}
 }
 
+func TestSplitShellSegmentsParenOnlySplitsInsideSubstitution(t *testing.T) {
+	// A literal ')' that does not close a $(...) must not be a segment boundary,
+	// otherwise text like "a) less" splits into a fake `less` segment.
+	if segs := splitShellSegments(`echo "a) less"`); len(segs) != 1 {
+		t.Fatalf(`splitShellSegments(echo "a) less") = %#v, want a single segment`, segs)
+	}
+	// A real $(...) still isolates the substituted command so it can be analyzed.
+	segs := splitShellSegments(`echo $(less foo)`)
+	found := false
+	for _, s := range segs {
+		if s == "less foo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf(`splitShellSegments(echo $(less foo)) = %#v, want a "less foo" segment`, segs)
+	}
+	// Nested substitutions track depth correctly: the inner ')' closes $(b ...),
+	// the outer ')' closes $(a ...), and neither leaks an empty/garbage segment.
+	nested := splitShellSegments(`a $(b $(c) d) e`)
+	for _, s := range nested {
+		if s == "" {
+			t.Fatalf("nested substitution produced an empty segment: %#v", nested)
+		}
+	}
+
+	// A ')' inside a double-quoted argument WITHIN a substitution is literal and
+	// must not close the $(...) early — otherwise a fake `less` segment appears.
+	for _, seg := range splitShellSegments(`echo $(printf "a) less")`) {
+		if seg == "less\"" || seg == "less" || strings.HasPrefix(seg, "less") {
+			t.Fatalf(`a quoted ')' closed the substitution early, producing %q in %#v`, seg, splitShellSegments(`echo $(printf "a) less")`))
+		}
+	}
+
+	// A real substitution still spanning double quotes (`"$(vim)"`) isolates the
+	// inner command so an interactive program inside it is still caught.
+	foundVim := false
+	for _, seg := range splitShellSegments(`echo "$(vim x)"`) {
+		if seg == "vim x" {
+			foundVim = true
+		}
+	}
+	if !foundVim {
+		t.Fatalf(`splitShellSegments(echo "$(vim x)") must isolate "vim x", got %#v`, splitShellSegments(`echo "$(vim x)"`))
+	}
+}
+
+func TestSplitShellSegmentsIsEscapeAware(t *testing.T) {
+	// An escaped operator outside quotes is literal and must not split.
+	if segs := splitShellSegments(`echo foo\|less`); len(segs) != 1 {
+		t.Fatalf(`splitShellSegments(echo foo\|less) = %#v, want a single segment`, segs)
+	}
+	// An escaped quote inside double quotes must not toggle quoting, so the '|'
+	// stays quoted and does not manufacture a fake `less` segment.
+	if segs := splitShellSegments(`printf "use \"| less"`); len(segs) != 1 {
+		t.Fatalf(`splitShellSegments(printf "use \"| less") = %#v, want a single segment`, segs)
+	}
+	// A real, unescaped operator still splits.
+	if segs := splitShellSegments(`a | less`); len(segs) != 2 {
+		t.Fatalf(`splitShellSegments(a | less) = %#v, want two segments`, segs)
+	}
+}
+
 func TestDetectInteractiveBypasses(t *testing.T) {
 	blocked := []string{
 		"/usr/bin/vim file.txt",     // absolute path
@@ -194,6 +263,8 @@ func TestDetectInteractiveBypasses(t *testing.T) {
 		"'vim' file.txt",            // single-quoted program
 		"echo $(vim file.txt)",      // command substitution
 		"echo `vim file.txt`",       // backtick substitution
+		"echo \"`true | less`\"",    // backtick in double quotes hides an inner pager
+		"echo \"$(true | less)\"",   // $() in double quotes hides an inner pager
 		"/bin/less /var/log/syslog", // absolute pager
 	}
 	for _, cmd := range blocked {
@@ -211,6 +282,40 @@ func TestDetectInteractiveBypasses(t *testing.T) {
 	for _, cmd := range allowed {
 		if got := DetectInteractiveCommand(cmd, "linux"); got.Interactive {
 			t.Errorf("expected %q NOT to be flagged interactive (got %q)", cmd, got.Command)
+		}
+	}
+}
+
+// Audit finding (MED): splitShellSegments must be quote-aware. A shell operator
+// inside quotes is a literal argument, not a separator, so it must not split the
+// command and falsely flag a quoted program name — while real, unquoted operators
+// must still split (no new false negatives).
+func TestDetectInteractiveQuoteAwareSeparators(t *testing.T) {
+	allowed := []string{
+		`git commit -m "use top | less"`, // | inside double quotes
+		`echo "a; vim b"`,                // ; inside double quotes
+		`echo 'pipe it: a | less'`,       // | inside single quotes
+		`git commit -m "vim && nano"`,    // && inside double quotes
+	}
+	for _, cmd := range allowed {
+		if got := DetectInteractiveCommand(cmd, "linux"); got.Interactive {
+			t.Errorf("expected %q NOT to be flagged (operator is quoted), got %q", cmd, got.Command)
+		}
+	}
+
+	blocked := []struct {
+		command string
+		wantCmd string
+	}{
+		{`echo hi | less`, "less"},            // real unquoted pipe
+		{`echo "safe" | vim`, "vim"},          // real pipe after a quoted arg
+		{`git commit -m "msg"; vim x`, "vim"}, // real ; after a quoted arg
+		{`echo "$(vim x)"`, "vim"},            // substitution still active in double quotes
+	}
+	for _, tc := range blocked {
+		got := DetectInteractiveCommand(tc.command, "linux")
+		if !got.Interactive || got.Command != tc.wantCmd {
+			t.Errorf("DetectInteractiveCommand(%q) = (%v,%q), want interactive %q", tc.command, got.Interactive, got.Command, tc.wantCmd)
 		}
 	}
 }

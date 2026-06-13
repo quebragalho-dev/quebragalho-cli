@@ -92,6 +92,9 @@ const (
 	ViolationNetwork            ViolationCode = "network"
 	ViolationDestructiveCommand ViolationCode = "destructive_command"
 	ViolationPersistentDeny     ViolationCode = "persistent_deny"
+	// ViolationPolicyDenied is the catch-all for a denied decision that carries no
+	// more specific violation code.
+	ViolationPolicyDenied ViolationCode = "policy_denied"
 )
 
 const (
@@ -136,6 +139,20 @@ type Policy struct {
 	// boundary. When the sandbox is not active the flag is ignored: unsandboxed
 	// bash is never auto-allowed. Off by default.
 	AutoAllowBashWhenSandboxed bool `json:"autoAllowBashWhenSandboxed,omitempty"`
+	// MonitorDenials, when true on macOS, tags the sandbox-exec profile's denials
+	// and tails `log stream` for them so blocked operations can be surfaced back to
+	// the agent. Off by default: it starts a `log stream` subprocess per command and
+	// appends a <sandbox_violations> note to the command's stderr, so it is opt-in.
+	// Ignored on non-macOS backends, and a no-op where the OS does not deliver
+	// seatbelt denials to the unified log.
+	MonitorDenials bool `json:"monitorDenials,omitempty"`
+	// BlockUnixSockets, when true on the bubblewrap (Linux) backend, prefixes the
+	// sandboxed command with the zero-seccomp helper to install a seccomp filter
+	// that denies AF_UNIX socket creation — closing the Unix-socket gap bubblewrap's
+	// filesystem/network isolation leaves open. Off by default; degrades gracefully
+	// (runs without the filter) when the helper binary is not found. Ignored on
+	// non-bubblewrap backends.
+	BlockUnixSockets bool `json:"blockUnixSockets,omitempty"`
 }
 
 type Request struct {

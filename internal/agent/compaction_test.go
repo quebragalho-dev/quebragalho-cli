@@ -152,6 +152,59 @@ func TestCompactPropagatesSummarizeError(t *testing.T) {
 	}
 }
 
+// scriptedSummaryProvider returns, per StreamCompletion call, either an error
+// event (when the script entry is non-empty) or a success text, so a test can
+// drive the recursive summarizeWithFallback split/reduce path deterministically.
+type scriptedSummaryProvider struct {
+	calls   int
+	scripts []string
+}
+
+func (p *scriptedSummaryProvider) StreamCompletion(_ context.Context, _ zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+	i := p.calls
+	p.calls++
+	if i < len(p.scripts) && p.scripts[i] != "" {
+		return streamEvents([]zeroruntime.StreamEvent{{Type: zeroruntime.StreamEventError, Error: p.scripts[i]}}), nil
+	}
+	return streamEvents([]zeroruntime.StreamEvent{
+		{Type: zeroruntime.StreamEventText, Content: "PARTIAL"},
+		{Type: zeroruntime.StreamEventDone},
+	}), nil
+}
+
+func TestSummarizeWithFallbackPropagatesNonContextReduceError(t *testing.T) {
+	msgs := []zeroruntime.Message{
+		{Role: zeroruntime.MessageRoleUser, Content: "a"},
+		{Role: zeroruntime.MessageRoleAssistant, Content: "b"},
+	}
+	ctxLimit := "This model's maximum context length is 1000 tokens. Please reduce the length of the messages."
+	// call 1 (full slice): context-limit → split; calls 2,3 (halves): succeed;
+	// call 4 (reduce of the two partials): a NON-context provider error that must
+	// surface unchanged rather than be masked by the joined-text fallback.
+	provider := &scriptedSummaryProvider{scripts: []string{ctxLimit, "", "", "provider request failed: 401 unauthorized"}}
+	if _, err := summarizeWithFallback(context.Background(), provider, msgs, func(Usage) {}); err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("a non-context reduce error must surface, got %v", err)
+	}
+}
+
+func TestSummarizeWithFallbackUsesJoinedTextOnContextLimitReduce(t *testing.T) {
+	msgs := []zeroruntime.Message{
+		{Role: zeroruntime.MessageRoleUser, Content: "a"},
+		{Role: zeroruntime.MessageRoleAssistant, Content: "b"},
+	}
+	ctxLimit := "This model's maximum context length is 1000 tokens. Please reduce the length of the messages."
+	// Same split, but the reduce also hits a context-limit: fall back to the joined
+	// partial summaries instead of failing.
+	provider := &scriptedSummaryProvider{scripts: []string{ctxLimit, "", "", ctxLimit}}
+	got, err := summarizeWithFallback(context.Background(), provider, msgs, func(Usage) {})
+	if err != nil {
+		t.Fatalf("a context-limit reduce must fall back to joined text, got error %v", err)
+	}
+	if !strings.Contains(got, "PARTIAL") {
+		t.Fatalf("joined fallback should contain the partial summaries, got %q", got)
+	}
+}
+
 // --- estimateTokens tests -------------------------------------------------
 
 func TestEstimateTokensMonotonic(t *testing.T) {
@@ -177,6 +230,54 @@ func TestEstimateTokensCountsToolCallsAndResults(t *testing.T) {
 	}}
 	if estimateTokens(withCall) <= estimateTokens(plain) {
 		t.Fatal("expected tool-call arguments to increase the token estimate")
+	}
+}
+
+func TestEstimateTokensCountsImages(t *testing.T) {
+	// A tiny image carries far more model tokens than its text content suggests;
+	// the estimate must rise with each image so an image-heavy context still
+	// trends toward compaction instead of reading as ~0.
+	plain := []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "look"}}
+	withImage := []zeroruntime.Message{{
+		Role:    zeroruntime.MessageRoleUser,
+		Content: "look",
+		Images:  []zeroruntime.ImageBlock{{MediaType: "image/png", Data: []byte("tiny")}},
+	}}
+	twoImages := []zeroruntime.Message{{
+		Role:    zeroruntime.MessageRoleUser,
+		Content: "look",
+		Images: []zeroruntime.ImageBlock{
+			{MediaType: "image/png", Data: []byte("tiny")},
+			{MediaType: "image/png", Data: []byte("tiny")},
+		},
+	}}
+	if estimateTokens(withImage) <= estimateTokens(plain) {
+		t.Fatal("expected an image to increase the token estimate")
+	}
+	if estimateTokens(twoImages) <= estimateTokens(withImage) {
+		t.Fatal("expected the estimate to grow with image count")
+	}
+}
+
+func TestEstimateToolDefTokensCountsDefinitions(t *testing.T) {
+	if got := estimateToolDefTokens(nil); got != 0 {
+		t.Fatalf("no tools should estimate 0 tokens, got %d", got)
+	}
+	one := []zeroruntime.ToolDefinition{{
+		Name:        "read_file",
+		Description: "Read a file from the workspace and return its contents.",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}},
+	}}
+	if estimateToolDefTokens(one) <= 0 {
+		t.Fatal("a tool definition (name + description + schema) should estimate > 0 tokens")
+	}
+	two := append(append([]zeroruntime.ToolDefinition{}, one...), zeroruntime.ToolDefinition{
+		Name:        "write_file",
+		Description: "Write contents to a file in the workspace.",
+		Parameters:  map[string]any{"type": "object"},
+	})
+	if estimateToolDefTokens(two) <= estimateToolDefTokens(one) {
+		t.Fatal("the estimate must grow with more tool definitions")
 	}
 }
 
@@ -491,7 +592,7 @@ func TestRecoverNoopDoesNotConsumeReactiveBudget(t *testing.T) {
 		{Role: zeroruntime.MessageRoleSystem, Content: "sys"},
 		{Role: zeroruntime.MessageRoleUser, Content: "hi"},
 	}
-	_, retried, err := st.recover(context.Background(), provider, tiny, "context length exceeded")
+	_, retried, err := st.recover(context.Background(), provider, tiny, nil, "context length exceeded")
 	if err != nil {
 		t.Fatalf("unexpected error from no-op recover: %v", err)
 	}
@@ -511,7 +612,7 @@ func TestRecoverNoopDoesNotConsumeReactiveBudget(t *testing.T) {
 		{Role: zeroruntime.MessageRoleAssistant, Content: "a2"},
 		{Role: zeroruntime.MessageRoleUser, Content: "u3"},
 	}
-	compacted, retried, err := st.recover(context.Background(), provider, big, "context length exceeded")
+	compacted, retried, err := st.recover(context.Background(), provider, big, nil, "context length exceeded")
 	if err != nil {
 		t.Fatalf("unexpected error from second recover: %v", err)
 	}
@@ -534,7 +635,7 @@ func TestRecoverDisabledIsNoop(t *testing.T) {
 	// context-limit error string.
 	got, retried, err := st.recover(context.Background(), &mockProvider{turns: [][]zeroruntime.StreamEvent{{
 		{Type: zeroruntime.StreamEventText, Content: "should not be called"}, {Type: zeroruntime.StreamEventDone},
-	}}}, msgs, "context length exceeded")
+	}}}, msgs, nil, "context length exceeded")
 	_ = called
 	if retried || err != nil || len(got) != 1 {
 		t.Fatalf("disabled recover must be a no-op, got retried=%v err=%v len=%d", retried, err, len(got))

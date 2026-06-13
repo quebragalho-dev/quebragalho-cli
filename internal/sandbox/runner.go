@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 )
 
 const bubblewrapWorkspace = "/workspace"
@@ -33,6 +34,11 @@ type CommandPlan struct {
 	Dir           string   `json:"dir,omitempty"`
 	Env           []string `json:"env,omitempty"`
 	SandboxDir    string   `json:"sandboxDir,omitempty"`
+	// MonitorTag, when non-empty, is the unique marker embedded in the
+	// sandbox-exec profile's denial messages; a caller passes it to
+	// StartDenialMonitor to capture what the sandbox blocked. Empty unless
+	// Policy.MonitorDenials is set on a macOS sandbox-exec plan.
+	MonitorTag string `json:"monitorTag,omitempty"`
 	// cleanup releases resources tied to the plan's lifetime — currently the
 	// scoped-egress proxy, which must outlive the command run and be shut down
 	// afterwards. It is never serialized; callers invoke it via Cleanup() once the
@@ -64,12 +70,22 @@ func effectiveNetwork(policy Policy) NetworkMode {
 	return policy.Network
 }
 
-// scopedProxyEnv returns the proxy environment variables that route a sandboxed
-// process's HTTP(S) traffic through the local filtering proxy at addr. Both
-// upper- and lower-case forms are set because different clients read different
-// casings. localhost is excluded so loopback (the proxy itself) is reached
-// directly.
-func scopedProxyEnv(addr string) []string {
+// ProxyEnv returns the proxy environment variables that route a process's
+// HTTP(S) traffic through the local filtering proxy at addr. It is the single
+// source of truth for proxy-env injection so every network-capable child (the
+// sandboxed shell today; MCP spawns and others when wired to a session proxy)
+// uses identical settings. Both upper- and lower-case forms are set because
+// different clients read different casings; loopback is excluded via NO_PROXY so
+// the proxy itself is reached directly.
+//
+// Note: clients that honor these vars include Go's default HTTP transport (so the
+// web_fetch tool, which clones http.DefaultTransport, already routes through a
+// configured proxy) and MCP child processes (mergeProcessEnv inherits os.Environ).
+// Routing those through a SCOPED proxy therefore only needs a session-level proxy
+// whose address is exposed to the agent process — but that must allowlist the
+// active LLM provider's domain first, or the agent's own provider calls would be
+// blocked. That session-proxy lifecycle is intentionally not wired here.
+func ProxyEnv(addr string) []string {
 	proxyURL := "http://" + addr
 	return []string{
 		"HTTP_PROXY=" + proxyURL,
@@ -307,8 +323,19 @@ func bubblewrapCommandPlan(spec CommandSpec, workspaceRoot string, relativeDir s
 			args = append(args, "--setenv", key, value)
 		}
 	}
-	args = append(args, "--", spec.Name)
-	args = append(args, spec.Args...)
+	// Optionally install the seccomp Unix-socket filter by prefixing the command
+	// with the zero-seccomp helper, bound read-only into the sandbox at its host
+	// path. Off by default; if the helper is not found the command runs without
+	// the filter (bubblewrap's filesystem/network isolation still applies).
+	command := append([]string{spec.Name}, spec.Args...)
+	if policy.BlockUnixSockets {
+		if helper := seccompHelper(); helper != "" {
+			args = append(args, "--ro-bind", helper, helper)
+			command = append([]string{helper}, command...)
+		}
+	}
+	args = append(args, "--")
+	args = append(args, command...)
 	return CommandPlan{
 		Backend:       backend,
 		WorkspaceRoot: workspaceRoot,
@@ -320,6 +347,32 @@ func bubblewrapCommandPlan(spec CommandSpec, workspaceRoot string, relativeDir s
 	}
 }
 
+// seccompHelper resolves the zero-seccomp wrapper used to install the AF_UNIX
+// seccomp filter inside the bubblewrap sandbox (Policy.BlockUnixSockets). It is a
+// package var so tests can stub discovery; it returns "" when the helper is not
+// found, in which case the sandbox runs without the extra filter rather than
+// failing the command.
+var seccompHelper = findSeccompHelper
+
+// findSeccompHelper looks for the zero-seccomp helper next to the running
+// executable first (the expected install layout), then on PATH. It returns ""
+// when no helper is available.
+func findSeccompHelper() string {
+	if exe, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "zero-seccomp")
+		// Require an executable regular file: selecting a present-but-non-executable
+		// file would make the sandboxed command fail with EACCES instead of degrading
+		// gracefully. (exec.LookPath below applies the same check on PATH.)
+		if info, statErr := os.Stat(candidate); statErr == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			return candidate
+		}
+	}
+	if path, err := exec.LookPath("zero-seccomp"); err == nil {
+		return path
+	}
+	return ""
+}
+
 func sandboxExecCommandPlan(spec CommandSpec, workspaceRoot string, writeRoots []string, policy Policy, backend Backend, egress *scopedEgress) CommandPlan {
 	var proxyPort string
 	if egress != nil {
@@ -327,11 +380,15 @@ func sandboxExecCommandPlan(spec CommandSpec, workspaceRoot string, writeRoots [
 			proxyPort = port
 		}
 	}
-	args := []string{"-p", sandboxExecProfile(writeRoots, policy, proxyPort), spec.Name}
+	denialTag := ""
+	if policy.MonitorDenials {
+		denialTag = nextSandboxDenialTag()
+	}
+	args := []string{"-p", sandboxExecProfile(writeRoots, policy, proxyPort, denialTag), spec.Name}
 	args = append(args, spec.Args...)
 	env := sandboxEnvironment(policy, BackendSandboxExec, workspaceRoot)
 	if egress != nil {
-		env = append(env, scopedProxyEnv(egress.addr)...)
+		env = append(env, ProxyEnv(egress.addr)...)
 	}
 	plan := CommandPlan{
 		Backend:       backend,
@@ -347,6 +404,9 @@ func sandboxExecCommandPlan(spec CommandSpec, workspaceRoot string, writeRoots [
 	if egress != nil {
 		plan.cleanup = egress.cleanup
 	}
+	// The plan's monitor tag MUST equal the one embedded in the profile above so the
+	// monitor matches exactly this run's denials.
+	plan.MonitorTag = denialTag
 	return plan
 }
 
@@ -426,7 +486,61 @@ var sandboxWritableSubpaths = []string{
 	"/dev/fd",
 }
 
-func sandboxExecProfile(writeRoots []string, policy Policy, proxyPort string) string {
+// sandboxMachServices is the curated allowlist of Mach services a sandboxed
+// command may look up. Under the seatbelt default-deny, XPC to common system
+// daemons is otherwise blocked, so tools that touch the keychain
+// (securityd/trustd), user/group lookup (opendirectoryd), preferences
+// (cfprefsd), network config (SystemConfiguration), launch services, or the
+// pasteboard fail. None of these grant filesystem or network access — those stay
+// governed by the file-write and network rules below — so the workspace boundary
+// is unaffected.
+var sandboxMachServices = []string{
+	"com.apple.system.opendirectoryd.libinfo",
+	"com.apple.system.opendirectoryd.membership",
+	"com.apple.system.opendirectoryd.api",
+	"com.apple.system.logger",
+	"com.apple.logd",
+	"com.apple.cfprefsd.daemon",
+	"com.apple.cfprefsd.agent",
+	"com.apple.securityd",
+	"com.apple.securityd.xpc",
+	"com.apple.SecurityServer",
+	"com.apple.trustd",
+	"com.apple.trustd.agent",
+	"com.apple.SystemConfiguration.configd",
+	"com.apple.SystemConfiguration.DNSConfiguration",
+	"com.apple.lsd.mapdb",
+	"com.apple.coreservices.launchservicesd",
+	"com.apple.pasteboard.1",
+}
+
+// sandboxDenialLogTag is the base marker for a sandbox-exec denial in the unified
+// log when Policy.MonitorDenials is set; nextSandboxDenialTag derives a unique
+// per-plan tag from it so the runtime monitor can find this run's denials via
+// `log stream`.
+const sandboxDenialLogTag = "zero-sandbox-denied-v1"
+
+// sandboxDenialTagSeq makes each monitored plan's denial tag unique.
+var sandboxDenialTagSeq atomic.Uint64
+
+// nextSandboxDenialTag returns a process-unique denial tag. Without uniqueness,
+// two concurrent monitored commands share one marker and StartDenialMonitor —
+// which filters `log stream` only by tag — would ingest each other's denials,
+// leaking unrelated paths/hosts into the wrong <sandbox_violations> block. The pid
+// disambiguates across processes; the counter across plans within a process.
+func nextSandboxDenialTag() string {
+	return fmt.Sprintf("%s-%d-%d", sandboxDenialLogTag, os.Getpid(), sandboxDenialTagSeq.Add(1))
+}
+
+func sandboxMachLookupRule() string {
+	filters := make([]string, 0, len(sandboxMachServices))
+	for _, service := range sandboxMachServices {
+		filters = append(filters, `(global-name "`+sandboxProfileString(service)+`")`)
+	}
+	return "(allow mach-lookup\n  " + strings.Join(filters, "\n  ") + ")"
+}
+
+func sandboxExecProfile(writeRoots []string, policy Policy, proxyPort string, denialTag string) string {
 	networkRule := networkRuleFor(policy, proxyPort)
 	writeRule := "(allow file-write*)"
 	if policy.EnforceWorkspace {
@@ -445,11 +559,24 @@ func sandboxExecProfile(writeRoots []string, policy Policy, proxyPort string) st
 		}
 		writeRule = "(allow file-write*\n  " + strings.Join(filters, "\n  ") + ")"
 	}
+	denyDefault := "(deny default)"
+	if denialTag != "" {
+		// Tag denials so the runtime log monitor can attribute them to THIS run; the
+		// message is emitted to the unified log on every deny and StartDenialMonitor
+		// filters `log stream` for this exact (per-plan) tag.
+		denyDefault = `(deny default (with message "` + sandboxProfileString(denialTag) + `"))`
+	}
 	return strings.Join([]string{
 		"(version 1)",
-		"(deny default)",
+		denyDefault,
 		"(allow process*)",
 		"(allow sysctl-read)",
+		// Let a sandboxed command signal itself and its own process group so scripts
+		// that spawn and kill children (e.g. `sleep 30 & kill %1`, test runners,
+		// timeouts) work. The target restriction keeps it from signalling any
+		// process outside its own group.
+		"(allow signal (target self) (target pgrp))",
+		sandboxMachLookupRule(),
 		"(allow file-read*)",
 		writeRule,
 		networkRule,

@@ -1,0 +1,240 @@
+package sandbox
+
+import (
+	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
+)
+
+// AnalysisResult is a static, AST-based assessment of a shell script. It is a
+// more precise second opinion than the regex detector in safe_command.go:
+// because it walks the parsed command tree, a program name is only counted when
+// it is an actual command, never when it appears inside a quoted argument (so
+// `echo "git rebase -i"` and `node -e "require('repl').start()"` are clean).
+type AnalysisResult struct {
+	Interactive bool
+	Destructive bool
+	Network     bool
+	// TooComplex is set when the script cannot be parsed (obfuscated or invalid),
+	// so a caller can treat it as higher-risk instead of trusting a clean result.
+	TooComplex bool
+	// Programs lists the distinct top-level command names found, for diagnostics.
+	Programs []string
+}
+
+// destructivePrograms are commands that can irrecoverably destroy data.
+var destructivePrograms = map[string]bool{
+	"mkfs": true, "fdisk": true, "shred": true, "dd": true, "parted": true,
+}
+
+// networkPrograms are commands that perform network egress/ingress.
+var networkPrograms = map[string]bool{
+	"curl": true, "wget": true, "ssh": true, "scp": true, "sftp": true,
+	"rsync": true, "nc": true, "ncat": true, "netcat": true, "telnet": true,
+	"ftp": true,
+}
+
+// AnalyzeCommand parses script and reports interactive/destructive/network usage
+// from the shell AST. A script that cannot be parsed yields TooComplex (with no
+// other flags set) so the caller can decide how to treat an unanalyzable command.
+// maxAnalyzerDepth bounds recursion into `sh -c <payload>` launchers so a
+// pathologically nested script cannot cause unbounded work.
+const maxAnalyzerDepth = 4
+
+// shellPrograms run their `-c` argument as a fresh command, so the analyzer
+// recurses into that payload instead of classifying on the shell name.
+var shellPrograms = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "ksh": true, "dash": true,
+}
+
+func AnalyzeCommand(script string) AnalysisResult {
+	result := AnalysisResult{}
+	if strings.TrimSpace(script) == "" {
+		return result
+	}
+	analyzeInto(script, &result, map[string]bool{}, 0)
+	return result
+}
+
+// analyzeInto parses script and folds its interactive/destructive/network usage
+// into result, sharing seen so program names are de-duplicated across recursion.
+func analyzeInto(script string, result *AnalysisResult, seen map[string]bool, depth int) {
+	file, err := syntax.NewParser().Parse(strings.NewReader(script), "")
+	if err != nil {
+		result.TooComplex = true
+		return
+	}
+	syntax.Walk(file, func(node syntax.Node) bool {
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		// Resolve the real program behind wrapper prefixes (sudo, env, nice, ...)
+		// so `sudo rm -rf`, `env curl …`, and `bash -c 'vim x'` are classified on
+		// the payload, not the launcher — matching DetectInteractiveCommand.
+		prog, rest := effectiveProgram(call.Args)
+		if prog == "" {
+			return true
+		}
+		if !seen[prog] {
+			seen[prog] = true
+			result.Programs = append(result.Programs, prog)
+		}
+		// `sh -c <payload>` runs the payload as a fresh command; recurse into it so
+		// a program hidden behind a shell launcher is still classified.
+		if depth < maxAnalyzerDepth && shellPrograms[prog] {
+			if payload := dashCPayload(rest); payload != "" {
+				analyzeInto(payload, result, seen, depth+1)
+			}
+		}
+		if _, interactive := interactivePrograms[prog]; interactive && !replSuppressed(prog, rest) {
+			result.Interactive = true
+		}
+		if networkPrograms[prog] {
+			result.Network = true
+		}
+		if destructivePrograms[prog] || (prog == "rm" && hasRecursiveForce(rest)) {
+			result.Destructive = true
+		}
+		return true
+	})
+}
+
+// wordText returns the literal text of a shell word, concatenating its plain and
+// quoted literal parts (so "vim", 'vim', and vim all yield "vim"). Parts that are
+// expansions ($x, $(...)) contribute nothing — the program name is taken as-is.
+func wordText(word *syntax.Word) string {
+	if word == nil {
+		return ""
+	}
+	var builder strings.Builder
+	for _, part := range word.Parts {
+		switch typed := part.(type) {
+		case *syntax.Lit:
+			builder.WriteString(typed.Value)
+		case *syntax.SglQuoted:
+			builder.WriteString(typed.Value)
+		case *syntax.DblQuoted:
+			for _, inner := range typed.Parts {
+				if lit, ok := inner.(*syntax.Lit); ok {
+					builder.WriteString(lit.Value)
+				}
+			}
+		}
+	}
+	return builder.String()
+}
+
+// effectiveProgram resolves the real command behind wrapper prefixes (sudo, env,
+// nice, timeout, ...) and their consumed option values in an AST arg list,
+// returning the program token and the args that follow it. It mirrors
+// firstProgram in safe_command.go. An expansion-only program word ($x) yields ""
+// because it cannot be classified statically.
+func effectiveProgram(args []*syntax.Word) (string, []*syntax.Word) {
+	wrapper := ""
+	for index := 0; index < len(args); index++ {
+		text := wordText(args[index])
+		if text == "" {
+			// A dynamic ($x) token in the PROGRAM position can't be classified, so
+			// fail closed. But once we're past a wrapper, a dynamic arg is most
+			// likely a wrapper flag/value — keep scanning so the literal payload that
+			// follows is still classified (e.g. `env "$opts" curl …`).
+			if wrapper == "" {
+				return "", nil
+			}
+			continue
+		}
+		if strings.Contains(text, "=") && !strings.HasPrefix(text, "=") {
+			continue // env-assignment prefix (e.g. `env FOO=bar cmd`)
+		}
+		if strings.HasPrefix(text, "-") {
+			// Only consume the next token as a value when the ACTIVE wrapper says
+			// this flag takes one; otherwise a valueless flag (e.g. `sudo -n`) would
+			// swallow the real payload command (`rm`/`curl`).
+			if wrapperConsumesValue(wrapper, text) && index+1 < len(args) {
+				index++
+			}
+			continue
+		}
+		if isNumericToken(text) {
+			continue
+		}
+		token := normalizeProgramToken(text)
+		if wrapperPrograms[token] {
+			wrapper = token
+			continue
+		}
+		return token, args[index+1:]
+	}
+	return "", nil
+}
+
+// dashCPayload returns the literal text of the word following `-c` in an AST arg
+// list (the command a shell launcher will run), or "" when there is none.
+func dashCPayload(args []*syntax.Word) string {
+	for index := 0; index < len(args); index++ {
+		if wordText(args[index]) == "-c" && index+1 < len(args) {
+			return wordText(args[index+1])
+		}
+	}
+	return ""
+}
+
+// replSuppressed reports whether a REPL program (python/node/...) was invoked
+// non-interactively — with an inline-eval flag or a script argument — mirroring
+// nonInteractiveREPLFlags used by the regex detector. Non-REPL interactive
+// programs are never suppressed.
+func replSuppressed(prog string, args []*syntax.Word) bool {
+	flags, isREPL := nonInteractiveREPLFlags[prog]
+	if !isREPL {
+		return false
+	}
+	for _, arg := range args {
+		text := wordText(arg)
+		if text == "" {
+			continue
+		}
+		for _, flag := range flags {
+			if text == flag || strings.HasPrefix(text, flag+"=") {
+				return true
+			}
+		}
+		// A bare (non-flag) argument is a script path, e.g. `python app.py`.
+		if !strings.HasPrefix(text, "-") {
+			return true
+		}
+	}
+	return false
+}
+
+// hasRecursiveForce reports whether an rm argument list contains both recursive
+// and force flags (-rf, -r -f, --recursive --force, ...), the destructive form.
+func hasRecursiveForce(args []*syntax.Word) bool {
+	recursive, force := false, false
+	for _, arg := range args {
+		text := wordText(arg)
+		switch {
+		case text == "--":
+			// End-of-options: every later token is an operand (a filename), so a
+			// trailing `-rf`/`--force` is literal. `rm -- -rf` deletes a file named
+			// "-rf" and must not be treated as the destructive recursive-force form.
+			return recursive && force
+		case text == "--recursive":
+			recursive = true
+		case text == "--force":
+			force = true
+		case strings.HasPrefix(text, "--"):
+			// other long flag — ignore
+		case strings.HasPrefix(text, "-"):
+			for _, char := range text[1:] {
+				switch char {
+				case 'r', 'R':
+					recursive = true
+				case 'f':
+					force = true
+				}
+			}
+		}
+	}
+	return recursive && force
+}

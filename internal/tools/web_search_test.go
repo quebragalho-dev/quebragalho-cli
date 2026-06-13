@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	zeroSandbox "github.com/Gitlawb/zero/internal/sandbox"
 )
 
 type fakeSearchBackend struct {
@@ -135,5 +137,104 @@ func TestHTTPSearchBackendSendsProviderAndParsesResults(t *testing.T) {
 	}
 	if gotBody["query"] != "q" {
 		t.Fatalf("query not forwarded: %#v", gotBody)
+	}
+}
+
+type fakeHostedBackend struct {
+	host    string
+	results []searchResult
+	called  bool
+}
+
+func (b *fakeHostedBackend) Search(context.Context, string, int) ([]searchResult, error) {
+	b.called = true
+	return b.results, nil
+}
+
+func (b *fakeHostedBackend) endpointHost() string { return b.host }
+
+func TestHTTPSearchBackendEndpointHost(t *testing.T) {
+	backend := &httpSearchBackend{baseURL: "https://api.search.example:8443/v1/search"}
+	if got := backend.endpointHost(); got != "api.search.example" {
+		t.Fatalf("endpointHost = %q, want api.search.example", got)
+	}
+}
+
+func TestWebSearchRunWithSandboxBlocksUnderDeny(t *testing.T) {
+	backend := &fakeHostedBackend{host: "search.example"}
+	tool := newWebSearchToolWithBackend(backend).(webSearchTool)
+	engine := zeroSandbox.NewEngine(zeroSandbox.EngineOptions{
+		Policy: zeroSandbox.Policy{Mode: zeroSandbox.ModeEnforce, Network: zeroSandbox.NetworkDeny},
+	})
+	res := tool.RunWithSandbox(context.Background(), map[string]any{"query": "hi"}, engine)
+	if res.Status != StatusError || !strings.Contains(res.Output, "disabled") {
+		t.Fatalf("expected deny block, got %q: %s", res.Status, res.Output)
+	}
+	if backend.called {
+		t.Fatal("search backend must not be called under network deny")
+	}
+}
+
+func TestWebSearchRunWithSandboxScopedBlocksUnlistedHost(t *testing.T) {
+	backend := &fakeHostedBackend{host: "search.example"}
+	tool := newWebSearchToolWithBackend(backend).(webSearchTool)
+	engine := zeroSandbox.NewEngine(zeroSandbox.EngineOptions{
+		Policy: zeroSandbox.Policy{Mode: zeroSandbox.ModeEnforce, Network: zeroSandbox.NetworkScoped, AllowedDomains: []string{"allowed.test"}},
+		Backend: zeroSandbox.Backend{
+			Name: zeroSandbox.BackendSandboxExec, Available: true,
+			Executable: "/usr/bin/sandbox-exec", ScopedEgress: true,
+		},
+	})
+	res := tool.RunWithSandbox(context.Background(), map[string]any{"query": "hi"}, engine)
+	if res.Status != StatusError || !strings.Contains(res.Output, "allowlist") {
+		t.Fatalf("expected scoped block, got %q: %s", res.Status, res.Output)
+	}
+	if backend.called {
+		t.Fatal("search backend must not be called for an unlisted host")
+	}
+}
+
+func TestWebSearchRunWithSandboxScopedAllowsListedHost(t *testing.T) {
+	backend := &fakeHostedBackend{host: "search.example", results: []searchResult{{Title: "T", URL: "https://x.test"}}}
+	tool := newWebSearchToolWithBackend(backend).(webSearchTool)
+	engine := zeroSandbox.NewEngine(zeroSandbox.EngineOptions{
+		Policy: zeroSandbox.Policy{Mode: zeroSandbox.ModeEnforce, Network: zeroSandbox.NetworkScoped, AllowedDomains: []string{"search.example"}},
+		Backend: zeroSandbox.Backend{
+			Name: zeroSandbox.BackendSandboxExec, Available: true,
+			Executable: "/usr/bin/sandbox-exec", ScopedEgress: true,
+		},
+	})
+	res := tool.RunWithSandbox(context.Background(), map[string]any{"query": "hi"}, engine)
+	if res.Status != StatusOK {
+		t.Fatalf("listed host must be allowed, got %q: %s", res.Status, res.Output)
+	}
+	if !backend.called {
+		t.Fatal("search backend must be called when the host is allowlisted")
+	}
+}
+
+func TestSameHostRedirectPolicy(t *testing.T) {
+	orig, _ := http.NewRequest(http.MethodGet, "https://search.example/api", nil)
+	same, _ := http.NewRequest(http.MethodGet, "https://search.example/v2/api", nil)
+	cross, _ := http.NewRequest(http.MethodGet, "https://evil.test/x", nil)
+
+	if err := sameHostRedirectPolicy(same, []*http.Request{orig}); err != nil {
+		t.Fatalf("same-host redirect must be allowed, got %v", err)
+	}
+	if err := sameHostRedirectPolicy(cross, []*http.Request{orig}); err == nil {
+		t.Fatal("cross-host redirect must be refused so scoped/deny can't be bypassed via a hop")
+	}
+	// A same-host HTTPS→HTTP downgrade must be refused (it would leak the query and
+	// bearer token over plaintext).
+	downgrade, _ := http.NewRequest(http.MethodGet, "http://search.example/api", nil)
+	if err := sameHostRedirectPolicy(downgrade, []*http.Request{orig}); err == nil {
+		t.Fatal("https→http downgrade redirect must be refused")
+	}
+	chain := make([]*http.Request, webSearchRedirectLimit)
+	for i := range chain {
+		chain[i] = orig
+	}
+	if err := sameHostRedirectPolicy(same, chain); err == nil {
+		t.Fatal("redirect limit must be enforced")
 	}
 }

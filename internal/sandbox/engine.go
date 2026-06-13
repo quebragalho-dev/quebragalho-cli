@@ -65,6 +65,50 @@ func (engine *Engine) Scope() *Scope {
 	return engine.scope
 }
 
+// effectiveNetworkMode is the single source of truth for the engine's active
+// network mode: it collapses an empty-allowlist scoped policy to deny, and ALSO
+// downgrades scoped to deny when the backend cannot actually route scoped egress
+// (only sandbox-exec can; bubblewrap's isolated netns and policy-only cannot), so
+// a scoped policy that can't be enforced fails closed. Both Evaluate and
+// NetworkHostAllowed go through this so the engine-level decision and the
+// per-tool gate never diverge.
+func (engine *Engine) effectiveNetworkMode(policy Policy) NetworkMode {
+	mode := effectiveNetwork(policy)
+	if mode == NetworkScoped && !engine.backend.EnforcesScopedEgress() {
+		return NetworkDeny
+	}
+	return mode
+}
+
+// NetworkHostAllowed reports whether the engine's policy permits a network
+// connection to host, plus the effective network mode that decided it. It is the
+// shared gate so non-shell network tools (e.g. web_fetch) honor the SAME
+// allow/deny/scoped policy — including the backend-aware fail-closed downgrade —
+// that Evaluate and the bash egress proxy enforce, rather than each tool
+// reimplementing domain matching. host may include a :port; only the hostname is
+// matched. A disabled policy or nil engine allows everything (network tools keep
+// their pre-sandbox behaviour); deny blocks everything; scoped allows only hosts
+// in AllowedDomains minus DeniedDomains (an empty allowlist, or a backend that
+// can't enforce scoped egress, collapses to deny).
+func (engine *Engine) NetworkHostAllowed(host string) (bool, NetworkMode) {
+	if engine == nil {
+		return true, NetworkAllow
+	}
+	policy := engine.policy
+	if policy.Mode == ModeDisabled {
+		return true, NetworkAllow
+	}
+	switch mode := engine.effectiveNetworkMode(policy); mode {
+	case NetworkAllow:
+		return true, mode
+	case NetworkScoped:
+		allowed := domainAllowed(host, normalizeDomains(policy.AllowedDomains), normalizeDomains(policy.DeniedDomains))
+		return allowed, mode
+	default:
+		return false, NetworkDeny
+	}
+}
+
 // scopeFor returns the scope to validate request paths against. The engine's
 // shared scope applies only when the request targets the engine's own
 // workspace root; a per-request override root gets an ad-hoc single-root scope
@@ -94,6 +138,38 @@ func (engine *Engine) shellSandboxActive(policy Policy) bool {
 	}
 	backend := engine.backend
 	return backend.Available && backend.Executable != "" && backend.CommandWrapping && backend.NativeIsolation
+}
+
+// Precheck reports the sandbox violations that would block a tool request BEFORE
+// it executes, so a caller (e.g. a batch confirmation or a "would this run?"
+// check) can fail fast and surface the reason instead of discovering it mid-run.
+// It reuses Evaluate, so policy is never duplicated: a request the engine would
+// allow or merely prompt for yields no violations; a denied request yields its
+// violation. A nil engine (sandbox disabled) yields no violations.
+func (engine *Engine) Precheck(ctx context.Context, request Request) []Violation {
+	if engine == nil {
+		return nil
+	}
+	return violationsFromDecision(engine.Evaluate(ctx, request))
+}
+
+// violationsFromDecision extracts the blocking violations from a decision. Only a
+// deny carries one; Evaluate sets Decision.Violation for policy denials, and the
+// fallback synthesizes one for the rare deny without a structured violation so a
+// caller always gets a reason.
+func violationsFromDecision(decision Decision) []Violation {
+	if decision.Action != ActionDeny {
+		return nil
+	}
+	if decision.Violation != nil {
+		return []Violation{*decision.Violation}
+	}
+	return []Violation{{
+		Code:   ViolationPolicyDenied,
+		Action: ActionDeny,
+		Risk:   decision.Risk,
+		Reason: decision.ErrorString(),
+	}}
 }
 
 func (engine *Engine) Evaluate(ctx context.Context, request Request) Decision {
@@ -152,16 +228,13 @@ func (engine *Engine) Evaluate(ctx context.Context, request Request) Decision {
 			}
 		}
 	}
-	// effectiveNetwork collapses an empty-allowlist scoped policy to deny, so a
-	// misconfigured scoped policy still fails closed here. A populated scoped policy
-	// permits network-risk tools ONLY when the active backend can actually route
-	// through the filtering proxy; otherwise (bubblewrap's isolated netns has no
-	// bridge, policy-only has no isolation) the allowlist is unenforceable and must
-	// fail closed rather than run with unrestricted networking. Allow is unchanged.
-	netMode := effectiveNetwork(policy)
-	if netMode == NetworkScoped && !engine.backend.EnforcesScopedEgress() {
-		netMode = NetworkDeny
-	}
+	// effectiveNetworkMode collapses an empty-allowlist scoped policy to deny, and
+	// downgrades scoped to deny when the backend can't route through the filtering
+	// proxy (bubblewrap's isolated netns has no bridge, policy-only has no
+	// isolation) — so a scoped policy that can't be enforced fails closed rather
+	// than running with unrestricted networking. Shared with NetworkHostAllowed so
+	// the per-tool gate can't diverge from this decision. Allow is unchanged.
+	netMode := engine.effectiveNetworkMode(policy)
 	if netMode == NetworkDeny && HasRiskCategory(risk, "network") {
 		return deny(request, risk, ViolationNetwork, "", "network access is blocked by sandbox policy", false)
 	}

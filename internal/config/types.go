@@ -68,6 +68,18 @@ type SandboxConfig struct {
 	// flags only — deliberately not project config, so a cloned repo cannot
 	// grant itself write access. Session-only grants use /add-dir instead.
 	AdditionalWriteRoots []string `json:"additionalWriteRoots,omitempty"`
+	// BlockUnixSockets, when true, installs a seccomp filter on the Linux
+	// (bubblewrap) backend that denies AF_UNIX socket creation in the sandboxed
+	// command, closing the Unix-socket channel bubblewrap's filesystem/network
+	// isolation leaves open. Off by default; degrades gracefully (runs without the
+	// filter) when the zero-seccomp helper is not installed. Ignored on other
+	// backends.
+	BlockUnixSockets bool `json:"blockUnixSockets,omitempty"`
+	// MonitorDenials, when true on macOS, tails the unified log for this run's
+	// sandbox denials and appends them to a command's stderr so blocked operations
+	// are visible to the agent. Off by default. No-op on platforms/OS versions that
+	// do not deliver seatbelt denials to the queryable log.
+	MonitorDenials bool `json:"monitorDenials,omitempty"`
 }
 
 type NotifyConfig struct {
@@ -203,6 +215,14 @@ func (cfg *FileConfig) UnmarshalJSON(data []byte) error {
 	}
 	cfg.ActiveProvider = raw.ActiveProvider
 	cfg.Providers = raw.Providers
+	// A negative maxTurns is unambiguously invalid; without this it would be
+	// silently dropped by the `MaxTurns > 0` merge gates and fall back to the
+	// default, hiding a misconfiguration. (0 is left as-is: with omitempty it is
+	// indistinguishable from "unset" and means "use the default".) The CLI flag
+	// rejects 0 too because there an explicit "0" is distinguishable from absent.
+	if raw.MaxTurns < 0 {
+		return fmt.Errorf("invalid maxTurns %d: must be >= 0", raw.MaxTurns)
+	}
 	cfg.MaxTurns = raw.MaxTurns
 	cfg.MCP = raw.MCP
 	cfg.Sandbox = raw.Sandbox

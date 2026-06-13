@@ -7,18 +7,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/Gitlawb/zero/internal/redaction"
+	zeroSandbox "github.com/Gitlawb/zero/internal/sandbox"
 )
 
 const (
-	defaultWebSearchLimit = 5
-	maxWebSearchLimit     = 10
-	webSearchTimeout      = 10 * time.Second
-	webSearchBodyLimit    = 256 * 1024
+	defaultWebSearchLimit  = 5
+	maxWebSearchLimit      = 10
+	webSearchTimeout       = 10 * time.Second
+	webSearchBodyLimit     = 256 * 1024
+	webSearchRedirectLimit = 5
 )
 
 // searchResult is one hit returned by a search backend.
@@ -83,6 +86,29 @@ func newWebSearchToolWithBackend(backend searchBackend) Tool {
 	}
 }
 
+// hostedSearchBackend is implemented by backends that talk to a known HTTP
+// endpoint, so the sandbox network policy can be enforced against that host.
+type hostedSearchBackend interface {
+	endpointHost() string
+}
+
+// RunWithSandbox enforces the engine's network policy against the search
+// backend's endpoint before searching, so web_search honors the same
+// scoped/deny posture as web_fetch and sandboxed shell egress. A nil engine (or
+// an unconfigured backend) falls through to the normal Run path.
+func (tool webSearchTool) RunWithSandbox(ctx context.Context, args map[string]any, engine *zeroSandbox.Engine) Result {
+	if engine != nil && tool.backend != nil {
+		host := ""
+		if hosted, ok := tool.backend.(hostedSearchBackend); ok {
+			host = hosted.endpointHost()
+		}
+		if err := enforceScopedNetworkPolicy(engine, host); err != nil {
+			return errorResult("Error: web_search blocked: " + err.Error())
+		}
+	}
+	return tool.Run(ctx, args)
+}
+
 func (tool webSearchTool) Run(ctx context.Context, args map[string]any) Result {
 	query, err := stringArg(args, "query", "", true)
 	if err != nil {
@@ -143,11 +169,35 @@ func defaultSearchBackend() searchBackend {
 		return nil
 	}
 	return &httpSearchBackend{
-		client:   &http.Client{Timeout: webSearchTimeout},
+		client: &http.Client{
+			Timeout:       webSearchTimeout,
+			CheckRedirect: sameHostRedirectPolicy,
+		},
 		baseURL:  baseURL,
 		apiKey:   strings.TrimSpace(os.Getenv("ZERO_WEBSEARCH_API_KEY")),
 		provider: strings.TrimSpace(os.Getenv("ZERO_WEBSEARCH_PROVIDER")),
 	}
+}
+
+// sameHostRedirectPolicy confines the search backend to redirects that stay on
+// the originally-requested host. RunWithSandbox only policy-checks the configured
+// endpoint host, so a cross-host redirect could otherwise egress to a host the
+// sandbox network policy never authorized; refusing it keeps the check
+// fail-closed across redirects.
+func sameHostRedirectPolicy(req *http.Request, via []*http.Request) error {
+	if len(via) >= webSearchRedirectLimit {
+		return fmt.Errorf("stopped after %d redirects", webSearchRedirectLimit)
+	}
+	origin := via[0].URL
+	if !strings.EqualFold(req.URL.Hostname(), origin.Hostname()) {
+		return fmt.Errorf("refusing cross-host redirect to %q", req.URL.Hostname())
+	}
+	// Refuse a scheme change too — a same-host https→http downgrade would send the
+	// query (and the bearer token Go keeps on same-host redirects) over plaintext.
+	if !strings.EqualFold(req.URL.Scheme, origin.Scheme) {
+		return fmt.Errorf("refusing redirect that changes scheme %q→%q", origin.Scheme, req.URL.Scheme)
+	}
+	return nil
 }
 
 // httpSearchBackend is the generic JSON backend: POST {query,limit} to a
@@ -159,6 +209,16 @@ type httpSearchBackend struct {
 	baseURL  string
 	apiKey   string
 	provider string
+}
+
+// endpointHost returns the hostname of the configured search endpoint, or "" if
+// the base URL cannot be parsed. Used to enforce the sandbox network policy.
+func (backend *httpSearchBackend) endpointHost() string {
+	parsed, err := url.Parse(backend.baseURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Hostname()
 }
 
 func (backend *httpSearchBackend) Search(ctx context.Context, query string, limit int) ([]searchResult, error) {

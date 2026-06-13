@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -174,6 +175,42 @@ func TestStoreForkCopiesEventsAndLineage(t *testing.T) {
 	}
 	got := []EventType{events[0].Type, events[1].Type, events[2].Type}
 	want := []EventType{EventMessage, EventMessage, EventSessionFork}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("fork event types = %#v, want %#v", got, want)
+	}
+}
+
+func TestStoreForkSkipsUsageEvents(t *testing.T) {
+	store := NewStore(StoreOptions{RootDir: t.TempDir(), Now: fixedClock("2026-06-04T11:00:00Z")})
+	parent, err := store.Create(CreateInput{SessionID: "parent", Title: "Parent"})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if _, err := store.AppendEvent(parent.SessionID, AppendEventInput{Type: EventMessage, Payload: map[string]string{"content": "hi"}}); err != nil {
+		t.Fatalf("AppendEvent message: %v", err)
+	}
+	if _, err := store.AppendEvent(parent.SessionID, AppendEventInput{Type: EventUsage, Payload: map[string]any{"promptTokens": 100, "completionTokens": 20, "totalTokens": 120}}); err != nil {
+		t.Fatalf("AppendEvent usage: %v", err)
+	}
+
+	fork, err := store.Fork(parent.SessionID, ForkInput{SessionID: "fork"})
+	if err != nil {
+		t.Fatalf("Fork returned error: %v", err)
+	}
+	events, err := store.ReadEvents(fork.SessionID)
+	if err != nil {
+		t.Fatalf("ReadEvents returned error: %v", err)
+	}
+	// Usage accounting must NOT be copied (else parent + fork double-count); the
+	// message is copied and the fork marker is appended.
+	got := []EventType{}
+	for _, event := range events {
+		if event.Type == EventUsage {
+			t.Fatalf("fork copied a usage event (would double-count): %#v", events)
+		}
+		got = append(got, event.Type)
+	}
+	want := []EventType{EventMessage, EventSessionFork}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("fork event types = %#v, want %#v", got, want)
 	}
@@ -677,6 +714,16 @@ func TestEnsureSpecImplementationReusesExistingPromptSession(t *testing.T) {
 	}
 }
 
+func TestTreeMissingRootReturnsNotFoundError(t *testing.T) {
+	store := NewStore(StoreOptions{RootDir: t.TempDir(), Now: fixedClock("2026-06-04T11:45:00Z")})
+	// A syntactically valid but non-existent root must yield a not-found error, not
+	// panic: store.Get returns (nil, nil) for a missing session, so Tree must guard
+	// the nil before dereferencing it.
+	if _, err := store.Tree("missingroot"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("Tree on a missing root = %v, want a not-found error", err)
+	}
+}
+
 func fixedClock(value string) func() time.Time {
 	parsed, err := time.Parse(time.RFC3339, value)
 	if err != nil {
@@ -694,5 +741,32 @@ func sequenceClock(values []time.Time) func() time.Time {
 		value := values[index]
 		index++
 		return value
+	}
+}
+
+func TestWriteFileSyncRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data.json")
+	want := []byte("durable bytes\n")
+	if err := writeFileSync(path, want, 0o600); err != nil {
+		t.Fatalf("writeFileSync: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("round-trip = %q, want %q", got, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	// Windows does not honor Unix permission bits: Go reports 0o666 for a writable
+	// file regardless of the mode passed to OpenFile, so only assert the exact perm
+	// where the filesystem actually enforces it.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("perm = %o, want 600", perm)
+		}
 	}
 }

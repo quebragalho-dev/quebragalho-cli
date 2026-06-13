@@ -3,12 +3,21 @@ package specialist
 import (
 	"encoding/json"
 	"strings"
+	"sync"
 
 	"github.com/Gitlawb/zero/internal/background"
 	"github.com/Gitlawb/zero/internal/sessions"
 )
 
 const specialistAccountingSource = "specialist"
+
+// accountingMu serializes the "check for an existing event, then append" pairs
+// below. Without it two concurrent finishers — e.g. a foreground onExit racing a
+// TaskOutput poll, or a background reaper — can both pass specialistEventExists
+// before either appends, writing duplicate stop/usage events. Accounting is
+// low-frequency, so a single process-wide lock is sufficient (Executor is used by
+// value, so a struct field would not be shared across copies).
+var accountingMu sync.Mutex
 
 type specialistAccountingInput struct {
 	ParentSessionID string
@@ -28,6 +37,8 @@ func (executor Executor) recordSpecialistStart(input specialistAccountingInput) 
 
 func (executor Executor) recordSpecialistStop(input specialistAccountingInput, summary StreamResult, status string, exitCode int, runErr error, usageRolledUp bool) {
 	store := accountingStore(executor.SessionStore)
+	accountingMu.Lock()
+	defer accountingMu.Unlock()
 	if specialistEventExists(store, input.ParentSessionID, sessions.EventSpecialistStop, input.ChildSessionID, summary.RunID) {
 		return
 	}
@@ -77,6 +88,8 @@ func appendSpecialistUsageRollup(store *sessions.Store, input specialistAccounti
 		return false, nil
 	}
 	store = accountingStore(store)
+	accountingMu.Lock()
+	defer accountingMu.Unlock()
 	if specialistEventExists(store, input.ParentSessionID, sessions.EventUsage, input.ChildSessionID, summary.RunID) {
 		return false, nil
 	}
@@ -128,7 +141,13 @@ func specialistEventExists(store *sessions.Store, parentSessionID string, eventT
 		if specialistPayloadString(payload, "childSessionId") != childSessionID && specialistPayloadString(payload, "taskId") != childSessionID {
 			continue
 		}
-		if runID == "" || specialistPayloadString(payload, "runId") == runID {
+		// An already-recorded event with NO runId is a catch-all for this child (e.g.
+		// the immediate stop written when a PID couldn't be registered) and must
+		// match a later event that does carry a runId — otherwise the same child gets
+		// two stop/usage events. We match when: we're querying without a runId, the
+		// existing event has none, or the runIds are equal.
+		existingRunID := specialistPayloadString(payload, "runId")
+		if runID == "" || existingRunID == "" || existingRunID == runID {
 			return true
 		}
 	}
