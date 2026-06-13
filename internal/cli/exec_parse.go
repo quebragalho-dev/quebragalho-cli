@@ -26,6 +26,8 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 			options.listTools = true
 		case arg == "--allow-escalation":
 			options.allowEscalation = true
+		case arg == "--self-correct":
+			options.selfCorrect = true
 		case arg == "--no-notify":
 			options.noNotify = true
 		case arg == "--notify":
@@ -391,6 +393,12 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 	}
 	if options.useSpec && strings.EqualFold(strings.TrimSpace(options.tag), specialist.SessionTagSpecialist) {
 		return options, false, execUsageError{"--use-spec cannot be used inside a specialist child session."}
+	}
+	if options.useSpec && options.selfCorrect {
+		// The spec-draft (planning) path never wires the post-edit self-correct loop,
+		// so accepting the flag here would silently ignore it. Reject the combination
+		// rather than pretend it took effect.
+		return options, false, execUsageError{"--self-correct cannot be combined with --use-spec."}
 	}
 	if !options.useSpec && options.specModel != "" {
 		return options, false, execUsageError{"--spec-model requires --use-spec."}
