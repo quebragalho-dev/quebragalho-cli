@@ -40,6 +40,9 @@ type Options struct {
 	// StreamIdleTimeout aborts the stream if no data arrives for this long.
 	// Zero uses defaultStreamIdleTimeout.
 	StreamIdleTimeout time.Duration
+	// ParseThinkTags converts streamed <think>...</think> content into reasoning
+	// events for OpenAI-compatible models known to emit that legacy format.
+	ParseThinkTags bool
 }
 
 // Provider streams completions from an OpenAI-compatible chat completions API.
@@ -55,6 +58,7 @@ type Provider struct {
 	httpClient        *http.Client
 	userAgent         string
 	streamIdleTimeout time.Duration
+	parseThinkTags    bool
 }
 
 // New creates an OpenAI-compatible provider.
@@ -100,6 +104,7 @@ func New(options Options) (*Provider, error) {
 		httpClient:        httpClient,
 		userAgent:         options.UserAgent,
 		streamIdleTimeout: idleTimeout,
+		parseThinkTags:    options.ParseThinkTags,
 	}, nil
 }
 
@@ -162,7 +167,7 @@ func (provider *Provider) stream(ctx context.Context, body []byte, events chan<-
 		return
 	}
 
-	state := newToolState()
+	state := newToolState(provider.parseThinkTags)
 	// Use the shared SSE reader (also used by the Anthropic/Gemini providers) so
 	// multi-line "data:" continuation fields are joined into one payload, and the
 	// idle watchdog / context cancellation are handled uniformly.
@@ -170,7 +175,8 @@ func (provider *Provider) stream(ctx context.Context, body []byte, events chan<-
 		return provider.emitPayload(ctx, data, state, events)
 	})
 	if errors.Is(err, providerio.ErrStreamIdle) {
-		state.closeOpen(ctx, events)
+		state.flushBufferedContent(events)
+		state.closeBufferedOpen(events)
 		sendEvent(ctx, events, zeroruntime.StreamEvent{
 			Type:  zeroruntime.StreamEventError,
 			Error: provider.redact(fmt.Sprintf("provider stream error: idle timeout after %s (upstream stopped sending data)", provider.streamIdleTimeout)),
@@ -178,16 +184,19 @@ func (provider *Provider) stream(ctx context.Context, body []byte, events chan<-
 		return
 	}
 	if err != nil {
-		state.closeOpen(ctx, events)
+		state.flushBufferedContent(events)
+		state.closeBufferedOpen(events)
 		sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
 		return
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		state.closeOpen(ctx, events)
+		state.flushBufferedContent(events)
+		state.closeBufferedOpen(events)
 		sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact("provider stream error: " + ctxErr.Error())})
 		return
 	}
 	if !state.done {
+		state.flushContent(ctx, events)
 		state.closeOpen(ctx, events)
 		sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone, FinishReason: state.finishReason})
 	}
@@ -199,6 +208,7 @@ func (provider *Provider) stream(ctx context.Context, body []byte, events chan<-
 func (provider *Provider) emitPayload(ctx context.Context, data string, state *toolState, events chan<- zeroruntime.StreamEvent) bool {
 	var chunk streamChunk
 	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		state.flushContent(ctx, events)
 		state.closeOpen(ctx, events)
 		sendEvent(ctx, events, zeroruntime.StreamEvent{
 			Type:  zeroruntime.StreamEventError,
@@ -208,6 +218,7 @@ func (provider *Provider) emitPayload(ctx context.Context, data string, state *t
 		return false
 	}
 	if chunk.Error != nil {
+		state.flushContent(ctx, events)
 		state.closeOpen(ctx, events)
 		sendEvent(ctx, events, zeroruntime.StreamEvent{
 			Type:  zeroruntime.StreamEventError,
@@ -234,15 +245,13 @@ func (provider *Provider) emitChunk(
 			})
 		}
 		if choice.Delta.Content != "" {
-			sendEvent(ctx, events, zeroruntime.StreamEvent{
-				Type:    zeroruntime.StreamEventText,
-				Content: choice.Delta.Content,
-			})
+			state.emitContent(ctx, events, choice.Delta.Content)
 		}
 		for _, toolCall := range choice.Delta.ToolCalls {
 			state.applyDelta(ctx, toolCall, events)
 		}
 		if choice.FinishReason == "tool_calls" {
+			state.flushContent(ctx, events)
 			state.closeOpen(ctx, events)
 		}
 		if reason := mapFinishReason(choice.FinishReason); reason != "" {
@@ -311,6 +320,13 @@ func sendEvent(ctx context.Context, events chan<- zeroruntime.StreamEvent, event
 			}
 		}
 	case events <- event:
+	}
+}
+
+func sendBufferedEvent(events chan<- zeroruntime.StreamEvent, event zeroruntime.StreamEvent) {
+	select {
+	case events <- event:
+	default:
 	}
 }
 

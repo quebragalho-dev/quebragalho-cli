@@ -244,6 +244,53 @@ func TestStreamCompletionEmitsReasoningBeforeRegularContent(t *testing.T) {
 	}
 }
 
+func TestStreamCompletionPreservesLiteralThinkTagsByDefault(t *testing.T) {
+	provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		writeSSE(w, `{"choices":[{"delta":{"content":"show <think>literal</think> markup"}}]}`)
+		writeSSE(w, `[DONE]`)
+	})
+
+	events := collectProviderEvents(t, provider)
+	assertEvent(t, events[0], zeroruntime.StreamEventText, "show <think>literal</think> markup")
+	if reasoning := eventsOfType(events, zeroruntime.StreamEventReasoning); len(reasoning) != 0 {
+		t.Fatalf("literal think tags must not emit reasoning by default, got %#v", reasoning)
+	}
+}
+
+func TestStreamCompletionSplitsInlineThinkTagsFromContent(t *testing.T) {
+	provider := newTestProviderWithThinkTags(t, func(w http.ResponseWriter, r *http.Request) {
+		writeSSE(w, `{"choices":[{"delta":{"content":"<think>private reasoning</think>public answer"}}]}`)
+		writeSSE(w, `[DONE]`)
+	})
+
+	events := collectProviderEvents(t, provider)
+	assertEvent(t, events[0], zeroruntime.StreamEventReasoning, "private reasoning")
+	assertEvent(t, events[1], zeroruntime.StreamEventText, "public answer")
+	if events[2].Type != zeroruntime.StreamEventDone {
+		t.Fatalf("third event = %#v, want done", events[2])
+	}
+}
+
+func TestStreamCompletionSplitsInlineThinkTagsAcrossChunks(t *testing.T) {
+	provider := newTestProviderWithThinkTags(t, func(w http.ResponseWriter, r *http.Request) {
+		writeSSE(w, `{"choices":[{"delta":{"content":"<thi"}}]}`)
+		writeSSE(w, `{"choices":[{"delta":{"content":"nk>reason"}}]}`)
+		writeSSE(w, `{"choices":[{"delta":{"content":"ing</"}}]}`)
+		writeSSE(w, `{"choices":[{"delta":{"content":"think> answer"}}]}`)
+		writeSSE(w, `[DONE]`)
+	})
+
+	events := collectProviderEvents(t, provider)
+	reasoning := eventsOfType(events, zeroruntime.StreamEventReasoning)
+	if len(reasoning) != 2 || reasoning[0].Content != "reason" || reasoning[1].Content != "ing" {
+		t.Fatalf("reasoning events = %#v, want split reasoning content", reasoning)
+	}
+	text := eventsOfType(events, zeroruntime.StreamEventText)
+	if len(text) != 1 || text[0].Content != " answer" {
+		t.Fatalf("text events = %#v, want answer-only content", text)
+	}
+}
+
 func TestStreamCompletionBuffersToolArgsUntilIDAndNameArrive(t *testing.T) {
 	provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		writeSSE(w, `{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":"}}]}}]}`)
@@ -385,6 +432,47 @@ func TestStreamCompletionEmitsErrorWhenContextCancels(t *testing.T) {
 	}
 }
 
+func TestStreamCompletionFlushesBufferedContentWhenContextCancels(t *testing.T) {
+	release := make(chan struct{})
+	provider := newTestProviderWithThinkTags(t, func(w http.ResponseWriter, r *http.Request) {
+		writeSSE(w, `{"choices":[{"delta":{"content":"visible <thi"}}]}`)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	})
+	defer close(release)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stream, err := provider.StreamCompletion(ctx, zeroruntime.CompletionRequest{})
+	if err != nil {
+		t.Fatalf("StreamCompletion returned setup error: %v", err)
+	}
+
+	events := []zeroruntime.StreamEvent{}
+	select {
+	case event, ok := <-stream:
+		if !ok {
+			t.Fatal("stream closed before first text event")
+		}
+		events = append(events, event)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first text event")
+	}
+	cancel()
+	events = append(events, readAll(stream)...)
+
+	if len(events) != 3 ||
+		events[0].Type != zeroruntime.StreamEventText || events[0].Content != "visible " ||
+		events[1].Type != zeroruntime.StreamEventText || events[1].Content != "<thi" ||
+		events[2].Type != zeroruntime.StreamEventError {
+		t.Fatalf("events = %#v, want text, buffered text, then context error", events)
+	}
+	if done := eventsOfType(events, zeroruntime.StreamEventDone); len(done) != 0 {
+		t.Fatalf("events = %#v, want no done after context cancel", events)
+	}
+}
+
 func newTestProvider(t *testing.T, handler http.HandlerFunc) *Provider {
 	t.Helper()
 	return newTestProviderWithKey(t, "", handler)
@@ -392,12 +480,35 @@ func newTestProvider(t *testing.T, handler http.HandlerFunc) *Provider {
 
 func newTestProviderWithKey(t *testing.T, apiKey string, handler http.HandlerFunc) *Provider {
 	t.Helper()
+	return newTestProviderWithOptions(t, Options{APIKey: apiKey}, handler)
+}
+
+func newTestProviderWithThinkTags(t *testing.T, handler http.HandlerFunc) *Provider {
+	t.Helper()
+	return newTestProviderWithOptions(t, Options{ParseThinkTags: true}, handler)
+}
+
+func newTestProviderWithOptions(t *testing.T, options Options, handler http.HandlerFunc) *Provider {
+	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
+	options.BaseURL = server.URL
+	if strings.TrimSpace(options.Model) == "" {
+		options.Model = "gpt-test"
+	}
 	provider, err := New(Options{
-		APIKey:  apiKey,
-		BaseURL: server.URL,
-		Model:   "gpt-test",
+		APIKey:            options.APIKey,
+		BaseURL:           options.BaseURL,
+		Model:             options.Model,
+		AuthHeader:        options.AuthHeader,
+		AuthScheme:        options.AuthScheme,
+		AuthHeaderValue:   options.AuthHeaderValue,
+		CustomHeaders:     options.CustomHeaders,
+		HTTPClient:        options.HTTPClient,
+		UserAgent:         options.UserAgent,
+		MaxTokens:         options.MaxTokens,
+		StreamIdleTimeout: options.StreamIdleTimeout,
+		ParseThinkTags:    options.ParseThinkTags,
 	})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)

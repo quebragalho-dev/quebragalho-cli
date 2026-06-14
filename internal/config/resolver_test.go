@@ -1094,7 +1094,8 @@ func TestResolveProviderProfileExtendedJSONAliases(t *testing.T) {
 			"auth_scheme": "raw",
 			"auth_header_value": "header-secret",
 			"custom_headers": {"X-Zero": "1"},
-			"model_id": "custom-model"
+			"model_id": "custom-model",
+			"parse_think_tags": true
 		}]
 	}`)
 
@@ -1118,6 +1119,30 @@ func TestResolveProviderProfileExtendedJSONAliases(t *testing.T) {
 	}
 	if profile.CustomHeaders["X-Zero"] != "1" {
 		t.Fatalf("CustomHeaders = %#v, want X-Zero header", profile.CustomHeaders)
+	}
+	if profile.ParseThinkTags == nil || !*profile.ParseThinkTags {
+		t.Fatalf("ParseThinkTags = %#v, want true", profile.ParseThinkTags)
+	}
+}
+
+func TestResolveProviderProfileParseThinkTagsFalseAlias(t *testing.T) {
+	path := writeConfig(t, `{
+		"activeProvider": "custom",
+		"providers": [{
+			"name": "custom",
+			"provider_kind": "openai-compatible",
+			"base_url": "https://custom.example/v1",
+			"model_id": "custom-model",
+			"parse_think_tags": false
+		}]
+	}`)
+
+	resolved, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.Provider.ParseThinkTags == nil || *resolved.Provider.ParseThinkTags {
+		t.Fatalf("ParseThinkTags = %#v, want explicit false", resolved.Provider.ParseThinkTags)
 	}
 }
 
