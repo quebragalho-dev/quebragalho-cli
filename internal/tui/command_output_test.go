@@ -49,6 +49,81 @@ func TestFormatCommandOutputRendersSectionsFieldsRowsAndHints(t *testing.T) {
 	}
 }
 
+func TestFormatCommandCardRendersBoundedDashboard(t *testing.T) {
+	got := renderCommandCard(commandCard{
+		Title:   "Context",
+		Summary: []string{"go runtime", "ask permissions", "1 tool"},
+		Sections: []commandCardSection{
+			{
+				Title: "Runtime",
+				Fields: []commandField{
+					{Key: "cwd", Value: `D:\repo`},
+					{Key: "provider", Value: "openai"},
+				},
+			},
+			{
+				Title: "Tools",
+				Fields: []commandField{
+					{Key: "registered", Value: "1"},
+				},
+			},
+		},
+		Actions: []string{"/permissions manage access", "/tools inspect catalog"},
+	})
+
+	want := strings.Join([]string{
+		"Context",
+		"go runtime | ask permissions | 1 tool",
+		"Runtime",
+		"  cwd       D:\\repo",
+		"  provider  openai",
+		"Tools",
+		"  registered  1",
+		"actions: /permissions manage access | /tools inspect catalog",
+	}, "\n")
+
+	if got != want {
+		t.Fatalf("unexpected command card:\nwant:\n%s\n\ngot:\n%s", want, got)
+	}
+}
+
+func TestFormatCommandCardRedactsTokenLikeText(t *testing.T) {
+	got := renderCommandCard(commandCard{
+		Title:   "Context",
+		Summary: []string{"provider sk-proj-summary-secret-value"},
+		Sections: []commandCardSection{
+			{
+				Title: "Runtime",
+				Fields: []commandField{
+					{Key: "api key", Value: "sk-ant-api03-abcdefghijklmnopqrstuvwxyz"},
+				},
+				Lines: []string{
+					"google token AIza1234567890abcdef",
+				},
+				Rows: []commandRow{
+					{Text: "shell used sk-proj-row-secret-value"},
+				},
+			},
+		},
+		Actions: []string{"retry with sk-proj-action-secret-value"},
+	})
+
+	for _, secret := range []string{
+		"sk-proj-summary-secret-value",
+		"sk-ant-api03-abcdefghijklmnopqrstuvwxyz",
+		"AIza1234567890abcdef",
+		"sk-proj-row-secret-value",
+		"sk-proj-action-secret-value",
+	} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("expected token-like text to be redacted, got:\n%s", got)
+		}
+	}
+	if !strings.Contains(got, "[REDACTED]") {
+		t.Fatalf("expected redacted marker in command card, got:\n%s", got)
+	}
+}
+
 func TestFormatCommandOutputSupportsAllStatuses(t *testing.T) {
 	tests := []struct {
 		name   string

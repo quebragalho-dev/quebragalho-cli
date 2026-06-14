@@ -10,40 +10,53 @@ import (
 
 	"github.com/Gitlawb/zero/internal/config"
 	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/Gitlawb/zero/internal/tools"
 	"github.com/Gitlawb/zero/internal/zerocommands"
 )
 
 func (m model) toolsText() string {
-	registered := m.registry.All()
+	registered := m.registeredTools()
+	count := len(registered)
 	if len(registered) == 0 {
-		return renderCommandOutput(commandOutput{
-			Title:  "Tools",
-			Status: commandStatusWarning,
-			Sections: []commandSection{{
+		return renderCommandCardTranscript(commandCard{
+			Title:   "Tools",
+			Summary: []string{"0 registered", "no tools available"},
+			Sections: []commandCardSection{{
 				Title: "Registry",
-				Lines: []string{"registered tools: 0"},
+				Fields: []commandField{
+					{Key: "registered", Value: "0"},
+				},
 			}},
+			Actions: []string{"/mcp manage servers", "/permissions manage access"},
 		})
 	}
 
-	names := make([]string, 0, len(registered))
+	names := make([]string, 0, count)
 	for _, tool := range registered {
-		names = append(names, commandBullet(tool.Name()))
+		names = append(names, tool.Name())
 	}
 	sort.Strings(names)
-	return renderCommandOutput(commandOutput{
-		Title:  "Tools",
-		Status: commandStatusOK,
-		Sections: []commandSection{
+	available := make([]string, 0, len(names))
+	for _, name := range names {
+		available = append(available, commandBullet(name))
+	}
+
+	return renderCommandCardTranscript(commandCard{
+		Title:   "Tools",
+		Summary: []string{fmt.Sprintf("%d registered", count), "registered catalog"},
+		Sections: []commandCardSection{
 			{
 				Title: "Registry",
-				Lines: []string{fmt.Sprintf("registered tools: %d", len(names))},
+				Fields: []commandField{
+					{Key: "registered", Value: fmt.Sprint(count)},
+				},
 			},
 			{
 				Title: "Available",
-				Lines: names,
+				Lines: available,
 			},
 		},
+		Actions: []string{"/mcp manage servers", "/permissions manage access"},
 	})
 }
 
@@ -461,40 +474,73 @@ func (m model) modelText(args string) string {
 }
 
 func (m model) contextText() string {
-	toolCount := len(m.registry.All())
-	return renderCommandOutput(commandOutput{
-		Title:  "Context",
-		Status: commandStatusOK,
-		Sections: []commandSection{
+	toolCount := len(m.registeredTools())
+	return renderCommandCardTranscript(commandCard{
+		Title: "Context",
+		Summary: []string{
+			"go runtime",
+			string(m.permissionMode) + " permissions",
+			pluralizeCount(toolCount, "tool", "tools"),
+		},
+		Sections: []commandCardSection{
 			{
 				Title: "Runtime",
-				Lines: []string{
-					"cwd: " + displayValue(m.cwd, "unknown"),
-					"provider: " + displayValue(m.providerName, "none"),
-					"model: " + displayValue(m.modelName, "none"),
-					"permission mode: " + string(m.permissionMode),
-					"effort: " + m.effortDisplay(),
-					"style: " + m.responseStyle,
-					"usage: " + m.usageSummaryText(),
-					fmt.Sprintf("max turns: %d", m.agentOptions.MaxTurns),
+				Fields: []commandField{
+					{Key: "cwd", Value: displayValue(m.cwd, "unknown")},
+					{Key: "provider", Value: displayValue(m.providerName, "none")},
+					{Key: "model", Value: displayValue(m.modelName, "none")},
+					{Key: "effort", Value: m.effortDisplay()},
+					{Key: "style", Value: displayValue(m.responseStyle, defaultResponseStyle)},
+					{Key: "usage", Value: m.usageSummaryText()},
+					{Key: "max turns", Value: fmt.Sprint(m.agentOptions.MaxTurns)},
 				},
 			},
 			{
 				Title: "Session",
-				Lines: []string{
-					"active session: " + displayValue(m.activeSession.SessionID, "none"),
-					"session root: " + displayValue(m.sessionStore.RootDir, "unknown"),
-					"compaction: " + m.compactionStatus(),
+				Fields: []commandField{
+					{Key: "active", Value: displayValue(m.activeSession.SessionID, "none")},
+					{Key: "root", Value: displayValue(m.sessionRootDir(), "unknown")},
+					{Key: "compaction", Value: contextCompactionStatus(m.compactionStatus())},
 				},
 			},
 			{
 				Title: "Tools",
-				Lines: []string{
-					fmt.Sprintf("registered tools: %d", toolCount),
+				Fields: []commandField{
+					{Key: "registered", Value: fmt.Sprint(toolCount)},
 				},
 			},
 		},
+		Actions: []string{"/permissions manage access", "/tools inspect catalog"},
 	})
+}
+
+func (m model) registeredTools() []tools.Tool {
+	if m.registry == nil {
+		return nil
+	}
+	return m.registry.All()
+}
+
+func (m model) sessionRootDir() string {
+	if m.sessionStore == nil {
+		return ""
+	}
+	return m.sessionStore.RootDir
+}
+
+func pluralizeCount(count int, singular string, plural string) string {
+	label := plural
+	if count == 1 {
+		label = singular
+	}
+	return fmt.Sprintf("%d %s", count, label)
+}
+
+func contextCompactionStatus(status string) string {
+	if status == "not compacted" {
+		return "idle"
+	}
+	return status
 }
 
 func (m model) configText() string {
