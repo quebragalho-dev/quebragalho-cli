@@ -12,6 +12,31 @@ import (
 // only an explicit truthy value enables it.
 const EnvAutoAllowBash = "ZERO_SANDBOX_AUTO_ALLOW_BASH"
 
+// EnvSandboxed marks a process that zero has already wrapped in a sandbox: every
+// wrapped command carries ZERO_SANDBOXED=1 in its environment. When such a
+// process spawns another command through the engine, the re-entrancy guard
+// returns a pass-through plan instead of double-wrapping it — nested bwrap /
+// sandbox-exec fails, and a second egress proxy would be redundant. Mirrors the
+// already-sandboxed guard used by comparable executor sandboxes. Unset by default.
+const EnvSandboxed = "ZERO_SANDBOXED"
+
+// EnvSandboxBackend records which backend wrapped the command. sandboxEnvironment
+// always sets it alongside EnvSandboxed, so it serves as a corroborating marker:
+// the re-entrancy guard requires BOTH, raising the provenance bar above a single
+// ambient flag (a stray or hand-exported ZERO_SANDBOXED=1 with no backend marker
+// no longer forces an unsandboxed pass-through).
+const EnvSandboxBackend = "ZERO_SANDBOX_BACKEND"
+
+// IsAlreadySandboxed reports whether the current process is already running
+// inside a zero-created sandbox. It requires BOTH correlated markers that
+// sandboxEnvironment sets together — EnvSandboxed == "1" AND a non-empty
+// EnvSandboxBackend — so a single user-set/inherited ZERO_SANDBOXED=1 cannot by
+// itself disable wrapping. zero sets both only on genuinely wrapped commands;
+// pass-through (direct) plans set neither.
+func IsAlreadySandboxed() bool {
+	return os.Getenv(EnvSandboxed) == "1" && strings.TrimSpace(os.Getenv(EnvSandboxBackend)) != ""
+}
+
 type SideEffect string
 type Permission string
 type PermissionMode string
@@ -133,6 +158,14 @@ type Policy struct {
 	// NetworkDeny so existing policies keep their exact behaviour.
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
 	DeniedDomains  []string `json:"deniedDomains,omitempty"`
+	// EnforceToolNetwork, when true, subjects the first-party in-process network
+	// tools (web_search / web_fetch) to the sandbox network policy via
+	// NetworkHostAllowed. It is OFF by default: that policy exists to confine the
+	// sandboxed SHELL's egress, which these tools do not use, so by default they
+	// are allowed to run (keeping their own SSRF/port/redirect/redaction
+	// safeguards). The sandboxed-shell egress decision is independent of this flag.
+	// Turn it on to also hold web_search/web_fetch to the allow/scoped/deny policy.
+	EnforceToolNetwork bool `json:"enforceToolNetwork,omitempty"`
 	// AutoAllowBashWhenSandboxed, when true, auto-allows the bash tool WITHOUT a
 	// permission prompt — but only when the sandbox is actually active (a
 	// native-isolation backend wraps the command). The sandbox is then the safety
@@ -153,6 +186,27 @@ type Policy struct {
 	// (runs without the filter) when the helper binary is not found. Ignored on
 	// non-bubblewrap backends.
 	BlockUnixSockets bool `json:"blockUnixSockets,omitempty"`
+	// AllowRead/DenyRead/AllowWrite/DenyWrite are fine-grained path lists layered
+	// ON TOP of the workspace + Scope guards; they never bypass the symlink /
+	// out-of-workspace protections. Each entry is home-expanded, made absolute, and
+	// symlink-resolved (an entry that does not exist is dropped). All default empty,
+	// so an unconfigured policy behaves exactly as before. Semantics:
+	//
+	//   - Read: a path readable under the base workspace/Scope guard is denied if it
+	//     falls under a DenyRead entry, UNLESS a more-specific AllowRead entry (one
+	//     nested inside that DenyRead entry) re-includes it. AllowRead only
+	//     re-includes within a DenyRead carve-out; it never extends reads beyond the
+	//     workspace.
+	//   - Write: DenyWrite wins over everything; otherwise a path writable under the
+	//     workspace/Scope guard is allowed; otherwise an absolute path under an
+	//     AllowWrite root is allowed; otherwise it is denied. AllowWrite roots are
+	//     also reflected in the OS backend write binds, and on sandbox-exec DenyWrite
+	//     entries are emitted as explicit deny rules so the precedence holds for
+	//     shell commands too.
+	AllowRead  []string `json:"allowRead,omitempty"`
+	DenyRead   []string `json:"denyRead,omitempty"`
+	AllowWrite []string `json:"allowWrite,omitempty"`
+	DenyWrite  []string `json:"denyWrite,omitempty"`
 }
 
 type Request struct {

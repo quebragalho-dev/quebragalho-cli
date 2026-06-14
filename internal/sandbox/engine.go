@@ -65,6 +65,35 @@ func (engine *Engine) Scope() *Scope {
 	return engine.scope
 }
 
+// ReadExclusions returns the resolved DenyRead/AllowRead exclusion matcher for
+// this engine's policy, resolving each policy entry ONCE. The search tools build
+// it a single time per run and reuse it across the whole walk so the predicates
+// don't re-run Abs/EvalSymlinks per visited path. Returns nil for a nil engine
+// (the matcher's methods treat nil as "exclude nothing").
+func (engine *Engine) ReadExclusions() *ReadExclusions {
+	// A disabled policy enforces nothing, so it must not filter search results
+	// either (Evaluate already allows every request under ModeDisabled).
+	if engine == nil || engine.policy.Mode == ModeDisabled {
+		return nil
+	}
+	return &ReadExclusions{
+		workspaceRoot: engine.workspaceRoot,
+		denyRoots:     resolvePolicyPaths(engine.policy.DenyRead),
+		allowRoots:    resolvePolicyPaths(engine.policy.AllowRead),
+	}
+}
+
+// ReadExclusionGlobs returns the ripgrep-style --glob exclusion args for this
+// engine's policy + scope (see the package-level ReadExclusionGlobs). Empty when
+// DenyRead is unset or the engine has no scope.
+func (engine *Engine) ReadExclusionGlobs() []string {
+	// A disabled policy filters nothing (parity with ReadExclusions / Evaluate).
+	if engine == nil || engine.policy.Mode == ModeDisabled {
+		return nil
+	}
+	return ReadExclusionGlobs(engine.policy, engine.scope)
+}
+
 // effectiveNetworkMode is the single source of truth for the engine's active
 // network mode: it collapses an empty-allowlist scoped policy to deny, and ALSO
 // downgrades scoped to deny when the backend cannot actually route scoped egress
@@ -90,12 +119,23 @@ func (engine *Engine) effectiveNetworkMode(policy Policy) NetworkMode {
 // their pre-sandbox behaviour); deny blocks everything; scoped allows only hosts
 // in AllowedDomains minus DeniedDomains (an empty allowlist, or a backend that
 // can't enforce scoped egress, collapses to deny).
+//
+// By default the first-party, in-process tools that consult this gate are NOT
+// subject to the network policy (EnforceToolNetwork is off): that policy exists
+// to confine the sandboxed SHELL's egress, which these tools don't use, and they
+// retain their own SSRF/port/redirect safeguards. Set EnforceToolNetwork to also
+// hold them to the allow/scoped/deny policy. The sandboxed-shell egress decision
+// lives in Evaluate via effectiveNetworkMode and is unaffected by this flag.
 func (engine *Engine) NetworkHostAllowed(host string) (bool, NetworkMode) {
 	if engine == nil {
 		return true, NetworkAllow
 	}
 	policy := engine.policy
 	if policy.Mode == ModeDisabled {
+		return true, NetworkAllow
+	}
+	if !policy.EnforceToolNetwork {
+		// First-party in-process tools are exempt unless the operator opts in.
 		return true, NetworkAllow
 	}
 	switch mode := engine.effectiveNetworkMode(policy); mode {
@@ -221,11 +261,17 @@ func (engine *Engine) Evaluate(ctx context.Context, request Request) Decision {
 	if request.Permission == PermissionDeny {
 		return deny(request, risk, ViolationDeniedPermission, "", permissionReason(request), false)
 	}
-	if policy.EnforceWorkspace && request.WorkspaceRoot != "" {
-		for _, requested := range requestPaths(request) {
-			if violation := scope.validate(requested); violation != nil {
-				return deny(request, risk, violation.Code, violation.Path, violation.Reason, false)
-			}
+	// The fine-grained path lists (DenyRead/DenyWrite/AllowRead/AllowWrite) apply
+	// whenever the sandbox is enforcing, independent of EnforceWorkspace and even
+	// when there is no workspace root (absolute paths are still resolved and
+	// matched), so they are honored consistently with the grep/glob exclusion path
+	// and can't be bypassed by an engine built without a workspace root. The
+	// workspace boundary itself needs a root, so it is gated on having one. Mode is
+	// already known to be enforcing here (ModeDisabled returned above).
+	enforceWorkspace := policy.EnforceWorkspace && request.WorkspaceRoot != ""
+	for _, requested := range requestPaths(request) {
+		if violation := validatePathWithPolicy(scope, policy, request.SideEffect, enforceWorkspace, request.WorkspaceRoot, requested); violation != nil {
+			return deny(request, risk, violation.Code, violation.Path, violation.Reason, false)
 		}
 	}
 	// effectiveNetworkMode collapses an empty-allowlist scoped policy to deny, and
