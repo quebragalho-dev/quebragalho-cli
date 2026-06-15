@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -299,10 +300,75 @@ func TestContextAndPermissionsCommandsRenderProductState(t *testing.T) {
 		t.Fatal("expected /permissions to be handled without starting an agent run")
 	}
 	permissionText := transcriptText(next.transcript)
-	for _, want := range []string{"Permissions", "status: ok", "Permission mode: ask", "persistent grants: 1", "bash [allow/high]", "[REDACTED]"} {
+	for _, want := range []string{
+		"Permissions",
+		"ask permissions",
+		"1 persistent grant",
+		"State",
+		"mode  ask",
+		"Grants",
+		"bash [allow/high]",
+		"[REDACTED]",
+	} {
 		assertContains(t, permissionText, want)
 	}
 	assertNotContains(t, permissionText, "sk-proj-sensitive")
+	assertNotContains(t, permissionText, "status: ok")
+	assertNotContains(t, permissionText, "Permission mode:")
+}
+
+// stubGrantStore is a minimal test double for sandbox.GrantStore. It only
+// implements List, which is enough to exercise the error path of
+// permissionsText().
+type stubGrantStore struct {
+	listErr error
+}
+
+func (store *stubGrantStore) List() ([]sandbox.Grant, error) {
+	return nil, store.listErr
+}
+
+func TestPermissionsCommandCardHandlesNilStoreAndEmptyGrants(t *testing.T) {
+	nilStore := model{permissionMode: agent.PermissionModeAuto}.permissionsText()
+	for _, want := range []string{
+		"Permissions",
+		"auto permissions",
+		"grants unavailable",
+		"mode  auto",
+		"persistent grants: unavailable",
+	} {
+		assertContains(t, nilStore, want)
+	}
+	assertNotContains(t, nilStore, "status: warning")
+
+	store, err := sandbox.NewGrantStore(sandbox.StoreOptions{FilePath: filepath.Join(t.TempDir(), "empty-grants.json")})
+	if err != nil {
+		t.Fatalf("NewGrantStore returned error: %v", err)
+	}
+	emptyText := model{permissionMode: agent.PermissionModeAsk, sandboxStore: store}.permissionsText()
+	for _, want := range []string{
+		"Permissions",
+		"ask permissions",
+		"no persistent grants",
+		"mode  ask",
+		"none",
+	} {
+		assertContains(t, emptyText, want)
+	}
+	assertNotContains(t, emptyText, "status: info")
+
+	errStore := &stubGrantStore{listErr: errors.New("storage failure")}
+	errText := model{permissionMode: agent.PermissionModeAsk}.permissionsTextWithStore(errStore)
+	for _, want := range []string{
+		"Permissions",
+		"ask permissions",
+		"grants error",
+		"mode  ask",
+		"error: storage failure",
+	} {
+		assertContains(t, errText, want)
+	}
+	assertNotContains(t, errText, "status: blocked")
 }
 
 func TestContextCommandCardHandlesNilRegistryAndStableStyle(t *testing.T) {

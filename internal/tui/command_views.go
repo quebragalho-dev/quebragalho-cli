@@ -10,6 +10,7 @@ import (
 
 	"github.com/Gitlawb/zero/internal/config"
 	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/Gitlawb/zero/internal/sandbox"
 	"github.com/Gitlawb/zero/internal/tools"
 	"github.com/Gitlawb/zero/internal/zerocommands"
 )
@@ -260,35 +261,57 @@ func splitMCPCommandArgs(args string) ([]string, error) {
 }
 
 func (m model) permissionsText() string {
-	stateLines := []string{
-		"Permission mode: " + string(m.permissionMode),
-	}
 	if m.sandboxStore == nil {
-		return renderCommandOutput(commandOutput{
-			Title:  "Permissions",
-			Status: commandStatusWarning,
-			Sections: []commandSection{
-				{Title: "State", Lines: stateLines},
-				{Title: "Sandbox grants:", Lines: []string{"persistent grants: unavailable"}},
+		return m.permissionsTextWithStore(nil)
+	}
+	return m.permissionsTextWithStore(m.sandboxStore)
+}
+
+func (m model) permissionsTextWithStore(store grantLister) string {
+	mode := string(m.permissionMode)
+	if store == nil {
+		return renderCommandCardTranscript(commandCard{
+			Title:   "Permissions",
+			Summary: []string{mode + " permissions", "grants unavailable"},
+			Sections: []commandCardSection{
+				{
+					Title: "State",
+					Fields: []commandField{
+						{Key: "mode", Value: mode},
+					},
+				},
+				{
+					Title: "Grants",
+					Lines: []string{"persistent grants: unavailable"},
+				},
 			},
 		})
 	}
 
-	grants, err := m.sandboxStore.List()
+	grants, err := store.List()
 	if err != nil {
-		return renderCommandOutput(commandOutput{
-			Title:  "Permissions",
-			Status: commandStatusBlocked,
-			Sections: []commandSection{
-				{Title: "State", Lines: stateLines},
-				{Title: "Sandbox grants:", Lines: []string{"error: " + err.Error()}},
+		return renderCommandCardTranscript(commandCard{
+			Title:   "Permissions",
+			Summary: []string{mode + " permissions", "grants error"},
+			Sections: []commandCardSection{
+				{
+					Title: "State",
+					Fields: []commandField{
+						{Key: "mode", Value: mode},
+					},
+				},
+				{
+					Title: "Grants",
+					Lines: []string{"error: " + err.Error()},
+				},
 			},
 		})
 	}
+
 	snapshots := zerocommands.SandboxGrantSnapshots(grants)
-	grantLines := []string{fmt.Sprintf("persistent grants: %d", len(snapshots))}
+	grantRows := []commandRow{}
 	if len(snapshots) == 0 {
-		grantLines = append(grantLines, "none")
+		grantRows = append(grantRows, commandRow{Text: "none"})
 	} else {
 		for _, grant := range snapshots {
 			line := fmt.Sprintf("%s [%s/%s]", grant.ToolName, grant.Decision, grant.MaxAutonomy)
@@ -298,17 +321,43 @@ func (m model) permissionsText() string {
 			if grant.Reason != "" {
 				line += " - " + grant.Reason
 			}
-			grantLines = append(grantLines, commandBullet(line))
+			grantRows = append(grantRows, commandRow{Text: line})
 		}
 	}
-	return renderCommandOutput(commandOutput{
-		Title:  "Permissions",
-		Status: commandStatusOK,
-		Sections: []commandSection{
-			{Title: "State", Lines: stateLines},
-			{Title: "Sandbox grants:", Lines: grantLines},
+
+	return renderCommandCardTranscript(commandCard{
+		Title:   "Permissions",
+		Summary: []string{mode + " permissions", formatGrantCount(len(snapshots))},
+		Sections: []commandCardSection{
+			{
+				Title: "State",
+				Fields: []commandField{
+					{Key: "mode", Value: mode},
+				},
+			},
+			{
+				Title: "Grants",
+				Rows:  grantRows,
+			},
 		},
 	})
+}
+
+// grantLister is the subset of sandbox.GrantStore used by permissionsText().
+// It exists to let tests inject error-stub stores without reaching for a real
+// filesystem path.
+type grantLister interface {
+	List() ([]sandbox.Grant, error)
+}
+
+func formatGrantCount(count int) string {
+	if count == 0 {
+		return "no persistent grants"
+	}
+	if count == 1 {
+		return "1 persistent grant"
+	}
+	return fmt.Sprintf("%d persistent grants", count)
 }
 
 func (m model) providerText() string {
