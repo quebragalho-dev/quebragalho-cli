@@ -486,6 +486,24 @@ func TestMCPAddWizardMouseSelectsAndActivatesType(t *testing.T) {
 	}
 }
 
+func TestMCPAddWizardBlocksTranscriptSelectionBehindOverlay(t *testing.T) {
+	m := mouseTestModel()
+	m.mouseCapture = true
+	m.transcript = appendRow(m.transcript, rowUser, "hidden behind wizard")
+	textX, textY := firstTranscriptTextMousePoint(t, m)
+	m.mcpAddWizard = newMCPAddWizard("http")
+	m.mcpAddWizard.step = mcpAddWizardStepType
+
+	updated, cmd := m.Update(testMouseClick(tea.MouseLeft, textX, textY))
+	next := updated.(model)
+	if cmd != nil {
+		t.Fatal("click behind MCP add wizard should not return a command")
+	}
+	if next.transcriptSelection.active {
+		t.Fatal("MCP add wizard should block transcript selection behind the overlay")
+	}
+}
+
 func TestTranscriptCopyStatusUsesComposerSpacerWithoutFooterGrowth(t *testing.T) {
 	m := mouseTestModel()
 	m.providerName = "ollama-cloud"
@@ -539,16 +557,22 @@ func TestMouseCaptureOnlyDuringInteractiveSetupStages(t *testing.T) {
 
 func firstTranscriptTextMouseY(t *testing.T, m model) int {
 	t.Helper()
+	_, y := firstTranscriptTextMousePoint(t, m)
+	return y
+}
+
+func firstTranscriptTextMousePoint(t *testing.T, m model) (int, int) {
+	t.Helper()
 	width := chatWidth(m.width)
 	body, selectable := m.transcriptBody(width, "")
 	start, _, top := m.transcriptViewportStart(body, width)
 	for _, line := range selectable {
 		if line.text != "" && !line.toggle {
-			return top + line.bodyY - start
+			return line.textStart, top + line.bodyY - start
 		}
 	}
 	t.Fatalf("no selectable transcript text line found: %#v", selectable)
-	return 0
+	return 0, 0
 }
 
 func mouseTestModel() model {
