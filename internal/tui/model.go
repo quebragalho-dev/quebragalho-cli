@@ -126,6 +126,10 @@ type model struct {
 	height            int
 	now               func() time.Time
 	chatScrollOffset  int
+	// chatBodyLines is the live body's line count at the last update; used to pin
+	// the viewport (hold the read position) when content streams in while the user
+	// has scrolled up. 0 means "at the bottom / not pinned".
+	chatBodyLines int
 
 	// Flush-frontier state (see flush.go). In inline mode, transcript[:flushed]
 	// is already in native scrollback; in alt-screen mode this frontier stays
@@ -503,6 +507,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return next, cmd
 	}
+	nm = nm.syncChatScroll()
 	nm, mouseCmd := nm.syncMouseCapture()
 	nm, flushCmd := nm.settleTranscript()
 	return nm, batchCommands(cmd, mouseCmd, flushCmd)
@@ -533,9 +538,14 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.handleMouse(msg)
 	case transcriptCopiedMsg:
-		m.transcriptSelection = transcriptSelectionState{}
 		m.copyStatusSeq++
-		m.copyStatus = "Copied!"
+		if msg.err != nil {
+			// Keep the selection so the user can retry; just surface the failure.
+			m.copyStatus = "Copy failed"
+		} else {
+			m.transcriptSelection = transcriptSelectionState{}
+			m.copyStatus = "Copied!"
+		}
 		seq := m.copyStatusSeq
 		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
 			return transcriptCopyStatusExpiredMsg{seq: seq}
@@ -1338,6 +1348,40 @@ func (m model) scrollChat(delta int) model {
 	}
 	m.chatScrollOffset = maxInt(0, m.chatScrollOffset+delta)
 	return m
+}
+
+// syncChatScroll pins the viewport to what the user is reading. The scroll offset
+// is measured from the bottom, so when the transcript grows (streaming) the window
+// would otherwise follow the new bottom and drag the user off their spot. While
+// the user has scrolled up, shift the offset by however many lines the body changed
+// so the absolute view holds; at the bottom (offset 0) it follows normally. Only the
+// scrolled-up path renders the body, so the common case stays cheap.
+func (m model) syncChatScroll() model {
+	if !m.altScreen || m.chatScrollOffset <= 0 {
+		// At the bottom (or inline mode): follow the tail; reset the pin baseline.
+		m.chatBodyLines = 0
+		return m
+	}
+	current := m.chatBodyLineCount()
+	if m.chatBodyLines == 0 {
+		// Just scrolled up: establish the baseline, no adjustment this frame.
+		m.chatBodyLines = current
+		return m
+	}
+	// Shift by the signed delta so the absolute view holds whether the body grew
+	// (streaming appended lines) or shrank (a tool card collapsed, transcript
+	// cleared). Clamp at zero so a large shrink lands the user back at the tail
+	// rather than underflowing past it.
+	m.chatScrollOffset = maxInt(0, m.chatScrollOffset+current-m.chatBodyLines)
+	m.chatBodyLines = current
+	return m
+}
+
+// chatBodyLineCount renders the live transcript body and returns its line count.
+// Only called while the user is scrolled up (see syncChatScroll).
+func (m model) chatBodyLineCount() int {
+	body, _ := m.transcriptBody(chatWidth(m.width), "")
+	return len(viewLines(body))
 }
 
 func (m model) chatPageScrollLines() int {
