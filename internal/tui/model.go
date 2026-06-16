@@ -136,7 +136,7 @@ type model struct {
 	// idle so history cannot reveal prior shell output.
 	// flushedAny gates the first turn-separator blank line; flushQueue/
 	// printInFlight serialize ordered scrollback prints; headerPrinted records
-	// the one-time title-bar print at startup.
+	// the one-time inline title-bar print at startup.
 	flushed       int
 	flushedAny    bool
 	flushQueue    []string
@@ -910,8 +910,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// visible instead of being clipped invisibly past the right edge.
 		m.input.SetWidth(maxInt(20, chatWidth(msg.Width)-14))
 		// The title bar prints once into native scrollback when the inline
-		// renderer is active. In alt-screen mode tea.Println is ignored, so the
-		// title stays managed inside View.
+		// renderer is active. In alt-screen mode it stays pinned inside View.
 		if !m.altScreen && !m.headerPrinted && msg.Width > 0 {
 			m.headerPrinted = true
 			m.flushQueue = append(m.flushQueue, m.titleBar(chatWidth(msg.Width)))
@@ -1218,13 +1217,24 @@ func (m model) transcriptView() string {
 	}
 
 	if m.altScreen && m.height > 0 {
-		return m.scrollableTranscriptView(body, footer, width, overlayForViewport)
+		return m.scrollableTranscriptView(m.pinnedTitleBar(width), body, footer, width, overlayForViewport)
 	}
 
 	if overlayForViewport != "" {
 		body += "\n" + overlayForViewport + "\n"
 	}
 	return body + footer
+}
+
+func (m model) titleBarInTranscriptBody() bool {
+	return !m.altScreen && !m.headerPrinted
+}
+
+func (m model) pinnedTitleBar(width int) string {
+	if !m.altScreen || m.height <= 0 {
+		return ""
+	}
+	return m.titleBar(width)
 }
 
 func (m model) footerView(width int) string {
@@ -1249,31 +1259,62 @@ func (m model) footerView(width int) string {
 	return footer.String()
 }
 
-func (m model) scrollableTranscriptView(body string, footer string, width int, overlay string) string {
-	bodyLines := viewLines(body)
+type transcriptFrameLayout struct {
+	headerLines []string
+	bodyHeight  int
+	footerLines []string
+}
+
+func (m model) scrollableTranscriptFrame(header string, footer string) transcriptFrameLayout {
+	headerLines := viewLines(header)
 	footerLines := viewLines(footer)
+
 	maxFooterLines := maxInt(0, m.height-1)
 	if len(footerLines) > maxFooterLines {
 		footerLines = footerLines[len(footerLines)-maxFooterLines:]
 	}
-	available := m.height - len(footerLines)
-	if available < 1 {
-		available = 1
+	if len(headerLines)+len(footerLines) >= m.height {
+		maxHeaderLines := maxInt(0, m.height-len(footerLines)-1)
+		if len(headerLines) > maxHeaderLines {
+			headerLines = headerLines[:maxHeaderLines]
+		}
 	}
+	if len(headerLines)+len(footerLines) >= m.height {
+		maxFooterLines = maxInt(0, m.height-len(headerLines)-1)
+		if len(footerLines) > maxFooterLines {
+			footerLines = footerLines[len(footerLines)-maxFooterLines:]
+		}
+	}
+
+	bodyHeight := m.height - len(headerLines) - len(footerLines)
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+	return transcriptFrameLayout{headerLines: headerLines, bodyHeight: bodyHeight, footerLines: footerLines}
+}
+
+func (m model) scrollableTranscriptView(header string, body string, footer string, width int, overlay string) string {
+	bodyLines := viewLines(body)
+	frame := m.scrollableTranscriptFrame(header, footer)
+	available := frame.bodyHeight
 	maxOffset := maxInt(0, len(bodyLines)-available)
 	offset := clamp(m.chatScrollOffset, 0, maxOffset)
 	start := maxInt(0, len(bodyLines)-available-offset)
 	end := minInt(len(bodyLines), start+available)
 
-	lines := make([]string, 0, available+len(footerLines))
+	bodyWindow := make([]string, 0, available)
 	if start < end {
-		lines = append(lines, bodyLines[start:end]...)
+		bodyWindow = append(bodyWindow, bodyLines[start:end]...)
 	}
-	for len(lines) < available {
-		lines = append(lines, "")
+	for len(bodyWindow) < available {
+		bodyWindow = append(bodyWindow, "")
 	}
-	lines = overlayViewportLines(lines, overlay, width)
-	lines = append(lines, footerLines...)
+	bodyWindow = overlayViewportLines(bodyWindow, overlay, width)
+
+	lines := make([]string, 0, len(frame.headerLines)+len(bodyWindow)+len(frame.footerLines))
+	lines = append(lines, frame.headerLines...)
+	lines = append(lines, bodyWindow...)
+	lines = append(lines, frame.footerLines...)
 	for index, line := range lines {
 		lines[index] = fitStyledLine(line, width)
 	}
@@ -1398,15 +1439,8 @@ func (m model) chatScrollMetrics() (int, int) {
 	width := chatWidth(m.width)
 	body, _ := m.transcriptBody(width, "")
 	bodyLines := len(viewLines(body))
-	footerLines := viewLines(m.footerView(width))
-	maxFooterLines := maxInt(0, m.height-1)
-	if len(footerLines) > maxFooterLines {
-		footerLines = footerLines[len(footerLines)-maxFooterLines:]
-	}
-	available := m.height - len(footerLines)
-	if available < 1 {
-		available = 1
-	}
+	frame := m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width))
+	available := frame.bodyHeight
 	return bodyLines, maxInt(0, bodyLines-available)
 }
 
