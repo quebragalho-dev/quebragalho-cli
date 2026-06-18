@@ -67,7 +67,7 @@ func TestEngineEvaluatesReadPromptAndPersistentDecisions(t *testing.T) {
 	}
 	engine := NewEngine(EngineOptions{
 		WorkspaceRoot: root,
-		Policy:        DefaultPolicy(),
+		Policy:        promptWorkspaceWritePolicy(),
 		Store:         store,
 	})
 
@@ -145,7 +145,7 @@ func TestEngineGrantScopesToFileAndDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGrantStore returned error: %v", err)
 	}
-	engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: DefaultPolicy(), Store: store})
+	engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: promptWorkspaceWritePolicy(), Store: store})
 
 	writeReq := func(path string) Request {
 		return Request{
@@ -182,6 +182,151 @@ func TestEngineGrantScopesToFileAndDirectory(t *testing.T) {
 	denied.Autonomy = AutonomyHigh
 	if d := engine.Evaluate(context.Background(), denied); d.Action != ActionDeny || !d.GrantMatched || d.Violation == nil || d.Violation.Code != ViolationPersistentDeny {
 		t.Fatalf("path under deny subtree should be denied, got %#v", d)
+	}
+}
+
+func TestEngineAutoAllowsWorkspaceFileMutationTools(t *testing.T) {
+	root := t.TempDir()
+	engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: DefaultPolicy()})
+
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "write_file", args: map[string]any{"path": "notes.txt"}},
+		{name: "edit_file", args: map[string]any{"path": "notes.txt"}},
+		{name: "apply_patch", args: map[string]any{"patch": "diff --git a/notes.txt b/notes.txt\n"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decision := engine.Evaluate(context.Background(), Request{
+				ToolName:       tc.name,
+				SideEffect:     SideEffectWrite,
+				Permission:     PermissionPrompt,
+				PermissionMode: PermissionModeAsk,
+				Autonomy:       AutonomyMedium,
+				Args:           tc.args,
+			})
+			if decision.Action != ActionAllow || !decision.AutoAllowed || decision.GrantMatched {
+				t.Fatalf("workspace mutation decision = %#v, want auto allow without grant", decision)
+			}
+		})
+	}
+
+	outside := engine.Evaluate(context.Background(), Request{
+		ToolName:       "write_file",
+		SideEffect:     SideEffectWrite,
+		Permission:     PermissionPrompt,
+		PermissionMode: PermissionModeAsk,
+		Autonomy:       AutonomyMedium,
+		Args:           map[string]any{"path": filepath.Join(t.TempDir(), "escape.txt")},
+	})
+	if outside.Action != ActionDeny || outside.Violation == nil || outside.Violation.Code != ViolationOutsideWorkspace {
+		t.Fatalf("outside workspace mutation decision = %#v, want deny", outside)
+	}
+}
+
+func TestEngineDoesNotAutoAllowProtectedMetadataWrites(t *testing.T) {
+	root := t.TempDir()
+	engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: DefaultPolicy()})
+
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "write_file git hook", args: map[string]any{"path": ".git/hooks/pre-commit"}},
+		{name: "edit_file zero config", args: map[string]any{"path": ".zero/config.json"}},
+		{name: "apply_patch agents metadata", args: map[string]any{"patch": "--- /dev/null\n+++ b/.agents/config.json\n@@ -0,0 +1 @@\n+{}\n"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decision := engine.Evaluate(context.Background(), Request{
+				ToolName:       strings.Fields(tc.name)[0],
+				SideEffect:     SideEffectWrite,
+				Permission:     PermissionPrompt,
+				PermissionMode: PermissionModeAsk,
+				Autonomy:       AutonomyMedium,
+				Args:           tc.args,
+			})
+			if decision.Action != ActionPrompt || decision.AutoAllowed {
+				t.Fatalf("protected metadata decision = %#v, want prompt without auto-allow", decision)
+			}
+		})
+	}
+}
+
+func TestEngineDeniesApplyPatchEscapesFromPatchBody(t *testing.T) {
+	root := t.TempDir()
+	engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: DefaultPolicy()})
+
+	decision := engine.Evaluate(context.Background(), Request{
+		ToolName:       "apply_patch",
+		SideEffect:     SideEffectWrite,
+		Permission:     PermissionPrompt,
+		PermissionMode: PermissionModeAsk,
+		Autonomy:       AutonomyMedium,
+		Args: map[string]any{
+			"patch": "--- a/notes.txt\n+++ b/../escape.txt\n@@ -0,0 +1 @@\n+escape\n",
+		},
+	})
+
+	if decision.Action != ActionDeny || decision.Violation == nil || decision.Violation.Code != ViolationOutsideWorkspace {
+		t.Fatalf("escaping apply_patch decision = %#v, want outside-workspace deny", decision)
+	}
+}
+
+func TestEngineSessionGrantDoesNotMatchSiblingFile(t *testing.T) {
+	root := t.TempDir()
+	engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: promptWorkspaceWritePolicy()})
+
+	if _, err := engine.GrantForSession(GrantInput{
+		ToolName:    "write_file",
+		Decision:    GrantAllow,
+		MaxAutonomy: AutonomyMedium,
+		Scope:       "src/a.txt",
+		ScopeKind:   ScopeFile,
+	}); err != nil {
+		t.Fatalf("GrantForSession file: %v", err)
+	}
+
+	request := func(path string) Request {
+		return Request{
+			ToolName:       "write_file",
+			SideEffect:     SideEffectWrite,
+			Permission:     PermissionPrompt,
+			PermissionMode: PermissionModeAsk,
+			Autonomy:       AutonomyMedium,
+			Args:           map[string]any{"path": path},
+		}
+	}
+
+	if decision := engine.Evaluate(context.Background(), request("src/a.txt")); decision.Action != ActionAllow || !decision.GrantMatched || decision.Grant == nil || !decision.Grant.Session {
+		t.Fatalf("same file session grant decision = %#v, want matched session allow", decision)
+	}
+	if decision := engine.Evaluate(context.Background(), request("src/b.txt")); decision.Action != ActionPrompt || decision.GrantMatched {
+		t.Fatalf("sibling file session grant decision = %#v, want prompt without grant match", decision)
+	}
+}
+
+func TestEngineDeniesAutoAllowedSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: DefaultPolicy()})
+
+	decision := engine.Evaluate(context.Background(), Request{
+		ToolName:       "apply_patch",
+		SideEffect:     SideEffectWrite,
+		Permission:     PermissionPrompt,
+		PermissionMode: PermissionModeAsk,
+		Autonomy:       AutonomyMedium,
+		Args: map[string]any{
+			"patch": "--- /dev/null\n+++ b/linked/escape.txt\n@@ -0,0 +1 @@\n+escape\n",
+		},
+	})
+
+	if decision.Action != ActionDeny || decision.Violation == nil || decision.Violation.Code != ViolationSymlinkTraversal {
+		t.Fatalf("symlink apply_patch decision = %#v, want symlink traversal deny", decision)
 	}
 }
 
@@ -716,6 +861,12 @@ func fixedSandboxTime(value string) func() time.Time {
 		panic(err)
 	}
 	return func() time.Time { return parsed }
+}
+
+func promptWorkspaceWritePolicy() Policy {
+	policy := DefaultPolicy()
+	policy.EnforceWorkspace = false
+	return policy
 }
 
 func TestEvaluateAllowsWritesInsideExtraScopeRoot(t *testing.T) {
