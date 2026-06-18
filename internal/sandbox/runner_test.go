@@ -10,21 +10,23 @@ import (
 	"testing"
 )
 
-func TestBuildCommandPlanWrapsBubblewrap(t *testing.T) {
+func TestBuildCommandPlanWrapsLinuxHelper(t *testing.T) {
 	root := t.TempDir()
 	resolvedRoot := resolvedTestPath(t, root)
 	nested := filepath.Join(root, "nested")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	resolvedNested := resolvedTestPath(t, nested)
 	engine := NewEngine(EngineOptions{
 		WorkspaceRoot: root,
 		Policy:        DefaultPolicy(),
 		Backend: Backend{
-			Name:       BackendBubblewrap,
+			Name:       BackendLinuxBwrap,
 			Available:  true,
-			Executable: "/usr/bin/bwrap",
-			Message:    "bubblewrap sandbox available",
+			Executable: "/usr/bin/zero-linux-sandbox",
+			Platform:   "linux",
+			Message:    "Linux sandbox helper available",
 		},
 	})
 
@@ -37,18 +39,17 @@ func TestBuildCommandPlanWrapsBubblewrap(t *testing.T) {
 		t.Fatalf("BuildCommandPlan: %v", err)
 	}
 
-	if !plan.Wrapped || plan.Name != "/usr/bin/bwrap" || plan.Backend.Name != BackendBubblewrap {
-		t.Fatalf("plan backend = %#v, want wrapped bubblewrap", plan)
+	if !plan.Wrapped || plan.Name != "/usr/bin/zero-linux-sandbox" || plan.Backend.Name != BackendLinuxBwrap {
+		t.Fatalf("plan backend = %#v, want wrapped Linux helper", plan)
 	}
-	assertArgsContainSequence(t, plan.Args, "--bind", resolvedRoot, bubblewrapWorkspace)
-	assertArgsContainSequence(t, plan.Args, "--chdir", bubblewrapWorkspace+"/nested")
-	assertArgsContainSequence(t, plan.Args, "--unshare-net")
+	assertArgsContainSequence(t, plan.Args, "--sandbox-policy-cwd", resolvedRoot)
+	assertArgsContainSequence(t, plan.Args, "--command-cwd", resolvedNested)
 	assertArgsContainSequence(t, plan.Args, "--", "/bin/sh", "-c", "pwd")
-	if plan.SandboxDir != bubblewrapWorkspace+"/nested" {
-		t.Fatalf("SandboxDir = %q, want nested workspace dir", plan.SandboxDir)
+	if plan.SandboxDir != resolvedNested {
+		t.Fatalf("SandboxDir = %q, want command cwd", plan.SandboxDir)
 	}
-	if plan.Dir != "" {
-		t.Fatalf("bubblewrap host Dir = %q, want empty because bwrap owns chdir", plan.Dir)
+	if plan.Dir != resolvedNested {
+		t.Fatalf("helper host Dir = %q, want command cwd", plan.Dir)
 	}
 }
 
@@ -59,10 +60,11 @@ func TestBuildCommandPlanWrapsSandboxExec(t *testing.T) {
 		WorkspaceRoot: root,
 		Policy:        DefaultPolicy(),
 		Backend: Backend{
-			Name:       BackendSandboxExec,
+			Name:       BackendMacOSSeatbelt,
 			Available:  true,
 			Executable: "/usr/bin/sandbox-exec",
-			Message:    "sandbox-exec backend available",
+			Platform:   "darwin",
+			Message:    "macOS Seatbelt backend available",
 		},
 	})
 
@@ -75,8 +77,8 @@ func TestBuildCommandPlanWrapsSandboxExec(t *testing.T) {
 		t.Fatalf("BuildCommandPlan: %v", err)
 	}
 
-	if !plan.Wrapped || plan.Name != "/usr/bin/sandbox-exec" || plan.Backend.Name != BackendSandboxExec {
-		t.Fatalf("plan backend = %#v, want wrapped sandbox-exec", plan)
+	if !plan.Wrapped || plan.Name != "/usr/bin/sandbox-exec" || plan.Backend.Name != BackendMacOSSeatbelt {
+		t.Fatalf("plan backend = %#v, want wrapped macOS Seatbelt", plan)
 	}
 	if len(plan.Args) < 5 || plan.Args[0] != "-p" {
 		t.Fatalf("sandbox-exec args = %#v, want profile and command", plan.Args)
@@ -180,8 +182,8 @@ func TestSandboxExecProfileAllowsDevNullAndTemp(t *testing.T) {
 		t.Skip("sandbox-exec is macOS-only")
 	}
 	backend := SelectBackend(BackendOptions{})
-	if !backend.Available || backend.Name != BackendSandboxExec {
-		t.Skipf("sandbox-exec backend unavailable: %s", backend.Message)
+	if !backend.Available || backend.Name != BackendMacOSSeatbelt {
+		t.Skipf("macOS Seatbelt backend unavailable: %s", backend.Message)
 	}
 	root := t.TempDir()
 	engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: DefaultPolicy(), Backend: backend})
@@ -250,6 +252,138 @@ func TestSandboxExecProfileIncludesExtraWriteRoots(t *testing.T) {
 	}
 }
 
+func TestSeatbeltProfileConsumesPermissionProfile(t *testing.T) {
+	profile := PermissionProfile{
+		FileSystem: FileSystemPolicy{
+			Kind:      FileSystemRestricted,
+			ReadRoots: []string{"/read-root"},
+			WriteRoots: []WritableRoot{{
+				Root: "/write-root",
+			}},
+			IncludePlatformRoots: true,
+			AllowTemp:            true,
+		},
+		Network: NetworkPolicy{Mode: NetworkDeny},
+	}
+	sbpl := seatbeltProfileFromPermissionProfile(profile, Policy{Mode: ModeEnforce}, "", "", "")
+	for _, want := range []string{
+		`(subpath "/read-root")`,
+		`(subpath "/write-root")`,
+		`(subpath "/usr/bin")`,
+		`(subpath "/System/Library/Frameworks")`,
+		`(subpath "/private/var/db")`,
+		`(subpath "/tmp")`,
+		`(literal "/dev/null")`,
+		`(deny network*)`,
+	} {
+		if !strings.Contains(sbpl, want) {
+			t.Fatalf("Seatbelt profile missing %q:\n%s", want, sbpl)
+		}
+	}
+	if strings.Contains(sbpl, "(allow file-read*)\n(allow file-write*)") {
+		t.Fatalf("restricted permission profile must not become full read/write:\n%s", sbpl)
+	}
+}
+
+func TestSeatbeltProfileIncludesRuntimeStartupAllowances(t *testing.T) {
+	sbpl := sandboxExecProfile([]string{"/ws"}, Policy{Mode: ModeEnforce, EnforceWorkspace: true}, "", "", "")
+	for _, want := range []string{
+		`(allow file-map-executable`,
+		`(subpath "/System/Library/Frameworks")`,
+		`(allow system-mac-syscall (mac-policy-name "vnguard"))`,
+		`(allow file-read* file-test-existence (literal "/"))`,
+		`(allow user-preference-read)`,
+		`(allow pseudo-tty)`,
+		`(allow ipc-posix-sem)`,
+	} {
+		if !strings.Contains(sbpl, want) {
+			t.Fatalf("Seatbelt profile missing runtime startup allowance %q:\n%s", want, sbpl)
+		}
+	}
+}
+
+func TestSeatbeltCommandPlanUsesExecutionPermissionProfile(t *testing.T) {
+	request := SandboxExecutionRequest{
+		Command: CommandSpec{Name: "/bin/sh", Args: []string{"-c", "true"}, Dir: "/workspace"},
+		Backend: Backend{
+			Name:            BackendMacOSSeatbelt,
+			Available:       true,
+			Executable:      "/usr/bin/sandbox-exec",
+			CommandWrapping: true,
+			NativeIsolation: true,
+		},
+		WorkspaceRoot: "/workspace",
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind:       FileSystemRestricted,
+				ReadRoots:  []string{"/"},
+				WriteRoots: []WritableRoot{{Root: "/profile-write"}},
+				AllowTemp:  true,
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+		TargetBackend:           BackendMacOSSeatbelt,
+		CommandWrapped:          true,
+		EnforcementLevel:        EnforcementNative,
+		RequiresPlatformSandbox: true,
+	}
+	plan, err := buildPlatformCommandPlan(request, Policy{Mode: ModeEnforce, EnforceWorkspace: true})
+	if err != nil {
+		t.Fatalf("buildPlatformCommandPlan: %v", err)
+	}
+	if len(plan.Args) < 2 {
+		t.Fatalf("plan args = %#v, want sandbox-exec profile", plan.Args)
+	}
+	sbpl := plan.Args[1]
+	if !strings.Contains(sbpl, `(subpath "/profile-write")`) {
+		t.Fatalf("plan profile did not use PermissionProfile write root:\n%s", sbpl)
+	}
+}
+
+func TestSeatbeltProfileProtectsMetadataAndDenyOrdering(t *testing.T) {
+	profile := PermissionProfile{
+		FileSystem: FileSystemPolicy{
+			Kind:      FileSystemRestricted,
+			ReadRoots: []string{"/"},
+			WriteRoots: []WritableRoot{{
+				Root:                   "/repo",
+				ReadOnlySubpaths:       []string{"/repo/vendor"},
+				ProtectedMetadataNames: []string{".git", ".zero"},
+			}},
+			DenyRead:  []string{"/repo/secret-read"},
+			DenyWrite: []string{"/repo/secret-write"},
+			AllowTemp: true,
+		},
+		Network: NetworkPolicy{Mode: NetworkDeny},
+	}
+	sbpl := seatbeltProfileFromPermissionProfile(profile, Policy{Mode: ModeEnforce}, "", "", "")
+	normalizedSecretRead := sandboxProfileString(normalizeProfilePath("/repo/secret-read"))
+	normalizedSecretWrite := sandboxProfileString(normalizeProfilePath("/repo/secret-write"))
+	denySecretReadRule := `(deny file-read* (subpath "` + normalizedSecretRead + `"))`
+	denySecretReadUnlinkRule := `(deny file-write-unlink (subpath "` + normalizedSecretRead + `"))`
+	denySecretWriteRule := `(deny file-write* (subpath "` + normalizedSecretWrite + `"))`
+	for _, want := range []string{
+		`(deny file-write* (literal "/repo/vendor"))`,
+		`(deny file-write* (subpath "/repo/vendor"))`,
+		`(deny file-write* (regex #"^/repo/\.git(/.*)?$"))`,
+		`(deny file-write* (regex #"^/repo/\.zero(/.*)?$"))`,
+		denySecretReadRule,
+		denySecretReadUnlinkRule,
+		denySecretWriteRule,
+	} {
+		if !strings.Contains(sbpl, want) {
+			t.Fatalf("Seatbelt profile missing %q:\n%s", want, sbpl)
+		}
+	}
+	allowIdx := strings.Index(sbpl, "(allow file-write*")
+	denyReadIdx := strings.Index(sbpl, denySecretReadRule)
+	metadataIdx := strings.Index(sbpl, `(deny file-write* (regex #"^/repo/\.git(/.*)?$"))`)
+	denyWriteIdx := strings.Index(sbpl, denySecretWriteRule)
+	if allowIdx < 0 || denyReadIdx < allowIdx || metadataIdx < allowIdx || denyWriteIdx < allowIdx {
+		t.Fatalf("deny rules must follow the broad write allow (allow=%d denyRead=%d metadata=%d denyWrite=%d):\n%s", allowIdx, denyReadIdx, metadataIdx, denyWriteIdx, sbpl)
+	}
+}
+
 func TestSandboxExecProfileTagsDenialsWhenMonitoring(t *testing.T) {
 	off := sandboxExecProfile([]string{"/ws"}, Policy{Mode: ModeEnforce, EnforceWorkspace: true}, "", "", "")
 	if strings.Contains(off, "with message") {
@@ -267,11 +401,12 @@ func TestSandboxExecProfileTagsDenialsWhenMonitoring(t *testing.T) {
 
 func TestSandboxExecCommandPlanUsesUniquePerPlanDenialTag(t *testing.T) {
 	policy := Policy{Mode: ModeEnforce, EnforceWorkspace: true, MonitorDenials: true}
-	backend := Backend{Name: BackendSandboxExec, Available: true, Executable: "/usr/bin/sandbox-exec"}
+	backend := Backend{Name: BackendMacOSSeatbelt, Available: true, Executable: "/usr/bin/sandbox-exec"}
 	spec := CommandSpec{Name: "/bin/sh", Args: []string{"-c", "true"}, Dir: "/ws"}
+	profile := seatbeltCompatibilityPermissionProfile([]string{"/ws"}, policy)
 
-	p1 := sandboxExecCommandPlan(spec, "/ws", []string{"/ws"}, policy, backend, nil)
-	p2 := sandboxExecCommandPlan(spec, "/ws", []string{"/ws"}, policy, backend, nil)
+	p1 := seatbeltCommandPlanWithProfile(spec, "/ws", profile, policy, backend, nil)
+	p2 := seatbeltCommandPlanWithProfile(spec, "/ws", profile, policy, backend, nil)
 	if p1.MonitorTag == "" || p2.MonitorTag == "" {
 		t.Fatalf("monitored plans must carry a denial tag: %q %q", p1.MonitorTag, p2.MonitorTag)
 	}
@@ -284,7 +419,8 @@ func TestSandboxExecCommandPlanUsesUniquePerPlanDenialTag(t *testing.T) {
 		t.Fatalf("plan profile must embed its own tag %q:\n%v", p1.MonitorTag, p1.Args)
 	}
 
-	off := sandboxExecCommandPlan(spec, "/ws", []string{"/ws"}, Policy{Mode: ModeEnforce, EnforceWorkspace: true}, backend, nil)
+	offPolicy := Policy{Mode: ModeEnforce, EnforceWorkspace: true}
+	off := seatbeltCommandPlanWithProfile(spec, "/ws", seatbeltCompatibilityPermissionProfile([]string{"/ws"}, offPolicy), offPolicy, backend, nil)
 	if off.MonitorTag != "" {
 		t.Fatalf("a non-monitored plan must carry no tag, got %q", off.MonitorTag)
 	}
@@ -318,7 +454,7 @@ func TestSandboxExecProfileGrantsSignalAndMachLookup(t *testing.T) {
 	}
 }
 
-func TestBubblewrapPlanBindsExtraWriteRoots(t *testing.T) {
+func TestLinuxHelperPlanCarriesExtraWriteRoots(t *testing.T) {
 	workspace := t.TempDir()
 	extra := t.TempDir()
 	scope, err := NewScope(workspace, []string{extra})
@@ -329,69 +465,19 @@ func TestBubblewrapPlanBindsExtraWriteRoots(t *testing.T) {
 		WorkspaceRoot: workspace,
 		Policy:        DefaultPolicy(),
 		Scope:         scope,
-		Backend:       Backend{Name: BackendBubblewrap, Available: true, Executable: "/usr/bin/bwrap"},
+		Backend:       Backend{Name: BackendLinuxBwrap, Available: true, Executable: "/usr/bin/zero-linux-sandbox"},
 	})
 	plan, err := engine.BuildCommandPlan(CommandSpec{Name: "true"})
 	if err != nil {
 		t.Fatalf("BuildCommandPlan: %v", err)
 	}
-	joined := strings.Join(plan.Args, " ")
+	config, err := ParseLinuxSandboxHelperArgs(plan.Args)
+	if err != nil {
+		t.Fatalf("ParseLinuxSandboxHelperArgs: %v", err)
+	}
 	resolvedExtra := scope.Roots()[1]
-	if !strings.Contains(joined, "--bind "+resolvedExtra+" "+resolvedExtra) {
-		t.Fatalf("bubblewrap args missing rw bind for extra root %q:\n%s", resolvedExtra, joined)
-	}
-}
-
-func TestBubblewrapPlanPrefixesSeccompHelperWhenBlockingUnixSockets(t *testing.T) {
-	const fakeHelper = "/opt/zero/bin/zero-seccomp"
-	original := seccompHelper
-	seccompHelper = func() string { return fakeHelper }
-	defer func() { seccompHelper = original }()
-
-	workspace := t.TempDir()
-	policy := DefaultPolicy()
-	policy.BlockUnixSockets = true
-	engine := NewEngine(EngineOptions{
-		WorkspaceRoot: workspace,
-		Policy:        policy,
-		Backend:       Backend{Name: BackendBubblewrap, Available: true, Executable: "/usr/bin/bwrap"},
-	})
-	plan, err := engine.BuildCommandPlan(CommandSpec{Name: "/bin/sh", Args: []string{"-c", "true"}})
-	if err != nil {
-		t.Fatalf("BuildCommandPlan: %v", err)
-	}
-	joined := strings.Join(plan.Args, " ")
-	if !strings.Contains(joined, "--ro-bind "+fakeHelper+" "+fakeHelper) {
-		t.Fatalf("args missing ro-bind for seccomp helper:\n%s", joined)
-	}
-	// The helper must be the argv that follows the bwrap "--" separator, ahead of
-	// the real command, so it wraps execution.
-	if !strings.Contains(joined, "-- "+fakeHelper+" /bin/sh -c true") {
-		t.Fatalf("seccomp helper not prefixed before the command:\n%s", joined)
-	}
-}
-
-func TestBubblewrapPlanNoSeccompHelperByDefault(t *testing.T) {
-	original := seccompHelper
-	seccompHelper = func() string { return "/should/not/be/used/zero-seccomp" }
-	defer func() { seccompHelper = original }()
-
-	workspace := t.TempDir()
-	engine := NewEngine(EngineOptions{
-		WorkspaceRoot: workspace,
-		Policy:        DefaultPolicy(), // BlockUnixSockets is false by default
-		Backend:       Backend{Name: BackendBubblewrap, Available: true, Executable: "/usr/bin/bwrap"},
-	})
-	plan, err := engine.BuildCommandPlan(CommandSpec{Name: "/bin/sh", Args: []string{"-c", "true"}})
-	if err != nil {
-		t.Fatalf("BuildCommandPlan: %v", err)
-	}
-	joined := strings.Join(plan.Args, " ")
-	if strings.Contains(joined, "zero-seccomp") {
-		t.Fatalf("seccomp helper must not appear when BlockUnixSockets is off:\n%s", joined)
-	}
-	if !strings.Contains(joined, "-- /bin/sh -c true") {
-		t.Fatalf("command not wired as the plain argv after --:\n%s", joined)
+	if len(config.PermissionProfile.FileSystem.WriteRoots) < 2 || config.PermissionProfile.FileSystem.WriteRoots[1].Root != resolvedExtra {
+		t.Fatalf("helper profile missing extra write root %q: %#v", resolvedExtra, config.PermissionProfile.FileSystem.WriteRoots)
 	}
 }
 
@@ -403,15 +489,15 @@ func TestResolveCommandDirAllowsExtraRootCwd(t *testing.T) {
 		t.Fatalf("NewScope: %v", err)
 	}
 	engine := NewEngine(EngineOptions{WorkspaceRoot: workspace, Policy: DefaultPolicy(), Scope: scope})
-	if _, _, _, err := engine.resolveCommandDir(extra, engine.policy); err != nil {
+	if _, _, err := engine.resolveCommandDir(extra, engine.policy); err != nil {
 		t.Fatalf("resolveCommandDir(extra root) = %v, want nil", err)
 	}
-	if _, _, _, err := engine.resolveCommandDir(t.TempDir(), engine.policy); err == nil {
+	if _, _, err := engine.resolveCommandDir(t.TempDir(), engine.policy); err == nil {
 		t.Fatal("resolveCommandDir(outside all roots) = nil error, want violation")
 	}
 }
 
-func TestBubblewrapPlanChdirsToRealPathForExtraRootCwd(t *testing.T) {
+func TestLinuxHelperPlanPreservesRealExtraRootCwd(t *testing.T) {
 	workspace := t.TempDir()
 	extra := t.TempDir()
 	scope, err := NewScope(workspace, []string{extra})
@@ -422,26 +508,26 @@ func TestBubblewrapPlanChdirsToRealPathForExtraRootCwd(t *testing.T) {
 		WorkspaceRoot: workspace,
 		Policy:        DefaultPolicy(),
 		Scope:         scope,
-		Backend:       Backend{Name: BackendBubblewrap, Available: true, Executable: "/usr/bin/bwrap"},
+		Backend:       Backend{Name: BackendLinuxBwrap, Available: true, Executable: "/usr/bin/zero-linux-sandbox"},
 	})
 	resolvedExtra := scope.Roots()[1]
 	plan, err := engine.BuildCommandPlan(CommandSpec{Name: "true", Dir: extra})
 	if err != nil {
 		t.Fatalf("BuildCommandPlan: %v", err)
 	}
-	if plan.SandboxDir != filepath.ToSlash(resolvedExtra) {
+	if filepath.Clean(plan.SandboxDir) != filepath.Clean(resolvedExtra) {
 		t.Fatalf("SandboxDir=%q want real extra-root path %q", plan.SandboxDir, resolvedExtra)
 	}
-	joined := strings.Join(plan.Args, " ")
-	if !strings.Contains(joined, "--chdir "+filepath.ToSlash(resolvedExtra)) {
-		t.Fatalf("args missing --chdir to real extra-root path:\n%s", joined)
+	assertArgsContainSequence(t, plan.Args, "--command-cwd", resolvedExtra)
+	config, err := ParseLinuxSandboxHelperArgs(plan.Args)
+	if err != nil {
+		t.Fatalf("ParseLinuxSandboxHelperArgs: %v", err)
 	}
-	// The workspace must appear only at its /workspace remount, never
-	// double-bound at its real host path.
-	resolvedWorkspace := scope.Roots()[0]
-	if strings.Contains(joined, "--bind "+resolvedWorkspace+" "+resolvedWorkspace) {
-		t.Fatalf("workspace double-bound at real path:\n%s", joined)
+	bwrapArgs, err := BuildLinuxSandboxBwrapArgs(LinuxSandboxBwrapOptions{Config: config, HelperPath: "/usr/bin/zero-linux-sandbox"})
+	if err != nil {
+		t.Fatalf("BuildLinuxSandboxBwrapArgs: %v", err)
 	}
+	assertArgsContainSequence(t, bwrapArgs, "--chdir", resolvedExtra)
 }
 
 func TestProxyEnv(t *testing.T) {

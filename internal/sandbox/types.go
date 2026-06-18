@@ -15,9 +15,8 @@ const EnvAutoAllowBash = "ZERO_SANDBOX_AUTO_ALLOW_BASH"
 // EnvSandboxed marks a process that zero has already wrapped in a sandbox: every
 // wrapped command carries ZERO_SANDBOXED=1 in its environment. When such a
 // process spawns another command through the engine, the re-entrancy guard
-// returns a pass-through plan instead of double-wrapping it — nested bwrap /
-// sandbox-exec fails, and a second egress proxy would be redundant. Mirrors the
-// already-sandboxed guard used by comparable executor sandboxes. Unset by default.
+// returns a pass-through plan instead of double-wrapping it; nested platform
+// wrappers fail, and a second egress proxy would be redundant. Unset by default.
 const EnvSandboxed = "ZERO_SANDBOXED"
 
 // EnvSandboxBackend records which backend wrapped the command. sandboxEnvironment
@@ -50,6 +49,7 @@ type GrantDecision string
 type BackendName string
 type BackendSupportLevel string
 type CapabilityStatus string
+type EnforcementLevel string
 
 const (
 	SideEffectRead           SideEffect = "read"
@@ -128,9 +128,13 @@ const (
 )
 
 const (
-	BackendBubblewrap  BackendName = "bubblewrap"
-	BackendSandboxExec BackendName = "sandbox-exec"
-	BackendPolicyOnly  BackendName = "policy-only"
+	BackendNone                   BackendName = "none"
+	BackendMacOSSeatbelt          BackendName = "macos-seatbelt"
+	BackendLinuxBwrap             BackendName = "linux-bwrap"
+	BackendLinuxLandlock          BackendName = "linux-landlock"
+	BackendWindowsRestrictedToken BackendName = "windows-restricted-token"
+	BackendWindowsElevated        BackendName = "windows-elevated"
+	BackendPolicyOnly             BackendName = "policy-only"
 	// BackendWSL is the policy-only fallback used under WSL when bubblewrap is
 	// unavailable/unreliable: there is no native OS isolation, but network egress
 	// is still routed through the local filtering proxy and the command runs under
@@ -148,6 +152,12 @@ const (
 	CapabilityPreflight   CapabilityStatus = "preflight"
 	CapabilityUnavailable CapabilityStatus = "unavailable"
 	CapabilityDisabled    CapabilityStatus = "disabled"
+)
+
+const (
+	EnforcementNative   EnforcementLevel = "native"
+	EnforcementDegraded EnforcementLevel = "degraded"
+	EnforcementDisabled EnforcementLevel = "disabled"
 )
 
 type Policy struct {
@@ -171,6 +181,11 @@ type Policy struct {
 	// safeguards). The sandboxed-shell egress decision is independent of this flag.
 	// Turn it on to also hold web_search/web_fetch to the allow/scoped/deny policy.
 	EnforceToolNetwork bool `json:"enforceToolNetwork,omitempty"`
+	// BlockUnixSockets, when true on the Linux helper backend, installs a
+	// best-effort seccomp filter in the inner helper stage that denies AF_UNIX
+	// socket creation. It is an extra hardening layer over the native sandbox and
+	// is ignored on non-Linux backends.
+	BlockUnixSockets bool `json:"blockUnixSockets,omitempty"`
 	// AutoAllowBashWhenSandboxed, when true, auto-allows the bash tool WITHOUT a
 	// permission prompt — but only when the sandbox is actually active (a
 	// native-isolation backend wraps the command). The sandbox is then the safety
@@ -184,13 +199,6 @@ type Policy struct {
 	// Ignored on non-macOS backends, and a no-op where the OS does not deliver
 	// seatbelt denials to the unified log.
 	MonitorDenials bool `json:"monitorDenials,omitempty"`
-	// BlockUnixSockets, when true on the bubblewrap (Linux) backend, prefixes the
-	// sandboxed command with the zero-seccomp helper to install a seccomp filter
-	// that denies AF_UNIX socket creation — closing the Unix-socket gap bubblewrap's
-	// filesystem/network isolation leaves open. Off by default; degrades gracefully
-	// (runs without the filter) when the helper binary is not found. Ignored on
-	// non-bubblewrap backends.
-	BlockUnixSockets bool `json:"blockUnixSockets,omitempty"`
 	// AllowRead/DenyRead/AllowWrite/DenyWrite are fine-grained path lists layered
 	// ON TOP of the workspace + Scope guards; they never bypass the symlink /
 	// out-of-workspace protections. Each entry is home-expanded, made absolute, and

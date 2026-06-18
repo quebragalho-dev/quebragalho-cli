@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -218,7 +220,7 @@ func TestRunSandboxPolicyInspectTextAndJSON(t *testing.T) {
 				Name:     sandbox.BackendPolicyOnly,
 				Platform: "windows",
 				Fallback: true,
-				Message:  "policy-only fallback: Windows native sandbox adapter is not implemented",
+				Message:  "policy-only fallback: Windows sandbox command runner is not available",
 			}
 		},
 	}
@@ -242,10 +244,14 @@ func TestRunSandboxPolicyInspectTextAndJSON(t *testing.T) {
 					Policy  sandbox.Policy  `json:"policy"`
 					Backend sandbox.Backend `json:"backend"`
 					Plan    struct {
-						SupportLevel string                      `json:"supportLevel"`
-						Capabilities []sandbox.BackendCapability `json:"capabilities"`
-						Restrictions []string                    `json:"restrictions"`
-						Warnings     []string                    `json:"warnings"`
+						TargetBackend    sandbox.BackendName         `json:"targetBackend"`
+						CommandWrapped   bool                        `json:"commandWrapped"`
+						EnforcementLevel sandbox.EnforcementLevel    `json:"enforcementLevel"`
+						DowngradeReason  string                      `json:"downgradeReason"`
+						SupportLevel     string                      `json:"supportLevel"`
+						Capabilities     []sandbox.BackendCapability `json:"capabilities"`
+						Restrictions     []string                    `json:"restrictions"`
+						Warnings         []string                    `json:"warnings"`
 					} `json:"plan"`
 					Grants string `json:"grantsPath"`
 				}
@@ -261,13 +267,16 @@ func TestRunSandboxPolicyInspectTextAndJSON(t *testing.T) {
 				if payload.Plan.SupportLevel != string(sandbox.BackendSupportPolicyOnly) {
 					t.Fatalf("support level = %q, want policy-only", payload.Plan.SupportLevel)
 				}
+				if payload.Plan.TargetBackend != sandbox.BackendWindowsRestrictedToken || payload.Plan.CommandWrapped || payload.Plan.EnforcementLevel != sandbox.EnforcementDegraded || payload.Plan.DowngradeReason == "" {
+					t.Fatalf("unexpected manager baseline fields: %#v", payload.Plan)
+				}
 				if sandboxPolicyCapabilityStatus(payload.Plan.Capabilities, "native_process_isolation") != sandbox.CapabilityUnavailable {
 					t.Fatalf("expected native isolation unavailable, got %#v", payload.Plan.Capabilities)
 				}
 				if !sandboxPolicyRestrictionContains(payload.Plan.Restrictions, "native process isolation unavailable on windows") {
 					t.Fatalf("expected JSON plan to document Windows fallback, got %#v", payload.Plan.Restrictions)
 				}
-				if !sandboxPolicyRestrictionContains(payload.Plan.Warnings, "Windows native sandbox adapter is not implemented") {
+				if !sandboxPolicyRestrictionContains(payload.Plan.Warnings, "Windows sandbox command runner is not available") {
 					t.Fatalf("expected JSON warnings to document Windows fallback, got %#v", payload.Plan.Warnings)
 				}
 			} else {
@@ -275,12 +284,16 @@ func TestRunSandboxPolicyInspectTextAndJSON(t *testing.T) {
 				for _, want := range []string{
 					"Zero sandbox policy",
 					"backend: policy-only",
+					"target_backend: windows-restricted-token",
 					"support_level: policy-only",
+					"command_wrapped: false",
+					"enforcement_level: degraded",
+					"downgrade_reason: policy-only fallback: Windows sandbox command runner is not available",
 					"backend_fallback: true",
 					"backend_command_wrapping: false",
 					"backend_native_isolation: false",
 					"backend_platform: windows",
-					"Windows native sandbox adapter is not implemented",
+					"Windows sandbox command runner is not available",
 				} {
 					if !strings.Contains(output, want) {
 						t.Fatalf("expected policy text to contain %q, got %q", want, output)
@@ -289,6 +302,173 @@ func TestRunSandboxPolicyInspectTextAndJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunSandboxSetupRunsWindowsHelper(t *testing.T) {
+	workspace := t.TempDir()
+	runnerDir := t.TempDir()
+	runnerPath := filepath.Join(runnerDir, sandbox.WindowsSandboxCommandRunnerName)
+	var gotPath string
+	var gotArgs []string
+	deps := appDeps{
+		getwd: func() (string, error) { return workspace, nil },
+		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
+			return config.ResolvedConfig{
+				Sandbox: config.SandboxConfig{Network: "allow"},
+			}, nil
+		},
+		selectSandboxBackend: func(options sandbox.BackendOptions) sandbox.Backend {
+			return sandbox.Backend{
+				Name:            sandbox.BackendWindowsRestrictedToken,
+				Available:       true,
+				Platform:        "windows",
+				Executable:      runnerPath,
+				CommandWrapping: true,
+				NativeIsolation: true,
+			}
+		},
+		runSandboxSetupHelper: func(path string, args []string, stdout io.Writer, stderr io.Writer) error {
+			gotPath = path
+			gotArgs = append([]string{}, args...)
+			return nil
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"sandbox", "setup", "--json"}, &stdout, &stderr, deps)
+	if exitCode != exitSuccess {
+		t.Fatalf("setup exit = %d, stderr %q", exitCode, stderr.String())
+	}
+	wantPath := filepath.Join(runnerDir, sandbox.WindowsSandboxSetupName)
+	if gotPath != wantPath {
+		t.Fatalf("setup helper path = %q, want %q", gotPath, wantPath)
+	}
+	config, err := sandbox.ParseWindowsSandboxSetupArgs(gotArgs)
+	if err != nil {
+		t.Fatalf("ParseWindowsSandboxSetupArgs: %v", err)
+	}
+	if config.CommandCWD != workspace || len(config.WorkspaceRoots) != 1 || config.WorkspaceRoots[0] != workspace {
+		t.Fatalf("setup args config = %#v, want workspace cwd/root", config)
+	}
+	if config.PermissionProfile.Network.Mode != sandbox.NetworkAllow {
+		t.Fatalf("setup network profile = %#v, want allow", config.PermissionProfile.Network)
+	}
+	var payload sandboxSetupResult
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode setup JSON: %v\n%s", err, stdout.String())
+	}
+	if !payload.Ran || payload.Helper != wantPath || payload.Backend != sandbox.BackendWindowsRestrictedToken {
+		t.Fatalf("setup payload = %#v, want ran Windows helper", payload)
+	}
+}
+
+func TestRunSandboxSetupNoopsForNonWindowsBackend(t *testing.T) {
+	deps := appDeps{
+		getwd: func() (string, error) { return t.TempDir(), nil },
+		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
+			return config.ResolvedConfig{}, nil
+		},
+		selectSandboxBackend: func(options sandbox.BackendOptions) sandbox.Backend {
+			return sandbox.Backend{Name: sandbox.BackendLinuxBwrap, Platform: "linux", Available: true}
+		},
+		runSandboxSetupHelper: func(string, []string, io.Writer, io.Writer) error {
+			t.Fatal("setup helper should not run for non-Windows backend")
+			return nil
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"sandbox", "setup"}, &stdout, &stderr, deps)
+	if exitCode != exitSuccess {
+		t.Fatalf("setup exit = %d, stderr %q", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No native sandbox setup is required for linux") {
+		t.Fatalf("setup output = %q, want non-Windows no-op message", stdout.String())
+	}
+}
+
+func TestTUISandboxSetupCommandGatedToWindowsNativeBackend(t *testing.T) {
+	if got := tuiSandboxSetupCommand(sandbox.Backend{Name: sandbox.BackendLinuxBwrap, Platform: "linux", Available: true}, appDeps{}); got != nil {
+		t.Fatal("linux backend should not enable the TUI sandbox setup command")
+	}
+	if got := tuiSandboxSetupCommand(sandbox.Backend{Name: sandbox.BackendPolicyOnly, Platform: "windows", Available: false}, appDeps{}); got != nil {
+		t.Fatal("policy-only Windows backend should not enable the TUI sandbox setup command")
+	}
+	got := tuiSandboxSetupCommand(sandbox.Backend{
+		Name:            sandbox.BackendWindowsRestrictedToken,
+		Platform:        "windows",
+		Available:       true,
+		Executable:      filepath.Join(t.TempDir(), sandbox.WindowsSandboxCommandRunnerName),
+		CommandWrapping: true,
+		NativeIsolation: true,
+	}, appDeps{})
+	if got == nil {
+		t.Fatal("native Windows backend should enable the TUI sandbox setup command")
+	}
+}
+
+func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
+	store := newSandboxTestStore(t)
+	workspace := t.TempDir()
+	deps := appDeps{
+		getwd:           func() (string, error) { return workspace, nil },
+		newSandboxStore: func() (*sandbox.GrantStore, error) { return store, nil },
+		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
+			return config.ResolvedConfig{}, nil
+		},
+		selectSandboxBackend: func(options sandbox.BackendOptions) sandbox.Backend {
+			return sandbox.Backend{
+				Name:     sandbox.BackendPolicyOnly,
+				Platform: "windows",
+				Fallback: true,
+				Message:  "policy-only fallback: Windows sandbox command runner is not available",
+			}
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"sandbox", "policy", "--json"}, &stdout, &stderr, deps)
+	if exitCode != exitSuccess {
+		t.Fatalf("policy exit = %d, stderr %q", exitCode, stderr.String())
+	}
+
+	got := stdout.String()
+	got = replacePathToken(got, workspace, "$WORKSPACE")
+	got = replacePathToken(got, store.FilePath(), "$GRANTS")
+	wantBytes, err := os.ReadFile(filepath.Join("testdata", "sandbox_policy_windows_policy_only.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	if !jsonValuesEqual(t, wantBytes, []byte(got)) {
+		t.Fatalf("policy JSON golden mismatch\nwant:\n%s\ngot:\n%s", string(wantBytes), got)
+	}
+}
+
+func jsonValuesEqual(t *testing.T, wantBytes []byte, gotBytes []byte) bool {
+	t.Helper()
+	var wantValue any
+	if err := json.Unmarshal(wantBytes, &wantValue); err != nil {
+		t.Fatalf("decode wanted JSON: %v", err)
+	}
+	var gotValue any
+	if err := json.Unmarshal(gotBytes, &gotValue); err != nil {
+		t.Fatalf("decode got JSON: %v\n%s", err, string(gotBytes))
+	}
+	return reflect.DeepEqual(wantValue, gotValue)
+}
+
+func replacePathToken(value string, path string, token string) string {
+	replace := func(value string, path string) string {
+		value = strings.ReplaceAll(value, path, token)
+		if encoded, err := json.Marshal(path); err == nil && len(encoded) >= 2 {
+			value = strings.ReplaceAll(value, string(encoded[1:len(encoded)-1]), token)
+		}
+		return value
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != path {
+		value = replace(value, resolved)
+	}
+	return replace(value, path)
 }
 
 func TestRunSandboxPolicyEffectiveTextAndJSON(t *testing.T) {
@@ -641,24 +821,24 @@ func TestApplyConfiguredAutonomyCeiling(t *testing.T) {
 	}
 }
 
-func TestApplyConfiguredSandboxPolicyHardeningFlags(t *testing.T) {
+func TestApplyConfiguredSandboxPolicyDiagnosticsFlags(t *testing.T) {
 	base := sandbox.DefaultPolicy()
 	if base.BlockUnixSockets || base.MonitorDenials {
-		t.Fatalf("precondition: hardening flags must default off, got block=%v monitor=%v", base.BlockUnixSockets, base.MonitorDenials)
+		t.Fatalf("precondition: diagnostic flags must default off")
 	}
 
 	// Omitted keys leave the (off) defaults untouched.
 	if got := applyConfiguredSandboxPolicy(sandbox.DefaultPolicy(), config.SandboxConfig{}); got.BlockUnixSockets || got.MonitorDenials {
-		t.Fatalf("empty config must not enable hardening flags, got block=%v monitor=%v", got.BlockUnixSockets, got.MonitorDenials)
+		t.Fatalf("empty config must not enable diagnostic flags: %#v", got)
 	}
 
-	// Each flag opts in independently.
-	got := applyConfiguredSandboxPolicy(sandbox.DefaultPolicy(), config.SandboxConfig{BlockUnixSockets: true, MonitorDenials: true})
-	if !got.BlockUnixSockets {
-		t.Fatal("BlockUnixSockets config not applied to policy")
-	}
-	if !got.MonitorDenials {
-		t.Fatal("MonitorDenials config not applied to policy")
+	// The flags opt in.
+	got := applyConfiguredSandboxPolicy(sandbox.DefaultPolicy(), config.SandboxConfig{
+		BlockUnixSockets: true,
+		MonitorDenials:   true,
+	})
+	if !got.BlockUnixSockets || !got.MonitorDenials {
+		t.Fatalf("diagnostic config not applied to policy: %#v", got)
 	}
 }
 

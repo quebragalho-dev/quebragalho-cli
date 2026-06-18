@@ -1,8 +1,7 @@
 package sandbox
 
 import (
-	"os/exec"
-	"runtime"
+	"strings"
 )
 
 type BackendOptions struct {
@@ -47,13 +46,20 @@ func (backend Backend) EnforcesScopedEgress() bool {
 }
 
 type BackendPlan struct {
-	Backend       Backend             `json:"backend"`
-	WorkspaceRoot string              `json:"workspaceRoot"`
-	Policy        Policy              `json:"policy"`
-	SupportLevel  BackendSupportLevel `json:"supportLevel"`
-	Capabilities  []BackendCapability `json:"capabilities"`
-	Restrictions  []string            `json:"restrictions"`
-	Warnings      []string            `json:"warnings,omitempty"`
+	Backend                 Backend             `json:"backend"`
+	TargetBackend           BackendName         `json:"targetBackend"`
+	WorkspaceRoot           string              `json:"workspaceRoot"`
+	Policy                  Policy              `json:"policy"`
+	PermissionProfile       PermissionProfile   `json:"permissionProfile"`
+	CommandWrapped          bool                `json:"commandWrapped"`
+	SandboxEnvMarkers       []string            `json:"sandboxEnvMarkers,omitempty"`
+	EnforcementLevel        EnforcementLevel    `json:"enforcementLevel"`
+	DowngradeReason         string              `json:"downgradeReason,omitempty"`
+	SupportLevel            BackendSupportLevel `json:"supportLevel"`
+	RequiresPlatformSandbox bool                `json:"requiresPlatformSandbox"`
+	Capabilities            []BackendCapability `json:"capabilities"`
+	Restrictions            []string            `json:"restrictions"`
+	Warnings                []string            `json:"warnings,omitempty"`
 }
 
 type BackendCapability struct {
@@ -63,35 +69,42 @@ type BackendCapability struct {
 }
 
 func SelectBackend(options BackendOptions) Backend {
-	goos := options.GOOS
-	if goos == "" {
-		goos = runtime.GOOS
-	}
-	lookup := options.LookupExecutable
-	if lookup == nil {
-		lookup = exec.LookPath
-	}
+	return NewSandboxManager(SandboxManagerOptions{
+		GOOS:             options.GOOS,
+		LookupExecutable: options.LookupExecutable,
+	}).Backend()
+}
+
+func TargetBackendForPlatform(goos string, wsl bool) BackendName {
 	switch goos {
-	case "linux":
-		if path, err := lookup("bwrap"); err == nil && path != "" {
-			return nativeBackend(goos, BackendBubblewrap, path, "bubblewrap sandbox available")
-		}
-		// Under WSL (no bubblewrap), do NOT silently degrade to a plain policy-only
-		// runner: select the WSL backend, which still routes egress through the
-		// filtering proxy and is gated on AllowPolicyOnlyRunner in the runner.
-		if info := detectWSL(); info.IsWSL {
-			return wslBackend(goos, info)
-		}
-		return policyOnlyBackend(goos, "policy-only fallback: bubblewrap is not installed")
 	case "darwin":
-		if path, err := lookup("sandbox-exec"); err == nil && path != "" {
-			return nativeBackend(goos, BackendSandboxExec, path, "sandbox-exec backend available")
+		return BackendMacOSSeatbelt
+	case "linux":
+		if wsl {
+			return BackendPolicyOnly
 		}
-		return policyOnlyBackend(goos, "policy-only fallback: sandbox-exec is not available")
+		return BackendLinuxBwrap
 	case "windows":
-		return policyOnlyBackend(goos, "policy-only fallback: Windows native sandbox adapter is not implemented")
+		return BackendWindowsRestrictedToken
 	default:
-		return policyOnlyBackend(goos, "policy-only fallback: no platform sandbox adapter is available for "+goos)
+		return BackendPolicyOnly
+	}
+}
+
+func (backend Backend) TargetBackend() BackendName {
+	if backend.Platform == "windows" {
+		if backend.Name == BackendWindowsElevated || backend.Name == BackendWindowsRestrictedToken {
+			return backend.Name
+		}
+		return BackendWindowsRestrictedToken
+	}
+	switch backend.Name {
+	case BackendWSL:
+		return BackendPolicyOnly
+	case BackendNone, BackendMacOSSeatbelt, BackendLinuxBwrap, BackendLinuxLandlock, BackendWindowsRestrictedToken, BackendWindowsElevated, BackendPolicyOnly:
+		return backend.Name
+	default:
+		return TargetBackendForPlatform(backend.Platform, false)
 	}
 }
 
@@ -103,11 +116,9 @@ func nativeBackend(goos string, name BackendName, executable string, message str
 		Fallback:        false,
 		CommandWrapping: true,
 		NativeIsolation: true,
-		// Only sandbox-exec can enforce scoped egress today; bubblewrap's isolated
-		// network namespace has no bridge to the host filtering proxy.
-		ScopedEgress: name == BackendSandboxExec,
-		Executable:   executable,
-		Message:      message,
+		ScopedEgress:    name == BackendMacOSSeatbelt,
+		Executable:      executable,
+		Message:         message,
 	}
 }
 
@@ -148,12 +159,34 @@ func (backend Backend) BuildPlan(workspaceRoot string, policy Policy) BackendPla
 	if effectivePolicy.Mode == "" {
 		effectivePolicy = DefaultPolicy()
 	}
+	profile := PermissionProfileFromPolicy(workspaceRoot, effectivePolicy, nil)
+	execRequest, _ := NewSandboxManager(SandboxManagerOptions{
+		GOOS:    backend.Platform,
+		Backend: backend,
+	}).BuildExecutionRequest(SandboxManagerRequest{
+		WorkspaceRoot: workspaceRoot,
+		Policy:        effectivePolicy,
+		Profile:       profile,
+		Preference:    SandboxPreferenceAuto,
+	})
+	return execRequest.BackendPlan(effectivePolicy)
+}
+
+func (backend Backend) restrictions(policy Policy) []string {
+	effectivePolicy := policy
+	if effectivePolicy.Mode == "" {
+		effectivePolicy = DefaultPolicy()
+	}
 	restrictions := []string{}
 	if effectivePolicy.EnforceWorkspace {
 		restrictions = append(restrictions, "filesystem writes must stay inside workspace")
 	}
 	if effectivePolicy.Network == NetworkDeny {
-		restrictions = append(restrictions, "network access denied unless a future adapter grants it explicitly")
+		if backend.Name == BackendWindowsRestrictedToken && backend.NativeIsolation {
+			restrictions = append(restrictions, "Windows WFP filters block outbound network for sandbox identities")
+		} else {
+			restrictions = append(restrictions, "network access denied unless a future adapter grants it explicitly")
+		}
 	}
 	if effectivePolicy.DenyDestructiveShell {
 		restrictions = append(restrictions, "destructive shell patterns denied before execution")
@@ -168,15 +201,7 @@ func (backend Backend) BuildPlan(workspaceRoot string, policy Policy) BackendPla
 	} else if backend.Available {
 		restrictions = append(restrictions, "shell commands are wrapped through "+string(backend.Name)+" when launched by the sandbox engine")
 	}
-	return BackendPlan{
-		Backend:       backend,
-		WorkspaceRoot: workspaceRoot,
-		Policy:        effectivePolicy,
-		SupportLevel:  backend.SupportLevel(),
-		Capabilities:  backend.Capabilities(effectivePolicy),
-		Restrictions:  restrictions,
-		Warnings:      backend.Warnings(),
-	}
+	return restrictions
 }
 
 func (backend Backend) SupportLevel() BackendSupportLevel {
@@ -184,6 +209,60 @@ func (backend Backend) SupportLevel() BackendSupportLevel {
 		return BackendSupportNative
 	}
 	return BackendSupportPolicyOnly
+}
+
+func (backend Backend) EnforcementLevel(policy Policy) EnforcementLevel {
+	if policy.Mode == "" {
+		policy = DefaultPolicy()
+	}
+	if policy.Mode == ModeDisabled {
+		return EnforcementDisabled
+	}
+	if backend.SupportLevel() == BackendSupportNative {
+		return EnforcementNative
+	}
+	return EnforcementDegraded
+}
+
+func (backend Backend) DowngradeReason(policy Policy) string {
+	if policy.Mode == "" {
+		policy = DefaultPolicy()
+	}
+	if policy.Mode == ModeDisabled {
+		return "sandbox policy disabled"
+	}
+	if backend.SupportLevel() == BackendSupportNative {
+		return ""
+	}
+	if strings.TrimSpace(backend.Message) != "" {
+		return backend.Message
+	}
+	platform := backend.Platform
+	if platform == "" {
+		platform = "this platform"
+	}
+	return "native sandbox unavailable on " + platform
+}
+
+func (backend Backend) SandboxEnvMarkers(policy Policy) []string {
+	if policy.Mode == "" {
+		policy = DefaultPolicy()
+	}
+	if policy.Mode == ModeDisabled {
+		return nil
+	}
+	if !(backend.CommandWrapping && backend.Available) && backend.Name != BackendWSL {
+		return nil
+	}
+	name := backend.Name
+	if name == "" {
+		name = BackendPolicyOnly
+	}
+	return []string{
+		EnvSandboxed + "=1",
+		EnvSandboxBackend + "=" + string(name),
+		"ZERO_SANDBOX_NETWORK=" + string(policy.Network),
+	}
 }
 
 func (backend Backend) Warnings() []string {
@@ -199,7 +278,7 @@ func (backend Backend) Warnings() []string {
 		"shell commands are not wrapped by a native platform sandbox",
 	}
 	if backend.Platform == "windows" {
-		warnings[0] = "Windows native sandbox adapter is not implemented; using policy-only preflight checks"
+		warnings[0] = "Windows sandbox command runner is not available; using policy-only preflight checks"
 	}
 	return warnings
 }
@@ -207,6 +286,15 @@ func (backend Backend) Warnings() []string {
 func (backend Backend) Capabilities(policy Policy) []BackendCapability {
 	if policy.Mode == "" {
 		policy = DefaultPolicy()
+	}
+	networkGuard := BackendCapability{
+		Key:    "network_guard",
+		Status: policyCapabilityStatus(policy.Mode, policy.Network == NetworkDeny),
+		Detail: "network-capable tool requests are denied before execution",
+	}
+	if policy.Mode != ModeDisabled && policy.Network == NetworkDeny && backend.Name == BackendWindowsRestrictedToken && backend.NativeIsolation {
+		networkGuard.Status = CapabilityNative
+		networkGuard.Detail = "Windows WFP filters block outbound network for sandbox identities"
 	}
 	capabilities := []BackendCapability{
 		{
@@ -219,11 +307,7 @@ func (backend Backend) Capabilities(policy Policy) []BackendCapability {
 			Status: policyCapabilityStatus(policy.Mode, policy.EnforceWorkspace),
 			Detail: "filesystem writes are checked against the workspace root before execution",
 		},
-		{
-			Key:    "network_guard",
-			Status: policyCapabilityStatus(policy.Mode, policy.Network == NetworkDeny),
-			Detail: "network-capable tool requests are denied before execution",
-		},
+		networkGuard,
 		{
 			Key:    "destructive_shell_guard",
 			Status: policyCapabilityStatus(policy.Mode, policy.DenyDestructiveShell),
@@ -239,7 +323,7 @@ func (backend Backend) Capabilities(policy Policy) []BackendCapability {
 		nativeIsolation.Status = CapabilityNative
 		nativeIsolation.Detail = "tool subprocesses can run inside " + string(backend.Name)
 	} else if backend.Platform == "windows" {
-		nativeIsolation.Detail = "Windows native sandbox adapter is not implemented yet"
+		nativeIsolation.Detail = "Windows sandbox command runner is not available"
 	}
 	commandWrapping := BackendCapability{
 		Key:    "command_wrapping",

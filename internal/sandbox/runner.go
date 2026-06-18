@@ -13,8 +13,6 @@ import (
 	"sync/atomic"
 )
 
-const bubblewrapWorkspace = "/workspace"
-
 var errPolicyOnlyRunnerDisabled = errors.New("policy-only sandbox runner is disabled")
 
 // errWSLPolicyOnlyDisabled is returned when running under WSL without bubblewrap
@@ -32,15 +30,21 @@ type CommandSpec struct {
 }
 
 type CommandPlan struct {
-	Backend       Backend  `json:"backend"`
-	WorkspaceRoot string   `json:"workspaceRoot"`
-	Policy        Policy   `json:"policy"`
-	Wrapped       bool     `json:"wrapped"`
-	Name          string   `json:"name"`
-	Args          []string `json:"args"`
-	Dir           string   `json:"dir,omitempty"`
-	Env           []string `json:"env,omitempty"`
-	SandboxDir    string   `json:"sandboxDir,omitempty"`
+	Backend                 Backend           `json:"backend"`
+	TargetBackend           BackendName       `json:"targetBackend"`
+	WorkspaceRoot           string            `json:"workspaceRoot"`
+	Policy                  Policy            `json:"policy"`
+	PermissionProfile       PermissionProfile `json:"permissionProfile"`
+	Wrapped                 bool              `json:"wrapped"`
+	SandboxEnvMarkers       []string          `json:"sandboxEnvMarkers,omitempty"`
+	EnforcementLevel        EnforcementLevel  `json:"enforcementLevel"`
+	DowngradeReason         string            `json:"downgradeReason,omitempty"`
+	RequiresPlatformSandbox bool              `json:"requiresPlatformSandbox"`
+	Name                    string            `json:"name"`
+	Args                    []string          `json:"args"`
+	Dir                     string            `json:"dir,omitempty"`
+	Env                     []string          `json:"env,omitempty"`
+	SandboxDir              string            `json:"sandboxDir,omitempty"`
 	// MonitorTag, when non-empty, is the unique marker embedded in the
 	// sandbox-exec profile's denial messages; a caller passes it to
 	// StartDenialMonitor to capture what the sandbox blocked. Empty unless
@@ -176,7 +180,7 @@ func (engine *Engine) BuildCommandPlan(spec CommandSpec) (CommandPlan, error) {
 	if policy.Mode == "" {
 		policy = DefaultPolicy()
 	}
-	workspaceRoot, commandDir, relativeDir, err := engine.resolveCommandDir(spec.Dir, policy)
+	workspaceRoot, commandDir, err := engine.resolveCommandDir(spec.Dir, policy)
 	if err != nil {
 		return CommandPlan{}, err
 	}
@@ -190,34 +194,60 @@ func (engine *Engine) BuildCommandPlan(spec CommandSpec) (CommandPlan, error) {
 	if backend.Name == "" {
 		backend = Backend{Name: BackendPolicyOnly, Message: "policy-only fallback: sandbox backend was not selected"}
 	}
+	preference := SandboxPreferenceAuto
 	// Re-entrancy guard: a command spawned by a process we already wrapped (both
 	// ZERO_SANDBOXED=1 and ZERO_SANDBOX_BACKEND set in its env — see
-	// IsAlreadySandboxed) must not be wrapped again — nested bwrap / sandbox-exec
+	// IsAlreadySandboxed) must not be wrapped again — nested platform wrappers
 	// fails and a second egress proxy would be redundant. Return a pass-through
-	// plan. Mirrors the already-sandboxed guard used by comparable executor
-	// sandboxes.
+	// plan.
 	if IsAlreadySandboxed() {
-		return directCommandPlan(spec, backend, policy, workspaceRoot), nil
+		preference = SandboxPreferenceForbid
 	}
 	if policy.Mode == ModeDisabled {
-		return directCommandPlan(spec, backend, policy, workspaceRoot), nil
+		preference = SandboxPreferenceForbid
+	}
+	profile := PermissionProfileFromPolicy(workspaceRoot, policy, engine.scope)
+	manager := NewSandboxManager(SandboxManagerOptions{
+		GOOS:    backend.Platform,
+		Backend: backend,
+	})
+	return manager.BuildCommandPlan(SandboxManagerRequest{
+		WorkspaceRoot:     workspaceRoot,
+		Command:           spec,
+		Policy:            policy,
+		Scope:             engine.scope,
+		Profile:           profile,
+		Preference:        preference,
+		ValidateExecution: true,
+	})
+}
+
+func buildPlatformCommandPlan(execRequest SandboxExecutionRequest, policy Policy) (CommandPlan, error) {
+	if policy.Mode == "" {
+		policy = DefaultPolicy()
+	}
+	spec := execRequest.Command
+	backend := execRequest.Backend
+	workspaceRoot := execRequest.WorkspaceRoot
+	if execRequest.EnforcementLevel == EnforcementDisabled || execRequest.TargetBackend == BackendNone || !execRequest.RequiresPlatformSandbox {
+		return withSandboxExecutionMetadata(directCommandPlan(spec, backend, policy, workspaceRoot), execRequest), nil
 	}
 	switch backend.Name {
-	case BackendBubblewrap:
+	case BackendLinuxBwrap:
 		if backend.Available && backend.Executable != "" {
-			// Bubblewrap isolates the network namespace (--unshare-net) with no
-			// bridge to the host loopback proxy, so it cannot enforce scoped egress;
-			// a scoped policy collapses to deny (no proxy is started). Evaluate's
-			// network gate denies network-risk tools for this backend to match.
-			return bubblewrapCommandPlan(spec, workspaceRoot, relativeDir, engine.writeRoots(workspaceRoot), policy, backend), nil
+			return linuxSandboxHelperCommandPlan(execRequest, policy)
 		}
-	case BackendSandboxExec:
+	case BackendMacOSSeatbelt:
 		if backend.Available && backend.Executable != "" {
 			egress, err := startScopedEgress(policy, backend)
 			if err != nil {
 				return CommandPlan{}, err
 			}
-			return sandboxExecCommandPlan(spec, workspaceRoot, engine.writeRoots(workspaceRoot), policy, backend, egress), nil
+			return withSandboxExecutionMetadata(seatbeltCommandPlan(execRequest, policy, backend, egress), execRequest), nil
+		}
+	case BackendWindowsRestrictedToken:
+		if backend.Available && backend.Executable != "" {
+			return windowsRestrictedTokenCommandPlan(execRequest, policy)
 		}
 	case BackendWSL:
 		// WSL fallback: no native isolation available. Fail closed unless the policy
@@ -230,12 +260,67 @@ func (engine *Engine) BuildCommandPlan(spec CommandSpec) (CommandPlan, error) {
 		if err != nil {
 			return CommandPlan{}, err
 		}
-		return wslCommandPlan(spec, workspaceRoot, policy, backend, egress), nil
+		return withSandboxExecutionMetadata(wslCommandPlan(spec, workspaceRoot, policy, backend, egress), execRequest), nil
 	}
 	if !policy.AllowPolicyOnlyRunner {
 		return CommandPlan{}, errPolicyOnlyRunnerDisabled
 	}
-	return directCommandPlan(spec, backend, policy, workspaceRoot), nil
+	return withSandboxExecutionMetadata(directCommandPlan(spec, backend, policy, workspaceRoot), execRequest), nil
+}
+
+func linuxSandboxHelperCommandPlan(execRequest SandboxExecutionRequest, policy Policy) (CommandPlan, error) {
+	spec := execRequest.Command
+	helper := LinuxSandboxHelperCommand{}
+	if execRequest.Backend.Name == BackendLinuxBwrap && execRequest.Backend.Executable != "" {
+		helper.Name = execRequest.Backend.Executable
+	} else {
+		resolved, err := linuxSandboxHelperCommand()
+		if err != nil {
+			return CommandPlan{}, err
+		}
+		helper = resolved
+	}
+	command := append([]string{spec.Name}, spec.Args...)
+	args, err := BuildLinuxSandboxCommandArgs(LinuxSandboxCommandArgsOptions{
+		SandboxPolicyCWD:  execRequest.WorkspaceRoot,
+		CommandCWD:        spec.Dir,
+		PermissionProfile: execRequest.PermissionProfile,
+		BlockUnixSockets:  policy.BlockUnixSockets,
+		Command:           command,
+	})
+	if err != nil {
+		return CommandPlan{}, err
+	}
+	planDir := spec.Dir
+	if helper.Dir != "" {
+		planDir = helper.Dir
+	}
+	plan := CommandPlan{
+		Backend:           execRequest.Backend,
+		TargetBackend:     execRequest.TargetBackend,
+		WorkspaceRoot:     execRequest.WorkspaceRoot,
+		Policy:            policy,
+		Wrapped:           true,
+		SandboxEnvMarkers: execRequest.SandboxEnvMarkers,
+		EnforcementLevel:  execRequest.EnforcementLevel,
+		Name:              helper.Name,
+		Args:              append(append([]string{}, helper.ArgsPrefix...), args...),
+		Dir:               planDir,
+		Env:               cloneStrings(spec.Env),
+		SandboxDir:        spec.Dir,
+	}
+	return withSandboxExecutionMetadata(plan, execRequest), nil
+}
+
+func withSandboxExecutionMetadata(plan CommandPlan, request SandboxExecutionRequest) CommandPlan {
+	plan.Backend = request.Backend
+	plan.TargetBackend = request.TargetBackend
+	plan.PermissionProfile = request.PermissionProfile
+	plan.SandboxEnvMarkers = request.SandboxEnvMarkers
+	plan.EnforcementLevel = request.EnforcementLevel
+	plan.DowngradeReason = request.DowngradeReason
+	plan.RequiresPlatformSandbox = request.RequiresPlatformSandbox
+	return plan
 }
 
 // wslCommandPlan builds the WSL policy-only fallback plan: the command runs
@@ -267,15 +352,19 @@ func wslCommandPlan(spec CommandSpec, workspaceRoot string, policy Policy, backe
 			"with proxy egress (least privilege). The engine still enforces the full policy."
 	}
 	plan := CommandPlan{
-		Backend:       backend,
-		WorkspaceRoot: workspaceRoot,
-		Policy:        policy,
-		Wrapped:       false,
-		Name:          spec.Name,
-		Args:          cloneStrings(spec.Args),
-		Dir:           spec.Dir,
-		Env:           env,
-		Notes:         []string{note},
+		Backend:           backend,
+		TargetBackend:     backend.TargetBackend(),
+		WorkspaceRoot:     workspaceRoot,
+		Policy:            policy,
+		Wrapped:           false,
+		SandboxEnvMarkers: backend.SandboxEnvMarkers(policy),
+		EnforcementLevel:  backend.EnforcementLevel(policy),
+		DowngradeReason:   note,
+		Name:              spec.Name,
+		Args:              cloneStrings(spec.Args),
+		Dir:               spec.Dir,
+		Env:               env,
+		Notes:             []string{note},
 	}
 	if egress != nil {
 		plan.cleanup = egress.cleanup
@@ -358,27 +447,31 @@ func startScopedEgress(policy Policy, backend Backend) (*scopedEgress, error) {
 
 func directCommandPlan(spec CommandSpec, backend Backend, policy Policy, workspaceRoot string) CommandPlan {
 	return CommandPlan{
-		Backend:       backend,
-		WorkspaceRoot: workspaceRoot,
-		Policy:        policy,
-		Wrapped:       false,
-		Name:          spec.Name,
-		Args:          cloneStrings(spec.Args),
-		Dir:           spec.Dir,
-		Env:           cloneStrings(spec.Env),
+		Backend:           backend,
+		TargetBackend:     backend.TargetBackend(),
+		WorkspaceRoot:     workspaceRoot,
+		Policy:            policy,
+		Wrapped:           false,
+		SandboxEnvMarkers: backend.SandboxEnvMarkers(policy),
+		EnforcementLevel:  backend.EnforcementLevel(policy),
+		DowngradeReason:   backend.DowngradeReason(policy),
+		Name:              spec.Name,
+		Args:              cloneStrings(spec.Args),
+		Dir:               spec.Dir,
+		Env:               cloneStrings(spec.Env),
 	}
 }
 
-func (engine *Engine) resolveCommandDir(dir string, policy Policy) (string, string, string, error) {
+func (engine *Engine) resolveCommandDir(dir string, policy Policy) (string, string, error) {
 	workspaceRoot := strings.TrimSpace(engine.workspaceRoot)
 	if workspaceRoot == "" {
-		return "", "", "", errors.New("sandbox workspace root is required")
+		return "", "", errors.New("sandbox workspace root is required")
 	}
 	workspaceRoot = filepath.Clean(workspaceRoot)
 	if !filepath.IsAbs(workspaceRoot) {
 		absolute, err := filepath.Abs(workspaceRoot)
 		if err != nil {
-			return "", "", "", fmt.Errorf("resolve sandbox workspace: %w", err)
+			return "", "", fmt.Errorf("resolve sandbox workspace: %w", err)
 		}
 		workspaceRoot = absolute
 	}
@@ -398,7 +491,7 @@ func (engine *Engine) resolveCommandDir(dir string, policy Policy) (string, stri
 	}
 	if policy.EnforceWorkspace {
 		if violation := engine.scopeFor(engine.workspaceRoot).validate(commandDir); violation != nil {
-			return "", "", "", Violation{
+			return "", "", Violation{
 				Code:     violation.Code,
 				ToolName: "sandbox_command",
 				Action:   ActionDeny,
@@ -412,119 +505,14 @@ func (engine *Engine) resolveCommandDir(dir string, policy Policy) (string, stri
 			}
 		}
 	}
-	relativeDir, err := filepath.Rel(workspaceRoot, commandDir)
-	if err != nil {
-		return "", "", "", fmt.Errorf("resolve sandbox command directory: %w", err)
-	}
-	if relativeDir == "." {
-		relativeDir = ""
-	}
-	return workspaceRoot, commandDir, relativeDir, nil
+	return workspaceRoot, commandDir, nil
 }
 
-func bubblewrapCommandPlan(spec CommandSpec, workspaceRoot string, relativeDir string, writeRoots []string, policy Policy, backend Backend) CommandPlan {
-	sandboxDir := bubblewrapWorkspace
-	if relativeDir != "" {
-		sandboxDir = filepath.ToSlash(filepath.Join(bubblewrapWorkspace, relativeDir))
-	}
-	// A cwd inside an extra write root is outside the /workspace remount; the
-	// extra root is bound at its real host path, so chdir there directly.
-	// (resolveCommandDir has already validated the cwd against the scope when
-	// EnforceWorkspace is on; an unvalidated out-of-scope cwd just makes
-	// bwrap's chdir fail closed.)
-	if relativeDir == ".." || strings.HasPrefix(relativeDir, ".."+string(filepath.Separator)) {
-		sandboxDir = filepath.ToSlash(spec.Dir)
-	}
-	args := []string{
-		"--die-with-parent",
-		"--unshare-pid",
-		"--unshare-ipc",
-		"--unshare-uts",
-		"--proc", "/proc",
-		"--dev", "/dev",
-		"--tmpfs", "/tmp",
-		"--bind", workspaceRoot, bubblewrapWorkspace,
-	}
-	for _, root := range writeRoots {
-		// writeRoots[0] is the scope's workspace root; it is normalized by the
-		// same Abs+EvalSymlinks pipeline resolveCommandDir applies to the
-		// workspaceRoot parameter, so this equality reliably skips the workspace
-		// (already remounted at /workspace) rather than double-binding it.
-		if root == workspaceRoot {
-			continue
-		}
-		args = append(args, "--bind", root, root)
-	}
-	args = append(args, "--chdir", sandboxDir)
-	// Both deny and scoped isolate the network namespace with --unshare-net (no raw
-	// host network). Scoped does NOT get the filtering proxy here: bubblewrap has no
-	// bridge from its netns to the host loopback proxy, so scoped collapses to deny
-	// until a real relay (e.g. slirp4netns) is added. allow shares the host network.
-	if network := effectiveNetwork(policy); network == NetworkDeny || network == NetworkScoped {
-		args = append(args, "--unshare-net")
-	}
-	for _, mount := range existingBubblewrapMounts() {
-		args = append(args, "--ro-bind", mount, mount)
-	}
-	args = append(args, "--clearenv")
-	setenvLines := sandboxEnvironment(policy, BackendBubblewrap, bubblewrapWorkspace)
-	for _, env := range setenvLines {
-		key, value, ok := strings.Cut(env, "=")
-		if ok {
-			args = append(args, "--setenv", key, value)
-		}
-	}
-	// Optionally install the seccomp Unix-socket filter by prefixing the command
-	// with the zero-seccomp helper, bound read-only into the sandbox at its host
-	// path. Off by default; if the helper is not found the command runs without
-	// the filter (bubblewrap's filesystem/network isolation still applies).
-	command := append([]string{spec.Name}, spec.Args...)
-	if policy.BlockUnixSockets {
-		if helper := seccompHelper(); helper != "" {
-			args = append(args, "--ro-bind", helper, helper)
-			command = append([]string{helper}, command...)
-		}
-	}
-	args = append(args, "--")
-	args = append(args, command...)
-	return CommandPlan{
-		Backend:       backend,
-		WorkspaceRoot: workspaceRoot,
-		Policy:        policy,
-		Wrapped:       true,
-		Name:          backend.Executable,
-		Args:          args,
-		SandboxDir:    sandboxDir,
-	}
+func seatbeltCommandPlan(execRequest SandboxExecutionRequest, policy Policy, backend Backend, egress *scopedEgress) CommandPlan {
+	return seatbeltCommandPlanWithProfile(execRequest.Command, execRequest.WorkspaceRoot, execRequest.PermissionProfile, policy, backend, egress)
 }
 
-// seccompHelper resolves the zero-seccomp wrapper used to install the AF_UNIX
-// seccomp filter inside the bubblewrap sandbox (Policy.BlockUnixSockets). It is a
-// package var so tests can stub discovery; it returns "" when the helper is not
-// found, in which case the sandbox runs without the extra filter rather than
-// failing the command.
-var seccompHelper = findSeccompHelper
-
-// findSeccompHelper looks for the zero-seccomp helper next to the running
-// executable first (the expected install layout), then on PATH. It returns ""
-// when no helper is available.
-func findSeccompHelper() string {
-	if exe, err := os.Executable(); err == nil {
-		candidate := filepath.Join(filepath.Dir(exe), "zero-seccomp")
-		// Require an executable regular file: selecting a present-but-non-executable
-		// file would make the sandboxed command fail with EACCES instead of degrading
-		// gracefully. (exec.LookPath below applies the same check on PATH.)
-		if info, statErr := os.Stat(candidate); statErr == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
-			return candidate
-		}
-	}
-	if path, err := exec.LookPath("zero-seccomp"); err == nil {
-		return path
-	}
-	return ""
-}
-
-func sandboxExecCommandPlan(spec CommandSpec, workspaceRoot string, writeRoots []string, policy Policy, backend Backend, egress *scopedEgress) CommandPlan {
+func seatbeltCommandPlanWithProfile(spec CommandSpec, workspaceRoot string, profile PermissionProfile, policy Policy, backend Backend, egress *scopedEgress) CommandPlan {
 	var proxyPort, socksPort string
 	if egress != nil {
 		if _, port, err := net.SplitHostPort(egress.addr); err == nil {
@@ -538,23 +526,30 @@ func sandboxExecCommandPlan(spec CommandSpec, workspaceRoot string, writeRoots [
 	if policy.MonitorDenials {
 		denialTag = nextSandboxDenialTag()
 	}
-	args := []string{"-p", sandboxExecProfile(writeRoots, policy, proxyPort, socksPort, denialTag), spec.Name}
+	args := []string{"-p", seatbeltProfileFromPermissionProfile(profile, policy, proxyPort, socksPort, denialTag), spec.Name}
 	args = append(args, spec.Args...)
-	env := sandboxEnvironment(policy, BackendSandboxExec, workspaceRoot)
+	envBackend := backend.Name
+	if envBackend == "" {
+		envBackend = BackendMacOSSeatbelt
+	}
+	env := sandboxEnvironment(policy, envBackend, workspaceRoot)
 	if egress != nil {
 		env = append(env, ProxyEnvWithSocks(egress.addr, egress.socksAddr)...)
 		env = appendCACertEnv(env, egress)
 	}
 	plan := CommandPlan{
-		Backend:       backend,
-		WorkspaceRoot: workspaceRoot,
-		Policy:        policy,
-		Wrapped:       true,
-		Name:          backend.Executable,
-		Args:          args,
-		Dir:           spec.Dir,
-		Env:           env,
-		SandboxDir:    spec.Dir,
+		Backend:           backend,
+		TargetBackend:     backend.TargetBackend(),
+		WorkspaceRoot:     workspaceRoot,
+		Policy:            policy,
+		Wrapped:           true,
+		SandboxEnvMarkers: backend.SandboxEnvMarkers(policy),
+		EnforcementLevel:  backend.EnforcementLevel(policy),
+		Name:              backend.Executable,
+		Args:              args,
+		Dir:               spec.Dir,
+		Env:               env,
+		SandboxDir:        spec.Dir,
 	}
 	if egress != nil {
 		plan.cleanup = egress.cleanup
@@ -563,6 +558,33 @@ func sandboxExecCommandPlan(spec CommandSpec, workspaceRoot string, writeRoots [
 	// monitor matches exactly this run's denials.
 	plan.MonitorTag = denialTag
 	return plan
+}
+
+func seatbeltCompatibilityPermissionProfile(writeRoots []string, policy Policy) PermissionProfile {
+	fs := FileSystemPolicy{
+		Kind:                 FileSystemUnrestricted,
+		ReadRoots:            []string{string(filepath.Separator)},
+		IncludePlatformRoots: true,
+		AllowTemp:            true,
+	}
+	if policy.EnforceWorkspace {
+		fs.Kind = FileSystemRestricted
+		fs.WriteRoots = make([]WritableRoot, 0, len(writeRoots))
+		for _, root := range writeRoots {
+			fs.WriteRoots = append(fs.WriteRoots, WritableRoot{Root: root})
+		}
+	}
+	fs.DenyRead = normalizeProfilePaths(policy.DenyRead)
+	fs.DenyWrite = normalizeProfilePaths(policy.DenyWrite)
+	return PermissionProfile{
+		FileSystem: fs,
+		Network: NetworkPolicy{
+			Mode:           effectiveNetwork(policy),
+			AllowedDomains: normalizeDomains(policy.AllowedDomains),
+			DeniedDomains:  normalizeDomains(policy.DeniedDomains),
+			ProxyRequired:  effectiveNetwork(policy) == NetworkScoped,
+		},
+	}
 }
 
 func existingBubblewrapMounts() []string {
@@ -697,24 +719,13 @@ func sandboxMachLookupRule() string {
 }
 
 func sandboxExecProfile(writeRoots []string, policy Policy, proxyPort string, socksPort string, denialTag string) string {
-	networkRule := networkRuleFor(policy, proxyPort, socksPort)
-	writeRule := "(allow file-write*)"
-	if policy.EnforceWorkspace {
-		// The granted write roots are the only writable *project* locations. Temp
-		// trees and the standard device nodes are the only additions, matching what
-		// the bubblewrap backend already grants (--tmpfs /tmp, --dev /dev).
-		filters := make([]string, 0, len(writeRoots)+len(sandboxWritableSubpaths)+len(sandboxWritableDevices))
-		for _, root := range writeRoots {
-			filters = append(filters, `(subpath "`+sandboxProfileString(root)+`")`)
-		}
-		for _, subpath := range sandboxWritableSubpaths {
-			filters = append(filters, `(subpath "`+subpath+`")`)
-		}
-		for _, device := range sandboxWritableDevices {
-			filters = append(filters, `(literal "`+device+`")`)
-		}
-		writeRule = "(allow file-write*\n  " + strings.Join(filters, "\n  ") + ")"
-	}
+	return seatbeltProfileFromPermissionProfile(seatbeltCompatibilityPermissionProfile(writeRoots, policy), policy, proxyPort, socksPort, denialTag)
+}
+
+func seatbeltProfileFromPermissionProfile(profile PermissionProfile, policy Policy, proxyPort string, socksPort string, denialTag string) string {
+	networkRule := networkRuleForProfile(profile.Network, proxyPort, socksPort)
+	readRule := seatbeltReadRule(profile.FileSystem)
+	writeRule := seatbeltWriteRule(profile.FileSystem)
 	denyDefault := "(deny default)"
 	if denialTag != "" {
 		// Tag denials so the runtime log monitor can attribute them to THIS run; the
@@ -726,39 +737,166 @@ func sandboxExecProfile(writeRoots []string, policy Policy, proxyPort string, so
 		"(version 1)",
 		denyDefault,
 		"(allow process*)",
+		"(allow process-info* (target same-sandbox))",
 		"(allow sysctl-read)",
+		"(allow sysctl-write (sysctl-name \"kern.grade_cputype\"))",
+		"(allow iokit-open (iokit-registry-entry-class \"RootDomainUserClient\"))",
+		"(allow ipc-posix-sem)",
+		`(allow ipc-posix-shm-read-data ipc-posix-shm-write-create ipc-posix-shm-write-unlink (ipc-posix-name-regex #"^/__KMP_REGISTERED_LIB_[0-9]+$"))`,
+		"(allow pseudo-tty)",
+		`(allow file-read* file-write* file-ioctl (literal "/dev/ptmx"))`,
+		`(allow file-read* file-write* (require-all (regex #"^/dev/ttys[0-9]+") (extension "com.apple.sandbox.pty")))`,
+		`(allow file-ioctl (regex #"^/dev/ttys[0-9]+"))`,
+		"(allow ipc-posix-shm-read* (ipc-posix-name-prefix \"apple.cfprefs.\"))",
+		"(allow user-preference-read)",
 		// Let a sandboxed command signal itself and its own process group so scripts
 		// that spawn and kill children (e.g. `sleep 30 & kill %1`, test runners,
 		// timeouts) work. The target restriction keeps it from signalling any
 		// process outside its own group.
 		"(allow signal (target self) (target pgrp))",
 		sandboxMachLookupRule(),
-		"(allow file-read*)",
+		seatbeltPlatformRuntimeRules(),
+		readRule,
 		writeRule,
 	}
-	// DenyWrite entries are emitted AFTER the write allow so seatbelt's
-	// last-match-wins makes them override the workspace/AllowWrite binds — so
-	// "DenyWrite wins" holds for shell commands too, not just the policy gate.
-	rules = append(rules, denyWriteRules(policy)...)
+	rules = append(rules, denyReadRules(profile.FileSystem)...)
+	rules = append(rules, writeRootCarveoutDenyRules(profile.FileSystem)...)
+	rules = append(rules, denyWriteRulesFromPaths(profile.FileSystem.DenyWrite)...)
 	rules = append(rules, networkRule)
-	return strings.Join(rules, "\n")
+	return strings.Join(nonEmptyStrings(rules), "\n")
+}
+
+func seatbeltReadRule(fs FileSystemPolicy) string {
+	if fs.Kind == FileSystemUnrestricted {
+		return "(allow file-read*)"
+	}
+	filters := make([]string, 0, len(fs.ReadRoots)+len(macosPlatformReadRoots()))
+	for _, root := range fs.ReadRoots {
+		filters = appendSeatbeltSubpathFilter(filters, root)
+	}
+	if fs.IncludePlatformRoots {
+		for _, root := range macosPlatformReadRoots() {
+			filters = appendSeatbeltSubpathFilter(filters, root)
+		}
+	}
+	if len(filters) == 0 {
+		return ""
+	}
+	return "(allow file-read* file-test-existence\n  " + strings.Join(filters, "\n  ") + ")"
+}
+
+func seatbeltWriteRule(fs FileSystemPolicy) string {
+	if fs.Kind == FileSystemUnrestricted {
+		return "(allow file-write*)"
+	}
+	filters := make([]string, 0, len(fs.WriteRoots)+len(sandboxWritableSubpaths)+len(sandboxWritableDevices))
+	for _, root := range fs.WriteRoots {
+		if filter := seatbeltWritableRootFilter(root); filter != "" {
+			filters = append(filters, filter)
+		}
+	}
+	if fs.AllowTemp {
+		for _, subpath := range sandboxWritableSubpaths {
+			filters = append(filters, `(subpath "`+sandboxProfileString(subpath)+`")`)
+		}
+	}
+	for _, device := range sandboxWritableDevices {
+		filters = append(filters, `(literal "`+sandboxProfileString(device)+`")`)
+	}
+	if len(filters) == 0 {
+		return ""
+	}
+	return "(allow file-write*\n  " + strings.Join(filters, "\n  ") + ")"
+}
+
+func seatbeltWritableRootFilter(root WritableRoot) string {
+	rootPath := strings.TrimSpace(root.Root)
+	if rootPath == "" {
+		return ""
+	}
+	return `(subpath "` + sandboxProfileString(rootPath) + `")`
+}
+
+func seatbeltProtectedMetadataRegex(root string, name string) string {
+	root = strings.TrimSpace(filepath.ToSlash(filepath.Clean(root)))
+	name = strings.Trim(strings.TrimSpace(name), `/\`)
+	if root == "" || name == "" || name == "." {
+		return ""
+	}
+	root = strings.TrimRight(root, "/")
+	if root == "" {
+		root = "/"
+	}
+	escapedRoot := regexpQuoteMeta(root)
+	escapedName := regexpQuoteMeta(name)
+	if root == "/" {
+		return "^/" + escapedName + "(/.*)?$"
+	}
+	return "^" + escapedRoot + "/" + escapedName + "(/.*)?$"
+}
+
+func denyReadRules(fs FileSystemPolicy) []string {
+	return denySeatbeltPathRules("file-read*", fs.DenyRead)
+}
+
+func writeRootCarveoutDenyRules(fs FileSystemPolicy) []string {
+	if fs.Kind != FileSystemRestricted {
+		return nil
+	}
+	var out []string
+	for _, root := range fs.WriteRoots {
+		for _, subpath := range root.ReadOnlySubpaths {
+			subpath = strings.TrimSpace(subpath)
+			if subpath == "" {
+				continue
+			}
+			escaped := sandboxProfileString(subpath)
+			out = append(out,
+				`(deny file-write* (literal "`+escaped+`"))`,
+				`(deny file-write* (subpath "`+escaped+`"))`,
+			)
+		}
+		for _, name := range root.ProtectedMetadataNames {
+			regex := seatbeltProtectedMetadataRegex(root.Root, name)
+			if regex == "" {
+				continue
+			}
+			out = append(out, `(deny file-write* (regex #"`+sandboxProfileRegex(regex)+`"))`)
+		}
+	}
+	return out
 }
 
 // denyWriteRules returns seatbelt deny clauses for the policy's resolved
 // DenyWrite paths: a (subpath ...) clause for a directory, a (literal ...) clause
 // for a single file. Empty when DenyWrite is unset.
 func denyWriteRules(policy Policy) []string {
-	resolved := resolvePolicyPaths(policy.DenyWrite)
+	return denyWriteRulesFromPaths(resolvePolicyPaths(policy.DenyWrite))
+}
+
+func denyWriteRulesFromPaths(paths []string) []string {
+	return denySeatbeltPathRules("file-write*", paths)
+}
+
+func denySeatbeltPathRules(action string, paths []string) []string {
+	resolved := normalizeProfilePaths(paths)
 	if len(resolved) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(resolved))
+	out := make([]string, 0, len(resolved)*2)
 	for _, path := range resolved {
-		filter := `(subpath "` + sandboxProfileString(path) + `")`
+		filters := []string{`(subpath "` + sandboxProfileString(path) + `")`}
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			filter = `(literal "` + sandboxProfileString(path) + `")`
+			filters = []string{`(literal "` + sandboxProfileString(path) + `")`}
+		} else {
+			filters = append(filters, `(literal "`+sandboxProfileString(path)+`")`)
 		}
-		out = append(out, "(deny file-write* "+filter+")")
+		for _, filter := range filters {
+			out = append(out, "(deny "+action+" "+filter+")")
+			if action == "file-read*" {
+				out = append(out, "(deny file-write-unlink "+filter+")")
+			}
+		}
 	}
 	return out
 }
@@ -772,7 +910,11 @@ func denyWriteRules(policy Policy) []string {
 // ALL_PROXY=socks5://... must reach the SOCKS listener). A scoped policy with no
 // resolvable proxy port falls back to a full deny (fail closed).
 func networkRuleFor(policy Policy, proxyPort string, socksPort string) string {
-	switch effectiveNetwork(policy) {
+	return networkRuleForProfile(NetworkPolicy{Mode: effectiveNetwork(policy)}, proxyPort, socksPort)
+}
+
+func networkRuleForProfile(network NetworkPolicy, proxyPort string, socksPort string) string {
+	switch network.Mode {
 	case NetworkAllow:
 		return "(allow network*)"
 	case NetworkScoped:
@@ -803,5 +945,132 @@ func networkRuleFor(policy Policy, proxyPort string, socksPort string) string {
 
 func sandboxProfileString(value string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`)
+	return replacer.Replace(value)
+}
+
+func sandboxProfileRegex(value string) string {
+	replacer := strings.NewReplacer(`"`, `\"`, "\n", `\n`, "\r", `\r`)
+	return replacer.Replace(value)
+}
+
+func appendSeatbeltSubpathFilter(filters []string, root string) []string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return filters
+	}
+	return append(filters, `(subpath "`+sandboxProfileString(root)+`")`)
+}
+
+func macosPlatformReadRoots() []string {
+	return []string{
+		"/bin",
+		"/sbin",
+		"/Applications",
+		"/Library/Apple/System/Library/Frameworks",
+		"/Library/Apple/System/Library/PrivateFrameworks",
+		"/Library/Apple/usr/lib",
+		"/usr/bin",
+		"/usr/sbin",
+		"/usr/lib",
+		"/usr/libexec",
+		"/usr/share",
+		"/usr/local/lib",
+		"/opt/homebrew/lib",
+		"/etc",
+		"/private/etc",
+		"/var/db",
+		"/private/var/db",
+		"/System/Library",
+		"/System/iOSSupport/System/Library/Frameworks",
+		"/System/iOSSupport/System/Library/PrivateFrameworks",
+		"/System/iOSSupport/System/Library/SubFrameworks",
+		"/Library/Apple",
+		"/Library/Preferences",
+		"/dev",
+	}
+}
+
+func seatbeltPlatformRuntimeRules() string {
+	return strings.Join([]string{
+		`(allow file-map-executable`,
+		`  (subpath "/Library/Apple/System/Library/Frameworks")`,
+		`  (subpath "/Library/Apple/System/Library/PrivateFrameworks")`,
+		`  (subpath "/Library/Apple/usr/lib")`,
+		`  (subpath "/System/Library/Extensions")`,
+		`  (subpath "/System/Library/Frameworks")`,
+		`  (subpath "/System/Library/PrivateFrameworks")`,
+		`  (subpath "/System/Library/SubFrameworks")`,
+		`  (subpath "/System/iOSSupport/System/Library/Frameworks")`,
+		`  (subpath "/System/iOSSupport/System/Library/PrivateFrameworks")`,
+		`  (subpath "/System/iOSSupport/System/Library/SubFrameworks")`,
+		`  (subpath "/usr/lib"))`,
+		`(allow system-mac-syscall (mac-policy-name "vnguard"))`,
+		`(allow system-mac-syscall (require-all (mac-policy-name "Sandbox") (mac-syscall-number 67)))`,
+		`(allow file-read-metadata file-test-existence`,
+		`  (literal "/etc")`,
+		`  (literal "/tmp")`,
+		`  (literal "/var")`,
+		`  (literal "/private/etc/localtime"))`,
+		`(allow file-read-metadata file-test-existence (path-ancestors "/System/Volumes/Data/private"))`,
+		`(allow file-read* file-test-existence (literal "/"))`,
+		`(allow system-fsctl (fsctl-command FSIOC_CAS_BSDFLAGS))`,
+		`(allow file-read* file-test-existence`,
+		`  (literal "/dev/autofs_nowait")`,
+		`  (literal "/dev/random")`,
+		`  (literal "/dev/urandom")`,
+		`  (literal "/private/etc/master.passwd")`,
+		`  (literal "/private/etc/passwd")`,
+		`  (literal "/private/etc/protocols")`,
+		`  (literal "/private/etc/services"))`,
+		`(allow file-read* file-test-existence file-write-data`,
+		`  (literal "/dev/null")`,
+		`  (literal "/dev/zero"))`,
+		`(allow file-read-data file-test-existence file-write-data (subpath "/dev/fd"))`,
+		`(allow file-read* file-test-existence file-write-data file-ioctl (literal "/dev/dtracehelper"))`,
+		`(allow file-read* file-test-existence file-write* (subpath "/tmp"))`,
+		`(allow file-read* file-write* (subpath "/private/tmp"))`,
+		`(allow file-read* file-write* (subpath "/var/tmp"))`,
+		`(allow file-read* file-write* (subpath "/private/var/tmp"))`,
+		`(allow file-read* file-test-existence`,
+		`  (literal "/System/Library/CoreServices")`,
+		`  (literal "/System/Library/CoreServices/.SystemVersionPlatform.plist")`,
+		`  (literal "/System/Library/CoreServices/SystemVersion.plist"))`,
+		`(allow file-read-metadata (subpath "/var"))`,
+		`(allow file-read-metadata (subpath "/private/var"))`,
+		`(allow network-outbound (literal "/private/var/run/syslog"))`,
+		`(allow ipc-posix-shm-read* (ipc-posix-name "apple.shm.notification_center"))`,
+		`(allow file-read* (literal "/private/var/db/eligibilityd/eligibility.plist"))`,
+		`(allow file-read* (extension "com.apple.app-sandbox.read"))`,
+		`(allow file-read* file-write* (extension "com.apple.app-sandbox.read-write"))`,
+	}, "\n")
+}
+
+func nonEmptyStrings(values []string) []string {
+	out := values[:0]
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func regexpQuoteMeta(value string) string {
+	replacer := strings.NewReplacer(
+		`\`, `\\`,
+		`.`, `\.`,
+		`+`, `\+`,
+		`*`, `\*`,
+		`?`, `\?`,
+		`(`, `\(`,
+		`)`, `\)`,
+		`|`, `\|`,
+		`[`, `\[`,
+		`]`, `\]`,
+		`{`, `\{`,
+		`}`, `\}`,
+		`^`, `\^`,
+		`$`, `\$`,
+	)
 	return replacer.Replace(value)
 }

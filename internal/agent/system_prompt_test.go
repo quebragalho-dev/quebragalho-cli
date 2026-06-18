@@ -121,6 +121,9 @@ func TestBuildSystemPromptProjectGuidelinesPathWalkingMonorepo(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(leaf, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -198,6 +201,9 @@ func TestBuildSystemPromptProjectGuidelinesTruncatesAtTotalCap(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(leaf, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -249,5 +255,19 @@ func TestFindProjectContextFileCaseInsensitiveBasename(t *testing.T) {
 	got := findProjectContextFile(cwd)
 	if filepath.Base(got) != "AGENTS.MD" {
 		t.Fatalf("findProjectContextFile = %q, want basename AGENTS.MD", got)
+	}
+}
+
+func TestFindProjectGitRootIgnoresEmptyGitDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	leaf := filepath.Join(root, "child")
+	if err := os.MkdirAll(leaf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := findProjectGitRoot(leaf); got != "" {
+		t.Fatalf("findProjectGitRoot = %q, want empty for invalid .git directory", got)
 	}
 }

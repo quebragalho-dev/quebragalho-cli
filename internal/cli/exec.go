@@ -719,8 +719,9 @@ func applyConfiguredSandboxPolicy(policy sandbox.Policy, cfg config.SandboxConfi
 			policy.Network = sandbox.NetworkMode(network)
 		}
 	}
-	// Opt-in hardening flags: only ever turn a feature ON from config, never off,
-	// so a programmatic default can't be silently disabled by an omitted key.
+	// Opt-in hardening/diagnostic flags: only ever turn a feature ON from
+	// config, never off, so a programmatic default can't be silently disabled by
+	// an omitted key.
 	if cfg.BlockUnixSockets {
 		policy.BlockUnixSockets = true
 	}

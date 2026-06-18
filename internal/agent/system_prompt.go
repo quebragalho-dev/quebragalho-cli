@@ -312,7 +312,7 @@ func findProjectGitRoot(cwd string) string {
 	}
 	cur := cwd
 	for {
-		if _, err := os.Stat(filepath.Join(cur, ".git")); err == nil {
+		if hasGitMetadata(cur) {
 			return cur
 		}
 		parent := filepath.Dir(cur)
@@ -321,6 +321,23 @@ func findProjectGitRoot(cwd string) string {
 		}
 		cur = parent
 	}
+}
+
+func hasGitMetadata(dir string) bool {
+	gitPath := filepath.Join(dir, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return false
+	}
+	if info.IsDir() {
+		_, err := os.Stat(filepath.Join(gitPath, "HEAD"))
+		return err == nil
+	}
+	data, err := os.ReadFile(gitPath)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir: ")
 }
 
 func workspaceSeedContext(cwd string) string {

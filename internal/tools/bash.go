@@ -219,7 +219,17 @@ func addSandboxMeta(meta map[string]string, plan zeroSandbox.CommandPlan) {
 		return
 	}
 	meta["sandbox_backend"] = string(plan.Backend.Name)
+	if plan.TargetBackend != "" {
+		meta["sandbox_target_backend"] = string(plan.TargetBackend)
+	}
 	meta["sandbox_wrapped"] = strconv.FormatBool(plan.Wrapped)
+	if plan.EnforcementLevel != "" {
+		meta["sandbox_enforcement_level"] = string(plan.EnforcementLevel)
+	}
+	if plan.DowngradeReason != "" {
+		meta["sandbox_downgrade_reason"] = plan.DowngradeReason
+	}
+	meta["sandbox_requires_platform"] = strconv.FormatBool(plan.RequiresPlatformSandbox)
 	if plan.Backend.Message != "" {
 		meta["sandbox_message"] = plan.Backend.Message
 	}

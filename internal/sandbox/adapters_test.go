@@ -8,18 +8,21 @@ import (
 )
 
 func TestSelectBackendChoosesPlatformAdapterWithFallback(t *testing.T) {
-	t.Run("linux bubblewrap available", func(t *testing.T) {
+	t.Run("linux helper available", func(t *testing.T) {
 		backend := SelectBackend(BackendOptions{
 			GOOS: "linux",
 			LookupExecutable: func(name string) (string, error) {
+				if name == LinuxSandboxHelperName {
+					return "/usr/bin/zero-linux-sandbox", nil
+				}
 				if name == "bwrap" {
 					return "/usr/bin/bwrap", nil
 				}
 				return "", errors.New("missing")
 			},
 		})
-		if backend.Name != BackendBubblewrap || !backend.Available || backend.Executable != "/usr/bin/bwrap" {
-			t.Fatalf("linux backend = %#v, want available bubblewrap", backend)
+		if backend.Name != BackendLinuxBwrap || !backend.Available || backend.Executable != "/usr/bin/zero-linux-sandbox" {
+			t.Fatalf("linux backend = %#v, want available Linux helper", backend)
 		}
 		if backend.Platform != "linux" || backend.Fallback || !backend.CommandWrapping || !backend.NativeIsolation {
 			t.Fatalf("linux backend capabilities = %#v, want native wrapping", backend)
@@ -33,6 +36,24 @@ func TestSelectBackendChoosesPlatformAdapterWithFallback(t *testing.T) {
 		}
 	})
 
+	t.Run("linux helper missing falls back explicitly", func(t *testing.T) {
+		backend := SelectBackend(BackendOptions{
+			GOOS: "linux",
+			LookupExecutable: func(name string) (string, error) {
+				if name == "bwrap" {
+					return "/usr/bin/bwrap", nil
+				}
+				return "", errors.New("missing")
+			},
+		})
+		if backend.Name != BackendPolicyOnly || backend.Available {
+			t.Fatalf("linux backend = %#v, want policy-only fallback without Linux helper", backend)
+		}
+		if !strings.Contains(backend.Message, "Linux sandbox helper is not available") {
+			t.Fatalf("linux fallback message = %q, want missing helper", backend.Message)
+		}
+	})
+
 	t.Run("darwin sandbox exec available", func(t *testing.T) {
 		backend := SelectBackend(BackendOptions{
 			GOOS: "darwin",
@@ -43,11 +64,60 @@ func TestSelectBackendChoosesPlatformAdapterWithFallback(t *testing.T) {
 				return "", errors.New("missing")
 			},
 		})
-		if backend.Name != BackendSandboxExec || !backend.Available || backend.Executable != "/usr/bin/sandbox-exec" {
-			t.Fatalf("darwin backend = %#v, want available sandbox-exec", backend)
+		if backend.Name != BackendMacOSSeatbelt || !backend.Available || backend.Executable != "/usr/bin/sandbox-exec" {
+			t.Fatalf("darwin backend = %#v, want available macOS Seatbelt backend", backend)
 		}
 		if backend.Platform != "darwin" || backend.Fallback || !backend.CommandWrapping || !backend.NativeIsolation {
 			t.Fatalf("darwin backend capabilities = %#v, want native wrapping", backend)
+		}
+	})
+
+	t.Run("windows command runner available", func(t *testing.T) {
+		backend := SelectBackend(BackendOptions{
+			GOOS: "windows",
+			LookupExecutable: func(name string) (string, error) {
+				if name == WindowsSandboxCommandRunnerName {
+					return `C:\zero\zero-windows-command-runner.exe`, nil
+				}
+				if name == WindowsSandboxSetupName {
+					return `C:\zero\zero-windows-sandbox-setup.exe`, nil
+				}
+				return "", errors.New("missing")
+			},
+		})
+		if backend.Name != BackendWindowsRestrictedToken || !backend.Available || backend.Executable != `C:\zero\zero-windows-command-runner.exe` {
+			t.Fatalf("windows backend = %#v, want available restricted-token runner", backend)
+		}
+		if backend.Platform != "windows" || backend.Fallback || !backend.CommandWrapping || !backend.NativeIsolation {
+			t.Fatalf("windows backend capabilities = %#v, want native wrapping", backend)
+		}
+		plan := backend.BuildPlan(t.TempDir(), DefaultPolicy())
+		if plan.SupportLevel != BackendSupportNative || len(plan.Warnings) != 0 {
+			t.Fatalf("windows plan = %#v, want native support without warnings", plan)
+		}
+		if capabilityStatus(plan.Capabilities, "native_process_isolation") != CapabilityNative {
+			t.Fatalf("windows native isolation capability = %#v, want native", plan.Capabilities)
+		}
+		if capabilityStatus(plan.Capabilities, "network_guard") != CapabilityNative {
+			t.Fatalf("windows network guard capability = %#v, want native WFP enforcement", plan.Capabilities)
+		}
+	})
+
+	t.Run("windows setup helper missing", func(t *testing.T) {
+		backend := SelectBackend(BackendOptions{
+			GOOS: "windows",
+			LookupExecutable: func(name string) (string, error) {
+				if name == WindowsSandboxCommandRunnerName {
+					return `C:\zero\zero-windows-command-runner.exe`, nil
+				}
+				return "", errors.New("missing")
+			},
+		})
+		if backend.Name != BackendPolicyOnly || backend.Available || backend.Platform != "windows" {
+			t.Fatalf("windows backend = %#v, want policy-only windows fallback", backend)
+		}
+		if !strings.Contains(backend.Message, "Windows sandbox setup helper is not available") {
+			t.Fatalf("expected Windows setup helper fallback message, got %q", backend.Message)
 		}
 	})
 
@@ -62,7 +132,7 @@ func TestSelectBackendChoosesPlatformAdapterWithFallback(t *testing.T) {
 		if !backend.Fallback || backend.CommandWrapping || backend.NativeIsolation {
 			t.Fatalf("windows backend capabilities = %#v, want no native wrapping", backend)
 		}
-		if !strings.Contains(backend.Message, "Windows native sandbox adapter is not implemented") {
+		if !strings.Contains(backend.Message, "Windows sandbox command runner is not available") {
 			t.Fatalf("expected Windows fallback message, got %q", backend.Message)
 		}
 		plan := backend.BuildPlan(t.TempDir(), DefaultPolicy())
@@ -72,8 +142,8 @@ func TestSelectBackendChoosesPlatformAdapterWithFallback(t *testing.T) {
 		if capabilityStatus(plan.Capabilities, "native_process_isolation") != CapabilityUnavailable {
 			t.Fatalf("windows native isolation capability = %#v, want unavailable", plan.Capabilities)
 		}
-		if !restrictionContains(plan.Warnings, "Windows native sandbox adapter is not implemented") {
-			t.Fatalf("windows warnings = %#v, want adapter warning", plan.Warnings)
+		if !restrictionContains(plan.Warnings, "Windows sandbox command runner is not available") {
+			t.Fatalf("windows warnings = %#v, want command runner warning", plan.Warnings)
 		}
 	})
 
@@ -90,6 +160,45 @@ func TestSelectBackendChoosesPlatformAdapterWithFallback(t *testing.T) {
 		}
 		if !strings.Contains(backend.Message, "policy-only") {
 			t.Fatalf("expected fallback message, got %q", backend.Message)
+		}
+	})
+}
+
+func TestLegacySandboxEntrypointsAreExplicitAndExist(t *testing.T) {
+	t.Run("linux still requires bubblewrap behind helper", func(t *testing.T) {
+		lookups := map[string]string{
+			LinuxSandboxHelperName: "/usr/bin/" + LinuxSandboxHelperName,
+			"bwrap":                "/usr/bin/bwrap",
+		}
+		backend := SelectBackend(BackendOptions{
+			GOOS: "linux",
+			LookupExecutable: func(name string) (string, error) {
+				path, ok := lookups[name]
+				if !ok {
+					return "", errors.New("missing")
+				}
+				return path, nil
+			},
+		})
+
+		if backend.Name != BackendLinuxBwrap || backend.Executable != lookups[LinuxSandboxHelperName] {
+			t.Fatalf("linux backend = %#v, want Linux helper backed by bwrap", backend)
+		}
+	})
+
+	t.Run("macos still uses sandbox-exec behind seatbelt backend", func(t *testing.T) {
+		backend := SelectBackend(BackendOptions{
+			GOOS: "darwin",
+			LookupExecutable: func(name string) (string, error) {
+				if name == "sandbox-exec" {
+					return "/usr/bin/sandbox-exec", nil
+				}
+				return "", errors.New("missing")
+			},
+		})
+
+		if backend.Name != BackendMacOSSeatbelt || backend.Executable != "/usr/bin/sandbox-exec" {
+			t.Fatalf("darwin backend = %#v, want Seatbelt backend through sandbox-exec", backend)
 		}
 	})
 }

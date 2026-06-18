@@ -202,6 +202,19 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 	archivePath := filepath.Join(releaseDir, archiveName)
 	artifactPath := filepath.Join(rootDir, ZeroArtifactName(goos))
 	stagedBinaryPath := filepath.Join(stagingDir, ZeroArtifactName(goos))
+	helperArtifacts := map[string]string{}
+	if goos == "linux" {
+		helperPath := filepath.Join(rootDir, LinuxSandboxHelperArtifactName(goos))
+		helperArtifacts[LinuxSandboxHelperArtifactName(goos)] = helperPath
+		seccompPath := filepath.Join(rootDir, LinuxSeccompHelperArtifactName(goos))
+		helperArtifacts[LinuxSeccompHelperArtifactName(goos)] = seccompPath
+	}
+	if goos == "windows" {
+		runnerPath := filepath.Join(rootDir, WindowsSandboxCommandRunnerArtifactName(goos))
+		helperArtifacts[WindowsSandboxCommandRunnerArtifactName(goos)] = runnerPath
+		setupPath := filepath.Join(rootDir, WindowsSandboxSetupArtifactName(goos))
+		helperArtifacts[WindowsSandboxSetupArtifactName(goos)] = setupPath
+	}
 
 	if err := os.RemoveAll(releaseDir); err != nil {
 		return PackageResult{}, fmt.Errorf("clean release dir: %w", err)
@@ -219,10 +232,15 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 	if err := buildZero(ctx, rootDir, artifactPath, version, goos, goarch); err != nil {
 		return PackageResult{}, err
 	}
+	for name, path := range helperArtifacts {
+		if err := buildReleaseHelper(ctx, rootDir, path, goos, goarch, name); err != nil {
+			return PackageResult{}, fmt.Errorf("build %s: %w", name, err)
+		}
+	}
 	if err := smokeVersion(ctx, artifactPath, version); err != nil {
 		return PackageResult{}, err
 	}
-	if err := copyPackageFiles(rootDir, stagingDir, artifactPath, stagedBinaryPath, goos, version); err != nil {
+	if err := copyPackageFiles(rootDir, stagingDir, artifactPath, stagedBinaryPath, goos, version, helperArtifacts); err != nil {
 		return PackageResult{}, err
 	}
 	if err := createArchive(stagingDir, archivePath, goos); err != nil {
@@ -248,6 +266,34 @@ func ZeroArtifactName(goos string) string {
 		return "zero.exe"
 	}
 	return "zero"
+}
+
+func LinuxSandboxHelperArtifactName(goos string) string {
+	if goos == "windows" {
+		return "zero-linux-sandbox.exe"
+	}
+	return "zero-linux-sandbox"
+}
+
+func LinuxSeccompHelperArtifactName(goos string) string {
+	if goos == "windows" {
+		return "zero-seccomp.exe"
+	}
+	return "zero-seccomp"
+}
+
+func WindowsSandboxCommandRunnerArtifactName(goos string) string {
+	if goos == "windows" {
+		return "zero-windows-command-runner.exe"
+	}
+	return "zero-windows-command-runner"
+}
+
+func WindowsSandboxSetupArtifactName(goos string) string {
+	if goos == "windows" {
+		return "zero-windows-sandbox-setup.exe"
+	}
+	return "zero-windows-sandbox-setup"
 }
 
 func DefaultBuildOutput(rootDir string, goos string) string {
@@ -550,7 +596,59 @@ func PackageVersion(rootDir string) (string, error) {
 }
 
 func buildZero(ctx context.Context, rootDir string, output string, version string, goos string, goarch string) error {
-	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-ldflags", BuildLdflags(version), "-o", output, "./cmd/zero")
+	return buildGoPackage(ctx, rootDir, output, version, goos, goarch, "./cmd/zero")
+}
+
+func buildLinuxSandboxHelper(ctx context.Context, rootDir string, output string, goos string, goarch string) error {
+	if goos != "linux" {
+		return nil
+	}
+	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/zero-linux-sandbox")
+}
+
+func buildLinuxSeccompHelper(ctx context.Context, rootDir string, output string, goos string, goarch string) error {
+	if goos != "linux" {
+		return nil
+	}
+	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/zero-seccomp")
+}
+
+func buildWindowsSandboxCommandRunner(ctx context.Context, rootDir string, output string, goos string, goarch string) error {
+	if goos != "windows" {
+		return nil
+	}
+	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/zero-windows-command-runner")
+}
+
+func buildWindowsSandboxSetup(ctx context.Context, rootDir string, output string, goos string, goarch string) error {
+	if goos != "windows" {
+		return nil
+	}
+	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/zero-windows-sandbox-setup")
+}
+
+func buildReleaseHelper(ctx context.Context, rootDir string, output string, goos string, goarch string, name string) error {
+	switch name {
+	case LinuxSandboxHelperArtifactName(goos):
+		return buildLinuxSandboxHelper(ctx, rootDir, output, goos, goarch)
+	case LinuxSeccompHelperArtifactName(goos):
+		return buildLinuxSeccompHelper(ctx, rootDir, output, goos, goarch)
+	case WindowsSandboxCommandRunnerArtifactName(goos):
+		return buildWindowsSandboxCommandRunner(ctx, rootDir, output, goos, goarch)
+	case WindowsSandboxSetupArtifactName(goos):
+		return buildWindowsSandboxSetup(ctx, rootDir, output, goos, goarch)
+	default:
+		return fmt.Errorf("unknown release helper %s", name)
+	}
+}
+
+func buildGoPackage(ctx context.Context, rootDir string, output string, version string, goos string, goarch string, pkg string) error {
+	args := []string{"build", "-trimpath"}
+	if version != "" {
+		args = append(args, "-ldflags", BuildLdflags(version))
+	}
+	args = append(args, "-o", output, pkg)
+	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = rootDir
 	command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+goarch)
 	outputBytes, err := command.CombinedOutput()
@@ -559,7 +657,7 @@ func buildZero(ctx context.Context, rootDir string, output string, version strin
 		if message == "" {
 			message = err.Error()
 		}
-		return fmt.Errorf("build release binary: %s", message)
+		return fmt.Errorf("build release binary %s: %s", filepath.Base(output), message)
 	}
 	return nil
 }
@@ -581,7 +679,7 @@ func smokeVersion(ctx context.Context, binaryPath string, version string) error 
 	return nil
 }
 
-func copyPackageFiles(rootDir string, stagingDir string, artifactPath string, stagedBinaryPath string, goos string, version string) error {
+func copyPackageFiles(rootDir string, stagingDir string, artifactPath string, stagedBinaryPath string, goos string, version string, helperArtifacts map[string]string) error {
 	if err := copyFile(artifactPath, stagedBinaryPath, 0o755); err != nil {
 		return err
 	}
@@ -597,6 +695,11 @@ func copyPackageFiles(rootDir string, stagingDir string, artifactPath string, st
 	}
 	if err := copyFile(filepath.Join(rootDir, "bin", "zero.js"), filepath.Join(stagingDir, "bin", "zero.js"), 0o755); err != nil {
 		return err
+	}
+	for name, source := range helperArtifacts {
+		if err := copyFile(source, filepath.Join(stagingDir, name), 0o755); err != nil {
+			return err
+		}
 	}
 	if err := os.WriteFile(filepath.Join(stagingDir, "VERSION"), []byte(version+"\n"), 0o644); err != nil {
 		return err

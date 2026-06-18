@@ -1,14 +1,9 @@
 //go:build linux
 
-// Command zero-seccomp is a tiny exec wrapper for the Linux sandbox: it installs
-// the Unix-socket-blocking seccomp filter on itself and then execs the real
-// command, so a bubblewrap-sandboxed process cannot create AF_UNIX sockets (a gap
-// bubblewrap's filesystem/network isolation leaves open). Wire it by prefixing the
-// sandboxed command with this binary, e.g. `bwrap ... -- zero-seccomp <command>`.
-//
-// It degrades gracefully: if the filter cannot be installed (e.g. the kernel lacks
-// seccomp), it warns and runs the command anyway, since bubblewrap still provides
-// the primary isolation.
+// Command zero-seccomp is retained as a compatibility wrapper for existing Linux
+// installs and scripts. The main sandbox path now applies the same optional
+// Unix-socket filter inside zero-linux-sandbox when sandbox.blockUnixSockets is
+// enabled.
 package main
 
 import (
