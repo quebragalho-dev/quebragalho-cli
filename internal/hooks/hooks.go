@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -500,15 +501,20 @@ func (store *AuditStore) append(event AuditEvent) (AuditEvent, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
-	events, err := store.ReadEvents()
+	// Cross-process lock around the read-then-append. store.mu only serializes
+	// THIS process; the audit log is a shared global file, so without a
+	// cross-process lock two processes could both read sequence N via
+	// lastSequence() and both write N+1 (duplicate sequences). Held only for the
+	// millisecond read+append, mirroring the cron/oauth file locks.
+	unlock, err := store.lockAudit()
 	if err != nil {
 		return AuditEvent{}, err
 	}
-	highest := 0
-	for _, existing := range events {
-		if existing.Sequence > highest {
-			highest = existing.Sequence
-		}
+	defer unlock()
+
+	highest, err := store.lastSequence()
+	if err != nil {
+		return AuditEvent{}, err
 	}
 	event.Sequence = highest + 1
 	event.CreatedAt = store.now().UTC().Format(time.RFC3339Nano)
@@ -532,6 +538,81 @@ func (store *AuditStore) append(event AuditEvent) (AuditEvent, error) {
 		return AuditEvent{}, err
 	}
 	return event, nil
+}
+
+// lastSequence returns the Sequence of the last record in the append-only audit
+// log (or 0 when empty/absent). It reads only the file's TAIL rather than the
+// whole file, so append stays O(1) instead of O(n) per call (the previous code
+// re-read and scanned every event on every append → O(n²) over a session). It
+// reads fresh from disk each time so a concurrent process's prior appends are
+// observed; the read-then-append is made atomic across processes by the caller's
+// lockAudit — store.mu alone would not prevent a cross-process sequence collision.
+func (store *AuditStore) lastSequence() (int, error) {
+	file, err := os.Open(store.auditPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	size := info.Size()
+	if size == 0 {
+		return 0, nil
+	}
+	const tailWindow = 8 * 1024
+	start := size - tailWindow
+	if start < 0 {
+		start = 0
+	}
+	buf := make([]byte, size-start)
+	// ReadAt may return io.EOF with a short read if the file shrank between Stat
+	// and here; treat EOF as non-fatal and use only the bytes actually read.
+	n, rerr := file.ReadAt(buf, start)
+	if rerr != nil && !errors.Is(rerr, io.EOF) {
+		return 0, rerr
+	}
+	buf = buf[:n]
+	if len(buf) == 0 {
+		return 0, nil
+	}
+	text := strings.TrimRight(string(buf), "\r\n \t")
+	if text == "" {
+		return 0, nil
+	}
+	if idx := strings.LastIndexByte(text, '\n'); idx >= 0 {
+		text = strings.TrimSpace(text[idx+1:])
+	} else if start > 0 {
+		// The last record is longer than the tail window (rare) — fall back to a
+		// full scan so the sequence stays correct.
+		return store.lastSequenceFullScan()
+	}
+	if text == "" {
+		return 0, nil
+	}
+	var record AuditEvent
+	if err := json.Unmarshal([]byte(text), &record); err != nil {
+		return 0, err
+	}
+	return record.Sequence, nil
+}
+
+func (store *AuditStore) lastSequenceFullScan() (int, error) {
+	events, err := store.ReadEvents()
+	if err != nil {
+		return 0, err
+	}
+	highest := 0
+	for _, existing := range events {
+		if existing.Sequence > highest {
+			highest = existing.Sequence
+		}
+	}
+	return highest, nil
 }
 
 func readLayer(source ConfigSource, path string, diagnostics *[]Diagnostic) (hookLayer, bool) {
