@@ -1,12 +1,15 @@
 package specialist
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -29,7 +32,7 @@ const SessionTagSpecialist = sessionTagSpecialist
 type NewSessionIDFunc func() (string, error)
 type WritePromptFileFunc func(prompt string) (string, error)
 type LoadFunc func(LoadOptions) (LoadResult, error)
-type RunChildFunc func(ctx context.Context, binaryPath string, args []string) (ChildRunResult, error)
+type RunChildFunc func(ctx context.Context, binaryPath string, args []string, progress func(streamjson.Event)) (ChildRunResult, error)
 type LaunchBackgroundFunc func(binaryPath string, args []string, outputFile string, onExit func(exitCode int)) (int, error)
 type BackgroundManagerFunc func() (*background.Manager, error)
 
@@ -107,6 +110,9 @@ type TaskRunOptions struct {
 	// other value is fail-safe "low", so the child never gains more authority
 	// than the parent.
 	PermissionMode string
+	// Progress, when set, is called with each stream-json event emitted by the
+	// child process while it runs. nil is a no-op.
+	Progress func(streamjson.Event)
 }
 
 // specialistAutonomy maps a parent permission mode to the child's "--auto"
@@ -312,7 +318,7 @@ func (executor Executor) runFresh(ctx context.Context, params TaskParameters, op
 	if params.RunInBackground {
 		return executor.runBackground(ctx, built, manifest, params, options)
 	}
-	return executor.runBuiltArgs(ctx, built, manifest, params, options, "foreground")
+	return executor.runBuiltArgs(ctx, built, manifest, params, options, "foreground", options.Progress)
 }
 
 // freshManifest resolves the manifest for a fresh run. A caller-supplied inline
@@ -357,7 +363,7 @@ func (executor Executor) runResume(ctx context.Context, params TaskParameters, o
 	if err != nil {
 		return ExecResult{}, err
 	}
-	return executor.runBuiltArgs(ctx, built, manifest, params, options, "resume")
+	return executor.runBuiltArgs(ctx, built, manifest, params, options, "resume", options.Progress)
 }
 
 func (executor Executor) runBackground(ctx context.Context, built BuildArgsResult, manifest Manifest, params TaskParameters, options TaskRunOptions) (ExecResult, error) {
@@ -513,7 +519,7 @@ func (executor Executor) resumeSession(sessionID string) (*sessions.Metadata, er
 	return session, nil
 }
 
-func (executor Executor) runBuiltArgs(ctx context.Context, built BuildArgsResult, manifest Manifest, params TaskParameters, options TaskRunOptions, mode string) (ExecResult, error) {
+func (executor Executor) runBuiltArgs(ctx context.Context, built BuildArgsResult, manifest Manifest, params TaskParameters, options TaskRunOptions, mode string, progress func(streamjson.Event)) (ExecResult, error) {
 	if built.PromptFile != "" {
 		defer cleanupPromptFile(built.PromptFile)
 	}
@@ -531,7 +537,7 @@ func (executor Executor) runBuiltArgs(ctx context.Context, built BuildArgsResult
 		Background:      false,
 	}
 	executor.recordSpecialistStart(accounting)
-	run, err := executor.runChild(ctx, binaryPath, built.Args)
+	run, err := executor.runChild(ctx, binaryPath, built.Args, progress)
 	if err != nil {
 		exitCode := run.exitCodeOr(-1)
 		summary := SummarizeStream(run.Events, exitCode)
@@ -578,11 +584,11 @@ func (executor Executor) binaryPath() (string, error) {
 	return path, nil
 }
 
-func (executor Executor) runChild(ctx context.Context, binaryPath string, args []string) (ChildRunResult, error) {
+func (executor Executor) runChild(ctx context.Context, binaryPath string, args []string, progress func(streamjson.Event)) (ChildRunResult, error) {
 	if executor.RunChild != nil {
-		return executor.RunChild(ctx, binaryPath, append([]string(nil), args...))
+		return executor.RunChild(ctx, binaryPath, append([]string(nil), args...), progress)
 	}
-	return runChildProcess(ctx, binaryPath, args)
+	return runChildProcess(ctx, binaryPath, args, progress)
 }
 
 func (executor Executor) launchBackground(binaryPath string, args []string, outputFile string, onExit func(exitCode int)) (int, error) {
@@ -711,29 +717,52 @@ func cleanupPromptFile(promptFile string) {
 	_ = os.Remove(promptFile)
 }
 
-func runChildProcess(ctx context.Context, binaryPath string, args []string) (ChildRunResult, error) {
-	var stdout bytes.Buffer
+func runChildProcess(ctx context.Context, binaryPath string, args []string, progress func(streamjson.Event)) (ChildRunResult, error) {
 	var stderr bytes.Buffer
 	command := osexec.CommandContext(ctx, binaryPath, args...)
-	command.Stdout = &stdout
 	command.Stderr = &stderr
-
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return ChildRunResult{Stderr: stderr.String()}, fmt.Errorf("create stdout pipe: %w", err)
+	}
+	if err := command.Start(); err != nil {
+		return ChildRunResult{Stderr: stderr.String()}, fmt.Errorf("start specialist child: %w", err)
+	}
+	events := []streamjson.Event{}
+	reader := bufio.NewReader(stdout)
+	for {
+		line, readErr := reader.ReadString('\n')
+		line = strings.TrimSpace(line)
+		if line != "" {
+			var event streamjson.Event
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				// Surface parse errors instead of silently dropping lines —
+				// ParseStream did this too. Accumulate what we have and let
+				// the caller decide via the error.
+				events = append(events, streamjson.Event{Type: streamjson.EventError, Message: fmt.Sprintf("parse stream-json line: %v", err)})
+			} else {
+				events = append(events, event)
+				if progress != nil {
+					progress(event)
+				}
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				events = append(events, streamjson.Event{Type: streamjson.EventError, Message: fmt.Sprintf("read child stdout: %v", readErr)})
+			}
+			break
+		}
+	}
 	exitCode := 0
-	started := false
-	if err := command.Run(); err != nil {
+	started := true
+	if err := command.Wait(); err != nil {
 		var exitErr *osexec.ExitError
 		if errors.As(err, &exitErr) {
-			started = true
 			exitCode = exitErr.ExitCode()
 		} else {
-			return ChildRunResult{Stderr: stderr.String(), ExitCode: exitCode, Started: started}, fmt.Errorf("run specialist child: %w", err)
+			return ChildRunResult{Events: events, Stderr: stderr.String(), ExitCode: -1, Started: started}, fmt.Errorf("run specialist child: %w", err)
 		}
-	} else {
-		started = true
-	}
-	events, err := ParseStream(bytes.NewReader(stdout.Bytes()))
-	if err != nil {
-		return ChildRunResult{Stderr: stderr.String(), ExitCode: exitCode, Started: started}, err
 	}
 	return ChildRunResult{Events: events, Stderr: stderr.String(), ExitCode: exitCode, Started: started}, nil
 }

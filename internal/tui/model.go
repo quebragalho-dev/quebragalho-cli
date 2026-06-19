@@ -26,6 +26,7 @@ import (
 	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
 	"github.com/Gitlawb/zero/internal/sandbox"
 	"github.com/Gitlawb/zero/internal/sessions"
+	"github.com/Gitlawb/zero/internal/streamjson"
 	"github.com/Gitlawb/zero/internal/tools"
 	"github.com/Gitlawb/zero/internal/usage"
 	"github.com/Gitlawb/zero/internal/zeroruntime"
@@ -108,9 +109,14 @@ type model struct {
 	composerActive        bool
 	composerCursorVisible bool
 	composerPastePreviews []composerPastePreview
-	altScreen             bool
-	setup                 setupState
-	setupSave             func(SetupSelection) (SetupResult, error)
+	// plan holds the sticky plan panel state (steps, expansion, timings)
+	// synced from the update_plan tool. See plan_panel.go.
+	plan        planPanelState
+	specialists specialistTracker
+	subchat     subchatState
+	altScreen   bool
+	setup       setupState
+	setupSave   func(SetupSelection) (SetupResult, error)
 	// spinner animates the running-tool glyph in card heads. Its tick is started
 	// with each run and stops itself once pending clears (the TickMsg is simply
 	// not forwarded), so an idle UI schedules no timers.
@@ -281,6 +287,43 @@ type agentResponseMsg struct {
 type agentRowMsg struct {
 	runID int
 	row   transcriptRow
+}
+
+// planUpdateMsg carries a snapshot of plan items from the update_plan tool
+// result callback to the live model. The callback runs on the agent goroutine
+// and captures model by value, so it cannot mutate m.plan directly — it sends
+// this message through the runtimeMessageSink instead.
+type planUpdateMsg struct {
+	runID int
+	items []tools.PlanItem
+}
+
+// specialistStartMsg carries specialist start info from the OnToolCall
+// callback to the live model (same rationale as planUpdateMsg).
+type specialistStartMsg struct {
+	runID          int
+	name           string
+	description    string
+	childSessionID string
+}
+
+// specialistCompleteMsg carries specialist completion info from the
+// OnToolResult callback to the live model.
+type specialistCompleteMsg struct {
+	runID          int
+	toolCallID     string
+	childSessionID string
+	status         specialistStatus
+	errorMsg       string
+}
+
+// specialistProgressMsg carries a live tool-call progress update from the
+// specialist child process, sent via OnToolProgress → runtimeMessageSink.
+type specialistProgressMsg struct {
+	runID      int
+	toolCallID string
+	toolName   string
+	detail     string
 }
 
 type mcpCommandOrigin int
@@ -706,6 +749,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.appendSystemNotice("Mouse interaction re-enabled."), nil
 		case keyIs(msg, tea.KeyEsc):
+			// Subchat view exits on Esc (returns to main chat).
+			if m.subchat.active {
+				m.chatScrollOffset = m.subchat.exit()
+				return m, nil
+			}
 			if m.mcpCommandCancel != nil {
 				m.cancelMCPCommand()
 				if m.mcpAddWizard != nil {
@@ -838,6 +886,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.noBlockingModal() {
 				return m.cycleReasoningEffort()
 			}
+		case keyCtrl(msg, 'p'):
+			// Ctrl+P toggles the plan panel expansion (collapse/expand step list).
+			if m.noBlockingModal() && !m.plan.isEmpty() {
+				m.plan.expanded = !m.plan.expanded
+				return m, nil
+			}
 		case keyCtrl(msg, 'f'):
 			if m.picker != nil && m.picker.kind == pickerModel {
 				if m.modelPickerIsLoading() {
@@ -925,6 +979,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.recallHistory(1), nil
 			}
 		case keyIs(msg, tea.KeyUp):
+			// ArrowUp exits subchat view (returns to main chat).
+			if m.subchat.active {
+				m.chatScrollOffset = m.subchat.exit()
+				return m, nil
+			}
 			if m.transcriptDetailed {
 				return m, nil
 			}
@@ -1283,6 +1342,49 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastCompactResult = &msg.result
 		m = m.setCompactStatusRow(m.compactText(true))
 		return m, nil
+	case planUpdateMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		m.plan.updateFromItems(msg.items, m.now())
+		return m, nil
+	case specialistStartMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		m.specialists.start(msg.name, msg.description, msg.childSessionID, m.now())
+		return m, nil
+	case specialistCompleteMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		// The specialist was started with the tool call ID as a temporary key
+		// (the real session ID isn't known until the child process creates it).
+		// Reconcile: complete by the tool call ID, then rewrite the tracker
+		// entry's childSessionID to the real session ID so subchat.enter can
+		// find the child session's events in the store.
+		m.specialists.complete(msg.toolCallID, msg.status, 0, msg.errorMsg, m.now())
+		if msg.childSessionID != "" && msg.childSessionID != msg.toolCallID {
+			m.specialists.reconcileSessionID(msg.toolCallID, msg.childSessionID)
+		}
+		if info, ok := m.specialists.getBySessionID(msg.childSessionID); ok {
+			if info.childSessionID == "" {
+				info.childSessionID = msg.toolCallID
+			}
+			cardRow := transcriptRow{
+				kind:           rowSpecialist,
+				runID:          msg.runID,
+				specialistInfo: &info,
+			}
+			m.transcript = appendTranscriptRow(m.transcript, cardRow)
+		}
+		return m, nil
+	case specialistProgressMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		m.specialists.setCurrentTool(msg.toolCallID, msg.toolName, msg.detail)
+		return m, nil
 	case agentRowMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
@@ -1392,6 +1494,20 @@ func (m model) transcriptEmpty() bool {
 func (m model) transcriptView() string {
 	width := chatWidth(m.width)
 
+	// Subchat drill-in: when active, show the child session's transcript with
+	// a nav bar instead of the main chat.
+	if m.subchat.active {
+		navBar := renderSubchatNavBar(m.subchat.childSessionTitle, width)
+		childBodyItems := m.transcriptBodyItemsFromRows(m.subchat.childRows, width)
+		footer := m.footerView(width)
+		if m.altScreen && m.height > 0 {
+			return m.scrollableTranscriptItemsView(navBar, childBodyItems, footer, width, "")
+		}
+		bodyLayout := layoutTranscriptBodyItems(childBodyItems)
+		body := navBar + "\n\n" + bodyLayout.String()
+		return body + footer
+	}
+
 	suggestionOverlay := m.suggestionOverlay(width)
 	providerOverlay := m.providerWizardOverlay(width)
 	mcpAddOverlay := m.mcpAddWizardOverlay(width)
@@ -1423,8 +1539,12 @@ func (m model) transcriptView() string {
 		overlayForViewport = ""
 	}
 
+	// Plan panel renders inline in the transcript body (as a transcript row),
+	// not pinned at the top. It appears above the specialist cards like a
+	// chat message, matching how opencode renders todo/plan updates inline.
 	if m.altScreen && m.height > 0 {
-		return m.scrollableTranscriptItemsView(m.pinnedTitleBar(width), bodyItems, footer, width, overlayForViewport)
+		header := m.pinnedTitleBar(width)
+		return m.scrollableTranscriptItemsView(header, bodyItems, footer, width, overlayForViewport)
 	}
 
 	bodyLayout := layoutTranscriptBodyItems(bodyItems)
@@ -2798,6 +2918,14 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.activeRunID = m.runID
 	m.runCancel = cancel
 	m.pending = true
+	// Clear per-run tracking state so stale specialists and plans from the
+	// previous turn don't bleed into the new one.
+	m.specialists.clear()
+	m.plan.clear()
+	// Rewind the verb rotation so the user sees "gitlawbmaxxing" first when
+	// the new run starts (instead of mid-rotation from a prior turn). Also
+	// reset the step counter so the cadence doesn't carry over a partial
+	// countdown from the previous run.
 	m.turnStartedAt = m.now()
 	m.workingVerbTicks = 0
 	m.workingVerb.Reset()
@@ -3134,6 +3262,22 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 			rows = append(rows, row)
 			m.sendAgentRow(runID, row)
+			// Track specialist delegation: when the Task tool is called, register
+			// the specialist start so the specialist card + task table can show
+			// live status. The child session ID is not known yet (it's created
+			// inside the executor), so we use the tool call ID as a temporary
+			// key and reconcile on the result.
+			if call.Name == "Task" {
+				name, desc := parseTaskCallArgs(call.Arguments)
+				if m.runtimeMessageSink != nil {
+					m.runtimeMessageSink(specialistStartMsg{
+						runID:          runID,
+						name:           name,
+						description:    desc,
+						childSessionID: call.ID,
+					})
+				}
+			}
 			sessionEvents = append(sessionEvents, pendingSessionEvent{
 				Type: sessions.EventToolCall,
 				Payload: map[string]any{
@@ -3168,6 +3312,17 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 		}
 
+		options.OnToolProgress = func(toolCallID string, event streamjson.Event) {
+			if event.Type == streamjson.EventToolCall && m.runtimeMessageSink != nil {
+				m.runtimeMessageSink(specialistProgressMsg{
+					runID:      runID,
+					toolCallID: toolCallID,
+					toolName:   event.Name,
+					detail:     toolCallSummary(event),
+				})
+			}
+		}
+
 		onToolResult := options.OnToolResult
 		options.OnToolResult = func(result agent.ToolResult) {
 			if runOptions.specDraft {
@@ -3186,6 +3341,16 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 			rows = append(rows, row)
 			m.sendAgentRow(runID, row)
+			// Sync the sticky plan panel when update_plan runs.
+			if result.Name == "update_plan" && m.registry != nil {
+				if planTool, ok := m.registry.Get("update_plan"); ok {
+					if reader, ok := planTool.(interface{ CurrentPlan() []tools.PlanItem }); ok {
+						if m.runtimeMessageSink != nil {
+							m.runtimeMessageSink(planUpdateMsg{runID: runID, items: reader.CurrentPlan()})
+						}
+					}
+				}
+			}
 			toolPayload := map[string]any{
 				"toolCallId": result.ToolCallID,
 				"name":       result.Name,
@@ -3205,6 +3370,26 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				Type:    sessions.EventToolResult,
 				Payload: toolPayload,
 			})
+			// Complete specialist tracking when the Task tool returns.
+			if result.Name == "Task" {
+				status := specialistCompleted
+				if result.Status == tools.StatusError {
+					status = specialistError
+				}
+				childSessionID := result.ToolCallID
+				if sid, ok := result.Meta["session_id"]; ok && sid != "" {
+					childSessionID = sid
+				}
+				if m.runtimeMessageSink != nil {
+					m.runtimeMessageSink(specialistCompleteMsg{
+						runID:          runID,
+						toolCallID:     result.ToolCallID,
+						childSessionID: childSessionID,
+						status:         status,
+						errorMsg:       result.Output,
+					})
+				}
+			}
 			if onToolResult != nil {
 				onToolResult(result)
 			}

@@ -431,6 +431,30 @@ func transcriptRowsFromSessionEvents(events []sessions.Event) []transcriptRow {
 			if parentID != "" {
 				rows = append(rows, transcriptRow{kind: rowSystem, text: "forked from session: " + parentID})
 			}
+		case sessions.EventSpecialistStart:
+			info := specialistInfoFromPayload(payload)
+			if info != nil {
+				rows = append(rows, transcriptRow{kind: rowSpecialist, specialistInfo: info})
+			}
+		case sessions.EventSpecialistStop:
+			info := specialistInfoFromPayload(payload)
+			if info != nil {
+				// Reconcile: update the existing Start row with the same
+				// childSessionID instead of appending a duplicate. On resume
+				// this prevents two cards per specialist (running + completed).
+				found := false
+				for i := range rows {
+					if rows[i].kind == rowSpecialist && rows[i].specialistInfo != nil &&
+						rows[i].specialistInfo.childSessionID == info.childSessionID {
+						rows[i].specialistInfo = info
+						found = true
+						break
+					}
+				}
+				if !found {
+					rows = append(rows, transcriptRow{kind: rowSpecialist, specialistInfo: info})
+				}
+			}
 		}
 	}
 	return rows
@@ -586,4 +610,34 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// specialistInfoFromPayload builds a specialistInfo from a specialist_start or
+// specialist_stop session event payload. Returns nil if the payload lacks a
+// childSessionId (the minimum required field).
+func specialistInfoFromPayload(payload map[string]any) *specialistInfo {
+	childSessionID := payloadString(payload, "childSessionId")
+	if childSessionID == "" {
+		return nil
+	}
+	info := &specialistInfo{
+		name:           payloadString(payload, "specialist"),
+		description:    payloadString(payload, "description"),
+		childSessionID: childSessionID,
+	}
+	statusStr := payloadString(payload, "status")
+	switch statusStr {
+	case "running":
+		info.status = specialistRunning
+	case "success":
+		info.status = specialistCompleted
+	case "completed":
+		info.status = specialistCompleted
+	default:
+		info.status = parseSpecialistStatus(statusStr)
+	}
+	if errMsg := payloadString(payload, "error"); errMsg != "" {
+		info.errorMsg = errMsg
+	}
+	return info
 }

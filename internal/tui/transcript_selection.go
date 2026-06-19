@@ -36,6 +36,10 @@ type transcriptSelectableLine struct {
 	// text (they are buttons, not content).
 	permOption bool
 	permChoice permissionDecision
+	// specialistCard marks a clickable specialist card row. specialistID is
+	// the childSessionID to drill into on click or Enter.
+	specialistCard bool
+	specialistID   string
 }
 
 type transcriptCopiedMsg struct {
@@ -133,6 +137,8 @@ func (m model) transcriptBodyItems(width int, emptyOverlay string) []transcriptB
 		rc := buildRowContext(m.transcript)
 		shownAny := false
 		previousKind, havePreviousKind := previousVisibleTranscriptKind(m.transcript, m.flushed, rc)
+		planPanelEmitted := false
+		specialistSummaryEmitted := false
 		for index := m.flushed; index < len(m.transcript); index++ {
 			row := m.transcript[index]
 			// A welcome row carries no Lime visual (the empty state replaced it)
@@ -147,6 +153,39 @@ func (m model) transcriptBodyItems(width int, emptyOverlay string) []transcriptB
 			}
 			if (shownAny || (m.flushedAny && havePreviousKind)) && previousKind == rowUser && row.kind == rowReasoning {
 				items = append(items, transcriptBlankBodyItem())
+			}
+			// Inject the plan panel inline before the specialist cards, so it
+			// appears in the chat flow (not pinned at the top).
+			if row.kind == rowSpecialist && !planPanelEmitted {
+				planPanelEmitted = true
+				planPanel := m.renderPlanPanel(width)
+				if planPanel != "" {
+					items = append(items, transcriptBlockBodyItem(transcriptBodyItemRow, -1, planPanel))
+					items = append(items, transcriptBlankBodyItem())
+				}
+			}
+			// Inject the specialist summary line once, before the first
+			// specialist card in this turn's contiguous group.
+			if row.kind == rowSpecialist && !specialistSummaryEmitted {
+				specialistSummaryEmitted = true
+				specialists := m.specialists.all()
+				if len(specialists) == 0 {
+					// Fall back to the specialist info carried by the
+					// transcript rows themselves (covers tests and any path
+					// where the tracker has been cleared).
+					for j := index; j < len(m.transcript); j++ {
+						r := m.transcript[j]
+						if r.kind != rowSpecialist || r.specialistInfo == nil {
+							break
+						}
+						specialists = append(specialists, *r.specialistInfo)
+					}
+				}
+				summary := renderSpecialistSummary(specialists, m.spinner.View())
+				if summary != "" {
+					items = append(items, transcriptBlockBodyItem(transcriptBodyItemRow, -1, summary))
+					items = append(items, transcriptBlankBodyItem())
+				}
 			}
 			rowIndex, transcriptRow := index, row
 			heightCacheKey, heightCacheStable := m.transcriptRowBodyHeightCacheKey(transcriptRow, width, rc)
@@ -163,6 +202,17 @@ func (m model) transcriptBodyItems(width int, emptyOverlay string) []transcriptB
 			shownAny = true
 			previousKind = row.kind
 			havePreviousKind = true
+		}
+		// If the plan panel wasn't injected during the row loop (no specialist
+		// rows yet), inject it here so update_plan-only turns still show it.
+		if !planPanelEmitted {
+			planPanel := m.renderPlanPanel(width)
+			if planPanel != "" {
+				if shownAny || m.flushedAny {
+					items = append(items, transcriptBlankBodyItem())
+				}
+				items = append(items, transcriptBlockBodyItem(transcriptBodyItemRow, -1, planPanel))
+			}
 		}
 	}
 
@@ -238,6 +288,47 @@ func transcriptBlankBodyItem() transcriptBodyItem {
 			return transcriptBodyRenderedItem{lines: []string{""}}
 		},
 	}
+}
+
+// transcriptBodyItemsFromRows builds body items from an arbitrary set of
+// transcript rows (used by the subchat drill-in view to render a child
+// session's events). It mirrors the main loop's logic but operates on the
+// provided rows instead of m.transcript, and skips pending/permission state.
+func (m model) transcriptBodyItemsFromRows(rows []transcriptRow, width int) []transcriptBodyItem {
+	items := []transcriptBodyItem{}
+	if len(rows) == 0 {
+		items = append(items, transcriptBlockBodyItem(transcriptBodyItemEmpty, -1, "No events in this subagent session."))
+		return items
+	}
+	rc := buildRowContext(rows)
+	shownAny := false
+	var previousKind rowKind
+	havePreviousKind := false
+	for index, row := range rows {
+		if row.kind == rowWelcome || rc.skip(row) {
+			continue
+		}
+		if shownAny && startsTurn(row.kind) {
+			items = append(items, transcriptBlankBodyItem())
+		}
+		if shownAny && havePreviousKind && previousKind == rowUser && row.kind == rowReasoning {
+			items = append(items, transcriptBlankBodyItem())
+		}
+		rowIndex, transcriptRow := index, row
+		items = append(items, transcriptBodyItem{
+			kind:           transcriptBodyItemRow,
+			rowIndex:       rowIndex,
+			heightCacheKey: "subchat:" + strconv.Itoa(index),
+			render: func(startBodyY int) transcriptBodyRenderedItem {
+				rendered, selectable := m.renderTranscriptRow(rowIndex, transcriptRow, width, rc, startBodyY)
+				return transcriptBodyRenderedItem{lines: viewLines(rendered), selectable: selectable}
+			},
+		})
+		shownAny = true
+		previousKind = row.kind
+		havePreviousKind = true
+	}
+	return items
 }
 
 func layoutTranscriptBodyItems(items []transcriptBodyItem) transcriptBodyLayout {
@@ -351,6 +442,8 @@ func (m model) renderTranscriptRow(rowIndex int, row transcriptRow, width int, r
 		return m.renderSelectableReasoningRow(rowIndex, row, width, startBodyY)
 	case rowToolResult:
 		return m.renderSelectableToolResultRow(rowIndex, row, width, rc, startBodyY)
+	case rowSpecialist:
+		return m.renderSelectableSpecialistRow(rowIndex, row, width, rc, startBodyY)
 	default:
 		return m.renderRow(row, width, rc), nil
 	}
@@ -364,6 +457,27 @@ func (m model) renderSelectableToolResultRow(rowIndex int, row transcriptRow, wi
 		return "", nil
 	}
 	return rendered, []transcriptSelectableLine{{bodyY: startBodyY, rowIndex: rowIndex, toggle: true}}
+}
+
+// renderSelectableSpecialistRow renders a specialist card and marks every line
+// as a clickable specialistCard selectable line carrying the childSessionID.
+// A left-click or Enter on any card line drills into that specialist's subchat.
+func (m model) renderSelectableSpecialistRow(rowIndex int, row transcriptRow, width int, rc rowContext, startBodyY int) (string, []transcriptSelectableLine) {
+	rendered := m.renderRow(row, width, rc)
+	if rendered == "" || row.specialistInfo == nil {
+		return "", nil
+	}
+	lines := viewLines(rendered)
+	selectable := make([]transcriptSelectableLine, len(lines))
+	for i := range lines {
+		selectable[i] = transcriptSelectableLine{
+			bodyY:          startBodyY + i,
+			rowIndex:       rowIndex,
+			specialistCard: true,
+			specialistID:   row.specialistInfo.childSessionID,
+		}
+	}
+	return rendered, selectable
 }
 
 func (m model) renderSelectableUserRow(rowIndex int, row transcriptRow, width int, startBodyY int) (string, []transcriptSelectableLine) {
@@ -610,6 +724,15 @@ func (m model) handleTranscriptSelectionMouse(msg tea.MouseMsg) (model, tea.Cmd,
 			// A left-click on a permission-popup option resolves it directly.
 			next, cmd := m.resolvePermission(line.permChoice)
 			return next.(model), cmd, true
+		}
+		if line.specialistCard {
+			// Click on a specialist card drills into its child session.
+			title := m.specialistTitleFor(line.specialistID)
+			if errMsg := m.subchat.enter(m.sessionStore, line.specialistID, title, m.chatScrollOffset); errMsg != "" {
+				m = m.appendSystemNotice(errMsg)
+			}
+			m.chatScrollOffset = 0
+			return m, nil, true
 		}
 		if line.toggle {
 			if line.live {
