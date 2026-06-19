@@ -21,25 +21,21 @@ func nativeBackendStub() sandbox.Backend {
 	}
 }
 
-func autoAllowBashPolicy(autoAllow bool) sandbox.Policy {
+func sandboxedBashPolicy() sandbox.Policy {
 	policy := sandbox.DefaultPolicy()
-	policy.AutoAllowBashWhenSandboxed = autoAllow
 	// Network deny so no proxy is started for these gate-only tests.
 	return policy
 }
 
 const permissionRequiredFragment = "Permission required for bash"
 
-// TestBashAutoAllowedWhenSandboxActive: flag on + active sandbox => the bash
-// permission gate is bypassed (no "Permission required" error). The command
-// itself fails to exec (stub backend), which is the expected non-gate outcome.
 func TestBashAutoAllowedWhenSandboxActive(t *testing.T) {
 	root := t.TempDir()
 	registry := NewRegistry()
 	registry.Register(NewBashTool(root))
 	engine := sandbox.NewEngine(sandbox.EngineOptions{
 		WorkspaceRoot: root,
-		Policy:        autoAllowBashPolicy(true),
+		Policy:        sandboxedBashPolicy(),
 		Backend:       nativeBackendStub(),
 	})
 
@@ -49,7 +45,7 @@ func TestBashAutoAllowedWhenSandboxActive(t *testing.T) {
 		PermissionGranted: false,
 		Sandbox:           engine,
 		PermissionMode:    string(sandbox.PermissionModeAsk),
-		Autonomy:          string(sandbox.AutonomyHigh),
+		Autonomy:          "high",
 	})
 
 	if strings.Contains(result.Output, permissionRequiredFragment) {
@@ -60,16 +56,14 @@ func TestBashAutoAllowedWhenSandboxActive(t *testing.T) {
 	}
 }
 
-// TestBashStillPromptsWithoutAutoAllow: flag off + active sandbox => the normal
-// prompt policy stands; the bash gate blocks an ungranted command.
-func TestBashStillPromptsWithoutAutoAllow(t *testing.T) {
+func TestBashStillPromptsWithoutActiveSandbox(t *testing.T) {
 	root := t.TempDir()
 	registry := NewRegistry()
 	registry.Register(NewBashTool(root))
 	engine := sandbox.NewEngine(sandbox.EngineOptions{
 		WorkspaceRoot: root,
-		Policy:        autoAllowBashPolicy(false),
-		Backend:       nativeBackendStub(),
+		Policy:        sandboxedBashPolicy(),
+		Backend:       sandbox.Backend{Name: sandbox.BackendUnavailable},
 	})
 
 	result := registry.RunWithOptions(context.Background(), "bash", map[string]any{
@@ -78,34 +72,7 @@ func TestBashStillPromptsWithoutAutoAllow(t *testing.T) {
 		PermissionGranted: false,
 		Sandbox:           engine,
 		PermissionMode:    string(sandbox.PermissionModeAsk),
-		Autonomy:          string(sandbox.AutonomyHigh),
-	})
-
-	if result.Status != StatusError || !strings.Contains(result.Output, "Sandbox approval required for bash") {
-		t.Fatalf("expected bash to be gated when auto-allow off, got %s: %q", result.Status, result.Output)
-	}
-}
-
-// TestBashAutoAllowIgnoredWithoutActiveSandbox: flag on but the backend is
-// policy-only (no native isolation), so the flag must be ignored and the bash
-// gate blocks the ungranted command.
-func TestBashAutoAllowIgnoredWithoutActiveSandbox(t *testing.T) {
-	root := t.TempDir()
-	registry := NewRegistry()
-	registry.Register(NewBashTool(root))
-	engine := sandbox.NewEngine(sandbox.EngineOptions{
-		WorkspaceRoot: root,
-		Policy:        autoAllowBashPolicy(true),
-		Backend:       sandbox.Backend{Name: sandbox.BackendPolicyOnly},
-	})
-
-	result := registry.RunWithOptions(context.Background(), "bash", map[string]any{
-		"command": "echo hi",
-	}, RunOptions{
-		PermissionGranted: false,
-		Sandbox:           engine,
-		PermissionMode:    string(sandbox.PermissionModeAsk),
-		Autonomy:          string(sandbox.AutonomyHigh),
+		Autonomy:          "high",
 	})
 
 	if result.Status != StatusError || !strings.Contains(result.Output, "Sandbox approval required for bash") {

@@ -356,7 +356,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// Repeated-failure guard: if a tool keeps failing the same way, hint
 			// once (with its schema) then halt — so no model loops on a bad call.
 			// Only RETRIABLE failures (bad arguments / execution errors) drive it:
-			// policy refusals (disabled tool, permission denial, sandbox violation)
+			// policy refusals (disabled tool, permission denial, sandbox block)
 			// aren't fixed by reformatting the call, so a "match this schema" hint
 			// would misdirect the model toward JSON shape or blocked behavior.
 			retriableFailure := isRetriableToolError(toolResult)
@@ -590,6 +590,14 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 	decisionReason := ""
 	var decisionAction PermissionDecisionAction
 	var decisionCommandPrefix []string
+	var permissionCleanups []func()
+	defer func() {
+		for i := len(permissionCleanups) - 1; i >= 0; i-- {
+			if permissionCleanups[i] != nil {
+				permissionCleanups[i]()
+			}
+		}
+	}()
 	if toolFound && !permissionGranted {
 		if grant, ok, session := matchCommandPrefix(call.Name, args, options); ok {
 			permissionGranted = true
@@ -624,13 +632,43 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 		decisionReason = strings.TrimSpace(decision.Reason)
 		decisionAction = decision.Action
 		switch decision.Action {
-		case PermissionDecisionAllow:
+		case PermissionDecisionAllow, PermissionDecisionAllowStrict:
 			permissionGranted = true
 			requestEvent.DecisionAction = decision.Action
+			cleanup, err := grantNetworkForSandboxPrompt(requestEvent, sandbox.PermissionGrantScopeTurn, options)
+			if err != nil {
+				reason := "failed to grant network permission: " + err.Error()
+				emitDeniedPermission(options, call, requestEvent, reason)
+				return deniedPermissionResult(call, reason, requestEvent), nil
+			}
+			permissionCleanups = append(permissionCleanups, cleanup)
+			cleanup, err = grantFilesystemForSandboxPrompt(requestEvent, sandbox.PermissionGrantScopeTurn, options)
+			if err != nil {
+				reason := "failed to grant filesystem permission: " + err.Error()
+				emitDeniedPermission(options, call, requestEvent, reason)
+				return deniedPermissionResult(call, reason, requestEvent), nil
+			}
+			permissionCleanups = append(permissionCleanups, cleanup)
 		case PermissionDecisionAllowForSession:
 			permissionGranted = true
 			requestEvent.DecisionAction = decision.Action
-			if options.Sandbox != nil {
+			if networkSandboxPrompt(requestEvent) {
+				cleanup, err := grantNetworkForSandboxPrompt(requestEvent, sandbox.PermissionGrantScopeSession, options)
+				if err != nil {
+					reason := "failed to grant session network permission: " + err.Error()
+					emitDeniedPermission(options, call, requestEvent, reason)
+					return deniedPermissionResult(call, reason, requestEvent), nil
+				}
+				permissionCleanups = append(permissionCleanups, cleanup)
+			} else if filesystemSandboxPrompt(requestEvent) {
+				cleanup, err := grantFilesystemForSandboxPrompt(requestEvent, sandbox.PermissionGrantScopeSession, options)
+				if err != nil {
+					reason := "failed to grant session filesystem permission: " + err.Error()
+					emitDeniedPermission(options, call, requestEvent, reason)
+					return deniedPermissionResult(call, reason, requestEvent), nil
+				}
+				permissionCleanups = append(permissionCleanups, cleanup)
+			} else if options.Sandbox != nil {
 				// The current call stays allowed if recording the session grant
 				// fails; the user is simply prompted again for a later match.
 				if grant, err := persistSessionPermissionGrant(call.Name, args, decisionReason, options); err == nil {
@@ -649,6 +687,13 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 			if options.Sandbox != nil && len(decisionCommandPrefix) > 0 {
 				options.Sandbox.GrantCommandPrefixForSession(call.Name, decisionCommandPrefix)
 			}
+			cleanup, err := grantNetworkForSandboxPrompt(requestEvent, sandbox.PermissionGrantScopeTurn, options)
+			if err != nil {
+				reason := "failed to grant network permission: " + err.Error()
+				emitDeniedPermission(options, call, requestEvent, reason)
+				return deniedPermissionResult(call, reason, requestEvent), nil
+			}
+			permissionCleanups = append(permissionCleanups, cleanup)
 		case PermissionDecisionAlwaysAllowPrefix:
 			if len(request.CommandPrefix) == 0 {
 				emitDeniedPermission(options, call, requestEvent, decisionReason)
@@ -662,6 +707,13 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 					decisionCommandPrefix = append([]string(nil), grant.Prefix...)
 				}
 			}
+			cleanup, err := grantNetworkForSandboxPrompt(requestEvent, sandbox.PermissionGrantScopeTurn, options)
+			if err != nil {
+				reason := "failed to grant network permission: " + err.Error()
+				emitDeniedPermission(options, call, requestEvent, reason)
+				return deniedPermissionResult(call, reason, requestEvent), nil
+			}
+			permissionCleanups = append(permissionCleanups, cleanup)
 		case PermissionDecisionAlwaysAllow:
 			permissionGranted = true
 			requestEvent.DecisionAction = decision.Action
@@ -850,7 +902,7 @@ func appendHookFeedback(output string, feedback string) (string, bool) {
 // isRetriableToolError reports whether a failed tool result is one the model can
 // plausibly fix by changing its next call (argument or execution failure), as
 // opposed to a policy refusal (disabled tool, permission denial, sandbox
-// violation) that no reformatting will satisfy. Only retriable failures should
+// block) that no reformatting will satisfy. Only retriable failures should
 // drive the repeated-failure schema hint / stop.
 func isRetriableToolError(result ToolResult) bool {
 	if result.Status != tools.StatusError {
@@ -869,7 +921,7 @@ func isRetriableToolError(result ToolResult) bool {
 	case strings.Contains(result.Output, "is not enabled for this run"),
 		strings.Contains(result.Output, "Permission denied for "),
 		strings.Contains(result.Output, "Permission required for "),
-		strings.Contains(result.Output, "Sandbox violation"),
+		strings.Contains(result.Output, "Sandbox block"),
 		strings.Contains(result.Output, "Sandbox approval required for "):
 		return false
 	}
@@ -1008,7 +1060,6 @@ func sandboxRequest(toolName string, tool tools.Tool, args map[string]any, permi
 		Permission:        sandbox.Permission(safety.Permission),
 		PermissionGranted: permissionGranted,
 		PermissionMode:    sandbox.PermissionMode(permissionMode),
-		Autonomy:          sandbox.Autonomy(options.Autonomy),
 		Args:              args,
 		Reason:            safety.Reason,
 	}
@@ -1026,13 +1077,29 @@ func effectivePermission(tool tools.Tool, args map[string]any) tools.Permission 
 }
 
 func shouldRequestPermission(tool tools.Tool, permissionGranted bool, decision *sandbox.Decision) bool {
-	if permissionGranted || tool.Safety().Permission != tools.PermissionPrompt {
+	if decision != nil && decision.Action == sandbox.ActionPrompt {
+		return true
+	}
+	if tool.Safety().Permission != tools.PermissionPrompt {
 		return false
 	}
 	if decision != nil {
+		if sandboxDecisionRequiresExplicitPermission(decision) {
+			return true
+		}
+		if permissionGranted {
+			return false
+		}
 		return decision.Action == sandbox.ActionPrompt
 	}
+	if permissionGranted {
+		return false
+	}
 	return true
+}
+
+func sandboxDecisionRequiresExplicitPermission(decision *sandbox.Decision) bool {
+	return decision != nil && decision.Action == sandbox.ActionPrompt && decision.Reason == sandbox.ReasonNetworkBlocked
 }
 
 func requestPermission(ctx context.Context, request PermissionRequest, options Options) (PermissionDecision, error) {
@@ -1186,9 +1253,6 @@ func parseRequestPermissionsArgs(args map[string]any) (requestPermissionsArgs, e
 
 func requestPermissionsPrompt(call ToolCall, parsed requestPermissionsArgs, profile sandbox.RequestPermissionProfile, permissionMode PermissionMode, options Options) PermissionRequest {
 	autonomy := options.Autonomy
-	if normalized, err := sandbox.NormalizeAutonomy(sandbox.Autonomy(autonomy)); err == nil {
-		autonomy = string(normalized)
-	}
 	reason := strings.TrimSpace(parsed.Reason)
 	if reason == "" {
 		reason = "The agent is requesting additional permissions."
@@ -1293,24 +1357,16 @@ func persistPermissionGrant(toolName string, args map[string]any, reason string,
 	if options.Sandbox == nil {
 		return sandbox.Grant{}, errors.New("sandbox engine is not configured")
 	}
-	maxAutonomy := sandbox.Autonomy(options.Autonomy)
-	if maxAutonomy == "" {
-		maxAutonomy = sandbox.AutonomyMedium
-	}
-	if normalized, err := sandbox.NormalizeAutonomy(maxAutonomy); err == nil {
-		maxAutonomy = normalized
-	}
 	// Scope the grant to exactly what the permission card showed (the file or
 	// directory the call touches); engine.Grant anchors it to the workspace. A
 	// call with no path-like argument yields an empty scope — a tool-wide grant.
 	scope, kind := sandbox.DeriveScope(toolName, args)
 	return options.Sandbox.Grant(sandbox.GrantInput{
-		ToolName:    toolName,
-		Decision:    sandbox.GrantAllow,
-		MaxAutonomy: maxAutonomy,
-		Reason:      reason,
-		Scope:       scope,
-		ScopeKind:   kind,
+		ToolName:  toolName,
+		Decision:  sandbox.GrantAllow,
+		Reason:    reason,
+		Scope:     scope,
+		ScopeKind: kind,
 	})
 }
 
@@ -1318,21 +1374,13 @@ func persistSessionPermissionGrant(toolName string, args map[string]any, reason 
 	if options.Sandbox == nil {
 		return sandbox.Grant{}, errors.New("sandbox engine is not configured")
 	}
-	maxAutonomy := sandbox.Autonomy(options.Autonomy)
-	if maxAutonomy == "" {
-		maxAutonomy = sandbox.AutonomyMedium
-	}
-	if normalized, err := sandbox.NormalizeAutonomy(maxAutonomy); err == nil {
-		maxAutonomy = normalized
-	}
 	scope, kind := sandbox.DeriveScope(toolName, args)
 	return options.Sandbox.GrantForSession(sandbox.GrantInput{
-		ToolName:    toolName,
-		Decision:    sandbox.GrantAllow,
-		MaxAutonomy: maxAutonomy,
-		Reason:      reason,
-		Scope:       scope,
-		ScopeKind:   kind,
+		ToolName:  toolName,
+		Decision:  sandbox.GrantAllow,
+		Reason:    reason,
+		Scope:     scope,
+		ScopeKind: kind,
 	})
 }
 
@@ -1403,11 +1451,11 @@ func deniedPermissionResult(call ToolCall, reason string, requestEvent Permissio
 	if requestEvent.ToolName == "" {
 		event.ToolName = call.Name
 	}
-	// A denial driven by a sandbox violation is categorized distinctly from a
+	// A denial driven by a sandbox block is categorized distinctly from a
 	// plain approval-declined so a surface can tell policy from user choice.
 	denial := DenialPermissionDenied
-	if requestEvent.Violation != nil {
-		denial = DenialSandboxViolation
+	if requestEvent.Block != nil {
+		denial = DenialSandboxBlock
 	}
 	return ToolResult{
 		ToolCallID:   call.ID,
@@ -1484,11 +1532,10 @@ func buildPermissionEvent(call ToolCall, tool tools.Tool, args map[string]any, p
 		Permission:        sandbox.Permission(safety.Permission),
 		PermissionGranted: permissionGranted,
 		PermissionMode:    sandbox.PermissionMode(permissionMode),
-		Autonomy:          sandbox.Autonomy(options.Autonomy),
 		Args:              args,
 		Reason:            safety.Reason,
 	})
-	var violation *sandbox.Violation
+	var block *sandbox.Block
 	grantMatched := false
 	var grant *sandbox.Grant
 
@@ -1498,7 +1545,7 @@ func buildPermissionEvent(call ToolCall, tool tools.Tool, args map[string]any, p
 			reason = decision.Reason
 		}
 		risk = decision.Risk
-		violation = decision.Violation
+		block = decision.Block
 		grantMatched = decision.GrantMatched
 		grant = decision.Grant
 	} else {
@@ -1516,13 +1563,8 @@ func buildPermissionEvent(call ToolCall, tool tools.Tool, args map[string]any, p
 		}
 	}
 
-	if safety.Permission == tools.PermissionAllow && action == PermissionActionAllow && !grantMatched && violation == nil {
+	if safety.Permission == tools.PermissionAllow && action == PermissionActionAllow && !grantMatched && block == nil {
 		return PermissionEvent{}, false
-	}
-
-	autonomy := options.Autonomy
-	if normalized, err := sandbox.NormalizeAutonomy(sandbox.Autonomy(autonomy)); err == nil {
-		autonomy = string(normalized)
 	}
 
 	return PermissionEvent{
@@ -1533,12 +1575,12 @@ func buildPermissionEvent(call ToolCall, tool tools.Tool, args map[string]any, p
 		Permission:        string(safety.Permission),
 		PermissionGranted: permissionGranted,
 		PermissionMode:    permissionMode,
-		Autonomy:          autonomy,
+		Autonomy:          options.Autonomy,
 		SideEffect:        string(safety.SideEffect),
 		Reason:            reason,
 		Scope:             permissionScope(call.Name, args),
 		Risk:              risk,
-		Violation:         violation,
+		Block:             block,
 		GrantMatched:      grantMatched,
 		Grant:             grant,
 		CommandPrefix:     proposedCommandPrefix(call.Name, args),
@@ -1576,7 +1618,7 @@ func permissionRequestFromEvent(event PermissionEvent, args map[string]any, opti
 		Scope:              event.Scope,
 		Risk:               event.Risk,
 		Args:               cloneArgs(args),
-		Violation:          event.Violation,
+		Block:              event.Block,
 		GrantMatched:       event.GrantMatched,
 		Grant:              event.Grant,
 		CommandPrefix:      append([]string(nil), event.CommandPrefix...),
@@ -1591,13 +1633,13 @@ func availablePermissionDecisions(event PermissionEvent, options Options) []Perm
 	decisions := []PermissionDecisionAction{PermissionDecisionAllow}
 	if options.Sandbox != nil {
 		decisions = append(decisions, PermissionDecisionAllowForSession)
-		if event.ToolName == "bash" && len(event.CommandPrefix) > 0 {
+		if event.ToolName == "bash" && len(event.CommandPrefix) > 0 && !networkSandboxPrompt(event) {
 			decisions = append(decisions, PermissionDecisionAllowPrefix)
 			if options.Sandbox.CanPersistGrants() {
 				decisions = append(decisions, PermissionDecisionAlwaysAllowPrefix)
 			}
 		}
-		if options.Sandbox.CanPersistGrants() && permissionSupportsPersistentDecision(event.ToolName) {
+		if options.Sandbox.CanPersistGrants() && permissionSupportsPersistentDecision(event.ToolName) && !filesystemSandboxPrompt(event) {
 			decisions = append(decisions, PermissionDecisionAlwaysAllow)
 		}
 	}
@@ -1610,6 +1652,48 @@ func availablePermissionDecisions(event PermissionEvent, options Options) []Perm
 		decisions = append(decisions, PermissionDecisionDeny)
 	}
 	return decisions
+}
+
+func networkSandboxPrompt(event PermissionEvent) bool {
+	return event.ToolName == "bash" &&
+		event.Reason == sandbox.ReasonNetworkBlocked &&
+		sandbox.HasRiskCategory(event.Risk, "network")
+}
+
+func grantNetworkForSandboxPrompt(event PermissionEvent, scope sandbox.PermissionGrantScope, options Options) (func(), error) {
+	if !networkSandboxPrompt(event) || options.Sandbox == nil {
+		return nil, nil
+	}
+	enabled := true
+	return options.Sandbox.GrantRequestPermissions(sandbox.RequestPermissionProfile{
+		Network: &sandbox.NetworkPermissions{Enabled: &enabled},
+	}, scope)
+}
+
+func filesystemSandboxPrompt(event PermissionEvent) bool {
+	return event.Block != nil &&
+		event.Block.Code == sandbox.BlockOutsideWorkspace &&
+		event.Block.Recoverable &&
+		strings.TrimSpace(event.Block.Path) != ""
+}
+
+func grantFilesystemForSandboxPrompt(event PermissionEvent, scope sandbox.PermissionGrantScope, options Options) (func(), error) {
+	if !filesystemSandboxPrompt(event) || options.Sandbox == nil {
+		return nil, nil
+	}
+	path := event.Block.Path
+	fs := sandbox.FileSystemPermissions{}
+	switch sandbox.SideEffect(event.SideEffect) {
+	case sandbox.SideEffectRead:
+		fs.Read = []string{path}
+	case sandbox.SideEffectWrite, sandbox.SideEffectOutOfWorkspace:
+		fs.Write = []string{path}
+	default:
+		return nil, nil
+	}
+	return options.Sandbox.GrantRequestPermissions(sandbox.RequestPermissionProfile{
+		FileSystem: &fs,
+	}, scope)
 }
 
 func permissionSupportsPersistentDecision(toolName string) bool {

@@ -363,17 +363,15 @@ func TestPermissionsCommandListsPersistentSandboxGrants(t *testing.T) {
 		t.Fatalf("NewGrantStore returned error: %v", err)
 	}
 	if _, err := store.Grant(sandbox.GrantInput{
-		ToolName:    "bash",
-		Decision:    sandbox.GrantAllow,
-		MaxAutonomy: sandbox.AutonomyHigh,
-		Reason:      "sk-proj-sensitive trusted shell",
+		ToolName: "bash",
+		Decision: sandbox.GrantAllow,
+		Reason:   "sk-proj-sensitive trusted shell",
 	}); err != nil {
 		t.Fatalf("Grant bash returned error: %v", err)
 	}
 	if _, err := store.Grant(sandbox.GrantInput{
-		ToolName:    "write_file",
-		Decision:    sandbox.GrantDeny,
-		MaxAutonomy: sandbox.AutonomyLow,
+		ToolName: "write_file",
+		Decision: sandbox.GrantDeny,
 	}); err != nil {
 		t.Fatalf("Grant write_file returned error: %v", err)
 	}
@@ -395,8 +393,8 @@ func TestPermissionsCommandListsPersistentSandboxGrants(t *testing.T) {
 		"ask permissions",
 		"mode  ask",
 		"Grants",
-		"bash [allow/high]",
-		"write_file [deny/low]",
+		"bash [allow]",
+		"write_file [deny]",
 		"[REDACTED]",
 	} {
 		assertContains(t, text, want)
@@ -1186,7 +1184,7 @@ func TestAgentResponsePreservesPermissionMetadata(t *testing.T) {
 		Action:         agent.PermissionActionPrompt,
 		Permission:     "prompt",
 		PermissionMode: agent.PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		SideEffect:     "write",
 		Reason:         "Creates or overwrites files.",
 		Risk:           sandbox.Risk{Level: sandbox.RiskHigh},
@@ -1209,11 +1207,13 @@ func TestAgentResponsePreservesPermissionMetadata(t *testing.T) {
 		t.Fatalf("permission metadata was not preserved: %#v", row)
 	}
 	rendered := next.renderRow(row, 96, buildRowContext(next.transcript))
-	for _, want := range []string{"permission", "write_file", "prompt", "mode=ask", "Creates or overwrites"} {
+	for _, want := range []string{"permission", "write_file", "prompt", "Creates or overwrites"} {
 		assertContains(t, rendered, want)
 	}
-	if strings.Contains(rendered, "risk:") || strings.Contains(rendered, "risk=") {
-		t.Fatalf("normal permission row must not render risk labels, got %q", rendered)
+	for _, blocked := range []string{"risk:", "risk=", "mode=", "permission=", "side_effect=", "autonomy="} {
+		if strings.Contains(rendered, blocked) {
+			t.Fatalf("normal permission row must not render %q, got %q", blocked, rendered)
+		}
 	}
 }
 
@@ -1330,9 +1330,9 @@ func TestPermissionPromptBlocksNormalSubmit(t *testing.T) {
 	}
 }
 
-func TestPermissionRowRendersSandboxViolations(t *testing.T) {
-	violation := sandbox.Violation{
-		Code:        sandbox.ViolationOutsideWorkspace,
+func TestPermissionRowRendersSandboxBlocks(t *testing.T) {
+	block := sandbox.Block{
+		Code:        sandbox.BlockOutsideWorkspace,
 		ToolName:    "write_file",
 		Action:      sandbox.ActionDeny,
 		Risk:        sandbox.Risk{Level: sandbox.RiskCritical},
@@ -1346,20 +1346,22 @@ func TestPermissionRowRendersSandboxViolations(t *testing.T) {
 		Action:         agent.PermissionActionDeny,
 		Permission:     "prompt",
 		PermissionMode: agent.PermissionModeUnsafe,
-		Autonomy:       string(sandbox.AutonomyHigh),
+		Autonomy:       "high",
 		SideEffect:     "write",
 		Reason:         "workspace boundary enforced",
 		Risk:           sandbox.Risk{Level: sandbox.RiskHigh},
-		Violation:      &violation,
+		Block:          &block,
 	}
 
 	rendered := newModel(context.Background(), Options{}).renderRow(permissionTranscriptRow(event), 96, buildRowContext(nil))
 
-	for _, want := range []string{"write_file", "denied", "violation=outside_workspace", "../secret.txt"} {
+	for _, want := range []string{"write_file", "denied", "outside workspace", "../secret.txt"} {
 		assertContains(t, rendered, want)
 	}
-	if strings.Contains(rendered, "risk:") || strings.Contains(rendered, "risk=") {
-		t.Fatalf("denied permission row must not render risk labels, got %q", rendered)
+	for _, blocked := range []string{"risk:", "risk=", "block=", "mode=", "permission=", "side_effect=", "autonomy="} {
+		if strings.Contains(rendered, blocked) {
+			t.Fatalf("denied permission row must not render %q, got %q", blocked, rendered)
+		}
 	}
 }
 
@@ -1673,7 +1675,7 @@ func testPromptPermissionEvent() agent.PermissionEvent {
 		Action:         agent.PermissionActionPrompt,
 		Permission:     "prompt",
 		PermissionMode: agent.PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		SideEffect:     "write",
 		Reason:         "Creates or overwrites files.",
 		Risk:           sandbox.Risk{Level: sandbox.RiskHigh},

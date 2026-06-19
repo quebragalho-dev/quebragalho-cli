@@ -20,9 +20,6 @@ func TestPermissionProfileFromPolicyBuildsWorkspaceWriteProfile(t *testing.T) {
 		t.Fatalf("NewScope: %v", err)
 	}
 	policy := DefaultPolicy()
-	policy.Network = NetworkScoped
-	policy.AllowedDomains = []string{"example.com", "api.example.com"}
-	policy.DeniedDomains = []string{"blocked.example.com"}
 	policy.DenyRead = []string{denyRead}
 	policy.DenyWrite = []string{denyWrite}
 
@@ -42,11 +39,28 @@ func TestPermissionProfileFromPolicyBuildsWorkspaceWriteProfile(t *testing.T) {
 	if len(profile.FileSystem.DenyRead) != 1 || len(profile.FileSystem.DenyWrite) != 1 {
 		t.Fatalf("deny paths = %#v / %#v, want one each", profile.FileSystem.DenyRead, profile.FileSystem.DenyWrite)
 	}
-	if profile.Network.Mode != NetworkScoped || !profile.Network.ProxyRequired {
-		t.Fatalf("network profile = %#v, want scoped proxy-required", profile.Network)
+	if profile.Network.Mode != NetworkDeny {
+		t.Fatalf("network profile = %#v, want deny", profile.Network)
 	}
 	if !profile.RequiresPlatformSandbox() {
-		t.Fatal("workspace-write scoped profile must require a platform sandbox")
+		t.Fatal("workspace-write profile must require a platform sandbox")
+	}
+}
+
+func TestUnknownNetworkModeFailsClosed(t *testing.T) {
+	if got := NormalizeNetworkMode(NetworkMode("scoped")); got != NetworkDeny {
+		t.Fatalf("NormalizeNetworkMode(scoped) = %q, want %q", got, NetworkDeny)
+	}
+	profile := PermissionProfileFromPolicy(t.TempDir(), Policy{
+		Mode:             ModeEnforce,
+		Network:          NetworkMode("scoped"),
+		EnforceWorkspace: true,
+	}, nil)
+	if profile.Network.Mode != NetworkDeny {
+		t.Fatalf("unknown network mode profile = %#v, want deny", profile.Network)
+	}
+	if !shouldUnshareLinuxNetwork(NetworkPolicy{Mode: NetworkMode("scoped")}) {
+		t.Fatal("unknown Linux network mode must unshare network")
 	}
 }
 
@@ -155,11 +169,11 @@ func TestSandboxManagerBuildsCommandPlanThroughWindowsRunner(t *testing.T) {
 	}
 }
 
-func TestSandboxManagerBuildsDegradedPolicyOnlyCommandPlan(t *testing.T) {
+func TestSandboxManagerRejectsUnavailableCommandPlan(t *testing.T) {
 	policy := DefaultPolicy()
-	backend := Backend{Name: BackendPolicyOnly, Platform: "windows", Fallback: true, Message: "policy-only fallback"}
+	backend := Backend{Name: BackendUnavailable, Platform: "windows", Fallback: true, Message: "native sandbox unavailable"}
 	manager := NewSandboxManager(SandboxManagerOptions{GOOS: "windows", Backend: backend})
-	plan, err := manager.BuildCommandPlan(SandboxManagerRequest{
+	_, err := manager.BuildCommandPlan(SandboxManagerRequest{
 		WorkspaceRoot:     `C:\workspace`,
 		Command:           CommandSpec{Name: "cmd.exe", Args: []string{"/c", "dir"}, Dir: `C:\workspace`},
 		Policy:            policy,
@@ -167,14 +181,8 @@ func TestSandboxManagerBuildsDegradedPolicyOnlyCommandPlan(t *testing.T) {
 		Preference:        SandboxPreferenceAuto,
 		ValidateExecution: true,
 	})
-	if err != nil {
-		t.Fatalf("BuildCommandPlan: %v", err)
-	}
-	if plan.Wrapped || plan.Name != "cmd.exe" || plan.TargetBackend != BackendWindowsRestrictedToken {
-		t.Fatalf("policy-only plan = %#v, want direct command targeting windows backend", plan)
-	}
-	if plan.EnforcementLevel != EnforcementDegraded || plan.DowngradeReason == "" {
-		t.Fatalf("policy-only metadata = %#v, want degraded fallback", plan)
+	if !errors.Is(err, errNativeSandboxUnavailable) {
+		t.Fatalf("BuildCommandPlan error = %v, want native sandbox unavailable", err)
 	}
 }
 
@@ -191,7 +199,7 @@ func TestSandboxManagerSelectsPlatformBackend(t *testing.T) {
 		{name: "linux", goos: "linux", lookupName: LinuxSandboxHelperName, lookupPath: "/usr/bin/zero-linux-sandbox", want: BackendLinuxBwrap, wantTarget: BackendLinuxBwrap},
 		{name: "macos", goos: "darwin", lookupName: "sandbox-exec", lookupPath: "/usr/bin/sandbox-exec", want: BackendMacOSSeatbelt, wantTarget: BackendMacOSSeatbelt},
 		{name: "windows", goos: "windows", lookupName: WindowsSandboxCommandRunnerName, lookupPath: `C:\zero\zero-windows-command-runner.exe`, setupPath: `C:\zero\zero-windows-sandbox-setup.exe`, want: BackendWindowsRestrictedToken, wantTarget: BackendWindowsRestrictedToken},
-		{name: "unsupported", goos: "plan9", want: BackendPolicyOnly, wantTarget: BackendPolicyOnly},
+		{name: "unsupported", goos: "plan9", want: BackendUnavailable, wantTarget: BackendUnavailable},
 	}
 
 	for _, test := range tests {
@@ -252,13 +260,12 @@ func TestSelectBackendDelegatesToSandboxManagerSelection(t *testing.T) {
 	}
 }
 
-func TestSandboxManagerFailsClosedWhenNativeRequiredAndPolicyOnlyDisabled(t *testing.T) {
+func TestSandboxManagerFailsClosedWhenNativeRequiredAndUnavailable(t *testing.T) {
 	policy := DefaultPolicy()
-	policy.AllowPolicyOnlyRunner = false
 	profile := PermissionProfileFromPolicy("/workspace", policy, nil)
 	_, err := NewSandboxManager(SandboxManagerOptions{
 		GOOS:    "windows",
-		Backend: Backend{Name: BackendPolicyOnly, Platform: "windows", Fallback: true},
+		Backend: Backend{Name: BackendUnavailable, Platform: "windows", Fallback: true},
 	}).BuildExecutionRequest(SandboxManagerRequest{
 		WorkspaceRoot:     "/workspace",
 		Command:           CommandSpec{Name: "cmd.exe", Dir: "/workspace"},
@@ -267,8 +274,8 @@ func TestSandboxManagerFailsClosedWhenNativeRequiredAndPolicyOnlyDisabled(t *tes
 		Preference:        SandboxPreferenceAuto,
 		ValidateExecution: true,
 	})
-	if !errors.Is(err, errPolicyOnlyRunnerDisabled) {
-		t.Fatalf("BuildExecutionRequest error = %v, want policy-only disabled", err)
+	if !errors.Is(err, errNativeSandboxUnavailable) {
+		t.Fatalf("BuildExecutionRequest error = %v, want native sandbox unavailable", err)
 	}
 }
 

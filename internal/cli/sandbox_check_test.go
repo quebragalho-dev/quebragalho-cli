@@ -22,7 +22,7 @@ func sandboxCheckDeps(t *testing.T) (appDeps, string) {
 			return config.ResolvedConfig{}, nil
 		},
 		selectSandboxBackend: func(sandbox.BackendOptions) sandbox.Backend {
-			return sandbox.Backend{Name: sandbox.BackendPolicyOnly, Platform: "windows", Fallback: true}
+			return sandbox.Backend{Name: sandbox.BackendUnavailable, Platform: "windows", Fallback: true}
 		},
 	}, root
 }
@@ -53,9 +53,9 @@ func TestRunSandboxCheckJSONDeniesOutOfWorkspaceWrite(t *testing.T) {
 			Risk   struct {
 				Level string `json:"level"`
 			} `json:"risk"`
-			Violation *struct {
+			Block *struct {
 				Code string `json:"code"`
-			} `json:"violation"`
+			} `json:"block"`
 		} `json:"decision"`
 		Grant struct {
 			ToolName string `json:"toolName"`
@@ -71,14 +71,14 @@ func TestRunSandboxCheckJSONDeniesOutOfWorkspaceWrite(t *testing.T) {
 	if payload.Plan.Policy.EffectiveMode != string(sandbox.ModeEnforce) {
 		t.Fatalf("effectiveMode = %q, want enforce", payload.Plan.Policy.EffectiveMode)
 	}
-	if payload.Plan.Backend.Name != string(sandbox.BackendPolicyOnly) {
+	if payload.Plan.Backend.Name != string(sandbox.BackendUnavailable) {
 		t.Fatalf("backend = %q", payload.Plan.Backend.Name)
 	}
-	if payload.Decision.Action != string(sandbox.ActionDeny) {
-		t.Fatalf("expected deny for out-of-workspace write, got %q\n%s", payload.Decision.Action, stdout.String())
+	if payload.Decision.Action != string(sandbox.ActionPrompt) {
+		t.Fatalf("expected prompt for out-of-workspace write, got %q\n%s", payload.Decision.Action, stdout.String())
 	}
-	if payload.Decision.Violation == nil {
-		t.Fatalf("expected a violation for the out-of-workspace write")
+	if payload.Decision.Block == nil {
+		t.Fatalf("expected a block for the out-of-workspace write")
 	}
 	if payload.Grant.ToolName != "write_file" || payload.Grant.Matched {
 		t.Fatalf("expected an unmatched grant for write_file, got %#v", payload.Grant)
@@ -98,7 +98,7 @@ func TestRunSandboxCheckTextRendersDecisionAndPlan(t *testing.T) {
 		"decision: ",
 		"risk: ",
 		"policy: mode=enforce",
-		"backend: policy-only",
+		"backend: unavailable",
 		"grant: no grant matched this action",
 	} {
 		if !strings.Contains(out, want) {
@@ -123,7 +123,6 @@ func TestRunSandboxCheckRejectsInvalidFlags(t *testing.T) {
 	deps, _ := sandboxCheckDeps(t)
 	for _, args := range [][]string{
 		{"sandbox", "check", "read_file", "--side-effect", "wrtie"},
-		{"sandbox", "check", "read_file", "--autonomy", "supreme"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := runWithDeps(args, &stdout, &stderr, deps); code == exitSuccess {
@@ -145,22 +144,21 @@ func TestRunSandboxCheckMatchedGrantRedactsReason(t *testing.T) {
 			return config.ResolvedConfig{}, nil
 		},
 		selectSandboxBackend: func(sandbox.BackendOptions) sandbox.Backend {
-			return sandbox.Backend{Name: sandbox.BackendPolicyOnly}
+			return sandbox.Backend{Name: sandbox.BackendUnavailable}
 		},
 	}
 	// Seed a tool-wide allow grant whose reason embeds a secret; the matched-grant
 	// snapshot must redact it.
 	if _, err := store.Grant(sandbox.GrantInput{
-		ToolName:    "read_file",
-		Decision:    sandbox.GrantAllow,
-		MaxAutonomy: sandbox.AutonomyHigh,
-		Reason:      "approved with sk-test-secret1234567890",
+		ToolName: "read_file",
+		Decision: sandbox.GrantAllow,
+		Reason:   "approved with sk-test-secret1234567890",
 	}); err != nil {
 		t.Fatalf("seed grant: %v", err)
 	}
 
 	var stdout, stderr bytes.Buffer
-	exitCode := runWithDeps([]string{"sandbox", "check", "read_file", "--autonomy", "high", "--json"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"sandbox", "check", "read_file", "--json"}, &stdout, &stderr, deps)
 	if exitCode != exitSuccess {
 		t.Fatalf("check exit=%d stderr=%s", exitCode, stderr.String())
 	}

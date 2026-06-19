@@ -10,7 +10,6 @@ import (
 )
 
 var (
-	networkCommandPattern = regexp.MustCompile(`(?i)\b(curl|wget|scp|ssh|rsync|nc|netcat|python3?\s+-m\s+http\.server|npm\s+(install|add|publish|login)|pnpm\s+(install|add|publish)|yarn\s+(add|publish)|bun\s+(add|install|publish)|pip3?\s+install|go\s+get|git\s+clone|gh\s+(release\s+download|repo\s+clone|api))\b`)
 	// destructiveCommandPattern matches the highest-risk shell forms:
 	//   - rm -rf (with combined/reordered r/f flags) targeting /, $HOME (bare,
 	//     quoted, or ${HOME} braced), ~, or *, with an optional `--` before the
@@ -31,6 +30,10 @@ var (
 	// A purely local pipe into a shell (e.g. `printf … | sh`, `cat ./s | bash`)
 	// is NOT a piped installer and must not be flagged.
 	pipedInstallerPattern = regexp.MustCompile(`(?i)\b(curl|wget|fetch|aria2c)\b[^|]*\|\s*(ba|z|k|da)?sh\b`)
+	// unparseableNetworkPattern is used only after the shell parser fails. At
+	// that point the command is already marked too complex, so this intentionally
+	// favors catching obvious network programs over proving exact shell syntax.
+	unparseableNetworkPattern = regexp.MustCompile(`(?i)\b(curl|wget|fetch|aria2c|ssh|scp|sftp|rsync|nc|ncat|netcat|telnet|ftp)\b|\b(npm|pnpm|yarn|bun|pip|pip2|pip3)\s+(install|add|publish|login)\b|\bgo\s+get\b|\bgit\s+clone\b|\bpython(2|3)?\s+-m\s+(http\.server|pip\s+install)\b|\bgh\s+(api|repo\s+clone|release\s+download)\b`)
 	// destructiveExtraPatterns hold high-severity patterns that the legacy
 	// destructiveCommandPattern does not already cover. Folded in from the
 	// blueprint safe_bash.go without duplicating existing matches.
@@ -61,6 +64,10 @@ func matchesDestructive(command string) bool {
 		}
 	}
 	return false
+}
+
+func matchesUnparseableNetwork(command string) bool {
+	return unparseableNetworkPattern.MatchString(command)
 }
 
 func Classify(request Request) Risk {
@@ -98,9 +105,6 @@ func classifyWithScope(request Request, scope *Scope) Risk {
 	// cannot be bypassed by choosing a different alias key.
 	command := firstArgString(request.Args, "command", "cmd", "script", "shell")
 	if command != "" {
-		if networkCommandPattern.MatchString(command) {
-			add("network", RiskCritical)
-		}
 		if matchesDestructive(command) {
 			add("destructive", RiskCritical)
 		}
@@ -115,6 +119,9 @@ func classifyWithScope(request Request, scope *Scope) Risk {
 		// parseable command is classified exactly as before.
 		analysis := AnalyzeCommand(command)
 		if analysis.Network {
+			add("network", RiskCritical)
+		}
+		if analysis.TooComplex && matchesUnparseableNetwork(command) {
 			add("network", RiskCritical)
 		}
 		if analysis.Destructive {
@@ -133,15 +140,15 @@ func classifyWithScope(request Request, scope *Scope) Risk {
 			add("path_escape", RiskCritical)
 		}
 		if request.WorkspaceRoot != "" {
-			var violation *pathViolation
+			var block *pathBlock
 			if scope != nil {
-				violation = scope.validate(path)
+				block = scope.validate(path)
 			} else {
-				violation = validateWorkspacePath(request.WorkspaceRoot, path)
+				block = validateWorkspacePath(request.WorkspaceRoot, path)
 			}
-			if violation != nil {
-				switch violation.Code {
-				case ViolationSymlinkTraversal:
+			if block != nil {
+				switch block.Code {
+				case BlockSymlinkTraversal:
 					add("symlink_traversal", RiskCritical)
 				default:
 					add("out_of_workspace", RiskCritical)
@@ -258,7 +265,7 @@ func applyPatchRequestPaths(args map[string]any) []string {
 	return paths
 }
 
-func applyPatchPathViolation(request Request) *pathViolation {
+func applyPatchPathBlock(request Request) *pathBlock {
 	if request.ToolName != "apply_patch" {
 		return nil
 	}
@@ -271,8 +278,8 @@ func applyPatchPathViolation(request Request) *pathViolation {
 			continue
 		}
 		if filepath.IsAbs(path) || path == ".." || strings.HasPrefix(path, "../") {
-			return &pathViolation{
-				Code:   ViolationOutsideWorkspace,
+			return &pathBlock{
+				Code:   BlockOutsideWorkspace,
 				Path:   path,
 				Reason: fmt.Sprintf("patch path %q must stay inside the workspace", path),
 			}

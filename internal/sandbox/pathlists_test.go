@@ -140,10 +140,10 @@ func TestWritePrecedenceMatrix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// This matrix exercises the workspace-enforced write precedence.
-			violation := validateWritePath(scope, tc.policy, true, ws, tc.path)
-			gotAllow := violation == nil
+			block := validateWritePath(scope, tc.policy, true, ws, tc.path)
+			gotAllow := block == nil
 			if gotAllow != tc.wantAllow {
-				t.Fatalf("validateWritePath(%q) allow=%v (violation=%v), want allow=%v", tc.path, gotAllow, violation, tc.wantAllow)
+				t.Fatalf("validateWritePath(%q) allow=%v (block=%v), want allow=%v", tc.path, gotAllow, block, tc.wantAllow)
 			}
 		})
 	}
@@ -263,7 +263,7 @@ func TestEvaluatePathListsWithoutWorkspaceRoot(t *testing.T) {
 	secret := resolvedTempDir(t)
 	other := resolvedTempDir(t)
 	engine := NewEngine(EngineOptions{
-		Policy: Policy{Mode: ModeEnforce, MaxAutonomy: AutonomyHigh, DenyWrite: []string{secret}},
+		Policy: Policy{Mode: ModeEnforce, DenyWrite: []string{secret}},
 	})
 
 	denied := engine.Evaluate(context.Background(), Request{
@@ -321,7 +321,6 @@ func TestEvaluateAppliesReadDeny(t *testing.T) {
 		Policy: Policy{
 			Mode:             ModeEnforce,
 			EnforceWorkspace: true,
-			MaxAutonomy:      AutonomyHigh,
 			DenyRead:         []string{secret},
 		},
 	})
@@ -352,7 +351,7 @@ func TestEvaluateAppliesWriteAllow(t *testing.T) {
 	ext := resolvedTempDir(t)
 	build := mkdir(t, filepath.Join(ext, "build"))
 
-	base := Policy{Mode: ModeEnforce, EnforceWorkspace: true, MaxAutonomy: AutonomyHigh}
+	base := Policy{Mode: ModeEnforce, EnforceWorkspace: true}
 	target := filepath.Join(build, "out.o")
 
 	denyEngine := NewEngine(EngineOptions{WorkspaceRoot: ws, Policy: base})
@@ -361,8 +360,8 @@ func TestEvaluateAppliesWriteAllow(t *testing.T) {
 		SideEffect: SideEffectWrite,
 		Args:       map[string]any{"path": target},
 	})
-	if denied.Action != ActionDeny {
-		t.Fatalf("external write without AllowWrite = %q, want deny", denied.Action)
+	if denied.Action != ActionPrompt {
+		t.Fatalf("external write without AllowWrite = %q, want prompt", denied.Action)
 	}
 
 	allowPolicy := base
@@ -408,7 +407,7 @@ func TestSandboxExecProfileEmitsDenyWriteRule(t *testing.T) {
 	secret := mkdir(t, filepath.Join(ws, "secret"))
 
 	policy := Policy{Mode: ModeEnforce, EnforceWorkspace: true, DenyWrite: []string{secret}}
-	profile := sandboxExecProfile([]string{ws}, policy, "", "", "")
+	profile := sandboxExecProfile([]string{ws}, policy, "")
 
 	// The path is escaped the same way the profile escapes it (e.g. Windows
 	// backslashes are doubled), so the assertion holds on every platform.

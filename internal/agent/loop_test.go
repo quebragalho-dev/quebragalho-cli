@@ -49,13 +49,13 @@ func TestIsRetriableToolError(t *testing.T) {
 		{"disabled tool", ToolResult{Status: tools.StatusError, Output: `Error: Tool "x" is not enabled for this run.`}, false},
 		{"permission denied (meta)", ToolResult{Status: tools.StatusError, Output: "Error: Permission denied for x: needs approval", Meta: map[string]string{"permission_action": "deny"}}, false},
 		{"permission required", ToolResult{Status: tools.StatusError, Output: "Error: Permission required for x: approve first"}, false},
-		{"sandbox violation", ToolResult{Status: tools.StatusError, Output: "Error: Sandbox violation: outside_workspace"}, false},
+		{"sandbox block", ToolResult{Status: tools.StatusError, Output: "Error: Sandbox block: outside_workspace"}, false},
 		{"sandbox approval", ToolResult{Status: tools.StatusError, Output: "Error: Sandbox approval required for x: network"}, false},
 		// Structured denial categories are authoritative regardless of message text.
 		{"denial: filtered", ToolResult{Status: tools.StatusError, Output: "anything", DenialReason: DenialFiltered}, false},
 		{"denial: permission", ToolResult{Status: tools.StatusError, Output: "anything", DenialReason: DenialPermissionDenied}, false},
 		{"denial: approval canceled", ToolResult{Status: tools.StatusError, Output: "anything", DenialReason: DenialApprovalCanceled}, false},
-		{"denial: sandbox", ToolResult{Status: tools.StatusError, Output: "anything", DenialReason: DenialSandboxViolation}, false},
+		{"denial: sandbox", ToolResult{Status: tools.StatusError, Output: "anything", DenialReason: DenialSandboxBlock}, false},
 	}
 	for _, c := range cases {
 		if got := isRetriableToolError(c.result); got != c.want {
@@ -594,7 +594,7 @@ func TestRunDefersSelfCorrectFeedbackUntilAfterToolBatch(t *testing.T) {
 	if _, err := Run(context.Background(), "go", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		SelfCorrect:    corrector,
 		OnPermissionRequest: func(_ context.Context, _ PermissionRequest) (PermissionDecision, error) {
 			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "test"}, nil
@@ -669,7 +669,7 @@ func TestRunBatchesSelfCorrectOncePerTurn(t *testing.T) {
 	if _, err := Run(context.Background(), "go", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		SelfCorrect:    corrector,
 		OnPermissionRequest: func(_ context.Context, _ PermissionRequest) (PermissionDecision, error) {
 			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "test"}, nil
@@ -748,7 +748,7 @@ func TestRunRequestsPromptToolPermissionBeforeExecution(t *testing.T) {
 	result, err := Run(context.Background(), "write notes", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
 			requests = append(requests, request)
 			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "approved for test"}, nil
@@ -778,7 +778,7 @@ func TestRunRequestsPromptToolPermissionBeforeExecution(t *testing.T) {
 	if request.ToolCallID != "call-1" || request.ToolName != "write_file" || request.Action != PermissionActionPrompt {
 		t.Fatalf("unexpected permission request: %#v", request)
 	}
-	if request.PermissionMode != PermissionModeAsk || request.SideEffect != string(tools.SideEffectWrite) || request.Autonomy != string(sandbox.AutonomyMedium) {
+	if request.PermissionMode != PermissionModeAsk || request.SideEffect != string(tools.SideEffectWrite) || request.Autonomy != "medium" {
 		t.Fatalf("unexpected request metadata: %#v", request)
 	}
 	if len(permissionEvents) != 1 {
@@ -803,7 +803,7 @@ func TestRunAllowsWorkspaceWriteWithoutPromptWhenSandboxPolicyPermits(t *testing
 	result, err := Run(context.Background(), "write notes", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        sandbox.DefaultPolicy(),
@@ -835,9 +835,9 @@ func TestRunAllowsWorkspaceWriteWithoutPromptWhenSandboxPolicyPermits(t *testing
 	}
 	event := permissionEvents[0]
 	if event.Action != PermissionActionAllow || event.PermissionGranted || event.GrantMatched {
-		t.Fatalf("expected sandbox policy allow without user grant, got %#v", event)
+		t.Fatalf("expected workspace allow without user grant, got %#v", event)
 	}
-	if event.Reason != "workspace write permitted by sandbox policy" {
+	if event.Reason != "workspace write is allowed" {
 		t.Fatalf("expected workspace-write reason, got %#v", event)
 	}
 }
@@ -998,7 +998,7 @@ func TestRunPersistsAlwaysAllowPermissionDecision(t *testing.T) {
 	result, err := Run(context.Background(), "write notes", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        policy,
@@ -1024,7 +1024,7 @@ func TestRunPersistsAlwaysAllowPermissionDecision(t *testing.T) {
 	// The grant is scoped to exactly the file the call wrote, anchored to the
 	// workspace — not a blanket tool-wide allow.
 	notesPath := filepath.Join(root, "notes.txt")
-	lookup, err := store.Lookup("write_file", notesPath, sandbox.AutonomyMedium)
+	lookup, err := store.Lookup("write_file", notesPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1035,7 +1035,7 @@ func TestRunPersistsAlwaysAllowPermissionDecision(t *testing.T) {
 		t.Fatalf("expected file-scoped grant for %q, got %#v", notesPath, lookup.Grant)
 	}
 	// A different file in the same workspace is NOT covered by that grant.
-	other, err := store.Lookup("write_file", filepath.Join(root, "other.txt"), sandbox.AutonomyMedium)
+	other, err := store.Lookup("write_file", filepath.Join(root, "other.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1090,7 +1090,7 @@ func TestRunSessionAllowSkipsMatchingPromptWithoutPersistentGrant(t *testing.T) 
 	result, err := Run(context.Background(), "write notes twice", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        policy,
@@ -1130,7 +1130,7 @@ func TestRunSessionAllowSkipsMatchingPromptWithoutPersistentGrant(t *testing.T) 
 	if !permissionEvents[1].GrantMatched || permissionEvents[1].Grant == nil || !permissionEvents[1].Grant.Session {
 		t.Fatalf("expected second event to be session-grant matched, got %#v", permissionEvents[1])
 	}
-	lookup, err := store.Lookup("write_file", filepath.Join(root, "notes.txt"), sandbox.AutonomyMedium)
+	lookup, err := store.Lookup("write_file", filepath.Join(root, "notes.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1169,11 +1169,11 @@ func TestRunCommandPrefixApprovalSkipsLaterMatchingBashPrompt(t *testing.T) {
 	result, err := Run(context.Background(), "run twice", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        sandbox.DefaultPolicy(),
-			Backend:       sandbox.Backend{Name: sandbox.BackendPolicyOnly, Message: "policy-only fallback"},
+			Backend:       sandbox.Backend{Name: sandbox.BackendUnavailable, Message: "native sandbox unavailable"},
 		}),
 		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
 			requests = append(requests, request)
@@ -1239,12 +1239,12 @@ func TestRunPersistentCommandPrefixApprovalSkipsFutureSessionPrompt(t *testing.T
 	if _, err := Run(context.Background(), "run once", firstProvider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        policy,
 			Store:         store,
-			Backend:       sandbox.Backend{Name: sandbox.BackendPolicyOnly, Message: "policy-only fallback"},
+			Backend:       sandbox.Backend{Name: sandbox.BackendUnavailable, Message: "native sandbox unavailable"},
 		}),
 		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
 			firstRequests = append(firstRequests, request)
@@ -1291,12 +1291,12 @@ func TestRunPersistentCommandPrefixApprovalSkipsFutureSessionPrompt(t *testing.T
 	if _, err := Run(context.Background(), "run again", secondProvider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        policy,
 			Store:         store,
-			Backend:       sandbox.Backend{Name: sandbox.BackendPolicyOnly, Message: "policy-only fallback"},
+			Backend:       sandbox.Backend{Name: sandbox.BackendUnavailable, Message: "native sandbox unavailable"},
 		}),
 		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
 			t.Fatalf("persistent command prefix should skip prompt, got %#v", request)
@@ -1313,7 +1313,7 @@ func TestRunPersistentCommandPrefixApprovalSkipsFutureSessionPrompt(t *testing.T
 	}
 }
 
-func TestRunPersistentCommandPrefixDoesNotBypassNetworkDeny(t *testing.T) {
+func TestRunPersistentCommandPrefixStillPromptsForNetwork(t *testing.T) {
 	root := t.TempDir()
 	store, err := sandbox.NewGrantStore(sandbox.StoreOptions{FilePath: filepath.Join(t.TempDir(), "sandbox-grants.json")})
 	if err != nil {
@@ -1339,19 +1339,20 @@ func TestRunPersistentCommandPrefixDoesNotBypassNetworkDeny(t *testing.T) {
 		},
 	}
 	var events []PermissionEvent
+	var requests []PermissionRequest
 	if _, err := Run(context.Background(), "curl", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        sandbox.DefaultPolicy(),
 			Store:         store,
-			Backend:       sandbox.Backend{Name: sandbox.BackendPolicyOnly, Message: "policy-only fallback"},
+			Backend:       sandbox.Backend{Name: sandbox.BackendUnavailable, Message: "native sandbox unavailable"},
 		}),
 		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
-			t.Fatalf("matched persistent command prefix should not prompt before sandbox denial, got %#v", request)
-			return PermissionDecision{}, nil
+			requests = append(requests, request)
+			return PermissionDecision{Action: PermissionDecisionDeny, Reason: "network not approved"}, nil
 		},
 		OnPermission: func(event PermissionEvent) {
 			events = append(events, event)
@@ -1359,8 +1360,91 @@ func TestRunPersistentCommandPrefixDoesNotBypassNetworkDeny(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 || events[0].Action != PermissionActionDeny || events[0].Violation == nil || events[0].Violation.Code != sandbox.ViolationNetwork {
-		t.Fatalf("expected network sandbox denial despite prefix match, got %#v", events)
+	if len(requests) != 1 || requests[0].Reason != sandbox.ReasonNetworkBlocked {
+		t.Fatalf("expected one network permission request despite prefix match, got %#v", requests)
+	}
+	if len(events) != 1 || events[0].Action != PermissionActionDeny || events[0].DecisionReason != "network not approved" {
+		t.Fatalf("expected denied network permission event despite prefix match, got %#v", events)
+	}
+}
+
+func TestRunApprovedNetworkBashPromptAppliesTurnNetworkGrant(t *testing.T) {
+	root := t.TempDir()
+	command := "PATH=.:$PATH curl https://example.com"
+	if runtime.GOOS == "windows" {
+		command = "set PATH=.;%PATH% && curl https://example.com"
+		fakeCurl := filepath.Join(root, "curl.cmd")
+		if err := os.WriteFile(fakeCurl, []byte("@echo fake curl %*\r\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		fakeCurl := filepath.Join(root, "curl")
+		if err := os.WriteFile(fakeCurl, []byte("#!/bin/sh\necho fake curl \"$@\"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewBashTool(root))
+	provider := &mockProvider{
+		turns: [][]zeroruntime.StreamEvent{
+			{
+				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "bash"},
+				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{"command":` + quoteJSONString(command) + `}`},
+				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+			{
+				{Type: zeroruntime.StreamEventText, Content: "done"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+		},
+	}
+	var requests []PermissionRequest
+	var events []PermissionEvent
+	result, err := Run(context.Background(), "curl", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeAsk,
+		Autonomy:       "medium",
+		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
+			WorkspaceRoot: root,
+			Policy:        sandbox.DefaultPolicy(),
+			Backend:       sandbox.Backend{Name: sandbox.BackendUnavailable, Message: "native sandbox unavailable"},
+		}),
+		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
+			requests = append(requests, request)
+			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "approve network once"}, nil
+		},
+		OnPermission: func(event PermissionEvent) {
+			events = append(events, event)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "done" {
+		t.Fatalf("final answer = %q", result.FinalAnswer)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("expected one permission request, got %#v", requests)
+	}
+	request := requests[0]
+	if request.Reason != sandbox.ReasonNetworkBlocked || !sandbox.HasRiskCategory(request.Risk, "network") {
+		t.Fatalf("expected network permission request, got %#v", request)
+	}
+	for _, decision := range request.AvailableDecisions {
+		if decision == PermissionDecisionAllowPrefix || decision == PermissionDecisionAlwaysAllowPrefix {
+			t.Fatalf("network prompt must not offer command-prefix approvals: %#v", request.AvailableDecisions)
+		}
+	}
+	if len(events) != 1 || events[0].Action != PermissionActionAllow || events[0].DecisionAction != PermissionDecisionAllow {
+		t.Fatalf("expected approved permission event, got %#v", events)
+	}
+	if len(provider.requests) < 2 {
+		t.Fatalf("expected tool result to be sent back to provider, got %d requests", len(provider.requests))
+	}
+	lastMessage := provider.requests[1].Messages[len(provider.requests[1].Messages)-1]
+	if !strings.Contains(lastMessage.Content, "native sandbox backend is unavailable") {
+		t.Fatalf("expected native sandbox unavailable error after approval, got %q", lastMessage.Content)
 	}
 }
 
@@ -1386,11 +1470,11 @@ func TestRunDoesNotOfferPrefixApprovalForUnsafeBashCommand(t *testing.T) {
 	_, err := Run(context.Background(), "run unsafe", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        sandbox.DefaultPolicy(),
-			Backend:       sandbox.Backend{Name: sandbox.BackendPolicyOnly, Message: "policy-only fallback"},
+			Backend:       sandbox.Backend{Name: sandbox.BackendUnavailable, Message: "native sandbox unavailable"},
 		}),
 		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
 			if len(request.CommandPrefix) != 0 {
@@ -1407,6 +1491,72 @@ func TestRunDoesNotOfferPrefixApprovalForUnsafeBashCommand(t *testing.T) {
 	}
 }
 
+func TestRunPromptsForDestructiveShellInsteadOfSandboxDeny(t *testing.T) {
+	root := t.TempDir()
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewBashTool(root))
+	provider := &mockProvider{
+		turns: [][]zeroruntime.StreamEvent{
+			{
+				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "bash"},
+				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{"command":"echo rm -rf /"}`},
+				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+			{
+				{Type: zeroruntime.StreamEventText, Content: "done"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+		},
+	}
+	var requests []PermissionRequest
+	var events []PermissionEvent
+
+	result, err := Run(context.Background(), "run dangerous command", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeAsk,
+		Autonomy:       "medium",
+		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
+			WorkspaceRoot: root,
+			Policy:        sandbox.DefaultPolicy(),
+			Backend:       sandbox.Backend{Name: sandbox.BackendUnavailable, Message: "native sandbox unavailable"},
+		}),
+		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
+			requests = append(requests, request)
+			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "approve once"}, nil
+		},
+		OnPermission: func(event PermissionEvent) {
+			events = append(events, event)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "done" {
+		t.Fatalf("final answer = %q", result.FinalAnswer)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("expected one permission request, got %#v", requests)
+	}
+	request := requests[0]
+	if request.Action != PermissionActionPrompt || request.Reason != "destructive shell command requires approval" || !sandbox.HasRiskCategory(request.Risk, "destructive") {
+		t.Fatalf("expected destructive shell prompt, got %#v", request)
+	}
+	if request.Block != nil {
+		t.Fatalf("destructive shell prompt should not be a sandbox block: %#v", request.Block)
+	}
+	if len(events) != 1 || events[0].Action != PermissionActionAllow || events[0].DecisionAction != PermissionDecisionAllow {
+		t.Fatalf("expected approved permission event, got %#v", events)
+	}
+	if len(provider.requests) < 2 {
+		t.Fatalf("expected tool result to be sent back to provider, got %d requests", len(provider.requests))
+	}
+	lastMessage := provider.requests[1].Messages[len(provider.requests[1].Messages)-1]
+	if !strings.Contains(lastMessage.Content, "native sandbox backend is unavailable") {
+		t.Fatalf("expected native sandbox unavailable error after approval, got %q", lastMessage.Content)
+	}
+}
+
 func TestRunAlwaysAllowWithoutSandboxStillAllowsCall(t *testing.T) {
 	// Choosing "always allow" with NO sandbox engine configured must still allow
 	// THIS call (there is just nowhere to persist a grant for future calls). The
@@ -1420,7 +1570,7 @@ func TestRunAlwaysAllowWithoutSandboxStillAllowsCall(t *testing.T) {
 	result, err := Run(context.Background(), "write notes", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox:        nil, // no sandbox engine configured
 		OnPermissionRequest: func(_ context.Context, _ PermissionRequest) (PermissionDecision, error) {
 			return PermissionDecision{Action: PermissionDecisionAlwaysAllow, Reason: "trust it"}, nil
@@ -1521,10 +1671,9 @@ func TestRunEmitsPermissionEventForPersistentSandboxGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	grant, err := store.Grant(sandbox.GrantInput{
-		ToolName:    "write_file",
-		Decision:    sandbox.GrantAllow,
-		MaxAutonomy: sandbox.AutonomyHigh,
-		Reason:      "trusted workspace edits",
+		ToolName: "write_file",
+		Decision: sandbox.GrantAllow,
+		Reason:   "trusted workspace edits",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1537,7 +1686,7 @@ func TestRunEmitsPermissionEventForPersistentSandboxGrant(t *testing.T) {
 	result, err := Run(context.Background(), "write notes", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeAsk,
-		Autonomy:       string(sandbox.AutonomyMedium),
+		Autonomy:       "medium",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        sandbox.DefaultPolicy(),
@@ -1573,6 +1722,138 @@ func TestRunEmitsPermissionEventForPersistentSandboxGrant(t *testing.T) {
 	}
 }
 
+func TestRunPromptsAndAllowsOutsideWorkspaceWrite(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "escape.txt")
+	engine := sandbox.NewEngine(sandbox.EngineOptions{
+		WorkspaceRoot: root,
+		Policy:        sandbox.DefaultPolicy(),
+	})
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewScopedWriteFileTool(root, engine.Scope()))
+	provider := providerCallingWritePathThenAnswer(outside, "write done")
+	var requests []PermissionRequest
+	var permissionEvents []PermissionEvent
+
+	result, err := Run(context.Background(), "write outside", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeAsk,
+		Autonomy:       "medium",
+		Sandbox:        engine,
+		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
+			requests = append(requests, request)
+			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "approve outside write"}, nil
+		},
+		OnPermission: func(event PermissionEvent) {
+			permissionEvents = append(permissionEvents, event)
+		},
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "write done" {
+		t.Fatalf("expected final answer, got %q", result.FinalAnswer)
+	}
+	content, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "hello" {
+		t.Fatalf("expected outside write content, got %q", content)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("expected one permission request, got %#v", requests)
+	}
+	request := requests[0]
+	if request.Action != PermissionActionPrompt || request.Block == nil || request.Block.Code != sandbox.BlockOutsideWorkspace || !request.Block.Recoverable {
+		t.Fatalf("expected recoverable outside-workspace prompt, got %#v", request)
+	}
+	if !containsPermissionDecision(request.AvailableDecisions, PermissionDecisionAllowForSession) {
+		t.Fatalf("expected session allow decision for outside-workspace prompt, got %#v", request.AvailableDecisions)
+	}
+	if containsPermissionDecision(request.AvailableDecisions, PermissionDecisionAlwaysAllow) {
+		t.Fatalf("outside-workspace prompt must not offer unsupported persistent allow, got %#v", request.AvailableDecisions)
+	}
+	if len(permissionEvents) != 1 {
+		t.Fatalf("expected one permission event, got %#v", permissionEvents)
+	}
+	event := permissionEvents[0]
+	if event.Action != PermissionActionAllow || !event.PermissionGranted || event.DecisionAction != PermissionDecisionAllow {
+		t.Fatalf("expected approved permission event, got %#v", event)
+	}
+}
+
+func TestRunSessionAllowsLaterOutsideWorkspaceWrite(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "escape.txt")
+	engine := sandbox.NewEngine(sandbox.EngineOptions{
+		WorkspaceRoot: root,
+		Policy:        sandbox.DefaultPolicy(),
+	})
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewScopedWriteFileTool(root, engine.Scope()))
+	provider := &mockProvider{
+		turns: [][]zeroruntime.StreamEvent{
+			{
+				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "write_file"},
+				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{"path":` + quoteJSONString(outside) + `,"content":"first"}`},
+				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-2", ToolName: "write_file"},
+				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-2", ArgumentsFragment: `{"path":` + quoteJSONString(outside) + `,"content":"second","overwrite":true}`},
+				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-2"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+			{
+				{Type: zeroruntime.StreamEventText, Content: "done"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+		},
+	}
+	var requests []PermissionRequest
+	var permissionEvents []PermissionEvent
+
+	result, err := Run(context.Background(), "write outside twice", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeAsk,
+		Autonomy:       "medium",
+		Sandbox:        engine,
+		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
+			requests = append(requests, request)
+			return PermissionDecision{Action: PermissionDecisionAllowForSession, Reason: "trust outside file this session"}, nil
+		},
+		OnPermission: func(event PermissionEvent) {
+			permissionEvents = append(permissionEvents, event)
+		},
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "done" {
+		t.Fatalf("expected final answer, got %q", result.FinalAnswer)
+	}
+	content, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "second" {
+		t.Fatalf("expected second outside write content, got %q", content)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("expected one permission request, got %#v", requests)
+	}
+	if len(permissionEvents) != 2 {
+		t.Fatalf("expected two permission events, got %#v", permissionEvents)
+	}
+	if permissionEvents[0].DecisionAction != PermissionDecisionAllowForSession || !permissionEvents[0].PermissionGranted {
+		t.Fatalf("expected first event to approve session grant, got %#v", permissionEvents[0])
+	}
+	if permissionEvents[1].Action != PermissionActionAllow || permissionEvents[1].PermissionGranted {
+		t.Fatalf("expected second event to run from session filesystem grant, got %#v", permissionEvents[1])
+	}
+}
+
 func TestRunAppliesSandboxEvenInUnsafeMode(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "escape.txt")
@@ -1584,7 +1865,7 @@ func TestRunAppliesSandboxEvenInUnsafeMode(t *testing.T) {
 	result, err := Run(context.Background(), "write outside", provider, Options{
 		Registry:       registry,
 		PermissionMode: PermissionModeUnsafe,
-		Autonomy:       string(sandbox.AutonomyHigh),
+		Autonomy:       "high",
 		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
 			WorkspaceRoot: root,
 			Policy:        sandbox.DefaultPolicy(),
@@ -1604,8 +1885,8 @@ func TestRunAppliesSandboxEvenInUnsafeMode(t *testing.T) {
 		t.Fatalf("expected sandbox to prevent outside write, stat error: %v", err)
 	}
 	lastMessage := provider.requests[1].Messages[len(provider.requests[1].Messages)-1]
-	if !strings.Contains(lastMessage.Content, "Sandbox violation") || !strings.Contains(lastMessage.Content, "outside_workspace") {
-		t.Fatalf("expected sandbox violation tool result, got %q", lastMessage.Content)
+	if !strings.Contains(lastMessage.Content, "Sandbox block") || !strings.Contains(lastMessage.Content, "outside_workspace") {
+		t.Fatalf("expected sandbox block tool result, got %q", lastMessage.Content)
 	}
 	if len(permissionEvents) != 1 {
 		t.Fatalf("expected one permission event, got %#v", permissionEvents)
@@ -1614,8 +1895,8 @@ func TestRunAppliesSandboxEvenInUnsafeMode(t *testing.T) {
 	if event.Action != PermissionActionDeny {
 		t.Fatalf("expected denied permission event, got %#v", event)
 	}
-	if event.Violation == nil || event.Violation.Code != sandbox.ViolationOutsideWorkspace {
-		t.Fatalf("expected outside_workspace violation in permission event, got %#v", event)
+	if event.Block == nil || event.Block.Code != sandbox.BlockOutsideWorkspace {
+		t.Fatalf("expected outside_workspace block in permission event, got %#v", event)
 	}
 	if event.Risk.Level != sandbox.RiskCritical {
 		t.Fatalf("expected critical risk in permission event, got %#v", event)

@@ -15,7 +15,6 @@ type sandboxCheckOptions struct {
 	tool       string
 	sideEffect string
 	path       string
-	autonomy   string
 	reason     string
 	json       bool
 }
@@ -68,11 +67,6 @@ func runSandboxCheck(args []string, stdout io.Writer, stderr io.Writer, deps app
 	if err != nil {
 		return writeExecUsageError(stderr, err.Error())
 	}
-	autonomy, err := parseSandboxCheckAutonomy(options.autonomy)
-	if err != nil {
-		return writeExecUsageError(stderr, err.Error())
-	}
-
 	requestArgs := map[string]any{}
 	scopeAbs := workspaceRoot
 	if path := strings.TrimSpace(options.path); path != "" {
@@ -106,12 +100,11 @@ func runSandboxCheck(args []string, stdout io.Writer, stderr io.Writer, deps app
 		ToolName:       options.tool,
 		SideEffect:     sideEffect,
 		PermissionMode: zeroSandbox.PermissionModeAsk,
-		Autonomy:       autonomy,
 		Args:           requestArgs,
 		Reason:         strings.TrimSpace(options.reason),
 	})
 
-	lookup, err := store.Lookup(options.tool, scopeAbs, autonomy)
+	lookup, err := store.Lookup(options.tool, scopeAbs)
 	if err != nil {
 		return writeAppError(stderr, err.Error(), exitCrash)
 	}
@@ -144,7 +137,7 @@ func parseSandboxCheckArgs(args []string) (sandboxCheckOptions, bool, error) {
 			return options, true, nil
 		case arg == "--json":
 			options.json = true
-		case arg == "--side-effect" || arg == "--path" || arg == "--autonomy" || arg == "--reason":
+		case arg == "--side-effect" || arg == "--path" || arg == "--reason":
 			value, next, err := nextFlagValue(args, index, arg)
 			if err != nil {
 				return options, false, err
@@ -163,12 +156,6 @@ func parseSandboxCheckArgs(args []string) (sandboxCheckOptions, bool, error) {
 				return options, false, err
 			}
 			options.path = value
-		case strings.HasPrefix(arg, "--autonomy="):
-			value, err := requiredInlineFlagValue(arg, "--autonomy")
-			if err != nil {
-				return options, false, err
-			}
-			options.autonomy = value
 		case strings.HasPrefix(arg, "--reason="):
 			value, err := requiredInlineFlagValue(arg, "--reason")
 			if err != nil {
@@ -193,8 +180,6 @@ func assignSandboxCheckFlag(options *sandboxCheckOptions, flag string, value str
 		options.sideEffect = value
 	case "--path":
 		options.path = value
-	case "--autonomy":
-		options.autonomy = value
 	case "--reason":
 		options.reason = value
 	}
@@ -220,24 +205,6 @@ func parseSandboxCheckSideEffect(value string) (zeroSandbox.SideEffect, error) {
 	}
 }
 
-// parseSandboxCheckAutonomy validates --autonomy against the closed set the help
-// advertises (empty defaults to high), so a typo returns a usage error instead
-// of the engine silently clamping an unknown tier.
-func parseSandboxCheckAutonomy(value string) (zeroSandbox.Autonomy, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "":
-		return zeroSandbox.AutonomyHigh, nil
-	case string(zeroSandbox.AutonomyLow):
-		return zeroSandbox.AutonomyLow, nil
-	case string(zeroSandbox.AutonomyMedium):
-		return zeroSandbox.AutonomyMedium, nil
-	case string(zeroSandbox.AutonomyHigh):
-		return zeroSandbox.AutonomyHigh, nil
-	default:
-		return "", execUsageError{fmt.Sprintf("invalid --autonomy %q: expected low, medium, or high", value)}
-	}
-}
-
 func formatSandboxCheckReport(report sandboxCheckReport) string {
 	lines := []string{
 		"Sandbox check: " + report.Tool,
@@ -252,15 +219,15 @@ func formatSandboxCheckReport(report sandboxCheckReport) string {
 		riskLine += " [" + strings.Join(risk.Categories, ", ") + "]"
 	}
 	lines = append(lines, riskLine)
-	if violation := report.Decision.Violation; violation != nil {
-		line := "violation: [" + violation.Code + "] " + violation.Reason
-		if violation.Path != "" {
-			line += " (path: " + violation.Path + ")"
+	if block := report.Decision.Block; block != nil {
+		line := "block: [" + block.Code + "] " + block.Reason
+		if block.Path != "" {
+			line += " (path: " + block.Path + ")"
 		}
 		lines = append(lines, line)
 	}
 	if report.Grant.Matched && report.Grant.Grant != nil {
-		lines = append(lines, "grant: matched "+report.Grant.Grant.Decision+" (maxAutonomy "+report.Grant.Grant.MaxAutonomy+")")
+		lines = append(lines, "grant: matched "+report.Grant.Grant.Decision)
 	} else {
 		lines = append(lines, "grant: no grant matched this action")
 	}
@@ -283,13 +250,12 @@ func writeSandboxCheckHelp(w io.Writer) error {
 
 Evaluates the sandbox decision for a hypothetical tool action against the
 resolved policy, and prints the plan, the decision (allow/prompt/deny with risk
-and any violation), and any persistent grant that matches the tool. Secrets in
+and any block), and any persistent grant that matches the tool. Secrets in
 grant reasons are redacted.
 
 Flags:
       --side-effect <kind>   read | write | shell | network | none (default read)
       --path <path>          Target path for the action (read/write checks)
-      --autonomy <level>     low | medium | high (default high)
       --reason <text>        Reason recorded with the request
       --json                 Print the machine-readable snapshot
   -h, --help                 Show this help

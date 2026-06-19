@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -14,10 +13,10 @@ func TestTargetBackendForPlatformBaseline(t *testing.T) {
 		want BackendName
 	}{
 		{name: "linux", goos: "linux", want: BackendLinuxBwrap},
-		{name: "linux wsl", goos: "linux", wsl: true, want: BackendPolicyOnly},
+		{name: "linux wsl", goos: "linux", wsl: true, want: BackendLinuxBwrap},
 		{name: "macos", goos: "darwin", want: BackendMacOSSeatbelt},
 		{name: "windows", goos: "windows", want: BackendWindowsRestrictedToken},
-		{name: "unsupported", goos: "plan9", want: BackendPolicyOnly},
+		{name: "unsupported", goos: "plan9", want: BackendUnavailable},
 	}
 
 	for _, test := range tests {
@@ -64,7 +63,7 @@ func TestBackendPlanCarriesPhase0ManagerFields(t *testing.T) {
 		t.Fatalf("windows plan metadata = %#v, want degraded unwrapped plan with downgrade reason", windows)
 	}
 	if len(windows.SandboxEnvMarkers) != 0 {
-		t.Fatalf("windows policy-only plan must not claim sandbox env markers: %#v", windows.SandboxEnvMarkers)
+		t.Fatalf("windows unavailable plan must not claim sandbox env markers: %#v", windows.SandboxEnvMarkers)
 	}
 }
 
@@ -94,48 +93,38 @@ func TestCommandPlanCarriesSandboxMetadata(t *testing.T) {
 		t.Fatalf("wrapped command markers = %#v, missing backend marker", plan.SandboxEnvMarkers)
 	}
 
-	policyOnly := NewEngine(EngineOptions{
+	unavailable := NewEngine(EngineOptions{
 		WorkspaceRoot: root,
 		Policy:        DefaultPolicy(),
-		Backend:       Backend{Name: BackendPolicyOnly, Platform: "linux", Fallback: true, Message: "policy-only fallback"},
+		Backend:       Backend{Name: BackendUnavailable, Platform: "linux", Fallback: true, Message: "native sandbox unavailable"},
 	})
-	direct, err := policyOnly.BuildCommandPlan(CommandSpec{Name: "/bin/sh", Dir: root})
-	if err != nil {
-		t.Fatalf("BuildCommandPlan policy-only: %v", err)
-	}
-	if direct.TargetBackend != BackendPolicyOnly || direct.Wrapped || direct.EnforcementLevel != EnforcementDegraded || !strings.Contains(direct.DowngradeReason, "policy-only") {
-		t.Fatalf("policy-only command metadata = %#v, want degraded direct command", direct)
+	if _, err := unavailable.BuildCommandPlan(CommandSpec{Name: "/bin/sh", Dir: root}); !errors.Is(err, errNativeSandboxUnavailable) {
+		t.Fatalf("BuildCommandPlan unavailable error = %v, want native sandbox unavailable", err)
 	}
 }
 
-func TestPolicyOnlyDisabledFailClosedForTargetPlatforms(t *testing.T) {
+func TestUnavailableFailClosedForTargetPlatforms(t *testing.T) {
 	root := t.TempDir()
 	policy := DefaultPolicy()
-	policy.AllowPolicyOnlyRunner = false
 	tests := []struct {
 		name    string
 		backend Backend
-		wantErr error
 	}{
 		{
 			name:    "linux",
-			backend: Backend{Name: BackendPolicyOnly, Platform: "linux", Fallback: true},
-			wantErr: errPolicyOnlyRunnerDisabled,
+			backend: Backend{Name: BackendUnavailable, Platform: "linux", Fallback: true},
 		},
 		{
 			name:    "macos",
-			backend: Backend{Name: BackendPolicyOnly, Platform: "darwin", Fallback: true},
-			wantErr: errPolicyOnlyRunnerDisabled,
+			backend: Backend{Name: BackendUnavailable, Platform: "darwin", Fallback: true},
 		},
 		{
 			name:    "windows",
-			backend: Backend{Name: BackendPolicyOnly, Platform: "windows", Fallback: true},
-			wantErr: errPolicyOnlyRunnerDisabled,
+			backend: Backend{Name: BackendUnavailable, Platform: "windows", Fallback: true},
 		},
 		{
 			name:    "wsl",
-			backend: Backend{Name: BackendWSL, Platform: "linux", Fallback: true, ProxyEgress: true},
-			wantErr: errWSLPolicyOnlyDisabled,
+			backend: Backend{Name: BackendWSL, Platform: "linux", Fallback: true},
 		},
 	}
 
@@ -143,8 +132,8 @@ func TestPolicyOnlyDisabledFailClosedForTargetPlatforms(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: policy, Backend: test.backend})
 			_, err := engine.BuildCommandPlan(CommandSpec{Name: "/bin/sh", Dir: root})
-			if !errors.Is(err, test.wantErr) {
-				t.Fatalf("BuildCommandPlan error = %v, want %v", err, test.wantErr)
+			if !errors.Is(err, errNativeSandboxUnavailable) {
+				t.Fatalf("BuildCommandPlan error = %v, want native sandbox unavailable", err)
 			}
 		})
 	}

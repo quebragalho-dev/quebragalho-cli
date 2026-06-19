@@ -704,20 +704,9 @@ func buildExecSandboxEngine(workspaceRoot string, resolved config.ResolvedConfig
 	}), nil
 }
 
-// applyConfiguredAutonomyCeiling overlays a config-sourced autonomy ceiling onto
-// a policy. An empty ceiling is a no-op so the default High ceiling is preserved
-// (backward compatible).
-//
-// A non-empty but unrecognised value FAILS CLOSED: it clamps to the most
-// restrictive ceiling (AutonomyLow) rather than leaving the policy unchanged.
-// config.Resolve already rejects invalid values, so this branch is defense in
-// depth — it guarantees that even a direct/programmatic caller passing a typo
-// can never WIDEN the ceiling back to the High default.
 // applyConfiguredSandboxPolicy overlays every config-sourced sandbox knob onto
-// the default policy (the autonomy ceiling and the network mode), plus the
-// ZERO_SANDBOX_AUTO_ALLOW_BASH environment opt-in.
+// the default policy.
 func applyConfiguredSandboxPolicy(policy sandbox.Policy, cfg config.SandboxConfig) sandbox.Policy {
-	policy = applyConfiguredAutonomyCeiling(policy, cfg.MaxAutonomy)
 	if network := strings.TrimSpace(cfg.Network); network != "" {
 		switch sandbox.NetworkMode(network) {
 		case sandbox.NetworkAllow, sandbox.NetworkDeny:
@@ -733,26 +722,6 @@ func applyConfiguredSandboxPolicy(policy sandbox.Policy, cfg config.SandboxConfi
 	if cfg.MonitorDenials {
 		policy.MonitorDenials = true
 	}
-	// ZERO_SANDBOX_AUTO_ALLOW_BASH opts into auto-allowing a *sandboxed* shell
-	// command without a prompt — the active sandbox is the safety boundary, and
-	// the engine only honors this when the shell sandbox is actually active. Like
-	// the flags above it only ever turns the opt-in ON; unset/blank stays off
-	// (prompt), and an explicit config opt-in is preserved.
-	policy = sandbox.ApplyAutoAllowBashEnv(policy)
-	return policy
-}
-
-func applyConfiguredAutonomyCeiling(policy sandbox.Policy, maxAutonomy string) sandbox.Policy {
-	trimmed := strings.TrimSpace(maxAutonomy)
-	if trimmed == "" {
-		return policy
-	}
-	normalized, err := sandbox.NormalizeAutonomy(sandbox.Autonomy(trimmed))
-	if err != nil {
-		policy.MaxAutonomy = sandbox.AutonomyLow
-		return policy
-	}
-	policy.MaxAutonomy = normalized
 	return policy
 }
 

@@ -22,7 +22,7 @@ func TestRunSandboxGrantsAllowListDenyRevokeAndClear(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exitCode := runWithDeps([]string{"sandbox", "grants", "allow", "write_file", "--auto", "medium", "--reason", "workspace edits", "--json"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"sandbox", "grants", "allow", "write_file", "--reason", "workspace edits", "--json"}, &stdout, &stderr, deps)
 	if exitCode != exitSuccess {
 		t.Fatalf("allow exit = %d, stderr %q", exitCode, stderr.String())
 	}
@@ -32,13 +32,13 @@ func TestRunSandboxGrantsAllowListDenyRevokeAndClear(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &allowPayload); err != nil {
 		t.Fatalf("decode allow JSON: %v\n%s", err, stdout.String())
 	}
-	if allowPayload.Grant.ToolName != "write_file" || allowPayload.Grant.Decision != sandbox.GrantAllow || allowPayload.Grant.MaxAutonomy != sandbox.AutonomyMedium {
+	if allowPayload.Grant.ToolName != "write_file" || allowPayload.Grant.Decision != sandbox.GrantAllow {
 		t.Fatalf("unexpected allow payload: %#v", allowPayload)
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	exitCode = runWithDeps([]string{"sandbox", "grants", "deny", "bash", "--auto=high", "--reason=network blocked"}, &stdout, &stderr, deps)
+	exitCode = runWithDeps([]string{"sandbox", "grants", "deny", "bash", "--reason=network blocked"}, &stdout, &stderr, deps)
 	if exitCode != exitSuccess {
 		t.Fatalf("deny exit = %d, stderr %q", exitCode, stderr.String())
 	}
@@ -197,7 +197,7 @@ func TestRunSandboxGrantsRejectsEmptyPath(t *testing.T) {
 	// Seed a tool-wide grant first so a buggy "revoke all for tool" or "allow
 	// tool-wide" from a rejected call would actually change the store and be caught
 	// (a revoke-all on an empty store is a silent no-op).
-	if _, err := store.Grant(sandbox.GrantInput{ToolName: "write_file", Decision: sandbox.GrantAllow, MaxAutonomy: sandbox.AutonomyHigh}); err != nil {
+	if _, err := store.Grant(sandbox.GrantInput{ToolName: "write_file", Decision: sandbox.GrantAllow}); err != nil {
 		t.Fatalf("seed grant: %v", err)
 	}
 
@@ -252,10 +252,10 @@ func TestRunSandboxPolicyInspectTextAndJSON(t *testing.T) {
 		},
 		selectSandboxBackend: func(options sandbox.BackendOptions) sandbox.Backend {
 			return sandbox.Backend{
-				Name:     sandbox.BackendPolicyOnly,
+				Name:     sandbox.BackendUnavailable,
 				Platform: "windows",
 				Fallback: true,
-				Message:  "policy-only fallback: Windows sandbox command runner is not available",
+				Message:  "Windows sandbox command runner is not available",
 			}
 		},
 	}
@@ -293,14 +293,14 @@ func TestRunSandboxPolicyInspectTextAndJSON(t *testing.T) {
 				if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 					t.Fatalf("decode policy JSON: %v\n%s", err, stdout.String())
 				}
-				if payload.Policy.Mode != sandbox.ModeEnforce || payload.Backend.Name != sandbox.BackendPolicyOnly || payload.Grants == "" {
+				if payload.Policy.Mode != sandbox.ModeEnforce || payload.Backend.Name != sandbox.BackendUnavailable || payload.Grants == "" {
 					t.Fatalf("unexpected policy JSON: %#v", payload)
 				}
 				if payload.Backend.Platform != "windows" || !payload.Backend.Fallback || payload.Backend.NativeIsolation || payload.Backend.CommandWrapping {
 					t.Fatalf("unexpected backend capability JSON: %#v", payload.Backend)
 				}
-				if payload.Plan.SupportLevel != string(sandbox.BackendSupportPolicyOnly) {
-					t.Fatalf("support level = %q, want policy-only", payload.Plan.SupportLevel)
+				if payload.Plan.SupportLevel != string(sandbox.BackendSupportUnavailable) {
+					t.Fatalf("support level = %q, want unavailable", payload.Plan.SupportLevel)
 				}
 				if payload.Plan.TargetBackend != sandbox.BackendWindowsRestrictedToken || payload.Plan.CommandWrapped || payload.Plan.EnforcementLevel != sandbox.EnforcementDegraded || payload.Plan.DowngradeReason == "" {
 					t.Fatalf("unexpected manager baseline fields: %#v", payload.Plan)
@@ -318,12 +318,12 @@ func TestRunSandboxPolicyInspectTextAndJSON(t *testing.T) {
 				output := stdout.String()
 				for _, want := range []string{
 					"Zero sandbox policy",
-					"backend: policy-only",
+					"backend: unavailable",
 					"target_backend: windows-restricted-token",
-					"support_level: policy-only",
+					"support_level: unavailable",
 					"command_wrapped: false",
 					"enforcement_level: degraded",
-					"downgrade_reason: policy-only fallback: Windows sandbox command runner is not available",
+					"downgrade_reason: Windows sandbox command runner is not available",
 					"backend_fallback: true",
 					"backend_command_wrapping: false",
 					"backend_native_isolation: false",
@@ -426,8 +426,8 @@ func TestTUISandboxSetupCommandGatedToWindowsNativeBackend(t *testing.T) {
 	if got := tuiSandboxSetupCommand(sandbox.Backend{Name: sandbox.BackendLinuxBwrap, Platform: "linux", Available: true}, appDeps{}); got != nil {
 		t.Fatal("linux backend should not enable the TUI sandbox setup command")
 	}
-	if got := tuiSandboxSetupCommand(sandbox.Backend{Name: sandbox.BackendPolicyOnly, Platform: "windows", Available: false}, appDeps{}); got != nil {
-		t.Fatal("policy-only Windows backend should not enable the TUI sandbox setup command")
+	if got := tuiSandboxSetupCommand(sandbox.Backend{Name: sandbox.BackendUnavailable, Platform: "windows", Available: false}, appDeps{}); got != nil {
+		t.Fatal("unavailable Windows backend should not enable the TUI sandbox setup command")
 	}
 	got := tuiSandboxSetupCommand(sandbox.Backend{
 		Name:            sandbox.BackendWindowsRestrictedToken,
@@ -453,10 +453,10 @@ func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
 		},
 		selectSandboxBackend: func(options sandbox.BackendOptions) sandbox.Backend {
 			return sandbox.Backend{
-				Name:     sandbox.BackendPolicyOnly,
+				Name:     sandbox.BackendUnavailable,
 				Platform: "windows",
 				Fallback: true,
-				Message:  "policy-only fallback: Windows sandbox command runner is not available",
+				Message:  "Windows sandbox command runner is not available",
 			}
 		},
 	}
@@ -470,7 +470,7 @@ func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
 	got := stdout.String()
 	got = replacePathToken(got, workspace, "$WORKSPACE")
 	got = replacePathToken(got, store.FilePath(), "$GRANTS")
-	wantBytes, err := os.ReadFile(filepath.Join("testdata", "sandbox_policy_windows_policy_only.golden.json"))
+	wantBytes, err := os.ReadFile(filepath.Join("testdata", "sandbox_policy_windows_unavailable.golden.json"))
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
 	}
@@ -516,10 +516,10 @@ func TestRunSandboxPolicyEffectiveTextAndJSON(t *testing.T) {
 		},
 		selectSandboxBackend: func(options sandbox.BackendOptions) sandbox.Backend {
 			return sandbox.Backend{
-				Name:     sandbox.BackendPolicyOnly,
+				Name:     sandbox.BackendUnavailable,
 				Platform: "darwin",
 				Fallback: true,
-				Message:  "policy-only fallback",
+				Message:  "native sandbox unavailable",
 			}
 		},
 	}
@@ -536,9 +536,8 @@ func TestRunSandboxPolicyEffectiveTextAndJSON(t *testing.T) {
 			"mode: enforce",
 			"network: deny",
 			"enforce_workspace: true",
-			"deny_destructive_shell: true",
 			"interactive_command_guard: enabled",
-			"support_level: policy-only",
+			"support_level: unavailable",
 		} {
 			if !strings.Contains(output, want) {
 				t.Fatalf("effective text missing %q, got %q", want, output)
@@ -554,10 +553,9 @@ func TestRunSandboxPolicyEffectiveTextAndJSON(t *testing.T) {
 		}
 		var payload struct {
 			Policy struct {
-				Mode                 string `json:"mode"`
-				Network              string `json:"network"`
-				EnforceWorkspace     bool   `json:"enforceWorkspace"`
-				DenyDestructiveShell bool   `json:"denyDestructiveShell"`
+				Mode             string `json:"mode"`
+				Network          string `json:"network"`
+				EnforceWorkspace bool   `json:"enforceWorkspace"`
 			} `json:"policy"`
 			Backend struct {
 				Name string `json:"name"`
@@ -567,7 +565,6 @@ func TestRunSandboxPolicyEffectiveTextAndJSON(t *testing.T) {
 			} `json:"plan"`
 			Guards struct {
 				InteractiveCommand bool `json:"interactiveCommand"`
-				DestructiveShell   bool `json:"destructiveShell"`
 				Network            bool `json:"network"`
 				Workspace          bool `json:"workspace"`
 			} `json:"guards"`
@@ -579,13 +576,13 @@ func TestRunSandboxPolicyEffectiveTextAndJSON(t *testing.T) {
 		if payload.Policy.Mode != "enforce" || payload.Policy.Network != "deny" {
 			t.Fatalf("unexpected effective policy: %#v", payload.Policy)
 		}
-		if !payload.Policy.EnforceWorkspace || !payload.Policy.DenyDestructiveShell {
-			t.Fatalf("expected workspace + destructive guards enabled: %#v", payload.Policy)
+		if !payload.Policy.EnforceWorkspace {
+			t.Fatalf("expected workspace guard enabled: %#v", payload.Policy)
 		}
-		if !payload.Guards.InteractiveCommand || !payload.Guards.DestructiveShell {
+		if !payload.Guards.InteractiveCommand {
 			t.Fatalf("expected guards reported: %#v", payload.Guards)
 		}
-		if payload.Plan.SupportLevel != string(sandbox.BackendSupportPolicyOnly) || payload.GrantsPath == "" {
+		if payload.Plan.SupportLevel != string(sandbox.BackendSupportUnavailable) || payload.GrantsPath == "" {
 			t.Fatalf("unexpected effective plan/grants: %#v %q", payload.Plan, payload.GrantsPath)
 		}
 	})
@@ -749,37 +746,12 @@ func TestRunSandboxHelpDoesNotOpenStore(t *testing.T) {
 	}
 }
 
-func TestRunSandboxPolicyAppliesConfiguredCeiling(t *testing.T) {
+func TestRunSandboxPolicyTextOmitsMaxAutonomy(t *testing.T) {
 	store := newSandboxTestStore(t)
 	deps := appDeps{
 		newSandboxStore: func() (*sandbox.GrantStore, error) { return store, nil },
 		resolveConfig: func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{Sandbox: config.SandboxConfig{MaxAutonomy: "medium"}}, nil
-		},
-	}
-
-	var stdout, stderr bytes.Buffer
-	exitCode := runWithDeps([]string{"sandbox", "policy", "--json"}, &stdout, &stderr, deps)
-	if exitCode != exitSuccess {
-		t.Fatalf("policy exit = %d, stderr %q", exitCode, stderr.String())
-	}
-	var payload struct {
-		Policy sandbox.Policy `json:"policy"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("decode policy JSON: %v\n%s", err, stdout.String())
-	}
-	if payload.Policy.MaxAutonomy != sandbox.AutonomyMedium {
-		t.Fatalf("policy.MaxAutonomy = %q, want medium", payload.Policy.MaxAutonomy)
-	}
-}
-
-func TestRunSandboxPolicyTextShowsMaxAutonomy(t *testing.T) {
-	store := newSandboxTestStore(t)
-	deps := appDeps{
-		newSandboxStore: func() (*sandbox.GrantStore, error) { return store, nil },
-		resolveConfig: func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{Sandbox: config.SandboxConfig{MaxAutonomy: "medium"}}, nil
+			return config.ResolvedConfig{}, nil
 		},
 	}
 
@@ -787,8 +759,8 @@ func TestRunSandboxPolicyTextShowsMaxAutonomy(t *testing.T) {
 	if code := runWithDeps([]string{"sandbox", "policy"}, &stdout, &stderr, deps); code != exitSuccess {
 		t.Fatalf("policy exit = %d, stderr %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "max_autonomy: medium") {
-		t.Fatalf("policy text missing max_autonomy line:\n%s", stdout.String())
+	if strings.Contains(stdout.String(), "max_autonomy") {
+		t.Fatalf("policy text should omit max_autonomy:\n%s", stdout.String())
 	}
 
 	stdout.Reset()
@@ -796,8 +768,8 @@ func TestRunSandboxPolicyTextShowsMaxAutonomy(t *testing.T) {
 	if code := runWithDeps([]string{"sandbox", "policy", "--effective"}, &stdout, &stderr, deps); code != exitSuccess {
 		t.Fatalf("effective policy exit = %d, stderr %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "max_autonomy: medium") {
-		t.Fatalf("effective policy text missing max_autonomy line:\n%s", stdout.String())
+	if strings.Contains(stdout.String(), "max_autonomy") {
+		t.Fatalf("effective policy text should omit max_autonomy:\n%s", stdout.String())
 	}
 }
 
@@ -807,7 +779,7 @@ func TestRunSandboxPolicySurfacesResolveConfigError(t *testing.T) {
 		getwd:           func() (string, error) { return t.TempDir(), nil },
 		newSandboxStore: func() (*sandbox.GrantStore, error) { return store, nil },
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{}, fmt.Errorf("invalid sandbox.maxAutonomy %q", "moderate")
+			return config.ResolvedConfig{}, fmt.Errorf("invalid sandbox.network %q", "maybe")
 		},
 	}
 
@@ -816,43 +788,11 @@ func TestRunSandboxPolicySurfacesResolveConfigError(t *testing.T) {
 	if exitCode != exitProvider {
 		t.Fatalf("policy exit = %d, want provider exit %d (resolve error surfaced, not silent DefaultPolicy fallback)", exitCode, exitProvider)
 	}
-	if !strings.Contains(stderr.String(), "invalid sandbox.maxAutonomy") {
+	if !strings.Contains(stderr.String(), "invalid sandbox.network") {
 		t.Fatalf("expected surfaced resolve error in stderr, got %q", stderr.String())
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("expected empty stdout on resolve error, got %q", stdout.String())
-	}
-}
-
-func TestApplyConfiguredAutonomyCeiling(t *testing.T) {
-	cases := []struct {
-		name        string
-		maxAutonomy string
-		want        sandbox.Autonomy
-	}{
-		// Empty is a no-op: the default High ceiling is preserved.
-		{name: "empty keeps default high", maxAutonomy: "", want: sandbox.AutonomyHigh},
-		{name: "whitespace keeps default high", maxAutonomy: "   ", want: sandbox.AutonomyHigh},
-		{name: "valid low", maxAutonomy: "low", want: sandbox.AutonomyLow},
-		{name: "valid medium", maxAutonomy: "medium", want: sandbox.AutonomyMedium},
-		{name: "valid high", maxAutonomy: "high", want: sandbox.AutonomyHigh},
-		{name: "case-insensitive medium", maxAutonomy: "MEDIUM", want: sandbox.AutonomyMedium},
-		// Fail-closed: an invalid non-empty value clamps to the most restrictive
-		// ceiling instead of leaving the High default in place.
-		{name: "invalid banana clamps to low", maxAutonomy: "banana", want: sandbox.AutonomyLow},
-		{name: "invalid moderate clamps to low", maxAutonomy: "moderate", want: sandbox.AutonomyLow},
-		{name: "invalid med clamps to low", maxAutonomy: "med", want: sandbox.AutonomyLow},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if base := sandbox.DefaultPolicy(); base.MaxAutonomy != sandbox.AutonomyHigh {
-				t.Fatalf("precondition: DefaultPolicy().MaxAutonomy = %q, want high", base.MaxAutonomy)
-			}
-			policy := applyConfiguredAutonomyCeiling(sandbox.DefaultPolicy(), tc.maxAutonomy)
-			if policy.MaxAutonomy != tc.want {
-				t.Fatalf("applyConfiguredAutonomyCeiling(_, %q).MaxAutonomy = %q, want %q", tc.maxAutonomy, policy.MaxAutonomy, tc.want)
-			}
-		})
 	}
 }
 
@@ -874,19 +814,6 @@ func TestApplyConfiguredSandboxPolicyDiagnosticsFlags(t *testing.T) {
 	})
 	if !got.BlockUnixSockets || !got.MonitorDenials {
 		t.Fatalf("diagnostic config not applied to policy: %#v", got)
-	}
-}
-
-func TestApplyConfiguredSandboxPolicyHonorsAutoAllowBashEnv(t *testing.T) {
-	// Unset/blank: the opt-in stays off so a sandboxed bash command still prompts.
-	t.Setenv(sandbox.EnvAutoAllowBash, "")
-	if got := applyConfiguredSandboxPolicy(sandbox.DefaultPolicy(), config.SandboxConfig{}); got.AutoAllowBashWhenSandboxed {
-		t.Fatal("auto-allow-bash must be off when ZERO_SANDBOX_AUTO_ALLOW_BASH is unset")
-	}
-	// Truthy: the env opt-in is wired through the central policy builder.
-	t.Setenv(sandbox.EnvAutoAllowBash, "true")
-	if got := applyConfiguredSandboxPolicy(sandbox.DefaultPolicy(), config.SandboxConfig{}); !got.AutoAllowBashWhenSandboxed {
-		t.Fatal("ZERO_SANDBOX_AUTO_ALLOW_BASH=true must enable AutoAllowBashWhenSandboxed")
 	}
 }
 

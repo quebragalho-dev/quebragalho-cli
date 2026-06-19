@@ -283,12 +283,30 @@ func TestClassifyFlagsUnparseableCommand(t *testing.T) {
 	}
 }
 
+func TestClassifyUnparseableNetworkCommandFailsClosed(t *testing.T) {
+	risk := classifyCommand(`curl https://example.com && "unterminated`)
+	if !HasRiskCategory(risk, "unparseable_command") {
+		t.Fatalf("Classify of unparseable network command = categories %v; want unparseable_command", risk.Categories)
+	}
+	if risk.Level != RiskCritical || !HasRiskCategory(risk, "network") {
+		t.Fatalf("Classify of unparseable network command = level %s, categories %v; want critical network", risk.Level, risk.Categories)
+	}
+}
+
 func TestClassifyASTDoesNotFlagQuotedProgramName(t *testing.T) {
 	// A program name inside a quoted argument is not a command, so the AST
 	// analyzer must not flag it (documenting a destructive command in an echo).
 	risk := classifyCommand(`echo "shred wipes files"`)
 	if HasRiskCategory(risk, "destructive") {
 		t.Fatalf("Classify(%q) wrongly flagged destructive: %v", `echo "shred wipes files"`, risk.Categories)
+	}
+}
+
+func TestClassifyDoesNotFlagQuotedHttpServerPattern(t *testing.T) {
+	command := `pkill -f "python3 -m http.server 8000"; sleep 0.5; pgrep -af "http.server 8000" || true`
+	risk := classifyCommand(command)
+	if HasRiskCategory(risk, "network") {
+		t.Fatalf("Classify(%q) wrongly flagged network: %v", command, risk.Categories)
 	}
 }
 

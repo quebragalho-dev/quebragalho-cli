@@ -385,9 +385,9 @@ func TestRunExecStreamJSONEmitsAndRecordsPermissionEvents(t *testing.T) {
 		t.Fatalf("unexpected permission metadata: %#v", permissionEvent)
 	}
 	if permissionEvent["permissionGranted"] == true {
-		t.Fatalf("workspace policy allow should not be recorded as user-granted permission: %#v", permissionEvent)
+		t.Fatalf("workspace allow should not be recorded as user-granted permission: %#v", permissionEvent)
 	}
-	if permissionEvent["reason"] != "workspace write permitted by sandbox policy" {
+	if permissionEvent["reason"] != "workspace write is allowed" {
 		t.Fatalf("unexpected workspace permission reason: %#v", permissionEvent)
 	}
 	risk, ok := permissionEvent["risk"].(map[string]any)
@@ -661,7 +661,7 @@ func TestRunExecReadsStreamJSONPromptFromStdin(t *testing.T) {
 	var stderr bytes.Buffer
 
 	exitCode := runWithDeps([]string{"exec", "--input-format", "stream-json", "--output-format", "stream-json"}, &stdout, &stderr, appDeps{
-		stdin: strings.NewReader(`{"schemaVersion":1,"type":"prompt","content":"from stdin"}` + "\n"),
+		stdin: strings.NewReader(`{"schemaVersion":2,"type":"prompt","content":"from stdin"}` + "\n"),
 		getwd: func() (string, error) {
 			return cwd, nil
 		},

@@ -335,8 +335,6 @@ func (engine *Engine) effectivePolicy(policy Policy) Policy {
 func applyRequestPermissionProfile(policy Policy, profile RequestPermissionProfile) Policy {
 	if profile.Network != nil && profile.Network.Enabled != nil && *profile.Network.Enabled {
 		policy.Network = NetworkAllow
-		policy.AllowedDomains = nil
-		policy.DeniedDomains = nil
 	}
 	if profile.FileSystem != nil {
 		policy.AllowRead = dedupeStrings(append(policy.AllowRead, profile.FileSystem.Read...))
@@ -372,13 +370,13 @@ func (set *memoryGrantSet) add(grant Grant) {
 	set.grants[grant.ToolName] = append(bucket, grant)
 }
 
-func (set *memoryGrantSet) lookup(toolName string, reqScope string, requested Autonomy) GrantLookup {
+func (set *memoryGrantSet) lookup(toolName string, reqScope string) GrantLookup {
 	if set == nil {
 		return GrantLookup{}
 	}
 	set.mu.Lock()
 	defer set.mu.Unlock()
-	return lookupGrantBucket(set.grants[strings.TrimSpace(toolName)], reqScope, requested)
+	return lookupGrantBucket(set.grants[strings.TrimSpace(toolName)], reqScope)
 }
 
 type permissionProfileGrantSet struct {
