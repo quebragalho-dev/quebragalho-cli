@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -294,6 +295,50 @@ func looksLikePath(value string) bool {
 		return false
 	}
 	return strings.Contains(value, "/") || filepath.Ext(value) != ""
+}
+
+// userHomeDir is overridable in tests; os.UserHomeDir in production.
+var userHomeDir = os.UserHomeDir
+
+// displayPath shortens an absolute path for the transcript so a tool card shows
+// `examples/calc/calc.go` instead of `D:\…\examples\calc\calc.go`. Built-in
+// tools already emit workspace-relative paths; this mainly tames MCP tools and
+// any tool that surfaces an absolute path. Display-only: never mutate the path
+// sent to a tool or stored in the session. The ladder mirrors the reference
+// agents — relative under the workspace, `~`-relative under home, else the
+// trailing segments with a `…/` prefix:
+//
+//	under cwd      → examples/calc/calc.go
+//	under $HOME    → ~/projects/zero/main.go
+//	elsewhere      → …/other/calc.go   (last displayPathTailSegments segments)
+//	already short  → returned unchanged (relative input, no separators, etc.)
+//
+// Output always uses forward slashes so it reads the same on every platform.
+const displayPathTailSegments = 3
+
+func displayPath(cwd string, p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || !filepath.IsAbs(p) {
+		// Relative inputs (the built-in-tool common case) are already short and
+		// workspace-anchored; just normalize separators.
+		return filepath.ToSlash(p)
+	}
+	if cwd = strings.TrimSpace(cwd); cwd != "" {
+		if rel, err := filepath.Rel(cwd, p); err == nil && !strings.HasPrefix(rel, "..") && rel != "." {
+			return filepath.ToSlash(rel)
+		}
+	}
+	if home, err := userHomeDir(); err == nil && home != "" {
+		if rel, err := filepath.Rel(home, p); err == nil && !strings.HasPrefix(rel, "..") && rel != "." {
+			return "~/" + filepath.ToSlash(rel)
+		}
+	}
+	slashed := filepath.ToSlash(p)
+	segments := strings.Split(strings.Trim(slashed, "/"), "/")
+	if len(segments) <= displayPathTailSegments {
+		return slashed
+	}
+	return "…/" + strings.Join(segments[len(segments)-displayPathTailSegments:], "/")
 }
 
 // sayMeasure is the narrow prose wrap width for compact secondary text.
@@ -1146,7 +1191,7 @@ func (m model) renderRunningToolCard(row transcriptRow, width int, rc rowContext
 		arg = rc.args[rcKey(row.runID, row.id)]
 	}
 	head := toolCardHead(toolRowName(row), hint, arg, "", glyph, rc.auto[rcKey(row.runID, row.id)], width, opts)
-	return toolCard(head, nil, "", zeroTheme.cardRun, width)
+	return toolCard(head, glyph, nil, "", zeroTheme.cardRun, width)
 }
 
 func renderToolResultCard(row transcriptRow, width int, rc rowContext, opts cardRenderOptions) string {
@@ -1159,6 +1204,15 @@ func renderToolResultCard(row transcriptRow, width int, rc rowContext, opts card
 		borderStyle = zeroTheme.cardErr
 	}
 	key := rcKey(row.runID, row.id)
+	// A successful call whose only output is a one-line confirmation ("Created
+	// examples/calc.go (45 bytes).", "Successfully created directory …") restates
+	// what the head already shows (action + target + ✓), so drop the body and let
+	// the card collapse to a single line — matching the reference agents' density.
+	// Only for clean OK results: errors and anything multi-line keep their body.
+	if !failed && opts.bodyCap > 0 && !toolCardAlwaysExpands(name) && looksLikeRedundantConfirmation(row.detail) {
+		head := toolCardHead(name, rc.hints[key], rc.args[key], "", glyph, rc.auto[key], width, opts)
+		return toolCard(head, glyph, nil, "", borderStyle, width)
+	}
 	// Collapse long, noisy output (web-search/MCP/read dumps) by default so the
 	// transcript stays scannable; the model still received the full output. Click
 	// the card to expand (▸ → ▾) while it is live; collapsed rows flush to
@@ -1170,7 +1224,7 @@ func renderToolResultCard(row transcriptRow, width int, rc rowContext, opts card
 	}
 	if collapsedFooter != "" && !row.expanded {
 		head := toolCardHead(name, rc.hints[key], rc.args[key], "", glyph, rc.auto[key], width, opts)
-		return toolCard(head, nil, collapsedFooter, borderStyle, width)
+		return toolCard(head, glyph, nil, collapsedFooter, borderStyle, width)
 	}
 	body := toolCardBody(name, rc.hints[key], row.detail, width, opts)
 	head := toolCardHead(name, rc.hints[key], rc.args[key], body.headTag, glyph, rc.auto[key], width, opts)
@@ -1178,7 +1232,26 @@ func renderToolResultCard(row transcriptRow, width int, rc rowContext, opts card
 	if collapsedFooter != "" && row.expanded && footer == "" {
 		footer = "▾ collapse"
 	}
-	return toolCard(head, body.lines, footer, borderStyle, width)
+	return toolCard(head, glyph, body.lines, footer, borderStyle, width)
+}
+
+// confirmationVerbPattern matches a single-line success confirmation that only
+// restates the action + target: a leading verb ("Created", "Overwrote",
+// "Successfully created directory", "Wrote", "Deleted", …) optionally followed
+// by a path/detail. Kept deliberately narrow — anything it doesn't recognize
+// keeps its body, so the worst case is the status quo, never lost output.
+var confirmationVerbPattern = regexp.MustCompile(`(?i)^(successfully\s+\w+|created|overwrote|wrote|updated|edited|deleted|removed|renamed|moved|copied|appended)\b`)
+
+// looksLikeRedundantConfirmation reports whether a tool's output is a single
+// short line that merely confirms a mutation (so the card body would just echo
+// the head). Multi-line output, or anything not starting with a known
+// confirmation verb, is NOT redundant and keeps its body.
+func looksLikeRedundantConfirmation(detail string) bool {
+	trimmed := strings.TrimSpace(detail)
+	if trimmed == "" || strings.Contains(trimmed, "\n") {
+		return false
+	}
+	return confirmationVerbPattern.MatchString(trimmed)
 }
 
 // toolCardAlwaysExpands reports tools whose body is a code diff that must stay
@@ -1238,13 +1311,21 @@ func toolDisplayName(name string) string {
 	return strings.ReplaceAll(rest, "_", " ")
 }
 
-// toolCardHead composes the border-embedded head: tool name, middle-truncated
-// target (hyperlinked when it names a file), the faintest arg column, optional
-// extra tag, the auto marker, and the status glyph.
+// toolCardHead composes the card head: tool name, middle-truncated target
+// (hyperlinked when it names a file), the faintest arg column, optional extra
+// tag, and the auto marker. The status glyph is NOT included here — toolCard
+// right-aligns it on the rule line so it sits at the card's right edge instead
+// of trailing the head text.
 func toolCardHead(name string, target string, arg string, headTag string, glyph string, auto bool, width int, opts cardRenderOptions) string {
 	head := zeroTheme.toolName.Render(toolDisplayName(name))
 	if target = strings.TrimSpace(target); target != "" {
-		styled := zeroTheme.toolTarget.Render(middleTruncate(target, maxInt(16, width/2)))
+		// Show a shortened, workspace-relative path, but keep the hyperlink
+		// pointing at the original absolute path so the file still opens.
+		shown := target
+		if looksLikePath(target) {
+			shown = displayPath(opts.cwd, target)
+		}
+		styled := zeroTheme.toolTarget.Render(middleTruncate(shown, maxInt(16, width/2)))
 		if looksLikePath(target) {
 			styled = hyperlink(fileURL(opts.cwd, target), styled)
 		}
@@ -1260,54 +1341,69 @@ func toolCardHead(name string, target string, arg string, headTag string, glyph 
 	if auto {
 		head += "  " + zeroTheme.autoTag.Render("[auto]")
 	}
-	return head + "  " + glyph
+	return head
 }
 
-// toolCard draws the rounded card: head embedded in the top border, optional
-// footer embedded in the bottom border, body lines between on the panel
-// surface. Every emitted line is exactly `width` cells. On tiny terminals the
-// side borders go away (top/bottom rules stay) so content keeps the columns.
-func toolCard(head string, body []string, footer string, borderStyle lipgloss.Style, width int) string {
+// toolCard draws a left-rule card: a status-tinted "│ " rail down the left
+// edge, the head (with the status glyph right-aligned to the card edge) on the
+// first line, body lines below, and an optional footer line — no top, right, or
+// bottom borders. This matches the lighter inline style of specialist cards
+// (renderLeftRuleCard) and the reference TUIs (opencode, codex), instead of the
+// older full rounded box. Every emitted line is exactly `width` cells, and the
+// inner content budget stays width-4, so the diff/read/bash body renderers
+// (which assume width-4) need no change. On the tiny tier the rail goes away
+// (bare lines) so content keeps every column — and so a tiny card carries no
+// leading "│", matching TestTinyToolCardDropsSideBorders.
+func toolCard(head string, glyph string, body []string, footer string, borderStyle lipgloss.Style, width int) string {
 	tiny := widthTier(width) == tierTiny
 	if width < 24 {
 		width = 24
 	}
-	innerWidth := width - 4
+	rail := borderStyle.Render("│ ")
+	railWidth := 2
+	innerWidth := width - 4 // "│ " (2) + content + 2 trailing cells where the old right border sat
 	if tiny {
+		rail = ""
+		railWidth = 0
 		innerWidth = width
 	}
 
-	head = fitStyledLine(head, width-6)
-	dashes := maxInt(1, width-4-lipgloss.Width(head))
-	top := borderStyle.Render("╭ ") + head + " " + borderStyle.Render(strings.Repeat("─", dashes)+"╮")
-	if tiny {
-		top = head + " " + borderStyle.Render(strings.Repeat("─", maxInt(1, width-1-lipgloss.Width(head))))
+	// Head line: rail + head, with the status glyph right-aligned to the card
+	// edge. The glyph (and the space before it) is reserved out of the head's
+	// width budget so a long head truncates before it collides with the glyph.
+	glyphWidth := lipgloss.Width(glyph)
+	glyphGap := 0
+	if glyphWidth > 0 {
+		glyphGap = 1
 	}
+	headBudget := maxInt(1, width-railWidth-glyphWidth-glyphGap)
+	head = fitStyledLine(head, headBudget)
+	headPad := maxInt(0, width-railWidth-lipgloss.Width(head)-glyphWidth)
+	headLine := rail + head + strings.Repeat(" ", headPad) + glyph
 
 	lines := make([]string, 0, len(body)+2)
-	lines = append(lines, top)
+	lines = append(lines, headLine)
 	for _, line := range body {
 		fitted := fitStyledLine(line, innerWidth)
 		if tiny {
 			lines = append(lines, fitted)
 			continue
 		}
-		pad := zeroTheme.panel.Render(strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted))))
-		lines = append(lines, borderStyle.Render("│ ")+fitted+pad+borderStyle.Render(" │"))
+		// Fill to the full card width (not just innerWidth) so the panel band
+		// reads as one solid block now that there is no right border; the extra
+		// two cells are bare panel background.
+		pad := zeroTheme.panel.Render(strings.Repeat(" ", maxInt(0, width-railWidth-lipgloss.Width(fitted))))
+		lines = append(lines, rail+fitted+pad)
 	}
 
-	switch {
-	case tiny && strings.TrimSpace(footer) == "":
-		lines = append(lines, borderStyle.Render(strings.Repeat("─", width)))
-	case tiny:
-		footer = fitStyledLine(footer, width-4)
-		lines = append(lines, footer+" "+borderStyle.Render(strings.Repeat("─", maxInt(1, width-1-lipgloss.Width(footer)))))
-	case strings.TrimSpace(footer) == "":
-		lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", width-2)+"╯"))
-	default:
-		footer = fitStyledLine(footer, width-6)
-		dashes = maxInt(1, width-4-lipgloss.Width(footer))
-		lines = append(lines, borderStyle.Render("╰ ")+footer+" "+borderStyle.Render(strings.Repeat("─", dashes)+"╯"))
+	if strings.TrimSpace(footer) != "" {
+		fittedFooter := fitStyledLine(footer, width-railWidth)
+		if tiny {
+			lines = append(lines, fittedFooter)
+		} else {
+			pad := zeroTheme.panel.Render(strings.Repeat(" ", maxInt(0, width-railWidth-lipgloss.Width(fittedFooter))))
+			lines = append(lines, rail+fittedFooter+pad)
+		}
 	}
 	return strings.Join(lines, "\n")
 }

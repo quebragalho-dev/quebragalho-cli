@@ -1662,6 +1662,15 @@ func (m model) pinnedTitleBar(width int) string {
 
 func (m model) footerView(width int) string {
 	var footer strings.Builder
+	// Pinned plan panel: sits directly above the composer so it stays visible
+	// while the transcript scrolls underneath (a streaming turn no longer pushes
+	// the plan off-screen). Budgeted to at most a third of the screen height; a
+	// taller plan collapses to a one-line summary so the composer always stays
+	// on screen.
+	if plan := m.renderPinnedPlanPanel(width, m.pinnedPlanMaxHeight()); plan != "" {
+		footer.WriteString(plan)
+		footer.WriteString("\n")
+	}
 	if copyStatus := strings.TrimSpace(m.copyStatus); copyStatus != "" {
 		footer.WriteString(rightAlignedLine(zeroTheme.ink.Render(copyStatus), width))
 		footer.WriteString("\n")
@@ -1680,6 +1689,21 @@ func (m model) footerView(width int) string {
 	footer.WriteString("\n")
 	footer.WriteString(m.statusLine(width))
 	return footer.String()
+}
+
+// pinnedPlanMaxHeight is the line budget for the pinned plan panel: at most a
+// third of the screen, so even a long plan can't crowd out the transcript or
+// the composer. Beyond this the panel collapses to its one-line summary. Falls
+// back to a generous cap when the height isn't known yet (unmeasured/headless).
+func (m model) pinnedPlanMaxHeight() int {
+	if m.height <= 0 {
+		return 12
+	}
+	budget := m.height / 3
+	if budget < 3 {
+		budget = 3
+	}
+	return budget
 }
 
 type tuiRect struct {
@@ -2508,6 +2532,14 @@ func startsTurn(kind rowKind) bool {
 	default:
 		return false
 	}
+}
+
+// isToolCardKind reports whether a row renders as a tool card (a running call or
+// its collapsed result). Used to add one blank line between consecutive tool
+// cards in a turn. Specialist cards are excluded — they own their own grouping
+// (summary line + injected spacing) and must not be double-spaced.
+func isToolCardKind(kind rowKind) bool {
+	return kind == rowToolCall || kind == rowToolResult
 }
 
 func (m model) handlePermissionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -3516,10 +3548,16 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 
 		onPermission := options.OnPermission
 		options.OnPermission = func(event agent.PermissionEvent) {
-			row := permissionTranscriptRow(event)
-			row.runID = runID
-			rows = append(rows, row)
-			m.sendAgentRow(runID, row)
+			// The audit event is recorded for every call so the session log stays
+			// complete; the visible row is only emitted when the event carries
+			// user-facing information (a real prompt, a denial, an explicit durable
+			// grant), not for silent auto-approvals.
+			if permissionEventIsNoteworthy(event) {
+				row := permissionTranscriptRow(event)
+				row.runID = runID
+				rows = append(rows, row)
+				m.sendAgentRow(runID, row)
+			}
 			sessionEvents = append(sessionEvents, pendingSessionEvent{
 				Type:    tuiPermissionEventType(event),
 				Payload: event,
