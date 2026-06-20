@@ -42,28 +42,37 @@ func runBashToolHelper(command string) {
 	case "sleep":
 		time.Sleep(250 * time.Millisecond)
 		fmt.Println("woke up")
+	case "long-sleep":
+		time.Sleep(5 * time.Second)
+		fmt.Println("long sleep finished")
 	default:
 		fmt.Fprintln(os.Stderr, "unknown helper command")
 		os.Exit(2)
 	}
 }
 
-func TestCoreToolsExposeBashTool(t *testing.T) {
+func TestCoreToolsExposeShellTools(t *testing.T) {
 	toolset := CoreTools(t.TempDir())
 	byName := make(map[string]Tool, len(toolset))
 	for _, tool := range toolset {
 		byName[tool.Name()] = tool
 	}
 
-	tool, ok := byName["bash"]
-	if !ok {
-		t.Fatalf("expected core tools to include bash")
-	}
-	if tool.Safety().SideEffect != SideEffectShell {
-		t.Fatalf("bash side effect = %s, want shell", tool.Safety().SideEffect)
-	}
-	if tool.Safety().Permission != PermissionPrompt {
-		t.Fatalf("bash permission = %s, want prompt", tool.Safety().Permission)
+	for _, name := range []string{"exec_command", "write_stdin", "bash"} {
+		tool, ok := byName[name]
+		if !ok {
+			t.Fatalf("expected core tools to include %s", name)
+		}
+		if tool.Safety().SideEffect != SideEffectShell {
+			t.Fatalf("%s side effect = %s, want shell", name, tool.Safety().SideEffect)
+		}
+		wantPermission := PermissionPrompt
+		if tool.Safety().Permission != wantPermission {
+			t.Fatalf("%s permission = %s, want %s", name, tool.Safety().Permission, wantPermission)
+		}
+		if name == "write_stdin" && !tool.Safety().AdvertiseInAuto {
+			t.Fatalf("write_stdin should stay visible in auto mode for polling and interrupts")
+		}
 	}
 }
 

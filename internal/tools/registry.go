@@ -100,14 +100,20 @@ func (registry *Registry) RunWithOptions(ctx context.Context, name string, args 
 	if !ok {
 		return errorResult(`Error: Unknown tool "` + name + `".`)
 	}
+	if rejecter, ok := tool.(PrePermissionRejecter); ok {
+		if res, rejected := rejecter.RejectBeforePermission(args); rejected {
+			return res
+		}
+	}
 
+	permission := effectiveToolPermission(tool, args)
 	sandboxGrantAuthorized := false
 	var sandboxDecision *sandbox.Decision
 	if options.Sandbox != nil {
 		d := options.Sandbox.Evaluate(ctx, sandbox.Request{
 			ToolName:          name,
 			SideEffect:        sandbox.SideEffect(tool.Safety().SideEffect),
-			Permission:        sandbox.Permission(tool.Safety().Permission),
+			Permission:        sandbox.Permission(permission),
 			PermissionGranted: options.PermissionGranted,
 			PermissionMode:    sandbox.PermissionMode(options.PermissionMode),
 			Args:              args,
@@ -130,7 +136,7 @@ func (registry *Registry) RunWithOptions(ctx context.Context, name string, args 
 		sandboxGrantAuthorized = d.Action == sandbox.ActionAllow && (d.GrantMatched || d.AutoAllowed)
 	}
 
-	switch tool.Safety().Permission {
+	switch permission {
 	case PermissionAllow:
 	case PermissionPrompt:
 		if !options.PermissionGranted && !sandboxGrantAuthorized {
@@ -162,6 +168,13 @@ func (registry *Registry) RunWithOptions(ctx context.Context, name string, args 
 	res := tool.Run(ctx, args)
 	res.SandboxDecision = sandboxDecision
 	return res
+}
+
+func effectiveToolPermission(tool Tool, args map[string]any) Permission {
+	if permissioner, ok := tool.(ArgsPermissioner); ok {
+		return permissioner.PermissionForArgs(args)
+	}
+	return tool.Safety().Permission
 }
 
 // scrubResultSecrets redacts known secret forms from a tool result's Output at
@@ -218,7 +231,10 @@ func CoreWriteToolsScoped(workspaceRoot string, scope PathScope) []Tool {
 
 func CoreShellTools(workspaceRoot string) []Tool { return CoreShellToolsScoped(workspaceRoot, nil) }
 func CoreShellToolsScoped(workspaceRoot string, scope PathScope) []Tool {
+	execManager := newExecSessionManager()
 	return []Tool{
+		NewScopedExecCommandTool(workspaceRoot, scope, execManager),
+		NewWriteStdinTool(execManager),
 		NewScopedBashTool(workspaceRoot, scope),
 	}
 }
