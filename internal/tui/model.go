@@ -36,6 +36,8 @@ import (
 const tuiToolOutputLimit = 240
 const defaultResponseStyle = "balanced"
 const chatWheelScrollLines = 5
+const ctrlCExitConfirmDuration = 3 * time.Second
+const ctrlCExitConfirmText = "Press Ctrl+C again to exit"
 
 type model struct {
 	ctx                    context.Context
@@ -114,6 +116,7 @@ type model struct {
 	composerActive        bool
 	composerCursorVisible bool
 	composerPastePreviews []composerPastePreview
+	composerSelection     composerSelectionState
 	// plan holds the sticky plan panel state (steps, expansion, timings)
 	// synced from the update_plan tool. See plan_panel.go.
 	plan        planPanelState
@@ -234,6 +237,8 @@ type model struct {
 	transcriptSelection transcriptSelectionState
 	copyStatus          string
 	copyStatusSeq       int
+	exitConfirmActive   bool
+	exitConfirmSeq      int
 
 	// picker, when non-nil, is an open interactive selector overlay (/model,
 	// /effort, /mode with no argument). It captures ↑/↓/Enter/Esc and applies
@@ -270,6 +275,10 @@ type model struct {
 type agentTextMsg struct {
 	runID int
 	delta string
+}
+
+type exitConfirmExpiredMsg struct {
+	seq int
 }
 
 // toolCallStreamStartMsg / toolCallStreamDeltaMsg carry a tool call's live
@@ -669,6 +678,41 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
+func (m model) handleCtrlC() (tea.Model, tea.Cmd) {
+	if !m.pending && m.composerValue() != "" && m.noBlockingModal() && !m.transcriptDetailed && !m.subchat.active {
+		m.clearComposer()
+		m.clearSuggestions()
+		m = m.disarmExitConfirmation()
+		return m, nil
+	}
+	if m.exitConfirmActive {
+		m = m.disarmExitConfirmation()
+		m.cancelRun()
+		m.exiting = true
+		// A cancelled run may still need to flush checkpoint/session events; quit
+		// only after agentResponseMsg drains flushRunIDs so /rewind stays valid.
+		if len(m.flushRunIDs) > 0 {
+			return m, nil
+		}
+		return m.quit()
+	}
+	m.cancelRun()
+	m.exitConfirmActive = true
+	m.exitConfirmSeq++
+	seq := m.exitConfirmSeq
+	return m, tea.Tick(ctrlCExitConfirmDuration, func(time.Time) tea.Msg {
+		return exitConfirmExpiredMsg{seq: seq}
+	})
+}
+
+func (m model) disarmExitConfirmation() model {
+	if m.exitConfirmActive {
+		m.exitConfirmActive = false
+		m.exitConfirmSeq++
+	}
+	return m
+}
+
 // Update routes every message through updateModel, then advances the flush
 // frontier for inline rendering. Alt-screen runs keep rows in the managed view
 // instead of printing into terminal scrollback (see flush.go).
@@ -742,6 +786,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.copyStatus = ""
 		}
 		return m, nil
+	case exitConfirmExpiredMsg:
+		if msg.seq == m.exitConfirmSeq {
+			m.exitConfirmActive = false
+		}
+		return m, nil
 	case providerWizardOAuthMsg:
 		return m.applyProviderWizardOAuth(msg)
 	case providerWizardDeviceCodeMsg:
@@ -778,7 +827,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleSetupKey(msg)
 		}
 		m.transcriptSelection = transcriptSelectionState{}
+		m.composerSelection = composerSelectionState{}
 		m.clearMouseSelection()
+		if !keyCtrl(msg, 'c') {
+			m = m.disarmExitConfirmation()
+		}
 		// The `?` help overlay is modal: `?`, Esc, q, or Enter close it; every
 		// other key is swallowed so nothing types into the hidden composer.
 		if m.helpOverlay {
@@ -789,23 +842,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case keyCtrl(msg, 'c'):
-			// cancelRun records the in-flight run into flushRunIDs and writes the
-			// "Run cancelled." marker, exactly like the Esc path. While ANY cancelled
-			// run is still flushing we must NOT quit yet: each cancelled goroutine
-			// returns its accumulated session events (including the
-			// EventSessionCheckpoint blobs it already wrote to disk before each
-			// mutating tool) in a final agentResponseMsg, and quitting now would drop
-			// that message, orphaning the checkpoints and breaking /rewind. This
-			// covers both a run cancelled BY this Ctrl+C and one cancelled by an
-			// earlier Esc whose flush hasn't landed (m.pending is already false then,
-			// but flushRunIDs is not empty). The agentResponseMsg handler fires
-			// tea.Quit once flushRunIDs drains.
-			m.cancelRun()
-			m.exiting = true
-			if len(m.flushRunIDs) > 0 {
-				return m, nil
-			}
-			return m.quit()
+			return m.handleCtrlC()
 		case keyCtrl(msg, 'o'):
 			return m.toggleDetailedTranscript(), nil
 		case keyCtrl(msg, 'e'):
@@ -2207,7 +2244,15 @@ func (m model) composerLine(width int) string {
 	}
 	previews := validComposerPastePreviews(state, m.composerPastePreviews)
 	displayState := composerDisplayStateForPastePreviews(state, previews)
-	return renderComposerInput(input, displayState, width, m.composerCursorVisible)
+	displaySelection := composerSelectionState{}
+	if start, end, ok := m.composerSelection.rangeFor(state); ok {
+		displaySelection = composerSelectionState{
+			active: true,
+			anchor: composerDisplayCursorForPastePreviews(start, previews),
+			cursor: composerDisplayCursorForPastePreviews(end, previews),
+		}
+	}
+	return renderComposerInput(input, displayState, width, m.composerCursorVisible, displaySelection)
 }
 
 type composerVisualLine struct {
@@ -2216,7 +2261,7 @@ type composerVisualLine struct {
 	end   int
 }
 
-func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool) string {
+func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool, selection composerSelectionState) string {
 	state = normalizeComposerState(state)
 	if width <= 0 {
 		return ""
@@ -2232,23 +2277,28 @@ func renderComposerInput(input textinput.Model, state composerState, width int, 
 		return fitStyledLine(composerVisualLinePrefix(input, true)+cursor+zeroTheme.faint.Render(input.Placeholder), width)
 	}
 
-	segments := composerWrappedVisualLines(input, state, width)
-	cursorLine := composerCursorVisualLine(segments, state.cursor)
-	if len(segments) > composerMaxVisibleLines {
-		start := clamp(cursorLine-composerMaxVisibleLines+1, 0, len(segments)-composerMaxVisibleLines)
-		end := start + composerMaxVisibleLines
-		cursorLine -= start
-		segments = segments[start:end]
-		if len(segments) > 0 {
-			segments[0].first = true
-		}
-	}
-
+	segments, cursorLine := composerVisibleVisualLines(input, state, width)
 	lines := make([]string, 0, len(segments))
 	for index, segment := range segments {
-		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible), width))
+		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible, selection), width))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func composerVisibleVisualLines(input textinput.Model, state composerState, width int) ([]composerVisualLine, int) {
+	segments := composerWrappedVisualLines(input, state, width)
+	cursorLine := composerCursorVisualLine(segments, state.cursor)
+	if len(segments) <= composerMaxVisibleLines {
+		return segments, cursorLine
+	}
+	start := clamp(cursorLine-composerMaxVisibleLines+1, 0, len(segments)-composerMaxVisibleLines)
+	end := start + composerMaxVisibleLines
+	cursorLine -= start
+	segments = segments[start:end]
+	if len(segments) > 0 {
+		segments[0].first = true
+	}
+	return segments, cursorLine
 }
 
 func composerWrappedVisualLines(input textinput.Model, state composerState, width int) []composerVisualLine {
@@ -2312,33 +2362,33 @@ func composerCursorVisualLine(segments []composerVisualLine, cursor int) int {
 	return len(segments) - 1
 }
 
-func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool) string {
+func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState) string {
 	runes := []rune(state.text)
 	prefix := composerVisualLinePrefix(input, segment.first)
 	textStyle := zeroTheme.ink.Inline(true)
-	if !hasCursor {
-		return prefix + textStyle.Render(string(runes[segment.start:segment.end]))
+	selectionStart, selectionEnd, hasSelection := selection.rangeFor(state)
+	cursorIndex := -1
+	if hasCursor && !hasSelection {
+		cursorIndex = clamp(state.cursor, segment.start, segment.end)
 	}
 
-	offset := clamp(state.cursor-segment.start, 0, segment.end-segment.start)
-	cursorIndex := segment.start + offset
-	before := string(runes[segment.start:cursorIndex])
-	if cursorIndex < segment.end {
-		cursorChar := string(runes[cursorIndex])
-		after := string(runes[cursorIndex+1 : segment.end])
-		// Blinked off: draw the character normally (no caret highlight).
-		cell := textStyle.Render(cursorChar)
-		if cursorVisible {
-			cell = composerCursor(cursorChar)
+	var line strings.Builder
+	line.WriteString(prefix)
+	for index := segment.start; index < segment.end; index++ {
+		cell := string(runes[index])
+		switch {
+		case index == cursorIndex && cursorVisible:
+			line.WriteString(composerCursor(cell))
+		case hasSelection && index >= selectionStart && index < selectionEnd:
+			line.WriteString(zeroTheme.selection.Render(cell))
+		default:
+			line.WriteString(textStyle.Render(cell))
 		}
-		return prefix + textStyle.Render(before) + cell + textStyle.Render(after)
 	}
-	// Cursor at end of line: a caret block when on, nothing when blinked off.
-	end := ""
-	if cursorVisible {
-		end = composerCursor(" ")
+	if cursorIndex == segment.end && cursorVisible {
+		line.WriteString(composerCursor(" "))
 	}
-	return prefix + textStyle.Render(before) + end
+	return line.String()
 }
 
 func composerVisualLinePrefix(input textinput.Model, first bool) string {

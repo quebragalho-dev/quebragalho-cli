@@ -1577,17 +1577,130 @@ func TestShiftTabDoesNotCycleWhileModalsActive(t *testing.T) {
 	})
 }
 
-func TestCtrlCExits(t *testing.T) {
-	m := newModel(context.Background(), Options{})
+func TestCtrlCRequiresSecondPressToExit(t *testing.T) {
+	m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
 
 	updated, cmd := m.Update(testKeyCtrl('c'))
 	next := updated.(model)
 
-	if !next.exiting {
-		t.Fatal("expected Ctrl+C to mark model exiting")
+	if next.exiting {
+		t.Fatal("first Ctrl+C should not mark model exiting")
+	}
+	if !next.exitConfirmActive {
+		t.Fatal("first Ctrl+C should arm exit confirmation")
 	}
 	if cmd == nil {
-		t.Fatal("expected Ctrl+C to return quit command")
+		t.Fatal("first Ctrl+C should schedule confirmation expiry")
+	}
+	status := plainRender(t, next.statusLine(80))
+	if !strings.Contains(status, ctrlCExitConfirmText) {
+		t.Fatalf("status line = %q, want exit confirmation", status)
+	}
+	if strings.Contains(status, "tokenrouter") {
+		t.Fatalf("status line = %q, should replace provider while exit confirmation is active", status)
+	}
+
+	updated, cmd = next.Update(testKeyCtrl('c'))
+	next = updated.(model)
+	if !next.exiting {
+		t.Fatal("second Ctrl+C should mark model exiting")
+	}
+	if cmd == nil {
+		t.Fatal("second Ctrl+C should return quit command")
+	}
+}
+
+func TestCtrlCExitConfirmationDisarmsOnInterveningKey(t *testing.T) {
+	m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
+
+	updated, _ := m.Update(testKeyCtrl('c'))
+	next := updated.(model)
+	if !next.exitConfirmActive {
+		t.Fatal("first Ctrl+C should arm exit confirmation")
+	}
+	seq := next.exitConfirmSeq
+
+	updated, cmd := next.Update(testKey(tea.KeyLeft))
+	next = updated.(model)
+	if cmd != nil {
+		t.Fatal("intervening navigation key should not return a command")
+	}
+	if next.exitConfirmActive {
+		t.Fatal("intervening non-Ctrl+C key should disarm exit confirmation")
+	}
+	if next.exitConfirmSeq == seq {
+		t.Fatal("disarming should advance the sequence so stale expiry ticks are ignored")
+	}
+
+	updated, cmd = next.Update(testKeyCtrl('c'))
+	next = updated.(model)
+	if next.exiting {
+		t.Fatal("Ctrl+C after an intervening key should re-arm, not exit")
+	}
+	if !next.exitConfirmActive {
+		t.Fatal("Ctrl+C after an intervening key should arm a fresh confirmation")
+	}
+	if cmd == nil {
+		t.Fatal("fresh Ctrl+C confirmation should schedule expiry")
+	}
+}
+
+func TestCtrlCClearsComposerBeforeExitConfirmation(t *testing.T) {
+	m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
+	m.input.SetValue("draft prompt")
+	m.recomputeSuggestions()
+
+	updated, cmd := m.Update(testKeyCtrl('c'))
+	next := updated.(model)
+
+	if cmd != nil {
+		t.Fatal("Ctrl+C with a draft should clear the composer without scheduling exit confirmation")
+	}
+	if next.composerValue() != "" {
+		t.Fatalf("composer value = %q, want empty after Ctrl+C", next.composerValue())
+	}
+	if next.exitConfirmActive {
+		t.Fatal("Ctrl+C with a draft should not arm exit confirmation")
+	}
+	if next.exiting {
+		t.Fatal("Ctrl+C with a draft should not mark model exiting")
+	}
+	status := plainRender(t, next.statusLine(80))
+	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "tokenrouter") {
+		t.Fatalf("status line = %q, want provider restored with no exit confirmation", status)
+	}
+
+	updated, cmd = next.Update(testKeyCtrl('c'))
+	next = updated.(model)
+	if !next.exitConfirmActive {
+		t.Fatal("Ctrl+C on an empty composer should arm exit confirmation")
+	}
+	if cmd == nil {
+		t.Fatal("Ctrl+C on an empty composer should schedule confirmation expiry")
+	}
+}
+
+func TestCtrlCExitConfirmationExpires(t *testing.T) {
+	m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
+
+	updated, _ := m.Update(testKeyCtrl('c'))
+	next := updated.(model)
+	seq := next.exitConfirmSeq
+
+	updated, _ = next.Update(exitConfirmExpiredMsg{seq: seq - 1})
+	next = updated.(model)
+	if !next.exitConfirmActive {
+		t.Fatal("stale expiry should not clear active exit confirmation")
+	}
+
+	updated, _ = next.Update(exitConfirmExpiredMsg{seq: seq})
+	next = updated.(model)
+	if next.exitConfirmActive {
+		t.Fatal("matching expiry should clear exit confirmation")
+	}
+	status := plainRender(t, next.statusLine(80))
+	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "tokenrouter") {
+		t.Fatalf("status line after expiry = %q, want provider restored", status)
 	}
 }
 

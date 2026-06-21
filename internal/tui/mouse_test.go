@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/Gitlawb/zero/internal/config"
+	"github.com/Gitlawb/zero/internal/tools"
 )
 
 func TestMouseClickSelectsThenAppliesCommandSuggestionRow(t *testing.T) {
@@ -229,6 +231,89 @@ func TestMouseCaptureOnEmptyChatSplash(t *testing.T) {
 	}
 }
 
+func TestComposerMouseClickMovesCursor(t *testing.T) {
+	m := mouseTestModel()
+	m.input.SetValue("hello world")
+	m.input.CursorEnd()
+	x, y := composerMousePoint(t, m, 5)
+
+	updated, cmd := m.Update(testMouseClick(tea.MouseLeft, x, y))
+	next := updated.(model)
+	if cmd != nil {
+		t.Fatal("composer click should not return a command")
+	}
+	if got := next.currentComposerState().cursor; got != 5 {
+		t.Fatalf("composer cursor = %d, want 5", got)
+	}
+	if text := next.selectedComposerText(); text != "" {
+		t.Fatalf("composer click should not select text, got %q", text)
+	}
+}
+
+func TestComposerMouseDragSelectsCopiesAndClears(t *testing.T) {
+	m := mouseTestModel()
+	m.input.SetValue("hello world")
+	startX, y := composerMousePoint(t, m, 0)
+	endX, _ := composerMousePoint(t, m, 5)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, startX, y))
+	next := updated.(model)
+	updated, _ = next.Update(testMouseMotion(tea.MouseLeft, endX, y))
+	next = updated.(model)
+	if got := next.selectedComposerText(); got != "hello" {
+		t.Fatalf("selectedComposerText() = %q, want hello", got)
+	}
+
+	updated, cmd := next.Update(testMouseRelease(tea.MouseNone, endX, y))
+	next = updated.(model)
+	if cmd == nil {
+		t.Fatal("composer drag release should return copy command")
+	}
+	if next.composerSelection.active {
+		t.Fatal("composer selection should clear automatically after release")
+	}
+	if got := next.currentComposerState().cursor; got != 5 {
+		t.Fatalf("composer cursor after release = %d, want 5", got)
+	}
+}
+
+func TestComposerMouseSelectionBlockedWhileSuggestionsOpen(t *testing.T) {
+	m := mouseTestModel()
+	m = typeRunes(t, m, "/sp")
+	if !m.suggestionsActive() {
+		t.Fatalf("expected suggestions to be open, got %#v", m.suggestions)
+	}
+	initial := m.currentComposerState()
+	startX, y := composerMousePoint(t, m, 0)
+	endX, _ := composerMousePoint(t, m, 2)
+
+	updated, cmd := m.Update(testMouseClick(tea.MouseLeft, startX, y))
+	next := updated.(model)
+	if cmd != nil {
+		t.Fatal("composer click behind suggestions should not return a command")
+	}
+	if next.composerSelection.active {
+		t.Fatal("composer selection should not start while suggestions are open")
+	}
+	if got := next.currentComposerState().cursor; got != initial.cursor {
+		t.Fatalf("composer cursor changed behind suggestions: got %d want %d", got, initial.cursor)
+	}
+
+	updated, cmd = next.Update(testMouseMotion(tea.MouseLeft, endX, y))
+	next = updated.(model)
+	if cmd != nil {
+		t.Fatal("composer drag behind suggestions should not return a command")
+	}
+	updated, cmd = next.Update(testMouseRelease(tea.MouseNone, endX, y))
+	next = updated.(model)
+	if cmd != nil {
+		t.Fatal("composer release behind suggestions should not copy")
+	}
+	if next.composerSelection.active {
+		t.Fatal("composer selection should remain inactive while suggestions are open")
+	}
+}
+
 func TestTranscriptSelectionOnlyStartsOnTranscriptText(t *testing.T) {
 	m := mouseTestModel()
 	m.mouseCapture = true
@@ -336,6 +421,47 @@ func TestTranscriptSelectionClearsAfterCopy(t *testing.T) {
 	}
 	if next.copyStatus != "Copied!" {
 		t.Fatalf("copyStatus = %q, want Copied!", next.copyStatus)
+	}
+}
+
+func TestTranscriptSelectionIncludesToolResultBody(t *testing.T) {
+	m := mouseTestModel()
+	m.mouseCapture = true
+	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowToolCall, id: "call_1", tool: "bash", detail: "go build ./..."})
+	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
+		kind:   rowToolResult,
+		id:     "call_1",
+		tool:   "bash",
+		status: tools.StatusError,
+		detail: "stdout:\nok build\nstderr:\nwarning: slow\nexit_code: 1",
+	})
+
+	line := transcriptSelectableLineContaining(t, m, "warning: slow")
+	m.transcriptSelection = transcriptSelectionState{
+		active: true,
+		anchor: transcriptSelectionPoint{bodyY: line.bodyY, x: line.textStart},
+		cursor: transcriptSelectionPoint{bodyY: line.bodyY, x: line.textStart + lipgloss.Width(line.text)},
+	}
+
+	if got := m.selectedTranscriptText(); strings.TrimSpace(got) != "warning: slow" {
+		t.Fatalf("selectedTranscriptText() = %q, want warning: slow", got)
+	}
+}
+
+func TestTranscriptSelectionIncludesErrorRows(t *testing.T) {
+	m := mouseTestModel()
+	m.mouseCapture = true
+	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "provider stream error: connection reset"})
+
+	line := transcriptSelectableLineContaining(t, m, "provider stream error")
+	m.transcriptSelection = transcriptSelectionState{
+		active: true,
+		anchor: transcriptSelectionPoint{bodyY: line.bodyY, x: line.textStart},
+		cursor: transcriptSelectionPoint{bodyY: line.bodyY, x: line.textStart + lipgloss.Width(line.text)},
+	}
+
+	if got := m.selectedTranscriptText(); got != "provider stream error: connection reset" {
+		t.Fatalf("selectedTranscriptText() = %q, want provider stream error: connection reset", got)
 	}
 }
 
@@ -573,6 +699,35 @@ func firstTranscriptTextMousePoint(t *testing.T, m model) (int, int) {
 	}
 	t.Fatalf("no selectable transcript text line found: %#v", selectable)
 	return 0, 0
+}
+
+func transcriptSelectableLineContaining(t *testing.T, m model, text string) transcriptSelectableLine {
+	t.Helper()
+	width := chatWidth(m.width)
+	layout := m.transcriptBodyLayout(width, "")
+	for _, line := range layout.selectable {
+		if strings.Contains(line.text, text) {
+			return line
+		}
+	}
+	t.Fatalf("no selectable transcript line containing %q found: %#v", text, layout.selectable)
+	return transcriptSelectableLine{}
+}
+
+func composerMousePoint(t *testing.T, m model, column int) (int, int) {
+	t.Helper()
+	width := chatWidth(m.width)
+	frame := m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width))
+	if frame.composerRect.height <= 0 {
+		t.Fatalf("expected visible composer rect, frame=%#v", frame)
+	}
+	contentY := 1
+	if renderAttachmentChips(m.pendingImageLabels, m.pendingDocuments) != "" {
+		contentY++
+	}
+	x := frame.composerRect.x + 2 + lipgloss.Width(composerVisualLinePrefix(m.input, true)) + column
+	y := frame.composerRect.y + contentY
+	return x, y
 }
 
 func mouseTestModel() model {
