@@ -231,6 +231,101 @@ func TestSandboxExecProfileIncludesExtraWriteRoots(t *testing.T) {
 	}
 }
 
+func TestSeatbeltProfileGrantsAncestorMetadataForTraversal(t *testing.T) {
+	// A deeply-nested workspace: the (subpath …) read filter grants the root and
+	// its descendants but not its parents, so resolving `cd /Users/me/proj/app`
+	// must stat /Users, /Users/me, /Users/me/proj — none of which are granted by
+	// the subpath alone. Seatbelt then denies the chdir and reports the misleading
+	// "Not a directory". The path-ancestors metadata grant fixes the traversal.
+	profile := PermissionProfile{
+		FileSystem: FileSystemPolicy{
+			Kind:                 FileSystemRestricted,
+			ReadRoots:            []string{"/Users/me/proj/app"},
+			WriteRoots:           []WritableRoot{{Root: "/Users/me/proj/app"}},
+			IncludePlatformRoots: true,
+		},
+		Network: NetworkPolicy{Mode: NetworkDeny},
+	}
+	sbpl := seatbeltProfileFromPermissionProfile(profile, Policy{Mode: ModeEnforce}, "")
+	if !strings.Contains(sbpl, "(allow file-read-metadata file-test-existence") {
+		t.Fatalf("profile missing ancestor metadata rule:\n%s", sbpl)
+	}
+	if !strings.Contains(sbpl, `(path-ancestors "/Users/me/proj/app")`) {
+		t.Fatalf("profile missing path-ancestors for the workspace read root:\n%s", sbpl)
+	}
+	// Metadata only — the ancestors must NOT get a content-read (subpath) grant.
+	if strings.Contains(sbpl, `file-read-data`) && strings.Contains(sbpl, `(path-ancestors`) {
+		// guard against a future change that widens the ancestor grant to data
+		if strings.Contains(sbpl, `file-read* file-test-existence file-read-data`) {
+			t.Fatalf("ancestor grant must stay metadata-only:\n%s", sbpl)
+		}
+	}
+}
+
+func TestSeatbeltAncestorRuleSkipsFilesystemRoot(t *testing.T) {
+	// A "/" read root has no ancestors; (path-ancestors "/") is invalid SBPL and
+	// makes sandbox-exec abort (exit 65), so the rule must skip it entirely.
+	if rule := seatbeltAncestorMetadataRule([]string{"/"}); rule != "" {
+		t.Fatalf(`expected no ancestor rule for "/", got: %q`, rule)
+	}
+	// Mixed roots: a real root still gets its grant; "/" is dropped.
+	rule := seatbeltAncestorMetadataRule([]string{"/", "/Users/me/app"})
+	if strings.Contains(rule, `(path-ancestors "/")`) {
+		t.Fatalf(`rule must not contain (path-ancestors "/"): %q`, rule)
+	}
+	if !strings.Contains(rule, `(path-ancestors "/Users/me/app")`) {
+		t.Fatalf("expected ancestor grant for the real root: %q", rule)
+	}
+	// The compat builder hard-codes ReadRoots=["/"] and flips to restricted under
+	// EnforceWorkspace — the generated profile must not contain the malformed rule.
+	compat := sandboxExecProfile([]string{"/ws"}, Policy{Mode: ModeEnforce, EnforceWorkspace: true}, "")
+	if strings.Contains(compat, `(path-ancestors "/")`) {
+		t.Fatalf("compat profile must not contain (path-ancestors \"/\"):\n%s", compat)
+	}
+}
+
+func TestSeatbeltProfileGrantsCLTToolchain(t *testing.T) {
+	// /usr/bin/git, clang, make, etc. are stubs that resolve the real binary under
+	// the active developer dir (/Library/Developer/CommandLineTools). The platform
+	// read roots must include it or the stub fails with "xcode-select: No developer
+	// tools were found".
+	profile := PermissionProfile{
+		FileSystem: FileSystemPolicy{Kind: FileSystemRestricted, ReadRoots: []string{"/ws"}, IncludePlatformRoots: true},
+		Network:    NetworkPolicy{Mode: NetworkDeny},
+	}
+	sbpl := seatbeltProfileFromPermissionProfile(profile, Policy{Mode: ModeEnforce}, "")
+	if !strings.Contains(sbpl, `(subpath "/Library/Developer")`) {
+		t.Fatalf("profile must grant read on the CLT toolchain (/Library/Developer):\n%s", sbpl)
+	}
+	// /Library/Developer is not top-level, so its ancestor (/Library) must be
+	// stat-able or a chdir-style traversal into the toolchain ENOTDIRs even though
+	// reads succeed. Platform read roots must get the ancestor-metadata grant too.
+	if !strings.Contains(sbpl, `(path-ancestors "/Library/Developer")`) {
+		t.Fatalf("profile must grant ancestor metadata for /Library/Developer so /Library is traversable:\n%s", sbpl)
+	}
+}
+
+func TestUserGitConfigReadPathsScopedToConfigFiles(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		t.Skip("no home dir")
+	}
+	paths := userGitConfigReadPaths()
+	found := false
+	for _, p := range paths {
+		if p == filepath.Join(home, ".gitconfig") {
+			found = true
+		}
+		// Must NOT grant the whole ~/.config/git dir — it can hold a credential store.
+		if p == filepath.Join(home, ".config", "git") {
+			t.Fatalf("must not grant the ~/.config/git directory (credential store): %v", paths)
+		}
+	}
+	if !found {
+		t.Fatalf("expected ~/.gitconfig in git config read paths, got %v", paths)
+	}
+}
+
 func TestSeatbeltProfileConsumesPermissionProfile(t *testing.T) {
 	profile := PermissionProfile{
 		FileSystem: FileSystemPolicy{
@@ -408,9 +503,11 @@ func TestSandboxExecCommandPlanUsesUniquePerPlanDenialTag(t *testing.T) {
 func TestSandboxExecProfileGrantsSignalAndMachLookup(t *testing.T) {
 	profile := sandboxExecProfile([]string{"/ws"}, Policy{Mode: ModeEnforce, EnforceWorkspace: true}, "")
 
-	// Signalling own process group lets a sandboxed script kill the children it
-	// spawns; without it seatbelt denies kill() with "Operation not permitted".
-	if !strings.Contains(profile, "(allow signal (target self) (target pgrp))") {
+	// Signalling is allowed so a sandboxed command can kill the children it spawns
+	// AND user-owned processes the user asks it to terminate (e.g. a stale dev
+	// server from a previous session, in a different process group). The kernel
+	// still enforces UID ownership, so root/other-user processes stay protected.
+	if !strings.Contains(profile, "(allow signal)") {
 		t.Fatalf("profile missing signal allowance:\n%s", profile)
 	}
 	// Curated mach-lookup so keychain/opendirectory/preferences/network-config

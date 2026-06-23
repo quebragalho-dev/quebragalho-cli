@@ -553,7 +553,11 @@ func seatbeltProfileFromPermissionProfile(profile PermissionProfile, policy Poli
 		"(version 1)",
 		denyDefault,
 		"(allow process*)",
-		"(allow process-info* (target same-sandbox))",
+		// Process info for all processes so `ps`, `lsof`, `pgrep` and friends can find
+		// the processes the user asks the agent to inspect or terminate (e.g. a stale
+		// dev server). Read-only inspection; actually signalling them is governed by
+		// the signal rule below, and the kernel enforces UID ownership either way.
+		"(allow process-info*)",
 		"(allow sysctl-read)",
 		"(allow sysctl-write (sysctl-name \"kern.grade_cputype\"))",
 		"(allow iokit-open (iokit-registry-entry-class \"RootDomainUserClient\"))",
@@ -565,11 +569,14 @@ func seatbeltProfileFromPermissionProfile(profile PermissionProfile, policy Poli
 		`(allow file-ioctl (regex #"^/dev/ttys[0-9]+"))`,
 		"(allow ipc-posix-shm-read* (ipc-posix-name-prefix \"apple.cfprefs.\"))",
 		"(allow user-preference-read)",
-		// Let a sandboxed command signal itself and its own process group so scripts
-		// that spawn and kill children (e.g. `sleep 30 & kill %1`, test runners,
-		// timeouts) work. The target restriction keeps it from signalling any
-		// process outside its own group.
-		"(allow signal (target self) (target pgrp))",
+		// Let a sandboxed command send signals. This covers its own children (test
+		// runners, timeouts, `sleep 30 & kill %1`) AND user-owned processes the user
+		// asks the agent to terminate — e.g. a stale dev server left listening on a
+		// port by a previous session, which lives in a different process group and so
+		// was previously unkillable. The kernel still enforces UID ownership: a
+		// sandboxed command runs as the user, so it can only signal the user's own
+		// processes, never root's or another user's.
+		"(allow signal)",
 		sandboxMachLookupRule(),
 		seatbeltPlatformRuntimeRules(),
 		readRule,
@@ -586,7 +593,12 @@ func seatbeltReadRule(fs FileSystemPolicy) string {
 	if fs.Kind == FileSystemUnrestricted {
 		return "(allow file-read*)"
 	}
-	filters := make([]string, 0, len(fs.ReadRoots)+len(macosPlatformReadRoots()))
+	// The user's global git config files so a sandboxed git can read identity and
+	// config. Granted here (macOS seatbelt) rather than the cross-platform
+	// PermissionProfile so the HOME-dependent paths don't leak into the platform-
+	// agnostic policy snapshot.
+	gitConfig := normalizeProfilePaths(userGitConfigReadPaths())
+	filters := make([]string, 0, len(fs.ReadRoots)+len(macosPlatformReadRoots())+len(gitConfig))
 	for _, root := range fs.ReadRoots {
 		filters = appendSeatbeltSubpathFilter(filters, root)
 	}
@@ -595,10 +607,56 @@ func seatbeltReadRule(fs FileSystemPolicy) string {
 			filters = appendSeatbeltSubpathFilter(filters, root)
 		}
 	}
+	for _, path := range gitConfig {
+		filters = appendSeatbeltSubpathFilter(filters, path)
+	}
 	if len(filters) == 0 {
 		return ""
 	}
-	return "(allow file-read* file-test-existence\n  " + strings.Join(filters, "\n  ") + ")"
+	rule := "(allow file-read* file-test-existence\n  " + strings.Join(filters, "\n  ") + ")"
+	// Grant stat/existence on the ANCESTOR chain of every granted read root so path
+	// resolution can traverse down to it. A (subpath "/a/b/ws") filter grants the
+	// root and its descendants but NOT its parents (/a, /a/b), so resolving an
+	// absolute path like `cd /a/b/ws` (or any path the kernel canonicalises) is
+	// denied at the first ungranted parent — and macOS seatbelt surfaces that
+	// denial as the misleading "cd: …: Not a directory" (ENOTDIR), not a clear
+	// permission error. This is metadata only: ancestor directory *contents* stay
+	// unreadable. Platform read roots are included too: not all are top-level —
+	// /Library/Developer (the CLT toolchain) needs /Library stat-able, or a `cd`
+	// into it (and any chdir-style traversal) ENOTDIRs even though reads succeed.
+	ancestorRoots := append([]string{}, fs.ReadRoots...)
+	if fs.IncludePlatformRoots {
+		ancestorRoots = append(ancestorRoots, macosPlatformReadRoots()...)
+	}
+	ancestorRoots = append(ancestorRoots, gitConfig...)
+	if ancestors := seatbeltAncestorMetadataRule(ancestorRoots); ancestors != "" {
+		rule += "\n" + ancestors
+	}
+	return rule
+}
+
+// seatbeltAncestorMetadataRule allows stat/test-existence on the ancestor
+// directories of each root via the path-ancestors filter, so chdir and
+// absolute-path resolution can traverse to a deeply-nested granted root.
+func seatbeltAncestorMetadataRule(roots []string) string {
+	filters := make([]string, 0, len(roots))
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		// A filesystem/volume root (e.g. "/") has no ancestors, and (path-ancestors
+		// "/") is INVALID SBPL — sandbox-exec aborts and the command can't launch at
+		// all. Skip it; the root itself is already covered by its subpath read grant.
+		if clean := filepath.Clean(root); filepath.Dir(clean) == clean {
+			continue
+		}
+		filters = append(filters, `(path-ancestors "`+sandboxProfileString(root)+`")`)
+	}
+	if len(filters) == 0 {
+		return ""
+	}
+	return "(allow file-read-metadata file-test-existence\n  " + strings.Join(filters, "\n  ") + ")"
 }
 
 func seatbeltWriteRule(fs FileSystemPolicy) string {
@@ -768,6 +826,12 @@ func macosPlatformReadRoots() []string {
 		// readable; writes stay confined to the workspace.
 		"/usr/local",
 		"/opt/homebrew",
+		// Xcode Command Line Tools toolchain. /usr/bin/git (and clang, make, etc.)
+		// are thin stubs that resolve the real binary under the active developer
+		// dir — usually /Library/Developer/CommandLineTools. Without read+exec here
+		// the stub can't reach the real tool and fails with the misleading
+		// "xcode-select: No developer tools were found" error.
+		"/Library/Developer",
 		"/etc",
 		"/private/etc",
 		"/var/db",
