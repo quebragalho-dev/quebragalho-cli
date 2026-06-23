@@ -118,8 +118,54 @@ func (l transcriptBodyLayout) visibleLines(window transcriptViewportWindow) []st
 	return append([]string(nil), l.lines[start:end]...)
 }
 
+// padTranscriptBodyLines left-indents transcript body rows by gutter cells (the
+// reading-column margin). Horizontal only — it never changes the line count, so
+// the width-keyed height cache stays valid. Two-column mode right-pads the chat
+// block to the column width in joinColumns; single-column leaves the right blank.
+func padTranscriptBodyLines(lines []string, gutter int) []string {
+	if gutter <= 0 {
+		return lines
+	}
+	pad := strings.Repeat(" ", gutter)
+	for i := range lines {
+		lines[i] = pad + lines[i]
+	}
+	return lines
+}
+
+// shiftSelectableX bumps each selectable line's textStart by the gutter so
+// click-to-select and the highlight stay aligned with the indented glyphs (the
+// text now begins gutter cells further right on screen).
+func shiftSelectableX(lines []transcriptSelectableLine, gutter int) []transcriptSelectableLine {
+	if gutter <= 0 {
+		return lines
+	}
+	for i := range lines {
+		lines[i].textStart += gutter
+	}
+	return lines
+}
+
+// finalizeTranscriptBodyRow indents a rendered row by the reading-column gutter,
+// shifts its selectable spans to match, and THEN paints the selection highlight —
+// so the highlight is computed in the same shifted coordinate the mouse maps to
+// and lands exactly where the user selected (instead of gutter cells off).
+func (m model) finalizeTranscriptBodyRow(rendered string, selectable []transcriptSelectableLine, gutter int, startBodyY int) transcriptBodyRenderedItem {
+	lines := padTranscriptBodyLines(viewLines(rendered), gutter)
+	shifted := shiftSelectableX(selectable, gutter)
+	if m.transcriptSelection.active {
+		lines = viewLines(m.renderRenderedSelection(strings.Join(lines, "\n"), shifted, startBodyY))
+	}
+	return transcriptBodyRenderedItem{lines: lines, selectable: shifted}
+}
+
 func (m model) transcriptBodyItems(width int, emptyOverlay string) []transcriptBodyItem {
 	items := []transcriptBodyItem{}
+	// Transcript ROWS render in a reading column: wrapped to contentWidth and
+	// indented by gutter, so wide terminals don't run text edge-to-edge. Block
+	// items (title bar, empty state, prompts) keep the full column width below.
+	contentWidth := transcriptContentWidth(width)
+	gutter := transcriptGutter(width)
 
 	// The inline title bar prints once into scrollback on the first WindowSizeMsg;
 	// until then it renders managed so the surface never appears headless.
@@ -161,6 +207,13 @@ func (m model) transcriptBodyItems(width int, emptyOverlay string) []transcriptB
 			if shownAny && havePreviousKind && isToolCardKind(previousKind) && isToolCardKind(row.kind) {
 				items = append(items, transcriptBlankBodyItem())
 			}
+			// A "Thought for X" reasoning header opens the next think→act group, so
+			// give it a blank above when it follows a tool card. Reasoning interleaves
+			// the tool cards (tool → thought → tool …), which breaks the
+			// tool-card→tool-card rule above; without this the groups pack into a wall.
+			if shownAny && havePreviousKind && row.kind == rowReasoning && isToolCardKind(previousKind) {
+				items = append(items, transcriptBlankBodyItem())
+			}
 			// The plan panel is no longer injected inline here — it is pinned
 			// above the composer (see footerView) so a streaming turn can't push
 			// it off-screen.
@@ -188,15 +241,17 @@ func (m model) transcriptBodyItems(width int, emptyOverlay string) []transcriptB
 				}
 			}
 			rowIndex, transcriptRow := index, row
-			heightCacheKey, heightCacheStable := m.transcriptRowBodyHeightCacheKey(transcriptRow, width, rc)
+			// Key the height cache on contentWidth (the wrap width drives line count);
+			// the gutter is a horizontal-only post-pad and never changes height.
+			heightCacheKey, heightCacheStable := m.transcriptRowBodyHeightCacheKey(transcriptRow, contentWidth, rc)
 			items = append(items, transcriptBodyItem{
 				kind:              transcriptBodyItemRow,
 				rowIndex:          rowIndex,
 				heightCacheKey:    heightCacheKey,
 				heightCacheStable: heightCacheStable,
 				render: func(startBodyY int) transcriptBodyRenderedItem {
-					rendered, selectable := m.renderTranscriptRow(rowIndex, transcriptRow, width, rc, startBodyY)
-					return transcriptBodyRenderedItem{lines: viewLines(rendered), selectable: selectable}
+					rendered, selectable := m.renderTranscriptRow(rowIndex, transcriptRow, contentWidth, rc, startBodyY)
+					return m.finalizeTranscriptBodyRow(rendered, selectable, gutter, startBodyY)
 				},
 			})
 			shownAny = true
@@ -241,10 +296,9 @@ func (m model) transcriptBodyItems(width int, emptyOverlay string) []transcriptB
 				kind:     transcriptBodyItemPendingInterim,
 				rowIndex: -1,
 				render: func(startBodyY int) transcriptBodyRenderedItem {
-					return transcriptBodyRenderedItem{
-						lines:      viewLines(m.interimBlock(width)),
-						selectable: m.renderSelectableStreamingReasoning(width, startBodyY),
-					}
+					// Streaming text shares the reading column so it doesn't snap
+					// width when the turn finalizes into a row.
+					return m.finalizeTranscriptBodyRow(m.interimBlock(contentWidth), m.renderSelectableStreamingReasoning(contentWidth, startBodyY), gutter, startBodyY)
 				},
 			})
 		}
@@ -291,6 +345,8 @@ func (m model) transcriptBodyItemsFromRows(rows []transcriptRow, width int) []tr
 		items = append(items, transcriptBlockBodyItem(transcriptBodyItemEmpty, -1, "No events in this subagent session."))
 		return items
 	}
+	contentWidth := transcriptContentWidth(width)
+	gutter := transcriptGutter(width)
 	rc := buildRowContext(rows)
 	shownAny := false
 	var previousKind rowKind
@@ -309,10 +365,10 @@ func (m model) transcriptBodyItemsFromRows(rows []transcriptRow, width int) []tr
 		items = append(items, transcriptBodyItem{
 			kind:           transcriptBodyItemRow,
 			rowIndex:       rowIndex,
-			heightCacheKey: "subchat:" + strconv.Itoa(index),
+			heightCacheKey: "subchat:" + strconv.Itoa(index) + ":" + strconv.Itoa(contentWidth),
 			render: func(startBodyY int) transcriptBodyRenderedItem {
-				rendered, selectable := m.renderTranscriptRow(rowIndex, transcriptRow, width, rc, startBodyY)
-				return transcriptBodyRenderedItem{lines: viewLines(rendered), selectable: selectable}
+				rendered, selectable := m.renderTranscriptRow(rowIndex, transcriptRow, contentWidth, rc, startBodyY)
+				return m.finalizeTranscriptBodyRow(rendered, selectable, gutter, startBodyY)
 			},
 		})
 		shownAny = true
@@ -450,12 +506,24 @@ func (m model) renderSelectableToolResultRow(rowIndex int, row transcriptRow, wi
 	if rendered == "" {
 		return "", nil
 	}
-	selectable := []transcriptSelectableLine{{bodyY: startBodyY, rowIndex: rowIndex, toggle: true}}
-	selectable = append(selectable, selectableLinesFromRendered(rowIndex, rendered, startBodyY, 1)...)
-	if !m.transcriptSelection.active {
-		return rendered, selectable
+	// The first rendered line is the clickable toggle header; carry its text so a
+	// selection dragged through it copies the label too (the toggle flag still
+	// expands/collapses on a direct click, resolved on press before selection).
+	allLines := viewLines(rendered)
+	header := transcriptSelectableLine{bodyY: startBodyY, rowIndex: rowIndex, toggle: true}
+	if len(allLines) > 0 {
+		if meta, ok := selectableLineFromRenderedLine(rowIndex, startBodyY, allLines[0], false); ok {
+			header.text = meta.text
+			header.textStart = meta.textStart
+		}
 	}
-	return m.renderRenderedSelection(rendered, selectable, startBodyY), selectable
+	selectable := []transcriptSelectableLine{header}
+	selectable = append(selectable, selectableLinesFromRendered(rowIndex, rendered, startBodyY, 1)...)
+	// The selection highlight is painted once, at the body-item level, AFTER the
+	// reading-column gutter shift (finalizeTranscriptBodyRow) — in the same shifted
+	// coordinate the mouse maps to. Painting it here (unshifted) made the highlight
+	// land gutter cells off from where the user clicked.
+	return rendered, selectable
 }
 
 func (m model) renderSelectableRenderedRow(rowIndex int, row transcriptRow, width int, rc rowContext, startBodyY int) (string, []transcriptSelectableLine) {
@@ -464,10 +532,11 @@ func (m model) renderSelectableRenderedRow(rowIndex int, row transcriptRow, widt
 		return "", nil
 	}
 	selectable := selectableLinesFromRendered(rowIndex, rendered, startBodyY, 0)
-	if !m.transcriptSelection.active {
-		return rendered, selectable
-	}
-	return m.renderRenderedSelection(rendered, selectable, startBodyY), selectable
+	// The selection highlight is painted once, at the body-item level, AFTER the
+	// reading-column gutter shift (finalizeTranscriptBodyRow) — in the same shifted
+	// coordinate the mouse maps to. Painting it here (unshifted) made the highlight
+	// land gutter cells off from where the user clicked.
+	return rendered, selectable
 }
 
 func selectableLinesFromRendered(rowIndex int, rendered string, startBodyY int, skipLeading int) []transcriptSelectableLine {
@@ -549,7 +618,10 @@ func (m model) renderRenderedSelection(rendered string, selectable []transcriptS
 	}
 	byY := make(map[int]transcriptSelectableLine, len(selectable))
 	for _, line := range selectable {
-		if line.text == "" || line.toggle || line.permOption || line.specialistCard {
+		// Toggle headers and specialist cards now carry text, so a selection
+		// dragged through them highlights and copies their content. Empty lines and
+		// permission buttons (no copyable content) stay excluded.
+		if line.text == "" || line.permOption {
 			continue
 		}
 		byY[line.bodyY] = line
@@ -590,14 +662,23 @@ func (m model) renderSelectableSpecialistRow(rowIndex int, row transcriptRow, wi
 		return "", nil
 	}
 	lines := viewLines(rendered)
+	boxed := renderedLinesHaveBoxBorder(lines)
 	selectable := make([]transcriptSelectableLine, len(lines))
 	for i := range lines {
-		selectable[i] = transcriptSelectableLine{
+		sl := transcriptSelectableLine{
 			bodyY:          startBodyY + i,
 			rowIndex:       rowIndex,
 			specialistCard: true,
 			specialistID:   row.specialistInfo.childSessionID,
 		}
+		// Carry the line's plain text + start so a selection dragged THROUGH the
+		// card copies its content; the specialistCard flag still makes a direct
+		// click drill into the sub-session (handled on press, before selection).
+		if meta, ok := selectableLineFromRenderedLine(rowIndex, startBodyY+i, lines[i], boxed); ok {
+			sl.text = meta.text
+			sl.textStart = meta.textStart
+		}
+		selectable[i] = sl
 	}
 	return rendered, selectable
 }
@@ -785,7 +866,7 @@ func (m model) transcriptLineAtMouse(msg tea.MouseMsg) (transcriptSelectableLine
 	if !m.altScreen || m.height <= 0 || m.setup.visible || m.providerWizard != nil || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.suggestionsActive() {
 		return transcriptSelectableLine{}, false
 	}
-	width := chatWidth(m.width)
+	width := m.chatColumnWidth()
 	frame := m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width))
 	items := m.transcriptBodyItems(width, "")
 	metrics := measureTranscriptBodyItems(items, m.transcriptBodyHeights)
@@ -909,7 +990,7 @@ func (m model) toggleTranscriptRow(rowIndex int) model {
 }
 
 func (m model) selectedTranscriptText() string {
-	width := chatWidth(m.width)
+	width := m.chatColumnWidth()
 	layout := m.transcriptBodyLayout(width, "")
 	parts := []string{}
 	for _, line := range layout.selectable {

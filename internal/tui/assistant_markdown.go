@@ -46,6 +46,16 @@ func renderAssistantMarkdownText(text string, proseMeasure int, tableMeasure int
 	}
 
 	lines := []string{}
+	// blankBefore inserts one separator blank line before a block (heading or
+	// paragraph) for vertical breathing room, but never doubles an existing blank
+	// and never leads with one (lines is empty at the top; trimMarkdownDisplay-
+	// BlankEdges strips any leading blank anyway). Lists, code, and tables are left
+	// tight — they don't call it.
+	blankBefore := func() {
+		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
+			lines = append(lines, "")
+		}
+	}
 	for index := 0; index < len(raw); {
 		line := raw[index]
 		trimmed := strings.TrimSpace(line)
@@ -98,7 +108,14 @@ func renderAssistantMarkdownText(text string, proseMeasure int, tableMeasure int
 		}
 
 		if heading := markdownHeadingText(trimmed); heading != "" {
-			lines = append(lines, wrapMarkdownInline(heading, proseMeasure)...)
+			blankBefore()
+			// Headings are distinguished by weight + underline, not a bright colour —
+			// calm for dark-mode terminals (ink, the body colour, not the lime accent).
+			headingStyle := zeroTheme.ink.Bold(true).Underline(true)
+			plain := strings.ReplaceAll(strings.ReplaceAll(heading, "**", ""), "`", "")
+			for _, hl := range wrapPlainText(plain, proseMeasure) {
+				lines = append(lines, headingStyle.Render(hl))
+			}
 			index++
 			continue
 		}
@@ -109,6 +126,7 @@ func renderAssistantMarkdownText(text string, proseMeasure int, tableMeasure int
 			continue
 		}
 
+		blankBefore()
 		paragraph := []string{strings.TrimSpace(line)}
 		index++
 		for index < len(raw) {
@@ -151,6 +169,7 @@ func styleAssistantMarkdownLine(line string, base lipgloss.Style) string {
 		text := run.String()
 		switch style {
 		case markdownDisplayBold:
+			// Emphasis is weight-only (no colour) — dark-mode-friendly and calm.
 			builder.WriteString(zeroTheme.ink.Bold(true).Render(text))
 		case markdownDisplayRule:
 			builder.WriteString(zeroTheme.lineStrong.Render(text))

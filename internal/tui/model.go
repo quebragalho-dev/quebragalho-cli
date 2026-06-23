@@ -129,7 +129,17 @@ type model struct {
 	// with each run and stops itself once pending clears (the TickMsg is simply
 	// not forwarded), so an idle UI schedules no timers.
 	spinner spinner.Model
-	pending bool
+	// spinnerPhase advances once per spinner tick while a run is in flight and is
+	// the shared animation clock for the cosine ripple on the working status line
+	// (ripple.go). Reusing the spinner's existing tick keeps a single ~80ms timer
+	// driving both the braille glyph and the colour wave — no second ticker.
+	spinnerPhase int
+	// spinnerTicking tracks whether the spinner's self-scheduling tick loop is
+	// currently alive, so a kick (ensureSpinnerTick) never double-issues the tick
+	// when the loop is already running. Set true whenever a Tick cmd is returned
+	// from the TickMsg handler / beginRun, cleared when the handler stops the loop.
+	spinnerTicking bool
+	pending        bool
 	// turnStartedAt is when the in-flight run began; the working status line
 	// renders the live elapsed time from it so a long or stalled turn never looks
 	// like a frozen terminal (for ANY provider, not just slow ones). Zero = idle.
@@ -159,8 +169,21 @@ type model struct {
 	pendingSpecReview *pendingSpecReviewPrompt
 	width             int
 	height            int
-	now               func() time.Time
-	chatScrollOffset  int
+	// hidePinnedPlan suppresses the pinned plan panel above the composer. Set on
+	// the chat-column model copy in the two-column layout, where the plan is
+	// surfaced in the context sidebar instead so it isn't shown twice.
+	hidePinnedPlan bool
+	// sidebarHidden is the user's Ctrl+B preference to collapse the right context
+	// sidebar; when set, the chat reflows to full width. Distinct from the
+	// availability conditions in sidebarAvailable (geometry / mode / overlays).
+	sidebarHidden bool
+	// swarmDoneAt records when each swarm member was first seen finished (done/
+	// failed) in a swarm_status report, so the sidebar can linger it briefly with a
+	// fading ✓ before dropping it (a smooth exit, not an abrupt pop). Stamped in the
+	// spinner tick; keyed by member id. Always non-nil (initialised in newModel).
+	swarmDoneAt      map[string]time.Time
+	now              func() time.Time
+	chatScrollOffset int
 	// chatBodyLines is the live body's line count at the last update; used to pin
 	// the viewport (hold the read position) when content streams in while the user
 	// has scrolled up. 0 means "at the bottom / not pinned".
@@ -530,6 +553,7 @@ func newModel(ctx context.Context, options Options) model {
 	m := model{
 		ctx:                    ctx,
 		cwd:                    cwd,
+		swarmDoneAt:            map[string]time.Time{},
 		userCommands:           loadedUserCommands,
 		composerCursorVisible:  true,
 		userConfigPath:         options.UserConfigPath,
@@ -997,6 +1021,23 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.plan.expanded = !m.plan.expanded
 				return m, nil
 			}
+		case keyCtrl(msg, 'b'):
+			// Ctrl+B collapses / restores the right context sidebar. Only acts when
+			// the sidebar would otherwise be on screen (managed mode, wide enough,
+			// real conversation) so it's a no-op — not a confusing notice — on the
+			// home screen or a narrow terminal. Hiding reflows the chat to full
+			// width, so mirror the width-change bookkeeping (re-wrap the streaming
+			// fade, resize the composer) the WindowSizeMsg path does.
+			if m.noBlockingModal() && m.sidebarAvailable() {
+				m.sidebarHidden = !m.sidebarHidden
+				m.lineAges = nil
+				m.input.SetWidth(maxInt(20, m.chatColumnWidth()-14))
+				notice := "Context sidebar shown · Ctrl+B to hide"
+				if m.sidebarHidden {
+					notice = "Context sidebar hidden · Ctrl+B to show"
+				}
+				return m.appendSystemNotice(notice), nil
+			}
 		case keyCtrl(msg, 'f'):
 			if m.picker != nil && m.picker.kind == pickerModel {
 				if m.modelPickerIsLoading() {
@@ -1240,13 +1281,33 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamingReasoning += msg.delta
 		return m, nil
 	case spinner.TickMsg:
+		// Record when swarm members first finish so the sidebar can linger them
+		// with a fading ✓ before removal. Cheap (the tick only fires while a run is
+		// in flight or the sidebar holds agents — exactly when this can change).
+		m.stampSwarmDone()
 		// Not forwarding the tick while idle stops the spinner's self-scheduling,
-		// so no timer fires between runs.
+		// so no timer fires between runs. The one exception is an active sidebar
+		// holding agents: their cool ripple animation needs the phase to keep
+		// advancing even when no run is pending, so the tick loop stays alive while
+		// sidebarHasAgents() holds (and stops the moment the agents/sidebar clear).
 		if !m.pending && !m.compactInFlight && !m.doctorInFlight {
+			if m.sidebarHasAgents() && !m.reducedMotion {
+				m.spinner, _ = m.spinner.Update(msg)
+				m.spinnerPhase++
+				m.spinnerTicking = true
+				return m, m.spinner.Tick
+			}
+			m.spinnerTicking = false
 			return m, nil
 		}
+		m.spinnerTicking = true
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
+		// Advance the shared ripple phase in lock-step with the spinner glyph;
+		// frozen under reduced motion so the colour wave stops with the glyph.
+		if !m.reducedMotion {
+			m.spinnerPhase++
+		}
 		if m.compactInFlight {
 			if !m.reducedMotion {
 				m.compactFrame++ // frozen frame under reduced motion -> static ring
@@ -1288,7 +1349,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.headerPrinted = true
 			m.flushQueue = append(m.flushQueue, m.titleBar(chatWidth(msg.Width)))
 		}
-		return m, nil
+		// A resumed/idle session may already hold sidebar agents now that geometry
+		// (and thus sidebarActive) is known; kick the ripple tick loop if so. No-op
+		// when the loop is already running or there is nothing to animate.
+		return m, m.ensureSpinnerTick()
 	case permissionRequestMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
@@ -1391,6 +1455,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.runCancel = nil
 		m.activeRunID = 0
+		m.plan.frozenAt = m.now() // freeze the plan clock while idle (no run in flight)
 		m.pendingPermission = nil
 		m.pendingAskUser = nil
 		for _, event := range msg.usageEvents {
@@ -1634,6 +1699,15 @@ func (m model) transcriptEmpty() bool {
 // the managed conversation view. Streaming/modal blocks and composer chrome are
 // always rendered here.
 func (m model) transcriptView() string {
+	// Two-column layout: in alt-screen managed mode on a wide-enough terminal,
+	// the chat renders into a left column and a context sidebar (FILES / PLAN /
+	// tokens) into a right column. The chat is rendered by the existing scroll
+	// engine at the reduced column width via a model copy, then joined with the
+	// sidebar row-by-row. The subchat drill-in keeps its own single-column view.
+	if m.sidebarActive() && !m.subchat.active {
+		return m.twoColumnTranscriptView()
+	}
+
 	width := chatWidth(m.width)
 
 	// Subchat drill-in: when active, show the child session's transcript with
@@ -1697,6 +1771,36 @@ func (m model) transcriptView() string {
 	return body + footer
 }
 
+// twoColumnTranscriptView renders the alt-screen chat into a left column and
+// the context sidebar (FILES / PLAN / tokens) into a right column. The chat is
+// produced by the existing scroll engine at the reduced chat-column width (via
+// chatColumnWidth, which every frame/geometry caller already routes through),
+// yielding exactly m.height lines at the column width; the sidebar block is
+// built to the same height and joined row-by-row. Overlays/wizards never reach
+// here — sidebarActive() returns false while any is up, falling back to the
+// single-column path. Caller guarantees sidebarActive() && !subchat.active.
+func (m model) twoColumnTranscriptView() string {
+	chatW := m.chatColumnWidth()
+	sidebarW := sidebarWidth(m.width)
+
+	width := chatW
+
+	suggestionOverlay := m.suggestionOverlay(width)
+	bodyItems := m.transcriptBodyItems(width, "")
+	footer := m.footerView(width)
+	overlayForViewport := suggestionOverlay
+	if m.transcriptEmpty() && !m.pending {
+		overlayForViewport = ""
+	}
+
+	header := m.pinnedTitleBar(width)
+	chatBlock := viewLines(m.scrollableTranscriptItemsView(header, bodyItems, footer, width, overlayForViewport))
+
+	sidebar := m.renderContextSidebar(sidebarW, len(chatBlock))
+	rows := joinColumns(chatBlock, sidebar, chatW, sidebarW)
+	return strings.Join(rows, "\n")
+}
+
 func (m model) titleBarInTranscriptBody() bool {
 	return !m.altScreen && !m.headerPrinted
 }
@@ -1719,12 +1823,16 @@ func (m model) footerView(width int) string {
 		footer.WriteString(plan)
 		footer.WriteString("\n")
 	}
+	// The row above the composer: transient copy feedback takes priority; otherwise
+	// a faint idle affordance — discoverable key hints on the left, a jump-to-bottom
+	// cue on the right when scrolled up. Always one line (blank when nothing shows),
+	// so the footer height is unchanged.
 	if copyStatus := strings.TrimSpace(m.copyStatus); copyStatus != "" {
 		footer.WriteString(rightAlignedLine(zeroTheme.ink.Render(copyStatus), width))
-		footer.WriteString("\n")
-	} else {
-		footer.WriteString("\n")
+	} else if left, right := m.composerIdleHint(), m.jumpToBottomHint(); left != "" || right != "" {
+		footer.WriteString(fitStyledLine(joinHeaderLine("  "+left, right, width), width))
 	}
+	footer.WriteString("\n")
 	footer.WriteString(m.composerBox(width))
 	if hint := m.composerDescriptionHint(width); hint != "" {
 		footer.WriteString("\n")
@@ -1737,6 +1845,43 @@ func (m model) footerView(width int) string {
 	footer.WriteString("\n")
 	footer.WriteString(m.statusLine(width))
 	return footer.String()
+}
+
+// composerIdleHint returns a faint one-line key-shortcut hint shown above the
+// composer on an empty, idle prompt, so the chord bindings are discoverable
+// without opening the ? overlay. Empty while typing, during a run, in the
+// full-screen transcript, or under any modal/overlay so it never competes for
+// attention. Width-tiered so a narrow terminal only shows the essential pointer.
+func (m model) composerIdleHint() string {
+	// Managed (alt-screen) mode only: inline mode prints to native scrollback where
+	// this footer row isn't a stable surface. Hidden while typing, during a run, in
+	// the full-screen transcript, or under any modal/overlay.
+	if !m.altScreen || m.pending || m.composerValue() != "" || !m.noBlockingModal() ||
+		m.subchat.active || m.suggestionsActive() || m.transcriptDetailed {
+		return ""
+	}
+	var hint string
+	switch widthTier(m.width) {
+	case tierTiny:
+		return "" // too cramped for a hint
+	case tierNarrow:
+		hint = "? shortcuts"
+	case tierMedium:
+		hint = "? shortcuts · Ctrl+B sidebar · Ctrl+E copy"
+	default:
+		hint = "? shortcuts · Ctrl+B sidebar · Ctrl+O detail · Ctrl+E copy · Shift+Tab mode"
+	}
+	return zeroTheme.faint.Render(hint)
+}
+
+// jumpToBottomHint returns a faint "↓ N more · PgDn" cue when the transcript is
+// scrolled up (chatScrollOffset counts lines below the fold), so it's clear new
+// output may be below and how to catch up. Empty at the bottom.
+func (m model) jumpToBottomHint() string {
+	if m.chatScrollOffset <= 0 {
+		return ""
+	}
+	return zeroTheme.faint.Render(fmt.Sprintf("↓ %d more · PgDn", m.chatScrollOffset))
 }
 
 // pinnedPlanMaxHeight is the line budget for the pinned plan panel: at most a
@@ -1813,7 +1958,7 @@ func (m model) scrollableTranscriptFrame(header string, footer string) transcrip
 	if bodyHeight < 1 {
 		bodyHeight = 1
 	}
-	width := chatWidth(m.width)
+	width := m.chatColumnWidth()
 	footerTop := len(headerLines) + bodyHeight
 	frame := transcriptFrameLayout{
 		width:           width,
@@ -2027,7 +2172,7 @@ func (m model) chatTranscriptViewport() (transcriptViewport, bool) {
 	if !m.altScreen || m.height <= 0 {
 		return transcriptViewport{}, false
 	}
-	width := chatWidth(m.width)
+	width := m.chatColumnWidth()
 	items := m.transcriptBodyItems(width, "")
 	body := measureTranscriptBodyItems(items, m.transcriptBodyHeights)
 	frame := m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width))
@@ -2113,7 +2258,7 @@ func (m model) interimBlock(width int) string {
 		// branch keep rendering identically to before.
 		lines[index] = m.styleStreamingLine(line, index, len(lines))
 	}
-	lines = appendStreamingCursor(lines, width)
+	lines = m.appendStreamingCursor(lines, width)
 	blocks = append(blocks, strings.Join(lines, "\n"))
 	// Live preview of a file currently being written, so a long write_file/edit
 	// shows the code streaming in rather than looking frozen.
@@ -2143,10 +2288,35 @@ func (m model) spinnerGlyph() string {
 	return m.spinner.View()
 }
 
+// workingActivity labels what the agent is doing right now for the working
+// status line: "writing" while the final answer streams, otherwise "thinking"
+// (reasoning, waiting on the model, or a tool in flight). Cheap and robust — no
+// transcript scan — so it can't misreport on a long, output-less step.
+func (m model) workingActivity() string {
+	if strings.TrimSpace(m.streamingText) != "" {
+		return "writing"
+	}
+	return "thinking"
+}
+
 func (m model) workingStatusLine() string {
-	line := zeroTheme.accent.Render(m.spinnerGlyph()) + " " + zeroTheme.muted.Render("Working")
+	// Cosine ripple FX: "Working" breathes through a cold-to-warm theme ramp, the
+	// wave moving one character per spinner tick (shared m.spinnerPhase clock). A
+	// 6-char wavelength fits the 7-letter word so a full oscillation is visible.
+	// Under reduced motion the phase is frozen, so this renders a static gradient.
+	working := rippleText("Working", ripplePalette(), m.spinnerPhase, 6)
+	line := zeroTheme.accent.Render(m.spinnerGlyph()) + " " + working
+	// Phase label so a long, output-less step reads as live progress rather than a
+	// frozen screen: "writing" while the answer streams, "thinking" otherwise
+	// (reasoning, waiting on the model, or running a tool).
+	line += zeroTheme.faint.Render("  ·  " + m.workingActivity())
 	if !m.turnStartedAt.IsZero() {
 		line += zeroTheme.faint.Render("  ·  " + formatWorkingElapsed(m.now().Sub(m.turnStartedAt)))
+	}
+	// Compact "↑ from-to/total ↓" scroll indicator for the in-flight transcript,
+	// so a long multi-tool run shows which slice the working line reports on.
+	if indicator := m.transcriptPhaseIndicator(); indicator != "" {
+		line += " " + zeroTheme.faint.Render(indicator)
 	}
 	return line
 }
@@ -2205,8 +2375,14 @@ func previewTail(s string, width int) string {
 	return "…" + string(runes[len(runes)-(width-1):])
 }
 
-func appendStreamingCursor(lines []string, width int) []string {
+func (m model) appendStreamingCursor(lines []string, width int) []string {
+	// Pulse the caret on the shared spinner clock so the typing edge reads as alive
+	// even during fade-tick gaps or upstream stalls. Width-stable (bright ↔ dim,
+	// never on/off, so the line never jitters). Steady bright under reduced motion.
 	cursor := zeroTheme.accent.Render("▌")
+	if !m.reducedMotion && (m.spinnerPhase/6)%2 == 1 {
+		cursor = zeroTheme.faint.Render("▌")
+	}
 	if len(lines) == 0 {
 		return []string{cursor}
 	}
@@ -3145,7 +3321,22 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.specialists.clear()
 	m.plan.clear()
 	m.turnStartedAt = m.now()
+	m.spinnerTicking = true
 	return m
+}
+
+// ensureSpinnerTick returns the spinner.Tick cmd to (re)start the self-scheduling
+// tick loop when an active sidebar holds agents to animate but the loop is not
+// already running (e.g. a resumed session whose swarm members exist before any
+// run started this process). It returns nil — issuing no second timer — when the
+// loop is already alive, when reduced motion is set, or when there is nothing to
+// animate, so an idle plain session schedules no timer.
+func (m *model) ensureSpinnerTick() tea.Cmd {
+	if m.spinnerTicking || m.reducedMotion || !m.sidebarHasAgents() {
+		return nil
+	}
+	m.spinnerTicking = true
+	return m.spinner.Tick
 }
 
 func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
@@ -3240,6 +3431,7 @@ func (m *model) cancelRun() {
 	m.pending = false
 	m.runCancel = nil
 	m.activeRunID = 0
+	m.plan.frozenAt = m.now() // freeze the plan clock while idle (no run in flight)
 	m.pendingPermission = nil
 	m.pendingAskUser = nil
 	// The interim block renders streamingText live; a cancelled run's partial

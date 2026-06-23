@@ -12,6 +12,7 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/Gitlawb/zero/internal/agent"
 	"github.com/Gitlawb/zero/internal/config"
@@ -1474,7 +1475,8 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 	}
 	assertContains(t, m.usageStatusSegment(), "120 tok")
 	assertContains(t, m.composerDividerLine(96), "gpt-4.1")
-	assertContains(t, m.composerDividerLine(96), "ask")
+	// Permission mode moved from the composer rule to the status line.
+	assertContains(t, m.statusLine(96), "ask")
 }
 
 func TestToolResultRowDefaultsEmptyStatusToOK(t *testing.T) {
@@ -1666,8 +1668,10 @@ func TestCtrlCClearsComposerBeforeExitConfirmation(t *testing.T) {
 		t.Fatal("Ctrl+C with a draft should not mark model exiting")
 	}
 	status := plainRender(t, next.statusLine(80))
-	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "tokenrouter") {
-		t.Fatalf("status line = %q, want provider restored with no exit confirmation", status)
+	// No exit confirmation armed, so the normal run-state chip shows (the status
+	// line carries the permission mode now, not the provider).
+	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "auto-approve") {
+		t.Fatalf("status line = %q, want the run-state chip with no exit confirmation", status)
 	}
 
 	updated, cmd = next.Update(testKeyCtrl('c'))
@@ -1699,8 +1703,223 @@ func TestCtrlCExitConfirmationExpires(t *testing.T) {
 		t.Fatal("matching expiry should clear exit confirmation")
 	}
 	status := plainRender(t, next.statusLine(80))
-	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "tokenrouter") {
-		t.Fatalf("status line after expiry = %q, want provider restored", status)
+	// After expiry the warning clears and the normal run-state chip is restored
+	// (the status line now shows the permission mode, not the provider).
+	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "auto-approve") {
+		t.Fatalf("status line after expiry = %q, want the run-state chip restored", status)
+	}
+}
+
+func TestSystemNotesRenderPlainLinesNotBoxes(t *testing.T) {
+	cancel := plainRender(t, renderSystemNote("Run cancelled.", 80))
+	if strings.ContainsAny(cancel, "│╭╮╰╯") {
+		t.Fatalf("cancellation should be a plain line, not a box: %q", cancel)
+	}
+	if !strings.Contains(cancel, "Run cancelled.") {
+		t.Fatalf("cancellation text missing: %q", cancel)
+	}
+	// Every other system notice is ALSO a boxless plain line now.
+	for _, note := range []string{"Mouse interaction re-enabled.", "Mode set to ask."} {
+		got := plainRender(t, renderSystemNote(note, 80))
+		if strings.ContainsAny(got, "│╭╮╰╯") {
+			t.Fatalf("system notice should be a plain line, not a box: %q", got)
+		}
+		if !strings.Contains(got, note) {
+			t.Fatalf("notice text missing: %q", got)
+		}
+	}
+}
+
+func TestSpecialistCardLinesAreSelectableForCopy(t *testing.T) {
+	m := newModel(context.Background(), Options{ModelName: "gpt-4"})
+	m.width = 120
+	row := transcriptRow{kind: rowSpecialist, specialistInfo: &specialistInfo{
+		name: "explorer", description: "audit the code", status: specialistCompleted, childSessionID: "sess-x",
+	}}
+	rendered, selectable := m.renderSelectableSpecialistRow(0, row, 100, buildRowContext(nil), 0)
+	if rendered == "" || len(selectable) == 0 {
+		t.Fatal("expected a rendered specialist card with selectable lines")
+	}
+	hasText := false
+	for _, sl := range selectable {
+		if !sl.specialistCard {
+			t.Fatalf("card line lost its specialistCard click flag: %+v", sl)
+		}
+		if sl.text != "" {
+			hasText = true
+		}
+	}
+	if !hasText {
+		t.Fatal("specialist card lines must carry text so a dragged selection copies them")
+	}
+}
+
+func TestSelectionHighlightUsesGutterShiftedCoordinate(t *testing.T) {
+	// Select screen columns 10..15 on body line 0. With a 4-cell reading gutter the
+	// rendered line is "    Hello world" and columns 10-14 are "world", so the
+	// highlight must land on "world" — proving it's computed in the SAME shifted
+	// coordinate the mouse uses. The old bug painted it on the unshifted line, so it
+	// landed gutter cells off.
+	var m model
+	m.transcriptSelection = transcriptSelectionState{
+		active: true,
+		anchor: transcriptSelectionPoint{bodyY: 0, x: 10},
+		cursor: transcriptSelectionPoint{bodyY: 0, x: 15},
+	}
+	selectable := []transcriptSelectableLine{{bodyY: 0, rowIndex: 0, text: "Hello world", textStart: 0}}
+	item := m.finalizeTranscriptBodyRow("Hello world", selectable, 4, 0)
+	styled := strings.Join(item.lines, "\n")
+	if !strings.Contains(plainRender(t, styled), "    Hello world") {
+		t.Fatalf("expected a 4-cell gutter-padded line, got %q", styled)
+	}
+	if !strings.Contains(styled, zeroTheme.selection.Render("world")) {
+		t.Fatalf("expected 'world' highlighted at the gutter-shifted position, got %q", styled)
+	}
+}
+
+func TestReasoningAfterToolCardGetsBlankSeparator(t *testing.T) {
+	m := newModel(context.Background(), Options{ModelName: "gpt-4"})
+	m.width, m.height = 120, 40
+	m.altScreen = true
+	m.transcript = append(m.transcript,
+		transcriptRow{kind: rowUser, text: "do it"},
+		transcriptRow{kind: rowToolResult, id: "t1", tool: "list_directory", status: tools.StatusOK, detail: "a\nb"},
+		transcriptRow{kind: rowReasoning, text: "Considering the next step in detail before acting"},
+		transcriptRow{kind: rowToolResult, id: "t2", tool: "read_file", status: tools.StatusOK, detail: "x\ny"},
+	)
+	items := m.transcriptBodyItems(m.chatColumnWidth(), "")
+	reasoningIdx := -1
+	for i := range items {
+		if items[i].rowIndex >= 0 && items[i].rowIndex < len(m.transcript) &&
+			m.transcript[items[i].rowIndex].kind == rowReasoning {
+			reasoningIdx = i
+		}
+	}
+	if reasoningIdx <= 0 {
+		t.Fatal("reasoning item not found in the body")
+	}
+	if items[reasoningIdx-1].kind != transcriptBodyItemSeparator {
+		t.Fatalf("expected a blank separator before the reasoning group, got kind %v", items[reasoningIdx-1].kind)
+	}
+}
+
+func TestTranscriptReadingColumnHelpers(t *testing.T) {
+	if g := transcriptGutter(160); g != 4 {
+		t.Fatalf("wide gutter = %d, want 4", g)
+	}
+	if cw := transcriptContentWidth(160); cw != transcriptContentCap {
+		t.Fatalf("wide contentWidth = %d, want cap %d", cw, transcriptContentCap)
+	}
+	if g := transcriptGutter(70); g != 0 {
+		t.Fatalf("narrow gutter = %d, want 0", g)
+	}
+	if cw := transcriptContentWidth(70); cw != 70 {
+		t.Fatalf("narrow contentWidth = %d, want full 70", cw)
+	}
+}
+
+func TestTranscriptBodyRowsUseReadingColumnAndAlignSelection(t *testing.T) {
+	m := newModel(context.Background(), Options{ModelName: "gpt-4"})
+	m.width, m.height = 160, 30
+	m.altScreen = true
+	m.transcript = append(m.transcript, transcriptRow{
+		kind: rowAssistant, text: strings.Repeat("word ", 60), final: true,
+	})
+
+	width := m.chatColumnWidth()
+	gutter := transcriptGutter(width)
+	if gutter <= 0 {
+		t.Fatalf("expected a gutter at width %d", width)
+	}
+
+	items := m.transcriptBodyItems(width, "")
+	var row *transcriptBodyItem
+	for i := range items {
+		if items[i].kind == transcriptBodyItemRow && items[i].rowIndex >= 0 {
+			row = &items[i]
+		}
+	}
+	if row == nil {
+		t.Fatal("no assistant row item found")
+	}
+	rendered := row.render(0)
+
+	wroteIndented := false
+	for _, line := range rendered.lines {
+		if w := lipgloss.Width(line); w > transcriptContentCap+gutter {
+			t.Fatalf("body line width %d exceeds reading column %d: %q", w, transcriptContentCap+gutter, line)
+		}
+		if strings.TrimSpace(line) != "" {
+			if !strings.HasPrefix(line, strings.Repeat(" ", gutter)) {
+				t.Fatalf("non-blank body line is not gutter-indented: %q", line)
+			}
+			wroteIndented = true
+		}
+	}
+	if !wroteIndented {
+		t.Fatal("expected at least one indented content line")
+	}
+	// Selection alignment: text-carrying selectable lines start at/after the gutter
+	// so click-to-select and the highlight track the indented glyphs.
+	for _, sl := range rendered.selectable {
+		if sl.text != "" && sl.textStart < gutter {
+			t.Fatalf("selectable textStart %d < gutter %d — selection would misalign", sl.textStart, gutter)
+		}
+	}
+}
+
+func TestMarkdownAddsBlankBeforeHeadingAndParagraph(t *testing.T) {
+	lines := renderAssistantMarkdownText("First paragraph.\n## Heading\nSecond body.", 80, 80, false)
+	headingIdx := -1
+	for i, l := range lines {
+		// Headings render accent+bold+underline (per-grapheme ANSI), so strip styling
+		// before matching the text.
+		if strings.Contains(plainRender(t, l), "Heading") {
+			headingIdx = i
+		}
+	}
+	if headingIdx <= 0 || strings.TrimSpace(lines[headingIdx-1]) != "" {
+		t.Fatalf("expected a blank line before the heading, got %#v", lines)
+	}
+}
+
+func TestComposerIdleHintAndJumpCue(t *testing.T) {
+	m := newModel(context.Background(), Options{ModelName: "gpt-4"})
+	m.altScreen = true
+	m.width, m.height = 100, 30
+	m.transcript = append(m.transcript, transcriptRow{kind: rowAssistant, text: "hi", final: true})
+
+	// Idle, empty composer, managed mode -> the discoverability hint shows.
+	if h := plainRender(t, m.composerIdleHint()); !strings.Contains(h, "shortcuts") {
+		t.Fatalf("expected idle hint, got %q", h)
+	}
+	// Hidden during a run.
+	busy := m
+	busy.pending = true
+	if h := busy.composerIdleHint(); h != "" {
+		t.Fatalf("hint should hide during a run, got %q", h)
+	}
+	// Hidden in inline mode.
+	inline := m
+	inline.altScreen = false
+	if h := inline.composerIdleHint(); h != "" {
+		t.Fatalf("hint should hide in inline mode, got %q", h)
+	}
+	// Jump cue only when scrolled up.
+	if c := m.jumpToBottomHint(); c != "" {
+		t.Fatalf("jump cue should be empty at the bottom, got %q", c)
+	}
+	scrolled := m
+	scrolled.chatScrollOffset = 5
+	if c := plainRender(t, scrolled.jumpToBottomHint()); !strings.Contains(c, "5 more") {
+		t.Fatalf("expected jump cue with line count, got %q", c)
+	}
+	// The footer carrying the hint must never overflow its width.
+	w := m.chatColumnWidth()
+	for i, line := range strings.Split(plainRender(t, m.footerView(w)), "\n") {
+		if got := lipgloss.Width(line); got > w {
+			t.Fatalf("footer line %d width %d > %d: %q", i, got, w, line)
+		}
 	}
 }
 

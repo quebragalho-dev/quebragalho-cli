@@ -589,10 +589,33 @@ func doneLine(row transcriptRow) string {
 	return zeroTheme.faint.Render("worked for " + formatElapsedSeconds(row.turnElapsed))
 }
 
-// renderSystemNote draws a system notice as a bordered note: faint text on
-// the panel surface inside a line border. Content is passed through unchanged.
+// renderSystemNote draws a system notice as plain, lightly-marked lines — not a
+// heavy box. A run cancellation reads amber ("stopped"); every other notice is
+// calm muted info. Multi-line notices keep the marker on the first line and
+// indent the continuation so the block still reads as one note.
 func renderSystemNote(text string, width int) string {
-	return noteBox(text, width, zeroTheme.line, zeroTheme.onPanel(zeroTheme.faint))
+	trimmed := strings.TrimSpace(text)
+	marker, style := zeroTheme.faint.Render("·"), zeroTheme.muted
+	if isCancellationNotice(trimmed) {
+		marker, style = zeroTheme.amber.Render("⊘"), zeroTheme.amber
+	}
+	srcLines := strings.Split(trimmed, "\n")
+	out := make([]string, 0, len(srcLines))
+	for i, line := range srcLines {
+		prefix := marker + " "
+		if i > 0 {
+			prefix = "  " // continuation lines align under the first word
+		}
+		out = append(out, fitStyledLine(prefix+style.Render(line), width))
+	}
+	return strings.Join(out, "\n")
+}
+
+// isCancellationNotice reports whether a system notice is the run-cancelled
+// marker (single line, written by the cancel path), so it renders amber.
+func isCancellationNotice(text string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	return !strings.Contains(t, "\n") && strings.HasPrefix(t, "run cancelled")
 }
 
 func renderCommandCardRow(text string, width int) string {
