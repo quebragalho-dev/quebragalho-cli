@@ -100,7 +100,12 @@ func permissionProfileRoots(workspaceRoot string, scope *Scope) []string {
 }
 
 func permissionProfileReadRoots(workspaceRoot string, policy Policy, scope *Scope, writeRoots []string) []string {
-	readRoots := append([]string{}, writeRoots...)
+	// Workspace-write follows the upstream sandbox model: full disk is readable,
+	// while writes are narrowed to workspace/extra roots below. This is a
+	// deliberate read-all/write-jail posture; callers that must hide secrets use
+	// DenyRead to carve them out.
+	readRoots := []string{profileRootPath()}
+	readRoots = append(readRoots, writeRoots...)
 	if scope != nil {
 		readRoots = dedupeStrings(append(readRoots, scope.ReadRoots()...))
 	} else if root := normalizeProfilePath(workspaceRoot); root != "" {
@@ -128,6 +133,10 @@ func userGitConfigReadPaths() []string {
 		filepath.Join(home, ".gitconfig"),
 		filepath.Join(home, ".config", "git", "config"),
 	}
+}
+
+func profileRootPath() string {
+	return filepath.Clean(string(filepath.Separator))
 }
 
 func normalizeProfileDirs(entries []string) []string {
