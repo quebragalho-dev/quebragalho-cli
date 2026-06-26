@@ -62,6 +62,35 @@ function Find-ZeroExtractedFile {
   throw "Release archive did not contain exactly one $FileName"
 }
 
+function Find-ZeroOptionalExtractedDirectory {
+  param(
+    [string]$Root,
+    [string]$DirectoryName
+  )
+
+  $candidate = Join-Path $Root $DirectoryName
+  if (Test-Path $candidate -PathType Container) {
+    return $candidate
+  }
+
+  $matches = @(
+    Get-ChildItem -Path $Root -Directory | ForEach-Object {
+      $child = Join-Path $_.FullName $DirectoryName
+      if (Test-Path $child -PathType Container) {
+        Get-Item $child
+      }
+    }
+  )
+  if ($matches.Count -eq 0) {
+    return $null
+  }
+  if ($matches.Count -eq 1) {
+    return $matches[0].FullName
+  }
+
+  throw "Release archive contained multiple $DirectoryName directories"
+}
+
 if ($Version -eq "latest") {
   $tag = Get-ZeroLatestTag -Repository $Repository -GitHubApi $GitHubApi
 } elseif ($Version.StartsWith("v")) {
@@ -107,6 +136,14 @@ try {
   foreach ($fileName in $requiredFiles) {
     $sourcePath = Find-ZeroExtractedFile -Root $extractDir -FileName $fileName
     Copy-Item -Path $sourcePath -Destination (Join-Path $InstallDir $fileName) -Force
+  }
+  $helpersPath = Find-ZeroOptionalExtractedDirectory -Root $extractDir -DirectoryName "helpers"
+  if ($null -ne $helpersPath) {
+    $targetHelpersPath = Join-Path $InstallDir "helpers"
+    if (Test-Path $targetHelpersPath) {
+      Remove-Item -Path $targetHelpersPath -Recurse -Force
+    }
+    Copy-Item -Path $helpersPath -Destination $targetHelpersPath -Recurse -Force
   }
 
   $targetPath = Join-Path $InstallDir "zero.exe"

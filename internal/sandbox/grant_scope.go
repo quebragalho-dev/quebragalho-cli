@@ -41,6 +41,11 @@ var scopeArgKeys = []struct {
 // no scoped argument is present, the value is not a string, or the value points
 // at the workspace root (".") -- in those cases the grant is plainly tool-wide.
 func DeriveScope(toolName string, args map[string]any) (string, ScopeKind) {
+	if toolName == "browser_open" {
+		if host, ok := deriveBrowserHostScope(args["url"]); ok {
+			return host, ScopeHost
+		}
+	}
 	if toolName == "web_fetch" {
 		if host, ok := deriveHostScope(args["url"]); ok {
 			return host, ScopeHost
@@ -76,6 +81,70 @@ func deriveHostScope(value any) (string, bool) {
 	}
 	host := normalizeHostScope(parsed.Hostname())
 	return host, host != ""
+}
+
+func deriveBrowserHostScope(value any) (string, bool) {
+	raw, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed != "" && !strings.Contains(trimmed, "://") {
+		if !browserURLLooksLikeBareHost(trimmed) {
+			return "", false
+		}
+		trimmed = "https://" + trimmed
+	}
+	return deriveHostScope(trimmed)
+}
+
+func browserURLLooksLikeBareHost(raw string) bool {
+	if raw == "" || strings.HasPrefix(raw, "//") {
+		return false
+	}
+	authority := raw
+	if cut := strings.IndexAny(authority, "/?#"); cut >= 0 {
+		authority = authority[:cut]
+	}
+	if authority == "" || strings.Contains(authority, "@") {
+		return false
+	}
+	host := authority
+	if strings.HasPrefix(authority, "[") {
+		end := strings.Index(authority, "]")
+		if end <= 1 {
+			return false
+		}
+		host = authority[1:end]
+		if rest := authority[end+1:]; rest != "" {
+			if !strings.HasPrefix(rest, ":") || !isDecimalPort(rest[1:]) {
+				return false
+			}
+		}
+	} else if strings.Contains(authority, ":") {
+		before, after, _ := strings.Cut(authority, ":")
+		if before == "" || !isDecimalPort(after) {
+			return false
+		}
+		host = before
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	return host == "localhost" || strings.Contains(host, ".") || net.ParseIP(host) != nil
+}
+
+func isDecimalPort(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // resolveScopeAbs converts a raw scope to an absolute, cleaned path. A relative
