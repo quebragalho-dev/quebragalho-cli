@@ -1232,7 +1232,7 @@ func permissionEventScopeLabel(event *agent.PermissionEvent) string {
 
 // renderFocusedAskUserPrompt draws the ask-user questionnaire in the same
 // card language as the permission card, with line borders.
-func renderFocusedAskUserPrompt(prompt pendingAskUserPrompt, input string, width int) string {
+func renderFocusedAskUserPrompt(prompt pendingAskUserPrompt, width int) string {
 	questions := prompt.request.Questions
 	total := len(questions)
 	index := prompt.index
@@ -1254,16 +1254,48 @@ func renderFocusedAskUserPrompt(prompt pendingAskUserPrompt, input string, width
 		question := questions[index]
 		lines = append(lines, fill(zeroTheme.faint).Render(fmt.Sprintf("question %d of %d", index+1, total)))
 		lines = append(lines, fill(zeroTheme.ink).Render(question.Question))
-		if len(question.Options) > 0 {
-			lines = append(lines, fill(zeroTheme.muted).Render("options: "+strings.Join(question.Options, ", ")))
+
+		if len(question.Options) > 0 && !prompt.typing {
+			// Selector mode: render each suggested option plus a trailing "type my
+			// own" entry. The highlighted row gets a lime ▸ marker and a reverse
+			// badge label (mirrors the permission popup); the recommended option is
+			// tagged inline.
+			selectable := askUserSelectableCount(question)
+			cursor := clampAskUserCursor(prompt.cursor, selectable)
+			for optionIndex, option := range question.Options {
+				label := option
+				if option == question.Recommended {
+					label += "  (recommended)"
+				}
+				if optionIndex == cursor {
+					lines = append(lines, fill(zeroTheme.accent).Render("▸ ")+zeroTheme.badge.Render(" "+label+" "))
+				} else {
+					lines = append(lines, "  "+fill(zeroTheme.ink).Render(label))
+				}
+			}
+			if cursor >= len(question.Options) {
+				lines = append(lines, fill(zeroTheme.accent).Render("▸ ")+zeroTheme.badge.Render(" "+askUserTypeMyOwnLabel+" "))
+			} else {
+				lines = append(lines, "  "+fill(zeroTheme.muted).Render(askUserTypeMyOwnLabel))
+			}
+			lines = append(lines, fill(zeroTheme.faint).Render("↑↓ move · enter to select · esc to skip the rest"))
+		} else {
+			// Free-text mode. The composer text box below is the single input — do NOT
+			// echo the typed answer inside the card too (that showed it in two places).
+			switch {
+			case question.MultiSelect && len(question.Options) > 0:
+				// Multi-select can't be a single-pick list; surface the suggestions and
+				// let the user type one or more in their own words.
+				lines = append(lines, fill(zeroTheme.muted).Render("suggested: "+strings.Join(question.Options, ", ")))
+				lines = append(lines, fill(zeroTheme.faint).Render("type your answer(s) below · Enter to submit · Esc to skip the rest"))
+			case len(question.Options) > 0:
+				// Single-select "type my own": Esc steps back to the selector.
+				lines = append(lines, fill(zeroTheme.faint).Render("type your own answer below · Enter to submit · Esc to go back"))
+			default:
+				lines = append(lines, fill(zeroTheme.faint).Render("type an answer below · Enter to submit · Esc to skip the rest"))
+			}
 		}
 	}
-	// Echo the in-progress answer inside the card so the user sees what they
-	// are typing where they are answering, cursor included.
-	answer := zeroTheme.onPanel(zeroTheme.userPrompt).Render("❯ ") +
-		fill(zeroTheme.ink).Render(input) + fill(zeroTheme.accent).Render("▌")
-	lines = append(lines, answer)
-	lines = append(lines, fill(zeroTheme.faint).Render("type an answer, Enter to submit · Esc to skip"))
 
 	return styledBlockFill(width, lines, zeroTheme.line, zeroTheme.panel)
 }

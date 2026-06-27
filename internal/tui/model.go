@@ -511,11 +511,18 @@ type askUserRequestMsg struct {
 // pendingAskUserPrompt tracks an in-progress questionnaire. Answers are collected
 // one question at a time; once every question has an answer (or the user cancels)
 // the answer callback is invoked exactly once.
+//
+// When the current question carries Options, the prompt is in SELECTOR mode: cursor
+// indexes the options plus a trailing "type my own" entry, and starts on the
+// recommended option. Choosing "type my own" (or a question with no options) flips
+// typing=true, falling back to the existing free-text composer input.
 type pendingAskUserPrompt struct {
 	request agent.AskUserRequest
 	answer  func([]string)
 	index   int
 	answers []string
+	cursor  int  // selector index over [options..., "type my own"] for the current question
+	typing  bool // true = free-text input mode for the current question
 }
 
 type pendingSpecReviewPrompt struct {
@@ -955,11 +962,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcriptDetailed = false
 				return m, nil
 			}
-			// An active questionnaire is cancelled (not the whole run): deliver
-			// whatever answers were collected so the agent loop unblocks and
-			// degrades to its best-assumption path.
+			// Esc on an ask-user prompt: from the "type my own" free-text it steps
+			// back to the selector for that question; otherwise it cancels the
+			// questionnaire (not the run), delivering whatever answers were collected
+			// so the agent loop unblocks and degrades to its best-assumption path.
 			if m.pendingAskUser != nil {
-				return m.resolveAskUser(true)
+				return m.escapeAskUser()
 			}
 			if m.pendingSpecReview != nil {
 				return m.cancelSpecReview()
@@ -1014,7 +1022,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.confirmPermissionCursor()
 			}
 			if m.pendingAskUser != nil {
-				return m.submitAskUserAnswer()
+				return m.confirmAskUser()
 			}
 			if m.pendingSpecReview != nil {
 				return m, nil
@@ -1163,6 +1171,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingPermission != nil {
 				return m.movePermissionCursor(1), nil
 			}
+			if m.pendingAskUser != nil && !m.pendingAskUser.typing {
+				return m.moveAskUserCursor(1), nil
+			}
 			if m.providerWizard != nil {
 				return m.handleProviderWizardKey(msg)
 			}
@@ -1201,6 +1212,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingPermission != nil {
 				return m.movePermissionCursor(-1), nil
 			}
+			if m.pendingAskUser != nil && !m.pendingAskUser.typing {
+				return m.moveAskUserCursor(-1), nil
+			}
 			if m.providerWizard != nil {
 				return m.handleProviderWizardKey(msg)
 			}
@@ -1232,8 +1246,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.pendingAskUser != nil {
-			// While a questionnaire is active, all other keys feed the text input
-			// (the answer field); nothing else should react.
+			// While a questionnaire is active, keys feed the answer text input. In
+			// selector mode a printable keystroke means the user wants to type their
+			// own answer, so flip into free-text first (same as choosing "type my
+			// own") instead of letting the text accumulate invisibly and then be
+			// discarded when Enter selects the highlighted option.
+			if !m.pendingAskUser.typing && keyPrintable(msg) {
+				m.pendingAskUser.typing = true
+				m.input.SetValue("")
+			}
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
@@ -1457,6 +1478,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			answer:  msg.answer,
 			answers: make([]string, 0, len(msg.request.Questions)),
 		}
+		m.pendingAskUser.syncQuestionState() // selector vs free-text for question 1
 		m.clearComposer()
 		m.clearSuggestions()
 		return m, nil
@@ -3081,22 +3103,6 @@ func (m model) resolvePermission(decision permissionDecision) (tea.Model, tea.Cm
 		})
 	}
 	m.pendingPermission = nil
-	return m, nil
-}
-
-// submitAskUserAnswer records the answer to the current question and advances to
-// the next one; once every question is answered it delivers the full answer set.
-func (m model) submitAskUserAnswer() (tea.Model, tea.Cmd) {
-	pending := m.pendingAskUser
-	if pending == nil {
-		return m, nil
-	}
-	pending.answers = append(pending.answers, strings.TrimSpace(m.input.Value()))
-	pending.index++
-	m.input.SetValue("")
-	if pending.index >= len(pending.request.Questions) {
-		return m.resolveAskUser(false)
-	}
 	return m, nil
 }
 
