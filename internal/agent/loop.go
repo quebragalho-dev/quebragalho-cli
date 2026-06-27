@@ -130,6 +130,14 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	// loaded tool's full schema; it lives only for the run (v1 within-run scope).
 	loaded := map[string]bool{}
 
+	// continueNudges counts how many times the headless completion gate
+	// (Options.RequireCompletionSignal) has re-prompted a no-tool-call turn that
+	// stopped with work still unfinished. Bounded by maxContinueNudges.
+	continueNudges := 0
+	// acceptanceRequested records that the one-time task-grounded acceptance check
+	// has already been demanded this run, so it fires at most once.
+	acceptanceRequested := false
+
 	result := Result{Messages: copyMessages(messages)}
 	for turn := 0; turn < maxTurns; turn++ {
 		result.Turns = turn + 1
@@ -327,6 +335,72 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				})
 				continue
 			}
+			// Completion gate (headless): a turn with text but no tool call is the
+			// model's final answer ONLY when the work is actually done. Default off
+			// (RequireCompletionSignal), so interactive runs stay byte-identical.
+			if options.RequireCompletionSignal {
+				// (1) Self-report downgrade (strongest, unambiguous): the model's own
+				// final message admits it guessed / could not meet the objective. Checked
+				// FIRST so an admitted-impossible task is downgraded immediately (no wasted
+				// continue-nudges) and reports the accurate reason.
+				if reason := selfReportedIncompletion(collected.Text); reason != "" {
+					result.Incomplete = true
+					result.IncompleteReason = reason
+					result.FinalAnswer = collected.Text
+					result.Messages = copyMessages(messages)
+					return result, nil
+				}
+
+				// (2) The model stopped without a tool call while work may be unfinished:
+				//   - a continuation cue ("…Let me check the config:") is an unambiguous
+				//     mid-step stop;
+				//   - pending update_plan items are a WEAK, ambiguous signal (the model may
+				//     have finished without re-marking the last step).
+				// Nudge to continue (bounded). After the budget: a persisted continuation
+				// cue finalizes INCOMPLETE; pending-plan WITHOUT a cue does NOT (that would
+				// false-fail a completed run with stale bookkeeping) — fall through to the
+				// acceptance check / success.
+				cue := endsWithContinuationCue(collected.Text)
+				planPending := guards.pendingPlanItems()
+				if cue || planPending {
+					if continueNudges < maxContinueNudges {
+						continueNudges++
+						reason := "your message ended mid-step"
+						if !cue {
+							reason = "pending plan items remain — finish them, or mark them complete with update_plan if you are done"
+						}
+						messages = append(messages, zeroruntime.Message{
+							Role:    zeroruntime.MessageRoleUser,
+							Content: continueNudge(reason),
+						})
+						continue
+					}
+					if cue {
+						result.Incomplete = true
+						result.IncompleteReason = "your message ended mid-step"
+						result.FinalAnswer = collected.Text
+						result.Messages = copyMessages(messages)
+						return result, nil
+					}
+					// pending-plan only, budget spent: trust the model's completion claim
+					// over stale plan bookkeeping; fall through.
+				}
+
+				// (3) Task-grounded acceptance: before accepting a "done" turn as success,
+				// require ONE acceptance check grounded in the task's stated criterion
+				// (only when self-correct is on). Rejects "well-formed == correct",
+				// "existing-tests-pass == objective met", and "result == baseline" false
+				// successes. Bounded to a single pass; a genuine post-check completion
+				// (no admission, no cue) then finalizes as success on the next turn.
+				if options.SelfCorrect != nil && !acceptanceRequested {
+					acceptanceRequested = true
+					messages = append(messages, zeroruntime.Message{
+						Role:    zeroruntime.MessageRoleUser,
+						Content: acceptanceVerificationNudge(),
+					})
+					continue
+				}
+			}
 			result.FinalAnswer = collected.Text
 			result.Messages = copyMessages(messages)
 			return result, nil
@@ -502,15 +576,27 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		result.Messages = copyMessages(messages)
 		return result, ctx.Err()
 	}
+	// Reaching here means the loop hit the maxTurns ceiling — the agent was cut off
+	// mid-run, not a natural completion (a finished run returns via the no-tool-call
+	// success path before this). Under the headless completion gate that is INCOMPLETE,
+	// not success, so a run that loops to the turn limit isn't reported as done.
 	if answer, finalMessages, finishReason := finalAnswerAfterMaxTurns(ctx, provider, messages, options); strings.TrimSpace(answer) != "" {
 		result.FinalAnswer = answer
 		result.FinishReason = finishReason
 		result.Messages = copyMessages(finalMessages)
+		if options.RequireCompletionSignal {
+			result.Incomplete = true
+			result.IncompleteReason = "reached the max-turns limit without completing"
+		}
 		return result, nil
 	}
 
 	result.FinalAnswer = maxTurnsAnswer
 	result.Messages = copyMessages(messages)
+	if options.RequireCompletionSignal {
+		result.Incomplete = true
+		result.IncompleteReason = "reached the max-turns limit without a final answer"
+	}
 	return result, nil
 }
 

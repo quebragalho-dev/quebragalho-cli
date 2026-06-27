@@ -32,6 +32,12 @@ const (
 	exitCrash    = 1
 	exitUsage    = 2
 	exitProvider = 3
+	// exitIncomplete marks a headless run that stopped with work clearly
+	// unfinished — the completion gate exhausted its continue budget on a
+	// no-tool-call turn while plan items were pending or the model ended mid-step.
+	// Distinct from success so callers/benchmarks don't treat an abandoned run as
+	// finished.
+	exitIncomplete = 4
 	// exitInterrupted is the conventional shell exit code for a process stopped by
 	// SIGINT (128 + signal number 2).
 	exitInterrupted = 130
@@ -513,12 +519,17 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		PermissionMode:   permissionMode,
 		Autonomy:         options.autonomy,
 		SelfCorrect:      selfCorrector,
-		Sandbox:          sandboxEngine,
-		FileTracker:      tools.NewFileTracker(),
-		Hooks:            newHookDispatcherWithExtra(workspaceRoot, pluginActivation.hooks),
-		EnabledTools:     options.enabledTools,
-		DisabledTools:    options.disabledTools,
-		OnText:           writer.text,
+		// Headless exec: don't accept a no-tool-call turn as "done" while work
+		// clearly remains (pending plan items / a mid-step continuation cue) —
+		// nudge to continue, and finalize as INCOMPLETE rather than false success
+		// if the model keeps stalling. The interactive TUI leaves this off.
+		RequireCompletionSignal: true,
+		Sandbox:                 sandboxEngine,
+		FileTracker:             tools.NewFileTracker(),
+		Hooks:                   newHookDispatcherWithExtra(workspaceRoot, pluginActivation.hooks),
+		EnabledTools:            options.enabledTools,
+		DisabledTools:           options.disabledTools,
+		OnText:                  writer.text,
 		OnToolCall: func(call agent.ToolCall) {
 			writer.toolCall(call, registry)
 			sessionRecorder.append(sessions.EventToolCall, map[string]any{
@@ -621,6 +632,43 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 
 	if notice := result.TruncationNotice(); notice != "" {
 		writer.warning(notice)
+	}
+	// A headless run the completion gate marked INCOMPLETE (no-tool-call stall,
+	// self-reported non-completion, or max-turns cutoff) must NOT be reported as a
+	// success: exit 4 AND a machine-readable terminal event saying so. Handled per
+	// output format BEFORE writer.final(), because for -o json final() emits a
+	// {"type":"done","exit_code":0} that would otherwise mask the incomplete exit.
+	// An `error` event (not just a warning) is emitted so log/cron consumers that
+	// scan for type=="error" can recover the reason.
+	if result.Incomplete {
+		reason := result.IncompleteReason
+		if reason == "" {
+			reason = "run stopped with work unfinished"
+		}
+		sessionRecorder.append(sessions.EventError, map[string]any{"message": "incomplete: " + reason})
+		switch options.outputFormat {
+		case execOutputStreamJSON:
+			writer.final(result.FinalAnswer)
+			writer.errorEvent("incomplete", reason, false)
+			writer.runEnd("incomplete", exitIncomplete)
+			if writer.err != nil {
+				return exitCrash
+			}
+		case execOutputJSON:
+			if writeErr := writeJSONLine(stdout, map[string]any{"type": "final", "text": result.FinalAnswer}); writeErr != nil {
+				return exitCrash
+			}
+			if writeErr := writeJSONLine(stdout, map[string]any{"type": "error", "code": "incomplete", "message": reason}); writeErr != nil {
+				return exitCrash
+			}
+			if writeErr := writeJSONLine(stdout, map[string]any{"type": "done", "exit_code": exitIncomplete}); writeErr != nil {
+				return exitCrash
+			}
+		default:
+			writer.final(result.FinalAnswer)
+			fmt.Fprintln(stderr, "Run incomplete (not reported as success): "+reason)
+		}
+		return exitIncomplete
 	}
 	writer.final(result.FinalAnswer)
 	writer.runEnd("success", exitSuccess)

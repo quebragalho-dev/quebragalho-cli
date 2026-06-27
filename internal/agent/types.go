@@ -262,6 +262,17 @@ type Options struct {
 	// byte-identical to before). One instance per run — it holds attempt state.
 	SelfCorrect *SelfCorrector
 
+	// RequireCompletionSignal gates run completion for HEADLESS exec. Without it,
+	// any assistant turn that produces text but no tool call is accepted as the
+	// final answer. With it, a no-tool-call turn is NOT treated as "done" while
+	// work clearly remains — pending update_plan items, or a message that ends on a
+	// continuation cue ("…Let me check the config:"). The loop then nudges the
+	// model to continue instead, bounded by maxContinueNudges (and still by
+	// MaxTurns and the run deadline); if the model keeps stalling, the run
+	// finalizes as INCOMPLETE (Result.Incomplete) rather than success. Default
+	// false leaves the loop byte-identical, so the interactive TUI is unaffected.
+	RequireCompletionSignal bool
+
 	runPermissions *permissionRunState
 }
 
@@ -275,6 +286,17 @@ type Result struct {
 	// hit the token cap, FinishReasonContentFilter when it was filtered. Empty for
 	// a normal completion.
 	FinishReason string
+	// Incomplete reports that a headless run (RequireCompletionSignal) stopped with
+	// work clearly unfinished: the model ended a turn with no tool call while plan
+	// items were pending or the message ended mid-step, the model admitted it
+	// guessed / could not meet the objective, and/or it failed a task-grounded
+	// acceptance check. Callers map it to a non-success terminal status / exit
+	// code. False for every normal completion.
+	Incomplete bool
+	// IncompleteReason is a short, model-derived explanation of why the run was
+	// marked Incomplete (e.g. "pending plan items remain"). Empty when Incomplete
+	// is false. Surfaced in logs / run_end so an abandoned run is debuggable.
+	IncompleteReason string
 }
 
 // Truncated reports whether the final response ended abnormally (cut off at the

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -44,7 +45,191 @@ const (
 	// with the same error, so NO model (weak or strong) burns turns looping on a
 	// bad call.
 	toolFailureStopAt = 4
+
+	// maxContinueNudges bounds how many times the headless completion gate
+	// (Options.RequireCompletionSignal) re-prompts a model that stopped without a
+	// tool call while work clearly remained. Once spent, the run finalizes as
+	// INCOMPLETE rather than nudging forever (and it is still bounded by maxTurns
+	// and the run deadline).
+	maxContinueNudges = 3
 )
+
+// continueNudgeMarker is a stable substring for tests.
+const continueNudgeMarker = "the task is not finished"
+
+// continueNudge tells a model that stopped without a tool call — while work
+// clearly remained — to keep going, or to mark the plan complete and summarize if
+// it is genuinely done. The second path gives it a clean route to a legitimate
+// completion (a finished plan + no continuation cue then exits as success).
+func continueNudge(reason string) string {
+	return "You stopped without calling a tool, but " + continueNudgeMarker + " (" + reason + "). " +
+		"Do not stop here: take the next concrete action with a tool now. " +
+		"If you are genuinely finished, first mark the plan complete with update_plan, then give your final summary."
+}
+
+// endsWithContinuationCue reports whether an assistant message ends mid-thought —
+// the model announcing its OWN next action and then stopping on a colon
+// ("…Let me check the SSH configuration:") rather than concluding. It requires
+// BOTH a trailing colon AND an action lead-in on the last line, so genuine closers
+// are NOT flagged: a forward-looking recommendation ("Next, I suggest reviewing
+// the changes."), a sign-off ("Let me know if you need anything"), or a summary
+// that merely ends in a colon ("Here is the summary:"). A bare trailing colon alone
+// is too common in legitimate final answers to use as a signal.
+func endsWithContinuationCue(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	lines := strings.Split(trimmed, "\n")
+	last := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		if s := strings.TrimSpace(lines[i]); s != "" {
+			last = strings.ToLower(s)
+			break
+		}
+	}
+	if !strings.HasSuffix(last, ":") {
+		return false
+	}
+	// Inspect the final clause (after the last sentence break) so a mid-line action
+	// announcement is caught ("…configure the server. Let me check the config:")
+	// while a plain summary colon ("Here is the summary:") or a recommendation is not.
+	clause := last
+	if idx := strings.LastIndex(last, ". "); idx >= 0 {
+		clause = strings.TrimSpace(last[idx+2:])
+	}
+	if strings.HasPrefix(clause, "let me know") { // sign-off, not a mid-step action
+		return false
+	}
+	for _, cue := range []string{
+		"let me ", "let's ", "now i'll ", "now i will ", "now let me ", "let me now ",
+		"i'll now ", "i will now ", "next i'll ", "next, i'll ", "first, i'll ", "first let me ",
+	} {
+		if strings.HasPrefix(clause, cue) {
+			return true
+		}
+	}
+	return false
+}
+
+// planStatusRemaining reports whether a raw update_plan status string represents
+// unfinished work. Anything not clearly completed/failed (incl. empty/unknown,
+// which the update_plan tool coerces to "pending") counts as remaining, matching
+// that tool's own status normalization.
+func planStatusRemaining(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "complete", "done", "finished", "resolved", "✓", "x", "[x]",
+		"failed", "fail", "error", "errored", "blocked", "cancelled", "canceled", "abandoned", "skipped":
+		return false
+	default:
+		return true
+	}
+}
+
+// acceptanceNudgeMarker is a stable substring for tests; it is embedded verbatim
+// in acceptanceVerificationNudge.
+const acceptanceNudgeMarker = "verify your work against the task's stated success criterion"
+
+// selfReportPhrases are high-signal admissions of guessing/fabrication or stated
+// uncertainty about the produced result. They are matched by plain substring with
+// NO context guard, so every entry must be FIRST-PERSON or unambiguously about the
+// model's own output — NOT a phrase that also describes implemented behavior.
+// (Earlier versions included "fall back to" / "placeholder value" / "as a
+// fallback" / bare "best guess" / "without proper", which match legitimate final
+// answers like "the parser will fall back to UTF-8" or "I replaced the placeholder
+// value", wrongly downgrading completed runs — so those are removed. Admissions of
+// INABILITY are handled separately by inabilityStems, which carry a guard.)
+var selfReportPhrases = []string{
+	// first-person admissions of guessing / fabrication / assumption
+	"i guessed", "my best guess", "i'm guessing", "this is a guess", "just a guess",
+	"i made it up", "i fabricated", "i assumed a", "i had to assume",
+	// first-person lack of capability (inability stems also cover cannot/could-not)
+	"i do not have the ability", "i don't have the ability", "i lack the ability",
+	"no way for me to", "not possible for me to",
+	// stated uncertainty about the correctness of the produced result
+	"may not be correct", "might not be correct", "may be incorrect", "might be incorrect",
+	"this may not work", "this might not work", "not fully functional", "not fully working",
+}
+
+// inabilityStems are first-person "I cannot / can't / could not / am unable to /
+// do not have" stems. Matching the STEM (not a fixed verb) generalizes over
+// whatever action the model claims it could not perform — "analyze", "determine",
+// "do", "complete", "verify", "see", etc. — so the detector is not defeated by
+// re-phrasing (the chess case slipped a fixed "cannot analyze" list by writing
+// "…which I cannot do without proper image analysis capabilities").
+var inabilityStems = []string{
+	"i cannot ", "i can't ", "i can not ", "i could not ", "i couldn't ",
+	"i am unable to", "i'm unable to", "i was unable to", "i wasn't able to",
+	"i was not able to", "i do not have", "i don't have", "unable to ",
+	"without being able to",
+}
+
+// successNegationTails are negated phrasings that indicate SUCCESS, not an
+// admission ("I could not find any remaining issues", "I cannot reproduce the
+// bug"). When an inability stem is immediately followed by one of these, it is not
+// treated as an admission, so a clean result is not misreported as INCOMPLETE.
+var successNegationTails = []string{
+	"find any", "found any", "find a ", "see any", "detect any", "identify any",
+	"reproduce", "spot any", "locate any",
+}
+
+// selfReportedIncompletion returns a short reason when the model's final text
+// admits it guessed or could not meet the objective, else "". Case-insensitive.
+func selfReportedIncompletion(text string) string {
+	lower := strings.ToLower(text)
+	for _, phrase := range selfReportPhrases {
+		if strings.Contains(lower, phrase) {
+			return selfReportReason(phrase)
+		}
+	}
+	for _, stem := range inabilityStems {
+		// Scan EVERY occurrence of the stem, not just the first: an earlier
+		// success-negation use ("I could not find any examples, so I could not
+		// implement it") must not mask a later genuine admission with the same stem.
+		for start := 0; ; {
+			rel := strings.Index(lower[start:], stem)
+			if rel < 0 {
+				break
+			}
+			abs := start + rel
+			tail := strings.TrimSpace(lower[abs+len(stem):])
+			if !hasAnyPrefix(tail, successNegationTails) {
+				return selfReportReason(strings.TrimSpace(stem) + " …")
+			}
+			start = abs + len(stem)
+		}
+	}
+	return ""
+}
+
+func selfReportReason(marker string) string {
+	return `the final message admits the objective was not met ("` + marker + `")`
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// acceptanceVerificationNudge forces a TASK-GROUNDED acceptance check before a run
+// may finalize as success. It explicitly rejects the three false-success patterns
+// the bug-hunt surfaced: well-formed output treated as correct; pre-existing tests
+// passing treated as the objective being met; and a result that merely matches a
+// baseline the task asked to beat or improve. General — no task-specific content.
+func acceptanceVerificationNudge() string {
+	return "Before this task can be marked complete, " + acceptanceNudgeMarker + " — " +
+		"NOT the shape or format of your output, NOT that pre-existing tests pass, and NOT that your " +
+		"result merely matches a baseline you were asked to beat or improve. " +
+		"Re-read the original task, then run a concrete check that exercises the actual requirement: " +
+		"execute the program or tests that demonstrate the required behavior, or directly probe the specific " +
+		"thing the task asked you to produce, recover, fix, or optimize. " +
+		"If that check passes, reply PASS and cite the evidence. " +
+		"If it does not pass — or you cannot run such a check — say so plainly and keep working; do not claim success."
+}
 
 // toolFailureHintMarker is a stable substring for tests.
 const toolFailureHintMarker = "kept failing with the same error"
@@ -177,6 +362,10 @@ type guardState struct {
 	staleReminderSent    bool
 	toolOnlyTurns        int
 	toolOnlyReminderSent bool
+	// planItemsPending is the number of remaining (pending/in_progress) items in
+	// the most recent update_plan call, so the headless completion gate can tell
+	// whether work is unfinished when the model stops without a tool call.
+	planItemsPending int
 	// toolFailures tracks consecutive same-error failures per tool, keyed by tool
 	// name, so the loop can hint then halt instead of looping forever.
 	toolFailures map[string]*toolFailureRecord
@@ -245,12 +434,42 @@ func (state *guardState) observeTurn(collected zeroruntime.CollectedStream) (sto
 			state.toolCallsSincePlanUpdate = 0
 			// A fresh plan update opens a new stale interval.
 			state.staleReminderSent = false
+			// Record how many items remain so the completion gate knows whether
+			// work is unfinished if the model later stops without a tool call.
+			state.observePlanUpdate(call.Arguments)
 		} else {
 			state.toolCallsSincePlanUpdate++
 		}
 	}
 
 	return state.emptyTurns >= maxEmptyTurns
+}
+
+// pendingPlanItems reports whether the most recent update_plan call still has
+// unfinished (pending/in_progress) items. False when no plan was ever recorded.
+func (state *guardState) pendingPlanItems() bool {
+	return state.planItemsPending > 0
+}
+
+// observePlanUpdate parses an update_plan call's raw arguments and records how
+// many items are still remaining. Malformed arguments leave the prior count
+// unchanged (best-effort — the plan panel itself tolerates the same).
+func (state *guardState) observePlanUpdate(arguments string) {
+	var parsed struct {
+		Plan []struct {
+			Status string `json:"status"`
+		} `json:"plan"`
+	}
+	if json.Unmarshal([]byte(arguments), &parsed) != nil {
+		return
+	}
+	pending := 0
+	for _, item := range parsed.Plan {
+		if planStatusRemaining(item.Status) {
+			pending++
+		}
+	}
+	state.planItemsPending = pending
 }
 
 func (state *guardState) progressReminder() string {
