@@ -156,10 +156,10 @@ func formatDeferredToolLine(name, description, server string, schema Schema) str
 }
 
 // mcpServerNamed is an optional interface a deferred MCP tool implements to
-// report its true (un-sanitized-token) server name for the reminder label. When
+// report its true (un-sanitized-token) server name for discovery labels. When
 // a tool provides it, DeferredLine prefers it over the name-derived token, which
 // would mislabel a server whose sanitized name itself contains an underscore
-// (e.g. "git_hub" → "git"). It affects the cosmetic reminder label only; tool
+// (e.g. "git_hub" → "git"). It affects the cosmetic discovery label only; tool
 // resolution never depends on this.
 type mcpServerNamed interface {
 	MCPServerName() string
@@ -168,8 +168,8 @@ type mcpServerNamed interface {
 // DeferredLine renders the compact advertisement line for a single deferred
 // tool, deriving the MCP server label from the tool's reported server name when
 // available, falling back to the token parsed from the tool's name. It is the
-// exported entry point the agent loop uses to build each line of the
-// deferred-tools reminder, so callers in other packages never touch the
+// exported entry point the agent loop uses to build compact deferred metadata,
+// so callers in other packages never touch the
 // unexported formatters.
 func DeferredLine(t Tool) string {
 	server := mcpServerFromToolName(t.Name())
@@ -181,29 +181,79 @@ func DeferredLine(t Tool) string {
 	return formatDeferredToolLine(t.Name(), t.Description(), server, t.Parameters())
 }
 
-const (
-	systemReminderStart = "<system-reminder>"
-	systemReminderEnd   = "</system-reminder>"
-)
-
-// BuildDeferredReminder wraps the given deferred-tool advertisement lines in a
-// <system-reminder> block instructing the model to load a tool's full schema
-// via tool_search (using a `select:Name1,Name2` exact query or keywords)
-// before calling it. Returns "" when there are no lines.
-func BuildDeferredReminder(lines []string) string {
-	if len(lines) == 0 {
+// DeferredSource reports the compact source label used in tool_search's dynamic
+// description. MCP tools use their configured server name; other deferred tools
+// fall back to the first name segment so families such as swarm_* are grouped.
+func DeferredSource(t Tool) string {
+	if t == nil {
 		return ""
 	}
+	if named, ok := t.(mcpServerNamed); ok {
+		if reported := strings.TrimSpace(named.MCPServerName()); reported != "" {
+			return reported
+		}
+	}
+	if server := mcpServerFromToolName(t.Name()); server != "" {
+		return server
+	}
+	name := strings.TrimSpace(t.Name())
+	if name == "" {
+		return ""
+	}
+	if prefix, _, ok := strings.Cut(name, "_"); ok && prefix != "" {
+		return prefix
+	}
+	return name
+}
+
+// DeferredToolDiscoveryLine renders the compact name/source entry used in
+// tool_search's dynamic description. It intentionally omits descriptions and
+// schemas; those are revealed only after tool_search loads a matching tool.
+func DeferredToolDiscoveryLine(t Tool) string {
+	if t == nil {
+		return ""
+	}
+	name := strings.TrimSpace(t.Name())
+	if name == "" {
+		return ""
+	}
+	source := strings.TrimSpace(DeferredSource(t))
+	if source == "" || source == name {
+		return name
+	}
+	return name + " — " + source
+}
+
+// BuildToolSearchDescription renders the model-facing discovery instructions for
+// deferred tools. This belongs on the tool_search tool definition, not as an
+// extra user message, so the model can discover tools without treating discovery
+// metadata as something to answer or acknowledge.
+func BuildToolSearchDescription(deferred []Tool) string {
+	seen := make(map[string]bool)
+	lines := make([]string, 0, len(deferred))
+	for _, tool := range deferred {
+		line := DeferredToolDiscoveryLine(tool)
+		if line != "" && !seen[line] {
+			seen[line] = true
+			lines = append(lines, line)
+		}
+	}
+	sort.Strings(lines)
+
+	toolText := "No deferred tools are currently hidden."
+	if len(lines) > 0 {
+		for i, line := range lines {
+			lines[i] = "- " + line
+		}
+		toolText = strings.Join(lines, "\n")
+	}
+
 	var b strings.Builder
-	b.WriteString(systemReminderStart)
+	b.WriteString("# Tool discovery\n\n")
+	b.WriteString("Searches over deferred tool metadata and exposes matching tools for the next model call.\n\n")
+	b.WriteString("Deferred tools available through `tool_search`:\n")
+	b.WriteString(toolText)
 	b.WriteString("\n")
-	b.WriteString("The tools listed below are available in this environment, but their full schemas are omitted from the current tool list to save context.\n")
-	b.WriteString(`Call tool_search with query "select:Name1,Name2" (the exact names before each colon) or with keywords to load a tool's full schema before calling it. Calling an omitted tool directly will fail with an input validation error.` + "\n")
-	b.WriteString("Do not call tool_search for tools already present in the current tool list, and do not guess or invent tool names.\n")
-	b.WriteString("\n")
-	b.WriteString("Deferred tools:\n")
-	b.WriteString(strings.Join(lines, "\n"))
-	b.WriteString("\n")
-	b.WriteString(systemReminderEnd)
+	b.WriteString("Use query `select:Name1,Name2` for exact names from this list, or use keywords to search tool names and descriptions. Do not call `tool_search` for tools already present in the current tool list.")
 	return b.String()
 }
