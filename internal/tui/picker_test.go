@@ -841,3 +841,39 @@ func TestEffortPickerAutoSelectionKeepsEffortUnset(t *testing.T) {
 		t.Fatalf("auto selection should clear reasoning effort, got %q", m.reasoningEffort)
 	}
 }
+
+func TestModelContextWindowResolution(t *testing.T) {
+	m := model{}
+	// Registered model → the exact registry window (compare to the registry value so
+	// this doesn't break on a benign catalog update).
+	registry, err := modelregistry.DefaultRegistry()
+	if err != nil {
+		t.Fatalf("load default registry: %v", err)
+	}
+	entry, ok := registry.Resolve("gpt-4.1")
+	if !ok || entry.ContextLimits.ContextWindow <= 0 {
+		t.Fatalf("gpt-4.1 should resolve a positive window in the registry")
+	}
+	if got := m.modelContextWindow("gpt-4.1"); got != entry.ContextLimits.ContextWindow {
+		t.Fatalf("registered model window = %d, want %d", got, entry.ContextLimits.ContextWindow)
+	}
+	// Unknown model → 0 (display shows no denominator); compaction applies its own
+	// fallback via AgentContextWindow.
+	if got := m.modelContextWindow("totally-unknown-proxy-model"); got != 0 {
+		t.Fatalf("unknown model should resolve 0 for display, got %d", got)
+	}
+	if got := modelregistry.AgentContextWindow(m.modelContextWindow("totally-unknown-proxy-model")); got != modelregistry.FallbackContextWindow {
+		t.Fatalf("compaction window for unknown model should be %d, got %d", modelregistry.FallbackContextWindow, got)
+	}
+	// Live-discovered window wins for an unregistered model.
+	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{
+		"xai": {{ID: "grok-4", ContextWindow: 256000}},
+	}
+	if got := m.modelContextWindow("grok-4"); got != 256000 {
+		t.Fatalf("discovered window should win for unregistered model, got %d", got)
+	}
+	// Empty name → 0 (no window).
+	if got := m.modelContextWindow(""); got != 0 {
+		t.Fatalf("empty model name should yield 0, got %d", got)
+	}
+}

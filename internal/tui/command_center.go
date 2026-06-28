@@ -427,7 +427,7 @@ func (m model) handleModelCommand(args string) (model, string) {
 	if guarded, text, requested := m.requestCompactionBeforeModelSwitch(modelSwitchCompactionRequest{
 		TargetModel:         target.modelID,
 		TargetProvider:      string(metadata.ProviderKind),
-		TargetContextWindow: modelContextWindow(target.modelID),
+		TargetContextWindow: modelregistry.AgentContextWindow(m.modelContextWindow(target.modelID)),
 	}, "Model"); requested {
 		return guarded, text
 	}
@@ -660,7 +660,7 @@ func (m model) handleModeCommand(args string) (model, string) {
 	if guarded, text, requested := m.requestCompactionBeforeModelSwitch(modelSwitchCompactionRequest{
 		TargetModel:         entry.ID,
 		TargetProvider:      string(metadata.ProviderKind),
-		TargetContextWindow: modelContextWindow(entry.ID),
+		TargetContextWindow: modelregistry.AgentContextWindow(m.modelContextWindow(entry.ID)),
 	}, "Mode"); requested {
 		return guarded, text
 	}
@@ -715,7 +715,7 @@ func (m model) requestCompactionBeforeModelSwitch(request modelSwitchCompactionR
 	}
 	request.CurrentModel = m.modelName
 	request.CurrentProvider = m.providerName
-	request.CurrentContextWindow = modelContextWindow(m.modelName)
+	request.CurrentContextWindow = m.modelContextWindow(m.modelName)
 	request.EstimatedTokens = estimateTranscriptTokens(m.transcript)
 	request.SessionEventCount = len(m.sessionEvents)
 	request.CompactRequests = m.compactRequests

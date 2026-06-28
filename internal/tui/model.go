@@ -727,6 +727,16 @@ func (m model) Init() tea.Cmd {
 	if m.themeMode == themeAuto {
 		cmds = append(cmds, tea.RequestBackgroundColor)
 	}
+	// Warm model discovery for the active provider in the background so the
+	// context-usage gauge (used / total tokens + % fill) knows the active model's
+	// window from launch — including proxy/custom models not in the curated
+	// registry. Async: never blocks startup; if discovery is unavailable the gauge
+	// just shows the used-token count until the window is otherwise learned.
+	if descriptor, ok := m.activeProviderDescriptor(); ok {
+		if cmd := m.modelPickerProviderDiscoveryCmd(descriptor, m.providerProfile); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
 	if m.prService != nil && m.runtimeMessageSink != nil {
 		service := m.prService
 		sink := m.runtimeMessageSink
@@ -3795,9 +3805,11 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		if m.captureRunImages != nil {
 			m.captureRunImages(images)
 		}
-		// Enable agent-loop compaction sized to the active model's context
-		// window. An unknown/custom model resolves to 0, leaving compaction off.
-		options.ContextWindow = modelContextWindow(m.modelName)
+		// Enable agent-loop compaction sized to the active model's context window.
+		// AgentContextWindow applies a positive fallback for unknown/custom models so
+		// compaction (proactive + reactive) is enabled for every model, not just
+		// catalogued ones.
+		options.ContextWindow = modelregistry.AgentContextWindow(m.modelContextWindow(m.modelName))
 
 		// Post-edit self-correction is on by default in the TUI but kept FAST: it
 		// runs LSP diagnostics over the changed files only — cheap, change-scoped,
