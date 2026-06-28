@@ -102,6 +102,19 @@ if (!platform || !arch) {
   );
 }
 
+// The release matrix builds linux/macos {x64,arm64} and windows-x64 — there is no
+// windows-arm64 artifact. (win32, arm64) otherwise resolves to a valid
+// platform/arch, so it would proceed to download a non-existent asset and hard
+// -fail npm install on a 404. Guard it explicitly to skip gracefully; Windows on
+// ARM runs the x64 build under emulation, so the x64 package is the fallback.
+if (platform === 'windows' && arch === 'arm64') {
+  warnSkip(
+    `no prebuilt binary for windows-arm64 (the windows-x64 build runs under ` +
+      `emulation on Windows on ARM). Build from source or install the x64 package: ` +
+      `https://github.com/${REPO} (go run ./cmd/zero).`,
+  );
+}
+
 const ext = platform === 'windows' ? 'zip' : 'tar.gz';
 const binaryName = platform === 'windows' ? 'zero.exe' : 'zero';
 const tag = `v${VERSION}`;

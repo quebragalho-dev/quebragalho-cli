@@ -140,6 +140,26 @@ func TestPostinstallSkipsUnsupportedPlatform(t *testing.T) {
 	}
 }
 
+func TestPostinstallSkipsWindowsArm64(t *testing.T) {
+	// (win32, arm64) resolves to a valid platform/arch but the release matrix has
+	// no windows-arm64 artifact, so the install must skip gracefully (exit 0)
+	// rather than hard-fail on a 404 download.
+	stdout, stderr, err := runPostinstall(t,
+		"ZERO_INSTALL_DRY_RUN=1",
+		"ZERO_INSTALL_PLATFORM=win32",
+		"ZERO_INSTALL_ARCH=arm64",
+	)
+	if err != nil {
+		t.Fatalf("windows-arm64 should exit 0, got err=%v stderr=%s", err, stderr)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("windows-arm64 should not print a plan, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "no prebuilt binary for windows-arm64") {
+		t.Fatalf("stderr=%q, want the windows-arm64 skip message", stderr)
+	}
+}
+
 func TestPostinstallHonorsSkipEnv(t *testing.T) {
 	stdout, stderr, err := runPostinstall(t, "ZERO_SKIP_DOWNLOAD=1")
 	if err != nil {
