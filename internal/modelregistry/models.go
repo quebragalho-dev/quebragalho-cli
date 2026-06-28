@@ -25,6 +25,10 @@ const (
 	ReasoningEffortMedium  ReasoningEffort = "medium"
 	ReasoningEffortHigh    ReasoningEffort = "high"
 	ReasoningEffortXHigh   ReasoningEffort = "xhigh"
+	// ReasoningEffortMax is the top tier some providers expose above xhigh (e.g.
+	// newer Anthropic models). Defined so a capability catalog that lists "max"
+	// has a constant to map to; no curated model lists it yet.
+	ReasoningEffortMax ReasoningEffort = "max"
 )
 
 type ModelCapability string
@@ -406,7 +410,7 @@ func ValidRuntimeProviderKind(provider ProviderKind) bool {
 
 func ValidReasoningEffort(effort ReasoningEffort) bool {
 	switch effort {
-	case ReasoningEffortNone, ReasoningEffortMinimal, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh, ReasoningEffortXHigh:
+	case ReasoningEffortNone, ReasoningEffortMinimal, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh, ReasoningEffortXHigh, ReasoningEffortMax:
 		return true
 	default:
 		return false
