@@ -223,7 +223,7 @@ func defaultedOpenGatewayURL(provider providercatalog.Descriptor, override strin
 	}
 	parsed, err := url.Parse(provider.DefaultBaseURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "https://gateway.gitlawb.com/zero/models.json"
+		return "https://opengateway.gitlawb.com/zero/models.json"
 	}
 	return parsed.Scheme + "://" + parsed.Host + "/zero/models.json"
 }

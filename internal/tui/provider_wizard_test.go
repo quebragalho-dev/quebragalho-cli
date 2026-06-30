@@ -53,7 +53,7 @@ func TestProviderCommandOpensOnboardingWizard(t *testing.T) {
 	updated, _ = next.Update(testKey(tea.KeyEnter))
 	next = updated.(model)
 	listView := plainRender(t, next.View())
-	for _, want := range []string{"Choose provider", "OpenAI", "Anthropic", "Google", "Groq", "OpenRouter", "Ollama"} {
+	for _, want := range []string{"Choose provider", "GitLawb OpenGateway", "OpenAI", "Anthropic", "Google", "OpenRouter", "Ollama"} {
 		assertContains(t, listView, want)
 	}
 }
@@ -172,8 +172,12 @@ func TestProviderWizardAdvancesProviderAPIKeyAndModelSteps(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m = openProviderWizardForTest(t, m)
 
+	// Index 0 is the recommended OpenGateway entry, so two downs land on anthropic
+	// (opengateway → openai → anthropic).
 	updated, _ := m.Update(testKey(tea.KeyDown))
 	next := updated.(model)
+	updated, _ = next.Update(testKey(tea.KeyDown))
+	next = updated.(model)
 	if got := next.providerWizard.currentProvider().ID; got != "anthropic" {
 		t.Fatalf("after down, selected provider = %q, want anthropic", got)
 	}
@@ -309,8 +313,15 @@ func TestProviderWizardRightAllowsExistingCredentialEnv(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m = openProviderWizardForTest(t, m)
 
-	updated, _ := m.Update(testKey(tea.KeyEnter))
+	// Move off the recommended OpenGateway entry (index 0) onto openai so the
+	// OPENAI_API_KEY env credential is the one in play.
+	updated, _ := m.Update(testKey(tea.KeyDown))
 	next := updated.(model)
+	if got := next.providerWizard.currentProvider().ID; got != "openai" {
+		t.Fatalf("after down, selected provider = %q, want openai", got)
+	}
+	updated, _ = next.Update(testKey(tea.KeyEnter))
+	next = updated.(model)
 	if next.providerWizard.step != providerWizardStepCredential {
 		t.Fatalf("enter from provider step = %v, want credential", next.providerWizard.step)
 	}

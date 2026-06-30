@@ -58,6 +58,11 @@ type Descriptor struct {
 	// OAuthDeviceFlow reports that RFC 8628 device-code login is supported (for
 	// headless / SSH use) in addition to the browser flow.
 	OAuthDeviceFlow bool
+
+	// Recommended marks the provider that should be surfaced first and badged
+	// (★ … (recommended)) in every catalog-ordered list and picker. At most one
+	// descriptor should set this.
+	Recommended bool
 }
 
 func RuntimeSupported(descriptor Descriptor) bool {
@@ -82,6 +87,11 @@ func RuntimeUnsupportedReason(descriptor Descriptor) string {
 }
 
 var descriptors = []Descriptor{
+	// GitLawb OpenGateway — the recommended default. An OpenAI-compatible gateway
+	// that smart-routes by model id across upstream providers (xiaomi-mimo,
+	// minimax, qwen, google, nvidia, z-ai). Flat /v1/chat/completions with a
+	// Bearer ogw_live_… key; listed first and badged in every picker.
+	recommended(openAICompat("gitlawb-opengateway", "GitLawb OpenGateway", "https://opengateway.gitlawb.com/v1", "mimo-v2.5-pro", []string{"GITLAWB_OPENGATEWAY_API_KEY"}, "gitlawb opengateway", "opengateway")),
 	openAI("openai", "OpenAI", "https://api.openai.com/v1", "gpt-4.1", []string{"OPENAI_API_KEY"}),
 	anthropic("anthropic", "Anthropic", "https://api.anthropic.com", "claude-sonnet-4.5", []string{"ANTHROPIC_API_KEY"}),
 	google("google", "Google", "https://generativelanguage.googleapis.com", "gemini-2.5-pro", []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"}, "gemini"),
@@ -124,7 +134,6 @@ var descriptors = []Descriptor{
 	openAICompat("xiaomi-mimo", "Xiaomi MiMo", "https://api.mimo.xiaomi.com/openai/v1", "mimo-vl", []string{"MIMO_API_KEY", "XIAOMI_API_KEY"}, "xiaomi mimo"),
 	openAICompat("bankr", "Bankr", "https://api.bankr.bot/v1", "bankr-large", []string{"BANKR_API_KEY"}),
 	openAICompat("zai", "Z.ai", "https://open.bigmodel.cn/api/paas/v4", "glm-4.5", []string{"ZAI_API_KEY", "ZHIPU_API_KEY"}),
-	openAICompat("gitlawb-opengateway", "GitLawb OpenGateway", "https://gateway.gitlawb.com/v1", "gpt-4.1", []string{"GITLAWB_OPENGATEWAY_API_KEY"}, "gitlawb opengateway"),
 	openAICompat("atomic-chat", "Atomic Chat", "https://api.atomic.chat/v1", "gpt-4.1", []string{"ATOMIC_CHAT_API_KEY"}),
 	// ChatGPT subscription via a local OAuth proxy. A ChatGPT (Plus/Pro) OAuth
 	// token only works against ChatGPT's own backend (which is Cloudflare-gated to
@@ -264,6 +273,13 @@ func google(id string, name string, baseURL string, model string, env []string, 
 		SupportedAPIFormats: []APIFormat{APIFormatGoogleGenerateContent},
 		Aliases:             aliases,
 	}
+}
+
+// recommended marks a descriptor as the recommended default so list/picker
+// surfaces sort it first and render the ★ … (recommended) badge.
+func recommended(descriptor Descriptor) Descriptor {
+	descriptor.Recommended = true
+	return descriptor
 }
 
 // oauthProvider marks a descriptor as OAuth-capable. mintsKey => the flow returns

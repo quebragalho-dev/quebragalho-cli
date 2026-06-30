@@ -8,6 +8,7 @@ import (
 )
 
 var expectedCatalogIDs = []string{
+	"gitlawb-opengateway",
 	"openai",
 	"anthropic",
 	"google",
@@ -33,7 +34,6 @@ var expectedCatalogIDs = []string{
 	"xiaomi-mimo",
 	"bankr",
 	"zai",
-	"gitlawb-opengateway",
 	"atomic-chat",
 	"chatgpt-proxy",
 	"custom-openai-compatible",
@@ -58,6 +58,41 @@ func TestAllHasStableUniqueIDs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(IDs(), expectedCatalogIDs) {
 		t.Fatalf("IDs() = %#v, want %#v", IDs(), expectedCatalogIDs)
+	}
+}
+
+func TestRecommendedProviderIsFirstAndUnique(t *testing.T) {
+	descriptors := All()
+	if len(descriptors) == 0 {
+		t.Fatal("All() returned no descriptors")
+	}
+	if !descriptors[0].Recommended {
+		t.Fatalf("All()[0] = %q, want it to be the recommended provider", descriptors[0].ID)
+	}
+	if descriptors[0].ID != "gitlawb-opengateway" {
+		t.Fatalf("recommended provider = %q, want %q", descriptors[0].ID, "gitlawb-opengateway")
+	}
+	recommended := 0
+	for _, descriptor := range descriptors {
+		if descriptor.Recommended {
+			recommended++
+		}
+	}
+	if recommended != 1 {
+		t.Fatalf("recommended descriptor count = %d, want exactly 1", recommended)
+	}
+}
+
+func TestRecommendedProviderEndpoint(t *testing.T) {
+	descriptor, ok := Get("gitlawb-opengateway")
+	if !ok {
+		t.Fatal("gitlawb-opengateway not found in catalog")
+	}
+	if descriptor.DefaultBaseURL != "https://opengateway.gitlawb.com/v1" {
+		t.Fatalf("OpenGateway base URL = %q, want %q", descriptor.DefaultBaseURL, "https://opengateway.gitlawb.com/v1")
+	}
+	if descriptor.Transport != TransportOpenAICompatible {
+		t.Fatalf("OpenGateway transport = %q, want %q", descriptor.Transport, TransportOpenAICompatible)
 	}
 }
 
@@ -229,7 +264,7 @@ func TestListByTransportPreservesCatalogOrder(t *testing.T) {
 		TransportBedrock:         {"bedrock"},
 		TransportVertex:          {"vertex"},
 		TransportAnthropicCompat: {"minimax", "custom-anthropic-compatible"},
-		TransportOpenAICompat:    {"ollama-cloud", "ollama", "lmstudio", "openrouter", "huggingface", "chatgpt", "groq", "deepseek", "together", "dashscope", "moonshot", "nvidia-nim", "mistral", "github", "xai", "venice", "xiaomi-mimo", "bankr", "zai", "gitlawb-opengateway", "atomic-chat", "chatgpt-proxy", "custom-openai-compatible"},
+		TransportOpenAICompat:    {"gitlawb-opengateway", "ollama-cloud", "ollama", "lmstudio", "openrouter", "huggingface", "chatgpt", "groq", "deepseek", "together", "dashscope", "moonshot", "nvidia-nim", "mistral", "github", "xai", "venice", "xiaomi-mimo", "bankr", "zai", "atomic-chat", "chatgpt-proxy", "custom-openai-compatible"},
 	}
 
 	for transport, wantIDs := range cases {

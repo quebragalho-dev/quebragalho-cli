@@ -170,3 +170,20 @@ func TestProbeConnectivityRedactsProviderErrorDetails(t *testing.T) {
 		t.Fatalf("custom header secret leaked in connectivity check: %s", rendered)
 	}
 }
+
+func TestOverrideHealthEndpointOpenGateway(t *testing.T) {
+	got, ok := overrideHealthEndpoint(config.ProviderProfile{CatalogID: "gitlawb-opengateway"}, "https://opengateway.gitlawb.com/v1")
+	if !ok {
+		t.Fatal("expected OpenGateway to override the health endpoint")
+	}
+	if got != "https://opengateway.gitlawb.com/health" {
+		t.Fatalf("OpenGateway health endpoint = %q, want host-root /health", got)
+	}
+
+	if _, ok := overrideHealthEndpoint(config.ProviderProfile{CatalogID: "openai"}, "https://api.openai.com/v1"); ok {
+		t.Fatal("non-OpenGateway providers must not override the health endpoint")
+	}
+	if _, ok := overrideHealthEndpoint(config.ProviderProfile{CatalogID: "gitlawb-opengateway"}, "::not a url"); ok {
+		t.Fatal("an unparseable base URL must not produce an override")
+	}
+}

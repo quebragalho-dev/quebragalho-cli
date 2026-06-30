@@ -99,6 +99,7 @@ type SetupProviderOption struct {
 	EnvVar       string
 	RequiresAuth bool
 	Local        bool
+	Recommended  bool
 }
 
 // SetupSelection is the user's setup choice.

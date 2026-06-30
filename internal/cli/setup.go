@@ -285,6 +285,7 @@ func setupProviderOptions() []tui.SetupProviderOption {
 			EnvVar:       setupProviderEnvVar(descriptor),
 			RequiresAuth: descriptor.RequiresAuth,
 			Local:        descriptor.Local,
+			Recommended:  descriptor.Recommended,
 		})
 	}
 	return options

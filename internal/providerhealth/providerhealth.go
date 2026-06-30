@@ -326,6 +326,9 @@ func healthRequest(ctx context.Context, profile config.ProviderProfile, kind con
 		return nil, false, err
 	}
 	endpoint := baseURL + healthPath(kind)
+	if override, ok := overrideHealthEndpoint(profile, baseURL); ok {
+		endpoint = override
+	}
 	// Loopback is permitted only when the user's OWN configured base_url is loopback
 	// (a local provider like Ollama/LM Studio) — never for a redirect target. This is
 	// the flag returned to the caller so the dial path applies the same policy. (AUDIT-H1)
@@ -590,6 +593,22 @@ func blockedAddrReason(addr netip.Addr) string {
 		}
 	}
 	return ""
+}
+
+// overrideHealthEndpoint returns a provider-specific connectivity probe URL when
+// the default {baseURL}+/models path does not exist. GitLawb OpenGateway is a
+// smart-routing gateway whose flat /v1/models endpoint 404s by design ("Use
+// /v1/<provider>/<path>"), so probe its public /health endpoint at the host root
+// instead, which reports real reachability without a per-model call.
+func overrideHealthEndpoint(profile config.ProviderProfile, baseURL string) (string, bool) {
+	if profile.CatalogID != "gitlawb-opengateway" {
+		return "", false
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", false
+	}
+	return parsed.Scheme + "://" + parsed.Host + "/health", true
 }
 
 func healthPath(kind config.ProviderKind) string {

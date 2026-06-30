@@ -164,11 +164,16 @@ func TestProviderCatalogSnapshotsExposeStableDescriptors(t *testing.T) {
 	if len(snapshots) < 4 {
 		t.Fatalf("expected provider catalog descriptors, got %#v", snapshots)
 	}
+	if !snapshots[0].Recommended {
+		t.Fatalf("expected the recommended provider first, got %#v", snapshots[0])
+	}
 	for index, snapshot := range snapshots {
 		if snapshot.ID == "" || snapshot.Name == "" || snapshot.Transport == "" {
 			t.Fatalf("catalog snapshot missing identity fields: %#v", snapshot)
 		}
-		if index > 0 && snapshots[index-1].ID > snapshot.ID {
+		// The recommended provider is hoisted to the front; everything after it is
+		// sorted by id.
+		if index > 0 && !snapshots[index-1].Recommended && snapshots[index-1].ID > snapshot.ID {
 			t.Fatalf("provider catalog snapshots are not sorted by id: %#v", snapshots)
 		}
 	}

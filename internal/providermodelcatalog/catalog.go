@@ -129,10 +129,18 @@ var curatedModels = map[string][]Model{
 		{ID: "glm-4.6", Description: "latest general model"},
 		{ID: "glm-z1-air", Description: "reasoning model"},
 	},
+	// OpenGateway smart-routes by model id across its upstream providers
+	// (see /health: xiaomi-mimo, minimax, qwen, google, nvidia, z-ai). These are
+	// the curated coding defaults; the gateway accepts any model its upstreams
+	// expose, so users can also type an id the picker doesn't list.
 	"gitlawb-opengateway": {
-		{ID: "gpt-4.1", Description: "catalog default"},
-		{ID: "claude-sonnet-4.5", Description: "coding model"},
-		{ID: "gemini-2.5-pro", Description: "long-context model"},
+		{ID: "mimo-v2.5-pro", Description: "catalog default (Xiaomi MiMo)"},
+		{ID: "mimo-v2.5-pro-ultraspeed", Description: "fast model (Xiaomi MiMo)"},
+		{ID: "MiniMax-M3", Description: "MiniMax model"},
+		{ID: "qwen-plus", Description: "Qwen model"},
+		{ID: "gemini-2.5-pro", Description: "long-context model (Google)"},
+		{ID: "glm-4.6", Description: "Z.ai model"},
+		{ID: "nvidia/llama-3.1-nemotron-70b-instruct", Description: "NVIDIA NIM model"},
 	},
 	"atomic-chat": {
 		{ID: "gpt-4.1", Description: "catalog default"},

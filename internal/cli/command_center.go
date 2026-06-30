@@ -277,6 +277,9 @@ func listProviderCatalogSummaries(options commandCenterOptions) ([]providerCatal
 		return nil, err
 	}
 	sort.SliceStable(summaries, func(i int, j int) bool {
+		if summaries[i].Recommended != summaries[j].Recommended {
+			return summaries[i].Recommended
+		}
 		return summaries[i].ID < summaries[j].ID
 	})
 	return summaries, nil
@@ -354,10 +357,17 @@ func formatProviderCatalogSummaries(providers []providerCatalogSummary) string {
 }
 
 func formatProviderCatalogLine(provider providerCatalogSummary) string {
+	name := formatProviderCatalogValue(provider.Name, "unknown")
+	prefix := "  id="
+	if provider.Recommended {
+		prefix = "  ★ id="
+		name += " (recommended)"
+	}
 	lines := []string{
-		fmt.Sprintf("  id=%s name=%s",
+		fmt.Sprintf("%s%s name=%s",
+			prefix,
 			formatProviderCatalogValue(provider.ID, "unknown"),
-			formatProviderCatalogValue(provider.Name, "unknown"),
+			name,
 		),
 		fmt.Sprintf("    transport=%s defaultModel=%s",
 			formatProviderCatalogValue(provider.Transport, "unknown"),

@@ -1240,11 +1240,24 @@ func (wizard *providerWizardState) renderSelectableProvider(width int, index int
 		surface = zeroTheme.onSel
 		marker = surface(zeroTheme.accent).Render("❯ ")
 	}
-	left := marker + surface(zeroTheme.ink).Render(provider.Name)
-	if badge := providerWizardOAuthBadge(provider); badge != "" {
+	name := provider.Name
+	if provider.Recommended {
+		name = "★ " + name
+	}
+	left := marker + surface(zeroTheme.ink).Render(name)
+	if badge := providerWizardBadge(provider); badge != "" {
 		left += surface(zeroTheme.faint).Render("   " + badge)
 	}
 	return fitStyledLine(left, width)
+}
+
+// providerWizardBadge is the faint hint shown next to a provider row. The
+// recommended provider takes precedence over the OAuth hint.
+func providerWizardBadge(provider providercatalog.Descriptor) string {
+	if provider.Recommended {
+		return "(recommended)"
+	}
+	return providerWizardOAuthBadge(provider)
 }
 
 // providerWizardOAuthBadge is the faint mode hint shown next to OAuth providers.

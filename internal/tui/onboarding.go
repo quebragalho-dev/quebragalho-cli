@@ -1495,7 +1495,14 @@ func (m model) setupProviderLines(width int, height int) []string {
 			marker = "❯ "
 			style = zeroTheme.accent.Bold(true)
 		}
-		line := marker + style.Render(displayValue(option.Name, option.ID))
+		label := displayValue(option.Name, option.ID)
+		if option.Recommended {
+			label = "★ " + label
+		}
+		line := marker + style.Render(label)
+		if option.Recommended {
+			line += zeroTheme.faint.Render("  (recommended)")
+		}
 		lines = append(lines, padSetupLine(line, rowWidth))
 	}
 	// A failed OAuth login drops back here with oauthPending cleared, so the

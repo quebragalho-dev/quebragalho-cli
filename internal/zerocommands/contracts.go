@@ -86,6 +86,7 @@ type ProviderCatalogSnapshot struct {
 	Local                    bool     `json:"local"`
 	RuntimeSupported         bool     `json:"runtimeSupported"`
 	RuntimeUnsupportedReason string   `json:"runtimeUnsupportedReason,omitempty"`
+	Recommended              bool     `json:"recommended,omitempty"`
 }
 
 type SessionSnapshot struct {
@@ -218,6 +219,9 @@ func ProviderCatalogSnapshots(options ProviderCatalogSnapshotOptions) ([]Provide
 		snapshots = append(snapshots, ProviderCatalogSnapshotFromDescriptor(descriptor))
 	}
 	sort.SliceStable(snapshots, func(i int, j int) bool {
+		if snapshots[i].Recommended != snapshots[j].Recommended {
+			return snapshots[i].Recommended
+		}
 		return snapshots[i].ID < snapshots[j].ID
 	})
 	return snapshots, nil
@@ -244,6 +248,7 @@ func ProviderCatalogSnapshotFromDescriptor(descriptor providercatalog.Descriptor
 		Local:                    descriptor.Local,
 		RuntimeSupported:         providercatalog.RuntimeSupported(descriptor),
 		RuntimeUnsupportedReason: providercatalog.RuntimeUnsupportedReason(descriptor),
+		Recommended:              descriptor.Recommended,
 	}
 }
 
