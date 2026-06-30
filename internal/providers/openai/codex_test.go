@@ -485,6 +485,58 @@ func TestCodexProviderForwardsReasoningEffort(t *testing.T) {
 	if reasoning["effort"] != "high" {
 		t.Fatalf("body.reasoning.effort = %#v, want high", reasoning["effort"])
 	}
+	// A reasoning summary must be requested so the backend streams
+	// reasoning_summary_text deltas — otherwise a long think shows no live output.
+	if reasoning["summary"] != "auto" {
+		t.Fatalf("body.reasoning.summary = %#v, want auto", reasoning["summary"])
+	}
+}
+
+func TestCodexProviderStreamsReasoningSummaryDeltas(t *testing.T) {
+	// reasoning_summary_text deltas must surface as StreamEventReasoning (live
+	// "thinking"), in order, alongside the normal text output. Without this a long
+	// reasoning phase produces zero visible output and reads as a hang.
+	var rec codexRequest
+	srv := newCodexResponsesServer(t, &rec,
+		`{"type":"response.created","response":{"id":"resp-1","status":"in_progress"}}`,
+		`{"type":"response.reasoning_summary_text.delta","delta":"Thinking. "}`,
+		`{"type":"response.reasoning_summary_text.delta","delta":"Planning."}`,
+		`{"type":"response.output_text.delta","delta":"done"}`,
+		`{"type":"response.completed","response":{"id":"resp-1","status":"completed"}}`,
+	)
+	defer srv.Close()
+
+	provider, err := NewCodexProvider(CodexOptions{
+		Options:   Options{APIKey: "sk-test", BaseURL: srv.URL, Model: "gpt-5"},
+		AccountID: "acc-x",
+	})
+	if err != nil {
+		t.Fatalf("NewCodexProvider: %v", err)
+	}
+	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
+		Messages:        []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "solve it"}},
+		ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatalf("StreamCompletion: %v", err)
+	}
+	var reasoning, text []string
+	for ev := range stream {
+		switch ev.Type {
+		case zeroruntime.StreamEventReasoning:
+			reasoning = append(reasoning, ev.Content)
+		case zeroruntime.StreamEventText:
+			text = append(text, ev.Content)
+		case zeroruntime.StreamEventError:
+			t.Fatalf("unexpected error event: %q", ev.Error)
+		}
+	}
+	if got := strings.Join(reasoning, ""); got != "Thinking. Planning." {
+		t.Fatalf("reasoning deltas = %q, want %q", got, "Thinking. Planning.")
+	}
+	if got := strings.Join(text, ""); got != "done" {
+		t.Fatalf("text deltas = %q, want %q", got, "done")
+	}
 }
 
 func TestCodexProviderOmitsReasoningWhenUnset(t *testing.T) {

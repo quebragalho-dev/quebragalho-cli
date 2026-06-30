@@ -391,32 +391,32 @@ func TestSidebarShowsSwarmSpawnedAgents(t *testing.T) {
 // row (e.g. a resumed transcript that dropped the call): the member is still
 // A finished member stays visible (and clickable) while the run is still in
 // flight, so the user can inspect it; only once the turn ends does it drop.
-func TestSwarmAgentsPersistWhileRunInFlight(t *testing.T) {
+func TestSwarmAgentDropsOnOwnCompletionEvenMidRun(t *testing.T) {
 	base := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
 	m := sidebarTestModel()
 	m.now = func() time.Time { return base }
-	m.pending = true  // run still going
+	m.pending = true  // run STILL going — a member must still drop on its OWN completion
 	m.activeRunID = 7 // exercise the run-scoped filter with a non-zero id
 	m.transcript = append(m.transcript,
 		transcriptRow{kind: rowToolCall, tool: "swarm_spawn", detail: "build homepage", runID: 7},
 		transcriptRow{kind: rowToolResult, tool: "swarm_spawn", detail: "Spawned subagent as task subagent-1 on team default.", runID: 7},
 		transcriptRow{kind: rowToolResult, tool: "swarm_collect", detail: "Results: 1 task(s)\n- subagent-1 [done] build homepage", runID: 7},
 	)
-	// Long past the linger window — but it must still show while pending.
-	m.swarmDoneAt = map[string]time.Time{"subagent-1": base.Add(-10 * sidebarAgentLinger)}
-
+	// Just finished, still within the linger window: shows briefly with a fading ✓.
+	m.swarmDoneAt = map[string]time.Time{"subagent-1": base.Add(-sidebarAgentLinger / 2)}
 	agents := m.swarmSpawnedAgents()
 	if len(agents) != 1 {
-		t.Fatalf("a finished member must stay while the run is in flight, got %d: %+v", len(agents), agents)
+		t.Fatalf("within the linger window a finished member should still show (fading), got %d: %+v", len(agents), agents)
 	}
 	if !agents[0].finishing {
 		t.Fatalf("a finished member should render done (✓), got %+v", agents[0])
 	}
 
-	// Once the turn ends, the long-finished member fades out and drops.
-	m.pending = false
+	// Past the linger window: it drops — even though the overall run is still in
+	// flight (previously a finished member lingered until the whole turn ended).
+	m.swarmDoneAt = map[string]time.Time{"subagent-1": base.Add(-2 * sidebarAgentLinger)}
 	if got := len(m.swarmSpawnedAgents()); got != 0 {
-		t.Fatalf("after the turn ends a long-finished member should drop, got %d", got)
+		t.Fatalf("a member past its linger window must drop on its own completion mid-run, got %d", got)
 	}
 }
 

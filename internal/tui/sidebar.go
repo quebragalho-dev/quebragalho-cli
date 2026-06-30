@@ -261,13 +261,11 @@ func (m model) swarmSpawnedAgents() []swarmAgent {
 			switch a.state {
 			case "done", "failed", "completed", "cancelled":
 				a.finishing = true
-				if m.pending {
-					// Run still going: keep it visible and clickable, no fade.
-					a.finishedAt = time.Time{}
-					live = append(live, a)
-					continue
-				}
-				// Turn ended: fade out over the linger window, then drop.
+				// A member drops once ITS OWN task completes — not when the whole turn
+				// ends: fade out over the linger window from when it was first seen
+				// finished (stamped each tick by stampSwarmDone), then remove. This
+				// holds whether or not the overall run is still in flight, mirroring
+				// how finished specialists drop (sidebarSpecialists).
 				doneAt, stamped := m.swarmDoneAt[a.id]
 				if stamped && m.now().Sub(doneAt) >= sidebarAgentLinger {
 					continue // past the linger window — remove

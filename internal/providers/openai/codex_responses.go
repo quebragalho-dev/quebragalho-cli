@@ -59,6 +59,7 @@ const (
 	responsesEventOutputItemAdded   = "response.output_item.added"
 	responsesEventContentPartAdded  = "response.content_part.added"
 	responsesEventOutputTextDelta   = "response.output_text.delta"
+	responsesEventReasoningDelta    = "response.reasoning_summary_text.delta"
 	responsesEventOutputTextDone    = "response.output_text.done"
 	responsesEventFunctionArgsDelta = "response.function_call_arguments.delta"
 	responsesEventContentPartDone   = "response.content_part.done"
@@ -86,6 +87,10 @@ type responsesRequest struct {
 // here; omitted entirely when the caller requests no (or an unsupported) effort.
 type responsesReasoning struct {
 	Effort string `json:"effort,omitempty"`
+	// Summary requests a streamed reasoning summary ("auto" lets the API pick a
+	// level). Without it the backend emits no reasoning events, so a long thinking
+	// phase produces zero visible output and reads as a hang in the UI.
+	Summary string `json:"summary,omitempty"`
 }
 
 // inputItem is one element of the Responses `input` array. The Type field
@@ -256,7 +261,9 @@ func (p *CodexProvider) buildResponsesRequest(request zeroruntime.CompletionRequ
 	// and an empty or unsupported effort simply omits the field — without this the
 	// caller's chosen effort was silently dropped for every Codex model.
 	if effort := openAIReasoningEffort(request.ReasoningEffort); effort != "" {
-		req.Reasoning = &responsesReasoning{Effort: effort}
+		// Summary "auto" makes the backend stream reasoning_summary_text deltas so a
+		// long thinking phase shows live progress instead of looking hung.
+		req.Reasoning = &responsesReasoning{Effort: effort, Summary: "auto"}
 	}
 	return req, nil
 }
@@ -497,6 +504,17 @@ func (p *CodexProvider) emitResponsesEvent(
 		if event.Delta != "" {
 			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
 				Type:    zeroruntime.StreamEventText,
+				Content: event.Delta,
+			})
+		}
+		return true
+	case responsesEventReasoningDelta:
+		// Reasoning summary deltas: surface as live "thinking" so a long reasoning
+		// phase shows progress (and keeps the activity clock fresh) instead of
+		// looking like a hang. Requested via reasoning.summary="auto".
+		if event.Delta != "" {
+			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
+				Type:    zeroruntime.StreamEventReasoning,
 				Content: event.Delta,
 			})
 		}
