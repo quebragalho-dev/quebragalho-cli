@@ -441,6 +441,8 @@ func (m model) handleModelCommand(args string) (model, string) {
 	m.providerProfile = nextProfile
 	m.provider = nextProvider
 	m.providerName = displayValue(nextProfile.Name, string(metadata.ProviderKind))
+	// Keep sub-agent child processes on the same provider we just switched to.
+	config.SetActiveProviderEnv(nextProfile.Name)
 	m.modelName = target.modelID
 	resetEffort := false
 	if m.reasoningEffort != "" && !reasoningEffortAllowed(target.reasoningEfforts, m.reasoningEffort) {
@@ -516,6 +518,8 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string)
 	m.providerProfile = target
 	m.providerName = target.Name
 	m.modelName = target.Model
+	// Keep sub-agent child processes on the same provider we just switched to.
+	config.SetActiveProviderEnv(target.Name)
 	if strings.TrimSpace(m.userConfigPath) != "" {
 		_, _ = config.SetActiveProvider(m.userConfigPath, target.Name)
 		_, _ = config.SetProviderModel(m.userConfigPath, target.Name, target.Model)

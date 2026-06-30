@@ -431,8 +431,28 @@ func mergeProfile(base ProviderProfile, next ProviderProfile) ProviderProfile {
 	return base
 }
 
+// ActiveProviderEnv selects the active provider profile by name (read in applyEnv).
+const ActiveProviderEnv = "ZERO_PROVIDER"
+
+// SetActiveProviderEnv exports the active provider name to the process environment
+// so a spawned child process (which inherits the environment) resolves the SAME
+// provider profile — and therefore the same credentials (env key / stored key /
+// OAuth) — as its parent. Without this a sub-agent re-resolves config.json's
+// default provider and can land on one whose credentials don't match the parent's
+// live selection, failing auth the instant it spawns. A blank name CLEARS the
+// variable: switching back to an unnamed/default profile must not keep exporting a
+// stale provider to children.
+func SetActiveProviderEnv(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		_ = os.Unsetenv(ActiveProviderEnv)
+		return
+	}
+	_ = os.Setenv(ActiveProviderEnv, name)
+}
+
 func applyEnv(cfg *FileConfig, env map[string]string) {
-	activeProvider := strings.TrimSpace(envValue(env, "ZERO_PROVIDER"))
+	activeProvider := strings.TrimSpace(envValue(env, ActiveProviderEnv))
 	if activeProvider != "" {
 		cfg.ActiveProvider = activeProvider
 	}
