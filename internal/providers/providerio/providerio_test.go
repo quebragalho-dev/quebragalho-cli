@@ -201,3 +201,106 @@ func TestUpstreamUnreachable(t *testing.T) {
 		})
 	}
 }
+
+// A heartbeating-but-output-less upstream must not hang forever: SSE keep-alives
+// feed the idle watchdog (so it never fires), but the content watchdog
+// (idleTimeout × streamContentStallFactor) aborts with ErrStreamStalled when no
+// real data line arrives. This is the gpt-5.x / ollama "still generating forever"
+// hang.
+func TestScanSSEDataWithContextAbortsOnContentStall(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer func() { _ = pw.Close() }()
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		// Heartbeat every 30ms — comfortably under the 100ms idle timeout, so idle
+		// never fires under CI/GC jitter — but never send a data line.
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, err := io.WriteString(pw, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+	}()
+
+	cancelled := false
+	cancel := func() { cancelled = true }
+
+	done := make(chan error, 1)
+	go func() {
+		// idle 100ms → content stall at 200ms. Keep-alives reset idle but not content.
+		done <- ScanSSEDataWithContext(context.Background(), cancel, pr, 100*time.Millisecond, func(string) bool { return true })
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrStreamStalled) {
+			t.Fatalf("err = %v, want ErrStreamStalled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ScanSSEDataWithContext hung on a heartbeat-but-no-output stream")
+	}
+	if !cancelled {
+		t.Fatal("content stall did not cancel the request context")
+	}
+}
+
+// Real data lines reset the content watchdog, so a slow-but-producing stream that
+// runs longer than the content window is never aborted.
+func TestScanSSEDataWithContextContentResetsOnData(t *testing.T) {
+	pr, pw := io.Pipe()
+
+	go func() {
+		// One data line every 30ms for ~300ms (well past the 200ms content window,
+		// with comfortable slack under the 100ms idle timeout), so the content
+		// watchdog keeps resetting, then close cleanly.
+		for i := 0; i < 10; i++ {
+			if _, err := io.WriteString(pw, "data: chunk\n\n"); err != nil {
+				return
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		_ = pw.Close()
+	}()
+
+	n := 0
+	done := make(chan error, 1)
+	go func() {
+		done <- ScanSSEDataWithContext(context.Background(), func() {}, pr, 100*time.Millisecond, func(string) bool { n++; return true })
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("err = %v, want nil (data kept the stream alive)", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ScanSSEDataWithContext hung on a producing stream")
+	}
+	if n != 10 {
+		t.Fatalf("handled %d data lines, want 10", n)
+	}
+}
+
+// StreamTimeoutMessage must give a stalled stream a distinct, accurate detail —
+// it reports the content window (idle × factor) and must NOT claim the upstream
+// "stopped sending data" (keep-alives were still arriving).
+func TestStreamTimeoutMessage(t *testing.T) {
+	idle := 5 * time.Minute
+	if msg := StreamTimeoutMessage(ErrStreamIdle, idle); !strings.Contains(msg, "idle timeout after 5m") {
+		t.Fatalf("idle message = %q, want it to mention the 5m idle timeout", msg)
+	}
+	stalled := StreamTimeoutMessage(ErrStreamStalled, idle)
+	if !strings.Contains(stalled, "no output for 10m") {
+		t.Fatalf("stalled message = %q, want it to report the 10m content window", stalled)
+	}
+	if strings.Contains(stalled, "stopped sending data") {
+		t.Fatalf("stalled message must not claim the upstream stopped sending data: %q", stalled)
+	}
+}
