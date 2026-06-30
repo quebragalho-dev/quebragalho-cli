@@ -264,6 +264,13 @@ func TestNewRejectsUnsupportedProviderKind(t *testing.T) {
 }
 
 func TestNewRoutesChatGPTCatalogToCodexProvider(t *testing.T) {
+	// Isolate the OAuth token store to an empty temp path so the factory reads no
+	// stored login — otherwise this test picks up the developer's real chatgpt
+	// OAuth token and the "want empty chatgpt-account-id" assertion fails locally
+	// (it still passes in CI, where no login is stored). Mirrors the isolation in
+	// TestNewRoutesChatGPTCatalogWithStoredAccountID.
+	t.Setenv("ZERO_OAUTH_TOKENS_PATH", t.TempDir()+"/tokens.json")
+
 	transport := &captureTransport{
 		responseBody: "data: [DONE]\n\n",
 	}
