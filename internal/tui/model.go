@@ -40,6 +40,15 @@ const chatWheelScrollLines = 5
 const ctrlCExitConfirmDuration = 3 * time.Second
 const ctrlCExitConfirmText = "Press Ctrl+C again to exit"
 
+// escCancelConfirmDuration/escCancelConfirmText guard Esc cancelling a running
+// turn, mirroring ctrlCExitConfirmDuration/ctrlCExitConfirmText's pattern (same
+// window, same amber footer treatment) so the two "stop it" keybinds feel
+// consistent. Without this, a single stray Esc — e.g. meant to dismiss a
+// suggestion overlay that had already closed — silently threw away an
+// in-progress run with no chance to reconsider.
+const escCancelConfirmDuration = 3 * time.Second
+const escCancelConfirmText = "Press Esc again to cancel"
+
 // dragEdgeScrollInterval/dragEdgeScrollStep drive the smooth-glide auto-scroll
 // while a drag holds past the transcript edge (see edgeScrollDelta). A small step
 // on a short, steady cadence reads as a smooth continuous scroll; the wheel-scroll
@@ -296,6 +305,14 @@ type model struct {
 	copyStatusSeq     int
 	exitConfirmActive bool
 	exitConfirmSeq    int
+	// cancelConfirmActive/cancelConfirmSeq mirror exitConfirmActive/exitConfirmSeq
+	// (same seq-gated tea.Tick pattern) but guard a DIFFERENT action: Esc
+	// cancelling a running turn. The two are deliberately separate state (not a
+	// shared flag) since they're different actions with different consequences
+	// (quit the app vs. cancel the current run) that are armed by different
+	// keys — Ctrl+C and Esc respectively.
+	cancelConfirmActive bool
+	cancelConfirmSeq    int
 	// edgeScrollDelta drives the smooth-glide auto-scroll while a drag holds past
 	// the transcript's top/bottom edge: 0 when idle, else the signed per-tick step
 	// (matches transcriptEdgeScrollDelta's sign convention). A self-scheduling
@@ -355,6 +372,12 @@ type agentTextMsg struct {
 }
 
 type exitConfirmExpiredMsg struct {
+	seq int
+}
+
+// cancelConfirmExpiredMsg mirrors exitConfirmExpiredMsg for the Esc
+// cancel-a-run confirmation (see cancelConfirmActive).
+type cancelConfirmExpiredMsg struct {
 	seq int
 }
 
@@ -849,6 +872,14 @@ func (m model) disarmExitConfirmation() model {
 	return m
 }
 
+func (m model) disarmCancelConfirmation() model {
+	if m.cancelConfirmActive {
+		m.cancelConfirmActive = false
+		m.cancelConfirmSeq++
+	}
+	return m
+}
+
 // Update routes every message through updateModel, then advances the flush
 // frontier for inline rendering. Alt-screen runs keep rows in the managed view
 // instead of printing into terminal scrollback (see flush.go).
@@ -927,6 +958,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.exitConfirmActive = false
 		}
 		return m, nil
+	case cancelConfirmExpiredMsg:
+		if msg.seq == m.cancelConfirmSeq {
+			m.cancelConfirmActive = false
+		}
+		return m, nil
 	case dragEdgeScrollTickMsg:
 		if msg.seq != m.edgeScrollSeq || m.edgeScrollDelta == 0 || !m.transcriptSelection.active {
 			return m, nil // stale, or the chain was stopped since this tick was scheduled
@@ -974,6 +1010,13 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !keyCtrl(msg, 'c') {
 			m = m.disarmExitConfirmation()
 		}
+		// Mirrors the exit-confirmation reset above: any key that isn't itself
+		// the confirming Esc means the user moved on to something else, so a
+		// later, unrelated Esc must arm a fresh confirmation rather than
+		// silently cancel off a stale press from seconds ago.
+		if !keyIs(msg, tea.KeyEsc) {
+			m = m.disarmCancelConfirmation()
+		}
 		// The `?` help overlay is modal: `?`, Esc, q, or Enter close it; every
 		// other key is swallowed so nothing types into the hidden composer.
 		if m.helpOverlay {
@@ -996,6 +1039,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.appendSystemNotice("Mouse interaction re-enabled."), nil
 		case keyIs(msg, tea.KeyEsc):
+			// Esc is heavily overloaded below (subchat exit, MCP cancel, ask-user,
+			// permission deny, wizard/picker/suggestions dismiss, ...) before ever
+			// reaching the run-cancel fallback. Capture whether this press really
+			// is the confirming second Esc BEFORE any of those branches can fire,
+			// then disarm unconditionally: an Esc that gets consumed by one of
+			// them wasn't a confirm, so it must not leave cancelConfirmActive
+			// armed for some later, unrelated Esc to silently act on.
+			wasConfirmingCancel := m.pending && m.cancelConfirmActive
+			m = m.disarmCancelConfirmation()
 			// Subchat view exits on Esc (returns to main chat).
 			if m.subchat.active {
 				m.chatScrollOffset = m.subchat.exit()
@@ -1056,11 +1108,24 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.hasQueuedMessage() {
 				return m.clearQueuedMessage(), nil
 			}
-			m.clearComposer()
 			m.clearSuggestions()
 			if m.pending {
-				m.cancelRun()
+				if wasConfirmingCancel {
+					m.clearComposer()
+					m.cancelRun()
+					return m, nil
+				}
+				// First Esc only arms the confirmation — preserve whatever
+				// draft the user has typed, since nothing has actually been
+				// cancelled yet and they may not press Esc again.
+				m.cancelConfirmActive = true
+				m.cancelConfirmSeq++
+				seq := m.cancelConfirmSeq
+				return m, tea.Tick(escCancelConfirmDuration, func(time.Time) tea.Msg {
+					return cancelConfirmExpiredMsg{seq: seq}
+				})
 			}
+			m.clearComposer()
 			return m, nil
 		case keyIs(msg, tea.KeyEnter):
 			if m.transcriptDetailed {
@@ -1610,6 +1675,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.clearStreamingToolCall() // active run finished — drop any lingering "writing" block
 		m.pending = false
+		m = m.disarmCancelConfirmation() // the run finished on its own — nothing left to confirm cancelling
 		// Fully reset the fade state at stream end. The next render
 		// emits the final row in solid ink (no settling animation), and
 		// the pending streamingFadeTickMsg that lands after this point
@@ -3807,7 +3873,8 @@ func (m *model) cancelRun() {
 	m.pending = false
 	m.runCancel = nil
 	m.activeRunID = 0
-	m.plan.frozenAt = m.now() // freeze the plan clock while idle (no run in flight)
+	m.cancelConfirmActive = false // whatever path got here, there's nothing left to confirm cancelling
+	m.plan.frozenAt = m.now()     // freeze the plan clock while idle (no run in flight)
 	m.pendingPermission = nil
 	m.pendingAskUser = nil
 	// The interim block renders streamingText live; a cancelled run's partial

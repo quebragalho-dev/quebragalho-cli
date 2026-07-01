@@ -1108,7 +1108,87 @@ func TestPromptSubmitDoesNotStartAnotherRunWhilePending(t *testing.T) {
 	}
 }
 
-func TestEscCancelsPendingRun(t *testing.T) {
+func TestEscRequiresSecondPressToCancelPendingRun(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	cancelled := false
+	m.pending = true
+	m.activeRunID = 1
+	m.runCancel = func() { cancelled = true }
+
+	updated, cmd := m.Update(testKey(tea.KeyEsc))
+	next := updated.(model)
+
+	if cancelled {
+		t.Fatal("first Esc should not cancel the pending run")
+	}
+	if !next.pending {
+		t.Fatal("first Esc should leave the run pending")
+	}
+	if !next.cancelConfirmActive {
+		t.Fatal("first Esc should arm cancel confirmation")
+	}
+	if cmd == nil {
+		t.Fatal("first Esc should schedule confirmation expiry")
+	}
+	status := plainRender(t, next.statusLine(80))
+	if !strings.Contains(status, escCancelConfirmText) {
+		t.Fatalf("status line = %q, want cancel confirmation", status)
+	}
+
+	updated, _ = next.Update(testKey(tea.KeyEsc))
+	next = updated.(model)
+
+	if !cancelled {
+		t.Fatal("second Esc should cancel pending run")
+	}
+	if next.pending {
+		t.Fatal("expected second Esc to clear pending state")
+	}
+	if next.activeRunID != 0 || next.runCancel != nil {
+		t.Fatalf("expected active run state to clear, got id=%d cancel=%v", next.activeRunID, next.runCancel)
+	}
+	if next.cancelConfirmActive {
+		t.Fatal("cancelling should clear cancel confirmation")
+	}
+}
+
+// TestEscArmingCancelConfirmationPreservesComposerDraft: the first Esc only
+// arms the confirmation — nothing has actually been cancelled yet, so it
+// must not destroy a draft the user is still typing. Only the confirming
+// second Esc (the one that actually cancels the run) clears the composer.
+func TestEscArmingCancelConfirmationPreservesComposerDraft(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	m.pending = true
+	m.activeRunID = 1
+	m.runCancel = func() {}
+	m.input.SetValue("draft prompt")
+
+	updated, _ := m.Update(testKey(tea.KeyEsc))
+	next := updated.(model)
+
+	if !next.cancelConfirmActive {
+		t.Fatal("first Esc should arm cancel confirmation")
+	}
+	if next.composerValue() != "draft prompt" {
+		t.Fatalf("first Esc should preserve the draft, got %q", next.composerValue())
+	}
+
+	updated, _ = next.Update(testKey(tea.KeyEsc))
+	next = updated.(model)
+
+	if next.pending {
+		t.Fatal("second Esc should cancel the pending run")
+	}
+	if next.composerValue() != "" {
+		t.Fatalf("the confirming second Esc should clear the draft, got %q", next.composerValue())
+	}
+}
+
+// TestPasteDisarmsCancelConfirmation: a paste isn't a keypress, so it never
+// went through the generic "any non-Esc key disarms it" hook. Pasting is a
+// deliberate action just like typing or clicking — it must disarm a stale
+// confirmation too, or a later, unrelated Esc could silently cancel the run.
+func TestPasteDisarmsCancelConfirmation(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	cancelled := false
 	m.pending = true
@@ -1117,15 +1197,131 @@ func TestEscCancelsPendingRun(t *testing.T) {
 
 	updated, _ := m.Update(testKey(tea.KeyEsc))
 	next := updated.(model)
+	if !next.cancelConfirmActive {
+		t.Fatal("first Esc should arm cancel confirmation")
+	}
 
-	if !cancelled {
-		t.Fatal("expected Esc to cancel pending run")
+	updated, _ = next.Update(testPaste("pasted text"))
+	next = updated.(model)
+	if next.cancelConfirmActive {
+		t.Fatal("a paste should disarm the stale cancel confirmation")
 	}
-	if next.pending {
-		t.Fatal("expected Esc to clear pending state")
+
+	updated, _ = next.Update(testKey(tea.KeyEsc))
+	next = updated.(model)
+	if cancelled {
+		t.Fatal("Esc after a paste should re-arm, not immediately cancel")
 	}
-	if next.activeRunID != 0 || next.runCancel != nil {
-		t.Fatalf("expected active run state to clear, got id=%d cancel=%v", next.activeRunID, next.runCancel)
+	if !next.cancelConfirmActive {
+		t.Fatal("Esc after a paste should arm a fresh confirmation")
+	}
+}
+
+func TestEscCancelConfirmationExpires(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	m.pending = true
+	m.activeRunID = 1
+	m.runCancel = func() {}
+
+	updated, _ := m.Update(testKey(tea.KeyEsc))
+	next := updated.(model)
+	seq := next.cancelConfirmSeq
+
+	updated, _ = next.Update(cancelConfirmExpiredMsg{seq: seq - 1})
+	next = updated.(model)
+	if !next.cancelConfirmActive {
+		t.Fatal("stale expiry should not clear active cancel confirmation")
+	}
+
+	updated, _ = next.Update(cancelConfirmExpiredMsg{seq: seq})
+	next = updated.(model)
+	if next.cancelConfirmActive {
+		t.Fatal("matching expiry should clear cancel confirmation")
+	}
+	if !next.pending {
+		t.Fatal("expiring the confirmation should not cancel the run")
+	}
+}
+
+// TestEscCancelConfirmationDisarmsOnInterveningKey mirrors
+// TestCtrlCExitConfirmationDisarmsOnInterveningKey: an intervening key other
+// than Esc (typing, Ctrl+O, etc.) means the user moved on to something else,
+// so a later, unrelated Esc must arm a fresh confirmation instead of
+// silently cancelling off a stale press from seconds ago.
+func TestEscCancelConfirmationDisarmsOnInterveningKey(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	cancelled := false
+	m.pending = true
+	m.activeRunID = 1
+	m.runCancel = func() { cancelled = true }
+
+	updated, _ := m.Update(testKey(tea.KeyEsc))
+	next := updated.(model)
+	if !next.cancelConfirmActive {
+		t.Fatal("first Esc should arm cancel confirmation")
+	}
+	seq := next.cancelConfirmSeq
+
+	updated, _ = next.Update(testKey('h'))
+	next = updated.(model)
+	if next.cancelConfirmActive {
+		t.Fatal("an intervening non-Esc key should disarm cancel confirmation")
+	}
+	if next.cancelConfirmSeq == seq {
+		t.Fatal("disarming should advance the sequence so a stale expiry tick is ignored")
+	}
+
+	updated, _ = next.Update(testKey(tea.KeyEsc))
+	next = updated.(model)
+	if cancelled {
+		t.Fatal("Esc after an intervening key should re-arm, not cancel")
+	}
+	if !next.cancelConfirmActive {
+		t.Fatal("Esc after an intervening key should arm a fresh confirmation")
+	}
+}
+
+// TestEscCancelConfirmationDisarmsWhenStolenByAskUser: a mid-turn ask_user
+// prompt lands between the two Esc presses. The user's second Esc denies the
+// questionnaire (an earlier branch in the Esc handler), not a confirm, so it
+// must not leave cancelConfirmActive armed for a later, unrelated Esc to
+// silently cancel the run.
+func TestEscCancelConfirmationDisarmsWhenStolenByAskUser(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	cancelled := false
+	m.pending = true
+	m.activeRunID = 1
+	m.runCancel = func() { cancelled = true }
+
+	updated, _ := m.Update(testKey(tea.KeyEsc))
+	next := updated.(model)
+	if !next.cancelConfirmActive {
+		t.Fatal("first Esc should arm cancel confirmation")
+	}
+
+	request := agent.AskUserRequest{Questions: []agent.AskUserQuestion{{Question: "name?"}}}
+	next.pendingAskUser = &pendingAskUserPrompt{
+		request: request,
+		answer:  func([]string) {},
+		states:  newAskUserStates(request.Questions),
+	}
+
+	updated, _ = next.Update(testKey(tea.KeyEsc))
+	next = updated.(model)
+	if cancelled {
+		t.Fatal("an Esc consumed by the ask-user prompt must not cancel the run")
+	}
+	if next.cancelConfirmActive {
+		t.Fatal("an Esc consumed by the ask-user prompt must disarm the stale cancel confirmation")
+	}
+
+	updated, _ = next.Update(testKey(tea.KeyEsc))
+	next = updated.(model)
+	if cancelled {
+		t.Fatal("the next Esc should arm a fresh confirmation, not immediately cancel")
+	}
+	if !next.cancelConfirmActive {
+		t.Fatal("the next Esc should arm a fresh confirmation")
 	}
 }
 

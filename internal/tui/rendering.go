@@ -36,7 +36,7 @@ func pickerBusyText(name string) string {
 			Title: "Busy",
 			Lines: []string{"Can't change " + label + " while a run is in progress."},
 		}},
-		Hints: []string{"press Esc to cancel the run, then try again"},
+		Hints: []string{"press Esc twice to cancel the run, then try again"},
 	})
 }
 

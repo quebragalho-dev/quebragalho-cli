@@ -122,6 +122,8 @@ func TestEscCancellationLeavesVisibleMarker(t *testing.T) {
 
 	updated, _ := m.Update(testKey(tea.KeyEsc))
 	next := updated.(model)
+	updated, _ = next.Update(testKey(tea.KeyEsc))
+	next = updated.(model)
 	if !transcriptContains(next.transcript, "Run cancelled.") {
 		t.Fatalf("expected visible cancellation marker, got %#v", next.transcript)
 	}

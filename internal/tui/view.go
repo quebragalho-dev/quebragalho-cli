@@ -201,6 +201,9 @@ func (m model) statusLine(width int) string {
 		if m.exitConfirmActive {
 			return fitStyledLine(prefix+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(ctrlCExitConfirmText), width)
 		}
+		if m.cancelConfirmActive {
+			return fitStyledLine(prefix+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(escCancelConfirmText), width)
+		}
 		return fitStyledLine(left, width)
 	}
 
@@ -210,6 +213,8 @@ func (m model) statusLine(width int) string {
 	}
 	if m.exitConfirmActive {
 		left = prefix + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(ctrlCExitConfirmText)
+	} else if m.cancelConfirmActive {
+		left = prefix + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(escCancelConfirmText)
 	} else if summary := m.backgroundTerminalSummary(); summary != "" {
 		left += separator + zeroTheme.muted.Render(summary)
 	}

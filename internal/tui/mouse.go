@@ -40,6 +40,15 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.providerWizard != nil && m.providerWizard.oauthPending {
 		return m, nil
 	}
+	// A click is a deliberate action, same as a keypress — it means the user
+	// moved on to something else, so it disarms a stale Esc cancel-confirmation
+	// rather than leaving it armed for some later, unrelated Esc to act on.
+	// Scoped to actual clicks (not hover/motion/wheel), since motion events fire
+	// continuously while the mouse merely sits over the terminal and would
+	// otherwise defeat the confirmation window on every render tick.
+	if mouseLeftPress(msg) || mouseRightPress(msg) {
+		m = m.disarmCancelConfirmation()
+	}
 	// A right-click pastes the clipboard straight into the focused field — no
 	// menu. pasteFromClipboardCmd reads the clipboard off the Update goroutine; the
 	// clipboardReadMsg result is routed by routePaste to wherever input is focused

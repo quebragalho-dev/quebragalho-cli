@@ -31,7 +31,7 @@ var keybindingGroups = []keybindingGroup{
 		bindings: []keybinding{
 			{"Enter", "send the message"},
 			{"Alt+Enter", "insert a newline (multi-line compose)"},
-			{"Esc", "cancel the run / dismiss a popup / clear the input"},
+			{"Esc (×2)", "cancel the run / dismiss a popup / clear the input"},
 			{"Ctrl+C", "cancel the run, then quit"},
 			{"?", "show this help (on an empty input)"},
 		},

@@ -56,6 +56,13 @@ func pasteFromClipboardCmd() tea.Cmd {
 // spec prompt, the MCP manager, an open picker, the detailed transcript) swallow
 // the paste; empty content is a no-op.
 func (m model) routePaste(content string) (tea.Model, tea.Cmd) {
+	// A paste is a deliberate action, same as a keypress or click — it means
+	// the user moved on to something else, so it disarms a stale Esc
+	// cancel-confirmation. tea.PasteMsg/clipboardReadMsg aren't
+	// tea.KeyPressMsg, so they don't go through that generic keypress hook;
+	// do it once here, before any early return, so both the bracketed-paste
+	// and right-click-paste paths are covered uniformly.
+	m = m.disarmCancelConfirmation()
 	if content == "" {
 		// Empty text clipboard — the user may have pasted a screenshot.
 		// Probe the OS clipboard for image content asynchronously.

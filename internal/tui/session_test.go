@@ -777,6 +777,8 @@ func TestEscCancelRecordsSessionError(t *testing.T) {
 
 	updated, _ = next.Update(testKey(tea.KeyEsc))
 	next = updated.(model)
+	updated, _ = next.Update(testKey(tea.KeyEsc))
+	next = updated.(model)
 
 	list, err := store.List()
 	if err != nil {
@@ -836,7 +838,10 @@ func TestCancelledRunFlushesCheckpointSessionEvents(t *testing.T) {
 		next = updated.(model)
 		if _, ok := runtimeMsg.(permissionRequestMsg); ok {
 			// Cancel mid-run via Esc while the permission prompt is pending: this
-			// unblocks the goroutine through ctx cancellation.
+			// unblocks the goroutine through ctx cancellation. Esc now requires a
+			// second press within the confirmation window to actually cancel.
+			updated, _ = next.Update(testKey(tea.KeyEsc))
+			next = updated.(model)
 			updated, _ = next.Update(testKey(tea.KeyEsc))
 			next = updated.(model)
 			cancelled = true
