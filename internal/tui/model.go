@@ -25,6 +25,7 @@ import (
 	"github.com/Gitlawb/zero/internal/notify"
 	"github.com/Gitlawb/zero/internal/providerhealth"
 	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
+	"github.com/Gitlawb/zero/internal/providers/providerio"
 	"github.com/Gitlawb/zero/internal/sandbox"
 	"github.com/Gitlawb/zero/internal/sessions"
 	"github.com/Gitlawb/zero/internal/streamjson"
@@ -2806,6 +2807,15 @@ const quietWorkingHint = 8 * time.Second
 // quietGenerationHint returns a "still generating…" cue with an advancing
 // quiet-timer when the active turn has produced no streamed output for a while,
 // else "". The advancing number is itself the liveness signal.
+//
+// Past half the provider's idle timeout, the cue escalates to name what's
+// actually happening and when Zero will act on its own: a heartbeating-but-
+// silent stream (observed on chatgpt/gpt-5.x and ollama reasoning models,
+// see providerio.ErrStreamStalled) is bounded by the content-stall watchdog at
+// idleTimeout × providerio.StreamContentStallFactor, but until it fires this
+// exact same plain "still generating… Xs" text is indistinguishable from a
+// genuine hang — the ticking number was the only signal, and it looks
+// identical whether real (if slow) content is coming or nothing ever will.
 func (m model) quietGenerationHint() string {
 	if m.activeRunID == 0 {
 		return ""
@@ -2820,6 +2830,10 @@ func (m model) quietGenerationHint() string {
 	quiet := m.now().Sub(last)
 	if quiet < quietWorkingHint {
 		return ""
+	}
+	if idleTimeout := providerio.ResolveStreamIdleTimeout(0); idleTimeout > 0 && quiet >= idleTimeout/2 {
+		ceiling := idleTimeout * providerio.StreamContentStallFactor
+		return fmt.Sprintf("still generating… %s — unusually quiet, Zero will auto-recover by ~%s if it doesn't resume", formatWorkingElapsed(quiet), formatWorkingElapsed(ceiling))
 	}
 	return "still generating… " + formatWorkingElapsed(quiet)
 }

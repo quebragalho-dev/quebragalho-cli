@@ -106,6 +106,46 @@ func TestQuietGenerationHint(t *testing.T) {
 	}
 }
 
+// TestQuietGenerationHintEscalatesPastHalfIdleTimeout: a heartbeating-but-
+// silent stream (chatgpt/gpt-5.x, ollama reasoning models — see
+// providerio.ErrStreamStalled) and a genuinely healthy-but-slow one look
+// identical under the plain "still generating… Xs" cue — the ticking number
+// is the only signal, whether real content is still coming or nothing ever
+// will. Past half the provider's idle timeout the cue must say so explicitly
+// and name when Zero's own content-stall watchdog will act, rather than
+// leaving the user to guess whether this is a hang.
+func TestQuietGenerationHintEscalatesPastHalfIdleTimeout(t *testing.T) {
+	// 30s idle timeout: half (15s) sits comfortably above quietWorkingHint (8s),
+	// leaving a clean window to observe the plain cue before it escalates.
+	t.Setenv("ZERO_STREAM_IDLE_TIMEOUT", "30s")
+	base := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	m := model{now: func() time.Time { return base }}
+	m.activeRunID = 7
+	m.turnStartedAt = base
+
+	// Quiet past quietWorkingHint but under half the (30s) idle timeout -> the
+	// plain cue, same as TestQuietGenerationHint's normal case.
+	m.lastStreamActivity = base.Add(-10 * time.Second)
+	got := m.quietGenerationHint()
+	if !strings.Contains(got, "still generating") {
+		t.Fatalf("under half the idle timeout: want the plain cue, got %q", got)
+	}
+	if strings.Contains(got, "auto-recover") {
+		t.Fatalf("under half the idle timeout: should not have escalated yet, got %q", got)
+	}
+
+	// Quiet for >= half the idle timeout -> escalates to name the watchdog and
+	// its ceiling (idleTimeout * providerio.StreamContentStallFactor = 1m00s here).
+	m.lastStreamActivity = base.Add(-15 * time.Second)
+	got = m.quietGenerationHint()
+	if !strings.Contains(got, "unusually quiet") || !strings.Contains(got, "auto-recover") {
+		t.Fatalf("past half the idle timeout: want an escalated cue naming the watchdog, got %q", got)
+	}
+	if !strings.Contains(got, "1m00s") {
+		t.Fatalf("escalated cue should name the content-stall ceiling (idleTimeout * StreamContentStallFactor = 1m00s), got %q", got)
+	}
+}
+
 // TestQuietHintHiddenWhenSidebarShowsIt: when the context sidebar is up (it
 // carries the "generating…" pulse in ACTIVITY), the working line must NOT also
 // show the hint — it appears in exactly one place.

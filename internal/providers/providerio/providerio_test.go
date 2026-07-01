@@ -205,7 +205,7 @@ func TestUpstreamUnreachable(t *testing.T) {
 
 // A heartbeating-but-output-less upstream must not hang forever: SSE keep-alives
 // feed the idle watchdog (so it never fires), but the content watchdog
-// (idleTimeout × streamContentStallFactor) aborts with ErrStreamStalled when no
+// (idleTimeout × StreamContentStallFactor) aborts with ErrStreamStalled when no
 // real data line arrives. This is the gpt-5.x / ollama "still generating forever"
 // hang.
 func TestScanSSEDataWithContextAbortsOnContentStall(t *testing.T) {
