@@ -701,7 +701,7 @@ func newModel(ctx context.Context, options Options) model {
 		permissionMode:         permissionMode,
 		reasoningEffort:        options.ReasoningEffort,
 		responseStyle:          defaultedResponseStyle(options.ResponseStyle),
-		themeMode:              resolveThemeMode(options.Theme, os.Getenv("ZERO_THEME")),
+		themeMode:              resolveThemeMode(options.Theme, os.Getenv("ZERO_THEME"), options.SavedTheme),
 		hasDarkBg:              true,
 		userAgent:              options.UserAgent,
 		usageTracker:           usageTracker,
@@ -1099,6 +1099,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.picker.kind == pickerModel {
 					m.clearModelPickerLoadState()
 				}
+				if m.picker.kind == pickerTheme {
+					// A live theme preview was applied while navigating; restore the
+					// committed palette since Esc dismisses without choosing.
+					m.restoreCommittedTheme()
+				}
 				m.picker = nil
 				return m, nil
 			}
@@ -1246,6 +1251,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.picker.deleteQueryRune()
+				// Editing the filter changes which row is highlighted; keep the
+				// theme preview in sync with it (no-op for other pickers).
+				m.previewSelectedTheme()
 				return m, nil
 			}
 			// On an empty composer, Backspace removes the last attachment chip
@@ -1318,7 +1326,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.modelPickerIsLoading() {
 					return m, nil
 				}
-				m.picker.move(1)
+				m.pickerMoved(1)
 				return m, nil
 			}
 			if m.suggestionsActive() {
@@ -1360,7 +1368,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.modelPickerIsLoading() {
 					return m, nil
 				}
-				m.picker.move(-1)
+				m.pickerMoved(-1)
 				return m, nil
 			}
 			if m.suggestionsActive() {
@@ -1419,6 +1427,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if keyPrintable(msg) {
 				m.picker.appendQuery(keyRunes(msg))
+				// Filtering changes the highlighted row; keep the theme preview in
+				// sync with it (no-op for other pickers).
+				m.previewSelectedTheme()
 			}
 			return m, nil
 		}
@@ -2000,6 +2011,17 @@ func (m model) View() tea.View {
 
 	view := tea.NewView(content)
 	view.AltScreen = m.altScreen
+	// Paint the whole frame with the active theme's surface. Zero never paints the
+	// terminal's own canvas, so without this a theme's text falls on the terminal
+	// background — fine when they share polarity, but a light theme's dark text on a
+	// dark terminal (or vice versa) is invisible, and a color theme never shows its
+	// real surface. Painting the panel makes every theme self-contained and legible
+	// on any terminal, and fills the transparent popup interiors (e.g. the /theme
+	// picker) too. Alt-screen only, so inline output never leaves a painted
+	// background behind in the user's scrollback after exit.
+	if m.altScreen {
+		view.BackgroundColor = zeroTheme.bgPanel
+	}
 	view.ReportFocus = m.notifier != nil
 	if m.wantsMouseCapture() {
 		// AllMotion (not CellMotion) is required for hover highlighting: it
@@ -3331,6 +3353,11 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 	}
 	item, ok := picker.current()
 	if !ok {
+		if picker.kind == pickerTheme {
+			// No selectable row (e.g. the filter matched nothing): undo any live
+			// preview so the palette matches the committed m.themeMode.
+			m.restoreCommittedTheme()
+		}
 		return m, nil
 	}
 	switch picker.kind {
@@ -3354,6 +3381,18 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 		m, text = m.handleResumeCommand(item.Value)
 		if text != "" {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
+		}
+	case pickerTheme:
+		// The hovered palette is already live from the preview; handleThemeCommand
+		// records the choice (m.themeMode) and re-applies it, and reports the switch.
+		text := ""
+		m, text = m.handleThemeCommand(item.Value)
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
+		if m.themeMode == themeAuto {
+			// Re-probe the terminal background so a committed `auto` re-detects
+			// light/dark instead of reusing the preview's reading — mirrors the
+			// text /theme dispatch (M17).
+			return m, tea.RequestBackgroundColor
 		}
 	}
 	return m, nil
@@ -3610,6 +3649,13 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
 	case commandTheme:
+		// Bare `/theme` opens the popup picker (live preview on move, apply on
+		// Enter), matching /model and /effort. An explicit `/theme auto|dark|light`
+		// (or `/theme list`) still runs the text handler directly.
+		if strings.TrimSpace(command.text) == "" {
+			m.picker = m.newThemePicker()
+			return m, nil
+		}
 		text := ""
 		m, text = m.handleThemeCommand(command.text)
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})

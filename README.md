@@ -254,9 +254,9 @@ zero update           check for newer releases
 | Control | Effect |
 |---|---|
 | `NO_COLOR=<anything>` | disables color output |
-| `ZERO_THEME=auto|dark|light` | selects the startup theme |
-| `--theme auto|dark|light` | selects the TUI theme from the CLI |
-| `/theme auto|dark|light` | switches theme inside the TUI |
+| `ZERO_THEME=<name>` | selects the startup theme (`auto`, `dark`, `light`, or a color theme like `dracula`, `nord`, `gruvbox`, `tokyo-night`, `catppuccin`, `one-dark`, `solarized-dark`, `rose-pine`, `everforest`, `solarized-light`) |
+| `--theme <name>` | selects the TUI theme from the CLI (same names) |
+| `/theme` | opens the theme picker inside the TUI (live preview; `/theme <name>` switches directly) |
 | `ZERO_NO_FADE=1` | disables streaming fade animation |
 
 Meaning does not rely on color alone; diffs, permissions, and statuses also use

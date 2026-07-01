@@ -23,6 +23,7 @@ const (
 	pickerModel pickerKind = iota
 	pickerEffort
 	pickerSession
+	pickerTheme
 )
 
 // pickerItem is one selectable row: Label is shown, Value is passed to the
@@ -725,4 +726,45 @@ func (m model) newEffortPicker() *commandPicker {
 		}
 	}
 	return &commandPicker{kind: pickerEffort, title: "select reasoning effort", items: items, selected: selected}
+}
+
+// newThemePicker lists `auto` plus every registered theme as a popup, grouped into
+// Dark/Light sections (the registry is ordered dark-then-light so the group header
+// changes exactly once), preselecting the active preference. Bare `/theme` opens the
+// same overlay /model and /effort use. Moving the cursor live-previews each palette
+// (previewSelectedTheme); Enter commits the highlighted theme (choosePicker) and Esc
+// restores the previous one (Update's picker-cancel path). Items stay 1:1 with
+// themeModes and in the same order, so the popup and /theme state list agree.
+func (m model) newThemePicker() *commandPicker {
+	items := make([]pickerItem, 0, len(themeModes))
+	selected := 0
+	// `auto` sits at the top with an empty Group, so it renders header-less above
+	// the Dark/Light sections.
+	items = append(items, pickerItem{Label: string(themeAuto), Value: string(themeAuto), Meta: "match terminal"})
+	for _, entry := range themeRegistry {
+		group := "Light"
+		if entry.IsDark {
+			group = "Dark"
+		}
+		items = append(items, pickerItem{Group: group, Label: entry.Label, Value: entry.Name})
+		if entry.Name == string(m.themeMode) {
+			selected = len(items) - 1
+		}
+	}
+	// allItems lets the query filter restore rows on Backspace (one-way narrowing
+	// otherwise, since applyQuery falls back to the current items without it).
+	return &commandPicker{kind: pickerTheme, title: "select theme", items: items, allItems: append([]pickerItem{}, items...), selected: selected}
+}
+
+// pickerMoved advances the open picker's cursor by delta and live-previews the new
+// selection where the picker supports it — stepping through the /theme popup
+// repaints the UI in the hovered palette. Safe to call with no picker open. Callers
+// mutate through m.picker (a pointer) and the global theme, so the value receiver
+// is fine.
+func (m model) pickerMoved(delta int) {
+	if m.picker == nil {
+		return
+	}
+	m.picker.move(delta)
+	m.previewSelectedTheme()
 }

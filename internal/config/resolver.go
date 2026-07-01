@@ -195,6 +195,9 @@ func mergeConfig(dst *FileConfig, src FileConfig) {
 	if src.Preferences.Recaps != nil {
 		dst.Preferences.Recaps = src.Preferences.Recaps
 	}
+	if strings.TrimSpace(src.Preferences.Theme) != "" {
+		dst.Preferences.Theme = strings.TrimSpace(src.Preferences.Theme)
+	}
 	mergeLocalControlConfig(&dst.LocalControl, src.LocalControl)
 }
 

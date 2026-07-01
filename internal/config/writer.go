@@ -154,6 +154,28 @@ func SetRecapsEnabled(path string, enabled bool) (FileConfig, error) {
 	return cfg, nil
 }
 
+// SetTheme persists the TUI theme preference, mirroring SetFavoriteModels
+// (read-modify-atomic-write). A blank theme clears the stored preference.
+func SetTheme(path string, theme string) (FileConfig, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg.Preferences.Theme = strings.TrimSpace(theme)
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
+}
+
 func normalizeFavoriteModels(models []string) []string {
 	seen := map[string]bool{}
 	favorites := make([]string, 0, len(models))

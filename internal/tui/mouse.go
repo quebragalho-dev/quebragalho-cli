@@ -139,7 +139,7 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			if m.modelPickerIsLoading() {
 				return m, nil
 			}
-			m.picker.move(-1)
+			m.pickerMoved(-1)
 			return m, nil
 		}
 		if m.suggestionsActive() {
@@ -171,7 +171,7 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			if m.modelPickerIsLoading() {
 				return m, nil
 			}
-			m.picker.move(1)
+			m.pickerMoved(1)
 			return m, nil
 		}
 		if m.suggestionsActive() {
@@ -450,6 +450,9 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 		if hit.y == line {
 			index := start + offset
 			m.picker.selected = index
+			// Clicking (or hovering onto) a row live-previews it, like arrow keys,
+			// so the theme picker repaints before the confirming second click.
+			m.previewSelectedTheme()
 			return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: item.Value, Index: index}, true
 		}
 		line++

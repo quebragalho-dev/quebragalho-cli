@@ -272,6 +272,39 @@ func TestSetFavoriteModelsPersistsUserPreferences(t *testing.T) {
 	}
 }
 
+func TestSetThemePersistsUserPreference(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zero.json")
+	writeConfigFixture(t, path, FileConfig{
+		ActiveProvider: "openai",
+		Providers: []ProviderProfile{
+			{Name: "openai", ProviderKind: ProviderKindOpenAI, Model: "gpt-4.1"},
+		},
+	}, 0o600)
+
+	cfg, err := SetTheme(path, "  dracula  ")
+	if err != nil {
+		t.Fatalf("SetTheme() error = %v", err)
+	}
+	if cfg.Preferences.Theme != "dracula" {
+		t.Fatalf("Theme = %q, want dracula (trimmed)", cfg.Preferences.Theme)
+	}
+	persisted := readConfigFixture(t, path)
+	if persisted.Preferences.Theme != "dracula" {
+		t.Fatalf("persisted Theme = %q, want dracula", persisted.Preferences.Theme)
+	}
+	if persisted.ActiveProvider != "openai" || len(persisted.Providers) != 1 {
+		t.Fatalf("provider config was not preserved by SetTheme: %#v", persisted)
+	}
+
+	// A blank value clears the stored preference.
+	if cfg, err = SetTheme(path, ""); err != nil {
+		t.Fatalf("SetTheme(\"\") error = %v", err)
+	}
+	if cfg.Preferences.Theme != "" {
+		t.Fatalf("SetTheme(\"\") should clear the theme, got %q", cfg.Preferences.Theme)
+	}
+}
+
 func TestRecapsPreferenceRoundTrips(t *testing.T) {
 	// Default (unset) is ON.
 	if !(PreferencesConfig{}).RecapsEnabled() {

@@ -639,14 +639,17 @@ func TestEffortPickerOpensForSupportedModel(t *testing.T) {
 	}
 }
 
-func TestThemeCommandOpensNoPicker(t *testing.T) {
-	// /theme keeps the existing shell-only message; no picker opens.
+func TestThemeCommandOpensPicker(t *testing.T) {
+	// Bare /theme opens the theme popup (live preview on move, apply on Enter),
+	// like /model and /effort. Full preview/commit/cancel behavior is covered in
+	// theme_picker_test.go; here we just pin that the no-arg command opens it.
+	defer applyTheme(themeDark, true)
 	m := newModel(context.Background(), Options{})
 	m.input.SetValue("/theme")
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
-	if m.picker != nil {
-		t.Fatal("/theme should not open a picker")
+	if m.picker == nil || m.picker.kind != pickerTheme {
+		t.Fatalf("expected the theme picker to open, got %#v", m.picker)
 	}
 }
 

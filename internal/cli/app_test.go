@@ -1397,7 +1397,7 @@ func TestRunThemeFlagRejectsBadValue(t *testing.T) {
 	if launched {
 		t.Fatal("the TUI must not launch on a bad --theme value")
 	}
-	if !strings.Contains(stderr.String(), "--theme must be auto, dark, or light") {
+	if !strings.Contains(stderr.String(), "--theme must be auto or a registered theme name") {
 		t.Fatalf("expected a clear --theme error, got %q", stderr.String())
 	}
 }

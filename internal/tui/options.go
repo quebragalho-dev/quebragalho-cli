@@ -51,10 +51,14 @@ type Options struct {
 	PermissionMode  agent.PermissionMode
 	ReasoningEffort modelregistry.ReasoningEffort
 	ResponseStyle   string
-	// Theme is the operator's palette preference: "auto" (default), "dark", or
-	// "light". Set from the --theme flag; falls back to ZERO_THEME then auto.
-	Theme     string
-	UserAgent string
+	// Theme is the operator's palette preference: "auto" (default), a built-in
+	// ("dark"/"light"), or a registered color theme. Set from the --theme flag;
+	// falls back to ZERO_THEME, then the persisted SavedTheme, then auto.
+	Theme string
+	// SavedTheme is the theme persisted in user config (Preferences.Theme). Applied
+	// at startup below --theme and ZERO_THEME, so a /theme choice survives restart.
+	SavedTheme string
+	UserAgent  string
 
 	// Notify configures completion / awaiting-input notifications.
 	Notify config.NotifyConfig

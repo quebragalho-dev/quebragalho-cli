@@ -52,24 +52,19 @@ func wcagRatio(t *testing.T, fg, bg string) float64 {
 // The word-level diff's brighter changed-span band must keep its text AA-readable
 // and stay clearly distinct from the base add/del band, on both themes.
 func TestDiffWordSpanContrast(t *testing.T) {
-	for _, c := range []struct {
-		name string
-		pal  palette
-	}{
-		{"dark", darkPalette},
-		{"light", lightPalette},
-	} {
-		if r := wcagRatio(t, c.pal.addInk, c.pal.addBgWord); r < 4.5 {
-			t.Errorf("%s: addInk on addBgWord %.2f < 4.5 (AA)", c.name, r)
+	for _, entry := range themeRegistry {
+		name, pal := entry.Name, entry.Palette
+		if r := wcagRatio(t, pal.addInk, pal.addBgWord); r < 4.5 {
+			t.Errorf("%s: addInk on addBgWord %.2f < 4.5 (AA)", name, r)
 		}
-		if r := wcagRatio(t, c.pal.delInk, c.pal.delBgWord); r < 4.5 {
-			t.Errorf("%s: delInk on delBgWord %.2f < 4.5 (AA)", c.name, r)
+		if r := wcagRatio(t, pal.delInk, pal.delBgWord); r < 4.5 {
+			t.Errorf("%s: delInk on delBgWord %.2f < 4.5 (AA)", name, r)
 		}
-		if sep := wcagRatio(t, c.pal.addBgWord, c.pal.addBg); sep < 1.2 {
-			t.Errorf("%s: addBgWord vs addBg separation %.2f < 1.2 (span not distinct)", c.name, sep)
+		if sep := wcagRatio(t, pal.addBgWord, pal.addBg); sep < 1.2 {
+			t.Errorf("%s: addBgWord vs addBg separation %.2f < 1.2 (span not distinct)", name, sep)
 		}
-		if sep := wcagRatio(t, c.pal.delBgWord, c.pal.delBg); sep < 1.2 {
-			t.Errorf("%s: delBgWord vs delBg separation %.2f < 1.2 (span not distinct)", c.name, sep)
+		if sep := wcagRatio(t, pal.delBgWord, pal.delBg); sep < 1.2 {
+			t.Errorf("%s: delBgWord vs delBg separation %.2f < 1.2 (span not distinct)", name, sep)
 		}
 	}
 }
@@ -78,18 +73,52 @@ func TestDiffWordSpanContrast(t *testing.T) {
 // AND keep its label readable. Guards the regression this fixes: the light
 // selBg (#e7f2cd) sat at 1.01 vs the panel (#ececed) — effectively invisible.
 func TestSelectedRowBandIsVisibleAndReadable(t *testing.T) {
-	for _, c := range []struct {
-		name string
-		pal  palette
-	}{
-		{"dark", darkPalette},
-		{"light", lightPalette},
-	} {
-		if r := wcagRatio(t, c.pal.ink, c.pal.selBg); r < 4.5 {
-			t.Errorf("%s: ink on selBg contrast %.2f < 4.5 — selected-row label unreadable", c.name, r)
+	for _, entry := range themeRegistry {
+		name, pal := entry.Name, entry.Palette
+		if r := wcagRatio(t, pal.ink, pal.selBg); r < 4.5 {
+			t.Errorf("%s: ink on selBg contrast %.2f < 4.5 — selected-row label unreadable", name, r)
 		}
-		if sep := wcagRatio(t, c.pal.selBg, c.pal.panel); sep < 1.10 {
-			t.Errorf("%s: selBg vs panel separation %.2f < 1.10 — selected row does not stand out", c.name, sep)
+		if sep := wcagRatio(t, pal.selBg, pal.panel); sep < 1.10 {
+			t.Errorf("%s: selBg vs panel separation %.2f < 1.10 — selected row does not stand out", name, sep)
+		}
+	}
+}
+
+// Every registered theme — not just the two built-ins — must clear WCAG AA on its
+// text-bearing tokens against the panel and keep the muted>faint>faintest>panel
+// gray ramp monotonic in its polarity (light-on-dark for dark themes, the inverse
+// for light themes). Guards that a newly-added color palette can't ship illegible.
+func TestAllThemesContrastAndHierarchy(t *testing.T) {
+	for _, entry := range themeRegistry {
+		pal := entry.Palette
+		for _, tok := range []struct {
+			name string
+			fg   string
+		}{
+			{"ink", pal.ink}, {"muted", pal.muted}, {"faint", pal.faint},
+			{"faintest", pal.faintest}, {"accent", pal.accent},
+		} {
+			if r := wcagRatio(t, tok.fg, pal.panel); r < 4.5 {
+				t.Errorf("%s %s on panel %.2f < 4.5 (WCAG AA)", entry.Name, tok.name, r)
+			}
+		}
+		if r := wcagRatio(t, pal.onAccent, pal.accent); r < 4.5 {
+			t.Errorf("%s onAccent on accent %.2f < 4.5 (WCAG AA)", entry.Name, r)
+		}
+		// Gray ramp ordered ink -> muted -> faint -> faintest -> panel; luminance
+		// rises toward the surface on light themes, falls on dark themes.
+		chain := []float64{
+			relLum(t, pal.ink), relLum(t, pal.muted), relLum(t, pal.faint),
+			relLum(t, pal.faintest), relLum(t, pal.panel),
+		}
+		for i := 1; i < len(chain); i++ {
+			ok := chain[i] > chain[i-1]
+			if entry.IsDark {
+				ok = chain[i] < chain[i-1]
+			}
+			if !ok {
+				t.Errorf("%s hierarchy not monotonic toward surface at %d: %v", entry.Name, i, chain)
+			}
 		}
 	}
 }

@@ -12,7 +12,8 @@ import (
 // may be swapped at startup (background detection / ZERO_THEME / --theme) or live
 // via /theme. Colors are truecolor hex; lipgloss downsamples on limited displays
 // and renders plain text when there is no TTY (tests). Every renderer consumes
-// these named styles — no hex literal may appear outside this file.
+// these named styles — no hex literal may appear outside theme_palettes.go (the
+// palette tables + theme registry).
 type tuiTheme struct {
 	// Base tokens.
 	ink        lipgloss.Style // primary text
@@ -92,9 +93,10 @@ type tuiTheme struct {
 }
 
 // palette is the raw color-token table for one theme. buildTheme turns it into a
-// resolved tuiTheme. darkPalette and lightPalette are the ONLY place hex literals
-// live. All dark tints stay darker than ink so every pairing survives 256-color
-// downsampling; the light set is dark-on-light with the same intent inverted.
+// resolved tuiTheme. The palette literals and the ordered theme registry live in
+// theme_palettes.go (the only place hex literals live). Dark palettes keep tints
+// darker than ink so every pairing survives 256-color downsampling; light palettes
+// are dark-on-light with the same intent inverted.
 type palette struct {
 	panel     string // card backgrounds (the terminal canvas itself is never painted full-bleed)
 	promptBg  string // submitted user prompt background
@@ -123,73 +125,6 @@ type palette struct {
 	cardRun   string // running card border (accent mixed into line)
 	cardErr   string // errored card border (red mixed into line)
 	cardPerm  string // permission card border (amber mixed into line)
-}
-
-// darkPalette is the original Lime palette: a near-black chat surface with one
-// lime accent. bg (#070708) is the terminal's own canvas — deliberately never
-// painted — so no token references it.
-var darkPalette = palette{
-	panel:     "#0e0e10",
-	promptBg:  "#262626",
-	line:      "#242429",
-	line2:     "#414147",
-	ink:       "#ececee",
-	muted:     "#9a9aa2", // secondary text — lifted so it clearly out-ranks faint
-	faint:     "#8a8a92", // hints/metadata — nudged up to separate from faintest
-	faintest:  "#7c7c82", // line numbers/separators — pinned at the WCAG-AA floor on the dark panel
-	accent:    "#caff3f",
-	green:     "#5dd1a4",
-	red:       "#ff7a7a",
-	amber:     "#ffc25c",
-	blue:      "#7db4ff",
-	gitAdd:    "#7db87a",
-	gitDel:    "#b87a7a",
-	addBg:     "#18352c",
-	delBg:     "#241819",
-	addBgWord: "#2e654d", // changed span within an added line — brighter green (sep 1.83 vs addBg, addInk 7.1:1)
-	delBgWord: "#502d30", // changed span within a deleted line — brighter red (sep 1.44 vs delBg, delInk 7.7:1)
-	permBg:    "#1c1915",
-	selBg:     "#32401b", // selected row bg — brightened from #1d2114 so the highlighted row separates from the panel (sep 1.18→1.73) while ink label contrast stays ~9.4:1
-	addInk:    "#bdeed7",
-	delInk:    "#f2c4c4",
-	onAccent:  "#000000",
-	cardRun:   "#5a6b2e",
-	cardErr:   "#6b3434",
-	cardPerm:  "#6b5a2e",
-}
-
-// lightPalette is dark-on-light: light-gray surfaces with near-black ink. The
-// muted/faint/faintest grays get progressively LIGHTER (toward the surface) so the
-// same text hierarchy reads on white; the lime accent is darkened to keep contrast
-// against a light background, and the diff/permission tints become light surfaces.
-var lightPalette = palette{
-	panel:     "#ececed", // card backgrounds (slightly off-white)
-	promptBg:  "#dcdce0", // submitted prompt background
-	line:      "#cfcfd5", // default borders
-	line2:     "#b0b0b8", // emphasized borders
-	ink:       "#1b1b1d", // primary text (near-black)
-	muted:     "#4a4a52", // secondary text — darkened so it clearly out-ranks faint on light
-	faint:     "#57575f", // hints, metadata — nudged down to separate from faintest
-	faintest:  "#646469", // line numbers, separators — pinned at the WCAG-AA floor on the light panel
-	accent:    "#477006", // brand lime, darkened to AA contrast on light
-	green:     "#1c7a4a", // success / diff add
-	red:       "#c0322c", // errors / diff del
-	amber:     "#8f6200", // permission / warnings
-	blue:      "#1d5fd6", // grep locations
-	gitAdd:    "#2f7a3a", // footer PR diff additions
-	gitDel:    "#a83a3a", // footer PR diff deletions
-	addBg:     "#e2f3e6", // diff added-line bg (light green)
-	delBg:     "#fbe6e6", // diff deleted-line bg (light red)
-	addBgWord: "#97d3ab", // changed span within an added line — deeper green (sep 1.49 vs addBg, addInk 4.7:1)
-	delBgWord: "#f1b3b3", // changed span within a deleted line — deeper red (sep 1.48 vs delBg, delInk 4.6:1)
-	permBg:    "#fbf0d8", // permission card bg (light amber)
-	selBg:     "#cfe78f", // selected row bg (light accent) — deepened from #e7f2cd so it separates from the near-white panel (sep 1.01→1.15); ink label stays >12:1, faint ~5:1
-	addInk:    "#1d5b37", // added-line text
-	delInk:    "#8e2d2d", // deleted-line text
-	onAccent:  "#ffffff", // text on the (dark) accent/amber fills
-	cardRun:   "#94ad60", // running card border
-	cardErr:   "#cf9a9a", // errored card border
-	cardPerm:  "#c9ad7d", // permission card border
 }
 
 // buildTheme resolves a palette into the styles every renderer uses.

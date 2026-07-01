@@ -217,9 +217,9 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	if err != nil {
 		return writeAppError(stderr, err.Error(), 1)
 	}
-	// --theme {auto|dark|light} selects the TUI palette non-interactively (populates
-	// tui.Options.Theme, which resolveThemeMode prefers over ZERO_THEME). Re-split
-	// --add-dir afterward so it may appear on either side of --theme.
+	// --theme <name> selects the TUI palette non-interactively (auto or any registered
+	// theme; populates tui.Options.Theme, which resolveThemeMode prefers over
+	// ZERO_THEME). Re-split --add-dir afterward so it may appear on either side of --theme.
 	theme, args, err := splitLeadingThemeFlag(args)
 	if err != nil {
 		return writeAppError(stderr, err.Error(), 1)
@@ -641,6 +641,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	return deps.runTUI(context.Background(), tui.Options{
 		Cwd:                  workspaceRoot,
 		Theme:                theme,
+		SavedTheme:           resolved.Preferences.Theme,
 		UserConfigPath:       userConfigPath,
 		DoctorUserConfigPath: doctorUserConfigPath,
 		ProjectConfigPath:    projectConfigPath,
@@ -1033,9 +1034,10 @@ func splitLeadingAddDirFlags(args []string) ([]string, []string, error) {
 	return addDirs, args, nil
 }
 
-// splitLeadingThemeFlag strips a leading --theme {auto|dark|light} (space or =form)
-// from the root argument list and validates it. The last occurrence wins. A value
-// outside the allowed set is a loud error rather than a silent fallback.
+// splitLeadingThemeFlag strips a leading --theme <auto|theme-name> (space or =form)
+// from the root argument list and validates it against the registered themes. The
+// last occurrence wins. A value outside the allowed set is a loud error rather than
+// a silent fallback.
 func splitLeadingThemeFlag(args []string) (string, []string, error) {
 	theme := ""
 	for len(args) > 0 {
@@ -1043,7 +1045,7 @@ func splitLeadingThemeFlag(args []string) (string, []string, error) {
 		switch {
 		case args[0] == "--theme":
 			if len(args) < 2 {
-				return "", nil, errors.New("--theme requires a value (auto, dark, or light)")
+				return "", nil, errors.New("--theme requires a value (auto or a theme name; try --theme auto)")
 			}
 			value = strings.TrimSpace(args[1])
 			args = args[2:]
@@ -1053,12 +1055,10 @@ func splitLeadingThemeFlag(args []string) (string, []string, error) {
 		default:
 			return theme, args, nil
 		}
-		switch strings.ToLower(value) {
-		case "auto", "dark", "light":
-			theme = strings.ToLower(value)
-		default:
-			return "", nil, fmt.Errorf("--theme must be auto, dark, or light (got %q)", value)
+		if !tui.ValidThemeArg(value) {
+			return "", nil, fmt.Errorf("--theme must be auto or a registered theme name (got %q)", value)
 		}
+		theme = strings.ToLower(value)
 	}
 	return theme, args, nil
 }
