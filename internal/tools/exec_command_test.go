@@ -363,6 +363,93 @@ func TestStartExecProcessFallsBackAfterPTYStartMutation(t *testing.T) {
 	}
 }
 
+// TestExecOutputBufferCapsUndrainedData: a session nobody polls must not grow
+// its undrained buffer without bound — a long-lived background process that
+// keeps writing while unpolled previously ran a session's memory into the
+// tens of gigabytes and got the whole zero process OOM-killed by the OS.
+func TestExecOutputBufferCapsUndrainedData(t *testing.T) {
+	buffer := newExecOutputBuffer()
+
+	chunk := strings.Repeat("x", 1024)
+	writes := (maxExecOutputBufferBytes / len(chunk)) + 10 // comfortably over the cap
+	for i := 0; i < writes; i++ {
+		if _, err := buffer.Write([]byte(chunk)); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+
+	buffer.mu.Lock()
+	dataLen := len(buffer.data)
+	buffer.mu.Unlock()
+	if dataLen > maxExecOutputBufferBytes {
+		t.Fatalf("undrained buffer grew to %d bytes, want <= %d", dataLen, maxExecOutputBufferBytes)
+	}
+
+	out := buffer.drainString()
+	// drainString itself carries no truncation marker: a marker embedded in
+	// the drained text would always sit ~maxExecOutputBufferBytes before the
+	// end of the string, past any realistic head/tail truncation window a
+	// caller applies afterward (see execToolResult), so it's reliably lost.
+	// The signal lives out of band on consumeTruncated/peekTruncated instead.
+	if !strings.HasSuffix(out, chunk) {
+		t.Fatal("drained output should keep the most recent bytes, not the oldest")
+	}
+	if len(out) > maxExecOutputBufferBytes {
+		t.Fatalf("drained output = %d bytes, want <= %d (no marker text mixed in)", len(out), maxExecOutputBufferBytes)
+	}
+
+	if !buffer.peekTruncated() {
+		t.Fatal("peekTruncated should report the overflow without clearing it")
+	}
+	if !buffer.peekTruncated() {
+		t.Fatal("a second peekTruncated call should still report it — peek must not consume")
+	}
+	if !buffer.consumeTruncated() {
+		t.Fatal("consumeTruncated should report the overflow")
+	}
+	if buffer.consumeTruncated() {
+		t.Fatal("consumeTruncated should reset after being read once")
+	}
+	if buffer.peekTruncated() {
+		t.Fatal("peekTruncated should reflect the reset state after consumeTruncated")
+	}
+
+	// A second drain with no intervening writes must be empty.
+	if got := buffer.drainString(); got != "" {
+		t.Fatalf("drainString after a full drain = %q, want empty", got)
+	}
+}
+
+// TestExecToolResultSurfacesBufferTruncationOutsideByteBudget: an earlier
+// version embedded the truncation notice directly in the drained text, which
+// a review found sits ~maxExecOutputBufferBytes before the end of the
+// string — far past the head/tail window truncateExecOutput keeps even at
+// the tool's smallest allowed max_output_tokens, so the notice was reliably
+// swallowed or chopped. The notice must survive regardless of how small the
+// byte budget is, and it must not count against that budget.
+func TestExecToolResultSurfacesBufferTruncationOutsideByteBudget(t *testing.T) {
+	hugeOutput := strings.Repeat("y", maxExecOutputBufferBytes+1024)
+
+	result := execToolResult(execToolResultInput{
+		commandText:           "cmd",
+		output:                hugeOutput,
+		outputBufferTruncated: true,
+		sessionID:             1,
+		exited:                false,
+		maxOutputTokens:       1, // the schema's own declared minimum
+	})
+
+	if !strings.Contains(result.Output, execOutputBufferTruncatedMessage) {
+		t.Fatalf("result output should contain the buffer-truncation notice even at the smallest max_output_tokens, got %q", result.Output[:min(len(result.Output), 200)])
+	}
+	if result.Meta["output_buffer_truncated"] != "true" {
+		t.Fatalf("result meta should flag output_buffer_truncated, got %#v", result.Meta)
+	}
+	if !result.Truncated {
+		t.Fatal("result should report Truncated when the buffer dropped output")
+	}
+}
+
 // resilientTempDir is like t.TempDir() but tolerates the Windows handle-release
 // lag: a SIGKILL'd child process that had the dir as its cwd may not have
 // released it the instant it is reaped, so the immediate RemoveAll t.TempDir()
