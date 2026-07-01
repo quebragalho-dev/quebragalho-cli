@@ -407,6 +407,245 @@ func TestTranscriptSelectionReleaseExtendsRangeWithoutMotion(t *testing.T) {
 	}
 }
 
+// A completed selection stays "active" through the async copy-command grace
+// window (transcriptCopiedMsg hasn't landed yet), but the drag itself is over.
+// A genuine hover motion (no button held) arriving in that window must NOT be
+// treated as a drag continuation — it must fall through to hover handling
+// instead of silently moving the selection the user just released.
+func TestTranscriptHoverAfterReleaseDoesNotMoveSelection(t *testing.T) {
+	m := withSidebarContent(mouseTestModel())
+	m.mouseCapture = true
+	m.transcript = appendRow(m.transcript, rowUser, "hello world")
+	textY := firstTranscriptTextMouseY(t, m)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, 3, textY))
+	m = updated.(model)
+	updated, cmd := m.Update(testMouseRelease(tea.MouseNone, 8, textY))
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("sanity check failed: release should return the copy command")
+	}
+	if m.transcriptSelection.dragging {
+		t.Fatal("dragging must be false immediately after release")
+	}
+	before := m.selectedTranscriptText()
+
+	// A hover (no button) moves further along the same line, in the window
+	// before transcriptCopiedMsg has landed (m.transcriptSelection.active is
+	// still true here).
+	updated, _ = m.Update(testMouseMotion(tea.MouseNone, 10, textY))
+	m = updated.(model)
+
+	if got := m.selectedTranscriptText(); got != before {
+		t.Fatalf("a post-release hover changed the selection: got %q, want unchanged %q", got, before)
+	}
+}
+
+// Dragging a selection past the top edge of the visible transcript must
+// auto-scroll toward older content and extend the selection to follow — the
+// classic "drag past the viewport edge keeps scrolling" affordance.
+func TestTranscriptSelectionDragPastTopEdgeAutoScrolls(t *testing.T) {
+	m := mouseTestModel()
+	m.mouseCapture = true
+	// This test exercises the animated glide specifically; reducedMotion
+	// defaults from TTY detection (see defaultReducedMotion), which differs
+	// between a local dev shell and CI's non-TTY runners — set it explicitly
+	// so the test is deterministic regardless of environment.
+	m.reducedMotion = false
+	for i := 0; i < 80; i++ {
+		m.transcript = appendRow(m.transcript, rowUser, "line content")
+	}
+	textY := topmostVisibleTranscriptMouseY(t, m)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, 0, textY))
+	m = updated.(model)
+	if !m.transcriptSelection.active {
+		t.Fatal("selection should be active after a left click on transcript text")
+	}
+	cursorBefore := m.transcriptSelection.cursor.bodyY
+	scrollBefore := m.chatScrollOffset
+
+	frame, _, _ := m.transcriptHitTestLayout()
+	aboveBody := frame.bodyRect.y - 1 // one row above the visible transcript body
+
+	// A left-button drag (not a hover) moved past the top edge: the smooth-glide
+	// chain must start immediately (first step + a scheduled tick).
+	updated, cmd := m.Update(testMouseMotion(tea.MouseLeft, 0, aboveBody))
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("crossing the top edge should schedule the glide tick chain")
+	}
+	if m.edgeScrollDelta <= 0 {
+		t.Fatalf("edgeScrollDelta = %d, want > 0 (scrolling toward older content)", m.edgeScrollDelta)
+	}
+	if m.chatScrollOffset == scrollBefore {
+		t.Fatal("dragging past the top edge should auto-scroll toward older content")
+	}
+
+	// A single small step may land on a blank spacer row between messages (no
+	// text there yet) — drive the tick chain forward like a sustained real hold
+	// would, and the cursor must eventually reach a genuinely earlier line.
+	for i := 0; i < 10 && m.transcriptSelection.cursor.bodyY >= cursorBefore; i++ {
+		updated, _ = m.Update(dragEdgeScrollTickMsg{seq: m.edgeScrollSeq})
+		m = updated.(model)
+	}
+
+	if !m.transcriptSelection.active {
+		t.Fatal("selection must survive an edge auto-scroll, not be cleared")
+	}
+	if m.transcriptSelection.cursor.bodyY >= cursorBefore {
+		t.Fatalf("selection cursor bodyY = %d, want < %d (it must extend upward to follow the drag)", m.transcriptSelection.cursor.bodyY, cursorBefore)
+	}
+}
+
+// Symmetric to the top-edge case: dragging past the BOTTOM edge scrolls toward
+// newer content. Requires scrolling up first so there's somewhere to scroll back
+// down to (chatScrollOffset=0 already sits at the bottom).
+func TestTranscriptSelectionDragPastBottomEdgeAutoScrolls(t *testing.T) {
+	m := mouseTestModel()
+	m.mouseCapture = true
+	m.reducedMotion = false // deterministic across local/CI TTY-detection differences
+	for i := 0; i < 80; i++ {
+		m.transcript = appendRow(m.transcript, rowUser, "line content")
+	}
+	m.chatScrollOffset = chatWheelScrollLines * 3 // scrolled up, away from the bottom
+
+	textY := topmostVisibleTranscriptMouseY(t, m)
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, 0, textY))
+	m = updated.(model)
+	if !m.transcriptSelection.active {
+		t.Fatal("selection should be active after a left click on transcript text")
+	}
+	cursorBefore := m.transcriptSelection.cursor.bodyY
+	scrollBefore := m.chatScrollOffset
+
+	frame, _, _ := m.transcriptHitTestLayout()
+	belowBody := frame.bodyRect.y + frame.bodyRect.height // one row below the visible transcript body
+
+	updated, cmd := m.Update(testMouseMotion(tea.MouseLeft, 0, belowBody))
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("crossing the bottom edge should schedule the glide tick chain")
+	}
+	if m.edgeScrollDelta >= 0 {
+		t.Fatalf("edgeScrollDelta = %d, want < 0 (scrolling toward newer content)", m.edgeScrollDelta)
+	}
+	if m.chatScrollOffset >= scrollBefore {
+		t.Fatal("dragging past the bottom edge should auto-scroll toward newer content (offset decreases)")
+	}
+
+	for i := 0; i < 10 && m.transcriptSelection.cursor.bodyY <= cursorBefore; i++ {
+		updated, _ = m.Update(dragEdgeScrollTickMsg{seq: m.edgeScrollSeq})
+		m = updated.(model)
+	}
+
+	if !m.transcriptSelection.active {
+		t.Fatal("selection must survive an edge auto-scroll, not be cleared")
+	}
+	if m.transcriptSelection.cursor.bodyY <= cursorBefore {
+		t.Fatalf("selection cursor bodyY = %d, want > %d (it must extend downward to follow the drag)", m.transcriptSelection.cursor.bodyY, cursorBefore)
+	}
+}
+
+// The glide tick chain must self-terminate the instant the drag moves back into
+// the visible body — otherwise a stray scheduled tick could keep scrolling after
+// the user has already dragged back to the content they wanted selected.
+func TestTranscriptSelectionEdgeGlideStopsWhenDragReturnsToBody(t *testing.T) {
+	m := mouseTestModel()
+	m.mouseCapture = true
+	m.reducedMotion = false // deterministic across local/CI TTY-detection differences
+	for i := 0; i < 80; i++ {
+		m.transcript = appendRow(m.transcript, rowUser, "line content")
+	}
+	textY := topmostVisibleTranscriptMouseY(t, m)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, 0, textY))
+	m = updated.(model)
+	frame, _, _ := m.transcriptHitTestLayout()
+	updated, _ = m.Update(testMouseMotion(tea.MouseLeft, 0, frame.bodyRect.y-1))
+	m = updated.(model)
+	if m.edgeScrollDelta == 0 {
+		t.Fatal("sanity check failed: the glide chain should be running")
+	}
+	seqWhileGliding := m.edgeScrollSeq
+
+	updated, _ = m.Update(testMouseMotion(tea.MouseLeft, 0, textY))
+	m = updated.(model)
+	if m.edgeScrollDelta != 0 {
+		t.Fatalf("edgeScrollDelta = %d, want 0 (dragging back into the body must stop the glide)", m.edgeScrollDelta)
+	}
+
+	// A tick already in flight from before the drag returned must be a no-op —
+	// it carries the OLD seq, which no longer matches.
+	scrollBefore := m.chatScrollOffset
+	updated, _ = m.Update(dragEdgeScrollTickMsg{seq: seqWhileGliding})
+	m = updated.(model)
+	if m.chatScrollOffset != scrollBefore {
+		t.Fatal("a stale in-flight tick must not scroll after the glide was stopped")
+	}
+}
+
+// A keypress mid-glide clears m.transcriptSelection.active directly (the
+// KeyPressMsg handler in model.go), NOT through stopEdgeScroll — so
+// edgeScrollDelta is left stale. If a fresh drag past the SAME edge afterward
+// doesn't reset it, startEdgeScroll's "already running" fast path is fooled into
+// thinking a chain is already active and silently does nothing: no immediate
+// step, no scheduled tick. The press handler must reset glide state so every new
+// drag starts clean regardless of how the previous one ended.
+func TestTranscriptSelectionEdgeGlideRecoversAfterKeypressInterrupt(t *testing.T) {
+	m := mouseTestModel()
+	m.mouseCapture = true
+	m.reducedMotion = false // deterministic across local/CI TTY-detection differences
+	for i := 0; i < 80; i++ {
+		m.transcript = appendRow(m.transcript, rowUser, "line content")
+	}
+	textY := topmostVisibleTranscriptMouseY(t, m)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, 0, textY))
+	m = updated.(model)
+	frame, _, _ := m.transcriptHitTestLayout()
+	aboveBody := frame.bodyRect.y - 1
+
+	updated, _ = m.Update(testMouseMotion(tea.MouseLeft, 0, aboveBody))
+	m = updated.(model)
+	if m.edgeScrollDelta == 0 {
+		t.Fatal("sanity check failed: the glide chain should be running")
+	}
+
+	// A keypress interrupts the drag WITHOUT releasing the mouse — clears
+	// transcriptSelection.active directly, bypassing stopEdgeScroll.
+	updated, _ = m.Update(testKey('a'))
+	m = updated.(model)
+	if m.transcriptSelection.active {
+		t.Fatal("sanity check failed: the keypress should have cleared the selection")
+	}
+	if m.edgeScrollDelta == 0 {
+		t.Fatal("sanity check failed: edgeScrollDelta should still be stale here (that's the bug this test guards)")
+	}
+
+	// A brand-new press+drag past the SAME edge must glide normally, not be
+	// silently swallowed by the stale state from the interrupted drag. The
+	// viewport shifted from the first glide's step, so the topmost visible text
+	// line's on-screen Y must be recomputed — reusing the ORIGINAL textY would
+	// fail for an unrelated reason (it may now land on a blank spacer row).
+	textY = topmostVisibleTranscriptMouseY(t, m)
+	updated, _ = m.Update(testMouseClick(tea.MouseLeft, 0, textY))
+	m = updated.(model)
+	if !m.transcriptSelection.active {
+		t.Fatal("sanity check failed: the new press should start a fresh selection")
+	}
+	scrollBefore := m.chatScrollOffset
+
+	updated, cmd := m.Update(testMouseMotion(tea.MouseLeft, 0, aboveBody))
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("the new drag should schedule a fresh glide tick chain, not be fooled by stale state")
+	}
+	if m.chatScrollOffset == scrollBefore {
+		t.Fatal("the new drag should have applied its immediate first scroll step")
+	}
+}
+
 func TestTranscriptSelectionClearsAfterCopy(t *testing.T) {
 	m := mouseTestModel()
 	m.transcriptSelection = transcriptSelectionState{active: true}

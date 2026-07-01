@@ -14,6 +14,25 @@ type mouseSelectionTarget struct {
 	Index int
 }
 
+// scrollChatExtendingSelection scrolls the chat and, if a drag-selection is in
+// progress, extends its cursor to the mouse's current position against the
+// POST-scroll viewport — mirroring what a mouseMotion event does. Without this, a
+// selection's cursor is only ever updated by actual mouse movement (see
+// handleTranscriptSelectionMouse's mouseMotion case): a wheel-scroll event is a
+// distinct message type that never reaches that code, so scrolling while
+// selecting left the selection frozen at whatever line the mouse last physically
+// moved over — capped at the viewport that was visible before the scroll.
+func (m model) scrollChatExtendingSelection(delta int, msg tea.MouseMsg) model {
+	m = m.scrollChat(delta)
+	if !m.transcriptSelection.active {
+		return m
+	}
+	if line, ok := m.nearestTranscriptLineAtMouse(msg); ok {
+		m.transcriptSelection.cursor = transcriptSelectionPointForMouse(line, mouseX(msg))
+	}
+	return m
+}
+
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// While a provider-wizard OAuth login is in flight, ignore all mouse input
 	// (clicks and wheel) so a stray scroll can't change the selected provider
@@ -84,10 +103,17 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if next, cmd, ok := m.handleTranscriptSelectionMouse(msg); ok {
 		return next, cmd
 	}
+	// A plain hover (cursor moved, no button pressed) never matches the
+	// press/drag/release cases above, so it falls through here — resolve what's
+	// under the cursor so it can render with the hover highlight.
+	if mouseHover(msg) {
+		return m.updateHoverTarget(msg), nil
+	}
 
 	switch {
 	case mouseWheelUp(msg):
 		m.clearMouseSelection()
+		m = m.clearHover()
 		if m.providerWizard != nil {
 			m.providerWizard.move(-1)
 			return m, nil
@@ -116,9 +142,10 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				return next, nil
 			}
 		}
-		return m.scrollChat(chatWheelScrollLines), nil
+		return m.scrollChatExtendingSelection(chatWheelScrollLines, msg), nil
 	case mouseWheelDown(msg):
 		m.clearMouseSelection()
+		m = m.clearHover()
 		if m.providerWizard != nil {
 			m.providerWizard.move(1)
 			return m, nil
@@ -147,7 +174,7 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				return next, nil
 			}
 		}
-		return m.scrollChat(-chatWheelScrollLines), nil
+		return m.scrollChatExtendingSelection(-chatWheelScrollLines, msg), nil
 	default:
 		return m, nil
 	}

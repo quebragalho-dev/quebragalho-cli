@@ -40,6 +40,13 @@ const chatWheelScrollLines = 5
 const ctrlCExitConfirmDuration = 3 * time.Second
 const ctrlCExitConfirmText = "Press Ctrl+C again to exit"
 
+// dragEdgeScrollInterval/dragEdgeScrollStep drive the smooth-glide auto-scroll
+// while a drag holds past the transcript edge (see edgeScrollDelta). A small step
+// on a short, steady cadence reads as a smooth continuous scroll; the wheel-scroll
+// tick size (chatWheelScrollLines) would jump too far per step for that.
+const dragEdgeScrollInterval = 70 * time.Millisecond
+const dragEdgeScrollStep = 1
+
 type model struct {
 	ctx                    context.Context
 	cwd                    string
@@ -280,10 +287,31 @@ type model struct {
 	// (clickable suggestions, right-click paste, transcript select) pause while on.
 	mouseReleased       bool
 	transcriptSelection transcriptSelectionState
-	copyStatus          string
-	copyStatusSeq       int
-	exitConfirmActive   bool
-	exitConfirmSeq      int
+	// hover identifies the single clickable row (if any) currently under the
+	// mouse cursor with no button pressed, so it renders in a distinct style —
+	// the visual cue that it's clickable. Requires AllMotion mouse reporting
+	// (see wantsMouseCapture) since idle cursor movement carries no button.
+	hover             hoverTarget
+	copyStatus        string
+	copyStatusSeq     int
+	exitConfirmActive bool
+	exitConfirmSeq    int
+	// edgeScrollDelta drives the smooth-glide auto-scroll while a drag holds past
+	// the transcript's top/bottom edge: 0 when idle, else the signed per-tick step
+	// (matches transcriptEdgeScrollDelta's sign convention). A self-scheduling
+	// tea.Tick chain (see dragEdgeScrollTickCmd) keeps stepping it at a fixed small
+	// increment regardless of whether new raw mouse-motion events arrive — a
+	// terminal only reports motion on actual cursor movement, so without a timer
+	// the scroll would stop dead the instant the physical mouse holds still, even
+	// while parked past the edge. edgeScrollSeq invalidates a stale in-flight tick
+	// (mirroring exitConfirmSeq/copyStatusSeq) whenever the drag moves back into
+	// the body, releases, or the chain is otherwise stopped.
+	edgeScrollDelta int
+	edgeScrollSeq   int
+	// edgeScrollMouseX is the column the tick chain keeps extending the selection
+	// at — captured from the triggering drag since a timer tick carries no mouse
+	// position of its own.
+	edgeScrollMouseX int
 
 	// picker, when non-nil, is an open interactive selector overlay (/model,
 	// /effort with no argument). It captures ↑/↓/Enter/Esc and applies
@@ -327,6 +355,15 @@ type agentTextMsg struct {
 }
 
 type exitConfirmExpiredMsg struct {
+	seq int
+}
+
+// dragEdgeScrollTickMsg advances the smooth-glide auto-scroll one step (see
+// edgeScrollDelta). seq must match m.edgeScrollSeq or the tick is stale (the
+// drag moved back into the body, released, or was otherwise stopped since this
+// tick was scheduled) and is silently dropped — the self-scheduling chain simply
+// doesn't reschedule itself, so it terminates rather than ticking forever.
+type dragEdgeScrollTickMsg struct {
 	seq int
 }
 
@@ -890,6 +927,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.exitConfirmActive = false
 		}
 		return m, nil
+	case dragEdgeScrollTickMsg:
+		if msg.seq != m.edgeScrollSeq || m.edgeScrollDelta == 0 || !m.transcriptSelection.active {
+			return m, nil // stale, or the chain was stopped since this tick was scheduled
+		}
+		m = m.dragToEdgeScroll(m.edgeScrollDelta, m.edgeScrollMouseX)
+		return m, dragEdgeScrollTickCmd(m.edgeScrollSeq)
 	case providerWizardOAuthMsg:
 		return m.applyProviderWizardOAuth(msg)
 	case providerWizardDeviceCodeMsg:
@@ -956,6 +999,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Subchat view exits on Esc (returns to main chat).
 			if m.subchat.active {
 				m.chatScrollOffset = m.subchat.exit()
+				m = m.clearHover() // bodyY numbering differs between subchat and the parent transcript
 				return m, nil
 			}
 			if m.mcpCommandCancel != nil {
@@ -1174,11 +1218,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.transcriptDetailed {
 				return m, nil
 			}
+			// A stationary mouse over a bodyY-keyed transcript hover target would
+			// otherwise stay lit at the scrolled-away bodyY until the next real
+			// motion event (see clearHover) — same reasoning as the wheel-scroll
+			// cases in mouse.go.
+			m = m.clearHover()
 			return m.scrollChat(m.chatPageScrollLines()), nil
 		case keyIs(msg, tea.KeyPgDown):
 			if m.transcriptDetailed {
 				return m, nil
 			}
+			m = m.clearHover()
 			return m.scrollChat(-m.chatPageScrollLines()), nil
 		case keyIs(msg, tea.KeyDown):
 			if m.transcriptDetailed {
@@ -1220,6 +1270,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// ArrowUp exits subchat view (returns to main chat).
 			if m.subchat.active {
 				m.chatScrollOffset = m.subchat.exit()
+				m = m.clearHover() // bodyY numbering differs between subchat and the parent transcript
 				return m, nil
 			}
 			if m.transcriptDetailed {
@@ -1445,6 +1496,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// A resize re-wraps content at a new width, shifting every row's bodyY;
+		// a stale transcript-hover target could coincidentally land on an
+		// unrelated clickable row (same reasoning as clearHover's other callers).
+		m = m.clearHover()
 		// Reset the streaming-text fade state. A width change can re-wrap
 		// the in-progress text into a different number of visual lines,
 		// which invalidates the per-line age mapping. The next delta
@@ -1881,7 +1936,14 @@ func (m model) View() tea.View {
 	view.AltScreen = m.altScreen
 	view.ReportFocus = m.notifier != nil
 	if m.wantsMouseCapture() {
-		view.MouseMode = tea.MouseModeCellMotion
+		// AllMotion (not CellMotion) is required for hover highlighting: it
+		// reports cursor movement even with no button pressed. CellMotion only
+		// reports motion while a button is held (drag) — see bubbletea's
+		// MouseMode docs. AllMotion has marginally worse terminal compatibility
+		// but is well supported by the terminals this app targets; the existing
+		// 15ms mouse-event throttle (mouseEventThrottleInterval) already bounds
+		// the redraw rate from the extra motion events.
+		view.MouseMode = tea.MouseModeAllMotion
 	}
 	return view
 }
@@ -2030,10 +2092,14 @@ func (m model) footerView(width int) string {
 	// while the transcript scrolls underneath (a streaming turn no longer pushes
 	// the plan off-screen). Budgeted to at most a third of the screen height; a
 	// taller plan collapses to a one-line summary so the composer always stays
-	// on screen.
-	if plan := m.renderPinnedPlanPanel(width, m.pinnedPlanMaxHeight()); plan != "" {
-		footer.WriteString(plan)
-		footer.WriteString("\n")
+	// on screen. Skipped in the subchat drill-in: m.plan belongs to the PARENT
+	// run, not the subagent/swarm child session being viewed there, so pinning it
+	// above that composer would show unrelated state.
+	if !m.subchat.active {
+		if plan := m.renderPinnedPlanPanel(width, m.pinnedPlanMaxHeight()); plan != "" {
+			footer.WriteString(plan)
+			footer.WriteString("\n")
+		}
 	}
 	// The row above the composer: transient copy feedback takes priority; otherwise
 	// a faint idle affordance — discoverable key hints on the left, a jump-to-bottom

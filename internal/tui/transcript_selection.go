@@ -22,8 +22,20 @@ type transcriptSelectionPoint struct {
 
 type transcriptSelectionState struct {
 	active bool
-	anchor transcriptSelectionPoint
-	cursor transcriptSelectionPoint
+	// dragging is true from press until release — narrower than active, which
+	// stays true through the async copy-command grace window after release (a
+	// non-empty selection isn't reset to {} until transcriptCopiedMsg lands).
+	// mouseMotion gates on THIS, not active, so a genuine hover motion arriving
+	// in that post-release window doesn't get misrouted as a drag continuation.
+	// It also deliberately does NOT require msg's own Button field to be
+	// non-None on each motion event: some terminals don't restate the button on
+	// every motion report during a real drag (see
+	// TestTranscriptSelectionUpdatesOnGenericMotion), so trusting the
+	// per-event button field would break those terminals — dragging tracks the
+	// app's own press/release bracket instead.
+	dragging bool
+	anchor   transcriptSelectionPoint
+	cursor   transcriptSelectionPoint
 }
 
 type transcriptSelectableLine struct {
@@ -159,8 +171,43 @@ func (m model) finalizeTranscriptBodyRow(rendered string, selectable []transcrip
 	shifted := shiftSelectableX(selectable, gutter)
 	if m.transcriptSelection.active {
 		lines = viewLines(m.renderRenderedSelection(strings.Join(lines, "\n"), shifted, startBodyY))
+	} else if m.hover.kind == hoverTranscript {
+		// Mutually exclusive with the selection highlight above: transcriptSelection
+		// stays active for the lifetime of a persisted (copied) selection, not just
+		// during the drag — so hover correctly stays suppressed over old selected
+		// text too, not only mid-drag.
+		lines = viewLines(m.renderHoverHighlight(strings.Join(lines, "\n"), shifted, startBodyY))
 	}
 	return transcriptBodyRenderedItem{lines: lines, selectable: shifted}
+}
+
+// renderHoverHighlight re-styles the WHOLE line at m.hover.bodyY in the hover
+// accent (see renderRenderedSelection for the sibling selection-highlight logic,
+// which this mirrors). Only a clickable line (a specialist card or a
+// collapse/expand toggle header) is eligible — if the hovered bodyY no longer
+// matches one (content shifted beneath a stale hover target), this is a no-op,
+// which self-heals a hover left over from before a transcript update.
+func (m model) renderHoverHighlight(rendered string, selectable []transcriptSelectableLine, startBodyY int) string {
+	index := m.hover.bodyY - startBodyY
+	if index < 0 {
+		return rendered
+	}
+	lines := viewLines(rendered)
+	if index >= len(lines) {
+		return rendered
+	}
+	matched := false
+	for _, line := range selectable {
+		if line.bodyY == m.hover.bodyY && (line.specialistCard || line.toggle) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return rendered
+	}
+	lines[index] = zeroTheme.hover.Render(ansi.Strip(lines[index]))
+	return strings.Join(lines, "\n")
 }
 
 func (m model) transcriptBodyItems(width int, emptyOverlay string) []transcriptBodyItem {
@@ -968,16 +1015,46 @@ func splitPlainAtDisplayWidth(text string, width int) (string, string) {
 	return text, ""
 }
 
+// transcriptHitTestSource returns the header/body-items/width mouse hit-testing
+// must use to match what's actually on screen. It mirrors transcriptView's own
+// branching exactly: the subchat drill-in swaps BOTH the header (nav bar instead
+// of the pinned title bar) and the row source (the child session's rows instead
+// of the parent transcript) — and drops the sidebar-reserved width, since subchat
+// is always single-column. Hit-testing against the wrong source is why mouse
+// selection previously resolved against transcript rows that weren't even
+// visible while viewing a subagent/swarm child session.
+func (m model) transcriptHitTestSource() (header string, items []transcriptBodyItem, width int) {
+	if m.subchat.active {
+		width = chatWidth(m.width)
+		return renderSubchatNavBar(m.subchat.childSessionTitle, width), m.transcriptBodyItemsFromRows(m.subchat.childRows, width), width
+	}
+	width = m.chatColumnWidth()
+	return m.pinnedTitleBar(width), m.transcriptBodyItems(width, ""), width
+}
+
+// transcriptHitTestBlocked reports whether mouse hit-testing must be skipped
+// outright — a modal/overlay is up, or there's no alt-screen viewport at all.
+func (m model) transcriptHitTestBlocked() bool {
+	return !m.altScreen || m.height <= 0 || m.setup.visible || m.providerWizard != nil || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.suggestionsActive()
+}
+
+// transcriptHitTestLayout computes the frame/window/layout mouse hit-testing needs,
+// shared by transcriptLineAtMouse (exact match) and nearestTranscriptLineAtMouse
+// (nearest-line fallback for scroll-driven selection extension).
+func (m model) transcriptHitTestLayout() (frame transcriptFrameLayout, window transcriptViewportWindow, layout transcriptBodyLayout) {
+	header, items, width := m.transcriptHitTestSource()
+	frame = m.scrollableTranscriptFrame(header, m.footerView(width))
+	metrics := measureTranscriptBodyItems(items, m.transcriptBodyHeights)
+	window = transcriptViewportForLayout(metrics, frame, m.chatScrollOffset).window()
+	layout = layoutVisibleTranscriptBodyItems(items, metrics, window)
+	return frame, window, layout
+}
+
 func (m model) transcriptLineAtMouse(msg tea.MouseMsg) (transcriptSelectableLine, bool) {
-	if !m.altScreen || m.height <= 0 || m.setup.visible || m.providerWizard != nil || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.suggestionsActive() {
+	if m.transcriptHitTestBlocked() {
 		return transcriptSelectableLine{}, false
 	}
-	width := m.chatColumnWidth()
-	frame := m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width))
-	items := m.transcriptBodyItems(width, "")
-	metrics := measureTranscriptBodyItems(items, m.transcriptBodyHeights)
-	window := transcriptViewportForLayout(metrics, frame, m.chatScrollOffset).window()
-	layout := layoutVisibleTranscriptBodyItems(items, metrics, window)
+	frame, window, layout := m.transcriptHitTestLayout()
 	_, localY, ok := frame.bodyRect.local(mouseX(msg), mouseY(msg))
 	if !ok {
 		return transcriptSelectableLine{}, false
@@ -993,6 +1070,146 @@ func (m model) transcriptLineAtMouse(msg tea.MouseMsg) (transcriptSelectableLine
 		return line, true
 	}
 	return transcriptSelectableLine{}, false
+}
+
+// nearestTranscriptLineAtMouse is transcriptLineAtMouse with a fallback for
+// scroll-driven selection extension: the recomputed on-screen position can land
+// exactly on a non-selectable spacer row between messages (blank lines aren't in
+// layout.selectable; a scroll can shift which physical row is text vs spacer), where
+// an EXACT match finds nothing even though real text sits one row away. Falls back
+// to the closest visible selectable line by bodyY, so the selection still extends
+// instead of silently freezing for that scroll tick. Only used for scroll
+// extension — a plain click keeps using transcriptLineAtMouse's exact match, since
+// "nothing there" is a meaningful, correct result for an intentional click below
+// the last line or in dead space.
+func (m model) nearestTranscriptLineAtMouse(msg tea.MouseMsg) (transcriptSelectableLine, bool) {
+	if line, ok := m.transcriptLineAtMouse(msg); ok {
+		return line, true
+	}
+	if m.transcriptHitTestBlocked() {
+		return transcriptSelectableLine{}, false
+	}
+	frame, window, layout := m.transcriptHitTestLayout()
+	_, localY, ok := frame.bodyRect.local(mouseX(msg), mouseY(msg))
+	if !ok || mouseX(msg) < 0 {
+		return transcriptSelectableLine{}, false
+	}
+	return nearestTranscriptSelectableAt(layout, window.start+localY)
+}
+
+// nearestTranscriptSelectableAt returns the selectable line in layout closest to
+// targetBodyY (ties go to whichever is found first) — the fallback core shared by
+// nearestTranscriptLineAtMouse (target derived from a mouse position that may
+// have shifted onto a non-selectable spacer row) and the edge-auto-scroll drag
+// case (target derived directly from the new viewport's top/bottom bound, which
+// has no "mouse position" to speak of at all).
+func nearestTranscriptSelectableAt(layout transcriptBodyLayout, targetBodyY int) (transcriptSelectableLine, bool) {
+	best := transcriptSelectableLine{}
+	bestDist := -1
+	found := false
+	for _, line := range layout.selectable {
+		dist := line.bodyY - targetBodyY
+		if dist < 0 {
+			dist = -dist
+		}
+		if !found || dist < bestDist {
+			best, bestDist, found = line, dist, true
+		}
+	}
+	return best, found
+}
+
+// transcriptEdgeScrollDelta reports the scroll delta to apply when a drag has
+// moved past the top or bottom edge of the visible transcript body while
+// staying within its horizontal span — the classic "drag past the viewport
+// edge auto-scrolls" affordance from browsers/editors. Positive reveals OLDER
+// content (dragged above the top edge, same sign convention as wheel-up);
+// negative reveals NEWER content (dragged below the bottom edge). ok is false
+// when the point isn't a vertical-edge case at all (e.g. off to the side, over
+// the sidebar) — that's not an edge-scroll, just outside the column.
+func (m model) transcriptEdgeScrollDelta(msg tea.MouseMsg) (int, bool) {
+	if m.transcriptHitTestBlocked() {
+		return 0, false
+	}
+	frame, _, _ := m.transcriptHitTestLayout()
+	x, y := mouseX(msg), mouseY(msg)
+	if x < frame.bodyRect.x || x >= frame.bodyRect.x+frame.bodyRect.width {
+		return 0, false
+	}
+	if y < frame.bodyRect.y {
+		return chatWheelScrollLines, true
+	}
+	if y >= frame.bodyRect.y+frame.bodyRect.height {
+		return -chatWheelScrollLines, true
+	}
+	return 0, false
+}
+
+// dragToEdgeScroll scrolls one step toward the edge the drag moved past, then
+// extends the selection cursor to whichever line now sits at THAT edge of the
+// new viewport, at column x. It deliberately does NOT try to re-resolve the
+// drag's (still off-screen) physical mouse position — after scrolling, that
+// position is still outside frame.bodyRect (scrolling changes what content
+// occupies a screen row, not the mouse's screen position), so
+// nearestTranscriptLineAtMouse would keep finding nothing. Anchoring to the
+// viewport edge instead is what makes the selection visibly keep pace with the
+// drag while the mouse holds past the edge. Takes a plain column rather than a
+// tea.MouseMsg because the smooth-glide tick chain (dragEdgeScrollTickMsg) calls
+// this repeatedly with no real mouse event of its own — see edgeScrollMouseX.
+func (m model) dragToEdgeScroll(delta int, x int) model {
+	m = m.scrollChat(delta)
+	_, window, layout := m.transcriptHitTestLayout()
+	target := window.start
+	if delta < 0 {
+		target = window.start + window.height - 1
+	}
+	if line, ok := nearestTranscriptSelectableAt(layout, target); ok {
+		m.transcriptSelection.cursor = transcriptSelectionPointForMouse(line, x)
+	}
+	return m
+}
+
+// dragEdgeScrollTickCmd schedules the next step of the smooth-glide edge-scroll,
+// gated by seq (see dragEdgeScrollTickMsg / edgeScrollSeq).
+func dragEdgeScrollTickCmd(seq int) tea.Cmd {
+	return tea.Tick(dragEdgeScrollInterval, func(time.Time) tea.Msg {
+		return dragEdgeScrollTickMsg{seq: seq}
+	})
+}
+
+// startEdgeScroll (re)starts the smooth-glide tick chain in the given direction —
+// a no-op if it's already running the SAME direction (a fresh raw motion event
+// arriving mid-glide must not reset the cadence, or repeated events faster than
+// dragEdgeScrollInterval would make it jerky again, defeating the point). x is
+// remembered for the ticks, which carry no mouse position of their own. Applies
+// one immediate step so there's no perceptible delay between crossing the edge
+// and the first visible movement.
+func (m model) startEdgeScroll(direction int, x int) (model, tea.Cmd) {
+	step := dragEdgeScrollStep
+	if direction < 0 {
+		step = -step
+	}
+	if m.edgeScrollDelta == step {
+		m.edgeScrollMouseX = x
+		return m, nil
+	}
+	m = m.dragToEdgeScroll(step, x)
+	m.edgeScrollDelta = step
+	m.edgeScrollMouseX = x
+	m.edgeScrollSeq++
+	return m, dragEdgeScrollTickCmd(m.edgeScrollSeq)
+}
+
+// stopEdgeScroll ends the smooth-glide tick chain (the drag moved back into the
+// body, off to the side, or released). Bumping edgeScrollSeq invalidates any
+// tick already in flight, so it lands as a no-op and doesn't reschedule itself.
+func (m model) stopEdgeScroll() model {
+	if m.edgeScrollDelta == 0 {
+		return m
+	}
+	m.edgeScrollDelta = 0
+	m.edgeScrollSeq++
+	return m
 }
 
 func (m model) transcriptViewportStart(body string, width int) (int, int, int) {
@@ -1029,6 +1246,7 @@ func (m model) handleTranscriptSelectionMouse(msg tea.MouseMsg) (model, tea.Cmd,
 				m = m.appendSystemNotice(errMsg)
 			}
 			m.chatScrollOffset = 0
+			m = m.clearHover() // bodyY numbering differs between subchat and the parent transcript
 			return m, nil, true
 		}
 		// A click on a PLAN step row drops a transcript card listing the file
@@ -1058,6 +1276,7 @@ func (m model) handleTranscriptSelectionMouse(msg tea.MouseMsg) (model, tea.Cmd,
 				m = m.appendSystemNotice(errMsg)
 			}
 			m.chatScrollOffset = 0
+			m = m.clearHover() // bodyY numbering differs between subchat and the parent transcript
 			return m, nil, true
 		}
 		if line.toggle {
@@ -1070,21 +1289,57 @@ func (m model) handleTranscriptSelectionMouse(msg tea.MouseMsg) (model, tea.Cmd,
 		}
 		point := transcriptSelectionPointForMouse(line, mouseX(msg))
 		m.copyStatus = ""
-		m.transcriptSelection = transcriptSelectionState{active: true, anchor: point, cursor: point}
+		m.transcriptSelection = transcriptSelectionState{active: true, dragging: true, anchor: point, cursor: point}
+		// A fresh press always starts a brand-new drag: reset any glide state left
+		// over from a PREVIOUS selection that ended without going through
+		// stopEdgeScroll (e.g. a keypress mid-drag clears transcriptSelection.active
+		// directly, model.go's KeyPressMsg handler). Without this, a stale
+		// edgeScrollDelta can coincidentally match this new drag's direction and
+		// fool startEdgeScroll's "already running" fast path into silently doing
+		// nothing for the whole hold.
+		m = m.stopEdgeScroll()
 		return m, nil, true
 	case mouseMotion(msg):
-		if !m.transcriptSelection.active {
+		// Gate on dragging (the app's own press/release bracket), not active
+		// alone: active stays true through the async copy-command grace window
+		// after release, so without this a genuine hover motion arriving in
+		// that window would be misrouted here and silently move the
+		// just-released selection instead of falling through to hover
+		// handling. Deliberately NOT gated on msg's own Button field — see
+		// transcriptSelectionState.dragging's doc comment.
+		if !m.transcriptSelection.dragging {
 			return m, nil, false
 		}
-		line, ok := m.transcriptLineAtMouse(msg)
-		if ok {
+		if line, ok := m.transcriptLineAtMouse(msg); ok {
 			m.transcriptSelection.cursor = transcriptSelectionPointForMouse(line, mouseX(msg))
+			m = m.stopEdgeScroll() // back inside the body: any running glide ends
+			return m, nil, true
 		}
-		return m, nil, true
+		// The drag moved past the top/bottom edge of the visible transcript:
+		// auto-scroll toward that side and extend the selection to follow.
+		delta, ok := m.transcriptEdgeScrollDelta(msg)
+		if !ok {
+			m = m.stopEdgeScroll() // off to the side (e.g. over the sidebar), not an edge case
+			return m, nil, true
+		}
+		if m.reducedMotion {
+			// No animated glide: a single, larger step per raw motion event,
+			// matching the app's reduced-motion convention elsewhere.
+			m = m.dragToEdgeScroll(delta, mouseX(msg))
+			return m, nil, true
+		}
+		direction := 1
+		if delta < 0 {
+			direction = -1
+		}
+		var cmd tea.Cmd
+		m, cmd = m.startEdgeScroll(direction, mouseX(msg))
+		return m, cmd, true
 	case mouseRelease(msg):
 		if !m.transcriptSelection.active {
 			return m, nil, false
 		}
+		m = m.stopEdgeScroll()
 		if line, ok := m.transcriptLineAtMouse(msg); ok {
 			m.transcriptSelection.cursor = transcriptSelectionPointForMouse(line, mouseX(msg))
 		}
@@ -1093,6 +1348,10 @@ func (m model) handleTranscriptSelectionMouse(msg tea.MouseMsg) (model, tea.Cmd,
 			m.transcriptSelection = transcriptSelectionState{}
 			return m, nil, true
 		}
+		// The drag itself is over even though the selection stays active for
+		// the async copy-command grace window below — see dragging's doc
+		// comment on why mouseMotion must stop treating events as a drag now.
+		m.transcriptSelection.dragging = false
 		return m, copyTranscriptSelectionCmd(text), true
 	default:
 		return m, nil, false
@@ -1113,8 +1372,11 @@ func (m model) toggleTranscriptRow(rowIndex int) model {
 }
 
 func (m model) selectedTranscriptText() string {
-	width := m.chatColumnWidth()
-	layout := m.transcriptBodyLayout(width, "")
+	// Must read from the SAME row source transcriptLineAtMouse hit-tested against
+	// (subchat vs parent transcript) — otherwise the selection's bodyY range is
+	// matched against the wrong layout here and copy silently returns nothing.
+	_, items, _ := m.transcriptHitTestSource()
+	layout := layoutTranscriptBodyItems(items)
 	parts := []string{}
 	for _, line := range layout.selectable {
 		start, end, ok := m.selectedColumnsForTranscriptLine(line)
