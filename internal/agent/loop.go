@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,12 @@ import (
 
 const maxTurnsAnswer = "Agent reached maximum number of turns without a final answer."
 const maxTurnsFinalAnswerPrompt = "You have reached the tool-turn limit. Do not call tools. Give a concise final answer now: summarize what you completed, what you found, and any remaining blockers."
+
+// maxStreamStallRetries bounds how many times a turn that timed out (idle/stall)
+// WITH NO OUTPUT yet is re-issued on a fresh connection before giving up. Only
+// the no-output case is retried (a partial turn would duplicate), so this is a
+// safe recovery for a stalled/dead pooled connection.
+const maxStreamStallRetries = 2
 
 const (
 	toolResultMetaControl       = "control"
@@ -203,54 +210,71 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			}
 		}
 
-		collected := zeroruntime.CollectStreamWithOptions(ctx, stream, zeroruntime.CollectOptions{
-			OnText:          options.OnText,
-			OnReasoning:     options.OnReasoning,
-			OnUsage:         options.OnUsage,
-			OnToolCallStart: options.OnToolCallStart,
-			OnToolCallDelta: options.OnToolCallDelta,
-		})
-		if collected.Error != "" {
-			collectedErr := errors.New(collected.Error)
-			if isImageRejectionError(collectedErr) {
-				result.Messages = copyMessages(messages)
-				return result, fmt.Errorf("model %s rejected the image: %s. The model may not support image input — try switching to a vision-capable model (claude, gpt-4o, gemini)", options.Model, collected.Error)
+		// Wrapped callbacks flag ANY output forwarded this turn, so a stall retry
+		// never re-streams on top of output the user already saw — even across the
+		// reactive-compaction retry below, which overwrites `collected`.
+		forwardedAnything := false
+		mark := func() { forwardedAnything = true }
+		// OnUsage is telemetry, not visible output, so it does NOT mark
+		// forwardedAnything: a provider that emits an early usage event (e.g. prompt
+		// tokens) then stalls with no content must still be safely retried. The gate
+		// only guards against re-streaming output the user actually SAW.
+		forwardingOpts := zeroruntime.CollectOptions{OnUsage: options.OnUsage}
+		if options.OnText != nil {
+			forwardingOpts.OnText = func(s string) { mark(); options.OnText(s) }
+		}
+		if options.OnReasoning != nil {
+			forwardingOpts.OnReasoning = func(s string) { mark(); options.OnReasoning(s) }
+		}
+		if options.OnToolCallStart != nil {
+			forwardingOpts.OnToolCallStart = func(id, name string) { mark(); options.OnToolCallStart(id, name) }
+		}
+		if options.OnToolCallDelta != nil {
+			forwardingOpts.OnToolCallDelta = func(id, fragment string) { mark(); options.OnToolCallDelta(id, fragment) }
+		}
+		// recoverStreamError applies the same non-stall recovery the initial stream
+		// gets to ANY collected error — including one from a reissued (stall-retry)
+		// stream: an image rejection gets the friendly wrapping, and a context limit
+		// gets one compaction + reactive reissue (omitting visible callbacks, since
+		// any pre-error output was already forwarded). It returns the possibly-updated
+		// collected and a non-nil stop error when the run must end now.
+		recoverStreamError := func(collected zeroruntime.CollectedStream) (zeroruntime.CollectedStream, error) {
+			if isImageRejectionError(errors.New(collected.Error)) {
+				return collected, fmt.Errorf("model %s rejected the image: %s. The model may not support image input — try switching to a vision-capable model (claude, gpt-4o, gemini)", options.Model, collected.Error)
 			}
-			// REACTIVE compaction: the streamed error may also be a context
-			// limit (some providers surface it mid-stream). Compact and retry
-			// the same turn once before giving up.
+			// REACTIVE compaction: the streamed error may also be a context limit
+			// (some providers surface it mid-stream). Compact and retry once.
 			if compacted, retried, retryErr := compactor.recover(ctx, provider, messages, request.Tools, collected.Error); retried {
 				messages = compacted
 				if retryErr != nil {
-					result.Messages = copyMessages(messages)
-					return result, retryErr
+					return collected, retryErr
 				}
-				// Reuse the SAME active-mode partition (exposed) from this
-				// turn rather than the bare toolDefinitions: exposed depends on
-				// registry+loaded (not the messages), so they stay valid after compaction.
-				// Routing through an empty-loaded partition here would re-hide every
-				// already-loaded deferred tool.
+				// Reuse the SAME active-mode partition (exposed) from this turn rather
+				// than the bare toolDefinitions: exposed depends on registry+loaded (not
+				// the messages), so it stays valid after compaction.
 				retryRequest := zeroruntime.CompletionRequest{
 					Messages:        copyMessages(messages),
 					Tools:           exposed,
 					ReasoningEffort: options.ReasoningEffort,
 				}
-				// Pre-content reconnect of a mid-stream disconnect: route the connect
-				// through the reconnect helper too (AUDIT-L1).
 				retryStream, retryStreamErr := streamWithReconnect(ctx, provider, retryRequest, reconnectNoticeFor(options))
 				if retryStreamErr != nil {
-					result.Messages = copyMessages(messages)
-					return result, retryStreamErr
+					return collected, retryStreamErr
 				}
-				// Omit OnText on the reactive retry: when the original error
-				// surfaced MID-stream, partial text was already forwarded to the
-				// user. Re-streaming the retried response on top of it would
-				// duplicate output. OnUsage IS kept so token telemetry/budgeting
-				// still counts the successful retry. The retried text is captured
-				// in collected.Text and becomes the turn's assistant message.
 				collected = zeroruntime.CollectStreamWithOptions(ctx, retryStream, zeroruntime.CollectOptions{
 					OnUsage: options.OnUsage,
 				})
+			}
+			return collected, nil
+		}
+
+		collected := zeroruntime.CollectStreamWithOptions(ctx, stream, forwardingOpts)
+		if collected.Error != "" {
+			updated, stop := recoverStreamError(collected)
+			collected = updated
+			if stop != nil {
+				result.Messages = copyMessages(messages)
+				return result, stop
 			}
 		}
 		// Check ctx first: on cancellation helpers.go sets collected.Error to
@@ -260,9 +284,45 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			result.Messages = copyMessages(messages)
 			return result, ctx.Err()
 		}
+		// A stream idle/stall timeout with NO output forwarded yet this turn can be
+		// safely re-issued on a fresh connection — nothing was shown, so there's no
+		// duplication (this recovers the macOS stale-pooled-connection hang when it
+		// slips past the transport's response-header timeout). A turn that already
+		// streamed partial text/tool-calls is NOT retried (it would duplicate) and
+		// falls through to the error return below. Capped + exponential backoff.
+		for attempt := 1; attempt <= maxStreamStallRetries &&
+			isStreamTimeoutError(collected.Error) && !forwardedAnything &&
+			collected.Text == "" && len(collected.ToolCalls) == 0; attempt++ {
+			if err := sleepWithContext(ctx, backoffFor(attempt)); err != nil {
+				result.Messages = copyMessages(messages)
+				return result, err
+			}
+			retryRequest := zeroruntime.CompletionRequest{
+				Messages:        copyMessages(messages),
+				Tools:           exposed,
+				ReasoningEffort: options.ReasoningEffort,
+			}
+			retryStream, retryErr := streamWithReconnect(ctx, provider, retryRequest, reconnectNoticeFor(options))
+			if retryErr != nil {
+				result.Messages = copyMessages(messages)
+				return result, retryErr
+			}
+			collected = zeroruntime.CollectStreamWithOptions(ctx, retryStream, forwardingOpts)
+		}
 		if collected.Error != "" {
-			result.Messages = copyMessages(messages)
-			return result, errors.New(collected.Error)
+			// Route a reissued stream's non-stall error through the SAME recovery as
+			// the initial stream (image-rejection wrapping / context-limit compaction)
+			// rather than returning it raw.
+			updated, stop := recoverStreamError(collected)
+			collected = updated
+			if stop != nil {
+				result.Messages = copyMessages(messages)
+				return result, stop
+			}
+			if collected.Error != "" {
+				result.Messages = copyMessages(messages)
+				return result, errors.New(collected.Error)
+			}
 		}
 
 		// Carry the turn's terminal stop reason so a final answer cut off at the
@@ -615,8 +675,20 @@ func historySafeToolCalls(calls []ToolCall) []ToolCall {
 	for i, call := range calls {
 		safe[i] = call
 		args := strings.TrimSpace(call.Arguments)
-		if args == "" || !json.Valid([]byte(args)) {
+		switch {
+		case args == "":
 			safe[i].Arguments = "{}"
+		case json.Valid([]byte(args)):
+			// already a single valid JSON value — keep as-is
+		default:
+			// Recover the first object for the concatenated case so the replayed
+			// transcript matches what executeToolCall actually ran; otherwise (real
+			// corruption) fall back to an empty object.
+			if first, ok := recoverableToolArguments(args); ok {
+				safe[i].Arguments = first
+			} else {
+				safe[i].Arguments = "{}"
+			}
 		}
 	}
 	return safe
@@ -641,10 +713,53 @@ func toolSchemaJSON(registry *tools.Registry, name string) string {
 // is a non-nil ABORT error only when the call demands the whole run stop (a
 // canceled/timed-out ask_user prompt) rather than continuing — every ordinary
 // success or tool error returns a nil abort error.
+// recoverableToolArguments inspects a tool call's raw JSON arguments. It returns
+// the raw text of the FIRST JSON value when the payload is one value optionally
+// followed by additional WHOLE JSON values (the weak-model concatenated case, e.g.
+// `{A}{B}`). ok is false when the payload is genuinely malformed: a bad/truncated
+// first value, OR trailing NON-JSON garbage after a valid first value (e.g.
+// `{"x":1}xyz`) — that case must still error, not be silently accepted. Sharing
+// this between dispatch and replay-history keeps them consistent: only a cleanly
+// recoverable first object is ever used.
+func recoverableToolArguments(arguments string) (first string, ok bool) {
+	dec := json.NewDecoder(strings.NewReader(arguments))
+	var head json.RawMessage
+	if err := dec.Decode(&head); err != nil {
+		return "", false
+	}
+	// The remainder must be only whole JSON values (or nothing); any decode error
+	// other than EOF means trailing garbage — reject so corruption still surfaces.
+	for {
+		var rest json.RawMessage
+		if err := dec.Decode(&rest); err != nil {
+			if errors.Is(err, io.EOF) {
+				return strings.TrimSpace(string(head)), true
+			}
+			return "", false
+		}
+	}
+}
+
+// decodeToolArguments decodes a tool call's JSON arguments into v. It tolerates a
+// weaker model that packs MULTIPLE concatenated top-level JSON objects into one
+// arguments string (`{A}{B}`) — the cause of "invalid character '{' after top-level
+// value" failures with small models like minimax-m3 — by decoding the FIRST object
+// and ignoring the trailing WHOLE JSON values, so the primary intended call runs.
+// A genuinely malformed payload (bad/truncated first object, or non-JSON trailing
+// garbage) still returns the real parse error; a standard single-object payload
+// decodes exactly as before.
+func decodeToolArguments(arguments string, v any) error {
+	if first, ok := recoverableToolArguments(arguments); ok {
+		return json.Unmarshal([]byte(first), v)
+	}
+	// Not cleanly recoverable — surface the genuine parse error.
+	return json.Unmarshal([]byte(arguments), v)
+}
+
 func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCall, permissionMode PermissionMode, options Options) (ToolResult, error) {
 	args := map[string]any{}
 	if call.Arguments != "" {
-		if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+		if err := decodeToolArguments(call.Arguments, &args); err != nil {
 			return ToolResult{
 				ToolCallID: call.ID,
 				Name:       call.Name,

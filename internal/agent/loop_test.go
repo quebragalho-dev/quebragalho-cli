@@ -1053,7 +1053,10 @@ func TestRunSanitizesMalformedToolCallArgumentsBeforeRetry(t *testing.T) {
 		turns: [][]zeroruntime.StreamEvent{
 			{
 				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "read_file"},
-				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{"path":"README.md"}{"path":"AGENTS.md"}`},
+				// Genuinely malformed (truncated) args: still error -> sanitize -> retry.
+				// (Concatenated multi-object args are now tolerated; see
+				// TestRunRecoversFirstObjectFromConcatenatedToolArgs.)
+				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{"path":"README.md"`},
 				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
 				{Type: zeroruntime.StreamEventDone},
 			},
@@ -1100,6 +1103,53 @@ func TestRunSanitizesMalformedToolCallArgumentsBeforeRetry(t *testing.T) {
 	}
 	if toolParseError == "" {
 		t.Fatalf("expected model-visible tool result to keep the parse error, messages: %#v", provider.requests[1].Messages)
+	}
+}
+
+// A weak model (e.g. minimax-m3) that packs MULTIPLE concatenated JSON objects into
+// one tool-call slot must RECOVER the first object and run the call, not fail with
+// "invalid character '{' after top-level value". The trailing object(s) are dropped
+// (the model re-issues them on a later turn if still needed).
+func TestRunRecoversFirstObjectFromConcatenatedToolArgs(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello readme"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewReadFileTool(root))
+	provider := &mockProvider{
+		turns: [][]zeroruntime.StreamEvent{
+			{
+				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "read_file"},
+				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{"path":"README.md"}{"path":"AGENTS.md"}`},
+				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+			{
+				{Type: zeroruntime.StreamEventText, Content: "done"},
+				{Type: zeroruntime.StreamEventDone},
+			},
+		},
+	}
+
+	result, err := Run(context.Background(), "read", provider, Options{Registry: registry, MaxTurns: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "done" {
+		t.Fatalf("final answer = %q, want done", result.FinalAnswer)
+	}
+	var toolResult string
+	for _, message := range provider.requests[1].Messages {
+		if message.Role == zeroruntime.MessageRoleTool {
+			toolResult = message.Content
+		}
+	}
+	if strings.Contains(toolResult, "Failed to parse arguments") {
+		t.Fatalf("concatenated args should recover the first object, not fail to parse: %q", toolResult)
+	}
+	if !strings.Contains(toolResult, "hello readme") {
+		t.Fatalf("expected README.md contents (the first object's path), got %q", toolResult)
 	}
 }
 

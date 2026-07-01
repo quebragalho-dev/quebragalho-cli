@@ -134,10 +134,15 @@ func SummarizeStream(events []streamjson.Event, processExitCode int) StreamResul
 	return result
 }
 
-func BuildFinalResult(events []streamjson.Event, stderrOutput string, processExitCode int) tools.Result {
+func BuildFinalResult(events []streamjson.Event, stderrOutput string, processExitCode int, signalDesc string) tools.Result {
 	summary := SummarizeStream(events, processExitCode)
 	hasErrors := len(summary.Errors) > 0 || summary.ExitCode != 0
 	if summary.Status != "" && summary.Status != "success" && summary.Status != "ok" {
+		hasErrors = true
+	}
+	// A captured kill signal must always surface, even if a late run_end reported a
+	// clean exit just before the child was killed during teardown.
+	if strings.TrimSpace(signalDesc) != "" {
 		hasErrors = true
 	}
 	if !hasErrors {
@@ -149,7 +154,15 @@ func BuildFinalResult(events []streamjson.Event, stderrOutput string, processExi
 	}
 
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "Subagent failed (exit %d)\n", summary.ExitCode)
+	if signal := strings.TrimSpace(signalDesc); signal != "" {
+		// The child was terminated by a signal (exit code -1) rather than exiting.
+		// Surface the signal instead of an opaque "exit -1", and list the common
+		// causes evenhandedly — this branch also covers timeouts and cancellations,
+		// so don't assert OOM.
+		fmt.Fprintf(&builder, "Subagent terminated by a signal (%s) — it was killed before it finished. Common causes: an out-of-memory kill, a timeout, or cancellation; check the signal to tell which. If you were running many sub-agents in parallel, reduce the concurrency.\n", signal)
+	} else {
+		fmt.Fprintf(&builder, "Subagent failed (exit %d)\n", summary.ExitCode)
+	}
 	if len(summary.Errors) > 0 {
 		fmt.Fprintf(&builder, "errors: %s\n", strings.Join(summary.Errors, "; "))
 	}

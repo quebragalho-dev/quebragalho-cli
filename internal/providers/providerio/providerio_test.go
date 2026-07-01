@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -302,5 +303,32 @@ func TestStreamTimeoutMessage(t *testing.T) {
 	}
 	if strings.Contains(stalled, "stopped sending data") {
 		t.Fatalf("stalled message must not claim the upstream stopped sending data: %q", stalled)
+	}
+}
+
+// HTTPClient(nil) must return the shared, stall-hardened transport (bounded
+// response-header wait + shorter idle-conn reuse) that defeats the macOS stale-
+// pooled-connection hang; an explicit client is returned untouched.
+func TestHTTPClientReturnsStallHardenedSharedClient(t *testing.T) {
+	got := HTTPClient(nil)
+	if got == nil {
+		t.Fatal("HTTPClient(nil) returned nil")
+	}
+	tr, ok := got.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *http.Transport", got.Transport)
+	}
+	if tr.ResponseHeaderTimeout != 120*time.Second {
+		t.Fatalf("ResponseHeaderTimeout = %v, want 120s", tr.ResponseHeaderTimeout)
+	}
+	if tr.IdleConnTimeout != 30*time.Second {
+		t.Fatalf("IdleConnTimeout = %v, want 30s", tr.IdleConnTimeout)
+	}
+	if HTTPClient(nil) != got {
+		t.Fatal("HTTPClient(nil) must return a shared instance so the conn pool is reused")
+	}
+	custom := &http.Client{}
+	if HTTPClient(custom) != custom {
+		t.Fatal("an explicit client must be returned unchanged")
 	}
 }

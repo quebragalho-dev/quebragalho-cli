@@ -204,7 +204,11 @@ type ChildRunResult struct {
 	Events   []streamjson.Event
 	Stderr   string
 	ExitCode int
-	Started  bool
+	// Signal is a human-readable description (e.g. "signal: killed") when the child
+	// was terminated by a signal rather than exiting normally; empty otherwise. It
+	// turns an opaque exit -1 into an actionable reason (SIGKILL ~ out of memory).
+	Signal  string
+	Started bool
 }
 
 func (executor Executor) Run(ctx context.Context, params TaskParameters, options TaskRunOptions) (ExecResult, error) {
@@ -566,15 +570,33 @@ func (executor Executor) runBuiltArgs(ctx context.Context, built BuildArgsResult
 		exitCode := run.exitCodeOr(-1)
 		summary := SummarizeStream(run.Events, exitCode)
 		executor.recordSpecialistStop(accounting, summary, "error", summary.ExitCode, err, false)
-		return ExecResult{}, err
+		// Carry the child session id even on a post-start failure so a caller (the
+		// swarm launcher -> FailWithSession) can still make the failed member
+		// drillable; the session exists once the child has started.
+		return ExecResult{SessionID: built.SessionID}, err
 	}
 	summary := SummarizeStream(run.Events, run.ExitCode)
 	rolledUp := executor.rollUpSpecialistUsage(accounting, summary)
 	executor.recordSpecialistStop(accounting, summary, summary.Status, summary.ExitCode, nil, rolledUp)
 	return ExecResult{
-		Result:    BuildFinalResult(run.Events, run.Stderr, run.ExitCode),
+		Result:    BuildFinalResult(run.Events, run.Stderr, run.ExitCode, run.Signal),
 		SessionID: built.SessionID,
 	}, nil
+}
+
+// availableSpecialistList renders the registered specialist names for a corrective
+// "not found" error, so a model that guessed a wrong name learns the real options.
+func availableSpecialistList(result LoadResult) string {
+	names := make([]string, 0, len(result.Specialists))
+	for _, manifest := range result.Specialists {
+		if n := strings.TrimSpace(manifest.Metadata.Name); n != "" {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return "(none registered)"
+	}
+	return strings.Join(names, ", ")
 }
 
 func (executor Executor) loadManifest(name string) (Manifest, error) {
@@ -592,7 +614,12 @@ func (executor Executor) loadManifest(name string) (Manifest, error) {
 	}
 	manifest, ok := Find(result, name)
 	if !ok {
-		return Manifest{}, fmt.Errorf("specialist %q not found", name)
+		// Corrective error: a model that invents a specialist name (e.g.
+		// "validator-runner", "file-writer") otherwise gets an opaque "not found"
+		// and keeps retrying made-up names. List the ACTUALLY-registered ones so it
+		// self-corrects — no hardcoded names, since a custom registry may not have
+		// worker/explorer/code-review.
+		return Manifest{}, fmt.Errorf("specialist %q not found. Available: %s. Pick one of these whose tools fit the task, or omit the name to use the default", name, availableSpecialistList(result))
 	}
 	return manifest, nil
 }
@@ -783,15 +810,22 @@ func runChildProcess(ctx context.Context, binaryPath string, args []string, prog
 	}
 	exitCode := 0
 	started := true
+	signalDesc := ""
 	if err := command.Wait(); err != nil {
 		var exitErr *osexec.ExitError
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
+			if exitCode < 0 && exitErr.ProcessState != nil {
+				// ExitCode() is -1 when the child was terminated by a signal rather
+				// than exiting. ProcessState.String() is the portable description
+				// (e.g. "signal: killed") — capture it so the failure isn't opaque.
+				signalDesc = exitErr.ProcessState.String()
+			}
 		} else {
 			return ChildRunResult{Events: events, Stderr: stderr.String(), ExitCode: -1, Started: started}, fmt.Errorf("run specialist child: %w", err)
 		}
 	}
-	return ChildRunResult{Events: events, Stderr: stderr.String(), ExitCode: exitCode, Started: started}, nil
+	return ChildRunResult{Events: events, Stderr: stderr.String(), ExitCode: exitCode, Signal: signalDesc, Started: started}, nil
 }
 
 func (run ChildRunResult) exitCodeOr(defaultExitCode int) int {

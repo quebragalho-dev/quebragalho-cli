@@ -102,10 +102,11 @@ func New(options Options) (*Provider, error) {
 		endpoint = baseURL + "/chat/completions"
 	}
 
-	httpClient := options.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
+	// Route through providerio.HTTPClient so a missing client gets the shared,
+	// stall-hardened transport (bounded response-header wait + shorter idle-conn
+	// reuse) rather than the raw http.DefaultClient, which hangs on a reused-dead
+	// pooled connection (the macOS-only "both providers stall" bug).
+	httpClient := providerio.HTTPClient(options.HTTPClient)
 
 	maxTokens := options.MaxTokens
 	if maxTokens < 0 {

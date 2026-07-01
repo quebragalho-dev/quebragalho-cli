@@ -67,3 +67,50 @@ func TestSpecialistLauncherRunsUnregisteredSwarmAgent(t *testing.T) {
 		t.Fatalf("member args missing agent type: %#v", gotArgs)
 	}
 }
+
+// A member whose child exits non-zero (e.g. exit 4 / max-turns) must be reported as
+// a FAILURE — otherwise the swarm marks it [done] and the orchestrator trusts
+// incomplete work. The failed member keeps its session id (drill-in) and the child
+// report rides along as the failure message.
+func TestSpecialistLauncherMarksNonZeroExitAsFailed(t *testing.T) {
+	four := 4
+	executor := specialist.Executor{
+		BinaryPath:   "/usr/local/bin/zero",
+		NewSessionID: func() (string, error) { return "member_task", nil },
+		Load: func(specialist.LoadOptions) (specialist.LoadResult, error) {
+			return specialist.LoadResult{}, nil
+		},
+		RunChild: func(ctx context.Context, binaryPath string, args []string, progress func(streamjson.Event)) (specialist.ChildRunResult, error) {
+			return specialist.ChildRunResult{
+				Events: []streamjson.Event{
+					{Type: streamjson.EventRunStart, SessionID: "member_task"},
+					{Type: streamjson.EventFinal, Text: "i could not finish the objective"},
+					{Type: streamjson.EventRunEnd, Status: "error", ExitCode: &four},
+				},
+				ExitCode: 4,
+			}, nil
+		},
+	}
+
+	handle, err := NewSpecialistLauncher(executor).Launch(context.Background(), MemberSpec{
+		ID:           "m1",
+		TaskID:       "m1",
+		AgentType:    "subagent",
+		Team:         "probe",
+		Task:         "a task too big for the budget",
+		SystemPrompt: "You are a subagent spawned to complete a specific task.",
+	})
+	if err != nil {
+		t.Fatalf("launch: %v", err)
+	}
+	res, err := handle.Wait()
+	if err == nil {
+		t.Fatal("a member that exited non-zero must be reported as FAILED, got nil error")
+	}
+	if !strings.Contains(err.Error(), "exit 4") {
+		t.Fatalf("failure should carry the child report (exit 4), got %q", err.Error())
+	}
+	if res.SessionID != "member_task" {
+		t.Fatalf("a failed member must keep its session id for drill-in, got %q", res.SessionID)
+	}
+}

@@ -260,6 +260,12 @@ func formatTaskOutputSummary(task background.Task, summary StreamResult, rawLine
 	if !task.CompletedAt.IsZero() {
 		fmt.Fprintf(&builder, "completed_at: %s\n", task.CompletedAt.Format(time.RFC3339))
 		fmt.Fprintf(&builder, "exit_code: %d\n", task.ExitCode)
+		if task.ExitCode < 0 {
+			// A negative exit code means the background child was terminated by a
+			// signal rather than exiting (the int-only launcher can't carry the
+			// signal name). Give the same actionable hint the foreground path does.
+			builder.WriteString("note: terminated by a signal — killed before it finished. Likely causes: the OS out-of-memory killer (common when many sub-agents run in parallel — try fewer), a timeout, or cancellation.\n")
+		}
 	}
 
 	if summary.Text != "" {

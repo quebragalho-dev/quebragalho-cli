@@ -25,7 +25,7 @@ func TestParseStreamAndBuildFinalResultSuccess(t *testing.T) {
 	if summary.SessionID != "child" || summary.Text != "done" || summary.ExitCode != 0 || len(summary.Tools) != 1 || summary.Tools[0] != "grep" {
 		t.Fatalf("unexpected summary: %#v", summary)
 	}
-	result := BuildFinalResult(events, "", 0)
+	result := BuildFinalResult(events, "", 0, "")
 	if result.Status != tools.StatusOK || result.Output != "session_id: child\ndone" {
 		t.Fatalf("unexpected final result: %#v", result)
 	}
@@ -41,7 +41,7 @@ func TestBuildFinalResultUsesTextDeltasWhenFinalMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseStream returned error: %v", err)
 	}
-	result := BuildFinalResult(events, "", 0)
+	result := BuildFinalResult(events, "", 0, "")
 	if result.Status != tools.StatusOK || result.Output != "session_id: child\nhello world" {
 		t.Fatalf("unexpected final result: %#v", result)
 	}
@@ -82,7 +82,7 @@ func TestBuildFinalResultErrorIncludesDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseStream returned error: %v", err)
 	}
-	result := BuildFinalResult(events, "stderr text", 0)
+	result := BuildFinalResult(events, "stderr text", 0, "")
 	if result.Status != tools.StatusError {
 		t.Fatalf("Status = %s, want error", result.Status)
 	}
@@ -90,6 +90,33 @@ func TestBuildFinalResultErrorIncludesDiagnostics(t *testing.T) {
 		if !strings.Contains(result.Output, want) {
 			t.Fatalf("error output missing %q:\n%s", want, result.Output)
 		}
+	}
+}
+
+// A child terminated by a signal (exit code -1) must surface the signal + an
+// actionable hint, not an opaque "Subagent failed (exit -1)".
+func TestBuildFinalResultSurfacesKillSignal(t *testing.T) {
+	events, err := ParseStream(strings.NewReader(strings.Join([]string{
+		`{"schemaVersion":2,"type":"run_start","runId":"run_1","sessionId":"child"}`,
+		`{"schemaVersion":2,"type":"tool_call","runId":"run_1","id":"call_1","name":"read_file"}`,
+		"",
+	}, "\n")))
+	if err != nil {
+		t.Fatalf("ParseStream returned error: %v", err)
+	}
+	result := BuildFinalResult(events, "", -1, "signal: killed")
+	if result.Status != tools.StatusError {
+		t.Fatalf("Status = %s, want error", result.Status)
+	}
+	// Surfaces the signal + lists causes (OOM/timeout/cancellation) without asserting
+	// OOM as the sole cause.
+	for _, want := range []string{"terminated by a signal", "signal: killed", "out-of-memory", "timeout", "cancellation"} {
+		if !strings.Contains(result.Output, want) {
+			t.Fatalf("kill output missing %q:\n%s", want, result.Output)
+		}
+	}
+	if strings.Contains(result.Output, "Subagent failed (exit") {
+		t.Fatalf("signaled child should not show the opaque exit line:\n%s", result.Output)
 	}
 }
 

@@ -280,6 +280,25 @@ func isContextLimitError(message string) bool {
 	return false
 }
 
+// isStreamTimeoutError reports whether a streamed error is a provider stream
+// idle/stall timeout (providerio surfaces these as "idle timeout after …" /
+// "no output for …" / "stream stalled"). Such a turn produced nothing, so when
+// no content was forwarded yet it can be safely re-issued on a fresh connection
+// (see the stall-retry in the agent loop). Substring + case-insensitive to
+// tolerate the prefixed "provider stream error: …" wrapping.
+func isStreamTimeoutError(message string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(message))
+	if lowered == "" {
+		return false
+	}
+	for _, needle := range []string{"idle timeout after", "no output for", "stream stalled"} {
+		if strings.Contains(lowered, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // compactionState carries the per-run state the agent loop needs to compact a
 // conversation safely. It is created once per Run and is a no-op whenever
 // options.ContextWindow <= 0.

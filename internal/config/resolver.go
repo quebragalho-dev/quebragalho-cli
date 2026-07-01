@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/Gitlawb/zero/internal/modelregistry"
@@ -13,7 +14,15 @@ import (
 	"github.com/Gitlawb/zero/internal/sandbox"
 )
 
-const defaultMaxTurns = 30
+// defaultMaxTurns is the per-run tool-turn budget when none is configured. 30 was
+// too low for real multi-step agentic work (agents ran out mid-task before reaching
+// later steps); 50 matches the old "deep" preset. Raise per-session with /turns.
+const defaultMaxTurns = 50
+
+// MaxTurnsCeiling caps the per-run tool-turn budget so a stray env value or typo
+// can't set an absurd ceiling. Shared between applyEnv (read site) and the /turns
+// command (write site) so the bound holds even if the env is set by a raw shell.
+const MaxTurnsCeiling = 500
 
 // defaultDeferThreshold is the number of deferred-eligible (MCP) tools at which
 // Zero collapses their full JSON schemas into compact `tool_search` reminder
@@ -451,10 +460,32 @@ func SetActiveProviderEnv(name string) {
 	_ = os.Setenv(ActiveProviderEnv, name)
 }
 
+// MaxTurnsEnv overrides the per-run tool-turn budget by name (read in applyEnv).
+const MaxTurnsEnv = "ZERO_MAX_TURNS"
+
+// SetMaxTurnsEnv exports the per-run tool-turn budget to the process environment so
+// a spawned child (sub-agent / swarm member, which inherits the environment) runs
+// with the SAME budget the user set via /turns. Without it a child re-resolves
+// config.json's default and a large delegated task can exhaust its turns mid-run
+// (exit 4 / max-turns). No-op for n <= 0.
+func SetMaxTurnsEnv(n int) {
+	if n > 0 {
+		_ = os.Setenv(MaxTurnsEnv, strconv.Itoa(n))
+	}
+}
+
 func applyEnv(cfg *FileConfig, env map[string]string) {
 	activeProvider := strings.TrimSpace(envValue(env, ActiveProviderEnv))
 	if activeProvider != "" {
 		cfg.ActiveProvider = activeProvider
+	}
+	if maxTurns := strings.TrimSpace(envValue(env, MaxTurnsEnv)); maxTurns != "" {
+		if n, err := strconv.Atoi(maxTurns); err == nil && n > 0 {
+			if n > MaxTurnsCeiling {
+				n = MaxTurnsCeiling
+			}
+			cfg.MaxTurns = n
+		}
 	}
 
 	applyProviderEnv(cfg, ProviderKindOpenAI, envProfile{

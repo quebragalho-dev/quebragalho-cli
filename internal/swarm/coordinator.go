@@ -166,6 +166,12 @@ func (c *Coordinator) Fail(id, errMsg string) error {
 	return c.finish(id, StatusFailed, "", errMsg, "")
 }
 
+// FailWithSession marks a task failed but keeps its child session id, so a member
+// that ran and failed (e.g. exited non-zero / hit max-turns) is still drillable.
+func (c *Coordinator) FailWithSession(id, errMsg, sessionID string) error {
+	return c.finish(id, StatusFailed, "", errMsg, sessionID)
+}
+
 func (c *Coordinator) finish(id string, status TaskStatus, result, errMsg, sessionID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

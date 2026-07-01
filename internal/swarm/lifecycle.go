@@ -71,7 +71,9 @@ func (s *Swarm) watch(t *Team, m *Member, spec MemberSpec) {
 			}
 			// fall through to record the original error if relaunch fails
 		}
-		_ = s.coord.Fail(m.TaskID, memberError(err))
+		// res.SessionID is preserved by the handle even on error, so a member that
+		// ran then failed stays drillable; a pure launch error carries an empty id.
+		_ = s.coord.FailWithSession(m.TaskID, memberError(err), res.SessionID)
 	} else {
 		_ = s.coord.CompleteWithSession(m.TaskID, res.Result, res.SessionID)
 	}
