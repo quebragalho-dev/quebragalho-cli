@@ -2235,14 +2235,17 @@ func (m model) footerView(width int) string {
 		footer.WriteString(fitStyledLine(joinHeaderLine("  "+left, right, width), width))
 	}
 	footer.WriteString("\n")
+	// A message typed while a run is active is queued for the next turn; show its
+	// preview directly ABOVE the input box (not below), so it reads as "waiting to
+	// send" sitting on top of what you're currently typing.
+	if queued := renderQueuedMessagePreview(m.queuedMessage, width); queued != "" {
+		footer.WriteString(queued)
+		footer.WriteString("\n")
+	}
 	footer.WriteString(m.composerBox(width))
 	if hint := m.composerDescriptionHint(width); hint != "" {
 		footer.WriteString("\n")
 		footer.WriteString(hint)
-	}
-	if queued := renderQueuedMessagePreview(m.queuedMessage, width); queued != "" {
-		footer.WriteString("\n")
-		footer.WriteString(queued)
 	}
 	footer.WriteString("\n")
 	footer.WriteString(m.statusLine(width))

@@ -55,6 +55,38 @@ func TestQueuedPromptPreviewAppearsInView(t *testing.T) {
 	}
 }
 
+// TestQueuedPromptPreviewSitsAboveComposer: the queued-message preview must
+// render ABOVE the input box, not below it — a message waiting to send should
+// sit on top of what you're currently typing.
+func TestQueuedPromptPreviewSitsAboveComposer(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.input.SetValue("summarize the failing test output")
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	footer := plainRender(t, next.footerView(96))
+	lines := strings.Split(footer, "\n")
+	queuedLine, composerTopLine := -1, -1
+	for i, ln := range lines {
+		if queuedLine < 0 && strings.Contains(ln, "queued") {
+			queuedLine = i
+		}
+		if composerTopLine < 0 && strings.Contains(ln, "╭") { // composer box top border
+			composerTopLine = i
+		}
+	}
+	if queuedLine < 0 || composerTopLine < 0 {
+		t.Fatalf("expected both a queued line and a composer box; queued=%d composer=%d\n%s", queuedLine, composerTopLine, footer)
+	}
+	if queuedLine >= composerTopLine {
+		t.Fatalf("queued preview (line %d) must sit ABOVE the composer box top border (line %d):\n%s", queuedLine, composerTopLine, footer)
+	}
+}
+
 func TestAgentResponseLaunchesQueuedPrompt(t *testing.T) {
 	provider := &scriptedProvider{scripts: [][]zeroruntime.StreamEvent{{
 		{Type: zeroruntime.StreamEventText, Content: "queued answer"},
