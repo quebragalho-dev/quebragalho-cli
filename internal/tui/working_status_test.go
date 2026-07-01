@@ -135,14 +135,14 @@ func TestQuietGenerationHintEscalatesPastHalfIdleTimeout(t *testing.T) {
 	}
 
 	// Quiet for >= half the idle timeout -> escalates to name the watchdog and
-	// its ceiling (idleTimeout * providerio.StreamContentStallFactor = 1m00s here).
+	// its ceiling (providerio.ContentStallTimeout(30s) = 30s*1.2 = 36s here).
 	m.lastStreamActivity = base.Add(-15 * time.Second)
 	got = m.quietGenerationHint()
 	if !strings.Contains(got, "unusually quiet") || !strings.Contains(got, "auto-recover") {
 		t.Fatalf("past half the idle timeout: want an escalated cue naming the watchdog, got %q", got)
 	}
-	if !strings.Contains(got, "1m00s") {
-		t.Fatalf("escalated cue should name the content-stall ceiling (idleTimeout * StreamContentStallFactor = 1m00s), got %q", got)
+	if !strings.Contains(got, "36s") {
+		t.Fatalf("escalated cue should name the content-stall ceiling (ContentStallTimeout(30s) = 36s), got %q", got)
 	}
 }
 

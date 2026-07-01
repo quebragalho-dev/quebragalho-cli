@@ -210,27 +210,29 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			}
 		}
 
-		// Wrapped callbacks flag ANY output forwarded this turn, so a stall retry
-		// never re-streams on top of output the user already saw — even across the
-		// reactive-compaction retry below, which overwrites `collected`.
-		forwardedAnything := false
-		mark := func() { forwardedAnything = true }
-		// OnUsage is telemetry, not visible output, so it does NOT mark
-		// forwardedAnything: a provider that emits an early usage event (e.g. prompt
-		// tokens) then stalls with no content must still be safely retried. The gate
-		// only guards against re-streaming output the user actually SAW.
+		// forwardedVisibleText flags forwarded final PROSE (OnText) specifically —
+		// the only output whose re-stream on a stall retry would visibly DUPLICATE
+		// answer text the user already read. Transient working indicators
+		// (reasoning previews, tool-call "writing…" previews) are deliberately NOT
+		// counted: a turn that streamed only those then stalled — the common
+		// gpt-5.x / ollama "froze mid-write_file" case — is safe to re-issue, since
+		// the TUI resets the tool-call preview on the next tool-call-start and a
+		// stalled turn is never appended to `messages` (it returns on the error
+		// before the append), so the retry re-sends clean context with no
+		// conversation-state duplication.
+		forwardedVisibleText := false
 		forwardingOpts := zeroruntime.CollectOptions{OnUsage: options.OnUsage}
 		if options.OnText != nil {
-			forwardingOpts.OnText = func(s string) { mark(); options.OnText(s) }
+			forwardingOpts.OnText = func(s string) { forwardedVisibleText = true; options.OnText(s) }
 		}
 		if options.OnReasoning != nil {
-			forwardingOpts.OnReasoning = func(s string) { mark(); options.OnReasoning(s) }
+			forwardingOpts.OnReasoning = func(s string) { options.OnReasoning(s) }
 		}
 		if options.OnToolCallStart != nil {
-			forwardingOpts.OnToolCallStart = func(id, name string) { mark(); options.OnToolCallStart(id, name) }
+			forwardingOpts.OnToolCallStart = func(id, name string) { options.OnToolCallStart(id, name) }
 		}
 		if options.OnToolCallDelta != nil {
-			forwardingOpts.OnToolCallDelta = func(id, fragment string) { mark(); options.OnToolCallDelta(id, fragment) }
+			forwardingOpts.OnToolCallDelta = func(id, fragment string) { options.OnToolCallDelta(id, fragment) }
 		}
 		// recoverStreamError applies the same non-stall recovery the initial stream
 		// gets to ANY collected error — including one from a reissued (stall-retry)
@@ -284,15 +286,28 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			result.Messages = copyMessages(messages)
 			return result, ctx.Err()
 		}
-		// A stream idle/stall timeout with NO output forwarded yet this turn can be
-		// safely re-issued on a fresh connection — nothing was shown, so there's no
-		// duplication (this recovers the macOS stale-pooled-connection hang when it
-		// slips past the transport's response-header timeout). A turn that already
-		// streamed partial text/tool-calls is NOT retried (it would duplicate) and
-		// falls through to the error return below. Capped + exponential backoff.
+		// A stream idle/stall timeout is safely re-issued when the turn committed NO
+		// answer text — no forwarded visible prose (forwardedVisibleText) and no
+		// collected final text (collected.Text). This covers two cases:
+		//   1. Nothing streamed at all before the connection died (the original
+		//      macOS stale-pooled-connection hang past the response-header timeout).
+		//   2. The model streamed transient reasoning and began a tool call (e.g. a
+		//      large write_file) then froze mid-arguments — the common gpt-5.x /
+		//      ollama heartbeat-pause stall. That partial tool call is NEVER executed
+		//      (a turn with collected.Error returns before dispatch below) and NEVER
+		//      appended to `messages`, so a retry re-issues clean context; the only
+		//      re-render is transient previews, not duplicated answer text. This is
+		//      why the gate no longer excludes collected.ToolCalls: an incomplete
+		//      tool call from a timed-out stream is discard-and-retry, not output.
+		// A turn that forwarded real prose is NOT retried (it would duplicate visible
+		// answer text) and falls through to the error return below. Capped +
+		// exponential backoff, with a user-visible notice per attempt.
 		for attempt := 1; attempt <= maxStreamStallRetries &&
-			isStreamTimeoutError(collected.Error) && !forwardedAnything &&
-			collected.Text == "" && len(collected.ToolCalls) == 0; attempt++ {
+			isStreamTimeoutError(collected.Error) && !forwardedVisibleText &&
+			collected.Text == ""; attempt++ {
+			if notify := stallRetryNoticeFor(options); notify != nil {
+				notify(attempt, maxStreamStallRetries)
+			}
 			if err := sleepWithContext(ctx, backoffFor(attempt)); err != nil {
 				result.Messages = copyMessages(messages)
 				return result, err

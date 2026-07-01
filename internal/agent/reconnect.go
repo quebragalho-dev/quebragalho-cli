@@ -40,6 +40,21 @@ func reconnectNoticeFor(options Options) reconnectNotifier {
 	}
 }
 
+// stallRetryNoticeFor builds a notifier for the loop's content-stall retry (a
+// stream that connected and produced only transient output, then went silent).
+// Distinct wording from reconnectNoticeFor's "connection lost" because the
+// connection was fine — the model stalled. Surfaced through OnReasoning, the
+// non-content channel, so it never folds into the answer text. Nil when there
+// is no reasoning sink (the retry still happens silently).
+func stallRetryNoticeFor(options Options) reconnectNotifier {
+	if options.OnReasoning == nil {
+		return nil
+	}
+	return func(attempt, max int) {
+		options.OnReasoning(fmt.Sprintf("\n[no output — model stalled; retrying %d/%d…]\n", attempt, max))
+	}
+}
+
 // streamWithReconnect issues request via provider.StreamCompletion and, on a
 // transient disconnect error, retries the connect up to maxStreamReconnects
 // times with exponential backoff. It returns the live stream on success, or the
