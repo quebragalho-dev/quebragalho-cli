@@ -402,6 +402,14 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		if _, err := fmt.Fprintf(stderr, "unknown command %q\n", args[0]); err != nil {
 			return 1
 		}
+		// First-run users reach for `zero login`/`zero logout` (reported in the
+		// wild); point them at the real command instead of a bare usage pointer.
+		switch strings.ToLower(args[0]) {
+		case "login", "logout":
+			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "zero auth "+strings.ToLower(args[0])); err != nil {
+				return 1
+			}
+		}
 		if _, err := fmt.Fprintln(stderr, "Run zero --help for usage."); err != nil {
 			return 1
 		}
@@ -530,11 +538,17 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 
 	resolved, err := deps.resolveConfig(workspaceRoot, config.Overrides{})
 	if err != nil {
-		// A resolve failure caused solely by a missing/unresolvable active provider
-		// is not fatal for the interactive TUI: drop into the setup wizard with an
-		// empty config so the user can onboard, instead of exiting with an error.
-		// Any other error (malformed JSON, directory conflict, etc.) is still fatal.
-		if !errors.Is(err, config.ErrNoActiveProvider) {
+		// A resolve failure the setup wizard can FIX is not fatal for the
+		// interactive TUI: drop into the wizard with an empty config so the user
+		// can onboard/repair, instead of exiting with an error they can only fix
+		// by hand-editing config.json. That covers a missing/unresolvable active
+		// provider and an active provider without a model (custom endpoints have
+		// no catalog default) — previously the second shape bricked bare `zero`
+		// and `zero setup`, the exact commands that could have fixed it. Any
+		// other error (malformed JSON, directory conflict, etc.) is still fatal,
+		// and headless commands (zero config / zero exec) still fail with the
+		// actionable message.
+		if !errors.Is(err, config.ErrNoActiveProvider) && !errors.Is(err, config.ErrProviderRequiresModel) {
 			return writeAppError(stderr, err.Error(), 1)
 		}
 		resolved = config.ResolvedConfig{}

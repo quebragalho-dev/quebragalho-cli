@@ -1594,3 +1594,97 @@ func TestResolveMaxTurnsZeroFallsBackToDefault(t *testing.T) {
 		t.Fatalf("MaxTurns = %d, want default %d", resolved.MaxTurns, defaultMaxTurns)
 	}
 }
+
+// The reported brick: a hand-written google profile with an apiKey but no
+// model made EVERY resolving command fail ("provider google requires model"),
+// including zero config and bare zero setup — the only commands that could
+// have fixed it. Official-API kinds now fall back to their catalog default
+// model, exactly like the openai kind always has.
+func TestResolveDefaultsGoogleModelFromCatalog(t *testing.T) {
+	path := writeConfig(t, `{
+		"activeProvider": "google",
+		"providers": [{"name": "google", "provider_kind": "google", "apiKey": "AIza-x"}]
+	}`)
+	resolved, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v, want model defaulted from the google catalog", err)
+	}
+	if resolved.Provider.Model != "gemini-2.5-pro" {
+		t.Fatalf("Model = %q, want the google catalog default gemini-2.5-pro", resolved.Provider.Model)
+	}
+	if resolved.Provider.BaseURL != GoogleBaseURL {
+		t.Fatalf("BaseURL = %q, want %q", resolved.Provider.BaseURL, GoogleBaseURL)
+	}
+}
+
+func TestResolveDefaultsAnthropicModelFromCatalog(t *testing.T) {
+	path := writeConfig(t, `{
+		"activeProvider": "anthropic",
+		"providers": [{"name": "anthropic", "provider_kind": "anthropic", "apiKey": "sk-ant-x"}]
+	}`)
+	resolved, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v, want model defaulted from the anthropic catalog", err)
+	}
+	if resolved.Provider.Model != "claude-sonnet-4.5" {
+		t.Fatalf("Model = %q, want the anthropic catalog default claude-sonnet-4.5", resolved.Provider.Model)
+	}
+}
+
+// An explicitly configured model must always win over the catalog default.
+func TestResolveKeepsExplicitGoogleModel(t *testing.T) {
+	path := writeConfig(t, `{
+		"activeProvider": "google",
+		"providers": [{"name": "google", "provider_kind": "google", "apiKey": "AIza-x", "model": "gemini-2.5-flash"}]
+	}`)
+	resolved, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.Provider.Model != "gemini-2.5-flash" {
+		t.Fatalf("Model = %q, want the explicitly configured gemini-2.5-flash", resolved.Provider.Model)
+	}
+}
+
+// Provider-command configs must NOT get invented models: the without-defaults
+// path surfaces exactly what the external command returned.
+func TestNormalizeWithoutModelDefaultsStillRequiresGoogleModel(t *testing.T) {
+	_, _, err := normalizeProvidersWithoutModelDefaults(
+		[]ProviderProfile{{Name: "google", ProviderKind: ProviderKindGoogle, APIKey: "AIza-x"}},
+		"google", map[string]string{})
+	if err == nil {
+		t.Fatal("provider-command path must still require an explicit model")
+	}
+	if !strings.Contains(err.Error(), "requires model") {
+		t.Fatalf("error = %q, want requires-model", err.Error())
+	}
+	// The residual error must tell the user how to fix it.
+	if !strings.Contains(err.Error(), "config.json") {
+		t.Fatalf("error = %q, want an actionable config.json hint", err.Error())
+	}
+}
+
+// The residual requires-model failure (custom endpoint, no catalog default)
+// must be tagged setup-fixable WITHOUT changing its message: the interactive
+// TUI matches the sentinel to drop into the wizard, while headless commands
+// print the exact actionable text.
+func TestResolveRequiresModelErrorIsSetupFixable(t *testing.T) {
+	path := writeConfig(t, `{
+		"activeProvider": "gw",
+		"providers": [{"name": "gw", "provider_kind": "openai-compatible", "baseURL": "https://gw.example/v1", "apiKey": "sk-x"}]
+	}`)
+	_, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
+	if err == nil {
+		t.Fatal("expected requires-model error for a custom endpoint without model")
+	}
+	if !errors.Is(err, ErrProviderRequiresModel) {
+		t.Fatalf("error = %v, want errors.Is(err, ErrProviderRequiresModel)", err)
+	}
+	// The sentinel must NOT prefix the user-facing message.
+	if !strings.HasPrefix(err.Error(), "provider gw requires model") {
+		t.Fatalf("message = %q, want it to start with the provider error, not the sentinel text", err.Error())
+	}
+	if strings.Contains(err.Error(), "sk-x") {
+		t.Fatalf("error leaked API key: %q", err.Error())
+	}
+}
