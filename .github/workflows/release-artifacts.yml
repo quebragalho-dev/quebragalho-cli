@@ -112,6 +112,12 @@ jobs:
     needs: package
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
+    # Manual approval gate: this environment carries a required-reviewer rule
+    # (Settings -> Environments -> npm-publish), so the job pauses until a
+    # maintainer approves it in the Actions UI before anything reaches npm.
+    environment:
+      name: npm-publish
+      url: https://www.npmjs.com/package/@gitlawb/zero
     permissions:
       contents: read
       id-token: write # OIDC token exchange for npm trusted publishing + provenance
