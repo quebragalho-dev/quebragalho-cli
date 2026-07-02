@@ -1189,3 +1189,104 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+// Applying the wizard switches the live provider, so it must export
+// ZERO_PROVIDER exactly like the /model and /provider switch paths — a stale
+// value from an earlier switch would otherwise win over config in every
+// spawned child (applyEnv) and pin specialists/swarm members to the OLD
+// provider's credentials.
+func TestApplyProviderWizardExportsActiveProviderEnv(t *testing.T) {
+	t.Setenv(config.ActiveProviderEnv, "stale-previous-provider")
+	m := newModel(context.Background(), Options{})
+	// Isolate the SUCCESS path's persist to a temp config (the default empty
+	// path would skip persist; a future default must never reach the real user
+	// config), and stub the build so the full commit sequence runs.
+	m.userConfigPath = filepath.Join(t.TempDir(), "config.json")
+	m.newProvider = func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		return &fakeProvider{}, nil
+	}
+	m.providerWizard = &providerWizardState{
+		step:        providerWizardStepModel,
+		profileName: "acme-wizard",
+		providers: []providercatalog.Descriptor{{
+			ID:                  "openrouter",
+			Name:                "OpenRouter",
+			Transport:           providercatalog.TransportOpenAICompatible,
+			DefaultBaseURL:      "https://openrouter.ai/api/v1",
+			DefaultModel:        "openai/gpt-4.1",
+			AuthEnvVars:         []string{"OPENROUTER_API_KEY"},
+			RequiresAuth:        true,
+			SupportedAPIFormats: []providercatalog.APIFormat{providercatalog.APIFormatOpenAIChatCompletions},
+		}},
+		models: []providerWizardModel{{ID: "openai/gpt-4.1", Description: "GPT-4.1"}},
+	}
+
+	updated, _ := m.applyProviderWizard()
+	next := updated
+
+	if next.providerName == "" {
+		t.Fatal("wizard apply should have set a provider name")
+	}
+	if got := os.Getenv(config.ActiveProviderEnv); got != next.providerName {
+		t.Fatalf("%s = %q after wizard apply, want %q (children would spawn on the stale provider)", config.ActiveProviderEnv, got, next.providerName)
+	}
+}
+
+// On a config PERSIST failure, applyProviderWizard must leave live state fully
+// unchanged — the chat must NOT already be running on the new provider while the
+// status line and the ZERO_PROVIDER export (which pins spawned children) still
+// point at the old one. Build and persist are staged into locals; nothing is
+// committed unless both succeed.
+func TestApplyProviderWizardPersistFailureLeavesLiveStateUnchanged(t *testing.T) {
+	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file") // never touch the real OS keychain: apiKey is secured before the persist fails
+	t.Setenv(config.ActiveProviderEnv, "old-provider")
+
+	// A config path whose parent is a regular FILE, so writeConfigFile's MkdirAll
+	// fails and UpsertProvider returns an error.
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("seed blocker file: %v", err)
+	}
+	brokenConfigPath := filepath.Join(blocker, "config.json")
+
+	oldProvider := &fakeProvider{}
+	newProvider := &fakeProvider{}
+	m := newModel(context.Background(), Options{})
+	m.provider = oldProvider
+	m.providerProfile = config.ProviderProfile{Name: "old-provider"}
+	m.providerName = "old-provider"
+	m.userConfigPath = brokenConfigPath
+	m.newProvider = func(config.ProviderProfile) (zeroruntime.Provider, error) { return newProvider, nil }
+	m.providerWizard = &providerWizardState{
+		step:        providerWizardStepModel,
+		profileName: "acme-new",
+		providers: []providercatalog.Descriptor{{
+			ID:                  "openrouter",
+			Name:                "OpenRouter",
+			Transport:           providercatalog.TransportOpenAICompatible,
+			DefaultBaseURL:      "https://openrouter.ai/api/v1",
+			DefaultModel:        "openai/gpt-4.1",
+			AuthEnvVars:         []string{"OPENROUTER_API_KEY"},
+			RequiresAuth:        true,
+			SupportedAPIFormats: []providercatalog.APIFormat{providercatalog.APIFormatOpenAIChatCompletions},
+		}},
+		models: []providerWizardModel{{ID: "openai/gpt-4.1", Description: "GPT-4.1"}},
+		apiKey: "sk-new",
+	}
+
+	updated, _ := m.applyProviderWizard()
+	next := updated
+
+	if next.providerWizard == nil || next.providerWizard.err == "" {
+		t.Fatal("a persist failure must surface a wizard error and keep the wizard open")
+	}
+	if next.provider != oldProvider {
+		t.Fatal("live provider must NOT be swapped when the persist fails")
+	}
+	if next.providerName != "old-provider" {
+		t.Fatalf("providerName = %q, want it unchanged on persist failure", next.providerName)
+	}
+	if got := os.Getenv(config.ActiveProviderEnv); got != "old-provider" {
+		t.Fatalf("%s = %q, want it unchanged on persist failure (children would diverge from parent)", config.ActiveProviderEnv, got)
+	}
+}

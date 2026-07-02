@@ -20,6 +20,7 @@ import (
 	"github.com/Gitlawb/zero/internal/providercatalog"
 	"github.com/Gitlawb/zero/internal/provideroauth"
 	"github.com/Gitlawb/zero/internal/redaction"
+	"github.com/Gitlawb/zero/internal/zeroruntime"
 )
 
 // providerWizardOAuthMsg carries the result of an in-wizard browser OAuth login.
@@ -887,13 +888,20 @@ func (m model) applyProviderWizard() (model, tea.Cmd) {
 	modelChoice := wizard.currentModel()
 	profile := providerWizardProfile(provider, modelChoice.ID, wizard.apiKey, wizard.baseURL, wizard.profileName)
 	runtimeProfile := providerWizardRuntimeProfile(profile)
+
+	// Build and persist into LOCALS first, committing live state only once BOTH
+	// succeed. A persist failure (read-only config, disk full) must not leave the
+	// chat running on the new provider while the status line, m.providerProfile,
+	// and the ZERO_PROVIDER export (which pins spawned children) still point at
+	// the old one — parent and children would silently run on different providers.
+	var nextProvider zeroruntime.Provider
 	if m.newProvider != nil {
-		nextProvider, err := m.newProvider(runtimeProfile)
+		built, err := m.newProvider(runtimeProfile)
 		if err != nil {
 			wizard.err = redaction.RedactString(err.Error(), redaction.Options{ExtraSecretValues: []string{profile.APIKey, runtimeProfile.APIKey}})
 			return m, nil
 		}
-		m.provider = nextProvider
+		nextProvider = built
 	}
 	if strings.TrimSpace(m.userConfigPath) != "" {
 		// Capture flip: move the freshly entered key into the encrypted credential
@@ -903,12 +911,24 @@ func (m model) applyProviderWizard() (model, tea.Cmd) {
 		profile = config.SecureProviderProfile(profile, m.userConfigPath)
 		if _, err := config.UpsertProvider(m.userConfigPath, profile, true); err != nil {
 			wizard.err = redaction.RedactString(err.Error(), redaction.Options{ExtraSecretValues: []string{secret, profile.APIKey}})
-			return m, nil
+			return m, nil // nothing committed to live state yet
 		}
+	}
+
+	// Both succeeded — commit the live provider, profile, model, and the child
+	// env export together, so they can never disagree.
+	if nextProvider != nil {
+		m.provider = nextProvider
 	}
 	m.providerProfile = profile
 	m.providerName = profile.Name
 	m.modelName = profile.Model
+	// Keep sub-agent child processes on the same provider we just switched to —
+	// same as the /model and /provider switch paths (command_center.go). Without
+	// this, a ZERO_PROVIDER exported by an earlier switch stays pointing at the
+	// OLD provider and wins over config in every spawned child (applyEnv), so
+	// specialists/swarm members run on the wrong provider's credentials.
+	config.SetActiveProviderEnv(profile.Name)
 	m.providerWizard = nil
 	return m, nil
 }

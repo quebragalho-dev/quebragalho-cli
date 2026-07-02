@@ -26,6 +26,13 @@ type Options struct {
 	// OAuth bearer token (preferred over the API key). nil => API-key auth only.
 	// Applied to the OpenAI and Anthropic providers.
 	OAuthResolver providerio.TokenResolver
+	// OAuthLoginKey is the credential-store key OAuthResolver bound to (empty when
+	// there is no OAuth login). It is the SAME selection the bearer resolver made,
+	// resolved ONCE by the caller so the Codex chatgpt-account-id header reads its
+	// account from the exact login that issued the bearer token — never a second,
+	// independent lookup that could pick a different login (a backend-rejected
+	// mismatch).
+	OAuthLoginKey string
 }
 
 // New creates a runtime provider for a resolved provider profile.
@@ -251,14 +258,22 @@ func isCodexCatalog(profile config.ProviderProfile, _ resolvedProfile) bool {
 
 // newCodexProvider builds a Codex-flavored openai provider for the chatgpt
 // catalog. The Codex headers (`originator`, `chatgpt-account-id`) are
-// injected by the CodexProvider wrapper. The `chatgpt-account-id` is
-// resolved dynamically from the stored OAuth token's Account field on
-// every request so a refresh that rotates the token (and its account
-// claim) takes effect immediately — a static AccountID captured at
-// construction would go stale on the first refresh.
+// injected by the CodexProvider wrapper. The `chatgpt-account-id` is read from
+// the stored OAuth token's Account field on every request so a refresh that
+// rotates the token (and its account claim) takes effect immediately — a static
+// AccountID captured at construction would go stale on the first refresh.
+//
+// The *login* the header reads from is options.OAuthLoginKey — the SAME key the
+// bearer resolver bound, resolved ONCE by the caller. The bearer resolver
+// refreshes the token in place under that key; reading the account from the same
+// key keeps header and token on one login for the provider's life. Resolving the
+// key independently here (a second oauth.FirstStored) could, after a transient
+// per-candidate load error or a mid-session `zero auth login`, pick a different
+// login than the bearer — a mismatch the backend rejects.
 func newCodexProvider(profile config.ProviderProfile, resolved resolvedProfile, options Options) (zeroruntime.Provider, error) {
+	accountKey := options.OAuthLoginKey
 	resolver := openai.CodexAccountResolver(func(ctx context.Context) (string, bool, error) {
-		account := codexAccountFromStore(profile.Name)
+		account := codexAccountForKey(accountKey)
 		if account == "" {
 			return "", false, nil
 		}
@@ -288,17 +303,20 @@ func newCodexProvider(profile config.ProviderProfile, resolved resolvedProfile, 
 	})
 }
 
-// codexAccountFromStore reads the chatgpt_account_id from the stored OAuth
-// token for the given provider name. It is called per-request (via the
-// resolver) so a refresh that rotates the token takes effect immediately
-// without restarting the agent. Returns "" when no token is stored (the
-// Codex provider then omits the header and the user sees a clear 401).
-func codexAccountFromStore(providerName string) string {
+// codexAccountForKey reads the chatgpt_account_id from the token currently
+// stored under key. Called per-request (via the resolver) so a refresh that
+// rotates the token — saved back in place under the same key — takes effect
+// immediately without restarting the agent. Returns "" when key is empty (no
+// OAuth login), or the token is absent or carries no account claim.
+func codexAccountForKey(key string) string {
+	if key == "" {
+		return ""
+	}
 	store, err := oauth.NewStore(oauth.StoreOptions{})
 	if err != nil {
 		return ""
 	}
-	token, ok, err := store.Load(oauth.ProviderKey(providerName))
+	token, ok, err := store.Load(key)
 	if err != nil || !ok {
 		return ""
 	}

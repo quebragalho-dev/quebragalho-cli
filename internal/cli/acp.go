@@ -43,8 +43,11 @@ func runACP(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int
 	conn := acp.NewConn(deps.stdin, stdout)
 	acp.NewAgent(conn, acp.Deps{
 		ResolveConfig: deps.resolveConfig,
-		NewProvider:   deps.newProvider,
-		RunAgent:      agent.Run,
+		// deps.newProvider is wrapped in fillAppDeps to apply the stored API key,
+		// so ACP is authenticated for apiKeyStored profiles like every other
+		// surface — no ACP-specific credential handling needed.
+		NewProvider: deps.newProvider,
+		RunAgent:    agent.Run,
 		// Build the SCOPED registry + sandbox engine per workspace, exactly like the
 		// exec surface, so ACP shell/file tools are confined — never run unconfined.
 		BuildWorkspace: func(workspaceRoot string, resolved config.ResolvedConfig) (*tools.Registry, *sandbox.Engine, error) {

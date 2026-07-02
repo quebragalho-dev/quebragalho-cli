@@ -365,6 +365,9 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	var modelSwitcher func(context.Context, string) (agent.Provider, error)
 	if options.allowEscalation {
 		modelSwitcher = func(_ context.Context, modelID string) (agent.Provider, error) {
+			// deps.newProvider is wrapped (fillAppDeps) to apply the stored key, so
+			// the escalated provider is authenticated even though resolved.Provider
+			// is the pure profile — no per-site key handling here.
 			switchedProfile := resolved.Provider
 			switchedProfile.Model = modelID
 			switchedProvider, err := deps.newProvider(switchedProfile)

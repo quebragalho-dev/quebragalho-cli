@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -1534,4 +1535,43 @@ func absInt(value int) int {
 		return -value
 	}
 	return value
+}
+
+// Completing setup switches the live provider, so it must export ZERO_PROVIDER
+// exactly like the /model, /provider, and wizard switch paths — a stale value
+// from an earlier switch would otherwise win over config in every spawned
+// child (applyEnv) and pin specialists/swarm members to the OLD provider's
+// credentials.
+func TestCompleteSetupExportsActiveProviderEnv(t *testing.T) {
+	t.Setenv(config.ActiveProviderEnv, "stale-previous-provider")
+	m := newModel(context.Background(), Options{
+		Setup: SetupOptions{
+			Visible: true,
+			Providers: []SetupProviderOption{
+				{ID: "openai", Name: "OpenAI", DefaultModel: "gpt-4.1", EnvVar: "OPENAI_API_KEY", RequiresAuth: true},
+			},
+			Save: func(selection SetupSelection) (SetupResult, error) {
+				return SetupResult{
+					Provider: config.ProviderProfile{
+						Name:      selection.CatalogID,
+						CatalogID: selection.CatalogID,
+						Model:     selection.Model,
+					},
+				}, nil
+			},
+		},
+	})
+	m.width = 100
+	m.height = 30
+	m.setup.stage = setupStageReady
+
+	updated, _ := m.completeSetup()
+	next := updated.(model)
+
+	if next.providerName == "" {
+		t.Fatal("setup completion should have set a provider name")
+	}
+	if got := os.Getenv(config.ActiveProviderEnv); got != next.providerName {
+		t.Fatalf("%s = %q after setup save, want %q (children would spawn on the stale provider)", config.ActiveProviderEnv, got, next.providerName)
+	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/Gitlawb/zero/internal/config"
@@ -12,33 +11,36 @@ import (
 	"github.com/Gitlawb/zero/internal/providers/providerio"
 )
 
-// providerOAuthName resolves the OAuth login name for a provider profile. It is
-// the name a user logs in under (`zero auth login <name>`) whose token then
-// authenticates this provider's model calls. For now it is the profile name;
-// the provider presets map well-known kinds (openai/anthropic) to canonical
-// names on top of this.
-func providerOAuthName(profile config.ProviderProfile) string {
-	return strings.TrimSpace(profile.Name)
-}
-
-// oauthResolverForProfile returns a TokenResolver that authenticates a provider's
-// model calls with the user's OAuth login, or nil when no login exists for this
-// provider. Returning nil for the no-login case keeps API-key users free of any
-// per-request store lookups: the resolver is only attached once a login is
-// present at construction time.
-func oauthResolverForProfile(profile config.ProviderProfile) providerio.TokenResolver {
-	name := providerOAuthName(profile)
-	if name == "" {
-		return nil
+// oauthLoginForProfile resolves the user's OAuth login for a provider ONCE and
+// returns both a TokenResolver that authenticates model calls with it and the
+// credential-store key it bound to. It returns (nil, "") when no login exists —
+// keeping API-key users free of any per-request store lookups, since the resolver
+// is only attached when a login is present at construction time.
+//
+// The returned key is the single source of truth for "which login is this
+// provider using": callers pass it to providers.Options.OAuthLoginKey so the
+// Codex chatgpt-account-id header reads its account from the exact login that
+// issued the bearer token, instead of doing a second, independent lookup that
+// could select a different login (a backend-rejected mismatch).
+//
+// Candidate login names (profile name, then a catalog-ID fallback, both gated on
+// the profile having no own configured credential) come from the shared
+// ProviderProfile.OAuthLoginCandidates so the runtime resolver, the Codex account
+// resolver, and the onboarding presence check never diverge.
+func oauthLoginForProfile(profile config.ProviderProfile) (providerio.TokenResolver, string) {
+	candidates := profile.OAuthLoginCandidates()
+	if len(candidates) == 0 {
+		return nil, ""
 	}
 	store, err := oauth.NewStore(oauth.StoreOptions{})
 	if err != nil {
-		return nil
+		return nil, ""
 	}
-	key := oauth.ProviderKey(name)
-	if _, ok, loadErr := store.Load(key); loadErr != nil || !ok {
-		// No login (or an unreadable/invalid key) → API-key auth, no resolver.
-		return nil
+	_, key, ok := oauth.FirstStored(store, candidates)
+	if !ok {
+		// No login under any candidate (or unreadable/invalid keys) → API-key
+		// auth, no resolver.
+		return nil, ""
 	}
 	manager, err := oauth.NewManager(oauth.ManagerOptions{
 		Store:      store,
@@ -48,9 +50,9 @@ func oauthResolverForProfile(profile config.ProviderProfile) providerio.TokenRes
 		AllowPresets: true,
 	})
 	if err != nil {
-		return nil
+		return nil, ""
 	}
-	return func(ctx context.Context, forceRefresh bool) (string, string, bool, error) {
+	resolver := func(ctx context.Context, forceRefresh bool) (string, string, bool, error) {
 		var token string
 		var rerr error
 		if forceRefresh {
@@ -67,4 +69,5 @@ func oauthResolverForProfile(profile config.ProviderProfile) providerio.TokenRes
 		}
 		return "Authorization", "Bearer " + token, true, nil
 	}
+	return resolver, key
 }

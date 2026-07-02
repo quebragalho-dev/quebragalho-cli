@@ -41,6 +41,26 @@ func ValidateKey(key string) error {
 // ProviderKey builds the store key for a provider login.
 func ProviderKey(name string) string { return KeyPrefixProvider + name }
 
+// FirstStored returns the token and its ProviderKey for the FIRST candidate name
+// that has a token in the store, with ok=false when none do. Callers pass
+// ProviderProfile.OAuthLoginCandidates() so that everything derived from a login
+// — the bearer token AND any header claim like chatgpt-account-id — comes from
+// the SAME login; selecting independently per consumer could otherwise pair a
+// bearer from one login with an account header from another. A load error on a
+// candidate is treated as a miss (skip to the next), never a hard failure.
+func FirstStored(store *Store, candidates []string) (Token, string, bool) {
+	if store == nil {
+		return Token{}, "", false
+	}
+	for _, name := range candidates {
+		key := ProviderKey(name)
+		if token, ok, err := store.Load(key); err == nil && ok {
+			return token, key, true
+		}
+	}
+	return Token{}, "", false
+}
+
 // Status is a redaction-safe summary of a stored token (no secret material).
 type Status struct {
 	Key             string    `json:"key"`

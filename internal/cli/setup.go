@@ -314,10 +314,14 @@ func setupRequired(resolved config.ResolvedConfig) bool {
 }
 
 // providerHasOAuthLogin reports whether a stored OAuth login exists for the
-// provider, keyed by its profile name or catalog id.
+// provider. It uses the same ProviderProfile.OAuthLoginCandidates the runtime
+// resolver does, so the "authenticated in the UI" gate and the "authenticated at
+// runtime" resolver can never diverge. This is only consulted for a profile with
+// no usable API-key credential (setupRequired returns early otherwise), where
+// the candidate set is permissive (profile name + catalog ID).
 func providerHasOAuthLogin(profile config.ProviderProfile, oauthLogins map[string]bool) bool {
-	for _, name := range []string{strings.TrimSpace(profile.Name), strings.TrimSpace(profile.CatalogID)} {
-		if name != "" && oauthLogins[name] {
+	for _, name := range profile.OAuthLoginCandidates() {
+		if oauthLogins[name] {
 			return true
 		}
 	}

@@ -488,7 +488,7 @@ func validateProviderRuntimeReady(profile config.ProviderProfile) error {
 }
 
 func providerProfileHasCredential(profile config.ProviderProfile) bool {
-	return strings.TrimSpace(profile.APIKey) != "" || profile.APIKeyStored || strings.TrimSpace(profile.AuthHeaderValue) != ""
+	return profile.HasConfiguredCredential()
 }
 
 func providerKindForDescriptor(descriptor providercatalog.Descriptor) config.ProviderKind {

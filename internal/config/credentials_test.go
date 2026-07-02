@@ -172,3 +172,69 @@ func TestProviderProfileAPIKeyStoredRoundTrips(t *testing.T) {
 		t.Fatalf("no inline key expected, got %q", p.APIKey)
 	}
 }
+
+// OAuthLoginCandidates always offers the profile name, adds the catalog ID as a
+// fallback ONLY when the profile has no effective own credential, and dedupes
+// case-sensitively (the OAuth store is a case-sensitive map).
+func TestOAuthLoginCandidates(t *testing.T) {
+	cases := []struct {
+		name    string
+		profile ProviderProfile
+		want    []string
+	}{
+		{
+			name:    "renamed keyless profile falls back to catalog id",
+			profile: ProviderProfile{Name: "codex", CatalogID: "chatgpt"},
+			want:    []string{"codex", "chatgpt"},
+		},
+		{
+			name:    "case-variant name keeps distinct catalog-id candidate",
+			profile: ProviderProfile{Name: "ChatGPT", CatalogID: "chatgpt"},
+			want:    []string{"ChatGPT", "chatgpt"},
+		},
+		{
+			name:    "exact-duplicate name and catalog id collapse",
+			profile: ProviderProfile{Name: "chatgpt", CatalogID: "chatgpt"},
+			want:    []string{"chatgpt"},
+		},
+		{
+			// A configured key must block ALL candidates (name included): a login
+			// under the profile's own name would otherwise erase the key too.
+			name:    "own inline key blocks every candidate",
+			profile: ProviderProfile{Name: "anthropic-work", CatalogID: "anthropic", APIKey: "sk-work"},
+			want:    nil,
+		},
+		{
+			name:    "own auth header blocks every candidate",
+			profile: ProviderProfile{Name: "acme", CatalogID: "anthropic", AuthHeaderValue: "Bearer x"},
+			want:    nil,
+		},
+		{
+			// APIKeyStored means key-auth even if the key isn't loaded here (e.g. a
+			// transiently unreadable keyring): don't silently borrow an OAuth login.
+			name:    "stored-key profile blocks every candidate",
+			profile: ProviderProfile{Name: "openai-stored", CatalogID: "openai", APIKeyStored: true},
+			want:    nil,
+		},
+		{
+			// APIKeyEnv is NOT a configured credential for gating: the env var may be
+			// unset while the profile relies on an OAuth login, so candidates stand.
+			name:    "env-only profile still yields candidates",
+			profile: ProviderProfile{Name: "xai", CatalogID: "xai", APIKeyEnv: "XAI_API_KEY"},
+			want:    []string{"xai"},
+		},
+		{
+			name:    "empty profile yields no candidates",
+			profile: ProviderProfile{},
+			want:    nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := c.profile.OAuthLoginCandidates()
+			if strings.Join(got, ",") != strings.Join(c.want, ",") {
+				t.Fatalf("OAuthLoginCandidates() = %#v, want %#v", got, c.want)
+			}
+		})
+	}
+}

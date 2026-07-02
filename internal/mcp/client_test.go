@@ -1,11 +1,11 @@
 package mcp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -393,28 +393,43 @@ func TestConnectRejectsUnsupportedTransport(t *testing.T) {
 }
 
 func TestClientRequestWaitsForMatchingResponseID(t *testing.T) {
-	var incoming bytes.Buffer
-	incomingWriter := newMessageWriter(&incoming)
-	if err := incomingWriter.write(rpcMessage{Method: "notifications/progress"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := incomingWriter.write(rpcMessage{
-		ID:    99,
-		Error: &rpcError{Code: -32000, Message: "wrong response"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := incomingWriter.write(rpcMessage{
-		ID:     1,
-		Result: mustRaw(map[string]any{"value": "matched"}),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// Pipes, not a pre-filled bytes.Buffer: the fake server responds only AFTER
+	// reading the outgoing request, matching production ordering. With responses
+	// pre-loaded, the client's reader goroutine could consume the matching
+	// response — and hit EOF — before request() registered its pending id,
+	// flaking as "request() error = EOF" on fast runners.
+	serverReader, clientWriter := io.Pipe() // client → server
+	clientReader, serverWriter := io.Pipe() // server → client
+	t.Cleanup(func() {
+		_ = clientWriter.Close()
+		_ = serverWriter.Close()
+	})
 
-	var outgoing bytes.Buffer
+	serverErr := make(chan error, 1)
+	go func() {
+		requests := newMessageReader(serverReader)
+		request, err := requests.read()
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		responses := newMessageWriter(serverWriter)
+		for _, message := range []rpcMessage{
+			{Method: "notifications/progress"},
+			{ID: 99, Error: &rpcError{Code: -32000, Message: "wrong response"}},
+			{ID: request.ID, Result: mustRaw(map[string]any{"value": "matched"})},
+		} {
+			if err := responses.write(message); err != nil {
+				serverErr <- err
+				return
+			}
+		}
+		serverErr <- nil
+	}()
+
 	client := &Client{
-		reader: newMessageReader(&incoming),
-		writer: newMessageWriter(&outgoing),
+		reader: newMessageReader(clientReader),
+		writer: newMessageWriter(clientWriter),
 		nextID: 1,
 	}
 	var result struct {
@@ -425,6 +440,9 @@ func TestClientRequestWaitsForMatchingResponseID(t *testing.T) {
 	}
 	if result.Value != "matched" {
 		t.Fatalf("result.Value = %q, want matched response", result.Value)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("fake server error: %v", err)
 	}
 }
 

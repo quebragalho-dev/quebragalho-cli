@@ -755,6 +755,15 @@ func (m model) completeSetup() (tea.Model, tea.Cmd) {
 		m.providerProfile = result.Provider
 		m.providerName = result.Provider.Name
 		m.modelName = result.Provider.Model
+		// Export ZERO_PROVIDER alongside the committed profile fields (and the
+		// config setupSave already persisted as active). Unlike command_center's
+		// switch — which commits everything only after a successful build — setup
+		// commits config + profile unconditionally here, so the env must match
+		// them unconditionally too: applyEnv makes ZERO_PROVIDER WIN over config,
+		// so a stale value from an earlier /model switch left in place would send
+		// spawned children to the OLD provider even though config now names the
+		// new one. That is the exact D3 gap this closes.
+		config.SetActiveProviderEnv(result.Provider.Name)
 		if m.newProvider != nil {
 			if provider, providerErr := m.newProvider(result.Provider); providerErr == nil {
 				m.provider = provider

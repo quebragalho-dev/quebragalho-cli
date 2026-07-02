@@ -43,12 +43,17 @@ import (
 var version = "dev"
 
 type appDeps struct {
-	getwd                 func() (string, error)
-	stdin                 io.Reader
-	userConfigPath        func() (string, error)
-	resolveConfig         func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error)
-	resolveMCPConfig      func(workspaceRoot string) (config.MCPConfig, error)
-	newProvider           func(config.ProviderProfile) (zeroruntime.Provider, error)
+	getwd            func() (string, error)
+	stdin            io.Reader
+	userConfigPath   func() (string, error)
+	resolveConfig    func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error)
+	resolveMCPConfig func(workspaceRoot string) (config.MCPConfig, error)
+	newProvider      func(config.ProviderProfile) (zeroruntime.Provider, error)
+	// exportActiveProvider pins spawned children to the run's provider (production:
+	// config.SetActiveProviderEnv, set in defaultAppDeps — deliberately NOT filled
+	// by fillAppDeps, so tests never mutate the process environment unless they
+	// inject it). nil ⇒ no export.
+	exportActiveProvider  func(providerName string)
 	probeProviderHealth   func(context.Context, providerhealth.Options) providerhealth.Result
 	detectLocalRuntimes   func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
 	newSessionStore       func() *sessions.Store
@@ -99,9 +104,10 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func defaultAppDeps() appDeps {
 	return appDeps{
-		getwd:          os.Getwd,
-		stdin:          os.Stdin,
-		userConfigPath: config.DefaultUserConfigPath,
+		getwd:                os.Getwd,
+		stdin:                os.Stdin,
+		userConfigPath:       config.DefaultUserConfigPath,
+		exportActiveProvider: config.SetActiveProviderEnv,
 		resolveConfig: func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error) {
 			options, err := config.DefaultResolveOptions(workspaceRoot)
 			if err != nil {
@@ -118,9 +124,14 @@ func defaultAppDeps() appDeps {
 			return config.ResolveMCP(options)
 		},
 		newProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+			// Resolve the OAuth login ONCE: the bearer resolver and the login key it
+			// bound must describe the same login (the key is passed on to the Codex
+			// account-header resolver so it never re-selects independently).
+			resolver, loginKey := oauthLoginForProfile(profile)
 			return providers.New(profile, providers.Options{
 				UserAgent:     userAgent(),
-				OAuthResolver: oauthResolverForProfile(profile),
+				OAuthResolver: resolver,
+				OAuthLoginKey: loginKey,
 			})
 		},
 		probeProviderHealth: providerhealth.Probe,
@@ -493,6 +504,17 @@ func fillAppDeps(deps appDeps) appDeps {
 	if deps.now == nil {
 		deps.now = defaults.now
 	}
+	// Wrap newProvider ONCE, after all defaults are filled, so every surface that
+	// builds the runtime provider gets the credential-store key applied. The
+	// resolver is pure and leaves apiKeyStored profiles keyless; an unwrapped
+	// build sends unauthenticated requests. config.ApplyStoredAPIKey is a no-op
+	// when the key is already set or the profile isn't stored-key, so this is
+	// safe and idempotent for every profile kind and every injected newProvider.
+	baseNewProvider := deps.newProvider
+	userConfigPath := deps.userConfigPath
+	deps.newProvider = func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		return baseNewProvider(applyStoredProviderKeyAt(profile, userConfigPath))
+	}
 	return deps
 }
 
@@ -720,20 +742,50 @@ func tuiSandboxSetupCommand(backend sandbox.Backend, deps appDeps) func(context.
 	}
 }
 
+// buildProvider constructs the run's provider at STARTUP — it is called only from
+// the two launch paths (interactive TUI and headless exec), never from mid-run
+// rebuilds (escalation, wizard, ACP go through deps.newProvider directly).
 func buildProvider(resolved config.ResolvedConfig, deps appDeps) (zeroruntime.Provider, error) {
 	if !config.HasProviderProfile(resolved.Provider) {
 		return nil, nil
 	}
-	// Load the API key from the encrypted credential store when it isn't already
-	// resolved from inline config or an env var. This keeps the resolver pure (no
-	// I/O) and is a no-op for env/inline-key providers and when nothing is stored.
-	profile := resolved.Provider
-	if path, perr := deps.userConfigPath(); perr == nil {
+	// deps.newProvider is wrapped in fillAppDeps to apply the stored key, so this
+	// (and every other newProvider caller) needs no per-site key handling.
+	provider, err := deps.newProvider(resolved.Provider)
+	if err != nil {
+		return nil, err
+	}
+	// Pin spawned children (sub-agents / swarm members inherit the environment) to
+	// THIS run's provider from launch, not only after an in-session switch. Without
+	// the launch-time export a child re-resolves config.json at spawn time, so a
+	// provider switch persisted by ANOTHER zero process mid-session would silently
+	// move new children onto a different provider (and different credentials) than
+	// the parent is running. Runtime switches (/model, /provider, wizard,
+	// onboarding) re-export on commit, keeping the pin current. Injected via deps
+	// (nil in tests) because it mutates the process environment.
+	if deps.exportActiveProvider != nil {
+		deps.exportActiveProvider(resolved.Provider.Name)
+	}
+	return provider, nil
+}
+
+// applyStoredProviderKeyAt loads the API key from the encrypted credential store
+// when the resolver left it empty (the resolver is pure — no I/O — so an
+// apiKeyStored profile reaches this layer keyless). No-op for inline/env-key
+// providers and when nothing is stored. This is applied once, centrally, by the
+// deps.newProvider wrapper in fillAppDeps so EVERY surface that builds a runtime
+// provider (headless exec, the ACP builder, exec's mid-run escalation switcher,
+// and any future caller) is covered without a per-site invariant to forget.
+func applyStoredProviderKeyAt(profile config.ProviderProfile, userConfigPath func() (string, error)) config.ProviderProfile {
+	if userConfigPath == nil {
+		return profile
+	}
+	if path, perr := userConfigPath(); perr == nil {
 		if store, err := config.ProviderKeyStoreAt(filepath.Dir(path)); err == nil {
 			profile = config.ApplyStoredAPIKey(profile, store)
 		}
 	}
-	return deps.newProvider(profile)
+	return profile
 }
 
 func newCoreRegistry(workspaceRoot string) *tools.Registry {

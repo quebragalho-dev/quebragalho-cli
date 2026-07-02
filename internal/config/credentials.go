@@ -155,6 +155,63 @@ func MigratePlaintextProviderKeys(path string, store APIKeySetter) (int, error) 
 	return migrated, nil
 }
 
+// HasConfiguredCredential reports whether the profile is set up to authenticate
+// with its own API key (inline, stored, or a raw auth header). It is the single
+// definition of "this profile is key-authed", shared by OAuthLoginCandidates and
+// the cli/tui setup surfaces so they never disagree about whether a profile is
+// keyed. APIKeyEnv is deliberately NOT included: an env var may be unset at
+// runtime while the profile actually relies on an OAuth login, so an
+// env-configured-but-empty profile must still be allowed to resolve a token.
+func (profile ProviderProfile) HasConfiguredCredential() bool {
+	return strings.TrimSpace(profile.APIKey) != "" ||
+		profile.APIKeyStored ||
+		strings.TrimSpace(profile.AuthHeaderValue) != ""
+}
+
+// OAuthLoginCandidates returns the login names to try, in order, when resolving
+// this profile's OAuth token — used by the runtime bearer resolver, the Codex
+// account-header resolver, and the onboarding presence check so all three agree.
+//
+// It returns NO candidates for a profile that carries its own configured
+// credential: attaching an OAuth resolver to such a profile makes withBearer
+// erase the key the instant a token resolves, silently routing/billing the call
+// through the OAuth account instead of the intended key (the cross-profile
+// override the review caught — and, via the profile name, a same-name login
+// overriding an explicit key). A stored-key profile that reaches this keyless
+// (e.g. a transiently unreadable keyring) is likewise treated as key-auth, so it
+// fails with a clear missing-credential error rather than silently borrowing an
+// unrelated OAuth login. APIKeyEnv is intentionally not part of that gate (an
+// env var may be unset while the profile relies on OAuth).
+//
+// For a keyless profile the profile name comes first (a login under your own
+// profile name is unambiguously yours), then the catalog ID as a FALLBACK (so a
+// profile renamed away from its catalog ID — e.g. {name:"codex",
+// catalogID:"chatgpt"} — still finds a `zero auth login chatgpt` token).
+// Candidates are trimmed, blank-skipped, and de-duplicated CASE-SENSITIVELY — the
+// OAuth token store is a case-sensitive map, so "ChatGPT" and "chatgpt" are
+// distinct keys and both must survive.
+func (profile ProviderProfile) OAuthLoginCandidates() []string {
+	if profile.HasConfiguredCredential() {
+		return nil
+	}
+	var names []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		for _, existing := range names {
+			if existing == s { // case-sensitive: the store lookup is case-sensitive
+				return
+			}
+		}
+		names = append(names, s)
+	}
+	add(profile.Name)
+	add(profile.CatalogID)
+	return names
+}
+
 // ApplyStoredAPIKey fills profile.APIKey from the credential store when it is not
 // already resolved — an inline config key or a resolved APIKeyEnv always wins, so
 // this only supplies a key for providers whose secret lives in the store. A nil

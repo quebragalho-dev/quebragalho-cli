@@ -467,7 +467,7 @@ func providerNextActionLines(profile config.ProviderProfile, snapshot zerocomman
 }
 
 func providerProfileHasCredential(profile config.ProviderProfile) bool {
-	return strings.TrimSpace(profile.APIKey) != "" || profile.APIKeyStored || strings.TrimSpace(profile.AuthHeaderValue) != ""
+	return profile.HasConfiguredCredential()
 }
 
 func providerCredentialRequired(profile config.ProviderProfile, providerKind string) bool {
