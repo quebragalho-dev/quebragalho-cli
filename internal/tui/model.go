@@ -2118,12 +2118,13 @@ func (m model) View() tea.View {
 	var content string
 	if m.setup.visible {
 		content = m.setupView(chatWidth(m.width))
-	} else if m.helpOverlay {
-		content = m.renderKeybindingHelpOverlay(chatWidth(m.width), m.height)
-	} else if m.transcriptDetailed {
-		content = m.detailedTranscriptView()
-	} else {
+	} else if m.helpOverlay || !m.transcriptDetailed {
+		// When helpOverlay is active the help panel is composited into the normal
+		// transcript view as a true overlay (scrim + vertical centering), matching
+		// how the suggestion picker / provider wizard / pickers are drawn.
 		content = m.transcriptView()
+	} else {
+		content = m.detailedTranscriptView()
 	}
 
 	view := tea.NewView(content)
@@ -2194,6 +2195,11 @@ func (m model) transcriptView() string {
 		return body + footer
 	}
 
+	helpOverlayContent := ""
+	if m.helpOverlay {
+		helpOverlayContent = m.renderKeybindingHelpOverlay(width)
+	}
+
 	suggestionOverlay := m.suggestionOverlay(width)
 	providerOverlay := m.providerWizardOverlay(width)
 	mcpAddOverlay := m.mcpAddWizardOverlay(width)
@@ -2201,6 +2207,8 @@ func (m model) transcriptView() string {
 	pickerOverlay := m.pickerOverlay(width)
 	viewportOverlay := ""
 	switch {
+	case helpOverlayContent != "":
+		viewportOverlay = helpOverlayContent
 	case providerOverlay != "":
 		viewportOverlay = providerOverlay
 	case mcpAddOverlay != "":
