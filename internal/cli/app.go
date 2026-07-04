@@ -754,6 +754,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		},
 		PermissionMode: permissionMode,
 		Notify:         resolved.Notify,
+		KeyBindings:    resolved.KeyBindings,
 		Setup: tui.SetupOptions{
 			Visible:    setupVisible,
 			Required:   needsSetup,

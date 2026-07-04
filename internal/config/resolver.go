@@ -148,6 +148,7 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 		Tools:          cfg.Tools,
 		Swarm:          cfg.Swarm,
 		Preferences:    cfg.Preferences,
+		KeyBindings:    cfg.KeyBindings,
 		LocalControl:   cfg.LocalControl,
 	}, nil
 }
@@ -229,6 +230,7 @@ func mergeConfig(dst *FileConfig, src FileConfig) {
 		dst.Preferences.Theme = strings.TrimSpace(src.Preferences.Theme)
 	}
 	mergeLocalControlConfig(&dst.LocalControl, src.LocalControl)
+	mergeKeyBindings(&dst.KeyBindings, src.KeyBindings)
 }
 
 func mergeProjectConfig(dst *FileConfig, src FileConfig) error {
@@ -281,6 +283,7 @@ func mergeProjectConfig(dst *FileConfig, src FileConfig) error {
 	if src.Swarm.MaxTeamSize != 0 {
 		dst.Swarm.MaxTeamSize = src.Swarm.MaxTeamSize
 	}
+	mergeKeyBindings(&dst.KeyBindings, src.KeyBindings)
 	// Local control is intentionally user-config/override only. A cloned project
 	// must not be able to make browser, desktop, or terminal automation tools
 	// appear in the model's tool surface.
@@ -669,6 +672,7 @@ func applyOverrides(cfg *FileConfig, overrides Overrides) {
 		cfg.Tools.deferThresholdSet = true
 	}
 	mergeLocalControlConfig(&cfg.LocalControl, overrides.LocalControl)
+	mergeKeyBindings(&cfg.KeyBindings, overrides.KeyBindings)
 	for _, provider := range overrides.Providers {
 		mergeProvider(cfg, provider)
 	}
@@ -701,6 +705,24 @@ func mergeLocalControlDriverConfig(dst *LocalControlDriverConfig, src LocalContr
 	}
 	if driver := strings.TrimSpace(src.Driver); driver != "" {
 		dst.Driver = driver
+	}
+}
+
+func mergeKeyBindings(dst *KeyBindingsConfig, src KeyBindingsConfig) {
+	if src.ToggleDetailed != "" {
+		dst.ToggleDetailed = src.ToggleDetailed
+	}
+	if src.ToggleMouse != "" {
+		dst.ToggleMouse = src.ToggleMouse
+	}
+	if src.CycleReasoning != "" {
+		dst.CycleReasoning = src.CycleReasoning
+	}
+	if src.TogglePlan != "" {
+		dst.TogglePlan = src.TogglePlan
+	}
+	if src.ToggleSidebar != "" {
+		dst.ToggleSidebar = src.ToggleSidebar
 	}
 }
 
