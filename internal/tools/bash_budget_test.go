@@ -2,10 +2,22 @@ package tools
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
 )
+
+// setTestTempDir points every platform's temp-dir lookup at a per-test
+// directory so spill files never land in the real temp dir: os.TempDir reads
+// TMPDIR on Unix but TMP/TEMP on Windows.
+func setTestTempDir(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	t.Setenv("TMP", dir)
+	t.Setenv("TEMP", dir)
+}
 
 // Small output passes through untouched and records raw==emitted, no truncated flag.
 func TestBudgetBashOutputSmallPassesThrough(t *testing.T) {
@@ -26,8 +38,10 @@ func TestBudgetBashOutputSmallPassesThrough(t *testing.T) {
 }
 
 // Oversized stdout is truncated head+tail: both the first and last lines survive,
-// the middle is dropped behind a marker, and meta is flagged.
+// the middle is dropped behind a marker, meta is flagged, and the captured text
+// is spilled to a re-readable file.
 func TestBudgetBashOutputTruncatesHeadAndTail(t *testing.T) {
+	setTestTempDir(t)
 	head := "FIRST_LINE_MARKER\n"
 	tail := "\nLAST_LINE_MARKER"
 	big := head + strings.Repeat("x", bashOutputBudgetBytes) + tail
@@ -47,8 +61,22 @@ func TestBudgetBashOutputTruncatesHeadAndTail(t *testing.T) {
 	if !strings.Contains(out, "output truncated") {
 		t.Fatalf("expected a truncation marker, got:\n%s", out[:200])
 	}
-	if len(out) > bashOutputBudgetBytes {
+	// The spill hint (path length varies) is the only allowed overage past the budget.
+	if len(out) > bashOutputBudgetBytes+512 {
 		t.Fatalf("emitted %d bytes exceeds budget %d", len(out), bashOutputBudgetBytes)
+	}
+	if !strings.Contains(out, "captured output saved to ") {
+		t.Fatalf("truncated bash output must carry a spill hint:\n%s", out[len(out)-300:])
+	}
+	if meta["spill_path"] == "" {
+		t.Fatal("spill path missing from meta")
+	}
+	content, err := os.ReadFile(meta["spill_path"])
+	if err != nil {
+		t.Fatalf("spill file unreadable: %v", err)
+	}
+	if !strings.Contains(string(content), "### stdout") || !strings.Contains(string(content), strings.Repeat("x", 1024)) {
+		t.Fatalf("spill must hold the sectioned captured streams (got %d bytes)", len(content))
 	}
 	if meta["truncated"] != "true" {
 		t.Fatalf("expected truncated=true, got %v", meta)
@@ -100,10 +128,12 @@ func TestBoundedBufferKeepsHeadAndTailBounded(t *testing.T) {
 // budgetBashCapture reports the TRUE total (not the retained size) in the marker
 // and raw_bytes, even though only a bounded head+tail was ever held in memory.
 func TestBudgetBashCaptureReportsTrueTotal(t *testing.T) {
-	// Retained head+tail as boundedBuffer would hand over; the real command produced
-	// far more than was kept.
-	retained := "HEAD_START" + strings.Repeat("y", bashOutputBudgetBytes) + "TAIL_END"
-	total := 10 * bashOutputBudgetBytes
+	setTestTempDir(t)
+	// Retained head+tail as boundedBuffer would hand over after overflow: the
+	// frozen head is full at bashCaptureBudgetBytes, then the rolling tail; the
+	// real command produced far more than was kept.
+	retained := "HEAD_START" + strings.Repeat("y", bashCaptureBudgetBytes) + "TAIL_END"
+	total := 10 * bashCaptureBudgetBytes
 
 	meta := map[string]string{}
 	out, _, truncated := budgetBashCapture(retained, total, "", 0, meta)
@@ -114,7 +144,8 @@ func TestBudgetBashCaptureReportsTrueTotal(t *testing.T) {
 	if !strings.Contains(out, "HEAD_START") || !strings.Contains(out, "TAIL_END") {
 		t.Fatalf("head/tail lost after budgeting:\n%s", out[:min(120, len(out))])
 	}
-	if len(out) > bashOutputBudgetBytes {
+	// Spill hint is the only allowed overage past the budget.
+	if len(out) > bashOutputBudgetBytes+512 {
 		t.Fatalf("emitted %d bytes exceeds budget %d", len(out), bashOutputBudgetBytes)
 	}
 	if meta["raw_bytes"] != strconv.Itoa(total) {
@@ -123,5 +154,30 @@ func TestBudgetBashCaptureReportsTrueTotal(t *testing.T) {
 	// The marker must cite the true omitted count (total-budget), not retained-budget.
 	if !strings.Contains(out, strconv.Itoa(total-bashOutputBudgetBytes)) {
 		t.Fatalf("marker should cite the true omitted byte count:\n%s", out[:min(200, len(out))])
+	}
+
+	// The spill must be recorded, sectioned, and carry a capture-gap marker at
+	// the head/tail junction — the capture dropped the middle, so the spilled
+	// log must never read as contiguous.
+	if meta["spill_path"] == "" {
+		t.Fatal("spill path missing from meta")
+	}
+	content, err := os.ReadFile(meta["spill_path"])
+	if err != nil {
+		t.Fatalf("spill file unreadable: %v", err)
+	}
+	if !strings.Contains(string(content), "### stdout") {
+		t.Fatal("spill must be sectioned by stream")
+	}
+	gapMarker := fmt.Sprintf("capture gap: %d bytes omitted", total-len(retained))
+	gapIndex := strings.Index(string(content), gapMarker)
+	if gapIndex < 0 {
+		t.Fatalf("spill missing capture-gap marker %q", gapMarker)
+	}
+	// The junction sits right after the frozen head (plus the section header),
+	// not appended at the end of the stream.
+	headerOffset := len("### stdout\n")
+	if gapIndex < headerOffset+bashCaptureBudgetBytes-64 || gapIndex > headerOffset+bashCaptureBudgetBytes+64 {
+		t.Fatalf("capture-gap marker at offset %d, want ~%d (the head cap)", gapIndex, headerOffset+bashCaptureBudgetBytes)
 	}
 }
