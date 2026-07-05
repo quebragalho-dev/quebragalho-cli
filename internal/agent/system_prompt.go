@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Gitlawb/zero/internal/config"
 	"github.com/Gitlawb/zero/internal/repomap"
 	"github.com/Gitlawb/zero/internal/workspaceseed"
 )
@@ -37,6 +38,14 @@ const fallbackSystemPrompt = "You are Zero, a terminal coding agent. Help with t
 // from the git root down to the cwd and injects the matches in
 // general-to-specific order.
 var projectContextFiles = []string{"AGENTS.md", "ZERO.md", ".zero/AGENTS.md"}
+
+// userContextFile is the per-user instruction file, resolved under
+// config.UserConfigDir()/zero/ alongside the rest of Zero's per-user config
+// (config.json, commands, specialists) so users can keep personal guidance out
+// of individual repositories.
+const userContextFile = "ZERO.md"
+
+var userConfigDirForPrompt = config.UserConfigDir
 
 // maxProjectContextBytes caps how much of a single project doc is injected so
 // a large guidelines file can't blow the context budget.
@@ -80,6 +89,13 @@ func buildSystemPrompt(options Options) string {
 	}
 	if seed := workspaceSeedContext(options.Cwd); seed != "" {
 		sections = append(sections, seed)
+	}
+	// User guidelines are injected before workspace/project guidelines so the
+	// project's AGENTS.md/ZERO.md is the later, more specific instruction
+	// block. See userGuidelines for the explicit precedence note carried in
+	// the section text itself.
+	if user := userGuidelines(); user != "" {
+		sections = append(sections, user)
 	}
 	if ws := workspaceContext(options.Cwd); ws != "" {
 		sections = append(sections, ws)
@@ -312,18 +328,98 @@ func projectGuidelines(cwd, gitRoot string) string {
 		if remaining := maxProjectContextTotalBytes - totalUsed; remaining < limit {
 			limit = remaining
 		}
-		if len(content) > limit {
-			cut := limit
-			for cut > 0 && !utf8.RuneStart(content[cut]) {
-				cut--
-			}
-			content = content[:cut] + "\n… (truncated)"
-		}
+		content = truncateGuidelineContent(content, limit)
 		label := projectGuidelineLabel(match, gitRoot)
 		b.WriteString("\n\n## Project guidelines (" + label + ")\n\n" + content)
 		totalUsed += len(content)
 	}
 	return b.String()
+}
+
+// userGuidelines returns the per-user ZERO.md instructions block, if present.
+// The file lives in config.UserConfigDir()/zero/ next to Zero's other
+// per-user config; the basename match is case-insensitive so a file saved as
+// zero.md still resolves on case-sensitive filesystems, mirroring the project
+// guideline loader. The section carries an explicit precedence note because
+// this is a global, personal preferences file: it is injected earlier in the
+// prompt than the project's AGENTS.md/ZERO.md (see buildSystemPrompt), and
+// the note keeps that precedence unambiguous even if a model weighs later
+// context more heavily than section order alone implies.
+func userGuidelines() string {
+	configDir, err := userConfigDirForPrompt()
+	if err != nil {
+		return ""
+	}
+	configDir = strings.TrimSpace(configDir)
+	if configDir == "" {
+		return ""
+	}
+	match := findCaseInsensitiveFile(filepath.Join(configDir, "zero"), userContextFile)
+	if match == "" {
+		return ""
+	}
+	data, err := os.ReadFile(match)
+	if err != nil {
+		return ""
+	}
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return ""
+	}
+	content = truncateGuidelineContent(content, maxProjectContextBytes)
+	return "## User guidelines (" + filepath.Base(match) + ")\n\n" +
+		"These are the operator's personal preferences, not project policy. " +
+		"Where they conflict with a repository's project guidelines below (AGENTS.md/ZERO.md), the project guidelines take precedence.\n\n" +
+		content
+}
+
+// truncationMarker is appended to guideline content that was cut short.
+const truncationMarker = "\n… (truncated)"
+
+// truncateGuidelineContent caps content at limit bytes without splitting a
+// UTF-8 rune, appending a truncation marker when anything was cut. Space for
+// the marker is reserved before choosing the cut point. When limit is too
+// small to fit the marker itself, the marker is dropped instead, so the
+// returned string never exceeds limit for any non-negative limit.
+func truncateGuidelineContent(content string, limit int) string {
+	if len(content) <= limit {
+		return content
+	}
+	if limit <= 0 {
+		return ""
+	}
+	cut := limit - len(truncationMarker)
+	if cut < 0 {
+		cut = 0
+	}
+	for cut > 0 && !utf8.RuneStart(content[cut]) {
+		cut--
+	}
+	if truncated := content[:cut] + truncationMarker; len(truncated) <= limit {
+		return truncated
+	}
+	// limit is smaller than the marker itself: fall back to a hard,
+	// rune-safe cut at limit bytes with no marker rather than exceeding it.
+	end := limit
+	for end > 0 && !utf8.RuneStart(content[end]) {
+		end--
+	}
+	return content[:end]
+}
+
+// findCaseInsensitiveFile returns the on-disk path of the regular file in dir
+// whose name matches basename case-insensitively, or "" when absent.
+func findCaseInsensitiveFile(dir, basename string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.EqualFold(e.Name(), basename) {
+			return filepath.Join(dir, e.Name())
+		}
+	}
+	return ""
 }
 
 // projectGuidelineDirs returns the directory chain from gitRoot to cwd
@@ -378,23 +474,16 @@ func projectGuidelineLabel(match, gitRoot string) string {
 // Returns "" when nothing matches.
 func findProjectContextFile(dir string) string {
 	for _, name := range projectContextFiles {
-		baseLower := strings.ToLower(filepath.Base(name))
 		// Walk to the file's parent through dir with case-insensitive segment
-		// matching, then find a regular file with the same lowercased
-		// basename. This works on both case-sensitive and case-insensitive
-		// filesystems and always returns the on-disk filename.
+		// matching, then find a regular file with the same basename. This works
+		// on both case-sensitive and case-insensitive filesystems and always
+		// returns the on-disk filename.
 		parent, ok := resolveDirCaseInsensitive(filepath.Dir(filepath.Join(dir, name)), dir)
 		if !ok {
 			continue
 		}
-		entries, err := os.ReadDir(parent)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if !e.IsDir() && strings.ToLower(e.Name()) == baseLower {
-				return filepath.Join(parent, e.Name())
-			}
+		if match := findCaseInsensitiveFile(parent, filepath.Base(name)); match != "" {
+			return match
 		}
 	}
 	return ""
