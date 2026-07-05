@@ -42,3 +42,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Superpowers skill artifacts (brainstorm mockups, specs, plans) — local only
 .superpowers/
 docs/superpowers/
+
+# Termux/Android build artifacts
+zero-termux-arm64
+zero-linux-sandbox

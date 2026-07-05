@@ -1010,6 +1010,38 @@ func withSidebarContent(m model) model {
 	return m
 }
 
+func TestParseTracerPidMissing(t *testing.T) {
+	if got := parseTracerPid([]byte("Pid: 123\nName: foo\n")); got {
+		t.Fatal("missing TracerPid should return false")
+	}
+}
+
+func TestParseTracerPidZero(t *testing.T) {
+	if got := parseTracerPid([]byte("TracerPid: 0\nName: foo\n")); got {
+		t.Fatal("TracerPid: 0 should return false")
+	}
+}
+
+func TestParseTracerPidNonZero(t *testing.T) {
+	if got := parseTracerPid([]byte("Name: foo\nTracerPid: 42\n")); !got {
+		t.Fatal("TracerPid: 42 should return true")
+	}
+}
+
+func TestParseTracerPidMalformed(t *testing.T) {
+	// Non-numeric values are treated as non-zero since any non-"0" string
+	// indicates a tracer is attached, matching the function's semantics.
+	if got := parseTracerPid([]byte("TracerPid: abc\n")); !got {
+		t.Fatal("malformed TracerPid should return true (non-zero string)")
+	}
+}
+
+func TestParseTracerPidEmpty(t *testing.T) {
+	if got := parseTracerPid([]byte{}); got {
+		t.Fatal("empty input should return false")
+	}
+}
+
 func setupMouseTestModel() model {
 	m := newModel(context.Background(), Options{
 		Setup: SetupOptions{

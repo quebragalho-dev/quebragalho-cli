@@ -1426,6 +1426,78 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case keyIs(msg, tea.KeyPgDown):
 			m = m.clearHover()
 			return m.scrollChat(-m.chatPageScrollLines()), nil
+		case keyShift(msg) && keyIs(msg, tea.KeyUp):
+			// Shift+Up scrolls the transcript up one line. Must be checked before
+			// plain KeyUp so shifted arrows aren't consumed by the composer-path.
+			if m.transcriptDetailed {
+				return m, nil
+			}
+			if m.pendingPermission != nil {
+				return m.movePermissionCursor(-1), nil
+			}
+			if m.pendingAskUser != nil {
+				return m.moveAskUserCursor(-1), nil
+			}
+			if m.providerWizard != nil {
+				return m.handleProviderWizardKey(msg)
+			}
+			if m.mcpAddWizard != nil {
+				return m.handleMCPAddWizardKey(msg)
+			}
+			if m.mcpManager != nil {
+				return m.handleMCPManagerKey(msg)
+			}
+			if m.picker != nil {
+				if m.modelPickerIsLoading() {
+					return m, nil
+				}
+				m.pickerMoved(-1)
+				return m, nil
+			}
+			if m.suggestionsActive() {
+				break
+			}
+			if m.composerValue() != "" {
+				break // let the input handle multiline navigation
+			}
+			m = m.clearHover()
+			return m.scrollChat(1), nil
+		case keyShift(msg) && keyIs(msg, tea.KeyDown):
+			// Shift+Down scrolls the transcript down one line. Must be checked
+			// before plain KeyDown so shifted arrows aren't consumed.
+			if m.transcriptDetailed {
+				return m, nil
+			}
+			if m.pendingPermission != nil {
+				return m.movePermissionCursor(1), nil
+			}
+			if m.pendingAskUser != nil {
+				return m.moveAskUserCursor(1), nil
+			}
+			if m.providerWizard != nil {
+				return m.handleProviderWizardKey(msg)
+			}
+			if m.mcpAddWizard != nil {
+				return m.handleMCPAddWizardKey(msg)
+			}
+			if m.mcpManager != nil {
+				return m.handleMCPManagerKey(msg)
+			}
+			if m.picker != nil {
+				if m.modelPickerIsLoading() {
+					return m, nil
+				}
+				m.pickerMoved(1)
+				return m, nil
+			}
+			if m.suggestionsActive() {
+				break
+			}
+			if m.composerValue() != "" {
+				break // let the input handle multiline navigation
+			}
+			m = m.clearHover()
+			return m.scrollChat(-1), nil
 		case keyIs(msg, tea.KeyDown):
 			if m.transcriptDetailed {
 				m = m.clearHover()
@@ -1506,6 +1578,48 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.historyRecallActive() {
 				return m.recallHistory(-1), nil
 			}
+		case keyCtrl(msg, 'u'):
+			// Ctrl+U scrolls up half a page, or moves the cursor up in
+			// permission/ask-user prompts. Falls through to the active modal
+			// (wizard, etc.) when none of the above are in focus.
+			if m.transcriptDetailed {
+				return m, nil
+			}
+			if m.pendingPermission != nil {
+				return m.movePermissionCursor(-1), nil
+			}
+			if m.pendingAskUser != nil {
+				return m.moveAskUserCursor(-1), nil
+			}
+			if m.providerWizard != nil || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.pendingSpecReview != nil {
+				break
+			}
+			if m.composerValue() != "" {
+				break // let the input handle its own Ctrl+U (delete-to-bol)
+			}
+			m = m.clearHover()
+			return m.scrollChat(m.chatPageScrollLines()), nil
+		case keyCtrl(msg, 'd'):
+			// Ctrl+D scrolls down half a page, or moves the cursor down in
+			// permission/ask-user prompts. Falls through to the active modal
+			// when none of the above are in focus.
+			if m.transcriptDetailed {
+				return m, nil
+			}
+			if m.pendingPermission != nil {
+				return m.movePermissionCursor(1), nil
+			}
+			if m.pendingAskUser != nil {
+				return m.moveAskUserCursor(1), nil
+			}
+			if m.providerWizard != nil || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.pendingSpecReview != nil {
+				break
+			}
+			if m.composerValue() != "" {
+				break // let the input handle its own Ctrl+D (delete-next-char)
+			}
+			m = m.clearHover()
+			return m.scrollChat(-m.chatPageScrollLines()), nil
 		}
 		if m.transcriptDetailed {
 			return m, nil
@@ -2207,14 +2321,23 @@ func (m model) View() tea.View {
 	}
 	view.ReportFocus = m.notifier != nil
 	if m.wantsMouseCapture() {
-		// AllMotion (not CellMotion) is required for hover highlighting: it
-		// reports cursor movement even with no button pressed. CellMotion only
-		// reports motion while a button is held (drag) — see bubbletea's
-		// MouseMode docs. AllMotion has marginally worse terminal compatibility
-		// but is well supported by the terminals this app targets; the existing
-		// 15ms mouse-event throttle (mouseEventThrottleInterval) already bounds
-		// the redraw rate from the extra motion events.
-		view.MouseMode = tea.MouseModeAllMotion
+		if isRunningUnderPRoot() {
+			// Under PRoot the AllMotion (1003) sequence doesn't work
+			// reliably, breaking touch-gesture scrolling. Fall back to
+			// CellMotion which still delivers wheel events, clicks, and
+			// drag — the only thing lost is hover-highlighting.
+			view.MouseMode = tea.MouseModeCellMotion
+		} else {
+			// AllMotion (not CellMotion) is required for hover highlighting:
+			// it reports cursor movement even with no button pressed.
+			// CellMotion only reports motion while a button is held (drag) —
+			// see bubbletea's MouseMode docs. AllMotion has marginally worse
+			// terminal compatibility but is well supported by the terminals
+			// this app targets; the existing 15ms mouse-event throttle
+			// (mouseEventThrottleInterval) already bounds the redraw rate
+			// from the extra motion events.
+			view.MouseMode = tea.MouseModeAllMotion
+		}
 	}
 	return view
 }
