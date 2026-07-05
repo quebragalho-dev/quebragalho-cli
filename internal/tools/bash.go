@@ -120,7 +120,6 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *zeroS
 			Meta:   meta,
 		}
 	}
-	// Release any plan-scoped resources once the command has finished running.
 	defer plan.Cleanup()
 	addSandboxMeta(meta, plan)
 
@@ -221,6 +220,14 @@ func shellIssueBlockResult(issue shellIssue) Result {
 	}
 }
 
+// buildBashCommand returns the exec.Cmd and the sandbox plan for running
+// commandText. On Windows, when the command is not wrapped by the sandbox
+// engine (plan.Wrapped == false), it also overrides the child's raw command
+// line so commandText reaches cmd.exe unescaped; see
+// zeroSandbox.WindowsShellCommandLine for why that matters. The wrapped case
+// gets the same treatment inside the sandboxed runner process itself
+// (internal/sandbox/windows_process_windows.go), since that command line is
+// built there, not here.
 func buildBashCommand(ctx context.Context, commandText string, absoluteCwd string, engine *zeroSandbox.Engine) (*exec.Cmd, zeroSandbox.CommandPlan, error) {
 	spec := zeroSandbox.CommandSpec{
 		Name: shellExecutable(),
@@ -228,7 +235,11 @@ func buildBashCommand(ctx context.Context, commandText string, absoluteCwd strin
 		Dir:  absoluteCwd,
 	}
 	if engine != nil {
-		return engine.CommandContext(ctx, spec)
+		command, plan, err := engine.CommandContext(ctx, spec)
+		if err == nil {
+			applyWindowsShellCommandLine(command, commandText, plan.Wrapped)
+		}
+		return command, plan, err
 	}
 	plan := zeroSandbox.CommandPlan{
 		Backend: zeroSandbox.Backend{
@@ -242,6 +253,7 @@ func buildBashCommand(ctx context.Context, commandText string, absoluteCwd strin
 	}
 	command := exec.CommandContext(ctx, spec.Name, spec.Args...)
 	command.Dir = spec.Dir
+	applyWindowsShellCommandLine(command, commandText, plan.Wrapped)
 	return command, plan, nil
 }
 
@@ -302,7 +314,7 @@ func shellExecutable() string {
 
 func shellArguments(command string) []string {
 	if runtime.GOOS == "windows" {
-		return []string{"/d", "/s", "/c", command}
+		return zeroSandbox.WindowsShellArgs(command)
 	}
 	return []string{"-c", command}
 }
