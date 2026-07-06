@@ -190,10 +190,22 @@ type model struct {
 	// like a frozen terminal (for ANY provider, not just slow ones). Zero = idle.
 	turnStartedAt time.Time
 	queuedMessage string
-	exiting       bool
-	runCancel     context.CancelFunc
-	runID         int
-	activeRunID   int
+	// loops holds the session's active /loop definitions (see loop.go). activeLoopID
+	// tags the in-flight run when it is a loop iteration (empty = a user turn), so the
+	// completion seam knows whether to advance a loop. loopSeq invalidates a stale
+	// pending poll tick when loops are stopped; loopTicking guards against scheduling
+	// a second poll ticker. loopLeavePrompt arms a one-shot confirm before /clear or
+	// /quit while loops are active (see handleSubmit).
+	loops           []*loopState
+	activeLoopID    string
+	loopSeq         int
+	loopCounter     int
+	loopTicking     bool
+	loopLeavePrompt commandKind
+	exiting         bool
+	runCancel       context.CancelFunc
+	runID           int
+	activeRunID     int
 	// flushRunIDs holds the ids of runs cancelled while still in flight, mapped
 	// to the session they were recording into AT CANCEL TIME. Each cancelled
 	// agent goroutine keeps running to completion and returns its accumulated
@@ -1896,6 +1908,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearComposer()
 		m.clearSuggestions()
 		return m, nil
+	case loopTickMsg:
+		// Idle poll for due loops. A stale tick (loops changed) or an empty loop set
+		// ends the ticker; otherwise fire the earliest due loop if idle and reschedule.
+		if msg.seq != m.loopSeq || len(m.loops) == 0 {
+			m.loopTicking = false
+			return m, nil
+		}
+		var fireCmd tea.Cmd
+		m, fireCmd = m.fireDueLoopIfIdle()
+		return m, tea.Batch(fireCmd, m.scheduleLoopTick())
 	case agentResponseMsg:
 		if msg.runID != m.activeRunID {
 			// A run cancelled while in flight still finishes in its goroutine and
@@ -2065,8 +2087,25 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// complete once the turn settles.
 		var sweepCmd tea.Cmd
 		m, sweepCmd = m.maybeGitSweep()
+		// If this run was a loop iteration, advance that loop (schedule its next wake
+		// or stop it). Done before launchQueuedMessageIfReady so a user's queued prompt
+		// still wins the immediate re-launch; the loop fires on the next idle tick.
+		var loopTickCmd tea.Cmd
+		if loopID := m.activeLoopID; loopID != "" {
+			m.activeLoopID = ""
+			loopFinalAnswer := ""
+			for _, row := range msg.rows {
+				if row.kind == rowAssistant && row.final {
+					loopFinalAnswer = row.text
+				}
+			}
+			m = m.advanceLoop(loopID, loopFinalAnswer, msg.err)
+			// advanceLoop -> removeLoop may have stopped the ticker; restart it if
+			// other loops remain.
+			m, loopTickCmd = m.ensureLoopTick()
+		}
 		next, queuedCmd := m.launchQueuedMessageIfReady()
-		return next, tea.Batch(titleCmd, recapCmd, sweepCmd, queuedCmd)
+		return next, tea.Batch(titleCmd, recapCmd, sweepCmd, queuedCmd, loopTickCmd)
 	case sessionTitleGeneratedMsg:
 		return m.handleSessionTitleGenerated(msg)
 	case recapGeneratedMsg:
@@ -3789,6 +3828,13 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	command := parseCommand(input)
+	// A pending /clear or /quit leave-confirmation is armed for the immediately-next
+	// repeat of that same command only; any other submission — including one queued
+	// or deferred by the early returns below — disarms it. Runs before those returns
+	// so an interposed prompt can't be skipped over and leave the gate falsely armed.
+	if m.loopLeavePrompt != commandEmpty && command.kind != m.loopLeavePrompt {
+		m.loopLeavePrompt = commandEmpty
+	}
 	// While exiting (Ctrl+C waiting on the cancelled run's checkpoint flush) a
 	// new run must not start: the deferred tea.Quit would abort it mid-flight
 	// and orphan its checkpoint blobs — the exact loss flushRunIDs prevents.
@@ -3822,6 +3868,14 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: helpText()})
 		return m, nil
 	case commandClear:
+		// A foreground loop keeps firing after /clear (it wipes the screen, not the
+		// session), so warn once before clearing the context it will run into.
+		if m.loopActive() && m.loopLeavePrompt != commandClear {
+			m.loopLeavePrompt = commandClear
+			m = m.appendLoopSystem(m.loopFooterSummary() + " still running — /clear keeps them firing behind a cleared screen. Run /clear again to confirm, or /loop stop all first.")
+			return m, nil
+		}
+		m.loopLeavePrompt = commandEmpty
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionClear})
 		// Clearing wipes the visible transcript only — the session's context is
 		// intact, so the next prompt still replays the full history. Say so, and
@@ -3830,6 +3884,11 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 		// Scrollback above can't be un-printed; a faint divider marks where the
 		// cleared surface ended and the frontier restarts for the fresh transcript.
 		m.resetFlushFrontier("· cleared ·")
+		// /clear wipes the transcript but not the session, so loops keep running;
+		// say so rather than let them silently fire into a "cleared" screen.
+		if m.loopActive() {
+			m = m.appendLoopSystem(m.loopFooterSummary() + " still running — /loop stop all to end them.")
+		}
 		return m, nil
 	case commandNew:
 		// A fresh session mid-run would strand the in-flight turn's events; make the
@@ -3840,7 +3899,17 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startNewSession(), nil
+	case commandLoop:
+		return m.handleLoopCommand(command.text)
 	case commandExit:
+		// Closing the session stops its foreground loops mid-task; warn once so a
+		// token-spending loop isn't ended by reflex.
+		if m.loopActive() && m.loopLeavePrompt != commandExit {
+			m.loopLeavePrompt = commandExit
+			m = m.appendLoopSystem(m.loopFooterSummary() + " active — closing the session stops them. Run /exit again to confirm, or /loop stop all first.")
+			return m, nil
+		}
+		m.loopLeavePrompt = commandEmpty
 		// /exit gets the same protection as Ctrl+C: cancel any in-flight run and
 		// defer the quit until its checkpoint session events flush — quitting
 		// immediately would orphan the blobs and break /rewind.
@@ -4333,6 +4402,21 @@ func (m *model) cancelRun() {
 		m.runCancel()
 	}
 	m.clearStreamingToolCall() // a cancelled file-write must not linger into the next run
+	// A cancelled loop iteration bypasses the agentResponseMsg completion seam (its
+	// late message is drained through flushRunIDs, not advanceLoop), so clear the
+	// loop tag here and re-arm the interrupted loop for its next cadence. Otherwise
+	// the loop is left "running" forever (nextRunAt stays zero) and the NEXT
+	// unrelated turn would be misattributed as this loop's completion.
+	if m.activeLoopID != "" {
+		if l := m.findLoop(m.activeLoopID); l != nil {
+			if l.mode == loopModeSelfPaced {
+				l.nextRunAt = m.now().Add(clampSelfPaceDelay(adaptiveSelfPaceDelay(l.iteration)))
+			} else {
+				l.nextRunAt = m.now().Add(l.interval)
+			}
+		}
+		m.activeLoopID = ""
+	}
 	// Remember the in-flight run — and the session it was recording into — so
 	// its final agentResponseMsg is still drained for session-event persistence
 	// after activeRunID is cleared. Otherwise the checkpoint blobs it captured
