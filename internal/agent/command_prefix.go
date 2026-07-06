@@ -193,10 +193,6 @@ func cleanPrefixRule(prefix []string) []string {
 	return cleaned
 }
 
-func safeRequestedPrefix(prefix []string, command []string) bool {
-	return safeRequestedPrefixForSegments(prefix, [][]string{command})
-}
-
 func safeRequestedPrefixForSegments(prefix []string, segments [][]string) bool {
 	if len(prefix) == 0 || !sandbox.ValidCommandPrefix(prefix) {
 		return false
@@ -219,14 +215,6 @@ func safeRequestedPrefixForSegments(prefix []string, segments [][]string) bool {
 		return false
 	}
 	return matched
-}
-
-func safeShellCommandTokens(command string) ([]string, bool) {
-	segments, ok := safeShellCommandSegments(command)
-	if !ok || len(segments) != 1 {
-		return nil, false
-	}
-	return segments[0], true
 }
 
 func safeShellCommandSegments(command string) ([][]string, bool) {
