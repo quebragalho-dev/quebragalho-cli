@@ -192,6 +192,12 @@ type model struct {
 	// renders the live elapsed time from it so a long or stalled turn never looks
 	// like a frozen terminal (for ANY provider, not just slow ones). Zero = idle.
 	turnStartedAt time.Time
+	// lastCharTime tracks when the last non-Enter key was received, for paste detection.
+	lastCharTime time.Time
+	// lastKeyTime tracks every keypress timestamp for burst calculation.
+	lastKeyTime time.Time
+	// burstCount counts consecutive keypresses within 100ms (paste mode).
+	burstCount    int
 	queuedMessage string
 	// loops holds the session's active /loop definitions (see loop.go). activeLoopID
 	// tags the in-flight run when it is a loop iteration (empty = a user turn), so the
@@ -1181,6 +1187,18 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyPressMsg:
+		// Paste-detection timing trackers. MUST run before any early return
+		// so burst counting stays accurate regardless of which branch fires.
+		now := m.now()
+		if !m.lastKeyTime.IsZero() && now.Sub(m.lastKeyTime) < 100*time.Millisecond {
+			m.burstCount++
+		} else {
+			m.burstCount = 0
+		}
+		m.lastKeyTime = now
+		if !keyIs(msg, tea.KeyEnter) {
+			m.lastCharTime = now
+		}
 		if m.setup.visible {
 			return m.handleSetupKey(msg)
 		}
@@ -1208,6 +1226,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyText(msg) == "?" || keyText(msg) == "q" || keyIs(msg, tea.KeyEsc) || keyIs(msg, tea.KeyEnter) || keyCtrl(msg, 'c') {
 				m.helpOverlay = false
 			}
+			m.burstCount = 0
 			return m, nil
 		}
 		switch {
@@ -1297,6 +1316,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.escapeAskUser()
 			}
 			if m.pendingSpecReview != nil {
+				m.burstCount = 0
 				return m.cancelSpecReview()
 			}
 			if m.pendingPermission != nil && m.pendingPermission.request.ToolName == tools.RequestPermissionsToolName {
@@ -1373,24 +1393,31 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingPermission != nil {
 				// Enter confirms the highlighted option (default: allow once); the
 				// a/y/d hotkeys and a click still resolve directly.
+				m.burstCount = 0
 				return m.confirmPermissionCursor()
 			}
 			if m.pendingAskUser != nil {
+				m.burstCount = 0
 				return m.confirmAskUser()
 			}
 			if m.pendingSpecReview != nil {
+				m.burstCount = 0
 				return m, nil
 			}
 			if m.providerWizard != nil {
+				m.burstCount = 0
 				return m.handleProviderWizardKey(msg)
 			}
 			if m.mcpAddWizard != nil {
+				m.burstCount = 0
 				return m.handleMCPAddWizardKey(msg)
 			}
 			if m.mcpManager != nil {
+				m.burstCount = 0
 				return m.handleMCPManagerKey(msg)
 			}
 			if m.picker != nil {
+				m.burstCount = 0
 				return m.choosePicker()
 			}
 			if keyAlt(msg) || keyShift(msg) {
@@ -1405,6 +1432,32 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.suggestionsActive() {
 				return m.chooseSuggestion()
 			}
+			// Timing-based paste protection: under Termux, context-menu paste
+			// injects characters one at a time (including newlines as raw
+			// KeyEnter events). A sustained burst of 3+ keys within 100ms
+			// means we are inside a char-by-char paste — insert newline
+			// instead of submitting. Gated to Termux so fast desktop typing
+			// (which can reach similar inter-key intervals) is never affected.
+			if os.Getenv("TERMUX_VERSION") != "" && m.burstCount > 2 {
+				state := m.currentComposerState()
+				m = m.insertComposerTextWithPastePreview(state, "\n", "")
+				m.clearSuggestions()
+				return m, nil
+			}
+
+			// Composer-based paste protection: when the composer already has
+			// multiline text (e.g. pasted via bracketed paste / Ctrl+Shift+V),
+			// plain Enter inserts a newline instead of submitting so each
+			// pasted \n does not trigger a premature submit. Uses the same
+			// burstCount > 2 threshold as the Termux path so a single fast
+			// key + Enter on a multiline prompt still submits.
+			if m.composerActive && m.burstCount > 2 && strings.Contains(m.composer.text, "\n") {
+				state := m.currentComposerState()
+				m = m.insertComposerTextWithPastePreview(state, "\n", "")
+				m.clearSuggestions()
+				return m, nil
+			}
+			m.burstCount = 0
 			return m.handleSubmit()
 		case keyIs(msg, tea.KeyTab) && keyShift(msg):
 			if m.transcriptDetailed {
@@ -1510,12 +1563,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.moveAskUserTab(1), nil
 			}
 			if m.providerWizard != nil {
+				m.burstCount = 0
 				return m.handleProviderWizardKey(msg)
 			}
 			if m.mcpAddWizard != nil {
+				m.burstCount = 0
 				return m.handleMCPAddWizardKey(msg)
 			}
 			if m.mcpManager != nil {
+				m.burstCount = 0
 				return m.handleMCPManagerKey(msg)
 			}
 			if m.picker == nil && m.suggestionsActive() {
@@ -1541,12 +1597,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.moveAskUserCursor(-1), nil
 			}
 			if m.providerWizard != nil {
+				m.burstCount = 0
 				return m.handleProviderWizardKey(msg)
 			}
 			if m.mcpAddWizard != nil {
+				m.burstCount = 0
 				return m.handleMCPAddWizardKey(msg)
 			}
 			if m.mcpManager != nil {
+				m.burstCount = 0
 				return m.handleMCPManagerKey(msg)
 			}
 			if m.picker != nil {
@@ -1577,12 +1636,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.moveAskUserCursor(1), nil
 			}
 			if m.providerWizard != nil {
+				m.burstCount = 0
 				return m.handleProviderWizardKey(msg)
 			}
 			if m.mcpAddWizard != nil {
+				m.burstCount = 0
 				return m.handleMCPAddWizardKey(msg)
 			}
 			if m.mcpManager != nil {
+				m.burstCount = 0
 				return m.handleMCPManagerKey(msg)
 			}
 			if m.picker != nil {
@@ -1612,12 +1674,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.moveAskUserCursor(1), nil
 			}
 			if m.providerWizard != nil {
+				m.burstCount = 0
 				return m.handleProviderWizardKey(msg)
 			}
 			if m.mcpAddWizard != nil {
+				m.burstCount = 0
 				return m.handleMCPAddWizardKey(msg)
 			}
 			if m.mcpManager != nil {
+				m.burstCount = 0
 				return m.handleMCPManagerKey(msg)
 			}
 			if m.picker != nil {
@@ -1655,12 +1720,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.moveAskUserCursor(-1), nil
 			}
 			if m.providerWizard != nil {
+				m.burstCount = 0
 				return m.handleProviderWizardKey(msg)
 			}
 			if m.mcpAddWizard != nil {
+				m.burstCount = 0
 				return m.handleMCPAddWizardKey(msg)
 			}
 			if m.mcpManager != nil {
+				m.burstCount = 0
 				return m.handleMCPManagerKey(msg)
 			}
 			if m.picker != nil {
@@ -1746,18 +1814,23 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // picker mode: non-navigation keys do nothing
 		}
 		if m.pendingSpecReview != nil {
+			m.burstCount = 0
 			return m.handleSpecReviewKey(msg)
 		}
 		if m.pendingPermission != nil {
+			m.burstCount = 0
 			return m.handlePermissionKey(msg)
 		}
 		if m.providerWizard != nil {
+			m.burstCount = 0
 			return m.handleProviderWizardKey(msg)
 		}
 		if m.mcpAddWizard != nil {
+			m.burstCount = 0
 			return m.handleMCPAddWizardKey(msg)
 		}
 		if m.mcpManager != nil {
+			m.burstCount = 0
 			return m.handleMCPManagerKey(msg)
 		}
 		// An open picker is modal over the input: swallow remaining keys so they
