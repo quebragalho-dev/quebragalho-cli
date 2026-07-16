@@ -34,6 +34,9 @@ const (
 
 var ErrUnknownProvider = errors.New("unknown provider")
 
+// AIMLAPIID is the provider catalog identifier for the AI/ML API preset.
+const AIMLAPIID = "aimlapi"
+
 type Descriptor struct {
 	ID                  string
 	Name                string
@@ -107,6 +110,7 @@ var descriptors = []Descriptor{
 	localOpenAI("ollama", "Ollama Local", "http://localhost:11434/v1", "llama3.1", "ollama local"),
 	localOpenAI("lmstudio", "LM Studio", "http://localhost:1234/v1", "local-model", "lm-studio", "lm studio"),
 	oauthProvider(openAICompat("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4.1", []string{"OPENROUTER_API_KEY"}), true, false),
+	openAICompat(AIMLAPIID, "AI/ML API", "https://api.aimlapi.com/v1", "openai/gpt-5-chat", []string{"AIMLAPI_API_KEY"}, "aiml api", "ai/ml api"),
 	// Hugging Face Inference Providers — OpenAI-compatible router at
 	// https://router.huggingface.co/v1 exposes hundreds of OSS models. OAuth
 	// requires a one-time app registration at huggingface.co/settings/applications/new
