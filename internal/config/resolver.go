@@ -171,7 +171,10 @@ func ResolveMCP(options ResolveOptions) (MCPConfig, error) {
 		if err != nil {
 			return MCPConfig{}, err
 		}
-		mergeMCPConfig(&cfg.MCP, fileConfig.MCP)
+		// User config is higher-trust than project config: it may re-enable a
+		// server the user disabled (a user-level disable is sticky, but the user
+		// scope itself may lift it).
+		mergeMCPConfig(&cfg.MCP, fileConfig.MCP, true)
 	}
 	// Drop the project layer when the workspace is untrusted, so a cloned repo's
 	// ./.zero/config.json cannot register (and spawn) MCP servers. Fail-closed:
@@ -185,7 +188,7 @@ func ResolveMCP(options ResolveOptions) (MCPConfig, error) {
 			return MCPConfig{}, err
 		}
 	}
-	mergeMCPConfig(&cfg.MCP, options.Overrides.MCP)
+	mergeMCPConfig(&cfg.MCP, options.Overrides.MCP, true)
 	return cfg.MCP, nil
 }
 
@@ -212,7 +215,7 @@ func mergeConfig(dst *FileConfig, src FileConfig) {
 	for _, provider := range src.Providers {
 		mergeProvider(dst, provider)
 	}
-	mergeMCPConfig(&dst.MCP, src.MCP)
+	mergeMCPConfig(&dst.MCP, src.MCP, true)
 	if network := strings.TrimSpace(src.Sandbox.Network); network != "" {
 		dst.Sandbox.Network = network
 	}
@@ -710,7 +713,7 @@ func applyOverrides(cfg *FileConfig, overrides Overrides) {
 	if hasProviderFields(overrides.Provider) {
 		mergeProvider(cfg, overrides.Provider)
 	}
-	mergeMCPConfig(&cfg.MCP, overrides.MCP)
+	mergeMCPConfig(&cfg.MCP, overrides.MCP, true)
 }
 
 func mergeLocalControlConfig(dst *LocalControlConfig, src LocalControlConfig) {

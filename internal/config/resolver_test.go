@@ -555,7 +555,7 @@ func TestResolveReplacesMCPServerOverlayCollections(t *testing.T) {
 	}
 }
 
-func TestResolveMCPServerLayersCanClearAndReenable(t *testing.T) {
+func TestResolveMCPServerLayersCannotReenableUserDisabled(t *testing.T) {
 	userPath := writeConfig(t, `{
 		"mcp": {
 			"servers": {
@@ -589,14 +589,135 @@ func TestResolveMCPServerLayersCanClearAndReenable(t *testing.T) {
 	}
 
 	docs := resolved.MCP.Servers["docs"]
-	if docs.Disabled {
-		t.Fatalf("docs.Disabled = true, want project layer to re-enable")
+	// A user-level disable is sticky: project config must not re-enable it.
+	if !docs.Disabled {
+		t.Fatal("docs.Disabled = false, want user-level disable to remain sticky")
 	}
+	// Non-disable fields from the project layer still merge normally.
 	if len(docs.Args) != 0 {
 		t.Fatalf("docs.Args = %#v, want project layer to clear inherited args", docs.Args)
 	}
 	if len(docs.Env) != 0 {
 		t.Fatalf("docs.Env = %#v, want project layer to clear inherited env", docs.Env)
+	}
+}
+
+func TestMergeMCPStickyDisableReenable(t *testing.T) {
+	disabled := MCPServerConfig{Disabled: true, disabledSet: true}
+
+	// A lower-trust (project) layer must not lift a sticky user disable.
+	project := MCPServerConfig{Disabled: false, disabledSet: true}
+	if got := mergeMCPServer(disabled, project, false); !got.Disabled {
+		t.Fatal("project layer re-enabled a sticky user disable")
+	}
+
+	// The user scope (explicit mcp enable command / CLI override) may re-enable.
+	override := MCPServerConfig{Disabled: false, disabledSet: true}
+	if got := mergeMCPServer(disabled, override, true); got.Disabled {
+		t.Fatal("user-scope override must be able to re-enable")
+	}
+
+	// A user-scope disable stacked on a project attempt still sticks.
+	if got := mergeMCPServer(disabled, project, false); !got.Disabled {
+		t.Fatal("sticky disable must survive a project re-enable attempt")
+	}
+
+	// Baseline: a project layer may disable a default-enabled server when no
+	// higher-trust scope has explicitly set disabled (the trust boundary must
+	// not block legitimate project disables). Regression guard for the
+	// disabledSet-before-check ordering bug.
+	defaultEnabled := MCPServerConfig{Disabled: false, disabledSet: false}
+	projectDisable := MCPServerConfig{Disabled: true, disabledSet: true}
+	if got := mergeMCPServer(defaultEnabled, projectDisable, false); !got.Disabled {
+		t.Fatal("project layer should be able to disable a default-enabled server")
+	}
+
+	// And an empty project layer must not flip an unconfigured server to disabled.
+	if got := mergeMCPServer(MCPServerConfig{}, MCPServerConfig{}, false); got.Disabled {
+		t.Fatal("an empty project layer must not disable an unconfigured server")
+	}
+}
+
+// TestResolveMCPCannotReenableUserDisabled exercises the trust boundary at the
+// actual ResolveMCP entry point: a project config (project scope) must not lift
+// a disable the user set in their higher-trust user config.
+func TestResolveMCPCannotReenableUserDisabled(t *testing.T) {
+	userPath := writeConfig(t, `{
+		"mcp": {
+			"servers": {
+				"docs": {
+					"type": "stdio",
+					"command": "docs-mcp",
+					"disabled": true
+				}
+			}
+		}
+	}`)
+	// Project config tries to re-enable it.
+	projectPath := writeConfig(t, `{
+		"mcpServers": {
+			"docs": {
+				"disabled": false
+			}
+		}
+	}`)
+
+	resolved, err := ResolveMCP(ResolveOptions{
+		UserConfigPath:    userPath,
+		ProjectConfigPath: projectPath,
+	})
+	if err != nil {
+		t.Fatalf("ResolveMCP() error = %v", err)
+	}
+
+	docs, ok := resolved.Servers["docs"]
+	if !ok {
+		t.Fatal("docs server missing from resolved config")
+	}
+	if !docs.Disabled {
+		t.Fatalf("docs.Disabled = false, want user-level disable to remain sticky across project re-enable")
+	}
+}
+
+// TestResolveMCPUserLiftsProjectDisabled asserts the reverse direction is open:
+// a user config (higher-trust scope) re-enabling a server the project config
+// disabled must be permitted, since user > project in the trust hierarchy.
+func TestResolveMCPUserLiftsProjectDisabled(t *testing.T) {
+	// Project config disables the server.
+	projectPath := writeConfig(t, `{
+		"mcpServers": {
+			"docs": {
+				"type": "stdio",
+				"command": "docs-mcp",
+				"disabled": true
+			}
+		}
+	}`)
+	// User config re-enables it.
+	userPath := writeConfig(t, `{
+		"mcp": {
+			"servers": {
+				"docs": {
+					"disabled": false
+				}
+			}
+		}
+	}`)
+
+	resolved, err := ResolveMCP(ResolveOptions{
+		UserConfigPath:    userPath,
+		ProjectConfigPath: projectPath,
+	})
+	if err != nil {
+		t.Fatalf("ResolveMCP() error = %v", err)
+	}
+
+	docs, ok := resolved.Servers["docs"]
+	if !ok {
+		t.Fatal("docs server missing from resolved config")
+	}
+	if docs.Disabled {
+		t.Fatalf("docs.Disabled = true, want user scope to lift the project-level disable")
 	}
 }
 
