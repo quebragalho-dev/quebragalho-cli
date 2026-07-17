@@ -339,7 +339,7 @@ manifest.
 | Control | Effect |
 |---|---|
 | `NO_COLOR=<anything>` | disables color output |
-| `ZERO_THEME=<name>` | selects the startup theme (`auto`, `dark`, `light`, or a color theme like `dracula`, `nord`, `gruvbox`, `tokyo-night`, `catppuccin`, `one-dark`, `solarized-dark`, `rose-pine`, `everforest`, `solarized-light`) |
+| `ZERO_THEME=<name>` | selects the startup theme (`auto`, `dark`, `light`, or a color theme like `dracula`, `nord`, `gruvbox`, `tokyo-night`, `catppuccin`, `one-dark`, `solarized-dark`, `rose-pine`, `everforest`, `neon`, `solarized-light`, `dune`) |
 | `--theme <name>` | selects the TUI theme from the CLI (same names) |
 | `/theme` | opens the theme picker inside the TUI (live preview; `/theme <name>` switches directly) |
 | `ZERO_NO_FADE=1` | disables streaming fade animation |
@@ -386,6 +386,7 @@ go run ./cmd/zero-release build --goos windows --goarch amd64 --output dist/zero
 
 - [Install](docs/INSTALL.md)
 - [Update flow](docs/UPDATE.md)
+- [Themes](docs/THEMES.md)
 - [Stream-JSON protocol](docs/STREAM_JSON_PROTOCOL.md)
 - [Specialists](docs/SPECIALISTS.md)
 - [GitHub Action](docs/GITHUB_ACTION.md)
