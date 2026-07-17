@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Gitlawb/zero/internal/aimlapi"
 	"github.com/Gitlawb/zero/internal/modelregistry"
 	"github.com/Gitlawb/zero/internal/notify"
 	"github.com/Gitlawb/zero/internal/providercatalog"
@@ -1038,6 +1039,45 @@ func applyCatalogDescriptor(profile *ProviderProfile, descriptor providercatalog
 	}
 	if profile.APIKeyEnv == "" && len(descriptor.AuthEnvVars) > 0 && (!explicitBaseURL || sameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)) {
 		profile.APIKeyEnv = descriptor.AuthEnvVars[0]
+	}
+	canonicalCatalogEndpoint := !explicitBaseURL || sameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)
+	if len(descriptor.CustomHeaders) > 0 && canonicalCatalogEndpoint {
+		catalogHeaders := descriptor.CustomHeaders
+		if strings.EqualFold(strings.TrimSpace(descriptor.ID), "aimlapi") {
+			catalogHeaders = aimlapi.WithResolvedPartnerHeader(catalogHeaders)
+		}
+		merged := copyStringMap(catalogHeaders)
+		for key, value := range profile.CustomHeaders {
+			// Header names are case-insensitive. Preserve the catalog spelling while
+			// replacing its value so request construction cannot see two colliding
+			// map entries whose eventual winner depends on iteration order.
+			existingKey := ""
+			for candidate := range merged {
+				if strings.EqualFold(candidate, key) {
+					existingKey = candidate
+					break
+				}
+			}
+			if existingKey != "" {
+				merged[existingKey] = value
+				continue
+			}
+			merged[key] = value
+		}
+		profile.CustomHeaders = merged
+	} else if strings.EqualFold(strings.TrimSpace(descriptor.ID), "aimlapi") && !canonicalCatalogEndpoint {
+		// AIMLAPI attribution is owned by the catalog endpoint. A profile can retain
+		// those generated headers after its base URL is edited; strip their names
+		// before sending requests to an arbitrary staging/proxy host while preserving
+		// unrelated headers explicitly supplied by the user.
+		for profileKey := range profile.CustomHeaders {
+			for catalogKey := range descriptor.CustomHeaders {
+				if strings.EqualFold(profileKey, catalogKey) {
+					delete(profile.CustomHeaders, profileKey)
+					break
+				}
+			}
+		}
 	}
 }
 

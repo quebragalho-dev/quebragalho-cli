@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Gitlawb/zero/internal/modelregistry"
+	"github.com/Gitlawb/zero/internal/providercatalog"
 )
 
 func TestResolveAppliesLayerPrecedence(t *testing.T) {
@@ -1371,6 +1372,71 @@ func TestResolveProviderProfileExtendedJSONAliases(t *testing.T) {
 	}
 	if profile.ParseThinkTags == nil || !*profile.ParseThinkTags {
 		t.Fatalf("ParseThinkTags = %#v, want true", profile.ParseThinkTags)
+	}
+}
+
+func TestApplyCatalogDescriptorFoldsCustomHeadersCaseInsensitively(t *testing.T) {
+	t.Setenv("AIMLAPI_PARTNER_ID", "part_env")
+	descriptor, err := providercatalog.Require("aimlapi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := ProviderProfile{
+		BaseURL: descriptor.DefaultBaseURL,
+		CustomHeaders: map[string]string{
+			"x-aimlapi-partner-id": "part_override",
+		},
+	}
+
+	applyCatalogDescriptor(&profile, descriptor, true)
+
+	if got := profile.CustomHeaders["X-AIMLAPI-Partner-ID"]; got != "part_override" {
+		t.Fatalf("canonical header value = %q, want override", got)
+	}
+	if _, duplicate := profile.CustomHeaders["x-aimlapi-partner-id"]; duplicate {
+		t.Fatalf("case-colliding header survived merge: %#v", profile.CustomHeaders)
+	}
+}
+
+func TestApplyCatalogDescriptorUsesAimlapiPartnerEnvironmentOverride(t *testing.T) {
+	t.Setenv("AIMLAPI_PARTNER_ID", "part_env")
+	descriptor, err := providercatalog.Require("aimlapi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := ProviderProfile{BaseURL: descriptor.DefaultBaseURL}
+
+	applyCatalogDescriptor(&profile, descriptor, true)
+
+	if got := profile.CustomHeaders["X-AIMLAPI-Partner-ID"]; got != "part_env" {
+		t.Fatalf("partner header = %q, want part_env", got)
+	}
+}
+
+func TestApplyCatalogDescriptorStripsAimlapiAttributionFromRetargetedProfile(t *testing.T) {
+	descriptor, err := providercatalog.Require("aimlapi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := ProviderProfile{
+		BaseURL: "https://proxy.example.test/v1",
+		CustomHeaders: map[string]string{
+			"x-aimlapi-partner-id":          "persisted-partner",
+			"X-AIMLAPI-Integration-Repo":    "Gitlawb/zero",
+			"X-AIMLAPI-Integration-Version": "zero",
+			"X-Environment":                 "staging",
+		},
+	}
+
+	applyCatalogDescriptor(&profile, descriptor, true)
+
+	for key := range profile.CustomHeaders {
+		if strings.HasPrefix(strings.ToLower(key), "x-aimlapi-") {
+			t.Fatalf("catalog attribution survived retargeting: %#v", profile.CustomHeaders)
+		}
+	}
+	if profile.CustomHeaders["X-Environment"] != "staging" {
+		t.Fatalf("user header was removed: %#v", profile.CustomHeaders)
 	}
 }
 
