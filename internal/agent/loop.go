@@ -136,6 +136,33 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		}
 	}
 
+	// Establish the run's turn session — the seam an optimized provider session
+	// (connection reuse, prewarm, native compaction) plugs into without touching
+	// this loop. Default: wrap the passed provider so the session's Stream IS
+	// provider.StreamCompletion, byte-identical to calling it directly. Opened
+	// before dispatchSessionStart so a failed open is a clean run-start error
+	// with no session hooks fired and nothing to unwind.
+	turnSessions := options.TurnSessionProvider
+	if turnSessions == nil {
+		turnSessions = zeroruntime.NewProviderTurnSessionProvider(provider, zeroruntime.ProviderCapabilities{})
+	}
+	session, sessionErr := turnSessions.OpenTurnSession(ctx)
+	if sessionErr != nil {
+		return Result{}, fmt.Errorf("agent: open turn session: %w", sessionErr)
+	}
+	// Closed via closure (not `defer session.Close()`) so after a mid-run model
+	// swap the CURRENT session is the one closed at teardown — the swap closes
+	// the old one inline. Close errors are advisory and never fail the run.
+	defer func() { _ = session.Close() }()
+	// Best-effort prewarm: the default adapter no-ops; a real session may prime
+	// a connection. Failure is ignored by contract (never fatal).
+	_ = session.Prewarm(ctx)
+	// Route ALL provider I/O — per-turn streams, mid-stream retries, the
+	// compaction summarizer, and the final-answer request — through the session
+	// by reassigning the loop's provider local. Every existing call site reads
+	// this local, so no signatures change anywhere downstream.
+	provider = sessionProvider{session: session}
+
 	maxTurns := options.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 12
@@ -710,25 +737,53 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// of the run. At most one switch per turn (first request wins). A switcher
 		// error is NON-FATAL — record a brief note and continue on the current
 		// model. nil switcher ⇒ requests are ignored entirely (escalation off).
-		if turnRequestedModel != "" && options.ModelSwitcher != nil {
-			newProvider, switchErr := options.ModelSwitcher(ctx, turnRequestedModel)
+		if turnRequestedModel != "" && (options.ModelSessionSwitcher != nil || options.ModelSwitcher != nil) {
+			// Resolve the escalated model's session source. The target-aware
+			// ModelSessionSwitcher is preferred: its TurnSessionProvider carries an
+			// optimized session (and capabilities) across the swap. The legacy
+			// ModelSwitcher fallback returns a bare Provider, wrapped in the
+			// default no-op session — identical to pre-seam behavior.
+			var newSessions zeroruntime.TurnSessionProvider
+			var switchErr error
+			if options.ModelSessionSwitcher != nil {
+				newSessions, switchErr = options.ModelSessionSwitcher(ctx, turnRequestedModel)
+			} else {
+				var newProvider Provider
+				newProvider, switchErr = options.ModelSwitcher(ctx, turnRequestedModel)
+				if switchErr == nil && newProvider != nil {
+					newSessions = zeroruntime.NewProviderTurnSessionProvider(newProvider, zeroruntime.ProviderCapabilities{})
+				}
+			}
 			if switchErr != nil {
 				messages = append(messages, zeroruntime.Message{
 					Role:    zeroruntime.MessageRoleUser,
 					Content: escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + switchErr.Error() + ". Continuing on " + options.Model + ".",
 				})
-			} else if newProvider != nil {
-				// Reassign the local provider so the next turn's StreamCompletion and
-				// compaction use it; update options.Model so subsequent RunOptions.Model,
-				// context-window sizing, and usage attribution follow the new model.
-				provider = newProvider
-				options.Model = turnRequestedModel
-				options.Trace.Counter(trace.CounterModelSwitches, 1)
-				// KNOWN LIMITATION (deferred): the compactor's context-window budget
-				// is fixed at run start from options.ContextWindow and is NOT updated
-				// here, so a switch to a model with a different window keeps compacting
-				// against the original budget. Fixing it needs a ModelSwitcher contract
-				// change (return the new window) — out of scope for this change.
+			} else if newSessions != nil {
+				// Open the new session and close the old one, so the next turn's
+				// streams and compaction use the new model. For the default adapter
+				// the open never errors and Close is a no-op, so this stays
+				// byte-identical to a direct provider reassignment; the guarded open
+				// and prewarm matter once a session holds real state.
+				newSession, openErr := newSessions.OpenTurnSession(ctx)
+				if openErr != nil {
+					messages = append(messages, zeroruntime.Message{
+						Role:    zeroruntime.MessageRoleUser,
+						Content: escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + openErr.Error() + ". Continuing on " + options.Model + ".",
+					})
+				} else {
+					_ = session.Close()
+					session = newSession
+					_ = session.Prewarm(ctx)
+					provider = sessionProvider{session: session}
+					options.Model = turnRequestedModel
+					options.Trace.Counter(trace.CounterModelSwitches, 1)
+					// KNOWN LIMITATION (deferred): the compactor's context-window budget
+					// is fixed at run start from options.ContextWindow and is NOT updated
+					// here, so a switch to a model with a different window keeps compacting
+					// against the original budget. Fixing it needs the switcher to also
+					// report the new window — out of scope for this change.
+				}
 			}
 		}
 
