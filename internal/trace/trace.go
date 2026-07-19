@@ -103,6 +103,27 @@ type OutputBudgetEvent struct {
 	SpillCreated            bool   `json:"spill_created"`
 }
 
+// TaskStateEvent is a content-free snapshot of the run's structured task
+// projection. Objective text, plan content, tool output, file paths, and
+// confirmable content fingerprints are deliberately excluded so tracing cannot
+// become a secret-bearing side channel.
+type TaskStateEvent struct {
+	Revision            int    `json:"revision"`
+	Status              string `json:"status"`
+	PlanPending         int    `json:"plan_pending"`
+	PlanInProgress      int    `json:"plan_in_progress"`
+	PlanCompleted       int    `json:"plan_completed"`
+	PlanFailed          int    `json:"plan_failed"`
+	ToolsSucceeded      int    `json:"tools_succeeded"`
+	ToolsFailed         int    `json:"tools_failed"`
+	VerificationPassed  int    `json:"verification_passed"`
+	VerificationFailed  int    `json:"verification_failed"`
+	VerificationOutcome string `json:"verification_outcome,omitempty"`
+	ChangedFileCount    int    `json:"changed_file_count"`
+	CompletionDecision  string `json:"completion_decision,omitempty"`
+	PlanParity          string `json:"plan_parity"`
+}
+
 // TurnTrace is the finished record for one agent.Run. It is the value
 // emitters serialize; it is not mutated after Finish returns a snapshot.
 type TurnTrace struct {
@@ -118,6 +139,7 @@ type TurnTrace struct {
 	Counters            []Counter           `json:"counters"`
 	PrefixHashes        []PrefixHash        `json:"prefix_hashes,omitempty"`
 	OutputBudgets       []OutputBudgetEvent `json:"output_budgets,omitempty"`
+	TaskStates          []TaskStateEvent    `json:"task_states,omitempty"`
 }
 
 // PrefixHash is one fingerprint of the prompt prefix emitted by an agent run.
@@ -280,5 +302,6 @@ func OptionalEventKeys() []string {
 		"counter:" + CounterPrefixDrift,
 		"counter:" + CounterPostureEscalations,
 		"event:prefix_hash",
+		"task_state",
 	}
 }

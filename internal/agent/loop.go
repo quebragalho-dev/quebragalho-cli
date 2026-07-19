@@ -185,7 +185,16 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	messages := zeroruntime.SeedMessagesWithImages(promptParts.prompt, prompt, options.Images)
 
 	guards := newGuardState()
-	compactor := newCompactionState(options)
+	task := newTaskState(prompt, options.Trace)
+	compactor := newCompactionState(options, task)
+	defer func() {
+		// A final transcript comparison is observational. It records drift but
+		// never rewrites the result or changes execution after the fact.
+		task.observePlanParity(result.Messages)
+		// Tool-result observations are intentionally coalesced; this final event
+		// guarantees their aggregate counts are present even on an early return.
+		task.emit()
+	}()
 	// The execution-profile posture controller. nil Options.Profile (every
 	// existing caller) makes every observe/decide call a no-op, keeping the
 	// loop byte-identical for unprofiled runs.
@@ -570,7 +579,9 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// model's final answer ONLY when the work is actually done. Default off
 			// (RequireCompletionSignal), so interactive runs stay byte-identical.
 			if options.RequireCompletionSignal {
-				evaluation := completionPolicy.evaluate(collected.Text, guards.pendingPlanItems())
+				completionContext := task.completionContext(messages, guards.pendingPlanItems())
+				evaluation := completionPolicy.evaluate(collected.Text, completionContext)
+				task.observe(taskStateEvent{kind: taskStateEventCompletion, completion: evaluation})
 				switch evaluation.Decision {
 				case CompletionIncomplete:
 					result.Incomplete = true
@@ -595,13 +606,15 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 						options.Trace.Counter(trace.CounterAcceptanceChecks, 1)
 						messages = append(messages, zeroruntime.Message{
 							Role:    zeroruntime.MessageRoleUser,
-							Content: acceptanceVerificationNudge(),
+							Content: acceptanceVerificationNudge(completionContext.Objective),
 						})
 					}
 					continue
 				case CompletionComplete:
 					// Local evidence is sufficient; proceed to final diagnostics.
 				}
+			} else {
+				task.observe(taskStateEvent{kind: taskStateEventCompletion, completion: completionEvaluation{Decision: CompletionComplete}})
 			}
 			// Finalization diagnostics gate: edits from this run may still have
 			// checks in flight — the per-turn drain waits only briefly and defers
@@ -625,6 +638,11 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// executing so the empty-turn counter resets and plan-tracking signals
 		// stay current.
 		guards.observeTurn(collected)
+		for _, call := range collected.ToolCalls {
+			if call.Name == planToolName {
+				task.observe(taskStateEvent{kind: taskStateEventPlan, arguments: call.Arguments})
+			}
+		}
 
 		failureHint := ""
 		// turnRequestedModel records the FIRST mid-run escalation target requested
@@ -676,6 +694,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			}
 			options.Trace.Counter(trace.CounterToolCalls, 1)
 			recordOutputBudgetTrace(options.Trace, toolResult)
+			task.observe(taskStateEvent{kind: taskStateEventToolResult, toolResult: toolResult})
 			if options.OnToolResult != nil {
 				options.OnToolResult(toolResult)
 			}
@@ -757,6 +776,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		if options.SelfCorrect != nil && len(changedFilesThisBatch) > 0 {
 			feedback, selfCorrectOutcome := options.SelfCorrect.AfterEdit(ctx, dedupeStrings(changedFilesThisBatch))
 			posture.observeSelfCorrect(selfCorrectOutcome)
+			task.observe(taskStateEvent{kind: taskStateEventVerification, verification: selfCorrectOutcome})
 			if feedback != "" {
 				messages = append(messages, zeroruntime.Message{
 					Role:    zeroruntime.MessageRoleUser,
