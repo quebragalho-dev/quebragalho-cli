@@ -4,20 +4,20 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providers/openai"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/openai"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // openaiTurnSessionEnv gates the optimized OpenAI turn session (prewarm +
 // prefix telemetry). Default OFF: unset, "0", or "false" (any case) leave the
 // agent loop's default adapter path untouched. Set to any other non-empty
-// value (e.g. "1") to enable — the same boolean idiom as ZERO_FORMAT_ON_WRITE.
-const openaiTurnSessionEnv = "ZERO_OPENAI_TURN_SESSION"
+// value (e.g. "1") to enable — the same boolean idiom as QG_FORMAT_ON_WRITE.
+const openaiTurnSessionEnv = "QG_OPENAI_TURN_SESSION"
 
 // ChatGPT Responses sessions are enabled by default for their native provider.
 // Setting this to 0/false/off restores the stateless HTTP/SSE transport.
-const chatGPTTurnSessionEnv = "ZERO_CHATGPT_TURN_SESSION"
+const chatGPTTurnSessionEnv = "QG_CHATGPT_TURN_SESSION"
 
 func openaiTurnSessionEnabled() bool {
 	value := strings.TrimSpace(os.Getenv(openaiTurnSessionEnv))
@@ -47,7 +47,7 @@ func explicitEnvFalse(value string) bool {
 // concrete Codex provider and defaults on with a kill switch; official OpenAI
 // chat-completions keeps its existing opt-in prewarm session. Compatible
 // gateways and foreign provider values always retain the default adapter.
-func OptimizedTurnSessions(profile config.ProviderProfile, provider zeroruntime.Provider, options Options) (zeroruntime.TurnSessionProvider, bool) {
+func OptimizedTurnSessions(profile config.ProviderProfile, provider qgruntime.Provider, options Options) (qgruntime.TurnSessionProvider, bool) {
 	resolved, err := resolveProfile(profile, options)
 	if err != nil {
 		return nil, false
@@ -94,10 +94,10 @@ func OptimizedTurnSessions(profile config.ProviderProfile, provider zeroruntime.
 // resolution failure degrades to an unknown (zero) projection rather than
 // failing the wrap: the default session has no behavior that depends on
 // capabilities, so a swap must never be blocked by a projection error.
-func DefaultTurnSessions(profile config.ProviderProfile, provider zeroruntime.Provider, options Options) zeroruntime.TurnSessionProvider {
+func DefaultTurnSessions(profile config.ProviderProfile, provider qgruntime.Provider, options Options) qgruntime.TurnSessionProvider {
 	caps, err := resolveCapabilities(profile, options)
 	if err != nil {
-		caps = zeroruntime.ProviderCapabilities{}
+		caps = qgruntime.ProviderCapabilities{}
 	}
-	return zeroruntime.NewProviderTurnSessionProvider(provider, caps)
+	return qgruntime.NewProviderTurnSessionProvider(provider, caps)
 }

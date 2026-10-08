@@ -186,7 +186,7 @@ func (registry Registry) ResolveID(pattern string) (string, bool) {
 func (registry Registry) Require(pattern string) (ModelEntry, error) {
 	model, ok := registry.Get(pattern)
 	if !ok {
-		return ModelEntry{}, fmt.Errorf("unknown Zero model %q", pattern)
+		return ModelEntry{}, fmt.Errorf("unknown QG model %q", pattern)
 	}
 	return model, nil
 }
@@ -260,7 +260,7 @@ func (registry Registry) RequireProvider(pattern string, provider ProviderKind) 
 		return ModelEntry{}, err
 	}
 	if model.Provider != provider {
-		return ModelEntry{}, fmt.Errorf("zero model %s belongs to %s, not %s", model.ID, model.Provider, provider)
+		return ModelEntry{}, fmt.Errorf("qg model %s belongs to %s, not %s", model.ID, model.Provider, provider)
 	}
 	return model, nil
 }

@@ -14,9 +14,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 const (
@@ -33,16 +33,16 @@ var errCodexTurnSessionBusy = errors.New("codex turn session already has an acti
 // NewCodexTurnSessionProvider enables one Responses WebSocket connection for
 // each agent run. The session falls back to the existing HTTP/SSE provider when
 // the endpoint cannot upgrade or loses its response chain.
-func NewCodexTurnSessionProvider(provider *CodexProvider, caps zeroruntime.ProviderCapabilities) zeroruntime.TurnSessionProvider {
+func NewCodexTurnSessionProvider(provider *CodexProvider, caps qgruntime.ProviderCapabilities) qgruntime.TurnSessionProvider {
 	return &codexTurnSessionProvider{provider: provider, caps: caps}
 }
 
 type codexTurnSessionProvider struct {
 	provider *CodexProvider
-	caps     zeroruntime.ProviderCapabilities
+	caps     qgruntime.ProviderCapabilities
 }
 
-func (provider *codexTurnSessionProvider) OpenTurnSession(ctx context.Context) (zeroruntime.TurnSession, error) {
+func (provider *codexTurnSessionProvider) OpenTurnSession(ctx context.Context) (qgruntime.TurnSession, error) {
 	if provider == nil || provider.provider == nil || provider.provider.inner == nil {
 		return nil, errors.New("codex turn session requires a provider")
 	}
@@ -55,7 +55,7 @@ func (provider *codexTurnSessionProvider) OpenTurnSession(ctx context.Context) (
 	}, nil
 }
 
-func (provider *codexTurnSessionProvider) Capabilities() zeroruntime.ProviderCapabilities {
+func (provider *codexTurnSessionProvider) Capabilities() qgruntime.ProviderCapabilities {
 	return provider.caps
 }
 
@@ -102,7 +102,7 @@ func (session *codexTurnSession) Prewarm(ctx context.Context) error {
 	return nil
 }
 
-func (session *codexTurnSession) Stream(ctx context.Context, request zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+func (session *codexTurnSession) Stream(ctx context.Context, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	_ = session.Prewarm(ctx)
 	select {
 	case <-session.prewarmDone:
@@ -146,7 +146,7 @@ func (session *codexTurnSession) Stream(ctx context.Context, request zeroruntime
 		session.releaseStream()
 		return nil, fmt.Errorf("encode codex websocket request: %w", err)
 	}
-	events := make(chan zeroruntime.StreamEvent, 16)
+	events := make(chan qgruntime.StreamEvent, 16)
 	go func() {
 		defer close(events)
 		defer session.releaseStream()
@@ -161,8 +161,8 @@ func (session *codexTurnSession) releaseStream() {
 	session.mu.Unlock()
 }
 
-func (session *codexTurnSession) Compact(context.Context, zeroruntime.CompletionRequest) ([]zeroruntime.Message, error) {
-	return nil, zeroruntime.ErrCompactionUnsupported
+func (session *codexTurnSession) Compact(context.Context, qgruntime.CompletionRequest) ([]qgruntime.Message, error) {
+	return nil, qgruntime.ErrCompactionUnsupported
 }
 
 func (session *codexTurnSession) Close() error {
@@ -216,8 +216,8 @@ func (session *codexTurnSession) streamWebSocket(
 	connection *websocket.Conn,
 	body []byte,
 	fullRequest *responsesRequest,
-	runtimeRequest zeroruntime.CompletionRequest,
-	events chan<- zeroruntime.StreamEvent,
+	runtimeRequest qgruntime.CompletionRequest,
+	events chan<- qgruntime.StreamEvent,
 ) {
 	if err := connection.Write(ctx, websocket.MessageText, body); err != nil {
 		session.disableWebSocket(connection)
@@ -249,8 +249,8 @@ func (session *codexTurnSession) streamWebSocket(
 			if readTimedOut {
 				errorMessage = providerio.StreamTimeoutMessage(providerio.ErrStreamIdle, idleTimeout)
 			}
-			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-				Type:  zeroruntime.StreamEventError,
+			providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:  qgruntime.StreamEventError,
 				Error: session.provider.redact("provider stream error: " + errorMessage),
 			})
 			return
@@ -270,9 +270,9 @@ func (session *codexTurnSession) streamWebSocket(
 			}
 			if responseEvent.Type == responsesEventIncomplete {
 				session.resetResponseChain(connection)
-				providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-					Type:         zeroruntime.StreamEventDone,
-					FinishReason: zeroruntime.FinishReasonLength,
+				providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+					Type:         qgruntime.StreamEventDone,
+					FinishReason: qgruntime.FinishReasonLength,
 				})
 				return
 			}
@@ -314,12 +314,12 @@ func (session *codexTurnSession) resetResponseChain(connection *websocket.Conn) 
 	session.lastOutput = nil
 }
 
-func (session *codexTurnSession) forwardHTTP(ctx context.Context, request zeroruntime.CompletionRequest, events chan<- zeroruntime.StreamEvent) {
+func (session *codexTurnSession) forwardHTTP(ctx context.Context, request qgruntime.CompletionRequest, events chan<- qgruntime.StreamEvent) {
 	trace.FromContext(ctx).Counter(trace.CounterResponsesHTTPFallback, 1)
 	stream, err := session.provider.StreamCompletion(ctx, request)
 	if err != nil {
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: session.provider.redact(err.Error()),
 		})
 		return

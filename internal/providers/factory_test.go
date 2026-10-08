@@ -11,10 +11,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/oauth"
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestNewCreatesOpenAIProviderWithFactoryOptions(t *testing.T) {
@@ -31,14 +31,14 @@ func TestNewCreatesOpenAIProviderWithFactoryOptions(t *testing.T) {
 		Model:        "factory-model",
 	}, Options{
 		HTTPClient: client,
-		UserAgent:  "zero-factory-test",
+		UserAgent:  "qg-factory-test",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion() error = %v", err)
@@ -55,7 +55,7 @@ func TestNewCreatesOpenAIProviderWithFactoryOptions(t *testing.T) {
 	if transport.request.Header.Get("Authorization") != "Bearer sk-factory" {
 		t.Fatalf("Authorization = %q, want bearer token", transport.request.Header.Get("Authorization"))
 	}
-	if transport.request.Header.Get("User-Agent") != "zero-factory-test" {
+	if transport.request.Header.Get("User-Agent") != "qg-factory-test" {
 		t.Fatalf("User-Agent = %q, want factory user agent", transport.request.Header.Get("User-Agent"))
 	}
 }
@@ -116,8 +116,8 @@ func TestNewUsesMiniMaxCompatibleEndpoints(t *testing.T) {
 				t.Fatalf("New() error = %v", err)
 			}
 
-			stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-				Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+			stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+				Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 			})
 			if err != nil {
 				t.Fatalf("StreamCompletion() error = %v", err)
@@ -151,8 +151,8 @@ func TestNewPassesOpenGatewayHY3ModelThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion() error = %v", err)
@@ -198,14 +198,14 @@ func TestNewThreadsCustomProviderHeaders(t *testing.T) {
 		APIKey:        "sk-gateway",
 		AuthHeader:    "X-API-Key",
 		AuthScheme:    "Token",
-		CustomHeaders: map[string]string{"HTTP-Referer": "https://zero.dev"},
+		CustomHeaders: map[string]string{"HTTP-Referer": "https://qg.dev"},
 		Model:         "gateway-model",
 	}, Options{HTTPClient: client})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion() error = %v", err)
@@ -219,7 +219,7 @@ func TestNewThreadsCustomProviderHeaders(t *testing.T) {
 	if transport.request.Header.Get("X-API-Key") != "Token sk-gateway" {
 		t.Fatalf("X-API-Key = %q, want custom auth header", transport.request.Header.Get("X-API-Key"))
 	}
-	if transport.request.Header.Get("HTTP-Referer") != "https://zero.dev" {
+	if transport.request.Header.Get("HTTP-Referer") != "https://qg.dev" {
 		t.Fatalf("HTTP-Referer = %q, want custom provider header", transport.request.Header.Get("HTTP-Referer"))
 	}
 }
@@ -237,8 +237,8 @@ func TestNewAIMLAPIProviderSendsEndpointAndAuthWithoutAttribution(t *testing.T) 
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion() error = %v", err)
@@ -293,8 +293,8 @@ func TestNewSupportsOpenAIProviderKind(t *testing.T) {
 // The factory must omit it for openai-compatible profiles while still
 // forwarding it for official OpenAI so multi-turn cache routing stays intact.
 func TestPromptCacheKeyOnlyOnOfficialOpenAI(t *testing.T) {
-	requestWithSession := zeroruntime.CompletionRequest{
-		Messages:       []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	requestWithSession := qgruntime.CompletionRequest{
+		Messages:       []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 		PromptCacheKey: "sess_tui_123",
 	}
 
@@ -382,14 +382,14 @@ func TestNewResolvesKnownModelToAPIModelAndProvider(t *testing.T) {
 		Model:  "claude-sonnet-4.5",
 	}, Options{
 		HTTPClient: client,
-		UserAgent:  "zero-factory-test",
+		UserAgent:  "qg-factory-test",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion() error = %v", err)
@@ -406,7 +406,7 @@ func TestNewResolvesKnownModelToAPIModelAndProvider(t *testing.T) {
 	if transport.request.Header.Get("x-api-key") != "sk-ant" {
 		t.Fatalf("x-api-key = %q, want Anthropic key", transport.request.Header.Get("x-api-key"))
 	}
-	if transport.request.Header.Get("User-Agent") != "zero-factory-test" {
+	if transport.request.Header.Get("User-Agent") != "qg-factory-test" {
 		t.Fatalf("User-Agent = %q, want factory user agent", transport.request.Header.Get("User-Agent"))
 	}
 	var body map[string]any
@@ -434,14 +434,14 @@ func TestNewCreatesGeminiProviderFromFactoryOptions(t *testing.T) {
 		Model:        "gemini-2.5-flash",
 	}, Options{
 		HTTPClient: client,
-		UserAgent:  "zero-factory-test",
+		UserAgent:  "qg-factory-test",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion() error = %v", err)
@@ -503,8 +503,8 @@ func TestNewRoutesChatGPTCatalogToCodexProvider(t *testing.T) {
 	// OAuth token and the "want empty chatgpt-account-id" assertion fails locally
 	// (it still passes in CI, where no login is stored). Mirrors the isolation in
 	// TestNewRoutesChatGPTCatalogWithStoredAccountID.
-	t.Setenv("ZERO_OAUTH_STORAGE", "file")
-	t.Setenv("ZERO_OAUTH_TOKENS_PATH", t.TempDir()+"/tokens.json")
+	t.Setenv("QG_OAUTH_STORAGE", "file")
+	t.Setenv("QG_OAUTH_TOKENS_PATH", t.TempDir()+"/tokens.json")
 
 	transport := &captureTransport{
 		responseBody: "data: [DONE]\n\n",
@@ -517,13 +517,13 @@ func TestNewRoutesChatGPTCatalogToCodexProvider(t *testing.T) {
 		Model:     "gpt-5",
 	}, Options{
 		HTTPClient: client,
-		UserAgent:  "zero-factory-test",
+		UserAgent:  "qg-factory-test",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion() error = %v", err)
@@ -579,14 +579,14 @@ func TestNewRoutesChatGPTCatalogWithStoredAccountID(t *testing.T) {
 		Model:     "gpt-5",
 	}, Options{
 		HTTPClient:    &http.Client{Transport: transport},
-		UserAgent:     "zero-factory-test",
+		UserAgent:     "qg-factory-test",
 		OAuthLoginKey: oauth.ProviderKey("chatgpt"),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion() error = %v", err)
@@ -643,15 +643,15 @@ func (transport *captureTransport) body() io.Reader {
 }
 
 // newOAuthStoreForTest pins the OAuth token store to a plain temp FILE and
-// returns a Store on it. Pinning ZERO_OAUTH_STORAGE matters as much as the
+// returns a Store on it. Pinning QG_OAUTH_STORAGE matters as much as the
 // path: an inherited "keyring" value would send NewStore to the OS keychain
-// and ignore ZERO_OAUTH_TOKENS_PATH entirely, making the test read/write the
+// and ignore QG_OAUTH_TOKENS_PATH entirely, making the test read/write the
 // developer's real logins. Exists so the chatgpt factory tests can seed a
 // token without copying the path-handling dance from internal/cli.
 func newOAuthStoreForTest(t *testing.T) (*oauth.Store, error) {
 	t.Helper()
-	t.Setenv("ZERO_OAUTH_STORAGE", "file")
-	t.Setenv("ZERO_OAUTH_TOKENS_PATH", t.TempDir()+"/tokens.json")
+	t.Setenv("QG_OAUTH_STORAGE", "file")
+	t.Setenv("QG_OAUTH_TOKENS_PATH", t.TempDir()+"/tokens.json")
 	return oauth.NewStore(oauth.StoreOptions{})
 }
 
@@ -969,13 +969,13 @@ func TestOpenCodeSessionHeader(t *testing.T) {
 			transport := &captureTransport{responseBody: test.response}
 			provider, err := New(test.profile, Options{
 				HTTPClient: &http.Client{Transport: transport},
-				UserAgent:  "zero-test",
+				UserAgent:  "qg-test",
 			})
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
-			stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-				Messages:       []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+			stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+				Messages:       []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 				PromptCacheKey: "conversation-a",
 			})
 			if err != nil {
@@ -997,8 +997,8 @@ func TestOpenCodeSessionHeader(t *testing.T) {
 					t.Fatalf("%s = %q, want %q", header, got, want)
 				}
 			}
-			if got := transport.request.Header.Get("User-Agent"); got != "zero-test" {
-				t.Fatalf("User-Agent = %q, want zero-test", got)
+			if got := transport.request.Header.Get("User-Agent"); got != "qg-test" {
+				t.Fatalf("User-Agent = %q, want qg-test", got)
 			}
 			if test.profile.ProviderKind == config.ProviderKindOpenAICompatible {
 				var body map[string]any
@@ -1022,14 +1022,14 @@ func TestOpenCodeSessionHeaderFollowsConversationKey(t *testing.T) {
 		APIKey:       "sk-oc",
 		Model:        "test-model",
 	}
-	options := Options{HTTPClient: &http.Client{Transport: transport}, UserAgent: "zero-test"}
+	options := Options{HTTPClient: &http.Client{Transport: transport}, UserAgent: "qg-test"}
 	provider, err := New(profile, options)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 	for _, key := range []string{"conversation-a", "conversation-a", "conversation-b"} {
-		stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-			Messages:       []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+		stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+			Messages:       []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 			PromptCacheKey: key,
 		})
 		if err != nil {
@@ -1052,8 +1052,8 @@ func TestOpenCodeSessionHeaderFollowsConversationKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	stream, err := reconstructed.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages:       []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := reconstructed.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages:       []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 		PromptCacheKey: "conversation-a",
 	})
 	if err != nil {
@@ -1077,12 +1077,12 @@ func TestOpenCodeSessionHeaderCustomOverride(t *testing.T) {
 		CustomHeaders: custom,
 	}
 	transport := &captureTransport{responseBody: "data: [DONE]\n\n"}
-	provider, err := New(profile, Options{HTTPClient: &http.Client{Transport: transport}, UserAgent: "zero-test"})
+	provider, err := New(profile, Options{HTTPClient: &http.Client{Transport: transport}, UserAgent: "qg-test"})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages:       []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages:       []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 		PromptCacheKey: "conversation-a",
 	})
 	if err != nil {
@@ -1115,10 +1115,10 @@ func TestOpenCodeSessionHeaderFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	request := zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	request := qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 	}
-	for _, provider := range []zeroruntime.Provider{first, first, second} {
+	for _, provider := range []qgruntime.Provider{first, first, second} {
 		stream, err := provider.StreamCompletion(context.Background(), request)
 		if err != nil {
 			t.Fatalf("StreamCompletion() error = %v", err)
@@ -1149,15 +1149,15 @@ func TestOpenCodeSessionHeaderDefaultsUserAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion() error = %v", err)
 	}
 	drainStream(t, stream)
-	if got := transport.request.Header.Get("User-Agent"); got != "zero" {
-		t.Fatalf("User-Agent = %q, want zero", got)
+	if got := transport.request.Header.Get("User-Agent"); got != "qg" {
+		t.Fatalf("User-Agent = %q, want qg", got)
 	}
 }
 
@@ -1182,8 +1182,8 @@ func TestOpenCodeSessionHeaderConcurrent(t *testing.T) {
 		go func(session string) {
 			defer wg.Done()
 			for i := 0; i < 5; i++ {
-				stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-					Messages:       []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: fmt.Sprintf("req-%s-%d", session, i)}},
+				stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+					Messages:       []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: fmt.Sprintf("req-%s-%d", session, i)}},
 					PromptCacheKey: session,
 				})
 				if err != nil {
@@ -1193,7 +1193,7 @@ func TestOpenCodeSessionHeaderConcurrent(t *testing.T) {
 					return
 				}
 				for event := range stream {
-					if event.Type == zeroruntime.StreamEventError {
+					if event.Type == qgruntime.StreamEventError {
 						errsMu.Lock()
 						errs = append(errs, event.Error)
 						errsMu.Unlock()
@@ -1277,8 +1277,8 @@ func TestOpenCodeSessionHeaderAuthRetry(t *testing.T) {
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
-			stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-				Messages:       []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hello"}},
+			stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+				Messages:       []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hello"}},
 				PromptCacheKey: "conversation-a",
 			})
 			if err != nil {
@@ -1301,10 +1301,10 @@ func TestOpenCodeSessionHeaderAuthRetry(t *testing.T) {
 	}
 }
 
-func drainStream(t *testing.T, stream <-chan zeroruntime.StreamEvent) {
+func drainStream(t *testing.T, stream <-chan qgruntime.StreamEvent) {
 	t.Helper()
 	for event := range stream {
-		if event.Type == zeroruntime.StreamEventError {
+		if event.Type == qgruntime.StreamEventError {
 			t.Fatalf("stream error: %s", event.Error)
 		}
 	}

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 type Action struct {
@@ -39,7 +39,7 @@ func SetupCommandWithModel(descriptor providercatalog.Descriptor, name string, m
 }
 
 func setupCommand(descriptor providercatalog.Descriptor, name string, model string, setActive bool) string {
-	parts := []string{"zero", "providers", "add", strings.TrimSpace(descriptor.ID)}
+	parts := []string{"qg", "providers", "add", strings.TrimSpace(descriptor.ID)}
 	if name = strings.TrimSpace(name); name != "" {
 		parts = append(parts, "--name", name)
 	}
@@ -63,7 +63,7 @@ func setupCommand(descriptor providercatalog.Descriptor, name string, model stri
 }
 
 func UseCommand(name string) string {
-	parts := []string{"zero", "providers", "use"}
+	parts := []string{"qg", "providers", "use"}
 	if name = strings.TrimSpace(name); name != "" {
 		parts = append(parts, name)
 	}
@@ -71,7 +71,7 @@ func UseCommand(name string) string {
 }
 
 func CheckCommand(name string, connectivity bool) string {
-	parts := []string{"zero", "providers", "check"}
+	parts := []string{"qg", "providers", "check"}
 	if name = strings.TrimSpace(name); name != "" {
 		parts = append(parts, name)
 	}

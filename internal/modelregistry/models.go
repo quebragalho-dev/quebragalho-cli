@@ -71,7 +71,7 @@ type ModelCost struct {
 	CachedInputPerMillion float64
 	// CacheWritePerMillion is the cache-creation (cache-write) rate, billed at a
 	// premium over input by providers that support it (Anthropic ~1.25x input).
-	// Zero means "not priced separately" — cache-write tokens fall back to the
+	// QG means "not priced separately" — cache-write tokens fall back to the
 	// input rate, preserving prior behavior for models without the rate.
 	CacheWritePerMillion float64
 	Tiers                []ModelCostTier
