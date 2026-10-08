@@ -9,12 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/execprofile"
-	"github.com/Gitlawb/zero/internal/perfbench"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execprofile"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/perfbench"
 )
 
-// turnOptions configures the `zero-perf-bench turn` subcommand: the per-turn
-// benchmark harness that runs ZERO headlessly with --trace, parses each turn's
+// turnOptions configures the `qg-perf-bench turn` subcommand: the per-turn
+// benchmark harness that runs QG headlessly with --trace, parses each turn's
 // NDJSON trace, and records per-span latency plus the top controllable latency
 // sources — the Phase 0 baseline's "do not proceed until" criterion.
 type turnOptions struct {
@@ -46,20 +46,20 @@ func runTurnCommand(args []string, getenv func(string) string, stdout io.Writer,
 
 	set, err := perfbench.LoadTaskSet(options.SuitePath)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Turn benchmark failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Turn benchmark failed: "+err.Error())
 		return 1
 	}
 
-	// The dry-run path records a zero-iteration run without a binary, so the
+	// The dry-run path records a qg-iteration run without a binary, so the
 	// manifest loads and the report path is exercised in CI without a model.
 	if options.DryRun {
-		_, _ = fmt.Fprintln(stdout, "[zero] turn benchmark: dry run (no agent invoked)")
+		_, _ = fmt.Fprintln(stdout, "[qg] turn benchmark: dry run (no agent invoked)")
 		return 0
 	}
 
 	binary, err := perfbench.ResolveBinary(options.Binary)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Turn benchmark failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Turn benchmark failed: "+err.Error())
 		return 2
 	}
 
@@ -74,19 +74,19 @@ func runTurnCommand(args []string, getenv func(string) string, stdout io.Writer,
 		Runner:      perfbench.NewTurnExecRunner(binary),
 	})
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Turn benchmark failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Turn benchmark failed: "+err.Error())
 		return 1
 	}
 
 	if options.Output != "" {
 		if err := writeTurnReport(options.Output, result); err != nil {
-			_, _ = fmt.Fprintln(stderr, "[zero] Turn benchmark failed: "+err.Error())
+			_, _ = fmt.Fprintln(stderr, "[qg] Turn benchmark failed: "+err.Error())
 			return 1
 		}
 	}
 	if options.JSON {
 		if err := perfbench.WriteTurnBenchJSON(stdout, result); err != nil {
-			_, _ = fmt.Fprintln(stderr, "[zero] Turn benchmark failed: "+err.Error())
+			_, _ = fmt.Fprintln(stderr, "[qg] Turn benchmark failed: "+err.Error())
 			return 1
 		}
 		return turnExitCode(result, stderr)
@@ -103,7 +103,7 @@ func runTurnCommand(args []string, getenv func(string) string, stdout io.Writer,
 // still valid measurements.
 func turnExitCode(result perfbench.TurnBenchResult, stderr io.Writer) int {
 	if result.TasksAttempted > 0 && result.TasksErrored == result.TasksAttempted {
-		_, _ = fmt.Fprintln(stderr, "[zero] Turn benchmark failed: every task errored with no accepted benchmark sample (see warnings); the report contains no valid measurements")
+		_, _ = fmt.Fprintln(stderr, "[qg] Turn benchmark failed: every task errored with no accepted benchmark sample (see warnings); the report contains no valid measurements")
 		return 1
 	}
 	return 0
@@ -112,8 +112,8 @@ func turnExitCode(result perfbench.TurnBenchResult, stderr io.Writer) int {
 func parseTurnArgs(args []string, getenv func(string) string) (turnOptions, error) {
 	options := turnOptions{
 		Iterations: 1,
-		Version:    strings.TrimSpace(getenv("ZERO_BENCH_VERSION")),
-		Commit:     strings.TrimSpace(getenv("ZERO_BENCH_COMMIT")),
+		Version:    strings.TrimSpace(getenv("QG_BENCH_VERSION")),
+		Commit:     strings.TrimSpace(getenv("QG_BENCH_COMMIT")),
 	}
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
@@ -221,7 +221,7 @@ func parseTurnArgs(args []string, getenv func(string) string) (turnOptions, erro
 	}
 	// Validate the profile here, before anything spawns: an unknown name would
 	// otherwise make every child exit with a usage error in milliseconds, and
-	// those near-zero walls would be recorded as valid latency samples in an
+	// those near-qg walls would be recorded as valid latency samples in an
 	// exit-0 report — exactly the misread-as-improvement trap the harness
 	// closed for spawn failures. Normalizing to the catalog name also keeps
 	// the stamped execProfile canonical (Lookup is case-insensitive), so two
@@ -251,12 +251,12 @@ func writeTurnReport(path string, result perfbench.TurnBenchResult) error {
 
 func turnHelpText() string {
 	return strings.Join([]string{
-		"Usage: zero-perf-bench turn [options]",
+		"Usage: qg-perf-bench turn [options]",
 		"",
-		"Runs ZERO headlessly with --trace against a per-turn benchmark task set and",
+		"Runs QG headlessly with --trace against a per-turn benchmark task set and",
 		"records per-span latency plus the top controllable latency sources (the",
 		"Phase 0 baseline's \"do not proceed until\" criterion). Each task is a fresh",
-		"`zero exec` process, so iterations are cold-start samples; a warm path needs",
+		"`qg exec` process, so iterations are cold-start samples; a warm path needs",
 		"an in-process runner (future work).",
 		"",
 		"Options:",
@@ -265,12 +265,12 @@ func turnHelpText() string {
 		"  --mode <name>       Exec mode preset to apply",
 		"  --exec-profile <name>",
 		"                      Execution profile for every task (fast|balanced|thorough);",
-		"                      forwarded to zero exec and stamped into the result",
+		"                      forwarded to qg exec and stamped into the result",
 		"  --self-correct      Enable the post-edit verify-and-correct loop",
-		"  --binary <path>     Path to the `zero` binary (default: zero on PATH / repo root)",
+		"  --binary <path>     Path to the `qg` binary (default: qg on PATH / repo root)",
 		"  --iterations <n>    Times to run each task (default: 1)",
-		"  --version <v>       Record the ZERO version (default: $ZERO_BENCH_VERSION)",
-		"  --commit <sha>      Record the ZERO commit (default: $ZERO_BENCH_COMMIT)",
+		"  --version <v>       Record the QG version (default: $QG_BENCH_VERSION)",
+		"  --commit <sha>      Record the QG commit (default: $QG_BENCH_COMMIT)",
 		"  --output <path>     Write the JSON result to path",
 		"  --json              Print only the JSON result",
 		"  --dry-run           Load the manifest and exit without invoking the agent",

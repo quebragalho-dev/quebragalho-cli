@@ -35,7 +35,7 @@ func TestParseTurnArgsExecProfile(t *testing.T) {
 
 // The bench validates the profile BEFORE spawning anything: an unknown name
 // would otherwise make every child exit with a usage error in milliseconds
-// and record those near-zero walls as valid latency samples in an exit-0
+// and record those near-qg walls as valid latency samples in an exit-0
 // report. Lookup normalization also keeps the stamped name canonical so two
 // captures of the same posture compare equal.
 func TestParseTurnArgsExecProfileValidatesAndNormalizes(t *testing.T) {

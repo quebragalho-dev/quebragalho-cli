@@ -31,8 +31,8 @@ func TestParseTaskArgsRequiresSuiteAndModel(t *testing.T) {
 func TestParseTaskArgsReadsFlagsAndEnv(t *testing.T) {
 	env := func(key string) string {
 		return map[string]string{
-			"ZERO_BENCH_COMMIT":  "deadbeef",
-			"ZERO_BENCH_VERSION": "9.9.9",
+			"QG_BENCH_COMMIT":  "deadbeef",
+			"QG_BENCH_VERSION": "9.9.9",
 		}[key]
 	}
 	options, err := parseTaskArgs([]string{
@@ -40,7 +40,7 @@ func TestParseTaskArgsReadsFlagsAndEnv(t *testing.T) {
 		"--model", "test-model",
 		"--mode", "build",
 		"--self-correct",
-		"--binary", "/usr/local/bin/zero",
+		"--binary", "/usr/local/bin/qg",
 		"--output", "dist/bench.json",
 		"--json",
 	}, env)
@@ -53,7 +53,7 @@ func TestParseTaskArgsReadsFlagsAndEnv(t *testing.T) {
 	if !options.SelfCorrect || !options.JSON {
 		t.Fatalf("flags not parsed: %#v", options)
 	}
-	if options.Binary != "/usr/local/bin/zero" || options.Output != "dist/bench.json" {
+	if options.Binary != "/usr/local/bin/qg" || options.Output != "dist/bench.json" {
 		t.Fatalf("binary/output = %q/%q", options.Binary, options.Output)
 	}
 	if options.Commit != "deadbeef" || options.Version != "9.9.9" {
@@ -63,7 +63,7 @@ func TestParseTaskArgsReadsFlagsAndEnv(t *testing.T) {
 
 func TestParseTaskArgsFlagsOverrideEnv(t *testing.T) {
 	env := func(key string) string {
-		return map[string]string{"ZERO_BENCH_COMMIT": "fromenv"}[key]
+		return map[string]string{"QG_BENCH_COMMIT": "fromenv"}[key]
 	}
 	options, err := parseTaskArgs([]string{"--suite", "/s.json", "--model", "m", "--commit", "fromflag"}, env)
 	if err != nil {
@@ -77,7 +77,7 @@ func TestParseTaskArgsFlagsOverrideEnv(t *testing.T) {
 func TestRunTasksCommandWritesRecordWithoutBinary(t *testing.T) {
 	// With --dry-run no agent is invoked: every task is recorded as skipped. This
 	// exercises the full record path (model + commit + self-correct flag) without
-	// needing a real zero binary or model.
+	// needing a real qg binary or model.
 	suite := writeTaskSuite(t, `{
 		"id": "terminal-bench-mini",
 		"name": "Terminal-Bench (mini)",
@@ -164,7 +164,7 @@ func TestTasksSubcommandRoutedFromMain(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run tasks --help code = %d stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "zero-perf-bench tasks") {
+	if !strings.Contains(stdout.String(), "qg-perf-bench tasks") {
 		t.Fatalf("tasks help missing usage:\n%s", stdout.String())
 	}
 }
