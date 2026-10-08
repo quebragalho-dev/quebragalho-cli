@@ -1,4 +1,4 @@
-name: ZERO Action Smoke
+name: QG Action Smoke
 
 on:
   pull_request:
@@ -7,7 +7,7 @@ on:
       - docs/GITHUB_ACTION.md
       - scripts/action-summary.mjs
       - scripts/action-summary.test.mjs
-      - .github/workflows/zero-action-smoke.yml
+      - .github/workflows/qg-action-smoke.yml
   push:
     branches:
       - main
@@ -16,7 +16,7 @@ on:
       - docs/GITHUB_ACTION.md
       - scripts/action-summary.mjs
       - scripts/action-summary.test.mjs
-      - .github/workflows/zero-action-smoke.yml
+      - .github/workflows/qg-action-smoke.yml
 
 permissions:
   contents: read
@@ -63,7 +63,7 @@ jobs:
               "prompt", "prompt-file", "provider", "api-key", "api-key-env",
               "model", "mode", "auto", "self-correct", "add-dir", "worktree",
               "output-format", "post-to", "slack-webhook-url", "github-token",
-              "working-directory", "zero-version", "zero-repo",
+              "working-directory", "qg-version", "qg-repo",
           ]
           missing = [name for name in expected_inputs if name not in inputs]
           assert not missing, f"action.yml is missing inputs: {missing}"
@@ -83,16 +83,16 @@ jobs:
           assert "--skip-permissions-unsafe" not in serialized, \
               "action must never pass --skip-permissions-unsafe"
 
-          run_zero = next((step for step in steps if step.get("name") == "Run ZERO"), None)
-          assert run_zero is not None, "action.yml must contain a Run ZERO step"
-          run_zero_script = run_zero.get("run") or ""
-          assert 'export "${ZERO_INPUT_API_KEY_ENV}=${ZERO_INPUT_API_KEY}"' in run_zero_script, \
-              "Run ZERO must export the provider key for the current step"
+          run_qg = next((step for step in steps if step.get("name") == "Run QG"), None)
+          assert run_qg is not None, "action.yml must contain a Run QG step"
+          run_qg_script = run_qg.get("run") or ""
+          assert 'export "${QG_INPUT_API_KEY_ENV}=${QG_INPUT_API_KEY}"' in run_qg_script, \
+              "Run QG must export the provider key for the current step"
           assert "later steps inherit" not in action_raw.lower(), \
               "provider keys must not be documented as inherited by later steps"
-          for line in run_zero_script.splitlines():
+          for line in run_qg_script.splitlines():
               if "GITHUB_ENV" in line and (
-                  "ZERO_INPUT_API_KEY" in line or "ZERO_INPUT_API_KEY_ENV" in line
+                  "QG_INPUT_API_KEY" in line or "QG_INPUT_API_KEY_ENV" in line
               ):
                   raise AssertionError("provider key must not be persisted to GITHUB_ENV")
 
@@ -111,10 +111,10 @@ jobs:
           for index, step in enumerate(steps):
               run = step.get("run")
               if run:
-                  with open(f"/tmp/zero_step_{index}.sh", "w", encoding="utf-8") as out:
+                  with open(f"/tmp/qg_step_{index}.sh", "w", encoding="utf-8") as out:
                       out.write(run)
           PY
-          for script in /tmp/zero_step_*.sh; do
+          for script in /tmp/qg_step_*.sh; do
             echo "bash -n ${script}"
             bash -n "${script}"
           done
