@@ -7,16 +7,16 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/oauth"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodelcatalog"
-	"github.com/Gitlawb/zero/internal/providers/anthropic"
-	"github.com/Gitlawb/zero/internal/providers/gemini"
-	"github.com/Gitlawb/zero/internal/providers/openai"
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/anthropic"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/gemini"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/openai"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // Options configures provider construction.
@@ -38,7 +38,7 @@ type Options struct {
 }
 
 // New creates a runtime provider for a resolved provider profile.
-func New(profile config.ProviderProfile, options Options) (zeroruntime.Provider, error) {
+func New(profile config.ProviderProfile, options Options) (qgruntime.Provider, error) {
 	resolved, err := resolveProfile(profile, options)
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func New(profile config.ProviderProfile, options Options) (zeroruntime.Provider,
 
 	sessionHeader := sessionHeaderForProfile(profile, resolved)
 	if sessionHeader != "" && strings.TrimSpace(options.UserAgent) == "" {
-		options.UserAgent = "zero"
+		options.UserAgent = "qg"
 	}
 
 	switch resolved.providerKind {
@@ -121,7 +121,7 @@ func New(profile config.ProviderProfile, options Options) (zeroruntime.Provider,
 // ProviderCapabilities projection computed from the same model-registry entry
 // New already resolves. The default session's Stream is the provider's
 // StreamCompletion, so runtime behavior is identical to using New directly.
-func NewTurnSessionProvider(profile config.ProviderProfile, options Options) (zeroruntime.TurnSessionProvider, error) {
+func NewTurnSessionProvider(profile config.ProviderProfile, options Options) (qgruntime.TurnSessionProvider, error) {
 	provider, err := New(profile, options)
 	if err != nil {
 		return nil, err
@@ -130,26 +130,26 @@ func NewTurnSessionProvider(profile config.ProviderProfile, options Options) (ze
 	if err != nil {
 		return nil, err
 	}
-	return zeroruntime.NewProviderTurnSessionProvider(provider, caps), nil
+	return qgruntime.NewProviderTurnSessionProvider(provider, caps), nil
 }
 
 // resolveCapabilities projects the resolved profile's model-registry entry into
-// the flat zeroruntime.ProviderCapabilities (zeroruntime cannot reference
-// modelregistry types — modelregistry imports zeroruntime, so a typed field
+// the flat qgruntime.ProviderCapabilities (qgruntime cannot reference
+// modelregistry types — modelregistry imports qgruntime, so a typed field
 // would form an import cycle). A model absent from the registry yields only the
 // resolved API model id and max-output tokens; the rest stays zero (unknown).
-func resolveCapabilities(profile config.ProviderProfile, options Options) (zeroruntime.ProviderCapabilities, error) {
+func resolveCapabilities(profile config.ProviderProfile, options Options) (qgruntime.ProviderCapabilities, error) {
 	resolved, err := resolveProfile(profile, options)
 	if err != nil {
-		return zeroruntime.ProviderCapabilities{}, err
+		return qgruntime.ProviderCapabilities{}, err
 	}
-	caps := zeroruntime.ProviderCapabilities{
+	caps := qgruntime.ProviderCapabilities{
 		Model:           resolved.apiModel,
 		MaxOutputTokens: resolved.maxOutputTokens,
 	}
 	registry, err := defaultRegistry(options.ModelRegistry)
 	if err != nil {
-		return zeroruntime.ProviderCapabilities{}, err
+		return qgruntime.ProviderCapabilities{}, err
 	}
 	if entry, ok := registry.Get(strings.TrimSpace(profile.Model)); ok {
 		caps.ContextWindow = entry.ContextLimits.ContextWindow
@@ -210,7 +210,7 @@ type resolvedProfile struct {
 }
 
 // RuntimeMetadata describes the provider identity and concrete API model used
-// after Zero model aliases and provider-kind defaults are resolved.
+// after QG model aliases and provider-kind defaults are resolved.
 type RuntimeMetadata struct {
 	ProviderKind config.ProviderKind
 	APIModel     string
@@ -242,7 +242,7 @@ func resolveProfile(profile config.ProviderProfile, options Options) (resolvedPr
 
 	// baseURL resolves in this order: profile override → catalog default.
 	// The catalog default makes the chatgpt Codex backend Just Work when a
-	// user runs `zero` with a `catalogID: chatgpt` profile; the user can
+	// user runs `qg` with a `catalogID: chatgpt` profile; the user can
 	// still pin their own URL (e.g. a self-hosted Codex gateway or a local
 	// OAuth proxy) and it wins.
 	baseURL := strings.TrimSpace(profile.BaseURL)
@@ -263,14 +263,14 @@ func resolveProfile(profile config.ProviderProfile, options Options) (resolvedPr
 		}
 		if providerKind == config.ProviderKindOpenAICompatible {
 			if !entry.AllowsProvider(modelregistry.ProviderOpenAICompatible) {
-				return resolvedProfile{}, fmt.Errorf("zero model %s belongs to %s, not %s", entry.ID, entry.Provider, modelregistry.ProviderOpenAICompatible)
+				return resolvedProfile{}, fmt.Errorf("qg model %s belongs to %s, not %s", entry.ID, entry.Provider, modelregistry.ProviderOpenAICompatible)
 			}
 		} else if providerKind == config.ProviderKindAnthropicCompat {
 			if !entry.AllowsProvider(modelregistry.ProviderAnthropic) {
-				return resolvedProfile{}, fmt.Errorf("zero model %s belongs to %s, not %s", entry.ID, entry.Provider, providerKind)
+				return resolvedProfile{}, fmt.Errorf("qg model %s belongs to %s, not %s", entry.ID, entry.Provider, providerKind)
 			}
 		} else if providerKind != modelProvider {
-			return resolvedProfile{}, fmt.Errorf("zero model %s belongs to %s, not %s", entry.ID, entry.Provider, providerKind)
+			return resolvedProfile{}, fmt.Errorf("qg model %s belongs to %s, not %s", entry.ID, entry.Provider, providerKind)
 		}
 		if err := validateModelAllowedForProvider(profile, entry.ID); err != nil {
 			return resolvedProfile{}, err
@@ -377,9 +377,9 @@ func sessionHeaderForProfile(profile config.ProviderProfile, resolved resolvedPr
 // refreshes the token in place under that key; reading the account from the same
 // key keeps header and token on one login for the provider's life. Resolving the
 // key independently here (a second oauth.FirstStored) could, after a transient
-// per-candidate load error or a mid-session `zero auth login`, pick a different
+// per-candidate load error or a mid-session `qg auth login`, pick a different
 // login than the bearer — a mismatch the backend rejects.
-func newCodexProvider(profile config.ProviderProfile, resolved resolvedProfile, options Options) (zeroruntime.Provider, error) {
+func newCodexProvider(profile config.ProviderProfile, resolved resolvedProfile, options Options) (qgruntime.Provider, error) {
 	accountKey := options.OAuthLoginKey
 	return openai.NewCodexProvider(openai.CodexOptions{
 		Options: openai.Options{

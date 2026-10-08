@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 )
 
 func TestOAuthLoginForProfileBindsBearerAndAccountToSameLogin(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "oauth-tokens.json")
-	t.Setenv("ZERO_OAUTH_STORAGE", "file")
-	t.Setenv("ZERO_OAUTH_TOKENS_PATH", path)
+	t.Setenv("QG_OAUTH_STORAGE", "file")
+	t.Setenv("QG_OAUTH_TOKENS_PATH", path)
 	store, err := oauth.NewStore(oauth.StoreOptions{FilePath: path})
 	if err != nil {
 		t.Fatalf("oauth store: %v", err)
@@ -42,8 +42,8 @@ func TestOAuthLoginForProfileBindsBearerAndAccountToSameLogin(t *testing.T) {
 }
 
 func TestOAuthLoginForProfileReturnsNoResolverWithoutUsableLogin(t *testing.T) {
-	t.Setenv("ZERO_OAUTH_STORAGE", "file")
-	t.Setenv("ZERO_OAUTH_TOKENS_PATH", filepath.Join(t.TempDir(), "oauth-tokens.json"))
+	t.Setenv("QG_OAUTH_STORAGE", "file")
+	t.Setenv("QG_OAUTH_TOKENS_PATH", filepath.Join(t.TempDir(), "oauth-tokens.json"))
 
 	for _, test := range []struct {
 		name    string

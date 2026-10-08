@@ -3,8 +3,8 @@ package providers
 import (
 	"context"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // EscalationSwitchers builds the two mid-run model switchers a run installs when
@@ -27,12 +27,12 @@ import (
 // change the transport underneath a session.
 func EscalationSwitchers(
 	profile config.ProviderProfile,
-	provider zeroruntime.Provider,
-	newProvider func(config.ProviderProfile) (zeroruntime.Provider, error),
+	provider qgruntime.Provider,
+	newProvider func(config.ProviderProfile) (qgruntime.Provider, error),
 	onSwitch func(modelID string),
 ) (
-	func(context.Context, string) (zeroruntime.Provider, error),
-	func(context.Context, string) (zeroruntime.TurnSessionProvider, error),
+	func(context.Context, string) (qgruntime.Provider, error),
+	func(context.Context, string) (qgruntime.TurnSessionProvider, error),
 ) {
 	if newProvider == nil {
 		return nil, nil
@@ -41,14 +41,14 @@ func EscalationSwitchers(
 	// credential, base URL and headers travel with it. Callers pass a newProvider
 	// that already applies the stored key, which is why there is no per-site key
 	// handling here.
-	switchTo := func(modelID string) (config.ProviderProfile, zeroruntime.Provider, error) {
+	switchTo := func(modelID string) (config.ProviderProfile, qgruntime.Provider, error) {
 		switched := profile
 		switched.Model = modelID
 		provider, err := newProvider(switched)
 		return switched, provider, err
 	}
 
-	modelSwitcher := func(_ context.Context, modelID string) (zeroruntime.Provider, error) {
+	modelSwitcher := func(_ context.Context, modelID string) (qgruntime.Provider, error) {
 		_, switchedProvider, err := switchTo(modelID)
 		if err != nil {
 			return nil, err
@@ -67,7 +67,7 @@ func EscalationSwitchers(
 		return modelSwitcher, nil
 	}
 
-	sessionSwitcher := func(_ context.Context, modelID string) (zeroruntime.TurnSessionProvider, error) {
+	sessionSwitcher := func(_ context.Context, modelID string) (qgruntime.TurnSessionProvider, error) {
 		switchedProfile, switchedProvider, err := switchTo(modelID)
 		if err != nil {
 			return nil, err

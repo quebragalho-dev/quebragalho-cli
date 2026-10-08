@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 const defaultBaseURL = "https://api.anthropic.com"
@@ -87,8 +87,8 @@ type Options struct {
 	// the API key. See providerio.SendWithAuthRetry.
 	OAuthResolver providerio.TokenResolver
 	// StreamIdleTimeout aborts the stream if no data arrives for this long.
-	// When unset, Zero uses providerio.ResolveStreamIdleTimeout — the
-	// ZERO_STREAM_IDLE_TIMEOUT override or providerio.DefaultStreamIdleTimeout.
+	// When unset, QG uses providerio.ResolveStreamIdleTimeout — the
+	// QG_STREAM_IDLE_TIMEOUT override or providerio.DefaultStreamIdleTimeout.
 	StreamIdleTimeout time.Duration
 	SessionHeader     string
 }
@@ -118,7 +118,7 @@ func New(options Options) (*Provider, error) {
 	if model == "" {
 		return nil, errors.New("anthropic provider requires a model")
 	}
-	maxTokens, err := providerio.PositiveOrDefault(options.MaxTokens, defaultMaxTokens, "zero Anthropic provider maxTokens")
+	maxTokens, err := providerio.PositiveOrDefault(options.MaxTokens, defaultMaxTokens, "qg Anthropic provider maxTokens")
 	if err != nil {
 		return nil, err
 	}
@@ -152,8 +152,8 @@ func New(options Options) (*Provider, error) {
 // StreamCompletion sends one streaming Anthropic Messages request.
 func (provider *Provider) StreamCompletion(
 	ctx context.Context,
-	request zeroruntime.CompletionRequest,
-) (<-chan zeroruntime.StreamEvent, error) {
+	request qgruntime.CompletionRequest,
+) (<-chan qgruntime.StreamEvent, error) {
 	mapped, err := provider.anthropicRequest(request)
 	if err != nil {
 		return nil, err
@@ -163,7 +163,7 @@ func (provider *Provider) StreamCompletion(
 		return nil, fmt.Errorf("encode Anthropic request: %w", err)
 	}
 
-	events := make(chan zeroruntime.StreamEvent, 16)
+	events := make(chan qgruntime.StreamEvent, 16)
 	go func() {
 		defer close(events)
 		provider.stream(ctx, body, request.PromptCacheKey, events)
@@ -171,7 +171,7 @@ func (provider *Provider) StreamCompletion(
 	return events, nil
 }
 
-func (provider *Provider) stream(ctx context.Context, body []byte, sessionID string, events chan<- zeroruntime.StreamEvent) {
+func (provider *Provider) stream(ctx context.Context, body []byte, sessionID string, events chan<- qgruntime.StreamEvent) {
 	// streamCtx lets the idle watchdog abort an in-flight body read by cancelling
 	// the request, which unblocks the SSE reader goroutine.
 	streamCtx, cancelStream := context.WithCancel(ctx)
@@ -199,7 +199,7 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 			}
 		}, 0)
 	if err != nil {
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
 		return
 	}
 	defer func() {
@@ -217,20 +217,20 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 	})
 	if errors.Is(err, providerio.ErrStreamIdle) || errors.Is(err, providerio.ErrStreamStalled) {
 		state.closeOpen(ctx, events)
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: provider.redact("provider stream error: " + providerio.StreamTimeoutMessage(err, provider.streamIdleTimeout)),
 		})
 		return
 	}
 	if err != nil {
 		state.closeOpen(ctx, events)
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
 		return
 	}
 	if err := ctx.Err(); err != nil {
 		state.closeOpen(ctx, events)
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
 		return
 	}
 	if !state.done {
@@ -238,12 +238,12 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 	}
 }
 
-func (provider *Provider) emitPayload(ctx context.Context, data string, state *streamState, events chan<- zeroruntime.StreamEvent) bool {
+func (provider *Provider) emitPayload(ctx context.Context, data string, state *streamState, events chan<- qgruntime.StreamEvent) bool {
 	var payload streamPayload
 	if err := json.Unmarshal([]byte(data), &payload); err != nil {
 		state.closeOpen(ctx, events)
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: provider.redact("provider stream error: malformed JSON: " + err.Error()),
 		})
 		state.done = true
@@ -265,7 +265,7 @@ func (provider *Provider) emitPayload(ctx context.Context, data string, state *s
 				// A tool_use block without a usable id/name can't be dispatched.
 				// Signal a drop once so the agent can ask the model to retry
 				// instead of silently ending the turn (mirrors OpenAI).
-				providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallDropped})
+				providerio.SendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallDropped})
 				return true
 			}
 			state.startTool(ctx, payload.Index, payload.ContentBlock.ID, payload.ContentBlock.Name, events)
@@ -283,7 +283,7 @@ func (provider *Provider) emitPayload(ctx context.Context, data string, state *s
 		switch payload.Delta.Type {
 		case "text_delta":
 			if payload.Delta.Text != "" {
-				providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventText, Content: payload.Delta.Text})
+				providerio.SendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventText, Content: payload.Delta.Text})
 			}
 		case "input_json_delta":
 			if payload.Delta.PartialJSON != "" {
@@ -312,8 +312,8 @@ func (provider *Provider) emitPayload(ctx context.Context, data string, state *s
 			message = firstNonEmpty(payload.Error.Message, payload.Error.Type, message)
 		}
 		state.closeOpen(ctx, events)
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: provider.classifiedError(http.StatusInternalServerError, message),
 		})
 		state.done = true
@@ -322,10 +322,10 @@ func (provider *Provider) emitPayload(ctx context.Context, data string, state *s
 	return true
 }
 
-func (provider *Provider) emitDone(ctx context.Context, state *streamState, events chan<- zeroruntime.StreamEvent) {
+func (provider *Provider) emitDone(ctx context.Context, state *streamState, events chan<- qgruntime.StreamEvent) {
 	state.closeOpen(ctx, events)
 	if state.hasInputUsage || state.hasOutputUsage {
-		usage, err := zeroruntime.NormalizeUsage(zeroruntime.TokenUsage{
+		usage, err := qgruntime.NormalizeUsage(qgruntime.TokenUsage{
 			// Anthropic reports input_tokens (uncached), cache_read, and
 			// cache_creation SEPARATELY. The runtime models cache-read and
 			// cache-write as disjoint SUBSETS of total input, so report the full
@@ -337,18 +337,18 @@ func (provider *Provider) emitDone(ctx context.Context, state *streamState, even
 			OutputTokens:      state.outputTokens,
 		})
 		if err == nil {
-			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventUsage, Usage: usage})
+			providerio.SendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventUsage, Usage: usage})
 		}
 	}
-	providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-		Type:            zeroruntime.StreamEventDone,
+	providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+		Type:            qgruntime.StreamEventDone,
 		FinishReason:    state.finishReason,
 		ReasoningBlocks: state.reasoningBlocks,
 	})
 	state.done = true
 }
 
-func (provider *Provider) emitHTTPError(ctx context.Context, response *http.Response, events chan<- zeroruntime.StreamEvent) {
+func (provider *Provider) emitHTTPError(ctx context.Context, response *http.Response, events chan<- qgruntime.StreamEvent) {
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 	message := response.Status
 	if parsed := parseErrorMessage(body); parsed != "" {
@@ -356,19 +356,19 @@ func (provider *Provider) emitHTTPError(ctx context.Context, response *http.Resp
 	} else if trimmed := strings.TrimSpace(string(body)); trimmed != "" {
 		message = trimmed
 	}
-	providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-		Type:  zeroruntime.StreamEventError,
+	providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+		Type:  qgruntime.StreamEventError,
 		Error: provider.classifiedError(response.StatusCode, message),
 	})
 }
 
-func (provider *Provider) anthropicRequest(request zeroruntime.CompletionRequest) (messagesRequest, error) {
+func (provider *Provider) anthropicRequest(request qgruntime.CompletionRequest) (messagesRequest, error) {
 	system, messages, err := mapMessages(request.Messages)
 	if err != nil {
 		return messagesRequest{}, err
 	}
 	if len(messages) == 0 {
-		return messagesRequest{}, errors.New("zero Anthropic provider requires at least one non-system message")
+		return messagesRequest{}, errors.New("qg Anthropic provider requires at least one non-system message")
 	}
 
 	mapped := messagesRequest{
@@ -438,27 +438,27 @@ func applyMessageCacheBreakpoints(messages []anthropicMessage) {
 	}
 }
 
-func mapMessages(messages []zeroruntime.Message) (string, []anthropicMessage, error) {
+func mapMessages(messages []qgruntime.Message) (string, []anthropicMessage, error) {
 	systemParts := []string{}
 	mapped := []anthropicMessage{}
 	for _, message := range messages {
 		content := message.Content
 		hasContent := strings.TrimSpace(content) != ""
 		switch message.Role {
-		case zeroruntime.MessageRoleSystem:
+		case qgruntime.MessageRoleSystem:
 			if hasContent {
 				systemParts = append(systemParts, content)
 			}
-		case zeroruntime.MessageRoleTool:
+		case qgruntime.MessageRoleTool:
 			if message.ToolCallID == "" {
-				return "", nil, errors.New("zero Anthropic provider requires toolCallId on tool result messages")
+				return "", nil, errors.New("qg Anthropic provider requires toolCallId on tool result messages")
 			}
 			appendUserBlocks(&mapped, []map[string]any{{
 				"type":        "tool_result",
 				"tool_use_id": message.ToolCallID,
 				"content":     content,
 			}})
-		case zeroruntime.MessageRoleAssistant:
+		case qgruntime.MessageRoleAssistant:
 			blocks := []map[string]any{}
 			// Replay preserved thinking blocks first: Anthropic requires them at the
 			// start of the assistant turn and rejects tool conversations that drop
@@ -548,11 +548,11 @@ func parseToolArguments(argumentsJSON string, toolName string) (map[string]any, 
 	}
 	var parsed any
 	if err := json.Unmarshal([]byte(argumentsJSON), &parsed); err != nil {
-		return nil, fmt.Errorf("zero Anthropic provider could not parse tool arguments for %s as JSON", toolName)
+		return nil, fmt.Errorf("qg Anthropic provider could not parse tool arguments for %s as JSON", toolName)
 	}
 	object, ok := parsed.(map[string]any)
 	if !ok || object == nil {
-		return nil, fmt.Errorf("zero Anthropic provider requires tool arguments for %s to be a JSON object", toolName)
+		return nil, fmt.Errorf("qg Anthropic provider requires tool arguments for %s to be a JSON object", toolName)
 	}
 	return object, nil
 }
@@ -594,7 +594,7 @@ type toolBlock struct {
 type streamState struct {
 	tools               map[int]toolBlock
 	thinking            map[int]*thinkingBuf // open thinking/redacted_thinking blocks by index
-	reasoningBlocks     []zeroruntime.ReasoningBlock
+	reasoningBlocks     []qgruntime.ReasoningBlock
 	inputTokens         int
 	outputTokens        int
 	cacheReadTokens     int // prompt-cache hits (cheap, re-billed reads)
@@ -619,11 +619,11 @@ type thinkingBuf struct {
 func mapStopReason(reason string) string {
 	switch reason {
 	case "max_tokens":
-		return zeroruntime.FinishReasonLength
+		return qgruntime.FinishReasonLength
 	case "refusal":
 		// The model declined to respond — surface it as content-filtered so the
 		// empty/partial turn isn't mistaken for a normal completion (M4).
-		return zeroruntime.FinishReasonContentFilter
+		return qgruntime.FinishReasonContentFilter
 	default:
 		// end_turn / tool_use / stop_sequence (and "") are normal completions.
 		// pause_turn is also normal here: it is Anthropic's long-running-turn pause
@@ -670,7 +670,7 @@ func (state *streamState) stopThinking(index int) {
 	if !ok {
 		return
 	}
-	state.reasoningBlocks = append(state.reasoningBlocks, zeroruntime.ReasoningBlock{
+	state.reasoningBlocks = append(state.reasoningBlocks, qgruntime.ReasoningBlock{
 		Provider:  providerName,
 		Type:      buf.kind,
 		Text:      buf.text.String(),
@@ -699,40 +699,40 @@ func (state *streamState) recordUsage(usage usage) {
 	}
 }
 
-func (state *streamState) startTool(ctx context.Context, index int, id string, name string, events chan<- zeroruntime.StreamEvent) {
+func (state *streamState) startTool(ctx context.Context, index int, id string, name string, events chan<- qgruntime.StreamEvent) {
 	state.tools[index] = toolBlock{id: id, name: name}
-	providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-		Type:       zeroruntime.StreamEventToolCallStart,
+	providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+		Type:       qgruntime.StreamEventToolCallStart,
 		ToolCallID: id,
 		ToolName:   name,
 	})
 }
 
-func (state *streamState) deltaTool(ctx context.Context, index int, fragment string, events chan<- zeroruntime.StreamEvent) {
+func (state *streamState) deltaTool(ctx context.Context, index int, fragment string, events chan<- qgruntime.StreamEvent) {
 	tool, ok := state.tools[index]
 	if !ok || fragment == "" {
 		return
 	}
-	providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-		Type:              zeroruntime.StreamEventToolCallDelta,
+	providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+		Type:              qgruntime.StreamEventToolCallDelta,
 		ToolCallID:        tool.id,
 		ArgumentsFragment: fragment,
 	})
 }
 
-func (state *streamState) stopTool(ctx context.Context, index int, events chan<- zeroruntime.StreamEvent) {
+func (state *streamState) stopTool(ctx context.Context, index int, events chan<- qgruntime.StreamEvent) {
 	tool, ok := state.tools[index]
 	if !ok {
 		return
 	}
-	providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-		Type:       zeroruntime.StreamEventToolCallEnd,
+	providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+		Type:       qgruntime.StreamEventToolCallEnd,
 		ToolCallID: tool.id,
 	})
 	delete(state.tools, index)
 }
 
-func (state *streamState) closeOpen(ctx context.Context, events chan<- zeroruntime.StreamEvent) {
+func (state *streamState) closeOpen(ctx context.Context, events chan<- qgruntime.StreamEvent) {
 	for index := range state.tools {
 		state.stopTool(ctx, index, events)
 	}

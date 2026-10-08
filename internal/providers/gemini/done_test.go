@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // emitDone must mark the shared state done so callers observe it through the
@@ -16,7 +16,7 @@ func TestEmitDoneMarksStateDoneThroughPointer(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	events := make(chan zeroruntime.StreamEvent, 4)
+	events := make(chan qgruntime.StreamEvent, 4)
 	state := &streamState{}
 	provider.emitDone(context.Background(), state, events)
 	close(events)
@@ -26,7 +26,7 @@ func TestEmitDoneMarksStateDoneThroughPointer(t *testing.T) {
 	}
 	var sawDone bool
 	for event := range events {
-		if event.Type == zeroruntime.StreamEventDone {
+		if event.Type == qgruntime.StreamEventDone {
 			sawDone = true
 		}
 	}

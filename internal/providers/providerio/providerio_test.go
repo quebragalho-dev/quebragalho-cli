@@ -357,7 +357,7 @@ func TestHTTPClientReturnsStallHardenedSharedClient(t *testing.T) {
 	// DisableKeepAlives is the stronger mitigation scoped to darwin only: the
 	// two timeouts above catch a reused connection that's fully dead or idle
 	// too long, but not one that's alive-and-degraded (still delivers real
-	// bytes, just at a crippled rate) — which resets Zero's stream watchdogs
+	// bytes, just at a crippled rate) — which resets QG's stream watchdogs
 	// without ever recovering. Removing pooling from the equation entirely is
 	// only worth its reconnect cost on the platform this class of bug has
 	// actually reproduced on.
@@ -454,7 +454,7 @@ func TestStartIdleConnCloserClosesIdleConnections(t *testing.T) {
 }
 
 func TestStartIdleConnCloserEdgeCases(t *testing.T) {
-	// Zero or negative interval returns a no-op stop func without starting goroutine.
+	// QG or negative interval returns a no-op stop func without starting goroutine.
 	stopZero := startIdleConnCloser(nil, 0)
 	stopZero()
 

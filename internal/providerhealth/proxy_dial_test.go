@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/proxydial"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/proxydial"
 )
 
 // connectivityClientWithProxy builds the real connectivity client and swaps in
@@ -61,7 +61,7 @@ func recordingProxy(t *testing.T) (*url.URL, <-chan string) {
 //
 // With HTTPS_PROXY set to a local forward proxy, the transport dials the proxy
 // first and tunnels the request through it. This dialer refused that dial as a
-// loopback address, so `zero doctor --connectivity` failed with "proxyconnect
+// loopback address, so `qg doctor --connectivity` failed with "proxyconnect
 // tcp: ... loopback hosts are blocked" for a target that had already been
 // validated and was public (#569). Driven through the real client, so the route
 // is the transport's own decision.

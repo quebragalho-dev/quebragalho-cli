@@ -6,15 +6,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestToolCallKeyOutputIndexZero(t *testing.T) {
 	t.Parallel()
 	p := &CodexProvider{}
-	zero, two := 0, 2
+	qg, two := 0, 2
 	// output_index 0 with no item_id must produce a key (it was dropped before M1).
-	if got := p.toolCallKey(&responsesEvent{OutputIndex: &zero}); got != "output-0" {
+	if got := p.toolCallKey(&responsesEvent{OutputIndex: &qg}); got != "output-0" {
 		t.Errorf("OutputIndex 0 → %q, want output-0", got)
 	}
 	if got := p.toolCallKey(&responsesEvent{OutputIndex: &two}); got != "output-2" {
@@ -23,7 +23,7 @@ func TestToolCallKeyOutputIndexZero(t *testing.T) {
 	if got := p.toolCallKey(&responsesEvent{}); got != "" {
 		t.Errorf("absent output_index + no item_id → %q, want empty", got)
 	}
-	if got := p.toolCallKey(&responsesEvent{ItemID: "call_x", OutputIndex: &zero}); got != "call_x" {
+	if got := p.toolCallKey(&responsesEvent{ItemID: "call_x", OutputIndex: &qg}); got != "call_x" {
 		t.Errorf("item_id should take precedence → %q", got)
 	}
 }
@@ -31,7 +31,7 @@ func TestToolCallKeyOutputIndexZero(t *testing.T) {
 func TestResponsesStatePreservesDistinctCallID(t *testing.T) {
 	provider := &CodexProvider{}
 	state := newResponsesState()
-	events := make(chan zeroruntime.StreamEvent, 4)
+	events := make(chan qgruntime.StreamEvent, 4)
 	provider.handleOutputItemAdded(context.Background(), &responsesEvent{
 		ItemID: "item-1",
 		Item: &itemPayload{
@@ -50,7 +50,7 @@ func TestResponsesStatePreservesDistinctCallID(t *testing.T) {
 func TestCodexCustomApplyPatchStreamProducesFreeformCall(t *testing.T) {
 	provider := &CodexProvider{}
 	state := newResponsesState()
-	events := make(chan zeroruntime.StreamEvent, 16)
+	events := make(chan qgruntime.StreamEvent, 16)
 	patch := "*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch\n"
 	for _, payload := range []string{
 		`{"type":"response.output_item.added","item_id":"item-1","item":{"type":"custom_tool_call","call_id":"call-1","name":"apply_patch"}}`,
@@ -64,7 +64,7 @@ func TestCodexCustomApplyPatchStreamProducesFreeformCall(t *testing.T) {
 		}
 	}
 	close(events)
-	collected := zeroruntime.CollectStream(context.Background(), events)
+	collected := qgruntime.CollectStream(context.Background(), events)
 	if len(collected.ToolCalls) != 1 {
 		t.Fatalf("tool calls = %#v, want one", collected.ToolCalls)
 	}
@@ -84,22 +84,22 @@ func TestCodexApplyPatchUsesFreeformWireContract(t *testing.T) {
 		t.Fatalf("NewCodexProvider: %v", err)
 	}
 	patch := "*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch\n"
-	request, err := provider.buildResponsesRequest(zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{
-			{Role: zeroruntime.MessageRoleUser, Content: "Add the file."},
-			{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{{
+	request, err := provider.buildResponsesRequest(qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{
+			{Role: qgruntime.MessageRoleUser, Content: "Add the file."},
+			{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{{
 				ID: "item-1", ProviderCallID: "call-1", Name: "apply_patch", Arguments: patch, Freeform: true,
 			}}},
-			{Role: zeroruntime.MessageRoleTool, ToolCallID: "item-1", ToolCallProviderID: "call-1", Content: "Done!"},
+			{Role: qgruntime.MessageRoleTool, ToolCallID: "item-1", ToolCallProviderID: "call-1", Content: "Done!"},
 		},
-		Tools: []zeroruntime.ToolDefinition{{
-			Name: "apply_patch", Description: "Apply a patch.", Type: zeroruntime.ToolDefinitionFreeform,
+		Tools: []qgruntime.ToolDefinition{{
+			Name: "apply_patch", Description: "Apply a patch.", Type: qgruntime.ToolDefinitionFreeform,
 		}},
 	})
 	if err != nil {
 		t.Fatalf("buildResponsesRequest: %v", err)
 	}
-	if len(request.Tools) != 1 || request.Tools[0].Type != string(zeroruntime.ToolDefinitionFreeform) ||
+	if len(request.Tools) != 1 || request.Tools[0].Type != string(qgruntime.ToolDefinitionFreeform) ||
 		request.Tools[0].Format == nil || request.Tools[0].Format.Syntax != "lark" || request.Tools[0].Parameters != nil {
 		t.Fatalf("apply_patch tool wire shape = %#v", request.Tools)
 	}
@@ -129,9 +129,9 @@ func TestCodexPreservesCustomApplyPatchFunction(t *testing.T) {
 		"type":       "object",
 		"properties": map[string]any{"value": map[string]any{"type": "string"}},
 	}
-	request, err := provider.buildResponsesRequest(zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "Call the custom tool."}},
-		Tools: []zeroruntime.ToolDefinition{{
+	request, err := provider.buildResponsesRequest(qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "Call the custom tool."}},
+		Tools: []qgruntime.ToolDefinition{{
 			Name: "apply_patch", Description: "Custom integration tool.", Parameters: parameters,
 		}},
 	})
@@ -142,7 +142,7 @@ func TestCodexPreservesCustomApplyPatchFunction(t *testing.T) {
 		t.Fatalf("tools = %#v, want one", request.Tools)
 	}
 	tool := request.Tools[0]
-	if tool.Type != string(zeroruntime.ToolDefinitionFunction) || tool.Format != nil ||
+	if tool.Type != string(qgruntime.ToolDefinitionFunction) || tool.Format != nil ||
 		tool.Description != "Custom integration tool." || !reflect.DeepEqual(tool.Parameters, parameters) {
 		t.Fatalf("custom apply_patch function was rewritten: %#v", tool)
 	}
@@ -153,13 +153,13 @@ func TestHandleTerminalResponseNilPayload(t *testing.T) {
 	p := &CodexProvider{}
 
 	// response.failed with no Response payload must emit an error, not a silent done.
-	failed := make(chan zeroruntime.StreamEvent, 4)
+	failed := make(chan qgruntime.StreamEvent, 4)
 	st := &responsesState{}
 	p.handleTerminalResponse(context.Background(), &responsesEvent{Type: responsesEventFailed}, st, failed)
 	close(failed)
 	sawError := false
 	for ev := range failed {
-		if ev.Type == zeroruntime.StreamEventError {
+		if ev.Type == qgruntime.StreamEventError {
 			sawError = true
 		}
 	}
@@ -171,11 +171,11 @@ func TestHandleTerminalResponseNilPayload(t *testing.T) {
 	}
 
 	// response.completed with no payload is a clean (empty) done, not an error.
-	completed := make(chan zeroruntime.StreamEvent, 4)
+	completed := make(chan qgruntime.StreamEvent, 4)
 	p.handleTerminalResponse(context.Background(), &responsesEvent{Type: responsesEventCompleted}, &responsesState{}, completed)
 	close(completed)
 	for ev := range completed {
-		if ev.Type == zeroruntime.StreamEventError {
+		if ev.Type == qgruntime.StreamEventError {
 			t.Error("response.completed with nil payload should NOT emit an error")
 		}
 	}
@@ -188,7 +188,7 @@ func TestHandleTerminalResponseFailedPayloadWithoutError(t *testing.T) {
 	// A response.failed carrying a payload whose error object is null/omitted (the
 	// reason is in status) must still surface as an error, not fall through to a
 	// clean done — the same silent-failure class the nil-payload branch guards.
-	out := make(chan zeroruntime.StreamEvent, 8)
+	out := make(chan qgruntime.StreamEvent, 8)
 	st := &responsesState{}
 	p.handleTerminalResponse(context.Background(),
 		&responsesEvent{Type: responsesEventFailed, Response: &responsePayload{Status: "failed"}}, st, out)
@@ -196,9 +196,9 @@ func TestHandleTerminalResponseFailedPayloadWithoutError(t *testing.T) {
 	sawError, sawDone := false, false
 	for ev := range out {
 		switch ev.Type {
-		case zeroruntime.StreamEventError:
+		case qgruntime.StreamEventError:
 			sawError = true
-		case zeroruntime.StreamEventDone:
+		case qgruntime.StreamEventDone:
 			sawDone = true
 		}
 	}
@@ -213,15 +213,15 @@ func TestHandleTerminalResponseFailedPayloadWithoutError(t *testing.T) {
 	}
 
 	// A response.completed with a payload and no error remains a clean done.
-	ok := make(chan zeroruntime.StreamEvent, 8)
+	ok := make(chan qgruntime.StreamEvent, 8)
 	p.handleTerminalResponse(context.Background(),
 		&responsesEvent{Type: responsesEventCompleted, Response: &responsePayload{ID: "resp-1", Status: "completed"}}, &responsesState{}, ok)
 	close(ok)
 	for ev := range ok {
-		if ev.Type == zeroruntime.StreamEventError {
+		if ev.Type == qgruntime.StreamEventError {
 			t.Error("response.completed with a non-error payload must NOT emit an error")
 		}
-		if ev.Type == zeroruntime.StreamEventDone && ev.ResponseID != "resp-1" {
+		if ev.Type == qgruntime.StreamEventDone && ev.ResponseID != "resp-1" {
 			t.Errorf("done response id = %q, want resp-1", ev.ResponseID)
 		}
 	}

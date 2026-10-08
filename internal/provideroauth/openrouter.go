@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 )
 
 const (
