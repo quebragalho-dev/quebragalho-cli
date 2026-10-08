@@ -12,16 +12,16 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/credstore"
-	"github.com/Gitlawb/zero/internal/doctor"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/oauth"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodelcatalog"
-	"github.com/Gitlawb/zero/internal/providers"
-	"github.com/Gitlawb/zero/internal/redaction"
-	zsearch "github.com/Gitlawb/zero/internal/search"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/credstore"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/doctor"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	zsearch "github.com/quebragalho-dev/quebragalho-cli/internal/search"
 )
 
 const doctorStatusRowID = "doctor/status"
@@ -178,7 +178,7 @@ func doctorFixLines(report doctor.Report) []string {
 			if remedy := doctorCheckDetailString(check, "remedy"); remedy != "" {
 				lines = append(lines, "native sandbox: "+remedy)
 			} else {
-				lines = append(lines, "native sandbox: run zero sandbox policy --effective to inspect backend status")
+				lines = append(lines, "native sandbox: run qg sandbox policy --effective to inspect backend status")
 			}
 		case "lsp.servers":
 			lines = append(lines, "language servers: install missing LSP binaries on PATH")
@@ -200,7 +200,7 @@ func doctorFixLines(report doctor.Report) []string {
 func (m model) doctorConnectivityRunningText() string {
 	return strings.Join([]string{
 		"Checking provider",
-		"Zero is probing the active endpoint. Keep typing; messages will queue until the check finishes.",
+		"QG is probing the active endpoint. Keep typing; messages will queue until the check finishes.",
 		m.doctorAnimationLine(),
 		"provider: " + displayValue(m.providerName, displayValue(m.providerProfile.Name, "unknown")),
 		"model: " + displayValue(m.modelName, displayValue(m.providerProfile.Model, "unknown")),
@@ -440,7 +440,7 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 	}
 	target, ok := m.resolveModelSwitchTarget(registry, args)
 	if !ok {
-		return m, "Model\nunknown Zero model " + strconv.Quote(args), nil
+		return m, "Model\nunknown QG model " + strconv.Quote(args), nil
 	}
 	if !config.HasProviderProfile(m.providerProfile) {
 		return m, "Model\nNo provider profile is available for TUI model switching.", nil
@@ -591,7 +591,7 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 	// keyless on purpose so newProvider attaches the bearer resolver + login key.
 	if strings.TrimSpace(target.APIKey) == "" && strings.TrimSpace(target.AuthHeaderValue) == "" &&
 		(!hasDescriptor || !descriptor.Local) && !oauthLoginAvailable(target) {
-		return m, "Model\nprovider " + strconv.Quote(providerName) + " has no usable credential — run setup or `zero auth login " + providerName + "`.", false, nil, nil
+		return m, "Model\nprovider " + strconv.Quote(providerName) + " has no usable credential — run setup or `qg auth login " + providerName + "`.", false, nil, nil
 	}
 	next, err := m.newProvider(target)
 	if err != nil {
@@ -705,7 +705,7 @@ func oauthLoginAvailable(profile config.ProviderProfile) bool {
 // oauthLoginName resolves WHICH stored login serves this profile — the same
 // FirstStored selection the runtime makes. User-facing hints must name this
 // entry, not the profile: after a rename ({name:"codex", catalogID:"chatgpt"})
-// the token lives under the catalog id, and `zero auth logout codex` would
+// the token lives under the catalog id, and `qg auth logout codex` would
 // delete nothing while the real login stays behind.
 func oauthLoginName(profile config.ProviderProfile) (string, bool) {
 	candidates := profile.OAuthLoginCandidates()

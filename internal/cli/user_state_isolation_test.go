@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 // userStateEnvNames is every per-user base directory the root command can
@@ -37,11 +37,11 @@ func isolateCLIUserState(t *testing.T) {
 	// The models.dev overlay cache, and the background refresh that writes it:
 	// a wiring test has no business making a network call or leaving a cache
 	// file behind.
-	t.Setenv("ZERO_MODELS_CACHE_PATH", filepath.Join(root, "modelsdev.json"))
-	t.Setenv("ZERO_DISABLE_MODELS_FETCH", "1")
+	t.Setenv("QG_MODELS_CACHE_PATH", filepath.Join(root, "modelsdev.json"))
+	t.Setenv("QG_DISABLE_MODELS_FETCH", "1")
 	// Credentials resolve keyring-first. This keeps a migrated key in a file
 	// under the fixture root rather than in the developer's OS keychain.
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 }
 
 // AND THE ISOLATION IS ITSELF PINNED, ONE HELPER AT A TIME. A seeded config
@@ -97,10 +97,10 @@ func TestCLILaunchHelpersLeaveUserStateAlone(t *testing.T) {
 			if strings.HasPrefix(resolved, seedRoot) {
 				t.Errorf("user config still resolves inside the seeded root (%s): the helper installed no isolation", resolved)
 			}
-			if os.Getenv("ZERO_DISABLE_MODELS_FETCH") == "" {
+			if os.Getenv("QG_DISABLE_MODELS_FETCH") == "" {
 				t.Error("the helper left the background models.dev refresh enabled, so this test can make a network call and write a cache file")
 			}
-			if os.Getenv("ZERO_CRED_STORAGE") == "" {
+			if os.Getenv("QG_CRED_STORAGE") == "" {
 				t.Error("the helper left credential storage resolving keyring-first, so a migrated key can reach the host keychain")
 			}
 		})

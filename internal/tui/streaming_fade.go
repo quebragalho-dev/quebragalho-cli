@@ -19,13 +19,13 @@ func defaultReducedMotion() bool {
 
 // reducedMotionEnabled reports whether animations (the streaming fade AND the
 // animated spinner) should be replaced with static equivalents. It is an
-// explicit accessibility/preference switch via ZERO_REDUCED_MOTION, and is also
+// explicit accessibility/preference switch via QG_REDUCED_MOTION, and is also
 // forced when there is no TTY (animation frames are meaningless to a pipe).
 // Reduced motion never removes liveness: a steady glyph plus the advancing
 // elapsed timer keeps the "still working" cue. It is one switch for all motion,
-// whereas ZERO_NO_FADE only governs the streaming-text fade.
+// whereas QG_NO_FADE only governs the streaming-text fade.
 func reducedMotionEnabled(env func(string) string, profile colorprofile.Profile) bool {
-	if v := strings.TrimSpace(env("ZERO_REDUCED_MOTION")); v != "" && v != "0" && !strings.EqualFold(v, "false") {
+	if v := strings.TrimSpace(env("QG_REDUCED_MOTION")); v != "" && v != "0" && !strings.EqualFold(v, "false") {
 		return true
 	}
 	return profile == colorprofile.NoTTY
@@ -80,7 +80,7 @@ type streamingFadeTickMsg time.Time
 // struct-field access and a single Render call, not a hex parse.
 var streamingFadePalette [streamingFadeSteps]lipgloss.Style
 
-// init builds the palette once at package load (after zeroTheme's var init), so
+// init builds the palette once at package load (after qgTheme's var init), so
 // the fade tracks the active theme's accent→ink. Cheap; before any model exists.
 func init() {
 	rebuildStreamingFadePalette()
@@ -92,8 +92,8 @@ func init() {
 func rebuildStreamingFadePalette() {
 	streamingFadePalette = buildStreamingFadePalette(
 		streamingFadeSteps,
-		zeroTheme.accentColor,
-		zeroTheme.inkColor,
+		qgTheme.accentColor,
+		qgTheme.inkColor,
 	)
 }
 
@@ -216,7 +216,7 @@ func streamingLineBornAt(visualIndex, visualCount int, lineAges []time.Time, las
 	// visual lines), the second-and-later visual lines fall out of the
 	// `visualIndex >= len(lineAges)` branch. Clamp to the last known
 	// logical age so wrapped middle lines keep fading in step with their
-	// siblings instead of snapping to the zero time (= base ink).
+	// siblings instead of snapping to the qg time (= base ink).
 	if visualIndex < 0 {
 		return time.Time{}
 	}
@@ -273,14 +273,14 @@ func (m model) styleStreamingLine(line string, visualIndex, visualCount int) str
 	// palette-aware final style before the line reaches the terminal. Otherwise
 	// a streaming frame briefly flashes the terminal's reverse background.
 	if hasMarkdownDisplayControls(line) {
-		return styleAssistantMarkdownLine(line, zeroTheme.ink)
+		return styleAssistantMarkdownLine(line, qgTheme.ink)
 	}
 	if strings.Contains(line, "\x1b") {
 		return line
 	}
 	if !m.fadeActive || m.lineAges == nil {
-		return zeroTheme.ink.Render(line)
+		return qgTheme.ink.Render(line)
 	}
 	bornAt := streamingLineBornAt(visualIndex, visualCount, m.lineAges, m.lastStreamActivity)
-	return ageDimLine(line, bornAt, m.now(), zeroTheme.ink)
+	return ageDimLine(line, bornAt, m.now(), qgTheme.ink)
 }

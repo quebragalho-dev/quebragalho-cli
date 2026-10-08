@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
 )
 
 // isolateDaemonPaths points DefaultPaths at a temp dir so the test never touches
@@ -33,7 +33,7 @@ func TestDaemonUsage(t *testing.T) {
 		t.Fatalf("no-args exit = %d, want exitUsage", code)
 	}
 	code, out, _ := runDaemonCLI(t, "--help")
-	if code != exitSuccess || !strings.Contains(out, "Usage: zero daemon") {
+	if code != exitSuccess || !strings.Contains(out, "Usage: qg daemon") {
 		t.Fatalf("--help exit=%d out=%q", code, out)
 	}
 }
@@ -172,7 +172,7 @@ func TestStartAndAwaitDaemonProcessTimeoutTerminatesAndReaps(t *testing.T) {
 
 func TestStartAndAwaitDaemonProcessReleasesReadyChild(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "child-finished")
-	cmd := daemonDetachedChildCommand("mark", "ZERO_TEST_DAEMON_CHILD_MARKER="+marker)
+	cmd := daemonDetachedChildCommand("mark", "QG_TEST_DAEMON_CHILD_MARKER="+marker)
 	if err := startAndAwaitDaemonProcess(cmd, func() bool { return true }, time.Second, time.Millisecond); err != nil {
 		t.Fatalf("start and await ready helper: %v", err)
 	}
@@ -189,18 +189,18 @@ func TestStartAndAwaitDaemonProcessReleasesReadyChild(t *testing.T) {
 
 func daemonDetachedChildCommand(mode string, extraEnv ...string) *exec.Cmd {
 	cmd := exec.Command(os.Args[0], "-test.run=TestDaemonDetachedChildProcess")
-	cmd.Env = append(os.Environ(), "ZERO_TEST_DAEMON_DETACHED_CHILD="+mode)
+	cmd.Env = append(os.Environ(), "QG_TEST_DAEMON_DETACHED_CHILD="+mode)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	background.ConfigureChildProcessGroup(cmd)
 	return cmd
 }
 
 func TestDaemonDetachedChildProcess(t *testing.T) {
-	switch os.Getenv("ZERO_TEST_DAEMON_DETACHED_CHILD") {
+	switch os.Getenv("QG_TEST_DAEMON_DETACHED_CHILD") {
 	case "":
 		return
 	case "mark":
-		if err := os.WriteFile(os.Getenv("ZERO_TEST_DAEMON_CHILD_MARKER"), []byte("ready"), 0o600); err != nil {
+		if err := os.WriteFile(os.Getenv("QG_TEST_DAEMON_CHILD_MARKER"), []byte("ready"), 0o600); err != nil {
 			os.Exit(2)
 		}
 		os.Exit(0)

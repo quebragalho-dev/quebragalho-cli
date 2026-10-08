@@ -9,12 +9,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/aimlapi"
-	"github.com/Gitlawb/zero/internal/browser"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/aimlapi"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/browser"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 type providerModelsDiscoveredMsg struct {

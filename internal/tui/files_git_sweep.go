@@ -64,7 +64,7 @@ func gitSweepCmd(parent context.Context, cwd string, baseline bool) tea.Cmd {
 		// path quoting, and renames as explicit preimage/postimage fields instead
 		// of the brace-mangled "src/{old => new}" a plain --numstat emits (which
 		// would never match a porcelain path). Best-effort: a failure (e.g. unborn
-		// HEAD in a fresh repo) keeps the file list with zero counts rather than
+		// HEAD in a fresh repo) keeps the file list with qg counts rather than
 		// dropping the sweep.
 		if numstat, err := defaultPRCommandRunner(ctx, cwd, "git", "diff", "HEAD", "--numstat", "-z"); err == nil {
 			stats := parseGitNumstat(numstat)

@@ -56,6 +56,6 @@ func renderQueuedMessagePreview(message string, width int) string {
 	if message == "" {
 		return ""
 	}
-	line := zeroTheme.accent.Render("[queued]") + " " + zeroTheme.muted.Render(message)
+	line := qgTheme.accent.Render("[queued]") + " " + qgTheme.muted.Render(message)
 	return fitStyledLine(line, width)
 }

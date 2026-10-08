@@ -152,7 +152,7 @@ func TestAgeDimLineMidRangeReturnsIntermediate(t *testing.T) {
 	// At t = 600ms (halfway through the 1.2s window), the bucket
 	// index is int(600 * 12 / 1200) = 6, which is one of the
 	// intermediate buckets (not palette[0] = accent, not
-	// zeroTheme.ink). The output must be non-empty and contain the
+	// qgTheme.ink). The output must be non-empty and contain the
 	// input.
 	now := time.Unix(0, 0)
 	base := lipgloss.NewStyle().Foreground(lipgloss.Color(darkPalette.ink))
@@ -177,7 +177,7 @@ func TestAgeDimLineSettledReturnsBase(t *testing.T) {
 
 func TestAgeDimLineZeroBornAtReturnsBase(t *testing.T) {
 	// The defensive path: a test fixture pre-populates m.streamingText
-	// without populating m.lineAges, so bornAt is the zero time. The
+	// without populating m.lineAges, so bornAt is the qg time. The
 	// renderer must fall back to the base color (not panic, not produce
 	// neon text).
 	base := lipgloss.NewStyle().Foreground(lipgloss.Color(darkPalette.ink))
@@ -185,7 +185,7 @@ func TestAgeDimLineZeroBornAtReturnsBase(t *testing.T) {
 	out := ageDimLine("hello", time.Time{}, now, base)
 	want := base.Render("hello")
 	if out != want {
-		t.Errorf("zero-bornAt ageDimLine = %q, want %q (base render)", out, want)
+		t.Errorf("qg-bornAt ageDimLine = %q, want %q (base render)", out, want)
 	}
 }
 
@@ -276,7 +276,7 @@ func TestResetStreamingFadeClearsState(t *testing.T) {
 		t.Errorf("resetStreamingFade left lineAges = %v, want nil", m.lineAges)
 	}
 	if !m.lastStreamActivity.IsZero() {
-		t.Errorf("resetStreamingFade left lastStreamActivity = %v, want zero", m.lastStreamActivity)
+		t.Errorf("resetStreamingFade left lastStreamActivity = %v, want qg", m.lastStreamActivity)
 	}
 }
 
@@ -308,7 +308,7 @@ func TestStreamingLineBornAtOutOfRangeClampsToLast(t *testing.T) {
 	// logical line that wrapped into multiple visual lines). The
 	// out-of-range visual index must clamp to the last known
 	// logical age so the wrapped continuation lines keep fading
-	// in step with their siblings instead of snapping to the zero
+	// in step with their siblings instead of snapping to the qg
 	// time (which would render as base ink).
 	//
 	// Setup: lineAges has 2 entries; visualCount=5. Visual lines
@@ -327,11 +327,11 @@ func TestStreamingLineBornAtOutOfRangeClampsToLast(t *testing.T) {
 
 func TestStreamingLineBornAtEmptyLineAgesReturnsZero(t *testing.T) {
 	// The truly-empty case (no logical lines at all) has nothing to
-	// clamp to; returning zero is correct so ageDimLine short-circuits
-	// to base ink via its zero-time path.
+	// clamp to; returning qg is correct so ageDimLine short-circuits
+	// to base ink via its qg-time path.
 	got := streamingLineBornAt(0, 1, nil, time.Time{})
 	if !got.IsZero() {
-		t.Errorf("empty lineAges bornAt = %v, want zero", got)
+		t.Errorf("empty lineAges bornAt = %v, want qg", got)
 	}
 }
 
@@ -342,7 +342,7 @@ func TestStyleStreamingLineFallsBackWhenFadeInactive(t *testing.T) {
 	m := model{}
 	m.fadeActive = false
 	out := m.styleStreamingLine("hello", 0, 1)
-	want := zeroTheme.ink.Render("hello")
+	want := qgTheme.ink.Render("hello")
 	if out != want {
 		t.Errorf("styleStreamingLine with fadeActive=false = %q, want %q (base render)", out, want)
 	}
@@ -357,7 +357,7 @@ func TestStyleStreamingLineFallsBackWhenLineAgesNil(t *testing.T) {
 	m.fadeActive = true
 	m.lineAges = nil
 	out := m.styleStreamingLine("hello", 0, 1)
-	want := zeroTheme.ink.Render("hello")
+	want := qgTheme.ink.Render("hello")
 	if out != want {
 		t.Errorf("styleStreamingLine with nil lineAges = %q, want %q (base render)", out, want)
 	}
@@ -367,7 +367,7 @@ func TestStyleStreamingLinePreservesHighlightedLines(t *testing.T) {
 	m := model{}
 	m.fadeActive = true
 	m.lineAges = []time.Time{time.Now()}
-	line := zeroTheme.accent.Render("func") + " main()"
+	line := qgTheme.accent.Render("func") + " main()"
 	if out := m.styleStreamingLine(line, 0, 1); out != line {
 		t.Errorf("highlighted streaming line should be preserved, got %q want %q", out, line)
 	}

@@ -131,7 +131,7 @@ func TestThemePickerPreviewIsContained(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m.themeMode = themeMode("dracula")
 	applyTheme(m.themeMode, true)
-	before, _, _, _ := zeroTheme.inkColor.RGBA()
+	before, _, _, _ := qgTheme.inkColor.RGBA()
 	m.input.SetValue("/theme")
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
@@ -140,7 +140,7 @@ func TestThemePickerPreviewIsContained(t *testing.T) {
 		updated, _ = m.Update(testKey(tea.KeyDown))
 		m = updated.(model)
 	}
-	after, _, _, _ := zeroTheme.inkColor.RGBA()
+	after, _, _, _ := qgTheme.inkColor.RGBA()
 	if after != before {
 		t.Fatal("moving through the theme picker changed the active palette")
 	}
@@ -176,7 +176,7 @@ func TestThemePickerCommitAppliesAndRecords(t *testing.T) {
 	if m.themeMode != themeMode("dracula") {
 		t.Fatalf("committed mode = %q, want dracula", m.themeMode)
 	}
-	if got, want := colorHex(t, zeroTheme.inkColor), draculaPalette.ink; got != want {
+	if got, want := colorHex(t, qgTheme.inkColor), draculaPalette.ink; got != want {
 		t.Errorf("committed dracula ink = %s, want %s", got, want)
 	}
 	if m.transientNotice.text != "Theme: Dracula" {
@@ -201,8 +201,8 @@ func TestThemePickerSystemCommitPreservesTerminalCanvas(t *testing.T) {
 	if m.themeMode != themeSystem {
 		t.Fatalf("committed mode = %q, want system", m.themeMode)
 	}
-	if _, ok := zeroTheme.bgPanel.(lipgloss.NoColor); !ok {
-		t.Fatalf("system theme background = %T, want lipgloss.NoColor", zeroTheme.bgPanel)
+	if _, ok := qgTheme.bgPanel.(lipgloss.NoColor); !ok {
+		t.Fatalf("system theme background = %T, want lipgloss.NoColor", qgTheme.bgPanel)
 	}
 }
 
@@ -231,7 +231,7 @@ func TestThemePickerFilterAndCancelKeepActiveTheme(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m.themeMode = themeMode("dracula")
 	applyTheme(m.themeMode, true)
-	before, _, _, _ := zeroTheme.inkColor.RGBA()
+	before, _, _, _ := qgTheme.inkColor.RGBA()
 	m.input.SetValue("/theme")
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
@@ -246,7 +246,7 @@ func TestThemePickerFilterAndCancelKeepActiveTheme(t *testing.T) {
 	if m.picker != nil || m.themeMode != themeMode("dracula") {
 		t.Fatalf("Esc changed picker or committed mode: picker=%#v mode=%q", m.picker, m.themeMode)
 	}
-	after, _, _, _ := zeroTheme.inkColor.RGBA()
+	after, _, _, _ := qgTheme.inkColor.RGBA()
 	if after != before {
 		t.Fatal("filtering or cancelling changed the active palette")
 	}

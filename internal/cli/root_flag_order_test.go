@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tui"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
 
 // rootFlagOrderings is every ordering of the given flag groups, each group
@@ -32,7 +32,7 @@ func rootFlagOrderings(groups [][]string) [][]string {
 
 // ROOT FLAGS COMPOSE IN ANY ORDER. Each leading-flag splitter stops at the first
 // token it does not own, so running them once in a fixed sequence made the
-// order the operator wrote them in load-bearing: `zero --allow-escalation
+// order the operator wrote them in load-bearing: `qg --allow-escalation
 // --theme auto` stranded `--theme auto` as an unknown command and exited with
 // an argument error instead of launching. Every ordering of the three root
 // flags, with --skip-permissions-unsafe absent or at any position, has to reach
@@ -107,7 +107,7 @@ func TestRootThemeLastOccurrenceWinsAcrossOtherFlags(t *testing.T) {
 }
 
 // THE ROOT FLAG REACHES EXEC. A --allow-escalation written before the
-// subcommand is forwarded the way --add-dir is, so `zero --allow-escalation -p
+// subcommand is forwarded the way --add-dir is, so `qg --allow-escalation -p
 // "..."` runs with the opt-in the help text promises instead of silently
 // without it. The negative control is the same run without the flag, which
 // must not advertise escalate_model.
@@ -168,7 +168,7 @@ func execAdvertisesEscalateModel(t *testing.T, args []string) bool {
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return provider, nil
 		},
 		newSandboxStore: func() (*sandbox.GrantStore, error) {
@@ -196,16 +196,16 @@ type toolListingProvider struct {
 	toolNames []string
 }
 
-func (provider *toolListingProvider) StreamCompletion(_ context.Context, request zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+func (provider *toolListingProvider) StreamCompletion(_ context.Context, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	provider.requests++
 	if provider.requests == 1 {
 		for _, tool := range request.Tools {
 			provider.toolNames = append(provider.toolNames, tool.Name)
 		}
 	}
-	ch := make(chan zeroruntime.StreamEvent, 2)
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventText, Content: "hi"}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone}
+	ch := make(chan qgruntime.StreamEvent, 2)
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventText, Content: "hi"}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
 	close(ch)
 	return ch, nil
 }

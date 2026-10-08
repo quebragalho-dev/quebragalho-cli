@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/Gitlawb/zero/internal/dictation"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/dictation"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func renderMarkdownInline(text string) string {
@@ -154,28 +154,28 @@ func renderSelectableList(options selectableListOptions) string {
 	lines := make([]string, 0, maxVisible+1)
 	for index, item := range visible {
 		absoluteIndex := start + index
-		surface := zeroTheme.onPanel
-		marker := surface(zeroTheme.faintest).Render("  ")
+		surface := qgTheme.onPanel
+		marker := surface(qgTheme.faintest).Render("  ")
 		if absoluteIndex == selected {
-			surface = zeroTheme.onSel
-			marker = surface(zeroTheme.accent).Render("❯ ")
+			surface = qgTheme.onSel
+			marker = surface(qgTheme.accent).Render("❯ ")
 		}
 
-		label := surface(zeroTheme.ink).Render(item.Label)
-		pad := surface(zeroTheme.ink).Render(strings.Repeat(" ", maxInt(0, labelWidth-lipgloss.Width(item.Label))))
+		label := surface(qgTheme.ink).Render(item.Label)
+		pad := surface(qgTheme.ink).Render(strings.Repeat(" ", maxInt(0, labelWidth-lipgloss.Width(item.Label))))
 		line := marker + label + pad
 		if strings.TrimSpace(item.Description) != "" {
 			descWidth := width - lipgloss.Width(marker) - labelWidth - 2
 			desc := truncateRunes(item.Description, maxInt(0, descWidth))
 			if desc != "" {
-				line += surface(zeroTheme.faint).Render("  " + desc)
+				line += surface(qgTheme.faint).Render("  " + desc)
 			}
 		}
 		lines = append(lines, fitStyledLine(line, width))
 	}
 
 	if hidden := len(options.Items) - len(visible); hidden > 0 {
-		lines = append(lines, fitStyledLine(zeroTheme.faint.Render(fmt.Sprintf("  %d more", hidden)), width))
+		lines = append(lines, fitStyledLine(qgTheme.faint.Render(fmt.Sprintf("  %d more", hidden)), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -202,7 +202,7 @@ func (t *specialistTracker) hasRunning() bool {
 }
 
 func borderedBlock(width int, lines []string) string {
-	return styledBlock(width, lines, zeroTheme.line)
+	return styledBlock(width, lines, qgTheme.line)
 }
 
 // tailLines returns the last tailCap content lines, including the in-progress one.

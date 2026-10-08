@@ -64,7 +64,7 @@ func TestMouseEventFilterDoesNotThrottlePetDrag(t *testing.T) {
 		t.Fatal("first drag event should pass through")
 	}
 	if got := filter(m, tea.MouseMotionMsg(tea.Mouse{Button: tea.MouseLeft, X: 2, Y: 1})); got == nil {
-		t.Fatal("every pet-drag event should pass through for zero-gap tracking")
+		t.Fatal("every pet-drag event should pass through for qg-gap tracking")
 	}
 	if clockReads != 0 {
 		t.Fatalf("pet drag should bypass the throttle clock, read it %d times", clockReads)

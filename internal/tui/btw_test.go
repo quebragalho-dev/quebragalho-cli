@@ -9,7 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 func newBTWTestModel(t *testing.T) model {

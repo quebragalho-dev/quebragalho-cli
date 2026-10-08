@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/provideronboarding"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 )
 
 func TestRunProvidersDetectSurfacesLocalRuntimeAndProviderActions(t *testing.T) {
@@ -42,7 +42,7 @@ func TestRunProvidersDetectSurfacesLocalRuntimeAndProviderActions(t *testing.T) 
 		"Detected local runtimes:",
 		"Ollama Local — http://localhost:11434/v1",
 		"models: llama3.1",
-		"zero providers add ollama", // SetupAction's no-key adopt command
+		"qg providers add ollama", // SetupAction's no-key adopt command
 		"Configured providers:",
 		"openai",
 		"Use provider",

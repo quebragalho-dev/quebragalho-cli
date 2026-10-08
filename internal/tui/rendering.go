@@ -14,8 +14,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func displayValue(value string, fallback string) string {
@@ -301,7 +301,7 @@ func (m model) renderRowModeUncached(row transcriptRow, width int, rc rowContext
 // appended after the final answer). Uses the same faint metadata style as the
 // "worked for …" done-line.
 func renderRecapRow(row transcriptRow, width int) string {
-	return fitStyledLine(zeroTheme.faint.Render("※ recap: "+strings.TrimSpace(row.text)), width)
+	return fitStyledLine(qgTheme.faint.Render("※ recap: "+strings.TrimSpace(row.text)), width)
 }
 
 func isInternalToolArgumentError(row transcriptRow) bool {
@@ -362,7 +362,7 @@ var userHomeDir = os.UserHomeDir
 // trailing segments with a `…/` prefix:
 //
 //	under cwd      → examples/calc/calc.go
-//	under $HOME    → ~/projects/zero/main.go
+//	under $HOME    → ~/projects/qg/main.go
 //	elsewhere      → …/other/calc.go   (last displayPathTailSegments segments)
 //	already short  → returned unchanged (relative input, no separators, etc.)
 //
@@ -540,10 +540,10 @@ func renderUserRow(row transcriptRow, width int) string {
 	// reference agents instead of a heavy chat bubble.
 	lines = append(lines, "")
 	if attachment := renderUserAttachmentSummary(row.attachments); attachment != "" {
-		lines = append(lines, renderUserPromptStyledLine(zeroTheme.muted.Render(attachment), contentWidth))
+		lines = append(lines, renderUserPromptStyledLine(qgTheme.muted.Render(attachment), contentWidth))
 	}
 	for _, line := range wrapped {
-		lines = append(lines, renderUserPromptStyledLine(zeroTheme.ink.Bold(true).Render(line), contentWidth))
+		lines = append(lines, renderUserPromptStyledLine(qgTheme.ink.Bold(true).Render(line), contentWidth))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -576,10 +576,10 @@ func userPromptContentWidth(width int) int {
 
 func renderUserPromptStyledLine(styledText string, contentWidth int) string {
 	if contentWidth <= 0 {
-		return zeroTheme.userPrompt.Render("▌")
+		return qgTheme.userPrompt.Render("▌")
 	}
 	fitted := fitStyledLine(styledText, contentWidth)
-	return zeroTheme.userPrompt.Render("▌") + "  " + fitted
+	return qgTheme.userPrompt.Render("▌") + "  " + fitted
 }
 
 // renderAssistantRow draws final answers as plain response text plus completion
@@ -594,7 +594,7 @@ func renderAssistantRow(row transcriptRow, width int) string {
 		narr := renderAssistantMarkdownText(row.text, assistantMeasure(width), tableMeasure, true)
 		out := make([]string, 0, len(narr))
 		for _, line := range narr {
-			styled := styleAssistantMarkdownLine(line, zeroTheme.ink)
+			styled := styleAssistantMarkdownLine(line, qgTheme.ink)
 			out = append(out, fitStyledLine(styled, width))
 		}
 		return strings.Join(out, "\n")
@@ -602,7 +602,7 @@ func renderAssistantRow(row transcriptRow, width int) string {
 	// Committed final answer: highlighting runs here (once, behind the render cache).
 	lines := renderAssistantMarkdownText(row.text, assistantMeasure(width), tableMeasure, true)
 	for index := range lines {
-		lines[index] = styleAssistantMarkdownLine(lines[index], zeroTheme.ink)
+		lines[index] = styleAssistantMarkdownLine(lines[index], qgTheme.ink)
 	}
 	if row.turnElapsed >= longTurnBookend {
 		lines = append(lines, doneLine(row))
@@ -637,7 +637,7 @@ func renderReasoningBlock(text string, expanded bool, width int, running bool, e
 		body = body[hidden:]
 	}
 	for _, line := range body {
-		lines = append(lines, fitStyledLine("  "+styleAssistantMarkdownLine(line, zeroTheme.sayText), width))
+		lines = append(lines, fitStyledLine("  "+styleAssistantMarkdownLine(line, qgTheme.sayText), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -645,7 +645,7 @@ func renderReasoningBlock(text string, expanded bool, width int, running bool, e
 // reasoningHiddenMarker is the faint line shown in place of capped reasoning body
 // lines; the display and selectable paths share it so they stay line-aligned.
 func reasoningHiddenMarker(hidden int) string {
-	return zeroTheme.faint.Render(fmt.Sprintf("… %d earlier lines · Ctrl+O for all", hidden))
+	return qgTheme.faint.Render(fmt.Sprintf("… %d earlier lines · Ctrl+O for all", hidden))
 }
 
 func renderReasoningBodyLines(text string, width int) []string {
@@ -655,7 +655,7 @@ func renderReasoningBodyLines(text string, width int) []string {
 }
 
 func reasoningHeaderLine(text string, expanded bool, running bool, elapsed time.Duration) string {
-	return zeroTheme.faint.Render(reasoningHeaderText(text, expanded, running, elapsed))
+	return qgTheme.faint.Render(reasoningHeaderText(text, expanded, running, elapsed))
 }
 
 func reasoningHeaderText(text string, expanded bool, running bool, elapsed time.Duration) string {
@@ -694,7 +694,7 @@ const longTurnBookend = 60 * time.Second
 // It carries no tool count (the tool cards above already show that) and never
 // marks errors (the bordered error note already signals failure).
 func doneLine(row transcriptRow) string {
-	return zeroTheme.faint.Render("worked for " + formatElapsedSeconds(row.turnElapsed))
+	return qgTheme.faint.Render("worked for " + formatElapsedSeconds(row.turnElapsed))
 }
 
 // renderSystemNote draws a system notice as plain, lightly-marked lines — not a
@@ -703,9 +703,9 @@ func doneLine(row transcriptRow) string {
 // indent the continuation so the block still reads as one note.
 func renderSystemNote(text string, width int) string {
 	trimmed := strings.TrimSpace(text)
-	marker, style := zeroTheme.faint.Render("·"), zeroTheme.muted
+	marker, style := qgTheme.faint.Render("·"), qgTheme.muted
 	if isCancellationNotice(trimmed) {
-		marker, style = zeroTheme.amber.Render("⊘"), zeroTheme.amber
+		marker, style = qgTheme.amber.Render("⊘"), qgTheme.amber
 	}
 	srcLines := strings.Split(trimmed, "\n")
 	out := make([]string, 0, len(srcLines))
@@ -724,12 +724,12 @@ func renderSystemNote(text string, width int) string {
 // the dimmed source label, matching the visual rhythm of other agent messages.
 func renderPeerMessageRow(text string, width int) string {
 	header, body, _ := strings.Cut(strings.TrimSpace(text), "\n")
-	lines := []string{fitStyledLine(zeroTheme.faint.Render("› "+header), width)}
+	lines := []string{fitStyledLine(qgTheme.faint.Render("› "+header), width)}
 	if body == "" {
 		return strings.Join(lines, "\n")
 	}
 	for _, line := range wrapPlainText(body, maxInt(16, width-2)) {
-		lines = append(lines, fitStyledLine("  "+zeroTheme.ink.Render(line), width))
+		lines = append(lines, fitStyledLine("  "+qgTheme.ink.Render(line), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -761,9 +761,9 @@ func renderCommandCardRow(text string, width int) string {
 				lines = append(lines, styled)
 			}
 		case isCommandCardActionsLine(trimmed):
-			lines = append(lines, zeroTheme.accent.Render("actions: ")+zeroTheme.ink.Render(strings.TrimSpace(strings.TrimPrefix(trimmed, "actions:"))))
+			lines = append(lines, qgTheme.accent.Render("actions: ")+qgTheme.ink.Render(strings.TrimSpace(strings.TrimPrefix(trimmed, "actions:"))))
 		case isCommandCardHintLine(trimmed):
-			lines = append(lines, zeroTheme.faint.Render(line))
+			lines = append(lines, qgTheme.faint.Render(line))
 		case isIndentedCommandCardRow(line):
 			// A content row (indented): a "/cmd … - description" gets two-tone
 			// styling (bright name, muted description); a "key  value" field or a
@@ -771,10 +771,10 @@ func renderCommandCardRow(text string, width int) string {
 			lines = append(lines, styleCommandCardContentRow(line))
 		default:
 			// A non-indented, non-empty line is a group header (Model, Session…).
-			lines = append(lines, zeroTheme.accent.Bold(true).Render(line))
+			lines = append(lines, qgTheme.accent.Bold(true).Render(line))
 		}
 	}
-	return styledBlockFillTitle(width, title, lines, zeroTheme.accent, lipgloss.NewStyle())
+	return styledBlockFillTitle(width, title, lines, qgTheme.accent, lipgloss.NewStyle())
 }
 
 // renderPlanCardRow renders the plan-step detail card with a deliberately
@@ -799,16 +799,16 @@ func renderPlanCardRow(text string, width int) string {
 			// The border + title already convey state; drop the structural
 			// "status: …" line entirely for the minimal card.
 		case isCommandCardHintLine(trimmed):
-			lines = append(lines, zeroTheme.faint.Render(line))
+			lines = append(lines, qgTheme.faint.Render(line))
 		case isIndentedCommandCardRow(line):
 			lines = append(lines, styleCommandCardContentRow(line))
 		default:
 			// A section group header (What we did / Files changed …): soft grey,
 			// not the loud lime accent the command cards use.
-			lines = append(lines, zeroTheme.muted.Bold(true).Render(line))
+			lines = append(lines, qgTheme.muted.Bold(true).Render(line))
 		}
 	}
-	return styledBlockFillTitleStyled(width, title, lines, zeroTheme.faintest, lipgloss.NewStyle(), planCardTitleStyle(title))
+	return styledBlockFillTitleStyled(width, title, lines, qgTheme.faintest, lipgloss.NewStyle(), planCardTitleStyle(title))
 }
 
 // planCardTitleStyle tints the plan card's title by the step state encoded in its
@@ -817,13 +817,13 @@ func renderPlanCardRow(text string, width int) string {
 func planCardTitleStyle(title string) lipgloss.Style {
 	switch {
 	case strings.HasSuffix(title, "· done"):
-		return zeroTheme.green
+		return qgTheme.green
 	case strings.HasSuffix(title, "· failed"):
-		return zeroTheme.red
+		return qgTheme.red
 	case strings.HasSuffix(title, "· in progress"):
-		return zeroTheme.ink
+		return qgTheme.ink
 	default: // · up next (pending)
-		return zeroTheme.faint
+		return qgTheme.faint
 	}
 }
 
@@ -845,17 +845,17 @@ func styleCommandCardContentRow(line string) string {
 	// arg/alias syntax) stays bright and the prose dims.
 	if strings.HasPrefix(body, "/") {
 		if name, desc, ok := strings.Cut(body, " - "); ok {
-			return indent + zeroTheme.ink.Bold(true).Render(name) + zeroTheme.muted.Render(" — "+desc)
+			return indent + qgTheme.ink.Bold(true).Render(name) + qgTheme.muted.Render(" — "+desc)
 		}
-		return indent + zeroTheme.ink.Bold(true).Render(body)
+		return indent + qgTheme.ink.Bold(true).Render(body)
 	}
 	// "- bullet" list item: keep it readable (not dim grey).
 	if strings.HasPrefix(body, "- ") {
-		return indent + zeroTheme.ink.Render(body)
+		return indent + qgTheme.ink.Render(body)
 	}
 	// "key   value" field row: the value carries the information, so keep the
 	// whole row in readable ink rather than the old faint grey.
-	return indent + zeroTheme.ink.Render(body)
+	return indent + qgTheme.ink.Render(body)
 }
 
 // isCommandCardStatusLine reports whether trimmed is a "status: <state>" line.
@@ -870,9 +870,9 @@ func styledCommandCardStatus(trimmed string) string {
 	state := strings.TrimSpace(strings.TrimPrefix(trimmed, "status:"))
 	switch state {
 	case "warning":
-		return zeroTheme.amber.Render(trimmed)
+		return qgTheme.amber.Render(trimmed)
 	case "blocked":
-		return zeroTheme.red.Render(trimmed)
+		return qgTheme.red.Render(trimmed)
 	default: // ok, info — no signal worth the line
 		return ""
 	}
@@ -895,20 +895,20 @@ func renderMCPManagerCard(text string, width int) string {
 		case trimmed == "":
 			lines = append(lines, "")
 		case index == 0:
-			lines = append(lines, zeroTheme.accent.Bold(true).Render(line))
+			lines = append(lines, qgTheme.accent.Bold(true).Render(line))
 		case index == 1:
-			lines = append(lines, zeroTheme.ink.Bold(true).Render(line))
+			lines = append(lines, qgTheme.ink.Bold(true).Render(line))
 		case isMCPManagerHeading(trimmed):
-			lines = append(lines, zeroTheme.accent.Bold(true).Render(line))
-		case strings.Contains(trimmed, "zero mcp "):
-			lines = append(lines, zeroTheme.ink.Render(line))
+			lines = append(lines, qgTheme.accent.Bold(true).Render(line))
+		case strings.Contains(trimmed, "qg mcp "):
+			lines = append(lines, qgTheme.ink.Render(line))
 		case strings.HasPrefix(trimmed, "›") || strings.HasPrefix(trimmed, "- "):
-			lines = append(lines, zeroTheme.ink.Render(line))
+			lines = append(lines, qgTheme.ink.Render(line))
 		default:
-			lines = append(lines, zeroTheme.muted.Render(line))
+			lines = append(lines, qgTheme.muted.Render(line))
 		}
 	}
-	return styledBlock(width, lines, zeroTheme.accent)
+	return styledBlock(width, lines, qgTheme.accent)
 }
 
 func isMCPManagerHeading(value string) bool {
@@ -926,19 +926,19 @@ func renderCompactRunningCard(text string, width int) string {
 	for index, line := range raw {
 		switch index {
 		case 0:
-			lines = append(lines, zeroTheme.amber.Bold(true).Render(line))
+			lines = append(lines, qgTheme.amber.Bold(true).Render(line))
 		case 1:
-			lines = append(lines, zeroTheme.muted.Render(line))
+			lines = append(lines, qgTheme.muted.Render(line))
 		case 2:
-			lines = append(lines, zeroTheme.amber.Bold(true).Render(line))
+			lines = append(lines, qgTheme.amber.Bold(true).Render(line))
 		default:
-			lines = append(lines, zeroTheme.faint.Render(line))
+			lines = append(lines, qgTheme.faint.Render(line))
 		}
 		if index == 0 {
 			lines = append(lines, "")
 		}
 	}
-	return styledBlock(width, lines, zeroTheme.amber)
+	return styledBlock(width, lines, qgTheme.amber)
 }
 
 func renderCompactCompleteCard(text string, width int) string {
@@ -947,17 +947,17 @@ func renderCompactCompleteCard(text string, width int) string {
 	for index, line := range raw {
 		switch index {
 		case 0:
-			lines = append(lines, zeroTheme.green.Bold(true).Render(line))
+			lines = append(lines, qgTheme.green.Bold(true).Render(line))
 		case 1:
-			lines = append(lines, zeroTheme.ink.Render(line))
+			lines = append(lines, qgTheme.ink.Render(line))
 		default:
-			lines = append(lines, zeroTheme.muted.Render(line))
+			lines = append(lines, qgTheme.muted.Render(line))
 		}
 		if index == 0 {
 			lines = append(lines, "")
 		}
 	}
-	return styledBlock(width, lines, zeroTheme.green)
+	return styledBlock(width, lines, qgTheme.green)
 }
 
 func renderDoctorRunningCard(text string, width int) string {
@@ -966,19 +966,19 @@ func renderDoctorRunningCard(text string, width int) string {
 	for index, line := range raw {
 		switch index {
 		case 0:
-			lines = append(lines, zeroTheme.accent.Bold(true).Render(line))
+			lines = append(lines, qgTheme.accent.Bold(true).Render(line))
 		case 1:
-			lines = append(lines, zeroTheme.muted.Render(line))
+			lines = append(lines, qgTheme.muted.Render(line))
 		case 2:
-			lines = append(lines, zeroTheme.accent.Bold(true).Render(line))
+			lines = append(lines, qgTheme.accent.Bold(true).Render(line))
 		default:
-			lines = append(lines, zeroTheme.faint.Render(line))
+			lines = append(lines, qgTheme.faint.Render(line))
 		}
 		if index == 0 {
 			lines = append(lines, "")
 		}
 	}
-	return styledBlock(width, lines, zeroTheme.accent)
+	return styledBlock(width, lines, qgTheme.accent)
 }
 
 func renderDoctorResultCard(text string, width int) string {
@@ -993,21 +993,21 @@ func renderDoctorResultCard(text string, width int) string {
 		case strings.HasPrefix(trimmed, "status:"):
 			lines = append(lines, border.Render(line))
 		case isDoctorResultHeading(trimmed):
-			lines = append(lines, zeroTheme.accent.Bold(true).Render(line))
+			lines = append(lines, qgTheme.accent.Bold(true).Render(line))
 		case strings.HasPrefix(trimmed, "- [pass]"):
-			lines = append(lines, zeroTheme.green.Render(line))
+			lines = append(lines, qgTheme.green.Render(line))
 		case strings.HasPrefix(trimmed, "- [warn]"):
-			lines = append(lines, zeroTheme.amber.Render(line))
+			lines = append(lines, qgTheme.amber.Render(line))
 		case strings.HasPrefix(trimmed, "- [fail]"):
-			lines = append(lines, zeroTheme.red.Render(line))
+			lines = append(lines, qgTheme.red.Render(line))
 		case strings.HasPrefix(trimmed, "hint:"):
-			lines = append(lines, zeroTheme.faint.Render(line))
+			lines = append(lines, qgTheme.faint.Render(line))
 		case strings.HasPrefix(trimmed, "/") ||
 			strings.HasPrefix(trimmed, "WSL2") ||
 			strings.HasPrefix(trimmed, "install "):
-			lines = append(lines, zeroTheme.ink.Render(line))
+			lines = append(lines, qgTheme.ink.Render(line))
 		default:
-			lines = append(lines, zeroTheme.muted.Render(line))
+			lines = append(lines, qgTheme.muted.Render(line))
 		}
 		if index == 0 {
 			lines = append(lines, "")
@@ -1020,14 +1020,14 @@ func doctorResultBorderStyle(text string) lipgloss.Style {
 	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		switch strings.TrimSpace(line) {
 		case "status: ok":
-			return zeroTheme.green
+			return qgTheme.green
 		case "status: blocked":
-			return zeroTheme.red
+			return qgTheme.red
 		case "status: warning":
-			return zeroTheme.amber
+			return qgTheme.amber
 		}
 	}
-	return zeroTheme.accent
+	return qgTheme.accent
 }
 
 func isDoctorResultHeading(value string) bool {
@@ -1040,12 +1040,12 @@ func isDoctorResultHeading(value string) bool {
 }
 
 func renderErrorRow(row transcriptRow, width int) string {
-	note := noteBox(row.text, width, zeroTheme.cardErr, zeroTheme.red)
+	note := noteBox(row.text, width, qgTheme.cardErr, qgTheme.red)
 	// A recognized failure carries a one-line next step. Render it just below the
 	// red box in the faint metadata style so it reads as guidance, not more error
 	// text (and to avoid nesting ANSI styles inside noteBox's per-line red wrap).
 	if hint := strings.TrimSpace(row.hint); hint != "" {
-		note += "\n" + fitStyledLine(zeroTheme.faint.Render("→ "+hint), width)
+		note += "\n" + fitStyledLine(qgTheme.faint.Render("→ "+hint), width)
 	}
 	return note
 }
@@ -1061,7 +1061,7 @@ func noteBox(text string, width int, borderStyle lipgloss.Style, textStyle lipgl
 }
 
 func renderAskUserRow(row transcriptRow, width int) string {
-	line := fitStyledLine(zeroTheme.accent.Render("ask zero")+"  "+zeroTheme.ink.Render(strings.TrimPrefix(row.text, "ask_user: ")), width)
+	line := fitStyledLine(qgTheme.accent.Render("ask qg")+"  "+qgTheme.ink.Render(strings.TrimPrefix(row.text, "ask_user: ")), width)
 	if detail := strings.TrimSpace(row.detail); detail != "" {
 		line += "\n" + wrapDetailBlock(detail, width)
 	}
@@ -1075,7 +1075,7 @@ func renderAskUserRow(row transcriptRow, width int) string {
 func renderPermissionRow(row transcriptRow, width int) string {
 	event := row.permission
 	if event == nil {
-		return zeroTheme.amber.Render("permission") + "  " + zeroTheme.ink.Render(row.text)
+		return qgTheme.amber.Render("permission") + "  " + qgTheme.ink.Render(row.text)
 	}
 
 	name := event.ToolName
@@ -1083,7 +1083,7 @@ func renderPermissionRow(row transcriptRow, width int) string {
 		name = row.tool
 	}
 	displayName := permissionToolDisplayName(name)
-	dot := zeroTheme.faintest.Render(" · ")
+	dot := qgTheme.faintest.Render(" · ")
 
 	switch event.Action {
 	case agent.PermissionActionAllow:
@@ -1099,18 +1099,18 @@ func renderPermissionRow(row transcriptRow, width int) string {
 			event.Grant != nil || event.GrantMatched {
 			label = "always"
 		}
-		line := zeroTheme.green.Render(label) + dot + zeroTheme.green.Render(displayName)
+		line := qgTheme.green.Render(label) + dot + qgTheme.green.Render(displayName)
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
-			line += dot + zeroTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
+			line += dot + qgTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
 		}
 		return fitStyledLine(line, width)
 	case agent.PermissionActionDeny:
-		line := zeroTheme.red.Render("denied") + dot + zeroTheme.red.Render(displayName)
+		line := qgTheme.red.Render("denied") + dot + qgTheme.red.Render(displayName)
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
-			line += dot + zeroTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
+			line += dot + qgTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
 		}
 		if reason := permissionDisplayReason(event.Reason); reason != "" {
-			line += zeroTheme.faint.Render(" — " + truncateRunes(reason, maxInt(16, width-lipgloss.Width(displayName)-16)))
+			line += qgTheme.faint.Render(" — " + truncateRunes(reason, maxInt(16, width-lipgloss.Width(displayName)-16)))
 		}
 		out := fitStyledLine(line, width)
 		if detail := strings.TrimSpace(row.detail); detail != "" {
@@ -1118,12 +1118,12 @@ func renderPermissionRow(row transcriptRow, width int) string {
 		}
 		return out
 	case agent.PermissionActionCancel:
-		line := zeroTheme.red.Render("cancelled") + dot + zeroTheme.red.Render(displayName)
+		line := qgTheme.red.Render("cancelled") + dot + qgTheme.red.Render(displayName)
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
-			line += dot + zeroTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
+			line += dot + qgTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
 		}
 		if reason := permissionDisplayReason(event.Reason); reason != "" {
-			line += zeroTheme.faint.Render(" — " + truncateRunes(reason, maxInt(16, width-lipgloss.Width(displayName)-16)))
+			line += qgTheme.faint.Render(" — " + truncateRunes(reason, maxInt(16, width-lipgloss.Width(displayName)-16)))
 		}
 		out := fitStyledLine(line, width)
 		if detail := strings.TrimSpace(row.detail); detail != "" {
@@ -1131,9 +1131,9 @@ func renderPermissionRow(row transcriptRow, width int) string {
 		}
 		return out
 	default:
-		line := zeroTheme.amber.Render("permission") + "  " + zeroTheme.ink.Render(displayName) + "  " + zeroTheme.amber.Render("prompt")
+		line := qgTheme.amber.Render("permission") + "  " + qgTheme.ink.Render(displayName) + "  " + qgTheme.amber.Render("prompt")
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
-			line += "  " + zeroTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
+			line += "  " + qgTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
 		}
 		out := fitStyledLine(line, width)
 		if detail := strings.TrimSpace(row.detail); detail != "" {
@@ -1148,7 +1148,7 @@ func renderPermissionRow(row transcriptRow, width int) string {
 func wrapDetailBlock(detail string, width int) string {
 	lines := wrapPlainText(detail, maxInt(16, width-2))
 	for index := range lines {
-		lines[index] = "  " + zeroTheme.muted.Render(lines[index])
+		lines[index] = "  " + qgTheme.muted.Render(lines[index])
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1170,16 +1170,16 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	// signal; the body no longer clashes with the surrounding theme.
 	fill := func(style lipgloss.Style) lipgloss.Style { return style }
 
-	top := zeroTheme.permBadge.Render(" PERMISSION ")
+	top := qgTheme.permBadge.Render(" PERMISSION ")
 
-	body := fill(zeroTheme.amber).Bold(true).Render(name)
+	body := fill(qgTheme.amber).Bold(true).Render(name)
 	if request.ToolName == peerPermissionToolName {
-		top = zeroTheme.permBadge.Render(" PEER MESSAGE ")
-		body = fill(zeroTheme.amber).Bold(true).Render("Held message from another session")
+		top = qgTheme.permBadge.Render(" PEER MESSAGE ")
+		body = fill(qgTheme.amber).Bold(true).Render("Held message from another session")
 	} else if request.ToolName == tools.RequestPermissionsToolName {
-		body = fill(zeroTheme.amber).Bold(true).Render("Grant requested permissions?")
+		body = fill(qgTheme.amber).Bold(true).Render("Grant requested permissions?")
 	} else if request.SideEffect != "" {
-		body += fill(zeroTheme.ink).Render("  " + request.SideEffect)
+		body += fill(qgTheme.ink).Render("  " + request.SideEffect)
 	}
 	lines := []string{top, body}
 	if reason := permissionDisplayReason(request.Reason); reason != "" {
@@ -1188,13 +1188,13 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 			reasonWidth = maxInt(1, width-4)
 		}
 		for _, line := range wrapPlainText(reason, reasonWidth) {
-			lines = append(lines, fill(zeroTheme.muted).Render(line))
+			lines = append(lines, fill(qgTheme.muted).Render(line))
 		}
 	}
 	// Surface exactly what the grant covers (file/dir/host) so "always" is a
 	// clear, bounded choice rather than a blind tool-wide yes.
 	if scope := strings.TrimSpace(request.Scope); scope != "" {
-		lines = append(lines, fill(zeroTheme.muted).Render(permissionScopeLine(request, scope)))
+		lines = append(lines, fill(qgTheme.muted).Render(permissionScopeLine(request, scope)))
 	}
 
 	lines = append(lines, "")
@@ -1203,11 +1203,11 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	// ask_user "type your own answer" surface. What is typed is sent to the model
 	// as the denial reason, so it reads the instruction and adjusts.
 	if typing {
-		lines = append(lines, fill(zeroTheme.muted).Render("Tell Zero what to do differently:"))
-		lines = append(lines, zeroTheme.userPrompt.Render("❯ ")+fill(zeroTheme.ink).Render(feedback)+fill(zeroTheme.accent).Render("▌"))
+		lines = append(lines, fill(qgTheme.muted).Render("Tell QG what to do differently:"))
+		lines = append(lines, qgTheme.userPrompt.Render("❯ ")+fill(qgTheme.ink).Render(feedback)+fill(qgTheme.accent).Render("▌"))
 		lines = append(lines, "")
-		lines = append(lines, fill(zeroTheme.faint).Render("enter · send to Zero    esc · back to options"))
-		return styledBlockFill(width, lines, zeroTheme.permBorder, zeroTheme.permBg), nil
+		lines = append(lines, fill(qgTheme.faint).Render("enter · send to QG    esc · back to options"))
+		return styledBlockFill(width, lines, qgTheme.permBorder, qgTheme.permBg), nil
 	}
 
 	// Each option is its own line so a click anywhere on that row selects it (no
@@ -1220,10 +1220,10 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	offsets := make([]int, len(options))
 	for index, option := range options {
 		offsets[index] = 1 + len(lines)
-		hotkey := fill(zeroTheme.faint).Render(" [" + option.hotkey + "]")
+		hotkey := fill(qgTheme.faint).Render(" [" + option.hotkey + "]")
 		optionLabel := permissionOptionLabel(option, request)
 		if index == cursor {
-			// onSel, not badge. zeroTheme.badge is the brand chip (" 0 ", " ASK ",
+			// onSel, not badge. qgTheme.badge is the brand chip (" 0 ", " ASK ",
 			// " SPEC REVIEW ") — a full-brightness accent fill meant for short
 			// labels. Using it for a selected ROW painted a bright accent slab
 			// across the permission card, fighting the card's amber warning palette
@@ -1231,11 +1231,11 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 			// the tint tuned for exactly this job ("separates from the panel while
 			// ink label contrast stays ~9.4:1"), and onSel is what every other
 			// selectable list in the TUI uses for its highlighted row.
-			marker := fill(zeroTheme.accent).Render("▸ ")
-			label := zeroTheme.onSel(zeroTheme.ink).Bold(true).Render(" " + optionLabel + " ")
+			marker := fill(qgTheme.accent).Render("▸ ")
+			label := qgTheme.onSel(qgTheme.ink).Bold(true).Render(" " + optionLabel + " ")
 			lines = append(lines, marker+label+hotkey)
 		} else {
-			label := fill(zeroTheme.ink).Render(optionLabel)
+			label := fill(qgTheme.ink).Render(optionLabel)
 			lines = append(lines, "  "+label+hotkey)
 		}
 	}
@@ -1248,9 +1248,9 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	case peerPermissionToolName:
 		footer = "↑↓ move · enter or click to confirm · [esc] deny"
 	}
-	lines = append(lines, fill(zeroTheme.faint).Render(footer))
+	lines = append(lines, fill(qgTheme.faint).Render(footer))
 
-	return styledBlockFill(width, lines, zeroTheme.permBorder, lipgloss.NewStyle()), offsets
+	return styledBlockFill(width, lines, qgTheme.permBorder, lipgloss.NewStyle()), offsets
 }
 
 func permissionScopeLine(request agent.PermissionRequest, scope string) string {
@@ -1272,7 +1272,7 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 		case permissionDecisionDeny:
 			return "Deny — drop this message"
 		case permissionDecisionAllow:
-			return "Deliver this message to Zero"
+			return "Deliver this message to QG"
 		default:
 			return option.label
 		}
@@ -1326,7 +1326,7 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 	case permissionDecisionDeny:
 		return "No, continue without running it"
 	case permissionDecisionCancel:
-		return "No, and tell Zero what to do differently"
+		return "No, and tell QG what to do differently"
 	default:
 		return option.label
 	}
@@ -1346,7 +1346,7 @@ func permissionEventScopeLabel(event *agent.PermissionEvent) string {
 func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width int) string {
 	questions := prompt.request.Questions
 	if len(questions) == 0 {
-		return styledBlockFill(width, []string{zeroTheme.badge.Render(" ASK ")}, zeroTheme.lineStrong, lipgloss.NewStyle())
+		return styledBlockFill(width, []string{qgTheme.badge.Render(" ASK ")}, qgTheme.lineStrong, lipgloss.NewStyle())
 	}
 	// The questionnaire replaces the composer, so it paints on the terminal canvas
 	// (black) like the composer box — not a gray card. fill is an identity wrapper
@@ -1373,17 +1373,17 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 			title := askUserTabTitle(question, index)
 			switch {
 			case index == active:
-				tabs = append(tabs, zeroTheme.badge.Render(" "+title+" "))
+				tabs = append(tabs, qgTheme.badge.Render(" "+title+" "))
 			case prompt.states[index].answered:
-				tabs = append(tabs, fill(zeroTheme.muted).Render(" ✓ "+title+" "))
+				tabs = append(tabs, fill(qgTheme.muted).Render(" ✓ "+title+" "))
 			default:
-				tabs = append(tabs, fill(zeroTheme.faint).Render(" "+title+" "))
+				tabs = append(tabs, fill(qgTheme.faint).Render(" "+title+" "))
 			}
 		}
 		if active == confirm {
-			tabs = append(tabs, zeroTheme.badge.Render(" Confirm "))
+			tabs = append(tabs, qgTheme.badge.Render(" Confirm "))
 		} else {
-			tabs = append(tabs, fill(zeroTheme.faint).Render(" Confirm "))
+			tabs = append(tabs, fill(qgTheme.faint).Render(" Confirm "))
 		}
 		lines = append(lines, strings.Join(tabs, " "))
 	}
@@ -1391,24 +1391,24 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 	// Confirm tab: a review of the collected answers.
 	if active == confirm {
 		lines = append(lines, "")
-		lines = append(lines, fill(zeroTheme.ink).Render("Review and submit:"))
+		lines = append(lines, fill(qgTheme.ink).Render("Review and submit:"))
 		for index, question := range questions {
 			answer := strings.TrimSpace(prompt.states[index].answer)
-			rendered := fill(zeroTheme.ink).Render(answer)
+			rendered := fill(qgTheme.ink).Render(answer)
 			if answer == "" {
-				rendered = fill(zeroTheme.faint).Render("(no answer)")
+				rendered = fill(qgTheme.faint).Render("(no answer)")
 			}
-			lines = append(lines, "  "+fill(zeroTheme.muted).Render(askUserTabTitle(question, index)+": ")+rendered)
+			lines = append(lines, "  "+fill(qgTheme.muted).Render(askUserTabTitle(question, index)+": ")+rendered)
 		}
 		lines = append(lines, "")
-		lines = append(lines, fill(zeroTheme.faint).Render("⇆ tab · enter submit · esc dismiss"))
-		return styledBlockFill(width, lines, zeroTheme.lineStrong, lipgloss.NewStyle())
+		lines = append(lines, fill(qgTheme.faint).Render("⇆ tab · enter submit · esc dismiss"))
+		return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
 	}
 
 	question := questions[active]
 	state := prompt.states[active]
 	lines = append(lines, "")
-	lines = append(lines, fill(zeroTheme.ink).Render(question.Question))
+	lines = append(lines, fill(qgTheme.ink).Render(question.Question))
 
 	if len(question.Options) > 0 && !state.typing {
 		// Picker: numbered options (with optional descriptions) + a trailing "type
@@ -1422,34 +1422,34 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 				label += "  (recommended)"
 			}
 			if index == cursor {
-				lines = append(lines, fill(zeroTheme.accent).Render("▸ ")+zeroTheme.badge.Render(" "+label+" "))
+				lines = append(lines, fill(qgTheme.accent).Render("▸ ")+qgTheme.badge.Render(" "+label+" "))
 			} else {
-				lines = append(lines, "  "+fill(zeroTheme.ink).Render(label))
+				lines = append(lines, "  "+fill(qgTheme.ink).Render(label))
 			}
 			if index < len(question.OptionDescriptions) && strings.TrimSpace(question.OptionDescriptions[index]) != "" {
-				lines = append(lines, "     "+fill(zeroTheme.faint).Render(question.OptionDescriptions[index]))
+				lines = append(lines, "     "+fill(qgTheme.faint).Render(question.OptionDescriptions[index]))
 			}
 		}
 		typeOwn := fmt.Sprintf("%d. %s", len(question.Options)+1, askUserTypeMyOwnLabel)
 		if cursor >= len(question.Options) {
-			lines = append(lines, fill(zeroTheme.accent).Render("▸ ")+zeroTheme.badge.Render(" "+typeOwn+" "))
+			lines = append(lines, fill(qgTheme.accent).Render("▸ ")+qgTheme.badge.Render(" "+typeOwn+" "))
 		} else {
-			lines = append(lines, "  "+fill(zeroTheme.muted).Render(typeOwn))
+			lines = append(lines, "  "+fill(qgTheme.muted).Render(typeOwn))
 		}
 		lines = append(lines, "")
 		footer := "↑↓ select · enter confirm · esc dismiss"
 		if multi {
 			footer = "⇆ tab · ↑↓ select · enter confirm · esc dismiss"
 		}
-		lines = append(lines, fill(zeroTheme.faint).Render(footer))
-		return styledBlockFill(width, lines, zeroTheme.lineStrong, lipgloss.NewStyle())
+		lines = append(lines, fill(qgTheme.faint).Render(footer))
+		return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
 	}
 
 	// Free-text mode: the typed answer is echoed here (this region IS the input now).
 	if question.MultiSelect && len(question.Options) > 0 {
-		lines = append(lines, fill(zeroTheme.muted).Render("suggested: "+strings.Join(question.Options, ", ")))
+		lines = append(lines, fill(qgTheme.muted).Render("suggested: "+strings.Join(question.Options, ", ")))
 	}
-	lines = append(lines, zeroTheme.userPrompt.Render("❯ ")+fill(zeroTheme.ink).Render(input)+fill(zeroTheme.accent).Render("▌"))
+	lines = append(lines, qgTheme.userPrompt.Render("❯ ")+fill(qgTheme.ink).Render(input)+fill(qgTheme.accent).Render("▌"))
 	footer := "enter submit · esc dismiss"
 	switch {
 	case !question.MultiSelect && len(question.Options) > 0:
@@ -1457,21 +1457,21 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 	case multi:
 		footer = "⇆ tab · enter submit · esc dismiss"
 	}
-	lines = append(lines, fill(zeroTheme.faint).Render(footer))
-	return styledBlockFill(width, lines, zeroTheme.lineStrong, lipgloss.NewStyle())
+	lines = append(lines, fill(qgTheme.faint).Render(footer))
+	return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
 }
 
 // renderAskUserWaitingState makes the paused handoff explicit inside the prompt
 // that owns the keyboard. It is intentionally steady: this is user-blocked work,
-// not background progress, so a spinner would imply Zero can advance without an
+// not background progress, so a spinner would imply QG can advance without an
 // answer. The state label wins over the optional title on narrow terminals.
 func renderAskUserWaitingState(title string, width int, fill func(lipgloss.Style) lipgloss.Style) string {
-	state := zeroTheme.accent.Render("●") + " " + fill(zeroTheme.faint).Render("waiting for your answer")
+	state := qgTheme.accent.Render("●") + " " + fill(qgTheme.faint).Render("waiting for your answer")
 	available := maxInt(1, width-4)
 	if title == "" {
 		return fitStyledLine(state, available)
 	}
-	heading := fill(zeroTheme.ink).Render(title)
+	heading := fill(qgTheme.ink).Render(title)
 	if gap := available - lipgloss.Width(heading) - lipgloss.Width(state); gap >= 2 {
 		return heading + strings.Repeat(" ", gap) + state
 	}
@@ -1500,10 +1500,10 @@ type cardBody struct {
 // orphans (cancelled/errored turns, rehydrated history) — keying off the
 // global pending flag alone would re-animate dead cards on every later run.
 func (m model) renderRunningToolCard(row transcriptRow, width int, rc rowContext, opts cardRenderOptions) string {
-	glyph := zeroTheme.faintest.Render("…")
+	glyph := qgTheme.faintest.Render("…")
 	active := m.pending && row.runID != 0 && row.runID == m.activeRunID
 	if active {
-		glyph = zeroTheme.accent.Render("›")
+		glyph = qgTheme.accent.Render("›")
 	}
 	// The call row carries its own argHints; rc.hints/args only matter for
 	// result rows, whose detail is the tool output.
@@ -1517,28 +1517,28 @@ func (m model) renderRunningToolCard(row transcriptRow, width int, rc rowContext
 	}
 	// Running cards keep the normal name color; the static accent marker identifies
 	// the active operation while the turn-level status owns animation.
-	head := toolCardHead(toolRowName(row), hint, arg, "", "", "", true, zeroTheme.ink, rc.auto[rcKey(row.runID, row.id)], width, opts)
+	head := toolCardHead(toolRowName(row), hint, arg, "", "", "", true, qgTheme.ink, rc.auto[rcKey(row.runID, row.id)], width, opts)
 	if active {
-		return renderLeftRuleCard(width, []string{glyph + " " + head}, zeroTheme.cardRun)
+		return renderLeftRuleCard(width, []string{glyph + " " + head}, qgTheme.cardRun)
 	}
-	return toolCard(head, glyph, nil, "", zeroTheme.cardRun, width)
+	return toolCard(head, glyph, nil, "", qgTheme.cardRun, width)
 }
 
 func renderToolResultCard(row transcriptRow, width int, rc rowContext, opts cardRenderOptions) string {
 	name := toolRowName(row)
 	failed := row.status == tools.StatusError
-	glyph := zeroTheme.green.Render("•")
-	nameStyle := zeroTheme.green
-	borderStyle := zeroTheme.line
+	glyph := qgTheme.green.Render("•")
+	nameStyle := qgTheme.green
+	borderStyle := qgTheme.line
 	if opts.fileSelected {
 		// The selected FILES row's edit card: accent border, same as the
 		// sidebar's ▸ marker, so click → highlight reads as one gesture.
-		borderStyle = zeroTheme.accent
+		borderStyle = qgTheme.accent
 	}
 	if failed {
-		glyph = zeroTheme.red.Render("•")
-		nameStyle = zeroTheme.red
-		borderStyle = zeroTheme.cardErr
+		glyph = qgTheme.red.Render("•")
+		nameStyle = qgTheme.red
+		borderStyle = qgTheme.cardErr
 	}
 	key := rcKey(row.runID, row.id)
 	headTarget := rc.hints[key]
@@ -1941,7 +1941,7 @@ func toolCardHead(name string, target string, arg string, headTag string, detail
 		if looksLikePath(target) {
 			shown = displayPath(opts.cwd, target)
 		}
-		styled := zeroTheme.toolTarget.Render(middleTruncate(shown, maxInt(16, width/2)))
+		styled := qgTheme.toolTarget.Render(middleTruncate(shown, maxInt(16, width/2)))
 		if looksLikePath(target) {
 			styled = hyperlink(fileURL(opts.cwd, target), styled)
 		}
@@ -1949,13 +1949,13 @@ func toolCardHead(name string, target string, arg string, headTag string, detail
 	}
 	// The arg column is the first thing the width tiers drop (below 100 cols).
 	if arg = singleLineToolHeadText(arg); arg != "" && widthTier(width) == tierFull {
-		head += "  " + zeroTheme.toolArg.Render(truncateRunes(arg, maxInt(12, width/3)))
+		head += "  " + qgTheme.toolArg.Render(truncateRunes(arg, maxInt(12, width/3)))
 	}
 	if headTag != "" {
 		if strings.Contains(headTag, "\x1b") {
 			head += "  " + headTag
 		} else {
-			head += "  " + zeroTheme.faint.Render(headTag)
+			head += "  " + qgTheme.faint.Render(headTag)
 		}
 	}
 	_ = auto // the permission mode is shown in the composer divider; a per-card [auto] badge is redundant noise
@@ -2040,14 +2040,14 @@ func capCardLines(lines []string, cap int) []string {
 	}
 	hidden := len(lines) - cap
 	lines = lines[:cap]
-	return append(lines, zeroTheme.faint.Render(fmt.Sprintf("… %d more lines", hidden)))
+	return append(lines, qgTheme.faint.Render(fmt.Sprintf("… %d more lines", hidden)))
 }
 
 func genericCardBody(detail string, opts cardRenderOptions) cardBody {
 	raw := strings.Split(detail, "\n")
 	lines := make([]string, 0, len(raw))
 	for _, line := range raw {
-		lines = append(lines, zeroTheme.muted.Render(line))
+		lines = append(lines, qgTheme.muted.Render(line))
 	}
 	return cardBody{lines: capCardLines(lines, opts.bodyCap)}
 }
@@ -2169,11 +2169,11 @@ func diffCountTag(adds int, dels int) string {
 	if adds == 0 && dels == 0 {
 		return ""
 	}
-	return zeroTheme.faint.Render("(") +
-		zeroTheme.diffAdd.Render(fmt.Sprintf("+%d", adds)) +
-		zeroTheme.faint.Render(" ") +
-		zeroTheme.diffDel.Render(fmt.Sprintf("-%d", dels)) +
-		zeroTheme.faint.Render(")")
+	return qgTheme.faint.Render("(") +
+		qgTheme.diffAdd.Render(fmt.Sprintf("+%d", adds)) +
+		qgTheme.faint.Render(" ") +
+		qgTheme.diffDel.Render(fmt.Sprintf("-%d", dels)) +
+		qgTheme.faint.Render(")")
 }
 
 func diffCardBody(detail string, width int, opts cardRenderOptions) cardBody {
@@ -2198,7 +2198,7 @@ func diffCardBody(detail string, width int, opts cardRenderOptions) cardBody {
 		line := displayLine.text
 		switch {
 		case displayLine.hiddenContext > 0:
-			lines = append(lines, zeroTheme.diffMeta.Render(fmt.Sprintf("… %d unchanged lines", displayLine.hiddenContext)))
+			lines = append(lines, qgTheme.diffMeta.Render(fmt.Sprintf("… %d unchanged lines", displayLine.hiddenContext)))
 			hunk.consumeContext(displayLine.hiddenContext)
 		case isDiffFileHeader(line) && !hunk.active():
 			// Path and counts live in the tool head row.
@@ -2218,11 +2218,11 @@ func diffCardBody(detail string, width int, opts cardRenderOptions) cardBody {
 			// Preserve unusual pre-hunk output as muted context rather than losing
 			// diagnostics from nonstandard diff-producing commands.
 			if !isDiffViewerPreamble(line) {
-				lines = append(lines, zeroTheme.diffMeta.Render(truncateRunes(line, innerWidth)))
+				lines = append(lines, qgTheme.diffMeta.Render(truncateRunes(line, innerWidth)))
 			}
 		case strings.HasPrefix(line, `\`):
 			// "\ No newline at end of file" has no source-line position.
-			lines = append(lines, zeroTheme.diffMeta.Render(truncateRunes(line, innerWidth)))
+			lines = append(lines, qgTheme.diffMeta.Render(truncateRunes(line, innerWidth)))
 		case strings.HasPrefix(line, "+"):
 			if styled, ok := highlightedLines[displayLine.rawIndex]; ok {
 				lines = append(lines, diffBodyStyledLine(hunk.newLine, "+", styled, true, textBudget, gutter))
@@ -2265,9 +2265,9 @@ func diffCardBody(detail string, width int, opts cardRenderOptions) cardBody {
 				lines = append(lines, diffContextStyledLine(hunk.newLine, styled, textBudget, gutter))
 			} else {
 				text := truncateRunes(strings.TrimPrefix(line, " "), textBudget)
-				row := "   " + zeroTheme.muted.Render(text)
+				row := "   " + qgTheme.muted.Render(text)
 				if gutter {
-					row = zeroTheme.faintest.Render(fmt.Sprintf("%4d", hunk.newLine)) + row
+					row = qgTheme.faintest.Render(fmt.Sprintf("%4d", hunk.newLine)) + row
 				}
 				lines = append(lines, row)
 			}
@@ -2395,9 +2395,9 @@ func highlightDiffHunk(rawLines []string, rawStart int, path string, highlighted
 		}
 		switch prefix {
 		case '+':
-			backgrounds = append(backgrounds, zeroTheme.addLine.GetBackground())
+			backgrounds = append(backgrounds, qgTheme.addLine.GetBackground())
 		case '-':
-			backgrounds = append(backgrounds, zeroTheme.delLine.GetBackground())
+			backgrounds = append(backgrounds, qgTheme.delLine.GetBackground())
 		default:
 			backgrounds = append(backgrounds, nil)
 		}
@@ -2441,10 +2441,10 @@ func diffHunkWordSpans(rawLines []string, rawStart int, contentIndexes map[int]i
 			continue
 		}
 		if lineIndex, ok := contentIndexes[rawIndex]; ok {
-			spans = append(spans, highlightSpan{line: lineIndex, start: prefix, end: beforeEnd, background: zeroTheme.delLineWord.GetBackground()})
+			spans = append(spans, highlightSpan{line: lineIndex, start: prefix, end: beforeEnd, background: qgTheme.delLineWord.GetBackground()})
 		}
 		if lineIndex, ok := contentIndexes[rawIndex+1]; ok {
-			spans = append(spans, highlightSpan{line: lineIndex, start: prefix, end: afterEnd, background: zeroTheme.addLineWord.GetBackground()})
+			spans = append(spans, highlightSpan{line: lineIndex, start: prefix, end: afterEnd, background: qgTheme.addLineWord.GetBackground()})
 		}
 	}
 	return spans
@@ -2461,21 +2461,21 @@ func diffBodyLine(number int, sign string, text string, added bool, textBudget i
 	if gutter {
 		num := fmt.Sprintf("%4d", number)
 		if added {
-			numCol = zeroTheme.addLineNum.Render(num)
+			numCol = qgTheme.addLineNum.Render(num)
 		} else {
-			numCol = zeroTheme.delLineNum.Render(num)
+			numCol = qgTheme.delLineNum.Render(num)
 		}
 	}
 	if added {
-		return numCol + zeroTheme.addSign.Render(" "+sign+" ") + zeroTheme.addLine.Render(text)
+		return numCol + qgTheme.addSign.Render(" "+sign+" ") + qgTheme.addLine.Render(text)
 	}
-	return numCol + zeroTheme.delSign.Render(" "+sign+" ") + zeroTheme.delLine.Render(text)
+	return numCol + qgTheme.delSign.Render(" "+sign+" ") + qgTheme.delLine.Render(text)
 }
 
 func diffBodyStyledLine(number int, sign string, styledText string, added bool, textBudget int, gutter bool) string {
-	lineStyle, signStyle, numStyle := zeroTheme.delLine, zeroTheme.delSign, zeroTheme.delLineNum
+	lineStyle, signStyle, numStyle := qgTheme.delLine, qgTheme.delSign, qgTheme.delLineNum
 	if added {
-		lineStyle, signStyle, numStyle = zeroTheme.addLine, zeroTheme.addSign, zeroTheme.addLineNum
+		lineStyle, signStyle, numStyle = qgTheme.addLine, qgTheme.addSign, qgTheme.addLineNum
 	}
 	styledText = fitStyledLine(styledText, textBudget)
 	if pad := textBudget - lipgloss.Width(styledText); pad > 0 {
@@ -2491,11 +2491,11 @@ func diffBodyStyledLine(number int, sign string, styledText string, added bool, 
 func diffContextStyledLine(number int, styledText string, textBudget int, gutter bool) string {
 	styledText = fitStyledLine(styledText, textBudget)
 	if pad := textBudget - lipgloss.Width(styledText); pad > 0 {
-		styledText += zeroTheme.muted.Render(strings.Repeat(" ", pad))
+		styledText += qgTheme.muted.Render(strings.Repeat(" ", pad))
 	}
 	row := "   " + styledText
 	if gutter {
-		row = zeroTheme.faintest.Render(fmt.Sprintf("%4d", number)) + row
+		row = qgTheme.faintest.Render(fmt.Sprintf("%4d", number)) + row
 	}
 	return row
 }
@@ -2569,9 +2569,9 @@ func diffBodyLineSpanned(number int, sign string, text []rune, added bool, spanS
 	if spanEnd < spanStart {
 		spanEnd = spanStart
 	}
-	lineStyle, wordStyle, signStyle, numStyle := zeroTheme.delLine, zeroTheme.delLineWord, zeroTheme.delSign, zeroTheme.delLineNum
+	lineStyle, wordStyle, signStyle, numStyle := qgTheme.delLine, qgTheme.delLineWord, qgTheme.delSign, qgTheme.delLineNum
 	if added {
-		lineStyle, wordStyle, signStyle, numStyle = zeroTheme.addLine, zeroTheme.addLineWord, zeroTheme.addSign, zeroTheme.addLineNum
+		lineStyle, wordStyle, signStyle, numStyle = qgTheme.addLine, qgTheme.addLineWord, qgTheme.addSign, qgTheme.addLineNum
 	}
 	pre := string(text[:spanStart])
 	mid := string(text[spanStart:spanEnd])
@@ -2595,7 +2595,7 @@ func exploreCardBody(name string, hint string, arg string, detail string, width 
 	if !opts.expanded && opts.bodyCap > 0 {
 		footer := ""
 		if strings.TrimSpace(detail) != "" {
-			footer = zeroTheme.faint.Render("▸ details")
+			footer = qgTheme.faint.Render("▸ details")
 		}
 		return cardBody{lines: []string{summary}, footer: footer, canToggle: footer != ""}
 	}
@@ -2604,7 +2604,7 @@ func exploreCardBody(name string, hint string, arg string, detail string, width 
 	footer := body.footer
 	canToggle := body.canToggle
 	if opts.expanded && opts.bodyCap > 0 && footer == "" {
-		footer = zeroTheme.faint.Render("▾ collapse")
+		footer = qgTheme.faint.Render("▾ collapse")
 		canToggle = true
 	}
 	return cardBody{lines: lines, footer: footer, canToggle: canToggle}
@@ -2625,14 +2625,14 @@ func exploreCardLine(name string, hint string, arg string, detail string, width 
 	}
 	action := exploreChildAction(name)
 	target := exploreTarget(name, hint, arg, detail)
-	line := zeroTheme.faint.Render("  "+marker+" ") + zeroTheme.green.Render(action)
+	line := qgTheme.faint.Render("  "+marker+" ") + qgTheme.green.Render(action)
 	if target != "" {
 		shown := target
 		isPath := exploreTargetLooksLikePath(name, target)
 		if isPath {
 			shown = displayPath(opts.cwd, target)
 		}
-		styled := zeroTheme.toolTarget.Render(middleTruncate(shown, maxInt(8, width-lipgloss.Width(action)-6)))
+		styled := qgTheme.toolTarget.Render(middleTruncate(shown, maxInt(8, width-lipgloss.Width(action)-6)))
 		if isPath {
 			styled = hyperlink(fileURL(opts.cwd, target), styled)
 		}
@@ -2721,7 +2721,7 @@ func localControlCardBody(name string, hint string, detail string, width int, op
 func localControlChildLine(text string, width int) string {
 	prefix := "  └ "
 	budget := maxInt(8, width-lipgloss.Width(prefix))
-	return zeroTheme.faint.Render(prefix) + zeroTheme.muted.Render(truncateDisplayWidth(text, budget))
+	return qgTheme.faint.Render(prefix) + qgTheme.muted.Render(truncateDisplayWidth(text, budget))
 }
 
 func browserOpenSummary(detail string, target string) string {
@@ -2781,12 +2781,12 @@ func bashCardBody(command string, detail string, width int, opts cardRenderOptio
 		case strings.HasPrefix(line, "exit_code: "):
 			code := strings.TrimPrefix(line, "exit_code: ")
 			if code != "0" {
-				footer = zeroTheme.red.Render("exit " + code)
+				footer = qgTheme.red.Render("exit " + code)
 			}
 		default:
-			style := zeroTheme.muted
+			style := qgTheme.muted
 			if section == "stderr" {
-				style = zeroTheme.delText
+				style = qgTheme.delText
 			}
 			output = append(output, commandOutputLine{text: line, style: style})
 		}
@@ -2806,24 +2806,24 @@ func execCommandCardBody(command string, detail string, width int, opts cardRend
 			section = "output"
 		case line == "interrupted: true":
 			interrupted = true
-			footer = zeroTheme.green.Render("interrupted")
+			footer = qgTheme.green.Render("interrupted")
 		case strings.HasPrefix(line, "exit_code: "):
 			code := strings.TrimPrefix(line, "exit_code: ")
 			if code == "0" {
 				// Successful completion is already visible from the green status dot.
 			} else if interrupted {
-				footer = zeroTheme.green.Render("interrupted")
+				footer = qgTheme.green.Render("interrupted")
 			} else {
-				footer = zeroTheme.red.Render("exit " + code)
+				footer = qgTheme.red.Render("exit " + code)
 			}
 		case strings.HasPrefix(line, "session_id: "):
-			footer = zeroTheme.faint.Render("session " + strings.TrimSpace(strings.TrimPrefix(line, "session_id: ")))
+			footer = qgTheme.faint.Render("session " + strings.TrimSpace(strings.TrimPrefix(line, "session_id: ")))
 		case strings.HasPrefix(line, "Use write_stdin "):
 			continue
 		default:
-			style := zeroTheme.muted
+			style := qgTheme.muted
 			if section == "" && strings.HasPrefix(line, "Command is still running.") {
-				style = zeroTheme.faint
+				style = qgTheme.faint
 			}
 			output = append(output, commandOutputLine{text: line, style: style})
 		}
@@ -2847,7 +2847,7 @@ func renderCommandOutputLines(output []commandOutputLine, width int, opts cardRe
 		prefix := "  └ "
 		budget := maxInt(8, width-lipgloss.Width(prefix))
 		text := truncateDisplayWidth(output[0].text, budget)
-		return capCardLines([]string{zeroTheme.faint.Render(prefix) + output[0].style.Render(text)}, opts.bodyCap)
+		return capCardLines([]string{qgTheme.faint.Render(prefix) + output[0].style.Render(text)}, opts.bodyCap)
 	}
 
 	lines := make([]string, 0, len(output))
@@ -2855,7 +2855,7 @@ func renderCommandOutputLines(output []commandOutputLine, width int, opts cardRe
 	budget := maxInt(8, width-lipgloss.Width(prefix))
 	for _, item := range output {
 		text := truncateDisplayWidth(item.text, budget)
-		lines = append(lines, zeroTheme.faint.Render(prefix)+item.style.Render(text))
+		lines = append(lines, qgTheme.faint.Render(prefix)+item.style.Render(text))
 	}
 	return capCardLines(lines, opts.bodyCap)
 }
@@ -2890,22 +2890,22 @@ func renderSessionsCards(payload string, width int) string {
 	for _, record := range strings.Split(payload, "\n") {
 		fields := strings.Split(record, sessionsCardFieldSep)
 		if len(fields) < 4 {
-			blocks = append(blocks, fitStyledLine(zeroTheme.faint.Render(record), width))
+			blocks = append(blocks, fitStyledLine(qgTheme.faint.Render(record), width))
 			continue
 		}
 		id, age, title, meta := fields[0], fields[1], fields[2], fields[3]
 		innerWidth := width - 4
-		top := joinHeaderLine(zeroTheme.onPanel(zeroTheme.accent).Render(id), zeroTheme.onPanel(zeroTheme.faint).Render(age), innerWidth)
+		top := joinHeaderLine(qgTheme.onPanel(qgTheme.accent).Render(id), qgTheme.onPanel(qgTheme.faint).Render(age), innerWidth)
 		metaParts := strings.Split(meta, " · ")
 		for index := range metaParts {
-			metaParts[index] = zeroTheme.onPanel(zeroTheme.faint).Render(metaParts[index])
+			metaParts[index] = qgTheme.onPanel(qgTheme.faint).Render(metaParts[index])
 		}
 		lines := []string{
 			top,
-			zeroTheme.onPanel(zeroTheme.ink).Render(title),
-			strings.Join(metaParts, zeroTheme.onPanel(zeroTheme.faintest).Render(" · ")),
+			qgTheme.onPanel(qgTheme.ink).Render(title),
+			strings.Join(metaParts, qgTheme.onPanel(qgTheme.faintest).Render(" · ")),
 		}
-		blocks = append(blocks, styledBlockFill(width, lines, zeroTheme.line, zeroTheme.panel))
+		blocks = append(blocks, styledBlockFill(width, lines, qgTheme.line, qgTheme.panel))
 	}
 	return strings.Join(blocks, "\n")
 }
@@ -2921,20 +2921,20 @@ func grepCardBody(detail string, width int, opts cardRenderOptions) cardBody {
 	for _, line := range raw {
 		if match := grepMatchPattern.FindStringSubmatch(line); match != nil {
 			matches++
-			location := zeroTheme.grepLoc.Render(match[1])
+			location := qgTheme.grepLoc.Render(match[1])
 			// match[1] is "path:line" — link the file so a hit is one click away.
 			if path, _, ok := strings.Cut(match[1], ":"); ok && path != "" {
 				location = hyperlink(fileURL(opts.cwd, path), location)
 			}
 			budget := maxInt(8, innerWidth-lipgloss.Width(match[1])-2)
-			lines = append(lines, location+"  "+zeroTheme.muted.Render(truncateDisplayWidth(match[2], budget)))
+			lines = append(lines, location+"  "+qgTheme.muted.Render(truncateDisplayWidth(match[2], budget)))
 			continue
 		}
-		lines = append(lines, zeroTheme.muted.Render(line))
+		lines = append(lines, qgTheme.muted.Render(line))
 	}
 	footer := ""
 	if matches > 0 {
-		footer = zeroTheme.faint.Render(fmt.Sprintf("%d matches", matches))
+		footer = qgTheme.faint.Render(fmt.Sprintf("%d matches", matches))
 	}
 	return cardBody{lines: capCardLines(lines, opts.bodyCap), footer: footer}
 }

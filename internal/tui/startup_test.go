@@ -15,14 +15,14 @@ func TestEmptyStateShowsBrandAndTaglineOnly(t *testing.T) {
 	view := plainRender(t, m.View())
 	assertContains(t, view, "███████╗███████╗██████╗  ██████╗")
 	assertContains(t, view, emptyStateTagline)
-	assertNotContains(t, view, "running zero against ")
+	assertNotContains(t, view, "running qg against ")
 	assertNotContains(t, view, "add a --version flag")
 	assertNotContains(t, view, "explain internal/agent/loop.go")
 	assertNotContains(t, view, "fix the failing test in internal/tools")
 }
 
 // TestWordmarkIsPlain guards the --version banner: it must carry no ANSI
-// escapes, because this renderer never resolves --theme/ZERO_THEME and any
+// escapes, because this renderer never resolves --theme/QG_THEME and any
 // palette color could be unreadable on the user's background.
 func TestWordmarkIsPlain(t *testing.T) {
 	wordmark := Wordmark()
@@ -30,11 +30,11 @@ func TestWordmarkIsPlain(t *testing.T) {
 		t.Fatalf("expected uncolored wordmark, got %q", wordmark)
 	}
 	lines := strings.Split(wordmark, "\n")
-	if len(lines) != len(zeroWordmarkPrefixLines) {
-		t.Fatalf("expected %d wordmark lines, got %d", len(zeroWordmarkPrefixLines), len(lines))
+	if len(lines) != len(qgWordmarkPrefixLines) {
+		t.Fatalf("expected %d wordmark lines, got %d", len(qgWordmarkPrefixLines), len(lines))
 	}
 	for index, line := range lines {
-		if want := zeroWordmarkPrefixLines[index] + zeroWordmarkOLines[index]; line != want {
+		if want := qgWordmarkPrefixLines[index] + qgWordmarkOLines[index]; line != want {
 			t.Fatalf("wordmark line %d: expected %q, got %q", index, want, line)
 		}
 	}
@@ -111,7 +111,7 @@ func TestBorderedBlockFitsLongPlainLines(t *testing.T) {
 
 func TestBorderedBlockFitsLongStyledLines(t *testing.T) {
 	block := borderedBlock(26, []string{
-		zeroTheme.accent.Render("styled line should truncate inside the border"),
+		qgTheme.accent.Render("styled line should truncate inside the border"),
 	})
 
 	assertContains(t, block, "\u2026")

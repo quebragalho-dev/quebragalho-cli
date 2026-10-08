@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestToolDisplayNameCleansMCPNames(t *testing.T) {
@@ -46,10 +46,10 @@ func TestToolResultCardShowsCompactOutputAndRawArtifact(t *testing.T) {
 		id:     "compact",
 		tool:   "exec_command",
 		status: tools.StatusOK,
-		detail: "output:\n[zero] 20 passing package lines omitted\nexit_code: 0",
+		detail: "output:\n[qg] 20 passing package lines omitted\nexit_code: 0",
 		meta: map[string]string{
 			"truncated":  "true",
-			"spill_path": "/tmp/zero-output.log",
+			"spill_path": "/tmp/qg-output.log",
 			"output_budget_estimated_original_tokens": "4200",
 			"output_budget_estimated_retained_tokens": "180",
 		},

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // profileSwitchModel builds a session on a model whose catalog entry supports
@@ -26,7 +26,7 @@ func profileSwitchModel(t *testing.T) model {
 			{Name: "anthropic", CatalogID: "anthropic", Model: "claude-sonnet-4.5", APIKey: "k"},
 			{Name: "ollama", CatalogID: "ollama", ProviderKind: config.ProviderKindOpenAICompatible, BaseURL: "http://localhost:11434/v1", Model: "kimi-k2.7-code:cloud"},
 		},
-		NewProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
 		},
 	})
@@ -351,8 +351,8 @@ func TestProfileCommandRevertLeavesCoincidingOverride(t *testing.T) {
 	}
 }
 
-// Reverting a profile whose displaced budget was zero (nothing was set before
-// it) must clear ZERO_MAX_TURNS: SetMaxTurnsEnv ignores zero, so without an
+// Reverting a profile whose displaced budget was qg (nothing was set before
+// it) must clear QG_MAX_TURNS: SetMaxTurnsEnv ignores qg, so without an
 // explicit unset, spawned sub-agents would keep the removed profile's budget.
 func TestProfileCommandRevertFromZeroClearsMaxTurnsEnv(t *testing.T) {
 	t.Setenv(config.MaxTurnsEnv, "")

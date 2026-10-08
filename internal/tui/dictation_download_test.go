@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/dictation"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/dictation"
 )
 
 // buildFails returns a controller whose build always fails with a setup error,
@@ -26,7 +26,7 @@ func TestF9PointsToSTTModelWhenLocalMissing(t *testing.T) {
 	if !dictation.AutoDownloadSupported() {
 		t.Skip("no prebuilt engine for this platform")
 	}
-	m := model{dictation: setupErrController("/tmp/zero-stt")}
+	m := model{dictation: setupErrController("/tmp/qg-stt")}
 	next, _ := m.toggleDictation()
 	if !transcriptHasText(next, "/stt-model") {
 		t.Error("F9 with a missing local engine should point at /stt-model to download")

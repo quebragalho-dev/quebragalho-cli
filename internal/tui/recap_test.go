@@ -10,8 +10,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 func TestHandleConfigCommandReportsPersistError(t *testing.T) {
@@ -52,9 +52,9 @@ func TestMaybeScheduleIdleRecapDefersProviderWork(t *testing.T) {
 }
 
 func TestHandleRecapIdleUsesGoalPlanAndRecentConversation(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "The goal is to ship safer edits. Next, run the cross-platform checks."},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "The goal is to ship safer edits. Next, run the cross-platform checks."},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{Provider: provider})
 	m.recapsEnabled = true

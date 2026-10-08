@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/aimlapi"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providerhealth"
-	"github.com/Gitlawb/zero/internal/zerocommands"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/aimlapi"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgcommands"
 )
 
 type providerAddOptions struct {
@@ -64,7 +64,7 @@ func runProvidersAdd(args []string, stdout io.Writer, stderr io.Writer, deps app
 		if err := writePrettyJSON(stdout, map[string]any{
 			"configPath":     configPath,
 			"activeProvider": cfg.ActiveProvider,
-			"provider":       zerocommands.ProviderSnapshotFromProfile(profile, cfg.ActiveProvider == profile.Name),
+			"provider":       qgcommands.ProviderSnapshotFromProfile(profile, cfg.ActiveProvider == profile.Name),
 		}); err != nil {
 			return exitCrash
 		}
@@ -114,7 +114,7 @@ func runProvidersCheck(args []string, stdout io.Writer, stderr io.Writer, deps a
 		}
 	}
 
-	snapshot := zerocommands.ProviderSnapshotFromProfile(profile, profile.Name == resolved.ActiveProvider)
+	snapshot := qgcommands.ProviderSnapshotFromProfile(profile, profile.Name == resolved.ActiveProvider)
 	if options.json {
 		payload := map[string]any{"provider": snapshot, "status": "ok"}
 		if options.connectivity {
@@ -182,19 +182,19 @@ func providerCheckErrorMessage(err error, profile config.ProviderProfile) string
 func providerCheckNextActions(profile config.ProviderProfile, connectivity bool, health providerhealth.Result) []string {
 	name := providerCheckName(profile)
 	if !connectivity {
-		return []string{fmt.Sprintf("run zero providers check %s --connectivity", name)}
+		return []string{fmt.Sprintf("run qg providers check %s --connectivity", name)}
 	}
 	switch health.Status {
 	case providerhealth.StatusFail:
-		return []string{fmt.Sprintf("verify the API key, base URL, and model, then rerun zero providers check %s --connectivity", name)}
+		return []string{fmt.Sprintf("verify the API key, base URL, and model, then rerun qg providers check %s --connectivity", name)}
 	case providerhealth.StatusWarn:
-		return []string{fmt.Sprintf("review the warning, then rerun zero providers check %s --connectivity", name)}
+		return []string{fmt.Sprintf("review the warning, then rerun qg providers check %s --connectivity", name)}
 	default:
 		model := strings.TrimSpace(profile.Model)
 		if model == "" {
 			return []string{"provider is ready"}
 		}
-		return []string{fmt.Sprintf("run zero exec %q --model %s", "hello", model)}
+		return []string{fmt.Sprintf("run qg exec %q --model %s", "hello", model)}
 	}
 }
 
@@ -206,7 +206,7 @@ func providerCheckMissingKeyNextAction(profile config.ProviderProfile) string {
 	if apiKeyEnv == "" {
 		return ""
 	}
-	return fmt.Sprintf("set %s and rerun zero providers check %s", apiKeyEnv, providerCheckName(profile))
+	return fmt.Sprintf("set %s and rerun qg providers check %s", apiKeyEnv, providerCheckName(profile))
 }
 
 func providerCheckAPIKeyEnv(profile config.ProviderProfile) string {
@@ -439,7 +439,7 @@ func providerProfileForAdd(options providerAddOptions) (config.ProviderProfile, 
 	if descriptor.ID == "atomic-chat-local" {
 		model := strings.TrimSpace(options.model)
 		if model == "" || model == "local-model" {
-			return config.ProviderProfile{}, fmt.Errorf("provider %q serves a locally loaded model; pass --model <id> (run `zero providers detect` to see the served model)", descriptor.ID)
+			return config.ProviderProfile{}, fmt.Errorf("provider %q serves a locally loaded model; pass --model <id> (run `qg providers detect` to see the served model)", descriptor.ID)
 		}
 	}
 	profile := config.ProviderProfile{
@@ -484,7 +484,7 @@ func selectProviderForCheck(resolved config.ResolvedConfig, name string) (config
 }
 
 func validateProviderRuntimeReady(profile config.ProviderProfile) error {
-	// A stored OAuth login (e.g. `zero auth chatgpt`) is a credential too: a
+	// A stored OAuth login (e.g. `qg auth chatgpt`) is a credential too: a
 	// keyless token-login profile must pass the readiness check instead of being
 	// told to set an API key it will never have.
 	if profile.CatalogID != "" {

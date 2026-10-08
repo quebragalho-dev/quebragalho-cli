@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 type commandStatus string
@@ -89,7 +89,7 @@ func renderCommandCard(card commandCard) string {
 
 	title := compactCommandOutputText(card.Title)
 	if title == "" {
-		title = "Zero"
+		title = "QG"
 	}
 	lines = append(lines, title)
 
@@ -162,7 +162,7 @@ func formatCommandOutput(output commandOutput) string {
 	status := normalizeCommandStatus(output.Status)
 	title := compactCommandOutputText(output.Title)
 	if title == "" {
-		lines = append(lines, "Zero")
+		lines = append(lines, "QG")
 	} else {
 		lines = append(lines, title)
 	}
