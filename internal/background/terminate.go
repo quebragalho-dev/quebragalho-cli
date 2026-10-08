@@ -36,7 +36,7 @@ func TerminateProcess(pid int) error {
 // leader observation alone says nothing about descendants. Windows retains its
 // existing behavior of ignoring the expected kill-attempt error when
 // GetExitCodeProcess shows that the root was already dead. Windows cannot
-// rediscover a tree from a dead root, so descendants may survive there. `zero
+// rediscover a tree from a dead root, so descendants may survive there. `qg
 // daemon start` needs this operation when readiness times out: it launched the
 // child, so it must both stop the tree and collect the leader.
 //

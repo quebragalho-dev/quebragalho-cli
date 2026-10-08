@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/fsutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 type Storage struct {
@@ -160,7 +160,7 @@ func writeSpecialistReplacementWith(path string, content string, rename func(str
 	// On Windows, ReplaceFileW is used to preserve the destination DACL rather
 	// than publishing the temporary file's inherited DACL. ReplaceFileW can
 	// briefly leave the destination name absent; specialistFilesMu prevents
-	// Zero-managed loads in this process from observing that window, but external
+	// QG-managed loads in this process from observing that window, but external
 	// processes and editors are not synchronized.
 	if err := fsutil.ReplaceWithRetry(tempPath, path, rename); err != nil {
 		return fmt.Errorf("replace specialist file: %w", err)

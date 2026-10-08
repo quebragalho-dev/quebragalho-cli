@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // countingSchemaTool records how many times its Parameters() schema is read, so a
@@ -33,7 +33,7 @@ func (t countingSchemaTool) Run(_ context.Context, _ map[string]any) tools.Resul
 
 func TestRuntimeToolDefinitionMarksOnlyBuiltInApplyPatchFreeform(t *testing.T) {
 	builtIn := runtimeToolDefinition(tools.NewScopedApplyPatchTool(t.TempDir(), nil))
-	if builtIn.Type != zeroruntime.ToolDefinitionFreeform {
+	if builtIn.Type != qgruntime.ToolDefinitionFreeform {
 		t.Fatalf("built-in apply_patch type = %q, want freeform", builtIn.Type)
 	}
 
@@ -55,7 +55,7 @@ func TestPartitionToolsCacheRendersOnceAndMatchesUncached(t *testing.T) {
 	uncached, _ := partitionTools(registry, PermissionModeAuto, Options{}, map[string]bool{})
 
 	base := calls
-	cache := map[string]zeroruntime.ToolDefinition{}
+	cache := map[string]qgruntime.ToolDefinition{}
 	first, _ := partitionToolsCached(registry, PermissionModeAuto, Options{}, map[string]bool{}, cache)
 	rendersAfterFirst := calls - base
 	second, _ := partitionToolsCached(registry, PermissionModeAuto, Options{}, map[string]bool{}, cache)

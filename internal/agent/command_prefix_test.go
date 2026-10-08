@@ -4,8 +4,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestProposedCommandPrefixUsesSafeSimpleCommands(t *testing.T) {

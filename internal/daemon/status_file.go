@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/Gitlawb/zero/internal/fsutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 const (

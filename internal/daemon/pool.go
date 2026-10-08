@@ -18,7 +18,7 @@ const (
 )
 
 // defaultPoolSize, defaultMaxAttempts and defaultKillTimeout are used when a
-// PoolOptions field is left zero.
+// PoolOptions field is left qg.
 const (
 	defaultPoolSize    = 4
 	defaultMaxAttempts = 5
@@ -42,7 +42,7 @@ type WorkerSpec struct {
 }
 
 // WorkerHandle is a launched worker process the pool supervises. The production
-// launcher wraps an exec.Cmd running `zero exec -i/-o stream-json`; tests inject
+// launcher wraps an exec.Cmd running `qg exec -i/-o stream-json`; tests inject
 // a fake. Stdout yields the worker's stream-json event lines.
 type WorkerHandle interface {
 	Stdout() Lines
@@ -64,7 +64,7 @@ type Lines interface {
 // re-establishes its own sandbox — see newExecLauncher).
 type Launcher func(ctx context.Context, spec WorkerSpec) (WorkerHandle, error)
 
-// PoolOptions configures a Pool. Zero fields take documented defaults.
+// PoolOptions configures a Pool. QG fields take documented defaults.
 type PoolOptions struct {
 	// Size is the max number of concurrent workers (lease slots). Sessions beyond
 	// this queue until a slot frees.

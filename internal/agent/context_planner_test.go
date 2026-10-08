@@ -4,18 +4,18 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestContextPlannerPreservesProviderRequest(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: "inspect this", Images: []zeroruntime.ImageBlock{{MediaType: "image/png", Data: []byte{1, 2, 3}}}},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "working", ToolCalls: []zeroruntime.ToolCall{{ID: "call-1", Name: "read_file", Arguments: `{"path":"main.go"}`}}, Reasoning: []zeroruntime.ReasoningBlock{{Provider: "test", Type: "thinking", Signature: "sig"}}},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: "inspect this", Images: []qgruntime.ImageBlock{{MediaType: "image/png", Data: []byte{1, 2, 3}}}},
+		{Role: qgruntime.MessageRoleAssistant, Content: "working", ToolCalls: []qgruntime.ToolCall{{ID: "call-1", Name: "read_file", Arguments: `{"path":"main.go"}`}}, Reasoning: []qgruntime.ReasoningBlock{{Provider: "test", Type: "thinking", Signature: "sig"}}},
 	}
-	toolDefs := []zeroruntime.ToolDefinition{{
+	toolDefs := []qgruntime.ToolDefinition{{
 		Name: "read_file", Description: "Read a file",
-		Format: &zeroruntime.ToolDefinitionFormat{Type: "grammar", Syntax: "lark", Definition: "start: PATH"},
+		Format: &qgruntime.ToolDefinitionFormat{Type: "grammar", Syntax: "lark", Definition: "start: PATH"},
 		Parameters: map[string]any{
 			"type":       "object",
 			"required":   []string{"path"},
@@ -31,7 +31,7 @@ func TestContextPlannerPreservesProviderRequest(t *testing.T) {
 	})
 
 	plan := planner.Plan(messages, toolDefs, "medium")
-	want := zeroruntime.CompletionRequest{
+	want := qgruntime.CompletionRequest{
 		Messages:        copyMessages(messages),
 		Tools:           toolDefs,
 		ReasoningEffort: "medium",
@@ -77,10 +77,10 @@ func TestContextPlannerPreservesProviderRequest(t *testing.T) {
 
 func TestContextPlannerReportsInspectableBlocks(t *testing.T) {
 	planner := newContextPlanner(contextPlannerConfig{contextWindow: 100_000})
-	plan := planner.Plan([]zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: filler(400)},
-		{Role: zeroruntime.MessageRoleUser, Content: filler(200)},
-	}, []zeroruntime.ToolDefinition{{Name: "read_file", Description: "Read a file"}}, "")
+	plan := planner.Plan([]qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: filler(400)},
+		{Role: qgruntime.MessageRoleUser, Content: filler(200)},
+	}, []qgruntime.ToolDefinition{{Name: "read_file", Description: "Read a file"}}, "")
 
 	if plan.Breakdown.PrefixInvalidationReason != "initial" || plan.Breakdown.CompletePrefixHash == "" {
 		t.Fatalf("prefix evidence = %#v", plan.Breakdown)
@@ -105,9 +105,9 @@ func TestContextPlannerFingerprintsActualRequestSystemPrompt(t *testing.T) {
 	planner := newContextPlanner(contextPlannerConfig{promptParts: systemPromptParts{
 		prompt: "configured system", baseInstructions: "configured system",
 	}})
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "request-specific system"},
-		{Role: zeroruntime.MessageRoleUser, Content: "task"},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "request-specific system"},
+		{Role: qgruntime.MessageRoleUser, Content: "task"},
 	}
 
 	plan := planner.Plan(messages, nil, "")
@@ -123,8 +123,8 @@ func TestContextPlannerExplainsPrefixInvalidation(t *testing.T) {
 	planner := newContextPlanner(contextPlannerConfig{promptParts: systemPromptParts{
 		prompt: "system", baseInstructions: "base", projectContext: "project",
 	}})
-	messages := []zeroruntime.Message{{Role: zeroruntime.MessageRoleSystem, Content: "system"}, {Role: zeroruntime.MessageRoleUser, Content: "task"}}
-	tools := []zeroruntime.ToolDefinition{{Name: "read_file", Description: "Read", Parameters: map[string]any{"type": "object"}}}
+	messages := []qgruntime.Message{{Role: qgruntime.MessageRoleSystem, Content: "system"}, {Role: qgruntime.MessageRoleUser, Content: "task"}}
+	tools := []qgruntime.ToolDefinition{{Name: "read_file", Description: "Read", Parameters: map[string]any{"type": "object"}}}
 
 	if got := planner.Plan(messages, tools, "").Breakdown.PrefixInvalidationReason; got != "initial" {
 		t.Fatalf("first reason = %q, want initial", got)
