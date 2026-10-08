@@ -6,8 +6,8 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-function zeroBinaryName(platform = process.platform) {
-  return platform === 'win32' ? 'zero.exe' : 'zero';
+function qgBinaryName(platform = process.platform) {
+  return platform === 'win32' ? 'qg.exe' : 'qg';
 }
 
 function helperShimNames(name, platform = process.platform) {
@@ -58,7 +58,7 @@ function localControlHelperManifest(packageRoot) {
 // Mirrors internal/cli/observability.go parseDoctorArgs + writeDoctorHelp so the
 // wrapper's missing-binary doctor fallback matches the Go doctor CLI surface.
 const DOCTOR_HELP = `Usage:
-  zero doctor [flags]
+  qg doctor [flags]
 
 Runs Go backend health checks for config and provider setup.
 
@@ -71,7 +71,7 @@ Flags:
 const EXIT_USAGE = 2;
 
 function installedByBun() {
-  if (process.env.ZERO_WRAPPER_SIMULATE_BUN === '1') {
+  if (process.env.QG_WRAPPER_SIMULATE_BUN === '1') {
     return true;
   }
   return process.execPath.includes('bun') || !!process.versions?.bun;
@@ -81,10 +81,10 @@ function bunRecoveryParagraph() {
   return (
     'You installed with Bun, which does not run dependency lifecycle scripts\n' +
     'by default. Trust the package to run the blocked postinstall:\n' +
-    '  bun pm trust @gitlawb/zero       (project install)\n' +
-    '  bun pm -g trust @gitlawb/zero    (global install)\n' +
+    '  bun pm trust @quebragalho-dev/qg       (project install)\n' +
+    '  bun pm -g trust @quebragalho-dev/qg    (global install)\n' +
     'On Bun versions without `bun pm trust`, add\n' +
-    '  "trustedDependencies": ["@gitlawb/zero"]\n' +
+    '  "trustedDependencies": ["@quebragalho-dev/qg"]\n' +
     'to your project package.json and reinstall.\n' +
     '\n'
   );
@@ -93,14 +93,14 @@ function bunRecoveryParagraph() {
 function buildFromSourceParagraph() {
   return (
     'If this platform has no prebuilt binary, build from source:\n' +
-    'https://github.com/Gitlawb/zero (go run ./cmd/zero, requires Go 1.26+).'
+    'https://github.com/quebragalho-dev/quebragalho-cli (go run ./cmd/qg, requires Go 1.26+).'
   );
 }
 
 function missingBinaryContextParagraph() {
   return (
-    'Normally npm installs it as an optional dependency of @gitlawb/zero\n' +
-    `(@gitlawb/zero-${process.platform}-${process.arch}), and the wrapper can\n` +
+    'Normally npm installs it as an optional dependency of @quebragalho-dev/qg\n' +
+    `(@quebragalho-dev/qg-${process.platform}-${process.arch}), and the wrapper can\n` +
     'also download it from the GitHub Release when it is missing.'
   );
 }
@@ -113,7 +113,7 @@ function missingNativeRecoveryParagraphs(postinstallScript) {
     '\n' +
     'Things to try:\n' +
     '  - reinstall without omitting optional dependencies:\n' +
-    '      npm install -g @gitlawb/zero\n' +
+    '      npm install -g @quebragalho-dev/qg\n' +
     '  - run the downloader manually (needs write access to the package dir):\n' +
     `      node "${postinstallScript}"\n` +
     '\n' +
@@ -124,7 +124,7 @@ function missingNativeRecoveryParagraphs(postinstallScript) {
 
 function formatGenericMissingNativeBinaryMessage(postinstallScript) {
   return (
-    '[zero] No native binary is available for this install.\n' +
+    '[qg] No native binary is available for this install.\n' +
     missingNativeRecoveryParagraphs(postinstallScript)
   );
 }
@@ -158,7 +158,7 @@ function missingNativeDoctorJSONReport(postinstallScript) {
         id: 'runtime.go',
         label: 'Go runtime',
         status: 'fail',
-        message: 'Native zero binary is missing next to the npm wrapper.',
+        message: 'Native qg binary is missing next to the npm wrapper.',
         details: {
           remedy: `node "${postinstallScript}"`,
         },
@@ -169,11 +169,11 @@ function missingNativeDoctorJSONReport(postinstallScript) {
 
 function missingNativeDoctorTextReport(postinstallScript) {
   return (
-    'Zero doctor report (' +
+    'QG doctor report (' +
     new Date().toISOString() +
     ')\n' +
     'Overall: fail\n' +
-    '[fail] runtime.go - Native zero binary is missing next to the npm wrapper.\n' +
+    '[fail] runtime.go - Native qg binary is missing next to the npm wrapper.\n' +
     '  remedy: node "' +
     postinstallScript +
     '"\n' +
@@ -182,19 +182,19 @@ function missingNativeDoctorTextReport(postinstallScript) {
   );
 }
 
-// The platform payload is a version of @gitlawb/zero itself, installed under
+// The platform payload is a version of @quebragalho-dev/qg itself, installed under
 // an npm: alias (see docs/NPM_PACKAGING.md). The alias name is derived from
 // process.platform/process.arch, so an unsupported platform simply fails to
 // resolve and we fall through to the downloader.
 function platformPackageBinary() {
-  const aliasedName = `@gitlawb/zero-${process.platform}-${process.arch}`;
+  const aliasedName = `@quebragalho-dev/qg-${process.platform}-${process.arch}`;
   let manifestPath;
   try {
     manifestPath = createRequire(import.meta.url).resolve(`${aliasedName}/package.json`);
   } catch {
     return null;
   }
-  const candidate = join(dirname(manifestPath), zeroBinaryName());
+  const candidate = join(dirname(manifestPath), qgBinaryName());
   return existsSync(candidate) ? candidate : null;
 }
 
@@ -220,7 +220,7 @@ function downloadMissingBinary(packageRoot) {
   const downloadScript = join(packageRoot, 'scripts', 'postinstall.mjs');
   if (!existsSync(downloadScript) || !releaseAssetAvailable()) return;
   console.error(
-    '[zero] no platform package installed — fetching the native binary from the GitHub Release (retried on each run until it succeeds).',
+    '[qg] no platform package installed — fetching the native binary from the GitHub Release (retried on each run until it succeeds).',
   );
   spawnSync(process.execPath, [downloadScript], {
     stdio: ['ignore', 'inherit', 'inherit'],
@@ -232,7 +232,7 @@ const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 function resolveNativeBinary() {
   const fromPlatformPackage = platformPackageBinary();
   if (fromPlatformPackage) return fromPlatformPackage;
-  const downloaded = join(packageRoot, zeroBinaryName());
+  const downloaded = join(packageRoot, qgBinaryName());
   if (existsSync(downloaded)) return downloaded;
   downloadMissingBinary(packageRoot);
   return existsSync(downloaded) ? downloaded : null;
@@ -243,12 +243,12 @@ const nativePath = resolveNativeBinary();
 if (!nativePath) {
   const postinstallScript = join(packageRoot, 'scripts', 'postinstall.mjs');
 
-  // `zero doctor` is the diagnostic command: when the native binary is missing
+  // `qg doctor` is the diagnostic command: when the native binary is missing
   // it's the one invocation that must NOT bail with the generic wrapper error,
   // because that's exactly the blind alley issue #405 reports. Instead, surface
   // a doctor-shaped FAIL line for the runtime so the user's diagnostic finds the
-  // real cause. We branch on a literal 'doctor' subcommand only (matching `zero
-  // doctor` and `zero doctor --connectivity`), preserving the existing bail for
+  // real cause. We branch on a literal 'doctor' subcommand only (matching `qg
+  // doctor` and `qg doctor --connectivity`), preserving the existing bail for
   // every other invocation (exec, providers list, TUI, --version, etc.).
   const argv = process.argv.slice(2);
   const isDoctor = argv.length > 0 && argv[0] === 'doctor';
@@ -259,7 +259,7 @@ if (!nativePath) {
       process.exit(0);
     }
     if (parsed.kind === 'error') {
-      process.stderr.write(`[zero] ${parsed.message}\n`);
+      process.stderr.write(`[qg] ${parsed.message}\n`);
       process.exit(EXIT_USAGE);
     }
 
@@ -279,9 +279,9 @@ if (!nativePath) {
 const env = { ...process.env };
 const localControlHelpers = localControlHelperManifest(packageRoot);
 if (localControlHelpers) {
-  env.ZERO_LOCAL_CONTROL_HELPERS = localControlHelpers;
+  env.QG_LOCAL_CONTROL_HELPERS = localControlHelpers;
 } else {
-  delete env.ZERO_LOCAL_CONTROL_HELPERS;
+  delete env.QG_LOCAL_CONTROL_HELPERS;
 }
 
 const child = spawnSync(nativePath, process.argv.slice(2), {
@@ -290,7 +290,7 @@ const child = spawnSync(nativePath, process.argv.slice(2), {
 });
 
 if (child.error) {
-  console.error(`[zero] Failed to launch wrapper target: ${child.error.message}`);
+  console.error(`[qg] Failed to launch wrapper target: ${child.error.message}`);
   process.exit(1);
 }
 

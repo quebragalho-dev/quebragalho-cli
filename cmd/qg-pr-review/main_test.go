@@ -8,13 +8,13 @@ import (
 
 func TestRunBuildsMarkdownFromEnvironment(t *testing.T) {
 	env := []string{
-		"ZERO_PR_NUMBER=50",
-		"ZERO_REVIEW_HEAD_SHA=abcdef1234567890",
-		"ZERO_REVIEW_DIFF_CHECK=success",
-		"ZERO_REVIEW_TEST=success",
-		"ZERO_REVIEW_BUILD=success",
-		"ZERO_REVIEW_SMOKE=success",
-		"ZERO_CHANGED_FILES=b.go\na.go",
+		"QG_PR_NUMBER=50",
+		"QG_REVIEW_HEAD_SHA=abcdef1234567890",
+		"QG_REVIEW_DIFF_CHECK=success",
+		"QG_REVIEW_TEST=success",
+		"QG_REVIEW_BUILD=success",
+		"QG_REVIEW_SMOKE=success",
+		"QG_CHANGED_FILES=b.go\na.go",
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -26,7 +26,7 @@ func TestRunBuildsMarkdownFromEnvironment(t *testing.T) {
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"<!-- zero-auto-review -->",
+		"<!-- qg-auto-review -->",
 		"Verdict: **No blockers found**",
 		"Head: `abcdef123456`",
 		"Changed files (2): `a.go`, `b.go`",
@@ -49,7 +49,7 @@ func TestRunHelp(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"zero-pr-review", "ZERO_REVIEW_DIFF_CHECK", "ZERO_CHANGED_FILES"} {
+	for _, want := range []string{"qg-pr-review", "QG_REVIEW_DIFF_CHECK", "QG_CHANGED_FILES"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected help to contain %q:\n%s", want, stdout.String())
 		}

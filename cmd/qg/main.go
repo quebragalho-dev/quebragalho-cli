@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/Gitlawb/zero/internal/cli"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/cli"
 )
 
 func main() {

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/perfbench"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/perfbench"
 )
 
 const (
@@ -53,18 +53,18 @@ func run(args []string, getenv func(string) string, stdout io.Writer, stderr io.
 	}
 	result, err := perfbench.Run(context.Background(), options.Options)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Performance benchmark failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Performance benchmark failed: "+err.Error())
 		return 1
 	}
 	if options.Output != "" {
 		if err := writeReport(options.Output, result); err != nil {
-			_, _ = fmt.Fprintln(stderr, "[zero] Performance benchmark failed: "+err.Error())
+			_, _ = fmt.Fprintln(stderr, "[qg] Performance benchmark failed: "+err.Error())
 			return 1
 		}
 	}
 	if options.JSON {
 		if err := perfbench.WriteJSON(stdout, result); err != nil {
-			_, _ = fmt.Fprintln(stderr, "[zero] Performance benchmark failed: "+err.Error())
+			_, _ = fmt.Fprintln(stderr, "[qg] Performance benchmark failed: "+err.Error())
 			return 1
 		}
 	} else {
@@ -80,23 +80,23 @@ func run(args []string, getenv func(string) string, stdout io.Writer, stderr io.
 }
 
 func parseArgs(args []string, getenv func(string) string) (cliOptions, error) {
-	iterations, err := readPositiveIntegerEnv(getenv, "ZERO_PERF_ITERATIONS", defaultIterations)
+	iterations, err := readPositiveIntegerEnv(getenv, "QG_PERF_ITERATIONS", defaultIterations)
 	if err != nil {
 		return cliOptions{}, err
 	}
-	warmupIterations, err := readNonNegativeIntegerEnv(getenv, "ZERO_PERF_WARMUP_ITERATIONS", defaultWarmupIterations)
+	warmupIterations, err := readNonNegativeIntegerEnv(getenv, "QG_PERF_WARMUP_ITERATIONS", defaultWarmupIterations)
 	if err != nil {
 		return cliOptions{}, err
 	}
-	coldStartP95Ms, err := readPositiveNumberEnv(getenv, "ZERO_PERF_COLD_START_WARN_MS", perfbench.DefaultThresholds.ColdStartP95Ms)
+	coldStartP95Ms, err := readPositiveNumberEnv(getenv, "QG_PERF_COLD_START_WARN_MS", perfbench.DefaultThresholds.ColdStartP95Ms)
 	if err != nil {
 		return cliOptions{}, err
 	}
-	firstOutputP95Ms, err := readPositiveNumberEnv(getenv, "ZERO_PERF_FIRST_OUTPUT_WARN_MS", perfbench.DefaultThresholds.FirstOutputP95Ms)
+	firstOutputP95Ms, err := readPositiveNumberEnv(getenv, "QG_PERF_FIRST_OUTPUT_WARN_MS", perfbench.DefaultThresholds.FirstOutputP95Ms)
 	if err != nil {
 		return cliOptions{}, err
 	}
-	harnessEndRssMaxMb, err := readPositiveNumberEnv(getenv, "ZERO_PERF_HARNESS_END_RSS_WARN_MB", perfbench.DefaultThresholds.HarnessEndRssMaxMb)
+	harnessEndRssMaxMb, err := readPositiveNumberEnv(getenv, "QG_PERF_HARNESS_END_RSS_WARN_MB", perfbench.DefaultThresholds.HarnessEndRssMaxMb)
 	if err != nil {
 		return cliOptions{}, err
 	}
@@ -207,9 +207,9 @@ func parseArgs(args []string, getenv func(string) string) (cliOptions, error) {
 
 func helpText() string {
 	return strings.Join([]string{
-		"Usage: zero-perf-bench [options]",
-		"       zero-perf-bench tasks [options]   (Terminal-Bench-style task harness; see `tasks --help`)",
-		"       zero-perf-bench turn  [options]   (per-turn tracing benchmark; see `turn --help`)",
+		"Usage: qg-perf-bench [options]",
+		"       qg-perf-bench tasks [options]   (Terminal-Bench-style task harness; see `tasks --help`)",
+		"       qg-perf-bench turn  [options]   (per-turn tracing benchmark; see `turn --help`)",
 		"",
 		"Options:",
 		"  --iterations <n>             Measured samples to collect (default: 5)",
@@ -225,9 +225,9 @@ func helpText() string {
 		"  -h, --help                   Show this help",
 		"",
 		"Environment overrides:",
-		"  ZERO_PERF_ITERATIONS, ZERO_PERF_WARMUP_ITERATIONS",
-		"  ZERO_PERF_COLD_START_WARN_MS, ZERO_PERF_FIRST_OUTPUT_WARN_MS",
-		"  ZERO_PERF_HARNESS_END_RSS_WARN_MB",
+		"  QG_PERF_ITERATIONS, QG_PERF_WARMUP_ITERATIONS",
+		"  QG_PERF_COLD_START_WARN_MS, QG_PERF_FIRST_OUTPUT_WARN_MS",
+		"  QG_PERF_HARNESS_END_RSS_WARN_MB",
 	}, "\n") + "\n"
 }
 

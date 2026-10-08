@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/perfbench"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/perfbench"
 )
 
 func TestParseArgsUsesCliAndEnvOverrides(t *testing.T) {
 	env := func(key string) string {
 		values := map[string]string{
-			"ZERO_PERF_COLD_START_WARN_MS":      "250",
-			"ZERO_PERF_HARNESS_END_RSS_WARN_MB": "384",
+			"QG_PERF_COLD_START_WARN_MS":      "250",
+			"QG_PERF_HARNESS_END_RSS_WARN_MB": "384",
 		}
 		return values[key]
 	}
@@ -43,7 +43,7 @@ func TestParseArgsUsesCliAndEnvOverrides(t *testing.T) {
 
 func TestParseArgsUsesEnvOnlyThreshold(t *testing.T) {
 	options, err := parseArgs(nil, func(key string) string {
-		if key == "ZERO_PERF_FIRST_OUTPUT_WARN_MS" {
+		if key == "QG_PERF_FIRST_OUTPUT_WARN_MS" {
 			return "610"
 		}
 		return ""
@@ -67,11 +67,11 @@ func TestParseArgsRejectsInvalidValues(t *testing.T) {
 		t.Fatalf("output error = %v", err)
 	}
 	if _, err := parseArgs(nil, func(key string) string {
-		if key == "ZERO_PERF_ITERATIONS" {
+		if key == "QG_PERF_ITERATIONS" {
 			return "nope"
 		}
 		return ""
-	}); err == nil || !strings.Contains(err.Error(), "ZERO_PERF_ITERATIONS must be a positive integer") {
+	}); err == nil || !strings.Contains(err.Error(), "QG_PERF_ITERATIONS must be a positive integer") {
 		t.Fatalf("env error = %v", err)
 	}
 }
@@ -84,7 +84,7 @@ func TestHelpText(t *testing.T) {
 		t.Fatalf("run --help code = %d stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Usage: zero-perf-bench", "--iterations", "ZERO_PERF_ITERATIONS"} {
+	for _, want := range []string{"Usage: qg-perf-bench", "--iterations", "QG_PERF_ITERATIONS"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("help missing %q:\n%s", want, output)
 		}

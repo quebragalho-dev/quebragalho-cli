@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/perfbench"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/perfbench"
 )
 
-// taskOptions configures the `zero-perf-bench tasks` subcommand: the reproducible
-// Terminal-Bench-style harness that runs ZERO headlessly against a task set and
+// taskOptions configures the `qg-perf-bench tasks` subcommand: the reproducible
+// Terminal-Bench-style harness that runs QG headlessly against a task set and
 // records a publishable result (model + commit + self-correct flag + date).
 type taskOptions struct {
 	SuitePath   string
@@ -42,7 +42,7 @@ func runTasksCommand(args []string, getenv func(string) string, stdout io.Writer
 
 	set, err := perfbench.LoadTaskSet(options.SuitePath)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Task benchmark failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Task benchmark failed: "+err.Error())
 		return 1
 	}
 
@@ -50,7 +50,7 @@ func runTasksCommand(args []string, getenv func(string) string, stdout io.Writer
 	if !options.DryRun {
 		binary := strings.TrimSpace(options.Binary)
 		if binary == "" {
-			_, _ = fmt.Fprintln(stderr, "[zero] Task benchmark failed: --binary is required unless --dry-run is set")
+			_, _ = fmt.Fprintln(stderr, "[qg] Task benchmark failed: --binary is required unless --dry-run is set")
 			return 2
 		}
 		runner = perfbench.NewExecRunner(binary)
@@ -65,19 +65,19 @@ func runTasksCommand(args []string, getenv func(string) string, stdout io.Writer
 		Runner:      runner,
 	})
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Task benchmark failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Task benchmark failed: "+err.Error())
 		return 1
 	}
 
 	if options.Output != "" {
 		if err := writeTaskReport(options.Output, result); err != nil {
-			_, _ = fmt.Fprintln(stderr, "[zero] Task benchmark failed: "+err.Error())
+			_, _ = fmt.Fprintln(stderr, "[qg] Task benchmark failed: "+err.Error())
 			return 1
 		}
 	}
 	if options.JSON {
 		if err := perfbench.WriteTaskJSON(stdout, result); err != nil {
-			_, _ = fmt.Fprintln(stderr, "[zero] Task benchmark failed: "+err.Error())
+			_, _ = fmt.Fprintln(stderr, "[qg] Task benchmark failed: "+err.Error())
 			return 1
 		}
 		return 0
@@ -88,8 +88,8 @@ func runTasksCommand(args []string, getenv func(string) string, stdout io.Writer
 
 func parseTaskArgs(args []string, getenv func(string) string) (taskOptions, error) {
 	options := taskOptions{
-		Version: strings.TrimSpace(getenv("ZERO_BENCH_VERSION")),
-		Commit:  strings.TrimSpace(getenv("ZERO_BENCH_COMMIT")),
+		Version: strings.TrimSpace(getenv("QG_BENCH_VERSION")),
+		Commit:  strings.TrimSpace(getenv("QG_BENCH_COMMIT")),
 	}
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
@@ -195,9 +195,9 @@ func writeTaskReport(path string, result perfbench.TaskRunResult) error {
 
 func taskHelpText() string {
 	return strings.Join([]string{
-		"Usage: zero-perf-bench tasks [options]",
+		"Usage: qg-perf-bench tasks [options]",
 		"",
-		"Runs ZERO headlessly against a Terminal-Bench-style task set and records a",
+		"Runs QG headlessly against a Terminal-Bench-style task set and records a",
 		"reproducible, publishable result (model + commit + self-correct flag + date).",
 		"",
 		"Options:",
@@ -205,9 +205,9 @@ func taskHelpText() string {
 		"  --model <model>     Model to run (required); recorded with the result",
 		"  --mode <name>       Exec mode preset to apply",
 		"  --self-correct      Enable the post-edit verify-and-correct loop",
-		"  --binary <path>     Path to the `zero` binary (required unless --dry-run)",
-		"  --version <v>       Record the ZERO version (default: $ZERO_BENCH_VERSION)",
-		"  --commit <sha>      Record the ZERO commit (default: $ZERO_BENCH_COMMIT)",
+		"  --binary <path>     Path to the `qg` binary (required unless --dry-run)",
+		"  --version <v>       Record the QG version (default: $QG_BENCH_VERSION)",
+		"  --commit <sha>      Record the QG commit (default: $QG_BENCH_COMMIT)",
 		"  --output <path>     Write the JSON result to path",
 		"  --json              Print only the JSON result",
 		"  --dry-run           Record every task as skipped without invoking the agent",

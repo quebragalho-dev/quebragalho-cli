@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/release"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/release"
 )
 
 func main() {
@@ -17,7 +17,7 @@ func main() {
 
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "zero-release command required. Use `zero-release --help`.")
+		_, _ = fmt.Fprintln(stderr, "qg-release command required. Use `qg-release --help`.")
 		return 2
 	}
 	switch args[0] {
@@ -35,7 +35,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "verify":
 		return runVerify(args[1:], stdout, stderr)
 	default:
-		_, _ = fmt.Fprintf(stderr, "unknown zero-release command %q\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "unknown qg-release command %q\n", args[0])
 		return 2
 	}
 }
@@ -54,7 +54,7 @@ func runBuild(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	result, err := release.Build(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Build failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Build failed: "+err.Error())
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "Built %s (%s/%s, version %s)\n", result.OutputPath, result.GOOS, result.GOARCH, result.Version)
@@ -75,7 +75,7 @@ func runPackage(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	result, err := release.Package(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Release packaging failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Release packaging failed: "+err.Error())
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "Packaged %s\n", result.ArchiveName)
@@ -97,7 +97,7 @@ func runSmoke(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	result, err := release.Smoke(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Smoke failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Smoke failed: "+err.Error())
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "%s smoke check passed (%s)\n", filepath.Base(result.BinaryPath), result.Version)
@@ -118,7 +118,7 @@ func runVerify(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	results, err := release.VerifyReleaseChecksums(options)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "[zero] Release checksum verification failed: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "[qg] Release checksum verification failed: "+err.Error())
 		return 1
 	}
 	for _, result := range results {
@@ -130,8 +130,8 @@ func runVerify(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func parseBuildArgs(args []string, getenv func(string) string) (release.BuildOptions, bool, error) {
 	options := release.BuildOptions{
-		GOOS:   strings.TrimSpace(getenv("ZERO_BUILD_GOOS")),
-		GOARCH: strings.TrimSpace(getenv("ZERO_BUILD_GOARCH")),
+		GOOS:   strings.TrimSpace(getenv("QG_BUILD_GOOS")),
+		GOARCH: strings.TrimSpace(getenv("QG_BUILD_GOARCH")),
 	}
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
@@ -331,12 +331,12 @@ func readOptionValue(args []string, inlineValue string, index int, flag string) 
 
 func writeHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero-release <command>
+  qg-release <command>
 
 Commands:
-  build      Build the Go-native zero binary
+  build      Build the Go-native qg binary
   package    Build and package the current platform release archive
-  smoke      Verify the built zero binary prints the package version
+  smoke      Verify the built qg binary prints the package version
   verify     Verify release archive checksums
 `)
 	return err
@@ -344,9 +344,9 @@ Commands:
 
 func writeBuildHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero-release build [flags]
+  qg-release build [flags]
 
-Builds the Go-native zero binary.
+Builds the Go-native qg binary.
 
 Flags:
       --root <path>       Repository root (default: current directory)
@@ -357,16 +357,16 @@ Flags:
   -h, --help              Show this help
 
 Environment overrides:
-  ZERO_BUILD_GOOS, ZERO_BUILD_GOARCH
+  QG_BUILD_GOOS, QG_BUILD_GOARCH
 `)
 	return err
 }
 
 func writePackageHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero-release package [flags]
+  qg-release package [flags]
 
-Builds the Go-native zero binary, stages npm wrapper files, writes a release
+Builds the Go-native qg binary, stages npm wrapper files, writes a release
 archive, and writes the matching SHA-256 checksum file.
 
 Flags:
@@ -381,14 +381,14 @@ Flags:
 
 func writeSmokeHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero-release smoke [flags]
+  qg-release smoke [flags]
 
-Runs the built zero binary with --version and verifies it prints the package
+Runs the built qg binary with --version and verifies it prints the package
 version.
 
 Flags:
       --root <path>     Repository root (default: current directory)
-      --path <path>     Binary path (default: ./zero or ./zero.exe)
+      --path <path>     Binary path (default: ./qg or ./qg.exe)
       --binary <path>   Alias for --path
       --goos <goos>     Binary target GOOS for default path selection
       --version <ver>   Expected version (default: package.json version)
@@ -399,7 +399,7 @@ Flags:
 
 func writeVerifyHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero-release verify [--dir <path>]
+  qg-release verify [--dir <path>]
 
 Verifies that every release archive has a matching .sha256 file and digest.
 

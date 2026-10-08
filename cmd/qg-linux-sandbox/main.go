@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 func main() {

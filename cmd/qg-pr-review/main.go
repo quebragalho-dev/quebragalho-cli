@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/review"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/review"
 )
 
 func main() {
@@ -50,18 +50,18 @@ func envMap(values []string) map[string]string {
 
 func writeHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero-pr-review
+  qg-pr-review
 
 Builds the deterministic PR review markdown used by GitHub Actions.
 
 Environment:
-  ZERO_REVIEW_DIFF_CHECK      Outcome for diff hygiene
-  ZERO_REVIEW_TEST            Outcome for tests
-  ZERO_REVIEW_BUILD           Outcome for build
-  ZERO_REVIEW_SMOKE           Outcome for smoke build
-  ZERO_CHANGED_FILES          Newline-separated changed file paths
-  ZERO_REVIEW_HEAD_SHA        Pull request head SHA
-  ZERO_PR_NUMBER              Pull request number
+  QG_REVIEW_DIFF_CHECK      Outcome for diff hygiene
+  QG_REVIEW_TEST            Outcome for tests
+  QG_REVIEW_BUILD           Outcome for build
+  QG_REVIEW_SMOKE           Outcome for smoke build
+  QG_CHANGED_FILES          Newline-separated changed file paths
+  QG_REVIEW_HEAD_SHA        Pull request head SHA
+  QG_PR_NUMBER              Pull request number
 `)
 	return err
 }
