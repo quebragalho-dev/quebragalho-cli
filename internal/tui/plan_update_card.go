@@ -77,7 +77,7 @@ func renderPlanUpdateCard(detail string, width int) (string, bool) {
 		width = 8
 	}
 
-	lines := []string{zeroTheme.faint.Render("• ") + zeroTheme.ink.Bold(true).Render("Updated Plan")}
+	lines := []string{qgTheme.faint.Render("• ") + qgTheme.ink.Bold(true).Render("Updated Plan")}
 	for index, item := range items {
 		firstPrefix := "    "
 		if index == 0 {
@@ -106,7 +106,7 @@ func renderPlanUpdateItem(item planUpdateItem, prefix string, width int) []strin
 		notePrefix := strings.Repeat(" ", len([]rune(prefix))) + "  "
 		noteWidth := maxInt(1, width-len([]rune(notePrefix)))
 		for _, line := range wrapPlainText(note, noteWidth) {
-			lines = append(lines, notePrefix+zeroTheme.faint.Italic(true).Render(line))
+			lines = append(lines, notePrefix+qgTheme.faint.Italic(true).Render(line))
 		}
 	}
 	return lines
@@ -115,12 +115,12 @@ func renderPlanUpdateItem(item planUpdateItem, prefix string, width int) []strin
 func planUpdateItemStyle(status string) (string, interface{ Render(...string) string }) {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "completed":
-		return "✔ ", zeroTheme.faint.Strikethrough(true)
+		return "✔ ", qgTheme.faint.Strikethrough(true)
 	case "in_progress":
-		return "□ ", zeroTheme.accent.Bold(true)
+		return "□ ", qgTheme.accent.Bold(true)
 	case "failed":
-		return "✗ ", zeroTheme.red
+		return "✗ ", qgTheme.red
 	default:
-		return "□ ", zeroTheme.faint
+		return "□ ", qgTheme.faint
 	}
 }

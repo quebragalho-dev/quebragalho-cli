@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/cron"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/cron"
 )
 
 func TestFireJobClaimPreventsDoubleFire(t *testing.T) {

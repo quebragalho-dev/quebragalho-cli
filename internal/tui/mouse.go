@@ -13,7 +13,7 @@ import (
 // user: a terminal we guessed wrong about delivers no mouse events at all, and
 // there is no in-app way to recover. Anything unrecognised is ignored rather
 // than treated as "off", so a typo cannot silently kill the mouse.
-const mouseModeEnv = "ZERO_MOUSE_MODE"
+const mouseModeEnv = "QG_MOUSE_MODE"
 
 // mouseModeFor picks the mouse reporting mode, preferring the widest support
 // over the nicest behaviour.
@@ -50,20 +50,20 @@ func mouseModeFor(goos string, env func(string) string, underPRoot bool) tea.Mou
 //
 // Identified terminals are trusted: Windows Terminal sets WT_SESSION, and hosts
 // like VS Code and mintty set TERM_PROGRAM. The legacy console host sets
-// neither, and it is what a user gets by double-clicking zero.exe or running it
+// neither, and it is what a user gets by double-clicking qg.exe or running it
 // from an old cmd window, so an unidentified Windows terminal is assumed to be
 // that one. Guessing wrong in this direction costs a hover highlight; guessing
 // wrong in the other direction costs every mouse event.
 // KNOWN LIMIT: these variables are INHERITED, so they answer for the process
 // that set them rather than for the console host attached right now. A shell
-// launched from Windows Terminal, or from Git Bash, that later runs zero.exe
+// launched from Windows Terminal, or from Git Bash, that later runs qg.exe
 // against the legacy console still carries them, and this returns true for a
 // host that may drop every mouse event.
 //
 // Left as is on purpose. Deciding it properly means asking the console host
 // rather than the environment, and erring the other way costs every Windows
 // Terminal user their hover highlighting for a case that needs an unusual
-// launch path to reach. ZERO_MOUSE_MODE=cell is the recourse in the meantime,
+// launch path to reach. QG_MOUSE_MODE=cell is the recourse in the meantime,
 // which is the main reason that override exists.
 // TestInheritedWindowsTerminalEnvStillAsksForAllMotion pins this, so it is a
 // documented limit rather than a surprise.

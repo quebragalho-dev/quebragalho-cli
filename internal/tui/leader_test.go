@@ -269,7 +269,7 @@ func TestLeaderHelpMatchesKeybindingHelpChrome(t *testing.T) {
 
 func TestShortcutOverlaysKeepTerminalCanvasTransparent(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "gpt-4o"})
-	panelFill := zeroTheme.panel.Render(" ")
+	panelFill := qgTheme.panel.Render(" ")
 	for _, overlay := range []struct {
 		name string
 		view string

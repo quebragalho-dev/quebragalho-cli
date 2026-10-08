@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 const (
@@ -57,7 +57,7 @@ func cleanGeneratedRecap(raw string) string {
 
 // generateRecap asks the provider for a compact orientation note using bounded
 // session context. It is an isolated side request with no tools.
-func generateRecap(ctx context.Context, provider zeroruntime.Provider, sessionContext string) (string, error) {
+func generateRecap(ctx context.Context, provider qgruntime.Provider, sessionContext string) (string, error) {
 	if provider == nil {
 		return "", errors.New("no provider configured")
 	}
@@ -65,17 +65,17 @@ func generateRecap(ctx context.Context, provider zeroruntime.Provider, sessionCo
 	if sessionContext == "" {
 		return "", errors.New("no session context to recap")
 	}
-	request := zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{
-			{Role: zeroruntime.MessageRoleSystem, Content: recapSystemPrompt},
-			{Role: zeroruntime.MessageRoleUser, Content: sessionContext},
+	request := qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{
+			{Role: qgruntime.MessageRoleSystem, Content: recapSystemPrompt},
+			{Role: qgruntime.MessageRoleUser, Content: sessionContext},
 		},
 	}
 	stream, err := provider.StreamCompletion(ctx, request)
 	if err != nil {
 		return "", err
 	}
-	collected := zeroruntime.CollectStreamWithOptions(ctx, stream, zeroruntime.CollectOptions{})
+	collected := qgruntime.CollectStreamWithOptions(ctx, stream, qgruntime.CollectOptions{})
 	if collected.Error != "" {
 		return "", errors.New(collected.Error)
 	}

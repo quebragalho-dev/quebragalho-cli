@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 func TestHydrationKeepsFailedTaskWithoutSpecialist(t *testing.T) {

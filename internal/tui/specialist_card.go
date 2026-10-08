@@ -15,7 +15,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/Gitlawb/zero/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 )
 
 // specialistStatus is the lifecycle state of a single specialist invocation.
@@ -262,7 +262,7 @@ func (m model) renderSpecialistCard(info specialistInfo, width int) string {
 
 	// Description truncation. The header reserves room for the icon, the name,
 	// the two " · " separators, the elapsed string, and a safety margin. Clamp
-	// to zero so very long names never underflow.
+	// to qg so very long names never underflow.
 	descMax := width - len(info.name) - 25
 	if descMax < 0 {
 		descMax = 0
@@ -274,13 +274,13 @@ func (m model) renderSpecialistCard(info specialistInfo, width int) string {
 	switch info.status {
 	case specialistRunning:
 		icon := m.spinnerGlyph()
-		header = zeroTheme.accent.Render(fmt.Sprintf("%s%s · %s · %s", icon, info.name, description, elapsedStr))
+		header = qgTheme.accent.Render(fmt.Sprintf("%s%s · %s · %s", icon, info.name, description, elapsedStr))
 	case specialistCompleted:
-		header = zeroTheme.green.Render(fmt.Sprintf("✓ %s · %s · %s", info.name, description, elapsedStr))
+		header = qgTheme.green.Render(fmt.Sprintf("✓ %s · %s · %s", info.name, description, elapsedStr))
 	case specialistError:
-		header = zeroTheme.red.Render(fmt.Sprintf("✗ %s · %s · %s", info.name, description, elapsedStr))
+		header = qgTheme.red.Render(fmt.Sprintf("✗ %s · %s · %s", info.name, description, elapsedStr))
 	default:
-		header = zeroTheme.accent.Render(fmt.Sprintf("• %s · %s · %s", info.name, description, elapsedStr))
+		header = qgTheme.accent.Render(fmt.Sprintf("• %s · %s · %s", info.name, description, elapsedStr))
 	}
 
 	// Body line: "  status · N tool calls · M,NNN tokens".
@@ -297,14 +297,14 @@ func (m model) renderSpecialistCard(info specialistInfo, width int) string {
 	}
 	var body string
 	if info.status == specialistError {
-		body = zeroTheme.red.Render(bodyText)
+		body = qgTheme.red.Render(bodyText)
 	} else {
-		body = zeroTheme.muted.Render(bodyText)
+		body = qgTheme.muted.Render(bodyText)
 	}
 	// Surface the otherwise-invisible drill-in affordance: a left-click or Enter on
 	// the card opens its subchat (transcript_selection.go). A faint hint makes that
 	// discoverable instead of hidden; it truncates first on narrow cards.
-	body += zeroTheme.faint.Render("   · enter to open")
+	body += qgTheme.faint.Render("   · enter to open")
 
 	lines := []string{header, body}
 
@@ -314,7 +314,7 @@ func (m model) renderSpecialistCard(info specialistInfo, width int) string {
 		if info.currentDetail != "" {
 			progressLine += " " + info.currentDetail
 		}
-		lines = append(lines, zeroTheme.muted.Render(progressLine))
+		lines = append(lines, qgTheme.muted.Render(progressLine))
 	}
 
 	// Optional error detail line.
@@ -324,7 +324,7 @@ func (m model) renderSpecialistCard(info specialistInfo, width int) string {
 			errMax = 1
 		}
 		errMsg := truncateRunes(strings.TrimSpace(info.errorMsg), errMax)
-		lines = append(lines, zeroTheme.red.Render("  "+errMsg))
+		lines = append(lines, qgTheme.red.Render("  "+errMsg))
 	}
 
 	// Left-rule card: status-tinted │ on the left, no box borders.
@@ -338,11 +338,11 @@ func (m model) renderSpecialistCard(info specialistInfo, width int) string {
 func specialistBorderStyle(status specialistStatus) lipgloss.Style {
 	switch status {
 	case specialistRunning:
-		return zeroTheme.cardRun
+		return qgTheme.cardRun
 	case specialistError:
-		return zeroTheme.cardErr
+		return qgTheme.cardErr
 	default:
-		return zeroTheme.line
+		return qgTheme.line
 	}
 }
 
@@ -478,5 +478,5 @@ func renderSpecialistSummary(specialists []specialistInfo, spinnerView string) s
 	// both the indent and the spinner's bytes to avoid splitting a multi-byte
 	// rune and losing the indent.
 	tailStart := 2 + len(spinnerView)
-	return zeroTheme.accent.Render(spinnerView) + zeroTheme.muted.Render(summary[tailStart:])
+	return qgTheme.accent.Render(spinnerView) + qgTheme.muted.Render(summary[tailStart:])
 }

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/usage"
-	"github.com/Gitlawb/zero/internal/zerogit"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
 type usageOptions struct {
@@ -118,15 +118,15 @@ func runUsage(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	events := filterEventsSince(set.events, since)
 
 	// The net-LOC column is best-effort garnish on a token report: outside a
-	// git repository (or on any git failure) it degrades to zero instead of
+	// git repository (or on any git failure) it degrades to qg instead of
 	// aborting the entire report.
-	diff := zerogit.DiffStat{}
+	diff := qggit.DiffStat{}
 	if workspaceRoot, err := resolveWorkspaceRoot("", deps); err == nil {
-		if summary, err := deps.inspectChanges(context.Background(), zerogit.InspectOptions{Cwd: workspaceRoot}); err == nil {
+		if summary, err := deps.inspectChanges(context.Background(), qggit.InspectOptions{Cwd: workspaceRoot}); err == nil {
 			// The --stat summary line ("N files changed, A insertions(+), B
 			// deletions(-)") carries no secret-bearing tokens, so parsing the
-			// already-redacted DiffStat returned by zerogit.Inspect is safe.
-			diff = zerogit.ParseDiffStat(summary.DiffStat)
+			// already-redacted DiffStat returned by qggit.Inspect is safe.
+			diff = qggit.ParseDiffStat(summary.DiffStat)
 		}
 	}
 
@@ -299,10 +299,10 @@ func groupThousands(value int) string {
 
 func writeUsageHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero usage report [flags]
+  qg usage report [flags]
 
 Summarizes token usage and reconstructed (estimated) cost from persisted local
-Zero session usage events, plus a working-tree net-LOC efficiency estimate.
+QG session usage events, plus a working-tree net-LOC efficiency estimate.
 
 Flags:
       --json                 Print JSON report

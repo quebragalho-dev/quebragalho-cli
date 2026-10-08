@@ -413,7 +413,7 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/quit"},
 		usage:       "/exit",
 		group:       commandGroupMeta,
-		description: "Exit Zero.",
+		description: "Exit QG.",
 		kind:        commandExit,
 	},
 }
@@ -477,7 +477,7 @@ func formatGroupedCommandHelp() string {
 		lines = append(lines, commandGroupTitle(group))
 		lines = append(lines, groupLines...)
 	}
-	lines = append(lines, "hint: submit plain text to ask Zero")
+	lines = append(lines, "hint: submit plain text to ask QG")
 	return strings.Join(lines, "\n")
 }
 

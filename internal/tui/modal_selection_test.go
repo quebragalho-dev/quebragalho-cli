@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 )
 
 func TestCtrlPNMovesModelPicker(t *testing.T) {

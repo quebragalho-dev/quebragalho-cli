@@ -9,10 +9,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // TestPlanCommandEntersAndExitsPlanMode drives /plan on then /plan off and
@@ -291,7 +291,7 @@ func TestPlanModeCommandGuardDoesNotBlockOutsideMode(t *testing.T) {
 	}
 }
 
-func newPlanModeTestModel(root string, provider zeroruntime.Provider) model {
+func newPlanModeTestModel(root string, provider qgruntime.Provider) model {
 	registry := tools.NewRegistry()
 	for _, tool := range tools.CoreToolsScoped(root, nil) {
 		registry.Register(tool)
@@ -320,7 +320,7 @@ func newPlanModeTestModel(root string, provider zeroruntime.Provider) model {
 func TestPlanModeGatesWriteToolAndRestoresOnExit(t *testing.T) {
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "notes.txt")
-	provider := &scriptedProvider{scripts: [][]zeroruntime.StreamEvent{
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
 		// The write attempt is denied before it reaches the sandbox, so the loop
 		// makes a second request for the model's next move within THIS run —
 		// hence two scripts for run 1, matching the write/deny/react shape used

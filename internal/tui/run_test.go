@@ -31,9 +31,9 @@ func TestTerminalPetFrameCache(t *testing.T) {
 		want    string
 	}{
 		{name: "absolute config", options: Options{UserConfigPath: absConfig}, want: filepath.Join(filepath.Dir(absConfig), "pets", "frame-cache")},
-		{name: "relative config falls back", options: Options{UserConfigPath: "config.json"}, want: filepath.Join(configRoot, "zero", "pets", "frame-cache")},
-		{name: "whitespace config falls back", options: Options{UserConfigPath: "   "}, want: filepath.Join(configRoot, "zero", "pets", "frame-cache")},
-		{name: "empty config falls back", options: Options{}, want: filepath.Join(configRoot, "zero", "pets", "frame-cache")},
+		{name: "relative config falls back", options: Options{UserConfigPath: "config.json"}, want: filepath.Join(configRoot, "qg", "pets", "frame-cache")},
+		{name: "whitespace config falls back", options: Options{UserConfigPath: "   "}, want: filepath.Join(configRoot, "qg", "pets", "frame-cache")},
+		{name: "empty config falls back", options: Options{}, want: filepath.Join(configRoot, "qg", "pets", "frame-cache")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -46,10 +46,10 @@ func TestTerminalPetFrameCache(t *testing.T) {
 
 	unavailable := func() (string, error) { return "", errors.New("unavailable") }
 	blank := func() (string, error) { return "", nil }
-	if got, want := terminalPetFrameCacheWith(Options{}, unavailable, cacheDir), filepath.Join(cacheRoot, "zero", "pets", "frame-cache"); canonicalTestPath(t, got) != canonicalTestPath(t, want) {
+	if got, want := terminalPetFrameCacheWith(Options{}, unavailable, cacheDir), filepath.Join(cacheRoot, "qg", "pets", "frame-cache"); canonicalTestPath(t, got) != canonicalTestPath(t, want) {
 		t.Fatalf("cache fallback = %q, want %q", got, want)
 	}
-	if got, want := terminalPetFrameCacheWith(Options{}, blank, cacheDir), filepath.Join(cacheRoot, "zero", "pets", "frame-cache"); canonicalTestPath(t, got) != canonicalTestPath(t, want) {
+	if got, want := terminalPetFrameCacheWith(Options{}, blank, cacheDir), filepath.Join(cacheRoot, "qg", "pets", "frame-cache"); canonicalTestPath(t, got) != canonicalTestPath(t, want) {
 		t.Fatalf("blank config root fallback = %q, want %q", got, want)
 	}
 	if got := terminalPetFrameCacheWith(Options{}, unavailable, unavailable); got != "" {
@@ -74,7 +74,7 @@ func canonicalTestPath(t *testing.T, value string) string {
 
 // TestRunRejectsNonTTYStdin pins that the interactive shell fails fast with a
 // non-zero code when stdin is not a terminal, instead of blocking forever in the
-// Bubble Tea event loop (e.g. `echo "" | zero`). The guard runs before any model
+// Bubble Tea event loop (e.g. `echo "" | qg`). The guard runs before any model
 // construction, so empty Options are fine.
 func TestRunRejectsNonTTYStdin(t *testing.T) {
 	r, w, err := os.Pipe()

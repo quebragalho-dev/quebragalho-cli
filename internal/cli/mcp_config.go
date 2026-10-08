@@ -10,10 +10,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 type mcpAddOptions struct {
@@ -31,7 +31,7 @@ type mcpWritableConfig struct {
 
 var lockMCPConfigFile = config.LockFile
 
-// projectMCPConfigExists reports whether the workspace's project ./.zero/config.json
+// projectMCPConfigExists reports whether the workspace's project ./.qg/config.json
 // declares any MCP servers, so the trust notice fires only when project MCP config was
 // actually skipped (mirroring projectHooksFileExists / projectPluginsDirExists). A
 // missing or unparseable file, or one that declares no servers, returns false: there
@@ -41,7 +41,7 @@ func projectMCPConfigExists(workspaceRoot string) bool {
 	if workspaceRoot == "" {
 		return false
 	}
-	data, err := os.ReadFile(filepath.Join(workspaceRoot, ".zero", "config.json"))
+	data, err := os.ReadFile(filepath.Join(workspaceRoot, ".qg", "config.json"))
 	if err != nil {
 		return false
 	}
@@ -147,7 +147,7 @@ func runMCPRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return exitSuccess
 	}
 	if len(positional) != 1 {
-		return writeExecUsageError(stderr, "usage: zero mcp remove <server> [--json]")
+		return writeExecUsageError(stderr, "usage: qg mcp remove <server> [--json]")
 	}
 	serverName := positional[0]
 	if err := mcp.ValidateServerName(serverName); err != nil {
@@ -233,7 +233,7 @@ func runMCPToggle(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return exitSuccess
 	}
 	if len(positional) != 1 {
-		return writeExecUsageError(stderr, fmt.Sprintf("usage: zero mcp %s <server> [--json]", commandName))
+		return writeExecUsageError(stderr, fmt.Sprintf("usage: qg mcp %s <server> [--json]", commandName))
 	}
 	serverName := positional[0]
 	if err := mcp.ValidateServerName(serverName); err != nil {
@@ -327,7 +327,7 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 		return exitSuccess
 	}
 	if len(positional) != 1 {
-		return writeExecUsageError(stderr, "usage: zero mcp check <server> [--json]")
+		return writeExecUsageError(stderr, "usage: qg mcp check <server> [--json]")
 	}
 	serverName := positional[0]
 	if err := mcp.ValidateServerName(serverName); err != nil {
@@ -340,7 +340,7 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	}
 	// `mcp check` connects to (spawns) the named server below to enumerate its tools,
 	// so it is a spawn site: gate the project layer behind the trust check (fail-closed)
-	// so a cloned repo cannot have `zero mcp check <its-server>` run its command. No
+	// so a cloned repo cannot have `qg mcp check <its-server>` run its command. No
 	// --worktree reassignment on this command path, so trustRoot == cwd.
 	mcpExcludeProject, trustCheckErrored := resolveTrust(cwd)
 	cfg, err := deps.resolveMCPConfig(cwd, mcpExcludeProject)
@@ -351,7 +351,7 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	if !ok {
 		// The server may be missing because the project layer was gated out in an
 		// untrusted workspace; emit the same one-line notice the other spawn sites use so
-		// a dropped project server reads as "run zero trust", not a bare miss. The notice
+		// a dropped project server reads as "run qg trust", not a bare miss. The notice
 		// self-gates: it stays silent unless a project MCP config was actually excluded.
 		emitTrustNotice(stderr, trustSkip{
 			excludedProjectConfig: mcpExcludeProject && projectMCPConfigExists(cwd),
@@ -383,7 +383,7 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	defer closeMCPRuntime(stderr, mcpRuntime)
 
 	// A connect failure does not come back as err. RegisterTools is deliberately
-	// best-effort so one unreachable server cannot stop Zero launching: it records
+	// best-effort so one unreachable server cannot stop QG launching: it records
 	// the failure on the runtime and returns nil. That is right for startup and
 	// wrong to ignore here, because this is the command a user runs precisely when
 	// a server is misbehaving, and reporting "is reachable" for a server that never
@@ -439,7 +439,7 @@ func parseMCPAddArgs(args []string) (mcpAddOptions, bool, error) {
 			return options, true, nil
 		case options.serverName == "":
 			if strings.HasPrefix(arg, "-") {
-				return options, false, execUsageError{"usage: zero mcp add <server> [flags] -- <command> [args...]"}
+				return options, false, execUsageError{"usage: qg mcp add <server> [flags] -- <command> [args...]"}
 			}
 			options.serverName = arg
 		case arg == "--":
@@ -527,7 +527,7 @@ func parseMCPAddArgs(args []string) (mcpAddOptions, bool, error) {
 
 	options.serverName = strings.TrimSpace(options.serverName)
 	if options.serverName == "" {
-		return options, false, execUsageError{"usage: zero mcp add <server> [flags] -- <command> [args...]"}
+		return options, false, execUsageError{"usage: qg mcp add <server> [flags] -- <command> [args...]"}
 	}
 	if err := mcp.ValidateServerName(options.serverName); err != nil {
 		return options, false, err
@@ -548,7 +548,7 @@ func parseMCPAddArgs(args []string) (mcpAddOptions, bool, error) {
 			return options, false, execUsageError{"headers are only supported for http or sse transports"}
 		}
 		if len(command) == 0 {
-			return options, false, execUsageError{"usage: zero mcp add <server> [flags] -- <command> [args...]"}
+			return options, false, execUsageError{"usage: qg mcp add <server> [flags] -- <command> [args...]"}
 		}
 		options.server.Command = command[0]
 		options.server.Args = append([]string{}, command[1:]...)
@@ -557,10 +557,10 @@ func parseMCPAddArgs(args []string) (mcpAddOptions, bool, error) {
 			return options, false, execUsageError{"env is only supported for stdio transport"}
 		}
 		if strings.TrimSpace(options.server.URL) == "" {
-			return options, false, execUsageError{fmt.Sprintf("zero mcp add --type %s requires --url", options.server.Type)}
+			return options, false, execUsageError{fmt.Sprintf("qg mcp add --type %s requires --url", options.server.Type)}
 		}
 		if len(command) > 0 {
-			return options, false, execUsageError{fmt.Sprintf("zero mcp add --type %s does not accept a command", options.server.Type)}
+			return options, false, execUsageError{fmt.Sprintf("qg mcp add --type %s does not accept a command", options.server.Type)}
 		}
 	default:
 		return options, false, execUsageError{fmt.Sprintf("unsupported MCP server type %q", options.server.Type)}
@@ -680,7 +680,7 @@ func writeMCPWritableConfig(path string, cfg mcpWritableConfig) error {
 	if err != nil {
 		return fmt.Errorf("encode config JSON: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".zero-config-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".qg-config-*.tmp")
 	if err != nil {
 		return fmt.Errorf("write config %s: %w", path, err)
 	}
@@ -840,7 +840,7 @@ func (cfg *mcpWritableConfig) setServerDisabled(name string, disabled bool) (boo
 			// A built-in default server isn't written to the file until the user
 			// overrides it. Treat it as present with an empty base so disabling it
 			// writes a minimal {"disabled":true} entry that merges over the default —
-			// letting `zero mcp disable <default>` work even though it lives in code.
+			// letting `qg mcp disable <default>` work even though it lives in code.
 			raw = nil
 		default:
 			return false, false, nil
@@ -1021,8 +1021,8 @@ func replaceMCPWritableConfigFile(tmpPath string, path string) error {
 
 func writeMCPAddHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero mcp add <server> [flags] -- <command> [args...]
-  zero mcp add <server> --url <url> [flags]
+  qg mcp add <server> [flags] -- <command> [args...]
+  qg mcp add <server> --url <url> [flags]
 
 Flags:
       --auth <auth>        Authentication mode for remote servers (for example: oauth)
@@ -1039,7 +1039,7 @@ Flags:
 
 func writeMCPRemoveHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero mcp remove <server> [flags]
+  qg mcp remove <server> [flags]
 
 Flags:
       --json    Print command result as JSON
@@ -1050,7 +1050,7 @@ Flags:
 
 func writeMCPToggleHelp(w io.Writer, commandName string) error {
 	_, err := fmt.Fprintf(w, `Usage:
-  zero mcp %s <server> [flags]
+  qg mcp %s <server> [flags]
 
 Flags:
       --json    Print command result as JSON
@@ -1061,7 +1061,7 @@ Flags:
 
 func writeMCPCheckHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero mcp check <server> [flags]
+  qg mcp check <server> [flags]
 
 Flags:
       --json    Print command result as JSON

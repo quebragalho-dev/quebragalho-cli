@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/workspacetrust"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspacetrust"
 )
 
 type acpTestReader func([]byte) (int, error)
@@ -204,11 +204,11 @@ func TestBuildACPWorkspaceRegistersSandboxedMCPToolsAndClosesThem(t *testing.T) 
 func TestBuildACPWorkspacePreservesRedactedMCPSetupNotices(t *testing.T) {
 	setTrustConfigRoot(t)
 	workspaceRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(workspaceRoot, ".zero"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(workspaceRoot, ".qg"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	projectConfig := `{"mcp":{"servers":{"project-docs":{"type":"stdio","command":"project-docs"}}}}`
-	if err := os.WriteFile(filepath.Join(workspaceRoot, ".zero", "config.json"), []byte(projectConfig), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspaceRoot, ".qg", "config.json"), []byte(projectConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	secret := "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"

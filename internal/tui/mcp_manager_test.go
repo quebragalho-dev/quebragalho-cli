@@ -5,23 +5,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 func TestMCPManagerViewRendersServerActionHints(t *testing.T) {
 	got := plainRender(t, renderMCPView(MCPViewState{
 		Servers: []MCPServerView{
-			{Name: "docs", Transport: "stdio", State: "enabled", Target: "zero-docs-mcp --workspace .", ToolCount: 2},
+			{Name: "docs", Transport: "stdio", State: "enabled", Target: "qg-docs-mcp --workspace .", ToolCount: 2},
 			{Name: "linear", Transport: "http", State: "disabled", Target: "https://mcp.linear.example", Auth: "oauth"},
 		},
 	}, 140))
 
 	for _, want := range []string{
-		"zero mcp check docs",
-		"zero mcp disable docs",
-		"zero mcp remove docs",
-		"zero mcp enable linear",
-		"zero mcp oauth login linear",
+		"qg mcp check docs",
+		"qg mcp disable docs",
+		"qg mcp remove docs",
+		"qg mcp enable linear",
+		"qg mcp oauth login linear",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("MCP manager server actions = %q, missing %q", got, want)
@@ -68,10 +68,10 @@ func TestMCPManagerViewRendersOAuthActionHints(t *testing.T) {
 	}, 140))
 
 	for _, want := range []string{
-		"zero mcp oauth refresh linear",
-		"zero mcp oauth logout linear",
-		"zero mcp oauth login notion",
-		"zero mcp oauth refresh expired",
+		"qg mcp oauth refresh linear",
+		"qg mcp oauth logout linear",
+		"qg mcp oauth login notion",
+		"qg mcp oauth refresh expired",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("MCP manager OAuth actions = %q, missing %q", got, want)
@@ -84,9 +84,9 @@ func TestMCPManagerTargetsRedactSecretsFromURLsAndArgs(t *testing.T) {
 		Config: config.MCPConfig{Servers: map[string]config.MCPServerConfig{
 			"docs": {
 				Type:    "stdio",
-				Command: "zero-docs-mcp",
+				Command: "qg-docs-mcp",
 				Args:    []string{"--workspace", ".", "--token", "arg-secret", "--api-key=inline-secret", "--endpoint", "https://remote.example/mcp?access_token=arg-url-secret#token=frag-secret", "--inline-endpoint=https://remote.example/mcp?access_token=inline-url-secret#token=inline-frag-secret"},
-				Env:     map[string]string{"ZERO_DOCS_TOKEN": "env-secret"},
+				Env:     map[string]string{"QG_DOCS_TOKEN": "env-secret"},
 			},
 			"linear": {
 				Type: "http",
@@ -121,7 +121,7 @@ func TestMCPManagerTargetsRedactSecretsFromURLsAndArgs(t *testing.T) {
 		"token=[REDACTED]",
 		"--inline-endpoint=https://remote.example/mcp?access_token=[REDACTED]#token=[REDACTED]",
 		"workspace=public",
-		"ZERO_DOCS_TOKEN=[REDACTED]",
+		"QG_DOCS_TOKEN=[REDACTED]",
 		"Authorization=[REDACTED]",
 	} {
 		if !strings.Contains(got, want) {

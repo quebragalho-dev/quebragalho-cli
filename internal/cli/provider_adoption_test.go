@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/provideronboarding"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 	"mvdan.cc/sh/v3/shell"
 )
 
@@ -69,7 +69,7 @@ func TestLocalAdoptionSavesAndReloadsEligibleModel(t *testing.T) {
 		cmd := exec.CommandContext(ctx, os.Args[0], childArgs...)
 		cmd.Dir = root
 		cmd.Env = []string{
-			"ZERO_TEST_LOCAL_ADOPTION=1", "ZERO_CRED_STORAGE=encrypted-file",
+			"QG_TEST_LOCAL_ADOPTION=1", "QG_CRED_STORAGE=encrypted-file",
 			"HOME=" + root, "USERPROFILE=" + root,
 			"XDG_CONFIG_HOME=" + filepath.Join(root, "config"),
 			"XDG_CACHE_HOME=" + filepath.Join(root, "cache"),
@@ -105,7 +105,7 @@ func TestLocalAdoptionSavesAndReloadsEligibleModel(t *testing.T) {
 }
 
 func TestLocalAdoptionCLIProcess(t *testing.T) {
-	if os.Getenv("ZERO_TEST_LOCAL_ADOPTION") != "1" {
+	if os.Getenv("QG_TEST_LOCAL_ADOPTION") != "1" {
 		return
 	}
 	for i, arg := range os.Args {

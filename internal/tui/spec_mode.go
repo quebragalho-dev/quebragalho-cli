@@ -7,10 +7,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/specmode"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specmode"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func (m model) handleSpecCommand(task string) (tea.Model, tea.Cmd) {
@@ -254,18 +254,18 @@ func cloneToolRegistry(registry *tools.Registry) *tools.Registry {
 // language (badge + body + key chips) with line borders. Key handling lives
 // in handleSpecReviewKey, unchanged.
 func renderFocusedSpecReviewPrompt(review pendingSpecReviewPrompt, width int) string {
-	fill := zeroTheme.onPanel
-	actions := zeroTheme.badge.Render(" [a] approve ") +
-		fill(zeroTheme.ink).Render(" ") +
-		fill(zeroTheme.red).Render("[r]") + fill(zeroTheme.ink).Render(" reject ") +
-		fill(zeroTheme.accent).Render("[e]") + fill(zeroTheme.ink).Render(" edit file ") +
-		fill(zeroTheme.faint).Render("[esc] cancel")
+	fill := qgTheme.onPanel
+	actions := qgTheme.badge.Render(" [a] approve ") +
+		fill(qgTheme.ink).Render(" ") +
+		fill(qgTheme.red).Render("[r]") + fill(qgTheme.ink).Render(" reject ") +
+		fill(qgTheme.accent).Render("[e]") + fill(qgTheme.ink).Render(" edit file ") +
+		fill(qgTheme.faint).Render("[esc] cancel")
 	lines := []string{
-		zeroTheme.badge.Render(" SPEC REVIEW "),
-		fill(zeroTheme.faint).Render("path: ") + fill(zeroTheme.ink).Render(reviewDisplayPath(review)),
+		qgTheme.badge.Render(" SPEC REVIEW "),
+		fill(qgTheme.faint).Render("path: ") + fill(qgTheme.ink).Render(reviewDisplayPath(review)),
 		actions,
 	}
-	return styledBlockFill(width, lines, zeroTheme.line, zeroTheme.panel)
+	return styledBlockFill(width, lines, qgTheme.line, qgTheme.panel)
 }
 
 func specReviewSummary(review pendingSpecReviewPrompt) string {

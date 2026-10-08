@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/terminalpet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 )
 
 type shortTerminalOutput struct {

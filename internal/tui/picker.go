@@ -9,12 +9,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodelcatalog"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
 )
 
 // pickerKind identifies which command a picker selection feeds back into.
@@ -790,7 +790,7 @@ type modelPickerModelsDiscoveredMsg struct {
 
 // ollamaContextWindowDiscoveredMsg carries the result of an async /api/show
 // probe against a local Ollama daemon (see ollamaContextWindowDiscoveryCmd).
-// A zero contextWindow (or a non-nil err) means the probe found nothing
+// A qg contextWindow (or a non-nil err) means the probe found nothing
 // usable and the map is left untouched, not zeroed out.
 type ollamaContextWindowDiscoveredMsg struct {
 	modelName     string
@@ -1059,7 +1059,7 @@ func (m model) newEffortPicker() *commandPicker {
 
 // newThemePicker lists the terminal-native system theme followed by named palettes
 // in one flat list. Old dark/light preferences migrate to System rather than
-// appearing as choices: they would imply a terminal-canvas change that Zero
+// appearing as choices: they would imply a terminal-canvas change that QG
 // deliberately does not make.
 func (m model) newThemePicker() *commandPicker {
 	items := make([]pickerItem, 0, len(themeModes))

@@ -3,7 +3,7 @@ package tui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agentinit"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agentinit"
 )
 
 // handleInitCommand runs the guided /init flow: build a bootstrap prompt seeded

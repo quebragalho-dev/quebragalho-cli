@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 )
 
 const (

@@ -4,18 +4,18 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/workspacetrust"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspacetrust"
 )
 
-// runTrust implements `zero trust`, letting the user opt a workspace into running
+// runTrust implements `qg trust`, letting the user opt a workspace into running
 // its project-scoped executable config (hooks, plugins, MCP servers). Trust is
 // keyed on the exact normalized working directory, matching the exact-match trust
 // model and cwd-relative project-config discovery.
 //
-//	zero trust                trust the current working directory
-//	zero trust list           print the trusted roots, one per line
-//	zero trust remove [path]  untrust the current directory, or a named path
+//	qg trust                trust the current working directory
+//	qg trust list           print the trusted roots, one per line
+//	qg trust remove [path]  untrust the current directory, or a named path
 func runTrust(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) == 0 {
 		return trustCurrentDir(stdout, stderr, deps)
@@ -32,7 +32,7 @@ func runTrust(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 		writeTrustUsage(stdout)
 		return exitSuccess
 	default:
-		if _, err := fmt.Fprintf(stderr, "zero trust: unknown subcommand %q\n\n", args[0]); err != nil {
+		if _, err := fmt.Fprintf(stderr, "qg trust: unknown subcommand %q\n\n", args[0]); err != nil {
 			return exitCrash
 		}
 		writeTrustUsage(stderr)
@@ -94,7 +94,7 @@ func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	case 1:
 		target = args[0]
 	default:
-		if _, err := fmt.Fprintln(stderr, "usage: zero trust remove [path]"); err != nil {
+		if _, err := fmt.Fprintln(stderr, "usage: qg trust remove [path]"); err != nil {
 			return exitCrash
 		}
 		return exitUsage
@@ -110,12 +110,12 @@ func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 
 func writeTrustUsage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Usage:
-  zero trust                Trust the current working directory
-  zero trust list           List trusted workspace roots
-  zero trust remove [path]  Untrust the current directory, or a named path
+  qg trust                Trust the current working directory
+  qg trust list           List trusted workspace roots
+  qg trust remove [path]  Untrust the current directory, or a named path
 
-Trust lets Zero run a workspace's project-scoped hooks, plugins, and MCP
-servers (./.zero/hooks.json, ./.zero/plugins/, project MCP config). Trust is
+Trust lets QG run a workspace's project-scoped hooks, plugins, and MCP
+servers (./.qg/hooks.json, ./.qg/plugins/, project MCP config). Trust is
 exact per directory.
 `)
 }

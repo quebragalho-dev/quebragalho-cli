@@ -13,7 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // planStepWork is one captured unit of implementation attributed to a plan step:
@@ -347,14 +347,14 @@ func (m model) requestPlanStepExplanation(stepIndex int, step planStep) tea.Cmd 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), planStepExplanationTimeout)
 		defer cancel()
-		events, err := provider.StreamCompletion(ctx, zeroruntime.CompletionRequest{
-			Messages:        zeroruntime.SeedMessages(system, user),
+		events, err := provider.StreamCompletion(ctx, qgruntime.CompletionRequest{
+			Messages:        qgruntime.SeedMessages(system, user),
 			ReasoningEffort: effort,
 		})
 		if err != nil {
 			return planStepExplanationMsg{stepIndex: stepIndex, key: key, gen: gen, err: err}
 		}
-		collected := zeroruntime.CollectStream(ctx, events)
+		collected := qgruntime.CollectStream(ctx, events)
 		if collected.Error != "" {
 			return planStepExplanationMsg{stepIndex: stepIndex, key: key, gen: gen, err: fmt.Errorf("%s", collected.Error)}
 		}
@@ -571,7 +571,7 @@ func planStepDetailHint(status string) string {
 }
 
 // formatPlanStepDuration renders a step's span in a friendlier form than the raw
-// footer clock: seconds under a minute, "Nm Ns" above. A zero or negative span
+// footer clock: seconds under a minute, "Nm Ns" above. A qg or negative span
 // renders empty so callers can drop the clause.
 func formatPlanStepDuration(d time.Duration) string {
 	if d <= 0 {

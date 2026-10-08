@@ -15,14 +15,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/Gitlawb/zero/internal/aimlapi"
-	"github.com/Gitlawb/zero/internal/browser"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/oauth"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/provideroauth"
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/aimlapi"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/browser"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/provideroauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 // providerWizardOAuthMsg carries the result of an in-wizard browser OAuth login.
@@ -227,7 +227,7 @@ func appendOAuthLoginProfile(saved []config.ProviderProfile, providerID string) 
 // persistOAuthLoginProvider guarantees the stored login is reachable from the
 // provider list even when the wizard is abandoned before the model step: the
 // token alone is invisible — no profile means no entry in /provider, /model, or
-// `zero providers use`, which reads as the login having vanished.
+// `qg providers use`, which reads as the login having vanished.
 //
 // MUST run on the Update goroutine (call it from a message handler, never from
 // inside a tea.Cmd): config.json writes are unlocked read-modify-writes, and a
@@ -244,8 +244,8 @@ func persistOAuthLoginProvider(configPath string, catalogID string) error {
 }
 
 // buildOAuthPresetEnv layers the process env with the preset opt-in so a
-// `zero` launch from a TUI session can use the baked-in ChatGPT client_id
-// without requiring the user to export ZERO_OAUTH_ALLOW_PRESETS themselves.
+// `qg` launch from a TUI session can use the baked-in ChatGPT client_id
+// without requiring the user to export QG_OAUTH_ALLOW_PRESETS themselves.
 func buildOAuthPresetEnv() map[string]string {
 	env := map[string]string{}
 	for _, kv := range os.Environ() {
@@ -253,7 +253,7 @@ func buildOAuthPresetEnv() map[string]string {
 			env[kv[:eq]] = kv[eq+1:]
 		}
 	}
-	env["ZERO_OAUTH_ALLOW_PRESETS"] = "1"
+	env["QG_OAUTH_ALLOW_PRESETS"] = "1"
 	return env
 }
 
@@ -1256,9 +1256,9 @@ func (m model) applyProviderWizard() (model, tea.Cmd) {
 	// Build and persist into LOCALS first, committing live state only once BOTH
 	// succeed. A persist failure (read-only config, disk full) must not leave the
 	// chat running on the new provider while the status line, m.providerProfile,
-	// and the ZERO_PROVIDER export (which pins spawned children) still point at
+	// and the QG_PROVIDER export (which pins spawned children) still point at
 	// the old one — parent and children would silently run on different providers.
-	var nextProvider zeroruntime.Provider
+	var nextProvider qgruntime.Provider
 	if m.newProvider != nil {
 		built, err := m.newProvider(runtimeProfile)
 		if err != nil {
@@ -1294,7 +1294,7 @@ func (m model) applyProviderWizard() (model, tea.Cmd) {
 	m.savedProviders = upsertSavedProviderProfile(m.savedProviders, profile)
 	// Keep sub-agent child processes on the same provider we just switched to —
 	// same as the /model and /provider switch paths (command_center.go). Without
-	// this, a ZERO_PROVIDER exported by an earlier switch stays pointing at the
+	// this, a QG_PROVIDER exported by an earlier switch stays pointing at the
 	// OLD provider and wins over config in every spawned child (applyEnv), so
 	// specialists/swarm members run on the wrong provider's credentials.
 	config.SetActiveProviderEnv(profile.Name)
@@ -1378,19 +1378,19 @@ func (wizard *providerWizardState) render(width int, spinner string) string {
 	innerWidth := maxInt(20, overlayWidth-4)
 
 	lines := []string{
-		zeroTheme.faint.Render(providerWizardStepLine(wizard)),
-		zeroTheme.line.Render(strings.Repeat("─", innerWidth)),
+		qgTheme.faint.Render(providerWizardStepLine(wizard)),
+		qgTheme.line.Render(strings.Repeat("─", innerWidth)),
 	}
 	if wizard.err != "" {
-		lines = append(lines, zeroTheme.red.Render("error: "+wizard.err), "")
+		lines = append(lines, qgTheme.red.Render("error: "+wizard.err), "")
 	}
 	if wizard.oauthPending {
 		lines = append(lines, wizard.renderOAuthWaiting(innerWidth)...)
 		lines = append(lines,
-			zeroTheme.line.Render(strings.Repeat("─", innerWidth)),
-			zeroTheme.faint.Render("Esc cancel"),
+			qgTheme.line.Render(strings.Repeat("─", innerWidth)),
+			qgTheme.faint.Render("Esc cancel"),
 		)
-		block := styledBlockFillTitle(overlayWidth, "Provider setup", lines, zeroTheme.lineStrong, lipgloss.NewStyle())
+		block := styledBlockFillTitle(overlayWidth, "Provider setup", lines, qgTheme.lineStrong, lipgloss.NewStyle())
 		if width > overlayWidth {
 			return indentBlock(block, (width-overlayWidth)/2)
 		}
@@ -1427,15 +1427,15 @@ func (wizard *providerWizardState) render(width int, spinner string) string {
 		lines = append(lines, wizard.renderEditValueStep(innerWidth)...)
 	}
 	lines = append(lines,
-		zeroTheme.line.Render(strings.Repeat("─", innerWidth)),
-		zeroTheme.faint.Render(wizard.footer()),
+		qgTheme.line.Render(strings.Repeat("─", innerWidth)),
+		qgTheme.faint.Render(wizard.footer()),
 	)
 
 	title := "Provider setup"
 	if wizard.managerStep() {
 		title = "Providers"
 	}
-	block := styledBlockFillTitle(overlayWidth, title, lines, zeroTheme.lineStrong, lipgloss.NewStyle())
+	block := styledBlockFillTitle(overlayWidth, title, lines, qgTheme.lineStrong, lipgloss.NewStyle())
 	if width > overlayWidth {
 		return indentBlock(block, (width-overlayWidth)/2)
 	}
@@ -1591,28 +1591,28 @@ func providerWizardStepLine(wizard *providerWizardState) string {
 func (wizard *providerWizardState) renderMethodStep(width int) []string {
 	options := providerWizardMethodOptions()
 	wizard.selectedMethod = clampInt(wizard.selectedMethod, 0, maxInt(0, len(options)-1))
-	lines := []string{zeroTheme.accent.Render("How do you want to connect?")}
+	lines := []string{qgTheme.accent.Render("How do you want to connect?")}
 	for index, option := range options {
 		surface := transparentSurface
-		marker := surface(zeroTheme.faintest).Render("  ")
+		marker := surface(qgTheme.faintest).Render("  ")
 		if index == wizard.selectedMethod {
-			surface = zeroTheme.onSel
-			marker = surface(zeroTheme.accent).Render("❯ ")
+			surface = qgTheme.onSel
+			marker = surface(qgTheme.accent).Render("❯ ")
 		}
-		lines = append(lines, fitStyledLine(marker+surface(zeroTheme.ink).Render(option.label), width))
-		lines = append(lines, fitStyledLine("    "+zeroTheme.faint.Render(option.subtitle), width))
+		lines = append(lines, fitStyledLine(marker+surface(qgTheme.ink).Render(option.label), width))
+		lines = append(lines, fitStyledLine("    "+qgTheme.faint.Render(option.subtitle), width))
 	}
 	return lines
 }
 
 func (wizard *providerWizardState) renderAimlapiConfiguredStep(width int, spinner string) []string {
-	lines := []string{zeroTheme.accent.Render("aimlapi.com is already configured")}
+	lines := []string{qgTheme.accent.Render("aimlapi.com is already configured")}
 	if wizard.aimlapiExistingBusy {
 		glyph := strings.TrimSpace(spinner)
 		if glyph == "" {
 			glyph = "•"
 		}
-		return append(lines, "", zeroTheme.faint.Render(glyph+" checking balance"))
+		return append(lines, "", qgTheme.faint.Render(glyph+" checking balance"))
 	}
 	options := []struct{ label, hint string }{
 		{"Use existing configuration", "Continue with your saved API key"},
@@ -1620,13 +1620,13 @@ func (wizard *providerWizardState) renderAimlapiConfiguredStep(width int, spinne
 	}
 	for index, option := range options {
 		marker := "  "
-		style := zeroTheme.ink
+		style := qgTheme.ink
 		if index == wizard.aimlapiConfiguredCursor {
 			marker = "❯ "
-			style = zeroTheme.accent.Bold(true)
+			style = qgTheme.accent.Bold(true)
 		}
 		lines = append(lines, marker+style.Render(option.label))
-		lines = append(lines, "    "+zeroTheme.faint.Render(option.hint))
+		lines = append(lines, "    "+qgTheme.faint.Render(option.hint))
 	}
 	return lines
 }
@@ -1644,16 +1644,16 @@ func (wizard *providerWizardState) renderManageKeyStep(width int) []string {
 		{"Remove key", "Delete the stored key for " + name + "."},
 	}
 	wizard.manageKeyCursor = clampInt(wizard.manageKeyCursor, 0, len(options)-1)
-	lines := []string{zeroTheme.accent.Render(name + " already has a saved key")}
+	lines := []string{qgTheme.accent.Render(name + " already has a saved key")}
 	for index, option := range options {
 		surface := transparentSurface
-		marker := surface(zeroTheme.faintest).Render("  ")
+		marker := surface(qgTheme.faintest).Render("  ")
 		if index == wizard.manageKeyCursor {
-			surface = zeroTheme.onSel
-			marker = surface(zeroTheme.accent).Render("❯ ")
+			surface = qgTheme.onSel
+			marker = surface(qgTheme.accent).Render("❯ ")
 		}
-		lines = append(lines, fitStyledLine(marker+surface(zeroTheme.ink).Render(option.label), width))
-		lines = append(lines, fitStyledLine("    "+zeroTheme.faint.Render(option.subtitle), width))
+		lines = append(lines, fitStyledLine(marker+surface(qgTheme.ink).Render(option.label), width))
+		lines = append(lines, fitStyledLine("    "+qgTheme.faint.Render(option.subtitle), width))
 	}
 	return lines
 }
@@ -1667,26 +1667,26 @@ func (wizard *providerWizardState) renderOAuthWaiting(width int) []string {
 	}
 	if wizard.oauthDevice {
 		lines := []string{
-			zeroTheme.accent.Render("Device-code sign-in for " + name),
+			qgTheme.accent.Render("Device-code sign-in for " + name),
 			"",
 		}
 		if wizard.deviceUserCode == "" {
-			return append(lines, fitStyledLine(zeroTheme.faint.Render("Requesting a device code..."), width))
+			return append(lines, fitStyledLine(qgTheme.faint.Render("Requesting a device code..."), width))
 		}
 		return append(lines,
-			fitStyledLine(zeroTheme.ink.Render("1. On any device, visit:  ")+zeroTheme.accent.Render(wizard.deviceVerificationURI), width),
-			fitStyledLine(zeroTheme.ink.Render("2. Enter the code:  ")+zeroTheme.accent.Bold(true).Render(wizard.deviceUserCode), width),
+			fitStyledLine(qgTheme.ink.Render("1. On any device, visit:  ")+qgTheme.accent.Render(wizard.deviceVerificationURI), width),
+			fitStyledLine(qgTheme.ink.Render("2. Enter the code:  ")+qgTheme.accent.Bold(true).Render(wizard.deviceUserCode), width),
 			"",
-			fitStyledLine(zeroTheme.faint.Render("Waiting for authorization..."), width),
+			fitStyledLine(qgTheme.faint.Render("Waiting for authorization..."), width),
 		)
 	}
 	return []string{
-		zeroTheme.accent.Render("Signing in with " + name),
+		qgTheme.accent.Render("Signing in with " + name),
 		"",
-		fitStyledLine(zeroTheme.ink.Render("Opening your browser — approve there, then return here."), width),
-		fitStyledLine(zeroTheme.faint.Render("Waiting for authorization..."), width),
+		fitStyledLine(qgTheme.ink.Render("Opening your browser — approve there, then return here."), width),
+		fitStyledLine(qgTheme.faint.Render("Waiting for authorization..."), width),
 		"",
-		fitStyledLine(zeroTheme.faint.Render("If your browser didn't open, run:  "+providerWizardOAuthCLIHint(provider)), width),
+		fitStyledLine(qgTheme.faint.Render("If your browser didn't open, run:  "+providerWizardOAuthCLIHint(provider)), width),
 	}
 }
 
@@ -1694,9 +1694,9 @@ func (wizard *providerWizardState) renderOAuthWaiting(width int) []string {
 // OAuth login (fallback when the browser doesn't open).
 func providerWizardOAuthCLIHint(provider providercatalog.Descriptor) string {
 	if provider.OAuthMintsKey {
-		return "zero auth openrouter"
+		return "qg auth openrouter"
 	}
-	return "zero auth login " + provider.ID
+	return "qg auth login " + provider.ID
 }
 
 func (wizard *providerWizardState) renderProviderStep(width int) []string {
@@ -1704,11 +1704,11 @@ func (wizard *providerWizardState) renderProviderStep(width int) []string {
 	if wizard.oauthMode {
 		header = "Choose an OAuth provider"
 	}
-	lines := []string{zeroTheme.accent.Render(header)}
+	lines := []string{qgTheme.accent.Render(header)}
 	lines = append(lines, wizard.renderProviderSearch(width))
 	providers := wizard.filteredProviders()
 	if len(providers) == 0 {
-		lines = append(lines, zeroTheme.faint.Render("  no matching providers"))
+		lines = append(lines, qgTheme.faint.Render("  no matching providers"))
 		return lines
 	}
 	maxVisible := minInt(maxProviderWizardProvidersVisible, len(providers))
@@ -1720,9 +1720,9 @@ func (wizard *providerWizardState) renderProviderStep(width int) []string {
 	// so the error must render here or the click looks like a silent no-op. The
 	// credential step renders its own copy for the ctrl+o path.
 	if wizard.oauthMode && wizard.oauthErr != "" {
-		lines = append(lines, "", zeroTheme.red.Render("OAuth login failed: "+wizard.oauthErr))
+		lines = append(lines, "", qgTheme.red.Render("OAuth login failed: "+wizard.oauthErr))
 		if hint := providerWizardOAuthErrHint(wizard.currentProvider()); hint != "" {
-			lines = append(lines, zeroTheme.faint.Render(hint))
+			lines = append(lines, qgTheme.faint.Render(hint))
 		}
 	}
 	return lines
@@ -1739,7 +1739,7 @@ func (wizard *providerWizardState) renderProviderSearch(width int) string {
 func providerWizardOAuthErrHint(provider providercatalog.Descriptor) string {
 	if strings.EqualFold(provider.ID, "huggingface") {
 		return "Hugging Face needs your own app: create one at " +
-			"https://huggingface.co/settings/applications/new, then set ZERO_OAUTH_HUGGINGFACE_CLIENT_ID."
+			"https://huggingface.co/settings/applications/new, then set QG_OAUTH_HUGGINGFACE_CLIENT_ID."
 	}
 	return ""
 }
@@ -1747,18 +1747,18 @@ func providerWizardOAuthErrHint(provider providercatalog.Descriptor) string {
 func (wizard *providerWizardState) renderSelectableProvider(width int, index int, provider providercatalog.Descriptor) string {
 	selected := index == wizard.selectedProvider
 	surface := transparentSurface
-	marker := surface(zeroTheme.faintest).Render("  ")
+	marker := surface(qgTheme.faintest).Render("  ")
 	if selected {
-		surface = zeroTheme.onSel
-		marker = surface(zeroTheme.accent).Render("❯ ")
+		surface = qgTheme.onSel
+		marker = surface(qgTheme.accent).Render("❯ ")
 	}
 	name := provider.Name
 	if provider.Recommended {
 		name = "★ " + name
 	}
-	left := marker + surface(zeroTheme.ink).Render(name)
+	left := marker + surface(qgTheme.ink).Render(name)
 	if badge := providerWizardBadge(provider); badge != "" {
-		left += surface(zeroTheme.faint).Render("   " + badge)
+		left += surface(qgTheme.faint).Render("   " + badge)
 	}
 	return fitStyledLine(left, width)
 }
@@ -1790,9 +1790,9 @@ func (wizard *providerWizardState) renderEndpointStep(width int) []string {
 	provider := wizard.currentProvider()
 	input := providerWizardInputLine("url > ", wizard.baseURL, providerWizardEndpointPlaceholder(provider), width)
 	return []string{
-		zeroTheme.accent.Render("Endpoint URL"),
-		zeroTheme.ink.Render("Enter the API base URL for " + provider.Name + "."),
-		zeroTheme.faint.Render(providerWizardEndpointHint(provider)),
+		qgTheme.accent.Render("Endpoint URL"),
+		qgTheme.ink.Render("Enter the API base URL for " + provider.Name + "."),
+		qgTheme.faint.Render(providerWizardEndpointHint(provider)),
 		input,
 	}
 }
@@ -1814,9 +1814,9 @@ func providerWizardEndpointHint(provider providercatalog.Descriptor) string {
 func (wizard *providerWizardState) renderNameStep(width int) []string {
 	name := providerWizardDisplayName(wizard.currentProvider(), wizard.baseURL, wizard.profileName)
 	return []string{
-		zeroTheme.accent.Render("Provider name"),
-		zeroTheme.ink.Render("Choose the short label shown in the status bar."),
-		zeroTheme.faint.Render("Leave blank to use " + name + "."),
+		qgTheme.accent.Render("Provider name"),
+		qgTheme.ink.Render("Choose the short label shown in the status bar."),
+		qgTheme.faint.Render("Leave blank to use " + name + "."),
 		providerWizardInputLine("name > ", strings.TrimSpace(wizard.profileName), name, width),
 	}
 }
@@ -1826,22 +1826,22 @@ func (wizard *providerWizardState) renderCredentialStep(width int) []string {
 	oauth := providerWizardSupportsOAuth(provider)
 
 	env := firstProviderDisplayValue(provider.AuthEnvVars...)
-	value := zeroTheme.accent.Render("▌") + zeroTheme.faint.Render("paste key here")
+	value := qgTheme.accent.Render("▌") + qgTheme.faint.Render("paste key here")
 	if wizard.apiKey != "" {
-		value = zeroTheme.ink.Render(maskedProviderWizardKey(wizard.apiKey)) + zeroTheme.accent.Render("▌")
+		value = qgTheme.ink.Render(maskedProviderWizardKey(wizard.apiKey)) + qgTheme.accent.Render("▌")
 	}
-	input := zeroTheme.userPrompt.Render("api key > ") + value
+	input := qgTheme.userPrompt.Render("api key > ") + value
 	lines := []string{
-		zeroTheme.accent.Render("Paste API key"),
-		zeroTheme.ink.Render(providerWizardCredentialInstruction(env)),
+		qgTheme.accent.Render("Paste API key"),
+		qgTheme.ink.Render(providerWizardCredentialInstruction(env)),
 		input,
-		zeroTheme.faint.Render("Pasted keys are hidden and saved in your user config."),
+		qgTheme.faint.Render("Pasted keys are hidden and saved in your user config."),
 	}
 	if oauth {
-		lines = append(lines, zeroTheme.accent.Render("or  ctrl+o  to log in with OAuth in the browser (no key needed)"))
+		lines = append(lines, qgTheme.accent.Render("or  ctrl+o  to log in with OAuth in the browser (no key needed)"))
 	}
 	if wizard.oauthErr != "" {
-		lines = append(lines, zeroTheme.red.Render("OAuth login failed: "+wizard.oauthErr))
+		lines = append(lines, qgTheme.red.Render("OAuth login failed: "+wizard.oauthErr))
 	}
 	return lines
 }
@@ -1860,15 +1860,15 @@ func (wizard *providerWizardState) renderModelStep(width int) []string {
 	if wizard.modelLoading {
 		return wizard.renderModelLoadingStep(width)
 	}
-	lines := []string{zeroTheme.accent.Render("Choose a model")}
+	lines := []string{qgTheme.accent.Render("Choose a model")}
 	if status := wizard.modelStatusText(); status != "" {
-		lines = append(lines, zeroTheme.faint.Render(status))
+		lines = append(lines, qgTheme.faint.Render(status))
 	}
 	lines = append(lines, wizard.renderModelSearch(width))
 	wizard.refreshModels()
 	models := wizard.filteredModels()
 	if len(models) == 0 {
-		lines = append(lines, zeroTheme.faint.Render("  no matching models"))
+		lines = append(lines, qgTheme.faint.Render("  no matching models"))
 		return lines
 	}
 	maxVisible := minInt(maxProviderWizardModelsVisible, len(models))
@@ -1878,17 +1878,17 @@ func (wizard *providerWizardState) renderModelStep(width int) []string {
 		lines = append(lines, wizard.renderSelectableModel(width, start+offset, model))
 	}
 	if detail := providerWizardModelDetail(wizard.currentModel()); detail != "" {
-		lines = append(lines, fitStyledLine(zeroTheme.faint.Render("  "+detail), width))
+		lines = append(lines, fitStyledLine(qgTheme.faint.Render("  "+detail), width))
 	}
 	return lines
 }
 
 func (wizard *providerWizardState) renderModelLoadingStep(width int) []string {
 	return []string{
-		zeroTheme.accent.Render("Choose a model"),
+		qgTheme.accent.Render("Choose a model"),
 		"",
-		fitStyledLine(zeroTheme.faint.Render("Checking available models..."), width),
-		fitStyledLine(zeroTheme.faint.Render("Built-in models will be used if discovery fails."), width),
+		fitStyledLine(qgTheme.faint.Render("Checking available models..."), width),
+		fitStyledLine(qgTheme.faint.Render("Built-in models will be used if discovery fails."), width),
 	}
 }
 
@@ -1898,23 +1898,23 @@ func (wizard *providerWizardState) renderModelSearch(width int) string {
 }
 
 func providerWizardInputLine(promptText string, value string, placeholder string, width int) string {
-	prompt := zeroTheme.userPrompt.Render("search > ")
-	cursor := zeroTheme.accent.Render("▌")
+	prompt := qgTheme.userPrompt.Render("search > ")
+	cursor := qgTheme.accent.Render("▌")
 	if promptText != "" {
-		prompt = zeroTheme.userPrompt.Render(promptText)
+		prompt = qgTheme.userPrompt.Render(promptText)
 	}
 	if value == "" {
-		return fitStyledLine(prompt+cursor+zeroTheme.faint.Render(placeholder), width)
+		return fitStyledLine(prompt+cursor+qgTheme.faint.Render(placeholder), width)
 	}
-	return fitStyledLine(prompt+zeroTheme.ink.Render(value)+cursor, width)
+	return fitStyledLine(prompt+qgTheme.ink.Render(value)+cursor, width)
 }
 
 func (wizard *providerWizardState) renderTypedModelStep(width int) []string {
 	provider := wizard.currentProvider()
 	return []string{
-		zeroTheme.accent.Render("Model name"),
-		zeroTheme.ink.Render("Enter the model ID this endpoint expects."),
-		zeroTheme.faint.Render("Examples: gpt-4.1, claude-sonnet-4-5, llama-3.3-70b"),
+		qgTheme.accent.Render("Model name"),
+		qgTheme.ink.Render("Enter the model ID this endpoint expects."),
+		qgTheme.faint.Render("Examples: gpt-4.1, claude-sonnet-4-5, llama-3.3-70b"),
 		providerWizardInputLine("model > ", strings.TrimSpace(wizard.modelSearch), provider.DefaultModel, width),
 	}
 }
@@ -1929,12 +1929,12 @@ func (wizard *providerWizardState) modelStatusText() string {
 func (wizard *providerWizardState) renderSelectableModel(width int, index int, model providerWizardModel) string {
 	selected := index == wizard.selectedModel
 	surface := transparentSurface
-	marker := surface(zeroTheme.faintest).Render("  ")
+	marker := surface(qgTheme.faintest).Render("  ")
 	if selected {
-		surface = zeroTheme.onSel
-		marker = surface(zeroTheme.accent).Render("❯ ")
+		surface = qgTheme.onSel
+		marker = surface(qgTheme.accent).Render("❯ ")
 	}
-	left := marker + surface(zeroTheme.ink).Render(model.displayLabel())
+	left := marker + surface(qgTheme.ink).Render(model.displayLabel())
 	return fitStyledLine(left, width)
 }
 
@@ -2039,19 +2039,19 @@ func (wizard *providerWizardState) renderDoneStep(width int) []string {
 	provider := wizard.currentProvider()
 	model := wizard.currentModel()
 	lines := []string{
-		zeroTheme.accent.Render("Ready to connect"),
+		qgTheme.accent.Render("Ready to connect"),
 		"",
-		zeroTheme.ink.Render("Provider    " + provider.Name),
+		qgTheme.ink.Render("Provider    " + provider.Name),
 	}
 	if providerWizardNeedsEndpoint(provider) {
-		lines = append(lines, zeroTheme.ink.Render("Endpoint    "+strings.TrimSpace(wizard.baseURL)))
+		lines = append(lines, qgTheme.ink.Render("Endpoint    "+strings.TrimSpace(wizard.baseURL)))
 	}
 	lines = append(lines,
-		zeroTheme.ink.Render("Name        "+providerWizardDisplayName(provider, wizard.baseURL, wizard.profileName)),
-		zeroTheme.ink.Render("Model       "+model.ID),
-		zeroTheme.ink.Render("Credential  "+providerWizardCredentialLabel(provider, wizard.apiKey)),
+		qgTheme.ink.Render("Name        "+providerWizardDisplayName(provider, wizard.baseURL, wizard.profileName)),
+		qgTheme.ink.Render("Model       "+model.ID),
+		qgTheme.ink.Render("Credential  "+providerWizardCredentialLabel(provider, wizard.apiKey)),
 		"",
-		zeroTheme.faint.Render("Press Enter to save and start using this provider."),
+		qgTheme.faint.Render("Press Enter to save and start using this provider."),
 	)
 	return lines
 }
