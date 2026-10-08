@@ -47,7 +47,7 @@ func TestWebhookSinkPostsExpectedJSON(t *testing.T) {
 	defer server.Close()
 
 	sink := NewWebhookSink(WebhookConfig{URL: server.URL})
-	sink.Emit(Completion, "Zero: ready")
+	sink.Emit(Completion, "QG: ready")
 
 	select {
 	case r := <-got:
@@ -60,8 +60,8 @@ func TestWebhookSinkPostsExpectedJSON(t *testing.T) {
 		if r.body.Type != "completion" {
 			t.Fatalf("payload type = %q, want completion", r.body.Type)
 		}
-		if r.body.Message != "Zero: ready" {
-			t.Fatalf("payload message = %q, want %q", r.body.Message, "Zero: ready")
+		if r.body.Message != "QG: ready" {
+			t.Fatalf("payload message = %q, want %q", r.body.Message, "QG: ready")
 		}
 		// Slack incoming-webhook compatibility: a human-readable "text" field must
 		// be present so the message renders in a Slack channel.
@@ -88,7 +88,7 @@ func TestWebhookSinkIncludesSummaryAndLinks(t *testing.T) {
 		Summary: "verify failed after 3 retries",
 		Links:   []WebhookLink{{Label: "Run", URL: "https://example.test/run/1"}},
 	})
-	sink.Emit(AwaitingInput, "Zero: needs input")
+	sink.Emit(AwaitingInput, "QG: needs input")
 
 	select {
 	case payload := <-got:

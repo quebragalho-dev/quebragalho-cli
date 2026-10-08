@@ -181,7 +181,7 @@ func TestAnExternalChangeStillDropsEveryRead(t *testing.T) {
 		t.Fatal("setup: line 50 should be seen")
 	}
 
-	// Something outside Zero rewrites the file.
+	// Something outside QG rewrites the file.
 	changed := strings.Repeat("different\n", 100)
 	if err := os.WriteFile(path, []byte(changed), 0o644); err != nil {
 		t.Fatal(err)

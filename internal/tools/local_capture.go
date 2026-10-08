@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Gitlawb/zero/internal/imageinput"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/localcontrol"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
 )
 
 const defaultArtifactBaseName = "capture"
@@ -351,9 +351,9 @@ func captureOKResult(driver string, request captureArtifactRequest, path string,
 	// exists and cannot look at it, which is the whole point of asking for one.
 	// A PDF or an unreadable file simply yields no image and the text stands on
 	// its own, so a capture is never failed over the attachment.
-	var images []zeroruntime.ImageBlock
+	var images []qgruntime.ImageBlock
 	if image, err := imageinput.LoadFile(path, ""); err == nil {
-		images = []zeroruntime.ImageBlock{image}
+		images = []qgruntime.ImageBlock{image}
 	}
 	return Result{
 		Status: StatusOK,

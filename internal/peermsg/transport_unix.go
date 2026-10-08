@@ -26,7 +26,7 @@ func (unixTransport) Endpoint(root, nonce string, pid int) (string, error) {
 	path := filepath.Join(dir, fmt.Sprintf("%d-%s.sock", pid, nonce))
 	// macOS has the smallest supported sockaddr_un path (103 usable bytes).
 	if len(path) > unixSocketPathMax {
-		dir = filepath.Join(os.TempDir(), fmt.Sprintf("zero-peers-%d", os.Getuid()))
+		dir = filepath.Join(os.TempDir(), fmt.Sprintf("qg-peers-%d", os.Getuid()))
 		dir, err = canonicalPrivateDir(dir)
 		if err != nil {
 			return "", fmt.Errorf("peer messaging: create fallback socket directory: %w", err)

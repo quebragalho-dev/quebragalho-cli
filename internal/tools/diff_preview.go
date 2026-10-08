@@ -6,8 +6,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/redaction"
 	udiff "github.com/aymanbagabas/go-udiff"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 // maxToolPreviewBytes caps the inline diff a write tool appends to its result, so

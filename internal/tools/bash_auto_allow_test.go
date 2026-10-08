@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 // nativeBackendStub reports as an active wrapping sandbox so shellSandboxActive
@@ -15,7 +15,7 @@ func nativeBackendStub() sandbox.Backend {
 	return sandbox.Backend{
 		Name:            sandbox.BackendLinuxBwrap,
 		Available:       true,
-		Executable:      "/nonexistent/zero-linux-sandbox-stub",
+		Executable:      "/nonexistent/qg-linux-sandbox-stub",
 		CommandWrapping: true,
 		NativeIsolation: true,
 	}

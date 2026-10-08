@@ -188,7 +188,7 @@ func TestReduceCommandOutputPreservesFailureEvidence(t *testing.T) {
 		"test module::broken ... FAILED",
 		"failures:",
 		"---- module::broken stdout ----",
-		"assertion failed: expected zero",
+		"assertion failed: expected qg",
 		"test result: FAILED. 14 passed; 1 failed; finished in 0.08s",
 		"exit_code: 101",
 	), "\n")
@@ -197,7 +197,7 @@ func TestReduceCommandOutputPreservesFailureEvidence(t *testing.T) {
 		Status: StatusError,
 		Output: original,
 	})
-	for _, evidence := range []string{"module::broken ... FAILED", "assertion failed: expected zero", "14 passed; 1 failed", "exit_code: 101"} {
+	for _, evidence := range []string{"module::broken ... FAILED", "assertion failed: expected qg", "14 passed; 1 failed", "exit_code: 101"} {
 		if !strings.Contains(result.Output, evidence) {
 			t.Fatalf("failure evidence %q was lost: %q", evidence, result.Output)
 		}

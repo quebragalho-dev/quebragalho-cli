@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/release"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/release"
 )
 
 // ErrTargetPossiblyTampered reports that an executable path may hold content
@@ -42,10 +42,10 @@ type ApplyResult struct {
 
 // windowsOptionalBinaries/linuxOptionalBinaries mirror the helper binary
 // names scripts/postinstall.mjs copies alongside the main binary when
-// present, so `zero upgrade` refreshes them too instead of leaving them stale.
+// present, so `qg upgrade` refreshes them too instead of leaving them stale.
 var (
-	windowsOptionalBinaries = []string{"zero-windows-command-runner.exe", "zero-windows-sandbox-setup.exe"}
-	linuxOptionalBinaries   = []string{"zero-linux-sandbox", "zero-seccomp"}
+	windowsOptionalBinaries = []string{"qg-windows-command-runner.exe", "qg-windows-sandbox-setup.exe"}
+	linuxOptionalBinaries   = []string{"qg-linux-sandbox", "qg-seccomp"}
 	currentExecutable       = os.Executable
 )
 
@@ -85,7 +85,7 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 		// leaves brew reporting a version that is no longer installed, and the next
 		// `brew upgrade` or `brew reinstall` silently reverts it.
 		return ApplyResult{}, fmt.Errorf(
-			"this zero was installed with Homebrew (%s); run `brew upgrade zero` instead, so Homebrew's records match the binary on disk",
+			"this qg was installed with Homebrew (%s); run `brew upgrade qg` instead, so Homebrew's records match the binary on disk",
 			executablePath,
 		)
 	case InstallMethodNpm:
@@ -121,7 +121,7 @@ func FormatApply(result ApplyResult) string {
 		return Format(result.Result)
 	}
 	lines := []string{
-		fmt.Sprintf("[zero] %s (%s -> %s)", result.Message, result.CurrentVersion, result.LatestVersion),
+		fmt.Sprintf("[qg] %s (%s -> %s)", result.Message, result.CurrentVersion, result.LatestVersion),
 		"Binary: " + result.BinaryPath,
 	}
 	for _, warning := range result.Warnings {
@@ -150,7 +150,7 @@ func applyStandaloneUpdate(ctx context.Context, result Result, executablePath st
 		return nil, fmt.Errorf("release asset for %s-%s could not be verified", asset.Platform, asset.Arch)
 	}
 
-	tempDir, err := os.MkdirTemp("", "zero-update-*")
+	tempDir, err := os.MkdirTemp("", "qg-update-*")
 	if err != nil {
 		return nil, err
 	}
@@ -181,11 +181,11 @@ func applyStandaloneUpdate(ctx context.Context, result Result, executablePath st
 		return nil, fmt.Errorf("extract release archive: %w", err)
 	}
 
-	binaryName := "zero"
+	binaryName := "qg"
 	optionalBinaries := linuxOptionalBinaries
 	switch runtime.GOOS {
 	case "windows":
-		binaryName = "zero.exe"
+		binaryName = "qg.exe"
 		optionalBinaries = windowsOptionalBinaries
 	case "darwin":
 		optionalBinaries = nil
@@ -367,7 +367,7 @@ func downloadFile(ctx context.Context, url string, destPath string) error {
 	if err != nil {
 		return err
 	}
-	request.Header.Set("User-Agent", "zero/update")
+	request.Header.Set("User-Agent", "qg/update")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return err

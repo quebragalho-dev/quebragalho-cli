@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/lsp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/lsp"
 )
 
 // lspNavigateTool exposes LSP code navigation (jump-to-definition, find-all-

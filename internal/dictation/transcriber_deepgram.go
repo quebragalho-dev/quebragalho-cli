@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/providers/providerio"
 	"github.com/coder/websocket"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
 )
 
 // DeepgramConfig configures the Deepgram streaming transcriber (§6b, default
@@ -33,7 +33,7 @@ func NewDeepgramTranscriber(cfg DeepgramConfig) (Transcriber, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return nil, &SetupError{
 			Tool: "Deepgram API key",
-			Hint: "set a Deepgram API key (DEEPGRAM_API_KEY, or `zero auth`) to use Deepgram streaming dictation",
+			Hint: "set a Deepgram API key (DEEPGRAM_API_KEY, or `qg auth`) to use Deepgram streaming dictation",
 		}
 	}
 	if cfg.Model == "" {

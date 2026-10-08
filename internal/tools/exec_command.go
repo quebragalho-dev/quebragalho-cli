@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/execution"
-	zeroSandbox "github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	qgSandbox "github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 const (
@@ -29,10 +29,10 @@ const (
 	// again (e.g. a dev server left running after its initiating run was
 	// cancelled) grows this buffer forever as long as the process keeps writing
 	// output, with no ceiling — this previously ran a session's memory into the
-	// tens of gigabytes over several hours and got the whole zero process
+	// tens of gigabytes over several hours and got the whole qg process
 	// OOM-killed by the OS.
 	maxExecOutputBufferBytes         = 2 * 1024 * 1024
-	execOutputBufferTruncatedMessage = "[zero] output buffer truncated: undrained output exceeded 2MiB, oldest output dropped"
+	execOutputBufferTruncatedMessage = "[qg] output buffer truncated: undrained output exceeded 2MiB, oldest output dropped"
 )
 
 type execSessionManager = execution.ProcessManager
@@ -122,7 +122,7 @@ func (tool execCommandTool) Run(ctx context.Context, args map[string]any) Result
 	return tool.run(ctx, args, nil, true)
 }
 
-func (tool execCommandTool) RunWithSandbox(ctx context.Context, args map[string]any, engine *zeroSandbox.Engine) Result {
+func (tool execCommandTool) RunWithSandbox(ctx context.Context, args map[string]any, engine *qgSandbox.Engine) Result {
 	return tool.run(ctx, args, engine, true)
 }
 
@@ -154,7 +154,7 @@ func (tool execCommandTool) ResizeExecSession(id int, cols, rows int) error {
 	return tool.manager.ResizeInput(id, cols, rows)
 }
 
-func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine *zeroSandbox.Engine, directBudget bool) Result {
+func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine *qgSandbox.Engine, directBudget bool) Result {
 	commandText, err := execCommandArg(args)
 	if err != nil {
 		return errorResult("Error: Invalid arguments for exec_command: " + err.Error())
@@ -190,7 +190,7 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 	// tty:true exists exactly to run prompting commands, so the
 	// non-interactive guard steps aside and the PTY path gets the session.
 	if !ttyRequested {
-		if interactive := zeroSandbox.DetectInteractiveCommand(commandText, runtimeGOOS()); interactive.Interactive {
+		if interactive := qgSandbox.DetectInteractiveCommand(commandText, runtimeGOOS()); interactive.Interactive {
 			result := interactiveBlockResult(interactive)
 			result.Output += "\nRerun with tty:true if the user should interact with it."
 			return result
@@ -215,7 +215,7 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 	}
 	meta := map[string]string{}
 	addSandboxMeta(meta, plan)
-	monitor := zeroSandbox.StartDenialMonitor(context.Background(), plan.MonitorTag)
+	monitor := qgSandbox.StartDenialMonitor(context.Background(), plan.MonitorTag)
 	processResult, err := tool.manager.Start(ctx, execution.ProcessStart{
 		Prepared: execution.PreparedCommand{
 			Command:     command,
@@ -251,11 +251,11 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 	}, directBudget)
 }
 
-func executionEnforcement(plan zeroSandbox.CommandPlan) execution.Enforcement {
+func executionEnforcement(plan qgSandbox.CommandPlan) execution.Enforcement {
 	return execution.Enforcement{
 		Backend:         string(plan.TargetBackend),
 		Level:           string(plan.EnforcementLevel),
-		Degraded:        plan.EnforcementLevel == zeroSandbox.EnforcementDegraded,
+		Degraded:        plan.EnforcementLevel == qgSandbox.EnforcementDegraded,
 		DowngradeReason: plan.DowngradeReason,
 	}
 }
@@ -340,7 +340,7 @@ func (tool writeStdinTool) RunWithOptions(ctx context.Context, args map[string]a
 	// naming the minimum, nudges the model to try 1, 2, 3... — the exact id-probing
 	// #749 works to suppress. The recovery message instead tells it to start a
 	// session or edit files directly, and because that message is id-invariant, the
-	// missing/zero/non-integer entry points and id-probing collapse to ONE
+	// missing/qg/non-integer entry points and id-probing collapse to ONE
 	// repeated-failure signature, so any mix of them accumulates toward the halt
 	// rather than resetting the streak on each class of mistake.
 	value, present := args["session_id"]
@@ -504,7 +504,7 @@ func execToolResultWithBudget(input execToolResultInput, directBudget bool) Resu
 	}
 }
 
-func execExecutionRequest(command *exec.Cmd, plan zeroSandbox.CommandPlan, cwd string, tty bool) execution.Request {
+func execExecutionRequest(command *exec.Cmd, plan qgSandbox.CommandPlan, cwd string, tty bool) execution.Request {
 	mode := execution.ModeCaptured
 	if tty {
 		mode = execution.ModeInteractive
@@ -515,7 +515,7 @@ func execExecutionRequest(command *exec.Cmd, plan zeroSandbox.CommandPlan, cwd s
 	}
 	workspaceRoots := []string{workspaceRoot}
 	capabilities := []execution.Capability{{Kind: execution.CapabilityProcessSpawn}}
-	if plan.PermissionProfile.FileSystem.Kind == zeroSandbox.FileSystemUnrestricted {
+	if plan.PermissionProfile.FileSystem.Kind == qgSandbox.FileSystemUnrestricted {
 		capabilities = append(capabilities, execution.Capability{Kind: execution.CapabilityUnrestricted, Scope: "host"})
 	}
 	for _, root := range plan.PermissionProfile.FileSystem.ReadRoots {
@@ -524,9 +524,9 @@ func execExecutionRequest(command *exec.Cmd, plan zeroSandbox.CommandPlan, cwd s
 	for _, root := range plan.PermissionProfile.FileSystem.WriteRoots {
 		capabilities = append(capabilities, execution.Capability{Kind: execution.CapabilityWorkspaceWrite, Scope: root.Root})
 	}
-	if plan.PermissionProfile.Network.Mode == zeroSandbox.NetworkAllow || plan.Policy.Network == zeroSandbox.NetworkAllow {
+	if plan.PermissionProfile.Network.Mode == qgSandbox.NetworkAllow || plan.Policy.Network == qgSandbox.NetworkAllow {
 		capabilities = append(capabilities, execution.Capability{Kind: execution.CapabilityExternalNetwork})
-	} else if plan.TargetBackend == zeroSandbox.BackendLinuxBwrap {
+	} else if plan.TargetBackend == qgSandbox.BackendLinuxBwrap {
 		capabilities = append(capabilities, execution.Capability{Kind: execution.CapabilityIsolatedLoopback, Scope: "sandbox"})
 	}
 	args := append([]string(nil), command.Args...)
@@ -647,9 +647,9 @@ func truncateExecOutputSpill(output string, maxOutputTokens int, toolName string
 	if len(output) <= maxBytes {
 		return output, false
 	}
-	notice := "\n[zero] output truncated\n"
+	notice := "\n[qg] output truncated\n"
 	if spillPath := spillTruncatedOutput(toolName, output); spillPath != "" {
-		notice = "\n[zero] output truncated — full output saved to " + spillPath + " (grep or read_file it instead of re-running)\n"
+		notice = "\n[qg] output truncated — full output saved to " + spillPath + " (grep or read_file it instead of re-running)\n"
 	}
 	head := maxBytes / 2
 	tail := maxBytes - head

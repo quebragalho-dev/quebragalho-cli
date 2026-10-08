@@ -123,7 +123,7 @@ func (staged *stagedBinary) promote(targetPath string) error {
 	if suffixErr != nil {
 		return fmt.Errorf("choose recovery path: %w", suffixErr)
 	}
-	asidePath := targetPath + ".zero-update-" + suffix + ".old"
+	asidePath := targetPath + ".qg-update-" + suffix + ".old"
 	cleanupCandidates := prepareRecoveryCleanup(targetPath)
 	cleanedCandidates := false
 	defer func() {
@@ -256,7 +256,7 @@ func acquirePromotionLock(targetPath string) (func(), error) {
 		return nil, err
 	}
 	digest := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(absolutePath))))
-	name, err := windows.UTF16PtrFromString(fmt.Sprintf("Local\\zero-update-%x", digest))
+	name, err := windows.UTF16PtrFromString(fmt.Sprintf("Local\\qg-update-%x", digest))
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +299,7 @@ func existingRecoveryPaths(targetPath string) ([]string, error) {
 		return nil, err
 	}
 	// NTFS is case-insensitive (case-preserving), so a recovery file can exist
-	// on disk as e.g. "zero.exe.OLD" — fold both sides before matching, or it
+	// on disk as e.g. "qg.exe.OLD" — fold both sides before matching, or it
 	// silently drops out of every caller's fail-closed check below.
 	lowerBase := strings.ToLower(base)
 	var paths []string

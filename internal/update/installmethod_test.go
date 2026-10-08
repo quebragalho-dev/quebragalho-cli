@@ -8,7 +8,7 @@ import (
 
 func TestDetectInstallMethodStandaloneByDefault(t *testing.T) {
 	dir := t.TempDir()
-	exePath := filepath.Join(dir, "zero")
+	exePath := filepath.Join(dir, "qg")
 	if err := os.WriteFile(exePath, []byte("binary"), 0o755); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -19,11 +19,11 @@ func TestDetectInstallMethodStandaloneByDefault(t *testing.T) {
 
 func TestDetectInstallMethodNpmViaMarkerFile(t *testing.T) {
 	dir := t.TempDir()
-	exePath := filepath.Join(dir, "zero")
+	exePath := filepath.Join(dir, "qg")
 	if err := os.WriteFile(exePath, []byte("binary"), 0o755); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".zero-binary-version"), []byte("0.1.0\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".qg-binary-version"), []byte("0.1.0\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile marker: %v", err)
 	}
 	if method := DetectInstallMethod(exePath); method != InstallMethodNpm {
@@ -33,11 +33,11 @@ func TestDetectInstallMethodNpmViaMarkerFile(t *testing.T) {
 
 func TestDetectInstallMethodNpmViaPackageJSON(t *testing.T) {
 	dir := t.TempDir()
-	exePath := filepath.Join(dir, "zero")
+	exePath := filepath.Join(dir, "qg")
 	if err := os.WriteFile(exePath, []byte("binary"), 0o755); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"@gitlawb/zero","version":"0.5.0-linux-x64","os":["linux"],"cpu":["x64"]}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"@quebragalho-dev/qg","version":"0.5.0-linux-x64","os":["linux"],"cpu":["x64"]}`), 0o644); err != nil {
 		t.Fatalf("WriteFile package.json: %v", err)
 	}
 	if method := DetectInstallMethod(exePath); method != InstallMethodNpm {
@@ -47,11 +47,11 @@ func TestDetectInstallMethodNpmViaPackageJSON(t *testing.T) {
 
 func TestDetectInstallMethodDoesNotTreatRepositoryManifestAsNpmBinary(t *testing.T) {
 	dir := t.TempDir()
-	exePath := filepath.Join(dir, "zero")
+	exePath := filepath.Join(dir, "qg")
 	if err := os.WriteFile(exePath, []byte("binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name":"@gitlawb/zero","bin":{"zero":"bin/zero.js"},"os":["linux","darwin","win32","android"],"cpu":["x64","arm64"]}`
+	manifest := `{"name":"@quebragalho-dev/qg","bin":{"qg":"bin/qg.js"},"os":["linux","darwin","win32","android"],"cpu":["x64","arm64"]}`
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestDetectInstallMethodDoesNotTreatRepositoryManifestAsNpmBinary(t *testing
 
 func TestDetectInstallMethodIgnoresUnrelatedPackageJSON(t *testing.T) {
 	dir := t.TempDir()
-	exePath := filepath.Join(dir, "zero")
+	exePath := filepath.Join(dir, "qg")
 	if err := os.WriteFile(exePath, []byte("binary"), 0o755); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
