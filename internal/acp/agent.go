@@ -13,28 +13,28 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodelcatalog"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-// Deps are the ZERO capabilities the ACP Agent drives. The CLI fills these with
+// Deps are the QG capabilities the ACP Agent drives. The CLI fills these with
 // real implementations; tests inject fakes (e.g. a canned provider) to drive the
 // full ACP flow without a live model. Keeping auth/model/keys behind these deps
-// means the editor only hosts the thread — ZERO owns BYOK and telemetry-free
+// means the editor only hosts the thread — QG owns BYOK and telemetry-free
 // operation.
 type Deps struct {
 	ResolveConfig  func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error)
 	DiscoverModels func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
-	NewProvider    func(profile config.ProviderProfile) (zeroruntime.Provider, error)
-	RunAgent       func(ctx context.Context, prompt string, provider zeroruntime.Provider, opts agent.Options) (agent.Result, error)
+	NewProvider    func(profile config.ProviderProfile) (qgruntime.Provider, error)
+	RunAgent       func(ctx context.Context, prompt string, provider qgruntime.Provider, opts agent.Options) (agent.Result, error)
 	// BuildWorkspace creates the per-turn scoped tool workspace for a validated
 	// workspace root. Its Close method releases any resources the registry owns
 	// (notably MCP server connections) after the turn completes or is cancelled.
@@ -119,7 +119,7 @@ func NewAgent(conn *Conn, deps Deps) *Agent {
 	conn.Handle(MethodSessionPrompt, a.handleSessionPrompt)
 	conn.Handle(MethodSessionSetMode, a.handleSetMode)
 	conn.Handle(MethodSessionSetConfigOption, a.handleSetConfigOption)
-	conn.Handle(MethodZeroSetModel, a.handleZeroSetModel)
+	conn.Handle(MethodQGSetModel, a.handleQGSetModel)
 	conn.HandleNotify(MethodSessionCancel, a.handleCancel)
 	return a
 }
@@ -151,7 +151,7 @@ func (a *Agent) handleInitialize(_ context.Context, params json.RawMessage) (any
 			SessionCapabilities: &SessionCapabilities{List: &struct{}{}, Resume: &struct{}{}},
 		},
 		AgentInfo: &info,
-		// ZERO owns credentials (BYOK) and does not delegate auth to the editor.
+		// QG owns credentials (BYOK) and does not delegate auth to the editor.
 		AuthMethods: []AuthMethod{},
 	}, nil
 }
@@ -167,7 +167,7 @@ func (a *Agent) handleInitialize(_ context.Context, params json.RawMessage) (any
 // process was started in" and joins a relative cwd onto it. Those two defaults
 // meet in the middle: `{"sessionId":"known"}` used to activate a persisted
 // session, and `{}` used to create one, both rooted at wherever the editor
-// happened to spawn `zero acp` — which then becomes the sandbox and file-tool
+// happened to spawn `qg acp` — which then becomes the sandbox and file-tool
 // confinement root. The client never named that directory, so it is a root the
 // server invented, and ACP requires an absolute cwd on every method carrying
 // one. Rejecting here is what keeps a missing field from being answered with a
@@ -457,7 +457,7 @@ func (a *Agent) handleSessionPrompt(ctx context.Context, params json.RawMessage)
 	return PromptResult{StopReason: reason}, nil
 }
 
-func (a *Agent) runTurn(ctx context.Context, sess *acpSession, userText string, images []zeroruntime.ImageBlock) (string, error) {
+func (a *Agent) runTurn(ctx context.Context, sess *acpSession, userText string, images []qgruntime.ImageBlock) (string, error) {
 	overrides := config.Overrides{}
 	if model := sess.currentModel(); model != "" {
 		overrides.Provider.Model = model
@@ -495,7 +495,7 @@ func (a *Agent) runTurn(ctx context.Context, sess *acpSession, userText string, 
 	note := &notifier{conn: a.conn, sessionID: sess.id}
 	for _, notice := range workspace.Notices {
 		if text := strings.TrimSpace(redaction.RedactString(notice, redaction.Options{})); text != "" {
-			note.text("\n\n[zero warning] " + text + "\n")
+			note.text("\n\n[qg warning] " + text + "\n")
 		}
 	}
 	// Buffer the complete turn until RunAgent has a valid ACP outcome. A hard run
@@ -582,7 +582,7 @@ func stopReasonFor(result agent.Result, err error) (string, error) {
 		// a deliberate action, and for apply_patch the only refusal a client is
 		// offered — came back as JSON-RPC -32603 carrying the internal sentinel
 		// text. Editors and the desktop app both render that as a crashed turn,
-		// so declining a tool looked like ZERO falling over. It is a
+		// so declining a tool looked like QG falling over. It is a
 		// cancellation, and StopCancelled is what ACP has for saying so.
 		if errors.Is(err, agent.ErrPermissionApprovalCanceled) {
 			return StopCancelled, nil
@@ -598,7 +598,7 @@ func stopReasonFor(result agent.Result, err error) (string, error) {
 	return StopEndTurn, nil
 }
 
-// requestPermission forwards a ZERO permission prompt to the client as an ACP
+// requestPermission forwards a QG permission prompt to the client as an ACP
 // session/request_permission request and maps the outcome back. Failure to reach
 // the client fails closed to deny.
 func (a *Agent) requestPermission(ctx context.Context, sessionID string, req agent.PermissionRequest) (agent.PermissionDecision, error) {
@@ -698,10 +698,10 @@ func (a *Agent) handleSetConfigOption(_ context.Context, params json.RawMessage)
 	return SetSessionConfigOptionResult{ConfigOptions: a.configOptions(sess)}, nil
 }
 
-func (a *Agent) handleZeroSetModel(_ context.Context, params json.RawMessage) (any, error) {
-	var p ZeroSetModelParams
+func (a *Agent) handleQGSetModel(_ context.Context, params json.RawMessage) (any, error) {
+	var p QGSetModelParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, RPCError(codeInvalidParams, "invalid _zero/set_model params")
+		return nil, RPCError(codeInvalidParams, "invalid _qg/set_model params")
 	}
 	sess := a.session(p.SessionID)
 	if sess == nil {
@@ -711,7 +711,7 @@ func (a *Agent) handleZeroSetModel(_ context.Context, params json.RawMessage) (a
 	if err := a.updateModel(sess, model, false); err != nil {
 		return nil, err
 	}
-	return ZeroSetModelResult{Model: model}, nil
+	return QGSetModelResult{Model: model}, nil
 }
 
 func (a *Agent) updateModel(sess *acpSession, model string, restrictModels bool) error {
@@ -918,7 +918,7 @@ func (a *Agent) loadHistory(sessionID string, requireHistoryLog bool) ([]turnRec
 		}
 	}
 	if requireHistoryLog && !eventLogPresent {
-		return nil, nil, nil, fmt.Errorf("zero session %s event log is missing", sessionID)
+		return nil, nil, nil, fmt.Errorf("qg session %s event log is missing", sessionID)
 	}
 	var records []turnRecord
 	var messages []persistedMessage
@@ -1074,7 +1074,7 @@ func persistedMessageIdentity(sessionID string, event sessions.Event) string {
 	return fmt.Sprintf("%s:%d", sessionID, event.Sequence)
 }
 
-// replayMessageID maps ZERO's stable event identity to a standards-shaped UUID
+// replayMessageID maps QG's stable event identity to a standards-shaped UUID
 // without leaking or parsing the event id on the wire. The same stored message
 // receives the same opaque id across loads, which also gives clients an exact
 // chunk boundary when two adjacent persisted messages have the same role.
@@ -1087,7 +1087,7 @@ func replayToolCallID(eventID string) string {
 }
 
 func replayOpaqueID(kind, eventID string) string {
-	sum := sha256.Sum256([]byte("zero-acp-" + kind + ":" + eventID))
+	sum := sha256.Sum256([]byte("qg-acp-" + kind + ":" + eventID))
 	b := sum[:16]
 	b[6] = (b[6] & 0x0f) | 0x50
 	b[8] = (b[8] & 0x3f) | 0x80
@@ -1102,9 +1102,9 @@ func (a *Agent) warnPersistence(note *notifier, action string, message string, e
 	if note != nil {
 		sessionID = note.sessionID
 	}
-	log.Printf("zero acp: failed to %s for session %s: %v", action, sessionID, err)
+	log.Printf("qg acp: failed to %s for session %s: %v", action, sessionID, err)
 	if note != nil && notify {
-		note.text("\n\n[zero warning] " + message + "\n")
+		note.text("\n\n[qg warning] " + message + "\n")
 	}
 }
 
@@ -1131,8 +1131,8 @@ func buildPrompt(history []turnRecord, userText string) string {
 	return b.String()
 }
 
-func promptImages(blocks []ContentBlock) []zeroruntime.ImageBlock {
-	var images []zeroruntime.ImageBlock
+func promptImages(blocks []ContentBlock) []qgruntime.ImageBlock {
+	var images []qgruntime.ImageBlock
 	for _, blk := range blocks {
 		if blk.Type != "image" || blk.Data == "" {
 			continue
@@ -1141,7 +1141,7 @@ func promptImages(blocks []ContentBlock) []zeroruntime.ImageBlock {
 		if err != nil {
 			continue
 		}
-		images = append(images, zeroruntime.ImageBlock{MediaType: blk.MimeType, Data: data})
+		images = append(images, qgruntime.ImageBlock{MediaType: blk.MimeType, Data: data})
 	}
 	return images
 }

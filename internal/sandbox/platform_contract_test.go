@@ -16,7 +16,7 @@ func TestPlatformAdaptersShareExecutionContract(t *testing.T) {
 		t.Fatal("baseline profile must require platform enforcement")
 	}
 	protected := strings.Join(profile.FileSystem.WriteRoots[0].ProtectedMetadataNames, "\x00")
-	for _, name := range []string{".zero", ".agents"} {
+	for _, name := range []string{".qg", ".agents"} {
 		if !strings.Contains(protected, name) {
 			t.Fatalf("baseline profile missing protected metadata %q: %#v", name, profile.FileSystem.WriteRoots[0].ProtectedMetadataNames)
 		}
@@ -49,7 +49,7 @@ func TestPlatformAdaptersShareExecutionContract(t *testing.T) {
 		original := windowsSandboxInitialized
 		windowsSandboxInitialized = func() bool { return true }
 		t.Cleanup(func() { windowsSandboxInitialized = original })
-		backend := Backend{Name: BackendWindowsRestrictedToken, Available: true, Platform: "windows", CommandWrapping: true, NativeIsolation: true, Executable: `C:\zero\zero.exe`}
+		backend := Backend{Name: BackendWindowsRestrictedToken, Available: true, Platform: "windows", CommandWrapping: true, NativeIsolation: true, Executable: `C:\qg\qg.exe`}
 		request, err := NewSandboxManager(SandboxManagerOptions{GOOS: "windows", Backend: backend}).BuildExecutionRequest(SandboxManagerRequest{
 			WorkspaceRoot: root, Policy: policy, Profile: profile, Command: CommandSpec{Name: "cmd.exe", Args: WindowsShellArgs("echo ok"), Dir: root},
 		})

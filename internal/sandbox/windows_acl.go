@@ -15,7 +15,7 @@ const (
 	WindowsACLDenyWrite  WindowsACLAction = "deny-write"
 	// WindowsACLRevokeCapability removes any existing ACE (allow or deny) for
 	// Capability at Path, without itself granting or denying anything (applied
-	// via SetEntriesInAclW's SET_ACCESS mode with a zero mask, not
+	// via SetEntriesInAclW's SET_ACCESS mode with a qg mask, not
 	// REVOKE_ACCESS — see windowsACLAccess for why). It is consumed by
 	// applyWindowsACLPlan for migration cleanup and tests; no current
 	// plan-generation path emits this action, preserving legacy-process confinement.

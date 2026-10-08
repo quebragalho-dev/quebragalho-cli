@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 )
 
 const protectedResourceMetadataLimit = 1 << 20

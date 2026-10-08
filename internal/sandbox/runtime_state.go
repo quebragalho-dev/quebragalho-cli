@@ -47,7 +47,7 @@ func prepareSandboxRuntime(workspaceRoot string) (SandboxRuntime, func(), error)
 		return SandboxRuntime{}, nil, errors.New("user cache directory is unavailable")
 	}
 	digest := sha256.Sum256([]byte(workspaceRoot))
-	root := filepath.Join(cacheRoot, "zero", "runtime", "v1", hex.EncodeToString(digest[:8]))
+	root := filepath.Join(cacheRoot, "qg", "runtime", "v1", hex.EncodeToString(digest[:8]))
 	if pathWithinRoot(workspaceRoot, root) {
 		root, err = fallbackSandboxRuntimeRoot(workspaceRoot)
 		if err != nil {
@@ -180,7 +180,7 @@ func fallbackSandboxRuntimeRoot(workspaceRoot string) (string, error) {
 	if root := fallbackSandboxRuntimes.roots[workspaceRoot]; root != "" {
 		return root, nil
 	}
-	parent, err := os.MkdirTemp("", "zero-runtime-")
+	parent, err := os.MkdirTemp("", "qg-runtime-")
 	if err != nil {
 		return "", fmt.Errorf("create fallback sandbox runtime: %w", err)
 	}

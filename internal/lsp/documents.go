@@ -20,7 +20,7 @@ type lspServer interface {
 type session struct {
 	server lspServer
 	client *Client
-	// catchUpGrace bounds catchUpNotifications on a live client. Zero means "do
+	// catchUpGrace bounds catchUpNotifications on a live client. QG means "do
 	// not wait", which is what the hand-built sessions in tests get by default.
 	catchUpGrace time.Duration
 

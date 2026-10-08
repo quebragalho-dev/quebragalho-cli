@@ -271,7 +271,7 @@ func TestAPermanentGrantSurvivesTheTemporaryOneItCovered(t *testing.T) {
 
 // ONE HOLDER'S UNDO DROPS ONE HOLDER'S REFERENCE, HOWEVER OFTEN IT IS CALLED.
 //
-// The count flooring at zero stops it going negative; it does not stop a
+// The count flooring at qg stops it going negative; it does not stop a
 // holder's second call consuming somebody else's reference. With two readers,
 // calling the first's undo twice took the count 2 -> 1 -> 0 and removed a root
 // the second was still using — the exact revocation this refcount exists to

@@ -8,11 +8,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-// translate.go maps ZERO's agent events onto ACP session/update payloads. The
+// translate.go maps QG's agent events onto ACP session/update payloads. The
 // mapping functions are pure (no I/O) so they can be unit-tested directly; the
 // notifier wires them to a live JSON-RPC connection.
 
@@ -32,7 +32,7 @@ func agentThoughtChunk(delta string) ContentChunk {
 	return ContentChunk{SessionUpdate: UpdateAgentThoughtChunk, Content: TextBlock(delta)}
 }
 
-// toolKindFor maps a ZERO tool name to the closest ACP ToolKind so editors can
+// toolKindFor maps a QG tool name to the closest ACP ToolKind so editors can
 // pick an icon/affordance. Unknown tools fall back to "other".
 func toolKindFor(name string) string {
 	switch name {
@@ -64,7 +64,7 @@ func toolTitle(name, rawArgs string) string {
 	return name
 }
 
-// browserToolDetails identifies ZERO's local browser helpers without treating
+// browserToolDetails identifies QG's local browser helpers without treating
 // similarly named MCP tools as browser automation. The descriptor intentionally
 // contains no request data: ACP tool input is already protocol-visible, but a
 // durable UI must not need to retain text, local CDP targets, or full URLs just
@@ -83,9 +83,9 @@ func browserToolDetails(name string) (*BrowserToolDetails, bool) {
 	}
 }
 
-const zeroBrowserMetaKey = "github.com/Gitlawb/zero/browser"
+const zeroBrowserMetaKey = "github.com/quebragalho-dev/quebragalho-cli/browser"
 
-// attachBrowserToolDetails stores ZERO's browser descriptor in ACP's reserved
+// attachBrowserToolDetails stores QG's browser descriptor in ACP's reserved
 // extension channel. Keeping this in one helper prevents start, result, and
 // permission payloads from drifting onto different wire shapes.
 func attachBrowserToolDetails(update *ToolCallUpdate, name string) {
@@ -154,7 +154,7 @@ func browserTitleTextSafe(text string) bool {
 	return true
 }
 
-// exactJSONStringArg mirrors ZERO's map-based tool argument decoding: only the
+// exactJSONStringArg mirrors QG's map-based tool argument decoding: only the
 // exact JSON key is considered, and a non-string value is invalid. In
 // particular, an incidental "URL" key must not change a permission title when
 // browser_open will only read "url".
@@ -210,8 +210,8 @@ func rawInput(args string) json.RawMessage {
 	return json.RawMessage(args)
 }
 
-// toolCallStart maps an advertised ZERO tool call to the initial ACP "tool_call"
-// update (status in_progress — ZERO executes immediately after advertising).
+// toolCallStart maps an advertised QG tool call to the initial ACP "tool_call"
+// update (status in_progress — QG executes immediately after advertising).
 func toolCallStart(call agent.ToolCall) ToolCallUpdate {
 	upd := ToolCallUpdate{
 		SessionUpdate: UpdateToolCall,
@@ -225,7 +225,7 @@ func toolCallStart(call agent.ToolCall) ToolCallUpdate {
 	return upd
 }
 
-// toolCallResult maps a finished ZERO tool result to a "tool_call_update".
+// toolCallResult maps a finished QG tool result to a "tool_call_update".
 func toolCallResult(result agent.ToolResult) ToolCallUpdate {
 	status := ToolStatusCompleted
 	if result.Status == tools.StatusError {
@@ -305,7 +305,7 @@ func toolResultLocations(result agent.ToolResult) []ToolCallLocation {
 	return locs
 }
 
-// planUpdate maps ZERO's plan items to an ACP "plan" update.
+// planUpdate maps QG's plan items to an ACP "plan" update.
 func planUpdate(items []tools.PlanItem) PlanUpdate {
 	entries := make([]PlanEntry, 0, len(items))
 	for _, it := range items {
@@ -318,7 +318,7 @@ func planUpdate(items []tools.PlanItem) PlanUpdate {
 	return PlanUpdate{SessionUpdate: UpdatePlan, Entries: entries}
 }
 
-// planStatusToACP maps ZERO's plan status (pending/in_progress/completed/failed)
+// planStatusToACP maps QG's plan status (pending/in_progress/completed/failed)
 // to ACP's PlanEntryStatus (which has no "failed"; a failed step is terminal, so
 // it maps to completed).
 func planStatusToACP(s string) string {

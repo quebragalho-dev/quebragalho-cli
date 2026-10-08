@@ -20,7 +20,7 @@ type Backend struct {
 	Executable      string      `json:"executable,omitempty"`
 	// ExecutableArgsPrefix is prepended to a wrapped command's args before the
 	// sandbox arguments. Non-empty only for the Windows self-dispatch helper,
-	// where Executable is the running zero binary and this carries the hidden
+	// where Executable is the running qg binary and this carries the hidden
 	// subcommand token (e.g. "__windows-command-runner"). nil for every other
 	// backend, so their serialized form is unchanged.
 	ExecutableArgsPrefix []string `json:"executableArgsPrefix,omitempty"`
@@ -133,7 +133,7 @@ func unavailableBackend(goos string, message string) Backend {
 	}
 }
 
-// BuildPlan renders the plan for introspection (`zero sandbox policy`). It has
+// BuildPlan renders the plan for introspection (`qg sandbox policy`). It has
 // no command to describe, so the profile is built with no command context: the
 // credential baseline resolves relative token overrides against THIS process's
 // environment and working directory only. Execution goes through
@@ -244,7 +244,7 @@ func (backend Backend) SandboxEnvMarkers(policy Policy) []string {
 	return []string{
 		EnvSandboxed + "=1",
 		EnvSandboxBackend + "=" + string(name),
-		"ZERO_SANDBOX_NETWORK=" + string(policy.Network),
+		"QG_SANDBOX_NETWORK=" + string(policy.Network),
 	}
 }
 

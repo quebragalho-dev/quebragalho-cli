@@ -36,7 +36,7 @@ func TestAReadGrantIsReadableButNotWritable(t *testing.T) {
 // not own. That worked and bought two problems: a hermetic runner may expose
 // HOME read-only, so these tests failed at MkdirTemp before asserting anything,
 // and on an ordinary machine they wrote into the developer's real home and left
-// zero-scope-* debris whenever a run was interrupted. Reported by @jatmn.
+// qg-scope-* debris whenever a run was interrupted. Reported by @jatmn.
 //
 // Building the Scope directly removes the seeded defaults, which is what made
 // HOME necessary in the first place. t.TempDir() is then outside by
