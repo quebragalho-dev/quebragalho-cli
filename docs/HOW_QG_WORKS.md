@@ -1,8 +1,8 @@
-# How Zero Works
+# How QG Works
 
-This document explains Zero's architecture at a high level: the layers, module
+This document explains QG's architecture at a high level: the layers, module
 boundaries, data flow, and runtime concepts behind the interactive TUI and the
-headless `zero exec` mode.
+headless `qg exec` mode.
 
 It is written as a progressive map: each high-level section introduces the
 concepts you need for orientation, then points to the later section that explains
@@ -10,18 +10,18 @@ the mechanics in more detail.
 
 ## Big Picture
 
-Zero is a Go CLI application with two main user-facing surfaces:
+QG is a Go CLI application with two main user-facing surfaces:
 
-- **Interactive TUI** (`zero`): a Bubble Tea application that renders chat,
+- **Interactive TUI** (`qg`): a Bubble Tea application that renders chat,
   tool cards, permission prompts, model/provider pickers, and session controls.
-- **Headless exec** (`zero exec ...`): a scriptable command runner that uses the
+- **Headless exec** (`qg exec ...`): a scriptable command runner that uses the
   same agent loop and tools, but writes text, JSON, or stream-JSON events.
 
 Both surfaces converge on the same core agent runtime:
 
 ```mermaid
 flowchart TD
-    User[User / automation] --> CLI[cmd/zero -> internal/cli]
+    User[User / automation] --> CLI[cmd/qg -> internal/cli]
 
     CLI --> TUI[Interactive TUI<br/>internal/tui]
     CLI --> Exec[Headless exec<br/>internal/cli/exec.go]
@@ -31,7 +31,7 @@ flowchart TD
     Exec --> Agent
     ACP --> Agent
 
-    Agent --> Provider[Provider runtime<br/>internal/zeroruntime.Provider]
+    Agent --> Provider[Provider runtime<br/>internal/qgruntime.Provider]
     Provider --> APIs[OpenAI / Anthropic / Gemini / compatible APIs]
 
     Agent --> Registry[Tool registry<br/>internal/tools.Registry]
@@ -63,7 +63,7 @@ The important split is:
 
 ## Architecture Spine
 
-The easiest way to understand Zero is not as a set of independent packages, but
+The easiest way to understand QG is not as a set of independent packages, but
 as one spine with several mechanisms attached to it:
 
 ```mermaid
@@ -117,11 +117,11 @@ reading the deeper flows below.
 
 | Package | Role |
 | --- | --- |
-| `cmd/zero` | Tiny binary entrypoint; calls `internal/cli.Run`. |
+| `cmd/qg` | Tiny binary entrypoint; calls `internal/cli.Run`. |
 | `internal/cli` | Command parsing, config resolution, provider creation, registry setup, TUI/exec/ACP launch paths. |
 | `internal/tui` | Bubble Tea model/update/view code, transcript rendering, composer, prompts, slash commands, setup wizard. |
 | `internal/agent` | Core loop that sends messages to the model, streams output, executes tools, handles permissions, compaction, retries, and final answers. |
-| `internal/zeroruntime` | Provider-neutral message, tool-call, stream, usage, and image types. Providers implement `Provider.StreamCompletion`. |
+| `internal/qgruntime` | Provider-neutral message, tool-call, stream, usage, and image types. Providers implement `Provider.StreamCompletion`. |
 | `internal/providers` | Factory that turns a resolved provider profile into an OpenAI, Anthropic, Gemini, Codex, or compatible provider adapter. |
 | `internal/tools` | Tool interface, registry, core read/write/shell/network tools, local-control wrappers, tool safety metadata, redaction, output ceilings. |
 | `internal/sandbox` | Permission policy, path/network checks, grant store, command-prefix approvals, and platform sandbox backends. |
@@ -131,15 +131,15 @@ reading the deeper flows below.
 | `internal/specialist` / `internal/swarm` | Sub-agent manifests and team/member orchestration exposed as tools. |
 | `internal/localcontrol` / `internal/browser` | Runtime helpers used by config-gated local-control tool wrappers. |
 | `internal/plugins` / `internal/skills` / `internal/hooks` | Extension surfaces loaded into the agent context, tool registry, or tool lifecycle. |
-| `internal/streamjson` | Machine-readable protocol for `zero exec --input-format/--output-format stream-json`. |
+| `internal/streamjson` | Machine-readable protocol for `qg exec --input-format/--output-format stream-json`. |
 
 ## Startup Flow
 
-### Interactive TUI (`zero`)
+### Interactive TUI (`qg`)
 
 ```mermaid
 sequenceDiagram
-    participant Main as cmd/zero
+    participant Main as cmd/qg
     participant CLI as internal/cli
     participant Config as internal/config
     participant TUI as internal/tui
@@ -163,7 +163,7 @@ with callbacks like `OnText`, `OnToolCall`, `OnToolResult`, `OnPermission`,
 `OnAskUser`, and `OnUsage`. Those callbacks convert runtime events into visible
 transcript rows and session events.
 
-### Headless exec (`zero exec`)
+### Headless exec (`qg exec`)
 
 ```mermaid
 flowchart TD
@@ -176,7 +176,7 @@ flowchart TD
     G --> H[Write final output and exit code]
 ```
 
-`zero exec` uses the same `agent.Run` loop as the TUI, but without interactive
+`qg exec` uses the same `agent.Run` loop as the TUI, but without interactive
 terminal state. It can persist sessions, resume/fork existing sessions, run in
 stream-JSON mode for automation, and always requires a stronger completion
 signal so a no-tool assistant response is not treated as success while work is
@@ -217,7 +217,7 @@ Key responsibilities of the loop:
    tool definitions by permission mode, enabled or disabled filters, and
    deferred-loading rules. Tool schemas also count toward context budget, so they
    matter for compaction decisions.
-3. **Call provider** — sends a provider-neutral `zeroruntime.CompletionRequest`.
+3. **Call provider** — sends a provider-neutral `qgruntime.CompletionRequest`.
 4. **Stream events** — forwards text, reasoning, tool-call deltas, and usage to
    the caller via callbacks.
 5. **Execute tools** — decodes tool arguments, checks filters, applies
@@ -229,14 +229,14 @@ Key responsibilities of the loop:
    Context pressure is handled by [Context Budget and Compaction](#context-budget-and-compaction).
 7. **Finalize** — returns a final answer or a structured incomplete/stop reason.
 
-The model never directly mutates the workspace. It asks for tool calls; Zero
+The model never directly mutates the workspace. It asks for tool calls; QG
 validates and executes those calls through the registry, permission policy, and
 sandbox engine.
 
 ## Tool Execution Lifecycle
 
 A tool call is part of the model conversation, not a side channel that bypasses
-it. The model proposes an action, Zero decides whether that action is allowed to
+it. The model proposes an action, QG decides whether that action is allowed to
 run, the tool returns a structured result, and that result becomes context for the
 next provider request.
 
@@ -285,7 +285,7 @@ sequenceDiagram
 Conceptually, one requested tool goes through these phases:
 
 1. **Proposal** — the provider streams assistant content and may emit one or more
-   tool calls. Zero can show the partial tool arguments in the TUI while they are
+   tool calls. QG can show the partial tool arguments in the TUI while they are
    still streaming, but nothing has executed yet.
 2. **Decode and gate** — the agent validates JSON arguments, checks whether the
    tool is enabled, applies permission mode, asks the sandbox engine about path,
@@ -294,7 +294,7 @@ Conceptually, one requested tool goes through these phases:
 3. **Execute** — the selected registry entry runs locally, through MCP, as a
    specialist/sub-agent, or through a plugin/local-control helper. Hooks can run
    before or after this step.
-4. **Normalize result** — Zero turns the outcome into an agent `ToolResult`: a
+4. **Normalize result** — QG turns the outcome into an agent `ToolResult`: a
    success, failure, denial, cancellation, timeout, or validation error with
    output/metadata that may be redacted or truncated.
 5. **Append to context** — the result is appended as a tool-result message paired
@@ -313,7 +313,7 @@ that the action is not currently permitted. The model is expected to use that
 feedback to continue, choose another tool, ask the user, or explain the blocker.
 
 The judgement that “information is sufficient” is made by the model, not by the
-TUI. Zero controls the loop mechanics: it keeps appending messages, enforces
+TUI. QG controls the loop mechanics: it keeps appending messages, enforces
 safety, retries or nudges around malformed/empty/incomplete turns, and stops on
 hard limits. But the semantic decision to call another tool versus produce a
 final answer comes from the next provider response. In other words:
@@ -338,7 +338,7 @@ also stores the machine-facing result that the model sees.
 
 ## Context Budget and Compaction
 
-The `Maybe compact context` step in the agent-loop diagram is Zero's context-window
+The `Maybe compact context` step in the agent-loop diagram is QG's context-window
 pressure valve. It is not a separate memory engine; it rewrites the current
 model-facing conversation so the next provider request fits within the configured
 context window.
@@ -362,7 +362,7 @@ flowchart TD
 
 The trigger is intentionally approximate:
 
-- Zero estimates request size using message text, images, tool-call arguments, and
+- QG estimates request size using message text, images, tool-call arguments, and
   the tool definitions advertised on that turn.
 - The proactive threshold is roughly **two-thirds of the context window**.
 - Provider usage from completed turns is used to calibrate the rough estimate over
@@ -389,11 +389,11 @@ There are two compaction paths:
 1. **Proactive compaction** runs before the provider call when the estimated
    request is over threshold.
 2. **Reactive compaction** runs after a provider returns a context-limit style
-   error. Zero compacts once and retries that same turn; if the provider still
+   error. QG compacts once and retries that same turn; if the provider still
    rejects the request, the error is surfaced rather than looping forever.
 
 Compaction failures are conservative. If the summarizer fails during proactive
-compaction, Zero keeps the original messages and tries to continue. It does not
+compaction, QG keeps the original messages and tries to continue. It does not
 drop conversation history just to make room.
 
 ## Presentation Layer: Bubble Tea TUI
@@ -425,7 +425,7 @@ loop, so rendering remains responsive while the agent is working.
 
 ## How the TUI and Agent Loop Connect
 
-A common source of confusion is that Zero has two event loops running at once:
+A common source of confusion is that QG has two event loops running at once:
 
 1. **Bubble Tea loop** — owns terminal input, in-memory UI state, and frames.
 2. **Agent loop** — owns model turns, tool execution, permissions, retries, and
@@ -561,7 +561,7 @@ architectures:
   `ToolResult` after the tool runs.
 - **Compaction** is an agent-loop context-management step; the TUI may show that
   it happened, but the purpose is to keep the next provider request within budget.
-- **Stream-JSON** is another surface over the same callbacks: `zero exec`
+- **Stream-JSON** is another surface over the same callbacks: `qg exec`
   serializes the events as JSON protocol events instead of Bubble Tea views.
 
 So a feature-specific deep dive should usually explain: what user event starts it,
@@ -570,7 +570,7 @@ which session events make it resumable.
 
 ## Runtime Provider Layer
 
-Providers are hidden behind this interface in `internal/zeroruntime`:
+Providers are hidden behind this interface in `internal/qgruntime`:
 
 ```go
 type Provider interface {
@@ -647,7 +647,7 @@ immediately.
 
 ## Permission and Sandbox Model
 
-Zero has two related but separate checks:
+QG has two related but separate checks:
 
 1. **Tool permission metadata** says whether a tool is allowed, denied, or needs
    approval.
@@ -681,13 +681,13 @@ The sandbox engine can:
 - remember session or persistent grants;
 - support narrow command-prefix approvals.
 
-The user-facing TUI and `zero exec` mode both route permission requests through
+The user-facing TUI and `qg exec` mode both route permission requests through
 callbacks, but the TUI can show interactive modals while headless mode generally
 returns non-interactive fallback behavior unless a protocol/client handles it.
 
 ## Session Storage and History
 
-Sessions live locally under Zero's data directory. A session directory contains:
+Sessions live locally under QG's data directory. A session directory contains:
 
 - `metadata.json` — session ID, title, cwd, provider/model, parent/root IDs,
   spec/sub-agent fields, timestamps, and event count.
@@ -709,12 +709,12 @@ flowchart LR
 ```
 
 This is why sessions can be resumed, forked, rewound, and inspected without a
-remote service. Zero stores the local event history; providers only receive the
+remote service. QG stores the local event history; providers only receive the
 messages needed for the current completion request.
 
 ## Stream-JSON Protocol
 
-`zero exec --output-format stream-json` emits newline-delimited JSON events for
+`qg exec --output-format stream-json` emits newline-delimited JSON events for
 integrations and CI. The protocol is implemented in `internal/streamjson` and is
 specified in [STREAM_JSON_PROTOCOL.md](STREAM_JSON_PROTOCOL.md).
 
@@ -730,7 +730,7 @@ and passes the result into the same agent loop used everywhere else.
 
 ## Extensibility Flow
 
-Zero's extension surfaces are loaded before the agent loop starts:
+QG's extension surfaces are loaded before the agent loop starts:
 
 ```mermaid
 flowchart TD
@@ -741,7 +741,7 @@ flowchart TD
     Registry --> Plugin[Plugin tools]
 
     Config --> Prompt[System prompt context]
-    Prompt --> Guidelines[AGENTS.md / ZERO.md]
+    Prompt --> Guidelines[AGENTS.md / QG.md]
     Prompt --> Skills[Skills list]
     Prompt --> SpecialistContext[Specialist descriptions]
 
@@ -753,7 +753,7 @@ flowchart TD
 - **Specialists** are sub-agents callable through the `Task` tool.
 - **MCP servers** contribute external tools.
 - **Plugins** can add tools, hooks, and skill roots. Bootstrap always registers a
-  multi-root skill tool: primary Zero skills dir, optional `~/.agents/skills`,
+  multi-root skill tool: primary QG skills dir, optional `~/.agents/skills`,
   then plugin skill roots (earlier wins). `internal/skills` owns that merge via
   `LoadFromRoots`; single-root `Load` remains for install/write.
 - **Hooks** can observe or block tool lifecycle events.
@@ -790,12 +790,12 @@ sequenceDiagram
     T-->>U: Render final transcript
 ```
 
-The same request in `zero exec` follows the same provider/tool/sandbox path, but
+The same request in `qg exec` follows the same provider/tool/sandbox path, but
 streaming events are written to stdout/stderr instead of rendered in Bubble Tea.
 
 ## Mental Model
 
-When you work on Zero, start by locating the change on the four-layer spine from
+When you work on QG, start by locating the change on the four-layer spine from
 [Architecture Spine](#architecture-spine) — Surface, Agent loop, Capabilities,
 Persistence — then jump to the package that owns that boundary:
 
