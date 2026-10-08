@@ -318,7 +318,7 @@ func (s *Scope) AddTemporaryWrite(path string) (string, func(), error) {
 // when the last one is gone.
 //
 // The count alone cannot make this safe, and an earlier comment here claimed it
-// could — that each undo is called exactly once, and flooring at zero handled
+// could — that each undo is called exactly once, and flooring at qg handled
 // the rest. Flooring stops the count going negative; it does not stop one
 // holder's second call consuming a DIFFERENT holder's reference. With two
 // readers, calling the first's undo twice took the count 2 -> 1 -> 0 and removed

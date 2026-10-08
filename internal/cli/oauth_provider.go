@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providers"
-	"github.com/Gitlawb/zero/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
 )
 
 // oauthLoginForProfile resolves the user's OAuth login for a provider ONCE and

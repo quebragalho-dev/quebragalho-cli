@@ -33,7 +33,7 @@ func TestApplyAlreadyCurrentRefusesUnresolvedRecoveryState(t *testing.T) {
 	} {
 		t.Run(setup.name, func(t *testing.T) {
 			dir := t.TempDir()
-			targetPath := filepath.Join(dir, "zero.exe")
+			targetPath := filepath.Join(dir, "qg.exe")
 			if err := os.WriteFile(targetPath, []byte("binary"), 0o755); err != nil {
 				t.Fatal(err)
 			}

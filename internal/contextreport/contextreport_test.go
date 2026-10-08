@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestBuildCountsProjectGuidelinesAndFreeBudget(t *testing.T) {
@@ -77,7 +77,7 @@ func TestBuildCountsProjectGuidelinesAndFreeBudget(t *testing.T) {
 
 func TestBuildHasStableJSONContractAndCategoryMath(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, root, "ZERO.md", strings.Repeat("zero rules\n", 16))
+	writeTestFile(t, root, "QG.md", strings.Repeat("qg rules\n", 16))
 
 	registry := tools.NewRegistry()
 	for _, tool := range tools.CoreToolsScoped(root, nil) {
@@ -88,7 +88,7 @@ func TestBuildHasStableJSONContractAndCategoryMath(t *testing.T) {
 		WorkspaceRoot:       root,
 		Registry:            registry,
 		ContextWindow:       50_000,
-		ProjectContextFiles: []string{"AGENTS.md", "ZERO.md"},
+		ProjectContextFiles: []string{"AGENTS.md", "QG.md"},
 	})
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
@@ -100,8 +100,8 @@ func TestBuildHasStableJSONContractAndCategoryMath(t *testing.T) {
 			t.Fatalf("missing category %q in %v", want, keys)
 		}
 	}
-	if report.ProjectGuidelineFile != "ZERO.md" {
-		t.Fatalf("ProjectGuidelineFile = %q, want ZERO.md", report.ProjectGuidelineFile)
+	if report.ProjectGuidelineFile != "QG.md" {
+		t.Fatalf("ProjectGuidelineFile = %q, want QG.md", report.ProjectGuidelineFile)
 	}
 	if report.FreeTokens+report.UsedTokens != report.ContextWindow {
 		t.Fatalf("free + used = %d, want %d", report.FreeTokens+report.UsedTokens, report.ContextWindow)
@@ -202,7 +202,7 @@ func TestBuildAccountsForWorkspaceMapContext(t *testing.T) {
 	}
 
 	writeTestFile(t, root, "go.mod", "module example.test/repo\n")
-	writeTestFile(t, root, "cmd/zero/main.go", "package main\n")
+	writeTestFile(t, root, "cmd/qg/main.go", "package main\n")
 	writeTestFile(t, root, "README.md", "# Example\n")
 
 	report, err := Build(Options{
@@ -305,7 +305,7 @@ func TestFormatIncludesRootModelAndCategories(t *testing.T) {
 
 	formatted := Format(report)
 
-	for _, want := range []string{"Zero context report", "root: D:/repo", "model: gpt-4.1", "api_model: gpt-4.1", "System prompt", "Free"} {
+	for _, want := range []string{"QG context report", "root: D:/repo", "model: gpt-4.1", "api_model: gpt-4.1", "System prompt", "Free"} {
 		if !strings.Contains(formatted, want) {
 			t.Fatalf("Format missing %q:\n%s", want, formatted)
 		}
@@ -328,7 +328,7 @@ func TestFormatHandlesUnknownContextWindow(t *testing.T) {
 	formatted := Format(report)
 
 	for _, want := range []string{
-		"Zero context report",
+		"QG context report",
 		"root: D:/repo",
 		"model: gpt-4.1",
 		"api_model: gpt-4.1",

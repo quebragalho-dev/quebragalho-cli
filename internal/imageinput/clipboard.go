@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // ReadClipboardImage returns the raw image bytes and media type from the OS
@@ -37,7 +37,7 @@ func ReadClipboardImage() ([]byte, string, error) {
 	if sniffLen > 512 {
 		sniffLen = 512
 	}
-	mediaType := zeroruntime.NormalizeImageMediaType(http.DetectContentType(data[:sniffLen]))
+	mediaType := qgruntime.NormalizeImageMediaType(http.DetectContentType(data[:sniffLen]))
 	if mediaType == "" {
 		return nil, "", fmt.Errorf("clipboard image is not a supported type (allowed: png, jpeg, gif, webp)")
 	}
@@ -76,7 +76,7 @@ func readClipboardImageWindows() ([]byte, error) {
 	// PowerShell stdout can't reliably emit raw binary — $ms.ToArray() prints
 	// a .NET byte array as space-separated text, not raw bytes. A temp file
 	// is the correct binary-safe path.
-	tmpFile, err := os.CreateTemp("", "zero-clipboard-*.png")
+	tmpFile, err := os.CreateTemp("", "qg-clipboard-*.png")
 	if err != nil {
 		return nil, nil
 	}

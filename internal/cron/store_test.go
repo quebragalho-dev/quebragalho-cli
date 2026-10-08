@@ -246,7 +246,7 @@ func TestStoreAppendRun(t *testing.T) {
 
 func TestDefaultRootHonorsXDG(t *testing.T) {
 	root := DefaultRoot(map[string]string{"XDG_DATA_HOME": "/tmp/xdg"})
-	if root != filepath.Join("/tmp/xdg", "zero", "cron") {
+	if root != filepath.Join("/tmp/xdg", "qg", "cron") {
 		t.Fatalf("DefaultRoot=%q", root)
 	}
 }
@@ -261,8 +261,8 @@ func TestDefaultRootEmptyHomeFallsBackToUserHome(t *testing.T) {
 	if strings.HasPrefix(root, ".local") || strings.HasPrefix(root, filepath.Join(".local", "share")) {
 		t.Fatalf("DefaultRoot leaked a relative .local/share path: %q", root)
 	}
-	if filepath.Base(root) != "cron" || filepath.Base(filepath.Dir(root)) != "zero" {
-		t.Fatalf("DefaultRoot tail = %q, want .../zero/cron", root)
+	if filepath.Base(root) != "cron" || filepath.Base(filepath.Dir(root)) != "qg" {
+		t.Fatalf("DefaultRoot tail = %q, want .../qg/cron", root)
 	}
 }
 

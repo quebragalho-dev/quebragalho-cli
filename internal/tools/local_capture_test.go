@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/localcontrol"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
 )
 
 type fakeArtifactRunner struct {

@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // Compaction summarization model selection.
@@ -17,14 +17,14 @@ import (
 // the "dense factual summary" task fine, so summarization is routed to one
 // whenever the target is knowable.
 //
-// Resolution order: ZERO_COMPACTION_MODEL env > preferences.compactionModel
+// Resolution order: QG_COMPACTION_MODEL env > preferences.compactionModel
 // config > a curated per-kind default (OFFICIAL endpoints only) > "" (use the
 // main model). The literal value "main" at any level forces the main model.
 // A wrong choice is never fatal: the agent falls back to the main provider on
 // the first summarizer failure for the rest of the run.
 
 // CompactionModelEnv overrides the compaction summarization model.
-const CompactionModelEnv = "ZERO_COMPACTION_MODEL"
+const CompactionModelEnv = "QG_COMPACTION_MODEL"
 
 // compactionMainSentinel disables the dedicated summarizer explicitly.
 const compactionMainSentinel = "main"
@@ -89,11 +89,11 @@ func defaultCompactionModel(profile config.ProviderProfile) string {
 // Returning (nil, nil) means "summarize on the main provider". The factory
 // itself is nil only when no provider builder exists. Shared by the exec and
 // TUI front ends so the selection rules cannot drift between them.
-func CompactionSummarizerFactory(base config.ProviderProfile, preference string, newProvider func(config.ProviderProfile) (zeroruntime.Provider, error)) func(context.Context, string) (zeroruntime.Provider, error) {
+func CompactionSummarizerFactory(base config.ProviderProfile, preference string, newProvider func(config.ProviderProfile) (qgruntime.Provider, error)) func(context.Context, string) (qgruntime.Provider, error) {
 	if newProvider == nil {
 		return nil
 	}
-	return func(_ context.Context, mainModelID string) (zeroruntime.Provider, error) {
+	return func(_ context.Context, mainModelID string) (qgruntime.Provider, error) {
 		profile := base
 		if strings.TrimSpace(mainModelID) != "" {
 			profile.Model = mainModelID

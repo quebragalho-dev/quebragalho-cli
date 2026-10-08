@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // A stalled-but-open Gemini upstream (sends one chunk, then hangs without
@@ -40,9 +40,9 @@ func TestStreamCompletionIdleTimeoutAbortsStalledStream(t *testing.T) {
 		t.Fatalf("StreamCompletion returned error: %v", err)
 	}
 
-	done := make(chan []zeroruntime.StreamEvent, 1)
+	done := make(chan []qgruntime.StreamEvent, 1)
 	go func() { done <- readAll(stream) }()
-	var events []zeroruntime.StreamEvent
+	var events []qgruntime.StreamEvent
 	select {
 	case events = <-done:
 	case <-time.After(3 * time.Second):
@@ -51,10 +51,10 @@ func TestStreamCompletionIdleTimeoutAbortsStalledStream(t *testing.T) {
 
 	var gotText, gotIdleError bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventText && e.Content == "hi" {
+		if e.Type == qgruntime.StreamEventText && e.Content == "hi" {
 			gotText = true
 		}
-		if e.Type == zeroruntime.StreamEventError && strings.Contains(strings.ToLower(e.Error), "idle") {
+		if e.Type == qgruntime.StreamEventError && strings.Contains(strings.ToLower(e.Error), "idle") {
 			gotIdleError = true
 		}
 	}

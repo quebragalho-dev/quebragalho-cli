@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/trace"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 // TokenResolver yields a fresh OAuth credential for one request, or ok=false to

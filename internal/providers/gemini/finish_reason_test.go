@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // TestMapFinishReasonNonNormal unit-tests the reason mapping in isolation: the
@@ -19,11 +19,11 @@ func TestMapFinishReasonNonNormal(t *testing.T) {
 		}
 	}
 	for _, cf := range []string{"SAFETY", "RECITATION", "IMAGE_SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"} {
-		if got := mapFinishReason(cf); got != zeroruntime.FinishReasonContentFilter {
+		if got := mapFinishReason(cf); got != qgruntime.FinishReasonContentFilter {
 			t.Errorf("%q → %q, want content_filter (M3)", cf, got)
 		}
 	}
-	if got := mapFinishReason("MAX_TOKENS"); got != zeroruntime.FinishReasonLength {
+	if got := mapFinishReason("MAX_TOKENS"); got != qgruntime.FinishReasonLength {
 		t.Errorf("MAX_TOKENS → %q, want length", got)
 	}
 	// Remaining non-STOP reasons surface the raw reason (non-empty) so the turn is
@@ -45,7 +45,7 @@ func TestStreamCompletionSurfacesMaxTokensFinishReason(t *testing.T) {
 	var doneReason string
 	var sawDone bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventDone {
+		if e.Type == qgruntime.StreamEventDone {
 			sawDone = true
 			doneReason = e.FinishReason
 		}
@@ -53,8 +53,8 @@ func TestStreamCompletionSurfacesMaxTokensFinishReason(t *testing.T) {
 	if !sawDone {
 		t.Fatalf("no done event; events: %+v", events)
 	}
-	if doneReason != zeroruntime.FinishReasonLength {
-		t.Fatalf("done FinishReason = %q, want %q", doneReason, zeroruntime.FinishReasonLength)
+	if doneReason != qgruntime.FinishReasonLength {
+		t.Fatalf("done FinishReason = %q, want %q", doneReason, qgruntime.FinishReasonLength)
 	}
 }
 
@@ -68,10 +68,10 @@ func TestStreamCompletionSurfacesSafetyFinishReason(t *testing.T) {
 	events := collectProviderEvents(t, provider)
 	var sawDone bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventDone {
+		if e.Type == qgruntime.StreamEventDone {
 			sawDone = true
-			if e.FinishReason != zeroruntime.FinishReasonContentFilter {
-				t.Fatalf("done FinishReason = %q, want %q", e.FinishReason, zeroruntime.FinishReasonContentFilter)
+			if e.FinishReason != qgruntime.FinishReasonContentFilter {
+				t.Fatalf("done FinishReason = %q, want %q", e.FinishReason, qgruntime.FinishReasonContentFilter)
 			}
 		}
 	}
@@ -92,10 +92,10 @@ func TestStreamCompletionSurfacesRecitationFinishReason(t *testing.T) {
 	events := collectProviderEvents(t, provider)
 	var sawDone bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventDone {
+		if e.Type == qgruntime.StreamEventDone {
 			sawDone = true
-			if e.FinishReason != zeroruntime.FinishReasonContentFilter {
-				t.Fatalf("RECITATION done FinishReason = %q, want %q (M3)", e.FinishReason, zeroruntime.FinishReasonContentFilter)
+			if e.FinishReason != qgruntime.FinishReasonContentFilter {
+				t.Fatalf("RECITATION done FinishReason = %q, want %q (M3)", e.FinishReason, qgruntime.FinishReasonContentFilter)
 			}
 		}
 	}
@@ -114,7 +114,7 @@ func TestStreamCompletionNormalFinishReasonHasNoReason(t *testing.T) {
 	events := collectProviderEvents(t, provider)
 	var sawDone bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventDone {
+		if e.Type == qgruntime.StreamEventDone {
 			sawDone = true
 			if e.FinishReason != "" {
 				t.Fatalf("normal finish leaked FinishReason %q", e.FinishReason)
@@ -139,9 +139,9 @@ func TestStreamCompletionEmitsDroppedOnNamelessFunctionCallPart(t *testing.T) {
 	var dropped, started int
 	for _, e := range events {
 		switch e.Type {
-		case zeroruntime.StreamEventToolCallDropped:
+		case qgruntime.StreamEventToolCallDropped:
 			dropped++
-		case zeroruntime.StreamEventToolCallStart:
+		case qgruntime.StreamEventToolCallStart:
 			started++
 		}
 	}
@@ -164,9 +164,9 @@ func TestStreamCompletionEmitsDroppedOnNamelessTopLevelFunctionCall(t *testing.T
 	var dropped, started int
 	for _, e := range events {
 		switch e.Type {
-		case zeroruntime.StreamEventToolCallDropped:
+		case qgruntime.StreamEventToolCallDropped:
 			dropped++
-		case zeroruntime.StreamEventToolCallStart:
+		case qgruntime.StreamEventToolCallStart:
 			started++
 		}
 	}
@@ -188,10 +188,10 @@ func TestStreamCompletionDoesNotDropValidFunctionCall(t *testing.T) {
 	events := collectProviderEvents(t, provider)
 	var sawStart bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventToolCallDropped {
+		if e.Type == qgruntime.StreamEventToolCallDropped {
 			t.Errorf("valid functionCall must not be dropped; events: %+v", events)
 		}
-		if e.Type == zeroruntime.StreamEventToolCallStart && e.ToolName == "read_file" {
+		if e.Type == qgruntime.StreamEventToolCallStart && e.ToolName == "read_file" {
 			sawStart = true
 		}
 	}

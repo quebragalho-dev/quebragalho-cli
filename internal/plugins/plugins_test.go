@@ -11,13 +11,13 @@ import (
 
 func TestParseManifestNormalizesExtensionsAndPaths(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "plugins")
-	pluginDir := filepath.Join(root, "zero-demo")
+	pluginDir := filepath.Join(root, "qg-demo")
 	manifestPath := filepath.Join(pluginDir, "plugin.json")
 
 	plugin, err := ParseManifest(map[string]any{
 		"schemaVersion": float64(1),
-		"id":            "zero.demo",
-		"name":          "Zero Demo",
+		"id":            "qg.demo",
+		"name":          "QG Demo",
 		"version":       "0.1.0",
 		"description":   "Demo plugin",
 		"tools": []any{map[string]any{
@@ -46,7 +46,7 @@ func TestParseManifestNormalizesExtensionsAndPaths(t *testing.T) {
 		t.Fatalf("ParseManifest returned error: %v", err)
 	}
 
-	if plugin.ID != "zero.demo" || plugin.Name != "Zero Demo" || !plugin.Enabled {
+	if plugin.ID != "qg.demo" || plugin.Name != "QG Demo" || !plugin.Enabled {
 		t.Fatalf("unexpected plugin metadata: %#v", plugin)
 	}
 	if plugin.Tools[0].Permission != PermissionPrompt || plugin.Tools[0].Args[0] != "tools/lookup.mjs" {
@@ -65,13 +65,13 @@ func TestParseManifestNormalizesExtensionsAndPaths(t *testing.T) {
 
 func TestParseManifestReadsOptionalMetadata(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "plugins")
-	pluginDir := filepath.Join(root, "zero-demo")
+	pluginDir := filepath.Join(root, "qg-demo")
 	manifestPath := filepath.Join(pluginDir, "plugin.json")
 
 	plugin, err := ParseManifest(map[string]any{
 		"schemaVersion": float64(1),
-		"id":            "zero.demo",
-		"name":          "Zero Demo",
+		"id":            "qg.demo",
+		"name":          "QG Demo",
 		"version":       "0.1.0",
 		"author": map[string]any{
 			"name":  "OpenAI",
@@ -118,12 +118,12 @@ func TestParseManifestReadsOptionalMetadata(t *testing.T) {
 
 func TestParseManifestWithoutOptionalMetadataLeavesZeroValues(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "plugins")
-	pluginDir := filepath.Join(root, "zero-bare")
+	pluginDir := filepath.Join(root, "qg-bare")
 	manifestPath := filepath.Join(pluginDir, "plugin.json")
 
 	plugin, err := ParseManifest(map[string]any{
 		"schemaVersion": float64(1),
-		"id":            "zero.bare",
+		"id":            "qg.bare",
 		"name":          "Bare",
 		"version":       "0.1.0",
 	}, ParseManifestOptions{
@@ -152,8 +152,8 @@ func TestParseManifestWithoutOptionalMetadataLeavesZeroValues(t *testing.T) {
 func TestFormatListSurfacesOptionalMetadata(t *testing.T) {
 	output := FormatList([]LoadedPlugin{{
 		SchemaVersion: 1,
-		ID:            "zero.demo",
-		Name:          "Zero Demo",
+		ID:            "qg.demo",
+		Name:          "QG Demo",
 		Version:       "0.1.0",
 		Enabled:       true,
 		Source:        SourceUser,
@@ -170,11 +170,11 @@ func TestFormatListSurfacesOptionalMetadata(t *testing.T) {
 
 func TestParseManifestClampsAutoApprovalByDefault(t *testing.T) {
 	root := t.TempDir()
-	pluginDir := filepath.Join(root, "zero-demo")
+	pluginDir := filepath.Join(root, "qg-demo")
 	manifest := map[string]any{
 		"schemaVersion": float64(1),
-		"id":            "zero.demo",
-		"name":          "Zero Demo",
+		"id":            "qg.demo",
+		"name":          "QG Demo",
 		"version":       "0.1.0",
 		"tools": []any{map[string]any{
 			"name":       "lookup",
@@ -221,7 +221,7 @@ func TestParseManifestRejectsUnsafePluginLocalPaths(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			_, err := ParseManifest(map[string]any{
 				"schemaVersion": float64(1),
-				"id":            "zero.bad",
+				"id":            "qg.bad",
 				"name":          "Bad",
 				"version":       "0.1.0",
 				"prompts":       []any{map[string]any{"name": "escape", "path": path}},
@@ -253,7 +253,7 @@ func TestParseManifestRejectsSymlinkEscapes(t *testing.T) {
 
 	_, err := ParseManifest(map[string]any{
 		"schemaVersion": float64(1),
-		"id":            "zero.bad",
+		"id":            "qg.bad",
 		"name":          "Bad",
 		"version":       "0.1.0",
 		"prompts":       []any{map[string]any{"name": "escape", "path": filepath.Join("link", "escape.md")}},
@@ -285,7 +285,7 @@ func TestParseManifestRejectsSymlinkEscapesWithMissingLeaf(t *testing.T) {
 
 	_, err := ParseManifest(map[string]any{
 		"schemaVersion": float64(1),
-		"id":            "zero.bad",
+		"id":            "qg.bad",
 		"name":          "Bad",
 		"version":       "0.1.0",
 		"prompts":       []any{map[string]any{"name": "escape", "path": filepath.Join("link", "missing.md")}},
@@ -333,20 +333,20 @@ func TestLoadPluginsDiscoversDiagnosticsAndProjectPrecedence(t *testing.T) {
 	projectRoot := filepath.Join(dir, "project-plugins")
 	writePluginManifest(t, filepath.Join(userRoot, "demo"), map[string]any{
 		"schemaVersion": 1,
-		"id":            "zero.demo",
+		"id":            "qg.demo",
 		"name":          "User Demo",
 		"version":       "0.1.0",
 	})
 	writePluginManifest(t, filepath.Join(projectRoot, "demo"), map[string]any{
 		"schemaVersion": 1,
-		"id":            "zero.demo",
+		"id":            "qg.demo",
 		"name":          "Project Demo",
 		"version":       "0.2.0",
 		"enabled":       false,
 	})
 	writePluginManifest(t, filepath.Join(projectRoot, "docs"), map[string]any{
 		"schemaVersion": 1,
-		"id":            "zero.docs",
+		"id":            "qg.docs",
 		"name":          "Docs",
 		"version":       "1.0.0",
 	})
@@ -366,13 +366,13 @@ func TestLoadPluginsDiscoversDiagnosticsAndProjectPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if got := []string{result.Plugins[0].ID + ":" + result.Plugins[0].Name, result.Plugins[1].ID + ":" + result.Plugins[1].Name}; got[0] != "zero.demo:Project Demo" || got[1] != "zero.docs:Docs" {
+	if got := []string{result.Plugins[0].ID + ":" + result.Plugins[0].Name, result.Plugins[1].ID + ":" + result.Plugins[1].Name}; got[0] != "qg.demo:Project Demo" || got[1] != "qg.docs:Docs" {
 		t.Fatalf("unexpected plugins: %#v", result.Plugins)
 	}
 	if result.Plugins[0].Enabled {
 		t.Fatalf("project plugin should remain disabled")
 	}
-	if !hasPluginDiagnostic(result.Diagnostics, DiagnosticDuplicate, "zero.demo") {
+	if !hasPluginDiagnostic(result.Diagnostics, DiagnosticDuplicate, "qg.demo") {
 		t.Fatalf("missing duplicate diagnostic: %#v", result.Diagnostics)
 	}
 	if !hasPluginDiagnostic(result.Diagnostics, DiagnosticJSON, "") {
@@ -382,9 +382,9 @@ func TestLoadPluginsDiscoversDiagnosticsAndProjectPrecedence(t *testing.T) {
 
 func TestLoadDiscoversProjectPluginWhenNotExcluded(t *testing.T) {
 	dir := t.TempDir()
-	writePluginManifest(t, filepath.Join(dir, ".zero", "plugins", "demo"), map[string]any{
+	writePluginManifest(t, filepath.Join(dir, ".qg", "plugins", "demo"), map[string]any{
 		"schemaVersion": 1,
-		"id":            "zero.project",
+		"id":            "qg.project",
 		"name":          "Project Plugin",
 		"version":       "0.1.0",
 	})
@@ -396,16 +396,16 @@ func TestLoadDiscoversProjectPluginWhenNotExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if !hasPlugin(result.Plugins, "zero.project") {
+	if !hasPlugin(result.Plugins, "qg.project") {
 		t.Fatalf("expected project plugin to be discovered, got %#v", result.Plugins)
 	}
 }
 
 func TestLoadExcludesProjectPlugin(t *testing.T) {
 	dir := t.TempDir()
-	writePluginManifest(t, filepath.Join(dir, ".zero", "plugins", "demo"), map[string]any{
+	writePluginManifest(t, filepath.Join(dir, ".qg", "plugins", "demo"), map[string]any{
 		"schemaVersion": 1,
-		"id":            "zero.project",
+		"id":            "qg.project",
 		"name":          "Project Plugin",
 		"version":       "0.1.0",
 	})
@@ -418,23 +418,23 @@ func TestLoadExcludesProjectPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if hasPlugin(result.Plugins, "zero.project") {
+	if hasPlugin(result.Plugins, "qg.project") {
 		t.Fatalf("project plugin should be excluded, got %#v", result.Plugins)
 	}
 }
 
 func TestLoadKeepsUserPluginWhenProjectExcluded(t *testing.T) {
 	dir := t.TempDir()
-	// User plugin lives under the resolved XDG config home; project plugin under ./.zero.
-	writePluginManifest(t, filepath.Join(dir, "xdg", "zero", "plugins", "user"), map[string]any{
+	// User plugin lives under the resolved XDG config home; project plugin under ./.qg.
+	writePluginManifest(t, filepath.Join(dir, "xdg", "qg", "plugins", "user"), map[string]any{
 		"schemaVersion": 1,
-		"id":            "zero.user",
+		"id":            "qg.user",
 		"name":          "User Plugin",
 		"version":       "0.1.0",
 	})
-	writePluginManifest(t, filepath.Join(dir, ".zero", "plugins", "demo"), map[string]any{
+	writePluginManifest(t, filepath.Join(dir, ".qg", "plugins", "demo"), map[string]any{
 		"schemaVersion": 1,
-		"id":            "zero.project",
+		"id":            "qg.project",
 		"name":          "Project Plugin",
 		"version":       "0.1.0",
 	})
@@ -447,10 +447,10 @@ func TestLoadKeepsUserPluginWhenProjectExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if !hasPlugin(result.Plugins, "zero.user") {
+	if !hasPlugin(result.Plugins, "qg.user") {
 		t.Fatalf("user plugin should still be discovered, got %#v", result.Plugins)
 	}
-	if hasPlugin(result.Plugins, "zero.project") {
+	if hasPlugin(result.Plugins, "qg.project") {
 		t.Fatalf("project plugin should be excluded, got %#v", result.Plugins)
 	}
 }
@@ -460,7 +460,7 @@ func TestLoadExcludeProjectFiltersExplicitProjectRoots(t *testing.T) {
 	projectRoot := filepath.Join(dir, "project-plugins")
 	writePluginManifest(t, filepath.Join(projectRoot, "demo"), map[string]any{
 		"schemaVersion": 1,
-		"id":            "zero.project",
+		"id":            "qg.project",
 		"name":          "Project Plugin",
 		"version":       "0.1.0",
 	})
@@ -486,10 +486,10 @@ func TestResolveRootsUsesConfigHomeAndProjectRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRoots returned error: %v", err)
 	}
-	if roots[0].Path != filepath.Join(dir, "xdg", "zero", "plugins") {
+	if roots[0].Path != filepath.Join(dir, "xdg", "qg", "plugins") {
 		t.Fatalf("user root = %q", roots[0].Path)
 	}
-	if roots[1].Path != filepath.Join(dir, ".zero", "plugins") {
+	if roots[1].Path != filepath.Join(dir, ".qg", "plugins") {
 		t.Fatalf("project root = %q", roots[1].Path)
 	}
 }

@@ -1,4 +1,4 @@
-# Zero build/test/lint targets. AGENTS.md says to build and run quality checks
+# QG build/test/lint targets. AGENTS.md says to build and run quality checks
 # with `make` — these targets back those instructions.
 .DEFAULT_GOAL := build
 GO_VERSION = $(word 2,$(shell git grep -G -h "^go[[:space:]]" -- go.mod))
@@ -9,9 +9,9 @@ GOVULNCHECK_VERSION := v1.3.0
 
 .PHONY: build build-all test test-race vet fmt fmt-check lint lint-static deadcode vulncheck vulncheck-windows tidy clean baseline help
 
-# Build the main CLI binary into ./zero.
+# Build the main CLI binary into ./qg.
 build:
-	go build -o zero ./cmd/zero
+	go build -o qg ./cmd/qg
 
 # Build every command in cmd/.
 build-all:
@@ -65,21 +65,21 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -f zero
+	rm -f qg
 	go clean ./...
 
 # Run the per-turn benchmark harness over the checked-in baseline manifest and
 # write the JSON result to internal/perfbench/reports/baseline.json. Requires a
-# built `zero` binary and a model; set ZERO_BENCH_MODEL (required) and
-# ZERO_BENCH_BINARY (defaults to ./zero) to configure the run. The report is
+# built `qg` binary and a model; set QG_BENCH_MODEL (required) and
+# QG_BENCH_BINARY (defaults to ./qg) to configure the run. The report is
 # machine-specific and regenerated, not hand-edited.
 baseline: build
-	@if [ -z "$(ZERO_BENCH_MODEL)" ]; then echo "Set ZERO_BENCH_MODEL (and optionally ZERO_BENCH_BINARY) before running 'make baseline'"; exit 2; fi
-	@ZERO_BIN="$${ZERO_BENCH_BINARY:-./zero}"; \
-	go run ./cmd/zero-perf-bench turn \
+	@if [ -z "$(QG_BENCH_MODEL)" ]; then echo "Set QG_BENCH_MODEL (and optionally QG_BENCH_BINARY) before running 'make baseline'"; exit 2; fi
+	@QG_BIN="$${QG_BENCH_BINARY:-./qg}"; \
+	go run ./cmd/qg-perf-bench turn \
 		--suite internal/perfbench/manifests/baseline.json \
-		--model $(ZERO_BENCH_MODEL) \
-		--binary "$$ZERO_BIN" \
+		--model $(QG_BENCH_MODEL) \
+		--binary "$$QG_BIN" \
 		--output internal/perfbench/reports/baseline.json
 
 help:

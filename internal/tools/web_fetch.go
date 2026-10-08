@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/proxydial"
-	"github.com/Gitlawb/zero/internal/redaction"
-	zeroSandbox "github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/proxydial"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	qgSandbox "github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 const (
@@ -171,7 +171,7 @@ func (tool webFetchTool) RejectBeforePermission(args map[string]any) (Result, bo
 // RunWithSandbox follows the normal web_fetch path. The sandbox network policy
 // gates sandboxed shell egress; web_fetch is an in-process tool guarded by the
 // permission flow plus URL, redirect, host, and port safety checks.
-func (tool webFetchTool) RunWithSandbox(ctx context.Context, args map[string]any, _ *zeroSandbox.Engine) Result {
+func (tool webFetchTool) RunWithSandbox(ctx context.Context, args map[string]any, _ *qgSandbox.Engine) Result {
 	return tool.run(ctx, args)
 }
 
@@ -209,7 +209,7 @@ func (tool webFetchTool) run(ctx context.Context, args map[string]any) Result {
 	if err != nil {
 		return errorResult("Error: Invalid URL for web_fetch: " + err.Error())
 	}
-	request.Header.Set("User-Agent", "zero-web-fetch/0.1")
+	request.Header.Set("User-Agent", "qg-web-fetch/0.1")
 	request.Header.Set("Accept", "text/*, application/json, application/xhtml+xml, application/xml;q=0.9, */*;q=0.5")
 
 	client := tool.clientForRun()

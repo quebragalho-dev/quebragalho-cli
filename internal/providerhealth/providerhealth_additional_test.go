@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 func TestProbeConfigOnlyValidProviderPassesWithoutNetwork(t *testing.T) {

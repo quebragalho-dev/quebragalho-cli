@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 // themeMode is the operator's palette preference.
@@ -34,7 +34,7 @@ func selectableThemeNames() []string {
 
 // resolveThemeMode picks the first accepted preference from candidates in
 // precedence order — the caller passes them highest-first: the --theme flag, then
-// ZERO_THEME, then the persisted config theme. A value is accepted if it is
+// QG_THEME, then the persisted config theme. A value is accepted if it is
 // `system`, the legacy `auto` alias, or names a registered theme. Unrecognized/
 // blank values are skipped, and an empty list (or all-unrecognized) falls back to
 // system.
@@ -68,7 +68,7 @@ func validThemeMode(s string) bool {
 	return ok
 }
 
-// ValidThemeArg reports whether s is an acceptable --theme / ZERO_THEME value.
+// ValidThemeArg reports whether s is an acceptable --theme / QG_THEME value.
 // It accepts retired dark/light preferences so existing scripts and environment
 // variables migrate to System, while validThemeMode keeps them out of the picker.
 func ValidThemeArg(s string) bool {
@@ -79,15 +79,15 @@ func ValidThemeArg(s string) bool {
 	return validThemeMode(s)
 }
 
-// applyTheme swaps the active palette (zeroTheme) and the globals derived from it
+// applyTheme swaps the active palette (qgTheme) and the globals derived from it
 // — the streaming-fade ramp and the static render cache — so a committed switch
 // repaints every subsequent render. `system` (and legacy `auto`) preserve the
 // terminal canvas. Named palettes adapt their contrast direction to the terminal
 // background without painting it. Must run on the Bubble Tea update goroutine (or
-// before the program starts), like every other zeroTheme access.
+// before the program starts), like every other qgTheme access.
 func applyTheme(mode themeMode, terminalDark bool) themeMode {
 	resolved, theme := themeForMode(mode, terminalDark)
-	zeroTheme = theme
+	qgTheme = theme
 	rebuildStreamingFadePalette()
 	if defaultRenderCache != nil {
 		defaultRenderCache.clear() // old-palette entries must not be reused
@@ -95,7 +95,7 @@ func applyTheme(mode themeMode, terminalDark bool) themeMode {
 	return resolved
 }
 
-// themeForMode resolves a candidate without mutating zeroTheme. The /theme picker
+// themeForMode resolves a candidate without mutating qgTheme. The /theme picker
 // uses it to render a contained preview while the active UI remains untouched.
 func themeForMode(mode themeMode, terminalDark bool) (themeMode, tuiTheme) {
 	if mode == themeSystem || mode == themeAuto || mode == "" {

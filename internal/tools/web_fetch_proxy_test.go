@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/proxydial"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/proxydial"
 )
 
 // webFetchTransportWithProxy builds the guarded web_fetch round tripper and

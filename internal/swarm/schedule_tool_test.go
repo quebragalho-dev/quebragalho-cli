@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestScheduleToolAddListCancel(t *testing.T) {

@@ -65,7 +65,7 @@ func TestIsUnconfiguredDefault(t *testing.T) {
 }
 
 func TestResolveMCPExplicitReenableIsNotUnconfiguredDefault(t *testing.T) {
-	// `zero mcp enable exa` after a prior disable writes {"disabled":false}
+	// `qg mcp enable exa` after a prior disable writes {"disabled":false}
 	// explicitly. The resolved value is identical to the untouched default (both
 	// enabled, no credentials), but the user DID take an explicit action here, so
 	// IsUnconfiguredDefault must not treat it as untouched (issue #563 review).
@@ -132,7 +132,7 @@ func TestResolveMCPUserCanOverrideDefaultURLKeepingOtherFields(t *testing.T) {
 }
 
 func TestResolveMCPCarriesLegacyDefaultDisableToSuccessor(t *testing.T) {
-	// Upgrade path: the user disabled the firecrawl default Zero used to ship.
+	// Upgrade path: the user disabled the firecrawl default QG used to ship.
 	// Swapping the default to exa must not re-open an outbound connection they
 	// explicitly switched off.
 	path := filepath.Join(t.TempDir(), "config.json")
@@ -186,7 +186,7 @@ func TestResolveMCPLegacyDefaultLeftEnabledDoesNotDisableSuccessor(t *testing.T)
 
 func TestResolveMCPLegacyDefaultDisableIsLiftableByOverride(t *testing.T) {
 	// The carried-over disable is a user-level decision, not a permanent one:
-	// `zero mcp enable exa` merges through the CLI override scope, which is the
+	// `qg mcp enable exa` merges through the CLI override scope, which is the
 	// one layer allowed to re-enable.
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(`{"mcp":{"servers":{"firecrawl":{"disabled":true}}}}`), 0o600); err != nil {
@@ -207,7 +207,7 @@ func TestResolveMCPLegacyDefaultDisableIsLiftableByOverride(t *testing.T) {
 
 func TestResolveMCPLegacyDisableSurvivesProjectReenable(t *testing.T) {
 	// The project layer is lower-trust and must not lift the carried-over
-	// user-level disable — the same guard a direct `zero mcp disable exa` gets.
+	// user-level disable — the same guard a direct `qg mcp disable exa` gets.
 	dir := t.TempDir()
 	userPath := filepath.Join(dir, "config.json")
 	if err := os.WriteFile(userPath, []byte(`{"mcp":{"servers":{"firecrawl":{"disabled":true}}}}`), 0o600); err != nil {
@@ -270,7 +270,7 @@ func TestResolveMCPDoesNotGraftRetiredDefaultOntoOwnTransport(t *testing.T) {
 
 func TestResolveMCPDisabledRetiredEntryStaysReEnableable(t *testing.T) {
 	// The disable carries to exa, and the retired entry itself keeps a usable
-	// transport so a later `zero mcp enable firecrawl` does not resolve to a
+	// transport so a later `qg mcp enable firecrawl` does not resolve to a
 	// server with no type, url, or command.
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(`{"mcp":{"servers":{"firecrawl":{"disabled":true}}}}`), 0o600); err != nil {

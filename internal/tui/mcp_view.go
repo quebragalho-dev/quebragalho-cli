@@ -73,9 +73,9 @@ func renderMCPView(state MCPViewState, width int) string {
 		lines = append(lines,
 			"User MCPs",
 			"  No MCP servers configured.",
-			"  › Add MCP server      zero mcp add <name> --url <url>",
-			"  › Add local stdio MCP zero mcp add <name> -- <command> [args...]",
-			"  › List configured     zero mcp list",
+			"  › Add MCP server      qg mcp add <name> --url <url>",
+			"  › Add local stdio MCP qg mcp add <name> -- <command> [args...]",
+			"  › List configured     qg mcp list",
 			"",
 			"Actions",
 			"  add remote · add stdio · list configured · check health",
@@ -105,10 +105,10 @@ func renderMCPView(state MCPViewState, width int) string {
 	lines = append(lines,
 		"",
 		"Actions",
-		"  add: zero mcp add <name> --url <url>",
-		"  disconnect: zero mcp disable <name>",
-		"  reconnect: zero mcp enable <name>",
-		"  remove: zero mcp remove <name>",
+		"  add: qg mcp add <name> --url <url>",
+		"  disconnect: qg mcp disable <name>",
+		"  reconnect: qg mcp enable <name>",
+		"  remove: qg mcp remove <name>",
 	)
 	return fitMCPManagerLines(lines, width)
 }
@@ -299,15 +299,15 @@ func mcpServerActionLine(server MCPServerView) string {
 	if name == "" {
 		return ""
 	}
-	actions := []string{"zero mcp check " + name}
+	actions := []string{"qg mcp check " + name}
 	if strings.EqualFold(strings.TrimSpace(server.State), "disabled") {
-		actions = append(actions, "zero mcp enable "+name)
+		actions = append(actions, "qg mcp enable "+name)
 	} else {
-		actions = append(actions, "zero mcp disable "+name)
+		actions = append(actions, "qg mcp disable "+name)
 	}
-	actions = append(actions, "zero mcp remove "+name)
+	actions = append(actions, "qg mcp remove "+name)
 	if strings.EqualFold(strings.TrimSpace(server.Auth), "oauth") {
-		actions = append(actions, "zero mcp oauth login "+name)
+		actions = append(actions, "qg mcp oauth login "+name)
 	}
 	return "    actions: " + strings.Join(actions, " | ")
 }
@@ -319,12 +319,12 @@ func mcpOAuthActionLine(server MCPOAuthServerView) string {
 	}
 	actions := []string{}
 	if server.HasToken {
-		actions = append(actions, "zero mcp oauth refresh "+name, "zero mcp oauth logout "+name)
+		actions = append(actions, "qg mcp oauth refresh "+name, "qg mcp oauth logout "+name)
 	} else {
-		actions = append(actions, "zero mcp oauth login "+name)
+		actions = append(actions, "qg mcp oauth login "+name)
 	}
 	if server.Expired && !server.HasRefreshToken {
-		actions = append(actions, "zero mcp oauth refresh "+name)
+		actions = append(actions, "qg mcp oauth refresh "+name)
 	}
 	return "    actions: " + strings.Join(dedupeStrings(actions), " | ")
 }

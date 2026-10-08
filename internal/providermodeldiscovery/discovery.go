@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodelcatalog"
-	"github.com/Gitlawb/zero/internal/providers/openai"
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/openai"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 const (
@@ -92,7 +92,7 @@ func publicLiveCatalogProvider(provider providercatalog.Descriptor, profile conf
 // discoveryHasCredential reports whether the profile carries a usable credential
 // for an authenticated /models probe. A profile may authenticate via a raw
 // auth-header value instead of APIKey, so treat either as present — consistent
-// with config credential checks and zerocommands ProviderSnapshot.APIKeySet.
+// with config credential checks and qgcommands ProviderSnapshot.APIKeySet.
 func discoveryHasCredential(profile config.ProviderProfile) bool {
 	return strings.TrimSpace(profile.APIKey) != "" || strings.TrimSpace(profile.AuthHeaderValue) != ""
 }
@@ -161,7 +161,7 @@ func DiscoverOllamaContextWindow(ctx context.Context, baseURL string, model stri
 }
 
 // ollamaShowEndpoint derives the native Ollama API root from the
-// OpenAI-compatible base URL Zero stores for the provider (".../v1") and
+// OpenAI-compatible base URL QG stores for the provider (".../v1") and
 // appends /api/show.
 func ollamaShowEndpoint(baseURL string) (string, error) {
 	baseURL = strings.TrimSpace(baseURL)

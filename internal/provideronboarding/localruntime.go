@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodelcatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
 )
 
-// LocalRuntime describes a local, OpenAI-compatible model server that ZERO can
+// LocalRuntime describes a local, OpenAI-compatible model server that QG can
 // adopt with no API key. These are the runtimes the launch audience is most
 // likely to already be running (Ollama, LM Studio), so the first-run wizard
 // auto-detects them on their default ports and offers them with no key step.
@@ -113,14 +113,14 @@ func (runtime DetectedLocalRuntime) SetupAction() Action {
 	if model == "" && (runtime.CatalogID == "atomic-chat-local" || len(runtime.Models) > 0) {
 		return Action{
 			Label:  "Load a chat model",
-			Detail: "Detected " + name + " on " + runtime.BaseURL + " but no usable chat model ID was discovered. Load a chat model in " + name + ", then run zero providers detect again.",
+			Detail: "Detected " + name + " on " + runtime.BaseURL + " but no usable chat model ID was discovered. Load a chat model in " + name + ", then run qg providers detect again.",
 		}
 	}
 	command := SetupCommandWithModel(descriptor, runtime.Name, model, true)
 	if command == "" {
 		return Action{
 			Label:  "Use interactive setup",
-			Detail: "A setup value cannot be safely included in a command for all supported shells. Run zero setup and select or enter the model there.",
+			Detail: "A setup value cannot be safely included in a command for all supported shells. Run qg setup and select or enter the model there.",
 		}
 	}
 	detail := "Detected " + name + " on " + runtime.BaseURL + " — no API key required."

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 func TestSearchSessionsFindsRedactedEventContextAndCachesIndex(t *testing.T) {

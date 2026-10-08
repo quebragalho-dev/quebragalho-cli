@@ -3,15 +3,15 @@ package anthropic
 import (
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestMapStopReasonRefusal(t *testing.T) {
 	t.Parallel()
-	if got := mapStopReason("refusal"); got != zeroruntime.FinishReasonContentFilter {
+	if got := mapStopReason("refusal"); got != qgruntime.FinishReasonContentFilter {
 		t.Errorf("refusal → %q, want content_filter (M4)", got)
 	}
-	if got := mapStopReason("max_tokens"); got != zeroruntime.FinishReasonLength {
+	if got := mapStopReason("max_tokens"); got != qgruntime.FinishReasonLength {
 		t.Errorf("max_tokens → %q, want length", got)
 	}
 	for _, normal := range []string{"end_turn", "tool_use", "stop_sequence", "pause_turn", ""} {

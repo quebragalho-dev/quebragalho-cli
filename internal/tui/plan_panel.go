@@ -7,7 +7,7 @@ package tui
 import (
 	"time"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // planStep is one rendered plan item. The timestamps are preserved across
@@ -61,7 +61,7 @@ func (s *planPanelState) updateFromItems(items []tools.PlanItem, now time.Time) 
 	// When the plan length is unchanged the model usually edited steps in place
 	// (commonly just rewording the in-progress one). Fall back to positional
 	// carry-over for any item that didn't content-match, so a reworded step keeps
-	// its timers instead of resetting its elapsed clock to zero mid-progress.
+	// its timers instead of resetting its elapsed clock to qg mid-progress.
 	sameCount := len(prev) == len(items)
 	next := make([]planStep, 0, len(items))
 	for i, item := range items {
@@ -163,7 +163,7 @@ func (s *planPanelState) completeRemaining(now time.Time) {
 		switch s.steps[i].status {
 		case "completed", "failed":
 			// Already terminal: preserve status, just backfill timestamps so the
-			// per-step duration doesn't render a zero span.
+			// per-step duration doesn't render a qg span.
 			if s.steps[i].startedAt.IsZero() {
 				s.steps[i].startedAt = now
 			}

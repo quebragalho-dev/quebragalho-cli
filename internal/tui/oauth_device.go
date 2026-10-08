@@ -8,17 +8,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/browser"
-	"github.com/Gitlawb/zero/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/browser"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 )
 
 // oauthPreferDeviceFlow reports whether the device-code flow should be the
 // default for a device-capable provider because no usable browser is likely
 // present (SSH session or a headless Linux box). On a desktop the browser flow
 // stays the default; users can still force device code with the "d" shortcut.
-// ZERO_OAUTH_DEVICE forces it on for any environment.
+// QG_OAUTH_DEVICE forces it on for any environment.
 func oauthPreferDeviceFlow() bool {
-	if strings.TrimSpace(os.Getenv("ZERO_OAUTH_DEVICE")) != "" {
+	if strings.TrimSpace(os.Getenv("QG_OAUTH_DEVICE")) != "" {
 		return true
 	}
 	if strings.TrimSpace(os.Getenv("SSH_CONNECTION")) != "" || strings.TrimSpace(os.Getenv("SSH_TTY")) != "" {

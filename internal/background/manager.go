@@ -106,7 +106,7 @@ func DefaultRoot(env map[string]string) string {
 	if base == "" {
 		base = filepath.Join(home, ".local", "share")
 	}
-	return filepath.Join(base, "zero", "background")
+	return filepath.Join(base, "qg", "background")
 }
 
 func (manager *Manager) RootDir() string {
@@ -511,7 +511,7 @@ func (manager *Manager) metadataFile(taskID string) string {
 func (manager *Manager) warnf(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
 	manager.warnings = append(manager.warnings, message)
-	log.Printf("zero background: %s", message)
+	log.Printf("qg background: %s", message)
 }
 
 func (manager *Manager) OutputPath(taskID string) string {
@@ -569,7 +569,7 @@ func (manager *Manager) outputFile(taskID string, requested string) (string, err
 
 // migrateLegacyOutputFile recovers task metadata written under a previous home
 // or XDG data root. It accepts only the canonical per-task output
-// name in the historic zero/background layout, and only when the corresponding
+// name in the historic qg/background layout, and only when the corresponding
 // regular file already exists inside the active manager root.
 func (manager *Manager) migrateLegacyOutputFile(taskID string, requested string) (string, bool) {
 	requested = strings.TrimSpace(requested)
@@ -582,7 +582,7 @@ func (manager *Manager) migrateLegacyOutputFile(taskID string, requested string)
 		return "", false
 	}
 	legacyRoot := filepath.Dir(requested)
-	if filepath.Base(legacyRoot) != "background" || filepath.Base(filepath.Dir(legacyRoot)) != "zero" {
+	if filepath.Base(legacyRoot) != "background" || filepath.Base(filepath.Dir(legacyRoot)) != "qg" {
 		return "", false
 	}
 	canonical := filepath.Join(manager.rootDir, expectedName)

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestRegisterToolsAddsPromptGatedMCPTools(t *testing.T) {
@@ -48,12 +48,12 @@ func TestRegisterToolsAddsPromptGatedMCPTools(t *testing.T) {
 		t.Fatalf("Safety.SideEffect = %q, want network", tool.Safety().SideEffect)
 	}
 
-	denied := registry.Run(context.Background(), "mcp_docs_lookup", map[string]any{"query": "zero"})
+	denied := registry.Run(context.Background(), "mcp_docs_lookup", map[string]any{"query": "qg"})
 	if denied.Status != tools.StatusError {
 		t.Fatalf("Run without approval = %#v, want permission error", denied)
 	}
-	approved := registry.RunWithOptions(context.Background(), "mcp_docs_lookup", map[string]any{"query": "zero"}, tools.RunOptions{PermissionGranted: true})
-	if approved.Status != tools.StatusOK || approved.Output != "lookup: zero" {
+	approved := registry.RunWithOptions(context.Background(), "mcp_docs_lookup", map[string]any{"query": "qg"}, tools.RunOptions{PermissionGranted: true})
+	if approved.Status != tools.StatusOK || approved.Output != "lookup: qg" {
 		t.Fatalf("approved run = %#v, want lookup output", approved)
 	}
 	if approved.Meta["mcp.server"] != "docs" || approved.Meta["mcp.tool"] != "lookup" {

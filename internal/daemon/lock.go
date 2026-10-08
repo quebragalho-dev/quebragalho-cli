@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/lockutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/lockutil"
 )
 
 // Single-instance lock. The stable PID file carries a kernel advisory lock for

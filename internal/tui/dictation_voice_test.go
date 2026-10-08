@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 type fakeTUITranscriber struct{}

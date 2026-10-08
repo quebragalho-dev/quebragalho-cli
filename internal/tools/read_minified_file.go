@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/minify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/minify"
 )
 
 type readMinifiedFileTool struct {
@@ -79,7 +79,7 @@ func (tool readMinifiedFileTool) run(args map[string]any, options RunOptions, di
 		return errorResult("Error reading file " + relativePath + ": " + err.Error())
 	}
 	// Record the raw whole-file baseline (matching read_file/edit_file) so a later
-	// write can still detect an out-of-Zero modification — the minification only
+	// write can still detect an out-of-QG modification — the minification only
 	// affects what the model SEES, not the tracked on-disk state.
 	info, _ := os.Stat(absolutePath)
 	options.FileTracker.Record(absolutePath, content, info)

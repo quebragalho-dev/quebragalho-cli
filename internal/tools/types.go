@@ -3,9 +3,9 @@ package tools
 import (
 	"context"
 
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 type SideEffect string
@@ -112,7 +112,7 @@ type Result struct {
 	// guards its image content-parts to the user role. The agent loop therefore
 	// emits them as a following user message, which is also the only shape that
 	// keeps one tool result per tool call.
-	Images []zeroruntime.ImageBlock `json:"-"`
+	Images []qgruntime.ImageBlock `json:"-"`
 	// Redacted is set when secret scrubbing altered Output before it left the
 	// tool-execution boundary.
 	Redacted bool
@@ -203,7 +203,7 @@ type Display struct {
 	Kind    string // e.g. file, diff, search, shell
 	// Preview is a multi-line, card-only body (e.g. a unified diff or file head)
 	// for the TUI. It is NEVER sent to the model — Output stays the short summary
-	// the model sees — so a rich code preview costs zero model tokens.
+	// the model sees — so a rich code preview costs qg model tokens.
 	Preview string
 }
 
@@ -215,7 +215,7 @@ type Tool interface {
 	Run(ctx context.Context, args map[string]any) Result
 }
 
-// IsBuiltInApplyPatch reports whether tool is Zero's scoped patch tool. The
+// IsBuiltInApplyPatch reports whether tool is QG's scoped patch tool. The
 // marker method is package-private so external and MCP tools cannot claim this
 // identity merely by sharing the public name "apply_patch".
 func IsBuiltInApplyPatch(tool Tool) bool {

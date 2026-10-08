@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 func TestRunSandboxGrantsAllowListDenyRevokeAndClear(t *testing.T) {
@@ -319,7 +319,7 @@ func TestRunSandboxPolicyInspectTextAndJSON(t *testing.T) {
 			} else {
 				output := stdout.String()
 				for _, want := range []string{
-					"Zero sandbox policy",
+					"QG sandbox policy",
 					"backend: unavailable",
 					"target_backend: windows-restricted-token",
 					"support_level: unavailable",
@@ -406,7 +406,7 @@ func TestRunSandboxSetupRunsWindowsHelper(t *testing.T) {
 		t.Fatalf("setup exit = %d, stderr %q", exitCode, stderr.String())
 	}
 	// The setup helper is now resolved independently of backend.Executable: an
-	// adjacent zero-windows-sandbox-setup.exe in release, else self-dispatch via
+	// adjacent qg-windows-sandbox-setup.exe in release, else self-dispatch via
 	// the running binary. Under `go test` no sibling helper exists, so it
 	// self-dispatches: path is the running binary and the first arg is the hidden
 	// setup subcommand, followed by the real setup args.
@@ -500,8 +500,8 @@ func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
 	t.Setenv("NETRC", "")
 	t.Setenv("DOCKER_CONFIG", "")
 	t.Setenv("KUBECONFIG", "")
-	t.Setenv("ZERO_OAUTH_TOKENS_PATH", "")
-	t.Setenv("ZERO_MCP_OAUTH_TOKENS_PATH", "")
+	t.Setenv("QG_OAUTH_TOKENS_PATH", "")
+	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 	store := newSandboxTestStore(t)
 	workspace := t.TempDir()
 	deps := appDeps{
@@ -572,7 +572,7 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 			// git's cleartext credential stores, in both the home and XDG
 			// layouts (#816). Listed here so the exported policy JSON is what
 			// catches a regression: this baseline is the contract a user reads
-			// with `zero sandbox policy --json`.
+			// with `qg sandbox policy --json`.
 			filepath.Join(credentialHome, ".git-credentials"),
 			filepath.Join(credentialHome, ".config", "git", "credentials"),
 			filepath.Join(credentialHome, ".npmrc"),
@@ -581,7 +581,7 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 			filepath.Join(credentialHome, ".docker", "config.json"),
 			filepath.Join(credentialHome, ".config", "gh", "hosts.yml"),
 			filepath.Join(credentialHome, ".config", "gcloud"),
-			filepath.Join(credentialHome, ".config", "zero"),
+			filepath.Join(credentialHome, ".config", "qg"),
 		}
 	}
 	gotDenyRead := jsonStringSlice(fileSystem["denyReadIfExists"])
@@ -593,7 +593,7 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 	wantCarveouts := []string(nil)
 	wantEnsureDirs := []string(nil)
 	if runtime.GOOS != "windows" {
-		zeroDir := filepath.Join(credentialHome, ".config", "zero")
+		zeroDir := filepath.Join(credentialHome, ".config", "qg")
 		wantCarveouts = []string{
 			filepath.Join(zeroDir, "plugins"),
 			filepath.Join(zeroDir, "specialists"),
@@ -761,7 +761,7 @@ func TestRunSandboxPolicyEffectiveTextAndJSON(t *testing.T) {
 		}
 		output := stdout.String()
 		for _, want := range []string{
-			"Zero effective sandbox policy",
+			"QG effective sandbox policy",
 			"mode: enforce",
 			"network: deny",
 			"enforce_workspace: true",

@@ -457,7 +457,7 @@ func TestRecoverPartialReplaceLeavesIntactStatesAlone(t *testing.T) {
 			dir := t.TempDir()
 			src := filepath.Join(dir, ".manifest.tmp")
 			dst := filepath.Join(dir, "manifest.md")
-			backup := filepath.Join(dir, ".zero-replace-test.backup")
+			backup := filepath.Join(dir, ".qg-replace-test.backup")
 			if err := os.WriteFile(src, []byte("new"), 0o600); err != nil {
 				t.Fatalf("WriteFile src: %v", err)
 			}

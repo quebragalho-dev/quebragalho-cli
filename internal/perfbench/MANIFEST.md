@@ -36,7 +36,7 @@ manifest's `buildOnlyClasses` list:
   `go test ./...`: the Go compiler is the structural verifier, so a no-op
   refactor, a missing field, or a reworded-but-not-removed line fails to
   compile/run. fix uses a scoped `go test -run <name>`. nav greps the agent's
-  captured final answer (`.zero-answer.txt`) for determinable facts. This is
+  captured final answer (`.qg-answer.txt`) for determinable facts. This is
   the only pass rate that can move with model quality: `tasksVerified` /
   `tasksPassed` / `correctnessPassRate`.
 - **Build-only** (0 tasks) — the tier is empty. refactor used to live here with
@@ -56,7 +56,7 @@ A task's tier is driven by oracle **presence** first: a task with no
 ### How the stamped oracle and captured answer work
 
 The production runner (`NewTurnExecRunner` in `turn_bench.go`) copies the fixture
-into an isolated temp dir, runs `zero exec --trace`, then — before running the
+into an isolated temp dir, runs `qg exec --trace`, then — before running the
 `verificationCommand` — stamps two files into the copy:
 
 - `oracle_test.go` from `task.OracleTest` (edit/refactor). It is stamped *after*
@@ -64,7 +64,7 @@ into an isolated temp dir, runs `zero exec --trace`, then — before running the
   during the task (refactor-03's `package zeroapp` test would break a pre-rename
   build) and can't be pre-seen or tampered with. The `verificationCommand`
   (`go test ./...`) then compiles and runs it.
-- `.zero-answer.txt` from the `{"type":"final","text":...}` event in the
+- `.qg-answer.txt` from the `{"type":"final","text":...}` event in the
   stream-json output (nav). The `verificationCommand` is a compound `bash -c`
   grep requiring the determinable facts (e.g. nav-09 requires the answer to
   mention `port`, `name`, and `retries`). An empty file (no `final` event) makes
@@ -100,8 +100,8 @@ honest where they apply:
   holding the one TODO (`main.go`); nav-08 names both stdlib imports (`fmt` from
   `main.go`, `testing` from `main_test.go`). A substring like "the count: 1" or a
   wrong count like "count: 3" fails the anchor; a bare "count: 1" with no named
-  fact fails the inspection check. Non-zero ground truth alone was not enough —
-  it closes the always-guess-zero game but opens an always-guess-one game (an
+  fact fails the inspection check. Non-qg ground truth alone was not enough —
+  it closes the always-guess-qg game but opens an always-guess-one game (an
   agent that never opens the workspace and emits "count: 1" would pass a
   count-only oracle). The named-fact requirement closes that surface: a blind
   count is no longer sufficient, the agent must commit to a fact only readable
@@ -148,7 +148,7 @@ iteration or a later task.
 Each mutating fixture (and nav) carries a `go.mod` (`module <pkg>; go 1.22`) so
 `go test ./...` / `go build ./...` oracles work in the copy: `copyFixture`
 creates a unique, 0700 parent under the system temp root
-(`os.MkdirTemp(os.TempDir(), "zero-turn-bench-*")`) and nests the copy beneath
+(`os.MkdirTemp(os.TempDir(), "qg-turn-bench-*")`) and nests the copy beneath
 it, so the copy is a *grandchild* of the temp root. Go ignores `go.mod` in
 direct children of the system temp dir (a hijack guard), so the copy must sit
 one level below that root or every compiler-backed oracle would fail with

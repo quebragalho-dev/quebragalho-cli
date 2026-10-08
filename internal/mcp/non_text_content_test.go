@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // A server that returns only an image currently reports "(empty MCP tool
@@ -38,7 +38,7 @@ func TestAnImageOnlyResultSaysWhatItReturned(t *testing.T) {
 	//
 	// "cannot recover this payload" and not "will return the same thing": every
 	// retry is a fresh call and the server may answer differently. What cannot
-	// change is that Zero has nowhere to put a non-text block.
+	// change is that QG has nowhere to put a non-text block.
 	if !strings.Contains(result.Output, "Retrying cannot recover this payload.") {
 		t.Errorf("the output does not tell the model retrying is pointless:\n%s", result.Output)
 	}

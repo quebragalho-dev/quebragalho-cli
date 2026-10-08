@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tui"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
 
 // captureTUIOptions runs the root command with the TUI launch intercepted, and
@@ -42,7 +42,7 @@ func hasEscalateModel(options tui.Options) bool {
 //
 // Escalation moves a run onto a different model, changing what it costs and which
 // provider sees the conversation, so the interactive surface answers this the same
-// conservative way `zero exec --allow-escalation` already does.
+// conservative way `qg exec --allow-escalation` already does.
 func TestInteractiveTUIRegistersEscalateModelOnlyWithTheFlag(t *testing.T) {
 	if hasEscalateModel(captureTUIOptions(t)) {
 		t.Error("escalate_model was registered without --allow-escalation")

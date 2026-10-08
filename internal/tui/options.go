@@ -5,22 +5,22 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/peermsg"
-	"github.com/Gitlawb/zero/internal/providerhealth"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/skills"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/usage"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/peermsg"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/skills"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
-// Options configures the reusable Zero terminal UI shell.
+// Options configures the reusable QG terminal UI shell.
 type Options struct {
 	Cwd                  string
 	Version              string // CLI build version, shown on the home screen; empty hides it
@@ -38,9 +38,9 @@ type Options struct {
 	// providers.CompactionModelID for how it combines with the env override
 	// and the curated cheap defaults.
 	CompactionModel             string
-	Provider                    zeroruntime.Provider
-	NewProvider                 func(config.ProviderProfile) (zeroruntime.Provider, error)
-	NewTurnSessionProvider      func(config.ProviderProfile, zeroruntime.Provider) zeroruntime.TurnSessionProvider
+	Provider                    qgruntime.Provider
+	NewProvider                 func(config.ProviderProfile) (qgruntime.Provider, error)
+	NewTurnSessionProvider      func(config.ProviderProfile, qgruntime.Provider) qgruntime.TurnSessionProvider
 	ProbeProviderHealth         func(context.Context, providerhealth.Options) providerhealth.Result
 	DiscoverProviderModels      func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
 	DiscoverOllamaContextWindow func(ctx context.Context, baseURL string, model string) (int, error)
@@ -82,10 +82,10 @@ type Options struct {
 	ResponseStyle   string
 	// Theme is the operator's palette preference: "auto" (default), a built-in
 	// ("dark"/"light"), or a registered color theme. Set from the --theme flag;
-	// falls back to ZERO_THEME, then the persisted SavedTheme, then auto.
+	// falls back to QG_THEME, then the persisted SavedTheme, then auto.
 	Theme string
 	// SavedTheme is the theme persisted in user config (Preferences.Theme). Applied
-	// at startup below --theme and ZERO_THEME, so a /theme choice survives restart.
+	// at startup below --theme and QG_THEME, so a /theme choice survives restart.
 	SavedTheme string
 	// SavedPet is the persisted terminal companion id. Empty means no pet has
 	// been selected yet; "disabled" records an explicit opt-out.
@@ -95,7 +95,7 @@ type Options struct {
 	// Notify configures completion / awaiting-input notifications.
 	Notify config.NotifyConfig
 
-	// KeyBindings configures remappable TUI keybindings. An empty/zero
+	// KeyBindings configures remappable TUI keybindings. An empty/qg
 	// KeyBindingsConfig means "use built-in defaults" for each action.
 	KeyBindings config.KeyBindingsConfig
 
@@ -118,13 +118,13 @@ type Options struct {
 	ShutdownDictationServer func(context.Context) error
 
 	// STTDownloadRoot is where the auto-download stores the sherpa-onnx engine
-	// and model (e.g. ~/.config/zero/stt). Empty disables auto-download (the F9
+	// and model (e.g. ~/.config/qg/stt). Empty disables auto-download (the F9
 	// setup message then only points at manual setup / cloud providers).
 	STTDownloadRoot string
 
 	// STTKeyStatus reports whether an API key is already resolvable for a cloud
 	// STT provider ("groq"/"openai"/"deepgram"). Nil disables the inline key
-	// prompt (dictation then just shows the "run zero auth" setup error).
+	// prompt (dictation then just shows the "run qg auth" setup error).
 	STTKeyStatus func(provider string) bool
 	// SaveSTTKey stores an API key for a cloud STT provider in the credential
 	// store, so the inline prompt can capture and persist it.

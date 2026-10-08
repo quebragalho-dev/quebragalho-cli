@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"mvdan.cc/sh/v3/syntax"
 )
 

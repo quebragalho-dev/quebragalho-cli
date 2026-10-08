@@ -46,7 +46,7 @@ func TestOutcomeValidationPinsTerminalStateContracts(t *testing.T) {
 				State: StateDenied,
 				Kind:  OutcomePolicyDenied,
 				Denial: &Denial{
-					Capability: Capability{Kind: CapabilityProtectedMetadata, Scope: "/workspace/.zero"},
+					Capability: Capability{Kind: CapabilityProtectedMetadata, Scope: "/workspace/.qg"},
 					Source:     DenialSourceConfiguredPolicy,
 					Reason:     "protected workspace metadata cannot be created",
 					NextAction: DenialNextActionRequestApproval,

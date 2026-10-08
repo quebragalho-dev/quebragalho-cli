@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 func TestPreflightRejectsSideSessions(t *testing.T) {
@@ -15,12 +15,12 @@ func TestPreflightRejectsSideSessions(t *testing.T) {
 	}
 
 	err := preflightExecSession(execOptions{resumeLatest: true})
-	if err == nil || !strings.Contains(err.Error(), "No Zero sessions available to resume") {
+	if err == nil || !strings.Contains(err.Error(), "No QG sessions available to resume") {
 		t.Fatalf("preflightExecSession error = %v, want no resumable sessions", err)
 	}
 
 	err = preflightExecSession(execOptions{resume: "side"})
-	if err == nil || !strings.Contains(err.Error(), "Zero session is not resumable: side") {
+	if err == nil || !strings.Contains(err.Error(), "QG session is not resumable: side") {
 		t.Fatalf("explicit side-session preflight error = %v, want non-resumable rejection", err)
 	}
 }

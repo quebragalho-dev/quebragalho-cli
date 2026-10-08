@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestCompactionModelIDResolutionOrder(t *testing.T) {
@@ -81,7 +81,7 @@ func TestCompactionSummarizerFactoryTracksMainModel(t *testing.T) {
 	t.Setenv(CompactionModelEnv, "")
 	base := config.ProviderProfile{Name: "anthropic", ProviderKind: config.ProviderKindAnthropic, Model: defaultAnthropicCompactionModel}
 	var built []string
-	newProvider := func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+	newProvider := func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 		built = append(built, profile.Model)
 		return nil, errors.New("not needed")
 	}

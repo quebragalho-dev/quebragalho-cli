@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/installtxn"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/installtxn"
 )
 
 // initGitSkillRepo creates a real local git repo holding a skill and returns a
@@ -81,8 +81,8 @@ func writeSourceSkill(t *testing.T, dir string, content string) string {
 // state is invisible to it without one.
 func writeWorkspaceMarker(t *testing.T, workspace string, name string) {
 	t.Helper()
-	marker := []byte("zero-install-txn v1\ntarget " + name + "\n")
-	if err := os.WriteFile(filepath.Join(workspace, ".zero-install-txn"), marker, 0o600); err != nil {
+	marker := []byte("qg-install-txn v1\ntarget " + name + "\n")
+	if err := os.WriteFile(filepath.Join(workspace, ".qg-install-txn"), marker, 0o600); err != nil {
 		t.Fatalf("write workspace marker: %v", err)
 	}
 }
@@ -970,7 +970,7 @@ func TestRecoveryLeavesAUserSkillNamedLikeAWorkspaceAlone(t *testing.T) {
 			if _, err := Install(context.Background(), InstallOptions{Source: gammaSource, Dir: dir}); err != nil {
 				t.Fatalf("seed gamma: %v", err)
 			}
-			notes := writeSourceSkill(t, filepath.Join(dir, ".zero-install-txn-notes"),
+			notes := writeSourceSkill(t, filepath.Join(dir, ".qg-install-txn-notes"),
 				"---\nname: notes\ndescription: user authored.\n---\nnotes body\n")
 			if err := os.MkdirAll(filepath.Join(notes, "previous"), 0o755); err != nil {
 				t.Fatal(err)
@@ -1003,12 +1003,12 @@ func TestRecoveryLeavesAUserSkillNamedLikeAWorkspaceAlone(t *testing.T) {
 // the retained backup, which deleted the user's own work.
 func TestAnUnrelatedSkillAtTheTargetIsNeverReplaced(t *testing.T) {
 	dir := t.TempDir()
-	workspace, err := os.MkdirTemp(dir, ".zero-install-txn-")
+	workspace, err := os.MkdirTemp(dir, ".qg-install-txn-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := []byte("zero-install-txn v1\ntarget notes\n")
-	if err := os.WriteFile(filepath.Join(workspace, ".zero-install-txn"), marker, 0o600); err != nil {
+	marker := []byte("qg-install-txn v1\ntarget notes\n")
+	if err := os.WriteFile(filepath.Join(workspace, ".qg-install-txn"), marker, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	writeSourceSkill(t, filepath.Join(workspace, "previous"),

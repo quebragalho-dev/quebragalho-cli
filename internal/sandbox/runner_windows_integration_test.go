@@ -17,19 +17,19 @@ import (
 )
 
 func TestWindowsRestrictedTokenRealSandboxSmoke(t *testing.T) {
-	if os.Getenv("ZERO_SANDBOX_REAL_SMOKE") != "1" {
-		t.Skip("set ZERO_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
+	if os.Getenv("QG_SANDBOX_REAL_SMOKE") != "1" {
+		t.Skip("set QG_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
 	}
-	setupExe := realSmokeExecutable(t, "ZERO_WINDOWS_SANDBOX_SETUP_EXE", WindowsSandboxSetupName)
-	runnerExe := realSmokeExecutable(t, "ZERO_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
+	setupExe := realSmokeExecutable(t, "QG_WINDOWS_SANDBOX_SETUP_EXE", WindowsSandboxSetupName)
+	runnerExe := realSmokeExecutable(t, "QG_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
 
 	root := t.TempDir()
-	sandboxHome := filepath.Join(root, ".zero-sandbox")
+	sandboxHome := filepath.Join(root, ".qg-sandbox")
 	profile := PermissionProfile{
 		FileSystem: FileSystemPolicy{
 			Kind:                 FileSystemRestricted,
 			ReadRoots:            []string{root},
-			WriteRoots:           []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".zero", ".agents"}}},
+			WriteRoots:           []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".qg", ".agents"}}},
 			IncludePlatformRoots: true,
 			AllowTemp:            true,
 		},
@@ -158,10 +158,10 @@ exit 0
 // restricted token, and a write outside every granted root is denied. Unlike
 // the elevated smoke above it needs no Administrator terminal.
 func TestWindowsUnelevatedRealSandboxSmoke(t *testing.T) {
-	if os.Getenv("ZERO_SANDBOX_REAL_SMOKE") != "1" {
-		t.Skip("set ZERO_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
+	if os.Getenv("QG_SANDBOX_REAL_SMOKE") != "1" {
+		t.Skip("set QG_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
 	}
-	runnerExe := realSmokeExecutable(t, "ZERO_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
+	runnerExe := realSmokeExecutable(t, "QG_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
 
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -174,7 +174,7 @@ func TestWindowsUnelevatedRealSandboxSmoke(t *testing.T) {
 		t.Fatalf("WriteFile secret: %v", err)
 	}
 
-	sandboxHome := filepath.Join(root, ".zero-sandbox")
+	sandboxHome := filepath.Join(root, ".qg-sandbox")
 	// Success path: restricted FS write-jail with no DenyRead. Non-empty DenyRead
 	// is unsupported on both restricted-token tiers under the narrow SID set
 	// (PR #640); the rejection probe below covers that separately.
@@ -182,7 +182,7 @@ func TestWindowsUnelevatedRealSandboxSmoke(t *testing.T) {
 		FileSystem: FileSystemPolicy{
 			Kind:                 FileSystemRestricted,
 			ReadRoots:            []string{root},
-			WriteRoots:           []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".zero", ".agents"}}},
+			WriteRoots:           []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".qg", ".agents"}}},
 			IncludePlatformRoots: true,
 			AllowTemp:            true,
 		},
@@ -260,18 +260,18 @@ func TestWindowsUnelevatedRealSandboxSmoke(t *testing.T) {
 // dance internally, so it reproduces the bug with no external dependency
 // beyond cmd.exe itself).
 func TestWindowsRestrictedTokenNestedPipeCapture(t *testing.T) {
-	if os.Getenv("ZERO_SANDBOX_REAL_SMOKE") != "1" {
-		t.Skip("set ZERO_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
+	if os.Getenv("QG_SANDBOX_REAL_SMOKE") != "1" {
+		t.Skip("set QG_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
 	}
-	runnerExe := realSmokeExecutable(t, "ZERO_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
+	runnerExe := realSmokeExecutable(t, "QG_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
 
 	root := t.TempDir()
-	sandboxHome := filepath.Join(root, ".zero-sandbox")
+	sandboxHome := filepath.Join(root, ".qg-sandbox")
 	profile := PermissionProfile{
 		FileSystem: FileSystemPolicy{
 			Kind:                 FileSystemRestricted,
 			ReadRoots:            []string{root},
-			WriteRoots:           []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".zero", ".agents"}}},
+			WriteRoots:           []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".qg", ".agents"}}},
 			IncludePlatformRoots: true,
 			AllowTemp:            true,
 		},
@@ -313,15 +313,15 @@ func TestWindowsRestrictedTokenNestedPipeCapture(t *testing.T) {
 // initialization, a native pipeline (which creates IPC objects), UTF-8 output,
 // and workspace write enforcement.
 func TestWindowsRestrictedTokenPowerShell(t *testing.T) {
-	if os.Getenv("ZERO_SANDBOX_REAL_SMOKE") != "1" {
-		t.Skip("set ZERO_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
+	if os.Getenv("QG_SANDBOX_REAL_SMOKE") != "1" {
+		t.Skip("set QG_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
 	}
-	runnerExe := realSmokeExecutable(t, "ZERO_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
+	runnerExe := realSmokeExecutable(t, "QG_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
 	powerShell := realSmokePowerShell(t)
 
 	root := t.TempDir()
 	outside := t.TempDir()
-	sandboxHome := filepath.Join(root, ".zero-sandbox")
+	sandboxHome := filepath.Join(root, ".qg-sandbox")
 	profile := PermissionProfile{
 		FileSystem: FileSystemPolicy{
 			Kind:                 FileSystemRestricted,
@@ -460,7 +460,7 @@ func runWindowsRealSmokeCommandExpectError(t *testing.T, runnerExe string, base 
 //
 // A WRITE_RESTRICTED token runs TWO checks for a write and needs both to pass:
 // the normal one against its enabled SIDs, and a second against its RESTRICTED
-// SID list. The jail is built on the second check only succeeding where Zero has
+// SID list. The jail is built on the second check only succeeding where QG has
 // explicitly ACL'd a capability SID. Putting the World SID (S-1-1-0) in the
 // restricted list breaks that globally — every principal is a member of
 // Everyone, so on a DACL that grants Everyone write, the restricted half passes
@@ -478,10 +478,10 @@ func runWindowsRealSmokeCommandExpectError(t *testing.T, runnerExe string, base 
 // no symlink and no race. Checked and ruled out: C:\Users\Public\Documents
 // grants BATCH, not Everyone, so the common "public folder" case is not this.
 func TestWindowsRestrictedTokenDeniesWritesToEveryoneWritablePaths(t *testing.T) {
-	if os.Getenv("ZERO_SANDBOX_REAL_SMOKE") != "1" {
-		t.Skip("set ZERO_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
+	if os.Getenv("QG_SANDBOX_REAL_SMOKE") != "1" {
+		t.Skip("set QG_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
 	}
-	runnerExe := realSmokeExecutable(t, "ZERO_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
+	runnerExe := realSmokeExecutable(t, "QG_WINDOWS_COMMAND_RUNNER_EXE", WindowsSandboxCommandRunnerName)
 
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -507,7 +507,7 @@ func TestWindowsRestrictedTokenDeniesWritesToEveryoneWritablePaths(t *testing.T)
 	}
 	t.Cleanup(func() { _ = rollbackWindowsACLSnapshots([]windowsACLSnapshot{snapshot}) })
 
-	sandboxHome := filepath.Join(root, ".zero-sandbox")
+	sandboxHome := filepath.Join(root, ".qg-sandbox")
 	// No DenyRead on purpose: that is what makes the runner choose the
 	// WRITE_RESTRICTED token, which is the default posture and the one whose
 	// restricted-SID list this test is about.
@@ -515,7 +515,7 @@ func TestWindowsRestrictedTokenDeniesWritesToEveryoneWritablePaths(t *testing.T)
 		FileSystem: FileSystemPolicy{
 			Kind:                 FileSystemRestricted,
 			ReadRoots:            []string{root},
-			WriteRoots:           []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".zero", ".agents"}}},
+			WriteRoots:           []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".qg", ".agents"}}},
 			IncludePlatformRoots: true,
 			AllowTemp:            true,
 		},
@@ -593,7 +593,7 @@ func allocateSharedDirectoryProbe(t testing.TB, dir, prefix string) *sharedDirec
 	}
 	var probePath string
 	for attempt := 0; attempt < 50; attempt++ {
-		candidate := filepath.Join(dir, fmt.Sprintf("zero-smoke-%s-%d-%d-%d.txt", prefix, os.Getpid(), time.Now().UnixNano(), attempt))
+		candidate := filepath.Join(dir, fmt.Sprintf("qg-smoke-%s-%d-%d-%d.txt", prefix, os.Getpid(), time.Now().UnixNano(), attempt))
 		if _, err := os.Lstat(candidate); os.IsNotExist(err) {
 			probePath = candidate
 			break

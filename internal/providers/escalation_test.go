@@ -5,16 +5,16 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 type escalationStubProvider struct{ model string }
 
 func (escalationStubProvider) Name() string { return "stub" }
 
-func (escalationStubProvider) StreamCompletion(context.Context, zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
-	ch := make(chan zeroruntime.StreamEvent)
+func (escalationStubProvider) StreamCompletion(context.Context, qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
+	ch := make(chan qgruntime.StreamEvent)
 	close(ch)
 	return ch, nil
 }
@@ -27,7 +27,7 @@ func (escalationStubProvider) StreamCompletion(context.Context, zeroruntime.Comp
 func TestEscalationSwitchersKeepTheProfileAndReplaceOnlyTheModel(t *testing.T) {
 	profile := config.ProviderProfile{Name: "acme", Model: "small", BaseURL: "https://acme.test", APIKey: "sk-live"}
 	var asked config.ProviderProfile
-	switcher, _ := EscalationSwitchers(profile, escalationStubProvider{}, func(p config.ProviderProfile) (zeroruntime.Provider, error) {
+	switcher, _ := EscalationSwitchers(profile, escalationStubProvider{}, func(p config.ProviderProfile) (qgruntime.Provider, error) {
 		asked = p
 		return escalationStubProvider{model: p.Model}, nil
 	}, nil)
@@ -55,7 +55,7 @@ func TestEscalationSwitchersDoNotReportASwitchThatDidNotHappen(t *testing.T) {
 	switched := []string{}
 	switcher, _ := EscalationSwitchers(
 		config.ProviderProfile{Model: "small"}, escalationStubProvider{},
-		func(config.ProviderProfile) (zeroruntime.Provider, error) { return nil, nil },
+		func(config.ProviderProfile) (qgruntime.Provider, error) { return nil, nil },
 		func(modelID string) { switched = append(switched, modelID) },
 	)
 	provider, err := switcher(context.Background(), "large")
@@ -76,7 +76,7 @@ func TestEscalationSwitchersReportProviderErrors(t *testing.T) {
 	switched := []string{}
 	switcher, _ := EscalationSwitchers(
 		config.ProviderProfile{Model: "small"}, escalationStubProvider{},
-		func(config.ProviderProfile) (zeroruntime.Provider, error) { return nil, want },
+		func(config.ProviderProfile) (qgruntime.Provider, error) { return nil, want },
 		func(modelID string) { switched = append(switched, modelID) },
 	)
 	if _, err := switcher(context.Background(), "large"); !errors.Is(err, want) {
@@ -92,7 +92,7 @@ func TestEscalationSwitchersReportARealSwitch(t *testing.T) {
 	switched := []string{}
 	switcher, _ := EscalationSwitchers(
 		config.ProviderProfile{Model: "small"}, escalationStubProvider{},
-		func(p config.ProviderProfile) (zeroruntime.Provider, error) {
+		func(p config.ProviderProfile) (qgruntime.Provider, error) {
 			return escalationStubProvider{model: p.Model}, nil
 		},
 		func(modelID string) { switched = append(switched, modelID) },
@@ -113,7 +113,7 @@ func TestEscalationSwitchersReportARealSwitch(t *testing.T) {
 func TestEscalationSwitchersOmitTheSessionSwitcherForAnUnoptimizedStart(t *testing.T) {
 	_, sessionSwitcher := EscalationSwitchers(
 		config.ProviderProfile{Name: "acme", Model: "small"}, escalationStubProvider{},
-		func(p config.ProviderProfile) (zeroruntime.Provider, error) { return escalationStubProvider{}, nil },
+		func(p config.ProviderProfile) (qgruntime.Provider, error) { return escalationStubProvider{}, nil },
 		nil,
 	)
 	if sessionSwitcher != nil {

@@ -39,7 +39,7 @@ type CapturedResult struct {
 	Err       error
 }
 
-// Runner is the deep execution module used by Zero-owned subprocess launchers.
+// Runner is the deep execution module used by QG-owned subprocess launchers.
 // The preparer may be installed after tool registration, but execution fails
 // closed until an adapter is present.
 type Runner struct {

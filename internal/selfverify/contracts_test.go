@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/testrunner"
-	"github.com/Gitlawb/zero/internal/verify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testrunner"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/verify"
 )
 
 func TestSnapshotFromReportPreservesAttemptsAndRedactsRemediation(t *testing.T) {

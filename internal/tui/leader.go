@@ -126,13 +126,13 @@ func renderLeaderHelpLines(innerWidth int) []string {
 		if index > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, zeroTheme.accent.Render(group.title))
+		lines = append(lines, qgTheme.accent.Render(group.title))
 		for _, binding := range group.bindings {
 			lines = append(lines, formatKeybindingLine(binding, keyColumn, innerWidth))
 		}
 	}
 	lines = append(lines, "")
-	lines = append(lines, zeroTheme.faint.Render(leaderHelpFooter))
+	lines = append(lines, qgTheme.faint.Render(leaderHelpFooter))
 	return lines
 }
 
@@ -142,7 +142,7 @@ func renderLeaderHelpLines(innerWidth int) []string {
 func (m model) renderLeaderHelpOverlay(width int) string {
 	overlayWidth := keybindingHelpOverlayWidth(width)
 	lines := renderLeaderHelpLines(overlayWidth - 4)
-	block := styledBlockFillTitle(overlayWidth, "Ctrl+X Shortcuts", lines, zeroTheme.line, lipgloss.NewStyle())
+	block := styledBlockFillTitle(overlayWidth, "Ctrl+X Shortcuts", lines, qgTheme.line, lipgloss.NewStyle())
 	return centerRenderedBlock(block, width)
 }
 

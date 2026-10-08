@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 )
 
 func (m model) modelListText() string {

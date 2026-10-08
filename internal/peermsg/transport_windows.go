@@ -17,7 +17,7 @@ type windowsPipeTransport struct{}
 func newPlatformTransport() localTransport { return windowsPipeTransport{} }
 
 func (windowsPipeTransport) Endpoint(_ string, nonce string, pid int) (string, error) {
-	return fmt.Sprintf(`\\.\pipe\zero-peer-%d-%s`, pid, nonce), nil
+	return fmt.Sprintf(`\\.\pipe\qg-peer-%d-%s`, pid, nonce), nil
 }
 
 func (windowsPipeTransport) Listen(endpoint string) (net.Listener, error) {

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/localcontrol"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
 )
 
 const localBrowserOutputBudgetBytes = 128 * 1024

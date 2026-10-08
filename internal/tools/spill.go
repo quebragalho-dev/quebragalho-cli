@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/secrets"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/secrets"
 )
 
 // Spill-to-disk for truncated tool output. When a command produces more than
@@ -26,9 +26,9 @@ const spillRetention = 7 * 24 * time.Hour
 // spillRootPath returns the spill directory path without creating or checking
 // it. Used by the read-path resolver to recognize spill files as readable.
 func spillRootPath() string {
-	name := "zero-tool-output"
+	name := "qg-tool-output"
 	if uid := os.Getuid(); uid >= 0 {
-		name = fmt.Sprintf("zero-tool-output-%d", uid)
+		name = fmt.Sprintf("qg-tool-output-%d", uid)
 	}
 	return filepath.Join(os.TempDir(), name)
 }

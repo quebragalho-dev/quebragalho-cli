@@ -22,8 +22,8 @@ func TestBoundedFileDiffRefusesPartialOrBinaryContent(t *testing.T) {
 		{"nul old", "token=sk-proj-abc\x00def", "text"},
 		{"escape new", "text", "token=sk-proj-abc\x1bdef"},
 		{"c1 old", "token=sk-proj-abc\u0085def", "text"},
-		{"zero width space", "token=sk-proj-abc\u200bdef", "text"},
-		{"zero width joiner", "token=sk-proj-abc\u200ddef", "text"},
+		{"qg width space", "token=sk-proj-abc\u200bdef", "text"},
+		{"qg width joiner", "token=sk-proj-abc\u200ddef", "text"},
 		{"byte order mark", "token=sk-proj-abc\ufeffdef", "text"},
 		{"soft hyphen", "token=sk-proj-abc\u00addef", "text"},
 		{"non breaking space", "token=sk-proj-abc\u00a0def", "text"},
@@ -153,8 +153,8 @@ func TestBoundedDiffPreservesOrdinaryUnicodeButRejectsObfuscatedSecrets(t *testi
 
 	secret := "sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGG"
 	for name, separator := range map[string]string{
-		"zero width space":          "\u200b",
-		"zero width joiner":         "\u200d",
+		"qg width space":            "\u200b",
+		"qg width joiner":           "\u200d",
 		"byte order mark":           "\ufeff",
 		"soft hyphen":               "\u00ad",
 		"nonbreaking space":         "\u00a0",

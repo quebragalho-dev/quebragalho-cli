@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/execution"
-	zeroSandbox "github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/secrets"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	qgSandbox "github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/secrets"
 )
 
 const defaultBashTimeoutMS = 120000
@@ -77,7 +77,7 @@ func (tool bashTool) Run(ctx context.Context, args map[string]any) Result {
 	return tool.run(ctx, args, nil, true)
 }
 
-func (tool bashTool) RunWithSandbox(ctx context.Context, args map[string]any, engine *zeroSandbox.Engine) Result {
+func (tool bashTool) RunWithSandbox(ctx context.Context, args map[string]any, engine *qgSandbox.Engine) Result {
 	return tool.run(ctx, args, engine, true)
 }
 
@@ -85,7 +85,7 @@ func (tool bashTool) RunWithOptions(ctx context.Context, args map[string]any, op
 	return tool.run(ctx, args, options.Sandbox, false)
 }
 
-func (tool bashTool) run(ctx context.Context, args map[string]any, engine *zeroSandbox.Engine, directBudget bool) Result {
+func (tool bashTool) run(ctx context.Context, args map[string]any, engine *qgSandbox.Engine, directBudget bool) Result {
 	commandText, err := bashCommandArg(args)
 	if err != nil {
 		return errorResult("Error: Invalid arguments for bash: " + err.Error())
@@ -114,7 +114,7 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *zeroS
 	// Pre-execution safety: refuse interactive commands (editors, pagers, REPLs,
 	// remote shells, etc.) that would hang the non-interactive agent until the
 	// timeout fires. This runs before the command is built or launched.
-	if interactive := zeroSandbox.DetectInteractiveCommand(commandText, runtime.GOOS); interactive.Interactive {
+	if interactive := qgSandbox.DetectInteractiveCommand(commandText, runtime.GOOS); interactive.Interactive {
 		return interactiveBlockResult(interactive)
 	}
 
@@ -148,7 +148,7 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *zeroS
 	changeObserver := execution.NewChangeObserver(plan.WorkspaceRoot)
 
 	// Bound the capture so a command with runaway output (`cat huge.log`, `yes`)
-	// can't grow Zero's memory before truncation: only the head+tail each stream
+	// can't grow QG's memory before truncation: only the head+tail each stream
 	// will ever surface to the model are retained, the middle is discarded as it
 	// streams, and the true size is counted for the truncation marker.
 	stdout := newBoundedBuffer(bashCaptureBudgetBytes, bashCaptureBudgetBytes)
@@ -162,7 +162,7 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *zeroS
 
 	// Capture sandbox denials when the plan opted in (macOS + Policy.MonitorDenials).
 	// A no-op when MonitorTag is empty, so the default path is unchanged.
-	monitor := zeroSandbox.StartDenialMonitor(context.Background(), plan.MonitorTag)
+	monitor := qgSandbox.StartDenialMonitor(context.Background(), plan.MonitorTag)
 	err = command.Run()
 	exitCode := commandExitCode(err)
 	adapterReport, reportErr := plan.ExecutionReport()
@@ -217,7 +217,7 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *zeroS
 	return withBashExecution(result, executionRequest, plan, exitCode, adapterReport, reportErr, changeObserver.Changes(), false)
 }
 
-func withBashExecution(result Result, request execution.Request, plan zeroSandbox.CommandPlan, exitCode int, report execution.AdapterReport, reportErr error, changes []execution.Change, timedOut bool) Result {
+func withBashExecution(result Result, request execution.Request, plan qgSandbox.CommandPlan, exitCode int, report execution.AdapterReport, reportErr error, changes []execution.Change, timedOut bool) Result {
 	input := execToolResultInput{
 		exited:      true,
 		exitCode:    exitCode,
@@ -239,7 +239,7 @@ func withBashExecution(result Result, request execution.Request, plan zeroSandbo
 	return result
 }
 
-func commandEngineForSandboxPermissions(engine *zeroSandbox.Engine, sandboxPermissions SandboxPermissionOverride) *zeroSandbox.Engine {
+func commandEngineForSandboxPermissions(engine *qgSandbox.Engine, sandboxPermissions SandboxPermissionOverride) *qgSandbox.Engine {
 	if sandboxPermissions == SandboxPermissionsRequireEscalated && (engine == nil || engine.UnsandboxedExecutionAllowed()) {
 		return nil
 	}
@@ -254,7 +254,7 @@ func commandEngineForSandboxPermissions(engine *zeroSandbox.Engine, sandboxPermi
 // the failure mode this guard exists for. Any other issue kind (e.g. a real
 // cmd.exe syntax problem) still blocks regardless of escalation, since
 // running outside the sandbox does not fix a syntax error.
-func msysGuardBypassed(issue *shellIssue, commandEngine *zeroSandbox.Engine) bool {
+func msysGuardBypassed(issue *shellIssue, commandEngine *qgSandbox.Engine) bool {
 	return issue.Kind == windowsMsysSandboxKind && commandEngine == nil
 }
 
@@ -296,9 +296,9 @@ func shellIssueBlockResult(issue shellIssue) Result {
 // buildBashCommand returns the exec.Cmd and the sandbox plan for running
 // commandText. PowerShell is preferred on Windows, with cmd.exe retained as
 // the fallback. Only cmd.exe needs the raw command-line override.
-func buildBashCommand(ctx context.Context, commandText string, absoluteCwd string, engine *zeroSandbox.Engine) (*exec.Cmd, zeroSandbox.CommandPlan, error) {
+func buildBashCommand(ctx context.Context, commandText string, absoluteCwd string, engine *qgSandbox.Engine) (*exec.Cmd, qgSandbox.CommandPlan, error) {
 	hostShell := detectShellRuntime(runtime.GOOS)
-	spec := zeroSandbox.CommandSpec{
+	spec := qgSandbox.CommandSpec{
 		Name: hostShell.Executable,
 		Args: hostShell.arguments(commandText),
 		Dir:  absoluteCwd,
@@ -310,20 +310,20 @@ func buildBashCommand(ctx context.Context, commandText string, absoluteCwd strin
 		}
 		return command, plan, err
 	}
-	directPolicy := zeroSandbox.DefaultPolicy()
-	directPolicy.Mode = zeroSandbox.ModeDisabled
-	directPolicy.Network = zeroSandbox.NetworkAllow
-	plan := zeroSandbox.CommandPlan{
-		Backend: zeroSandbox.Backend{
-			Name:    zeroSandbox.BackendUnavailable,
+	directPolicy := qgSandbox.DefaultPolicy()
+	directPolicy.Mode = qgSandbox.ModeDisabled
+	directPolicy.Network = qgSandbox.NetworkAllow
+	plan := qgSandbox.CommandPlan{
+		Backend: qgSandbox.Backend{
+			Name:    qgSandbox.BackendUnavailable,
 			Message: "sandbox engine not provided",
 		},
-		TargetBackend:     zeroSandbox.BackendNone,
+		TargetBackend:     qgSandbox.BackendNone,
 		WorkspaceRoot:     absoluteCwd,
 		Policy:            directPolicy,
-		PermissionProfile: zeroSandbox.PermissionProfileFromPolicy(absoluteCwd, directPolicy, nil),
+		PermissionProfile: qgSandbox.PermissionProfileFromPolicy(absoluteCwd, directPolicy, nil),
 		Wrapped:           false,
-		EnforcementLevel:  zeroSandbox.EnforcementDisabled,
+		EnforcementLevel:  qgSandbox.EnforcementDisabled,
 		Name:              spec.Name,
 		Args:              spec.Args,
 		Dir:               spec.Dir,
@@ -334,7 +334,7 @@ func buildBashCommand(ctx context.Context, commandText string, absoluteCwd strin
 	return command, plan, nil
 }
 
-func addSandboxMeta(meta map[string]string, plan zeroSandbox.CommandPlan) {
+func addSandboxMeta(meta map[string]string, plan qgSandbox.CommandPlan) {
 	if plan.Backend.Name == "" {
 		return
 	}
@@ -362,7 +362,7 @@ func addSandboxMeta(meta map[string]string, plan zeroSandbox.CommandPlan) {
 // command is refused before execution because it would hang the agent. The
 // block is surfaced both in Output (clearly delimited) and in Meta/Display
 // so downstream consumers and the TUI can render it consistently.
-func interactiveBlockResult(detection zeroSandbox.InteractiveCommandResult) Result {
+func interactiveBlockResult(detection qgSandbox.InteractiveCommandResult) Result {
 	message := fmt.Sprintf(
 		"Error: Blocked interactive command %q before execution: %s. This would hang the non-interactive agent.\nSuggestion: %s",
 		detection.Command, detection.Reason, detection.Suggestion,
@@ -412,7 +412,7 @@ func formatBashOutput(stdout string, stderr string, exitCode int) string {
 		parts = append(parts, fmt.Sprintf("exit_code: %d", exitCode))
 	}
 	if n := len(outFindings) + len(errFindings); n > 0 {
-		parts = append(parts, fmt.Sprintf("[zero] redacted %d likely secret(s) from this output before showing it.", n))
+		parts = append(parts, fmt.Sprintf("[qg] redacted %d likely secret(s) from this output before showing it.", n))
 	}
 	if len(parts) == 0 {
 		return "Command completed with no output."
@@ -469,7 +469,7 @@ func budgetBashCapture(out string, outTotal int, errStr string, errTotal int, me
 	truncated := outTrunc || errTrunc
 	if truncated {
 		if spillPath := spillBashStreams(out, outTotal, errStr, errTotal); spillPath != "" {
-			hint := "\n[zero] captured output saved to " + spillPath + " (grep or read_file it instead of re-running)"
+			hint := "\n[qg] captured output saved to " + spillPath + " (grep or read_file it instead of re-running)"
 			if errTrunc {
 				errText += hint
 			} else {
@@ -495,7 +495,7 @@ func budgetBashCapture(out string, outTotal int, errStr string, errTotal int, me
 // spillBashStreams writes the retained (capture-bounded) stdout and stderr to
 // the spill directory as one sectioned file and returns its path, or "" when
 // spilling fails. The spill holds up to bashCaptureBudgetBytes of head and
-// tail per stream — everything zero kept in memory, which is more than the
+// tail per stream — everything qg kept in memory, which is more than the
 // emit budget shows the model but not necessarily the whole output. When the
 // capture itself dropped the middle of a stream (total exceeds the retained
 // bytes), a gap marker is inserted at the head/tail junction so the spilled
@@ -525,13 +525,13 @@ func sectionWithCaptureGap(text string, total int) string {
 		return text
 	}
 	head := utf8Prefix(text, bashCaptureBudgetBytes)
-	marker := fmt.Sprintf("\n[zero] capture gap: %d bytes omitted from the middle of this stream\n", total-len(text))
+	marker := fmt.Sprintf("\n[qg] capture gap: %d bytes omitted from the middle of this stream\n", total-len(text))
 	return head + marker + text[len(head):]
 }
 
 // boundedBuffer is an io.Writer that retains at most headCap bytes from the start
 // and tailCap bytes from the end of a stream while counting the total written, so
-// a command emitting unbounded output (`cat huge.log`, `yes`) cannot grow Zero's
+// a command emitting unbounded output (`cat huge.log`, `yes`) cannot grow QG's
 // memory: the middle is discarded as it arrives instead of buffered whole and then
 // truncated. total records the full size for the truncation marker even though the
 // middle is never held. Not safe for concurrent writes; exec drives Stdout and
@@ -592,7 +592,7 @@ func truncateHeadTailWithTotal(value string, total, maxBytes int) (string, int, 
 	if maxBytes <= 0 || total <= maxBytes {
 		return value, total, false
 	}
-	marker := fmt.Sprintf("\n[zero] output truncated: %d bytes omitted from the middle — redirect to a file and read_file a range for the full text\n", total-maxBytes)
+	marker := fmt.Sprintf("\n[qg] output truncated: %d bytes omitted from the middle — redirect to a file and read_file a range for the full text\n", total-maxBytes)
 	budget := maxBytes - len(marker)
 	if budget < 0 {
 		budget = 0

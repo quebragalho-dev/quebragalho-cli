@@ -16,7 +16,7 @@ import (
 // It fails loudly on a corrupt file rather than silently returning an empty
 // trace. Empty or blank-only input is an error (an empty trace file means
 // emission never happened — e.g. the agent crashed before writing the header
-// or --trace was not honored — and must not masquerade as a valid zero-
+// or --trace was not honored — and must not masquerade as a valid qg-
 // attribution sample). A non-empty input must contain a "type":"trace" header
 // line; span/counter lines before it are an error; and a header that yields no
 // spans and no counters is treated as corrupt. Individual span/counter lines
@@ -76,7 +76,7 @@ func ReadNDJSON(r io.Reader) (*TurnTrace, error) {
 			if s.End.IsZero() && !s.Start.IsZero() {
 				s.End = s.Start.Add(s.Duration)
 			}
-			// Preserve exclusive time exactly as written. A legitimately-zero
+			// Preserve exclusive time exactly as written. A legitimately-qg
 			// exclusive (a parent whose children cover its whole interval) is
 			// emitted as exclusive_ms: 0 and MUST round-trip as 0 — falling back
 			// to Duration here would re-introduce the double-counting the
@@ -167,7 +167,7 @@ func ReadNDJSON(r io.Reader) (*TurnTrace, error) {
 	if !sawInput {
 		// Empty or blank-only input: emission never produced a trace line, so
 		// this is not a valid trace. Surface it so the harness records a
-		// TraceIssue rather than treating a crashed run as clean zero-attribution.
+		// TraceIssue rather than treating a crashed run as clean qg-attribution.
 		return nil, errors.New("parse trace: empty input (no trace emitted)")
 	}
 	if !sawTraceHeader {

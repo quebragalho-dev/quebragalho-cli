@@ -47,8 +47,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // Codex Responses API event type names. Only the ones the Codex backend
@@ -111,7 +111,7 @@ type responsesReasoning struct {
 	Effort string `json:"effort,omitempty"`
 	// Summary requests a streamed reasoning summary ("auto" lets the API pick a
 	// level). Without it the backend emits no reasoning events, so a long thinking
-	// phase produces zero visible output and reads as a hang in the UI.
+	// phase produces qg visible output and reads as a hang in the UI.
 	Summary string `json:"summary,omitempty"`
 }
 
@@ -140,11 +140,11 @@ type contentItem struct {
 }
 
 type responsesTool struct {
-	Type        string                            `json:"type"`
-	Name        string                            `json:"name"`
-	Description string                            `json:"description,omitempty"`
-	Parameters  map[string]any                    `json:"parameters,omitempty"`
-	Format      *zeroruntime.ToolDefinitionFormat `json:"format,omitempty"`
+	Type        string                          `json:"type"`
+	Name        string                          `json:"name"`
+	Description string                          `json:"description,omitempty"`
+	Parameters  map[string]any                  `json:"parameters,omitempty"`
+	Format      *qgruntime.ToolDefinitionFormat `json:"format,omitempty"`
 }
 
 // responsesEvent is the decoded form of one Responses SSE data payload.
@@ -280,7 +280,7 @@ func (state *responsesState) outputInputItems() []inputItem {
 // Responses API wire format. System messages fold into a top-level
 // `instructions` field; everything else (user/assistant turns, tool
 // calls, tool results) becomes items in the `input` array.
-func (p *CodexProvider) buildResponsesRequest(request zeroruntime.CompletionRequest) (*responsesRequest, error) {
+func (p *CodexProvider) buildResponsesRequest(request qgruntime.CompletionRequest) (*responsesRequest, error) {
 	if p.inner == nil || strings.TrimSpace(p.inner.model) == "" {
 		return nil, errors.New("codex provider: model is required")
 	}
@@ -295,13 +295,13 @@ func (p *CodexProvider) buildResponsesRequest(request zeroruntime.CompletionRequ
 	customCallIDs := map[string]string{}
 	for _, msg := range request.Messages {
 		switch msg.Role {
-		case zeroruntime.MessageRoleSystem:
+		case qgruntime.MessageRoleSystem:
 			if content := strings.TrimSpace(msg.Content); content != "" {
 				instructions = append(instructions, content)
 			}
-		case zeroruntime.MessageRoleUser:
+		case qgruntime.MessageRoleUser:
 			req.Input = append(req.Input, p.userInputItem(msg))
-		case zeroruntime.MessageRoleAssistant:
+		case qgruntime.MessageRoleAssistant:
 			items, err := p.assistantInputItems(msg)
 			if err != nil {
 				return nil, err
@@ -316,7 +316,7 @@ func (p *CodexProvider) buildResponsesRequest(request zeroruntime.CompletionRequ
 					customCallIDs[call.ID] = callID
 				}
 			}
-		case zeroruntime.MessageRoleTool:
+		case qgruntime.MessageRoleTool:
 			if msg.ToolCallID == "" {
 				return nil, fmt.Errorf("codex provider: tool message missing tool call id")
 			}
@@ -341,9 +341,9 @@ func (p *CodexProvider) buildResponsesRequest(request zeroruntime.CompletionRequ
 	req.Instructions = strings.Join(instructions, "\n\n")
 	for _, tool := range request.Tools {
 		definition := tool
-		if definition.Name == "apply_patch" && definition.Type == zeroruntime.ToolDefinitionFreeform {
+		if definition.Name == "apply_patch" && definition.Type == qgruntime.ToolDefinitionFreeform {
 			definition.Description = "The apply_patch tool edits files from a raw structured patch. Use absolute file paths in patch headers to target a granted extra write root. Do not wrap the patch in JSON."
-			definition.Format = &zeroruntime.ToolDefinitionFormat{Type: "grammar", Syntax: "lark", Definition: applyPatchLarkGrammar}
+			definition.Format = &qgruntime.ToolDefinitionFormat{Type: "grammar", Syntax: "lark", Definition: applyPatchLarkGrammar}
 		}
 		wireTool := responsesTool{
 			Type:        string(definition.Type),
@@ -353,9 +353,9 @@ func (p *CodexProvider) buildResponsesRequest(request zeroruntime.CompletionRequ
 			Format:      definition.Format,
 		}
 		if wireTool.Type == "" {
-			wireTool.Type = string(zeroruntime.ToolDefinitionFunction)
+			wireTool.Type = string(qgruntime.ToolDefinitionFunction)
 		}
-		if wireTool.Type == string(zeroruntime.ToolDefinitionFreeform) {
+		if wireTool.Type == string(qgruntime.ToolDefinitionFreeform) {
 			wireTool.Parameters = nil
 		}
 		req.Tools = append(req.Tools, wireTool)
@@ -380,7 +380,7 @@ func (p *CodexProvider) buildResponsesRequest(request zeroruntime.CompletionRequ
 // one input_text part (and one input_image part per attached image, if
 // any). The image bytes are base64-encoded into a data: URI exactly like
 // the chat-completions transport does.
-func (p *CodexProvider) userInputItem(msg zeroruntime.Message) inputItem {
+func (p *CodexProvider) userInputItem(msg qgruntime.Message) inputItem {
 	parts := []contentItem{}
 	if msg.Content != "" {
 		parts = append(parts, contentItem{Type: "input_text", Text: msg.Content})
@@ -400,7 +400,7 @@ func (p *CodexProvider) userInputItem(msg zeroruntime.Message) inputItem {
 // per tool call. Tool-call IDs use ToolCall.ID directly — Responses
 // accepts `id` and `call_id` interchangeably, and the runtime already
 // guarantees non-empty IDs at construction time.
-func (p *CodexProvider) assistantInputItems(msg zeroruntime.Message) ([]inputItem, error) {
+func (p *CodexProvider) assistantInputItems(msg qgruntime.Message) ([]inputItem, error) {
 	items := []inputItem{}
 	if msg.Content != "" {
 		items = append(items, inputItem{
@@ -449,7 +449,7 @@ func (p *CodexProvider) assistantInputItems(msg zeroruntime.Message) ([]inputIte
 func (p *CodexProvider) streamResponses(
 	ctx context.Context,
 	body []byte,
-	events chan<- zeroruntime.StreamEvent,
+	events chan<- qgruntime.StreamEvent,
 ) {
 	streamCtx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
@@ -478,21 +478,21 @@ func (p *CodexProvider) streamResponses(
 		// mislabeled as upstream outages (same posture as the openai
 		// provider's stream()).
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-				Type:  zeroruntime.StreamEventError,
+			providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:  qgruntime.StreamEventError,
 				Error: p.redact("provider stream error: " + ctxErr.Error()),
 			})
 			return
 		}
 		if humanized, ok := providerio.UpstreamUnreachable(err.Error()); ok {
-			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-				Type:  zeroruntime.StreamEventError,
+			providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:  qgruntime.StreamEventError,
 				Error: p.redact(humanized),
 			})
 			return
 		}
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: p.redact("provider stream error: " + err.Error()),
 		})
 		return
@@ -511,15 +511,15 @@ func (p *CodexProvider) streamResponses(
 		return p.emitResponsesEvent(ctx, data, state, events)
 	})
 	if errors.Is(err, providerio.ErrStreamIdle) || errors.Is(err, providerio.ErrStreamStalled) {
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: p.redact("provider stream error: " + providerio.StreamTimeoutMessage(err, inner.streamIdleTimeout)),
 		})
 		return
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: p.redact("provider stream error: " + err.Error()),
 		})
 		return
@@ -528,9 +528,9 @@ func (p *CodexProvider) streamResponses(
 		// The Codex backend closed the stream without emitting response.completed
 		// (e.g. it ran out of output tokens or hit an internal limit). Surface a
 		// length-truncation finish so the runtime can react.
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:         zeroruntime.StreamEventDone,
-			FinishReason: zeroruntime.FinishReasonLength,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:         qgruntime.StreamEventDone,
+			FinishReason: qgruntime.FinishReasonLength,
 		})
 	}
 }
@@ -542,7 +542,7 @@ func (p *CodexProvider) streamResponses(
 func (p *CodexProvider) emitResponsesHTTPError(
 	ctx context.Context,
 	response *http.Response,
-	events chan<- zeroruntime.StreamEvent,
+	events chan<- qgruntime.StreamEvent,
 ) {
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 	// The Codex backend may return either the chat-completions error shape
@@ -566,14 +566,14 @@ func (p *CodexProvider) emitResponsesHTTPError(
 		message = response.Status
 	}
 	if humanized, ok := providerio.UpstreamUnreachable(message); ok {
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: p.redact(humanized),
 		})
 		return
 	}
-	providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-		Type:  zeroruntime.StreamEventError,
+	providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+		Type:  qgruntime.StreamEventError,
 		Error: p.classifiedError(response.StatusCode, message),
 	})
 }
@@ -585,12 +585,12 @@ func (p *CodexProvider) emitResponsesEvent(
 	ctx context.Context,
 	data string,
 	state *responsesState,
-	events chan<- zeroruntime.StreamEvent,
+	events chan<- qgruntime.StreamEvent,
 ) bool {
 	var event responsesEvent
 	if err := json.Unmarshal([]byte(data), &event); err != nil {
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: p.redact("provider stream error: malformed Responses event: " + err.Error()),
 		})
 		state.done = true
@@ -606,7 +606,7 @@ func (p *CodexProvider) emitParsedResponsesEvent(
 	ctx context.Context,
 	event *responsesEvent,
 	state *responsesState,
-	events chan<- zeroruntime.StreamEvent,
+	events chan<- qgruntime.StreamEvent,
 ) bool {
 	if event.Type == "" {
 		// A payload that parses as JSON but carries no `type` field is a
@@ -614,8 +614,8 @@ func (p *CodexProvider) emitParsedResponsesEvent(
 		// tells us how to interpret the rest of the payload. Surface it as
 		// a stream error so the runtime doesn't hang on a phantom
 		// completion that will never come.
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: p.redact("provider stream error: Responses event missing required `type` field"),
 		})
 		state.done = true
@@ -640,8 +640,8 @@ func (p *CodexProvider) emitParsedResponsesEvent(
 		if event.Delta != "" {
 			state.emitted = true
 			state.text.WriteString(event.Delta)
-			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-				Type:    zeroruntime.StreamEventText,
+			providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:    qgruntime.StreamEventText,
 				Content: event.Delta,
 			})
 		}
@@ -652,8 +652,8 @@ func (p *CodexProvider) emitParsedResponsesEvent(
 		// looking like a hang. Requested via reasoning.summary="auto".
 		if event.Delta != "" {
 			state.emitted = true
-			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-				Type:    zeroruntime.StreamEventReasoning,
+			providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:    qgruntime.StreamEventReasoning,
 				Content: event.Delta,
 			})
 		}
@@ -677,8 +677,8 @@ func (p *CodexProvider) emitParsedResponsesEvent(
 		if message == "" {
 			message = "provider error"
 		}
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: p.redact(message),
 		})
 		state.done = true
@@ -702,7 +702,7 @@ func (p *CodexProvider) handleOutputItemAdded(
 	ctx context.Context,
 	event *responsesEvent,
 	state *responsesState,
-	events chan<- zeroruntime.StreamEvent,
+	events chan<- qgruntime.StreamEvent,
 ) {
 	if event.Item == nil {
 		return
@@ -731,8 +731,8 @@ func (p *CodexProvider) handleOutputItemAdded(
 		}
 		state.emitted = true
 		if !builder.started {
-			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-				Type:               zeroruntime.StreamEventToolCallStart,
+			providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:               qgruntime.StreamEventToolCallStart,
 				ToolCallID:         key,
 				ToolCallProviderID: builder.CallID,
 				ToolName:           builder.Name,
@@ -751,7 +751,7 @@ func (p *CodexProvider) handleToolInputDelta(
 	ctx context.Context,
 	event *responsesEvent,
 	state *responsesState,
-	events chan<- zeroruntime.StreamEvent,
+	events chan<- qgruntime.StreamEvent,
 	freeform bool,
 ) {
 	key := p.toolCallKey(event)
@@ -775,8 +775,8 @@ func (p *CodexProvider) handleToolInputDelta(
 	}
 	builder.Arguments.WriteString(event.Delta)
 	state.emitted = true
-	providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-		Type:              zeroruntime.StreamEventToolCallDelta,
+	providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+		Type:              qgruntime.StreamEventToolCallDelta,
 		ToolCallID:        key,
 		ArgumentsFragment: event.Delta,
 	})
@@ -791,7 +791,7 @@ func (p *CodexProvider) handleOutputItemDone(
 	ctx context.Context,
 	event *responsesEvent,
 	state *responsesState,
-	events chan<- zeroruntime.StreamEvent,
+	events chan<- qgruntime.StreamEvent,
 ) {
 	if event.Item == nil || (event.Item.Type != "function_call" && event.Item.Type != "custom_tool_call") {
 		return
@@ -821,8 +821,8 @@ func (p *CodexProvider) handleOutputItemDone(
 		builder.Arguments.WriteString(finalInput)
 	}
 	if !builder.started {
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:               zeroruntime.StreamEventToolCallStart,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:               qgruntime.StreamEventToolCallStart,
 			ToolCallID:         key,
 			ToolCallProviderID: builder.CallID,
 			ToolName:           builder.Name,
@@ -830,8 +830,8 @@ func (p *CodexProvider) handleOutputItemDone(
 		})
 		builder.started = true
 	}
-	providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-		Type:       zeroruntime.StreamEventToolCallEnd,
+	providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+		Type:       qgruntime.StreamEventToolCallEnd,
 		ToolCallID: key,
 		ToolName:   builder.Name,
 	})
@@ -847,7 +847,7 @@ func (p *CodexProvider) handleTerminalResponse(
 	ctx context.Context,
 	event *responsesEvent,
 	state *responsesState,
-	events chan<- zeroruntime.StreamEvent,
+	events chan<- qgruntime.StreamEvent,
 ) bool {
 	if event.Response == nil {
 		// A terminal event with no Response payload must still emit a terminal
@@ -855,12 +855,12 @@ func (p *CodexProvider) handleTerminalResponse(
 		// that masks a real failure (M2). A response.failed without a payload is an
 		// error; a response.completed without one is just an empty (but clean) turn.
 		if event.Type == responsesEventFailed {
-			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-				Type:  zeroruntime.StreamEventError,
+			providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:  qgruntime.StreamEventError,
 				Error: "codex: response.failed with no error detail",
 			})
 		} else {
-			providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone})
+			providerio.SendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventDone})
 		}
 		state.done = true
 		return false
@@ -868,7 +868,7 @@ func (p *CodexProvider) handleTerminalResponse(
 	state.usage = event.Response.Usage
 	state.responseID = event.Response.ID
 	if event.Response.Usage != nil {
-		usage := zeroruntime.Usage{
+		usage := qgruntime.Usage{
 			InputTokens:  event.Response.Usage.InputTokens,
 			OutputTokens: event.Response.Usage.OutputTokens,
 		}
@@ -879,14 +879,14 @@ func (p *CodexProvider) handleTerminalResponse(
 		if event.Response.Usage.OutputTokensDetails != nil {
 			usage.ReasoningTokens = event.Response.Usage.OutputTokensDetails.ReasoningTokens
 		}
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventUsage,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventUsage,
 			Usage: usage,
 		})
 	}
 	if event.Response.Error != nil {
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: p.redact(event.Response.Error.Message),
 		})
 		state.done = true
@@ -903,14 +903,14 @@ func (p *CodexProvider) handleTerminalResponse(
 		if status := strings.TrimSpace(event.Response.Status); status != "" {
 			msg = fmt.Sprintf("codex: response.failed (status %q) with no error detail", status)
 		}
-		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		providerio.SendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: msg,
 		})
 		state.done = true
 		return false
 	}
-	providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone, ResponseID: event.Response.ID})
+	providerio.SendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventDone, ResponseID: event.Response.ID})
 	state.done = true
 	return false
 }

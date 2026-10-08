@@ -41,7 +41,7 @@ func reduceCommandOutput(toolName string, args map[string]any, result Result) Re
 		return result
 	}
 
-	notice := fmt.Sprintf("[zero] compacted %d %s; exact output saved to %s", omitted, reducer.label, spillPath)
+	notice := fmt.Sprintf("[qg] compacted %d %s; exact output saved to %s", omitted, reducer.label, spillPath)
 	result.Output = strings.TrimRight(reduced, "\n") + "\n" + notice
 	result.Truncated = true
 	if result.Meta == nil {
@@ -282,7 +282,7 @@ func reduceRepeatedOutputLines(output string, label string, omit func(string) bo
 			break
 		}
 	}
-	summary := fmt.Sprintf("[zero] %d %s omitted", omitted, label)
+	summary := fmt.Sprintf("[qg] %d %s omitted", omitted, label)
 	kept = append(kept, "")
 	copy(kept[insertAt+1:], kept[insertAt:])
 	kept[insertAt] = summary

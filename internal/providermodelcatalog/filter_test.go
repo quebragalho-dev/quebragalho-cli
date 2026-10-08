@@ -3,7 +3,7 @@ package providermodelcatalog
 import (
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 func TestModelIDAllowedForProvider(t *testing.T) {

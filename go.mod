@@ -1,4 +1,4 @@
-module github.com/Gitlawb/zero
+module github.com/quebragalho-dev/quebragalho-cli
 
 go 1.26.6
 

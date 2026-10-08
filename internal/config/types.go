@@ -111,7 +111,7 @@ type PreferencesConfig struct {
 	RecentModels []RecentModelEntry `json:"recentModels,omitempty"`
 	// Theme is the persisted TUI palette preference — "auto" or a registered theme
 	// name (e.g. "dracula"). Applied at startup below the --theme flag and
-	// ZERO_THEME, so a /theme choice survives restart. Empty = unset (defaults auto).
+	// QG_THEME, so a /theme choice survives restart. Empty = unset (defaults auto).
 	Theme string `json:"theme,omitempty"`
 	// Pet is the terminal companion selected through /pets. Empty leaves pets
 	// off until the user chooses one; "disabled" is the explicit off state.
@@ -124,7 +124,7 @@ type PreferencesConfig struct {
 	// instead of the session's main model (summaries at main-model prices are
 	// the most expensive recurring event in long runs). Empty = automatic: a
 	// curated cheap model on official endpoints, the main model elsewhere.
-	// "main" forces the main model. ZERO_COMPACTION_MODEL overrides.
+	// "main" forces the main model. QG_COMPACTION_MODEL overrides.
 	CompactionModel string `json:"compactionModel,omitempty"`
 }
 
@@ -209,7 +209,7 @@ type STTConfig struct {
 	LocalServerPort int `json:"localServerPort,omitempty"`
 	// EngineVersion selects the sherpa-onnx release the auto-download fetches
 	// ("" → a pinned known-good default; "latest" or any release tag also works,
-	// so a newer engine needs no Zero update). Verified against the release's
+	// so a newer engine needs no QG update). Verified against the release's
 	// published SHA256 digest either way.
 	EngineVersion string `json:"engineVersion,omitempty"`
 	// NumThreads sets the local engine's thread count (0 = engine default).
@@ -368,7 +368,7 @@ type FileConfig struct {
 	// i.e. the value is configured, not the built-in default. Unexported like
 	// Tools.deferThresholdSet: merge bookkeeping, not a config key.
 	maxTurnsSet bool
-	// Extra preserves top-level fields written by newer Zero versions or
+	// Extra preserves top-level fields written by newer QG versions or
 	// extensions so a read-modify-write through this version is non-destructive.
 	Extra map[string]json.RawMessage `json:"-"`
 }
@@ -443,7 +443,7 @@ type ResolveOptions struct {
 	Env               map[string]string
 	Overrides         Overrides
 	// ExcludeProject drops the project config layer (ProjectConfigPath) from MCP
-	// resolution when the workspace is untrusted, so a cloned repo's ./.zero/config.json
+	// resolution when the workspace is untrusted, so a cloned repo's ./.qg/config.json
 	// cannot spawn stdio MCP servers. It is fail-closed: only a trusted workspace sets
 	// it false. Mirrors the ExcludeProject option hooks and plugins already honor.
 	ExcludeProject bool
@@ -470,7 +470,7 @@ type ResolvedConfig struct {
 	Provider       ProviderProfile
 	MaxTurns       int
 	// MaxTurnsSet reports whether MaxTurns came from an explicit source (a
-	// config file, a provider command, ZERO_MAX_TURNS, or CLI overrides) rather
+	// config file, a provider command, QG_MAX_TURNS, or CLI overrides) rather
 	// than the built-in default — callers that need a different default can
 	// tell the two apart.
 	MaxTurnsSet         bool

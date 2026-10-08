@@ -199,7 +199,7 @@ func TestManagerMigratesLegacyOutputPathWhenCanonicalOutputExists(t *testing.T) 
 	if err := os.WriteFile(canonicalOutput, []byte("legacy output\n"), 0o600); err != nil {
 		t.Fatalf("write canonical output: %v", err)
 	}
-	legacyOutput := filepath.Join(t.TempDir(), "zero", "background", taskID+".ndjson")
+	legacyOutput := filepath.Join(t.TempDir(), "qg", "background", taskID+".ndjson")
 	metadata, err := json.Marshal(Task{
 		ID:         taskID,
 		Type:       "specialist",
@@ -483,10 +483,10 @@ func TestManagerKillRunningStopsOnlyRunningTasks(t *testing.T) {
 
 func TestDefaultRootHonorsXDGDataHome(t *testing.T) {
 	got := DefaultRoot(map[string]string{
-		"XDG_DATA_HOME": "/tmp/zero-data",
+		"XDG_DATA_HOME": "/tmp/qg-data",
 		"HOME":          "/home/example",
 	})
-	want := filepath.Join("/tmp/zero-data", "zero", "background")
+	want := filepath.Join("/tmp/qg-data", "qg", "background")
 	if got != want {
 		t.Fatalf("DefaultRoot = %q, want %q", got, want)
 	}

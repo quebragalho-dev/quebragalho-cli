@@ -50,7 +50,7 @@ func TestPrepareSandboxRuntimeCleansExpiredSibling(t *testing.T) {
 		sandboxUserCacheDir = originalCache
 		sandboxRuntimeNow = originalNow
 	})
-	parent := filepath.Join(cacheRoot, "zero", "runtime", "v1")
+	parent := filepath.Join(cacheRoot, "qg", "runtime", "v1")
 	expired := filepath.Join(parent, "expired")
 	if err := os.MkdirAll(expired, 0o700); err != nil {
 		t.Fatal(err)
@@ -288,7 +288,7 @@ func TestEngineCommandPlanCarriesManagedRuntime(t *testing.T) {
 			Name:            BackendLinuxBwrap,
 			Available:       true,
 			Platform:        "linux",
-			Executable:      "/usr/bin/zero-linux-sandbox",
+			Executable:      "/usr/bin/qg-linux-sandbox",
 			CommandWrapping: true,
 			NativeIsolation: true,
 		},

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func init() {
@@ -41,28 +41,28 @@ func TestStreamCompletionPostsChatCompletionRequest(t *testing.T) {
 		APIKey:    "sk-secret",
 		BaseURL:   server.URL + "/",
 		Model:     "gpt-test",
-		UserAgent: "zero-test",
+		UserAgent: "qg-test",
 	})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{
-			{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-			{Role: zeroruntime.MessageRoleUser, Content: "user"},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{
+			{Role: qgruntime.MessageRoleSystem, Content: "system"},
+			{Role: qgruntime.MessageRoleUser, Content: "user"},
 			{
-				Role:    zeroruntime.MessageRoleAssistant,
+				Role:    qgruntime.MessageRoleAssistant,
 				Content: "using a tool",
-				ToolCalls: []zeroruntime.ToolCall{{
+				ToolCalls: []qgruntime.ToolCall{{
 					ID:        "call_1",
 					Name:      "read_file",
 					Arguments: `{"path":"README.md"}`,
 				}},
 			},
-			{Role: zeroruntime.MessageRoleTool, Content: "contents", ToolCallID: "call_1"},
+			{Role: qgruntime.MessageRoleTool, Content: "contents", ToolCallID: "call_1"},
 		},
-		Tools: []zeroruntime.ToolDefinition{{
+		Tools: []qgruntime.ToolDefinition{{
 			Name:        "read_file",
 			Description: "Read a file",
 			Parameters:  map[string]any{"type": "object"},
@@ -79,8 +79,8 @@ func TestStreamCompletionPostsChatCompletionRequest(t *testing.T) {
 	if gotAuth != "Bearer sk-secret" {
 		t.Fatalf("auth = %q, want bearer token", gotAuth)
 	}
-	if gotUserAgent != "zero-test" {
-		t.Fatalf("user agent = %q, want zero-test", gotUserAgent)
+	if gotUserAgent != "qg-test" {
+		t.Fatalf("user agent = %q, want qg-test", gotUserAgent)
 	}
 	if gotBody["model"] != "gpt-test" || gotBody["stream"] != true {
 		t.Fatalf("unexpected model/stream: %#v", gotBody)
@@ -152,9 +152,9 @@ func TestStreamCompletionSerializesTypedNilPropertiesAsEmptyObject(t *testing.T)
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
-		Tools: []zeroruntime.ToolDefinition{{
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
+		Tools: []qgruntime.ToolDefinition{{
 			Name:        "no_args",
 			Description: "Takes no arguments",
 			Parameters:  map[string]any{"type": "object", "properties": map[string]any(nil)},
@@ -208,8 +208,8 @@ func TestStreamCompletionOmitsAuthAndToolsWhenEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned error: %v", err)
@@ -243,13 +243,13 @@ func TestStreamCompletionAppliesCustomAuthAndHeaders(t *testing.T) {
 		Model:         "custom-model",
 		AuthHeader:    "X-API-Key",
 		AuthScheme:    "Token",
-		CustomHeaders: map[string]string{"HTTP-Referer": "https://zero.dev"},
+		CustomHeaders: map[string]string{"HTTP-Referer": "https://qg.dev"},
 	})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned error: %v", err)
@@ -262,7 +262,7 @@ func TestStreamCompletionAppliesCustomAuthAndHeaders(t *testing.T) {
 	if gotAltAuth != "Token sk-custom" {
 		t.Fatalf("X-API-Key = %q, want custom scheme token", gotAltAuth)
 	}
-	if gotReferer != "https://zero.dev" {
+	if gotReferer != "https://qg.dev" {
 		t.Fatalf("HTTP-Referer = %q, want custom header", gotReferer)
 	}
 }
@@ -271,17 +271,17 @@ func TestStreamCompletionEmitsTextUsageAndDone(t *testing.T) {
 	t.Parallel()
 	provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		writeSSE(w, `{"choices":[{"delta":{"content":"hello "}}]}`)
-		writeSSE(w, `{"choices":[{"delta":{"content":"zero"}}],"usage":{"prompt_tokens":12,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}}`)
+		writeSSE(w, `{"choices":[{"delta":{"content":"qg"}}],"usage":{"prompt_tokens":12,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}}`)
 		writeSSE(w, `[DONE]`)
 	})
 
 	events := collectProviderEvents(t, provider)
-	assertEvent(t, events[0], zeroruntime.StreamEventText, "hello ")
-	assertEvent(t, events[1], zeroruntime.StreamEventText, "zero")
-	if events[2].Type != zeroruntime.StreamEventUsage || events[2].Usage.PromptTokens != 12 || events[2].Usage.CompletionTokens != 5 || events[2].Usage.CachedInputTokens != 3 || events[2].Usage.CacheWriteTokens != 2 {
+	assertEvent(t, events[0], qgruntime.StreamEventText, "hello ")
+	assertEvent(t, events[1], qgruntime.StreamEventText, "qg")
+	if events[2].Type != qgruntime.StreamEventUsage || events[2].Usage.PromptTokens != 12 || events[2].Usage.CompletionTokens != 5 || events[2].Usage.CachedInputTokens != 3 || events[2].Usage.CacheWriteTokens != 2 {
 		t.Fatalf("unexpected usage event: %#v", events[2])
 	}
-	if events[3].Type != zeroruntime.StreamEventDone {
+	if events[3].Type != qgruntime.StreamEventDone {
 		t.Fatalf("last event = %#v, want done", events[3])
 	}
 }
@@ -295,14 +295,14 @@ func TestStreamCompletionEmitsReasoningContentDeltas(t *testing.T) {
 	})
 
 	events := collectProviderEvents(t, provider)
-	reasoning := eventsOfType(events, zeroruntime.StreamEventReasoning)
+	reasoning := eventsOfType(events, qgruntime.StreamEventReasoning)
 	if len(reasoning) != 2 {
 		t.Fatalf("reasoning events = %#v, want two reasoning deltas", reasoning)
 	}
 	if reasoning[0].Content != "Thinking. " || reasoning[1].Content != "Answering now." {
 		t.Fatalf("unexpected reasoning events: %#v", reasoning)
 	}
-	if text := eventsOfType(events, zeroruntime.StreamEventText); len(text) != 0 {
+	if text := eventsOfType(events, qgruntime.StreamEventText); len(text) != 0 {
 		t.Fatalf("reasoning_content must not emit text events, got %#v", text)
 	}
 }
@@ -316,14 +316,14 @@ func TestStreamCompletionEmitsReasoningAliasDeltas(t *testing.T) {
 	})
 
 	events := collectProviderEvents(t, provider)
-	reasoning := eventsOfType(events, zeroruntime.StreamEventReasoning)
+	reasoning := eventsOfType(events, qgruntime.StreamEventReasoning)
 	if len(reasoning) != 2 {
 		t.Fatalf("reasoning events = %#v, want two reasoning deltas", reasoning)
 	}
 	if reasoning[0].Content != "Thinking. " || reasoning[1].Content != "Answering now." {
 		t.Fatalf("unexpected reasoning events: %#v", reasoning)
 	}
-	if text := eventsOfType(events, zeroruntime.StreamEventText); len(text) != 0 {
+	if text := eventsOfType(events, qgruntime.StreamEventText); len(text) != 0 {
 		t.Fatalf("reasoning must not emit text events, got %#v", text)
 	}
 }
@@ -336,7 +336,7 @@ func TestStreamCompletionPrefersReasoningContentOverAlias(t *testing.T) {
 	})
 
 	events := collectProviderEvents(t, provider)
-	reasoning := eventsOfType(events, zeroruntime.StreamEventReasoning)
+	reasoning := eventsOfType(events, qgruntime.StreamEventReasoning)
 	if len(reasoning) != 1 || reasoning[0].Content != "standard" {
 		t.Fatalf("reasoning events = %#v, want standard reasoning_content", reasoning)
 	}
@@ -353,9 +353,9 @@ func TestStreamCompletionEmitsReasoningBeforeRegularContent(t *testing.T) {
 	if len(events) < 3 {
 		t.Fatalf("events = %#v, want reasoning, text, done", events)
 	}
-	assertEvent(t, events[0], zeroruntime.StreamEventReasoning, "Thinking. ")
-	assertEvent(t, events[1], zeroruntime.StreamEventText, "Answer.")
-	if events[2].Type != zeroruntime.StreamEventDone {
+	assertEvent(t, events[0], qgruntime.StreamEventReasoning, "Thinking. ")
+	assertEvent(t, events[1], qgruntime.StreamEventText, "Answer.")
+	if events[2].Type != qgruntime.StreamEventDone {
 		t.Fatalf("third event = %#v, want done", events[2])
 	}
 }
@@ -368,8 +368,8 @@ func TestStreamCompletionPreservesLiteralThinkTagsByDefault(t *testing.T) {
 	})
 
 	events := collectProviderEvents(t, provider)
-	assertEvent(t, events[0], zeroruntime.StreamEventText, "show <think>literal</think> markup")
-	if reasoning := eventsOfType(events, zeroruntime.StreamEventReasoning); len(reasoning) != 0 {
+	assertEvent(t, events[0], qgruntime.StreamEventText, "show <think>literal</think> markup")
+	if reasoning := eventsOfType(events, qgruntime.StreamEventReasoning); len(reasoning) != 0 {
 		t.Fatalf("literal think tags must not emit reasoning by default, got %#v", reasoning)
 	}
 }
@@ -382,9 +382,9 @@ func TestStreamCompletionSplitsInlineThinkTagsFromContent(t *testing.T) {
 	})
 
 	events := collectProviderEvents(t, provider)
-	assertEvent(t, events[0], zeroruntime.StreamEventReasoning, "private reasoning")
-	assertEvent(t, events[1], zeroruntime.StreamEventText, "public answer")
-	if events[2].Type != zeroruntime.StreamEventDone {
+	assertEvent(t, events[0], qgruntime.StreamEventReasoning, "private reasoning")
+	assertEvent(t, events[1], qgruntime.StreamEventText, "public answer")
+	if events[2].Type != qgruntime.StreamEventDone {
 		t.Fatalf("third event = %#v, want done", events[2])
 	}
 }
@@ -400,11 +400,11 @@ func TestStreamCompletionSplitsInlineThinkTagsAcrossChunks(t *testing.T) {
 	})
 
 	events := collectProviderEvents(t, provider)
-	reasoning := eventsOfType(events, zeroruntime.StreamEventReasoning)
+	reasoning := eventsOfType(events, qgruntime.StreamEventReasoning)
 	if len(reasoning) != 2 || reasoning[0].Content != "reason" || reasoning[1].Content != "ing" {
 		t.Fatalf("reasoning events = %#v, want split reasoning content", reasoning)
 	}
-	text := eventsOfType(events, zeroruntime.StreamEventText)
+	text := eventsOfType(events, qgruntime.StreamEventText)
 	if len(text) != 1 || text[0].Content != " answer" {
 		t.Fatalf("text events = %#v, want answer-only content", text)
 	}
@@ -422,16 +422,16 @@ func TestStreamCompletionBuffersToolArgsUntilIDAndNameArrive(t *testing.T) {
 	if len(events) != 4 {
 		t.Fatalf("events = %#v, want start, delta, end, done", events)
 	}
-	if events[0].Type != zeroruntime.StreamEventToolCallStart || events[0].ToolCallID != "call_1" || events[0].ToolName != "read_file" {
+	if events[0].Type != qgruntime.StreamEventToolCallStart || events[0].ToolCallID != "call_1" || events[0].ToolName != "read_file" {
 		t.Fatalf("unexpected start event: %#v", events[0])
 	}
-	if events[1].Type != zeroruntime.StreamEventToolCallDelta || events[1].ToolCallID != "call_1" || events[1].ArgumentsFragment != `{"path":"README.md"}` {
+	if events[1].Type != qgruntime.StreamEventToolCallDelta || events[1].ToolCallID != "call_1" || events[1].ArgumentsFragment != `{"path":"README.md"}` {
 		t.Fatalf("unexpected delta event: %#v", events[1])
 	}
-	if events[2].Type != zeroruntime.StreamEventToolCallEnd || events[2].ToolCallID != "call_1" {
+	if events[2].Type != qgruntime.StreamEventToolCallEnd || events[2].ToolCallID != "call_1" {
 		t.Fatalf("unexpected end event: %#v", events[2])
 	}
-	if events[3].Type != zeroruntime.StreamEventDone {
+	if events[3].Type != qgruntime.StreamEventDone {
 		t.Fatalf("unexpected done event: %#v", events[3])
 	}
 }
@@ -440,21 +440,21 @@ func TestStreamCompletionTracksMultipleToolCallsByIndex(t *testing.T) {
 	t.Parallel()
 	provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		writeSSE(w, `{"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"query\":"}},{"index":0,"id":"call_a","function":{"name":"read_file","arguments":"{\"path\":\"a\"}"}}]}}]}`)
-		writeSSE(w, `{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","function":{"name":"grep","arguments":"\"zero\"}"}}]},"finish_reason":"tool_calls"}]}`)
+		writeSSE(w, `{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","function":{"name":"grep","arguments":"\"qg\"}"}}]},"finish_reason":"tool_calls"}]}`)
 		writeSSE(w, `[DONE]`)
 	})
 
 	events := collectProviderEvents(t, provider)
-	starts := eventsOfType(events, zeroruntime.StreamEventToolCallStart)
-	deltas := eventsOfType(events, zeroruntime.StreamEventToolCallDelta)
-	ends := eventsOfType(events, zeroruntime.StreamEventToolCallEnd)
+	starts := eventsOfType(events, qgruntime.StreamEventToolCallStart)
+	deltas := eventsOfType(events, qgruntime.StreamEventToolCallDelta)
+	ends := eventsOfType(events, qgruntime.StreamEventToolCallEnd)
 	if len(starts) != 2 || len(deltas) != 2 || len(ends) != 2 {
 		t.Fatalf("events = %#v, want two starts/deltas/ends", events)
 	}
 	if deltas[0].ToolCallID != "call_a" || deltas[0].ArgumentsFragment != `{"path":"a"}` {
 		t.Fatalf("unexpected first delta: %#v", deltas[0])
 	}
-	if deltas[1].ToolCallID != "call_b" || deltas[1].ArgumentsFragment != `{"query":"zero"}` {
+	if deltas[1].ToolCallID != "call_b" || deltas[1].ArgumentsFragment != `{"query":"qg"}` {
 		t.Fatalf("unexpected second delta: %#v", deltas[1])
 	}
 }
@@ -479,12 +479,12 @@ func TestStreamCompletionClassifiesHTTPErrorsAndRedactsToken(t *testing.T) {
 			provider := newTestProviderWithKey(t, "sk-secret", func(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, tc.body, tc.status)
 			})
-			stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{})
+			stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{})
 			if err != nil {
 				t.Fatalf("StreamCompletion returned setup error: %v", err)
 			}
 			events := readAll(stream)
-			if len(events) != 1 || events[0].Type != zeroruntime.StreamEventError {
+			if len(events) != 1 || events[0].Type != qgruntime.StreamEventError {
 				t.Fatalf("events = %#v, want one error", events)
 			}
 			if !strings.HasPrefix(events[0].Error, tc.wantPrefix) {
@@ -509,12 +509,12 @@ func TestStreamCompletionHumanizesUpstreamUnreachableGatewayError(t *testing.T) 
 	provider := newTestProviderWithKey(t, "sk-secret", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"Post \"https://ollama.com:443/v1/chat/completions?ts=1\": net/http: TLS handshake timeout"}`, http.StatusBadGateway)
 	})
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{})
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned setup error: %v", err)
 	}
 	events := readAll(stream)
-	if len(events) != 1 || events[0].Type != zeroruntime.StreamEventError {
+	if len(events) != 1 || events[0].Type != qgruntime.StreamEventError {
 		t.Fatalf("events = %#v, want one error", events)
 	}
 	got := events[0].Error
@@ -535,7 +535,7 @@ func TestStreamCompletionEmitsStreamErrorObject(t *testing.T) {
 	})
 
 	events := collectProviderEvents(t, provider)
-	if len(events) != 1 || events[0].Type != zeroruntime.StreamEventError {
+	if len(events) != 1 || events[0].Type != qgruntime.StreamEventError {
 		t.Fatalf("events = %#v, want one error", events)
 	}
 	if !strings.HasPrefix(events[0].Error, "provider error:") {
@@ -574,7 +574,7 @@ func TestStreamCompletionClassifiesStreamErrorCode(t *testing.T) {
 			})
 
 			events := collectProviderEvents(t, provider)
-			if len(events) != 1 || events[0].Type != zeroruntime.StreamEventError {
+			if len(events) != 1 || events[0].Type != qgruntime.StreamEventError {
 				t.Fatalf("events = %#v, want one error", events)
 			}
 			if !strings.HasPrefix(events[0].Error, tc.wantPrefix) {
@@ -590,7 +590,7 @@ func TestStreamCompletionEmitsErrorForMalformedJSON(t *testing.T) {
 	})
 
 	events := collectProviderEvents(t, provider)
-	if len(events) != 1 || events[0].Type != zeroruntime.StreamEventError {
+	if len(events) != 1 || events[0].Type != qgruntime.StreamEventError {
 		t.Fatalf("events = %#v, want one error", events)
 	}
 	if !strings.HasPrefix(events[0].Error, "provider stream error: malformed JSON") {
@@ -608,7 +608,7 @@ func TestStreamCompletionEmitsErrorWhenContextCancels(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 
-	stream, err := provider.StreamCompletion(ctx, zeroruntime.CompletionRequest{})
+	stream, err := provider.StreamCompletion(ctx, qgruntime.CompletionRequest{})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned setup error: %v", err)
 	}
@@ -617,7 +617,7 @@ func TestStreamCompletionEmitsErrorWhenContextCancels(t *testing.T) {
 	close(release)
 
 	events := readAll(stream)
-	if len(events) != 1 || events[0].Type != zeroruntime.StreamEventError {
+	if len(events) != 1 || events[0].Type != qgruntime.StreamEventError {
 		t.Fatalf("events = %#v, want context error", events)
 	}
 	if !strings.Contains(events[0].Error, "context canceled") {
@@ -639,12 +639,12 @@ func TestStreamCompletionContextDeadlineNotHumanizedAsUpstream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	stream, err := provider.StreamCompletion(ctx, zeroruntime.CompletionRequest{})
+	stream, err := provider.StreamCompletion(ctx, qgruntime.CompletionRequest{})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned setup error: %v", err)
 	}
 	events := readAll(stream)
-	if len(events) != 1 || events[0].Type != zeroruntime.StreamEventError {
+	if len(events) != 1 || events[0].Type != qgruntime.StreamEventError {
 		t.Fatalf("events = %#v, want one error", events)
 	}
 	got := events[0].Error
@@ -669,12 +669,12 @@ func TestStreamCompletionFlushesBufferedContentWhenContextCancels(t *testing.T) 
 	defer close(release)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := provider.StreamCompletion(ctx, zeroruntime.CompletionRequest{})
+	stream, err := provider.StreamCompletion(ctx, qgruntime.CompletionRequest{})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned setup error: %v", err)
 	}
 
-	events := []zeroruntime.StreamEvent{}
+	events := []qgruntime.StreamEvent{}
 	select {
 	case event, ok := <-stream:
 		if !ok {
@@ -688,12 +688,12 @@ func TestStreamCompletionFlushesBufferedContentWhenContextCancels(t *testing.T) 
 	events = append(events, readAll(stream)...)
 
 	if len(events) != 3 ||
-		events[0].Type != zeroruntime.StreamEventText || events[0].Content != "visible " ||
-		events[1].Type != zeroruntime.StreamEventText || events[1].Content != "<thi" ||
-		events[2].Type != zeroruntime.StreamEventError {
+		events[0].Type != qgruntime.StreamEventText || events[0].Content != "visible " ||
+		events[1].Type != qgruntime.StreamEventText || events[1].Content != "<thi" ||
+		events[2].Type != qgruntime.StreamEventError {
 		t.Fatalf("events = %#v, want text, buffered text, then context error", events)
 	}
-	if done := eventsOfType(events, zeroruntime.StreamEventDone); len(done) != 0 {
+	if done := eventsOfType(events, qgruntime.StreamEventDone); len(done) != 0 {
 		t.Fatalf("events = %#v, want no done after context cancel", events)
 	}
 }
@@ -742,24 +742,24 @@ func newTestProviderWithOptions(t *testing.T, options Options, handler http.Hand
 	return provider
 }
 
-func collectProviderEvents(t *testing.T, provider *Provider) []zeroruntime.StreamEvent {
+func collectProviderEvents(t *testing.T, provider *Provider) []qgruntime.StreamEvent {
 	t.Helper()
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{})
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned setup error: %v", err)
 	}
 	return readAll(stream)
 }
 
-func readAll(stream <-chan zeroruntime.StreamEvent) []zeroruntime.StreamEvent {
-	events := []zeroruntime.StreamEvent{}
+func readAll(stream <-chan qgruntime.StreamEvent) []qgruntime.StreamEvent {
+	events := []qgruntime.StreamEvent{}
 	for event := range stream {
 		events = append(events, event)
 	}
 	return events
 }
 
-func drain(stream <-chan zeroruntime.StreamEvent) {
+func drain(stream <-chan qgruntime.StreamEvent) {
 	for range stream {
 	}
 }
@@ -772,15 +772,15 @@ func writeSSE(w http.ResponseWriter, payload string) {
 	}
 }
 
-func assertEvent(t *testing.T, event zeroruntime.StreamEvent, eventType zeroruntime.StreamEventType, content string) {
+func assertEvent(t *testing.T, event qgruntime.StreamEvent, eventType qgruntime.StreamEventType, content string) {
 	t.Helper()
 	if event.Type != eventType || event.Content != content {
 		t.Fatalf("event = %#v, want %s %q", event, eventType, content)
 	}
 }
 
-func eventsOfType(events []zeroruntime.StreamEvent, eventType zeroruntime.StreamEventType) []zeroruntime.StreamEvent {
-	matching := []zeroruntime.StreamEvent{}
+func eventsOfType(events []qgruntime.StreamEvent, eventType qgruntime.StreamEventType) []qgruntime.StreamEvent {
+	matching := []qgruntime.StreamEvent{}
 	for _, event := range events {
 		if event.Type == eventType {
 			matching = append(matching, event)
@@ -797,19 +797,19 @@ func TestStreamCompletionDoesNotHangOnEOFWithOpenToolCall(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	stream, err := provider.StreamCompletion(ctx, zeroruntime.CompletionRequest{})
+	stream, err := provider.StreamCompletion(ctx, qgruntime.CompletionRequest{})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned setup error: %v", err)
 	}
-	events := []zeroruntime.StreamEvent{}
+	events := []qgruntime.StreamEvent{}
 	for {
 		select {
 		case event, ok := <-stream:
 			if !ok {
-				if len(eventsOfType(events, zeroruntime.StreamEventToolCallEnd)) != 1 {
+				if len(eventsOfType(events, qgruntime.StreamEventToolCallEnd)) != 1 {
 					t.Fatalf("events = %#v, want one tool-call-end on EOF", events)
 				}
-				if len(eventsOfType(events, zeroruntime.StreamEventDone)) != 1 {
+				if len(eventsOfType(events, qgruntime.StreamEventDone)) != 1 {
 					t.Fatalf("events = %#v, want done on EOF", events)
 				}
 				return
@@ -828,16 +828,16 @@ func TestStreamCompletionSkipsNamelessToolCallOnEOF(t *testing.T) {
 	})
 
 	events := collectProviderEvents(t, provider)
-	if len(eventsOfType(events, zeroruntime.StreamEventToolCallStart)) != 0 {
+	if len(eventsOfType(events, qgruntime.StreamEventToolCallStart)) != 0 {
 		t.Fatalf("events = %#v, want no start for nameless tool call", events)
 	}
-	if len(eventsOfType(events, zeroruntime.StreamEventToolCallDelta)) != 0 {
+	if len(eventsOfType(events, qgruntime.StreamEventToolCallDelta)) != 0 {
 		t.Fatalf("events = %#v, want no delta for nameless tool call", events)
 	}
-	if len(eventsOfType(events, zeroruntime.StreamEventToolCallEnd)) != 0 {
+	if len(eventsOfType(events, qgruntime.StreamEventToolCallEnd)) != 0 {
 		t.Fatalf("events = %#v, want no end for nameless tool call", events)
 	}
-	if len(eventsOfType(events, zeroruntime.StreamEventDone)) != 1 {
+	if len(eventsOfType(events, qgruntime.StreamEventDone)) != 1 {
 		t.Fatalf("events = %#v, want done event", events)
 	}
 }
@@ -866,15 +866,15 @@ func TestStreamCompletionIdleTimeoutAbortsStalledStream(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{})
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned error: %v", err)
 	}
 
 	// Must terminate (channel closes) rather than hang forever.
-	done := make(chan []zeroruntime.StreamEvent, 1)
+	done := make(chan []qgruntime.StreamEvent, 1)
 	go func() { done <- readAll(stream) }()
-	var events []zeroruntime.StreamEvent
+	var events []qgruntime.StreamEvent
 	select {
 	case events = <-done:
 	case <-time.After(3 * time.Second):
@@ -883,10 +883,10 @@ func TestStreamCompletionIdleTimeoutAbortsStalledStream(t *testing.T) {
 
 	var gotText, gotIdleError bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventText && e.Content == "hi" {
+		if e.Type == qgruntime.StreamEventText && e.Content == "hi" {
 			gotText = true
 		}
-		if e.Type == zeroruntime.StreamEventError && strings.Contains(strings.ToLower(e.Error), "idle") {
+		if e.Type == qgruntime.StreamEventError && strings.Contains(strings.ToLower(e.Error), "idle") {
 			gotIdleError = true
 		}
 	}
@@ -913,8 +913,8 @@ func TestStreamCompletionSendsMaxCompletionTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned error: %v", err)
@@ -945,8 +945,8 @@ func TestStreamCompletionSendsReasoningEffort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages:        []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages:        []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
 		ReasoningEffort: "high",
 	})
 	if err != nil {
@@ -984,8 +984,8 @@ func TestStreamCompletionNormalizesServiceTier(t *testing.T) {
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
-			stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-				Messages:    []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
+			stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+				Messages:    []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
 				ServiceTier: test.input,
 			})
 			if err != nil {
@@ -1021,8 +1021,8 @@ func TestStreamCompletionOmitsReasoningEffortWhenUnsetOrInvalid(t *testing.T) {
 			server.Close()
 			t.Fatalf("New returned error: %v", err)
 		}
-		stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-			Messages:        []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
+		stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+			Messages:        []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
 			ReasoningEffort: effort,
 		})
 		if err != nil {
@@ -1053,8 +1053,8 @@ func TestStreamCompletionOmitsMaxCompletionTokensWhenUnset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion returned error: %v", err)
@@ -1081,7 +1081,7 @@ func TestStreamCompletionSurfacesLengthFinishReason(t *testing.T) {
 	var doneReason string
 	var sawDone bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventDone {
+		if e.Type == qgruntime.StreamEventDone {
 			sawDone = true
 			doneReason = e.FinishReason
 		}
@@ -1089,13 +1089,13 @@ func TestStreamCompletionSurfacesLengthFinishReason(t *testing.T) {
 	if !sawDone {
 		t.Fatalf("no done event; events: %+v", events)
 	}
-	if doneReason != zeroruntime.FinishReasonLength {
-		t.Fatalf("done FinishReason = %q, want %q", doneReason, zeroruntime.FinishReasonLength)
+	if doneReason != qgruntime.FinishReasonLength {
+		t.Fatalf("done FinishReason = %q, want %q", doneReason, qgruntime.FinishReasonLength)
 	}
 
 	// And it round-trips through the runtime collector's FinishReason.
-	collected := zeroruntime.CollectStream(context.Background(), replay(events))
-	if collected.FinishReason != zeroruntime.FinishReasonLength {
+	collected := qgruntime.CollectStream(context.Background(), replay(events))
+	if collected.FinishReason != qgruntime.FinishReasonLength {
 		t.Fatalf("collected = %+v, want truncated length", collected)
 	}
 }
@@ -1111,10 +1111,10 @@ func TestStreamCompletionSurfacesContentFilterFinishReason(t *testing.T) {
 	events := collectProviderEvents(t, provider)
 	var sawDone bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventDone {
+		if e.Type == qgruntime.StreamEventDone {
 			sawDone = true
-			if e.FinishReason != zeroruntime.FinishReasonContentFilter {
-				t.Fatalf("done FinishReason = %q, want %q", e.FinishReason, zeroruntime.FinishReasonContentFilter)
+			if e.FinishReason != qgruntime.FinishReasonContentFilter {
+				t.Fatalf("done FinishReason = %q, want %q", e.FinishReason, qgruntime.FinishReasonContentFilter)
 			}
 		}
 	}
@@ -1134,7 +1134,7 @@ func TestStreamCompletionNormalFinishHasNoReason(t *testing.T) {
 	events := collectProviderEvents(t, provider)
 	var sawDone bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventDone {
+		if e.Type == qgruntime.StreamEventDone {
 			sawDone = true
 			if e.FinishReason != "" {
 				t.Fatalf("normal finish leaked FinishReason %q", e.FinishReason)
@@ -1169,10 +1169,10 @@ func TestStreamCompletionJoinsMultiLineDataFields(t *testing.T) {
 	events := collectProviderEvents(t, provider)
 	var text string
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventText {
+		if e.Type == qgruntime.StreamEventText {
 			text += e.Content
 		}
-		if e.Type == zeroruntime.StreamEventError {
+		if e.Type == qgruntime.StreamEventError {
 			t.Fatalf("multi-line data field produced an error: %q", e.Error)
 		}
 	}
@@ -1181,8 +1181,8 @@ func TestStreamCompletionJoinsMultiLineDataFields(t *testing.T) {
 	}
 }
 
-func replay(events []zeroruntime.StreamEvent) <-chan zeroruntime.StreamEvent {
-	ch := make(chan zeroruntime.StreamEvent, len(events))
+func replay(events []qgruntime.StreamEvent) <-chan qgruntime.StreamEvent {
+	ch := make(chan qgruntime.StreamEvent, len(events))
 	for _, e := range events {
 		ch <- e
 	}
@@ -1208,10 +1208,10 @@ func TestStreamCompletionEmitsDroppedOnNamelessToolCall(t *testing.T) {
 
 	var dropped, started bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventToolCallDropped {
+		if e.Type == qgruntime.StreamEventToolCallDropped {
 			dropped = true
 		}
-		if e.Type == zeroruntime.StreamEventToolCallStart {
+		if e.Type == qgruntime.StreamEventToolCallStart {
 			started = true
 		}
 	}
@@ -1251,10 +1251,10 @@ func TestContentPartImageURLMarshalsDataURI(t *testing.T) {
 
 func TestMapMessageBuildsImageURLContentParts(t *testing.T) {
 	t.Parallel()
-	msg := mapMessage(zeroruntime.Message{
-		Role:    zeroruntime.MessageRoleUser,
+	msg := mapMessage(qgruntime.Message{
+		Role:    qgruntime.MessageRoleUser,
 		Content: "describe these",
-		Images: []zeroruntime.ImageBlock{
+		Images: []qgruntime.ImageBlock{
 			{MediaType: "image/png", Data: []byte("ABC")},
 			{MediaType: "image/jpeg", Data: []byte{0xff, 0xd8, 0xff}},
 		},
@@ -1283,10 +1283,10 @@ func TestMapMessageBuildsImageURLContentParts(t *testing.T) {
 
 func TestMapMessageImageOnlyOmitsTextPart(t *testing.T) {
 	t.Parallel()
-	msg := mapMessage(zeroruntime.Message{
-		Role:    zeroruntime.MessageRoleUser,
+	msg := mapMessage(qgruntime.Message{
+		Role:    qgruntime.MessageRoleUser,
 		Content: "",
-		Images:  []zeroruntime.ImageBlock{{MediaType: "image/png", Data: []byte("A")}},
+		Images:  []qgruntime.ImageBlock{{MediaType: "image/png", Data: []byte("A")}},
 	})
 	parts, ok := msg.Content.([]contentPart)
 	if !ok {
@@ -1304,11 +1304,11 @@ func TestMapMessageImageOnlyOmitsTextPart(t *testing.T) {
 
 func TestMapMessageTextOnlyKeepsStringContent(t *testing.T) {
 	t.Parallel()
-	msg := mapMessage(zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "hi"})
+	msg := mapMessage(qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "hi"})
 	if got, ok := msg.Content.(string); !ok || got != "hi" {
 		t.Fatalf("Content = %#v, want string \"hi\"", msg.Content)
 	}
-	empty := mapMessage(zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: ""})
+	empty := mapMessage(qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: ""})
 	if got, ok := empty.Content.(string); !ok || got != "" {
 		t.Fatalf("empty text content = %#v, want \"\" so it serializes as content:\"\" (strict servers reject a missing/null content)", empty.Content)
 	}
@@ -1321,13 +1321,13 @@ func TestMapMessageTextOnlyKeepsStringContent(t *testing.T) {
 // serialize plain string content (never a content-parts array).
 func TestMapMessageNonUserRolesNeverCarryImages(t *testing.T) {
 	t.Parallel()
-	images := []zeroruntime.ImageBlock{{MediaType: "image/png", Data: []byte("ABC")}}
-	for _, role := range []zeroruntime.MessageRole{
-		zeroruntime.MessageRoleAssistant,
-		zeroruntime.MessageRoleTool,
-		zeroruntime.MessageRoleSystem,
+	images := []qgruntime.ImageBlock{{MediaType: "image/png", Data: []byte("ABC")}}
+	for _, role := range []qgruntime.MessageRole{
+		qgruntime.MessageRoleAssistant,
+		qgruntime.MessageRoleTool,
+		qgruntime.MessageRoleSystem,
 	} {
-		msg := mapMessage(zeroruntime.Message{Role: role, Content: "plain", Images: images})
+		msg := mapMessage(qgruntime.Message{Role: role, Content: "plain", Images: images})
 		if got, ok := msg.Content.(string); !ok || got != "plain" {
 			t.Fatalf("role %q content = %#v, want plain string (no content-parts)", role, msg.Content)
 		}
@@ -1358,11 +1358,11 @@ func TestStreamCompletionSerializesImageContentParts(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{
-			Role:    zeroruntime.MessageRoleUser,
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{
+			Role:    qgruntime.MessageRoleUser,
 			Content: "what is this",
-			Images:  []zeroruntime.ImageBlock{{MediaType: "image/png", Data: []byte("ABC")}},
+			Images:  []qgruntime.ImageBlock{{MediaType: "image/png", Data: []byte("ABC")}},
 		}},
 	})
 	if err != nil {
@@ -1406,18 +1406,18 @@ func TestOpenAIRequestEmptyContentHandling(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	req := provider.openAIRequest(zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{
-			{Role: zeroruntime.MessageRoleUser, Content: "hi"},
+	req := provider.openAIRequest(qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{
+			{Role: qgruntime.MessageRoleUser, Content: "hi"},
 			// Degenerate empty assistant turn (e.g. a sub-agent that failed with no
 			// output): must be dropped, not sent.
-			{Role: zeroruntime.MessageRoleAssistant, Content: "   "},
+			{Role: qgruntime.MessageRoleAssistant, Content: "   "},
 			// Assistant with tool calls but no text: kept, content present as "".
-			{Role: zeroruntime.MessageRoleAssistant, Content: "", ToolCalls: []zeroruntime.ToolCall{{
+			{Role: qgruntime.MessageRoleAssistant, Content: "", ToolCalls: []qgruntime.ToolCall{{
 				ID: "call_1", Name: "read_file", Arguments: "{}",
 			}}},
 			// Tool result with empty content: kept, content present as "".
-			{Role: zeroruntime.MessageRoleTool, Content: "", ToolCallID: "call_1"},
+			{Role: qgruntime.MessageRoleTool, Content: "", ToolCallID: "call_1"},
 		},
 	})
 
@@ -1462,15 +1462,15 @@ func TestOpenAIRequestEmptyContentHandling(t *testing.T) {
 // replica holding the cached prefix, a keyless request omits the field
 // entirely (strict servers see byte-identical requests to before),
 // DisablePromptCacheKey (used for openai-compatible gateways) suppresses it,
-// and ZERO_DISABLE_PROMPT_CACHE_KEY is the env kill switch for any endpoint.
+// and QG_DISABLE_PROMPT_CACHE_KEY is the env kill switch for any endpoint.
 func TestOpenAIRequestPromptCacheKey(t *testing.T) {
 	provider, err := New(Options{Model: "gpt-test"})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	messages := []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}}
+	messages := []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}}
 
-	req := provider.openAIRequest(zeroruntime.CompletionRequest{
+	req := provider.openAIRequest(qgruntime.CompletionRequest{
 		Messages:       messages,
 		PromptCacheKey: "sess_123",
 	})
@@ -1485,7 +1485,7 @@ func TestOpenAIRequestPromptCacheKey(t *testing.T) {
 		t.Fatalf("prompt_cache_key not serialized: %s", data)
 	}
 
-	req = provider.openAIRequest(zeroruntime.CompletionRequest{Messages: messages})
+	req = provider.openAIRequest(qgruntime.CompletionRequest{Messages: messages})
 	if data, err = json.Marshal(req); err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -1499,7 +1499,7 @@ func TestOpenAIRequestPromptCacheKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(DisablePromptCacheKey) returned error: %v", err)
 	}
-	req = compat.openAIRequest(zeroruntime.CompletionRequest{
+	req = compat.openAIRequest(qgruntime.CompletionRequest{
 		Messages:       messages,
 		PromptCacheKey: "sess_123",
 	})
@@ -1513,8 +1513,8 @@ func TestOpenAIRequestPromptCacheKey(t *testing.T) {
 		t.Fatalf("compatible provider must omit prompt_cache_key: %s", data)
 	}
 
-	t.Setenv("ZERO_DISABLE_PROMPT_CACHE_KEY", "1")
-	req = provider.openAIRequest(zeroruntime.CompletionRequest{
+	t.Setenv("QG_DISABLE_PROMPT_CACHE_KEY", "1")
+	req = provider.openAIRequest(qgruntime.CompletionRequest{
 		Messages:       messages,
 		PromptCacheKey: "sess_123",
 	})
@@ -1523,15 +1523,15 @@ func TestOpenAIRequestPromptCacheKey(t *testing.T) {
 	}
 
 	// Explicitly-falsy kill switch values must NOT disable forwarding — only
-	// truthy values flip the toggle (same parsing as ZERO_FORMAT_ON_WRITE).
+	// truthy values flip the toggle (same parsing as QG_FORMAT_ON_WRITE).
 	for _, value := range []string{"0", "false", "FALSE"} {
-		t.Setenv("ZERO_DISABLE_PROMPT_CACHE_KEY", value)
-		req = provider.openAIRequest(zeroruntime.CompletionRequest{
+		t.Setenv("QG_DISABLE_PROMPT_CACHE_KEY", value)
+		req = provider.openAIRequest(qgruntime.CompletionRequest{
 			Messages:       messages,
 			PromptCacheKey: "sess_123",
 		})
 		if req.PromptCacheKey != "sess_123" {
-			t.Fatalf("ZERO_DISABLE_PROMPT_CACHE_KEY=%q must be a no-op; PromptCacheKey = %q", value, req.PromptCacheKey)
+			t.Fatalf("QG_DISABLE_PROMPT_CACHE_KEY=%q must be a no-op; PromptCacheKey = %q", value, req.PromptCacheKey)
 		}
 	}
 }
@@ -1542,7 +1542,7 @@ func TestOpenAIRequestPreservesCacheablePrefixAcrossTurns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	tools := []zeroruntime.ToolDefinition{{
+	tools := []qgruntime.ToolDefinition{{
 		Name:        "read_file",
 		Description: "Read a file.",
 		Parameters: map[string]any{
@@ -1552,19 +1552,19 @@ func TestOpenAIRequestPreservesCacheablePrefixAcrossTurns(t *testing.T) {
 			},
 		},
 	}}
-	firstMessages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "stable system prompt"},
-		{Role: zeroruntime.MessageRoleUser, Content: "first turn"},
+	firstMessages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "stable system prompt"},
+		{Role: qgruntime.MessageRoleUser, Content: "first turn"},
 	}
-	secondMessages := append([]zeroruntime.Message(nil), firstMessages...)
+	secondMessages := append([]qgruntime.Message(nil), firstMessages...)
 	secondMessages = append(secondMessages,
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "first response"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "second turn"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "first response"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "second turn"},
 	)
 
-	marshalBody := func(messages []zeroruntime.Message) map[string]any {
+	marshalBody := func(messages []qgruntime.Message) map[string]any {
 		t.Helper()
-		mapped := provider.openAIRequest(zeroruntime.CompletionRequest{
+		mapped := provider.openAIRequest(qgruntime.CompletionRequest{
 			Messages:       messages,
 			Tools:          tools,
 			PromptCacheKey: "session-stable-prefix",
@@ -1627,9 +1627,9 @@ func TestStreamCompletionSerializesNonMapPropertiesAsEmptyObject(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	stream, err := provider.StreamCompletion(context.Background(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "hi"}},
-		Tools: []zeroruntime.ToolDefinition{{
+	stream, err := provider.StreamCompletion(context.Background(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "hi"}},
+		Tools: []qgruntime.ToolDefinition{{
 			Name:        "no_args",
 			Description: "Takes no arguments",
 			Parameters:  map[string]any{"type": "object", "properties": []any{}},

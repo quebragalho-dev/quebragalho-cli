@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 type mcpConfigLockCase struct {
@@ -87,7 +87,7 @@ func assertMCPConfigLockMutation(t *testing.T, path string, testCase mcpConfigLo
 func TestRunMCPConfigCommandsParticipateInConfigLock(t *testing.T) {
 	for _, testCase := range mcpConfigLockCases() {
 		t.Run(testCase.name, func(t *testing.T) {
-			configPath := filepath.Join(t.TempDir(), "zero", "config.json")
+			configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 			seedMCPConfigLockCase(t, configPath, testCase)
 			before, err := os.ReadFile(configPath)
 			if err != nil {
@@ -173,7 +173,7 @@ func TestRunMCPConfigCommandsReportLockAcquisitionFailure(t *testing.T) {
 
 	for _, testCase := range mcpConfigLockCases() {
 		t.Run(testCase.name, func(t *testing.T) {
-			configPath := filepath.Join(t.TempDir(), "zero", "config.json")
+			configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 			seedMCPConfigLockCase(t, configPath, testCase)
 			before, err := os.ReadFile(configPath)
 			if err != nil {
@@ -207,7 +207,7 @@ func TestRunMCPConfigCommandsReleaseBeforeSuccessOutput(t *testing.T) {
 
 	for _, testCase := range mcpConfigLockCases() {
 		t.Run(testCase.name, func(t *testing.T) {
-			configPath := filepath.Join(t.TempDir(), "zero", "config.json")
+			configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 			seedMCPConfigLockCase(t, configPath, testCase)
 			var stdout, stderr bytes.Buffer
 			exitCode := runWithDeps(testCase.args, &stdout, &stderr, appDeps{

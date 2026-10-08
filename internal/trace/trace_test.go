@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/agenteval"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agenteval"
 )
 
 func TestRecorderSpanAccumulates(t *testing.T) {
@@ -338,11 +338,11 @@ func TestCoverageExcludesDoubleCountAndCaps(t *testing.T) {
 }
 
 func TestAttributionRatioZeroWall(t *testing.T) {
-	// A trace with no completed run has zero wall and a defined-zero ratio
-	// (covers the divide-by-zero guard).
+	// A trace with no completed run has qg wall and a defined-qg ratio
+	// (covers the divide-by-qg guard).
 	tr := &TurnTrace{}
 	if got := tr.AttributionRatio(); got != 0 {
-		t.Fatalf("zero-wall ratio = %v, want 0", got)
+		t.Fatalf("qg-wall ratio = %v, want 0", got)
 	}
 	if got := tr.AttributedDuration(); got != 0 {
 		t.Fatalf("empty attributed = %v, want 0", got)
@@ -495,7 +495,7 @@ func TestReadNDJSONRejectsEmpty(t *testing.T) {
 	// Empty or blank-only input means emission never produced a trace line
 	// (e.g. the agent crashed before writing the header, or --trace was not
 	// honored). That must surface as an error so the harness records a
-	// TraceIssue rather than treating a crashed run as clean zero-attribution.
+	// TraceIssue rather than treating a crashed run as clean qg-attribution.
 	if _, err := ReadNDJSON(strings.NewReader("")); err == nil {
 		t.Fatal("expected error for empty input")
 	}

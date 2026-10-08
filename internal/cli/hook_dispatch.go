@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/hooks"
-	"github.com/Gitlawb/zero/internal/workspacetrust"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspacetrust"
 )
 
 // trustSkip reports whether a runtime chokepoint dropped the project layer because
@@ -119,13 +119,13 @@ func newHookDispatcherWithExtra(workspaceRoot string, extra []hooks.Definition, 
 	}), skip
 }
 
-// projectHooksFileExists reports whether a ./.zero/hooks.json is present under
+// projectHooksFileExists reports whether a ./.qg/hooks.json is present under
 // workspaceRoot, so the caller only notices about config it actually skipped.
 func projectHooksFileExists(workspaceRoot string) bool {
 	if workspaceRoot == "" {
 		return false
 	}
-	info, err := os.Stat(filepath.Join(workspaceRoot, ".zero", "hooks.json"))
+	info, err := os.Stat(filepath.Join(workspaceRoot, ".qg", "hooks.json"))
 	return err == nil && !info.IsDir()
 }
 
@@ -150,8 +150,8 @@ func emitTrustNotice(stderr io.Writer, skips ...trustSkip) {
 		return
 	}
 	if storeErrored {
-		_, _ = fmt.Fprintln(stderr, "zero: the workspace-trust store could not be read; ignoring project hooks/plugins/MCP servers (fail-closed). Run 'zero trust' to enable.")
+		_, _ = fmt.Fprintln(stderr, "qg: the workspace-trust store could not be read; ignoring project hooks/plugins/MCP servers (fail-closed). Run 'qg trust' to enable.")
 		return
 	}
-	_, _ = fmt.Fprintln(stderr, "zero: ignoring project hooks/plugins/MCP servers in an untrusted workspace. Run 'zero trust' to enable.")
+	_, _ = fmt.Fprintln(stderr, "qg: ignoring project hooks/plugins/MCP servers in an untrusted workspace. Run 'qg trust' to enable.")
 }

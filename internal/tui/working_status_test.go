@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/Gitlawb/zero/internal/tools"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // TestWorkingStatusDoesNotDuplicatePlan keeps the activity cue focused on the
@@ -228,12 +228,12 @@ func TestBeginRunResetsQuietGenerationClock(t *testing.T) {
 // identical under the plain "still generating… Xs" cue — the ticking number
 // is the only signal, whether real content is still coming or nothing ever
 // will. Past half the provider's idle timeout the cue must say so explicitly
-// and name when Zero's own content-stall watchdog will act, rather than
+// and name when QG's own content-stall watchdog will act, rather than
 // leaving the user to guess whether this is a hang.
 func TestQuietGenerationHintEscalatesPastHalfIdleTimeout(t *testing.T) {
 	// 30s idle timeout: half (15s) sits comfortably above quietWorkingHint (8s),
 	// leaving a clean window to observe the plain cue before it escalates.
-	t.Setenv("ZERO_STREAM_IDLE_TIMEOUT", "30s")
+	t.Setenv("QG_STREAM_IDLE_TIMEOUT", "30s")
 	base := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	m := model{now: func() time.Time { return base }}
 	m.activeRunID = 7
@@ -321,7 +321,7 @@ func TestInterimBlockShowsWorkingLineWithStreamedText(t *testing.T) {
 // the model streams, replacing the old static scroll figure.
 func TestWorkingTokenIndicatorEstimatesFromStreamedRunes(t *testing.T) {
 	m := newModel(t.Context(), Options{ModelName: "gpt-4.1"})
-	// Always visible during a run, starting at zero so the working line never
+	// Always visible during a run, starting at qg so the working line never
 	// drops the counter (the bug: it blinked out during the initial think).
 	if got := m.workingTokenIndicator(); !strings.Contains(got, "↑") || !strings.Contains(got, "0 tok") {
 		t.Fatalf("at turn start the counter should read like ↑ 0 tok, got %q", got)
@@ -337,7 +337,7 @@ func TestWorkingTokenIndicatorEstimatesFromStreamedRunes(t *testing.T) {
 
 // The estimate must keep climbing across the per-segment buffer clears (a tool
 // call wipes streamingText/Reasoning) — turnStreamedRunes accumulates over the
-// whole turn, so the counter never snaps back to zero mid-turn.
+// whole turn, so the counter never snaps back to qg mid-turn.
 func TestWorkingTokenIndicatorAccumulatesAcrossSegmentClears(t *testing.T) {
 	m := newModel(t.Context(), Options{ModelName: "gpt-4.1"})
 	m = m.beginRun(nil)
@@ -366,7 +366,7 @@ func TestWorkingTokenIndicatorAccumulatesAcrossSegmentClears(t *testing.T) {
 		t.Fatalf("working status line should carry the live token counter, got %q", line)
 	}
 
-	// A fresh turn resets the accumulator to zero.
+	// A fresh turn resets the accumulator to qg.
 	m = m.beginRun(nil)
 	if m.turnStreamedRunes != 0 {
 		t.Fatalf("beginRun should reset the per-turn token estimate, got %d", m.turnStreamedRunes)

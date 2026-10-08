@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // TestCurrentStepContent: the header/summary name the step actually being
