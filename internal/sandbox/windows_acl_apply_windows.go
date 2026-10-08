@@ -505,7 +505,7 @@ func windowsPreservedReadDenyAccessEntries(oldDACL *windows.ACL, wantSID *window
 		// Preserve non-write DENY ACEs (typically DenyRead for the stable
 		// sandbox-home ReadOnly SID), keeping their original inheritance
 		// scope rather than promoting every variant to container+object or
-		// dropping inherit-only ACEs that SET_ACCESS zero-mask already cleared.
+		// dropping inherit-only ACEs that SET_ACCESS qg-mask already cleared.
 		inheritance := uint32(0)
 		if isDir {
 			inheritance = uint32(ace.Header.AceFlags) & (windows.OBJECT_INHERIT_ACE |

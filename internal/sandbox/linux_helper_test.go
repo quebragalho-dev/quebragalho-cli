@@ -17,7 +17,7 @@ func TestBuildLinuxSandboxCommandArgsSerializesPermissionProfile(t *testing.T) {
 			ReadRoots: []string{"/workspace"},
 			WriteRoots: []WritableRoot{{
 				Root:                   "/workspace",
-				ProtectedMetadataNames: []string{".git", ".zero"},
+				ProtectedMetadataNames: []string{".git", ".qg"},
 			}},
 			IncludePlatformRoots: true,
 			AllowTemp:            true,
@@ -175,7 +175,7 @@ func TestBuildLinuxSandboxBwrapArgsKeepsHostNetworkWhenAllowed(t *testing.T) {
 	if indexString(bwrapArgs, "--unshare-net") >= 0 {
 		t.Fatalf("network-allowed bwrap args must not isolate loopback: %#v", bwrapArgs)
 	}
-	assertArgsContainSequence(t, bwrapArgs, "--setenv", "ZERO_SANDBOX_NETWORK", string(NetworkAllow))
+	assertArgsContainSequence(t, bwrapArgs, "--setenv", "QG_SANDBOX_NETWORK", string(NetworkAllow))
 }
 
 func TestLinuxBwrapRootReadUsesReadOnlyHostRoot(t *testing.T) {
@@ -243,14 +243,14 @@ func TestLinuxBwrapFilesystemPlanPreservesMissingProtectedMetadata(t *testing.T)
 	if err := os.Mkdir(existing, 0o755); err != nil {
 		t.Fatalf("Mkdir existing metadata: %v", err)
 	}
-	missing := filepath.Join(workspace, ".zero")
+	missing := filepath.Join(workspace, ".qg")
 	profile := PermissionProfile{
 		FileSystem: FileSystemPolicy{
 			Kind:      FileSystemRestricted,
 			ReadRoots: []string{string(filepath.Separator)},
 			WriteRoots: []WritableRoot{{
 				Root:                   workspace,
-				ProtectedMetadataNames: []string{".git", ".zero"},
+				ProtectedMetadataNames: []string{".git", ".qg"},
 			}},
 		},
 		Network: NetworkPolicy{Mode: NetworkDeny},
@@ -268,7 +268,7 @@ func TestLinuxBwrapFilesystemPlanPreservesMissingProtectedMetadata(t *testing.T)
 
 func TestLinuxBwrapSkipsMissingCredentialBaselines(t *testing.T) {
 	root := t.TempDir()
-	missingCredential := filepath.Join(root, "home", ".config", "zero")
+	missingCredential := filepath.Join(root, "home", ".config", "qg")
 	profile := PermissionProfile{
 		FileSystem: FileSystemPolicy{
 			Kind:             FileSystemRestricted,
@@ -301,11 +301,11 @@ func TestLinuxBwrapSkipsMissingCredentialBaselines(t *testing.T) {
 // TestLinuxBwrapCreatesOwnedCredentialDirsBeforeMasking covers the long-lived
 // session race: bubblewrap cannot mount over a path that does not exist, so a
 // store written after the namespace was assembled would stay readable through
-// the live read-only host-root bind. Zero's own directories are therefore
+// the live read-only host-root bind. QG's own directories are therefore
 // created up front and masked, unlike third-party stores it must not create.
 func TestLinuxBwrapCreatesOwnedCredentialDirsBeforeMasking(t *testing.T) {
 	root := t.TempDir()
-	ownedDir := filepath.Join(root, "config", "zero")
+	ownedDir := filepath.Join(root, "config", "qg")
 	thirdParty := filepath.Join(root, "home", ".aws")
 	profile := PermissionProfile{
 		FileSystem: FileSystemPolicy{
@@ -333,12 +333,12 @@ func TestLinuxBwrapCreatesOwnedCredentialDirsBeforeMasking(t *testing.T) {
 }
 
 // TestLinuxBwrapKeepsCarveoutsReachableInsideMaskedDir covers the user plugin
-// root inside the denied Zero config directory: the mask has to keep the
+// root inside the denied QG config directory: the mask has to keep the
 // traverse bit and re-bind the carveout, otherwise an installed user plugin
 // cannot be executed through the sandbox at all.
 func TestLinuxBwrapKeepsCarveoutsReachableInsideMaskedDir(t *testing.T) {
 	root := t.TempDir()
-	credentialDir := filepath.Join(root, "config", "zero")
+	credentialDir := filepath.Join(root, "config", "qg")
 	pluginRoot := filepath.Join(credentialDir, "plugins")
 	if err := os.MkdirAll(pluginRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -374,7 +374,7 @@ func TestLinuxBwrapDoesNotBindSymlinkCarveout(t *testing.T) {
 		t.Skip("symlink creation is not reliably available on Windows CI")
 	}
 	root := t.TempDir()
-	credentialDir := filepath.Join(root, "config", "zero")
+	credentialDir := filepath.Join(root, "config", "qg")
 	if err := os.MkdirAll(credentialDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestLinuxHelperSandboxEnvironmentPreservesCallerEnv(t *testing.T) {
 		"HOME=/home/user",
 		EnvSandboxed + "=1",
 		EnvSandboxBackend + "=" + string(BackendLinuxBwrap),
-		"ZERO_SANDBOX_NETWORK=deny",
+		"QG_SANDBOX_NETWORK=deny",
 	} {
 		if !stringSliceContains(env, want) {
 			t.Fatalf("linux helper env = %#v, missing %q", env, want)

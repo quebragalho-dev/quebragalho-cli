@@ -20,7 +20,7 @@ func TestBuildWindowsACLPlanForWorkspaceWriteProfile(t *testing.T) {
 					{
 						Root:                   `C:\workspace`,
 						ReadOnlySubpaths:       []string{`C:\workspace\vendor`},
-						ProtectedMetadataNames: []string{".git", ".zero"},
+						ProtectedMetadataNames: []string{".git", ".qg"},
 					},
 					{Root: `D:\cache`},
 				},
@@ -48,7 +48,7 @@ func TestBuildWindowsACLPlanForWorkspaceWriteProfile(t *testing.T) {
 	assertWindowsACLEntry(t, plan, WindowsACLAllowWrite, `D:\cache`, cacheSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\vendor`, workspaceSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\.git`, workspaceSID, false)
-	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\.zero`, workspaceSID, false)
+	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\.qg`, workspaceSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\secret-write`, workspaceSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\secret-write`, cacheSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, `C:\workspace\secret-read`, workspaceSID, true)
@@ -259,7 +259,7 @@ func TestBuildWindowsACLPlanAnchorsDerivedCarveouts(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	carveout := filepath.Join(workspace, ".git", "hooks")
-	metadata := filepath.Join(workspace, ".zero")
+	metadata := filepath.Join(workspace, ".qg")
 	named := filepath.Join(t.TempDir(), "named-by-the-operator")
 	config := WindowsSandboxCommandConfig{
 		SandboxHome:    home,
@@ -270,7 +270,7 @@ func TestBuildWindowsACLPlanAnchorsDerivedCarveouts(t *testing.T) {
 				WriteRoots: []WritableRoot{{
 					Root:                   workspace,
 					ReadOnlySubpaths:       []string{carveout},
-					ProtectedMetadataNames: []string{".zero"},
+					ProtectedMetadataNames: []string{".qg"},
 				}},
 				DenyWrite: []string{named},
 			},

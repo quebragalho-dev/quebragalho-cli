@@ -11,11 +11,11 @@ import (
 func TestDefaultResolveOptionsUsesExistingConfigPathsAndProviderCommand(t *testing.T) {
 	userConfigRoot := setUserConfigRoot(t)
 	workspaceRoot := t.TempDir()
-	userPath := filepath.Join(userConfigRoot, "zero", "config.json")
-	projectPath := filepath.Join(workspaceRoot, ".zero", "config.json")
+	userPath := filepath.Join(userConfigRoot, "qg", "config.json")
+	projectPath := filepath.Join(workspaceRoot, ".qg", "config.json")
 	writeFileAt(t, userPath, "{}")
 	writeFileAt(t, projectPath, "{}")
-	t.Setenv("ZERO_PROVIDER_COMMAND", "  zero-provider  ")
+	t.Setenv("QG_PROVIDER_COMMAND", "  qg-provider  ")
 
 	options, err := DefaultResolveOptions(workspaceRoot)
 	if err != nil {
@@ -28,8 +28,8 @@ func TestDefaultResolveOptionsUsesExistingConfigPathsAndProviderCommand(t *testi
 	if options.ProjectConfigPath != projectPath {
 		t.Fatalf("ProjectConfigPath = %q, want %q", options.ProjectConfigPath, projectPath)
 	}
-	if options.ProviderCommand != "zero-provider" {
-		t.Fatalf("ProviderCommand = %q, want zero-provider", options.ProviderCommand)
+	if options.ProviderCommand != "qg-provider" {
+		t.Fatalf("ProviderCommand = %q, want qg-provider", options.ProviderCommand)
 	}
 }
 
@@ -59,7 +59,7 @@ func TestDefaultResolveOptionsRejectsDirectoryConfigPaths(t *testing.T) {
 			name: "user config",
 			makeDirectory: func(t *testing.T, userConfigRoot string, workspaceRoot string) string {
 				t.Helper()
-				path := filepath.Join(userConfigRoot, "zero", "config.json")
+				path := filepath.Join(userConfigRoot, "qg", "config.json")
 				mkdirAll(t, path)
 				return path
 			},
@@ -68,7 +68,7 @@ func TestDefaultResolveOptionsRejectsDirectoryConfigPaths(t *testing.T) {
 			name: "project config",
 			makeDirectory: func(t *testing.T, userConfigRoot string, workspaceRoot string) string {
 				t.Helper()
-				path := filepath.Join(workspaceRoot, ".zero", "config.json")
+				path := filepath.Join(workspaceRoot, ".qg", "config.json")
 				mkdirAll(t, path)
 				return path
 			},
@@ -143,7 +143,7 @@ func TestDefaultUserConfigPathUsesXDGConfigOnMacOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultUserConfigPath() error = %v", err)
 	}
-	want := filepath.Join(home, ".config", "zero", "config.json")
+	want := filepath.Join(home, ".config", "qg", "config.json")
 	if path != want {
 		t.Fatalf("DefaultUserConfigPath() = %q, want %q", path, want)
 	}

@@ -32,9 +32,9 @@ func TestLoadProviderCommandSuccess(t *testing.T) {
 }
 
 func TestLoadProviderCommandDoesNotResolveAPIKeyEnvFromProcess(t *testing.T) {
-	t.Setenv("ZERO_CMD_API_KEY", "sk-process")
+	t.Setenv("QG_CMD_API_KEY", "sk-process")
 	command := writeCommand(t, commandScript{
-		Stdout: `{"name":"cmd","provider":"openai","apiKeyEnv":"ZERO_CMD_API_KEY","model":"gpt-command"}`,
+		Stdout: `{"name":"cmd","provider":"openai","apiKeyEnv":"QG_CMD_API_KEY","model":"gpt-command"}`,
 	})
 
 	cfg, err := LoadProviderCommand(command)
@@ -46,7 +46,7 @@ func TestLoadProviderCommandDoesNotResolveAPIKeyEnvFromProcess(t *testing.T) {
 	if provider.APIKey != "" {
 		t.Fatalf("APIKey = %q, want unresolved provider-command apiKeyEnv", provider.APIKey)
 	}
-	if provider.APIKeyEnv != "ZERO_CMD_API_KEY" {
+	if provider.APIKeyEnv != "QG_CMD_API_KEY" {
 		t.Fatalf("APIKeyEnv = %q, want command apiKeyEnv preserved", provider.APIKeyEnv)
 	}
 }
@@ -356,13 +356,13 @@ func writeCommand(t *testing.T, script commandScript) string {
 			// process exit, PID-file verification, and cleanup. Giving up surfaces a legible
 			// PID-file failure rather than a timeout that hides the real cause.
 			lines = append(lines,
-				":zeroWaitReady",
-				"if exist \""+readyFile+"\" goto zeroReady",
-				"set /a ZERO_READY_TRIES+=1",
-				"if %ZERO_READY_TRIES% GEQ "+itoa(providerCommandReadyWaitAttempts)+" goto zeroReady",
+				":qgWaitReady",
+				"if exist \""+readyFile+"\" goto qgReady",
+				"set /a QG_READY_TRIES+=1",
+				"if %QG_READY_TRIES% GEQ "+itoa(providerCommandReadyWaitAttempts)+" goto qgReady",
 				"ping -n 2 127.0.0.1 >nul",
-				"goto zeroWaitReady",
-				":zeroReady",
+				"goto qgWaitReady",
+				":qgReady",
 			)
 		}
 		lines = append(lines, "exit /b "+itoa(script.ExitCode))

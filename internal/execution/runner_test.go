@@ -16,7 +16,7 @@ type capturedTestPreparer struct {
 func (preparer *capturedTestPreparer) PrepareExecution(_ context.Context, request Request) (PreparedCommand, error) {
 	preparer.request = request
 	command := exec.Command(os.Args[0], "-test.run=^TestCapturedRunnerHelperProcess$")
-	command.Env = append(os.Environ(), "ZERO_CAPTURED_RUNNER_HELPER=1")
+	command.Env = append(os.Environ(), "QG_CAPTURED_RUNNER_HELPER=1")
 	return PreparedCommand{
 		Command: command,
 		Enforcement: Enforcement{
@@ -27,7 +27,7 @@ func (preparer *capturedTestPreparer) PrepareExecution(_ context.Context, reques
 }
 
 func TestCapturedRunnerHelperProcess(t *testing.T) {
-	if os.Getenv("ZERO_CAPTURED_RUNNER_HELPER") != "1" {
+	if os.Getenv("QG_CAPTURED_RUNNER_HELPER") != "1" {
 		return
 	}
 	fmt.Fprint(os.Stdout, "stdout")

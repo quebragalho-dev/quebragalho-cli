@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/workspaceindex"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspaceindex"
 )
 
 const (
@@ -15,7 +15,7 @@ const (
 
 type Options struct {
 	MaxFiles int
-	// MaxDepth is measured as path separators below the root. Zero means root
+	// MaxDepth is measured as path separators below the root. QG means root
 	// files only; negative values use DefaultMaxDepth.
 	MaxDepth            int
 	MaxBytesPerFileName int

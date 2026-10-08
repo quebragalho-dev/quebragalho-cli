@@ -58,7 +58,7 @@ func FilterBySeverity(diags []Diagnostic, minimum DiagnosticSeverity) []Diagnost
 //
 //	path:line:col: severity: message
 //
-// Lines/columns are converted from LSP's zero-based positions to the one-based
+// Lines/columns are converted from LSP's qg-based positions to the one-based
 // form editors and compilers print. The path is passed in because a Diagnostic
 // carries only a range, not its document.
 func FormatDiagnostics(path string, diags []Diagnostic) string {

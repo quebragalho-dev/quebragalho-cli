@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/lockutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/lockutil"
 )
 
 // ErrLockUnavailable reports that the config lock was still held by another
@@ -30,7 +30,7 @@ const (
 // same revision each write a full document, and the second rename silently
 // discards the first one's acknowledged update (issue #832). Startup work makes
 // this easy to hit: MigratePlaintextProviderKeys rewrites the config on every
-// launch, so it collides with any concurrent mutation from another Zero.
+// launch, so it collides with any concurrent mutation from another QG.
 //
 // The lock must therefore span load, mutation, validation AND publication:
 // holding it only around the write would still let both processes read the same

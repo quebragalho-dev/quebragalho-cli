@@ -181,8 +181,8 @@ func copyFixtureFile(src string, dst string, mode os.FileMode) error {
 func initGitBaseline(ctx context.Context, workspace string) error {
 	commands := [][]string{
 		{"init"},
-		{"config", "user.name", "Zero Eval"},
-		{"config", "user.email", "zero-eval@example.invalid"},
+		{"config", "user.name", "QG Eval"},
+		{"config", "user.email", "qg-eval@example.invalid"},
 		{"add", "."},
 		{"commit", "-m", "baseline"},
 	}
@@ -190,10 +190,10 @@ func initGitBaseline(ctx context.Context, workspace string) error {
 		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = workspace
 		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Zero Eval",
-			"GIT_AUTHOR_EMAIL=zero-eval@example.invalid",
-			"GIT_COMMITTER_NAME=Zero Eval",
-			"GIT_COMMITTER_EMAIL=zero-eval@example.invalid",
+			"GIT_AUTHOR_NAME=QG Eval",
+			"GIT_AUTHOR_EMAIL=qg-eval@example.invalid",
+			"GIT_COMMITTER_NAME=QG Eval",
+			"GIT_COMMITTER_EMAIL=qg-eval@example.invalid",
 		)
 		var output bytes.Buffer
 		cmd.Stdout = &output

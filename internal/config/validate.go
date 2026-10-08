@@ -12,8 +12,8 @@ type Issue struct {
 	Message   string `json:"message"`
 }
 
-// ValidateBytes parses data as a Zero FileConfig and runs the same semantic
-// provider/model rules as ValidateFile. It returns the parsed config (zero
+// ValidateBytes parses data as a QG FileConfig and runs the same semantic
+// provider/model rules as ValidateFile. It returns the parsed config (qg
 // value on parse failure) plus any structured issues. A parse failure yields a
 // single issue whose Message wraps the underlying JSON error (path-less form:
 // "invalid config JSON: <err>") so callers can extract *json.SyntaxError /

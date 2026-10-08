@@ -56,7 +56,7 @@ func TestSetPetRejectsInvalidInputs(t *testing.T) {
 }
 
 func TestSetPetCreatesNestedConfigAndClearsEmptyPreferences(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "nested", "zero", "config.json")
+	path := filepath.Join(t.TempDir(), "nested", "qg", "config.json")
 	if _, err := SetPet(path, " boba "); err != nil {
 		t.Fatal(err)
 	}

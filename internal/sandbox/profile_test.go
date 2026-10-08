@@ -6,9 +6,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/oauth"
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 func TestCredentialDeniesMatchTokenStoreFallbacks(t *testing.T) {
@@ -59,7 +59,7 @@ func TestCredentialDeniesMatchTokenStoreFallbacks(t *testing.T) {
 }
 
 // TestCredentialDeniesMatchRelativeTokenOverridesFromStoreResolution runs the
-// sandboxed command from a DIFFERENT directory than the Zero process, which is
+// sandboxed command from a DIFFERENT directory than the QG process, which is
 // what makes this meaningful: the stores resolve a relative override with
 // filepath.Abs against the process working directory, so that is the path the
 // profile has to deny.
@@ -76,7 +76,7 @@ func TestCredentialDeniesMatchRelativeTokenOverridesFromStoreResolution(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The Zero process stays in the workspace root while the command runs in the
+	// The QG process stays in the workspace root while the command runs in the
 	// nested directory, so the two resolutions differ.
 	if err := os.Chdir(workspace); err != nil {
 		t.Fatal(err)
@@ -89,9 +89,9 @@ func TestCredentialDeniesMatchRelativeTokenOverridesFromStoreResolution(t *testi
 	sandbox.PinProcessCredentialBaseDir(t, workspace)
 
 	envMap := map[string]string{
-		"HOME":                       filepath.Join(workspace, "home"),
-		"ZERO_OAUTH_TOKENS_PATH":     "oauth/tokens.json",
-		"ZERO_MCP_OAUTH_TOKENS_PATH": "mcp/tokens.json",
+		"HOME":                     filepath.Join(workspace, "home"),
+		"QG_OAUTH_TOKENS_PATH":     "oauth/tokens.json",
+		"QG_MCP_OAUTH_TOKENS_PATH": "mcp/tokens.json",
 	}
 	oauthPath, err := oauth.ResolveStorePath(envMap)
 	if err != nil {
@@ -111,8 +111,8 @@ func TestCredentialDeniesMatchRelativeTokenOverridesFromStoreResolution(t *testi
 		Dir:  commandDir,
 		Env: []string{
 			"HOME=" + envMap["HOME"],
-			"ZERO_OAUTH_TOKENS_PATH=" + envMap["ZERO_OAUTH_TOKENS_PATH"],
-			"ZERO_MCP_OAUTH_TOKENS_PATH=" + envMap["ZERO_MCP_OAUTH_TOKENS_PATH"],
+			"QG_OAUTH_TOKENS_PATH=" + envMap["QG_OAUTH_TOKENS_PATH"],
+			"QG_MCP_OAUTH_TOKENS_PATH=" + envMap["QG_MCP_OAUTH_TOKENS_PATH"],
 		},
 	})
 	if err != nil {
