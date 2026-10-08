@@ -101,7 +101,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: zero-coverage-report
+          name: qg-coverage-report
           path: coverage.out
           if-no-files-found: warn
 
@@ -136,10 +136,10 @@ jobs:
         run: go test ./...
 
       - name: Build binary
-        run: go run ./cmd/zero-release build
+        run: go run ./cmd/qg-release build
 
       - name: Smoke binary
-        run: go run ./cmd/zero-release smoke
+        run: go run ./cmd/qg-release smoke
 
   race:
     name: Race Detector
@@ -191,18 +191,18 @@ jobs:
           cache: true
 
       - name: Build binary
-        run: go run ./cmd/zero-release build
+        run: go run ./cmd/qg-release build
 
       - name: Performance smoke
         run: |
           mkdir -p dist/perf
-          go run ./cmd/zero-perf-bench --output dist/perf/perf-bench.json --ci
+          go run ./cmd/qg-perf-bench --output dist/perf/perf-bench.json --ci
 
       - name: Upload performance report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: zero-performance-smoke
+          name: qg-performance-smoke
           path: dist/perf/perf-bench.json
           if-no-files-found: warn
 

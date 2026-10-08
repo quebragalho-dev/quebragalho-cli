@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   review:
-    name: Zero Review
+    name: QG Review
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
 
@@ -45,12 +45,12 @@ jobs:
       - name: Build
         id: build
         continue-on-error: true
-        run: go run ./cmd/zero-release build
+        run: go run ./cmd/qg-release build
 
       - name: Smoke build
         id: smoke
         continue-on-error: true
-        run: go run ./cmd/zero-release smoke
+        run: go run ./cmd/qg-release smoke
 
       - name: Collect changed files
         id: changed-files
@@ -68,35 +68,35 @@ jobs:
         if: always()
         shell: bash
         env:
-          ZERO_PR_NUMBER: ${{ github.event.pull_request.number }}
-          ZERO_REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          ZERO_REVIEW_DIFF_CHECK: ${{ steps.diffcheck.outcome }}
-          ZERO_REVIEW_TEST: ${{ steps.test.outcome }}
-          ZERO_REVIEW_BUILD: ${{ steps.build.outcome }}
-          ZERO_REVIEW_SMOKE: ${{ steps.smoke.outcome }}
-          ZERO_CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
+          QG_PR_NUMBER: ${{ github.event.pull_request.number }}
+          QG_REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          QG_REVIEW_DIFF_CHECK: ${{ steps.diffcheck.outcome }}
+          QG_REVIEW_TEST: ${{ steps.test.outcome }}
+          QG_REVIEW_BUILD: ${{ steps.build.outcome }}
+          QG_REVIEW_SMOKE: ${{ steps.smoke.outcome }}
+          QG_CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
         run: |
-          go run ./cmd/zero-pr-review > "$RUNNER_TEMP/zero-review.md"
-          echo "path=$RUNNER_TEMP/zero-review.md" >> "$GITHUB_OUTPUT"
+          go run ./cmd/qg-pr-review > "$RUNNER_TEMP/qg-review.md"
+          echo "path=$RUNNER_TEMP/qg-review.md" >> "$GITHUB_OUTPUT"
 
       - name: Post review summary
         if: always()
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
-          ZERO_REVIEW_BODY_PATH: ${{ steps.review-summary.outputs.path }}
+          QG_REVIEW_BODY_PATH: ${{ steps.review-summary.outputs.path }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const marker = '<!-- zero-auto-review -->';
+            const marker = '<!-- qg-auto-review -->';
             let body;
             try {
-              body = fs.readFileSync(process.env.ZERO_REVIEW_BODY_PATH, 'utf8');
+              body = fs.readFileSync(process.env.QG_REVIEW_BODY_PATH, 'utf8');
             } catch (error) {
               core.warning(`Unable to read generated review summary: ${error.message}`);
               body = [
                 marker,
-                '## Zero automated PR review',
+                '## QG automated PR review',
                 '',
                 'Verdict: **Changes requested**',
                 '',
