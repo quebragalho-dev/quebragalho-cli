@@ -13,12 +13,12 @@ func TestScanBuildsDeterministicWorkspaceSummary(t *testing.T) {
 	writeFile(t, root, "go.mod", "module example.test/repo\n")
 	writeFile(t, root, "README.md", "# Example\n")
 	writeFile(t, root, "package.json", `{"name":"example"}`)
-	writeFile(t, root, "cmd/zero/main.go", "package main\n")
+	writeFile(t, root, "cmd/qg/main.go", "package main\n")
 	writeFile(t, root, "internal/app/app.go", "package app\n")
 	writeFile(t, root, "web/app.ts", "export const app = true\n")
-	writeFile(t, root, "zero.exe", "ignored binary")
+	writeFile(t, root, "qg.exe", "ignored binary")
 	writeFile(t, root, ".git/config", "[core]\n")
-	writeFile(t, root, ".zero/state.json", "{}")
+	writeFile(t, root, ".qg/state.json", "{}")
 	writeFile(t, root, "node_modules/pkg/index.js", "ignored")
 	writeFile(t, root, "vendor/lib/lib.go", "ignored")
 	writeFile(t, root, "dist/bundle.js", "ignored")
@@ -36,7 +36,7 @@ func TestScanBuildsDeterministicWorkspaceSummary(t *testing.T) {
 	}
 	wantFiles := []string{
 		"README.md",
-		"cmd/zero/main.go",
+		"cmd/qg/main.go",
 		"go.mod",
 		"internal/app/app.go",
 		"package.json",
@@ -81,7 +81,7 @@ func TestScanHonorsTraversalCaps(t *testing.T) {
 		}
 	})
 
-	t.Run("max depth zero includes root files only", func(t *testing.T) {
+	t.Run("max depth qg includes root files only", func(t *testing.T) {
 		root := t.TempDir()
 		writeFile(t, root, "top.go", "package top\n")
 		writeFile(t, root, "pkg/one.go", "package pkg\n")
@@ -135,7 +135,7 @@ func TestScanHonorsTraversalCaps(t *testing.T) {
 }
 
 func TestHelpersClassifySharedWorkspaceRules(t *testing.T) {
-	for _, name := range []string{".git", ".zero", ".cache", ".next", "node_modules", "vendor", "dist", "build", "coverage", ".worktrees"} {
+	for _, name := range []string{".git", ".qg", ".cache", ".next", "node_modules", "vendor", "dist", "build", "coverage", ".worktrees"} {
 		if !ShouldSkipDir(name) {
 			t.Fatalf("ShouldSkipDir(%q)=false want true", name)
 		}
@@ -149,13 +149,13 @@ func TestHelpersClassifySharedWorkspaceRules(t *testing.T) {
 		}
 	}
 	for path, want := range map[string]string{
-		"main.go":          "Go",
-		"src/app.tsx":      "TypeScript",
-		"src/app.jsx":      "JavaScript",
-		"README.md":        "Markdown",
-		"config.yaml":      "YAML",
-		"Cargo.toml":       "TOML",
-		"unknown.zerolang": "",
+		"main.go":        "Go",
+		"src/app.tsx":    "TypeScript",
+		"src/app.jsx":    "JavaScript",
+		"README.md":      "Markdown",
+		"config.yaml":    "YAML",
+		"Cargo.toml":     "TOML",
+		"unknown.qglang": "",
 	} {
 		if got := LanguageForPath(path); got != want {
 			t.Fatalf("LanguageForPath(%q)=%q want %q", path, got, want)

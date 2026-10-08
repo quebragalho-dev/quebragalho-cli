@@ -379,7 +379,7 @@ func TestAtlasAnimationUsesPerStateFrameCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Idle has six frames: phase 6 wraps to frame zero instead of entering the
+	// Idle has six frames: phase 6 wraps to frame qg instead of entering the
 	// two unused atlas columns, which are commonly transparent.
 	_, _, _, alpha := animation.Frame(Idle, 6).At(0, 0).RGBA()
 	if alpha == 0 {

@@ -50,7 +50,7 @@ func TestPrepareCreatesDetachedGitWorktree(t *testing.T) {
 	// (`git rev-parse --absolute-git-dir`) for the newly created worktree
 	// without a canned result: without it, the fake runner falls off the end
 	// of results and returns an empty CommandResult, so writeOwnershipMarker
-	// resolves gitDir to "" and os.WriteFile writes "zero-owner" as a
+	// resolves gitDir to "" and os.WriteFile writes "qg-owner" as a
 	// relative path into the test process's actual working directory instead
 	// of failing loudly.
 	runner := &fakeRunner{
@@ -82,16 +82,16 @@ func TestPrepareCreatesDetachedGitWorktree(t *testing.T) {
 	if result.RepoRoot != root || result.SourceBranch != "main" || result.SourceCommit != "abc1234" {
 		t.Fatalf("unexpected result metadata: %#v", result)
 	}
-	if !strings.HasPrefix(result.Path, filepath.Join(base, "zero-worktree-")) {
+	if !strings.HasPrefix(result.Path, filepath.Join(base, "qg-worktree-")) {
 		t.Fatalf("Path = %q, want under base %q", result.Path, base)
 	}
 	if got := runner.commandLine(4); got != "git worktree add --detach "+result.Path+" HEAD" {
 		t.Fatalf("git worktree command = %q", got)
 	}
 	// Prepare must lock every worktree it creates: this is what makes
-	// entry.locked inside Clean protect zero's own worktrees, not just ones a
+	// entry.locked inside Clean protect qg's own worktrees, not just ones a
 	// human locked by hand (see TestCleanSkipsLockedZeroOwnedWorktree).
-	if got := runner.commandLine(5); got != "git worktree lock --reason zero: active task worktree "+result.Path {
+	if got := runner.commandLine(5); got != "git worktree lock --reason qg: active task worktree "+result.Path {
 		t.Fatalf("git worktree lock command = %q", got)
 	}
 	if !result.LockAcquired {
@@ -99,7 +99,7 @@ func TestPrepareCreatesDetachedGitWorktree(t *testing.T) {
 	}
 	// Prepare must also persist the ownership marker so Release/Clean can
 	// tell this worktree apart from one a user created and locked by hand
-	// under the same predictable zero-worktree-<repoKey> path convention.
+	// under the same predictable qg-worktree-<repoKey> path convention.
 	if got := runner.commandLine(6); got != "git rev-parse --absolute-git-dir" {
 		t.Fatalf("marker write command = %q", got)
 	}
@@ -114,20 +114,20 @@ func TestReleaseUnlocksWorktree(t *testing.T) {
 	// /private/var), real `git worktree list --porcelain` reports the
 	// physical spelling, so computing repoKey from the lexical spelling here
 	// would produce a different key than verifyZeroOwnedWorktree derives in
-	// production, and Release would reject this genuinely Zero-owned fixture
-	// as not-zero-managed. The worktree path itself is physicalized for the
+	// production, and Release would reject this genuinely QG-owned fixture
+	// as not-qg-managed. The worktree path itself is physicalized for the
 	// same reason: Release compares the registered entry against the
 	// canonical user path, and a lexical /var spelling would not match.
 	repoRoot := physicalTestPath(t, t.TempDir())
-	// path must carry the zero-worktree-<repoKey> ancestor component Prepare
+	// path must carry the qg-worktree-<repoKey> ancestor component Prepare
 	// actually creates: Release now refuses to unlock anything else.
 	base := physicalTestPath(t, t.TempDir())
-	path := filepath.Join(base, "zero-worktree-"+repoKey(repoRoot), "task-a")
+	path := filepath.Join(base, "qg-worktree-"+repoKey(repoRoot), "task-a")
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	plantOwnershipMarker(t, path)
-	// The target entry carries Zero's own lease reason (as Prepare's lock
+	// The target entry carries QG's own lease reason (as Prepare's lock
 	// call sets it), so the lock-reason check added alongside the ancestor
 	// check must let this release through rather than treating every locked
 	// entry as a manual, non-zero lock (see
@@ -162,18 +162,18 @@ func TestReleaseUnlocksWorktree(t *testing.T) {
 }
 
 // TestReleaseRejectsForgedZeroLeaseWithoutOwnershipMarker pins the fix for
-// ownership being inferred from the public zero-worktree-<repoKey> path
+// ownership being inferred from the public qg-worktree-<repoKey> path
 // convention plus a lock reason that merely starts with leaseReasonPrefix: a
 // user (or another tool) can create a same-repository worktree at that
-// predictable path and lock it by hand with a reason like "zero: active task
+// predictable path and lock it by hand with a reason like "qg: active task
 // worktree manually-owned", which passes both the ancestor-component and
 // HasPrefix checks. Only the ownership marker Prepare itself writes can tell
-// that apart from a genuine Zero lease, so Release must still refuse to
+// that apart from a genuine QG lease, so Release must still refuse to
 // unlock it when the worktree directory exists but carries no marker.
 func TestReleaseRejectsForgedZeroLeaseWithoutOwnershipMarker(t *testing.T) {
 	repoRoot := physicalTestPath(t, t.TempDir())
 	base := physicalTestPath(t, t.TempDir())
-	path := filepath.Join(base, "zero-worktree-"+repoKey(repoRoot), "manually-owned")
+	path := filepath.Join(base, "qg-worktree-"+repoKey(repoRoot), "manually-owned")
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestReleaseRejectsForgedZeroLeaseWithoutOwnershipMarker(t *testing.T) {
 	}
 
 	err := Release(context.Background(), Options{RunGit: runner.Run}, path)
-	if err == nil || !strings.Contains(err.Error(), "missing zero ownership marker") {
+	if err == nil || !strings.Contains(err.Error(), "missing qg ownership marker") {
 		t.Fatalf("Release error = %v, want a missing-ownership-marker rejection", err)
 	}
 	// list + marker check, no unlock call.
@@ -207,10 +207,10 @@ func TestReleaseFallsBackToCwdWhenWorktreeDirMissing(t *testing.T) {
 	// reports the physical spelling, so a lexical temp-dir spelling here
 	// would derive a different repoKey than production and reject this
 	// fixture. The deleted path must still appear in the porcelain list
-	// (git keeps a prunable entry after a manual rm -rf) with Zero's lease
+	// (git keeps a prunable entry after a manual rm -rf) with QG's lease
 	// reason, or the ownership check refuses the unlock.
 	repoRoot := physicalTestPath(t, t.TempDir())
-	missingPath := filepath.Join(physicalTestPath(t, t.TempDir()), "zero-worktree-"+repoKey(repoRoot), "already-deleted")
+	missingPath := filepath.Join(physicalTestPath(t, t.TempDir()), "qg-worktree-"+repoKey(repoRoot), "already-deleted")
 	runner := &fakeRunner{results: []CommandResult{
 		{Stdout: "worktree " + repoRoot + "\nworktree " + missingPath + "\nlocked " + leaseReasonPrefix + "\n"},
 		{},
@@ -233,7 +233,7 @@ func TestReleaseFallsBackToCwdWhenWorktreeDirMissing(t *testing.T) {
 // TestReleaseRejectsNonZeroOwnedWorktree pins the fix for Release being
 // usable to clear the lock on a worktree a user (or another tool) manages by
 // hand: the command is documented as releasing a worktree `prepare` created,
-// not an arbitrary git worktree lock, so a path with no zero-worktree-<repoKey>
+// not an arbitrary git worktree lock, so a path with no qg-worktree-<repoKey>
 // ancestor component must be refused before any unlock is attempted.
 func TestReleaseRejectsNonZeroOwnedWorktree(t *testing.T) {
 	repoRoot := t.TempDir()
@@ -246,8 +246,8 @@ func TestReleaseRejectsNonZeroOwnedWorktree(t *testing.T) {
 	}}
 
 	err := Release(context.Background(), Options{RunGit: runner.Run}, manualWorktree)
-	if err == nil || !strings.Contains(err.Error(), "not a zero-managed worktree") {
-		t.Fatalf("Release error = %v, want a not-zero-managed rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "not a qg-managed worktree") {
+		t.Fatalf("Release error = %v, want a not-qg-managed rejection", err)
 	}
 	if len(runner.calls) != 1 {
 		t.Fatalf("expected only the ownership check, no unlock call, got %#v", runner.calls)
@@ -256,17 +256,17 @@ func TestReleaseRejectsNonZeroOwnedWorktree(t *testing.T) {
 
 // TestReleaseRejectsManuallyLockedWorktree pins the fix for Release being
 // usable to clear a lock a user (or another tool) applied by hand to a
-// worktree that otherwise sits inside Zero's zero-worktree-<repoKey>
+// worktree that otherwise sits inside QG's qg-worktree-<repoKey>
 // subtree: the ancestor-component check alone can't tell that lock apart
-// from one of Zero's own leases, so Release must also refuse to unlock an
-// entry whose recorded lock reason doesn't carry Zero's lease prefix.
+// from one of QG's own leases, so Release must also refuse to unlock an
+// entry whose recorded lock reason doesn't carry QG's lease prefix.
 func TestReleaseRejectsManuallyLockedWorktree(t *testing.T) {
 	repoRoot := physicalTestPath(t, t.TempDir())
 	// Use a physical base so the porcelain entry path matches the
 	// canonicalizePath comparison Release uses against git's physical
 	// spelling (macOS /var vs /private/var, symlink TMPDIR layouts).
 	base := physicalTestPath(t, t.TempDir())
-	path := filepath.Join(base, "zero-worktree-"+repoKey(repoRoot), "task-a")
+	path := filepath.Join(base, "qg-worktree-"+repoKey(repoRoot), "task-a")
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -275,8 +275,8 @@ func TestReleaseRejectsManuallyLockedWorktree(t *testing.T) {
 	}}
 
 	err := Release(context.Background(), Options{RunGit: runner.Run}, path)
-	if err == nil || !strings.Contains(err.Error(), "not a zero lease") {
-		t.Fatalf("Release error = %v, want a not-a-zero-lease rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "not a qg lease") {
+		t.Fatalf("Release error = %v, want a not-a-qg-lease rejection", err)
 	}
 	if len(runner.calls) != 1 {
 		t.Fatalf("expected only the ownership check, no unlock call, got %#v", runner.calls)
@@ -285,12 +285,12 @@ func TestReleaseRejectsManuallyLockedWorktree(t *testing.T) {
 
 // TestReleaseRejectsUnregisteredWorktree pins the requirement that Release
 // only unlocks a path git currently has registered for the repository. A
-// same-looking zero-worktree-<repoKey> path that never appeared in
+// same-looking qg-worktree-<repoKey> path that never appeared in
 // `git worktree list` must not reach unlock.
 func TestReleaseRejectsUnregisteredWorktree(t *testing.T) {
 	repoRoot := physicalTestPath(t, t.TempDir())
 	base := physicalTestPath(t, t.TempDir())
-	path := filepath.Join(base, "zero-worktree-"+repoKey(repoRoot), "not-registered")
+	path := filepath.Join(base, "qg-worktree-"+repoKey(repoRoot), "not-registered")
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestPrepareReusesExistingGitWorktree(t *testing.T) {
 	if err := os.MkdirAll(sourceGit, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	existing := filepath.Join(base, "zero-worktree-"+repoKey(root), "reuse-me")
+	existing := filepath.Join(base, "qg-worktree-"+repoKey(root), "reuse-me")
 	if err := os.MkdirAll(filepath.Join(existing, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestPrepareReusesExistingGitWorktree(t *testing.T) {
 	// The original lock may have been released by a prior run's exit, which
 	// would leave the reused worktree exposed to Clean's staleness heuristic
 	// while this caller is still using it: reuse must re-establish the lease.
-	if got := runner.commandLine(6); got != "git worktree lock --reason zero: active task worktree "+existing {
+	if got := runner.commandLine(6); got != "git worktree lock --reason qg: active task worktree "+existing {
 		t.Fatalf("git worktree lock command = %q", got)
 	}
 	if got := runner.commandLine(7); got != "git rev-parse --absolute-git-dir" {
@@ -390,7 +390,7 @@ func TestPrepareRejectsWorktreeLockedByAnotherRun(t *testing.T) {
 	if err := os.MkdirAll(sourceGit, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	existing := filepath.Join(base, "zero-worktree-"+repoKey(root), "reuse-me")
+	existing := filepath.Join(base, "qg-worktree-"+repoKey(root), "reuse-me")
 	if err := os.MkdirAll(filepath.Join(existing, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +402,7 @@ func TestPrepareRejectsWorktreeLockedByAnotherRun(t *testing.T) {
 			{Stdout: "abc1234\n"},
 			{Stdout: sourceGit + "\n"},
 			{Stdout: sourceGit + "\n"},
-			{ExitCode: 128, Stderr: "fatal: '" + existing + "' is already locked, reason: zero: active task worktree"},
+			{ExitCode: 128, Stderr: "fatal: '" + existing + "' is already locked, reason: qg: active task worktree"},
 			// reclaimDeadOwnerLease must preserve a lease owned by a live PID.
 			{Stdout: "worktree " + root + "\nworktree " + existing + "\nlocked " + leaseReason(os.Getpid()) + "\n"},
 		},
@@ -424,7 +424,7 @@ func TestPrepareRejectsWorktreeLockedByAnotherRun(t *testing.T) {
 	}
 }
 
-// TestPrepareReclaimsDeadOwnerLeaseOnReuse: a Zero lease whose recorded PID is
+// TestPrepareReclaimsDeadOwnerLeaseOnReuse: a QG lease whose recorded PID is
 // dead must not brick the worktree name. Prepare's reuse path unlocks and
 // re-locks so a SIGKILLed prior run does not force a manual release.
 func TestPrepareReclaimsDeadOwnerLeaseOnReuse(t *testing.T) {
@@ -434,7 +434,7 @@ func TestPrepareReclaimsDeadOwnerLeaseOnReuse(t *testing.T) {
 	if err := os.MkdirAll(sourceGit, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	existing := filepath.Join(base, "zero-worktree-"+repoKey(root), "reuse-me")
+	existing := filepath.Join(base, "qg-worktree-"+repoKey(root), "reuse-me")
 	if err := os.MkdirAll(filepath.Join(existing, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +449,7 @@ func TestPrepareReclaimsDeadOwnerLeaseOnReuse(t *testing.T) {
 			{Stdout: sourceGit + "\n"},
 			{Stdout: sourceGit + "\n"},
 			{ExitCode: 128, Stderr: "fatal: '" + existing + "' is already locked"},
-			// reclaimDeadOwnerLease: list shows a dead-owner Zero lease
+			// reclaimDeadOwnerLease: list shows a dead-owner QG lease
 			{Stdout: "worktree " + root + "\nworktree " + existing + "\nlocked " + leaseReason(deadPID) + "\n"},
 			{ExitCode: 0}, // unlock
 			{ExitCode: 0}, // re-lock
@@ -569,7 +569,7 @@ func TestPrepareFromLinkedWorktreeCanBeReleased(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prepare from a linked worktree: %v", err)
 	}
-	wantComponent := "zero-worktree-" + repoKey(mainRepo)
+	wantComponent := "qg-worktree-" + repoKey(mainRepo)
 	if !strings.Contains(result.Path, wantComponent) {
 		t.Fatalf("Path = %q, want it keyed off the main worktree %q (component %q)", result.Path, mainRepo, wantComponent)
 	}
@@ -585,7 +585,7 @@ func TestPrepareFromLinkedWorktreeCanBeReleased(t *testing.T) {
 // Prepare and Clean must agree on repoKey regardless of which checkout
 // either call runs from, or a Clean invoked from a linked worktree computes
 // a different repoDir than Prepare used and silently skips every
-// zero-owned worktree for the repository.
+// qg-owned worktree for the repository.
 func TestCleanFromLinkedWorktreePrunesStaleWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -634,7 +634,7 @@ func TestCleanFromLinkedWorktreePrunesStaleWorktree(t *testing.T) {
 		t.Fatalf("Clean: %v", err)
 	}
 	if _, err := os.Stat(result.Path); !os.IsNotExist(err) {
-		t.Fatalf("Clean run from a linked worktree should have pruned the stale zero-owned worktree, stat err: %v", err)
+		t.Fatalf("Clean run from a linked worktree should have pruned the stale qg-owned worktree, stat err: %v", err)
 	}
 }
 
@@ -670,7 +670,7 @@ func TestCleanPrunesStaleWorktreeUnderSymlinkedBaseDir(t *testing.T) {
 	if _, err := Prepare(ctx, Options{Cwd: repo, BaseDir: base, Name: "stale-task"}); err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	staleDir := filepath.Join(realBase, "zero-worktree-"+repoKey(repo), "stale-task")
+	staleDir := filepath.Join(realBase, "qg-worktree-"+repoKey(repo), "stale-task")
 	if _, err := os.Stat(staleDir); err != nil {
 		t.Fatalf("expected worktree created at physical base path %s: %v", staleDir, err)
 	}
@@ -717,8 +717,8 @@ func TestReleaseRecoversDeletedWorktreeUnderSymlinkedBaseDir(t *testing.T) {
 
 	// The worktree directory under the symlinked base was deleted by hand;
 	// nothing on disk exists below base itself.
-	deletedPath := filepath.Join(base, "zero-worktree-"+repoKey(repo), "already-deleted")
-	physicalPath := filepath.Join(realBase, "zero-worktree-"+repoKey(repo), "already-deleted")
+	deletedPath := filepath.Join(base, "qg-worktree-"+repoKey(repo), "already-deleted")
+	physicalPath := filepath.Join(realBase, "qg-worktree-"+repoKey(repo), "already-deleted")
 
 	runner := &fakeRunner{results: []CommandResult{
 		{Stdout: "worktree " + repo + "\nworktree " + physicalPath + "\nlocked " + leaseReasonPrefix + "\n"},
@@ -758,14 +758,14 @@ func TestPrepareValidatesRequestBeforeCleanup(t *testing.T) {
 	toplevel := filepath.Clean(mustGit("rev-parse", "--show-toplevel"))
 
 	base := physicalTestPath(t, t.TempDir())
-	staleDir := filepath.Join(base, "zero-worktree-"+repoKey(toplevel), "stale-task")
+	staleDir := filepath.Join(base, "qg-worktree-"+repoKey(toplevel), "stale-task")
 	if err := os.MkdirAll(filepath.Dir(staleDir), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	mustGit("worktree", "add", "--detach", staleDir)
 	// Plant the ownership marker Clean requires before it will force-remove a
 	// path: without it, a hand-created worktree under the predictable
-	// zero-worktree-* layout must not be pruned. Real linked worktrees keep
+	// qg-worktree-* layout must not be pruned. Real linked worktrees keep
 	// their admin dir behind a .git file (gitdir: ...), so resolve it the
 	// same way writeOwnershipMarker does rather than mkdir path/.git.
 	gitDir, err := gitOutput(ctx, defaultRunGit, staleDir, "rev-parse", "--absolute-git-dir")
@@ -821,7 +821,7 @@ func TestPrepareRejectsExistingWorktreeFromDifferentRepo(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	existing := filepath.Join(base, "zero-worktree-"+repoKey(root), "other-repo")
+	existing := filepath.Join(base, "qg-worktree-"+repoKey(root), "other-repo")
 	if err := os.MkdirAll(filepath.Join(existing, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +863,7 @@ func TestPrepareValidatesNameAndExistingDirectory(t *testing.T) {
 		t.Fatalf("expected invalid name error, got %v", err)
 	}
 
-	blocked := filepath.Join(base, "zero-worktree-"+repoKey(root), "blocked")
+	blocked := filepath.Join(base, "qg-worktree-"+repoKey(root), "blocked")
 	if err := os.MkdirAll(blocked, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -885,7 +885,7 @@ func TestDefaultBaseDirUsesStateHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultBaseDir returned error: %v", err)
 	}
-	if got != filepath.Join(stateHome, "zero", "worktrees") {
+	if got != filepath.Join(stateHome, "qg", "worktrees") {
 		t.Fatalf("DefaultBaseDir = %q", got)
 	}
 }
@@ -894,12 +894,12 @@ func TestDefaultBaseDirFallsBackForWindowsUserProfile(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("USERPROFILE fallback is Windows-specific")
 	}
-	profile := `C:\Users\zero`
+	profile := `C:\Users\qg`
 	got, err := DefaultBaseDir(map[string]string{"USERPROFILE": profile})
 	if err != nil {
 		t.Fatalf("DefaultBaseDir returned error: %v", err)
 	}
-	expected := filepath.Join(profile, "AppData", "Local", "zero", "worktrees")
+	expected := filepath.Join(profile, "AppData", "Local", "qg", "worktrees")
 	if filepath.Clean(got) != filepath.Clean(expected) {
 		t.Fatalf("DefaultBaseDir = %q, want %q", got, expected)
 	}
@@ -910,7 +910,7 @@ type fakeRunner struct {
 	results []CommandResult
 	// autoAbsoluteGitDir answers `rev-parse --absolute-git-dir` without
 	// consuming a queued result: it ensures dir/.git exists and returns that
-	// path. Tests plant zero-owner markers under that dir when they want
+	// path. Tests plant qg-owner markers under that dir when they want
 	// Release/Clean to treat the worktree as Prepare-created.
 	autoAbsoluteGitDir bool
 }
@@ -989,9 +989,9 @@ func fixedTime(value string) func() time.Time {
 
 func TestCleanPrunesStaleWorktrees(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	// Create directories representing two worktrees: one young, one stale.
 	youngPath := filepath.Join(repoDir, "young-task")
@@ -1072,9 +1072,9 @@ func TestCleanPrunesStaleWorktrees(t *testing.T) {
 // the removal succeeded.
 func TestCleanReportsErrorOnFailedRemoval(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	stalePath := filepath.Join(repoDir, "stale-task")
 	if err := os.MkdirAll(stalePath, 0o755); err != nil {
@@ -1118,9 +1118,9 @@ func TestCleanReportsErrorOnFailedRemoval(t *testing.T) {
 
 func TestCleanAggregatesMultipleFailedRemovals(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	stalePathA := filepath.Join(repoDir, "stale-task-a")
 	stalePathB := filepath.Join(repoDir, "stale-task-b")
@@ -1206,9 +1206,9 @@ func TestWorktreeIsStaleTrueForOldUntouchedTree(t *testing.T) {
 // when a long-running task edits an existing nested file.
 func TestCleanSkipsWorktreeWithRecentNestedActivity(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	activePath := filepath.Join(repoDir, "active-task")
 	nestedDir := filepath.Join(activePath, "internal", "pkg")
@@ -1277,9 +1277,9 @@ func TestCleanSkipsWorktreeWithRecentNestedActivity(t *testing.T) {
 // regardless of how stale its mtime looks.
 func TestCleanSkipsLockedWorktree(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	lockedPath := filepath.Join(repoDir, "locked-task")
 	if err := os.MkdirAll(lockedPath, 0o755); err != nil {
@@ -1297,7 +1297,7 @@ func TestCleanSkipsLockedWorktree(t *testing.T) {
 		results: []CommandResult{
 			{Stdout: repoRoot},
 			// Main worktree first: Clean keys repoDir off entries[0].
-			{Stdout: "worktree " + repoRoot + "\nworktree " + lockedPath + "\nHEAD abc1234\nlocked in use by zero\n"},
+			{Stdout: "worktree " + repoRoot + "\nworktree " + lockedPath + "\nHEAD abc1234\nlocked in use by qg\n"},
 			{ExitCode: 0}, // worktree prune
 		},
 	}
@@ -1316,7 +1316,7 @@ func TestCleanSkipsLockedWorktree(t *testing.T) {
 	}
 }
 
-// A worktree zero created and locked at Prepare time (see the "worktree lock"
+// A worktree qg created and locked at Prepare time (see the "worktree lock"
 // call added there) must survive Clean even though it looks idle-but-clean: a
 // task can finish committing and then sit waiting on a model, network, or
 // user for far longer than the staleness window without touching the tree
@@ -1325,9 +1325,9 @@ func TestCleanSkipsLockedWorktree(t *testing.T) {
 // only ever protected worktrees a human locked by hand.
 func TestCleanSkipsLockedZeroOwnedWorktree(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	idlePath := filepath.Join(repoDir, "idle-task")
 	if err := os.MkdirAll(idlePath, 0o755); err != nil {
@@ -1345,8 +1345,8 @@ func TestCleanSkipsLockedZeroOwnedWorktree(t *testing.T) {
 		results: []CommandResult{
 			{Stdout: repoRoot},
 			// Main worktree first: Clean keys repoDir off entries[0]. PID-less
-			// Zero leases are always honored (no dead-owner recovery).
-			{Stdout: "worktree " + repoRoot + "\nworktree " + idlePath + "\nlocked zero: active task worktree\n"},
+			// QG leases are always honored (no dead-owner recovery).
+			{Stdout: "worktree " + repoRoot + "\nworktree " + idlePath + "\nlocked qg: active task worktree\n"},
 			{ExitCode: 0}, // worktree prune
 		},
 	}
@@ -1360,7 +1360,7 @@ func TestCleanSkipsLockedZeroOwnedWorktree(t *testing.T) {
 	}
 	for _, call := range runner.calls {
 		if len(call.args) > 0 && (call.args[0] == "remove" || call.args[0] == "status") {
-			t.Fatalf("Clean touched a locked zero-owned worktree: %v", call.args)
+			t.Fatalf("Clean touched a locked qg-owned worktree: %v", call.args)
 		}
 	}
 }
@@ -1393,7 +1393,7 @@ func TestCleanPreservesUnreachableCommitBeforeRemoval(t *testing.T) {
 	if _, err := Prepare(ctx, Options{Cwd: repo, BaseDir: base, Name: "orphan-task"}); err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	staleDir := filepath.Join(base, "zero-worktree-"+repoKey(repo), "orphan-task")
+	staleDir := filepath.Join(base, "qg-worktree-"+repoKey(repo), "orphan-task")
 
 	// Commit inside the worktree: this HEAD is not on any branch, so nothing
 	// outside the worktree itself points at it yet.
@@ -1435,9 +1435,9 @@ func TestCleanReclaimsReleasedWorktreeWithOnlyIgnoredFiles(t *testing.T) {
 	// artifacts leaks disk forever. The dirty probe for unlocked entries
 	// therefore omits --ignored.
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	ignoredOnlyPath := filepath.Join(repoDir, "ignored-only-task")
 	if err := os.MkdirAll(ignoredOnlyPath, 0o755); err != nil {
@@ -1488,7 +1488,7 @@ func TestCleanReclaimsReleasedWorktreeWithOnlyIgnoredFiles(t *testing.T) {
 	}
 }
 
-// TestCleanRecoversExpiredLease: a Zero lease that records its owning PID is
+// TestCleanRecoversExpiredLease: a QG lease that records its owning PID is
 // recoverable - if that process died without releasing (SIGKILL, crash), the
 // lock must not protect the worktree forever. A stale, clean worktree behind
 // a dead-owner lease is unlocked and removed; the dirty probe there keeps
@@ -1496,9 +1496,9 @@ func TestCleanReclaimsReleasedWorktreeWithOnlyIgnoredFiles(t *testing.T) {
 func TestCleanRecoversExpiredLease(t *testing.T) {
 	deadPID := deadProcessPID(t)
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	crashedPath := filepath.Join(repoDir, "crashed-task")
 	if err := os.MkdirAll(crashedPath, 0o755); err != nil {
@@ -1553,9 +1553,9 @@ func TestCleanRecoversExpiredLease(t *testing.T) {
 func TestCleanSkipsExpiredLeaseWithIgnoredData(t *testing.T) {
 	deadPID := deadProcessPID(t)
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	crashedPath := filepath.Join(repoDir, "crashed-task")
 	if err := os.MkdirAll(crashedPath, 0o755); err != nil {
@@ -1601,9 +1601,9 @@ func TestCleanSkipsExpiredLeaseWithIgnoredData(t *testing.T) {
 // never expired, regardless of staleness.
 func TestCleanHonorsLiveLease(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	livePath := filepath.Join(repoDir, "live-task")
 	if err := os.MkdirAll(livePath, 0o755); err != nil {
@@ -1665,9 +1665,9 @@ func deadProcessPID(t *testing.T) int {
 // not wrongly force-removed. Fresh mtime alone is enough; no lock is required.
 func TestCleanHonorsTouchLiveness(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	touchedPath := filepath.Join(repoDir, "touched-task")
 	if err := os.MkdirAll(touchedPath, 0o755); err != nil {
@@ -1746,8 +1746,8 @@ func TestWorktreeIsDirtyCountsIgnoredFilesAsDirty(t *testing.T) {
 		}
 	}
 	run("init", "--quiet")
-	run("config", "user.email", "zero@example.com")
-	run("config", "user.name", "zero")
+	run("config", "user.email", "qg@example.com")
+	run("config", "user.name", "qg")
 	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("ignored-data\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1768,15 +1768,15 @@ func TestWorktreeIsDirtyCountsIgnoredFilesAsDirty(t *testing.T) {
 }
 
 // A sibling directory that merely shares the per-repository repoDir as a
-// string prefix (e.g. "<repoDir>-other") must not be treated as zero-owned.
+// string prefix (e.g. "<repoDir>-other") must not be treated as qg-owned.
 // This also covers a manually managed worktree for the SAME repository that a
-// user placed directly under a shared baseDir rather than inside zero's
-// repoDir subtree: it must not be treated as zero-owned either.
+// user placed directly under a shared baseDir rather than inside qg's
+// repoDir subtree: it must not be treated as qg-owned either.
 func TestCleanRejectsSiblingDirWithSharedPrefix(t *testing.T) {
 	tempDir := t.TempDir()
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 	siblingDir := repoDir + "-other"
 
 	siblingPath := filepath.Join(siblingDir, "not-ours")
@@ -1811,11 +1811,11 @@ func TestCleanRejectsSiblingDirWithSharedPrefix(t *testing.T) {
 }
 
 // A manually managed worktree that a user placed directly under a shared
-// baseDir, outside zero's own "zero-worktree-<repoKey>" subtree, must never
+// baseDir, outside qg's own "qg-worktree-<repoKey>" subtree, must never
 // be pruned even though it is technically inside baseDir.
 func TestCleanIgnoresWorktreeOutsideOwnedSubtree(t *testing.T) {
 	tempDir := t.TempDir()
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
 
 	manualPath := filepath.Join(baseDir, "hand-managed-checkout")
@@ -1855,9 +1855,9 @@ func TestCleanIgnoresWorktreeOutsideOwnedSubtree(t *testing.T) {
 // staleness window, without ever writing to the tree again in that time.
 func TestCleanSkipsDirtyStaleWorktree(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	dirtyPath := filepath.Join(repoDir, "dirty-task")
 	if err := os.MkdirAll(dirtyPath, 0o755); err != nil {
@@ -1952,12 +1952,12 @@ func TestParseWorktreeListTracksLockedState(t *testing.T) {
 func TestCleanUnlocksExpiredLeaseBeforePruningMissingDir(t *testing.T) {
 	deadPID := deadProcessPID(t)
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
 	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 	missingPath := filepath.Join(repoDir, "missing-dead-task")
 
 	runner := &fakeRunner{
@@ -1995,12 +1995,12 @@ func TestCleanUnlocksExpiredLeaseBeforePruningMissingDir(t *testing.T) {
 func TestCleanReportsUnlockErrorForMissingExpiredLease(t *testing.T) {
 	deadPID := deadProcessPID(t)
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
 	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 	missingPath := filepath.Join(repoDir, "missing-dead-task")
 
 	runner := &fakeRunner{
@@ -2057,9 +2057,9 @@ func TestPreserveUnreachableWorktreeHeadFailsClosedOnProbeError(t *testing.T) {
 
 func TestCleanMigratesAndReclaimsLegacyZeroWorktrees(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	legacyPath := filepath.Join(repoDir, "legacy-task")
 	if err := os.MkdirAll(legacyPath, 0o755); err != nil {
@@ -2108,7 +2108,7 @@ func TestCleanMigratesAndReclaimsLegacyZeroWorktrees(t *testing.T) {
 		}
 	}
 	if !removed {
-		t.Fatal("Clean did not reclaim a legacy pre-upgrade Zero worktree lacking an ownership marker")
+		t.Fatal("Clean did not reclaim a legacy pre-upgrade QG worktree lacking an ownership marker")
 	}
 }
 
@@ -2117,9 +2117,9 @@ func TestCleanMigratesAndReclaimsLegacyZeroWorktrees(t *testing.T) {
 // Clean used to probe without --ignored first and treated legacy as released.
 func TestCleanSkipsLegacyWorktreeWithIgnoredData(t *testing.T) {
 	tempDir := physicalTestPath(t, t.TempDir())
-	baseDir := filepath.Join(tempDir, "zero-worktrees")
+	baseDir := filepath.Join(tempDir, "qg-worktrees")
 	repoRoot := filepath.Join(tempDir, "repo")
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(repoRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(repoRoot))
 
 	legacyPath := filepath.Join(repoDir, "legacy-task")
 	if err := os.MkdirAll(legacyPath, 0o755); err != nil {
