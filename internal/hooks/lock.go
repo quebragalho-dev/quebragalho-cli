@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/lockutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/lockutil"
 )
 
 // Cross-process lock tuning for the audit log. The lock is held only across a

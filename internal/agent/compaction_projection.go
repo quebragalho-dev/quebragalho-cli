@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 const (
@@ -23,7 +23,7 @@ const (
 var compactionWordPattern = regexp.MustCompile(`[\p{L}\p{N}]+`)
 
 type compactionProjection struct {
-	messages  []zeroruntime.Message
+	messages  []qgruntime.Message
 	truncated bool
 }
 
@@ -31,13 +31,13 @@ type compactionProjection struct {
 // summary call. It retains a bounded transcript of user intent, assistant
 // decisions, tool actions, and concise errors. Exact durable state is appended
 // separately from the original messages after the summary returns.
-func projectCompactionInput(messages []zeroruntime.Message) compactionProjection {
+func projectCompactionInput(messages []qgruntime.Message) compactionProjection {
 	sections := make([]string, 0, len(messages))
 	previousSummary := ""
 	truncated := false
 	for index, message := range messages {
 		switch message.Role {
-		case zeroruntime.MessageRoleUser:
+		case qgruntime.MessageRoleUser:
 			content := message.Content
 			if marker := strings.Index(content, preservedStateLabel); marker >= 0 {
 				content = content[:marker]
@@ -52,7 +52,7 @@ func projectCompactionInput(messages []zeroruntime.Message) compactionProjection
 			if content = clipInformativeWords(content, compactionUserWordBudget); content != "" {
 				sections = append(sections, fmt.Sprintf("[user #%d]\n%s", index, content))
 			}
-		case zeroruntime.MessageRoleAssistant:
+		case qgruntime.MessageRoleAssistant:
 			lines := make([]string, 0, 1+len(message.ToolCalls))
 			if content := clipInformativeWords(message.Content, compactionAssistantWordBudget); content != "" {
 				lines = append(lines, content)
@@ -72,7 +72,7 @@ func projectCompactionInput(messages []zeroruntime.Message) compactionProjection
 			if len(lines) > 0 {
 				sections = append(sections, fmt.Sprintf("[assistant #%d]\n%s", index, strings.Join(lines, "\n")))
 			}
-		case zeroruntime.MessageRoleTool:
+		case qgruntime.MessageRoleTool:
 			// New tool-result messages carry the execution status directly, as the
 			// source ToolResult does. Keep the text check for older session history
 			// created before Message exposed IsError.
@@ -104,7 +104,7 @@ func projectCompactionInput(messages []zeroruntime.Message) compactionProjection
 		brief = "[previous summary]\n" + previousSummary + "\n\n" + brief
 	}
 	return compactionProjection{
-		messages:  []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: strings.TrimSpace(brief)}},
+		messages:  []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: strings.TrimSpace(brief)}},
 		truncated: truncated,
 	}
 }
@@ -124,7 +124,7 @@ func capCompactionBrief(brief string) (string, bool) {
 	return strings.TrimSpace(head) + marker + strings.TrimSpace(tail), true
 }
 
-func compactionToolCallLine(call zeroruntime.ToolCall) string {
+func compactionToolCallLine(call qgruntime.ToolCall) string {
 	detail := ""
 	if call.Freeform && call.Name == "apply_patch" {
 		detail = strings.Join(patchPaths(call.Arguments), ", ")

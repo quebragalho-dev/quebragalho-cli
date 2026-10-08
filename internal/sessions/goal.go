@@ -27,7 +27,7 @@ func validateGoalObjective(objective string) (string, error) {
 // existing goal so callers must make replacement an explicit user decision.
 func (store *Store) CreateGoal(sessionID, objective string, tokenBudget int) (Metadata, Event, error) {
 	if !ValidSessionID(sessionID) {
-		return Metadata{}, Event{}, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Metadata{}, Event{}, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	var err error
 	objective, err = validateGoalObjective(objective)
@@ -81,7 +81,7 @@ func (store *Store) CreateGoal(sessionID, objective string, tokenBudget int) (Me
 // for status/history until the user explicitly clears them.
 func (store *Store) UpdateGoal(sessionID string, status GoalStatus, reason string) (Metadata, Event, error) {
 	if !ValidSessionID(sessionID) {
-		return Metadata{}, Event{}, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Metadata{}, Event{}, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	if !validGoalStatus(status) {
 		return Metadata{}, Event{}, fmt.Errorf("invalid goal status %q", status)
@@ -130,7 +130,7 @@ func (store *Store) UpdateGoal(sessionID string, status GoalStatus, reason strin
 // lifecycle timestamps. User-facing command handling owns confirmation.
 func (store *Store) EditGoal(sessionID, objective string, tokenBudget int) (Metadata, Event, error) {
 	if !ValidSessionID(sessionID) {
-		return Metadata{}, Event{}, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Metadata{}, Event{}, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	var err error
 	objective, err = validateGoalObjective(objective)
@@ -187,7 +187,7 @@ func (store *Store) EditGoal(sessionID, objective string, tokenBudget int) (Meta
 // user input. It makes the safety bound consecutive rather than lifetime-wide.
 func (store *Store) ResetGoalContinuations(sessionID string) (Metadata, error) {
 	if !ValidSessionID(sessionID) {
-		return Metadata{}, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Metadata{}, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	unlock, err := store.lockSession(sessionID)
 	if err != nil {
@@ -226,7 +226,7 @@ func (store *Store) ResetGoalContinuations(sessionID string) (Metadata, error) {
 // another provider request can start, even when the provider reports no usage.
 func (store *Store) ReserveGoalContinuation(sessionID string) (Metadata, *Event, bool, error) {
 	if !ValidSessionID(sessionID) {
-		return Metadata{}, nil, false, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Metadata{}, nil, false, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	unlock, err := store.lockSession(sessionID)
 	if err != nil {
@@ -279,7 +279,7 @@ func (store *Store) ReserveGoalContinuation(sessionID string) (Metadata, *Event,
 // optional budget pauses the goal before another autonomous turn can start.
 func (store *Store) AddGoalUsage(sessionID string, tokens int) (Metadata, *Event, error) {
 	if !ValidSessionID(sessionID) {
-		return Metadata{}, nil, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Metadata{}, nil, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	if tokens < 0 {
 		return Metadata{}, nil, fmt.Errorf("goal token usage cannot be negative")
@@ -332,7 +332,7 @@ func (store *Store) AddGoalUsage(sessionID string, tokens int) (Metadata, *Event
 // goal immediately before the cancellation reached the runtime.
 func (store *Store) PauseGoalIfActive(sessionID, reason string) (Metadata, *Event, error) {
 	if !ValidSessionID(sessionID) {
-		return Metadata{}, nil, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Metadata{}, nil, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	unlock, err := store.lockSession(sessionID)
 	if err != nil {
@@ -370,7 +370,7 @@ func (store *Store) PauseGoalIfActive(sessionID, reason string) (Metadata, *Even
 // ClearGoal removes the current goal while preserving an audit event.
 func (store *Store) ClearGoal(sessionID string) (Metadata, Event, error) {
 	if !ValidSessionID(sessionID) {
-		return Metadata{}, Event{}, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Metadata{}, Event{}, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	unlock, err := store.lockSession(sessionID)
 	if err != nil {

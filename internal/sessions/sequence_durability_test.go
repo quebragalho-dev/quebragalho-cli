@@ -26,7 +26,7 @@ func appendN(t *testing.T, store *Store, sid string, n int) {
 // the log and NOT reuse a number (which would mis-target /rewind).
 func TestAppendDerivesSequenceFromLogAfterStaleMetadata(t *testing.T) {
 	store := seqTestStore(t)
-	s, err := store.Create(CreateInput{SessionID: "zero_seq_1", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
+	s, err := store.Create(CreateInput{SessionID: "qg_seq_1", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestAppendDerivesSequenceFromLogAfterStaleMetadata(t *testing.T) {
 // leave a benign gap, never a duplicate.
 func TestAppendWithStaleHighMetadataLeavesGapNotDuplicate(t *testing.T) {
 	store := seqTestStore(t)
-	s, _ := store.Create(CreateInput{SessionID: "zero_seq_2", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
+	s, _ := store.Create(CreateInput{SessionID: "qg_seq_2", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
 	appendN(t, store, s.SessionID, 2)
 
 	meta, _ := store.readMetadata(s.SessionID)
@@ -85,7 +85,7 @@ func TestAppendWithStaleHighMetadataLeavesGapNotDuplicate(t *testing.T) {
 
 func TestLastEventSequence_EmptyAndMultiple(t *testing.T) {
 	store := seqTestStore(t)
-	s, _ := store.Create(CreateInput{SessionID: "zero_tail_1", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
+	s, _ := store.Create(CreateInput{SessionID: "qg_tail_1", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
 	if seq, err := store.lastEventSequence(s.SessionID); err != nil || seq != 0 {
 		t.Fatalf("empty log: got %d err=%v, want 0", seq, err)
 	}
@@ -97,7 +97,7 @@ func TestLastEventSequence_EmptyAndMultiple(t *testing.T) {
 
 func TestLastEventSequence_IgnoresTornTail(t *testing.T) {
 	store := seqTestStore(t)
-	s, _ := store.Create(CreateInput{SessionID: "zero_tail_2", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
+	s, _ := store.Create(CreateInput{SessionID: "qg_tail_2", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
 	appendN(t, store, s.SessionID, 3)
 	// Append a torn partial line (interrupted write: no trailing newline).
 	f, err := os.OpenFile(filepath.Join(store.RootDir, s.SessionID, EventsFile), os.O_WRONLY|os.O_APPEND, 0o600)
@@ -115,7 +115,7 @@ func TestLastEventSequence_IgnoresTornTail(t *testing.T) {
 
 func TestLastEventSequence_LargeLastEvent(t *testing.T) {
 	store := seqTestStore(t)
-	s, _ := store.Create(CreateInput{SessionID: "zero_tail_3", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
+	s, _ := store.Create(CreateInput{SessionID: "qg_tail_3", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
 	// A single event larger than the 64 KiB initial tail window forces the read
 	// to grow its window; the sequence must still be found.
 	big := strings.Repeat("x", 100*1024)

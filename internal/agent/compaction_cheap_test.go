@@ -6,29 +6,29 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // compactableHistory returns a history whose middle is large enough to trip
 // the proactive threshold for a 1000-token window.
-func compactableHistory() []zeroruntime.Message {
-	return []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "sys"},
-		{Role: zeroruntime.MessageRoleUser, Content: strings.Repeat("u", 4000)},
-		{Role: zeroruntime.MessageRoleAssistant, Content: strings.Repeat("a", 4000)},
-		{Role: zeroruntime.MessageRoleUser, Content: "u2"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "a2"},
-		{Role: zeroruntime.MessageRoleUser, Content: "u3"},
+func compactableHistory() []qgruntime.Message {
+	return []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "sys"},
+		{Role: qgruntime.MessageRoleUser, Content: strings.Repeat("u", 4000)},
+		{Role: qgruntime.MessageRoleAssistant, Content: strings.Repeat("a", 4000)},
+		{Role: qgruntime.MessageRoleUser, Content: "u2"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "a2"},
+		{Role: qgruntime.MessageRoleUser, Content: "u3"},
 	}
 }
 
 // Summarization must run on the dedicated (cheap) summarizer when one is
 // configured — the main provider sees no summarize traffic at all.
 func TestMaybeCompactUsesDedicatedSummarizer(t *testing.T) {
-	cheap := &mockProvider{turns: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventText, Content: "CHEAP SUMMARY"},
-		{Type: zeroruntime.StreamEventDone},
+	cheap := &mockProvider{turns: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventText, Content: "CHEAP SUMMARY"},
+		{Type: qgruntime.StreamEventDone},
 	}}}
 	main := &mockProvider{}
 	factoryCalls := 0
@@ -69,12 +69,12 @@ func TestMaybeCompactUsesDedicatedSummarizer(t *testing.T) {
 // A failing summarizer falls back to the main provider for the SAME slice and
 // stays broken for the rest of the run — no repeated failed cheap calls.
 func TestSummarizerFailureFallsBackToMainAndSticks(t *testing.T) {
-	broken := &mockProvider{turns: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventError, Error: "boom: model not found"},
+	broken := &mockProvider{turns: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventError, Error: "boom: model not found"},
 	}}}
-	main := &mockProvider{turns: [][]zeroruntime.StreamEvent{
-		{{Type: zeroruntime.StreamEventText, Content: "MAIN SUMMARY"}, {Type: zeroruntime.StreamEventDone}},
-		{{Type: zeroruntime.StreamEventText, Content: "MAIN SUMMARY 2"}, {Type: zeroruntime.StreamEventDone}},
+	main := &mockProvider{turns: [][]qgruntime.StreamEvent{
+		{{Type: qgruntime.StreamEventText, Content: "MAIN SUMMARY"}, {Type: qgruntime.StreamEventDone}},
+		{{Type: qgruntime.StreamEventText, Content: "MAIN SUMMARY 2"}, {Type: qgruntime.StreamEventDone}},
 	}}
 	state := newCompactionState(Options{
 		ContextWindow:          1000,
@@ -82,7 +82,7 @@ func TestSummarizerFailureFallsBackToMainAndSticks(t *testing.T) {
 		Summarizer:             func(context.Context, string) (Provider, error) { return broken, nil },
 	}, nil)
 	summarize := state.summarizeClosure(context.Background(), main)
-	input := []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "history"}}
+	input := []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "history"}}
 
 	summary, err := summarize(input)
 	if err != nil {
@@ -113,9 +113,9 @@ func TestSummarizerFailureFallsBackToMainAndSticks(t *testing.T) {
 // A factory that errors (misconfigured model) is equivalent to no summarizer:
 // main provider used, factory not retried.
 func TestSummarizerFactoryErrorFallsBack(t *testing.T) {
-	main := &mockProvider{turns: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventText, Content: "MAIN SUMMARY"},
-		{Type: zeroruntime.StreamEventDone},
+	main := &mockProvider{turns: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventText, Content: "MAIN SUMMARY"},
+		{Type: qgruntime.StreamEventDone},
 	}}}
 	factoryCalls := 0
 	state := newCompactionState(Options{
@@ -128,7 +128,7 @@ func TestSummarizerFactoryErrorFallsBack(t *testing.T) {
 	}, nil)
 	summarize := state.summarizeClosure(context.Background(), main)
 
-	summary, err := summarize([]zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "history"}})
+	summary, err := summarize([]qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "history"}})
 	if err != nil || summary != "MAIN SUMMARY" {
 		t.Fatalf("summary = %q, err = %v; want main provider fallback", summary, err)
 	}
@@ -148,12 +148,12 @@ func TestSummarizerFactoryErrorFallsBack(t *testing.T) {
 func TestRenderTranscriptClampsToolPayloads(t *testing.T) {
 	bigResult := strings.Repeat("r", 50_000)
 	bigArgs := strings.Repeat("w", 20_000)
-	transcript := renderTranscript([]zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleAssistant, Content: "editing", ToolCalls: []zeroruntime.ToolCall{
+	transcript := renderTranscript([]qgruntime.Message{
+		{Role: qgruntime.MessageRoleAssistant, Content: "editing", ToolCalls: []qgruntime.ToolCall{
 			{ID: "c1", Name: "write_file", Arguments: bigArgs},
 		}},
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "c1", Content: bigResult},
-		{Role: zeroruntime.MessageRoleUser, Content: "keep going"},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "c1", Content: bigResult},
+		{Role: qgruntime.MessageRoleUser, Content: "keep going"},
 	})
 
 	if len(transcript) > summaryToolResultClamp+summaryToolArgsClamp+1024 {
@@ -175,23 +175,23 @@ func TestRenderTranscriptClampsToolPayloads(t *testing.T) {
 // bigToolHistory returns a history with n large tool results (~40k estimated
 // tokens each): the trailing protection window keeps the newest verbatim,
 // the older ones are prunable.
-func bigToolHistory(n int) []zeroruntime.Message {
+func bigToolHistory(n int) []qgruntime.Message {
 	bigBody := strings.Repeat("x", 160_000)
-	messages := []zeroruntime.Message{{Role: zeroruntime.MessageRoleSystem, Content: "sys"}}
+	messages := []qgruntime.Message{{Role: qgruntime.MessageRoleSystem, Content: "sys"}}
 	for i := 0; i < n; i++ {
 		id := string(rune('a' + i))
 		messages = append(messages,
-			zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{{ID: id, Name: "read_file", Arguments: "{\"path\":\"" + id + "\"}"}}},
-			zeroruntime.Message{Role: zeroruntime.MessageRoleTool, ToolCallID: id, Content: bigBody},
+			qgruntime.Message{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{{ID: id, Name: "read_file", Arguments: "{\"path\":\"" + id + "\"}"}}},
+			qgruntime.Message{Role: qgruntime.MessageRoleTool, ToolCallID: id, Content: bigBody},
 		)
 	}
-	return append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "go"})
+	return append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "go"})
 }
 
 func summaryProvider(text string) *mockProvider {
-	return &mockProvider{turns: [][]zeroruntime.StreamEvent{
-		{{Type: zeroruntime.StreamEventText, Content: text}, {Type: zeroruntime.StreamEventDone}},
-		{{Type: zeroruntime.StreamEventText, Content: text}, {Type: zeroruntime.StreamEventDone}},
+	return &mockProvider{turns: [][]qgruntime.StreamEvent{
+		{{Type: qgruntime.StreamEventText, Content: text}, {Type: qgruntime.StreamEventDone}},
+		{{Type: qgruntime.StreamEventText, Content: text}, {Type: qgruntime.StreamEventDone}},
 	}}
 }
 
@@ -394,15 +394,15 @@ func TestCompactionUpdateWindow(t *testing.T) {
 func TestRunEscalationRederivesContextWindow(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(escalatingTool{target: "big-model"})
-	switched := &mockProvider{turns: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventDone},
+	switched := &mockProvider{turns: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventDone},
 	}}}
-	provider := &mockProvider{turns: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "escalate"},
-		{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{}`},
-		{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "escalate"},
+		{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{}`},
+		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+		{Type: qgruntime.StreamEventDone},
 	}}}
 
 	var windows []int
@@ -443,13 +443,13 @@ type nonComparableProvider struct {
 	tags  []string
 }
 
-func (p nonComparableProvider) StreamCompletion(ctx context.Context, request zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+func (p nonComparableProvider) StreamCompletion(ctx context.Context, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	return p.inner.StreamCompletion(ctx, request)
 }
 
 func TestSummarizeClosureNeverComparesProviderValues(t *testing.T) {
-	broken := &mockProvider{turns: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventError, Error: "boom: model not found"},
+	broken := &mockProvider{turns: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventError, Error: "boom: model not found"},
 	}}}
 	main := nonComparableProvider{inner: summaryProvider("MAIN SUMMARY"), tags: []string{"x"}}
 	state := newCompactionState(Options{
@@ -457,13 +457,13 @@ func TestSummarizeClosureNeverComparesProviderValues(t *testing.T) {
 		CompactionPreserveLast: 2,
 		Summarizer:             func(context.Context, string) (Provider, error) { return nonComparableProvider{inner: broken}, nil },
 	}, nil)
-	summary, err := state.summarizeClosure(context.Background(), main)([]zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "history"}})
+	summary, err := state.summarizeClosure(context.Background(), main)([]qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "history"}})
 	if err != nil || summary != "MAIN SUMMARY" {
 		t.Fatalf("fallback with non-comparable providers must not panic and must use main, got %q err=%v", summary, err)
 	}
 	// And with no dedicated summarizer at all the closure still works.
 	state = newCompactionState(Options{ContextWindow: 1000, CompactionPreserveLast: 2}, nil)
-	if _, err := state.summarizeClosure(context.Background(), main)([]zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "history"}}); err != nil {
+	if _, err := state.summarizeClosure(context.Background(), main)([]qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "history"}}); err != nil {
 		t.Fatal(err)
 	}
 }

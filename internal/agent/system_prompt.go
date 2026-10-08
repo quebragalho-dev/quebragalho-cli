@@ -9,10 +9,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/repomap"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/workspaceseed"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/repomap"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspaceseed"
 )
 
 // coreSystemPrompt is the de-branded coding-craft instruction set: identity,
@@ -31,20 +31,20 @@ var confirmationPolicy string
 
 // fallbackSystemPrompt is used only if the embedded core prompt is somehow empty
 // (it never should be) so a run always has a non-empty system turn.
-const fallbackSystemPrompt = "You are Zero, a terminal coding agent. Help with the current workspace and use tools when needed."
+const fallbackSystemPrompt = "You are QG, a terminal coding agent. Help with the current workspace and use tools when needed."
 
 // projectContextFiles are workspace docs injected into the system prompt so the
 // agent honors project-specific conventions (mirrors AGENTS.md / CLAUDE.md).
 // The first match at each directory level wins; the loader walks the chain
 // from the git root down to the cwd and injects the matches in
 // general-to-specific order.
-var projectContextFiles = []string{"AGENTS.md", "ZERO.md", ".zero/AGENTS.md"}
+var projectContextFiles = []string{"AGENTS.md", "QG.md", ".qg/AGENTS.md"}
 
 // userContextFile is the per-user instruction file, resolved under
-// config.UserConfigDir()/zero/ alongside the rest of Zero's per-user config
+// config.UserConfigDir()/qg/ alongside the rest of QG's per-user config
 // (config.json, commands, specialists) so users can keep personal guidance out
 // of individual repositories.
-const userContextFile = "ZERO.md"
+const userContextFile = "QG.md"
 
 var userConfigDirForPrompt = config.UserConfigDir
 
@@ -111,7 +111,7 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 		sections = append(sections, seed)
 	}
 	// User guidelines are injected before workspace/project guidelines so the
-	// project's AGENTS.md/ZERO.md is the later, more specific instruction
+	// project's AGENTS.md/QG.md is the later, more specific instruction
 	// block. See userGuidelines for the explicit precedence note carried in
 	// the section text itself.
 	if user := userGuidelines(); user != "" {
@@ -373,13 +373,13 @@ func projectGuidelines(cwd, gitRoot string) string {
 	return b.String()
 }
 
-// userGuidelines returns the per-user ZERO.md instructions block, if present.
-// The file lives in config.UserConfigDir()/zero/ next to Zero's other
+// userGuidelines returns the per-user QG.md instructions block, if present.
+// The file lives in config.UserConfigDir()/qg/ next to QG's other
 // per-user config; the basename match is case-insensitive so a file saved as
-// zero.md still resolves on case-sensitive filesystems, mirroring the project
+// qg.md still resolves on case-sensitive filesystems, mirroring the project
 // guideline loader. The section carries an explicit precedence note because
 // this is a global, personal preferences file: it is injected earlier in the
-// prompt than the project's AGENTS.md/ZERO.md (see buildSystemPrompt), and
+// prompt than the project's AGENTS.md/QG.md (see buildSystemPrompt), and
 // the note keeps that precedence unambiguous even if a model weighs later
 // context more heavily than section order alone implies.
 func userGuidelines() string {
@@ -391,7 +391,7 @@ func userGuidelines() string {
 	if configDir == "" {
 		return ""
 	}
-	match := findCaseInsensitiveFile(filepath.Join(configDir, "zero"), userContextFile)
+	match := findCaseInsensitiveFile(filepath.Join(configDir, "qg"), userContextFile)
 	if match == "" {
 		return ""
 	}
@@ -406,7 +406,7 @@ func userGuidelines() string {
 	content = truncateGuidelineContent(content, maxProjectContextBytes)
 	return "## User guidelines (" + filepath.Base(match) + ")\n\n" +
 		"These are the operator's personal preferences, not project policy. " +
-		"Where they conflict with a repository's project guidelines below (AGENTS.md/ZERO.md), the project guidelines take precedence.\n\n" +
+		"Where they conflict with a repository's project guidelines below (AGENTS.md/QG.md), the project guidelines take precedence.\n\n" +
 		content
 }
 

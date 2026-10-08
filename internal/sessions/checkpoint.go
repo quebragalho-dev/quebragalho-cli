@@ -34,13 +34,13 @@ type CheckpointPayload struct {
 }
 
 // CheckpointsEnabled reports whether checkpoint capture is enabled (default on;
-// disabled with ZERO_CHECKPOINTS=off).
+// disabled with QG_CHECKPOINTS=off).
 func CheckpointsEnabled() bool {
-	return os.Getenv("ZERO_CHECKPOINTS") != "off"
+	return os.Getenv("QG_CHECKPOINTS") != "off"
 }
 
 func maxCheckpointBytes() int {
-	if raw := os.Getenv("ZERO_CHECKPOINT_MAX_BYTES"); raw != "" {
+	if raw := os.Getenv("QG_CHECKPOINT_MAX_BYTES"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
 			return n
 		}
@@ -59,10 +59,10 @@ func (store *Store) blobPath(sessionID, hash string) string {
 // CaptureToolCheckpoint snapshots the current (before-mutation) content of each
 // path and records an EventSessionCheckpoint indexing the blobs. Capture is
 // best-effort: an unreadable file is recorded as skipped rather than failing the
-// caller. Returns the appended event (or a zero Event if there was nothing to do).
+// caller. Returns the appended event (or a qg Event if there was nothing to do).
 func (store *Store) CaptureToolCheckpoint(sessionID, workspaceRoot, tool string, paths []string) (Event, error) {
 	if !ValidSessionID(sessionID) {
-		return Event{}, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Event{}, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	if !CheckpointsEnabled() || len(paths) == 0 {
 		return Event{}, nil

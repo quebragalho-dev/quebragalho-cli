@@ -15,14 +15,14 @@ const builtinLoopPrompt = "Continue the ongoing task in this repository.\n" +
 	"Report what you did succinctly."
 
 // ResolveLoopPrompt returns the loop prompt for a scheduled job: the first
-// readable loop.md found in <cwd>/.zero, <cwd>/.agents, <home>/.zero,
+// readable loop.md found in <cwd>/.qg, <cwd>/.agents, <home>/.qg,
 // <home>/.agents, else the built-in fallback. Files over maxLoopPromptBytes
 // return an error; symlinks are skipped (never read) to prevent exfiltration.
 func ResolveLoopPrompt(cwd, home string) (string, error) {
 	dirs := []string{
-		filepath.Join(cwd, ".zero"),
+		filepath.Join(cwd, ".qg"),
 		filepath.Join(cwd, ".agents"),
-		filepath.Join(home, ".zero"),
+		filepath.Join(home, ".qg"),
 		filepath.Join(home, ".agents"),
 	}
 	for _, dir := range dirs {

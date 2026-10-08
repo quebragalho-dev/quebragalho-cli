@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/background"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 type StopTool struct {
@@ -27,7 +27,7 @@ func (tool *StopTool) Name() string {
 }
 
 func (tool *StopTool) Description() string {
-	return "Stop a running background Zero specialist task."
+	return "Stop a running background QG specialist task."
 }
 
 func (tool *StopTool) Parameters() tools.Schema {

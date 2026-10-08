@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/specialist"
-	"github.com/Gitlawb/zero/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specialist"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 )
 
 // TestSpecialistLauncherRunsUnregisteredSwarmAgent guards the fix for the swarm
@@ -16,11 +16,11 @@ import (
 // found". The launcher now runs the member from an inline manifest built from its
 // swarm definition, so an unregistered agent type executes end-to-end.
 func TestSpecialistLauncherRunsUnregisteredSwarmAgent(t *testing.T) {
-	zero := 0
+	qg := 0
 	var ran bool
 	var gotArgs []string
 	executor := specialist.Executor{
-		BinaryPath:   "/usr/local/bin/zero",
+		BinaryPath:   "/usr/local/bin/qg",
 		NewSessionID: func() (string, error) { return "member_task", nil },
 		// No "subagent" specialist is registered — the old name-lookup path failed.
 		Load: func(specialist.LoadOptions) (specialist.LoadResult, error) {
@@ -32,7 +32,7 @@ func TestSpecialistLauncherRunsUnregisteredSwarmAgent(t *testing.T) {
 			return specialist.ChildRunResult{Events: []streamjson.Event{
 				{Type: streamjson.EventRunStart, SessionID: "member_task"},
 				{Type: streamjson.EventFinal, Text: "member done"},
-				{Type: streamjson.EventRunEnd, Status: "success", ExitCode: &zero},
+				{Type: streamjson.EventRunEnd, Status: "success", ExitCode: &qg},
 			}}, nil
 		},
 	}
@@ -75,7 +75,7 @@ func TestSpecialistLauncherRunsUnregisteredSwarmAgent(t *testing.T) {
 func TestSpecialistLauncherMarksNonZeroExitAsFailed(t *testing.T) {
 	four := 4
 	executor := specialist.Executor{
-		BinaryPath:   "/usr/local/bin/zero",
+		BinaryPath:   "/usr/local/bin/qg",
 		NewSessionID: func() (string, error) { return "member_task", nil },
 		Load: func(specialist.LoadOptions) (specialist.LoadResult, error) {
 			return specialist.LoadResult{}, nil

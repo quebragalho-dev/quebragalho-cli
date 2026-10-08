@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 const (
@@ -53,7 +53,7 @@ func (tool SubmitTool) Safety() tools.Safety {
 	return tools.Safety{
 		SideEffect: tools.SideEffectWrite,
 		Permission: tools.PermissionAllow,
-		Reason:     "Writes a spec markdown file under the workspace .zero/specs directory and stops for review.",
+		Reason:     "Writes a spec markdown file under the workspace .qg/specs directory and stops for review.",
 	}
 }
 

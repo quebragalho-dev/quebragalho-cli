@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // TestComputePrefixFingerprintStableAcrossCalls asserts the headline property
@@ -14,7 +14,7 @@ import (
 // the prompt prefix."
 func TestComputePrefixFingerprintStableAcrossCalls(t *testing.T) {
 	opts := Options{Cwd: t.TempDir(), SystemPrompt: "core"}
-	exposed := []zeroruntime.ToolDefinition{
+	exposed := []qgruntime.ToolDefinition{
 		{Name: "read_file", Parameters: map[string]any{"type": "object"}},
 		{Name: "grep", Parameters: map[string]any{"type": "object"}},
 	}
@@ -32,11 +32,11 @@ func TestComputePrefixFingerprintStableAcrossCalls(t *testing.T) {
 // cacheable prefix identity.
 func TestComputePrefixFingerprintToolsHashMatchesEmittedOrderAndDescriptions(t *testing.T) {
 	opts := Options{Cwd: t.TempDir(), SystemPrompt: "core"}
-	a := []zeroruntime.ToolDefinition{
+	a := []qgruntime.ToolDefinition{
 		{Name: "read_file", Description: "read", Parameters: map[string]any{"schema": "schema-read"}},
 		{Name: "grep", Description: "search", Parameters: map[string]any{"schema": "schema-grep"}},
 	}
-	b := []zeroruntime.ToolDefinition{
+	b := []qgruntime.ToolDefinition{
 		{Name: "grep", Description: "search", Parameters: map[string]any{"schema": "schema-grep"}},
 		{Name: "read_file", Description: "read", Parameters: map[string]any{"schema": "schema-read"}},
 	}
@@ -45,7 +45,7 @@ func TestComputePrefixFingerprintToolsHashMatchesEmittedOrderAndDescriptions(t *
 	if fpA.ToolsHash == fpB.ToolsHash {
 		t.Fatalf("ToolsHash must change when emitted order changes: a=%s b=%s", fpA.ToolsHash, fpB.ToolsHash)
 	}
-	c := append([]zeroruntime.ToolDefinition(nil), a...)
+	c := append([]qgruntime.ToolDefinition(nil), a...)
 	c[0].Description = "read a file"
 	fpC := ComputePrefixFingerprint(opts, c)
 	if fpA.ToolsHash == fpC.ToolsHash {
@@ -60,10 +60,10 @@ func TestComputePrefixFingerprintToolsHashMatchesEmittedOrderAndDescriptions(t *
 // invalidates the cache also moves the hash, which is the right behavior.
 func TestComputePrefixFingerprintSchemaChangeChangesSchemaHash(t *testing.T) {
 	opts := Options{Cwd: t.TempDir(), SystemPrompt: "core"}
-	a := []zeroruntime.ToolDefinition{
+	a := []qgruntime.ToolDefinition{
 		{Name: "read_file", Parameters: map[string]any{"version": "v1"}},
 	}
-	b := []zeroruntime.ToolDefinition{
+	b := []qgruntime.ToolDefinition{
 		{Name: "read_file", Parameters: map[string]any{"version": "v2"}},
 	}
 	fpA := ComputePrefixFingerprint(opts, a)
@@ -75,29 +75,29 @@ func TestComputePrefixFingerprintSchemaChangeChangesSchemaHash(t *testing.T) {
 
 func TestComputePrefixFingerprintIncludesToolTypeAndFormat(t *testing.T) {
 	opts := Options{Cwd: t.TempDir(), SystemPrompt: "core"}
-	base := zeroruntime.ToolDefinition{Name: "apply_patch", Description: "Patch files"}
-	baseFingerprint := ComputePrefixFingerprint(opts, []zeroruntime.ToolDefinition{base})
+	base := qgruntime.ToolDefinition{Name: "apply_patch", Description: "Patch files"}
+	baseFingerprint := ComputePrefixFingerprint(opts, []qgruntime.ToolDefinition{base})
 
 	typed := base
-	typed.Type = zeroruntime.ToolDefinitionFreeform
-	if got := ComputePrefixFingerprint(opts, []zeroruntime.ToolDefinition{typed}); got.ToolsHash == baseFingerprint.ToolsHash {
+	typed.Type = qgruntime.ToolDefinitionFreeform
+	if got := ComputePrefixFingerprint(opts, []qgruntime.ToolDefinition{typed}); got.ToolsHash == baseFingerprint.ToolsHash {
 		t.Fatal("ToolsHash must change when tool Type changes")
 	}
 
 	formatCases := []struct {
 		name   string
-		format zeroruntime.ToolDefinitionFormat
+		format qgruntime.ToolDefinitionFormat
 	}{
-		{name: "type", format: zeroruntime.ToolDefinitionFormat{Type: "grammar"}},
-		{name: "syntax", format: zeroruntime.ToolDefinitionFormat{Syntax: "lark"}},
-		{name: "definition", format: zeroruntime.ToolDefinitionFormat{Definition: "start: PATCH"}},
-		{name: "empty", format: zeroruntime.ToolDefinitionFormat{}},
+		{name: "type", format: qgruntime.ToolDefinitionFormat{Type: "grammar"}},
+		{name: "syntax", format: qgruntime.ToolDefinitionFormat{Syntax: "lark"}},
+		{name: "definition", format: qgruntime.ToolDefinitionFormat{Definition: "start: PATCH"}},
+		{name: "empty", format: qgruntime.ToolDefinitionFormat{}},
 	}
 	for _, test := range formatCases {
 		t.Run(test.name, func(t *testing.T) {
 			withFormat := base
 			withFormat.Format = &test.format
-			got := ComputePrefixFingerprint(opts, []zeroruntime.ToolDefinition{withFormat})
+			got := ComputePrefixFingerprint(opts, []qgruntime.ToolDefinition{withFormat})
 			if got.SchemaHash == baseFingerprint.SchemaHash {
 				t.Fatalf("SchemaHash must change for %s format input", test.name)
 			}
@@ -112,7 +112,7 @@ func TestComputePrefixFingerprintIncludesToolTypeAndFormat(t *testing.T) {
 func TestComputePrefixFingerprintSystemPromptChangeChangesBaseHash(t *testing.T) {
 	optsA := Options{Cwd: t.TempDir(), SystemPrompt: "core v1"}
 	optsB := Options{Cwd: t.TempDir(), SystemPrompt: "core v2"}
-	exposed := []zeroruntime.ToolDefinition{{Name: "noop", Parameters: map[string]any{}}}
+	exposed := []qgruntime.ToolDefinition{{Name: "noop", Parameters: map[string]any{}}}
 	fpA := ComputePrefixFingerprint(optsA, exposed)
 	fpB := ComputePrefixFingerprint(optsB, exposed)
 	if fpA.BaseInstructionsHash == fpB.BaseInstructionsHash {
@@ -127,7 +127,7 @@ func TestComputePrefixFingerprintSystemPromptChangeChangesBaseHash(t *testing.T)
 // tool definitions. Narrower system-section hashes remain diagnostic only.
 func TestComputePrefixFingerprintCompleteIsAggregateOfSubHashes(t *testing.T) {
 	opts := Options{Cwd: t.TempDir(), SystemPrompt: "core"}
-	exposed := []zeroruntime.ToolDefinition{{Name: "read_file", Parameters: map[string]any{"k": "v"}}}
+	exposed := []qgruntime.ToolDefinition{{Name: "read_file", Parameters: map[string]any{"k": "v"}}}
 	fp := ComputePrefixFingerprint(opts, exposed)
 	// Manually compute what the canonical join should be.
 	expected := sha256hex(strings.Join([]string{

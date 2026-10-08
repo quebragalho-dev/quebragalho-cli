@@ -3,7 +3,7 @@ package agent
 import (
 	"encoding/json"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // Context budget.
@@ -46,9 +46,9 @@ type ContextBlock struct {
 // MeasureContext estimates the per-category token footprint of a request: the
 // leading system messages, the advertised tool definitions, and the remaining
 // conversation messages.
-func MeasureContext(messages []zeroruntime.Message, tools []zeroruntime.ToolDefinition, contextWindow int) ContextBreakdown {
+func MeasureContext(messages []qgruntime.Message, tools []qgruntime.ToolDefinition, contextWindow int) ContextBreakdown {
 	systemEnd := 0
-	for systemEnd < len(messages) && messages[systemEnd].Role == zeroruntime.MessageRoleSystem {
+	for systemEnd < len(messages) && messages[systemEnd].Role == qgruntime.MessageRoleSystem {
 		systemEnd++
 	}
 
@@ -86,7 +86,7 @@ func MeasureContext(messages []zeroruntime.Message, tools []zeroruntime.ToolDefi
 // estimateToolTokens approximates the token footprint of advertised tool
 // definitions (name + description + JSON schema), using the same ApproxTextTokens
 // heuristic as estimateTokens so all categories share one scale.
-func estimateToolTokens(tools []zeroruntime.ToolDefinition) int {
+func estimateToolTokens(tools []qgruntime.ToolDefinition) int {
 	total := 0
 	for _, tool := range tools {
 		total += ApproxTextTokens(tool.Name)

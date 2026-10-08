@@ -3,7 +3,7 @@ package specialist
 import (
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func executorWithReadOnlyAndWriteSpecialists() Executor {

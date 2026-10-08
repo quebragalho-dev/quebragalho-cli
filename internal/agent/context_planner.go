@@ -3,7 +3,7 @@ package agent
 import (
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 type contextPlannerConfig struct {
@@ -23,11 +23,11 @@ type contextPlanner struct {
 	previousPrefix  prefixFingerprint
 	hasPrevious     bool
 	toolSnapshotKey string
-	toolSnapshot    []zeroruntime.ToolDefinition
+	toolSnapshot    []qgruntime.ToolDefinition
 }
 
 type contextPlan struct {
-	Request           zeroruntime.CompletionRequest
+	Request           qgruntime.CompletionRequest
 	Breakdown         ContextBreakdown
 	PrefixFingerprint prefixFingerprint
 }
@@ -39,17 +39,17 @@ func newContextPlanner(config contextPlannerConfig) *contextPlanner {
 // Plan returns a provider request snapshot plus content-free accounting.
 // It intentionally performs no relevance filtering: preserving current model
 // capability is the baseline contract for future planner policies.
-func (planner *contextPlanner) Plan(messages []zeroruntime.Message, toolDefs []zeroruntime.ToolDefinition, reasoningEffort string) contextPlan {
+func (planner *contextPlanner) Plan(messages []qgruntime.Message, toolDefs []qgruntime.ToolDefinition, reasoningEffort string) contextPlan {
 	return planner.plan(messages, toolDefs, reasoningEffort, planner.config.promptParts)
 }
 
 // planWithPromptParts plans a request whose stable system sections differ from
 // the planner's configured main-run prompt, such as a compaction summary call.
-func (planner *contextPlanner) planWithPromptParts(messages []zeroruntime.Message, toolDefs []zeroruntime.ToolDefinition, reasoningEffort string, parts systemPromptParts) contextPlan {
+func (planner *contextPlanner) planWithPromptParts(messages []qgruntime.Message, toolDefs []qgruntime.ToolDefinition, reasoningEffort string, parts systemPromptParts) contextPlan {
 	return planner.plan(messages, toolDefs, reasoningEffort, parts)
 }
 
-func (planner *contextPlanner) plan(messages []zeroruntime.Message, toolDefs []zeroruntime.ToolDefinition, reasoningEffort string, parts systemPromptParts) contextPlan {
+func (planner *contextPlanner) plan(messages []qgruntime.Message, toolDefs []qgruntime.ToolDefinition, reasoningEffort string, parts systemPromptParts) contextPlan {
 	requestMessages := copyMessages(messages)
 	requestSystemPrompt := leadingSystemContent(requestMessages)
 	if parts.prompt != requestSystemPrompt {
@@ -59,7 +59,7 @@ func (planner *contextPlanner) plan(messages []zeroruntime.Message, toolDefs []z
 		parts = systemPromptParts{prompt: requestSystemPrompt}
 	}
 	fingerprint := computePrefixFingerprint(buildPromptSubstringsFromParts(parts, toolDefs))
-	request := zeroruntime.CompletionRequest{
+	request := qgruntime.CompletionRequest{
 		Messages:        requestMessages,
 		Tools:           planner.snapshotTools(toolDefs, fingerprint),
 		ReasoningEffort: reasoningEffort,
@@ -85,7 +85,7 @@ func (planner *contextPlanner) plan(messages []zeroruntime.Message, toolDefs []z
 // snapshotTools freezes provider-visible tool definitions when their semantic
 // fingerprint changes. Stable turns reuse the frozen schemas instead of
 // recursively cloning every map and slice for every request.
-func (planner *contextPlanner) snapshotTools(toolDefs []zeroruntime.ToolDefinition, fingerprint prefixFingerprint) []zeroruntime.ToolDefinition {
+func (planner *contextPlanner) snapshotTools(toolDefs []qgruntime.ToolDefinition, fingerprint prefixFingerprint) []qgruntime.ToolDefinition {
 	key := fingerprint.ToolsHash + "\x00" + fingerprint.SchemaHash
 	if planner.toolSnapshotKey != key {
 		planner.toolSnapshot = copyToolDefinitions(toolDefs)
@@ -94,11 +94,11 @@ func (planner *contextPlanner) snapshotTools(toolDefs []zeroruntime.ToolDefiniti
 	return planner.toolSnapshot
 }
 
-func copyToolDefinitions(toolDefs []zeroruntime.ToolDefinition) []zeroruntime.ToolDefinition {
+func copyToolDefinitions(toolDefs []qgruntime.ToolDefinition) []qgruntime.ToolDefinition {
 	if toolDefs == nil {
 		return nil
 	}
-	copied := make([]zeroruntime.ToolDefinition, len(toolDefs))
+	copied := make([]qgruntime.ToolDefinition, len(toolDefs))
 	for index, definition := range toolDefs {
 		copied[index] = definition
 		copied[index].Parameters = copySchemaMap(definition.Parameters)
@@ -138,10 +138,10 @@ func copySchemaValue(value any) any {
 	}
 }
 
-func leadingSystemContent(messages []zeroruntime.Message) string {
+func leadingSystemContent(messages []qgruntime.Message) string {
 	contents := make([]string, 0, 1)
 	for _, message := range messages {
-		if message.Role != zeroruntime.MessageRoleSystem {
+		if message.Role != qgruntime.MessageRoleSystem {
 			break
 		}
 		contents = append(contents, message.Content)
