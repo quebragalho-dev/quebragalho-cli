@@ -12,7 +12,7 @@ import (
 	"unsafe"
 )
 
-// replaceFileFlags is deliberately ZERO. Every REPLACEFILE_* flag ReplaceFileW
+// replaceFileFlags is deliberately QG. Every REPLACEFILE_* flag ReplaceFileW
 // accepts either defeats the reason this function exists or does nothing:
 //
 //   - REPLACEFILE_IGNORE_MERGE_ERRORS (0x2) and REPLACEFILE_IGNORE_ACL_ERRORS
@@ -28,7 +28,7 @@ import (
 //     supported", so it cannot be relied on to flush anything.
 const replaceFileFlags = 0
 
-const replaceBackupPattern = ".zero-replace-*.backup"
+const replaceBackupPattern = ".qg-replace-*.backup"
 
 const (
 	// Returned when the volume or redirector cannot provide ReplaceFileW's

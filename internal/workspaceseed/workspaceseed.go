@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/workspaceindex"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspaceindex"
 )
 
 const (
@@ -248,7 +248,7 @@ func detectedProjectFiles(paths []string) []string {
 
 func memoryFiles(paths []string) []string {
 	out := []string{}
-	for _, candidate := range []string{"AGENTS.md", "ZERO.md"} {
+	for _, candidate := range []string{"AGENTS.md", "QG.md"} {
 		for _, rel := range paths {
 			if rel == candidate {
 				out = append(out, candidate)

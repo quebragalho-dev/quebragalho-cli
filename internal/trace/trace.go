@@ -1,4 +1,4 @@
-// Package trace records per-turn timing for a Zero agent run.
+// Package trace records per-turn timing for a QG agent run.
 //
 // Tracing is opt-in. A *Recorder is attached to agent.Options and threaded
 // through the run via context (see FromContext / WithContext). When the
@@ -225,7 +225,7 @@ func (t *TurnTrace) AttributionRatio() float64 {
 }
 
 // Span returns the total inclusive duration recorded for name across all its
-// occurrences, or zero if absent.
+// occurrences, or qg if absent.
 func (t *TurnTrace) Span(name string) time.Duration {
 	if t == nil {
 		return 0
@@ -240,7 +240,7 @@ func (t *TurnTrace) Span(name string) time.Duration {
 }
 
 // Exclusive returns the total exclusive duration recorded for name across all
-// its occurrences (each occurrence's Duration minus its children), or zero.
+// its occurrences (each occurrence's Duration minus its children), or qg.
 func (t *TurnTrace) Exclusive(name string) time.Duration {
 	if t == nil {
 		return 0
@@ -254,7 +254,7 @@ func (t *TurnTrace) Exclusive(name string) time.Duration {
 	return total
 }
 
-// Counter returns the value recorded for name, or zero if absent.
+// Counter returns the value recorded for name, or qg if absent.
 func (t *TurnTrace) Counter(name string) int64 {
 	if t == nil {
 		return 0

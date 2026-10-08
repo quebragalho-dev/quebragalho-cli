@@ -19,8 +19,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 // Profile is a named execution posture. Zero-valued fields inherit the run's
@@ -43,7 +43,7 @@ type Profile struct {
 	// unset and must never override an explicit opt-in).
 	SelfCorrect bool
 
-	// Escalation triggers. All zero means the profile never escalates and
+	// Escalation triggers. All qg means the profile never escalates and
 	// Policy returns nil (the loop stays byte-identical to a nil-profile run).
 	// Targets are NOT part of the catalog: escalation restores the values the
 	// profile displaced at selection time, never invented ones, so targets are

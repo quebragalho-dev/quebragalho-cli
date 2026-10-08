@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 // The no-regression invariant of the whole feature: balanced must be the empty
@@ -97,7 +97,7 @@ func TestFastPolicyExplicitEffortIsNeverRestored(t *testing.T) {
 func TestFastPolicyZeroDisplacedLeavesCeilingUntouched(t *testing.T) {
 	policy := Fast.Policy(0, false)
 	if policy == nil || policy.Escalate == nil {
-		t.Fatal("fast must still arm its triggers with a zero displaced budget")
+		t.Fatal("fast must still arm its triggers with a qg displaced budget")
 	}
 	if policy.Escalate.MaxTurns != 0 {
 		t.Fatalf("Escalate.MaxTurns = %d, want 0 (no displaced value to restore)", policy.Escalate.MaxTurns)
