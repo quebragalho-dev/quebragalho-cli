@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/plugins"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestScaffoldCreatesManifestAndStub(t *testing.T) {

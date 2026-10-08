@@ -105,7 +105,7 @@ func boundedHumanOutcomePreview(output string, artifactPath string) string {
 	if len(output) <= humanOutcomePreviewBytes {
 		return output
 	}
-	marker := "\n[zero] human preview shortened"
+	marker := "\n[qg] human preview shortened"
 	if strings.TrimSpace(artifactPath) != "" {
 		marker += "; exact output: " + artifactPath
 	}

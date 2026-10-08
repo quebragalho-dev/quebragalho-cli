@@ -43,7 +43,7 @@ const (
 	HoldCauseModeUnknown  HoldCause = "mode-unknown"
 )
 
-// Identity is the model-independent identity published by one live Zero
+// Identity is the model-independent identity published by one live QG
 // process. SessionID and Name are updated when the TUI creates, resumes, or
 // renames its active session.
 type Identity struct {
@@ -53,7 +53,7 @@ type Identity struct {
 	PermissionClass PermissionClass `json:"permissionClass"`
 }
 
-// Peer is one reachable local Zero session.
+// Peer is one reachable local QG session.
 type Peer struct {
 	Identity
 	Endpoint  string    `json:"endpoint"`

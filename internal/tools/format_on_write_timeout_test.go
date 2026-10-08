@@ -30,7 +30,7 @@ import (
 func TestFormatOnWriteReportsATimeout(t *testing.T) {
 	formatter := installFakeFormatter(t, ".fastfmt", "fastfmt", succeedingFormatterScript())
 	shortenFormatOnWriteTimeout(t, time.Nanosecond)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 
 	target := filepath.Join(t.TempDir(), "subject.fastfmt")
 	const written = "written   but   not   formatted\n"
@@ -58,7 +58,7 @@ func TestFormatOnWriteReportsATimeout(t *testing.T) {
 // above would be reporting the deadline rather than the miss.
 func TestFormatOnWriteStaysQuietWhenTheFormatterFinishes(t *testing.T) {
 	installFakeFormatter(t, ".fastfmt", "fastfmt", succeedingFormatterScript())
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 
 	target := filepath.Join(t.TempDir(), "subject.fastfmt")
 	const written = "written\n"
@@ -80,7 +80,7 @@ func TestFormatOnWriteStaysQuietWhenTheFormatterFinishes(t *testing.T) {
 // it would be wrong about why.
 func TestFormatOnWriteStaysQuietWhenTheCallerCancels(t *testing.T) {
 	installFakeFormatter(t, ".fastfmt", "fastfmt", succeedingFormatterScript())
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 
 	target := filepath.Join(t.TempDir(), "subject.fastfmt")
 	const written = "written\n"
@@ -108,7 +108,7 @@ func TestFormatOnWriteStaysQuietWhenTheCallerCancels(t *testing.T) {
 // and reporting it as a slow machine would be wrong about the cause.
 func TestFormatOnWriteStaysQuietWhenTheFormatterFails(t *testing.T) {
 	installFakeFormatter(t, ".failfmt", "failfmt", failingFormatterScript())
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 
 	target := filepath.Join(t.TempDir(), "subject.failfmt")
 	const written = "unparseable\n"
@@ -187,7 +187,7 @@ func shortenFormatOnWriteTimeout(t *testing.T, timeout time.Duration) {
 // the file does not have.
 func TestFormatOnWriteRestoresTheFileWhenTheFormatterFails(t *testing.T) {
 	installFakeFormatter(t, ".clobberfmt", "clobberfmt", clobberingFormatterScript())
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 
 	target := filepath.Join(t.TempDir(), "subject.clobberfmt")
 	const written = "the bytes the caller wrote\n"
@@ -218,7 +218,7 @@ func TestFormatOnWriteRestoresTheFileWhenTheFormatterFails(t *testing.T) {
 func TestFormatOnWriteRestoresTheFileOnTimeout(t *testing.T) {
 	installFakeFormatter(t, ".clobberfmt", "clobberfmt", clobberingFormatterScript())
 	shortenFormatOnWriteTimeout(t, time.Nanosecond)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 
 	target := filepath.Join(t.TempDir(), "subject.clobberfmt")
 	const written = "the bytes the caller wrote\n"

@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/pathjail"
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/pathjail"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 const (
@@ -549,7 +549,7 @@ func applyStructuredPatchUpdate(content, path string, chunks []structuredPatchCh
 			// A context anchor identifies the line immediately before a pure
 			// insertion. Only an explicit end-of-file hunk (or an unanchored
 			// insertion) belongs at the file end. A unified diff names the
-			// insertion point in its range instead; a zero-context hunk (as
+			// insertion point in its range instead; a qg-context hunk (as
 			// from `git diff -U0`) has nothing to verify the position against,
 			// so it is position-trusting by design — the same semantics git
 			// apply uses without fuzz. Hunks that carry context are verified.
@@ -949,7 +949,7 @@ func writeStructuredPatchFile(root *os.Root, target structuredPatchTarget, conte
 	if err := root.MkdirAll(parent, 0o755); err != nil {
 		return false, fmt.Errorf("creating parent directory for %s: %w", target.relative, err)
 	}
-	temp, tempName, err := pathjail.CreateTemp(root, parent, "zero-patch", ".tmp")
+	temp, tempName, err := pathjail.CreateTemp(root, parent, "qg-patch", ".tmp")
 	if err != nil {
 		return false, fmt.Errorf("writing %s: %w", target.relative, err)
 	}

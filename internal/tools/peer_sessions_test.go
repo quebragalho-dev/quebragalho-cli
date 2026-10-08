@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/peermsg"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/peermsg"
 )
 
 type fakePeerSessionService struct {

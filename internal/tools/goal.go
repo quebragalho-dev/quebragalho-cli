@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 type goalTool struct {
@@ -64,7 +64,7 @@ func newCreateGoalTool(store *sessions.Store, sessionID string) Tool {
 					},
 					"token_budget": {
 						Type:        "integer",
-						Description: "Optional maximum total tokens. Zero means no goal-specific limit.",
+						Description: "Optional maximum total tokens. QG means no goal-specific limit.",
 						Minimum:     &minimum,
 						Maximum:     &maximum,
 					},

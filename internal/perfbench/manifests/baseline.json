@@ -1,7 +1,7 @@
 {
-  "id": "zero-baseline-turn",
-  "name": "Zero per-turn baseline (Phase 0)",
-  "description": "Latency-first baseline: measures where a turn spends wall time, with pass/fail reported per oracle tier so it cannot be misread as a blanket correctness verdict. Correctness classes (edit, fix, nav, refactor) carry a positive oracle: edit/refactor stamp an oracle_test.go compiled by `go test ./...` (the Go compiler is the structural verifier \u2014 a no-op refactor or a missing field fails to compile), fix runs a scoped `go test -run`, and nav greps the agent's captured final answer (.zero-answer.txt) for determinable facts. tasksVerified/tasksPassed/correctnessPassRate cover exactly these. Latency-only classes (longproc, longctx, parallel) carry no verification oracle \u2014 a zero-exit only proves the turn ran, so they count as latency-only and never in any pass rate. The build tier is empty: refactor graduated to correctness once its oracle became structural-positive. See MANIFEST.md for the per-task oracle specs and known limitations.",
+  "id": "qg-baseline-turn",
+  "name": "QG per-turn baseline (Phase 0)",
+  "description": "Latency-first baseline: measures where a turn spends wall time, with pass/fail reported per oracle tier so it cannot be misread as a blanket correctness verdict. Correctness classes (edit, fix, nav, refactor) carry a positive oracle: edit/refactor stamp an oracle_test.go compiled by `go test ./...` (the Go compiler is the structural verifier \u2014 a no-op refactor or a missing field fails to compile), fix runs a scoped `go test -run`, and nav greps the agent's captured final answer (.qg-answer.txt) for determinable facts. tasksVerified/tasksPassed/correctnessPassRate cover exactly these. Latency-only classes (longproc, longctx, parallel) carry no verification oracle \u2014 a zero-exit only proves the turn ran, so they count as latency-only and never in any pass rate. The build tier is empty: refactor graduated to correctness once its oracle became structural-positive. See MANIFEST.md for the per-task oracle specs and known limitations.",
   "buildOnlyClasses": [],
   "tasks": [
     {
@@ -13,7 +13,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iq 'main.go' .zero-answer.txt && grep -iq 'config.json' .zero-answer.txt && grep -iq 'readme' .zero-answer.txt && grep -iqE '^count:[[:space:]]*5$' .zero-answer.txt"
+        "grep -iq 'main.go' .qg-answer.txt && grep -iq 'config.json' .qg-answer.txt && grep -iq 'readme' .qg-answer.txt && grep -iqE '^count:[[:space:]]*5$' .qg-answer.txt"
       ]
     },
     {
@@ -25,7 +25,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iq 'main.go' .zero-answer.txt && grep -iqE '\\b1[5-7]\\b' .zero-answer.txt"
+        "grep -iq 'main.go' .qg-answer.txt && grep -iqE '\\b1[5-7]\\b' .qg-answer.txt"
       ]
     },
     {
@@ -37,7 +37,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iqE 'greet|hello|Config' .zero-answer.txt"
+        "grep -iqE 'greet|hello|Config' .qg-answer.txt"
       ]
     },
     {
@@ -49,7 +49,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iq 'TestGreet' .zero-answer.txt && grep -iqE '^count:[[:space:]]*1$' .zero-answer.txt"
+        "grep -iq 'TestGreet' .qg-answer.txt && grep -iqE '^count:[[:space:]]*1$' .qg-answer.txt"
       ]
     },
     {
@@ -61,7 +61,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iq 'main.go' .zero-answer.txt && grep -iqE '^count:[[:space:]]*1$' .zero-answer.txt"
+        "grep -iq 'main.go' .qg-answer.txt && grep -iqE '^count:[[:space:]]*1$' .qg-answer.txt"
       ]
     },
     {
@@ -73,7 +73,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iq config .zero-answer.txt && grep -iq maxretries .zero-answer.txt"
+        "grep -iq config .qg-answer.txt && grep -iq maxretries .qg-answer.txt"
       ]
     },
     {
@@ -85,7 +85,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iq main .zero-answer.txt && grep -iq greet .zero-answer.txt"
+        "grep -iq main .qg-answer.txt && grep -iq greet .qg-answer.txt"
       ]
     },
     {
@@ -97,7 +97,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iq 'fmt' .zero-answer.txt && grep -iq 'testing' .zero-answer.txt && grep -iqE '^count:[[:space:]]*0$' .zero-answer.txt"
+        "grep -iq 'fmt' .qg-answer.txt && grep -iq 'testing' .qg-answer.txt && grep -iqE '^count:[[:space:]]*0$' .qg-answer.txt"
       ]
     },
     {
@@ -109,7 +109,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iq port .zero-answer.txt && grep -iq name .zero-answer.txt && grep -iq retries .zero-answer.txt"
+        "grep -iq port .qg-answer.txt && grep -iq name .qg-answer.txt && grep -iq retries .qg-answer.txt"
       ]
     },
     {
@@ -121,7 +121,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "grep -iq 'greet returns a greeting' .zero-answer.txt"
+        "grep -iq 'greet returns a greeting' .qg-answer.txt"
       ]
     },
     {
@@ -133,7 +133,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "go test ./... && ! grep --exclude=.zero-answer.txt -RIn 'MaxRetries =' ."
+        "go test ./... && ! grep --exclude=.qg-answer.txt -RIn 'MaxRetries =' ."
       ],
       "oracleTest": "package edit\n\nvar _ = RetryLimit\n"
     },
@@ -146,7 +146,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "go test ./... && ! grep --exclude=.zero-answer.txt -R receieves . && grep --exclude=.zero-answer.txt -R receives ."
+        "go test ./... && ! grep --exclude=.qg-answer.txt -R receieves . && grep --exclude=.qg-answer.txt -R receives ."
       ]
     },
     {
@@ -400,7 +400,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "go test ./... && ! grep --exclude=.zero-answer.txt -R 'package refactor' . && grep --exclude=.zero-answer.txt -R 'package zeroapp' ."
+        "go test ./... && ! grep --exclude=.qg-answer.txt -R 'package refactor' . && grep --exclude=.qg-answer.txt -R 'package zeroapp' ."
       ],
       "oracleTest": "package zeroapp\n\nvar _ = Config{}\n"
     },
@@ -426,7 +426,7 @@
       "verificationCommand": [
         "bash",
         "-c",
-        "go test ./... && ! grep --exclude=.zero-answer.txt -R 'func Wrapper' ."
+        "go test ./... && ! grep --exclude=.qg-answer.txt -R 'func Wrapper' ."
       ],
       "oracleTest": "package refactor\n\nimport \"testing\"\n\n// TestGreetWrapped proves greetWrapped still exists and behaves as the inlined\n// Wrapper did: deleting both Wrapper and greetWrapped (or stubbing greetWrapped\n// to return \"\") fails to compile or run, so the oracle can't be passed by\n// removing the target along with its caller. Paired with the ! grep 'func\n// Wrapper' verificationCommand that proves Wrapper itself is gone.\nfunc TestGreetWrapped(t *testing.T) {\n\tif got := greetWrapped(\"x\"); got != \"hello, x\" {\n\t\tt.Fatalf(\"greetWrapped(x) = %q, want %q\", got, \"hello, x\")\n\t}\n}\n"
     },

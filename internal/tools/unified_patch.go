@@ -6,7 +6,7 @@ import (
 )
 
 // parseUnifiedPatch converts a unified diff into the same operations a
-// structured patch produces, so both formats are applied by Zero itself
+// structured patch produces, so both formats are applied by QG itself
 // through an opened workspace root (descriptor-relative, no-follow writes)
 // instead of handing pathnames to git apply after validation.
 //

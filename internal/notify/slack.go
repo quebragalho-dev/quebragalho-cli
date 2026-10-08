@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 // defaultWebhookTimeout bounds a single delivery attempt. A notification must
