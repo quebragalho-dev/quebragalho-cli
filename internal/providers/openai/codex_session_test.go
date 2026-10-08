@@ -14,8 +14,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 func TestCodexTurnSessionChainsOnlyAppendOnlyRequests(t *testing.T) {
@@ -80,12 +80,12 @@ func TestCodexTurnSessionChainsOnlyAppendOnlyRequests(t *testing.T) {
 	recorder.Start()
 	streamContext := trace.WithContext(t.Context(), recorder)
 
-	base := zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{
-			{Role: zeroruntime.MessageRoleSystem, Content: "Use tools carefully."},
-			{Role: zeroruntime.MessageRoleUser, Content: "Read the file."},
+	base := qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{
+			{Role: qgruntime.MessageRoleSystem, Content: "Use tools carefully."},
+			{Role: qgruntime.MessageRoleUser, Content: "Read the file."},
 		},
-		Tools:          []zeroruntime.ToolDefinition{{Name: "read_file", Parameters: map[string]any{"type": "object"}}},
+		Tools:          []qgruntime.ToolDefinition{{Name: "read_file", Parameters: map[string]any{"type": "object"}}},
 		PromptCacheKey: "session-1",
 	}
 	first := collectCodexSessionEvents(t, session, base)
@@ -94,9 +94,9 @@ func TestCodexTurnSessionChainsOnlyAppendOnlyRequests(t *testing.T) {
 	}
 
 	second := base
-	second.Messages = append(append([]zeroruntime.Message(nil), base.Messages...),
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{{ID: "call-1", Name: "read_file", Arguments: "{}"}}},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleTool, ToolCallID: "call-1", Content: "contents"},
+	second.Messages = append(append([]qgruntime.Message(nil), base.Messages...),
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{{ID: "call-1", Name: "read_file", Arguments: "{}"}}},
+		qgruntime.Message{Role: qgruntime.MessageRoleTool, ToolCallID: "call-1", Content: "contents"},
 	)
 	secondEvents := collectCodexSessionEventsContext(t, streamContext, session, second)
 	if got := joinedText(secondEvents); got != "done" {
@@ -105,9 +105,9 @@ func TestCodexTurnSessionChainsOnlyAppendOnlyRequests(t *testing.T) {
 
 	third := second
 	third.ReasoningEffort = "high"
-	third.Messages = append(append([]zeroruntime.Message(nil), second.Messages...),
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "done"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "Continue."},
+	third.Messages = append(append([]qgruntime.Message(nil), second.Messages...),
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "done"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "Continue."},
 	)
 	collectCodexSessionEventsContext(t, streamContext, session, third)
 	finishedTrace := recorder.Finish()
@@ -193,22 +193,22 @@ func TestCodexTurnSessionFallsBackWhenPreviousResponseIsMissing(t *testing.T) {
 	provider := newCodexSessionTestProvider(t, server)
 	session := openCodexSession(t, provider)
 	defer session.Close()
-	base := zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "Read it."}},
-		Tools:    []zeroruntime.ToolDefinition{{Name: "read_file", Parameters: map[string]any{"type": "object"}}},
+	base := qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "Read it."}},
+		Tools:    []qgruntime.ToolDefinition{{Name: "read_file", Parameters: map[string]any{"type": "object"}}},
 	}
 	collectCodexSessionEvents(t, session, base)
 	second := base
-	second.Messages = append(append([]zeroruntime.Message(nil), base.Messages...),
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{{ID: "call-1", Name: "read_file", Arguments: "{}"}}},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleTool, ToolCallID: "call-1", Content: "contents"},
+	second.Messages = append(append([]qgruntime.Message(nil), base.Messages...),
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{{ID: "call-1", Name: "read_file", Arguments: "{}"}}},
+		qgruntime.Message{Role: qgruntime.MessageRoleTool, ToolCallID: "call-1", Content: "contents"},
 	)
 	events := collectCodexSessionEvents(t, session, second)
 	if got := joinedText(events); got != "fallback" {
 		t.Fatalf("fallback stream text = %q, want fallback; events=%#v", got, events)
 	}
 	for _, event := range events {
-		if event.Type == zeroruntime.StreamEventError {
+		if event.Type == qgruntime.StreamEventError {
 			t.Fatalf("response-chain recovery leaked an error: %#v", event)
 		}
 	}
@@ -247,8 +247,8 @@ func TestCodexTurnSessionFallsBackWhenSocketClosesBeforeOutput(t *testing.T) {
 	defer session.Close()
 	recorder := trace.NewRecorder("session-fallback", "run-fallback", "test")
 	recorder.Start()
-	events := collectCodexSessionEventsContext(t, trace.WithContext(t.Context(), recorder), session, zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "Hello"}},
+	events := collectCodexSessionEventsContext(t, trace.WithContext(t.Context(), recorder), session, qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "Hello"}},
 	})
 	if got := joinedText(events); got != "recovered" {
 		t.Fatalf("fallback text = %q, want recovered", got)
@@ -307,11 +307,11 @@ func TestCodexTurnSessionKeepsWebSocketAfterIncompleteResponse(t *testing.T) {
 	provider := newCodexSessionTestProvider(t, server)
 	session := openCodexSession(t, provider)
 	defer session.Close()
-	request := zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "Continue."}},
+	request := qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "Continue."}},
 	}
 	first := collectCodexSessionEvents(t, session, request)
-	if len(first) != 1 || first[0].Type != zeroruntime.StreamEventDone || first[0].FinishReason != zeroruntime.FinishReasonLength {
+	if len(first) != 1 || first[0].Type != qgruntime.StreamEventDone || first[0].FinishReason != qgruntime.FinishReasonLength {
 		t.Fatalf("incomplete response events = %#v, want length completion", first)
 	}
 	second := collectCodexSessionEvents(t, session, request)
@@ -351,16 +351,16 @@ func TestCodexTurnSessionDoesNotReplayAfterVisibleOutput(t *testing.T) {
 	provider := newCodexSessionTestProvider(t, server)
 	session := openCodexSession(t, provider)
 	defer session.Close()
-	stream, err := session.Stream(t.Context(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "Hello"}},
+	stream, err := session.Stream(t.Context(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
 	sawText, sawError := false, false
 	for event := range stream {
-		sawText = sawText || event.Type == zeroruntime.StreamEventText
-		sawError = sawError || event.Type == zeroruntime.StreamEventError
+		sawText = sawText || event.Type == qgruntime.StreamEventText
+		sawError = sawError || event.Type == qgruntime.StreamEventError
 	}
 	if !sawText || !sawError {
 		t.Fatalf("visible interrupted stream = text:%v error:%v", sawText, sawError)
@@ -393,8 +393,8 @@ func TestCodexTurnSessionReportsWebSocketIdleTimeout(t *testing.T) {
 	provider.inner.streamIdleTimeout = 200 * time.Millisecond
 	session := openCodexSession(t, provider)
 	defer session.Close()
-	stream, err := session.Stream(t.Context(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "Hello"}},
+	stream, err := session.Stream(t.Context(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
@@ -402,7 +402,7 @@ func TestCodexTurnSessionReportsWebSocketIdleTimeout(t *testing.T) {
 
 	var streamError string
 	for event := range stream {
-		if event.Type == zeroruntime.StreamEventError {
+		if event.Type == qgruntime.StreamEventError {
 			streamError = event.Error
 			break
 		}
@@ -438,8 +438,8 @@ func TestCodexTurnSessionRejectsOverlappingStreams(t *testing.T) {
 	provider := newCodexSessionTestProvider(t, server)
 	session := openCodexSession(t, provider)
 	defer session.Close()
-	request := zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: "Hello"}},
+	request := qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: "Hello"}},
 	}
 	first, err := session.Stream(t.Context(), request)
 	if err != nil {
@@ -469,14 +469,14 @@ func TestCodexTurnSessionHTTPFallbackRedactsSetupError(t *testing.T) {
 		t.Fatalf("NewCodexProvider: %v", err)
 	}
 	session := &codexTurnSession{provider: provider}
-	events := make(chan zeroruntime.StreamEvent, 1)
-	session.forwardHTTP(t.Context(), zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{{Role: zeroruntime.MessageRole(secret), Content: "invalid"}},
+	events := make(chan qgruntime.StreamEvent, 1)
+	session.forwardHTTP(t.Context(), qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{{Role: qgruntime.MessageRole(secret), Content: "invalid"}},
 	}, events)
 
 	select {
 	case event := <-events:
-		if event.Type != zeroruntime.StreamEventError {
+		if event.Type != qgruntime.StreamEventError {
 			t.Fatalf("fallback event type = %s, want error", event.Type)
 		}
 		if strings.Contains(event.Error, secret) {
@@ -496,7 +496,7 @@ func TestCodexTurnSessionCloseDoesNotStartPrewarm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCodexProvider: %v", err)
 	}
-	session, err := NewCodexTurnSessionProvider(provider, zeroruntime.ProviderCapabilities{}).OpenTurnSession(t.Context())
+	session, err := NewCodexTurnSessionProvider(provider, qgruntime.ProviderCapabilities{}).OpenTurnSession(t.Context())
 	if err != nil {
 		t.Fatalf("OpenTurnSession: %v", err)
 	}
@@ -529,9 +529,9 @@ func newCodexSessionTestProvider(t *testing.T, server *httptest.Server) *CodexPr
 	return provider
 }
 
-func openCodexSession(t *testing.T, provider *CodexProvider) zeroruntime.TurnSession {
+func openCodexSession(t *testing.T, provider *CodexProvider) qgruntime.TurnSession {
 	t.Helper()
-	session, err := NewCodexTurnSessionProvider(provider, zeroruntime.ProviderCapabilities{}).OpenTurnSession(t.Context())
+	session, err := NewCodexTurnSessionProvider(provider, qgruntime.ProviderCapabilities{}).OpenTurnSession(t.Context())
 	if err != nil {
 		t.Fatalf("OpenTurnSession: %v", err)
 	}
@@ -541,21 +541,21 @@ func openCodexSession(t *testing.T, provider *CodexProvider) zeroruntime.TurnSes
 	return session
 }
 
-func collectCodexSessionEvents(t *testing.T, session zeroruntime.TurnSession, request zeroruntime.CompletionRequest) []zeroruntime.StreamEvent {
+func collectCodexSessionEvents(t *testing.T, session qgruntime.TurnSession, request qgruntime.CompletionRequest) []qgruntime.StreamEvent {
 	t.Helper()
 	return collectCodexSessionEventsContext(t, t.Context(), session, request)
 }
 
-func collectCodexSessionEventsContext(t *testing.T, ctx context.Context, session zeroruntime.TurnSession, request zeroruntime.CompletionRequest) []zeroruntime.StreamEvent {
+func collectCodexSessionEventsContext(t *testing.T, ctx context.Context, session qgruntime.TurnSession, request qgruntime.CompletionRequest) []qgruntime.StreamEvent {
 	t.Helper()
 	stream, err := session.Stream(ctx, request)
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
-	events := []zeroruntime.StreamEvent{}
+	events := []qgruntime.StreamEvent{}
 	for event := range stream {
 		events = append(events, event)
-		if event.Type == zeroruntime.StreamEventError {
+		if event.Type == qgruntime.StreamEventError {
 			t.Fatalf("stream error: %s", event.Error)
 		}
 	}
@@ -570,19 +570,19 @@ func writeWebSocketEvents(ctx context.Context, connection *websocket.Conn, event
 	}
 }
 
-func hasToolCallEnd(events []zeroruntime.StreamEvent, id string) bool {
+func hasToolCallEnd(events []qgruntime.StreamEvent, id string) bool {
 	for _, event := range events {
-		if event.Type == zeroruntime.StreamEventToolCallEnd && event.ToolCallID == id {
+		if event.Type == qgruntime.StreamEventToolCallEnd && event.ToolCallID == id {
 			return true
 		}
 	}
 	return false
 }
 
-func joinedText(events []zeroruntime.StreamEvent) string {
+func joinedText(events []qgruntime.StreamEvent) string {
 	var builder strings.Builder
 	for _, event := range events {
-		if event.Type == zeroruntime.StreamEventText {
+		if event.Type == qgruntime.StreamEventText {
 			builder.WriteString(event.Content)
 		}
 	}

@@ -17,14 +17,14 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/notify"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // execCmd runs a possibly-batched command synchronously and returns the first
@@ -50,16 +50,16 @@ func execCmd(cmd tea.Cmd) tea.Msg {
 }
 
 type fakeProvider struct {
-	events   []zeroruntime.StreamEvent
-	requests []zeroruntime.CompletionRequest
+	events   []qgruntime.StreamEvent
+	requests []qgruntime.CompletionRequest
 }
 
 func (provider *fakeProvider) StreamCompletion(
 	ctx context.Context,
-	request zeroruntime.CompletionRequest,
-) (<-chan zeroruntime.StreamEvent, error) {
+	request qgruntime.CompletionRequest,
+) (<-chan qgruntime.StreamEvent, error) {
 	provider.requests = append(provider.requests, request)
-	ch := make(chan zeroruntime.StreamEvent, len(provider.events))
+	ch := make(chan qgruntime.StreamEvent, len(provider.events))
 	for _, event := range provider.events {
 		ch <- event
 	}
@@ -69,9 +69,9 @@ func (provider *fakeProvider) StreamCompletion(
 
 func TestPromptSubmitInjectsLiveSessionModelContext(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "I am using the active session model."},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "I am using the active session model."},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		Cwd:          t.TempDir(),
@@ -112,9 +112,9 @@ func TestPromptSubmitInjectsLiveSessionModelContext(t *testing.T) {
 func TestPromptWaitsForToolReadinessBeforeSnapshot(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	registry := tools.NewRegistry()
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	awaited := false
 	m := newModel(context.Background(), Options{
@@ -153,9 +153,9 @@ func TestPromptWaitsForToolReadinessBeforeSnapshot(t *testing.T) {
 
 func TestPromptBuildsTurnSessionForCurrentProvider(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	profile := config.ProviderProfile{Name: "chatgpt", Model: "gpt-test"}
 	called := false
@@ -166,12 +166,12 @@ func TestPromptBuildsTurnSessionForCurrentProvider(t *testing.T) {
 		ProviderProfile: profile,
 		Provider:        provider,
 		Registry:        tools.NewRegistry(),
-		NewTurnSessionProvider: func(gotProfile config.ProviderProfile, gotProvider zeroruntime.Provider) zeroruntime.TurnSessionProvider {
+		NewTurnSessionProvider: func(gotProfile config.ProviderProfile, gotProvider qgruntime.Provider) qgruntime.TurnSessionProvider {
 			called = true
 			if gotProfile.Name != profile.Name || gotProfile.Model != profile.Model || gotProvider != provider {
 				t.Fatalf("turn session factory inputs = %#v/%#v", gotProfile, gotProvider)
 			}
-			return zeroruntime.NewProviderTurnSessionProvider(gotProvider, zeroruntime.ProviderCapabilities{})
+			return qgruntime.NewProviderTurnSessionProvider(gotProvider, qgruntime.ProviderCapabilities{})
 		},
 	})
 	m.input.SetValue("inspect the workspace")
@@ -186,11 +186,11 @@ func TestPromptBuildsTurnSessionForCurrentProvider(t *testing.T) {
 
 func TestPromptSubmitStoresReasoningSeparatelyFromAnswer(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventReasoning, Content: "private "},
-		{Type: zeroruntime.StreamEventReasoning, Content: "thought"},
-		{Type: zeroruntime.StreamEventText, Content: "public answer"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventReasoning, Content: "private "},
+		{Type: qgruntime.StreamEventReasoning, Content: "thought"},
+		{Type: qgruntime.StreamEventText, Content: "public answer"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		Cwd:          t.TempDir(),
@@ -278,7 +278,7 @@ func TestParseCommand(t *testing.T) {
 		{input: "/fast", kind: commandFast},
 		{input: "/style concise", kind: commandStyle, text: "concise"},
 		{input: "/debug-mode", kind: commandDebug},
-		{input: "hello zero", kind: commandPrompt, text: "hello zero"},
+		{input: "hello qg", kind: commandPrompt, text: "hello qg"},
 	}
 
 	for _, tc := range cases {
@@ -335,7 +335,7 @@ func TestTranscriptReducer(t *testing.T) {
 
 func TestInitialRenderShowsLimeChatSurface(t *testing.T) {
 	model := newModel(context.Background(), Options{
-		Cwd:          `/workspace/zero`,
+		Cwd:          `/workspace/qg`,
 		ProviderName: "openai",
 		ModelName:    "gpt-4.1",
 	})
@@ -343,14 +343,14 @@ func TestInitialRenderShowsLimeChatSurface(t *testing.T) {
 	model.height = 34
 
 	view := viewString(model.View())
-	assertContains(t, view, `/workspace/zero`)
+	assertContains(t, view, `/workspace/qg`)
 	assertContains(t, view, "openai/gpt-4.1")
 	assertContains(t, view, emptyStateTagline)
-	assertNotContains(t, view, "running zero against ")
+	assertNotContains(t, view, "running qg against ")
 	assertNotContains(t, view, " 0 ")
 	assertContains(t, view, composerPlaceholder)
 	assertNotContains(t, view, "interactive")
-	if strings.Contains(view, "Welcome to Zero") {
+	if strings.Contains(view, "Welcome to QG") {
 		t.Fatalf("empty chat surface should not show welcome transcript clutter, got %q", view)
 	}
 }
@@ -546,7 +546,7 @@ func TestContextCommandShowsSessionState(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewScopedReadFileTool(".", nil))
 	m := newModel(context.Background(), Options{
-		Cwd:            `D:\codings\Opensource\Zero`,
+		Cwd:            `D:\codings\Opensource\QG`,
 		ProviderName:   "openai",
 		ModelName:      "gpt-4.1",
 		Registry:       registry,
@@ -561,7 +561,7 @@ func TestContextCommandShowsSessionState(t *testing.T) {
 		t.Fatal("expected /context to be handled without starting an agent run")
 	}
 	for _, want := range []string{
-		`D:\codings\Opensource\Zero`,
+		`D:\codings\Opensource\QG`,
 		"go runtime | ask permissions | 1 tool",
 		"provider   openai",
 		"model      gpt-4.1",
@@ -616,7 +616,7 @@ func TestModelCommandSwitchesSessionModel(t *testing.T) {
 			Model:        "gpt-4.1",
 		},
 		Provider: &fakeProvider{},
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			rebuilt = profile
 			return nextProvider, nil
 		},
@@ -656,7 +656,7 @@ func TestModelCommandAcceptsChatGPTCatalogModelID(t *testing.T) {
 			Model:        "gpt-5.6-terra",
 		},
 		Provider: &fakeProvider{},
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			rebuilt = profile
 			return nextProvider, nil
 		},
@@ -709,7 +709,7 @@ func TestProviderModelSwitchCandidatesPreserveGatewayModelIDs(t *testing.T) {
 }
 
 func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "zero.json")
+	configPath := filepath.Join(t.TempDir(), "qg.json")
 	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{
 		Name:         "openai",
 		ProviderKind: config.ProviderKindOpenAI,
@@ -732,7 +732,7 @@ func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
 			Model:        "gpt-4.1",
 		},
 		Provider: &fakeProvider{},
-		NewProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
 		},
 	})
@@ -811,7 +811,7 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 			Model:        "gpt-4.1",
 		},
 		Provider: originalProvider,
-		NewProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			rebuilds++
 			return &fakeProvider{}, nil
 		},
@@ -916,7 +916,7 @@ func TestModelCommandReportsProviderRebuildErrors(t *testing.T) {
 			BaseURL:      config.OpenAIBaseURL,
 			Model:        "gpt-4.1",
 		},
-		NewProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return nil, errors.New("rebuild failed")
 		},
 	})
@@ -1077,7 +1077,7 @@ func TestResumeCommandListsRecentSessions(t *testing.T) {
 		t.Fatalf("hidden session id should remain searchable, got %#v", searchByID.items)
 	}
 
-	// An empty result set reports an unambiguous zero position.
+	// An empty result set reports an unambiguous qg position.
 	noResults := next
 	noResults.picker.query = "__missing_session__"
 	noResults.picker.applyQuery()
@@ -1137,7 +1137,7 @@ func TestResumePickerSelectionHydratesSession(t *testing.T) {
 	if next.activeSession.SessionID != target.SessionID {
 		t.Fatalf("active session = %q, want %q", next.activeSession.SessionID, target.SessionID)
 	}
-	if !transcriptContains(next.transcript, "Resumed Zero session") || !transcriptContains(next.transcript, target.SessionID) {
+	if !transcriptContains(next.transcript, "Resumed QG session") || !transcriptContains(next.transcript, target.SessionID) {
 		t.Fatalf("expected the resume summary in the transcript, got %#v", next.transcript)
 	}
 }
@@ -1234,21 +1234,21 @@ func TestResumeHonorsPriorCompaction(t *testing.T) {
 
 func TestResumeCommandWithUnknownIDReportsMissingSession(t *testing.T) {
 	m := newModel(context.Background(), Options{SessionStore: testSessionStore(t)})
-	m.input.SetValue("/resume zero_123")
+	m.input.SetValue("/resume qg_123")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "zero session not found: zero_123") {
+	if !transcriptContains(next.transcript, "qg session not found: qg_123") {
 		t.Fatalf("expected missing session message, got %#v", next.transcript)
 	}
 }
 
 func TestPromptSubmitAppendsUserAndAssistantRows(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "hello"},
-		{Type: zeroruntime.StreamEventText, Content: " back"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "hello"},
+		{Type: qgruntime.StreamEventText, Content: " back"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		Provider:     provider,
@@ -1976,40 +1976,40 @@ func TestAppendTranscriptRowDedupesRuntimeRowsByID(t *testing.T) {
 }
 
 func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
-	surfaces := map[zeroruntime.AgentEventType]string{
-		zeroruntime.AgentEventText:       "assistant transcript row",
-		zeroruntime.AgentEventToolCall:   "tool call transcript row",
-		zeroruntime.AgentEventToolResult: "tool result transcript row",
-		zeroruntime.AgentEventThinking:   "deferred: no transcript row until runtime emits thinking deltas",
-		zeroruntime.AgentEventUsage:      "usage tracker footer segment",
-		zeroruntime.AgentEventPlanUpdate: "system transcript row from /plan",
-		zeroruntime.AgentEventError:      "error transcript row",
-		zeroruntime.AgentEventTurnEnd:    "control boundary, no transcript row",
+	surfaces := map[qgruntime.AgentEventType]string{
+		qgruntime.AgentEventText:       "assistant transcript row",
+		qgruntime.AgentEventToolCall:   "tool call transcript row",
+		qgruntime.AgentEventToolResult: "tool result transcript row",
+		qgruntime.AgentEventThinking:   "deferred: no transcript row until runtime emits thinking deltas",
+		qgruntime.AgentEventUsage:      "usage tracker footer segment",
+		qgruntime.AgentEventPlanUpdate: "system transcript row from /plan",
+		qgruntime.AgentEventError:      "error transcript row",
+		qgruntime.AgentEventTurnEnd:    "control boundary, no transcript row",
 	}
-	for _, eventType := range []zeroruntime.AgentEventType{
-		zeroruntime.AgentEventText,
-		zeroruntime.AgentEventToolCall,
-		zeroruntime.AgentEventToolResult,
-		zeroruntime.AgentEventThinking,
-		zeroruntime.AgentEventUsage,
-		zeroruntime.AgentEventPlanUpdate,
-		zeroruntime.AgentEventError,
-		zeroruntime.AgentEventTurnEnd,
+	for _, eventType := range []qgruntime.AgentEventType{
+		qgruntime.AgentEventText,
+		qgruntime.AgentEventToolCall,
+		qgruntime.AgentEventToolResult,
+		qgruntime.AgentEventThinking,
+		qgruntime.AgentEventUsage,
+		qgruntime.AgentEventPlanUpdate,
+		qgruntime.AgentEventError,
+		qgruntime.AgentEventTurnEnd,
 	} {
 		if strings.TrimSpace(surfaces[eventType]) == "" {
 			t.Fatalf("missing TUI rendering surface note for %s", eventType)
 		}
 	}
 
-	renderedRows := map[zeroruntime.AgentEventType]struct {
+	renderedRows := map[qgruntime.AgentEventType]struct {
 		row   transcriptRow
 		wants []string
 	}{
-		zeroruntime.AgentEventText: {
+		qgruntime.AgentEventText: {
 			row:   transcriptRow{kind: rowAssistant, text: "assistant text"},
 			wants: []string{"assistant text"},
 		},
-		zeroruntime.AgentEventToolCall: {
+		qgruntime.AgentEventToolCall: {
 			row: transcriptRow{
 				kind:   rowToolCall,
 				text:   "tool call: read_file",
@@ -2018,7 +2018,7 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 			},
 			wants: []string{"Read", "README.md"},
 		},
-		zeroruntime.AgentEventToolResult: {
+		qgruntime.AgentEventToolResult: {
 			row: transcriptRow{
 				kind:   rowToolResult,
 				text:   "tool result: apply_patch error",
@@ -2034,11 +2034,11 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 			},
 			wants: []string{"Patched", "file.txt", "old", "new"},
 		},
-		zeroruntime.AgentEventPlanUpdate: {
+		qgruntime.AgentEventPlanUpdate: {
 			row:   transcriptRow{kind: rowSystem, text: "Plan updated\n- inspect: completed"},
 			wants: []string{"Plan updated", "inspect"},
 		},
-		zeroruntime.AgentEventError: {
+		qgruntime.AgentEventError: {
 			row:   transcriptRow{kind: rowError, text: "provider failed"},
 			wants: []string{"provider failed"},
 		},
@@ -2057,7 +2057,7 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 		PermissionMode: agent.PermissionModeAsk,
 	})
 	m.width = 96
-	m, usageRows := m.recordUsageEvent("gpt-4.1", zeroruntime.Usage{InputTokens: 100, OutputTokens: 20})
+	m, usageRows := m.recordUsageEvent("gpt-4.1", qgruntime.Usage{InputTokens: 100, OutputTokens: 20})
 	if len(usageRows) != 0 {
 		t.Fatalf("valid usage should update footer without transcript rows, got %#v", usageRows)
 	}
@@ -2416,7 +2416,7 @@ func TestSelectionHighlightUsesGutterShiftedCoordinate(t *testing.T) {
 	if !strings.Contains(plainRender(t, styled), "    Hello world") {
 		t.Fatalf("expected a 4-cell gutter-padded line, got %q", styled)
 	}
-	if !strings.Contains(styled, zeroTheme.selection.Render("world")) {
+	if !strings.Contains(styled, qgTheme.selection.Render("world")) {
 		t.Fatalf("expected 'world' highlighted at the gutter-shifted position, got %q", styled)
 	}
 }
@@ -2471,7 +2471,7 @@ func TestTranscriptSelectionPaintsHighlightOnceNotTwice(t *testing.T) {
 	}
 	out := strings.Join(row2.render(0).lines, "\n")
 
-	sentinel := zeroTheme.selection.Render("\x00")
+	sentinel := qgTheme.selection.Render("\x00")
 	open := sentinel[:strings.IndexByte(sentinel, 0)]
 	if open == "" {
 		t.Fatal("selection style emitted no opening sequence to count")
@@ -3163,10 +3163,10 @@ func TestCommandArgumentHintFollowsCursorVisibility(t *testing.T) {
 	if visible == hidden {
 		t.Fatal("expected the rendered hint line to differ between visible and hidden caret states")
 	}
-	if want := composerCursor(zeroTheme.faint.Render("h")); !strings.Contains(visible, want) {
+	if want := composerCursor(qgTheme.faint.Render("h")); !strings.Contains(visible, want) {
 		t.Fatalf("expected visible-caret render to contain the styled cursor cell, got %q", visible)
 	}
-	if got := hidden; strings.Contains(got, composerCursor(zeroTheme.faint.Render("h"))) {
+	if got := hidden; strings.Contains(got, composerCursor(qgTheme.faint.Render("h"))) {
 		t.Fatalf("expected hidden-caret render to drop the styled cursor cell, got %q", got)
 	}
 }
@@ -3239,9 +3239,9 @@ func TestOverlayViewportLinesCompositesAndPreservesBackdropText(t *testing.T) {
 func burstTestModel(t *testing.T, termuxVersion string) model {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("TERMUX_VERSION", termuxVersion)
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "ok"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "ok"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		Cwd:          t.TempDir(),

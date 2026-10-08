@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 func TestSetupCommandUsesCatalogEnvAndSetActive(t *testing.T) {
@@ -17,7 +17,7 @@ func TestSetupCommandUsesCatalogEnvAndSetActive(t *testing.T) {
 	}
 
 	got := SetupCommand(groq, "fast", true)
-	want := "zero providers add groq --name fast --api-key-env GROQ_API_KEY --set-active"
+	want := "qg providers add groq --name fast --api-key-env GROQ_API_KEY --set-active"
 	if got != want {
 		t.Fatalf("SetupCommand() = %q, want %q", got, want)
 	}
@@ -36,19 +36,19 @@ func TestSetupCommandForOpenAICustomAndLocalProviders(t *testing.T) {
 			name:      "openai",
 			catalogID: "openai",
 			profile:   "openai",
-			want:      "zero providers add openai --name openai --api-key-env OPENAI_API_KEY",
+			want:      "qg providers add openai --name openai --api-key-env OPENAI_API_KEY",
 		},
 		{
 			name:      "custom openai compatible",
 			catalogID: "custom-openai-compatible",
 			profile:   "custom",
-			want:      "zero providers add custom-openai-compatible --name custom --api-key-env OPENAI_API_KEY",
+			want:      "qg providers add custom-openai-compatible --name custom --api-key-env OPENAI_API_KEY",
 		},
 		{
 			name:       "local provider",
 			catalogID:  "ollama",
 			profile:    "local",
-			want:       "zero providers add ollama --name local",
+			want:       "qg providers add ollama --name local",
 			notWantArg: "--api-key-env",
 		},
 	}
@@ -72,13 +72,13 @@ func TestSetupCommandForOpenAICustomAndLocalProviders(t *testing.T) {
 }
 
 func TestUseAndCheckCommands(t *testing.T) {
-	if got, want := UseCommand("fast"), "zero providers use fast"; got != want {
+	if got, want := UseCommand("fast"), "qg providers use fast"; got != want {
 		t.Fatalf("UseCommand() = %q, want %q", got, want)
 	}
-	if got, want := CheckCommand("fast", false), "zero providers check fast"; got != want {
+	if got, want := CheckCommand("fast", false), "qg providers check fast"; got != want {
 		t.Fatalf("CheckCommand(false) = %q, want %q", got, want)
 	}
-	if got, want := CheckCommand("fast", true), "zero providers check fast --connectivity"; got != want {
+	if got, want := CheckCommand("fast", true), "qg providers check fast --connectivity"; got != want {
 		t.Fatalf("CheckCommand(true) = %q, want %q", got, want)
 	}
 }
@@ -183,8 +183,8 @@ func TestProviderActionsIncludesExpectedActions(t *testing.T) {
 
 	actions := ProviderActions(profile, false)
 	wantCommands := []string{
-		"zero providers use fast",
-		"zero providers check fast",
+		"qg providers use fast",
+		"qg providers check fast",
 		"set GROQ_API_KEY in your shell",
 	}
 	if len(actions) != len(wantCommands) {
@@ -198,7 +198,7 @@ func TestProviderActionsIncludesExpectedActions(t *testing.T) {
 
 	activeActions := ProviderActions(profile, true)
 	for _, action := range activeActions {
-		if action.Command == "zero providers use fast" {
+		if action.Command == "qg providers use fast" {
 			t.Fatalf("ProviderActions(active) included use action: %#v", activeActions)
 		}
 	}
@@ -238,7 +238,7 @@ func TestSetupCommandWithModelShellRoundTrip(t *testing.T) {
 	}
 	for _, id := range []string{"my loaded model", "unsloth/Qwen3-GGUF", "model:latest", "user/model@revision"} {
 		command := SetupCommandWithModel(providercatalog.Descriptor{ID: "atomic-chat-local"}, "Atomic Chat Local", id, true)
-		out, err := exec.Command("sh", "-c", `zero() { printf '%s\n' "$@"; }; `+command).CombinedOutput()
+		out, err := exec.Command("sh", "-c", `qg() { printf '%s\n' "$@"; }; `+command).CombinedOutput()
 		want := "providers\nadd\natomic-chat-local\n--name\nAtomic Chat Local\n--model\n" + id + "\n--set-active\n"
 		if err != nil || string(out) != want {
 			t.Fatalf("argument round-trip: command=%q output=%q err=%v", command, out, err)

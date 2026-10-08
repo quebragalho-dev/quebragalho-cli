@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/observability"
-	"github.com/Gitlawb/zero/internal/testutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/observability"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 func TestServeSupportsReadOnlyCustomRuntimeDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission compatibility regression")
 	}
-	dir, err := os.MkdirTemp("/tmp", "zero-serve-")
+	dir, err := os.MkdirTemp("/tmp", "qg-serve-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestServeKeepsDefaultRootBoundAcrossCoordination(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows may deny renaming a directory with an open AF_UNIX lifecycle handle")
 	}
-	home, err := os.MkdirTemp("/tmp", "zero-root-")
+	home, err := os.MkdirTemp("/tmp", "qg-root-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestServeRemovesSocketBoundAfterFinalRuntimeSwap(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows may deny renaming a directory with an open AF_UNIX lifecycle handle")
 	}
-	home, err := os.MkdirTemp("/tmp", "zero-bind-swap-")
+	home, err := os.MkdirTemp("/tmp", "qg-bind-swap-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestServerEndToEnd(t *testing.T) {
 
 func TestServePreservesPreviousStatusWhenReplacementFails(t *testing.T) {
 	launcher, _ := seqLauncher(&fakeWorker{pid: 1, exitCode: 0})
-	dir, err := os.MkdirTemp("", "zero-daemon-status-")
+	dir, err := os.MkdirTemp("", "qg-daemon-status-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestServeCleansStatusThroughBoundDirectoryAfterSwap(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not permit renaming the directory containing the live socket")
 	}
-	parent, err := os.MkdirTemp("", "zero-daemon-swap-")
+	parent, err := os.MkdirTemp("", "qg-daemon-swap-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestServeCleansStatusThroughBoundDirectoryAfterSwap(t *testing.T) {
 }
 
 func TestServerPublishesDefaultStatusAfterCrashReportCreatesRuntimeDirectory(t *testing.T) {
-	home, err := os.MkdirTemp("", "zero-home-")
+	home, err := os.MkdirTemp("", "qg-home-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestServerPublishesDefaultStatusAfterCrashReportCreatesRuntimeDirectory(t *
 	if err != nil {
 		t.Fatalf("DefaultPaths: %v", err)
 	}
-	if paths.Status != filepath.Join(home, ".zero", "daemon.status") {
+	if paths.Status != filepath.Join(home, ".qg", "daemon.status") {
 		t.Fatalf("default status path = %q, want path beneath temporary home", paths.Status)
 	}
 

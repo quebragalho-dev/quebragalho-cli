@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestClipBytesHandlesTinyLimitsOnRuneBoundaries(t *testing.T) {
@@ -28,12 +28,12 @@ func TestBoundaryClippersHandleNonPositiveLimits(t *testing.T) {
 
 func TestProjectCompactionInputDropsRecoverableToolBodies(t *testing.T) {
 	largeBody := strings.Repeat("recoverable source line\n", 1000)
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleUser, Content: "Inspect the parser and preserve its current behavior."},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "I will inspect before editing.", ToolCalls: []zeroruntime.ToolCall{{ID: "read", Name: "read_file", Arguments: `{"path":"internal/parser.go"}`}}},
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "read", Content: largeBody},
-		{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{{ID: "test", Name: "exec_command", Arguments: `{"cmd":"go test ./internal/parser"}`}}},
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "test", Content: "Error: parser regression\nlong diagnostic details"},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleUser, Content: "Inspect the parser and preserve its current behavior."},
+		{Role: qgruntime.MessageRoleAssistant, Content: "I will inspect before editing.", ToolCalls: []qgruntime.ToolCall{{ID: "read", Name: "read_file", Arguments: `{"path":"internal/parser.go"}`}}},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "read", Content: largeBody},
+		{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{{ID: "test", Name: "exec_command", Arguments: `{"cmd":"go test ./internal/parser"}`}}},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "test", Content: "Error: parser regression\nlong diagnostic details"},
 	}
 
 	projection := projectCompactionInput(messages)
@@ -56,9 +56,9 @@ func TestProjectCompactionInputDropsRecoverableToolBodies(t *testing.T) {
 }
 
 func TestProjectCompactionInputRetainsStructurallyMarkedToolErrors(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{{ID: "git", Name: "exec_command", Arguments: `{"cmd":"git status"}`}}},
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "git", Content: "fatal: not a git repository", IsError: true},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{{ID: "git", Name: "exec_command", Arguments: `{"cmd":"git status"}`}}},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "git", Content: "fatal: not a git repository", IsError: true},
 	}
 
 	projected := projectCompactionInput(messages).messages
@@ -68,16 +68,16 @@ func TestProjectCompactionInputRetainsStructurallyMarkedToolErrors(t *testing.T)
 }
 
 func TestProjectCompactionInputRetainsAskUserExchangeAndSemanticArguments(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{{ID: "ask", Name: "ask_user", Arguments: `{"questions":[{"question":"Which database should remain?"}]}`}}},
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "ask", Content: "Which database should remain?: Postgres only; do not touch MySQL."},
-		{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{{ID: "ask", Name: "ask_user", Arguments: `{"questions":[{"question":"Which database should remain?"}]}`}}},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "ask", Content: "Which database should remain?: Postgres only; do not touch MySQL."},
+		{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{
 			{ID: "patch", Name: "apply_patch", Arguments: `{"patch":"*** Begin Patch\n*** Update File: internal/db.go\n*** End Patch"}`},
 			{ID: "raw-patch", Name: "apply_patch", Freeform: true, Arguments: "*** Begin Patch\n*** Update File: internal/api.go\n*** Add File: internal/config.go\n*** End Patch\n"},
 			{ID: "fetch", Name: "web_fetch", Arguments: `{"url":"https://example.com/spec"}`},
 			{ID: "task", Name: "task", Arguments: `{"prompt":"Inspect the Windows implementation"}`},
 		}},
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "patch", Content: "Done!", ChangedFiles: []string{"internal/db.go"}},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "patch", Content: "Done!", ChangedFiles: []string{"internal/db.go"}},
 	}
 
 	content := projectCompactionInput(messages).messages[0].Content
@@ -89,11 +89,11 @@ func TestProjectCompactionInputRetainsAskUserExchangeAndSemanticArguments(t *tes
 }
 
 func TestProjectCompactionInputCapsToolCallsPerTurn(t *testing.T) {
-	calls := make([]zeroruntime.ToolCall, 12)
+	calls := make([]qgruntime.ToolCall, 12)
 	for index := range calls {
-		calls[index] = zeroruntime.ToolCall{Name: "read_file", Arguments: `{"path":"file.go"}`}
+		calls[index] = qgruntime.ToolCall{Name: "read_file", Arguments: `{"path":"file.go"}`}
 	}
-	projected := projectCompactionInput([]zeroruntime.Message{{Role: zeroruntime.MessageRoleAssistant, ToolCalls: calls}}).messages
+	projected := projectCompactionInput([]qgruntime.Message{{Role: qgruntime.MessageRoleAssistant, ToolCalls: calls}}).messages
 	content := projected[0].Content
 	if strings.Count(content, "* read_file") != compactionToolCallsPerTurn || !strings.Contains(content, "4 earlier tool calls omitted") {
 		t.Fatalf("tool-call tail was not bounded: %q", content)
@@ -102,10 +102,10 @@ func TestProjectCompactionInputCapsToolCallsPerTurn(t *testing.T) {
 
 func TestProjectCompactionInputCarriesPreviousSummaryOutsideBriefCap(t *testing.T) {
 	previous := "keep the earlier architecture decision\n" + strings.Repeat("prior detail ", 2000) + "\nkeep the newest prior decision"
-	messages := []zeroruntime.Message{{Role: zeroruntime.MessageRoleUser, Content: summaryLabel + "\n" + previous + "\n\n" + preservedStateLabel + "\n{}"}}
+	messages := []qgruntime.Message{{Role: qgruntime.MessageRoleUser, Content: summaryLabel + "\n" + previous + "\n\n" + preservedStateLabel + "\n{}"}}
 	for index := range 500 {
-		messages = append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: strings.Repeat("later transcript detail ", 20)})
-		messages = append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "later request " + strings.Repeat("context ", 20) + string(rune('a'+index%26))})
+		messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: strings.Repeat("later transcript detail ", 20)})
+		messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "later request " + strings.Repeat("context ", 20) + string(rune('a'+index%26))})
 	}
 
 	projection := projectCompactionInput(messages)
@@ -122,8 +122,8 @@ func TestProjectCompactionInputCarriesPreviousSummaryOutsideBriefCap(t *testing.
 }
 
 func TestProjectCompactionInputDoesNotInferTruncationFromUserText(t *testing.T) {
-	projection := projectCompactionInput([]zeroruntime.Message{{
-		Role: zeroruntime.MessageRoleUser, Content: "Keep this literal marker: [middle omitted]",
+	projection := projectCompactionInput([]qgruntime.Message{{
+		Role: qgruntime.MessageRoleUser, Content: "Keep this literal marker: [middle omitted]",
 	}})
 	if projection.truncated {
 		t.Fatal("literal user text produced a false truncation signal")

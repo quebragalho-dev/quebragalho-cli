@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/oauth"
-	"github.com/Gitlawb/zero/internal/providerhealth"
-	"github.com/Gitlawb/zero/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 func TestRunDoctorFormatsRedactedProviderDiagnostics(t *testing.T) {
@@ -52,7 +52,7 @@ func TestRunDoctorFormatsRedactedProviderDiagnostics(t *testing.T) {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Zero doctor report", "Overall: pass", "[pass] provider.config", "[warn] provider.connectivity"} {
+	for _, want := range []string{"QG doctor report", "Overall: pass", "[pass] provider.config", "[warn] provider.connectivity"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected doctor output to contain %q, got %q", want, output)
 		}
@@ -115,8 +115,8 @@ func TestRunDoctorConnectivityProbesProvider(t *testing.T) {
 func TestRunDoctorConnectivityUsesOAuthLogin(t *testing.T) {
 	tokenPath := filepath.Join(t.TempDir(), "oauth-tokens.json")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("ZERO_OAUTH_STORAGE", "file")
-	t.Setenv("ZERO_OAUTH_TOKENS_PATH", tokenPath)
+	t.Setenv("QG_OAUTH_STORAGE", "file")
+	t.Setenv("QG_OAUTH_TOKENS_PATH", tokenPath)
 	store, err := oauth.NewStore(oauth.StoreOptions{FilePath: tokenPath})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
@@ -430,9 +430,9 @@ func TestRunSearchJSONRedactsQueryAndSessionMetadata(t *testing.T) {
 
 func TestRunDoctorReportsConfigValidationForMalformedFile(t *testing.T) {
 	cwd := t.TempDir()
-	zeroDir := filepath.Join(cwd, ".zero")
+	zeroDir := filepath.Join(cwd, ".qg")
 	if err := os.MkdirAll(zeroDir, 0o755); err != nil {
-		t.Fatalf("mkdir .zero: %v", err)
+		t.Fatalf("mkdir .qg: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(zeroDir, "config.json"), []byte("{\n  \"activeProvider\": \"openai\",\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)

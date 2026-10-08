@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 )
 
 func TestEscalateModelToolMetadata(t *testing.T) {

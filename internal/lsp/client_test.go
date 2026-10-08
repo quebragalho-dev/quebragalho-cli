@@ -581,7 +581,7 @@ func TestReadMessageRejectsOversizedFrame(t *testing.T) {
 // language server sustaining a higher notification rate than the single
 // handler can drain (no permanently-stuck handler required, just a sustained
 // producer faster than the consumer) would retain every full json.RawMessage
-// payload on Zero's heap without bound. Hitting notifyQueueLimit must fail
+// payload on QG's heap without bound. Hitting notifyQueueLimit must fail
 // (and close) the client observably instead of continuing to grow.
 func TestClientFailsOnNotificationBacklogOverload(t *testing.T) {
 	client := &Client{

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 )
 
 func TestFirstUsableProviderPrefersRemoteKeyed(t *testing.T) {

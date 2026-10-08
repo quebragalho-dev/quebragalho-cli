@@ -1,7 +1,7 @@
-# Repository Guidelines for Zero
+# Repository Guidelines for QG
 
 These instructions apply to all work in this repository. For the user-facing
-guide to extending Zero with specialists, hooks, plugins, MCP, and skills, see
+guide to extending QG with specialists, hooks, plugins, MCP, and skills, see
 [docs/EXTENDING.md](docs/EXTENDING.md).
 
 ## 1. Contribution and Pull Request Rules
@@ -26,7 +26,7 @@ guide to extending Zero with specialists, hooks, plugins, MCP, and skills, see
 - Use the Go version declared in `go.mod`. Do not hardcode a different local
   toolchain version in scripts or documentation.
 - Use the repository build and release commands (`make` and
-  `go run ./cmd/zero-release ...`) instead of inventing parallel build flows.
+  `go run ./cmd/qg-release ...`) instead of inventing parallel build flows.
 - Keep tests beside their source files (`foo_test.go` next to `foo.go`). Add a
   regression test for behavior changes and run affected concurrent code under
   the race detector.
@@ -49,8 +49,8 @@ request, or completing an implementation task:
 2. **Vet**: `go vet ./...` (or `make vet`).
 3. **Tests**: `go test ./...`. Use `make test` for the full race-enabled suite,
    or run focused tests with `-race`, when concurrency is affected.
-4. **Build**: `go run ./cmd/zero-release build`.
-5. **Smoke test**: `go run ./cmd/zero-release smoke`.
+4. **Build**: `go run ./cmd/qg-release build`.
+5. **Smoke test**: `go run ./cmd/qg-release smoke`.
 6. **Advisory lint**: `make lint-static`.
 7. **Security**: `make vulncheck`.
 8. **Diff hygiene**: `git diff HEAD --check` (covers staged and unstaged
@@ -118,7 +118,7 @@ These classes drive multi-round reviews. Fix them before requesting review:
   shipped. Wire advertised entry points or shrink the claim. Do not bundle
   unrelated fixes. Do not widen security allowlists by name alone; check
   classification and side effects too.
-- **Host tool version floors:** Zero shells out to `git` and other host tools,
+- **Host tool version floors:** QG shells out to `git` and other host tools,
   and the project does not declare a minimum version for any of them. A flag,
   subcommand, or config key that is not long-established therefore raises that
   floor silently, and the failure on an older host is an unhelpful usage error

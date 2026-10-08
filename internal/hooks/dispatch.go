@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 )
 
 // defaultHookTimeout bounds a single hook command so a hung or slow hook cannot
@@ -77,7 +77,7 @@ type Dispatcher struct {
 	run     commandRunner
 }
 
-// NewDispatcher builds a Dispatcher. A zero/empty config yields a dispatcher that
+// NewDispatcher builds a Dispatcher. A qg/empty config yields a dispatcher that
 // runs nothing, so callers can always construct one unconditionally.
 func NewDispatcher(options DispatcherOptions) *Dispatcher {
 	timeout := options.Timeout

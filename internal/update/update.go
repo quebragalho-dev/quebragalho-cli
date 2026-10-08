@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	DefaultRepository = "Gitlawb/zero"
+	DefaultRepository = "quebragalho-dev/quebragalho-cli"
 	DefaultTimeout    = 5 * time.Second
 )
 
@@ -38,8 +38,8 @@ type Result struct {
 	ReleaseAsset    AssetCheck `json:"releaseAsset"`
 	UpdateAvailable bool       `json:"updateAvailable"`
 	// SourceFlag is the `--repo`/`--endpoint` argument this check was given, in
-	// the form a caller would repeat on `zero upgrade`. Empty when the check used
-	// the default release source. Format needs it because `zero upgrade` is a
+	// the form a caller would repeat on `qg upgrade`. Empty when the check used
+	// the default release source. Format needs it because `qg upgrade` is a
 	// fresh invocation: it does not inherit the flags of the check that suggested
 	// it, so recommending it bare after a custom-source check would send the user
 	// to install from somewhere they did not ask about.
@@ -129,7 +129,7 @@ func Check(ctx context.Context, options Options) (Result, error) {
 		currentVersion = "0.0.0"
 	}
 	repository := strings.TrimSpace(firstNonEmpty(options.Repository, DefaultRepository))
-	endpoint, err := resolveEndpoint(firstNonEmpty(options.Endpoint, os.Getenv("ZERO_UPDATE_RELEASE_URL")), repository)
+	endpoint, err := resolveEndpoint(firstNonEmpty(options.Endpoint, os.Getenv("QG_UPDATE_RELEASE_URL")), repository)
 	if err != nil {
 		return Result{}, err
 	}
@@ -191,19 +191,19 @@ func Check(ctx context.Context, options Options) (Result, error) {
 	return result, nil
 }
 
-// upgradeSourceFlag returns the flag a caller must repeat on `zero upgrade` to
+// upgradeSourceFlag returns the flag a caller must repeat on `qg upgrade` to
 // install from the same place this check read, or "" when the default source
 // was used.
 //
-// Only the per-invocation FLAGS need repeating. ZERO_UPDATE_RELEASE_URL is read
+// Only the per-invocation FLAGS need repeating. QG_UPDATE_RELEASE_URL is read
 // from the environment by every Check, including the one inside Apply, so a bare
-// `zero upgrade` already follows it — naming it here would tell the user to
+// `qg upgrade` already follows it — naming it here would tell the user to
 // repeat something that is not theirs to drop.
 func upgradeSourceFlag(options Options) string {
 	if endpoint := strings.TrimSpace(options.Endpoint); endpoint != "" {
 		return "--endpoint " + shellQuote(endpoint)
 	}
-	if strings.TrimSpace(os.Getenv("ZERO_UPDATE_RELEASE_URL")) != "" {
+	if strings.TrimSpace(os.Getenv("QG_UPDATE_RELEASE_URL")) != "" {
 		return ""
 	}
 	if repository := strings.TrimSpace(options.Repository); repository != "" && repository != DefaultRepository {
@@ -221,7 +221,7 @@ func shellQuote(value string) string {
 func Format(result Result) string {
 	if result.UpdateAvailable {
 		lines := []string{
-			fmt.Sprintf("[zero] Update available: %s -> %s", result.CurrentVersion, result.LatestVersion),
+			fmt.Sprintf("[qg] Update available: %s -> %s", result.CurrentVersion, result.LatestVersion),
 			"Release: " + result.ReleaseURL,
 		}
 		lines = appendAssetLines(lines, result.ReleaseAsset)
@@ -229,7 +229,7 @@ func Format(result Result) string {
 		return strings.Join(lines, "\n")
 	}
 	lines := []string{
-		fmt.Sprintf("[zero] up to date (%s)", result.CurrentVersion),
+		fmt.Sprintf("[qg] up to date (%s)", result.CurrentVersion),
 		"Latest release: " + result.ReleaseURL,
 	}
 	lines = appendAssetLines(lines, result.ReleaseAsset)
@@ -281,7 +281,7 @@ func publishedReleaseTarget(goos, goarch string) string {
 
 // upgradeGuidance returns the next step for an available update.
 //
-// `zero upgrade` is a fresh invocation that installs onto THIS machine from the
+// `qg upgrade` is a fresh invocation that installs onto THIS machine from the
 // DEFAULT release source, so it is only the right next step when the check
 // matched both. A cross-target check would otherwise answer a question about one
 // machine with an action that changes another; a custom-source check would send
@@ -294,9 +294,9 @@ func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallM
 	target := releaseAssetTarget(asset)
 	local := localReleaseTarget()
 	if target != "" && target != local {
-		guidance := "Download the verified " + target + " release asset and replace the zero binary on that machine."
+		guidance := "Download the verified " + target + " release asset and replace the qg binary on that machine."
 		if sourceFlag != "" {
-			guidance += " The download URLs above are from the custom source selected by `" + sourceFlag + "`; a bare `zero upgrade` does not repeat that source."
+			guidance += " The download URLs above are from the custom source selected by `" + sourceFlag + "`; a bare `qg upgrade` does not repeat that source."
 			if local != "" {
 				guidance += " It installs onto this machine (" + local + ") instead."
 			}
@@ -304,31 +304,31 @@ func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallM
 		}
 		if local == "" {
 			// No published release target for this host (a source build on an OS
-			// with no release archive, e.g. Termux). Saying what `zero upgrade`
+			// with no release archive, e.g. Termux). Saying what `qg upgrade`
 			// would do here would be worse than saying nothing: it does not work on
 			// this machine at all.
 			return guidance
 		}
-		return guidance + " `zero upgrade` installs onto this machine (" + local + ") instead."
+		return guidance + " `qg upgrade` installs onto this machine (" + local + ") instead."
 	}
 	if installMethod == InstallMethodHomebrew {
 		// Said before the source-flag branch below: whatever source the check read,
-		// the answer for a keg is the same and `zero upgrade` is never it.
+		// the answer for a keg is the same and `qg upgrade` is never it.
 		//
 		// AFTER the cross-target branch above, which is not an ordering bug and is
 		// pinned by TestUpgradeGuidanceKeepsCrossTargetAnswerForHomebrew. Homebrew
 		// is a property of the binary on THIS machine; when the check was asked
 		// about a different target the answer belongs to that other machine, and
-		// `brew upgrade zero` would change this one instead.
-		return "This Homebrew-managed installation is updated with `brew upgrade zero`. `zero upgrade` refuses here, because replacing the keg binary would leave Homebrew's records describing a version that is no longer installed."
+		// `brew upgrade qg` would change this one instead.
+		return "This Homebrew-managed installation is updated with `brew upgrade qg`. `qg upgrade` refuses here, because replacing the keg binary would leave Homebrew's records describing a version that is no longer installed."
 	}
 	if sourceFlag != "" {
 		if installMethod == InstallMethodNpm {
 			return "This npm-managed installation can be updated with `npm install -g " + npmPackageName + "@latest`, which installs the official npm package. The custom `" + sourceFlag + "` source only affects the release check and update gating, not the npm install source."
 		}
-		return "Run `zero upgrade " + sourceFlag + "` to install from the source this check used; a bare `zero upgrade` does not repeat that explicit source flag."
+		return "Run `qg upgrade " + sourceFlag + "` to install from the source this check used; a bare `qg upgrade` does not repeat that explicit source flag."
 	}
-	return "Run `zero upgrade` to download, verify, and install the latest release."
+	return "Run `qg upgrade` to download, verify, and install the latest release."
 }
 
 func fetchRelease(ctx context.Context, endpoint string) (release Release, err error) {
@@ -340,7 +340,7 @@ func fetchRelease(ctx context.Context, endpoint string) (release Release, err er
 		return Release{}, err
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
-	request.Header.Set("User-Agent", "zero/update")
+	request.Header.Set("User-Agent", "qg/update")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return Release{}, err
@@ -433,7 +433,7 @@ func expectedAssetCheck(version string, goos string, goarch string) (AssetCheck,
 	if platform == "windows" {
 		extension = "zip"
 	}
-	archiveName := fmt.Sprintf("zero-v%s-%s-%s.%s", version, platform, arch, extension)
+	archiveName := fmt.Sprintf("qg-v%s-%s-%s.%s", version, platform, arch, extension)
 	return AssetCheck{
 		Platform:     platform,
 		Arch:         arch,
@@ -453,11 +453,11 @@ func releasePlatform(goos string) (string, error) {
 	default:
 		// No prebuilt release archive is published for this GOOS (e.g.
 		// Android/Termux). This does not mean the platform is unsupported --
-		// Termux runs zero fine via the npm wrapper -- it just has no
+		// Termux runs qg fine via the npm wrapper -- it just has no
 		// self-updating release asset. Point users at `npm update` rather
 		// than a source rebuild, since that's the documented Termux
 		// install/upgrade path and doesn't require a Go toolchain.
-		return "", fmt.Errorf("no published release for %q (release assets: linux, macos, windows). Your build is the current version of record. Upgrade with `npm update -g @gitlawb/zero` to get the latest.", goos) //nolint:staticcheck // Preserve established user-facing error text.
+		return "", fmt.Errorf("no published release for %q (release assets: linux, macos, windows). Your build is the current version of record. Upgrade with `npm update -g @quebragalho-dev/qg` to get the latest.", goos) //nolint:staticcheck // Preserve established user-facing error text.
 	}
 }
 

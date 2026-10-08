@@ -8,10 +8,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/terminalpet"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestMouseClickSelectsThenAppliesCommandSuggestionRow(t *testing.T) {
@@ -206,7 +206,7 @@ func TestMouseCaptureOnlyWhileInteractiveSurfaceOpen(t *testing.T) {
 	m := mouseTestModel()
 	m.transcript = appendRow(m.transcript, rowUser, "hello")
 	if !m.wantsMouseCapture() {
-		t.Fatal("chat should capture mouse for Zero-owned transcript selection")
+		t.Fatal("chat should capture mouse for QG-owned transcript selection")
 	}
 
 	m = typeRunes(t, m, "/")
@@ -230,7 +230,7 @@ func TestMouseCaptureOnEmptyChatSplash(t *testing.T) {
 
 	m.transcript = appendRow(m.transcript, rowUser, "hello")
 	if !m.wantsMouseCapture() {
-		t.Fatal("chat with transcript rows should keep mouse capture for Zero-owned selection")
+		t.Fatal("chat with transcript rows should keep mouse capture for QG-owned selection")
 	}
 }
 
@@ -256,7 +256,7 @@ func TestComposerMouseClickMovesCursor(t *testing.T) {
 func TestComposerMouseClickMovesCursorBelowImageThumbnail(t *testing.T) {
 	m := mouseTestModel()
 	m.attachmentRenderers = []*terminalpet.ImageRenderer{terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})}
-	m.pendingImages = []zeroruntime.ImageBlock{previewImageBlock(t)}
+	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.refreshPendingImageThumbnail()
 	m.input.SetValue("hello world")
 

@@ -37,8 +37,8 @@ type Options struct {
 	// lock reason. A lease carrying a PID is recoverable: if that process
 	// dies without releasing (SIGKILL, crash, power loss), Clean can expire
 	// the lease instead of skipping the locked worktree forever. Callers
-	// whose worktree outlives their process (zero worktrees prepare hands
-	// the path to an external owner) leave it zero for a persistent lock
+	// whose worktree outlives their process (qg worktrees prepare hands
+	// the path to an external owner) leave it qg for a persistent lock
 	// that only an explicit release clears.
 	LeasePID int
 }
@@ -120,7 +120,7 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 		return Result{}, fmt.Errorf("resolve worktree dir: %w", err)
 	}
 
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(primaryRoot))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(primaryRoot))
 	target := filepath.Join(repoDir, name)
 	result := Result{
 		Name:         name,
@@ -147,9 +147,9 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 		// this caller is still using it, so re-establish the lease here. A
 		// lock already held by a live owner means another run is still using
 		// the path: two live runs must not share one supposedly isolated
-		// checkout, so reject it. A Zero lease whose recorded PID is dead
+		// checkout, so reject it. A QG lease whose recorded PID is dead
 		// (SIGKILL, crash) is reclaimable the same way Clean recovers it —
-		// otherwise a crashed `zero exec --worktree --worktree-name X` bricks
+		// otherwise a crashed `qg exec --worktree --worktree-name X` bricks
 		// that name until someone runs release by hand.
 		acquired, err := lockWorktree(ctx, runGit, repoRoot, target, options.LeasePID)
 		if err != nil {
@@ -168,7 +168,7 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 			}
 		}
 		if !acquired {
-			return Result{}, fmt.Errorf("worktree %s is locked by another active run; release it with `zero worktrees release %s` if that run is finished, or use a different --name", target, target)
+			return Result{}, fmt.Errorf("worktree %s is locked by another active run; release it with `qg worktrees release %s` if that run is finished, or use a different --name", target, target)
 		}
 		result.LockAcquired = true
 		// Touch the worktree directory so Clean's mtime-based staleness check
@@ -201,10 +201,10 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 	}
 	// Lock the worktree so Clean's mtime+dirty staleness heuristic (which
 	// cannot tell "abandoned" apart from "clean but waiting on a model,
-	// network, or user for a long time") never force-removes a worktree zero
+	// network, or user for a long time") never force-removes a worktree qg
 	// itself is still using. entry.locked already makes Clean skip a worktree
 	// a human locked by hand; locking here extends that same protection to
-	// the worktrees zero creates. An "already locked" answer on a worktree
+	// the worktrees qg creates. An "already locked" answer on a worktree
 	// this call just created means another process raced us to it: treat that
 	// exactly like the reuse collision above rather than claiming a lease
 	// this call never acquired.
@@ -227,7 +227,7 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 		return Result{}, err
 	}
 	if !acquired {
-		return Result{}, fmt.Errorf("worktree %s is locked by another active run; release it with `zero worktrees release %s` if that run is finished, or use a different --name", target, target)
+		return Result{}, fmt.Errorf("worktree %s is locked by another active run; release it with `qg worktrees release %s` if that run is finished, or use a different --name", target, target)
 	}
 	result.LockAcquired = true
 	if err := writeOwnershipMarker(ctx, runGit, target); err != nil {
@@ -238,12 +238,12 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 	return result, nil
 }
 
-// leaseReasonPrefix marks a lock Zero itself created (vs a human `git
+// leaseReasonPrefix marks a lock QG itself created (vs a human `git
 // worktree lock`); a "(pid N)" suffix makes the lease recoverable by Clean
 // once the owning process is gone.
-const leaseReasonPrefix = "zero: active task worktree"
+const leaseReasonPrefix = "qg: active task worktree"
 
-// leaseReason renders the lock reason for a Zero lease, embedding the owning
+// leaseReason renders the lock reason for a QG lease, embedding the owning
 // PID when the caller's worktree lifetime is bound to its process.
 func leaseReason(pid int) string {
 	if pid > 0 {
@@ -252,8 +252,8 @@ func leaseReason(pid int) string {
 	return leaseReasonPrefix
 }
 
-// leasePID extracts the owning PID from a Zero lease reason. ok=false for
-// human locks and PID-less Zero leases (external prepare callers), which
+// leasePID extracts the owning PID from a QG lease reason. ok=false for
+// human locks and PID-less QG leases (external prepare callers), which
 // only an explicit release may clear.
 func leasePID(reason string) (int, bool) {
 	rest, found := strings.CutPrefix(strings.TrimSpace(reason), leaseReasonPrefix+" (pid ")
@@ -307,9 +307,9 @@ func lockWorktree(ctx context.Context, runGit GitRunner, repoRoot string, target
 	return false, fmt.Errorf("lock git worktree: %s", message)
 }
 
-// reclaimDeadOwnerLease unlocks target when its porcelain entry is a Zero
+// reclaimDeadOwnerLease unlocks target when its porcelain entry is a QG
 // lease whose recorded PID is provably dead. Live owners, human locks, and
-// PID-less Zero leases are left alone. Returns true only when an unlock ran
+// PID-less QG leases are left alone. Returns true only when an unlock ran
 // successfully so the caller can retry lockWorktree.
 func reclaimDeadOwnerLease(ctx context.Context, runGit GitRunner, repoRoot string, target string) (bool, error) {
 	output, err := gitOutput(ctx, runGit, repoRoot, "worktree", "list", "--porcelain")
@@ -337,11 +337,11 @@ func reclaimDeadOwnerLease(ctx context.Context, runGit GitRunner, repoRoot strin
 }
 
 // Release unlocks a worktree that Prepare locked, via `git worktree unlock`,
-// making it eligible for Clean's staleness check again. Zero itself only
+// making it eligible for Clean's staleness check again. QG itself only
 // knows a worktree's use is over when its own process created it and is now
-// exiting (zero exec --worktree calls this via defer); zero worktrees
+// exiting (qg exec --worktree calls this via defer); qg worktrees
 // prepare hands the path to an external caller with no defined end-of-life,
-// so that caller must run `zero worktrees release <path>` itself once done.
+// so that caller must run `qg worktrees release <path>` itself once done.
 // Until it does, the worktree stays locked and Clean will never touch it,
 // which is the safe default over silently guessing at liveness from mtimes.
 func Release(ctx context.Context, options Options, path string) error {
@@ -382,16 +382,16 @@ func Release(ctx context.Context, options Options, path string) error {
 // caller's repository. The admin directory survives even after the worktree
 // directory itself is deleted by hand (git only forgets it on `worktree
 // prune`), and is not something `git worktree add` populates on its own, so
-// its presence is what actually proves Zero's own Prepare created a given
-// worktree - unlike the public zero-worktree-<repoKey> path convention and
+// its presence is what actually proves QG's own Prepare created a given
+// worktree - unlike the public qg-worktree-<repoKey> path convention and
 // the leaseReasonPrefix lock-reason string, both of which a user can
 // reproduce by hand for a worktree of the same repository.
-const zeroOwnerMarkerFile = "zero-owner"
+const zeroOwnerMarkerFile = "qg-owner"
 
 // zeroOwnerMarkerContent is the marker's fixed body. Its value carries no
 // meaning beyond "Prepare wrote this"; the file's mere presence at the
 // expected location is the signal Release and Clean check.
-const zeroOwnerMarkerContent = "zero: this worktree was created by `zero worktrees prepare`\n"
+const zeroOwnerMarkerContent = "qg: this worktree was created by `qg worktrees prepare`\n"
 
 // writeOwnershipMarker persists the ownership marker for target, a worktree
 // path that must still exist on disk (Prepare calls this immediately after
@@ -450,8 +450,8 @@ func hasOwnershipMarker(ctx context.Context, runGit GitRunner, target string) (b
 	return string(content) == zeroOwnerMarkerContent, nil
 }
 
-// isLegacyZeroWorktree verifies whether a worktree lacking zero-owner was
-// created by a pre-upgrade version of Zero for this repository.
+// isLegacyZeroWorktree verifies whether a worktree lacking qg-owner was
+// created by a pre-upgrade version of QG for this repository.
 func isLegacyZeroWorktree(ctx context.Context, runGit GitRunner, target string, repoDir string, entry worktreeEntry) bool {
 	if !isUnderDir(canonicalizePath(target), repoDir) {
 		return false
@@ -468,9 +468,9 @@ func isLegacyZeroWorktree(ctx context.Context, runGit GitRunner, target string, 
 	return true
 }
 
-// verifyZeroOwnedWorktree confirms path has a zero-worktree-<repoKey> ancestor
+// verifyZeroOwnedWorktree confirms path has a qg-worktree-<repoKey> ancestor
 // directory component, is a registered worktree of the repository, and (when
-// locked) carries a lock reason Zero itself set, so Release cannot be used to
+// locked) carries a lock reason QG itself set, so Release cannot be used to
 // clear the lock on a worktree a user (or another tool) manages by hand: the
 // command is documented as releasing a worktree `prepare` created, not an
 // arbitrary git worktree lock. The ancestor-component check stands in for
@@ -497,7 +497,7 @@ func verifyZeroOwnedWorktree(ctx context.Context, runGit GitRunner, dir string, 
 	// entries[0].path is always the main worktree (see primaryWorktreeRoot),
 	// which is what Prepare now also keys its repoKey off, so this and Prepare
 	// agree regardless of which worktree either call ran from.
-	want := "zero-worktree-" + repoKey(entries[0].path)
+	want := "qg-worktree-" + repoKey(entries[0].path)
 
 	target := canonicalizePath(path)
 
@@ -509,11 +509,11 @@ func verifyZeroOwnedWorktree(ctx context.Context, runGit GitRunner, dir string, 
 		}
 	}
 	if !hasZeroComponent {
-		return "", fmt.Errorf("refusing to release %s: not a zero-managed worktree (expected an ancestor directory named %q)", path, want)
+		return "", fmt.Errorf("refusing to release %s: not a qg-managed worktree (expected an ancestor directory named %q)", path, want)
 	}
 
 	// Require a registered porcelain entry before unlocking. Matching only
-	// the public zero-worktree-<repoKey> path component would let Release
+	// the public qg-worktree-<repoKey> path component would let Release
 	// clear a manual lock on any same-named path under that directory.
 	// Path comparison uses canonicalizePath so a lexical user argument
 	// (macOS /var vs /private/var, symlink --worktree-dir) still matches
@@ -530,7 +530,7 @@ func verifyZeroOwnedWorktree(ctx context.Context, runGit GitRunner, dir string, 
 			return "", errAlreadyUnlocked
 		}
 		if !strings.HasPrefix(entry.lockReason, leaseReasonPrefix) {
-			return "", fmt.Errorf("refusing to release %s: locked with reason %q, not a zero lease", path, entry.lockReason)
+			return "", fmt.Errorf("refusing to release %s: locked with reason %q, not a qg lease", path, entry.lockReason)
 		}
 		if info, statErr := os.Stat(entry.path); statErr == nil && info.IsDir() {
 			owned, err := hasOwnershipMarker(ctx, runGit, entry.path)
@@ -538,7 +538,7 @@ func verifyZeroOwnedWorktree(ctx context.Context, runGit GitRunner, dir string, 
 				return "", fmt.Errorf("verify worktree ownership for %s: %w", path, err)
 			}
 			if !owned {
-				return "", fmt.Errorf("refusing to release %s: missing zero ownership marker (not created by `zero worktrees prepare`)", path)
+				return "", fmt.Errorf("refusing to release %s: missing qg ownership marker (not created by `qg worktrees prepare`)", path)
 			}
 		}
 		break
@@ -549,7 +549,7 @@ func verifyZeroOwnedWorktree(ctx context.Context, runGit GitRunner, dir string, 
 	return matchedPath, nil
 }
 
-// errAlreadyUnlocked is a sentinel for a Zero-managed path whose git lock is
+// errAlreadyUnlocked is a sentinel for a QG-managed path whose git lock is
 // already clear; Release returns nil without calling unlock.
 var errAlreadyUnlocked = errors.New("worktree already unlocked")
 
@@ -605,15 +605,15 @@ func resolveThroughNearestExistingAncestor(path string) string {
 func DefaultBaseDir(env map[string]string) (string, error) {
 	if runtime.GOOS == "windows" {
 		if localAppData := strings.TrimSpace(envValue(env, "LOCALAPPDATA")); localAppData != "" {
-			return filepath.Join(localAppData, "zero", "worktrees"), nil
+			return filepath.Join(localAppData, "qg", "worktrees"), nil
 		}
 		if profile := strings.TrimSpace(envValue(env, "USERPROFILE")); profile != "" {
-			return filepath.Join(profile, "AppData", "Local", "zero", "worktrees"), nil
+			return filepath.Join(profile, "AppData", "Local", "qg", "worktrees"), nil
 		}
 	}
 
 	if stateHome := strings.TrimSpace(envValue(env, "XDG_STATE_HOME")); stateHome != "" {
-		return filepath.Join(stateHome, "zero", "worktrees"), nil
+		return filepath.Join(stateHome, "qg", "worktrees"), nil
 	}
 	home := strings.TrimSpace(firstNonEmpty(envValue(env, "HOME"), envValue(env, "USERPROFILE")))
 	if home == "" {
@@ -623,7 +623,7 @@ func DefaultBaseDir(env map[string]string) (string, error) {
 			return "", fmt.Errorf("resolve user home: %w", err)
 		}
 	}
-	return filepath.Join(home, ".local", "state", "zero", "worktrees"), nil
+	return filepath.Join(home, ".local", "state", "qg", "worktrees"), nil
 }
 
 func resolveCwd(cwd string) (string, error) {
@@ -818,7 +818,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// Clean prunes any zero-owned git worktrees older than maxAge to prevent disk space leaks.
+// Clean prunes any qg-owned git worktrees older than maxAge to prevent disk space leaks.
 func Clean(ctx context.Context, options Options, maxAge time.Duration) error {
 	cwd, err := resolveCwd(options.Cwd)
 	if err != nil {
@@ -868,7 +868,7 @@ func Clean(ctx context.Context, options Options, maxAge time.Duration) error {
 	// Prepare only ever creates worktrees under this per-repository subtree
 	// (mirroring the repoDir it computes). Scoping pruning to baseDir itself
 	// would authorize deleting a worktree a user manages by hand in the same
-	// directory, which Zero never created and has no business force-removing.
+	// directory, which QG never created and has no business force-removing.
 	//
 	// The bucket must be keyed off the MAIN worktree's root
 	// (entries[0].path, per primaryWorktreeRoot), not repoRoot: repoRoot is
@@ -877,9 +877,9 @@ func Clean(ctx context.Context, options Options, maxAge time.Duration) error {
 	// auto-invokes it) runs there. Prepare keys repoDir off the same
 	// entries[0].path, so using repoRoot here instead would compute a
 	// different repoDir than Prepare's and filter out every actual
-	// zero-owned worktree for this repository whenever either call runs from
+	// qg-owned worktree for this repository whenever either call runs from
 	// a linked worktree.
-	repoDir := filepath.Join(baseDir, "zero-worktree-"+repoKey(entries[0].path))
+	repoDir := filepath.Join(baseDir, "qg-worktree-"+repoKey(entries[0].path))
 
 	cutoff := time.Now().Add(-maxAge)
 	var lastErr error
@@ -890,7 +890,7 @@ func Clean(ctx context.Context, options Options, maxAge time.Duration) error {
 		// otherwise fail the containment check against the resolved repoDir.
 		// Git commands still receive entry.path (the registered spelling).
 		entryPath := canonicalizePath(entry.path)
-		// Only prune worktrees zero created for this repository (i.e. inside
+		// Only prune worktrees qg created for this repository (i.e. inside
 		// repoDir), using a path-boundary-safe comparison so a sibling
 		// directory that merely shares repoDir as a string prefix (e.g.
 		// "<repoDir>-other") can't match.
@@ -899,10 +899,10 @@ func Clean(ctx context.Context, options Options, maxAge time.Duration) error {
 		}
 
 		// A locked worktree is never a prune candidate - with one recovery
-		// carve-out: a Zero lease whose recorded owner process is provably
+		// carve-out: a QG lease whose recorded owner process is provably
 		// dead (SIGKILL, crash, power loss skipped the deferred release).
 		// Without it, an abnormal exit leaves the lock in place forever and
-		// Clean can never reclaim the disk. Human locks and PID-less Zero
+		// Clean can never reclaim the disk. Human locks and PID-less QG
 		// leases (external prepare callers) are always honored.
 		expiredLease := false
 		if entry.locked {
@@ -1068,7 +1068,7 @@ func isUnderDir(path, dir string) bool {
 // whether some OTHER ref in the repository already contains worktreePath's
 // HEAD; if none does, it creates a durable ref for it in the main
 // repository's refs namespace before the caller proceeds to remove the
-// worktree, so the commit survives (visible under refs/zero/orphaned-worktree)
+// worktree, so the commit survives (visible under refs/qg/orphaned-worktree)
 // even after the worktree itself is gone.
 func preserveUnreachableWorktreeHead(ctx context.Context, runGit GitRunner, repoRoot, worktreePath string) error {
 	// --verify --quiet distinguishes unborn/missing HEAD (exit 1, no output)
@@ -1103,7 +1103,7 @@ func preserveUnreachableWorktreeHead(ctx context.Context, runGit GitRunner, repo
 		// redundant and removal cannot orphan the commit.
 		return nil
 	}
-	refName := "refs/zero/orphaned-worktree/" + head
+	refName := "refs/qg/orphaned-worktree/" + head
 	if _, err := gitOutput(ctx, runGit, repoRoot, "update-ref", refName, head); err != nil {
 		return fmt.Errorf("preserve unreachable commit %s: %w", head, err)
 	}

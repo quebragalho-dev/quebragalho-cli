@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/fsutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 const windowsUnelevatedSetupMarkerSchemaVersion = 2

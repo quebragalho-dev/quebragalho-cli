@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/provideronboarding"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 	"mvdan.cc/sh/v3/shell"
 )
 
-// Regression for issue #555's follow-up: `zero providers check` must not
+// Regression for issue #555's follow-up: `qg providers check` must not
 // error that a no-auth custom endpoint requires an API key, matching what
 // /model and /providers already treat as usable.
 func TestValidateProviderRuntimeReadyCustomEndpoint(t *testing.T) {

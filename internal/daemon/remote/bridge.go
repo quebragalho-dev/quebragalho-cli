@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/daemon"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/daemon"
 )
 
 const (

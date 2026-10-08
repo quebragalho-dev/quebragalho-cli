@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/specmode"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specmode"
 )
 
 func TestRunExecUseSpecCreatesDraftSession(t *testing.T) {
@@ -54,7 +54,7 @@ func TestRunExecUseSpecCreatesDraftSession(t *testing.T) {
 		resolveMCPConfig: func(string, bool) (config.MCPConfig, error) {
 			return config.MCPConfig{}, nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return provider, nil
 		},
 		newSessionStore: func() *sessions.Store {
@@ -84,7 +84,7 @@ func TestRunExecUseSpecCreatesDraftSession(t *testing.T) {
 	if draft.SessionKind != sessions.SessionKindSpecDraft || draft.SpecStatus != sessions.SpecStatusDraft {
 		t.Fatalf("unexpected draft session: %#v", draft)
 	}
-	if draft.SpecID == "" || !strings.Contains(filepath.ToSlash(draft.SpecFilePath), ".zero/specs/") {
+	if draft.SpecID == "" || !strings.Contains(filepath.ToSlash(draft.SpecFilePath), ".qg/specs/") {
 		t.Fatalf("draft spec metadata missing: %#v", draft)
 	}
 	if draft.SpecDraftModelID != "draft-model" || draft.ModelID != "draft-model" || draft.SpecDraftReasoning != "high" {
@@ -99,7 +99,7 @@ func TestRunExecUseSpecCreatesDraftSession(t *testing.T) {
 }
 
 func TestParseExecUseSpecRejectsResume(t *testing.T) {
-	_, _, err := parseExecArgs([]string{"--use-spec", "--resume", "zero_1", "plan"})
+	_, _, err := parseExecArgs([]string{"--use-spec", "--resume", "qg_1", "plan"})
 	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
 		t.Fatalf("expected --use-spec/--resume validation, got %v", err)
 	}
@@ -159,25 +159,25 @@ func TestRunExecUseSpecRejectsFiltersThatHideSubmitSpec(t *testing.T) {
 }
 
 type submitSpecExecProvider struct {
-	requests []zeroruntime.CompletionRequest
+	requests []qgruntime.CompletionRequest
 }
 
-func (provider *submitSpecExecProvider) StreamCompletion(ctx context.Context, request zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+func (provider *submitSpecExecProvider) StreamCompletion(ctx context.Context, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	provider.requests = append(provider.requests, request)
 	arguments, _ := json.Marshal(map[string]string{
 		"title": "Review Flow",
 		"plan":  "# Goal\n\nAdd the review flow.",
 	})
-	ch := make(chan zeroruntime.StreamEvent, 4)
+	ch := make(chan qgruntime.StreamEvent, 4)
 	select {
 	case <-ctx.Done():
 		close(ch)
 		return ch, ctx.Err()
-	case ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: specmode.SubmitToolName}:
+	case ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: specmode.SubmitToolName}:
 	}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: string(arguments)}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: string(arguments)}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-1"}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
 	close(ch)
 	return ch, nil
 }

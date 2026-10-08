@@ -8,19 +8,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/background"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestTaskToolRunsForegroundSpecialist(t *testing.T) {
-	zero := 0
+	qg := 0
 	var gotBinary string
 	var gotArgs []string
 	executor := Executor{
-		BinaryPath:   "/usr/local/bin/zero",
+		BinaryPath:   "/usr/local/bin/qg",
 		NewSessionID: func() (string, error) { return "child_task", nil },
 		Load: func(LoadOptions) (LoadResult, error) {
 			return LoadResult{Specialists: []Manifest{{
@@ -40,7 +40,7 @@ func TestTaskToolRunsForegroundSpecialist(t *testing.T) {
 				Events: []streamjson.Event{
 					{Type: streamjson.EventRunStart, SessionID: "child_task"},
 					{Type: streamjson.EventFinal, Text: "child finished"},
-					{Type: streamjson.EventRunEnd, Status: "success", ExitCode: &zero},
+					{Type: streamjson.EventRunEnd, Status: "success", ExitCode: &qg},
 				},
 			}, nil
 		},
@@ -68,7 +68,7 @@ func TestTaskToolRunsForegroundSpecialist(t *testing.T) {
 	if result.Meta["session_id"] != "child_task" {
 		t.Fatalf("session meta = %#v", result.Meta)
 	}
-	if gotBinary != "/usr/local/bin/zero" {
+	if gotBinary != "/usr/local/bin/qg" {
 		t.Fatalf("binary = %q", gotBinary)
 	}
 	for _, want := range [][]string{
@@ -189,7 +189,7 @@ func TestTaskToolRunsBackgroundSpecialist(t *testing.T) {
 	var gotOutputFile string
 	var gotArgs []string
 	executor := Executor{
-		BinaryPath:        "/usr/local/bin/zero",
+		BinaryPath:        "/usr/local/bin/qg",
 		BackgroundManager: manager,
 		NewSessionID:      func() (string, error) { return "child_task", nil },
 		Load: func(LoadOptions) (LoadResult, error) {
@@ -200,7 +200,7 @@ func TestTaskToolRunsBackgroundSpecialist(t *testing.T) {
 			}}}, nil
 		},
 		LaunchBackground: func(binaryPath string, args []string, outputFile string, onExit func(exitCode int)) (int, error) {
-			if binaryPath != "/usr/local/bin/zero" {
+			if binaryPath != "/usr/local/bin/qg" {
 				t.Fatalf("binaryPath = %q", binaryPath)
 			}
 			gotArgs = append([]string(nil), args...)

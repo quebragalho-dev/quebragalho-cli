@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 type EventRef struct {
@@ -79,14 +79,14 @@ const defaultCompactionMaxPromptChars = 8000
 
 func (store *Store) PlanRewind(sessionID string, options RewindOptions) (RewindPlan, error) {
 	if !ValidSessionID(sessionID) {
-		return RewindPlan{}, fmt.Errorf("invalid zero session id %q", sessionID)
+		return RewindPlan{}, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	events, err := store.ReadEvents(sessionID)
 	if err != nil {
 		return RewindPlan{}, err
 	}
 	if len(events) == 0 {
-		return RewindPlan{}, fmt.Errorf("zero session %s has no events to rewind", sessionID)
+		return RewindPlan{}, fmt.Errorf("qg session %s has no events to rewind", sessionID)
 	}
 	targetIndex, err := findRewindTarget(events, options)
 	if err != nil {
@@ -147,7 +147,7 @@ func findRewindTarget(events []Event, options RewindOptions) (int, error) {
 
 func (store *Store) PlanCompaction(sessionID string, options CompactionOptions) (CompactionPlan, error) {
 	if !ValidSessionID(sessionID) {
-		return CompactionPlan{}, fmt.Errorf("invalid zero session id %q", sessionID)
+		return CompactionPlan{}, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	events, err := store.ReadEvents(sessionID)
 	if err != nil {
@@ -187,7 +187,7 @@ func (store *Store) PlanCompaction(sessionID string, options CompactionOptions) 
 
 func (store *Store) RecordCompaction(sessionID string, input RecordCompactionInput) (Event, error) {
 	if !ValidSessionID(sessionID) {
-		return Event{}, fmt.Errorf("invalid zero session id %q", sessionID)
+		return Event{}, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	if strings.TrimSpace(input.Plan.SessionID) == "" {
 		return Event{}, fmt.Errorf("compaction plan session id is required")
@@ -309,10 +309,10 @@ func rehydrateEventsWithCompaction(events []Event, compaction Event, payload Com
 
 func buildCompactionPrompt(events []Event, maxChars int) (string, bool) {
 	if len(events) == 0 {
-		return "No compactable Zero session events.", false
+		return "No compactable QG session events.", false
 	}
 	lines := []string{
-		"Summarize these Zero session events for future context.",
+		"Summarize these QG session events for future context.",
 		"Preserve user intent, tool outcomes, important files, blockers, and follow-up state.",
 	}
 	for _, event := range events {
@@ -333,8 +333,8 @@ func buildCompactionPrompt(events []Event, maxChars int) (string, bool) {
 // and checkpoint blobs are omitted. Message/tool fields rely on the session
 // writer's invariant that tool output is scrubbed before persistence;
 // ask_user answers and generic event previews are redacted here.
-func CompactionMessages(events []Event) []zeroruntime.Message {
-	messages := make([]zeroruntime.Message, 0, len(events))
+func CompactionMessages(events []Event) []qgruntime.Message {
+	messages := make([]qgruntime.Message, 0, len(events))
 	for _, event := range events {
 		var payload map[string]any
 		_ = json.Unmarshal(event.Payload, &payload)
@@ -348,39 +348,39 @@ func CompactionMessages(events []Event) []zeroruntime.Message {
 			content := stringField("content")
 			switch role {
 			case "user":
-				messages = append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: content})
+				messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: content})
 			case "assistant":
-				messages = append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: content})
+				messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: content})
 			case "ask_user_answers":
 				if answers, ok := payload["answers"]; ok {
 					encoded, _ := json.Marshal(answers)
-					messages = append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "User answers: " + redaction.RedactString(string(encoded), redaction.Options{})})
+					messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "User answers: " + redaction.RedactString(string(encoded), redaction.Options{})})
 				}
 			default:
 				if content != "" {
-					messages = append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: content})
+					messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: content})
 				}
 			}
 		case EventToolCall:
-			messages = append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{{
+			messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{{
 				ID: firstSessionString(stringField("toolCallId"), stringField("id")), Name: firstSessionString(stringField("name"), stringField("toolName")), Arguments: stringField("arguments"),
 			}}})
 		case EventToolResult:
 			status := strings.ToLower(stringField("status"))
-			messages = append(messages, zeroruntime.Message{
-				Role: zeroruntime.MessageRoleTool, ToolCallID: firstSessionString(stringField("toolCallId"), stringField("id")),
+			messages = append(messages, qgruntime.Message{
+				Role: qgruntime.MessageRoleTool, ToolCallID: firstSessionString(stringField("toolCallId"), stringField("id")),
 				Content: stringField("output"), IsError: status != "" && status != "ok", ChangedFiles: sessionStringSlice(payload["changedFiles"]),
 			})
 		case EventCompaction:
 			if summary := stringField("summary"); summary != "" {
-				messages = append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "[Summary of earlier conversation]\n" + summary})
+				messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "[Summary of earlier conversation]\n" + summary})
 			}
 		case EventProviderUsage, EventSessionCheckpoint:
 			continue
 		default:
 			preview := shapedPayloadPreview(event)
 			if strings.TrimSpace(preview) != "" && preview != "{}" {
-				messages = append(messages, zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: fmt.Sprintf("[%s] %s", event.Type, preview)})
+				messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: fmt.Sprintf("[%s] %s", event.Type, preview)})
 			}
 		}
 	}

@@ -10,16 +10,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/oauth"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/provideroauth"
-	"github.com/Gitlawb/zero/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/provideroauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 // ensureLoginProviderProfile makes a freshly stored OAuth login visible as a
 // provider: without a profile in config.json the login shows up nowhere — not in
-// `zero providers list`, not in the TUI picker — and `zero providers use <name>`
+// `qg providers list`, not in the TUI picker — and `qg providers use <name>`
 // fails "not found", so the user's working active provider looks broken while
 // the new login looks lost. Returns user-facing guidance lines ("" when the
 // login has no catalog entry to scaffold from). Best-effort by design: the
@@ -44,20 +44,20 @@ func ensureLoginProviderProfile(deps appDeps, provider string) string {
 	case ensured.Created && active:
 		return fmt.Sprintf("Added provider %q to your config and set it active.", ensured.Name)
 	case ensured.Created:
-		return fmt.Sprintf("Added provider %q to your config; the active provider is still %q.\nSwitch with: zero providers use %s", ensured.Name, ensured.Active, ensured.Name)
+		return fmt.Sprintf("Added provider %q to your config; the active provider is still %q.\nSwitch with: qg providers use %s", ensured.Name, ensured.Active, ensured.Name)
 	case active:
 		return fmt.Sprintf("Provider %q is configured and active.", ensured.Name)
 	default:
-		return fmt.Sprintf("Provider %q is already configured.\nSwitch with: zero providers use %s", ensured.Name, ensured.Name)
+		return fmt.Sprintf("Provider %q is already configured.\nSwitch with: qg providers use %s", ensured.Name, ensured.Name)
 	}
 }
 
-// runAuth dispatches `zero auth <command>` for provider OAuth login. It is
-// additive and independent of `zero mcp oauth` (MCP server auth), which is
+// runAuth dispatches `qg auth <command>` for provider OAuth login. It is
+// additive and independent of `qg mcp oauth` (MCP server auth), which is
 // unchanged.
 func runAuth(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "auth subcommand required. Use `zero auth status`.")
+		return writeExecUsageError(stderr, "auth subcommand required. Use `qg auth status`.")
 	}
 	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		if err := writeAuthHelp(stdout); err != nil {
@@ -99,13 +99,13 @@ func runAuthOpenRouter(args []string, stdout io.Writer, stderr io.Writer, deps a
 	// openrouter takes no positional args or flags; reject the unexpected so a
 	// typo/unsupported flag fails fast instead of silently running the login.
 	if len(args) > 0 {
-		return writeExecUsageError(stderr, fmt.Sprintf("zero auth openrouter takes no arguments (got %q)", args[0]))
+		return writeExecUsageError(stderr, fmt.Sprintf("qg auth openrouter takes no arguments (got %q)", args[0]))
 	}
 	key, err := deps.openRouterLogin(context.Background(), provideroauth.OpenRouterOptions{
 		Out:        stdout,
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
-		// ZERO_OPENROUTER_BASE_URL overrides the endpoint (self-hosted gateway or tests).
-		BaseURL: strings.TrimSpace(os.Getenv("ZERO_OPENROUTER_BASE_URL")),
+		// QG_OPENROUTER_BASE_URL overrides the endpoint (self-hosted gateway or tests).
+		BaseURL: strings.TrimSpace(os.Getenv("QG_OPENROUTER_BASE_URL")),
 	})
 	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
@@ -113,7 +113,7 @@ func runAuthOpenRouter(args []string, stdout io.Writer, stderr io.Writer, deps a
 	key = strings.TrimSpace(key)
 	line, err := saveOpenRouterProviderKey(deps, key)
 	if err != nil {
-		if _, writeErr := fmt.Fprintf(stdout, "\nOpenRouter login complete — new API key minted, but Zero could not save it: %s\nUse it manually, e.g.:\n  export OPENROUTER_API_KEY=%s\n", err, key); writeErr != nil {
+		if _, writeErr := fmt.Fprintf(stdout, "\nOpenRouter login complete — new API key minted, but QG could not save it: %s\nUse it manually, e.g.:\n  export OPENROUTER_API_KEY=%s\n", err, key); writeErr != nil {
 			return exitCrash
 		}
 		return exitSuccess
@@ -155,11 +155,11 @@ func saveOpenRouterProviderKey(deps appDeps, key string) (string, error) {
 	case ensured.Created && active:
 		return fmt.Sprintf("Added provider %q to your config and set it active.", ensured.Name), nil
 	case ensured.Created:
-		return fmt.Sprintf("Added provider %q to your config; the active provider is still %q.\nSwitch with: zero providers use %s", ensured.Name, ensured.Active, ensured.Name), nil
+		return fmt.Sprintf("Added provider %q to your config; the active provider is still %q.\nSwitch with: qg providers use %s", ensured.Name, ensured.Active, ensured.Name), nil
 	case active:
 		return fmt.Sprintf("Provider %q is configured, active, and ready to use.", ensured.Name), nil
 	default:
-		return fmt.Sprintf("Provider %q is configured with the new key.\nSwitch with: zero providers use %s", ensured.Name, ensured.Name), nil
+		return fmt.Sprintf("Provider %q is configured with the new key.\nSwitch with: qg providers use %s", ensured.Name, ensured.Name), nil
 	}
 }
 
@@ -176,20 +176,20 @@ func runAuthChatGPT(args []string, stdout io.Writer, stderr io.Writer, deps appD
 		}
 	}
 	if len(args) > 0 {
-		return writeExecUsageError(stderr, fmt.Sprintf("zero auth chatgpt takes no arguments (got %q)", args[0]))
+		return writeExecUsageError(stderr, fmt.Sprintf("qg auth chatgpt takes no arguments (got %q)", args[0]))
 	}
 
 	// Build the same env map the oauth engine reads so the chatgpt preset is
 	// opted into (the preset is off by default to keep third-party OAuth
 	// client identities out of the default credential path). The env is
-	// layered: process env first, then ZERO_OAUTH_ALLOW_PRESETS=1.
+	// layered: process env first, then QG_OAUTH_ALLOW_PRESETS=1.
 	env := map[string]string{}
 	for _, kv := range os.Environ() {
 		if eq := strings.IndexByte(kv, '='); eq > 0 {
 			env[kv[:eq]] = kv[eq+1:]
 		}
 	}
-	env["ZERO_OAUTH_ALLOW_PRESETS"] = "1"
+	env["QG_OAUTH_ALLOW_PRESETS"] = "1"
 
 	token, err := provideroauth.ChatGPTLogin(context.Background(), provideroauth.ChatGPTOptions{
 		Env:        env,
@@ -206,7 +206,7 @@ func runAuthChatGPT(args []string, stdout io.Writer, stderr io.Writer, deps appD
 	}
 
 	// Persist via the oauth manager's store so the same path
-	// zero auth status / zero auth refresh / TokenResolver use is hit.
+	// qg auth status / qg auth refresh / TokenResolver use is hit.
 	// We bypass Manager.Login because the account-id extraction happens
 	// inside provideroauth.ChatGPTLogin; the manager would not pick up
 	// the customized Token.Account field.
@@ -233,7 +233,7 @@ func runAuthChatGPT(args []string, stdout io.Writer, stderr io.Writer, deps appD
 }
 
 // oauthFormatChatGPTStatus formats the saved ChatGPT token into the same
-// shape `zero auth status` prints, so the user sees a consistent view.
+// shape `qg auth status` prints, so the user sees a consistent view.
 func oauthFormatChatGPTStatus(token oauth.Token) (string, error) {
 	store, err := oauth.NewStore(oauth.StoreOptions{})
 	if err != nil {
@@ -328,7 +328,7 @@ func validateAuthFlags(sub string, a authArgs) error {
 		"refresh": {"watch": true},
 		"reset":   {"json": true, "confirm": true},
 	}[sub]
-	bad := func(name string) error { return fmt.Errorf("zero auth %s does not accept %s", sub, name) }
+	bad := func(name string) error { return fmt.Errorf("qg auth %s does not accept %s", sub, name) }
 	if a.json && !allowed["json"] {
 		return bad("--json")
 	}
@@ -349,18 +349,18 @@ func validateAuthFlags(sub string, a authArgs) error {
 
 // newAuthManager builds an oauth.Manager backed by the file store, printing the
 // authorization URL / device code to stdout. The store path honors
-// ZERO_OAUTH_TOKENS_PATH (env), so callers/tests can redirect it. Setting
-// ZERO_OAUTH_STORAGE=encrypted-file selects the AES-256-GCM encrypted-at-rest
+// QG_OAUTH_TOKENS_PATH (env), so callers/tests can redirect it. Setting
+// QG_OAUTH_STORAGE=encrypted-file selects the AES-256-GCM encrypted-at-rest
 // backend (a per-user secret is created beside the token file).
 func newAuthManager(deps appDeps, out io.Writer) (*oauth.Manager, error) {
-	// Validate ZERO_OAUTH_STORAGE up front: a mistyped value must fail fast rather
+	// Validate QG_OAUTH_STORAGE up front: a mistyped value must fail fast rather
 	// than silently change the backend. Empty = default (plaintext 0600 file);
 	// "encrypted-file" = AES-256-GCM; "keyring" = the OS keyring.
-	storage := strings.ToLower(strings.TrimSpace(os.Getenv("ZERO_OAUTH_STORAGE")))
+	storage := strings.ToLower(strings.TrimSpace(os.Getenv("QG_OAUTH_STORAGE")))
 	switch storage {
 	case "", "file", "encrypted-file", "keyring":
 	default:
-		return nil, fmt.Errorf("invalid ZERO_OAUTH_STORAGE %q (supported: file, encrypted-file, keyring)", storage)
+		return nil, fmt.Errorf("invalid QG_OAUTH_STORAGE %q (supported: file, encrypted-file, keyring)", storage)
 	}
 	store, err := oauth.NewStore(oauth.StoreOptions{
 		Now:     deps.now,
@@ -378,8 +378,8 @@ func newAuthManager(deps appDeps, out io.Writer) (*oauth.Manager, error) {
 		// carries no token material. A real browser launch is intentionally not
 		// performed (the sandbox/headless contexts make printing the safer default).
 		OpenBrowser: func(string) error { return nil },
-		// `zero auth login <preset>` (e.g. xai) should resolve the baked-in preset
-		// without the operator exporting ZERO_OAUTH_ALLOW_PRESETS first.
+		// `qg auth login <preset>` (e.g. xai) should resolve the baked-in preset
+		// without the operator exporting QG_OAUTH_ALLOW_PRESETS first.
 		AllowPresets: true,
 	})
 }
@@ -394,14 +394,14 @@ func runAuthLogin(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return exitSuccess
 	}
 	if len(parsed.positional) != 1 {
-		return writeExecUsageError(stderr, "usage: zero auth login <provider> [--device] [--scope <scope>]")
+		return writeExecUsageError(stderr, "usage: qg auth login <provider> [--device] [--scope <scope>]")
 	}
 	provider := parsed.positional[0]
 	// ChatGPT (Codex) requires a fixed redirect_uri (http://localhost:1455/
 	// auth/callback) and mandatory authorize params (id_token_add_organizations,
 	// codex_cli_simplified_flow, originator) that the generic loopback flow
 	// cannot supply. Route it to the dedicated ChatGPT login so
-	// `zero auth login chatgpt` behaves identically to `zero auth chatgpt`.
+	// `qg auth login chatgpt` behaves identically to `qg auth chatgpt`.
 	if strings.EqualFold(provider, "chatgpt") {
 		if parsed.device {
 			return writeExecUsageError(stderr, "ChatGPT login does not support --device (it is loopback-only)")
@@ -444,7 +444,7 @@ func runAuthLogout(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		return exitSuccess
 	}
 	if len(parsed.positional) != 1 {
-		return writeExecUsageError(stderr, "usage: zero auth logout <provider>")
+		return writeExecUsageError(stderr, "usage: qg auth logout <provider>")
 	}
 	provider := parsed.positional[0]
 	manager, err := newAuthManager(deps, stdout)
@@ -498,7 +498,7 @@ func runAuthStatus(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		return exitSuccess
 	}
 	if len(parsed.positional) > 1 {
-		return writeExecUsageError(stderr, "usage: zero auth status [provider]")
+		return writeExecUsageError(stderr, "usage: qg auth status [provider]")
 	}
 	manager, err := newAuthManager(deps, stdout)
 	if err != nil {
@@ -536,7 +536,7 @@ func runAuthRefresh(args []string, stdout io.Writer, stderr io.Writer, deps appD
 		return exitSuccess
 	}
 	if len(parsed.positional) != 1 {
-		return writeExecUsageError(stderr, "usage: zero auth refresh <provider>")
+		return writeExecUsageError(stderr, "usage: qg auth refresh <provider>")
 	}
 	provider := parsed.positional[0]
 	manager, err := newAuthManager(deps, stdout)
@@ -588,10 +588,10 @@ func runAuthReset(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return exitSuccess
 	}
 	if len(parsed.positional) > 0 {
-		return writeExecUsageError(stderr, fmt.Sprintf("zero auth reset takes no arguments (got %q)", parsed.positional[0]))
+		return writeExecUsageError(stderr, fmt.Sprintf("qg auth reset takes no arguments (got %q)", parsed.positional[0]))
 	}
 	if !parsed.confirm {
-		return writeExecUsageError(stderr, "zero auth reset clears all stored OAuth logins and shared MCP tokens; rerun with --confirm to reset")
+		return writeExecUsageError(stderr, "qg auth reset clears all stored OAuth logins and shared MCP tokens; rerun with --confirm to reset")
 	}
 	manager, err := newAuthManager(deps, stdout)
 	if err != nil {
@@ -628,7 +628,7 @@ func filterAuthStatuses(statuses []oauth.Status, provider string) []oauth.Status
 
 func writeAuthHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero auth <command>
+  qg auth <command>
 
 Commands:
   login <provider> [--device] [--scope <scope>]   Log in to a provider via OAuth
@@ -639,23 +639,23 @@ Commands:
   openrouter                                      Log in to OpenRouter in the browser; mints an API key
   chatgpt                                         Log in to ChatGPT in the browser (Codex backend, ChatGPT Plus/Pro)
 
-A provider is any OAuth 2.0 / OIDC server. "openrouter" ('zero auth openrouter')
-works out of the box. "xai" ('zero auth login xai') uses a built-in preset that is
-off by default — enable it with ZERO_OAUTH_ALLOW_PRESETS=1, or set the
-ZERO_OAUTH_XAI_* vars yourself. "chatgpt" ('zero auth login chatgpt' or
-'zero auth chatgpt') uses a fixed-port loopback flow against the Codex backend.
+A provider is any OAuth 2.0 / OIDC server. "openrouter" ('qg auth openrouter')
+works out of the box. "xai" ('qg auth login xai') uses a built-in preset that is
+off by default — enable it with QG_OAUTH_ALLOW_PRESETS=1, or set the
+QG_OAUTH_XAI_* vars yourself. "chatgpt" ('qg auth login chatgpt' or
+'qg auth chatgpt') uses a fixed-port loopback flow against the Codex backend.
 Any preset field is overridable via the env vars below. For a custom provider named <name>, set:
-  ZERO_OAUTH_<NAME>_CLIENT_ID       (required)
-  ZERO_OAUTH_<NAME>_CLIENT_SECRET   (optional)
-  ZERO_OAUTH_<NAME>_AUTHORIZE_URL   ZERO_OAUTH_<NAME>_TOKEN_URL
-  ZERO_OAUTH_<NAME>_DEVICE_URL      ZERO_OAUTH_<NAME>_ISSUER_URL (for discovery)
-  ZERO_OAUTH_<NAME>_SCOPES          ZERO_OAUTH_<NAME>_FLOW (loopback|device)
+  QG_OAUTH_<NAME>_CLIENT_ID       (required)
+  QG_OAUTH_<NAME>_CLIENT_SECRET   (optional)
+  QG_OAUTH_<NAME>_AUTHORIZE_URL   QG_OAUTH_<NAME>_TOKEN_URL
+  QG_OAUTH_<NAME>_DEVICE_URL      QG_OAUTH_<NAME>_ISSUER_URL (for discovery)
+  QG_OAUTH_<NAME>_SCOPES          QG_OAUTH_<NAME>_FLOW (loopback|device)
 Endpoint URLs must be https (loopback exempt).
 
-Storage: tokens are written 0600 under $XDG_CONFIG_HOME/zero (override with
-ZERO_OAUTH_TOKENS_PATH). Set ZERO_OAUTH_STORAGE=encrypted-file to encrypt them at
+Storage: tokens are written 0600 under $XDG_CONFIG_HOME/qg (override with
+QG_OAUTH_TOKENS_PATH). Set QG_OAUTH_STORAGE=encrypted-file to encrypt them at
 rest with AES-256-GCM (a per-user secret beside the file), or
-ZERO_OAUTH_STORAGE=keyring to use the OS keyring (macOS Keychain / Linux
+QG_OAUTH_STORAGE=keyring to use the OS keyring (macOS Keychain / Linux
 secret-tool). MCP server tokens share the same store.
 
 Flags:

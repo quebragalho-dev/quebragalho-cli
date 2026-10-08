@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providers/openai"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/openai"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func openaiEligibleProfile() config.ProviderProfile {
@@ -19,9 +19,9 @@ func openaiEligibleProfile() config.ProviderProfile {
 	}
 }
 
-func buildGateProvider(t *testing.T, profile config.ProviderProfile) zeroruntime.Provider {
+func buildGateProvider(t *testing.T, profile config.ProviderProfile) qgruntime.Provider {
 	t.Helper()
-	provider, err := New(profile, Options{UserAgent: "zero-gate-test"})
+	provider, err := New(profile, Options{UserAgent: "qg-gate-test"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -30,7 +30,7 @@ func buildGateProvider(t *testing.T, profile config.ProviderProfile) zeroruntime
 
 type fakeGateProvider struct{}
 
-func (fakeGateProvider) StreamCompletion(context.Context, zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+func (fakeGateProvider) StreamCompletion(context.Context, qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	return nil, nil
 }
 

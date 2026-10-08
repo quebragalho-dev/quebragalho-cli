@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // The in-session /provider wizard persists straight through config.UpsertProvider,
@@ -48,7 +48,7 @@ func TestApplyProviderWizardRejectsAtomicPlaceholderBeforePersist(t *testing.T) 
 	t.Setenv("XDG_CACHE_HOME", root)
 	t.Setenv("APPDATA", root)
 	t.Setenv("LOCALAPPDATA", root)
-	t.Setenv("ZERO_PROVIDER", "original")
+	t.Setenv("QG_PROVIDER", "original")
 	descriptor, err := providercatalog.Require("atomic-chat-local")
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestApplyProviderWizardRejectsAtomicPlaceholderBeforePersist(t *testing.T) 
 	m := model{
 		userConfigPath: path,
 		providerName:   "original",
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			built = true
 			return nil, nil
 		},
@@ -78,7 +78,7 @@ func TestApplyProviderWizardRejectsAtomicPlaceholderBeforePersist(t *testing.T) 
 		t.Fatalf("placeholder reached provider construction or persistence: built=%v wizard=%+v", built, next.providerWizard)
 	}
 	data, err := os.ReadFile(path)
-	if err != nil || string(data) != string(original) || next.providerName != "original" || os.Getenv("ZERO_PROVIDER") != "original" {
+	if err != nil || string(data) != string(original) || next.providerName != "original" || os.Getenv("QG_PROVIDER") != "original" {
 		t.Fatalf("rejected setup mutated configuration: data=%q err=%v", data, err)
 	}
 }

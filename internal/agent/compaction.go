@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 // Session compaction.
@@ -58,7 +58,7 @@ type CompactionOptions struct {
 	// Summarize turns the to-be-elided middle into a single dense summary. It is
 	// injected so Compact stays pure and testable; the agent loop wires it to a
 	// real provider call.
-	Summarize func(toSummarize []zeroruntime.Message) (string, error)
+	Summarize func(toSummarize []qgruntime.Message) (string, error)
 	// taskState is a snapshot supplied by the running agent. Its immutable
 	// objective is always preserved; mutable fields are admitted only when its
 	// plan projection still matches the transcript.
@@ -68,7 +68,7 @@ type CompactionOptions struct {
 // CompactionResult is the metadata-bearing result returned by CompactMessages.
 type CompactionResult struct {
 	// Messages is the original conversation or the compacted replacement.
-	Messages []zeroruntime.Message
+	Messages []qgruntime.Message
 	// RemovedCount is the number of original messages summarized away.
 	RemovedCount int
 	// PreservedCount is the number of original messages kept verbatim, including
@@ -97,12 +97,12 @@ type CompactionResult struct {
 const imageTokenEstimate = 1000
 
 // ApproxTextTokens estimates the token count of text WITHOUT a real tokenizer.
-// The BPE tokenizers zero targets fold a run's leading space into the following
+// The BPE tokenizers qg targets fold a run's leading space into the following
 // token rather than emitting whitespace as its own token, so naive len/4
 // overcounts real text by ~15-20% (measured: a 24.8k-char prompt counted 5.2k
 // real tokens where len/4 said 6.2k). Counting NON-whitespace bytes / 4 tracks
 // the provider's actual count closely (validated against live usage) while
-// staying allocation- and dependency-free. zero still receives the exact count
+// staying allocation- and dependency-free. qg still receives the exact count
 // back as usage on every request; this estimate is only for the pre-request
 // context budget preview and the compaction threshold.
 func ApproxTextTokens(value string) int {
@@ -121,7 +121,7 @@ func ApproxTextTokens(value string) int {
 // across message content plus tool call names/arguments and a flat per-image
 // cost. It deliberately uses no real tokenizer; it only needs to be monotonic
 // and roughly proportional so the loop can decide when to compact.
-func estimateTokens(messages []zeroruntime.Message) int {
+func estimateTokens(messages []qgruntime.Message) int {
 	total := 0
 	for _, message := range messages {
 		total += ApproxTextTokens(message.Content)
@@ -141,7 +141,7 @@ func estimateTokens(messages []zeroruntime.Message) int {
 // must include them: they ride on every turn, so ignoring them under-counts the
 // real context and can let it blow past the model limit while the message-only
 // estimate still looks under threshold.
-func estimateToolDefTokens(tools []zeroruntime.ToolDefinition) int {
+func estimateToolDefTokens(tools []qgruntime.ToolDefinition) int {
 	total := 0
 	for _, tool := range tools {
 		total += ApproxTextTokens(tool.Name)
@@ -188,7 +188,7 @@ func compactionThreshold(contextWindow int) int {
 //
 // Compact is pure: it performs no provider I/O. A Summarize error is returned to
 // the caller, which decides how to recover.
-func Compact(messages []zeroruntime.Message, opts CompactionOptions) ([]zeroruntime.Message, error) {
+func Compact(messages []qgruntime.Message, opts CompactionOptions) ([]qgruntime.Message, error) {
 	result, err := CompactMessages(messages, opts)
 	if err != nil {
 		return nil, err
@@ -199,7 +199,7 @@ func Compact(messages []zeroruntime.Message, opts CompactionOptions) ([]zerorunt
 // CompactMessages summarizes the oldest middle of a conversation and returns
 // both the replacement messages and UI/session-friendly metadata about what
 // changed. It uses the same compaction rules as Compact.
-func CompactMessages(messages []zeroruntime.Message, opts CompactionOptions) (CompactionResult, error) {
+func CompactMessages(messages []qgruntime.Message, opts CompactionOptions) (CompactionResult, error) {
 	preserveLast := opts.PreserveLast
 	if preserveLast <= 0 {
 		preserveLast = defaultCompactionPreserveLast
@@ -210,7 +210,7 @@ func CompactMessages(messages []zeroruntime.Message, opts CompactionOptions) (Co
 
 	// Leading system messages are kept verbatim at the head.
 	systemEnd := 0
-	for systemEnd < len(messages) && messages[systemEnd].Role == zeroruntime.MessageRoleSystem {
+	for systemEnd < len(messages) && messages[systemEnd].Role == qgruntime.MessageRoleSystem {
 		systemEnd++
 	}
 
@@ -241,10 +241,10 @@ func CompactMessages(messages []zeroruntime.Message, opts CompactionOptions) (Co
 	// middle verbatim, so it is not lost or paraphrased away by the prose summary.
 	content := appendPreservedState(summaryLabel+"\n"+summary, middle, opts.taskState)
 
-	compacted := make([]zeroruntime.Message, 0, systemEnd+1+(len(messages)-boundary))
+	compacted := make([]qgruntime.Message, 0, systemEnd+1+(len(messages)-boundary))
 	compacted = append(compacted, messages[:systemEnd]...)
-	compacted = append(compacted, zeroruntime.Message{
-		Role:    zeroruntime.MessageRoleUser,
+	compacted = append(compacted, qgruntime.Message{
+		Role:    qgruntime.MessageRoleUser,
 		Content: content,
 	})
 	compacted = append(compacted, messages[boundary:]...)
@@ -269,7 +269,7 @@ type CompactionSummaryResult struct {
 // SummarizeCompactionMessages applies the shared semantic projection before
 // invoking a caller-supplied summarizer. Automatic context-pressure compaction
 // and manual session compaction both use this path.
-func SummarizeCompactionMessages(messages []zeroruntime.Message, summarize func([]zeroruntime.Message) (string, error)) (CompactionSummaryResult, error) {
+func SummarizeCompactionMessages(messages []qgruntime.Message, summarize func([]qgruntime.Message) (string, error)) (CompactionSummaryResult, error) {
 	if summarize == nil {
 		return CompactionSummaryResult{}, errors.New("compaction requires a Summarize function")
 	}
@@ -289,7 +289,7 @@ func SummarizeCompactionMessages(messages []zeroruntime.Message, summarize func(
 	}, nil
 }
 
-func compactionMessageChars(messages []zeroruntime.Message) int {
+func compactionMessageChars(messages []qgruntime.Message) int {
 	total := 0
 	for _, message := range messages {
 		total += len(message.Content)
@@ -306,14 +306,14 @@ func compactionMessageChars(messages []zeroruntime.Message) int {
 // is rejected by provider APIs, so the boundary must land on a safe turn start.
 // It never moves the boundary forward (the suffix only grows), and never crosses
 // systemEnd.
-func safeSuffixBoundary(messages []zeroruntime.Message, systemEnd int, boundary int) int {
+func safeSuffixBoundary(messages []qgruntime.Message, systemEnd int, boundary int) int {
 	// Walk back so the preserved suffix begins with an assistant message. The
 	// summary is injected as a user-role message, so a user- or tool-led suffix
 	// would create consecutive same-role turns that strict providers (Anthropic)
 	// reject. Stopping on an assistant keeps user/assistant alternation valid;
 	// if no assistant exists above systemEnd, boundary lands at systemEnd and the
 	// middle is empty, so Compact no-ops (no summary is injected).
-	for boundary > systemEnd && messages[boundary].Role != zeroruntime.MessageRoleAssistant {
+	for boundary > systemEnd && messages[boundary].Role != qgruntime.MessageRoleAssistant {
 		boundary--
 	}
 	return boundary
@@ -396,7 +396,7 @@ type compactionState struct {
 	// real prompt-token count. ApproxTextTokens over-counts code-heavy content by
 	// ~15-20%, which would trip compaction early (at ~60% of true capacity). It
 	// starts at 1.0 and converges via an EMA as each turn reports actual usage, so
-	// later turns compact nearer to real capacity. Zero is treated as 1.0.
+	// later turns compact nearer to real capacity. QG is treated as 1.0.
 	calibrationRatio float64
 
 	// summarizerFactory lazily builds the dedicated (cheap) summarizer provider
@@ -542,9 +542,9 @@ func (state *compactionState) fitsWindow(size int) bool {
 func (state *compactionState) maybeCompact(
 	ctx context.Context,
 	provider Provider,
-	messages []zeroruntime.Message,
-	tools []zeroruntime.ToolDefinition,
-) []zeroruntime.Message {
+	messages []qgruntime.Message,
+	tools []qgruntime.ToolDefinition,
+) []qgruntime.Message {
 	if !state.enabled {
 		return messages
 	}
@@ -563,7 +563,7 @@ func (state *compactionState) maybeCompact(
 		return messages
 	}
 
-	// CHEAP FIRST STAGE: reclaim context at zero token/latency cost by pruning
+	// CHEAP FIRST STAGE: reclaim context at qg token/latency cost by pruning
 	// the bodies of old, large tool results (the model has already acted on
 	// them). If that brings us back under threshold, skip the paid summarizer
 	// entirely and preserve recent turns verbatim.
@@ -619,10 +619,10 @@ func (state *compactionState) maybeCompact(
 func (state *compactionState) recover(
 	ctx context.Context,
 	provider Provider,
-	messages []zeroruntime.Message,
-	tools []zeroruntime.ToolDefinition,
+	messages []qgruntime.Message,
+	tools []qgruntime.ToolDefinition,
 	errorMessage string,
-) (compacted []zeroruntime.Message, retried bool, err error) {
+) (compacted []qgruntime.Message, retried bool, err error) {
 	if !state.enabled {
 		// Compaction disabled (ContextWindow==0): stay a strict no-op so a
 		// context-limit error never triggers an unexpected summarization call.
@@ -699,11 +699,11 @@ func (state *compactionState) recover(
 // call fails the summarizer is marked broken for the current model and the
 // same slice is retried once on the main provider, so the caller sees at most
 // one (main-provider-quality) error.
-func (state *compactionState) summarizeClosure(ctx context.Context, provider Provider) func([]zeroruntime.Message) (string, error) {
+func (state *compactionState) summarizeClosure(ctx context.Context, provider Provider) func([]qgruntime.Message) (string, error) {
 	if state.planner == nil {
 		state.planner = newContextPlanner(contextPlannerConfig{})
 	}
-	return func(toSummarize []zeroruntime.Message) (string, error) {
+	return func(toSummarize []qgruntime.Message) (string, error) {
 		chosen, dedicated := state.summarizeProvider(ctx, provider)
 		summary, err := summarizeWithPlanner(ctx, chosen, toSummarize, state.onUsage, state.planner, state.trace)
 		if err == nil || !dedicated {
@@ -721,11 +721,11 @@ func (state *compactionState) summarizeClosure(ctx context.Context, provider Pro
 // working when the elided middle is bigger than the summarizer's own context.
 // Non-context-limit errors (and a single message that still won't fit) surface
 // to the caller unchanged.
-func summarizeWithFallback(ctx context.Context, provider Provider, messages []zeroruntime.Message, onUsage func(Usage)) (string, error) {
+func summarizeWithFallback(ctx context.Context, provider Provider, messages []qgruntime.Message, onUsage func(Usage)) (string, error) {
 	return summarizeWithPlanner(ctx, provider, messages, onUsage, newContextPlanner(contextPlannerConfig{}), nil)
 }
 
-func summarizeWithPlanner(ctx context.Context, provider Provider, messages []zeroruntime.Message, onUsage func(Usage), planner *contextPlanner, recorder *trace.Recorder) (string, error) {
+func summarizeWithPlanner(ctx context.Context, provider Provider, messages []qgruntime.Message, onUsage func(Usage), planner *contextPlanner, recorder *trace.Recorder) (string, error) {
 	summary, err := summarizeMessagesOnce(ctx, provider, messages, onUsage, planner, recorder)
 	if err == nil {
 		return summary, nil
@@ -750,8 +750,8 @@ func summarizeWithPlanner(ctx context.Context, provider Provider, messages []zer
 	// on. If even the combined partials don't fit (extreme), fall back to the
 	// joined text: still better than failing, and each half is already compacted.
 	combined := strings.TrimSpace(left + "\n\n" + right)
-	reduced, reduceErr := summarizeMessagesOnce(ctx, provider, []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleUser, Content: combined},
+	reduced, reduceErr := summarizeMessagesOnce(ctx, provider, []qgruntime.Message{
+		{Role: qgruntime.MessageRoleUser, Content: combined},
 	}, onUsage, planner, recorder)
 	if reduceErr != nil {
 		if isContextLimitError(reduceErr.Error()) {
@@ -768,10 +768,10 @@ func summarizeWithPlanner(ctx context.Context, provider Provider, messages []zer
 }
 
 // summarizeMessagesOnce performs a single tool-less summarization call.
-func summarizeMessagesOnce(ctx context.Context, provider Provider, messages []zeroruntime.Message, onUsage func(Usage), planner *contextPlanner, recorder *trace.Recorder) (string, error) {
-	requestMessages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: CompactionSummaryInstructions},
-		{Role: zeroruntime.MessageRoleUser, Content: "Summarize this conversation:\n\n" + renderTranscript(messages)},
+func summarizeMessagesOnce(ctx context.Context, provider Provider, messages []qgruntime.Message, onUsage func(Usage), planner *contextPlanner, recorder *trace.Recorder) (string, error) {
+	requestMessages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: CompactionSummaryInstructions},
+		{Role: qgruntime.MessageRoleUser, Content: "Summarize this conversation:\n\n" + renderTranscript(messages)},
 	}
 	parts := systemPromptParts{prompt: CompactionSummaryInstructions, baseInstructions: CompactionSummaryInstructions}
 	plan := planner.planWithPromptParts(requestMessages, nil, "", parts)
@@ -782,7 +782,7 @@ func summarizeMessagesOnce(ctx context.Context, provider Provider, messages []ze
 	}
 	// Forward OnUsage (token accounting) but not OnText (keep compaction invisible
 	// to the user); a nil onUsage is a no-op.
-	collected := zeroruntime.CollectStreamWithOptions(ctx, stream, zeroruntime.CollectOptions{OnUsage: onUsage})
+	collected := qgruntime.CollectStreamWithOptions(ctx, stream, qgruntime.CollectOptions{OnUsage: onUsage})
 	if collected.Error != "" {
 		return "", errors.New(collected.Error)
 	}
@@ -828,11 +828,11 @@ func clampForSummary(text string, max int) string {
 // summarizer. Secret scrubbing already happened upstream at the tool boundary.
 // Tool-result bodies and tool-call arguments are clamped (see the constants
 // above): the summary needs what was done and decided, not the raw payloads.
-func renderTranscript(messages []zeroruntime.Message) string {
+func renderTranscript(messages []qgruntime.Message) string {
 	lines := make([]string, 0, len(messages))
 	for _, message := range messages {
 		switch message.Role {
-		case zeroruntime.MessageRoleAssistant:
+		case qgruntime.MessageRoleAssistant:
 			line := "assistant: " + message.Content
 			if len(message.ToolCalls) > 0 {
 				calls := make([]string, 0, len(message.ToolCalls))
@@ -842,7 +842,7 @@ func renderTranscript(messages []zeroruntime.Message) string {
 				line += "\n[tool calls: " + strings.Join(calls, "; ") + "]"
 			}
 			lines = append(lines, line)
-		case zeroruntime.MessageRoleTool:
+		case qgruntime.MessageRoleTool:
 			lines = append(lines, "tool result: "+clampForSummary(message.Content, summaryToolResultClamp))
 		default:
 			lines = append(lines, string(message.Role)+": "+message.Content)

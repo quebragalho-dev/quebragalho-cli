@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 func TestParseModelsDevProviderScopesAndMapsMetadata(t *testing.T) {

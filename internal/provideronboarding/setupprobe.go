@@ -3,7 +3,7 @@ package provideronboarding
 import (
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/providerhealth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 )
 
 // SetupProbeClass is the stable, machine-readable class of a first-run probe

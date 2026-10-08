@@ -2,7 +2,7 @@ package acp
 
 import "encoding/json"
 
-// ProtocolVersion is the ACP protocol version ZERO speaks. Wire compatibility is
+// ProtocolVersion is the ACP protocol version QG speaks. Wire compatibility is
 // negotiated during initialize; v1 is the current stable version.
 const ProtocolVersion = 1
 
@@ -23,9 +23,9 @@ const (
 	MethodFSReadTextFile         = "fs/read_text_file"          // agent -> client
 	MethodFSWriteTextFile        = "fs/write_text_file"         // agent -> client
 
-	// Vendor-prefixed ZERO extensions (clients that don't support them ignore the
+	// Vendor-prefixed QG extensions (clients that don't support them ignore the
 	// method and degrade cleanly, per the spec's _-prefixed convention).
-	MethodZeroSetModel = "_zero/set_model"
+	MethodQGSetModel = "_qg/set_model"
 )
 
 // SessionUpdate discriminator values (the "sessionUpdate" field).
@@ -97,10 +97,10 @@ type InitializeResult struct {
 
 // ---- content blocks ----
 
-// ContentBlock is the polymorphic content type. ZERO emits "text" (and "image"
+// ContentBlock is the polymorphic content type. QG emits "text" (and "image"
 // on tool content); it parses "text", "image", and "resource"/"resource_link"
 // from inbound prompts. A single struct with omitempty fields covers both
-// directions since the field names do not collide across the variants ZERO uses.
+// directions since the field names do not collide across the variants QG uses.
 type ContentBlock struct {
 	Type     string          `json:"type"`
 	Text     string          `json:"text,omitempty"`
@@ -115,8 +115,8 @@ func TextBlock(text string) ContentBlock { return ContentBlock{Type: "text", Tex
 
 // ---- sessions ----
 
-// McpServer mirrors the editor-provided MCP server entry. ZERO owns its own MCP
-// configuration (BYOK), so these are accepted for spec compliance; ZERO's
+// McpServer mirrors the editor-provided MCP server entry. QG owns its own MCP
+// configuration (BYOK), so these are accepted for spec compliance; QG's
 // configured servers remain authoritative.
 type McpServer struct {
 	Name    string          `json:"name"`
@@ -259,14 +259,14 @@ type ToolCallUpdate struct {
 	RawInput      json.RawMessage    `json:"rawInput,omitempty"`
 	Content       []ToolCallContent  `json:"content,omitempty"`
 	Locations     []ToolCallLocation `json:"locations,omitempty"`
-	// Meta is ACP's extension channel. ZERO-owned values must remain beneath a
+	// Meta is ACP's extension channel. QG-owned values must remain beneath a
 	// namespaced key so protocol-shaped clients can preserve them while decoding
 	// and re-encoding a tool call.
 	Meta map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 
 // BrowserToolDetails identifies the browser helper operation behind a tool
-// call. Version is the schema version for this optional ZERO extension;
+// call. Version is the schema version for this optional QG extension;
 // Command is one of install, launch, connect, open, snapshot, click, type,
 // press, or action. Future fields must remain display-safe and must not
 // include browser profile data, cookies, typed text, URL paths/queries, or
@@ -276,9 +276,9 @@ type BrowserToolDetails struct {
 	Command string `json:"command"`
 }
 
-// ToolCallContent is a tool call's rendered output. ZERO emits "content" (a
+// ToolCallContent is a tool call's rendered output. QG emits "content" (a
 // text/image block) and "diff" (a file change); "terminal" is part of the spec
-// but unused because ZERO executes locally.
+// but unused because QG executes locally.
 type ToolCallContent struct {
 	Type string `json:"type"`
 	// type == "content"
@@ -442,14 +442,14 @@ type SetSessionConfigOptionResult struct {
 	ConfigOptions []SessionConfigOption `json:"configOptions"`
 }
 
-// ---- vendor: _zero/set_model ----
+// ---- vendor: _qg/set_model ----
 
-type ZeroSetModelParams struct {
+type QGSetModelParams struct {
 	SessionID string `json:"sessionId"`
 	Model     string `json:"model"`
 }
 
-type ZeroSetModelResult struct {
+type QGSetModelResult struct {
 	Model string `json:"model"`
 }
 

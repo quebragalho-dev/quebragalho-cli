@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // promptShellTool is a minimal shell-style tool whose Safety requires a prompt,

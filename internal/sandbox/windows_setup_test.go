@@ -42,8 +42,8 @@ func TestBuildAndParseWindowsSandboxSetupArgs(t *testing.T) {
 }
 
 func TestWindowsSandboxSetupPathForRunner(t *testing.T) {
-	got := WindowsSandboxSetupPathForRunner(filepath.Join("C:", "zero", WindowsSandboxCommandRunnerName))
-	want := filepath.Join("C:", "zero", WindowsSandboxSetupName)
+	got := WindowsSandboxSetupPathForRunner(filepath.Join("C:", "qg", WindowsSandboxCommandRunnerName))
+	want := filepath.Join("C:", "qg", WindowsSandboxSetupName)
 	if got != want {
 		t.Fatalf("WindowsSandboxSetupPathForRunner = %q, want %q", got, want)
 	}
@@ -200,7 +200,7 @@ func TestWindowsSandboxSetupConfigFromCommandPreservesProfileInputs(t *testing.T
 			},
 			Network: NetworkPolicy{Mode: NetworkDeny},
 		},
-		Env:     map[string]string{"ZERO_SANDBOXED": "1"},
+		Env:     map[string]string{"QG_SANDBOXED": "1"},
 		Command: []string{"cmd.exe", "/c", "dir"},
 	}
 	setup := WindowsSandboxSetupConfigFromCommand(command)

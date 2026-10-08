@@ -156,7 +156,7 @@ func TestSetupActionOmitsUnsafeCommands(t *testing.T) {
 				t.Fatal("discovered model must not be silently changed")
 			}
 			action := runtime.SetupAction()
-			if action.Command != "" || !strings.Contains(action.Detail, "zero setup") {
+			if action.Command != "" || !strings.Contains(action.Detail, "qg setup") {
 				t.Fatalf("unsafe command must be replaced with interactive guidance: %#v", action)
 			}
 		})
@@ -217,7 +217,7 @@ func TestSetupActionOmitsKnownNonChatOnlyModels(t *testing.T) {
 		for _, defaultModel := range []string{"local-model", "text-embedding-local"} {
 			detected := DetectedLocalRuntime{LocalRuntime: LocalRuntime{CatalogID: provider, DefaultModel: defaultModel}, Models: []string{"text-embedding-local", "whisper-1"}}
 			action := detected.SetupAction()
-			if detected.AdoptModel() != "" || action.Command != "" || !strings.Contains(action.Detail, "zero providers detect") {
+			if detected.AdoptModel() != "" || action.Command != "" || !strings.Contains(action.Detail, "qg providers detect") {
 				t.Fatalf("%s must offer guidance without adopting non-chat models: %+v", provider, action)
 			}
 		}
@@ -270,7 +270,7 @@ func TestLocalRuntimeActionOffersNoKeySetup(t *testing.T) {
 	}, Reachable: true}
 
 	action := runtime.SetupAction()
-	if !strings.Contains(action.Command, "zero providers add ollama") {
+	if !strings.Contains(action.Command, "qg providers add ollama") {
 		t.Fatalf("setup command should add the ollama provider, got %q", action.Command)
 	}
 	if strings.Contains(action.Command, "--api-key-env") {

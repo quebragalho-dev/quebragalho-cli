@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/testrunner"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testrunner"
 )
 
 func TestSnapshotFromReportRedactsLogsAndBuildsEvents(t *testing.T) {

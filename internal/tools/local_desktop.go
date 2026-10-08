@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/localcontrol"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
 )
 
 func NewLocalDesktopTools(options localcontrol.DesktopOptions) []Tool {

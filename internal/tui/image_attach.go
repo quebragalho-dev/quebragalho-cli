@@ -12,10 +12,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/imageinput"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/terminalpet"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 	_ "golang.org/x/image/webp"
 )
 
@@ -153,7 +153,7 @@ func (m model) attachClipboardImage(data []byte, mediaType string) model {
 	if len(data) > imageinput.MaxImageBytes {
 		return m.appendImageNotice("Clipboard image is larger than the 10 MiB limit.")
 	}
-	m.pendingImages = append(m.pendingImages, zeroruntime.ImageBlock{
+	m.pendingImages = append(m.pendingImages, qgruntime.ImageBlock{
 		MediaType: mediaType,
 		Data:      data,
 	})
@@ -315,7 +315,7 @@ func (m *model) refreshPendingImageThumbnail() {
 	}
 }
 
-func attachmentThumbnail(block zeroruntime.ImageBlock) (*terminalpet.Animation, error) {
+func attachmentThumbnail(block qgruntime.ImageBlock) (*terminalpet.Animation, error) {
 	config, _, err := image.DecodeConfig(bytes.NewReader(block.Data))
 	if err != nil {
 		return nil, err

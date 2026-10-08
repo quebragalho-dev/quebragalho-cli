@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/zero-logo.png" alt="Zero" width="385">
+  <img src="docs/assets/qg-logo.png" alt="QG" width="385">
 </p>
 
 <p align="center"><strong>A terminal coding agent you own.</strong></p>
@@ -13,31 +13,31 @@
   <strong>English</strong> | <a href="README_ZH.md">中文</a>
 </p>
 
-Zero is an AI coding agent for your local terminal. It can inspect a repository,
+QG is an AI coding agent for your local terminal. It can inspect a repository,
 edit files, run commands, use browser/terminal helpers, and keep durable local
 sessions while you choose the model and the permission level.
 
 ```bash
-zero
-zero exec "fix the failing test in ./pkg"
-zero exec --output-format stream-json < turns.jsonl
+qg
+qg exec "fix the failing test in ./pkg"
+qg exec --output-format stream-json < turns.jsonl
 ```
 
-## Why Zero
+## Why QG
 
 - **Use the model you want.** Bring OpenAI, Anthropic, Gemini, Groq, OpenRouter,
   DeepSeek, Mistral, xAI, Qwen, Kimi, GitHub Models, Ollama, LM Studio, Atomic Chat, or any
   OpenAI-/Anthropic-compatible endpoint.
 - **Stay in control.** File writes, shell commands, network access, and
-  out-of-workspace writes go through Zero's permission and sandbox policy.
+  out-of-workspace writes go through QG's permission and sandbox policy.
 - **Works in the terminal.** The TUI has model/provider pickers, image input,
   slash commands, live plan/tool rendering, scrollback, themes, and resume/fork
   support.
-- **Works without the TUI.** `zero exec` is scriptable, supports text/JSON/
+- **Works without the TUI.** `qg exec` is scriptable, supports text/JSON/
   stream-JSON I/O, isolated worktrees, spec-first runs, and meaningful exit
   codes for CI.
 - **Keeps context local.** Sessions are stored on disk, searchable, resumable,
-  and never uploaded as telemetry by Zero.
+  and never uploaded as telemetry by QG.
 - **Extensible when you need it.** Use MCP servers, skills, plugins, hooks, and
   specialist subagents from the same CLI.
 
@@ -46,8 +46,8 @@ zero exec --output-format stream-json < turns.jsonl
 ### npm
 
 ```bash
-npm install -g @gitlawb/zero
-zero
+npm install -g @quebragalho-dev/qg
+qg
 ```
 
 The npm package is a small wrapper whose platform build (Linux and macOS on
@@ -65,13 +65,13 @@ how the package is put together.
 Linux/macOS:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Gitlawb/zero/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | bash
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/Gitlawb/zero/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 | iex
 ```
 
 ### From source
@@ -79,28 +79,28 @@ irm https://raw.githubusercontent.com/Gitlawb/zero/main/scripts/install.ps1 | ie
 Source builds require Go 1.26.6+.
 
 ```bash
-git clone https://github.com/Gitlawb/zero.git
-cd zero
-go run ./cmd/zero
+git clone https://github.com/quebragalho-dev/quebragalho-cli.git
+cd qg
+go run ./cmd/qg
 ```
 
 Release installers and the npm wrapper require published GitHub Release assets.
 If you are testing before the first public release, build from source:
 
 ```bash
-go build -o zero ./cmd/zero
+go build -o qg ./cmd/qg
 ```
 
 On Linux, build the sandbox helper too if you want native sandboxing:
 
 ```bash
-go build -o zero-linux-sandbox ./cmd/zero-linux-sandbox
-go build -o zero-seccomp ./cmd/zero-seccomp   # optional compatibility wrapper
+go build -o qg-linux-sandbox ./cmd/qg-linux-sandbox
+go build -o qg-seccomp ./cmd/qg-seccomp   # optional compatibility wrapper
 ```
 
-Put `zero` and `zero-linux-sandbox` in the same directory on `PATH`
+Put `qg` and `qg-linux-sandbox` in the same directory on `PATH`
 (`~/.local/bin` is a good default). macOS does not need an extra helper binary.
-Windows source builds can use the main `zero.exe` as their sandbox helper; release
+Windows source builds can use the main `qg.exe` as their sandbox helper; release
 archives still ship standalone Windows helper executables.
 
 More install details: [docs/INSTALL.md](docs/INSTALL.md).
@@ -110,17 +110,17 @@ More install details: [docs/INSTALL.md](docs/INSTALL.md).
 Start the TUI:
 
 ```bash
-zero
+qg
 ```
 
 The setup wizard helps you pick a provider and model. You can also configure
 providers from the command line:
 
 ```bash
-zero setup
-zero providers list
-zero models list
-zero doctor
+qg setup
+qg providers list
+qg models list
+qg doctor
 ```
 
 For API providers, set the matching environment variable before setup or enter
@@ -140,41 +140,41 @@ export MINIMAXI_API_KEY=...
 To configure AI/ML API directly, run:
 
 ```bash
-zero providers setup aimlapi --set-active
+qg providers setup aimlapi --set-active
 ```
 
 To configure Meituan LongCat (LongCat-2.0) directly, run:
 
 ```bash
-zero providers setup longcat --set-active
+qg providers setup longcat --set-active
 ```
 
 To configure Fireworks AI directly, run:
 
 ```bash
-zero providers setup fireworks --set-active
+qg providers setup fireworks --set-active
 ```
 
 MiniMax presets use the Anthropic-compatible endpoints for the global and China
 regions:
 
 ```bash
-zero providers add minimax --set-active
-zero providers add minimaxi-cn --set-active
+qg providers add minimax --set-active
+qg providers add minimaxi-cn --set-active
 ```
 
 To use the OpenAI-compatible endpoints instead, add a custom compatible profile
 for the required region:
 
 ```bash
-zero providers add custom-openai-compatible \
+qg providers add custom-openai-compatible \
   --name minimax-openai \
   --model MiniMax-M3 \
   --base-url https://api.minimax.io/v1 \
   --api-key-env MINIMAX_API_KEY \
   --set-active
 
-zero providers add custom-openai-compatible \
+qg providers add custom-openai-compatible \
   --name minimax-cn-openai \
   --model MiniMax-M3 \
   --base-url https://api.minimaxi.com/v1 \
@@ -183,7 +183,7 @@ zero providers add custom-openai-compatible \
 ```
 
 For local models, run Ollama, LM Studio, or the [Atomic Chat](https://atomic.chat)
-desktop app, then use `zero setup` or `zero providers detect`. For Atomic Chat,
+desktop app, then use `qg setup` or `qg providers detect`. For Atomic Chat,
 load a model and enable its local OpenAI-compatible API (default
 `http://127.0.0.1:1337/v1`). Choose `atomic-chat-local`; detection includes the
 loaded model ID in the add command. If no usable ID is discovered, load a model
@@ -194,7 +194,7 @@ and retry. Model IDs requiring shell-specific quoting use interactive setup.
 ### Interactive TUI
 
 ```bash
-zero
+qg
 ```
 
 Useful controls:
@@ -228,18 +228,18 @@ Common slash commands:
 ### Headless `exec`
 
 ```bash
-zero exec "explain internal/agent/loop.go"
-zero exec --model claude-sonnet-4.5 "refactor the config loader"
-zero exec --use-spec "add rate limiting to the API client"
-zero exec --worktree "try the migration in an isolated worktree"
-zero exec --resume
-zero exec --fork <session-id> "try the other approach"
+qg exec "explain internal/agent/loop.go"
+qg exec --model claude-sonnet-4.5 "refactor the config loader"
+qg exec --use-spec "add rate limiting to the API client"
+qg exec --worktree "try the migration in an isolated worktree"
+qg exec --resume
+qg exec --fork <session-id> "try the other approach"
 ```
 
 Programmatic use:
 
 ```bash
-zero exec --input-format stream-json --output-format stream-json < turns.jsonl
+qg exec --input-format stream-json --output-format stream-json < turns.jsonl
 ```
 
 The stream-JSON contract is documented in
@@ -247,7 +247,7 @@ The stream-JSON contract is documented in
 
 ## Safety Model
 
-Zero is designed to make side effects visible.
+QG is designed to make side effects visible.
 
 - Workspace reads are allowed by default.
 - File writes are limited to the workspace unless you grant another directory.
@@ -256,25 +256,25 @@ Zero is designed to make side effects visible.
 - `--add-dir <path>` and `/add-dir <path>` grant additional write roots without
   giving the agent the whole filesystem.
 - Unsafe/autonomous modes are explicit opt-ins.
-- Secrets are redacted from tool output and logs where Zero controls the surface.
+- Secrets are redacted from tool output and logs where QG controls the surface.
 
 Example:
 
 ```bash
-zero --add-dir ../docs-site
-zero exec --add-dir ../shared "update both repos"
+qg --add-dir ../docs-site
+qg exec --add-dir ../shared "update both repos"
 ```
 
 Sandbox behavior can be inspected with:
 
 ```bash
-zero sandbox policy
-zero sandbox grants list
+qg sandbox policy
+qg sandbox grants list
 ```
 
 ## Web And Local Control
 
-Zero includes local file/search/edit/shell tools, `web_fetch` for public URLs,
+QG includes local file/search/edit/shell tools, `web_fetch` for public URLs,
 and MCP support for additional tools.
 
 `web_fetch` refuses loopback, private and other special-use addresses: it checks
@@ -297,61 +297,61 @@ TUI.
 
 The npm package also includes browser and terminal helper packages used by local
 browser/terminal tools. Source builds can use the same helpers when they are on
-`PATH` or configured in Zero's local-control settings.
+`PATH` or configured in QG's local-control settings.
 
 ## Common Commands
 
 ```text
-zero                  interactive TUI
-zero exec             one-shot or scripted agent run
-zero setup            first-run provider setup
-zero auth             OAuth/login helpers for supported providers
-zero models           model registry and capabilities
-zero providers        provider profiles and detection
-zero doctor           setup, key, and connectivity checks
-zero context          context-budget report
-zero repo-map         deterministic repository map
-zero repo-info        local repository summary
-zero search | find    search local session history
-zero sessions         inspect, resume, fork, and rewind sessions
-zero spec             manage spec-mode drafts
-zero specialist       manage specialist subagents
-zero skills           manage markdown instruction skills
-zero plugins          manage plugins
-zero hooks            manage lifecycle hooks
-zero mcp              manage MCP servers and tools
-zero serve --mcp      expose Zero tools over MCP stdio
-zero sandbox          inspect sandbox policy and grants
-zero worktrees        prepare isolated git worktrees
-zero verify           detect and run local verification checks
-zero changes          inspect and commit local git changes
-zero usage            token usage and estimated cost
-zero cron             scheduled agent jobs
-zero update --check   check for newer releases
-zero upgrade          download, verify, and install the latest release
+qg                  interactive TUI
+qg exec             one-shot or scripted agent run
+qg setup            first-run provider setup
+qg auth             OAuth/login helpers for supported providers
+qg models           model registry and capabilities
+qg providers        provider profiles and detection
+qg doctor           setup, key, and connectivity checks
+qg context          context-budget report
+qg repo-map         deterministic repository map
+qg repo-info        local repository summary
+qg search | find    search local session history
+qg sessions         inspect, resume, fork, and rewind sessions
+qg spec             manage spec-mode drafts
+qg specialist       manage specialist subagents
+qg skills           manage markdown instruction skills
+qg plugins          manage plugins
+qg hooks            manage lifecycle hooks
+qg mcp              manage MCP servers and tools
+qg serve --mcp      expose QG tools over MCP stdio
+qg sandbox          inspect sandbox policy and grants
+qg worktrees        prepare isolated git worktrees
+qg verify           detect and run local verification checks
+qg changes          inspect and commit local git changes
+qg usage            token usage and estimated cost
+qg cron             scheduled agent jobs
+qg update --check   check for newer releases
+qg upgrade          download, verify, and install the latest release
 ```
 
-## Extending Zero
+## Extending QG
 
 ### Project and personal instructions
 
-Zero appends project-specific guidance to the system prompt from the first
-`AGENTS.md`, `ZERO.md`, or `.zero/AGENTS.md` file found in each directory from
+QG appends project-specific guidance to the system prompt from the first
+`AGENTS.md`, `QG.md`, or `.qg/AGENTS.md` file found in each directory from
 the git root down to your current working directory (checked in that order
 per directory). Files are injected general-to-specific, capped at 8 KiB per
 file and 32 KiB total.
 
-A personal `ZERO.md` under `config.UserConfigDir()/zero/ZERO.md`
-(`$XDG_CONFIG_HOME/zero/ZERO.md` or `~/.config/zero/ZERO.md` on Linux/macOS,
-`%AppData%\Roaming\zero\ZERO.md` on Windows) applies across every workspace, ahead of any project guidelines.
+A personal `QG.md` under `config.UserConfigDir()/qg/QG.md`
+(`$XDG_CONFIG_HOME/qg/QG.md` or `~/.config/qg/QG.md` on Linux/macOS,
+`%AppData%\Roaming\qg\QG.md` on Windows) applies across every workspace, ahead of any project guidelines.
 
 ### Plugins
 
-Plugins are discovered from `~/.config/zero/plugins/<name>/plugin.json` (user
+Plugins are discovered from `~/.config/qg/plugins/<name>/plugin.json` (user
 scope — `$XDG_CONFIG_HOME` or `~/.config` on every OS, independent of the
-`config.UserConfigDir()` path used above) and `<cwd>/.zero/plugins/<name>/plugin.json`
+`config.UserConfigDir()` path used above) and `<cwd>/.qg/plugins/<name>/plugin.json`
 (project scope — resolved from the current working directory, not the repo
-root), and managed with `zero plugins`. A manifest can declare:
+root), and managed with `qg plugins`. A manifest can declare:
 
 - `tools` — custom tools (`command`, `args`, `inputSchema`, and a
   `permission` of `prompt` or `deny`; `allow` is honored only when manifest tool
@@ -360,7 +360,7 @@ root), and managed with `zero plugins`. A manifest can declare:
   `sessionEnd`
 - `prompts` and `skills` — additional prompt/skill files
 
-MCP servers (`zero mcp`) and standalone markdown skills (`zero skills`) use
+MCP servers (`qg mcp`) and standalone markdown skills (`qg skills`) use
 the same extension points and can also be wired up outside of a plugin
 manifest.
 
@@ -369,10 +369,10 @@ manifest.
 | Control | Effect |
 |---|---|
 | `NO_COLOR=<anything>` | disables color output |
-| `ZERO_THEME=<name>` | selects the startup theme (`auto`, `dark`, `light`, or a color theme like `dracula`, `nord`, `gruvbox`, `tokyo-night`, `catppuccin`, `one-dark`, `solarized-dark`, `rose-pine`, `everforest`, `neon`, `solarized-light`, `dune`) |
+| `QG_THEME=<name>` | selects the startup theme (`auto`, `dark`, `light`, or a color theme like `dracula`, `nord`, `gruvbox`, `tokyo-night`, `catppuccin`, `one-dark`, `solarized-dark`, `rose-pine`, `everforest`, `neon`, `solarized-light`, `dune`) |
 | `--theme <name>` | selects the TUI theme from the CLI (same names) |
 | `/theme` | opens the theme picker inside the TUI (live preview; `/theme <name>` switches directly) |
-| `ZERO_NO_FADE=1` | disables streaming fade animation |
+| `QG_NO_FADE=1` | disables streaming fade animation |
 
 Meaning does not rely on color alone; diffs, permissions, and statuses also use
 text or glyph markers.
@@ -381,19 +381,19 @@ text or glyph markers.
 
 ```bash
 go test ./...
-go run ./cmd/zero-release build
-go run ./cmd/zero-release smoke
-go run ./cmd/zero-perf-bench
+go run ./cmd/qg-release build
+go run ./cmd/qg-release smoke
+go run ./cmd/qg-perf-bench
 ```
 
-Experimental: `ZERO_OPENAI_TURN_SESSION=1` enables the optimized OpenAI turn
+Experimental: `QG_OPENAI_TURN_SESSION=1` enables the optimized OpenAI turn
 session (background connection prewarm + request-prefix telemetry) for headless
-`zero exec` runs against official OpenAI profiles. Off by default; `0`, `false`,
-or `off` disable it. A/B-benchmark it by running the same `zero-perf-bench` suite
+`qg exec` runs against official OpenAI profiles. Off by default; `0`, `false`,
+or `off` disable it. A/B-benchmark it by running the same `qg-perf-bench` suite
 with the variable unset and set.
 
 Native ChatGPT Responses sessions are enabled by default. Set
-`ZERO_CHATGPT_TURN_SESSION=0`, `false`, or `off` to restore stateless HTTP/SSE
+`QG_CHATGPT_TURN_SESSION=0`, `false`, or `off` to restore stateless HTTP/SSE
 transport.
 
 ### Code Quality and Security Checks
@@ -421,8 +421,8 @@ case ":$PATH:" in *":$gobin:"*) ;; *) export PATH="$PATH:$gobin" ;; esac
 ### Cross-Compile Examples
 
 ```bash
-go run ./cmd/zero-release build --goos linux --goarch amd64
-go run ./cmd/zero-release build --goos windows --goarch amd64 --output dist/zero.exe
+go run ./cmd/qg-release build --goos linux --goarch amd64
+go run ./cmd/qg-release build --goos windows --goarch amd64 --output dist/qg.exe
 ```
 
 ## Documentation
@@ -442,19 +442,19 @@ go run ./cmd/zero-release build --goos windows --goarch amd64 --output dist/zero
 Real-time chat happens on the [Discord server](https://discord.gg/CaQDS6wdFn).
 
 Questions, setup help, ideas, and sharing all live in
-[GitHub Discussions](https://github.com/Gitlawb/zero/discussions):
+[GitHub Discussions](https://github.com/quebragalho-dev/quebragalho-cli/discussions):
 
 | Category | Use it for |
 |---|---|
-| [Q&A](https://github.com/Gitlawb/zero/discussions/categories/q-a) | Setup help, provider/model configuration, "how do I" questions |
-| [Ideas](https://github.com/Gitlawb/zero/discussions/categories/ideas) | Feature proposals and design discussion before any PR |
-| [Show and tell](https://github.com/Gitlawb/zero/discussions/categories/show-and-tell) | Your skills, plugins, MCP setups, themes, and workflows |
-| [Announcements](https://github.com/Gitlawb/zero/discussions/categories/announcements) | Releases and project news from the maintainers |
+| [Q&A](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/q-a) | Setup help, provider/model configuration, "how do I" questions |
+| [Ideas](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/ideas) | Feature proposals and design discussion before any PR |
+| [Show and tell](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/show-and-tell) | Your skills, plugins, MCP setups, themes, and workflows |
+| [Announcements](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/announcements) | Releases and project news from the maintainers |
 
-For a good Q&A answer fast, include `zero --version`, your OS and install
-method, the provider/model in use, and `zero doctor` output. See
+For a good Q&A answer fast, include `qg --version`, your OS and install
+method, the provider/model in use, and `qg doctor` output. See
 [SUPPORT.md](SUPPORT.md). Bugs belong in
-[issues](https://github.com/Gitlawb/zero/issues/new/choose); security reports
+[issues](https://github.com/quebragalho-dev/quebragalho-cli/issues/new/choose); security reports
 follow [SECURITY.md](SECURITY.md), never a public thread.
 
 ## Contributing
@@ -464,6 +464,10 @@ relevant tests, and open a focused pull request.
 
 Security reports should follow [SECURITY.md](SECURITY.md).
 
+## Credits
+
+QG is a rename of [Zero](https://github.com/Twigpine/zero) by Twigpine.
+
 ## License
 
-Zero is released under the [MIT License](LICENSE).
+QG is released under the [MIT License](LICENSE).

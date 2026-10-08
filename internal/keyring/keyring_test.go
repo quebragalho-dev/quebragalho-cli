@@ -158,28 +158,28 @@ func TestKeyringGetSurfacesNonNotFoundError(t *testing.T) {
 			return nil, fakeExit{1}
 		},
 	}
-	if _, ok, err := k.Get("zero", "tokens"); err == nil || ok {
+	if _, ok, err := k.Get("qg", "tokens"); err == nil || ok {
 		t.Fatalf("a non-44 exit must surface as an error, got ok=%v err=%v", ok, err)
 	}
 }
 
 func TestKeyringRoundTripDarwin(t *testing.T) {
 	k := newFake("darwin").keyring()
-	if err := k.Set("zero", "tokens", "blob-AAA"); err != nil {
+	if err := k.Set("qg", "tokens", "blob-AAA"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	got, ok, err := k.Get("zero", "tokens")
+	got, ok, err := k.Get("qg", "tokens")
 	if err != nil || !ok {
 		t.Fatalf("Get: ok=%v err=%v", ok, err)
 	}
 	if got != "blob-AAA" {
 		t.Fatalf("Get = %q, want blob-AAA", got)
 	}
-	existed, err := k.Delete("zero", "tokens")
+	existed, err := k.Delete("qg", "tokens")
 	if err != nil || !existed {
 		t.Fatalf("Delete: existed=%v err=%v", existed, err)
 	}
-	if _, ok, _ := k.Get("zero", "tokens"); ok {
+	if _, ok, _ := k.Get("qg", "tokens"); ok {
 		t.Fatal("token should be gone after delete")
 	}
 }
@@ -187,13 +187,13 @@ func TestKeyringRoundTripDarwin(t *testing.T) {
 func TestKeyringRoundTripDarwinUsesStdin(t *testing.T) {
 	f := newFake("darwin")
 	k := f.keyring()
-	if err := k.Set("zero", "tokens", "blob-CCC"); err != nil {
+	if err := k.Set("qg", "tokens", "blob-CCC"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	// The secret must travel via stdin, never the argument vector: the write
 	// goes through `security -i`, whose whole command line (secret included)
 	// arrives on stdin while argv carries only the -i flag.
-	wantStdin := "add-generic-password -U -s \"zero\" -a \"tokens\" -w \"blob-CCC\"\n"
+	wantStdin := "add-generic-password -U -s \"qg\" -a \"tokens\" -w \"blob-CCC\"\n"
 	if f.lastStdin != wantStdin {
 		t.Fatalf("secret not sent via stdin correctly: stdin=%q, want=%q", f.lastStdin, wantStdin)
 	}
@@ -201,11 +201,11 @@ func TestKeyringRoundTripDarwinUsesStdin(t *testing.T) {
 	if len(f.lastArgs) != len(wantArgs) || f.lastArgs[0] != wantArgs[0] || f.lastArgs[1] != wantArgs[1] {
 		t.Fatalf("argv = %v, want %v", f.lastArgs, wantArgs)
 	}
-	got, ok, err := k.Get("zero", "tokens")
+	got, ok, err := k.Get("qg", "tokens")
 	if err != nil || !ok || got != "blob-CCC" {
 		t.Fatalf("Get = %q ok=%v err=%v", got, ok, err)
 	}
-	existed, err := k.Delete("zero", "tokens")
+	existed, err := k.Delete("qg", "tokens")
 	if err != nil || !existed {
 		t.Fatalf("Delete: existed=%v err=%v", existed, err)
 	}
@@ -220,7 +220,7 @@ func TestKeyringSetRejectsMultilineSecretOnDarwin(t *testing.T) {
 	for _, secret := range []string{"line1\nline2", "line1\r\nline2", "trailing\n"} {
 		f := newFake("darwin")
 		k := f.keyring()
-		if err := k.Set("zero", "tokens", secret); err == nil {
+		if err := k.Set("qg", "tokens", secret); err == nil {
 			t.Fatalf("Set(%q) = nil error, want rejection of the embedded newline", secret)
 		}
 		if f.lastArgs != nil {
@@ -244,10 +244,10 @@ func TestKeyringDarwinQuotesSpecialCharacters(t *testing.T) {
 	} {
 		f := newFake("darwin")
 		k := f.keyring()
-		if err := k.Set("zero", "tokens", secret); err != nil {
+		if err := k.Set("qg", "tokens", secret); err != nil {
 			t.Fatalf("Set(%q): %v", secret, err)
 		}
-		got, ok, err := k.Get("zero", "tokens")
+		got, ok, err := k.Get("qg", "tokens")
 		if err != nil || !ok || got != secret {
 			t.Fatalf("Get after Set(%q) = %q ok=%v err=%v", secret, got, ok, err)
 		}
@@ -261,12 +261,12 @@ func TestKeyringDarwinQuotesSpecialCharacters(t *testing.T) {
 func TestKeyringSetRejectsOversizedSecretOnDarwin(t *testing.T) {
 	f := newFake("darwin")
 	k := f.keyring()
-	if err := k.Set("zero", "tokens", strings.Repeat("a", 4000)); err != nil {
+	if err := k.Set("qg", "tokens", strings.Repeat("a", 4000)); err != nil {
 		t.Fatalf("Set(4000 bytes): %v", err)
 	}
 	f = newFake("darwin")
 	k = f.keyring()
-	if err := k.Set("zero", "tokens", strings.Repeat("a", 5000)); err == nil {
+	if err := k.Set("qg", "tokens", strings.Repeat("a", 5000)); err == nil {
 		t.Fatal("Set(5000 bytes) = nil error, want rejection of the oversized line")
 	}
 	if f.lastArgs != nil {
@@ -281,10 +281,10 @@ func TestKeyringSetAllowsMultilineSecretOnLinux(t *testing.T) {
 	f := newFake("linux")
 	k := f.keyring()
 	secret := "line1\nline2"
-	if err := k.Set("zero", "tokens", secret); err != nil {
+	if err := k.Set("qg", "tokens", secret); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	got, ok, err := k.Get("zero", "tokens")
+	got, ok, err := k.Get("qg", "tokens")
 	if err != nil || !ok || got != secret {
 		t.Fatalf("Get = %q ok=%v err=%v, want %q", got, ok, err, secret)
 	}
@@ -293,7 +293,7 @@ func TestKeyringSetAllowsMultilineSecretOnLinux(t *testing.T) {
 func TestKeyringRoundTripLinuxUsesStdin(t *testing.T) {
 	f := newFake("linux")
 	k := f.keyring()
-	if err := k.Set("zero", "tokens", "blob-BBB"); err != nil {
+	if err := k.Set("qg", "tokens", "blob-BBB"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	// The secret must travel via stdin, never the argument vector.
@@ -305,11 +305,11 @@ func TestKeyringRoundTripLinuxUsesStdin(t *testing.T) {
 			t.Fatalf("secret leaked into argv: %v", f.lastArgs)
 		}
 	}
-	got, ok, err := k.Get("zero", "tokens")
+	got, ok, err := k.Get("qg", "tokens")
 	if err != nil || !ok || got != "blob-BBB" {
 		t.Fatalf("Get = %q ok=%v err=%v", got, ok, err)
 	}
-	existed, err := k.Delete("zero", "tokens")
+	existed, err := k.Delete("qg", "tokens")
 	if err != nil || !existed {
 		t.Fatalf("Delete: existed=%v err=%v", existed, err)
 	}
@@ -318,10 +318,10 @@ func TestKeyringRoundTripLinuxUsesStdin(t *testing.T) {
 func TestKeyringGetMissingIsNotError(t *testing.T) {
 	for _, goos := range []string{"darwin", "linux"} {
 		k := newFake(goos).keyring()
-		if _, ok, err := k.Get("zero", "absent"); err != nil || ok {
+		if _, ok, err := k.Get("qg", "absent"); err != nil || ok {
 			t.Fatalf("[%s] Get(absent) = ok=%v err=%v, want false/nil", goos, ok, err)
 		}
-		if existed, err := k.Delete("zero", "absent"); err != nil || existed {
+		if existed, err := k.Delete("qg", "absent"); err != nil || existed {
 			t.Fatalf("[%s] Delete(absent) = existed=%v err=%v, want false/nil", goos, existed, err)
 		}
 	}
@@ -332,13 +332,13 @@ func TestKeyringUnsupportedPlatform(t *testing.T) {
 	if k.Available() {
 		t.Fatal("windows should report unavailable")
 	}
-	if err := k.Set("zero", "tokens", "x"); err == nil {
+	if err := k.Set("qg", "tokens", "x"); err == nil {
 		t.Fatal("Set on unsupported platform should error")
 	}
-	if _, _, err := k.Get("zero", "tokens"); err == nil {
+	if _, _, err := k.Get("qg", "tokens"); err == nil {
 		t.Fatal("Get on unsupported platform should error")
 	}
-	if _, err := k.Delete("zero", "tokens"); err == nil {
+	if _, err := k.Delete("qg", "tokens"); err == nil {
 		t.Fatal("Delete on unsupported platform should error")
 	}
 }
@@ -358,11 +358,11 @@ func TestKeyringMissingBinaryError(t *testing.T) {
 	k := &Keyring{goos: "linux", run: func(context.Context, string, []byte, ...string) ([]byte, error) {
 		return nil, &exec.Error{Name: "secret-tool", Err: exec.ErrNotFound}
 	}}
-	if err := k.Set("zero", "tokens", "x"); err == nil || !strings.Contains(err.Error(), "secret-tool") {
+	if err := k.Set("qg", "tokens", "x"); err == nil || !strings.Contains(err.Error(), "secret-tool") {
 		t.Fatalf("missing-binary Set error = %v, want mention of secret-tool", err)
 	}
 	// A missing binary on Get must not be misread as not-found.
-	if _, ok, err := k.Get("zero", "tokens"); err == nil || ok {
+	if _, ok, err := k.Get("qg", "tokens"); err == nil || ok {
 		t.Fatalf("missing-binary Get = ok=%v err=%v, want error", ok, err)
 	}
 }
@@ -382,14 +382,14 @@ func TestAvailable(t *testing.T) {
 // chunk security silently splits into two garbage commands.
 func TestMaxSecretLenMatchesTheDarwinSetBoundary(t *testing.T) {
 	k := newFake("darwin").keyring()
-	budget, bounded := k.MaxSecretLen("zero", "oauth-tokens")
+	budget, bounded := k.MaxSecretLen("qg", "oauth-tokens")
 	if !bounded {
 		t.Fatal("MaxSecretLen reported darwin as unbounded")
 	}
-	if err := newFake("darwin").keyring().Set("zero", "oauth-tokens", strings.Repeat("a", budget)); err != nil {
+	if err := newFake("darwin").keyring().Set("qg", "oauth-tokens", strings.Repeat("a", budget)); err != nil {
 		t.Errorf("Set(budget=%d bytes): %v, want acceptance at the boundary", budget, err)
 	}
-	if err := newFake("darwin").keyring().Set("zero", "oauth-tokens", strings.Repeat("a", budget+1)); err == nil {
+	if err := newFake("darwin").keyring().Set("qg", "oauth-tokens", strings.Repeat("a", budget+1)); err == nil {
 		t.Errorf("Set(%d bytes) succeeded, want rejection one byte past the budget", budget+1)
 	}
 }
@@ -399,12 +399,12 @@ func TestMaxSecretLenMatchesTheDarwinSetBoundary(t *testing.T) {
 // longer account name leaves less room for the secret.
 func TestMaxSecretLenShrinksWithTheAccountName(t *testing.T) {
 	k := newFake("darwin").keyring()
-	short, _ := k.MaxSecretLen("zero", "oauth-tokens")
-	long, _ := k.MaxSecretLen("zero", "oauth-tokens.a.63")
+	short, _ := k.MaxSecretLen("qg", "oauth-tokens")
+	long, _ := k.MaxSecretLen("qg", "oauth-tokens.a.63")
 	if want := short - len(".a.63"); long != want {
 		t.Fatalf("MaxSecretLen for the longer account = %d, want %d", long, want)
 	}
-	if err := newFake("darwin").keyring().Set("zero", "oauth-tokens.a.63", strings.Repeat("a", long+1)); err == nil {
+	if err := newFake("darwin").keyring().Set("qg", "oauth-tokens.a.63", strings.Repeat("a", long+1)); err == nil {
 		t.Error("Set one byte past the longer account's budget succeeded")
 	}
 }
@@ -413,7 +413,7 @@ func TestMaxSecretLenShrinksWithTheAccountName(t *testing.T) {
 // secret-tool reads the secret from stdin, so there is no command line to fill.
 func TestMaxSecretLenUnboundedOffDarwin(t *testing.T) {
 	for _, goos := range []string{"linux", "windows"} {
-		if n, bounded := newFake(goos).keyring().MaxSecretLen("zero", "oauth-tokens"); bounded || n != 0 {
+		if n, bounded := newFake(goos).keyring().MaxSecretLen("qg", "oauth-tokens"); bounded || n != 0 {
 			t.Errorf("MaxSecretLen on %s = (%d, %v), want (0, false)", goos, n, bounded)
 		}
 	}

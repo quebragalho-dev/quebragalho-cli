@@ -199,7 +199,7 @@ func minifyGo(content []byte) (string, bool) {
 
 // minifyGeneric is the safe fallback for non-Go (and unparsable Go) content: it
 // normalizes CRLF, trims trailing whitespace, and collapses runs of blank lines
-// to a single blank — removing easy bloat with zero risk to code semantics. It
+// to a single blank — removing easy bloat with qg risk to code semantics. It
 // deliberately strips NO comments.
 func minifyGeneric(content []byte) string {
 	normalized := strings.ReplaceAll(string(content), "\r\n", "\n")

@@ -1,4 +1,4 @@
-// Package swarm adds a multi-agent SWARM on top of zero's single sub-agent
+// Package swarm adds a multi-agent SWARM on top of qg's single sub-agent
 // mechanism (internal/specialist): an orchestrator can spawn and coordinate
 // MULTIPLE specialist members that run concurrently, communicate via per-agent
 // mailboxes, and hand work off. It composes internal/specialist (to launch each
@@ -115,10 +115,10 @@ func builtinDefinitions() []Definition {
 		},
 		{
 			AgentType: "subagent",
-			WhenToUse: "General-purpose subagent for an isolated, delegated task; starts with zero prior context.",
+			WhenToUse: "General-purpose subagent for an isolated, delegated task; starts with qg prior context.",
 			Model:     modelInherit,
 			SystemPrompt: func(ctx PromptContext) string {
-				return "You are a subagent spawned to complete a specific task. You start with zero context — " +
+				return "You are a subagent spawned to complete a specific task. You start with qg context — " +
 					"the briefing below is all you know.\n\nTask: " + ctx.Task
 			},
 		},

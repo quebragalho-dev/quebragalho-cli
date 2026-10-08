@@ -108,15 +108,15 @@ func TestInvertedPaletteRetainsContrastSafeSyntaxFallback(t *testing.T) {
 }
 
 func TestDiffSyntaxKeepsThemeColorOverDiffSurface(t *testing.T) {
-	previous := zeroTheme
-	defer func() { zeroTheme = previous }()
-	_, zeroTheme = themeForMode("nord", true)
+	previous := qgTheme
+	defer func() { qgTheme = previous }()
+	_, qgTheme = themeForMode("nord", true)
 
-	lines, ok := highlightCodeForPath([]string{"func main() {}"}, "main.go", 80, zeroTheme.addLine.GetBackground())
+	lines, ok := highlightCodeForPath([]string{"func main() {}"}, "main.go", 80, qgTheme.addLine.GetBackground())
 	if !ok || len(lines) != 1 {
 		t.Fatalf("highlightCodeForPath = %#v, %t", lines, ok)
 	}
-	want := tokenStyle(chroma.Keyword).Background(zeroTheme.addLine.GetBackground()).Render("func")
+	want := tokenStyle(chroma.Keyword).Background(qgTheme.addLine.GetBackground()).Render("func")
 	if !strings.Contains(lines[0], want) {
 		t.Fatalf("diff syntax should retain themed foreground over the add surface:\n%s", lines[0])
 	}
@@ -126,11 +126,11 @@ func TestDiffSyntaxKeepsThemeColorOverDiffSurface(t *testing.T) {
 }
 
 func TestInlineCodeAndShellCommandsUseTheActiveSyntaxPalette(t *testing.T) {
-	previous := zeroTheme
-	defer func() { zeroTheme = previous }()
-	_, zeroTheme = themeForMode("nord", true)
+	previous := qgTheme
+	defer func() { qgTheme = previous }()
+	_, qgTheme = themeForMode("nord", true)
 
-	inline := styleAssistantMarkdownLine(renderMarkdownInline("Run `gofmt` before committing."), zeroTheme.ink)
+	inline := styleAssistantMarkdownLine(renderMarkdownInline("Run `gofmt` before committing."), qgTheme.ink)
 	if want := inlineCodeStyle().Render("gofmt"); !strings.Contains(inline, want) {
 		t.Fatalf("inline code should use the active palette:\n%s", inline)
 	}

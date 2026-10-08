@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 const SchemaVersion = 2
@@ -211,8 +211,8 @@ const maxStreamImageBytes = 10 << 20
 // raw-byte ImageBlocks. Each image's media type is normalized and validated
 // against the supported allow-list, and its decoded size is capped. Returns nil
 // when no events carry images.
-func ResolveImages(events []InputEvent) ([]zeroruntime.ImageBlock, error) {
-	var images []zeroruntime.ImageBlock
+func ResolveImages(events []InputEvent) ([]qgruntime.ImageBlock, error) {
+	var images []qgruntime.ImageBlock
 	for _, event := range events {
 		for _, image := range event.Images {
 			// Reject an oversized payload from the ENCODED length BEFORE decoding,
@@ -230,11 +230,11 @@ func ResolveImages(events []InputEvent) ([]zeroruntime.ImageBlock, error) {
 			if len(data) > maxStreamImageBytes {
 				return nil, ProtocolError{fmt.Sprintf("Stream-json image exceeds the %d byte limit.", maxStreamImageBytes)}
 			}
-			mediaType := zeroruntime.NormalizeImageMediaType(image.MediaType)
+			mediaType := qgruntime.NormalizeImageMediaType(image.MediaType)
 			if mediaType == "" {
 				return nil, ProtocolError{fmt.Sprintf("Stream-json image has an unsupported image media type %q.", image.MediaType)}
 			}
-			images = append(images, zeroruntime.ImageBlock{MediaType: mediaType, Data: data})
+			images = append(images, qgruntime.ImageBlock{MediaType: mediaType, Data: data})
 		}
 	}
 	return images, nil

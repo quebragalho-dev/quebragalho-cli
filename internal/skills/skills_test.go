@@ -291,7 +291,7 @@ func TestListReturnsNamesAndDescriptions(t *testing.T) {
 }
 
 func TestDefaultDirHonorsEnvOverride(t *testing.T) {
-	got := DefaultDir(map[string]string{"ZERO_SKILLS_DIR": "/custom/skills"})
+	got := DefaultDir(map[string]string{"QG_SKILLS_DIR": "/custom/skills"})
 	if got != "/custom/skills" {
 		t.Fatalf("DefaultDir override = %q, want /custom/skills", got)
 	}
@@ -299,15 +299,15 @@ func TestDefaultDirHonorsEnvOverride(t *testing.T) {
 
 func TestDefaultDirHonorsXDGDataHome(t *testing.T) {
 	got := DefaultDir(map[string]string{"XDG_DATA_HOME": "/xdg/data"})
-	want := filepath.Join("/xdg/data", "zero", "skills")
+	want := filepath.Join("/xdg/data", "qg", "skills")
 	if got != want {
 		t.Fatalf("DefaultDir = %q, want %q", got, want)
 	}
 }
 
 func TestDefaultDirFallsBackToHome(t *testing.T) {
-	got := DefaultDir(map[string]string{"HOME": "/home/zero"})
-	want := filepath.Join("/home/zero", ".local", "share", "zero", "skills")
+	got := DefaultDir(map[string]string{"HOME": "/home/qg"})
+	want := filepath.Join("/home/qg", ".local", "share", "qg", "skills")
 	if got != want {
 		t.Fatalf("DefaultDir = %q, want %q", got, want)
 	}
@@ -367,13 +367,13 @@ func TestAgentsDirIgnoresZeroSkillsDir(t *testing.T) {
 	if err := os.MkdirAll(agents, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// ZERO_SKILLS_DIR must not redirect or suppress AgentsDir.
+	// QG_SKILLS_DIR must not redirect or suppress AgentsDir.
 	got := AgentsDir(map[string]string{
-		"HOME":            home,
-		"ZERO_SKILLS_DIR": filepath.Join(home, "zero-only"),
+		"HOME":          home,
+		"QG_SKILLS_DIR": filepath.Join(home, "qg-only"),
 	})
 	if got != agents {
-		t.Fatalf("AgentsDir with ZERO_SKILLS_DIR set = %q, want %q", got, agents)
+		t.Fatalf("AgentsDir with QG_SKILLS_DIR set = %q, want %q", got, agents)
 	}
 }
 
@@ -381,7 +381,7 @@ func TestAgentsDirUnresolvableHomeIsEmpty(t *testing.T) {
 	// Empty env map values + no real UserHomeDir fallback is hard to force, but
 	// empty HOME/USERPROFILE with an empty home should still not panic.
 	// When UserHomeDir works this may return a host path; only assert no panic
-	// and that a deliberately empty-looking override path is not invented from ZERO.
+	// and that a deliberately empty-looking override path is not invented from QG.
 	_ = AgentsDir(map[string]string{"HOME": "", "USERPROFILE": ""})
 }
 
@@ -391,10 +391,10 @@ func TestDiscoveryRootsOrderAndOmission(t *testing.T) {
 	if err := os.MkdirAll(agents, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	primary := filepath.Join(home, "zero-skills")
+	primary := filepath.Join(home, "qg-skills")
 	env := map[string]string{
-		"HOME":            home,
-		"ZERO_SKILLS_DIR": primary,
+		"HOME":          home,
+		"QG_SKILLS_DIR": primary,
 	}
 	roots := DiscoveryRoots(env, []string{"", " /plugin/a ", "plugin/b"})
 	want := []string{primary, agents, "/plugin/a", "plugin/b"}
@@ -410,10 +410,10 @@ func TestDiscoveryRootsOrderAndOmission(t *testing.T) {
 
 func TestDiscoveryRootsOmitsMissingAgents(t *testing.T) {
 	home := t.TempDir()
-	primary := filepath.Join(home, "zero-skills")
+	primary := filepath.Join(home, "qg-skills")
 	env := map[string]string{
-		"HOME":            home,
-		"ZERO_SKILLS_DIR": primary,
+		"HOME":          home,
+		"QG_SKILLS_DIR": primary,
 	}
 	roots := DiscoveryRoots(env, nil)
 	if len(roots) != 1 || roots[0] != primary {

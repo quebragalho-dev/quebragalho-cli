@@ -49,7 +49,7 @@ func openPTY() (*os.File, *os.File, error) {
 		return nil, nil, err
 	}
 	// A fresh PTY defaults to a 0x0 window; seed a sane size so the process
-	// never sees zero dimensions before an attached client reports its own.
+	// never sees qg dimensions before an attached client reports its own.
 	_ = unix.IoctlSetWinsize(masterFD, unix.TIOCSWINSZ, &unix.Winsize{Row: 24, Col: 80})
 	pts, err := unix.IoctlGetInt(masterFD, unix.TIOCGPTN)
 	if err != nil {

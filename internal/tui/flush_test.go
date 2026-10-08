@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func sizedTestModel(width int) model {

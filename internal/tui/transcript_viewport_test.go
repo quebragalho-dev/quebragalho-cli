@@ -42,14 +42,14 @@ func TestTranscriptViewportHandlesZeroAndNegativeInputs(t *testing.T) {
 		want       transcriptViewportWindow
 	}{
 		{
-			name:       "zero lines",
+			name:       "qg lines",
 			totalLines: 0,
 			height:     5,
 			offset:     10,
 			want:       transcriptViewportWindow{start: 0, end: 0, height: 5, maxOffset: 0, offset: 0},
 		},
 		{
-			name:       "zero height",
+			name:       "qg height",
 			totalLines: 3,
 			height:     0,
 			offset:     2,

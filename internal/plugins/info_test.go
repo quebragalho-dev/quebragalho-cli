@@ -9,10 +9,10 @@ import (
 func TestInfoReturnsLockMetadataAndHashDrift(t *testing.T) {
 	dir := t.TempDir()
 	userRoot := filepath.Join(dir, "user")
-	pluginDir := filepath.Join(userRoot, "zero.demo")
+	pluginDir := filepath.Join(userRoot, "qg.demo")
 	writePluginManifest(t, pluginDir, map[string]any{
 		"schemaVersion": 1,
-		"id":            "zero.demo",
+		"id":            "qg.demo",
 		"name":          "Demo",
 		"version":       "1.0.0",
 		"enabled":       true,
@@ -24,18 +24,18 @@ func TestInfoReturnsLockMetadataAndHashDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := writeLock(userRoot, map[string]LockEntry{
-		"zero.demo": {Source: "./demo-src", Hash: hash},
+		"qg.demo": {Source: "./demo-src", Hash: hash},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	info, err := Info(InfoOptions{
 		LoadOptions: LoadOptions{Roots: []Root{{Source: SourceUser, Path: userRoot}}},
-	}, "zero.demo")
+	}, "qg.demo")
 	if err != nil {
 		t.Fatalf("Info: %v", err)
 	}
-	if info.Plugin.ID != "zero.demo" || !info.Plugin.Enabled {
+	if info.Plugin.ID != "qg.demo" || !info.Plugin.Enabled {
 		t.Fatalf("plugin = %#v", info.Plugin)
 	}
 	if info.LockSource != "./demo-src" || info.LockHash != hash {
@@ -45,12 +45,12 @@ func TestInfoReturnsLockMetadataAndHashDrift(t *testing.T) {
 		t.Fatal("expected no hash drift before manifest edit")
 	}
 
-	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{"schemaVersion":1,"id":"zero.demo","name":"Demo","version":"1.0.0","enabled":true}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{"schemaVersion":1,"id":"qg.demo","name":"Demo","version":"1.0.0","enabled":true}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	info, err = Info(InfoOptions{
 		LoadOptions: LoadOptions{Roots: []Root{{Source: SourceUser, Path: userRoot}}},
-	}, "zero.demo")
+	}, "qg.demo")
 	if err != nil {
 		t.Fatalf("Info after edit: %v", err)
 	}

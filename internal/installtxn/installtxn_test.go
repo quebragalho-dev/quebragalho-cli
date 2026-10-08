@@ -112,7 +112,7 @@ func TestCommitDirRecordsItsTargetForRecovery(t *testing.T) {
 	if markerErr != nil {
 		t.Fatalf("CommitDir left no way to attribute its backup: %v", markerErr)
 	}
-	if want := "zero-install-txn v1\ntarget demo\n"; marker != want {
+	if want := "qg-install-txn v1\ntarget demo\n"; marker != want {
 		t.Fatalf("recorded marker = %q, want %q", marker, want)
 	}
 }
@@ -144,7 +144,7 @@ func plantInterruptedCommit(t *testing.T, dir, name, recorded, content string) s
 		t.Fatal(err)
 	}
 	workspace := filepath.Dir(staged)
-	writeMarker(t, workspace, "zero-install-txn v1\ntarget "+recorded+"\n")
+	writeMarker(t, workspace, "qg-install-txn v1\ntarget "+recorded+"\n")
 	if err := os.Rename(target, filepath.Join(workspace, "previous")); err != nil {
 		t.Fatal(err)
 	}
@@ -509,11 +509,11 @@ func TestRollbackKeepsABackupItCouldNotRestore(t *testing.T) {
 func TestRecoverSkipsAWorkspaceWithoutAValidMarker(t *testing.T) {
 	for _, tc := range []struct{ name, marker string }{
 		{"wrong magic", "install-txn v1\ntarget demo\n"},
-		{"wrong version", "zero-install-txn v2\ntarget demo\n"},
+		{"wrong version", "qg-install-txn v2\ntarget demo\n"},
 		{"magic not first", "target demo\nzero-install-txn v1\n"},
-		{"no target line", "zero-install-txn v1\n"},
+		{"no target line", "qg-install-txn v1\n"},
 		{"legacy plain name", "demo"},
-		{"multi element name", "zero-install-txn v1\ntarget nested/demo\n"},
+		{"multi element name", "qg-install-txn v1\ntarget nested/demo\n"},
 		{"empty", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -798,7 +798,7 @@ func TestRecoverReportsABackupItCannotStat(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := filepath.Dir(staged)
-	writeMarker(t, workspace, "zero-install-txn v1\ntarget demo\n")
+	writeMarker(t, workspace, "qg-install-txn v1\ntarget demo\n")
 	if err := os.Symlink("previous", filepath.Join(workspace, "previous")); err != nil {
 		t.Fatal(err)
 	}
@@ -850,7 +850,7 @@ func TestRecoverSkipsAWorkspaceInterruptedBeforeTheFirstRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := filepath.Dir(staged)
-	writeMarker(t, workspace, "zero-install-txn v1\ntarget demo\n")
+	writeMarker(t, workspace, "qg-install-txn v1\ntarget demo\n")
 	reconciler := &recordingReconciler{phase: PhaseUnknown}
 
 	if err := Recover(dir, reconciler.reconcile); err != nil {

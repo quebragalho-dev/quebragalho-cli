@@ -6,12 +6,12 @@ import (
 	"io"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/hooks"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/plugins"
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 type pluginListOptions struct {
@@ -34,7 +34,7 @@ type mcpLegacyListOptions struct {
 
 func runPlugins(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "plugins subcommand required. Use `zero plugins list`.")
+		return writeExecUsageError(stderr, "plugins subcommand required. Use `qg plugins list`.")
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
@@ -89,7 +89,7 @@ func runPlugins(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 
 func runHooks(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "hooks subcommand required. Use `zero hooks list`.")
+		return writeExecUsageError(stderr, "hooks subcommand required. Use `qg hooks list`.")
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
@@ -153,7 +153,7 @@ func runMCPWithContext(ctx context.Context, args []string, stdout io.Writer, std
 		ctx = context.Background()
 	}
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "mcp subcommand required. Use `zero mcp permissions list`.")
+		return writeExecUsageError(stderr, "mcp subcommand required. Use `qg mcp permissions list`.")
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
@@ -264,7 +264,7 @@ func runMCPTools(ctx context.Context, args []string, stdout io.Writer, stderr io
 		ctx = context.Background()
 	}
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "mcp tools subcommand required. Use `zero mcp tools list`.")
+		return writeExecUsageError(stderr, "mcp tools subcommand required. Use `qg mcp tools list`.")
 	}
 	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		if err := writeMCPToolsHelp(stdout); err != nil {
@@ -326,7 +326,7 @@ func runMCPTools(ctx context.Context, args []string, stdout io.Writer, stderr io
 
 func runMCPPermissions(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "mcp permissions subcommand required. Use `zero mcp permissions list`.")
+		return writeExecUsageError(stderr, "mcp permissions subcommand required. Use `qg mcp permissions list`.")
 	}
 	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		if err := writeMCPPermissionsHelp(stdout); err != nil {
@@ -389,7 +389,7 @@ func runMCPPermissionsRevoke(args []string, stdout io.Writer, stderr io.Writer, 
 		return exitSuccess
 	}
 	if len(positional) == 0 || len(positional) > 2 {
-		return writeExecUsageError(stderr, "usage: zero mcp permissions revoke <server> [<tool>] [--json]")
+		return writeExecUsageError(stderr, "usage: qg mcp permissions revoke <server> [<tool>] [--json]")
 	}
 
 	store, err := deps.newMCPStore()
@@ -559,10 +559,10 @@ func parseMCPPositionalCommand(args []string) (mcpCommandOptions, []string, bool
 
 func writePluginsHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero plugins <command>
+  qg plugins <command>
 
 Commands:
-  list                 List local Zero plugins
+  list                 List local QG plugins
   info <id>            Show plugin details and lockfile metadata
   add <git-url|path>   Install a plugin (manifest-validated, pinned in plugins.lock)
   remove <id>          Remove an installed plugin and its lockfile entry
@@ -572,7 +572,7 @@ Commands:
 
 func writePluginsListHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero plugins list [flags]
+  qg plugins list [flags]
 
 Flags:
       --json    Print local plugin data as JSON
@@ -583,10 +583,10 @@ Flags:
 
 func writeHooksHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero hooks <command>
+  qg hooks <command>
 
 Commands:
-  list      List configured Zero hooks
+  list      List configured QG hooks
   add       Add or update a hook
   remove    Remove a hook by id
   enable    Enable a hook by id
@@ -597,7 +597,7 @@ Commands:
 
 func writeHooksListHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero hooks list [flags]
+  qg hooks list [flags]
 
 Flags:
       --json    Print hook config as JSON
@@ -608,7 +608,7 @@ Flags:
 
 func writeMCPHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero mcp <command>
+  qg mcp <command>
 
 Commands:
   add <server>      Add or update an MCP server in user config
@@ -626,7 +626,7 @@ Commands:
 
 func writeMCPLegacyListHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero mcp list [flags]
+  qg mcp list [flags]
 
 Flags:
       --json     Print MCP servers or tools as JSON
@@ -638,7 +638,7 @@ Flags:
 
 func writeMCPToolsHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero mcp tools <command>
+  qg mcp tools <command>
 
 Commands:
   list    List configured MCP tools
@@ -652,7 +652,7 @@ Flags:
 
 func writeMCPPermissionsHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero mcp permissions <command>
+  qg mcp permissions <command>
 
 Commands:
   list                  List all persistent MCP permissions

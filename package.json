@@ -1,14 +1,15 @@
 {
-  "name": "@gitlawb/zero",
+  "name": "@quebragalho-dev/qg",
   "version": "0.9.0",
-  "description": "Zero — a fast, multi-provider terminal coding agent.",
+  "description": "QG — a fast, multi-provider terminal coding agent.",
   "type": "module",
-  "module": "bin/zero.js",
+  "module": "bin/qg.js",
   "bin": {
-    "zero": "bin/zero.js"
+    "qg": "bin/qg.js",
+    "quebragalho": "bin/qg.js"
   },
   "files": [
-    "bin/zero.js",
+    "bin/qg.js",
     "scripts/postinstall.mjs"
   ],
   "engines": {
@@ -30,11 +31,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Gitlawb/zero.git"
+    "url": "git+https://github.com/quebragalho-dev/quebragalho-cli.git"
   },
-  "homepage": "https://github.com/Gitlawb/zero#readme",
+  "homepage": "https://github.com/quebragalho-dev/quebragalho-cli#readme",
   "bugs": {
-    "url": "https://github.com/Gitlawb/zero/issues"
+    "url": "https://github.com/quebragalho-dev/quebragalho-cli/issues"
   },
   "license": "MIT"
 }

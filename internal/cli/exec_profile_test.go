@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/execprofile"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execprofile"
 )
 
 func TestApplyExecProfileFillsOnlyUnset(t *testing.T) {

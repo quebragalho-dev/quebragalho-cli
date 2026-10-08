@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode"
 
-	zeroSandbox "github.com/Gitlawb/zero/internal/sandbox"
+	qgSandbox "github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 type shellKind string
@@ -38,7 +38,7 @@ type shellIssue struct {
 
 const windowsMsysSandboxKind = "windows_msys_sandbox"
 
-const windowsMsysSandboxSuggestion = "MSYS/Cygwin executables and shells (bash, sh) from Git for Windows cannot run under Zero's write-restricted Windows sandbox, and the WSL bash launcher cannot reach the WSL service from it either. This also hits native commands that spawn Git Bash internally: git hooks and git/gh credential helpers can fail this way even though git and gh themselves run fine. Prefer native PowerShell cmdlets or Zero tools (grep, read_file with offset/limit, list_directory, glob). If host-level execution is truly required, rerun with sandbox_permissions: \"require_escalated\" and a narrow justification."
+const windowsMsysSandboxSuggestion = "MSYS/Cygwin executables and shells (bash, sh) from Git for Windows cannot run under QG's write-restricted Windows sandbox, and the WSL bash launcher cannot reach the WSL service from it either. This also hits native commands that spawn Git Bash internally: git hooks and git/gh credential helpers can fail this way even though git and gh themselves run fine. Prefer native PowerShell cmdlets or QG tools (grep, read_file with offset/limit, list_directory, glob). If host-level execution is truly required, rerun with sandbox_permissions: \"require_escalated\" and a narrow justification."
 
 const windowsPowerShellUTF8Prefix = "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}\n"
 
@@ -138,7 +138,7 @@ func (shell shellRuntime) arguments(command string) []string {
 		script := windowsPowerShellUTF8Prefix + windowsPowerShellFailurePrefix + command + windowsPowerShellExitSuffix
 		return []string{"-NoLogo", "-NoProfile", "-Command", script}
 	case shellKindCmd:
-		return zeroSandbox.WindowsShellArgs(command)
+		return qgSandbox.WindowsShellArgs(command)
 	default:
 		return []string{"-c", command}
 	}
@@ -168,11 +168,11 @@ func shellGuidanceForGOOS(goos string) string {
 
 func shellGuidanceForRuntime(shell shellRuntime) string {
 	if shell.GOOS == "windows" && shell.Kind == shellKindPowerShell {
-		guidance := "Uses PowerShell syntax on Windows; prefer cwd/workdir over Set-Location when changing directories. Examples: Get-ChildItem -Force; Get-ChildItem -Recurse -Filter *.go; Get-ChildItem -Recurse | Select-String -Pattern 'TODO'; Get-Process | Where-Object { $_.ProcessName -like '*node*' }; $env:NAME='value'; @'\nprint('hello')\n'@ | python -. Do not invoke Git-for-Windows MSYS/Cygwin executables (bash, sh, grep.exe, sed.exe, head.exe, and similar) inside the restricted sandbox; prefer PowerShell cmdlets or native Zero tools."
+		guidance := "Uses PowerShell syntax on Windows; prefer cwd/workdir over Set-Location when changing directories. Examples: Get-ChildItem -Force; Get-ChildItem -Recurse -Filter *.go; Get-ChildItem -Recurse | Select-String -Pattern 'TODO'; Get-Process | Where-Object { $_.ProcessName -like '*node*' }; $env:NAME='value'; @'\nprint('hello')\n'@ | python -. Do not invoke Git-for-Windows MSYS/Cygwin executables (bash, sh, grep.exe, sed.exe, head.exe, and similar) inside the restricted sandbox; prefer PowerShell cmdlets or native QG tools."
 		return guidance + legacyPowerShellChainGuidance(shell)
 	}
 	if shell.GOOS == "windows" {
-		return "Uses " + shell.Syntax + " syntax on Windows because PowerShell was unavailable; prefer cwd/workdir over cd when changing directories. To include | & > < or other metacharacters in an argument value, wrap the value in double quotes (e.g. --jq \".a | b\"); single quotes do not protect metacharacters in cmd.exe. MSYS/Cygwin coreutils on PATH (Git for Windows usr\\bin) are not sandbox-compatible; prefer native Zero file tools."
+		return "Uses " + shell.Syntax + " syntax on Windows because PowerShell was unavailable; prefer cwd/workdir over cd when changing directories. To include | & > < or other metacharacters in an argument value, wrap the value in double quotes (e.g. --jq \".a | b\"); single quotes do not protect metacharacters in cmd.exe. MSYS/Cygwin coreutils on PATH (Git for Windows usr\\bin) are not sandbox-compatible; prefer native QG file tools."
 	}
 	guidance := "Uses " + shell.Syntax + " syntax."
 	if shell.GOOS == "darwin" {
@@ -211,11 +211,11 @@ func HostShellEnvironmentGuidance() string {
 
 func hostShellEnvironmentGuidanceForRuntime(shell shellRuntime) string {
 	if shell.GOOS == "windows" && shell.Kind == shellKindPowerShell {
-		guidance := "Shell syntax: PowerShell for exec_command/bash tools. Use PowerShell cmdlets and pipelines (Get-ChildItem, Get-Content, Select-String, Select-Object), use $env:NAME='value' for environment variables, and prefer the workdir/cwd argument over Set-Location. Do not invoke Git-for-Windows MSYS binaries (bash, sh, grep.exe, sed.exe, head.exe, and similar) inside the restricted sandbox; use native PowerShell cmdlets or Zero tools instead, or sandbox_permissions require_escalated only when host-level execution is truly required."
+		guidance := "Shell syntax: PowerShell for exec_command/bash tools. Use PowerShell cmdlets and pipelines (Get-ChildItem, Get-Content, Select-String, Select-Object), use $env:NAME='value' for environment variables, and prefer the workdir/cwd argument over Set-Location. Do not invoke Git-for-Windows MSYS binaries (bash, sh, grep.exe, sed.exe, head.exe, and similar) inside the restricted sandbox; use native PowerShell cmdlets or QG tools instead, or sandbox_permissions require_escalated only when host-level execution is truly required."
 		return guidance + legacyPowerShellChainGuidance(shell)
 	}
 	if shell.GOOS == "windows" {
-		return "Shell syntax: Windows cmd.exe syntax for exec_command/bash tools because PowerShell is unavailable. To put | & > < etc inside an arg value, use double quotes around the value, not single quotes. Do not invoke Git-for-Windows MSYS binaries inside the restricted sandbox; use native Zero tools instead. Prefer the workdir/cwd argument over cd."
+		return "Shell syntax: Windows cmd.exe syntax for exec_command/bash tools because PowerShell is unavailable. To put | & > < etc inside an arg value, use double quotes around the value, not single quotes. Do not invoke Git-for-Windows MSYS binaries inside the restricted sandbox; use native QG tools instead. Prefer the workdir/cwd argument over cd."
 	}
 	return "Shell syntax: /bin/sh syntax for exec_command/bash tools; prefer the workdir/cwd argument instead of cd when changing directories."
 }
@@ -372,13 +372,13 @@ func detectShellCommandIssueForRuntime(command string, shell shellRuntime) *shel
 		if shell.Kind == shellKindPowerShell {
 			return &shellIssue{
 				Kind:       "windows_shell_syntax",
-				Message:    "Command looks like POSIX/Bash syntax, but Zero runs PowerShell commands on this Windows host.",
-				Suggestion: "Use the cwd/workdir argument instead of cd and use native PowerShell syntax or Zero tools such as list_directory, read_file, grep, and glob.",
+				Message:    "Command looks like POSIX/Bash syntax, but QG runs PowerShell commands on this Windows host.",
+				Suggestion: "Use the cwd/workdir argument instead of cd and use native PowerShell syntax or QG tools such as list_directory, read_file, grep, and glob.",
 			}
 		}
 		return &shellIssue{
 			Kind:       "windows_shell_syntax",
-			Message:    "Command looks like POSIX/Bash syntax, but Zero runs bash tool commands through Windows cmd.exe on this host.",
+			Message:    "Command looks like POSIX/Bash syntax, but QG runs bash tool commands through Windows cmd.exe on this host.",
 			Suggestion: "Use the cwd argument instead of cd, use Windows cmd.exe syntax, or use native tools such as list_directory, read_file, grep, and glob.",
 		}
 	}
@@ -396,7 +396,7 @@ func detectShellCommandIssueForRuntime(command string, shell shellRuntime) *shel
 	for _, segment := range segments {
 		word := firstCommandWord(segment)
 		if windowsMsysBinaryPathPattern.MatchString(word) {
-			return windowsMsysSandboxIssue("Command invokes an MSYS/Cygwin binary path that cannot run under Zero's Windows sandbox.")
+			return windowsMsysSandboxIssue("Command invokes an MSYS/Cygwin binary path that cannot run under QG's Windows sandbox.")
 		}
 		if msysProneCommandWord(word) {
 			if shell.Kind == shellKindPowerShell && powerShellAliasWord(word) {
@@ -570,10 +570,10 @@ func detectShellOutputIssueForRuntime(output string, shell shellRuntime) *shellI
 	}
 	lower := strings.ToLower(output)
 	if msysRuntimeFailedInOutput(lower) {
-		return windowsMsysSandboxIssue("An MSYS/Cygwin runtime failed under Zero's Windows sandbox (ACCESS_DENIED during MSYS startup).")
+		return windowsMsysSandboxIssue("An MSYS/Cygwin runtime failed under QG's Windows sandbox (ACCESS_DENIED during MSYS startup).")
 	}
 	if wslServiceDeniedInOutput(lower) {
-		return windowsMsysSandboxIssue("WSL bash could not connect to the WSL service under Zero's Windows sandbox (Bash/Service/CreateInstance/E_ACCESSDENIED).")
+		return windowsMsysSandboxIssue("WSL bash could not connect to the WSL service under QG's Windows sandbox (Bash/Service/CreateInstance/E_ACCESSDENIED).")
 	}
 	if shell.Kind == shellKindCmd && (strings.Contains(lower, "the syntax of the command is incorrect") ||
 		strings.Contains(lower, "is not recognized as an internal or external command")) {
@@ -623,7 +623,7 @@ func wslServiceDeniedInOutput(lower string) bool {
 
 func appendShellIssueHint(output string, issue shellIssue) string {
 	output = strings.TrimRight(output, "\r\n")
-	hint := "[zero] shell issue: " + issue.Message
+	hint := "[qg] shell issue: " + issue.Message
 	if strings.TrimSpace(issue.Suggestion) != "" {
 		hint += "\nSuggestion: " + issue.Suggestion
 	}

@@ -124,9 +124,9 @@ func (m model) streamingToolCallView(width int) string {
 		// byte count so it reads as progressing, never frozen.
 		headTag = fmt.Sprintf("receiving %.1f KB", float64(d.rawLen)/1024)
 	}
-	head := toolCardHead(m.streamCallName, d.path, "", headTag, "", "", true, zeroTheme.ink, false, width, cardRenderOptions{cwd: m.cwd})
+	head := toolCardHead(m.streamCallName, d.path, "", headTag, "", "", true, qgTheme.ink, false, width, cardRenderOptions{cwd: m.cwd})
 	// The turn-level Working line owns the only animated activity indicator.
 	// Keep this live tool label stable so it describes the operation without
 	// competing with the global liveness signal.
-	return renderLeftRuleCard(width, []string{head}, zeroTheme.cardRun)
+	return renderLeftRuleCard(width, []string{head}, qgTheme.cardRun)
 }

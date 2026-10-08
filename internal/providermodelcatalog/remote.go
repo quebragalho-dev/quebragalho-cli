@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 const (
@@ -210,7 +210,7 @@ func ModelsDevProviderID(provider providercatalog.Descriptor) string {
 }
 
 // PublicLiveCatalog reports whether the provider publishes a public live model
-// list that Zero should prefer over third-party catalogs (models.dev) and that
+// list that QG should prefer over third-party catalogs (models.dev) and that
 // can be fetched without credentials.
 func PublicLiveCatalog(providerID string) bool {
 	switch providercatalog.NormalizeID(providerID) {
@@ -419,7 +419,7 @@ func fetchJSON(ctx context.Context, endpoint string, client *http.Client) ([]byt
 		return nil, err
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "zero-cli")
+	request.Header.Set("User-Agent", "qg-cli")
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}

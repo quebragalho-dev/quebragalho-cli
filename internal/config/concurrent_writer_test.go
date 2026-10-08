@@ -251,8 +251,8 @@ func TestCrossProcessMutationExcludesAndPreserves(t *testing.T) {
 
 	child := exec.Command(os.Args[0], "-test.run=^TestConfigConcurrentHelperProcess$")
 	child.Env = append(os.Environ(),
-		"ZERO_CONFIG_CONCURRENT_HELPER=1",
-		"ZERO_CONFIG_CONCURRENT_PATH="+path,
+		"QG_CONFIG_CONCURRENT_HELPER=1",
+		"QG_CONFIG_CONCURRENT_PATH="+path,
 	)
 	stdout, err := child.StdoutPipe()
 	if err != nil {
@@ -309,12 +309,12 @@ func TestCrossProcessMutationExcludesAndPreserves(t *testing.T) {
 // TestConfigConcurrentHelperProcess is the child half of the cross-process
 // test. It is skipped unless the parent selected it through the environment.
 func TestConfigConcurrentHelperProcess(t *testing.T) {
-	if os.Getenv("ZERO_CONFIG_CONCURRENT_HELPER") == "" {
+	if os.Getenv("QG_CONFIG_CONCURRENT_HELPER") == "" {
 		t.Skip("helper process for TestCrossProcessMutationExcludesAndPreserves")
 	}
-	path := os.Getenv("ZERO_CONFIG_CONCURRENT_PATH")
+	path := os.Getenv("QG_CONFIG_CONCURRENT_PATH")
 	if path == "" {
-		t.Fatal("ZERO_CONFIG_CONCURRENT_PATH is required")
+		t.Fatal("QG_CONFIG_CONCURRENT_PATH is required")
 	}
 	// Announce BEFORE contending, so the parent's exclusion window starts with
 	// this process already running rather than still being forked.

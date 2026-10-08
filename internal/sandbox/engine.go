@@ -252,7 +252,7 @@ func (engine *Engine) shellSandboxActive(policy Policy) bool {
 	if !backend.Available || backend.Executable == "" || !backend.CommandWrapping || !backend.NativeIsolation {
 		return false
 	}
-	// On Windows the command is only actually wrapped once `zero sandbox setup`
+	// On Windows the command is only actually wrapped once `qg sandbox setup`
 	// has written the marker; until then execution DEGRADES to unwrapped (see
 	// manager.BuildExecutionRequest). The engine must mirror that — otherwise it
 	// would auto-allow a shell command as "sandboxed" while it really runs

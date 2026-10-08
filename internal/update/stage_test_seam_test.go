@@ -37,7 +37,7 @@ func assertNoStagingLeftovers(t *testing.T, dir string) {
 		t.Fatalf("ReadDir %s: %v", dir, err)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".zero-stage-") || strings.HasSuffix(entry.Name(), ".new") {
+		if strings.HasPrefix(entry.Name(), ".qg-stage-") || strings.HasSuffix(entry.Name(), ".new") {
 			t.Fatalf("staging leftover survived in the install directory: %s", entry.Name())
 		}
 	}

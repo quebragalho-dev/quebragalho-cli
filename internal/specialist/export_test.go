@@ -8,8 +8,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/background"
-	"github.com/Gitlawb/zero/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 )
 
 func NewOutputTool(manager *background.Manager) *OutputTool {

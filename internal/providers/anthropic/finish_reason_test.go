@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // A message_delta with stop_reason=="max_tokens" means the response was
@@ -23,7 +23,7 @@ func TestStreamCompletionSurfacesMaxTokensStopReason(t *testing.T) {
 	var doneReason string
 	var sawDone bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventDone {
+		if e.Type == qgruntime.StreamEventDone {
 			sawDone = true
 			doneReason = e.FinishReason
 		}
@@ -31,8 +31,8 @@ func TestStreamCompletionSurfacesMaxTokensStopReason(t *testing.T) {
 	if !sawDone {
 		t.Fatalf("no done event; events: %+v", events)
 	}
-	if doneReason != zeroruntime.FinishReasonLength {
-		t.Fatalf("done FinishReason = %q, want %q", doneReason, zeroruntime.FinishReasonLength)
+	if doneReason != qgruntime.FinishReasonLength {
+		t.Fatalf("done FinishReason = %q, want %q", doneReason, qgruntime.FinishReasonLength)
 	}
 }
 
@@ -48,7 +48,7 @@ func TestStreamCompletionNormalStopReasonHasNoFinishReason(t *testing.T) {
 	events := collectProviderEvents(t, provider)
 	var sawDone bool
 	for _, e := range events {
-		if e.Type == zeroruntime.StreamEventDone {
+		if e.Type == qgruntime.StreamEventDone {
 			sawDone = true
 			if e.FinishReason != "" {
 				t.Fatalf("normal stop leaked FinishReason %q", e.FinishReason)

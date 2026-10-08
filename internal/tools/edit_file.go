@@ -68,7 +68,7 @@ func (tool editFileTool) RunWithOptions(ctx context.Context, args map[string]any
 	if err != nil {
 		return errorResult("Error reading " + relativePath + ": " + err.Error())
 	}
-	// Refuse to edit a file that changed on disk outside Zero since it was last
+	// Refuse to edit a file that changed on disk outside QG since it was last
 	// read: the model's old_string was formed against a stale view, so applying it
 	// now could silently corrupt the newer content.
 	if cerr := options.FileTracker.CheckConflict(absolutePath, contentBytes); cerr != nil {
@@ -161,7 +161,7 @@ func (tool editFileTool) RunWithOptions(ctx context.Context, args map[string]any
 		return errorResult("Error writing " + relativePath + ": " + err.Error())
 	}
 	modelKnownContent := updated
-	// Optional format-on-write (ZERO_FORMAT_ON_WRITE). Must run BEFORE the
+	// Optional format-on-write (QG_FORMAT_ON_WRITE). Must run BEFORE the
 	// FileTracker re-baseline: recording pre-format content would make the very
 	// next edit look like an external modification and trip the conflict guard.
 	formatting := maybeFormatWrittenFileScoped(ctx, tool.workspaceRoot, tool.scope, absolutePath, updated, priorInfo.Mode().Perm())
@@ -218,7 +218,7 @@ func (tool editFileTool) RunWithOptions(ctx context.Context, args map[string]any
 		}
 	}
 	// Card-only preview (Display.Preview): the model's Output stays the one-line
-	// summary, so the red/green diff costs zero model tokens.
+	// summary, so the red/green diff costs qg model tokens.
 	preview := ""
 	if finalContentKnown {
 		preview = boundedUnifiedDiff(relativePath, content, updated)

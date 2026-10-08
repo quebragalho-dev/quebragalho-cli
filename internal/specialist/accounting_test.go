@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/background"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestExecutorRecordsForegroundLifecycleAndUsageRollup(t *testing.T) {
@@ -20,9 +20,9 @@ func TestExecutorRecordsForegroundLifecycleAndUsageRollup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create parent returned error: %v", err)
 	}
-	zero := 0
+	qg := 0
 	executor := Executor{
-		BinaryPath:   "/usr/local/bin/zero",
+		BinaryPath:   "/usr/local/bin/qg",
 		SessionStore: store,
 		NewSessionID: func() (string, error) { return "child_task", nil },
 		Load: func(LoadOptions) (LoadResult, error) {
@@ -38,7 +38,7 @@ func TestExecutorRecordsForegroundLifecycleAndUsageRollup(t *testing.T) {
 					{Type: streamjson.EventRunStart, RunID: "run_1", SessionID: "child_task"},
 					{Type: streamjson.EventUsage, RunID: "run_1", PromptTokens: ptrInt(12), CompletionTokens: ptrInt(5), TotalTokens: ptrInt(17)},
 					{Type: streamjson.EventFinal, RunID: "run_1", Text: "done"},
-					{Type: streamjson.EventRunEnd, RunID: "run_1", Status: "success", ExitCode: &zero},
+					{Type: streamjson.EventRunEnd, RunID: "run_1", Status: "success", ExitCode: &qg},
 				},
 				ExitCode: 0,
 			}, nil
@@ -97,7 +97,7 @@ func TestExecutorRecordsStartedChildErrorExitCode(t *testing.T) {
 		t.Fatalf("Create parent returned error: %v", err)
 	}
 	executor := Executor{
-		BinaryPath:   "/usr/local/bin/zero",
+		BinaryPath:   "/usr/local/bin/qg",
 		SessionStore: store,
 		NewSessionID: func() (string, error) { return "child_task", nil },
 		Load: func(LoadOptions) (LoadResult, error) {

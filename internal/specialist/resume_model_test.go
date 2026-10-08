@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 )
 
 // argValue returns the value following flag in argv, and whether it was present.
@@ -202,10 +202,10 @@ func TestRunResumePassesTheParentModelThroughToTheChild(t *testing.T) {
 		t.Fatalf("create child: %v", err)
 	}
 
-	zero := 0
+	qg := 0
 	var captured []string
 	executor := Executor{
-		BinaryPath:   "/usr/local/bin/zero",
+		BinaryPath:   "/usr/local/bin/qg",
 		SessionStore: store,
 		NewSessionID: func() (string, error) { return "child_task", nil },
 		Load: func(LoadOptions) (LoadResult, error) {
@@ -218,7 +218,7 @@ func TestRunResumePassesTheParentModelThroughToTheChild(t *testing.T) {
 				Events: []streamjson.Event{
 					{Type: streamjson.EventRunStart, RunID: "run_1", SessionID: "child_task"},
 					{Type: streamjson.EventFinal, RunID: "run_1", Text: "done"},
-					{Type: streamjson.EventRunEnd, RunID: "run_1", Status: "success", ExitCode: &zero},
+					{Type: streamjson.EventRunEnd, RunID: "run_1", Status: "success", ExitCode: &qg},
 				},
 			}, nil
 		},
@@ -261,10 +261,10 @@ func TestRunFreshPassesTheParentModelThroughToTheChild(t *testing.T) {
 		t.Fatalf("create parent: %v", err)
 	}
 
-	zero := 0
+	qg := 0
 	var captured []string
 	executor := Executor{
-		BinaryPath:   "/usr/local/bin/zero",
+		BinaryPath:   "/usr/local/bin/qg",
 		SessionStore: store,
 		NewSessionID: func() (string, error) { return "child_task", nil },
 		Load: func(LoadOptions) (LoadResult, error) {
@@ -276,7 +276,7 @@ func TestRunFreshPassesTheParentModelThroughToTheChild(t *testing.T) {
 				Events: []streamjson.Event{
 					{Type: streamjson.EventRunStart, RunID: "run_1", SessionID: "child_task"},
 					{Type: streamjson.EventFinal, RunID: "run_1", Text: "done"},
-					{Type: streamjson.EventRunEnd, RunID: "run_1", Status: "success", ExitCode: &zero},
+					{Type: streamjson.EventRunEnd, RunID: "run_1", Status: "success", ExitCode: &qg},
 				},
 			}, nil
 		},

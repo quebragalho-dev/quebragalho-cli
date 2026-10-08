@@ -15,12 +15,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providers"
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/proxydial"
-	"github.com/Gitlawb/zero/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/proxydial"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 type Status string

@@ -101,7 +101,7 @@ func (a *Animation) FrameDelay(state State, phase int) time.Duration {
 }
 
 // PrimaryDuration reports how long a non-idle action plays before it settles
-// into its fallback loop. A zero duration means the state loops from its first
+// into its fallback loop. A qg duration means the state loops from its first
 // frame or has no configured playback boundary.
 func (a *Animation) PrimaryDuration(state State) time.Duration {
 	if a == nil {

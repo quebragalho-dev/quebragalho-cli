@@ -137,14 +137,14 @@ func TestConcurrentSetAcrossProcesses(t *testing.T) {
 	if testing.Short() {
 		t.Skip("spawns processes")
 	}
-	helper := os.Getenv("ZERO_CREDSTORE_HELPER_DIR")
+	helper := os.Getenv("QG_CREDSTORE_HELPER_DIR")
 	if helper != "" {
 		// Child mode: write our slice of the keys and exit.
 		store, err := New(Options{Dir: helper, Storage: "file"})
 		if err != nil {
 			os.Exit(3)
 		}
-		prefix := os.Getenv("ZERO_CREDSTORE_HELPER_PREFIX")
+		prefix := os.Getenv("QG_CREDSTORE_HELPER_PREFIX")
 		for i := 0; i < 25; i++ {
 			if err := store.Set(fmt.Sprintf("%s%02d", prefix, i), "v"); err != nil {
 				os.Exit(4)
@@ -163,8 +163,8 @@ func TestConcurrentSetAcrossProcesses(t *testing.T) {
 			defer wg.Done()
 			cmd := exec.Command(os.Args[0], "-test.run=TestConcurrentSetAcrossProcesses", "-test.v")
 			cmd.Env = append(os.Environ(),
-				"ZERO_CREDSTORE_HELPER_DIR="+dir,
-				fmt.Sprintf("ZERO_CREDSTORE_HELPER_PREFIX=c%d_", c),
+				"QG_CREDSTORE_HELPER_DIR="+dir,
+				fmt.Sprintf("QG_CREDSTORE_HELPER_PREFIX=c%d_", c),
 			)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				failures <- fmt.Sprintf("child %d: %v\n%s", c, err, out)

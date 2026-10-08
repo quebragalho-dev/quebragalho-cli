@@ -7,34 +7,34 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Gitlawb/zero/internal/acp"
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/acp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
-const acpUsage = `zero acp — serve the Agent Client Protocol (ACP) over stdio
+const acpUsage = `qg acp — serve the Agent Client Protocol (ACP) over stdio
 
 Editors that speak ACP (Zed, JetBrains, Neovim, ...) spawn this command and drive
-ZERO as a backend over JSON-RPC 2.0 on stdin/stdout. ZERO keeps your provider,
+QG as a backend over JSON-RPC 2.0 on stdin/stdout. QG keeps your provider,
 model, and API keys (BYOK); the editor only hosts the conversation thread.
 
 Usage:
-  zero acp
+  qg acp
 
 Not meant to be run interactively — point your editor's ACP / external-agent
-setting at "zero acp".`
+setting at "qg acp".`
 
 var acpSignalContext = signalContext
 
-// runACP serves ACP over stdio so an editor can drive ZERO's agent core. It
+// runACP serves ACP over stdio so an editor can drive QG's agent core. It
 // speaks JSON-RPC 2.0 (newline-delimited JSON) on stdin/stdout; stderr stays free
-// for human-readable diagnostics. The session lifecycle maps onto ZERO's own
-// session store, and provider/model/keys remain owned by ZERO.
+// for human-readable diagnostics. The session lifecycle maps onto QG's own
+// session store, and provider/model/keys remain owned by QG.
 func runACP(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	for _, arg := range args {
 		switch arg {
@@ -64,7 +64,7 @@ func runACP(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int
 		},
 		ResolveWorkspaceRoot: acpWorkspaceRootResolver(deps),
 		Store:                deps.newSessionStore(),
-		AgentInfo:            acp.Implementation{Name: "zero", Version: version},
+		AgentInfo:            acp.Implementation{Name: "qg", Version: version},
 	})
 
 	ctx, stop := acpSignalContext()
@@ -97,7 +97,7 @@ func buildACPWorkspace(ctx context.Context, workspaceRoot string, resolved confi
 	}
 	if mode != agent.PermissionModePlan {
 		// MCP stdio servers are subprocesses. Passing the engine to their runner
-		// keeps them inside the exact sandbox / lifecycle path used by zero exec.
+		// keeps them inside the exact sandbox / lifecycle path used by qg exec.
 		runtime, trustSkip, err := registerMCPToolsForWorkspaceWithOptions(
 			ctx, workspaceRoot, registry, deps, mcp.AutonomyLow, workspaceRoot,
 			mcp.RegisterOptions{Execution: execution.NewRunner(engine), AdvertiseInAuto: true},
@@ -124,9 +124,9 @@ func acpMCPSetupNotices(skip trustSkip, runtime mcpToolRuntime) []string {
 	var notices []string
 	if skip.excludedProjectConfig {
 		if skip.trustCheckErrored {
-			notices = append(notices, "The workspace-trust store could not be read; project MCP servers were ignored (fail-closed). Run 'zero trust' to enable them.")
+			notices = append(notices, "The workspace-trust store could not be read; project MCP servers were ignored (fail-closed). Run 'qg trust' to enable them.")
 		} else {
-			notices = append(notices, "Project MCP servers were ignored in this untrusted workspace. Run 'zero trust' to enable them.")
+			notices = append(notices, "Project MCP servers were ignored in this untrusted workspace. Run 'qg trust' to enable them.")
 		}
 	}
 	if runtime == nil {
@@ -148,7 +148,7 @@ func acpMCPSetupNotices(skip trustSkip, runtime mcpToolRuntime) []string {
 // acpWorkspaceRootResolver validates a client-supplied cwd into a confinement
 // root. It reuses exec's resolveWorkspaceRoot (abs+clean, must be an existing
 // dir) and additionally rejects the filesystem root and the home directory — an
-// editor must not be able to point ZERO's file/shell tools at the whole disk.
+// editor must not be able to point QG's file/shell tools at the whole disk.
 func acpWorkspaceRootResolver(deps appDeps) func(string) (string, error) {
 	return func(cwd string) (string, error) {
 		root, err := resolveWorkspaceRoot(cwd, deps)

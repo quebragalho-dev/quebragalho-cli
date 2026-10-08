@@ -120,7 +120,7 @@ func runCompletions(args []string, stdout io.Writer, stderr io.Writer) int {
 		return exitSuccess
 	}
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "shell required. Use `zero completions <bash|zsh|fish|powershell|elvish>`.")
+		return writeExecUsageError(stderr, "shell required. Use `qg completions <bash|zsh|fish|powershell|elvish>`.")
 	}
 	if len(args) != 1 {
 		return writeExecUsageError(stderr, fmt.Sprintf("unexpected completions argument %q", args[1]))
@@ -152,17 +152,17 @@ func writeCompletionsHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Generate shell completion scripts.
 
 Usage:
-  zero completions <shell>
+  qg completions <shell>
 
 Arguments:
   <shell>  Target shell: bash, zsh, fish, powershell, or elvish
 
 Examples:
-  source <(zero completions bash)
-  source <(zero completions zsh)
-  zero completions fish > ~/.config/fish/completions/zero.fish
-  zero completions powershell >> $PROFILE
-  eval (zero completions elvish | slurp)
+  source <(qg completions bash)
+  source <(qg completions zsh)
+  qg completions fish > ~/.config/fish/completions/qg.fish
+  qg completions powershell >> $PROFILE
+  eval (qg completions elvish | slurp)
 
 Flags:
   -h, --help  Show this help
@@ -241,7 +241,7 @@ func shellWords(values []string) string {
 }
 
 func writeBashCompletions(w io.Writer, contexts []completionContext) error {
-	if _, err := fmt.Fprintln(w, "# bash completion for zero\n_zero() {\n  local cur context token i candidates\n  cur=\"${COMP_WORDS[COMP_CWORD]}\"\n  context=\"\""); err != nil {
+	if _, err := fmt.Fprintln(w, "# bash completion for qg\n_qg() {\n  local cur context token i candidates\n  cur=\"${COMP_WORDS[COMP_CWORD]}\"\n  context=\"\""); err != nil {
 		return err
 	}
 	if err := writePOSIXContextLoop(w, contexts, "  for ((i = 1; i < COMP_CWORD; i++)); do", "    token=\"${COMP_WORDS[i]}\"", "  done"); err != nil {
@@ -250,12 +250,12 @@ func writeBashCompletions(w io.Writer, contexts []completionContext) error {
 	if err := writePOSIXCandidateCase(w, contexts, "  "); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintln(w, "  COMPREPLY=( $(compgen -W \"$candidates\" -- \"$cur\") )\n}\ncomplete -F _zero zero")
+	_, err := fmt.Fprintln(w, "  COMPREPLY=( $(compgen -W \"$candidates\" -- \"$cur\") )\n}\ncomplete -F _qg qg")
 	return err
 }
 
 func writeZshCompletions(w io.Writer, contexts []completionContext) error {
-	if _, err := fmt.Fprintln(w, "#compdef zero\n_zero() {\n  local context token i\n  local -a candidates\n  context=\"\""); err != nil {
+	if _, err := fmt.Fprintln(w, "#compdef qg\n_qg() {\n  local context token i\n  local -a candidates\n  context=\"\""); err != nil {
 		return err
 	}
 	if err := writePOSIXContextLoop(w, contexts, "  for ((i = 2; i < CURRENT; i++)); do", "    token=\"${words[i]}\"", "  done"); err != nil {
@@ -269,7 +269,7 @@ func writeZshCompletions(w io.Writer, contexts []completionContext) error {
 			return err
 		}
 	}
-	_, err := fmt.Fprintln(w, "  esac\n  compadd -- \"${candidates[@]}\"\n}\ncompdef _zero zero")
+	_, err := fmt.Fprintln(w, "  esac\n  compadd -- \"${candidates[@]}\"\n}\ncompdef _qg qg")
 	return err
 }
 
@@ -318,7 +318,7 @@ func quotedWords(values []string) string {
 }
 
 func writeFishCompletions(w io.Writer, contexts []completionContext) error {
-	if _, err := fmt.Fprintln(w, "# fish completion for zero\nfunction __zero_completion_context\n    set -l context ''\n    set -l tokens (commandline -opc)"); err != nil {
+	if _, err := fmt.Fprintln(w, "# fish completion for qg\nfunction __qg_completion_context\n    set -l context ''\n    set -l tokens (commandline -opc)"); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintln(w, "    for token in $tokens[2..-1]\n        switch \"$context|$token\""); err != nil {
@@ -338,7 +338,7 @@ func writeFishCompletions(w io.Writer, contexts []completionContext) error {
 		if path == "" {
 			path = "__root__"
 		}
-		if _, err := fmt.Fprintf(w, "complete -c zero -f -n 'test (__zero_completion_context) = %q' -a %q\n", path, shellWords(context.candidates)); err != nil {
+		if _, err := fmt.Fprintf(w, "complete -c qg -f -n 'test (__qg_completion_context) = %q' -a %q\n", path, shellWords(context.candidates)); err != nil {
 			return err
 		}
 	}
@@ -346,7 +346,7 @@ func writeFishCompletions(w io.Writer, contexts []completionContext) error {
 }
 
 func writePowerShellCompletions(w io.Writer, contexts []completionContext) error {
-	if _, err := fmt.Fprintln(w, "# PowerShell completion for zero\nRegister-ArgumentCompleter -Native -CommandName zero -ScriptBlock {\n    param($wordToComplete, $commandAst, $cursorPosition)\n    $context = ''\n    $elements = @($commandAst.CommandElements)\n    $limit = $elements.Count\n    if ($wordToComplete -ne '' -and $limit -gt 1) { $limit-- }\n    for ($i = 1; $i -lt $limit; $i++) {\n        $token = $elements[$i].Extent.Text\n        switch (\"$context|$token\") {"); err != nil {
+	if _, err := fmt.Fprintln(w, "# PowerShell completion for qg\nRegister-ArgumentCompleter -Native -CommandName qg -ScriptBlock {\n    param($wordToComplete, $commandAst, $cursorPosition)\n    $context = ''\n    $elements = @($commandAst.CommandElements)\n    $limit = $elements.Count\n    if ($wordToComplete -ne '' -and $limit -gt 1) { $limit-- }\n    for ($i = 1; $i -lt $limit; $i++) {\n        $token = $elements[$i].Extent.Text\n        switch (\"$context|$token\") {"); err != nil {
 		return err
 	}
 	transitions := allTransitions(contexts)
@@ -376,7 +376,7 @@ func powershellWords(values []string) string {
 }
 
 func writeElvishCompletions(w io.Writer, contexts []completionContext) error {
-	if _, err := fmt.Fprintln(w, "# Elvish completion for zero\nset edit:completion:arg-completer[zero] = {|@args|\n    var context = ''\n    for token $args[1..-1] {"); err != nil {
+	if _, err := fmt.Fprintln(w, "# Elvish completion for qg\nset edit:completion:arg-completer[qg] = {|@args|\n    var context = ''\n    for token $args[1..-1] {"); err != nil {
 		return err
 	}
 	transitions := allTransitions(contexts)

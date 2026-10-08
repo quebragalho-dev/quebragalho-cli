@@ -5,9 +5,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/contextreport"
-	"github.com/Gitlawb/zero/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/contextreport"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 )
 
 type contextOptions struct {
@@ -80,7 +80,7 @@ func parseContextArgs(args []string) (contextOptions, bool, error) {
 
 func writeContextHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero context [flags]
+  qg context [flags]
 
 Reports the current workspace context budget.
 

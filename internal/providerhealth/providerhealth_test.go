@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 func TestProbeConfigOnlyMissingProviderFails(t *testing.T) {
@@ -383,7 +383,7 @@ func TestProbeConnectivityClassifiesTimeout(t *testing.T) {
 
 func TestProbeConnectivityAllowsLocalhostForLocalProvider(t *testing.T) {
 	// AUDIT-H1: a user-configured local provider (loopback base_url) must be reachable
-	// — the probe no longer blocks it pre-network, so `zero setup <local> --verify` /
+	// — the probe no longer blocks it pre-network, so `qg setup <local> --verify` /
 	// doctor / providers check can confirm a running Ollama/LM Studio.
 	called := false
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {

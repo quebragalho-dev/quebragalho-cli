@@ -8,15 +8,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/providers"
-	"github.com/Gitlawb/zero/internal/repomap"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/repomap"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-const ContractV1 = "zero.context.report.v1"
+const ContractV1 = "qg.context.report.v1"
 const RuntimeGo = "go"
 
 const (
@@ -27,7 +27,7 @@ const (
 	CategoryFree              = "free"
 )
 
-var defaultProjectContextFiles = []string{"AGENTS.md", "ZERO.md", ".zero/AGENTS.md"}
+var defaultProjectContextFiles = []string{"AGENTS.md", "QG.md", ".qg/AGENTS.md"}
 
 const maxProjectContextBytes = 8 << 10
 const maxWorkspaceMapContextBytes = 4 << 10
@@ -162,7 +162,7 @@ func systemPromptFootprint(root string, modelID string) string {
 
 func Format(report Report) string {
 	lines := []string{
-		"Zero context report",
+		"QG context report",
 		"root: " + report.Root,
 	}
 	if report.ProviderName != "" {

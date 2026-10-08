@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // lastCardText returns the text of the most recently appended transcript row —
@@ -66,9 +66,9 @@ func TestPlanStepDetailByStatus(t *testing.T) {
 // returned message updates the card in place with the model's text and caches
 // it, so re-clicking the same step is instant with no second call.
 func TestPlanStepDetailAIExplanation(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "We added the new button and wired up its click."},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "We added the new button and wired up its click."},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	m := model{now: func() time.Time { return t0 }, provider: provider}
@@ -119,9 +119,9 @@ func TestPlanStepDetailAIExplanation(t *testing.T) {
 // detail card — even when the model write-up is still in flight, a late response
 // must NOT pop the card back open after the user closed it.
 func TestPlanStepDetailSecondClickHides(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "late explanation"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "late explanation"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	m := model{now: func() time.Time { return t0 }, provider: provider}
@@ -246,7 +246,7 @@ func TestPlanStepDetailToggle(t *testing.T) {
 		t.Error("re-clicking the same step should close it")
 	}
 	if len(m.transcript) != base {
-		t.Errorf("re-click should net zero growth: got %d, base %d", len(m.transcript), base)
+		t.Errorf("re-click should net qg growth: got %d, base %d", len(m.transcript), base)
 	}
 
 	m, _ = m.openPlanStepDetail(0)

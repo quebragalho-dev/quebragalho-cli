@@ -3,7 +3,7 @@ package swarm
 import (
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // With NO active swarm, all swarm tools must be deferred-eligible so their

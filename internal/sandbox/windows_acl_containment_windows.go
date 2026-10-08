@@ -25,7 +25,7 @@ import (
 // <root>/.git/config are constructed from a root, and <root>/.git is a name an
 // unprivileged workspace writer can create. `mklink /J` needs no privilege, so
 // a junction there makes the apply open <junction-target>/hooks instead, and
-// `zero sandbox setup` writes a deny-write ACE, as Administrator, on an object
+// `qg sandbox setup` writes a deny-write ACE, as Administrator, on an object
 // outside the workspace. The final-component flag never fires: the object at
 // the end of the walk is an ordinary directory.
 //

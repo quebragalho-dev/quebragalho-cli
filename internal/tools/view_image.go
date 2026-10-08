@@ -3,8 +3,8 @@ package tools
 import (
 	"context"
 
-	"github.com/Gitlawb/zero/internal/imageinput"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // ViewImageToolName is the canonical registry name of the image viewer.
@@ -74,7 +74,7 @@ func (tool viewImageTool) Run(_ context.Context, args map[string]any) Result {
 		// The text says what arrived; the image itself reaches the model through
 		// the agent loop, which delivers Images on a following user message.
 		Output: "Viewing " + relativePath + " (" + image.MediaType + ").",
-		Images: []zeroruntime.ImageBlock{image},
+		Images: []qgruntime.ImageBlock{image},
 		Meta:   map[string]string{"media_type": image.MediaType},
 	}
 }

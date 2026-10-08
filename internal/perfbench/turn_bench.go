@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/execprofile"
-	"github.com/Gitlawb/zero/internal/trace"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execprofile"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 // TurnSchemaVersion is the schema version of a published turn-benchmark result.
@@ -87,12 +87,12 @@ type TurnBenchConfig struct {
 	Mode        string
 	SelfCorrect bool
 	// ExecProfile, when non-empty, runs every task under the named execution
-	// profile (zero exec --exec-profile) and stamps it into the result so the
+	// profile (qg exec --exec-profile) and stamps it into the result so the
 	// report is self-describing for profile A/B comparisons.
 	ExecProfile string
 	Version     string
 	Commit      string
-	// Iterations is how many times each task is run. The per-process `zero exec`
+	// Iterations is how many times each task is run. The per-process `qg exec`
 	// runner is inherently cold-start, so this is the sample count for per-span
 	// median/P95 — a genuine warm path needs an in-process runner (future work).
 	Iterations int
@@ -327,8 +327,8 @@ func RunTurnBench(ctx context.Context, set TaskSet, cfg TurnBenchConfig) (TurnBe
 					// concurrent/nested spans do not double-count: provider_connect
 					// inside generation and permission_wait inside tool_execution
 					// each contribute their own exclusive time, not their parent's.
-					// A span whose exclusive is legitimately zero (a parent fully
-					// covered by its children) contributes zero on purpose — do
+					// A span whose exclusive is legitimately qg (a parent fully
+					// covered by its children) contributes qg on purpose — do
 					// NOT fall back to Duration, which would re-introduce the
 					// double-count. ReadNDJSON preserves a written exclusive_ms:0
 					// as 0 and only falls back to Duration when the key is absent,
@@ -494,7 +494,7 @@ func aggregateTotals(totals *TurnBenchTotals, tr *trace.TurnTrace) {
 // until" criterion.
 func FormatTurnBenchSummary(result TurnBenchResult) string {
 	lines := []string{
-		"Zero turn benchmark: " + displayOrUnknown(result.Suite),
+		"QG turn benchmark: " + displayOrUnknown(result.Suite),
 		"model: " + displayOrUnknown(result.Model),
 		// The headline separates the three oracle tiers so an exit-0 read-only
 		// task can never inflate a "pass rate" that reads as correctness:
@@ -598,7 +598,7 @@ func WriteTurnBenchJSON(w io.Writer, result TurnBenchResult) error {
 	return encoder.Encode(result)
 }
 
-// execExitIncomplete mirrors internal/cli.exitIncomplete (the `zero exec` exit
+// execExitIncomplete mirrors internal/cli.exitIncomplete (the `qg exec` exit
 // code, 4) for a headless run the completion gate marked INCOMPLETE: the run
 // stopped without a completion signal (e.g. it couldn't self-verify because its
 // sandboxed shell was unavailable under --auto member), which is distinct from a
@@ -609,9 +609,9 @@ func WriteTurnBenchJSON(w io.Writer, result TurnBenchResult) error {
 const execExitIncomplete = 4
 
 // NewTurnExecRunner builds the production turn-benchmark runner: it invokes
-// headless `zero exec` with stream-json output AND `--trace <tmpfile>`, then
+// headless `qg exec` with stream-json output AND `--trace <tmpfile>`, then
 // parses the emitted NDJSON trace into a *trace.TurnTrace. binary is the path to
-// the `zero` binary; extraArgs are appended to every invocation. Pass/fail is
+// the `qg` binary; extraArgs are appended to every invocation. Pass/fail is
 // decided by the task's oracle when it has one. The oracle that gates the verdict
 // is the VerificationCommand (which compiles and runs the stamped OracleTest via
 // `go test`, plus any greps against the fixture); it is ground truth, so an
@@ -647,7 +647,7 @@ func NewTurnExecRunner(binary string, extraArgs ...string) TurnRunner {
 		defer os.RemoveAll(parent)
 		task.WorkspaceFixture = copyDir
 
-		traceFile, err := os.CreateTemp("", "zero-turn-trace-*.ndjson")
+		traceFile, err := os.CreateTemp("", "qg-turn-trace-*.ndjson")
 		if err != nil {
 			return TurnTaskOutcome{Err: fmt.Errorf("create trace file: %w", err)}
 		}
@@ -683,7 +683,7 @@ func NewTurnExecRunner(binary string, extraArgs ...string) TurnRunner {
 			if detail == "" {
 				detail = "missing terminal run_end event"
 			}
-			outcome.Err = fmt.Errorf("zero exec failed: %s", detail)
+			outcome.Err = fmt.Errorf("qg exec failed: %s", detail)
 			return outcome
 		}
 
@@ -778,11 +778,11 @@ func copyFixture(src string) (dst, parent string, err error) {
 	// Unique, 0700-per-invocation parent directly under the temp root. The
 	// fixture copy is created BENEATH it, so the copy is a grandchild of the
 	// temp root and its go.mod is respected (see the doc comment above).
-	parent, err = os.MkdirTemp(os.TempDir(), "zero-turn-bench-*")
+	parent, err = os.MkdirTemp(os.TempDir(), "qg-turn-bench-*")
 	if err != nil {
 		return "", "", err
 	}
-	dst, err = os.MkdirTemp(parent, "zero-turn-fixture-*")
+	dst, err = os.MkdirTemp(parent, "qg-turn-fixture-*")
 	if err != nil {
 		os.RemoveAll(parent)
 		return "", "", err
@@ -822,7 +822,7 @@ func copyFixture(src string) (dst, parent string, err error) {
 // absent file.
 //
 // A task that needs an oracle — a stamped oracle_test.go OR a verification
-// command that reads .zero-answer.txt — but has no workspace fixture is
+// command that reads .qg-answer.txt — but has no workspace fixture is
 // rejected: there is nowhere safe to stamp, so runVerification would otherwise
 // run in the caller's cwd with the oracle never compiled (or the answer never
 // captured), which can read as a false pass. A fixtureless task with no oracle
@@ -842,14 +842,14 @@ func stampOracleAndAnswer(task BenchTask, outBuf []byte) error {
 		}
 	}
 	answer := streamJSONFinalText(outBuf)
-	if err := os.WriteFile(filepath.Join(dir, ".zero-answer.txt"), []byte(answer), 0o644); err != nil {
-		return fmt.Errorf("write .zero-answer.txt: %w", err)
+	if err := os.WriteFile(filepath.Join(dir, ".qg-answer.txt"), []byte(answer), 0o644); err != nil {
+		return fmt.Errorf("write .qg-answer.txt: %w", err)
 	}
 	return nil
 }
 
 func buildTurnExecArgs(task BenchTask, rc RunContext, tracePath string, extraArgs []string) []string {
-	// --auto member is REQUIRED, not optional: without a permission grant `zero
+	// --auto member is REQUIRED, not optional: without a permission grant `qg
 	// exec` runs in its default read-only posture, which exposes no write or shell
 	// tools (no edit_file/apply_patch/write_file/exec_command/bash). The mutating
 	// task classes (edit/fix/refactor) then cannot apply any change, so every run
@@ -883,8 +883,8 @@ func buildTurnExecArgs(task BenchTask, rc RunContext, tracePath string, extraArg
 	return args
 }
 
-// ResolveBinary locates the zero binary for a benchmark run: an explicit path
-// when provided, else a `zero` (or zero.exe) on PATH, else a binary built into
+// ResolveBinary locates the qg binary for a benchmark run: an explicit path
+// when provided, else a `qg` (or qg.exe) on PATH, else a binary built into
 // the repo root. Returns an error when none is found.
 func ResolveBinary(explicit string) (string, error) {
 	if v := strings.TrimSpace(explicit); v != "" {
@@ -893,7 +893,7 @@ func ResolveBinary(explicit string) (string, error) {
 		}
 		// Pin the explicit path to an absolute one: the turn runner sets each
 		// child's cmd.Dir to a per-task fixture copy, so a relative path
-		// (./zero, the Makefile default) that stats fine here would fail to
+		// (./qg, the Makefile default) that stats fine here would fail to
 		// spawn from inside every fixture dir, silently erroring all tasks.
 		absolute, err := filepath.Abs(v)
 		if err != nil {
@@ -901,20 +901,20 @@ func ResolveBinary(explicit string) (string, error) {
 		}
 		return absolute, nil
 	}
-	if path, err := exec.LookPath("zero"); err == nil {
+	if path, err := exec.LookPath("qg"); err == nil {
 		return path, nil
 	}
-	if path, err := exec.LookPath("zero.exe"); err == nil {
+	if path, err := exec.LookPath("qg.exe"); err == nil {
 		return path, nil
 	}
 	cwd, err := os.Getwd()
 	if err == nil {
-		for _, name := range []string{"zero", "zero.exe"} {
+		for _, name := range []string{"qg", "qg.exe"} {
 			candidate := filepath.Join(cwd, name)
 			if _, err := os.Stat(candidate); err == nil {
 				return candidate, nil
 			}
 		}
 	}
-	return "", errors.New("zero binary not found; build it first or pass an explicit path")
+	return "", errors.New("qg binary not found; build it first or pass an explicit path")
 }

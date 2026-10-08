@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 )
 
 type Location string
@@ -73,10 +73,10 @@ type LoadResult struct {
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
-// specialistFilesMu prevents Zero-managed loads from observing a specialist
+// specialistFilesMu prevents QG-managed loads from observing a specialist
 // mutation in progress. This is especially important on Windows, where
 // ReplaceFileW can briefly leave the destination name absent. It cannot
-// synchronize external editors or other Zero processes.
+// synchronize external editors or other QG processes.
 var specialistFilesMu sync.RWMutex
 
 var knownMetadataKeys = map[string]bool{
@@ -134,10 +134,10 @@ func DefaultPaths(workspaceRoot string) (Paths, error) {
 		return Paths{}, fmt.Errorf("resolve user config directory: %w", err)
 	}
 	paths := Paths{
-		UserDir: filepath.Join(userConfigDir, "zero", "specialists"),
+		UserDir: filepath.Join(userConfigDir, "qg", "specialists"),
 	}
 	if strings.TrimSpace(workspaceRoot) != "" {
-		paths.ProjectDir = filepath.Join(filepath.Clean(workspaceRoot), ".zero", "specialists")
+		paths.ProjectDir = filepath.Join(filepath.Clean(workspaceRoot), ".qg", "specialists")
 	}
 	return paths, nil
 }
@@ -489,7 +489,7 @@ func loadDirectory(dir string, location Location) ([]Manifest, []string, error) 
 		// Only *.md is a specialist. Everything else in the directory is
 		// deliberately invisible here, including the two kinds of sibling files an
 		// interrupted overwrite can leave: a .specialist-*.tmp replacement that was
-		// never published, and a .zero-replace-*.backup holding an original whose
+		// never published, and a .qg-replace-*.backup holding an original whose
 		// rollback failed on Windows. Neither is a manifest, and guessing that one
 		// of them is would be worse than the gap. The recovery for a backup that
 		// really does hold the last good copy is a manual rename, spelled out both

@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 )
 
 // The erase rectangle has to describe what was PAINTED, not the reserved area.
@@ -47,7 +47,7 @@ func TestKittyKeepsTheRequestedPlacementSize(t *testing.T) {
 }
 
 // Without metrics there is nothing to compute from, so it must fall back to the
-// constants rather than to zero, which would erase nothing and leave the
+// constants rather than to qg, which would erase nothing and leave the
 // companion smeared across the screen.
 func TestFootprintFallsBackToTheReservedAreaWithoutMetrics(t *testing.T) {
 	m := model{petRenderer: terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolSixel})}

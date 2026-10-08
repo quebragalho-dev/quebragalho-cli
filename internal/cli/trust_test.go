@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/workspacetrust"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspacetrust"
 )
 
 // trustDeps builds a test appDeps whose getwd returns a fixed directory, so the

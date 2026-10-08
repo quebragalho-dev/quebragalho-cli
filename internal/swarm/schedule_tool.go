@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // ScheduleToolName is the recurring-spawn scheduler tool.

@@ -9,7 +9,7 @@ import "fmt"
 // CaptureToolCheckpoint has just written but not yet referenced by its event.
 func (store *Store) pruneOrphanBlobs(sessionID string) (int, error) {
 	if !ValidSessionID(sessionID) {
-		return 0, fmt.Errorf("invalid zero session id %q", sessionID)
+		return 0, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
 	unlock, err := store.lockSession(sessionID)
 	if err != nil {

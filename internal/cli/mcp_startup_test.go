@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 type closeTrackingMCPRuntime struct {

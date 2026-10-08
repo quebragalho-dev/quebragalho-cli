@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/Gitlawb/zero/internal/specialist"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specialist"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // NewSpecialistLauncher adapts internal/specialist.Executor into a

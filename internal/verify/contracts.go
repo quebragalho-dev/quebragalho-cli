@@ -3,12 +3,12 @@ package verify
 import (
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/testrunner"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testrunner"
 )
 
 const RuntimeGo = "go"
-const ReportContractVersion = "zero.verify.report.v1"
+const ReportContractVersion = "qg.verify.report.v1"
 
 type EventType string
 

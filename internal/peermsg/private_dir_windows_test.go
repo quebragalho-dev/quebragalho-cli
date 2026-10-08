@@ -16,7 +16,7 @@ import (
 func TestEnsurePrivateDirAppliesOwnerOnlyProtectedDACL(t *testing.T) {
 	const directoryAllAccess = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff
 
-	path := filepath.Join(t.TempDir(), "zero", "peers", "registry")
+	path := filepath.Join(t.TempDir(), "qg", "peers", "registry")
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}

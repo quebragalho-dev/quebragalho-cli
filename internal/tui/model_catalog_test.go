@@ -3,8 +3,8 @@ package tui
 import (
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 )
 
 func TestModelContextWindowUsesCachedCatalog(t *testing.T) {

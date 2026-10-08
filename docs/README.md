@@ -1,7 +1,7 @@
-# Zero Documentation
+# QG Documentation
 
 This directory contains public documentation for using, extending, and releasing
-Zero.
+QG.
 
 ## User Docs
 
@@ -17,7 +17,7 @@ Zero.
 
 ## Maintainer Docs
 
-- [How Zero Works](HOW_ZERO_WORKS.md)
+- [How QG Works](HOW_QG_WORKS.md)
 - [npm wrapper smoke checklist](NPM_WRAPPER_SMOKE.md)
 - [Benchmarks](BENCHMARK.md)
 - [Performance benchmarks](PERFORMANCE.md)

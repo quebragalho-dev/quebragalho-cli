@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/errhint"
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/errhint"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 // Mid-stream reconnect: a long autonomous task (a big refactor, a swarm member,
@@ -74,7 +74,7 @@ func stallRetryNoticeFor(options Options) reconnectNotifier {
 // last error. A context-cancellation, a non-disconnect error, or a context
 // already past its deadline is returned immediately (no retry) — those have
 // their own handling (compaction for context-limit, image-rejection, etc.).
-func streamWithReconnect(ctx context.Context, provider Provider, request zeroruntime.CompletionRequest, notify reconnectNotifier) (<-chan zeroruntime.StreamEvent, error) {
+func streamWithReconnect(ctx context.Context, provider Provider, request qgruntime.CompletionRequest, notify reconnectNotifier) (<-chan qgruntime.StreamEvent, error) {
 	recorder := trace.FromContext(ctx)
 	stream, err := provider.StreamCompletion(ctx, request)
 	if err == nil {

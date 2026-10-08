@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestTrackerNormalizesUsageAndComputesModelCost(t *testing.T) {
@@ -13,7 +13,7 @@ func TestTrackerNormalizesUsageAndComputesModelCost(t *testing.T) {
 	record, err := tracker.Record(RecordInput{
 		ModelID: "gpt-4.1",
 		Source:  "exec",
-		Usage: zeroruntime.Usage{
+		Usage: qgruntime.Usage{
 			PromptTokens:      1_000,
 			CompletionTokens:  250,
 			CachedInputTokens: 200,
@@ -22,7 +22,7 @@ func TestTrackerNormalizesUsageAndComputesModelCost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Record returned error: %v", err)
 	}
-	if record.Sequence != 1 || record.ID != "zero_usage_1" || record.CreatedAt != "2026-06-04T13:00:00Z" {
+	if record.Sequence != 1 || record.ID != "qg_usage_1" || record.CreatedAt != "2026-06-04T13:00:00Z" {
 		t.Fatalf("unexpected record identity: %#v", record)
 	}
 	if record.Usage.InputTokens != 1_000 || record.Usage.OutputTokens != 250 || record.Usage.TotalTokens != 1_250 {
@@ -43,10 +43,10 @@ func TestTrackerNormalizesUsageAndComputesModelCost(t *testing.T) {
 
 func TestTrackerRejectsInvalidUsageAndUnknownModels(t *testing.T) {
 	tracker := NewTracker(TrackerOptions{})
-	if _, err := tracker.Record(RecordInput{ModelID: "missing", Usage: zeroruntime.Usage{InputTokens: 1}}); err == nil {
+	if _, err := tracker.Record(RecordInput{ModelID: "missing", Usage: qgruntime.Usage{InputTokens: 1}}); err == nil {
 		t.Fatal("expected unknown model error")
 	}
-	if _, err := tracker.Record(RecordInput{ModelID: "gpt-4.1", Usage: zeroruntime.Usage{InputTokens: -1}}); err == nil {
+	if _, err := tracker.Record(RecordInput{ModelID: "gpt-4.1", Usage: qgruntime.Usage{InputTokens: -1}}); err == nil {
 		t.Fatal("expected invalid usage error")
 	}
 }
@@ -55,7 +55,7 @@ func TestTrackerTreatsReasoningAsOutputBreakdown(t *testing.T) {
 	tracker := NewTracker(TrackerOptions{})
 	record, err := tracker.Record(RecordInput{
 		ModelID: "gpt-4.1",
-		Usage: zeroruntime.Usage{
+		Usage: qgruntime.Usage{
 			InputTokens:     100,
 			OutputTokens:    40,
 			ReasoningTokens: 10,
@@ -71,7 +71,7 @@ func TestTrackerTreatsReasoningAsOutputBreakdown(t *testing.T) {
 
 func TestTrackerResetClearsRecords(t *testing.T) {
 	tracker := NewTracker(TrackerOptions{})
-	if _, err := tracker.Record(RecordInput{ModelID: "gpt-4.1", Usage: zeroruntime.Usage{InputTokens: 1, OutputTokens: 1}}); err != nil {
+	if _, err := tracker.Record(RecordInput{ModelID: "gpt-4.1", Usage: qgruntime.Usage{InputTokens: 1, OutputTokens: 1}}); err != nil {
 		t.Fatalf("Record returned error: %v", err)
 	}
 	tracker.Reset()

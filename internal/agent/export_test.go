@@ -2,8 +2,8 @@
 package agent
 
 import (
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func equalStringSlices(left []string, right []string) bool {
@@ -36,6 +36,6 @@ func parsePreservedState(summaryContent string) (string, []skillEntry) {
 // through tool_search. Non-deferred tools (including tool_search) are always
 // exposed. The exposed slice is alpha-sorted by name, matching the legacy order
 // so the inactive path is stable.
-func partitionTools(registry *tools.Registry, permissionMode PermissionMode, options Options, loaded map[string]bool) ([]zeroruntime.ToolDefinition, string) {
+func partitionTools(registry *tools.Registry, permissionMode PermissionMode, options Options, loaded map[string]bool) ([]qgruntime.ToolDefinition, string) {
 	return partitionToolsCached(registry, permissionMode, options, loaded, nil)
 }

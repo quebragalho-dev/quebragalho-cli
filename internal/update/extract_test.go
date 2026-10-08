@@ -62,8 +62,8 @@ func TestExtractTarGzRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "archive.tar.gz")
 	writeTestTarGz(t, archivePath, map[string]string{
-		"zero":                 "main-binary",
-		"helpers/zero-seccomp": "helper-binary",
+		"qg":                 "main-binary",
+		"helpers/qg-seccomp": "helper-binary",
 	})
 
 	destDir := filepath.Join(dir, "extracted")
@@ -74,19 +74,19 @@ func TestExtractTarGzRoundTrip(t *testing.T) {
 		t.Fatalf("extractArchive: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(destDir, "zero"))
+	data, err := os.ReadFile(filepath.Join(destDir, "qg"))
 	if err != nil {
-		t.Fatalf("ReadFile zero: %v", err)
+		t.Fatalf("ReadFile qg: %v", err)
 	}
 	if string(data) != "main-binary" {
-		t.Fatalf("zero content = %q", data)
+		t.Fatalf("qg content = %q", data)
 	}
-	data, err = os.ReadFile(filepath.Join(destDir, "helpers", "zero-seccomp"))
+	data, err = os.ReadFile(filepath.Join(destDir, "helpers", "qg-seccomp"))
 	if err != nil {
-		t.Fatalf("ReadFile helpers/zero-seccomp: %v", err)
+		t.Fatalf("ReadFile helpers/qg-seccomp: %v", err)
 	}
 	if string(data) != "helper-binary" {
-		t.Fatalf("helpers/zero-seccomp content = %q", data)
+		t.Fatalf("helpers/qg-seccomp content = %q", data)
 	}
 }
 
@@ -94,7 +94,7 @@ func TestExtractZipRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "archive.zip")
 	writeTestZip(t, archivePath, map[string]string{
-		"zero.exe": "main-binary",
+		"qg.exe": "main-binary",
 	})
 
 	destDir := filepath.Join(dir, "extracted")
@@ -105,12 +105,12 @@ func TestExtractZipRoundTrip(t *testing.T) {
 		t.Fatalf("extractArchive: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(destDir, "zero.exe"))
+	data, err := os.ReadFile(filepath.Join(destDir, "qg.exe"))
 	if err != nil {
-		t.Fatalf("ReadFile zero.exe: %v", err)
+		t.Fatalf("ReadFile qg.exe: %v", err)
 	}
 	if string(data) != "main-binary" {
-		t.Fatalf("zero.exe content = %q", data)
+		t.Fatalf("qg.exe content = %q", data)
 	}
 }
 
@@ -161,7 +161,7 @@ func TestExtractZipRejectsSymlinkEntry(t *testing.T) {
 		t.Fatalf("Create archive: %v", err)
 	}
 	zipWriter := zip.NewWriter(file)
-	header := &zip.FileHeader{Name: "zero"}
+	header := &zip.FileHeader{Name: "qg"}
 	header.SetMode(os.ModeSymlink | 0o777)
 	writer, err := zipWriter.CreateHeader(header)
 	if err != nil {
@@ -184,7 +184,7 @@ func TestExtractZipRejectsSymlinkEntry(t *testing.T) {
 	if err := extractArchive(archivePath, destDir); err == nil {
 		t.Fatal("expected extractArchive to reject a symlink entry")
 	}
-	if _, err := os.Lstat(filepath.Join(destDir, "zero")); err == nil {
+	if _, err := os.Lstat(filepath.Join(destDir, "qg")); err == nil {
 		t.Fatal("symlink entry should not have been written to the destination")
 	}
 }
@@ -195,12 +195,12 @@ func TestFindByBasenameSearchesRecursively(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	wantPath := filepath.Join(nested, "zero-seccomp")
+	wantPath := filepath.Join(nested, "qg-seccomp")
 	if err := os.WriteFile(wantPath, []byte("helper"), 0o755); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	found, err := findByBasename(dir, "zero-seccomp")
+	found, err := findByBasename(dir, "qg-seccomp")
 	if err != nil {
 		t.Fatalf("findByBasename: %v", err)
 	}
@@ -508,7 +508,7 @@ func TestExtractTarGzRejectsSymlinkParentEscape(t *testing.T) {
 	}
 }
 
-// An archive attempting to plant zero -> d/s/outside-file through a symlink parent
+// An archive attempting to plant qg -> d/s/outside-file through a symlink parent
 // must not create the target outside destDir and extractArchive must fail.
 func TestExtractTarGzRejectsSymlinkThroughSymlinkParentOutsideTarget(t *testing.T) {
 	if !symlinksSupported(t) {
@@ -525,7 +525,7 @@ func TestExtractTarGzRejectsSymlinkThroughSymlinkParentOutsideTarget(t *testing.
 	writeTestTarGzEntries(t, archivePath, []testTarEntry{
 		{name: "d", typeflag: tar.TypeSymlink, linkname: "."},
 		{name: "d/s", typeflag: tar.TypeSymlink, linkname: ".."},
-		{name: "zero", typeflag: tar.TypeSymlink, linkname: "d/s/outside/pwned.txt"},
+		{name: "qg", typeflag: tar.TypeSymlink, linkname: "d/s/outside/pwned.txt"},
 	})
 	extractErr := extractArchive(archivePath, destDir)
 	if extractErr == nil {
@@ -550,12 +550,12 @@ func TestExtractTarGzRejectsIntermediateDirSymlinkEscape(t *testing.T) {
 	writeTestTarGzEntries(t, archivePath, []testTarEntry{
 		{name: "d", typeflag: tar.TypeSymlink, linkname: "."},
 		{name: "d/a", typeflag: tar.TypeDir},
-		{name: "d/a/zero", typeflag: tar.TypeSymlink, linkname: "../../archive.tar.gz.outside"},
+		{name: "d/a/qg", typeflag: tar.TypeSymlink, linkname: "../../archive.tar.gz.outside"},
 	})
 	if err := extractArchive(archivePath, destDir); err == nil {
 		t.Fatal("expected reject of ../../ escape through intermediate dir symlink")
 	}
-	if _, err := os.Lstat(filepath.Join(destDir, "d", "a", "zero")); err == nil {
+	if _, err := os.Lstat(filepath.Join(destDir, "d", "a", "qg")); err == nil {
 		t.Fatal("escaping link must not be created")
 	}
 }

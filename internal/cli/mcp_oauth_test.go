@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/workspacetrust"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspacetrust"
 )
 
 // syncBuffer is a goroutine-safe writer used when a background goroutine reads
@@ -226,7 +226,7 @@ func TestRunMCPOAuthLoginRejectsNonOAuthServer(t *testing.T) {
 
 // TestRunMCPOAuthLoginGatedInUntrustedWorkspace is the load-bearing security test for
 // the OAuth login gate: an OAuth MCP server defined ONLY in an untrusted workspace's
-// ./.zero/config.json must be dropped before login. `zero mcp oauth login` must refuse
+// ./.qg/config.json must be dropped before login. `qg mcp oauth login` must refuse
 // with "not configured", surface the trust notice, and store NO token — so the
 // discovery/registration/token-exchange flow never fires against the project URL. If the
 // gate is reverted to resolveMCPConfig(cwd, false), the server survives, login proceeds,
@@ -247,11 +247,11 @@ func TestRunMCPOAuthLoginGatedInUntrustedWorkspace(t *testing.T) {
 	cwd := t.TempDir()
 	// A real project MCP config on disk so projectMCPConfigExists() is true and the
 	// notice fires. resolveMCPConfig is faked, but the notice detector reads disk.
-	if err := os.MkdirAll(filepath.Join(cwd, ".zero"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(cwd, ".qg"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"mcp":{"servers":{"remote":{"type":"http","url":"` + oauthSrv.URL + `","auth":"oauth"}}}}`
-	if err := os.WriteFile(filepath.Join(cwd, ".zero", "config.json"), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(cwd, ".qg", "config.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	store, err := mcp.NewTokenStore(mcp.TokenStoreOptions{
@@ -307,7 +307,7 @@ func TestRunMCPOAuthLoginGatedInUntrustedWorkspace(t *testing.T) {
 	if !strings.Contains(stderr.String(), "not configured") {
 		t.Fatalf("stderr must report the server as not configured, got %q", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "MCP servers") || !strings.Contains(stderr.String(), "zero trust") {
+	if !strings.Contains(stderr.String(), "MCP servers") || !strings.Contains(stderr.String(), "qg trust") {
 		t.Fatalf("stderr must surface the workspace-trust notice, got %q", stderr.String())
 	}
 	if _, ok, _ := store.Load("remote"); ok {
@@ -364,11 +364,11 @@ func TestResolveOAuthServerTrustedWorkspaceReturnsServer(t *testing.T) {
 func TestResolveOAuthServerGatedInUntrustedWorkspace(t *testing.T) {
 	setTrustConfigRoot(t)
 	cwd := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(cwd, ".zero"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(cwd, ".qg"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"mcp":{"servers":{"remote":{"type":"http","url":"https://remote.invalid/mcp","auth":"oauth"}}}}`
-	if err := os.WriteFile(filepath.Join(cwd, ".zero", "config.json"), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(cwd, ".qg", "config.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	deps := appDeps{

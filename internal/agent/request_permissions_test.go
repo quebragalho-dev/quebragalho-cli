@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestRequestPermissionsTurnGrantAllowsLaterToolAndCleansUp(t *testing.T) {
@@ -30,19 +30,19 @@ func TestRequestPermissionsTurnGrantAllowsLaterToolAndCleansUp(t *testing.T) {
 	registry.Register(tools.NewRequestPermissionsTool())
 	registry.Register(tools.NewScopedWriteFileTool(workspace, scope))
 	provider := &mockProvider{
-		turns: [][]zeroruntime.StreamEvent{
+		turns: [][]qgruntime.StreamEvent{
 			{
-				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "grant-1", ToolName: tools.RequestPermissionsToolName},
-				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "grant-1", ArgumentsFragment: `{"reason":"Need to write outside the workspace.","permissions":{"file_system":{"write":[` + quoteJSONString(target) + `]}}}`},
-				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "grant-1"},
-				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "write-1", ToolName: "write_file"},
-				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "write-1", ArgumentsFragment: `{"path":` + quoteJSONString(target) + `,"content":"carrot\n","overwrite":true}`},
-				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "write-1"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "grant-1", ToolName: tools.RequestPermissionsToolName},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "grant-1", ArgumentsFragment: `{"reason":"Need to write outside the workspace.","permissions":{"file_system":{"write":[` + quoteJSONString(target) + `]}}}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "grant-1"},
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "write-1", ToolName: "write_file"},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "write-1", ArgumentsFragment: `{"path":` + quoteJSONString(target) + `,"content":"carrot\n","overwrite":true}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "write-1"},
+				{Type: qgruntime.StreamEventDone},
 			},
 			{
-				{Type: zeroruntime.StreamEventText, Content: "done"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventText, Content: "done"},
+				{Type: qgruntime.StreamEventDone},
 			},
 		},
 	}
@@ -122,7 +122,7 @@ func TestRequestPermissionsTurnGrantAllowsLaterToolAndCleansUp(t *testing.T) {
 
 func tempDirOutsideDefaultTemp(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp(".", ".zero-sandbox-outside-")
+	dir, err := os.MkdirTemp(".", ".qg-sandbox-outside-")
 	if err != nil {
 		t.Fatalf("MkdirTemp outside default temp: %v", err)
 	}
@@ -259,16 +259,16 @@ func requestPermissionsOnlyProvider(arguments string, finalAnswer string) *mockP
 		arguments = "{}"
 	}
 	return &mockProvider{
-		turns: [][]zeroruntime.StreamEvent{
+		turns: [][]qgruntime.StreamEvent{
 			{
-				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "grant-1", ToolName: tools.RequestPermissionsToolName},
-				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "grant-1", ArgumentsFragment: arguments},
-				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "grant-1"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "grant-1", ToolName: tools.RequestPermissionsToolName},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "grant-1", ArgumentsFragment: arguments},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "grant-1"},
+				{Type: qgruntime.StreamEventDone},
 			},
 			{
-				{Type: zeroruntime.StreamEventText, Content: finalAnswer},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventText, Content: finalAnswer},
+				{Type: qgruntime.StreamEventDone},
 			},
 		},
 	}

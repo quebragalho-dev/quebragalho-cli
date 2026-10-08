@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/testutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 // --- test doubles ---------------------------------------------------------

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Gitlawb/zero/internal/background"
-	"github.com/Gitlawb/zero/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 const specialistAccountingSource = "specialist"

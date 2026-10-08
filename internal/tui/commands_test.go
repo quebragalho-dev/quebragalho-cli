@@ -10,10 +10,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	internalmcp "github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	internalmcp "github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func applyCommandResult(t *testing.T, m model, cmd tea.Cmd) model {
@@ -58,7 +58,7 @@ func TestFormatCommandHelpLinesGroupsCommandsByStableOrder(t *testing.T) {
 		"  /mcp (/mcp-status) - Show MCP server status.",
 		"  /search <query> (/find) - Search local session events. Requires a query argument.",
 		"meta:",
-		"  /exit (/quit) - Exit Zero.",
+		"  /exit (/quit) - Exit QG.",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected grouped help to contain %q, got:\n%s", want, help)
@@ -159,7 +159,7 @@ func TestMCPCommandRendersConfiguredStateWithoutAgentRun(t *testing.T) {
 	m.mcpConfig = config.MCPConfig{Servers: map[string]config.MCPServerConfig{
 		"docs": {
 			Type:    "stdio",
-			Command: "zero-docs-mcp",
+			Command: "qg-docs-mcp",
 			Args:    []string{"--workspace", "."},
 		},
 		"github": {
@@ -218,8 +218,8 @@ func TestMCPCommandRendersConfiguredStateWithoutAgentRun(t *testing.T) {
 		"persistent grants:",
 		"server grants:",
 		"OAuth",
-		"add: zero mcp add",
-		"disconnect: zero mcp disable",
+		"add: qg mcp add",
+		"disconnect: qg mcp disable",
 	} {
 		if strings.Contains(text, unwanted) {
 			t.Fatalf("MCP manager overlay should not include old status report text %q:\n%s", unwanted, text)
@@ -727,7 +727,7 @@ func TestMCPManagerRunsSelectedServerAction(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		PermissionMode: agent.PermissionModeAsk,
 		MCPConfig: config.MCPConfig{Servers: map[string]config.MCPServerConfig{
-			"docs": {Type: "stdio", Command: "zero-docs-mcp"},
+			"docs": {Type: "stdio", Command: "qg-docs-mcp"},
 		}},
 		MCPCommand: func(_ context.Context, args []string) MCPCommandResult {
 			called = append([]string{}, args...)
@@ -735,7 +735,7 @@ func TestMCPManagerRunsSelectedServerAction(t *testing.T) {
 				ExitCode: 0,
 				Output:   "MCP server docs is now disabled.",
 				Config: config.MCPConfig{Servers: map[string]config.MCPServerConfig{
-					"docs": {Type: "stdio", Command: "zero-docs-mcp", Disabled: true},
+					"docs": {Type: "stdio", Command: "qg-docs-mcp", Disabled: true},
 				}},
 			}
 		},
@@ -781,7 +781,7 @@ func TestMCPCommandRunsManagerActionAndRefreshesState(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		PermissionMode: agent.PermissionModeAsk,
 		MCPConfig: config.MCPConfig{Servers: map[string]config.MCPServerConfig{
-			"docs": {Type: "stdio", Command: "zero-docs-mcp"},
+			"docs": {Type: "stdio", Command: "qg-docs-mcp"},
 		}},
 		MCPCommand: func(_ context.Context, args []string) MCPCommandResult {
 			if !reflect.DeepEqual(args, []string{"disable", "docs"}) {
@@ -791,7 +791,7 @@ func TestMCPCommandRunsManagerActionAndRefreshesState(t *testing.T) {
 				ExitCode: 0,
 				Output:   "MCP server docs is now disabled.",
 				Config: config.MCPConfig{Servers: map[string]config.MCPServerConfig{
-					"docs": {Type: "stdio", Command: "zero-docs-mcp", Disabled: true},
+					"docs": {Type: "stdio", Command: "qg-docs-mcp", Disabled: true},
 				}},
 			}
 		},
@@ -813,7 +813,7 @@ func TestMCPCommandRunsManagerActionAndRefreshesState(t *testing.T) {
 		"MCP action complete",
 		"MCP server docs is now disabled.",
 		"docs · disabled · stdio",
-		"zero mcp enable docs",
+		"qg mcp enable docs",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("/mcp action text missing %q:\n%s", want, text)
@@ -830,12 +830,12 @@ func TestMCPCommandPreservesQuotedArguments(t *testing.T) {
 				ExitCode: 0,
 				Output:   "Added MCP server docs.",
 				Config: config.MCPConfig{Servers: map[string]config.MCPServerConfig{
-					"docs": {Type: "stdio", Command: `C:\Program Files\docs mcp.exe`, Args: []string{"--label", "Zero Docs"}},
+					"docs": {Type: "stdio", Command: `C:\Program Files\docs mcp.exe`, Args: []string{"--label", "QG Docs"}},
 				}},
 			}
 		},
 	})
-	m.input.SetValue(`/mcp add docs -- "C:\Program Files\docs mcp.exe" --label "Zero Docs"`)
+	m.input.SetValue(`/mcp add docs -- "C:\Program Files\docs mcp.exe" --label "QG Docs"`)
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -844,7 +844,7 @@ func TestMCPCommandPreservesQuotedArguments(t *testing.T) {
 		t.Fatal("expected /mcp add to run asynchronously")
 	}
 	next = applyCommandResult(t, next, cmd)
-	want := []string{"add", "docs", "--", `C:\Program Files\docs mcp.exe`, "--label", "Zero Docs"}
+	want := []string{"add", "docs", "--", `C:\Program Files\docs mcp.exe`, "--label", "QG Docs"}
 	if !reflect.DeepEqual(called, want) {
 		t.Fatalf("MCPCommand args = %#v, want %#v", called, want)
 	}
@@ -856,7 +856,7 @@ func TestMCPCommandPreservesQuotedArguments(t *testing.T) {
 func TestMCPCommandDoesNotApplyFailedConfig(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		MCPConfig: config.MCPConfig{Servers: map[string]config.MCPServerConfig{
-			"docs": {Type: "stdio", Command: "zero-docs-mcp"},
+			"docs": {Type: "stdio", Command: "qg-docs-mcp"},
 		}},
 		MCPCommand: func(_ context.Context, args []string) MCPCommandResult {
 			return MCPCommandResult{

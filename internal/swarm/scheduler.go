@@ -17,7 +17,7 @@ const minScheduleInterval = time.Second
 
 // Schedule describes when a scheduled job fires. Scheduling is interval-based
 // ("wakeup"): the job first fires after FirstDelay (or Every when FirstDelay is
-// zero), then every Every interval, until MaxRuns successful spawns is reached
+// qg), then every Every interval, until MaxRuns successful spawns is reached
 // or the job/scheduler is stopped. A daily "cron" time sets Daily with Hour/Minute
 // (and Every=24h for display/validation); the run loop then recomputes the delay
 // to the next local HH:MM each cycle so it holds across DST (see the
@@ -25,9 +25,9 @@ const minScheduleInterval = time.Second
 type Schedule struct {
 	// Every is the interval between fires. Required, must be >= minScheduleInterval.
 	Every time.Duration
-	// FirstDelay delays the first fire. Zero => the first fire happens after Every.
+	// FirstDelay delays the first fire. QG => the first fire happens after Every.
 	FirstDelay time.Duration
-	// MaxRuns bounds successful spawns. Zero => unbounded (until cancelled).
+	// MaxRuns bounds successful spawns. QG => unbounded (until cancelled).
 	MaxRuns int
 	// Daily, when set, recomputes each fire as the next local Hour:Minute rather
 	// than adding a fixed Every, so a wall-clock daily time does not drift across

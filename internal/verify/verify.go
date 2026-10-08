@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/testrunner"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testrunner"
 )
 
 type Status string

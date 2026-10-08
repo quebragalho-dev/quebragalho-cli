@@ -211,7 +211,7 @@ func TestDiffViewerSyntaxHighlightsBothChangedSides(t *testing.T) {
 
 	body := diffCardBody(diff, 100, cardRenderOptions{bodyCap: 0})
 	joined := strings.Join(body.lines, "\n")
-	// `func` uses Zero's accent and string literals use its green token style.
+	// `func` uses QG's accent and string literals use its green token style.
 	if !strings.Contains(joined, "202;255;63") || !strings.Contains(joined, "93;209;164") {
 		t.Fatalf("diff viewer did not retain Go syntax colors in changed rows:\n%s", joined)
 	}
@@ -338,8 +338,8 @@ func TestDiffViewerSyntaxHighlighterKeepsSpans(t *testing.T) {
 		[]string{"func greet(name string) string { return \"new\" }"},
 		"example.go",
 		200,
-		zeroTheme.addLine.GetBackground(),
-		[]highlightSpan{{line: 0, start: 39, end: 44, background: zeroTheme.addLineWord.GetBackground()}},
+		qgTheme.addLine.GetBackground(),
+		[]highlightSpan{{line: 0, start: 39, end: 44, background: qgTheme.addLineWord.GetBackground()}},
 	)
 	if !ok || len(styled) != 1 {
 		t.Fatalf("highlightCodeForPathWithSpans = %#v, %v", styled, ok)

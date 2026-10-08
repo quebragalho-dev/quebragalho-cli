@@ -32,7 +32,7 @@ func TestWriteFileRefusesCreateAndOverwriteRaces(t *testing.T) {
 			}
 		})
 		result := NewScopedWriteFileTool(root, nil).Run(context.Background(), map[string]any{
-			"path": "created.txt", "content": "zero\n",
+			"path": "created.txt", "content": "qg\n",
 		})
 		if result.Status != StatusError {
 			t.Fatalf("raced create status = %s, want error", result.Status)
@@ -54,7 +54,7 @@ func TestWriteFileRefusesCreateAndOverwriteRaces(t *testing.T) {
 			}
 		})
 		result := NewScopedWriteFileTool(root, nil).Run(context.Background(), map[string]any{
-			"path": "existing.txt", "content": "zero\n", "overwrite": true,
+			"path": "existing.txt", "content": "qg\n", "overwrite": true,
 		})
 		if result.Status != StatusError || !strings.Contains(result.Output, errFileChangedDuringWrite.Error()) {
 			t.Fatalf("raced overwrite = %s: %s", result.Status, result.Output)
@@ -77,7 +77,7 @@ func TestEditFileRefusesPreimageRace(t *testing.T) {
 		}
 	})
 	result := NewScopedEditFileTool(root, nil).Run(context.Background(), map[string]any{
-		"path": "existing.txt", "old_string": "observed", "new_string": "zero",
+		"path": "existing.txt", "old_string": "observed", "new_string": "qg",
 	})
 	if result.Status != StatusError || !strings.Contains(result.Output, errFileChangedDuringWrite.Error()) {
 		t.Fatalf("raced edit = %s: %s", result.Status, result.Output)
@@ -91,12 +91,12 @@ func TestOverwriteDoesNotStatOpenedFileAfterFinalPreimageComparison(t *testing.T
 	for name, run := range map[string]func(string) Result{
 		"write overwrite": func(root string) Result {
 			return NewScopedWriteFileTool(root, nil).Run(context.Background(), map[string]any{
-				"path": "existing.txt", "content": "zero\n", "overwrite": true,
+				"path": "existing.txt", "content": "qg\n", "overwrite": true,
 			})
 		},
 		"edit": func(root string) Result {
 			return NewScopedEditFileTool(root, nil).Run(context.Background(), map[string]any{
-				"path": "existing.txt", "old_string": "observed", "new_string": "zero",
+				"path": "existing.txt", "old_string": "observed", "new_string": "qg",
 			})
 		},
 	} {

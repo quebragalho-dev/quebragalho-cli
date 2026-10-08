@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	zeroSandbox "github.com/Gitlawb/zero/internal/sandbox"
+	qgSandbox "github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 type fakeSearchBackend struct {
@@ -104,7 +104,7 @@ func TestWebSearchRedactsBackendError(t *testing.T) {
 
 func TestWebSearchRegisteredInCoreNetworkTools(t *testing.T) {
 	// web_search is registered only when a backend is configured.
-	t.Setenv("ZERO_WEBSEARCH_BASE_URL", "https://search.example/api")
+	t.Setenv("QG_WEBSEARCH_BASE_URL", "https://search.example/api")
 	found := false
 	for _, tool := range CoreNetworkTools() {
 		if tool.Name() == "web_search" {
@@ -184,7 +184,7 @@ func TestHTTPSearchBackendSendsProviderAndParsesResults(t *testing.T) {
 	}
 	// The configured provider and query must reach the backend.
 	if gotBody["provider"] != "exa" {
-		t.Fatalf("ZERO_WEBSEARCH_PROVIDER not forwarded: %#v", gotBody)
+		t.Fatalf("QG_WEBSEARCH_PROVIDER not forwarded: %#v", gotBody)
 	}
 	if gotBody["query"] != "q" {
 		t.Fatalf("query not forwarded: %#v", gotBody)
@@ -204,8 +204,8 @@ func (b *fakeHostedBackend) Search(context.Context, string, int) ([]searchResult
 func TestWebSearchRunWithSandboxAllowsUnderShellNetworkDeny(t *testing.T) {
 	backend := &fakeHostedBackend{results: []searchResult{{Title: "T", URL: "https://x.test"}}}
 	tool := newWebSearchToolWithBackend(backend).(webSearchTool)
-	engine := zeroSandbox.NewEngine(zeroSandbox.EngineOptions{
-		Policy: zeroSandbox.Policy{Mode: zeroSandbox.ModeEnforce, Network: zeroSandbox.NetworkDeny},
+	engine := qgSandbox.NewEngine(qgSandbox.EngineOptions{
+		Policy: qgSandbox.Policy{Mode: qgSandbox.ModeEnforce, Network: qgSandbox.NetworkDeny},
 	})
 	res := tool.RunWithSandbox(context.Background(), map[string]any{"query": "hi"}, engine)
 	if res.Status != StatusOK {
@@ -219,8 +219,8 @@ func TestWebSearchRunWithSandboxAllowsUnderShellNetworkDeny(t *testing.T) {
 func TestWebSearchRunWithSandboxAllowsUnderShellNetworkAllow(t *testing.T) {
 	backend := &fakeHostedBackend{results: []searchResult{{Title: "T", URL: "https://x.test"}}}
 	tool := newWebSearchToolWithBackend(backend).(webSearchTool)
-	engine := zeroSandbox.NewEngine(zeroSandbox.EngineOptions{
-		Policy: zeroSandbox.Policy{Mode: zeroSandbox.ModeEnforce, Network: zeroSandbox.NetworkAllow},
+	engine := qgSandbox.NewEngine(qgSandbox.EngineOptions{
+		Policy: qgSandbox.Policy{Mode: qgSandbox.ModeEnforce, Network: qgSandbox.NetworkAllow},
 	})
 	res := tool.RunWithSandbox(context.Background(), map[string]any{"query": "hi"}, engine)
 	if res.Status != StatusOK {
@@ -376,7 +376,7 @@ func TestWebSearchDomainsFilterRejectsBadArgType(t *testing.T) {
 func TestWebSearchRendersScoreWhenPresent(t *testing.T) {
 	backend := &fakeSearchBackend{results: []searchResult{
 		{Title: "ranked", URL: "https://react.dev/rsc", Score: 0.91},
-		{Title: "unranked", URL: "https://react.dev/other"}, // zero score, must be omitted
+		{Title: "unranked", URL: "https://react.dev/other"}, // qg score, must be omitted
 	}}
 	tool := newWebSearchToolWithBackend(backend)
 	res := tool.Run(context.Background(), map[string]any{"query": "x"})

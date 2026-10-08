@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/localcontrol"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
 )
 
 type fakeBrowserRunner struct {
@@ -168,8 +168,8 @@ func TestBrowserClickTypeAndPressRunStructuredCommands(t *testing.T) {
 		},
 		{
 			name: "type",
-			args: map[string]any{"ref": "e114", "text": "hey from zero"},
-			want: []string{"type", "e114", "hey from zero"},
+			args: map[string]any{"ref": "e114", "text": "hey from qg"},
+			want: []string{"type", "e114", "hey from qg"},
 		},
 		{
 			name: "press",
@@ -201,7 +201,7 @@ func TestBrowserClickTypeAndPressRunStructuredCommands(t *testing.T) {
 
 func TestBrowserTypeRejectsMissingRefBeforePermission(t *testing.T) {
 	tool := newBrowserTypeTool(localcontrol.BrowserOptions{Enabled: true})
-	result, rejected := tool.(PrePermissionRejecter).RejectBeforePermission(map[string]any{"text": "hey from zero"})
+	result, rejected := tool.(PrePermissionRejecter).RejectBeforePermission(map[string]any{"text": "hey from qg"})
 	if !rejected || result.Status != StatusError || !strings.Contains(result.Output, "ref is required") {
 		t.Fatalf("reject = (%v, %#v), want ref rejection", rejected, result)
 	}

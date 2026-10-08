@@ -66,7 +66,7 @@ func TestWriteCrashReportCreatesPrivateDefaultDirectories(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 
 	dir := DefaultCrashDir()
-	if dir != filepath.Join(home, ".zero", "crashes") {
+	if dir != filepath.Join(home, ".qg", "crashes") {
 		t.Fatalf("DefaultCrashDir = %q, want path beneath temporary home", dir)
 	}
 	if _, err := WriteCrashReport(dir, "cli", "boom", []byte("stack"), time.Now()); err != nil {
@@ -75,7 +75,7 @@ func TestWriteCrashReportCreatesPrivateDefaultDirectories(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		return
 	}
-	for _, path := range []string{filepath.Join(home, ".zero"), dir} {
+	for _, path := range []string{filepath.Join(home, ".qg"), dir} {
 		info, err := os.Stat(path)
 		if err != nil {
 			t.Fatal(err)
@@ -97,7 +97,7 @@ func TestWriteCrashReportHardensPreexistingDefaultDirectories(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{filepath.Join(home, ".zero"), dir} {
+	for _, path := range []string{filepath.Join(home, ".qg"), dir} {
 		if err := os.Chmod(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -106,7 +106,7 @@ func TestWriteCrashReportHardensPreexistingDefaultDirectories(t *testing.T) {
 	if _, err := WriteCrashReport(dir, "cli", "boom", []byte("stack"), time.Now()); err != nil {
 		t.Fatalf("WriteCrashReport: %v", err)
 	}
-	for _, path := range []string{filepath.Join(home, ".zero"), dir} {
+	for _, path := range []string{filepath.Join(home, ".qg"), dir} {
 		info, err := os.Stat(path)
 		if err != nil {
 			t.Fatal(err)
@@ -437,7 +437,7 @@ func TestRecoverCapturesPanic(t *testing.T) {
 	if code != crashExitCode {
 		t.Fatalf("exit code = %d, want %d", code, crashExitCode)
 	}
-	if !strings.Contains(stderr.String(), "zero crashed") || !strings.Contains(stderr.String(), "kaboom") {
+	if !strings.Contains(stderr.String(), "qg crashed") || !strings.Contains(stderr.String(), "kaboom") {
 		t.Fatalf("missing crash notice: %q", stderr.String())
 	}
 	entries, _ := os.ReadDir(dir)

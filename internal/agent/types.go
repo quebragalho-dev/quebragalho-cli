@@ -3,19 +3,19 @@ package agent
 import (
 	"context"
 
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/hooks"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
-type Message = zeroruntime.Message
-type Provider = zeroruntime.Provider
-type ToolCall = zeroruntime.ToolCall
-type Usage = zeroruntime.Usage
+type Message = qgruntime.Message
+type Provider = qgruntime.Provider
+type ToolCall = qgruntime.ToolCall
+type Usage = qgruntime.Usage
 
 type PermissionMode string
 type PermissionAction string
@@ -32,7 +32,7 @@ const (
 	// update_plan/ask_user, but no mutating tool is advertised, so it cannot
 	// write files, run shell, or implement while planning. Entry points:
 	// the TUI's /plan on (exit with /plan off, which restores whatever mode
-	// was active before), `zero exec --plan`, and the ACP session mode
+	// was active before), `qg exec --plan`, and the ACP session mode
 	// selector ("plan").
 	PermissionModePlan PermissionMode = "plan"
 	// PermissionModeMemberAuto is a headless mode for swarm/specialist MEMBERS: it
@@ -81,7 +81,7 @@ type ToolResult struct {
 	Meta      map[string]string
 	// Images the tool produced, delivered to the model as a following user
 	// message rather than on this result. See tools.Result.Images.
-	Images       []zeroruntime.ImageBlock
+	Images       []qgruntime.ImageBlock
 	Redacted     bool
 	ChangedFiles []string
 	FileDiffs    []tools.FileDiff
@@ -96,7 +96,7 @@ type ToolResult struct {
 	// Risk is the sandbox risk classification of this call, stamped for EXECUTED
 	// results so run-policy observers (the execution-profile controller) can see
 	// the risk level of an allowed mutation. It mirrors the classification the
-	// permission path already computes; denied or canceled results keep the zero
+	// permission path already computes; denied or canceled results keep the qg
 	// value. Pure observation: nothing about permissions or sandboxing changes.
 	Risk sandbox.Risk
 	// LoadedTools carries the deferred-tool names a tool_search call asked the
@@ -340,7 +340,7 @@ type Options struct {
 	// Images are optional image attachments to seed onto the initial user turn.
 	// nil for text-only runs (the seeded message then carries no images, exactly
 	// as before).
-	Images []zeroruntime.ImageBlock
+	Images []qgruntime.ImageBlock
 	// ContextWindow is the model's maximum input token budget. When > 0 the agent
 	// loop compacts long conversations once the estimated size crosses a fraction
 	// of this window. 0 DISABLES compaction entirely (every existing caller/test
@@ -370,7 +370,7 @@ type Options struct {
 	Autonomy         string
 	Sandbox          *sandbox.Engine
 	// FileTracker records per-session file read/write versions so the write tools
-	// can detect a file changed on disk outside Zero since it was last read. nil
+	// can detect a file changed on disk outside QG since it was last read. nil
 	// disables the check. Created once per session and threaded into every tool run.
 	FileTracker *tools.FileTracker
 	// Hooks, when set, runs configured beforeTool (blocking) and afterTool
@@ -417,7 +417,7 @@ type Options struct {
 	// keeps the default: the loop wraps the passed provider in a no-op session
 	// whose Stream IS provider.StreamCompletion, so behavior is byte-identical
 	// and every existing caller is unaffected.
-	TurnSessionProvider zeroruntime.TurnSessionProvider
+	TurnSessionProvider qgruntime.TurnSessionProvider
 	// ModelSessionSwitcher, when set, is the target-aware escalation hook: the
 	// loop prefers it over ModelSwitcher, and its TurnSessionProvider keeps an
 	// optimized session (and its capabilities) across a mid-run model switch.
@@ -425,7 +425,7 @@ type Options struct {
 	// default no-op session — today's behavior, unchanged. Same non-fatal error
 	// contract as ModelSwitcher: a returned error records a note and the run
 	// continues on the current model and session.
-	ModelSessionSwitcher func(ctx context.Context, modelID string) (zeroruntime.TurnSessionProvider, error)
+	ModelSessionSwitcher func(ctx context.Context, modelID string) (qgruntime.TurnSessionProvider, error)
 	// Profile, when set, arms the execution-profile posture controller for this
 	// run (auto-escalation to stricter knob values on failure/uncertainty/risky
 	// mutation signals). nil — the default everywhere today — leaves the loop
@@ -480,7 +480,7 @@ type Result struct {
 	Messages    []Message
 	StopReason  StopReason
 	// FinishReason is the provider's normalized terminal stop reason for the turn
-	// that produced FinalAnswer: zeroruntime.FinishReasonLength when the output
+	// that produced FinalAnswer: qgruntime.FinishReasonLength when the output
 	// hit the token cap, FinishReasonContentFilter when it was filtered. Empty for
 	// a normal completion.
 	FinishReason string
@@ -502,10 +502,10 @@ type Result struct {
 // wording stays consistent.
 func (result Result) TruncationNotice() string {
 	switch result.FinishReason {
-	case zeroruntime.FinishReasonLength:
+	case qgruntime.FinishReasonLength:
 		return "Response was cut off at the output token limit and may be incomplete. " +
-			"Raise the model's max output tokens or ask zero to continue."
-	case zeroruntime.FinishReasonContentFilter:
+			"Raise the model's max output tokens or ask qg to continue."
+	case qgruntime.FinishReasonContentFilter:
 		return "Response was withheld or cut off by the provider's content filter and may be incomplete."
 	case "":
 		return ""
