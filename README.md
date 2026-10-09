@@ -25,9 +25,8 @@ qg exec --output-format stream-json < turns.jsonl
 
 ## Why QG
 
-- **Use the model you want.** Bring OpenAI, Anthropic, Gemini, Groq, OpenRouter,
-  DeepSeek, Mistral, xAI, Qwen, Kimi, GitHub Models, Ollama, LM Studio, Atomic Chat, or any
-  OpenAI-/Anthropic-compatible endpoint.
+- **Use the model you want.** One provider — the Quebra Galho gateway, with
+  its curated model catalog served behind `QUEBRAGALHO_API_KEY`.
 - **Stay in control.** File writes, shell commands, network access, and
   out-of-workspace writes go through QG's permission and sandbox policy.
 - **Works in the terminal.** The TUI has model/provider pickers, image input,
@@ -123,63 +122,16 @@ qg models list
 qg doctor
 ```
 
-For API providers, set the matching environment variable before setup or enter
-the key in the wizard:
+Set the QG API key before setup, or enter it in the wizard:
 
 ```bash
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=...
-export GEMINI_API_KEY=...
-export AIMLAPI_API_KEY=...
-export LONGCAT_API_KEY=...
-export FIREWORKS_API_KEY=...
-export MINIMAX_API_KEY=...
-export MINIMAXI_API_KEY=...
+export QUEBRAGALHO_API_KEY=sk-...
 ```
 
-To configure AI/ML API directly, run:
+To configure it directly, run:
 
 ```bash
-qg providers setup aimlapi --set-active
-```
-
-To configure Meituan LongCat (LongCat-2.0) directly, run:
-
-```bash
-qg providers setup longcat --set-active
-```
-
-To configure Fireworks AI directly, run:
-
-```bash
-qg providers setup fireworks --set-active
-```
-
-MiniMax presets use the Anthropic-compatible endpoints for the global and China
-regions:
-
-```bash
-qg providers add minimax --set-active
-qg providers add minimaxi-cn --set-active
-```
-
-To use the OpenAI-compatible endpoints instead, add a custom compatible profile
-for the required region:
-
-```bash
-qg providers add custom-openai-compatible \
-  --name minimax-openai \
-  --model MiniMax-M3 \
-  --base-url https://api.minimax.io/v1 \
-  --api-key-env MINIMAX_API_KEY \
-  --set-active
-
-qg providers add custom-openai-compatible \
-  --name minimax-cn-openai \
-  --model MiniMax-M3 \
-  --base-url https://api.minimaxi.com/v1 \
-  --api-key-env MINIMAXI_API_KEY \
-  --set-active
+qg setup qg
 ```
 
 For local models, run Ollama, LM Studio, or the [Atomic Chat](https://atomic.chat)

@@ -31,16 +31,16 @@ jobs:
       - uses: quebragalho-dev/quebragalho-cli@v1
         with:
           prompt: ${{ inputs.task }}
-          provider: openai
-          api-key-env: OPENAI_API_KEY
-          api-key: ${{ secrets.OPENAI_API_KEY }}
-          model: gpt-4.1
+          provider: qg
+          api-key-env: QUEBRAGALHO_API_KEY
+          api-key: ${{ secrets.QUEBRAGALHO_API_KEY }}
+          model: muse-spark-1.3-contributor
 ```
 
 > The `provider`, `api-key-env`, and `api-key` trio is how you stay
 > provider-neutral: `api-key-env` is the environment variable name the chosen
-> provider reads its key from (for example `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`,
-> `OPENROUTER_API_KEY`), and `api-key` is the secret value. The action exports
+> provider reads its key from (for example `QUEBRAGALHO_API_KEY`), and
+> `api-key` is the secret value. The action exports
 > that variable only for the QG step and never prints it. If your repository
 > already commits a `.qg/config.json` with an active provider, you can omit
 > `provider`.
@@ -51,9 +51,9 @@ jobs:
 | --- | --- | --- | --- |
 | `prompt` | one of `prompt`/`prompt-file` | `""` | The instruction for QG to execute. |
 | `prompt-file` | one of `prompt`/`prompt-file` | `""` | Path (relative to `working-directory`) to a file whose contents are the prompt. |
-| `provider` | no | `""` | Provider id to activate (e.g. `openai`, `anthropic`, `gemini`, `ollama`, or any compatible endpoint). |
+| `provider` | no | `""` | Provider id to activate (e.g. `qg`). |
 | `api-key` | no | `""` | The provider API key. Pass from a secret; exported only for the QG step and never logged. |
-| `api-key-env` | no | `""` | Env var name the provider reads its key from (e.g. `OPENAI_API_KEY`). Exported only for the QG step when used with `api-key`. |
+| `api-key-env` | no | `""` | Env var name the provider reads its key from (e.g. `QUEBRAGALHO_API_KEY`). Exported only for the QG step when used with `api-key`. |
 | `model` | no | `""` | Model id. Defaults to the resolved provider's default. |
 | `mode` | no | `""` | Run mode (`qg exec --mode`), e.g. `smart`, `deep`, `fast`. |
 | `auto` | no | `low` | Autonomy ceiling (`qg exec --auto`): `low`, `medium`, or `high`. Conservative by default. |
@@ -109,9 +109,9 @@ jobs:
             Title: ${{ github.event.issue.title }}
 
             ${{ github.event.issue.body }}
-          provider: anthropic
-          api-key-env: ANTHROPIC_API_KEY
-          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          provider: qg
+          api-key-env: QUEBRAGALHO_API_KEY
+          api-key: ${{ secrets.QUEBRAGALHO_API_KEY }}
           auto: low
           post-to: slack
           slack-webhook-url: ${{ secrets.QG_SLACK_WEBHOOK_URL }}
@@ -138,9 +138,9 @@ jobs:
         id: qg
         with:
           prompt-file: .github/qg/upgrade-deps.md
-          provider: openai
-          api-key-env: OPENAI_API_KEY
-          api-key: ${{ secrets.OPENAI_API_KEY }}
+          provider: qg
+          api-key-env: QUEBRAGALHO_API_KEY
+          api-key: ${{ secrets.QUEBRAGALHO_API_KEY }}
           worktree: true
           auto: medium
       - name: Open pull request
