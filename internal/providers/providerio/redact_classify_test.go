@@ -35,7 +35,7 @@ func TestClassifiedErrorCuratesAuthFailure(t *testing.T) {
 	// AUDIT-H7: 401/403 must lead with an actionable instruction,
 	// not the raw upstream dashboard blurb.
 	msg := ClassifiedError(http.StatusUnauthorized, "Incorrect API key provided: sk-bad. Visit https://platform.openai.com/account/api-keys", "sk-bad")
-	if !strings.Contains(msg, "qg setup") || !strings.Contains(msg, "QUEBRAGALHO_API_KEY") {
+	if !strings.Contains(msg, "qg setup") || !strings.Contains(msg, "QG_API_KEY") || !strings.Contains(msg, "QUEBRAGALHO_API_KEY") {
 		t.Errorf("401 message should point at setup/API key, got %q", msg)
 	}
 	if strings.Contains(msg, "auth openrouter") {

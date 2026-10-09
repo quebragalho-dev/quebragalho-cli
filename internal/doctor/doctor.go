@@ -15,6 +15,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
@@ -172,7 +173,7 @@ func providerConfigCheck(profile config.ProviderProfile) Check {
 	// Ollama/LM Studio) legitimately need no key, so they stay a pass. (AUDIT-H9)
 	if credential == "not set" && !localProviderBaseURL(profile.BaseURL) {
 		return check("provider.config", "Provider config", StatusFail,
-			fmt.Sprintf("No API key configured for %s. Set QUEBRAGALHO_API_KEY in your environment, then run `qg setup qg` (see `qg setup --help`).", providerName(profile)),
+			fmt.Sprintf("No API key configured for %s. Set %s in your environment or run `qg login`, then run `qg setup qg` (see `qg setup --help`).", providerName(profile), providercatalog.KeyEnvHint),
 			details)
 	}
 	return check("provider.config", "Provider config", StatusPass, fmt.Sprintf("Provider config loaded for %s.", providerName(profile)), details)
