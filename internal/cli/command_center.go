@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgcommands"
 )
 
@@ -157,7 +159,7 @@ func runProviders(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 	return exitSuccess
 }
 
-func runModels(args []string, stdout io.Writer, stderr io.Writer) int {
+func runModels(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) > 0 && (args[0] == "list" || args[0] == "ls") {
 		args = args[1:]
 	}
@@ -180,13 +182,21 @@ func runModels(args []string, stdout io.Writer, stderr io.Writer) int {
 	if err != nil {
 		return writeExecUsageError(stderr, err.Error())
 	}
+	// Live gateway metadata (pricing, bonus, offer, limits) enriches the
+	// listing when a key is configured; any failure degrades to the static
+	// registry — never to a broken command.
+	live := loadLiveQGModels(stderr, deps)
 	if options.json {
-		if err := writePrettyJSON(stdout, map[string]any{"models": models}); err != nil {
+		entries := snapshotMaps(models)
+		if live != nil {
+			mergeModelEntriesJSON(entries, live)
+		}
+		if err := writePrettyJSON(stdout, map[string]any{"models": entries}); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintln(stdout, formatModelSummaries(models)); err != nil {
+	if _, err := fmt.Fprintln(stdout, formatModelSummaries(models, live)); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -414,16 +424,142 @@ func formatProviderCatalogLine(provider providerCatalogSummary) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatModelSummaries(models []modelSummary) string {
+func formatModelSummaries(models []modelSummary, live []qgaccount.ModelInfo) string {
 	lines := []string{"Models"}
 	if len(models) == 0 {
 		lines = append(lines, "  (none)")
 		return strings.Join(lines, "\n")
 	}
+	index := qgLiveByIndex(live)
 	for _, model := range models {
-		lines = append(lines, fmt.Sprintf("  %s [%s] ctx=%d out=%d - %s", model.ID, model.Provider, model.ContextWindow, model.MaxOutputTokens, model.DisplayName))
+		line := fmt.Sprintf("  %s [%s] ctx=%d out=%d - %s", model.ID, model.Provider, model.ContextWindow, model.MaxOutputTokens, model.DisplayName)
+		if info, ok := index[model.ID]; ok {
+			line += formatLiveModelSuffix(info)
+		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// snapshotMaps converts snapshots to generic maps for additive enrichment.
+func snapshotMaps(models []modelSummary) []map[string]any {
+	entries := make([]map[string]any, 0, len(models))
+	for _, model := range models {
+		payload, err := json.Marshal(model)
+		if err != nil {
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal(payload, &entry); err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// loadLiveQGModels fetches the gateway catalog, or nil when unavailable.
+func loadLiveQGModels(stderr io.Writer, deps appDeps) []qgaccount.ModelInfo {
+	client, code := resolveQGAccountClient(stderr, deps, true)
+	if code != exitSuccess {
+		return nil
+	}
+	ctx, stop := signalContext()
+	defer stop()
+	models, err := client.Models(ctx)
+	if err != nil {
+		return nil
+	}
+	return models
+}
+
+// qgLiveByIndex maps model id → live gateway metadata for enrichment.
+func qgLiveByIndex(models []qgaccount.ModelInfo) map[string]qgaccount.ModelInfo {
+	index := make(map[string]qgaccount.ModelInfo, len(models))
+	for _, model := range models {
+		index[model.ID] = model
+	}
+	return index
+}
+
+// enrichModelSnapshotJSON merges live gateway metadata into one models entry.
+// Live snake_case keys ride alongside the registry's camelCase ones; a null
+// from the gateway stays JSON null (never coerced to zero).
+func enrichModelSnapshotJSON(entry map[string]any, live qgaccount.ModelInfo) {
+	entry["pricing"] = live.Pricing
+	entry["pricing_brl"] = live.PricingBRL
+	entry["accepts_bonus"] = live.AcceptsBonus
+	entry["offer"] = live.Offer
+	entry["context_length"] = live.ContextLength
+	entry["max_output_tokens"] = live.MaxOutputTokens
+	entry["owned_by"] = live.OwnedBy
+	if live.DisplayName != nil {
+		entry["live_display_name"] = *live.DisplayName
+	}
+}
+
+// formatLiveModelSuffix renders the per-1M pricing line for text output.
+func formatLiveModelSuffix(live qgaccount.ModelInfo) string {
+	parts := make([]string, 0, 4)
+	if live.Pricing.Input != "" {
+		parts = append(parts, fmt.Sprintf("in %s/%s out %s por 1M", live.Pricing.Input, live.Pricing.Currency, live.Pricing.Output))
+	}
+	if live.PricingBRL.Input != "" {
+		parts = append(parts, fmt.Sprintf("R$ %s / R$ %s", live.PricingBRL.Input, live.PricingBRL.Output))
+	}
+	if live.AcceptsBonus {
+		parts = append(parts, "aceita bônus")
+	}
+	if live.Offer != nil {
+		offer := "oferta " + live.Offer.Type
+		if live.Offer.DiscountPercent > 0 {
+			offer = fmt.Sprintf("%s -%d%%", offer, live.Offer.DiscountPercent)
+		}
+		parts = append(parts, offer)
+	}
+	// The JSON snapshot already carries the registry's capability name list
+	// under "capabilities", so the live booleans and the gateway description
+	// have no JSON home: this suffix is where they must surface.
+	if names := liveCapabilityNames(live.Capabilities); names != "" {
+		parts = append(parts, "recursos: "+names)
+	}
+	if live.Description != nil {
+		if description := strings.TrimSpace(*live.Description); description != "" {
+			parts = append(parts, description)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " · " + strings.Join(parts, " · ")
+}
+
+// liveCapabilityNames lists the enabled capability flags in a stable order. An
+// all-false matrix yields "" so an unannounced matrix is never rendered as one.
+func liveCapabilityNames(caps qgaccount.ModelCapabilities) string {
+	names := make([]string, 0, 3)
+	if caps.Tools {
+		names = append(names, "tools")
+	}
+	if caps.Vision {
+		names = append(names, "vision")
+	}
+	if caps.Reasoning {
+		names = append(names, "reasoning")
+	}
+	return strings.Join(names, ", ")
+}
+
+// mergeModelEntriesJSON enriches the marshaled snapshot list in place when a
+// live catalog is available. Callers degrade to the static list on error.
+func mergeModelEntriesJSON(entries []map[string]any, live []qgaccount.ModelInfo) {
+	index := qgLiveByIndex(live)
+	for _, entry := range entries {
+		id, _ := entry["id"].(string)
+		if info, ok := index[id]; ok {
+			enrichModelSnapshotJSON(entry, info)
+		}
+	}
 }
 
 func apiKeyState(set bool) string {
