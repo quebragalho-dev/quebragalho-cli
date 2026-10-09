@@ -66,22 +66,10 @@ func (m model) titleBar(width int) string {
 	if branchOnly != "" {
 		compactLeft = branchOnly
 	}
-	ctx := ""
-	if window := m.modelContextWindow(m.modelName); window > 0 {
-		ctx = qgTheme.faint.Render(formatContextWindow(window))
-	}
 
 	var candidates []headerCandidate
 	switch tier {
-	case tierFull:
-		candidates = []headerCandidate{
-			{left: workspace, right: ctx},
-			{left: workspace, right: ""},
-			{left: workspaceShort, right: ""},
-			{left: cwdOnly, right: ""},
-			{left: compactLeft, right: ""},
-		}
-	case tierMedium:
+	case tierFull, tierMedium:
 		candidates = []headerCandidate{
 			{left: workspace, right: ""},
 			{left: workspaceShort, right: ""},
@@ -154,9 +142,12 @@ func (m model) composerDividerLine(width int) string {
 	model := displayValue(strings.TrimSpace(m.modelName), "no model")
 	reserved := m.petComposerReservedColumns(width)
 	availableWidth := width - reserved
-	// The rule keeps at least a 4-cell frame around the label, so the label may
-	// use whatever the frame leaves over.
-	model = truncateDisplayWidth(model, availableWidth-4)
+	padding := " "
+	if lipgloss.Width(model) > availableWidth-4 {
+		padding = ""
+	}
+	frameWidth := 2 + 2*len(padding)
+	model = truncateDisplayWidth(model, availableWidth-frameWidth)
 	// The composer rule is the model label below the input. Permission mode
 	// and reasoning effort now live in the persistent status line (the conventional
 	// footer for run-state), so they're not duplicated on this rule.
@@ -165,12 +156,12 @@ func (m model) composerDividerLine(width int) string {
 	if width < 8 {
 		return qgTheme.lineStrong.Render(strings.Repeat("─", width))
 	}
-	if availableWidth < metaWidth+4 {
+	if availableWidth < metaWidth+frameWidth {
 		line := qgTheme.lineStrong.Render("╰" + strings.Repeat("─", availableWidth-2) + "╯")
 		return line + strings.Repeat(" ", reserved)
 	}
-	rule := strings.Repeat("─", availableWidth-metaWidth-4)
-	line := qgTheme.lineStrong.Render("╰"+rule+" ") + meta + qgTheme.lineStrong.Render(" ╯")
+	rule := strings.Repeat("─", availableWidth-metaWidth-frameWidth)
+	line := qgTheme.lineStrong.Render("╰"+rule+padding) + meta + qgTheme.lineStrong.Render(padding+"╯")
 	return line + strings.Repeat(" ", reserved)
 }
 
@@ -206,7 +197,7 @@ func (m model) statusLine(width int) string {
 		if goalSummary := m.goalFooterSummary(); goalSummary != "" {
 			left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render("◎ ") + qgTheme.muted.Render(goalSummary)
 		}
-		return fitStyledLine(left, width)
+		return fitStyledLine(m.appendStatusWorkspace(left, "", width), width)
 	}
 
 	// Non-tiny: append the active reasoning effort (brand lime, omitted on auto).
@@ -216,6 +207,7 @@ func (m model) statusLine(width int) string {
 	if m.activeServiceTier() == "priority" {
 		left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render("fast")
 	}
+	showWorkspace := false
 	if m.exitConfirmActive {
 		left = prefix + btwChip + qgTheme.amber.Render("●") + " " + qgTheme.amber.Render(ctrlCExitConfirmText)
 	} else if m.cancelConfirmActive {
@@ -228,6 +220,7 @@ func (m model) statusLine(width int) string {
 		// most time-sensitive thing on screen (the mic is live).
 		left = prefix + btwChip + dictation
 	} else {
+		showWorkspace = true
 		if voice := m.voiceModeIndicator(); voice != "" {
 			left += qgTheme.muted.Render(" · ") + voice
 		}
@@ -266,8 +259,29 @@ func (m model) statusLine(width int) string {
 		rightGroups = append(rightGroups, qgTheme.muted.Render(usage))
 	}
 	right := strings.Join(rightGroups, separator)
+	if showWorkspace {
+		left = m.appendStatusWorkspace(left, right, width)
+	}
 
+	if right == "" {
+		return fitStyledLine(left, width)
+	}
 	return fitStyledLine(joinHeaderLine(left, right, width), width)
+}
+
+func (m model) appendStatusWorkspace(left, right string, width int) string {
+	cwd := strings.TrimSpace(m.cwd)
+	if cwd == "" {
+		return left
+	}
+	budget := width - lipgloss.Width(left) - 3
+	if right != "" {
+		budget -= lipgloss.Width(right) + 2
+	}
+	if budget < 4 {
+		return left
+	}
+	return left + qgTheme.line.Render(" │ ") + qgTheme.faint.Render(truncateDisplayWidth(shortenPath(cwd), budget))
 }
 
 // nextPermissionMode toggles between the two prompt-respecting modes:
