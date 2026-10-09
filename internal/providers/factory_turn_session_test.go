@@ -10,7 +10,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
-// TestNewTurnSessionProviderForEveryKind asserts every current provider kind
+// TestNewTurnSessionProviderForEveryKind asserts the single QG provider kind
 // wraps into the default TurnSessionProvider: construction succeeds, a session
 // opens, and Compact reports unsupported (the default adapter contract).
 func TestNewTurnSessionProviderForEveryKind(t *testing.T) {
@@ -18,9 +18,6 @@ func TestNewTurnSessionProviderForEveryKind(t *testing.T) {
 	kinds := []config.ProviderKind{
 		config.ProviderKindOpenAI,
 		config.ProviderKindOpenAICompatible,
-		config.ProviderKindAnthropic,
-		config.ProviderKindAnthropicCompat,
-		config.ProviderKindGoogle,
 	}
 	for _, kind := range kinds {
 		t.Run(string(kind), func(t *testing.T) {

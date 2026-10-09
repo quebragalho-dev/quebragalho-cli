@@ -189,6 +189,7 @@ func TestRunProvidersUseSurfacesMalformedConfig(t *testing.T) {
 }
 
 func TestRunProvidersUseEnvDerivedJSONIncludesConfigPath(t *testing.T) {
+	isolateCLIUserState(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -212,6 +213,7 @@ func TestRunProvidersUseEnvDerivedJSONIncludesConfigPath(t *testing.T) {
 }
 
 func TestRunProvidersRemoveEnvDerivedJSONKeepsSchema(t *testing.T) {
+	isolateCLIUserState(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -237,6 +239,7 @@ func TestRunProvidersRemoveEnvDerivedJSONKeepsSchema(t *testing.T) {
 }
 
 func TestRunProvidersRenameEnvDerivedExplainsNoSavedProfile(t *testing.T) {
+	isolateCLIUserState(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -253,6 +256,7 @@ func TestRunProvidersRenameEnvDerivedExplainsNoSavedProfile(t *testing.T) {
 }
 
 func TestRunProvidersRenameEnvDerivedJSONKeepsSchema(t *testing.T) {
+	isolateCLIUserState(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -313,9 +317,9 @@ func TestRunProvidersSetupPrintsCommandPlan(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 
 	exitCode := runWithDeps([]string{
-		"providers", "setup", "groq",
+		"providers", "setup", "qg",
 		"--name", "fast",
-		"--model", "llama-3.1-70b",
+		"--model", "muse-spark-1.3-contributor",
 		"--base-url", "https://gateway.example/v1",
 		"--api-key-env", "FAST_API_KEY",
 	}, &stdout, &stderr, providerSetupDeps(configPath))
@@ -326,7 +330,7 @@ func TestRunProvidersSetupPrintsCommandPlan(t *testing.T) {
 	output := stdout.String()
 	for _, want := range []string{
 		"Set FAST_API_KEY to your API key",
-		"qg providers add groq --name fast --model llama-3.1-70b --base-url https://gateway.example/v1 --api-key-env FAST_API_KEY",
+		"qg providers add qg --name fast --model muse-spark-1.3-contributor --base-url https://gateway.example/v1 --api-key-env FAST_API_KEY",
 		"qg providers check fast --connectivity",
 		"qg providers use fast",
 	} {
@@ -350,7 +354,7 @@ func TestRunProvidersSetupJSONIncludesCommands(t *testing.T) {
 	var stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
 
-	exitCode := runWithDeps([]string{"providers", "setup", "groq", "--name", "fast", "--set-active", "--json"}, &stdout, &stderr, providerSetupDeps(configPath))
+	exitCode := runWithDeps([]string{"providers", "setup", "qg", "--name", "fast", "--set-active", "--json"}, &stdout, &stderr, providerSetupDeps(configPath))
 
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
@@ -366,12 +370,12 @@ func TestRunProvidersSetupJSONIncludesCommands(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("providers setup JSON did not decode: %v\n%s", err, stdout.String())
 	}
-	if payload.CatalogID != "groq" ||
+	if payload.CatalogID != "qg" ||
 		payload.Name != "fast" ||
-		payload.AddCommand != "qg providers add groq --name fast --api-key-env GROQ_API_KEY --set-active" ||
+		payload.AddCommand != "qg providers add qg --name fast --api-key-env QUEBRAGALHO_API_KEY --set-active" ||
 		payload.CheckCommand != "qg providers check fast --connectivity" ||
 		payload.UseCommand != "" ||
-		payload.EnvVar != "GROQ_API_KEY" {
+		payload.EnvVar != "QUEBRAGALHO_API_KEY" {
 		t.Fatalf("unexpected setup JSON payload: %#v", payload)
 	}
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
@@ -379,27 +383,6 @@ func TestRunProvidersSetupJSONIncludesCommands(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
-	}
-}
-
-func TestRunProvidersSetupRejectsCatalogOnlyTransports(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	configPath := filepath.Join(t.TempDir(), "config.json")
-
-	exitCode := runWithDeps([]string{"providers", "setup", "bedrock"}, &stdout, &stderr, providerSetupDeps(configPath))
-
-	if exitCode != exitUsage {
-		t.Fatalf("expected exit code %d, got %d", exitUsage, exitCode)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("expected empty stdout, got %q", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "native adapter") {
-		t.Fatalf("expected native adapter warning, got %q", stderr.String())
-	}
-	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
-		t.Fatalf("providers setup should not write config, stat err = %v", err)
 	}
 }
 

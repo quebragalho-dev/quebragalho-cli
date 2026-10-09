@@ -173,6 +173,41 @@ func TestProviderProfileAPIKeyStoredRoundTrips(t *testing.T) {
 	}
 }
 
+// A store failure must be reported to the caller: the fail-soft path keeps the
+// inline key (so the capture never strands a credential), and the fallback flag
+// is what lets each CLI/TUI surface warn that config.json now holds plaintext.
+func TestSecureProviderProfileReportsStoreFallback(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	profile := ProviderProfile{Name: "qg", APIKey: "sk-fallback-test"}
+
+	t.Setenv("QG_CRED_STORAGE", "bogus") // credstore.New rejects it: store unavailable
+	secured, fellBack := SecureProviderProfile(profile, path)
+	if !fellBack {
+		t.Fatal("expected fallback flag when the credential store is unavailable")
+	}
+	if secured.APIKey != "sk-fallback-test" {
+		t.Fatalf("fail-soft must keep the inline key, got %q", secured.APIKey)
+	}
+	if secured.APIKeyStored {
+		t.Fatal("fallback profile must not claim apiKeyStored")
+	}
+
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
+	secured, fellBack = SecureProviderProfile(profile, path)
+	if fellBack {
+		t.Fatal("expected no fallback when the store accepts the key")
+	}
+	if secured.APIKey != "" || !secured.APIKeyStored {
+		t.Fatalf("capture flip expected (key moved to store), got %#v", secured)
+	}
+
+	// Nothing to store => no fallback either way.
+	if _, fellBack := SecureProviderProfile(ProviderProfile{Name: "qg"}, path); fellBack {
+		t.Fatal("a profile with no key must not report a fallback")
+	}
+}
+
 // OAuthLoginCandidates always offers the profile name, adds the catalog ID as a
 // fallback ONLY when the profile has no effective own credential, and dedupes
 // case-sensitively (the OAuth store is a case-sensitive map).
@@ -184,44 +219,44 @@ func TestOAuthLoginCandidates(t *testing.T) {
 	}{
 		{
 			name:    "renamed keyless profile falls back to catalog id",
-			profile: ProviderProfile{Name: "codex", CatalogID: "chatgpt"},
-			want:    []string{"codex", "chatgpt"},
+			profile: ProviderProfile{Name: "galho", CatalogID: "qg"},
+			want:    []string{"galho", "qg"},
 		},
 		{
 			name:    "case-variant name keeps distinct catalog-id candidate",
-			profile: ProviderProfile{Name: "ChatGPT", CatalogID: "chatgpt"},
-			want:    []string{"ChatGPT", "chatgpt"},
+			profile: ProviderProfile{Name: "QG", CatalogID: "qg"},
+			want:    []string{"QG", "qg"},
 		},
 		{
 			name:    "exact-duplicate name and catalog id collapse",
-			profile: ProviderProfile{Name: "chatgpt", CatalogID: "chatgpt"},
-			want:    []string{"chatgpt"},
+			profile: ProviderProfile{Name: "qg", CatalogID: "qg"},
+			want:    []string{"qg"},
 		},
 		{
 			// A configured key must block ALL candidates (name included): a login
 			// under the profile's own name would otherwise erase the key too.
 			name:    "own inline key blocks every candidate",
-			profile: ProviderProfile{Name: "anthropic-work", CatalogID: "anthropic", APIKey: "sk-work"},
+			profile: ProviderProfile{Name: "galho-work", CatalogID: "qg", APIKey: "sk-work"},
 			want:    nil,
 		},
 		{
 			name:    "own auth header blocks every candidate",
-			profile: ProviderProfile{Name: "acme", CatalogID: "anthropic", AuthHeaderValue: "Bearer x"},
+			profile: ProviderProfile{Name: "acme", CatalogID: "qg", AuthHeaderValue: "Bearer x"},
 			want:    nil,
 		},
 		{
 			// APIKeyStored means key-auth even if the key isn't loaded here (e.g. a
 			// transiently unreadable keyring): don't silently borrow an OAuth login.
 			name:    "stored-key profile blocks every candidate",
-			profile: ProviderProfile{Name: "openai-stored", CatalogID: "openai", APIKeyStored: true},
+			profile: ProviderProfile{Name: "galho-stored", CatalogID: "qg", APIKeyStored: true},
 			want:    nil,
 		},
 		{
 			// APIKeyEnv is NOT a configured credential for gating: the env var may be
 			// unset while the profile relies on an OAuth login, so candidates stand.
 			name:    "env-only profile still yields candidates",
-			profile: ProviderProfile{Name: "xai", CatalogID: "xai", APIKeyEnv: "XAI_API_KEY"},
-			want:    []string{"xai"},
+			profile: ProviderProfile{Name: "galho-env", CatalogID: "qg", APIKeyEnv: "QUEBRAGALHO_API_KEY"},
+			want:    []string{"galho-env", "qg"},
 		},
 		{
 			name:    "empty profile yields no candidates",
@@ -248,8 +283,8 @@ func TestProviderProfileMissingCredentialEnv(t *testing.T) {
 	}{
 		{
 			name:    "catalog provider requiring auth",
-			profile: ProviderProfile{Name: "groq", CatalogID: "groq"},
-			wantEnv: "GROQ_API_KEY",
+			profile: ProviderProfile{Name: "qg", CatalogID: "qg"},
+			wantEnv: "QUEBRAGALHO_API_KEY",
 			want:    true,
 		},
 		{
@@ -258,12 +293,15 @@ func TestProviderProfileMissingCredentialEnv(t *testing.T) {
 			want:    false,
 		},
 		{
-			// A profile saved against the hosted atomic-chat preset keeps its
-			// remote base URL and key, so it must still be reported as missing a
-			// credential. The keyless local runtime is a separate catalog ID
-			// (atomic-chat-local) precisely so this identity is never repurposed.
-			name:    "hosted atomic-chat profile still requires its key",
-			profile: ProviderProfile{Name: "atomic-chat", CatalogID: "atomic-chat", BaseURL: "https://api.atomic.chat/v1"},
+			// A hosted profile with an explicit key env but no inline key must
+			// still be reported as missing that credential.
+			name: "hosted profile still requires its key",
+			profile: ProviderProfile{
+				Name:         "atomic-chat",
+				ProviderKind: ProviderKindOpenAICompatible,
+				BaseURL:      "https://api.atomic.chat/v1",
+				APIKeyEnv:    "ATOMIC_CHAT_API_KEY",
+			},
 			wantEnv: "ATOMIC_CHAT_API_KEY",
 			want:    true,
 		},
@@ -289,11 +327,11 @@ func TestProviderProfileMissingCredentialEnv(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "custom openai compatible with explicit non-default api key env",
+			name: "openai compatible with explicit non-default api key env",
 			profile: ProviderProfile{
-				Name:      "local-llama",
-				CatalogID: "custom-openai-compatible",
-				APIKeyEnv: "LLAMA_CPP_API_KEY",
+				Name:         "local-llama",
+				ProviderKind: ProviderKindOpenAICompatible,
+				APIKeyEnv:    "LLAMA_CPP_API_KEY",
 			},
 			wantEnv: "LLAMA_CPP_API_KEY",
 			want:    true,

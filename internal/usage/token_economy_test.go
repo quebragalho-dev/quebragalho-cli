@@ -19,7 +19,7 @@ func TestEventUsageRoundTripPreservesCacheAndReasoningCost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultRegistry: %v", err)
 	}
-	model, err := registry.Require("claude-sonnet-4.5")
+	model, err := registry.Require("muse-spark-1.3-contributor")
 	if err != nil {
 		t.Fatalf("Require: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestEventUsageRoundTripPreservesCacheAndReasoningCost(t *testing.T) {
 		SessionID: "s1", Sequence: 1, Type: sessions.EventUsage,
 		CreatedAt: "2026-06-19T10:00:00Z", Payload: raw,
 	}}
-	meta := []sessions.Metadata{{SessionID: "s1", ModelID: "claude-sonnet-4.5"}}
+	meta := []sessions.Metadata{{SessionID: "s1", ModelID: "muse-spark-1.3-contributor"}}
 
 	report, err := BuildReport(events, meta, &registry, 0)
 	if err != nil {

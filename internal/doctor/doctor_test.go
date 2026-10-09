@@ -16,11 +16,12 @@ func TestRunReportRedactsProviderSecretsAndWarnsWithoutConnectivity(t *testing.T
 		Runtime:    "go",
 		UserConfig: "missing",
 		Provider: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
 			APIKey:       "sk-proj-secret1234567890",
-			Model:        "gpt-4.1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 	})
 
@@ -46,6 +47,24 @@ func TestRunReportFailsInvalidModelAndMissingProvider(t *testing.T) {
 	}
 	if check := missing.Check("provider.config"); check == nil || check.Status != StatusFail {
 		t.Fatalf("expected provider config failure: %#v", missing.Checks)
+	}
+	keyless := Run(Options{
+		Now:     fixedDoctorClock("2026-06-04T15:30:00Z"),
+		Runtime: "go",
+		Provider: config.ProviderProfile{
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
+		},
+	})
+	if check := keyless.Check("provider.config"); check == nil || check.Status != StatusFail {
+		t.Fatalf("keyless provider should fail provider config: %#v", keyless.Checks)
+	} else if !strings.Contains(check.Message, "QG_API_KEY") || !strings.Contains(check.Message, "QUEBRAGALHO_API_KEY") || !strings.Contains(check.Message, "qg setup qg") {
+		t.Fatalf("missing-key advice must cite QG_API_KEY, QUEBRAGALHO_API_KEY and qg setup qg, got %q", check.Message)
+	} else if strings.Contains(check.Message, "qg auth") {
+		t.Fatalf("missing-key advice must not cite the removed auth commands, got %q", check.Message)
 	}
 
 	invalid := Run(Options{
@@ -164,7 +183,9 @@ func TestProviderModelRegisteredProviderMismatchFails(t *testing.T) {
 			Name:         "openai",
 			ProviderKind: config.ProviderKindOpenAI,
 			BaseURL:      config.OpenAIBaseURL,
-			Model:        "gemini-2.5-pro",
+			// A registered model served by the QG catalog must be rejected for a
+			// profile pinned to a different provider kind.
+			Model: "muse-spark-1.3-contributor",
 		},
 	})
 

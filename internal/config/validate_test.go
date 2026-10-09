@@ -88,24 +88,35 @@ func TestValidateFileMissingModelWarns(t *testing.T) {
 	}
 }
 
-func TestValidateFileDefaultsOfficialKindModels(t *testing.T) {
-	// Official-API kinds (anthropic/google) fall back to their catalog default
-	// model, so a hand-written model-less profile validates clean instead of
-	// bricking qg config / bare qg setup — the only commands that could
-	// have fixed it (the reported google case).
-	path := writeValidateFixture(t, `{
-		"activeProvider": "google",
-		"providers": [
-			{"name": "google", "provider_kind": "google", "apiKey": "AIza-x"},
-			{"name": "anthropic", "provider_kind": "anthropic", "apiKey": "sk-ant-x"}
-		]
+func TestValidateFileQGCatalogProfileDefaultsModel(t *testing.T) {
+	// A catalog-backed profile defaults its model from the descriptor, so a
+	// hand-written model-less QG profile validates clean. A kind-only active
+	// profile with no model has no catalog to default from and must surface
+	// the requires-model issue.
+	qgPath := writeValidateFixture(t, `{
+		"activeProvider": "qg",
+		"providers": [{"name": "qg", "catalog_id": "qg"}]
 	}`)
-
-	_, issues := ValidateFile(path)
+	_, issues := ValidateFile(qgPath)
 	for _, issue := range issues {
 		if strings.Contains(issue.Message, "requires model") {
-			t.Fatalf("official-kind profiles must default their model, got issue %#v", issue)
+			t.Fatalf("catalog-backed QG profile must default its model, got issue %#v", issue)
 		}
+	}
+
+	googlePath := writeValidateFixture(t, `{
+		"activeProvider": "google",
+		"providers": [{"name": "google", "provider_kind": "google", "apiKey": "AIza-x"}]
+	}`)
+	_, issues = ValidateFile(googlePath)
+	found := false
+	for _, issue := range issues {
+		if strings.Contains(issue.Message, "requires model") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("kind-only profile without model must surface requires-model, got issues: %#v", issues)
 	}
 }
 

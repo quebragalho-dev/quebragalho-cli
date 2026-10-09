@@ -43,9 +43,9 @@ func TestBuildReportBucketsByDayAndSumsTokens(t *testing.T) {
 		usageEvent(t, "s3", 1, "2026-06-01T23:30:00-07:00", 300, 50),
 	}
 	meta := []sessions.Metadata{
-		{SessionID: "s1", ModelID: "gpt-4.1"},
-		{SessionID: "s2", ModelID: "gpt-4.1"},
-		{SessionID: "s3", ModelID: "gpt-4.1"},
+		{SessionID: "s1", ModelID: "muse-spark-1.3-contributor"},
+		{SessionID: "s2", ModelID: "muse-spark-1.3-contributor"},
+		{SessionID: "s3", ModelID: "muse-spark-1.3-contributor"},
 	}
 
 	report, err := BuildReport(events, meta, &registry, 70)
@@ -85,14 +85,14 @@ func TestBuildReportReconstructsCostFromMetadataModel(t *testing.T) {
 	events := []sessions.Event{
 		usageEvent(t, "s1", 1, "2026-06-01T09:00:00Z", 1000, 200),
 	}
-	meta := []sessions.Metadata{{SessionID: "s1", ModelID: "gpt-4.1"}}
+	meta := []sessions.Metadata{{SessionID: "s1", ModelID: "muse-spark-1.3-contributor"}}
 
 	report, err := BuildReport(events, meta, &registry, 10)
 	if err != nil {
 		t.Fatalf("BuildReport: %v", err)
 	}
 
-	model, err := registry.Require("gpt-4.1")
+	model, err := registry.Require("muse-spark-1.3-contributor")
 	if err != nil {
 		t.Fatalf("Require: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestBuildReportPricesFromEventModelWhenPresent(t *testing.T) {
 		"promptTokens":     1000,
 		"completionTokens": 200,
 		"totalTokens":      1200,
-		"model":            "gpt-4.1",
+		"model":            "muse-spark-1.3-contributor",
 	})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -135,7 +135,7 @@ func TestBuildReportPricesFromEventModelWhenPresent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildReport: %v", err)
 	}
-	model, err := registry.Require("gpt-4.1")
+	model, err := registry.Require("muse-spark-1.3-contributor")
 	if err != nil {
 		t.Fatalf("Require: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestBuildReportRatiosGuardNetZero(t *testing.T) {
 		t.Fatalf("DefaultRegistry: %v", err)
 	}
 	events := []sessions.Event{usageEvent(t, "s1", 1, "2026-06-01T09:00:00Z", 1000, 200)}
-	meta := []sessions.Metadata{{SessionID: "s1", ModelID: "gpt-4.1"}}
+	meta := []sessions.Metadata{{SessionID: "s1", ModelID: "muse-spark-1.3-contributor"}}
 
 	report, err := BuildReport(events, meta, &registry, 0)
 	if err != nil {
@@ -188,7 +188,7 @@ func TestBuildReportIgnoresNonUsageEvents(t *testing.T) {
 		{SessionID: "s1", Sequence: 1, Type: sessions.EventMessage, CreatedAt: "2026-06-01T09:00:00Z"},
 		usageEvent(t, "s1", 2, "2026-06-01T09:30:00Z", 1000, 200),
 	}
-	meta := []sessions.Metadata{{SessionID: "s1", ModelID: "gpt-4.1"}}
+	meta := []sessions.Metadata{{SessionID: "s1", ModelID: "muse-spark-1.3-contributor"}}
 
 	report, err := BuildReport(events, meta, &registry, 10)
 	if err != nil {

@@ -45,18 +45,3 @@ func TestCalculateCostCacheWriteFallsBackToInputRate(t *testing.T) {
 		t.Fatalf("cache-write should not split out when unpriced, got %d", cost.CacheWriteTokens)
 	}
 }
-
-// Anthropic models derive cache-write = 1.25x input from the helper.
-func TestAnthropicModelsDeriveCacheWriteRate(t *testing.T) {
-	reg, err := DefaultRegistry()
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := reg.Require("claude-sonnet-4.5")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := m.Cost.CacheWritePerMillion, 3.0*1.25; math.Abs(got-want) > 1e-9 {
-		t.Fatalf("sonnet cache-write rate = %v, want %v", got, want)
-	}
-}

@@ -20,8 +20,11 @@ func TestWriteExecProviderErrorAppendsHint(t *testing.T) {
 		if !strings.Contains(out, "auth error:") {
 			t.Fatalf("expected raw message, got %q", out)
 		}
-		if !strings.Contains(out, "qg setup") || !strings.Contains(out, "qg auth openrouter") {
-			t.Fatalf("expected an actionable setup/auth hint, got %q", out)
+		if !strings.Contains(out, "qg setup") || !strings.Contains(out, "QG_API_KEY") || !strings.Contains(out, "QUEBRAGALHO_API_KEY") {
+			t.Fatalf("expected an actionable setup/API-key hint, got %q", out)
+		}
+		if strings.Contains(out, "auth openrouter") {
+			t.Fatalf("hint must not point at the removed auth subcommands, got %q", out)
 		}
 	})
 

@@ -33,10 +33,8 @@ inputs:
   api-key-env:
     description: >-
       Name of the environment variable the chosen provider reads its key from
-      (for example OPENAI_API_KEY or ANTHROPIC_API_KEY). When set together with
-      api-key, that variable is exported only for the QG step. Leave the action
-      provider-agnostic by passing the env name your provider expects rather
-      than hardcoding one here.
+      (for example QUEBRAGALHO_API_KEY). When set together with
+      api-key, that variable is exported only for the QG step.
     required: false
     default: ""
   model:

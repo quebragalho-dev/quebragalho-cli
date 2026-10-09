@@ -78,7 +78,7 @@ func TestRunContextJSONReport(t *testing.T) {
 				Provider: config.ProviderProfile{
 					Name:         "openai",
 					ProviderKind: config.ProviderKindOpenAI,
-					Model:        "gpt-4.1",
+					Model:        "muse-spark-1.3-contributor",
 				},
 			}, nil
 		},
@@ -99,8 +99,8 @@ func TestRunContextJSONReport(t *testing.T) {
 	if report.Root != cwd {
 		t.Fatalf("Root = %q, want %q", report.Root, cwd)
 	}
-	if report.ModelID != "gpt-4.1" {
-		t.Fatalf("ModelID = %q, want gpt-4.1", report.ModelID)
+	if report.ModelID != "muse-spark-1.3-contributor" {
+		t.Fatalf("ModelID = %q, want muse-spark-1.3-contributor", report.ModelID)
 	}
 	if report.ContextWindow <= 0 {
 		t.Fatalf("ContextWindow = %d, want > 0", report.ContextWindow)

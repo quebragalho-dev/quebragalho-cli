@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/quebragalho-dev/quebragalho-cli/internal/aimlapi"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
@@ -477,18 +476,6 @@ func effectiveProviderKind(profile ProviderProfile) ProviderKind {
 		return providerKindForCatalogTransport(descriptor.Transport)
 	}
 	return ""
-}
-
-// catalogDefaultModel returns the default model of a catalog provider ("" when
-// the id is unknown), used to fill a missing profile.Model for the official-API
-// kinds so a hand-written profile without a model resolves instead of bricking
-// every command that resolves config up front (qg config, bare qg setup).
-func catalogDefaultModel(catalogID string) string {
-	descriptor, ok := providercatalog.Get(catalogID)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(descriptor.DefaultModel)
 }
 
 func catalogDescriptorForProfile(profile ProviderProfile) (providercatalog.Descriptor, bool) {
@@ -1037,8 +1024,8 @@ func normalizeProvider(profile ProviderProfile, env map[string]string, options n
 	if profile.ProviderKind == "" {
 		profile.ProviderKind = ProviderKindOpenAI
 	}
-	if strings.TrimSpace(profile.APIKey) == "" && profile.APIKeyEnv != "" {
-		profile.APIKey = strings.TrimSpace(envValue(env, profile.APIKeyEnv))
+	if strings.TrimSpace(profile.APIKey) == "" {
+		profile.APIKey = profile.EnvAPIKey(func(key string) string { return envValue(env, key) })
 	}
 
 	switch profile.ProviderKind {
@@ -1062,9 +1049,6 @@ func normalizeProvider(profile ProviderProfile, env map[string]string, options n
 	case ProviderKindAnthropic:
 		if profile.BaseURL == "" || isOfficialAnthropicBaseURL(profile.BaseURL) {
 			profile.BaseURL = AnthropicBaseURL
-			if options.defaultModels && profile.Model == "" {
-				profile.Model = catalogDefaultModel("anthropic")
-			}
 			return profile, nil
 		}
 		return ProviderProfile{}, providerError(profile, "anthropic provider %s requires official baseURL %s", profile.Name, AnthropicBaseURL)
@@ -1079,9 +1063,6 @@ func normalizeProvider(profile ProviderProfile, env map[string]string, options n
 	case ProviderKindGoogle:
 		if profile.BaseURL == "" || isOfficialGoogleBaseURL(profile.BaseURL) {
 			profile.BaseURL = GoogleBaseURL
-			if options.defaultModels && profile.Model == "" {
-				profile.Model = catalogDefaultModel("google")
-			}
 			return profile, nil
 		}
 		return ProviderProfile{}, providerError(profile, "google provider %s requires official baseURL %s", profile.Name, GoogleBaseURL)
@@ -1108,11 +1089,7 @@ func applyCatalogDescriptor(profile *ProviderProfile, descriptor providercatalog
 	}
 	canonicalCatalogEndpoint := !explicitBaseURL || sameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)
 	if len(descriptor.CustomHeaders) > 0 && canonicalCatalogEndpoint {
-		catalogHeaders := descriptor.CustomHeaders
-		if strings.EqualFold(strings.TrimSpace(descriptor.ID), "aimlapi") {
-			catalogHeaders = aimlapi.WithResolvedPartnerHeader(catalogHeaders)
-		}
-		merged := copyStringMap(catalogHeaders)
+		merged := copyStringMap(descriptor.CustomHeaders)
 		for key, value := range profile.CustomHeaders {
 			// Header names are case-insensitive. Preserve the catalog spelling while
 			// replacing its value so request construction cannot see two colliding
@@ -1131,19 +1108,6 @@ func applyCatalogDescriptor(profile *ProviderProfile, descriptor providercatalog
 			merged[key] = value
 		}
 		profile.CustomHeaders = merged
-	} else if strings.EqualFold(strings.TrimSpace(descriptor.ID), "aimlapi") && !canonicalCatalogEndpoint {
-		// AIMLAPI attribution is owned by the catalog endpoint. A profile can retain
-		// those generated headers after its base URL is edited; strip their names
-		// before sending requests to an arbitrary staging/proxy host while preserving
-		// unrelated headers explicitly supplied by the user.
-		for profileKey := range profile.CustomHeaders {
-			for catalogKey := range descriptor.CustomHeaders {
-				if strings.EqualFold(profileKey, catalogKey) {
-					delete(profile.CustomHeaders, profileKey)
-					break
-				}
-			}
-		}
 	}
 }
 

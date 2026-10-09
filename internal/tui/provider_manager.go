@@ -611,13 +611,16 @@ func (m model) saveManagerEdit() (model, tea.Cmd) {
 		Model:       strings.TrimSpace(wizard.editDraft.Model),
 		Description: wizard.editDraft.Description,
 	}
+	keyStoreFellBack := false
 	if key := strings.TrimSpace(wizard.editDraft.APIKey); key != "" {
-		captured := config.SecureProviderProfile(config.ProviderProfile{Name: oldName, APIKey: key}, m.userConfigPath)
+		captured, fellBack := config.SecureProviderProfile(config.ProviderProfile{Name: oldName, APIKey: key}, m.userConfigPath)
 		// On a store failure SecureProviderProfile keeps the inline key, which
 		// EditProvider then persists (the startup migration re-captures later) —
-		// the same fail-soft posture as every other capture path.
+		// the same fail-soft posture as every other capture path. fellBack is
+		// surfaced in manageStatus below so the plaintext downgrade is not silent.
 		edit.APIKey = captured.APIKey
 		edit.APIKeyStored = captured.APIKeyStored
+		keyStoreFellBack = fellBack
 	}
 	if _, err := config.EditProvider(m.userConfigPath, edit); err != nil {
 		wizard.err = err.Error()
@@ -639,7 +642,11 @@ func (m model) saveManagerEdit() (model, tea.Cmd) {
 
 	wizard.step = providerWizardStepManage
 	next, cmd := m.reloadProviderManagerRows()
-	next.providerWizard.manageStatus = "Updated " + newName + "." + providerEditRestartNote(next.providerName, newName)
+	status := "Updated " + newName + "." + providerEditRestartNote(next.providerName, newName)
+	if keyStoreFellBack {
+		status += " Warning: credential store unavailable — API key saved in plaintext in " + m.userConfigPath + "."
+	}
+	next.providerWizard.manageStatus = status
 	return next, cmd
 }
 

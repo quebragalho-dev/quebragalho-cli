@@ -1,383 +1,280 @@
 <p align="center">
-  <img src="docs/assets/qg-logo.png" alt="QG" width="385">
+  <img src="docs/assets/qg-logo.png" alt="QG — Quebra-Galho" width="385">
 </p>
 
-<p align="center"><strong>A terminal coding agent you own.</strong></p>
+<p align="center"><strong>IA QUE TRABALHA COM VOCE</strong></p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="LICENSE"><img alt="licença" src="https://img.shields.io/badge/licença-MIT-blue"></a>
   <img alt="Go 1.26.6+" src="https://img.shields.io/badge/Go-1.26.6+-00ADD8?logo=go&logoColor=white">
-  <img alt="25+ providers" src="https://img.shields.io/badge/providers-25+-34E2EA">
-  <a href="https://discord.gg/CaQDS6wdFn"><img alt="Discord" src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white"></a>
-  <br>
-  <strong>English</strong> | <a href="README_ZH.md">中文</a>
 </p>
 
-QG is an AI coding agent for your local terminal. It can inspect a repository,
-edit files, run commands, use browser/terminal helpers, and keep durable local
-sessions while you choose the model and the permission level.
+# QG — Quebra-Galho
+
+O QG (Quebra-Galho) é um agente de codificação de terminal que roda na sua
+máquina. Ele inspeciona repositórios, edita arquivos, executa comandos, usa
+helpers de navegador/terminal e mantém sessões locais duráveis — enquanto você
+escolhe o modelo e o nível de permissão.
 
 ```bash
 qg
-qg exec "fix the failing test in ./pkg"
+qg exec "corrige o teste que falhou em ./pkg"
 qg exec --output-format stream-json < turns.jsonl
 ```
 
-## Why QG
+## Por que o QG
 
-- **Use the model you want.** Bring OpenAI, Anthropic, Gemini, Groq, OpenRouter,
-  DeepSeek, Mistral, xAI, Qwen, Kimi, GitHub Models, Ollama, LM Studio, Atomic Chat, or any
-  OpenAI-/Anthropic-compatible endpoint.
-- **Stay in control.** File writes, shell commands, network access, and
-  out-of-workspace writes go through QG's permission and sandbox policy.
-- **Works in the terminal.** The TUI has model/provider pickers, image input,
-  slash commands, live plan/tool rendering, scrollback, themes, and resume/fork
-  support.
-- **Works without the TUI.** `qg exec` is scriptable, supports text/JSON/
-  stream-JSON I/O, isolated worktrees, spec-first runs, and meaningful exit
-  codes for CI.
-- **Keeps context local.** Sessions are stored on disk, searchable, resumable,
-  and never uploaded as telemetry by QG.
-- **Extensible when you need it.** Use MCP servers, skills, plugins, hooks, and
-  specialist subagents from the same CLI.
+- **Um único gateway.** Todos os modelos vêm do gateway Quebra Galho, com
+  catálogo curado atrás da sua chave (`QG_API_KEY`). Sem provedores para
+  configurar.
+- **Você no controle.** Escritas de arquivo, comandos de shell, acesso à rede
+  e escritas fora do workspace passam pela política de permissões e sandbox do
+  QG.
+- **No terminal.** A TUI tem seletor de modelos, comandos slash, renderização
+  ao vivo de planos e ferramentas, scrollback, temas e retomada de sessões.
+- **Sem TUI também.** `qg exec` é scriptável, com I/O texto/JSON/stream-JSON,
+  worktrees isolados, execuções spec-first e códigos de saída úteis para CI.
+- **Contexto local.** Sessões ficam gravadas em disco, pesquisáveis e
+  retomáveis — nunca enviadas como telemetria.
+- **Extensível.** MCP, skills, plugins, hooks e subagentes especialistas pelo
+  mesmo CLI.
 
-## Install
+## Instalação
 
-### npm
-
-```bash
-npm install -g @quebragalho-dev/qg
-qg
-```
-
-The npm package is a small wrapper whose platform build (Linux and macOS on
-x64/arm64, Windows on x64 — including the browser/terminal control helpers)
-installs as an optional dependency straight from the npm registry — no install
-scripts, no downloads outside npm. Bun, pnpm, and yarn work the same way with
-no trust or approval steps. Installs that skip optional dependencies
-(`--omit=optional`) still work: the wrapper fetches the binary from the
-matching GitHub Release whenever it is missing. Windows on ARM runs the x64
-build under emulation. See [docs/NPM_PACKAGING.md](docs/NPM_PACKAGING.md) for
-how the package is put together.
-
-### Install scripts
-
-Linux/macOS:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | bash
-```
-
-Windows PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 | iex
-```
-
-### From source
-
-Source builds require Go 1.26.6+.
+Os fontes exigem Go 1.26.6+. O jeito mais direto de rodar agora é compilar
+localmente:
 
 ```bash
 git clone https://github.com/quebragalho-dev/quebragalho-cli.git
-cd qg
-go run ./cmd/qg
-```
-
-Release installers and the npm wrapper require published GitHub Release assets.
-If you are testing before the first public release, build from source:
-
-```bash
+cd quebragalho-cli
 go build -o qg ./cmd/qg
+./qg
 ```
 
-On Linux, build the sandbox helper too if you want native sandboxing:
+Coloque o binário `qg` num diretório do `PATH` (`~/.local/bin` é uma boa
+escolha) para usá-lo de qualquer lugar. No Linux, build também o helper de
+sandbox se quiser sandbox nativo:
 
 ```bash
 go build -o qg-linux-sandbox ./cmd/qg-linux-sandbox
-go build -o qg-seccomp ./cmd/qg-seccomp   # optional compatibility wrapper
 ```
 
-Put `qg` and `qg-linux-sandbox` in the same directory on `PATH`
-(`~/.local/bin` is a good default). macOS does not need an extra helper binary.
-Windows source builds can use the main `qg.exe` as their sandbox helper; release
-archives still ship standalone Windows helper executables.
+Também é publicado como pacote npm (`npm install -g @quebragalho-dev/qg`),
+que instala **os dois nomes de comando**: `qg` e o alias `quebragalho`.
 
-More install details: [docs/INSTALL.md](docs/INSTALL.md).
+## Primeiros passos
 
-## First Run
+1. **Tenha a sua chave do Quebra Galho.** Ela começa com `sk-...`.
 
-Start the TUI:
+2. **Configure o perfil e a chave.** O perfil (provedor qg + modelo) nasce pelo
+   onboarding de 3 telas na primeira execução, pelo `qg login` ou pelo
+   `qg setup qg` — exportar só `QG_API_KEY` não cria perfil, e sem ele a TUI
+   reabre o onboarding e o `qg exec` responde "No provider configured".
+   A chave pode ficar no cofre validado por esses comandos (a configuração
+   guarda só o marcador `apiKeyStored`, nunca o valor) ou vir do ambiente por
+   cima do perfil já configurado:
+
+   ```bash
+   export QG_API_KEY=sk-...   # alimenta a chave de um perfil já existente
+   ```
+
+3. **Rode o QG:**
+
+   ```bash
+   qg
+   ```
+
+   - **Sem chave / sem configuração**, a primeira execução abre o
+     **onboarding de 3 telas**: (a) boas-vindas Quebra Galho, (b) colar a
+     chave (`QG_API_KEY` ou `QUEBRAGALHO_API_KEY`) com validação em
+     `GET /v1/models`, (c) escolher o modelo — com
+     `muse-spark-1.3-contributor` já pré-selecionado.
+   - Para regravar só a chave depois, `qg login` refaz a validação sem
+     tocar no resto da configuração.
+
+4. **Ou configure via linha de comando:**
+
+   ```bash
+   qg setup qg
+   ```
+
+## Modelos
+
+- O gateway Quebra Galho serve **19 modelos** no catálogo QG; `qg models`
+  lista todos com contexto e descrição.
+- O modelo padrão é **`muse-spark-1.3-contributor`**.
+- A validação da chave e a descoberta de modelos falam com `GET /v1/models`
+  do gateway.
+- Troque o modelo a qualquer momento com `/model` na TUI ou `qg exec
+  --model <id>` na linha de comando.
+
+## Comandos principais
+
+| Comando | O que faz |
+|---|---|
+| `qg` | abre a TUI interativa |
+| `quebragalho` | alias do mesmo binário (instalado via npm) |
+| `qg login` | valida e salva a sua chave Quebra Galho |
+| `qg setup qg` | configura o provedor QG pela linha de comando |
+| `qg models` | lista os 19 modelos do registro QG |
+| `qg providers` | mostra os perfis de provedor resolvidos |
+| `qg exec "..."` | execução única ou scriptável do agente |
+| `qg doctor` | verifica configuração, chave e conectividade |
+| `qg sessions` | inspeciona, retoma, bifurca e rebobina sessões |
+| `qg --help` | a lista completa de comandos e flags |
+
+## Uso diário
+
+### TUI interativa
 
 ```bash
 qg
 ```
 
-The setup wizard helps you pick a provider and model. You can also configure
-providers from the command line:
+Controles úteis:
 
-```bash
-qg setup
-qg providers list
-qg models list
-qg doctor
-```
-
-For API providers, set the matching environment variable before setup or enter
-the key in the wizard:
-
-```bash
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=...
-export GEMINI_API_KEY=...
-export AIMLAPI_API_KEY=...
-export LONGCAT_API_KEY=...
-export FIREWORKS_API_KEY=...
-export MINIMAX_API_KEY=...
-export MINIMAXI_API_KEY=...
-```
-
-To configure AI/ML API directly, run:
-
-```bash
-qg providers setup aimlapi --set-active
-```
-
-To configure Meituan LongCat (LongCat-2.0) directly, run:
-
-```bash
-qg providers setup longcat --set-active
-```
-
-To configure Fireworks AI directly, run:
-
-```bash
-qg providers setup fireworks --set-active
-```
-
-MiniMax presets use the Anthropic-compatible endpoints for the global and China
-regions:
-
-```bash
-qg providers add minimax --set-active
-qg providers add minimaxi-cn --set-active
-```
-
-To use the OpenAI-compatible endpoints instead, add a custom compatible profile
-for the required region:
-
-```bash
-qg providers add custom-openai-compatible \
-  --name minimax-openai \
-  --model MiniMax-M3 \
-  --base-url https://api.minimax.io/v1 \
-  --api-key-env MINIMAX_API_KEY \
-  --set-active
-
-qg providers add custom-openai-compatible \
-  --name minimax-cn-openai \
-  --model MiniMax-M3 \
-  --base-url https://api.minimaxi.com/v1 \
-  --api-key-env MINIMAXI_API_KEY \
-  --set-active
-```
-
-For local models, run Ollama, LM Studio, or the [Atomic Chat](https://atomic.chat)
-desktop app, then use `qg setup` or `qg providers detect`. For Atomic Chat,
-load a model and enable its local OpenAI-compatible API (default
-`http://127.0.0.1:1337/v1`). Choose `atomic-chat-local`; detection includes the
-loaded model ID in the add command. If no usable ID is discovered, load a model
-and retry. Model IDs requiring shell-specific quoting use interactive setup.
-
-## Daily Use
-
-### Interactive TUI
-
-```bash
-qg
-```
-
-Useful controls:
-
-| Control | Action |
+| Controle | Ação |
 |---|---|
-| `Enter` | send the prompt |
-| `/` | open slash-command suggestions |
-| `Ctrl+X` then letter | common slash commands (e.g. `m` → `/model`; `Ctrl+X` `?` for full list) |
-| `Ctrl+P` / `Ctrl+N` | previous / next item in menus (arrows still work) |
-| `Shift+Tab` | cycle permission mode |
-| `Ctrl+B` | show/hide the sidebar |
-| `Ctrl+C` | cancel, exit, or return from a `/btw` conversation |
+| `Enter` | envia o prompt |
+| `/` | abre as sugestões de comandos slash |
+| `Ctrl+X` depois de uma letra | comandos slash comuns (`m` → `/model`; `Ctrl+X` `?` para a lista) |
+| `Ctrl+P` / `Ctrl+N` | item anterior / próximo nos menus (setas também funcionam) |
+| `Shift+Tab` | alterna o modo de permissão |
+| `Ctrl+B` | mostra/oculta a barra lateral |
+| `Ctrl+C` | cancela, sai, ou volta de uma conversa `/btw` |
 
-Common slash commands:
+Comandos slash mais usados:
 
-| Command | Purpose |
+| Comando | Propósito |
 |---|---|
-| `/model`, `/provider` | switch the active model/provider |
-| `/spec`, `/plan` | draft and review a plan before building |
-| `/image` | attach an image for vision-capable models |
-| `/resume`, `/rewind` | continue or roll back local sessions |
-| `/new` | start a fresh session in place (previous session stays on disk) |
-| `/btw [question]` | ask in an isolated fork without adding the side conversation to the main session |
-| `/loop` | repeat a prompt or custom `/command` on an interval (`/loop 5m /babysit-prs`) or self-paced |
-| `/compact`, `/context` | manage context usage |
-| `/permissions`, `/tools` | inspect available tools and policy |
-| `/add-dir` | allow an extra write directory for this session |
-| `/theme`, `/doctor`, `/config` | adjust appearance and inspect setup |
+| `/model` | troca o modelo ativo |
+| `/spec`, `/plan` | esboça e revisa um plano antes de construir |
+| `/image` | anexa uma imagem para modelos com visão |
+| `/resume`, `/rewind` | continua ou rebobina sessões locais |
+| `/new` | começa uma sessão nova no lugar (a anterior fica no disco) |
+| `/btw [pergunta]` | perguntas em um fork isolado, sem poluir a sessão principal |
+| `/loop` | repete um prompt ou `/command` num intervalo (`/loop 5m /babysit-prs`) ou no seu ritmo |
+| `/compact`, `/context` | gerencia o uso de contexto |
+| `/permissions`, `/tools` | inspeciona as ferramentas disponíveis e a política |
+| `/add-dir` | libera um diretório extra de escrita para a sessão |
+| `/theme`, `/doctor`, `/config` | ajusta aparência e inspeciona a configuração |
 
-### Headless `exec`
+### Exec headless
 
 ```bash
-qg exec "explain internal/agent/loop.go"
-qg exec --model claude-sonnet-4.5 "refactor the config loader"
-qg exec --use-spec "add rate limiting to the API client"
-qg exec --worktree "try the migration in an isolated worktree"
+qg exec "explica internal/agent/loop.go"
+qg exec --model muse-spark-1.3-contributor "refatora o carregador de config"
+qg exec --use-spec "adiciona rate limiting no cliente da API"
+qg exec --worktree "testa a migração num worktree isolado"
 qg exec --resume
-qg exec --fork <session-id> "try the other approach"
+qg exec --fork <session-id> "tenta a outra abordagem"
 ```
 
-Programmatic use:
+Uso programático com streaming:
 
 ```bash
 qg exec --input-format stream-json --output-format stream-json < turns.jsonl
 ```
 
-The stream-JSON contract is documented in
+O contrato de stream-JSON está documentado em
 [docs/STREAM_JSON_PROTOCOL.md](docs/STREAM_JSON_PROTOCOL.md).
 
-## Safety Model
+## Modelo de segurança
 
-QG is designed to make side effects visible.
+O QG é feito para deixar efeitos colaterais visíveis.
 
-- Workspace reads are allowed by default.
-- File writes are limited to the workspace unless you grant another directory.
-- Shell commands, network access, destructive commands, and elevated actions are
-  permission-gated.
-- `--add-dir <path>` and `/add-dir <path>` grant additional write roots without
-  giving the agent the whole filesystem.
-- Unsafe/autonomous modes are explicit opt-ins.
-- Secrets are redacted from tool output and logs where QG controls the surface.
+- Leituras do workspace são permitidas por padrão.
+- Escritas de arquivo ficam limitadas ao workspace, a menos que você conceda
+  outro diretório.
+- Comandos de shell, acesso à rede, comandos destrutivos e ações elevadas
+  passam por permissão.
+- `--add-dir <caminho>` e `/add-dir <caminho>` concedem raízes extras de
+  escrita sem entregar o filesystem inteiro ao agente.
+- Modos inseguros/autônomos são opt-in explícito.
+- Segredos são redigidos da saída de ferramentas e dos logs onde o QG
+  controla a superfície.
 
-Example:
+Exemplo:
 
 ```bash
 qg --add-dir ../docs-site
-qg exec --add-dir ../shared "update both repos"
+qg exec --add-dir ../shared "atualiza os dois repositórios"
 ```
 
-Sandbox behavior can be inspected with:
+O comportamento do sandbox pode ser inspecionado com:
 
 ```bash
 qg sandbox policy
 qg sandbox grants list
 ```
 
-## Web And Local Control
+## Web e controle local
 
-QG includes local file/search/edit/shell tools, `web_fetch` for public URLs,
-and MCP support for additional tools.
+O QG inclui as ferramentas locais de arquivo/busca/edição/shell, `web_fetch`
+para URLs públicas e suporte a MCP para ferramentas adicionais.
 
-`web_fetch` refuses loopback, private and other special-use addresses: it checks
-the URL before asking permission, resolves the host, and dials the address it
-validated so a name cannot resolve to something else in between.
+`web_fetch` recusa endereços loopback, privados e de uso especial: verifica a
+URL antes de pedir permissão, resolve o host e conecta no endereço que
+validou, para que um nome não resolva para outra coisa no meio do caminho.
 
-If `HTTP_PROXY`/`HTTPS_PROXY` is set, `web_fetch` and the provider connectivity
-probe use it, and that last step changes: the proxy is dialed and the target
-hostname is sent to it, so the proxy decides which address the request actually
-reaches. The URL is still checked and resolved locally first, but a proxy that
-answers differently can reach a private service. A forward proxy already sees
-and can rewrite every request through it, so this is the trust you accept by
-configuring one. Leave the variables unset for the checks to be enforced end to
-end.
+Se `HTTP_PROXY`/`HTTPS_PROXY` estiver definido, `web_fetch` e a checagem de
+conectividade do gateway o utilizam; nesse último passo o proxy é conectado e
+o hostname do destino é enviado a ele, então o proxy decide qual endereço a
+requisição alcança. A URL ainda é verificada e resolvida localmente primeiro,
+mas um proxy que responda de forma diferente pode alcançar um serviço privado.
+Um proxy de encaminhamento já vê e pode reescrever toda requisição por ele —
+essa é a confiança que você aceita ao configurar um. Deixe as variáveis sem
+definição para valerem as verificações de ponta a ponta.
 
-For local dev servers, use shell commands such as `curl` through `exec_command`
-so the normal sandbox and permission policy applies. Long-running commands stay
-attached to a background terminal session and can be listed or stopped from the
-TUI.
+Para servidores de dev locais, use comandos de shell como `curl` através do
+`exec_command` para que a política normal de sandbox e permissões se aplique.
+Comandos de longa duração ficam anexados a uma sessão de terminal de fundo e
+podem ser listados ou parados pela TUI.
 
-The npm package also includes browser and terminal helper packages used by local
-browser/terminal tools. Source builds can use the same helpers when they are on
-`PATH` or configured in QG's local-control settings.
+## Estendendo o QG
 
-## Common Commands
+### Instruções de projeto e pessoais
 
-```text
-qg                  interactive TUI
-qg exec             one-shot or scripted agent run
-qg setup            first-run provider setup
-qg auth             OAuth/login helpers for supported providers
-qg models           model registry and capabilities
-qg providers        provider profiles and detection
-qg doctor           setup, key, and connectivity checks
-qg context          context-budget report
-qg repo-map         deterministic repository map
-qg repo-info        local repository summary
-qg search | find    search local session history
-qg sessions         inspect, resume, fork, and rewind sessions
-qg spec             manage spec-mode drafts
-qg specialist       manage specialist subagents
-qg skills           manage markdown instruction skills
-qg plugins          manage plugins
-qg hooks            manage lifecycle hooks
-qg mcp              manage MCP servers and tools
-qg serve --mcp      expose QG tools over MCP stdio
-qg sandbox          inspect sandbox policy and grants
-qg worktrees        prepare isolated git worktrees
-qg verify           detect and run local verification checks
-qg changes          inspect and commit local git changes
-qg usage            token usage and estimated cost
-qg cron             scheduled agent jobs
-qg update --check   check for newer releases
-qg upgrade          download, verify, and install the latest release
-```
+O QG acrescenta orientações específicas do projeto ao prompt de sistema a
+partir do primeiro arquivo `AGENTS.md`, `QG.md` ou `.qg/AGENTS.md` encontrado
+em cada diretório, da raiz do git até o seu diretório atual (nessa ordem por
+diretório). Os arquivos são injetados do mais geral para o mais específico,
+com limite de 8 KiB por arquivo e 32 KiB no total.
 
-## Extending QG
-
-### Project and personal instructions
-
-QG appends project-specific guidance to the system prompt from the first
-`AGENTS.md`, `QG.md`, or `.qg/AGENTS.md` file found in each directory from
-the git root down to your current working directory (checked in that order
-per directory). Files are injected general-to-specific, capped at 8 KiB per
-file and 32 KiB total.
-
-A personal `QG.md` under `config.UserConfigDir()/qg/QG.md`
-(`$XDG_CONFIG_HOME/qg/QG.md` or `~/.config/qg/QG.md` on Linux/macOS,
-`%AppData%\Roaming\qg\QG.md` on Windows) applies across every workspace, ahead of any project guidelines.
+Um `QG.md` pessoal em `config.UserConfigDir()/qg/QG.md`
+(`$XDG_CONFIG_HOME/qg/QG.md` ou `~/.config/qg/QG.md` no Linux/macOS,
+`%AppData%\Roaming\qg\QG.md` no Windows) vale em todo workspace, à frente de
+qualquer orientação de projeto.
 
 ### Plugins
 
-Plugins are discovered from `~/.config/qg/plugins/<name>/plugin.json` (user
-scope — `$XDG_CONFIG_HOME` or `~/.config` on every OS, independent of the
-`config.UserConfigDir()` path used above) and `<cwd>/.qg/plugins/<name>/plugin.json`
-(project scope — resolved from the current working directory, not the repo
-root), and managed with `qg plugins`. A manifest can declare:
+Plugins são descobertos em `~/.config/qg/plugins/<nome>/plugin.json` (escopo
+pessoal) e `<cwd>/.qg/plugins/<nome>/plugin.json` (escopo de projeto), e são
+gerenciados com `qg plugins`. O manifesto pode declarar:
 
-- `tools` — custom tools (`command`, `args`, `inputSchema`, and a
-  `permission` of `prompt` or `deny`; `allow` is honored only when manifest tool
-  auto-approval is enabled)
-- `hooks` — commands run on `beforeTool`, `afterTool`, `sessionStart`, or
-  `sessionEnd`
-- `prompts` and `skills` — additional prompt/skill files
+- `tools` — ferramentas próprias (`command`, `args`, `inputSchema` e uma
+  `permission` de `prompt` ou `deny`)
+- `hooks` — comandos executados em `beforeTool`, `afterTool`, `sessionStart`
+  ou `sessionEnd`
+- `prompts` e `skills` — arquivos de prompt/skill adicionais
 
-MCP servers (`qg mcp`) and standalone markdown skills (`qg skills`) use
-the same extension points and can also be wired up outside of a plugin
-manifest.
+Servidores MCP (`qg mcp`) e skills em markdown (`qg skills`) usam os mesmos
+pontos de extensão e também podem ser ligados fora de um manifesto de plugin.
 
-## Appearance And Accessibility
+## Aparência e acessibilidade
 
-| Control | Effect |
+| Controle | Efeito |
 |---|---|
-| `NO_COLOR=<anything>` | disables color output |
-| `QG_THEME=<name>` | selects the startup theme (`auto`, `dark`, `light`, or a color theme like `dracula`, `nord`, `gruvbox`, `tokyo-night`, `catppuccin`, `one-dark`, `solarized-dark`, `rose-pine`, `everforest`, `neon`, `solarized-light`, `dune`) |
-| `--theme <name>` | selects the TUI theme from the CLI (same names) |
-| `/theme` | opens the theme picker inside the TUI (live preview; `/theme <name>` switches directly) |
-| `QG_NO_FADE=1` | disables streaming fade animation |
+| `NO_COLOR=<qualquer>` | desativa a saída colorida |
+| `QG_THEME=<nome>` | escolhe o tema inicial (`auto`, `dark`, `light` ou um tema de cor como `dracula`, `nord`, `gruvbox`, `tokyo-night`, `catppuccin`, `one-dark`, `solarized-dark`, `rose-pine`, `everforest`, `neon`, `solarized-light`, `dune`) |
+| `--theme <nome>` | escolhe o tema da TUI pela CLI (mesmos nomes) |
+| `/theme` | abre o seletor de temas dentro da TUI (pré-visualização ao vivo; `/theme <nome>` troca direto) |
+| `QG_NO_FADE=1` | desativa a animação de fade do streaming |
 
-Meaning does not rely on color alone; diffs, permissions, and statuses also use
-text or glyph markers.
+O significado não depende só de cor; diffs, permissões e status também usam
+marcadores de texto ou glifos.
 
-## Development
+## Desenvolvimento
 
 ```bash
 go test ./...
@@ -386,88 +283,71 @@ go run ./cmd/qg-release smoke
 go run ./cmd/qg-perf-bench
 ```
 
-Experimental: `QG_OPENAI_TURN_SESSION=1` enables the optimized OpenAI turn
-session (background connection prewarm + request-prefix telemetry) for headless
-`qg exec` runs against official OpenAI profiles. Off by default; `0`, `false`,
-or `off` disable it. A/B-benchmark it by running the same `qg-perf-bench` suite
-with the variable unset and set.
+### Qualidade de código e checagens de segurança
 
-Native ChatGPT Responses sessions are enabled by default. Set
-`QG_CHATGPT_TURN_SESSION=0`, `false`, or `off` to restore stateless HTTP/SSE
-transport.
+Antes de commitar, garanta que todas as checagens de qualidade e segurança do
+código Go passem. Os alvos do `make` abaixo fixam cada ferramenta à versão
+de Go deste módulo, então carregam corretamente mesmo que o seu `go` padrão
+seja mais antigo.
 
-### Code Quality and Security Checks
+1. **Formatação**: rode `make fmt` (ou `go fmt ./...`).
+2. **Vet**: rode `make vet` (ou `go vet ./...`).
+3. **Lint**: rode `make lint-static`.
+4. **Varredura de vulnerabilidades**: rode `make vulncheck`.
 
-Before committing any changes, ensure all Go code quality and security checks pass. The `make` targets below pin each tool to this module's Go version, so they load correctly even when your default `go` toolchain is older — running the plain `go run ...@version` form yourself can select the tool module's own (older) toolchain and fail to load this module instead.
+Use os alvos do repositório em vez de binários instalados globalmente: eles
+aplicam o toolchain de Go gerenciado pelo módulo e as versões revisadas e
+presas das ferramentas.
 
-1. **Formatting**: Run `make fmt` (or `go fmt ./...`).
-2. **Vetting**: Run `make vet` (or `go vet ./...`).
-3. **Linting**: Run `make lint-static`.
-4. **Vulnerability Scan**: Run `make vulncheck`.
-
-Use the repository-managed targets rather than globally installed binaries:
-the targets apply the module's required Go toolchain as well as the reviewed,
-pinned tool versions.
-
-The installed binaries land in `$GOBIN` when it is set, otherwise in
-`$GOPATH/bin` (default `~/go/bin`). That directory must be on your `PATH` to
-run them directly. If it isn't, add it:
-
-```bash
-gobin="$(go env GOBIN)"; [ -z "$gobin" ] && gobin="$(go env GOPATH)/bin"
-case ":$PATH:" in *":$gobin:"*) ;; *) export PATH="$PATH:$gobin" ;; esac
-```
-
-### Cross-Compile Examples
+### Exemplos de cross-compile
 
 ```bash
 go run ./cmd/qg-release build --goos linux --goarch amd64
 go run ./cmd/qg-release build --goos windows --goarch amd64 --output dist/qg.exe
 ```
 
-## Documentation
+## Documentação
 
-- [Install](docs/INSTALL.md)
-- [Update flow](docs/UPDATE.md)
-- [Themes](docs/THEMES.md)
-- [Stream-JSON protocol](docs/STREAM_JSON_PROTOCOL.md)
-- [Specialists](docs/SPECIALISTS.md)
+- [Instalação](docs/INSTALL.md)
+- [Fluxo de atualização](docs/UPDATE.md)
+- [Temas](docs/THEMES.md)
+- [Protocolo stream-JSON](docs/STREAM_JSON_PROTOCOL.md)
+- [Especialistas](docs/SPECIALISTS.md)
 - [GitHub Action](docs/GITHUB_ACTION.md)
 - [Benchmarks](docs/BENCHMARK.md)
 - [Performance](docs/PERFORMANCE.md)
-- [Agent evals](docs/AGENT_EVALS.md)
+- [Evals de agente](docs/AGENT_EVALS.md)
 
-## Community
+## Comunidade
 
-Real-time chat happens on the [Discord server](https://discord.gg/CaQDS6wdFn).
-
-Questions, setup help, ideas, and sharing all live in
+Dúvidas, ajuda de configuração, ideias e compartilhamento vivem no
 [GitHub Discussions](https://github.com/quebragalho-dev/quebragalho-cli/discussions):
 
-| Category | Use it for |
+| Categoria | Use para |
 |---|---|
-| [Q&A](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/q-a) | Setup help, provider/model configuration, "how do I" questions |
-| [Ideas](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/ideas) | Feature proposals and design discussion before any PR |
-| [Show and tell](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/show-and-tell) | Your skills, plugins, MCP setups, themes, and workflows |
-| [Announcements](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/announcements) | Releases and project news from the maintainers |
+| [Q&A](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/q-a) | Ajuda de setup, configuração, perguntas de "como faço" |
+| [Ideias](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/ideas) | Propostas de feature e discussão de design antes de qualquer PR |
+| [Show and tell](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/show-and-tell) | Suas skills, plugins, MCPs, temas e workflows |
+| [Anúncios](https://github.com/quebragalho-dev/quebragalho-cli/discussions/categories/announcements) | Releases e notícias oficiais |
 
-For a good Q&A answer fast, include `qg --version`, your OS and install
-method, the provider/model in use, and `qg doctor` output. See
-[SUPPORT.md](SUPPORT.md). Bugs belong in
-[issues](https://github.com/quebragalho-dev/quebragalho-cli/issues/new/choose); security reports
-follow [SECURITY.md](SECURITY.md), never a public thread.
+Para ter uma resposta rápida no Q&A, inclua `qg --version`, seu SO e método de
+instalação, o modelo em uso e a saída do `qg doctor`. Veja [SUPPORT.md](SUPPORT.md).
+Bugs vão para as [issues](https://github.com/quebragalho-dev/quebragalho-cli/issues/new/choose);
+relatórios de segurança seguem [SECURITY.md](SECURITY.md), nunca um thread
+público.
 
-## Contributing
+## Contribuindo
 
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), run the
-relevant tests, and open a focused pull request.
+Contribuições são bem-vindas. Leia [CONTRIBUTING.md](CONTRIBUTING.md), rode os
+testes relevantes e abra um pull request focado.
 
-Security reports should follow [SECURITY.md](SECURITY.md).
+Relatórios de segurança devem seguir [SECURITY.md](SECURITY.md).
 
-## Credits
+## Créditos
 
-QG is a rename of [Zero](https://github.com/Twigpine/zero) by Twigpine.
+O QG é um fork/rebrand do [Zero](https://github.com/Twigpine/zero), de
+Twigpine.
 
-## License
+## Licença
 
-QG is released under the [MIT License](LICENSE).
+O QG é distribuído sob a [Licença MIT](LICENSE).

@@ -10,99 +10,66 @@ import (
 )
 
 func TestCompactionModelIDResolutionOrder(t *testing.T) {
-	anthropic := config.ProviderProfile{
-		Name:         "anthropic",
-		ProviderKind: config.ProviderKindAnthropic,
-		Model:        "claude-sonnet-4.5",
-	}
-
 	t.Setenv(CompactionModelEnv, "my-env-model")
-	if got := CompactionModelID(anthropic, "my-config-model"); got != "my-env-model" {
+	if got := CompactionModelID("my-config-model"); got != "my-env-model" {
 		t.Fatalf("env must win, got %q", got)
 	}
 
 	t.Setenv(CompactionModelEnv, "main")
-	if got := CompactionModelID(anthropic, "my-config-model"); got != "" {
+	if got := CompactionModelID("my-config-model"); got != "" {
 		t.Fatalf("env 'main' must force the main model, got %q", got)
 	}
 
 	t.Setenv(CompactionModelEnv, "")
-	if got := CompactionModelID(anthropic, "my-config-model"); got != "my-config-model" {
+	if got := CompactionModelID("my-config-model"); got != "my-config-model" {
 		t.Fatalf("config preference must apply when env unset, got %q", got)
 	}
-	if got := CompactionModelID(anthropic, "main"); got != "" {
+	if got := CompactionModelID("main"); got != "" {
 		t.Fatalf("config 'main' must force the main model, got %q", got)
 	}
 }
 
-func TestCompactionModelIDCuratedDefaults(t *testing.T) {
+// TestCompactionModelIDHasNoCuratedDefault pins the single-provider contract:
+// QG exposes one catalog whose prices are not knowable from source and the
+// default coding model is already among the cheapest, so no opt-in means no
+// dedicated summarizer (compaction runs on the main model).
+func TestCompactionModelIDHasNoCuratedDefault(t *testing.T) {
 	t.Setenv(CompactionModelEnv, "")
-
-	anthropic := config.ProviderProfile{Name: "anthropic", ProviderKind: config.ProviderKindAnthropic, Model: "claude-sonnet-4.5"}
-	if got := CompactionModelID(anthropic, ""); got != defaultAnthropicCompactionModel {
-		t.Fatalf("anthropic default = %q, want %q", got, defaultAnthropicCompactionModel)
-	}
-
-	google := config.ProviderProfile{Name: "google", ProviderKind: config.ProviderKindGoogle, Model: "gemini-2.5-pro"}
-	if got := CompactionModelID(google, ""); got != defaultGoogleCompactionModel {
-		t.Fatalf("google default = %q, want %q", got, defaultGoogleCompactionModel)
-	}
-
-	openai := config.ProviderProfile{Name: "openai", ProviderKind: config.ProviderKindOpenAI, Model: "gpt-4.1"}
-	if got := CompactionModelID(openai, ""); got != defaultOpenAICompactionModel {
-		t.Fatalf("openai default = %q, want %q", got, defaultOpenAICompactionModel)
-	}
-
-	// Custom/compatible endpoints: catalog unknowable, no default.
-	compatible := config.ProviderProfile{
-		Name:         "opengateway",
-		ProviderKind: config.ProviderKindOpenAICompatible,
-		BaseURL:      "https://opengateway.gitlawb.com/v1",
-		Model:        "some-model",
-	}
-	if got := CompactionModelID(compatible, ""); got != "" {
-		t.Fatalf("openai-compatible must have no default, got %q", got)
+	if got := CompactionModelID(""); got != "" {
+		t.Fatalf("default compaction model = %q, want \"\" (main model)", got)
 	}
 }
 
-func TestCompactionModelIDSkipsWhenMainIsAlreadyCheap(t *testing.T) {
+func TestCompactionSummarizerFactoryHonorsPreference(t *testing.T) {
 	t.Setenv(CompactionModelEnv, "")
-	haiku := config.ProviderProfile{
-		Name:         "anthropic",
-		ProviderKind: config.ProviderKindAnthropic,
-		Model:        defaultAnthropicCompactionModel,
-	}
-	if got := CompactionModelID(haiku, ""); got != "" {
-		t.Fatalf("already-cheap session must not get a dedicated summarizer, got %q", got)
-	}
-}
-
-func TestCompactionSummarizerFactoryTracksMainModel(t *testing.T) {
-	t.Setenv(CompactionModelEnv, "")
-	base := config.ProviderProfile{Name: "anthropic", ProviderKind: config.ProviderKindAnthropic, Model: defaultAnthropicCompactionModel}
+	base := config.ProviderProfile{Name: "qg", CatalogID: "qg", ProviderKind: config.ProviderKindOpenAICompatible, Model: "muse-spark-1.3-contributor"}
 	var built []string
 	newProvider := func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 		built = append(built, profile.Model)
 		return nil, errors.New("not needed")
 	}
+
+	// No preference: no dedicated summarizer, nothing built.
 	factory := CompactionSummarizerFactory(base, "", newProvider)
 	if factory == nil {
 		t.Fatal("factory must exist when a provider builder exists")
 	}
-	// Main model is the cheap default: no dedicated summarizer, nothing built.
-	if provider, err := factory(context.Background(), defaultAnthropicCompactionModel); provider != nil || err != nil || len(built) != 0 {
-		t.Fatalf("cheap main model must yield (nil, nil) without building, got %v %v built=%v", provider, err, built)
+	if provider, err := factory(context.Background(), "muse-spark-1.3-contributor"); provider != nil || err != nil || len(built) != 0 {
+		t.Fatalf("no preference must yield (nil, nil) without building, got %v %v built=%v", provider, err, built)
 	}
-	// After escalating to an expensive model the cheap default is built.
-	if _, err := factory(context.Background(), "claude-sonnet-4-5"); err == nil || len(built) != 1 || built[0] != defaultAnthropicCompactionModel {
-		t.Fatalf("escalated main model must build the cheap summarizer, built=%v err=%v", built, err)
+
+	// Explicit preference builds the chosen model on the main provider.
+	factory = CompactionSummarizerFactory(base, "deepseek-v4.1-flash", newProvider)
+	if _, err := factory(context.Background(), "muse-spark-1.3-contributor"); err == nil || len(built) != 1 || built[0] != "deepseek-v4.1-flash" {
+		t.Fatalf("preferred model must be built, built=%v err=%v", built, err)
 	}
-	// An empty main model falls back to the base profile's model — the cheap
-	// default here, so again nothing is built.
+
+	// Main model already IS the preferred model: no second instance.
 	built = nil
-	if provider, err := factory(context.Background(), ""); provider != nil || err != nil || len(built) != 0 {
-		t.Fatalf("empty main model must use the base profile, got %v %v built=%v", provider, err, built)
+	if provider, err := factory(context.Background(), "deepseek-v4.1-flash"); provider != nil || err != nil || len(built) != 0 {
+		t.Fatalf("main already equal to preference must yield (nil, nil), got %v %v built=%v", provider, err, built)
 	}
+
 	// The explicit "main" preference disables the dedicated summarizer.
 	if provider, err := CompactionSummarizerFactory(base, "main", newProvider)(context.Background(), "claude-sonnet-4-5"); provider != nil || err != nil {
 		t.Fatalf("preference main must disable the summarizer, got %v %v", provider, err)

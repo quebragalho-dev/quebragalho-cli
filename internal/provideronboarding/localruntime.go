@@ -110,7 +110,7 @@ func (runtime DetectedLocalRuntime) SetupAction() Action {
 	}
 	// Do not fall back to an unserved/default model when all advertised IDs
 	// were rejected. Preserve other runtimes' existing empty-response behavior.
-	if model == "" && (runtime.CatalogID == "atomic-chat-local" || len(runtime.Models) > 0) {
+	if model == "" && len(runtime.Models) > 0 {
 		return Action{
 			Label:  "Load a chat model",
 			Detail: "Detected " + name + " on " + runtime.BaseURL + " but no usable chat model ID was discovered. Load a chat model in " + name + ", then run qg providers detect again.",
@@ -143,7 +143,7 @@ func (runtime DetectedLocalRuntime) AdoptModel() string {
 	defaultAlias := ""
 	for _, raw := range runtime.Models {
 		id := strings.TrimSpace(raw)
-		if id == "" || providermodelcatalog.IsKnownNonCodingModelID(id) || runtime.CatalogID == "atomic-chat-local" && id == "local-model" {
+		if id == "" || providermodelcatalog.IsKnownNonCodingModelID(id) {
 			continue
 		}
 		if id == want {

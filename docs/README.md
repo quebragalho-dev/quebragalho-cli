@@ -7,7 +7,6 @@ QG.
 
 - [Install](INSTALL.md)
 - [Update flow](UPDATE.md)
-- [OAuth logins and subscription-backed providers](oauth-subscriptions.md)
 
 ## Automation And Integrations
 

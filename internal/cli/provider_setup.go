@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/quebragalho-dev/quebragalho-cli/internal/aimlapi"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
@@ -55,9 +54,13 @@ func runProvidersAdd(args []string, stdout io.Writer, stderr io.Writer, deps app
 	}
 	// Persist with the key moved into the encrypted credential store (capture flip);
 	// the local profile keeps the key for the verification build below.
-	cfg, err := config.UpsertProvider(configPath, config.SecureProviderProfile(profile, configPath), options.setActive)
+	secured, fellBack := config.SecureProviderProfile(profile, configPath)
+	cfg, err := config.UpsertProvider(configPath, secured, options.setActive)
 	if err != nil {
 		return writeAppError(stderr, err.Error(), exitCrash)
+	}
+	if fellBack {
+		warnKeyStoreFallback(stderr, configPath)
 	}
 
 	if options.json {
@@ -186,6 +189,11 @@ func providerCheckNextActions(profile config.ProviderProfile, connectivity bool,
 	}
 	switch health.Status {
 	case providerhealth.StatusFail:
+		// A keyless profile failing the probe needs the credential recipe, not
+		// the generic verify advice: name both gateway env vars and `qg login`.
+		if _, missing := profile.MissingCredentialEnv(); missing && !providerProfileHasCredential(profile) {
+			return []string{fmt.Sprintf("set %s in your environment or run `qg login`, then rerun qg providers check %s --connectivity", providercatalog.KeyEnvHint, name)}
+		}
 		return []string{fmt.Sprintf("verify the API key, base URL, and model, then rerun qg providers check %s --connectivity", name)}
 	case providerhealth.StatusWarn:
 		return []string{fmt.Sprintf("review the warning, then rerun qg providers check %s --connectivity", name)}
@@ -206,7 +214,7 @@ func providerCheckMissingKeyNextAction(profile config.ProviderProfile) string {
 	if apiKeyEnv == "" {
 		return ""
 	}
-	return fmt.Sprintf("set %s and rerun qg providers check %s", apiKeyEnv, providerCheckName(profile))
+	return fmt.Sprintf("set %s and rerun qg providers check %s", providercatalog.DisplayKeyEnv(apiKeyEnv), providerCheckName(profile))
 }
 
 func providerCheckAPIKeyEnv(profile config.ProviderProfile) string {
@@ -430,17 +438,6 @@ func providerProfileForAdd(options providerAddOptions) (config.ProviderProfile, 
 	var catalogHeaders map[string]string
 	if sameProviderSetupBaseURL(baseURL, descriptor.DefaultBaseURL) {
 		catalogHeaders = descriptor.CustomHeaders
-		if strings.EqualFold(strings.TrimSpace(descriptor.ID), "aimlapi") {
-			catalogHeaders = aimlapi.WithResolvedPartnerHeader(catalogHeaders)
-		}
-	}
-	// Discovery fallback can pass the nonempty catalog placeholder through
-	// either CLI setup path. Never persist it as an Atomic Chat model.
-	if descriptor.ID == "atomic-chat-local" {
-		model := strings.TrimSpace(options.model)
-		if model == "" || model == "local-model" {
-			return config.ProviderProfile{}, fmt.Errorf("provider %q serves a locally loaded model; pass --model <id> (run `qg providers detect` to see the served model)", descriptor.ID)
-		}
 	}
 	profile := config.ProviderProfile{
 		Name:            name,
@@ -484,7 +481,7 @@ func selectProviderForCheck(resolved config.ResolvedConfig, name string) (config
 }
 
 func validateProviderRuntimeReady(profile config.ProviderProfile) error {
-	// A stored OAuth login (e.g. `qg auth chatgpt`) is a credential too: a
+	// A stored OAuth login from an earlier version is a credential too: a
 	// keyless token-login profile must pass the readiness check instead of being
 	// told to set an API key it will never have.
 	if profile.CatalogID != "" {
@@ -505,7 +502,7 @@ func validateProviderRuntimeReady(profile config.ProviderProfile) error {
 	// actually missing a credential.
 	if envVar, missing := profile.MissingCredentialEnv(); missing {
 		if envVar != "" {
-			return fmt.Errorf("provider %s requires API key; set %s", profile.Name, envVar)
+			return fmt.Errorf("provider %s requires API key; set %s", profile.Name, providercatalog.DisplayKeyEnv(envVar))
 		}
 		return fmt.Errorf("provider %s requires API key", profile.Name)
 	}

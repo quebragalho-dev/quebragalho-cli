@@ -23,6 +23,7 @@ type setupOptions struct {
 	model     string
 	baseURL   string
 	apiKeyEnv string
+	apiKey    string
 	json      bool
 	// verify runs a live connectivity probe after saving the provider and reports
 	// a specific, fixable error on failure (wrong base URL, bad key, model not
@@ -42,12 +43,13 @@ func runSetup(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 		return exitSuccess
 	}
 	if strings.TrimSpace(options.catalogID) == "" {
-		return runInteractiveTUIWithSetup(stderr, deps, "", nil, "", true, false)
+		return writeAppError(stderr, setupUnavailableMessage(), exitUsage)
 	}
 
 	result, err := saveSetupProvider(deps, tui.SetupSelection{
 		CatalogID: options.catalogID,
 		Model:     options.model,
+		APIKey:    strings.TrimSpace(options.apiKey),
 	}, setupSaveOptions{
 		name:      options.name,
 		baseURL:   options.baseURL,
@@ -55,6 +57,9 @@ func runSetup(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	})
 	if err != nil {
 		return writeAppError(stderr, err.Error(), exitCrash)
+	}
+	if result.KeyStoreFallback {
+		warnKeyStoreFallback(stderr, result.ConfigPath)
 	}
 
 	var verification *setupVerification
@@ -124,7 +129,7 @@ func verifySetupProvider(deps appDeps, profile config.ProviderProfile) (setupVer
 			name = "this provider"
 		}
 		return setupVerification{Ran: true, OK: false, Summary: "no api key"},
-			fmt.Errorf("no API key found for %s — set its API key (export the provider's API key env var, or pass --api-key-env) or run `qg auth`, then re-run setup", name)
+			fmt.Errorf("no API key found for %s — set %s in your environment or run `qg login` (or pass --api-key / --api-key-env QUEBRAGALHO_API_KEY), then re-run `qg setup qg`", name, providercatalog.KeyEnvHint)
 	}
 	ctx, stop := signalContext()
 	defer stop()
@@ -226,6 +231,19 @@ func parseSetupArgs(args []string) (setupOptions, bool, error) {
 				return options, false, err
 			}
 			options.apiKeyEnv = value
+		case arg == "--api-key":
+			value, next, err := nextFlagValue(args, index, arg)
+			if err != nil {
+				return options, false, err
+			}
+			options.apiKey = value
+			index = next
+		case strings.HasPrefix(arg, "--api-key="):
+			value, err := requiredInlineFlagValue(arg, "--api-key")
+			if err != nil {
+				return options, false, err
+			}
+			options.apiKey = value
 		case strings.HasPrefix(arg, "-"):
 			return options, false, execUsageError{fmt.Sprintf("unknown flag %q", arg)}
 		default:
@@ -265,11 +283,22 @@ func saveSetupProvider(deps appDeps, selection tui.SetupSelection, options setup
 		return tui.SetupResult{}, err
 	}
 	// Persist with the key moved into the encrypted credential store (capture flip);
-	// the returned profile keeps the key for this run's immediate use.
-	if _, err := config.UpsertProvider(configPath, config.SecureProviderProfile(profile, configPath), true); err != nil {
+	// the returned profile keeps the key for this run's immediate use. When the
+	// store is unavailable the key stays inline and KeyStoreFallback tells the
+	// caller to warn that config.json now holds it in plaintext.
+	secured, fellBack := config.SecureProviderProfile(profile, configPath)
+	if _, err := config.UpsertProvider(configPath, secured, true); err != nil {
 		return tui.SetupResult{}, err
 	}
-	return tui.SetupResult{ConfigPath: configPath, Provider: profile}, nil
+	return tui.SetupResult{ConfigPath: configPath, Provider: profile, KeyStoreFallback: fellBack}, nil
+}
+
+// warnKeyStoreFallback reports that the credential store was unavailable, so
+// the API key was persisted inline in config.json (plaintext). Every surface
+// that persists a key must print this on a fallback — a silent downgrade of
+// where the secret rests is the defect, not the fail-soft itself.
+func warnKeyStoreFallback(stderr io.Writer, configPath string) {
+	_, _ = fmt.Fprintf(stderr, "warning: credential store unavailable — API key saved in plaintext in %s\n", configPath)
 }
 
 func setupProviderOptions() []tui.SetupProviderOption {
@@ -301,6 +330,33 @@ func setupProviderEnvVar(descriptor providercatalog.Descriptor) string {
 	return ""
 }
 
+// setupUnavailableMessage answers bare `qg setup` now that the interactive
+// setup UI is removed (Etapa 4): the provider argument is the only form left.
+func setupUnavailableMessage() string {
+	return "interactive setup is not available: configure the provider with `qg setup qg` (see `qg setup --help`)"
+}
+
+// missingProviderKeyMessage is the launch-time error replacing the removed
+// onboarding wizard (Etapa 4). It names the credential env var the profile
+// expects and, when no profile exists yet, the command that creates one.
+func missingProviderKeyMessage(profile config.ProviderProfile) string {
+	envVar := providercatalog.DisplayKeyEnv(mustMissingCredentialEnv(profile))
+	if strings.TrimSpace(envVar) == "" {
+		envVar = providercatalog.KeyEnvHint
+	}
+	if !config.HasProviderProfile(profile) {
+		return "no provider configured: set " + envVar + " in your environment or run `qg login`, then run `qg setup qg`"
+	}
+	return "no API key configured: set " + envVar + " in your environment or run `qg login`"
+}
+
+// mustMissingCredentialEnv ignores the missing-flag: this helper only wants
+// the env-var name the profile expects, present or not.
+func mustMissingCredentialEnv(profile config.ProviderProfile) string {
+	envVar, _ := profile.MissingCredentialEnv()
+	return envVar
+}
+
 func setupRequired(resolved config.ResolvedConfig) bool {
 	if !config.HasProviderProfile(resolved.Provider) {
 		return true
@@ -308,9 +364,10 @@ func setupRequired(resolved config.ResolvedConfig) bool {
 	if _, missing := setupMissingCredentialEnv(resolved.Provider); !missing {
 		return false
 	}
-	// A stored OAuth login (e.g. `qg auth login xai`) is a credential too, even
-	// though the profile has no inline key / env var — so a logged-in provider
-	// must not trigger onboarding.
+	// A stored OAuth login from an earlier version (login commands were removed
+	// in Etapa 4; the tokens remain readable) is a credential too, even though
+	// the profile has no inline key / env var — so such a provider must not
+	// trigger onboarding.
 	return !providerHasOAuthLogin(resolved.Provider, oauthLoggedInProviders())
 }
 
@@ -374,10 +431,10 @@ func firstUsableProvider(providers []config.ProviderProfile) (config.ProviderPro
 				continue
 			}
 		}
-		// A stored OAuth login (e.g. `qg auth login xai`) is a credential too, even
-		// when the profile has no inline key / env var — mirrors setupRequired and
-		// usableSavedProviders so this fallback doesn't force onboarding for a
-		// provider the user is already authenticated with.
+		// A stored OAuth login from an earlier version is a credential too, even
+		// when the profile has no inline key / env var — mirrors setupRequired
+		// and usableSavedProviders so this fallback doesn't force onboarding for
+		// a provider the user already authenticated.
 		if _, missing := setupMissingCredentialEnv(profile); missing && !providerHasOAuthLogin(profile, logins) {
 			continue
 		}
@@ -482,7 +539,7 @@ func formatSetupComplete(result tui.SetupResult) string {
 	}
 	if envVar, ok := setupMissingCredentialEnv(result.Provider); ok {
 		if envVar != "" {
-			lines = append(lines, "next: set "+envVar+" in your shell")
+			lines = append(lines, "next: set "+providercatalog.DisplayKeyEnv(envVar)+" in your shell or run `qg login`")
 		} else {
 			lines = append(lines, "next: set provider credentials in your shell")
 		}
@@ -541,21 +598,22 @@ func setupCommandArg(value string) string {
 
 func writeSetupHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  qg setup [provider] [flags]
+  qg setup <provider> [flags]
 
-Guides first-run QG setup. Without a provider, opens the setup UI. With a
-provider catalog id, writes that provider as the active provider.
+Configures <provider> as the active provider. The interactive setup UI was
+removed, so the provider argument is required.
 
 Examples:
-  qg setup
-  qg setup openai --api-key-env OPENAI_API_KEY
-  qg setup ollama
-  qg setup ollama-cloud
+  qg setup qg
+  qg setup qg --api-key sk-...
+  qg setup qg --api-key-env QUEBRAGALHO_API_KEY
+  qg setup qg --model muse-spark-1.3-contributor
 
 Flags:
       --name <name>             Provider profile name
       --model <model>           Override the default model
       --base-url <url>          Override provider base URL
+      --api-key <key>           Save an API key directly in the credential store
       --api-key-env <name>      Store an API key environment variable name
       --verify                  Probe the provider after saving and report a fixable error on failure
       --json                    Print machine-readable setup result

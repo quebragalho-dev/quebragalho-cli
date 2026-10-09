@@ -16,7 +16,7 @@ import (
 )
 
 func TestEffortCommandListsAndSetsSupportedEffort(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	m.input.SetValue("/effort list")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
@@ -82,7 +82,7 @@ func TestEffortCommandRejectsUnsupportedActiveModel(t *testing.T) {
 // effort controls at all.
 
 func TestCycleReasoningEffortAutoToFirst(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	if m.reasoningEffort != "" {
 		t.Fatalf("expected default effort auto, got %q", m.reasoningEffort)
 	}
@@ -90,13 +90,13 @@ func TestCycleReasoningEffortAutoToFirst(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected cycle to produce no command")
 	}
-	if next.reasoningEffort != modelregistry.ReasoningEffortLow {
-		t.Fatalf("expected cycle from auto to land on first supported effort (low), got %q", next.reasoningEffort)
+	if next.reasoningEffort != modelregistry.ReasoningEffortMinimal {
+		t.Fatalf("expected cycle from auto to land on first supported effort (minimal), got %q", next.reasoningEffort)
 	}
 }
 
 func TestCycleReasoningEffortAdvancesToNext(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	m.reasoningEffort = modelregistry.ReasoningEffortLow
 	next, _ := m.cycleReasoningEffort()
 	if next.reasoningEffort != modelregistry.ReasoningEffortMedium {
@@ -105,7 +105,7 @@ func TestCycleReasoningEffortAdvancesToNext(t *testing.T) {
 }
 
 func TestCycleReasoningEffortWrapsToAuto(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	m.reasoningEffort = modelregistry.ReasoningEffortHigh
 	next, _ := m.cycleReasoningEffort()
 	if next.reasoningEffort != "" {
@@ -114,7 +114,7 @@ func TestCycleReasoningEffortWrapsToAuto(t *testing.T) {
 }
 
 func TestCycleReasoningEffortUnknownResetsToAuto(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	// Use a sentinel that is guaranteed to be unplaceable in any supported ring,
 	// so this test stays correct even if Minimal gets supported later.
 	m.reasoningEffort = modelregistry.ReasoningEffort("__unknown_effort__")
@@ -125,8 +125,8 @@ func TestCycleReasoningEffortUnknownResetsToAuto(t *testing.T) {
 }
 
 func TestCycleReasoningEffortNoOpOnUnsupportedModel(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "gpt-4.1"})
-	// gpt-4.1 exposes no effort controls; set a value directly (the /effort command
+	m := newModel(context.Background(), Options{ModelName: "qwen3.8-max"})
+	// qwen3.8-max exposes no effort controls; set a value directly (the /effort command
 	// would reject this) to prove the cycle is a true no-op and leaves it untouched.
 	m.reasoningEffort = modelregistry.ReasoningEffortHigh
 	next, cmd := m.cycleReasoningEffort()
@@ -170,7 +170,7 @@ func TestStyleCommandListsAndSetsSessionPreference(t *testing.T) {
 func TestCompactStatusShowsManualFlowState(t *testing.T) {
 	called := false
 	m := newModel(context.Background(), Options{
-		ModelName: "gpt-4.1",
+		ModelName: "muse-spark-1.3-contributor",
 		SessionCompactor: compactSessionFunc(func(context.Context, CompactRequest) (CompactResult, error) {
 			called = true
 			return CompactResult{}, nil
@@ -194,7 +194,7 @@ func TestCompactStatusShowsManualFlowState(t *testing.T) {
 	for _, want := range []string{
 		"Compact",
 		"status: info",
-		"model: gpt-4.1",
+		"model: muse-spark-1.3-contributor",
 		"context window: 1M tokens",
 		"estimated transcript:",
 		"compactable: yes",
@@ -660,7 +660,7 @@ func TestUsageEventsUpdateFooterAndContext(t *testing.T) {
 		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     provider,
 		Registry:     tools.NewRegistry(),
 		SessionStore: testSessionStore(t),
@@ -704,7 +704,7 @@ func TestUsageRuntimeMessageUpdatesFooterBeforeFinalResponse(t *testing.T) {
 	}}
 	runtimeMessages := []tea.Msg{}
 	m := newModel(context.Background(), Options{
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     provider,
 		Registry:     tools.NewRegistry(),
 		SessionStore: testSessionStore(t),
@@ -902,18 +902,18 @@ func TestModelSwitchClearsUnsupportedEffortPreference(t *testing.T) {
 	nextProvider := &fakeProvider{}
 	m := newModel(context.Background(), Options{
 		ProviderName:    "openai",
-		ModelName:       "gpt-4.1-mini",
+		ModelName:       "gpt-5.6-luna",
 		ReasoningEffort: modelregistry.ReasoningEffortHigh,
 		Provider:        &fakeProvider{},
-		ProviderProfile: openAITestProfile("gpt-4.1-mini"),
+		ProviderProfile: openAITestProfile("gpt-5.6-luna"),
 		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
-			if profile.Model != "gpt-4.1" {
-				t.Fatalf("expected provider rebuild for gpt-4.1, got %#v", profile)
+			if profile.Model != "qwen3.8-max" {
+				t.Fatalf("expected provider rebuild for qwen3.8-max, got %#v", profile)
 			}
 			return nextProvider, nil
 		},
 	})
-	m.input.SetValue("/model gpt-4.1")
+	m.input.SetValue("/model qwen3.8-max")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -926,39 +926,6 @@ func TestModelSwitchClearsUnsupportedEffortPreference(t *testing.T) {
 	}
 	if !strings.Contains(next.transientNotice.text, "effort auto") {
 		t.Fatalf("expected model switch notice to mention effort reset, got %q", next.transientNotice.text)
-	}
-}
-
-func TestModelSwitchRedirectsDeprecatedModelWithNotice(t *testing.T) {
-	nextProvider := &fakeProvider{}
-	m := newModel(context.Background(), Options{
-		ProviderName:    "openai",
-		ModelName:       "gpt-4.1",
-		Provider:        &fakeProvider{},
-		ProviderProfile: openAITestProfile("gpt-4.1"),
-		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
-			if profile.Model != "gpt-4.1" {
-				t.Fatalf("expected deprecated model to redirect to gpt-4.1, got %#v", profile)
-			}
-			return nextProvider, nil
-		},
-	})
-	m.input.SetValue("/model gpt-4-turbo")
-
-	updated, cmd := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-
-	if cmd != nil {
-		t.Fatal("expected /model to be handled without starting an agent run")
-	}
-	if next.modelName != "gpt-4.1" {
-		t.Fatalf("expected active model to be gpt-4.1 after redirect, got %q", next.modelName)
-	}
-	if !transcriptContains(next.transcript, "deprecated") {
-		t.Fatalf("expected deprecation notice in transcript, got %#v", next.transcript)
-	}
-	if !transcriptContains(next.transcript, "gpt-4.1 · openai") {
-		t.Fatalf("expected switch to canonical fallback id, got %#v", next.transcript)
 	}
 }
 
@@ -989,8 +956,8 @@ func TestModelSwitchUnknownModelReportsError(t *testing.T) {
 func openAITestProfile(modelID string) config.ProviderProfile {
 	return config.ProviderProfile{
 		Name:         "openai",
-		ProviderKind: config.ProviderKindOpenAI,
-		BaseURL:      config.OpenAIBaseURL,
+		ProviderKind: config.ProviderKindOpenAICompatible,
+		BaseURL:      "https://api.quebragalho.dev/v1",
 		APIKey:       "sk-test",
 		Model:        modelID,
 	}

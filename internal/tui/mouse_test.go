@@ -49,7 +49,7 @@ func TestMouseClickSelectsThenAppliesCommandSuggestionRow(t *testing.T) {
 
 func TestMouseClickSelectsThenAppliesPickerRow(t *testing.T) {
 	m := mouseTestModel()
-	m.modelName = "claude-sonnet-4.5"
+	m.modelName = "gpt-5.6-luna"
 	m.picker = &commandPicker{
 		kind:  pickerEffort,
 		title: "select reasoning effort",
@@ -89,84 +89,6 @@ func TestMouseClickSelectsThenAppliesPickerRow(t *testing.T) {
 	}
 }
 
-func TestMouseClickSelectsProviderWizardRow(t *testing.T) {
-	m := mouseTestModel()
-	m.providerWizard = m.newProviderWizard()
-	m.providerWizard.step = providerWizardStepProvider // skip the new method chooser
-	if m.providerWizard == nil || len(m.providerWizard.providers) < 2 {
-		t.Fatalf("expected multiple providers, got %#v", m.providerWizard)
-	}
-	m.mouseCapture = true
-
-	width := m.chatColumnWidth()
-	top := m.overlayMouseTop(len(viewLines(m.providerWizardOverlay(width))), width)
-	click := testMouseClick(tea.MouseLeft, width/2, top+5)
-	updated, cmd := m.Update(click)
-	next := updated.(model)
-	if cmd != nil {
-		t.Fatal("mouse selection should not return a command")
-	}
-	if next.providerWizard == nil || next.providerWizard.selectedProvider != 1 {
-		t.Fatalf("provider selection = %#v, want selected index 1", next.providerWizard)
-	}
-	if next.providerWizard.step != providerWizardStepProvider {
-		t.Fatalf("first provider click should not advance, got step %v", next.providerWizard.step)
-	}
-
-	updated, cmd = next.Update(click)
-	next = updated.(model)
-	_ = cmd
-	if next.providerWizard == nil || next.providerWizard.step == providerWizardStepProvider {
-		t.Fatalf("second provider click should advance, got %#v", next.providerWizard)
-	}
-}
-
-func TestMouseWheelMovesProviderWizardRows(t *testing.T) {
-	m := mouseTestModel()
-	m.providerWizard = m.newProviderWizard()
-	m.providerWizard.step = providerWizardStepProvider // skip the new method chooser
-	m.mouseCapture = true
-
-	updated, cmd := m.Update(testMouseWheel(tea.MouseWheelDown, 0, 0))
-	next := updated.(model)
-	if cmd != nil {
-		t.Fatal("mouse wheel should not return a command")
-	}
-	if next.providerWizard == nil || next.providerWizard.selectedProvider != 1 {
-		t.Fatalf("provider selection after wheel = %#v, want selected index 1", next.providerWizard)
-	}
-}
-
-func TestMouseClickSelectsThenContinuesSetupProviderRow(t *testing.T) {
-	m := setupMouseTestModel()
-	m.mouseCapture = true
-	m.setup.stage = setupStageProvider
-
-	width := m.chatColumnWidth()
-	height := normalizedStartupHeight(m.height)
-	rowWidth := setupProviderBlockWidth(width, m.setup.providers)
-	top := setupContentTop(height, len(m.setupProviderLines(width, height)), m.setup.err != "")
-	click := testMouseClick(tea.MouseLeft, maxInt(0, (width-rowWidth)/2)+2, top+3)
-	updated, cmd := m.Update(click)
-	next := updated.(model)
-	if cmd != nil {
-		t.Fatal("first setup provider click should not return a command")
-	}
-	if next.setup.selected != 1 {
-		t.Fatalf("setup provider selection = %d, want 1", next.setup.selected)
-	}
-	if next.setup.stage != setupStageProvider {
-		t.Fatalf("first setup provider click advanced to %v", next.setup.stage)
-	}
-
-	updated, cmd = next.Update(click)
-	next = updated.(model)
-	_ = cmd
-	if next.setup.stage != setupStageCredentials {
-		t.Fatalf("second setup provider click should advance to credentials, got %v", next.setup.stage)
-	}
-}
-
 func TestMouseClickSelectsThenContinuesSetupModelRow(t *testing.T) {
 	m := setupMouseTestModel()
 	m.mouseCapture = true
@@ -197,8 +119,9 @@ func TestMouseClickSelectsThenContinuesSetupModelRow(t *testing.T) {
 	updated, cmd = next.Update(click)
 	next = updated.(model)
 	_ = cmd
-	if next.setup.stage != setupStageSafety {
-		t.Fatalf("second setup model click should advance to safety, got %v", next.setup.stage)
+	// The model screen is the last stage: a repeat click completes setup.
+	if next.setup.visible {
+		t.Fatal("second setup model click should complete setup and close the wizard")
 	}
 }
 
@@ -929,11 +852,8 @@ func TestMouseCaptureOnlyDuringInteractiveSetupStages(t *testing.T) {
 		want  bool
 	}{
 		{setupStageWelcome, false},
-		{setupStageProvider, true},
 		{setupStageCredentials, false},
 		{setupStageModel, true},
-		{setupStageSafety, false},
-		{setupStageReady, false},
 	}
 
 	for _, tt := range stages {

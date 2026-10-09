@@ -40,6 +40,7 @@ var completionRoot = completionNode{
 		},
 		{names: []string{"daemon"}, children: leafNodes("start", "stop", "status", "run", "attach", "serve-remote", "link")},
 		{names: []string{"setup"}},
+		{names: []string{"login"}},
 		{names: []string{"config"}},
 		{names: []string{"models"}, children: []completionNode{{names: []string{"list", "ls"}}}},
 		{names: []string{"providers"}, children: []completionNode{
@@ -78,7 +79,7 @@ var completionRoot = completionNode{
 			{names: []string{"tools"}, children: leafNodes("list")},
 			{names: []string{"oauth"}, children: leafNodes("login", "logout", "status")},
 		}},
-		{names: []string{"auth"}, children: append(leafNodes("openrouter", "chatgpt", "login", "logout", "status", "refresh"),
+		{names: []string{"auth"}, children: append(leafNodes("logout", "status", "refresh"),
 			completionNode{names: []string{"reset"}, flags: []string{"--confirm", "--json", "--help"}})},
 		{names: []string{"sandbox"}, children: []completionNode{
 			{names: []string{"policy"}}, {names: []string{"setup"}}, {names: []string{"check"}},

@@ -185,6 +185,7 @@ func TestRunExecListsMCPToolsWithoutProviderConstruction(t *testing.T) {
 }
 
 func TestRunExecLogsMCPRuntimeCloseError(t *testing.T) {
+	isolateCLIUserState(t)
 	cwd := t.TempDir()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -233,6 +234,7 @@ func TestRunExecRejectsInvalidProtocolOptionsBeforeRuntime(t *testing.T) {
 		{name: "resume-fork", args: []string{"exec", "--resume", "abc", "--fork", "def", "hello"}, want: "Use either --resume or --fork, not both"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			isolateCLIUserState(t)
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 
@@ -504,7 +506,7 @@ func TestRunExecStreamJSONRunStartUsesResolvedAPIModel(t *testing.T) {
 				ActiveProvider: "work",
 				Provider: config.ProviderProfile{
 					Name:  "work",
-					Model: "sonnet-4.5",
+					Model: "muse-spark",
 				},
 				MaxTurns: 2,
 			}, nil
@@ -519,13 +521,13 @@ func TestRunExecStreamJSONRunStartUsesResolvedAPIModel(t *testing.T) {
 	}
 	events := decodeJSONLines(t, stdout.String())
 	runStart := events[0]
-	if runStart["provider"] != "anthropic" {
-		t.Fatalf("expected resolved provider kind anthropic, got %#v", runStart)
+	if runStart["provider"] != "openai-compatible" {
+		t.Fatalf("expected resolved provider kind openai-compatible, got %#v", runStart)
 	}
-	if runStart["model"] != "sonnet-4.5" {
+	if runStart["model"] != "muse-spark" {
 		t.Fatalf("expected logical model alias, got %#v", runStart)
 	}
-	if runStart["apiModel"] != "claude-sonnet-4-5-20250929" {
+	if runStart["apiModel"] != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected resolved API model, got %#v", runStart)
 	}
 }
