@@ -1089,9 +1089,20 @@ func clearProviderEnv(t *testing.T) {
 	for _, key := range []string{
 		"QG_PROVIDER_COMMAND",
 		"QG_PROVIDER",
+		"QG_API_KEY",
+		"QUEBRAGALHO_API_KEY",
 		"OPENAI_API_KEY",
 		"OPENAI_BASE_URL",
 		"OPENAI_MODEL",
+		"ANTHROPIC_API_KEY",
+		"ANTHROPIC_BASE_URL",
+		"ANTHROPIC_MODEL",
+		"GEMINI_API_KEY",
+		"GEMINI_BASE_URL",
+		"GEMINI_MODEL",
+		"GOOGLE_API_KEY",
+		"GOOGLE_BASE_URL",
+		"GOOGLE_MODEL",
 	} {
 		t.Setenv(key, "")
 	}
@@ -2001,7 +2012,7 @@ func TestExecWithoutProviderCitesQGSetupAndAPIKey(t *testing.T) {
 		t.Fatalf("exit = %d, want %d (provider error)", exitCode, exitProvider)
 	}
 	out := stderr.String()
-	for _, want := range []string{"QUEBRAGALHO_API_KEY", "qg setup qg", "No provider configured."} {
+	for _, want := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY", "qg setup qg", "qg login", "No provider configured."} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stderr = %q, want it to cite %q", out, want)
 		}

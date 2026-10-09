@@ -1024,8 +1024,8 @@ func normalizeProvider(profile ProviderProfile, env map[string]string, options n
 	if profile.ProviderKind == "" {
 		profile.ProviderKind = ProviderKindOpenAI
 	}
-	if strings.TrimSpace(profile.APIKey) == "" && profile.APIKeyEnv != "" {
-		profile.APIKey = strings.TrimSpace(envValue(env, profile.APIKeyEnv))
+	if strings.TrimSpace(profile.APIKey) == "" {
+		profile.APIKey = profile.EnvAPIKey(func(key string) string { return envValue(env, key) })
 	}
 
 	switch profile.ProviderKind {
