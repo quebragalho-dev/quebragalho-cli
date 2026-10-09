@@ -13,7 +13,7 @@ import (
 // binary into the same directory as package.json and leaves a
 // ".qg-binary-version" marker file next to it — both are reliable signals
 // that a given executable came from an npm install.
-const npmPackageName = "@quebragalho-dev/qg"
+const npmPackageName = "@quebragalho-dev/cli"
 
 // InstallMethod identifies how the running qg binary was installed.
 type InstallMethod string

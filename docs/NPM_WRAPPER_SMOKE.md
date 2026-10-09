@@ -38,23 +38,23 @@ path:
 ```bash
 # platform-package path
 mkdir -p /tmp/qg-sim/node_modules/@quebragalho-dev
-cp -R dist/npm/wrapper /tmp/qg-sim/node_modules/@quebragalho-dev/qg
+cp -R dist/npm/wrapper /tmp/qg-sim/node_modules/@quebragalho-dev/cli
 cp -R dist/npm/platforms/qg-<platform>-<arch> \
-  "/tmp/qg-sim/node_modules/@quebragalho-dev/qg-<platform>-<arch>"
-node /tmp/qg-sim/node_modules/@quebragalho-dev/qg/bin/qg.js --version
+  "/tmp/qg-sim/node_modules/@quebragalho-dev/cli-<platform>-<arch>"
+node /tmp/qg-sim/node_modules/@quebragalho-dev/cli/bin/qg.js --version
 
 # first-run download fallback (delete the platform package first)
-rm -rf "/tmp/qg-sim/node_modules/@quebragalho-dev/qg-<platform>-<arch>"
-node /tmp/qg-sim/node_modules/@quebragalho-dev/qg/bin/qg.js --version
+rm -rf "/tmp/qg-sim/node_modules/@quebragalho-dev/cli-<platform>-<arch>"
+node /tmp/qg-sim/node_modules/@quebragalho-dev/cli/bin/qg.js --version
 ```
 
 ## Checklist
 
-- `package.json` has the expected package name (`@quebragalho-dev/qg`), version,
+- `package.json` has the expected package name (`@quebragalho-dev/cli`), version,
   `bin.qg` entry, and NO `scripts` entries — the published package must be
   free of lifecycle scripts (see NPM_PACKAGING.md).
 - `scripts/npm/build-platform-packages.mjs` emits platform payloads whose
-  `package.json` is `@quebragalho-dev/qg@<version>-<platform>-<arch>` with matching
+  `package.json` is `@quebragalho-dev/cli@<version>-<platform>-<arch>` with matching
   `os`/`cpu`, contains the executable binary and the vendored `helpers/` tree
   with regular-file (non-symlink) `.bin` shims, and a wrapper payload with no
   scripts, no dependencies, and the full five-alias `optionalDependencies`

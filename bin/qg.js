@@ -81,10 +81,10 @@ function bunRecoveryParagraph() {
   return (
     'You installed with Bun, which does not run dependency lifecycle scripts\n' +
     'by default. Trust the package to run the blocked postinstall:\n' +
-    '  bun pm trust @quebragalho-dev/qg       (project install)\n' +
-    '  bun pm -g trust @quebragalho-dev/qg    (global install)\n' +
+    '  bun pm trust @quebragalho-dev/cli       (project install)\n' +
+    '  bun pm -g trust @quebragalho-dev/cli    (global install)\n' +
     'On Bun versions without `bun pm trust`, add\n' +
-    '  "trustedDependencies": ["@quebragalho-dev/qg"]\n' +
+    '  "trustedDependencies": ["@quebragalho-dev/cli"]\n' +
     'to your project package.json and reinstall.\n' +
     '\n'
   );
@@ -99,8 +99,8 @@ function buildFromSourceParagraph() {
 
 function missingBinaryContextParagraph() {
   return (
-    'Normally npm installs it as an optional dependency of @quebragalho-dev/qg\n' +
-    `(@quebragalho-dev/qg-${process.platform}-${process.arch}), and the wrapper can\n` +
+    'Normally npm installs it as an optional dependency of @quebragalho-dev/cli\n' +
+    `(@quebragalho-dev/cli-${process.platform}-${process.arch}), and the wrapper can\n` +
     'also download it from the GitHub Release when it is missing.'
   );
 }
@@ -113,7 +113,7 @@ function missingNativeRecoveryParagraphs(postinstallScript) {
     '\n' +
     'Things to try:\n' +
     '  - reinstall without omitting optional dependencies:\n' +
-    '      npm install -g @quebragalho-dev/qg\n' +
+    '      npm install -g @quebragalho-dev/cli\n' +
     '  - run the downloader manually (needs write access to the package dir):\n' +
     `      node "${postinstallScript}"\n` +
     '\n' +
@@ -182,12 +182,12 @@ function missingNativeDoctorTextReport(postinstallScript) {
   );
 }
 
-// The platform payload is a version of @quebragalho-dev/qg itself, installed under
+// The platform payload is a version of @quebragalho-dev/cli itself, installed under
 // an npm: alias (see docs/NPM_PACKAGING.md). The alias name is derived from
 // process.platform/process.arch, so an unsupported platform simply fails to
 // resolve and we fall through to the downloader.
 function platformPackageBinary() {
-  const aliasedName = `@quebragalho-dev/qg-${process.platform}-${process.arch}`;
+  const aliasedName = `@quebragalho-dev/cli-${process.platform}-${process.arch}`;
   let manifestPath;
   try {
     manifestPath = createRequire(import.meta.url).resolve(`${aliasedName}/package.json`);

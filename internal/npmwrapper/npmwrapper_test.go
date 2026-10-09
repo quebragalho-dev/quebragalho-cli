@@ -24,9 +24,9 @@ const (
 // by the generic missing-binary path and the doctor text fallback.
 const (
 	bunRecoveryLead        = "You installed with Bun, which does not run dependency lifecycle scripts"
-	bunPmTrustProject      = "bun pm trust @quebragalho-dev/qg"
-	bunPmTrustGlobal       = "bun pm -g trust @quebragalho-dev/qg"
-	bunRecoveryTrustedDeps = `"trustedDependencies": ["@quebragalho-dev/qg"]`
+	bunPmTrustProject      = "bun pm trust @quebragalho-dev/cli"
+	bunPmTrustGlobal       = "bun pm -g trust @quebragalho-dev/cli"
+	bunRecoveryTrustedDeps = `"trustedDependencies": ["@quebragalho-dev/cli"]`
 	buildFromSourceLead    = "If this platform has no prebuilt binary, build from source:"
 )
 
@@ -80,8 +80,8 @@ func TestPackageBinPointsToNodeWrapper(t *testing.T) {
 	if err := json.Unmarshal(bytes, &pkg); err != nil {
 		t.Fatalf("Unmarshal package.json: %v", err)
 	}
-	if pkg.Name != "@quebragalho-dev/qg" {
-		t.Fatalf("name = %q, want @quebragalho-dev/qg", pkg.Name)
+	if pkg.Name != "@quebragalho-dev/cli" {
+		t.Fatalf("name = %q, want @quebragalho-dev/cli", pkg.Name)
 	}
 	if pkg.Bin["qg"] != "bin/qg.js" {
 		t.Fatalf("bin.qg = %q, want bin/qg.js", pkg.Bin["qg"])
@@ -321,11 +321,11 @@ func TestNodeWrapperPrefersPlatformPackageBinary(t *testing.T) {
 		t.Fatalf("WriteFile downloaded fixture: %v", err)
 	}
 
-	platformDir := filepath.Join(root, "node_modules", "@quebragalho-dev", "qg-"+nodePlatformName()+"-"+nodeArchName())
+	platformDir := filepath.Join(root, "node_modules", "@quebragalho-dev", "cli-"+nodePlatformName()+"-"+nodeArchName())
 	if err := os.MkdirAll(platformDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll platform package: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(platformDir, "package.json"), []byte(`{"name":"@quebragalho-dev/qg"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(platformDir, "package.json"), []byte(`{"name":"@quebragalho-dev/cli"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile platform package.json: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(platformDir, "qg"), []byte("#!/usr/bin/env sh\nprintf 'platform-qg'; for arg in \"$@\"; do printf ' %s' \"$arg\"; done; printf '\\n'\n"), 0o755); err != nil {
@@ -393,7 +393,7 @@ func TestNodeWrapperRunsFirstRunDownloaderWhenBinaryMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(scriptsDir, "postinstall.mjs"), postinstall, 0o644); err != nil {
 		t.Fatalf("WriteFile postinstall fixture: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"type":"module","name":"@quebragalho-dev/qg","version":"0.0.0"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"type":"module","name":"@quebragalho-dev/cli","version":"0.0.0"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile package fixture: %v", err)
 	}
 
