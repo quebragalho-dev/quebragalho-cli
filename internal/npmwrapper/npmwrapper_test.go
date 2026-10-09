@@ -158,7 +158,7 @@ func TestPostinstallComputesAssetPlan(t *testing.T) {
 		if plan.BinaryName != tc.wantBinary {
 			t.Fatalf("%s/%s: binaryName=%q want %q", tc.platform, tc.arch, plan.BinaryName, tc.wantBinary)
 		}
-		wantURL := "https://github.com/quebragalho-dev/quebragalho-cli/releases/download/v" + version + "/" + tc.wantAsset
+		wantURL := "https://github.com/quebragalho-dev/qg-releases/releases/download/v" + version + "/" + tc.wantAsset
 		if plan.AssetURL != wantURL {
 			t.Fatalf("%s/%s: assetUrl=%q want %q", tc.platform, tc.arch, plan.AssetURL, wantURL)
 		}
