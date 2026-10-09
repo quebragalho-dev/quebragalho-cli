@@ -14,6 +14,9 @@ const (
 	ProviderAnthropic        ProviderKind = "anthropic"
 	ProviderGoogle           ProviderKind = "google"
 	ProviderOpenAICompatible ProviderKind = "openai-compatible"
+	// ProviderQG is the single-provider primary kind: models served by
+	// https://api.quebragalho.dev/v1.
+	ProviderQG ProviderKind = "qg"
 )
 
 type ReasoningEffort string
@@ -150,8 +153,10 @@ func (model ModelEntry) Validate() error {
 	if model.ContextLimits.ContextWindow <= 0 {
 		return fmt.Errorf("context window must be positive")
 	}
-	if model.ContextLimits.MaxOutputTokens <= 0 {
-		return fmt.Errorf("max output tokens must be positive")
+	// 0 means "no cap advertised": the QG API publishes no max-output figure and
+	// the factory forwards 0 as "omit max_tokens" (see qgruntime).
+	if model.ContextLimits.MaxOutputTokens < 0 {
+		return fmt.Errorf("max output tokens cannot be negative")
 	}
 	if model.ContextLimits.MaxOutputTokens > model.ContextLimits.ContextWindow {
 		return fmt.Errorf("max output tokens cannot exceed context window")
@@ -400,7 +405,7 @@ func normalizePattern(pattern string) string {
 
 func ValidPrimaryProviderKind(provider ProviderKind) bool {
 	switch provider {
-	case ProviderOpenAI, ProviderAnthropic, ProviderGoogle:
+	case ProviderOpenAI, ProviderAnthropic, ProviderGoogle, ProviderQG:
 		return true
 	default:
 		return false

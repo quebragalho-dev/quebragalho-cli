@@ -3,7 +3,7 @@ package modelregistry
 import "testing"
 
 func TestLookupModeKnown(t *testing.T) {
-	for _, name := range []string{"smart", "deep", "fast", "large", "precise"} {
+	for _, name := range []string{"smart"} {
 		mode, ok := LookupMode(name)
 		if !ok {
 			t.Fatalf("LookupMode(%q) = _, false; want a registered mode", name)
@@ -21,12 +21,12 @@ func TestLookupModeKnown(t *testing.T) {
 }
 
 func TestLookupModeIsCaseInsensitiveAndTrimmed(t *testing.T) {
-	mode, ok := LookupMode("  DEEP ")
+	mode, ok := LookupMode("  SMART ")
 	if !ok {
-		t.Fatal("LookupMode(\"  DEEP \") = _, false; want match")
+		t.Fatal("LookupMode(\"  SMART \") = _, false; want match")
 	}
-	if mode.Name != "deep" {
-		t.Fatalf("LookupMode normalized name = %q; want deep", mode.Name)
+	if mode.Name != "smart" {
+		t.Fatalf("LookupMode normalized name = %q; want smart", mode.Name)
 	}
 }
 

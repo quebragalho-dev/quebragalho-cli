@@ -30,35 +30,8 @@ type Mode struct {
 var defaultModes = []Mode{
 	{
 		Name:        "smart",
-		Description: "Balanced daily driver for high-quality agent work.",
-		Model:       "claude-sonnet-4.5",
-		Effort:      ReasoningEffortMedium,
-	},
-	{
-		Name:        "deep",
-		Description: "Hardest tasks: deep reasoning with a larger turn budget.",
-		Model:       "claude-opus-4.1",
-		Effort:      ReasoningEffortHigh,
-		MaxTurns:    160,
-	},
-	{
-		Name:        "fast",
-		Description: "Low-latency support for quick edits and summaries.",
-		Model:       "claude-haiku-4.5",
-		Effort:      ReasoningEffortLow,
-		MaxTurns:    15,
-	},
-	{
-		Name:        "large",
-		Description: "Long-context work over large inputs.",
-		Model:       "gemini-2.5-pro",
-		Effort:      ReasoningEffortMedium,
-	},
-	{
-		Name:        "precise",
-		Description: "Careful, high-effort reasoning for exacting changes.",
-		Model:       "claude-sonnet-4.5",
-		Effort:      ReasoningEffortHigh,
+		Description: "QG default coding model.",
+		Model:       "muse-spark-1.3-contributor",
 	},
 }
 
