@@ -1424,12 +1424,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, composerBlinkCmd(m.composerBlinkSeq)
 	case tea.BackgroundColorMsg:
-		// A background reading changes only the contrast direction used for named
-		// palettes. It never repaints the terminal canvas.
+		// Reapply contrast-sensitive colors without repainting the terminal canvas.
 		m.hasDarkBg = msg.IsDark()
-		if m.themeMode != themeSystem {
-			applyTheme(m.themeMode, m.hasDarkBg)
-		}
+		applyTheme(m.themeMode, m.hasDarkBg)
 		return m, nil
 	case tea.MouseMsg:
 		// Attached to a live terminal: the overlay owns the viewport, so mouse

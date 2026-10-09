@@ -46,15 +46,55 @@ func TestWordmarkLockupIsQGBrand(t *testing.T) {
 	if lines[len(qgWordmarkGlyphLines)+1] != "QUEBRA-GALHO" {
 		t.Fatalf("brand line = %q, want QUEBRA-GALHO", lines[len(qgWordmarkGlyphLines)+1])
 	}
-	if lines[len(qgWordmarkGlyphLines)+3] != "IA QUE TRABALHA COM VOCE" {
-		t.Fatalf("tagline = %q, want IA QUE TRABALHA COM VOCE", lines[len(qgWordmarkGlyphLines)+3])
+	if lines[len(qgWordmarkGlyphLines)+3] != "Democratizando o acesso à IA" {
+		t.Fatalf("tagline = %q, want Democratizando o acesso à IA", lines[len(qgWordmarkGlyphLines)+3])
+	}
+}
+
+// Each wordmark glyph is 9 terminal cells, so every combined row is 18.
+func TestQGWordmarkGlyphsAreNineCellsWide(t *testing.T) {
+	for index, row := range qgWordmarkGlyphLines {
+		if got := lipgloss.Width(row[0]); got != 9 {
+			t.Fatalf("Q row %d width = %d, want 9: %q", index+1, got, row[0])
+		}
+		if got := lipgloss.Width(row[1]); got != 9 {
+			t.Fatalf("G row %d width = %d, want 9: %q", index+1, got, row[1])
+		}
+		if got := lipgloss.Width(row[0] + row[1]); got != 18 {
+			t.Fatalf("combined row %d width = %d, want 18", index+1, got)
+		}
+	}
+	if len(qgWordmarkGlyphLines) != 6 {
+		t.Fatalf("wordmark rows = %d, want 6", len(qgWordmarkGlyphLines))
+	}
+	if got := qgWordmarkGlyphLines[3][0]; got != "██║▄▄ ██║" {
+		t.Fatalf("Q row 4 = %q, want %q", got, "██║▄▄ ██║")
+	}
+	if got := qgWordmarkGlyphLines[5][0]; got != " ╚══▀▀═╝ " {
+		t.Fatalf("Q row 6 = %q, want %q", got, " ╚══▀▀═╝ ")
+	}
+}
+
+// The system theme takes the QG accent for the terminal's own contrast direction
+// instead of the ANSI cyan role color.
+func TestSystemThemeAccentFollowsTerminalPalette(t *testing.T) {
+	dark := buildSystemThemeForTerminal(true)
+	light := buildSystemThemeForTerminal(false)
+	if got := colorHex(t, dark.accentColor); !strings.EqualFold(got, darkPalette.accent) {
+		t.Fatalf("dark system accent = %s, want %s", got, darkPalette.accent)
+	}
+	if got := colorHex(t, light.accentColor); !strings.EqualFold(got, lightPalette.accent) {
+		t.Fatalf("light system accent = %s, want %s", got, lightPalette.accent)
 	}
 }
 
 // The dark palette carries the QG brand accent.
 func TestDarkPaletteAccentIsQGBrand(t *testing.T) {
-	if darkPalette.accent != "#9df723" {
-		t.Fatalf("darkPalette.accent = %q, want #9df723", darkPalette.accent)
+	if !strings.EqualFold(darkPalette.accent, "#9DF723") {
+		t.Fatalf("darkPalette.accent = %q, want #9DF723", darkPalette.accent)
+	}
+	if !strings.EqualFold(darkPalette.ink, "#FFFFFF") {
+		t.Fatalf("darkPalette.ink = %q, want #FFFFFF", darkPalette.ink)
 	}
 }
 

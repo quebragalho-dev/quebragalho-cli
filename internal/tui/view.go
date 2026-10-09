@@ -52,7 +52,7 @@ func widthTier(width int) layoutTier {
 }
 
 // titleBar renders the top zone of the chat surface: git branch and cwd on the
-// left, provider/model and context window on the right, then a rule. Segments
+// left, context window on the right, then a rule. Segments
 // drop with the width tier (full → no ctx → no cwd → branch/path only), reusing
 // the startupHeaderLine candidate fallback.
 func (m model) titleBar(width int) string {
@@ -66,33 +66,32 @@ func (m model) titleBar(width int) string {
 	if branchOnly != "" {
 		compactLeft = branchOnly
 	}
-	model := m.titleModelSegment()
 	ctx := ""
 	if window := m.modelContextWindow(m.modelName); window > 0 {
-		ctx = qgTheme.faint.Render(" · " + formatContextWindow(window))
+		ctx = qgTheme.faint.Render(formatContextWindow(window))
 	}
 
 	var candidates []headerCandidate
 	switch tier {
 	case tierFull:
 		candidates = []headerCandidate{
-			{left: workspace, right: model + ctx},
-			{left: workspace, right: model},
-			{left: workspaceShort, right: model},
-			{left: cwdOnly, right: model},
-			{left: compactLeft, right: model},
+			{left: workspace, right: ctx},
+			{left: workspace, right: ""},
+			{left: workspaceShort, right: ""},
+			{left: cwdOnly, right: ""},
+			{left: compactLeft, right: ""},
 		}
 	case tierMedium:
 		candidates = []headerCandidate{
-			{left: workspace, right: model},
-			{left: workspaceShort, right: model},
-			{left: cwdOnly, right: model},
-			{left: compactLeft, right: model},
+			{left: workspace, right: ""},
+			{left: workspaceShort, right: ""},
+			{left: cwdOnly, right: ""},
+			{left: compactLeft, right: ""},
 		}
 	case tierNarrow:
 		candidates = []headerCandidate{
-			{left: branchOnly, right: model},
-			{left: "", right: model},
+			{left: compactLeft, right: ""},
+			{left: cwdOnly, right: ""},
 		}
 	default:
 		// Tiny: one segment, no right column.
@@ -151,30 +150,18 @@ func (m model) titlePRSegment() string {
 	return renderPRSegments(BuildPRSegments(m.prState, false))
 }
 
-func (m model) titleModelSegment() string {
-	provider := strings.TrimSpace(m.providerDisplayName())
-	model := strings.TrimSpace(m.modelName)
-	switch {
-	case provider == "" && model == "":
-		return qgTheme.muted.Render("no provider")
-	case model == "":
-		return qgTheme.ink.Render(provider)
-	case provider == "":
-		return qgTheme.ink.Render(model)
-	default:
-		return qgTheme.ink.Render(provider + "/" + model)
-	}
-}
-
 func (m model) composerDividerLine(width int) string {
 	model := displayValue(strings.TrimSpace(m.modelName), "no model")
-	// The composer rule is a quiet model reminder above the input. Permission mode
+	reserved := m.petComposerReservedColumns(width)
+	availableWidth := width - reserved
+	// The rule keeps at least a 4-cell frame around the label, so the label may
+	// use whatever the frame leaves over.
+	model = truncateDisplayWidth(model, availableWidth-4)
+	// The composer rule is the model label below the input. Permission mode
 	// and reasoning effort now live in the persistent status line (the conventional
 	// footer for run-state), so they're not duplicated on this rule.
 	meta := qgTheme.muted.Render(model)
 	metaWidth := lipgloss.Width(meta)
-	reserved := m.petComposerReservedColumns(width)
-	availableWidth := width - reserved
 	if width < 8 {
 		return qgTheme.lineStrong.Render(strings.Repeat("─", width))
 	}
@@ -189,8 +176,8 @@ func (m model) composerDividerLine(width int) string {
 
 // statusLine renders the bottom readout as ` │ `-separated groups: the run-state
 // chip (permission mode + effort/fast tier) on the left, a flexible gap, then the
-// context-fill gauge and token/cost usage on the right. The provider lives in the
-// title bar and is NOT duplicated here. Groups drop with the width tier.
+// context-fill gauge and token/cost usage on the right. The model lives in the
+// composer rule. Groups drop with the width tier.
 func (m model) statusLine(width int) string {
 	tier := widthTier(width)
 	separator := qgTheme.line.Render(" │ ")
@@ -281,14 +268,6 @@ func (m model) statusLine(width int) string {
 	right := strings.Join(rightGroups, separator)
 
 	return fitStyledLine(joinHeaderLine(left, right, width), width)
-}
-
-func (m model) providerDisplayName() string {
-	provider := strings.TrimSpace(m.providerName)
-	if provider == "" {
-		provider = strings.TrimSpace(m.providerProfile.Name)
-	}
-	return provider
 }
 
 // nextPermissionMode toggles between the two prompt-respecting modes:

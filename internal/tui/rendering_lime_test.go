@@ -1542,18 +1542,18 @@ func TestStatusLineOmitsEffortWhenAuto(t *testing.T) {
 	}
 }
 
-func TestTitleBarShowsWorkspaceAndModel(t *testing.T) {
+func TestTitleBarShowsWorkspaceWithoutModel(t *testing.T) {
 	m := limeTestModel()
 	m.width = 120
 	m.cwd = "/workspace/qg"
 	m.gitBranch = "main"
 	got := plainRender(t, m.titleBar(120))
-	for _, want := range []string{" main", "/workspace/qg", "test-provider/test-model"} {
+	for _, want := range []string{" main", "/workspace/qg"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("title bar = %q, missing %q", got, want)
 		}
 	}
-	for _, notWant := range []string{" 0 ", "qg /"} {
+	for _, notWant := range []string{" 0 ", "qg /", "test-provider", "test-model"} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("title bar = %q, should not include old brand cluster %q", got, notWant)
 		}

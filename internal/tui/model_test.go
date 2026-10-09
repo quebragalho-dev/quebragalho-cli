@@ -343,7 +343,8 @@ func TestInitialRenderShowsLimeChatSurface(t *testing.T) {
 
 	view := viewString(model.View())
 	assertContains(t, view, `/workspace/qg`)
-	assertContains(t, view, "openai/gpt-4.1")
+	assertContains(t, view, "gpt-4.1")
+	assertNotContains(t, view, "openai/gpt-4.1")
 	assertContains(t, view, emptyStateTagline)
 	assertNotContains(t, view, "running qg against ")
 	assertNotContains(t, view, " 0 ")

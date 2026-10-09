@@ -358,7 +358,10 @@ func buildSystemTheme() tuiTheme {
 // terminals where reverse-video is disabled or visually indistinguishable.
 func buildSystemThemeForTerminal(terminalDark bool) tuiTheme {
 	base := lipgloss.NewStyle()
-	accentColor := lipgloss.Color("6")
+	accentColor := lipgloss.Color(darkPalette.accent)
+	if !terminalDark {
+		accentColor = lipgloss.Color(lightPalette.accent)
+	}
 	greenColor := lipgloss.Color("2")
 	redColor := lipgloss.Color("1")
 	amberColor := lipgloss.Color("3")
