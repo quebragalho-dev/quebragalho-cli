@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
@@ -47,25 +48,73 @@ func TestRunUsageTextReport(t *testing.T) {
 		t.Fatalf("expected exit %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"2026-06-01", "1,800", "estimate", "net LOC", "+100", "-30"} {
+	for _, want := range []string{"2026-06-01", "1.800", "estimate", "net LOC", "+100", "-30"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("usage report missing %q in:\n%s", want, output)
 		}
 	}
 }
 
-func TestRunUsageDefaultsToReport(t *testing.T) {
-	store := seedUsageStore(t)
+// Bare `qg usage` now queries the gateway (default window: last 24h); the
+// local session report moved behind the explicit `report` subcommand.
+func TestRunUsageDefaultsToRemoteGateway(t *testing.T) {
+	fake := &fakeQGAccount{usage: qgaccount.UsageReport{
+		From: "2026-10-08T16:17:51Z", To: "2026-10-09T16:17:51Z", Scope: "user",
+		Requests: 3041, InputTokens: 681820015, OutputTokens: 3154195, CachedInputTokens: 653433547,
+	}}
 	var stdout, stderr bytes.Buffer
-	exitCode := runWithDeps([]string{"usage"}, &stdout, &stderr, appDeps{
-		newSessionStore: func() *sessions.Store { return store },
-		inspectChanges:  stubInspectChanges(""),
-	})
+	deps := accountDeps(t, fake)
+	exitCode := runWithDeps([]string{"usage"}, &stdout, &stderr, deps)
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "2026-06-01") {
-		t.Fatalf("expected default report output, got %q", stdout.String())
+	if fake.usageCalls != 1 {
+		t.Fatalf("usageCalls = %d, want 1 (remote)", fake.usageCalls)
+	}
+	out := stdout.String()
+	for _, want := range []string{"3.041", "681.820.015", "3.154.195", "684.974.210", "user"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("remote usage output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunUsageRemoteWindowAndScopeFlags(t *testing.T) {
+	fake := &fakeQGAccount{usage: qgaccount.UsageReport{Scope: "key"}}
+	var stdout, stderr bytes.Buffer
+	deps := accountDeps(t, fake)
+	exitCode := runWithDeps([]string{"usage", "--from", "2026-10-01", "--to", "2026-10-03", "--scope", "key", "--json"}, &stdout, &stderr, deps)
+	if exitCode != exitSuccess {
+		t.Fatalf("exit = %d: %s", exitCode, stderr.String())
+	}
+	if fake.usageParams.Scope != "key" {
+		t.Fatalf("scope = %q, want key", fake.usageParams.Scope)
+	}
+	if fake.usageParams.From.IsZero() || fake.usageParams.To.IsZero() {
+		t.Fatalf("params = %+v, want parsed from/to", fake.usageParams)
+	}
+	var payload struct {
+		Scope string `json:"scope"`
+		Total int64  `json:"total"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("JSON decode: %v\n%s", err, stdout.String())
+	}
+	if payload.Scope != "key" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestRunUsageRemoteRejectsInvalidScope(t *testing.T) {
+	fake := &fakeQGAccount{}
+	var stdout, stderr bytes.Buffer
+	deps := accountDeps(t, fake)
+	exitCode := runWithDeps([]string{"usage", "--scope", "org"}, &stdout, &stderr, deps)
+	if exitCode == exitSuccess {
+		t.Fatal("want failure for invalid scope")
+	}
+	if fake.usageCalls != 0 {
+		t.Fatalf("usageCalls = %d, want 0 (rejected before the network)", fake.usageCalls)
 	}
 }
 
@@ -141,6 +190,33 @@ func TestRunUsageHelp(t *testing.T) {
 	for _, want := range []string{"qg usage report", "--json", "--days", "--since", "--session"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("usage help missing %q in:\n%s", want, stdout.String())
+		}
+	}
+	// The report block documents its own flags: `qg usage report -h` works, so
+	// the block has to name the shortcut.
+	_, reportBlock, _ := strings.Cut(stdout.String(), "Report flags:")
+	if !strings.Contains(reportBlock, "-h, --help") {
+		t.Fatalf("Report flags block missing \"-h, --help\" in:\n%s", reportBlock)
+	}
+}
+
+// The local report moved behind the `report` subcommand, so a remote parse
+// error must send the former `qg usage --days 7` user there instead of dead
+// ending on an unknown flag or command.
+func TestRunUsageErrorsHintAtReportSubcommand(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "flag now remote-only", args: []string{"usage", "--days", "7"}},
+		{name: "unknown subcommand", args: []string{"usage", "summary"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exitCode := runWithDeps(tc.args, &stdout, &stderr, appDeps{}); exitCode != exitUsage {
+			t.Fatalf("%s: expected exit %d, got %d", tc.name, exitUsage, exitCode)
+		}
+		if !strings.Contains(stderr.String(), "qg usage report") {
+			t.Fatalf("%s: error lacks the qg usage report hint: %q", tc.name, stderr.String())
 		}
 	}
 }

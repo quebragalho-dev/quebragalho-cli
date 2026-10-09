@@ -1192,6 +1192,13 @@ func TestRunCommandsDoNotLaunchTUI(t *testing.T) {
 					launchCalled = true
 					return 0
 				},
+				// Keep the run hermetic: `models` enriches from the live gateway,
+				// and default deps would resolve a real key (QG_API_KEY / store)
+				// and hit the network. A failing injected client degrades the
+				// enrichment instead (app.go: hermetic-test contract).
+				newQGAccountClient: func() (qgAccountAPI, error) {
+					return nil, errors.New("network disabled in tests")
+				},
 			})
 
 			if launchCalled {

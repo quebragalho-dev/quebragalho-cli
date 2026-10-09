@@ -62,10 +62,17 @@ type appDeps struct {
 	// getenv reads a process environment variable (production: os.Getenv, set in
 	// defaultAppDeps — deliberately NOT filled by fillAppDeps, so tests are hermetic
 	// against ambient vars like QG_PROVIDER unless they inject it). nil ⇒ empty.
-	getenv                       func(string) string
-	probeProviderHealth          func(context.Context, providerhealth.Options) providerhealth.Result
-	validateLoginKey             func(context.Context, string) error
-	discoverProviderModels       func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
+	getenv                 func(string) string
+	probeProviderHealth    func(context.Context, providerhealth.Options) providerhealth.Result
+	validateLoginKey       func(context.Context, string) error
+	discoverProviderModels func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
+	// newQGAccountClient builds the QG account API (balance/key/usage/models);
+	// nil resolves the active profile's key at call time. Tests inject a fake.
+	newQGAccountClient func() (qgAccountAPI, error)
+	// newQGDeviceClient builds the unauthenticated device-flow client for
+	// `qg login --device`; nil uses the production endpoints. Tests inject a
+	// fake, the same way newQGAccountClient is injected.
+	newQGDeviceClient            func() (qgDeviceAPI, error)
 	detectLocalRuntimes          func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
 	newSessionStore              func() *sessions.Store
 	loadPlugins                  func(plugins.LoadOptions) (plugins.LoadResult, error)
@@ -419,7 +426,11 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	case "config":
 		return runConfig(args[1:], stdout, stderr, deps)
 	case "models":
-		return runModels(args[1:], stdout, stderr)
+		return runModels(args[1:], stdout, stderr, deps)
+	case "balance":
+		return runBalance(args[1:], stdout, stderr, deps)
+	case "key", "whoami":
+		return runKey(args[1:], stdout, stderr, deps)
 	case "providers":
 		return runProviders(args[1:], stdout, stderr, deps)
 	case "doctor":
@@ -1326,6 +1337,9 @@ Commands:
   login      Save and validate your Quebra Galho API key
   config     Inspect resolved Go configuration without leaking secrets
   models     List QG model registry entries
+  balance    Show the live Quebra Galho wallet balance
+  key        Show the active API key profile (alias: whoami)
+  whoami     Alias for key
   providers  Inspect resolved provider profiles
   doctor     Run backend health checks for config and provider setup
   context    Report workspace context budget usage
@@ -1349,7 +1363,7 @@ Commands:
   verify     Detect and run local verification checks
   eval       Validate offline agent eval suites
   changes    Inspect and commit local git changes
-  usage      Summarize token usage and estimated cost
+  usage      Query gateway token usage (usage report = local session summary)
   cron       Schedule agent jobs (foreground, file-backed)
   repo-info  Characterize the current repository (local git only)
   serve      Run QG protocol servers

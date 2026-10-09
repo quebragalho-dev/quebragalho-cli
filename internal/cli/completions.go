@@ -43,6 +43,9 @@ var completionRoot = completionNode{
 		{names: []string{"login"}},
 		{names: []string{"config"}},
 		{names: []string{"models"}, children: []completionNode{{names: []string{"list", "ls"}}}},
+		{names: []string{"balance"}},
+		{names: []string{"key"}},
+		{names: []string{"whoami"}},
 		{names: []string{"providers"}, children: []completionNode{
 			{names: []string{"current"}}, {names: []string{"list"}}, {names: []string{"catalog"}},
 			{names: []string{"add"}}, {names: []string{"check"}}, {names: []string{"use"}},
