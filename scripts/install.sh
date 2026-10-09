@@ -3,7 +3,7 @@ set -euo pipefail
 
 QG_REPO="${QG_REPO:-quebragalho-dev/quebragalho-cli}"
 QG_VERSION="${QG_VERSION:-latest}"
-QG_INSTALL_DIR="${QG_INSTALL_DIR:-$HOME/.local/bin}"
+QG_INSTALL_DIR="${QG_INSTALL_DIR:-/usr/local/bin}"
 QG_GITHUB_API="${QG_GITHUB_API:-https://api.github.com}"
 QG_GITHUB_BASE_URL="${QG_GITHUB_BASE_URL:-https://github.com}"
 
@@ -17,7 +17,7 @@ Usage:
 Environment:
   QG_VERSION          Release version or tag. Defaults to latest.
   QG_REPO             GitHub repository. Defaults to quebragalho-dev/quebragalho-cli.
-  QG_INSTALL_DIR      Directory for the qg binary. Defaults to ~/.local/bin.
+  QG_INSTALL_DIR      Directory for the qg binary. Defaults to /usr/local/bin.
   QG_GITHUB_API       GitHub API base URL. Defaults to https://api.github.com.
   QG_GITHUB_BASE_URL  GitHub web base URL. Defaults to https://github.com.
 EOF
@@ -172,7 +172,7 @@ copy_optional_dir() {
   local source_path
 
   if source_path="$(find_extracted_entry "$extract_dir" "$name" "dir")"; then
-    rm -rf "$QG_INSTALL_DIR/$name"
+    rm -rf "${QG_INSTALL_DIR:?}/$name"
     cp -R "$source_path" "$QG_INSTALL_DIR/$name"
   fi
 }
@@ -221,16 +221,29 @@ tar -xzf "$archive_path" -C "$extract_dir"
 
 binary_path="$(find_extracted_binary "$extract_dir")" || fail "release archive did not contain qg"
 
-mkdir -p "$QG_INSTALL_DIR"
+if ! mkdir -p "$QG_INSTALL_DIR" 2>/dev/null || [ ! -w "$QG_INSTALL_DIR" ]; then
+  fail "cannot write $QG_INSTALL_DIR (re-run with sudo, or set QG_INSTALL_DIR to a writable directory, e.g. QG_INSTALL_DIR=\$HOME/.local/bin)"
+fi
 cp "$binary_path" "$QG_INSTALL_DIR/qg"
 chmod 755 "$QG_INSTALL_DIR/qg"
+# Real on-disk alias: same binary reachable as `quebragalho` (relative link, so
+# a moved install dir keeps working).
+ln -sf qg "$QG_INSTALL_DIR/quebragalho"
 copy_optional_file "qg-linux-sandbox"
 copy_optional_file "qg-seccomp"
 copy_optional_dir "helpers"
 
-echo "Installed $QG_INSTALL_DIR/qg"
+installed_version=""
+if ! installed_version="$("$QG_INSTALL_DIR/qg" --version 2>&1 | head -n 1)" \
+  || [ -z "$installed_version" ]; then
+  fail "$QG_INSTALL_DIR/qg --version did not run — the installed binary does not work on this platform"
+fi
+
+echo "Installed $QG_INSTALL_DIR/qg ($installed_version)"
+echo "Alias: $QG_INSTALL_DIR/quebragalho -> qg"
 
 case ":$PATH:" in
   *":$QG_INSTALL_DIR:"*) ;;
-  *) echo "Add $QG_INSTALL_DIR to PATH to run qg from any directory." ;;
+  *) echo "Add $QG_INSTALL_DIR to PATH to run qg from any directory:" \
+      echo "  export PATH=\"$QG_INSTALL_DIR:\$PATH\"" ;;
 esac
