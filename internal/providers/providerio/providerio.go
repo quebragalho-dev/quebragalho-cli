@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
@@ -428,7 +429,7 @@ func ClassifiedError(statusCode int, message string, secrets ...string) string {
 		// Lead with an actionable instruction rather than the raw upstream auth blurb
 		// (which often points the user at the wrong provider's dashboard URL). Keep a
 		// redacted, one-line upstream detail for context — never the raw body. (AUDIT-H7)
-		curated := "auth error: your API key is missing or invalid — set QUEBRAGALHO_API_KEY in your environment, run `qg setup qg`, then retry."
+		curated := "auth error: your API key is missing or invalid — set " + providercatalog.KeyEnvHint + " in your environment or run `qg login` (see `qg setup qg`), then retry."
 		if detail := strings.TrimSpace(Redact(message, secrets...)); detail != "" {
 			return curated + " (provider said: " + detail + ")"
 		}

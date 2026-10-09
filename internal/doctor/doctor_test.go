@@ -61,8 +61,8 @@ func TestRunReportFailsInvalidModelAndMissingProvider(t *testing.T) {
 	})
 	if check := keyless.Check("provider.config"); check == nil || check.Status != StatusFail {
 		t.Fatalf("keyless provider should fail provider config: %#v", keyless.Checks)
-	} else if !strings.Contains(check.Message, "QUEBRAGALHO_API_KEY") || !strings.Contains(check.Message, "qg setup qg") {
-		t.Fatalf("missing-key advice must cite QUEBRAGALHO_API_KEY and qg setup qg, got %q", check.Message)
+	} else if !strings.Contains(check.Message, "QG_API_KEY") || !strings.Contains(check.Message, "QUEBRAGALHO_API_KEY") || !strings.Contains(check.Message, "qg setup qg") {
+		t.Fatalf("missing-key advice must cite QG_API_KEY, QUEBRAGALHO_API_KEY and qg setup qg, got %q", check.Message)
 	} else if strings.Contains(check.Message, "qg auth") {
 		t.Fatalf("missing-key advice must not cite the removed auth commands, got %q", check.Message)
 	}

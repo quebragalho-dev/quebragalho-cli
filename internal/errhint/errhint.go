@@ -9,7 +9,11 @@
 // of dumping an identical red blob for every failure mode.
 package errhint
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+)
 
 // Category buckets a provider/model failure into a small set of classes that each
 // map to a distinct recovery action.
@@ -106,7 +110,7 @@ func TUIHint(err error) string {
 func CLIHint(err error) string {
 	switch Classify(err) {
 	case Auth:
-		return "API key rejected — set QUEBRAGALHO_API_KEY in your environment, then run `qg setup qg`"
+		return "API key rejected — set " + providercatalog.KeyEnvHint + " in your environment or run `qg login`, then run `qg setup qg`"
 	case RateLimit:
 		return "Rate limited — wait a moment, or switch model with --model"
 	case Connectivity:
