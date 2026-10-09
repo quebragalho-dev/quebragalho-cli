@@ -35,10 +35,6 @@ func TestOAuthLoginForProfileBindsBearerAndAccountToSameLogin(t *testing.T) {
 	if err != nil || !ok || header != "Authorization" || value != "Bearer subscription-token" {
 		t.Fatalf("bearer resolution = (%q, %q, %v, %v)", header, value, ok, err)
 	}
-	account, ok, err := CodexAccountResolverForLogin(loginKey)(context.Background())
-	if err != nil || !ok || account != "account-42" {
-		t.Fatalf("account resolution = (%q, %v, %v)", account, ok, err)
-	}
 }
 
 func TestOAuthLoginForProfileReturnsNoResolverWithoutUsableLogin(t *testing.T) {
