@@ -14,9 +14,10 @@ import (
 
 const deviceGrantType = "urn:ietf:params:oauth:grant-type:device_code"
 
-// defaultDeviceCodeLifetime bounds a device authorization that omits expires_in,
-// so the expiry gate in PollDeviceToken is always active (fail closed).
-const defaultDeviceCodeLifetime = 10 * time.Minute
+// DefaultDeviceCodeLifetime bounds a device authorization that omits expires_in,
+// so the expiry gate in PollDeviceToken is always active (fail closed). It is
+// exported because the QG device flow shares this bound instead of restating it.
+const DefaultDeviceCodeLifetime = 10 * time.Minute
 
 // DeviceAuth is the result of an RFC 8628 device-authorization request.
 type DeviceAuth struct {
@@ -105,7 +106,7 @@ func RequestDeviceCode(ctx context.Context, client *http.Client, cfg Config, now
 	if lifetime <= 0 {
 		// Fail closed: a response without expires_in must still get a bounded
 		// lifetime so the poll loop's expiry gate stays active.
-		lifetime = defaultDeviceCodeLifetime
+		lifetime = DefaultDeviceCodeLifetime
 	}
 	auth.ExpiresAt = now().Add(lifetime)
 	return auth, nil

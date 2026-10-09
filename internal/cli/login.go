@@ -14,6 +14,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
@@ -62,7 +63,7 @@ func validateQuebraGalhoKey(ctx context.Context, baseURL, key string, client *ht
 // same setup path (`saveSetupProvider`) so the secret lands in the credential
 // store with config.json keeping only the apiKeyStored marker.
 func runLogin(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
-	flagKey, help, err := parseLoginArgs(args)
+	flagKey, device, help, err := parseLoginArgs(args)
 	if err != nil {
 		return writeExecUsageError(stderr, err.Error())
 	}
@@ -71,6 +72,9 @@ func runLogin(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 			return exitCrash
 		}
 		return exitSuccess
+	}
+	if device {
+		return runLoginDevice(stdout, stderr, deps)
 	}
 	key := strings.TrimSpace(flagKey)
 	if key == "" {
@@ -108,35 +112,106 @@ func runLogin(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	return exitSuccess
 }
 
+// qgDeviceAPI is the device-flow surface runLoginDevice consumes; tests inject
+// a fake, production uses *qgaccount.Client.
+type qgDeviceAPI interface {
+	RequestDeviceCode(ctx context.Context) (qgaccount.DeviceAuth, error)
+	PollDeviceToken(ctx context.Context, auth qgaccount.DeviceAuth, opts qgaccount.DevicePollOptions) (string, error)
+}
+
+var _ qgDeviceAPI = (*qgaccount.Client)(nil)
+
+// runLoginDevice performs the QG device-flow login: the app issues a short
+// code, the user approves it at /connect/cli, and the account API key comes
+// back on the poll. The key is then validated and stored through the exact
+// same path as a pasted key (credstore + apiKeyStored marker).
+func runLoginDevice(stdout io.Writer, stderr io.Writer, deps appDeps) int {
+	var client qgDeviceAPI = qgaccount.NewClient("")
+	if deps.newQGDeviceClient != nil {
+		built, err := deps.newQGDeviceClient()
+		if err != nil {
+			return writeAppError(stderr, err.Error(), exitCrash)
+		}
+		client = built
+	}
+	ctx, stop := signalContext()
+	defer stop()
+	auth, err := client.RequestDeviceCode(ctx)
+	if err != nil {
+		msg := redaction.ErrorMessage(err, redaction.Options{})
+		return writeAppError(stderr, "device login failed: "+msg, exitProvider)
+	}
+	uri := auth.VerificationURIComplete
+	if uri == "" {
+		uri = auth.VerificationURI
+	}
+	if _, err := fmt.Fprintf(stdout, "Aprove o acesso em:\n  %s\nCódigo: %s\n\nAguardando aprovação…\n", uri, auth.UserCode); err != nil {
+		return exitCrash
+	}
+	key, err := client.PollDeviceToken(ctx, auth, qgaccount.DevicePollOptions{})
+	if err != nil {
+		msg := redaction.ErrorMessage(err, redaction.Options{ExtraSecretValues: []string{key}})
+		return writeAppError(stderr, "device login failed: "+msg, exitProvider)
+	}
+	if deps.validateLoginKey == nil {
+		return writeAppError(stderr, "login validator unavailable", exitCrash)
+	}
+	if validateErr := deps.validateLoginKey(ctx, key); validateErr != nil {
+		msg := redaction.RedactString(validateErr.Error(), redaction.Options{ExtraSecretValues: []string{key}})
+		return writeAppError(stderr, "login failed: "+msg, exitProvider)
+	}
+	result, saveErr := saveSetupProvider(deps, tui.SetupSelection{
+		CatalogID: providercatalog.QGID,
+		APIKey:    key,
+	}, setupSaveOptions{})
+	if saveErr != nil {
+		msg := redaction.RedactString(saveErr.Error(), redaction.Options{ExtraSecretValues: []string{key}})
+		return writeAppError(stderr, msg, exitCrash)
+	}
+	if result.KeyStoreFallback {
+		warnKeyStoreFallback(stderr, result.ConfigPath)
+	}
+	if _, err := fmt.Fprintf(stdout, "API key validated and saved.\nProvider %s is now active (config: %s).\n", result.Provider.Name, result.ConfigPath); err != nil {
+		return exitCrash
+	}
+	return exitSuccess
+}
+
 // parseLoginArgs accepts -h/--help/help and --api-key in both forms; every
 // other flag or positional argument is a usage error.
-func parseLoginArgs(args []string) (string, bool, error) {
+func parseLoginArgs(args []string) (string, bool, bool, error) {
 	apiKey := ""
+	device := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case arg == "-h" || arg == "--help" || arg == "help":
-			return "", true, nil
+			return "", false, true, nil
 		case arg == "--api-key":
 			value, next, err := nextFlagValue(args, i, arg)
 			if err != nil {
-				return "", false, err
+				return "", false, false, err
 			}
 			apiKey = value
 			i = next
 		case strings.HasPrefix(arg, "--api-key="):
 			value, err := requiredInlineFlagValue(arg, "--api-key")
 			if err != nil {
-				return "", false, err
+				return "", false, false, err
 			}
 			apiKey = value
+		case arg == "--device":
+			device = true
 		case strings.HasPrefix(arg, "-"):
-			return "", false, execUsageError{fmt.Sprintf("unknown flag %q", arg)}
+			return "", false, false, execUsageError{fmt.Sprintf("unknown flag %q", arg)}
 		default:
-			return "", false, execUsageError{fmt.Sprintf("unexpected argument %q", arg)}
+			return "", false, false, execUsageError{fmt.Sprintf("unexpected argument %q", arg)}
 		}
 	}
-	return apiKey, false, nil
+	if device && strings.TrimSpace(apiKey) != "" {
+		return "", false, false, execUsageError{"--device and --api-key are mutually exclusive"}
+	}
+	return apiKey, device, false, nil
 }
 
 // readLoginKeyPrompt writes the prompt to stdout and reads one line from
@@ -174,11 +249,15 @@ func readLoginKeyPrompt(stdout io.Writer, stdin io.Reader) (string, error) {
 func writeLoginHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
   qg login [--api-key <key>]
+  qg login --device
 
 Validates a Quebra Galho API key against GET /v1/models and saves it to the
 credential store (provider qg, set active). Without --api-key the key is
 prompted for, hidden on a TTY. If the credential store is unavailable the
 key is written to config.json in plaintext instead and a warning is printed.
+
+--device starts the browser device flow instead: approve the shown code at
+the printed link and the account API key is fetched and saved automatically.
 `)
 	return err
 }
