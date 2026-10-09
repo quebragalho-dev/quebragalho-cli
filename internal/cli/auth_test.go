@@ -82,32 +82,29 @@ func TestRunAuthLogoutNothing(t *testing.T) {
 	}
 }
 
-// TestRunAuthRemovedSubcommandsGuideToAPIKey locks the Etapa 4 auth contract:
-// the OAuth login subcommands (login / openrouter / chatgpt) are removed, so
-// every invocation reports the API-key guidance instead of parsing providers
-// or starting a browser flow. The `--help` paths stay available on purpose —
-// they are how a user landing here discovers what remains of `qg auth`.
+// TestRunAuthRemovedSubcommandsGuideToAPIKey locks the auth contract: the
+// OAuth login subcommand is removed (QG authenticates with an API key), so
+// `qg auth login` reports the `qg login` guidance instead of parsing providers
+// or starting a browser flow. The `--help` path stays available on purpose —
+// it is how a user landing here discovers what remains of `qg auth`.
 func TestRunAuthRemovedSubcommandsGuideToAPIKey(t *testing.T) {
 	withAuthStore(t)
 	for _, args := range [][]string{
 		{"auth", "login"},
-		{"auth", "login", "demo"},
-		{"auth", "login", "chatgpt", "--device"},
-		{"auth", "openrouter", "--json"},
-		{"auth", "chatgpt", "--extra"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := runWithDeps(args, &stdout, &stderr, appDeps{}); code == exitSuccess {
 			t.Errorf("%v should fail, got success", args)
 		}
-		if !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
-			t.Errorf("%v stderr = %q, want QUEBRAGALHO_API_KEY guidance", args, stderr.String())
+		if !strings.Contains(stderr.String(), "QG_API_KEY") || !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
+			t.Errorf("%v stderr = %q, want both gateway env vars in the guidance", args, stderr.String())
+		}
+		if args[0] == "auth" && args[1] == "login" && !strings.Contains(stderr.String(), "qg login") {
+			t.Errorf("%v stderr = %q, want a pointer to `qg login`", args, stderr.String())
 		}
 	}
 	for _, args := range [][]string{
 		{"auth", "login", "--help"},
-		{"auth", "openrouter", "--help"},
-		{"auth", "chatgpt", "-h"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := runWithDeps(args, &stdout, &stderr, appDeps{}); code != exitSuccess {

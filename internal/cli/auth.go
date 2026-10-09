@@ -11,6 +11,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
@@ -18,7 +19,7 @@ import (
 // QG authenticates with a plain API key, so browser/device login has no path
 // left. logout / status / refresh / reset keep working on pre-existing token
 // stores.
-const authLoginRemovedMessage = "OAuth login is not supported: QG authenticates with QUEBRAGALHO_API_KEY. Set the environment variable in your shell, then run `qg setup qg` (see `qg setup --help`)"
+const authLoginRemovedMessage = "OAuth login is not supported: run `qg login` to save an API key (" + providercatalog.KeyEnvHint + " also work from the environment), then run `qg setup qg` (see `qg setup --help`)"
 
 // runAuth dispatches `qg auth <command>`. The login subcommands are removed
 // (Etapa 4) and report authLoginRemovedMessage; what remains is maintenance of
@@ -34,9 +35,10 @@ func runAuth(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		return exitSuccess
 	}
 	switch args[0] {
-	case "login", "openrouter", "chatgpt":
+	case "login":
 		// Keep `--help` answering so a user following stale docs still lands on
-		// the current command list instead of a dead end.
+		// the current command list instead of a dead end. Removed vendor names
+		// (openrouter, chatgpt, …) fall through to the unknown-subcommand path.
 		for _, arg := range args[1:] {
 			if arg == "-h" || arg == "--help" || arg == "help" {
 				if err := writeAuthHelp(stdout); err != nil {
@@ -384,9 +386,9 @@ Commands:
   refresh <provider> [--watch]                    Force a token refresh (--watch keeps it fresh)
   reset --confirm [--json]                        Clear all OAuth logins and shared MCP tokens (also repairs corrupted stores)
 
-OAuth login was removed: QG authenticates with QUEBRAGALHO_API_KEY (see
-"qg setup --help"). These commands maintain token stores written by earlier
-versions.
+OAuth login was removed: run "qg login" to save your API key — QG_API_KEY
+(or QUEBRAGALHO_API_KEY) from the environment also works; see "qg setup
+--help". These commands maintain token stores written by earlier versions.
 
 Storage: tokens are written 0600 under $XDG_CONFIG_HOME/qg (override with
 QG_OAUTH_TOKENS_PATH). Set QG_OAUTH_STORAGE=encrypted-file to encrypt them at

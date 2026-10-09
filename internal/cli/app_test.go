@@ -171,8 +171,8 @@ func TestRunNoArgsErrorsWhenNoProviderConfigured(t *testing.T) {
 	if launched {
 		t.Fatal("TUI launched without a provider; the setup wizard is removed, the launch must exit with a clear error")
 	}
-	if !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
-		t.Fatalf("stderr = %q, want QUEBRAGALHO_API_KEY guidance", stderr.String())
+	if !strings.Contains(stderr.String(), "QG_API_KEY") || !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
+		t.Fatalf("stderr = %q, want both QG_API_KEY and QUEBRAGALHO_API_KEY guidance", stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "qg setup qg") {
 		t.Fatalf("stderr = %q, want the `qg setup qg` recipe", stderr.String())
@@ -299,8 +299,8 @@ func TestRunNoArgsErrorsWhenResolveReportsNoActiveProvider(t *testing.T) {
 	if launched {
 		t.Fatal("TUI launched for a missing active provider with no usable fallback; the setup wizard is removed")
 	}
-	if !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
-		t.Fatalf("stderr = %q, want QUEBRAGALHO_API_KEY guidance", stderr.String())
+	if !strings.Contains(stderr.String(), "QG_API_KEY") || !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
+		t.Fatalf("stderr = %q, want both QG_API_KEY and QUEBRAGALHO_API_KEY guidance", stderr.String())
 	}
 }
 
@@ -1257,8 +1257,8 @@ func TestRunSetupProviderWritesActiveConfig(t *testing.T) {
 	if !strings.Contains(stdout.String(), "QG setup complete") || !strings.Contains(stdout.String(), "next: qg") {
 		t.Fatalf("unexpected setup output: %q", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "QUEBRAGALHO_API_KEY") {
-		t.Fatalf("setup output should name the credential env var: %q", stdout.String())
+	if !strings.Contains(stdout.String(), "QG_API_KEY") || !strings.Contains(stdout.String(), "QUEBRAGALHO_API_KEY") {
+		t.Fatalf("setup output should name both credential env vars: %q", stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
@@ -1946,22 +1946,34 @@ func TestRunNoArgsErrorsWhenActiveProviderMissesModel(t *testing.T) {
 	}
 }
 
-// `qg login`/`qg logout` don't exist (it's `qg auth login`); first-run
-// users try them (reported in the wild), so the unknown-command error points at
-// the real command.
-func TestRunUnknownLoginSuggestsSetup(t *testing.T) {
+// `qg login` is a real command (API-key onboarding). `qg logout` still doesn't
+// exist, so the unknown-command error keeps pointing at `qg auth logout`.
+func TestRunLoginIsKnownAndLogoutStillRedirects(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	exitCode := runWithDeps([]string{"login"}, &stdout, &stderr, appDeps{})
+	// login runs: with no key supplied it fails on the missing-key usage error,
+	// never as an unknown command.
+	exitCode := runWithDeps([]string{"login"}, &stdout, &stderr, appDeps{stdin: strings.NewReader("")})
+	if strings.Contains(stderr.String(), "unknown command") || strings.Contains(stderr.String(), "did you mean") {
+		t.Fatalf("qg login must be a known command, stderr = %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "API key") {
+		t.Fatalf("stderr = %q, want the missing-key guidance", stderr.String())
+	}
+	_ = exitCode
+
+	stderr.Reset()
+	exitCode = runWithDeps([]string{"logout"}, &stdout, &stderr, appDeps{})
 	if exitCode != 2 {
 		t.Fatalf("exit = %d, want 2 (unknown command)", exitCode)
 	}
-	if !strings.Contains(stderr.String(), `"qg setup"`) {
-		t.Fatalf("stderr = %q, want a qg setup suggestion (OAuth login was removed)", stderr.String())
+	if !strings.Contains(stderr.String(), `"qg auth logout"`) {
+		t.Fatalf("stderr = %q, want a qg auth logout suggestion", stderr.String())
 	}
+
 	// An unrelated unknown command gets no misleading suggestion.
 	stderr.Reset()
 	runWithDeps([]string{"frobnicate"}, &stdout, &stderr, appDeps{})
 	if strings.Contains(stderr.String(), "did you mean") {
-		t.Fatalf("stderr = %q, unrelated commands must not get the setup hint", stderr.String())
+		t.Fatalf("stderr = %q, unrelated commands must not get a redirect hint", stderr.String())
 	}
 }

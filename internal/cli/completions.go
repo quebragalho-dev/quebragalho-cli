@@ -40,6 +40,7 @@ var completionRoot = completionNode{
 		},
 		{names: []string{"daemon"}, children: leafNodes("start", "stop", "status", "run", "attach", "serve-remote", "link")},
 		{names: []string{"setup"}},
+		{names: []string{"login"}},
 		{names: []string{"config"}},
 		{names: []string{"models"}, children: []completionNode{{names: []string{"list", "ls"}}}},
 		{names: []string{"providers"}, children: []completionNode{
