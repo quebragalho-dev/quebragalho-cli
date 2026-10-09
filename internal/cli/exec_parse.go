@@ -151,6 +151,19 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 			index = next
 		case strings.HasPrefix(arg, "--model="):
 			options.model = strings.TrimSpace(strings.TrimPrefix(arg, "--model="))
+		case arg == "--api-key":
+			value, next, err := nextFlagValue(args, index, arg)
+			if err != nil {
+				return options, false, err
+			}
+			options.apiKey = value
+			index = next
+		case strings.HasPrefix(arg, "--api-key="):
+			value, err := requiredInlineFlagValue(arg, "--api-key")
+			if err != nil {
+				return options, false, err
+			}
+			options.apiKey = value
 		case arg == "--profile":
 			value, next, err := nextFlagValue(args, index, arg)
 			if err != nil {

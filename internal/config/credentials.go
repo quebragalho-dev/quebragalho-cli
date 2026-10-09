@@ -49,22 +49,24 @@ type APIKeySetter interface {
 // APIKey cleared so the secret is never written to config.json. On any store error
 // (e.g. no keyring) it returns the profile unchanged — the inline key persists and
 // the startup migration retries later — so capturing a provider never fails on a
-// flaky credential backend.
-func SecureProviderProfile(profile ProviderProfile, configPath string) ProviderProfile {
+// flaky credential backend. The second result reports that fail-soft fallback:
+// true means the caller is about to persist the plaintext key itself and must
+// warn the user (config.json will hold the secret in cleartext).
+func SecureProviderProfile(profile ProviderProfile, configPath string) (ProviderProfile, bool) {
 	if strings.TrimSpace(profile.APIKey) == "" || strings.TrimSpace(profile.Name) == "" {
-		return profile
+		return profile, false
 	}
 	store, err := ProviderKeyStoreAt(filepath.Dir(configPath))
 	if err != nil {
-		return profile
+		return profile, true
 	}
 	if err := store.Set(profile.Name, profile.APIKey); err != nil {
-		return profile
+		return profile, true
 	}
 	secured := profile
 	secured.APIKey = ""
 	secured.APIKeyStored = true
-	return secured
+	return secured, false
 }
 
 // ForgetProviderKey removes a provider's stored API key from the credential store,
@@ -295,6 +297,44 @@ func (profile ProviderProfile) OAuthLoginCandidates() []string {
 	add(profile.Name)
 	add(profile.CatalogID)
 	return names
+}
+
+// EnvAPIKey resolves this profile's API key from the environment using the
+// documented credential precedence: QG_API_KEY wins for profiles that target
+// the Quebra Galho gateway, then the profile's own APIKeyEnv (QUEBRAGALHO_API_KEY).
+// QG_API_KEY is deliberately gated by targetsQGGateway: exporting it in a shell
+// must never ship the gateway credential to a custom endpoint.
+func (profile ProviderProfile) EnvAPIKey(env func(string) string) string {
+	if profile.targetsQGGateway() {
+		if key := strings.TrimSpace(env("QG_API_KEY")); key != "" {
+			return key
+		}
+	}
+	if name := strings.TrimSpace(profile.APIKeyEnv); name != "" {
+		return strings.TrimSpace(env(name))
+	}
+	return ""
+}
+
+// targetsQGGateway reports whether this profile may authenticate with the
+// shared QG key pair (QG_API_KEY / QUEBRAGALHO_API_KEY): either it points at
+// the catalog QG endpoint, or it was explicitly configured to read one of
+// those env vars.
+func (profile ProviderProfile) targetsQGGateway() bool {
+	if name := strings.TrimSpace(profile.APIKeyEnv); name == "QUEBRAGALHO_API_KEY" || name == "QG_API_KEY" {
+		return true
+	}
+	descriptor, ok := catalogDescriptorForProfile(profile)
+	if !ok || descriptor.ID != providercatalog.QGID {
+		return false
+	}
+	baseURL := strings.TrimSpace(profile.BaseURL)
+	if baseURL == "" {
+		// normalizeProvider fills the gateway default before any request, so an
+		// unset URL on a qg-catalog profile still means the gateway.
+		return true
+	}
+	return sameBaseURL(baseURL, descriptor.DefaultBaseURL)
 }
 
 // ApplyStoredAPIKey fills profile.APIKey from the credential store when it is not
