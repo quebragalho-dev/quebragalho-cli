@@ -131,13 +131,14 @@ func usableResolvedConfig(maxTurns int) config.ResolvedConfig {
 	}
 }
 
-func TestRunNoArgsErrorsWhenNoProviderConfigured(t *testing.T) {
+func TestRunNoArgsOpensOnboardingWhenNoProviderConfigured(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cwd := t.TempDir()
 	setCLIUserConfigRoot(t)
 	userConfigPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	launched := false
+	var launchedOptions tui.Options
 
 	exitCode := runWithDeps([]string{}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) {
@@ -161,24 +162,22 @@ func TestRunNoArgsErrorsWhenNoProviderConfigured(t *testing.T) {
 		},
 		runTUI: func(ctx context.Context, options tui.Options) int {
 			launched = true
+			launchedOptions = options
 			return 0
 		},
 	})
 
-	if exitCode != 1 {
-		t.Fatalf("exit = %d, want 1 (missing-provider error), stderr=%q", exitCode, stderr.String())
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, want 0 (onboarding launch), stderr=%q", exitCode, stderr.String())
 	}
-	if launched {
-		t.Fatal("TUI launched without a provider; the setup wizard is removed, the launch must exit with a clear error")
+	if !launched {
+		t.Fatal("a fresh install must open the first-run onboarding instead of exiting")
 	}
-	if !strings.Contains(stderr.String(), "QG_API_KEY") || !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
-		t.Fatalf("stderr = %q, want both QG_API_KEY and QUEBRAGALHO_API_KEY guidance", stderr.String())
+	if !launchedOptions.Setup.Visible || !launchedOptions.Setup.Required {
+		t.Fatalf("Setup = {Visible:%v Required:%v}, want both true", launchedOptions.Setup.Visible, launchedOptions.Setup.Required)
 	}
-	if !strings.Contains(stderr.String(), "qg setup qg") {
-		t.Fatalf("stderr = %q, want the `qg setup qg` recipe", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
+	if launchedOptions.Setup.ValidateAPIKey == nil {
+		t.Fatal("onboarding must wire the gateway key validator")
 	}
 }
 
@@ -262,13 +261,14 @@ func TestTUIStartupWarnsForUserConfiguredServerSkip(t *testing.T) {
 	}
 }
 
-func TestRunNoArgsErrorsWhenResolveReportsNoActiveProvider(t *testing.T) {
+func TestRunNoArgsOpensOnboardingWhenResolveReportsNoActiveProvider(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cwd := t.TempDir()
 	setCLIUserConfigRoot(t)
 	userConfigPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	launched := false
+	var launchedOptions tui.Options
 
 	exitCode := runWithDeps([]string{}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) {
@@ -289,18 +289,19 @@ func TestRunNoArgsErrorsWhenResolveReportsNoActiveProvider(t *testing.T) {
 		},
 		runTUI: func(ctx context.Context, options tui.Options) int {
 			launched = true
+			launchedOptions = options
 			return 0
 		},
 	})
 
-	if exitCode != 1 {
-		t.Fatalf("exit = %d, want 1 (missing-provider error), stderr=%q", exitCode, stderr.String())
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, want 0 (onboarding launch), stderr=%q", exitCode, stderr.String())
 	}
-	if launched {
-		t.Fatal("TUI launched for a missing active provider with no usable fallback; the setup wizard is removed")
+	if !launched {
+		t.Fatal("a missing active provider with no usable fallback must open onboarding instead of exiting")
 	}
-	if !strings.Contains(stderr.String(), "QG_API_KEY") || !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
-		t.Fatalf("stderr = %q, want both QG_API_KEY and QUEBRAGALHO_API_KEY guidance", stderr.String())
+	if !launchedOptions.Setup.Visible || !launchedOptions.Setup.Required {
+		t.Fatalf("Setup = {Visible:%v Required:%v}, want both true", launchedOptions.Setup.Visible, launchedOptions.Setup.Required)
 	}
 }
 
