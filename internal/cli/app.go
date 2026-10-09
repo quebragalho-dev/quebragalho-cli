@@ -684,12 +684,9 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 
 	resolved, err := deps.resolveConfig(workspaceRoot, config.Overrides{})
 	if err != nil {
-		// The interactive setup wizard was removed (Etapa 4), so every resolve
-		// failure is now terminal: report the actionable message the resolver
-		// already carries (requires-model, malformed JSON, …), except a missing
-		// active provider, where a saved provider that already has a credential
-		// can still take over — and with neither, exit with the missing-key
-		// guidance instead of opening a wizard that no longer exists.
+		// Resolver failures stay terminal (requires-model, malformed JSON, …)
+		// except a missing active provider, which may open the 3-screen
+		// first-run onboarding below instead of exiting.
 		if errors.Is(err, config.ErrProviderRequiresModel) || !errors.Is(err, config.ErrNoActiveProvider) {
 			return writeAppError(stderr, err.Error(), 1)
 		}
@@ -697,13 +694,15 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		// ARE configured, just none marked active". In the second case
 		// resolved.Providers still carries the already-normalized list — prefer
 		// falling back to one of those over forcing the user to re-enter
-		// credentials they already saved.
+		// credentials they already saved. With neither, reset to a blank config
+		// so the launch gate below opens onboarding for a fresh install.
 		usable, ok := firstUsableProvider(resolved.Providers)
 		if !ok {
-			return writeAppError(stderr, missingProviderKeyMessage(resolved.Provider), 1)
+			resolved = config.ResolvedConfig{}
+		} else {
+			resolved.Provider = usable
+			resolved.ActiveProvider = usable.Name
 		}
-		resolved.Provider = usable
-		resolved.ActiveProvider = usable.Name
 	}
 	userConfigPath, err := deps.userConfigPath()
 	if err != nil {
@@ -723,23 +722,8 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		projectConfigPath = resolveOptions.ProjectConfigPath
 	}
 
-	needsSetup := setupRequired(resolved)
-	if needsSetup {
-		// The active provider lacks a usable credential, but if another saved
-		// provider already has one, fall back to it instead of failing the
-		// launch. Saved logins persist across launches; switch the active
-		// provider any time with `qg providers use <name>`.
-		if usable, ok := firstUsableProvider(resolved.Providers); ok {
-			resolved.Provider = usable
-			resolved.ActiveProvider = usable.Name
-			needsSetup = false
-		}
-	}
-	if needsSetup {
-		// No usable provider remains and the setup wizard is gone (Etapa 4):
-		// exit with the missing-key guidance instead of a wizard overlay.
-		return writeAppError(stderr, missingProviderKeyMessage(resolved.Provider), 1)
-	}
+	var onboarding bool
+	resolved, onboarding = resolveInteractiveSetup(resolved)
 
 	scope, err := sandbox.NewScope(workspaceRoot, append(append([]string{}, resolved.Sandbox.AdditionalWriteRoots...), addDirs...))
 	if err != nil {
@@ -1023,12 +1007,15 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		STTKeyStatus:              newSTTKeyStatus(resolved, userConfigPath),
 		SaveSTTKey:                newSaveSTTKey(userConfigPath),
 		Setup: tui.SetupOptions{
-			// The setup wizard is removed (Etapa 4): a missing key exits before
-			// the TUI launches, so this overlay never opens.
-			Visible:    false,
-			Required:   false,
-			ConfigPath: userConfigPath,
-			Providers:  setupProviderOptions(),
+			// The launch gate opens this overlay whenever the config resolves
+			// without a usable credential; the pasted key is checked against
+			// GET /v1/models (same validator as `qg login`) before the wizard
+			// leaves the credential screen.
+			Visible:        onboarding,
+			Required:       onboarding,
+			ConfigPath:     userConfigPath,
+			Providers:      setupProviderOptions(),
+			ValidateAPIKey: deps.validateLoginKey,
 			Save: func(selection tui.SetupSelection) (tui.SetupResult, error) {
 				return saveSetupProvider(deps, selection, setupSaveOptions{})
 			},
@@ -1054,6 +1041,28 @@ func tuiSandboxSetupCommand(backend sandbox.Backend, deps appDeps) func(context.
 // buildProvider constructs the run's provider at STARTUP — it is called only from
 // the two launch paths (interactive TUI and headless exec), never from mid-run
 // rebuilds (escalation, wizard, ACP go through deps.newProvider directly).
+// resolveInteractiveSetup decides the interactive launch shape: it first tries
+// to fall back to any saved provider that already has a credential, and reports
+// whether the TUI must open the first-run onboarding instead.
+func resolveInteractiveSetup(resolved config.ResolvedConfig) (config.ResolvedConfig, bool) {
+	needsSetup := setupRequired(resolved)
+	if needsSetup {
+		// The active provider lacks a usable credential, but if another saved
+		// provider already has one, fall back to it instead of forcing
+		// onboarding again. Saved logins persist across launches; switch the
+		// active provider any time with `qg providers use <name>`.
+		if usable, ok := firstUsableProvider(resolved.Providers); ok {
+			resolved.Provider = usable
+			resolved.ActiveProvider = usable.Name
+			return resolved, false
+		}
+	}
+	if resolved.ActiveProvider == "" && resolved.Provider.Name != "" {
+		resolved.ActiveProvider = resolved.Provider.Name
+	}
+	return resolved, needsSetup
+}
+
 func buildProvider(resolved config.ResolvedConfig, deps appDeps) (qgruntime.Provider, error) {
 	if !config.HasProviderProfile(resolved.Provider) {
 		return nil, nil
