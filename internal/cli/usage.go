@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
@@ -83,22 +85,159 @@ func eventUTCDate(createdAt string) string {
 	return createdAt
 }
 
+// runUsage dispatches the two usage surfaces: the explicit `report`
+// subcommand reads local session events; every other form (bare `qg usage`
+// or window/scope flags) queries the gateway's /v1/usage endpoint.
 func runUsage(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
-	subcommand := "report"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		subcommand = strings.ToLower(strings.TrimSpace(args[0]))
-		args = args[1:]
+		subcommand := strings.ToLower(strings.TrimSpace(args[0]))
+		if subcommand == "help" {
+			if err := writeUsageHelp(stdout); err != nil {
+				return exitCrash
+			}
+			return exitSuccess
+		}
+		if subcommand == "report" {
+			return runUsageReport(args[1:], stdout, stderr, deps)
+		}
+		return writeExecUsageError(stderr, fmt.Sprintf("unknown usage command %q (the local report lives under qg usage report)", subcommand))
 	}
-	if subcommand == "help" {
+	return runUsageRemote(args, stdout, stderr, deps)
+}
+
+// runUsageRemote queries GET /v1/usage with an optional window and scope.
+func runUsageRemote(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
+	options, help, err := parseRemoteUsageArgs(args)
+	if err != nil {
+		return writeExecUsageError(stderr, err.Error())
+	}
+	if help {
 		if err := writeUsageHelp(stdout); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
 	}
-	if subcommand != "report" {
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown usage command %q", subcommand))
+	if options.scope != "" && options.scope != "user" && options.scope != "key" {
+		return writeExecUsageError(stderr, fmt.Sprintf("invalid --scope %q: want user or key", options.scope))
 	}
+	from, err := parseRemoteUsageTime("--from", options.from)
+	if err != nil {
+		return writeExecUsageError(stderr, err.Error())
+	}
+	to, err := parseRemoteUsageTime("--to", options.to)
+	if err != nil {
+		return writeExecUsageError(stderr, err.Error())
+	}
+	client, code := resolveQGAccountClient(stderr, deps, false)
+	if code != exitSuccess {
+		return code
+	}
+	ctx, stop := signalContext()
+	defer stop()
+	report, err := client.Usage(ctx, qgaccount.UsageParams{From: from, To: to, Scope: options.scope})
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitProvider)
+	}
+	if options.json {
+		if err := writePrettyJSON(stdout, map[string]any{
+			"from":                report.From,
+			"to":                  report.To,
+			"scope":               report.Scope,
+			"requests":            report.Requests,
+			"input_tokens":        report.InputTokens,
+			"output_tokens":       report.OutputTokens,
+			"cached_input_tokens": report.CachedInputTokens,
+			"total":               report.Total(),
+		}); err != nil {
+			return exitCrash
+		}
+		return exitSuccess
+	}
+	_, err = fmt.Fprintf(stdout, "Uso de tokens (gateway)\nJanela:  %s → %s\nEscopo:  %s\nPedidos: %s\nEntrada: %s (inclui cache: %s)\nSaída:   %s\nTotal:   %s\n",
+		report.From, report.To, report.Scope,
+		formatCount(report.Requests),
+		formatCount(report.InputTokens), formatCount(report.CachedInputTokens),
+		formatCount(report.OutputTokens),
+		formatCount(report.Total()),
+	)
+	if err != nil {
+		return exitCrash
+	}
+	return exitSuccess
+}
 
+// remoteUsageOptions is the flag set for the gateway usage query.
+type remoteUsageOptions struct {
+	from  string
+	to    string
+	scope string
+	json  bool
+}
+
+func parseRemoteUsageArgs(args []string) (remoteUsageOptions, bool, error) {
+	options := remoteUsageOptions{}
+	for index := 0; index < len(args); index++ {
+		switch arg := args[index]; arg {
+		case "-h", "--help", "help":
+			return options, true, nil
+		case "--json":
+			options.json = true
+		case "--from", "--to", "--scope":
+			value, next, err := nextFlagValue(args, index, arg)
+			if err != nil {
+				return options, false, err
+			}
+			switch arg {
+			case "--from":
+				options.from = value
+			case "--to":
+				options.to = value
+			case "--scope":
+				options.scope = strings.ToLower(strings.TrimSpace(value))
+			}
+			index = next
+		default:
+			if strings.HasPrefix(arg, "--from=") || strings.HasPrefix(arg, "--to=") || strings.HasPrefix(arg, "--scope=") {
+				name, _, _ := strings.Cut(arg, "=")
+				value, err := requiredInlineFlagValue(arg, name)
+				if err != nil {
+					return options, false, err
+				}
+				switch name {
+				case "--from":
+					options.from = value
+				case "--to":
+					options.to = value
+				case "--scope":
+					options.scope = strings.ToLower(strings.TrimSpace(value))
+				}
+				continue
+			}
+			if strings.HasPrefix(arg, "-") {
+				return options, false, execUsageError{fmt.Sprintf("unknown usage flag %q (local report flags live under qg usage report)", arg)}
+			}
+			return options, false, execUsageError{fmt.Sprintf("unexpected usage argument %q (local report lives under qg usage report)", arg)}
+		}
+	}
+	return options, false, nil
+}
+
+// parseRemoteUsageTime accepts YYYY-MM-DD (UTC midnight) or RFC3339.
+func parseRemoteUsageTime(flag, value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed, nil
+	}
+	if parsed, err := time.Parse("2006-01-02", value); err == nil {
+		return parsed.UTC(), nil
+	}
+	return time.Time{}, execUsageError{fmt.Sprintf("invalid %s %q: want YYYY-MM-DD or RFC3339", flag, value)}
+}
+
+func runUsageReport(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	options, help, err := parseUsageArgs(args)
 	if err != nil {
 		return writeExecUsageError(stderr, err.Error())
@@ -247,10 +386,10 @@ func FormatReport(report usage.Report, insertions int, deletions int) string {
 	fmt.Fprintf(&builder, "%-12s %10s %14s %14s\n", "date", "requests", "tokens", "est. cost")
 	for _, bucket := range report.Buckets {
 		fmt.Fprintf(&builder, "%-12s %10d %14s %14s\n",
-			bucket.Date, bucket.Requests, groupThousands(bucket.TotalTokens), formatUSD(bucket.TotalCost))
+			bucket.Date, bucket.Requests, formatCount(int64(bucket.TotalTokens)), formatUSD(bucket.TotalCost))
 	}
 	fmt.Fprintf(&builder, "\n%-12s %10d %14s %14s\n",
-		"total", report.Total.Requests, groupThousands(report.Total.TotalTokens), formatUSD(report.Total.TotalCost))
+		"total", report.Total.Requests, formatCount(int64(report.Total.TotalTokens)), formatUSD(report.Total.TotalCost))
 
 	fmt.Fprintf(&builder, "\nnet LOC (estimate): +%d / -%d = %d\n",
 		insertions, deletions, report.NetLOC)
@@ -272,39 +411,26 @@ func formatUSD(value float64) string {
 	return formatted
 }
 
-// groupThousands renders an integer with comma thousands separators, preserving
-// a leading minus sign.
-func groupThousands(value int) string {
-	sign := ""
-	if value < 0 {
-		sign = "-"
-		value = -value
-	}
-	digits := fmt.Sprintf("%d", value)
-	if len(digits) <= 3 {
-		return sign + digits
-	}
-	var out []byte
-	prefix := len(digits) % 3
-	if prefix == 0 {
-		prefix = 3
-	}
-	out = append(out, digits[:prefix]...)
-	for index := prefix; index < len(digits); index += 3 {
-		out = append(out, ',')
-		out = append(out, digits[index:index+3]...)
-	}
-	return sign + string(out)
-}
-
 func writeUsageHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
+  qg usage [--from <when> --to <when> --scope user|key] [--json]
   qg usage report [flags]
 
-Summarizes token usage and reconstructed (estimated) cost from persisted local
-QG session usage events, plus a working-tree net-LOC efficiency estimate.
+Bare "qg usage" queries the gateway (GET /v1/usage) for the last 24 hours.
+input_tokens already includes cached tokens; total = input + output.
 
-Flags:
+Remote flags:
+      --from <YYYY-MM-DD|RFC3339>  Window start (default: gateway's 24h)
+      --to <YYYY-MM-DD|RFC3339>    Window end (max span: 31 days)
+      --scope <user|key>           Count usage for the whole account or this key
+      --json                       Machine-readable report
+  -h, --help                       Show this help
+
+"qg usage report" summarizes token usage and reconstructed (estimated) cost
+from persisted local QG session usage events, plus a working-tree net-LOC
+efficiency estimate.
+
+Report flags:
       --json                 Print JSON report
       --days <number>        Only include the most recent N days
       --since <YYYY-MM-DD>    Only include events on or after this date
