@@ -37,8 +37,8 @@ var lightSystemSurfaces = systemSurfacePalette{
 	delWord:   "#ffcecb",
 }
 
-// darkPalette is the original Lime palette: a near-black chat surface with one
-// lime accent. bg (#070708) is the terminal's own canvas — deliberately never
+// darkPalette is the default QG palette: a near-black chat surface with one
+// QG accent. bg (#070708) is the terminal's own canvas — deliberately never
 // painted — so no token references it.
 var darkPalette = palette{
 	panel:     "#0e0e10",
@@ -49,7 +49,7 @@ var darkPalette = palette{
 	muted:     "#9a9aa2", // secondary text — lifted so it clearly out-ranks faint
 	faint:     "#8a8a92", // hints/metadata — nudged up to separate from faintest
 	faintest:  "#7c7c82", // line numbers/separators — pinned at the WCAG-AA floor on the dark panel
-	accent:    "#caff3f", // original bright lime (the brand accent)
+	accent:    "#9df723", // QG brand lime-green (mascot)
 	green:     "#5dd1a4",
 	red:       "#ff7a7a",
 	amber:     "#ffc25c",

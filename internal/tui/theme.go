@@ -25,7 +25,7 @@ type tuiTheme struct {
 	muted      lipgloss.Style // secondary text, assistant interim prose
 	faint      lipgloss.Style // hints, metadata
 	faintest   lipgloss.Style // line numbers, separators, tool args
-	accent     lipgloss.Style // brand lime: prompts, spinner, focus
+	accent     lipgloss.Style // brand accent: prompts, spinner, focus
 	green      lipgloss.Style // success, diff add sign, ✓
 	red        lipgloss.Style // errors, diff del sign, ✗, deny
 	amber      lipgloss.Style // permission surfaces, warnings, auto badge
@@ -112,7 +112,7 @@ type palette struct {
 	muted     string // secondary text
 	faint     string // hints, metadata
 	faintest  string // line numbers, separators, tool args
-	accent    string // brand lime
+	accent    string // brand accent
 	green     string // success, diff add
 	red       string // errors, diff del
 	amber     string // permission, warnings
