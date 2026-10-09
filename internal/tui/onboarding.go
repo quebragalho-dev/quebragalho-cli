@@ -11,8 +11,8 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
@@ -20,57 +20,52 @@ type setupStage int
 
 const (
 	setupStageWelcome setupStage = iota
-	setupStageMethod
-	setupStageProvider
 	setupStageCredentials
 	setupStageModel
-	setupStageSafety
-	setupStageReady
 )
 
 type setupState struct {
-	visible        bool
-	required       bool
-	configPath     string
-	providers      []SetupProviderOption // active list
-	allProviders   []SetupProviderOption // full catalog
-	selected       int
-	selectedMethod int
-	stage          setupStage
-	err            string
-	apiKey         textinput.Model
-	models         []providerWizardModel
-	modelIndex     int
-	modelQuery     string
-	modelForID     string
-	modelLoad      bool
-	modelErr       string
-	modelSrc       string
-	modelGen       uint64
+	visible      bool
+	required     bool
+	configPath   string
+	providers    []SetupProviderOption // QG-only choice set (kept for the save path)
+	allProviders []SetupProviderOption // full catalog
+	selected     int
+	stage        setupStage
+	err          string
+	apiKey       textinput.Model
+	// keyCheck is true while the pasted key is being validated against the
+	// gateway; the credential screen accepts no input until the result lands.
+	keyCheck   bool
+	validate   func(context.Context, string) error
+	models     []providerWizardModel
+	modelIndex int
+	modelQuery string
+	modelForID string
+	modelGen   uint64
 }
 
-type setupModelsDiscoveredMsg struct {
-	providerID       string
-	gen              uint64
-	redactionSecrets []string
-	models           []providermodeldiscovery.Model
-	err              error
+// setupKeyCheckMsg carries the async GET /v1/models validation result back to
+// the credential screen; gen binds it to the key that was submitted.
+type setupKeyCheckMsg struct {
+	gen uint64
+	err error
 }
 
 func newSetupState(options SetupOptions) setupState {
 	providers := append([]SetupProviderOption{}, options.Providers...)
 	if len(providers) == 0 {
 		providers = []SetupProviderOption{{
-			ID:           "openai",
-			Name:         "OpenAI",
-			DefaultModel: "gpt-4.1",
-			EnvVar:       "OPENAI_API_KEY",
+			ID:           providercatalog.QGID,
+			Name:         "Quebra Galho",
+			DefaultModel: modelregistry.DefaultModelID,
+			EnvVar:       "QUEBRAGALHO_API_KEY",
 			RequiresAuth: true,
 		}}
 	}
 	apiKey := textinput.New()
 	apiKey.Prompt = ""
-	apiKey.Placeholder = "paste key or leave blank"
+	apiKey.Placeholder = "paste your Quebra Galho API key"
 	apiKey.EchoMode = textinput.EchoPassword
 	apiKey.EchoCharacter = '*'
 	// Bubble's Ctrl+V binding reads the clipboard itself. Keep it disabled so
@@ -84,6 +79,7 @@ func newSetupState(options SetupOptions) setupState {
 		providers:    providers,
 		allProviders: providers,
 		apiKey:       apiKey,
+		validate:     options.ValidateAPIKey,
 	}
 }
 
@@ -95,13 +91,9 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case keyCtrl(msg, 'c'):
 		return m, tea.Quit
-	case keyIs(msg, tea.KeyEsc):
+	case keyIs(msg, tea.KeyEsc), keyIs(msg, tea.KeyLeft):
 		if m.setup.stage > setupStageWelcome {
-			prev := m.previousSetupStage()
-			if prev == setupStageMethod {
-				m = m.setupReturnToMethod()
-			}
-			m.setup.stage = prev
+			m.setup.stage = m.previousSetupStage()
 			m.setup.err = ""
 			return m, nil
 		}
@@ -109,43 +101,26 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m.exitSetupToChat()
-	case keyIs(msg, tea.KeyLeft):
-		if m.setup.stage > setupStageWelcome {
-			prev := m.previousSetupStage()
-			if prev == setupStageMethod {
-				m = m.setupReturnToMethod()
-			}
-			m.setup.stage = prev
-			m.setup.err = ""
-		}
-		return m, nil
 	case keyIs(msg, tea.KeyEnter):
-		if m.setup.stage == setupStageMethod || m.setup.stage == setupStageProvider || m.setup.stage == setupStageModel || m.setup.stage == setupStageReady {
+		if m.setup.stage == setupStageModel {
 			return m.advanceSetup()
 		}
 		return m, nil
 	case keyIs(msg, tea.KeySpace):
-		if m.setup.stage < setupStageReady && m.setup.stage != setupStageProvider && m.setup.stage != setupStageModel {
+		switch m.setup.stage {
+		case setupStageWelcome:
 			return m.advanceSetup()
+		case setupStageModel:
+			m.appendSetupModelQuery(keyRunes(msg))
 		}
 		return m, nil
 	case keyIs(msg, tea.KeyUp) || keyCtrl(msg, 'p'):
-		switch m.setup.stage {
-		case setupStageMethod:
-			m.moveSetupMethod(-1)
-		case setupStageProvider:
-			m.moveSetupProvider(-1)
-		case setupStageModel:
+		if m.setup.stage == setupStageModel {
 			m.moveSetupModel(-1)
 		}
 		return m, nil
 	case keyIs(msg, tea.KeyDown) || keyCtrl(msg, 'n'):
-		switch m.setup.stage {
-		case setupStageMethod:
-			m.moveSetupMethod(1)
-		case setupStageProvider:
-			m.moveSetupProvider(1)
-		case setupStageModel:
+		if m.setup.stage == setupStageModel {
 			m.moveSetupModel(1)
 		}
 		return m, nil
@@ -154,17 +129,8 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.appendSetupModelQuery(keyRunes(msg))
 			return m, nil
 		}
-		switch keyText(msg) {
-		case "q":
+		if keyText(msg) == "q" && m.setup.stage == setupStageWelcome {
 			return m, tea.Quit
-		case "k":
-			if m.setup.stage == setupStageProvider {
-				m.moveSetupProvider(-1)
-			}
-		case "j":
-			if m.setup.stage == setupStageProvider {
-				m.moveSetupProvider(1)
-			}
 		}
 		return m, nil
 	case keyBackspace(msg):
@@ -179,42 +145,17 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-
-	switch msg.String() {
-	case " ":
-		if m.setup.stage < setupStageReady && m.setup.stage != setupStageProvider && m.setup.stage != setupStageModel {
-			return m.advanceSetup()
-		}
-	case "q":
-		return m, tea.Quit
-	case "k":
-		switch m.setup.stage {
-		case setupStageProvider:
-			m.moveSetupProvider(-1)
-		case setupStageModel:
-			m.moveSetupModel(-1)
-		}
-	case "j":
-		switch m.setup.stage {
-		case setupStageProvider:
-			m.moveSetupProvider(1)
-		case setupStageModel:
-			m.moveSetupModel(1)
-		}
-	}
 	return m, nil
 }
 
 func (m model) handleSetupPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.setupCredentialInputActive():
-		previousAPIKey := m.setup.apiKey.Value()
+		if m.setup.keyCheck {
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.setup.apiKey, cmd = m.setup.apiKey.Update(msg)
-		if m.setup.apiKey.Value() != previousAPIKey {
-			m.setup.modelGen++
-			m.resetSetupModels()
-		}
 		m.setup.err = ""
 		return m, cmd
 	case m.setup.stage == setupStageModel:
@@ -222,95 +163,38 @@ func (m model) handleSetupPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
 func (m model) handleSetupMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// A right-click pastes the clipboard into the focused setup field, mirroring
 	// handleMouse (mouse.go) so paste behaves identically in setup mode — routePaste
-	// targets the active setup input. Without this branch, setup swallows the
-	// right-click and paste never fires.
+	// targets the active setup input.
 	if mouseRightPress(msg) {
 		return m, pasteFromClipboardCmd()
 	}
-	if mouseLeftPress(msg) {
-		switch m.setup.stage {
-		case setupStageProvider:
-			if target, ok := m.selectSetupProviderAtMouse(msg); ok {
-				if m.repeatMouseSelection(target) {
-					m.clearMouseSelection()
-					return m.advanceSetup()
-				}
-				m.lastMouseSelection = target
-				return m, nil
+	if mouseLeftPress(msg) && m.setup.stage == setupStageModel {
+		if target, ok := m.selectSetupModelAtMouse(msg); ok {
+			if m.repeatMouseSelection(target) {
+				m.clearMouseSelection()
+				return m.advanceSetup()
 			}
-		case setupStageModel:
-			if target, ok := m.selectSetupModelAtMouse(msg); ok {
-				if m.repeatMouseSelection(target) {
-					m.clearMouseSelection()
-					return m.advanceSetup()
-				}
-				m.lastMouseSelection = target
-				return m, nil
-			}
+			m.lastMouseSelection = target
+			return m, nil
 		}
 	}
-
 	switch {
 	case mouseWheelUp(msg):
 		m.clearMouseSelection()
-		switch m.setup.stage {
-		case setupStageProvider:
-			m.moveSetupProvider(-1)
-		case setupStageModel:
+		if m.setup.stage == setupStageModel {
 			m.moveSetupModel(-1)
 		}
 	case mouseWheelDown(msg):
 		m.clearMouseSelection()
-		switch m.setup.stage {
-		case setupStageProvider:
-			m.moveSetupProvider(1)
-		case setupStageModel:
+		if m.setup.stage == setupStageModel {
 			m.moveSetupModel(1)
 		}
 	}
 	return m, nil
 }
-
-func (m *model) selectSetupProviderAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
-	if len(m.setup.providers) == 0 {
-		return mouseSelectionTarget{}, false
-	}
-	width := chatWidth(m.width)
-	height := normalizedStartupHeight(m.height)
-	rowWidth := setupProviderBlockWidth(width, m.setup.providers)
-	if !setupBlockContainsMouseX(mouseX(msg), width, rowWidth) {
-		return mouseSelectionTarget{}, false
-	}
-	maxVisible := setupProviderMaxVisible(height, len(m.setup.providers))
-	if maxVisible == 0 {
-		return mouseSelectionTarget{}, false
-	}
-	content := m.setupProviderLines(width, height)
-	top := setupContentTop(height, len(content), m.setup.err != "")
-	row := mouseY(msg) - top - 2
-	if row < 0 || row >= maxVisible {
-		return mouseSelectionTarget{}, false
-	}
-	start := selectableListStart(len(m.setup.providers), maxVisible, m.setup.selected)
-	index := start + row
-	if index < 0 || index >= len(m.setup.providers) {
-		return mouseSelectionTarget{}, false
-	}
-	m.setup.selected = index
-	m.setup.apiKey.SetValue("")
-	m.setup.modelGen++
-	m.resetSetupModels()
-	return mouseSelectionTarget{Scope: "first-run-provider", Value: m.setup.providers[index].ID, Index: index}, true
-}
-
 func (m *model) selectSetupModelAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
-	if m.setup.modelLoad {
-		return mouseSelectionTarget{}, false
-	}
 	m.ensureSetupModels()
 	models := m.setupFilteredModels()
 	if len(models) == 0 {
@@ -330,9 +214,6 @@ func (m *model) selectSetupModelAtMouse(msg tea.MouseMsg) (mouseSelectionTarget,
 	content := m.setupModelLines(width, height)
 	top := setupContentTop(height, len(content), m.setup.err != "")
 	rowStart := 4
-	if m.setupModelStatus() != "" {
-		rowStart++
-	}
 	row := mouseY(msg) - top - rowStart
 	if row < 0 || row >= maxVisible {
 		return mouseSelectionTarget{}, false
@@ -354,31 +235,7 @@ func setupContentTop(height int, contentLines int, hasError bool) int {
 }
 
 func (m model) setupStages() []setupStage {
-	stages := []setupStage{setupStageWelcome, setupStageMethod}
-	stages = append(stages, setupStageProvider)
-	stages = append(stages, setupStageCredentials, setupStageModel, setupStageSafety, setupStageReady)
-	return stages
-}
-
-// setupReturnToMethod returns to the connect-method chooser.
-func (m model) setupReturnToMethod() model {
-	m.setup.providers = m.setup.allProviders
-	m.setup.selected = 0
-	m.resetSetupModels()
-	return m
-}
-
-// setupMethodOptions returns the connect-method choices for this run.
-func (m model) setupMethodOptions() []providerWizardMethodOption {
-	return providerWizardMethodOptions()
-}
-
-func (m *model) moveSetupMethod(delta int) {
-	options := m.setupMethodOptions()
-	if len(options) == 0 {
-		return
-	}
-	m.setup.selectedMethod = ((m.setup.selectedMethod+delta)%len(options) + len(options)) % len(options)
+	return []setupStage{setupStageWelcome, setupStageCredentials, setupStageModel}
 }
 
 func (m model) nextSetupStage() setupStage {
@@ -416,51 +273,36 @@ func setupBlockContainsMouseX(x int, width int, blockWidth int) bool {
 }
 
 func (m model) advanceSetup() (tea.Model, tea.Cmd) {
-	if m.setup.stage < setupStageReady {
-		if m.setup.stage == setupStageMethod {
-			options := m.setupMethodOptions()
-			m.setup.selectedMethod = clamp(m.setup.selectedMethod, 0, maxInt(0, len(options)-1))
-			m.setup.providers = m.setup.allProviders
-			m.setup.selected = 0
-			m.resetSetupModels()
-			m.setup.stage = setupStageProvider
+	switch m.setup.stage {
+	case setupStageWelcome:
+		m.setup.stage = setupStageCredentials
+		m.setup.err = ""
+		return m, nil
+	case setupStageCredentials:
+		if m.setup.keyCheck {
+			return m, nil
+		}
+		if strings.TrimSpace(m.setup.apiKey.Value()) == "" {
+			m.setup.err = "Paste your Quebra Galho API key to continue."
+			return m, nil
+		}
+		if m.setup.validate == nil {
+			m.setup.stage = setupStageModel
 			m.setup.err = ""
+			m.resetSetupModels()
 			return m, nil
 		}
-		if m.setup.stage == setupStageProvider {
-			m.setup.apiKey.SetValue("")
-		}
-		if m.setup.stage == setupStageModel && m.setup.modelLoad {
-			m.setup.err = "Models are still loading."
-			return m, nil
-		}
-		if m.setup.stage == setupStageModel && m.setupCurrentModel().ID == "" {
+		m.setup.keyCheck = true
+		m.setup.err = ""
+		return m, m.setupKeyCheckCmd()
+	case setupStageModel:
+		if m.setupCurrentModel().ID == "" {
 			m.setup.err = "Choose a matching model before continuing."
 			return m, nil
 		}
-		m.setup.stage = m.nextSetupStage()
-		m.setup.err = ""
-		if m.setup.stage == setupStageModel {
-			m.resetSetupModels()
-			m.setup.modelErr = ""
-			m.setup.modelGen++
-			cmd := m.setupModelDiscoveryCmd(m.setup.modelGen)
-			m.setup.modelLoad = cmd != nil
-			return m, cmd
-		}
-		return m, nil
+		return m.completeSetup()
 	}
-	return m.completeSetup()
-}
-
-func (m *model) moveSetupProvider(delta int) {
-	if len(m.setup.providers) == 0 {
-		return
-	}
-	m.setup.selected = ((m.setup.selected+delta)%len(m.setup.providers) + len(m.setup.providers)) % len(m.setup.providers)
-	m.setup.apiKey.SetValue("")
-	m.setup.modelGen++
-	m.resetSetupModels()
+	return m, nil
 }
 
 func (m model) completeSetup() (tea.Model, tea.Cmd) {
@@ -521,75 +363,39 @@ func (m *model) resetSetupModels() {
 	m.setup.modelIndex = 0
 	m.setup.modelQuery = ""
 	m.setup.modelForID = provider.ID
-	m.setup.modelLoad = false
-	m.setup.modelErr = ""
-	m.setup.modelSrc = "fallback"
 }
 
-func (m model) setupModelDiscoveryCmd(gen uint64) tea.Cmd {
-	option := m.setupProvider()
-	provider := setupProviderDescriptor(option)
-	if provider.ID == "" || !providercatalog.RuntimeSupported(provider) {
+// setupKeyCheckCmd validates the pasted key against GET /v1/models off the UI
+// thread; gen binds the result to the key that was submitted so a stale reply
+// cannot move a screen the user already left.
+func (m model) setupKeyCheckCmd() tea.Cmd {
+	validate := m.setup.validate
+	if validate == nil {
 		return nil
 	}
-	pastedKey := m.setupCredentialAPIKey(option)
-	baseSecrets := []string{m.setup.apiKey.Value()}
-	discover := m.discoverProviderModels
-	if discover == nil {
-		discover = func(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
-			return providermodeldiscovery.DiscoverCatalog(ctx, provider, profile, providermodeldiscovery.Options{})
-		}
-	}
-	providerID := provider.ID
+	key := strings.TrimSpace(m.setup.apiKey.Value())
+	gen := m.setup.modelGen
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(m.ctx, 12*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		profile := providerWizardDiscoveryProfile(provider, pastedKey, "")
-		secrets := append(append([]string{}, baseSecrets...), pastedKey, profile.APIKey)
-		models, err := discover(ctx, profile)
-		return setupModelsDiscoveredMsg{providerID: providerID, gen: gen, redactionSecrets: secrets, models: models, err: err}
+		return setupKeyCheckMsg{gen: gen, err: validate(ctx, key)}
 	}
 }
 
-func (m model) applySetupModelsDiscovered(msg setupModelsDiscoveredMsg) model {
-	if !m.setup.visible || m.setup.stage != setupStageModel || m.setupProviderDescriptor().ID != msg.providerID || m.setup.modelGen != msg.gen {
+// applySetupKeyCheck lands the validation result: a rejection keeps the
+// credential screen with a redacted error; success advances to the model list.
+func (m model) applySetupKeyCheck(msg setupKeyCheckMsg) model {
+	if !m.setup.visible || m.setup.stage != setupStageCredentials || m.setup.modelGen != msg.gen {
 		return m
 	}
-	m.setup.modelLoad = false
-	m.setup.err = ""
+	m.setup.keyCheck = false
 	if msg.err != nil {
-		m.setup.modelErr = redaction.RedactString(msg.err.Error(), redaction.Options{ExtraSecretValues: msg.redactionSecrets})
-		m.setup.modelSrc = "fallback"
-		if len(m.setup.models) == 0 {
-			m.resetSetupModels()
-		}
+		m.setup.err = redaction.RedactString(msg.err.Error(), redaction.Options{ExtraSecretValues: []string{strings.TrimSpace(m.setup.apiKey.Value())}})
 		return m
 	}
-	models := providerWizardModelsFromDiscovery(msg.models)
-	if len(models) == 0 {
-		m.setup.modelErr = "models endpoint returned no model ids"
-		m.setup.modelSrc = "fallback"
-		if len(m.setup.models) == 0 {
-			m.resetSetupModels()
-		}
-		return m
-	}
-	currentID := m.setupCurrentModel().ID
-	m.setup.models = models
-	m.setup.modelIndex = 0
-	m.setup.modelSrc = providerWizardModelsSource(msg.models)
-	if m.setup.modelSrc == "" {
-		m.setup.modelSrc = "live"
-	}
-	m.setup.modelErr = ""
-	if currentID != "" {
-		for index, model := range m.setupFilteredModels() {
-			if model.ID == currentID {
-				m.setup.modelIndex = index
-				break
-			}
-		}
-	}
+	m.setup.stage = setupStageModel
+	m.setup.err = ""
+	m.resetSetupModels()
 	return m
 }
 
@@ -653,9 +459,6 @@ func (m model) setupFilteredModels() []providerWizardModel {
 }
 
 func (m *model) moveSetupModel(delta int) {
-	if m.setup.modelLoad {
-		return
-	}
 	m.ensureSetupModels()
 	models := m.setupFilteredModels()
 	if len(models) == 0 {
@@ -663,11 +466,7 @@ func (m *model) moveSetupModel(delta int) {
 	}
 	m.setup.modelIndex = ((m.setup.modelIndex+delta)%len(models) + len(models)) % len(models)
 }
-
 func (m *model) appendSetupModelQuery(runes []rune) {
-	if m.setup.modelLoad {
-		return
-	}
 	for _, r := range runes {
 		if r < 32 || r == 127 {
 			continue
@@ -677,11 +476,7 @@ func (m *model) appendSetupModelQuery(runes []rune) {
 	m.setup.modelIndex = 0
 	m.setup.err = ""
 }
-
 func (m *model) deleteSetupModelQueryRune() {
-	if m.setup.modelLoad {
-		return
-	}
 	if m.setup.modelQuery == "" {
 		return
 	}
@@ -690,7 +485,6 @@ func (m *model) deleteSetupModelQueryRune() {
 	m.setup.modelIndex = 0
 	m.setup.err = ""
 }
-
 func (m model) exitSetupToChat() (tea.Model, tea.Cmd) {
 	m.setup.visible = false
 	m.headerPrinted = false
@@ -706,6 +500,9 @@ func (m model) handleSetupCredentialKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case keyCtrl(msg, 'c'):
 		return m, tea.Quit
+	case m.setup.keyCheck:
+		// The gateway check owns the screen until its result lands.
+		return m, nil
 	case keyIs(msg, tea.KeyEsc) || keyIs(msg, tea.KeyLeft):
 		m.setup.stage = m.previousSetupStage()
 		m.setup.err = ""
@@ -719,13 +516,10 @@ func (m model) handleSetupCredentialKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.setup.apiKey, cmd = m.setup.apiKey.Update(msg)
 	if m.setup.apiKey.Value() != previousAPIKey {
-		m.setup.modelGen++
-		m.resetSetupModels()
+		m.setup.err = ""
 	}
-	m.setup.err = ""
 	return m, cmd
 }
-
 func setupProviderAcceptsAPIKey(option SetupProviderOption) bool {
 	return option.RequiresAuth && !option.Local
 }
@@ -736,32 +530,29 @@ func (m model) setupCredentialAPIKey(option SetupProviderOption) string {
 	return strings.TrimSpace(m.setup.apiKey.Value())
 }
 func (m model) setupProvider() SetupProviderOption {
-	if len(m.setup.providers) == 0 {
-		return SetupProviderOption{}
+	// The wizard is QG-only: always pick the Quebra Galho entry so the model
+	// list and save path never depend on a selection screen that no longer exists.
+	for _, option := range m.setup.providers {
+		if option.ID == providercatalog.QGID {
+			return option
+		}
 	}
-	index := clamp(m.setup.selected, 0, len(m.setup.providers)-1)
-	return m.setup.providers[index]
+	if len(m.setup.providers) > 0 {
+		return m.setup.providers[0]
+	}
+	return SetupProviderOption{}
 }
-
-// setupErrorAffordance returns a faint one-line recovery hint tailored to the
-// current setup stage, so a first-run error points the user at the inline fix
-// instead of leaving them staring at a red line. Empty for stages whose footer
-// already makes recovery obvious. Each hint names only keys the stage's footer
-// confirms, so the guidance is always accurate.
 func (m model) setupErrorAffordance() string {
 	switch m.setup.stage {
 	case setupStageCredentials:
-		if m.setupCredentialInputActive() {
+		if m.setupCredentialInputActive() && !m.setup.keyCheck {
 			return "→ re-enter the key above, then Enter to retry (← to go back)"
 		}
 	case setupStageModel:
-		if !m.setup.modelLoad {
-			return "→ pick another model with ↑/↓, or type to search"
-		}
+		return "→ pick another model with ↑/↓, or type to search"
 	}
 	return ""
 }
-
 func (m model) setupView(width int) string {
 	if width <= 0 {
 		width = defaultStartupWidth
@@ -794,91 +585,24 @@ func (m model) setupView(width int) string {
 
 func (m model) setupStageLines(width int, height int) []string {
 	switch m.setup.stage {
-	case setupStageMethod:
-		return m.setupMethodLines(width)
-	case setupStageProvider:
-		return m.setupProviderLines(width, height)
 	case setupStageCredentials:
 		return m.setupCredentialLines(width)
 	case setupStageModel:
 		return m.setupModelLines(width, height)
-	case setupStageSafety:
-		return []string{
-			qgTheme.ink.Bold(true).Render("Safety"),
-			"",
-			"QG asks before running shell commands or changing files.",
-			"Unsafe mode stays off unless you explicitly enable it.",
-			"",
-			qgTheme.faint.Render("Default: ask before risky work."),
-		}
-	case setupStageReady:
-		return m.setupReadyLines(width)
 	default:
 		return []string{
-			qgTheme.accent.Render("Welcome to QG"),
+			qgTheme.accent.Render("Welcome to Quebra Galho"),
 			"",
 			qgTheme.ink.Render("A terminal agent for changing real code."),
 			qgTheme.faint.Render("Plan changes, edit with approval, run checks, and resume sessions."),
+			"",
+			qgTheme.faint.Render("Re-enter your API key anytime with: qg login"),
 		}
 	}
-}
-
-type setupReadyRow struct {
-	label string
-	value string
-}
-
-func (m model) setupReadyLines(width int) []string {
-	option := m.setupProvider()
-	model := m.setupCurrentModel()
-	providerName := displayValue(option.Name, option.ID)
-
-	rows := []setupReadyRow{{label: "provider", value: providerName}}
-	rows = append(rows,
-		setupReadyRow{label: "model", value: displayValue(model.ID, option.DefaultModel)},
-		setupReadyRow{label: "credentials", value: m.setupCredentialSummary(option)},
-		setupReadyRow{label: "config", value: shortenPath(displayValue(m.setup.configPath, "user config"))},
-	)
-
-	lines := []string{
-		qgTheme.ink.Bold(true).Render("Ready"),
-		"",
-		"QG will save this setup and open chat.",
-		"",
-	}
-
-	labelWidth := 0
-	for _, row := range rows {
-		labelWidth = maxInt(labelWidth, lipgloss.Width(row.label)+1)
-	}
-	rowWidth := setupReadyRowsWidth(width, labelWidth, rows)
-	for _, row := range rows {
-		label := fmt.Sprintf("%*s", labelWidth, row.label+":")
-		line := "  " + qgTheme.faint.Render(label) + "  " + qgTheme.ink.Render(row.value)
-		lines = append(lines, padSetupLine(line, rowWidth))
-	}
-
-	lines = append(lines,
-		"",
-		qgTheme.faint.Render("Later, use /provider, /doctor, or /help anytime."),
-	)
-	return lines
-}
-
-func setupReadyRowsWidth(terminalWidth int, labelWidth int, rows []setupReadyRow) int {
-	available := maxInt(28, minInt(terminalWidth-8, 86))
-	target := 0
-	for _, row := range rows {
-		target = maxInt(target, 4+labelWidth+lipgloss.Width(row.value))
-	}
-	return minInt(target, available)
 }
 
 func (m model) setupModelLines(width int, height int) []string {
 	m.ensureSetupModels()
-	if m.setup.modelLoad {
-		return m.setupModelLoadingLines(width)
-	}
 	rowWidth := setupModelBlockWidth(width, m.setup.models)
 	models := m.setupFilteredModels()
 	maxVisible := setupModelMaxVisible(height, len(models))
@@ -887,9 +611,6 @@ func (m model) setupModelLines(width int, height int) []string {
 		padSetupLine("  "+qgTheme.ink.Bold(true).Render("Choose a model"), rowWidth),
 		blankSetupBlockLine(rowWidth),
 		padSetupLine("  "+m.setupModelSearchLine(rowWidth-2), rowWidth),
-	}
-	if status := m.setupModelStatus(); status != "" {
-		lines = append(lines, padSetupLine("  "+qgTheme.faint.Render(status), rowWidth))
 	}
 	lines = append(lines, blankSetupBlockLine(rowWidth))
 	if len(models) == 0 {
@@ -906,15 +627,6 @@ func (m model) setupModelLines(width int, height int) []string {
 		padSetupLine("  "+qgTheme.faint.Render(detail), rowWidth),
 	)
 	return lines
-}
-func (m model) setupModelLoadingLines(width int) []string {
-	rowWidth := setupModelLoadingBlockWidth(width)
-	return []string{
-		padSetupLine("  "+qgTheme.ink.Bold(true).Render("Choose a model"), rowWidth),
-		blankSetupBlockLine(rowWidth),
-		padSetupLine("  "+qgTheme.faint.Render("Checking available models..."), rowWidth),
-		padSetupLine("  "+qgTheme.faint.Render("Built-in models will be used if discovery fails."), rowWidth),
-	}
 }
 
 func setupTextInputBlockWidth(terminalWidth int, values ...string) int {
@@ -945,12 +657,6 @@ func setupModelMaxVisible(height int, total int) int {
 	return maxVisible
 }
 
-func setupModelLoadingBlockWidth(terminalWidth int) int {
-	available := maxInt(34, minInt(terminalWidth-8, 72))
-	target := maxInt(lipgloss.Width("  Choose a model"), lipgloss.Width("  Built-in models will be used if discovery fails."))
-	return minInt(maxInt(target, 42), available)
-}
-
 func setupModelBlockWidth(terminalWidth int, models []providerWizardModel) int {
 	available := maxInt(34, minInt(terminalWidth-8, 72))
 	target := lipgloss.Width("  Choose a model")
@@ -973,16 +679,6 @@ func (m model) setupModelSearchLine(width int) string {
 		return fitStyledLine(prompt+cursor+qgTheme.faint.Render("model name..."), width)
 	}
 	return fitStyledLine(prompt+qgTheme.ink.Render(query)+cursor, width)
-}
-
-func (m model) setupModelStatus() string {
-	if m.setup.modelLoad {
-		return "Refreshing available models"
-	}
-	if m.setup.modelErr != "" {
-		return "Using built-in model list"
-	}
-	return ""
 }
 
 func (m model) setupModelRow(width int, index int, model providerWizardModel) string {
@@ -1008,94 +704,6 @@ func setupModelSelectedDetail(model providerWizardModel) string {
 	return strings.Join(parts, " · ")
 }
 
-func (m model) setupMethodLines(width int) []string {
-	options := m.setupMethodOptions()
-	rowWidth := setupMethodBlockWidth(width, options)
-	idx := clamp(m.setup.selectedMethod, 0, maxInt(0, len(options)-1))
-	lines := []string{
-		padSetupLine("  "+qgTheme.ink.Bold(true).Render("How do you want to connect?"), rowWidth),
-		blankSetupBlockLine(rowWidth),
-	}
-	for index, option := range options {
-		marker := "  "
-		style := qgTheme.ink
-		if index == idx {
-			marker = "❯ "
-			style = qgTheme.accent.Bold(true)
-		}
-		lines = append(lines, padSetupLine(marker+style.Render(option.label), rowWidth))
-		lines = append(lines, padSetupLine("    "+qgTheme.faint.Render(option.subtitle), rowWidth))
-	}
-	return lines
-}
-
-func setupMethodBlockWidth(terminalWidth int, options []providerWizardMethodOption) int {
-	available := maxInt(34, minInt(terminalWidth-8, 86))
-	target := lipgloss.Width("  How do you want to connect?")
-	for _, option := range options {
-		target = maxInt(target, 2+lipgloss.Width(option.label))
-		target = maxInt(target, 4+lipgloss.Width(option.subtitle))
-	}
-	return minInt(maxInt(target, 42), available)
-}
-
-func (m model) setupProviderLines(width int, height int) []string {
-	rowWidth := setupProviderBlockWidth(width, m.setup.providers)
-	maxVisible := setupProviderMaxVisible(height, len(m.setup.providers))
-	start := selectableListStart(len(m.setup.providers), maxVisible, m.setup.selected)
-	visibleProviders := m.setup.providers[start : start+maxVisible]
-	lines := []string{
-		padSetupLine("  "+qgTheme.ink.Bold(true).Render("Choose a provider"), rowWidth),
-		blankSetupBlockLine(rowWidth),
-	}
-	for index, option := range visibleProviders {
-		absoluteIndex := start + index
-		marker := "  "
-		style := qgTheme.ink
-		if absoluteIndex == m.setup.selected {
-			marker = "❯ "
-			style = qgTheme.accent.Bold(true)
-		}
-		label := displayValue(option.Name, option.ID)
-		if option.Recommended {
-			label = "★ " + label
-		}
-		line := marker + style.Render(label)
-		if option.Recommended {
-			line += qgTheme.faint.Render("  (recommended)")
-		}
-		lines = append(lines, padSetupLine(line, rowWidth))
-	}
-	return lines
-}
-func setupProviderMaxVisible(height int, total int) int {
-	if total <= 0 {
-		return 0
-	}
-	maxVisible := height - 8
-	if maxVisible < 6 {
-		maxVisible = 6
-	}
-	if maxVisible > total {
-		return total
-	}
-	return maxVisible
-}
-
-func setupProviderBlockWidth(terminalWidth int, providers []SetupProviderOption) int {
-	available := maxInt(24, minInt(terminalWidth-8, 44))
-	target := maxInt(lipgloss.Width("  2/6"), lipgloss.Width("  Choose a provider"))
-	for _, provider := range providers {
-		label := displayValue(provider.Name, provider.ID)
-		if provider.Recommended {
-			label = "★ " + label + "  (recommended)"
-		}
-		target = maxInt(target, 2+lipgloss.Width(label))
-	}
-	target = maxInt(target, 32)
-	return minInt(target, available)
-}
-
 func blankSetupBlockLine(width int) string {
 	if width <= 0 {
 		return ""
@@ -1104,29 +712,17 @@ func blankSetupBlockLine(width int) string {
 }
 
 func (m model) setupCredentialLines(width int) []string {
-	option := m.setupProvider()
-	lines := []string{
-		qgTheme.ink.Bold(true).Render("Credentials"),
+	return []string{
+		qgTheme.ink.Bold(true).Render("Your Quebra Galho API key"),
 		"",
-	}
-	if option.Local || !option.RequiresAuth {
-		lines = append(lines,
-			displayValue(option.Name, option.ID)+" does not need an API key.",
-			"Start the local server before sending a prompt.",
-		)
-		return lines
-	}
-	envVar := displayValue(option.EnvVar, "the provider API key env var")
-	lines = append(lines,
-		"Paste your "+displayValue(option.Name, option.ID)+" API key",
-		"or leave blank to use "+envVar+" from your shell.",
+		"Paste the key, then Enter to validate it against the gateway.",
+		"It is read as QG_API_KEY or QUEBRAGALHO_API_KEY from your shell later.",
 		"",
 		m.setupAPIKeyInputLine(width),
 		"",
-		qgTheme.faint.Render("Saved keys stay in your user config."),
-		qgTheme.faint.Render("Blank uses "+envVar+" from your shell."),
-	)
-	return lines
+		qgTheme.faint.Render("Saved keys stay encrypted in your user config."),
+		qgTheme.faint.Render("Re-enter it anytime with: qg login"),
+	}
 }
 
 func (m model) setupAPIKeyInputLine(width int) string {
@@ -1142,38 +738,17 @@ func (m model) setupAPIKeyInputLine(width int) string {
 	return input.View()
 }
 
-func (m model) setupCredentialSummary(option SetupProviderOption) string {
-	if !setupProviderAcceptsAPIKey(option) {
-		return "not required"
-	}
-	if m.setupCredentialAPIKey(option) != "" {
-		return "saved API key"
-	}
-	return "env var " + displayValue(option.EnvVar, "provider API key")
-}
-
 func (m model) setupFooter() string {
 	switch m.setup.stage {
-	case setupStageMethod:
-		return qgTheme.faint.Render("↑/↓ choose   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continue   q quit")
-	case setupStageReady:
-		return qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" to save and start chat")
 	case setupStageCredentials:
-		if m.setupCredentialInputActive() {
-			return qgTheme.faint.Render("paste key optional   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continue   left back")
+		if m.setup.keyCheck {
+			return qgTheme.faint.Render("validating key...")
 		}
-		return qgTheme.accent.Render("Space") + qgTheme.faint.Render(" to continue")
-	case setupStageProvider:
-		return qgTheme.faint.Render("↑/↓ choose   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continue   q quit")
+		return qgTheme.faint.Render("paste key   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" validate & continue   left back")
 	case setupStageModel:
-		if m.setup.modelLoad {
-			return qgTheme.faint.Render("checking models...")
-		}
 		return qgTheme.faint.Render("↑/↓ choose   type search   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continue")
-	case setupStageWelcome:
-		return qgTheme.accent.Render("Space") + qgTheme.faint.Render(" to set up QG")
 	default:
-		return qgTheme.accent.Render("Space") + qgTheme.faint.Render(" to continue")
+		return qgTheme.accent.Render("Space") + qgTheme.faint.Render(" to set up QG")
 	}
 }
 
