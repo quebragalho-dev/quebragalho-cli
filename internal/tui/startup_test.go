@@ -13,30 +13,48 @@ func TestEmptyStateShowsBrandAndTaglineOnly(t *testing.T) {
 	m.width, m.height = 100, 30
 
 	view := plainRender(t, m.View())
-	assertContains(t, view, "███████╗███████╗██████╗  ██████╗")
+	assertContains(t, view, "██████╗  ██████╗")
+	assertContains(t, view, "QUEBRA-GALHO")
 	assertContains(t, view, emptyStateTagline)
+	assertNotContains(t, view, "Any model. Every tool.")
 	assertNotContains(t, view, "running qg against ")
 	assertNotContains(t, view, "add a --version flag")
 	assertNotContains(t, view, "explain internal/agent/loop.go")
 	assertNotContains(t, view, "fix the failing test in internal/tools")
 }
 
-// TestWordmarkIsPlain guards the --version banner: it must carry no ANSI
-// escapes, because this renderer never resolves --theme/QG_THEME and any
-// palette color could be unreadable on the user's background.
-func TestWordmarkIsPlain(t *testing.T) {
+// The QG lockup replaces ZERO: brand accent, QG block, QUEBRA-GALHO and the
+// QG tagline — the --version banner must carry all of it, uncolored.
+func TestWordmarkLockupIsQGBrand(t *testing.T) {
 	wordmark := Wordmark()
 	if strings.Contains(wordmark, "\x1b") {
 		t.Fatalf("expected uncolored wordmark, got %q", wordmark)
 	}
-	lines := strings.Split(wordmark, "\n")
-	if len(lines) != len(qgWordmarkPrefixLines) {
-		t.Fatalf("expected %d wordmark lines, got %d", len(qgWordmarkPrefixLines), len(lines))
+	if strings.Contains(wordmark, "ZER") || strings.Contains(wordmark, "Any model. Every tool.") {
+		t.Fatalf("Zero-era wordmark leaked into the QG lockup: %q", wordmark)
 	}
-	for index, line := range lines {
-		if want := qgWordmarkPrefixLines[index] + qgWordmarkOLines[index]; line != want {
-			t.Fatalf("wordmark line %d: expected %q, got %q", index, want, line)
+	lines := strings.Split(wordmark, "\n")
+	if len(lines) != len(qgWordmarkGlyphLines)+4 {
+		t.Fatalf("lockup lines = %d, want glyph %d + blank + brand + blank + tagline",
+			len(lines), len(qgWordmarkGlyphLines))
+	}
+	for index, row := range qgWordmarkGlyphLines {
+		if want := row[0] + row[1]; lines[index] != want {
+			t.Fatalf("glyph line %d: got %q, want %q", index, lines[index], want)
 		}
+	}
+	if lines[len(qgWordmarkGlyphLines)+1] != "QUEBRA-GALHO" {
+		t.Fatalf("brand line = %q, want QUEBRA-GALHO", lines[len(qgWordmarkGlyphLines)+1])
+	}
+	if lines[len(qgWordmarkGlyphLines)+3] != "IA QUE TRABALHA COM VOCE" {
+		t.Fatalf("tagline = %q, want IA QUE TRABALHA COM VOCE", lines[len(qgWordmarkGlyphLines)+3])
+	}
+}
+
+// The dark palette carries the QG brand accent.
+func TestDarkPaletteAccentIsQGBrand(t *testing.T) {
+	if darkPalette.accent != "#9df723" {
+		t.Fatalf("darkPalette.accent = %q, want #9df723", darkPalette.accent)
 	}
 }
 

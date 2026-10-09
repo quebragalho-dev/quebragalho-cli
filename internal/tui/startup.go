@@ -13,27 +13,22 @@ const (
 	minStartupWidth      = 58
 )
 
-// qgWordmarkPrefixLines is the white `ZER` part of the empty-state ANSI
-// Shadow-style wordmark. qgWordmarkOLines keeps the old lime `O` glyph.
-var qgWordmarkPrefixLines = []string{
-	`███████╗███████╗██████╗ `,
-	`╚══███╔╝██╔════╝██╔══██╗`,
-	`  ███╔╝ █████╗  ██████╔╝`,
-	` ███╔╝  ██╔══╝  ██╔══██╗`,
-	`███████╗███████╗██║  ██║`,
-	`╚══════╝╚══════╝╚═╝  ╚═╝`,
+// qgWordmarkGlyphLines is the QG part of the empty-state ANSI Shadow-style
+// wordmark: each row pairs the Q (rendered in ink) with the G (accent), both
+// 9 cells wide. The Q carries a ╲ tail so it does not read as a plain O.
+var qgWordmarkGlyphLines = [][2]string{
+	{` ██████╗ `, ` ██████╗ `},
+	{`██╔═══██╗`, `██╔══════`},
+	{`██║   ██║`, `██║  ███╗`},
+	{`██║   ██║`, `██║   ██║`},
+	{`╚██████╔╝`, `╚███████║`},
+	{` ╚═════╝╲`, ` ╚═════╝ `},
 }
 
-var qgWordmarkOLines = []string{
-	` ██████╗ `,
-	`██╔═══██╗`,
-	`██║   ██║`,
-	`██║   ██║`,
-	`╚██████╔╝`,
-	` ╚═════╝ `,
-}
+// wordmarkBrandLine is the plain-text brand line under the glyph.
+const wordmarkBrandLine = "QUEBRA-GALHO"
 
-const emptyStateTagline = "Any model. Every tool. QG limits."
+const emptyStateTagline = "IA QUE TRABALHA COM VOCE"
 
 // emptyState renders the centered stream-area block shown while the
 // transcript has no real content: the brand glyph and tagline.
@@ -69,6 +64,7 @@ func (m model) emptyStateLines(width int) []string {
 		lines = append(lines, centerLine(glyph, width))
 	}
 	lines = append(lines, "")
+	lines = append(lines, centerLine(qgTheme.ink.Render("QUEBRA-")+qgTheme.accent.Render("GALHO"), width))
 	lines = append(lines, centerLine(qgTheme.muted.Render(emptyStateTagline), width))
 	// Orientation: where QG is pointed (cwd · branch · model) so a returning user
 	// sees the context before typing instead of a blank brand screen.
@@ -130,9 +126,9 @@ func displayVersion(version string) string {
 }
 
 func qgWordmarkLines() []string {
-	lines := make([]string, 0, minInt(len(qgWordmarkPrefixLines), len(qgWordmarkOLines)))
-	for index := 0; index < len(qgWordmarkPrefixLines) && index < len(qgWordmarkOLines); index++ {
-		lines = append(lines, qgTheme.ink.Render(qgWordmarkPrefixLines[index])+qgTheme.accent.Render(qgWordmarkOLines[index]))
+	lines := make([]string, 0, len(qgWordmarkGlyphLines))
+	for _, row := range qgWordmarkGlyphLines {
+		lines = append(lines, qgTheme.ink.Render(row[0])+qgTheme.accent.Render(row[1]))
 	}
 	return lines
 }
@@ -143,10 +139,11 @@ func qgWordmarkLines() []string {
 // global palette here would ignore a selected light theme and be unreadable
 // on light terminals. The terminal's default foreground works everywhere.
 func Wordmark() string {
-	lines := make([]string, 0, minInt(len(qgWordmarkPrefixLines), len(qgWordmarkOLines)))
-	for index := 0; index < len(qgWordmarkPrefixLines) && index < len(qgWordmarkOLines); index++ {
-		lines = append(lines, qgWordmarkPrefixLines[index]+qgWordmarkOLines[index])
+	lines := make([]string, 0, len(qgWordmarkGlyphLines)+4)
+	for _, row := range qgWordmarkGlyphLines {
+		lines = append(lines, row[0]+row[1])
 	}
+	lines = append(lines, "", wordmarkBrandLine, "", emptyStateTagline)
 	return strings.Join(lines, "\n")
 }
 
