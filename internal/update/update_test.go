@@ -587,7 +587,7 @@ func TestFormatNpmCustomSourceExplainsInstallSource(t *testing.T) {
 		SourceFlag: "--repo someone/fork", installMethod: InstallMethodNpm,
 	}
 	output := Format(result)
-	if strings.Contains(output, "qg upgrade --repo") || !strings.Contains(output, "npm install -g @quebragalho-dev/qg@latest") || !strings.Contains(output, "only affects the release check and update gating") {
+	if strings.Contains(output, "qg upgrade --repo") || !strings.Contains(output, "npm install -g @quebragalho-dev/cli@latest") || !strings.Contains(output, "only affects the release check and update gating") {
 		t.Fatalf("npm custom-source guidance is misleading: %q", output)
 	}
 }

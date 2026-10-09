@@ -100,7 +100,7 @@ jobs:
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes 2>/dev/null || true
           gh release upload "$tag" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber
 
-  # Publishes @quebragalho-dev/qg to npm: first the five platform payloads (versions
+  # Publishes @quebragalho-dev/cli to npm: first the five platform payloads (versions
   # of the SAME package at suffixed versions like X.Y.Z-linux-x64, carrying the
   # native binary + vendored helpers), then the wrapper at X.Y.Z whose
   # optionalDependencies alias those platform versions. Platform versions MUST
@@ -112,7 +112,7 @@ jobs:
   # npmjs.com settings must list this repo + workflow file as a trusted
   # publisher, and provenance is then generated automatically. Note npm only
   # allows configuring a trusted publisher on an EXISTING package, so the very
-  # first @quebragalho-dev/qg publish is a one-time manual `npm publish` bootstrap.
+  # first @quebragalho-dev/cli publish is a one-time manual `npm publish` bootstrap.
   # Because the platform payloads are versions of the same package, they reuse
   # that single trusted-publisher configuration.
   publish-npm:
@@ -125,7 +125,7 @@ jobs:
     # maintainer approves it in the Actions UI before anything reaches npm.
     environment:
       name: npm-publish
-      url: https://www.npmjs.com/package/@quebragalho-dev/qg
+      url: https://www.npmjs.com/package/@quebragalho-dev/cli
     permissions:
       contents: read
       id-token: write # OIDC token exchange for npm trusted publishing + provenance
@@ -203,7 +203,7 @@ jobs:
 
       # Platform versions are semver PRERELEASES of the wrapper version
       # (X.Y.Z-linux-x64), so they must never publish under the default
-      # `latest` dist-tag — that would make `npm install @quebragalho-dev/qg`
+      # `latest` dist-tag — that would make `npm install @quebragalho-dev/cli`
       # deliver a platform payload as the CLI. Publish them under a dedicated
       # tag and assert `latest` survived before the wrapper goes out.
       - name: Publish platform packages to npm
@@ -219,7 +219,7 @@ jobs:
           # AFTER the platform payloads went out, leaving no wrapper and a
           # re-run that fails on republishing existing versions. An empty
           # value falls through the guard below.
-          latest="$(npm view @quebragalho-dev/qg dist-tags.latest || true)"
+          latest="$(npm view @quebragalho-dev/cli dist-tags.latest || true)"
           case "$latest" in
             "${version}-"*)
               echo "::error::dist-tag latest points at platform version ${latest} — a platform publish clobbered it. Fix the dist-tag before the wrapper publish." >&2
@@ -236,7 +236,7 @@ jobs:
           # Confirm the wrapper owns `latest` (retry: registry metadata can lag
           # a publish by a few seconds).
           for attempt in 1 2 3 4 5; do
-            latest="$(npm view @quebragalho-dev/qg dist-tags.latest || true)"
+            latest="$(npm view @quebragalho-dev/cli dist-tags.latest || true)"
             if [ "$latest" = "$version" ]; then
               echo "dist-tag latest is ${version}."
               exit 0
