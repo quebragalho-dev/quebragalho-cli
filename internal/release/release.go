@@ -50,6 +50,10 @@ type PackageOptions struct {
 	Version     string
 	GOOS        string
 	GOARCH      string
+	// AllowCross packages a target that differs from the host. The packaged
+	// binary cannot be smoke-run then, so `make release` cross-builds are the
+	// only consumers; the default (false) keeps the host-match requirement.
+	AllowCross bool
 }
 
 type BuildOptions struct {
@@ -183,8 +187,8 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 	if goarch == "" {
 		goarch = runtime.GOARCH
 	}
-	if goos != runtime.GOOS || goarch != runtime.GOARCH {
-		return PackageResult{}, fmt.Errorf("release packaging target must match host platform for smoke verification: host %s/%s, target %s/%s", runtime.GOOS, runtime.GOARCH, goos, goarch)
+	if err := validatePackageTarget(goos, goarch, options.AllowCross); err != nil {
+		return PackageResult{}, err
 	}
 	packageName, err := ReleasePackageName(version, goos, goarch)
 	if err != nil {
@@ -216,11 +220,8 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 		helperArtifacts[WindowsSandboxSetupArtifactName(goos)] = setupPath
 	}
 
-	if err := os.RemoveAll(releaseDir); err != nil {
-		return PackageResult{}, fmt.Errorf("clean release dir: %w", err)
-	}
-	if err := os.RemoveAll(stagingRoot); err != nil {
-		return PackageResult{}, fmt.Errorf("clean package staging dir: %w", err)
+	if err := cleanPackageOutputs(releaseDir, stagingDir, archivePath); err != nil {
+		return PackageResult{}, err
 	}
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
 		return PackageResult{}, fmt.Errorf("create package staging dir: %w", err)
@@ -237,8 +238,10 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 			return PackageResult{}, fmt.Errorf("build %s: %w", name, err)
 		}
 	}
-	if err := smokeVersion(ctx, artifactPath, version); err != nil {
-		return PackageResult{}, err
+	if packageShouldSmoke(goos, goarch) {
+		if err := smokeVersion(ctx, artifactPath, version); err != nil {
+			return PackageResult{}, err
+		}
 	}
 	if err := copyPackageFiles(rootDir, stagingDir, artifactPath, stagedBinaryPath, goos, version, helperArtifacts); err != nil {
 		return PackageResult{}, err
@@ -336,6 +339,36 @@ func ReleaseArchiveExtension(goos string) string {
 		return "zip"
 	}
 	return "tar.gz"
+}
+
+// validatePackageTarget gates cross packaging behind AllowCross: by default the
+// target must match the host so the packaged binary can be smoke-run.
+func validatePackageTarget(goos string, goarch string, allowCross bool) error {
+	if (goos != runtime.GOOS || goarch != runtime.GOARCH) && !allowCross {
+		return fmt.Errorf("release packaging target must match host platform for smoke verification: host %s/%s, target %s/%s", runtime.GOOS, runtime.GOARCH, goos, goarch)
+	}
+	return nil
+}
+
+// packageShouldSmoke reports whether the packaged binary can execute here:
+// only a host-matching target is smoke-run. Cross targets skip it.
+func packageShouldSmoke(goos string, goarch string) bool {
+	return goos == runtime.GOOS && goarch == runtime.GOARCH
+}
+
+// cleanPackageOutputs removes only this target's previous outputs (archive,
+// checksum, staging) so sibling archives from other targets survive — the
+// release target loops several platforms into one release directory.
+func cleanPackageOutputs(releaseDir string, stagingDir string, archivePath string) error {
+	for _, path := range []string{archivePath, archivePath + ".sha256"} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("clean release output: %w", err)
+		}
+	}
+	if err := os.RemoveAll(stagingDir); err != nil {
+		return fmt.Errorf("clean package staging dir: %w", err)
+	}
+	return nil
 }
 
 func ReleasePackageName(version string, goos string, goarch string) (string, error) {
@@ -698,6 +731,15 @@ func copyPackageFiles(rootDir string, stagingDir string, artifactPath string, st
 	}
 	if err := copyFile(filepath.Join(rootDir, "bin", "qg.js"), filepath.Join(stagingDir, "bin", "qg.js"), 0o755); err != nil {
 		return err
+	}
+	if goos != "windows" {
+		aliasPath := filepath.Join(stagingDir, "quebragalho")
+		if err := os.Remove(aliasPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if err := os.Symlink("qg", aliasPath); err != nil {
+			return fmt.Errorf("stage quebragalho alias: %w", err)
+		}
 	}
 	for name, source := range helperArtifacts {
 		if err := copyFile(source, filepath.Join(stagingDir, name), 0o755); err != nil {
