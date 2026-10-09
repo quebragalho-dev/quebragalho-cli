@@ -13,7 +13,7 @@ func TestEmptyStateShowsBrandAndTaglineOnly(t *testing.T) {
 	m.width, m.height = 100, 30
 
 	view := plainRender(t, m.View())
-	assertContains(t, view, "██████╗  ██████╗")
+	assertContains(t, view, "██████╗    ██████╗")
 	assertContains(t, view, "QUEBRA-GALHO")
 	assertContains(t, view, emptyStateTagline)
 	assertNotContains(t, view, "Any model. Every tool.")
@@ -39,7 +39,7 @@ func TestWordmarkLockupIsQGBrand(t *testing.T) {
 			len(lines), len(qgWordmarkGlyphLines))
 	}
 	for index, row := range qgWordmarkGlyphLines {
-		if want := row[0] + row[1]; lines[index] != want {
+		if want := row[0] + "  " + row[1]; lines[index] != want {
 			t.Fatalf("glyph line %d: got %q, want %q", index, lines[index], want)
 		}
 	}
@@ -51,7 +51,6 @@ func TestWordmarkLockupIsQGBrand(t *testing.T) {
 	}
 }
 
-// Each wordmark glyph is 9 terminal cells, so every combined row is 18.
 func TestQGWordmarkGlyphsAreNineCellsWide(t *testing.T) {
 	for index, row := range qgWordmarkGlyphLines {
 		if got := lipgloss.Width(row[0]); got != 9 {
@@ -60,8 +59,8 @@ func TestQGWordmarkGlyphsAreNineCellsWide(t *testing.T) {
 		if got := lipgloss.Width(row[1]); got != 9 {
 			t.Fatalf("G row %d width = %d, want 9: %q", index+1, got, row[1])
 		}
-		if got := lipgloss.Width(row[0] + row[1]); got != 18 {
-			t.Fatalf("combined row %d width = %d, want 18", index+1, got)
+		if got := lipgloss.Width(row[0] + "  " + row[1]); got != 20 {
+			t.Fatalf("combined row %d width = %d, want 20", index+1, got)
 		}
 	}
 	if len(qgWordmarkGlyphLines) != 6 {
