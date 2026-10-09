@@ -3,18 +3,18 @@
 // from the per-platform archives built by `qg-release package`.
 //
 // Layout written under --out-dir (default dist/npm):
-//   wrapper/                        @quebragalho-dev/qg@X.Y.Z — bin/qg.js, the
+//   wrapper/                        @quebragalho-dev/cli@X.Y.Z — bin/qg.js, the
 //                                   first-run fallback downloader, and a
 //                                   package.json with NO scripts and NO
 //                                   dependencies, only optionalDependencies
 //                                   aliasing the platform versions below.
 //   platforms/qg-<platform>-<arch>/
-//                                   @quebragalho-dev/qg@X.Y.Z-<platform>-<arch> —
+//                                   @quebragalho-dev/cli@X.Y.Z-<platform>-<arch> —
 //                                   the qg binary, sandbox helpers, and the
 //                                   vendored local-control helpers/ tree,
 //                                   copied straight out of the release archive.
 //
-// The platform "packages" are versions of the SAME @quebragalho-dev/qg package at
+// The platform "packages" are versions of the SAME @quebragalho-dev/cli package at
 // suffixed (semver-prerelease) versions, referenced from the wrapper through
 // npm: aliases. One package name keeps a single npm trusted-publisher config.
 // See docs/NPM_PACKAGING.md for the publishing rules this feeds.
@@ -108,13 +108,13 @@ function platformVersion(version, entry) {
 }
 
 function aliasName(entry) {
-  return `@quebragalho-dev/qg-${entry.platform}-${entry.arch}`;
+  return `@quebragalho-dev/cli-${entry.platform}-${entry.arch}`;
 }
 
 function optionalDependencies(version) {
   const aliases = {};
   for (const entry of MATRIX) {
-    aliases[aliasName(entry)] = `npm:@quebragalho-dev/qg@${platformVersion(version, entry)}`;
+    aliases[aliasName(entry)] = `npm:@quebragalho-dev/cli@${platformVersion(version, entry)}`;
   }
   return aliases;
 }
@@ -295,9 +295,9 @@ function buildPlatformPackage(entry, version, artifactsDir, outDir) {
 
     const wrapperPkg = readWrapperPackage();
     const manifest = {
-      name: '@quebragalho-dev/qg',
+      name: '@quebragalho-dev/cli',
       version: platformVersion(version, entry),
-      description: `qg native binary for ${entry.platform}-${entry.arch} (installed via @quebragalho-dev/qg@${version})`,
+      description: `qg native binary for ${entry.platform}-${entry.arch} (installed via @quebragalho-dev/cli@${version})`,
       os: [entry.platform],
       cpu: [entry.arch],
       license: wrapperPkg.license,
