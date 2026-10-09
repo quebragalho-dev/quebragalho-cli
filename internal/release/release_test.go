@@ -657,3 +657,97 @@ func zipArchiveNames(t *testing.T, archivePath string) map[string]bool {
 	}
 	return names
 }
+
+// Cross packaging is flag-gated: without AllowCross a foreign target keeps the
+// host-mismatch error (pinned by TestPackageRejectsCrossTargetBecauseItSmokesTheBinary).
+func TestValidatePackageTargetAllowsCrossOnlyWithFlag(t *testing.T) {
+	crossGOOS := runtime.GOOS
+	if crossGOOS == "linux" {
+		crossGOOS = "darwin"
+	} else {
+		crossGOOS = "linux"
+	}
+
+	err := validatePackageTarget(crossGOOS, runtime.GOARCH, false)
+	if err == nil || !strings.Contains(err.Error(), "target must match host platform") {
+		t.Fatalf("cross without flag error = %v, want host-target mismatch", err)
+	}
+	if err := validatePackageTarget(crossGOOS, runtime.GOARCH, true); err != nil {
+		t.Fatalf("cross with AllowCross error = %v, want nil", err)
+	}
+	if err := validatePackageTarget(runtime.GOOS, runtime.GOARCH, false); err != nil {
+		t.Fatalf("host target error = %v, want nil", err)
+	}
+}
+
+// The packaged binary can only be smoke-run when it matches the host.
+func TestPackageShouldSmokeOnlyHostTarget(t *testing.T) {
+	crossGOOS := runtime.GOOS
+	if crossGOOS == "linux" {
+		crossGOOS = "darwin"
+	} else {
+		crossGOOS = "linux"
+	}
+	if !packageShouldSmoke(runtime.GOOS, runtime.GOARCH) {
+		t.Fatal("host target should smoke")
+	}
+	if packageShouldSmoke(crossGOOS, runtime.GOARCH) {
+		t.Fatal("cross target must not smoke")
+	}
+}
+
+// Packaging one target must not wipe a sibling archive already in releaseDir —
+// `make release` loops four targets into the same directory.
+func TestCleanPackageOutputsKeepsSiblingArchives(t *testing.T) {
+	releaseDir := t.TempDir()
+	stagingRoot := t.TempDir()
+
+	siblingArchive := filepath.Join(releaseDir, "qg-v0.1.0-macos-x64.tar.gz")
+	siblingSHA := siblingArchive + ".sha256"
+	mustWriteFile(t, siblingArchive, "sibling")
+	mustWriteFile(t, siblingSHA, "sibling sha")
+	siblingStaging := filepath.Join(stagingRoot, "qg-v0.1.0-macos-x64")
+	mustWriteFile(t, filepath.Join(siblingStaging, "qg"), "staged sibling")
+
+	ownArchive := filepath.Join(releaseDir, "qg-v0.1.0-macos-arm64.tar.gz")
+	mustWriteFile(t, ownArchive+".sha256", "stale sha")
+	ownStaging := filepath.Join(stagingRoot, "qg-v0.1.0-macos-arm64")
+	mustWriteFile(t, filepath.Join(ownStaging, "stale"), "stale staging")
+
+	if err := cleanPackageOutputs(releaseDir, ownStaging, ownArchive); err != nil {
+		t.Fatalf("cleanPackageOutputs error = %v", err)
+	}
+	for _, kept := range []string{siblingArchive, siblingSHA, filepath.Join(siblingStaging, "qg")} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Fatalf("sibling output removed: %s: %v", kept, err)
+		}
+	}
+	for _, gone := range []string{ownArchive, ownArchive + ".sha256", ownStaging} {
+		if _, err := os.Stat(gone); err == nil {
+			t.Fatalf("own stale output still present: %s", gone)
+		}
+	}
+}
+
+// The distribution ships a real on-disk alias: `quebragalho` -> `qg`.
+func TestCopyPackageFilesAddsRealAliasSymlink(t *testing.T) {
+	root := t.TempDir()
+	staging := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "README.md"), "readme")
+	mustWriteFile(t, filepath.Join(root, "package.json"), `{"version":"0.1.0"}`)
+	mustWriteFile(t, filepath.Join(root, "bin", "qg.js"), "// wrapper")
+	artifact := filepath.Join(root, "qg")
+	mustWriteFile(t, artifact, "binary")
+
+	if err := copyPackageFiles(root, staging, artifact, filepath.Join(staging, "qg"), "darwin", "0.1.0", nil); err != nil {
+		t.Fatalf("copyPackageFiles error = %v", err)
+	}
+	aliasPath := filepath.Join(staging, "quebragalho")
+	target, err := os.Readlink(aliasPath)
+	if err != nil {
+		t.Fatalf("alias symlink missing: %v", err)
+	}
+	if target != "qg" {
+		t.Fatalf("alias target = %q, want relative %q", target, "qg")
+	}
+}

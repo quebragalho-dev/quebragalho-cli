@@ -81,3 +81,19 @@ func TestBuildHelpIncludesEnvironmentOverrides(t *testing.T) {
 func emptyEnv(string) string {
 	return ""
 }
+
+func TestParsePackageArgsAcceptsAllowCross(t *testing.T) {
+	options, help, err := parsePackageArgs([]string{"--goos", "linux", "--goarch", "amd64", "--allow-cross"})
+	if err != nil {
+		t.Fatalf("parsePackageArgs error: %v", err)
+	}
+	if help {
+		t.Fatal("parsePackageArgs help = true, want false")
+	}
+	if !options.AllowCross {
+		t.Fatalf("AllowCross = false, want true (options %#v)", options)
+	}
+	if options.GOOS != "linux" || options.GOARCH != "amd64" {
+		t.Fatalf("options = %#v, want linux/amd64", options)
+	}
+}
