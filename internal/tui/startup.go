@@ -15,20 +15,20 @@ const (
 
 // qgWordmarkGlyphLines is the QG part of the empty-state ANSI Shadow-style
 // wordmark: each row pairs the Q (rendered in ink) with the G (accent), both
-// 9 cells wide. The Q carries a ╲ tail so it does not read as a plain O.
+// 9 cells wide. The Q carries a block tail so it does not read as a plain O.
 var qgWordmarkGlyphLines = [][2]string{
 	{` ██████╗ `, ` ██████╗ `},
 	{`██╔═══██╗`, `██╔══════`},
 	{`██║   ██║`, `██║  ███╗`},
-	{`██║   ██║`, `██║   ██║`},
+	{`██║▄▄ ██║`, `██║   ██║`},
 	{`╚██████╔╝`, `╚███████║`},
-	{` ╚═════╝╲`, ` ╚═════╝ `},
+	{` ╚══▀▀═╝ `, ` ╚═════╝ `},
 }
 
 // wordmarkBrandLine is the plain-text brand line under the glyph.
 const wordmarkBrandLine = "QUEBRA-GALHO"
 
-const emptyStateTagline = "IA QUE TRABALHA COM VOCE"
+const emptyStateTagline = "Democratizando o acesso à IA"
 
 // emptyState renders the centered stream-area block shown while the
 // transcript has no real content: the brand glyph and tagline.
@@ -66,7 +66,7 @@ func (m model) emptyStateLines(width int) []string {
 	lines = append(lines, "")
 	lines = append(lines, centerLine(qgTheme.ink.Render("QUEBRA-")+qgTheme.accent.Render("GALHO"), width))
 	lines = append(lines, centerLine(qgTheme.muted.Render(emptyStateTagline), width))
-	// Orientation: where QG is pointed (cwd · branch · model) so a returning user
+	// Orientation: where QG is pointed (cwd · branch) so a returning user
 	// sees the context before typing instead of a blank brand screen.
 	if orient := m.emptyStateOrientation(); orient != "" {
 		lines = append(lines, "")
@@ -88,11 +88,11 @@ func (m model) emptyStateLines(width int) []string {
 // emptyStateExamples seeds the first prompt with a few representative asks.
 const emptyStateExamples = `Try  "explain this codebase"  ·  "fix the failing test"  ·  "add a --json flag"`
 
-// emptyStateOrientation renders a faint "version · cwd · branch · model" line
+// emptyStateOrientation renders a faint "version · cwd · branch" line
 // for the home screen, omitting any piece that's unknown. Empty when nothing
 // is known.
 func (m model) emptyStateOrientation() string {
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 3)
 	if version := displayVersion(m.appVersion); version != "" {
 		parts = append(parts, version)
 	}
@@ -101,9 +101,6 @@ func (m model) emptyStateOrientation() string {
 	}
 	if branch := strings.TrimSpace(m.gitBranch); branch != "" {
 		parts = append(parts, branch)
-	}
-	if model := strings.TrimSpace(m.modelName); model != "" {
-		parts = append(parts, model)
 	}
 	if len(parts) == 0 {
 		return ""

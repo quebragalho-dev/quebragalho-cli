@@ -44,6 +44,7 @@ func TestWidthTierSegments(t *testing.T) {
 			ModelName:    "muse-spark-1.3-contributor",
 		})
 		m.width, m.height = tc.width, 30
+		m.gitBranch = "main"
 
 		title := plainRender(t, m.titleBar(tc.width))
 		if got := strings.Contains(title, "1M"); got != tc.wantCtx {
@@ -128,12 +129,12 @@ func TestTitleBarKeepsWorkspaceWithLongBranchAndModel(t *testing.T) {
 	m.gitBranch = "feat/tui-assistant-response-cleanup"
 
 	got := plainRender(t, m.titleBar(108))
-	for _, want := range []string{"", "/workspace/qg", "feat/tui-assistant-response-cleanup", "ollama-cloud/cogito-2.1:671b-extra-long-model-name"} {
+	for _, want := range []string{"", "/workspace/qg", "feat/tui-assistant-response-cleanup"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("title bar = %q, missing %q", got, want)
 		}
 	}
-	if strings.Contains(got, " 0 ") {
+	if strings.Contains(got, "ollama-cloud") || strings.Contains(got, "cogito-2.1") || strings.Contains(got, " 0 ") {
 		t.Fatalf("title bar = %q, should not include old badge", got)
 	}
 	for index, line := range strings.Split(got, "\n") {
@@ -208,4 +209,18 @@ var permissionEventLongDetailFixture = agent.PermissionEvent{
 	SideEffect:     "runs `go test ./... -timeout 600s` in /Users/dev/qg-project-workspace with network access",
 	Reason:         "command writes outside the workspace and downloads modules from the network proxy",
 	Risk:           sandbox.Risk{Level: sandbox.RiskMedium},
+}
+
+func TestComposerDividerTruncatesLongModelByCells(t *testing.T) {
+	m := newModel(context.Background(), Options{ProviderName: "ollama-cloud", ModelName: "cogito-2.1:671b-extra-long-model-name"})
+	for _, width := range []int{0, 1, 4, 7, 8, 40, 58, 80} {
+		divider := plainRender(t, m.composerDividerLine(width))
+		if got := lipgloss.Width(divider); got > width {
+			t.Fatalf("width %d: divider is %d cells, want <= %d: %q", width, got, width, divider)
+		}
+	}
+	narrow := plainRender(t, m.composerDividerLine(40))
+	if !strings.Contains(narrow, "…") {
+		t.Fatalf("width 40: long model should truncate with an ellipsis: %q", narrow)
+	}
 }
