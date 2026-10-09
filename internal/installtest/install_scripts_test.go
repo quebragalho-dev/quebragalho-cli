@@ -23,7 +23,7 @@ func TestUnixInstallerScriptMatchesReleaseContracts(t *testing.T) {
 	containsAll(t, script, []string{
 		"set -euo pipefail",
 		`QG_REPO="${QG_REPO:-quebragalho-dev/quebragalho-cli}"`,
-		`QG_INSTALL_DIR="${QG_INSTALL_DIR:-$HOME/.local/bin}"`,
+		`QG_INSTALL_DIR="${QG_INSTALL_DIR:-/usr/local/bin}"`,
 		`archive_name="qg-v${version}-${platform}-${arch}.tar.gz"`,
 		`checksum_name="${archive_name}.sha256"`,
 		"curl --fail --location --show-error --silent --header 'Accept: application/vnd.github+json'",

@@ -216,6 +216,20 @@ func parsePackageArgs(args []string) (release.PackageOptions, bool, error) {
 			}
 			options.StagingRoot = value
 			index = next
+		case "--goos":
+			value, next, err := readOptionValue(args, inlineValue, index, flag)
+			if err != nil {
+				return options, false, err
+			}
+			options.GOOS = value
+			index = next
+		case "--goarch":
+			value, next, err := readOptionValue(args, inlineValue, index, flag)
+			if err != nil {
+				return options, false, err
+			}
+			options.GOARCH = value
+			index = next
 		case "--version":
 			value, next, err := readOptionValue(args, inlineValue, index, flag)
 			if err != nil {
@@ -223,6 +237,11 @@ func parsePackageArgs(args []string) (release.PackageOptions, bool, error) {
 			}
 			options.Version = value
 			index = next
+		case "--allow-cross":
+			if strings.Contains(arg, "=") {
+				return options, false, fmt.Errorf("%s does not accept a value", flag)
+			}
+			options.AllowCross = true
 		default:
 			return options, false, fmt.Errorf("unknown package flag %q", arg)
 		}
@@ -373,7 +392,11 @@ Flags:
       --root <path>         Repository root (default: current directory)
       --release-dir <path>  Release output directory (default: dist/release)
       --staging-dir <path>  Package staging root (default: dist/package)
+      --goos <goos>         Target GOOS (default: current platform)
+      --goarch <goarch>     Target GOARCH (default: current architecture)
       --version <version>   Release version (default: package.json version)
+      --allow-cross         Package a target that differs from the host
+                            (skips the executable smoke; used by make release)
   -h, --help                Show this help
 `)
 	return err
