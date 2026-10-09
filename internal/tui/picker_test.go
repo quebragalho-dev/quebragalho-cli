@@ -23,36 +23,6 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
-func TestModelPickerQGDiscoveryUsesBearerResolver(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "oauth-tokens.json")
-	t.Setenv("QG_OAUTH_STORAGE", "file")
-	t.Setenv("QG_OAUTH_TOKENS_PATH", path)
-	store, err := oauth.NewStore(oauth.StoreOptions{FilePath: path})
-	if err != nil {
-		t.Fatalf("oauth store: %v", err)
-	}
-	if err := store.Save(oauth.ProviderKey("qg"), oauth.Token{
-		AccessToken: "live-token",
-		Account:     "workspace-77",
-		ExpiresAt:   time.Now().Add(time.Hour),
-	}); err != nil {
-		t.Fatalf("save OAuth token: %v", err)
-	}
-
-	m := model{userAgent: "qg/test"}
-	options := m.modelPickerDiscoveryOptions(config.ProviderProfile{Name: "qg", CatalogID: "qg"})
-	if options.OAuthResolver == nil {
-		t.Fatal("QG model discovery must carry the bearer resolver")
-	}
-	header, bearer, ok, err := options.OAuthResolver(context.Background(), false)
-	if err != nil || !ok || header != "Authorization" || bearer != "Bearer live-token" {
-		t.Fatalf("discovery bearer = (%q, %q, %v, %v)", header, bearer, ok, err)
-	}
-	if options.UserAgent != "qg/test" {
-		t.Fatalf("discovery user agent = %q", options.UserAgent)
-	}
-}
-
 func TestModelPickerRefreshesLiveModelsForActiveProvider(t *testing.T) {
 	var captured config.ProviderProfile
 	m := newModel(context.Background(), Options{

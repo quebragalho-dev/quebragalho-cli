@@ -30,6 +30,23 @@ const (
 
 var ErrUnknownProvider = errors.New("unknown provider")
 
+// KeyEnvHint is the user-facing spelling of the gateway credential env vars
+// in precedence order: QG_API_KEY wins, QUEBRAGALHO_API_KEY is accepted as an
+// alias. Advice messages embed it so both names stay discoverable.
+const KeyEnvHint = "QG_API_KEY (or QUEBRAGALHO_API_KEY)"
+
+// DisplayKeyEnv expands a configured env-var name into its user-facing hint:
+// QG-family names become KeyEnvHint; any other name (custom providers' own
+// variables) passes through unchanged.
+func DisplayKeyEnv(name string) string {
+	switch strings.TrimSpace(name) {
+	case "QG_API_KEY", "QUEBRAGALHO_API_KEY":
+		return KeyEnvHint
+	default:
+		return strings.TrimSpace(name)
+	}
+}
+
 // QGID is the single provider catalog identifier. Etapa 2 removes every
 // multi-provider preset: qg is the only entry.
 const QGID = "qg"

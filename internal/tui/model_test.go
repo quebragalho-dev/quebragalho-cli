@@ -3318,8 +3318,8 @@ func TestMissingProviderNoticeCitesQGSetupAndAPIKey(t *testing.T) {
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
-	if !transcriptContains(next.transcript, "QUEBRAGALHO_API_KEY") || !transcriptContains(next.transcript, "qg setup qg") {
-		t.Fatalf("missing-provider notice must cite QUEBRAGALHO_API_KEY and qg setup qg, got %#v", next.transcript)
+	if !transcriptContains(next.transcript, "QG_API_KEY") || !transcriptContains(next.transcript, "QUEBRAGALHO_API_KEY") || !transcriptContains(next.transcript, "qg setup qg") {
+		t.Fatalf("missing-provider notice must cite QG_API_KEY, QUEBRAGALHO_API_KEY and qg setup qg, got %#v", next.transcript)
 	}
 	text := transcriptText(next.transcript)
 	for _, banned := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "qg auth"} {

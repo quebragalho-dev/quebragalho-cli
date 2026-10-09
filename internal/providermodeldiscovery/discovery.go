@@ -37,9 +37,8 @@ type Model struct {
 }
 
 type Options struct {
-	HTTPClient    *http.Client
-	OAuthResolver providerio.TokenResolver
-	UserAgent     string
+	HTTPClient *http.Client
+	UserAgent  string
 }
 
 // DiscoverCatalog returns the models available for the single QG provider: the
@@ -50,8 +49,7 @@ type Options struct {
 func DiscoverCatalog(ctx context.Context, provider providercatalog.Descriptor, profile config.ProviderProfile, options Options) ([]Model, error) {
 	var liveErr error
 	if modelDiscoveryAllowed(profile) && (!provider.RequiresAuth ||
-		discoveryHasCredential(profile) ||
-		options.OAuthResolver != nil) {
+		discoveryHasCredential(profile)) {
 		var liveModels []Model
 		liveModels, liveErr = Discover(ctx, profile, options)
 		if liveErr == nil {
@@ -117,11 +115,12 @@ func fetchProviderModels(ctx context.Context, endpoint string, profile config.Pr
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	response, err := providerio.SendWithAuthRetry(ctx, client, http.MethodGet, endpoint, nil, auth, options.OAuthResolver, func(request *http.Request) {
+	response, err := providerio.SendWithRetry(ctx, client, http.MethodGet, endpoint, nil, func(request *http.Request) {
 		request.Header.Set("Accept", "application/json")
 		if configure != nil {
 			configure(request)
 		}
+		providerio.ApplyAuthHeaders(request, auth)
 	}, 1)
 	if err != nil {
 		return nil, redactDiscoveryError(err, profile)

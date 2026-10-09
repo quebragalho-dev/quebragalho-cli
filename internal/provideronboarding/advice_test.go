@@ -61,8 +61,8 @@ func TestMissingCredentialActionUsesCatalogEnvWithoutSecrets(t *testing.T) {
 	if action.Label != "Set API key" {
 		t.Fatalf("Label = %q, want %q", action.Label, "Set API key")
 	}
-	if action.Command != "set QUEBRAGALHO_API_KEY in your shell" {
-		t.Fatalf("Command = %q, want shell-neutral env guidance", action.Command)
+	if action.Command != "set QG_API_KEY (or QUEBRAGALHO_API_KEY) in your shell" {
+		t.Fatalf("Command = %q, want both gateway env vars in the guidance", action.Command)
 	}
 	if !strings.Contains(action.Detail, "QUEBRAGALHO_API_KEY") {
 		t.Fatalf("Detail = %q, want env var mention", action.Detail)
@@ -150,7 +150,7 @@ func TestProviderActionsIncludesExpectedActions(t *testing.T) {
 	wantCommands := []string{
 		"qg providers use fast",
 		"qg providers check fast",
-		"set QUEBRAGALHO_API_KEY in your shell",
+		"set QG_API_KEY (or QUEBRAGALHO_API_KEY) in your shell",
 	}
 	if len(actions) != len(wantCommands) {
 		t.Fatalf("ProviderActions() returned %d actions, want %d: %#v", len(actions), len(wantCommands), actions)

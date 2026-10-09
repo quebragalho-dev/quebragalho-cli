@@ -33,10 +33,10 @@ func TestRunProvidersCheckMissingKeyPrintsNextAction(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 	output := stderr.String()
-	if !strings.Contains(output, "provider qg requires API key; set QUEBRAGALHO_API_KEY") {
+	if !strings.Contains(output, "provider qg requires API key; set QG_API_KEY (or QUEBRAGALHO_API_KEY)") {
 		t.Fatalf("missing key error did not name env var: %q", output)
 	}
-	if !strings.Contains(output, "next: set QUEBRAGALHO_API_KEY and rerun qg providers check qg") {
+	if !strings.Contains(output, "next: set QG_API_KEY (or QUEBRAGALHO_API_KEY) and rerun qg providers check qg") {
 		t.Fatalf("missing next action: %q", output)
 	}
 }
@@ -160,5 +160,38 @@ func providerCheckGuidanceProfile() config.ProviderProfile {
 		BaseURL:      "https://api.quebragalho.dev/v1",
 		APIKeyEnv:    "QUEBRAGALHO_API_KEY",
 		Model:        "muse-spark-1.3-contributor",
+	}
+}
+
+// A keyless profile that still reaches the connectivity probe (e.g. right
+// after `qg auth logout qg`) must get the credential guidance — both gateway
+// env vars plus `qg login` — not the generic "verify the API key" advice.
+func TestRunProvidersCheckConnectivityKeylessCitesCredentialEnv(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	deps := commandCenterDeps(t)
+	deps.resolveConfig = func(string, config.Overrides) (config.ResolvedConfig, error) {
+		profile := providerCheckGuidanceProfile()
+		return config.ResolvedConfig{ActiveProvider: "qg", Provider: profile, Providers: []config.ProviderProfile{profile}, MaxTurns: 7}, nil
+	}
+	deps.probeProviderHealth = func(context.Context, providerhealth.Options) providerhealth.Result {
+		return providerhealth.Result{
+			Status: providerhealth.StatusFail,
+			Checks: []providerhealth.Check{
+				{ID: "provider.auth", Status: providerhealth.StatusFail, Category: providerhealth.CategoryAuth, Message: "Provider qg requires API credentials."},
+			},
+		}
+	}
+
+	exitCode := runWithDeps([]string{"providers", "check", "qg", "--connectivity"}, &stdout, &stderr, deps)
+	if exitCode != exitProvider {
+		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitProvider, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "QG_API_KEY (or QUEBRAGALHO_API_KEY)") {
+		t.Fatalf("keyless connectivity advice must cite both gateway env vars: %q", output)
+	}
+	if !strings.Contains(output, "qg login") {
+		t.Fatalf("keyless connectivity advice must mention `qg login`: %q", output)
 	}
 }

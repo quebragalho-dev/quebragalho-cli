@@ -18,17 +18,6 @@ type Options struct {
 	UserAgent     string
 	HTTPClient    *http.Client
 	ModelRegistry *modelregistry.Registry
-	// OAuthResolver, when set, lets the provider authenticate model calls with an
-	// OAuth bearer token (preferred over the API key). nil => API-key auth only.
-	// Applied to the OpenAI, Anthropic, and Google (Gemini) providers.
-	OAuthResolver providerio.TokenResolver
-	// OAuthLoginKey is the credential-store key OAuthResolver bound to (empty when
-	// there is no OAuth login). It is the SAME selection the bearer resolver made,
-	// resolved ONCE by the caller so the Codex chatgpt-account-id header reads its
-	// account from the exact login that issued the bearer token — never a second,
-	// independent lookup that could pick a different login (a backend-rejected
-	// mismatch).
-	OAuthLoginKey string
 }
 
 // New creates the single QG runtime provider (OpenAI-compatible,
@@ -50,7 +39,6 @@ func New(profile config.ProviderProfile, options Options) (qgruntime.Provider, e
 		AuthScheme:            profile.AuthScheme,
 		AuthHeaderValue:       profile.AuthHeaderValue,
 		CustomHeaders:         providerio.CopyHeaders(profile.CustomHeaders),
-		OAuthResolver:         options.OAuthResolver,
 		MaxTokens:             resolved.maxOutputTokens,
 		HTTPClient:            options.HTTPClient,
 		UserAgent:             options.UserAgent,

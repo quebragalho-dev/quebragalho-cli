@@ -54,9 +54,13 @@ func runProvidersAdd(args []string, stdout io.Writer, stderr io.Writer, deps app
 	}
 	// Persist with the key moved into the encrypted credential store (capture flip);
 	// the local profile keeps the key for the verification build below.
-	cfg, err := config.UpsertProvider(configPath, config.SecureProviderProfile(profile, configPath), options.setActive)
+	secured, fellBack := config.SecureProviderProfile(profile, configPath)
+	cfg, err := config.UpsertProvider(configPath, secured, options.setActive)
 	if err != nil {
 		return writeAppError(stderr, err.Error(), exitCrash)
+	}
+	if fellBack {
+		warnKeyStoreFallback(stderr, configPath)
 	}
 
 	if options.json {
@@ -185,6 +189,11 @@ func providerCheckNextActions(profile config.ProviderProfile, connectivity bool,
 	}
 	switch health.Status {
 	case providerhealth.StatusFail:
+		// A keyless profile failing the probe needs the credential recipe, not
+		// the generic verify advice: name both gateway env vars and `qg login`.
+		if _, missing := profile.MissingCredentialEnv(); missing && !providerProfileHasCredential(profile) {
+			return []string{fmt.Sprintf("set %s in your environment or run `qg login`, then rerun qg providers check %s --connectivity", providercatalog.KeyEnvHint, name)}
+		}
 		return []string{fmt.Sprintf("verify the API key, base URL, and model, then rerun qg providers check %s --connectivity", name)}
 	case providerhealth.StatusWarn:
 		return []string{fmt.Sprintf("review the warning, then rerun qg providers check %s --connectivity", name)}
@@ -205,7 +214,7 @@ func providerCheckMissingKeyNextAction(profile config.ProviderProfile) string {
 	if apiKeyEnv == "" {
 		return ""
 	}
-	return fmt.Sprintf("set %s and rerun qg providers check %s", apiKeyEnv, providerCheckName(profile))
+	return fmt.Sprintf("set %s and rerun qg providers check %s", providercatalog.DisplayKeyEnv(apiKeyEnv), providerCheckName(profile))
 }
 
 func providerCheckAPIKeyEnv(profile config.ProviderProfile) string {
@@ -493,7 +502,7 @@ func validateProviderRuntimeReady(profile config.ProviderProfile) error {
 	// actually missing a credential.
 	if envVar, missing := profile.MissingCredentialEnv(); missing {
 		if envVar != "" {
-			return fmt.Errorf("provider %s requires API key; set %s", profile.Name, envVar)
+			return fmt.Errorf("provider %s requires API key; set %s", profile.Name, providercatalog.DisplayKeyEnv(envVar))
 		}
 		return fmt.Errorf("provider %s requires API key", profile.Name)
 	}

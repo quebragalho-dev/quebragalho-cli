@@ -14,7 +14,6 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
 )
 
 // pickerKind identifies which command a picker selection feeds back into.
@@ -420,11 +419,9 @@ func (m model) modelPickerProviderDiscoveryCmd(descriptor providercatalog.Descri
 	}
 }
 
-func (m model) modelPickerDiscoveryOptions(profile config.ProviderProfile) providermodeldiscovery.Options {
-	oauthResolver, _ := providers.OAuthLoginForProfile(profile)
+func (m model) modelPickerDiscoveryOptions(config.ProviderProfile) providermodeldiscovery.Options {
 	return providermodeldiscovery.Options{
-		OAuthResolver: oauthResolver,
-		UserAgent:     m.userAgent,
+		UserAgent: m.userAgent,
 	}
 }
 

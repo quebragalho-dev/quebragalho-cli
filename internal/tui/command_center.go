@@ -591,7 +591,7 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 	// keyless on purpose so newProvider attaches the bearer resolver + login key.
 	if strings.TrimSpace(target.APIKey) == "" && strings.TrimSpace(target.AuthHeaderValue) == "" &&
 		(!hasDescriptor || !descriptor.Local) && !oauthLoginAvailable(target) {
-		return m, "Model\nprovider " + strconv.Quote(providerName) + " has no usable credential — set QUEBRAGALHO_API_KEY in your environment, then run `qg setup qg`.", false, nil, nil
+		return m, "Model\nprovider " + strconv.Quote(providerName) + " has no usable credential — set " + providercatalog.KeyEnvHint + " in your environment or run `qg login`, then run `qg setup qg`.", false, nil, nil
 	}
 	next, err := m.newProvider(target)
 	if err != nil {

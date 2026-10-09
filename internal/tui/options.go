@@ -185,4 +185,8 @@ type SetupSelection struct {
 type SetupResult struct {
 	ConfigPath string
 	Provider   config.ProviderProfile
+	// KeyStoreFallback reports that the credential store was unavailable, so
+	// SecureProviderProfile kept the API key inline and config.json will hold it
+	// in plaintext. CLI surfaces print a warning when this is set.
+	KeyStoreFallback bool
 }

@@ -53,7 +53,7 @@ type providerWizardMethodOption struct {
 func providerWizardMethodOptions() []providerWizardMethodOption {
 	return []providerWizardMethodOption{{
 		label:    "Paste an API key / browse providers",
-		subtitle: "Paste your QUEBRAGALHO_API_KEY and connect the Quebra Galho provider.",
+		subtitle: "Paste your " + providercatalog.KeyEnvHint + " and connect the Quebra Galho provider.",
 	}}
 }
 
@@ -577,12 +577,13 @@ func (m model) applyProviderWizard() (model, tea.Cmd) {
 		}
 		nextProvider = built
 	}
+	keyStoreFellBack := false
 	if strings.TrimSpace(m.userConfigPath) != "" {
 		// Capture flip: move the freshly entered key into the encrypted credential
 		// store before persisting, so config.json never holds the cleartext. The
 		// provider was already built above from runtimeProfile, which has the key.
 		secret := profile.APIKey
-		profile = config.SecureProviderProfile(profile, m.userConfigPath)
+		profile, keyStoreFellBack = config.SecureProviderProfile(profile, m.userConfigPath)
 		if _, err := config.UpsertProvider(m.userConfigPath, profile, true); err != nil {
 			wizard.err = redaction.RedactString(err.Error(), redaction.Options{ExtraSecretValues: []string{secret, profile.APIKey}})
 			return m, nil // nothing committed to live state yet
@@ -607,6 +608,9 @@ func (m model) applyProviderWizard() (model, tea.Cmd) {
 	// specialists/swarm members run on the wrong provider's credentials.
 	config.SetActiveProviderEnv(profile.Name)
 	m.providerWizard = nil
+	if keyStoreFellBack {
+		m = m.showTransientNoticeInline("Credential store unavailable — API key saved in plaintext in "+m.userConfigPath, transientNoticeWarning)
+	}
 	return m, nil
 }
 

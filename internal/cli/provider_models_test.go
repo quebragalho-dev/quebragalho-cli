@@ -197,3 +197,38 @@ func TestRunProvidersModelsSurfacesDiscoveryError(t *testing.T) {
 		t.Fatalf("stderr = %q, want the discovery error", stderr.String())
 	}
 }
+
+// The discovery probe must resolve credentials the same way the resolver does:
+// QG_API_KEY wins for the gateway profile, then the named env var, then the
+// stored key (env before store).
+func TestDiscoveryCredentialProfileReadsQGAPIKey(t *testing.T) {
+	t.Setenv("QG_API_KEY", "sk-qg-short")
+	t.Setenv("QUEBRAGALHO_API_KEY", "")
+	profile := config.ProviderProfile{
+		Name:      "qg",
+		CatalogID: "qg",
+		BaseURL:   "https://api.quebragalho.dev/v1",
+		APIKeyEnv: "QUEBRAGALHO_API_KEY",
+	}
+
+	got := discoveryCredentialProfile(profile)
+	if got.APIKey != "sk-qg-short" {
+		t.Fatalf("APIKey = %q, want QG_API_KEY to win", got.APIKey)
+	}
+}
+
+func TestDiscoveryCredentialProfileFallsBackToNamedEnv(t *testing.T) {
+	t.Setenv("QG_API_KEY", "")
+	t.Setenv("QUEBRAGALHO_API_KEY", "sk-qg-long")
+	profile := config.ProviderProfile{
+		Name:      "qg",
+		CatalogID: "qg",
+		BaseURL:   "https://api.quebragalho.dev/v1",
+		APIKeyEnv: "QUEBRAGALHO_API_KEY",
+	}
+
+	got := discoveryCredentialProfile(profile)
+	if got.APIKey != "sk-qg-long" {
+		t.Fatalf("APIKey = %q, want the named env fallback", got.APIKey)
+	}
+}

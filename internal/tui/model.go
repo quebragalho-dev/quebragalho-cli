@@ -28,6 +28,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/peermsg"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
@@ -5126,7 +5127,7 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 	if m.provider == nil {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
 			kind: actionAppendAssistant,
-			text: "No provider configured. Set QUEBRAGALHO_API_KEY in your environment, then run `qg setup qg` (see `qg setup --help`), then relaunch.",
+			text: "No provider configured. Set " + providercatalog.KeyEnvHint + " in your environment or run `qg login`, then run `qg setup qg` (see `qg setup --help`), then relaunch.",
 		})
 		return m, nil
 	}

@@ -116,18 +116,21 @@ func runProvidersModels(args []string, stdout io.Writer, stderr io.Writer, deps 
 }
 
 // discoveryCredentialProfile resolves the profile's API key the same way the
-// runtime does — inline, then the stored credential, then the configured env var —
-// so a `providers models` probe authenticates exactly like a real request. Mirrors
-// discoveredModelContextWindow's credential resolution.
+// runtime does — inline first, then env (QG_API_KEY, then the named APIKeyEnv),
+// then the stored credential — so a `providers models` probe authenticates
+// exactly like a real request. Mirrors discoveredModelContextWindow, which
+// calls this.
 func discoveryCredentialProfile(profile config.ProviderProfile) config.ProviderProfile {
 	authed := profile
-	if strings.TrimSpace(authed.APIKey) == "" {
-		if store, err := config.ProviderKeyStore(); err == nil {
-			authed = config.ApplyStoredAPIKey(authed, store)
-		}
+	if strings.TrimSpace(authed.APIKey) != "" {
+		return authed
 	}
-	if strings.TrimSpace(authed.APIKey) == "" && strings.TrimSpace(authed.APIKeyEnv) != "" {
-		authed.APIKey = strings.TrimSpace(os.Getenv(authed.APIKeyEnv))
+	if key := authed.EnvAPIKey(os.Getenv); key != "" {
+		authed.APIKey = key
+		return authed
+	}
+	if store, err := config.ProviderKeyStore(); err == nil {
+		authed = config.ApplyStoredAPIKey(authed, store)
 	}
 	return authed
 }
@@ -136,10 +139,8 @@ func discoveryCredentialProfile(profile config.ProviderProfile) config.ProviderP
 // the provider's model-listing endpoint with no curated-catalog merge or
 // coding-model filtering, so a custom provider's full model list is returned.
 func defaultDiscoverProviderModels(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
-	resolver, _ := oauthLoginForProfile(profile)
 	return providermodeldiscovery.Discover(ctx, profile, providermodeldiscovery.Options{
-		OAuthResolver: resolver,
-		UserAgent:     userAgent(),
+		UserAgent: userAgent(),
 	})
 }
 

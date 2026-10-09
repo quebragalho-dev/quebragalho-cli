@@ -90,8 +90,9 @@ func MissingCredentialAction(profile config.ProviderProfile) (Action, bool) {
 	detail := "Set an API key before using this provider."
 	command := "set API_KEY in your shell"
 	if advice.envVar != "" {
-		detail = "Set " + advice.envVar + " to your provider API key before using this provider."
-		command = "set " + advice.envVar + " in your shell"
+		display := providercatalog.DisplayKeyEnv(advice.envVar)
+		detail = "Set " + display + " to your provider API key before using this provider."
+		command = "set " + display + " in your shell"
 	}
 	return Action{
 		Label:   "Set API key",
