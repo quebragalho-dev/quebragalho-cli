@@ -64,6 +64,7 @@ type appDeps struct {
 	// against ambient vars like QG_PROVIDER unless they inject it). nil ⇒ empty.
 	getenv                       func(string) string
 	probeProviderHealth          func(context.Context, providerhealth.Options) providerhealth.Result
+	validateLoginKey             func(context.Context, string) error
 	discoverProviderModels       func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
 	detectLocalRuntimes          func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
 	newSessionStore              func() *sessions.Store
@@ -155,17 +156,12 @@ func defaultAppDeps() appDeps {
 			return config.ResolveMCP(options)
 		},
 		newProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
-			// Resolve the OAuth login ONCE: the bearer resolver and the login key it
-			// bound must describe the same login (the key is passed on to the Codex
-			// account-header resolver so it never re-selects independently).
-			resolver, loginKey := oauthLoginForProfile(profile)
 			return providers.New(profile, providers.Options{
-				UserAgent:     userAgent(),
-				OAuthResolver: resolver,
-				OAuthLoginKey: loginKey,
+				UserAgent: userAgent(),
 			})
 		},
 		probeProviderHealth:    providerhealth.Probe,
+		validateLoginKey:       defaultValidateLoginKey,
 		discoverProviderModels: defaultDiscoverProviderModels,
 		detectLocalRuntimes:    provideronboarding.DetectLocalRuntimes,
 		newSessionStore: func() *sessions.Store {
@@ -430,6 +426,8 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		return runDoctor(args[1:], stdout, stderr, deps)
 	case "setup":
 		return runSetup(args[1:], stdout, stderr, deps)
+	case "login":
+		return runLogin(args[1:], stdout, stderr, deps)
 	case "context":
 		return runContext(args[1:], stdout, stderr, deps)
 	case "repo-map", "repomap":
@@ -488,14 +486,10 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		if _, err := fmt.Fprintf(stderr, "unknown command %q\n", args[0]); err != nil {
 			return 1
 		}
-		// First-run users reach for `qg login`/`qg logout` (reported in the
-		// wild); point them at the real command instead of a bare usage pointer.
-		// OAuth login was removed (Etapa 4), so `login` now points at setup.
+		// First-run users reach for `qg logout` (reported in the wild); point
+		// them at the real command instead of a bare usage pointer. `qg login`
+		// is a real command now (API-key onboarding) and never lands here.
 		switch strings.ToLower(args[0]) {
-		case "login":
-			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "qg setup"); err != nil {
-				return 1
-			}
 		case "logout":
 			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "qg auth logout"); err != nil {
 				return 1
@@ -658,11 +652,10 @@ func fillAppDeps(deps appDeps) appDeps {
 		deps.now = defaults.now
 	}
 	// Wrap newProvider ONCE, after all defaults are filled, so every surface that
-	// builds the runtime provider gets the credential-store key applied. The
-	// resolver is pure and leaves apiKeyStored profiles keyless; an unwrapped
-	// build sends unauthenticated requests. config.ApplyStoredAPIKey is a no-op
-	// when the key is already set or the profile isn't stored-key, so this is
-	// safe and idempotent for every profile kind and every injected newProvider.
+	// builds the runtime provider gets the credential-store key applied.
+	// config.ApplyStoredAPIKey is a no-op when the key is already set or the
+	// profile isn't stored-key, so this is safe and idempotent for every profile
+	// kind and every injected newProvider.
 	baseNewProvider := deps.newProvider
 	userConfigPath := deps.userConfigPath
 	deps.newProvider = func(profile config.ProviderProfile) (qgruntime.Provider, error) {
@@ -671,10 +664,10 @@ func fillAppDeps(deps appDeps) appDeps {
 	baseProbeProviderHealth := deps.probeProviderHealth
 	deps.probeProviderHealth = func(ctx context.Context, options providerhealth.Options) providerhealth.Result {
 		options.Profile = applyStoredProviderKeyAt(options.Profile, userConfigPath)
-		if options.OAuthResolver == nil {
-			options.OAuthResolver, _ = oauthLoginForProfile(options.Profile)
-		}
 		return baseProbeProviderHealth(ctx, options)
+	}
+	if deps.validateLoginKey == nil {
+		deps.validateLoginKey = defaults.validateLoginKey
 	}
 	return deps
 }
@@ -1321,6 +1314,7 @@ Commands:
   completions Generate shell completion scripts
   daemon     Manage the local background worker daemon (start/stop/status/run/attach)
   setup      Guide first-run provider setup
+  login      Save and validate your Quebra Galho API key
   config     Inspect resolved Go configuration without leaking secrets
   models     List QG model registry entries
   providers  Inspect resolved provider profiles
@@ -1588,6 +1582,8 @@ Flags:
       --add-dir <path>               Allow writes in an extra directory (repeatable)
       --mode <name>                  Apply a preset (smart, deep, fast, large, precise); explicit flags override it
   -m, --model <model>                Select the model for provider setup
+      --api-key <key>                Override the API key for this run (outranks QG_API_KEY,
+                                    QUEBRAGALHO_API_KEY, and the stored credential)
       --use-spec                     Draft a spec first and stop for review
       --spec-model <model>           Override the draft model when --use-spec is set
       --spec-reasoning-effort <effort>
