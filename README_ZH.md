@@ -99,19 +99,16 @@ qg models list
 qg doctor
 ```
 
-对于 API 提供商，在设置之前设置匹配的环境变量或在向导中输入密钥：
+在设置之前设置 QG API 密钥，或在向导中输入密钥：
 
 ```bash
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=...
-export GEMINI_API_KEY=...
-export LONGCAT_API_KEY=...
+export QUEBRAGALHO_API_KEY=sk-...
 ```
 
-要直接配置美团 LongCat（LongCat-2.0），运行：
+要直接配置，运行：
 
 ```bash
-qg providers setup longcat --set-active
+qg setup qg
 ```
 
 对于本地模型，运行 Ollama、LM Studio 或 [Atomic Chat](https://atomic.chat) 桌面应用，
