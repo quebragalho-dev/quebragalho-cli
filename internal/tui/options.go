@@ -158,7 +158,11 @@ type SetupOptions struct {
 	Required   bool
 	ConfigPath string
 	Providers  []SetupProviderOption
-	Save       func(SetupSelection) (SetupResult, error)
+	// ValidateAPIKey checks the pasted key against GET /v1/models before the
+	// wizard leaves the credential screen. nil skips validation (fixtures wired
+	// without a gateway).
+	ValidateAPIKey func(context.Context, string) error
+	Save           func(SetupSelection) (SetupResult, error)
 }
 
 // SetupProviderOption is one provider choice offered by the setup takeover.

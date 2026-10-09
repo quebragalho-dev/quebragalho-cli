@@ -300,7 +300,7 @@ func (m model) setupWantsMouseCapture() bool {
 	if !m.setup.visible {
 		return false
 	}
-	return m.setup.stage == setupStageProvider || m.setup.stage == setupStageModel
+	return m.setup.stage == setupStageModel
 }
 
 func (m model) chatWantsMouseCapture() bool {
