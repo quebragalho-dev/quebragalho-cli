@@ -10,18 +10,18 @@ import (
 )
 
 func (m model) modelListText() string {
-	registry, err := modelregistry.DefaultRegistry()
-	if err != nil {
-		return "Models\nFailed to load model catalog: " + err.Error()
-	}
-
+	registry := m.modelCatalog
 	activeID := activeModelID(registry, m.modelName)
 	models := registry.List(modelregistry.ListOptions{})
-	sort.SliceStable(models, func(i, j int) bool {
-		if models[i].Provider == models[j].Provider {
-			return models[i].ID < models[j].ID
+	qgModels := make([]modelregistry.ModelEntry, 0, len(models))
+	for _, entry := range models {
+		if entry.Provider == modelregistry.ProviderQG {
+			qgModels = append(qgModels, entry)
 		}
-		return models[i].Provider < models[j].Provider
+	}
+	models = qgModels
+	sort.SliceStable(models, func(i, j int) bool {
+		return models[i].ID < models[j].ID
 	})
 	modelLines := []string{}
 	for _, model := range models {
@@ -81,13 +81,6 @@ func (m model) modelContextWindow(modelName string) int {
 		if window := discoveredContextWindow(models, trimmed); window > 0 {
 			return window
 		}
-	}
-	// A custom/local Ollama model tag has no curated-catalog entry, and its
-	// OpenAI-compatible /v1/models listing (the discoveredContextWindow source
-	// above) doesn't carry context-window metadata at all — see
-	// ollamaContextWindowDiscoveryCmd, the only other source for this.
-	if window := m.ollamaContextWindowByModel[trimmed]; window > 0 {
-		return window
 	}
 	// Unknown: report 0 so display gauges show no denominator. Compaction enablement
 	// applies its own positive fallback via modelregistry.AgentContextWindow.

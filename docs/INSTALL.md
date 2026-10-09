@@ -246,15 +246,11 @@ box. The TUI uses Bubble Tea's `AllMotion` mouse mode by default. If you run QG
 inside PRoot (e.g. through proot-distro), the scroll fix activates `CellMotion`
 to avoid PRoot's ptrace interference with the 1003 escape sequence.
 
-**Providers.** QG works with any OpenAI-compatible provider on Termux. For
-example, to use OpenCode Zen's free tier:
+**Providers.** QG uses a single provider (the Quebra Galho gateway) on
+Termux. Set its API key before running:
 
 ```bash
-qg providers add opencode \
-  --name opencode \
-  --model deepseek-v4-flash-free \
-  --base-url https://opencode.ai/zen/v1 \
-  --set-active
+export QUEBRAGALHO_API_KEY=sk-...
 ```
 
 Windows source builds can use the main `qg.exe` as the command runner and setup

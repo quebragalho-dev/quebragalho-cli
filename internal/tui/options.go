@@ -36,14 +36,13 @@ type Options struct {
 	RecapsEnabled        bool
 	// CompactionModel is the resolved preferences.compactionModel value; see
 	// providers.CompactionModelID for how it combines with the env override
-	// and the curated cheap defaults.
+	// (no curated default: empty means the main model).
 	CompactionModel             string
 	Provider                    qgruntime.Provider
 	NewProvider                 func(config.ProviderProfile) (qgruntime.Provider, error)
 	NewTurnSessionProvider      func(config.ProviderProfile, qgruntime.Provider) qgruntime.TurnSessionProvider
 	ProbeProviderHealth         func(context.Context, providerhealth.Options) providerhealth.Result
 	DiscoverProviderModels      func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
-	DiscoverOllamaContextWindow func(ctx context.Context, baseURL string, model string) (int, error)
 	RuntimeMessageSink          func(tea.Msg)
 	PrepareRunCompletionWarning func()
 	RunCompletionWarning        func() string
@@ -159,7 +158,11 @@ type SetupOptions struct {
 	Required   bool
 	ConfigPath string
 	Providers  []SetupProviderOption
-	Save       func(SetupSelection) (SetupResult, error)
+	// ValidateAPIKey checks the pasted key against GET /v1/models before the
+	// wizard leaves the credential screen. nil skips validation (fixtures wired
+	// without a gateway).
+	ValidateAPIKey func(context.Context, string) error
+	Save           func(SetupSelection) (SetupResult, error)
 }
 
 // SetupProviderOption is one provider choice offered by the setup takeover.
@@ -186,4 +189,8 @@ type SetupSelection struct {
 type SetupResult struct {
 	ConfigPath string
 	Provider   config.ProviderProfile
+	// KeyStoreFallback reports that the credential store was unavailable, so
+	// SecureProviderProfile kept the API key inline and config.json will hold it
+	// in plaintext. CLI surfaces print a warning when this is set.
+	KeyStoreFallback bool
 }

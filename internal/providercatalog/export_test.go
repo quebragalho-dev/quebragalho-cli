@@ -22,7 +22,7 @@ func ListByTransport(transport Transport) []Descriptor {
 
 func ValidAPIFormat(format APIFormat) bool {
 	switch format {
-	case APIFormatOpenAIResponses, APIFormatOpenAIChatCompletions, APIFormatAnthropicMessages, APIFormatGoogleGenerateContent, APIFormatBedrockConverse, APIFormatVertexGenerateContent:
+	case APIFormatOpenAIChatCompletions, APIFormatBedrockConverse, APIFormatVertexGenerateContent:
 		return true
 	default:
 		return false

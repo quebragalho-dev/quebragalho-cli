@@ -74,6 +74,10 @@ type execOptions struct {
 	imagePaths  []string
 	mode        string
 	model       string
+	// apiKey is the per-run API key override (qg exec --api-key). It outranks
+	// QG_API_KEY, QUEBRAGALHO_API_KEY, and the stored credential for this run
+	// only; it never persists and is never echoed back in output.
+	apiKey string
 	// modelProfile captures the legacy --profile flag. It is accepted for
 	// backward compatibility (so old invocations do not error) but is
 	// intentionally inert: nothing consumes it. Model selection is driven by
@@ -177,11 +181,6 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		}
 		return exitSuccess
 	}
-
-	// Refresh the models.dev pricing/limits cache in the background when stale;
-	// the overlay is read at registry construction from the cache file, so this
-	// benefits the next run and never blocks or fails this one.
-	go func() { _ = modelregistry.RefreshModelsDevCache(context.Background()) }()
 
 	// A mode seeds model/effort/max-turns/tool filters as a preset. Expand it up
 	// front — before tool-filter validation and the --list-tools branch — so a
@@ -328,6 +327,14 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		}
 		return writeExecProviderError(stdout, stderr, options.outputFormat, "provider_error", err.Error())
 	}
+	// --api-key outranks every stored source (QG_API_KEY, QUEBRAGALHO_API_KEY,
+	// the credential store) for this run. Applied only to an ALREADY-configured
+	// profile: with no profile the run stops on the existing no-provider
+	// guidance instead of synthesizing one that could route the key to a
+	// default endpoint.
+	if key := strings.TrimSpace(options.apiKey); key != "" && config.HasProviderProfile(resolved.Provider) {
+		resolved.Provider.APIKey = key
+	}
 	resolved.MaxTurns = execTurnBudget(resolved)
 	var displacedMaxTurns int
 	resolved.MaxTurns, displacedMaxTurns = applyProfileTurnBudget(execProfile, options.maxTurns, resolved.MaxTurns)
@@ -386,7 +393,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	sessionTitle := execSessionTitle(options, prompt)
 
 	if !config.HasProviderProfile(resolved.Provider) {
-		return writeExecProviderError(stdout, stderr, options.outputFormat, "provider_error", "No provider configured. Run `qg setup` (guided), `qg auth` (OAuth providers), set a provider API key env var (e.g. OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY), or add .qg/config.json.")
+		return writeExecProviderError(stdout, stderr, options.outputFormat, "provider_error", "No provider configured. Set "+providercatalog.KeyEnvHint+" in your environment or run `qg login`, then run `qg setup qg` (see `qg setup --help`), or add .qg/config.json.")
 	}
 	// Activate deferred MCP-tool loading for this run only when the VISIBLE
 	// deferred-eligible count meets the resolved threshold; below threshold this
@@ -1318,16 +1325,9 @@ func discoveredModelContextWindow(ctx context.Context, profile config.ProviderPr
 	if !ok {
 		return 0
 	}
-	// Authenticate discovery with the resolved key (inline, then stored, then env).
-	authed := profile
-	if strings.TrimSpace(authed.APIKey) == "" {
-		if store, err := config.ProviderKeyStore(); err == nil {
-			authed = config.ApplyStoredAPIKey(authed, store)
-		}
-	}
-	if strings.TrimSpace(authed.APIKey) == "" && strings.TrimSpace(authed.APIKeyEnv) != "" {
-		authed.APIKey = strings.TrimSpace(os.Getenv(authed.APIKeyEnv))
-	}
+	// Authenticate discovery with the same credential chain as every runtime
+	// request: inline/env key first, then the stored credential.
+	authed := discoveryCredentialProfile(profile)
 	dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	models, err := providermodeldiscovery.DiscoverCatalog(dctx, descriptor, authed, providermodeldiscovery.Options{})

@@ -1095,7 +1095,11 @@ func regexpQuoteMeta(value string) string {
 
 func scrubSensitiveEnv(env []string, additionalKeys ...string) []string {
 	// Secrets not covered by the provider catalog: cloud/VCS credentials and
-	// providers QG talks to through generic OpenAI-compatible endpoints.
+	// providers QG talks to through generic OpenAI-compatible endpoints. The
+	// well-known provider keys below stay here (not catalog-derived) because
+	// the catalog is single-provider now while the host environment may still
+	// carry ambient credentials for other providers — those must never enter
+	// the sandbox either.
 	sensitiveKeys := []string{
 		"COHERE_API_KEY",
 		"PERPLEXITY_API_KEY",
@@ -1105,6 +1109,18 @@ func scrubSensitiveEnv(env []string, additionalKeys ...string) []string {
 		"AWS_SESSION_TOKEN",
 		"GITLAB_TOKEN",
 		"GH_TOKEN",
+		"OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+		"GEMINI_API_KEY",
+		"GOOGLE_API_KEY",
+		"DEEPSEEK_API_KEY",
+		"XAI_API_KEY",
+		"HUGGINGFACE_API_KEY",
+		"AWS_ACCESS_KEY_ID",
+		// GOOGLE_APPLICATION_CREDENTIALS points at a service-account key file
+		// at an arbitrary path, so hiding the pointer complements the deny-read
+		// rule on the file itself.
+		"GOOGLE_APPLICATION_CREDENTIALS",
 		"QG_WEBSEARCH_API_KEY",
 		"QG_DAEMON_REMOTE_TOKEN",
 		// The file form of the same bridge token. TokenFromEnv accepts either,

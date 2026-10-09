@@ -2,7 +2,7 @@ package tui
 
 import "testing"
 
-// The model picker must title each row with the model NAME, not the models.dev
+// The model picker must title each row with the model NAME, not the
 // marketing description. Regression: Ollama Cloud models resolved full-sentence
 // descriptions from the remote catalog, so rows showed sentences and several
 // models sharing one description looked like exact duplicates (issue: /model

@@ -22,8 +22,8 @@ func TestConfigSnapshotRedactsProviderURLsAndResolvesAPIModels(t *testing.T) {
 				Model:        "gpt-4.1",
 			},
 			{
-				Name:  "claude",
-				Model: "sonnet-4.5",
+				Name:  "muse",
+				Model: "muse-spark",
 			},
 		},
 	}
@@ -46,8 +46,8 @@ func TestConfigSnapshotRedactsProviderURLsAndResolvesAPIModels(t *testing.T) {
 	if !active.APIKeySet {
 		t.Fatalf("expected APIKeySet=true for active provider: %#v", active)
 	}
-	if snapshot.Providers[1].APIModel != "claude-sonnet-4-5-20250929" || snapshot.Providers[1].ProviderKind != "anthropic" {
-		t.Fatalf("expected model metadata resolution for Claude alias, got %#v", snapshot.Providers[1])
+	if snapshot.Providers[1].APIModel != "muse-spark-1.3-contributor" || snapshot.Providers[1].ProviderKind != "openai-compatible" {
+		t.Fatalf("expected model metadata resolution for the muse-spark alias, got %#v", snapshot.Providers[1])
 	}
 }
 
@@ -114,16 +114,16 @@ func TestModelSnapshotsFilterSortAndExposeCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	models, err := ModelSnapshots(registry, ModelSnapshotOptions{Provider: modelregistry.ProviderAnthropic})
+	models, err := ModelSnapshots(registry, ModelSnapshotOptions{Provider: modelregistry.ProviderQG})
 
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(models) == 0 {
-		t.Fatal("expected Anthropic model snapshots")
+		t.Fatal("expected QG model snapshots")
 	}
 	for index, model := range models {
-		if model.Provider != string(modelregistry.ProviderAnthropic) {
+		if model.Provider != string(modelregistry.ProviderQG) {
 			t.Fatalf("unexpected provider in filtered model %d: %#v", index, model)
 		}
 		if model.ID == "" || model.APIModel == "" || model.ContextWindow <= 0 {
@@ -161,56 +161,39 @@ func TestProviderCatalogSnapshotsExposeStableDescriptors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshots) < 4 {
-		t.Fatalf("expected provider catalog descriptors, got %#v", snapshots)
+	if len(snapshots) != 1 {
+		t.Fatalf("expected a single QG catalog descriptor, got %#v", snapshots)
 	}
-	if !snapshots[0].Recommended {
-		t.Fatalf("expected the recommended provider first, got %#v", snapshots[0])
+	qg := snapshots[0]
+	if !qg.Recommended {
+		t.Fatalf("expected the QG provider recommended, got %#v", qg)
 	}
-	for index, snapshot := range snapshots {
-		if snapshot.ID == "" || snapshot.Name == "" || snapshot.Transport == "" {
-			t.Fatalf("catalog snapshot missing identity fields: %#v", snapshot)
-		}
-		// The recommended provider is hoisted to the front; everything after it is
-		// sorted by id.
-		if index > 0 && !snapshots[index-1].Recommended && snapshots[index-1].ID > snapshot.ID {
-			t.Fatalf("provider catalog snapshots are not sorted by id: %#v", snapshots)
-		}
+	if qg.ID != "qg" ||
+		qg.Name != "Quebra Galho" ||
+		qg.Transport != "openai-compatible" ||
+		qg.DefaultBaseURL != "https://api.quebragalho.dev/v1" ||
+		qg.DefaultModel != modelregistry.DefaultModelID ||
+		!qg.RequiresAuth ||
+		qg.Local ||
+		!qg.RuntimeSupported {
+		t.Fatalf("unexpected QG catalog snapshot: %#v", qg)
 	}
-	openai := findCatalogSnapshot(t, snapshots, "openai")
-	if openai.Name != "OpenAI" ||
-		openai.Transport != "openai" ||
-		openai.DefaultBaseURL != config.OpenAIBaseURL ||
-		openai.DefaultModel != modelregistry.DefaultModelID ||
-		!openai.RequiresAuth ||
-		openai.Local ||
-		!openai.RuntimeSupported {
-		t.Fatalf("unexpected OpenAI catalog snapshot: %#v", openai)
-	}
-	if len(openai.AuthEnvVars) != 1 || openai.AuthEnvVars[0] != "OPENAI_API_KEY" {
-		t.Fatalf("unexpected OpenAI auth env vars: %#v", openai.AuthEnvVars)
-	}
-
-	bedrock := findCatalogSnapshot(t, snapshots, "bedrock")
-	if bedrock.RuntimeSupported {
-		t.Fatalf("Bedrock must stay catalog-only until the native adapter lands: %#v", bedrock)
-	}
-	if !strings.Contains(bedrock.RuntimeUnsupportedReason, "native adapter") {
-		t.Fatalf("Bedrock unsupported reason = %q, want native adapter reason", bedrock.RuntimeUnsupportedReason)
+	if len(qg.AuthEnvVars) != 1 || qg.AuthEnvVars[0] != "QUEBRAGALHO_API_KEY" {
+		t.Fatalf("unexpected QG auth env vars: %#v", qg.AuthEnvVars)
 	}
 }
 
 func TestProviderCatalogSnapshotsFilterByTransport(t *testing.T) {
-	snapshots, err := ProviderCatalogSnapshots(ProviderCatalogSnapshotOptions{Transport: "OPENAI"})
+	snapshots, err := ProviderCatalogSnapshots(ProviderCatalogSnapshotOptions{Transport: "OPENAI-COMPATIBLE"})
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshots) == 0 {
-		t.Fatal("expected OpenAI provider catalog descriptors")
+	if len(snapshots) != 1 {
+		t.Fatalf("expected the QG catalog descriptor, got %#v", snapshots)
 	}
 	for _, snapshot := range snapshots {
-		if snapshot.Transport != "openai" {
+		if snapshot.Transport != "openai-compatible" {
 			t.Fatalf("unexpected transport in filtered catalog: %#v", snapshot)
 		}
 	}

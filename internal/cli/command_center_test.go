@@ -117,20 +117,53 @@ func TestRunConfigRejectsModelOnlyFlags(t *testing.T) {
 }
 
 func TestRunModelsListsRegistryModels(t *testing.T) {
+	qgModels := []string{
+		"muse-spark-1.3-contributor", "deepseek-v4-pro", "deepseek-v4.1-flash",
+		"glm-5.3", "glm-5.3-flash", "gpt-5.6-luna", "gpt-5.6-sol",
+		"gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol",
+		"grok-4.7", "hy4", "kimi-k3", "mimo-v2.6-flash", "mimo-v2.6-pro",
+		"mimo-v2.6-pro-ultraspeed", "qwen3.8-max", "qwen3.8-omni-flash",
+	}
+	legacy := []string{"claude-sonnet-4.5", "gpt-4.1", "gemini-2.5-pro"}
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-
-	exitCode := runWithDeps([]string{"models", "list", "--provider", "anthropic"}, &stdout, &stderr, commandCenterDeps(t))
-
+	exitCode := runWithDeps([]string{"models", "list"}, &stdout, &stderr, commandCenterDeps(t))
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "Models") || !strings.Contains(output, "claude-sonnet-4.5") {
-		t.Fatalf("expected anthropic models in output, got %q", output)
+	if !strings.Contains(output, "Models") {
+		t.Fatalf("expected Models header, got %q", output)
 	}
-	if strings.Contains(output, "gpt-4.1") {
-		t.Fatalf("expected provider filter to hide OpenAI models, got %q", output)
+	rows := 0
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, " [qg] ") {
+			rows++
+		}
+	}
+	if rows != len(qgModels) {
+		t.Fatalf("expected %d [qg] model rows, got %d in %q", len(qgModels), rows, output)
+	}
+	for _, want := range qgModels {
+		if !strings.Contains(output, want) {
+			t.Fatalf("qg models output missing %q, got %q", want, output)
+		}
+	}
+	for _, banned := range legacy {
+		if strings.Contains(output, banned) {
+			t.Fatalf("qg models output must not list legacy model %q, got %q", banned, output)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = runWithDeps([]string{"models", "list", "--provider", "qg"}, &stdout, &stderr, commandCenterDeps(t))
+	if exitCode != exitSuccess {
+		t.Fatalf("--provider qg should be a valid filter, exit %d: %s", exitCode, stderr.String())
+	}
+	if output := stdout.String(); !strings.Contains(output, "muse-spark-1.3-contributor") || !strings.Contains(output, " [qg] ") {
+		t.Fatalf("--provider qg filter should list qg models, got %q", output)
 	}
 }
 
@@ -203,12 +236,12 @@ func TestRunProvidersCatalogListsDescriptors(t *testing.T) {
 	output := stdout.String()
 	for _, want := range []string{
 		"Provider Catalog",
-		"id=openai",
-		"name=OpenAI",
-		"transport=openai",
-		"defaultModel=gpt-4.1",
-		"defaultBaseURL=https://api.openai.com/v1",
-		"authEnvVars=OPENAI_API_KEY",
+		"id=qg",
+		`name="Quebra Galho"`,
+		"transport=openai-compatible",
+		"defaultModel=muse-spark-1.3-contributor",
+		"defaultBaseURL=https://api.quebragalho.dev/v1",
+		"authEnvVars=QUEBRAGALHO_API_KEY",
 		"requiresAuth=true",
 		"local=false",
 	} {
@@ -244,17 +277,17 @@ func TestRunProvidersCatalogJSONIncludesDescriptors(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("decode providers catalog JSON: %v\n%s", err, stdout.String())
 	}
-	openai := findProviderCatalogSnapshot(t, payload.Providers, "openai")
-	if openai.Name != "OpenAI" ||
-		openai.Transport != "openai" ||
-		openai.DefaultBaseURL != "https://api.openai.com/v1" ||
-		openai.DefaultModel != "gpt-4.1" ||
-		!openai.RequiresAuth ||
-		openai.Local {
-		t.Fatalf("unexpected OpenAI catalog descriptor: %#v", openai)
+	qg := findProviderCatalogSnapshot(t, payload.Providers, "qg")
+	if qg.Name != "Quebra Galho" ||
+		qg.Transport != "openai-compatible" ||
+		qg.DefaultBaseURL != "https://api.quebragalho.dev/v1" ||
+		qg.DefaultModel != "muse-spark-1.3-contributor" ||
+		!qg.RequiresAuth ||
+		qg.Local {
+		t.Fatalf("unexpected qg catalog descriptor: %#v", qg)
 	}
-	if len(openai.AuthEnvVars) != 1 || openai.AuthEnvVars[0] != "OPENAI_API_KEY" {
-		t.Fatalf("unexpected OpenAI auth env vars: %#v", openai.AuthEnvVars)
+	if len(qg.AuthEnvVars) != 1 || qg.AuthEnvVars[0] != "QUEBRAGALHO_API_KEY" {
+		t.Fatalf("unexpected qg auth env vars: %#v", qg.AuthEnvVars)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
@@ -265,14 +298,14 @@ func TestRunProvidersCatalogFiltersByTransport(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := runWithDeps([]string{"providers", "catalog", "--transport", "openai"}, &stdout, &stderr, providerCatalogDeps(t))
+	exitCode := runWithDeps([]string{"providers", "catalog", "--transport", "openai-compatible"}, &stdout, &stderr, providerCatalogDeps(t))
 
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "id=openai") || !strings.Contains(output, "transport=openai") {
-		t.Fatalf("expected OpenAI transport providers in filtered catalog output, got %q", output)
+	if !strings.Contains(output, "id=qg") || !strings.Contains(output, "transport=openai-compatible") {
+		t.Fatalf("expected openai-compatible providers in filtered catalog output, got %q", output)
 	}
 	if strings.Contains(output, "(none)") {
 		t.Fatalf("expected non-empty HTTP catalog output, got %q", output)
@@ -318,7 +351,7 @@ func TestRunProvidersAddWritesCatalogProfile(t *testing.T) {
 	var stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 
-	exitCode := runWithDeps([]string{"providers", "add", "groq", "--name", "fast", "--set-active"}, &stdout, &stderr, providerSetupDeps(configPath))
+	exitCode := runWithDeps([]string{"providers", "add", "qg", "--name", "fast", "--set-active"}, &stdout, &stderr, providerSetupDeps(configPath))
 
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
@@ -332,11 +365,11 @@ func TestRunProvidersAddWritesCatalogProfile(t *testing.T) {
 	}
 	profile := cfg.Providers[0]
 	if profile.Name != "fast" ||
-		profile.CatalogID != "groq" ||
+		profile.CatalogID != "qg" ||
 		profile.ProviderKind != config.ProviderKindOpenAICompatible ||
-		profile.BaseURL != "https://api.groq.com/openai/v1" ||
-		profile.Model != "llama-3.3-70b-versatile" ||
-		profile.APIKeyEnv != "GROQ_API_KEY" {
+		profile.BaseURL != "https://api.quebragalho.dev/v1" ||
+		profile.Model != "muse-spark-1.3-contributor" ||
+		profile.APIKeyEnv != "QUEBRAGALHO_API_KEY" {
 		t.Fatalf("unexpected provider profile: %#v", profile)
 	}
 	if profile.APIKey != "" {
@@ -348,90 +381,13 @@ func TestRunProvidersAddWritesCatalogProfile(t *testing.T) {
 	}
 }
 
-func TestRunProvidersAddAimlapiWritesDefaultHeaders(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
-
-	exitCode := runWithDeps([]string{"providers", "add", "aimlapi"}, &stdout, &stderr, providerSetupDeps(configPath))
-
-	if exitCode != exitSuccess {
-		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
-	}
-	cfg := readFileConfig(t, configPath)
-	if len(cfg.Providers) != 1 {
-		t.Fatalf("providers = %#v, want one provider", cfg.Providers)
-	}
-	profile := cfg.Providers[0]
-	if profile.Name != "aimlapi" ||
-		profile.CatalogID != "aimlapi" ||
-		profile.BaseURL != "https://api.aimlapi.com/v1" ||
-		profile.Model != "anthropic/claude-sonnet-5" ||
-		profile.APIKeyEnv != "AIMLAPI_API_KEY" {
-		t.Fatalf("unexpected provider profile: %#v", profile)
-	}
-	if profile.CustomHeaders["X-AIMLAPI-Partner-ID"] != "part_62yQoGYDq4Yqnrj2R1iGrDNJ" ||
-		profile.CustomHeaders["X-AIMLAPI-Integration-Repo"] != "quebragalho-dev/quebragalho-cli" {
-		t.Fatalf("missing aimlapi.com default headers: %#v", profile.CustomHeaders)
-	}
-}
-
-func TestRunProvidersAddAimlapiMixedCaseHeaderOverride(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
-
-	// A differently-cased override must replace the catalog header in place, not
-	// leave both spellings behind to race when request construction canonicalizes.
-	exitCode := runWithDeps([]string{
-		"providers", "add", "aimlapi",
-		"--header", "x-aimlapi-partner-id=part_override",
-	}, &stdout, &stderr, providerSetupDeps(configPath))
-
-	if exitCode != exitSuccess {
-		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
-	}
-	profile := readFileConfig(t, configPath).Providers[0]
-	if _, ok := profile.CustomHeaders["x-aimlapi-partner-id"]; ok {
-		t.Fatalf("lowercase override left a duplicate key: %#v", profile.CustomHeaders)
-	}
-	if profile.CustomHeaders["X-AIMLAPI-Partner-ID"] != "part_override" {
-		t.Fatalf("override did not win on the canonical key: %#v", profile.CustomHeaders)
-	}
-}
-
-func TestRunProvidersAddAimlapiOverrideDropsCatalogHeaders(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
-
-	exitCode := runWithDeps([]string{
-		"providers", "add", "aimlapi",
-		"--base-url", "https://staging.example/v1",
-		"--header", "X-Environment=staging",
-	}, &stdout, &stderr, providerSetupDeps(configPath))
-	if exitCode != exitSuccess {
-		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
-	}
-	profile := readFileConfig(t, configPath).Providers[0]
-	if _, ok := profile.CustomHeaders["X-AIMLAPI-Partner-ID"]; ok {
-		t.Fatalf("partner attribution leaked to overridden endpoint: %#v", profile.CustomHeaders)
-	}
-	if _, ok := profile.CustomHeaders["X-AIMLAPI-Integration-Repo"]; ok {
-		t.Fatalf("integration attribution leaked to overridden endpoint: %#v", profile.CustomHeaders)
-	}
-	if profile.CustomHeaders["X-Environment"] != "staging" {
-		t.Fatalf("explicit user header was dropped: %#v", profile.CustomHeaders)
-	}
-}
-
 func TestRunProvidersAddWritesCustomHeaders(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
 
 	exitCode := runWithDeps([]string{
-		"providers", "add", "custom-openai-compatible",
+		"providers", "add", "qg",
 		"--name", "gateway",
 		"--base-url", "https://gateway.example/v1",
 		"--model", "gateway-model",
@@ -451,23 +407,6 @@ func TestRunProvidersAddWritesCustomHeaders(t *testing.T) {
 	}
 	if profile.CustomHeaders["HTTP-Referer"] != "https://qg.dev" || profile.CustomHeaders["X-Title"] != "QG" {
 		t.Fatalf("unexpected custom headers: %#v", profile.CustomHeaders)
-	}
-}
-
-func TestRunProvidersAddRejectsCatalogOnlyTransports(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	exitCode := runWithDeps([]string{"providers", "add", "bedrock"}, &stdout, &stderr, providerSetupDeps(filepath.Join(t.TempDir(), "config.json")))
-
-	if exitCode != exitUsage {
-		t.Fatalf("expected exit code %d, got %d", exitUsage, exitCode)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("expected empty stdout, got %q", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "native adapter") {
-		t.Fatalf("expected native adapter warning, got %q", stderr.String())
 	}
 }
 
@@ -671,23 +610,23 @@ func TestRunProvidersCheckAcceptsAuthHeaderValueCredential(t *testing.T) {
 	deps := commandCenterDeps(t)
 	deps.resolveConfig = func(string, config.Overrides) (config.ResolvedConfig, error) {
 		profile := config.ProviderProfile{
-			Name:            "groq",
+			Name:            "qg",
 			ProviderKind:    config.ProviderKindOpenAICompatible,
-			CatalogID:       "groq",
-			BaseURL:         "https://api.groq.com/openai/v1",
-			APIKeyEnv:       "GROQ_API_KEY",
+			CatalogID:       "qg",
+			BaseURL:         "https://api.quebragalho.dev/v1",
+			APIKeyEnv:       "QUEBRAGALHO_API_KEY",
 			AuthHeader:      "X-API-Key",
 			AuthHeaderValue: "direct-secret",
-			Model:           "llama-3.3-70b-versatile",
+			Model:           "muse-spark-1.3-contributor",
 		}
-		return config.ResolvedConfig{ActiveProvider: "groq", Provider: profile, Providers: []config.ProviderProfile{profile}, MaxTurns: 7}, nil
+		return config.ResolvedConfig{ActiveProvider: "qg", Provider: profile, Providers: []config.ProviderProfile{profile}, MaxTurns: 7}, nil
 	}
 	deps.newProvider = func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 		checked = profile
 		return commandCenterProvider{}, nil
 	}
 
-	exitCode := runWithDeps([]string{"providers", "check", "groq"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"providers", "check", "qg"}, &stdout, &stderr, deps)
 
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
@@ -965,12 +904,5 @@ func TestProvidersListMarksOAuthLoginProviders(t *testing.T) {
 	rendered := formatProviderSummaries("list", summary.Providers)
 	if !strings.Contains(rendered, "oauth login") {
 		t.Fatalf("list should render the oauth login state, got:\n%s", rendered)
-	}
-}
-
-func TestAtomicCatalogSetupRequiresLoadedModel(t *testing.T) {
-	out := formatProviderCatalogLine(providerCatalogSummary{ID: "atomic-chat-local", RuntimeSupported: true})
-	if strings.Contains(out, "qg providers setup atomic-chat-local --set-active") || !strings.Contains(out, "qg setup") {
-		t.Fatalf("catalog advertises a failing setup command: %s", out)
 	}
 }

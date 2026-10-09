@@ -17,7 +17,8 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	golang.org/x/image v0.45.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 	mvdan.cc/sh/v3 v3.13.1
 )

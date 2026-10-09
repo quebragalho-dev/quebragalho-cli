@@ -28,6 +28,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/peermsg"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
@@ -87,14 +88,13 @@ type model struct {
 	provider             qgruntime.Provider
 	// allowEscalation mirrors Options.AllowEscalation: it gates the per-run model
 	// switchers, and the caller gates the escalate_model tool on the same flag.
-	allowEscalation             bool
-	newProvider                 func(config.ProviderProfile) (qgruntime.Provider, error)
-	newTurnSessionProvider      func(config.ProviderProfile, qgruntime.Provider) qgruntime.TurnSessionProvider
-	probeProviderHealth         func(context.Context, providerhealth.Options) providerhealth.Result
-	discoverProviderModels      func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
-	discoverOllamaContextWindow func(ctx context.Context, baseURL string, model string) (int, error)
-	registry                    *tools.Registry
-	awaitToolReadiness          func(context.Context)
+	allowEscalation        bool
+	newProvider            func(config.ProviderProfile) (qgruntime.Provider, error)
+	newTurnSessionProvider func(config.ProviderProfile, qgruntime.Provider) qgruntime.TurnSessionProvider
+	probeProviderHealth    func(context.Context, providerhealth.Options) providerhealth.Result
+	discoverProviderModels func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
+	registry               *tools.Registry
+	awaitToolReadiness     func(context.Context)
 	// lspManager is created once per session and reused across prompts so gopls (and
 	// other language servers) stay warm — a fresh manager per run would cold-start
 	// the server on the first edit of every turn. Nil when cwd is unknown; runs then
@@ -562,13 +562,6 @@ type model struct {
 	// catalog descriptor ID), so /model shows each provider's real current models —
 	// the same list the provider-setup wizard discovers — not the static catalog.
 	modelPickerLiveByProvider map[string][]providermodeldiscovery.Model
-	// ollamaContextWindowByModel holds context-window sizes fetched from a local
-	// Ollama daemon's native /api/show endpoint (keyed by model name), for
-	// custom/local models that have no curated-catalog entry and whose
-	// OpenAI-compatible /v1/models listing doesn't carry that metadata at all —
-	// see modelContextWindow.
-	ollamaContextWindowByModel map[string]int
-
 	// pendingImages holds image attachments staged by /image for the next user
 	// turn; pendingImageLabels are their display names (base(path)) for the chip
 	// row. Both are cleared after a prompt is submitted (or /image clear). nil =
@@ -1009,7 +1002,6 @@ func newModel(ctx context.Context, options Options) model {
 		newTurnSessionProvider:      options.NewTurnSessionProvider,
 		probeProviderHealth:         options.ProbeProviderHealth,
 		discoverProviderModels:      options.DiscoverProviderModels,
-		discoverOllamaContextWindow: options.DiscoverOllamaContextWindow,
 		registry:                    registry,
 		awaitToolReadiness:          options.AwaitToolReadiness,
 		sessionStore:                sessionStore,
@@ -1208,13 +1200,6 @@ func (m model) Init() tea.Cmd {
 		if cmd := m.modelPickerProviderDiscoveryCmd(descriptor, m.providerProfile); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		// The generic discovery above has no source for a local Ollama model's
-		// context window (see ollamaContextWindowDiscoveryCmd); probe its
-		// native /api/show separately so the gauge works for custom/local
-		// Ollama models too, not just ones in the curated catalog.
-		if cmd := m.ollamaContextWindowDiscoveryCmd(descriptor, m.providerProfile.BaseURL, m.modelName); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
 	}
 	if m.prService != nil && m.runtimeMessageSink != nil {
 		service := m.prService
@@ -1252,9 +1237,6 @@ func (m model) noBlockingModal() bool {
 }
 
 func (m model) quit() (tea.Model, tea.Cmd) {
-	if m.providerWizard != nil {
-		m.providerWizard.resetAimlapiOnboard()
-	}
 	m.stopPRWatcher()
 	m.stopAllBackgroundTerminalSessions()
 	m.shutdownLSPManager()
@@ -1503,14 +1485,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = m.dragToEdgeScroll(m.edgeScrollDelta, m.edgeScrollMouseX)
 		return m, dragEdgeScrollTickCmd(m.edgeScrollSeq)
-	case providerWizardOAuthMsg:
-		return m.applyProviderWizardOAuth(msg)
-	case aimlapiOnboardMsg:
-		return m.applyAimlapiOnboard(msg)
-	case aimlapiExistingBalanceMsg:
-		return m.applyExistingAimlapiBalance(msg)
-	case providerWizardDeviceCodeMsg:
-		return m.applyProviderWizardDeviceCode(msg)
 	case providerManagerCredsMsg:
 		return m.applyProviderManagerCreds(msg)
 	case providerManagerCleanupMsg:
@@ -2404,16 +2378,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// its short lifecycle fade needs the phase to keep advancing until the
 		// agents clear.
 		if !m.pending && !m.compactInFlight && !m.doctorInFlight {
-			// The tick also keeps advancing while the aimlapi.com onboarding sub-flow is
-			// busy (its progress screen is spinner-only), even though no agent run is in
-			// flight, so its shared MiniDot spinner keeps animating.
-			//
 			// Return the FPS-throttled tick that Update hands back — NOT m.spinner.Tick,
 			// which fires immediately and busy-loops the frame at event-loop speed. That
 			// makes the glyph spin far too fast (and burns CPU) on screens that sit here
-			// for a while, e.g. the aimlapi checkout wait. The active-run path below
-			// already does this; this keeps idle animation at the same cadence.
-			if (m.sidebarHasAgents() || m.aimlapiOnboardAnimating()) && !m.reducedMotion {
+			// for a while. The active-run path below already does this; this keeps idle
+			// animation at the same cadence.
+			if m.sidebarHasAgents() && !m.reducedMotion {
 				var cmd tea.Cmd
 				m.spinner, cmd = m.spinner.Update(msg)
 				m.spinnerPhase++
@@ -3021,12 +2991,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case providerModelsDiscoveredMsg:
 		return m.applyProviderModelsDiscovered(msg), nil
-	case setupModelsDiscoveredMsg:
-		return m.applySetupModelsDiscovered(msg), nil
-	case setupOAuthMsg:
-		return m.applySetupOAuth(msg)
-	case setupOAuthDeviceMsg:
-		return m.applySetupOAuthDeviceCode(msg)
+	case setupKeyCheckMsg:
+		return m.applySetupKeyCheck(msg), nil
 	case modelPickerModelsDiscoveredMsg:
 		return m.applyModelPickerModelsDiscovered(msg), nil
 	case petCatalogLoadedMsg:
@@ -3057,14 +3023,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.petPhase++
 		}
 		return m, petTickCmd(m.petTickSeq, m.petFrameDelay())
-	case ollamaContextWindowDiscoveredMsg:
-		if msg.err == nil && msg.contextWindow > 0 {
-			if m.ollamaContextWindowByModel == nil {
-				m.ollamaContextWindowByModel = map[string]int{}
-			}
-			m.ollamaContextWindowByModel[msg.modelName] = msg.contextWindow
-		}
-		return m, nil
 	case mcpCommandResultMsg:
 		return m.applyMCPCommandResultMessage(msg), nil
 	}
@@ -5169,7 +5127,7 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 	if m.provider == nil {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
 			kind: actionAppendAssistant,
-			text: "No provider configured. Run `qg setup` (guided) or `qg auth` (OAuth) from a shell, or set a provider API key env var, then relaunch.",
+			text: "No provider configured. Set " + providercatalog.KeyEnvHint + " in your environment or run `qg login`, then run `qg setup qg` (see `qg setup --help`), then relaunch.",
 		})
 		return m, nil
 	}
@@ -5318,7 +5276,7 @@ func (m *model) ensureSpinnerTick() tea.Cmd {
 	if m.spinnerTicking || m.reducedMotion {
 		return nil
 	}
-	if !m.sidebarHasAgents() && !m.aimlapiOnboardAnimating() {
+	if !m.sidebarHasAgents() {
 		return nil
 	}
 	m.spinnerTicking = true
@@ -5563,10 +5521,9 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// compaction (proactive + reactive) is enabled for every model, not just
 		// catalogued ones.
 		options.ContextWindow = modelregistry.AgentContextWindow(m.modelContextWindow(m.modelName))
-		// Route compaction summarization to a cheap model when one applies
-		// (env > config > curated default). The factory is lazy, re-evaluated
-		// against the model in force when the compactor asks (so an escalation
-		// away from the cheap model gains a summarizer), and the agent falls
+		// Route compaction summarization to an opted-in model when one applies
+		// (env > config; no curated default). The factory is lazy, re-evaluated
+		// against the model in force when the compactor asks, and the agent falls
 		// back to the main provider on any summarizer failure. Resolved against
 		// the ACTIVE profile so it tracks mid-session model switches.
 		options.Summarizer = providers.CompactionSummarizerFactory(m.providerProfile, m.compactionModel, m.newProvider)

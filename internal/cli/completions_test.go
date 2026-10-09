@@ -153,13 +153,13 @@ func TestCompletionTreeCoversAliasesNestingAndCommonFlags(t *testing.T) {
 		byPath[context.path] = context.candidates
 	}
 
-	assertCandidates(t, byPath[""], "sessions", "session", "plugins", "plugin", "worktrees", "worktree", "--add-dir", "--theme", "-p", "--prompt")
+	assertCandidates(t, byPath[""], "sessions", "session", "plugins", "plugin", "worktrees", "worktree", "login", "--add-dir", "--theme", "-p", "--prompt")
 	assertCandidates(t, byPath["exec"], "--model", "--cwd", "--worktree", "--output-format", "--resume", "--skip-permissions-unsafe")
 	assertCandidates(t, byPath["worktrees"], "prepare", "release")
 	assertCandidates(t, byPath["worktree"], "prepare", "release")
 	assertCandidates(t, byPath["daemon"], "start", "stop", "status", "run", "attach")
 	assertCandidates(t, byPath["mcp oauth"], "login", "logout", "status")
-	assertCandidates(t, byPath["auth"], "openrouter", "chatgpt", "login", "logout", "status", "refresh", "reset")
+	assertCandidates(t, byPath["auth"], "logout", "status", "refresh", "reset")
 	assertCandidates(t, byPath["auth reset"], "--confirm", "--json", "--help")
 	assertCandidates(t, byPath["sandbox grants"], "list", "allow", "deny", "revoke", "clear")
 	assertCandidates(t, byPath["completions"], "bash", "zsh", "fish", "powershell", "elvish")

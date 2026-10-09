@@ -225,7 +225,7 @@ func TestResolveLoadsProviderCatalogSnakeAndCamelJSONFields(t *testing.T) {
 			"provider_kind": "openai-compatible",
 			"base_url": "https://snake.example/v1",
 			"model": "snake-model",
-			"catalog_id": "custom-openai-compatible",
+			"catalog_id": "qg",
 			"api_key_env": "QG_SNAKE_API_KEY",
 			"api_format": "responses",
 			"auth_header": "X-API-Key",
@@ -233,9 +233,9 @@ func TestResolveLoadsProviderCatalogSnakeAndCamelJSONFields(t *testing.T) {
 			"auth_header_value": "env:QG_SNAKE_HEADER"
 		}, {
 			"name": "camel",
-			"provider": "anthropic",
+			"provider": "openai-compatible",
 			"model": "camel-model",
-			"catalogID": "anthropic",
+			"catalogID": "qg",
 			"apiKeyEnv": "QG_CAMEL_API_KEY",
 			"apiFormat": "messages",
 			"authHeader": "Authorization",
@@ -249,7 +249,7 @@ func TestResolveLoadsProviderCatalogSnakeAndCamelJSONFields(t *testing.T) {
 		t.Fatalf("Resolve() error = %v", err)
 	}
 
-	if resolved.Provider.CatalogID != "custom-openai-compatible" {
+	if resolved.Provider.CatalogID != "qg" {
 		t.Fatalf("CatalogID = %q, want snake alias value", resolved.Provider.CatalogID)
 	}
 	if resolved.Provider.APIKeyEnv != "QG_SNAKE_API_KEY" {
@@ -272,7 +272,7 @@ func TestResolveLoadsProviderCatalogSnakeAndCamelJSONFields(t *testing.T) {
 	}
 
 	camel := providerByName(t, resolved.Providers, "camel")
-	if camel.CatalogID != "anthropic" {
+	if camel.CatalogID != "qg" {
 		t.Fatalf("camel CatalogID = %q, want camel alias value", camel.CatalogID)
 	}
 	if camel.APIKeyEnv != "QG_CAMEL_API_KEY" {
@@ -300,7 +300,7 @@ func TestResolveMergesProviderCatalogFieldsByLayerPrecedence(t *testing.T) {
 			"provider_kind": "openai-compatible",
 			"base_url": "https://catalog.example/v1",
 			"model": "user-model",
-			"catalog_id": "openai",
+			"catalog_id": "qg",
 			"api_key_env": "QG_USER_API_KEY",
 			"api_format": "user-format",
 			"auth_header": "X-User-Key",
@@ -311,7 +311,7 @@ func TestResolveMergesProviderCatalogFieldsByLayerPrecedence(t *testing.T) {
 	projectPath := writeConfig(t, `{
 		"providers": [{
 			"name": "catalog",
-			"catalogID": "anthropic",
+			"catalogID": "qg",
 			"apiFormat": "project-format",
 			"authHeader": "X-Project-Key",
 			"authScheme": "ProjectScheme",
@@ -326,7 +326,7 @@ func TestResolveMergesProviderCatalogFieldsByLayerPrecedence(t *testing.T) {
 		Overrides: Overrides{
 			Provider: ProviderProfile{
 				Name:       "catalog",
-				CatalogID:  "custom-openai-compatible",
+				CatalogID:  "qg",
 				APIFormat:  "cli-format",
 				AuthScheme: "CliScheme",
 			},
@@ -336,7 +336,7 @@ func TestResolveMergesProviderCatalogFieldsByLayerPrecedence(t *testing.T) {
 		t.Fatalf("Resolve() error = %v", err)
 	}
 
-	if resolved.Provider.CatalogID != "custom-openai-compatible" {
+	if resolved.Provider.CatalogID != "qg" {
 		t.Fatalf("CatalogID = %q, want CLI override", resolved.Provider.CatalogID)
 	}
 	if resolved.Provider.APIKeyEnv != "QG_USER_API_KEY" {
@@ -494,27 +494,27 @@ func TestResolveRejectsProjectBaseURLOverrideWithInheritedCompatibleCredentials(
 
 func TestResolveAllowsProjectCatalogAPIKeyEnvOnCatalogEndpoint(t *testing.T) {
 	path := writeConfig(t, `{
-		"activeProvider": "openrouter",
+		"activeProvider": "qg",
 		"providers": [{
-			"name": "openrouter",
-			"catalogID": "openrouter",
-			"apiKeyEnv": "OPENROUTER_API_KEY"
+			"name": "qg",
+			"catalogID": "qg",
+			"apiKeyEnv": "QUEBRAGALHO_API_KEY"
 		}]
 	}`)
 
 	resolved, err := Resolve(ResolveOptions{
 		ProjectConfigPath: path,
 		Env: map[string]string{
-			"OPENROUTER_API_KEY": "sk-openrouter",
+			"QUEBRAGALHO_API_KEY": "sk-qg",
 		},
 	})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if resolved.Provider.APIKey != "sk-openrouter" {
+	if resolved.Provider.APIKey != "sk-qg" {
 		t.Fatalf("APIKey = %q, want catalog env-resolved key", resolved.Provider.APIKey)
 	}
-	if resolved.Provider.BaseURL != "https://openrouter.ai/api/v1" {
+	if resolved.Provider.BaseURL != "https://api.quebragalho.dev/v1" {
 		t.Fatalf("BaseURL = %q, want catalog default", resolved.Provider.BaseURL)
 	}
 }
@@ -1281,173 +1281,49 @@ func TestResolveRejectsAnthropicCompatibleOfficialHostWithPath(t *testing.T) {
 
 func TestResolveAppliesProviderCatalogDefaults(t *testing.T) {
 	path := writeConfig(t, `{
-		"activeProvider": "mini",
+		"activeProvider": "qg",
 		"providers": [{
-			"name": "mini",
-			"catalog_id": "minimax"
+			"name": "qg",
+			"catalog_id": "qg"
 		}]
 	}`)
 
 	resolved, err := Resolve(ResolveOptions{
 		ProjectConfigPath: path,
 		Env: map[string]string{
-			"MINIMAX_API_KEY": "sk-mini",
+			"QUEBRAGALHO_API_KEY": "sk-qg",
 		},
 	})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
 
-	if resolved.Provider.CatalogID != "minimax" {
-		t.Fatalf("CatalogID = %q, want minimax", resolved.Provider.CatalogID)
-	}
-	if resolved.Provider.ProviderKind != ProviderKindAnthropicCompat {
-		t.Fatalf("ProviderKind = %q, want %q", resolved.Provider.ProviderKind, ProviderKindAnthropicCompat)
-	}
-	if resolved.Provider.BaseURL != "https://api.minimax.io/anthropic" {
-		t.Fatalf("BaseURL = %q, want MiniMax default", resolved.Provider.BaseURL)
-	}
-	if resolved.Provider.Model != "MiniMax-M3" {
-		t.Fatalf("Model = %q, want MiniMax-M3", resolved.Provider.Model)
-	}
-	if resolved.Provider.APIKeyEnv != "MINIMAX_API_KEY" {
-		t.Fatalf("APIKeyEnv = %q, want MINIMAX_API_KEY", resolved.Provider.APIKeyEnv)
-	}
-	if resolved.Provider.APIKey != "sk-mini" {
-		t.Fatalf("APIKey = %q, want env-resolved secret", resolved.Provider.APIKey)
-	}
-}
-
-func TestResolveAppliesMiniMaxCNCatalogDefaults(t *testing.T) {
-	path := writeConfig(t, `{
-		"activeProvider": "mini-cn",
-		"providers": [{
-			"name": "mini-cn",
-			"catalog_id": "minimaxi-cn"
-		}]
-	}`)
-
-	resolved, err := Resolve(ResolveOptions{
-		ProjectConfigPath: path,
-		Env: map[string]string{
-			"MINIMAXI_API_KEY": "sk-cn-mini",
-		},
-	})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
-
-	if resolved.Provider.CatalogID != "minimaxi-cn" {
-		t.Fatalf("CatalogID = %q, want minimaxi-cn", resolved.Provider.CatalogID)
-	}
-	if resolved.Provider.ProviderKind != ProviderKindAnthropicCompat {
-		t.Fatalf("ProviderKind = %q, want %q", resolved.Provider.ProviderKind, ProviderKindAnthropicCompat)
-	}
-	if resolved.Provider.BaseURL != "https://api.minimaxi.com/anthropic" {
-		t.Fatalf("BaseURL = %q, want MiniMax CN default", resolved.Provider.BaseURL)
-	}
-	if resolved.Provider.Model != "MiniMax-M3" {
-		t.Fatalf("Model = %q, want MiniMax-M3", resolved.Provider.Model)
-	}
-	if resolved.Provider.APIKeyEnv != "MINIMAXI_API_KEY" {
-		t.Fatalf("APIKeyEnv = %q, want MINIMAXI_API_KEY", resolved.Provider.APIKeyEnv)
-	}
-	if resolved.Provider.APIKey != "sk-cn-mini" {
-		t.Fatalf("APIKey = %q, want env-resolved secret", resolved.Provider.APIKey)
-	}
-}
-
-func TestResolveAppliesZaiCNCatalogDefaults(t *testing.T) {
-	// The "zai-cn" catalog entry preserves the legacy open.bigmodel.cn endpoint
-	// for users who still target the China hosting; "zai" itself now points at
-	// api.z.ai (international). The two env-vars are intentionally distinct
-	// (ZHIPU_API_KEY for China, ZAI_API_KEY for international) so an account on
-	// one side cannot be silently used against the other.
-	path := writeConfig(t, `{
-		"activeProvider": "zai-cn",
-		"providers": [{
-			"name": "zai-cn",
-			"catalog_id": "zai-cn"
-		}]
-	}`)
-
-	resolved, err := Resolve(ResolveOptions{
-		ProjectConfigPath: path,
-		Env: map[string]string{
-			"ZHIPU_API_KEY": "sk-zhipu-cn",
-		},
-	})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
-
-	if resolved.Provider.CatalogID != "zai-cn" {
-		t.Fatalf("CatalogID = %q, want zai-cn", resolved.Provider.CatalogID)
+	if resolved.Provider.CatalogID != "qg" {
+		t.Fatalf("CatalogID = %q, want qg", resolved.Provider.CatalogID)
 	}
 	if resolved.Provider.ProviderKind != ProviderKindOpenAICompatible {
 		t.Fatalf("ProviderKind = %q, want %q", resolved.Provider.ProviderKind, ProviderKindOpenAICompatible)
 	}
-	if resolved.Provider.BaseURL != "https://open.bigmodel.cn/api/paas/v4" {
-		t.Fatalf("BaseURL = %q, want Z.ai China default", resolved.Provider.BaseURL)
+	if resolved.Provider.BaseURL != "https://api.quebragalho.dev/v1" {
+		t.Fatalf("BaseURL = %q, want QG default", resolved.Provider.BaseURL)
 	}
-	if resolved.Provider.Model != "glm-4.5" {
-		t.Fatalf("Model = %q, want glm-4.5 (China default)", resolved.Provider.Model)
+	if resolved.Provider.Model != "muse-spark-1.3-contributor" {
+		t.Fatalf("Model = %q, want muse-spark-1.3-contributor", resolved.Provider.Model)
 	}
-	if resolved.Provider.APIKeyEnv != "ZHIPU_API_KEY" {
-		t.Fatalf("APIKeyEnv = %q, want ZHIPU_API_KEY", resolved.Provider.APIKeyEnv)
+	if resolved.Provider.APIKeyEnv != "QUEBRAGALHO_API_KEY" {
+		t.Fatalf("APIKeyEnv = %q, want QUEBRAGALHO_API_KEY", resolved.Provider.APIKeyEnv)
 	}
-	if resolved.Provider.APIKey != "sk-zhipu-cn" {
+	if resolved.Provider.APIKey != "sk-qg" {
 		t.Fatalf("APIKey = %q, want env-resolved secret", resolved.Provider.APIKey)
 	}
 }
 
-func TestResolveAppliesZaiInternationalCatalogDefaults(t *testing.T) {
-	// "zai" now resolves to the international endpoint; the catalog default
-	// model stays glm-4.5 (live discovery upgrades to glm-5.2 at runtime).
+func TestResolveProviderCatalogAliasResolvesToQG(t *testing.T) {
 	path := writeConfig(t, `{
-		"activeProvider": "zai-intl",
+		"activeProvider": "qg",
 		"providers": [{
-			"name": "zai-intl",
-			"catalog_id": "zai"
-		}]
-	}`)
-
-	resolved, err := Resolve(ResolveOptions{
-		ProjectConfigPath: path,
-		Env: map[string]string{
-			"ZAI_API_KEY": "sk-zai-intl",
-		},
-	})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
-
-	if resolved.Provider.CatalogID != "zai" {
-		t.Fatalf("CatalogID = %q, want zai", resolved.Provider.CatalogID)
-	}
-	if resolved.Provider.ProviderKind != ProviderKindOpenAICompatible {
-		t.Fatalf("ProviderKind = %q, want %q", resolved.Provider.ProviderKind, ProviderKindOpenAICompatible)
-	}
-	if resolved.Provider.BaseURL != "https://api.z.ai/api/paas/v4" {
-		t.Fatalf("BaseURL = %q, want Z.ai international default", resolved.Provider.BaseURL)
-	}
-	if resolved.Provider.Model != "glm-4.5" {
-		t.Fatalf("Model = %q, want glm-4.5 (preserved default; live discovery upgrades to glm-5.2 at runtime)", resolved.Provider.Model)
-	}
-	if resolved.Provider.APIKeyEnv != "ZAI_API_KEY" {
-		t.Fatalf("APIKeyEnv = %q, want ZAI_API_KEY", resolved.Provider.APIKeyEnv)
-	}
-	if resolved.Provider.APIKey != "sk-zai-intl" {
-		t.Fatalf("APIKey = %q, want env-resolved secret", resolved.Provider.APIKey)
-	}
-}
-
-func TestResolveProviderCatalogAliasAndLocalNoAuth(t *testing.T) {
-	path := writeConfig(t, `{
-		"activeProvider": "local",
-		"providers": [{
-			"name": "local",
-			"catalogID": "lm-studio"
+			"name": "qg",
+			"catalogID": " Quebra Galho "
 		}]
 	}`)
 
@@ -1456,14 +1332,14 @@ func TestResolveProviderCatalogAliasAndLocalNoAuth(t *testing.T) {
 		t.Fatalf("Resolve() error = %v", err)
 	}
 
-	if resolved.Provider.CatalogID != "lmstudio" {
-		t.Fatalf("CatalogID = %q, want lmstudio", resolved.Provider.CatalogID)
+	if resolved.Provider.CatalogID != "qg" {
+		t.Fatalf("CatalogID = %q, want canonical qg", resolved.Provider.CatalogID)
 	}
 	if resolved.Provider.ProviderKind != ProviderKindOpenAICompatible {
 		t.Fatalf("ProviderKind = %q, want openai-compatible", resolved.Provider.ProviderKind)
 	}
 	if resolved.Provider.APIKey != "" {
-		t.Fatalf("APIKey = %q, want empty for local provider", resolved.Provider.APIKey)
+		t.Fatalf("APIKey = %q, want empty when no credential is configured", resolved.Provider.APIKey)
 	}
 }
 
@@ -1473,7 +1349,7 @@ func TestResolveProviderProfileExtendedJSONAliases(t *testing.T) {
 		"providers": [{
 			"name": "custom",
 			"providerKind": "openai-compatible",
-			"catalogID": "custom-openai-compatible",
+			"catalogID": "qg",
 			"base_url": "https://custom.example/v1",
 			"api_key_env": "CUSTOM_KEY",
 			"api_format": "responses",
@@ -1495,7 +1371,7 @@ func TestResolveProviderProfileExtendedJSONAliases(t *testing.T) {
 	}
 
 	profile := resolved.Provider
-	if profile.CatalogID != "custom-openai-compatible" || profile.APIKeyEnv != "CUSTOM_KEY" {
+	if profile.CatalogID != "qg" || profile.APIKeyEnv != "CUSTOM_KEY" {
 		t.Fatalf("profile aliases not loaded: %#v", profile)
 	}
 	if profile.APIKey != "sk-custom-env" {
@@ -1513,128 +1389,25 @@ func TestResolveProviderProfileExtendedJSONAliases(t *testing.T) {
 }
 
 func TestApplyCatalogDescriptorFoldsCustomHeadersCaseInsensitively(t *testing.T) {
-	t.Setenv("AIMLAPI_PARTNER_ID", "part_env")
-	descriptor, err := providercatalog.Require("aimlapi")
-	if err != nil {
-		t.Fatal(err)
+	descriptor := providercatalog.Descriptor{
+		ID:             "synthetic",
+		DefaultBaseURL: "https://gw.example/v1",
+		CustomHeaders:  map[string]string{"X-Partner-Id": "part_catalog"},
 	}
 	profile := ProviderProfile{
 		BaseURL: descriptor.DefaultBaseURL,
 		CustomHeaders: map[string]string{
-			"x-aimlapi-partner-id": "part_override",
+			"x-partner-id": "part_override",
 		},
 	}
 
 	applyCatalogDescriptor(&profile, descriptor, true)
 
-	if got := profile.CustomHeaders["X-AIMLAPI-Partner-ID"]; got != "part_override" {
+	if got := profile.CustomHeaders["X-Partner-Id"]; got != "part_override" {
 		t.Fatalf("canonical header value = %q, want override", got)
 	}
-	if _, duplicate := profile.CustomHeaders["x-aimlapi-partner-id"]; duplicate {
+	if _, duplicate := profile.CustomHeaders["x-partner-id"]; duplicate {
 		t.Fatalf("case-colliding header survived merge: %#v", profile.CustomHeaders)
-	}
-}
-
-func TestApplyCatalogDescriptorUsesAimlapiPartnerEnvironmentOverride(t *testing.T) {
-	t.Setenv("AIMLAPI_PARTNER_ID", "part_env")
-	descriptor, err := providercatalog.Require("aimlapi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	profile := ProviderProfile{BaseURL: descriptor.DefaultBaseURL}
-
-	applyCatalogDescriptor(&profile, descriptor, true)
-
-	if got := profile.CustomHeaders["X-AIMLAPI-Partner-ID"]; got != "part_env" {
-		t.Fatalf("partner header = %q, want part_env", got)
-	}
-}
-
-func TestApplyCatalogDescriptorStripsAimlapiAttributionFromRetargetedProfile(t *testing.T) {
-	descriptor, err := providercatalog.Require("aimlapi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	profile := ProviderProfile{
-		BaseURL: "https://proxy.example.test/v1",
-		CustomHeaders: map[string]string{
-			"x-aimlapi-partner-id":          "persisted-partner",
-			"X-AIMLAPI-Integration-Repo":    "quebragalho-dev/quebragalho-cli",
-			"X-AIMLAPI-Integration-Version": "qg",
-			"X-Environment":                 "staging",
-		},
-	}
-
-	applyCatalogDescriptor(&profile, descriptor, true)
-
-	for key := range profile.CustomHeaders {
-		if strings.HasPrefix(strings.ToLower(key), "x-aimlapi-") {
-			t.Fatalf("catalog attribution survived retargeting: %#v", profile.CustomHeaders)
-		}
-	}
-	if profile.CustomHeaders["X-Environment"] != "staging" {
-		t.Fatalf("user header was removed: %#v", profile.CustomHeaders)
-	}
-}
-
-func TestResolveProviderProfileParseThinkTagsFalseAlias(t *testing.T) {
-	path := writeConfig(t, `{
-		"activeProvider": "custom",
-		"providers": [{
-			"name": "custom",
-			"provider_kind": "openai-compatible",
-			"base_url": "https://custom.example/v1",
-			"model_id": "custom-model",
-			"parse_think_tags": false
-		}]
-	}`)
-
-	resolved, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
-	if resolved.Provider.ParseThinkTags == nil || *resolved.Provider.ParseThinkTags {
-		t.Fatalf("ParseThinkTags = %#v, want explicit false", resolved.Provider.ParseThinkTags)
-	}
-}
-
-func TestResolveRejectsUnknownProviderCatalogID(t *testing.T) {
-	path := writeConfig(t, `{
-		"activeProvider": "bad",
-		"providers": [{
-			"name": "bad",
-			"catalog_id": "missing",
-			"apiKey": "sk-secret-value"
-		}]
-	}`)
-
-	_, err := Resolve(ResolveOptions{ProjectConfigPath: path, Env: map[string]string{}})
-	if err == nil {
-		t.Fatal("Resolve() error = nil, want unknown catalog ID error")
-	}
-	if !strings.Contains(err.Error(), `unknown provider "missing"`) {
-		t.Fatalf("error = %q, want unknown catalog ID", err.Error())
-	}
-	if strings.Contains(err.Error(), "sk-secret-value") {
-		t.Fatalf("error leaked secret: %q", err.Error())
-	}
-}
-
-func TestResolveRejectsCatalogOnlyProviderRuntime(t *testing.T) {
-	path := writeConfig(t, `{
-		"activeProvider": "bedrock",
-		"providers": [{
-			"name": "bedrock",
-			"catalog_id": "bedrock"
-		}]
-	}`)
-
-	_, err := Resolve(ResolveOptions{ProjectConfigPath: path, Env: map[string]string{}})
-	if err == nil {
-		t.Fatal("Resolve() error = nil, want catalog-only runtime rejection")
-	}
-	if !strings.Contains(err.Error(), "native adapter not implemented yet") {
-		t.Fatalf("error = %q, want native adapter unsupported message", err.Error())
 	}
 }
 
@@ -2127,34 +1900,27 @@ func TestResolveMaxTurnsZeroFallsBackToDefault(t *testing.T) {
 // including qg config and bare qg setup — the only commands that could
 // have fixed it. Official-API kinds now fall back to their catalog default
 // model, exactly like the openai kind always has.
-func TestResolveDefaultsGoogleModelFromCatalog(t *testing.T) {
-	path := writeConfig(t, `{
-		"activeProvider": "google",
-		"providers": [{"name": "google", "provider_kind": "google", "apiKey": "AIza-x"}]
-	}`)
-	resolved, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v, want model defaulted from the google catalog", err)
-	}
-	if resolved.Provider.Model != "gemini-2.5-pro" {
-		t.Fatalf("Model = %q, want the google catalog default gemini-2.5-pro", resolved.Provider.Model)
-	}
-	if resolved.Provider.BaseURL != GoogleBaseURL {
-		t.Fatalf("BaseURL = %q, want %q", resolved.Provider.BaseURL, GoogleBaseURL)
-	}
-}
-
-func TestResolveDefaultsAnthropicModelFromCatalog(t *testing.T) {
-	path := writeConfig(t, `{
-		"activeProvider": "anthropic",
-		"providers": [{"name": "anthropic", "provider_kind": "anthropic", "apiKey": "sk-ant-x"}]
-	}`)
-	resolved, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v, want model defaulted from the anthropic catalog", err)
-	}
-	if resolved.Provider.Model != "claude-sonnet-4.5" {
-		t.Fatalf("Model = %q, want the anthropic catalog default claude-sonnet-4.5", resolved.Provider.Model)
+// Official-kind profiles no longer get a model from a catalog descriptor (the
+// catalog is single-provider); a model-less profile must surface the
+// requires-model error instead of resolving with an empty model.
+func TestResolveRequiresModelForKindOnlyProfiles(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind ProviderKind
+	}{
+		{name: "google", kind: ProviderKindGoogle},
+		{name: "anthropic", kind: ProviderKindAnthropic},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, `{
+				"activeProvider": "`+tc.name+`",
+				"providers": [{"name": "`+tc.name+`", "provider_kind": "`+string(tc.kind)+`", "apiKey": "sk-x"}]
+			}`)
+			_, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
+			if err == nil || !strings.Contains(err.Error(), "requires model") {
+				t.Fatalf("Resolve() error = %v, want requires-model", err)
+			}
+		})
 	}
 }
 

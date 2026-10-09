@@ -25,7 +25,7 @@ func TestWidthTierSegments(t *testing.T) {
 
 	cases := []struct {
 		width      int
-		wantCtx    bool // header context window ("200K")
+		wantCtx    bool // header context window ("1M")
 		wantCwd    bool // header cwd segment
 		wantArg    bool // tool-card arg column
 		wantGutter bool // diff line-number gutter
@@ -41,12 +41,12 @@ func TestWidthTierSegments(t *testing.T) {
 		m := newModel(context.Background(), Options{
 			Cwd:          "/Users/dev/qg-project-workspace",
 			ProviderName: "anthropic",
-			ModelName:    "claude-sonnet-4.5",
+			ModelName:    "muse-spark-1.3-contributor",
 		})
 		m.width, m.height = tc.width, 30
 
 		title := plainRender(t, m.titleBar(tc.width))
-		if got := strings.Contains(title, "200K"); got != tc.wantCtx {
+		if got := strings.Contains(title, "1M"); got != tc.wantCtx {
 			t.Errorf("width %d: title ctx = %v, want %v (%q)", tc.width, got, tc.wantCtx, title)
 		}
 		if got := strings.Contains(title, "qg-project-workspace"); got != tc.wantCwd {
@@ -72,7 +72,7 @@ func TestWidthTierSegments(t *testing.T) {
 		status := plainRender(t, m.statusLine(tc.width))
 		// Status line now carries the run-state chip (permission mode), NOT the
 		// surface or model (those live in the title bar / composer rule).
-		if strings.Contains(status, "interactive") || strings.Contains(status, "claude-sonnet-4.5") {
+		if strings.Contains(status, "interactive") || strings.Contains(status, "muse-spark-1.3-contributor") {
 			t.Errorf("width %d: status should not include surface or model (%q)", tc.width, status)
 		}
 		if !strings.Contains(status, "auto-approve") {
@@ -80,7 +80,7 @@ func TestWidthTierSegments(t *testing.T) {
 		}
 		divider := plainRender(t, m.composerDividerLine(tc.width))
 		// The composer rule is model-only now; mode/effort moved to the status line.
-		if !strings.Contains(divider, "claude-sonnet-4.5") {
+		if !strings.Contains(divider, "muse-spark-1.3-contributor") {
 			t.Errorf("width %d: composer divider must keep the model label (%q)", tc.width, divider)
 		}
 		if strings.Contains(divider, "auto-approve") {
@@ -90,7 +90,7 @@ func TestWidthTierSegments(t *testing.T) {
 }
 
 func TestTinyTierSingleSegmentAndRailLessCards(t *testing.T) {
-	m := newModel(context.Background(), Options{ProviderName: "anthropic", ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ProviderName: "anthropic", ModelName: "muse-spark-1.3-contributor"})
 	m.width, m.height = 40, 20
 
 	status := plainRender(t, m.statusLine(40))
@@ -99,11 +99,11 @@ func TestTinyTierSingleSegmentAndRailLessCards(t *testing.T) {
 	if !strings.Contains(status, "auto-approve") {
 		t.Fatalf("tiny status = %q, want the permission-mode chip", status)
 	}
-	if strings.Contains(status, "anthropic") || strings.Contains(status, "claude-sonnet-4.5") {
+	if strings.Contains(status, "anthropic") || strings.Contains(status, "muse-spark-1.3-contributor") {
 		t.Fatalf("tiny status = %q, want mode only (no provider/model)", status)
 	}
 	divider := plainRender(t, m.composerDividerLine(40))
-	if !strings.Contains(divider, "claude-sonnet-4.5") {
+	if !strings.Contains(divider, "muse-spark-1.3-contributor") {
 		t.Fatalf("tiny composer divider = %q, want the model label", divider)
 	}
 	if strings.Contains(divider, "auto-approve") {
@@ -168,7 +168,7 @@ func TestViewNeverExceedsTerminalWidth(t *testing.T) {
 		m := newModel(context.Background(), Options{
 			Cwd:          "/Users/dev/qg-project-workspace",
 			ProviderName: "anthropic",
-			ModelName:    "claude-sonnet-4.5",
+			ModelName:    "muse-spark-1.3-contributor",
 		})
 		m.width, m.height = width, 24
 

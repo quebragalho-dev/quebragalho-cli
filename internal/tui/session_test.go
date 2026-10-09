@@ -1264,8 +1264,8 @@ func TestRelativeAgeFormatsLastActivity(t *testing.T) {
 		{"hours", now.Add(-3 * time.Hour), "3h ago"},
 		{"days", now.Add(-12 * 24 * time.Hour), "12d ago"},
 		{"exactly one month", now.Add(-30 * 24 * time.Hour), "30d ago"},
-		{"this year", time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC), "Jan  5"},
-		{"last year", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), "2025-06-01"},
+		{"this year", time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC), time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC).Local().Format("Jan _2")},
+		{"last year", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC).Local().Format("2006-01-02")},
 	}
 	for _, tc := range cases {
 		if got := relativeAge(tc.ts.Format(time.RFC3339), now); got != tc.want {

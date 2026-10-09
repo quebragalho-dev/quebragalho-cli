@@ -11,20 +11,20 @@ import (
 // The context-fill gauge is empty before any request, then shows
 // used/window · pct from the last turn's input tokens against the model window.
 func TestContextWindowSegment(t *testing.T) {
-	m := newModel(t.Context(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(t.Context(), Options{ModelName: "muse-spark-1.3-contributor"})
 	if got := m.contextWindowSegment(); got != "" {
 		t.Fatalf("expected empty gauge before any request, got %q", got)
 	}
-	// 161k latest-step tokens against the 200k window = 81%.
+	// 161k latest-step tokens against the 1M window = 16%.
 	if _, err := m.usageTracker.Record(usage.RecordInput{
-		ModelID: "claude-sonnet-4.5",
+		ModelID: "muse-spark-1.3-contributor",
 		Usage:   qgruntime.Usage{InputTokens: 160_000, OutputTokens: 1000},
 	}); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 	got := plainRender(t, m.contextWindowSegment())
-	if !strings.Contains(got, "161K/200K") || !strings.Contains(got, "81%") {
-		t.Fatalf("gauge = %q, want 161K/200K · 81%%", got)
+	if !strings.Contains(got, "161K/1M") || !strings.Contains(got, "16%") {
+		t.Fatalf("gauge = %q, want 161K/1M · 16%%", got)
 	}
 }
 
@@ -32,18 +32,18 @@ func TestContextWindowSegment(t *testing.T) {
 // figure and the plain usage segment's token count both read the exact same
 // latestUsageTokens value — once the gauge is showing it, the usage segment
 // must fall back to cost-only, or the same number renders twice side by
-// side in the footer (e.g. "◔ 161K/200K · 81% │ 161K tok").
+// side in the footer (e.g. "◔ 161K/1M · 16% │ 161K tok").
 func TestStatusLineDoesNotDuplicateTokenFigureNextToGauge(t *testing.T) {
-	m := newModel(t.Context(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(t.Context(), Options{ModelName: "muse-spark-1.3-contributor"})
 	if _, err := m.usageTracker.Record(usage.RecordInput{
-		ModelID: "claude-sonnet-4.5",
+		ModelID: "muse-spark-1.3-contributor",
 		Usage:   qgruntime.Usage{InputTokens: 160_000, OutputTokens: 1000},
 	}); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 
 	status := plainRender(t, m.statusLine(110))
-	if !strings.Contains(status, "161K/200K") {
+	if !strings.Contains(status, "161K/1M") {
 		t.Fatalf("status line = %q, expected the context gauge to render", status)
 	}
 	if strings.Count(status, "161K") != 1 {

@@ -190,7 +190,7 @@ func (m model) leaveBTW() (model, tea.Cmd) {
 	// still active, explicitly restart that chain after restoring it.
 	parent.spinnerTicking = false
 	var spinnerCmd tea.Cmd
-	if parent.pending || parent.compactInFlight || parent.doctorInFlight || parent.sidebarHasAgents() || parent.aimlapiOnboardAnimating() {
+	if parent.pending || parent.compactInFlight || parent.doctorInFlight || parent.sidebarHasAgents() {
 		parent.spinnerTicking = true
 		spinnerCmd = parent.spinner.Tick
 	}

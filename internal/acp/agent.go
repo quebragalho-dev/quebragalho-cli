@@ -16,7 +16,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
+
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
@@ -773,8 +773,8 @@ func (a *Agent) resolveModelChoices(ctx context.Context, cwd string) (string, []
 		options = append(options, SessionConfigOptionValue{Value: id, Name: id, Description: description})
 	}
 	add(selected, "")
-	descriptor, knownProvider := providercatalog.Get(resolved.Provider.CatalogID)
-	restrictModels := knownProvider && !descriptor.Custom
+	_, knownProvider := providercatalog.Get(resolved.Provider.CatalogID)
+	restrictModels := knownProvider
 	if a.deps.DiscoverModels != nil {
 		discovered, discoverErr := a.deps.DiscoverModels(ctx, resolved.Provider)
 		if ctx.Err() != nil {
@@ -782,9 +782,7 @@ func (a *Agent) resolveModelChoices(ctx context.Context, cwd string) (string, []
 		}
 		if discoverErr == nil && len(discovered) > 0 {
 			for _, model := range discovered {
-				if providermodelcatalog.ModelIDAllowedForProvider(resolved.Provider.CatalogID, model.ID) {
-					add(model.ID, model.Description)
-				}
+				add(model.ID, model.Description)
 			}
 		}
 	}

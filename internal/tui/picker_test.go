@@ -23,83 +23,17 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
-func TestModelPickerDetectsOllamaCloudFromBaseURL(t *testing.T) {
-	m := newModel(context.Background(), Options{
-		ProviderName: "custom-openai-compatible",
-		ModelName:    "minimax-m3",
-		ProviderProfile: config.ProviderProfile{
-			Name:         "custom-openai-compatible",
-			CatalogID:    "custom-openai-compatible",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://ollama.com/v1",
-			APIKeyEnv:    "OLLAMA_API_KEY",
-			Model:        "minimax-m3",
-		},
-	})
-
-	picker := m.newModelPicker()
-	if picker == nil {
-		t.Fatal("expected model picker")
-	}
-	groups := pickerGroups(picker.items)
-	if !contains(groups, "Ollama Cloud") {
-		t.Fatalf("picker groups = %#v, want Ollama Cloud", groups)
-	}
-	got := pickerValues(picker.items)
-	if !contains(got, "qwen3-coder:480b") {
-		t.Fatalf("picker values = %#v, want Ollama Cloud models", got)
-	}
-	if contains(got, "custom-model") {
-		t.Fatalf("picker should not show custom-openai-compatible fallback when URL is Ollama Cloud: %#v", got)
-	}
-}
-
-func TestModelPickerChatGPTDiscoveryUsesMatchingOAuthAccount(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "oauth-tokens.json")
-	t.Setenv("QG_OAUTH_STORAGE", "file")
-	t.Setenv("QG_OAUTH_TOKENS_PATH", path)
-	store, err := oauth.NewStore(oauth.StoreOptions{FilePath: path})
-	if err != nil {
-		t.Fatalf("oauth store: %v", err)
-	}
-	if err := store.Save(oauth.ProviderKey("chatgpt"), oauth.Token{
-		AccessToken: "live-token",
-		Account:     "workspace-77",
-		ExpiresAt:   time.Now().Add(time.Hour),
-	}); err != nil {
-		t.Fatalf("save OAuth token: %v", err)
-	}
-
-	m := model{userAgent: "qg/test"}
-	options := m.modelPickerDiscoveryOptions(config.ProviderProfile{Name: "codex", CatalogID: "chatgpt"})
-	if options.OAuthResolver == nil || options.CodexAccountResolver == nil {
-		t.Fatal("ChatGPT model discovery must carry both bearer and account resolvers")
-	}
-	header, bearer, ok, err := options.OAuthResolver(context.Background(), false)
-	if err != nil || !ok || header != "Authorization" || bearer != "Bearer live-token" {
-		t.Fatalf("discovery bearer = (%q, %q, %v, %v)", header, bearer, ok, err)
-	}
-	account, ok, err := options.CodexAccountResolver(context.Background())
-	if err != nil || !ok || account != "workspace-77" {
-		t.Fatalf("discovery account = (%q, %v, %v)", account, ok, err)
-	}
-	if options.UserAgent != "qg/test" {
-		t.Fatalf("discovery user agent = %q", options.UserAgent)
-	}
-}
-
 func TestModelPickerRefreshesLiveModelsForActiveProvider(t *testing.T) {
 	var captured config.ProviderProfile
 	m := newModel(context.Background(), Options{
-		ProviderName: "ollama-cloud",
-		ModelName:    "minimax-m3",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "ollama-cloud",
-			CatalogID:    "ollama-cloud",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://ollama.com/v1",
-			APIKey:       "ollama-key",
-			Model:        "minimax-m3",
+			APIKey:       "sk-test",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		DiscoverProviderModels: func(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
 			captured = profile
@@ -122,8 +56,8 @@ func TestModelPickerRefreshesLiveModelsForActiveProvider(t *testing.T) {
 	updated, _ = next.Update(cmd())
 	next = updated.(model)
 
-	if captured.CatalogID != "ollama-cloud" {
-		t.Fatalf("discovery profile catalog = %q, want ollama-cloud", captured.CatalogID)
+	if captured.CatalogID != "qg" {
+		t.Fatalf("discovery profile catalog = %q, want qg", captured.CatalogID)
 	}
 	got := pickerValues(next.picker.items)
 	if !contains(got, "live-cloud-a") || !contains(got, "live-cloud-b") {
@@ -131,65 +65,16 @@ func TestModelPickerRefreshesLiveModelsForActiveProvider(t *testing.T) {
 	}
 }
 
-func TestModelPickerTreatsCustomOpenAIEndpointAsCustomProvider(t *testing.T) {
-	var captured config.ProviderProfile
-	m := newModel(context.Background(), Options{
-		ProviderName: "openai",
-		ModelName:    "custom-coder",
-		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://proxy.example.test/v1",
-			APIKey:       "proxy-key",
-			Model:        "custom-coder",
-		},
-		DiscoverProviderModels: func(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
-			captured = profile
-			return []providermodeldiscovery.Model{
-				{ID: "custom-coder-plus", Description: "Custom Coder Plus"},
-			}, nil
-		},
-	})
-	m.input.SetValue("/model")
-
-	updated, cmd := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-	if next.picker == nil {
-		t.Fatal("expected model picker to open")
-	}
-	if cmd == nil {
-		t.Fatal("opening /model for a custom endpoint should start model discovery")
-	}
-	updated, _ = next.Update(cmd())
-	next = updated.(model)
-
-	if captured.CatalogID != "custom-openai-compatible" || captured.ProviderKind != config.ProviderKindOpenAICompatible {
-		t.Fatalf("discovery profile = %#v, want custom OpenAI-compatible identity", captured)
-	}
-	groups := pickerGroups(next.picker.items)
-	if !contains(groups, "Custom OpenAI-compatible") {
-		t.Fatalf("picker groups = %#v, want custom provider group", groups)
-	}
-	got := pickerValues(next.picker.items)
-	if !contains(got, "custom-coder-plus") {
-		t.Fatalf("picker values = %#v, want discovered custom model", got)
-	}
-	if contains(got, "gpt-4.1") {
-		t.Fatalf("custom endpoint picker should not fall back to official OpenAI models: %#v", got)
-	}
-}
-
 func TestModelPickerShowsLoadingUntilDiscoveryCompletes(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ProviderName: "ollama-cloud",
-		ModelName:    "minimax-m3",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "ollama-cloud",
-			CatalogID:    "ollama-cloud",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://ollama.com/v1",
-			APIKey:       "ollama-key",
-			Model:        "minimax-m3",
+			APIKey:       "sk-test",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		DiscoverProviderModels: func(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
 			return []providermodeldiscovery.Model{
@@ -214,7 +99,7 @@ func TestModelPickerShowsLoadingUntilDiscoveryCompletes(t *testing.T) {
 
 	// When the provider's discovery returns, its section shows the live models.
 	updated, _ = m.Update(modelPickerModelsDiscoveredMsg{
-		providerID: "ollama-cloud",
+		providerID: "qg",
 		models:     []providermodeldiscovery.Model{{ID: "live-cloud-a", Description: "Live Cloud A"}},
 	})
 	m = updated.(model)
@@ -224,19 +109,18 @@ func TestModelPickerShowsLoadingUntilDiscoveryCompletes(t *testing.T) {
 
 func TestModelPickerMetadataOmitsCredentialEnv(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ProviderName: "ollama-cloud",
-		ModelName:    "minimax-m3",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "ollama-cloud",
-			CatalogID:    "ollama-cloud",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://ollama.com/v1",
-			APIKeyEnv:    "OLLAMA_API_KEY",
-			Model:        "minimax-m3",
+			APIKeyEnv:    "QUEBRAGALHO_API_KEY",
+			Model:        "muse-spark-1.3-contributor",
 		},
 	})
 	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{
-		"ollama-cloud": {
+		"qg": {
 			{
 				ID:            "cogito-2.1:671b",
 				ContextWindow: 163840,
@@ -259,7 +143,7 @@ func TestModelPickerMetadataOmitsCredentialEnv(t *testing.T) {
 	assertContains(t, view, "163K ctx")
 	assertContains(t, view, "tools")
 	assertContains(t, view, "reasoning")
-	assertNotContains(t, view, "OLLAMA_API_KEY")
+	assertNotContains(t, view, "QUEBRAGALHO_API_KEY")
 	for _, item := range m.picker.items {
 		assertNotContains(t, item.Meta, "API_KEY")
 	}
@@ -267,15 +151,14 @@ func TestModelPickerMetadataOmitsCredentialEnv(t *testing.T) {
 
 func TestModelPickerFallsBackWhenDiscoveryFails(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ProviderName: "ollama-cloud",
-		ModelName:    "minimax-m3",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "ollama-cloud",
-			CatalogID:    "ollama-cloud",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://ollama.com/v1",
-			APIKey:       "ollama-key",
-			Model:        "minimax-m3",
+			APIKey:       "sk-test",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		DiscoverProviderModels: func(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
 			return nil, errors.New("offline")
@@ -288,7 +171,7 @@ func TestModelPickerFallsBackWhenDiscoveryFails(t *testing.T) {
 		t.Fatal("expected opening the model picker to start discovery")
 	}
 	// A failed discovery leaves the static catalog list in place — no crash, no block.
-	updated, _ = m.Update(modelPickerModelsDiscoveredMsg{providerID: "ollama-cloud", models: nil, err: errors.New("offline")})
+	updated, _ = m.Update(modelPickerModelsDiscoveredMsg{providerID: "qg", models: nil, err: errors.New("offline")})
 	m = updated.(model)
 	view := plainRender(t, m.pickerOverlay(100))
 	assertNotContains(t, view, "Checking available models...")
@@ -300,23 +183,22 @@ func TestModelPickerFallsBackWhenDiscoveryFails(t *testing.T) {
 func TestModelPickerAppliesLiveDiscoveredModelID(t *testing.T) {
 	var captured config.ProviderProfile
 	m := newModel(context.Background(), Options{
-		ProviderName: "ollama-cloud",
-		ModelName:    "minimax-m3",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     &fakeProvider{},
 		ProviderProfile: config.ProviderProfile{
-			Name:         "ollama-cloud",
-			CatalogID:    "ollama-cloud",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://ollama.com/v1",
-			APIKey:       "ollama-key",
-			Model:        "minimax-m3",
+			APIKey:       "sk-test",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			captured = profile
 			return &fakeProvider{}, nil
 		},
 	})
-	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{"ollama-cloud": {{ID: "glm-5.1", Description: "GLM 5.1"}}}
+	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{"qg": {{ID: "glm-5.1", Description: "GLM 5.1"}}}
 	m.picker = m.newModelPicker()
 	m.picker.selected = pickerIndex(m.picker.items, "glm-5.1")
 
@@ -330,56 +212,16 @@ func TestModelPickerAppliesLiveDiscoveredModelID(t *testing.T) {
 	}
 }
 
-func TestModelSwitchNormalizesDetectedOllamaCloudProfile(t *testing.T) {
-	var captured config.ProviderProfile
-	m := newModel(context.Background(), Options{
-		ProviderName: "custom-openai-compatible",
-		ModelName:    "minimax-m3",
-		Provider:     &fakeProvider{},
-		ProviderProfile: config.ProviderProfile{
-			Name:         "custom-openai-compatible",
-			CatalogID:    "custom-openai-compatible",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://ollama.com/v1",
-			APIKeyEnv:    "OPENAI_API_KEY",
-			Model:        "minimax-m3",
-		},
-		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
-			captured = profile
-			return &fakeProvider{}, nil
-		},
-	})
-	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{"ollama-cloud": {{ID: "glm-5.1", Description: "GLM 5.1"}}}
-	m.input.SetValue("/model glm-5.1")
-
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-
-	if captured.Name != "ollama-cloud" || captured.CatalogID != "ollama-cloud" {
-		t.Fatalf("captured provider identity = %#v, want ollama-cloud", captured)
-	}
-	if captured.APIKeyEnv != "OLLAMA_API_KEY" {
-		t.Fatalf("captured APIKeyEnv = %q, want OLLAMA_API_KEY", captured.APIKeyEnv)
-	}
-	if captured.Model != "glm-5.1" {
-		t.Fatalf("captured model = %q, want glm-5.1", captured.Model)
-	}
-	if next.providerName != "ollama-cloud" {
-		t.Fatalf("providerName = %q, want ollama-cloud", next.providerName)
-	}
-}
-
 func TestModelPickerSearchFiltersModels(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ProviderName: "ollama-cloud",
-		ModelName:    "minimax-m3",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "ollama-cloud",
-			CatalogID:    "ollama-cloud",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://ollama.com/v1",
-			APIKeyEnv:    "OLLAMA_API_KEY",
-			Model:        "minimax-m3",
+			APIKeyEnv:    "QUEBRAGALHO_API_KEY",
+			Model:        "muse-spark-1.3-contributor",
 		},
 	})
 	m.picker = m.newModelPicker()
@@ -392,29 +234,28 @@ func TestModelPickerSearchFiltersModels(t *testing.T) {
 	view := plainRender(t, next.pickerOverlay(100))
 	assertContains(t, view, "search > qwen")
 	assertContains(t, view, "Qwen")
-	assertNotContains(t, view, "Minimax M3")
+	assertNotContains(t, view, "Muse Spark")
 }
 
 func TestModelPickerFavoriteShortcutTogglesSelectedModel(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	m := newModel(context.Background(), Options{
 		UserConfigPath: configPath,
-		ProviderName:   "ollama-cloud",
-		ModelName:      "minimax-m3",
+		ProviderName:   "qg",
+		ModelName:      "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "ollama-cloud",
-			CatalogID:    "ollama-cloud",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://ollama.com/v1",
-			APIKeyEnv:    "OLLAMA_API_KEY",
-			Model:        "minimax-m3",
+			APIKeyEnv:    "QUEBRAGALHO_API_KEY",
+			Model:        "muse-spark-1.3-contributor",
 		},
 	})
 	m.picker = m.newModelPicker()
 	if m.picker == nil {
 		t.Fatal("expected model picker")
 	}
-	target := pickerIndex(m.picker.items, "qwen3-coder:480b")
+	target := pickerIndex(m.picker.items, "glm-5.3")
 	if target < 0 {
 		t.Fatalf("expected qwen3-coder:480b in picker, got %#v", pickerValues(m.picker.items))
 	}
@@ -422,20 +263,20 @@ func TestModelPickerFavoriteShortcutTogglesSelectedModel(t *testing.T) {
 
 	updated, _ := m.Update(testKeyCtrl('f'))
 	next := updated.(model)
-	if !next.favoriteModels["qwen3-coder:480b"] {
+	if !next.favoriteModels["glm-5.3"] {
 		t.Fatalf("favorite map = %#v, want qwen3-coder:480b favorited", next.favoriteModels)
 	}
-	if next.picker.items[0].Group != "Favorites" || next.picker.items[0].Value != "qwen3-coder:480b" {
+	if next.picker.items[0].Group != "Favorites" || next.picker.items[0].Value != "glm-5.3" {
 		t.Fatalf("first picker item = %#v, want favorite group row", next.picker.items[0])
 	}
 	persisted := readTUIConfigFixture(t, configPath)
-	if len(persisted.Preferences.FavoriteModels) != 1 || persisted.Preferences.FavoriteModels[0] != "qwen3-coder:480b" {
+	if len(persisted.Preferences.FavoriteModels) != 1 || persisted.Preferences.FavoriteModels[0] != "glm-5.3" {
 		t.Fatalf("persisted FavoriteModels = %#v, want qwen3-coder:480b", persisted.Preferences.FavoriteModels)
 	}
 
 	updated, _ = next.Update(testKeyCtrl('f'))
 	next = updated.(model)
-	if next.favoriteModels["qwen3-coder:480b"] {
+	if next.favoriteModels["glm-5.3"] {
 		t.Fatalf("favorite map = %#v, want qwen3-coder:480b unfavorited", next.favoriteModels)
 	}
 	if len(next.picker.items) > 0 && next.picker.items[0].Group == "Favorites" {
@@ -449,32 +290,30 @@ func TestModelPickerFavoriteShortcutTogglesSelectedModel(t *testing.T) {
 
 func TestModelPickerLoadsFavoriteModelsFromOptions(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ProviderName:    "ollama-cloud",
-		ModelName:       "minimax-m3",
-		FavoriteModels:  []string{"qwen3-coder:480b"},
-		ProviderProfile: config.ProviderProfile{Name: "ollama-cloud", CatalogID: "ollama-cloud", Model: "minimax-m3"},
+		ProviderName:    "qg",
+		ModelName:       "muse-spark-1.3-contributor",
+		FavoriteModels:  []string{"glm-5.3"},
+		ProviderProfile: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
 	})
 	picker := m.newModelPicker()
 	if picker == nil {
 		t.Fatal("expected model picker")
 	}
-	if picker.items[0].Group != "Favorites" || picker.items[0].Value != "qwen3-coder:480b" {
+	if picker.items[0].Group != "Favorites" || picker.items[0].Value != "glm-5.3" {
 		t.Fatalf("first picker item = %#v, want persisted favorite first", picker.items[0])
 	}
 }
 
 func TestModelPickerShowsRecentThenActiveProviderCatalog(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ProviderName: "openrouter",
-		ModelName:    "google/gemini-2.5-pro",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:      "openrouter",
-			CatalogID: "openrouter",
-			Model:     "google/gemini-2.5-pro",
-			APIKeyEnv: "OPENROUTER_API_KEY",
+			Name:      "qg",
+			CatalogID: "qg",
+			Model:     "muse-spark-1.3-contributor",
+			APIKeyEnv: "QUEBRAGALHO_API_KEY",
 			Provider:  string(config.ProviderKindOpenAICompatible),
-			BaseURL:   "https://openrouter.ai/api/v1",
-			APIFormat: "chat-completions",
 		},
 	})
 
@@ -485,55 +324,53 @@ func TestModelPickerShowsRecentThenActiveProviderCatalog(t *testing.T) {
 	if picker.items[0].Group != "Recent" {
 		t.Fatalf("first picker group = %q, want Recent", picker.items[0].Group)
 	}
-	if picker.items[0].Value != "google/gemini-2.5-pro" {
+	if picker.items[0].Value != "muse-spark-1.3-contributor" {
 		t.Fatalf("first picker value = %q, want active recent model", picker.items[0].Value)
 	}
-	if picker.items[1].Group != "OpenRouter" {
-		t.Fatalf("second picker group = %q, want OpenRouter", picker.items[1].Group)
+	if picker.items[1].Group != "Quebra Galho" {
+		t.Fatalf("second picker group = %q, want Quebra Galho", picker.items[1].Group)
 	}
 	got := pickerValues(picker.items)
-	if !contains(got, "anthropic/claude-sonnet-4.5") || !contains(got, "minimax/minimax-m2.1") {
-		t.Fatalf("active provider catalog missing expected OpenRouter models: %#v", got)
+	if !contains(got, "deepseek-v4-pro") || !contains(got, "kimi-k3") {
+		t.Fatalf("active provider catalog missing expected QG models: %#v", got)
 	}
 	if contains(got, "claude-haiku-4.5") {
-		t.Fatalf("picker should not include unrelated global Anthropic registry model under OpenRouter: %#v", got)
+		t.Fatalf("picker should not include unrelated global registry models under QG: %#v", got)
 	}
 }
 
 func TestModelPickerAppliesActiveProviderCatalogModelID(t *testing.T) {
 	var captured config.ProviderProfile
 	m := newModel(context.Background(), Options{
-		ProviderName: "openrouter",
-		ModelName:    "google/gemini-2.5-pro",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     &fakeProvider{},
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openrouter",
-			CatalogID:    "openrouter",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
-			Model:        "google/gemini-2.5-pro",
-			APIKeyEnv:    "OPENROUTER_API_KEY",
-			BaseURL:      "https://openrouter.ai/api/v1",
-			APIFormat:    "chat-completions",
+			Model:        "muse-spark-1.3-contributor",
+			APIKeyEnv:    "QUEBRAGALHO_API_KEY",
 		},
 		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			captured = profile
 			return &fakeProvider{}, nil
 		},
 	})
-	m.input.SetValue("/model openai/gpt-4.1")
+	m.input.SetValue("/model glm-5.3")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 	if next.pending {
 		t.Fatal("expected /model to be handled without starting a run")
 	}
-	if captured.Model != "openai/gpt-4.1" {
-		t.Fatalf("captured model = %q, want raw OpenRouter model ID", captured.Model)
+	if captured.Model != "glm-5.3" {
+		t.Fatalf("captured model = %q, want qg catalog model ID", captured.Model)
 	}
-	if next.modelName != "openai/gpt-4.1" {
-		t.Fatalf("active model = %q, want raw OpenRouter model ID", next.modelName)
+	if next.modelName != "glm-5.3" {
+		t.Fatalf("active model = %q, want qg catalog model ID", next.modelName)
 	}
-	if !strings.Contains(next.transientNotice.text, "openai/gpt-4.1") {
+	if !strings.Contains(next.transientNotice.text, "glm-5.3") {
 		t.Fatalf("model switch notice = %q", next.transientNotice.text)
 	}
 }
@@ -745,38 +582,36 @@ func TestModelCommandRecordsAndPersistsRecentHistory(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	m := newModel(context.Background(), Options{
 		UserConfigPath: configPath,
-		ProviderName:   "openrouter",
-		ModelName:      "google/gemini-2.5-pro",
+		ProviderName:   "qg",
+		ModelName:      "muse-spark-1.3-contributor",
 		Provider:       &fakeProvider{},
 		ProviderProfile: config.ProviderProfile{
-			Name:      "openrouter",
-			CatalogID: "openrouter",
-			Model:     "google/gemini-2.5-pro",
-			APIKeyEnv: "OPENROUTER_API_KEY",
+			Name:      "qg",
+			CatalogID: "qg",
+			Model:     "muse-spark-1.3-contributor",
+			APIKeyEnv: "QUEBRAGALHO_API_KEY",
 			Provider:  string(config.ProviderKindOpenAICompatible),
-			BaseURL:   "https://openrouter.ai/api/v1",
-			APIFormat: "chat-completions",
 		},
 		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
 		},
 	})
 
-	m.input.SetValue("/model anthropic/claude-sonnet-4.5")
+	m.input.SetValue("/model glm-5.3")
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
-	if m.modelName != "anthropic/claude-sonnet-4.5" {
+	if m.modelName != "glm-5.3" {
 		t.Fatalf("modelName = %q, want the switch to apply", m.modelName)
 	}
 
-	m.input.SetValue("/model minimax/minimax-m2.1")
+	m.input.SetValue("/model kimi-k3")
 	updated, _ = m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
 
 	want := []config.RecentModelEntry{
-		{Provider: "openrouter", Model: "minimax/minimax-m2.1"},
-		{Provider: "openrouter", Model: "anthropic/claude-sonnet-4.5"},
-		{Provider: "openrouter", Model: "google/gemini-2.5-pro"},
+		{Provider: "qg", Model: "kimi-k3"},
+		{Provider: "qg", Model: "glm-5.3"},
+		{Provider: "qg", Model: "muse-spark-1.3-contributor"},
 	}
 	if !reflect.DeepEqual(m.recentModels, want) {
 		t.Fatalf("recentModels = %#v, want %#v", m.recentModels, want)
@@ -788,13 +623,13 @@ func TestModelCommandRecordsAndPersistsRecentHistory(t *testing.T) {
 
 	// Re-selecting the oldest pair moves it to the front instead of leaving a
 	// stale duplicate further down the list.
-	m.input.SetValue("/model google/gemini-2.5-pro")
+	m.input.SetValue("/model muse-spark-1.3-contributor")
 	updated, _ = m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
 	want = []config.RecentModelEntry{
-		{Provider: "openrouter", Model: "google/gemini-2.5-pro"},
-		{Provider: "openrouter", Model: "minimax/minimax-m2.1"},
-		{Provider: "openrouter", Model: "anthropic/claude-sonnet-4.5"},
+		{Provider: "qg", Model: "muse-spark-1.3-contributor"},
+		{Provider: "qg", Model: "kimi-k3"},
+		{Provider: "qg", Model: "glm-5.3"},
 	}
 	if !reflect.DeepEqual(m.recentModels, want) {
 		t.Fatalf("recentModels after re-selecting = %#v, want %#v", m.recentModels, want)
@@ -813,36 +648,36 @@ func TestModelCommandRecordsAndPersistsRecentHistory(t *testing.T) {
 // history, tagged with the provider actually switched to.
 func TestSwitchProviderModelRecordsRecentHistory(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
-	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"}, true); err != nil {
-		t.Fatalf("seed openai provider: %v", err)
+	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"}, true); err != nil {
+		t.Fatalf("seed qg provider: %v", err)
 	}
-	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{Name: "ollama", CatalogID: "ollama", ProviderKind: config.ProviderKindOpenAICompatible, BaseURL: "http://localhost:11434/v1", Model: "kimi-k2.7-code:cloud"}, false); err != nil {
-		t.Fatalf("seed ollama provider: %v", err)
+	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{Name: "alt", CatalogID: "qg", Model: "old-model"}, false); err != nil {
+		t.Fatalf("seed alt provider: %v", err)
 	}
 	m := newModel(context.Background(), Options{
 		UserConfigPath:  configPath,
-		ProviderName:    "openai",
-		ModelName:       "gpt-5.1",
+		ProviderName:    "qg",
+		ModelName:       "muse-spark-1.3-contributor",
 		Provider:        &fakeProvider{},
-		ProviderProfile: config.ProviderProfile{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"},
+		ProviderProfile: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
 		SavedProviders: []config.ProviderProfile{
-			{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"},
-			{Name: "ollama", CatalogID: "ollama", ProviderKind: config.ProviderKindOpenAICompatible, BaseURL: "http://localhost:11434/v1", Model: "kimi-k2.7-code:cloud"},
+			{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
+			{Name: "alt", CatalogID: "qg", Model: "old-model", APIKey: "sk-alt"},
 		},
 		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
 		},
 	})
 
-	next, status, _, _, _ := m.switchProviderModel("ollama", "kimi-k2.7-code:cloud")
-	wantStatus := "Model\nSwitched to ollama · kimi-k2.7-code:cloud · saved"
+	next, status, _, _, _ := m.switchProviderModel("alt", "glm-5.3")
+	wantStatus := "Model\nSwitched to alt · glm-5.3 · saved"
 	if status != wantStatus {
 		t.Fatalf("switchProviderModel() status = %q, want %q (a mismatch here means the switch itself failed, not the recentModels assertion below)", status, wantStatus)
 	}
 
 	want := []config.RecentModelEntry{
-		{Provider: "ollama", Model: "kimi-k2.7-code:cloud"},
-		{Provider: "openai", Model: "gpt-5.1"},
+		{Provider: "alt", Model: "glm-5.3"},
+		{Provider: "qg", Model: "muse-spark-1.3-contributor"},
 	}
 	if !reflect.DeepEqual(next.recentModels, want) {
 		t.Fatalf("recentModels = %#v, want %#v", next.recentModels, want)
@@ -855,14 +690,13 @@ func TestSwitchProviderModelRecordsRecentHistory(t *testing.T) {
 
 func TestSwitchProviderModelReportsLockedConfigAsNotSavedWithoutPartialSelection(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
-	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"}, true); err != nil {
-		t.Fatalf("seed openai provider: %v", err)
+	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"}, true); err != nil {
+		t.Fatalf("seed qg provider: %v", err)
 	}
 	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{
-		Name: "ollama", CatalogID: "ollama", ProviderKind: config.ProviderKindOpenAICompatible,
-		BaseURL: "http://localhost:11434/v1", Model: "old-model",
+		Name: "alt", CatalogID: "qg", Model: "old-model",
 	}, false); err != nil {
-		t.Fatalf("seed ollama provider: %v", err)
+		t.Fatalf("seed alt provider: %v", err)
 	}
 	before, err := os.ReadFile(configPath)
 	if err != nil {
@@ -878,16 +712,16 @@ func TestSwitchProviderModelReportsLockedConfigAsNotSavedWithoutPartialSelection
 		}
 	})
 
-	t.Setenv("QG_PROVIDER", "openai")
+	t.Setenv("QG_PROVIDER", "qg")
 	m := newModel(context.Background(), Options{
 		UserConfigPath:  configPath,
-		ProviderName:    "openai",
-		ModelName:       "gpt-5.1",
+		ProviderName:    "qg",
+		ModelName:       "muse-spark-1.3-contributor",
 		Provider:        &fakeProvider{},
-		ProviderProfile: config.ProviderProfile{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"},
+		ProviderProfile: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
 		SavedProviders: []config.ProviderProfile{
-			{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"},
-			{Name: "ollama", CatalogID: "ollama", ProviderKind: config.ProviderKindOpenAICompatible, BaseURL: "http://localhost:11434/v1", Model: "old-model"},
+			{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
+			{Name: "alt", CatalogID: "qg", Model: "old-model", APIKey: "sk-alt"},
 		},
 		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
@@ -895,11 +729,11 @@ func TestSwitchProviderModelReportsLockedConfigAsNotSavedWithoutPartialSelection
 	})
 
 	started := time.Now()
-	next, status, switched, _, persistErr := m.switchProviderModel("ollama", "new-model")
+	next, status, switched, _, persistErr := m.switchProviderModel("alt", "new-model")
 	if elapsed := time.Since(started); elapsed > 12*time.Second {
-		t.Fatalf("cross-provider switch blocked for %s; want one bounded persistence attempt", elapsed)
+		t.Fatalf("cross-profile switch blocked for %s; want one bounded persistence attempt", elapsed)
 	}
-	if !switched || next.providerName != "ollama" || next.modelName != "new-model" {
+	if !switched || next.providerName != "alt" || next.modelName != "new-model" {
 		t.Fatalf("in-session switch was lost: switched=%v provider=%q model=%q", switched, next.providerName, next.modelName)
 	}
 	if persistErr == nil || !strings.Contains(persistErr.Error(), "timed out acquiring config lock") {
@@ -925,13 +759,13 @@ func TestCrossProviderPickerShowsPersistenceFailure(t *testing.T) {
 	}
 	m := newModel(context.Background(), Options{
 		UserConfigPath:  filepath.Join(blockedParent, "config.json"),
-		ProviderName:    "openai",
-		ModelName:       "gpt-5.1",
+		ProviderName:    "qg",
+		ModelName:       "muse-spark-1.3-contributor",
 		Provider:        &fakeProvider{},
-		ProviderProfile: config.ProviderProfile{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"},
+		ProviderProfile: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
 		SavedProviders: []config.ProviderProfile{
-			{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"},
-			{Name: "ollama", CatalogID: "ollama", ProviderKind: config.ProviderKindOpenAICompatible, BaseURL: "http://localhost:11434/v1", Model: "old-model"},
+			{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
+			{Name: "alt", CatalogID: "qg", Model: "old-model", APIKey: "sk-alt"},
 		},
 		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
@@ -939,12 +773,12 @@ func TestCrossProviderPickerShowsPersistenceFailure(t *testing.T) {
 	})
 	m.picker = &commandPicker{
 		kind:  pickerModel,
-		items: []pickerItem{{Value: "new-model", OwnerProvider: "ollama"}},
+		items: []pickerItem{{Value: "new-model", OwnerProvider: "alt"}},
 	}
 
 	updated, _ := m.choosePicker()
 	next := updated.(model)
-	if next.providerName != "ollama" || next.modelName != "new-model" {
+	if next.providerName != "alt" || next.modelName != "new-model" {
 		t.Fatalf("in-session picker switch was lost: provider=%q model=%q", next.providerName, next.modelName)
 	}
 	if !strings.Contains(next.transientNotice.text, "not saved (") {
@@ -967,12 +801,24 @@ func TestCrossProviderPickerShowsPersistenceFailure(t *testing.T) {
 // model history is written under the same lock, so a version that still tried
 // to persist it after the selection write failed would pay TWO full lock
 // timeouts for one keystroke.
+// TestActiveProviderPickerShowsPersistenceFailure is the same-provider half of
+// TestCrossProviderPickerShowsPersistenceFailure. A picker row owned by the
+// ACTIVE provider goes through handleModelCommand, which reports a failed
+// persistence attempt inside its status text — and choosePicker discards that
+// text in favour of its own applied-notice. Without the outcome plumbed through
+// as a value, the user saw an unqualified success for a selection the config
+// never received, and only found out when the old model came back on restart.
+//
+// The elapsed-time bound is the second assertion, not decoration: the recent
+// model history is written under the same lock, so a version that still tried
+// to persist it after the selection write failed would pay TWO full lock
+// timeouts for one keystroke.
 func TestActiveProviderPickerShowsPersistenceFailure(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{
-		Name: "openrouter", CatalogID: "openrouter", Model: "google/gemini-2.5-pro",
+		Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor",
 	}, true); err != nil {
-		t.Fatalf("seed openrouter provider: %v", err)
+		t.Fatalf("seed qg provider: %v", err)
 	}
 	before, err := os.ReadFile(configPath)
 	if err != nil {
@@ -990,17 +836,15 @@ func TestActiveProviderPickerShowsPersistenceFailure(t *testing.T) {
 
 	m := newModel(context.Background(), Options{
 		UserConfigPath: configPath,
-		ProviderName:   "openrouter",
-		ModelName:      "google/gemini-2.5-pro",
+		ProviderName:   "qg",
+		ModelName:      "muse-spark-1.3-contributor",
 		Provider:       &fakeProvider{},
 		ProviderProfile: config.ProviderProfile{
-			Name:      "openrouter",
-			CatalogID: "openrouter",
-			Model:     "google/gemini-2.5-pro",
-			APIKeyEnv: "OPENROUTER_API_KEY",
+			Name:      "qg",
+			CatalogID: "qg",
+			Model:     "muse-spark-1.3-contributor",
+			APIKeyEnv: "QUEBRAGALHO_API_KEY",
 			Provider:  string(config.ProviderKindOpenAICompatible),
-			BaseURL:   "https://openrouter.ai/api/v1",
-			APIFormat: "chat-completions",
 		},
 		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
@@ -1010,7 +854,7 @@ func TestActiveProviderPickerShowsPersistenceFailure(t *testing.T) {
 	// which is the branch that reaches handleModelCommand.
 	m.picker = &commandPicker{
 		kind:  pickerModel,
-		items: []pickerItem{{Value: "anthropic/claude-sonnet-4.5"}},
+		items: []pickerItem{{Value: "glm-5.3"}},
 	}
 
 	started := time.Now()
@@ -1018,7 +862,7 @@ func TestActiveProviderPickerShowsPersistenceFailure(t *testing.T) {
 	elapsed := time.Since(started)
 	next := updated.(model)
 
-	if next.modelName != "anthropic/claude-sonnet-4.5" {
+	if next.modelName != "glm-5.3" {
 		t.Fatalf("in-session picker selection was lost: model=%q", next.modelName)
 	}
 	if !strings.Contains(next.transientNotice.text, "not saved (") ||
@@ -1053,28 +897,26 @@ func TestTypedModelCommandShowsPersistenceFailure(t *testing.T) {
 	}
 	m := newModel(context.Background(), Options{
 		UserConfigPath: filepath.Join(blockedParent, "config.json"),
-		ProviderName:   "openrouter",
-		ModelName:      "google/gemini-2.5-pro",
+		ProviderName:   "qg",
+		ModelName:      "muse-spark-1.3-contributor",
 		Provider:       &fakeProvider{},
 		ProviderProfile: config.ProviderProfile{
-			Name:      "openrouter",
-			CatalogID: "openrouter",
-			Model:     "google/gemini-2.5-pro",
-			APIKeyEnv: "OPENROUTER_API_KEY",
+			Name:      "qg",
+			CatalogID: "qg",
+			Model:     "muse-spark-1.3-contributor",
+			APIKeyEnv: "QUEBRAGALHO_API_KEY",
 			Provider:  string(config.ProviderKindOpenAICompatible),
-			BaseURL:   "https://openrouter.ai/api/v1",
-			APIFormat: "chat-completions",
 		},
 		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
 		},
 	})
-	m.input.SetValue("/model anthropic/claude-sonnet-4.5")
+	m.input.SetValue("/model glm-5.3")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if next.modelName != "anthropic/claude-sonnet-4.5" {
+	if next.modelName != "glm-5.3" {
 		t.Fatalf("in-session switch was lost: model=%q", next.modelName)
 	}
 	if !strings.Contains(next.transientNotice.text, "not saved (") {
@@ -1085,45 +927,8 @@ func TestTypedModelCommandShowsPersistenceFailure(t *testing.T) {
 	}
 }
 
-func TestModelCommandAcceptsManualModelForCustomProvider(t *testing.T) {
-	var captured config.ProviderProfile
-	m := newModel(context.Background(), Options{
-		ProviderName: "custom-openai-compatible",
-		ModelName:    "custom-model",
-		Provider:     &fakeProvider{},
-		ProviderProfile: config.ProviderProfile{
-			Name:         "custom-openai-compatible",
-			CatalogID:    "custom-openai-compatible",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://proxy.example.test/v1",
-			APIKey:       "proxy-key",
-			Model:        "custom-model",
-		},
-		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
-			captured = profile
-			return &fakeProvider{}, nil
-		},
-	})
-	m.input.SetValue("/model qwen-custom-latest")
-
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-	if next.pending {
-		t.Fatal("expected /model to be handled without starting a run")
-	}
-	if captured.Model != "qwen-custom-latest" {
-		t.Fatalf("captured model = %q, want manual custom model", captured.Model)
-	}
-	if next.modelName != "qwen-custom-latest" {
-		t.Fatalf("active model = %q, want manual custom model", next.modelName)
-	}
-	if transcriptContains(next.transcript, "unknown QG model") {
-		t.Fatalf("manual custom model should not be rejected, got %#v", next.transcript)
-	}
-}
-
 func TestModelPickerOpensAndCancels(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	m.input.SetValue("/model")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
@@ -1146,16 +951,22 @@ func TestModelPickerOpensAndCancels(t *testing.T) {
 func TestModelPickerNavigatesAndChoosesAppliesHandler(t *testing.T) {
 	next := &fakeProvider{}
 	m := newModel(context.Background(), Options{
-		ProviderName:    "anthropic",
-		ModelName:       "claude-sonnet-4.5",
-		Provider:        &fakeProvider{},
-		ProviderProfile: anthropicTestProfile("claude-sonnet-4.5"),
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
+		Provider:     &fakeProvider{},
+		ProviderProfile: config.ProviderProfile{
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			APIKey:       "sk-test",
+			Model:        "muse-spark-1.3-contributor",
+		},
 		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			return next, nil
 		},
 		DiscoverProviderModels: func(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
 			return []providermodeldiscovery.Model{
-				{ID: "claude-haiku-4.5", Description: "Claude Haiku 4.5"},
+				{ID: "deepseek-v4-pro", Description: "DeepSeek V4 Pro"},
 			}, nil
 		},
 	})
@@ -1171,17 +982,17 @@ func TestModelPickerNavigatesAndChoosesAppliesHandler(t *testing.T) {
 	updated, _ = m.Update(cmd())
 	m = updated.(model)
 
-	// Point the picker at a concrete, different model in the same provider family
-	// and choose it (cross-provider switches require a matching profile).
+	// Point the picker at a concrete, different model of the active provider
+	// and choose it.
 	target := -1
 	for i, item := range m.picker.items {
-		if item.Value == "claude-haiku-4.5" {
+		if item.Value == "deepseek-v4-pro" {
 			target = i
 			break
 		}
 	}
 	if target < 0 {
-		t.Fatal("expected claude-haiku-4.5 in the model picker")
+		t.Fatal("expected deepseek-v4-pro in the model picker")
 	}
 	m.picker.selected = target
 
@@ -1190,8 +1001,8 @@ func TestModelPickerNavigatesAndChoosesAppliesHandler(t *testing.T) {
 	if m.picker != nil {
 		t.Fatal("choosing should close the picker")
 	}
-	if m.modelName != "claude-haiku-4.5" {
-		t.Fatalf("expected model switched to claude-haiku-4.5 via handler, got %q", m.modelName)
+	if m.modelName != "deepseek-v4-pro" {
+		t.Fatalf("expected model switched to deepseek-v4-pro via handler, got %q", m.modelName)
 	}
 	if !strings.Contains(m.transientNotice.text, "Model:") {
 		t.Fatalf("model picker notice = %q", m.transientNotice.text)
@@ -1199,7 +1010,7 @@ func TestModelPickerNavigatesAndChoosesAppliesHandler(t *testing.T) {
 }
 
 func TestEffortPickerOpensForSupportedModel(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	m.input.SetValue("/effort")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
@@ -1253,7 +1064,7 @@ func TestPickersRefuseToOpenWhileRunPending(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newModel(context.Background(), Options{
-				ModelName: "claude-sonnet-4.5",
+				ModelName: "gpt-5.6-luna",
 			})
 			m.pending = true
 			m.input.SetValue(tc.command)
@@ -1277,7 +1088,7 @@ func TestPickersRefuseToOpenWhileRunPending(t *testing.T) {
 }
 
 func TestPickerRenders(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	m.width, m.height = 96, 30
 	m.input.SetValue("/model")
 	updated, _ := m.Update(testKey(tea.KeyEnter))
@@ -1474,11 +1285,11 @@ func TestModelContextWindowResolution(t *testing.T) {
 		t.Fatalf("load default registry: %v", err)
 	}
 	m := model{modelCatalog: registry}
-	entry, ok := registry.Resolve("gpt-4.1")
+	entry, ok := registry.Resolve("muse-spark-1.3-contributor")
 	if !ok || entry.ContextLimits.ContextWindow <= 0 {
-		t.Fatalf("gpt-4.1 should resolve a positive window in the registry")
+		t.Fatalf("muse-spark-1.3-contributor should resolve a positive window in the registry")
 	}
-	if got := m.modelContextWindow("gpt-4.1"); got != entry.ContextLimits.ContextWindow {
+	if got := m.modelContextWindow("muse-spark-1.3-contributor"); got != entry.ContextLimits.ContextWindow {
 		t.Fatalf("registered model window = %d, want %d", got, entry.ContextLimits.ContextWindow)
 	}
 	// Unknown model → 0 (display shows no denominator); compaction applies its own
@@ -1500,68 +1311,6 @@ func TestModelContextWindowResolution(t *testing.T) {
 	if got := m.modelContextWindow(""); got != 0 {
 		t.Fatalf("empty model name should yield 0, got %d", got)
 	}
-	// A custom/local Ollama model tag has no curated-catalog entry and its
-	// generic /v1/models listing carries no window either — the only source is
-	// the Ollama-specific /api/show probe, landed via ollamaContextWindowByModel.
-	m.ollamaContextWindowByModel = map[string]int{"kimi-k2.7-code:cloud": 131072}
-	if got := m.modelContextWindow("kimi-k2.7-code:cloud"); got != 131072 {
-		t.Fatalf("ollama-discovered window should be used for an unregistered model, got %d", got)
-	}
-}
-
-// TestOllamaContextWindowDiscoveryCmdScopedToLocalOllama: the /api/show probe
-// only makes sense against a local Ollama daemon (catalog ID "ollama") — a
-// different provider like "ollama-cloud" is a distinct hosted service this
-// endpoint isn't assumed to exist on, and every other provider already has
-// its context window covered by the curated catalog or /v1/models discovery.
-func TestOllamaContextWindowDiscoveryCmdScopedToLocalOllama(t *testing.T) {
-	m := model{ctx: context.Background()}
-
-	ollama, ok := providercatalog.Get("ollama")
-	if !ok {
-		t.Fatal("expected \"ollama\" to be a registered catalog descriptor")
-	}
-	if cmd := m.ollamaContextWindowDiscoveryCmd(ollama, "http://localhost:11434/v1", "kimi-k2.7-code:cloud"); cmd == nil {
-		t.Fatal("expected a discovery command for the local ollama provider")
-	}
-
-	ollamaCloud, ok := providercatalog.Get("ollama-cloud")
-	if !ok {
-		t.Fatal("expected \"ollama-cloud\" to be a registered catalog descriptor")
-	}
-	if cmd := m.ollamaContextWindowDiscoveryCmd(ollamaCloud, "https://ollama.com/v1", "qwen3-coder:480b"); cmd != nil {
-		t.Fatal("ollama-cloud is a different hosted service; must not probe /api/show against it")
-	}
-
-	if cmd := m.ollamaContextWindowDiscoveryCmd(ollama, "", "kimi-k2.7-code:cloud"); cmd != nil {
-		t.Fatal("an empty base URL should yield no command")
-	}
-	if cmd := m.ollamaContextWindowDiscoveryCmd(ollama, "http://localhost:11434/v1", ""); cmd != nil {
-		t.Fatal("an empty model name should yield no command")
-	}
-}
-
-// TestOllamaContextWindowDiscoveredMsgPopulatesMap verifies the Update()
-// handler for the async probe's result actually reaches modelContextWindow's
-// fallback source, and that a failed/qg probe leaves the map untouched
-// rather than caching a bogus qg.
-func TestOllamaContextWindowDiscoveredMsgPopulatesMap(t *testing.T) {
-	m := newModel(context.Background(), Options{})
-
-	updated, cmd := m.Update(ollamaContextWindowDiscoveredMsg{modelName: "kimi-k2.7-code:cloud", contextWindow: 131072})
-	next := updated.(model)
-	if cmd != nil {
-		t.Fatal("applying a discovered window should not schedule further work")
-	}
-	if got := next.modelContextWindow("kimi-k2.7-code:cloud"); got != 131072 {
-		t.Fatalf("modelContextWindow after discovery = %d, want 131072", got)
-	}
-
-	updated, _ = next.Update(ollamaContextWindowDiscoveredMsg{modelName: "other-model", contextWindow: 0, err: errors.New("boom")})
-	next = updated.(model)
-	if got := next.modelContextWindow("other-model"); got != 0 {
-		t.Fatalf("a failed probe must not populate a window, got %d", got)
-	}
 }
 
 // TestSwitchProviderModelWarmsDiscoveryForTheNewProvider: switching providers
@@ -1571,62 +1320,68 @@ func TestOllamaContextWindowDiscoveredMsgPopulatesMap(t *testing.T) {
 // unless /model happened to be reopened separately. Switching to Ollama
 // specifically must also warm the /api/show probe, the only source of a
 // context window for custom/local Ollama models.
+// TestSwitchProviderModelWarmsDiscoveryForTheNewProvider: switching profiles
+// mid-session (e.g. via the /model picker) previously fired no discovery at
+// all for the newly active provider — Init() only warms the provider active
+// at launch — so the context gauge stayed blank for the rest of the session
+// unless /model happened to be reopened separately. The switched-to provider
+// must warm its discovery command right away.
 func TestSwitchProviderModelWarmsDiscoveryForTheNewProvider(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ProviderName:    "openai",
-		ModelName:       "gpt-5.1",
+		ProviderName:    "qg",
+		ModelName:       "muse-spark-1.3-contributor",
 		Provider:        &fakeProvider{},
-		ProviderProfile: config.ProviderProfile{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"},
+		ProviderProfile: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
 		SavedProviders: []config.ProviderProfile{
-			{Name: "openai", CatalogID: "openai", Model: "gpt-5.1"},
-			{Name: "ollama", CatalogID: "ollama", ProviderKind: config.ProviderKindOpenAICompatible, BaseURL: "http://localhost:11434/v1", Model: "kimi-k2.7-code:cloud"},
+			{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
+			{Name: "alt", CatalogID: "qg", Model: "old-model", APIKey: "sk-alt"},
 		},
 		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
 		},
 	})
 
-	next, text, ok, cmd, _ := m.switchProviderModel("ollama", "kimi-k2.7-code:cloud")
-	if !ok || !strings.Contains(text, "Switched to ollama") {
+	next, text, ok, cmd, _ := m.switchProviderModel("alt", "glm-5.3")
+	if !ok || !strings.Contains(text, "Switched to alt") {
 		t.Fatalf("switch notice = %q (ok=%v), want a committed switch", text, ok)
 	}
-	if next.modelName != "kimi-k2.7-code:cloud" || next.providerName != "ollama" {
-		t.Fatalf("model/provider not switched: modelName=%q providerName=%q", next.modelName, next.providerName)
+	if next.modelName != "glm-5.3" || next.providerName != "alt" {
+		t.Fatalf("model/profile not switched: modelName=%q providerName=%q", next.modelName, next.providerName)
 	}
 	if cmd == nil {
-		t.Fatal("switching to ollama should warm both the generic and ollama-specific discovery commands")
+		t.Fatal("switching profiles should warm the discovery command for the newly active provider")
 	}
 }
 
 func TestNormalizeProfileForProviderPreservesCustomName(t *testing.T) {
-	openai, ok := providercatalog.Get("openai")
+	qg, ok := providercatalog.Get("qg")
 	if !ok {
-		t.Fatal("openai descriptor missing from catalog")
+		t.Fatal("qg descriptor missing from catalog")
 	}
 
-	// A first-party provider set up with a custom profile name and the baseURL at
-	// the catalog default. normalizeIdentity is true here (baseURL matches), but
-	// the real name must survive: it is the credential-store key, so clobbering it
-	// dropped the saved key and 401'd every /model switch (issue #440).
+	// A profile set up with a custom profile name and the baseURL at the
+	// catalog default. normalizeIdentity is true here (baseURL matches), but
+	// the real name must survive: it is the credential-store key, so clobbering
+	// it dropped the saved key and 401'd every /model switch (issue #440).
 	m := model{providerProfile: config.ProviderProfile{
-		Name:         "my-openai",
-		CatalogID:    "openai",
-		BaseURL:      openai.DefaultBaseURL,
+		Name:         "my-qg",
+		CatalogID:    "qg",
+		BaseURL:      qg.DefaultBaseURL,
 		APIKeyStored: true,
 	}}
-	got := m.normalizeProfileForProvider(openai)
-	if got.Name != "my-openai" {
-		t.Fatalf("Name = %q, want it preserved as %q (credential store is keyed by Name)", got.Name, "my-openai")
+	got := m.normalizeProfileForProvider(qg)
+	if got.Name != "my-qg" {
+		t.Fatalf("Name = %q, want it preserved as %q (credential store is keyed by Name)", got.Name, "my-qg")
 	}
-	if got.CatalogID != "openai" {
-		t.Fatalf("CatalogID = %q, want it canonicalized to %q", got.CatalogID, "openai")
+	if got.CatalogID != "qg" {
+		t.Fatalf("CatalogID = %q, want it canonicalized to %q", got.CatalogID, "qg")
 	}
 }
 
 func TestNormalizeProfileForProviderCanonicalizesPlaceholderName(t *testing.T) {
-	openai, ok := providercatalog.Get("openai")
+	qg, ok := providercatalog.Get("qg")
 	if !ok {
-		t.Fatal("openai descriptor missing from catalog")
+		t.Fatal("qg descriptor missing from catalog")
 	}
 
 	// Empty and generic placeholder names still get canonicalized to the catalog
@@ -1634,12 +1389,12 @@ func TestNormalizeProfileForProviderCanonicalizesPlaceholderName(t *testing.T) {
 	for _, name := range []string{"", "custom-openai-compatible"} {
 		m := model{providerProfile: config.ProviderProfile{
 			Name:      name,
-			BaseURL:   openai.DefaultBaseURL,
+			BaseURL:   qg.DefaultBaseURL,
 			CatalogID: name,
 		}}
-		got := m.normalizeProfileForProvider(openai)
-		if got.Name != "openai" {
-			t.Fatalf("Name = %q for placeholder %q, want canonicalized to %q", got.Name, name, "openai")
+		got := m.normalizeProfileForProvider(qg)
+		if got.Name != "qg" {
+			t.Fatalf("Name = %q for placeholder %q, want canonicalized to %q", got.Name, name, "qg")
 		}
 	}
 }
@@ -1714,5 +1469,11 @@ func TestSwitchProviderModelStillRejectsProviderWithNoCredential(t *testing.T) {
 	_, text, ok, _, _ := m.switchProviderModel("chatgpt", "gpt-5.5")
 	if ok || !strings.Contains(text, "no usable credential") {
 		t.Fatalf("expected the credential gate to refuse, got %q (ok=%v)", text, ok)
+	}
+	if !strings.Contains(text, "qg setup") || !strings.Contains(text, "QUEBRAGALHO_API_KEY") {
+		t.Fatalf("refusal must point at the setup/API-key path, got %q", text)
+	}
+	if strings.Contains(text, "auth login") {
+		t.Fatalf("refusal must not point at the removed auth login command, got %q", text)
 	}
 }

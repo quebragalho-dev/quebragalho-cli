@@ -107,8 +107,8 @@ func TestRunProvidersDetectJSONNoRuntimesActiveProvider(t *testing.T) {
 }
 
 func TestProviderDetectShowsGuidanceWithoutCommand(t *testing.T) {
-	for _, models := range [][]string{nil, {"local-model"}, {"x&calc"}} {
-		runtime := provideronboarding.DetectedLocalRuntime{LocalRuntime: provideronboarding.LocalRuntime{CatalogID: "atomic-chat-local", Name: "Atomic Chat Local", DefaultModel: "local-model"}, Models: models}
+	for _, models := range [][]string{{"text-embedding-only"}, {"x&calc"}} {
+		runtime := provideronboarding.DetectedLocalRuntime{LocalRuntime: provideronboarding.LocalRuntime{CatalogID: "local", Name: "Local Runtime"}, Models: models}
 		out := formatProviderDetectReport(buildProviderDetectReport(config.ResolvedConfig{}, []provideronboarding.DetectedLocalRuntime{runtime}))
 		if strings.Contains(out, "providers add") || !strings.Contains(out, runtime.SetupAction().Detail) {
 			t.Fatalf("missing actionable guidance: %s", out)

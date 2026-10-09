@@ -20,7 +20,6 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -577,8 +576,8 @@ func TestContextCommandShowsSessionState(t *testing.T) {
 
 func TestModelCommandShowsActiveModelWithoutRunningAgent(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     &fakeProvider{},
 	})
 	m.input.SetValue("/model list")
@@ -589,7 +588,7 @@ func TestModelCommandShowsActiveModelWithoutRunningAgent(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	for _, want := range []string{"Active model: gpt-4.1", "provider: openai", "Available models", "* gpt-4.1"} {
+	for _, want := range []string{"Active model: muse-spark-1.3-contributor", "provider: qg", "Available models", "* muse-spark-1.3-contributor"} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected model transcript to contain %q, got %#v", want, next.transcript)
 		}
@@ -607,13 +606,14 @@ func TestModelCommandSwitchesSessionModel(t *testing.T) {
 	nextProvider := &fakeProvider{}
 	m := newModel(context.Background(), Options{
 		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
 			APIKey:       "sk-test",
-			Model:        "gpt-4.1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		Provider: &fakeProvider{},
 		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
@@ -621,7 +621,7 @@ func TestModelCommandSwitchesSessionModel(t *testing.T) {
 			return nextProvider, nil
 		},
 	})
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -629,54 +629,16 @@ func TestModelCommandSwitchesSessionModel(t *testing.T) {
 	if next.pending {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	if next.modelName != "gpt-4.1-mini" || next.provider != nextProvider {
+	if next.modelName != "qwen3.8-omni-flash" || next.provider != nextProvider {
 		t.Fatalf("expected model/provider to update, got model=%q provider=%#v", next.modelName, next.provider)
 	}
-	if rebuilt.Model != "gpt-4.1-mini" {
+	if rebuilt.Model != "qwen3.8-omni-flash" {
 		t.Fatalf("expected provider rebuild with selected model, got %#v", rebuilt)
 	}
-	for _, want := range []string{"Model:", "gpt-4.1-mini · openai"} {
+	for _, want := range []string{"Model:", "qwen3.8-omni-flash · qg"} {
 		if !strings.Contains(next.transientNotice.text, want) {
 			t.Fatalf("expected model notice to contain %q, got %q", want, next.transientNotice.text)
 		}
-	}
-}
-
-func TestModelCommandAcceptsChatGPTCatalogModelID(t *testing.T) {
-	var rebuilt config.ProviderProfile
-	nextProvider := &fakeProvider{}
-	m := newModel(context.Background(), Options{
-		ProviderName: "chatgpt",
-		ModelName:    "gpt-5.6-terra",
-		ProviderProfile: config.ProviderProfile{
-			Name:         "chatgpt",
-			CatalogID:    "chatgpt",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://chatgpt.com/backend-api/codex",
-			Model:        "gpt-5.6-terra",
-		},
-		Provider: &fakeProvider{},
-		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
-			rebuilt = profile
-			return nextProvider, nil
-		},
-	})
-	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{
-		"chatgpt": {{ID: "gpt-5.6-sol"}},
-	}
-	m.input.SetValue("/model openai/gpt-5.6-sol")
-
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-
-	if next.pending {
-		t.Fatal("expected /model to be handled without starting an agent run")
-	}
-	if next.modelName != "gpt-5.6-sol" || next.provider != nextProvider {
-		t.Fatalf("expected ChatGPT model switch to use bare catalog ID, got model=%q provider=%#v", next.modelName, next.provider)
-	}
-	if rebuilt.Model != "gpt-5.6-sol" {
-		t.Fatalf("expected provider rebuild with bare ChatGPT model ID, got %#v", rebuilt)
 	}
 }
 
@@ -688,7 +650,7 @@ func TestProviderModelSwitchCandidatesPreserveGatewayModelIDs(t *testing.T) {
 		want     []string
 	}{
 		{
-			name:     "ChatGPT accepts the models.dev OpenAI namespace",
+			name:     "ChatGPT accepts the openai/ model-ID prefix",
 			provider: "chatgpt",
 			input:    "openai/gpt-5.6-sol",
 			want:     []string{"openai/gpt-5.6-sol", "gpt-5.6-sol"},
@@ -715,7 +677,7 @@ func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
 		ProviderKind: config.ProviderKindOpenAI,
 		BaseURL:      config.OpenAIBaseURL,
 		APIKey:       "sk-test",
-		Model:        "gpt-4.1",
+		Model:        "muse-spark-1.3-contributor",
 	}, true); err != nil {
 		t.Fatalf("write user config: %v", err)
 	}
@@ -723,20 +685,21 @@ func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		UserConfigPath: configPath,
 		ProviderName:   "openai",
-		ModelName:      "gpt-4.1",
+		ModelName:      "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
 			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
 			APIKey:       "sk-test",
-			Model:        "gpt-4.1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		Provider: &fakeProvider{},
 		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
 		},
 	})
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -744,17 +707,17 @@ func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
 	if next.pending {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	if next.modelName != "gpt-4.1-mini" {
-		t.Fatalf("modelName = %q, want gpt-4.1-mini", next.modelName)
+	if next.modelName != "qwen3.8-omni-flash" {
+		t.Fatalf("modelName = %q, want qwen3.8-omni-flash", next.modelName)
 	}
 	persisted, err := config.Resolve(config.ResolveOptions{UserConfigPath: configPath})
 	if err != nil {
 		t.Fatalf("resolve persisted config: %v", err)
 	}
-	if got := persisted.Provider.Model; got != "gpt-4.1-mini" {
-		t.Fatalf("persisted provider model = %q, want gpt-4.1-mini", got)
+	if got := persisted.Provider.Model; got != "qwen3.8-omni-flash" {
+		t.Fatalf("persisted provider model = %q, want qwen3.8-omni-flash", got)
 	}
-	if !strings.Contains(next.transientNotice.text, "gpt-4.1-mini") {
+	if !strings.Contains(next.transientNotice.text, "qwen3.8-omni-flash") {
 		t.Fatalf("expected model notice to name selected model, got %q", next.transientNotice.text)
 	}
 }
@@ -802,11 +765,12 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 	rebuilds := 0
 	m := newModel(context.Background(), Options{
 		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
 			APIKey:       "sk-test",
 			Model:        "gpt-4.1",
 		},
@@ -817,7 +781,7 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 		},
 	})
 	m.sessionEvents = []sessions.Event{{Sequence: 1, Type: sessions.EventMessage}}
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -828,7 +792,7 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 	if rebuilds != 0 {
 		t.Fatalf("provider should not be rebuilt before requested compaction, got %d rebuilds", rebuilds)
 	}
-	if next.modelName != "gpt-4.1" || next.provider != originalProvider {
+	if next.modelName != "muse-spark-1.3-contributor" || next.provider != originalProvider {
 		t.Fatalf("expected active model/provider to remain unchanged, got model=%q provider=%#v", next.modelName, next.provider)
 	}
 	if next.compactRequests != 1 {
@@ -838,7 +802,7 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 		t.Fatalf("expected one compaction guard request, got %d", len(guard.requests))
 	}
 	request := guard.requests[0]
-	if request.CurrentModel != "gpt-4.1" || request.TargetModel != "gpt-4.1-mini" {
+	if request.CurrentModel != "muse-spark-1.3-contributor" || request.TargetModel != "qwen3.8-omni-flash" {
 		t.Fatalf("unexpected guard model transition: %#v", request)
 	}
 	if request.SessionEventCount != 1 {
@@ -856,15 +820,16 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 
 func TestModelCommandRequiresProviderRebuildForSwitch(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ModelName: "gpt-4.1",
+		ModelName: "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
-			Model:        "gpt-4.1",
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 	})
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -872,7 +837,7 @@ func TestModelCommandRequiresProviderRebuildForSwitch(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	if next.modelName != "gpt-4.1" {
+	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
 	if !transcriptContains(next.transcript, "Provider rebuild is not available") {
@@ -882,16 +847,17 @@ func TestModelCommandRequiresProviderRebuildForSwitch(t *testing.T) {
 
 func TestModelCommandRejectsSwitchWhilePending(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ModelName: "gpt-4.1",
+		ModelName: "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
-			Model:        "gpt-4.1",
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 	})
 	m.pending = true
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -899,7 +865,7 @@ func TestModelCommandRejectsSwitchWhilePending(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	if next.modelName != "gpt-4.1" {
+	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
 	if !transcriptContains(next.transcript, "Cannot switch models while a run is active") {
@@ -909,23 +875,24 @@ func TestModelCommandRejectsSwitchWhilePending(t *testing.T) {
 
 func TestModelCommandReportsProviderRebuildErrors(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ModelName: "gpt-4.1",
+		ModelName: "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
-			Model:        "gpt-4.1",
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return nil, errors.New("rebuild failed")
 		},
 	})
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if next.modelName != "gpt-4.1" {
+	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
 	if !transcriptContains(next.transcript, "rebuild failed") {
@@ -936,10 +903,11 @@ func TestModelCommandReportsProviderRebuildErrors(t *testing.T) {
 func TestDoctorCommandUsesCurrentProviderProfile(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
-			Model:        "gpt-4.1",
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
 			APIKey:       "sk-test", // credentialed so provider.config passes (isolates this render test from the no-key check)
 		},
 	})
@@ -2200,35 +2168,6 @@ func TestCtrlCRequiresSecondPressToExit(t *testing.T) {
 	}
 }
 
-func TestConfirmedCtrlCCancelsProviderAimlapiOnboarding(t *testing.T) {
-	cancelled := false
-	m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
-	m.providerWizard = &providerWizardState{
-		step: providerWizardStepAimlapi,
-		aimlapi: &aimlapiOnboardState{
-			topupCancel: func() { cancelled = true },
-		},
-	}
-
-	updated, _ := m.Update(testKeyCtrl('c'))
-	next := updated.(model)
-	if cancelled {
-		t.Fatal("first Ctrl+C should only arm exit confirmation")
-	}
-
-	updated, cmd := next.Update(testKeyCtrl('c'))
-	next = updated.(model)
-	if !cancelled {
-		t.Fatal("confirmed Ctrl+C did not cancel AIMLAPI onboarding")
-	}
-	if next.providerWizard.aimlapi != nil {
-		t.Fatal("confirmed Ctrl+C retained AIMLAPI onboarding state")
-	}
-	if cmd == nil {
-		t.Fatal("confirmed Ctrl+C should return quit command")
-	}
-}
-
 func TestCtrlCExitConfirmationDisarmsOnInterveningKey(t *testing.T) {
 	m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
 
@@ -3367,5 +3306,25 @@ func TestMultilineBurstSubmits(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("multiline burst got nil cmd")
+	}
+}
+
+// The TUI's missing-provider row is the interactive first-run surface: same
+// contract as the exec error — cite QUEBRAGALHO_API_KEY and `qg setup qg`,
+// never the removed OAuth login or legacy multi-provider env vars.
+func TestMissingProviderNoticeCitesQGSetupAndAPIKey(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	m.input.SetValue("hello")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+	if !transcriptContains(next.transcript, "QG_API_KEY") || !transcriptContains(next.transcript, "QUEBRAGALHO_API_KEY") || !transcriptContains(next.transcript, "qg setup qg") {
+		t.Fatalf("missing-provider notice must cite QG_API_KEY, QUEBRAGALHO_API_KEY and qg setup qg, got %#v", next.transcript)
+	}
+	text := transcriptText(next.transcript)
+	for _, banned := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "qg auth"} {
+		if strings.Contains(text, banned) {
+			t.Fatalf("missing-provider notice must not mention %q, got %q", banned, text)
+		}
 	}
 }

@@ -8,6 +8,10 @@ import (
 )
 
 const OpenAIBaseURL = "https://api.openai.com/v1"
+
+// QGBaseURL is the single QG provider endpoint. The factory defaults every
+// OpenAI-compatible profile without an explicit BaseURL here.
+const QGBaseURL = "https://api.quebragalho.dev/v1"
 const AnthropicBaseURL = "https://api.anthropic.com"
 const GoogleBaseURL = "https://generativelanguage.googleapis.com"
 

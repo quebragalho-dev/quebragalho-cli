@@ -90,7 +90,7 @@ func TestProviderCommandShowsMissingCredentialActionForCompatibleProvider(t *tes
 		"provider: manual-openai-compatible",
 		"api key: not set",
 		"set OPENAI_API_KEY in your environment",
-		"qg providers add custom-openai-compatible --api-key-env OPENAI_API_KEY --set-active",
+		"qg providers add manual-openai-compatible --api-key-env OPENAI_API_KEY --set-active",
 	} {
 		assertContains(t, text, want)
 	}

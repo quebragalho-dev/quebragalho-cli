@@ -113,7 +113,9 @@ func TestMouseWheelOnClippedFooterStatusDoesNotMoveComposerCursor(t *testing.T) 
 
 func TestAltScreenTranscriptScrollKeepsFooterFixed(t *testing.T) {
 	m := newModel(context.Background(), Options{AltScreen: true, ProviderName: "openai", ModelName: "gpt-4.1"})
-	m.width = 90
+	// Wide enough that branch + cwd + model all fit the title bar regardless of
+	// how deep the checkout path runs (the branch must stay pinned while scrolling).
+	m.width = 140
 	m.height = 10
 	m.gitBranch = "feat/pinned-header"
 	for index := 0; index < 14; index++ {
