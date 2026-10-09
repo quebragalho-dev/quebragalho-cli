@@ -1,6 +1,6 @@
 # npm packaging
 
-How `@quebragalho-dev/qg` is put together on npm, why it is shaped this way, and the
+How `@quebragalho-dev/cli` is put together on npm, why it is shaped this way, and the
 rules the release pipeline must follow. Read this before touching
 `package.json`, `bin/qg.js`, `scripts/postinstall.mjs`,
 `scripts/npm/build-platform-packages.mjs`, or the npm-publish steps of
@@ -8,7 +8,7 @@ rules the release pipeline must follow. Read this before touching
 
 ## Goals
 
-A `npm install -g @quebragalho-dev/qg` must be **silent and self-contained**:
+A `npm install -g @quebragalho-dev/cli` must be **silent and self-contained**:
 
 - No `EBADENGINE` warnings — ours or from any package in the dependency tree.
 - No install scripts anywhere in the tree, so npm's `allow-scripts` gating,
@@ -25,15 +25,15 @@ The model is the one used by Codex, esbuild, and Biome: a tiny wrapper package
 plus per-platform payloads carrying the native binaries.
 
 ```
-@quebragalho-dev/qg                    <- wrapper: bin/qg.js + optionalDependencies
-├─ @quebragalho-dev/qg-darwin-arm64 -> npm:@quebragalho-dev/qg@{version}-darwin-arm64
-├─ @quebragalho-dev/qg-darwin-x64   -> npm:@quebragalho-dev/qg@{version}-darwin-x64
-├─ @quebragalho-dev/qg-linux-arm64  -> npm:@quebragalho-dev/qg@{version}-linux-arm64
-├─ @quebragalho-dev/qg-linux-x64    -> npm:@quebragalho-dev/qg@{version}-linux-x64
-└─ @quebragalho-dev/qg-win32-x64    -> npm:@quebragalho-dev/qg@{version}-win32-x64
+@quebragalho-dev/cli                    <- wrapper: bin/qg.js + optionalDependencies
+├─ @quebragalho-dev/cli-darwin-arm64 -> npm:@quebragalho-dev/cli@{version}-darwin-arm64
+├─ @quebragalho-dev/cli-darwin-x64   -> npm:@quebragalho-dev/cli@{version}-darwin-x64
+├─ @quebragalho-dev/cli-linux-arm64  -> npm:@quebragalho-dev/cli@{version}-linux-arm64
+├─ @quebragalho-dev/cli-linux-x64    -> npm:@quebragalho-dev/cli@{version}-linux-x64
+└─ @quebragalho-dev/cli-win32-x64    -> npm:@quebragalho-dev/cli@{version}-win32-x64
 ```
 
-- The platform "packages" are **versions of the same `@quebragalho-dev/qg` package**,
+- The platform "packages" are **versions of the same `@quebragalho-dev/cli` package**,
   published at suffixed versions (`0.4.0-linux-x64`) and referenced through
   `npm:` aliases in `optionalDependencies`. One package name means one npm
   trusted-publisher configuration — no new publish credentials per platform.
@@ -56,7 +56,7 @@ plus per-platform payloads carrying the native binaries.
 
 ### Binary resolution in `bin/qg.js`
 
-1. Resolve `@quebragalho-dev/qg-<platform>-<arch>` and exec the `qg` binary from
+1. Resolve `@quebragalho-dev/cli-<platform>-<arch>` and exec the `qg` binary from
    it. This wins over any previously downloaded copy — the platform version is
    pinned to the wrapper release.
 2. Fall back to a binary previously downloaded next to the wrapper.
@@ -130,8 +130,8 @@ one is user-visible immediately.
    trusted-publisher configuration.
 
 `qg update` keeps working unchanged: it detects an npm install by finding a
-`package.json` named `@quebragalho-dev/qg` next to the running binary — true inside
-a platform payload too — and updates via `npm install -g @quebragalho-dev/qg@latest`.
+`package.json` named `@quebragalho-dev/cli` next to the running binary — true inside
+a platform payload too — and updates via `npm install -g @quebragalho-dev/cli@latest`.
 
 ## Runbook: bumping the vendored helpers
 

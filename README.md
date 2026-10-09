@@ -59,7 +59,7 @@ sandbox se quiser sandbox nativo:
 go build -o qg-linux-sandbox ./cmd/qg-linux-sandbox
 ```
 
-Também é publicado como pacote npm (`npm install -g @quebragalho-dev/qg`),
+Também é publicado como pacote npm (`npm install -g @quebragalho-dev/cli`),
 que instala **os dois nomes de comando**: `qg` e o alias `quebragalho`.
 
 ## Primeiros passos

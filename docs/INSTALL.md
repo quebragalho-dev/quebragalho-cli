@@ -6,7 +6,7 @@ Escolha o método que já faz parte da sua rotina. Nenhum deles é o "oficial".
 | --- | --- | --- |
 | Script de instalação (Linux, macOS) | `curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh \| bash` | `qg upgrade` |
 | Script de instalação (Windows) | `irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 \| iex` | `qg upgrade` |
-| npm | `npm install -g @quebragalho-dev/qg` | `qg upgrade` (roda npm) |
+| npm | `npm install -g @quebragalho-dev/cli` | `qg upgrade` (roda npm) |
 | Arquivo de release | baixe em [Releases](https://github.com/quebragalho-dev/quebragalho-cli/releases) | `qg upgrade` |
 | mise | `mise use -g ubi:quebragalho-dev/quebragalho-cli` | `mise upgrade` |
 | `go install` | `go install github.com/quebragalho-dev/quebragalho-cli/cmd/qg@latest` | rode de novo |
@@ -105,12 +105,12 @@ rm -rf ~/Library/Caches/qg  # cache (Linux: ~/.cache/qg)
 ```
 
 Instalações via npm, mise ou `go install` devem ser removidas pelo próprio
-gerenciador (`npm uninstall -g @quebragalho-dev/qg`, `mise uninstall …`).
+gerenciador (`npm uninstall -g @quebragalho-dev/cli`, `mise uninstall …`).
 
 ## npm
 
 ```bash
-npm install -g @quebragalho-dev/qg
+npm install -g @quebragalho-dev/cli
 qg
 ```
 
@@ -213,7 +213,7 @@ plataforma.
 
 O `qg upgrade` comporta-se diferente conforme o dono do binário:
 
-- **npm**: roda `npm install -g @quebragalho-dev/qg@latest` para você.
+- **npm**: roda `npm install -g @quebragalho-dev/cli@latest` para você.
 - **Homebrew**: recusa e manda no `brew upgrade qg` (substituir o binário do
   keg seria revertido no próximo `brew upgrade`).
 - **todo o resto** (inclusive `/usr/local/bin` do script curl): baixa o
