@@ -23,6 +23,7 @@ type setupOptions struct {
 	model     string
 	baseURL   string
 	apiKeyEnv string
+	apiKey    string
 	json      bool
 	// verify runs a live connectivity probe after saving the provider and reports
 	// a specific, fixable error on failure (wrong base URL, bad key, model not
@@ -48,6 +49,7 @@ func runSetup(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	result, err := saveSetupProvider(deps, tui.SetupSelection{
 		CatalogID: options.catalogID,
 		Model:     options.model,
+		APIKey:    strings.TrimSpace(options.apiKey),
 	}, setupSaveOptions{
 		name:      options.name,
 		baseURL:   options.baseURL,
@@ -55,6 +57,9 @@ func runSetup(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	})
 	if err != nil {
 		return writeAppError(stderr, err.Error(), exitCrash)
+	}
+	if result.KeyStoreFallback {
+		warnKeyStoreFallback(stderr, result.ConfigPath)
 	}
 
 	var verification *setupVerification
@@ -124,7 +129,7 @@ func verifySetupProvider(deps appDeps, profile config.ProviderProfile) (setupVer
 			name = "this provider"
 		}
 		return setupVerification{Ran: true, OK: false, Summary: "no api key"},
-			fmt.Errorf("no API key found for %s — set QUEBRAGALHO_API_KEY in your environment (or pass --api-key-env QUEBRAGALHO_API_KEY), then re-run `qg setup qg`", name)
+			fmt.Errorf("no API key found for %s — set %s in your environment or run `qg login` (or pass --api-key / --api-key-env QUEBRAGALHO_API_KEY), then re-run `qg setup qg`", name, providercatalog.KeyEnvHint)
 	}
 	ctx, stop := signalContext()
 	defer stop()
@@ -226,6 +231,19 @@ func parseSetupArgs(args []string) (setupOptions, bool, error) {
 				return options, false, err
 			}
 			options.apiKeyEnv = value
+		case arg == "--api-key":
+			value, next, err := nextFlagValue(args, index, arg)
+			if err != nil {
+				return options, false, err
+			}
+			options.apiKey = value
+			index = next
+		case strings.HasPrefix(arg, "--api-key="):
+			value, err := requiredInlineFlagValue(arg, "--api-key")
+			if err != nil {
+				return options, false, err
+			}
+			options.apiKey = value
 		case strings.HasPrefix(arg, "-"):
 			return options, false, execUsageError{fmt.Sprintf("unknown flag %q", arg)}
 		default:
@@ -265,11 +283,22 @@ func saveSetupProvider(deps appDeps, selection tui.SetupSelection, options setup
 		return tui.SetupResult{}, err
 	}
 	// Persist with the key moved into the encrypted credential store (capture flip);
-	// the returned profile keeps the key for this run's immediate use.
-	if _, err := config.UpsertProvider(configPath, config.SecureProviderProfile(profile, configPath), true); err != nil {
+	// the returned profile keeps the key for this run's immediate use. When the
+	// store is unavailable the key stays inline and KeyStoreFallback tells the
+	// caller to warn that config.json now holds it in plaintext.
+	secured, fellBack := config.SecureProviderProfile(profile, configPath)
+	if _, err := config.UpsertProvider(configPath, secured, true); err != nil {
 		return tui.SetupResult{}, err
 	}
-	return tui.SetupResult{ConfigPath: configPath, Provider: profile}, nil
+	return tui.SetupResult{ConfigPath: configPath, Provider: profile, KeyStoreFallback: fellBack}, nil
+}
+
+// warnKeyStoreFallback reports that the credential store was unavailable, so
+// the API key was persisted inline in config.json (plaintext). Every surface
+// that persists a key must print this on a fallback — a silent downgrade of
+// where the secret rests is the defect, not the fail-soft itself.
+func warnKeyStoreFallback(stderr io.Writer, configPath string) {
+	_, _ = fmt.Fprintf(stderr, "warning: credential store unavailable — API key saved in plaintext in %s\n", configPath)
 }
 
 func setupProviderOptions() []tui.SetupProviderOption {
@@ -311,14 +340,21 @@ func setupUnavailableMessage() string {
 // onboarding wizard (Etapa 4). It names the credential env var the profile
 // expects and, when no profile exists yet, the command that creates one.
 func missingProviderKeyMessage(profile config.ProviderProfile) string {
-	envVar, _ := profile.MissingCredentialEnv()
+	envVar := providercatalog.DisplayKeyEnv(mustMissingCredentialEnv(profile))
 	if strings.TrimSpace(envVar) == "" {
-		envVar = "QUEBRAGALHO_API_KEY"
+		envVar = providercatalog.KeyEnvHint
 	}
 	if !config.HasProviderProfile(profile) {
-		return "no provider configured: set " + envVar + " in your environment, then run `qg setup qg`"
+		return "no provider configured: set " + envVar + " in your environment or run `qg login`, then run `qg setup qg`"
 	}
-	return "no API key configured: set " + envVar + " in your environment"
+	return "no API key configured: set " + envVar + " in your environment or run `qg login`"
+}
+
+// mustMissingCredentialEnv ignores the missing-flag: this helper only wants
+// the env-var name the profile expects, present or not.
+func mustMissingCredentialEnv(profile config.ProviderProfile) string {
+	envVar, _ := profile.MissingCredentialEnv()
+	return envVar
 }
 
 func setupRequired(resolved config.ResolvedConfig) bool {
@@ -503,7 +539,7 @@ func formatSetupComplete(result tui.SetupResult) string {
 	}
 	if envVar, ok := setupMissingCredentialEnv(result.Provider); ok {
 		if envVar != "" {
-			lines = append(lines, "next: set "+envVar+" in your shell")
+			lines = append(lines, "next: set "+providercatalog.DisplayKeyEnv(envVar)+" in your shell or run `qg login`")
 		} else {
 			lines = append(lines, "next: set provider credentials in your shell")
 		}
@@ -569,6 +605,7 @@ removed, so the provider argument is required.
 
 Examples:
   qg setup qg
+  qg setup qg --api-key sk-...
   qg setup qg --api-key-env QUEBRAGALHO_API_KEY
   qg setup qg --model muse-spark-1.3-contributor
 
@@ -576,6 +613,7 @@ Flags:
       --name <name>             Provider profile name
       --model <model>           Override the default model
       --base-url <url>          Override provider base URL
+      --api-key <key>           Save an API key directly in the credential store
       --api-key-env <name>      Store an API key environment variable name
       --verify                  Probe the provider after saving and report a fixable error on failure
       --json                    Print machine-readable setup result

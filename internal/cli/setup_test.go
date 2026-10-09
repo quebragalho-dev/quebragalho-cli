@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -275,8 +277,8 @@ func TestVerifySetupProviderDistinguishesMissingFromRejectedKey(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no API key found") {
 		t.Fatalf("missing key should report 'no API key found', got %v", err)
 	}
-	if !strings.Contains(err.Error(), "QUEBRAGALHO_API_KEY") || !strings.Contains(err.Error(), "qg setup qg") {
-		t.Fatalf("missing key must cite QUEBRAGALHO_API_KEY and qg setup qg, got %v", err)
+	if !strings.Contains(err.Error(), "QG_API_KEY") || !strings.Contains(err.Error(), "QUEBRAGALHO_API_KEY") || !strings.Contains(err.Error(), "qg setup qg") {
+		t.Fatalf("missing key must cite both gateway env vars and qg setup qg, got %v", err)
 	}
 	if strings.Contains(err.Error(), "qg auth") {
 		t.Fatalf("missing key must not cite the removed auth commands, got %v", err)
@@ -295,5 +297,102 @@ func TestVerifySetupProviderDistinguishesMissingFromRejectedKey(t *testing.T) {
 	})
 	if !probed {
 		t.Fatal("a keyless local provider should still be probed")
+	}
+}
+
+// `qg setup qg --api-key <key>` persists the key in one step: setup is fully
+// self-sufficient without a pre-existing env var.
+func TestSetupQGWithAPIKeyFlagStoresKey(t *testing.T) {
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	deps := appDeps{
+		userConfigPath: func() (string, error) { return configPath, nil },
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"setup", "qg", "--api-key", "sk-setup-key"}, &stdout, &stderr, deps)
+	if exitCode != exitSuccess {
+		t.Fatalf("exit = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
+	}
+
+	store, err := config.ProviderKeyStoreAt(filepath.Dir(configPath))
+	if err != nil {
+		t.Fatalf("ProviderKeyStoreAt: %v", err)
+	}
+	stored, ok, err := store.Get("qg")
+	if err != nil || !ok || stored != "sk-setup-key" {
+		t.Fatalf("stored key = (%q, %v, %v), want sk-setup-key", stored, ok, err)
+	}
+	cfg := readLoginConfig(t, configPath)
+	if len(cfg.Providers) != 1 || !cfg.Providers[0].APIKeyStored {
+		t.Fatalf("providers = %#v, want one apiKeyStored profile", cfg.Providers)
+	}
+	if cfg.ActiveProvider != "qg" {
+		t.Fatalf("ActiveProvider = %q, want qg", cfg.ActiveProvider)
+	}
+}
+
+// A store failure during setup must warn: the key lands inline in config.json
+// in plaintext, and a silent downgrade of the storage guarantee is a defect.
+func TestSetupWarnsWhenKeyStoreFallsBack(t *testing.T) {
+	t.Setenv("QG_CRED_STORAGE", "bogus") // credstore.New rejects it: store unavailable
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	deps := appDeps{
+		userConfigPath: func() (string, error) { return configPath, nil },
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"setup", "qg", "--api-key", "sk-setup-fallback"}, &stdout, &stderr, deps)
+	if exitCode != exitSuccess {
+		t.Fatalf("exit = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
+	}
+	warn := stderr.String()
+	if !strings.Contains(warn, "warning:") || !strings.Contains(warn, "plaintext") {
+		t.Fatalf("stderr must warn about the plaintext fallback, got %q", warn)
+	}
+	if strings.Contains(warn, "sk-setup-fallback") {
+		t.Fatalf("warning leaked the API key: %q", warn)
+	}
+	cfg := readLoginConfig(t, configPath)
+	if len(cfg.Providers) != 1 || cfg.Providers[0].APIKey != "sk-setup-fallback" {
+		t.Fatalf("expected the key inline after fallback, got %#v", cfg.Providers)
+	}
+	if cfg.Providers[0].APIKeyStored {
+		t.Fatalf("fallback must not claim apiKeyStored: %#v", cfg.Providers[0])
+	}
+}
+
+// login → setup must not orphan the stored key: re-running setup without a key
+// keeps the apiKeyStored marker so the credential store stays reachable.
+func TestSetupAfterLoginKeepsStoredKey(t *testing.T) {
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	deps := appDeps{
+		stdin:          strings.NewReader("sk-login-key\n"),
+		userConfigPath: func() (string, error) { return configPath, nil },
+	}
+	deps.validateLoginKey = func(context.Context, string) error { return nil }
+
+	if code := runWithDeps([]string{"login"}, io.Discard, &bytes.Buffer{}, deps); code != exitSuccess {
+		t.Fatalf("login exit = %d, want success", code)
+	}
+	deps.stdin = strings.NewReader("")
+	if code := runWithDeps([]string{"setup", "qg"}, io.Discard, &bytes.Buffer{}, deps); code != exitSuccess {
+		t.Fatalf("setup exit = %d, want success", code)
+	}
+
+	cfg := readLoginConfig(t, configPath)
+	if len(cfg.Providers) != 1 || !cfg.Providers[0].APIKeyStored {
+		t.Fatalf("providers = %#v, want the apiKeyStored marker preserved", cfg.Providers)
+	}
+	store, err := config.ProviderKeyStoreAt(filepath.Dir(configPath))
+	if err != nil {
+		t.Fatalf("ProviderKeyStoreAt: %v", err)
+	}
+	if stored, ok, _ := store.Get("qg"); !ok || stored != "sk-login-key" {
+		t.Fatalf("stored key = (%q, %v), want sk-login-key", stored, ok)
 	}
 }

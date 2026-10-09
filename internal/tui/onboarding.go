@@ -507,6 +507,9 @@ func (m model) completeSetup() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if result.KeyStoreFallback {
+		m = m.showTransientNoticeInline("Credential store unavailable — API key saved in plaintext in "+result.ConfigPath, transientNoticeWarning)
+	}
 	return m.exitSetupToChat()
 }
 
