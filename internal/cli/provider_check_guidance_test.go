@@ -17,14 +17,14 @@ func TestRunProvidersCheckMissingKeyPrintsNextAction(t *testing.T) {
 	deps := commandCenterDeps(t)
 	deps.resolveConfig = func(string, config.Overrides) (config.ResolvedConfig, error) {
 		profile := providerCheckGuidanceProfile()
-		return config.ResolvedConfig{ActiveProvider: "groq", Provider: profile, Providers: []config.ProviderProfile{profile}, MaxTurns: 7}, nil
+		return config.ResolvedConfig{ActiveProvider: "qg", Provider: profile, Providers: []config.ProviderProfile{profile}, MaxTurns: 7}, nil
 	}
 	deps.newProvider = func(config.ProviderProfile) (qgruntime.Provider, error) {
 		t.Fatal("newProvider should not run with a missing API key")
 		return nil, nil
 	}
 
-	exitCode := runWithDeps([]string{"providers", "check", "groq"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"providers", "check", "qg"}, &stdout, &stderr, deps)
 
 	if exitCode != exitProvider {
 		t.Fatalf("exit code = %d, want %d", exitCode, exitProvider)
@@ -33,10 +33,10 @@ func TestRunProvidersCheckMissingKeyPrintsNextAction(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 	output := stderr.String()
-	if !strings.Contains(output, "provider groq requires API key; set GROQ_API_KEY") {
+	if !strings.Contains(output, "provider qg requires API key; set QUEBRAGALHO_API_KEY") {
 		t.Fatalf("missing key error did not name env var: %q", output)
 	}
-	if !strings.Contains(output, "next: set GROQ_API_KEY and rerun qg providers check groq") {
+	if !strings.Contains(output, "next: set QUEBRAGALHO_API_KEY and rerun qg providers check qg") {
 		t.Fatalf("missing next action: %q", output)
 	}
 }
@@ -50,10 +50,10 @@ func TestRunProvidersCheckMissingKeyDoesNotLeakSecrets(t *testing.T) {
 		profile.BaseURL = "https://user:base-secret@api.groq.com/openai/v1?api_key=query-secret"
 		profile.AuthHeader = "Authorization"
 		profile.CustomHeaders = map[string]string{"X-Token": "custom-secret"}
-		return config.ResolvedConfig{ActiveProvider: "groq", Provider: profile, Providers: []config.ProviderProfile{profile}, MaxTurns: 7}, nil
+		return config.ResolvedConfig{ActiveProvider: "qg", Provider: profile, Providers: []config.ProviderProfile{profile}, MaxTurns: 7}, nil
 	}
 
-	exitCode := runWithDeps([]string{"providers", "check", "groq"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"providers", "check", "qg"}, &stdout, &stderr, deps)
 
 	if exitCode != exitProvider {
 		t.Fatalf("exit code = %d, want %d", exitCode, exitProvider)
@@ -154,11 +154,11 @@ func TestRunProvidersCheckConnectivityOKPrintsExecNextAction(t *testing.T) {
 
 func providerCheckGuidanceProfile() config.ProviderProfile {
 	return config.ProviderProfile{
-		Name:         "groq",
+		Name:         "qg",
 		ProviderKind: config.ProviderKindOpenAICompatible,
-		CatalogID:    "groq",
-		BaseURL:      "https://api.groq.com/openai/v1",
-		APIKeyEnv:    "GROQ_API_KEY",
-		Model:        "llama-3.3-70b-versatile",
+		CatalogID:    "qg",
+		BaseURL:      "https://api.quebragalho.dev/v1",
+		APIKeyEnv:    "QUEBRAGALHO_API_KEY",
+		Model:        "muse-spark-1.3-contributor",
 	}
 }

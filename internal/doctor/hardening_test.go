@@ -13,11 +13,12 @@ import (
 // status reflects only the check under test (not an unrelated provider failure).
 func validProvider() config.ProviderProfile {
 	return config.ProviderProfile{
-		Name:         "openai",
-		ProviderKind: config.ProviderKindOpenAI,
-		BaseURL:      config.OpenAIBaseURL,
+		Name:         "qg",
+		CatalogID:    "qg",
+		ProviderKind: config.ProviderKindOpenAICompatible,
+		BaseURL:      "https://api.quebragalho.dev/v1",
 		APIKey:       "sk-test",
-		Model:        "gpt-4.1",
+		Model:        "muse-spark-1.3-contributor",
 	}
 }
 

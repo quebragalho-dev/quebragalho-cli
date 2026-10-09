@@ -197,16 +197,6 @@ func (profile ProviderProfile) HasConfiguredCredential() bool {
 // `usableSavedProviders`) and TUI (`/providers` status, provider wizard
 // summary) surfaces all delegate here so they never disagree about a
 // profile's status.
-//
-// For the catalog's two "bring your own endpoint" descriptors
-// (custom-openai-compatible, custom-anthropic-compatible), RequiresAuth is
-// just a wizard template default, not a fact about the user's actual
-// endpoint: a custom target may need no auth at all. So for those two only,
-// a credential is expected exclusively when this profile carries its own
-// explicit APIKeyEnv that differs from the catalog's guessed default — a
-// value matching that default is indistinguishable from the wizard's old
-// auto-stamp bug (issue #555) and is treated the same as unset, which also
-// self-heals profiles saved before that bug was fixed.
 func (profile ProviderProfile) MissingCredentialEnv() (string, bool) {
 	if profile.HasConfiguredCredential() {
 		return "", false
@@ -217,13 +207,6 @@ func (profile ProviderProfile) MissingCredentialEnv() (string, bool) {
 			return "", false
 		}
 		defaultEnvVar := firstNonEmptyTrimmed(descriptor.AuthEnvVars...)
-		if descriptor.Custom {
-			envVar := strings.TrimSpace(profile.APIKeyEnv)
-			if envVar == "" || envVar == defaultEnvVar {
-				return "", false
-			}
-			return envVar, true
-		}
 		if !descriptor.RequiresAuth {
 			return "", false
 		}

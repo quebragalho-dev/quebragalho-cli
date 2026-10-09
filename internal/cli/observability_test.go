@@ -34,11 +34,12 @@ func TestRunDoctorFormatsRedactedProviderDiagnostics(t *testing.T) {
 			}
 			return config.ResolvedConfig{
 				Provider: config.ProviderProfile{
-					Name:         "openai",
-					ProviderKind: config.ProviderKindOpenAI,
-					BaseURL:      config.OpenAIBaseURL,
+					Name:         "qg",
+					CatalogID:    "qg",
+					ProviderKind: config.ProviderKindOpenAICompatible,
+					BaseURL:      "https://api.quebragalho.dev/v1",
 					APIKey:       "sk-proj-secret1234567890",
-					Model:        "gpt-4.1",
+					Model:        "muse-spark-1.3-contributor",
 				},
 			}, nil
 		},
@@ -121,7 +122,7 @@ func TestRunDoctorConnectivityUsesOAuthLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	if err := store.Save(oauth.ProviderKey("xai"), oauth.Token{
+	if err := store.Save(oauth.ProviderKey("qg"), oauth.Token{
 		AccessToken: "oauth-doctor-token",
 		ExpiresAt:   time.Now().Add(time.Hour),
 	}); err != nil {
@@ -137,11 +138,11 @@ func TestRunDoctorConnectivityUsesOAuthLogin(t *testing.T) {
 	defer server.Close()
 
 	profile := config.ProviderProfile{
-		Name:         "xai",
-		CatalogID:    "xai",
+		Name:         "qg",
+		CatalogID:    "qg",
 		ProviderKind: config.ProviderKindOpenAICompatible,
 		BaseURL:      server.URL + "/v1",
-		Model:        "grok-4",
+		Model:        "muse-spark-1.3-contributor",
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

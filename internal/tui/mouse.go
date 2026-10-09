@@ -128,12 +128,6 @@ func (m model) scrollChatExtendingSelection(delta int, msg tea.MouseMsg) model {
 }
 
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	// While a provider-wizard OAuth login is in flight, ignore all mouse input
-	// (clicks and wheel) so a stray scroll can't change the selected provider
-	// mid-login — mirroring the keyboard handler's pending guard.
-	if m.providerWizard != nil && m.providerWizard.oauthPending {
-		return m, nil
-	}
 	// A click is a deliberate action, same as a keypress — it means the user
 	// moved on to something else, so it disarms a stale Esc cancel-confirmation
 	// rather than leaving it armed for some later, unrelated Esc to act on.
@@ -546,7 +540,7 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 }
 
 func (m *model) selectProviderWizardAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
-	if m.providerWizard == nil || m.providerWizard.oauthPending {
+	if m.providerWizard == nil {
 		return mouseSelectionTarget{}, false
 	}
 	width := chatWidth(m.width)

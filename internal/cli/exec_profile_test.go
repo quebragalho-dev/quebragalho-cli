@@ -88,11 +88,21 @@ func TestApplyExecProfileUnknownIsUsageError(t *testing.T) {
 	}
 }
 
-// Precedence: explicit flag > --mode > --exec-profile. The deep mode fills
-// effort=high and max-turns=160; the fast profile must not override either,
-// because a mode-filled field counts as set by the time the profile runs.
+// Precedence: explicit flag > --mode > --exec-profile. smart is the only
+// built-in mode; it fills the model and leaves effort and the turn budget to
+// whatever the operator (or the profile) set, so the test pins the legs that
+// exist: the flag's model beats the mode's, the mode's model survives the
+// profile, and the profile fills only what the mode left empty.
 func TestExecProfilePrecedenceFlagOverModeOverProfile(t *testing.T) {
-	options := execOptions{mode: "deep", execProfile: "fast"}
+	flagged := execOptions{mode: "smart", model: "gpt-4.1"}
+	if err := applyExecMode(&flagged); err != nil {
+		t.Fatalf("applyExecMode: %v", err)
+	}
+	if flagged.model != "gpt-4.1" {
+		t.Fatalf("model = %q, the explicit flag must beat the mode", flagged.model)
+	}
+
+	options := execOptions{mode: "smart", execProfile: "fast"}
 	if err := applyExecMode(&options); err != nil {
 		t.Fatalf("applyExecMode: %v", err)
 	}
@@ -100,13 +110,19 @@ func TestExecProfilePrecedenceFlagOverModeOverProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyExecProfile: %v", err)
 	}
-	if options.reasoningEffort != "high" {
-		t.Fatalf("reasoningEffort = %q, the mode's high must win over the profile's low", options.reasoningEffort)
+	if options.model != "muse-spark-1.3-contributor" {
+		t.Fatalf("model = %q, the mode's model must survive the profile", options.model)
 	}
-	// The mode filled options.maxTurns, so the turn budget must not be displaced.
-	effective, displaced := applyProfileTurnBudget(profile, options.maxTurns, options.maxTurns)
-	if effective != 160 || displaced != 0 {
-		t.Fatalf("turn budget = (%d, displaced %d), the mode's 160 must win with nothing displaced", effective, displaced)
+	if options.reasoningEffort != "low" {
+		t.Fatalf("reasoningEffort = %q, the fast profile fills the effort the mode left empty", options.reasoningEffort)
+	}
+	if options.maxTurns != 0 {
+		t.Fatalf("maxTurns = %d, smart leaves the turn budget untouched", options.maxTurns)
+	}
+	// With no mode-pinned budget the profile displaces the resolved one.
+	effective, displaced := applyProfileTurnBudget(profile, options.maxTurns, 80)
+	if effective != 30 || displaced != 80 {
+		t.Fatalf("turn budget = (%d, displaced %d), want the fast profile over the resolved budget", effective, displaced)
 	}
 }
 

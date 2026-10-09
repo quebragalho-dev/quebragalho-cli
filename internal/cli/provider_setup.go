@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/quebragalho-dev/quebragalho-cli/internal/aimlapi"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
@@ -430,17 +429,6 @@ func providerProfileForAdd(options providerAddOptions) (config.ProviderProfile, 
 	var catalogHeaders map[string]string
 	if sameProviderSetupBaseURL(baseURL, descriptor.DefaultBaseURL) {
 		catalogHeaders = descriptor.CustomHeaders
-		if strings.EqualFold(strings.TrimSpace(descriptor.ID), "aimlapi") {
-			catalogHeaders = aimlapi.WithResolvedPartnerHeader(catalogHeaders)
-		}
-	}
-	// Discovery fallback can pass the nonempty catalog placeholder through
-	// either CLI setup path. Never persist it as an Atomic Chat model.
-	if descriptor.ID == "atomic-chat-local" {
-		model := strings.TrimSpace(options.model)
-		if model == "" || model == "local-model" {
-			return config.ProviderProfile{}, fmt.Errorf("provider %q serves a locally loaded model; pass --model <id> (run `qg providers detect` to see the served model)", descriptor.ID)
-		}
 	}
 	profile := config.ProviderProfile{
 		Name:            name,
@@ -484,7 +472,7 @@ func selectProviderForCheck(resolved config.ResolvedConfig, name string) (config
 }
 
 func validateProviderRuntimeReady(profile config.ProviderProfile) error {
-	// A stored OAuth login (e.g. `qg auth chatgpt`) is a credential too: a
+	// A stored OAuth login from an earlier version is a credential too: a
 	// keyless token-login profile must pass the readiness check instead of being
 	// told to set an API key it will never have.
 	if profile.CatalogID != "" {

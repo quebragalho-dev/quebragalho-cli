@@ -12,19 +12,19 @@ import (
 )
 
 // profileSwitchModel builds a session on a model whose catalog entry supports
-// the fast profile's "low" effort, with a second saved provider whose custom
-// model has no catalog entry (so no effort ring) — the two directions the
-// model-switch reconciliation must handle.
+// the fast profile's "low" effort, with a second saved profile carrying an
+// inline key and a custom model that has no catalog entry (so no effort ring)
+// — the two directions the model-switch reconciliation must handle.
 func profileSwitchModel(t *testing.T) model {
 	t.Helper()
 	return newModel(context.Background(), Options{
-		ProviderName:    "anthropic",
-		ModelName:       "claude-sonnet-4.5",
+		ProviderName:    "qg",
+		ModelName:       "gpt-5.6-luna",
 		Provider:        &fakeProvider{},
-		ProviderProfile: config.ProviderProfile{Name: "anthropic", CatalogID: "anthropic", Model: "claude-sonnet-4.5", APIKey: "k"},
+		ProviderProfile: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "gpt-5.6-luna", APIKey: "k"},
 		SavedProviders: []config.ProviderProfile{
-			{Name: "anthropic", CatalogID: "anthropic", Model: "claude-sonnet-4.5", APIKey: "k"},
-			{Name: "ollama", CatalogID: "ollama", ProviderKind: config.ProviderKindOpenAICompatible, BaseURL: "http://localhost:11434/v1", Model: "kimi-k2.7-code:cloud"},
+			{Name: "qg", CatalogID: "qg", Model: "gpt-5.6-luna", APIKey: "k"},
+			{Name: "ollama", ProviderKind: config.ProviderKindOpenAICompatible, BaseURL: "http://localhost:11434/v1", APIKey: "sk-alt", Model: "kimi-k2.7-code:cloud"},
 		},
 		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
@@ -62,9 +62,9 @@ func TestProfileEffortReconciledOnModelSwitch(t *testing.T) {
 
 	// Unsupported -> supported: switching (back) to a supporting model must
 	// behave like selecting the profile there.
-	m, text, ok, _, _ = m.switchProviderModel("anthropic", "claude-sonnet-4.5")
+	m, text, ok, _, _ = m.switchProviderModel("qg", "gpt-5.6-luna")
 	if !ok {
-		t.Fatalf("switch back to anthropic failed: %q", text)
+		t.Fatalf("switch back to qg failed: %q", text)
 	}
 	if m.reasoningEffort != "low" || m.execProfileAppliedEffort != "low" {
 		t.Fatalf("effort = %q applied = %q, want the profile's low refilled", m.reasoningEffort, m.execProfileAppliedEffort)
@@ -376,7 +376,7 @@ func TestProfileCommandRevertFromZeroClearsMaxTurnsEnv(t *testing.T) {
 // must never clear an effort the user pinned by hand. Needs a catalog model
 // with an effort ring so the profile's fill actually applies.
 func TestProfileCommandExplicitEffortDisarmsRestore(t *testing.T) {
-	m := model{modelName: "claude-sonnet-4.5"}
+	m := model{modelName: "gpt-5.6-luna"}
 	m.agentOptions.MaxTurns = 80
 
 	m, _ = m.handleProfileCommand("fast")

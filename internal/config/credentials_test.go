@@ -248,8 +248,8 @@ func TestProviderProfileMissingCredentialEnv(t *testing.T) {
 	}{
 		{
 			name:    "catalog provider requiring auth",
-			profile: ProviderProfile{Name: "groq", CatalogID: "groq"},
-			wantEnv: "GROQ_API_KEY",
+			profile: ProviderProfile{Name: "qg", CatalogID: "qg"},
+			wantEnv: "QUEBRAGALHO_API_KEY",
 			want:    true,
 		},
 		{
@@ -258,12 +258,15 @@ func TestProviderProfileMissingCredentialEnv(t *testing.T) {
 			want:    false,
 		},
 		{
-			// A profile saved against the hosted atomic-chat preset keeps its
-			// remote base URL and key, so it must still be reported as missing a
-			// credential. The keyless local runtime is a separate catalog ID
-			// (atomic-chat-local) precisely so this identity is never repurposed.
-			name:    "hosted atomic-chat profile still requires its key",
-			profile: ProviderProfile{Name: "atomic-chat", CatalogID: "atomic-chat", BaseURL: "https://api.atomic.chat/v1"},
+			// A hosted profile with an explicit key env but no inline key must
+			// still be reported as missing that credential.
+			name: "hosted profile still requires its key",
+			profile: ProviderProfile{
+				Name:         "atomic-chat",
+				ProviderKind: ProviderKindOpenAICompatible,
+				BaseURL:      "https://api.atomic.chat/v1",
+				APIKeyEnv:    "ATOMIC_CHAT_API_KEY",
+			},
 			wantEnv: "ATOMIC_CHAT_API_KEY",
 			want:    true,
 		},
@@ -289,11 +292,11 @@ func TestProviderProfileMissingCredentialEnv(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "custom openai compatible with explicit non-default api key env",
+			name: "openai compatible with explicit non-default api key env",
 			profile: ProviderProfile{
-				Name:      "local-llama",
-				CatalogID: "custom-openai-compatible",
-				APIKeyEnv: "LLAMA_CPP_API_KEY",
+				Name:         "local-llama",
+				ProviderKind: ProviderKindOpenAICompatible,
+				APIKeyEnv:    "LLAMA_CPP_API_KEY",
 			},
 			wantEnv: "LLAMA_CPP_API_KEY",
 			want:    true,

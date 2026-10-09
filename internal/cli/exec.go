@@ -178,11 +178,6 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		return exitSuccess
 	}
 
-	// Refresh the models.dev pricing/limits cache in the background when stale;
-	// the overlay is read at registry construction from the cache file, so this
-	// benefits the next run and never blocks or fails this one.
-	go func() { _ = modelregistry.RefreshModelsDevCache(context.Background()) }()
-
 	// A mode seeds model/effort/max-turns/tool filters as a preset. Expand it up
 	// front — before tool-filter validation and the --list-tools branch — so a
 	// mode-injected tool filter is validated and reflected in --list-tools, and a
@@ -386,7 +381,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	sessionTitle := execSessionTitle(options, prompt)
 
 	if !config.HasProviderProfile(resolved.Provider) {
-		return writeExecProviderError(stdout, stderr, options.outputFormat, "provider_error", "No provider configured. Run `qg setup` (guided), `qg auth` (OAuth providers), set a provider API key env var (e.g. OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY), or add .qg/config.json.")
+		return writeExecProviderError(stdout, stderr, options.outputFormat, "provider_error", "No provider configured. Set QUEBRAGALHO_API_KEY in your environment, then run `qg setup qg` (see `qg setup --help`), or add .qg/config.json.")
 	}
 	// Activate deferred MCP-tool loading for this run only when the VISIBLE
 	// deferred-eligible count meets the resolved threshold; below threshold this

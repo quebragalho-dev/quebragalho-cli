@@ -1583,30 +1583,6 @@ func TestTitleBarHighlightsBranchOverWorkspace(t *testing.T) {
 		t.Fatalf("title workspace segment = %q, branch should use highlighted title colour", got)
 	}
 }
-
-func TestGenericCustomProviderDisplayUsesEndpointName(t *testing.T) {
-	m := newModel(context.Background(), Options{
-		ProviderName: "custom-openai-compatible",
-		ModelName:    "MiniMax-M3",
-		ProviderProfile: config.ProviderProfile{
-			Name:      "custom-openai-compatible",
-			CatalogID: "custom-openai-compatible",
-			BaseURL:   "https://api.minimax.io/v1",
-			Model:     "MiniMax-M3",
-		},
-	})
-
-	// The derived provider label lives in the title bar (no longer duplicated in
-	// the status line, which now shows the run-state chip instead).
-	title := plainRender(t, m.titleBar(120))
-	if !strings.Contains(title, "minimax/MiniMax-M3") {
-		t.Fatalf("title bar = %q, want derived custom provider label", title)
-	}
-	if strings.Contains(title, "custom-openai-compatible/MiniMax-M3") {
-		t.Fatalf("title bar = %q, should not show generic custom catalog id", title)
-	}
-}
-
 func TestFormatContextWindow(t *testing.T) {
 	cases := map[int]string{200000: "200K", 1000000: "1M", 128000: "128K", 0: ""}
 	for window, want := range cases {
@@ -1908,7 +1884,11 @@ func TestModelPickerRowOmitsProviderTag(t *testing.T) {
 }
 
 func TestModelPickerItemsCarryProviderTag(t *testing.T) {
-	m := limeTestModel()
+	m := newModel(context.Background(), Options{
+		ProviderName:    "qg",
+		ModelName:       "muse-spark-1.3-contributor",
+		ProviderProfile: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
+	})
 	picker := m.newModelPicker()
 	if picker == nil {
 		t.Fatal("expected a model picker")

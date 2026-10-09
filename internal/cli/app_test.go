@@ -111,20 +111,33 @@ func setCLIUserConfigRoot(t *testing.T) string {
 	return configRoot
 }
 
-func TestRunNoArgsLaunchesSetupTUIWithNilProviderWhenNoProviderConfigured(t *testing.T) {
+// usableResolvedConfig is the minimal post-Etapa-4 launch state: a keyless
+// onboarding is gone, so a TUI-launch test must resolve to a provider that
+// already has a credential or the launch exits with the missing-key error.
+func usableResolvedConfig(maxTurns int) config.ResolvedConfig {
+	profile := config.ProviderProfile{
+		Name:         "qg",
+		CatalogID:    "qg",
+		ProviderKind: config.ProviderKindOpenAICompatible,
+		BaseURL:      "https://api.quebragalho.dev/v1",
+		APIKey:       "sk-test",
+		Model:        "muse-spark-1.3-contributor",
+	}
+	return config.ResolvedConfig{
+		MaxTurns:       maxTurns,
+		ActiveProvider: "qg",
+		Provider:       profile,
+		Providers:      []config.ProviderProfile{profile},
+	}
+}
+
+func TestRunNoArgsErrorsWhenNoProviderConfigured(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cwd := t.TempDir()
 	setCLIUserConfigRoot(t)
-	projectConfigPath := filepath.Join(cwd, ".qg", "config.json")
-	if err := os.MkdirAll(filepath.Dir(projectConfigPath), 0o700); err != nil {
-		t.Fatalf("create project config parent: %v", err)
-	}
-	if err := os.WriteFile(projectConfigPath, []byte("{}"), 0o600); err != nil {
-		t.Fatalf("write project config: %v", err)
-	}
 	userConfigPath := filepath.Join(t.TempDir(), "qg", "config.json")
-	var launchedOptions tui.Options
+	launched := false
 
 	exitCode := runWithDeps([]string{}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) {
@@ -147,46 +160,26 @@ func TestRunNoArgsLaunchesSetupTUIWithNilProviderWhenNoProviderConfigured(t *tes
 			return noopMCPRuntime{}, nil
 		},
 		runTUI: func(ctx context.Context, options tui.Options) int {
-			launchedOptions = options
-			return 7
+			launched = true
+			return 0
 		},
 	})
 
-	if exitCode != 7 {
-		t.Fatalf("expected TUI exit code 7, got %d", exitCode)
+	if exitCode != 1 {
+		t.Fatalf("exit = %d, want 1 (missing-provider error), stderr=%q", exitCode, stderr.String())
+	}
+	if launched {
+		t.Fatal("TUI launched without a provider; the setup wizard is removed, the launch must exit with a clear error")
+	}
+	if !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
+		t.Fatalf("stderr = %q, want QUEBRAGALHO_API_KEY guidance", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "qg setup qg") {
+		t.Fatalf("stderr = %q, want the `qg setup qg` recipe", stderr.String())
 	}
 	if stdout.Len() != 0 {
-		t.Fatalf("expected empty stdout, got %q", stdout.String())
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if stderr.Len() != 0 {
-		t.Fatalf("expected empty stderr, got %q", stderr.String())
-	}
-	if launchedOptions.Cwd != cwd {
-		t.Fatalf("Cwd = %q, want %q", launchedOptions.Cwd, cwd)
-	}
-	if launchedOptions.UserConfigPath != userConfigPath {
-		t.Fatalf("UserConfigPath = %q, want %q", launchedOptions.UserConfigPath, userConfigPath)
-	}
-	if launchedOptions.DoctorUserConfigPath != "" {
-		t.Fatalf("DoctorUserConfigPath = %q, want empty for missing user config", launchedOptions.DoctorUserConfigPath)
-	}
-	if launchedOptions.ProjectConfigPath != projectConfigPath {
-		t.Fatalf("ProjectConfigPath = %q, want %q", launchedOptions.ProjectConfigPath, projectConfigPath)
-	}
-	if launchedOptions.Provider != nil {
-		t.Fatalf("Provider = %#v, want nil", launchedOptions.Provider)
-	}
-	if launchedOptions.ProviderName != "" || launchedOptions.ModelName != "" {
-		t.Fatalf("provider metadata = %q/%q, want empty", launchedOptions.ProviderName, launchedOptions.ModelName)
-	}
-	if !launchedOptions.Setup.Visible || !launchedOptions.Setup.Required {
-		t.Fatalf("Setup = %#v, want visible required setup", launchedOptions.Setup)
-	}
-	if launchedOptions.Setup.ConfigPath != userConfigPath {
-		t.Fatalf("Setup.ConfigPath = %q, want %q", launchedOptions.Setup.ConfigPath, userConfigPath)
-	}
-	assertCoreRegistry(t, launchedOptions.Registry)
-	assertAgentOptions(t, launchedOptions, 12, agent.PermissionModeAsk)
 }
 
 type fakeMCPRuntimeWithSkips struct {
@@ -208,7 +201,7 @@ func TestTUIStartupSuppressesWarningForUnconfiguredDefaultServer(t *testing.T) {
 			return cwd, nil
 		},
 		resolveConfig: func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 8}, nil
+			return usableResolvedConfig(8), nil
 		},
 		resolveMCPConfig: func(workspaceRoot string, excludeProject bool) (config.MCPConfig, error) {
 			return config.MCPConfig{Servers: map[string]config.MCPServerConfig{
@@ -244,7 +237,7 @@ func TestTUIStartupWarnsForUserConfiguredServerSkip(t *testing.T) {
 			return cwd, nil
 		},
 		resolveConfig: func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 8}, nil
+			return usableResolvedConfig(8), nil
 		},
 		resolveMCPConfig: func(workspaceRoot string, excludeProject bool) (config.MCPConfig, error) {
 			return config.MCPConfig{Servers: map[string]config.MCPServerConfig{
@@ -269,13 +262,12 @@ func TestTUIStartupWarnsForUserConfiguredServerSkip(t *testing.T) {
 	}
 }
 
-func TestRunNoArgsEntersSetupWhenResolveReportsNoActiveProvider(t *testing.T) {
+func TestRunNoArgsErrorsWhenResolveReportsNoActiveProvider(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cwd := t.TempDir()
 	setCLIUserConfigRoot(t)
 	userConfigPath := filepath.Join(t.TempDir(), "qg", "config.json")
-	var launchedOptions tui.Options
 	launched := false
 
 	exitCode := runWithDeps([]string{}, &stdout, &stderr, appDeps{
@@ -297,22 +289,18 @@ func TestRunNoArgsEntersSetupWhenResolveReportsNoActiveProvider(t *testing.T) {
 		},
 		runTUI: func(ctx context.Context, options tui.Options) int {
 			launched = true
-			launchedOptions = options
 			return 0
 		},
 	})
 
-	if exitCode != 0 {
-		t.Fatalf("exit code = %d, want 0 (setup TUI launched), stderr=%q", exitCode, stderr.String())
+	if exitCode != 1 {
+		t.Fatalf("exit = %d, want 1 (missing-provider error), stderr=%q", exitCode, stderr.String())
 	}
-	if !launched {
-		t.Fatal("TUI was not launched; expected fallback into setup instead of a fatal error")
+	if launched {
+		t.Fatal("TUI launched for a missing active provider with no usable fallback; the setup wizard is removed")
 	}
-	if !launchedOptions.Setup.Visible || !launchedOptions.Setup.Required {
-		t.Fatalf("Setup = %#v, want visible required setup", launchedOptions.Setup)
-	}
-	if launchedOptions.Provider != nil {
-		t.Fatalf("Provider = %#v, want nil for no-provider fallback", launchedOptions.Provider)
+	if !strings.Contains(stderr.String(), "QUEBRAGALHO_API_KEY") {
+		t.Fatalf("stderr = %q, want QUEBRAGALHO_API_KEY guidance", stderr.String())
 	}
 }
 
@@ -433,7 +421,7 @@ func TestRunNoArgsLaunchesTUIWithMCPState(t *testing.T) {
 			return userConfigPath, nil
 		},
 		resolveConfig: func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 8}, nil
+			return usableResolvedConfig(8), nil
 		},
 		resolveMCPConfig: func(workspaceRoot string, _ bool) (config.MCPConfig, error) {
 			if workspaceRoot != cwd {
@@ -508,7 +496,7 @@ func TestRunNoArgsPaintsBeforeOptionalDefaultMCPIsReady(t *testing.T) {
 		getwd:          func() (string, error) { return cwd, nil },
 		userConfigPath: func() (string, error) { return userConfigPath, nil },
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 8}, nil
+			return usableResolvedConfig(8), nil
 		},
 		resolveMCPConfig: func(string, bool) (config.MCPConfig, error) {
 			return config.MCPConfig{Servers: config.DefaultMCPServers()}, nil
@@ -576,7 +564,7 @@ func TestTUIMCPCommandUsesLastGoodConfigOnRefreshError(t *testing.T) {
 			return userConfigPath, nil
 		},
 		resolveConfig: func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 8}, nil
+			return usableResolvedConfig(8), nil
 		},
 		resolveMCPConfig: func(workspaceRoot string, _ bool) (config.MCPConfig, error) {
 			resolveCalls++
@@ -644,7 +632,7 @@ func TestRunNoArgsClosesPartialMCPRuntimeWhenRegistrationFails(t *testing.T) {
 			return userConfigPath, nil
 		},
 		resolveConfig: func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 8}, nil
+			return usableResolvedConfig(8), nil
 		},
 		resolveMCPConfig: func(workspaceRoot string, _ bool) (config.MCPConfig, error) {
 			return config.MCPConfig{Servers: map[string]config.MCPServerConfig{
@@ -705,7 +693,7 @@ func TestRunNoArgsSoftFailsMCPTokenStoreInit(t *testing.T) {
 			return userConfigPath, nil
 		},
 		resolveConfig: func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 8}, nil
+			return usableResolvedConfig(8), nil
 		},
 		resolveMCPConfig: func(workspaceRoot string, _ bool) (config.MCPConfig, error) {
 			return config.MCPConfig{}, nil
@@ -824,7 +812,7 @@ func TestRunNoArgsLaunchesTUIInAskPermissionMode(t *testing.T) {
 			return cwd, nil
 		},
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 3}, nil
+			return usableResolvedConfig(3), nil
 		},
 		runTUI: func(_ context.Context, options tui.Options) int {
 			launchedOptions = options
@@ -868,7 +856,7 @@ func TestRunInteractiveSurfacesMCPTrustNotice(t *testing.T) {
 		code := runWithDeps([]string{}, &stdout, &stderr, appDeps{
 			getwd: func() (string, error) { return repo, nil },
 			resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
-				return config.ResolvedConfig{MaxTurns: 3}, nil
+				return usableResolvedConfig(3), nil
 			},
 			resolveMCPConfig: func(string, bool) (config.MCPConfig, error) { return config.MCPConfig{}, nil },
 			runTUI:           func(context.Context, tui.Options) int { return 0 },
@@ -907,7 +895,7 @@ func TestRunSkipPermissionsUnsafeLaunchesTUIInUnsafeMode(t *testing.T) {
 			return cwd, nil
 		},
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 3}, nil
+			return usableResolvedConfig(3), nil
 		},
 		runTUI: func(_ context.Context, options tui.Options) int {
 			launched = true
@@ -966,7 +954,7 @@ func TestRunAddDirWiresExtraWriteRootIntoTUISandboxScope(t *testing.T) {
 			return cwd, nil
 		},
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{MaxTurns: 3}, nil
+			return usableResolvedConfig(3), nil
 		},
 		runTUI: func(_ context.Context, options tui.Options) int {
 			launched = true
@@ -1026,7 +1014,7 @@ func TestRunSkipPermissionsUnsafeMergesAddDirGrants(t *testing.T) {
 					return cwd, nil
 				},
 				resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
-					return config.ResolvedConfig{MaxTurns: 3}, nil
+					return usableResolvedConfig(3), nil
 				},
 				runTUI: func(_ context.Context, options tui.Options) int {
 					launchedOptions = options
@@ -1212,56 +1200,29 @@ func TestRunCommandsDoNotLaunchTUI(t *testing.T) {
 	}
 }
 
-func TestRunSetupNoArgsForcesSetupTUI(t *testing.T) {
+func TestRunSetupNoArgsReportsSetupUnavailable(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	cwd := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	var launchedOptions tui.Options
+	launched := false
 
 	exitCode := runWithDeps([]string{"setup"}, &stdout, &stderr, appDeps{
-		getwd: func() (string, error) {
-			return cwd, nil
-		},
-		userConfigPath: func() (string, error) {
-			return configPath, nil
-		},
-		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
-			return config.ResolvedConfig{
-				ActiveProvider: "work",
-				Provider: config.ProviderProfile{
-					Name:         "work",
-					ProviderKind: config.ProviderKindOpenAI,
-					BaseURL:      config.OpenAIBaseURL,
-					APIKey:       "sk-test",
-					Model:        "gpt-test",
-				},
-				MaxTurns: 3,
-			}, nil
-		},
-		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
-			return &cliFakeProvider{}, nil
-		},
-		registerMCPTools: func(context.Context, *tools.Registry, config.MCPConfig, mcp.RegisterOptions) (mcpToolRuntime, error) {
-			return noopMCPRuntime{}, nil
-		},
 		runTUI: func(ctx context.Context, options tui.Options) int {
-			launchedOptions = options
+			launched = true
 			return 0
 		},
 	})
 
-	if exitCode != exitSuccess {
-		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
+	if exitCode != 2 {
+		t.Fatalf("exit = %d, want 2 (usage), stderr=%q", exitCode, stderr.String())
 	}
-	if !launchedOptions.Setup.Visible {
-		t.Fatalf("Setup.Visible = false, want forced setup")
+	if launched {
+		t.Fatal("TUI launched for bare `qg setup`; the interactive setup UI is removed")
 	}
-	if launchedOptions.Setup.Required {
-		t.Fatalf("Setup.Required = true, want false for credentialed provider")
+	if !strings.Contains(stderr.String(), "qg setup qg") {
+		t.Fatalf("stderr = %q, want the `qg setup qg` recipe", stderr.String())
 	}
-	if stdout.Len() != 0 || stderr.Len() != 0 {
-		t.Fatalf("expected no output, stdout=%q stderr=%q", stdout.String(), stderr.String())
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -1270,7 +1231,7 @@ func TestRunSetupProviderWritesActiveConfig(t *testing.T) {
 	var stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
 
-	exitCode := runWithDeps([]string{"setup", "ollama"}, &stdout, &stderr, appDeps{
+	exitCode := runWithDeps([]string{"setup", "qg"}, &stdout, &stderr, appDeps{
 		userConfigPath: func() (string, error) {
 			return configPath, nil
 		},
@@ -1287,14 +1248,17 @@ func TestRunSetupProviderWritesActiveConfig(t *testing.T) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("decode config: %v\n%s", err, string(data))
 	}
-	if cfg.ActiveProvider != "ollama" {
-		t.Fatalf("ActiveProvider = %q, want ollama", cfg.ActiveProvider)
+	if cfg.ActiveProvider != "qg" {
+		t.Fatalf("ActiveProvider = %q, want qg", cfg.ActiveProvider)
 	}
-	if len(cfg.Providers) != 1 || cfg.Providers[0].CatalogID != "ollama" || cfg.Providers[0].Model == "" {
-		t.Fatalf("Providers = %#v, want ollama provider with model", cfg.Providers)
+	if len(cfg.Providers) != 1 || cfg.Providers[0].CatalogID != "qg" || cfg.Providers[0].Model != "muse-spark-1.3-contributor" {
+		t.Fatalf("Providers = %#v, want the qg provider with its default model", cfg.Providers)
 	}
 	if !strings.Contains(stdout.String(), "QG setup complete") || !strings.Contains(stdout.String(), "next: qg") {
 		t.Fatalf("unexpected setup output: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "QUEBRAGALHO_API_KEY") {
+		t.Fatalf("setup output should name the credential env var: %q", stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
@@ -1898,7 +1862,7 @@ func TestRunThemeFlagPopulatesTUIOptions(t *testing.T) {
 		exit := runWithDeps(tc.args, &stdout, &stderr, appDeps{
 			getwd: func() (string, error) { return t.TempDir(), nil },
 			resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
-				return config.ResolvedConfig{MaxTurns: 3}, nil
+				return usableResolvedConfig(3), nil
 			},
 			runTUI: func(_ context.Context, o tui.Options) int { launched = true; got = o; return 0 },
 		})
@@ -1938,7 +1902,7 @@ func TestRunThemeFlagRejectsBadValue(t *testing.T) {
 // the requires-model failure as "needs onboarding", same as a missing active
 // provider. The error comes from a REAL Resolve over a real config file, so
 // this exercises the production sentinel wrapping, not a hand-built error.
-func TestRunNoArgsEntersSetupWhenActiveProviderMissesModel(t *testing.T) {
+func TestRunNoArgsErrorsWhenActiveProviderMissesModel(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cwd := t.TempDir()
@@ -1951,7 +1915,6 @@ func TestRunNoArgsEntersSetupWhenActiveProviderMissesModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	launched := false
-	var launchedOptions tui.Options
 
 	exitCode := runWithDeps([]string{}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) { return cwd, nil },
@@ -1968,38 +1931,37 @@ func TestRunNoArgsEntersSetupWhenActiveProviderMissesModel(t *testing.T) {
 		},
 		runTUI: func(_ context.Context, options tui.Options) int {
 			launched = true
-			launchedOptions = options
 			return 0
 		},
 	})
 
-	if exitCode != 0 {
-		t.Fatalf("exit code = %d, want 0 (setup TUI launched), stderr=%q", exitCode, stderr.String())
+	if exitCode != 1 {
+		t.Fatalf("exit = %d, want 1 (requires-model error), stderr=%q", exitCode, stderr.String())
 	}
-	if !launched {
-		t.Fatal("TUI was not launched; a fixable requires-model config must fall into setup, not exit fatally")
+	if launched {
+		t.Fatal("TUI launched for a provider without a model; the setup wizard is removed, the actionable resolve message is the error")
 	}
-	if !launchedOptions.Setup.Visible || !launchedOptions.Setup.Required {
-		t.Fatalf("Setup = %#v, want visible required setup", launchedOptions.Setup)
+	if !strings.Contains(stderr.String(), "requires model") {
+		t.Fatalf("stderr = %q, want the requires-model message", stderr.String())
 	}
 }
 
 // `qg login`/`qg logout` don't exist (it's `qg auth login`); first-run
 // users try them (reported in the wild), so the unknown-command error points at
 // the real command.
-func TestRunUnknownLoginSuggestsAuthLogin(t *testing.T) {
+func TestRunUnknownLoginSuggestsSetup(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exitCode := runWithDeps([]string{"login"}, &stdout, &stderr, appDeps{})
 	if exitCode != 2 {
 		t.Fatalf("exit = %d, want 2 (unknown command)", exitCode)
 	}
-	if !strings.Contains(stderr.String(), `"qg auth login"`) {
-		t.Fatalf("stderr = %q, want a qg auth login suggestion", stderr.String())
+	if !strings.Contains(stderr.String(), `"qg setup"`) {
+		t.Fatalf("stderr = %q, want a qg setup suggestion (OAuth login was removed)", stderr.String())
 	}
 	// An unrelated unknown command gets no misleading suggestion.
 	stderr.Reset()
 	runWithDeps([]string{"frobnicate"}, &stdout, &stderr, appDeps{})
 	if strings.Contains(stderr.String(), "did you mean") {
-		t.Fatalf("stderr = %q, unrelated commands must not get the auth hint", stderr.String())
+		t.Fatalf("stderr = %q, unrelated commands must not get the setup hint", stderr.String())
 	}
 }

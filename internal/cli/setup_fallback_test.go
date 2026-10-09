@@ -91,7 +91,9 @@ func TestFirstUsableProviderRecognizesOAuthLogin(t *testing.T) {
 	}
 
 	providers := []config.ProviderProfile{
-		{Name: "xai", CatalogID: "xai", APIKeyEnv: "XAI_API_KEY"}, // no inline key/env, but logged in via OAuth
+		// Stale catalog id with an endpoint: still a working custom target, and
+		// the stored login is its credential.
+		{Name: "xai", CatalogID: "xai", BaseURL: "https://api.x.ai/v1", APIKeyEnv: "XAI_API_KEY"},
 	}
 	got, ok := firstUsableProvider(providers)
 	if !ok || got.Name != "xai" {
@@ -130,7 +132,7 @@ func TestProviderProfileIsLocal(t *testing.T) {
 func TestFirstUsableProviderAcceptsOAuthLoginProfile(t *testing.T) {
 	withAuthStore(t)
 	providers := []config.ProviderProfile{
-		{Name: "chatgpt", CatalogID: "chatgpt", BaseURL: "https://chatgpt.com/backend-api/codex", Model: "gpt-5.5"},
+		{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
 	}
 
 	// No login stored: still not usable.
@@ -142,12 +144,12 @@ func TestFirstUsableProviderAcceptsOAuthLoginProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("oauth store: %v", err)
 	}
-	if err := store.Save(oauth.ProviderKey("chatgpt"), oauth.Token{AccessToken: "bearer-123"}); err != nil {
+	if err := store.Save(oauth.ProviderKey("qg"), oauth.Token{AccessToken: "bearer-123"}); err != nil {
 		t.Fatalf("save token: %v", err)
 	}
 
 	got, ok := firstUsableProvider(providers)
-	if !ok || got.Name != "chatgpt" {
+	if !ok || got.Name != "qg" {
 		t.Fatalf("want OAuth-login profile to be usable, got %q ok=%v", got.Name, ok)
 	}
 }

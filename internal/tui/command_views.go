@@ -483,14 +483,6 @@ func providerProfileHasCredential(profile config.ProviderProfile) bool {
 
 func providerCredentialRequired(profile config.ProviderProfile, providerKind string) bool {
 	if descriptor, ok := providerCatalogDescriptor(profile); ok {
-		// A custom endpoint's RequiresAuth is just the wizard's template
-		// default, not a fact about this profile's actual endpoint (issue
-		// #555 follow-up) — only an explicit, non-default APIKeyEnv means
-		// this saved profile itself expects a credential.
-		if descriptor.Custom {
-			envVar := strings.TrimSpace(profile.APIKeyEnv)
-			return envVar != "" && envVar != firstProviderDisplayValue(descriptor.AuthEnvVars...)
-		}
 		return descriptor.RequiresAuth
 	}
 	switch config.ProviderKind(strings.TrimSpace(providerKind)) {
@@ -531,10 +523,6 @@ func providerSetupCatalogID(profile config.ProviderProfile, providerKind string)
 		return "anthropic"
 	case config.ProviderKindGoogle:
 		return "google"
-	case config.ProviderKindOpenAICompatible:
-		return "custom-openai-compatible"
-	case config.ProviderKindAnthropicCompat:
-		return "custom-anthropic-compatible"
 	default:
 		return firstProviderDisplayValue(profile.Name, "openai")
 	}

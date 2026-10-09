@@ -132,22 +132,23 @@ func TestRunProvidersModelsUnknownProviderFails(t *testing.T) {
 	}
 }
 
-func TestRunProvidersModelsFiltersForCatalogProfile(t *testing.T) {
+func TestRunProvidersModelsListsEveryDiscoveredModel(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	deps := commandCenterDeps(t)
-	// Override the resolved config to include a catalog-backed profile.
+	// A catalog-backed profile: discovery output is shown as-is (the per-provider
+	// model allowlist was removed with the multi-provider catalog in Etapa 2).
 	deps.resolveConfig = func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
 		profile := config.ProviderProfile{
-			Name:         "opencode-go",
-			ProviderKind: config.ProviderKindAnthropicCompat,
-			CatalogID:    "opencode-go-anthropic-compatible",
-			BaseURL:      "https://api.example.com/zen/go/v1",
+			Name:         "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			CatalogID:    "qg",
+			BaseURL:      "https://api.quebragalho.dev/v1",
 			APIKey:       "sk-test",
-			Model:        "minimax-max",
+			Model:        "muse-spark-1.3-contributor",
 		}
 		return config.ResolvedConfig{
-			ActiveProvider: "opencode-go",
+			ActiveProvider: "qg",
 			Providers:      []config.ProviderProfile{profile},
 			Provider:       profile,
 		}, nil
@@ -168,23 +169,14 @@ func TestRunProvidersModelsFiltersForCatalogProfile(t *testing.T) {
 		t.Fatalf("exit = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}
 	out := stdout.String()
-	// Only Qwen and MiniMax model IDs should survive the filter.
-	if strings.Contains(out, "deepseek-chat") {
-		t.Error("output should not contain deepseek-chat (blocked by opencode-go-anthropic filter)")
-	}
-	if strings.Contains(out, "kimi-k2") {
-		t.Error("output should not contain kimi-k2 (blocked by opencode-go-anthropic filter)")
-	}
-	if strings.Contains(out, "glm-4") {
-		t.Error("output should not contain glm-4 (blocked by opencode-go-anthropic filter)")
-	}
-	for _, want := range []string{"qwen-max", "minimax-max-01"} {
+	// Every discovered model is listed: there is no per-provider filter left.
+	for _, want := range []string{"deepseek-chat", "qwen-max", "minimax-max-01", "kimi-k2", "glm-4"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("output missing allowed model %q:\n%s", want, out)
+			t.Fatalf("output missing discovered model %q:\n%s", want, out)
 		}
 	}
-	if !strings.Contains(out, "2 models discovered") {
-		t.Fatalf("output should show 2 models:\n%s", out)
+	if !strings.Contains(out, "5 models discovered") {
+		t.Fatalf("output should show 5 models:\n%s", out)
 	}
 }
 

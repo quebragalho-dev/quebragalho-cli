@@ -36,14 +36,13 @@ type Options struct {
 	RecapsEnabled        bool
 	// CompactionModel is the resolved preferences.compactionModel value; see
 	// providers.CompactionModelID for how it combines with the env override
-	// and the curated cheap defaults.
+	// (no curated default: empty means the main model).
 	CompactionModel             string
 	Provider                    qgruntime.Provider
 	NewProvider                 func(config.ProviderProfile) (qgruntime.Provider, error)
 	NewTurnSessionProvider      func(config.ProviderProfile, qgruntime.Provider) qgruntime.TurnSessionProvider
 	ProbeProviderHealth         func(context.Context, providerhealth.Options) providerhealth.Result
 	DiscoverProviderModels      func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
-	DiscoverOllamaContextWindow func(ctx context.Context, baseURL string, model string) (int, error)
 	RuntimeMessageSink          func(tea.Msg)
 	PrepareRunCompletionWarning func()
 	RunCompletionWarning        func() string

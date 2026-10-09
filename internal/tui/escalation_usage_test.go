@@ -32,7 +32,7 @@ func TestEscalatedRunAttributesUsageToTheModelInForce(t *testing.T) {
 
 	// A catalog model with an upgrade target; the target is whatever the
 	// catalog says, read back from the provider factory rather than assumed.
-	const startModel = "claude-haiku-4.5"
+	const startModel = "mimo-v2.6-flash"
 	starting := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
 		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 10, OutputTokens: 1}},
 		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "escalate", ToolName: "escalate_model"},
@@ -50,7 +50,7 @@ func TestEscalatedRunAttributesUsageToTheModelInForce(t *testing.T) {
 
 	switchedTo := ""
 	m := newModel(context.Background(), Options{
-		ProviderName:    "anthropic",
+		ProviderName:    "qg",
 		ModelName:       startModel,
 		Provider:        starting,
 		Registry:        registry,
@@ -138,7 +138,7 @@ func TestEscalatedRunPricesPersistedUsageAtEachModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const startModel = "claude-haiku-4.5"
+	const startModel = "mimo-v2.6-flash"
 	before := qgruntime.Usage{InputTokens: 10, OutputTokens: 1}
 	after := qgruntime.Usage{InputTokens: 20, OutputTokens: 2}
 	starting := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
@@ -158,7 +158,7 @@ func TestEscalatedRunPricesPersistedUsageAtEachModel(t *testing.T) {
 
 	switchedTo := ""
 	m := newModel(context.Background(), Options{
-		ProviderName:    "anthropic",
+		ProviderName:    "qg",
 		ModelName:       startModel,
 		Provider:        starting,
 		Registry:        toolRegistry,
