@@ -114,8 +114,9 @@ func TestProbeResolvedKindRequiresAuthWhenUnset(t *testing.T) {
 
 	result := Probe(context.Background(), Options{
 		Profile: config.ProviderProfile{
-			Name:  "openai-test",
-			Model: "gpt-4.1",
+			Name:      "openai-test",
+			CatalogID: "qg",
+			Model:     "muse-spark-1.3-contributor",
 		},
 		Connectivity: true,
 		HTTPClient:   client,
@@ -195,11 +196,11 @@ func TestProbeConnectivityUsesOAuthCredential(t *testing.T) {
 
 	result := Probe(context.Background(), Options{
 		Profile: config.ProviderProfile{
-			Name:         "xai",
-			CatalogID:    "xai",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
 			BaseURL:      "https://api.example.com/v1",
-			Model:        "grok-4",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		Connectivity: true,
 		HTTPClient:   client,
@@ -239,12 +240,12 @@ func TestProbeConnectivityOAuthCredentialsAreRedacted(t *testing.T) {
 
 	result := Probe(context.Background(), Options{
 		Profile: config.ProviderProfile{
-			Name:         "xai",
-			CatalogID:    "xai",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
 			BaseURL:      "https://api.example.com/v1",
 			APIKey:       staticKey,
-			Model:        "grok-4",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		Connectivity: true,
 		HTTPClient:   client,
@@ -281,11 +282,11 @@ func TestProbeWithoutConnectivityRejectsUnavailableOAuthCredential(t *testing.T)
 	resolverCalled := false
 	result := Probe(context.Background(), Options{
 		Profile: config.ProviderProfile{
-			Name:         "xai",
-			CatalogID:    "xai",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
 			BaseURL:      "https://api.example.com/v1",
-			Model:        "grok-4",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		OAuthResolver: func(context.Context, bool) (string, string, bool, error) {
 			resolverCalled = true
@@ -326,11 +327,11 @@ func TestProbeConnectivityRefreshesOAuthCredentialAfterUnauthorized(t *testing.T
 	var refreshFlags []bool
 	result := Probe(context.Background(), Options{
 		Profile: config.ProviderProfile{
-			Name:         "xai",
-			CatalogID:    "xai",
+			Name:         "qg",
+			CatalogID:    "qg",
 			ProviderKind: config.ProviderKindOpenAICompatible,
 			BaseURL:      "https://api.example.com/v1",
-			Model:        "grok-4",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		Connectivity: true,
 		HTTPClient:   client,
@@ -502,27 +503,6 @@ func TestPrimaryCheckPrefersFailuresOverPassingConnectivity(t *testing.T) {
 
 	if got := result.PrimaryCheck(); got == nil || got.ID != "provider.auth" {
 		t.Fatalf("PrimaryCheck = %#v, want provider.auth failure", got)
-	}
-}
-
-func TestProbeConnectivityUnsupportedTransportWarnsWithoutNetwork(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return nil, errors.New("network should not be reached")
-	})}
-
-	result := Probe(context.Background(), Options{
-		Profile: config.ProviderProfile{
-			Name:      "bedrock",
-			CatalogID: "bedrock",
-			Model:     "anthropic.claude-3-5-sonnet-20241022-v2:0",
-		},
-		Connectivity: true,
-		HTTPClient:   client,
-	})
-
-	check := result.Check("provider.runtime")
-	if check == nil || check.Category != CategoryUnsupported {
-		t.Fatalf("runtime check = %#v, want unsupported category", check)
 	}
 }
 
