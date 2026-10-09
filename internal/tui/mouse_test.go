@@ -89,36 +89,6 @@ func TestMouseClickSelectsThenAppliesPickerRow(t *testing.T) {
 	}
 }
 
-func TestMouseClickSelectsThenContinuesSetupProviderRow(t *testing.T) {
-	m := setupMouseTestModel()
-	m.mouseCapture = true
-	m.setup.stage = setupStageProvider
-
-	width := m.chatColumnWidth()
-	height := normalizedStartupHeight(m.height)
-	rowWidth := setupProviderBlockWidth(width, m.setup.providers)
-	top := setupContentTop(height, len(m.setupProviderLines(width, height)), m.setup.err != "")
-	click := testMouseClick(tea.MouseLeft, maxInt(0, (width-rowWidth)/2)+2, top+3)
-	updated, cmd := m.Update(click)
-	next := updated.(model)
-	if cmd != nil {
-		t.Fatal("first setup provider click should not return a command")
-	}
-	if next.setup.selected != 1 {
-		t.Fatalf("setup provider selection = %d, want 1", next.setup.selected)
-	}
-	if next.setup.stage != setupStageProvider {
-		t.Fatalf("first setup provider click advanced to %v", next.setup.stage)
-	}
-
-	updated, cmd = next.Update(click)
-	next = updated.(model)
-	_ = cmd
-	if next.setup.stage != setupStageCredentials {
-		t.Fatalf("second setup provider click should advance to credentials, got %v", next.setup.stage)
-	}
-}
-
 func TestMouseClickSelectsThenContinuesSetupModelRow(t *testing.T) {
 	m := setupMouseTestModel()
 	m.mouseCapture = true
@@ -149,8 +119,9 @@ func TestMouseClickSelectsThenContinuesSetupModelRow(t *testing.T) {
 	updated, cmd = next.Update(click)
 	next = updated.(model)
 	_ = cmd
-	if next.setup.stage != setupStageSafety {
-		t.Fatalf("second setup model click should advance to safety, got %v", next.setup.stage)
+	// The model screen is the last stage: a repeat click completes setup.
+	if next.setup.visible {
+		t.Fatal("second setup model click should complete setup and close the wizard")
 	}
 }
 
@@ -881,11 +852,8 @@ func TestMouseCaptureOnlyDuringInteractiveSetupStages(t *testing.T) {
 		want  bool
 	}{
 		{setupStageWelcome, false},
-		{setupStageProvider, true},
 		{setupStageCredentials, false},
 		{setupStageModel, true},
-		{setupStageSafety, false},
-		{setupStageReady, false},
 	}
 
 	for _, tt := range stages {
