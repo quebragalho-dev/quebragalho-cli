@@ -16,12 +16,7 @@ func TestProviderCatalogRuntimeProvidersShowOnboardingSetupHints(t *testing.T) {
 		transport    string
 		defaultModel string
 	}{
-		{id: "openai", name: "OpenAI", transport: "openai", defaultModel: "gpt-4.1"},
-		{id: "groq", name: "Groq", transport: "openai-compatible", defaultModel: "llama-3.3-70b-versatile"},
-		{id: "longcat", name: "LongCat", transport: "openai-compatible", defaultModel: "LongCat-2.0"},
-		{id: "fireworks", name: "Fireworks AI", transport: "openai-compatible", defaultModel: "accounts/fireworks/models/kimi-k2p7-code"},
-		{id: "ollama-cloud", name: "Ollama Cloud", transport: "openai-compatible", defaultModel: "qwen3-coder:480b"},
-		{id: "ollama", name: "Ollama Local", transport: "openai-compatible", defaultModel: "llama3.1"},
+		{id: "qg", name: "Quebra Galho", transport: "openai-compatible", defaultModel: "muse-spark-1.3-contributor"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.id, func(t *testing.T) {
@@ -48,61 +43,18 @@ func TestProviderCatalogRuntimeProvidersShowOnboardingSetupHints(t *testing.T) {
 	}
 }
 
-func TestProviderCatalogLongCatRequiresAPIKey(t *testing.T) {
+func TestProviderCatalogQGRequiresAPIKey(t *testing.T) {
 	output := runProviderCatalogOnboarding(t)
-	block := providerCatalogOnboardingBlock(t, output, "longcat")
+	block := providerCatalogOnboardingBlock(t, output, "qg")
 
 	for _, want := range []string{
 		"requiresAuth=true",
-		"authEnvVars=LONGCAT_API_KEY",
-		"setup: qg providers setup longcat --set-active",
+		"authEnvVars=QUEBRAGALHO_API_KEY",
+		"setup: qg providers setup qg --set-active",
 	} {
 		if !strings.Contains(block, want) {
-			t.Fatalf("expected LongCat catalog block to contain %q, got:\n%s", want, block)
+			t.Fatalf("expected qg catalog block to contain %q, got:\n%s", want, block)
 		}
-	}
-}
-
-func TestProviderCatalogOllamaCloudRequiresAPIKey(t *testing.T) {
-	output := runProviderCatalogOnboarding(t)
-	block := providerCatalogOnboardingBlock(t, output, "ollama-cloud")
-
-	for _, want := range []string{
-		"requiresAuth=true",
-		"authEnvVars=OLLAMA_API_KEY",
-		"setup: qg providers setup ollama-cloud --set-active",
-	} {
-		if !strings.Contains(block, want) {
-			t.Fatalf("expected ollama-cloud catalog block to contain %q, got:\n%s", want, block)
-		}
-	}
-}
-
-func TestProviderCatalogLocalProviderOnboardingDoesNotRequireAuthEnv(t *testing.T) {
-	output := runProviderCatalogOnboarding(t)
-	block := providerCatalogOnboardingBlock(t, output, "ollama")
-
-	if strings.Contains(block, "authEnvVars=") {
-		t.Fatalf("local provider should not show an auth env var summary, got:\n%s", block)
-	}
-	if strings.Contains(block, "requiresAuth=true") {
-		t.Fatalf("local provider should not require auth, got:\n%s", block)
-	}
-}
-
-func TestProviderCatalogUnsupportedProvidersShowOnboardingReason(t *testing.T) {
-	output := runProviderCatalogOnboarding(t)
-
-	for _, id := range []string{"bedrock", "vertex"} {
-		t.Run(id, func(t *testing.T) {
-			block := providerCatalogOnboardingBlock(t, output, id)
-			if !strings.Contains(block, "unsupported: native adapter not implemented yet") {
-				t.Fatalf("expected %s catalog block to show unsupported reason, got:\n%s", id, block)
-			}
-			if strings.Contains(block, "setup: qg providers setup") {
-				t.Fatalf("unsupported provider %s should not show setup hint, got:\n%s", id, block)
-			}
-		})
 	}
 }
 
@@ -125,9 +77,11 @@ func providerCatalogOnboardingBlock(t *testing.T, output string, id string) stri
 	t.Helper()
 
 	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	// A recommended row renders as `★ id=...`, so match the token anywhere in
+	// the line rather than at its start.
 	start := -1
 	for index, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "id="+id) {
+		if strings.Contains(line, "id="+id) {
 			start = index
 			break
 		}
@@ -137,7 +91,7 @@ func providerCatalogOnboardingBlock(t *testing.T, output string, id string) stri
 	}
 	end := len(lines)
 	for index := start + 1; index < len(lines); index++ {
-		if strings.HasPrefix(strings.TrimSpace(lines[index]), "id=") {
+		if strings.Contains(lines[index], "id=") {
 			end = index
 			break
 		}

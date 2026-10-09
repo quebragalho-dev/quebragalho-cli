@@ -201,6 +201,7 @@ func TestRunExecRegistersTaskOnlyForUnsafeTopLevelRuns(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			isolateCLIUserState(t)
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			exitCode := runWithDeps(tc.args, &stdout, &stderr, appDeps{
@@ -328,7 +329,7 @@ func TestRunExecModeSeedsModelAndTurnOverrides(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exitCode := runWithDeps([]string{"exec", "--mode", "deep", "hello"}, &stdout, &stderr, appDeps{
+	exitCode := runWithDeps([]string{"exec", "--mode", "smart", "hello"}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) {
 			return cwd, nil
 		},
@@ -342,11 +343,11 @@ func TestRunExecModeSeedsModelAndTurnOverrides(t *testing.T) {
 	if exitCode != exitProvider {
 		t.Fatalf("expected provider exit %d, got %d", exitProvider, exitCode)
 	}
-	if gotModel != "claude-opus-4.1" {
-		t.Fatalf("overrides.Provider.Model = %q, want claude-opus-4.1", gotModel)
+	if gotModel != "muse-spark-1.3-contributor" {
+		t.Fatalf("overrides.Provider.Model = %q, want the smart mode model", gotModel)
 	}
-	if gotMaxTurns != 160 {
-		t.Fatalf("overrides.MaxTurns = %d, want 160 (deep mode)", gotMaxTurns)
+	if gotMaxTurns != 0 {
+		t.Fatalf("overrides.MaxTurns = %d, want 0 (smart leaves the turn budget untouched)", gotMaxTurns)
 	}
 }
 
@@ -356,7 +357,7 @@ func TestRunExecExplicitModelOverridesMode(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exitCode := runWithDeps([]string{"exec", "--mode", "deep", "--model", "gpt-4.1", "hello"}, &stdout, &stderr, appDeps{
+	exitCode := runWithDeps([]string{"exec", "--mode", "smart", "--model", "gpt-4.1", "hello"}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) {
 			return cwd, nil
 		},
@@ -380,7 +381,7 @@ func TestRunExecModeRoutesModelThroughRegistry(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	// "smart" maps to claude-sonnet-4.5; the mode's model must be routed through
+	// "smart" maps to muse-spark-1.3-contributor; the mode's model must be routed through
 	// the registry (Resolve) so the canonical id reaches the overrides.
 	exitCode := runWithDeps([]string{"exec", "--mode", "smart", "hi"}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) {
@@ -395,8 +396,8 @@ func TestRunExecModeRoutesModelThroughRegistry(t *testing.T) {
 	if exitCode != exitProvider {
 		t.Fatalf("expected provider exit %d, got %d", exitProvider, exitCode)
 	}
-	if gotModel != "claude-sonnet-4.5" {
-		t.Fatalf("expected mode smart to select claude-sonnet-4.5, got %q", gotModel)
+	if gotModel != "muse-spark-1.3-contributor" {
+		t.Fatalf("expected mode smart to select muse-spark-1.3-contributor, got %q", gotModel)
 	}
 }
 
@@ -412,9 +413,12 @@ func TestRunExecUnknownModeErrors(t *testing.T) {
 	if !strings.Contains(stderr.String(), "unknown mode") {
 		t.Fatalf("expected unknown mode error, got %q", stderr.String())
 	}
-	for _, want := range []string{"smart", "deep", "fast", "large", "precise"} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Fatalf("expected error to list valid mode %q, got %q", want, stderr.String())
+	if !strings.Contains(stderr.String(), "smart") {
+		t.Fatalf("expected error to list the smart mode, got %q", stderr.String())
+	}
+	for _, gone := range []string{"deep", "fast", "large", "precise"} {
+		if strings.Contains(stderr.String(), gone) {
+			t.Fatalf("expected error not to list removed mode %q, got %q", gone, stderr.String())
 		}
 	}
 }
@@ -424,11 +428,11 @@ func TestApplyExecModeLeavesRawModelForSharedResolution(t *testing.T) {
 	// lets the shared --model resolution path resolve it AND surface any deprecation
 	// notice on stderr (the bug was that applyExecMode resolved it and discarded the
 	// notice). The raw alias must be the preset's exact Model value.
-	mode, ok := modelregistry.LookupMode("deep")
+	mode, ok := modelregistry.LookupMode("smart")
 	if !ok {
-		t.Fatal("expected built-in mode deep")
+		t.Fatal("expected built-in mode smart")
 	}
-	options := execOptions{mode: "deep"}
+	options := execOptions{mode: "smart"}
 	if err := applyExecMode(&options); err != nil {
 		t.Fatalf("applyExecMode returned error: %v", err)
 	}
@@ -447,18 +451,18 @@ func TestRunExecModeModelSurfacesDeprecationNoticeViaSharedPath(t *testing.T) {
 	if err := applyExecMode(&options); err != nil {
 		t.Fatalf("applyExecMode returned error: %v", err)
 	}
-	// Sanity: the shared resolver surfaces a notice + redirect for a deprecated id,
-	// which is the path the mode model now feeds into.
+	// Sanity: the shared resolver normalizes a registry alias to the canonical
+	// id, which is the path the mode model now feeds into.
 	registry, err := modelregistry.DefaultRegistry()
 	if err != nil {
 		t.Fatalf("DefaultRegistry: %v", err)
 	}
-	resolved, notice := resolveSelectedModel(registry, "gpt-4-turbo")
-	if resolved != "gpt-4.1" {
-		t.Fatalf("expected deprecated model to redirect to gpt-4.1, got %q", resolved)
+	resolved, notice := resolveSelectedModel(registry, "muse-spark")
+	if resolved != "muse-spark-1.3-contributor" {
+		t.Fatalf("expected alias to resolve to muse-spark-1.3-contributor, got %q", resolved)
 	}
-	if !strings.Contains(notice, "deprecated") {
-		t.Fatalf("expected shared resolver to surface a deprecation notice, got %q", notice)
+	if notice != "" {
+		t.Fatalf("expected no notice for a live model, got %q", notice)
 	}
 }
 
@@ -470,7 +474,7 @@ func TestRunExecListToolsAppliesModeBeforeListing(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := runWithDeps([]string{"exec", "--list-tools", "--mode", "deep"}, &stdout, &stderr, appDeps{
+	exitCode := runWithDeps([]string{"exec", "--list-tools", "--mode", "smart"}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) {
 			return cwd, nil
 		},
@@ -826,9 +830,9 @@ func TestRunExecJSONOutputsNDJSONEvents(t *testing.T) {
 func TestRunExecResolvesCanonicalModelAlias(t *testing.T) {
 	root := t.TempDir()
 
-	// "openai:gpt-4.1" is a registry alias for the canonical gpt-4.1 id; the
+	// "muse-spark" is a registry alias for the canonical muse-spark id; the
 	// selection boundary should normalize it before the provider sees it.
-	exitCode, stdout, stderr := runExecWithEcho(t, []string{"exec", "--cwd", root, "-m", "openai:gpt-4.1", "-o", "json", "hi"})
+	exitCode, stdout, stderr := runExecWithEcho(t, []string{"exec", "--cwd", root, "-m", "muse-spark", "-o", "json", "hi"})
 
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr)
@@ -837,32 +841,15 @@ func TestRunExecResolvesCanonicalModelAlias(t *testing.T) {
 		t.Fatalf("expected empty stderr for active model, got %q", stderr)
 	}
 	events := decodeJSONLines(t, stdout)
-	if got := events[0]["model"]; got != "gpt-4.1" {
-		t.Fatalf("expected alias to resolve to gpt-4.1, got %v", got)
-	}
-}
-
-func TestRunExecRedirectsDeprecatedModelWithNotice(t *testing.T) {
-	root := t.TempDir()
-
-	exitCode, stdout, stderr := runExecWithEcho(t, []string{"exec", "--cwd", root, "-m", "gpt-4-turbo", "-o", "json", "hi"})
-
-	if exitCode != 0 {
-		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr)
-	}
-	if !strings.Contains(stderr, "deprecated") || !strings.Contains(stderr, "gpt-4.1") {
-		t.Fatalf("expected deprecation notice on stderr, got %q", stderr)
-	}
-	events := decodeJSONLines(t, stdout)
-	if got := events[0]["model"]; got != "gpt-4.1" {
-		t.Fatalf("expected deprecated model to redirect to gpt-4.1, got %v", got)
+	if got := events[0]["model"]; got != "muse-spark-1.3-contributor" {
+		t.Fatalf("expected alias to resolve to muse-spark-1.3-contributor, got %v", got)
 	}
 }
 
 func TestRunExecReasoningEffortNoticeForNonReasoningModel(t *testing.T) {
 	root := t.TempDir()
 
-	exitCode, stdout, stderr := runExecWithEcho(t, []string{"exec", "--cwd", root, "-m", "gpt-4.1", "-r", "high", "-o", "json", "hi"})
+	exitCode, stdout, stderr := runExecWithEcho(t, []string{"exec", "--cwd", root, "-m", "qwen3.8-max", "-r", "high", "-o", "json", "hi"})
 
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr)
@@ -880,16 +867,16 @@ func TestReasoningEffortNoticeCoercesUnsupportedEffort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultRegistry: %v", err)
 	}
-	// claude-sonnet-4.5 supports low/medium/high with a medium default; xhigh is
-	// unsupported and should be coerced to the model default.
-	notice := reasoningEffortNotice(registry, "claude-sonnet-4.5", "xhigh")
-	if !strings.Contains(notice, "not supported") || !strings.Contains(notice, "medium") {
-		t.Fatalf("expected coercion notice to default medium, got %q", notice)
+	// gpt-5.6-luna supports minimal/low/medium/high with no declared default, so
+	// xhigh is unsupported and coerces to the first supported tier (minimal).
+	notice := reasoningEffortNotice(registry, "gpt-5.6-luna", "xhigh")
+	if !strings.Contains(notice, "not supported") || !strings.Contains(notice, "minimal") {
+		t.Fatalf("expected coercion notice to first supported tier minimal, got %q", notice)
 	}
-	if got := reasoningEffortNotice(registry, "claude-sonnet-4.5", "high"); got != "" {
+	if got := reasoningEffortNotice(registry, "gpt-5.6-luna", "high"); got != "" {
 		t.Fatalf("expected no notice for a supported effort, got %q", got)
 	}
-	if got := reasoningEffortNotice(registry, "gpt-4.1", "high"); !strings.Contains(got, "does not support") {
+	if got := reasoningEffortNotice(registry, "qwen3.8-max", "high"); !strings.Contains(got, "does not support") {
 		t.Fatalf("expected unsupported-model notice, got %q", got)
 	}
 }
@@ -905,10 +892,10 @@ func TestForwardedReasoningEffortGating(t *testing.T) {
 		requested string
 		want      string
 	}{
-		{"empty request", "claude-sonnet-4.5", "", ""},
-		{"supported reasoning model", "claude-sonnet-4.5", "high", "high"},
-		{"unsupported effort coerced to default", "claude-sonnet-4.5", "xhigh", "medium"},
-		{"known non-reasoning model suppressed", "gpt-4.1", "high", ""},
+		{"empty request", "gpt-5.6-luna", "", ""},
+		{"supported reasoning model", "gpt-5.6-luna", "high", "high"},
+		{"unsupported effort coerced to first tier", "gpt-5.6-luna", "xhigh", "minimal"},
+		{"known non-reasoning model suppressed", "qwen3.8-max", "high", ""},
 		{"unknown model forwards as-is", "custom-endpoint-model", "high", "high"},
 	}
 	for _, tc := range cases {
@@ -1175,10 +1162,10 @@ func runExecWithEffectiveModel(t *testing.T, effectiveModel string, args []strin
 // --reasoning-effort is validated against the EFFECTIVE (resolved) model even
 // when --model is omitted, so the advisory notice still surfaces.
 func TestRunExecReasoningEffortNoticeUsesEffectiveModel(t *testing.T) {
-	// gpt-4.1 is a registry-known non-reasoning model. With no --model the
+	// qwen3.8-max is a registry-known non-reasoning model. With no --model the
 	// override model is empty, so the notice must be evaluated against the
 	// effective model resolved by resolveConfig.
-	exitCode, stdout, stderr := runExecWithEffectiveModel(t, "gpt-4.1", []string{
+	exitCode, stdout, stderr := runExecWithEffectiveModel(t, "qwen3.8-max", []string{
 		"exec", "-r", "high", "hi",
 	})
 
@@ -1289,6 +1276,7 @@ func TestRunExecRegistersEscalateModelOnlyWithFlag(t *testing.T) {
 		{name: "present", args: []string{"exec", "--allow-escalation", "--list-tools"}, wantTool: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			isolateCLIUserState(t)
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			exitCode := runWithDeps(tc.args, &stdout, &stderr, appDeps{
@@ -1356,19 +1344,18 @@ func TestRunExecWiresModelSwitcherUnderFlag(t *testing.T) {
 	var builtProviders []*escalatingExecProvider
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exitCode := runWithDeps([]string{"exec", "--allow-escalation", "--model", "claude-haiku-4.5", "escalate please"}, &stdout, &stderr, appDeps{
+	exitCode := runWithDeps([]string{"exec", "--allow-escalation", "--model", "mimo-v2.6-flash", "escalate please"}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) {
 			return cwd, nil
 		},
 		resolveConfig: func(_ string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			model := "claude-haiku-4.5"
+			model := "mimo-v2.6-flash"
 			if overrides.Provider.Model != "" {
 				model = overrides.Provider.Model
 			}
 			cfg := execResolvedConfig()
-			// The escalation chain (haiku -> sonnet) is anthropic; declare the
-			// provider kind to match so provider-metadata resolution accepts it.
-			cfg.Provider.ProviderKind = config.ProviderKindAnthropic
+			// The escalation chain (mimo flash -> pro) runs on the base
+			// openai-compatible transport the fixture already declares.
 			cfg.Provider.Model = model
 			cfg.MaxTurns = 3
 			return cfg, nil
@@ -1389,12 +1376,12 @@ func TestRunExecWiresModelSwitcherUnderFlag(t *testing.T) {
 	if len(providerModels) != 2 {
 		t.Fatalf("newProvider called for models %#v, want exactly 2 builds (initial + escalated)", providerModels)
 	}
-	if providerModels[0] != "claude-haiku-4.5" {
-		t.Fatalf("initial provider model = %q, want claude-haiku-4.5", providerModels[0])
+	if providerModels[0] != "mimo-v2.6-flash" {
+		t.Fatalf("initial provider model = %q, want mimo-v2.6-flash", providerModels[0])
 	}
-	target, ok := mustUpgradeTarget(t, "claude-haiku-4.5")
+	target, ok := mustUpgradeTarget(t, "mimo-v2.6-flash")
 	if !ok {
-		t.Skip("registry has no upgrade target for claude-haiku-4.5")
+		t.Skip("registry has no upgrade target for mimo-v2.6-flash")
 	}
 	if providerModels[1] != target {
 		t.Fatalf("escalated provider model = %q, want %q", providerModels[1], target)
@@ -1992,6 +1979,36 @@ func TestExecTurnBudgetDefaultsToCeilingUnlessSet(t *testing.T) {
 	for _, tc := range cases {
 		if got := execTurnBudget(tc.resolved); got != tc.want {
 			t.Fatalf("%s: execTurnBudget = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The exec no-provider error is the non-interactive first-run surface: it must
+// name the single QG credential and the one setup command that exists, never
+// the removed OAuth login or the legacy multi-provider env vars.
+func TestExecWithoutProviderCitesQGSetupAndAPIKey(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"exec", "hello"}, &stdout, &stderr, appDeps{
+		getwd: func() (string, error) {
+			return t.TempDir(), nil
+		},
+		resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
+			return config.ResolvedConfig{MaxTurns: 30}, nil
+		},
+	})
+	if exitCode != exitProvider {
+		t.Fatalf("exit = %d, want %d (provider error)", exitCode, exitProvider)
+	}
+	out := stderr.String()
+	for _, want := range []string{"QUEBRAGALHO_API_KEY", "qg setup qg", "No provider configured."} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stderr = %q, want it to cite %q", out, want)
+		}
+	}
+	for _, banned := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "qg auth"} {
+		if strings.Contains(out, banned) {
+			t.Fatalf("stderr = %q, must not mention %q", out, banned)
 		}
 	}
 }

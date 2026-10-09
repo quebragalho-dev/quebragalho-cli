@@ -397,18 +397,18 @@ func TestACPLoadAndResumeStayBoundToThePersistedWorkspace(t *testing.T) {
 func TestACPModelConfigOptionsCatalogSelectionAndLoad(t *testing.T) {
 	deps := testDeps(t)
 	deps.ResolveConfig = func(_ string, o config.Overrides) (config.ResolvedConfig, error) {
-		model := "gpt-5.5"
+		model := "muse-spark-1.3-contributor"
 		if o.Provider.Model != "" {
 			model = o.Provider.Model
 		}
 		return config.ResolvedConfig{Provider: config.ProviderProfile{
-			Name: "ChatGPT", CatalogID: "chatgpt", Model: model,
+			Name: "Quebra Galho", CatalogID: "qg", Model: model,
 		}}, nil
 	}
 	deps.DiscoverModels = func(_ context.Context, _ config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
 		return []providermodeldiscovery.Model{
-			{ID: " gpt-5.4-mini ", Description: "Fast"},
-			{ID: "gpt-5.5", Description: "duplicate configured model"},
+			{ID: " deepseek-v4.1-flash ", Description: "Fast"},
+			{ID: "muse-spark-1.3-contributor", Description: "duplicate configured model"},
 		}, nil
 	}
 	h := newHarness(t, deps)
@@ -421,7 +421,7 @@ func TestACPModelConfigOptionsCatalogSelectionAndLoad(t *testing.T) {
 		t.Fatalf("session/new: %v", err)
 	}
 	option := created.ConfigOptions[0]
-	if option.CurrentValue != "gpt-5.5" || len(option.Options) < 2 {
+	if option.CurrentValue != "muse-spark-1.3-contributor" || len(option.Options) < 2 {
 		t.Fatalf("new model option = %+v", option)
 	}
 	for _, choice := range option.Options {
@@ -431,11 +431,11 @@ func TestACPModelConfigOptionsCatalogSelectionAndLoad(t *testing.T) {
 	}
 	var selected SetSessionConfigOptionResult
 	if err := h.client.Call(ctx, MethodSessionSetConfigOption, SetSessionConfigOptionParams{
-		SessionID: created.SessionID, ConfigID: configIDModel, Value: "  gpt-5.4-mini  ",
+		SessionID: created.SessionID, ConfigID: configIDModel, Value: "  deepseek-v4.1-flash  ",
 	}, &selected); err != nil {
 		t.Fatalf("set_config_option: %v", err)
 	}
-	if got := selected.ConfigOptions[0].CurrentValue; got != "gpt-5.4-mini" {
+	if got := selected.ConfigOptions[0].CurrentValue; got != "deepseek-v4.1-flash" {
 		t.Fatalf("selected model = %q", got)
 	}
 	if err := h.client.Call(ctx, MethodSessionSetConfigOption, SetSessionConfigOptionParams{
@@ -450,7 +450,7 @@ func TestACPModelConfigOptionsCatalogSelectionAndLoad(t *testing.T) {
 	if err := h.client.Call(ctx, MethodSessionLoad, LoadSessionParams{SessionID: created.SessionID, Cwd: workspace}, &loaded); err != nil {
 		t.Fatalf("session/load: %v", err)
 	}
-	if len(loaded.ConfigOptions) != 2 || loaded.ConfigOptions[0].CurrentValue != "gpt-5.4-mini" {
+	if len(loaded.ConfigOptions) != 2 || loaded.ConfigOptions[0].CurrentValue != "deepseek-v4.1-flash" {
 		t.Fatalf("load model option = %+v", loaded.ConfigOptions)
 	}
 	if loaded.ConfigOptions[1].CurrentValue != string(agent.PermissionModeAuto) {
@@ -525,23 +525,23 @@ func TestACPCustomProviderAllowsUnadvertisedModel(t *testing.T) {
 	}
 }
 
-func TestACPModelDiscoveryFiltersProviderIncompatibleModels(t *testing.T) {
+func TestACPModelDiscoveryAddsAllDiscoveredModels(t *testing.T) {
 	a := &Agent{deps: Deps{
 		ResolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
 			return config.ResolvedConfig{Provider: config.ProviderProfile{
-				CatalogID: "opencode-go-anthropic-compatible", Model: "minimax-m3",
+				CatalogID: "qg", Model: "muse-spark-1.3-contributor",
 			}}, nil
 		},
 		DiscoverModels: func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
-			return []providermodeldiscovery.Model{{ID: "qwen3.7-plus"}, {ID: "claude-sonnet-4.5"}}, nil
+			return []providermodeldiscovery.Model{{ID: "qwen3.8-max"}, {ID: "deepseek-v4.1-flash"}}, nil
 		},
 	}}
 	_, options, restricted, err := a.resolveModelChoices(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !restricted || !modelChoiceExists(options, "qwen3.7-plus") || modelChoiceExists(options, "claude-sonnet-4.5") {
-		t.Fatalf("filtered model options = %+v, restricted=%v", options, restricted)
+	if !restricted || !modelChoiceExists(options, "qwen3.8-max") || !modelChoiceExists(options, "deepseek-v4.1-flash") {
+		t.Fatalf("discovered model options = %+v, restricted=%v", options, restricted)
 	}
 }
 

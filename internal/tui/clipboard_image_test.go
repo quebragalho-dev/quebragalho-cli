@@ -6,9 +6,9 @@ import (
 )
 
 func TestClipboardImageMsgAttachesImage(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "gpt-4o"})
+	m := newModel(context.Background(), Options{ModelName: "muse-spark-1.3-contributor"})
 	pngData := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a} // PNG header
-	// gpt-4o is vision-capable in the catalog, so the gate passes.
+	// muse-spark is vision-capable in the catalog, so the gate passes.
 	updated := m.attachClipboardImage(pngData, "image/png")
 	m2 := updated
 	if len(m2.pendingImages) != 1 {
@@ -23,8 +23,8 @@ func TestClipboardImageMsgAttachesImage(t *testing.T) {
 }
 
 func TestClipboardImageVisionGateRefuses(t *testing.T) {
-	// claude-haiku-3.5 is in the catalog and lacks ModelCapabilityVision.
-	m := newModel(context.Background(), Options{ModelName: "claude-haiku-3.5"})
+	// deepseek-v4-pro is in the catalog and lacks ModelCapabilityVision.
+	m := newModel(context.Background(), Options{ModelName: "deepseek-v4-pro"})
 	pngData := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
 	updated := m.attachClipboardImage(pngData, "image/png")
 	m2 := updated
@@ -34,7 +34,7 @@ func TestClipboardImageVisionGateRefuses(t *testing.T) {
 }
 
 func TestClipboardImageTooLargeRefuses(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "gpt-4o"})
+	m := newModel(context.Background(), Options{ModelName: "muse-spark-1.3-contributor"})
 	largeData := make([]byte, 11*1024*1024) // 11 MiB > 10 MiB cap
 	updated := m.attachClipboardImage(largeData, "image/png")
 	m2 := updated

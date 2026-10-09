@@ -33,7 +33,7 @@ func TestFormatSetupCompleteIncludesTryThisExample(t *testing.T) {
 }
 
 func TestRunSetupVerifyReportsClassifiedProbeFailure(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "sk-test") // a key is present, so --verify reaches the probe (not the no-key short-circuit)
+	t.Setenv("QUEBRAGALHO_API_KEY", "sk-test") // a key is present, so --verify reaches the probe (not the no-key short-circuit)
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	probed := false
@@ -53,7 +53,7 @@ func TestRunSetupVerifyReportsClassifiedProbeFailure(t *testing.T) {
 		},
 	}
 
-	exitCode := runWithDeps([]string{"setup", "openai", "--api-key-env", "OPENAI_API_KEY", "--verify"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"setup", "qg", "--api-key-env", "QUEBRAGALHO_API_KEY", "--verify"}, &stdout, &stderr, deps)
 
 	if !probed {
 		t.Fatalf("expected setup --verify to run a probe")
@@ -69,7 +69,7 @@ func TestRunSetupVerifyReportsClassifiedProbeFailure(t *testing.T) {
 }
 
 func TestRunSetupVerifySucceedsAndConfirmsWorking(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "sk-test") // a key is present, so --verify reaches the probe (not the no-key short-circuit)
+	t.Setenv("QUEBRAGALHO_API_KEY", "sk-test") // a key is present, so --verify reaches the probe (not the no-key short-circuit)
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	deps := appDeps{
@@ -84,7 +84,7 @@ func TestRunSetupVerifySucceedsAndConfirmsWorking(t *testing.T) {
 		},
 	}
 
-	exitCode := runWithDeps([]string{"setup", "openai", "--api-key-env", "OPENAI_API_KEY", "--verify"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"setup", "qg", "--api-key-env", "QUEBRAGALHO_API_KEY", "--verify"}, &stdout, &stderr, deps)
 
 	if exitCode != exitSuccess {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
@@ -138,7 +138,7 @@ func TestRunSetupWithoutVerifyDoesNotProbe(t *testing.T) {
 		},
 	}
 
-	exitCode := runWithDeps([]string{"setup", "ollama"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"setup", "qg"}, &stdout, &stderr, deps)
 	if exitCode != exitSuccess {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}

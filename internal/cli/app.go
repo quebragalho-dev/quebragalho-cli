@@ -22,13 +22,11 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/observability"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/peermsg"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/provideroauth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
@@ -68,7 +66,6 @@ type appDeps struct {
 	probeProviderHealth          func(context.Context, providerhealth.Options) providerhealth.Result
 	discoverProviderModels       func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
 	detectLocalRuntimes          func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
-	openRouterLogin              func(context.Context, provideroauth.OpenRouterOptions) (string, error)
 	newSessionStore              func() *sessions.Store
 	loadPlugins                  func(plugins.LoadOptions) (plugins.LoadResult, error)
 	loadHooks                    func(hooks.LoadOptions) (hooks.LoadResult, error)
@@ -171,7 +168,6 @@ func defaultAppDeps() appDeps {
 		probeProviderHealth:    providerhealth.Probe,
 		discoverProviderModels: defaultDiscoverProviderModels,
 		detectLocalRuntimes:    provideronboarding.DetectLocalRuntimes,
-		openRouterLogin:        provideroauth.OpenRouterLogin,
 		newSessionStore: func() *sessions.Store {
 			return sessions.NewStore(sessions.StoreOptions{})
 		},
@@ -304,12 +300,6 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	// a brief notice, rather than a raw stack trace dumped at the user.
 	defer observability.Recover(observability.DefaultCrashDir(), "cli", stderr, &exitCode)
 	deps = fillAppDeps(deps)
-
-	// CLI runs opt into the models.dev overlay (cached live context limits and
-	// pricing on top of the curated catalog). Explicitly enabled here — and only
-	// here — so library consumers and hermetic tests are never perturbed by a
-	// cache file on the machine. The refresh itself is fired in exec/TUI startup.
-	modelregistry.EnableModelsDevOverlay()
 
 	// --add-dir, --theme and --allow-escalation may be written in any order;
 	// see splitLeadingRootFlags for why they are split together.
@@ -500,9 +490,14 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		}
 		// First-run users reach for `qg login`/`qg logout` (reported in the
 		// wild); point them at the real command instead of a bare usage pointer.
+		// OAuth login was removed (Etapa 4), so `login` now points at setup.
 		switch strings.ToLower(args[0]) {
-		case "login", "logout":
-			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "qg auth "+strings.ToLower(args[0])); err != nil {
+		case "login":
+			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "qg setup"); err != nil {
+				return 1
+			}
+		case "logout":
+			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "qg auth logout"); err != nil {
 				return 1
 			}
 		}
@@ -541,9 +536,6 @@ func fillAppDeps(deps appDeps) appDeps {
 	}
 	if deps.detectLocalRuntimes == nil {
 		deps.detectLocalRuntimes = defaults.detectLocalRuntimes
-	}
-	if deps.openRouterLogin == nil {
-		deps.openRouterLogin = defaults.openRouterLogin
 	}
 	if deps.newSessionStore == nil {
 		deps.newSessionStore = defaults.newSessionStore
@@ -688,15 +680,10 @@ func fillAppDeps(deps appDeps) appDeps {
 }
 
 func runInteractiveTUI(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, allowEscalation bool) int {
-	return runInteractiveTUIWithSetup(stderr, deps, permissionMode, addDirs, theme, false, allowEscalation)
+	return runInteractiveTUIWithSetup(stderr, deps, permissionMode, addDirs, theme, allowEscalation)
 }
 
-func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, forceSetup bool, allowEscalation bool) int {
-	// Refresh the models.dev pricing/limits cache in the background when stale;
-	// the overlay is read at registry construction from the cache file, so this
-	// benefits the next run and never blocks or fails this one.
-	go func() { _ = modelregistry.RefreshModelsDevCache(context.Background()) }()
-
+func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, allowEscalation bool) int {
 	workspaceRoot, err := deps.getwd()
 	if err != nil {
 		return writeAppError(stderr, "failed to resolve workspace: "+err.Error(), 1)
@@ -704,32 +691,26 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 
 	resolved, err := deps.resolveConfig(workspaceRoot, config.Overrides{})
 	if err != nil {
-		// A resolve failure the setup wizard can FIX is not fatal for the
-		// interactive TUI: drop into the wizard with an empty config so the user
-		// can onboard/repair, instead of exiting with an error they can only fix
-		// by hand-editing config.json. That covers a missing/unresolvable active
-		// provider and an active provider without a model (custom endpoints have
-		// no catalog default) — previously the second shape bricked bare `qg`
-		// and `qg setup`, the exact commands that could have fixed it. Any
-		// other error (malformed JSON, directory conflict, etc.) is still fatal,
-		// and headless commands (qg config / qg exec) still fail with the
-		// actionable message.
-		if !errors.Is(err, config.ErrNoActiveProvider) && !errors.Is(err, config.ErrProviderRequiresModel) {
+		// The interactive setup wizard was removed (Etapa 4), so every resolve
+		// failure is now terminal: report the actionable message the resolver
+		// already carries (requires-model, malformed JSON, …), except a missing
+		// active provider, where a saved provider that already has a credential
+		// can still take over — and with neither, exit with the missing-key
+		// guidance instead of opening a wizard that no longer exists.
+		if errors.Is(err, config.ErrProviderRequiresModel) || !errors.Is(err, config.ErrNoActiveProvider) {
 			return writeAppError(stderr, err.Error(), 1)
 		}
-		// ErrNoActiveProvider can mean "nothing configured yet" (needs onboarding)
-		// or "providers ARE configured, just none marked active" (e.g. config.json's
-		// activeProvider is blank/stale). In the second case resolved.Providers still
-		// carries the already-normalized list — prefer falling back to one of those
-		// over wiping everything and forcing the user to re-enter credentials they
-		// already saved.
-		if usable, ok := firstUsableProvider(resolved.Providers); errors.Is(err, config.ErrNoActiveProvider) && ok {
-			resolved.Provider = usable
-			resolved.ActiveProvider = usable.Name
-		} else {
-			resolved = config.ResolvedConfig{}
-			forceSetup = true
+		// ErrNoActiveProvider can mean "nothing configured yet" or "providers
+		// ARE configured, just none marked active". In the second case
+		// resolved.Providers still carries the already-normalized list — prefer
+		// falling back to one of those over forcing the user to re-enter
+		// credentials they already saved.
+		usable, ok := firstUsableProvider(resolved.Providers)
+		if !ok {
+			return writeAppError(stderr, missingProviderKeyMessage(resolved.Provider), 1)
 		}
+		resolved.Provider = usable
+		resolved.ActiveProvider = usable.Name
 	}
 	userConfigPath, err := deps.userConfigPath()
 	if err != nil {
@@ -750,25 +731,21 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	}
 
 	needsSetup := setupRequired(resolved)
-	if needsSetup && !forceSetup {
+	if needsSetup {
 		// The active provider lacks a usable credential, but if another saved
-		// provider already has one, fall back to it instead of forcing onboarding
-		// again. Saved logins persist across launches; switch the active provider
-		// any time with `qg provider use <name>`. Onboarding only runs when no
-		// configured provider is usable (a genuinely fresh setup).
+		// provider already has one, fall back to it instead of failing the
+		// launch. Saved logins persist across launches; switch the active
+		// provider any time with `qg providers use <name>`.
 		if usable, ok := firstUsableProvider(resolved.Providers); ok {
 			resolved.Provider = usable
 			resolved.ActiveProvider = usable.Name
 			needsSetup = false
 		}
 	}
-	setupVisible := forceSetup || needsSetup
-	configPath := ""
-	if setupVisible {
-		configPath, err = deps.userConfigPath()
-		if err != nil {
-			return writeAppError(stderr, err.Error(), 1)
-		}
+	if needsSetup {
+		// No usable provider remains and the setup wizard is gone (Etapa 4):
+		// exit with the missing-key guidance instead of a wizard overlay.
+		return writeAppError(stderr, missingProviderKeyMessage(resolved.Provider), 1)
 	}
 
 	scope, err := sandbox.NewScope(workspaceRoot, append(append([]string{}, resolved.Sandbox.AdditionalWriteRoots...), addDirs...))
@@ -1053,9 +1030,11 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		STTKeyStatus:              newSTTKeyStatus(resolved, userConfigPath),
 		SaveSTTKey:                newSaveSTTKey(userConfigPath),
 		Setup: tui.SetupOptions{
-			Visible:    setupVisible,
-			Required:   needsSetup,
-			ConfigPath: configPath,
+			// The setup wizard is removed (Etapa 4): a missing key exits before
+			// the TUI launches, so this overlay never opens.
+			Visible:    false,
+			Required:   false,
+			ConfigPath: userConfigPath,
 			Providers:  setupProviderOptions(),
 			Save: func(selection tui.SetupSelection) (tui.SetupResult, error) {
 				return saveSetupProvider(deps, selection, setupSaveOptions{})

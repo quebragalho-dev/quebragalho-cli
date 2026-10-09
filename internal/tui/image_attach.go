@@ -98,9 +98,9 @@ func stripMatchingQuotes(s string) (string, bool) {
 // modelSupportsVisionTUI reports whether the active model can accept image
 // input. It checks three sources in order:
 //  1. The curated model registry (catalog authority + name heuristic)
-//  2. The discovered model list from models.dev (if the live model picker
-//     fetched it) — this carries InputModalities from models.dev, which
-//     includes "image" for vision-capable models
+//  2. The discovered model list (if the live model picker fetched it) — this
+//     carries InputModalities when the endpoint publishes them, including
+//     "image" for vision-capable models
 //  3. Falls back to the name heuristic for unknown models
 func (m model) modelSupportsVisionTUI() bool {
 	trimmed := strings.TrimSpace(m.modelName)
@@ -111,9 +111,9 @@ func (m model) modelSupportsVisionTUI() bool {
 	if entry, known := m.modelCatalog.Resolve(trimmed); known {
 		return entry.Supports(modelregistry.ModelCapabilityVision)
 	}
-	// Check the discovered model list (from models.dev) for InputModalities
-	// containing "image". This covers custom/ollama/cloud models not in the
-	// curated catalog — models.dev knows their capabilities.
+	// Check the discovered model list for InputModalities containing "image".
+	// This covers models not in the curated catalog — the live listing can
+	// carry their capabilities.
 	for _, models := range m.modelPickerLiveByProvider {
 		for _, dm := range models {
 			if strings.EqualFold(strings.TrimSpace(dm.ID), trimmed) {
@@ -121,7 +121,7 @@ func (m model) modelSupportsVisionTUI() bool {
 				// are available, without repeating modalities. Treat an empty list as
 				// unknown rather than as an explicit image-input denial, so the
 				// curated registry/name capability fallback remains available while
-				// models.dev metadata is temporarily unavailable.
+				// the endpoint's modality metadata is unavailable.
 				if len(dm.InputModalities) == 0 {
 					continue
 				}

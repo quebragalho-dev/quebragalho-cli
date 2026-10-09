@@ -22,9 +22,9 @@ var userStateEnvNames = []string{
 //
 // A TEMPORARY WORKING DIRECTORY IS NOT ISOLATION. runWithDeps fills the
 // dependencies a test leaves out with the production ones, and the launch paths
-// read user config, open stores, refresh the models.dev cache and, for an
-// interactive run, migrate any inline plaintext API key into the credential
-// store before they ever reach an injected callback. Without this, running these
+// read user config, open stores and, for an interactive run, migrate any
+// inline plaintext API key into the credential store before they ever reach
+// an injected callback. Without this, running these
 // tests on a developer machine rewrites that developer's config.json and moves
 // their key into their keychain, makes a real network call, and reports results
 // that depend on whatever providers, MCP servers and plugins that machine has.
@@ -34,14 +34,26 @@ func isolateCLIUserState(t *testing.T) {
 	for _, name := range userStateEnvNames {
 		t.Setenv(name, root)
 	}
-	// The models.dev overlay cache, and the background refresh that writes it:
-	// a wiring test has no business making a network call or leaving a cache
-	// file behind.
-	t.Setenv("QG_MODELS_CACHE_PATH", filepath.Join(root, "modelsdev.json"))
-	t.Setenv("QG_DISABLE_MODELS_FETCH", "1")
 	// Credentials resolve keyring-first. This keeps a migrated key in a file
 	// under the fixture root rather than in the developer's OS keychain.
 	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
+	// Provider credentials in the host environment become env-derived profiles
+	// (an ANTHROPIC_BASE_URL alone is enough), and with the setup wizard removed
+	// (Etapa 4) that leaked profile is what the launch resolves against — so
+	// every provider env var is blanked the same way the other user state is.
+	for _, name := range providerEnvNames {
+		t.Setenv(name, "")
+	}
+}
+
+// providerEnvNames is every env var config.Resolve turns into provider profile
+// state (applyEnv / applyProviderEnv), plus the active-provider override.
+var providerEnvNames = []string{
+	"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL",
+	"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+	"GEMINI_API_KEY", "GEMINI_BASE_URL", "GEMINI_MODEL",
+	"GOOGLE_API_KEY", "GOOGLE_BASE_URL", "GOOGLE_MODEL",
+	"QUEBRAGALHO_API_KEY", "QG_PROVIDER",
 }
 
 // AND THE ISOLATION IS ITSELF PINNED, ONE HELPER AT A TIME. A seeded config
@@ -96,9 +108,6 @@ func TestCLILaunchHelpersLeaveUserStateAlone(t *testing.T) {
 			}
 			if strings.HasPrefix(resolved, seedRoot) {
 				t.Errorf("user config still resolves inside the seeded root (%s): the helper installed no isolation", resolved)
-			}
-			if os.Getenv("QG_DISABLE_MODELS_FETCH") == "" {
-				t.Error("the helper left the background models.dev refresh enabled, so this test can make a network call and write a cache file")
 			}
 			if os.Getenv("QG_CRED_STORAGE") == "" {
 				t.Error("the helper left credential storage resolving keyring-first, so a migrated key can reach the host keychain")

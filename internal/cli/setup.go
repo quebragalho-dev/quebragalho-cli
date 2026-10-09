@@ -42,7 +42,7 @@ func runSetup(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 		return exitSuccess
 	}
 	if strings.TrimSpace(options.catalogID) == "" {
-		return runInteractiveTUIWithSetup(stderr, deps, "", nil, "", true, false)
+		return writeAppError(stderr, setupUnavailableMessage(), exitUsage)
 	}
 
 	result, err := saveSetupProvider(deps, tui.SetupSelection{
@@ -124,7 +124,7 @@ func verifySetupProvider(deps appDeps, profile config.ProviderProfile) (setupVer
 			name = "this provider"
 		}
 		return setupVerification{Ran: true, OK: false, Summary: "no api key"},
-			fmt.Errorf("no API key found for %s — set its API key (export the provider's API key env var, or pass --api-key-env) or run `qg auth`, then re-run setup", name)
+			fmt.Errorf("no API key found for %s — set QUEBRAGALHO_API_KEY in your environment (or pass --api-key-env QUEBRAGALHO_API_KEY), then re-run `qg setup qg`", name)
 	}
 	ctx, stop := signalContext()
 	defer stop()
@@ -301,6 +301,26 @@ func setupProviderEnvVar(descriptor providercatalog.Descriptor) string {
 	return ""
 }
 
+// setupUnavailableMessage answers bare `qg setup` now that the interactive
+// setup UI is removed (Etapa 4): the provider argument is the only form left.
+func setupUnavailableMessage() string {
+	return "interactive setup is not available: configure the provider with `qg setup qg` (see `qg setup --help`)"
+}
+
+// missingProviderKeyMessage is the launch-time error replacing the removed
+// onboarding wizard (Etapa 4). It names the credential env var the profile
+// expects and, when no profile exists yet, the command that creates one.
+func missingProviderKeyMessage(profile config.ProviderProfile) string {
+	envVar, _ := profile.MissingCredentialEnv()
+	if strings.TrimSpace(envVar) == "" {
+		envVar = "QUEBRAGALHO_API_KEY"
+	}
+	if !config.HasProviderProfile(profile) {
+		return "no provider configured: set " + envVar + " in your environment, then run `qg setup qg`"
+	}
+	return "no API key configured: set " + envVar + " in your environment"
+}
+
 func setupRequired(resolved config.ResolvedConfig) bool {
 	if !config.HasProviderProfile(resolved.Provider) {
 		return true
@@ -308,9 +328,10 @@ func setupRequired(resolved config.ResolvedConfig) bool {
 	if _, missing := setupMissingCredentialEnv(resolved.Provider); !missing {
 		return false
 	}
-	// A stored OAuth login (e.g. `qg auth login xai`) is a credential too, even
-	// though the profile has no inline key / env var — so a logged-in provider
-	// must not trigger onboarding.
+	// A stored OAuth login from an earlier version (login commands were removed
+	// in Etapa 4; the tokens remain readable) is a credential too, even though
+	// the profile has no inline key / env var — so such a provider must not
+	// trigger onboarding.
 	return !providerHasOAuthLogin(resolved.Provider, oauthLoggedInProviders())
 }
 
@@ -374,10 +395,10 @@ func firstUsableProvider(providers []config.ProviderProfile) (config.ProviderPro
 				continue
 			}
 		}
-		// A stored OAuth login (e.g. `qg auth login xai`) is a credential too, even
-		// when the profile has no inline key / env var — mirrors setupRequired and
-		// usableSavedProviders so this fallback doesn't force onboarding for a
-		// provider the user is already authenticated with.
+		// A stored OAuth login from an earlier version is a credential too, even
+		// when the profile has no inline key / env var — mirrors setupRequired
+		// and usableSavedProviders so this fallback doesn't force onboarding for
+		// a provider the user already authenticated.
 		if _, missing := setupMissingCredentialEnv(profile); missing && !providerHasOAuthLogin(profile, logins) {
 			continue
 		}
@@ -541,16 +562,15 @@ func setupCommandArg(value string) string {
 
 func writeSetupHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  qg setup [provider] [flags]
+  qg setup <provider> [flags]
 
-Guides first-run QG setup. Without a provider, opens the setup UI. With a
-provider catalog id, writes that provider as the active provider.
+Configures <provider> as the active provider. The interactive setup UI was
+removed, so the provider argument is required.
 
 Examples:
-  qg setup
-  qg setup openai --api-key-env OPENAI_API_KEY
-  qg setup ollama
-  qg setup ollama-cloud
+  qg setup qg
+  qg setup qg --api-key-env QUEBRAGALHO_API_KEY
+  qg setup qg --model muse-spark-1.3-contributor
 
 Flags:
       --name <name>             Provider profile name

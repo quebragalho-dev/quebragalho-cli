@@ -23,10 +23,9 @@ const sttValueSep = ":"
 
 // baselineSTTModels are the known transcription models per cloud provider (§7/§8).
 // Used as a stable floor so the picker always offers sensible options even when
-// the live catalog has not surfaced them (models.dev lists Groq's Whisper models
-// without cost fields; OpenAI's transcription models are absent there entirely —
-// see §8). Any additional IsSTTModel entries the catalog does surface are merged
-// in on top.
+// the live catalog has not surfaced them (some providers omit transcription
+// models or publish them without cost fields — see §8). Any additional
+// IsSTTModel entries the catalog does surface are merged in on top.
 var baselineSTTModels = map[string][]string{
 	string(config.STTProviderGroq):   {"whisper-large-v3-turbo", "whisper-large-v3", "distil-whisper-large-v3-en"},
 	string(config.STTProviderOpenAI): {"whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"},

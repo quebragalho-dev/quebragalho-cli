@@ -172,7 +172,7 @@ func providerConfigCheck(profile config.ProviderProfile) Check {
 	// Ollama/LM Studio) legitimately need no key, so they stay a pass. (AUDIT-H9)
 	if credential == "not set" && !localProviderBaseURL(profile.BaseURL) {
 		return check("provider.config", "Provider config", StatusFail,
-			fmt.Sprintf("No API key configured for %s. Run `qg auth` or `qg setup`, or set the provider's API key environment variable.", providerName(profile)),
+			fmt.Sprintf("No API key configured for %s. Set QUEBRAGALHO_API_KEY in your environment, then run `qg setup qg` (see `qg setup --help`).", providerName(profile)),
 			details)
 	}
 	return check("provider.config", "Provider config", StatusPass, fmt.Sprintf("Provider config loaded for %s.", providerName(profile)), details)

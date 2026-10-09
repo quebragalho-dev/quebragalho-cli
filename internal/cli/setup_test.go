@@ -23,10 +23,10 @@ func TestSetupMissingCredentialEnv(t *testing.T) {
 		{
 			name: "catalog provider",
 			profile: config.ProviderProfile{
-				Name:      "groq",
-				CatalogID: "groq",
+				Name:      "qg",
+				CatalogID: "qg",
 			},
-			wantEnv: "GROQ_API_KEY",
+			wantEnv: "QUEBRAGALHO_API_KEY",
 			want:    true,
 		},
 		{
@@ -36,23 +36,6 @@ func TestSetupMissingCredentialEnv(t *testing.T) {
 				ProviderKind: config.ProviderKindOpenAICompatible,
 			},
 			wantEnv: "OPENAI_API_KEY",
-			want:    true,
-		},
-		{
-			name: "local provider",
-			profile: config.ProviderProfile{
-				Name:      "local",
-				CatalogID: "ollama",
-			},
-			want: false,
-		},
-		{
-			name: "ollama cloud provider",
-			profile: config.ProviderProfile{
-				Name:      "ollama-cloud",
-				CatalogID: "ollama-cloud",
-			},
-			wantEnv: "OLLAMA_API_KEY",
 			want:    true,
 		},
 		{
@@ -76,17 +59,6 @@ func TestSetupMissingCredentialEnv(t *testing.T) {
 				BaseURL:   "http://192.168.1.50:8080/v1",
 			},
 			want: false,
-		},
-		{
-			name: "custom openai compatible with explicit api key env",
-			profile: config.ProviderProfile{
-				Name:      "local-llama",
-				CatalogID: "custom-openai-compatible",
-				BaseURL:   "http://192.168.1.50:8080/v1",
-				APIKeyEnv: "LLAMA_CPP_API_KEY",
-			},
-			wantEnv: "LLAMA_CPP_API_KEY",
-			want:    true,
 		},
 		{
 			// Self-heal regression: profiles saved by the pre-fix wizard were
@@ -161,8 +133,8 @@ func TestSaveSetupProviderStoresPastedAPIKey(t *testing.T) {
 			return configPath, nil
 		},
 	}, tui.SetupSelection{
-		CatalogID: "ollama-cloud",
-		Model:     "qwen3-coder:480b",
+		CatalogID: "qg",
+		Model:     "muse-spark-1.3-contributor",
 		APIKey:    "sk-pasted-secret",
 	}, setupSaveOptions{})
 	if err != nil {
@@ -177,8 +149,8 @@ func TestSaveSetupProviderStoresPastedAPIKey(t *testing.T) {
 	}
 
 	cfg := readFileConfig(t, configPath)
-	if cfg.ActiveProvider != "ollama-cloud" {
-		t.Fatalf("ActiveProvider = %q, want ollama-cloud", cfg.ActiveProvider)
+	if cfg.ActiveProvider != "qg" {
+		t.Fatalf("ActiveProvider = %q, want qg", cfg.ActiveProvider)
 	}
 	if len(cfg.Providers) != 1 {
 		t.Fatalf("Providers = %#v, want one provider", cfg.Providers)
@@ -195,56 +167,8 @@ func TestSaveSetupProviderStoresPastedAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key, ok, _ := store.Get("ollama-cloud"); !ok || key != "sk-pasted-secret" {
+	if key, ok, _ := store.Get("qg"); !ok || key != "sk-pasted-secret" {
 		t.Fatalf("stored key = %q,%v; want sk-pasted-secret in the credential store", key, ok)
-	}
-}
-
-func TestSaveSetupProviderAimlapiEnvReferenceAndOverrideHeaders(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
-	result, err := saveSetupProvider(appDeps{
-		userConfigPath: func() (string, error) { return configPath, nil },
-	}, tui.SetupSelection{
-		CatalogID: "aimlapi",
-		BaseURL:   "https://staging.example/v1",
-		Model:     "anthropic/claude-sonnet-5",
-	}, setupSaveOptions{})
-	if err != nil {
-		t.Fatalf("saveSetupProvider() error = %v", err)
-	}
-	if result.Provider.APIKey != "" || result.Provider.APIKeyEnv != "AIMLAPI_API_KEY" {
-		t.Fatalf("runtime profile did not retain AIMLAPI_API_KEY reference: %+v", result.Provider)
-	}
-	if len(result.Provider.CustomHeaders) != 0 {
-		t.Fatalf("catalog headers leaked to first-run override: %#v", result.Provider.CustomHeaders)
-	}
-	persisted := readFileConfig(t, configPath).Providers[0]
-	if persisted.APIKey != "" || persisted.APIKeyEnv != "AIMLAPI_API_KEY" || persisted.APIKeyStored {
-		t.Fatalf("persisted credential source changed: %+v", persisted)
-	}
-	if len(persisted.CustomHeaders) != 0 {
-		t.Fatalf("persisted override contains catalog headers: %#v", persisted.CustomHeaders)
-	}
-}
-
-func TestSaveSetupProviderAimlapiUsesResolvedPartnerOverride(t *testing.T) {
-	t.Setenv("AIMLAPI_PARTNER_ID", "part_override")
-	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
-	result, err := saveSetupProvider(appDeps{
-		userConfigPath: func() (string, error) { return configPath, nil },
-	}, tui.SetupSelection{
-		CatalogID: "aimlapi",
-		BaseURL:   "https://api.aimlapi.com/v1",
-		Model:     "anthropic/claude-sonnet-5",
-	}, setupSaveOptions{})
-	if err != nil {
-		t.Fatalf("saveSetupProvider() error = %v", err)
-	}
-	if got := result.Provider.CustomHeaders["X-AIMLAPI-Partner-ID"]; got != "part_override" {
-		t.Fatalf("runtime partner header = %q, want part_override", got)
-	}
-	if got := readFileConfig(t, configPath).Providers[0].CustomHeaders["X-AIMLAPI-Partner-ID"]; got != "part_override" {
-		t.Fatalf("persisted partner header = %q, want part_override", got)
 	}
 }
 
@@ -256,7 +180,7 @@ func TestSaveSetupProviderStoresCustomEndpointSelection(t *testing.T) {
 			return configPath, nil
 		},
 	}, tui.SetupSelection{
-		CatalogID: "custom-openai-compatible",
+		CatalogID: "qg",
 		Name:      "minimax",
 		BaseURL:   "https://api.minimax.io/v1",
 		Model:     "MiniMax-M3",
@@ -283,8 +207,8 @@ func TestSaveSetupProviderStoresCustomEndpointSelection(t *testing.T) {
 		t.Fatalf("Providers = %#v, want one provider", cfg.Providers)
 	}
 	profile := cfg.Providers[0]
-	if profile.Name != "minimax" || profile.CatalogID != "custom-openai-compatible" {
-		t.Fatalf("stored provider identity = %#v, want minimax custom-openai-compatible", profile)
+	if profile.Name != "minimax" || profile.CatalogID != "qg" {
+		t.Fatalf("stored provider identity = %#v, want minimax on the qg catalog", profile)
 	}
 	if profile.BaseURL != "https://api.minimax.io/v1" || profile.Model != "MiniMax-M3" {
 		t.Fatalf("stored provider endpoint/model = %#v", profile)
@@ -299,7 +223,7 @@ func TestSaveSetupProviderCLIOptionsOverrideCustomEndpointSelection(t *testing.T
 			return configPath, nil
 		},
 	}, tui.SetupSelection{
-		CatalogID: "custom-openai-compatible",
+		CatalogID: "qg",
 		Name:      "selection-name",
 		BaseURL:   "https://selection.example/v1",
 		Model:     "selection-model",
@@ -351,6 +275,12 @@ func TestVerifySetupProviderDistinguishesMissingFromRejectedKey(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no API key found") {
 		t.Fatalf("missing key should report 'no API key found', got %v", err)
 	}
+	if !strings.Contains(err.Error(), "QUEBRAGALHO_API_KEY") || !strings.Contains(err.Error(), "qg setup qg") {
+		t.Fatalf("missing key must cite QUEBRAGALHO_API_KEY and qg setup qg, got %v", err)
+	}
+	if strings.Contains(err.Error(), "qg auth") {
+		t.Fatalf("missing key must not cite the removed auth commands, got %v", err)
+	}
 	if probed {
 		t.Fatal("must not probe the endpoint when no key is configured")
 	}
@@ -365,16 +295,5 @@ func TestVerifySetupProviderDistinguishesMissingFromRejectedKey(t *testing.T) {
 	})
 	if !probed {
 		t.Fatal("a keyless local provider should still be probed")
-	}
-}
-
-func TestSaveSetupProviderRejectsAtomicPlaceholderBeforeConfigAccess(t *testing.T) {
-	for _, model := range []string{"", "local-model", " local-model "} {
-		accessed := false
-		deps := appDeps{userConfigPath: func() (string, error) { accessed = true; return filepath.Join(t.TempDir(), "config.json"), nil }}
-		_, err := saveSetupProvider(deps, tui.SetupSelection{CatalogID: "atomic-chat-local", Model: model}, setupSaveOptions{})
-		if err == nil || !strings.Contains(err.Error(), "--model") || accessed {
-			t.Fatalf("invalid model %q reached config access: accessed=%v err=%v", model, accessed, err)
-		}
 	}
 }

@@ -19,10 +19,10 @@ func TestModelSupportsVisionTUI(t *testing.T) {
 		modelName string
 		want      bool
 	}{
-		{modelName: "gpt-4.1", want: true},                 // vision model in the catalog
-		{modelName: "claude-sonnet-4.5", want: true},       // vision model in the catalog
-		{modelName: "claude-haiku-3.5", want: false},       // claude-3-5-haiku has no image input support
-		{modelName: "totally-unknown-custom", want: false}, // not in catalog -> can't confirm
+		{modelName: "muse-spark-1.3-contributor", want: true}, // vision model in the catalog
+		{modelName: "deepseek-v4.1-flash", want: true},        // vision model in the catalog
+		{modelName: "deepseek-v4-pro", want: false},           // no image input support
+		{modelName: "totally-unknown-custom", want: false},    // not in catalog -> can't confirm
 		{modelName: "", want: false},
 	}
 	for _, tc := range cases {
@@ -65,7 +65,7 @@ func TestImageCommandAttachRendersChip(t *testing.T) {
 	root := t.TempDir()
 	writeTestPNG(t, root, "photo.png")
 
-	m := newModel(context.Background(), Options{Cwd: root, ModelName: "gpt-4.1"})
+	m := newModel(context.Background(), Options{Cwd: root, ModelName: "muse-spark-1.3-contributor"})
 	m.input.SetValue("/image photo.png")
 	updated, _ := m.handleSubmit()
 	next := updated.(model)
@@ -90,7 +90,7 @@ func TestImageCommandClear(t *testing.T) {
 	root := t.TempDir()
 	writeTestPNG(t, root, "photo.png")
 
-	m := newModel(context.Background(), Options{Cwd: root, ModelName: "gpt-4.1"})
+	m := newModel(context.Background(), Options{Cwd: root, ModelName: "muse-spark-1.3-contributor"})
 	m.input.SetValue("/image photo.png")
 	updated, _ := m.handleSubmit()
 	m = updated.(model)
@@ -125,7 +125,7 @@ func TestImageCommandNonVisionRefuses(t *testing.T) {
 
 func TestImageCommandMissingFileNotice(t *testing.T) {
 	root := t.TempDir()
-	m := newModel(context.Background(), Options{Cwd: root, ModelName: "gpt-4.1"})
+	m := newModel(context.Background(), Options{Cwd: root, ModelName: "muse-spark-1.3-contributor"})
 	m.input.SetValue("/image nope.png")
 	updated, _ := m.handleSubmit()
 	next := updated.(model)
@@ -139,7 +139,7 @@ func TestImageCommandMissingFileNotice(t *testing.T) {
 }
 
 func TestTranscriptViewShowsImageChips(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "gpt-4.1"})
+	m := newModel(context.Background(), Options{ModelName: "muse-spark-1.3-contributor"})
 	m.width = 100
 	m.height = 30
 	m.pendingImageLabels = []string{"photo.png", "diagram.gif"}
@@ -163,7 +163,7 @@ func TestSubmitThreadsImagesThenClears(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		Cwd:          root,
 		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     provider,
 		Registry:     tools.NewRegistry(),
 		SessionStore: testSessionStore(t),
@@ -235,7 +235,7 @@ func TestSubmitDropsImagesWhenModelSwitchedToNonVision(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		Cwd:          root,
 		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     provider,
 		Registry:     tools.NewRegistry(),
 		SessionStore: testSessionStore(t),
@@ -375,7 +375,7 @@ func TestImageCommandRejectsFakePDF(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "fake.pdf"), []byte("definitely not a pdf"), 0o644); err != nil {
 		t.Fatalf("write fake: %v", err)
 	}
-	m := newModel(context.Background(), Options{Cwd: root, ModelName: "gpt-4.1"})
+	m := newModel(context.Background(), Options{Cwd: root, ModelName: "muse-spark-1.3-contributor"})
 	m.input.SetValue("/image fake.pdf")
 	updated, _ := m.handleSubmit()
 	next := updated.(model)
@@ -393,7 +393,7 @@ func TestImageCommandClearAlsoClearsDocuments(t *testing.T) {
 	root := t.TempDir()
 	writeTestPDF(t, root, "spec.pdf", "some text")
 
-	m := newModel(context.Background(), Options{Cwd: root, ModelName: "gpt-4.1"})
+	m := newModel(context.Background(), Options{Cwd: root, ModelName: "muse-spark-1.3-contributor"})
 	m.input.SetValue("/image spec.pdf")
 	updated, _ := m.handleSubmit()
 	m = updated.(model)
@@ -411,7 +411,7 @@ func TestImageCommandClearAlsoClearsDocuments(t *testing.T) {
 
 // The chip row shows a "[doc: …]" entry for staged documents.
 func TestTranscriptViewShowsDocumentChips(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "gpt-4.1"})
+	m := newModel(context.Background(), Options{ModelName: "muse-spark-1.3-contributor"})
 	m.width = 100
 	m.height = 30
 	m.pendingDocuments = []pendingDocument{{label: "spec.pdf", text: "body"}}
@@ -435,7 +435,7 @@ func TestSubmitPrependsDocumentTextThenClears(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		Cwd:          root,
 		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     provider,
 		Registry:     tools.NewRegistry(),
 		SessionStore: testSessionStore(t),
@@ -516,7 +516,7 @@ func TestRetryResendsAttachments(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		Cwd:          root,
 		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     provider,
 		Registry:     tools.NewRegistry(),
 		SessionStore: testSessionStore(t),

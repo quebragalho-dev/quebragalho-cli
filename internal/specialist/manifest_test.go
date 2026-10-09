@@ -78,15 +78,15 @@ func TestParseMarkdownValidatesModelAndReasoningEffort(t *testing.T) {
 	manifest, err := ParseMarkdown(`---
 name: reviewer
 description: Reviews code
-model: sonnet-4.5
+model: muse-spark
 reasoningEffort: HIGH
 ---
 Review.`)
 	if err != nil {
 		t.Fatalf("ParseMarkdown returned error: %v", err)
 	}
-	if manifest.Metadata.Model != "claude-sonnet-4.5" {
-		t.Fatalf("Model = %q, want canonical claude-sonnet-4.5", manifest.Metadata.Model)
+	if manifest.Metadata.Model != "muse-spark-1.3-contributor" {
+		t.Fatalf("Model = %q, want canonical muse-spark-1.3-contributor", manifest.Metadata.Model)
 	}
 	if manifest.Metadata.ReasoningEffort != "high" {
 		t.Fatalf("ReasoningEffort = %q, want high", manifest.Metadata.ReasoningEffort)

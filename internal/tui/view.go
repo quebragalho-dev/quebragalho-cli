@@ -288,27 +288,7 @@ func (m model) providerDisplayName() string {
 	if provider == "" {
 		provider = strings.TrimSpace(m.providerProfile.Name)
 	}
-	if !providerDisplayNameIsGenericCustom(provider) {
-		return provider
-	}
-	baseURL := strings.TrimSpace(m.providerProfile.BaseURL)
-	if baseURL == "" || strings.Contains(strings.ToLower(baseURL), "example.invalid") {
-		return provider
-	}
-	derived := providerWizardNameFromBaseURL(baseURL)
-	if derived == "" || derived == "custom" {
-		return provider
-	}
-	return derived
-}
-
-func providerDisplayNameIsGenericCustom(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "custom-openai-compatible", "custom-anthropic-compatible":
-		return true
-	default:
-		return false
-	}
+	return provider
 }
 
 // nextPermissionMode toggles between the two prompt-respecting modes:

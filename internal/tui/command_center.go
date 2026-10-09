@@ -591,7 +591,7 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 	// keyless on purpose so newProvider attaches the bearer resolver + login key.
 	if strings.TrimSpace(target.APIKey) == "" && strings.TrimSpace(target.AuthHeaderValue) == "" &&
 		(!hasDescriptor || !descriptor.Local) && !oauthLoginAvailable(target) {
-		return m, "Model\nprovider " + strconv.Quote(providerName) + " has no usable credential — run setup or `qg auth login " + providerName + "`.", false, nil, nil
+		return m, "Model\nprovider " + strconv.Quote(providerName) + " has no usable credential — set QUEBRAGALHO_API_KEY in your environment, then run `qg setup qg`.", false, nil, nil
 	}
 	next, err := m.newProvider(target)
 	if err != nil {
@@ -634,9 +634,6 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 	var cmds []tea.Cmd
 	if hasDescriptor {
 		if cmd := m.modelPickerProviderDiscoveryCmd(descriptor, target); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		if cmd := m.ollamaContextWindowDiscoveryCmd(descriptor, target.BaseURL, target.Model); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
@@ -801,10 +798,9 @@ func (m model) resolveModelSwitchTarget(registry modelregistry.Registry, args st
 }
 
 // providerModelSwitchCandidates preserves provider-owned model IDs while
-// accepting the models.dev OpenAI namespace for ChatGPT subscription models.
-// The ChatGPT backend itself publishes bare model IDs (for example,
-// "gpt-5.6-sol"); gateway providers may legitimately require "openai/..."
-// as part of their model ID, so the alias is deliberately provider-specific.
+// accepting an "openai/"-prefixed request for legacy ChatGPT profiles, whose
+// backend publishes bare model IDs (for example, "gpt-5.6-sol"). The alias is
+// deliberately provider-specific — other providers' IDs are passed through.
 func providerModelSwitchCandidates(providerID string, input string) []string {
 	requested := strings.TrimSpace(input)
 	candidates := []string{requested}

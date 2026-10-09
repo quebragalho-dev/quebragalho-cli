@@ -234,6 +234,7 @@ func TestTUIRunThreadsDeferThresholdAndRegistersToolSearch(t *testing.T) {
 					Name:         "p",
 					ProviderKind: config.ProviderKindOpenAICompatible,
 					BaseURL:      "http://127.0.0.1/v1",
+					APIKey:       "sk-test",
 					Model:        "m",
 				},
 				Tools: config.ToolsConfig{DeferThreshold: 2},
