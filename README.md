@@ -66,17 +66,17 @@ que instala **os dois nomes de comando**: `qg` e o alias `quebragalho`.
 
 1. **Tenha a sua chave do Quebra Galho.** Ela começa com `sk-...`.
 
-2. **Escolha um dos caminhos para salvar a chave:**
+2. **Configure o perfil e a chave.** O perfil (provedor qg + modelo) nasce pelo
+   onboarding de 3 telas na primeira execução, pelo `qg login` ou pelo
+   `qg setup qg` — exportar só `QG_API_KEY` não cria perfil, e sem ele a TUI
+   reabre o onboarding e o `qg exec` responde "No provider configured".
+   A chave pode ficar no cofre validado por esses comandos (a configuração
+   guarda só o marcador `apiKeyStored`, nunca o valor) ou vir do ambiente por
+   cima do perfil já configurado:
 
    ```bash
-   # caminho rápido (valida a chave contra o gateway e grava no cofre):
-   qg login
-   # ou, com a chave no ambiente antes de qualquer comando:
-   export QG_API_KEY=sk-...
+   export QG_API_KEY=sk-...   # alimenta a chave de um perfil já existente
    ```
-
-   `qg login` grava a chave no cofre de credenciais criptografado do seu usuário; a configuração
-   guarda apenas o marcador `apiKeyStored`, nunca o valor.
 
 3. **Rode o QG:**
 
