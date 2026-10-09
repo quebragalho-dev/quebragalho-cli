@@ -36,7 +36,7 @@ func TestBuildPlatformPackagesAssemblesPublishPayloads(t *testing.T) {
 	writeFixtureFile(t, filepath.Join(staging, "qg-linux-sandbox"), "#!/usr/bin/env sh\n", 0o755)
 	writeFixtureFile(t, filepath.Join(staging, "qg-seccomp"), "#!/usr/bin/env sh\n", 0o755)
 	// Wrapper-owned files the platform package must exclude.
-	writeFixtureFile(t, filepath.Join(staging, "package.json"), `{"name":"@quebragalho-dev/qg"}`, 0o644)
+	writeFixtureFile(t, filepath.Join(staging, "package.json"), `{"name":"@quebragalho-dev/cli"}`, 0o644)
 	writeFixtureFile(t, filepath.Join(staging, "README.md"), "readme\n", 0o644)
 	writeFixtureFile(t, filepath.Join(staging, "VERSION"), version+"\n", 0o644)
 	writeFixtureFile(t, filepath.Join(staging, "bin", "qg.js"), "#!/usr/bin/env node\n", 0o755)
@@ -101,8 +101,8 @@ func TestBuildPlatformPackagesAssemblesPublishPayloads(t *testing.T) {
 		Scripts map[string]string
 	}
 	unmarshalJSONFile(t, filepath.Join(platformDir, "package.json"), &platformPkg)
-	if platformPkg.Name != "@quebragalho-dev/qg" {
-		t.Fatalf("platform package name = %q, want @quebragalho-dev/qg (same-name suffixed versions share one trusted publisher)", platformPkg.Name)
+	if platformPkg.Name != "@quebragalho-dev/cli" {
+		t.Fatalf("platform package name = %q, want @quebragalho-dev/cli (same-name suffixed versions share one trusted publisher)", platformPkg.Name)
 	}
 	if want := version + "-linux-x64"; platformPkg.Version != want {
 		t.Fatalf("platform package version = %q, want %q", platformPkg.Version, want)
@@ -198,11 +198,11 @@ func TestBuildPlatformPackagesAssemblesPublishPayloads(t *testing.T) {
 		t.Fatalf("published wrapper has dependencies: %v (helpers are vendored in the platform payloads)", wrapperPkg.Dependencies)
 	}
 	wantAliases := map[string]string{
-		"@quebragalho-dev/qg-darwin-arm64": "npm:@quebragalho-dev/qg@" + version + "-darwin-arm64",
-		"@quebragalho-dev/qg-darwin-x64":   "npm:@quebragalho-dev/qg@" + version + "-darwin-x64",
-		"@quebragalho-dev/qg-linux-arm64":  "npm:@quebragalho-dev/qg@" + version + "-linux-arm64",
-		"@quebragalho-dev/qg-linux-x64":    "npm:@quebragalho-dev/qg@" + version + "-linux-x64",
-		"@quebragalho-dev/qg-win32-x64":    "npm:@quebragalho-dev/qg@" + version + "-win32-x64",
+		"@quebragalho-dev/cli-darwin-arm64": "npm:@quebragalho-dev/cli@" + version + "-darwin-arm64",
+		"@quebragalho-dev/cli-darwin-x64":   "npm:@quebragalho-dev/cli@" + version + "-darwin-x64",
+		"@quebragalho-dev/cli-linux-arm64":  "npm:@quebragalho-dev/cli@" + version + "-linux-arm64",
+		"@quebragalho-dev/cli-linux-x64":    "npm:@quebragalho-dev/cli@" + version + "-linux-x64",
+		"@quebragalho-dev/cli-win32-x64":    "npm:@quebragalho-dev/cli@" + version + "-win32-x64",
 	}
 	if len(wrapperPkg.Optional) != len(wantAliases) {
 		t.Fatalf("wrapper optionalDependencies = %v, want %v", wrapperPkg.Optional, wantAliases)

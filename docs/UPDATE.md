@@ -28,7 +28,7 @@ them explicitly; `qg upgrade` is `qg update` with `--apply` implied.
 
 `--apply` installs the update in place:
 
-- npm installs delegate to `npm install -g @quebragalho-dev/qg@latest`.
+- npm installs delegate to `npm install -g @quebragalho-dev/cli@latest`.
 - Standalone installs download the release archive, verify its checksum,
   extract it, and atomically replace the running binary plus any installed
   optional sandbox helpers.
@@ -38,7 +38,7 @@ them explicitly; `qg upgrade` is `qg update` with `--apply` implied.
 - `--target` cannot be combined with `--apply`; it only applies to `--check`,
   since applying always installs onto the current machine.
 - `--repo` and `--endpoint` are ignored when applying to an npm-managed
-  install: that path delegates to `npm install -g @quebragalho-dev/qg@latest` and
+  install: that path delegates to `npm install -g @quebragalho-dev/cli@latest` and
   takes its release from the npm registry, not from GitHub. They still apply to
   `--check` there.
 - `--json` serializes QG's final result. For npm-managed installs, npm may
