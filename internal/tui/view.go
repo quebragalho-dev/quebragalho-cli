@@ -125,14 +125,10 @@ func (m model) composerDividerLine(width int) string {
 		return line + strings.Repeat(" ", reserved)
 	}
 	rule := strings.Repeat("─", availableWidth-metaWidth-frameWidth)
-	line := qgTheme.lineStrong.Render("╰"+rule+padding) + meta + qgTheme.lineStrong.Render(padding+"╯")
+	line := qgTheme.lineStrong.Render("╰"+padding) + meta + qgTheme.lineStrong.Render(padding+rule+"╯")
 	return line + strings.Repeat(" ", reserved)
 }
 
-// statusLine renders the bottom readout as ` │ `-separated groups: the run-state
-// chip (permission mode + effort/fast tier) on the left, a flexible gap, then the
-// context-fill gauge and token/cost usage on the right. The model lives in the
-// composer rule. Groups drop with the width tier.
 func (m model) statusLine(width int) string {
 	tier := widthTier(width)
 	separator := qgTheme.line.Render(" │ ")
@@ -147,7 +143,7 @@ func (m model) statusLine(width int) string {
 		btwChip = qgTheme.amber.Render("BTW") + qgTheme.muted.Render(" · ")
 	}
 	left := prefix + btwChip + qgTheme.accent.Render("●") + " " + modeStyle.Render(modeText)
-	left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render(m.effortDisplay())
+	left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render(m.statusEffort())
 
 	if tier == tierTiny {
 		if m.exitConfirmActive {

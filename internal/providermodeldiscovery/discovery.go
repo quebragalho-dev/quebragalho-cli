@@ -276,6 +276,8 @@ func parseModelsResponse(body []byte) ([]Model, error) {
 		if json.Unmarshal(apiModels[index], decoded) == nil {
 			decoded.ID = id
 			info = decoded
+			reasoning = reasoning || decoded.Capabilities.Reasoning
+			toolCall = toolCall || decoded.Capabilities.Tools
 		}
 		models = append(models, Model{
 			APIModel:               info,
