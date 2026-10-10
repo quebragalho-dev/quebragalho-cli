@@ -78,6 +78,7 @@ func (m model) startNewSession() model {
 	}
 	m.lastUsage = usage.Normalized{}
 	m.lastUsageSeen = false
+	m.lastUsageReceipt = transcriptRow{}
 	m.unpricedRequests = 0
 	m.unpricedTokens = 0
 	m.compactRequests = 0
@@ -228,6 +229,11 @@ func (m model) handleResumeCommand(args string) (model, string) {
 		return m, "Sessions\nerror: " + err.Error()
 	}
 
+	rawUsageEvents, err := m.sessionStore.ReadEvents(session.SessionID)
+	if err != nil {
+		return m, "Sessions\nerror: " + err.Error()
+	}
+
 	// Capture the current session id before switching so loops are only torn down
 	// on a real change — `/resume latest` or `/resume <currentID>` can resolve to
 	// the already-active session, whose loops belong to it, not a "previous" one.
@@ -235,7 +241,7 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	m.activeSession = *session
 	m.pendingSessionTitle = ""
 	m.sessionEvents = append([]sessions.Event{}, events...)
-	m.lastUsage, m.lastUsageSeen = lastUsageFromSessionEvents(events)
+	m.lastUsage, m.lastUsageSeen, m.lastUsageReceipt = lastUsageFromSessionEvents(rawUsageEvents)
 	if m.providerName == "" {
 		m.providerName = session.Provider
 	}
