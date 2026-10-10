@@ -12,16 +12,11 @@ type currentPlanReader interface {
 	CurrentPlan() []tools.PlanItem
 }
 
-// handlePlanCommand drives /plan: bare or "status" just reports the current
-// plan (pre-existing behavior); "on" and "off" are the entry/exit path into
-// PermissionModePlan. Unlike /spec (which drafts in a separate, forked
-// session), plan mode applies to the CURRENT session, so entering/exiting it
-// is a direct m.permissionMode flip rather than a run-option override.
 func (m model) handlePlanCommand(args string) (model, string) {
 	switch strings.ToLower(strings.TrimSpace(args)) {
-	case "", "status":
+	case "status":
 		return m, m.planText()
-	case "on":
+	case "", "on":
 		if m.pending {
 			return m, "Cannot change plan mode while a turn is active."
 		}
