@@ -753,9 +753,8 @@ func TestUsageRuntimeMessageUpdatesFooterBeforeFinalResponse(t *testing.T) {
 	if receipts != 1 {
 		t.Fatalf("live and final duplicated receipt: %d", receipts)
 	}
-	stats := next.callThroughput[next.modelName]
-	if stats.outputTokens != 5 || stats.elapsed != 4*time.Second {
-		t.Fatalf("live and final duplicated throughput: %+v", stats)
+	if !next.lastUsageSeen || next.lastUsage.TotalTokens != 15 {
+		t.Fatalf("wrong last call usage: %+v", next.lastUsage)
 	}
 
 }
