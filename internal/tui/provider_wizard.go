@@ -598,6 +598,7 @@ func (m model) applyProviderWizard() (model, tea.Cmd) {
 	m.providerProfile = profile
 	m.providerName = profile.Name
 	m.modelName = profile.Model
+	m.streamUsage = qgruntime.Usage{}
 	// Keep the in-memory saved list in sync so the provider manager and /model
 	// picker show the new profile without a restart.
 	m.savedProviders = upsertSavedProviderProfile(m.savedProviders, profile)

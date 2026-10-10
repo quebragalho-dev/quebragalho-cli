@@ -20,6 +20,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	zsearch "github.com/quebragalho-dev/quebragalho-cli/internal/search"
 )
@@ -494,6 +495,7 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	// Keep sub-agent child processes on the same provider we just switched to.
 	config.SetActiveProviderEnv(nextProfile.Name)
 	m.modelName = target.modelID
+	m.streamUsage = qgruntime.Usage{}
 	m.serviceTier = ""
 	// Record the outgoing pair too, not just the destination: otherwise the
 	// model a session started on (never itself the target of a recordRecentModel
@@ -614,6 +616,7 @@ func (m model) switchProviderModelScope(providerName, modelID string, persist bo
 	m.providerProfile = target
 	m.providerName = target.Name
 	m.modelName = target.Model
+	m.streamUsage = qgruntime.Usage{}
 	m.serviceTier = ""
 	// An active profile's effort fill is per-model: re-derive it for the
 	// destination, exactly like handleModelCommand does. No generic

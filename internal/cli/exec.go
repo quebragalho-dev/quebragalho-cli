@@ -589,14 +589,14 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		return exitCrash
 	}
 	// Surface the unsafe-permissions warning whenever the run resolves to unsafe
-	// mode, covering BOTH --skip-permissions-unsafe and --auto high (which also
+	// mode, covering BOTH --dangerously-skip-permissions and --auto high (which also
 	// resolves to PermissionModeUnsafe). Previously only the explicit flag path
 	// warned, so --auto high silently ran without notice.
 	if permissionMode == agent.PermissionModeUnsafe {
 		reason := "--auto high"
 		switch {
 		case options.skipPermissionsUnsafe:
-			reason = "--skip-permissions-unsafe"
+			reason = "--dangerously-skip-permissions"
 		case strings.EqualFold(strings.TrimSpace(options.permissionMode), "unsafe"),
 			strings.EqualFold(strings.TrimSpace(options.permissionMode), "high"):
 			reason = "--permission-mode unsafe"

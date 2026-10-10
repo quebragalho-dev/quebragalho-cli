@@ -90,7 +90,7 @@ func TestBatchSixUsageModalTabsAndCancel(t *testing.T) {
 		t.Fatal("usage must open modal without appending transcript")
 	}
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"Sessão", "Conta", "não informado pela API"} {
+	for _, want := range []string{"Sessão", "Conta", "fallback/docs"} {
 		assertContains(t, got, want)
 	}
 	m = batchSixKey(m, tea.KeyTab, "")
@@ -267,7 +267,8 @@ func TestBatchSixContextBarOnlyUsesSameModelAPIWindow(t *testing.T) {
 	receipt := callUsageRow(1, 1, m.modelName, event, *m.apiModel(m.modelName))
 	m, _ = m.recordUsageEvent(m.modelName, event, receipt)
 	got := plainRender(t, m.pickerOverlay(120))
-	assertNotContains(t, got, "%")
+	assertContains(t, got, "fallback/docs")
+	assertContains(t, got, "0.1%")
 	window := int64(2000)
 	m.modelPickerLiveByProvider["qg"][0].APIModel.ContextLength = &window
 	got = plainRender(t, m.pickerOverlay(120))

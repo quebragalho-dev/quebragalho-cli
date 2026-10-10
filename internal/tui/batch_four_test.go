@@ -43,28 +43,29 @@ func TestBatchFourComposerLabelAvoidsUnicodeRuleOverdraw(t *testing.T) {
 
 func TestBatchFourStatusShowsLatestCallIncludingZero(t *testing.T) {
 	m := batchThreeLiveModel(t)
-	assertContains(t, plainRender(t, m.statusLine(120)), "última n/d tok")
+	assertNotContains(t, plainRender(t, m.statusLine(120)), " tok")
 	for _, event := range []qgruntime.Usage{{InputTokens: 100, OutputTokens: 20, CachedInputTokens: 50, ReasoningTokens: 5}, {InputTokens: 2, OutputTokens: 3}, {}} {
 		m, _ = m.recordUsageEvent(m.modelName, event, transcriptRow{})
 		got := plainRender(t, m.statusLine(120))
-		want := map[int]string{120: "última 120 tok", 5: "última 5 tok", 0: "última 0 tok"}[event.TotalTokens()]
-		assertContains(t, got, want)
+		want := map[int]string{120: "120 tok", 5: "5 tok", 0: "0 tok"}[event.TotalTokens()]
+		assertContains(t, batchSixUsageText(m), strings.TrimSuffix(want, " tok"))
+		assertNotContains(t, got, " tok")
 		assertNotContains(t, got, "toks/s")
 	}
 	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{InputTokens: -1}, transcriptRow{})
-	assertContains(t, plainRender(t, m.statusLine(120)), "última 0 tok")
+	assertNotContains(t, plainRender(t, m.statusLine(120)), " tok")
 }
 
 func TestBatchFourEffortUnknownAndAPIDefault(t *testing.T) {
 	m := batchThreeLiveModel(t)
-	assertContains(t, plainRender(t, m.statusLine(120)), "esf n/d")
+	assertContains(t, plainRender(t, m.statusLine(120)), "n/d")
 	assertContains(t, plainRender(t, m.effortText()), "não informa")
 	live := m.modelPickerLiveByProvider["qg"]
 	live[0].ReasoningEfforts = []string{"low", "high"}
 	live[0].DefaultReasoningEffort = "low"
-	assertContains(t, plainRender(t, m.statusLine(120)), "esf low (API)")
+	assertContains(t, plainRender(t, m.statusLine(120)), "low (API)")
 	m, _ = m.handleEffortCommand("high")
-	assertContains(t, plainRender(t, m.statusLine(120)), "esf high")
+	assertContains(t, plainRender(t, m.statusLine(120)), "high")
 	if string(m.reasoningEffort) != "high" {
 		t.Fatal("selection was not stored")
 	}
@@ -88,5 +89,5 @@ func TestBatchFourResumeRestoresLatestZeroUsage(t *testing.T) {
 	if notice != "" {
 		t.Fatal(notice)
 	}
-	assertContains(t, plainRender(t, resumed.statusLine(120)), "última 0 tok")
+	assertContains(t, batchSixUsageText(resumed), "Total: 0")
 }

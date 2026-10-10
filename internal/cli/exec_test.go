@@ -789,7 +789,7 @@ func TestRunExecUnsafeTextModeWarns(t *testing.T) {
 	if !strings.Contains(stdout, "hello") {
 		t.Fatalf("expected prompt in stdout, got %q", stdout)
 	}
-	if got := stderr; !strings.Contains(got, "WARNING") || !strings.Contains(got, "--skip-permissions-unsafe") {
+	if got := stderr; !strings.Contains(got, "WARNING") || !strings.Contains(got, "--dangerously-skip-permissions") {
 		t.Fatalf("expected unsafe warning, got %q", got)
 	}
 }
