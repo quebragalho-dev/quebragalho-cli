@@ -16,7 +16,7 @@
 //   QG_INSTALL_DRY_RUN=1    print the resolved plan as JSON, no network, exit 0
 //   QG_INSTALL_PLATFORM=…   override process.platform (linux|darwin|win32|android)
 //   QG_INSTALL_ARCH=…       override process.arch (x64|arm64)
-//   QG_REPO=owner/name      override the GitHub repo (default quebragalho-dev/quebragalho-cli)
+//   QG_REPO=owner/name      override the GitHub repo (default quebragalho-dev/qg-releases)
 //   QG_GITHUB_BASE_URL=…    override the download host (default https://github.com)
 
 import {
@@ -41,7 +41,7 @@ const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
 const VERSION = pkg.version;
 
-const REPO = process.env.QG_REPO || 'quebragalho-dev/quebragalho-cli';
+const REPO = process.env.QG_REPO || 'quebragalho-dev/qg-releases';
 const BASE = (process.env.QG_GITHUB_BASE_URL || 'https://github.com').replace(/\/+$/, '');
 // The .sha256 is fetched from the same origin as the archive, so TLS authenticity
 // is the only real integrity control — require https unless explicitly overridden
