@@ -88,16 +88,10 @@ func (m model) emptyStateLines(width int) []string {
 // emptyStateExamples seeds the first prompt with a few representative asks.
 const emptyStateExamples = `Try  "explain this codebase"  ·  "fix the failing test"  ·  "add a --json flag"`
 
-// emptyStateOrientation renders a faint "version · cwd · branch" line
-// for the home screen, omitting any piece that's unknown. Empty when nothing
-// is known.
 func (m model) emptyStateOrientation() string {
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 2)
 	if version := displayVersion(m.appVersion); version != "" {
 		parts = append(parts, version)
-	}
-	if cwd := strings.TrimSpace(m.cwd); cwd != "" {
-		parts = append(parts, shortenPath(cwd))
 	}
 	if branch := strings.TrimSpace(m.gitBranch); branch != "" {
 		parts = append(parts, branch)
@@ -125,7 +119,7 @@ func displayVersion(version string) string {
 func qgWordmarkLines() []string {
 	lines := make([]string, 0, len(qgWordmarkGlyphLines))
 	for _, row := range qgWordmarkGlyphLines {
-		lines = append(lines, qgTheme.ink.Render(row[0])+qgTheme.accent.Render(row[1]))
+		lines = append(lines, qgTheme.ink.Render(row[0])+"  "+qgTheme.accent.Render(row[1]))
 	}
 	return lines
 }
@@ -138,7 +132,7 @@ func qgWordmarkLines() []string {
 func Wordmark() string {
 	lines := make([]string, 0, len(qgWordmarkGlyphLines)+4)
 	for _, row := range qgWordmarkGlyphLines {
-		lines = append(lines, row[0]+row[1])
+		lines = append(lines, row[0]+"  "+row[1])
 	}
 	lines = append(lines, "", wordmarkBrandLine, "", emptyStateTagline)
 	return strings.Join(lines, "\n")
