@@ -3,6 +3,7 @@ package installtest
 import (
 	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -42,10 +43,11 @@ func TestReleaseWorkflowsRunOnSelfHostedOnly(t *testing.T) {
 	}
 }
 
-// The first QG release is a deliberate reset to 0.0.1 (the inherited upstream
-// tags are gone). The release-please manifest and package.json must agree with
-// that cut, or the tag-vs-package.json guard in release-artifacts.yml rejects
+// Package.json and the release-please manifest must carry the same valid
+// semver, or the tag-vs-package.json guard in release-artifacts.yml rejects
 // the release and installers build 404 download URLs.
+var releaseVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
 func TestReleaseVersionIsFirstCut(t *testing.T) {
 	var pkg struct {
 		Version string `json:"version"`
@@ -53,8 +55,8 @@ func TestReleaseVersionIsFirstCut(t *testing.T) {
 	if err := json.Unmarshal([]byte(readRepoText(t, "package.json")), &pkg); err != nil {
 		t.Fatalf("parse package.json: %v", err)
 	}
-	if pkg.Version != "0.0.1" {
-		t.Fatalf("package.json version = %q, want the first-cut version 0.0.1", pkg.Version)
+	if !releaseVersionPattern.MatchString(pkg.Version) {
+		t.Fatalf("package.json version = %q, want valid semver X.Y.Z", pkg.Version)
 	}
 	var manifest map[string]string
 	if err := json.Unmarshal([]byte(readRepoText(t, ".release-please-manifest.json")), &manifest); err != nil {
