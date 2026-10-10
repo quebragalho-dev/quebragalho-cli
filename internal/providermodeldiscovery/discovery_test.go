@@ -295,3 +295,44 @@ func modelIDs(models []Model) []string {
 	}
 	return ids
 }
+
+func TestQGDiscoveryPreservesNullableContextAndDecimalPricing(t *testing.T) {
+	models, err := parseModelsResponse([]byte(`{"data":[{"id":"muse-spark-1.3-contributor","context_length":null,"pricing":{"currency":"USD","input":"0.04","output":"0.08","input_cached":"0.001"},"pricing_brl":{"currency":"BRL","input":"0.206","output":"0.412","input_cached":"0.00515"}},{"id":"known","context_length":131072}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range models {
+		if m.APIModel == nil {
+			t.Fatalf("API metadata discarded for %s", m.ID)
+		}
+		if m.ID == "muse-spark-1.3-contributor" {
+			if m.APIModel.ContextLength != nil || m.APIModel.PricingBRL.CachedInput != "0.00515" {
+				t.Fatalf("metadata changed: %+v", m.APIModel)
+			}
+		} else if m.APIModel.ContextLength == nil || *m.APIModel.ContextLength != 131072 {
+			t.Fatalf("context_length lost: %+v", m.APIModel)
+		}
+	}
+}
+
+func TestOptionalQGMetadataDoesNotRejectGenericCatalog(t *testing.T) {
+	models, err := parseModelsResponse([]byte(`{"data":[{"id":"custom","capabilities":["tools"],"pricing":{"input":0.1}},{"id":"qg-model","context_length":null,"pricing":{"currency":"USD","input":"0.04","output":"0.08","input_cached":"0"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("lost generic catalog entries: %+v", models)
+	}
+	for _, model := range models {
+		switch model.ID {
+		case "custom":
+			if model.APIModel != nil {
+				t.Fatalf("incompatible metadata must be unknown: %+v", model.APIModel)
+			}
+		case "qg-model":
+			if model.APIModel == nil || model.APIModel.ContextLength != nil || model.APIModel.Pricing.CachedInput != "0" {
+				t.Fatalf("lost valid metadata: %+v", model.APIModel)
+			}
+		}
+	}
+}

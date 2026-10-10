@@ -3,6 +3,7 @@ package qgruntime
 import (
 	"context"
 	"strings"
+	"time"
 )
 
 // MessageRole identifies the origin of a conversation message.
@@ -156,6 +157,8 @@ type TokenUsage struct {
 // a provider reports them separately; ReasoningTokens is a subset of OutputTokens,
 // not an additive count.
 type Usage struct {
+	ModelID           string
+	Elapsed           time.Duration
 	InputTokens       int
 	OutputTokens      int
 	PromptTokens      int

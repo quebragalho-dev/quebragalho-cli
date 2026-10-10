@@ -238,6 +238,9 @@ func (m model) renderRowModeUncached(row transcriptRow, width int, rc rowContext
 	case rowReasoning:
 		return renderReasoningRow(row, width)
 	case rowSystem:
+		if row.tool == "model-usage" {
+			return renderCallUsage(row, width)
+		}
 		if row.tool == "peer" {
 			return renderPeerMessageRow(row.text, width)
 		}

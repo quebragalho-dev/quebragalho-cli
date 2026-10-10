@@ -1542,25 +1542,25 @@ func TestStatusLineOmitsEffortWhenAuto(t *testing.T) {
 	}
 }
 
-func TestTitleBarShowsWorkspaceWithoutModel(t *testing.T) {
+func TestTitleBarShowsBranchWithoutWorkspaceOrModel(t *testing.T) {
 	m := limeTestModel()
 	m.width = 120
 	m.cwd = "/workspace/qg"
 	m.gitBranch = "main"
 	got := plainRender(t, m.titleBar(120))
-	for _, want := range []string{" main", "/workspace/qg"} {
+	for _, want := range []string{" main"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("title bar = %q, missing %q", got, want)
 		}
 	}
-	for _, notWant := range []string{" 0 ", "qg /", "test-provider", "test-model"} {
+	for _, notWant := range []string{"/workspace/qg", " 0 ", "qg /", "test-provider", "test-model"} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("title bar = %q, should not include old brand cluster %q", got, notWant)
 		}
 	}
 }
 
-func TestTitleBarHighlightsBranchOverWorkspace(t *testing.T) {
+func TestTitleBarStylesBranchWithoutWorkspace(t *testing.T) {
 	oldProfile := lipgloss.Writer.Profile
 	lipgloss.Writer.Profile = colorprofile.TrueColor
 	t.Cleanup(func() {
@@ -1573,8 +1573,8 @@ func TestTitleBarHighlightsBranchOverWorkspace(t *testing.T) {
 	got := m.titleWorkspaceSegment()
 
 	highlightedBranch := qgTheme.muted.Render("") + " " + qgTheme.muted.Render("main")
-	recessedWorkspace := qgTheme.faint.Render("/workspace/qg")
-	for _, want := range []string{highlightedBranch, recessedWorkspace} {
+	assertNotContains(t, got, "/workspace/qg")
+	for _, want := range []string{highlightedBranch} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("title workspace segment = %q, missing styled segment %q", got, want)
 		}

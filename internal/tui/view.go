@@ -51,51 +51,16 @@ func widthTier(width int) layoutTier {
 	}
 }
 
-// titleBar renders the top zone of the chat surface: git branch and cwd on the
-// left, context window on the right, then a rule. Segments
-// drop with the width tier (full → no ctx → no cwd → branch/path only), reusing
-// the startupHeaderLine candidate fallback.
 func (m model) titleBar(width int) string {
-	tier := widthTier(width)
-
-	workspace := m.titleWorkspaceSegment()
-	workspaceShort := m.titleWorkspaceSegmentShort()
-	branchOnly := m.titleBranchSegment()
-	cwdOnly := qgTheme.faint.Render(shortenPath(m.cwd))
-	compactLeft := cwdOnly
-	if branchOnly != "" {
-		compactLeft = branchOnly
-	}
-
-	var candidates []headerCandidate
-	switch tier {
-	case tierFull, tierMedium:
-		candidates = []headerCandidate{
-			{left: workspace, right: ""},
-			{left: workspaceShort, right: ""},
-			{left: cwdOnly, right: ""},
-			{left: compactLeft, right: ""},
-		}
-	case tierNarrow:
-		candidates = []headerCandidate{
-			{left: compactLeft, right: ""},
-			{left: cwdOnly, right: ""},
-		}
-	default:
-		// Tiny: one segment, no right column.
-		candidates = []headerCandidate{
-			{left: compactLeft, right: ""},
-			{left: cwdOnly, right: ""},
-		}
-	}
-
-	line := startupHeaderLine(width, candidates)
-	rule := qgTheme.line.Render(strings.Repeat("─", width))
-	return line + "\n" + rule
+	line := startupHeaderLine(width, []headerCandidate{
+		{left: m.titleWorkspaceSegment()},
+		{left: m.titleWorkspaceSegmentShort()},
+		{left: m.titleBranchSegment()},
+	})
+	return line + "\n" + qgTheme.line.Render(strings.Repeat("─", width))
 }
 
 func (m model) titleWorkspaceSegment() string {
-	cwd := qgTheme.faint.Render(shortenPath(m.cwd))
 	parts := []string{}
 	if branch := m.titleBranchSegment(); branch != "" {
 		parts = append(parts, branch)
@@ -104,13 +69,12 @@ func (m model) titleWorkspaceSegment() string {
 		parts = append(parts, pr)
 	}
 	if len(parts) > 0 {
-		return strings.Join(append(parts, cwd), "  ")
+		return strings.Join(parts, "  ")
 	}
-	return cwd
+	return ""
 }
 
 func (m model) titleWorkspaceSegmentShort() string {
-	cwd := qgTheme.faint.Render(shortenPath(m.cwd))
 	parts := []string{}
 	branch := strings.TrimSpace(m.gitBranch)
 	if branch != "" {
@@ -121,9 +85,9 @@ func (m model) titleWorkspaceSegmentShort() string {
 		parts = append(parts, pr)
 	}
 	if len(parts) > 0 {
-		return strings.Join(append(parts, cwd), "  ")
+		return strings.Join(parts, "  ")
 	}
-	return cwd
+	return ""
 }
 
 func (m model) titleBranchSegment() string {
@@ -183,6 +147,7 @@ func (m model) statusLine(width int) string {
 		btwChip = qgTheme.amber.Render("BTW") + qgTheme.muted.Render(" · ")
 	}
 	left := prefix + btwChip + qgTheme.accent.Render("●") + " " + modeStyle.Render(modeText)
+	left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render(m.effortDisplay())
 
 	if tier == tierTiny {
 		if m.exitConfirmActive {
@@ -197,13 +162,9 @@ func (m model) statusLine(width int) string {
 		if goalSummary := m.goalFooterSummary(); goalSummary != "" {
 			left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render("◎ ") + qgTheme.muted.Render(goalSummary)
 		}
-		return fitStyledLine(m.appendStatusWorkspace(left, "", width), width)
+		return m.statusReadout(left, width)
 	}
 
-	// Non-tiny: append the active reasoning effort (brand lime, omitted on auto).
-	if m.reasoningEffort != "" {
-		left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render(string(m.reasoningEffort))
-	}
 	if m.activeServiceTier() == "priority" {
 		left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render("fast")
 	}
@@ -239,34 +200,10 @@ func (m model) statusLine(width int) string {
 		}
 	}
 
-	rightGroups := []string{}
-	// Context-fill gauge: surface it down to the narrow tier, where it is most
-	// useful for deciding whether a session needs compaction.
-	gaugeShown := false
-	if tier >= tierNarrow {
-		if gauge := m.contextWindowSegment(); gauge != "" {
-			rightGroups = append(rightGroups, gauge)
-			gaugeShown = true
-		}
-	}
-	// The gauge and the usage segment read the same token total, so once the
-	// gauge is present the usage segment only contributes cost.
-	usage := m.usageStatusSegment()
-	if gaugeShown {
-		usage = m.usageCostSegment()
-	}
-	if usage != "" {
-		rightGroups = append(rightGroups, qgTheme.muted.Render(usage))
-	}
-	right := strings.Join(rightGroups, separator)
 	if showWorkspace {
-		left = m.appendStatusWorkspace(left, right, width)
+		return m.statusReadout(left, width)
 	}
-
-	if right == "" {
-		return fitStyledLine(left, width)
-	}
-	return fitStyledLine(joinHeaderLine(left, right, width), width)
+	return fitStyledLine(left, width)
 }
 
 func (m model) appendStatusWorkspace(left, right string, width int) string {
@@ -328,54 +265,14 @@ func (m model) modeLabel() (string, lipgloss.Style) {
 	}
 }
 
-// usageStatusSegment shows the latest provider step's token footprint, plus
-// cumulative cost once anything is priced.
-func (m model) usageStatusSegment() string {
-	if m.usageTracker == nil {
-		return ""
-	}
-	summary := m.usageTracker.Summary()
-	tokens := m.latestUsageTokens(summary)
-	if tokens <= 0 {
-		return ""
-	}
-	if summary.RecordCount == 0 {
-		return humanCount(tokens) + " tok"
-	}
-	return fmt.Sprintf("%s tok · %s",
-		humanCount(tokens),
-		summary.FormattedTotalCost,
-	)
-}
-
-// usageCostSegment returns just the session cost, with the token figure dropped.
-// Used in the status line when the sidebar is open and already showing tokens at
-// its floor, so the cost survives without duplicating the token count. Empty
-// until a priced usage record lands (no cost to show yet).
-func (m model) usageCostSegment() string {
-	if m.usageTracker == nil {
-		return ""
-	}
-	summary := m.usageTracker.Summary()
-	if summary.RecordCount == 0 {
-		return ""
-	}
-	return strings.TrimSpace(summary.FormattedTotalCost)
-}
-
-// contextFillPercent returns the latest request's context-window fill as a percent
-// (0-100), the tokens used, the model's window, and a colour graded for the fill
-// (green <75% → amber ≥75% → red ≥90%). ok is false until a usage event lands or
-// when the model's window is unknown. Shared by the status-line gauge and the
-// sidebar context chip so they grade identically. This is the "you're at X% of
-// context" reading the compaction trigger already reasons about at ~80%.
+// contextFillPercent uses only the API window for the sidebar context gauge.
 func (m model) contextFillPercent() (pct, used, window int, style lipgloss.Style, ok bool) {
 	if m.usageTracker == nil {
 		return 0, 0, 0, lipgloss.Style{}, false
 	}
 	summary := m.usageTracker.Summary()
 	used = m.latestUsageTokens(summary)
-	window = m.modelContextWindow(m.modelName)
+	window = m.apiContextWindow()
 	if used <= 0 || window <= 0 {
 		return 0, 0, 0, lipgloss.Style{}, false
 	}
@@ -391,16 +288,6 @@ func (m model) contextFillPercent() (pct, used, window int, style lipgloss.Style
 		style = qgTheme.amber
 	}
 	return int(ratio*100 + 0.5), used, window, style, true
-}
-
-// contextWindowSegment renders the status-line context-fill gauge as
-// "◔ used/window · NN%", graded by contextFillPercent.
-func (m model) contextWindowSegment() string {
-	pct, used, window, style, ok := m.contextFillPercent()
-	if !ok {
-		return ""
-	}
-	return style.Render(fmt.Sprintf("◔ %s/%s · %d%%", humanCount(used), humanCount(window), pct))
 }
 
 // humanCount renders a token count the way the status line wants it: 999,
