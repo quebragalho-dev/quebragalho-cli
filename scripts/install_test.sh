@@ -101,7 +101,7 @@ blocked="$tmp/not-a-directory/bin with space"
 if cat "$ROOT/scripts/install.sh" | HOME="$tmp/home" PATH="$shim:$PATH" \
   DOWNLOAD_MARKER="$tmp/download-attempted" QG_INSTALL_DIR="$blocked" \
   QG_REPO='example/custom-repo' QG_VERSION='v9.8.7' \
-  bash -s >"$tmp/blocked.out" 2>"$tmp/blocked.err"; then
+  bash -s -- --install-dir "$blocked" >"$tmp/blocked.out" 2>"$tmp/blocked.err"; then
   fail "unwritable destination succeeded"
 fi
 check_ux "preflight before download" test ! -e "$tmp/download-attempted"
@@ -114,7 +114,7 @@ check_ux "local PATH hint supplied" grep -q '^  export PATH=' "$tmp/blocked.err"
 
 if cat "$ROOT/scripts/install.sh" | HOME="$tmp/home" PATH="$tmp/home/.local/bin:$shim:$PATH" \
   DOWNLOAD_MARKER="$tmp/download-attempted" QG_INSTALL_DIR="$blocked" \
-  bash -s >"$tmp/path-present.out" 2>"$tmp/path-present.err"; then
+  bash -s -- --install-dir "$blocked" >"$tmp/path-present.out" 2>"$tmp/path-present.err"; then
   fail "unwritable destination succeeded with local PATH"
 fi
 check_ux "no PATH hint when already present" test "$(grep -c '^  export PATH=' "$tmp/path-present.err" || true)" -eq 0
@@ -125,7 +125,7 @@ if [ ! -w "$tmp/read-only" ]; then
   rm -f "$tmp/download-attempted"
   if cat "$ROOT/scripts/install.sh" | HOME="$tmp/home" PATH="$shim:$PATH" \
     DOWNLOAD_MARKER="$tmp/download-attempted" QG_INSTALL_DIR="$tmp/read-only" \
-    bash -s >"$tmp/read-only.out" 2>"$tmp/read-only.err"; then
+    bash -s -- --install-dir "$tmp/read-only" >"$tmp/read-only.out" 2>"$tmp/read-only.err"; then
     fail "read-only directory succeeded"
   fi
   check_ux "read-only directory rejected before download" test ! -e "$tmp/download-attempted"
@@ -161,7 +161,7 @@ custom_repo="example/repo with space;\$(touch $tmp/injected)"
 custom_version="v1.2.3;\$(touch $tmp/injected)"
 if cat "$ROOT/scripts/install.sh" | HOME="$tmp/home" QG_INSTALL_DIR="$blocked" \
   QG_REPO="$custom_repo" QG_VERSION="$custom_version" \
-  bash -s >"$tmp/quoted.out" 2>"$tmp/quoted.err"; then
+  bash -s -- --install-dir "$blocked" >"$tmp/quoted.out" 2>"$tmp/quoted.err"; then
   fail "unwritable quoted destination succeeded"
 fi
 while IFS= read -r command_line; do
@@ -175,5 +175,72 @@ while IFS= read -r command_line; do
   esac
 done < <(sed -n 's/^  \(curl .*\)/\1/p' "$tmp/quoted.err")
 check_ux "recovery metacharacters never execute" test ! -e "$tmp/injected"
+
+
+if cat "$ROOT/scripts/install.sh" | HOME="$tmp/home" PATH="$shim:$PATH" \
+  DOWNLOAD_MARKER="$tmp/env-download" QG_INSTALL_DIR="$blocked" \
+  bash -s >"$tmp/env.out" 2>"$tmp/env.err"; then
+  fail "environment destination changed silently"
+fi
+check_ux "environment destination does not suggest sudo" test "$(grep -c '| sudo ' "$tmp/env.err" || true)" -eq 0
+check_ux "environment destination fails before download" test ! -e "$tmp/env-download"
+
+if command -v sandbox-exec >/dev/null 2>&1; then
+  sandbox_root="$(cd "$tmp" && pwd -P)"
+  cat >"$tmp/auto.sb" <<'EOF'
+(version 1)
+(allow default)
+(deny file-write*)
+(allow file-write* (subpath (param "ROOT")) (literal "/dev/null"))
+EOF
+  auto_install() {
+    local name="$1"
+    local path_mode="$2"
+    local blocked_candidates="$3"
+    local expected="$4"
+    local home="$tmp/auto-$name/home"
+    local run_path="$PATH"
+    mkdir -p "$home" "$tmp/auto-$name/temp"
+    case "$blocked_candidates" in
+      local|all) printf 'blocked\n' >"$home/.local" ;;
+    esac
+    if [ "$blocked_candidates" = all ]; then
+      printf 'blocked\n' >"$home/.bin"
+    fi
+    case "$path_mode" in
+      local) run_path="$home/.local/bin:$run_path" ;;
+      bin) run_path="$home/.bin:$run_path" ;;
+      both) run_path="$home/.bin:$home/.local/bin:$run_path" ;;
+    esac
+    if (
+      unset QG_INSTALL_DIR
+      export HOME="$home" PATH="$run_path" TMPDIR="$tmp/auto-$name/temp"
+      export QG_VERSION="v$VERSION" QG_REPO="$REPO" QG_GITHUB_BASE_URL="file://$fake_base"
+      cat "$ROOT/scripts/install.sh" | sandbox-exec -D "ROOT=$sandbox_root" -f "$tmp/auto.sb" bash -s
+    ) >"$tmp/auto-$name.out" 2>"$tmp/auto-$name.err"; then
+      check_ux "$name succeeds with expected fallback" test -x "$home/$expected/qg"
+      check_ux "$name reports fallback" grep -Fq "usando $home/$expected" "$tmp/auto-$name.err"
+      if [ "$path_mode" = none ]; then
+        check_ux "$name prints export once" test "$(grep -c '^  export PATH=' "$tmp/auto-$name.out" || true)" -eq 1
+      else
+        check_ux "$name does not print unnecessary export" test "$(grep -c '^  export PATH=' "$tmp/auto-$name.out" || true)" -eq 0
+      fi
+    else
+      tail -n 4 "$tmp/auto-$name.err" >&2
+      check_ux "$name only fails when all candidates blocked" test "$expected" = fail
+      check_ux "$name fails before download" test "$(grep -c 'Baixando' "$tmp/auto-$name.err" || true)" -eq 0
+      check_ux "$name explains exhausted candidates" grep -q 'Nenhum diretório alternativo está gravável' "$tmp/auto-$name.err"
+    fi
+    check_ux "$name never suggests sudo" test "$(grep -c '| sudo ' "$tmp/auto-$name.err" || true)" -eq 0
+  }
+  auto_install create-local local no .local/bin
+  auto_install prefer-path bin no .bin
+  auto_install candidate-order both no .local/bin
+  auto_install outside-path none no .local/bin
+  auto_install blocked-local bin local .bin
+  auto_install all-blocked none all fail
+else
+  echo "SKIP: sandbox-exec unavailable for protected system-directory fallback tests"
+fi
 
 [ "$ux_failures" -eq 0 ] || fail "$ux_failures UX checks failed"

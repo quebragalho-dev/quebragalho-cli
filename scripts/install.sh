@@ -3,6 +3,10 @@ set -euo pipefail
 
 QG_REPO="${QG_REPO:-quebragalho-dev/qg-releases}"
 QG_VERSION="${QG_VERSION:-latest}"
+install_dir_source=default
+if [ -n "${QG_INSTALL_DIR:-}" ]; then
+  install_dir_source=environment
+fi
 QG_INSTALL_DIR="${QG_INSTALL_DIR:-/usr/local/bin}"
 QG_GITHUB_API="${QG_GITHUB_API:-https://api.github.com}"
 QG_GITHUB_BASE_URL="${QG_GITHUB_BASE_URL:-https://github.com}"
@@ -13,6 +17,9 @@ Install QG from GitHub Releases.
 
 Usage:
   scripts/install.sh [--version <version>] [--repo <owner/repo>] [--install-dir <path>]
+
+Without a configured directory, an unwritable default falls back to a writable
+user directory, preferring candidates already in PATH.
 
 Environment:
   QG_VERSION          Release version or tag. Defaults to latest.
@@ -43,6 +50,7 @@ while [ "$#" -gt 0 ]; do
     --install-dir)
       [ "$#" -ge 2 ] || fail "--install-dir requires a value"
       QG_INSTALL_DIR="$2"
+      install_dir_source=argument
       shift 2
       ;;
     -h|--help)
@@ -177,26 +185,62 @@ copy_optional_dir() {
   fi
 }
 
+directory_in_path() {
+  case ":$PATH:" in
+    *":$1:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+prepare_install_dir() {
+  local probe
+  mkdir -p "$1" 2>/dev/null || return 1
+  probe="$(mktemp "$1/.qg-install-write.XXXXXX" 2>/dev/null)" || return 1
+  rm -f "$probe"
+}
+
+select_fallback_dir() {
+  local pass candidate
+  for pass in path outside; do
+    for candidate in "$HOME/.local/bin" /opt/homebrew/bin "$HOME/.bin"; do
+      if directory_in_path "$candidate"; then
+        [ "$pass" = path ] || continue
+      else
+        [ "$pass" = outside ] || continue
+      fi
+      if prepare_install_dir "$candidate"; then
+        printf 'qg install: %s indisponível; usando %s.\n' "$QG_INSTALL_DIR" "$candidate" >&2
+        QG_INSTALL_DIR="$candidate"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
 path_hint() {
   local directory="$1"
-  case ":$PATH:" in
-    *":$directory:"*) ;;
-    *)
-      printf 'Para usar qg neste terminal, adicione o diretório ao PATH:\n'
-      printf "  export PATH=%q:\"\$PATH\"\n" "$directory"
-      ;;
-  esac
+  if ! directory_in_path "$directory"; then
+    printf 'Para usar qg neste terminal, adicione o diretório ao PATH:\n'
+    printf "  export PATH=%q:\"\$PATH\"\n" "$directory"
+  fi
 }
 
 install_dir_error() {
   local installer_url='https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh'
   {
     printf 'qg install: não é possível escrever em %s.\n' "$QG_INSTALL_DIR"
+    if [ "$install_dir_source" = default ]; then
+      printf 'Nenhum diretório alternativo está gravável. Escolha outro com --install-dir.\n'
+      exit 1
+    fi
     printf 'Instale sem sudo no seu usuário:\n'
     printf "  curl -fsSL %s | QG_INSTALL_DIR=\"\$HOME/.local/bin\" bash -s -- --repo %q --version %q\n" "$installer_url" "$QG_REPO" "$QG_VERSION"
     path_hint "$HOME/.local/bin"
-    printf 'Ou, para instalar no diretório escolhido com permissão de administrador:\n'
-    printf '  curl -fsSL %s | sudo bash -s -- --repo %q --version %q --install-dir %q\n' "$installer_url" "$QG_REPO" "$QG_VERSION" "$QG_INSTALL_DIR"
+    if [ "$install_dir_source" = argument ]; then
+      printf 'Ou, para instalar no diretório escolhido com permissão de administrador:\n'
+      printf '  curl -fsSL %s | sudo bash -s -- --repo %q --version %q --install-dir %q\n' "$installer_url" "$QG_REPO" "$QG_VERSION" "$QG_INSTALL_DIR"
+    fi
   } >&2
   exit 1
 }
@@ -206,8 +250,10 @@ need_command sed
 need_command tar
 need_command mktemp
 
-if ! mkdir -p "$QG_INSTALL_DIR" 2>/dev/null || [ ! -w "$QG_INSTALL_DIR" ]; then
-  install_dir_error
+if ! prepare_install_dir "$QG_INSTALL_DIR"; then
+  if [ "$install_dir_source" != default ] || ! select_fallback_dir; then
+    install_dir_error
+  fi
 fi
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/qg-install.XXXXXX")"
