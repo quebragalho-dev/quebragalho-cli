@@ -1047,6 +1047,9 @@ func newModel(ctx context.Context, options Options) model {
 		setupSave:                   options.Setup.Save,
 		dictation:                   newDictationController(options),
 	}
+	if m.reasoningEffort == "" {
+		m = m.loadPanelEffort()
+	}
 	petRoot := userConfigDir
 	if strings.TrimSpace(options.UserConfigPath) != "" {
 		petRoot = filepath.Dir(options.UserConfigPath)
@@ -1566,6 +1569,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, terminalAutoAttachTickCmd(msg.runID)
 	case terminalAutoAttachTickMsg:
 		return m.pollTerminalAutoAttach(msg)
+	case usageAccountResult:
+		if m.picker != nil && m.picker == msg.picker {
+			m.picker.accountLoading = false
+			m.picker.account = &msg
+		}
+		return m, nil
 	case tea.KeyPressMsg:
 		if m.petDragActive {
 			pixelDrag := m.petPixelDrag
@@ -1642,6 +1651,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.burstCount = 0
 			return m, nil
+		}
+		if next, cmd, handled := m.handlePanelKey(msg); handled {
+			return next, cmd
 		}
 		if keyCtrl(msg, 'c') {
 			if m.leaderPending {
@@ -4468,6 +4480,9 @@ func permissionDecisionReason(decision permissionDecision) string {
 // typed command would have used, appends the resulting status text, and closes
 // the picker. Behavior is identical to running "/model <id>" or "/effort <v>".
 func (m model) choosePicker() (tea.Model, tea.Cmd) {
+	if m.picker != nil && (m.picker.kind == pickerEffort || m.picker.title == "Selecionar modelo") {
+		return m.applyPanelChoice(true)
+	}
 	if m.modelPickerIsLoading() {
 		return m, nil
 	}
@@ -4654,7 +4669,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 	case commandEmpty:
 		return m, nil
 	case commandUsage:
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.callUsageText()})
+		m.picker = &commandPicker{kind: pickerUsage, title: "Uso"}
 		return m, nil
 	case commandHelp:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: helpText()})

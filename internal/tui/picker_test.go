@@ -149,7 +149,7 @@ func TestModelPickerMetadataOmitsCredentialEnv(t *testing.T) {
 	}
 }
 
-func TestModelPickerFallsBackWhenDiscoveryFails(t *testing.T) {
+func TestModelPickerKeepsUnknownWhenDiscoveryFails(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		ProviderName: "qg",
 		ModelName:    "muse-spark-1.3-contributor",
@@ -170,13 +170,13 @@ func TestModelPickerFallsBackWhenDiscoveryFails(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected opening the model picker to start discovery")
 	}
-	// A failed discovery leaves the static catalog list in place — no crash, no block.
+	// A failed QG discovery cannot supply an API-backed catalog.
 	updated, _ = m.Update(modelPickerModelsDiscoveredMsg{providerID: "qg", models: nil, err: errors.New("offline")})
 	m = updated.(model)
 	view := plainRender(t, m.pickerOverlay(100))
 	assertNotContains(t, view, "Checking available models...")
-	if m.picker == nil || len(m.picker.items) == 0 {
-		t.Fatal("static catalog list should remain after a failed discovery")
+	if m.picker == nil || len(m.picker.items) != 0 {
+		t.Fatal("failed QG discovery must not invent available models")
 	}
 }
 

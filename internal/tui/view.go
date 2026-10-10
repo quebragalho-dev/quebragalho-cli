@@ -615,8 +615,14 @@ func (m model) pickerOverlay(width int) string {
 	if m.picker == nil {
 		return ""
 	}
+	if m.picker.kind == pickerUsage {
+		return m.usagePanelOverlay(width)
+	}
+	if m.picker.kind == pickerEffort {
+		return m.effortPanelOverlay(width)
+	}
 	if m.picker.kind == pickerModel {
-		return m.modelPickerOverlay(width)
+		return m.modelPanelOverlay(width)
 	}
 	if m.picker.kind == pickerPet {
 		return m.petPickerOverlay(width)

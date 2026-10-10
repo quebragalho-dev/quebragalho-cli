@@ -64,8 +64,9 @@ func TestMouseClickSelectsThenAppliesPickerRow(t *testing.T) {
 
 	width := m.chatColumnWidth()
 	top := m.overlayMouseTop(len(viewLines(m.pickerOverlay(width))), width)
-	// Rows: y=0 titled border, y=1 search, y=2 separator, y=3 "auto", y=4 "high".
-	click := testMouseClick(tea.MouseLeft, width/2, top+4)
+	rows := strings.Split(plainRender(t, m.pickerOverlay(width)), "\n")
+	x := lipgloss.Width(rows[3][:strings.Index(rows[3], "high")])
+	click := testMouseClick(tea.MouseLeft, x, top+3)
 	updated, cmd := m.Update(click)
 	next := updated.(model)
 	if cmd != nil {
