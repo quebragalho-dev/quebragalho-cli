@@ -16,12 +16,10 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/credstore"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/doctor"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	zsearch "github.com/quebragalho-dev/quebragalho-cli/internal/search"
 )
 
@@ -59,13 +57,8 @@ func (m model) startDoctorCommand(args string) (model, tea.Cmd) {
 func (m model) startDoctorFixCommand() (model, tea.Cmd) {
 	report := doctor.Run(m.doctorOptions(false))
 	if doctorReportNeedsProviderSetup(report) {
-		if m.pending {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: doctorFixBusyText()})
-			return m, nil
-		}
-		m.providerWizard = m.newProviderWizard()
 		m.clearSuggestions()
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: doctorFixProviderSetupText()})
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: qgLoginGuidance()})
 		return m, nil
 	}
 	if doctorReportCanProbeConnectivity(report) {
@@ -130,28 +123,8 @@ func doctorUsageText(status commandStatus, message string) string {
 	})
 }
 
-func doctorFixProviderSetupText() string {
-	return renderCommandOutput(commandOutput{
-		Title:  "Diagnostics fix",
-		Status: commandStatusInfo,
-		Sections: []commandSection{{
-			Title: "Provider",
-			Lines: []string{"Opening provider setup. Choose a provider, add credentials, then select a model."},
-		}},
-		Hints: []string{"Esc closes setup"},
-	})
-}
-
-func doctorFixBusyText() string {
-	return renderCommandOutput(commandOutput{
-		Title:  "Diagnostics fix",
-		Status: commandStatusWarning,
-		Sections: []commandSection{{
-			Title: "Provider",
-			Lines: []string{"Cannot open provider setup while a run is active."},
-		}},
-		Hints: []string{"stop the current run, then retry /doctor fix"},
-	})
+func qgLoginGuidance() string {
+	return "Este CLI usa exclusivamente o Quebra Galho. Execute qg login no terminal ou configure QG_API_KEY ou QUEBRAGALHO_API_KEY."
 }
 
 func doctorFixPlanText(report doctor.Report) string {
@@ -186,7 +159,7 @@ func doctorFixLines(report doctor.Report) []string {
 		case "provider.connectivity":
 			lines = append(lines, "provider connectivity: run /doctor --connectivity")
 		case "config.files", "config.validation":
-			lines = append(lines, "config: run /provider to create or repair provider config")
+			lines = append(lines, "config: execute qg login no terminal para configurar o Quebra Galho")
 		}
 	}
 	if len(lines) == 0 {
@@ -415,14 +388,6 @@ func relativeAge(timestamp string, now time.Time) string {
 	return parsed.Format("2006-01-02")
 }
 
-// handleModelCommand applies a model switch against the ACTIVE provider (the
-// picker routes cross-provider selections to switchProviderModel instead).
-//
-// The returned error reports the same thing switchProviderModel's does: the
-// in-session switch committed, but its config write did not. It is not
-// redundant with the status text — the picker replaces that text with its own
-// applied-notice, so a caller that only read the text would show an unqualified
-// success for a selection that will be gone after a restart.
 func (m model) handleModelCommand(args string) (model, string, error) {
 	next, text, _, err := m.handleModelCommandScope(args, true)
 	return next, text, err
@@ -512,12 +477,6 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 		{Provider: m.providerName, Model: target.modelID},
 	}
 	if !persist || errors.Is(persistErr, config.ErrLockUnavailable) {
-		// The selection write already lost its race for the config lock, which is
-		// still held. A second blocking attempt would make one unavailable lock
-		// cost two full waits and add a redundant save error to the transcript, so
-		// keep the history in session only — the trade switchProviderModel makes.
-		// Any OTHER persistence failure (no config file yet, for one) says nothing
-		// about this write, which still has its own reason to be attempted.
 		m, _ = m.updateRecentModels(recent...)
 	} else {
 		m = m.recordRecentModels(recent...)
@@ -568,103 +527,6 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	return m, strings.Join(lines, "\n"), true, persistErr
 }
 
-// switchProviderModel switches the active provider to providerName (one of the
-// saved providers) and sets modelID, rebuilding the provider client. The /model
-// picker calls this when a model from a non-active provider is chosen, so the
-// picker can list every saved provider and switch across them (like a unified
-// provider+model selector). The key is loaded from the encrypted store / env.
-// The returned bool reports whether the in-session switch committed — callers
-// that branch on that outcome (the provider manager) must use it, never the
-// display text: UI copy is not a control-flow contract (a refusal quoting a
-// provider name could contain any substring, and rewording the success line
-// must not change behavior). The returned error reports that the in-session
-// switch succeeded but its provider/model transaction was not durably saved.
-func (m model) switchProviderModel(providerName, modelID string) (model, string, bool, tea.Cmd, error) {
-	return m.switchProviderModelScope(providerName, modelID, true)
-}
-
-func (m model) switchProviderModelScope(providerName, modelID string, persist bool) (model, string, bool, tea.Cmd, error) {
-	if m.pending {
-		return m, "Model\nCannot switch providers while a run is active.", false, nil, nil
-	}
-	if m.newProvider == nil {
-		return m, "Model\nProvider rebuild is not available for this TUI session.", false, nil, nil
-	}
-	target, ok := m.savedProviderByName(providerName)
-	if !ok {
-		return m, "Model\nunknown provider " + strconv.Quote(providerName), false, nil, nil
-	}
-	previousProviderName := m.providerName
-	previousModel := m.modelName
-	target = m.profileWithCredential(target)
-	target.Model = strings.TrimSpace(modelID)
-	descriptor, hasDescriptor := m.descriptorForProfile(target)
-	// Gate on the resolved credential, not the APIKeyStored marker: if the stored key
-	// was deleted/unreadable the marker can still be set, and building a keyless
-	// provider would only fail later with a 401. Local/no-auth providers need no key,
-	// and a stored OAuth login (e.g. ChatGPT) is a credential too — the profile stays
-	// keyless on purpose so newProvider attaches the bearer resolver + login key.
-	if strings.TrimSpace(target.APIKey) == "" && strings.TrimSpace(target.AuthHeaderValue) == "" &&
-		(!hasDescriptor || !descriptor.Local) && !oauthLoginAvailable(target) {
-		return m, "Model\nprovider " + strconv.Quote(providerName) + " has no usable credential — set " + providercatalog.KeyEnvHint + " in your environment or run `qg login`, then run `qg setup qg`.", false, nil, nil
-	}
-	next, err := m.newProvider(target)
-	if err != nil {
-		return m, "Model\n" + redaction.RedactString(err.Error(), redaction.Options{ExtraSecretValues: []string{target.APIKey}}), false, nil, nil
-	}
-	m.provider = next
-	m.providerProfile = target
-	m.providerName = target.Name
-	m.modelName = target.Model
-	m.streamUsage = qgruntime.Usage{}
-	m.serviceTier = ""
-	// An active profile's effort fill is per-model: re-derive it for the
-	// destination, exactly like handleModelCommand does. No generic
-	// unsupported-drop here: cross-provider targets are often custom models
-	// the catalog cannot vouch for either way, so an explicit preference is
-	// carried (pre-existing behavior) while the profile's own fill stays
-	// conservative — it only ever applies where support is known.
-	m = m.reconcileProfileAfterModelSwitch(m.availableReasoningEfforts())
-	// Keep sub-agent child processes on the same provider we just switched to.
-	config.SetActiveProviderEnv(target.Name)
-	path := strings.TrimSpace(m.userConfigPath)
-	var persistErr error
-	if persist && path != "" {
-		_, persistErr = config.SetActiveProviderModel(path, target.Name, target.Model)
-	}
-	recent := []config.RecentModelEntry{
-		{Provider: previousProviderName, Model: previousModel},
-		{Provider: target.Name, Model: target.Model},
-	}
-	if persist && persistErr == nil {
-		// Record the outgoing pair too — see the matching comment in
-		// handleModelCommand for why. Persist history only after the selection
-		// transaction succeeds, so one unavailable lock causes one wait.
-		m = m.recordRecentModels(recent...)
-	} else {
-		m, _ = m.updateRecentModels(recent...)
-	}
-	// Warm discovery for the provider we just switched to, same as Init() does
-	// for the provider active at launch — otherwise the context-usage gauge has
-	// no window for this provider until /model happens to be opened separately.
-	var cmds []tea.Cmd
-	if hasDescriptor {
-		if cmd := m.modelPickerProviderDiscoveryCmd(descriptor, target); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-	status := fmt.Sprintf("Model\nSwitched to %s · %s", target.Name, target.Model)
-	if persist && path != "" && persistErr == nil {
-		status += " · saved"
-	} else if persistErr != nil {
-		status += " · not saved (" + persistErr.Error() + ")"
-	}
-	if warn := m.visionDropWarning(); warn != "" {
-		status += "\n" + warn
-	}
-	return m, status, true, tea.Batch(cmds...), persistErr
-}
-
 // profileWithCredential fills a profile's APIKey for provider construction the same
 // way the runtime resolves it: a stored key (encrypted credstore), then an env var.
 // The config resolver is pure (no secret I/O), so a stored-key profile carries an
@@ -704,36 +566,6 @@ func providerKeyStoreForPath(configPath string) (*credstore.Store, error) {
 		return config.ProviderKeyStoreAt(filepath.Dir(configPath))
 	}
 	return config.ProviderKeyStore()
-}
-
-// oauthLoginAvailable reports whether a stored OAuth login exists for any of the
-// profile's login candidates — the SAME candidate set the runtime bearer resolver
-// uses (profile name, then catalog id, only for keyless profiles), so the switch
-// gate and the runtime can never disagree about whether a login counts.
-func oauthLoginAvailable(profile config.ProviderProfile) bool {
-	_, ok := oauthLoginName(profile)
-	return ok
-}
-
-// oauthLoginName resolves WHICH stored login serves this profile — the same
-// FirstStored selection the runtime makes. User-facing hints must name this
-// entry, not the profile: after a rename ({name:"codex", catalogID:"chatgpt"})
-// the token lives under the catalog id, and `qg auth logout codex` would
-// delete nothing while the real login stays behind.
-func oauthLoginName(profile config.ProviderProfile) (string, bool) {
-	candidates := profile.OAuthLoginCandidates()
-	if len(candidates) == 0 {
-		return "", false
-	}
-	store, err := oauth.NewStore(oauth.StoreOptions{})
-	if err != nil {
-		return "", false
-	}
-	_, key, ok := oauth.FirstStored(store, candidates)
-	if !ok {
-		return "", false
-	}
-	return strings.TrimPrefix(key, oauth.KeyPrefixProvider), true
 }
 
 func (m model) savedProviderByName(name string) (config.ProviderProfile, bool) {

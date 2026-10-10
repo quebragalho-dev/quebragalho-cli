@@ -409,7 +409,7 @@ func (m model) petLayoutActive() bool {
 // viewport, so the ambient companion can remain visible beside it. Other modal
 // surfaces own or cover the viewport and continue to suppress the companion.
 func (m model) petObscuringModalActive() bool {
-	return m.pendingAskUser != nil || m.pendingSpecReview != nil || m.providerWizard != nil ||
+	return m.pendingAskUser != nil || m.pendingSpecReview != nil ||
 		m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil ||
 		m.sttKeyPrompt != nil || m.renamePrompt != nil || m.terminalAttach != nil
 }

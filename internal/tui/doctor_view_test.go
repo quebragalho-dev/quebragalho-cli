@@ -165,7 +165,7 @@ func TestDoctorCommandOutputAddsActionableHints(t *testing.T) {
 
 	text := formatCommandOutput(output)
 	for _, want := range []string{
-		"/provider",
+		"qg login",
 		"/doctor --connectivity",
 		"qg sandbox setup",
 		"install missing language servers",

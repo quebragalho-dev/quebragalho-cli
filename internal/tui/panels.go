@@ -303,27 +303,18 @@ func (m model) applyPanelChoice(persist bool) (model, tea.Cmd) {
 	var err error
 	detail := ""
 	if p.kind == pickerModel {
+		if owner := strings.TrimSpace(item.OwnerProvider); owner != "" && !strings.EqualFold(owner, strings.TrimSpace(m.providerName)) {
+			return m.showTransientNoticeInline(qgLoginGuidance(), transientNoticeWarning), nil
+		}
 		preview := m
 		preview.modelName = item.Value
-		if owner, ok := m.savedProviderByName(item.OwnerProvider); ok {
-			preview.providerProfile = owner
-			preview.providerName = owner.Name
-		}
 		if p.effort != "" && p.effort != "auto" && !reasoningEffortAllowed(preview.panelReasoningEfforts(), modelregistry.ReasoningEffort(p.effort)) {
 			return m.showTransientNoticeInline("Effort indisponível para o modelo selecionado", transientNoticeWarning), nil
 		}
-		if owner := item.OwnerProvider; owner != "" && !strings.EqualFold(owner, m.providerName) {
-			var switched bool
-			m, detail, switched, cmd, err = m.switchProviderModelScope(owner, item.Value, persist)
-			if !switched {
-				return m.showTransientNoticeInline(detail, transientNoticeWarning), cmd
-			}
-		} else {
-			var switched bool
-			m, detail, switched, err = m.handleModelCommandScope(item.Value, persist)
-			if !switched {
-				return m.showTransientNoticeInline(detail, transientNoticeWarning), cmd
-			}
+		var switched bool
+		m, detail, switched, err = m.handleModelCommandScope(item.Value, persist)
+		if !switched {
+			return m.showTransientNoticeInline(detail, transientNoticeWarning), nil
 		}
 		if m.modelName != item.Value {
 			return m.showTransientNoticeInline(detail, transientNoticeWarning), cmd

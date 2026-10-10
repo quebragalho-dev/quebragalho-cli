@@ -46,10 +46,8 @@ func TestProfileEffortReconciledOnModelSwitch(t *testing.T) {
 
 	// Supported -> unsupported: the profile-applied level must not survive
 	// onto a model with no effort ring.
-	m, text, ok, _, _ := m.switchProviderModel("ollama", "kimi-k2.7-code:cloud")
-	if !ok {
-		t.Fatalf("switch to ollama failed: %q", text)
-	}
+	m.modelName = "kimi-k2.7-code:cloud"
+	m = m.reconcileProfileAfterModelSwitch(m.availableReasoningEfforts())
 	if m.reasoningEffort != "" || m.execProfileAppliedEffort != "" {
 		t.Fatalf("effort = %q applied = %q, want both cleared on an unsupported destination", m.reasoningEffort, m.execProfileAppliedEffort)
 	}
@@ -62,10 +60,8 @@ func TestProfileEffortReconciledOnModelSwitch(t *testing.T) {
 
 	// Unsupported -> supported: switching (back) to a supporting model must
 	// behave like selecting the profile there.
-	m, text, ok, _, _ = m.switchProviderModel("qg", "gpt-5.6-luna")
-	if !ok {
-		t.Fatalf("switch back to qg failed: %q", text)
-	}
+	m.modelName = "gpt-5.6-luna"
+	m = m.reconcileProfileAfterModelSwitch(m.availableReasoningEfforts())
 	if m.reasoningEffort != "low" || m.execProfileAppliedEffort != "low" {
 		t.Fatalf("effort = %q applied = %q, want the profile's low refilled", m.reasoningEffort, m.execProfileAppliedEffort)
 	}
@@ -183,10 +179,8 @@ func TestProfileEffortTouchedSurvivesModelSwitch(t *testing.T) {
 
 	m, _ = m.handleProfileCommand("fast")
 	m, _ = m.handleEffortCommand("high")
-	m, text, ok, _, _ := m.switchProviderModel("ollama", "kimi-k2.7-code:cloud")
-	if !ok {
-		t.Fatalf("switch to ollama failed: %q", text)
-	}
+	m.modelName = "kimi-k2.7-code:cloud"
+	m = m.reconcileProfileAfterModelSwitch(m.availableReasoningEfforts())
 	if m.reasoningEffort != "high" {
 		t.Fatalf("effort = %q, an explicit choice must survive the switch untouched", m.reasoningEffort)
 	}
