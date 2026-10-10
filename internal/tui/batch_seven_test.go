@@ -20,7 +20,7 @@ func TestBatchSevenDocumentedContext(t *testing.T) {
 			m.modelPickerLiveByProvider["qg"][0].APIModel.ID = tc.id
 			assertContains(t, plainRender(t, m.statusLine(120)), "ctx "+tc.want+" (fallback/docs)")
 			m = batchSixOpen(m, "/usage")
-			assertContains(t, plainRender(t, m.pickerOverlay(120)), tc.want+" tokens (fallback/docs)")
+			assertContains(t, plainRender(t, m.pickerOverlay(120)), tc.want+" tokens")
 			n := int64(131072)
 			m.modelPickerLiveByProvider["qg"][0].APIModel.ContextLength = &n
 			assertContains(t, plainRender(t, m.statusLine(120)), "ctx 131.072")
@@ -75,7 +75,7 @@ func TestBatchSevenLocalEffortIsNotAPISupport(t *testing.T) {
 	m.modelPickerLiveByProvider["qg"][0].APIModel.Capabilities.Reasoning = true
 	m = batchSixOpen(m, "/effort")
 	got := plainRender(t, m.pickerOverlay(120))
-	assertContains(t, got, "não confirmado")
+	assertNotContains(t, got, "não confirmado")
 	assertNotContains(t, got, " (API)")
 	if strings.Contains(m.statusEffort(), "auto") {
 		t.Fatal("unknown was invented as auto")

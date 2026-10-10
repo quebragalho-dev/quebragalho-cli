@@ -98,7 +98,7 @@ de demonstração. Tokens e custos variam conforme o modelo e o pedido.
 ![Resposta do QG com tokens e custo por chamada](docs/assets/demo-sessao.png)
 
 A velocidade aparece em `tk/s` quando há medição real. O total de tokens fica
-no recibo, ao lado do custo. Quando o contexto usa uma referência local,
+no recibo, ao lado do custo. Na statusline, quando o contexto usa uma referência local,
 aparece a indicação `fallback/docs`. Os detalhes estão no
 [guia de telemetria da interface](docs/TUI_TELEMETRY.md).
 
