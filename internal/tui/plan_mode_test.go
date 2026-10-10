@@ -64,22 +64,11 @@ func TestPlanCommandRestoresPriorModeOnExit(t *testing.T) {
 	}
 }
 
-// TestPlanCommandStatusDoesNotChangeMode is a regression guard for the
-// pre-existing display-only behavior: bare /plan and /plan status must keep
-// reporting the plan without touching the active permission mode.
 func TestPlanCommandStatusDoesNotChangeMode(t *testing.T) {
 	m := newModel(context.Background(), Options{PermissionMode: agent.PermissionModeAuto, Registry: tools.NewRegistry()})
-
-	updated, _ := m.dispatchCommand(parseCommand("/plan"))
-	next := updated.(model)
-	if next.permissionMode != agent.PermissionModeAuto {
-		t.Fatalf("bare /plan changed permissionMode to %s", next.permissionMode)
-	}
-
-	updated, _ = next.dispatchCommand(parseCommand("/plan status"))
-	next = updated.(model)
-	if next.permissionMode != agent.PermissionModeAuto {
-		t.Fatalf("/plan status changed permissionMode to %s", next.permissionMode)
+	updated, _ := m.dispatchCommand(parseCommand("/plan status"))
+	if updated.(model).permissionMode != agent.PermissionModeAuto {
+		t.Fatal("/plan status changed mode")
 	}
 }
 
@@ -311,12 +300,6 @@ func newPlanModeTestModel(root string, provider qgruntime.Provider) model {
 	})
 }
 
-// TestPlanModeGatesWriteToolAndRestoresOnExit is the end-to-end integration
-// test: it drives /plan on, submits a prompt whose (adversarial, since the
-// tool isn't even advertised) provider response tries to call write_file
-// directly, and confirms the call is denied and nothing is written to disk.
-// Then it drives /plan off and confirms write_file is advertised again,
-// proving the mode genuinely reverted rather than merely relabeling.
 func TestPlanModeGatesWriteToolAndRestoresOnExit(t *testing.T) {
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "notes.txt")
@@ -331,10 +314,10 @@ func TestPlanModeGatesWriteToolAndRestoresOnExit(t *testing.T) {
 	}}
 	m := newPlanModeTestModel(root, provider)
 
-	updated, _ := m.dispatchCommand(parseCommand("/plan on"))
+	updated, _ := m.dispatchCommand(parseCommand("/plan"))
 	m = updated.(model)
 	if m.permissionMode != agent.PermissionModePlan {
-		t.Fatalf("permissionMode after /plan on = %s, want plan", m.permissionMode)
+		t.Fatalf("permissionMode after /plan = %s, want plan", m.permissionMode)
 	}
 
 	m.input.SetValue("please write the notes file")
