@@ -423,30 +423,35 @@ func relativeAge(timestamp string, now time.Time) string {
 // applied-notice, so a caller that only read the text would show an unqualified
 // success for a selection that will be gone after a restart.
 func (m model) handleModelCommand(args string) (model, string, error) {
+	next, text, _, err := m.handleModelCommandScope(args, true)
+	return next, text, err
+}
+
+func (m model) handleModelCommandScope(args string, persist bool) (model, string, bool, error) {
 	args = strings.TrimSpace(args)
 	switch strings.ToLower(args) {
 	case "":
-		return m, m.modelText(args), nil
+		return m, m.modelText(args), false, nil
 	case "list", "ls":
-		return m, m.modelListText(), nil
+		return m, m.modelListText(), false, nil
 	}
 	if m.pending {
-		return m, "Model\nCannot switch models while a run is active.", nil
+		return m, "Model\nCannot switch models while a run is active.", false, nil
 	}
 
 	registry, err := modelregistry.DefaultRegistry()
 	if err != nil {
-		return m, "Model\nFailed to load model catalog: " + err.Error(), nil
+		return m, "Model\nFailed to load model catalog: " + err.Error(), false, nil
 	}
 	target, ok := m.resolveModelSwitchTarget(registry, args)
 	if !ok {
-		return m, "Model\nunknown QG model " + strconv.Quote(args), nil
+		return m, "Model\nunknown QG model " + strconv.Quote(args), false, nil
 	}
 	if !config.HasProviderProfile(m.providerProfile) {
-		return m, "Model\nNo provider profile is available for TUI model switching.", nil
+		return m, "Model\nNo provider profile is available for TUI model switching.", false, nil
 	}
 	if m.newProvider == nil {
-		return m, "Model\nProvider rebuild is not available for this TUI session.", nil
+		return m, "Model\nProvider rebuild is not available for this TUI session.", false, nil
 	}
 
 	previousProviderName := m.providerName
@@ -462,7 +467,7 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 	nextProfile = m.profileWithCredential(nextProfile)
 	metadata, err := providers.ResolveRuntimeMetadata(nextProfile, providers.Options{})
 	if err != nil {
-		return m, "Model\n" + err.Error(), nil
+		return m, "Model\n" + err.Error(), false, nil
 	}
 
 	if guarded, text, requested := m.requestCompactionBeforeModelSwitch(modelSwitchCompactionRequest{
@@ -470,14 +475,18 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 		TargetProvider:      string(metadata.ProviderKind),
 		TargetContextWindow: modelregistry.AgentContextWindow(m.modelContextWindow(target.modelID)),
 	}, "Model"); requested {
-		return guarded, text, nil
+		return guarded, text, false, nil
 	}
 
 	nextProvider, err := m.newProvider(nextProfile)
 	if err != nil {
-		return m, "Model\n" + err.Error(), nil
+		return m, "Model\n" + err.Error(), false, nil
 	}
-	persisted, persistErr := m.persistSelectedModel(nextProfile)
+	var persisted bool
+	var persistErr error
+	if persist {
+		persisted, persistErr = m.persistSelectedModel(nextProfile)
+	}
 
 	m.providerProfile = nextProfile
 	m.provider = nextProvider
@@ -500,7 +509,7 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 		// dedupe against the entry just persisted here, showing the same switch twice.
 		{Provider: m.providerName, Model: target.modelID},
 	}
-	if errors.Is(persistErr, config.ErrLockUnavailable) {
+	if !persist || errors.Is(persistErr, config.ErrLockUnavailable) {
 		// The selection write already lost its race for the config lock, which is
 		// still held. A second blocking attempt would make one unavailable lock
 		// cost two full waits and add a redundant save error to the transcript, so
@@ -554,7 +563,7 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 	if warn := m.visionDropWarning(); warn != "" {
 		lines = append(lines, warn)
 	}
-	return m, strings.Join(lines, "\n"), persistErr
+	return m, strings.Join(lines, "\n"), true, persistErr
 }
 
 // switchProviderModel switches the active provider to providerName (one of the
@@ -569,6 +578,10 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 // must not change behavior). The returned error reports that the in-session
 // switch succeeded but its provider/model transaction was not durably saved.
 func (m model) switchProviderModel(providerName, modelID string) (model, string, bool, tea.Cmd, error) {
+	return m.switchProviderModelScope(providerName, modelID, true)
+}
+
+func (m model) switchProviderModelScope(providerName, modelID string, persist bool) (model, string, bool, tea.Cmd, error) {
 	if m.pending {
 		return m, "Model\nCannot switch providers while a run is active.", false, nil, nil
 	}
@@ -613,14 +626,14 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 	config.SetActiveProviderEnv(target.Name)
 	path := strings.TrimSpace(m.userConfigPath)
 	var persistErr error
-	if path != "" {
+	if persist && path != "" {
 		_, persistErr = config.SetActiveProviderModel(path, target.Name, target.Model)
 	}
 	recent := []config.RecentModelEntry{
 		{Provider: previousProviderName, Model: previousModel},
 		{Provider: target.Name, Model: target.Model},
 	}
-	if persistErr == nil {
+	if persist && persistErr == nil {
 		// Record the outgoing pair too — see the matching comment in
 		// handleModelCommand for why. Persist history only after the selection
 		// transaction succeeds, so one unavailable lock causes one wait.
@@ -638,7 +651,7 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 		}
 	}
 	status := fmt.Sprintf("Model\nSwitched to %s · %s", target.Name, target.Model)
-	if path != "" && persistErr == nil {
+	if persist && path != "" && persistErr == nil {
 		status += " · saved"
 	} else if persistErr != nil {
 		status += " · not saved (" + persistErr.Error() + ")"
