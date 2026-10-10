@@ -13,7 +13,7 @@ func TestEmptyStateShowsBrandAndTaglineOnly(t *testing.T) {
 	m.width, m.height = 100, 30
 
 	view := plainRender(t, m.View())
-	assertContains(t, view, "██████╗    ██████╗")
+	assertContains(t, view, "███████    ███████")
 	assertContains(t, view, "QUEBRA-GALHO")
 	assertContains(t, view, emptyStateTagline)
 	assertNotContains(t, view, "Any model. Every tool.")
@@ -66,11 +66,11 @@ func TestQGWordmarkGlyphsAreNineCellsWide(t *testing.T) {
 	if len(qgWordmarkGlyphLines) != 6 {
 		t.Fatalf("wordmark rows = %d, want 6", len(qgWordmarkGlyphLines))
 	}
-	if got := qgWordmarkGlyphLines[3][0]; got != "██║▄▄ ██║" {
-		t.Fatalf("Q row 4 = %q, want %q", got, "██║▄▄ ██║")
+	if got := qgWordmarkGlyphLines[3][0]; got != "██  ██ ██" {
+		t.Fatalf("Q row 4 = %q, want %q", got, "██  ██ ██")
 	}
-	if got := qgWordmarkGlyphLines[5][0]; got != " ╚══▀▀═╝ " {
-		t.Fatalf("Q row 6 = %q, want %q", got, " ╚══▀▀═╝ ")
+	if got := qgWordmarkGlyphLines[5][0]; got != " █████ ██" {
+		t.Fatalf("Q row 6 = %q, want %q", got, " █████ ██")
 	}
 }
 

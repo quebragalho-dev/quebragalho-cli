@@ -107,3 +107,19 @@ func TestModelsOfferNullVersusZeroStayDistinct(t *testing.T) {
 		t.Fatalf("missing discount_percent became %d, want 0 (unknown, not invented)", models[1].Offer.DiscountPercent)
 	}
 }
+
+func TestModelsReadsInputCachedWithoutLosingFreeRate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"model","context_length":null,"pricing":{"currency":"USD","input":"0.1","output":"0.2","input_cached":"0"},"pricing_brl":{"currency":"BRL","input":"0.5","output":"1","input_cached":"0.025"}}]}`))
+	}))
+	defer server.Close()
+	client := NewClient(testKey)
+	client.BaseURL = server.URL
+	models, err := client.Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if models[0].Pricing.CachedInput != "0" || models[0].PricingBRL.CachedInput != "0.025" {
+		t.Fatalf("API cache prices discarded: %+v / %+v", models[0].Pricing, models[0].PricingBRL)
+	}
+}

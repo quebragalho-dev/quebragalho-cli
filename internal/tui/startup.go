@@ -13,16 +13,13 @@ const (
 	minStartupWidth      = 58
 )
 
-// qgWordmarkGlyphLines is the QG part of the empty-state ANSI Shadow-style
-// wordmark: each row pairs the Q (rendered in ink) with the G (accent), both
-// 9 cells wide. The Q carries a block tail so it does not read as a plain O.
 var qgWordmarkGlyphLines = [][2]string{
-	{` ██████╗ `, ` ██████╗ `},
-	{`██╔═══██╗`, `██╔══════`},
-	{`██║   ██║`, `██║  ███╗`},
-	{`██║▄▄ ██║`, `██║   ██║`},
-	{`╚██████╔╝`, `╚███████║`},
-	{` ╚══▀▀═╝ `, ` ╚═════╝ `},
+	{` ███████ `, ` ███████ `},
+	{`██     ██`, `██       `},
+	{`██     ██`, `██       `},
+	{`██  ██ ██`, `██  █████`},
+	{`██   ███ `, `██     ██`},
+	{` █████ ██`, ` ███████ `},
 }
 
 // wordmarkBrandLine is the plain-text brand line under the glyph.
@@ -66,8 +63,6 @@ func (m model) emptyStateLines(width int) []string {
 	lines = append(lines, "")
 	lines = append(lines, centerLine(qgTheme.ink.Render("QUEBRA-")+qgTheme.accent.Render("GALHO"), width))
 	lines = append(lines, centerLine(qgTheme.muted.Render(emptyStateTagline), width))
-	// Orientation: where QG is pointed (cwd · branch) so a returning user
-	// sees the context before typing instead of a blank brand screen.
 	if orient := m.emptyStateOrientation(); orient != "" {
 		lines = append(lines, "")
 		lines = append(lines, centerLine(orient, width))
@@ -119,7 +114,7 @@ func displayVersion(version string) string {
 func qgWordmarkLines() []string {
 	lines := make([]string, 0, len(qgWordmarkGlyphLines))
 	for _, row := range qgWordmarkGlyphLines {
-		lines = append(lines, qgTheme.ink.Render(row[0])+"  "+qgTheme.accent.Render(row[1]))
+		lines = append(lines, qgTheme.ink.Bold(false).Render(row[0])+"  "+qgTheme.accent.Bold(false).Render(row[1]))
 	}
 	return lines
 }

@@ -64,10 +64,10 @@ func TestBatchOneLayoutFitsRequiredWidths(t *testing.T) {
 	}
 }
 
-func TestTitleBarWithoutBranchKeepsWorkspace(t *testing.T) {
+func TestTitleBarWithoutBranchOmitsWorkspace(t *testing.T) {
 	m := model{cwd: "/workspace/qg"}
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
-		assertContains(t, plainRender(t, m.titleBar(width)), "/workspace/qg")
+		assertNotContains(t, plainRender(t, m.titleBar(width)), "/workspace/qg")
 	}
 }
 

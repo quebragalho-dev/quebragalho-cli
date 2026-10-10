@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -698,7 +699,7 @@ func TestUsageEventsUpdateFooterAndContext(t *testing.T) {
 
 func TestUsageRuntimeMessageUpdatesFooterBeforeFinalResponse(t *testing.T) {
 	provider := &fakeProvider{events: []qgruntime.StreamEvent{
-		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 10, OutputTokens: 5}},
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 10, OutputTokens: 5, Elapsed: 4 * time.Second}},
 		{Type: qgruntime.StreamEventText, Content: "done"},
 		{Type: qgruntime.StreamEventDone},
 	}}
@@ -723,9 +724,9 @@ func TestUsageRuntimeMessageUpdatesFooterBeforeFinalResponse(t *testing.T) {
 
 	liveUsageCount := 0
 	for _, msg := range runtimeMessages {
-		if usageMsg, ok := msg.(agentUsageMsg); ok {
-			updated, _ = next.Update(usageMsg)
-			next = updated.(model)
+		updated, _ = next.Update(msg)
+		next = updated.(model)
+		if _, ok := msg.(agentUsageMsg); ok {
 			liveUsageCount++
 		}
 	}
@@ -743,6 +744,20 @@ func TestUsageRuntimeMessageUpdatesFooterBeforeFinalResponse(t *testing.T) {
 	if summary.RecordCount != 1 || summary.TotalTokens != 15 {
 		t.Fatalf("expected final response not to double count live usage, got records=%d tokens=%d", summary.RecordCount, summary.TotalTokens)
 	}
+	receipts := 0
+	for _, row := range next.transcript {
+		if row.tool == "model-usage" {
+			receipts++
+		}
+	}
+	if receipts != 1 {
+		t.Fatalf("live and final duplicated receipt: %d", receipts)
+	}
+	stats := next.callThroughput[next.modelName]
+	if stats.outputTokens != 5 || stats.elapsed != 4*time.Second {
+		t.Fatalf("live and final duplicated throughput: %+v", stats)
+	}
+
 }
 
 func TestUsageEventsForwardExistingAgentCallback(t *testing.T) {
@@ -831,25 +846,22 @@ func TestUnpricedUsageStatusUsesLatestEventNotCumulative(t *testing.T) {
 	if !strings.Contains(m.usageSummaryText(), "135 tokens") {
 		t.Fatalf("expected cumulative usage summary to stay intact, got %q", m.usageSummaryText())
 	}
-	if got := m.usageStatusSegment(); !strings.Contains(got, "15 tok") || strings.Contains(got, "135") {
-		t.Fatalf("expected status to show latest usage only, got %q", got)
-	}
 	if got := m.sidebarTokenText(); !strings.Contains(got, "15 tokens") || strings.Contains(got, "135") {
 		t.Fatalf("expected sidebar to show latest usage only, got %q", got)
 	}
 }
 
-func TestStatusLineShowsTokenFigureWithoutPersistentRail(t *testing.T) {
+func TestStatusLineShowsUnknownAPIContextWithoutPersistentRail(t *testing.T) {
 	m := sidebarTestModel()
 	m, _ = m.recordUsageEvent("test-model", qgruntime.Usage{InputTokens: 100, OutputTokens: 20})
 	// Run details retains the full token count on demand.
 	if got := m.sidebarTokenText(); !strings.Contains(got, "120 tokens") {
 		t.Fatalf("sidebar token text = %q, want it to carry the 120-token figure", got)
 	}
-	// The status line is the always-visible token readout.
+	// No live API context was supplied.
 	status := plainRender(t, m.statusLine(m.width))
-	if !strings.Contains(status, "120 tok") {
-		t.Fatalf("status line = %q, want the token figure", status)
+	if !strings.Contains(status, "ctx não informado") {
+		t.Fatalf("status line = %q, want honest missing API context", status)
 	}
 }
 

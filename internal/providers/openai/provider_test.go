@@ -1658,3 +1658,23 @@ func TestStreamCompletionSerializesNonMapPropertiesAsEmptyObject(t *testing.T) {
 		t.Fatalf("parameters.properties = %#v, want empty object", parameters["properties"])
 	}
 }
+
+func TestUsageCarriesCallIdentityAndDurationThroughCollector(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	p, err := New(Options{Model: "actual-call-model", BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := p.StreamCompletion(context.Background(), qgruntime.CompletionRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := qgruntime.CollectStream(context.Background(), stream)
+	if result.Usage.ModelID != "actual-call-model" || result.Usage.Elapsed <= 0 {
+		t.Fatalf("call provenance lost: %+v", result.Usage)
+	}
+}

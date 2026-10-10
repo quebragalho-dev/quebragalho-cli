@@ -222,6 +222,10 @@ func hasTranscriptRow(rows []transcriptRow, row transcriptRow) bool {
 // suffix the runner appends to row ids (see effectiveToolRowID).
 func transcriptRowKey(row transcriptRow) string {
 	switch row.kind {
+	case rowSystem:
+		if row.tool == "model-usage" && row.id != "" {
+			return fmt.Sprintf("%d:%d:%s", row.kind, row.runID, row.id)
+		}
 	case rowToolCall, rowToolResult:
 		if row.id != "" {
 			return fmt.Sprintf("%d:%d:%s", row.kind, row.runID, row.id)
