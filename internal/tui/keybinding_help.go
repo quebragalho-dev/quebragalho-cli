@@ -47,7 +47,7 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 				{"Shift+Enter / Alt+Enter", "insert a newline (multi-line compose)"},
 				{"Esc (\u00d72)", "cancel the run / dismiss a popup / clear the input"},
 				{"Ctrl+C", ctrlCDescription},
-				{"Ctrl+X then letter", "common slash commands (m=/model, p=/provider, r=/resume, \u2026)"},
+				{"Ctrl+X then letter", "common slash commands (m=/model, r=/resume, \u2026)"},
 				{"Ctrl+X ?", "list every Ctrl+X slash shortcut"},
 				{"?", "show this help (on an empty input)"},
 			},

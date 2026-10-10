@@ -174,7 +174,7 @@ func doctorActions(checks []doctor.Check, backend *qgcommands.BackendLifecycleSn
 		message := strings.ToLower(check.Message)
 		switch check.ID {
 		case "provider.config", "provider.model":
-			add("/provider - configure the active provider and model")
+			add("qg login - conectar ao Quebra Galho pelo terminal")
 			add("/doctor fix - open guided diagnostics repair")
 		case "provider.connectivity":
 			add("/doctor --connectivity - probe the provider endpoint")

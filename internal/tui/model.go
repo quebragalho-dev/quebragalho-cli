@@ -533,7 +533,6 @@ type model struct {
 	// /effort with no argument). It captures ↑/↓/Enter/Esc and applies
 	// the chosen value through the existing command handlers.
 	picker         *commandPicker
-	providerWizard *providerWizardState
 	mcpManager     *mcpManagerState
 	mcpAddWizard   *mcpAddWizardState
 	favoriteModels map[string]bool
@@ -1237,7 +1236,7 @@ func (m *model) stopPRWatcher() {
 // by every shortcut that should defer to whichever modal is focused.
 func (m model) noBlockingModal() bool {
 	return m.pendingPermission == nil && m.pendingAskUser == nil && m.pendingSpecReview == nil &&
-		m.providerWizard == nil && m.mcpAddWizard == nil && m.mcpManager == nil && m.picker == nil &&
+		m.mcpAddWizard == nil && m.mcpManager == nil && m.picker == nil &&
 		m.sttKeyPrompt == nil && m.renamePrompt == nil && m.terminalAttach == nil
 }
 
@@ -1487,10 +1486,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = m.dragToEdgeScroll(m.edgeScrollDelta, m.edgeScrollMouseX)
 		return m, dragEdgeScrollTickCmd(m.edgeScrollSeq)
-	case providerManagerCredsMsg:
-		return m.applyProviderManagerCreds(msg)
-	case providerManagerCleanupMsg:
-		return m.applyProviderManagerCleanup(msg)
 	case clipboardReadMsg:
 		// Result of a right-click paste. Insert on success; surface a brief
 		// status if the clipboard couldn't be read (e.g. no clipboard utility on
@@ -1786,12 +1781,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingPermission != nil && m.pendingPermission.request.ToolName == peerPermissionToolName {
 				return m.resolvePermission(permissionDecisionDeny)
 			}
-			if m.providerWizard != nil {
-				// Delegate so multi-level surfaces (provider manager list → edit →
-				// field, manage-key step) can walk BACK one level; the wizard's own
-				// handler closes the overlay for the single-level steps.
-				return m.handleProviderWizardKey(msg)
-			}
 			if m.mcpAddWizard != nil {
 				m.mcpAddWizard = nil
 				return m, nil
@@ -1865,10 +1854,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingSpecReview != nil {
 				m.burstCount = 0
 				return m, nil
-			}
-			if m.providerWizard != nil {
-				m.burstCount = 0
-				return m.handleProviderWizardKey(msg)
 			}
 			if m.mcpAddWizard != nil {
 				m.burstCount = 0
@@ -2038,10 +2023,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingAskUser != nil {
 				return m.moveAskUserTab(1), nil
 			}
-			if m.providerWizard != nil {
-				m.burstCount = 0
-				return m.handleProviderWizardKey(msg)
-			}
 			if m.mcpAddWizard != nil {
 				m.burstCount = 0
 				return m.handleMCPAddWizardKey(msg)
@@ -2148,7 +2129,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingAskUser != nil {
 				return m.moveAskUserCursor(-1), nil
 			}
-			if m.providerWizard != nil || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.pendingSpecReview != nil {
+			if m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.pendingSpecReview != nil {
 				break
 			}
 			if m.composerValue() != "" {
@@ -2169,7 +2150,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingAskUser != nil {
 				return m.moveAskUserCursor(1), nil
 			}
-			if m.providerWizard != nil || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.pendingSpecReview != nil {
+			if m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.pendingSpecReview != nil {
 				break
 			}
 			if m.composerValue() != "" {
@@ -2216,10 +2197,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.burstCount = 0
 			return m.handlePermissionKey(msg)
-		}
-		if m.providerWizard != nil {
-			m.burstCount = 0
-			return m.handleProviderWizardKey(msg)
 		}
 		if m.mcpAddWizard != nil {
 			m.burstCount = 0
@@ -3003,8 +2980,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bashResultMsg:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: msg.output})
 		return m, nil
-	case providerModelsDiscoveredMsg:
-		return m.applyProviderModelsDiscovered(msg), nil
 	case setupKeyCheckMsg:
 		return m.applySetupKeyCheck(msg), nil
 	case modelPickerModelsDiscoveredMsg:
@@ -3138,7 +3113,6 @@ func (m model) transcriptView() string {
 
 	suggestionOverlay := m.suggestionOverlay(width)
 	runDetailsOverlay := m.runDetailsOverlay(width)
-	providerOverlay := m.providerWizardOverlay(width)
 	mcpAddOverlay := m.mcpAddWizardOverlay(width)
 	mcpOverlay := m.mcpManagerOverlay(width)
 	pickerOverlay := m.pickerOverlay(width)
@@ -3156,8 +3130,6 @@ func (m model) transcriptView() string {
 		viewportOverlay = leaderHelpOverlayContent
 	case runDetailsOverlay != "":
 		viewportOverlay = runDetailsOverlay
-	case providerOverlay != "":
-		viewportOverlay = providerOverlay
 	case mcpAddOverlay != "":
 		viewportOverlay = mcpAddOverlay
 	case mcpOverlay != "":
@@ -4485,16 +4457,11 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 		text := ""
 		var switchPersistErr error
 		owner := strings.TrimSpace(item.OwnerProvider)
-		_, ownerIsSavedProvider := m.savedProviderByName(owner)
-		if owner != "" && !strings.EqualFold(owner, strings.TrimSpace(m.providerName)) && ownerIsSavedProvider {
-			// A model from another saved provider: switch provider + model together.
-			m, text, _, cmd, switchPersistErr = m.switchProviderModel(owner, item.Value)
-		} else {
-			// OwnerProvider is blank, matches the active provider, or (registry-fallback
-			// / stale-history rows) doesn't resolve to any saved provider: apply against
-			// the active provider instead of attempting an unresolvable provider switch.
-			m, text, switchPersistErr = m.handleModelCommand(item.Value)
+		if owner != "" && !strings.EqualFold(owner, strings.TrimSpace(m.providerName)) {
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: qgLoginGuidance()})
+			return m, nil
 		}
+		m, text, switchPersistErr = m.handleModelCommand(item.Value)
 		if m.providerName != previousProvider || m.modelName != previousModel {
 			notice, tone := m.modelAppliedNoticeFor(switchPersistErr)
 			return m.showTransientNoticeInline(notice, tone), cmd
@@ -4746,22 +4713,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 	case commandSandboxSetup:
 		return m.startSandboxSetupCommand(command.text)
 	case commandProvider:
-		arg := strings.ToLower(strings.TrimSpace(command.text))
-		if arg == "" || arg == "add" {
-			if m.pending {
-				m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: pickerBusyText(command.name)})
-				return m, nil
-			}
-			// Bare /provider opens the list-first manager over the saved
-			// providers; /provider add jumps straight into the add wizard.
-			if arg == "add" {
-				m.providerWizard = m.newProviderWizard()
-				m.clearSuggestions()
-				return m, nil
-			}
-			return m.openProviderManager()
-		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.providerText()})
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: qgLoginGuidance()})
 		return m, nil
 	case commandModel:
 		if strings.TrimSpace(command.text) == "" {
@@ -4827,9 +4779,6 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 			})
 			return m, nil
 		}
-		// Bare `/resume` opens an interactive session picker (like /model & /provider);
-		// `/resume <id>` and `/resume latest` still resolve directly. The picker falls
-		// back to the text path when there is nothing to resume.
 		if strings.TrimSpace(command.text) == "" {
 			if next, ok := m.openSessionPicker(); ok {
 				return next, nil

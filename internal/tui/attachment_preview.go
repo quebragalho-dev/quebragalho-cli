@@ -23,7 +23,7 @@ func (m model) attachmentThumbnailVisible(width int) bool {
 		return false
 	}
 	if m.pendingPermission != nil || m.pendingAskUser != nil || m.pendingSpecReview != nil ||
-		m.providerWizard != nil || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil ||
+		m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil ||
 		m.sttKeyPrompt != nil || m.renamePrompt != nil || m.terminalAttach != nil || m.setup.visible || m.helpOverlay || m.leaderHelpOverlay {
 		return false
 	}

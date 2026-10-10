@@ -395,7 +395,7 @@ func TestSuggestionOverlayCapsRowsWithoutMoreText(t *testing.T) {
 	if strings.Contains(plain, "more") {
 		t.Fatalf("bare slash palette should not render a more-count row, got %q", plain)
 	}
-	if !strings.Contains(plain, "│ ❯ provider") || !strings.Contains(plain, "│   ps") {
+	if !strings.Contains(plain, "│ ❯ model") || !strings.Contains(plain, "│   ps") {
 		t.Fatalf("top of palette should render first visible command window, got %q", plain)
 	}
 	if strings.Contains(plain, "compact") {
@@ -411,7 +411,7 @@ func TestSuggestionOverlayCapsRowsWithoutMoreText(t *testing.T) {
 		t.Fatalf("scrolled palette should not render a more-count row, got %q", plain)
 	}
 	selected := strings.TrimPrefix(m.suggestions[m.suggestionIdx].Name, "/")
-	if !strings.Contains(plain, "│ ❯ "+selected) || strings.Contains(plain, "│ ❯ provider") || strings.Contains(plain, "│   provider") {
+	if !strings.Contains(plain, "│ ❯ "+selected) || strings.Contains(plain, "│ ❯ model") || strings.Contains(plain, "│   provider") {
 		t.Fatalf("scrolled palette should move the visible command window, got %q", plain)
 	}
 }
