@@ -45,11 +45,11 @@ var darkPalette = palette{
 	promptBg:  "#262626",
 	line:      "#242429",
 	line2:     "#414147",
-	ink:       "#ececee",
+	ink:       "#FFFFFF",
 	muted:     "#9a9aa2", // secondary text — lifted so it clearly out-ranks faint
 	faint:     "#8a8a92", // hints/metadata — nudged up to separate from faintest
 	faintest:  "#7c7c82", // line numbers/separators — pinned at the WCAG-AA floor on the dark panel
-	accent:    "#9df723", // QG brand lime-green (mascot)
+	accent:    "#9DF723", // QG brand lime-green (mascot)
 	green:     "#5dd1a4",
 	red:       "#ff7a7a",
 	amber:     "#ffc25c",

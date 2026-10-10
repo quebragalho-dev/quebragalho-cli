@@ -126,7 +126,7 @@ func TestAltScreenTranscriptScrollKeepsFooterFixed(t *testing.T) {
 	if strings.Contains(bottom, "message A") {
 		t.Fatalf("bottom view should start near recent history, got:\n%s", bottom)
 	}
-	if !strings.Contains(bottom, "describe a task for qg") || !strings.Contains(bottom, "openai") {
+	if !strings.Contains(bottom, "describe a task for qg") || !strings.Contains(bottom, "gpt-4.1") {
 		t.Fatalf("bottom view should keep composer/status fixed, got:\n%s", bottom)
 	}
 	if !strings.Contains(bottom, "feat/pinned-header") || !strings.Contains(bottom, "gpt-4.1") {
@@ -138,7 +138,7 @@ func TestAltScreenTranscriptScrollKeepsFooterFixed(t *testing.T) {
 	if !strings.Contains(scrolled, "message A") {
 		t.Fatalf("scrolled view should reveal older history, got:\n%s", scrolled)
 	}
-	if !strings.Contains(scrolled, "describe a task for qg") || !strings.Contains(scrolled, "openai") {
+	if !strings.Contains(scrolled, "describe a task for qg") || !strings.Contains(scrolled, "gpt-4.1") {
 		t.Fatalf("scrolled view should keep composer/status fixed, got:\n%s", scrolled)
 	}
 	if !strings.Contains(scrolled, "feat/pinned-header") || !strings.Contains(scrolled, "gpt-4.1") {
