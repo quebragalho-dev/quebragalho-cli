@@ -226,6 +226,7 @@ type model struct {
 	unpricedTokens                int
 	lastUsage                     usage.Normalized
 	lastUsageSeen                 bool
+	lastUsageReceipt              transcriptRow
 	// turnLatencySum / turnLatencyCount accumulate completed-run wall time so
 	// /context can show a rolling average turn latency (the "is it slow?" signal).
 	// Reset by /new.
@@ -652,6 +653,7 @@ type agentReasoningMsg struct {
 }
 
 type agentUsageMsg struct {
+	receipt transcriptRow
 	runID   int
 	modelID string
 	usage   qgruntime.Usage
@@ -2565,11 +2567,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// readout doesn't undercount interrupted turns.
 				liveUsageCount := m.liveUsageCounts[msg.runID]
 				for index, event := range msg.usageEvents {
-					if index < liveUsageCount {
+					if index < liveUsageCount || flushSessionID != m.activeSession.SessionID {
 						continue
 					}
 					var usageRows []transcriptRow
-					m, usageRows = m.recordUsageEvent(msg.usageModelIDAt(index), event)
+					m, usageRows = m.recordUsageEvent(msg.usageModelIDAt(index), event, msg.usageReceiptAt(index))
 					for _, row := range usageRows {
 						m.transcript = appendTranscriptRow(m.transcript, row)
 					}
@@ -2657,7 +2659,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				continue
 			}
 			var usageRows []transcriptRow
-			m, usageRows = m.recordUsageEvent(msg.usageModelIDAt(index), event)
+			m, usageRows = m.recordUsageEvent(msg.usageModelIDAt(index), event, msg.usageReceiptAt(index))
 			for _, row := range usageRows {
 				m.transcript = appendTranscriptRow(m.transcript, row)
 			}
@@ -2844,7 +2846,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		var usageRows []transcriptRow
-		m, usageRows = m.recordUsageEvent(msg.modelID, msg.usage)
+		m, usageRows = m.recordUsageEvent(msg.modelID, msg.usage, msg.receipt)
 		if m.liveUsageCounts == nil {
 			m.liveUsageCounts = map[int]int{}
 		}
@@ -4651,6 +4653,9 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 	switch command.kind {
 	case commandEmpty:
 		return m, nil
+	case commandUsage:
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.callUsageText()})
+		return m, nil
 	case commandHelp:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: helpText()})
 		return m, nil
@@ -5954,7 +5959,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				Type:    sessions.EventUsage,
 				Payload: payload,
 			})
-			m.sendAgentUsage(runID, callModelID, event)
+			m.sendAgentUsage(runID, callModelID, event, receipt)
 			if onUsage != nil {
 				onUsage(event)
 			}
@@ -6096,11 +6101,11 @@ func (m model) sendAgentReasoning(runID int, delta string) {
 	m.runtimeMessageSink(agentReasoningMsg{runID: runID, delta: delta})
 }
 
-func (m model) sendAgentUsage(runID int, modelID string, event qgruntime.Usage) {
+func (m model) sendAgentUsage(runID int, modelID string, event qgruntime.Usage, receipt transcriptRow) {
 	if m.runtimeMessageSink == nil {
 		return
 	}
-	m.runtimeMessageSink(agentUsageMsg{runID: runID, modelID: modelID, usage: event})
+	m.runtimeMessageSink(agentUsageMsg{runID: runID, modelID: modelID, usage: event, receipt: receipt})
 }
 
 // toolResultDetail is the card body source: the rich card-only Display.Preview

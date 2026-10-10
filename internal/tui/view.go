@@ -115,7 +115,7 @@ func (m model) composerDividerLine(width int) string {
 	// The composer rule is the model label below the input. Permission mode
 	// and reasoning effort now live in the persistent status line (the conventional
 	// footer for run-state), so they're not duplicated on this rule.
-	meta := qgTheme.muted.Render(model)
+	meta := qgTheme.ink.Render(model)
 	metaWidth := lipgloss.Width(meta)
 	if width < 8 {
 		return qgTheme.lineStrong.Render(strings.Repeat("─", width))
@@ -124,8 +124,8 @@ func (m model) composerDividerLine(width int) string {
 		line := qgTheme.lineStrong.Render("╰" + strings.Repeat("─", availableWidth-2) + "╯")
 		return line + strings.Repeat(" ", reserved)
 	}
-	rule := strings.Repeat("─", availableWidth-metaWidth-frameWidth)
-	line := qgTheme.lineStrong.Render("╰"+padding) + meta + qgTheme.lineStrong.Render(padding+rule+"╯")
+	rule := strings.Repeat("-", availableWidth-metaWidth-frameWidth)
+	line := qgTheme.lineStrong.Render("╰"+rule+padding) + meta + qgTheme.lineStrong.Render(padding+"╯")
 	return line + strings.Repeat(" ", reserved)
 }
 

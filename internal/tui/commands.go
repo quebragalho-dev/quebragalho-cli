@@ -22,6 +22,7 @@ const (
 	commandProvider
 	commandModel
 	commandContext
+	commandUsage
 	commandConfig
 	commandDebug
 	commandDoctor
@@ -169,6 +170,7 @@ var commandDefinitions = []commandDefinition{
 		description: "List installed skills; run one directly with /<skill-name> [args].",
 		kind:        commandSkills,
 	},
+	{name: "/usage", usage: "/usage", group: commandGroupSession, description: "Resumo da última chamada, custo e janela de contexto.", kind: commandUsage},
 	{
 		name:        "/context",
 		usage:       "/context",
