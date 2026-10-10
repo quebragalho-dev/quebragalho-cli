@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -224,6 +223,7 @@ type model struct {
 	lastCompactError              string
 	unpricedRequests              int
 	unpricedTokens                int
+	streamUsage                   qgruntime.Usage
 	lastUsage                     usage.Normalized
 	lastUsageSeen                 bool
 	lastUsageReceipt              transcriptRow
@@ -428,12 +428,6 @@ type model struct {
 	streamingText              []byte
 	streamingReasoning         string // live provider reasoning for the current segment
 	streamingReasoningExpanded bool
-	// turnStreamedRunes accumulates every reasoning+answer rune streamed in the
-	// current turn so the working line can show a live, monotonic token estimate.
-	// It is NOT reset at segment boundaries (where streamingText/Reasoning clear),
-	// only at turn start (beginRun), so the count climbs across a multi-tool turn
-	// instead of snapping back to qg after each tool call.
-	turnStreamedRunes int
 	// Streaming-text fade state. lineAges is keyed to LOGICAL lines of
 	// streamingText (one entry per \n in the accumulated text), and
 	// lastStreamActivity is the time of the most recent delta (used for
@@ -650,6 +644,11 @@ type toolCallStreamDeltaMsg struct {
 type agentReasoningMsg struct {
 	runID int
 	delta string
+}
+
+type agentUsageProgressMsg struct {
+	runID int
+	usage qgruntime.Usage
 }
 
 type agentUsageMsg struct {
@@ -2301,11 +2300,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.streamCallDecoder.feed(msg.fragment)
-		// A streamed tool-call argument (e.g. a file's contents in write_file) is
-		// real generated output: count it toward the live token estimate so the
-		// "↑ N tok" pulse climbs during a long write, and bump lastStreamActivity so
-		// the quiet-generation hint stays clear of an actively-streaming provider.
-		m.turnStreamedRunes += utf8.RuneCountInString(msg.fragment)
 		m.lastStreamActivity = m.now()
 		return m, nil
 	case agentTextMsg:
@@ -2316,7 +2310,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// live "writing" block so it doesn't linger over new prose.
 		m.clearStreamingToolCall()
 		m.streamingText = append(m.streamingText, msg.delta...)
-		m.turnStreamedRunes += utf8.RuneCountInString(msg.delta)
 		// recordStreamingDelta appends a time.Time to lineAges for every
 		// newline in the delta and bumps lastStreamActivity. It also
 		// re-stamps the in-progress last entry so the line that's still
@@ -2373,7 +2366,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.streamingReasoning += msg.delta
-		m.turnStreamedRunes += utf8.RuneCountInString(msg.delta)
 		// Reasoning IS live provider output, so refresh the activity clock — else the
 		// quiet-generation hint can wrongly read "still generating…" mid-think.
 		if msg.delta != "" {
@@ -2851,6 +2843,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			planStepExplanationKey(m.plan.steps[msg.stepIndex]) == msg.key {
 			m.transcript = dropTranscriptRowsByID(m.transcript, planStepDetailRowID)
 			m.transcript = m.appendPlanStepCard(msg.stepIndex, text, false)
+		}
+		return m, nil
+	case agentUsageProgressMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		if _, _, err := usage.Normalize(msg.usage); err != nil {
+			m.streamUsage = qgruntime.Usage{}
+		} else {
+			m.streamUsage = msg.usage
 		}
 		return m, nil
 	case agentUsageMsg:
@@ -3855,11 +3857,6 @@ func (m model) workingStatusLine() string {
 	if !m.turnStartedAt.IsZero() {
 		line += qgTheme.faint.Render("  ·  " + formatWorkingElapsed(m.activeTurnElapsed(m.turnStartedAt)))
 	}
-	// Live token estimate so the working line visibly climbs as the model reasons
-	// and writes, instead of a static figure. Shown from the start of the turn (at
-	// 0) so the counter is never missing — the authoritative totals stay in the
-	// status line and sidebar; this is the at-a-glance "it's generating" pulse.
-	line += qgTheme.faint.Render("  ·  " + m.workingTokenIndicator())
 	// If the model has gone quiet (no streamed text, reasoning, OR tool-call output
 	// for a while — common when a provider buffers a large tool call instead of
 	// streaming it), say so plainly with an advancing timer, so a long silent
@@ -3868,23 +3865,6 @@ func (m model) workingStatusLine() string {
 		line += qgTheme.amber.Render("  ·  " + hint)
 	}
 	return line
-}
-
-// workingTokenIndicator renders a live "↑ <n> tok" estimate of the tokens
-// generated so far in the current turn, so the working line keeps moving while
-// the model reasons and writes. It is shown for the whole turn — starting at
-// "↑ 0 tok" before the first delta and climbing — so the counter never blinks
-// out. Providers only report exact usage when a step finishes, so this estimates
-// from the streamed reasoning+answer length at the usual ~4 characters per
-// token; turnStreamedRunes accumulates across the whole turn (it survives the
-// per-segment buffer clears), giving a monotonic climb that resets on the next
-// turn.
-func (m model) workingTokenIndicator() string {
-	tokens := m.turnStreamedRunes / 4
-	if m.turnStreamedRunes > 0 && tokens < 1 {
-		tokens = 1
-	}
-	return "↑ " + humanCount(tokens) + " tok"
 }
 
 // quietWorkingHint is how long the stream must be silent (no streamed text,
@@ -5018,7 +4998,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		if m.permissionMode != agent.PermissionModeUnsafe {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{
 				kind: actionAppendSystem,
-				text: "Shell escape (!) is disabled in " + string(m.permissionMode) + " mode — it bypasses the sandbox. Relaunch with --skip-permissions-unsafe to run shell commands directly.",
+				text: "Shell escape (!) is disabled in " + string(m.permissionMode) + " mode — it bypasses the sandbox. Relaunch with --dangerously-skip-permissions to run shell commands directly.",
 			})
 			return m, nil
 		}
@@ -5277,10 +5257,10 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.planDetailOpen = false
 	m.planDetailGen++ // invalidate any in-flight step-explanation from the prior run
 	m.runDetailsOpen = false
+	m.streamUsage = qgruntime.Usage{}
 	m.turnStartedAt = m.now()
 	m.turnTimer = newActiveTurnTimer(m.turnStartedAt)
 	m.lastStreamActivity = m.turnStartedAt
-	m.turnStreamedRunes = 0
 	m.spinnerTicking = true
 	return m
 }
@@ -5952,6 +5932,15 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 		}
 
+		onProgress := options.OnUsageProgress
+		options.OnUsageProgress = func(event qgruntime.Usage) {
+			if m.runtimeMessageSink != nil {
+				m.runtimeMessageSink(agentUsageProgressMsg{runID: runID, usage: event})
+			}
+			if onProgress != nil {
+				onProgress(event)
+			}
+		}
 		onUsage := options.OnUsage
 		options.OnUsage = func(event qgruntime.Usage) {
 			callModelID := usageModelID
@@ -5967,6 +5956,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			payload["model"] = callModelID
 			payload["call_id"] = receipt.id
 			payload["call_label"] = receipt.text
+			payload["call_tokens"] = receipt.meta["tokens"]
 			payload["cost_exact"] = receipt.meta["amount"]
 			payload["cost_currency"] = receipt.meta["currency"]
 			payload["call_elapsed_ns"] = event.Elapsed.Nanoseconds()

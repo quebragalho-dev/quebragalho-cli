@@ -301,7 +301,7 @@ func TestPromptSubmitPersistsPermissionSessionEvents(t *testing.T) {
 		// not one of the 4 semantic steps this test drives — process them so the
 		// model state advances, but don't count them toward the budget.
 		switch runtimeMsg.(type) {
-		case toolCallStreamStartMsg, toolCallStreamDeltaMsg, interactiveExecStartMsg:
+		case agentUsageProgressMsg, toolCallStreamStartMsg, toolCallStreamDeltaMsg, interactiveExecStartMsg:
 			continue
 		}
 		received++
@@ -408,11 +408,11 @@ func TestPermissionWaitDoesNotCountTowardTurnElapsed(t *testing.T) {
 		updated, _ = next.Update(runtimeMsg)
 		next = updated.(model)
 		switch runtimeMsg.(type) {
-		case toolCallStreamStartMsg, toolCallStreamDeltaMsg, interactiveExecStartMsg:
+		case agentUsageProgressMsg, toolCallStreamStartMsg, toolCallStreamDeltaMsg, interactiveExecStartMsg:
 			continue
 		case permissionRequestMsg:
 			clockNanos.Store(base.Add(92 * time.Second).UnixNano())
-			if status := plainRender(t, next.workingStatusLine()); !strings.Contains(status, "·  2s  ·") || strings.Contains(status, "still generating") {
+			if status := plainRender(t, next.workingStatusLine()); !strings.HasSuffix(status, "·  2s") || strings.Contains(status, "still generating") {
 				t.Fatalf("live elapsed advanced during permission wait: %q", status)
 			}
 			updated, _ = next.Update(testKeyText("d"))
@@ -595,8 +595,12 @@ func submitAndDrivePermissionRun(t *testing.T, m model, prompt string, key strin
 		finalCh <- execCmd(cmd)
 	}()
 
-	for received := 0; received < expectedRuntimeMessages; received++ {
+	for received := 0; received < expectedRuntimeMessages; {
 		runtimeMsg := receiveRuntimeMessage(t, runtimeMessages)
+		if _, ok := runtimeMsg.(agentUsageProgressMsg); ok {
+			continue
+		}
+		received++
 		updated, _ = next.Update(runtimeMsg)
 		next = updated.(model)
 		if _, ok := runtimeMsg.(permissionRequestMsg); ok && key != "" {

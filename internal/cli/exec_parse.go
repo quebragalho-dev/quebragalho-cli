@@ -33,7 +33,7 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 				return options, false, err
 			}
 			options.permissionMode = value
-		case arg == "--skip-permissions-unsafe":
+		case arg == "--dangerously-skip-permissions" || arg == "--skip-permissions-unsafe":
 			options.skipPermissionsUnsafe = true
 		case arg == "--list-tools":
 			options.listTools = true
@@ -474,7 +474,7 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 		return options, false, execUsageError{"Use either --plan or --use-spec, not both."}
 	}
 	if planMode && options.skipPermissionsUnsafe {
-		return options, false, execUsageError{"Use either --plan or --skip-permissions-unsafe, not both."}
+		return options, false, execUsageError{"Use either --plan or --dangerously-skip-permissions, not both."}
 	}
 	if planMode && options.worktree {
 		// Worktree prep (copying/branching the workspace) runs before the plan

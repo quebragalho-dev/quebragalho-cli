@@ -406,8 +406,8 @@ func (m model) usagePanelOverlay(width int) string {
 			lines = append(lines, "Uso não informado")
 		}
 		lines = append(lines, "", "Modelo ativo: "+m.modelName)
-		if window := m.apiContextWindow(); window > 0 {
-			lines = append(lines, "Janela: "+formatUsageTokens(window)+" tokens")
+		if window, source := m.contextWindowDisplay(); window > 0 {
+			lines = append(lines, "Janela: "+formatUsageTokens(window)+" tokens"+source)
 			if m.lastUsageSeen && m.lastUsageReceipt.meta["model"] == m.modelName {
 				filled := int(min(float64(20), float64(m.lastUsage.InputTokens)/float64(window)*20))
 				percent := float64(m.lastUsage.InputTokens) / float64(window) * 100

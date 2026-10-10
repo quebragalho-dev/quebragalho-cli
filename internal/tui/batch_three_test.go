@@ -66,7 +66,7 @@ func TestBatchThreeStatusUsesAPIFacts(t *testing.T) {
 	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 10, Elapsed: time.Second}, transcriptRow{})
 	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 90, Elapsed: 3 * time.Second}, transcriptRow{})
 	status := plainRender(t, m.statusLine(120))
-	for _, want := range []string{"high", "feature/user-branch", "última 90 tok", "ctx não informado"} {
+	for _, want := range []string{"high", "feature/user-branch", "ctx 1.000.000 (fallback/docs)"} {
 		assertContains(t, status, want)
 	}
 	assertNotContains(t, status, "1M")

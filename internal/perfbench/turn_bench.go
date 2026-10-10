@@ -857,7 +857,7 @@ func buildTurnExecArgs(task BenchTask, rc RunContext, tracePath string, extraArg
 	// that "pass" are ones whose oracle grep matches the stamped answer text rather
 	// than a real edit. member-auto grants the write + sandboxed-shell tools the
 	// benchmark needs while keeping the workspace/network/destructive safeguards, so
-	// it is preferred over the broader --skip-permissions-unsafe (which also drops
+	// it is preferred over the broader --dangerously-skip-permissions (which also drops
 	// those guards and auto-retries blocked commands unsandboxed). Note the shell it
 	// grants is sandboxed: on a host without sandbox setup the agent's own
 	// self-verification (go test/build) can't run and the turn exits INCOMPLETE even

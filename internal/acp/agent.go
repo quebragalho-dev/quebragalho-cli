@@ -654,7 +654,7 @@ func (a *Agent) handleSetMode(_ context.Context, params json.RawMessage) (any, e
 		return SetSessionModeResult{}, nil
 	case agent.PermissionModeUnsafe:
 		// Unsafe = run every tool with no prompt. The TUI gates this behind an
-		// explicit --skip-permissions-unsafe operator flag; an editor client must
+		// explicit --dangerously-skip-permissions operator flag; an editor client must
 		// not be able to grant itself unconfined, no-prompt access over the wire.
 		return nil, RPCError(codeInvalidParams, "mode not permitted over ACP: "+p.ModeID)
 	default:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // CollectedStream is the non-streaming summary of provider events.
@@ -28,9 +29,10 @@ type CollectedStream struct {
 
 // CollectOptions provides callbacks for consumers that need live stream updates.
 type CollectOptions struct {
-	OnText      func(string)
-	OnReasoning func(string)
-	OnUsage     func(Usage)
+	OnText          func(string)
+	OnReasoning     func(string)
+	OnUsage         func(Usage)
+	OnUsageProgress func(Usage)
 	// OnToolCallStart fires when a tool call opens (id + tool name), and
 	// OnToolCallDelta fires for each streamed argument fragment. Together they let
 	// a surface render a tool call's arguments LIVE (e.g. a file being written)
@@ -87,10 +89,21 @@ func CollectStreamWithOptions(ctx context.Context, events <-chan StreamEvent, op
 	collected := CollectedStream{}
 	collector := newToolCallCollector()
 	usageSeen := false
+	var firstOutput time.Time
+	var measured Usage
+	progress := func() {
+		if options.OnUsageProgress != nil {
+			options.OnUsageProgress(measured)
+		}
+	}
+	progress()
 	finish := func() CollectedStream {
 		collector.flush(&collected)
 		if usageSeen && options.OnUsage != nil {
 			options.OnUsage(collected.Usage)
+		}
+		if usageSeen {
+			progress()
 		}
 		return collected
 	}
@@ -118,6 +131,9 @@ func CollectStreamWithOptions(ctx context.Context, events <-chan StreamEvent, op
 				collected.ReasoningBlocks = append(collected.ReasoningBlocks, event.ReasoningBlocks...)
 			}
 
+			if firstOutput.IsZero() && ((event.Type == StreamEventText || event.Type == StreamEventReasoning) && event.Content != "" || event.Type == StreamEventToolCallDelta && event.ArgumentsFragment != "") {
+				firstOutput = time.Now()
+			}
 			switch event.Type {
 			case StreamEventText:
 				// Accumulate in a Builder rather than `collected.Text +=`, which
@@ -151,6 +167,12 @@ func CollectStreamWithOptions(ctx context.Context, events <-chan StreamEvent, op
 			case StreamEventUsage:
 				collected.Usage = mergeUsageSnapshot(collected.Usage, event.Usage)
 				usageSeen = true
+				measured = collected.Usage
+				measured.Elapsed = 0
+				if !firstOutput.IsZero() {
+					measured.Elapsed = time.Since(firstOutput)
+				}
+				progress()
 			case StreamEventError:
 				collected.Error = event.Error
 				return finish()
