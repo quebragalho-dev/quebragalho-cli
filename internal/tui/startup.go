@@ -67,21 +67,11 @@ func (m model) emptyStateLines(width int) []string {
 		lines = append(lines, "")
 		lines = append(lines, centerLine(orient, width))
 	}
-	// A couple of example prompts to seed the first message.
-	lines = append(lines, "")
-	lines = append(lines, centerLine(qgTheme.faint.Render(emptyStateExamples), width))
-	lines = append(lines, "")
-	lines = append(lines, centerLine(qgTheme.faint.Render("Press ? for keyboard shortcuts · / for commands"), width))
-	// centerLine pads but never truncates; below ~62 cols the lines would exceed
-	// the frame without this fit.
 	for index := range lines {
 		lines[index] = fitStyledLine(lines[index], width)
 	}
 	return lines
 }
-
-// emptyStateExamples seeds the first prompt with a few representative asks.
-const emptyStateExamples = `Try  "explain this codebase"  ·  "fix the failing test"  ·  "add a --json flag"`
 
 func (m model) emptyStateOrientation() string {
 	parts := make([]string, 0, 2)

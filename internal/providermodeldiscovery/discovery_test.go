@@ -336,3 +336,17 @@ func TestOptionalQGMetadataDoesNotRejectGenericCatalog(t *testing.T) {
 		}
 	}
 }
+
+func TestBatchFourCapabilitiesDoNotInventEffortLevels(t *testing.T) {
+	models, err := parseModelsResponse([]byte(`{"data":[{"id":"muse-spark-1.3-contributor","capabilities":{"reasoning":true,"tools":true},"context_length":null}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := models[0]
+	if !m.Reasoning || !m.ToolCall {
+		t.Fatalf("API capabilities lost: %+v", m)
+	}
+	if len(m.ReasoningEfforts) != 0 || m.DefaultReasoningEffort != "" || m.APIModel.ContextLength != nil {
+		t.Fatalf("invented metadata: %+v", m)
+	}
+}

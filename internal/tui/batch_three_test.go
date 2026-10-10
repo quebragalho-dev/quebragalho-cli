@@ -66,7 +66,7 @@ func TestBatchThreeStatusUsesAPIFacts(t *testing.T) {
 	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 10, Elapsed: time.Second})
 	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 90, Elapsed: 3 * time.Second})
 	status := plainRender(t, m.statusLine(120))
-	for _, want := range []string{"high", "feature/user-branch", "25.0 toks/s", "ctx não informado"} {
+	for _, want := range []string{"high", "feature/user-branch", "última 90 tok", "ctx não informado"} {
 		assertContains(t, status, want)
 	}
 	assertNotContains(t, status, "1M")
@@ -155,8 +155,8 @@ func TestBatchThreeReceiptPersistsProviderModelAndExactUSD(t *testing.T) {
 	if notice != "" {
 		t.Fatal(notice)
 	}
-	if stats := resumed.callThroughput["actual-provider-model"]; stats.outputTokens != 100000 || stats.elapsed != 2*time.Second {
-		t.Fatalf("resumed throughput: %+v", stats)
+	if !resumed.lastUsageSeen || resumed.lastUsage.OutputTokens != 100000 {
+		t.Fatalf("resumed usage: %+v", resumed.lastUsage)
 	}
 }
 
@@ -168,7 +168,7 @@ func TestBatchThreeMissingPriceNeverDisplaysFreeCall(t *testing.T) {
 	assertNotContains(t, rendered, "0,00")
 }
 
-func TestBatchThreeThroughputIsSessionLocal(t *testing.T) {
+func TestBatchThreeCallUsageIsSessionLocal(t *testing.T) {
 	m := newBTWTestModel(t)
 	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 10, Elapsed: time.Second})
 	side, _ := m.handleBTWCommand("")
@@ -177,16 +177,16 @@ func TestBatchThreeThroughputIsSessionLocal(t *testing.T) {
 	}
 	side, _ = side.recordUsageEvent(side.modelName, qgruntime.Usage{OutputTokens: 90, Elapsed: 3 * time.Second})
 	restored, _ := side.leaveBTW()
-	if got := restored.callThroughput[m.modelName]; got.outputTokens != 10 || got.elapsed != time.Second {
-		t.Fatalf("side usage leaked: %+v", got)
+	if !restored.lastUsageSeen || restored.lastUsage.TotalTokens != 10 {
+		t.Fatalf("side usage leaked: %+v", restored.lastUsage)
 	}
 	fresh := restored.startNewSession()
-	if len(fresh.callThroughput) != 0 {
-		t.Fatalf("new session inherited throughput: %+v", fresh.callThroughput)
+	if fresh.lastUsageSeen {
+		t.Fatalf("new session inherited usage: %+v", fresh.lastUsage)
 	}
 	resumed, _ := restored.handleResumeCommand(restored.activeSession.SessionID)
-	if len(resumed.callThroughput) != 0 {
-		t.Fatalf("old session without persisted timings must show unknown: %+v", resumed.callThroughput)
+	if resumed.lastUsageSeen {
+		t.Fatalf("session without persisted usage must show unknown: %+v", resumed.lastUsage)
 	}
 }
 
