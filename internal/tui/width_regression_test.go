@@ -73,7 +73,7 @@ func TestTitleBarWithoutBranchKeepsWorkspace(t *testing.T) {
 
 func TestEmptyStateOrientationKeepsContextWithoutModel(t *testing.T) {
 	m := model{appVersion: "1.2.3", cwd: "/workspace/qg", gitBranch: "main", modelName: "model-only-at-composer"}
-	if got := plainRender(t, m.emptyStateOrientation()); got != "v1.2.3  ·  /workspace/qg  ·  main" {
+	if got := plainRender(t, m.emptyStateOrientation()); got != "v1.2.3  ·  main" {
 		t.Fatalf("orientation = %q", got)
 	}
 	m.appVersion, m.cwd, m.gitBranch = "", "", ""

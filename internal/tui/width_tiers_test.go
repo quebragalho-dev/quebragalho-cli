@@ -33,8 +33,8 @@ func TestWidthTierSegments(t *testing.T) {
 		{width: 58, wantCtx: false, wantCwd: false, wantArg: false, wantGutter: false},
 		{width: 70, wantCtx: false, wantCwd: false, wantArg: false, wantGutter: false},
 		{width: 80, wantCtx: false, wantCwd: true, wantArg: false, wantGutter: true},
-		{width: 100, wantCtx: true, wantCwd: true, wantArg: true, wantGutter: true},
-		{width: 120, wantCtx: true, wantCwd: true, wantArg: true, wantGutter: true},
+		{width: 100, wantCtx: false, wantCwd: true, wantArg: true, wantGutter: true},
+		{width: 120, wantCtx: false, wantCwd: true, wantArg: true, wantGutter: true},
 	}
 
 	for _, tc := range cases {
@@ -124,7 +124,7 @@ func TestTitleBarKeepsWorkspaceWithLongBranchAndModel(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		Cwd:          "/workspace/qg",
 		ProviderName: "ollama-cloud",
-		ModelName:    "cogito-2.1:671b-extra-long-model-name",
+		ModelName:    "cogito-2.1:671b-extra-long-model-name-beyond-forty-columns",
 	})
 	m.gitBranch = "feat/tui-assistant-response-cleanup"
 
@@ -212,7 +212,7 @@ var permissionEventLongDetailFixture = agent.PermissionEvent{
 }
 
 func TestComposerDividerTruncatesLongModelByCells(t *testing.T) {
-	m := newModel(context.Background(), Options{ProviderName: "ollama-cloud", ModelName: "cogito-2.1:671b-extra-long-model-name"})
+	m := newModel(context.Background(), Options{ProviderName: "ollama-cloud", ModelName: "cogito-2.1:671b-extra-long-model-name-beyond-forty-columns"})
 	for _, width := range []int{0, 1, 4, 7, 8, 40, 58, 80} {
 		divider := plainRender(t, m.composerDividerLine(width))
 		if got := lipgloss.Width(divider); got > width {
