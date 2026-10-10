@@ -18,7 +18,7 @@ func TestBatchSevenDocumentedContext(t *testing.T) {
 			m.modelName = tc.id
 			m.modelPickerLiveByProvider["qg"][0].ID = tc.id
 			m.modelPickerLiveByProvider["qg"][0].APIModel.ID = tc.id
-			assertContains(t, plainRender(t, m.statusLine(120)), "ctx "+tc.want+" (fallback/docs)")
+			assertContains(t, plainRender(t, m.statusLine(120)), "ctx "+tc.want)
 			m = batchSixOpen(m, "/usage")
 			assertContains(t, plainRender(t, m.pickerOverlay(120)), tc.want+" tokens")
 			n := int64(131072)

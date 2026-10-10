@@ -64,7 +64,7 @@ func TestProviderAndConfigCommandsUseStableStatusOutput(t *testing.T) {
 		t.Fatal("expected /provider to be handled without starting an agent run")
 	}
 	providerText := transcriptText(next.transcript)
-	for _, want := range []string{"Provider", "status: ok", "provider: openai", "model: gpt-4.1", "api key: set"} {
+	for _, want := range []string{"qg login", "QG_API_KEY", "QUEBRAGALHO_API_KEY"} {
 		assertContains(t, providerText, want)
 	}
 	assertNotContains(t, providerText, "sk-sensitive")
@@ -106,7 +106,7 @@ func TestProviderCommandRedactsCredentialBearingBaseURL(t *testing.T) {
 	for _, unwanted := range []string{"super-secret", "query-secret", "user:super-secret@"} {
 		assertNotContains(t, text, unwanted)
 	}
-	assertContains(t, text, "base url: https://proxy.local/v1?api_key=[REDACTED]")
+	assertContains(t, text, "qg login")
 }
 
 func TestToolsCommandRendersCommandCard(t *testing.T) {

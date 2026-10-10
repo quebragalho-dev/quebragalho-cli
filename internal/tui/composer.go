@@ -277,7 +277,7 @@ func (m model) composerPositionAtMouse(msg tea.MouseMsg) (int, bool) {
 }
 
 func (m model) composerMouseSelectionBlocked() bool {
-	return m.transcriptDetailed || m.setup.visible || m.providerWizard != nil || m.mcpAddWizard != nil ||
+	return m.transcriptDetailed || m.setup.visible || m.mcpAddWizard != nil ||
 		m.mcpManager != nil || m.picker != nil || m.renamePrompt != nil || m.suggestionsActive()
 }
 
