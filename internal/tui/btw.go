@@ -112,6 +112,7 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 	side.usageTracker = usage.NewTracker(usage.TrackerOptions{Registry: &side.modelCatalog, Now: side.now})
 	side.lastUsage = usage.Normalized{}
 	side.lastUsageSeen = false
+	side.lastUsageReceipt = transcriptRow{}
 	side.unpricedRequests = 0
 	side.unpricedTokens = 0
 	side.compactRequests = 0

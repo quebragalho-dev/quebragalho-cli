@@ -63,8 +63,8 @@ func TestBatchThreeStatusUsesAPIFacts(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	m.reasoningEffort = "high"
 	m.gitBranch = "feature/user-branch"
-	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 10, Elapsed: time.Second})
-	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 90, Elapsed: 3 * time.Second})
+	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 10, Elapsed: time.Second}, transcriptRow{})
+	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 90, Elapsed: 3 * time.Second}, transcriptRow{})
 	status := plainRender(t, m.statusLine(120))
 	for _, want := range []string{"high", "feature/user-branch", "última 90 tok", "ctx não informado"} {
 		assertContains(t, status, want)
@@ -72,7 +72,7 @@ func TestBatchThreeStatusUsesAPIFacts(t *testing.T) {
 	assertNotContains(t, status, "1M")
 	n := int64(131072)
 	m.modelPickerLiveByProvider["qg"][0].APIModel.ContextLength = &n
-	assertContains(t, plainRender(t, m.statusLine(120)), "ctx 131072")
+	assertContains(t, plainRender(t, m.statusLine(120)), "ctx 131.072")
 }
 
 func TestBatchThreeCallCostFrozenAndInline(t *testing.T) {
@@ -98,7 +98,7 @@ func TestBatchThreeCallCostFrozenAndInline(t *testing.T) {
 	m.modelPickerLiveByProvider["qg"][0].APIModel.PricingBRL.Input = "999"
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 		got := plainRender(t, m.renderRow(rows[0], width, rowContext{}))
-		assertContains(t, got, "R$ 0,00")
+		assertContains(t, got, "< R$ 0,01")
 		for _, line := range strings.Split(got, "\n") {
 			if lipgloss.Width(line) > width {
 				t.Fatalf("receipt overflow: %q", line)
@@ -164,18 +164,18 @@ func TestBatchThreeMissingPriceNeverDisplaysFreeCall(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	row := callUsageRow(1, 1, m.modelName, qgruntime.Usage{InputTokens: 100}, qgaccount.ModelInfo{})
 	rendered := plainRender(t, m.renderRow(row, 40, rowContext{}))
-	assertContains(t, rendered, "custo não informado")
+	assertContains(t, strings.Join(strings.Fields(rendered), " "), "custo não informado")
 	assertNotContains(t, rendered, "0,00")
 }
 
 func TestBatchThreeCallUsageIsSessionLocal(t *testing.T) {
 	m := newBTWTestModel(t)
-	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 10, Elapsed: time.Second})
+	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 10, Elapsed: time.Second}, transcriptRow{})
 	side, _ := m.handleBTWCommand("")
 	if !side.btw.active {
 		t.Fatal("BTW did not open")
 	}
-	side, _ = side.recordUsageEvent(side.modelName, qgruntime.Usage{OutputTokens: 90, Elapsed: 3 * time.Second})
+	side, _ = side.recordUsageEvent(side.modelName, qgruntime.Usage{OutputTokens: 90, Elapsed: 3 * time.Second}, transcriptRow{})
 	restored, _ := side.leaveBTW()
 	if !restored.lastUsageSeen || restored.lastUsage.TotalTokens != 10 {
 		t.Fatalf("side usage leaked: %+v", restored.lastUsage)

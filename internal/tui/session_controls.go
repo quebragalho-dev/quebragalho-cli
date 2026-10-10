@@ -65,7 +65,7 @@ func (m model) handleEffortCommand(args string) (model, string) {
 	if args == "auto" {
 		m.reasoningEffort = ""
 		m = m.markProfileEffortTouched()
-		return m, m.effortStatusCard("auto", "Reasoning effort selection will follow the active model/provider defaults.")
+		return m, m.effortStatusCard("auto", "Auto é a preferência local: não envia reasoning_effort. O esforço aplicado pelo servidor não é informado.")
 	}
 
 	requested := modelregistry.ReasoningEffort(args)
@@ -204,6 +204,8 @@ func (m model) effortStatusCard(value string, detail string) string {
 func (m model) effortText() string {
 	efforts := m.availableReasoningEfforts()
 	fields := []commandField{
+		{Key: "preferência local", Value: m.effortDisplay()},
+		{Key: "auto", Value: "não envia reasoning_effort; default do servidor não confirmado"},
 		{Key: "active effort", Value: m.effortDisplay()},
 		{Key: "model", Value: displayValue(m.modelName, "none")},
 	}
@@ -1135,7 +1137,7 @@ func (m model) setCompactStatusRow(text string) model {
 	return m
 }
 
-func (m model) recordUsageEvent(modelID string, event qgruntime.Usage) (model, []transcriptRow) {
+func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt transcriptRow) (model, []transcriptRow) {
 	if m.usageTracker == nil || strings.TrimSpace(modelID) == "" {
 		return m, nil
 	}
@@ -1147,6 +1149,10 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage) (model, [
 		modelID = event.ModelID
 	}
 	m.lastUsage = normalized
+	if receipt.meta == nil {
+		receipt.meta = map[string]string{"model": modelID}
+	}
+	m.lastUsageReceipt = receipt
 	m.lastUsageSeen = true
 	if _, err := m.usageTracker.Record(usage.RecordInput{
 		ModelID: modelID,
