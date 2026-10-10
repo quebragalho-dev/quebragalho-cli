@@ -118,7 +118,7 @@ var commandDefinitions = []commandDefinition{
 		name:        "/plan",
 		usage:       "/plan [status|on|off]",
 		group:       commandGroupSession,
-		description: "Show plan status, or enter/exit read-only planning mode.",
+		description: "Entrar no modo de planejamento; status consulta e off sai.",
 		kind:        commandPlan,
 	},
 	{

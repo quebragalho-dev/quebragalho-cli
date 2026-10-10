@@ -80,7 +80,13 @@ func (m model) liveQGModelPicker() *commandPicker {
 		caps := fmt.Sprintf("tools %t · vision %t · reasoning %t", info.Capabilities.Tools, info.Capabilities.Vision, info.Capabilities.Reasoning)
 		price := "BRL não informado"
 		if info.PricingBRL.Currency == "BRL" {
-			price = "BRL/1M entrada " + displayValue(info.PricingBRL.Input, "n/d") + " · saída " + displayValue(info.PricingBRL.Output, "n/d") + " · cache " + displayValue(info.PricingBRL.CachedInput, "n/d")
+			money := func(value string) string {
+				if strings.TrimSpace(value) == "" {
+					return "n/d"
+				}
+				return "R$ " + strings.ReplaceAll(value, ".", ",")
+			}
+			price = "BRL/1M entrada " + money(info.PricingBRL.Input) + " · saída " + money(info.PricingBRL.Output) + " · cache " + money(info.PricingBRL.CachedInput)
 		}
 		items = append(items, pickerItem{Label: label, Value: info.ID, OwnerProvider: m.providerName, Meta: price, Detail: "bônus " + bonus + " · " + caps})
 		if info.ID == m.modelName {
@@ -149,10 +155,7 @@ func (m model) effortPanelLines(width int, value string) []string {
 			track[at+1+len(value)/2] = '▲'
 		}
 	}
-	lines := []string{"Faster" + strings.Repeat(" ", maxInt(1, len(track)-13)) + "Smarter", string(track), labelLine, "effort: " + value + " · preferência local"}
-	if len(m.availableReasoningEfforts()) == 0 {
-		lines = append(lines, "Suporte aos níveis não confirmado pela API.")
-	}
+	lines := []string{"Faster" + strings.Repeat(" ", maxInt(1, len(track)-13)) + "Smarter", string(track), labelLine, "effort: " + value}
 	return lines
 }
 
@@ -190,16 +193,11 @@ func (m model) modelPanelOverlay(width int) string {
 	}
 	if item, ok := p.current(); ok {
 		lines = append(lines, "", item.Value, item.Meta, item.Detail)
-		preview := m
-		preview.modelName = item.Value
 		value := p.effort
 		if value == "" {
 			value = m.effortDisplay()
 		}
 		lines = append(lines, "", "effort: "+value+" · ←/→ ajustar")
-		if len(preview.availableReasoningEfforts()) == 0 {
-			lines = append(lines, "Níveis locais; suporte não confirmado.")
-		}
 	}
 	lines = append(lines, "", "↑/↓ mover · / buscar · Tab lista · Enter padrão", "s só nesta sessão · Esc cancelar")
 	return m.panelBlock(width, "Selecionar modelo", lines)
@@ -406,17 +404,15 @@ func (m model) usagePanelOverlay(width int) string {
 			lines = append(lines, "Uso não informado")
 		}
 		lines = append(lines, "", "Modelo ativo: "+m.modelName)
-		if window, source := m.contextWindowDisplay(); window > 0 {
-			lines = append(lines, "Janela: "+formatUsageTokens(window)+" tokens"+source)
-			if m.lastUsageSeen && m.lastUsageReceipt.meta["model"] == m.modelName {
-				filled := int(min(float64(20), float64(m.lastUsage.InputTokens)/float64(window)*20))
+		if window, _ := m.contextWindowDisplay(); window > 0 {
+			lines = append(lines, "Janela: "+formatUsageTokens(window)+" tokens")
+			if m.lastUsageSeen && m.lastUsageReceipt.meta["model"] == m.modelName && m.lastUsage.InputTokens > 0 {
 				percent := float64(m.lastUsage.InputTokens) / float64(window) * 100
-				lines = append(lines, "Entrada da última chamada", "["+strings.Repeat("█", filled)+strings.Repeat("░", 20-filled)+fmt.Sprintf("] %.1f%%", percent))
-			} else {
-				lines = append(lines, "Ocupação: não informada para este modelo")
+				value := strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.1f", percent), "0"), ".")
+				lines = append(lines, "Uso da janela: "+strings.ReplaceAll(value, ".", ",")+"% ("+formatUsageTokens(m.lastUsage.InputTokens)+" / "+formatUsageTokens(window)+")")
 			}
 		} else {
-			lines = append(lines, "Janela: não informado pela API", "Ocupação: não informada")
+			lines = append(lines, "Janela: não informado pela API")
 		}
 	} else if result := m.picker.account; result == nil {
 		lines = append(lines, "Consultando conta…")
@@ -426,13 +422,17 @@ func (m model) usagePanelOverlay(width int) string {
 		} else {
 			u := result.usage
 			count := func(n int64) string { return qgaccount.GroupThousands(strconv.FormatInt(n, 10)) }
-			lines = append(lines, "Janela: "+u.From+" a "+u.To, "Escopo: "+u.Scope, "Chamadas: "+count(u.Requests), "Entrada: "+count(u.InputTokens), "Saída: "+count(u.OutputTokens), "Cache lido (incluído): "+count(u.CachedInputTokens), "Total: "+count(u.Total()), "Custo agregado: não informado pela API")
+			lines = append(lines, "Período: "+u.From+" a "+u.To, "Escopo: "+u.Scope, "")
+			for _, row := range [][2]string{{"Chamadas:", count(u.Requests)}, {"Entrada:", count(u.InputTokens)}, {"Saída:", count(u.OutputTokens)}, {"Cache lido (incluído):", count(u.CachedInputTokens)}, {"Total:", count(u.Total())}} {
+				lines = append(lines, fmt.Sprintf("%-24s%s", row[0], row[1]))
+			}
+			lines = append(lines, "", "Custo no período: indisponível", "A API não detalha custo nem uso por modelo.")
 		}
 		if result.balanceErr != nil {
 			lines = append(lines, "Saldo indisponível")
 		} else if result.balance.Currency == "BRL" {
 			if balance, err := qgaccount.FormatBRL(result.balance.Available); err == nil {
-				lines = append(lines, "Saldo disponível: "+balance)
+				lines = append(lines, fmt.Sprintf("%-24s%s", "Saldo disponível:", balance))
 			}
 		}
 	}
