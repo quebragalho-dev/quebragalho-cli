@@ -103,6 +103,9 @@ func (m model) routePaste(content string) (tea.Model, tea.Cmd) {
 		return m.handleProviderWizardPaste(content)
 	}
 	if m.picker != nil {
+		if m.picker.kind == pickerEffort || m.picker.kind == pickerUsage {
+			return m, nil
+		}
 		if m.modelPickerIsLoading() {
 			return m, nil
 		}

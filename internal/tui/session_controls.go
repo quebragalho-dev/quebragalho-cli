@@ -72,7 +72,7 @@ func (m model) handleEffortCommand(args string) (model, string) {
 	if !modelregistry.ValidReasoningEffort(requested) {
 		return m, m.effortStatusCard(args, "Unknown reasoning effort: "+args)
 	}
-	efforts := m.availableReasoningEfforts()
+	efforts := m.panelReasoningEfforts()
 	if len(efforts) == 0 {
 		return m, m.effortStatusCard("", "Active model does not expose reasoning effort controls.")
 	}

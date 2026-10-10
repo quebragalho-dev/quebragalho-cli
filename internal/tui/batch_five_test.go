@@ -51,10 +51,7 @@ func TestBatchFiveUsageCommandSurvivesClearWithFrozenCost(t *testing.T) {
 	m.modelPickerLiveByProvider["qg"][0].APIModel.PricingBRL.Input = "999"
 	updated, _ = m.dispatchCommand(parseCommand("/usage"))
 	m = updated.(model)
-	var text string
-	for _, row := range m.transcript {
-		text += plainRender(t, m.renderRow(row, 120, rowContext{})) + "\n"
-	}
+	text := plainRender(t, m.pickerOverlay(120))
 	for _, want := range []string{"12.771", m.modelName, "R$ 0,02", "não informado"} {
 		assertContains(t, text, want)
 	}
@@ -77,11 +74,11 @@ func TestBatchFiveUsageSnapshotReplacesUnknownAndResumesExactCost(t *testing.T) 
 	row := callUsageRow(1, 1, m.modelName, event, *m.apiModel(m.modelName))
 	next, _ := m.Update(agentUsageMsg{runID: 1, modelID: m.modelName, usage: event, receipt: row})
 	m = next.(model)
-	assertContains(t, m.callUsageText(), "< R$ 0,01")
+	assertContains(t, batchSixUsageText(m), "< R$ 0,01")
 	next, _ = m.Update(agentUsageMsg{runID: 1, modelID: "unpriced", usage: qgruntime.Usage{InputTokens: 1}})
 	m = next.(model)
-	assertContains(t, m.callUsageText(), "custo não informado")
-	assertNotContains(t, m.callUsageText(), "< R$")
+	assertContains(t, batchSixUsageText(m), "custo não informado")
+	assertNotContains(t, batchSixUsageText(m), "< R$")
 	store := testSessionStore(t)
 	session, err := store.Create(sessions.CreateInput{SessionID: "usage-price"})
 	if err != nil {
@@ -93,12 +90,12 @@ func TestBatchFiveUsageSnapshotReplacesUnknownAndResumesExactCost(t *testing.T) 
 	if notice != "" {
 		t.Fatal(notice)
 	}
-	text := m.callUsageText()
+	text := batchSixUsageText(m)
 	for _, want := range []string{"historic-model", "12.771", "R$ 0,05"} {
 		assertContains(t, text, want)
 	}
 	m = m.startNewSession()
-	assertNotContains(t, m.callUsageText(), "R$ 0,05")
+	assertNotContains(t, batchSixUsageText(m), "R$ 0,05")
 }
 
 func TestBatchFiveCancelledOldRunDoesNotReplaceActiveUsage(t *testing.T) {
@@ -146,6 +143,6 @@ func TestBatchFiveUsageSurvivesCompactedResume(t *testing.T) {
 		t.Fatal(notice)
 	}
 	for _, want := range []string{"historic-model", "12.771", "R$ 0,05"} {
-		assertContains(t, m.callUsageText(), want)
+		assertContains(t, batchSixUsageText(m), want)
 	}
 }

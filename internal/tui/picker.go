@@ -28,6 +28,7 @@ const (
 	pickerSTTModel
 	pickerSTTDownload
 	pickerPet
+	pickerUsage
 )
 
 // pickerItem is one selectable row: Label is shown, Value is passed to the
@@ -64,7 +65,12 @@ type commandPicker struct {
 	selected int
 	// loading marks a picker still fetching its rows (e.g. the STT model list from
 	// GitHub): the overlay shows a "fetching…" line instead of "no matching items".
-	loading bool
+	loading        bool
+	effort         string
+	usageTab       int
+	account        *usageAccountResult
+	accountLoading bool
+	searching      bool
 }
 
 func (p *commandPicker) move(delta int) {
@@ -193,6 +199,9 @@ func scorePickerItem(item pickerItem, query string) (int, bool) {
 // one. Returns nil when the catalog is unavailable so the caller falls back to
 // the plain status text.
 func (m model) newModelPicker() *commandPicker {
+	if p := m.liveQGModelPicker(); p != nil {
+		return p
+	}
 	registry, err := modelregistry.DefaultRegistry()
 	if err != nil {
 		return nil
@@ -361,6 +370,9 @@ func (m model) openModelPicker() (model, tea.Cmd) {
 	picker := m.newModelPicker()
 	if picker == nil {
 		return m, nil
+	}
+	if m.providerProfile.CatalogID == "qg" && len(m.discoveredModelsForActiveProvider()) == 0 {
+		picker = &commandPicker{kind: pickerModel, title: "Selecionar modelo"}
 	}
 	m.picker = picker
 	m.clearModelPickerLoadState()
@@ -789,12 +801,16 @@ func (m model) applyModelPickerModelsDiscovered(msg modelPickerModelsDiscoveredM
 	if m.picker != nil && m.picker.kind == pickerModel {
 		selectedValue := ""
 		query := m.picker.query
+		effort := m.picker.effort
+		searching := m.picker.searching
 		if item, ok := m.picker.current(); ok {
 			selectedValue = item.Value
 		}
 		m.picker = m.newModelPicker()
 		if m.picker != nil {
 			m.picker.query = query
+			m.picker.effort = effort
+			m.picker.searching = searching
 			m.picker.applyQuery()
 			m.selectPickerValue(selectedValue)
 		}
@@ -946,7 +962,7 @@ func (m *model) selectPickerValue(value string) {
 // reports "Active model does not expose reasoning effort controls" if they pick
 // anything other than auto.
 func (m model) newEffortPicker() *commandPicker {
-	efforts := m.availableReasoningEfforts()
+	efforts := m.panelReasoningEfforts()
 	items := []pickerItem{{Label: "auto", Value: "auto"}}
 	selected := 0
 	if m.reasoningEffort == "" {
@@ -994,6 +1010,9 @@ func (m model) pickerMoved(delta int) (model, tea.Cmd) {
 		return m, nil
 	}
 	m.picker.move(delta)
+	if m.picker.kind == pickerModel {
+		m.picker.effort = ""
+	}
 	if m.picker.kind == pickerPet {
 		return m.schedulePetPreview()
 	}

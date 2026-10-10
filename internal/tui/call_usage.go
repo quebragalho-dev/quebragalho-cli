@@ -161,23 +161,3 @@ func (msg agentResponseMsg) usageReceiptAt(index int) transcriptRow {
 	}
 	return transcriptRow{}
 }
-
-func (m model) callUsageText() string {
-	fields := []commandField{}
-	if m.lastUsageSeen {
-		fields = append(fields, commandField{Key: "Modelo da chamada", Value: displayValue(m.lastUsageReceipt.meta["model"], "não informado")},
-			commandField{Key: "Entrada", Value: formatUsageTokens(m.lastUsage.InputTokens)},
-			commandField{Key: "Saída", Value: formatUsageTokens(m.lastUsage.OutputTokens)},
-			commandField{Key: "Cache lido (incluído)", Value: formatUsageTokens(m.lastUsage.CachedInputTokens)},
-			commandField{Key: "Total", Value: formatUsageTokens(m.lastUsage.TotalTokens)},
-			commandField{Key: "Custo", Value: callCostText(m.lastUsageReceipt)})
-	} else {
-		fields = append(fields, commandField{Key: "Última chamada", Value: "não informada"})
-	}
-	window := "não informado pela API"
-	if n := m.apiContextWindow(); n > 0 {
-		window = formatUsageTokens(n) + " tokens"
-	}
-	fields = append(fields, commandField{Key: "Modelo ativo", Value: displayValue(m.modelName, "não informado")}, commandField{Key: "Janela do modelo ativo", Value: window})
-	return renderCommandCardTranscript(commandCard{Title: "Uso", Sections: []commandCardSection{{Title: "Última chamada", Fields: fields}}})
-}

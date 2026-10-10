@@ -107,7 +107,8 @@ type ToolsConfig struct {
 }
 
 type PreferencesConfig struct {
-	FavoriteModels []string `json:"favoriteModels,omitempty"`
+	ReasoningEfforts map[string]string `json:"reasoningEfforts,omitempty"`
+	FavoriteModels   []string          `json:"favoriteModels,omitempty"`
 	// RecentModels is the short automatic history of provider+model pairs the
 	// user has switched to via /model, newest first. Unlike FavoriteModels
 	// (manual pins), this list is maintained automatically on every switch and
