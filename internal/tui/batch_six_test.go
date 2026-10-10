@@ -33,7 +33,7 @@ func TestBatchSixEffortPanelDraftAndScope(t *testing.T) {
 	m.userConfigPath = filepath.Join(t.TempDir(), "config.json")
 	m = batchSixOpen(m, "/effort")
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"Faster", "Smarter", "xhigh", "max", "não confirmado"} {
+	for _, want := range []string{"Faster", "Smarter", "xhigh", "max"} {
 		assertContains(t, got, want)
 	}
 	m = batchSixKey(m, tea.KeyRight, "")
@@ -78,7 +78,7 @@ func TestBatchSixModelPanelLiveDetails(t *testing.T) {
 	info.Capabilities.Reasoning = true
 	m.picker = m.newModelPicker()
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"1.", "Muse Spark", m.modelName, "BRL", "1.648", "bônus", "reasoning", "effort", "sessão"} {
+	for _, want := range []string{"1.", "Muse Spark", m.modelName, "BRL", "R$ 1,648", "bônus", "reasoning", "effort", "sessão"} {
 		assertContains(t, got, want)
 	}
 }
@@ -90,7 +90,7 @@ func TestBatchSixUsageModalTabsAndCancel(t *testing.T) {
 		t.Fatal("usage must open modal without appending transcript")
 	}
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"Sessão", "Conta", "fallback/docs"} {
+	for _, want := range []string{"Sessão", "Conta", "Janela: 1.000.000 tokens"} {
 		assertContains(t, got, want)
 	}
 	m = batchSixKey(m, tea.KeyTab, "")
@@ -225,7 +225,7 @@ func TestBatchSixAccountUsesAPIAndIgnoresStaleResult(t *testing.T) {
 	next, _ = m.Update(result)
 	m = next.(model)
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"12.771", "R$ 42,50", "Custo agregado: não informado"} {
+	for _, want := range []string{"12.771", "R$ 42,50", "Custo no período: indisponível"} {
 		assertContains(t, got, want)
 	}
 	m = batchSixKey(m, tea.KeyEsc, "")
@@ -267,12 +267,12 @@ func TestBatchSixContextBarOnlyUsesSameModelAPIWindow(t *testing.T) {
 	receipt := callUsageRow(1, 1, m.modelName, event, *m.apiModel(m.modelName))
 	m, _ = m.recordUsageEvent(m.modelName, event, receipt)
 	got := plainRender(t, m.pickerOverlay(120))
-	assertContains(t, got, "fallback/docs")
-	assertContains(t, got, "0.1%")
+	assertNotContains(t, got, "fallback/docs")
+	assertContains(t, got, "0,1%")
 	window := int64(2000)
 	m.modelPickerLiveByProvider["qg"][0].APIModel.ContextLength = &window
 	got = plainRender(t, m.pickerOverlay(120))
-	assertContains(t, got, "50.0%")
+	assertContains(t, got, "50%")
 	m.lastUsageReceipt.meta["model"] = "previous-model"
 	assertNotContains(t, plainRender(t, m.pickerOverlay(120)), "%")
 }

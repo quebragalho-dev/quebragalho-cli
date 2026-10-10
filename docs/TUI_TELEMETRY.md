@@ -11,7 +11,9 @@ Um `context_length` positivo recebido pelo discovery do provedor ativo tem prior
 | `grok-4.7` | 500.000 |
 | Demais modelos QG | 1.000.000 |
 
-A statusline e o painel `/usage` mostram `(fallback/docs)` quando usam essa política. Esses limites são referências locais de exibição, não valores live nem garantia da API. Não alteram o planejamento ou a compactação de contexto. Outros provedores sem informação continuam com contexto desconhecido.
+A statusline mostra `(fallback/docs)` quando usa essa política. O painel `/usage` apresenta o valor da janela sem esse sufixo. Esses limites são referências locais de exibição, não valores live nem garantia da API. Não alteram o planejamento ou a compactação de contexto. Outros provedores sem informação continuam com contexto desconhecido.
+
+O uso da janela considera os tokens de entrada medidos na chamada mais recente do mesmo modelo, incluindo cache uma única vez. Sem essa medição ou sem janela conhecida, a linha fica oculta. O relatório da conta não separa tokens por modelo nem informa custo; por isso o painel não calcula um gasto agregado usando o preço do modelo atual.
 
 ## Velocidade
 
@@ -23,7 +25,7 @@ A velocidade só atualiza quando o provedor envia um snapshot de uso. Se ele env
 
 Um nível escolhido pelo usuário é uma preferência local. Um default anunciado pelo discovery aparece com `(API)`. Sem escolha ou default conhecido, a statusline mostra `n/d`.
 
-A opção local `auto` omite `reasoning_effort` na requisição. O booleano `capabilities.reasoning` não confirma níveis individuais. Para modelos QG que anunciam reasoning, o painel permite a preferência local `low`, `medium`, `high`, `xhigh` ou `max`, com aviso de suporte não confirmado quando a API não publica níveis.
+A opção local `auto` omite `reasoning_effort` na requisição. O booleano `capabilities.reasoning` não confirma níveis individuais. Para modelos QG que anunciam reasoning, o painel permite a preferência local `low`, `medium`, `high`, `xhigh` ou `max`; o painel exibe apenas o nível escolhido, sem afirmar suporte da API.
 
 ## Permissões
 
