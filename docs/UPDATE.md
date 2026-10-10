@@ -4,6 +4,9 @@
 local CLI version. `qg update --apply` (or its shorthand, `qg upgrade`)
 downloads, verifies, and installs it.
 
+Os exemplos com `--repo quebragalho-dev/quebragalho-cli` usam o repositório
+privado (requer acesso), inclusive com `--check`.
+
 ```bash
 qg update --check
 qg update --check --json
@@ -65,7 +68,7 @@ Endpoint resolution order:
 1. `--endpoint`
 2. `QG_UPDATE_RELEASE_URL`
 3. `--repo`
-4. `https://api.github.com/repos/quebragalho-dev/quebragalho-cli/releases/latest`
+4. `https://api.github.com/repos/quebragalho-dev/quebragalho-cli/releases/latest` (requer acesso)
 
 Installer scripts download the matching release asset for the local platform and
 verify its `.sha256` file. If QG is already installed, run `qg upgrade`

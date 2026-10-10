@@ -10,6 +10,9 @@ provider and supply the API key. Nothing is hardcoded to any single provider.
 
 ## Quick start
 
+A action `quebragalho-dev/quebragalho-cli@v1` está no repositório privado
+(requer acesso). Os exemplos `uses:` abaixo mantêm esse destino.
+
 ```yaml
 # .github/workflows/qg.yml
 name: QG
