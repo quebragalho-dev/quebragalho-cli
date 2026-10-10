@@ -108,8 +108,8 @@ func renderCallUsage(row transcriptRow, width int) string {
 
 func (m model) statusReadout(left string, width int) string {
 	context := "ctx não informado"
-	if n, source := m.contextWindowDisplay(); n > 0 {
-		context = "ctx " + formatUsageTokens(n) + source
+	if n, _ := m.contextWindowDisplay(); n > 0 {
+		context = "ctx " + formatUsageTokens(n)
 	}
 	if n, _ := m.contextWindowDisplay(); width < 58 && n == 0 {
 		context = "ctx n/d"

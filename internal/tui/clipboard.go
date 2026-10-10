@@ -99,9 +99,6 @@ func (m model) routePaste(content string) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(tea.PasteMsg{Content: content})
 		return m, cmd
 	}
-	if m.providerWizard != nil {
-		return m.handleProviderWizardPaste(content)
-	}
 	if m.picker != nil {
 		if m.picker.kind == pickerEffort || m.picker.kind == pickerUsage {
 			return m, nil

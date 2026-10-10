@@ -229,7 +229,6 @@ func TestLeaderQuestionMarkOpensChordMap(t *testing.T) {
 		"Ctrl+X Shortcuts",
 		"Slash commands",
 		"Ctrl+X m", "open /model",
-		"Ctrl+X p", "open /provider",
 		"Ctrl+X R", "run /retry",
 		"╭", "╰", "│", // same box border chrome as the ? keyboard-shortcut modal
 	} {

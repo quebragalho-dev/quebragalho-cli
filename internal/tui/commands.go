@@ -87,13 +87,6 @@ type parsedCommand struct {
 
 var commandDefinitions = []commandDefinition{
 	{
-		name:        "/provider",
-		usage:       "/provider [add|status]",
-		group:       commandGroupModel,
-		description: "Manage providers: activate, add, edit, delete.",
-		kind:        commandProvider,
-	},
-	{
 		name:        "/model",
 		usage:       "/model [list|id]",
 		group:       commandGroupModel,
@@ -433,6 +426,9 @@ func parseCommand(input string) parsedCommand {
 
 	if strings.HasPrefix(trimmed, "/") {
 		name, args := splitCommand(trimmed)
+		if name == "/provider" || name == "/providers" {
+			return parsedCommand{kind: commandProvider, name: name, text: args}
+		}
 		command, ok := resolveCommand(name)
 		if ok {
 			return parsedCommand{kind: command.kind, name: command.name, text: args}

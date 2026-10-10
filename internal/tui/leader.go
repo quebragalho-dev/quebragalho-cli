@@ -18,7 +18,6 @@ const leaderTimeout = 2 * time.Second
 // args) — same as typing the slash and pressing Enter with an empty argument.
 var leaderCommandByKey = map[rune]string{
 	'm': "/model",
-	'p': "/provider",
 	'P': "/plan",
 	'M': "/stt-model",
 	'v': "/voice",
@@ -94,7 +93,6 @@ func (m model) handleLeaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func leaderHelpBindings() []keybinding {
 	return []keybinding{
 		{"Ctrl+X m", "open /model"},
-		{"Ctrl+X p", "open /provider"},
 		{"Ctrl+X P", "run /plan"},
 		{"Ctrl+X M", "open /stt-model"},
 		{"Ctrl+X v", "toggle /voice"},

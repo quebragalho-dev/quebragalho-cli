@@ -78,7 +78,7 @@ func (m model) sidebarAvailable() bool {
 	// Mouse hit-testing is unaffected: sidebarLineAtMouse carries its own
 	// suggestionsActive() guard, so clicks still go to the palette and not to the
 	// sidebar rows underneath it.
-	if m.setup.visible || m.helpOverlay || m.leaderHelpOverlay || m.providerWizard != nil || m.mcpAddWizard != nil ||
+	if m.setup.visible || m.helpOverlay || m.leaderHelpOverlay || m.mcpAddWizard != nil ||
 		m.mcpManager != nil || m.picker != nil || m.renamePrompt != nil {
 		return false
 	}

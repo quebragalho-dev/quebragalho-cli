@@ -29,13 +29,6 @@ func TestRightClickReturnsClipboardReadCmd(t *testing.T) {
 		t.Fatal("a right-click in the chat should return the clipboard-read command")
 	}
 
-	// Provider wizard — also routed through handleMouse.
-	w := mouseTestModel()
-	w.providerWizard = &providerWizardState{step: providerWizardStepCredential}
-	if _, cmd := w.handleMouse(testMouseClick(tea.MouseRight, 40, 10)); cmd == nil {
-		t.Fatal("a right-click in the wizard should return the clipboard-read command")
-	}
-
 	// Setup mode is routed to handleSetupMouse, which has its own right-click
 	// branch; without it setup would swallow the paste.
 	s := mouseTestModel()
@@ -45,14 +38,6 @@ func TestRightClickReturnsClipboardReadCmd(t *testing.T) {
 }
 
 func TestClipboardReadRoutesToFocusedField(t *testing.T) {
-	// Provider wizard API-key field.
-	m := newModel(context.Background(), Options{})
-	m.providerWizard = &providerWizardState{step: providerWizardStepCredential}
-	updated, _ := m.Update(clipboardReadMsg{content: "sk-from-clipboard"})
-	if next := updated.(model); next.providerWizard.apiKey != "sk-from-clipboard" {
-		t.Fatalf("clipboard paste should fill the API-key field, got %q", next.providerWizard.apiKey)
-	}
-
 	// Composer when no modal field is focused.
 	m2 := newModel(context.Background(), Options{})
 	updated2, _ := m2.Update(clipboardReadMsg{content: "hello world"})
