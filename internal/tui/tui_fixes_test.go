@@ -29,7 +29,7 @@ func TestBashEscapeGatedByPermissionMode(t *testing.T) {
 		if cmd != nil {
 			t.Fatalf("%s mode: !cmd must be gated (nil cmd), got a command to run", mode)
 		}
-		if msg := lastSystemText(updated.(model)); !strings.Contains(msg, "disabled") || !strings.Contains(msg, "unsafe") {
+		if msg := lastSystemText(updated.(model)); !strings.Contains(msg, "disabled") || !strings.Contains(msg, "--dangerously-skip-permissions") {
 			t.Fatalf("%s mode: expected a gate message naming unsafe, got %q", mode, msg)
 		}
 	}

@@ -168,7 +168,7 @@ jobs:
   later workflow steps, and QG redacts secret-shaped strings from its own
   output.
 - **The sandbox is always active.** This action never passes
-  `--skip-permissions-unsafe`, so writes stay inside the checked-out repository
+  `--dangerously-skip-permissions`, so writes stay inside the checked-out repository
   (plus any roots you grant with `add-dir`). Unsafe mode is never enabled
   implicitly.
 - **Autonomy defaults to `low`.** Raise it deliberately (`auto: medium`/`high`)

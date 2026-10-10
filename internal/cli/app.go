@@ -325,7 +325,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	// until it opts in here.
 	forwardsRootFlags := false
 	switch args[0] {
-	case "--skip-permissions-unsafe", "-p", "--prompt", "exec":
+	case "--dangerously-skip-permissions", "--skip-permissions-unsafe", "-p", "--prompt", "exec":
 		forwardsRootFlags = true
 	}
 	if len(addDirs) > 0 && !forwardsRootFlags {
@@ -336,7 +336,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	}
 
 	switch args[0] {
-	case "--skip-permissions-unsafe":
+	case "--dangerously-skip-permissions", "--skip-permissions-unsafe":
 		// Launch the interactive TUI directly in unsafe mode. Without this, the
 		// flag fell through to the unknown-command path, so a user could never
 		// reach unsafe mode in the shell — and the "!" shell escape (which is
@@ -364,16 +364,16 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		// so check for it across all of rest before rejecting stray args.
 		for _, arg := range rest {
 			if arg == "--add-dir" || strings.HasPrefix(arg, "--add-dir=") {
-				return writeAppError(stderr, "--add-dir must come before any other arguments (it may precede or follow --skip-permissions-unsafe)", 1)
+				return writeAppError(stderr, "--add-dir must come before any other arguments (it may precede or follow --dangerously-skip-permissions)", 1)
 			}
 		}
 		// This path launches the interactive TUI, which takes no positional prompt or
 		// subcommand. Reject any remaining trailing arg loudly instead of silently
-		// dropping it, so `qg --skip-permissions-unsafe "fix bug"` doesn't appear to
+		// dropping it, so `qg --dangerously-skip-permissions "fix bug"` doesn't appear to
 		// hang in the TUI with the prompt discarded. (AUDIT-L3)
 		for _, arg := range rest {
 			if strings.TrimSpace(arg) != "" {
-				return writeAppError(stderr, "--skip-permissions-unsafe launches the interactive TUI and takes no prompt or subcommand; for a one-shot unsafe run use `qg exec --skip-permissions-unsafe -p \"...\"`", 1)
+				return writeAppError(stderr, "--dangerously-skip-permissions launches the interactive TUI and takes no prompt or subcommand; for a one-shot unsafe run use `qg exec --dangerously-skip-permissions -p \"...\"`", 1)
 			}
 		}
 		return runInteractiveTUI(stderr, deps, agent.PermissionModeUnsafe, append(append([]string{}, addDirs...), moreDirs...), skipTheme, allowEscalation || skipAllowEscalation)
@@ -846,7 +846,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	// apply_patch) would never be offered to the model — the TUI could neither edit
 	// files nor run shell. Ask advertises them and routes each through the existing
 	// OnPermissionRequest flow; shift+tab lets the user switch modes live. An
-	// explicit --skip-permissions-unsafe launch overrides this to unsafe (the only
+	// explicit --dangerously-skip-permissions launch overrides this to unsafe (the only
 	// way to reach unsafe, since shift+tab deliberately cycles auto↔ask only).
 	//
 	// Resolve the effective mode BEFORE the deferral gate below so the registration
@@ -1377,7 +1377,9 @@ Flags:
   -p, --prompt                   Run a one-shot prompt
       --add-dir <path>           Allow writes in an extra directory (repeatable)
       --allow-escalation         Let the agent escalate to a stronger model mid-run via escalate_model
-      --skip-permissions-unsafe  Launch the interactive shell in unsafe mode (enables the ! shell escape)
+      --dangerously-skip-permissions
+                                Launch the interactive shell in unsafe mode (enables the ! shell escape)
+      --skip-permissions-unsafe  Alias for --dangerously-skip-permissions
 `)
 	return err
 }
@@ -1642,7 +1644,8 @@ Flags:
       --depth <number>               Set specialist nesting depth metadata
       --session-title <text>         Set the created session title
       --init-session-id <id>         Create a new exec session with this id
-      --skip-permissions-unsafe      Allow prompt-gated tools without approval
+      --dangerously-skip-permissions Allow prompt-gated tools without approval
+      --skip-permissions-unsafe      Alias for --dangerously-skip-permissions
       --allow-escalation             Let the agent escalate to a stronger model mid-run via escalate_model
       --self-correct                 Run the post-edit verify-and-correct loop (auto-fix needs --auto medium or high)
       --notify <off|bell|notify|both>

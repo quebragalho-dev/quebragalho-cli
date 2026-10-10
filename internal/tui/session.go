@@ -11,6 +11,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -78,6 +79,7 @@ func (m model) startNewSession() model {
 	}
 	m.lastUsage = usage.Normalized{}
 	m.lastUsageSeen = false
+	m.streamUsage = qgruntime.Usage{}
 	m.lastUsageReceipt = transcriptRow{}
 	m.unpricedRequests = 0
 	m.unpricedTokens = 0
@@ -242,6 +244,7 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	m.pendingSessionTitle = ""
 	m.sessionEvents = append([]sessions.Event{}, events...)
 	m.lastUsage, m.lastUsageSeen, m.lastUsageReceipt = lastUsageFromSessionEvents(rawUsageEvents)
+	m.streamUsage = qgruntime.Usage{}
 	if m.providerName == "" {
 		m.providerName = session.Provider
 	}
@@ -584,7 +587,7 @@ func transcriptRowsFromSessionEvents(events []sessions.Event) []transcriptRow {
 		switch event.Type {
 		case sessions.EventUsage:
 			if label := payloadString(payload, "call_label"); label != "" {
-				rows = append(rows, transcriptRow{kind: rowSystem, tool: "model-usage", id: event.ID, text: label, meta: map[string]string{"model": payloadString(payload, "model"), "amount": payloadString(payload, "cost_exact"), "currency": payloadString(payload, "cost_currency")}})
+				rows = append(rows, transcriptRow{kind: rowSystem, tool: "model-usage", id: event.ID, text: label, meta: map[string]string{"model": payloadString(payload, "model"), "amount": payloadString(payload, "cost_exact"), "currency": payloadString(payload, "cost_currency"), "tokens": payloadString(payload, "call_tokens")}})
 			}
 
 		case sessions.EventMessage:

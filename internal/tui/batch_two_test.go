@@ -84,7 +84,7 @@ func TestWorkspaceMovesFromEmptyStateToStatus(t *testing.T) {
 			assertNotContains(t, plainRender(t, m.emptyState(width)), "/workspace/qg")
 			status := plainRender(t, m.statusLine(width))
 			label, _ := m.modeLabel()
-			assertContains(t, status, label+" · esf n/d")
+			assertContains(t, status, label+" · n/d")
 			assertContains(t, status, "/w")
 			if got := lipgloss.Width(status); got > width {
 				t.Fatalf("status width = %d, want <= %d: %q", got, width, status)
