@@ -394,6 +394,7 @@ type Options struct {
 	OnAskUser           func(context.Context, AskUserRequest) (AskUserResponse, error)
 	OnToolResult        func(ToolResult)
 	OnUsage             func(Usage)
+	OnUsageProgress     func(Usage)
 	// OnToolProgress, when set, is called with each stream-json event a
 	// specialist child process emits while running. The toolCallID identifies
 	// which Task tool call the progress belongs to. nil is a no-op.

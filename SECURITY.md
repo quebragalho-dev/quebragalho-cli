@@ -30,7 +30,7 @@ Please include, where possible:
 ## Scope notes
 
 - Findings that require a malicious local user who already controls the machine running QG, or that
-  depend on a user explicitly disabling the sandbox (`--skip-permissions-unsafe`), are generally
+  depend on a user explicitly disabling the sandbox (`--dangerously-skip-permissions`), are generally
   out of scope — but please report anything you are unsure about.
 - QG sends no telemetry. Network calls go to the model/tool providers you configure (and, for
   keyless web search, to Exa's hosted MCP endpoint at `https://mcp.exa.ai/mcp`).

@@ -221,7 +221,7 @@ func (m model) appendStatusWorkspace(left, right string, width int) string {
 // Auto ⇄ Ask. Unsafe (which disables permission prompts entirely) is
 // deliberately NOT reachable by a casual keypress — a single shift+tab landing
 // on it would let prompt-required tools run with no decision. Unsafe stays an
-// explicit opt-in (the launch/--skip-permissions-unsafe path), not a UI toggle.
+// explicit opt-in (the launch/--dangerously-skip-permissions path), not a UI toggle.
 // Unsafe is folded back to Ask so the toggle always lands somewhere safe.
 // Plan is left untouched: folding it to Ask would be a LESS strict landing
 // (Ask allows write/shell tools with a prompt; Plan hides them entirely), so

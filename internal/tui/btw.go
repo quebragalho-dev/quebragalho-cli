@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
@@ -112,6 +113,7 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 	side.usageTracker = usage.NewTracker(usage.TrackerOptions{Registry: &side.modelCatalog, Now: side.now})
 	side.lastUsage = usage.Normalized{}
 	side.lastUsageSeen = false
+	side.streamUsage = qgruntime.Usage{}
 	side.lastUsageReceipt = transcriptRow{}
 	side.unpricedRequests = 0
 	side.unpricedTokens = 0
@@ -298,6 +300,8 @@ func btwMessageRunID(msg tea.Msg) (int, bool) {
 	case agentTextMsg:
 		return typed.runID, true
 	case agentReasoningMsg:
+		return typed.runID, true
+	case agentUsageProgressMsg:
 		return typed.runID, true
 	case agentUsageMsg:
 		return typed.runID, true

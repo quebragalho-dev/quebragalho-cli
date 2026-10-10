@@ -52,10 +52,10 @@ func TestBatchFiveUsageCommandSurvivesClearWithFrozenCost(t *testing.T) {
 	updated, _ = m.dispatchCommand(parseCommand("/usage"))
 	m = updated.(model)
 	text := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"12.771", m.modelName, "R$ 0,02", "não informado"} {
+	for _, want := range []string{"12.771", m.modelName, "R$ 0,02", "fallback/docs"} {
 		assertContains(t, text, want)
 	}
-	assertContains(t, plainRender(t, m.statusLine(120)), "12.771 tok")
+	assertNotContains(t, plainRender(t, m.statusLine(120)), "12.771 tok")
 	assertNotContains(t, plainRender(t, m.statusLine(120)), "toks/s")
 	assertContains(t, helpText(), "/usage")
 }

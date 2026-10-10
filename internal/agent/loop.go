@@ -355,7 +355,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// before the append), so the retry re-sends clean context with no
 		// conversation-state duplication.
 		forwardedVisibleText := false
-		forwardingOpts := qgruntime.CollectOptions{OnUsage: options.OnUsage}
+		forwardingOpts := qgruntime.CollectOptions{OnUsage: options.OnUsage, OnUsageProgress: options.OnUsageProgress}
 		// Install text/reasoning forwarding handlers whenever EITHER a user
 		// callback OR a trace recorder is set. A headless traced run (e.g. `qg
 		// exec --trace`) sets Trace but no OnText/OnReasoning; without these
@@ -425,7 +425,8 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				}
 				genSpan := options.Trace.Span(trace.SpanGeneration)
 				collected = qgruntime.CollectStreamWithOptions(ctx, retryStream, qgruntime.CollectOptions{
-					OnUsage: options.OnUsage,
+					OnUsage:         options.OnUsage,
+					OnUsageProgress: options.OnUsageProgress,
 				})
 				genSpan.End()
 			}
@@ -1026,6 +1027,7 @@ func finalAnswerAfterMaxTurns(ctx context.Context, provider Provider, planner *c
 		OnText:          options.OnText,
 		OnReasoning:     options.OnReasoning,
 		OnUsage:         options.OnUsage,
+		OnUsageProgress: options.OnUsageProgress,
 		OnToolCallStart: options.OnToolCallStart,
 		OnToolCallDelta: options.OnToolCallDelta,
 	})

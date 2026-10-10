@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -32,11 +33,39 @@ func (m model) apiContextWindow() int {
 	return int(*info.ContextLength)
 }
 
+func (m model) contextWindowDisplay() (int, string) {
+	if n := m.apiContextWindow(); n > 0 {
+		return n, ""
+	}
+	if m.providerProfile.CatalogID != "qg" {
+		return 0, ""
+	}
+	n := 1_000_000
+	if strings.EqualFold(strings.TrimSpace(m.modelName), "grok-4.7") {
+		n = 500_000
+	}
+	return n, " (fallback/docs)"
+}
+
+func usageRate(event qgruntime.Usage) string {
+	if event.Elapsed <= 0 || event.EffectiveOutputTokens() <= 0 {
+		return ""
+	}
+	rate := int(float64(event.EffectiveOutputTokens()) / max(event.Elapsed.Seconds(), time.Second.Seconds()))
+	if rate == 0 {
+		return ""
+	}
+	return formatUsageTokens(rate) + " tk/s"
+}
+
 func callUsageRow(runID, ordinal int, modelID string, event qgruntime.Usage, info qgaccount.ModelInfo) transcriptRow {
 	if event.ModelID != "" {
 		modelID = event.ModelID
 	}
 	row := transcriptRow{kind: rowSystem, tool: "model-usage", id: fmt.Sprintf("usage_%d_%d", runID, ordinal), runID: runID, text: modelID, meta: map[string]string{"model": modelID}}
+	if normalized, _, err := usage.Normalize(event); err == nil {
+		row.meta["tokens"] = formatUsageTokens(normalized.TotalTokens)
+	}
 	if info.ID != "" {
 		for _, pricing := range []qgaccount.ModelPricing{info.PricingBRL, info.Pricing} {
 			if amount, err := pricing.Cost(event); err == nil {
@@ -70,24 +99,24 @@ func callCostText(row transcriptRow) string {
 
 func renderCallUsage(row transcriptRow, width int) string {
 	modelID := displayValue(row.meta["model"], row.text)
-	return renderSystemNote(strings.Join(wrapPlainText(modelID+" · "+callCostText(row), maxInt(1, width-2)), "\n"), width)
+	label := modelID
+	if tokens := row.meta["tokens"]; tokens != "" {
+		label += " · " + tokens + " tok"
+	}
+	return renderSystemNote(strings.Join(wrapPlainText(label+" · "+callCostText(row), maxInt(1, width-2)), "\n"), width)
 }
 
 func (m model) statusReadout(left string, width int) string {
 	context := "ctx não informado"
-	if n := m.apiContextWindow(); n > 0 {
-		context = "ctx " + formatUsageTokens(n)
+	if n, source := m.contextWindowDisplay(); n > 0 {
+		context = "ctx " + formatUsageTokens(n) + source
 	}
-	if width < 58 && m.apiContextWindow() == 0 {
+	if n, _ := m.contextWindowDisplay(); width < 58 && n == 0 {
 		context = "ctx n/d"
 	}
-	tokens := "última n/d tok"
-	if m.lastUsageSeen {
-		tokens = "última " + formatUsageTokens(m.lastUsage.TotalTokens) + " tok"
-	}
 	right := context
-	if width >= 80 && lipgloss.Width(left)+lipgloss.Width(context)+lipgloss.Width(tokens)+12 <= width {
-		right = tokens + " │ " + context
+	if rate := usageRate(m.streamUsage); rate != "" && lipgloss.Width(left)+lipgloss.Width(context)+lipgloss.Width(rate)+12 <= width {
+		right = rate + " │ " + context
 	}
 	if lipgloss.Width(left)+lipgloss.Width(right)+9 > width {
 		right = ""
@@ -134,7 +163,7 @@ func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool
 
 func (m model) statusEffort() string {
 	if m.reasoningEffort != "" {
-		return "esf " + string(m.reasoningEffort)
+		return string(m.reasoningEffort)
 	}
 	for _, candidate := range m.discoveredModelsForActiveProvider() {
 		if candidate.Source != "live" || !strings.EqualFold(candidate.ID, m.modelName) {
@@ -142,10 +171,10 @@ func (m model) statusEffort() string {
 		}
 		effort := modelregistry.ReasoningEffort(strings.TrimSpace(candidate.DefaultReasoningEffort))
 		if effort != "" && modelregistry.ValidReasoningEffort(effort) {
-			return "esf " + string(effort) + " (API)"
+			return string(effort) + " (API)"
 		}
 	}
-	return "esf n/d"
+	return "n/d"
 }
 
 func formatUsageTokens(n int) string {
