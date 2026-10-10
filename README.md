@@ -24,15 +24,27 @@ Encontre o motivo do teste que falhou e corrija o problema.
 
 ## Instalação
 
-Se você já usa Node.js 18 ou mais recente:
+No Linux ou macOS, instale pelo mirror público e abra o QG:
 
 ```bash
-npm install -g @quebragalho-dev/cli
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh | bash
 qg
 ```
 
-O pacote também instala o comando `quebragalho`, que faz a mesma coisa.
-Para instalar sem npm, veja o [guia de instalação](docs/INSTALL.md).
+No Windows, use o PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.ps1 | iex
+qg
+```
+
+Para escolher uma versão no Linux ou macOS, substitua `vX.Y.Z` pela versão desejada:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh | bash -s -- --version vX.Y.Z
+```
+
+Veja mais opções no [guia de instalação](docs/INSTALL.md).
 
 ## Primeiros passos
 
