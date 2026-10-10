@@ -65,7 +65,7 @@ var sensitiveKeys = map[string]struct{}{
 	"set_cookie":            {},
 	"token":                 {},
 	"x_api_key":             {},
-	"zero_api_key":          {},
+	"qg_api_key":            {},
 }
 
 // openaiKeyPattern mirrors secrets.Scan's broad sk- body. Known OpenAI

@@ -1,10 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 )
 
 func TestModelContextWindowUsesCachedCatalog(t *testing.T) {
@@ -122,5 +123,34 @@ func testModelEntry(id string, contextWindow int, capabilities []modelregistry.M
 		},
 		Status:  modelregistry.ModelStatusActive,
 		Aliases: []string{id},
+	}
+}
+
+// The TUI /model list must read THIS model's catalog and show only QG rows:
+// legacy-provider entries (even synthetic ones) never surface in the list.
+func TestModelListTextShowsOnlyQGCatalogModels(t *testing.T) {
+	openaiEntry := testModelEntry("openai-synthetic", 128_000, []modelregistry.ModelCapability{
+		modelregistry.ModelCapabilityChat,
+	})
+	qgEntry := testModelEntry("qg-synthetic", 200_000, []modelregistry.ModelCapability{
+		modelregistry.ModelCapabilityChat,
+	})
+	qgEntry.Provider = modelregistry.ProviderQG
+	qgEntry.APIProviders = []modelregistry.ProviderKind{
+		modelregistry.ProviderQG,
+		modelregistry.ProviderOpenAICompatible,
+	}
+	reg, err := modelregistry.NewRegistry([]modelregistry.ModelEntry{openaiEntry, qgEntry})
+	if err != nil {
+		t.Fatalf("build mixed registry: %v", err)
+	}
+	m := model{modelCatalog: reg, modelName: "qg-synthetic", providerName: "qg"}
+
+	text := m.modelListText()
+	if !strings.Contains(text, "qg-synthetic") {
+		t.Fatalf("model list must include the qg entry from the model catalog, got %q", text)
+	}
+	if strings.Contains(text, "openai-synthetic") {
+		t.Fatalf("model list must filter out non-qg entries, got %q", text)
 	}
 }

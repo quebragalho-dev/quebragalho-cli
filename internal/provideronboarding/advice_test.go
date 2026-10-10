@@ -6,87 +6,52 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 func TestSetupCommandUsesCatalogEnvAndSetActive(t *testing.T) {
-	groq, err := providercatalog.Require("groq")
+	qg, err := providercatalog.Require("qg")
 	if err != nil {
-		t.Fatalf("Require(groq) returned error: %v", err)
+		t.Fatalf("Require(qg) returned error: %v", err)
 	}
 
-	got := SetupCommand(groq, "fast", true)
-	want := "zero providers add groq --name fast --api-key-env GROQ_API_KEY --set-active"
+	got := SetupCommand(qg, "fast", true)
+	want := "qg providers add qg --name fast --api-key-env QUEBRAGALHO_API_KEY --set-active"
 	if got != want {
 		t.Fatalf("SetupCommand() = %q, want %q", got, want)
 	}
 }
 
-func TestSetupCommandForOpenAICustomAndLocalProviders(t *testing.T) {
-	tests := []struct {
-		name       string
-		catalogID  string
-		profile    string
-		setActive  bool
-		want       string
-		notWantArg string
-	}{
-		{
-			name:      "openai",
-			catalogID: "openai",
-			profile:   "openai",
-			want:      "zero providers add openai --name openai --api-key-env OPENAI_API_KEY",
-		},
-		{
-			name:      "custom openai compatible",
-			catalogID: "custom-openai-compatible",
-			profile:   "custom",
-			want:      "zero providers add custom-openai-compatible --name custom --api-key-env OPENAI_API_KEY",
-		},
-		{
-			name:       "local provider",
-			catalogID:  "ollama",
-			profile:    "local",
-			want:       "zero providers add ollama --name local",
-			notWantArg: "--api-key-env",
-		},
+func TestSetupCommandForQGProvider(t *testing.T) {
+	descriptor, err := providercatalog.Require("qg")
+	if err != nil {
+		t.Fatalf("Require(qg) returned error: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			descriptor, err := providercatalog.Require(tt.catalogID)
-			if err != nil {
-				t.Fatalf("Require(%q) returned error: %v", tt.catalogID, err)
-			}
-
-			got := SetupCommand(descriptor, tt.profile, tt.setActive)
-			if got != tt.want {
-				t.Fatalf("SetupCommand() = %q, want %q", got, tt.want)
-			}
-			if tt.notWantArg != "" && strings.Contains(got, tt.notWantArg) {
-				t.Fatalf("SetupCommand() = %q, did not want %q", got, tt.notWantArg)
-			}
-		})
+	got := SetupCommand(descriptor, "qg", false)
+	want := "qg providers add qg --name qg --api-key-env QUEBRAGALHO_API_KEY"
+	if got != want {
+		t.Fatalf("SetupCommand() = %q, want %q", got, want)
 	}
 }
 
 func TestUseAndCheckCommands(t *testing.T) {
-	if got, want := UseCommand("fast"), "zero providers use fast"; got != want {
+	if got, want := UseCommand("fast"), "qg providers use fast"; got != want {
 		t.Fatalf("UseCommand() = %q, want %q", got, want)
 	}
-	if got, want := CheckCommand("fast", false), "zero providers check fast"; got != want {
+	if got, want := CheckCommand("fast", false), "qg providers check fast"; got != want {
 		t.Fatalf("CheckCommand(false) = %q, want %q", got, want)
 	}
-	if got, want := CheckCommand("fast", true), "zero providers check fast --connectivity"; got != want {
+	if got, want := CheckCommand("fast", true), "qg providers check fast --connectivity"; got != want {
 		t.Fatalf("CheckCommand(true) = %q, want %q", got, want)
 	}
 }
 
 func TestMissingCredentialActionUsesCatalogEnvWithoutSecrets(t *testing.T) {
 	profile := config.ProviderProfile{
-		Name:      "fast",
-		CatalogID: "groq",
+		Name:      "qg",
+		CatalogID: "qg",
 	}
 
 	action, ok := MissingCredentialAction(profile)
@@ -96,10 +61,10 @@ func TestMissingCredentialActionUsesCatalogEnvWithoutSecrets(t *testing.T) {
 	if action.Label != "Set API key" {
 		t.Fatalf("Label = %q, want %q", action.Label, "Set API key")
 	}
-	if action.Command != "set GROQ_API_KEY in your shell" {
-		t.Fatalf("Command = %q, want shell-neutral env guidance", action.Command)
+	if action.Command != "set QG_API_KEY (or QUEBRAGALHO_API_KEY) in your shell" {
+		t.Fatalf("Command = %q, want both gateway env vars in the guidance", action.Command)
 	}
-	if !strings.Contains(action.Detail, "GROQ_API_KEY") {
+	if !strings.Contains(action.Detail, "QUEBRAGALHO_API_KEY") {
 		t.Fatalf("Detail = %q, want env var mention", action.Detail)
 	}
 	assertNoSecretLeak(t, []Action{action}, "sk-live-secret", "Bearer actual-token")
@@ -178,14 +143,14 @@ func TestMissingCredentialActionSkipsLocalAndCredentialedProfiles(t *testing.T) 
 func TestProviderActionsIncludesExpectedActions(t *testing.T) {
 	profile := config.ProviderProfile{
 		Name:      "fast",
-		CatalogID: "groq",
+		CatalogID: "qg",
 	}
 
 	actions := ProviderActions(profile, false)
 	wantCommands := []string{
-		"zero providers use fast",
-		"zero providers check fast",
-		"set GROQ_API_KEY in your shell",
+		"qg providers use fast",
+		"qg providers check fast",
+		"set QG_API_KEY (or QUEBRAGALHO_API_KEY) in your shell",
 	}
 	if len(actions) != len(wantCommands) {
 		t.Fatalf("ProviderActions() returned %d actions, want %d: %#v", len(actions), len(wantCommands), actions)
@@ -198,7 +163,7 @@ func TestProviderActionsIncludesExpectedActions(t *testing.T) {
 
 	activeActions := ProviderActions(profile, true)
 	for _, action := range activeActions {
-		if action.Command == "zero providers use fast" {
+		if action.Command == "qg providers use fast" {
 			t.Fatalf("ProviderActions(active) included use action: %#v", activeActions)
 		}
 	}
@@ -238,7 +203,7 @@ func TestSetupCommandWithModelShellRoundTrip(t *testing.T) {
 	}
 	for _, id := range []string{"my loaded model", "unsloth/Qwen3-GGUF", "model:latest", "user/model@revision"} {
 		command := SetupCommandWithModel(providercatalog.Descriptor{ID: "atomic-chat-local"}, "Atomic Chat Local", id, true)
-		out, err := exec.Command("sh", "-c", `zero() { printf '%s\n' "$@"; }; `+command).CombinedOutput()
+		out, err := exec.Command("sh", "-c", `qg() { printf '%s\n' "$@"; }; `+command).CombinedOutput()
 		want := "providers\nadd\natomic-chat-local\n--name\nAtomic Chat Local\n--model\n" + id + "\n--set-active\n"
 		if err != nil || string(out) != want {
 			t.Fatalf("argument round-trip: command=%q output=%q err=%v", command, out, err)

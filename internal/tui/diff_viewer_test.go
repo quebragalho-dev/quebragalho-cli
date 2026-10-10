@@ -211,8 +211,8 @@ func TestDiffViewerSyntaxHighlightsBothChangedSides(t *testing.T) {
 
 	body := diffCardBody(diff, 100, cardRenderOptions{bodyCap: 0})
 	joined := strings.Join(body.lines, "\n")
-	// `func` uses Zero's accent and string literals use its green token style.
-	if !strings.Contains(joined, "202;255;63") || !strings.Contains(joined, "93;209;164") {
+	// `func` uses QG's accent and string literals use its green token style.
+	if !strings.Contains(joined, "157;247;35") || !strings.Contains(joined, "93;209;164") {
 		t.Fatalf("diff viewer did not retain Go syntax colors in changed rows:\n%s", joined)
 	}
 	// The exact changed string literal keeps the brighter word-diff background.
@@ -236,7 +236,7 @@ func TestDiffViewerSyntaxHighlightsUnchangedHunkContext(t *testing.T) {
 	body := diffCardBody(diff, 100, cardRenderOptions{bodyCap: 0})
 	for _, line := range body.lines {
 		if strings.Contains(plainRender(t, line), "func greet() string {") {
-			if !strings.Contains(line, "202;255;63") {
+			if !strings.Contains(line, "157;247;35") {
 				t.Fatalf("unchanged source context was not syntax-highlighted: %q", line)
 			}
 			return
@@ -324,7 +324,7 @@ func TestDiffViewerFallsBackForOversizedSourceLine(t *testing.T) {
 
 	body := diffCardBody(diff, 100, cardRenderOptions{bodyCap: 0})
 	joined := strings.Join(body.lines, "\n")
-	if strings.Contains(joined, "202;255;63") {
+	if strings.Contains(joined, "157;247;35") {
 		t.Fatalf("oversized diff line should use the plain diff fallback: %q", joined)
 	}
 	if !strings.Contains(plainRender(t, joined), strings.Repeat("x", 10)) {
@@ -338,8 +338,8 @@ func TestDiffViewerSyntaxHighlighterKeepsSpans(t *testing.T) {
 		[]string{"func greet(name string) string { return \"new\" }"},
 		"example.go",
 		200,
-		zeroTheme.addLine.GetBackground(),
-		[]highlightSpan{{line: 0, start: 39, end: 44, background: zeroTheme.addLineWord.GetBackground()}},
+		qgTheme.addLine.GetBackground(),
+		[]highlightSpan{{line: 0, start: 39, end: 44, background: qgTheme.addLineWord.GetBackground()}},
 	)
 	if !ok || len(styled) != 1 {
 		t.Fatalf("highlightCodeForPathWithSpans = %#v, %v", styled, ok)
@@ -371,7 +371,7 @@ func TestDiffViewerHighlightsEachFileWithItsOwnPath(t *testing.T) {
 		t.Fatalf("highlighted line count = %d, want 4: %#v", len(highlighted), highlighted)
 	}
 	for _, index := range []int{4, 5, 10, 11} {
-		if !strings.Contains(highlighted[index], "202;255;63") {
+		if !strings.Contains(highlighted[index], "157;247;35") {
 			t.Fatalf("source row %d lost syntax highlighting: %q", index, highlighted[index])
 		}
 	}

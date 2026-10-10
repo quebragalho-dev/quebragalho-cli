@@ -46,7 +46,7 @@ func TestMouseModeFallsBackWhereAllMotionIsUnreliable(t *testing.T) {
 		},
 		{
 			// #870. The legacy Windows console does not handle 1003 reliably, and
-			// it is what a user gets by running zero.exe from anywhere that is not
+			// it is what a user gets by running qg.exe from anywhere that is not
 			// Windows Terminal.
 			name: "legacy Windows console",
 			goos: "windows",
@@ -80,7 +80,7 @@ func TestMouseModeFallsBackWhereAllMotionIsUnreliable(t *testing.T) {
 //
 // Windows children inherit the parent environment, so WT_SESSION or
 // TERM_PROGRAM can outlive the terminal that set them: a shell started from
-// Windows Terminal, or from Git Bash, that later runs zero.exe against a
+// Windows Terminal, or from Git Bash, that later runs qg.exe against a
 // different console host still carries them, and mouseModeFor then asks for
 // AllMotion on a host that may drop every mouse event. That is the #870 failure
 // class arriving by a narrower door.
@@ -88,7 +88,7 @@ func TestMouseModeFallsBackWhereAllMotionIsUnreliable(t *testing.T) {
 // It is not fixed here, and this test says so out loud. Telling an inherited
 // variable from a live one needs the actual console host rather than the
 // environment, and guessing wrong in the other direction costs every Windows
-// Terminal user their hover highlighting. ZERO_MOUSE_MODE=cell is the recourse
+// Terminal user their hover highlighting. QG_MOUSE_MODE=cell is the recourse
 // until that host check exists, which is why the override is not a nicety.
 //
 // If someone later adds real host detection, this test SHOULD fail. That is the
@@ -109,7 +109,7 @@ func TestInheritedWindowsTerminalEnvStillAsksForAllMotion(t *testing.T) {
 			withOverride[key] = value
 		}
 		if got := mouseModeFor("windows", envFrom(withOverride), false); got != tea.MouseModeCellMotion {
-			t.Fatalf("ZERO_MOUSE_MODE=cell did not override inherited %v, so an affected user has no recourse", env)
+			t.Fatalf("QG_MOUSE_MODE=cell did not override inherited %v, so an affected user has no recourse", env)
 		}
 	}
 }

@@ -564,9 +564,9 @@ func TestStoreKeyringReaderDoesNotBlockOrMissDuringSlowWriter(t *testing.T) {
 }
 
 // TestStoreKeyringSharedLockAcrossDifferentEnvironmentRoots is the regression for
-// split lock domains when processes run with different ZERO_OAUTH_TOKENS_PATH,
+// split lock domains when processes run with different QG_OAUTH_TOKENS_PATH,
 // FilePath, or XDG_CONFIG_HOME. Because the OS keychain is single-domain for the
-// user ("zero"/"oauth-tokens"), all stores must share the same lock file so
+// user ("qg"/"oauth-tokens"), all stores must share the same lock file so
 // concurrent writes and manifest rotations remain strictly serialized.
 func TestStoreKeyringSharedLockAcrossDifferentEnvironmentRoots(t *testing.T) {
 	homeDir := t.TempDir()
@@ -582,8 +582,8 @@ func TestStoreKeyringSharedLockAcrossDifferentEnvironmentRoots(t *testing.T) {
 		Keyring:  kr,
 		FilePath: filepath.Join(dirA, "custom-tokens.json"),
 		Env: map[string]string{
-			"ZERO_OAUTH_TOKENS_PATH": filepath.Join(dirA, "custom-tokens.json"),
-			"XDG_CONFIG_HOME":        dirA,
+			"QG_OAUTH_TOKENS_PATH": filepath.Join(dirA, "custom-tokens.json"),
+			"XDG_CONFIG_HOME":      dirA,
 		},
 	})
 	if err != nil {
@@ -595,8 +595,8 @@ func TestStoreKeyringSharedLockAcrossDifferentEnvironmentRoots(t *testing.T) {
 		Keyring:  kr,
 		FilePath: filepath.Join(dirB, "custom-tokens.json"),
 		Env: map[string]string{
-			"ZERO_OAUTH_TOKENS_PATH": filepath.Join(dirB, "custom-tokens.json"),
-			"XDG_CONFIG_HOME":        dirB,
+			"QG_OAUTH_TOKENS_PATH": filepath.Join(dirB, "custom-tokens.json"),
+			"XDG_CONFIG_HOME":      dirB,
 		},
 	})
 	if err != nil {
@@ -759,16 +759,16 @@ func TestStoreKeyringCorruptStateActionableErrorAndRecovery(t *testing.T) {
 	delete(kr.data, keyringService+"/"+firstChunk)
 
 	_, _, err := s.Load(ProviderKey("first"))
-	if err == nil || !strings.Contains(err.Error(), "zero auth reset") || !strings.Contains(err.Error(), keyringAccount) {
+	if err == nil || !strings.Contains(err.Error(), "qg auth reset") || !strings.Contains(err.Error(), keyringAccount) {
 		t.Fatalf("Load with missing chunk did not return actionable recovery error: %v", err)
 	}
-	if err := s.Save(ProviderKey("third"), bigToken("c")); err == nil || !strings.Contains(err.Error(), "zero auth reset") {
+	if err := s.Save(ProviderKey("third"), bigToken("c")); err == nil || !strings.Contains(err.Error(), "qg auth reset") {
 		t.Fatalf("Save with missing chunk did not fail closed with actionable recovery error: %v", err)
 	}
-	if _, err := s.Status(KeyPrefixProvider); err == nil || !strings.Contains(err.Error(), "zero auth reset") {
+	if _, err := s.Status(KeyPrefixProvider); err == nil || !strings.Contains(err.Error(), "qg auth reset") {
 		t.Fatalf("Status with missing chunk did not return actionable recovery error: %v", err)
 	}
-	if _, err := s.Delete(ProviderKey("first")); err == nil || !strings.Contains(err.Error(), "zero auth reset") {
+	if _, err := s.Delete(ProviderKey("first")); err == nil || !strings.Contains(err.Error(), "qg auth reset") {
 		t.Fatalf("Delete with missing chunk did not return actionable recovery error: %v", err)
 	}
 
@@ -784,17 +784,17 @@ func TestStoreKeyringCorruptStateActionableErrorAndRecovery(t *testing.T) {
 	}
 	kr.data[keyringService+"/"+firstChunk] = string(mutated)
 	_, _, err = s.Load(ProviderKey("first"))
-	if err == nil || !strings.Contains(err.Error(), "failed its integrity check") || !strings.Contains(err.Error(), "zero auth reset") {
+	if err == nil || !strings.Contains(err.Error(), "failed its integrity check") || !strings.Contains(err.Error(), "qg auth reset") {
 		t.Fatalf("Load with digest mismatch did not return actionable recovery error: %v", err)
 	}
 
 	// 3. Malformed manifest test
 	kr.data[keyringService+"/"+keyringAccount] = "zc1:invalid-manifest-data"
 	_, _, err = s.Load(ProviderKey("first"))
-	if err == nil || !strings.Contains(err.Error(), "malformed manifest") || !strings.Contains(err.Error(), "zero auth reset") {
+	if err == nil || !strings.Contains(err.Error(), "malformed manifest") || !strings.Contains(err.Error(), "qg auth reset") {
 		t.Fatalf("Load with malformed manifest did not return actionable recovery error: %v", err)
 	}
-	if err := s.Save(ProviderKey("fourth"), bigToken("d")); err == nil || !strings.Contains(err.Error(), "zero auth reset") {
+	if err := s.Save(ProviderKey("fourth"), bigToken("d")); err == nil || !strings.Contains(err.Error(), "qg auth reset") {
 		t.Fatalf("Save with malformed manifest did not fail closed: %v", err)
 	}
 

@@ -5,12 +5,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
-// TestNewTurnSessionProviderForEveryKind asserts every current provider kind
+// TestNewTurnSessionProviderForEveryKind asserts the single QG provider kind
 // wraps into the default TurnSessionProvider: construction succeeds, a session
 // opens, and Compact reports unsupported (the default adapter contract).
 func TestNewTurnSessionProviderForEveryKind(t *testing.T) {
@@ -18,9 +18,6 @@ func TestNewTurnSessionProviderForEveryKind(t *testing.T) {
 	kinds := []config.ProviderKind{
 		config.ProviderKindOpenAI,
 		config.ProviderKindOpenAICompatible,
-		config.ProviderKindAnthropic,
-		config.ProviderKindAnthropicCompat,
-		config.ProviderKindGoogle,
 	}
 	for _, kind := range kinds {
 		t.Run(string(kind), func(t *testing.T) {
@@ -32,7 +29,7 @@ func TestNewTurnSessionProviderForEveryKind(t *testing.T) {
 				// A model absent from the registry: resolution falls back to the
 				// raw id, so this test stays hermetic across catalog changes.
 				Model: "pr7-unregistered-model",
-			}, Options{UserAgent: "zero-turn-session-test"})
+			}, Options{UserAgent: "qg-turn-session-test"})
 			if err != nil {
 				t.Fatalf("NewTurnSessionProvider(%s): %v", kind, err)
 			}
@@ -48,7 +45,7 @@ func TestNewTurnSessionProviderForEveryKind(t *testing.T) {
 			if err := session.Prewarm(context.Background()); err != nil {
 				t.Fatalf("Prewarm(%s): %v", kind, err)
 			}
-			if _, compactErr := session.Compact(context.Background(), zeroruntime.CompletionRequest{}); !errors.Is(compactErr, zeroruntime.ErrCompactionUnsupported) {
+			if _, compactErr := session.Compact(context.Background(), qgruntime.CompletionRequest{}); !errors.Is(compactErr, qgruntime.ErrCompactionUnsupported) {
 				t.Fatalf("Compact(%s) = %v, want ErrCompactionUnsupported", kind, compactErr)
 			}
 			caps := tsp.Capabilities()
@@ -109,7 +106,7 @@ func TestNewTurnSessionProviderProjectsRegistryCapabilities(t *testing.T) {
 		APIKey:       "sk-turn-session-test",
 		Model:        "pr7-caps-model",
 	}, Options{
-		UserAgent:     "zero-turn-session-test",
+		UserAgent:     "qg-turn-session-test",
 		ModelRegistry: &registry,
 	})
 	if err != nil {
@@ -177,7 +174,7 @@ func TestNewTurnSessionProviderUsesEffectiveReasoningEfforts(t *testing.T) {
 		APIKey:       "sk-turn-session-test",
 		Model:        "gpt-5-pr7-probe",
 	}, Options{
-		UserAgent:     "zero-turn-session-test",
+		UserAgent:     "qg-turn-session-test",
 		ModelRegistry: &registry,
 	})
 	if err != nil {

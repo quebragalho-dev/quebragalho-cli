@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 // parsedBinding is the parsed representation of a keybinding string such as
@@ -127,7 +127,7 @@ func (p parsedBinding) Label() string {
 // It is the hot path for the key dispatch — kept cheap intentionally.
 func (p parsedBinding) Matcher() func(tea.KeyMsg) bool {
 	if p.isZero() {
-		// A zero binding should never be matched — the caller is expected to
+		// A qg binding should never be matched — the caller is expected to
 		// check useDefault() first and fall through to the built-in check.
 		return func(tea.KeyMsg) bool { return false }
 	}
@@ -173,7 +173,7 @@ func (p parsedBinding) Matcher() func(tea.KeyMsg) bool {
 }
 
 // parseBinding converts a user-written keybinding string (e.g. "ctrl+o") into
-// a parsedBinding. The empty string returns zero parsedBinding (the "use
+// a parsedBinding. The empty string returns qg parsedBinding (the "use
 // default" sentinel).
 func parseBinding(s string) parsedBinding {
 	s = strings.TrimSpace(s)
@@ -272,7 +272,7 @@ func parseBinding(s string) parsedBinding {
 		if utf8.RuneCountInString(keyPart) == 1 {
 			p.code = []rune(keyPart)[0]
 		}
-		// else unrecognised — leave zero so it falls through to default
+		// else unrecognised — leave qg so it falls through to default
 	}
 
 	return p

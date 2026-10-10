@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/trace"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 // Transient-failure retry, shared by every provider.

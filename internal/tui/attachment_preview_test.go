@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/terminalpet"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 )
 
-func previewImageBlock(t *testing.T) zeroruntime.ImageBlock {
+func previewImageBlock(t *testing.T) qgruntime.ImageBlock {
 	t.Helper()
 	frame := image.NewNRGBA(image.Rect(0, 0, 8, 6))
 	for y := 0; y < 6; y++ {
@@ -27,7 +27,7 @@ func previewImageBlock(t *testing.T) zeroruntime.ImageBlock {
 	if err := png.Encode(&encoded, frame); err != nil {
 		t.Fatal(err)
 	}
-	return zeroruntime.ImageBlock{MediaType: "image/png", Data: encoded.Bytes()}
+	return qgruntime.ImageBlock{MediaType: "image/png", Data: encoded.Bytes()}
 }
 
 func TestAttachmentThumbnailRendersInsideComposerWhenSupported(t *testing.T) {
@@ -36,7 +36,7 @@ func TestAttachmentThumbnailRendersInsideComposerWhenSupported(t *testing.T) {
 	m.altScreen = true
 	m.headerPrinted = true
 	m.attachmentRenderers = []*terminalpet.ImageRenderer{terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})}
-	m.pendingImages = []zeroruntime.ImageBlock{previewImageBlock(t)}
+	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.pendingImageLabels = []string{"diagram.png"}
 	m.refreshPendingImageThumbnail()
 	if len(m.pendingImageThumbnails) != 1 || m.pendingImageThumbnails[0] == nil {
@@ -69,7 +69,7 @@ func TestAttachmentThumbnailKeepsAdditionalImagesVisibleWhenSupported(t *testing
 		terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty}),
 		terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty}),
 	}
-	m.pendingImages = []zeroruntime.ImageBlock{previewImageBlock(t), previewImageBlock(t)}
+	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t), previewImageBlock(t)}
 	m.pendingImageLabels = []string{"first.png", "second.png"}
 	m.refreshPendingImageThumbnail()
 
@@ -94,7 +94,7 @@ func TestAttachmentThumbnailFallsBackToChipsWithoutTerminalGraphics(t *testing.T
 	m := newModel(context.Background(), Options{})
 	m.width, m.height = 100, 30
 	m.altScreen = true
-	m.pendingImages = []zeroruntime.ImageBlock{previewImageBlock(t)}
+	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.pendingImageLabels = []string{"diagram.png"}
 	m.refreshPendingImageThumbnail()
 
@@ -113,7 +113,7 @@ func TestAttachmentThumbnailClearsWithPendingImage(t *testing.T) {
 	m.altScreen = true
 	m.headerPrinted = true
 	m.attachmentRenderers = []*terminalpet.ImageRenderer{terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})}
-	m.pendingImages = []zeroruntime.ImageBlock{previewImageBlock(t)}
+	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.pendingImageLabels = []string{"diagram.png"}
 	m.refreshPendingImageThumbnail()
 	_ = m.View()

@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/lsp"
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/verify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/lsp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/verify"
 )
 
 // defaultSelfCorrectMaxAttempts bounds how many corrective rounds a single run

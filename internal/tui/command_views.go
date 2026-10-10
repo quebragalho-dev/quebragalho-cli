@@ -8,11 +8,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zerocommands"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgcommands"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func (m model) toolsText() string {
@@ -194,7 +194,7 @@ func (m model) applyMCPCommandResult(args string, result MCPCommandResult) (mode
 	}
 	output := strings.TrimSpace(result.Output)
 	if output == "" {
-		output = "zero mcp " + args
+		output = "qg mcp " + args
 	}
 	return m, strings.Join([]string{
 		"MCP action complete",
@@ -331,7 +331,7 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 		}
 	}
 
-	snapshots := zerocommands.SandboxGrantSnapshots(grants)
+	snapshots := qgcommands.SandboxGrantSnapshots(grants)
 	grantRows := []commandRow{}
 	if len(snapshots) == 0 && len(prefixes) == 0 {
 		grantRows = append(grantRows, commandRow{Text: "none"})
@@ -410,18 +410,18 @@ func (m model) providerText() string {
 			Sections: []commandSection{
 				{Title: "Active", Lines: profileLines},
 				{Title: "Next actions", Lines: []string{
-					"zero providers catalog",
-					"zero providers setup openai --set-active",
-					"zero providers add openai --api-key-env OPENAI_API_KEY --set-active",
+					"qg providers catalog",
+					"qg providers setup openai --set-active",
+					"qg providers add openai --api-key-env OPENAI_API_KEY --set-active",
 				}},
 			},
 		})
 	}
 
-	snapshot := zerocommands.ProviderSnapshotFromProfile(m.providerProfile, true)
+	snapshot := qgcommands.ProviderSnapshotFromProfile(m.providerProfile, true)
 	// A keyless profile backed by a stored OAuth login (e.g. ChatGPT) is fully
 	// authenticated — without this, /provider status showed a WORKING provider
-	// as "api key: not set" with a warning, unlike `zero providers list` which
+	// as "api key: not set" with a warning, unlike `qg providers list` which
 	// already fills OAuthLogin.
 	if !snapshot.APIKeySet {
 		snapshot.OAuthLogin = oauthLoginAvailable(m.providerProfile)
@@ -456,7 +456,7 @@ func (m model) providerText() string {
 	})
 }
 
-func providerNextActionLines(profile config.ProviderProfile, snapshot zerocommands.ProviderSnapshot, activeName string) []string {
+func providerNextActionLines(profile config.ProviderProfile, snapshot qgcommands.ProviderSnapshot, activeName string) []string {
 	providerName := firstProviderDisplayValue(snapshot.Name, activeName, profile.Name, providerSetupCatalogID(profile, snapshot.ProviderKind), "openai")
 	setupID := providerSetupCatalogID(profile, snapshot.ProviderKind)
 	lines := []string{}
@@ -464,16 +464,16 @@ func providerNextActionLines(profile config.ProviderProfile, snapshot zerocomman
 		if envName := providerCredentialEnvName(profile, snapshot.ProviderKind); envName != "" {
 			lines = append(lines,
 				"set "+envName+" in your environment",
-				"zero providers add "+setupID+" --api-key-env "+envName+" --set-active",
+				"qg providers add "+setupID+" --api-key-env "+envName+" --set-active",
 			)
 		} else {
 			lines = append(lines, "set provider credentials in your environment")
 		}
 	}
 	return append(lines,
-		"zero providers check "+providerName+" --connectivity",
-		"zero providers catalog",
-		"zero providers setup "+setupID+" --set-active",
+		"qg providers check "+providerName+" --connectivity",
+		"qg providers catalog",
+		"qg providers setup "+setupID+" --set-active",
 	)
 }
 
@@ -483,14 +483,6 @@ func providerProfileHasCredential(profile config.ProviderProfile) bool {
 
 func providerCredentialRequired(profile config.ProviderProfile, providerKind string) bool {
 	if descriptor, ok := providerCatalogDescriptor(profile); ok {
-		// A custom endpoint's RequiresAuth is just the wizard's template
-		// default, not a fact about this profile's actual endpoint (issue
-		// #555 follow-up) — only an explicit, non-default APIKeyEnv means
-		// this saved profile itself expects a credential.
-		if descriptor.Custom {
-			envVar := strings.TrimSpace(profile.APIKeyEnv)
-			return envVar != "" && envVar != firstProviderDisplayValue(descriptor.AuthEnvVars...)
-		}
 		return descriptor.RequiresAuth
 	}
 	switch config.ProviderKind(strings.TrimSpace(providerKind)) {
@@ -531,10 +523,6 @@ func providerSetupCatalogID(profile config.ProviderProfile, providerKind string)
 		return "anthropic"
 	case config.ProviderKindGoogle:
 		return "google"
-	case config.ProviderKindOpenAICompatible:
-		return "custom-openai-compatible"
-	case config.ProviderKindAnthropicCompat:
-		return "custom-anthropic-compatible"
 	default:
 		return firstProviderDisplayValue(profile.Name, "openai")
 	}
@@ -729,7 +717,7 @@ func (m model) skillsText() string {
 			Lines: []string{"No skills installed."},
 		}},
 		Hints: []string{
-			"install one: create <skills-dir>/<name>/SKILL.md (see `zero skills`)",
+			"install one: create <skills-dir>/<name>/SKILL.md (see `qg skills`)",
 		},
 	})
 }

@@ -22,6 +22,7 @@ const (
 	commandProvider
 	commandModel
 	commandContext
+	commandUsage
 	commandConfig
 	commandDebug
 	commandDoctor
@@ -169,6 +170,7 @@ var commandDefinitions = []commandDefinition{
 		description: "List installed skills; run one directly with /<skill-name> [args].",
 		kind:        commandSkills,
 	},
+	{name: "/usage", usage: "/usage", group: commandGroupSession, description: "Resumo da última chamada, custo e janela de contexto.", kind: commandUsage},
 	{
 		name:        "/context",
 		usage:       "/context",
@@ -413,7 +415,7 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/quit"},
 		usage:       "/exit",
 		group:       commandGroupMeta,
-		description: "Exit Zero.",
+		description: "Exit QG.",
 		kind:        commandExit,
 	},
 }
@@ -477,7 +479,7 @@ func formatGroupedCommandHelp() string {
 		lines = append(lines, commandGroupTitle(group))
 		lines = append(lines, groupLines...)
 	}
-	lines = append(lines, "hint: submit plain text to ask Zero")
+	lines = append(lines, "hint: submit plain text to ask QG")
 	return strings.Join(lines, "\n")
 }
 

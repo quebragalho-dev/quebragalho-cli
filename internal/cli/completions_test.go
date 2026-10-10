@@ -14,11 +14,11 @@ func TestCompletionsHelpAndRootHelp(t *testing.T) {
 		t.Fatalf("completion help exit code = %d, want %d: %s", code, exitSuccess, stderr.String())
 	}
 	for _, want := range []string{
-		"zero completions <shell>",
+		"qg completions <shell>",
 		"bash, zsh, fish, powershell, or elvish",
-		"source <(zero completions bash)",
-		"~/.config/fish/completions/zero.fish",
-		"eval (zero completions elvish | slurp)",
+		"source <(qg completions bash)",
+		"~/.config/fish/completions/qg.fish",
+		"eval (qg completions elvish | slurp)",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("completion help missing %q:\n%s", want, stdout.String())
@@ -68,11 +68,11 @@ func TestCompletionsGeneratesEverySupportedShell(t *testing.T) {
 		marker      string
 		syntaxShell string
 	}{
-		{shell: "bash", marker: "complete -F _zero zero", syntaxShell: "bash"},
-		{shell: "zsh", marker: "#compdef zero", syntaxShell: "zsh"},
-		{shell: "fish", marker: "complete -c zero"},
-		{shell: "powershell", marker: "Register-ArgumentCompleter -Native -CommandName zero"},
-		{shell: "elvish", marker: "edit:completion:arg-completer[zero]"},
+		{shell: "bash", marker: "complete -F _qg qg", syntaxShell: "bash"},
+		{shell: "zsh", marker: "#compdef qg", syntaxShell: "zsh"},
+		{shell: "fish", marker: "complete -c qg"},
+		{shell: "powershell", marker: "Register-ArgumentCompleter -Native -CommandName qg"},
+		{shell: "elvish", marker: "edit:completion:arg-completer[qg]"},
 	}
 	for _, test := range tests {
 		t.Run(test.shell, func(t *testing.T) {
@@ -153,13 +153,13 @@ func TestCompletionTreeCoversAliasesNestingAndCommonFlags(t *testing.T) {
 		byPath[context.path] = context.candidates
 	}
 
-	assertCandidates(t, byPath[""], "sessions", "session", "plugins", "plugin", "worktrees", "worktree", "--add-dir", "--theme", "-p", "--prompt")
+	assertCandidates(t, byPath[""], "sessions", "session", "plugins", "plugin", "worktrees", "worktree", "login", "--add-dir", "--theme", "-p", "--prompt")
 	assertCandidates(t, byPath["exec"], "--model", "--cwd", "--worktree", "--output-format", "--resume", "--skip-permissions-unsafe")
 	assertCandidates(t, byPath["worktrees"], "prepare", "release")
 	assertCandidates(t, byPath["worktree"], "prepare", "release")
 	assertCandidates(t, byPath["daemon"], "start", "stop", "status", "run", "attach")
 	assertCandidates(t, byPath["mcp oauth"], "login", "logout", "status")
-	assertCandidates(t, byPath["auth"], "openrouter", "chatgpt", "login", "logout", "status", "refresh", "reset")
+	assertCandidates(t, byPath["auth"], "logout", "status", "refresh", "reset")
 	assertCandidates(t, byPath["auth reset"], "--confirm", "--json", "--help")
 	assertCandidates(t, byPath["sandbox grants"], "list", "allow", "deny", "revoke", "clear")
 	assertCandidates(t, byPath["completions"], "bash", "zsh", "fish", "powershell", "elvish")

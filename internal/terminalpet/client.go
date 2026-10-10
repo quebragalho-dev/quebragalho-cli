@@ -24,7 +24,7 @@ import (
 
 	_ "golang.org/x/image/webp"
 
-	"github.com/Gitlawb/zero/internal/installtxn"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/installtxn"
 )
 
 const (

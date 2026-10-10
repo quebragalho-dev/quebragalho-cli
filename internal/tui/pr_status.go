@@ -359,13 +359,13 @@ func renderPRSegment(segment PrSegment) string {
 	style := lipgloss.NewStyle()
 	switch segment.Color {
 	case ColorAccent:
-		style = zeroTheme.accent
+		style = qgTheme.accent
 	case ColorGreen:
-		style = zeroTheme.gitAdd
+		style = qgTheme.gitAdd
 	case ColorRed:
-		style = zeroTheme.gitDel
+		style = qgTheme.gitDel
 	case ColorDefault:
-		style = zeroTheme.muted
+		style = qgTheme.muted
 	}
 	if segment.Bold {
 		style = style.Bold(true)

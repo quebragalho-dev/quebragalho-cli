@@ -126,7 +126,7 @@ func renderAssistantMarkdownText(text string, proseMeasure int, tableMeasure int
 			blankBefore()
 			// Headings are distinguished by weight + underline, not a bright colour —
 			// calm for dark-mode terminals (ink, the body colour, not the lime accent).
-			headingStyle := zeroTheme.ink.Bold(true).Underline(true)
+			headingStyle := qgTheme.ink.Bold(true).Underline(true)
 			plain := strings.ReplaceAll(strings.ReplaceAll(heading, "**", ""), "`", "")
 			for _, hl := range wrapPlainText(plain, proseMeasure) {
 				lines = append(lines, headingStyle.Render(hl))
@@ -264,11 +264,11 @@ func styleAssistantMarkdownLine(line string, base lipgloss.Style) string {
 		switch style {
 		case markdownDisplayBold:
 			// Emphasis is weight-only (no colour) — dark-mode-friendly and calm.
-			builder.WriteString(zeroTheme.ink.Bold(true).Render(text))
+			builder.WriteString(qgTheme.ink.Bold(true).Render(text))
 		case markdownDisplayCode:
 			builder.WriteString(inlineCodeStyle().Render(text))
 		case markdownDisplayRule:
-			builder.WriteString(zeroTheme.lineStrong.Render(text))
+			builder.WriteString(qgTheme.lineStrong.Render(text))
 		default:
 			builder.WriteString(base.Render(text))
 		}

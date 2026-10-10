@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 type applyPatchTool struct {
@@ -28,7 +28,7 @@ func PrepareFreeformApplyPatchArguments(tool Tool, patch string) (map[string]any
 		prepareFreeformArguments(string) (map[string]any, error)
 	})
 	if !ok {
-		return nil, fmt.Errorf("tool is not Zero's built-in apply_patch")
+		return nil, fmt.Errorf("tool is not QG's built-in apply_patch")
 	}
 	return preparer.prepareFreeformArguments(patch)
 }

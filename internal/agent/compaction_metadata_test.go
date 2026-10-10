@@ -6,24 +6,24 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestCompactMessagesReturnsMetadataForManualCompaction(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system prompt"},
-		{Role: zeroruntime.MessageRoleUser, Content: "first question"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "first answer"},
-		{Role: zeroruntime.MessageRoleUser, Content: "second question"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "recent answer"},
-		{Role: zeroruntime.MessageRoleUser, Content: "latest question"},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system prompt"},
+		{Role: qgruntime.MessageRoleUser, Content: "first question"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "first answer"},
+		{Role: qgruntime.MessageRoleUser, Content: "second question"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "recent answer"},
+		{Role: qgruntime.MessageRoleUser, Content: "latest question"},
 	}
 
-	var captured []zeroruntime.Message
+	var captured []qgruntime.Message
 	result, err := CompactMessages(messages, CompactionOptions{
 		PreserveLast: 2,
-		Summarize: func(toSummarize []zeroruntime.Message) (string, error) {
-			captured = append([]zeroruntime.Message(nil), toSummarize...)
+		Summarize: func(toSummarize []qgruntime.Message) (string, error) {
+			captured = append([]qgruntime.Message(nil), toSummarize...)
 			return "  manual summary  ", nil
 		},
 	})
@@ -58,7 +58,7 @@ func TestCompactMessagesReturnsMetadataForManualCompaction(t *testing.T) {
 	if result.Messages[0].Content != "system prompt" {
 		t.Fatalf("system message was not preserved at head: %#v", result.Messages)
 	}
-	if result.Messages[1].Role != zeroruntime.MessageRoleUser {
+	if result.Messages[1].Role != qgruntime.MessageRoleUser {
 		t.Fatalf("summary message role = %s, want user", result.Messages[1].Role)
 	}
 	if !strings.Contains(result.Messages[1].Content, summaryLabel) || !strings.Contains(result.Messages[1].Content, "manual summary") {
@@ -70,15 +70,15 @@ func TestCompactMessagesReturnsMetadataForManualCompaction(t *testing.T) {
 }
 
 func TestCompactMessagesNoopReturnsUncompactedMetadata(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: "hi"},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: "hi"},
 	}
 	called := false
 
 	result, err := CompactMessages(messages, CompactionOptions{
 		PreserveLast: 8,
-		Summarize: func([]zeroruntime.Message) (string, error) {
+		Summarize: func([]qgruntime.Message) (string, error) {
 			called = true
 			return "summary", nil
 		},
@@ -111,23 +111,23 @@ func TestCompactMessagesNoopReturnsUncompactedMetadata(t *testing.T) {
 }
 
 func TestCompactMessagesReturnsTruncatedProjectionMetadata(t *testing.T) {
-	messages := []zeroruntime.Message{{Role: zeroruntime.MessageRoleSystem, Content: "system"}}
+	messages := []qgruntime.Message{{Role: qgruntime.MessageRoleSystem, Content: "system"}}
 	for index := range 20 {
-		messages = append(messages, zeroruntime.Message{
-			Role:    zeroruntime.MessageRoleUser,
+		messages = append(messages, qgruntime.Message{
+			Role:    qgruntime.MessageRoleUser,
 			Content: strings.Repeat("contextword ", 256) + string(rune('a'+index)),
 		})
 	}
 	messages = append(messages,
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "recent answer"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "latest question"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "recent answer"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "latest question"},
 	)
 
-	var captured []zeroruntime.Message
+	var captured []qgruntime.Message
 	result, err := CompactMessages(messages, CompactionOptions{
 		PreserveLast: 2,
-		Summarize: func(toSummarize []zeroruntime.Message) (string, error) {
-			captured = append([]zeroruntime.Message(nil), toSummarize...)
+		Summarize: func(toSummarize []qgruntime.Message) (string, error) {
+			captured = append([]qgruntime.Message(nil), toSummarize...)
 			return "bounded summary", nil
 		},
 	})
@@ -143,18 +143,18 @@ func TestCompactMessagesReturnsTruncatedProjectionMetadata(t *testing.T) {
 }
 
 func TestCompactMessagesPropagatesSummarizeError(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: "first question"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "first answer"},
-		{Role: zeroruntime.MessageRoleUser, Content: "second question"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "recent answer"},
-		{Role: zeroruntime.MessageRoleUser, Content: "latest question"},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: "first question"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "first answer"},
+		{Role: qgruntime.MessageRoleUser, Content: "second question"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "recent answer"},
+		{Role: qgruntime.MessageRoleUser, Content: "latest question"},
 	}
 
 	_, err := CompactMessages(messages, CompactionOptions{
 		PreserveLast: 2,
-		Summarize: func([]zeroruntime.Message) (string, error) {
+		Summarize: func([]qgruntime.Message) (string, error) {
 			return "", errors.New("summarizer unavailable")
 		},
 	})

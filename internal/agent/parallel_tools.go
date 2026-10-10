@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // Parallel read-ahead for tool batches. When a turn requests several

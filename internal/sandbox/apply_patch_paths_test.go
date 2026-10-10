@@ -61,7 +61,7 @@ func TestApplyPatchRequestPathsCarryAbsolutePathsToScopeValidation(t *testing.T)
 	root := t.TempDir()
 	// NewScope also grants the system temp dir, so a sibling t.TempDir() is
 	// legitimately in scope; pick a path under the filesystem root instead.
-	outside, err := filepath.Abs(filepath.Join(string(filepath.Separator), "zero-outside-workspace-test", "escape.js"))
+	outside, err := filepath.Abs(filepath.Join(string(filepath.Separator), "qg-outside-workspace-test", "escape.js"))
 	if err != nil {
 		t.Fatal(err)
 	}

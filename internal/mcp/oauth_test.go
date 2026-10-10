@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 func TestDiscoverParsesMetadata(t *testing.T) {

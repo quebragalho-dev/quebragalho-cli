@@ -21,7 +21,7 @@ func requireGofmt(t *testing.T) {
 
 func TestFormatOnWriteDisabledByDefault(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "")
+	t.Setenv("QG_FORMAT_ON_WRITE", "")
 	dir := t.TempDir()
 	ugly := "package a\n\nfunc  A( ) {   }\n"
 
@@ -43,7 +43,7 @@ func TestFormatOnWriteDisabledByDefault(t *testing.T) {
 
 func TestFormatOnWriteFormatsAndKeepsTrackerConsistent(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	dir := t.TempDir()
 	tracker := NewFileTracker()
 
@@ -97,7 +97,7 @@ func TestFormatOnWriteFormatsAndKeepsTrackerConsistent(t *testing.T) {
 }
 
 func TestFormatOnWriteSkipsUnknownExtensions(t *testing.T) {
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	formatting := maybeFormatWrittenFile(context.Background(), filepath.Join(t.TempDir(), "notes.xyz"), "raw   text")
 	if formatting.Content != "raw   text" || !formatting.ContentKnown {
 		t.Fatalf("unknown extension must pass through: %q", formatting.Content)
@@ -108,7 +108,7 @@ func TestFormatOnWriteSkipsUnknownExtensions(t *testing.T) {
 }
 
 func TestFormatOnWriteFormatterLookupFailure(t *testing.T) {
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	t.Setenv("PATH", t.TempDir())
 	targetPath := filepath.Join(t.TempDir(), "a.go")
 	uglyContent := "package a\n\nfunc  A( ) {   }\n"
@@ -126,7 +126,7 @@ func TestFormatOnWriteFormatterLookupFailure(t *testing.T) {
 
 func TestFormatOnWriteReadsMutatedFileAfterFormatterFailure(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	targetPath := filepath.Join(t.TempDir(), "a.go")
 	if err := os.WriteFile(targetPath, []byte("requested"), 0o644); err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestFormatOnWriteReadsMutatedFileAfterFormatterFailure(t *testing.T) {
 
 func TestFormatOnWriteReportsWhenFormatterFailureCannotBeRestored(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	targetPath := filepath.Join(t.TempDir(), "a.go")
 	if err := os.WriteFile(targetPath, []byte("requested"), 0o644); err != nil {
 		t.Fatal(err)
@@ -179,7 +179,7 @@ func TestFormatOnWriteReportsWhenFormatterFailureCannotBeRestored(t *testing.T) 
 
 func TestWriteFileRecreatesFormatterDeletedTargetWithOriginalMode(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	for _, tc := range []struct {
 		name      string
 		existing  bool
@@ -231,7 +231,7 @@ func TestWriteFileRecreatesFormatterDeletedTargetWithOriginalMode(t *testing.T) 
 
 func TestFormatOnWriteMarksUnreadableFinalStateUnknown(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	targetPath := filepath.Join(t.TempDir(), "a.go")
 	if err := os.WriteFile(targetPath, []byte("requested"), 0o644); err != nil {
 		t.Fatal(err)
@@ -253,7 +253,7 @@ func TestFormatOnWriteMarksUnreadableFinalStateUnknown(t *testing.T) {
 
 func TestWriteFileUsesVerifiedBytesAfterFormatterFailure(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "a.go")
 	priorRunner := runFormatOnWriteCommand
@@ -278,7 +278,7 @@ func TestWriteFileUsesVerifiedBytesAfterFormatterFailure(t *testing.T) {
 
 func TestEditFileUsesVerifiedBytesAfterFormatterFailure(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "a.go")
 	if err := os.WriteFile(targetPath, []byte("before\n"), 0o644); err != nil {
@@ -306,7 +306,7 @@ func TestEditFileUsesVerifiedBytesAfterFormatterFailure(t *testing.T) {
 
 func TestWriteFileOmitsRichDiffWhenFormatterFinalReadFails(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	root := t.TempDir()
 	priorRunner := runFormatOnWriteCommand
 	priorReader := readFormattedFile
@@ -330,7 +330,7 @@ func TestWriteFileOmitsRichDiffWhenFormatterFinalReadFails(t *testing.T) {
 
 func TestEditFileOmitsPreviewWhenFormatterFinalReadFails(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "a.go")
 	if err := os.WriteFile(targetPath, []byte("before\n"), 0o644); err != nil {
@@ -358,7 +358,7 @@ func TestEditFileOmitsPreviewWhenFormatterFinalReadFails(t *testing.T) {
 
 func TestWriteFileOmitsRichEvidenceWhenFormatterReplacesTargetWithOutOfRootSymlink(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "a.go")
 	resolvedRoot, err := filepath.EvalSymlinks(root)
@@ -404,7 +404,7 @@ func TestWriteFileOmitsRichEvidenceWhenFormatterReplacesTargetWithOutOfRootSymli
 
 func TestEditFileOmitsRichEvidenceWhenFormatterReplacesTargetWithOutOfRootSymlink(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "a.go")
 	resolvedRoot, err := filepath.EvalSymlinks(root)
@@ -459,7 +459,7 @@ func TestEditFileOmitsRichEvidenceWhenFormatterReplacesTargetWithOutOfRootSymlin
 
 func TestWriteFileAcceptsInRootAtomicFormatterReplacement(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "a.go")
 	formatted := "package formatted\n"
@@ -492,7 +492,7 @@ func TestWriteFileAcceptsInRootAtomicFormatterReplacement(t *testing.T) {
 
 func TestEditFileAcceptsInRootAtomicFormatterReplacement(t *testing.T) {
 	requireGofmt(t)
-	t.Setenv("ZERO_FORMAT_ON_WRITE", "1")
+	t.Setenv("QG_FORMAT_ON_WRITE", "1")
 	root := t.TempDir()
 	targetPath := filepath.Join(root, "a.go")
 	if err := os.WriteFile(targetPath, []byte("package before\n"), 0o644); err != nil {

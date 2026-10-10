@@ -12,7 +12,7 @@ import (
 )
 
 func TestProtectedCreateMonitorStopsCommandAndRemovesTarget(t *testing.T) {
-	target := filepath.Join(t.TempDir(), ".zero")
+	target := filepath.Join(t.TempDir(), ".qg")
 	var stderr bytes.Buffer
 	started := time.Now()
 	code := runLinuxSandboxWithProtectedCreateMonitor("/bin/sh", linuxSandboxBwrapPlan{
@@ -35,7 +35,7 @@ func TestProtectedCreateMonitorStopsCommandAndRemovesTarget(t *testing.T) {
 }
 
 func TestProtectedCreateMonitorRecordsTransientCreateEvent(t *testing.T) {
-	target := filepath.Join(t.TempDir(), ".zero")
+	target := filepath.Join(t.TempDir(), ".qg")
 	var stderr bytes.Buffer
 	monitor, err := newProtectedCreateMonitor([]string{target}, &stderr)
 	if err != nil {

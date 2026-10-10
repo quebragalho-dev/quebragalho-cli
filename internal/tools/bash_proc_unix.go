@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 )
 
 // bashWaitDelay bounds how long Wait blocks for the I/O pipes to drain after the

@@ -1,4 +1,4 @@
-# Zero build/test/lint targets. AGENTS.md says to build and run quality checks
+# QG build/test/lint targets. AGENTS.md says to build and run quality checks
 # with `make` — these targets back those instructions.
 .DEFAULT_GOAL := build
 GO_VERSION = $(word 2,$(shell git grep -G -h "^go[[:space:]]" -- go.mod))
@@ -7,15 +7,28 @@ DEADCODE_VERSION := v0.46.0
 GOLANGCI_LINT_VERSION := v2.12.2
 GOVULNCHECK_VERSION := v1.3.0
 
-.PHONY: build build-all test test-race vet fmt fmt-check lint lint-static deadcode vulncheck vulncheck-windows tidy clean baseline help
+.PHONY: build build-all release test test-race vet fmt fmt-check lint lint-static deadcode vulncheck vulncheck-windows tidy clean baseline help
 
-# Build the main CLI binary into ./zero.
+# Build the main CLI binary into ./qg plus its real on-disk alias ./quebragalho
+# (same bytes; the CLI is argv0-agnostic, so the alias needs no wrapper).
 build:
-	go build -o zero ./cmd/zero
+	go build -o qg ./cmd/qg
+	cp qg quebragalho
 
 # Build every command in cmd/.
 build-all:
 	go build ./...
+
+# Package release archives for every supported desktop/server target with
+# SHA-256 checksums, then verify them all. Cross targets skip the executable
+# smoke (they cannot run here); `qg-release verify` checks every archive digest.
+release:
+	rm -rf dist/release
+	go run ./cmd/qg-release package --goos darwin --goarch arm64 --allow-cross
+	go run ./cmd/qg-release package --goos darwin --goarch amd64 --allow-cross
+	go run ./cmd/qg-release package --goos linux  --goarch amd64 --allow-cross
+	go run ./cmd/qg-release package --goos linux  --goarch arm64 --allow-cross
+	go run ./cmd/qg-release verify
 
 # Run the full test suite with the race detector (matches CI expectations).
 test:
@@ -65,22 +78,22 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -f zero
+	rm -f qg quebragalho
 	go clean ./...
 
 # Run the per-turn benchmark harness over the checked-in baseline manifest and
 # write the JSON result to internal/perfbench/reports/baseline.json. Requires a
-# built `zero` binary and a model; set ZERO_BENCH_MODEL (required) and
-# ZERO_BENCH_BINARY (defaults to ./zero) to configure the run. The report is
+# built `qg` binary and a model; set QG_BENCH_MODEL (required) and
+# QG_BENCH_BINARY (defaults to ./qg) to configure the run. The report is
 # machine-specific and regenerated, not hand-edited.
 baseline: build
-	@if [ -z "$(ZERO_BENCH_MODEL)" ]; then echo "Set ZERO_BENCH_MODEL (and optionally ZERO_BENCH_BINARY) before running 'make baseline'"; exit 2; fi
-	@ZERO_BIN="$${ZERO_BENCH_BINARY:-./zero}"; \
-	go run ./cmd/zero-perf-bench turn \
+	@if [ -z "$(QG_BENCH_MODEL)" ]; then echo "Set QG_BENCH_MODEL (and optionally QG_BENCH_BINARY) before running 'make baseline'"; exit 2; fi
+	@QG_BIN="$${QG_BENCH_BINARY:-./qg}"; \
+	go run ./cmd/qg-perf-bench turn \
 		--suite internal/perfbench/manifests/baseline.json \
-		--model $(ZERO_BENCH_MODEL) \
-		--binary "$$ZERO_BIN" \
+		--model $(QG_BENCH_MODEL) \
+		--binary "$$QG_BIN" \
 		--output internal/perfbench/reports/baseline.json
 
 help:
-	@echo "Targets: build (default), build-all, test, test-quick, vet, fmt, fmt-check, lint, lint-static, deadcode, vulncheck, vulncheck-windows, tidy, clean, baseline"
+	@echo "Targets: build (default; qg + quebragalho), build-all, release (cross archives + checksums), test, test-quick, vet, fmt, fmt-check, lint, lint-static, deadcode, vulncheck, vulncheck-windows, tidy, clean, baseline"

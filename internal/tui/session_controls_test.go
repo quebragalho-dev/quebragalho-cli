@@ -4,19 +4,20 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestEffortCommandListsAndSetsSupportedEffort(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	m.input.SetValue("/effort list")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
@@ -82,7 +83,7 @@ func TestEffortCommandRejectsUnsupportedActiveModel(t *testing.T) {
 // effort controls at all.
 
 func TestCycleReasoningEffortAutoToFirst(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	if m.reasoningEffort != "" {
 		t.Fatalf("expected default effort auto, got %q", m.reasoningEffort)
 	}
@@ -90,13 +91,13 @@ func TestCycleReasoningEffortAutoToFirst(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected cycle to produce no command")
 	}
-	if next.reasoningEffort != modelregistry.ReasoningEffortLow {
-		t.Fatalf("expected cycle from auto to land on first supported effort (low), got %q", next.reasoningEffort)
+	if next.reasoningEffort != modelregistry.ReasoningEffortMinimal {
+		t.Fatalf("expected cycle from auto to land on first supported effort (minimal), got %q", next.reasoningEffort)
 	}
 }
 
 func TestCycleReasoningEffortAdvancesToNext(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	m.reasoningEffort = modelregistry.ReasoningEffortLow
 	next, _ := m.cycleReasoningEffort()
 	if next.reasoningEffort != modelregistry.ReasoningEffortMedium {
@@ -105,7 +106,7 @@ func TestCycleReasoningEffortAdvancesToNext(t *testing.T) {
 }
 
 func TestCycleReasoningEffortWrapsToAuto(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	m.reasoningEffort = modelregistry.ReasoningEffortHigh
 	next, _ := m.cycleReasoningEffort()
 	if next.reasoningEffort != "" {
@@ -114,7 +115,7 @@ func TestCycleReasoningEffortWrapsToAuto(t *testing.T) {
 }
 
 func TestCycleReasoningEffortUnknownResetsToAuto(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ModelName: "gpt-5.6-luna"})
 	// Use a sentinel that is guaranteed to be unplaceable in any supported ring,
 	// so this test stays correct even if Minimal gets supported later.
 	m.reasoningEffort = modelregistry.ReasoningEffort("__unknown_effort__")
@@ -125,8 +126,8 @@ func TestCycleReasoningEffortUnknownResetsToAuto(t *testing.T) {
 }
 
 func TestCycleReasoningEffortNoOpOnUnsupportedModel(t *testing.T) {
-	m := newModel(context.Background(), Options{ModelName: "gpt-4.1"})
-	// gpt-4.1 exposes no effort controls; set a value directly (the /effort command
+	m := newModel(context.Background(), Options{ModelName: "qwen3.8-max"})
+	// qwen3.8-max exposes no effort controls; set a value directly (the /effort command
 	// would reject this) to prove the cycle is a true no-op and leaves it untouched.
 	m.reasoningEffort = modelregistry.ReasoningEffortHigh
 	next, cmd := m.cycleReasoningEffort()
@@ -170,7 +171,7 @@ func TestStyleCommandListsAndSetsSessionPreference(t *testing.T) {
 func TestCompactStatusShowsManualFlowState(t *testing.T) {
 	called := false
 	m := newModel(context.Background(), Options{
-		ModelName: "gpt-4.1",
+		ModelName: "muse-spark-1.3-contributor",
 		SessionCompactor: compactSessionFunc(func(context.Context, CompactRequest) (CompactResult, error) {
 			called = true
 			return CompactResult{}, nil
@@ -194,7 +195,7 @@ func TestCompactStatusShowsManualFlowState(t *testing.T) {
 	for _, want := range []string{
 		"Compact",
 		"status: info",
-		"model: gpt-4.1",
+		"model: muse-spark-1.3-contributor",
 		"context window: 1M tokens",
 		"estimated transcript:",
 		"compactable: yes",
@@ -467,9 +468,9 @@ func TestCompactCommandRecordsSessionCompactionAndShrinksReplayContext(t *testin
 
 func TestCompactCommandUsesProviderSummaryWhenAvailable(t *testing.T) {
 	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "Provider summary keeps the actual old decisions."},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "Provider summary keeps the actual old decisions."},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		ModelName:    "gpt-4.1",
@@ -553,9 +554,9 @@ func TestCompactCommandUsesProviderSummaryWhenAvailable(t *testing.T) {
 
 func TestManualCompactionPersistsStructuralTruncationMetadata(t *testing.T) {
 	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "Bounded summary."},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "Bounded summary."},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{ModelName: "gpt-4.1", Provider: provider, SessionStore: store})
 	var err error
@@ -654,13 +655,13 @@ func compactStatusText(rows []transcriptRow) string {
 }
 
 func TestUsageEventsUpdateFooterAndContext(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventUsage, Usage: zeroruntime.Usage{InputTokens: 100, CachedInputTokens: 25, OutputTokens: 20}},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 100, CachedInputTokens: 25, OutputTokens: 20}},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     provider,
 		Registry:     tools.NewRegistry(),
 		SessionStore: testSessionStore(t),
@@ -697,14 +698,14 @@ func TestUsageEventsUpdateFooterAndContext(t *testing.T) {
 }
 
 func TestUsageRuntimeMessageUpdatesFooterBeforeFinalResponse(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventUsage, Usage: zeroruntime.Usage{InputTokens: 10, OutputTokens: 5}},
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 10, OutputTokens: 5, Elapsed: 4 * time.Second}},
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	runtimeMessages := []tea.Msg{}
 	m := newModel(context.Background(), Options{
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     provider,
 		Registry:     tools.NewRegistry(),
 		SessionStore: testSessionStore(t),
@@ -723,9 +724,9 @@ func TestUsageRuntimeMessageUpdatesFooterBeforeFinalResponse(t *testing.T) {
 
 	liveUsageCount := 0
 	for _, msg := range runtimeMessages {
-		if usageMsg, ok := msg.(agentUsageMsg); ok {
-			updated, _ = next.Update(usageMsg)
-			next = updated.(model)
+		updated, _ = next.Update(msg)
+		next = updated.(model)
+		if _, ok := msg.(agentUsageMsg); ok {
 			liveUsageCount++
 		}
 	}
@@ -743,15 +744,28 @@ func TestUsageRuntimeMessageUpdatesFooterBeforeFinalResponse(t *testing.T) {
 	if summary.RecordCount != 1 || summary.TotalTokens != 15 {
 		t.Fatalf("expected final response not to double count live usage, got records=%d tokens=%d", summary.RecordCount, summary.TotalTokens)
 	}
+	receipts := 0
+	for _, row := range next.transcript {
+		if row.tool == "model-usage" {
+			receipts++
+		}
+	}
+	if receipts != 1 {
+		t.Fatalf("live and final duplicated receipt: %d", receipts)
+	}
+	if !next.lastUsageSeen || next.lastUsage.TotalTokens != 15 {
+		t.Fatalf("wrong last call usage: %+v", next.lastUsage)
+	}
+
 }
 
 func TestUsageEventsForwardExistingAgentCallback(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventUsage, Usage: zeroruntime.Usage{InputTokens: 10, OutputTokens: 5}},
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 10, OutputTokens: 5}},
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventDone},
 	}}
-	seen := []zeroruntime.Usage{}
+	seen := []qgruntime.Usage{}
 	m := newModel(context.Background(), Options{
 		ModelName:    "gpt-4.1",
 		Provider:     provider,
@@ -783,10 +797,10 @@ func TestUsageEventsForwardExistingAgentCallback(t *testing.T) {
 }
 
 func TestUsageEventsForCustomModelUseTokenOnlyFallback(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventUsage, Usage: zeroruntime.Usage{InputTokens: 100, OutputTokens: 20}},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 100, OutputTokens: 20}},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		ModelName:    "custom-coder",
@@ -819,11 +833,11 @@ func TestUnpricedUsageStatusUsesLatestEventNotCumulative(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "custom-coder"})
 
 	var rows []transcriptRow
-	m, rows = m.recordUsageEvent("custom-coder", zeroruntime.Usage{InputTokens: 100, OutputTokens: 20})
+	m, rows = m.recordUsageEvent("custom-coder", qgruntime.Usage{InputTokens: 100, OutputTokens: 20}, transcriptRow{})
 	if len(rows) != 0 {
 		t.Fatalf("unpriced usage should not append transcript rows, got %#v", rows)
 	}
-	m, rows = m.recordUsageEvent("custom-coder", zeroruntime.Usage{InputTokens: 10, OutputTokens: 5})
+	m, rows = m.recordUsageEvent("custom-coder", qgruntime.Usage{InputTokens: 10, OutputTokens: 5}, transcriptRow{})
 	if len(rows) != 0 {
 		t.Fatalf("unpriced usage should not append transcript rows, got %#v", rows)
 	}
@@ -831,33 +845,30 @@ func TestUnpricedUsageStatusUsesLatestEventNotCumulative(t *testing.T) {
 	if !strings.Contains(m.usageSummaryText(), "135 tokens") {
 		t.Fatalf("expected cumulative usage summary to stay intact, got %q", m.usageSummaryText())
 	}
-	if got := m.usageStatusSegment(); !strings.Contains(got, "15 tok") || strings.Contains(got, "135") {
-		t.Fatalf("expected status to show latest usage only, got %q", got)
-	}
 	if got := m.sidebarTokenText(); !strings.Contains(got, "15 tokens") || strings.Contains(got, "135") {
 		t.Fatalf("expected sidebar to show latest usage only, got %q", got)
 	}
 }
 
-func TestStatusLineShowsTokenFigureWithoutPersistentRail(t *testing.T) {
+func TestStatusLineShowsUnknownAPIContextWithoutPersistentRail(t *testing.T) {
 	m := sidebarTestModel()
-	m, _ = m.recordUsageEvent("test-model", zeroruntime.Usage{InputTokens: 100, OutputTokens: 20})
+	m, _ = m.recordUsageEvent("test-model", qgruntime.Usage{InputTokens: 100, OutputTokens: 20}, transcriptRow{})
 	// Run details retains the full token count on demand.
 	if got := m.sidebarTokenText(); !strings.Contains(got, "120 tokens") {
 		t.Fatalf("sidebar token text = %q, want it to carry the 120-token figure", got)
 	}
-	// The status line is the always-visible token readout.
+	// No live API context was supplied.
 	status := plainRender(t, m.statusLine(m.width))
-	if !strings.Contains(status, "120 tok") {
-		t.Fatalf("status line = %q, want the token figure", status)
+	if !strings.Contains(status, "ctx não informado") {
+		t.Fatalf("status line = %q, want honest missing API context", status)
 	}
 }
 
 func TestInvalidUsageEventsAppendTranscriptError(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventUsage, Usage: zeroruntime.Usage{InputTokens: -1, OutputTokens: 20}},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: -1, OutputTokens: 20}},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		ModelName:    "gpt-4.1",
@@ -889,7 +900,7 @@ func TestStaleAgentUsageResponseIsIgnored(t *testing.T) {
 	updated, _ := m.Update(agentResponseMsg{
 		runID:        42,
 		usageModelID: "gpt-4.1",
-		usageEvents:  []zeroruntime.Usage{{InputTokens: 100, OutputTokens: 20}},
+		usageEvents:  []qgruntime.Usage{{InputTokens: 100, OutputTokens: 20}},
 	})
 	next := updated.(model)
 
@@ -902,18 +913,18 @@ func TestModelSwitchClearsUnsupportedEffortPreference(t *testing.T) {
 	nextProvider := &fakeProvider{}
 	m := newModel(context.Background(), Options{
 		ProviderName:    "openai",
-		ModelName:       "gpt-4.1-mini",
+		ModelName:       "gpt-5.6-luna",
 		ReasoningEffort: modelregistry.ReasoningEffortHigh,
 		Provider:        &fakeProvider{},
-		ProviderProfile: openAITestProfile("gpt-4.1-mini"),
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
-			if profile.Model != "gpt-4.1" {
-				t.Fatalf("expected provider rebuild for gpt-4.1, got %#v", profile)
+		ProviderProfile: openAITestProfile("gpt-5.6-luna"),
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
+			if profile.Model != "qwen3.8-max" {
+				t.Fatalf("expected provider rebuild for qwen3.8-max, got %#v", profile)
 			}
 			return nextProvider, nil
 		},
 	})
-	m.input.SetValue("/model gpt-4.1")
+	m.input.SetValue("/model qwen3.8-max")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -929,46 +940,13 @@ func TestModelSwitchClearsUnsupportedEffortPreference(t *testing.T) {
 	}
 }
 
-func TestModelSwitchRedirectsDeprecatedModelWithNotice(t *testing.T) {
-	nextProvider := &fakeProvider{}
-	m := newModel(context.Background(), Options{
-		ProviderName:    "openai",
-		ModelName:       "gpt-4.1",
-		Provider:        &fakeProvider{},
-		ProviderProfile: openAITestProfile("gpt-4.1"),
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
-			if profile.Model != "gpt-4.1" {
-				t.Fatalf("expected deprecated model to redirect to gpt-4.1, got %#v", profile)
-			}
-			return nextProvider, nil
-		},
-	})
-	m.input.SetValue("/model gpt-4-turbo")
-
-	updated, cmd := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-
-	if cmd != nil {
-		t.Fatal("expected /model to be handled without starting an agent run")
-	}
-	if next.modelName != "gpt-4.1" {
-		t.Fatalf("expected active model to be gpt-4.1 after redirect, got %q", next.modelName)
-	}
-	if !transcriptContains(next.transcript, "deprecated") {
-		t.Fatalf("expected deprecation notice in transcript, got %#v", next.transcript)
-	}
-	if !transcriptContains(next.transcript, "gpt-4.1 · openai") {
-		t.Fatalf("expected switch to canonical fallback id, got %#v", next.transcript)
-	}
-}
-
 func TestModelSwitchUnknownModelReportsError(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		ProviderName:    "openai",
 		ModelName:       "gpt-4.1",
 		Provider:        &fakeProvider{},
 		ProviderProfile: openAITestProfile("gpt-4.1"),
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			t.Fatal("provider should not be rebuilt for an unknown model")
 			return nil, nil
 		},
@@ -981,7 +959,7 @@ func TestModelSwitchUnknownModelReportsError(t *testing.T) {
 	if next.modelName != "gpt-4.1" {
 		t.Fatalf("expected active model to stay gpt-4.1, got %q", next.modelName)
 	}
-	if !transcriptContains(next.transcript, "unknown Zero model") {
+	if !transcriptContains(next.transcript, "unknown QG model") {
 		t.Fatalf("expected unknown model error, got %#v", next.transcript)
 	}
 }
@@ -989,8 +967,8 @@ func TestModelSwitchUnknownModelReportsError(t *testing.T) {
 func openAITestProfile(modelID string) config.ProviderProfile {
 	return config.ProviderProfile{
 		Name:         "openai",
-		ProviderKind: config.ProviderKindOpenAI,
-		BaseURL:      config.OpenAIBaseURL,
+		ProviderKind: config.ProviderKindOpenAICompatible,
+		BaseURL:      "https://api.quebragalho.dev/v1",
 		APIKey:       "sk-test",
 		Model:        modelID,
 	}

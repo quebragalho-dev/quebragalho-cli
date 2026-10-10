@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 func TestProfileControllerNilPolicyIsNoOp(t *testing.T) {
@@ -110,14 +110,14 @@ func TestProfileControllerEscalatesAtMostOnce(t *testing.T) {
 // counts as uncertain, escalates, and the very next request carries the target
 // effort.
 func TestPostureEscalationOnUncertainCompletion(t *testing.T) {
-	provider := &mockProvider{turns: [][]zeroruntime.StreamEvent{
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{
 		{
-			{Type: zeroruntime.StreamEventText, Content: "Let me read the file:"},
-			{Type: zeroruntime.StreamEventDone},
+			{Type: qgruntime.StreamEventText, Content: "Let me read the file:"},
+			{Type: qgruntime.StreamEventDone},
 		},
 		{
-			{Type: zeroruntime.StreamEventText, Content: "Done. All set."},
-			{Type: zeroruntime.StreamEventDone},
+			{Type: qgruntime.StreamEventText, Content: "Done. All set."},
+			{Type: qgruntime.StreamEventDone},
 		},
 	}}
 
@@ -157,14 +157,14 @@ func TestPostureEscalationOnUncertainCompletion(t *testing.T) {
 // RestoreDefaultEffort lets escalation restore that default, which a plain ""
 // ReasoningEffort target cannot express (it means "leave untouched").
 func TestPostureEscalationRestoresDefaultEffort(t *testing.T) {
-	provider := &mockProvider{turns: [][]zeroruntime.StreamEvent{
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{
 		{
-			{Type: zeroruntime.StreamEventText, Content: "Let me read the file:"},
-			{Type: zeroruntime.StreamEventDone},
+			{Type: qgruntime.StreamEventText, Content: "Let me read the file:"},
+			{Type: qgruntime.StreamEventDone},
 		},
 		{
-			{Type: zeroruntime.StreamEventText, Content: "Done. All set."},
-			{Type: zeroruntime.StreamEventDone},
+			{Type: qgruntime.StreamEventText, Content: "Done. All set."},
+			{Type: qgruntime.StreamEventDone},
 		},
 	}}
 
@@ -222,17 +222,17 @@ func TestPostureEscalationRaisesTurnCeilingMidRun(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(failingProfileTool{})
 
-	toolTurn := []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "c1", ToolName: "flaky_probe"},
-		{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "c1"},
-		{Type: zeroruntime.StreamEventDone},
+	toolTurn := []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "c1", ToolName: "flaky_probe"},
+		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "c1"},
+		{Type: qgruntime.StreamEventDone},
 	}
-	provider := &mockProvider{turns: [][]zeroruntime.StreamEvent{
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{
 		toolTurn,
 		toolTurn,
 		{
-			{Type: zeroruntime.StreamEventText, Content: "recovered after escalation"},
-			{Type: zeroruntime.StreamEventDone},
+			{Type: qgruntime.StreamEventText, Content: "recovered after escalation"},
+			{Type: qgruntime.StreamEventDone},
 		},
 	}}
 
@@ -275,12 +275,12 @@ func TestPostureEscalationAbsentWithoutProfile(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(failingProfileTool{})
 
-	toolTurn := []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "c1", ToolName: "flaky_probe"},
-		{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "c1"},
-		{Type: zeroruntime.StreamEventDone},
+	toolTurn := []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "c1", ToolName: "flaky_probe"},
+		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "c1"},
+		{Type: qgruntime.StreamEventDone},
 	}
-	provider := &mockProvider{turns: [][]zeroruntime.StreamEvent{toolTurn, toolTurn}}
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{toolTurn, toolTurn}}
 
 	result, err := Run(context.Background(), "go", provider, Options{
 		Registry: registry,
@@ -322,7 +322,7 @@ func TestExecuteToolCallClassifiesRiskWithoutSandbox(t *testing.T) {
 }
 
 // TestUnknownToolResultCarriesZeroRisk verifies a call that never executed a
-// tool (unknown name, nil tool) keeps the zero risk value instead of panicking
+// tool (unknown name, nil tool) keeps the qg risk value instead of panicking
 // or inventing a classification.
 func TestUnknownToolResultCarriesZeroRisk(t *testing.T) {
 	registry := tools.NewRegistry()
@@ -340,6 +340,6 @@ func TestUnknownToolResultCarriesZeroRisk(t *testing.T) {
 		t.Fatal("expected an error result for an unknown tool")
 	}
 	if result.Risk.Level != "" {
-		t.Fatalf("not-executed result must keep the zero risk value, got %q", result.Risk.Level)
+		t.Fatalf("not-executed result must keep the qg risk value, got %q", result.Risk.Level)
 	}
 }

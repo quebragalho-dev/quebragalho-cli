@@ -3,12 +3,12 @@ package tui
 import (
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestRemoveLastAttachment(t *testing.T) {
 	m := model{
-		pendingImages:      []zeroruntime.ImageBlock{{MediaType: "image/png"}, {MediaType: "image/png"}},
+		pendingImages:      []qgruntime.ImageBlock{{MediaType: "image/png"}, {MediaType: "image/png"}},
 		pendingImageLabels: []string{"a.png", "b.png"},
 		pendingDocuments:   []pendingDocument{{label: "spec.pdf"}},
 	}

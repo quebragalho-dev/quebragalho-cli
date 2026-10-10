@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 )
 
 type Registry struct {
@@ -39,7 +39,7 @@ type RunOptions struct {
 	Cwd               string
 	// FileTracker, when set, records the version of each file read or written this
 	// session so write_file/edit_file can refuse to clobber a file that changed on
-	// disk outside Zero since it was last read. nil disables the feature entirely
+	// disk outside QG since it was last read. nil disables the feature entirely
 	// (the read/write tools behave exactly as before).
 	FileTracker *FileTracker
 	// DeferFileObservationCommit lets a caller with an additional output layer

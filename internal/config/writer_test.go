@@ -14,7 +14,7 @@ import (
 )
 
 func TestSetActiveProviderSwitchesConfiguredProvider(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "OpenAI",
 		Providers: []ProviderProfile{
@@ -47,7 +47,7 @@ func TestSetActiveProviderSwitchesConfiguredProvider(t *testing.T) {
 }
 
 func TestSetActiveProviderRejectsUnknownProviderWithoutRewriting(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	before := writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openai",
 		Providers: []ProviderProfile{
@@ -76,7 +76,7 @@ func TestSetActiveProviderRejectsUnknownProviderWithoutRewriting(t *testing.T) {
 }
 
 func TestSetActiveProviderRejectsEmptyProviderName(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	before := writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openai",
 		Providers: []ProviderProfile{
@@ -112,7 +112,7 @@ func TestSetActiveProviderRejectsEmptyConfigPath(t *testing.T) {
 }
 
 func TestSetActiveProviderRejectsMissingConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 
 	_, err := SetActiveProvider(path, "openai")
 	if err == nil {
@@ -128,7 +128,7 @@ func TestSetActiveProviderTightensExistingConfigFilePermissions(t *testing.T) {
 		t.Skip("Windows does not expose POSIX mode bits reliably")
 	}
 
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openai",
 		Providers: []ProviderProfile{
@@ -152,7 +152,7 @@ func TestSetActiveProviderTightensExistingConfigFilePermissions(t *testing.T) {
 }
 
 func TestSetActiveProviderModelPersistsSelectionTogether(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openai",
 		Providers: []ProviderProfile{
@@ -178,7 +178,7 @@ func TestSetActiveProviderModelPersistsSelectionTogether(t *testing.T) {
 }
 
 func TestSetProviderModelUpdatesConfiguredProvider(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openai",
 		Providers: []ProviderProfile{
@@ -221,7 +221,7 @@ func TestSetProviderModelUpdatesConfiguredProvider(t *testing.T) {
 }
 
 func TestSetProviderModelRejectsUnknownProviderWithoutRewriting(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	before := writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openai",
 		Providers: []ProviderProfile{
@@ -248,7 +248,7 @@ func TestUpsertProviderTightensExistingConfigFilePermissions(t *testing.T) {
 		t.Skip("Windows does not expose POSIX mode bits reliably")
 	}
 
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	if err := os.WriteFile(path, []byte(`{"providers":[]}`), 0o644); err != nil {
 		t.Fatalf("write existing config: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestUpsertProviderTightensExistingConfigFilePermissions(t *testing.T) {
 }
 
 func TestSetFavoriteModelsPersistsUserPreferences(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openai",
 		Providers: []ProviderProfile{
@@ -300,7 +300,7 @@ func TestSetFavoriteModelsPersistsUserPreferences(t *testing.T) {
 }
 
 func TestSetRecentModelsPersistsOrderDedupesAndCaps(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openai",
 		Providers: []ProviderProfile{
@@ -344,7 +344,7 @@ func TestSetRecentModelsPersistsOrderDedupesAndCaps(t *testing.T) {
 // Two providers offering the same model id must both survive normalization —
 // recent history de-duplicates by provider+model pair, not model id alone.
 func TestSetRecentModelsDedupesByProviderAndModelPair(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 
 	cfg, err := SetRecentModels(path, []RecentModelEntry{
 		{Provider: "provider-a", Model: "shared-model"},
@@ -363,7 +363,7 @@ func TestSetRecentModelsDedupesByProviderAndModelPair(t *testing.T) {
 }
 
 func TestSetThemePersistsUserPreference(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openai",
 		Providers: []ProviderProfile{
@@ -396,7 +396,7 @@ func TestSetThemePersistsUserPreference(t *testing.T) {
 }
 
 func TestSetThemePreservesUnknownTopLevelFields(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	if err := os.WriteFile(path, []byte(`{
   "preferences": {"theme": "default"},
   "futureSetting": {"a": 1}
@@ -432,7 +432,7 @@ func TestRecapsPreferenceRoundTrips(t *testing.T) {
 		t.Error("unset recaps should default to ON")
 	}
 
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{ActiveProvider: "openai"}, 0o600)
 
 	// Persist OFF, then read it back.
@@ -465,7 +465,7 @@ func TestRecapsPreferenceRoundTrips(t *testing.T) {
 }
 
 func TestSetFavoriteModelsCreatesMissingConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero", "config.json")
+	path := filepath.Join(t.TempDir(), "qg", "config.json")
 
 	cfg, err := SetFavoriteModels(path, []string{"glm-5.1"})
 	if err != nil {
@@ -507,112 +507,8 @@ func readConfigFixture(t *testing.T, path string) FileConfig {
 	return cfg
 }
 
-func TestEnsureCatalogProviderCreatesProfileWithoutStealingActive(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
-	writeConfigFixture(t, path, FileConfig{
-		ActiveProvider: "opengateway",
-		Providers: []ProviderProfile{
-			{
-				Name:         "opengateway",
-				ProviderKind: ProviderKindOpenAICompatible,
-				BaseURL:      "https://gateway.example.com/v1",
-				APIKeyStored: true,
-				Model:        "some-model",
-			},
-		},
-	}, 0o600)
-
-	ensured, err := EnsureCatalogProvider(path, "chatgpt")
-	if err != nil {
-		t.Fatalf("EnsureCatalogProvider: %v", err)
-	}
-	if !ensured.Created {
-		t.Fatalf("expected profile to be created")
-	}
-	if ensured.Name != "chatgpt" {
-		t.Fatalf("expected profile name chatgpt, got %q", ensured.Name)
-	}
-	if ensured.Active != "opengateway" {
-		t.Fatalf("active provider must stay opengateway, got %q", ensured.Active)
-	}
-
-	cfg := readConfigFixture(t, path)
-	if cfg.ActiveProvider != "opengateway" {
-		t.Fatalf("persisted active provider changed to %q", cfg.ActiveProvider)
-	}
-	if len(cfg.Providers) != 2 {
-		t.Fatalf("expected 2 providers, got %d", len(cfg.Providers))
-	}
-	chatgpt := cfg.Providers[1]
-	if chatgpt.Name != "chatgpt" || chatgpt.CatalogID != "chatgpt" {
-		t.Fatalf("unexpected created profile: %+v", chatgpt)
-	}
-	if chatgpt.Model == "" || chatgpt.BaseURL == "" {
-		t.Fatalf("created profile must carry catalog defaults, got %+v", chatgpt)
-	}
-	if chatgpt.APIKey != "" || chatgpt.APIKeyStored {
-		t.Fatalf("OAuth-created profile must stay keyless, got %+v", chatgpt)
-	}
-}
-
-func TestEnsureCatalogProviderLeavesExistingProfileUntouched(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
-	original := FileConfig{
-		ActiveProvider: "opengateway",
-		Providers: []ProviderProfile{
-			{Name: "opengateway", ProviderKind: ProviderKindOpenAICompatible, BaseURL: "https://gateway.example.com/v1", Model: "some-model"},
-			// Renamed profile that already serves the chatgpt catalog entry.
-			{Name: "codex", CatalogID: "chatgpt", Model: "gpt-5.5"},
-		},
-	}
-	data := writeConfigFixture(t, path, original, 0o600)
-
-	ensured, err := EnsureCatalogProvider(path, "chatgpt")
-	if err != nil {
-		t.Fatalf("EnsureCatalogProvider: %v", err)
-	}
-	if ensured.Created {
-		t.Fatalf("existing profile must not be recreated")
-	}
-	if ensured.Name != "codex" {
-		t.Fatalf("expected existing profile name codex, got %q", ensured.Name)
-	}
-	after, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read config: %v", err)
-	}
-	if string(after) != string(data) {
-		t.Fatalf("config rewritten for a no-op ensure:\nbefore: %s\nafter: %s", data, after)
-	}
-}
-
-func TestEnsureCatalogProviderActivatesOnEmptyConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
-
-	ensured, err := EnsureCatalogProvider(path, "chatgpt")
-	if err != nil {
-		t.Fatalf("EnsureCatalogProvider: %v", err)
-	}
-	if !ensured.Created {
-		t.Fatalf("expected profile to be created")
-	}
-	if ensured.Active != "chatgpt" {
-		t.Fatalf("blank active must adopt the new provider, got %q", ensured.Active)
-	}
-}
-
-func TestEnsureCatalogProviderRejectsUnknownCatalogID(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
-	if _, err := EnsureCatalogProvider(path, "no-such-provider"); err == nil {
-		t.Fatalf("expected unknown catalog id to error")
-	}
-	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("config must not be written for an unknown catalog id")
-	}
-}
-
 func TestMarkProviderAPIKeyStoredClearsInlineAndEnvKey(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "openrouter",
 		Providers: []ProviderProfile{{
@@ -642,7 +538,7 @@ func TestMarkProviderAPIKeyStoredClearsInlineAndEnvKey(t *testing.T) {
 }
 
 func TestRemoveProviderDeletesAndHandsOffActive(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "beta",
 		Providers: []ProviderProfile{
@@ -678,7 +574,7 @@ func TestRemoveProviderDeletesAndHandsOffActive(t *testing.T) {
 }
 
 func TestRemoveProviderKeepsActiveWhenOtherRemoved(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "alpha",
 		Providers: []ProviderProfile{
@@ -697,7 +593,7 @@ func TestRemoveProviderKeepsActiveWhenOtherRemoved(t *testing.T) {
 }
 
 func TestRemoveProviderRejectsUnknownWithoutRewriting(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	before := writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "alpha",
 		Providers:      []ProviderProfile{{Name: "alpha", ProviderKind: ProviderKindOpenAICompatible, BaseURL: "https://a.example.com/v1", Model: "m1"}},
@@ -719,7 +615,7 @@ func TestRenameProviderFollowsActiveAndMigratesStoredKey(t *testing.T) {
 	dir := t.TempDir()
 	// Force the file credential backend so the test never touches the real OS
 	// keyring regardless of platform.
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 	path := filepath.Join(dir, "config.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "oldname",
@@ -760,7 +656,7 @@ func TestRenameProviderFollowsActiveAndMigratesStoredKey(t *testing.T) {
 }
 
 func TestRenameProviderRejectsCollisionAndUnknown(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	before := writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "alpha",
 		Providers: []ProviderProfile{
@@ -785,7 +681,7 @@ func TestRenameProviderRejectsCollisionAndUnknown(t *testing.T) {
 }
 
 func TestUpsertProviderPreservesStoredKeyMarkerOnExistingProfile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	// An env-keyed profile with NO stored-key marker — the shape a provider has
 	// before its key is captured into the credential store.
 	writeConfigFixture(t, path, FileConfig{
@@ -814,7 +710,7 @@ func TestUpsertProviderPreservesStoredKeyMarkerOnExistingProfile(t *testing.T) {
 }
 
 func TestSetProviderDescriptionSetsAndClears(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero.json")
+	path := filepath.Join(t.TempDir(), "qg.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "alpha",
 		Providers: []ProviderProfile{
@@ -854,7 +750,7 @@ func TestRenameProviderRollsBackKeyMigrationWhenConfigWriteFails(t *testing.T) {
 		t.Skip("uses chflags uchg to force the config write to fail; macOS only")
 	}
 	dir := t.TempDir()
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 	path := filepath.Join(dir, "config.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "oldname",
@@ -896,7 +792,7 @@ func TestRenameProviderRollsBackKeyMigrationWhenConfigWriteFails(t *testing.T) {
 // migrating would Set and then Delete the same key, losing it (PR #560 review).
 func TestRenameProviderCaseOnlyKeepsStoredKey(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 	path := filepath.Join(dir, "config.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "groq",
@@ -928,7 +824,7 @@ func TestRenameProviderCaseOnlyKeepsStoredKey(t *testing.T) {
 
 func TestEditProviderAppliesRenameFieldsAndDescriptionAtomically(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 	path := filepath.Join(dir, "config.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "groq",
@@ -979,7 +875,7 @@ func TestEditProviderAppliesRenameFieldsAndDescriptionAtomically(t *testing.T) {
 // entry (case-normalized) survives.
 func TestEditProviderCaseOnlyRenameUpdatesInPlace(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 	path := filepath.Join(dir, "config.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "groq",
@@ -1021,7 +917,7 @@ func TestEditProviderCaseOnlyRenameUpdatesInPlace(t *testing.T) {
 // rename migration moves it, so the new key lands under the new name.
 func TestEditProviderRenameMigratesFreshlyCapturedKey(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 	path := filepath.Join(dir, "config.json")
 	writeConfigFixture(t, path, FileConfig{
 		ActiveProvider: "gw",

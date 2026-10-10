@@ -1,4 +1,4 @@
-// Package lsp is a direct Language Server Protocol client: ZERO spawns the
+// Package lsp is a direct Language Server Protocol client: QG spawns the
 // language server itself and speaks LSP JSON-RPC over stdio, so an unattended
 // run (cron/CI, no open editor) can still see real compiler diagnostics. This
 // file holds the minimal LSP data model and file<->URI helpers; client.go is the
@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Position is a zero-based line/character offset in a document.
+// Position is a qg-based line/character offset in a document.
 type Position struct {
 	Line      int `json:"line"`
 	Character int `json:"character"`

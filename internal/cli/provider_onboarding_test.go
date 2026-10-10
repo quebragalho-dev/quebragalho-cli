@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 func TestRunProvidersUseSetsActiveProvider(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	configPath := filepath.Join(t.TempDir(), "zero", "config.json")
+	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	writeProviderOnboardingConfig(t, configPath, config.FileConfig{
 		ActiveProvider: "work",
 		Providers: []config.ProviderProfile{
@@ -33,7 +33,7 @@ func TestRunProvidersUseSetsActiveProvider(t *testing.T) {
 		t.Fatalf("ActiveProvider = %q, want fast", cfg.ActiveProvider)
 	}
 	output := stdout.String()
-	for _, want := range []string{"Active provider set to fast", "zero providers check fast"} {
+	for _, want := range []string{"Active provider set to fast", "qg providers check fast"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected providers use output to contain %q, got %q", want, output)
 		}
@@ -88,7 +88,7 @@ func providersUseOverrideConfig(t *testing.T) string {
 	return configPath
 }
 
-// The write to config.json still succeeds, but when ZERO_PROVIDER names a
+// The write to config.json still succeeds, but when QG_PROVIDER names a
 // different provider the saved selection is NOT effective, so the command must
 // warn instead of reporting a silent success (issue #721).
 func TestRunProvidersUseWarnsWhenEnvOverrides(t *testing.T) {
@@ -97,7 +97,7 @@ func TestRunProvidersUseWarnsWhenEnvOverrides(t *testing.T) {
 	deps := providerSetupDeps(configPath)
 	deps.getenv = func(key string) string {
 		if key == config.ActiveProviderEnv {
-			return "work" // ZERO_PROVIDER=work overrides the switch to fast
+			return "work" // QG_PROVIDER=work overrides the switch to fast
 		}
 		return ""
 	}
@@ -145,7 +145,7 @@ func TestRunProvidersUseJSONFlagsEnvOverride(t *testing.T) {
 	}
 }
 
-// No override note when ZERO_PROVIDER is unset or already names the selection.
+// No override note when QG_PROVIDER is unset or already names the selection.
 func TestRunProvidersUseNoWarnWithoutEnvOverride(t *testing.T) {
 	cases := map[string]func(string) string{
 		"env unset": func(string) string { return "" },
@@ -189,6 +189,7 @@ func TestRunProvidersUseSurfacesMalformedConfig(t *testing.T) {
 }
 
 func TestRunProvidersUseEnvDerivedJSONIncludesConfigPath(t *testing.T) {
+	isolateCLIUserState(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -212,6 +213,7 @@ func TestRunProvidersUseEnvDerivedJSONIncludesConfigPath(t *testing.T) {
 }
 
 func TestRunProvidersRemoveEnvDerivedJSONKeepsSchema(t *testing.T) {
+	isolateCLIUserState(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -237,6 +239,7 @@ func TestRunProvidersRemoveEnvDerivedJSONKeepsSchema(t *testing.T) {
 }
 
 func TestRunProvidersRenameEnvDerivedExplainsNoSavedProfile(t *testing.T) {
+	isolateCLIUserState(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -253,6 +256,7 @@ func TestRunProvidersRenameEnvDerivedExplainsNoSavedProfile(t *testing.T) {
 }
 
 func TestRunProvidersRenameEnvDerivedJSONKeepsSchema(t *testing.T) {
+	isolateCLIUserState(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -310,12 +314,12 @@ func TestRunProvidersUseRejectsUsageErrors(t *testing.T) {
 func TestRunProvidersSetupPrintsCommandPlan(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	configPath := filepath.Join(t.TempDir(), "zero", "config.json")
+	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 
 	exitCode := runWithDeps([]string{
-		"providers", "setup", "groq",
+		"providers", "setup", "qg",
 		"--name", "fast",
-		"--model", "llama-3.1-70b",
+		"--model", "muse-spark-1.3-contributor",
 		"--base-url", "https://gateway.example/v1",
 		"--api-key-env", "FAST_API_KEY",
 	}, &stdout, &stderr, providerSetupDeps(configPath))
@@ -326,9 +330,9 @@ func TestRunProvidersSetupPrintsCommandPlan(t *testing.T) {
 	output := stdout.String()
 	for _, want := range []string{
 		"Set FAST_API_KEY to your API key",
-		"zero providers add groq --name fast --model llama-3.1-70b --base-url https://gateway.example/v1 --api-key-env FAST_API_KEY",
-		"zero providers check fast --connectivity",
-		"zero providers use fast",
+		"qg providers add qg --name fast --model muse-spark-1.3-contributor --base-url https://gateway.example/v1 --api-key-env FAST_API_KEY",
+		"qg providers check fast --connectivity",
+		"qg providers use fast",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected setup output to contain %q, got %q", want, output)
@@ -350,7 +354,7 @@ func TestRunProvidersSetupJSONIncludesCommands(t *testing.T) {
 	var stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
 
-	exitCode := runWithDeps([]string{"providers", "setup", "groq", "--name", "fast", "--set-active", "--json"}, &stdout, &stderr, providerSetupDeps(configPath))
+	exitCode := runWithDeps([]string{"providers", "setup", "qg", "--name", "fast", "--set-active", "--json"}, &stdout, &stderr, providerSetupDeps(configPath))
 
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
@@ -366,12 +370,12 @@ func TestRunProvidersSetupJSONIncludesCommands(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("providers setup JSON did not decode: %v\n%s", err, stdout.String())
 	}
-	if payload.CatalogID != "groq" ||
+	if payload.CatalogID != "qg" ||
 		payload.Name != "fast" ||
-		payload.AddCommand != "zero providers add groq --name fast --api-key-env GROQ_API_KEY --set-active" ||
-		payload.CheckCommand != "zero providers check fast --connectivity" ||
+		payload.AddCommand != "qg providers add qg --name fast --api-key-env QUEBRAGALHO_API_KEY --set-active" ||
+		payload.CheckCommand != "qg providers check fast --connectivity" ||
 		payload.UseCommand != "" ||
-		payload.EnvVar != "GROQ_API_KEY" {
+		payload.EnvVar != "QUEBRAGALHO_API_KEY" {
 		t.Fatalf("unexpected setup JSON payload: %#v", payload)
 	}
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
@@ -379,27 +383,6 @@ func TestRunProvidersSetupJSONIncludesCommands(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
-	}
-}
-
-func TestRunProvidersSetupRejectsCatalogOnlyTransports(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	configPath := filepath.Join(t.TempDir(), "config.json")
-
-	exitCode := runWithDeps([]string{"providers", "setup", "bedrock"}, &stdout, &stderr, providerSetupDeps(configPath))
-
-	if exitCode != exitUsage {
-		t.Fatalf("expected exit code %d, got %d", exitUsage, exitCode)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("expected empty stdout, got %q", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "native adapter") {
-		t.Fatalf("expected native adapter warning, got %q", stderr.String())
-	}
-	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
-		t.Fatalf("providers setup should not write config, stat err = %v", err)
 	}
 }
 
@@ -413,7 +396,7 @@ func TestRunProvidersSetupHelpListsOnboardingCommands(t *testing.T) {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"zero providers use <name>", "zero providers setup <catalog-id>"} {
+	for _, want := range []string{"qg providers use <name>", "qg providers setup <catalog-id>"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected providers help to contain %q, got %q", want, output)
 		}
@@ -440,7 +423,7 @@ func writeProviderOnboardingConfig(t *testing.T, path string, cfg config.FileCon
 // from the credential store CO-LOCATED with the config being edited (where
 // SecureProviderProfile captured it), not the default-path store.
 func TestRunProvidersRemoveDeletesKeyBesideConfig(t *testing.T) {
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
 	seed := `{"activeProvider":"gw","providers":[{"name":"gw","provider_kind":"openai-compatible","baseURL":"https://gw.example.com/v1","apiKeyStored":true,"model":"m1"},{"name":"other","provider_kind":"openai-compatible","baseURL":"https://o.example.com/v1","model":"m2"}]}`

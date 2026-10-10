@@ -50,6 +50,10 @@ type PackageOptions struct {
 	Version     string
 	GOOS        string
 	GOARCH      string
+	// AllowCross packages a target that differs from the host. The packaged
+	// binary cannot be smoke-run then, so `make release` cross-builds are the
+	// only consumers; the default (false) keeps the host-match requirement.
+	AllowCross bool
 }
 
 type BuildOptions struct {
@@ -115,7 +119,7 @@ func Build(ctx context.Context, options BuildOptions) (BuildResult, error) {
 	if output == "" {
 		output = DefaultBuildOutput(rootDir, goos)
 	}
-	if err := buildZero(ctx, rootDir, output, version, goos, goarch); err != nil {
+	if err := buildQG(ctx, rootDir, output, version, goos, goarch); err != nil {
 		return BuildResult{}, err
 	}
 	return BuildResult{
@@ -183,8 +187,8 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 	if goarch == "" {
 		goarch = runtime.GOARCH
 	}
-	if goos != runtime.GOOS || goarch != runtime.GOARCH {
-		return PackageResult{}, fmt.Errorf("release packaging target must match host platform for smoke verification: host %s/%s, target %s/%s", runtime.GOOS, runtime.GOARCH, goos, goarch)
+	if err := validatePackageTarget(goos, goarch, options.AllowCross); err != nil {
+		return PackageResult{}, err
 	}
 	packageName, err := ReleasePackageName(version, goos, goarch)
 	if err != nil {
@@ -200,8 +204,8 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 	}
 	stagingDir := filepath.Join(stagingRoot, packageName)
 	archivePath := filepath.Join(releaseDir, archiveName)
-	artifactPath := filepath.Join(rootDir, ZeroArtifactName(goos))
-	stagedBinaryPath := filepath.Join(stagingDir, ZeroArtifactName(goos))
+	artifactPath := filepath.Join(rootDir, QGArtifactName(goos))
+	stagedBinaryPath := filepath.Join(stagingDir, QGArtifactName(goos))
 	helperArtifacts := map[string]string{}
 	if goos == "linux" {
 		helperPath := filepath.Join(rootDir, LinuxSandboxHelperArtifactName(goos))
@@ -216,11 +220,8 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 		helperArtifacts[WindowsSandboxSetupArtifactName(goos)] = setupPath
 	}
 
-	if err := os.RemoveAll(releaseDir); err != nil {
-		return PackageResult{}, fmt.Errorf("clean release dir: %w", err)
-	}
-	if err := os.RemoveAll(stagingRoot); err != nil {
-		return PackageResult{}, fmt.Errorf("clean package staging dir: %w", err)
+	if err := cleanPackageOutputs(releaseDir, stagingDir, archivePath); err != nil {
+		return PackageResult{}, err
 	}
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
 		return PackageResult{}, fmt.Errorf("create package staging dir: %w", err)
@@ -229,7 +230,7 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 		return PackageResult{}, fmt.Errorf("create release dir: %w", err)
 	}
 
-	if err := buildZero(ctx, rootDir, artifactPath, version, goos, goarch); err != nil {
+	if err := buildQG(ctx, rootDir, artifactPath, version, goos, goarch); err != nil {
 		return PackageResult{}, err
 	}
 	for name, path := range helperArtifacts {
@@ -237,8 +238,10 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 			return PackageResult{}, fmt.Errorf("build %s: %w", name, err)
 		}
 	}
-	if err := smokeVersion(ctx, artifactPath, version); err != nil {
-		return PackageResult{}, err
+	if packageShouldSmoke(goos, goarch) {
+		if err := smokeVersion(ctx, artifactPath, version); err != nil {
+			return PackageResult{}, err
+		}
 	}
 	if err := copyPackageFiles(rootDir, stagingDir, artifactPath, stagedBinaryPath, goos, version, helperArtifacts); err != nil {
 		return PackageResult{}, err
@@ -264,47 +267,47 @@ func Package(ctx context.Context, options PackageOptions) (PackageResult, error)
 	}, nil
 }
 
-func ZeroArtifactName(goos string) string {
+func QGArtifactName(goos string) string {
 	if goos == "windows" {
-		return "zero.exe"
+		return "qg.exe"
 	}
-	return "zero"
+	return "qg"
 }
 
 func LinuxSandboxHelperArtifactName(goos string) string {
 	if goos == "windows" {
-		return "zero-linux-sandbox.exe"
+		return "qg-linux-sandbox.exe"
 	}
-	return "zero-linux-sandbox"
+	return "qg-linux-sandbox"
 }
 
 func LinuxSeccompHelperArtifactName(goos string) string {
 	if goos == "windows" {
-		return "zero-seccomp.exe"
+		return "qg-seccomp.exe"
 	}
-	return "zero-seccomp"
+	return "qg-seccomp"
 }
 
 func WindowsSandboxCommandRunnerArtifactName(goos string) string {
 	if goos == "windows" {
-		return "zero-windows-command-runner.exe"
+		return "qg-windows-command-runner.exe"
 	}
-	return "zero-windows-command-runner"
+	return "qg-windows-command-runner"
 }
 
 func WindowsSandboxSetupArtifactName(goos string) string {
 	if goos == "windows" {
-		return "zero-windows-sandbox-setup.exe"
+		return "qg-windows-sandbox-setup.exe"
 	}
-	return "zero-windows-sandbox-setup"
+	return "qg-windows-sandbox-setup"
 }
 
 func DefaultBuildOutput(rootDir string, goos string) string {
-	return filepath.Join(rootDir, ZeroArtifactName(goos))
+	return filepath.Join(rootDir, QGArtifactName(goos))
 }
 
 func BuildLdflags(version string) string {
-	return "-s -w -X github.com/Gitlawb/zero/internal/cli.version=" + version
+	return "-s -w -X github.com/quebragalho-dev/quebragalho-cli/internal/cli.version=" + version
 }
 
 func ReleasePlatform(goos string) (string, error) {
@@ -338,6 +341,36 @@ func ReleaseArchiveExtension(goos string) string {
 	return "tar.gz"
 }
 
+// validatePackageTarget gates cross packaging behind AllowCross: by default the
+// target must match the host so the packaged binary can be smoke-run.
+func validatePackageTarget(goos string, goarch string, allowCross bool) error {
+	if (goos != runtime.GOOS || goarch != runtime.GOARCH) && !allowCross {
+		return fmt.Errorf("release packaging target must match host platform for smoke verification: host %s/%s, target %s/%s", runtime.GOOS, runtime.GOARCH, goos, goarch)
+	}
+	return nil
+}
+
+// packageShouldSmoke reports whether the packaged binary can execute here:
+// only a host-matching target is smoke-run. Cross targets skip it.
+func packageShouldSmoke(goos string, goarch string) bool {
+	return goos == runtime.GOOS && goarch == runtime.GOARCH
+}
+
+// cleanPackageOutputs removes only this target's previous outputs (archive,
+// checksum, staging) so sibling archives from other targets survive — the
+// release target loops several platforms into one release directory.
+func cleanPackageOutputs(releaseDir string, stagingDir string, archivePath string) error {
+	for _, path := range []string{archivePath, archivePath + ".sha256"} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("clean release output: %w", err)
+		}
+	}
+	if err := os.RemoveAll(stagingDir); err != nil {
+		return fmt.Errorf("clean package staging dir: %w", err)
+	}
+	return nil
+}
+
 func ReleasePackageName(version string, goos string, goarch string) (string, error) {
 	platform, err := ReleasePlatform(goos)
 	if err != nil {
@@ -347,7 +380,7 @@ func ReleasePackageName(version string, goos string, goarch string) (string, err
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("zero-v%s-%s-%s", version, platform, arch), nil
+	return fmt.Sprintf("qg-v%s-%s-%s", version, platform, arch), nil
 }
 
 func ReleaseArchiveName(version string, goos string, goarch string) (string, error) {
@@ -598,36 +631,36 @@ func PackageVersion(rootDir string) (string, error) {
 	return strings.TrimSpace(payload.Version), nil
 }
 
-func buildZero(ctx context.Context, rootDir string, output string, version string, goos string, goarch string) error {
-	return buildGoPackage(ctx, rootDir, output, version, goos, goarch, "./cmd/zero")
+func buildQG(ctx context.Context, rootDir string, output string, version string, goos string, goarch string) error {
+	return buildGoPackage(ctx, rootDir, output, version, goos, goarch, "./cmd/qg")
 }
 
 func buildLinuxSandboxHelper(ctx context.Context, rootDir string, output string, goos string, goarch string) error {
 	if goos != "linux" {
 		return nil
 	}
-	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/zero-linux-sandbox")
+	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/qg-linux-sandbox")
 }
 
 func buildLinuxSeccompHelper(ctx context.Context, rootDir string, output string, goos string, goarch string) error {
 	if goos != "linux" {
 		return nil
 	}
-	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/zero-seccomp")
+	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/qg-seccomp")
 }
 
 func buildWindowsSandboxCommandRunner(ctx context.Context, rootDir string, output string, goos string, goarch string) error {
 	if goos != "windows" {
 		return nil
 	}
-	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/zero-windows-command-runner")
+	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/qg-windows-command-runner")
 }
 
 func buildWindowsSandboxSetup(ctx context.Context, rootDir string, output string, goos string, goarch string) error {
 	if goos != "windows" {
 		return nil
 	}
-	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/zero-windows-sandbox-setup")
+	return buildGoPackage(ctx, rootDir, output, "", goos, goarch, "./cmd/qg-windows-sandbox-setup")
 }
 
 func buildReleaseHelper(ctx context.Context, rootDir string, output string, goos string, goarch string, name string) error {
@@ -675,7 +708,7 @@ func smokeVersion(ctx context.Context, binaryPath string, version string) error 
 		}
 		return fmt.Errorf("smoke release binary: %s", output)
 	}
-	expected := "zero " + version
+	expected := "qg " + version
 	if output != expected {
 		return fmt.Errorf("expected %s --version to print %s, got %s", filepath.Base(binaryPath), expected, output)
 	}
@@ -696,8 +729,17 @@ func copyPackageFiles(rootDir string, stagingDir string, artifactPath string, st
 			return err
 		}
 	}
-	if err := copyFile(filepath.Join(rootDir, "bin", "zero.js"), filepath.Join(stagingDir, "bin", "zero.js"), 0o755); err != nil {
+	if err := copyFile(filepath.Join(rootDir, "bin", "qg.js"), filepath.Join(stagingDir, "bin", "qg.js"), 0o755); err != nil {
 		return err
+	}
+	if goos != "windows" {
+		aliasPath := filepath.Join(stagingDir, "quebragalho")
+		if err := os.Remove(aliasPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if err := os.Symlink("qg", aliasPath); err != nil {
+			return fmt.Errorf("stage quebragalho alias: %w", err)
+		}
 	}
 	for name, source := range helperArtifacts {
 		if err := copyFile(source, filepath.Join(stagingDir, name), 0o755); err != nil {

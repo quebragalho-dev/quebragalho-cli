@@ -44,7 +44,7 @@ func TestChangeObserverSkipsControlMetadataAndSummarizesGeneratedTrees(t *testin
 	root := t.TempDir()
 	observer := NewChangeObserver(root)
 	for _, path := range []string{
-		filepath.Join(root, ".zero", "config.json"),
+		filepath.Join(root, ".qg", "config.json"),
 		filepath.Join(root, ".agents", "skills", "x"),
 		filepath.Join(root, ".git", "config"),
 		filepath.Join(root, "node_modules", "pkg", "index.js"),

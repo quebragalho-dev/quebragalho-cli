@@ -5,14 +5,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/specialist"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specialist"
 )
 
 func parseExecArgs(args []string) (execOptions, bool, error) {
 	options := execOptions{inputFormat: execInputText, outputFormat: execOutputText, autonomy: "low"}
 	if len(args) == 0 {
-		return options, false, execUsageError{"Prompt required. Use `zero exec \"prompt\"` or `zero exec --file prompt.txt`."}
+		return options, false, execUsageError{"Prompt required. Use `qg exec \"prompt\"` or `qg exec --file prompt.txt`."}
 	}
 
 	for index := 0; index < len(args); index++ {
@@ -33,7 +33,7 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 				return options, false, err
 			}
 			options.permissionMode = value
-		case arg == "--skip-permissions-unsafe":
+		case arg == "--dangerously-skip-permissions" || arg == "--skip-permissions-unsafe":
 			options.skipPermissionsUnsafe = true
 		case arg == "--list-tools":
 			options.listTools = true
@@ -151,6 +151,19 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 			index = next
 		case strings.HasPrefix(arg, "--model="):
 			options.model = strings.TrimSpace(strings.TrimPrefix(arg, "--model="))
+		case arg == "--api-key":
+			value, next, err := nextFlagValue(args, index, arg)
+			if err != nil {
+				return options, false, err
+			}
+			options.apiKey = value
+			index = next
+		case strings.HasPrefix(arg, "--api-key="):
+			value, err := requiredInlineFlagValue(arg, "--api-key")
+			if err != nil {
+				return options, false, err
+			}
+			options.apiKey = value
 		case arg == "--profile":
 			value, next, err := nextFlagValue(args, index, arg)
 			if err != nil {
@@ -461,7 +474,7 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 		return options, false, execUsageError{"Use either --plan or --use-spec, not both."}
 	}
 	if planMode && options.skipPermissionsUnsafe {
-		return options, false, execUsageError{"Use either --plan or --skip-permissions-unsafe, not both."}
+		return options, false, execUsageError{"Use either --plan or --dangerously-skip-permissions, not both."}
 	}
 	if planMode && options.worktree {
 		// Worktree prep (copying/branching the workspace) runs before the plan
@@ -489,7 +502,7 @@ func parseExecArgs(args []string) (execOptions, bool, error) {
 		return options, false, execUsageError{"Stream-json input does not accept positional prompt text. Pipe JSONL or use --file."}
 	}
 	if !options.listTools && options.file == "" && options.inputFormat != execInputStreamJSON && strings.TrimSpace(strings.Join(options.promptParts, " ")) == "" {
-		return options, false, execUsageError{"Prompt required. Use `zero exec \"prompt\"` or `zero exec --file prompt.txt`."}
+		return options, false, execUsageError{"Prompt required. Use `qg exec \"prompt\"` or `qg exec --file prompt.txt`."}
 	}
 	return options, false, nil
 }

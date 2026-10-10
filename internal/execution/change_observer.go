@@ -45,7 +45,7 @@ type fileFingerprint struct {
 }
 
 // ChangeObserver records a bounded workspace snapshot around a command. It
-// deliberately skips Zero/repository control metadata and large generated
+// deliberately skips QG/repository control metadata and large generated
 // dependency trees; those paths must neither be read as command evidence nor
 // flood the Files panel.
 type ChangeObserver struct {
@@ -146,7 +146,7 @@ func snapshotWorkspace(root string) (map[string]fileFingerprint, bool) {
 
 func protectedObservationDirectory(name string) bool {
 	switch name {
-	case ".git", ".zero", ".agents":
+	case ".git", ".qg", ".agents":
 		return true
 	default:
 		return false

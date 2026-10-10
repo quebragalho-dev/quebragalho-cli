@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 func TestProbeConfigOnlyMissingProviderFails(t *testing.T) {
@@ -114,8 +114,9 @@ func TestProbeResolvedKindRequiresAuthWhenUnset(t *testing.T) {
 
 	result := Probe(context.Background(), Options{
 		Profile: config.ProviderProfile{
-			Name:  "openai-test",
-			Model: "gpt-4.1",
+			Name:      "openai-test",
+			CatalogID: "qg",
+			Model:     "muse-spark-1.3-contributor",
 		},
 		Connectivity: true,
 		HTTPClient:   client,
@@ -180,182 +181,6 @@ func TestProbeResolvedKindConnectivityAuthErrorRedactsSecret(t *testing.T) {
 	}
 }
 
-func TestProbeConnectivityUsesOAuthCredential(t *testing.T) {
-	var gotAuth string
-	resolverCalled := false
-	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		gotAuth = r.Header.Get("Authorization")
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Status:     "200 OK",
-			Body:       io.NopCloser(strings.NewReader(`{"data":[]}`)),
-			Header:     make(http.Header),
-		}, nil
-	})}
-
-	result := Probe(context.Background(), Options{
-		Profile: config.ProviderProfile{
-			Name:         "xai",
-			CatalogID:    "xai",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://api.example.com/v1",
-			Model:        "grok-4",
-		},
-		Connectivity: true,
-		HTTPClient:   client,
-		Resolver:     staticResolver{addr: netip.MustParseAddr("93.184.216.34")},
-		OAuthResolver: func(context.Context, bool) (string, string, bool, error) {
-			resolverCalled = true
-			return "Authorization", "Bearer oauth-test-token", true, nil
-		},
-	})
-
-	if result.Status != StatusPass {
-		t.Fatalf("Status = %q, want pass: %#v", result.Status, result.Checks)
-	}
-	if !resolverCalled {
-		t.Fatal("OAuth resolver was not called")
-	}
-	if gotAuth != "Bearer oauth-test-token" {
-		t.Fatalf("Authorization = %q, want OAuth bearer", gotAuth)
-	}
-}
-
-func TestProbeConnectivityOAuthCredentialsAreRedacted(t *testing.T) {
-	const (
-		staticKey  = "STATICKEYVALUE1234567890abcdef"
-		oauthToken = "hf_VASANTHSENTINEL0011223344"
-	)
-	var authHeaders []string
-	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
-		return &http.Response{
-			StatusCode: http.StatusUnauthorized,
-			Status:     "401 Unauthorized",
-			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"invalid credentials ` + staticKey + ` and ` + oauthToken + `"}}`)),
-			Header:     make(http.Header),
-		}, nil
-	})}
-
-	result := Probe(context.Background(), Options{
-		Profile: config.ProviderProfile{
-			Name:         "xai",
-			CatalogID:    "xai",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://api.example.com/v1",
-			APIKey:       staticKey,
-			Model:        "grok-4",
-		},
-		Connectivity: true,
-		HTTPClient:   client,
-		Resolver:     staticResolver{addr: netip.MustParseAddr("93.184.216.34")},
-		OAuthResolver: func(context.Context, bool) (string, string, bool, error) {
-			return "Authorization", "Bearer " + oauthToken, true, nil
-		},
-	})
-
-	if len(authHeaders) != 2 {
-		t.Fatalf("Authorization headers = %#v, want initial request and one refresh retry", authHeaders)
-	}
-	for _, header := range authHeaders {
-		if header != "Bearer "+oauthToken {
-			t.Fatalf("Authorization = %q, want OAuth bearer", header)
-		}
-	}
-	check := result.Check("provider.connectivity")
-	if check == nil || check.Category != CategoryAuth {
-		t.Fatalf("provider.connectivity = %#v, want auth failure", check)
-	}
-	if strings.Contains(check.Message, staticKey) {
-		t.Fatalf("static API key leaked in message: %q", check.Message)
-	}
-	if strings.Contains(check.Message, oauthToken) {
-		t.Fatalf("OAuth token leaked in message: %q", check.Message)
-	}
-	if strings.Count(check.Message, "[REDACTED]") != 2 {
-		t.Fatalf("expected both credentials to be redacted, got %q", check.Message)
-	}
-}
-
-func TestProbeWithoutConnectivityRejectsUnavailableOAuthCredential(t *testing.T) {
-	resolverCalled := false
-	result := Probe(context.Background(), Options{
-		Profile: config.ProviderProfile{
-			Name:         "xai",
-			CatalogID:    "xai",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://api.example.com/v1",
-			Model:        "grok-4",
-		},
-		OAuthResolver: func(context.Context, bool) (string, string, bool, error) {
-			resolverCalled = true
-			return "", "", false, nil
-		},
-	})
-
-	if !resolverCalled {
-		t.Fatal("OAuth resolver was not called")
-	}
-	if result.Status != StatusFail {
-		t.Fatalf("Status = %q, want fail: %#v", result.Status, result.Checks)
-	}
-	check := result.Check("provider.auth")
-	if check == nil || check.Status != StatusFail || check.Category != CategoryAuth {
-		t.Fatalf("provider.auth = %#v, want auth failure", check)
-	}
-}
-
-func TestProbeConnectivityRefreshesOAuthCredentialAfterUnauthorized(t *testing.T) {
-	var authHeaders []string
-	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
-		status := http.StatusOK
-		body := `{"data":[]}`
-		if len(authHeaders) == 1 {
-			status = http.StatusUnauthorized
-			body = `{"error":{"message":"expired"}}`
-		}
-		return &http.Response{
-			StatusCode: status,
-			Status:     http.StatusText(status),
-			Body:       io.NopCloser(strings.NewReader(body)),
-			Header:     make(http.Header),
-		}, nil
-	})}
-
-	var refreshFlags []bool
-	result := Probe(context.Background(), Options{
-		Profile: config.ProviderProfile{
-			Name:         "xai",
-			CatalogID:    "xai",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://api.example.com/v1",
-			Model:        "grok-4",
-		},
-		Connectivity: true,
-		HTTPClient:   client,
-		Resolver:     staticResolver{addr: netip.MustParseAddr("93.184.216.34")},
-		OAuthResolver: func(_ context.Context, forceRefresh bool) (string, string, bool, error) {
-			refreshFlags = append(refreshFlags, forceRefresh)
-			token := "stale-token"
-			if forceRefresh {
-				token = "fresh-token"
-			}
-			return "Authorization", "Bearer " + token, true, nil
-		},
-	})
-
-	if result.Status != StatusPass {
-		t.Fatalf("Status = %q, want pass after refresh: %#v", result.Status, result.Checks)
-	}
-	if len(refreshFlags) != 2 || refreshFlags[0] || !refreshFlags[1] {
-		t.Fatalf("OAuth refresh flags = %#v, want [false true]", refreshFlags)
-	}
-	if len(authHeaders) != 2 || authHeaders[0] != "Bearer stale-token" || authHeaders[1] != "Bearer fresh-token" {
-		t.Fatalf("Authorization headers = %#v, want stale then fresh bearer", authHeaders)
-	}
-}
-
 func TestProbeConnectivityClassifiesTimeout(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, context.DeadlineExceeded
@@ -383,7 +208,7 @@ func TestProbeConnectivityClassifiesTimeout(t *testing.T) {
 
 func TestProbeConnectivityAllowsLocalhostForLocalProvider(t *testing.T) {
 	// AUDIT-H1: a user-configured local provider (loopback base_url) must be reachable
-	// — the probe no longer blocks it pre-network, so `zero setup <local> --verify` /
+	// — the probe no longer blocks it pre-network, so `qg setup <local> --verify` /
 	// doctor / providers check can confirm a running Ollama/LM Studio.
 	called := false
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
@@ -502,27 +327,6 @@ func TestPrimaryCheckPrefersFailuresOverPassingConnectivity(t *testing.T) {
 
 	if got := result.PrimaryCheck(); got == nil || got.ID != "provider.auth" {
 		t.Fatalf("PrimaryCheck = %#v, want provider.auth failure", got)
-	}
-}
-
-func TestProbeConnectivityUnsupportedTransportWarnsWithoutNetwork(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return nil, errors.New("network should not be reached")
-	})}
-
-	result := Probe(context.Background(), Options{
-		Profile: config.ProviderProfile{
-			Name:      "bedrock",
-			CatalogID: "bedrock",
-			Model:     "anthropic.claude-3-5-sonnet-20241022-v2:0",
-		},
-		Connectivity: true,
-		HTTPClient:   client,
-	})
-
-	check := result.Check("provider.runtime")
-	if check == nil || check.Category != CategoryUnsupported {
-		t.Fatalf("runtime check = %#v, want unsupported category", check)
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 )
 
 type hookExecutionPreparer struct {

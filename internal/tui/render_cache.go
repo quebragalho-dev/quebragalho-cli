@@ -8,7 +8,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 )
 
 const (
@@ -137,6 +137,8 @@ func (m model) renderRowCacheKey(row transcriptRow, width int, rc rowContext, op
 	appendRenderCacheField(&b, strconv.Itoa(int(row.kind)))
 	appendRenderCacheField(&b, row.id)
 	appendRenderCacheField(&b, row.text)
+	appendRenderCacheField(&b, row.meta["amount"])
+	appendRenderCacheField(&b, row.meta["currency"])
 	appendRenderCacheField(&b, row.tool)
 	appendRenderCacheField(&b, fmt.Sprint(row.status))
 	appendRenderCacheField(&b, row.detail)

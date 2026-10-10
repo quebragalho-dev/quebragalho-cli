@@ -7,9 +7,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // The spec's adaptive acceptance criteria: a table across widths asserting
@@ -25,31 +25,32 @@ func TestWidthTierSegments(t *testing.T) {
 
 	cases := []struct {
 		width      int
-		wantCtx    bool // header context window ("200K")
+		wantCtx    bool // header context window ("1M")
 		wantCwd    bool // header cwd segment
 		wantArg    bool // tool-card arg column
 		wantGutter bool // diff line-number gutter
 	}{
 		{width: 58, wantCtx: false, wantCwd: false, wantArg: false, wantGutter: false},
 		{width: 70, wantCtx: false, wantCwd: false, wantArg: false, wantGutter: false},
-		{width: 80, wantCtx: false, wantCwd: true, wantArg: false, wantGutter: true},
-		{width: 100, wantCtx: true, wantCwd: true, wantArg: true, wantGutter: true},
-		{width: 120, wantCtx: true, wantCwd: true, wantArg: true, wantGutter: true},
+		{width: 80, wantCtx: false, wantCwd: false, wantArg: false, wantGutter: true},
+		{width: 100, wantCtx: false, wantCwd: false, wantArg: true, wantGutter: true},
+		{width: 120, wantCtx: false, wantCwd: false, wantArg: true, wantGutter: true},
 	}
 
 	for _, tc := range cases {
 		m := newModel(context.Background(), Options{
-			Cwd:          "/Users/dev/zero-project-workspace",
+			Cwd:          "/Users/dev/qg-project-workspace",
 			ProviderName: "anthropic",
-			ModelName:    "claude-sonnet-4.5",
+			ModelName:    "muse-spark-1.3-contributor",
 		})
 		m.width, m.height = tc.width, 30
+		m.gitBranch = "main"
 
 		title := plainRender(t, m.titleBar(tc.width))
-		if got := strings.Contains(title, "200K"); got != tc.wantCtx {
+		if got := strings.Contains(title, "1M"); got != tc.wantCtx {
 			t.Errorf("width %d: title ctx = %v, want %v (%q)", tc.width, got, tc.wantCtx, title)
 		}
-		if got := strings.Contains(title, "zero-project-workspace"); got != tc.wantCwd {
+		if got := strings.Contains(title, "qg-project-workspace"); got != tc.wantCwd {
 			t.Errorf("width %d: title cwd = %v, want %v (%q)", tc.width, got, tc.wantCwd, title)
 		}
 
@@ -72,7 +73,7 @@ func TestWidthTierSegments(t *testing.T) {
 		status := plainRender(t, m.statusLine(tc.width))
 		// Status line now carries the run-state chip (permission mode), NOT the
 		// surface or model (those live in the title bar / composer rule).
-		if strings.Contains(status, "interactive") || strings.Contains(status, "claude-sonnet-4.5") {
+		if strings.Contains(status, "interactive") || strings.Contains(status, "muse-spark-1.3-contributor") {
 			t.Errorf("width %d: status should not include surface or model (%q)", tc.width, status)
 		}
 		if !strings.Contains(status, "auto-approve") {
@@ -80,7 +81,7 @@ func TestWidthTierSegments(t *testing.T) {
 		}
 		divider := plainRender(t, m.composerDividerLine(tc.width))
 		// The composer rule is model-only now; mode/effort moved to the status line.
-		if !strings.Contains(divider, "claude-sonnet-4.5") {
+		if !strings.Contains(divider, "muse-spark-1.3-contributor") {
 			t.Errorf("width %d: composer divider must keep the model label (%q)", tc.width, divider)
 		}
 		if strings.Contains(divider, "auto-approve") {
@@ -90,7 +91,7 @@ func TestWidthTierSegments(t *testing.T) {
 }
 
 func TestTinyTierSingleSegmentAndRailLessCards(t *testing.T) {
-	m := newModel(context.Background(), Options{ProviderName: "anthropic", ModelName: "claude-sonnet-4.5"})
+	m := newModel(context.Background(), Options{ProviderName: "anthropic", ModelName: "muse-spark-1.3-contributor"})
 	m.width, m.height = 40, 20
 
 	status := plainRender(t, m.statusLine(40))
@@ -99,11 +100,11 @@ func TestTinyTierSingleSegmentAndRailLessCards(t *testing.T) {
 	if !strings.Contains(status, "auto-approve") {
 		t.Fatalf("tiny status = %q, want the permission-mode chip", status)
 	}
-	if strings.Contains(status, "anthropic") || strings.Contains(status, "claude-sonnet-4.5") {
+	if strings.Contains(status, "anthropic") || strings.Contains(status, "muse-spark-1.3-contributor") {
 		t.Fatalf("tiny status = %q, want mode only (no provider/model)", status)
 	}
 	divider := plainRender(t, m.composerDividerLine(40))
-	if !strings.Contains(divider, "claude-sonnet-4.5") {
+	if !strings.Contains(divider, "muse-spark-1.3-contributor") {
 		t.Fatalf("tiny composer divider = %q, want the model label", divider)
 	}
 	if strings.Contains(divider, "auto-approve") {
@@ -119,21 +120,21 @@ func TestTinyTierSingleSegmentAndRailLessCards(t *testing.T) {
 	}
 }
 
-func TestTitleBarKeepsWorkspaceWithLongBranchAndModel(t *testing.T) {
+func TestTitleBarKeepsBranchWithoutWorkspaceOrModel(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		Cwd:          "/workspace/zero",
+		Cwd:          "/workspace/qg",
 		ProviderName: "ollama-cloud",
-		ModelName:    "cogito-2.1:671b-extra-long-model-name",
+		ModelName:    "cogito-2.1:671b-extra-long-model-name-beyond-forty-columns",
 	})
 	m.gitBranch = "feat/tui-assistant-response-cleanup"
 
 	got := plainRender(t, m.titleBar(108))
-	for _, want := range []string{"", "/workspace/zero", "feat/tui-assistant-response-cleanup", "ollama-cloud/cogito-2.1:671b-extra-long-model-name"} {
+	for _, want := range []string{"", "feat/tui-assistant-response-cleanup"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("title bar = %q, missing %q", got, want)
 		}
 	}
-	if strings.Contains(got, " 0 ") {
+	if strings.Contains(got, "ollama-cloud") || strings.Contains(got, "cogito-2.1") || strings.Contains(got, " 0 ") {
 		t.Fatalf("title bar = %q, should not include old badge", got)
 	}
 	for index, line := range strings.Split(got, "\n") {
@@ -149,7 +150,7 @@ func TestComposerDividerRendersMetaAtExactFit(t *testing.T) {
 		PermissionMode: agent.PermissionModeAsk,
 	})
 	// The divider meta is model-only now (mode/effort moved to the status line).
-	meta := zeroTheme.muted.Render("gpt-4o")
+	meta := qgTheme.muted.Render("gpt-4o")
 	width := lipgloss.Width(meta) + 4
 
 	got := plainRender(t, m.composerDividerLine(width))
@@ -166,9 +167,9 @@ func TestViewNeverExceedsTerminalWidth(t *testing.T) {
 	diff := "+++ b/a.go\n@@ -1,1 +1,1 @@\n-old line that is reasonably long for the card\n+new line that is reasonably long for the card"
 	for _, width := range []int{24, 40, 58, 70, 80, 100, 120} {
 		m := newModel(context.Background(), Options{
-			Cwd:          "/Users/dev/zero-project-workspace",
+			Cwd:          "/Users/dev/qg-project-workspace",
 			ProviderName: "anthropic",
-			ModelName:    "claude-sonnet-4.5",
+			ModelName:    "muse-spark-1.3-contributor",
 		})
 		m.width, m.height = width, 24
 
@@ -183,7 +184,7 @@ func TestViewNeverExceedsTerminalWidth(t *testing.T) {
 		m.transcript = append(m.transcript,
 			transcriptRow{kind: rowUser, text: "please change the longest line in the file to something even longer than before"},
 			transcriptRow{kind: rowToolCall, id: "c1", tool: "grep", detail: "internal/cli", arg: "RegisterFlag|flag\\."},
-			transcriptRow{kind: rowToolResult, id: "c1", tool: "grep", status: tools.StatusOK, detail: "internal/cli/root.go:41: fs := flag.NewFlagSet(\"zero\", flag.ContinueOnError)"},
+			transcriptRow{kind: rowToolResult, id: "c1", tool: "grep", status: tools.StatusOK, detail: "internal/cli/root.go:41: fs := flag.NewFlagSet(\"qg\", flag.ContinueOnError)"},
 			transcriptRow{kind: rowToolResult, id: "c2", tool: "edit_file", status: tools.StatusOK, detail: diff},
 			transcriptRow{kind: rowSystem, text: "Mode set to ask."},
 			transcriptRow{kind: rowAskUser, id: "ask1", text: "ask_user: which of these very long alternative naming schemes should the new flag adopt", detail: "1. choose between --version and --print-version  (--version, --print-version, keep both and alias them)"},
@@ -205,7 +206,21 @@ var permissionEventLongDetailFixture = agent.PermissionEvent{
 	Action:         agent.PermissionActionPrompt,
 	Permission:     "prompt",
 	PermissionMode: agent.PermissionModeAsk,
-	SideEffect:     "runs `go test ./... -timeout 600s` in /Users/dev/zero-project-workspace with network access",
+	SideEffect:     "runs `go test ./... -timeout 600s` in /Users/dev/qg-project-workspace with network access",
 	Reason:         "command writes outside the workspace and downloads modules from the network proxy",
 	Risk:           sandbox.Risk{Level: sandbox.RiskMedium},
+}
+
+func TestComposerDividerTruncatesLongModelByCells(t *testing.T) {
+	m := newModel(context.Background(), Options{ProviderName: "ollama-cloud", ModelName: "cogito-2.1:671b-extra-long-model-name-beyond-forty-columns"})
+	for _, width := range []int{0, 1, 4, 7, 8, 40, 58, 80} {
+		divider := plainRender(t, m.composerDividerLine(width))
+		if got := lipgloss.Width(divider); got > width {
+			t.Fatalf("width %d: divider is %d cells, want <= %d: %q", width, got, width, divider)
+		}
+	}
+	narrow := plainRender(t, m.composerDividerLine(40))
+	if !strings.Contains(narrow, "…") {
+		t.Fatalf("width 40: long model should truncate with an ellipsis: %q", narrow)
+	}
 }

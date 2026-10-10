@@ -74,7 +74,7 @@ func TestStreamClearThrottledNewlineIsDeferredNotDropped(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
 	withFrozenClock(&m, t0)
 
-	// lastStreamClear is still the zero Time here, so it's far outside the
+	// lastStreamClear is still the qg Time here, so it's far outside the
 	// throttle window and the first newline fires an immediate ClearScreen.
 	updated, cmd := m.Update(agentTextMsg{runID: rid, delta: "first line\n"})
 	m = updated.(model)

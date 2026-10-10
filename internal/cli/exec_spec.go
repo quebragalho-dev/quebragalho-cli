@@ -7,18 +7,18 @@ import (
 	"io"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/notify"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/specmode"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/usage"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specmode"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
 type execSpecDraftRun struct {
@@ -39,11 +39,11 @@ type execSpecDraftRun struct {
 	modelRegistry      modelregistry.Registry
 	resolved           config.ResolvedConfig
 	runMetadata        execRunMetadata
-	provider           zeroruntime.Provider
+	provider           qgruntime.Provider
 	sandboxEngine      *sandbox.Engine
 	prompt             string
 	sessionTitle       string
-	images             []zeroruntime.ImageBlock
+	images             []qgruntime.ImageBlock
 	reasoningEffort    string
 	specPermissionMode agent.PermissionMode
 	notifier           *notify.Notifier
@@ -313,7 +313,7 @@ func formatExecSpecDraftSummary(info execSpecDraftInfo) string {
 		"  spec: " + redact(info.SpecID),
 		"  path: " + redact(path),
 		"  draft session: " + redact(info.DraftSessionID),
-		"Next: zero spec show " + redact(info.SpecID) + "; zero spec approve " + redact(info.SpecID),
+		"Next: qg spec show " + redact(info.SpecID) + "; qg spec approve " + redact(info.SpecID),
 	}
 	return strings.Join(lines, "\n")
 }

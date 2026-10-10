@@ -13,7 +13,7 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 type transcriptSelectionPoint struct {
@@ -218,7 +218,7 @@ func (m model) renderHoverHighlight(rendered string, selectable []transcriptSele
 	if !matched {
 		return rendered
 	}
-	lines[index] = zeroTheme.hover.Render(ansi.Strip(lines[index]))
+	lines[index] = qgTheme.hover.Render(ansi.Strip(lines[index]))
 	return strings.Join(lines, "\n")
 }
 
@@ -513,7 +513,7 @@ func transcriptRuleBodyItem(width int, gutter int) transcriptBodyItem {
 		heightCacheKey:    "transcript-body-height:v1:rule:" + strconv.Itoa(width) + ":" + strconv.Itoa(gutter),
 		heightCacheStable: true,
 		render: func(int) transcriptBodyRenderedItem {
-			rule := zeroTheme.line.Render(strings.Repeat("─", width))
+			rule := qgTheme.line.Render(strings.Repeat("─", width))
 			return transcriptBodyRenderedItem{lines: padTranscriptBodyLines([]string{rule, ""}, gutter)}
 		},
 	}
@@ -554,8 +554,8 @@ func (m model) renderExploreResultGroup(rows []transcriptRow, width int, rc rowC
 		key := rcKey(row.runID, row.id)
 		body = append(body, exploreCardLine(toolRowName(row), rc.hints[key], rc.args[key], row.detail, width, opts, marker))
 	}
-	head := zeroTheme.green.Bold(true).Render("Explored")
-	return toolCard(head, zeroTheme.green.Render("•"), body, "", zeroTheme.line, width)
+	head := qgTheme.green.Bold(true).Render("Explored")
+	return toolCard(head, qgTheme.green.Render("•"), body, "", qgTheme.line, width)
 }
 
 // transcriptBodyItemsFromRows builds body items from an arbitrary set of
@@ -943,7 +943,7 @@ func (m model) renderTranscriptSelectableStyledLine(line transcriptSelectableLin
 	prefix := ansi.Cut(styledLine, 0, absoluteStart)
 	selected := ansi.Strip(ansi.Cut(styledLine, absoluteStart, absoluteEnd))
 	suffix := ansi.Cut(styledLine, absoluteEnd, lineWidth)
-	return prefix + zeroTheme.selection.Render(selected) + suffix
+	return prefix + qgTheme.selection.Render(selected) + suffix
 }
 
 func (m model) renderSelectableSpecialistRowFn(rowIndex int, row transcriptRow, width int, rc rowContext, startBodyY int, renderFn rowRenderFn) (string, []transcriptSelectableLine) {
@@ -1080,7 +1080,7 @@ func (m model) renderSelectableReasoningBlock(rowIndex int, text string, expande
 				text:      plainLine,
 			}
 			selectable = append(selectable, meta)
-			rendered := styleAssistantMarkdownLine(line, zeroTheme.sayText)
+			rendered := styleAssistantMarkdownLine(line, qgTheme.sayText)
 			lines = append(lines, fitStyledLine("  "+rendered, width))
 		}
 	}
@@ -1144,7 +1144,7 @@ func splitPlainAtDisplayWidth(text string, width int) (string, string) {
 func (m model) transcriptHitTestSource() (header string, items []transcriptBodyItem, width int) {
 	if m.transcriptDetailed {
 		width = chatWidth(m.width)
-		header = detailedTranscriptHeader(width) + "\n" + zeroTheme.line.Render(strings.Repeat("-", width))
+		header = detailedTranscriptHeader(width) + "\n" + qgTheme.line.Render(strings.Repeat("-", width))
 		items = m.transcriptBodyItems(width, "", true)
 		return
 	}

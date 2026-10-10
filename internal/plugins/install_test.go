@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/installtxn"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/installtxn"
 )
 
 // initGitPluginRepo creates a real local git repo holding a plugin and returns a
@@ -48,15 +48,15 @@ func TestInstallFromRealLocalGitRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install from git: %v", err)
 	}
-	if result.ID != "zero.demo" {
-		t.Fatalf("ID = %q, want zero.demo", result.ID)
+	if result.ID != "qg.demo" {
+		t.Fatalf("ID = %q, want qg.demo", result.ID)
 	}
 	loaded, err := Load(LoadOptions{Roots: []Root{{Source: SourceUser, Path: destDir}}})
 	if err != nil || len(loaded.Plugins) != 1 {
 		t.Fatalf("installed git plugin not discoverable: err=%v plugins=%#v", err, loaded.Plugins)
 	}
 	// copyTree must skip .git so clone metadata never lands in the plugins dir.
-	if _, err := os.Stat(filepath.Join(destDir, "zero.demo", ".git")); err == nil {
+	if _, err := os.Stat(filepath.Join(destDir, "qg.demo", ".git")); err == nil {
 		t.Fatalf(".git metadata must not be copied into the plugins dir")
 	}
 }
@@ -79,8 +79,8 @@ func writeSourcePlugin(t *testing.T, dir string, manifest map[string]any) string
 func validManifest() map[string]any {
 	return map[string]any{
 		"schemaVersion": float64(1),
-		"id":            "zero.demo",
-		"name":          "Zero Demo",
+		"id":            "qg.demo",
+		"name":          "QG Demo",
 		"version":       "0.1.0",
 		"description":   "Demo plugin",
 	}
@@ -94,8 +94,8 @@ func TestInstallCopiesLocalPluginAndRecordsHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install returned error: %v", err)
 	}
-	if result.ID != "zero.demo" {
-		t.Fatalf("ID = %q, want zero.demo", result.ID)
+	if result.ID != "qg.demo" {
+		t.Fatalf("ID = %q, want qg.demo", result.ID)
 	}
 	if result.Hash == "" {
 		t.Fatalf("expected a recorded content hash")
@@ -106,7 +106,7 @@ func TestInstallCopiesLocalPluginAndRecordsHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(loaded.Plugins) != 1 || loaded.Plugins[0].ID != "zero.demo" {
+	if len(loaded.Plugins) != 1 || loaded.Plugins[0].ID != "qg.demo" {
 		t.Fatalf("installed plugin not discoverable: %#v", loaded.Plugins)
 	}
 
@@ -115,8 +115,8 @@ func TestInstallCopiesLocalPluginAndRecordsHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadLock: %v", err)
 	}
-	if entries["zero.demo"].Hash != result.Hash || entries["zero.demo"].Source != canonicalSource(src) {
-		t.Fatalf("lockfile entry unexpected: %#v", entries["zero.demo"])
+	if entries["qg.demo"].Hash != result.Hash || entries["qg.demo"].Source != canonicalSource(src) {
+		t.Fatalf("lockfile entry unexpected: %#v", entries["qg.demo"])
 	}
 }
 
@@ -197,7 +197,7 @@ func TestConcurrentInstallsPreserveEveryLockEntry(t *testing.T) {
 	sources := make([]string, count)
 	for index := range count {
 		manifest := validManifest()
-		manifest["id"] = fmt.Sprintf("zero.concurrent.%02d", index)
+		manifest["id"] = fmt.Sprintf("qg.concurrent.%02d", index)
 		sources[index] = writeSourcePlugin(t, filepath.Join(t.TempDir(), "src"), manifest)
 	}
 
@@ -232,7 +232,7 @@ func TestInstallReinstallDetectsNestedFileChange(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "src")
 	writeSourcePlugin(t, src, map[string]any{
 		"schemaVersion": float64(1),
-		"id":            "zero.tool",
+		"id":            "qg.tool",
 		"name":          "Tool",
 		"version":       "0.1.0",
 		"tools": []any{map[string]any{
@@ -288,8 +288,8 @@ func TestInstallNameClashWarnsAndDoesNotOverwriteWithoutForce(t *testing.T) {
 		t.Fatalf("forced reinstall: %v", err)
 	}
 	entries, _ := ReadLock(destDir)
-	if entries["zero.demo"].Source != canonicalSource(srcB) {
-		t.Fatalf("forced overwrite did not update source: %#v", entries["zero.demo"])
+	if entries["qg.demo"].Source != canonicalSource(srcB) {
+		t.Fatalf("forced overwrite did not update source: %#v", entries["qg.demo"])
 	}
 }
 
@@ -318,8 +318,8 @@ func TestInstallSameLocalSourceDifferentSpellingIsNotAClash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadLock: %v", err)
 	}
-	if entries["zero.demo"].Source != canonicalSource(abs) {
-		t.Fatalf("lockfile should record the canonical source %q, got %q", canonicalSource(abs), entries["zero.demo"].Source)
+	if entries["qg.demo"].Source != canonicalSource(abs) {
+		t.Fatalf("lockfile should record the canonical source %q, got %q", canonicalSource(abs), entries["qg.demo"].Source)
 	}
 }
 
@@ -342,7 +342,7 @@ func TestInstallGitSourceUsesRunner(t *testing.T) {
 	if !used {
 		t.Fatalf("git runner not invoked for URL source")
 	}
-	if result.ID != "zero.demo" {
+	if result.ID != "qg.demo" {
 		t.Fatalf("ID = %q", result.ID)
 	}
 }
@@ -354,7 +354,7 @@ func TestRemoveDeletesPluginAndLockEntry(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 
-	if err := Remove(destDir, "zero.demo"); err != nil {
+	if err := Remove(destDir, "qg.demo"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 	loaded, _ := Load(LoadOptions{Roots: []Root{{Source: SourceUser, Path: destDir}}})
@@ -362,7 +362,7 @@ func TestRemoveDeletesPluginAndLockEntry(t *testing.T) {
 		t.Fatalf("plugin still present after Remove: %#v", loaded.Plugins)
 	}
 	entries, _ := ReadLock(destDir)
-	if _, ok := entries["zero.demo"]; ok {
+	if _, ok := entries["qg.demo"]; ok {
 		t.Fatalf("lockfile entry survived Remove")
 	}
 }
@@ -380,7 +380,7 @@ func TestInstallCopiesEntireTree(t *testing.T) {
 	destDir := t.TempDir()
 	src := writeSourcePlugin(t, filepath.Join(t.TempDir(), "src"), map[string]any{
 		"schemaVersion": float64(1),
-		"id":            "zero.tool",
+		"id":            "qg.tool",
 		"name":          "Tool",
 		"version":       "0.1.0",
 		"tools": []any{map[string]any{
@@ -427,19 +427,19 @@ func TestInstallRecoversAPluginLeftByAnInterruptedCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := filepath.Dir(staged)
-	writeWorkspaceMarker(t, workspace, "zero.demo")
-	if err := os.Rename(filepath.Join(dir, "zero.demo"), filepath.Join(workspace, "previous")); err != nil {
+	writeWorkspaceMarker(t, workspace, "qg.demo")
+	if err := os.Rename(filepath.Join(dir, "qg.demo"), filepath.Join(workspace, "previous")); err != nil {
 		t.Fatal(err)
 	}
 
 	other := validManifest()
-	other["id"] = "zero.other"
+	other["id"] = "qg.other"
 	src2 := writeSourcePlugin(t, filepath.Join(t.TempDir(), "src2"), other)
 	if _, err := Install(context.Background(), InstallOptions{Source: src2, Dir: dir}); err != nil {
 		t.Fatalf("second install: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, "zero.demo", manifestFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "qg.demo", manifestFileName)); err != nil {
 		t.Fatalf("the interrupted install was not put back: %v", err)
 	}
 	loaded, err := Load(LoadOptions{Roots: []Root{{Source: SourceUser, Path: dir}}})
@@ -475,23 +475,23 @@ func TestRemoveLeavesNothingARecoveryCanResurrect(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := filepath.Dir(staged)
-	writeWorkspaceMarker(t, workspace, "zero.demo")
-	if err := os.Rename(filepath.Join(dir, "zero.demo"), filepath.Join(workspace, "previous")); err != nil {
+	writeWorkspaceMarker(t, workspace, "qg.demo")
+	if err := os.Rename(filepath.Join(dir, "qg.demo"), filepath.Join(workspace, "previous")); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := Remove(dir, "zero.demo"); err != nil {
+	if err := Remove(dir, "qg.demo"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
 	other := validManifest()
-	other["id"] = "zero.other"
+	other["id"] = "qg.other"
 	src2 := writeSourcePlugin(t, filepath.Join(t.TempDir(), "src2"), other)
 	if _, err := Install(context.Background(), InstallOptions{Source: src2, Dir: dir}); err != nil {
 		t.Fatalf("later install: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, "zero.demo")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "qg.demo")); !os.IsNotExist(err) {
 		t.Errorf("a removed plugin was put back on disk: %v", err)
 	}
 	loaded, err := Load(LoadOptions{Roots: []Root{{Source: SourceUser, Path: dir}}})
@@ -499,7 +499,7 @@ func TestRemoveLeavesNothingARecoveryCanResurrect(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range loaded.Plugins {
-		if p.ID == "zero.demo" {
+		if p.ID == "qg.demo" {
 			t.Errorf("a removed plugin is loadable again")
 		}
 	}
@@ -525,12 +525,12 @@ func TestRemoveLeavesNoSupersededBackupARecoveryCanResurrect(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := filepath.Dir(staged)
-	writeWorkspaceMarker(t, workspace, "zero.demo")
+	writeWorkspaceMarker(t, workspace, "qg.demo")
 	previous := filepath.Join(workspace, "previous")
 	if err := os.MkdirAll(previous, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := os.ReadFile(filepath.Join(dir, "zero.demo", manifestFileName))
+	manifest, err := os.ReadFile(filepath.Join(dir, "qg.demo", manifestFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,18 +538,18 @@ func TestRemoveLeavesNoSupersededBackupARecoveryCanResurrect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Remove(dir, "zero.demo"); err != nil {
+	if err := Remove(dir, "qg.demo"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
 	other := validManifest()
-	other["id"] = "zero.other"
+	other["id"] = "qg.other"
 	src2 := writeSourcePlugin(t, filepath.Join(t.TempDir(), "src2"), other)
 	if _, err := Install(context.Background(), InstallOptions{Source: src2, Dir: dir}); err != nil {
 		t.Fatalf("later install: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, "zero.demo")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "qg.demo")); !os.IsNotExist(err) {
 		t.Errorf("a removed plugin was put back on disk: %v", err)
 	}
 	loaded, err := Load(LoadOptions{Roots: []Root{{Source: SourceUser, Path: dir}}})
@@ -557,7 +557,7 @@ func TestRemoveLeavesNoSupersededBackupARecoveryCanResurrect(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range loaded.Plugins {
-		if p.ID == "zero.demo" {
+		if p.ID == "qg.demo" {
 			t.Errorf("a removed plugin is loadable again")
 		}
 	}
@@ -565,7 +565,7 @@ func TestRemoveLeavesNoSupersededBackupARecoveryCanResurrect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := lock["zero.demo"]; ok {
+	if _, ok := lock["qg.demo"]; ok {
 		t.Errorf("the lockfile still names a removed plugin")
 	}
 }
@@ -577,8 +577,8 @@ func TestRemoveLeavesNoSupersededBackupARecoveryCanResurrect(t *testing.T) {
 // it are shapes ordinary user content can have too, and prove nothing.
 func writeWorkspaceMarker(t *testing.T, workspace string, id string) {
 	t.Helper()
-	marker := []byte("zero-install-txn v1\ntarget " + id + "\n")
-	if err := os.WriteFile(filepath.Join(workspace, ".zero-install-txn"), marker, 0o600); err != nil {
+	marker := []byte("qg-install-txn v1\ntarget " + id + "\n")
+	if err := os.WriteFile(filepath.Join(workspace, ".qg-install-txn"), marker, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -644,12 +644,12 @@ func (u interruptedUpdate) plantWorkspace(t *testing.T) string {
 		t.Fatal(err)
 	}
 	workspace := filepath.Dir(staged)
-	writeWorkspaceMarker(t, workspace, "zero.demo")
+	writeWorkspaceMarker(t, workspace, "qg.demo")
 	return workspace
 }
 
 func (u interruptedUpdate) target() string {
-	return filepath.Join(u.dir, "zero.demo")
+	return filepath.Join(u.dir, "qg.demo")
 }
 
 func (u interruptedUpdate) mustRename(t *testing.T, from string, to string) {
@@ -668,7 +668,7 @@ func (u interruptedUpdate) publishNewEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lock["zero.demo"] = LockEntry{Source: u.newSource, Hash: u.newHash}
+	lock["qg.demo"] = LockEntry{Source: u.newSource, Hash: u.newHash}
 	if err := writeLock(u.dir, lock); err != nil {
 		t.Fatal(err)
 	}
@@ -784,7 +784,7 @@ func assertRecovered(t *testing.T, u interruptedUpdate, workspace string, want r
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := lock["zero.demo"]
+	entry := lock["qg.demo"]
 	if entry.Source != want.source {
 		t.Errorf("lock source = %q, want %q", entry.Source, want.source)
 	}
@@ -799,7 +799,7 @@ func assertRecovered(t *testing.T, u interruptedUpdate, workspace string, want r
 	}
 	found := false
 	for _, plugin := range loaded.Plugins {
-		if plugin.ID != "zero.demo" {
+		if plugin.ID != "qg.demo" {
 			continue
 		}
 		found = true
@@ -821,14 +821,14 @@ func assertRecovered(t *testing.T, u interruptedUpdate, workspace string, want r
 
 func assertRemovedForGood(t *testing.T, dir string) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(dir, "zero.demo")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "qg.demo")); !os.IsNotExist(err) {
 		t.Errorf("a removed plugin is on disk again: %v", err)
 	}
 	lock, err := ReadLock(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := lock["zero.demo"]; ok {
+	if _, ok := lock["qg.demo"]; ok {
 		t.Errorf("the lockfile still names a removed plugin")
 	}
 	loaded, err := Load(LoadOptions{Roots: []Root{{Source: SourceUser, Path: dir}}})
@@ -836,7 +836,7 @@ func assertRemovedForGood(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	for _, plugin := range loaded.Plugins {
-		if plugin.ID == "zero.demo" {
+		if plugin.ID == "qg.demo" {
 			t.Errorf("a removed plugin is loadable again")
 		}
 	}
@@ -850,14 +850,14 @@ func TestInstallResolvesEveryInterruptedUpdateState(t *testing.T) {
 			u := seedInterruptedUpdate(t)
 			workspace := state.plant(t, u)
 
-			if err := installOther(t, u.dir, "zero.other"); err != nil {
+			if err := installOther(t, u.dir, "qg.other"); err != nil {
 				t.Fatalf("install after the interrupted update: %v", err)
 			}
 			assertRecovered(t, u, workspace, state.want(u))
 
 			// A second pass must find nothing to do. Recovery that resolved the same
 			// workspace twice would undo the state it just settled on.
-			if err := installOther(t, u.dir, "zero.third"); err != nil {
+			if err := installOther(t, u.dir, "qg.third"); err != nil {
 				t.Fatalf("second recovery pass: %v", err)
 			}
 			assertRecovered(t, u, workspace, state.want(u))
@@ -874,12 +874,12 @@ func TestRemoveResolvesEveryInterruptedUpdateStateAndSticks(t *testing.T) {
 			u := seedInterruptedUpdate(t)
 			state.plant(t, u)
 
-			if err := Remove(u.dir, "zero.demo"); err != nil {
+			if err := Remove(u.dir, "qg.demo"); err != nil {
 				t.Fatalf("remove after the interrupted update: %v", err)
 			}
 			assertRemovedForGood(t, u.dir)
 
-			if err := installOther(t, u.dir, "zero.other"); err != nil {
+			if err := installOther(t, u.dir, "qg.other"); err != nil {
 				t.Fatalf("install after the removal: %v", err)
 			}
 			assertRemovedForGood(t, u.dir)
@@ -902,13 +902,13 @@ func assertUntouched(t *testing.T, u interruptedUpdate, generation string, want 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock["zero.demo"] != want {
-		t.Errorf("lock entry = %+v, want %+v", lock["zero.demo"], want)
+	if lock["qg.demo"] != want {
+		t.Errorf("lock entry = %+v, want %+v", lock["qg.demo"], want)
 	}
-	if _, ok := lock["zero.other"]; ok {
+	if _, ok := lock["qg.other"]; ok {
 		t.Errorf("the aborted install still published its own entry")
 	}
-	if _, err := os.Stat(filepath.Join(u.dir, "zero.other")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(u.dir, "qg.other")); !os.IsNotExist(err) {
 		t.Errorf("the aborted install still wrote its tree: %v", err)
 	}
 }
@@ -926,16 +926,16 @@ func TestInterruptedUpdateMatchingNeitherTreeAbortsBothCallers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lock["zero.demo"] = unmatched
+	lock["qg.demo"] = unmatched
 	if err := writeLock(u.dir, lock); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := installOther(t, u.dir, "zero.other"); err == nil {
+	if err := installOther(t, u.dir, "qg.other"); err == nil {
 		t.Errorf("Install did not report the unresolved transaction")
 	}
 	assertUntouched(t, u, "new", unmatched)
-	if err := Remove(u.dir, "zero.demo"); err == nil {
+	if err := Remove(u.dir, "qg.demo"); err == nil {
 		t.Errorf("Remove did not report the unresolved transaction")
 	}
 	assertUntouched(t, u, "new", unmatched)
@@ -956,10 +956,10 @@ func TestInterruptedUpdateWithAnUnreadableLockAbortsBothCallers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := installOther(t, u.dir, "zero.other"); err == nil {
+	if err := installOther(t, u.dir, "qg.other"); err == nil {
 		t.Errorf("Install did not report the unresolved transaction")
 	}
-	if err := Remove(u.dir, "zero.demo"); err == nil {
+	if err := Remove(u.dir, "qg.demo"); err == nil {
 		t.Errorf("Remove did not report the unresolved transaction")
 	}
 	data, err := os.ReadFile(filepath.Join(u.target(), "generation.txt"))
@@ -1000,10 +1000,10 @@ func TestAFailedRestoreAbortsBothCallers(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(workspace, 0o755) })
 
-	if err := installOther(t, u.dir, "zero.other"); err == nil {
+	if err := installOther(t, u.dir, "qg.other"); err == nil {
 		t.Errorf("Install did not report the failed restore")
 	}
-	if err := Remove(u.dir, "zero.demo"); err == nil {
+	if err := Remove(u.dir, "qg.demo"); err == nil {
 		t.Errorf("Remove did not report the failed restore")
 	}
 	if _, err := os.Stat(u.target()); !os.IsNotExist(err) {
@@ -1013,10 +1013,10 @@ func TestAFailedRestoreAbortsBothCallers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock["zero.demo"] != (LockEntry{Source: u.oldSource, Hash: u.oldHash}) {
-		t.Errorf("lock entry = %+v, want the untouched old entry", lock["zero.demo"])
+	if lock["qg.demo"] != (LockEntry{Source: u.oldSource, Hash: u.oldHash}) {
+		t.Errorf("lock entry = %+v, want the untouched old entry", lock["qg.demo"])
 	}
-	if _, ok := lock["zero.other"]; ok {
+	if _, ok := lock["qg.other"]; ok {
 		t.Errorf("the aborted install still published its own entry")
 	}
 	if _, err := os.Stat(filepath.Join(workspace, "previous")); err != nil {
@@ -1036,11 +1036,11 @@ func TestInterruptedUpdateWithNoLockEntryAbortsTheCaller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	delete(lock, "zero.demo")
+	delete(lock, "qg.demo")
 	if err := writeLock(u.dir, lock); err != nil {
 		t.Fatal(err)
 	}
-	err = installOther(t, u.dir, "zero.other")
+	err = installOther(t, u.dir, "qg.other")
 
 	if err == nil {
 		t.Fatal("a live tree the lockfile does not describe must stop the caller")
@@ -1049,30 +1049,30 @@ func TestInterruptedUpdateWithNoLockEntryAbortsTheCaller(t *testing.T) {
 }
 
 // A directory at the target that the lockfile does not name is not proof that a
-// publish was interrupted. Anything can have created it: `zero tools make`, a
+// publish was interrupted. Anything can have created it: `qg tools make`, a
 // hand-written plugin, a restored file sync. Recovery used to read a missing
 // entry as proof the publish never ran and replace that tree with the retained
 // backup, which deleted whatever was there.
 func TestAnUnrelatedTreeAtTheTargetIsNeverReplaced(t *testing.T) {
 	dir := t.TempDir()
-	workspace, err := os.MkdirTemp(dir, ".zero-install-txn-")
+	workspace, err := os.MkdirTemp(dir, ".qg-install-txn-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := []byte("zero-install-txn v1\ntarget zero.demo\n")
-	if err := os.WriteFile(filepath.Join(workspace, ".zero-install-txn"), marker, 0o600); err != nil {
+	marker := []byte("qg-install-txn v1\ntarget qg.demo\n")
+	if err := os.WriteFile(filepath.Join(workspace, ".qg-install-txn"), marker, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	backup := filepath.Join(workspace, "previous")
 	writeSourcePlugin(t, backup, validManifest())
 	// The user's own tree, which no lockfile entry names.
-	mine := filepath.Join(dir, "zero.demo")
+	mine := filepath.Join(dir, "qg.demo")
 	writeSourcePlugin(t, mine, validManifest())
 	if err := os.WriteFile(filepath.Join(mine, "mycode.txt"), []byte("my work"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	err = installOther(t, dir, "zero.other")
+	err = installOther(t, dir, "qg.other")
 
 	if err == nil {
 		t.Fatal("recovery must not act on a tree the lockfile does not describe")
@@ -1094,12 +1094,12 @@ func TestInterruptedUpdateWithAHashlessLockEntryAbortsTheCaller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lock["zero.demo"] = hashless
+	lock["qg.demo"] = hashless
 	if err := writeLock(u.dir, lock); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := installOther(t, u.dir, "zero.other"); err == nil {
+	if err := installOther(t, u.dir, "qg.other"); err == nil {
 		t.Errorf("Install did not report the unresolved transaction")
 	}
 	assertUntouched(t, u, "new", hashless)
@@ -1114,8 +1114,8 @@ type interruptedCaller struct {
 
 func interruptedCallers() []interruptedCaller {
 	return []interruptedCaller{
-		{name: "install", run: func(t *testing.T, dir string) error { return installOther(t, dir, "zero.other") }},
-		{name: "remove", run: func(t *testing.T, dir string) error { return Remove(dir, "zero.demo") }},
+		{name: "install", run: func(t *testing.T, dir string) error { return installOther(t, dir, "qg.other") }},
+		{name: "remove", run: func(t *testing.T, dir string) error { return Remove(dir, "qg.demo") }},
 	}
 }
 
@@ -1155,7 +1155,7 @@ func TestAFailedRetirementAbortsBothCallers(t *testing.T) {
 // must leave it exactly as it found it, and say nothing.
 func TestRecoveryLeavesAPrefixCollidingDirectoryAlone(t *testing.T) {
 	dir := t.TempDir()
-	collided := filepath.Join(dir, ".zero-install-txn-notes")
+	collided := filepath.Join(dir, ".qg-install-txn-notes")
 	previous := filepath.Join(collided, "previous")
 	if err := os.MkdirAll(previous, 0o755); err != nil {
 		t.Fatal(err)
@@ -1163,11 +1163,11 @@ func TestRecoveryLeavesAPrefixCollidingDirectoryAlone(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(previous, "SKILL.md"), []byte("notes\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(collided, "target"), []byte("zero.demo"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(collided, "target"), []byte("qg.demo"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := installOther(t, dir, "zero.other"); err != nil {
+	if err := installOther(t, dir, "qg.other"); err != nil {
 		t.Fatalf("install alongside a prefix colliding directory: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(previous, "SKILL.md"))
@@ -1177,7 +1177,7 @@ func TestRecoveryLeavesAPrefixCollidingDirectoryAlone(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(collided, "target")); err != nil {
 		t.Errorf("the colliding directory lost a file: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "zero.demo")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "qg.demo")); !os.IsNotExist(err) {
 		t.Errorf("recovery published content it does not own: %v", err)
 	}
 }

@@ -17,7 +17,7 @@ func ToolsOverride(deferThreshold int) ToolsConfig {
 	return ToolsConfig{DeferThreshold: deferThreshold, deferThresholdSet: true}
 }
 
-// ValidateFile reads and parses path as a Zero FileConfig and runs the same
+// ValidateFile reads and parses path as a QG FileConfig and runs the same
 // semantic provider/model rules used during resolution. It returns the parsed
 // config (zero value on parse failure) plus any structured issues. A parse
 // failure yields a single issue whose Message is the underlying JSON error's

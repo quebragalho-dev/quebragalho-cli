@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/terminalpet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 )
 
 type shortTerminalOutput struct {
@@ -488,5 +488,52 @@ func TestPetImageOutputSerializesWriteAndCleanup(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestSixelEraseCannotOverwriteNewComposer(t *testing.T) {
+	for _, hide := range []bool{false, true} {
+		t.Run(fmt.Sprintf("hide=%t", hide), func(t *testing.T) {
+			file, err := os.CreateTemp(t.TempDir(), "sixel-*")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			animation, err := terminalpet.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolSixel})
+			renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, X: 29, Y: 37, Columns: 11, Rows: 3, HeightPixels: 12})
+			out := newPetImageOutput(file, renderer)
+			if _, err := out.Write([]byte("old-frame")); err != nil {
+				t.Fatal(err)
+			}
+			m := interactivePetTestModel(t)
+			m.petRenderer = renderer
+			m.modelName = "muse-spark-1.3-contributor"
+			width := 58
+			if hide {
+				renderer.Set(nil)
+				m.petAnimation = nil
+				width = 40
+			} else {
+				renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, X: 47, Y: 37, Columns: 11, Rows: 3, HeightPixels: 12})
+			}
+			frame := terminalSyncStart + "\x1b[38;1H" + m.composerDividerLine(width) + terminalSyncEnd
+			if _, err := out.Write([]byte(frame)); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(file.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := string(data)
+			eraseAt := strings.LastIndex(got, "\x1b[38;30H"+strings.Repeat(" ", 11))
+			modelAt := strings.LastIndex(got, m.modelName)
+			if eraseAt < 0 || modelAt < 0 || eraseAt > modelAt {
+				t.Fatalf("old pet rectangle erased AFTER new model label: erase=%d model=%d", eraseAt, modelAt)
+			}
+		})
 	}
 }

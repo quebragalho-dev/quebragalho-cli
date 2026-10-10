@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Gitlawb/zero/internal/privatedir"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/privatedir"
 )
 
 // maxUnixSocketPath bounds the socket path to the smallest platform sun_path

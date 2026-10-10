@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
-// `zero mcp disable exa` must work even though exa is a built-in
+// `qg mcp disable exa` must work even though exa is a built-in
 // default that is not written to the user's config file until overridden.
 func TestRunMCPDisableSeededExaDefault(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "zero", "config.json")
+	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	// A config with no Exa entry — the default lives in code, not the file.
 	writeMCPCommandRawConfig(t, configPath, `{"activeProvider":"fast"}`)
 

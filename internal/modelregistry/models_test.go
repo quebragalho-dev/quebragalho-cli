@@ -273,3 +273,15 @@ func validModelEntry() ModelEntry {
 		Aliases: []string{"openai:gpt-4.1-mini"},
 	}
 }
+
+// MaxOutputTokens 0 means "no cap advertised": qgruntime documents 0 as
+// unknown, the factory forwards it as such, and the QG API publishes no
+// max-output figure for its models — so the registry must accept it.
+func TestModelEntryAllowsUnknownMaxOutput(t *testing.T) {
+	model := validModelEntry()
+	model.ContextLimits.MaxOutputTokens = 0
+
+	if err := model.Validate(); err != nil {
+		t.Fatalf("zero max output (unknown cap) must validate, got %v", err)
+	}
+}

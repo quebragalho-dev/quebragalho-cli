@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // defaultConnectTimeout bounds how long startup waits for ONE MCP server to
@@ -27,7 +27,7 @@ type RegisterOptions struct {
 	// default mode is auto while preserving the execution-time prompt.
 	AdvertiseInAuto bool
 	ClientFactory   func(context.Context, Server) (ToolClient, error)
-	// ConnectTimeout bounds the per-server connect+list at startup. Zero uses
+	// ConnectTimeout bounds the per-server connect+list at startup. QG uses
 	// defaultConnectTimeout.
 	ConnectTimeout time.Duration
 	Execution      *execution.Runner
@@ -339,13 +339,13 @@ func (tool registryTool) Run(ctx context.Context, args map[string]any) tools.Res
 	//
 	// It says retrying cannot RECOVER the payload rather than that a retry
 	// returns the same thing. Each retry is a fresh call, so the server may well
-	// answer differently; what cannot change is that Zero still has nowhere to
+	// answer differently; what cannot change is that QG still has nowhere to
 	// put a non-text block. Claiming the response would be identical would be a
 	// promise this code is in no position to make.
 	if dropped := DroppedContentSummary(result.Content); dropped != "" {
-		note := "[zero] this server also returned " + dropped + ", which Zero cannot forward yet. Retrying cannot recover this payload."
+		note := "[qg] this server also returned " + dropped + ", which QG cannot forward yet. Retrying cannot recover this payload."
 		if output == "" {
-			note = "[zero] this server returned " + dropped + ", which Zero cannot forward yet. Retrying cannot recover this payload."
+			note = "[qg] this server returned " + dropped + ", which QG cannot forward yet. Retrying cannot recover this payload."
 		}
 		output = strings.TrimSpace(output + "\n\n" + note)
 	}

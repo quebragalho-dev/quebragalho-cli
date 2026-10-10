@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 type customApplyPatchTool struct {
@@ -60,7 +60,7 @@ func TestFreeformApplyPatchUsesExistingToolExecutionPath(t *testing.T) {
 	registry.Register(tools.NewScopedApplyPatchTool(root, nil))
 	patch := "*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch\n"
 
-	result, err := executeToolCall(context.Background(), registry, zeroruntime.ToolCall{
+	result, err := executeToolCall(context.Background(), registry, qgruntime.ToolCall{
 		ID:        "call-1",
 		Name:      "apply_patch",
 		Arguments: patch,
@@ -93,7 +93,7 @@ func TestFreeformApplyPatchSupportsGrantedExtraRoot(t *testing.T) {
 	target := filepath.Join(extra, "hello.txt")
 	patch := "*** Begin Patch\n*** Add File: " + target + "\n+hello\n*** End Patch\n"
 
-	result, err := executeToolCall(context.Background(), registry, zeroruntime.ToolCall{
+	result, err := executeToolCall(context.Background(), registry, qgruntime.ToolCall{
 		ID: "call-1", Name: "apply_patch", Arguments: patch, Freeform: true,
 	}, PermissionModeUnsafe, Options{Cwd: root, FileTracker: tools.NewFileTracker()})
 	if err != nil {
@@ -154,7 +154,7 @@ func TestFreeformApplyPatchRejectsMixedWorkspaceAndExtraRoots(t *testing.T) {
 				"*** End Patch",
 			}, "\n")
 
-			result, err := executeToolCall(context.Background(), registry, zeroruntime.ToolCall{
+			result, err := executeToolCall(context.Background(), registry, qgruntime.ToolCall{
 				ID: "call-1", Name: "apply_patch", Arguments: patch, Freeform: true,
 			}, PermissionModeUnsafe, Options{Cwd: workspace, FileTracker: tools.NewFileTracker()})
 			if err != nil {
@@ -221,7 +221,7 @@ func TestFreeformApplyPatchAcceptsOneSemanticRoot(t *testing.T) {
 			}, "\n")
 			registry := tools.NewRegistry()
 			registry.Register(tools.NewScopedApplyPatchTool(workspace, scope))
-			result, err := executeToolCall(context.Background(), registry, zeroruntime.ToolCall{
+			result, err := executeToolCall(context.Background(), registry, qgruntime.ToolCall{
 				ID: "call-1", Name: "apply_patch", Arguments: patch, Freeform: true,
 			}, PermissionModeUnsafe, Options{Cwd: workspace, FileTracker: tools.NewFileTracker()})
 			if err != nil {
@@ -250,7 +250,7 @@ func TestFreeformApplyPatchRejectsAbsolutePathOutsideGrantedRoots(t *testing.T) 
 	target := filepath.Join(outside, "blocked.txt")
 	patch := "*** Begin Patch\n*** Add File: " + target + "\n+blocked\n*** End Patch\n"
 
-	result, err := executeToolCall(context.Background(), registry, zeroruntime.ToolCall{
+	result, err := executeToolCall(context.Background(), registry, qgruntime.ToolCall{
 		ID: "call-1", Name: "apply_patch", Arguments: patch, Freeform: true,
 	}, PermissionModeUnsafe, Options{Cwd: root})
 	if err != nil {
@@ -300,7 +300,7 @@ func TestPreparedFreeformPatchRejectsIntermediateSymlinkSwap(t *testing.T) {
 }
 
 func TestUnknownFreeformToolFailsClosed(t *testing.T) {
-	result, err := executeToolCall(context.Background(), tools.NewRegistry(), zeroruntime.ToolCall{
+	result, err := executeToolCall(context.Background(), tools.NewRegistry(), qgruntime.ToolCall{
 		ID: "call-1", Name: "unknown", Arguments: "raw", Freeform: true,
 	}, PermissionModeUnsafe, Options{})
 	if err != nil {
@@ -316,7 +316,7 @@ func TestCustomApplyPatchCannotUseFreeformContract(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(custom)
 
-	result, err := executeToolCall(context.Background(), registry, zeroruntime.ToolCall{
+	result, err := executeToolCall(context.Background(), registry, qgruntime.ToolCall{
 		ID: "call-1", Name: "apply_patch", Arguments: "raw patch", Freeform: true,
 	}, PermissionModeUnsafe, Options{})
 	if err != nil {
@@ -336,7 +336,7 @@ func TestDeniedFreeformApplyPatchDoesNotWrite(t *testing.T) {
 	registry.Register(tools.NewScopedApplyPatchTool(root, nil))
 	patch := "*** Begin Patch\n*** Add File: denied.txt\n+must not exist\n*** End Patch\n"
 
-	result, err := executeToolCall(context.Background(), registry, zeroruntime.ToolCall{
+	result, err := executeToolCall(context.Background(), registry, qgruntime.ToolCall{
 		ID:        "call-1",
 		Name:      "apply_patch",
 		Arguments: patch,

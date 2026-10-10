@@ -355,7 +355,7 @@ func TestConcurrentHoldersOfOneRoot(t *testing.T) {
 		t.Fatal("the root outlived every holder")
 	}
 	// AND THE BOOKKEEPING IS EMPTY, not merely invisible. hasReadRoot answers
-	// what a caller can see; a refcount entry left behind at zero is not visible
+	// what a caller can see; a refcount entry left behind at qg is not visible
 	// that way and would still leak, one map entry per acquire/release cycle.
 	scope.mu.Lock()
 	leftover, stillCounted := scope.tempReads[outside]

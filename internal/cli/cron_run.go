@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/cron"
-	"github.com/Gitlawb/zero/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/cron"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 )
 
-// execRunner runs a `zero exec ...` invocation and returns its exit code. The
+// execRunner runs a `qg exec ...` invocation and returns its exit code. The
 // default is cli.Run; tests inject a fake.
 type execRunner func(args []string, stdout, stderr io.Writer) int
 
-// cronRun implements `zero cron run [--once] [--catch-up] [id...]`.
+// cronRun implements `qg cron run [--once] [--catch-up] [id...]`.
 func cronRun(store *cron.Store, now func() time.Time, args []string, stdout io.Writer, stderr io.Writer, exec execRunner) int {
 	once, catchUp := false, false
 	var ids []string
@@ -267,7 +267,7 @@ func claimFire(store *cron.Store, fired time.Time, id string) (bool, error) {
 			}
 		}
 		// Unparseable or unadvanceable schedule (an impossible spec whose Next is
-		// zero): pause the job inside this same locked claim so a concurrent scheduler
+		// qg): pause the job inside this same locked claim so a concurrent scheduler
 		// sees a non-active job and does NOT also fire it. The winner still fires once
 		// and fireJob's post-exec keeps it paused. Without this, both callers leave
 		// NextRunAt unchanged, both see the job due, and both fire the same slot

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 var errNativeSandboxUnavailable = errors.New("native sandbox backend is unavailable")
@@ -72,7 +72,7 @@ type CommandPlan struct {
 	executionReportPath string
 }
 
-// Cleanup releases any resources the plan holds. It is safe to call on a zero
+// Cleanup releases any resources the plan holds. It is safe to call on a qg
 // plan and to call more than once.
 func (plan CommandPlan) Cleanup() {
 	if plan.cleanup != nil {
@@ -169,7 +169,7 @@ func (engine *Engine) BuildCommandPlan(spec CommandSpec) (CommandPlan, error) {
 	backend = inferBackendCapabilities(backend)
 	preference := SandboxPreferenceAuto
 	// Re-entrancy guard: a command spawned by a process we already wrapped (both
-	// ZERO_SANDBOXED=1 and ZERO_SANDBOX_BACKEND set in its env — see
+	// QG_SANDBOXED=1 and QG_SANDBOX_BACKEND set in its env — see
 	// IsAlreadySandboxed) must not be wrapped again — nested platform wrappers
 	// fail and a second sandbox wrapper would be redundant. Return a pass-through
 	// plan.
@@ -308,7 +308,7 @@ func newLinuxExecutionReportPath() (string, error) {
 	if _, err := rand.Read(token[:]); err != nil {
 		return "", fmt.Errorf("generate sandbox execution report path: %w", err)
 	}
-	return filepath.Join("/tmp", "zero-sandbox-report-"+hex.EncodeToString(token[:])+".json"), nil
+	return filepath.Join("/tmp", "qg-sandbox-report-"+hex.EncodeToString(token[:])+".json"), nil
 }
 
 func withSandboxExecutionMetadata(plan CommandPlan, request SandboxExecutionRequest) CommandPlan {
@@ -463,7 +463,7 @@ func sandboxEnvironmentForCommandWithSensitiveEnv(specEnv []string, policy Polic
 		"PATH=" + pathValue,
 		"TERM=" + envListValue(env, "TERM", "dumb"),
 		EnvSandboxBackend + "=" + string(backend),
-		"ZERO_SANDBOX_NETWORK=" + string(policy.Network),
+		"QG_SANDBOX_NETWORK=" + string(policy.Network),
 		EnvSandboxed + "=1",
 	}
 	if workspaceRoot != "" {
@@ -602,7 +602,7 @@ var sandboxMachServices = []string{
 // log when Policy.MonitorDenials is set; nextSandboxDenialTag derives a unique
 // per-plan tag from it so the runtime monitor can find this run's denials via
 // `log stream`.
-const sandboxDenialLogTag = "zero-sandbox-denied-v1"
+const sandboxDenialLogTag = "qg-sandbox-denied-v1"
 
 // sandboxDenialTagSeq makes each monitored plan's denial tag unique.
 var sandboxDenialTagSeq atomic.Uint64
@@ -671,7 +671,7 @@ func seatbeltProfileFromPermissionProfile(profile PermissionProfile, policy Poli
 	rules = append(rules, denyReadRules(profile.FileSystem)...)
 	// SBPL is last-match-wins, so the carveouts MUST follow the deny rules above:
 	// they re-include the supported non-secret subtrees of a directory-level
-	// credential deny (Zero's user plugin/specialist/command roots).
+	// credential deny (QG's user plugin/specialist/command roots).
 	rules = append(rules, denyReadCarveoutRules(profile.FileSystem)...)
 	// A token override may live below a carveout. Reapply only those nested
 	// denies after the broad allow so credentials remain protected under
@@ -821,7 +821,7 @@ func denyReadRules(fs FileSystemPolicy) []string {
 // credential directory. Writes are untouched: the credential directory is not a
 // write root, so the profile's write rule keeps denying them. Only
 // DenyReadCarveouts entries are emitted, and the profile builder derives those
-// exclusively from Zero's own config directory (never from a user-configured
+// exclusively from QG's own config directory (never from a user-configured
 // DenyRead root), so no user deny is weakened here.
 func denyReadCarveoutRules(fs FileSystemPolicy) []string {
 	denied := dedupeStrings(append(append([]string{}, fs.DenyRead...), fs.DenyReadIfExists...))
@@ -1095,7 +1095,11 @@ func regexpQuoteMeta(value string) string {
 
 func scrubSensitiveEnv(env []string, additionalKeys ...string) []string {
 	// Secrets not covered by the provider catalog: cloud/VCS credentials and
-	// providers Zero talks to through generic OpenAI-compatible endpoints.
+	// providers QG talks to through generic OpenAI-compatible endpoints. The
+	// well-known provider keys below stay here (not catalog-derived) because
+	// the catalog is single-provider now while the host environment may still
+	// carry ambient credentials for other providers — those must never enter
+	// the sandbox either.
 	sensitiveKeys := []string{
 		"COHERE_API_KEY",
 		"PERPLEXITY_API_KEY",
@@ -1105,15 +1109,27 @@ func scrubSensitiveEnv(env []string, additionalKeys ...string) []string {
 		"AWS_SESSION_TOKEN",
 		"GITLAB_TOKEN",
 		"GH_TOKEN",
-		"ZERO_WEBSEARCH_API_KEY",
-		"ZERO_DAEMON_REMOTE_TOKEN",
+		"OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+		"GEMINI_API_KEY",
+		"GOOGLE_API_KEY",
+		"DEEPSEEK_API_KEY",
+		"XAI_API_KEY",
+		"HUGGINGFACE_API_KEY",
+		"AWS_ACCESS_KEY_ID",
+		// GOOGLE_APPLICATION_CREDENTIALS points at a service-account key file
+		// at an arbitrary path, so hiding the pointer complements the deny-read
+		// rule on the file itself.
+		"GOOGLE_APPLICATION_CREDENTIALS",
+		"QG_WEBSEARCH_API_KEY",
+		"QG_DAEMON_REMOTE_TOKEN",
 		// The file form of the same bridge token. TokenFromEnv accepts either,
 		// so scrubbing only the inline variable left the pointer readable, and
 		// the default sandbox posture is read-all. There is no fallback
 		// location to guess at, the path comes from this variable alone, so
 		// removing it closes the leak rather than half of it. Same reasoning as
 		// GOOGLE_APPLICATION_CREDENTIALS below.
-		"ZERO_DAEMON_REMOTE_TOKEN_FILE",
+		"QG_DAEMON_REMOTE_TOKEN_FILE",
 	}
 	for _, descriptor := range providercatalog.All() {
 		for _, key := range descriptor.AuthEnvVars {
@@ -1178,7 +1194,7 @@ func normalizeSensitiveEnvKeys(keys []string) []string {
 
 func isDynamicSensitiveEnvKey(key string) bool {
 	const (
-		prefix = "ZERO_OAUTH_"
+		prefix = "QG_OAUTH_"
 		suffix = "_CLIENT_SECRET"
 	)
 	key = strings.ToUpper(strings.TrimSpace(key))

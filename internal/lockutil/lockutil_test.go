@@ -162,7 +162,7 @@ func TestFileLockAtRejectsEscapingPath(t *testing.T) {
 func TestFileLockReleasedByProcessExit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lock")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestFileLockHelperProcess$")
-	cmd.Env = append(os.Environ(), "ZERO_LOCKUTIL_HELPER=1", "ZERO_LOCKUTIL_PATH="+path)
+	cmd.Env = append(os.Environ(), "QG_LOCKUTIL_HELPER=1", "QG_LOCKUTIL_PATH="+path)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -204,10 +204,10 @@ func TestFileLockReleasedByProcessExit(t *testing.T) {
 }
 
 func TestFileLockHelperProcess(t *testing.T) {
-	if os.Getenv("ZERO_LOCKUTIL_HELPER") != "1" {
+	if os.Getenv("QG_LOCKUTIL_HELPER") != "1" {
 		return
 	}
-	lock, err := TryAcquireFileLock(os.Getenv("ZERO_LOCKUTIL_PATH"))
+	lock, err := TryAcquireFileLock(os.Getenv("QG_LOCKUTIL_PATH"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

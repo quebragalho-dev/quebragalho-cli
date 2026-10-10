@@ -15,36 +15,34 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/hooks"
-	"github.com/Gitlawb/zero/internal/localcontrol"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/observability"
-	"github.com/Gitlawb/zero/internal/peermsg"
-	"github.com/Gitlawb/zero/internal/plugins"
-	"github.com/Gitlawb/zero/internal/providerhealth"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/provideroauth"
-	"github.com/Gitlawb/zero/internal/provideronboarding"
-	"github.com/Gitlawb/zero/internal/providers"
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/selfverify"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/skills"
-	"github.com/Gitlawb/zero/internal/specialist"
-	"github.com/Gitlawb/zero/internal/swarm"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/tui"
-	"github.com/Gitlawb/zero/internal/update"
-	"github.com/Gitlawb/zero/internal/verify"
-	"github.com/Gitlawb/zero/internal/worktrees"
-	"github.com/Gitlawb/zero/internal/zerogit"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
 	"github.com/charmbracelet/x/term"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/observability"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/peermsg"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/selfverify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/skills"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specialist"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/swarm"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/update"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/verify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/worktrees"
 )
 
 var version = "dev"
@@ -55,7 +53,7 @@ type appDeps struct {
 	userConfigPath   func() (string, error)
 	resolveConfig    func(workspaceRoot string, overrides config.Overrides) (config.ResolvedConfig, error)
 	resolveMCPConfig func(workspaceRoot string, excludeProject bool) (config.MCPConfig, error)
-	newProvider      func(config.ProviderProfile) (zeroruntime.Provider, error)
+	newProvider      func(config.ProviderProfile) (qgruntime.Provider, error)
 	// exportActiveProvider pins spawned children to the run's provider (production:
 	// config.SetActiveProviderEnv, set in defaultAppDeps — deliberately NOT filled
 	// by fillAppDeps, so tests never mutate the process environment unless they
@@ -63,12 +61,19 @@ type appDeps struct {
 	exportActiveProvider func(providerName string)
 	// getenv reads a process environment variable (production: os.Getenv, set in
 	// defaultAppDeps — deliberately NOT filled by fillAppDeps, so tests are hermetic
-	// against ambient vars like ZERO_PROVIDER unless they inject it). nil ⇒ empty.
-	getenv                       func(string) string
-	probeProviderHealth          func(context.Context, providerhealth.Options) providerhealth.Result
-	discoverProviderModels       func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
+	// against ambient vars like QG_PROVIDER unless they inject it). nil ⇒ empty.
+	getenv                 func(string) string
+	probeProviderHealth    func(context.Context, providerhealth.Options) providerhealth.Result
+	validateLoginKey       func(context.Context, string) error
+	discoverProviderModels func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
+	// newQGAccountClient builds the QG account API (balance/key/usage/models);
+	// nil resolves the active profile's key at call time. Tests inject a fake.
+	newQGAccountClient func() (qgAccountAPI, error)
+	// newQGDeviceClient builds the unauthenticated device-flow client for
+	// `qg login --device`; nil uses the production endpoints. Tests inject a
+	// fake, the same way newQGAccountClient is injected.
+	newQGDeviceClient            func() (qgDeviceAPI, error)
 	detectLocalRuntimes          func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
-	openRouterLogin              func(context.Context, provideroauth.OpenRouterOptions) (string, error)
 	newSessionStore              func() *sessions.Store
 	loadPlugins                  func(plugins.LoadOptions) (plugins.LoadResult, error)
 	loadHooks                    func(hooks.LoadOptions) (hooks.LoadResult, error)
@@ -87,12 +92,12 @@ type appDeps struct {
 	runVerify                    func(context.Context, verify.Plan, verify.RunOptions) verify.Report
 	runSelfVerify                func(context.Context, verify.Plan, selfverify.Options) selfverify.Report
 	runAgentEval                 func(context.Context, agentEvalOptions) (agentEvalReport, error)
-	inspectChanges               func(context.Context, zerogit.InspectOptions) (zerogit.ChangeSummary, error)
-	commitChanges                func(context.Context, zerogit.CommitOptions) (zerogit.CommitResult, error)
-	pushChanges                  func(context.Context, zerogit.PushOptions) (zerogit.PushResult, error)
-	createPR                     func(context.Context, zerogit.PROptions) (zerogit.PRResult, error)
-	createBranch                 func(context.Context, zerogit.BranchOptions) (zerogit.BranchResult, error)
-	isDefaultBranch              func(context.Context, zerogit.DefaultBranchOptions) (bool, string, string, error)
+	inspectChanges               func(context.Context, qggit.InspectOptions) (qggit.ChangeSummary, error)
+	commitChanges                func(context.Context, qggit.CommitOptions) (qggit.CommitResult, error)
+	pushChanges                  func(context.Context, qggit.PushOptions) (qggit.PushResult, error)
+	createPR                     func(context.Context, qggit.PROptions) (qggit.PRResult, error)
+	createBranch                 func(context.Context, qggit.BranchOptions) (qggit.BranchResult, error)
+	isDefaultBranch              func(context.Context, qggit.DefaultBranchOptions) (bool, string, string, error)
 	currentGitUser               func(context.Context, string) string
 	headCommitSubject            func(context.Context, string) string
 	commitsAhead                 func(context.Context, string, string, string) (int, error)
@@ -157,21 +162,15 @@ func defaultAppDeps() appDeps {
 			options.ExcludeProject = excludeProject
 			return config.ResolveMCP(options)
 		},
-		newProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
-			// Resolve the OAuth login ONCE: the bearer resolver and the login key it
-			// bound must describe the same login (the key is passed on to the Codex
-			// account-header resolver so it never re-selects independently).
-			resolver, loginKey := oauthLoginForProfile(profile)
+		newProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			return providers.New(profile, providers.Options{
-				UserAgent:     userAgent(),
-				OAuthResolver: resolver,
-				OAuthLoginKey: loginKey,
+				UserAgent: userAgent(),
 			})
 		},
 		probeProviderHealth:    providerhealth.Probe,
+		validateLoginKey:       defaultValidateLoginKey,
 		discoverProviderModels: defaultDiscoverProviderModels,
 		detectLocalRuntimes:    provideronboarding.DetectLocalRuntimes,
-		openRouterLogin:        provideroauth.OpenRouterLogin,
 		newSessionStore: func() *sessions.Store {
 			return sessions.NewStore(sessions.StoreOptions{})
 		},
@@ -209,50 +208,50 @@ func defaultAppDeps() appDeps {
 		runVerify:        verify.Run,
 		runSelfVerify:    selfverify.Run,
 		runAgentEval:     defaultRunAgentEval,
-		inspectChanges:   zerogit.Inspect,
-		commitChanges:    zerogit.Commit,
-		pushChanges:      zerogit.Push,
-		createPR:         zerogit.CreatePR,
-		createBranch:     zerogit.CreateBranch,
-		isDefaultBranch:  zerogit.IsDefaultBranch,
+		inspectChanges:   qggit.Inspect,
+		commitChanges:    qggit.Commit,
+		pushChanges:      qggit.Push,
+		createPR:         qggit.CreatePR,
+		createBranch:     qggit.CreateBranch,
+		isDefaultBranch:  qggit.IsDefaultBranch,
 		currentGitUser: func(ctx context.Context, cwd string) string {
-			return zerogit.CurrentGitUser(ctx, cwd, nil)
+			return qggit.CurrentGitUser(ctx, cwd, nil)
 		},
 		headCommitSubject: func(ctx context.Context, cwd string) string {
-			return zerogit.HeadCommitSubject(ctx, cwd, nil)
+			return qggit.HeadCommitSubject(ctx, cwd, nil)
 		},
 		commitsAhead: func(ctx context.Context, cwd, remote, branch string) (int, error) {
-			return zerogit.CommitsAhead(ctx, cwd, remote, branch, nil)
+			return qggit.CommitsAhead(ctx, cwd, remote, branch, nil)
 		},
 		isUnbornRemote: func(ctx context.Context, cwd, remote string) (bool, error) {
-			return zerogit.IsUnbornRemote(ctx, cwd, remote, nil)
+			return qggit.IsUnbornRemote(ctx, cwd, remote, nil)
 		},
 		refreshTrackingRef: func(ctx context.Context, cwd, remote, branch string) error {
-			return zerogit.RefreshTrackingRef(ctx, cwd, remote, branch, nil)
+			return qggit.RefreshTrackingRef(ctx, cwd, remote, branch, nil)
 		},
 		branchUpstreamRemote: func(ctx context.Context, cwd, branch string) string {
-			return zerogit.UpstreamRemote(ctx, cwd, branch, nil)
+			return qggit.UpstreamRemote(ctx, cwd, branch, nil)
 		},
 		branchUpstreamRemoteAndMerge: func(ctx context.Context, cwd, branch string) (string, string) {
-			return zerogit.UpstreamRemoteAndMergeBranch(ctx, cwd, branch, nil)
+			return qggit.UpstreamRemoteAndMergeBranch(ctx, cwd, branch, nil)
 		},
 		resolveRemoteBranchTip: func(ctx context.Context, cwd, remote, branch string) (string, error) {
-			return zerogit.ResolveRemoteBranchTip(ctx, cwd, remote, branch, nil)
+			return qggit.ResolveRemoteBranchTip(ctx, cwd, remote, branch, nil)
 		},
 		remoteHasBranch: func(ctx context.Context, cwd, remote, branch string) (bool, error) {
-			return zerogit.RemoteHasBranch(ctx, cwd, remote, branch, nil)
+			return qggit.RemoteHasBranch(ctx, cwd, remote, branch, nil)
 		},
 		currentGitBranch: func(ctx context.Context, cwd string) string {
-			return zerogit.CurrentBranch(ctx, cwd, nil)
+			return qggit.CurrentBranch(ctx, cwd, nil)
 		},
 		currentBranchTip: func(ctx context.Context, cwd string) string {
-			return zerogit.CurrentBranchTip(ctx, cwd, nil)
+			return qggit.CurrentBranchTip(ctx, cwd, nil)
 		},
 		deleteBranch: func(ctx context.Context, cwd, fallbackBranch, branchToDelete string) error {
-			return zerogit.DeleteBranch(ctx, cwd, fallbackBranch, branchToDelete, nil)
+			return qggit.DeleteBranch(ctx, cwd, fallbackBranch, branchToDelete, nil)
 		},
 		resetBranchRef: func(ctx context.Context, cwd, branch, newTip, expectedOld string) error {
-			return zerogit.ResetBranchRef(ctx, cwd, branch, newTip, nil, expectedOld)
+			return qggit.ResetBranchRef(ctx, cwd, branch, newTip, nil, expectedOld)
 		},
 		runTUI:      tui.Run,
 		runEditor:   openEditor,
@@ -263,11 +262,11 @@ func defaultAppDeps() appDeps {
 }
 
 func userAgent() string {
-	return "zero/" + version
+	return "qg/" + version
 }
 
 // defaultUserPluginsDir resolves the user-scoped plugins root
-// ($XDG_CONFIG_HOME/zero/plugins) used as the install target for `plugin add`
+// ($XDG_CONFIG_HOME/qg/plugins) used as the install target for `plugin add`
 // and the toolbox for `tools make`. It is the SourceUser root from
 // plugins.ResolveRoots; an empty string is returned only if it cannot be
 // resolved, which the command layer surfaces as an error.
@@ -286,7 +285,7 @@ func defaultUserPluginsDir() string {
 
 func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) (exitCode int) {
 	// Self-dispatch as the Windows sandbox helper. When no standalone helper .exe
-	// is shipped (dev / plain `go build`), the sandbox launches the running zero
+	// is shipped (dev / plain `go build`), the sandbox launches the running qg
 	// binary with one of these hidden subcommands instead of a separate
 	// executable (see resolveWindowsSandboxHelper). Routed before crash-recover,
 	// dep-fill, and --add-dir splitting so it can never collide with a real
@@ -304,12 +303,6 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	// a brief notice, rather than a raw stack trace dumped at the user.
 	defer observability.Recover(observability.DefaultCrashDir(), "cli", stderr, &exitCode)
 	deps = fillAppDeps(deps)
-
-	// CLI runs opt into the models.dev overlay (cached live context limits and
-	// pricing on top of the curated catalog). Explicitly enabled here — and only
-	// here — so library consumers and hermetic tests are never perturbed by a
-	// cache file on the machine. The refresh itself is fired in exec/TUI startup.
-	modelregistry.EnableModelsDevOverlay()
 
 	// --add-dir, --theme and --allow-escalation may be written in any order;
 	// see splitLeadingRootFlags for why they are split together.
@@ -332,7 +325,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	// until it opts in here.
 	forwardsRootFlags := false
 	switch args[0] {
-	case "--skip-permissions-unsafe", "-p", "--prompt", "exec":
+	case "--dangerously-skip-permissions", "--skip-permissions-unsafe", "-p", "--prompt", "exec":
 		forwardsRootFlags = true
 	}
 	if len(addDirs) > 0 && !forwardsRootFlags {
@@ -343,7 +336,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	}
 
 	switch args[0] {
-	case "--skip-permissions-unsafe":
+	case "--dangerously-skip-permissions", "--skip-permissions-unsafe":
 		// Launch the interactive TUI directly in unsafe mode. Without this, the
 		// flag fell through to the unknown-command path, so a user could never
 		// reach unsafe mode in the shell — and the "!" shell escape (which is
@@ -371,16 +364,16 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		// so check for it across all of rest before rejecting stray args.
 		for _, arg := range rest {
 			if arg == "--add-dir" || strings.HasPrefix(arg, "--add-dir=") {
-				return writeAppError(stderr, "--add-dir must come before any other arguments (it may precede or follow --skip-permissions-unsafe)", 1)
+				return writeAppError(stderr, "--add-dir must come before any other arguments (it may precede or follow --dangerously-skip-permissions)", 1)
 			}
 		}
 		// This path launches the interactive TUI, which takes no positional prompt or
 		// subcommand. Reject any remaining trailing arg loudly instead of silently
-		// dropping it, so `zero --skip-permissions-unsafe "fix bug"` doesn't appear to
+		// dropping it, so `qg --dangerously-skip-permissions "fix bug"` doesn't appear to
 		// hang in the TUI with the prompt discarded. (AUDIT-L3)
 		for _, arg := range rest {
 			if strings.TrimSpace(arg) != "" {
-				return writeAppError(stderr, "--skip-permissions-unsafe launches the interactive TUI and takes no prompt or subcommand; for a one-shot unsafe run use `zero exec --skip-permissions-unsafe -p \"...\"`", 1)
+				return writeAppError(stderr, "--dangerously-skip-permissions launches the interactive TUI and takes no prompt or subcommand; for a one-shot unsafe run use `qg exec --dangerously-skip-permissions -p \"...\"`", 1)
 			}
 		}
 		return runInteractiveTUI(stderr, deps, agent.PermissionModeUnsafe, append(append([]string{}, addDirs...), moreDirs...), skipTheme, allowEscalation || skipAllowEscalation)
@@ -392,23 +385,23 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	case "-v", "--version", "version":
 		for _, a := range args[1:] {
 			if a == "-h" || a == "--help" {
-				if _, err := fmt.Fprintln(stdout, "Usage: zero version\n\nPrint the Zero CLI version. Takes no flags."); err != nil {
+				if _, err := fmt.Fprintln(stdout, "Usage: qg version\n\nPrint the QG CLI version. Takes no flags."); err != nil {
 					return 1
 				}
 				return 0
 			}
 		}
 		// Pipes and redirects keep the machine-readable contract exactly as it
-		// was: a single "zero <version>" line. Scripts, command substitutions,
+		// was: a single "qg <version>" line. Scripts, command substitutions,
 		// and the NPM wrapper smoke check all parse that record, so the banner
 		// is strictly a TTY affordance.
 		if !stdoutIsTerminal(stdout) {
-			if _, err := fmt.Fprintf(stdout, "zero %s\n", version); err != nil {
+			if _, err := fmt.Fprintf(stdout, "qg %s\n", version); err != nil {
 				return 1
 			}
 			return 0
 		}
-		if _, err := fmt.Fprintf(stdout, "%s\n\nzero %s\n", tui.Wordmark(), version); err != nil {
+		if _, err := fmt.Fprintf(stdout, "%s\n\nqg %s\n", tui.Wordmark(), version); err != nil {
 			return 1
 		}
 		return 0
@@ -418,7 +411,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		}
 		// Forward the root flags exec consumes so its own parser collects them.
 		// Use the inline --prompt=<value> form so a prompt whose first character is a
-		// dash (e.g. `zero -p "-foo"`) is taken verbatim instead of being mistaken for
+		// dash (e.g. `qg -p "-foo"`) is taken verbatim instead of being mistaken for
 		// a flag and rejected with "--prompt requires a value" (matches the cron path).
 		execArgs := append(rootFlagArgs(addDirs, allowEscalation), "--prompt="+args[1])
 		execArgs = append(execArgs, args[2:]...)
@@ -433,13 +426,19 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	case "config":
 		return runConfig(args[1:], stdout, stderr, deps)
 	case "models":
-		return runModels(args[1:], stdout, stderr)
+		return runModels(args[1:], stdout, stderr, deps)
+	case "balance":
+		return runBalance(args[1:], stdout, stderr, deps)
+	case "key", "whoami":
+		return runKey(args[1:], stdout, stderr, deps)
 	case "providers":
 		return runProviders(args[1:], stdout, stderr, deps)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr, deps)
 	case "setup":
 		return runSetup(args[1:], stdout, stderr, deps)
+	case "login":
+		return runLogin(args[1:], stdout, stderr, deps)
 	case "context":
 		return runContext(args[1:], stdout, stderr, deps)
 	case "repo-map", "repomap":
@@ -498,15 +497,16 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		if _, err := fmt.Fprintf(stderr, "unknown command %q\n", args[0]); err != nil {
 			return 1
 		}
-		// First-run users reach for `zero login`/`zero logout` (reported in the
-		// wild); point them at the real command instead of a bare usage pointer.
+		// First-run users reach for `qg logout` (reported in the wild); point
+		// them at the real command instead of a bare usage pointer. `qg login`
+		// is a real command now (API-key onboarding) and never lands here.
 		switch strings.ToLower(args[0]) {
-		case "login", "logout":
-			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "zero auth "+strings.ToLower(args[0])); err != nil {
+		case "logout":
+			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "qg auth logout"); err != nil {
 				return 1
 			}
 		}
-		if _, err := fmt.Fprintln(stderr, "Run zero --help for usage."); err != nil {
+		if _, err := fmt.Fprintln(stderr, "Run qg --help for usage."); err != nil {
 			return 1
 		}
 		return 2
@@ -541,9 +541,6 @@ func fillAppDeps(deps appDeps) appDeps {
 	}
 	if deps.detectLocalRuntimes == nil {
 		deps.detectLocalRuntimes = defaults.detectLocalRuntimes
-	}
-	if deps.openRouterLogin == nil {
-		deps.openRouterLogin = defaults.openRouterLogin
 	}
 	if deps.newSessionStore == nil {
 		deps.newSessionStore = defaults.newSessionStore
@@ -666,37 +663,31 @@ func fillAppDeps(deps appDeps) appDeps {
 		deps.now = defaults.now
 	}
 	// Wrap newProvider ONCE, after all defaults are filled, so every surface that
-	// builds the runtime provider gets the credential-store key applied. The
-	// resolver is pure and leaves apiKeyStored profiles keyless; an unwrapped
-	// build sends unauthenticated requests. config.ApplyStoredAPIKey is a no-op
-	// when the key is already set or the profile isn't stored-key, so this is
-	// safe and idempotent for every profile kind and every injected newProvider.
+	// builds the runtime provider gets the credential-store key applied.
+	// config.ApplyStoredAPIKey is a no-op when the key is already set or the
+	// profile isn't stored-key, so this is safe and idempotent for every profile
+	// kind and every injected newProvider.
 	baseNewProvider := deps.newProvider
 	userConfigPath := deps.userConfigPath
-	deps.newProvider = func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+	deps.newProvider = func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 		return baseNewProvider(applyStoredProviderKeyAt(profile, userConfigPath))
 	}
 	baseProbeProviderHealth := deps.probeProviderHealth
 	deps.probeProviderHealth = func(ctx context.Context, options providerhealth.Options) providerhealth.Result {
 		options.Profile = applyStoredProviderKeyAt(options.Profile, userConfigPath)
-		if options.OAuthResolver == nil {
-			options.OAuthResolver, _ = oauthLoginForProfile(options.Profile)
-		}
 		return baseProbeProviderHealth(ctx, options)
+	}
+	if deps.validateLoginKey == nil {
+		deps.validateLoginKey = defaults.validateLoginKey
 	}
 	return deps
 }
 
 func runInteractiveTUI(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, allowEscalation bool) int {
-	return runInteractiveTUIWithSetup(stderr, deps, permissionMode, addDirs, theme, false, allowEscalation)
+	return runInteractiveTUIWithSetup(stderr, deps, permissionMode, addDirs, theme, allowEscalation)
 }
 
-func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, forceSetup bool, allowEscalation bool) int {
-	// Refresh the models.dev pricing/limits cache in the background when stale;
-	// the overlay is read at registry construction from the cache file, so this
-	// benefits the next run and never blocks or fails this one.
-	go func() { _ = modelregistry.RefreshModelsDevCache(context.Background()) }()
-
+func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, allowEscalation bool) int {
 	workspaceRoot, err := deps.getwd()
 	if err != nil {
 		return writeAppError(stderr, "failed to resolve workspace: "+err.Error(), 1)
@@ -704,31 +695,24 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 
 	resolved, err := deps.resolveConfig(workspaceRoot, config.Overrides{})
 	if err != nil {
-		// A resolve failure the setup wizard can FIX is not fatal for the
-		// interactive TUI: drop into the wizard with an empty config so the user
-		// can onboard/repair, instead of exiting with an error they can only fix
-		// by hand-editing config.json. That covers a missing/unresolvable active
-		// provider and an active provider without a model (custom endpoints have
-		// no catalog default) — previously the second shape bricked bare `zero`
-		// and `zero setup`, the exact commands that could have fixed it. Any
-		// other error (malformed JSON, directory conflict, etc.) is still fatal,
-		// and headless commands (zero config / zero exec) still fail with the
-		// actionable message.
-		if !errors.Is(err, config.ErrNoActiveProvider) && !errors.Is(err, config.ErrProviderRequiresModel) {
+		// Resolver failures stay terminal (requires-model, malformed JSON, …)
+		// except a missing active provider, which may open the 3-screen
+		// first-run onboarding below instead of exiting.
+		if errors.Is(err, config.ErrProviderRequiresModel) || !errors.Is(err, config.ErrNoActiveProvider) {
 			return writeAppError(stderr, err.Error(), 1)
 		}
-		// ErrNoActiveProvider can mean "nothing configured yet" (needs onboarding)
-		// or "providers ARE configured, just none marked active" (e.g. config.json's
-		// activeProvider is blank/stale). In the second case resolved.Providers still
-		// carries the already-normalized list — prefer falling back to one of those
-		// over wiping everything and forcing the user to re-enter credentials they
-		// already saved.
-		if usable, ok := firstUsableProvider(resolved.Providers); errors.Is(err, config.ErrNoActiveProvider) && ok {
+		// ErrNoActiveProvider can mean "nothing configured yet" or "providers
+		// ARE configured, just none marked active". In the second case
+		// resolved.Providers still carries the already-normalized list — prefer
+		// falling back to one of those over forcing the user to re-enter
+		// credentials they already saved. With neither, reset to a blank config
+		// so the launch gate below opens onboarding for a fresh install.
+		usable, ok := firstUsableProvider(resolved.Providers)
+		if !ok {
+			resolved = config.ResolvedConfig{}
+		} else {
 			resolved.Provider = usable
 			resolved.ActiveProvider = usable.Name
-		} else {
-			resolved = config.ResolvedConfig{}
-			forceSetup = true
 		}
 	}
 	userConfigPath, err := deps.userConfigPath()
@@ -749,27 +733,8 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		projectConfigPath = resolveOptions.ProjectConfigPath
 	}
 
-	needsSetup := setupRequired(resolved)
-	if needsSetup && !forceSetup {
-		// The active provider lacks a usable credential, but if another saved
-		// provider already has one, fall back to it instead of forcing onboarding
-		// again. Saved logins persist across launches; switch the active provider
-		// any time with `zero provider use <name>`. Onboarding only runs when no
-		// configured provider is usable (a genuinely fresh setup).
-		if usable, ok := firstUsableProvider(resolved.Providers); ok {
-			resolved.Provider = usable
-			resolved.ActiveProvider = usable.Name
-			needsSetup = false
-		}
-	}
-	setupVisible := forceSetup || needsSetup
-	configPath := ""
-	if setupVisible {
-		configPath, err = deps.userConfigPath()
-		if err != nil {
-			return writeAppError(stderr, err.Error(), 1)
-		}
-	}
+	var onboarding bool
+	resolved, onboarding = resolveInteractiveSetup(resolved)
 
 	scope, err := sandbox.NewScope(workspaceRoot, append(append([]string{}, resolved.Sandbox.AdditionalWriteRoots...), addDirs...))
 	if err != nil {
@@ -799,7 +764,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	if notice, err := sandboxStore.ConsumeMigrationNotice(); err != nil {
 		return writeAppError(stderr, "failed to migrate sandbox grants: "+err.Error(), 1)
 	} else if notice != "" {
-		_, _ = fmt.Fprintln(stderr, "[zero] "+notice)
+		_, _ = fmt.Fprintln(stderr, "[qg] "+notice)
 	}
 	sandboxBackend := deps.selectSandboxBackend(sandbox.BackendOptions{})
 	sandboxEngine := sandbox.NewEngine(sandbox.EngineOptions{
@@ -818,7 +783,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	defer closeSpecialistRuntime(stderr, specialistRuntime)
 	// The TUI has no --worktree reassignment, so trustRoot == workspaceRoot here.
 	// Gate the project MCP layer behind the workspace-trust check (fail-closed): an
-	// untrusted workspace must not spawn its ./.zero/config.json stdio MCP servers.
+	// untrusted workspace must not spawn its ./.qg/config.json stdio MCP servers.
 	// Keep the store-read error so the notice below can distinguish a fail-closed
 	// store error from a clean untrusted verdict.
 	mcpExcludeProject, mcpTrustErrored := resolveTrust(workspaceRoot)
@@ -836,7 +801,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	}
 	mcpTokenStore, err := deps.newMCPTokenStore()
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "[zero] warning: failed to initialize MCP OAuth tokens: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "[qg] warning: failed to initialize MCP OAuth tokens: %s\n", err)
 		mcpTokenStore = nil
 		err = nil
 	}
@@ -881,7 +846,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	// apply_patch) would never be offered to the model — the TUI could neither edit
 	// files nor run shell. Ask advertises them and routes each through the existing
 	// OnPermissionRequest flow; shift+tab lets the user switch modes live. An
-	// explicit --skip-permissions-unsafe launch overrides this to unsafe (the only
+	// explicit --dangerously-skip-permissions launch overrides this to unsafe (the only
 	// way to reach unsafe, since shift+tab deliberately cycles auto↔ask only).
 	//
 	// Resolve the effective mode BEFORE the deferral gate below so the registration
@@ -947,9 +912,9 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	sttServerManager := newDictationServerManager(resolved.STT)
 	// Keep STT downloads in the SAME config tree the rest of the TUI uses. Deriving
 	// from userConfigPath (rather than config.UserConfigDir()) matters when the config
-	// root is overridden — e.g. in tests or a custom ZERO config dir — so the two
-	// don't diverge. userConfigPath points at .../zero/config.json, so its dir is the
-	// zero config dir.
+	// root is overridden — e.g. in tests or a custom QG config dir — so the two
+	// don't diverge. userConfigPath points at .../qg/config.json, so its dir is the
+	// qg config dir.
 	sttDownloadRoot := ""
 	if userConfigPath != "" {
 		sttDownloadRoot = filepath.Join(filepath.Dir(userConfigPath), "stt")
@@ -978,7 +943,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		CompactionModel:      resolved.Preferences.CompactionModel,
 		Provider:             provider,
 		NewProvider:          deps.newProvider,
-		NewTurnSessionProvider: func(profile config.ProviderProfile, provider zeroruntime.Provider) zeroruntime.TurnSessionProvider {
+		NewTurnSessionProvider: func(profile config.ProviderProfile, provider qgruntime.Provider) qgruntime.TurnSessionProvider {
 			if provider == nil {
 				return nil
 			}
@@ -1053,10 +1018,15 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		STTKeyStatus:              newSTTKeyStatus(resolved, userConfigPath),
 		SaveSTTKey:                newSaveSTTKey(userConfigPath),
 		Setup: tui.SetupOptions{
-			Visible:    setupVisible,
-			Required:   needsSetup,
-			ConfigPath: configPath,
-			Providers:  setupProviderOptions(),
+			// The launch gate opens this overlay whenever the config resolves
+			// without a usable credential; the pasted key is checked against
+			// GET /v1/models (same validator as `qg login`) before the wizard
+			// leaves the credential screen.
+			Visible:        onboarding,
+			Required:       onboarding,
+			ConfigPath:     userConfigPath,
+			Providers:      setupProviderOptions(),
+			ValidateAPIKey: deps.validateLoginKey,
 			Save: func(selection tui.SetupSelection) (tui.SetupResult, error) {
 				return saveSetupProvider(deps, selection, setupSaveOptions{})
 			},
@@ -1082,7 +1052,29 @@ func tuiSandboxSetupCommand(backend sandbox.Backend, deps appDeps) func(context.
 // buildProvider constructs the run's provider at STARTUP — it is called only from
 // the two launch paths (interactive TUI and headless exec), never from mid-run
 // rebuilds (escalation, wizard, ACP go through deps.newProvider directly).
-func buildProvider(resolved config.ResolvedConfig, deps appDeps) (zeroruntime.Provider, error) {
+// resolveInteractiveSetup decides the interactive launch shape: it first tries
+// to fall back to any saved provider that already has a credential, and reports
+// whether the TUI must open the first-run onboarding instead.
+func resolveInteractiveSetup(resolved config.ResolvedConfig) (config.ResolvedConfig, bool) {
+	needsSetup := setupRequired(resolved)
+	if needsSetup {
+		// The active provider lacks a usable credential, but if another saved
+		// provider already has one, fall back to it instead of forcing
+		// onboarding again. Saved logins persist across launches; switch the
+		// active provider any time with `qg providers use <name>`.
+		if usable, ok := firstUsableProvider(resolved.Providers); ok {
+			resolved.Provider = usable
+			resolved.ActiveProvider = usable.Name
+			return resolved, false
+		}
+	}
+	if resolved.ActiveProvider == "" && resolved.Provider.Name != "" {
+		resolved.ActiveProvider = resolved.Provider.Name
+	}
+	return resolved, needsSetup
+}
+
+func buildProvider(resolved config.ResolvedConfig, deps appDeps) (qgruntime.Provider, error) {
 	if !config.HasProviderProfile(resolved.Provider) {
 		return nil, nil
 	}
@@ -1095,7 +1087,7 @@ func buildProvider(resolved config.ResolvedConfig, deps appDeps) (zeroruntime.Pr
 	// Pin spawned children (sub-agents / swarm members inherit the environment) to
 	// THIS run's provider from launch, not only after an in-session switch. Without
 	// the launch-time export a child re-resolves config.json at spawn time, so a
-	// provider switch persisted by ANOTHER zero process mid-session would silently
+	// provider switch persisted by ANOTHER qg process mid-session would silently
 	// move new children onto a different provider (and different credentials) than
 	// the parent is running. Runtime switches (/model, /provider, wizard,
 	// onboarding) re-export on commit, keeping the pin current. Injected via deps
@@ -1191,7 +1183,7 @@ func localTerminalOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.
 func localArtifactsDirFromConfig(workspaceRoot string, cfg config.LocalControlConfig) string {
 	dir := strings.TrimSpace(cfg.ArtifactsDir)
 	if dir == "" {
-		dir = filepath.Join(".zero", "artifacts")
+		dir = filepath.Join(".qg", "artifacts")
 	}
 	if filepath.IsAbs(dir) {
 		return dir
@@ -1235,7 +1227,7 @@ func registerSpecialistTools(registry *tools.Registry, workspaceRoot string, max
 	// lives under the workspace so its files fall within the sandbox write rules.
 	// MaxTeamSize (0 => the swarm's default of 8) caps concurrent members per team.
 	sw, err := swarm.New(swarm.Options{
-		BaseDir:     filepath.Join(workspaceRoot, ".zero", "swarm"),
+		BaseDir:     filepath.Join(workspaceRoot, ".qg", "swarm"),
 		Launcher:    swarm.NewSpecialistLauncher(executor),
 		MaxTeamSize: maxTeamSize,
 	})
@@ -1291,7 +1283,7 @@ func closeMCPRuntime(stderr io.Writer, runtime mcpToolRuntime) {
 		return
 	}
 	if err := runtime.Close(); err != nil {
-		_, _ = fmt.Fprintf(stderr, "[zero] mcp_close_error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "[qg] mcp_close_error: %s\n", err)
 	}
 }
 
@@ -1304,7 +1296,7 @@ func closeSpecialistRuntime(stderr io.Writer, runtime *agentToolRuntime) {
 	}
 	if runtime.specialist != nil {
 		if err := runtime.specialist.Close(); err != nil {
-			_, _ = fmt.Fprintf(stderr, "[zero] specialist_cleanup_error: %s\n", err)
+			_, _ = fmt.Fprintf(stderr, "[qg] specialist_cleanup_error: %s\n", err)
 		}
 	}
 }
@@ -1321,7 +1313,7 @@ func stdoutIsTerminal(w io.Writer) bool {
 }
 
 func writeAppError(stderr io.Writer, message string, exitCode int) int {
-	if _, err := fmt.Fprintf(stderr, "[zero] %s\n", message); err != nil {
+	if _, err := fmt.Fprintf(stderr, "[qg] %s\n", message); err != nil {
 		return 1
 	}
 	return exitCode
@@ -1332,45 +1324,49 @@ func writeUsageError(stderr io.Writer, message string) int {
 }
 
 func writeHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `ZERO terminal coding agent
+	_, err := fmt.Fprint(w, `QG terminal coding agent
 
 Usage:
-  zero [command]
+  qg [command]
 
 Commands:
   exec       Run a one-shot prompt through the Go agent runtime
   completions Generate shell completion scripts
   daemon     Manage the local background worker daemon (start/stop/status/run/attach)
   setup      Guide first-run provider setup
+  login      Save and validate your Quebra Galho API key
   config     Inspect resolved Go configuration without leaking secrets
-  models     List Zero model registry entries
+  models     List QG model registry entries
+  balance    Show the live Quebra Galho wallet balance
+  key        Show the active API key profile (alias: whoami)
+  whoami     Alias for key
   providers  Inspect resolved provider profiles
   doctor     Run backend health checks for config and provider setup
   context    Report workspace context budget usage
   repo-map   Build a deterministic repository map for agent context
-  search     Search persisted local Zero session events
+  search     Search persisted local QG session events
   find       Alias for search
-  sessions   Inspect local Zero session lineage
+  sessions   Inspect local QG session lineage
   spec       Review and approve saved spec-mode drafts
-  specialist Manage local Zero specialist profiles
-  plugins    Inspect, install, and remove local Zero plugins
+  specialist Manage local QG specialist profiles
+  plugins    Inspect, install, and remove local QG plugins
   backends   Inspect MCP, hook, and plugin backend lifecycle state
-  skills     Inspect, install, and remove local Zero skills
-  tools      Scaffold and list local Zero plugin-tools
-  hooks      Inspect Zero hook configuration
+  skills     Inspect, install, and remove local QG skills
+  tools      Scaffold and list local QG plugin-tools
+  hooks      Inspect QG hook configuration
   mcp        Manage MCP backend settings
   auth       Log in to model providers via OAuth
   sandbox    Inspect sandbox policy and persistent grants
-  update     Check or apply Zero CLI updates (requires --check or --apply)
-  upgrade    Download, verify, and install available Zero CLI updates
+  update     Check or apply QG CLI updates (requires --check or --apply)
+  upgrade    Download, verify, and install available QG CLI updates
   worktrees  Prepare isolated git worktrees
   verify     Detect and run local verification checks
   eval       Validate offline agent eval suites
   changes    Inspect and commit local git changes
-  usage      Summarize token usage and estimated cost
+  usage      Query gateway token usage (usage report = local session summary)
   cron       Schedule agent jobs (foreground, file-backed)
   repo-info  Characterize the current repository (local git only)
-  serve      Run Zero protocol servers
+  serve      Run QG protocol servers
   acp        Serve the Agent Client Protocol over stdio (editor backend)
   help       Show this help
   version    Print version
@@ -1381,7 +1377,9 @@ Flags:
   -p, --prompt                   Run a one-shot prompt
       --add-dir <path>           Allow writes in an extra directory (repeatable)
       --allow-escalation         Let the agent escalate to a stronger model mid-run via escalate_model
-      --skip-permissions-unsafe  Launch the interactive shell in unsafe mode (enables the ! shell escape)
+      --dangerously-skip-permissions
+                                Launch the interactive shell in unsafe mode (enables the ! shell escape)
+      --skip-permissions-unsafe  Alias for --dangerously-skip-permissions
 `)
 	return err
 }
@@ -1409,7 +1407,7 @@ func rootFlagArgs(addDirs []string, allowEscalation bool) []string {
 }
 
 // splitLeadingAddDirFlags strips leading --add-dir flags from the root
-// argument list (zero --add-dir <path> [--add-dir <path>] [subcommand …]).
+// argument list (qg --add-dir <path> [--add-dir <path>] [subcommand …]).
 // Subcommands like exec parse their own --add-dir occurrences.
 func splitLeadingAddDirFlags(args []string) ([]string, []string, error) {
 	addDirs := []string{}
@@ -1463,7 +1461,7 @@ type rootFlags struct {
 // EACH SPLITTER STOPS AT THE FIRST TOKEN IT DOES NOT OWN, so running them once
 // in a fixed sequence made the order the operator wrote them in load-bearing:
 // a flag handled late in the sequence stranded every flag written after it as
-// an unknown command, and `zero --allow-escalation --theme auto` exited with
+// an unknown command, and `qg --allow-escalation --theme auto` exited with
 // an argument error instead of launching. Running the sequence until it makes
 // no progress accepts every ordering, including a flag repeated on both sides
 // of another.
@@ -1591,7 +1589,7 @@ func baseURLIsLoopback(baseURL string) bool {
 }
 
 func writePromptRequired(stderr io.Writer) int {
-	if _, err := fmt.Fprintln(stderr, "[zero] Prompt required. Use `zero exec \"prompt\"` or `zero exec --file prompt.txt`."); err != nil {
+	if _, err := fmt.Fprintln(stderr, "[qg] Prompt required. Use `qg exec \"prompt\"` or `qg exec --file prompt.txt`."); err != nil {
 		return 1
 	}
 	return 2
@@ -1599,7 +1597,7 @@ func writePromptRequired(stderr io.Writer) int {
 
 func writeExecHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero exec [flags] [prompt]
+  qg exec [flags] [prompt]
 
 Runs a one-shot prompt through the Go agent runtime.
 
@@ -1609,6 +1607,8 @@ Flags:
       --add-dir <path>               Allow writes in an extra directory (repeatable)
       --mode <name>                  Apply a preset (smart, deep, fast, large, precise); explicit flags override it
   -m, --model <model>                Select the model for provider setup
+      --api-key <key>                Override the API key for this run (outranks QG_API_KEY,
+                                    QUEBRAGALHO_API_KEY, and the stored credential)
       --use-spec                     Draft a spec first and stop for review
       --spec-model <model>           Override the draft model when --use-spec is set
       --spec-reasoning-effort <effort>
@@ -1644,7 +1644,8 @@ Flags:
       --depth <number>               Set specialist nesting depth metadata
       --session-title <text>         Set the created session title
       --init-session-id <id>         Create a new exec session with this id
-      --skip-permissions-unsafe      Allow prompt-gated tools without approval
+      --dangerously-skip-permissions Allow prompt-gated tools without approval
+      --skip-permissions-unsafe      Alias for --dangerously-skip-permissions
       --allow-escalation             Let the agent escalate to a stronger model mid-run via escalate_model
       --self-correct                 Run the post-edit verify-and-correct loop (auto-fix needs --auto medium or high)
       --notify <off|bell|notify|both>

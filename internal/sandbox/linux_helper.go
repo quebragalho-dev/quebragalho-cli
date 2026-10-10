@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-const LinuxSandboxHelperName = "zero-linux-sandbox"
+const LinuxSandboxHelperName = "qg-linux-sandbox"
 
 const linuxSandboxBackendEnv = BackendLinuxBwrap
 
@@ -222,7 +222,7 @@ func buildLinuxSandboxBwrapPlan(options LinuxSandboxBwrapOptions) (linuxSandboxB
 
 func validateLinuxBwrapPermissionProfile(profile PermissionProfile) error {
 	if files := profile.FileSystem.ProcessTrustedDenyReadFiles; len(files) > 0 {
-		return fmt.Errorf("bubblewrap cannot securely deny credential files outside the Zero config directory across atomic replacement: %s; move the store under $XDG_CONFIG_HOME/zero or add its path to sandbox allowRead", strings.Join(files, ", "))
+		return fmt.Errorf("bubblewrap cannot securely deny credential files outside the QG config directory across atomic replacement: %s; move the store under $XDG_CONFIG_HOME/qg or add its path to sandbox allowRead", strings.Join(files, ", "))
 	}
 	// The same limitation, for a token store named by the command's own
 	// environment. A /dev/null bind over the pathname is detached by the store's
@@ -231,9 +231,9 @@ func validateLinuxBwrapPermissionProfile(profile PermissionProfile) error {
 	// honest answer bubblewrap can give; a pathname-policy backend enforces
 	// these without help. The path is not created or mutated to make the mask
 	// work: doing that for a command-supplied value would let a command steer
-	// Zero into creating host directories.
+	// QG into creating host directories.
 	if files := profile.FileSystem.CommandDenyReadFinalFiles; len(files) > 0 {
-		return fmt.Errorf("bubblewrap cannot securely deny command-supplied credential files outside the Zero config directory across atomic replacement: %s; move the store under $XDG_CONFIG_HOME/zero or add its path to sandbox allowRead", strings.Join(files, ", "))
+		return fmt.Errorf("bubblewrap cannot securely deny command-supplied credential files outside the QG config directory across atomic replacement: %s; move the store under $XDG_CONFIG_HOME/qg or add its path to sandbox allowRead", strings.Join(files, ", "))
 	}
 	for _, dir := range profile.FileSystem.CommandDenyReadDirs {
 		info, err := os.Stat(dir)
@@ -314,7 +314,7 @@ func buildLinuxBwrapFilesystemPlan(profile PermissionProfile) linuxBwrapFilesyst
 		if !pathExists(path) {
 			// A baseline credential path is emitted for every run, so an absent
 			// entry is the common case on a fresh machine — a third-party store
-			// such as ~/.aws that Zero must not create. The read-all profile starts
+			// such as ~/.aws that QG must not create. The read-all profile starts
 			// from a read-only host-root bind where bubblewrap cannot create a
 			// missing mount destination, and masking the nearest existing parent
 			// could hide HOME, /tmp, or the workspace. Path-based backends
@@ -434,7 +434,7 @@ func nestedCarveoutPaths(root string, carveouts []string) []string {
 	return dedupeStrings(out)
 }
 
-// ensureLinuxDenyReadDirs creates trusted Zero-process directories a deny mask
+// ensureLinuxDenyReadDirs creates trusted QG-process directories a deny mask
 // needs to exist for. Best effort: a failure leaves the path unmasked and never
 // blocks the command.
 func ensureLinuxDenyReadDirs(dirs []string) {
@@ -458,7 +458,7 @@ func linuxHelperSandboxEnvironment(profile PermissionProfile, base []string) []s
 func linuxHelperSandboxEnvironmentOverrides(profile PermissionProfile) []string {
 	return []string{
 		EnvSandboxBackend + "=" + string(linuxSandboxBackendEnv),
-		"ZERO_SANDBOX_NETWORK=" + string(profile.Network.Mode),
+		"QG_SANDBOX_NETWORK=" + string(profile.Network.Mode),
 		EnvSandboxed + "=1",
 	}
 }
@@ -493,7 +493,7 @@ func findLinuxSandboxHelperCommand() (LinuxSandboxHelperCommand, error) {
 			}
 		}
 	}
-	return LinuxSandboxHelperCommand{}, errors.New("zero-linux-sandbox helper is not available")
+	return LinuxSandboxHelperCommand{}, errors.New("qg-linux-sandbox helper is not available")
 }
 
 func executableRegularFile(path string) bool {

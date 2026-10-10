@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 func TestRunContextHelp(t *testing.T) {
@@ -18,7 +18,7 @@ func TestRunContextHelp(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	for _, want := range []string{"Usage:", "zero context [flags]", "--json", "-h, --help"} {
+	for _, want := range []string{"Usage:", "qg context [flags]", "--json", "-h, --help"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected context help to contain %q, got %q", want, stdout.String())
 		}
@@ -54,7 +54,7 @@ func TestRunContextTextReport(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	for _, want := range []string{"Zero context report", "root: " + cwd, "model: gpt-4.1"} {
+	for _, want := range []string{"QG context report", "root: " + cwd, "model: gpt-4.1"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected context output to contain %q, got %q", want, stdout.String())
 		}
@@ -78,7 +78,7 @@ func TestRunContextJSONReport(t *testing.T) {
 				Provider: config.ProviderProfile{
 					Name:         "openai",
 					ProviderKind: config.ProviderKindOpenAI,
-					Model:        "gpt-4.1",
+					Model:        "muse-spark-1.3-contributor",
 				},
 			}, nil
 		},
@@ -99,8 +99,8 @@ func TestRunContextJSONReport(t *testing.T) {
 	if report.Root != cwd {
 		t.Fatalf("Root = %q, want %q", report.Root, cwd)
 	}
-	if report.ModelID != "gpt-4.1" {
-		t.Fatalf("ModelID = %q, want gpt-4.1", report.ModelID)
+	if report.ModelID != "muse-spark-1.3-contributor" {
+		t.Fatalf("ModelID = %q, want muse-spark-1.3-contributor", report.ModelID)
 	}
 	if report.ContextWindow <= 0 {
 		t.Fatalf("ContextWindow = %d, want > 0", report.ContextWindow)

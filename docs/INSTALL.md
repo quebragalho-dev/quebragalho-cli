@@ -1,319 +1,220 @@
-# Installing Zero
+# Instalando o QG
 
-Pick whichever fits how you already install things. None of these is the
-blessed one.
+Escolha o método que já faz parte da sua rotina. Nenhum deles é o "oficial".
 
-| Method | Command | Self-update |
+| Método | Comando | Auto-update |
 | --- | --- | --- |
-| Install script (Linux, macOS) | `curl -fsSL https://raw.githubusercontent.com/Gitlawb/zero/main/scripts/install.sh \| bash` | `zero upgrade` |
-| Install script (Windows) | `irm https://raw.githubusercontent.com/Gitlawb/zero/main/scripts/install.ps1 \| iex` | `zero upgrade` |
-| npm | `npm install -g @gitlawb/zero` | `zero upgrade` (runs npm) |
-| Release archive | download from [Releases](https://github.com/Gitlawb/zero/releases) | `zero upgrade` |
-| mise | `mise use -g ubi:Gitlawb/zero` | `mise upgrade` |
-| `go install` | `go install github.com/Gitlawb/zero/cmd/zero@latest` | rerun the command |
-| Source | `go build -o zero ./cmd/zero` | rebuild |
+| Script de instalação (Linux, macOS) | `curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh \| bash` | `qg upgrade` |
+| Script de instalação (Windows) | `irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 \| iex` | `qg upgrade` |
+| npm | `npm install -g @quebragalho-dev/cli` | `qg upgrade` (roda npm) |
+| Arquivo de release | baixe em [Releases](https://github.com/quebragalho-dev/quebragalho-cli/releases) | `qg upgrade` |
+| mise | `mise use -g ubi:quebragalho-dev/quebragalho-cli` | `mise upgrade` |
+| `go install` | `go install github.com/quebragalho-dev/quebragalho-cli/cmd/qg@latest` | rode de novo |
+| Fonte | `make build` | recompile |
 
-`zero upgrade` follows whatever owns the binary, with one exception it cannot
-detect. It delegates to npm for an npm install, refuses outright for a Homebrew
-keg and names `brew upgrade zero`, and replaces the binary in place for
-everything else — including a mise-managed one, which is the exception.
+`qg upgrade` segue quem é dono do binário, com uma única exceção que ele não
+consegue detectar: delega ao npm quando a instalação é npm, recusa e manda no
+`brew upgrade qg` para keg do Homebrew, e substitui o binário no lugar para
+todo o resto — inclusive instalação gerenciada pelo mise (a exceção: use
+`mise upgrade`).
 
-mise is the one case it cannot detect: a mise-managed binary is an ordinary
-standalone install on disk, so `zero upgrade` will replace it and leave mise
-describing a version that is no longer there. Use `mise upgrade` instead.
+Os arquivos de release são a base da maioria dos métodos acima: o script de
+instalação baixa o arquivo da plataforma publicada no GitHub Release e verifica
+o checksum antes de instalar.
 
-Release archives are the substrate for most of the above: the install scripts
-and the npm fallback both download a platform archive from a published GitHub
-Release and verify its checksum.
+## Instalação rápida (curl | sh) — Linux e macOS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | bash
+```
+
+O que o script faz:
+
+1. detecta sua plataforma (`macos`/`linux`) e arquitetura (`x64`/`arm64`);
+2. baixa o arquivo `qg-v<versão>-<plataforma>-<arq>.tar.gz` e o `.sha256`
+   correspondente da release no GitHub;
+3. verifica o checksum (SHA-256) antes de extrair;
+4. instala o binário em **`/usr/local/bin/qg`** (modo 755) — ou no diretório
+   que você indicar — junto com os helpers opcionais de sandbox;
+5. cria o alias real **`/usr/local/bin/quebragalho`** (symlink relativo para
+   `qg`);
+6. roda `qg --version` para confirmar que o binário instalado executa nesta
+   plataforma.
+
+Depois é só:
+
+```bash
+qg --version
+quebragalho --version   # alias — o mesmo binário
+```
+
+### Permissões e diretório alternativo
+
+`/usr/local/bin` normalmente exige permissão de escrita de administrador. Se
+o script falhar por permissão, escolha um dos caminhos:
+
+```bash
+# opção 1: com sudo
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | sudo bash
+
+# opção 2: diretório do usuário (sem sudo)
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | QG_INSTALL_DIR="$HOME/.local/bin" bash
+```
+
+Flags úteis: `--version <versão>` fixa a release (padrão: `latest`),
+`--repo <owner/repo>` muda o repositório, `--install-dir <caminho>` é o mesmo
+que `QG_INSTALL_DIR`.
+
+## PATH
+
+O `qg` só responde de qualquer diretório se o diretório de instalação estiver
+no `PATH`. `/usr/local/bin` já costuma estar; se não estiver:
+
+```bash
+export PATH="/usr/local/bin:$PATH"
+```
+
+Para persistir, acrescente a linha ao seu `~/.bashrc`, `~/.zshrc` ou
+equivalente. Instalações em `~/.local/bin` também precisam dessa exportação.
+
+O próprio script avisa quando o diretório instalado não está no `PATH`.
+
+## Desinstalar
+
+Remova o binário e o alias do diretório de instalação:
+
+```bash
+sudo rm -f /usr/local/bin/qg /usr/local/bin/quebragalho
+# instalação em diretório do usuário:
+rm -f "$HOME/.local/bin/qg" "$HOME/.local/bin/quebragalho"
+```
+
+Se a instalação copiou os helpers de sandbox (Linux), remova-os também:
+
+```bash
+sudo rm -f /usr/local/bin/qg-linux-sandbox /usr/local/bin/qg-seccomp
+```
+
+Sobram apenas arquivos locais, se você já rodou o `qg`:
+
+```bash
+rm -rf ~/.config/qg         # config, tema e plugins (some com as chaves salvas)
+rm -rf ~/.local/share/qg    # sessões, skills, cron e tarefas (XDG_DATA_HOME)
+rm -rf ~/.local/state/qg    # worktrees locais (XDG_STATE_HOME)
+rm -rf ~/Library/Caches/qg  # cache (Linux: ~/.cache/qg)
+```
+
+Instalações via npm, mise ou `go install` devem ser removidas pelo próprio
+gerenciador (`npm uninstall -g @quebragalho-dev/cli`, `mise uninstall …`).
 
 ## npm
 
 ```bash
-npm install -g @gitlawb/zero
-zero
+npm install -g @quebragalho-dev/cli
+qg
 ```
 
-The package supports Linux and macOS on x64 and arm64, and Windows on x64
-(Windows on ARM runs the x64 build under emulation). It installs a small
-`zero` wrapper plus, as an optional dependency, a platform payload with the
-native binary and the bundled browser/terminal control helpers. There are no
-install scripts and nothing is downloaded from outside the npm registry, so
-the install is silent and works identically under npm, Bun, pnpm, and yarn —
-no trust or approval steps. See [NPM_PACKAGING.md](NPM_PACKAGING.md) for the
-package architecture.
+O pacote instala **os dois nomes de comando**: `qg` e o alias `quebragalho`.
+Suporta Linux e macOS em x64 e arm64 (e Windows em x64). Não há scripts de
+instalação nem downloads fora do registro npm. Se as dependências opcionais
+forem puladas (`--omit=optional`), o wrapper baixa o binário da release
+compatível com a sua plataforma, com verificação de checksum.
 
-Requirements:
-
-- Node.js 18+
-- network access to npm
-
-If the install skipped optional dependencies (`npm install --omit=optional`,
-or a package manager configured to do so), the wrapper falls back to
-downloading the binary from the matching GitHub Release, with checksum
-verification. The fetch is retried on each run until a binary is in place (a
-transient network failure heals itself; an install directory the current user
-cannot write to keeps failing — rerun the install or the command below with
-sufficient permissions). To trigger the fetch manually:
-
-```bash
-node "$(npm root -g)/@gitlawb/zero/scripts/postinstall.mjs"
-```
-
-## Linux And macOS Script
-
-Install the latest release:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Gitlawb/zero/main/scripts/install.sh | bash
-```
-
-From a checkout:
-
-```bash
-scripts/install.sh
-```
-
-Install a specific version:
-
-```bash
-ZERO_VERSION=0.1.0 scripts/install.sh
-scripts/install.sh --version 0.1.0
-```
-
-Install somewhere else:
-
-```bash
-ZERO_INSTALL_DIR="$HOME/bin" scripts/install.sh
-scripts/install.sh --install-dir "$HOME/bin"
-```
-
-Defaults:
-
-- Repository: `Gitlawb/zero`
-- Version: latest GitHub release
-- Install path: `~/.local/bin/zero`
-
-Requirements: Bash, `curl` or `wget`, `tar`, and `shasum` or `sha256sum`.
-
-## Windows PowerShell Script
-
-Install the latest release:
-
-```powershell
-irm https://raw.githubusercontent.com/Gitlawb/zero/main/scripts/install.ps1 | iex
-```
-
-From a checkout:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/install.ps1
-```
-
-Install a specific version:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Version 0.1.0
-```
-
-Install somewhere else:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -InstallDir "$env:USERPROFILE\bin"
-```
-
-Defaults:
-
-- Repository: `Gitlawb/zero`
-- Version: latest GitHub release
-- Install path: `%LOCALAPPDATA%\zero\bin\zero.exe`
-
-## mise
-
-[mise](https://mise.jdx.dev/) installs Zero straight from the GitHub Release
-archives through its `ubi` backend, so there is nothing extra to publish and no
-registry in the middle:
-
-```bash
-mise use -g ubi:Gitlawb/zero
-```
-
-Pin a version the same way you would any other tool:
-
-```bash
-mise use -g ubi:Gitlawb/zero@0.7.1
-```
-
-Updates come from `mise upgrade`. `zero upgrade` also works, because a
-mise-managed binary is an ordinary standalone install, but then mise's records
-describe a version that is no longer on disk. Prefer `mise upgrade`.
+Requisitos: Node.js 18+ e acesso de rede ao npm.
 
 ## go install
 
 ```bash
-go install github.com/Gitlawb/zero/cmd/zero@latest
+go install github.com/quebragalho-dev/quebragalho-cli/cmd/qg@latest
 ```
 
-This builds from source, so it needs Go 1.26.6+ and it does not go through the
-release archives. Two consequences worth knowing before you pick it:
-
-- On Linux you also need the sandbox helper, which is a separate binary and is
-  not installed by this command. See
-  [Sandbox Helpers For Source Builds](#sandbox-helpers-for-source-builds).
-  Without it, native sandboxing is unavailable.
-- `zero upgrade` treats the result as a standalone install and will replace the
-  binary with a release build rather than rebuilding from source. If you chose
-  `go install` deliberately, rerun it instead.
-
-macOS and Windows need no extra helper.
-
-## From Source
+Instala como `qg` no seu diretório de binários do Go (`$GOBIN` ou
+`~/go/bin`). O alias `quebragalho` não é criado por este método — crie se
+quiser:
 
 ```bash
-git clone https://github.com/Gitlawb/zero.git
-cd zero
-go run ./cmd/zero
+ln -s "$(command -v qg)" ~/.local/bin/quebragalho
 ```
 
-Build a local binary:
+Requer Go 1.26.6+.
+
+## A partir do código-fonte
+
+Requer Go 1.26.6+.
 
 ```bash
-go build -o zero ./cmd/zero
+git clone https://github.com/quebragalho-dev/quebragalho-cli.git
+cd quebragalho-cli
+make build     # gera ./qg e ./quebragalho (alias real, mesmos bytes)
+./qg
 ```
 
-Source builds require Go 1.26.6+.
+`make build` é o caminho curto; o equivalente manual é
+`go build -o qg ./cmd/qg && cp qg quebragalho`. Coloque um dos binários num
+diretório do `PATH` (`~/.local/bin` é uma boa escolha) para usá-lo de
+qualquer lugar.
 
-### Sandbox Helpers For Source Builds
-
-Release archives include the platform sandbox helpers. If you build directly
-from source, build the helpers you need:
-
-Linux:
+No Linux, para sandbox nativo, build também os helpers:
 
 ```bash
-go build -o zero ./cmd/zero
-go build -o zero-linux-sandbox ./cmd/zero-linux-sandbox
-go build -o zero-seccomp ./cmd/zero-seccomp
+go build -o qg-linux-sandbox ./cmd/qg-linux-sandbox
+go build -o qg-seccomp ./cmd/qg-seccomp   # wrapper de compatibilidade opcional
 ```
 
-Put `zero` and `zero-linux-sandbox` in the same directory on `PATH`, for example
-`~/.local/bin`. `zero-seccomp` is kept as a compatibility wrapper; the sandbox
-helper applies the Unix-socket filter itself when that sandbox option is enabled.
-Linux native sandboxing also requires Bubblewrap to be installed.
+Coloque `qg` e `qg-linux-sandbox` no mesmo diretório do `PATH`. No macOS não
+é preciso binário extra. No Windows, o próprio `qg.exe` faz o papel de helper.
 
-macOS uses the system sandbox and does not need an extra helper binary.
-
-### Termux (Android)
-
-Zero can run natively on Android via [Termux](https://termux.dev/). Build with
-`GOOS=android` to avoid the `faccessat2` syscall that is blocked by Samsung's
-seccomp filter on Android:
-
-```bash
-# Install Go in Termux
-pkg install golang
-
-# Build Zero for Android
-git clone https://github.com/Gitlawb/zero.git
-cd zero
-CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -ldflags="-s -w" -o zero ./cmd/zero
-
-# Move into PATH
-mv zero ~/.local/bin/
-```
-
-> **Why `GOOS=android`?** Go 1.26+ detects `runtime.GOOS == "android"` and skips
-> the `faccessat2` syscall inside `os/exec.findExecutable`, falling back to
-> permission-bit checks. Without this flag, Android's seccomp sends SIGSYS and
-> kills the process whenever Zero looks up a binary on `PATH` (git, sh, etc.).
-
-**DNS.** Android does not expose `/etc/resolv.conf`. Go's pure-Go DNS resolver
-needs one. Use `proot` to bind-mount Termux's resolver config:
-
-```bash
-pkg install proot
-proot -b "$PREFIX/etc/resolv.conf:/etc/resolv.conf" zero
-```
-
-Create a wrapper at `~/.local/bin/zero` to avoid typing proot every time:
-
-```bash
-#!/data/data/com.termux/files/usr/bin/bash
-exec proot -b "$PREFIX/etc/resolv.conf:/etc/resolv.conf" ~/.local/bin/zero.bin "$@"
-```
-
-**Scroll.** On native Termux (not under PRoot), mouse scrolling works out of the
-box. The TUI uses Bubble Tea's `AllMotion` mouse mode by default. If you run Zero
-inside PRoot (e.g. through proot-distro), the scroll fix activates `CellMotion`
-to avoid PRoot's ptrace interference with the 1003 escape sequence.
-
-**Providers.** Zero works with any OpenAI-compatible provider on Termux. For
-example, to use OpenCode Zen's free tier:
-
-```bash
-zero providers add opencode \
-  --name opencode \
-  --model deepseek-v4-flash-free \
-  --base-url https://opencode.ai/zen/v1 \
-  --set-active
-```
-
-Windows source builds can use the main `zero.exe` as the command runner and setup
-helper through Zero's built-in self-dispatch path. If you want a release-style
-layout anyway, build the standalone helper executables next to `zero.exe`:
+## Windows PowerShell Script
 
 ```powershell
-go build -o zero.exe ./cmd/zero
-go build -o zero-windows-command-runner.exe ./cmd/zero-windows-command-runner
-go build -o zero-windows-sandbox-setup.exe ./cmd/zero-windows-sandbox-setup
+irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 | iex
 ```
 
-## Release Archive Format
-
-Release archives are named:
-
-- `zero-v<version>-linux-<arch>.tar.gz`
-- `zero-v<version>-macos-<arch>.tar.gz`
-- `zero-v<version>-windows-<arch>.zip`
-
-Supported targets:
-
-- `linux-x64`
-- `linux-arm64`
-- `macos-x64`
-- `macos-arm64`
-- `windows-x64` (Windows on ARM runs this build under emulation)
-
-Each archive must have a matching `.sha256` file. The install scripts download
-both files, verify the checksum, and then copy the binary into the install
-directory.
-
-## Updating
-
-Check for a newer release, then download, verify, and install it in place:
+## mise
 
 ```bash
-zero update --check
-zero upgrade
+mise use -g ubi:quebragalho-dev/quebragalho-cli
 ```
 
-See the [update guide](UPDATE.md) for update modes, flags, and platform details.
+## Formato dos arquivos de release
 
-`zero upgrade` behaves differently depending on how Zero was installed, because
-overwriting a binary a package manager owns leaves that manager describing a
-version that is no longer there:
+Os arquivos se chamam:
 
-- **npm**: runs `npm install -g @gitlawb/zero@latest` for you.
-- **Homebrew**: refuses, and tells you to run `brew upgrade zero`. Replacing the
-  keg binary directly would be reverted by the next `brew upgrade` or
-  `brew reinstall`.
-- **everything else**: downloads the verified release archive and replaces the
-  binary in place.
+- `qg-v<versão>-macos-<arq>.tar.gz`
+- `qg-v<versão>-linux-<arq>.tar.gz`
+- `qg-v<versão>-windows-<arq>.zip`
 
-Homebrew is detected by the binary living inside a Cellar keg that carries
-Homebrew's own `INSTALL_RECEIPT.json`. The keg shape alone is not enough: a
-directory tree you built yourself can have exactly that shape, and refusing to
-update an install Homebrew never touched would be a real cost for a made-up
-reason. The receipt is the thing only Homebrew writes.
+Alvos suportados: `macos-x64`, `macos-arm64`, `linux-x64`, `linux-arm64`,
+`windows-x64` (Windows em ARM roda o build x64 emulação).
 
-An ordinary install under `/usr/local/bin` is left alone even on an Intel Mac
-where that is also the Homebrew prefix.
+Cada arquivo tem um `.sha256` correspondente — os scripts de instalação
+baixam os dois, verificam o checksum e só então copiam o binário. Os arquivos
+são produzidos localmente com:
+
+```bash
+make release   # cross-build dos 4 alvos unix + checksums + verify
+```
+
+Dentro do tarball estão o binário `qg`, o symlink `quebragalho` (alias real),
+os helpers opcionais, o wrapper do npm, `README.md`, `package.json` e
+`VERSION`.
+
+## Atualizando
+
+Confira se há release nova, baixe, verifique e substitua no lugar:
+
+```bash
+qg update --check
+qg upgrade
+```
+
+Veja o [guia de atualização](UPDATE.md) para modos, flags e detalhes por
+plataforma.
+
+O `qg upgrade` comporta-se diferente conforme o dono do binário:
+
+- **npm**: roda `npm install -g @quebragalho-dev/cli@latest` para você.
+- **Homebrew**: recusa e manda no `brew upgrade qg` (substituir o binário do
+  keg seria revertido no próximo `brew upgrade`).
+- **todo o resto** (inclusive `/usr/local/bin` do script curl): baixa o
+  arquivo de release verificado e substitui o binário no lugar.

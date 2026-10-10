@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestParseMarkdownValidatesAndResolvesTools(t *testing.T) {
@@ -78,15 +78,15 @@ func TestParseMarkdownValidatesModelAndReasoningEffort(t *testing.T) {
 	manifest, err := ParseMarkdown(`---
 name: reviewer
 description: Reviews code
-model: sonnet-4.5
+model: muse-spark
 reasoningEffort: HIGH
 ---
 Review.`)
 	if err != nil {
 		t.Fatalf("ParseMarkdown returned error: %v", err)
 	}
-	if manifest.Metadata.Model != "claude-sonnet-4.5" {
-		t.Fatalf("Model = %q, want canonical claude-sonnet-4.5", manifest.Metadata.Model)
+	if manifest.Metadata.Model != "muse-spark-1.3-contributor" {
+		t.Fatalf("Model = %q, want canonical muse-spark-1.3-contributor", manifest.Metadata.Model)
 	}
 	if manifest.Metadata.ReasoningEffort != "high" {
 		t.Fatalf("ReasoningEffort = %q, want high", manifest.Metadata.ReasoningEffort)
@@ -380,7 +380,7 @@ Prompt.`)
 func TestKnownToolNamesMatchCoreRegistry(t *testing.T) {
 	// web_search is only registered when a search backend is configured; set one so
 	// CoreToolsScoped(, nil) exposes the full set this list is meant to mirror.
-	t.Setenv("ZERO_WEBSEARCH_BASE_URL", "https://search.example/api")
+	t.Setenv("QG_WEBSEARCH_BASE_URL", "https://search.example/api")
 	core := tools.CoreToolsScoped(t.TempDir(), nil)
 	got := make([]string, 0, len(knownToolNames))
 	for name := range knownToolNames {
@@ -411,7 +411,7 @@ func TestFormatListUsesSpecialistTerminology(t *testing.T) {
 		FilePath: "(builtin)",
 	}}}
 	output := FormatList(result)
-	if !strings.Contains(output, "Zero Specialists") || !strings.Contains(output, "worker [builtin]") {
+	if !strings.Contains(output, "QG Specialists") || !strings.Contains(output, "worker [builtin]") {
 		t.Fatalf("unexpected list output: %s", output)
 	}
 	show := FormatShow(result.Specialists[0])

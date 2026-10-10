@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/privatedir"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/privatedir"
 )
 
 // crashExitCode is returned when a top-level panic is recovered.
@@ -53,7 +53,7 @@ type crashReportHooks struct {
 
 // FormatCrashReport renders a human-readable crash report.
 func FormatCrashReport(label string, recovered any, stack []byte, ts time.Time) string {
-	return fmt.Sprintf("zero crash report\ntime:  %s\nlabel: %s\npanic: %v\n\nstack:\n%s\n",
+	return fmt.Sprintf("qg crash report\ntime:  %s\nlabel: %s\npanic: %v\n\nstack:\n%s\n",
 		ts.UTC().Format(time.RFC3339), label, recovered, stack)
 }
 
@@ -227,10 +227,10 @@ func openCrashDirectory(dir string) (*os.Root, error) {
 	clean := filepath.Clean(dir)
 	defaultDir := filepath.Clean(DefaultCrashDir())
 	parent := filepath.Dir(clean)
-	// The default layout shares ~/.zero with the daemon runtime fallback. Keep
+	// The default layout shares ~/.qg with the daemon runtime fallback. Keep
 	// both the shared parent and the crash-report child private. Custom crash
 	// destinations are hardened at the caller-supplied boundary only.
-	if clean == defaultDir && filepath.Base(clean) == "crashes" && filepath.Base(parent) == ".zero" {
+	if clean == defaultDir && filepath.Base(clean) == "crashes" && filepath.Base(parent) == ".qg" {
 		if err := privatedir.Ensure(parent); err != nil {
 			return nil, fmt.Errorf("secure crash report parent: %w", err)
 		}
@@ -245,9 +245,9 @@ func openCrashDirectory(dir string) (*os.Root, error) {
 // DefaultCrashDir is where crash reports are written by default.
 func DefaultCrashDir() string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, ".zero", "crashes")
+		return filepath.Join(home, ".qg", "crashes")
 	}
-	return filepath.Join(os.TempDir(), "zero-crashes")
+	return filepath.Join(os.TempDir(), "qg-crashes")
 }
 
 // Recover is deferred at a top-level entrypoint. On a panic it captures the
@@ -269,15 +269,15 @@ func reportRecoveredCrash(stderr io.Writer, code *int, recovered any, stack []by
 	path, err := write()
 	if err == nil || errors.Is(err, ErrCrashReportCommitted) {
 		if path != "" {
-			fmt.Fprintf(stderr, "zero crashed: %v\nA crash report was saved to %s\n", recovered, path)
+			fmt.Fprintf(stderr, "qg crashed: %v\nA crash report was saved to %s\n", recovered, path)
 		} else {
-			fmt.Fprintf(stderr, "zero crashed: %v\nA crash report was saved, but its current path could not be determined\n", recovered)
+			fmt.Fprintf(stderr, "qg crashed: %v\nA crash report was saved, but its current path could not be determined\n", recovered)
 		}
 		if err != nil {
 			fmt.Fprintf(stderr, "Warning: %v\n", err)
 		}
 	} else {
-		fmt.Fprintf(stderr, "zero crashed: %v\n%s\n", recovered, stack)
+		fmt.Fprintf(stderr, "qg crashed: %v\n%s\n", recovered, stack)
 	}
 	*code = crashExitCode
 }

@@ -9,12 +9,13 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/usage"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
 const tuiSessionTitleLimit = 80
@@ -72,12 +73,14 @@ func (m model) startNewSession() model {
 	m.sessionEvents = nil
 
 	// Reset the per-session usage + compaction display so the new session starts
-	// from zero instead of inheriting the previous conversation's token/cost totals.
+	// from qg instead of inheriting the previous conversation's token/cost totals.
 	if m.usageTracker != nil {
 		m.usageTracker.Reset()
 	}
 	m.lastUsage = usage.Normalized{}
 	m.lastUsageSeen = false
+	m.streamUsage = qgruntime.Usage{}
+	m.lastUsageReceipt = transcriptRow{}
 	m.unpricedRequests = 0
 	m.unpricedTokens = 0
 	m.compactRequests = 0
@@ -208,7 +211,7 @@ func tuiSessionTitle(prompt string) string {
 	// a multi-byte rune and persist invalid UTF-8 into the session metadata.
 	title := cutRunes(strings.Join(strings.Fields(prompt), " "), tuiSessionTitleLimit)
 	if title == "" {
-		return "Zero TUI session"
+		return "QG TUI session"
 	}
 	return title
 }
@@ -228,6 +231,11 @@ func (m model) handleResumeCommand(args string) (model, string) {
 		return m, "Sessions\nerror: " + err.Error()
 	}
 
+	rawUsageEvents, err := m.sessionStore.ReadEvents(session.SessionID)
+	if err != nil {
+		return m, "Sessions\nerror: " + err.Error()
+	}
+
 	// Capture the current session id before switching so loops are only torn down
 	// on a real change — `/resume latest` or `/resume <currentID>` can resolve to
 	// the already-active session, whose loops belong to it, not a "previous" one.
@@ -235,6 +243,8 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	m.activeSession = *session
 	m.pendingSessionTitle = ""
 	m.sessionEvents = append([]sessions.Event{}, events...)
+	m.lastUsage, m.lastUsageSeen, m.lastUsageReceipt = lastUsageFromSessionEvents(rawUsageEvents)
+	m.streamUsage = qgruntime.Usage{}
 	if m.providerName == "" {
 		m.providerName = session.Provider
 	}
@@ -287,7 +297,7 @@ func (m model) resolveResumeSession(args string) (*sessions.Metadata, error) {
 			return nil, err
 		}
 		if latest == nil {
-			return nil, errors.New("no zero sessions available to resume")
+			return nil, errors.New("no qg sessions available to resume")
 		}
 		return latest, nil
 	}
@@ -297,17 +307,17 @@ func (m model) resolveResumeSession(args string) (*sessions.Metadata, error) {
 		return nil, err
 	}
 	if session == nil {
-		return nil, fmt.Errorf("zero session not found: %s", args)
+		return nil, fmt.Errorf("qg session not found: %s", args)
 	}
 	if !sessions.IsResumableKind(session.SessionKind) {
-		return nil, fmt.Errorf("zero session is not resumable: %s", args)
+		return nil, fmt.Errorf("qg session is not resumable: %s", args)
 	}
 	return session, nil
 }
 
 // resumeEvents reads a session's events for resume, preferring the rehydrated
 // (compaction-aware) view so a resumed session honors a prior /compact — matching
-// the CLI's `zero exec --resume` (readExecContextEvents) and the in-TUI /compact
+// the CLI's `qg exec --resume` (readExecContextEvents) and the in-TUI /compact
 // reload. Falls back to the raw log if rehydration fails.
 func (m model) resumeEvents(sessionID string) ([]sessions.Event, error) {
 	events, err := m.sessionStore.ReadRehydratedEvents(sessionID)
@@ -350,7 +360,7 @@ func (m model) formatResumeSummary(session sessions.Metadata, eventCount int) st
 		lines = append(lines, goalLine)
 	}
 	return renderCommandOutput(commandOutput{
-		Title:  "Resumed Zero session",
+		Title:  "Resumed QG session",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
 			Title: "Session",
@@ -382,7 +392,7 @@ func (m model) newSessionPicker() *commandPicker {
 		if !sessionMatchesWorkspace(meta.Cwd, m.cwd) {
 			continue
 		}
-		// A zero-event session has nothing to resume — skip it without a file read.
+		// A qg-event session has nothing to resume — skip it without a file read.
 		if meta.EventCount == 0 {
 			continue
 		}
@@ -468,7 +478,7 @@ func sessionPickerStatus(meta sessions.Metadata) string {
 // ordered latest-first, so the first qualifying match is the latest. It applies
 // the SAME filters as newSessionPicker — workspace membership, non-empty
 // metadata, and real resumable content — so `/resume latest` never lands on a
-// zero-event or empty/failed run the picker would have hidden.
+// qg-event or empty/failed run the picker would have hidden.
 func (m model) latestResumableInWorkspace() (*sessions.Metadata, error) {
 	metas, err := m.sessionStore.ListResumable()
 	if err != nil {
@@ -575,6 +585,11 @@ func transcriptRowsFromSessionEvents(events []sessions.Event) []transcriptRow {
 	for _, event := range events {
 		payload := sessionPayload(event)
 		switch event.Type {
+		case sessions.EventUsage:
+			if label := payloadString(payload, "call_label"); label != "" {
+				rows = append(rows, transcriptRow{kind: rowSystem, tool: "model-usage", id: event.ID, text: label, meta: map[string]string{"model": payloadString(payload, "model"), "amount": payloadString(payload, "cost_exact"), "currency": payloadString(payload, "cost_currency"), "tokens": payloadString(payload, "call_tokens")}})
+			}
+
 		case sessions.EventMessage:
 			role := strings.ToLower(payloadString(payload, "role"))
 			if role == "user" && payloadString(payload, "origin") == "cross_session" {

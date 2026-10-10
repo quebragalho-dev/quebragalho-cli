@@ -9,12 +9,12 @@ import (
 
 // TestEnsureLocalEngineRealDownload exercises the full auto-download against the
 // REAL k2-fsa/sherpa-onnx GitHub API (resolve → verify digest → extract → run).
-// It downloads ~130MB, so it is opt-in via ZERO_STT_DOWNLOAD_TEST=1.
+// It downloads ~130MB, so it is opt-in via QG_STT_DOWNLOAD_TEST=1.
 //
-//	ZERO_STT_DOWNLOAD_TEST=1 go test ./internal/dictation/ -run RealDownload -v -timeout 10m
+//	QG_STT_DOWNLOAD_TEST=1 go test ./internal/dictation/ -run RealDownload -v -timeout 10m
 func TestEnsureLocalEngineRealDownload(t *testing.T) {
-	if os.Getenv("ZERO_STT_DOWNLOAD_TEST") == "" {
-		t.Skip("set ZERO_STT_DOWNLOAD_TEST=1 to run the real ~130MB download smoke test")
+	if os.Getenv("QG_STT_DOWNLOAD_TEST") == "" {
+		t.Skip("set QG_STT_DOWNLOAD_TEST=1 to run the real ~130MB download smoke test")
 	}
 	dest := t.TempDir()
 	comp, err := EnsureLocalEngine(context.Background(), DownloadOptions{

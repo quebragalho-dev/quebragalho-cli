@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // TestActivateToolRunsRealCommandEndToEnd exercises the default (non-mocked) tool
@@ -31,7 +31,7 @@ func TestActivateToolRunsRealCommandEndToEnd(t *testing.T) {
 
 	registry := tools.NewRegistry()
 	plugin := LoadedPlugin{
-		ID:        "zero.demo",
+		ID:        "qg.demo",
 		Name:      "Demo",
 		Enabled:   true,
 		Source:    SourceProject,
@@ -67,7 +67,7 @@ func TestActivateToolRunsRealCommandEndToEnd(t *testing.T) {
 func TestActivateToolRealCommandMissingBinaryErrors(t *testing.T) {
 	registry := tools.NewRegistry()
 	plugin := LoadedPlugin{
-		ID:        "zero.demo",
+		ID:        "qg.demo",
 		Name:      "Demo",
 		Enabled:   true,
 		Source:    SourceProject,

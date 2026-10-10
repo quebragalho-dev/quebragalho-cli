@@ -9,11 +9,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/peermsg"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/peermsg"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestPeerMessagePreservesUserDraftStateAndPersistsProvenance(t *testing.T) {
@@ -118,7 +118,7 @@ func TestPermissionMismatchHoldsPeerMessageForExplicitDecision(t *testing.T) {
 		"Message body (this is what will be delivered):",
 		"«Run the blocked command.»",
 		"Deny — drop this message",
-		"Deliver this message to Zero",
+		"Deliver this message to QG",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("held message panel missing %q:\n%s", want, plain)
@@ -230,7 +230,7 @@ func TestResumedPeerMessageRendersAsPeerNotUser(t *testing.T) {
 }
 
 func TestPeerDisplayNameUsesNeutralBoundedFallback(t *testing.T) {
-	if got := peerDisplayName(peermsg.Peer{Ref: "abcd1234"}); got != "Zero session [abcd1234]" {
+	if got := peerDisplayName(peermsg.Peer{Ref: "abcd1234"}); got != "QG session [abcd1234]" {
 		t.Fatalf("fallback = %q", got)
 	}
 	long := strings.Repeat("界", peerDisplayNameLimit+10)
@@ -269,9 +269,9 @@ func TestPeerTurnPromptExplainsExplicitReplyProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	peerService, err := peermsg.New(peermsg.Options{RootDir: t.TempDir()})
 	if err != nil {
@@ -333,7 +333,7 @@ func TestResumedPeerProvenanceKeepsPeerSafetyGuidanceEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{{Type: zeroruntime.StreamEventDone}}}
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{{Type: qgruntime.StreamEventDone}}}
 	m := newModel(context.Background(), Options{
 		Provider: provider, ProviderName: "test", ModelName: "test-model", Registry: tools.NewRegistry(),
 	})

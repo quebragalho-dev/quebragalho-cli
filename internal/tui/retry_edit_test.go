@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestCommandsRegistered(t *testing.T) {
@@ -39,7 +39,7 @@ func TestEditRecallsLastPrompt(t *testing.T) {
 func TestEditRestagesAttachments(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "gpt-4.1"})
 	m.lastPrompt = "describe the diagram"
-	m.lastImages = []zeroruntime.ImageBlock{{MediaType: "image/png"}}
+	m.lastImages = []qgruntime.ImageBlock{{MediaType: "image/png"}}
 	m.lastImageLabels = []string{"diagram.png"}
 	m.lastDocuments = []pendingDocument{{label: "spec.pdf", text: "notes"}}
 	m.input.SetValue("/edit")

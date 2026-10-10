@@ -11,8 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/dictation"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/dictation"
 )
 
 // Transcriber and Recorder are re-exported so Options and the model can refer to
@@ -420,7 +420,7 @@ func (m model) handleDictationTranscribed(msg dictationTranscribedMsg) (tea.Mode
 	if msg.err != nil {
 		// A cloud auth failure (missing/invalid key) is fixable in place: reopen the
 		// API-key prompt for the current provider so the user can paste a key and
-		// retry, instead of hitting a dead-end "run zero auth" line.
+		// retry, instead of hitting a dead-end "run qg auth" line.
 		if next, handled := m.maybeOfferKeyOnAuthError(msg.err); handled {
 			return next, nil
 		}
@@ -480,10 +480,10 @@ func needsLeadingSpace(state composerState) bool {
 func (m model) dictationStatusChip() string {
 	switch m.dictation.phase {
 	case dictStarting, dictRecording:
-		wave := zeroTheme.amber.Render("● " + renderWaveBars(m.dictation.waveBars) + " REC")
-		return wave + zeroTheme.muted.Render(" · "+m.voiceCaptureStatus()+", Esc to cancel")
+		wave := qgTheme.amber.Render("● " + renderWaveBars(m.dictation.waveBars) + " REC")
+		return wave + qgTheme.muted.Render(" · "+m.voiceCaptureStatus()+", Esc to cancel")
 	case dictTranscribing:
-		return zeroTheme.accent.Render("●") + " " + zeroTheme.muted.Render("transcribing…")
+		return qgTheme.accent.Render("●") + " " + qgTheme.muted.Render("transcribing…")
 	}
 	return ""
 }
@@ -602,7 +602,7 @@ func (m model) voiceModeIndicator() string {
 	if !m.dictation.voiceModeEnabled {
 		return ""
 	}
-	return zeroTheme.accent.Render("🎙 voice") + zeroTheme.muted.Render(" · "+m.voiceCaptureStatus()+" · "+m.dictation.currentModelLabel())
+	return qgTheme.accent.Render("🎙 voice") + qgTheme.muted.Render(" · "+m.voiceCaptureStatus()+" · "+m.dictation.currentModelLabel())
 }
 
 // dictationErrorText renders a dictation error for the transcript: a missing-

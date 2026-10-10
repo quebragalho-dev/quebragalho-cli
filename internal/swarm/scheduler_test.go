@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/testutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 // testTicker returns a ticker factory backed by a single unbounded-handshake

@@ -24,7 +24,7 @@ func TestBuildCommandPlanWrapsLinuxHelper(t *testing.T) {
 		Backend: Backend{
 			Name:       BackendLinuxBwrap,
 			Available:  true,
-			Executable: "/usr/bin/zero-linux-sandbox",
+			Executable: "/usr/bin/qg-linux-sandbox",
 			Platform:   "linux",
 			Message:    "Linux sandbox helper available",
 		},
@@ -39,7 +39,7 @@ func TestBuildCommandPlanWrapsLinuxHelper(t *testing.T) {
 		t.Fatalf("BuildCommandPlan: %v", err)
 	}
 
-	if !plan.Wrapped || plan.Name != "/usr/bin/zero-linux-sandbox" || plan.Backend.Name != BackendLinuxBwrap {
+	if !plan.Wrapped || plan.Name != "/usr/bin/qg-linux-sandbox" || plan.Backend.Name != BackendLinuxBwrap {
 		t.Fatalf("plan backend = %#v, want wrapped Linux helper", plan)
 	}
 	assertArgsContainSequence(t, plan.Args, "--sandbox-policy-cwd", resolvedRoot)
@@ -130,7 +130,7 @@ func TestBuildCommandPlanDegradesUnavailableFallback(t *testing.T) {
 // unscrubbed.
 func TestBuildCommandPlanDegradedFallbackScrubsInheritedEnv(t *testing.T) {
 	t.Setenv("COMPANY_LLM_SECRET", "custom-secret")
-	t.Setenv("ZERO_OAUTH_ACME_CLIENT_SECRET", "oauth-secret")
+	t.Setenv("QG_OAUTH_ACME_CLIENT_SECRET", "oauth-secret")
 	t.Setenv("SAFE_VAR", "hello")
 
 	root := t.TempDir()
@@ -154,7 +154,7 @@ func TestBuildCommandPlanDegradedFallbackScrubsInheritedEnv(t *testing.T) {
 	}
 	for _, entry := range plan.Env {
 		key, _, _ := strings.Cut(entry, "=")
-		if strings.EqualFold(key, "COMPANY_LLM_SECRET") || strings.EqualFold(key, "ZERO_OAUTH_ACME_CLIENT_SECRET") {
+		if strings.EqualFold(key, "COMPANY_LLM_SECRET") || strings.EqualFold(key, "QG_OAUTH_ACME_CLIENT_SECRET") {
 			t.Fatalf("degraded plan.Env retained sensitive key %q: %v", key, plan.Env)
 		}
 	}
@@ -244,7 +244,7 @@ func TestSandboxExecProfileAllowsDevNullAndTemp(t *testing.T) {
 
 	// A write outside the workspace must still be denied — the richer profile must
 	// not have loosened the boundary.
-	if out, err := run("echo leak > /etc/zero_sandbox_should_fail 2>/dev/null"); err == nil {
+	if out, err := run("echo leak > /etc/qg_sandbox_should_fail 2>/dev/null"); err == nil {
 		t.Fatalf("write outside workspace unexpectedly succeeded: output: %s", out)
 	}
 }
@@ -472,7 +472,7 @@ func TestSeatbeltProfileProtectsMetadataAndDenyOrdering(t *testing.T) {
 			WriteRoots: []WritableRoot{{
 				Root:                   "/repo",
 				ReadOnlySubpaths:       []string{"/repo/vendor"},
-				ProtectedMetadataNames: []string{".git", ".zero"},
+				ProtectedMetadataNames: []string{".git", ".qg"},
 			}},
 			DenyRead:  []string{"/repo/secret-read"},
 			DenyWrite: []string{"/repo/secret-write"},
@@ -490,7 +490,7 @@ func TestSeatbeltProfileProtectsMetadataAndDenyOrdering(t *testing.T) {
 		`(deny file-write* (literal "/repo/vendor"))`,
 		`(deny file-write* (subpath "/repo/vendor"))`,
 		`(deny file-write* (regex #"^/repo/\.git(/.*)?$"))`,
-		`(deny file-write* (regex #"^/repo/\.zero(/.*)?$"))`,
+		`(deny file-write* (regex #"^/repo/\.qg(/.*)?$"))`,
 		denySecretReadRule,
 		denySecretReadUnlinkRule,
 		denySecretWriteRule,
@@ -515,7 +515,7 @@ func TestSeatbeltProfileProtectsMetadataAndDenyOrdering(t *testing.T) {
 // readable again on macOS), and a DenyReadCarveouts entry must be re-allowed
 // AFTER it, since SBPL is last-match-wins.
 func TestSeatbeltProfileRendersCredentialBaselineAndCarveouts(t *testing.T) {
-	credentialDir := filepath.Join(t.TempDir(), "zero")
+	credentialDir := filepath.Join(t.TempDir(), "qg")
 	pluginRoot := filepath.Join(credentialDir, "plugins")
 	if err := os.MkdirAll(pluginRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -548,7 +548,7 @@ func TestSeatbeltProfileRendersCredentialBaselineAndCarveouts(t *testing.T) {
 }
 
 func TestSeatbeltProfileReappliesCredentialDeniesInsideCarveouts(t *testing.T) {
-	credentialDir := filepath.Join(t.TempDir(), "zero")
+	credentialDir := filepath.Join(t.TempDir(), "qg")
 	var carveouts []string
 	var denied []string
 	for _, name := range []string{"plugins", "specialists", "commands"} {
@@ -599,7 +599,7 @@ func TestSeatbeltProfileDoesNotRenderSymlinkCarveout(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is not reliably available on Windows CI")
 	}
-	credentialDir := filepath.Join(t.TempDir(), "zero")
+	credentialDir := filepath.Join(t.TempDir(), "qg")
 	if err := os.MkdirAll(credentialDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +706,7 @@ func TestSeatbeltCompatibilityProfileUsesCredentialEnvironment(t *testing.T) {
 		t.Skip("Windows credential deny-read is tracked separately")
 	}
 	override := filepath.Join(t.TempDir(), "mcp-tokens.json")
-	t.Setenv("ZERO_MCP_OAUTH_TOKENS_PATH", override)
+	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", override)
 
 	profile := seatbeltCompatibilityPermissionProfile([]string{"/ws"}, DefaultPolicy())
 	for _, want := range []string{
@@ -760,7 +760,7 @@ func TestLinuxHelperPlanCarriesExtraWriteRoots(t *testing.T) {
 		WorkspaceRoot: workspace,
 		Policy:        DefaultPolicy(),
 		Scope:         scope,
-		Backend:       Backend{Name: BackendLinuxBwrap, Available: true, Executable: "/usr/bin/zero-linux-sandbox"},
+		Backend:       Backend{Name: BackendLinuxBwrap, Available: true, Executable: "/usr/bin/qg-linux-sandbox"},
 	})
 	plan, err := engine.BuildCommandPlan(CommandSpec{Name: "true"})
 	if err != nil {
@@ -797,7 +797,7 @@ func TestLinuxHelperPlanPreservesRealExtraRootCwd(t *testing.T) {
 	extra := tempDirOutsideDefaultTemp(t)
 	credentialHome := filepath.Join(workspace, "credential-home")
 	configHome := filepath.Join(credentialHome, "config")
-	if err := os.MkdirAll(filepath.Join(configHome, "zero"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(configHome, "qg"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	scope, err := NewScope(workspace, []string{extra})
@@ -808,7 +808,7 @@ func TestLinuxHelperPlanPreservesRealExtraRootCwd(t *testing.T) {
 		WorkspaceRoot: workspace,
 		Policy:        DefaultPolicy(),
 		Scope:         scope,
-		Backend:       Backend{Name: BackendLinuxBwrap, Available: true, Executable: "/usr/bin/zero-linux-sandbox"},
+		Backend:       Backend{Name: BackendLinuxBwrap, Available: true, Executable: "/usr/bin/qg-linux-sandbox"},
 	})
 	resolvedExtra := scope.Roots()[1]
 	plan, err := engine.BuildCommandPlan(CommandSpec{Name: "true", Dir: extra, Env: []string{"HOME=" + credentialHome, "XDG_CONFIG_HOME=" + configHome}})
@@ -823,7 +823,7 @@ func TestLinuxHelperPlanPreservesRealExtraRootCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseLinuxSandboxHelperArgs: %v", err)
 	}
-	bwrapArgs, err := BuildLinuxSandboxBwrapArgs(LinuxSandboxBwrapOptions{Config: config, HelperPath: "/usr/bin/zero-linux-sandbox"})
+	bwrapArgs, err := BuildLinuxSandboxBwrapArgs(LinuxSandboxBwrapOptions{Config: config, HelperPath: "/usr/bin/qg-linux-sandbox"})
 	if err != nil {
 		t.Fatalf("BuildLinuxSandboxBwrapArgs: %v", err)
 	}
@@ -847,21 +847,21 @@ func TestScrubSensitiveEnv(t *testing.T) {
 		// Both forms of the daemon bridge token. The inline one was already
 		// scrubbed; the file form was not, which left a sandboxed command the
 		// path to read it from (#677).
-		"ZERO_DAEMON_REMOTE_TOKEN=bridge-token-inline",
-		"ZERO_DAEMON_REMOTE_TOKEN_FILE=/home/user/.zero/remote-token",
+		"QG_DAEMON_REMOTE_TOKEN=bridge-token-inline",
+		"QG_DAEMON_REMOTE_TOKEN_FILE=/home/user/.qg/remote-token",
 		"COMPANY_LLM_SECRET=custom-secret",
-		"ZERO_OAUTH_MY_SVC_CLIENT_SECRET=oauth-secret",
-		"zero_oauth_second_client_secret=case-insensitive-secret",
-		"ZERO_OAUTH_CLIENT_SECRET=not-a-provider-secret",
+		"QG_OAUTH_MY_SVC_CLIENT_SECRET=oauth-secret",
+		"qg_oauth_second_client_secret=case-insensitive-secret",
+		"QG_OAUTH_CLIENT_SECRET=not-a-provider-secret",
 		"AWS_PROFILE=staging",
 		"SAFE_VAR=hello",
 	}
 	scrubbed := scrubSensitiveEnv(inputEnv, " COMPANY_LLM_SECRET ", "company_llm_secret", "GITHUB_TOKEN=ghp_pasted-assignment", "=", "")
 	expected := map[string]string{
-		"PATH":                     "/usr/bin",
-		"SAFE_VAR":                 "hello",
-		"AWS_PROFILE":              "staging",
-		"ZERO_OAUTH_CLIENT_SECRET": "not-a-provider-secret",
+		"PATH":                   "/usr/bin",
+		"SAFE_VAR":               "hello",
+		"AWS_PROFILE":            "staging",
+		"QG_OAUTH_CLIENT_SECRET": "not-a-provider-secret",
 	}
 	actual := make(map[string]string, len(scrubbed))
 	for _, entry := range scrubbed {
@@ -881,7 +881,7 @@ func TestEngineScrubsConfiguredSensitiveEnvKeys(t *testing.T) {
 	engine := NewEngine(EngineOptions{
 		WorkspaceRoot:    workspace,
 		Policy:           DefaultPolicy(),
-		Backend:          Backend{Name: BackendLinuxBwrap, Available: true, Executable: "/usr/bin/zero-linux-sandbox"},
+		Backend:          Backend{Name: BackendLinuxBwrap, Available: true, Executable: "/usr/bin/qg-linux-sandbox"},
 		SensitiveEnvKeys: []string{"COMPANY_LLM_SECRET"},
 	})
 	plan, err := engine.BuildCommandPlan(CommandSpec{
@@ -889,7 +889,7 @@ func TestEngineScrubsConfiguredSensitiveEnvKeys(t *testing.T) {
 		Env: []string{
 			"PATH=/usr/bin",
 			"COMPANY_LLM_SECRET=custom-secret",
-			"ZERO_OAUTH_CUSTOM_CLIENT_SECRET=oauth-secret",
+			"QG_OAUTH_CUSTOM_CLIENT_SECRET=oauth-secret",
 			"SAFE_VAR=hello",
 		},
 	})
@@ -898,7 +898,7 @@ func TestEngineScrubsConfiguredSensitiveEnvKeys(t *testing.T) {
 	}
 	for _, entry := range plan.Env {
 		key, _, _ := strings.Cut(entry, "=")
-		if strings.EqualFold(key, "COMPANY_LLM_SECRET") || strings.EqualFold(key, "ZERO_OAUTH_CUSTOM_CLIENT_SECRET") {
+		if strings.EqualFold(key, "COMPANY_LLM_SECRET") || strings.EqualFold(key, "QG_OAUTH_CUSTOM_CLIENT_SECRET") {
 			t.Fatalf("plan.Env retained sensitive key %q: %v", key, plan.Env)
 		}
 	}

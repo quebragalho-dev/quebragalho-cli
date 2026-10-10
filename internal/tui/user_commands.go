@@ -5,11 +5,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/usercommands"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usercommands"
 )
 
 // handleUserCommand resolves a "/name args" that wasn't a builtin command
-// against the file-sourced user commands (.zero/commands/<name>.md). When a
+// against the file-sourced user commands (.qg/commands/<name>.md). When a
 // match is found it expands the command's template with the args and launches a
 // normal agent turn, returning handled=true. handled=false means no user
 // command matched, so the caller falls through to "unknown command".

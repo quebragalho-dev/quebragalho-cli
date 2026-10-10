@@ -21,7 +21,7 @@ func DefaultResolveOptions(workspaceRoot string) (ResolveOptions, error) {
 		return ResolveOptions{}, err
 	}
 
-	projectConfigPath, err := existingConfigFile(filepath.Join(workspaceRoot, ".zero", "config.json"))
+	projectConfigPath, err := existingConfigFile(filepath.Join(workspaceRoot, ".qg", "config.json"))
 	if err != nil {
 		return ResolveOptions{}, err
 	}
@@ -29,7 +29,7 @@ func DefaultResolveOptions(workspaceRoot string) (ResolveOptions, error) {
 	return ResolveOptions{
 		UserConfigPath:    userConfigPath,
 		ProjectConfigPath: projectConfigPath,
-		ProviderCommand:   strings.TrimSpace(os.Getenv("ZERO_PROVIDER_COMMAND")),
+		ProviderCommand:   strings.TrimSpace(os.Getenv("QG_PROVIDER_COMMAND")),
 	}, nil
 }
 
@@ -38,12 +38,12 @@ func DefaultUserConfigPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user config directory: %w", err)
 	}
-	return filepath.Join(userConfigDir, "zero", "config.json"), nil
+	return filepath.Join(userConfigDir, "qg", "config.json"), nil
 }
 
-// UserConfigDir returns the base directory Zero stores per-user config under.
+// UserConfigDir returns the base directory QG stores per-user config under.
 // It mirrors os.UserConfigDir everywhere except macOS: there Go defaults to
-// ~/Library/Application Support, but Zero deliberately uses ~/.config (XDG-style,
+// ~/Library/Application Support, but QG deliberately uses ~/.config (XDG-style,
 // matching Linux and Claude Code) so a single config path works cross-platform.
 // $XDG_CONFIG_HOME still wins on macOS when set.
 func UserConfigDir() (string, error) {

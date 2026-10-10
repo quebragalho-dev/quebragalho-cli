@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 var sandboxBlockForTest = sandbox.Block{
@@ -71,9 +71,9 @@ func TestDisplayPathAbbreviatesHome(t *testing.T) {
 	userHomeDir = func() (string, error) { return home, nil }
 	defer func() { userHomeDir = restore }()
 
-	abs := filepath.Join(home, "projects", "zero", "main.go")
-	if got := displayPath(t.TempDir(), abs); got != "~/projects/zero/main.go" {
-		t.Fatalf("displayPath under home = %q, want ~/projects/zero/main.go", got)
+	abs := filepath.Join(home, "projects", "qg", "main.go")
+	if got := displayPath(t.TempDir(), abs); got != "~/projects/qg/main.go" {
+		t.Fatalf("displayPath under home = %q, want ~/projects/qg/main.go", got)
 	}
 }
 
@@ -94,7 +94,7 @@ func TestDisplayPathTruncatesExternalToTail(t *testing.T) {
 }
 
 func TestDisplayPathLeavesRelativeInputUntouched(t *testing.T) {
-	if got := displayPath("/work/zero", "examples/calc.go"); got != "examples/calc.go" {
+	if got := displayPath("/work/qg", "examples/calc.go"); got != "examples/calc.go" {
 		t.Fatalf("relative input = %q, want examples/calc.go", got)
 	}
 }
@@ -108,7 +108,7 @@ func TestRedundantConfirmationCollapsesSuccessBody(t *testing.T) {
 		id:     "c1",
 		tool:   "mcp_filesystem_create_directory",
 		status: tools.StatusOK,
-		detail: "Successfully created directory /work/zero/examples/calc",
+		detail: "Successfully created directory /work/qg/examples/calc",
 	}
 	card := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
 	lines := strings.Split(strings.TrimRight(card, "\n"), "\n")
@@ -199,7 +199,7 @@ func TestLooksLikeRedundantConfirmation(t *testing.T) {
 	}
 	no := []string{
 		"",
-		"File: README.md\n1: # Zero", // multi-line read
+		"File: README.md\n1: # QG", // multi-line read
 		"internal/cli/root.go:41: fs := flag.NewSet", // grep hit
 		"3 matches found",  // not a known verb
 		"--- a/x\n+++ b/x", // diff

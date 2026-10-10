@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/redaction"
-	zeroSandbox "github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	qgSandbox "github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 const (
@@ -32,7 +32,7 @@ type searchResult struct {
 	URL     string
 	Snippet string
 	// Score is an optional provider-supplied relevance signal in the [0, 1]
-	// range. Zero (the zero value) is treated as "absent" by the renderer.
+	// range. QG (the zero value) is treated as "absent" by the renderer.
 	Score float64
 }
 
@@ -101,7 +101,7 @@ func newWebSearchToolWithBackend(backend searchBackend) Tool {
 // RunWithSandbox follows the normal web_search path. The sandbox network policy
 // gates sandboxed shell egress; this in-process hosted search tool is guarded by
 // the permission flow plus backend and result-domain safeguards.
-func (tool webSearchTool) RunWithSandbox(ctx context.Context, args map[string]any, engine *zeroSandbox.Engine) Result {
+func (tool webSearchTool) RunWithSandbox(ctx context.Context, args map[string]any, engine *qgSandbox.Engine) Result {
 	return tool.Run(ctx, args)
 }
 
@@ -132,7 +132,7 @@ func (tool webSearchTool) Run(ctx context.Context, args map[string]any) Result {
 	}
 
 	if tool.backend == nil {
-		return errorResult("Error: no search backend configured. Set ZERO_WEBSEARCH_BASE_URL (and ZERO_WEBSEARCH_API_KEY) to enable web_search.")
+		return errorResult("Error: no search backend configured. Set QG_WEBSEARCH_BASE_URL (and QG_WEBSEARCH_API_KEY) to enable web_search.")
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, webSearchTimeout)
@@ -189,9 +189,9 @@ func formatSearchResults(results []searchResult) string {
 }
 
 // defaultSearchBackend returns the env-configured generic backend, or nil when
-// ZERO_WEBSEARCH_BASE_URL is unset (the tool then reports it as unconfigured).
+// QG_WEBSEARCH_BASE_URL is unset (the tool then reports it as unconfigured).
 func defaultSearchBackend() searchBackend {
-	baseURL := strings.TrimSpace(os.Getenv("ZERO_WEBSEARCH_BASE_URL"))
+	baseURL := strings.TrimSpace(os.Getenv("QG_WEBSEARCH_BASE_URL"))
 	if baseURL == "" {
 		return nil
 	}
@@ -201,8 +201,8 @@ func defaultSearchBackend() searchBackend {
 			CheckRedirect: sameHostRedirectPolicy,
 		},
 		baseURL:  baseURL,
-		apiKey:   strings.TrimSpace(os.Getenv("ZERO_WEBSEARCH_API_KEY")),
-		provider: strings.TrimSpace(os.Getenv("ZERO_WEBSEARCH_PROVIDER")),
+		apiKey:   strings.TrimSpace(os.Getenv("QG_WEBSEARCH_API_KEY")),
+		provider: strings.TrimSpace(os.Getenv("QG_WEBSEARCH_PROVIDER")),
 	}
 }
 
@@ -244,7 +244,7 @@ func (backend *httpSearchBackend) Search(ctx context.Context, query string, limi
 	}
 	requestBody := map[string]any{"query": query, "limit": limit}
 	// Forward the configured provider so an aggregating endpoint can route the
-	// query; without this the ZERO_WEBSEARCH_PROVIDER knob would be inert.
+	// query; without this the QG_WEBSEARCH_PROVIDER knob would be inert.
 	if backend.provider != "" {
 		requestBody["provider"] = backend.provider
 	}
@@ -258,7 +258,7 @@ func (backend *httpSearchBackend) Search(ctx context.Context, query string, limi
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "zero-web-search/0.1")
+	request.Header.Set("User-Agent", "qg-web-search/0.1")
 	if backend.apiKey != "" {
 		request.Header.Set("Authorization", "Bearer "+backend.apiKey)
 	}
@@ -298,7 +298,7 @@ func (backend *httpSearchBackend) searchSearxng(ctx context.Context, query strin
 		return nil, fmt.Errorf("build searxng request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "zero-web-search/0.1")
+	request.Header.Set("User-Agent", "qg-web-search/0.1")
 	if backend.apiKey != "" { // optional, e.g. a reverse-proxy in front of SearXNG
 		request.Header.Set("Authorization", "Bearer "+backend.apiKey)
 	}
@@ -358,7 +358,7 @@ func (s *lenientScore) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	// Accept both 0.91 and "0.91"; ignore anything else (object, bool, NaN/Inf,
-	// out-of-range) by leaving the score at zero. ParseFloat accepts "NaN"/"Inf",
+	// out-of-range) by leaving the score at qg. ParseFloat accepts "NaN"/"Inf",
 	// so reject non-finite results explicitly to honor the documented filter.
 	unquoted := strings.TrimSpace(strings.Trim(string(trimmed), `"`))
 	if f, parseErr := strconv.ParseFloat(unquoted, 64); parseErr == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {

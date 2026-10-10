@@ -13,7 +13,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"golang.org/x/sys/windows"
 )
 
@@ -301,7 +301,7 @@ var recoveryCleanupStateDir = func() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, "zero", "update-recovery"), nil
+	return filepath.Join(root, "qg", "update-recovery"), nil
 }
 
 func recoveryCleanupRecordPath(targetPath string) (string, error) {
@@ -322,7 +322,7 @@ func validUpdaterRecoveryPath(targetPath string, recoveryPath string) bool {
 		return false
 	}
 	name := strings.ToLower(filepath.Base(recoveryPath))
-	prefix := strings.ToLower(filepath.Base(targetPath)) + ".zero-update-"
+	prefix := strings.ToLower(filepath.Base(targetPath)) + ".qg-update-"
 	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".old") {
 		return false
 	}

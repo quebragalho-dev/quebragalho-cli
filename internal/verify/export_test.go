@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 func RunLoop(ctx context.Context, plan Plan, options LoopOptions) LoopReport {

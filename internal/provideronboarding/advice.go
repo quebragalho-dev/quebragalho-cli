@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 type Action struct {
@@ -39,7 +39,7 @@ func SetupCommandWithModel(descriptor providercatalog.Descriptor, name string, m
 }
 
 func setupCommand(descriptor providercatalog.Descriptor, name string, model string, setActive bool) string {
-	parts := []string{"zero", "providers", "add", strings.TrimSpace(descriptor.ID)}
+	parts := []string{"qg", "providers", "add", strings.TrimSpace(descriptor.ID)}
 	if name = strings.TrimSpace(name); name != "" {
 		parts = append(parts, "--name", name)
 	}
@@ -63,7 +63,7 @@ func setupCommand(descriptor providercatalog.Descriptor, name string, model stri
 }
 
 func UseCommand(name string) string {
-	parts := []string{"zero", "providers", "use"}
+	parts := []string{"qg", "providers", "use"}
 	if name = strings.TrimSpace(name); name != "" {
 		parts = append(parts, name)
 	}
@@ -71,7 +71,7 @@ func UseCommand(name string) string {
 }
 
 func CheckCommand(name string, connectivity bool) string {
-	parts := []string{"zero", "providers", "check"}
+	parts := []string{"qg", "providers", "check"}
 	if name = strings.TrimSpace(name); name != "" {
 		parts = append(parts, name)
 	}
@@ -90,8 +90,9 @@ func MissingCredentialAction(profile config.ProviderProfile) (Action, bool) {
 	detail := "Set an API key before using this provider."
 	command := "set API_KEY in your shell"
 	if advice.envVar != "" {
-		detail = "Set " + advice.envVar + " to your provider API key before using this provider."
-		command = "set " + advice.envVar + " in your shell"
+		display := providercatalog.DisplayKeyEnv(advice.envVar)
+		detail = "Set " + display + " to your provider API key before using this provider."
+		command = "set " + display + " in your shell"
 	}
 	return Action{
 		Label:   "Set API key",

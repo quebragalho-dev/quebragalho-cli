@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 // Regression for issue #555's follow-up: /providers must not warn that a
@@ -14,6 +14,7 @@ func TestProviderCredentialRequiredCustomEndpoint(t *testing.T) {
 	cases := []struct {
 		name    string
 		profile config.ProviderProfile
+		kind    string
 		want    bool
 	}{
 		{
@@ -35,26 +36,28 @@ func TestProviderCredentialRequiredCustomEndpoint(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "custom openai compatible with explicit non-default env",
+			name: "typed openai-compatible endpoint with explicit env expects a credential",
 			profile: config.ProviderProfile{
-				Name:      "local-llama",
-				CatalogID: "custom-openai-compatible",
-				APIKeyEnv: "LLAMA_CPP_API_KEY",
+				Name:         "local-llama",
+				CatalogID:    "custom-openai-compatible",
+				ProviderKind: config.ProviderKindOpenAICompatible,
+				APIKeyEnv:    "LLAMA_CPP_API_KEY",
 			},
+			kind: string(config.ProviderKindOpenAICompatible),
 			want: true,
 		},
 		{
 			name: "catalog provider still requires auth",
 			profile: config.ProviderProfile{
-				Name:      "groq",
-				CatalogID: "groq",
+				Name:      "qg",
+				CatalogID: "qg",
 			},
 			want: true,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := providerCredentialRequired(c.profile, ""); got != c.want {
+			if got := providerCredentialRequired(c.profile, c.kind); got != c.want {
 				t.Fatalf("providerCredentialRequired() = %v, want %v", got, c.want)
 			}
 		})

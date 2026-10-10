@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestRunExecHelpDocumentsProtocolFlags(t *testing.T) {
@@ -61,7 +61,7 @@ func TestRunExecListsFilteredToolsWithoutPromptOrProvider(t *testing.T) {
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			providerBuilt = true
 			return nil, errors.New("provider should not be constructed for --list-tools")
 		},
@@ -99,7 +99,7 @@ func TestRunExecListsToolsAsStreamJSONWhenRequested(t *testing.T) {
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			providerBuilt = true
 			return nil, errors.New("provider should not be constructed for --list-tools")
 		},
@@ -146,7 +146,7 @@ func TestRunExecListsMCPToolsWithoutProviderConstruction(t *testing.T) {
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			providerBuilt = true
 			return nil, errors.New("provider should not be constructed for --list-tools")
 		},
@@ -185,6 +185,7 @@ func TestRunExecListsMCPToolsWithoutProviderConstruction(t *testing.T) {
 }
 
 func TestRunExecLogsMCPRuntimeCloseError(t *testing.T) {
+	isolateCLIUserState(t)
 	cwd := t.TempDir()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -233,6 +234,7 @@ func TestRunExecRejectsInvalidProtocolOptionsBeforeRuntime(t *testing.T) {
 		{name: "resume-fork", args: []string{"exec", "--resume", "abc", "--fork", "def", "hello"}, want: "Use either --resume or --fork, not both"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			isolateCLIUserState(t)
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 
@@ -315,7 +317,7 @@ func TestRunExecStreamJSONOutputsRunEndAndRecordsSession(t *testing.T) {
 		resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return echoExecProvider{}, nil
 		},
 	})
@@ -347,7 +349,7 @@ func TestRunExecStreamJSONOutputsRunEndAndRecordsSession(t *testing.T) {
 	}
 
 	store := sessions.NewStore(sessions.StoreOptions{
-		RootDir: filepath.Join(dataHome, "zero", "sessions"),
+		RootDir: filepath.Join(dataHome, "qg", "sessions"),
 	})
 	recorded, err := store.ReadEvents(sessionID)
 	if err != nil {
@@ -372,7 +374,7 @@ func TestRunExecStreamJSONEmitsAndRecordsPermissionEvents(t *testing.T) {
 		resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return toolCallingExecProvider{
 				toolCallID: "call_write",
 				toolName:   "write_file",
@@ -420,7 +422,7 @@ func TestRunExecStreamJSONEmitsAndRecordsPermissionEvents(t *testing.T) {
 		t.Fatalf("expected run_start sessionId, got %#v", events[0])
 	}
 	store := sessions.NewStore(sessions.StoreOptions{
-		RootDir: filepath.Join(dataHome, "zero", "sessions"),
+		RootDir: filepath.Join(dataHome, "qg", "sessions"),
 	})
 	recorded, err := store.ReadEvents(sessionID)
 	if err != nil {
@@ -444,7 +446,7 @@ func TestRunExecStreamJSONEmitsAndRecordsPermissionEvents(t *testing.T) {
 		resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return toolCallingExecProvider{
 				toolCallID: "call_write_approved",
 				toolName:   "write_file",
@@ -504,12 +506,12 @@ func TestRunExecStreamJSONRunStartUsesResolvedAPIModel(t *testing.T) {
 				ActiveProvider: "work",
 				Provider: config.ProviderProfile{
 					Name:  "work",
-					Model: "sonnet-4.5",
+					Model: "muse-spark",
 				},
 				MaxTurns: 2,
 			}, nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return echoExecProvider{}, nil
 		},
 	})
@@ -519,13 +521,13 @@ func TestRunExecStreamJSONRunStartUsesResolvedAPIModel(t *testing.T) {
 	}
 	events := decodeJSONLines(t, stdout.String())
 	runStart := events[0]
-	if runStart["provider"] != "anthropic" {
-		t.Fatalf("expected resolved provider kind anthropic, got %#v", runStart)
+	if runStart["provider"] != "openai-compatible" {
+		t.Fatalf("expected resolved provider kind openai-compatible, got %#v", runStart)
 	}
-	if runStart["model"] != "sonnet-4.5" {
+	if runStart["model"] != "muse-spark" {
 		t.Fatalf("expected logical model alias, got %#v", runStart)
 	}
-	if runStart["apiModel"] != "claude-sonnet-4-5-20250929" {
+	if runStart["apiModel"] != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected resolved API model, got %#v", runStart)
 	}
 }
@@ -543,7 +545,7 @@ func TestRunExecStreamJSONEmitsReasoningEvents(t *testing.T) {
 		resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return reasoningExecProvider{}, nil
 		},
 	})
@@ -691,7 +693,7 @@ func TestRunExecJSONInterruptedEmitsTerminalEvents(t *testing.T) {
 	exitCode := runWithDeps([]string{"exec", "--output-format", "json", "hello"}, &stdout, &stderr, appDeps{
 		getwd:         func() (string, error) { return cwd, nil },
 		resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) { return execResolvedConfig(), nil },
-		newProvider:   func(config.ProviderProfile) (zeroruntime.Provider, error) { return canceledExecProvider{}, nil },
+		newProvider:   func(config.ProviderProfile) (qgruntime.Provider, error) { return canceledExecProvider{}, nil },
 	})
 
 	if exitCode != exitInterrupted {
@@ -731,7 +733,7 @@ func TestRunExecWarnsAboutScratchFileWhenProviderErrors(t *testing.T) {
 		resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return toolThenErrorExecProvider{
 				toolCallID: "call_scratch",
 				toolName:   "write_file",
@@ -769,7 +771,7 @@ func TestRunExecReadsStreamJSONPromptFromStdin(t *testing.T) {
 		resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
 			return execResolvedConfig(), nil
 		},
-		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return echoExecProvider{}, nil
 		},
 	})
@@ -842,55 +844,55 @@ type toolThenErrorExecProvider struct {
 
 type reasoningExecProvider struct{}
 
-func (reasoningExecProvider) StreamCompletion(context.Context, zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
-	ch := make(chan zeroruntime.StreamEvent, 3)
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventReasoning, Content: "Thinking. "}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventText, Content: "done"}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone}
+func (reasoningExecProvider) StreamCompletion(context.Context, qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
+	ch := make(chan qgruntime.StreamEvent, 3)
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventReasoning, Content: "Thinking. "}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventText, Content: "done"}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
 	close(ch)
 	return ch, nil
 }
 
-func (provider toolCallingExecProvider) StreamCompletion(ctx context.Context, request zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+func (provider toolCallingExecProvider) StreamCompletion(ctx context.Context, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	for _, message := range request.Messages {
-		if message.Role == zeroruntime.MessageRoleTool {
-			ch := make(chan zeroruntime.StreamEvent, 2)
-			ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventText, Content: provider.answer}
-			ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone}
+		if message.Role == qgruntime.MessageRoleTool {
+			ch := make(chan qgruntime.StreamEvent, 2)
+			ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventText, Content: provider.answer}
+			ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
 			close(ch)
 			return ch, nil
 		}
 	}
-	ch := make(chan zeroruntime.StreamEvent, 4)
+	ch := make(chan qgruntime.StreamEvent, 4)
 	select {
 	case <-ctx.Done():
 		close(ch)
 		return ch, ctx.Err()
-	case ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: provider.toolCallID, ToolName: provider.toolName}:
+	case ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallStart, ToolCallID: provider.toolCallID, ToolName: provider.toolName}:
 	}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: provider.toolCallID, ArgumentsFragment: provider.arguments}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: provider.toolCallID}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: provider.toolCallID, ArgumentsFragment: provider.arguments}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: provider.toolCallID}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
 	close(ch)
 	return ch, nil
 }
 
-func (provider toolThenErrorExecProvider) StreamCompletion(ctx context.Context, request zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+func (provider toolThenErrorExecProvider) StreamCompletion(ctx context.Context, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	for _, message := range request.Messages {
-		if message.Role == zeroruntime.MessageRoleTool {
+		if message.Role == qgruntime.MessageRoleTool {
 			return nil, provider.err
 		}
 	}
-	ch := make(chan zeroruntime.StreamEvent, 4)
+	ch := make(chan qgruntime.StreamEvent, 4)
 	select {
 	case <-ctx.Done():
 		close(ch)
 		return ch, ctx.Err()
-	case ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: provider.toolCallID, ToolName: provider.toolName}:
+	case ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallStart, ToolCallID: provider.toolCallID, ToolName: provider.toolName}:
 	}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: provider.toolCallID, ArgumentsFragment: provider.arguments}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: provider.toolCallID}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: provider.toolCallID, ArgumentsFragment: provider.arguments}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: provider.toolCallID}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
 	close(ch)
 	return ch, nil
 }

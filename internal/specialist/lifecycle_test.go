@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/background"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestRegisteredSpecialistToolsLifecycle(t *testing.T) {
@@ -31,7 +31,7 @@ func TestRegisteredSpecialistToolsLifecycle(t *testing.T) {
 		t.Fatalf("Create parent returned error: %v", err)
 	}
 
-	zero := 0
+	qg := 0
 	manifest := Manifest{
 		Metadata: Metadata{
 			Name:        "worker",
@@ -44,7 +44,7 @@ func TestRegisteredSpecialistToolsLifecycle(t *testing.T) {
 	var backgroundArgs []string
 	var resumeArgs []string
 	executor := Executor{
-		BinaryPath:        "/usr/local/bin/zero",
+		BinaryPath:        "/usr/local/bin/qg",
 		SessionStore:      store,
 		BackgroundManager: manager,
 		NewSessionID:      func() (string, error) { return "child_task", nil },
@@ -52,7 +52,7 @@ func TestRegisteredSpecialistToolsLifecycle(t *testing.T) {
 			return LoadResult{Specialists: []Manifest{manifest}}, nil
 		},
 		LaunchBackground: func(binaryPath string, args []string, outputFile string, onExit func(exitCode int)) (int, error) {
-			if binaryPath != "/usr/local/bin/zero" {
+			if binaryPath != "/usr/local/bin/qg" {
 				t.Fatalf("background binaryPath = %q", binaryPath)
 			}
 			backgroundArgs = append([]string(nil), args...)
@@ -75,7 +75,7 @@ func TestRegisteredSpecialistToolsLifecycle(t *testing.T) {
 			}, "\n")), 0o600)
 		},
 		RunChild: func(ctx context.Context, binaryPath string, args []string, progress func(streamjson.Event)) (ChildRunResult, error) {
-			if binaryPath != "/usr/local/bin/zero" {
+			if binaryPath != "/usr/local/bin/qg" {
 				t.Fatalf("resume binaryPath = %q", binaryPath)
 			}
 			resumeArgs = append([]string(nil), args...)
@@ -84,7 +84,7 @@ func TestRegisteredSpecialistToolsLifecycle(t *testing.T) {
 					{Type: streamjson.EventRunStart, RunID: "run_resume", SessionID: "child_task"},
 					{Type: streamjson.EventUsage, RunID: "run_resume", PromptTokens: ptrInt(9), CompletionTokens: ptrInt(4), TotalTokens: ptrInt(13)},
 					{Type: streamjson.EventFinal, RunID: "run_resume", Text: "resume finished"},
-					{Type: streamjson.EventRunEnd, RunID: "run_resume", Status: "success", ExitCode: &zero},
+					{Type: streamjson.EventRunEnd, RunID: "run_resume", Status: "success", ExitCode: &qg},
 				},
 				ExitCode: 0,
 			}, nil

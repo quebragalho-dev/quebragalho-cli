@@ -17,7 +17,7 @@ import (
 // entry still names the object it wrote before renaming it into place.
 func TestPromoteRefusesASubstitutedStagingEntry(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero")
+	targetPath := filepath.Join(dir, "qg")
 	if err := os.WriteFile(targetPath, []byte("old-binary"), 0o755); err != nil {
 		t.Fatalf("WriteFile target: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestPromoteRefusesASubstitutedStagingEntry(t *testing.T) {
 // staging directory was created.
 func TestPromoteSurvivesAncestorDirectoryReplacement(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero")
+	targetPath := filepath.Join(dir, "qg")
 	if err := os.WriteFile(targetPath, []byte("old-binary"), 0o755); err != nil {
 		t.Fatalf("WriteFile target: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestPromoteSurvivesAncestorDirectoryReplacement(t *testing.T) {
 
 func TestCreateStagedBinaryRejectsDirectoryReplacementBeforeOpen(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero")
+	targetPath := filepath.Join(dir, "qg")
 	var impostorMarker string
 	original := openStagingDirectory
 	openStagingDirectory = func(parentFD int, name string) (int, error) {
@@ -171,7 +171,7 @@ func TestCreateStagedBinaryRejectsDirectoryReplacementBeforeOpen(t *testing.T) {
 
 func TestCreateStagedBinaryCleansUpAfterDirectoryOpenFailure(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero")
+	targetPath := filepath.Join(dir, "qg")
 	original := openStagingDirectory
 	openStagingDirectory = func(parentFD int, name string) (int, error) {
 		return -1, errors.New("forced open failure")
@@ -189,7 +189,7 @@ func TestCreateStagedBinaryCleansUpAfterDirectoryOpenFailure(t *testing.T) {
 // path must still install the staged bytes, executable, with nothing left over.
 func TestInstallBinaryInstallsVerifiedBytes(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero")
+	targetPath := filepath.Join(dir, "qg")
 	if err := os.WriteFile(targetPath, []byte("old-binary"), 0o755); err != nil {
 		t.Fatalf("WriteFile target: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestInstallBinaryInstallsVerifiedBytes(t *testing.T) {
 // attempt now uses a fresh random name that the next attempt never reuses.
 func TestInstallBinaryCleansUpWhenStagingFails(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero")
+	targetPath := filepath.Join(dir, "qg")
 	if err := os.WriteFile(targetPath, []byte("old-binary"), 0o755); err != nil {
 		t.Fatalf("WriteFile target: %v", err)
 	}

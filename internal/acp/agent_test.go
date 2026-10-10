@@ -17,25 +17,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // fakeProvider streams a canned assistant message and ends the turn — enough to
 // drive the real agent.Run loop without a live model.
 type fakeProvider struct{ text string }
 
-func (f fakeProvider) StreamCompletion(_ context.Context, _ zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
-	ch := make(chan zeroruntime.StreamEvent, 4)
+func (f fakeProvider) StreamCompletion(_ context.Context, _ qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
+	ch := make(chan qgruntime.StreamEvent, 4)
 	go func() {
 		defer close(ch)
-		ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventText, Content: f.text}
-		ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone}
+		ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventText, Content: f.text}
+		ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
 	}()
 	return ch, nil
 }
@@ -57,14 +57,14 @@ func (acpDeferredPromptTool) Safety() tools.Safety {
 }
 
 type captureToolsProvider struct {
-	requests chan zeroruntime.CompletionRequest
+	requests chan qgruntime.CompletionRequest
 }
 
-func (p captureToolsProvider) StreamCompletion(_ context.Context, request zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+func (p captureToolsProvider) StreamCompletion(_ context.Context, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	p.requests <- request
-	ch := make(chan zeroruntime.StreamEvent, 2)
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventText, Content: "done"}
-	ch <- zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone}
+	ch := make(chan qgruntime.StreamEvent, 2)
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventText, Content: "done"}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
 	close(ch)
 	return ch, nil
 }
@@ -83,8 +83,8 @@ func testDeps(t *testing.T) Deps {
 				MaxTurns: 4,
 			}, nil
 		},
-		NewProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
-			return fakeProvider{text: "Hello from ZERO"}, nil
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
+			return fakeProvider{text: "Hello from QG"}, nil
 		},
 		RunAgent: agent.Run,
 		BuildWorkspace: func(context.Context, string, config.ResolvedConfig, agent.PermissionMode) (*Workspace, error) {
@@ -94,7 +94,7 @@ func testDeps(t *testing.T) Deps {
 		},
 		ResolveWorkspaceRoot: func(cwd string) (string, error) { return cwd, nil },
 		Store:                store,
-		AgentInfo:            Implementation{Name: "zero", Version: "test"},
+		AgentInfo:            Implementation{Name: "qg", Version: "test"},
 	}
 }
 
@@ -220,7 +220,7 @@ func TestACPEndToEndPrompt(t *testing.T) {
 	}
 
 	// The streamed agent_message_chunk(s) should carry the assistant text.
-	if got := drainText(t, h.updates); !strings.Contains(got, "Hello from ZERO") {
+	if got := drainText(t, h.updates); !strings.Contains(got, "Hello from QG") {
 		t.Fatalf("streamed text = %q, want it to contain the assistant message", got)
 	}
 }
@@ -397,18 +397,18 @@ func TestACPLoadAndResumeStayBoundToThePersistedWorkspace(t *testing.T) {
 func TestACPModelConfigOptionsCatalogSelectionAndLoad(t *testing.T) {
 	deps := testDeps(t)
 	deps.ResolveConfig = func(_ string, o config.Overrides) (config.ResolvedConfig, error) {
-		model := "gpt-5.5"
+		model := "muse-spark-1.3-contributor"
 		if o.Provider.Model != "" {
 			model = o.Provider.Model
 		}
 		return config.ResolvedConfig{Provider: config.ProviderProfile{
-			Name: "ChatGPT", CatalogID: "chatgpt", Model: model,
+			Name: "Quebra Galho", CatalogID: "qg", Model: model,
 		}}, nil
 	}
 	deps.DiscoverModels = func(_ context.Context, _ config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
 		return []providermodeldiscovery.Model{
-			{ID: " gpt-5.4-mini ", Description: "Fast"},
-			{ID: "gpt-5.5", Description: "duplicate configured model"},
+			{ID: " deepseek-v4.1-flash ", Description: "Fast"},
+			{ID: "muse-spark-1.3-contributor", Description: "duplicate configured model"},
 		}, nil
 	}
 	h := newHarness(t, deps)
@@ -421,7 +421,7 @@ func TestACPModelConfigOptionsCatalogSelectionAndLoad(t *testing.T) {
 		t.Fatalf("session/new: %v", err)
 	}
 	option := created.ConfigOptions[0]
-	if option.CurrentValue != "gpt-5.5" || len(option.Options) < 2 {
+	if option.CurrentValue != "muse-spark-1.3-contributor" || len(option.Options) < 2 {
 		t.Fatalf("new model option = %+v", option)
 	}
 	for _, choice := range option.Options {
@@ -431,11 +431,11 @@ func TestACPModelConfigOptionsCatalogSelectionAndLoad(t *testing.T) {
 	}
 	var selected SetSessionConfigOptionResult
 	if err := h.client.Call(ctx, MethodSessionSetConfigOption, SetSessionConfigOptionParams{
-		SessionID: created.SessionID, ConfigID: configIDModel, Value: "  gpt-5.4-mini  ",
+		SessionID: created.SessionID, ConfigID: configIDModel, Value: "  deepseek-v4.1-flash  ",
 	}, &selected); err != nil {
 		t.Fatalf("set_config_option: %v", err)
 	}
-	if got := selected.ConfigOptions[0].CurrentValue; got != "gpt-5.4-mini" {
+	if got := selected.ConfigOptions[0].CurrentValue; got != "deepseek-v4.1-flash" {
 		t.Fatalf("selected model = %q", got)
 	}
 	if err := h.client.Call(ctx, MethodSessionSetConfigOption, SetSessionConfigOptionParams{
@@ -450,7 +450,7 @@ func TestACPModelConfigOptionsCatalogSelectionAndLoad(t *testing.T) {
 	if err := h.client.Call(ctx, MethodSessionLoad, LoadSessionParams{SessionID: created.SessionID, Cwd: workspace}, &loaded); err != nil {
 		t.Fatalf("session/load: %v", err)
 	}
-	if len(loaded.ConfigOptions) != 2 || loaded.ConfigOptions[0].CurrentValue != "gpt-5.4-mini" {
+	if len(loaded.ConfigOptions) != 2 || loaded.ConfigOptions[0].CurrentValue != "deepseek-v4.1-flash" {
 		t.Fatalf("load model option = %+v", loaded.ConfigOptions)
 	}
 	if loaded.ConfigOptions[1].CurrentValue != string(agent.PermissionModeAuto) {
@@ -525,23 +525,23 @@ func TestACPCustomProviderAllowsUnadvertisedModel(t *testing.T) {
 	}
 }
 
-func TestACPModelDiscoveryFiltersProviderIncompatibleModels(t *testing.T) {
+func TestACPModelDiscoveryAddsAllDiscoveredModels(t *testing.T) {
 	a := &Agent{deps: Deps{
 		ResolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
 			return config.ResolvedConfig{Provider: config.ProviderProfile{
-				CatalogID: "opencode-go-anthropic-compatible", Model: "minimax-m3",
+				CatalogID: "qg", Model: "muse-spark-1.3-contributor",
 			}}, nil
 		},
 		DiscoverModels: func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
-			return []providermodeldiscovery.Model{{ID: "qwen3.7-plus"}, {ID: "claude-sonnet-4.5"}}, nil
+			return []providermodeldiscovery.Model{{ID: "qwen3.8-max"}, {ID: "deepseek-v4.1-flash"}}, nil
 		},
 	}}
 	_, options, restricted, err := a.resolveModelChoices(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !restricted || !modelChoiceExists(options, "qwen3.7-plus") || modelChoiceExists(options, "claude-sonnet-4.5") {
-		t.Fatalf("filtered model options = %+v, restricted=%v", options, restricted)
+	if !restricted || !modelChoiceExists(options, "qwen3.8-max") || !modelChoiceExists(options, "deepseek-v4.1-flash") {
+		t.Fatalf("discovered model options = %+v, restricted=%v", options, restricted)
 	}
 }
 
@@ -667,7 +667,7 @@ func TestACPSetModeUpdatesSession(t *testing.T) {
 func TestACPPlanModeWiresPermissionModeIntoAgentOptions(t *testing.T) {
 	deps := testDeps(t)
 	var captured agent.Options
-	deps.RunAgent = func(_ context.Context, _ string, _ zeroruntime.Provider, opts agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(_ context.Context, _ string, _ qgruntime.Provider, opts agent.Options) (agent.Result, error) {
 		captured = opts
 		return agent.Result{FinalAnswer: "ok"}, nil
 	}
@@ -704,7 +704,7 @@ func TestACPRunTurnWiresSandboxAndScopedRegistry(t *testing.T) {
 		return &Workspace{Registry: reg, Sandbox: engine}, nil
 	}
 	var captured agent.Options
-	deps.RunAgent = func(_ context.Context, _ string, _ zeroruntime.Provider, opts agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(_ context.Context, _ string, _ qgruntime.Provider, opts agent.Options) (agent.Result, error) {
 		captured = opts
 		return agent.Result{FinalAnswer: "ok"}, nil
 	}
@@ -740,9 +740,9 @@ func TestACPRunTurnUsesWorkspaceDeferThresholdAtProviderBoundary(t *testing.T) {
 		{name: "at threshold defers", threshold: 2, want: []string{tools.ToolSearchToolName}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			requests := make(chan zeroruntime.CompletionRequest, 4)
+			requests := make(chan qgruntime.CompletionRequest, 4)
 			deps := testDeps(t)
-			deps.NewProvider = func(config.ProviderProfile) (zeroruntime.Provider, error) {
+			deps.NewProvider = func(config.ProviderProfile) (qgruntime.Provider, error) {
 				return captureToolsProvider{requests: requests}, nil
 			}
 			deps.BuildWorkspace = func(context.Context, string, config.ResolvedConfig, agent.PermissionMode) (*Workspace, error) {
@@ -795,7 +795,7 @@ func TestACPRunTurnEmitsWorkspaceSetupNotices(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := drainText(t, h.updates)
-	if !strings.Contains(got, "[zero warning] MCP server docs unavailable, skipped: timeout") || !strings.Contains(got, "Hello from ZERO") {
+	if !strings.Contains(got, "[qg warning] MCP server docs unavailable, skipped: timeout") || !strings.Contains(got, "Hello from QG") {
 		t.Fatalf("streamed text = %q", got)
 	}
 }
@@ -822,7 +822,7 @@ func TestACPRunTurnClosesWorkspaceAfterSuccessAndFailure(t *testing.T) {
 					return nil
 				}}, nil
 			}
-			deps.RunAgent = func(context.Context, string, zeroruntime.Provider, agent.Options) (agent.Result, error) {
+			deps.RunAgent = func(context.Context, string, qgruntime.Provider, agent.Options) (agent.Result, error) {
 				return agent.Result{FinalAnswer: "ok"}, tc.runErr
 			}
 			h := newHarness(t, deps)
@@ -890,7 +890,7 @@ func TestACPPromptWarnsWhenTurnPersistenceFails(t *testing.T) {
 		t.Fatalf("stopReason = %q, want %q", promptRes.StopReason, StopEndTurn)
 	}
 	got := drainTextUntil(t, h.updates, func(text string) bool {
-		return strings.Contains(text, "Hello from ZERO") &&
+		return strings.Contains(text, "Hello from QG") &&
 			strings.Contains(text, "Could not save session history")
 	})
 	if !strings.Contains(got, "Could not save session history") {
@@ -900,7 +900,7 @@ func TestACPPromptWarnsWhenTurnPersistenceFails(t *testing.T) {
 
 func TestACPHardTurnFailureDoesNotCommitHistory(t *testing.T) {
 	deps := testDeps(t)
-	deps.RunAgent = func(_ context.Context, _ string, _ zeroruntime.Provider, opts agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(_ context.Context, _ string, _ qgruntime.Provider, opts agent.Options) (agent.Result, error) {
 		call := agent.ToolCall{ID: "failed-call", Name: "read_file", Arguments: `{"path":"a.go"}`}
 		opts.OnToolCall(call)
 		opts.OnToolResult(agent.ToolResult{ToolCallID: call.ID, Name: call.Name, Status: tools.StatusOK, Output: "content"})
@@ -947,7 +947,7 @@ func TestACPHardTurnFailureDoesNotCommitHistory(t *testing.T) {
 
 func TestACPCancelledTurnCommitsAtOutcomeBoundary(t *testing.T) {
 	deps := testDeps(t)
-	deps.RunAgent = func(context.Context, string, zeroruntime.Provider, agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(context.Context, string, qgruntime.Provider, agent.Options) (agent.Result, error) {
 		return agent.Result{}, context.Canceled
 	}
 	h := newHarness(t, deps)
@@ -1019,7 +1019,7 @@ func TestACPSameConnectionReloadRefreshesRecoveredHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompts := make(chan string, 1)
-	deps.RunAgent = func(_ context.Context, prompt string, _ zeroruntime.Provider, _ agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(_ context.Context, prompt string, _ qgruntime.Provider, _ agent.Options) (agent.Result, error) {
 		prompts <- prompt
 		return agent.Result{FinalAnswer: "continued"}, nil
 	}
@@ -1084,7 +1084,7 @@ func TestACPSameConnectionReloadRefreshesRecoveredHistory(t *testing.T) {
 func drainText(t *testing.T, ch <-chan string) string {
 	t.Helper()
 	return drainTextUntil(t, ch, func(text string) bool {
-		return strings.Contains(text, "Hello from ZERO")
+		return strings.Contains(text, "Hello from QG")
 	})
 }
 
@@ -1528,7 +1528,7 @@ func processDirectoryResolver(t *testing.T, base string) func(string) (string, e
 // one. The blank case used to be answered with the persisted cwd, which made
 // {"sessionId":"known"} — a request carrying no workspace at all — a complete
 // and successful activation. A relative cwd was worse than useless rather than
-// rejected: it was joined onto whatever directory the editor spawned `zero acp`
+// rejected: it was joined onto whatever directory the editor spawned `qg acp`
 // in, so it could agree with the persisted root by accident and hand the session
 // over anyway.
 //
@@ -1761,7 +1761,7 @@ func TestACPCompactedHistoryReplacesCompactedTurnsWithTheirSummary(t *testing.T)
 	// prompt the agent loop actually receives is captured rather than inferred.
 	prompts := make(chan string, 4)
 	realRun := deps.RunAgent
-	deps.RunAgent = func(ctx context.Context, prompt string, provider zeroruntime.Provider, opts agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(ctx context.Context, prompt string, provider qgruntime.Provider, opts agent.Options) (agent.Result, error) {
 		prompts <- prompt
 		return realRun(ctx, prompt, provider, opts)
 	}
@@ -1929,7 +1929,7 @@ func TestACPLoadDisambiguatesRepeatedStoredToolIDs(t *testing.T) {
 // same call/result pair and changed-file locations from the durable log.
 func TestACPPromptPersistsToolActivityForFreshLoad(t *testing.T) {
 	deps := testDeps(t)
-	deps.RunAgent = func(_ context.Context, _ string, _ zeroruntime.Provider, opts agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(_ context.Context, _ string, _ qgruntime.Provider, opts agent.Options) (agent.Result, error) {
 		call := agent.ToolCall{ID: "call-live", Name: "edit_file", Arguments: `{"path":"a.go"}`}
 		result := agent.ToolResult{
 			ToolCallID:   call.ID,
@@ -2034,7 +2034,7 @@ func TestACPPersistenceFailureCommitsNothingOfTheTurn(t *testing.T) {
 		batches++
 		return errors.New("injected append failure")
 	}
-	deps.RunAgent = func(_ context.Context, _ string, _ zeroruntime.Provider, opts agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(_ context.Context, _ string, _ qgruntime.Provider, opts agent.Options) (agent.Result, error) {
 		call := agent.ToolCall{ID: "call-prefix", Name: "read_file", Arguments: `{"path":"a.go"}`}
 		opts.OnToolCall(call)
 		opts.OnToolResult(agent.ToolResult{ToolCallID: call.ID, Name: call.Name, Status: tools.StatusOK, Output: "content"})
@@ -2132,7 +2132,7 @@ func TestACPCompletedTurnsFromTwoInstancesStayContiguous(t *testing.T) {
 		_, err := deps.Store.AppendEvents(sessionID, inputs)
 		return err
 	}
-	deps.RunAgent = func(_ context.Context, prompt string, _ zeroruntime.Provider, opts agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(_ context.Context, prompt string, _ qgruntime.Provider, opts agent.Options) (agent.Result, error) {
 		who := "A"
 		if strings.Contains(prompt, "prompt B") {
 			who = "B"
@@ -2209,7 +2209,7 @@ func TestACPCompletedTurnsFromTwoInstancesStayContiguous(t *testing.T) {
 	prompts := make(chan string, 1)
 	realRun := deps.RunAgent
 	_ = realRun
-	deps.RunAgent = func(ctx context.Context, prompt string, provider zeroruntime.Provider, opts agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(ctx context.Context, prompt string, provider qgruntime.Provider, opts agent.Options) (agent.Result, error) {
 		prompts <- prompt
 		return agent.Result{FinalAnswer: "ok"}, nil
 	}
@@ -2266,7 +2266,7 @@ func TestACPCompactionFailureFallsBackToRawHistory(t *testing.T) {
 
 	prompts := make(chan string, 1)
 	realRun := deps.RunAgent
-	deps.RunAgent = func(ctx context.Context, prompt string, provider zeroruntime.Provider, opts agent.Options) (agent.Result, error) {
+	deps.RunAgent = func(ctx context.Context, prompt string, provider qgruntime.Provider, opts agent.Options) (agent.Result, error) {
 		prompts <- prompt
 		return realRun(ctx, prompt, provider, opts)
 	}

@@ -9,7 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/usercommands"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usercommands"
 )
 
 func loopTestModel(t *testing.T, now time.Time) model {

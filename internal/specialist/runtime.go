@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/Gitlawb/zero/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
 )
 
 type RuntimeOptions struct {

@@ -21,9 +21,9 @@ import (
 // call cannot eat a third of a small context window.
 const defaultOutputCeilingTokens = 16_000
 
-// outputCeilingEnv overrides the ceiling (in tokens). Zero or negative
+// outputCeilingEnv overrides the ceiling (in tokens). QG or negative
 // disables the ceiling entirely; unset or unparsable keeps the default.
-const outputCeilingEnv = "ZERO_TOOL_OUTPUT_CEILING_TOKENS"
+const outputCeilingEnv = "QG_TOOL_OUTPUT_CEILING_TOKENS"
 
 // selfBudgeting marks a tool with a deliberate capture-aware output budget —
 // possibly model-raisable (exec_command). The registry applies semantic

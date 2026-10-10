@@ -17,14 +17,13 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/notify"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // execCmd runs a possibly-batched command synchronously and returns the first
@@ -50,16 +49,16 @@ func execCmd(cmd tea.Cmd) tea.Msg {
 }
 
 type fakeProvider struct {
-	events   []zeroruntime.StreamEvent
-	requests []zeroruntime.CompletionRequest
+	events   []qgruntime.StreamEvent
+	requests []qgruntime.CompletionRequest
 }
 
 func (provider *fakeProvider) StreamCompletion(
 	ctx context.Context,
-	request zeroruntime.CompletionRequest,
-) (<-chan zeroruntime.StreamEvent, error) {
+	request qgruntime.CompletionRequest,
+) (<-chan qgruntime.StreamEvent, error) {
 	provider.requests = append(provider.requests, request)
-	ch := make(chan zeroruntime.StreamEvent, len(provider.events))
+	ch := make(chan qgruntime.StreamEvent, len(provider.events))
 	for _, event := range provider.events {
 		ch <- event
 	}
@@ -69,9 +68,9 @@ func (provider *fakeProvider) StreamCompletion(
 
 func TestPromptSubmitInjectsLiveSessionModelContext(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "I am using the active session model."},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "I am using the active session model."},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		Cwd:          t.TempDir(),
@@ -112,9 +111,9 @@ func TestPromptSubmitInjectsLiveSessionModelContext(t *testing.T) {
 func TestPromptWaitsForToolReadinessBeforeSnapshot(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	registry := tools.NewRegistry()
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	awaited := false
 	m := newModel(context.Background(), Options{
@@ -153,9 +152,9 @@ func TestPromptWaitsForToolReadinessBeforeSnapshot(t *testing.T) {
 
 func TestPromptBuildsTurnSessionForCurrentProvider(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	profile := config.ProviderProfile{Name: "chatgpt", Model: "gpt-test"}
 	called := false
@@ -166,12 +165,12 @@ func TestPromptBuildsTurnSessionForCurrentProvider(t *testing.T) {
 		ProviderProfile: profile,
 		Provider:        provider,
 		Registry:        tools.NewRegistry(),
-		NewTurnSessionProvider: func(gotProfile config.ProviderProfile, gotProvider zeroruntime.Provider) zeroruntime.TurnSessionProvider {
+		NewTurnSessionProvider: func(gotProfile config.ProviderProfile, gotProvider qgruntime.Provider) qgruntime.TurnSessionProvider {
 			called = true
 			if gotProfile.Name != profile.Name || gotProfile.Model != profile.Model || gotProvider != provider {
 				t.Fatalf("turn session factory inputs = %#v/%#v", gotProfile, gotProvider)
 			}
-			return zeroruntime.NewProviderTurnSessionProvider(gotProvider, zeroruntime.ProviderCapabilities{})
+			return qgruntime.NewProviderTurnSessionProvider(gotProvider, qgruntime.ProviderCapabilities{})
 		},
 	})
 	m.input.SetValue("inspect the workspace")
@@ -186,11 +185,11 @@ func TestPromptBuildsTurnSessionForCurrentProvider(t *testing.T) {
 
 func TestPromptSubmitStoresReasoningSeparatelyFromAnswer(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventReasoning, Content: "private "},
-		{Type: zeroruntime.StreamEventReasoning, Content: "thought"},
-		{Type: zeroruntime.StreamEventText, Content: "public answer"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventReasoning, Content: "private "},
+		{Type: qgruntime.StreamEventReasoning, Content: "thought"},
+		{Type: qgruntime.StreamEventText, Content: "public answer"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		Cwd:          t.TempDir(),
@@ -278,7 +277,7 @@ func TestParseCommand(t *testing.T) {
 		{input: "/fast", kind: commandFast},
 		{input: "/style concise", kind: commandStyle, text: "concise"},
 		{input: "/debug-mode", kind: commandDebug},
-		{input: "hello zero", kind: commandPrompt, text: "hello zero"},
+		{input: "hello qg", kind: commandPrompt, text: "hello qg"},
 	}
 
 	for _, tc := range cases {
@@ -335,7 +334,7 @@ func TestTranscriptReducer(t *testing.T) {
 
 func TestInitialRenderShowsLimeChatSurface(t *testing.T) {
 	model := newModel(context.Background(), Options{
-		Cwd:          `/workspace/zero`,
+		Cwd:          `/workspace/qg`,
 		ProviderName: "openai",
 		ModelName:    "gpt-4.1",
 	})
@@ -343,14 +342,15 @@ func TestInitialRenderShowsLimeChatSurface(t *testing.T) {
 	model.height = 34
 
 	view := viewString(model.View())
-	assertContains(t, view, `/workspace/zero`)
-	assertContains(t, view, "openai/gpt-4.1")
+	assertContains(t, view, `/workspace/qg`)
+	assertContains(t, view, "gpt-4.1")
+	assertNotContains(t, view, "openai/gpt-4.1")
 	assertContains(t, view, emptyStateTagline)
-	assertNotContains(t, view, "running zero against ")
+	assertNotContains(t, view, "running qg against ")
 	assertNotContains(t, view, " 0 ")
 	assertContains(t, view, composerPlaceholder)
 	assertNotContains(t, view, "interactive")
-	if strings.Contains(view, "Welcome to Zero") {
+	if strings.Contains(view, "Welcome to QG") {
 		t.Fatalf("empty chat surface should not show welcome transcript clutter, got %q", view)
 	}
 }
@@ -546,7 +546,7 @@ func TestContextCommandShowsSessionState(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewScopedReadFileTool(".", nil))
 	m := newModel(context.Background(), Options{
-		Cwd:            `D:\codings\Opensource\Zero`,
+		Cwd:            `D:\codings\Opensource\QG`,
 		ProviderName:   "openai",
 		ModelName:      "gpt-4.1",
 		Registry:       registry,
@@ -561,7 +561,7 @@ func TestContextCommandShowsSessionState(t *testing.T) {
 		t.Fatal("expected /context to be handled without starting an agent run")
 	}
 	for _, want := range []string{
-		`D:\codings\Opensource\Zero`,
+		`D:\codings\Opensource\QG`,
 		"go runtime | ask permissions | 1 tool",
 		"provider   openai",
 		"model      gpt-4.1",
@@ -577,8 +577,8 @@ func TestContextCommandShowsSessionState(t *testing.T) {
 
 func TestModelCommandShowsActiveModelWithoutRunningAgent(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
 		Provider:     &fakeProvider{},
 	})
 	m.input.SetValue("/model list")
@@ -589,7 +589,7 @@ func TestModelCommandShowsActiveModelWithoutRunningAgent(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	for _, want := range []string{"Active model: gpt-4.1", "provider: openai", "Available models", "* gpt-4.1"} {
+	for _, want := range []string{"Active model: muse-spark-1.3-contributor", "provider: qg", "Available models", "* muse-spark-1.3-contributor"} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected model transcript to contain %q, got %#v", want, next.transcript)
 		}
@@ -607,21 +607,22 @@ func TestModelCommandSwitchesSessionModel(t *testing.T) {
 	nextProvider := &fakeProvider{}
 	m := newModel(context.Background(), Options{
 		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
 			APIKey:       "sk-test",
-			Model:        "gpt-4.1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		Provider: &fakeProvider{},
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			rebuilt = profile
 			return nextProvider, nil
 		},
 	})
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -629,54 +630,16 @@ func TestModelCommandSwitchesSessionModel(t *testing.T) {
 	if next.pending {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	if next.modelName != "gpt-4.1-mini" || next.provider != nextProvider {
+	if next.modelName != "qwen3.8-omni-flash" || next.provider != nextProvider {
 		t.Fatalf("expected model/provider to update, got model=%q provider=%#v", next.modelName, next.provider)
 	}
-	if rebuilt.Model != "gpt-4.1-mini" {
+	if rebuilt.Model != "qwen3.8-omni-flash" {
 		t.Fatalf("expected provider rebuild with selected model, got %#v", rebuilt)
 	}
-	for _, want := range []string{"Model:", "gpt-4.1-mini · openai"} {
+	for _, want := range []string{"Model:", "qwen3.8-omni-flash · qg"} {
 		if !strings.Contains(next.transientNotice.text, want) {
 			t.Fatalf("expected model notice to contain %q, got %q", want, next.transientNotice.text)
 		}
-	}
-}
-
-func TestModelCommandAcceptsChatGPTCatalogModelID(t *testing.T) {
-	var rebuilt config.ProviderProfile
-	nextProvider := &fakeProvider{}
-	m := newModel(context.Background(), Options{
-		ProviderName: "chatgpt",
-		ModelName:    "gpt-5.6-terra",
-		ProviderProfile: config.ProviderProfile{
-			Name:         "chatgpt",
-			CatalogID:    "chatgpt",
-			ProviderKind: config.ProviderKindOpenAICompatible,
-			BaseURL:      "https://chatgpt.com/backend-api/codex",
-			Model:        "gpt-5.6-terra",
-		},
-		Provider: &fakeProvider{},
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
-			rebuilt = profile
-			return nextProvider, nil
-		},
-	})
-	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{
-		"chatgpt": {{ID: "gpt-5.6-sol"}},
-	}
-	m.input.SetValue("/model openai/gpt-5.6-sol")
-
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-
-	if next.pending {
-		t.Fatal("expected /model to be handled without starting an agent run")
-	}
-	if next.modelName != "gpt-5.6-sol" || next.provider != nextProvider {
-		t.Fatalf("expected ChatGPT model switch to use bare catalog ID, got model=%q provider=%#v", next.modelName, next.provider)
-	}
-	if rebuilt.Model != "gpt-5.6-sol" {
-		t.Fatalf("expected provider rebuild with bare ChatGPT model ID, got %#v", rebuilt)
 	}
 }
 
@@ -688,7 +651,7 @@ func TestProviderModelSwitchCandidatesPreserveGatewayModelIDs(t *testing.T) {
 		want     []string
 	}{
 		{
-			name:     "ChatGPT accepts the models.dev OpenAI namespace",
+			name:     "ChatGPT accepts the openai/ model-ID prefix",
 			provider: "chatgpt",
 			input:    "openai/gpt-5.6-sol",
 			want:     []string{"openai/gpt-5.6-sol", "gpt-5.6-sol"},
@@ -709,13 +672,13 @@ func TestProviderModelSwitchCandidatesPreserveGatewayModelIDs(t *testing.T) {
 }
 
 func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "zero.json")
+	configPath := filepath.Join(t.TempDir(), "qg.json")
 	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{
 		Name:         "openai",
 		ProviderKind: config.ProviderKindOpenAI,
 		BaseURL:      config.OpenAIBaseURL,
 		APIKey:       "sk-test",
-		Model:        "gpt-4.1",
+		Model:        "muse-spark-1.3-contributor",
 	}, true); err != nil {
 		t.Fatalf("write user config: %v", err)
 	}
@@ -723,20 +686,21 @@ func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		UserConfigPath: configPath,
 		ProviderName:   "openai",
-		ModelName:      "gpt-4.1",
+		ModelName:      "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
 			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
 			APIKey:       "sk-test",
-			Model:        "gpt-4.1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 		Provider: &fakeProvider{},
-		NewProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return &fakeProvider{}, nil
 		},
 	})
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -744,17 +708,17 @@ func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
 	if next.pending {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	if next.modelName != "gpt-4.1-mini" {
-		t.Fatalf("modelName = %q, want gpt-4.1-mini", next.modelName)
+	if next.modelName != "qwen3.8-omni-flash" {
+		t.Fatalf("modelName = %q, want qwen3.8-omni-flash", next.modelName)
 	}
 	persisted, err := config.Resolve(config.ResolveOptions{UserConfigPath: configPath})
 	if err != nil {
 		t.Fatalf("resolve persisted config: %v", err)
 	}
-	if got := persisted.Provider.Model; got != "gpt-4.1-mini" {
-		t.Fatalf("persisted provider model = %q, want gpt-4.1-mini", got)
+	if got := persisted.Provider.Model; got != "qwen3.8-omni-flash" {
+		t.Fatalf("persisted provider model = %q, want qwen3.8-omni-flash", got)
 	}
-	if !strings.Contains(next.transientNotice.text, "gpt-4.1-mini") {
+	if !strings.Contains(next.transientNotice.text, "qwen3.8-omni-flash") {
 		t.Fatalf("expected model notice to name selected model, got %q", next.transientNotice.text)
 	}
 }
@@ -802,22 +766,23 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 	rebuilds := 0
 	m := newModel(context.Background(), Options{
 		ProviderName: "openai",
-		ModelName:    "gpt-4.1",
+		ModelName:    "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
 			APIKey:       "sk-test",
 			Model:        "gpt-4.1",
 		},
 		Provider: originalProvider,
-		NewProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			rebuilds++
 			return &fakeProvider{}, nil
 		},
 	})
 	m.sessionEvents = []sessions.Event{{Sequence: 1, Type: sessions.EventMessage}}
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -828,7 +793,7 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 	if rebuilds != 0 {
 		t.Fatalf("provider should not be rebuilt before requested compaction, got %d rebuilds", rebuilds)
 	}
-	if next.modelName != "gpt-4.1" || next.provider != originalProvider {
+	if next.modelName != "muse-spark-1.3-contributor" || next.provider != originalProvider {
 		t.Fatalf("expected active model/provider to remain unchanged, got model=%q provider=%#v", next.modelName, next.provider)
 	}
 	if next.compactRequests != 1 {
@@ -838,7 +803,7 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 		t.Fatalf("expected one compaction guard request, got %d", len(guard.requests))
 	}
 	request := guard.requests[0]
-	if request.CurrentModel != "gpt-4.1" || request.TargetModel != "gpt-4.1-mini" {
+	if request.CurrentModel != "muse-spark-1.3-contributor" || request.TargetModel != "qwen3.8-omni-flash" {
 		t.Fatalf("unexpected guard model transition: %#v", request)
 	}
 	if request.SessionEventCount != 1 {
@@ -856,15 +821,16 @@ func TestModelCommandRequestsCompactionBeforeDirtyContextSwitch(t *testing.T) {
 
 func TestModelCommandRequiresProviderRebuildForSwitch(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ModelName: "gpt-4.1",
+		ModelName: "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
-			Model:        "gpt-4.1",
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 	})
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -872,7 +838,7 @@ func TestModelCommandRequiresProviderRebuildForSwitch(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	if next.modelName != "gpt-4.1" {
+	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
 	if !transcriptContains(next.transcript, "Provider rebuild is not available") {
@@ -882,16 +848,17 @@ func TestModelCommandRequiresProviderRebuildForSwitch(t *testing.T) {
 
 func TestModelCommandRejectsSwitchWhilePending(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ModelName: "gpt-4.1",
+		ModelName: "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
-			Model:        "gpt-4.1",
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
 		},
 	})
 	m.pending = true
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -899,7 +866,7 @@ func TestModelCommandRejectsSwitchWhilePending(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	if next.modelName != "gpt-4.1" {
+	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
 	if !transcriptContains(next.transcript, "Cannot switch models while a run is active") {
@@ -909,23 +876,24 @@ func TestModelCommandRejectsSwitchWhilePending(t *testing.T) {
 
 func TestModelCommandReportsProviderRebuildErrors(t *testing.T) {
 	m := newModel(context.Background(), Options{
-		ModelName: "gpt-4.1",
+		ModelName: "muse-spark-1.3-contributor",
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
-			Model:        "gpt-4.1",
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
 		},
-		NewProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return nil, errors.New("rebuild failed")
 		},
 	})
-	m.input.SetValue("/model gpt-4.1-mini")
+	m.input.SetValue("/model qwen3.8-omni-flash")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if next.modelName != "gpt-4.1" {
+	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
 	if !transcriptContains(next.transcript, "rebuild failed") {
@@ -936,10 +904,11 @@ func TestModelCommandReportsProviderRebuildErrors(t *testing.T) {
 func TestDoctorCommandUsesCurrentProviderProfile(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		ProviderProfile: config.ProviderProfile{
-			Name:         "openai",
-			ProviderKind: config.ProviderKindOpenAI,
-			BaseURL:      config.OpenAIBaseURL,
-			Model:        "gpt-4.1",
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
 			APIKey:       "sk-test", // credentialed so provider.config passes (isolates this render test from the no-key check)
 		},
 	})
@@ -1077,7 +1046,7 @@ func TestResumeCommandListsRecentSessions(t *testing.T) {
 		t.Fatalf("hidden session id should remain searchable, got %#v", searchByID.items)
 	}
 
-	// An empty result set reports an unambiguous zero position.
+	// An empty result set reports an unambiguous qg position.
 	noResults := next
 	noResults.picker.query = "__missing_session__"
 	noResults.picker.applyQuery()
@@ -1137,7 +1106,7 @@ func TestResumePickerSelectionHydratesSession(t *testing.T) {
 	if next.activeSession.SessionID != target.SessionID {
 		t.Fatalf("active session = %q, want %q", next.activeSession.SessionID, target.SessionID)
 	}
-	if !transcriptContains(next.transcript, "Resumed Zero session") || !transcriptContains(next.transcript, target.SessionID) {
+	if !transcriptContains(next.transcript, "Resumed QG session") || !transcriptContains(next.transcript, target.SessionID) {
 		t.Fatalf("expected the resume summary in the transcript, got %#v", next.transcript)
 	}
 }
@@ -1234,21 +1203,21 @@ func TestResumeHonorsPriorCompaction(t *testing.T) {
 
 func TestResumeCommandWithUnknownIDReportsMissingSession(t *testing.T) {
 	m := newModel(context.Background(), Options{SessionStore: testSessionStore(t)})
-	m.input.SetValue("/resume zero_123")
+	m.input.SetValue("/resume qg_123")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "zero session not found: zero_123") {
+	if !transcriptContains(next.transcript, "qg session not found: qg_123") {
 		t.Fatalf("expected missing session message, got %#v", next.transcript)
 	}
 }
 
 func TestPromptSubmitAppendsUserAndAssistantRows(t *testing.T) {
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "hello"},
-		{Type: zeroruntime.StreamEventText, Content: " back"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "hello"},
+		{Type: qgruntime.StreamEventText, Content: " back"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		Provider:     provider,
@@ -1976,40 +1945,40 @@ func TestAppendTranscriptRowDedupesRuntimeRowsByID(t *testing.T) {
 }
 
 func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
-	surfaces := map[zeroruntime.AgentEventType]string{
-		zeroruntime.AgentEventText:       "assistant transcript row",
-		zeroruntime.AgentEventToolCall:   "tool call transcript row",
-		zeroruntime.AgentEventToolResult: "tool result transcript row",
-		zeroruntime.AgentEventThinking:   "deferred: no transcript row until runtime emits thinking deltas",
-		zeroruntime.AgentEventUsage:      "usage tracker footer segment",
-		zeroruntime.AgentEventPlanUpdate: "system transcript row from /plan",
-		zeroruntime.AgentEventError:      "error transcript row",
-		zeroruntime.AgentEventTurnEnd:    "control boundary, no transcript row",
+	surfaces := map[qgruntime.AgentEventType]string{
+		qgruntime.AgentEventText:       "assistant transcript row",
+		qgruntime.AgentEventToolCall:   "tool call transcript row",
+		qgruntime.AgentEventToolResult: "tool result transcript row",
+		qgruntime.AgentEventThinking:   "deferred: no transcript row until runtime emits thinking deltas",
+		qgruntime.AgentEventUsage:      "usage tracker footer segment",
+		qgruntime.AgentEventPlanUpdate: "system transcript row from /plan",
+		qgruntime.AgentEventError:      "error transcript row",
+		qgruntime.AgentEventTurnEnd:    "control boundary, no transcript row",
 	}
-	for _, eventType := range []zeroruntime.AgentEventType{
-		zeroruntime.AgentEventText,
-		zeroruntime.AgentEventToolCall,
-		zeroruntime.AgentEventToolResult,
-		zeroruntime.AgentEventThinking,
-		zeroruntime.AgentEventUsage,
-		zeroruntime.AgentEventPlanUpdate,
-		zeroruntime.AgentEventError,
-		zeroruntime.AgentEventTurnEnd,
+	for _, eventType := range []qgruntime.AgentEventType{
+		qgruntime.AgentEventText,
+		qgruntime.AgentEventToolCall,
+		qgruntime.AgentEventToolResult,
+		qgruntime.AgentEventThinking,
+		qgruntime.AgentEventUsage,
+		qgruntime.AgentEventPlanUpdate,
+		qgruntime.AgentEventError,
+		qgruntime.AgentEventTurnEnd,
 	} {
 		if strings.TrimSpace(surfaces[eventType]) == "" {
 			t.Fatalf("missing TUI rendering surface note for %s", eventType)
 		}
 	}
 
-	renderedRows := map[zeroruntime.AgentEventType]struct {
+	renderedRows := map[qgruntime.AgentEventType]struct {
 		row   transcriptRow
 		wants []string
 	}{
-		zeroruntime.AgentEventText: {
+		qgruntime.AgentEventText: {
 			row:   transcriptRow{kind: rowAssistant, text: "assistant text"},
 			wants: []string{"assistant text"},
 		},
-		zeroruntime.AgentEventToolCall: {
+		qgruntime.AgentEventToolCall: {
 			row: transcriptRow{
 				kind:   rowToolCall,
 				text:   "tool call: read_file",
@@ -2018,7 +1987,7 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 			},
 			wants: []string{"Read", "README.md"},
 		},
-		zeroruntime.AgentEventToolResult: {
+		qgruntime.AgentEventToolResult: {
 			row: transcriptRow{
 				kind:   rowToolResult,
 				text:   "tool result: apply_patch error",
@@ -2034,11 +2003,11 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 			},
 			wants: []string{"Patched", "file.txt", "old", "new"},
 		},
-		zeroruntime.AgentEventPlanUpdate: {
+		qgruntime.AgentEventPlanUpdate: {
 			row:   transcriptRow{kind: rowSystem, text: "Plan updated\n- inspect: completed"},
 			wants: []string{"Plan updated", "inspect"},
 		},
-		zeroruntime.AgentEventError: {
+		qgruntime.AgentEventError: {
 			row:   transcriptRow{kind: rowError, text: "provider failed"},
 			wants: []string{"provider failed"},
 		},
@@ -2057,11 +2026,11 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 		PermissionMode: agent.PermissionModeAsk,
 	})
 	m.width = 96
-	m, usageRows := m.recordUsageEvent("gpt-4.1", zeroruntime.Usage{InputTokens: 100, OutputTokens: 20})
+	m, usageRows := m.recordUsageEvent("gpt-4.1", qgruntime.Usage{InputTokens: 100, OutputTokens: 20}, transcriptRow{})
 	if len(usageRows) != 0 {
 		t.Fatalf("valid usage should update footer without transcript rows, got %#v", usageRows)
 	}
-	assertContains(t, m.usageStatusSegment(), "120 tok")
+	assertContains(t, m.sidebarTokenText(), "120 tokens")
 	assertContains(t, m.composerDividerLine(96), "gpt-4.1")
 	// Permission mode moved from the composer rule to the status line.
 	assertContains(t, m.statusLine(96), "ask")
@@ -2197,35 +2166,6 @@ func TestCtrlCRequiresSecondPressToExit(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("second Ctrl+C should return quit command")
-	}
-}
-
-func TestConfirmedCtrlCCancelsProviderAimlapiOnboarding(t *testing.T) {
-	cancelled := false
-	m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
-	m.providerWizard = &providerWizardState{
-		step: providerWizardStepAimlapi,
-		aimlapi: &aimlapiOnboardState{
-			topupCancel: func() { cancelled = true },
-		},
-	}
-
-	updated, _ := m.Update(testKeyCtrl('c'))
-	next := updated.(model)
-	if cancelled {
-		t.Fatal("first Ctrl+C should only arm exit confirmation")
-	}
-
-	updated, cmd := next.Update(testKeyCtrl('c'))
-	next = updated.(model)
-	if !cancelled {
-		t.Fatal("confirmed Ctrl+C did not cancel AIMLAPI onboarding")
-	}
-	if next.providerWizard.aimlapi != nil {
-		t.Fatal("confirmed Ctrl+C retained AIMLAPI onboarding state")
-	}
-	if cmd == nil {
-		t.Fatal("confirmed Ctrl+C should return quit command")
 	}
 }
 
@@ -2416,7 +2356,7 @@ func TestSelectionHighlightUsesGutterShiftedCoordinate(t *testing.T) {
 	if !strings.Contains(plainRender(t, styled), "    Hello world") {
 		t.Fatalf("expected a 4-cell gutter-padded line, got %q", styled)
 	}
-	if !strings.Contains(styled, zeroTheme.selection.Render("world")) {
+	if !strings.Contains(styled, qgTheme.selection.Render("world")) {
 		t.Fatalf("expected 'world' highlighted at the gutter-shifted position, got %q", styled)
 	}
 }
@@ -2471,7 +2411,7 @@ func TestTranscriptSelectionPaintsHighlightOnceNotTwice(t *testing.T) {
 	}
 	out := strings.Join(row2.render(0).lines, "\n")
 
-	sentinel := zeroTheme.selection.Render("\x00")
+	sentinel := qgTheme.selection.Render("\x00")
 	open := sentinel[:strings.IndexByte(sentinel, 0)]
 	if open == "" {
 		t.Fatal("selection style emitted no opening sequence to count")
@@ -3163,10 +3103,10 @@ func TestCommandArgumentHintFollowsCursorVisibility(t *testing.T) {
 	if visible == hidden {
 		t.Fatal("expected the rendered hint line to differ between visible and hidden caret states")
 	}
-	if want := composerCursor(zeroTheme.faint.Render("h")); !strings.Contains(visible, want) {
+	if want := composerCursor(qgTheme.faint.Render("h")); !strings.Contains(visible, want) {
 		t.Fatalf("expected visible-caret render to contain the styled cursor cell, got %q", visible)
 	}
-	if got := hidden; strings.Contains(got, composerCursor(zeroTheme.faint.Render("h"))) {
+	if got := hidden; strings.Contains(got, composerCursor(qgTheme.faint.Render("h"))) {
 		t.Fatalf("expected hidden-caret render to drop the styled cursor cell, got %q", got)
 	}
 }
@@ -3239,9 +3179,9 @@ func TestOverlayViewportLinesCompositesAndPreservesBackdropText(t *testing.T) {
 func burstTestModel(t *testing.T, termuxVersion string) model {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("TERMUX_VERSION", termuxVersion)
-	provider := &fakeProvider{events: []zeroruntime.StreamEvent{
-		{Type: zeroruntime.StreamEventText, Content: "ok"},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "ok"},
+		{Type: qgruntime.StreamEventDone},
 	}}
 	m := newModel(context.Background(), Options{
 		Cwd:          t.TempDir(),
@@ -3367,5 +3307,25 @@ func TestMultilineBurstSubmits(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("multiline burst got nil cmd")
+	}
+}
+
+// The TUI's missing-provider row is the interactive first-run surface: same
+// contract as the exec error — cite QUEBRAGALHO_API_KEY and `qg setup qg`,
+// never the removed OAuth login or legacy multi-provider env vars.
+func TestMissingProviderNoticeCitesQGSetupAndAPIKey(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	m.input.SetValue("hello")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+	if !transcriptContains(next.transcript, "QG_API_KEY") || !transcriptContains(next.transcript, "QUEBRAGALHO_API_KEY") || !transcriptContains(next.transcript, "qg setup qg") {
+		t.Fatalf("missing-provider notice must cite QG_API_KEY, QUEBRAGALHO_API_KEY and qg setup qg, got %#v", next.transcript)
+	}
+	text := transcriptText(next.transcript)
+	for _, banned := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "qg auth"} {
+		if strings.Contains(text, banned) {
+			t.Fatalf("missing-provider notice must not mention %q, got %q", banned, text)
+		}
 	}
 }

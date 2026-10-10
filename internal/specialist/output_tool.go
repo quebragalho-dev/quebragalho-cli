@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/background"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 const (
@@ -44,7 +44,7 @@ func (tool *OutputTool) Name() string {
 }
 
 func (tool *OutputTool) Description() string {
-	return "Poll the output of a background Zero specialist task."
+	return "Poll the output of a background QG specialist task."
 }
 
 func (tool *OutputTool) Parameters() tools.Schema {

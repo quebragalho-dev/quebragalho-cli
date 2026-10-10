@@ -3,17 +3,17 @@ package acp
 import (
 	"encoding/json"
 
-	"github.com/Gitlawb/zero/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 )
 
-// permission.go maps ZERO's permission prompt model onto ACP's
+// permission.go maps QG's permission prompt model onto ACP's
 // session/request_permission request/option/outcome model. The option id on the
-// wire carries the ZERO decision action verbatim, so mapping the client's
-// selection back to a ZERO decision is exact and lossless.
+// wire carries the QG decision action verbatim, so mapping the client's
+// selection back to a QG decision is exact and lossless.
 
-// buildPermissionOptions turns the decisions ZERO offers for a tool call into ACP
-// PermissionOptions. Only the actions ZERO actually presented (AvailableDecisions)
-// are surfaced; the optionId is the ZERO action string for a clean round-trip.
+// buildPermissionOptions turns the decisions QG offers for a tool call into ACP
+// PermissionOptions. Only the actions QG actually presented (AvailableDecisions)
+// are surfaced; the optionId is the QG action string for a clean round-trip.
 func buildPermissionOptions(req agent.PermissionRequest) []PermissionOption {
 	actions := offeredDecisions(req)
 	options := make([]PermissionOption, 0, len(actions))
@@ -36,28 +36,28 @@ func buildPermissionOptions(req agent.PermissionRequest) []PermissionOption {
 // ONE RESOLVER, USED BY BOTH SIDES, and that is the entire point of it existing.
 // The fallback below used to live inside buildPermissionOptions while
 // requestPermission validated the client's answer against the raw
-// req.AvailableDecisions. When ZERO did not enumerate — which is every
+// req.AvailableDecisions. When QG did not enumerate — which is every
 // permission event that is not a prompt, and includes a shell call whose sandbox
 // decision came back deny — the two disagreed completely: the client was sent
 // "Allow" and "Reject", and validation was performed against an EMPTY list, so
 // every option the client could possibly click failed closed to deny with
 // "permission option was not offered".
 //
-// The user clicked Allow and ZERO recorded a denial. Nothing surfaced it,
+// The user clicked Allow and QG recorded a denial. Nothing surfaced it,
 // because a denial is a legitimate answer — the tool was simply refused and the
 // turn carried on as though the user had rejected it.
 func offeredDecisions(req agent.PermissionRequest) []agent.PermissionDecisionAction {
 	if len(req.AvailableDecisions) > 0 {
 		return req.AvailableDecisions
 	}
-	// Sensible default if ZERO didn't enumerate: allow once / reject.
+	// Sensible default if QG didn't enumerate: allow once / reject.
 	return []agent.PermissionDecisionAction{
 		agent.PermissionDecisionAllow,
 		agent.PermissionDecisionDeny,
 	}
 }
 
-// optionKindFor maps a ZERO decision action to an ACP PermissionOptionKind and a
+// optionKindFor maps a QG decision action to an ACP PermissionOptionKind and a
 // human label. Returns an empty kind for actions that ACP expresses through the
 // outcome rather than an option (cancel).
 //
@@ -95,8 +95,8 @@ func optionKindFor(action agent.PermissionDecisionAction, escalates bool) (kind,
 	}
 }
 
-// decisionFromOutcome maps the client's permission outcome back to a ZERO
-// decision. A cancelled outcome cancels the run; a selected option id is the ZERO
+// decisionFromOutcome maps the client's permission outcome back to a QG
+// decision. A cancelled outcome cancels the run; a selected option id is the QG
 // action verbatim (validated against what was actually sent); anything
 // unrecognized fails closed to deny.
 //
@@ -139,7 +139,7 @@ func actionOffered(optionID string, offered []PermissionOption) bool {
 }
 
 // permissionToolCall builds the ToolCall descriptor embedded in a
-// session/request_permission request from a ZERO permission request.
+// session/request_permission request from a QG permission request.
 func permissionToolCall(req agent.PermissionRequest) ToolCallUpdate {
 	args := marshalArgs(req.Args)
 	upd := ToolCallUpdate{

@@ -8,12 +8,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/usage"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
 // USAGE FOLLOWS THE SWITCH. exec reassigns its currentModel when the escalation
@@ -32,32 +32,32 @@ func TestEscalatedRunAttributesUsageToTheModelInForce(t *testing.T) {
 
 	// A catalog model with an upgrade target; the target is whatever the
 	// catalog says, read back from the provider factory rather than assumed.
-	const startModel = "claude-haiku-4.5"
-	starting := &scriptedProvider{scripts: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventUsage, Usage: zeroruntime.Usage{InputTokens: 10, OutputTokens: 1}},
-		{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "escalate", ToolName: "escalate_model"},
-		{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "escalate", ArgumentsFragment: `{"reason":"harder than it looked"}`},
-		{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "escalate"},
-		{Type: zeroruntime.StreamEventDone},
+	const startModel = "mimo-v2.6-flash"
+	starting := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 10, OutputTokens: 1}},
+		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "escalate", ToolName: "escalate_model"},
+		{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "escalate", ArgumentsFragment: `{"reason":"harder than it looked"}`},
+		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "escalate"},
+		{Type: qgruntime.StreamEventDone},
 	}}}
-	escalated := &scriptedProvider{scripts: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventText, Content: "Done on the stronger model."},
-		{Type: zeroruntime.StreamEventUsage, Usage: zeroruntime.Usage{InputTokens: 20, OutputTokens: 2}},
-		{Type: zeroruntime.StreamEventDone},
+	escalated := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventText, Content: "Done on the stronger model."},
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 20, OutputTokens: 2}},
+		{Type: qgruntime.StreamEventDone},
 	}}}
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewEscalateModelTool())
 
 	switchedTo := ""
 	m := newModel(context.Background(), Options{
-		ProviderName:    "anthropic",
+		ProviderName:    "qg",
 		ModelName:       startModel,
 		Provider:        starting,
 		Registry:        registry,
 		SessionStore:    store,
 		AllowEscalation: true,
 		ProviderProfile: config.ProviderProfile{Model: startModel},
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			switchedTo = profile.Model
 			return escalated, nil
 		},
@@ -106,7 +106,7 @@ func TestEscalatedRunAttributesUsageToTheModelInForce(t *testing.T) {
 // A response built without the per-event record, which is every constructor
 // that predates escalation, still attributes through the run-level model.
 func TestUsageModelIDAtFallsBackToTheRunModel(t *testing.T) {
-	msg := agentResponseMsg{usageModelID: "gpt-4.1", usageEvents: make([]zeroruntime.Usage, 2)}
+	msg := agentResponseMsg{usageModelID: "gpt-4.1", usageEvents: make([]qgruntime.Usage, 2)}
 	for index := range msg.usageEvents {
 		if got := msg.usageModelIDAt(index); got != "gpt-4.1" {
 			t.Fatalf("usageModelIDAt(%d) = %q, want the run-level model", index, got)
@@ -123,7 +123,7 @@ func TestUsageModelIDAtFallsBackToTheRunModel(t *testing.T) {
 
 // AND THE PRICE THAT COMES BACK OUT OF THE SESSION LOG. The live record and the
 // persisted event are two representations of one usage event, and only the
-// first carried the model. `zero usage report` rebuilds cost from the persisted
+// first carried the model. `qg usage report` rebuilds cost from the persisted
 // payload, falling back to the session's own model when the event does not name
 // one, so an escalated run was priced end to end at the model it started on.
 // This drives the real persistence path and reconstructs the report from it.
@@ -138,34 +138,34 @@ func TestEscalatedRunPricesPersistedUsageAtEachModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const startModel = "claude-haiku-4.5"
-	before := zeroruntime.Usage{InputTokens: 10, OutputTokens: 1}
-	after := zeroruntime.Usage{InputTokens: 20, OutputTokens: 2}
-	starting := &scriptedProvider{scripts: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventUsage, Usage: before},
-		{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "escalate", ToolName: "escalate_model"},
-		{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "escalate", ArgumentsFragment: `{"reason":"harder than it looked"}`},
-		{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "escalate"},
-		{Type: zeroruntime.StreamEventDone},
+	const startModel = "mimo-v2.6-flash"
+	before := qgruntime.Usage{InputTokens: 10, OutputTokens: 1}
+	after := qgruntime.Usage{InputTokens: 20, OutputTokens: 2}
+	starting := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventUsage, Usage: before},
+		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "escalate", ToolName: "escalate_model"},
+		{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "escalate", ArgumentsFragment: `{"reason":"harder than it looked"}`},
+		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "escalate"},
+		{Type: qgruntime.StreamEventDone},
 	}}}
-	escalated := &scriptedProvider{scripts: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventText, Content: "Done on the stronger model."},
-		{Type: zeroruntime.StreamEventUsage, Usage: after},
-		{Type: zeroruntime.StreamEventDone},
+	escalated := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventText, Content: "Done on the stronger model."},
+		{Type: qgruntime.StreamEventUsage, Usage: after},
+		{Type: qgruntime.StreamEventDone},
 	}}}
 	toolRegistry := tools.NewRegistry()
 	toolRegistry.Register(tools.NewEscalateModelTool())
 
 	switchedTo := ""
 	m := newModel(context.Background(), Options{
-		ProviderName:    "anthropic",
+		ProviderName:    "qg",
 		ModelName:       startModel,
 		Provider:        starting,
 		Registry:        toolRegistry,
 		SessionStore:    store,
 		AllowEscalation: true,
 		ProviderProfile: config.ProviderProfile{Model: startModel},
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			switchedTo = profile.Model
 			return escalated, nil
 		},
@@ -222,7 +222,7 @@ func TestEscalatedRunPricesPersistedUsageAtEachModel(t *testing.T) {
 	expected := 0.0
 	for _, priced := range []struct {
 		modelID string
-		usage   zeroruntime.Usage
+		usage   qgruntime.Usage
 	}{{startModel, before}, {switchedTo, after}} {
 		model, err := registry.Require(priced.modelID)
 		if err != nil {
@@ -240,7 +240,7 @@ func TestEscalatedRunPricesPersistedUsageAtEachModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range []zeroruntime.Usage{before, after} {
+	for _, event := range []qgruntime.Usage{before, after} {
 		cost, err := modelregistry.CalculateCost(startingEntry, event)
 		if err != nil {
 			t.Fatal(err)
@@ -255,19 +255,16 @@ func TestEscalatedRunPricesPersistedUsageAtEachModel(t *testing.T) {
 	}
 }
 
-// A run without escalation persists no model on its usage events: the model
-// cannot change mid-run, so the session-wide identity is the whole story and
-// the payload stays compact, exactly as exec does it.
-func TestUnescalatedRunLeavesTheUsagePayloadAlone(t *testing.T) {
+func TestUnescalatedRunPersistsCallModel(t *testing.T) {
 	store := testSessionStore(t)
 	session, err := store.Create(sessions.CreateInput{SessionID: "no_escalation_usage"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := &scriptedProvider{scripts: [][]zeroruntime.StreamEvent{{
-		{Type: zeroruntime.StreamEventText, Content: "done"},
-		{Type: zeroruntime.StreamEventUsage, Usage: zeroruntime.Usage{InputTokens: 10, OutputTokens: 1}},
-		{Type: zeroruntime.StreamEventDone},
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 10, OutputTokens: 1}},
+		{Type: qgruntime.StreamEventDone},
 	}}}
 	m := newModel(context.Background(), Options{
 		ProviderName: "anthropic",
@@ -293,8 +290,8 @@ func TestUnescalatedRunLeavesTheUsagePayloadAlone(t *testing.T) {
 		if !ok {
 			t.Fatalf("usage payload = %T, want map", event.Payload)
 		}
-		if _, present := payload["model"]; present {
-			t.Errorf("a non-escalation run recorded a model on its usage payload: %v", payload)
+		if payload["model"] != "claude-haiku-4.5" {
+			t.Errorf("usage receipt must retain its model: %v", payload)
 		}
 	}
 	if usageEvents == 0 {

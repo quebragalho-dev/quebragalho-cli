@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 // build-platform-packages.mjs: assemble the npm publish payloads for a release
-// from the per-platform archives built by `zero-release package`.
+// from the per-platform archives built by `qg-release package`.
 //
 // Layout written under --out-dir (default dist/npm):
-//   wrapper/                        @gitlawb/zero@X.Y.Z — bin/zero.js, the
+//   wrapper/                        @quebragalho-dev/cli@X.Y.Z — bin/qg.js, the
 //                                   first-run fallback downloader, and a
 //                                   package.json with NO scripts and NO
 //                                   dependencies, only optionalDependencies
 //                                   aliasing the platform versions below.
-//   platforms/zero-<platform>-<arch>/
-//                                   @gitlawb/zero@X.Y.Z-<platform>-<arch> —
-//                                   the zero binary, sandbox helpers, and the
+//   platforms/qg-<platform>-<arch>/
+//                                   @quebragalho-dev/cli@X.Y.Z-<platform>-<arch> —
+//                                   the qg binary, sandbox helpers, and the
 //                                   vendored local-control helpers/ tree,
 //                                   copied straight out of the release archive.
 //
-// The platform "packages" are versions of the SAME @gitlawb/zero package at
+// The platform "packages" are versions of the SAME @quebragalho-dev/cli package at
 // suffixed (semver-prerelease) versions, referenced from the wrapper through
 // npm: aliases. One package name keeps a single npm trusted-publisher config.
 // See docs/NPM_PACKAGING.md for the publishing rules this feeds.
@@ -49,7 +49,7 @@ import { spawnSync } from 'node:child_process';
 
 const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
-// Node platform/arch names (they name the alias suffixes so bin/zero.js can
+// Node platform/arch names (they name the alias suffixes so bin/qg.js can
 // derive its platform package from process.platform/process.arch) mapped to
 // the release asset naming from internal/release/release.go. windows-arm64 is
 // deliberately absent — the release matrix does not build it.
@@ -108,13 +108,13 @@ function platformVersion(version, entry) {
 }
 
 function aliasName(entry) {
-  return `@gitlawb/zero-${entry.platform}-${entry.arch}`;
+  return `@quebragalho-dev/cli-${entry.platform}-${entry.arch}`;
 }
 
 function optionalDependencies(version) {
   const aliases = {};
   for (const entry of MATRIX) {
-    aliases[aliasName(entry)] = `npm:@gitlawb/zero@${platformVersion(version, entry)}`;
+    aliases[aliasName(entry)] = `npm:@quebragalho-dev/cli@${platformVersion(version, entry)}`;
   }
   return aliases;
 }
@@ -166,8 +166,8 @@ function extractArchive(archivePath, ext, destDir) {
   fail(`failed to extract ${archivePath}: ${lastError}`);
 }
 
-// zero-release archives carry their payload at the archive root; also accept
-// a single zero-vX.Y.Z-<platform>-<arch>/ prefix directory (the shape
+// qg-release archives carry their payload at the archive root; also accept
+// a single qg-vX.Y.Z-<platform>-<arch>/ prefix directory (the shape
 // install.sh tolerates) so fixtures and future layout changes both work.
 function extractedPackageDir(extractDir, packageName, binaryName) {
   if (existsSync(join(extractDir, binaryName))) return extractDir;
@@ -261,17 +261,17 @@ function verifyHelperShims(packageDir, entry, assetName) {
 }
 
 function buildPlatformPackage(entry, version, artifactsDir, outDir) {
-  const assetName = `zero-v${version}-${entry.release}.${entry.ext}`;
+  const assetName = `qg-v${version}-${entry.release}.${entry.ext}`;
   const archivePath = join(artifactsDir, assetName);
   if (!existsSync(archivePath)) fail(`missing release archive ${archivePath}`);
   verifyChecksum(archivePath, assetName);
 
-  const binaryName = entry.platform === 'win32' ? 'zero.exe' : 'zero';
-  const tempDir = mkdtempSync(join(tmpdir(), 'zero-npm-'));
+  const binaryName = entry.platform === 'win32' ? 'qg.exe' : 'qg';
+  const tempDir = mkdtempSync(join(tmpdir(), 'qg-npm-'));
   try {
     extractArchive(archivePath, entry.ext, tempDir);
-    const sourceDir = extractedPackageDir(tempDir, `zero-v${version}-${entry.release}`, binaryName);
-    const packageDir = join(outDir, 'platforms', `zero-${entry.platform}-${entry.arch}`);
+    const sourceDir = extractedPackageDir(tempDir, `qg-v${version}-${entry.release}`, binaryName);
+    const packageDir = join(outDir, 'platforms', `qg-${entry.platform}-${entry.arch}`);
     rmSync(packageDir, { recursive: true, force: true });
     mkdirSync(packageDir, { recursive: true });
 
@@ -295,9 +295,9 @@ function buildPlatformPackage(entry, version, artifactsDir, outDir) {
 
     const wrapperPkg = readWrapperPackage();
     const manifest = {
-      name: '@gitlawb/zero',
+      name: '@quebragalho-dev/cli',
       version: platformVersion(version, entry),
-      description: `zero native binary for ${entry.platform}-${entry.arch} (installed via @gitlawb/zero@${version})`,
+      description: `qg native binary for ${entry.platform}-${entry.arch} (installed via @quebragalho-dev/cli@${version})`,
       os: [entry.platform],
       cpu: [entry.arch],
       license: wrapperPkg.license,
@@ -318,18 +318,18 @@ function buildWrapperPackage(version, outDir) {
   mkdirSync(join(wrapperDir, 'bin'), { recursive: true });
   mkdirSync(join(wrapperDir, 'scripts'), { recursive: true });
 
-  cpSync(join(repoRoot, 'bin', 'zero.js'), join(wrapperDir, 'bin', 'zero.js'));
+  cpSync(join(repoRoot, 'bin', 'qg.js'), join(wrapperDir, 'bin', 'qg.js'));
   cpSync(join(repoRoot, 'scripts', 'postinstall.mjs'), join(wrapperDir, 'scripts', 'postinstall.mjs'));
   cpSync(join(repoRoot, 'README.md'), join(wrapperDir, 'README.md'));
   // npm auto-includes LICENSE in the tarball only when the file is present in
   // the directory being packed (the files whitelist cannot exclude it).
   cpSync(join(repoRoot, 'LICENSE'), join(wrapperDir, 'LICENSE'));
-  chmodSync(join(wrapperDir, 'bin', 'zero.js'), 0o755);
+  chmodSync(join(wrapperDir, 'bin', 'qg.js'), 0o755);
 
   const pkg = readWrapperPackage();
   // The published wrapper must stay warning-free on every package manager:
   // no lifecycle scripts and no regular dependencies (the repo's dependencies
-  // entries exist only to pin the vendored helpers/ tree that zero-release
+  // entries exist only to pin the vendored helpers/ tree that qg-release
   // stages into the platform payloads — see internal/release/release.go).
   delete pkg.scripts;
   delete pkg.dependencies;

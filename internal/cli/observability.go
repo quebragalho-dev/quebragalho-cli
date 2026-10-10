@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/doctor"
-	"github.com/Gitlawb/zero/internal/providerhealth"
-	zsearch "github.com/Gitlawb/zero/internal/search"
-	"github.com/Gitlawb/zero/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/doctor"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
+	zsearch "github.com/quebragalho-dev/quebragalho-cli/internal/search"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 type doctorOptions struct {
@@ -114,7 +114,7 @@ func runSearch(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 		return exitSuccess
 	}
 	if strings.TrimSpace(options.query) == "" {
-		return writeExecUsageError(stderr, "search query required. Use `zero search <query>`.")
+		return writeExecUsageError(stderr, "search query required. Use `qg search <query>`.")
 	}
 
 	result, err := zsearch.Sessions(options.query, zsearch.Options{
@@ -265,7 +265,7 @@ func writePrettyJSON(w io.Writer, value any) error {
 
 func writeDoctorHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero doctor [flags]
+  qg doctor [flags]
 
 Runs Go backend health checks for config and provider setup.
 
@@ -279,9 +279,9 @@ Flags:
 
 func writeSearchHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero search [flags] <query>
+  qg search [flags] <query>
 
-Searches persisted local Zero session events.
+Searches persisted local QG session events.
 
 Flags:
       --json                 Print JSON results

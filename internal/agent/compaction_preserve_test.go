@@ -6,41 +6,41 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // stateConversation is a long enough conversation that Compact elides a middle
 // containing an update_plan call and a loaded skill (call + result).
-func stateConversation() []zeroruntime.Message {
-	return []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: "build the thing"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "planning", ToolCalls: []zeroruntime.ToolCall{
+func stateConversation() []qgruntime.Message {
+	return []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: "build the thing"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "planning", ToolCalls: []qgruntime.ToolCall{
 			{ID: "p1", Name: "update_plan", Arguments: `{"plan":[{"content":"write code","status":"in_progress"},{"content":"add tests","status":"pending"}]}`},
 		}},
-		{Role: zeroruntime.MessageRoleTool, Content: "plan updated", ToolCallID: "p1"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "loading skill", ToolCalls: []zeroruntime.ToolCall{
+		{Role: qgruntime.MessageRoleTool, Content: "plan updated", ToolCallID: "p1"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "loading skill", ToolCalls: []qgruntime.ToolCall{
 			{ID: "s1", Name: "skill", Arguments: `{"name":"deploy"}`},
 		}},
-		{Role: zeroruntime.MessageRoleTool, Content: "Deploy skill: run `make deploy` then tag the release.", ToolCallID: "s1"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "done step 1"},
-		{Role: zeroruntime.MessageRoleUser, Content: "continue"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "continuing"},
+		{Role: qgruntime.MessageRoleTool, Content: "Deploy skill: run `make deploy` then tag the release.", ToolCallID: "s1"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "done step 1"},
+		{Role: qgruntime.MessageRoleUser, Content: "continue"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "continuing"},
 	}
 }
 
-func compactStateConversation(t *testing.T, messages []zeroruntime.Message) string {
+func compactStateConversation(t *testing.T, messages []qgruntime.Message) string {
 	t.Helper()
 	compacted, err := Compact(messages, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "SUMMARY", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "SUMMARY", nil },
 	})
 	if err != nil {
 		t.Fatalf("Compact returned error: %v", err)
 	}
 	// [system, summaryUserMsg, ...suffix] — the summary is the message after system.
-	if len(compacted) < 2 || compacted[1].Role != zeroruntime.MessageRoleUser {
+	if len(compacted) < 2 || compacted[1].Role != qgruntime.MessageRoleUser {
 		t.Fatalf("unexpected compacted shape: %#v", compacted)
 	}
 	if !strings.Contains(compacted[1].Content, summaryLabel) {
@@ -71,7 +71,7 @@ func TestCompactPreservesBoundedTaskContext(t *testing.T) {
 	messages := stateConversation()
 	compacted, err := Compact(messages, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "SUMMARY", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "SUMMARY", nil },
 		taskState:    task.snapshotForCompaction(messages),
 	})
 	if err != nil {
@@ -93,7 +93,7 @@ func TestCompactPreservesRuntimeEvidenceAcrossRepeatedCompaction(t *testing.T) {
 	task := newTaskState("Please keep the change focused.", nil)
 	task.observe(taskStateEvent{kind: taskStateEventToolResult, arguments: `{"cmd":"go test ./..."}`, toolResult: ToolResult{
 		Name: "exec_command", Status: tools.StatusError, Output: "Error: tests failed",
-		Meta: map[string]string{"spill_path": ".zero/artifacts/tests.txt"},
+		Meta: map[string]string{"spill_path": ".qg/artifacts/tests.txt"},
 	}})
 	task.observe(taskStateEvent{kind: taskStateEventPermission, permission: PermissionEvent{
 		ToolName: "exec_command", DecisionAction: PermissionDecisionAllowForSession, Scope: "/tmp",
@@ -102,7 +102,7 @@ func TestCompactPreservesRuntimeEvidenceAcrossRepeatedCompaction(t *testing.T) {
 
 	first, err := Compact(messages, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "FIRST", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "FIRST", nil },
 		taskState:    task.snapshotForCompaction(messages),
 	})
 	if err != nil {
@@ -110,17 +110,17 @@ func TestCompactPreservesRuntimeEvidenceAcrossRepeatedCompaction(t *testing.T) {
 	}
 	task.observe(taskStateEvent{kind: taskStateEventToolResult, arguments: `{"cmd":"go test ./..."}`, toolResult: ToolResult{
 		Name: "exec_command", Status: tools.StatusError, Output: "Error: tests still fail with newer evidence",
-		Meta: map[string]string{"spill_path": ".zero/artifacts/tests.txt"},
+		Meta: map[string]string{"spill_path": ".qg/artifacts/tests.txt"},
 	}})
-	secondInput := append(append([]zeroruntime.Message{}, first...),
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "Never add background memory models."},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "understood"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "continue"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "working"},
+	secondInput := append(append([]qgruntime.Message{}, first...),
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "Never add background memory models."},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "understood"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "continue"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "working"},
 	)
 	second, err := Compact(secondInput, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "SECOND", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "SECOND", nil },
 		taskState:    task.snapshotForCompaction(secondInput),
 	})
 	if err != nil {
@@ -155,18 +155,18 @@ func TestCompactPreservesObjectiveAfterPlanParityMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: summaryLabel + "\nold\n\n" + preservedStateLabel + "\n" + string(encoded)},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "continuing"},
-		{Role: zeroruntime.MessageRoleUser, Content: "more"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "working"},
-		{Role: zeroruntime.MessageRoleUser, Content: "again"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "done"},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: summaryLabel + "\nold\n\n" + preservedStateLabel + "\n" + string(encoded)},
+		{Role: qgruntime.MessageRoleAssistant, Content: "continuing"},
+		{Role: qgruntime.MessageRoleUser, Content: "more"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "working"},
+		{Role: qgruntime.MessageRoleUser, Content: "again"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "done"},
 	}
 	compacted, err := Compact(messages, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "SUMMARY", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "SUMMARY", nil },
 		taskState: &taskStateSnapshot{
 			Objective:  "current objective",
 			PlanParity: taskPlanParityMismatch,
@@ -191,17 +191,17 @@ func TestTaskObjectiveSurvivesRepeatedCompactionWithoutPlanRefresh(t *testing.T)
 
 	first, err := Compact(messages, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "FIRST", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "FIRST", nil },
 		taskState:    task.snapshotForCompaction(messages),
 	})
 	if err != nil {
 		t.Fatalf("first Compact: %v", err)
 	}
-	secondInput := append(append([]zeroruntime.Message{}, first...),
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "more"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "working"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "again"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "done"},
+	secondInput := append(append([]qgruntime.Message{}, first...),
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "more"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "working"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "again"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "done"},
 	)
 	snapshot := task.snapshotForCompaction(secondInput)
 	if snapshot.PlanParity != taskPlanParityMismatch {
@@ -209,7 +209,7 @@ func TestTaskObjectiveSurvivesRepeatedCompactionWithoutPlanRefresh(t *testing.T)
 	}
 	second, err := Compact(secondInput, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "SECOND", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "SECOND", nil },
 		taskState:    snapshot,
 	})
 	if err != nil {
@@ -235,16 +235,16 @@ func TestCompactPreservesLoadedSkills(t *testing.T) {
 }
 
 func TestCompactPreservesLoadedToolSearchSchemas(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: "load weather tool"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "loading", ToolCalls: []zeroruntime.ToolCall{
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: "load weather tool"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "loading", ToolCalls: []qgruntime.ToolCall{
 			{ID: "t1", Name: "tool_search", Arguments: `{"query":"select:weather_lookup"}`},
 		}},
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "t1", Content: "Loaded 1 tool. Full schemas follow; call them on the next turn.\n\n## weather_lookup\nLook up weather.\ninput schema:\n{\n  \"type\": \"object\"\n}"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "ready"},
-		{Role: zeroruntime.MessageRoleUser, Content: "continue"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "continuing"},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "t1", Content: "Loaded 1 tool. Full schemas follow; call them on the next turn.\n\n## weather_lookup\nLook up weather.\ninput schema:\n{\n  \"type\": \"object\"\n}"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "ready"},
+		{Role: qgruntime.MessageRoleUser, Content: "continue"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "continuing"},
 	}
 	summary := compactStateConversation(t, messages)
 	if !strings.Contains(summary, `"name":"weather_lookup"`) || !strings.Contains(summary, "input schema") {
@@ -254,14 +254,14 @@ func TestCompactPreservesLoadedToolSearchSchemas(t *testing.T) {
 
 func TestCompactPreservesProjectInstructions(t *testing.T) {
 	projectInstructions := "# AGENTS.md instructions for D:\\repo\n\n<INSTRUCTIONS>\nUse `go test ./internal/agent` for agent changes.\nDo not touch TUI code.\n</INSTRUCTIONS>\n\n<environment_context>\nignored runtime context\n</environment_context>"
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: projectInstructions},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "ack"},
-		{Role: zeroruntime.MessageRoleUser, Content: "work on compaction"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "working"},
-		{Role: zeroruntime.MessageRoleUser, Content: "continue"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "continuing"},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: projectInstructions},
+		{Role: qgruntime.MessageRoleAssistant, Content: "ack"},
+		{Role: qgruntime.MessageRoleUser, Content: "work on compaction"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "working"},
+		{Role: qgruntime.MessageRoleUser, Content: "continue"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "continuing"},
 	}
 	summary := compactStateConversation(t, messages)
 	state := parsePreservedStateBlock(summary)
@@ -278,21 +278,21 @@ func TestCompactPreservesProjectInstructions(t *testing.T) {
 }
 
 func TestProjectInstructionBlockAcceptsProjectGuidelineFilename(t *testing.T) {
-	source, body := projectInstructionBlock("# ZERO.md instructions for /repo\n\n<INSTRUCTIONS>\nPrefer Go commands.\n</INSTRUCTIONS>")
-	if source != "ZERO.md instructions for /repo" || !strings.Contains(body, "Prefer Go commands.") {
-		t.Fatalf("expected ZERO.md instruction block to parse, got source=%q body=%q", source, body)
+	source, body := projectInstructionBlock("# QG.md instructions for /repo\n\n<INSTRUCTIONS>\nPrefer Go commands.\n</INSTRUCTIONS>")
+	if source != "QG.md instructions for /repo" || !strings.Contains(body, "Prefer Go commands.") {
+		t.Fatalf("expected QG.md instruction block to parse, got source=%q body=%q", source, body)
 	}
 }
 
 func TestCompactWithoutStateHasNoPreserveSections(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: "hello"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "hi there"},
-		{Role: zeroruntime.MessageRoleUser, Content: "tell me more"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "sure"},
-		{Role: zeroruntime.MessageRoleUser, Content: "and more"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "ok"},
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: "hello"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "hi there"},
+		{Role: qgruntime.MessageRoleUser, Content: "tell me more"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "sure"},
+		{Role: qgruntime.MessageRoleUser, Content: "and more"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "ok"},
 	}
 	summary := compactStateConversation(t, messages)
 	if strings.Contains(summary, preservedStateLabel) {
@@ -304,7 +304,7 @@ func TestCompactCarriesPreservedStateAcrossRepeatedCompaction(t *testing.T) {
 	// First compaction: real update_plan + skill load in the elided middle.
 	first, err := Compact(stateConversation(), CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "FIRST SUMMARY", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "FIRST SUMMARY", nil },
 	})
 	if err != nil {
 		t.Fatalf("first Compact: %v", err)
@@ -312,23 +312,23 @@ func TestCompactCarriesPreservedStateAcrossRepeatedCompaction(t *testing.T) {
 
 	// Grow the history so the first summary (which holds the preserved sections,
 	// but no real tool calls) falls into the SECOND compaction's middle.
-	second := append([]zeroruntime.Message{}, first...)
+	second := append([]qgruntime.Message{}, first...)
 	second = append(second,
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "what next"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "continuing"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "keep going"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "done"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "what next"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "continuing"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "keep going"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "done"},
 	)
 
 	// The second summarizer deliberately DROPS the preserved sections.
 	out, err := Compact(second, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "SECOND SUMMARY with no preserved sections", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "SECOND SUMMARY with no preserved sections", nil },
 	})
 	if err != nil {
 		t.Fatalf("second Compact: %v", err)
 	}
-	if len(out) < 2 || out[1].Role != zeroruntime.MessageRoleUser {
+	if len(out) < 2 || out[1].Role != qgruntime.MessageRoleUser {
 		t.Fatalf("unexpected compacted shape: %#v", out)
 	}
 	newSummary := out[1].Content
@@ -342,35 +342,35 @@ func TestCompactCarriesPreservedStateAcrossRepeatedCompaction(t *testing.T) {
 }
 
 func TestCompactCarriesLoadedToolsAndProjectInstructionsAcrossRepeatedCompaction(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>\nStay in internal/agent.\n</INSTRUCTIONS>"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "loading", ToolCalls: []zeroruntime.ToolCall{
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>\nStay in internal/agent.\n</INSTRUCTIONS>"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "loading", ToolCalls: []qgruntime.ToolCall{
 			{ID: "t1", Name: "tool_search", Arguments: `{"query":"select:weather_lookup"}`},
 		}},
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "t1", Content: "Loaded 1 tool. Full schemas follow; call them on the next turn.\n\n## weather_lookup\nLook up weather.\ninput schema:\n{\n  \"type\": \"object\"\n}"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "ready"},
-		{Role: zeroruntime.MessageRoleUser, Content: "continue"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "continuing"},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "t1", Content: "Loaded 1 tool. Full schemas follow; call them on the next turn.\n\n## weather_lookup\nLook up weather.\ninput schema:\n{\n  \"type\": \"object\"\n}"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "ready"},
+		{Role: qgruntime.MessageRoleUser, Content: "continue"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "continuing"},
 	}
 
 	first, err := Compact(messages, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "FIRST SUMMARY", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "FIRST SUMMARY", nil },
 	})
 	if err != nil {
 		t.Fatalf("first Compact: %v", err)
 	}
-	second := append(append([]zeroruntime.Message{}, first...),
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "more"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "ok"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "again"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "fine"},
+	second := append(append([]qgruntime.Message{}, first...),
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "more"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "ok"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "again"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "fine"},
 	)
 
 	out, err := Compact(second, CompactionOptions{
 		PreserveLast: 2,
-		Summarize:    func([]zeroruntime.Message) (string, error) { return "SECOND SUMMARY", nil },
+		Summarize:    func([]qgruntime.Message) (string, error) { return "SECOND SUMMARY", nil },
 	})
 	if err != nil {
 		t.Fatalf("second Compact: %v", err)
@@ -392,27 +392,27 @@ func TestCompactCarriesLoadedToolsAndProjectInstructionsAcrossRepeatedCompaction
 // which the old markdown-delimited format could not guarantee.
 func TestCompactPreservesSkillBodyWithMarkdownHeadings(t *testing.T) {
 	body := "## Usage\nrun it\n### Examples\n```\nzero do\n```\n## Notes\ndone"
-	conv := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleSystem, Content: "system"},
-		{Role: zeroruntime.MessageRoleUser, Content: "load a skill"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "loading", ToolCalls: []zeroruntime.ToolCall{
+	conv := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "system"},
+		{Role: qgruntime.MessageRoleUser, Content: "load a skill"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "loading", ToolCalls: []qgruntime.ToolCall{
 			{ID: "s1", Name: "skill", Arguments: `{"name":"guide"}`},
 		}},
-		{Role: zeroruntime.MessageRoleTool, Content: body, ToolCallID: "s1"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "done step 1"},
-		{Role: zeroruntime.MessageRoleUser, Content: "continue"},
-		{Role: zeroruntime.MessageRoleAssistant, Content: "continuing"},
+		{Role: qgruntime.MessageRoleTool, Content: body, ToolCallID: "s1"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "done step 1"},
+		{Role: qgruntime.MessageRoleUser, Content: "continue"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "continuing"},
 	}
 
-	mustContainBody := func(label string, messages []zeroruntime.Message) []zeroruntime.Message {
+	mustContainBody := func(label string, messages []qgruntime.Message) []qgruntime.Message {
 		out, err := Compact(messages, CompactionOptions{
 			PreserveLast: 2,
-			Summarize:    func([]zeroruntime.Message) (string, error) { return "SUMMARY", nil },
+			Summarize:    func([]qgruntime.Message) (string, error) { return "SUMMARY", nil },
 		})
 		if err != nil {
 			t.Fatalf("%s Compact: %v", label, err)
 		}
-		if len(out) < 2 || out[1].Role != zeroruntime.MessageRoleUser {
+		if len(out) < 2 || out[1].Role != qgruntime.MessageRoleUser {
 			t.Fatalf("%s: unexpected compacted shape: %#v", label, out)
 		}
 		_, skills := parsePreservedState(out[1].Content)
@@ -424,21 +424,21 @@ func TestCompactPreservesSkillBodyWithMarkdownHeadings(t *testing.T) {
 
 	first := mustContainBody("first", conv)
 	// Second compaction with NO fresh tool calls and a summarizer that drops it.
-	second := append(append([]zeroruntime.Message{}, first...),
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "more"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "ok"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "again"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "fine"},
+	second := append(append([]qgruntime.Message{}, first...),
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "more"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "ok"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "again"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "fine"},
 	)
 	mustContainBody("second", second)
 }
 
 func TestExtractLatestPlanReturnsMostRecent(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{
 			{ID: "a", Name: "update_plan", Arguments: `{"plan":[{"content":"old step","status":"completed"}]}`},
 		}},
-		{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{
+		{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{
 			{ID: "b", Name: "update_plan", Arguments: `{"plan":[{"content":"new step","status":"in_progress"}]}`},
 		}},
 	}
@@ -504,8 +504,8 @@ func TestCapBodyNoteOnlyWhenTruncated(t *testing.T) {
 }
 
 func TestLoadedSkillsSkipsCallsWithoutResult(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{
 			{ID: "s1", Name: "skill", Arguments: `{"name":"ghost"}`}, // no matching tool result
 		}},
 	}
@@ -515,11 +515,11 @@ func TestLoadedSkillsSkipsCallsWithoutResult(t *testing.T) {
 }
 
 func TestLoadedSkillsAcceptsSkillArgumentAlias(t *testing.T) {
-	messages := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleAssistant, ToolCalls: []zeroruntime.ToolCall{
+	messages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleAssistant, ToolCalls: []qgruntime.ToolCall{
 			{ID: "s1", Name: "skill", Arguments: `{"skill":"deploy"}`},
 		}},
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "s1", Content: "deploy instructions"},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "s1", Content: "deploy instructions"},
 	}
 	got := loadedSkills(messages)
 	if len(got) != 1 || got[0].name != "deploy" || got[0].body != "deploy instructions" {

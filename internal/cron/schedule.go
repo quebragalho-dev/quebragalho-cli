@@ -1,5 +1,5 @@
 // Package cron implements a small, dependency-free standard 5-field cron parser
-// and next-run evaluator for the `zero cron` scheduler.
+// and next-run evaluator for the `qg cron` scheduler.
 package cron
 
 import (
@@ -162,7 +162,7 @@ func parseValue(tok string, min, max int, names map[string]int) (int, error) {
 const nextSearchYears = 9
 
 // Next returns the first scheduled instant strictly after `after`, evaluated in
-// after's location. It returns the zero time.Time if no match occurs within
+// after's location. It returns the qg time.Time if no match occurs within
 // nextSearchYears (an impossible schedule such as Feb 30). It is robust to DST
 // gaps: a per-iteration forward-progress guard prevents stalling on a
 // non-existent local instant (e.g. 02:30 on a spring-forward day).
