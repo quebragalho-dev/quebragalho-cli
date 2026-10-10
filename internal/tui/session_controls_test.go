@@ -833,11 +833,11 @@ func TestUnpricedUsageStatusUsesLatestEventNotCumulative(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "custom-coder"})
 
 	var rows []transcriptRow
-	m, rows = m.recordUsageEvent("custom-coder", qgruntime.Usage{InputTokens: 100, OutputTokens: 20})
+	m, rows = m.recordUsageEvent("custom-coder", qgruntime.Usage{InputTokens: 100, OutputTokens: 20}, transcriptRow{})
 	if len(rows) != 0 {
 		t.Fatalf("unpriced usage should not append transcript rows, got %#v", rows)
 	}
-	m, rows = m.recordUsageEvent("custom-coder", qgruntime.Usage{InputTokens: 10, OutputTokens: 5})
+	m, rows = m.recordUsageEvent("custom-coder", qgruntime.Usage{InputTokens: 10, OutputTokens: 5}, transcriptRow{})
 	if len(rows) != 0 {
 		t.Fatalf("unpriced usage should not append transcript rows, got %#v", rows)
 	}
@@ -852,7 +852,7 @@ func TestUnpricedUsageStatusUsesLatestEventNotCumulative(t *testing.T) {
 
 func TestStatusLineShowsUnknownAPIContextWithoutPersistentRail(t *testing.T) {
 	m := sidebarTestModel()
-	m, _ = m.recordUsageEvent("test-model", qgruntime.Usage{InputTokens: 100, OutputTokens: 20})
+	m, _ = m.recordUsageEvent("test-model", qgruntime.Usage{InputTokens: 100, OutputTokens: 20}, transcriptRow{})
 	// Run details retains the full token count on demand.
 	if got := m.sidebarTokenText(); !strings.Contains(got, "120 tokens") {
 		t.Fatalf("sidebar token text = %q, want it to carry the 120-token figure", got)

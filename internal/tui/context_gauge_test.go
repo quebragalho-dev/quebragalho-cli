@@ -32,7 +32,7 @@ func TestSidebarContextGaugeUsesAPIWindow(t *testing.T) {
 
 func TestStatusLineDoesNotInferContextFromRegistry(t *testing.T) {
 	m := batchThreeLiveModel(t)
-	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{InputTokens: 160000, OutputTokens: 1000})
+	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{InputTokens: 160000, OutputTokens: 1000}, transcriptRow{})
 	status := plainRender(t, m.statusLine(110))
 	assertContains(t, status, "ctx não informado")
 	assertNotContains(t, status, "1M")
