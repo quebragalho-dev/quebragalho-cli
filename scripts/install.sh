@@ -64,9 +64,9 @@ download() {
   local output="$2"
 
   if command -v curl >/dev/null 2>&1; then
-    curl --fail --location --show-error --silent "$url" --output "$output"
+    curl --fail --location --show-error --progress-bar "$url" --output "$output"
   elif command -v wget >/dev/null 2>&1; then
-    wget --quiet "$url" --output-document "$output"
+    wget "$url" --output-document "$output"
   else
     fail "curl or wget is required"
   fi
@@ -177,10 +177,38 @@ copy_optional_dir() {
   fi
 }
 
+path_hint() {
+  local directory="$1"
+  case ":$PATH:" in
+    *":$directory:"*) ;;
+    *)
+      printf 'Para usar qg neste terminal, adicione o diretório ao PATH:\n'
+      printf "  export PATH=%q:\"\$PATH\"\n" "$directory"
+      ;;
+  esac
+}
+
+install_dir_error() {
+  local installer_url='https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh'
+  {
+    printf 'qg install: não é possível escrever em %s.\n' "$QG_INSTALL_DIR"
+    printf 'Instale sem sudo no seu usuário:\n'
+    printf "  curl -fsSL %s | QG_INSTALL_DIR=\"\$HOME/.local/bin\" bash -s -- --repo %q --version %q\n" "$installer_url" "$QG_REPO" "$QG_VERSION"
+    path_hint "$HOME/.local/bin"
+    printf 'Ou, para instalar no diretório escolhido com permissão de administrador:\n'
+    printf '  curl -fsSL %s | sudo bash -s -- --repo %q --version %q --install-dir %q\n' "$installer_url" "$QG_REPO" "$QG_VERSION" "$QG_INSTALL_DIR"
+  } >&2
+  exit 1
+}
+
 need_command uname
 need_command sed
 need_command tar
 need_command mktemp
+
+if ! mkdir -p "$QG_INSTALL_DIR" 2>/dev/null || [ ! -w "$QG_INSTALL_DIR" ]; then
+  install_dir_error
+fi
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/qg-install.XXXXXX")"
 cleanup() {
@@ -188,6 +216,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+printf 'qg install: Resolvendo versão...\n' >&2
 if [ "$QG_VERSION" = "latest" ]; then
   tag="$(latest_tag "$tmp_dir/latest.json")"
 else
@@ -208,9 +237,11 @@ checksum_path="$tmp_dir/$checksum_name"
 extract_dir="$tmp_dir/extract"
 
 echo "Installing QG ${tag} for ${platform}-${arch}"
+printf 'qg install: Baixando %s...\n' "$archive_name" >&2
 download "${release_url}/${archive_name}" "$archive_path"
 download "${release_url}/${checksum_name}" "$checksum_path"
 
+printf 'qg install: Verificando SHA-256...\n' >&2
 (
   cd "$tmp_dir"
   verify_checksum "$checksum_name"
@@ -221,9 +252,7 @@ tar -xzf "$archive_path" -C "$extract_dir"
 
 binary_path="$(find_extracted_binary "$extract_dir")" || fail "release archive did not contain qg"
 
-if ! mkdir -p "$QG_INSTALL_DIR" 2>/dev/null || [ ! -w "$QG_INSTALL_DIR" ]; then
-  fail "cannot write $QG_INSTALL_DIR (re-run with sudo, or set QG_INSTALL_DIR to a writable directory, e.g. QG_INSTALL_DIR=\$HOME/.local/bin)"
-fi
+printf 'qg install: Instalando em %s...\n' "$QG_INSTALL_DIR" >&2
 cp "$binary_path" "$QG_INSTALL_DIR/qg"
 chmod 755 "$QG_INSTALL_DIR/qg"
 # Real on-disk alias: same binary reachable as `quebragalho` (relative link, so
@@ -242,8 +271,4 @@ fi
 echo "Installed $QG_INSTALL_DIR/qg ($installed_version)"
 echo "Alias: $QG_INSTALL_DIR/quebragalho -> qg"
 
-case ":$PATH:" in
-  *":$QG_INSTALL_DIR:"*) ;;
-  *) echo "Add $QG_INSTALL_DIR to PATH to run qg from any directory:" \
-      echo "  export PATH=\"$QG_INSTALL_DIR:\$PATH\"" ;;
-esac
+path_hint "$QG_INSTALL_DIR"
