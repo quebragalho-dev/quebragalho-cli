@@ -63,8 +63,13 @@ func TestUnixInstallerInstallsFromPrefixedReleaseArchiveWithoutNetwork(t *testin
 	if err != nil {
 		t.Fatalf("install.sh failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
-	if got := strings.TrimSpace(stderr); got != "" {
-		t.Fatalf("install.sh stderr = %q, want empty", got)
+	previous := -1
+	for _, stage := range []string{"Resolvendo versão", "Baixando", "Verificando SHA-256", "Instalando"} {
+		at := strings.Index(stderr, stage)
+		if at <= previous {
+			t.Fatalf("install.sh progress missing or out of order at %q: %s", stage, stderr)
+		}
+		previous = at
 	}
 	if !strings.Contains(stdout, "Installed "+filepath.Join(fixture.installDir, "qg")) {
 		t.Fatalf("install.sh stdout missing install path:\n%s", stdout)

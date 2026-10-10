@@ -39,11 +39,11 @@ mkdir -p "$download_dir"
 cp "$release_dir/$archive" "$release_dir/$archive.sha256" "$download_dir/"
 
 install_dir="$tmp/bin"
-QG_VERSION="v$VERSION" \
+cat "$ROOT/scripts/install.sh" | QG_VERSION="v$VERSION" \
 QG_REPO="$REPO" \
 QG_GITHUB_BASE_URL="file://$fake_base" \
 QG_INSTALL_DIR="$install_dir" \
-  bash "$ROOT/scripts/install.sh" >"$tmp/install.out" 2>"$tmp/install.err" \
+  bash -s >"$tmp/install.out" 2>"$tmp/install.err" \
   || { echo "install_test: install.sh failed"; cat "$tmp/install.out" "$tmp/install.err" >&2; exit 1; }
 
 fail() { echo "install_test: $1" >&2; exit 1; }
@@ -69,3 +69,111 @@ grep -q "Installed $install_dir/qg" "$tmp/install.out" || fail "success line mis
 grep -q "qg" "$tmp/install.out" || fail "version not echoed"
 
 echo "PASS: install.sh -> $install_dir/qg ($version_out) + alias quebragalho -> qg"
+
+ux_failures=0
+check_ux() {
+  local name="$1"
+  shift
+  if "$@"; then
+    echo "PASS: $name"
+  else
+    echo "FAIL: $name" >&2
+    ux_failures=$((ux_failures + 1))
+  fi
+}
+
+check_ux "progress visible in pipe" grep -q '100' "$tmp/install.err"
+for stage in 'Resolvendo versão' 'Baixando' 'Verificando SHA-256' 'Instalando'; do
+  check_ux "stage: $stage" grep -q "$stage" "$tmp/install.err"
+done
+check_ux "PATH instruction on its own line" grep -q '^  export PATH=' "$tmp/install.out"
+
+shim="$tmp/shim"
+mkdir -p "$shim" "$tmp/home"
+cat >"$shim/curl" <<'EOF'
+#!/usr/bin/env bash
+printf 'download attempted\n' >"$DOWNLOAD_MARKER"
+exit 98
+EOF
+chmod +x "$shim/curl"
+printf 'blocked\n' >"$tmp/not-a-directory"
+blocked="$tmp/not-a-directory/bin with space"
+if cat "$ROOT/scripts/install.sh" | HOME="$tmp/home" PATH="$shim:$PATH" \
+  DOWNLOAD_MARKER="$tmp/download-attempted" QG_INSTALL_DIR="$blocked" \
+  QG_REPO='example/custom-repo' QG_VERSION='v9.8.7' \
+  bash -s >"$tmp/blocked.out" 2>"$tmp/blocked.err"; then
+  fail "unwritable destination succeeded"
+fi
+check_ux "preflight before download" test ! -e "$tmp/download-attempted"
+check_ux "sudo command supplied" grep -q '| sudo bash -s --' "$tmp/blocked.err"
+check_ux "local command assigns env to bash" grep -Fq "| QG_INSTALL_DIR=\"\$HOME/.local/bin\" bash -s --" "$tmp/blocked.err"
+check_ux "custom repo retained" grep -q -- '--repo example/custom-repo' "$tmp/blocked.err"
+check_ux "pinned version retained" grep -q -- '--version v9.8.7' "$tmp/blocked.err"
+check_ux "local PATH hint supplied" grep -q '^  export PATH=' "$tmp/blocked.err"
+
+
+if cat "$ROOT/scripts/install.sh" | HOME="$tmp/home" PATH="$tmp/home/.local/bin:$shim:$PATH" \
+  DOWNLOAD_MARKER="$tmp/download-attempted" QG_INSTALL_DIR="$blocked" \
+  bash -s >"$tmp/path-present.out" 2>"$tmp/path-present.err"; then
+  fail "unwritable destination succeeded with local PATH"
+fi
+check_ux "no PATH hint when already present" test "$(grep -c '^  export PATH=' "$tmp/path-present.err" || true)" -eq 0
+
+mkdir -p "$tmp/read-only"
+chmod 500 "$tmp/read-only"
+if [ ! -w "$tmp/read-only" ]; then
+  rm -f "$tmp/download-attempted"
+  if cat "$ROOT/scripts/install.sh" | HOME="$tmp/home" PATH="$shim:$PATH" \
+    DOWNLOAD_MARKER="$tmp/download-attempted" QG_INSTALL_DIR="$tmp/read-only" \
+    bash -s >"$tmp/read-only.out" 2>"$tmp/read-only.err"; then
+    fail "read-only directory succeeded"
+  fi
+  check_ux "read-only directory rejected before download" test ! -e "$tmp/download-attempted"
+  check_ux "read-only directory explains recovery" grep -q '| sudo bash -s --' "$tmp/read-only.err"
+else
+  echo "SKIP: read-only mode bits do not restrict this user"
+fi
+chmod 700 "$tmp/read-only"
+
+mkdir -p "$tmp/scratch"
+if cat "$ROOT/scripts/install.sh" | TMPDIR="$tmp/scratch" PATH="$shim:$PATH" \
+  DOWNLOAD_MARKER="$tmp/download-attempted" QG_INSTALL_DIR="$tmp/failed-download" \
+  QG_VERSION='v9.8.7' bash -s >"$tmp/download-fail.out" 2>"$tmp/download-fail.err"; then
+  fail "download error was swallowed"
+fi
+check_ux "failed download does not install" test ! -e "$tmp/failed-download/qg"
+check_ux "failed download cleans temporary files" test -z "$(ls -A "$tmp/scratch")"
+
+recovery="$tmp/recovery"
+mkdir -p "$recovery"
+cat >"$recovery/curl" <<'EOF'
+#!/usr/bin/env bash
+cat <<'SCRIPT'
+printf '%s\n' "${QG_INSTALL_DIR:-}" "$@" >"$RECOVERY_ARGS"
+SCRIPT
+EOF
+cat >"$recovery/sudo" <<'EOF'
+#!/usr/bin/env bash
+exec "$@"
+EOF
+chmod +x "$recovery/curl" "$recovery/sudo"
+custom_repo="example/repo with space;\$(touch $tmp/injected)"
+custom_version="v1.2.3;\$(touch $tmp/injected)"
+if cat "$ROOT/scripts/install.sh" | HOME="$tmp/home" QG_INSTALL_DIR="$blocked" \
+  QG_REPO="$custom_repo" QG_VERSION="$custom_version" \
+  bash -s >"$tmp/quoted.out" 2>"$tmp/quoted.err"; then
+  fail "unwritable quoted destination succeeded"
+fi
+while IFS= read -r command_line; do
+  HOME="$tmp/home" PATH="$recovery:$PATH" RECOVERY_ARGS="$tmp/recovery-args" \
+    bash -c "$command_line"
+  check_ux "recovery preserves quoted repo" grep -Fxq "$custom_repo" "$tmp/recovery-args"
+  check_ux "recovery preserves quoted version" grep -Fxq "$custom_version" "$tmp/recovery-args"
+  case "$command_line" in
+    *'| sudo '*) check_ux "sudo preserves selected directory" grep -Fxq "$blocked" "$tmp/recovery-args" ;;
+    *) check_ux "local recovery sets user directory" grep -Fxq "$tmp/home/.local/bin" "$tmp/recovery-args" ;;
+  esac
+done < <(sed -n 's/^  \(curl .*\)/\1/p' "$tmp/quoted.err")
+check_ux "recovery metacharacters never execute" test ! -e "$tmp/injected"
+
+[ "$ux_failures" -eq 0 ] || fail "$ux_failures UX checks failed"
