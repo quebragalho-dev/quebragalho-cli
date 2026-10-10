@@ -255,10 +255,7 @@ func TestEscalatedRunPricesPersistedUsageAtEachModel(t *testing.T) {
 	}
 }
 
-// A run without escalation persists no model on its usage events: the model
-// cannot change mid-run, so the session-wide identity is the whole story and
-// the payload stays compact, exactly as exec does it.
-func TestUnescalatedRunLeavesTheUsagePayloadAlone(t *testing.T) {
+func TestUnescalatedRunPersistsCallModel(t *testing.T) {
 	store := testSessionStore(t)
 	session, err := store.Create(sessions.CreateInput{SessionID: "no_escalation_usage"})
 	if err != nil {
@@ -293,8 +290,8 @@ func TestUnescalatedRunLeavesTheUsagePayloadAlone(t *testing.T) {
 		if !ok {
 			t.Fatalf("usage payload = %T, want map", event.Payload)
 		}
-		if _, present := payload["model"]; present {
-			t.Errorf("a non-escalation run recorded a model on its usage payload: %v", payload)
+		if payload["model"] != "claude-haiku-4.5" {
+			t.Errorf("usage receipt must retain its model: %v", payload)
 		}
 	}
 	if usageEvents == 0 {

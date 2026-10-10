@@ -197,6 +197,11 @@ func mergeUsageSnapshot(left Usage, right Usage) Usage {
 	if err != nil {
 		return right
 	}
+	usage.ModelID = left.ModelID
+	if right.ModelID != "" {
+		usage.ModelID = right.ModelID
+	}
+	usage.Elapsed = max(left.Elapsed, right.Elapsed)
 	return usage
 }
 

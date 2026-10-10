@@ -1143,6 +1143,18 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage) (model, [
 	if err != nil {
 		return m, []transcriptRow{{kind: rowError, text: "usage: " + err.Error()}}
 	}
+	if event.ModelID != "" {
+		modelID = event.ModelID
+	}
+	if event.Elapsed > 0 {
+		if m.callThroughput == nil {
+			m.callThroughput = map[string]callThroughput{}
+		}
+		stats := m.callThroughput[modelID]
+		stats.outputTokens += int64(normalized.OutputTokens)
+		stats.elapsed += event.Elapsed
+		m.callThroughput[modelID] = stats
+	}
 	m.lastUsage = normalized
 	m.lastUsageSeen = true
 	if _, err := m.usageTracker.Record(usage.RecordInput{

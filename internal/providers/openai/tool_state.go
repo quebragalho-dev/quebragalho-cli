@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
@@ -14,6 +15,7 @@ const (
 )
 
 type toolState struct {
+	callStarted    time.Time
 	calls          map[int]*pendingToolCall
 	think          thinkTagSplitter
 	parseThinkTags bool

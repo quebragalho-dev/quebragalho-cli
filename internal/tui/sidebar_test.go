@@ -627,7 +627,7 @@ func TestFullWidthFooterKeepsContextAndComposerVisible(t *testing.T) {
 	tokenRow := -1
 	composerTop := -1
 	for index, line := range lines {
-		if strings.Contains(line, "10K tok") {
+		if strings.Contains(line, "ctx não informado") {
 			tokenRow = index
 		}
 		if strings.HasPrefix(line, "╭") {

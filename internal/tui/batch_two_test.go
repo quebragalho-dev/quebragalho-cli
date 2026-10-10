@@ -22,7 +22,7 @@ func TestHeaderOmitsContextCapacity(t *testing.T) {
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 		header := plainRender(t, m.titleBar(width))
 		assertNotContains(t, header, "1M")
-		assertContains(t, header, "/workspace/qg")
+		assertNotContains(t, header, "/workspace/qg")
 		assertRenderedLineWidths(t, header, width)
 		if len(strings.Split(header, "\n")) != 2 {
 			t.Fatalf("header must keep two rows: %q", header)
@@ -54,12 +54,12 @@ func TestComposerModelUsesPaddingBeforeTruncating(t *testing.T) {
 
 func TestWordmarkSeparatesGlyphsWithoutChangingTheirCells(t *testing.T) {
 	expected := []string{
-		" ██████╗    ██████╗ ",
-		"██╔═══██╗  ██╔══════",
-		"██║   ██║  ██║  ███╗",
-		"██║▄▄ ██║  ██║   ██║",
-		"╚██████╔╝  ╚███████║",
-		" ╚══▀▀═╝    ╚═════╝ ",
+		" ███████    ███████ ",
+		"██     ██  ██       ",
+		"██     ██  ██       ",
+		"██  ██ ██  ██  █████",
+		"██   ███   ██     ██",
+		" █████ ██   ███████ ",
 	}
 	plain := strings.Split(Wordmark(), "\n")
 	styled := qgWordmarkLines()
@@ -84,7 +84,8 @@ func TestWorkspaceMovesFromEmptyStateToStatus(t *testing.T) {
 			assertNotContains(t, plainRender(t, m.emptyState(width)), "/workspace/qg")
 			status := plainRender(t, m.statusLine(width))
 			label, _ := m.modeLabel()
-			assertContains(t, status, label+" │ /workspace/qg")
+			assertContains(t, status, label+" · auto")
+			assertContains(t, status, "/w")
 			if got := lipgloss.Width(status); got > width {
 				t.Fatalf("status width = %d, want <= %d: %q", got, width, status)
 			}
@@ -103,7 +104,7 @@ func TestWorkspaceMovesFromEmptyStateToStatus(t *testing.T) {
 
 func TestStatusWorkspaceUsesLastAvailableCell(t *testing.T) {
 	m := model{permissionMode: agent.PermissionModeAsk, cwd: "/" + strings.Repeat("a", 47)}
-	status := plainRender(t, m.statusLine(58))
+	status := plainRender(t, m.appendStatusWorkspace("  ● ask", "", 58))
 	assertContains(t, status, m.cwd)
 	assertNotContains(t, status, "…")
 	assertRenderedLineWidths(t, status, 58)

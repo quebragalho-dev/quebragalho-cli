@@ -140,7 +140,13 @@ func (r *ImageRenderer) Invalidate() {
 }
 
 func (r *ImageRenderer) Render(writer io.Writer) error {
-	if r == nil || writer == nil {
+	return r.RenderFrame(writer, writer)
+}
+
+// RenderFrame separates destructive cell erasure from the new image placement,
+// so a text renderer can repaint between them in one synchronized frame.
+func (r *ImageRenderer) RenderFrame(eraseWriter, writer io.Writer) error {
+	if r == nil || writer == nil || eraseWriter == nil {
 		return nil
 	}
 	r.mu.Lock()
@@ -177,7 +183,11 @@ func (r *ImageRenderer) Render(writer io.Writer) error {
 		return nil
 	}
 	if r.last != nil {
-		if err := clearRenderedImage(writer, *r.last); err != nil {
+		clearWriter := writer
+		if r.last.protocol == ImageProtocolSixel {
+			clearWriter = eraseWriter
+		}
+		if err := clearRenderedImage(clearWriter, *r.last); err != nil {
 			return err
 		}
 	}
