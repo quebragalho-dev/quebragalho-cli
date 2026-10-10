@@ -467,6 +467,19 @@ func (wizard *mcpAddWizardState) mcpAddWizardResultActionStartRow() int {
 }
 
 func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
+	if m.picker.title == "Selecionar modelo" {
+		width := chatWidth(m.width)
+		hit, ok := m.overlayMouseHit(msg, m.modelPanelOverlay(width), width)
+		count := minInt(len(m.picker.items), maxInt(1, minInt(8, m.height-18)))
+		row := hit.y - 4
+		if !ok || row < 0 || row >= count {
+			return mouseSelectionTarget{}, false
+		}
+		start := panelListStart(len(m.picker.items), count, m.picker.selected)
+		index := start + row
+		m.picker.selected = index
+		return mouseSelectionTarget{Scope: "picker", Kind: int(pickerModel), Value: m.picker.items[index].Value, Index: index}, true
+	}
 	width := chatWidth(m.width)
 	hit, ok := m.overlayMouseHit(msg, m.modelPickerOverlay(width), width)
 	if !ok {
@@ -488,6 +501,12 @@ func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget
 }
 
 func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
+	if m.picker.kind == pickerEffort {
+		return m.selectEffortPanelAtMouse(msg)
+	}
+	if m.picker.kind == pickerUsage {
+		return mouseSelectionTarget{}, false
+	}
 	width := chatWidth(m.width)
 	hit, ok := m.overlayMouseHit(msg, m.pickerOverlay(width), width)
 	if !ok {
