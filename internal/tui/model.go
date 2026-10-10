@@ -230,7 +230,6 @@ type model struct {
 	// /context can show a rolling average turn latency (the "is it slow?" signal).
 	// Reset by /new.
 	turnLatencySum     time.Duration
-	callThroughput     map[string]callThroughput
 	turnLatencyCount   int
 	turnTTFTSum        time.Duration
 	turnTTFTCount      int

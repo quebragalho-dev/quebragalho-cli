@@ -84,7 +84,6 @@ func (m model) startNewSession() model {
 	m.compactFrame = 0
 	m.lastCompactResult = nil
 	m.lastCompactError = ""
-	m.callThroughput = nil
 	m.turnLatencySum = 0
 	m.turnLatencyCount = 0
 	m.turnTTFTSum = 0
@@ -236,7 +235,7 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	m.activeSession = *session
 	m.pendingSessionTitle = ""
 	m.sessionEvents = append([]sessions.Event{}, events...)
-	m.callThroughput = throughputFromSessionEvents(events)
+	m.lastUsage, m.lastUsageSeen = lastUsageFromSessionEvents(events)
 	if m.providerName == "" {
 		m.providerName = session.Provider
 	}

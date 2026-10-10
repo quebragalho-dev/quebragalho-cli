@@ -118,7 +118,6 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 	side.compactFrame = 0
 	side.lastCompactResult = nil
 	side.lastCompactError = ""
-	side.callThroughput = nil
 	side.turnLatencySum = 0
 	side.turnLatencyCount = 0
 	side.turnTTFTSum = 0

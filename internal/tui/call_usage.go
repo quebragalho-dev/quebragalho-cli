@@ -6,19 +6,15 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
-	"time"
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
-
-type callThroughput struct {
-	outputTokens int64
-	elapsed      time.Duration
-}
 
 func (m model) apiModel(modelID string) *qgaccount.ModelInfo {
 	for _, candidate := range m.discoveredModelsForActiveProvider() {
@@ -75,13 +71,13 @@ func (m model) statusReadout(left string, width int) string {
 	if width < 58 && m.apiContextWindow() == 0 {
 		context = "ctx n/d"
 	}
-	rate := "média — toks/s"
-	if stats := m.callThroughput[m.modelName]; stats.elapsed > 0 {
-		rate = fmt.Sprintf("média %.1f toks/s", float64(stats.outputTokens)/stats.elapsed.Seconds())
+	tokens := "última n/d tok"
+	if m.lastUsageSeen {
+		tokens = fmt.Sprintf("última %d tok", m.lastUsage.TotalTokens)
 	}
 	right := context
-	if width >= 80 && lipgloss.Width(left)+lipgloss.Width(context)+lipgloss.Width(rate)+12 <= width {
-		right = rate + " │ " + context
+	if width >= 80 && lipgloss.Width(left)+lipgloss.Width(context)+lipgloss.Width(tokens)+12 <= width {
+		right = tokens + " │ " + context
 	}
 	if lipgloss.Width(left)+lipgloss.Width(right)+9 > width {
 		right = ""
@@ -99,24 +95,42 @@ func (m model) statusReadout(left string, width int) string {
 	return fitStyledLine(joinHeaderLine(left, qgTheme.faint.Render(right), width), width)
 }
 
-func throughputFromSessionEvents(events []sessions.Event) map[string]callThroughput {
-	result := map[string]callThroughput{}
-	for _, event := range events {
+func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool) {
+	for i := len(events) - 1; i >= 0; i-- {
+		event := events[i]
 		if event.Type != sessions.EventUsage {
 			continue
 		}
 		var call struct {
-			Model        string        `json:"model"`
-			OutputTokens int64         `json:"completionTokens"`
-			Elapsed      time.Duration `json:"call_elapsed_ns"`
+			Input      *int `json:"promptTokens"`
+			Output     *int `json:"completionTokens"`
+			Cached     int  `json:"cachedInputTokens"`
+			CacheWrite int  `json:"cacheWriteTokens"`
+			Reasoning  int  `json:"reasoningTokens"`
 		}
-		if json.Unmarshal(event.Payload, &call) != nil || call.Model == "" || call.OutputTokens < 0 || call.Elapsed <= 0 {
+		if json.Unmarshal(event.Payload, &call) != nil || call.Input == nil || call.Output == nil {
 			continue
 		}
-		stats := result[call.Model]
-		stats.outputTokens += call.OutputTokens
-		stats.elapsed += call.Elapsed
-		result[call.Model] = stats
+		normalized, _, err := usage.Normalize(qgruntime.Usage{InputTokens: *call.Input, OutputTokens: *call.Output, CachedInputTokens: call.Cached, CacheWriteTokens: call.CacheWrite, ReasoningTokens: call.Reasoning})
+		if err == nil {
+			return normalized, true
+		}
 	}
-	return result
+	return usage.Normalized{}, false
+}
+
+func (m model) statusEffort() string {
+	if m.reasoningEffort != "" {
+		return "esf " + string(m.reasoningEffort)
+	}
+	for _, candidate := range m.discoveredModelsForActiveProvider() {
+		if candidate.Source != "live" || !strings.EqualFold(candidate.ID, m.modelName) {
+			continue
+		}
+		effort := modelregistry.ReasoningEffort(strings.TrimSpace(candidate.DefaultReasoningEffort))
+		if effort != "" && modelregistry.ValidReasoningEffort(effort) {
+			return "esf " + string(effort) + " (API)"
+		}
+	}
+	return "esf n/d"
 }

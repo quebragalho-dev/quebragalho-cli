@@ -209,10 +209,10 @@ func (m model) effortText() string {
 	}
 	actions := []string{"use /effort <value> to switch", "/effort auto to clear"}
 	if len(efforts) == 0 {
-		fields = append(fields, commandField{Key: "available", Value: "none for active model"})
+		fields = append(fields, commandField{Key: "available", Value: "API não informa níveis disponíveis"})
 		return renderCommandCardTranscript(commandCard{
 			Title:    "Effort",
-			Summary:  []string{"active effort: " + m.effortDisplay(), "no reasoning controls on this model"},
+			Summary:  []string{"active effort: " + m.effortDisplay(), "API não informa níveis disponíveis"},
 			Sections: []commandCardSection{{Title: "State", Fields: fields}},
 			Actions:  actions,
 		})
@@ -1145,15 +1145,6 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage) (model, [
 	}
 	if event.ModelID != "" {
 		modelID = event.ModelID
-	}
-	if event.Elapsed > 0 {
-		if m.callThroughput == nil {
-			m.callThroughput = map[string]callThroughput{}
-		}
-		stats := m.callThroughput[modelID]
-		stats.outputTokens += int64(normalized.OutputTokens)
-		stats.elapsed += event.Elapsed
-		m.callThroughput[modelID] = stats
 	}
 	m.lastUsage = normalized
 	m.lastUsageSeen = true
