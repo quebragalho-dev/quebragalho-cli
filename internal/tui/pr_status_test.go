@@ -128,7 +128,7 @@ func TestTitleBarShowsPRDiffStatsBesideBranch(t *testing.T) {
 
 	rendered := m.titleBar(120)
 	plain := plainRender(t, rendered)
-	for _, want := range []string{" feat/title-polish", "+144", "-32", "#219", "/workspace/qg"} {
+	for _, want := range []string{" feat/title-polish", "+144", "-32", "#219"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("title bar = %q, missing %q", plain, want)
 		}

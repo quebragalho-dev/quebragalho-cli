@@ -2,6 +2,7 @@ package qgaccount
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 )
@@ -13,6 +14,22 @@ type ModelPricing struct {
 	Input       string `json:"input"`
 	Output      string `json:"output"`
 	CachedInput string `json:"cached_input"`
+}
+
+func (p *ModelPricing) UnmarshalJSON(data []byte) error {
+	type pricing ModelPricing
+	var wire struct {
+		pricing
+		InputCached *string `json:"input_cached"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*p = ModelPricing(wire.pricing)
+	if wire.InputCached != nil {
+		p.CachedInput = *wire.InputCached
+	}
+	return nil
 }
 
 // ModelCapabilities is the live feature matrix for a model.

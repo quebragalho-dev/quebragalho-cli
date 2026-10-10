@@ -160,6 +160,7 @@ func (provider *Provider) StreamCompletion(
 }
 
 func (provider *Provider) stream(ctx context.Context, body []byte, sessionID string, events chan<- qgruntime.StreamEvent) {
+	started := time.Now()
 	endpoint := provider.endpoint
 
 	// streamCtx lets the idle watchdog abort an in-flight body read by cancelling
@@ -222,6 +223,7 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 	}
 
 	state := newToolState(provider.parseThinkTags)
+	state.callStarted = started
 	// Use the shared SSE reader (also used by the Anthropic/Gemini providers) so
 	// multi-line "data:" continuation fields are joined into one payload, and the
 	// idle watchdog / context cancellation are handled uniformly.
@@ -349,9 +351,14 @@ func (provider *Provider) emitChunk(
 	}
 
 	if chunk.Usage != nil {
+		elapsed := time.Duration(0)
+		if !state.callStarted.IsZero() {
+			elapsed = time.Since(state.callStarted)
+		}
 		sendEvent(ctx, events, qgruntime.StreamEvent{
 			Type: qgruntime.StreamEventUsage,
 			Usage: qgruntime.Usage{
+				ModelID: provider.model, Elapsed: elapsed,
 				PromptTokens:      chunk.Usage.PromptTokens,
 				CompletionTokens:  chunk.Usage.CompletionTokens,
 				CachedInputTokens: chunk.Usage.PromptTokensDetails.CachedTokens,

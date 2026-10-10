@@ -15,10 +15,12 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 type Model struct {
+	APIModel               *qgaccount.ModelInfo
 	ID                     string
 	Description            string
 	ContextWindow          int
@@ -220,8 +222,19 @@ func parseModelsResponse(body []byte) ([]Model, error) {
 	if len(items) == 0 {
 		items = payload.Models
 	}
+	var apiPayload struct {
+		Data   []json.RawMessage `json:"data"`
+		Models []json.RawMessage `json:"models"`
+	}
+	if err := json.Unmarshal(body, &apiPayload); err != nil {
+		return nil, fmt.Errorf("decode QG model metadata: %w", err)
+	}
+	apiModels := apiPayload.Data
+	if len(apiModels) == 0 {
+		apiModels = apiPayload.Models
+	}
 	models := make([]Model, 0, len(items))
-	for _, item := range items {
+	for index, item := range items {
 		id := firstNonEmptyDiscovery(item.ID, item.Slug)
 		if id == "" || seen[id] {
 			continue
@@ -258,7 +271,14 @@ func parseModelsResponse(body []byte) ([]Model, error) {
 			discoveryContainsFold(item.SupportedParameters, "include_reasoning")
 		efforts := reasoningEfforts(item)
 		serviceTiers := modelServiceTiers(item)
+		var info *qgaccount.ModelInfo
+		decoded := new(qgaccount.ModelInfo)
+		if json.Unmarshal(apiModels[index], decoded) == nil {
+			decoded.ID = id
+			info = decoded
+		}
 		models = append(models, Model{
+			APIModel:               info,
 			ID:                     id,
 			Description:            description,
 			ContextWindow:          contextWindow,

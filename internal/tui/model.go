@@ -33,6 +33,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -229,6 +230,7 @@ type model struct {
 	// /context can show a rolling average turn latency (the "is it slow?" signal).
 	// Reset by /new.
 	turnLatencySum     time.Duration
+	callThroughput     map[string]callThroughput
 	turnLatencyCount   int
 	turnTTFTSum        time.Duration
 	turnTTFTCount      int
@@ -5436,6 +5438,13 @@ func selfCorrectAutonomyForMode(mode agent.PermissionMode) string {
 }
 
 func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt string, images []qgruntime.ImageBlock, runOptions tuiAgentRunOptions) tea.Cmd {
+	callCatalog := map[string]qgaccount.ModelInfo{}
+	for _, candidate := range m.discoveredModelsForActiveProvider() {
+		if candidate.Source == "live" && candidate.APIModel != nil {
+			callCatalog[strings.ToLower(candidate.ID)] = *candidate.APIModel
+		}
+	}
+
 	return func() tea.Msg {
 		started := m.now()
 		if m.turnTimer != nil {
@@ -5926,23 +5935,27 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 
 		onUsage := options.OnUsage
 		options.OnUsage = func(event qgruntime.Usage) {
-			usageEvents = append(usageEvents, event)
-			usageModelIDs = append(usageModelIDs, usageModelID)
-			payload := usage.EventUsagePayload(event)
-			// AND ON THE PERSISTED EVENT TOO, not only the in-memory record: the
-			// report reconstructs cost from the payload, falling back to the
-			// session-wide model, so an escalated run would be priced entirely at
-			// the model it started on. Written only under escalation, which is the
-			// only way the model in force can change mid-run, matching what exec
-			// records under the same flag.
-			if m.allowEscalation {
-				payload["model"] = usageModelID
+			callModelID := usageModelID
+			if event.ModelID != "" {
+				callModelID = event.ModelID
 			}
+			receipt := callUsageRow(runID, len(usageEvents)+1, callModelID, event, callCatalog[strings.ToLower(callModelID)])
+			rows = append(rows, receipt)
+			m.sendAgentRow(runID, receipt)
+			usageEvents = append(usageEvents, event)
+			usageModelIDs = append(usageModelIDs, callModelID)
+			payload := usage.EventUsagePayload(event)
+			payload["model"] = callModelID
+			payload["call_id"] = receipt.id
+			payload["call_label"] = receipt.text
+			payload["cost_exact"] = receipt.meta["amount"]
+			payload["cost_currency"] = receipt.meta["currency"]
+			payload["call_elapsed_ns"] = event.Elapsed.Nanoseconds()
 			sessionEvents = append(sessionEvents, pendingSessionEvent{
 				Type:    sessions.EventUsage,
 				Payload: payload,
 			})
-			m.sendAgentUsage(runID, usageModelID, event)
+			m.sendAgentUsage(runID, callModelID, event)
 			if onUsage != nil {
 				onUsage(event)
 			}

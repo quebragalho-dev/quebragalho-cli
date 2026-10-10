@@ -32,9 +32,9 @@ func TestWidthTierSegments(t *testing.T) {
 	}{
 		{width: 58, wantCtx: false, wantCwd: false, wantArg: false, wantGutter: false},
 		{width: 70, wantCtx: false, wantCwd: false, wantArg: false, wantGutter: false},
-		{width: 80, wantCtx: false, wantCwd: true, wantArg: false, wantGutter: true},
-		{width: 100, wantCtx: false, wantCwd: true, wantArg: true, wantGutter: true},
-		{width: 120, wantCtx: false, wantCwd: true, wantArg: true, wantGutter: true},
+		{width: 80, wantCtx: false, wantCwd: false, wantArg: false, wantGutter: true},
+		{width: 100, wantCtx: false, wantCwd: false, wantArg: true, wantGutter: true},
+		{width: 120, wantCtx: false, wantCwd: false, wantArg: true, wantGutter: true},
 	}
 
 	for _, tc := range cases {
@@ -120,7 +120,7 @@ func TestTinyTierSingleSegmentAndRailLessCards(t *testing.T) {
 	}
 }
 
-func TestTitleBarKeepsWorkspaceWithLongBranchAndModel(t *testing.T) {
+func TestTitleBarKeepsBranchWithoutWorkspaceOrModel(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		Cwd:          "/workspace/qg",
 		ProviderName: "ollama-cloud",
@@ -129,7 +129,7 @@ func TestTitleBarKeepsWorkspaceWithLongBranchAndModel(t *testing.T) {
 	m.gitBranch = "feat/tui-assistant-response-cleanup"
 
 	got := plainRender(t, m.titleBar(108))
-	for _, want := range []string{"", "/workspace/qg", "feat/tui-assistant-response-cleanup"} {
+	for _, want := range []string{"", "feat/tui-assistant-response-cleanup"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("title bar = %q, missing %q", got, want)
 		}
