@@ -50,7 +50,7 @@ func TestFormatCommandHelpLinesGroupsCommandsByStableOrder(t *testing.T) {
 		"  /effort [list|level|auto] - Show or set reasoning effort for supported models.",
 		"  /fast - Toggle fast mode for supported ChatGPT subscription models.",
 		"session:",
-		"  /plan [status|on|off] - Show plan status, or enter/exit read-only planning mode.",
+		"  /plan [status|on|off] - Entrar no modo de planejamento; status consulta e off sai.",
 		"runtime:",
 		"  /permissions - Show the active permission mode and sandbox grants.",
 		"  /debug (/debug-mode) - Show debug mode status.",

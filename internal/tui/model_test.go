@@ -515,7 +515,7 @@ func TestPlanCommandShowsCurrentPlan(t *testing.T) {
 	}
 	registry.Register(planTool)
 	m := newModel(context.Background(), Options{Registry: registry})
-	m.input.SetValue("/plan")
+	m.input.SetValue("/plan status")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -532,7 +532,7 @@ func TestPlanCommandShowsCurrentPlan(t *testing.T) {
 
 func TestPlanCommandHandlesMissingPlanTool(t *testing.T) {
 	m := newModel(context.Background(), Options{Registry: tools.NewRegistry()})
-	m.input.SetValue("/plan")
+	m.input.SetValue("/plan status")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
