@@ -34,7 +34,7 @@ func TestStatusLineDoesNotInferContextFromRegistry(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{InputTokens: 160000, OutputTokens: 1000}, transcriptRow{})
 	status := plainRender(t, m.statusLine(110))
-	assertContains(t, status, "ctx 1.000.000 (fallback/docs)")
+	assertContains(t, status, "ctx 1.000.000")
 	assertNotContains(t, status, "1M")
 	if got := plainRender(t, m.sidebarTokenLine(40)); strings.Contains(got, "%") {
 		t.Fatalf("null API window must not produce a gauge: %q", got)

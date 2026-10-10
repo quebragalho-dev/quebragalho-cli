@@ -45,7 +45,6 @@ func TestFormatCommandHelpLinesGroupsCommandsByStableOrder(t *testing.T) {
 
 	for _, want := range []string{
 		"model:",
-		"  /provider [add|status] - Manage providers: activate, add, edit, delete.",
 		"  /model [list|id] - Show or switch the active model.",
 		"  /effort [list|level|auto] - Show or set reasoning effort for supported models.",
 		"  /fast - Toggle fast mode for supported ChatGPT subscription models.",

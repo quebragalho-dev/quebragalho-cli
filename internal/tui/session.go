@@ -369,10 +369,6 @@ func (m model) formatResumeSummary(session sessions.Metadata, eventCount int) st
 	})
 }
 
-// newSessionPicker builds the interactive /resume picker (mirrors /model & /provider):
-// one row per resumable session — age + title (Label), session id (Value), and a
-// project/model/size line (Detail). Returns nil when there are no resumable
-// sessions so the caller falls back to the text path.
 func (m model) newSessionPicker() *commandPicker {
 	if m.sessionStore == nil {
 		return nil

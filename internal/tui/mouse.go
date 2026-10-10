@@ -150,15 +150,6 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	if mouseLeftPress(msg) {
 		switch {
-		case m.providerWizard != nil:
-			if target, ok := m.selectProviderWizardAtMouse(msg); ok {
-				if m.repeatMouseSelection(target) {
-					m.clearMouseSelection()
-					return m.advanceProviderWizard()
-				}
-				m.lastMouseSelection = target
-				return m, nil
-			}
 		case m.mcpAddWizard != nil:
 			if target, ok := m.selectMCPAddWizardAtMouse(msg); ok {
 				if m.repeatMouseSelection(target) {
@@ -217,10 +208,6 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case mouseWheelUp(msg):
 		m.clearMouseSelection()
 		m = m.clearHover()
-		if m.providerWizard != nil {
-			m.providerWizard.move(-1)
-			return m, nil
-		}
 		if m.mcpAddWizard != nil {
 			m.mcpAddWizard.move(-1)
 			return m, nil
@@ -248,10 +235,6 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case mouseWheelDown(msg):
 		m.clearMouseSelection()
 		m = m.clearHover()
-		if m.providerWizard != nil {
-			m.providerWizard.move(1)
-			return m, nil
-		}
 		if m.mcpAddWizard != nil {
 			m.mcpAddWizard.move(1)
 			return m, nil
@@ -293,7 +276,7 @@ func (m model) wantsMouseCapture() bool {
 	if m.mouseReleased {
 		return false // user released the mouse for native text selection/copy
 	}
-	return m.altScreen && (m.setupWantsMouseCapture() || m.chatWantsMouseCapture() || m.providerWizard != nil || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.terminalAttach != nil || m.suggestionsActive())
+	return m.altScreen && (m.setupWantsMouseCapture() || m.chatWantsMouseCapture() || m.mcpAddWizard != nil || m.mcpManager != nil || m.picker != nil || m.terminalAttach != nil || m.suggestionsActive())
 }
 
 func (m model) setupWantsMouseCapture() bool {
@@ -556,64 +539,6 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 		line += rowLines
 	}
 	return mouseSelectionTarget{}, false
-}
-
-func (m *model) selectProviderWizardAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
-	if m.providerWizard == nil {
-		return mouseSelectionTarget{}, false
-	}
-	width := chatWidth(m.width)
-	hit, ok := m.overlayMouseHit(msg, m.providerWizardOverlay(width), width)
-	if !ok {
-		return mouseSelectionTarget{}, false
-	}
-	baseRow := 3
-	if m.providerWizard.err != "" {
-		baseRow += 2
-	}
-	switch m.providerWizard.step {
-	case providerWizardStepProvider:
-		if len(m.providerWizard.providers) == 0 {
-			return mouseSelectionTarget{}, false
-		}
-		maxVisible := minInt(maxProviderWizardProvidersVisible, len(m.providerWizard.providers))
-		selected := clampInt(m.providerWizard.selectedProvider, 0, len(m.providerWizard.providers)-1)
-		start := selectableListStart(len(m.providerWizard.providers), maxVisible, selected)
-		row := hit.y - (baseRow + 1)
-		if row < 0 || row >= maxVisible {
-			return mouseSelectionTarget{}, false
-		}
-		index := start + row
-		m.providerWizard.selectedProvider = index
-		m.providerWizard.apiKey = ""
-		m.providerWizard.refreshModels()
-		return mouseSelectionTarget{Scope: "provider-wizard", Kind: int(m.providerWizard.step), Value: m.providerWizard.providers[index].ID, Index: index}, true
-	case providerWizardStepModel:
-		if m.providerWizard.modelLoading {
-			return mouseSelectionTarget{}, false
-		}
-		m.providerWizard.refreshModels()
-		models := m.providerWizard.filteredModels()
-		if len(models) == 0 {
-			return mouseSelectionTarget{}, false
-		}
-		maxVisible := minInt(maxProviderWizardModelsVisible, len(models))
-		selected := clampInt(m.providerWizard.selectedModel, 0, len(models)-1)
-		start := selectableListStart(len(models), maxVisible, selected)
-		rowStart := baseRow + 2
-		if m.providerWizard.modelStatusText() != "" {
-			rowStart++
-		}
-		row := hit.y - rowStart
-		if row < 0 || row >= maxVisible {
-			return mouseSelectionTarget{}, false
-		}
-		index := start + row
-		m.providerWizard.selectedModel = index
-		return mouseSelectionTarget{Scope: "provider-wizard", Kind: int(m.providerWizard.step), Value: models[index].ID, Index: index}, true
-	default:
-		return mouseSelectionTarget{}, false
-	}
 }
 
 func (m model) overlayMouseHit(msg tea.MouseMsg, overlay string, width int) (mouseOverlayHit, bool) {

@@ -38,15 +38,12 @@ const (
 // second line under the row (project · model · size for sessions), rendered
 // only on medium-and-wider tiers where the extra line reads cleanly.
 type pickerItem struct {
-	Group    string
-	Label    string
-	Value    string
-	Meta     string
-	Detail   string
-	Provider string // display tag (catalog id / locality)
-	// OwnerProvider is the saved provider profile name a model belongs to, so the
-	// /model picker can switch providers when a model from a non-active provider is
-	// chosen. Empty for non-model items.
+	Group         string
+	Label         string
+	Value         string
+	Meta          string
+	Detail        string
+	Provider      string // display tag (catalog id / locality)
 	OwnerProvider string
 	Remote        bool
 	Local         bool
@@ -213,10 +210,6 @@ func (m model) newModelPicker() *commandPicker {
 		recent = append(recent, m.modelPickerRecentItem(registry, pair.Provider, pair.Model))
 	}
 	catalog := []pickerItem{}
-	// List every saved provider's models, grouped per provider (one contiguous
-	// section each), so /model shows all configured providers and you can switch
-	// across them. Dedup by group so two profiles resolving to the same provider
-	// don't produce a repeated section.
 	seenGroup := map[string]bool{}
 	for _, profile := range m.modelPickerProviders() {
 		descriptor, hasDescriptor := m.descriptorForProfile(profile)
@@ -276,21 +269,13 @@ func (m model) newSkillPicker() *commandPicker {
 	return &commandPicker{kind: pickerSkill, title: "pick a skill · ⏎ fills /name — add your request", items: items, allItems: append([]pickerItem{}, items...), selected: 0}
 }
 
-// modelPickerProviders returns the providers to list in /model: all saved
-// providers, falling back to the active profile when none were threaded in.
 func (m model) modelPickerProviders() []config.ProviderProfile {
-	if len(m.savedProviders) > 0 {
-		return m.savedProviders
-	}
 	if config.HasProviderProfile(m.providerProfile) {
 		return []config.ProviderProfile{m.providerProfile}
 	}
 	return nil
 }
 
-// savedProviderModelPickerItems lists one saved provider's models as a group,
-// tagging each with the owning provider so selection can switch providers. The
-// active provider prefers its live-discovered models when available.
 func (m model) savedProviderModelPickerItems(profile config.ProviderProfile, activeProvider, activeModel string) []pickerItem {
 	providerName := strings.TrimSpace(profile.Name)
 	isActive := providerName != "" && strings.EqualFold(providerName, activeProvider)
@@ -376,15 +361,9 @@ func (m model) openModelPicker() (model, tea.Cmd) {
 	}
 	m.picker = picker
 	m.clearModelPickerLoadState()
-	// Live-discover every usable provider's real models in the background. The list
-	// shows immediately from the static catalog and each provider's section refreshes
-	// as its discovery returns — no blocking overlay.
 	return m, m.modelPickerDiscoveryCmds()
 }
 
-// modelPickerDiscoveryCmds dispatches a live model-discovery command for each
-// usable provider (deduped by catalog descriptor), so /model shows the same real
-// models the provider-setup wizard discovers.
 func (m model) modelPickerDiscoveryCmds() tea.Cmd {
 	cmds := []tea.Cmd{}
 	seen := map[string]bool{}
@@ -521,7 +500,11 @@ func (m model) assembleModelPickerItems(recent []pickerItem, catalog []pickerIte
 func (m model) recentModelPairsForPicker() []config.RecentModelEntry {
 	pairs := make([]config.RecentModelEntry, 0, len(m.recentModels)+1)
 	pairs = append(pairs, config.RecentModelEntry{Provider: m.providerName, Model: m.modelName})
-	pairs = append(pairs, m.recentModels...)
+	for _, pair := range m.recentModels {
+		if strings.EqualFold(strings.TrimSpace(pair.Provider), strings.TrimSpace(m.providerName)) {
+			pairs = append(pairs, pair)
+		}
+	}
 	for index := range pairs {
 		pairs[index] = m.canonicalRecentModelPair(pairs[index])
 	}
@@ -559,9 +542,6 @@ func (m model) recentPairUsesChatGPT(providerName string) bool {
 	return providercatalog.NormalizeID(m.providerProfile.CatalogID) == "chatgpt"
 }
 
-// modelPickerRecentItem resolves one "Recent" row for a provider+model pair,
-// tagging it with OwnerProvider so choosing it can switch providers (like any
-// other cross-provider picker row) even when it isn't the active provider.
 func (m model) modelPickerRecentItem(registry modelregistry.Registry, providerName, modelID string) pickerItem {
 	providerName = strings.TrimSpace(providerName)
 	if entry, ok := registry.Resolve(modelID); ok {

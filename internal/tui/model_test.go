@@ -292,7 +292,7 @@ func TestParseCommand(t *testing.T) {
 
 func TestCommandRegistryResolvesAliasesAndFormatsHelp(t *testing.T) {
 	names := listCommandNames()
-	for _, name := range []string{"/help", "/model", "/provider", "/context", "/debug-mode", "/quit"} {
+	for _, name := range []string{"/help", "/model", "/context", "/debug-mode", "/quit"} {
 		if !stringSliceContains(names, name) {
 			t.Fatalf("expected command names to contain %s, got %#v", name, names)
 		}

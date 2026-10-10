@@ -242,7 +242,7 @@ func TestDoctorConnectivityCommandAnimatesAndReplacesStatusRow(t *testing.T) {
 	}
 }
 
-func TestDoctorFixOpensProviderWizardWhenProviderMissing(t *testing.T) {
+func TestDoctorFixGuidesQGLoginWhenProviderMissing(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m.input.SetValue("/doctor fix")
 
@@ -251,11 +251,8 @@ func TestDoctorFixOpensProviderWizardWhenProviderMissing(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /doctor fix provider setup path to be handled synchronously")
 	}
-	if next.providerWizard == nil {
-		t.Fatalf("expected /doctor fix to open provider setup wizard, transcript %#v", next.transcript)
-	}
-	if !transcriptContains(next.transcript, "Opening provider setup") {
-		t.Fatalf("expected doctor fix transcript to explain provider setup, got %#v", next.transcript)
+	if !transcriptContains(next.transcript, "qg login") {
+		t.Fatalf("expected QG login guidance, got %#v", next.transcript)
 	}
 }
 
