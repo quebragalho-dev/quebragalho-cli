@@ -40,7 +40,7 @@ func makeACLJunction(t *testing.T, link, target string) {
 // <root>/.git/config are constructed from the root, and <root>/.git is a name an
 // unprivileged workspace writer can create before setup runs. A junction there
 // makes the apply open <junction-target>/hooks, an ordinary directory with
-// nothing wrong about its final component, and `zero sandbox setup` writes a
+// nothing wrong about its final component, and `qg sandbox setup` writes a
 // deny-write ACE on it as Administrator, outside the workspace.
 func TestApplyWindowsACLRefusesACarveoutRedirectedByAJunction(t *testing.T) {
 	root := t.TempDir()

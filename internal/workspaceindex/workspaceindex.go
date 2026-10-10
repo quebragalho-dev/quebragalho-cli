@@ -20,7 +20,7 @@ var errStopWalk = errors.New("workspace index scan stopped")
 
 type Options struct {
 	MaxFiles int
-	// MaxDepth is measured as path separators below the root. Zero means root
+	// MaxDepth is measured as path separators below the root. QG means root
 	// files only; negative values use DefaultMaxDepth.
 	MaxDepth            int
 	MaxBytesPerFileName int
@@ -168,7 +168,7 @@ func HandleWalkError(cleanRoot string, current string, entry fs.DirEntry, walkEr
 
 func ShouldSkipDir(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case ".cache", ".git", ".next", ".worktrees", ".zero", "build", "coverage", "dist", "node_modules", "vendor":
+	case ".cache", ".git", ".next", ".worktrees", ".qg", "build", "coverage", "dist", "node_modules", "vendor":
 		return true
 	default:
 		return false
@@ -269,7 +269,7 @@ func ImportantPriority(file string) (int, bool) {
 	switch base {
 	case "agents.md":
 		return 10, true
-	case "zero.md":
+	case "qg.md":
 		return 20, true
 	case "readme.md":
 		return 30, true

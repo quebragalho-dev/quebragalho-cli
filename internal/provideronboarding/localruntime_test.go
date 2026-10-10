@@ -10,52 +10,13 @@ import (
 	"time"
 )
 
-func TestLocalRuntimeCandidatesCoverOllamaLMStudioAndAtomicChat(t *testing.T) {
-	candidates := LocalRuntimeCandidates()
-	if len(candidates) == 0 {
-		t.Fatalf("LocalRuntimeCandidates() returned no candidates")
-	}
-	byCatalog := map[string]LocalRuntime{}
-	for _, candidate := range candidates {
-		byCatalog[candidate.CatalogID] = candidate
-	}
-	ollama, ok := byCatalog["ollama"]
-	if !ok {
-		t.Fatalf("expected an ollama candidate, got %#v", candidates)
-	}
-	if !strings.Contains(ollama.BaseURL, "11434") {
-		t.Fatalf("ollama candidate must probe default port 11434, got %q", ollama.BaseURL)
-	}
-	if ollama.RequiresKey {
-		t.Fatalf("ollama candidate must not require an API key: %#v", ollama)
-	}
-	lmstudio, ok := byCatalog["lmstudio"]
-	if !ok {
-		t.Fatalf("expected an lmstudio candidate, got %#v", candidates)
-	}
-	if !strings.Contains(lmstudio.BaseURL, "1234") {
-		t.Fatalf("lmstudio candidate must probe default port 1234, got %q", lmstudio.BaseURL)
-	}
-	if lmstudio.RequiresKey {
-		t.Fatalf("lmstudio candidate must not require an API key: %#v", lmstudio)
-	}
-	atomicChat, ok := byCatalog["atomic-chat-local"]
-	if !ok {
-		t.Fatalf("expected an atomic-chat-local candidate, got %#v", candidates)
-	}
-	if atomicChat.BaseURL != "http://127.0.0.1:1337/v1" {
-		t.Fatalf("atomic-chat-local candidate BaseURL = %q, want http://127.0.0.1:1337/v1", atomicChat.BaseURL)
-	}
-	if atomicChat.DefaultModel != "local-model" {
-		t.Fatalf("atomic-chat-local candidate DefaultModel = %q, want local-model", atomicChat.DefaultModel)
-	}
-	if atomicChat.RequiresKey {
-		t.Fatalf("atomic-chat-local candidate must not require an API key: %#v", atomicChat)
-	}
-	// The hosted atomic-chat preset stays remote and key-gated, so it must never
-	// be probed as a local runtime.
-	if _, ok := byCatalog["atomic-chat"]; ok {
-		t.Fatalf("hosted atomic-chat must not be a local-runtime candidate, got %#v", candidates)
+// TestLocalRuntimeCandidatesEmptyForSingleProviderCatalog: the candidates are
+// derived from catalog descriptors marked Local, and the single-provider
+// catalog has none — so `providers detect` reports nothing by default (explicit
+// candidates remain testable through LocalDetectOptions).
+func TestLocalRuntimeCandidatesEmptyForSingleProviderCatalog(t *testing.T) {
+	if candidates := LocalRuntimeCandidates(); len(candidates) != 0 {
+		t.Fatalf("LocalRuntimeCandidates() = %#v, want none for the single-provider catalog", candidates)
 	}
 }
 
@@ -86,9 +47,7 @@ func TestDetectLocalRuntimesReportsReachableRuntime(t *testing.T) {
 }
 
 // A local runtime serves whichever model the user loaded, so the adopt command
-// must pin the id the probe saw. Atomic Chat pulls its catalog from Hugging
-// Face, so the served id is an arbitrary repo id and never the "local-model"
-// placeholder the catalog carries as DefaultModel.
+// must pin the id the probe saw — never a catalog placeholder DefaultModel.
 func TestSetupActionPinsProbedModel(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -120,21 +79,6 @@ func TestSetupActionPinsProbedModel(t *testing.T) {
 	}
 }
 
-// With no model IDs, Atomic Chat needs guidance instead of a failing command.
-func TestSetupActionOmitsModelWhenProbeFoundNone(t *testing.T) {
-	runtime := DetectedLocalRuntime{
-		LocalRuntime: LocalRuntime{CatalogID: "atomic-chat-local", Name: "Atomic Chat Local", BaseURL: "http://127.0.0.1:1337/v1", DefaultModel: "local-model"},
-		Reachable:    true,
-	}
-	if got := runtime.AdoptModel(); got != "" {
-		t.Fatalf("AdoptModel() = %q, want empty", got)
-	}
-	action := runtime.SetupAction()
-	if strings.Contains(action.Command, "providers add") {
-		t.Fatalf("atomic-chat-local with no served model must not advertise a bare add command, got %q", action.Command)
-	}
-}
-
 func TestSetupActionPreservesModelsWithSpaces(t *testing.T) {
 	runtime := DetectedLocalRuntime{
 		LocalRuntime: LocalRuntime{CatalogID: "atomic-chat-local", Name: "Atomic Chat Local"},
@@ -156,26 +100,13 @@ func TestSetupActionOmitsUnsafeCommands(t *testing.T) {
 				t.Fatal("discovered model must not be silently changed")
 			}
 			action := runtime.SetupAction()
-			if action.Command != "" || !strings.Contains(action.Detail, "zero setup") {
+			if action.Command != "" || !strings.Contains(action.Detail, "qg setup") {
 				t.Fatalf("unsafe command must be replaced with interactive guidance: %#v", action)
 			}
 		})
 	}
 }
 
-func TestSetupActionRejectsAtomicPlaceholder(t *testing.T) {
-	runtime := DetectedLocalRuntime{LocalRuntime: LocalRuntime{CatalogID: "atomic-chat-local", DefaultModel: "local-model"}, Models: []string{"local-model"}}
-	if runtime.AdoptModel() != "" || runtime.SetupAction().Command != "" {
-		t.Fatal("placeholder must not be advertised as adoptable")
-	}
-	runtime.Models = append(runtime.Models, "loaded/model")
-	if runtime.AdoptModel() != "loaded/model" {
-		t.Fatal("real model must be selected instead of placeholder")
-	}
-}
-
-// A server that advertises the catalog default alongside other ids keeps the
-// default, so an existing Ollama setup does not silently switch models.
 func TestAdoptModelPrefersCatalogDefaultWhenServed(t *testing.T) {
 	runtime := DetectedLocalRuntime{
 		LocalRuntime: LocalRuntime{CatalogID: "ollama", Name: "Ollama Local", DefaultModel: "llama3.1"},
@@ -217,7 +148,7 @@ func TestSetupActionOmitsKnownNonChatOnlyModels(t *testing.T) {
 		for _, defaultModel := range []string{"local-model", "text-embedding-local"} {
 			detected := DetectedLocalRuntime{LocalRuntime: LocalRuntime{CatalogID: provider, DefaultModel: defaultModel}, Models: []string{"text-embedding-local", "whisper-1"}}
 			action := detected.SetupAction()
-			if detected.AdoptModel() != "" || action.Command != "" || !strings.Contains(action.Detail, "zero providers detect") {
+			if detected.AdoptModel() != "" || action.Command != "" || !strings.Contains(action.Detail, "qg providers detect") {
 				t.Fatalf("%s must offer guidance without adopting non-chat models: %+v", provider, action)
 			}
 		}
@@ -270,7 +201,7 @@ func TestLocalRuntimeActionOffersNoKeySetup(t *testing.T) {
 	}, Reachable: true}
 
 	action := runtime.SetupAction()
-	if !strings.Contains(action.Command, "zero providers add ollama") {
+	if !strings.Contains(action.Command, "qg providers add ollama") {
 		t.Fatalf("setup command should add the ollama provider, got %q", action.Command)
 	}
 	if strings.Contains(action.Command, "--api-key-env") {
@@ -308,15 +239,4 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
-}
-
-func TestAtomicDetectionWithoutUsableModelsOmitsAdoption(t *testing.T) {
-	for _, body := range []string{`{"data":[]}`, `not json`, strings.Repeat(" ", 256*1024) + `{"data":[{"id":"real"}]}`, `{"data":[{"id":"local-model"}]}`} {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
-		detected := DetectLocalRuntimes(context.Background(), LocalDetectOptions{HTTPClient: server.Client(), Candidates: []LocalRuntime{{CatalogID: "atomic-chat-local", BaseURL: server.URL + "/v1", DefaultModel: "local-model"}}})
-		server.Close()
-		if len(detected) != 1 || detected[0].SetupAction().Command != "" || detected[0].SetupAction().Detail == "" {
-			t.Fatalf("model-less detection advertised a failing action: %+v", detected)
-		}
-	}
 }

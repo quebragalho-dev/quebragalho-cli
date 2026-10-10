@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 const defaultBaseURL = "https://api.openai.com/v1"
@@ -37,16 +37,12 @@ type Options struct {
 	CustomHeaders   map[string]string
 	HTTPClient      *http.Client
 	UserAgent       string
-	// OAuthResolver, when set, supplies an OAuth bearer credential per request and
-	// is preferred over APIKey; a nil resolver (or one that yields ok=false) uses
-	// the API key. See providerio.SendWithAuthRetry.
-	OAuthResolver providerio.TokenResolver
-	// MaxTokens caps the model's output tokens. Zero omits the cap (the model's
+	// MaxTokens caps the model's output tokens. QG omits the cap (the model's
 	// own default applies). Resolved from the model registry by the factory.
 	MaxTokens int
 	// StreamIdleTimeout aborts the stream if no data arrives for this long.
-	// When unset, Zero uses providerio.ResolveStreamIdleTimeout — the
-	// ZERO_STREAM_IDLE_TIMEOUT override or providerio.DefaultStreamIdleTimeout.
+	// When unset, QG uses providerio.ResolveStreamIdleTimeout — the
+	// QG_STREAM_IDLE_TIMEOUT override or providerio.DefaultStreamIdleTimeout.
 	StreamIdleTimeout time.Duration
 	// ParseThinkTags converts streamed <think>...</think> content into reasoning
 	// events for OpenAI-compatible models known to emit that legacy format.
@@ -62,7 +58,7 @@ type Options struct {
 	// caller supplies a session identity. Used for openai-compatible gateways
 	// (NVIDIA NIM, strict local proxies, …) that validate and reject unknown
 	// request fields instead of ignoring them. Official OpenAI keeps the field
-	// enabled; the ZERO_DISABLE_PROMPT_CACHE_KEY env kill switch still applies
+	// enabled; the QG_DISABLE_PROMPT_CACHE_KEY env kill switch still applies
 	// on top for any endpoint.
 	DisablePromptCacheKey bool
 	SessionHeader         string
@@ -78,7 +74,6 @@ type Provider struct {
 	authScheme            string
 	authHeaderValue       string
 	customHeaders         map[string]string
-	oauthResolver         providerio.TokenResolver
 	maxTokens             int
 	httpClient            *http.Client
 	userAgent             string
@@ -134,7 +129,6 @@ func New(options Options) (*Provider, error) {
 		authScheme:            strings.TrimSpace(options.AuthScheme),
 		authHeaderValue:       strings.TrimSpace(options.AuthHeaderValue),
 		customHeaders:         providerio.CopyHeaders(options.CustomHeaders),
-		oauthResolver:         options.OAuthResolver,
 		maxTokens:             maxTokens,
 		httpClient:            httpClient,
 		userAgent:             options.UserAgent,
@@ -149,14 +143,14 @@ func New(options Options) (*Provider, error) {
 // StreamCompletion sends one streaming chat completion request.
 func (provider *Provider) StreamCompletion(
 	ctx context.Context,
-	request zeroruntime.CompletionRequest,
-) (<-chan zeroruntime.StreamEvent, error) {
+	request qgruntime.CompletionRequest,
+) (<-chan qgruntime.StreamEvent, error) {
 	body, err := json.Marshal(provider.openAIRequest(request))
 	if err != nil {
 		return nil, fmt.Errorf("encode OpenAI request: %w", err)
 	}
 
-	events := make(chan zeroruntime.StreamEvent, 16)
+	events := make(chan qgruntime.StreamEvent, 16)
 	go func() {
 		defer close(events)
 		provider.stream(ctx, body, request.PromptCacheKey, events)
@@ -165,7 +159,8 @@ func (provider *Provider) StreamCompletion(
 	return events, nil
 }
 
-func (provider *Provider) stream(ctx context.Context, body []byte, sessionID string, events chan<- zeroruntime.StreamEvent) {
+func (provider *Provider) stream(ctx context.Context, body []byte, sessionID string, events chan<- qgruntime.StreamEvent) {
+	started := time.Now()
 	endpoint := provider.endpoint
 
 	// streamCtx lets the idle watchdog abort an in-flight body read by cancelling
@@ -177,17 +172,16 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 	// Retry transient failures (network errors, 429, and 5xx) before surfacing
 	// them — hosted gateways return intermittent 500s and rate limits that
 	// succeed on a quick retry. Shared with the Anthropic/Gemini providers.
-	response, err := providerio.SendWithAuthRetry(streamCtx, provider.httpClient, http.MethodPost, endpoint, body,
-		providerio.AuthHeaders{
-			APIKey:            provider.apiKey,
-			DefaultAuthHeader: "Authorization",
-			DefaultAuthScheme: "Bearer",
-			AuthHeader:        provider.authHeader,
-			AuthScheme:        provider.authScheme,
-			AuthHeaderValue:   provider.authHeaderValue,
-			CustomHeaders:     provider.customHeaders,
-		},
-		provider.oauthResolver,
+	auth := providerio.AuthHeaders{
+		APIKey:            provider.apiKey,
+		DefaultAuthHeader: "Authorization",
+		DefaultAuthScheme: "Bearer",
+		AuthHeader:        provider.authHeader,
+		AuthScheme:        provider.authScheme,
+		AuthHeaderValue:   provider.authHeaderValue,
+		CustomHeaders:     provider.customHeaders,
+	}
+	response, err := providerio.SendWithRetry(streamCtx, provider.httpClient, http.MethodPost, endpoint, body,
 		func(request *http.Request) {
 			provider.sessionHeader.Apply(request, sessionID)
 			request.Header.Set("Content-Type", "application/json")
@@ -197,6 +191,7 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 			if provider.setRequestExtra != nil {
 				provider.setRequestExtra(request)
 			}
+			providerio.ApplyAuthHeaders(request, auth)
 		}, 0)
 	if err != nil {
 		// A caller-driven cancel/deadline (parent ctx done) surfaces here as a
@@ -205,17 +200,17 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 		// outage. Check the parent context first and surface its error verbatim, so
 		// only genuine connect failures (ctx still live) get humanized.
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact("provider stream error: " + ctxErr.Error())})
+			sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + ctxErr.Error())})
 			return
 		}
 		// A direct connection that never completes (e.g. a hosted endpoint blocked
 		// by the local network) surfaces as a transport error; humanize it the same
 		// way as a proxy's gateway error so the user sees a clear connectivity cause.
 		if humanized, ok := providerio.UpstreamUnreachable(err.Error()); ok {
-			sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact(humanized)})
+			sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact(humanized)})
 			return
 		}
-		sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
+		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
 		return
 	}
 	defer func() {
@@ -228,6 +223,7 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 	}
 
 	state := newToolState(provider.parseThinkTags)
+	state.callStarted = started
 	// Use the shared SSE reader (also used by the Anthropic/Gemini providers) so
 	// multi-line "data:" continuation fields are joined into one payload, and the
 	// idle watchdog / context cancellation are handled uniformly.
@@ -237,8 +233,8 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 	if errors.Is(err, providerio.ErrStreamIdle) || errors.Is(err, providerio.ErrStreamStalled) {
 		state.flushBufferedContent(events)
 		state.closeBufferedOpen(events)
-		sendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		sendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: provider.redact("provider stream error: " + providerio.StreamTimeoutMessage(err, provider.streamIdleTimeout)),
 		})
 		return
@@ -246,19 +242,19 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 	if err != nil {
 		state.flushBufferedContent(events)
 		state.closeBufferedOpen(events)
-		sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
+		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
 		return
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		state.flushBufferedContent(events)
 		state.closeBufferedOpen(events)
-		sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact("provider stream error: " + ctxErr.Error())})
+		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + ctxErr.Error())})
 		return
 	}
 	if !state.done {
 		state.flushContent(ctx, events)
 		state.closeOpen(ctx, events)
-		sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventDone, FinishReason: state.finishReason})
+		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventDone, FinishReason: state.finishReason})
 	}
 }
 
@@ -283,13 +279,13 @@ var openAIStreamErrorStatusByCode = map[string]int{
 // emitPayload handles one accumulated SSE data payload ([DONE]/blank lines are
 // already filtered by the shared reader). It returns false to abort the stream
 // after emitting a terminal error.
-func (provider *Provider) emitPayload(ctx context.Context, data string, state *toolState, events chan<- zeroruntime.StreamEvent) bool {
+func (provider *Provider) emitPayload(ctx context.Context, data string, state *toolState, events chan<- qgruntime.StreamEvent) bool {
 	var chunk streamChunk
 	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 		state.flushContent(ctx, events)
 		state.closeOpen(ctx, events)
-		sendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		sendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: provider.redact("provider stream error: malformed JSON: " + err.Error()),
 		})
 		state.done = true
@@ -315,8 +311,8 @@ func (provider *Provider) emitPayload(ctx context.Context, data string, state *t
 				}
 			}
 		}
-		sendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type:  zeroruntime.StreamEventError,
+		sendEvent(ctx, events, qgruntime.StreamEvent{
+			Type:  qgruntime.StreamEventError,
 			Error: provider.classifiedError(statusCode, chunk.Error.Message),
 		})
 		state.done = true
@@ -330,12 +326,12 @@ func (provider *Provider) emitChunk(
 	ctx context.Context,
 	chunk streamChunk,
 	state *toolState,
-	events chan<- zeroruntime.StreamEvent,
+	events chan<- qgruntime.StreamEvent,
 ) {
 	for _, choice := range chunk.Choices {
 		if reasoning := choice.Delta.reasoningText(); reasoning != "" {
-			sendEvent(ctx, events, zeroruntime.StreamEvent{
-				Type:    zeroruntime.StreamEventReasoning,
+			sendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:    qgruntime.StreamEventReasoning,
 				Content: reasoning,
 			})
 		}
@@ -355,9 +351,14 @@ func (provider *Provider) emitChunk(
 	}
 
 	if chunk.Usage != nil {
-		sendEvent(ctx, events, zeroruntime.StreamEvent{
-			Type: zeroruntime.StreamEventUsage,
-			Usage: zeroruntime.Usage{
+		elapsed := time.Duration(0)
+		if !state.callStarted.IsZero() {
+			elapsed = time.Since(state.callStarted)
+		}
+		sendEvent(ctx, events, qgruntime.StreamEvent{
+			Type: qgruntime.StreamEventUsage,
+			Usage: qgruntime.Usage{
+				ModelID: provider.model, Elapsed: elapsed,
 				PromptTokens:      chunk.Usage.PromptTokens,
 				CompletionTokens:  chunk.Usage.CompletionTokens,
 				CachedInputTokens: chunk.Usage.PromptTokensDetails.CachedTokens,
@@ -380,15 +381,15 @@ func (delta streamDelta) reasoningText() string {
 func mapFinishReason(reason string) string {
 	switch reason {
 	case "length":
-		return zeroruntime.FinishReasonLength
+		return qgruntime.FinishReasonLength
 	case "content_filter":
-		return zeroruntime.FinishReasonContentFilter
+		return qgruntime.FinishReasonContentFilter
 	default:
 		return ""
 	}
 }
 
-func (provider *Provider) emitHTTPError(ctx context.Context, response *http.Response, events chan<- zeroruntime.StreamEvent) {
+func (provider *Provider) emitHTTPError(ctx context.Context, response *http.Response, events chan<- qgruntime.StreamEvent) {
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 	message := strings.TrimSpace(string(body))
 	var parsed struct {
@@ -404,11 +405,11 @@ func (provider *Provider) emitHTTPError(ctx context.Context, response *http.Resp
 	// localhost but returns a gateway error when it cannot reach its own backend.
 	// Surface that as a clear connectivity message instead of the raw proxied body.
 	if humanized, ok := providerio.UpstreamUnreachable(message); ok {
-		sendEvent(ctx, events, zeroruntime.StreamEvent{Type: zeroruntime.StreamEventError, Error: provider.redact(humanized)})
+		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact(humanized)})
 		return
 	}
-	sendEvent(ctx, events, zeroruntime.StreamEvent{
-		Type:  zeroruntime.StreamEventError,
+	sendEvent(ctx, events, qgruntime.StreamEvent{
+		Type:  qgruntime.StreamEventError,
 		Error: provider.classifiedError(response.StatusCode, message),
 	})
 }
@@ -421,10 +422,10 @@ func (provider *Provider) redact(message string) string {
 	return providerio.Redact(message, provider.apiKey, provider.authHeaderValue)
 }
 
-func sendEvent(ctx context.Context, events chan<- zeroruntime.StreamEvent, event zeroruntime.StreamEvent) {
+func sendEvent(ctx context.Context, events chan<- qgruntime.StreamEvent, event qgruntime.StreamEvent) {
 	select {
 	case <-ctx.Done():
-		if event.Type == zeroruntime.StreamEventError {
+		if event.Type == qgruntime.StreamEventError {
 			select {
 			case events <- event:
 			default:
@@ -434,21 +435,21 @@ func sendEvent(ctx context.Context, events chan<- zeroruntime.StreamEvent, event
 	}
 }
 
-func sendBufferedEvent(events chan<- zeroruntime.StreamEvent, event zeroruntime.StreamEvent) {
+func sendBufferedEvent(events chan<- qgruntime.StreamEvent, event qgruntime.StreamEvent) {
 	select {
 	case events <- event:
 	default:
 	}
 }
 
-func (provider *Provider) openAIRequest(request zeroruntime.CompletionRequest) chatCompletionRequest {
+func (provider *Provider) openAIRequest(request qgruntime.CompletionRequest) chatCompletionRequest {
 	messages := make([]chatMessage, 0, len(request.Messages))
 	for _, message := range request.Messages {
 		// Drop a degenerate assistant turn that carries neither text nor tool calls
 		// (e.g. a sub-agent that failed with no output). The Anthropic/Gemini mappers
 		// already skip empty turns; without this, the contentless message reaches
 		// strict OpenAI-compatible servers and is rejected.
-		if message.Role == zeroruntime.MessageRoleAssistant &&
+		if message.Role == qgruntime.MessageRoleAssistant &&
 			strings.TrimSpace(message.Content) == "" && len(message.ToolCalls) == 0 {
 			continue
 		}
@@ -479,7 +480,7 @@ func (provider *Provider) openAIRequest(request zeroruntime.CompletionRequest) c
 	// cache routing. Official OpenAI accepts it; many openai-compatible
 	// gateways (NVIDIA NIM, strict local proxies) reject unknown fields with a
 	// 400. Those providers are constructed with DisablePromptCacheKey, and any
-	// endpoint can still force-omit via ZERO_DISABLE_PROMPT_CACHE_KEY=1.
+	// endpoint can still force-omit via QG_DISABLE_PROMPT_CACHE_KEY=1.
 	if key := strings.TrimSpace(request.PromptCacheKey); key != "" && !provider.disablePromptCacheKey && !promptCacheKeyDisabled() {
 		mapped.PromptCacheKey = key
 	}
@@ -514,12 +515,12 @@ func normalizeToolParameters(parameters map[string]any) map[string]any {
 	return normalized
 }
 
-// promptCacheKeyDisabled reports whether the ZERO_DISABLE_PROMPT_CACHE_KEY
+// promptCacheKeyDisabled reports whether the QG_DISABLE_PROMPT_CACHE_KEY
 // kill switch is set to a truthy value. "0" and "false" (any case) are
-// no-ops, matching how ZERO_FORMAT_ON_WRITE parses boolean flags, so an
+// no-ops, matching how QG_FORMAT_ON_WRITE parses boolean flags, so an
 // explicitly-disabled toggle never flips the behavior it names.
 func promptCacheKeyDisabled() bool {
-	value := strings.TrimSpace(os.Getenv("ZERO_DISABLE_PROMPT_CACHE_KEY"))
+	value := strings.TrimSpace(os.Getenv("QG_DISABLE_PROMPT_CACHE_KEY"))
 	return value != "" && value != "0" && !strings.EqualFold(value, "false")
 }
 
@@ -544,7 +545,7 @@ func openAIServiceTier(requested string) string {
 	}
 }
 
-func mapMessage(message zeroruntime.Message) chatMessage {
+func mapMessage(message qgruntime.Message) chatMessage {
 	mapped := chatMessage{
 		Role:       string(message.Role),
 		ToolCallID: message.ToolCallID,
@@ -555,7 +556,7 @@ func mapMessage(message zeroruntime.Message) chatMessage {
 	// this one mapper, so guard the parts path to the user role. A non-user
 	// message that happens to carry Images keeps the plain string/nil content
 	// path (its images are simply not serialized).
-	if len(message.Images) == 0 || message.Role != zeroruntime.MessageRoleUser {
+	if len(message.Images) == 0 || message.Role != qgruntime.MessageRoleUser {
 		// Always set content (to "" when empty) so it serializes as `"content":""`
 		// rather than being dropped. Strict OpenAI-compatible servers reject a
 		// message with no content field; tool results and assistant-with-tool-calls

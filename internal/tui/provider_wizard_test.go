@@ -5,22 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/aimlapi"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestProviderCommandOpensOnboardingWizard(t *testing.T) {
@@ -42,25 +37,28 @@ func TestProviderCommandOpensOnboardingWizard(t *testing.T) {
 	if len(next.transcript) != len(m.transcript) {
 		t.Fatalf("/provider should not append transcript output when opening wizard")
 	}
-	// The wizard opens on the connect-method chooser, with OAuth listed first.
+	// The wizard opens on the connect-method chooser: the API-key path is the
+	// only one, and it must not advertise removed multi-provider flows.
 	view := plainRender(t, next.View())
 	for _, want := range []string{
 		"Provider setup",
 		"How do you want to connect?",
-		"Sign in with OAuth",
 		"Paste an API key",
 	} {
 		assertContains(t, view, want)
 	}
+	assertNotContains(t, view, "Sign in with OAuth")
+	assertNotContains(t, view, "20+")
 
-	// Choosing the API-key method reveals the full provider catalog.
+	// Choosing the API-key method reveals the provider catalog — QG only.
 	next.providerWizard.selectedMethod = len(providerWizardMethodOptions()) - 1
 	updated, _ = next.Update(testKey(tea.KeyEnter))
 	next = updated.(model)
 	listView := plainRender(t, next.View())
-	for _, want := range []string{"Choose provider", "aimlapi.com", "GitLawb OpenGateway", "OpenAI", "Anthropic", "Google", "OpenRouter", "Ollama"} {
+	for _, want := range []string{"Choose provider", "Quebra Galho"} {
 		assertContains(t, listView, want)
 	}
+	assertNotContains(t, listView, "OpenRouter")
 }
 
 func TestProviderWizardStartsAtFirstProvider(t *testing.T) {
@@ -126,65 +124,41 @@ func TestProviderWizardUsesRuntimeProviderCatalog(t *testing.T) {
 }
 
 func TestProviderWizardModelsAreProviderScoped(t *testing.T) {
-	tests := []struct {
-		provider string
-		want     []string
-		notWant  []string
-	}{
-		{
-			provider: "ollama",
-			want:     []string{"llama3.1", "qwen2.5-coder:32b"},
-			notWant:  []string{"gpt-4.1", "gpt-5", "openai/gpt-4.1"},
-		},
-		{
-			provider: "groq",
-			want:     []string{"llama-3.3-70b-versatile", "openai/gpt-oss-120b"},
-			notWant:  []string{"gpt-4.1", "claude-sonnet-4.5"},
-		},
-		{
-			provider: "mistral",
-			want:     []string{"mistral-large-latest", "codestral-latest"},
-			notWant:  []string{"gpt-4.1", "claude-sonnet-4.5"},
-		},
+	descriptor, ok := providercatalog.Get("qg")
+	if !ok {
+		t.Fatal("qg missing from catalog")
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.provider, func(t *testing.T) {
-			descriptor, ok := providercatalog.Get(tt.provider)
-			if !ok {
-				t.Fatalf("provider %q missing from catalog", tt.provider)
-			}
-			models := providerWizardModelOptions(descriptor)
-			got := map[string]bool{}
-			for _, model := range models {
-				got[model.ID] = true
-			}
-			for _, want := range tt.want {
-				if !got[want] {
-					t.Fatalf("%s models missing %q; got %#v", tt.provider, want, providerWizardModelIDs(models))
-				}
-			}
-			for _, notWant := range tt.notWant {
-				if got[notWant] {
-					t.Fatalf("%s models should not include %q; got %#v", tt.provider, notWant, providerWizardModelIDs(models))
-				}
-			}
-		})
+	models := providerWizardModelOptions(descriptor)
+	got := map[string]bool{}
+	for _, model := range models {
+		got[model.ID] = true
+	}
+	// The model step lists only the selected provider's catalog — global
+	// registry models from other providers must not leak in.
+	for _, want := range []string{"muse-spark-1.3-contributor", "deepseek-v4-pro", "glm-5.3"} {
+		if !got[want] {
+			t.Fatalf("qg models missing %q; got %#v", want, providerWizardModelIDs(models))
+		}
+	}
+	for _, notWant := range []string{"claude-sonnet-4.5", "gpt-4.1", "openai/gpt-4.1"} {
+		if got[notWant] {
+			t.Fatalf("qg models should not include %q; got %#v", notWant, providerWizardModelIDs(models))
+		}
 	}
 }
 
 func TestProviderWizardAdvancesProviderAPIKeyAndModelSteps(t *testing.T) {
 	// Pin the credential state so the footer assertion does not depend on the
 	// ambient environment.
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("QUEBRAGALHO_API_KEY", "")
 
 	m := newModel(context.Background(), Options{})
 	m = openProviderWizardForTest(t, m)
 
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "anthropic")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
 	next := m
-	if got := next.providerWizard.currentProvider().ID; got != "anthropic" {
-		t.Fatalf("after down, selected provider = %q, want anthropic", got)
+	if got := next.providerWizard.currentProvider().ID; got != "qg" {
+		t.Fatalf("after down, selected provider = %q, want qg", got)
 	}
 	clearProviderAuthEnvForTest(t, next.providerWizard.currentProvider())
 
@@ -196,12 +170,12 @@ func TestProviderWizardAdvancesProviderAPIKeyAndModelSteps(t *testing.T) {
 	view := plainRender(t, next.View())
 	for _, want := range []string{
 		"Paste API key",
-		"ANTHROPIC_API_KEY",
+		"QUEBRAGALHO_API_KEY",
 		"Enter continue",
 	} {
 		assertContains(t, view, want)
 	}
-	assertNotContains(t, view, "zero providers add anthropic")
+	assertNotContains(t, view, "providers add")
 
 	updated, cmd := next.Update(testKey(tea.KeyEnter))
 	next = updated.(model)
@@ -213,21 +187,21 @@ func TestProviderWizardAdvancesProviderAPIKeyAndModelSteps(t *testing.T) {
 	}
 	view = plainRender(t, next.View())
 	assertContains(t, view, "Checking available models")
-	assertNotContains(t, view, "claude-sonnet-4.5")
+	assertNotContains(t, view, "deepseek-v4-pro")
 
 	updated, _ = next.Update(providerModelsDiscoveredMsg{
-		providerID: "anthropic",
+		providerID: "qg",
 		token:      next.providerWizard.discoveryToken,
 		models: []providermodeldiscovery.Model{{
-			ID:          "claude-sonnet-4.5",
-			Description: "claude-sonnet-4.5",
+			ID:          "deepseek-v4-pro",
+			Description: "deepseek-v4-pro",
 		}},
 	})
 	next = updated.(model)
 	view = plainRender(t, next.View())
 	for _, want := range []string{
 		"Choose a model",
-		"claude-sonnet-4.5",
+		"deepseek-v4-pro",
 	} {
 		assertContains(t, view, want)
 	}
@@ -240,14 +214,14 @@ func TestProviderWizardAdvancesProviderAPIKeyAndModelSteps(t *testing.T) {
 	view = plainRender(t, next.View())
 	for _, want := range []string{
 		"Ready to connect",
-		"Provider    Anthropic",
-		"Model       claude-sonnet-4.5",
-		"Credential  ANTHROPIC_API_KEY env var",
+		"Provider    Quebra Galho",
+		"Model       deepseek-v4-pro",
+		"Credential  QUEBRAGALHO_API_KEY env var",
 		"Press Enter to save and start using this provider.",
 	} {
 		assertContains(t, view, want)
 	}
-	assertNotContains(t, view, "zero providers check")
+	assertNotContains(t, view, "qg providers check")
 }
 
 func TestProviderWizardSupportsLeftAndGuardedRightNavigation(t *testing.T) {
@@ -315,14 +289,14 @@ func TestProviderWizardSupportsLeftAndGuardedRightNavigation(t *testing.T) {
 }
 
 func TestProviderWizardRightAllowsExistingCredentialEnv(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "sk-env")
+	t.Setenv("QUEBRAGALHO_API_KEY", "sk-env")
 	m := newModel(context.Background(), Options{})
 	m = openProviderWizardForTest(t, m)
 
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "openai")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
 	next := m
-	if got := next.providerWizard.currentProvider().ID; got != "openai" {
-		t.Fatalf("after down, selected provider = %q, want openai", got)
+	if got := next.providerWizard.currentProvider().ID; got != "qg" {
+		t.Fatalf("after down, selected provider = %q, want qg", got)
 	}
 	updated, _ := next.Update(testKey(tea.KeyEnter))
 	next = updated.(model)
@@ -340,259 +314,11 @@ func TestProviderWizardRightAllowsExistingCredentialEnv(t *testing.T) {
 	}
 }
 
-func TestProviderWizardCustomCompatibleProviderCollectsEndpointAndModel(t *testing.T) {
-	var captured config.ProviderProfile
-	m := newModel(context.Background(), Options{
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
-			captured = profile
-			return &fakeProvider{}, nil
-		},
-	})
-	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "custom-openai-compatible")
-
-	updated, cmd := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-	if cmd != nil {
-		t.Fatal("custom endpoint step should not start model discovery")
-	}
-	if next.providerWizard.step != providerWizardStepEndpoint {
-		t.Fatalf("custom provider first step = %v, want endpoint", next.providerWizard.step)
-	}
-	view := plainRender(t, next.View())
-	for _, want := range []string{
-		"Endpoint URL",
-		"url >",
-		"https://api.example.com/v1",
-		"3 endpoint",
-	} {
-		assertContains(t, view, want)
-	}
-
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if next.providerWizard.step != providerWizardStepEndpoint {
-		t.Fatalf("blank endpoint advanced to %v, want endpoint", next.providerWizard.step)
-	}
-	assertContains(t, plainRender(t, next.View()), "enter an endpoint URL")
-
-	updated, _ = next.Update(testKeyText("https://proxy.example/v1"))
-	next = updated.(model)
-	updated, cmd = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if cmd != nil {
-		t.Fatal("endpoint step should not start model discovery")
-	}
-	if next.providerWizard.step != providerWizardStepName {
-		t.Fatalf("endpoint step advanced to %v, want name", next.providerWizard.step)
-	}
-	view = plainRender(t, next.View())
-	for _, want := range []string{
-		"Provider name",
-		"name >",
-		"proxy",
-	} {
-		assertContains(t, view, want)
-	}
-
-	updated, cmd = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if cmd != nil {
-		t.Fatal("name step should not start model discovery")
-	}
-	if next.providerWizard.step != providerWizardStepCredential {
-		t.Fatalf("name step advanced to %v, want credential", next.providerWizard.step)
-	}
-
-	updated, cmd = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if cmd != nil {
-		t.Fatal("custom model step should not discover against the placeholder endpoint")
-	}
-	if next.providerWizard.step != providerWizardStepModel {
-		t.Fatalf("credential step advanced to %v, want model", next.providerWizard.step)
-	}
-	view = plainRender(t, next.View())
-	for _, want := range []string{
-		"Model name",
-		"model >",
-		"custom-model",
-	} {
-		assertContains(t, view, want)
-	}
-
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if next.providerWizard.step != providerWizardStepModel {
-		t.Fatalf("blank model advanced to %v, want model", next.providerWizard.step)
-	}
-	assertContains(t, plainRender(t, next.View()), "enter a model name")
-
-	updated, _ = next.Update(testKeyText("my-custom-model"))
-	next = updated.(model)
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if next.providerWizard.step != providerWizardStepDone {
-		t.Fatalf("model step advanced to %v, want ready", next.providerWizard.step)
-	}
-	view = plainRender(t, next.View())
-	assertContains(t, view, "Endpoint    https://proxy.example/v1")
-	assertContains(t, view, "Name        proxy")
-	assertContains(t, view, "Model       my-custom-model")
-
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if next.providerWizard != nil {
-		t.Fatal("saving custom provider should close the wizard")
-	}
-	if captured.CatalogID != "custom-openai-compatible" || captured.ProviderKind != config.ProviderKindOpenAICompatible {
-		t.Fatalf("captured provider identity = %#v", captured)
-	}
-	if captured.Name != "proxy" {
-		t.Fatalf("captured Name = %q, want derived endpoint name", captured.Name)
-	}
-	if captured.BaseURL != "https://proxy.example/v1" {
-		t.Fatalf("captured BaseURL = %q, want custom endpoint", captured.BaseURL)
-	}
-	if captured.Model != "my-custom-model" {
-		t.Fatalf("captured Model = %q, want typed model", captured.Model)
-	}
-	// A custom endpoint left with no credential means "this endpoint needs no
-	// auth" (e.g. a local llama.cpp server) — it must not be stamped with the
-	// catalog's generic OPENAI_API_KEY placeholder, or the saved profile gets
-	// treated as missing a credential and filtered out of /model on the next
-	// run (issue #555).
-	if captured.APIKeyEnv != "" {
-		t.Fatalf("captured APIKeyEnv = %q, want empty for a no-auth custom endpoint", captured.APIKeyEnv)
-	}
-}
-
-func TestProviderWizardAcceptsPastedEndpointURL(t *testing.T) {
-	m := newModel(context.Background(), Options{})
-	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "custom-openai-compatible")
-
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-	if next.providerWizard.step != providerWizardStepEndpoint {
-		t.Fatalf("custom provider first step = %v, want endpoint", next.providerWizard.step)
-	}
-
-	updated, _ = next.Update(testPaste("https://proxy.example/v1\n"))
-	next = updated.(model)
-	if next.providerWizard.baseURL != "https://proxy.example/v1" {
-		t.Fatalf("wizard baseURL = %q, want pasted endpoint", next.providerWizard.baseURL)
-	}
-
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if next.providerWizard.step != providerWizardStepName {
-		t.Fatalf("endpoint step advanced to %v, want name", next.providerWizard.step)
-	}
-}
-
-func TestProviderWizardCustomCompatibleProviderRejectsRemoteHTTP(t *testing.T) {
-	m := newModel(context.Background(), Options{})
-	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "custom-openai-compatible")
-
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-	if next.providerWizard.step != providerWizardStepEndpoint {
-		t.Fatalf("custom provider first step = %v, want endpoint", next.providerWizard.step)
-	}
-
-	updated, _ = next.Update(testKeyText("http://api.example.com/v1"))
-	next = updated.(model)
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if next.providerWizard.step != providerWizardStepEndpoint {
-		t.Fatalf("remote http endpoint advanced to %v, want endpoint", next.providerWizard.step)
-	}
-	assertContains(t, plainRender(t, next.View()), "endpoint URL must use https:// unless it is local loopback")
-}
-
-func TestProviderWizardCustomCompatibleProviderDerivesIPName(t *testing.T) {
-	var captured config.ProviderProfile
-	m := newModel(context.Background(), Options{
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
-			captured = profile
-			return &fakeProvider{}, nil
-		},
-	})
-	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "custom-openai-compatible")
-
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-	updated, _ = next.Update(testKeyText("https://127.0.0.1:1234/v1"))
-	next = updated.(model)
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if next.providerWizard.step != providerWizardStepName {
-		t.Fatalf("endpoint step advanced to %v, want name", next.providerWizard.step)
-	}
-	assertContains(t, plainRender(t, next.View()), "ip-127-0-0-1")
-
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	updated, _ = next.Update(testKeyText("local-test-model"))
-	next = updated.(model)
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if next.providerWizard.step != providerWizardStepDone {
-		t.Fatalf("model step advanced to %v, want ready", next.providerWizard.step)
-	}
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-	if next.providerWizard != nil {
-		t.Fatal("saving custom provider should close the wizard")
-	}
-	if captured.Name != "ip-127-0-0-1" {
-		t.Fatalf("captured Name = %q, want sanitized IP name", captured.Name)
-	}
-	if captured.BaseURL != "https://127.0.0.1:1234/v1" {
-		t.Fatalf("captured BaseURL = %q, want IP endpoint", captured.BaseURL)
-	}
-	if captured.Model != "local-test-model" {
-		t.Fatalf("captured Model = %q, want typed model", captured.Model)
-	}
-}
-
-func TestProviderWizardSkipsAPIKeyForLocalProvidersAndEscCloses(t *testing.T) {
-	m := newModel(context.Background(), Options{})
-	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "ollama")
-
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-	if next.providerWizard.step != providerWizardStepModel {
-		t.Fatalf("local provider step = %v, want model", next.providerWizard.step)
-	}
-	view := plainRender(t, next.View())
-	if strings.Contains(view, "Add API key") {
-		t.Fatalf("local provider should skip API key step, got view:\n%s", view)
-	}
-	if strings.Contains(view, "Paste API key") {
-		t.Fatalf("local provider should skip API key step, got view:\n%s", view)
-	}
-	assertContains(t, view, "Checking available models")
-	assertNotContains(t, view, "llama3.1")
-
-	updated, _ = next.Update(testKey(tea.KeyEsc))
-	next = updated.(model)
-	if next.providerWizard != nil {
-		t.Fatal("Esc should close provider wizard")
-	}
-}
-
 func TestProviderWizardAcceptsPastedAPIKeyWithoutRenderingSecret(t *testing.T) {
 	const secret = "AIza-secret-123"
 	m := newModel(context.Background(), Options{})
 	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "google")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -616,13 +342,13 @@ func TestProviderWizardAppliesPastedKeyToCurrentSession(t *testing.T) {
 	const secret = "AIza-secret-123"
 	var captured config.ProviderProfile
 	m := newModel(context.Background(), Options{
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			captured = profile
 			return &fakeProvider{}, nil
 		},
 	})
 	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "google")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -645,8 +371,8 @@ func TestProviderWizardAppliesPastedKeyToCurrentSession(t *testing.T) {
 	if next.providerWizard != nil {
 		t.Fatal("successful provider apply should close the wizard")
 	}
-	if captured.CatalogID != "google" || captured.ProviderKind != config.ProviderKindGoogle {
-		t.Fatalf("captured profile provider = %#v, want google", captured)
+	if captured.CatalogID != "qg" || captured.ProviderKind != config.ProviderKindOpenAICompatible {
+		t.Fatalf("captured profile provider = %#v, want qg", captured)
 	}
 	if captured.APIKey != secret {
 		t.Fatalf("captured API key = %q, want pasted secret", captured.APIKey)
@@ -654,7 +380,7 @@ func TestProviderWizardAppliesPastedKeyToCurrentSession(t *testing.T) {
 	if captured.APIKeyEnv != "" {
 		t.Fatalf("captured APIKeyEnv = %q, want empty when using pasted key", captured.APIKeyEnv)
 	}
-	if next.providerProfile.APIKey != secret || next.providerName != "google" {
+	if next.providerProfile.APIKey != secret || next.providerName != "qg" {
 		t.Fatalf("model provider state was not updated: provider=%q profile=%#v", next.providerName, next.providerProfile)
 	}
 }
@@ -662,18 +388,18 @@ func TestProviderWizardAppliesPastedKeyToCurrentSession(t *testing.T) {
 func TestProviderWizardPersistsPastedKeyToUserConfig(t *testing.T) {
 	const secret = "ollama-secret-123"
 	// Encrypted-file backend in the temp config dir keeps the test off the real keychain.
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
-	configPath := filepath.Join(t.TempDir(), "zero", "config.json")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
+	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	var captured config.ProviderProfile
 	m := newModel(context.Background(), Options{
 		UserConfigPath: configPath,
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			captured = profile
 			return &fakeProvider{}, nil
 		},
 	})
 	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "ollama-cloud")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -693,14 +419,14 @@ func TestProviderWizardPersistsPastedKeyToUserConfig(t *testing.T) {
 		t.Fatalf("captured APIKey = %q, want pasted secret", captured.APIKey)
 	}
 	persisted := readProviderWizardConfigFixture(t, configPath)
-	if persisted.ActiveProvider != "ollama-cloud" {
+	if persisted.ActiveProvider != "qg" {
 		t.Fatalf("active provider = %q, want ollama-cloud", persisted.ActiveProvider)
 	}
 	if len(persisted.Providers) != 1 {
 		t.Fatalf("providers length = %d, want 1", len(persisted.Providers))
 	}
 	profile := persisted.Providers[0]
-	if profile.Name != "ollama-cloud" || profile.CatalogID != "ollama-cloud" {
+	if profile.Name != "qg" || profile.CatalogID != "qg" {
 		t.Fatalf("persisted provider identity = %#v, want ollama-cloud", profile)
 	}
 	// Capture flip: the secret lives in the credential store, not config.json.
@@ -714,25 +440,25 @@ func TestProviderWizardPersistsPastedKeyToUserConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key, ok, _ := store.Get("ollama-cloud"); !ok || key != secret {
+	if key, ok, _ := store.Get("qg"); !ok || key != secret {
 		t.Fatalf("stored key = %q,%v; want the pasted secret in the credential store", key, ok)
 	}
 }
 
 func TestProviderWizardUsesAPIKeyEnvForCurrentSessionWithoutPersistingSecret(t *testing.T) {
-	const secret = "ollama-env-secret"
-	t.Setenv("OLLAMA_API_KEY", secret)
-	configPath := filepath.Join(t.TempDir(), "zero", "config.json")
+	const secret = "qg-env-secret"
+	t.Setenv("QUEBRAGALHO_API_KEY", secret)
+	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	var captured config.ProviderProfile
 	m := newModel(context.Background(), Options{
 		UserConfigPath: configPath,
-		NewProvider: func(profile config.ProviderProfile) (zeroruntime.Provider, error) {
+		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
 			captured = profile
 			return &fakeProvider{}, nil
 		},
 	})
 	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "ollama-cloud")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -749,13 +475,13 @@ func TestProviderWizardUsesAPIKeyEnvForCurrentSessionWithoutPersistingSecret(t *
 	if captured.APIKey != secret {
 		t.Fatalf("runtime APIKey = %q, want env secret", captured.APIKey)
 	}
-	if captured.APIKeyEnv != "OLLAMA_API_KEY" {
+	if captured.APIKeyEnv != "QUEBRAGALHO_API_KEY" {
 		t.Fatalf("runtime APIKeyEnv = %q, want OLLAMA_API_KEY", captured.APIKeyEnv)
 	}
 	if next.providerProfile.APIKey != "" {
 		t.Fatalf("session providerProfile persisted APIKey = %q, want empty", next.providerProfile.APIKey)
 	}
-	if next.providerProfile.APIKeyEnv != "OLLAMA_API_KEY" {
+	if next.providerProfile.APIKeyEnv != "QUEBRAGALHO_API_KEY" {
 		t.Fatalf("session providerProfile APIKeyEnv = %q, want OLLAMA_API_KEY", next.providerProfile.APIKeyEnv)
 	}
 	persisted := readProviderWizardConfigFixture(t, configPath)
@@ -766,7 +492,7 @@ func TestProviderWizardUsesAPIKeyEnvForCurrentSessionWithoutPersistingSecret(t *
 	if profile.APIKey != "" {
 		t.Fatalf("persisted APIKey = %q, want empty", profile.APIKey)
 	}
-	if profile.APIKeyEnv != "OLLAMA_API_KEY" {
+	if profile.APIKeyEnv != "QUEBRAGALHO_API_KEY" {
 		t.Fatalf("persisted APIKeyEnv = %q, want OLLAMA_API_KEY", profile.APIKeyEnv)
 	}
 }
@@ -780,10 +506,16 @@ func TestProviderWizardUsesLiveDiscoveredModels(t *testing.T) {
 		},
 	})
 	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "ollama")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
+	clearProviderAuthEnvForTest(t, m.providerWizard.currentProvider())
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
+	if next.providerWizard.step != providerWizardStepCredential {
+		t.Fatalf("wizard step = %v, want credential", next.providerWizard.step)
+	}
+	updated, cmd = next.Update(testKey(tea.KeyEnter))
+	next = updated.(model)
 	if next.providerWizard.step != providerWizardStepModel {
 		t.Fatalf("wizard step = %v, want model", next.providerWizard.step)
 	}
@@ -792,7 +524,7 @@ func TestProviderWizardUsesLiveDiscoveredModels(t *testing.T) {
 	}
 	view := plainRender(t, next.View())
 	assertContains(t, view, "Checking available models")
-	assertNotContains(t, view, "llama3.1")
+	assertNotContains(t, view, "muse-spark-1.3-contributor")
 
 	updated, _ = next.Update(testKey(tea.KeyEnter))
 	waiting := updated.(model)
@@ -805,8 +537,8 @@ func TestProviderWizardUsesLiveDiscoveredModels(t *testing.T) {
 	updated, _ = next.Update(msg)
 	next = updated.(model)
 
-	if captured.CatalogID != "ollama" {
-		t.Fatalf("discovery profile = %#v, want ollama", captured)
+	if captured.CatalogID != "qg" {
+		t.Fatalf("discovery profile = %#v, want qg", captured)
 	}
 	if got := providerWizardModelIDs(next.providerWizard.models); strings.Join(got, ",") != "live-b,live-a" {
 		t.Fatalf("wizard models = %#v, want live discovered models", got)
@@ -820,10 +552,20 @@ func TestProviderWizardUsesLiveDiscoveredModels(t *testing.T) {
 func TestProviderWizardIgnoresStaleDiscoveryForSameProvider(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "ollama")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
+	clearProviderAuthEnvForTest(t, m.providerWizard.currentProvider())
 
-	updated, cmd := m.Update(testKey(tea.KeyEnter))
+	// First walk into the model step (through the credential step).
+	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
+	if next.providerWizard.step != providerWizardStepCredential {
+		t.Fatalf("wizard step = %v, want credential", next.providerWizard.step)
+	}
+	updated, cmd := next.Update(testKey(tea.KeyEnter))
+	next = updated.(model)
+	if next.providerWizard.step != providerWizardStepModel {
+		t.Fatalf("wizard step = %v, want model", next.providerWizard.step)
+	}
 	if cmd == nil {
 		t.Fatal("first model entry should start discovery")
 	}
@@ -831,10 +573,17 @@ func TestProviderWizardIgnoresStaleDiscoveryForSameProvider(t *testing.T) {
 
 	updated, _ = next.Update(testKey(tea.KeyLeft))
 	next = updated.(model)
+	if next.providerWizard.step != providerWizardStepCredential {
+		t.Fatalf("left from model step = %v, want credential", next.providerWizard.step)
+	}
+	updated, _ = next.Update(testKey(tea.KeyLeft))
+	next = updated.(model)
 	if next.providerWizard.step != providerWizardStepProvider {
-		t.Fatalf("left from local model step = %v, want provider", next.providerWizard.step)
+		t.Fatalf("left from credential step = %v, want provider", next.providerWizard.step)
 	}
 
+	updated, _ = next.Update(testKey(tea.KeyEnter))
+	next = updated.(model)
 	updated, cmd = next.Update(testKey(tea.KeyEnter))
 	next = updated.(model)
 	if cmd == nil {
@@ -846,7 +595,7 @@ func TestProviderWizardIgnoresStaleDiscoveryForSameProvider(t *testing.T) {
 	}
 
 	updated, _ = next.Update(providerModelsDiscoveredMsg{
-		providerID: "ollama",
+		providerID: "qg",
 		token:      staleToken,
 		models: []providermodeldiscovery.Model{{
 			ID: "stale-model",
@@ -861,7 +610,7 @@ func TestProviderWizardIgnoresStaleDiscoveryForSameProvider(t *testing.T) {
 	}
 
 	updated, _ = next.Update(providerModelsDiscoveredMsg{
-		providerID: "ollama",
+		providerID: "qg",
 		token:      currentToken,
 		models: []providermodeldiscovery.Model{{
 			ID: "fresh-model",
@@ -880,22 +629,31 @@ func TestProviderWizardKeepsFallbackModelsWhenLiveDiscoveryFails(t *testing.T) {
 		},
 	})
 	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "ollama")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
+	clearProviderAuthEnvForTest(t, m.providerWizard.currentProvider())
 
-	updated, cmd := m.Update(testKey(tea.KeyEnter))
+	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
+	if next.providerWizard.step != providerWizardStepCredential {
+		t.Fatalf("wizard step = %v, want credential", next.providerWizard.step)
+	}
+	updated, cmd := next.Update(testKey(tea.KeyEnter))
+	next = updated.(model)
+	if next.providerWizard.step != providerWizardStepModel {
+		t.Fatalf("wizard step = %v, want model", next.providerWizard.step)
+	}
 	if cmd == nil {
 		t.Fatal("entering model step should start live model discovery")
 	}
 	view := plainRender(t, next.View())
 	assertContains(t, view, "Checking available models")
-	assertNotContains(t, view, "llama3.1")
+	assertNotContains(t, view, "muse-spark-1.3-contributor")
 
 	updated, _ = next.Update(cmd())
 	next = updated.(model)
 
-	if got := providerWizardModelIDs(next.providerWizard.models); !containsString(got, "llama3.1") {
-		t.Fatalf("wizard models = %#v, want fallback model llama3.1", got)
+	if got := providerWizardModelIDs(next.providerWizard.models); !containsString(got, "muse-spark-1.3-contributor") {
+		t.Fatalf("wizard models = %#v, want fallback model muse-spark-1.3-contributor", got)
 	}
 	view = plainRender(t, next.View())
 	assertContains(t, view, "Using built-in model list")
@@ -905,11 +663,11 @@ func TestProviderWizardKeepsFallbackModelsWhenLiveDiscoveryFails(t *testing.T) {
 func TestProviderWizardRendersDiscoveredModelMetadata(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m = openProviderWizardForTest(t, m)
-	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "openai")
+	m.providerWizard.selectedProvider = providerWizardProviderIndex(t, m.providerWizard, "qg")
 	m.providerWizard.step = providerWizardStepModel
 
 	next := m.applyProviderModelsDiscovered(providerModelsDiscoveredMsg{
-		providerID: "openai",
+		providerID: "qg",
 		models: []providermodeldiscovery.Model{{
 			ID:            "gpt-4.1",
 			Description:   "GPT-4.1",
@@ -929,6 +687,17 @@ func TestProviderWizardRendersDiscoveredModelMetadata(t *testing.T) {
 	assertContains(t, view, "1M ctx")
 	assertContains(t, view, "tools")
 	assertContains(t, view, "reasoning")
+}
+
+func TestProviderWizardEscClosesWizard(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	m = openProviderWizardForTest(t, m)
+
+	updated, _ := m.Update(testKey(tea.KeyEsc))
+	next := updated.(model)
+	if next.providerWizard != nil {
+		t.Fatal("Esc should close provider wizard")
+	}
 }
 
 func TestProviderWizardModelStepUsesFriendlyNamesAndStaysCompact(t *testing.T) {
@@ -1133,8 +902,8 @@ func TestWizardProviderStoredKey(t *testing.T) {
 }
 
 func TestProviderWizardManageKeyRemove(t *testing.T) {
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
-	configPath := filepath.Join(t.TempDir(), "zero", "config.json")
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
+	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1175,84 +944,6 @@ func TestProviderWizardManageKeyReplaceAndKeep(t *testing.T) {
 		t.Fatal("keep should close the wizard without changes")
 	}
 }
-
-func TestProviderManagerEscCancelsEmbeddedAimlapiFlow(t *testing.T) {
-	opCtx, opCancel := context.WithCancel(context.Background())
-	topupCtx, topupCancel := context.WithCancel(context.Background())
-	state := &aimlapiOnboardState{
-		step:        aimlapiStepProgress,
-		opCancel:    opCancel,
-		topupCancel: topupCancel,
-	}
-	m := model{providerWizard: &providerWizardState{
-		manage:  true,
-		step:    providerWizardStepAimlapi,
-		aimlapi: state,
-	}}
-
-	next, _ := m.handleProviderWizardKey(testKey(tea.KeyEsc))
-	if next.providerWizard == nil || next.providerWizard.step != providerWizardStepManage {
-		t.Fatalf("manager escape did not return to provider list: %+v", next.providerWizard)
-	}
-	if next.providerWizard.aimlapi != nil {
-		t.Fatal("manager escape retained embedded aimlapi state")
-	}
-	select {
-	case <-opCtx.Done():
-	default:
-		t.Fatal("pending account/key operation was not cancelled")
-	}
-	select {
-	case <-topupCtx.Done():
-	default:
-		t.Fatal("pending top-up stream was not cancelled")
-	}
-}
-
-func TestAdvanceProviderWizardCustomSkipsManageKey(t *testing.T) {
-	tests := []struct {
-		name      string
-		catalogID string
-		transport providercatalog.Transport
-	}{
-		{
-			name:      "custom-openai-compatible",
-			catalogID: "custom-openai-compatible",
-			transport: providercatalog.TransportOpenAICompatible,
-		},
-		{
-			name:      "custom-anthropic-compatible",
-			catalogID: "custom-anthropic-compatible",
-			transport: providercatalog.TransportAnthropicCompatible,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := model{savedProviders: []config.ProviderProfile{
-				{Name: "my-gateway", CatalogID: tt.catalogID, APIKeyStored: true},
-			}}
-			m.providerWizard = &providerWizardState{
-				step: providerWizardStepProvider,
-				providers: []providercatalog.Descriptor{
-					{ID: tt.catalogID, Name: tt.name, Transport: tt.transport},
-				},
-				selectedProvider: 0,
-			}
-
-			next, _ := m.advanceProviderWizard()
-			if next.providerWizard == nil {
-				t.Fatal("wizard should not be nil after advancing from provider step")
-			}
-			if next.providerWizard.step == providerWizardStepManageKey {
-				t.Fatal("custom provider should skip ManageKey and route to endpoint, got ManageKey")
-			}
-			if next.providerWizard.step != providerWizardStepEndpoint {
-				t.Fatalf("custom provider should route to endpoint step, got step: %v", next.providerWizard.step)
-			}
-		})
-	}
-}
-
 func TestAdvanceProviderWizardNamedShowsManageKey(t *testing.T) {
 	m := model{savedProviders: []config.ProviderProfile{
 		{Name: "openai", CatalogID: "openai", APIKeyStored: true},
@@ -1271,264 +962,6 @@ func TestAdvanceProviderWizardNamedShowsManageKey(t *testing.T) {
 	}
 	if next.providerWizard.step != providerWizardStepManageKey {
 		t.Fatalf("named provider should route to ManageKey step, got step: %v", next.providerWizard.step)
-	}
-}
-
-func TestExistingAimlapiConfigurationUsesEnvWithoutCapturingLiteral(t *testing.T) {
-	t.Setenv("AIMLAPI_API_KEY", "aimlapi-env-secret")
-	m := model{savedProviders: []config.ProviderProfile{{
-		Name: "aimlapi", CatalogID: "aimlapi", APIKeyEnv: "AIMLAPI_API_KEY",
-		// ResolvedConfig materializes the env value here before the TUI sees it.
-		APIKey: "aimlapi-env-secret",
-	}}}
-
-	profile, runtimeKey, ok := m.existingAimlapiConfiguration()
-	if !ok {
-		t.Fatal("expected AIMLAPI_API_KEY to be detected")
-	}
-	if runtimeKey != "aimlapi-env-secret" {
-		t.Fatalf("runtime key = %q", runtimeKey)
-	}
-	if profile.APIKeyEnv != "AIMLAPI_API_KEY" || profile.APIKey != "" || profile.APIKeyStored {
-		t.Fatalf("env credential source was not preserved: %+v", profile)
-	}
-}
-
-func TestExistingAimlapiEnvironmentFallbackUsesResolvedEndpoint(t *testing.T) {
-	t.Setenv("AIMLAPI_API_KEY", "aimlapi-env-secret")
-	t.Setenv("AIMLAPI_INFERENCE_URL", "https://staging.example.test/v1")
-
-	profile, runtimeKey, ok := (model{}).existingAimlapiConfiguration()
-	if !ok || runtimeKey != "aimlapi-env-secret" {
-		t.Fatalf("configuration = (%+v, %q, %v)", profile, runtimeKey, ok)
-	}
-	if profile.BaseURL != "https://staging.example.test/v1" {
-		t.Fatalf("BaseURL = %q, want resolved override", profile.BaseURL)
-	}
-	if profile.APIKeyEnv != "AIMLAPI_API_KEY" || profile.APIKey != "" {
-		t.Fatalf("credential source changed: %+v", profile)
-	}
-	if len(profile.CustomHeaders) != 0 {
-		t.Fatalf("catalog headers leaked to custom endpoint: %#v", profile.CustomHeaders)
-	}
-}
-
-func TestExistingAimlapiBalanceUsesProfileEndpointAndCancelsOnAbandon(t *testing.T) {
-	started := make(chan struct{})
-	done := make(chan struct{})
-	canonical := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		close(started)
-		<-r.Context().Done()
-		close(done)
-	}))
-	defer canonical.Close()
-	override := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("production profile key was sent to process override: %s", r.URL)
-	}))
-	defer override.Close()
-	t.Setenv("AIMLAPI_INFERENCE_URL", override.URL)
-
-	wizard := &providerWizardState{
-		step: providerWizardStepAimlapiConfigured,
-		aimlapiExistingProfile: config.ProviderProfile{
-			Name: "aimlapi", CatalogID: "aimlapi", BaseURL: canonical.URL,
-		},
-		aimlapiRuntimeKey: "production-secret",
-	}
-	m := model{ctx: context.Background(), providerWizard: wizard}
-	_, cmd := m.checkExistingAimlapiBalance()
-	result := make(chan tea.Msg, 1)
-	go func() { result <- execCmd(cmd) }()
-
-	select {
-	case <-started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("profile endpoint did not receive the balance request")
-	}
-	wizard.clearAimlapiExisting()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("abandoning the preflight did not cancel the balance request")
-	}
-	select {
-	case <-result:
-	case <-time.After(2 * time.Second):
-		t.Fatal("cancelled balance command did not return")
-	}
-}
-
-func TestProviderWizardAimlapiPartnerOverrideOnlyOnCanonicalEndpoint(t *testing.T) {
-	provider, err := providercatalog.Require("aimlapi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("AIMLAPI_PARTNER_ID", "part_override")
-
-	canonical := providerWizardProfile(provider, provider.DefaultModel, "", provider.DefaultBaseURL, "")
-	if got := canonical.CustomHeaders[aimlapi.PartnerHeaderName]; got != "part_override" {
-		t.Fatalf("canonical partner header = %q, want part_override", got)
-	}
-	custom := providerWizardProfile(provider, provider.DefaultModel, "", "https://staging.example.test/v1", "")
-	if len(custom.CustomHeaders) != 0 {
-		t.Fatalf("partner headers leaked to custom endpoint: %#v", custom.CustomHeaders)
-	}
-}
-
-func TestExistingAimlapiConfigurationResolvesStoredKey(t *testing.T) {
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file")
-	configPath := filepath.Join(t.TempDir(), "zero", "config.json")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	store, err := config.ProviderKeyStoreAt(filepath.Dir(configPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Set("work", "aimlapi-stored-secret"); err != nil {
-		t.Fatal(err)
-	}
-	m := model{
-		userConfigPath: configPath,
-		savedProviders: []config.ProviderProfile{{Name: "work", CatalogID: "aimlapi", APIKeyStored: true}},
-	}
-
-	profile, runtimeKey, ok := m.existingAimlapiConfiguration()
-	if !ok || runtimeKey != "aimlapi-stored-secret" {
-		t.Fatalf("stored configuration = (%+v, %q, %v)", profile, runtimeKey, ok)
-	}
-	if !profile.APIKeyStored || profile.APIKey != "" || profile.APIKeyEnv != "" {
-		t.Fatalf("stored credential source was not preserved: %+v", profile)
-	}
-}
-
-func TestExistingAimlapiConfigurationSkipsCustomEndpointCredential(t *testing.T) {
-	t.Setenv("AIMLAPI_API_KEY", "")
-	m := model{savedProviders: []config.ProviderProfile{{
-		Name:      "aimlapi-staging",
-		CatalogID: "aimlapi",
-		BaseURL:   "https://staging.example.test/v1",
-		APIKey:    "staging-secret",
-	}}}
-
-	profile, runtimeKey, ok := m.existingAimlapiConfiguration()
-	if ok || profile.Name != "" || runtimeKey != "" {
-		t.Fatalf("custom endpoint credential entered production preflight: (%+v, %q, %v)", profile, runtimeKey, ok)
-	}
-}
-
-func TestAdvanceAimlapiWithExistingCredentialShowsConfiguredPreflight(t *testing.T) {
-	t.Setenv("AIMLAPI_API_KEY", "aimlapi-env-secret")
-	provider, err := providercatalog.Require("aimlapi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := model{providerWizard: &providerWizardState{
-		step:      providerWizardStepProvider,
-		providers: []providercatalog.Descriptor{provider},
-	}}
-
-	next, _ := m.advanceProviderWizard()
-	if next.providerWizard.step != providerWizardStepAimlapiConfigured {
-		t.Fatalf("step = %v, want configured preflight", next.providerWizard.step)
-	}
-	if next.providerWizard.aimlapiExistingProfile.APIKeyEnv != "AIMLAPI_API_KEY" {
-		t.Fatalf("profile = %+v", next.providerWizard.aimlapiExistingProfile)
-	}
-	if !maps.Equal(next.providerWizard.aimlapiExistingProfile.CustomHeaders, provider.CustomHeaders) {
-		t.Fatalf("catalog headers were not preserved: %#v", next.providerWizard.aimlapiExistingProfile.CustomHeaders)
-	}
-}
-
-func TestAimlapiConfigureAgainUsesTwoPathOnboarding(t *testing.T) {
-	wizard := &providerWizardState{
-		step:                    providerWizardStepAimlapiConfigured,
-		aimlapiConfiguredCursor: 1,
-		aimlapiExistingProfile:  config.ProviderProfile{Name: "aimlapi", CatalogID: "aimlapi", APIKeyEnv: "AIMLAPI_API_KEY"},
-		aimlapiRuntimeKey:       "secret",
-	}
-	m := model{providerWizard: wizard}
-
-	next, _ := m.handleProviderWizardKey(testKey(tea.KeyEnter))
-	if next.providerWizard.step != providerWizardStepAimlapi || next.providerWizard.aimlapi == nil {
-		t.Fatalf("configure again did not enter onboarding: %+v", next.providerWizard)
-	}
-	if next.providerWizard.aimlapiExistingProfile.Name != "" || next.providerWizard.aimlapiRuntimeKey != "" {
-		t.Fatal("configure again must discard the old credential context")
-	}
-}
-
-func TestExistingAimlapiLowBalanceReusesByKeyTopUp(t *testing.T) {
-	wizard := &providerWizardState{
-		step:                   providerWizardStepAimlapiConfigured,
-		baseURL:                "https://validated.example.test/v1",
-		aimlapiExistingProfile: config.ProviderProfile{Name: "aimlapi", CatalogID: "aimlapi", BaseURL: "https://validated.example.test/v1", APIKeyEnv: "AIMLAPI_API_KEY"},
-		aimlapiRuntimeKey:      "secret",
-		aimlapiExistingBusy:    true,
-		aimlapiExistingGen:     4,
-	}
-	m := model{providerWizard: wizard}
-	next, _ := m.applyExistingAimlapiBalance(aimlapiExistingBalanceMsg{
-		wizard: wizard,
-		gen:    4,
-		balance: aimlapi.BalanceResult{
-			LowBalance: true,
-		},
-	})
-	if next.providerWizard.step != providerWizardStepAimlapi || next.providerWizard.aimlapi == nil {
-		t.Fatalf("low balance did not enter aimlapi top-up: %+v", next.providerWizard)
-	}
-	if !next.providerWizard.aimlapi.byKey || next.providerWizard.aimlapi.step != aimlapiStepLowBalance || next.providerWizard.aimlapi.apiKey != "secret" {
-		t.Fatalf("top-up state = %+v", next.providerWizard.aimlapi)
-	}
-	if next.providerWizard.aimlapi.baseURL != "https://validated.example.test/v1" {
-		t.Fatalf("top-up endpoint = %q, want validated endpoint", next.providerWizard.aimlapi.baseURL)
-	}
-}
-
-func TestApplyExistingAimlapiPreservesEnvCredentialSource(t *testing.T) {
-	t.Setenv("AIMLAPI_API_KEY", "runtime-secret")
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"providers":[]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	provider := providercatalog.Descriptor{
-		ID: "aimlapi", Name: "aimlapi.com", Transport: providercatalog.TransportOpenAICompatible,
-		CustomHeaders: map[string]string{"X-AIMLAPI-Partner-ID": "partner"},
-	}
-	m := model{
-		userConfigPath: configPath,
-		providerWizard: &providerWizardState{
-			step:          providerWizardStepDone,
-			providers:     []providercatalog.Descriptor{provider},
-			models:        []providerWizardModel{{ID: "model/new"}},
-			selectedModel: 0,
-			modelSource:   "live",
-			aimlapiExistingProfile: config.ProviderProfile{
-				Name: "aimlapi", CatalogID: "aimlapi", APIKeyEnv: "AIMLAPI_API_KEY", Model: "model/old",
-				CustomHeaders: maps.Clone(provider.CustomHeaders),
-			},
-			aimlapiRuntimeKey: "runtime-secret",
-		},
-	}
-
-	next, _ := m.applyProviderWizard()
-	if next.providerWizard != nil {
-		t.Fatal("successful apply should close the wizard")
-	}
-	cfg := readProviderWizardConfigFixture(t, configPath)
-	if len(cfg.Providers) != 1 {
-		t.Fatalf("providers = %+v", cfg.Providers)
-	}
-	got := cfg.Providers[0]
-	if got.APIKeyEnv != "AIMLAPI_API_KEY" || got.APIKey != "" || got.APIKeyStored {
-		t.Fatalf("credential source changed: %+v", got)
-	}
-	if got.Model != "model/new" {
-		t.Fatalf("model = %q, want model/new", got.Model)
-	}
-	if !maps.Equal(got.CustomHeaders, provider.CustomHeaders) {
-		t.Fatalf("custom headers changed: %#v", got.CustomHeaders)
 	}
 }
 
@@ -1556,7 +989,7 @@ func containsString(values []string, want string) bool {
 }
 
 // Applying the wizard switches the live provider, so it must export
-// ZERO_PROVIDER exactly like the /model and /provider switch paths — a stale
+// QG_PROVIDER exactly like the /model and /provider switch paths — a stale
 // value from an earlier switch would otherwise win over config in every
 // spawned child (applyEnv) and pin specialists/swarm members to the OLD
 // provider's credentials.
@@ -1567,7 +1000,7 @@ func TestApplyProviderWizardExportsActiveProviderEnv(t *testing.T) {
 	// path would skip persist; a future default must never reach the real user
 	// config), and stub the build so the full commit sequence runs.
 	m.userConfigPath = filepath.Join(t.TempDir(), "config.json")
-	m.newProvider = func(config.ProviderProfile) (zeroruntime.Provider, error) {
+	m.newProvider = func(config.ProviderProfile) (qgruntime.Provider, error) {
 		return &fakeProvider{}, nil
 	}
 	m.providerWizard = &providerWizardState{
@@ -1599,11 +1032,11 @@ func TestApplyProviderWizardExportsActiveProviderEnv(t *testing.T) {
 
 // On a config PERSIST failure, applyProviderWizard must leave live state fully
 // unchanged — the chat must NOT already be running on the new provider while the
-// status line and the ZERO_PROVIDER export (which pins spawned children) still
+// status line and the QG_PROVIDER export (which pins spawned children) still
 // point at the old one. Build and persist are staged into locals; nothing is
 // committed unless both succeed.
 func TestApplyProviderWizardPersistFailureLeavesLiveStateUnchanged(t *testing.T) {
-	t.Setenv("ZERO_CRED_STORAGE", "encrypted-file") // never touch the real OS keychain: apiKey is secured before the persist fails
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file") // never touch the real OS keychain: apiKey is secured before the persist fails
 	t.Setenv(config.ActiveProviderEnv, "old-provider")
 
 	// A config path whose parent is a regular FILE, so writeConfigFile's MkdirAll
@@ -1621,7 +1054,7 @@ func TestApplyProviderWizardPersistFailureLeavesLiveStateUnchanged(t *testing.T)
 	m.providerProfile = config.ProviderProfile{Name: "old-provider"}
 	m.providerName = "old-provider"
 	m.userConfigPath = brokenConfigPath
-	m.newProvider = func(config.ProviderProfile) (zeroruntime.Provider, error) { return newProvider, nil }
+	m.newProvider = func(config.ProviderProfile) (qgruntime.Provider, error) { return newProvider, nil }
 	m.providerWizard = &providerWizardState{
 		step:        providerWizardStepModel,
 		profileName: "acme-new",
@@ -1744,7 +1177,7 @@ func TestProviderSearchEmptyMatchEnterIsNoop(t *testing.T) {
 	updated, _ := m.Update(testKeyText("zzzzz"))
 	next := updated.(model)
 	if len(next.providerWizard.filteredProviders()) != 0 {
-		t.Fatal("expected zero filtered providers")
+		t.Fatal("expected qg filtered providers")
 	}
 
 	// Enter should be a no-op.

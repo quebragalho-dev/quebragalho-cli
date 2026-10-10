@@ -8,7 +8,7 @@ package providerio
 // markers on this platform, the pre-send inclusions (connection refused /
 // network unreachable / no route to host) and the separate post-send
 // "connection reset" exclusion each keep working through the wording checks.
-// Zero targets linux/darwin/windows, so this variant only keeps the package
+// QG targets linux/darwin/windows, so this variant only keeps the package
 // building on Plan 9 rather than adding real support.
 var dialPreSendErrnos = []error{}
 

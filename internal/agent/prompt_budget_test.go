@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-// These ceilings are a deliberate ratchet on Zero's fixed per-turn overhead — the
+// These ceilings are a deliberate ratchet on QG's fixed per-turn overhead — the
 // system prompt and the eager tool schemas that ride on EVERY request. They are
 // set ~10% above the current measured cost, using ApproxTextTokens (the same
 // estimate the compaction loop and /context use, ~non-whitespace-bytes/4). A change
@@ -88,7 +88,7 @@ func TestEagerToolSchemaTokenBudget(t *testing.T) {
 	// host lands on depends on the length of its guidance: exactly the
 	// host-dependence this number is supposed to be rid of.
 	guidance := tools.HostExecCommandShellGuidance()
-	schemas := make([]zeroruntime.ToolDefinition, len(exposed))
+	schemas := make([]qgruntime.ToolDefinition, len(exposed))
 	copy(schemas, exposed)
 	stripped := 0
 	for index := range schemas {

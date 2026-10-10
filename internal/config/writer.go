@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/Gitlawb/zero/internal/providercatalog"
 )
 
 func UpsertProvider(path string, profile ProviderProfile, setActive bool) (result FileConfig, err error) {
@@ -29,10 +27,9 @@ func UpsertProvider(path string, profile ProviderProfile, setActive bool) (resul
 	return upsertProviderLocked(path, profile, setActive)
 }
 
-// upsertProviderLocked is UpsertProvider's body for a caller that already holds
-// the config lock. EnsureCatalogProvider reads the document and then upserts
-// into it, and the lock is not reentrant, so it must reach the work this way
-// rather than through the exported function.
+// upsertProviderLocked is UpsertProvider's body for callers that already hold
+// the config lock. The lock is not reentrant, so they must reach the work this
+// way rather than through the exported function.
 func upsertProviderLocked(path string, profile ProviderProfile, setActive bool) (FileConfig, error) {
 	profile.Name = strings.TrimSpace(profile.Name)
 	if profile.Name == "" {
@@ -73,78 +70,6 @@ func upsertProviderLocked(path string, profile ProviderProfile, setActive bool) 
 	return cfg, nil
 }
 
-// EnsuredProvider reports the outcome of EnsureCatalogProvider: the profile name
-// that serves the catalog entry, whether it was newly created, and which provider
-// is active after the call (unchanged unless it was blank).
-type EnsuredProvider struct {
-	Name    string
-	Created bool
-	Active  string
-}
-
-// EnsureCatalogProvider guarantees a provider profile exists in the config at
-// path for the given catalog entry. OAuth login flows call this right after
-// storing a token: a login is only reachable from the provider list and
-// `zero providers use` when a profile exists, but a login must never replace or
-// deactivate the user's current active provider — so an existing profile whose
-// Name or CatalogID already matches is left completely untouched (its name,
-// credentials, and model are the user's), and a created profile is NOT marked
-// active unless no provider was active at all.
-func EnsureCatalogProvider(path string, catalogID string) (result EnsuredProvider, err error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return EnsuredProvider{}, fmt.Errorf("config path is required")
-	}
-	descriptor, err := providercatalog.Require(catalogID)
-	if err != nil {
-		return EnsuredProvider{}, err
-	}
-	// One lock spans the existence scan AND the upsert: releasing between them
-	// would let another process create the same catalog profile in the window,
-	// and the second writer would clobber the first.
-	unlock, err := lockConfigFileFn(path)
-	if err != nil {
-		return EnsuredProvider{}, err
-	}
-	// Joined, not chosen between: a release failure annotates the result
-	// instead of masking the mutation error that actually explains what went
-	// wrong. Reporting success after a failed unlock would claim a state the
-	// next mutation cannot reproduce.
-	defer func() { err = errors.Join(err, unlock()) }()
-
-	cfg := FileConfig{}
-	if data, err := os.ReadFile(path); err == nil {
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return EnsuredProvider{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
-		}
-	} else if !os.IsNotExist(err) {
-		return EnsuredProvider{}, fmt.Errorf("read config %s: %w", path, err)
-	}
-	for _, provider := range cfg.Providers {
-		if strings.EqualFold(strings.TrimSpace(provider.CatalogID), descriptor.ID) ||
-			strings.EqualFold(strings.TrimSpace(provider.Name), descriptor.ID) {
-			return EnsuredProvider{Name: provider.Name, Active: cfg.ActiveProvider}, nil
-		}
-	}
-
-	profile := ProviderProfile{
-		Name:         descriptor.ID,
-		ProviderKind: providerKindForCatalogTransport(descriptor.Transport),
-		CatalogID:    descriptor.ID,
-		BaseURL:      descriptor.DefaultBaseURL,
-		Model:        descriptor.DefaultModel,
-	}
-	written, err := upsertProviderLocked(path, profile, false)
-	if err != nil {
-		return EnsuredProvider{}, err
-	}
-	return EnsuredProvider{Name: profile.Name, Created: true, Active: written.ActiveProvider}, nil
-}
-
-// MarkProviderAPIKeyStored records that provider's API key now lives in the
-// credential store. It also clears inline/env key fields so the stored key is the
-// runtime credential; an old apiKeyEnv value must not keep overriding a freshly
-// captured key from `zero auth openrouter` or provider setup.
 func MarkProviderAPIKeyStored(path string, provider string) (err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -985,7 +910,7 @@ func writeConfigData(path string, data []byte) error {
 	}
 	// Write-to-temp + rename: an in-place write interrupted mid-way (crash,
 	// disk full) would leave the user's only config truncated or corrupt.
-	tmp, err := os.CreateTemp(dir, ".zero-config-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".qg-config-*.tmp")
 	if err != nil {
 		return fmt.Errorf("write config %s: %w", path, err)
 	}
@@ -1006,4 +931,36 @@ func writeConfigData(path string, data []byte) error {
 		return fmt.Errorf("write config %s: %w", path, err)
 	}
 	return nil
+}
+
+func SetReasoningEffort(path, key, effort string) (result FileConfig, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	// Joined, not chosen between: a release failure annotates the result
+	// instead of masking the mutation error that actually explains what went
+	// wrong. Reporting success after a failed unlock would claim a state the
+	// next mutation cannot reproduce.
+	defer func() { err = errors.Join(err, unlock()) }()
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	if cfg.Preferences.ReasoningEfforts == nil {
+		cfg.Preferences.ReasoningEfforts = map[string]string{}
+	}
+	cfg.Preferences.ReasoningEfforts[key] = effort
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
 }

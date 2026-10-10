@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/fsutil"
-	"github.com/Gitlawb/zero/internal/privatedir"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/privatedir"
 )
 
 func TestWriteStatusFilePreservesPreviousDocumentWhenReplaceFails(t *testing.T) {
@@ -229,7 +229,7 @@ func TestWriteStatusFileContinuesAfterCommittedReplacementWarning(t *testing.T) 
 					return err
 				}
 				return &fsutil.CommittedReplacementCleanupError{
-					BackupPath: filepath.Join(dir, ".zero-replace-backup"),
+					BackupPath: filepath.Join(dir, ".qg-replace-backup"),
 					Cause:      cleanupErr,
 				}
 			},

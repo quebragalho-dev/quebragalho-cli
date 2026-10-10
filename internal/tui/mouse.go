@@ -13,7 +13,7 @@ import (
 // user: a terminal we guessed wrong about delivers no mouse events at all, and
 // there is no in-app way to recover. Anything unrecognised is ignored rather
 // than treated as "off", so a typo cannot silently kill the mouse.
-const mouseModeEnv = "ZERO_MOUSE_MODE"
+const mouseModeEnv = "QG_MOUSE_MODE"
 
 // mouseModeFor picks the mouse reporting mode, preferring the widest support
 // over the nicest behaviour.
@@ -50,20 +50,20 @@ func mouseModeFor(goos string, env func(string) string, underPRoot bool) tea.Mou
 //
 // Identified terminals are trusted: Windows Terminal sets WT_SESSION, and hosts
 // like VS Code and mintty set TERM_PROGRAM. The legacy console host sets
-// neither, and it is what a user gets by double-clicking zero.exe or running it
+// neither, and it is what a user gets by double-clicking qg.exe or running it
 // from an old cmd window, so an unidentified Windows terminal is assumed to be
 // that one. Guessing wrong in this direction costs a hover highlight; guessing
 // wrong in the other direction costs every mouse event.
 // KNOWN LIMIT: these variables are INHERITED, so they answer for the process
 // that set them rather than for the console host attached right now. A shell
-// launched from Windows Terminal, or from Git Bash, that later runs zero.exe
+// launched from Windows Terminal, or from Git Bash, that later runs qg.exe
 // against the legacy console still carries them, and this returns true for a
 // host that may drop every mouse event.
 //
 // Left as is on purpose. Deciding it properly means asking the console host
 // rather than the environment, and erring the other way costs every Windows
 // Terminal user their hover highlighting for a case that needs an unusual
-// launch path to reach. ZERO_MOUSE_MODE=cell is the recourse in the meantime,
+// launch path to reach. QG_MOUSE_MODE=cell is the recourse in the meantime,
 // which is the main reason that override exists.
 // TestInheritedWindowsTerminalEnvStillAsksForAllMotion pins this, so it is a
 // documented limit rather than a surprise.
@@ -128,12 +128,6 @@ func (m model) scrollChatExtendingSelection(delta int, msg tea.MouseMsg) model {
 }
 
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	// While a provider-wizard OAuth login is in flight, ignore all mouse input
-	// (clicks and wheel) so a stray scroll can't change the selected provider
-	// mid-login — mirroring the keyboard handler's pending guard.
-	if m.providerWizard != nil && m.providerWizard.oauthPending {
-		return m, nil
-	}
 	// A click is a deliberate action, same as a keypress — it means the user
 	// moved on to something else, so it disarms a stale Esc cancel-confirmation
 	// rather than leaving it armed for some later, unrelated Esc to act on.
@@ -306,7 +300,7 @@ func (m model) setupWantsMouseCapture() bool {
 	if !m.setup.visible {
 		return false
 	}
-	return m.setup.stage == setupStageProvider || m.setup.stage == setupStageModel
+	return m.setup.stage == setupStageModel
 }
 
 func (m model) chatWantsMouseCapture() bool {
@@ -473,6 +467,19 @@ func (wizard *mcpAddWizardState) mcpAddWizardResultActionStartRow() int {
 }
 
 func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
+	if m.picker.title == "Selecionar modelo" {
+		width := chatWidth(m.width)
+		hit, ok := m.overlayMouseHit(msg, m.modelPanelOverlay(width), width)
+		count := minInt(len(m.picker.items), maxInt(1, minInt(8, m.height-18)))
+		row := hit.y - 4
+		if !ok || row < 0 || row >= count {
+			return mouseSelectionTarget{}, false
+		}
+		start := panelListStart(len(m.picker.items), count, m.picker.selected)
+		index := start + row
+		m.picker.selected = index
+		return mouseSelectionTarget{Scope: "picker", Kind: int(pickerModel), Value: m.picker.items[index].Value, Index: index}, true
+	}
 	width := chatWidth(m.width)
 	hit, ok := m.overlayMouseHit(msg, m.modelPickerOverlay(width), width)
 	if !ok {
@@ -494,6 +501,12 @@ func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget
 }
 
 func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
+	if m.picker.kind == pickerEffort {
+		return m.selectEffortPanelAtMouse(msg)
+	}
+	if m.picker.kind == pickerUsage {
+		return mouseSelectionTarget{}, false
+	}
 	width := chatWidth(m.width)
 	hit, ok := m.overlayMouseHit(msg, m.pickerOverlay(width), width)
 	if !ok {
@@ -546,7 +559,7 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 }
 
 func (m *model) selectProviderWizardAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
-	if m.providerWizard == nil || m.providerWizard.oauthPending {
+	if m.providerWizard == nil {
 		return mouseSelectionTarget{}, false
 	}
 	width := chatWidth(m.width)

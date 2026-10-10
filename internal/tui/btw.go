@@ -6,8 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/usage"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
 const (
@@ -45,7 +46,7 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 		return m.appendSystemNotice("Compaction is running. Wait for it to finish before opening a BTW conversation."), nil
 	}
 	if m.exiting {
-		return m.appendSystemNotice("Zero is waiting for the current run to finish saving before exit. A BTW conversation cannot start now."), nil
+		return m.appendSystemNotice("QG is waiting for the current run to finish saving before exit. A BTW conversation cannot start now."), nil
 	}
 	if m.activeSession.SessionID == "" {
 		return m.appendSystemNotice("Start the main session with a prompt before opening a BTW conversation."), nil
@@ -112,6 +113,8 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 	side.usageTracker = usage.NewTracker(usage.TrackerOptions{Registry: &side.modelCatalog, Now: side.now})
 	side.lastUsage = usage.Normalized{}
 	side.lastUsageSeen = false
+	side.streamUsage = qgruntime.Usage{}
+	side.lastUsageReceipt = transcriptRow{}
 	side.unpricedRequests = 0
 	side.unpricedTokens = 0
 	side.compactRequests = 0
@@ -190,7 +193,7 @@ func (m model) leaveBTW() (model, tea.Cmd) {
 	// still active, explicitly restart that chain after restoring it.
 	parent.spinnerTicking = false
 	var spinnerCmd tea.Cmd
-	if parent.pending || parent.compactInFlight || parent.doctorInFlight || parent.sidebarHasAgents() || parent.aimlapiOnboardAnimating() {
+	if parent.pending || parent.compactInFlight || parent.doctorInFlight || parent.sidebarHasAgents() {
 		parent.spinnerTicking = true
 		spinnerCmd = parent.spinner.Tick
 	}
@@ -297,6 +300,8 @@ func btwMessageRunID(msg tea.Msg) (int, bool) {
 	case agentTextMsg:
 		return typed.runID, true
 	case agentReasoningMsg:
+		return typed.runID, true
+	case agentUsageProgressMsg:
 		return typed.runID, true
 	case agentUsageMsg:
 		return typed.runID, true

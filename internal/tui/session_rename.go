@@ -100,8 +100,8 @@ func (m model) sessionRenamePromptView(width int) string {
 		composerSelectionState{},
 	)
 	lines := append(strings.Split(line, "\n"),
-		zeroTheme.line.Render(strings.Repeat("─", innerWidth)),
-		zeroTheme.faint.Render("Enter save   Esc cancel"),
+		qgTheme.line.Render(strings.Repeat("─", innerWidth)),
+		qgTheme.faint.Render("Enter save   Esc cancel"),
 	)
-	return styledBlockFillTitle(width, "Rename session", lines, zeroTheme.lineStrong, lipgloss.NewStyle())
+	return styledBlockFillTitle(width, "Rename session", lines, qgTheme.lineStrong, lipgloss.NewStyle())
 }

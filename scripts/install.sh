@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ZERO_REPO="${ZERO_REPO:-Gitlawb/zero}"
-ZERO_VERSION="${ZERO_VERSION:-latest}"
-ZERO_INSTALL_DIR="${ZERO_INSTALL_DIR:-$HOME/.local/bin}"
-ZERO_GITHUB_API="${ZERO_GITHUB_API:-https://api.github.com}"
-ZERO_GITHUB_BASE_URL="${ZERO_GITHUB_BASE_URL:-https://github.com}"
+QG_REPO="${QG_REPO:-quebragalho-dev/qg-releases}"
+QG_VERSION="${QG_VERSION:-latest}"
+QG_INSTALL_DIR="${QG_INSTALL_DIR:-/usr/local/bin}"
+QG_GITHUB_API="${QG_GITHUB_API:-https://api.github.com}"
+QG_GITHUB_BASE_URL="${QG_GITHUB_BASE_URL:-https://github.com}"
 
 usage() {
   cat <<'EOF'
-Install Zero from GitHub Releases.
+Install QG from GitHub Releases.
 
 Usage:
   scripts/install.sh [--version <version>] [--repo <owner/repo>] [--install-dir <path>]
 
 Environment:
-  ZERO_VERSION          Release version or tag. Defaults to latest.
-  ZERO_REPO             GitHub repository. Defaults to Gitlawb/zero.
-  ZERO_INSTALL_DIR      Directory for the zero binary. Defaults to ~/.local/bin.
-  ZERO_GITHUB_API       GitHub API base URL. Defaults to https://api.github.com.
-  ZERO_GITHUB_BASE_URL  GitHub web base URL. Defaults to https://github.com.
+  QG_VERSION          Release version or tag. Defaults to latest.
+  QG_REPO             GitHub repository. Defaults to quebragalho-dev/qg-releases.
+  QG_INSTALL_DIR      Directory for the qg binary. Defaults to /usr/local/bin.
+  QG_GITHUB_API       GitHub API base URL. Defaults to https://api.github.com.
+  QG_GITHUB_BASE_URL  GitHub web base URL. Defaults to https://github.com.
 EOF
 }
 
 fail() {
-  echo "zero install: $*" >&2
+  echo "qg install: $*" >&2
   exit 1
 }
 
@@ -32,17 +32,17 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --version)
       [ "$#" -ge 2 ] || fail "--version requires a value"
-      ZERO_VERSION="$2"
+      QG_VERSION="$2"
       shift 2
       ;;
     --repo)
       [ "$#" -ge 2 ] || fail "--repo requires a value"
-      ZERO_REPO="$2"
+      QG_REPO="$2"
       shift 2
       ;;
     --install-dir)
       [ "$#" -ge 2 ] || fail "--install-dir requires a value"
-      ZERO_INSTALL_DIR="$2"
+      QG_INSTALL_DIR="$2"
       shift 2
       ;;
     -h|--help)
@@ -103,7 +103,7 @@ detect_arch() {
 
 latest_tag() {
   local metadata_file="$1"
-  local api_url="${ZERO_GITHUB_API%/}/repos/${ZERO_REPO}/releases/latest"
+  local api_url="${QG_GITHUB_API%/}/repos/${QG_REPO}/releases/latest"
   local tag
 
   download_json "$api_url" "$metadata_file"
@@ -154,7 +154,7 @@ find_extracted_entry() {
 }
 
 find_extracted_binary() {
-  find_extracted_entry "$1" "zero" "file"
+  find_extracted_entry "$1" "qg" "file"
 }
 
 copy_optional_file() {
@@ -162,8 +162,8 @@ copy_optional_file() {
   local source_path
 
   if source_path="$(find_extracted_entry "$extract_dir" "$name" "file")"; then
-    cp "$source_path" "$ZERO_INSTALL_DIR/$name"
-    chmod 755 "$ZERO_INSTALL_DIR/$name"
+    cp "$source_path" "$QG_INSTALL_DIR/$name"
+    chmod 755 "$QG_INSTALL_DIR/$name"
   fi
 }
 
@@ -172,8 +172,8 @@ copy_optional_dir() {
   local source_path
 
   if source_path="$(find_extracted_entry "$extract_dir" "$name" "dir")"; then
-    rm -rf "$ZERO_INSTALL_DIR/$name"
-    cp -R "$source_path" "$ZERO_INSTALL_DIR/$name"
+    rm -rf "${QG_INSTALL_DIR:?}/$name"
+    cp -R "$source_path" "$QG_INSTALL_DIR/$name"
   fi
 }
 
@@ -182,32 +182,32 @@ need_command sed
 need_command tar
 need_command mktemp
 
-tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/zero-install.XXXXXX")"
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/qg-install.XXXXXX")"
 cleanup() {
   rm -rf "$tmp_dir"
 }
 trap cleanup EXIT
 
-if [ "$ZERO_VERSION" = "latest" ]; then
+if [ "$QG_VERSION" = "latest" ]; then
   tag="$(latest_tag "$tmp_dir/latest.json")"
 else
-  case "$ZERO_VERSION" in
-    v*) tag="$ZERO_VERSION" ;;
-    *) tag="v$ZERO_VERSION" ;;
+  case "$QG_VERSION" in
+    v*) tag="$QG_VERSION" ;;
+    *) tag="v$QG_VERSION" ;;
   esac
 fi
 
 version="${tag#v}"
 platform="$(detect_platform)"
 arch="$(detect_arch)"
-archive_name="zero-v${version}-${platform}-${arch}.tar.gz"
+archive_name="qg-v${version}-${platform}-${arch}.tar.gz"
 checksum_name="${archive_name}.sha256"
-release_url="${ZERO_GITHUB_BASE_URL%/}/${ZERO_REPO}/releases/download/${tag}"
+release_url="${QG_GITHUB_BASE_URL%/}/${QG_REPO}/releases/download/${tag}"
 archive_path="$tmp_dir/$archive_name"
 checksum_path="$tmp_dir/$checksum_name"
 extract_dir="$tmp_dir/extract"
 
-echo "Installing Zero ${tag} for ${platform}-${arch}"
+echo "Installing QG ${tag} for ${platform}-${arch}"
 download "${release_url}/${archive_name}" "$archive_path"
 download "${release_url}/${checksum_name}" "$checksum_path"
 
@@ -219,18 +219,31 @@ download "${release_url}/${checksum_name}" "$checksum_path"
 mkdir -p "$extract_dir"
 tar -xzf "$archive_path" -C "$extract_dir"
 
-binary_path="$(find_extracted_binary "$extract_dir")" || fail "release archive did not contain zero"
+binary_path="$(find_extracted_binary "$extract_dir")" || fail "release archive did not contain qg"
 
-mkdir -p "$ZERO_INSTALL_DIR"
-cp "$binary_path" "$ZERO_INSTALL_DIR/zero"
-chmod 755 "$ZERO_INSTALL_DIR/zero"
-copy_optional_file "zero-linux-sandbox"
-copy_optional_file "zero-seccomp"
+if ! mkdir -p "$QG_INSTALL_DIR" 2>/dev/null || [ ! -w "$QG_INSTALL_DIR" ]; then
+  fail "cannot write $QG_INSTALL_DIR (re-run with sudo, or set QG_INSTALL_DIR to a writable directory, e.g. QG_INSTALL_DIR=\$HOME/.local/bin)"
+fi
+cp "$binary_path" "$QG_INSTALL_DIR/qg"
+chmod 755 "$QG_INSTALL_DIR/qg"
+# Real on-disk alias: same binary reachable as `quebragalho` (relative link, so
+# a moved install dir keeps working).
+ln -sf qg "$QG_INSTALL_DIR/quebragalho"
+copy_optional_file "qg-linux-sandbox"
+copy_optional_file "qg-seccomp"
 copy_optional_dir "helpers"
 
-echo "Installed $ZERO_INSTALL_DIR/zero"
+installed_version=""
+if ! installed_version="$("$QG_INSTALL_DIR/qg" --version 2>&1 | head -n 1)" \
+  || [ -z "$installed_version" ]; then
+  fail "$QG_INSTALL_DIR/qg --version did not run — the installed binary does not work on this platform"
+fi
+
+echo "Installed $QG_INSTALL_DIR/qg ($installed_version)"
+echo "Alias: $QG_INSTALL_DIR/quebragalho -> qg"
 
 case ":$PATH:" in
-  *":$ZERO_INSTALL_DIR:"*) ;;
-  *) echo "Add $ZERO_INSTALL_DIR to PATH to run zero from any directory." ;;
+  *":$QG_INSTALL_DIR:"*) ;;
+  *) echo "Add $QG_INSTALL_DIR to PATH to run qg from any directory:" \
+      echo "  export PATH=\"$QG_INSTALL_DIR:\$PATH\"" ;;
 esac

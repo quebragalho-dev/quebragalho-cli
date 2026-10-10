@@ -7,14 +7,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providerhealth"
-	"github.com/Gitlawb/zero/internal/tui"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
 
 func TestFormatSetupCompleteIncludesTryThisExample(t *testing.T) {
 	out := formatSetupComplete(tui.SetupResult{
-		ConfigPath: "/home/u/.config/zero/config.json",
+		ConfigPath: "/home/u/.config/qg/config.json",
 		Provider: config.ProviderProfile{
 			Name:         "openai",
 			ProviderKind: config.ProviderKindOpenAI,
@@ -22,18 +22,18 @@ func TestFormatSetupCompleteIncludesTryThisExample(t *testing.T) {
 			Model:        "gpt-4.1",
 		},
 	})
-	if !strings.Contains(out, "Zero setup complete") {
+	if !strings.Contains(out, "QG setup complete") {
 		t.Fatalf("missing completion header: %q", out)
 	}
 	// The working-state confirmation must include a concrete one-line "try this"
 	// example so the user can immediately verify a real run.
-	if !strings.Contains(out, `zero exec "`) || !strings.Contains(out, "--model gpt-4.1") {
+	if !strings.Contains(out, `qg exec "`) || !strings.Contains(out, "--model gpt-4.1") {
 		t.Fatalf("missing try-this exec example: %q", out)
 	}
 }
 
 func TestRunSetupVerifyReportsClassifiedProbeFailure(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "sk-test") // a key is present, so --verify reaches the probe (not the no-key short-circuit)
+	t.Setenv("QUEBRAGALHO_API_KEY", "sk-test") // a key is present, so --verify reaches the probe (not the no-key short-circuit)
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	probed := false
@@ -53,7 +53,7 @@ func TestRunSetupVerifyReportsClassifiedProbeFailure(t *testing.T) {
 		},
 	}
 
-	exitCode := runWithDeps([]string{"setup", "openai", "--api-key-env", "OPENAI_API_KEY", "--verify"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"setup", "qg", "--api-key-env", "QUEBRAGALHO_API_KEY", "--verify"}, &stdout, &stderr, deps)
 
 	if !probed {
 		t.Fatalf("expected setup --verify to run a probe")
@@ -69,7 +69,7 @@ func TestRunSetupVerifyReportsClassifiedProbeFailure(t *testing.T) {
 }
 
 func TestRunSetupVerifySucceedsAndConfirmsWorking(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "sk-test") // a key is present, so --verify reaches the probe (not the no-key short-circuit)
+	t.Setenv("QUEBRAGALHO_API_KEY", "sk-test") // a key is present, so --verify reaches the probe (not the no-key short-circuit)
 	var stdout, stderr bytes.Buffer
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	deps := appDeps{
@@ -84,13 +84,13 @@ func TestRunSetupVerifySucceedsAndConfirmsWorking(t *testing.T) {
 		},
 	}
 
-	exitCode := runWithDeps([]string{"setup", "openai", "--api-key-env", "OPENAI_API_KEY", "--verify"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"setup", "qg", "--api-key-env", "QUEBRAGALHO_API_KEY", "--verify"}, &stdout, &stderr, deps)
 
 	if exitCode != exitSuccess {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "Zero setup complete") {
+	if !strings.Contains(out, "QG setup complete") {
 		t.Fatalf("missing completion header: %q", out)
 	}
 	if !strings.Contains(strings.ToLower(out), "verified") && !strings.Contains(strings.ToLower(out), "reachable") {
@@ -138,7 +138,7 @@ func TestRunSetupWithoutVerifyDoesNotProbe(t *testing.T) {
 		},
 	}
 
-	exitCode := runWithDeps([]string{"setup", "ollama"}, &stdout, &stderr, deps)
+	exitCode := runWithDeps([]string{"setup", "qg"}, &stdout, &stderr, deps)
 	if exitCode != exitSuccess {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}

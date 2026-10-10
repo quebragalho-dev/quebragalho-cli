@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestBuildMCPViewStateSummarizesConfiguredServers(t *testing.T) {
@@ -18,7 +18,7 @@ func TestBuildMCPViewStateSummarizesConfiguredServers(t *testing.T) {
 			Type:    "stdio",
 			Command: "docs-mcp",
 			Args:    []string{"--workspace", "."},
-			Env:     map[string]string{"ZERO_DOCS_TOKEN": "sk-secret"},
+			Env:     map[string]string{"QG_DOCS_TOKEN": "sk-secret"},
 		},
 		"linear": {
 			Type:     "http",
@@ -43,7 +43,7 @@ func TestBuildMCPViewStateSummarizesConfiguredServers(t *testing.T) {
 		Name:      "docs",
 		Transport: "stdio",
 		State:     "enabled",
-		Target:    "docs-mcp --workspace . env ZERO_DOCS_TOKEN=[REDACTED]",
+		Target:    "docs-mcp --workspace . env QG_DOCS_TOKEN=[REDACTED]",
 	})
 	assertServerView(t, state.Servers[1], MCPServerView{
 		Name:      "linear",

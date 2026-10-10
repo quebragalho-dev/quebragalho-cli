@@ -12,14 +12,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/selfverify"
-	"github.com/Gitlawb/zero/internal/testrunner"
-	"github.com/Gitlawb/zero/internal/verify"
-	"github.com/Gitlawb/zero/internal/worktrees"
-	"github.com/Gitlawb/zero/internal/zerogit"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/selfverify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testrunner"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/verify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/worktrees"
 )
 
 type worktreeCommandOptions struct {
@@ -109,8 +109,8 @@ func runWorktrees(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 	return exitSuccess
 }
 
-// runWorktreesRelease unlocks a worktree `zero worktrees prepare` created, so
-// Zero's automatic Clean pass can reclaim it once it goes stale. Prepare locks
+// runWorktreesRelease unlocks a worktree `qg worktrees prepare` created, so
+// QG's automatic Clean pass can reclaim it once it goes stale. Prepare locks
 // every worktree it creates and nothing else in that command's own lifetime
 // unlocks it (its process exits right after printing the path, long before
 // whatever external caller actually finishes using the worktree), so that
@@ -276,7 +276,7 @@ func runChanges(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 	}
 	switch command {
 	case "inspect", "status":
-		summary, err := deps.inspectChanges(context.Background(), zerogit.InspectOptions{
+		summary, err := deps.inspectChanges(context.Background(), qggit.InspectOptions{
 			Cwd:          workspaceRoot,
 			BaseRef:      options.baseRef,
 			MaxDiffBytes: options.maxDiffBytes,
@@ -286,7 +286,7 @@ func runChanges(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 		}
 		safeSummary := redactChangeSummary(summary)
 		if options.json {
-			if err := writePrettyJSON(stdout, zerogit.SnapshotFromSummary(safeSummary)); err != nil {
+			if err := writePrettyJSON(stdout, qggit.SnapshotFromSummary(safeSummary)); err != nil {
 				return exitCrash
 			}
 			return exitSuccess
@@ -298,7 +298,7 @@ func runChanges(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 	case "commit":
 		var message string
 		if options.auto {
-			summary, err := deps.inspectChanges(context.Background(), zerogit.InspectOptions{
+			summary, err := deps.inspectChanges(context.Background(), qggit.InspectOptions{
 				Cwd:          workspaceRoot,
 				MaxDiffBytes: options.maxDiffBytes,
 			})
@@ -339,7 +339,7 @@ func runChanges(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 			message = options.message
 		}
 
-		result, err := deps.commitChanges(context.Background(), zerogit.CommitOptions{
+		result, err := deps.commitChanges(context.Background(), qggit.CommitOptions{
 			Cwd:          workspaceRoot,
 			Message:      message,
 			DryRun:       options.dryRun,
@@ -606,7 +606,7 @@ func parseChangesArgs(args []string, command string) (changesCommandOptions, boo
 		}
 	}
 	if command != "commit" && options.hasMessage {
-		return options, false, execUsageError{"--message is only valid with `zero changes commit`"}
+		return options, false, execUsageError{"--message is only valid with `qg changes commit`"}
 	}
 	if command == "commit" && options.hasMessage && options.auto {
 		return options, false, execUsageError{"cannot specify both --message and --auto"}
@@ -620,13 +620,13 @@ func parseChangesArgs(args []string, command string) (changesCommandOptions, boo
 		return options, false, execUsageError{"--auto is only valid with commit, push, or pr"}
 	}
 	if command != "inspect" && options.baseRef != "" {
-		return options, false, execUsageError{"--base is only valid with `zero changes inspect`"}
+		return options, false, execUsageError{"--base is only valid with `qg changes inspect`"}
 	}
 	if command != "push" && command != "pr" && (options.remote != "" || options.force) {
 		return options, false, execUsageError{"--remote and --force are only valid with push or pr"}
 	}
 	if command != "pr" && (options.title != "" || options.body != "" || options.fill || options.draft) {
-		return options, false, execUsageError{"--title, --body, --fill, and --draft are only valid with `zero changes pr`"}
+		return options, false, execUsageError{"--title, --body, --fill, and --draft are only valid with `qg changes pr`"}
 	}
 	if command != "push" && command != "pr" && options.yes {
 		return options, false, execUsageError{"--yes is only valid with push or pr"}
@@ -701,7 +701,7 @@ func redactVerifyLoopReport(report selfverify.Report) selfverify.Report {
 	return report
 }
 
-func redactChangeSummary(summary zerogit.ChangeSummary) zerogit.ChangeSummary {
+func redactChangeSummary(summary qggit.ChangeSummary) qggit.ChangeSummary {
 	summary.Root = redactCLIString(summary.Root)
 	summary.Base = redactCLIString(summary.Base)
 	summary.Branch = redactCLIString(summary.Branch)
@@ -715,7 +715,7 @@ func redactChangeSummary(summary zerogit.ChangeSummary) zerogit.ChangeSummary {
 	return summary
 }
 
-func redactCommitResult(result zerogit.CommitResult) zerogit.CommitResult {
+func redactCommitResult(result qggit.CommitResult) qggit.CommitResult {
 	result.Root = redactCLIString(result.Root)
 	result.Message = redactCLIString(result.Message)
 	result.CommitHash = redactCLIString(result.CommitHash)
@@ -731,7 +731,7 @@ func redactCLIString(value string) string {
 
 func formatWorktreeResult(result worktrees.Result) string {
 	lines := []string{
-		"Zero worktree ready",
+		"QG worktree ready",
 		"name: " + result.Name,
 		"path: " + result.Path,
 		"repo: " + result.RepoRoot,
@@ -750,7 +750,7 @@ func formatWorktreeResult(result worktrees.Result) string {
 
 func formatVerifyReport(report verify.Report) string {
 	lines := []string{
-		"Zero verification",
+		"QG verification",
 		"root: " + report.Root,
 		fmt.Sprintf("summary: %d total, %d passed, %d failed, %d errors", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
 	}
@@ -790,7 +790,7 @@ func formatVerifyTestSummary(summary *testrunner.Summary) string {
 
 func formatVerifyLoopReport(report selfverify.Report) string {
 	lines := []string{
-		"Zero self-verification",
+		"QG self-verification",
 	}
 	if report.Root != "" {
 		lines = append(lines, "root: "+report.Root)
@@ -831,9 +831,9 @@ func formatRemediation(remediation selfverify.Remediation) string {
 	return strings.Join(details, " - ")
 }
 
-func formatChangeSummary(summary zerogit.ChangeSummary) string {
+func formatChangeSummary(summary qggit.ChangeSummary) string {
 	lines := []string{
-		"Zero changes",
+		"QG changes",
 		"root: " + summary.Root,
 		fmt.Sprintf("files: %d changed", len(summary.Files)),
 	}
@@ -856,9 +856,9 @@ func formatChangeSummary(summary zerogit.ChangeSummary) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatCommitResult(result zerogit.CommitResult) string {
+func formatCommitResult(result qggit.CommitResult) string {
 	lines := []string{
-		"Zero changes commit",
+		"QG changes commit",
 		"root: " + result.Root,
 		"message: " + result.Message,
 		fmt.Sprintf("dry-run: %t", result.DryRun),
@@ -873,12 +873,12 @@ func formatCommitResult(result zerogit.CommitResult) string {
 
 func writeWorktreesHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero worktrees prepare [flags] [name]
-  zero worktrees release [flags] <path>
+  qg worktrees prepare [flags] [name]
+  qg worktrees release [flags] <path>
 
-Prepares an isolated git worktree for a Zero task.
+Prepares an isolated git worktree for a QG task.
 
-prepare locks the worktree it creates so Zero's automatic cleanup never
+prepare locks the worktree it creates so QG's automatic cleanup never
 removes it out from under you. release unlocks a worktree prepare created,
 once you are done with it, so cleanup can reclaim it later if it goes stale.
 If the worktree directory was deleted by hand, run release with -C pointing
@@ -886,7 +886,7 @@ at the source repository so the orphaned lock can still be cleared.
 
 prepare flags:
       --name <name>       Worktree name; defaults to a timestamped task name
-      --dir <path>        Base directory for Zero worktrees
+      --dir <path>        Base directory for QG worktrees
   -C, --cwd <path>        Source repository directory
       --json              Print JSON output
   -h, --help              Show this help
@@ -902,7 +902,7 @@ release flags:
 
 func writeVerifyHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero verify [flags]
+  qg verify [flags]
 
 Detects and runs local verification checks for the workspace.
 
@@ -919,10 +919,10 @@ Flags:
 
 func writeChangesHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
-  zero changes inspect [flags]
-  zero changes commit [flags]
-  zero changes push [flags]
-  zero changes pr [flags]
+  qg changes inspect [flags]
+  qg changes commit [flags]
+  qg changes push [flags]
+  qg changes pr [flags]
 
 Inspects, commits, pushes, and creates pull requests for local git changes.
 
@@ -930,7 +930,7 @@ Flags:
   -C, --cwd <path>        Workspace directory
       --base <ref>        Diff against <ref>...HEAD instead of the working tree
       --diff-bytes <n>    Maximum diff bytes to include
-  -m, --message <text>    Commit message for `+"`zero changes commit`"+`
+  -m, --message <text>    Commit message for `+"`qg changes commit`"+`
       --dry-run           Preview commit metadata / push without mutating git state
       --remote <name>     Remote to push to (defaults to upstream tracked branch or origin)
       --force             Use force-with-lease when pushing
@@ -980,7 +980,7 @@ func runChangesPush(args []string, stdout io.Writer, stderr io.Writer, deps appD
 	// feature-branch preflight (inspection, remote probes, branch creation).
 	// The push itself must not be cancelled mid-transfer just because the
 	// preflight budget elapsed; a large push can legitimately take longer.
-	result, err := deps.pushChanges(context.Background(), zerogit.PushOptions{
+	result, err := deps.pushChanges(context.Background(), qggit.PushOptions{
 		Cwd:                    workspaceRoot,
 		Remote:                 firstNonEmptyString(options.remote, remote),
 		Branch:                 branch,
@@ -1084,7 +1084,7 @@ func runChangesPR(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 	// context.Background() is deliberate here too: runChangesPR reuses the
 	// 2-minute ctx for preflight (branch creation and remote probes), but the
 	// push must not be cancelled mid-transfer if that budget elapsed.
-	pushResult, err := deps.pushChanges(context.Background(), zerogit.PushOptions{
+	pushResult, err := deps.pushChanges(context.Background(), qggit.PushOptions{
 		Cwd:                    workspaceRoot,
 		Remote:                 firstNonEmptyString(options.remote, remote),
 		Branch:                 branch,
@@ -1101,7 +1101,7 @@ func runChangesPR(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		}
 	}
 
-	prResult, err := deps.createPR(context.Background(), zerogit.PROptions{
+	prResult, err := deps.createPR(context.Background(), qggit.PROptions{
 		Cwd:   workspaceRoot,
 		Fill:  options.fill,
 		Draft: options.draft,
@@ -1135,7 +1135,7 @@ func runChangesPR(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 	return exitSuccess
 }
 
-func generateAutoCommitMessage(ctx context.Context, provider zeroruntime.Provider, model string, summary zerogit.ChangeSummary) (string, error) {
+func generateAutoCommitMessage(ctx context.Context, provider qgruntime.Provider, model string, summary qggit.ChangeSummary) (string, error) {
 	var promptBuilder strings.Builder
 	promptBuilder.WriteString("Analyze the following git diff and generate a concise, conventional commit message.\n")
 	promptBuilder.WriteString("The commit message subject line must be 72 characters or fewer, starting with a conventional commit type (e.g., feat, fix, docs, style, refactor, test, chore) followed by a colon and space, and a lowercase description.\n")
@@ -1144,16 +1144,16 @@ func generateAutoCommitMessage(ctx context.Context, provider zeroruntime.Provide
 	promptBuilder.WriteString("Git Diff:\n")
 	promptBuilder.WriteString(summary.Diff)
 
-	request := zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{
-			{Role: zeroruntime.MessageRoleUser, Content: promptBuilder.String()},
+	request := qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{
+			{Role: qgruntime.MessageRoleUser, Content: promptBuilder.String()},
 		},
 	}
 	stream, err := provider.StreamCompletion(ctx, request)
 	if err != nil {
 		return "", err
 	}
-	collected := zeroruntime.CollectStream(ctx, stream)
+	collected := qgruntime.CollectStream(ctx, stream)
 	if collected.Error != "" {
 		return "", fmt.Errorf("%s", collected.Error)
 	}
@@ -1193,7 +1193,7 @@ type branchPushPlan struct {
 	TrackingBranch         string
 	RestoreTip             string
 	PublishabilityBase     string
-	Summary                zerogit.ChangeSummary
+	Summary                qggit.ChangeSummary
 	Slug                   string
 }
 
@@ -1213,7 +1213,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	if deps.isDefaultBranch == nil {
 		return branchPushPlan{}, fmt.Errorf("isDefaultBranch dependency missing")
 	}
-	isDefault, currentBranch, remote, err := deps.isDefaultBranch(ctx, zerogit.DefaultBranchOptions{Cwd: workspaceRoot, Remote: requestedRemote})
+	isDefault, currentBranch, remote, err := deps.isDefaultBranch(ctx, qggit.DefaultBranchOptions{Cwd: workspaceRoot, Remote: requestedRemote})
 	if err != nil {
 		return branchPushPlan{}, err
 	}
@@ -1254,7 +1254,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	// CreateBranch and Push publish commits only. A dirty working tree would
 	// leave uncommitted edits behind under a branch/PR that does not include
 	// them, so refuse until the tree is clean (commit or stash first).
-	workingTree, err := deps.inspectChanges(ctx, zerogit.InspectOptions{Cwd: workspaceRoot})
+	workingTree, err := deps.inspectChanges(ctx, qggit.InspectOptions{Cwd: workspaceRoot})
 	if err != nil {
 		return branchPushPlan{}, fmt.Errorf("failed to inspect working tree: %w", err)
 	}
@@ -1280,7 +1280,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	// already contacted the remote for its symref check, but the tracking ref
 	// commitsAhead reads from is only a local cache (written at clone or the
 	// last fetch) and can sit behind the remote's live tip. Left stale, a real
-	// publishable range could look like zero commits ahead, and the diff
+	// publishable range could look like qg commits ahead, and the diff
 	// derived below (which reuses this same ref as its base) would be stale
 	// too. A failure here (offline, or a genuinely unborn remote with no such
 	// ref to fetch yet) is folded into the same fail-closed path as an
@@ -1300,7 +1300,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	pushRemote := firstNonEmptyString(requestedRemote, remote)
 	if deps.isUnbornRemote != nil {
 		if unbornDest, unbornDestErr := deps.isUnbornRemote(ctx, workspaceRoot, pushRemote); unbornDestErr == nil && unbornDest {
-			return branchPushPlan{}, fmt.Errorf("remote %s has no branches yet; push the initial default branch first with --yes (`zero changes push --yes`), then use auto-branching for subsequent work", pushRemote)
+			return branchPushPlan{}, fmt.Errorf("remote %s has no branches yet; push the initial default branch first with --yes (`qg changes push --yes`), then use auto-branching for subsequent work", pushRemote)
 		}
 	}
 
@@ -1320,7 +1320,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 			unbornRemote, unbornErr = deps.isUnbornRemote(ctx, workspaceRoot, trackingRemote)
 		}
 		if unbornErr == nil && unbornRemote {
-			return branchPushPlan{}, fmt.Errorf("remote %s has no branches yet; push the initial default branch first with --yes (`zero changes push --yes`), then use auto-branching for subsequent work", trackingRemote)
+			return branchPushPlan{}, fmt.Errorf("remote %s has no branches yet; push the initial default branch first with --yes (`qg changes push --yes`), then use auto-branching for subsequent work", trackingRemote)
 		}
 		cause := aheadErr
 		if cause == nil {
@@ -1356,7 +1356,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	// commitsAhead just checked. A working-tree snapshot can describe edits a
 	// commit-only push will never include.
 	baseRef := restoreTip
-	summary, err := deps.inspectChanges(ctx, zerogit.InspectOptions{Cwd: workspaceRoot, BaseRef: baseRef, MaxDiffBytes: opts.MaxDiffBytes})
+	summary, err := deps.inspectChanges(ctx, qggit.InspectOptions{Cwd: workspaceRoot, BaseRef: baseRef, MaxDiffBytes: opts.MaxDiffBytes})
 	if err != nil {
 		return branchPushPlan{}, fmt.Errorf("failed to inspect changes: %w", err)
 	}
@@ -1367,7 +1367,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 		// nothing to derive a slug from; name the branch from the commit
 		// subject instead.
 		if subject := deps.headCommitSubject(ctx, workspaceRoot); subject != "" {
-			slug = zerogit.SlugifyBranchComponent(subject)
+			slug = qggit.SlugifyBranchComponent(subject)
 		}
 	}
 	if opts.AutoNaming && strings.TrimSpace(summary.Diff) != "" {
@@ -1409,12 +1409,12 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	}, nil
 }
 
-// ensureFeatureBranch is the branch-naming step `zero changes push`/`pr` run
+// ensureFeatureBranch is the branch-naming step `qg changes push`/`pr` run
 // before pushing: pushing straight to the default branch is refused deeper in
-// zerogit.Push, so rather than surface that as a dead end, create and switch
+// qggit.Push, so rather than surface that as a dead end, create and switch
 // to a conventionally named "<user>/<slug>" branch first. It returns the
 // branch push/pr should target, or "" to mean "current HEAD branch, unchanged"
-// (zerogit.Push already treats an empty Branch that way), plus the remote the
+// (qggit.Push already treats an empty Branch that way), plus the remote the
 // preflight resolved (requestedRemote, then the original branch's configured
 // upstream, then "origin"), plus whether Push should require that branch not
 // already exist on that remote. Callers must pass the remote to Push: a
@@ -1465,8 +1465,8 @@ func ensureFeatureBranch(ctx context.Context, stdout io.Writer, workspaceRoot st
 		expectedRestoreTip = deps.currentBranchTip(ctx, workspaceRoot)
 	}
 
-	name := zerogit.BuildBranchName(deps.currentGitUser(ctx, workspaceRoot), plan.Slug)
-	result, err := deps.createBranch(ctx, zerogit.BranchOptions{Cwd: workspaceRoot, Name: name, Remote: plan.PushRemote})
+	name := qggit.BuildBranchName(deps.currentGitUser(ctx, workspaceRoot), plan.Slug)
+	result, err := deps.createBranch(ctx, qggit.BranchOptions{Cwd: workspaceRoot, Name: name, Remote: plan.PushRemote})
 	if err != nil {
 		return "", "", false, fmt.Errorf("failed to create branch: %w", err)
 	}
@@ -1486,7 +1486,7 @@ func ensureFeatureBranch(ctx context.Context, stdout io.Writer, workspaceRoot st
 			// now exclusively owns the user's commits, which would destroy
 			// work to recover from a race we can simply report. Keep the
 			// branch and let the user reconcile the default branch.
-			if errors.Is(err, zerogit.ErrCompareAndSwapConflict) {
+			if errors.Is(err, qggit.ErrCompareAndSwapConflict) {
 				return "", "", false, fmt.Errorf("failed to restore default branch %s to %s after auto-branching: %w; generated branch %s was preserved because the default branch changed concurrently", plan.CurrentBranch, plan.RestoreTip, err, result.Branch)
 			}
 			var rollbackErr error
@@ -1508,14 +1508,14 @@ func ensureFeatureBranch(ctx context.Context, stdout io.Writer, workspaceRoot st
 // fallbackBranchSlug derives a deterministic branch-name slug from a change
 // summary without calling an LLM, so ensureFeatureBranch still works when no
 // provider is configured.
-func fallbackBranchSlug(summary zerogit.ChangeSummary) string {
+func fallbackBranchSlug(summary qggit.ChangeSummary) string {
 	switch len(summary.Files) {
 	case 0:
 		return "changes"
 	case 1:
 		// Git paths are always slash-separated regardless of platform, so
 		// path.Base (not filepath.Base) extracts the filename portably.
-		return zerogit.SlugifyBranchComponent(path.Base(summary.Files[0].Path))
+		return qggit.SlugifyBranchComponent(path.Base(summary.Files[0].Path))
 	default:
 		return fmt.Sprintf("update-%d-files", len(summary.Files))
 	}
@@ -1523,7 +1523,7 @@ func fallbackBranchSlug(summary zerogit.ChangeSummary) string {
 
 // generateAutoBranchSlug asks the model for a short kebab-case slug
 // describing the diff, mirroring generateAutoCommitMessage's prompt shape.
-func generateAutoBranchSlug(ctx context.Context, provider zeroruntime.Provider, model string, summary zerogit.ChangeSummary) (string, error) {
+func generateAutoBranchSlug(ctx context.Context, provider qgruntime.Provider, model string, summary qggit.ChangeSummary) (string, error) {
 	var promptBuilder strings.Builder
 	promptBuilder.WriteString("Analyze the following git diff and generate a short git branch name slug for it.\n")
 	promptBuilder.WriteString("The slug must be 2 to 5 lowercase words separated by hyphens (kebab-case), using only letters, digits, and hyphens, with no prefix like \"feature/\" or \"fix/\" and no surrounding quotes.\n")
@@ -1531,21 +1531,21 @@ func generateAutoBranchSlug(ctx context.Context, provider zeroruntime.Provider, 
 	promptBuilder.WriteString("Git Diff:\n")
 	promptBuilder.WriteString(summary.Diff)
 
-	request := zeroruntime.CompletionRequest{
-		Messages: []zeroruntime.Message{
-			{Role: zeroruntime.MessageRoleUser, Content: promptBuilder.String()},
+	request := qgruntime.CompletionRequest{
+		Messages: []qgruntime.Message{
+			{Role: qgruntime.MessageRoleUser, Content: promptBuilder.String()},
 		},
 	}
 	stream, err := provider.StreamCompletion(ctx, request)
 	if err != nil {
 		return "", err
 	}
-	collected := zeroruntime.CollectStream(ctx, stream)
+	collected := qgruntime.CollectStream(ctx, stream)
 	if collected.Error != "" {
 		return "", fmt.Errorf("%s", collected.Error)
 	}
 
-	slug := zerogit.SlugifyBranchComponent(extractBranchSlug(collected.Text))
+	slug := qggit.SlugifyBranchComponent(extractBranchSlug(collected.Text))
 	if slug == "" {
 		return "", fmt.Errorf("provider returned empty branch slug")
 	}

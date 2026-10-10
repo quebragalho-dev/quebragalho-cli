@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/execution"
-	zeroSandbox "github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	qgSandbox "github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 // bashWaitDelay bounds how long Wait blocks for the I/O pipes to drain after the
@@ -20,7 +20,7 @@ var bashWaitDelay = 2 * time.Second
 // hardenProcessLifetime makes a Windows shell command killable as a process
 // tree. cmd.exe starts helper commands as child processes, so killing only the
 // shell can leave a long-running child alive and holding cwd/temp handles after
-// Zero exits.
+// QG exits.
 func hardenProcessLifetime(command *exec.Cmd) {
 	command.WaitDelay = bashWaitDelay
 	command.Cancel = func() error {
@@ -39,5 +39,5 @@ func applyWindowsShellCommandLine(command *exec.Cmd, commandText string, wrapped
 	if wrapped || !cmdFallback {
 		return
 	}
-	command.SysProcAttr = &syscall.SysProcAttr{CmdLine: zeroSandbox.WindowsShellCommandLine(commandText)}
+	command.SysProcAttr = &syscall.SysProcAttr{CmdLine: qgSandbox.WindowsShellCommandLine(commandText)}
 }

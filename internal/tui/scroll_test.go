@@ -113,7 +113,9 @@ func TestMouseWheelOnClippedFooterStatusDoesNotMoveComposerCursor(t *testing.T) 
 
 func TestAltScreenTranscriptScrollKeepsFooterFixed(t *testing.T) {
 	m := newModel(context.Background(), Options{AltScreen: true, ProviderName: "openai", ModelName: "gpt-4.1"})
-	m.width = 90
+	// Wide enough that branch + cwd + model all fit the title bar regardless of
+	// how deep the checkout path runs (the branch must stay pinned while scrolling).
+	m.width = 140
 	m.height = 10
 	m.gitBranch = "feat/pinned-header"
 	for index := 0; index < 14; index++ {
@@ -124,7 +126,7 @@ func TestAltScreenTranscriptScrollKeepsFooterFixed(t *testing.T) {
 	if strings.Contains(bottom, "message A") {
 		t.Fatalf("bottom view should start near recent history, got:\n%s", bottom)
 	}
-	if !strings.Contains(bottom, "describe a task for zero") || !strings.Contains(bottom, "openai") {
+	if !strings.Contains(bottom, "describe a task for qg") || !strings.Contains(bottom, "gpt-4.1") {
 		t.Fatalf("bottom view should keep composer/status fixed, got:\n%s", bottom)
 	}
 	if !strings.Contains(bottom, "feat/pinned-header") || !strings.Contains(bottom, "gpt-4.1") {
@@ -136,7 +138,7 @@ func TestAltScreenTranscriptScrollKeepsFooterFixed(t *testing.T) {
 	if !strings.Contains(scrolled, "message A") {
 		t.Fatalf("scrolled view should reveal older history, got:\n%s", scrolled)
 	}
-	if !strings.Contains(scrolled, "describe a task for zero") || !strings.Contains(scrolled, "openai") {
+	if !strings.Contains(scrolled, "describe a task for qg") || !strings.Contains(scrolled, "gpt-4.1") {
 		t.Fatalf("scrolled view should keep composer/status fixed, got:\n%s", scrolled)
 	}
 	if !strings.Contains(scrolled, "feat/pinned-header") || !strings.Contains(scrolled, "gpt-4.1") {

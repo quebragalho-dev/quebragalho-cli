@@ -8,9 +8,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/provideronboarding"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 )
 
 type providerUseOptions struct {
@@ -55,7 +55,7 @@ func runProvidersUse(args []string, stdout io.Writer, stderr io.Writer, deps app
 	}
 	// SetActiveProvider only ever matches profiles persisted in config.json
 	// (see config.ProviderPersisted), but a provider can be visible in
-	// `zero providers list`/the TUI picker purely because Resolve()
+	// `qg providers list`/the TUI picker purely because Resolve()
 	// synthesized it in-memory from an ambient env var (e.g. OPENAI_API_KEY)
 	// without ever writing a row to disk. Without this check, switching to
 	// that provider by name always fails with a confusing "not found" even
@@ -101,10 +101,10 @@ func runProvidersUse(args []string, stdout io.Writer, stderr io.Writer, deps app
 	return exitSuccess
 }
 
-// activeProviderEnvOverride returns the ZERO_PROVIDER value when it is set and
+// activeProviderEnvOverride returns the QG_PROVIDER value when it is set and
 // names a DIFFERENT provider than the one just selected, meaning the saved
 // `providers use` selection will NOT be the effective active provider until the
-// env var is unset. applyEnv (resolver.go) makes ZERO_PROVIDER win over
+// env var is unset. applyEnv (resolver.go) makes QG_PROVIDER win over
 // config.json unconditionally, so reporting the write as a plain success reads as
 // a switch that silently has no effect (issue #721). Empty when nothing overrides
 // (including when getenv is nil, e.g. a test that did not inject the environment).
@@ -272,7 +272,7 @@ func parseProviderSetupArgs(args []string) (providerSetupOptions, bool, error) {
 }
 
 func providerSetupAddCommand(options providerSetupOptions, profile config.ProviderProfile) string {
-	parts := []string{"zero", "providers", "add", profile.CatalogID}
+	parts := []string{"qg", "providers", "add", profile.CatalogID}
 	if strings.TrimSpace(options.name) != "" {
 		parts = append(parts, "--name", options.name)
 	}
@@ -381,9 +381,9 @@ func parseProviderNamesArgs(args []string, want int, usage string) (providerName
 
 // runProvidersRemove deletes a saved provider profile and its stored API key.
 // The OAuth token (if any) is kept — logins outlive profiles so re-adding the
-// provider needs no new browser round-trip; `zero auth logout <name>` removes it.
+// provider needs no new browser round-trip; `qg auth logout <name>` removes it.
 func runProvidersRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
-	options, help, err := parseProviderNamesArgs(args, 1, "usage: zero providers remove <name>")
+	options, help, err := parseProviderNamesArgs(args, 1, "usage: qg providers remove <name>")
 	if err != nil {
 		return writeExecUsageError(stderr, err.Error())
 	}
@@ -400,7 +400,7 @@ func runProvidersRemove(args []string, stdout io.Writer, stderr io.Writer, deps 
 	name := options.names[0]
 	// RemoveProvider only ever matches profiles persisted in config.json (see
 	// config.ProviderPersisted), but a provider can be visible in
-	// `zero providers list`/the TUI picker purely because Resolve()
+	// `qg providers list`/the TUI picker purely because Resolve()
 	// synthesized it in-memory from an ambient env var (e.g. OPENAI_API_KEY)
 	// without ever writing a row to disk. Without this check, deleting that
 	// provider by name always fails with a confusing "not found" even though
@@ -455,7 +455,7 @@ func runProvidersRemove(args []string, stdout io.Writer, stderr io.Writer, deps 
 			return exitCrash
 		}
 	} else {
-		if _, err := fmt.Fprintln(stdout, "No providers remain — run zero setup to add one."); err != nil {
+		if _, err := fmt.Fprintln(stdout, "No providers remain — run qg setup to add one."); err != nil {
 			return exitCrash
 		}
 	}
@@ -476,7 +476,7 @@ func removeStoredProviderKeyAt(configPath string, provider string) (bool, error)
 // runProvidersRename renames a saved provider profile, migrating its stored
 // API key and the activeProvider pointer along with it (config.RenameProvider).
 func runProvidersRename(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
-	options, help, err := parseProviderNamesArgs(args, 2, "usage: zero providers rename <old> <new>")
+	options, help, err := parseProviderNamesArgs(args, 2, "usage: qg providers rename <old> <new>")
 	if err != nil {
 		return writeExecUsageError(stderr, err.Error())
 	}
@@ -533,7 +533,7 @@ func providerResolvedByName(providers []config.ProviderProfile, name string) boo
 	return false
 }
 
-// reportUnpersistedProviderUse handles `zero providers use <name>` for a
+// reportUnpersistedProviderUse handles `qg providers use <name>` for a
 // provider that is not persisted in config.json. If it's not resolvable at
 // all (an unknown/misspelled name), it returns handled=false so the caller
 // falls through to SetActiveProvider's real "not found" error. If it IS
@@ -552,7 +552,7 @@ func reportUnpersistedProviderUse(stdout, stderr io.Writer, deps appDeps, option
 		return exitCode, false
 	}
 	message := fmt.Sprintf(
-		"Provider %q is not saved in config.json (likely set via an environment variable), so there is no saved profile to switch to.\nIt is available whenever its environment variable is set, but is only active when selected (for example via ZERO_PROVIDER); unset its environment variable to stop Zero from detecting it automatically.",
+		"Provider %q is not saved in config.json (likely set via an environment variable), so there is no saved profile to switch to.\nIt is available whenever its environment variable is set, but is only active when selected (for example via QG_PROVIDER); unset its environment variable to stop QG from detecting it automatically.",
 		options.name,
 	)
 	if options.json {
@@ -572,7 +572,7 @@ func reportUnpersistedProviderUse(stdout, stderr io.Writer, deps appDeps, option
 	return exitSuccess, true
 }
 
-// reportUnpersistedProviderRemove handles `zero providers remove <name>` for
+// reportUnpersistedProviderRemove handles `qg providers remove <name>` for
 // a provider that is not persisted in config.json, mirroring the TUI
 // provider manager's delete handling (internal/tui/provider_manager.go). If
 // name isn't resolvable at all, it returns handled=false so the caller falls
@@ -586,7 +586,7 @@ func reportUnpersistedProviderRemove(stdout, stderr io.Writer, deps appDeps, nam
 		return exitCode, false
 	}
 	message := fmt.Sprintf(
-		"Provider %q is not saved in config.json (likely set via an environment variable) — nothing to remove there.\nUnset its environment variable to stop Zero from detecting it automatically.",
+		"Provider %q is not saved in config.json (likely set via an environment variable) — nothing to remove there.\nUnset its environment variable to stop QG from detecting it automatically.",
 		name,
 	)
 	if jsonOutput {

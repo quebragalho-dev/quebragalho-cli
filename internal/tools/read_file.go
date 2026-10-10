@@ -40,7 +40,7 @@ func NewScopedReadFileTool(workspaceRoot string, scope PathScope) Tool {
 					"path":        {Type: "string", Description: "File path."},
 					"offset":      {Type: "integer", Description: "Optional 1-based source line to start from.", Minimum: intPtr(1)},
 					"limit":       {Type: "integer", Description: "Optional number of source lines to return.", Minimum: intPtr(1)},
-					"byte_offset": {Type: "integer", Description: "Optional zero-based offset for exact byte reads.", Minimum: intPtr(0)},
+					"byte_offset": {Type: "integer", Description: "Optional qg-based offset for exact byte reads.", Minimum: intPtr(0)},
 					"byte_limit":  {Type: "integer", Description: "Optional byte count for an exact byte read; use with byte_offset.", Minimum: intPtr(1), Maximum: intPtr(readFileByteChunkMax)},
 				},
 				Required:             []string{"path"},
@@ -133,7 +133,7 @@ func (tool readFileTool) run(args map[string]any, options RunOptions, directBudg
 		return errorResult("Error reading file " + relativePath + ": " + err.Error())
 	}
 	// Record the whole-file baseline (the raw bytes, matching what edit_file and
-	// write_file read) so a later write can detect an out-of-Zero modification.
+	// write_file read) so a later write can detect an out-of-QG modification.
 	// Stat is best-effort: a missing FileInfo only drops the diagnostic size/mtime,
 	// not the authoritative content hash.
 	options.FileTracker.RecordHash(absolutePath, stats.hash, stats.info)

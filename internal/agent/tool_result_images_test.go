@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // imageTool returns a tool result carrying an image, the way a screenshot tool
@@ -29,7 +29,7 @@ func (t imageTool) Run(context.Context, map[string]any) tools.Result {
 	return tools.Result{
 		Status: tools.StatusOK,
 		Output: "Captured a screenshot.",
-		Images: []zeroruntime.ImageBlock{{MediaType: t.media, Data: t.data}},
+		Images: []qgruntime.ImageBlock{{MediaType: t.media, Data: t.data}},
 	}
 }
 
@@ -45,16 +45,16 @@ func TestRunDeliversToolResultImagesToTheModel(t *testing.T) {
 	registry.Register(imageTool{media: "image/png", data: []byte("\x89PNG\r\n\x1a\nfake")})
 
 	provider := &mockProvider{
-		turns: [][]zeroruntime.StreamEvent{
+		turns: [][]qgruntime.StreamEvent{
 			{
-				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call_1", ToolName: "capture"},
-				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call_1", ArgumentsFragment: `{}`},
-				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call_1"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call_1", ToolName: "capture"},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call_1", ArgumentsFragment: `{}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call_1"},
+				{Type: qgruntime.StreamEventDone},
 			},
 			{
-				{Type: zeroruntime.StreamEventText, Content: "I can see it."},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventText, Content: "I can see it."},
+				{Type: qgruntime.StreamEventDone},
 			},
 		},
 	}
@@ -67,7 +67,7 @@ func TestRunDeliversToolResultImagesToTheModel(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	var carrier *zeroruntime.Message
+	var carrier *qgruntime.Message
 	for index := range result.Messages {
 		if len(result.Messages[index].Images) > 0 {
 			carrier = &result.Messages[index]
@@ -77,7 +77,7 @@ func TestRunDeliversToolResultImagesToTheModel(t *testing.T) {
 	if carrier == nil {
 		t.Fatal("no message carried the tool's image; the model never saw it")
 	}
-	if carrier.Role != zeroruntime.MessageRoleUser {
+	if carrier.Role != qgruntime.MessageRoleUser {
 		t.Errorf("image rode a %q message; every provider only serializes images on the user role", carrier.Role)
 	}
 	if got := carrier.Images[0].MediaType; got != "image/png" {
@@ -87,7 +87,7 @@ func TestRunDeliversToolResultImagesToTheModel(t *testing.T) {
 	// The tool-result pairing must be untouched: one tool result per tool call.
 	toolResults := 0
 	for _, message := range result.Messages {
-		if message.Role == zeroruntime.MessageRoleTool {
+		if message.Role == qgruntime.MessageRoleTool {
 			toolResults++
 		}
 	}
@@ -123,17 +123,17 @@ func TestRunKeepsToolResultsContiguousWhenAToolReturnsAnImage(t *testing.T) {
 	registry.Register(imageTool{media: "image/png", data: []byte("\x89PNG\r\n\x1a\nfake")})
 	registry.Register(textTool{})
 
-	provider := &mockProvider{turns: [][]zeroruntime.StreamEvent{
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{
 		{
-			{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "c1", ToolName: "capture"},
-			{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "c1", ArgumentsFragment: `{}`},
-			{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "c1"},
-			{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "c2", ToolName: "note"},
-			{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "c2", ArgumentsFragment: `{}`},
-			{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "c2"},
-			{Type: zeroruntime.StreamEventDone},
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "c1", ToolName: "capture"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "c1", ArgumentsFragment: `{}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "c1"},
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "c2", ToolName: "note"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "c2", ArgumentsFragment: `{}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "c2"},
+			{Type: qgruntime.StreamEventDone},
 		},
-		{{Type: zeroruntime.StreamEventText, Content: "done"}, {Type: zeroruntime.StreamEventDone}},
+		{{Type: qgruntime.StreamEventText, Content: "done"}, {Type: qgruntime.StreamEventDone}},
 	}}
 
 	result, err := Run(context.Background(), "two calls", provider, Options{Registry: registry, MaxTurns: 2})
@@ -152,7 +152,7 @@ func TestRunKeepsToolResultsContiguousWhenAToolReturnsAnImage(t *testing.T) {
 	var toolResults []toolResult
 	imageIndex := -1
 	for index, message := range result.Messages {
-		if message.Role == zeroruntime.MessageRoleTool {
+		if message.Role == qgruntime.MessageRoleTool {
 			toolResults = append(toolResults, toolResult{index: index, id: message.ToolCallID})
 		}
 		if len(message.Images) > 0 {
@@ -191,7 +191,7 @@ func TestRunKeepsToolResultsContiguousWhenAToolReturnsAnImage(t *testing.T) {
 
 // messageShape renders the conversation as a compact role list so a failure says
 // what the ordering actually was instead of dumping whole messages.
-func messageShape(messages []zeroruntime.Message) string {
+func messageShape(messages []qgruntime.Message) string {
 	parts := make([]string, 0, len(messages))
 	for index, message := range messages {
 		part := fmt.Sprintf("%d:%s", index, message.Role)

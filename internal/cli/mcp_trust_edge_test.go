@@ -13,18 +13,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
-// writeProjectMCPConfig drops a ./.zero/config.json under dir declaring one MCP server,
+// writeProjectMCPConfig drops a ./.qg/config.json under dir declaring one MCP server,
 // so projectMCPConfigExists() reads it as present.
 func writeProjectMCPConfig(t *testing.T, dir string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(dir, ".zero"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".qg"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"mcp":{"servers":{"proj":{"type":"stdio","command":"proj-cmd"}}}}`
-	if err := os.WriteFile(filepath.Join(dir, ".zero", "config.json"), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".qg", "config.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -35,7 +35,7 @@ func writeProjectMCPConfig(t *testing.T, dir string) {
 func breakTrustStore(t *testing.T) {
 	t.Helper()
 	configRoot := setTrustConfigRoot(t)
-	if err := os.MkdirAll(filepath.Join(configRoot, "zero", "trust.json"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(configRoot, "qg", "trust.json"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -50,7 +50,7 @@ func TestResolveOAuthServerValidationErrorReturnsZeroSkip(t *testing.T) {
 		t.Fatal("invalid server name must error")
 	}
 	if skip.excludedProjectConfig || skip.trustCheckErrored {
-		t.Fatalf("a validation error must return a zero skip, got %+v", skip)
+		t.Fatalf("a validation error must return a qg skip, got %+v", skip)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestRunMCPOAuthLoginNoticeCoFiresWithNonOAuthError(t *testing.T) {
 	if !strings.Contains(got, "oauth") {
 		t.Fatalf("want the not-oauth error, got %q", got)
 	}
-	if !strings.Contains(got, "zero trust") {
+	if !strings.Contains(got, "qg trust") {
 		t.Fatalf("expected the advisory trust notice to co-fire (accepted behavior), got %q", got)
 	}
 }
@@ -236,7 +236,7 @@ func TestRunMCPCheckReportsUnreachableServer(t *testing.T) {
 		getwd: func() (string, error) { return t.TempDir(), nil },
 		resolveMCPConfig: func(_ string, _ bool) (config.MCPConfig, error) {
 			return config.MCPConfig{Servers: map[string]config.MCPServerConfig{
-				"broken": {Type: "stdio", Command: "zero-definitely-not-a-real-binary-xyz"},
+				"broken": {Type: "stdio", Command: "qg-definitely-not-a-real-binary-xyz"},
 			}}, nil
 		},
 	}
@@ -265,7 +265,7 @@ func TestRunMCPCheckReportsUnreachableServerJSON(t *testing.T) {
 		getwd: func() (string, error) { return t.TempDir(), nil },
 		resolveMCPConfig: func(_ string, _ bool) (config.MCPConfig, error) {
 			return config.MCPConfig{Servers: map[string]config.MCPServerConfig{
-				"broken": {Type: "stdio", Command: "zero-definitely-not-a-real-binary-xyz"},
+				"broken": {Type: "stdio", Command: "qg-definitely-not-a-real-binary-xyz"},
 			}}, nil
 		},
 	}
@@ -292,7 +292,7 @@ func TestRunMCPCheckReportsUnreachableServerJSON(t *testing.T) {
 		t.Fatalf("error = %q, want it to say the server is not reachable", payload.Error)
 	}
 	// A reachable payload carries a tool count; an unreachable one must not
-	// imply zero tools were found, which reads as a server that simply exposes
+	// imply qg tools were found, which reads as a server that simply exposes
 	// none.
 	if payload.ToolCount != 0 {
 		t.Fatalf("toolCount = %d, want it absent from an unreachable payload", payload.ToolCount)

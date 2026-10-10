@@ -35,8 +35,11 @@ func TestClassifiedErrorCuratesAuthFailure(t *testing.T) {
 	// AUDIT-H7: 401/403 must lead with an actionable instruction,
 	// not the raw upstream dashboard blurb.
 	msg := ClassifiedError(http.StatusUnauthorized, "Incorrect API key provided: sk-bad. Visit https://platform.openai.com/account/api-keys", "sk-bad")
-	if !strings.Contains(msg, "zero setup") || !strings.Contains(msg, "zero auth openrouter") {
-		t.Errorf("401 message should point at setup/provider-specific auth, got %q", msg)
+	if !strings.Contains(msg, "qg setup") || !strings.Contains(msg, "QG_API_KEY") || !strings.Contains(msg, "QUEBRAGALHO_API_KEY") {
+		t.Errorf("401 message should point at setup/API key, got %q", msg)
+	}
+	if strings.Contains(msg, "auth openrouter") {
+		t.Errorf("401 message must not point at the removed auth subcommands, got %q", msg)
 	}
 	if !strings.HasPrefix(msg, "auth error:") {
 		t.Errorf("401 message should lead with 'auth error:', got %q", msg)
@@ -45,7 +48,7 @@ func TestClassifiedErrorCuratesAuthFailure(t *testing.T) {
 		t.Errorf("401 message leaked the key: %q", msg)
 	}
 	// 403 also curated.
-	if got := ClassifiedError(http.StatusForbidden, "forbidden"); !strings.Contains(got, "zero setup") {
+	if got := ClassifiedError(http.StatusForbidden, "forbidden"); !strings.Contains(got, "qg setup") {
 		t.Errorf("403 should also be curated, got %q", got)
 	}
 }

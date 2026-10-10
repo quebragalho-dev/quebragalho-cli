@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Gitlawb/zero/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 )
 
 const (
@@ -75,22 +75,23 @@ func (o *petImageOutput) Write(value []byte) (int, error) {
 		}
 	}
 
-	var imageUpdate bytes.Buffer
+	var imageErase, imageUpdate bytes.Buffer
 	for index, renderer := range o.renderers {
 		if o.renderDisabled[index] {
 			continue
 		}
-		var rendererUpdate bytes.Buffer
-		if err := renderer.Render(&rendererUpdate); err != nil {
+		var rendererErase, rendererUpdate bytes.Buffer
+		if err := renderer.RenderFrame(&rendererErase, &rendererUpdate); err != nil {
 			// Terminal images are decorative. Disable only the failing renderer for
 			// this output session so an attachment issue cannot hide a companion
 			// (or vice versa) or terminate the interactive shell.
 			o.renderDisabled[index] = true
 			continue
 		}
+		imageErase.Write(rendererErase.Bytes())
 		imageUpdate.Write(rendererUpdate.Bytes())
 	}
-	if imageUpdate.Len() == 0 {
+	if imageErase.Len() == 0 && imageUpdate.Len() == 0 {
 		return writeChecked(o.output, value)
 	}
 
@@ -99,35 +100,39 @@ func (o *petImageOutput) Write(value []byte) (int, error) {
 	// terminal never presents the text frame and image movement separately.
 	syncStart := bytes.LastIndex(value, []byte(terminalSyncStart))
 	syncEnd := bytes.LastIndex(value, []byte(terminalSyncEnd))
-	if syncEnd >= 0 && syncEnd > syncStart {
+	if syncEnd >= 0 && syncEnd > syncStart || syncStart > syncEnd {
+		beforeAt := 0
+		if syncStart >= 0 {
+			beforeAt = syncStart + len(terminalSyncStart)
+		}
+		afterAt := syncEnd
+		if afterAt < beforeAt {
+			afterAt = len(value)
+		}
 		var frame bytes.Buffer
-		frame.Grow(len(value) + imageUpdate.Len())
-		frame.Write(value[:syncEnd])
+		frame.Grow(len(value) + imageErase.Len() + imageUpdate.Len())
+		frame.Write(value[:beforeAt])
+		frame.Write(imageErase.Bytes())
+		frame.Write(value[beforeAt:afterAt])
 		frame.Write(imageUpdate.Bytes())
-		frame.Write(value[syncEnd:])
+		frame.Write(value[afterAt:])
 		written, err := o.output.Write(frame.Bytes())
-		consumed := originalBytesWritten(written, syncEnd, imageUpdate.Len(), len(value))
+		consumed := originalBytesWritten(written, afterAt+imageErase.Len(), imageUpdate.Len(), len(value)+imageErase.Len())
+		consumed = originalBytesWritten(consumed, beforeAt, imageErase.Len(), len(value))
 		if err == nil && written != frame.Len() {
 			err = io.ErrShortWrite
 		}
-		if err != nil {
-			return consumed, err
-		}
-		return len(value), nil
-	}
-	if syncStart > syncEnd {
-		written, writeErr := writeChecked(o.output, value)
-		if writeErr != nil {
-			return written, writeErr
-		}
-		_, imageErr := writeChecked(o.output, imageUpdate.Bytes())
-		return written, imageErr
+		return consumed, err
 	}
 
 	if _, err := io.WriteString(o.output, terminalSyncStart); err != nil {
 		return 0, err
 	}
-	written, writeErr := writeChecked(o.output, value)
+	_, writeErr := writeChecked(o.output, imageErase.Bytes())
+	written := 0
+	if writeErr == nil {
+		written, writeErr = writeChecked(o.output, value)
+	}
 	if writeErr == nil {
 		_, writeErr = writeChecked(o.output, imageUpdate.Bytes())
 	}

@@ -7,10 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/providermodelcatalog"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 )
 
 type providerModelsOptions struct {
@@ -23,7 +22,7 @@ type providerModelsOptions struct {
 // works for custom OpenAI-/Anthropic-compatible providers too: discovery runs off
 // the profile's base URL + credentials, so a self-hosted endpoint serving a dozen
 // models no longer needs a config object per model — configure the provider once,
-// then run any listed model with `zero exec --model <id>` (Zero passes unknown
+// then run any listed model with `qg exec --model <id>` (QG passes unknown
 // model ids through to the provider).
 func runProvidersModels(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	options, help, err := parseProviderModelsArgs(args)
@@ -51,19 +50,6 @@ func runProvidersModels(args []string, stdout io.Writer, stderr io.Writer, deps 
 	models, err := deps.discoverProviderModels(ctx, discoveryCredentialProfile(profile))
 	if err != nil {
 		return writeAppError(stderr, err.Error(), exitProvider)
-	}
-
-	// Apply provider-specific model filtering for catalog-backed profiles.
-	// For example, opencode-go-anthropic-compatible only permits Qwen and
-	// MiniMax model IDs; the raw /zen/go/v1/models endpoint returns many more.
-	if profile.CatalogID != "" {
-		filtered := make([]providermodeldiscovery.Model, 0, len(models))
-		for _, model := range models {
-			if providermodelcatalog.ModelIDAllowedForProvider(profile.CatalogID, model.ID) {
-				filtered = append(filtered, model)
-			}
-		}
-		models = filtered
 	}
 
 	if options.json {
@@ -122,7 +108,7 @@ func runProvidersModels(args []string, stdout io.Writer, stderr io.Writer, deps 
 		return exitCrash
 	}
 	if len(models) > 0 {
-		if _, err := fmt.Fprintf(stdout, "next: zero exec %q --model %s\n", "hello", setupCommandArg(models[0].ID)); err != nil {
+		if _, err := fmt.Fprintf(stdout, "next: qg exec %q --model %s\n", "hello", setupCommandArg(models[0].ID)); err != nil {
 			return exitCrash
 		}
 	}
@@ -130,18 +116,21 @@ func runProvidersModels(args []string, stdout io.Writer, stderr io.Writer, deps 
 }
 
 // discoveryCredentialProfile resolves the profile's API key the same way the
-// runtime does — inline, then the stored credential, then the configured env var —
-// so a `providers models` probe authenticates exactly like a real request. Mirrors
-// discoveredModelContextWindow's credential resolution.
+// runtime does — inline first, then env (QG_API_KEY, then the named APIKeyEnv),
+// then the stored credential — so a `providers models` probe authenticates
+// exactly like a real request. Mirrors discoveredModelContextWindow, which
+// calls this.
 func discoveryCredentialProfile(profile config.ProviderProfile) config.ProviderProfile {
 	authed := profile
-	if strings.TrimSpace(authed.APIKey) == "" {
-		if store, err := config.ProviderKeyStore(); err == nil {
-			authed = config.ApplyStoredAPIKey(authed, store)
-		}
+	if strings.TrimSpace(authed.APIKey) != "" {
+		return authed
 	}
-	if strings.TrimSpace(authed.APIKey) == "" && strings.TrimSpace(authed.APIKeyEnv) != "" {
-		authed.APIKey = strings.TrimSpace(os.Getenv(authed.APIKeyEnv))
+	if key := authed.EnvAPIKey(os.Getenv); key != "" {
+		authed.APIKey = key
+		return authed
+	}
+	if store, err := config.ProviderKeyStore(); err == nil {
+		authed = config.ApplyStoredAPIKey(authed, store)
 	}
 	return authed
 }
@@ -150,11 +139,8 @@ func discoveryCredentialProfile(profile config.ProviderProfile) config.ProviderP
 // the provider's model-listing endpoint with no curated-catalog merge or
 // coding-model filtering, so a custom provider's full model list is returned.
 func defaultDiscoverProviderModels(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
-	resolver, loginKey := oauthLoginForProfile(profile)
 	return providermodeldiscovery.Discover(ctx, profile, providermodeldiscovery.Options{
-		OAuthResolver:        resolver,
-		CodexAccountResolver: providers.CodexAccountResolverForLogin(loginKey),
-		UserAgent:            userAgent(),
+		UserAgent: userAgent(),
 	})
 }
 

@@ -23,7 +23,7 @@ import (
 // process, which is by definition alive and not a zombie, so a working ps must
 // report a live state for it. Failing that:
 //
-//   - In CI (or with ZERO_REQUIRE_PS=1) it is a hard failure. ps is present on
+//   - In CI (or with QG_REQUIRE_PS=1) it is a hard failure. ps is present on
 //     every image used today, so its absence means the pipeline regressed and
 //     that has to surface immediately rather than as skipped-green.
 //   - Elsewhere it stays a skip, so a contributor on an exotic box is not
@@ -52,16 +52,16 @@ func requireProcessState(t *testing.T) {
 	}
 	reason := "cannot read process state, so ps-based zombie detection is unverifiable here: " + strings.Join(reasons, "; ")
 	if requireWorkingPS() {
-		t.Fatal(reason + " — failing rather than skipping because CI (or ZERO_REQUIRE_PS) is set, where ps is expected to work")
+		t.Fatal(reason + " — failing rather than skipping because CI (or QG_REQUIRE_PS) is set, where ps is expected to work")
 	}
 	t.Skip(reason)
 }
 
 // requireWorkingPS reports whether an unusable ps must fail the run instead of
-// skipping it. ZERO_REQUIRE_PS lets a developer opt into the strict behavior
+// skipping it. QG_REQUIRE_PS lets a developer opt into the strict behavior
 // locally to reproduce what CI does.
 func requireWorkingPS() bool {
-	if strings.TrimSpace(os.Getenv("ZERO_REQUIRE_PS")) != "" {
+	if strings.TrimSpace(os.Getenv("QG_REQUIRE_PS")) != "" {
 		return true
 	}
 	return strings.TrimSpace(os.Getenv("CI")) != ""

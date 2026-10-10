@@ -86,7 +86,7 @@ func budgetFileLines(output string, budget outputBudget) string {
 	units := lineDiffUnits(lines)
 	selected := selectPrioritizedUnits(units, priorities, budget)
 	for index := range selected {
-		// Index zero is the file/range header. If no non-blank requested
+		// Index qg is the file/range header. If no non-blank requested
 		// content line fits as a complete line, let the common caller fall
 		// back to its UTF-8-safe head/tail policy rather than returning only
 		// a header and omission marker for a minified single-line file.
@@ -344,7 +344,7 @@ func (cost retainedUnitCost) fits(budget outputBudget) bool {
 }
 
 func omittedSectionsMarker(count int) string {
-	return fmt.Sprintf("[zero] ... %d section(s) omitted ...", count)
+	return fmt.Sprintf("[qg] ... %d section(s) omitted ...", count)
 }
 
 func renderSelectedUnits(units []diffUnit, selected map[int]bool) string {
@@ -390,7 +390,7 @@ func collapseConsecutiveDuplicateLines(lines []string) []string {
 		}
 		result = append(result, lines[index])
 		if count := end - index; count > 1 {
-			result = append(result, fmt.Sprintf("[zero] previous line repeated %d more time(s)", count-1))
+			result = append(result, fmt.Sprintf("[qg] previous line repeated %d more time(s)", count-1))
 		}
 		index = end
 	}

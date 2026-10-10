@@ -21,7 +21,7 @@ func (m model) detailedTranscriptView() string {
 	width := chatWidth(m.width)
 	items := m.transcriptBodyItems(width, "", true)
 
-	header := detailedTranscriptHeader(width) + "\n" + zeroTheme.line.Render(strings.Repeat("-", width))
+	header := detailedTranscriptHeader(width) + "\n" + qgTheme.line.Render(strings.Repeat("-", width))
 	footer := m.detailedTranscriptFooter(width)
 
 	if m.altScreen && m.height > 0 {
@@ -36,11 +36,11 @@ func (m model) detailedTranscriptView() string {
 // view: copy status when active, otherwise the key hint with jump-to-bottom cue.
 func (m model) detailedTranscriptFooter(width int) string {
 	if copyStatus := strings.TrimSpace(m.copyStatus); copyStatus != "" {
-		return rightAlignedLine(zeroTheme.ink.Render(copyStatus), width)
+		return rightAlignedLine(qgTheme.ink.Render(copyStatus), width)
 	}
 
 	detailKey := labelOr(m.keyBindings.toggleDetailed, "Ctrl+O")
-	hint := zeroTheme.faint.Render(fmt.Sprintf("Esc close | %s toggle", detailKey))
+	hint := qgTheme.faint.Render(fmt.Sprintf("Esc close | %s toggle", detailKey))
 	if jt := m.jumpToBottomHint(); jt != "" {
 		return fitStyledLine(joinHeaderLine(hint, jt, width), width)
 	}
@@ -48,7 +48,7 @@ func (m model) detailedTranscriptFooter(width int) string {
 }
 
 func detailedTranscriptHeader(width int) string {
-	title := zeroTheme.ink.Bold(true).Render("Transcript")
-	hint := zeroTheme.faint.Render("detailed")
+	title := qgTheme.ink.Bold(true).Render("Transcript")
+	hint := qgTheme.faint.Render("detailed")
 	return fitStyledLine(joinHeaderLine(title, hint, width), width)
 }

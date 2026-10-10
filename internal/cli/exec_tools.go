@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/specmode"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specmode"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -91,10 +91,10 @@ func resolveExecPermissionMode(options execOptions) (agent.PermissionMode, error
 			return "", execUsageError{fmt.Sprintf("Invalid permission mode %q. Expected plan, spec-draft, auto, member, ask, or unsafe.", options.permissionMode)}
 		}
 	}
-	// Validate --auto first, regardless of --skip-permissions-unsafe, so an
+	// Validate --auto first, regardless of --dangerously-skip-permissions, so an
 	// invalid autonomy value is always rejected. (Previously the unsafe path
 	// short-circuited before validation, letting "--auto bogus" slip through
-	// whenever --skip-permissions-unsafe was also set.)
+	// whenever --dangerously-skip-permissions was also set.)
 	var mode agent.PermissionMode
 	switch strings.ToLower(strings.TrimSpace(options.autonomy)) {
 	case "", "low", "medium":

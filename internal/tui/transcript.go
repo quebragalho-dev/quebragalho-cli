@@ -6,10 +6,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 type rowKind int
@@ -101,7 +101,7 @@ type transcriptAction struct {
 func initialTranscript() []transcriptRow {
 	return []transcriptRow{{
 		kind: rowWelcome,
-		text: "Welcome to Zero. Type /help for commands.",
+		text: "Welcome to QG. Type /help for commands.",
 	}}
 }
 
@@ -222,6 +222,10 @@ func hasTranscriptRow(rows []transcriptRow, row transcriptRow) bool {
 // suffix the runner appends to row ids (see effectiveToolRowID).
 func transcriptRowKey(row transcriptRow) string {
 	switch row.kind {
+	case rowSystem:
+		if row.tool == "model-usage" && row.id != "" {
+			return fmt.Sprintf("%d:%d:%s", row.kind, row.runID, row.id)
+		}
 	case rowToolCall, rowToolResult:
 		if row.id != "" {
 			return fmt.Sprintf("%d:%d:%s", row.kind, row.runID, row.id)
@@ -354,7 +358,7 @@ func permissionTranscriptRow(event agent.PermissionEvent) transcriptRow {
 // noise — the reference agents only surface approval when the user is actually
 // prompted or makes an explicit durable choice. The underlying audit event is
 // still recorded regardless (see the OnPermission handler and resume rebuild);
-// this only gates the rendered row, so the session log / `zero sessions` stay
+// this only gates the rendered row, so the session log / `qg sessions` stay
 // complete.
 //
 // Used in BOTH the live path (model.go OnPermission) and the resume rebuild

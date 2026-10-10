@@ -8,10 +8,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func pendingPermissionModel(t *testing.T, decide func(agent.PermissionDecision)) model {
@@ -76,7 +76,7 @@ func TestPermissionOptionsExposeApprovalCancelWhenSupplied(t *testing.T) {
 
 	card, _ := renderFocusedPermissionPrompt(request, 3, false, "", 80)
 	got := plainRender(t, card)
-	for _, want := range []string{"continue without running it", "[d]", "tell Zero what to do differently", "[n]"} {
+	for _, want := range []string{"continue without running it", "[d]", "tell QG what to do differently", "[n]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
@@ -184,7 +184,7 @@ func TestPermissionOptionsCanExposePatchCancelWithoutRecoverableDeny(t *testing.
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 2, false, "", 80)
 	got := plainRender(t, card)
-	if !strings.Contains(got, "tell Zero what to do differently") || !strings.Contains(got, "[n]") {
+	if !strings.Contains(got, "tell QG what to do differently") || !strings.Contains(got, "[n]") {
 		t.Fatalf("permission card = %q, missing cancel option", got)
 	}
 	if strings.Contains(got, "continue without running it") || strings.Contains(got, "[d]") {
@@ -281,7 +281,7 @@ func TestPermissionHotkeysStillResolveDirectly(t *testing.T) {
 }
 
 // feedbackRequest is a bash prompt whose decision set includes Cancel, so the
-// "tell Zero what to do differently" row (and its [n] hotkey) is present.
+// "tell QG what to do differently" row (and its [n] hotkey) is present.
 func feedbackRequest() agent.PermissionRequest {
 	request := testPromptPermissionRequest()
 	request.ToolName = "bash"
@@ -293,7 +293,7 @@ func feedbackRequest() agent.PermissionRequest {
 	return request
 }
 
-// The [n] "tell Zero what to do differently" hotkey no longer resolves cancel
+// The [n] "tell QG what to do differently" hotkey no longer resolves cancel
 // immediately: it opens the inline feedback field and sends nothing yet.
 func TestPermissionTellDifferentlyOpensFeedbackField(t *testing.T) {
 	var got []agent.PermissionDecision
@@ -471,7 +471,7 @@ func TestShiftDownComposerGuard(t *testing.T) {
 }
 
 // The highlighted permission option must use the selected-row tint, not the
-// brand chip. zeroTheme.badge is the accent-filled chip for short labels
+// brand chip. qgTheme.badge is the accent-filled chip for short labels
 // (" 0 ", " ASK ", " SPEC REVIEW "); using it for a whole row painted a
 // full-brightness accent slab across a card whose palette is deliberately amber
 // (warning), and skipped the card tint every other line composes onto. selBg is
@@ -495,7 +495,7 @@ func TestFocusedPermissionSelectedRowUsesSelectionTintNotBrandChip(t *testing.T)
 	accentBg := backgroundCode(darkPalette.accent)
 	selBg := backgroundCode(darkPalette.selBg)
 	if strings.Contains(selected, accentBg) {
-		t.Errorf("selected row is filled with the brand accent %s (zeroTheme.badge); want the selection tint:\n%q", darkPalette.accent, selected)
+		t.Errorf("selected row is filled with the brand accent %s (qgTheme.badge); want the selection tint:\n%q", darkPalette.accent, selected)
 	}
 	if !strings.Contains(selected, selBg) {
 		t.Errorf("selected row should carry the selection tint %s:\n%q", darkPalette.selBg, selected)
@@ -526,14 +526,14 @@ func backgroundCode(hex string) string {
 }
 
 // A focused permission prompt suppresses the composer: keys drive the card, so a
-// "describe a task for zero…" box below it is inert and misleading — and once the
+// "describe a task for qg…" box below it is inert and misleading — and once the
 // feedback field is open, the shared input must not echo in both places.
 func TestComposerSuppressedDuringPermissionPrompt(t *testing.T) {
 	m := pendingPermissionModelWithRequest(t, feedbackRequest(), func(agent.PermissionDecision) {})
 	m.width, m.height = 96, 30
 
 	view := plainRender(t, m.View())
-	if strings.Contains(view, "describe a task for zero") {
+	if strings.Contains(view, "describe a task for qg") {
 		t.Errorf("composer must be hidden while a permission prompt is focused:\n%s", view)
 	}
 
@@ -541,7 +541,7 @@ func TestComposerSuppressedDuringPermissionPrompt(t *testing.T) {
 	next, _ := m.Update(testKeyText("n"))
 	typed := typeRunes(t, next.(model), "use apply_patch")
 	tv := plainRender(t, typed.View())
-	if strings.Contains(tv, "describe a task for zero") {
+	if strings.Contains(tv, "describe a task for qg") {
 		t.Errorf("composer must stay hidden in feedback mode:\n%s", tv)
 	}
 	if strings.Count(tv, "use apply_patch") != 1 {
@@ -603,7 +603,7 @@ func TestPermissionFeedbackPreservesComposerDraftOnCancel(t *testing.T) {
 // image/doc — which savedDraft does not restore.
 func TestPermissionFeedbackBackspaceKeepsStagedAttachment(t *testing.T) {
 	m := pendingPermissionModelWithRequest(t, feedbackRequest(), func(agent.PermissionDecision) {})
-	m.pendingImages = []zeroruntime.ImageBlock{{MediaType: "image/png"}}
+	m.pendingImages = []qgruntime.ImageBlock{{MediaType: "image/png"}}
 	m.pendingImageLabels = []string{"diagram.png"}
 
 	next, _ := m.Update(testKeyText("n")) // open feedback field (clears composer text)
@@ -619,7 +619,7 @@ func TestPermissionFeedbackBackspaceKeepsStagedAttachment(t *testing.T) {
 }
 
 // No permission option row is clickable while the feedback field is open: the
-// renderer registers zero clickable offsets in typing mode, so a stray click
+// renderer registers qg clickable offsets in typing mode, so a stray click
 // (Allow included) has no row to land on. This is the primary safety; the
 // !typing guard on the click resolver in handleTranscriptSelectionMouse is the
 // explicit second layer for if this early-return is ever refactored away.

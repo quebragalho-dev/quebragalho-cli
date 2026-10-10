@@ -9,10 +9,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestHelpCommandRendersGroupedSections(t *testing.T) {
@@ -35,7 +35,7 @@ func TestHelpCommandRendersGroupedSections(t *testing.T) {
 		"Meta",
 		"  /model [list|id]",
 		"  /permissions",
-		"hint: submit plain text to ask Zero",
+		"hint: submit plain text to ask QG",
 	} {
 		assertContains(t, text, want)
 	}
@@ -259,7 +259,7 @@ func TestContextAndPermissionsCommandsRenderProductState(t *testing.T) {
 	}
 
 	m := newModel(context.Background(), Options{
-		Cwd:            `D:\codings\Opensource\Zero`,
+		Cwd:            `D:\codings\Opensource\QG`,
 		ProviderName:   "openai",
 		ModelName:      "gpt-4.1",
 		Registry:       registry,
@@ -278,7 +278,7 @@ func TestContextAndPermissionsCommandsRenderProductState(t *testing.T) {
 		"Context",
 		"go runtime | ask permissions | 1 tool",
 		"Runtime",
-		"cwd        D:\\codings\\Opensource\\Zero",
+		"cwd        D:\\codings\\Opensource\\QG",
 		"provider   openai",
 		"model      gpt-4.1",
 		"Session",

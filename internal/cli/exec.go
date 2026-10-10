@@ -10,27 +10,27 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/errhint"
-	"github.com/Gitlawb/zero/internal/execprofile"
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/imageinput"
-	"github.com/Gitlawb/zero/internal/lsp"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/notify"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/providers"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/specmode"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/usage"
-	"github.com/Gitlawb/zero/internal/worktrees"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/errhint"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execprofile"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/lsp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specmode"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/worktrees"
 )
 
 const (
@@ -74,6 +74,10 @@ type execOptions struct {
 	imagePaths  []string
 	mode        string
 	model       string
+	// apiKey is the per-run API key override (qg exec --api-key). It outranks
+	// QG_API_KEY, QUEBRAGALHO_API_KEY, and the stored credential for this run
+	// only; it never persists and is never echoed back in output.
+	apiKey string
 	// modelProfile captures the legacy --profile flag. It is accepted for
 	// backward compatibility (so old invocations do not error) but is
 	// intentionally inert: nothing consumes it. Model selection is driven by
@@ -126,7 +130,7 @@ type execOptions struct {
 	// switcher).
 	allowEscalation bool
 	// selfCorrect opts the run into the post-edit verify-and-correct loop: after a
-	// mutating tool call ZERO runs the workspace verification plan and feeds
+	// mutating tool call QG runs the workspace verification plan and feeds
 	// failures back to the model to fix, bounded by an attempt ceiling and the
 	// autonomy gate. Off by default — a run without the flag wires a nil
 	// SelfCorrector, leaving the agent loop byte-identical to before.
@@ -139,11 +143,11 @@ type execOptions struct {
 	// noCompletionGate turns off the headless completion gate
 	// (agent.Options.RequireCompletionSignal) for this run. It exists for
 	// CONVERSATIONAL exec callers — a chat frontend driving exec with an operator
-	// present to reply (e.g. zeroclaw chat). There, a final message that hands
+	// present to reply (e.g. a chat frontend). There, a final message that hands
 	// the turn back ("the sandbox blocks network egress, approve it and I'll
 	// continue") is a COMPLETE answer, not an unfinished task, so the gate's
 	// self-report admission check and INCOMPLETE downgrade (exit 4) would only
-	// mislabel honest blocker reports. Default off: plain `zero exec` keeps the
+	// mislabel honest blocker reports. Default off: plain `qg exec` keeps the
 	// gate, preserving CI/cron semantics.
 	noCompletionGate bool
 	// addDirs holds directories passed via --add-dir that should be allowed as
@@ -152,7 +156,7 @@ type execOptions struct {
 	addDirs []string
 	// tracePath, when set, writes a per-turn NDJSON trace (agenteval-compatible)
 	// to the given file path — or to stderr when the value is "-". Falls back to
-	// the ZERO_TRACE env var when the flag is absent. Off by default: a run
+	// the QG_TRACE env var when the flag is absent. Off by default: a run
 	// without it leaves agent.Options.Trace nil and is byte-identical to before.
 	// The trace is pure observation — enabling it does not change agent behavior.
 	tracePath string
@@ -177,11 +181,6 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		}
 		return exitSuccess
 	}
-
-	// Refresh the models.dev pricing/limits cache in the background when stale;
-	// the overlay is read at registry construction from the cache file, so this
-	// benefits the next run and never blocks or fails this one.
-	go func() { _ = modelregistry.RefreshModelsDevCache(context.Background()) }()
 
 	// A mode seeds model/effort/max-turns/tool filters as a preset. Expand it up
 	// front — before tool-filter validation and the --list-tools branch — so a
@@ -228,7 +227,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		// When this run's own Prepare call took the worktree lock, its
 		// lifetime is bound to this function: release the lock once it returns
 		// so Clean can reclaim the worktree later if it goes stale. A reused
-		// worktree whose lock an external `zero worktrees prepare` caller
+		// worktree whose lock an external `qg worktrees prepare` caller
 		// still holds reports LockAcquired=false; releasing it here would
 		// clear that caller's lease and expose its workspace to Clean, so the
 		// matching release stays that caller's responsibility. A failed unlock
@@ -238,7 +237,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		if preparedWorktree.LockAcquired {
 			defer func() {
 				if releaseErr := deps.releaseWorktree(context.Background(), worktrees.Options{Cwd: trustRoot}, preparedWorktree.Path); releaseErr != nil {
-					fmt.Fprintf(stderr, "zero: failed to release worktree lock on %s: %s\n", redactCLIString(preparedWorktree.Path), redactCLIString(releaseErr.Error()))
+					fmt.Fprintf(stderr, "qg: failed to release worktree lock on %s: %s\n", redactCLIString(preparedWorktree.Path), redactCLIString(releaseErr.Error()))
 				}
 			}()
 		}
@@ -295,7 +294,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	// lookup in this exec run (model resolution, reasoning-effort advisory, and
 	// context-window sizing). DefaultRegistry builds the full catalog and
 	// compiles its match patterns, so rebuilding it per lookup is wasteful.
-	// modelRegistry is the zero Registry when the catalog fails to build; the
+	// modelRegistry is the qg Registry when the catalog fails to build; the
 	// helpers below degrade to safe no-op behavior in that case.
 	modelRegistry, _ := modelregistry.DefaultRegistry()
 
@@ -328,6 +327,14 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		}
 		return writeExecProviderError(stdout, stderr, options.outputFormat, "provider_error", err.Error())
 	}
+	// --api-key outranks every stored source (QG_API_KEY, QUEBRAGALHO_API_KEY,
+	// the credential store) for this run. Applied only to an ALREADY-configured
+	// profile: with no profile the run stops on the existing no-provider
+	// guidance instead of synthesizing one that could route the key to a
+	// default endpoint.
+	if key := strings.TrimSpace(options.apiKey); key != "" && config.HasProviderProfile(resolved.Provider) {
+		resolved.Provider.APIKey = key
+	}
 	resolved.MaxTurns = execTurnBudget(resolved)
 	var displacedMaxTurns int
 	resolved.MaxTurns, displacedMaxTurns = applyProfileTurnBudget(execProfile, options.maxTurns, resolved.MaxTurns)
@@ -345,7 +352,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	if notice, err := sandboxEngine.ConsumeGrantMigrationNotice(); err != nil {
 		return writeExecProviderError(stdout, stderr, options.outputFormat, "sandbox_error", "migrate sandbox grants: "+err.Error())
 	} else if notice != "" {
-		_, _ = fmt.Fprintln(stderr, "[zero] "+notice)
+		_, _ = fmt.Fprintln(stderr, "[qg] "+notice)
 	}
 	executionRunner.SetPreparer(sandboxEngine)
 	if permissionMode != agent.PermissionModePlan {
@@ -386,7 +393,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	sessionTitle := execSessionTitle(options, prompt)
 
 	if !config.HasProviderProfile(resolved.Provider) {
-		return writeExecProviderError(stdout, stderr, options.outputFormat, "provider_error", "No provider configured. Run `zero setup` (guided), `zero auth` (OAuth providers), set a provider API key env var (e.g. OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY), or add .zero/config.json.")
+		return writeExecProviderError(stdout, stderr, options.outputFormat, "provider_error", "No provider configured. Set "+providercatalog.KeyEnvHint+" in your environment or run `qg login`, then run `qg setup qg` (see `qg setup --help`), or add .qg/config.json.")
 	}
 	// Activate deferred MCP-tool loading for this run only when the VISIBLE
 	// deferred-eligible count meets the resolved threshold; below threshold this
@@ -451,7 +458,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	// the resolved model and is reassigned by the model switcher on a mid-run
 	// escalation so post-switch turns are attributed to the escalated model.
 	currentModel := resolved.Provider.Model
-	// Optimized OpenAI turn sessions (ZERO_OPENAI_TURN_SESSION, default off). nil
+	// Optimized OpenAI turn sessions (QG_OPENAI_TURN_SESSION, default off). nil
 	// when gated off or the profile is ineligible: agent.Run then wraps the
 	// provider in its default adapter. This is the run's STARTING session provider
 	// and is used whether or not escalation is enabled.
@@ -461,7 +468,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	// switcher is nil unless this run STARTED optimized, which is what keeps a
 	// default-adapter run on the default adapter.
 	var modelSwitcher func(context.Context, string) (agent.Provider, error)
-	var modelSessionSwitcher func(context.Context, string) (zeroruntime.TurnSessionProvider, error)
+	var modelSessionSwitcher func(context.Context, string) (qgruntime.TurnSessionProvider, error)
 	if options.allowEscalation {
 		modelSwitcher, modelSessionSwitcher = providers.EscalationSwitchers(
 			resolved.Provider, provider, deps.newProvider,
@@ -480,17 +487,17 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		Mode:      notify.Mode(strings.TrimSpace(execNotifyMode(options, resolved))),
 		FocusMode: notify.FocusAlways,
 	})
-	// Opt-in webhook fan-out (ZERO_NOTIFY_WEBHOOK_URL). Headless runs can safely
+	// Opt-in webhook fan-out (QG_NOTIFY_WEBHOOK_URL). Headless runs can safely
 	// log a failed delivery to stderr (never stdout). The sink redacts before
 	// logging, so a token in the URL or message is masked.
 	notify.MaybeAddWebhookSink(notifier, os.Getenv, func(format string, args ...any) {
 		fmt.Fprintf(stderr, "[notify] "+format+"\n", args...)
 	})
 	// Spec-draft runs synthesize a prompt offline and never drive a model turn, so
-	// there is no per-turn trace to emit. Reject --trace / ZERO_TRACE up front with
+	// there is no per-turn trace to emit. Reject --trace / QG_TRACE up front with
 	// a clear error rather than silently accepting and writing nothing.
 	if options.useSpec && resolveTracePath(options) != "" {
-		return writeExecFormatUsageError(stdout, stderr, options.outputFormat, "--trace / ZERO_TRACE are not supported for spec-draft runs")
+		return writeExecFormatUsageError(stdout, stderr, options.outputFormat, "--trace / QG_TRACE are not supported for spec-draft runs")
 	}
 	if options.useSpec {
 		return runExecSpecDraft(execSpecDraftRun{
@@ -551,7 +558,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	if err != nil {
 		return writeAppError(stderr, "failed to create run id: "+err.Error(), exitCrash)
 	}
-	// Per-turn tracing is opt-in (--trace <path> or ZERO_TRACE=<path>). The
+	// Per-turn tracing is opt-in (--trace <path> or QG_TRACE=<path>). The
 	// recorder is stamped throughout agent.Run and the providerio seam; the run
 	// itself is byte-identical to an untraced run. We finish the recorder at the
 	// agent.Run boundary (below) so the snapshot captures exactly one turn, then
@@ -565,7 +572,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		traceRecorder = trace.NewRecorder(preparedSession.Session.SessionID, runID, execProfile.Name)
 		defer func() {
 			if err := writeTraceSnapshot(traceSnapshot, tracePath, stderr); err != nil {
-				fmt.Fprintf(stderr, "[zero] failed to write trace: %s\n", err)
+				fmt.Fprintf(stderr, "[qg] failed to write trace: %s\n", err)
 			}
 		}()
 	}
@@ -582,14 +589,14 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		return exitCrash
 	}
 	// Surface the unsafe-permissions warning whenever the run resolves to unsafe
-	// mode, covering BOTH --skip-permissions-unsafe and --auto high (which also
+	// mode, covering BOTH --dangerously-skip-permissions and --auto high (which also
 	// resolves to PermissionModeUnsafe). Previously only the explicit flag path
 	// warned, so --auto high silently ran without notice.
 	if permissionMode == agent.PermissionModeUnsafe {
 		reason := "--auto high"
 		switch {
 		case options.skipPermissionsUnsafe:
-			reason = "--skip-permissions-unsafe"
+			reason = "--dangerously-skip-permissions"
 		case strings.EqualFold(strings.TrimSpace(options.permissionMode), "unsafe"),
 			strings.EqualFold(strings.TrimSpace(options.permissionMode), "high"):
 			reason = "--permission-mode unsafe"
@@ -908,7 +915,7 @@ func deferredEligibleCount(registry *tools.Registry, permissionMode agent.Permis
 // registerToolSearchIfEligible registers the tool_search tool only when deferral
 // is active for this run: the visible-deferred count (the same population the
 // agent loop's partition counts) meets the (positive) threshold. Below threshold
-// or with a zero/negative threshold, tool_search is never registered, so the
+// or with a qg/negative threshold, tool_search is never registered, so the
 // agent loop's partition stays inactive and tool advertising is byte-identical to
 // today. The permissionMode + enabled/disabled filters MUST match the values the
 // run passes to agent.Run so the registration gate and the activation gate count
@@ -1009,7 +1016,7 @@ func resolveWorkspaceRoot(cwd string, deps appDeps) (string, error) {
 // text input and for stream-json input that carries no images; it is merged with
 // any --image attachments by the caller before the shared vision gate, so both
 // sources flow through the same drop+warn and agent.Options.Images wiring.
-func resolveExecPrompt(options execOptions, workspaceRoot string, stdin io.Reader) (string, []zeroruntime.ImageBlock, error) {
+func resolveExecPrompt(options execOptions, workspaceRoot string, stdin io.Reader) (string, []qgruntime.ImageBlock, error) {
 	if options.inputFormat == execInputStreamJSON {
 		input := ""
 		if options.file != "" {
@@ -1075,7 +1082,7 @@ func resolveExecPrompt(options execOptions, workspaceRoot string, stdin io.Reade
 
 	prompt := strings.TrimSpace(strings.Join(parts, "\n\n"))
 	if prompt == "" {
-		return "", nil, execUsageError{"Prompt required. Use `zero exec \"prompt\"` or `zero exec --file prompt.txt`."}
+		return "", nil, execUsageError{"Prompt required. Use `qg exec \"prompt\"` or `qg exec --file prompt.txt`."}
 	}
 	return prompt, nil, nil
 }
@@ -1088,11 +1095,11 @@ func resolveExecPrompt(options execOptions, workspaceRoot string, stdin io.Reade
 // oversized) is wrapped into an execUsageError so the run reports it as a usage
 // problem rather than reaching a provider with an invalid image. Returns nil for
 // an empty path list (text-only behavior unchanged).
-func resolveExecImages(paths []string, workspaceRoot string) ([]zeroruntime.ImageBlock, error) {
+func resolveExecImages(paths []string, workspaceRoot string) ([]qgruntime.ImageBlock, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	images := make([]zeroruntime.ImageBlock, 0, len(paths))
+	images := make([]qgruntime.ImageBlock, 0, len(paths))
 	for _, path := range paths {
 		image, err := imageinput.LoadFile(path, workspaceRoot)
 		if err != nil {
@@ -1104,7 +1111,7 @@ func resolveExecImages(paths []string, workspaceRoot string) ([]zeroruntime.Imag
 }
 
 func writeExecUsageError(stderr io.Writer, message string) int {
-	if _, err := fmt.Fprintf(stderr, "[zero] %s\n", message); err != nil {
+	if _, err := fmt.Fprintf(stderr, "[qg] %s\n", message); err != nil {
 		return exitCrash
 	}
 	return exitUsage
@@ -1137,14 +1144,14 @@ func writeExecProviderError(stdout io.Writer, stderr io.Writer, format execOutpu
 		}
 		return exitProvider
 	}
-	if _, err := fmt.Fprintf(stderr, "[zero] %s\n", message); err != nil {
+	if _, err := fmt.Fprintf(stderr, "[qg] %s\n", message); err != nil {
 		return exitCrash
 	}
 	// Append a one-line next step for recognized provider failures (auth /
 	// rate-limit / connectivity / …). The classifier gates on a provider-origin
 	// marker, so non-provider codes (sandbox_error, mcp_error) never draw a hint.
 	if hint := errhint.CLIHint(errors.New(message)); hint != "" {
-		if _, err := fmt.Fprintf(stderr, "[zero] %s\n", hint); err != nil {
+		if _, err := fmt.Fprintf(stderr, "[qg] %s\n", hint); err != nil {
 			return exitCrash
 		}
 	}
@@ -1235,7 +1242,7 @@ func specProfileEffortFilled(effortFilled bool, specReasoningEffort string) bool
 // interactive run can be continued past the shared default by the user, but an
 // exec run has nobody to unstick it, so an unconfigured budget starts at the
 // documented ceiling instead of truncating mid-task. Explicit sources
-// (--max-turns, mode presets, ZERO_MAX_TURNS, config files) resolve as
+// (--max-turns, mode presets, QG_MAX_TURNS, config files) resolve as
 // MaxTurnsSet and pass through; an exec-profile budget still wins via
 // applyProfileTurnBudget afterward.
 func execTurnBudget(resolved config.ResolvedConfig) int {
@@ -1318,16 +1325,9 @@ func discoveredModelContextWindow(ctx context.Context, profile config.ProviderPr
 	if !ok {
 		return 0
 	}
-	// Authenticate discovery with the resolved key (inline, then stored, then env).
-	authed := profile
-	if strings.TrimSpace(authed.APIKey) == "" {
-		if store, err := config.ProviderKeyStore(); err == nil {
-			authed = config.ApplyStoredAPIKey(authed, store)
-		}
-	}
-	if strings.TrimSpace(authed.APIKey) == "" && strings.TrimSpace(authed.APIKeyEnv) != "" {
-		authed.APIKey = strings.TrimSpace(os.Getenv(authed.APIKeyEnv))
-	}
+	// Authenticate discovery with the same credential chain as every runtime
+	// request: inline/env key first, then the stored credential.
+	authed := discoveryCredentialProfile(profile)
 	dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	models, err := providermodeldiscovery.DiscoverCatalog(dctx, descriptor, authed, providermodeldiscovery.Options{})
@@ -1453,13 +1453,13 @@ func execNotifyMode(options execOptions, resolved config.ResolvedConfig) string 
 }
 
 // resolveTracePath returns the trace destination for this run: the --trace flag
-// value when set, else the ZERO_TRACE env var, else "" (tracing off). A value of
+// value when set, else the QG_TRACE env var, else "" (tracing off). A value of
 // "-" means "write to stderr".
 func resolveTracePath(options execOptions) string {
 	if v := strings.TrimSpace(options.tracePath); v != "" {
 		return v
 	}
-	if v := strings.TrimSpace(os.Getenv("ZERO_TRACE")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("QG_TRACE")); v != "" {
 		return v
 	}
 	return ""

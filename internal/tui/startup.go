@@ -13,27 +13,19 @@ const (
 	minStartupWidth      = 58
 )
 
-// zeroWordmarkPrefixLines is the white `ZER` part of the empty-state ANSI
-// Shadow-style wordmark. zeroWordmarkOLines keeps the old lime `O` glyph.
-var zeroWordmarkPrefixLines = []string{
-	`███████╗███████╗██████╗ `,
-	`╚══███╔╝██╔════╝██╔══██╗`,
-	`  ███╔╝ █████╗  ██████╔╝`,
-	` ███╔╝  ██╔══╝  ██╔══██╗`,
-	`███████╗███████╗██║  ██║`,
-	`╚══════╝╚══════╝╚═╝  ╚═╝`,
+var qgWordmarkGlyphLines = [][2]string{
+	{` ███████ `, ` ███████ `},
+	{`██     ██`, `██       `},
+	{`██     ██`, `██       `},
+	{`██  ██ ██`, `██  █████`},
+	{`██   ███ `, `██     ██`},
+	{` █████ ██`, ` ███████ `},
 }
 
-var zeroWordmarkOLines = []string{
-	` ██████╗ `,
-	`██╔═══██╗`,
-	`██║   ██║`,
-	`██║   ██║`,
-	`╚██████╔╝`,
-	` ╚═════╝ `,
-}
+// wordmarkBrandLine is the plain-text brand line under the glyph.
+const wordmarkBrandLine = "QUEBRA-GALHO"
 
-const emptyStateTagline = "Any model. Every tool. Zero limits."
+const emptyStateTagline = "Democratizando o acesso à IA"
 
 // emptyState renders the centered stream-area block shown while the
 // transcript has no real content: the brand glyph and tagline.
@@ -65,54 +57,34 @@ func (m model) emptyStateWithOverlay(width int, overlay string) string {
 
 func (m model) emptyStateLines(width int) []string {
 	lines := []string{}
-	for _, glyph := range zeroWordmarkLines() {
+	for _, glyph := range qgWordmarkLines() {
 		lines = append(lines, centerLine(glyph, width))
 	}
 	lines = append(lines, "")
-	lines = append(lines, centerLine(zeroTheme.muted.Render(emptyStateTagline), width))
-	// Orientation: where ZERO is pointed (cwd · branch · model) so a returning user
-	// sees the context before typing instead of a blank brand screen.
+	lines = append(lines, centerLine(qgTheme.ink.Render("QUEBRA-")+qgTheme.accent.Render("GALHO"), width))
+	lines = append(lines, centerLine(qgTheme.muted.Render(emptyStateTagline), width))
 	if orient := m.emptyStateOrientation(); orient != "" {
 		lines = append(lines, "")
 		lines = append(lines, centerLine(orient, width))
 	}
-	// A couple of example prompts to seed the first message.
-	lines = append(lines, "")
-	lines = append(lines, centerLine(zeroTheme.faint.Render(emptyStateExamples), width))
-	lines = append(lines, "")
-	lines = append(lines, centerLine(zeroTheme.faint.Render("Press ? for keyboard shortcuts · / for commands"), width))
-	// centerLine pads but never truncates; below ~62 cols the lines would exceed
-	// the frame without this fit.
 	for index := range lines {
 		lines[index] = fitStyledLine(lines[index], width)
 	}
 	return lines
 }
 
-// emptyStateExamples seeds the first prompt with a few representative asks.
-const emptyStateExamples = `Try  "explain this codebase"  ·  "fix the failing test"  ·  "add a --json flag"`
-
-// emptyStateOrientation renders a faint "version · cwd · branch · model" line
-// for the home screen, omitting any piece that's unknown. Empty when nothing
-// is known.
 func (m model) emptyStateOrientation() string {
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 2)
 	if version := displayVersion(m.appVersion); version != "" {
 		parts = append(parts, version)
-	}
-	if cwd := strings.TrimSpace(m.cwd); cwd != "" {
-		parts = append(parts, shortenPath(cwd))
 	}
 	if branch := strings.TrimSpace(m.gitBranch); branch != "" {
 		parts = append(parts, branch)
 	}
-	if model := strings.TrimSpace(m.modelName); model != "" {
-		parts = append(parts, model)
-	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return zeroTheme.faint.Render(strings.Join(parts, "  ·  "))
+	return qgTheme.faint.Render(strings.Join(parts, "  ·  "))
 }
 
 // displayVersion formats the CLI build version for display: numeric releases
@@ -129,24 +101,25 @@ func displayVersion(version string) string {
 	return version
 }
 
-func zeroWordmarkLines() []string {
-	lines := make([]string, 0, minInt(len(zeroWordmarkPrefixLines), len(zeroWordmarkOLines)))
-	for index := 0; index < len(zeroWordmarkPrefixLines) && index < len(zeroWordmarkOLines); index++ {
-		lines = append(lines, zeroTheme.ink.Render(zeroWordmarkPrefixLines[index])+zeroTheme.accent.Render(zeroWordmarkOLines[index]))
+func qgWordmarkLines() []string {
+	lines := make([]string, 0, len(qgWordmarkGlyphLines))
+	for _, row := range qgWordmarkGlyphLines {
+		lines = append(lines, qgTheme.ink.Bold(false).Render(row[0])+"  "+qgTheme.accent.Bold(false).Render(row[1]))
 	}
 	return lines
 }
 
 // Wordmark renders the brand ASCII art shown on the TUI's empty state, for
-// reuse outside the TUI (e.g. `zero --version`). It is deliberately
-// uncolored: only newModel resolves --theme/ZERO_THEME, so painting the
+// reuse outside the TUI (e.g. `qg --version`). It is deliberately
+// uncolored: only newModel resolves --theme/QG_THEME, so painting the
 // global palette here would ignore a selected light theme and be unreadable
 // on light terminals. The terminal's default foreground works everywhere.
 func Wordmark() string {
-	lines := make([]string, 0, minInt(len(zeroWordmarkPrefixLines), len(zeroWordmarkOLines)))
-	for index := 0; index < len(zeroWordmarkPrefixLines) && index < len(zeroWordmarkOLines); index++ {
-		lines = append(lines, zeroWordmarkPrefixLines[index]+zeroWordmarkOLines[index])
+	lines := make([]string, 0, len(qgWordmarkGlyphLines)+4)
+	for _, row := range qgWordmarkGlyphLines {
+		lines = append(lines, row[0]+"  "+row[1])
 	}
+	lines = append(lines, "", wordmarkBrandLine, "", emptyStateTagline)
 	return strings.Join(lines, "\n")
 }
 

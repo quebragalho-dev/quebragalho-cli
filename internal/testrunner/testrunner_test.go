@@ -14,7 +14,7 @@ func TestDetectFindsWorkspaceChecksInStableOrder(t *testing.T) {
 		"scripts": {
 			"test": "bun test ./tests",
 			"typecheck": "tsc --noEmit",
-			"build": "go run ./cmd/zero-release build",
+			"build": "go run ./cmd/qg-release build",
 			"lint": "eslint ."
 		}
 	}`)
@@ -214,7 +214,7 @@ func TestParseSummaryExtractsCommonRunnerCounts(t *testing.T) {
 		{
 			name:      "cargo",
 			check:     Check{ID: "cargo.test", Framework: FrameworkCargo},
-			output:    "test tests::runs_zero ... ok\ntest tests::rejects_bad_config ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed; 0 ignored\n",
+			output:    "test tests::runs_qg ... ok\ntest tests::rejects_bad_config ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed; 0 ignored\n",
 			wantTotal: 2,
 			wantPass:  1,
 			wantFail:  1,

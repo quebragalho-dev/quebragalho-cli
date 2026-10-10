@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tui"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
 
 // captureTUIOptions runs the root command with the TUI launch intercepted, and
@@ -19,6 +20,12 @@ func captureTUIOptions(t *testing.T, args ...string) tui.Options {
 	workspace := t.TempDir()
 	exitCode := runWithDeps(args, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) { return workspace, nil },
+		// Flag-order tests care about the flags, not onboarding: resolve to a
+		// usable provider directly, since an empty config now exits with the
+		// missing-key error instead of launching the removed setup wizard.
+		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
+			return usableResolvedConfig(3), nil
+		},
 		runTUI: func(_ context.Context, options tui.Options) int {
 			captured = options
 			return exitSuccess
@@ -42,7 +49,7 @@ func hasEscalateModel(options tui.Options) bool {
 //
 // Escalation moves a run onto a different model, changing what it costs and which
 // provider sees the conversation, so the interactive surface answers this the same
-// conservative way `zero exec --allow-escalation` already does.
+// conservative way `qg exec --allow-escalation` already does.
 func TestInteractiveTUIRegistersEscalateModelOnlyWithTheFlag(t *testing.T) {
 	if hasEscalateModel(captureTUIOptions(t)) {
 		t.Error("escalate_model was registered without --allow-escalation")

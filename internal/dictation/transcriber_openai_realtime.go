@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/providers/providerio"
 	"github.com/coder/websocket"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
 )
 
 // OpenAI Realtime transcription-only wants 24kHz PCM16 (§6b); the recorder is
@@ -38,7 +38,7 @@ func NewOpenAIRealtimeTranscriber(cfg OpenAIRealtimeConfig) (Transcriber, error)
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return nil, &SetupError{
 			Tool: "OpenAI API key",
-			Hint: "set an OpenAI API key (OPENAI_API_KEY, or `zero auth`) to use OpenAI Realtime streaming dictation",
+			Hint: "set an OpenAI API key (OPENAI_API_KEY, or `qg auth`) to use OpenAI Realtime streaming dictation",
 		}
 	}
 	if cfg.Model == "" {

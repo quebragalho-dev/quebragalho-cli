@@ -11,23 +11,23 @@ import (
 	"strings"
 )
 
-const lockFileName = ".zero-install.lock"
+const lockFileName = ".qg-install.lock"
 
 // workspacePrefix names the per-transaction workspaces created inside an install
 // root. Dot-prefixed so it is never mistaken for an installed plugin or skill.
-const workspacePrefix = ".zero-install-txn-"
+const workspacePrefix = ".qg-install-txn-"
 
 // markerFileName records, inside a workspace, which install the backup beside it
 // belongs to. Without it a workspace left by a killed process holds a tree
 // nothing can attribute, and so nothing can put back.
-const markerFileName = ".zero-install-txn"
+const markerFileName = ".qg-install-txn"
 
 // markerMagic is the first line of that marker. Ownership has to be proven
 // rather than inferred from filesystem shape: a user authored skill directory
 // may legitimately be named with the workspace prefix and hold a previous
 // directory, and recovery acting on one would destroy installed content. No
 // ordinary content carries this line by accident.
-const markerMagic = "zero-install-txn v1"
+const markerMagic = "qg-install-txn v1"
 
 // Lock takes the per-install-root cross-process lock. It blocks until any other
 // installer or remover using dir has completed.
@@ -469,7 +469,7 @@ func cleanupWorkspace(workspace string) {
 // file over path. The caller is responsible for any surrounding transaction
 // lock.
 func WriteFileAtomically(path string, data []byte, perm os.FileMode) error {
-	temp, err := os.CreateTemp(filepath.Dir(path), ".zero-lockfile-")
+	temp, err := os.CreateTemp(filepath.Dir(path), ".qg-lockfile-")
 	if err != nil {
 		return err
 	}

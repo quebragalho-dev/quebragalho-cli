@@ -8,9 +8,9 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// tuiTheme is the resolved terminal palette Zero renders with. The default system
+// tuiTheme is the resolved terminal palette QG renders with. The default system
 // theme keeps the terminal's foreground and background intact; named palettes only
-// style local UI surfaces. The active theme lives in zeroTheme and changes only
+// style local UI surfaces. The active theme lives in qgTheme and changes only
 // after an explicit /theme selection. Every renderer consumes these named styles —
 // no hex literal may appear outside theme_palettes.go (the palette tables + theme
 // registry).
@@ -25,7 +25,7 @@ type tuiTheme struct {
 	muted      lipgloss.Style // secondary text, assistant interim prose
 	faint      lipgloss.Style // hints, metadata
 	faintest   lipgloss.Style // line numbers, separators, tool args
-	accent     lipgloss.Style // brand lime: prompts, spinner, focus
+	accent     lipgloss.Style // brand accent: prompts, spinner, focus
 	green      lipgloss.Style // success, diff add sign, ✓
 	red        lipgloss.Style // errors, diff del sign, ✗, deny
 	amber      lipgloss.Style // permission surfaces, warnings, auto badge
@@ -112,7 +112,7 @@ type palette struct {
 	muted     string // secondary text
 	faint     string // hints, metadata
 	faintest  string // line numbers, separators, tool args
-	accent    string // brand lime
+	accent    string // brand accent
 	green     string // success, diff add
 	red       string // errors, diff del
 	amber     string // permission, warnings
@@ -358,7 +358,10 @@ func buildSystemTheme() tuiTheme {
 // terminals where reverse-video is disabled or visually indistinguishable.
 func buildSystemThemeForTerminal(terminalDark bool) tuiTheme {
 	base := lipgloss.NewStyle()
-	accentColor := lipgloss.Color("6")
+	accentColor := lipgloss.Color(darkPalette.accent)
+	if !terminalDark {
+		accentColor = lipgloss.Color(lightPalette.accent)
+	}
 	greenColor := lipgloss.Color("2")
 	redColor := lipgloss.Color("1")
 	amberColor := lipgloss.Color("3")
@@ -444,11 +447,11 @@ func buildSystemThemeForTerminal(terminalDark bool) tuiTheme {
 	}
 }
 
-// zeroTheme is the active palette every renderer reads. Run applies the terminal-
+// qgTheme is the active palette every renderer reads. Run applies the terminal-
 // native system default before it creates the interactive program; the dark palette
 // here keeps package-level render helpers deterministic before a model has started
 // (including in unit tests that construct more than one model).
-var zeroTheme = buildTheme(darkPalette)
+var qgTheme = buildTheme(darkPalette)
 
 // onPanel returns a copy of style that paints on the panel surface. lipgloss
 // resets the background between adjacent Render calls, so every segment of a

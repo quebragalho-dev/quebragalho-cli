@@ -14,9 +14,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/Gitlawb/zero/internal/terminalpet"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 )
 
 func TestParsePetsCommandAndAlias(t *testing.T) {
@@ -592,7 +592,7 @@ func TestAmbientPetRetainsSingleColumnComposerDock(t *testing.T) {
 				t.Fatalf("composer top is not closed before the pet dock: %q", line)
 			}
 		}
-		if strings.HasPrefix(line, "│") && strings.Contains(line, "describe a task for zero") {
+		if strings.HasPrefix(line, "│") && strings.Contains(line, "describe a task for qg") {
 			foundInput = true
 			if runes[dockEdge] != '│' {
 				t.Fatalf("composer input is not closed before the pet dock: %q", line)
@@ -1283,7 +1283,7 @@ func TestAmbientPetRendersFirstFrameImmediatelyWhenPlaybackStateChanges(t *testi
 		t.Fatal("working pet has no image draw")
 	}
 	if draw.State != terminalpet.Running || draw.Phase != 0 {
-		t.Fatalf("working draw = state:%q phase:%d, want running phase zero", draw.State, draw.Phase)
+		t.Fatalf("working draw = state:%q phase:%d, want running phase qg", draw.State, draw.Phase)
 	}
 }
 

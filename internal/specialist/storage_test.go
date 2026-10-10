@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/fsutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 func TestStorageCreateWritesValidManifestAndDeleteRemovesIt(t *testing.T) {
@@ -207,7 +207,7 @@ func TestStorageCreateForceSerializesConcurrentLoad(t *testing.T) {
 
 func TestStorageCreateReturnsManifestWarningAfterCommittedCleanupFailure(t *testing.T) {
 	userDir := t.TempDir()
-	backupPath := filepath.Join(userDir, ".zero-replace-old.backup")
+	backupPath := filepath.Join(userDir, ".qg-replace-old.backup")
 	cleanupErr := &os.PathError{Op: "remove", Path: backupPath, Err: syscall.Errno(32)}
 	storage := NewStorage(Paths{UserDir: userDir})
 	storage.writeReplacement = func(path, content string) error {

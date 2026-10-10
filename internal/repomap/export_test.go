@@ -4,7 +4,7 @@ package repomap
 import (
 	"io/fs"
 
-	"github.com/Gitlawb/zero/internal/workspaceindex"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspaceindex"
 )
 
 func handleWalkError(cleanRoot string, current string, entry fs.DirEntry, walkErr error, truncated *bool) (bool, error) {

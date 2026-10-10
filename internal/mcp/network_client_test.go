@@ -116,7 +116,7 @@ func TestOAuthRoundTripperRefreshFailureSurfacesActionableError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Get() error = nil, want actionable refresh failure")
 	}
-	if !strings.Contains(err.Error(), "zero mcp oauth login demo") {
+	if !strings.Contains(err.Error(), "qg mcp oauth login demo") {
 		t.Fatalf("error = %q, want actionable re-login message", err.Error())
 	}
 }
@@ -351,7 +351,7 @@ func TestNetworkClientRejectsServerInitiatedRequestAsResponse(t *testing.T) {
 		}
 	}()
 
-	result, err := client.CallTool(ctx, "lookup", map[string]any{"query": "zero"})
+	result, err := client.CallTool(ctx, "lookup", map[string]any{"query": "qg"})
 	if err == nil {
 		t.Fatalf("CallTool() error = nil, result = %#v, want protocol error", result)
 	}

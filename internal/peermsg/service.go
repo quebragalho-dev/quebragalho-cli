@@ -19,7 +19,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/Gitlawb/zero/internal/fsutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 type Handler func(InboundMessage) bool
@@ -76,7 +76,7 @@ type Options struct {
 }
 
 // Service owns one live peer endpoint plus the registry used to discover other
-// local Zero sessions. The transport is platform-specific, while framing,
+// local QG sessions. The transport is platform-specific, while framing,
 // identity resolution, limits, and delivery policy remain shared.
 type Service struct {
 	mu              sync.RWMutex
@@ -201,13 +201,13 @@ func WithInboundMessage(ctx context.Context, message InboundMessage) context.Con
 
 func DefaultRoot() (string, error) {
 	if runtimeDir := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR")); runtimeDir != "" {
-		return filepath.Join(runtimeDir, "zero", "peers"), nil
+		return filepath.Join(runtimeDir, "qg", "peers"), nil
 	}
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return "", fmt.Errorf("peer messaging: resolve user cache directory: %w", err)
 	}
-	return filepath.Join(cacheDir, "zero", "peers"), nil
+	return filepath.Join(cacheDir, "qg", "peers"), nil
 }
 
 func (service *Service) Start(handler Handler) error {
@@ -1106,7 +1106,7 @@ func resolvePeer(peers []Peer, target string) (Peer, error) {
 		for _, peer := range peers {
 			peerName := strings.TrimSpace(peer.Name)
 			if peerName == "" {
-				peerName = "Zero session"
+				peerName = "QG session"
 			}
 			if strings.EqualFold(peer.Ref, ref) && strings.EqualFold(peerName, name) {
 				return peer, nil
@@ -1148,7 +1148,7 @@ func splitPeerTarget(target string) (name, ref string, ok bool) {
 func displayPeer(peer Peer) string {
 	name := strings.TrimSpace(peer.Name)
 	if name == "" {
-		name = "Zero session"
+		name = "QG session"
 	}
 	return fmt.Sprintf("%s [%s]", name, peer.Ref)
 }

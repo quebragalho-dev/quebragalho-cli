@@ -5,16 +5,16 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 // usageEventPayload mirrors the persisted EventUsage payload written by the exec
 // runtime. Prompt/completion/total are always stored; the cache and reasoning
 // breakdown is stored when present (omitempty) so cost reconstruction matches the
 // live tracker instead of over-pricing cache-heavy or reasoning-heavy turns.
-// Older events without those fields decode to zero and price exactly as before.
+// Older events without those fields decode to qg and price exactly as before.
 // Model is persisted only on escalation runs (the model in force can change
 // mid-run only under --allow-escalation); when absent, cost is reconstructed from
 // the session's Metadata.ModelID and is a labeled estimate.
@@ -35,7 +35,7 @@ type usageEventPayload struct {
 // back to price a turn exactly (cache discount + cache-write premium + reasoning)
 // rather than estimating from prompt/completion alone. Callers add "model"
 // afterward on escalation runs.
-func EventUsagePayload(u zeroruntime.Usage) map[string]any {
+func EventUsagePayload(u qgruntime.Usage) map[string]any {
 	payload := map[string]any{
 		"promptTokens":     u.EffectiveInputTokens(),
 		"completionTokens": u.EffectiveOutputTokens(),
@@ -72,7 +72,7 @@ type Totals struct {
 	TotalCost    float64 `json:"totalCost"`
 }
 
-// Report is the aggregated usage view rendered by `zero usage report`. Cost is a
+// Report is the aggregated usage view rendered by `qg usage report`. Cost is a
 // reconstructed estimate (see usageEventPayload) and NetLOC is a working-tree
 // estimate; both are surfaced as estimates in the rendered output.
 type Report struct {
@@ -146,7 +146,7 @@ func BuildReport(events []sessions.Event, meta []sessions.Metadata, registry *mo
 		if err != nil {
 			continue
 		}
-		cost, err := modelregistry.CalculateCost(model, zeroruntime.Usage{
+		cost, err := modelregistry.CalculateCost(model, qgruntime.Usage{
 			InputTokens:       payload.PromptTokens,
 			OutputTokens:      payload.CompletionTokens,
 			CachedInputTokens: payload.CachedInputTokens,

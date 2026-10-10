@@ -13,8 +13,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 func TestIndependentExecCommandConstructorsShareDefaultManager(t *testing.T) {
@@ -148,7 +148,7 @@ func TestExecCommandRequireEscalatedBypassesNativeSandboxAfterApproval(t *testin
 		Backend: sandbox.Backend{
 			Name:            sandbox.BackendLinuxBwrap,
 			Available:       true,
-			Executable:      "/nonexistent/zero-linux-sandbox-stub",
+			Executable:      "/nonexistent/qg-linux-sandbox-stub",
 			CommandWrapping: true,
 			NativeIsolation: true,
 		},
@@ -301,9 +301,9 @@ func TestExecCommandApplicationFailureHasTypedOutcome(t *testing.T) {
 }
 
 func TestExecCommandUsesStructuredAdapterDenial(t *testing.T) {
-	scope := filepath.Join(t.TempDir(), ".zero")
+	scope := filepath.Join(t.TempDir(), ".qg")
 	result := execToolResult(execToolResultInput{
-		commandText: "mkdir .zero",
+		commandText: "mkdir .qg",
 		exited:      true,
 		exitCode:    1,
 		enforcement: execution.Enforcement{Backend: string(sandbox.BackendLinuxBwrap), Level: string(sandbox.EnforcementNative)},
@@ -393,7 +393,7 @@ func TestExecCommandForegroundServerReturnsSessionAndServesHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(bytes) != "zero-server-ok" {
+	if string(bytes) != "qg-server-ok" {
 		t.Fatalf("server response = %q", string(bytes))
 	}
 }
@@ -474,7 +474,7 @@ func TestExecToolResultSurfacesBufferTruncationOutsideByteBudget(t *testing.T) {
 // intended behavior (bounded by wait) going forward.
 func resilientTempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "zero-exec-interrupt-")
+	dir, err := os.MkdirTemp("", "qg-exec-interrupt-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
@@ -579,7 +579,7 @@ func TestWriteStdinRejectsInputForNonTTYSession(t *testing.T) {
 func execTestRoot(t *testing.T) string {
 	t.Helper()
 
-	root, err := os.MkdirTemp("", "zero-exec-test-")
+	root, err := os.MkdirTemp("", "qg-exec-test-")
 	if err != nil {
 		t.Fatalf("create test root: %v", err)
 	}
@@ -849,7 +849,7 @@ func TestWriteStdinSchemaPinsSessionIDMinimum(t *testing.T) {
 	}
 }
 
-// A missing, zero, negative, or non-integer session_id all mean the model has no
+// A missing, qg, negative, or non-integer session_id all mean the model has no
 // live session, so write_stdin returns the SAME recovery guidance the no-live-
 // session case uses (start a session with exec_command, or edit files directly),
 // not a terse "session_id must be at least 1" that gives no way forward and names
@@ -862,7 +862,7 @@ func TestWriteStdinRequiresPositiveSessionID(t *testing.T) {
 	for name, args := range map[string]map[string]any{
 		"missing":     {},
 		"nil":         {"session_id": nil},
-		"zero":        {"session_id": 0},
+		"qg":          {"session_id": 0},
 		"negative":    {"session_id": -3},
 		"non-integer": {"session_id": "abc"},
 	} {
@@ -887,7 +887,7 @@ func TestTruncateExecOutputPreservesUTF8(t *testing.T) {
 	if !ok {
 		t.Fatal("expected output to truncate")
 	}
-	if !strings.Contains(truncated, "[zero] output truncated") {
+	if !strings.Contains(truncated, "[qg] output truncated") {
 		t.Fatalf("missing truncation marker: %q", truncated)
 	}
 	if !utf8.ValidString(truncated) {

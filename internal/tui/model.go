@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -19,28 +18,30 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/doctor"
-	"github.com/Gitlawb/zero/internal/errhint"
-	"github.com/Gitlawb/zero/internal/lsp"
-	internalmcp "github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/notify"
-	"github.com/Gitlawb/zero/internal/peermsg"
-	"github.com/Gitlawb/zero/internal/providerhealth"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/providers"
-	"github.com/Gitlawb/zero/internal/providers/providerio"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/skills"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/terminalpet"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/usage"
-	"github.com/Gitlawb/zero/internal/usercommands"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/doctor"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/errhint"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/lsp"
+	internalmcp "github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/peermsg"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/skills"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usercommands"
 )
 
 const tuiToolOutputLimit = 240
@@ -48,7 +49,7 @@ const defaultResponseStyle = "concise"
 const chatWheelScrollLines = 5
 
 // activeAnimationFrameInterval keeps active-only status motion smooth without
-// running a timer when Zero is idle. It also drives the shared liveness spinner.
+// running a timer when QG is idle. It also drives the shared liveness spinner.
 const activeAnimationFrameInterval = time.Second / 30
 const ctrlCExitConfirmDuration = 3 * time.Second
 const ctrlCExitConfirmText = "Press Ctrl+C again to exit"
@@ -73,7 +74,7 @@ type model struct {
 	ctx                  context.Context
 	cwd                  string
 	appVersion           string
-	userCommands         []usercommands.Command // file-sourced /commands (.zero/commands)
+	userCommands         []usercommands.Command // file-sourced /commands (.qg/commands)
 	loadSkills           func() []skills.Skill  // lazy installed-skills loader for /skills + /<skill-name>
 	userConfigPath       string
 	doctorUserConfigPath string
@@ -84,17 +85,16 @@ type model struct {
 	modelCatalog         modelregistry.Registry
 	providerProfile      config.ProviderProfile
 	savedProviders       []config.ProviderProfile
-	provider             zeroruntime.Provider
+	provider             qgruntime.Provider
 	// allowEscalation mirrors Options.AllowEscalation: it gates the per-run model
 	// switchers, and the caller gates the escalate_model tool on the same flag.
-	allowEscalation             bool
-	newProvider                 func(config.ProviderProfile) (zeroruntime.Provider, error)
-	newTurnSessionProvider      func(config.ProviderProfile, zeroruntime.Provider) zeroruntime.TurnSessionProvider
-	probeProviderHealth         func(context.Context, providerhealth.Options) providerhealth.Result
-	discoverProviderModels      func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
-	discoverOllamaContextWindow func(ctx context.Context, baseURL string, model string) (int, error)
-	registry                    *tools.Registry
-	awaitToolReadiness          func(context.Context)
+	allowEscalation        bool
+	newProvider            func(config.ProviderProfile) (qgruntime.Provider, error)
+	newTurnSessionProvider func(config.ProviderProfile, qgruntime.Provider) qgruntime.TurnSessionProvider
+	probeProviderHealth    func(context.Context, providerhealth.Options) providerhealth.Result
+	discoverProviderModels func(context.Context, config.ProviderProfile) ([]providermodeldiscovery.Model, error)
+	registry               *tools.Registry
+	awaitToolReadiness     func(context.Context)
 	// lspManager is created once per session and reused across prompts so gopls (and
 	// other language servers) stay warm — a fresh manager per run would cold-start
 	// the server on the first edit of every turn. Nil when cwd is unknown; runs then
@@ -223,8 +223,10 @@ type model struct {
 	lastCompactError              string
 	unpricedRequests              int
 	unpricedTokens                int
+	streamUsage                   qgruntime.Usage
 	lastUsage                     usage.Normalized
 	lastUsageSeen                 bool
+	lastUsageReceipt              transcriptRow
 	// turnLatencySum / turnLatencyCount accumulate completed-run wall time so
 	// /context can show a rolling average turn latency (the "is it slow?" signal).
 	// Reset by /new.
@@ -286,7 +288,7 @@ type model struct {
 	pending        bool
 	// turnStartedAt is when the in-flight run began; the working status line
 	// renders the live elapsed time from it so a long or stalled turn never looks
-	// like a frozen terminal (for ANY provider, not just slow ones). Zero = idle.
+	// like a frozen terminal (for ANY provider, not just slow ones). QG = idle.
 	turnStartedAt time.Time
 	// turnTimer is shared with the agent command so both the live status and the
 	// settled "worked for" duration exclude time blocked on a user permission.
@@ -409,7 +411,7 @@ type model struct {
 	// request — otherwise a vision/PDF-backed prompt would silently retry as
 	// text-only and answer a different task. They share the underlying image bytes
 	// with the sent turn (never mutated in place), so no deep copy is needed.
-	lastImages      []zeroruntime.ImageBlock
+	lastImages      []qgruntime.ImageBlock
 	lastImageLabels []string
 	lastDocuments   []pendingDocument
 	// historyIdx == len(inputHistory) means "not navigating"; historyDraft
@@ -426,12 +428,6 @@ type model struct {
 	streamingText              []byte
 	streamingReasoning         string // live provider reasoning for the current segment
 	streamingReasoningExpanded bool
-	// turnStreamedRunes accumulates every reasoning+answer rune streamed in the
-	// current turn so the working line can show a live, monotonic token estimate.
-	// It is NOT reset at segment boundaries (where streamingText/Reasoning clear),
-	// only at turn start (beginRun), so the count climbs across a multi-tool turn
-	// instead of snapping back to zero after each tool call.
-	turnStreamedRunes int
 	// Streaming-text fade state. lineAges is keyed to LOGICAL lines of
 	// streamingText (one entry per \n in the accumulated text), and
 	// lastStreamActivity is the time of the most recent delta (used for
@@ -445,10 +441,10 @@ type model struct {
 	lineAges           []time.Time
 	lastStreamActivity time.Time
 	fadeActive         bool
-	fadeDisabled       bool // streaming fade off (ZERO_NO_FADE / SSH / tmux / low-color / reduced motion)
+	fadeDisabled       bool // streaming fade off (QG_NO_FADE / SSH / tmux / low-color / reduced motion)
 	// streamClearDisabled turns off the full-redraw-on-streamed-newline
 	// workaround for terminals that render scroll regions correctly
-	// (ZERO_NO_STREAM_CLEAR=1). lastStreamClear rate-limits the redraws the
+	// (QG_NO_STREAM_CLEAR=1). lastStreamClear rate-limits the redraws the
 	// workaround schedules so heavy streaming output (code, logs, diffs)
 	// coalesces to a bounded number of repaints per second instead of one
 	// per newline. pendingStreamClear tracks a newline that arrived while
@@ -459,7 +455,7 @@ type model struct {
 	streamClearDisabled bool
 	lastStreamClear     time.Time
 	pendingStreamClear  bool
-	reducedMotion       bool // ZERO_REDUCED_MOTION / no-TTY: static spinner glyph, no fade
+	reducedMotion       bool // QG_REDUCED_MOTION / no-TTY: static spinner glyph, no fade
 	// In-progress tool call whose arguments are streaming (a file being written),
 	// shown live by streamingToolCallView so a long write/edit isn't a frozen
 	// spinner. Cleared when the call completes (next text/turn) — see updateModel.
@@ -470,7 +466,7 @@ type model struct {
 
 	// Slash-command autocomplete (purely additive UI state). suggestions is the
 	// live match list for the current "/token"; suggestionIdx is the highlighted
-	// row. commandPaletteOpen keeps a zero-match command search active so invalid
+	// row. commandPaletteOpen keeps a qg-match command search active so invalid
 	// query text stays in the palette instead of leaking into the composer.
 	// filePaletteOpen does the same for a trailing "@token" file search.
 	suggestions        []commandSuggestion
@@ -562,18 +558,11 @@ type model struct {
 	// catalog descriptor ID), so /model shows each provider's real current models —
 	// the same list the provider-setup wizard discovers — not the static catalog.
 	modelPickerLiveByProvider map[string][]providermodeldiscovery.Model
-	// ollamaContextWindowByModel holds context-window sizes fetched from a local
-	// Ollama daemon's native /api/show endpoint (keyed by model name), for
-	// custom/local models that have no curated-catalog entry and whose
-	// OpenAI-compatible /v1/models listing doesn't carry that metadata at all —
-	// see modelContextWindow.
-	ollamaContextWindowByModel map[string]int
-
 	// pendingImages holds image attachments staged by /image for the next user
 	// turn; pendingImageLabels are their display names (base(path)) for the chip
 	// row. Both are cleared after a prompt is submitted (or /image clear). nil =
 	// no attachments = today's text-only behavior exactly.
-	pendingImages      []zeroruntime.ImageBlock
+	pendingImages      []qgruntime.ImageBlock
 	pendingImageLabels []string
 	// pendingImageThumbnails are decoded previews for a bounded gallery of staged
 	// images. They are only rendered by terminals with an inline-image protocol;
@@ -588,7 +577,7 @@ type model struct {
 	// captureRunImages, when set, is invoked with the images a run is launched
 	// with. Nil in production; used by tests to assert image threading without a
 	// real provider round-trip.
-	captureRunImages func([]zeroruntime.ImageBlock)
+	captureRunImages func([]qgruntime.ImageBlock)
 }
 
 type agentTextMsg struct {
@@ -657,16 +646,22 @@ type agentReasoningMsg struct {
 	delta string
 }
 
+type agentUsageProgressMsg struct {
+	runID int
+	usage qgruntime.Usage
+}
+
 type agentUsageMsg struct {
+	receipt transcriptRow
 	runID   int
 	modelID string
-	usage   zeroruntime.Usage
+	usage   qgruntime.Usage
 }
 
 type agentResponseMsg struct {
 	runID       int
 	rows        []transcriptRow
-	usageEvents []zeroruntime.Usage
+	usageEvents []qgruntime.Usage
 	// usageModelID is the model in force when the run ended. usageModelIDs is
 	// the model in force when each usageEvents entry fired: a mid-run
 	// escalation changes it partway through the run, and billing the events
@@ -847,7 +842,7 @@ type pendingPermissionPrompt struct {
 	// resting approval choice. Moved by ↑/↓/Tab; confirmed by Enter or a click.
 	// Hotkeys resolve the matching request-provided option directly.
 	cursor int
-	// typing is true once the user chose "tell Zero what to do differently": the
+	// typing is true once the user chose "tell QG what to do differently": the
 	// card replaces its option list with a free-text field (sharing the composer
 	// input, like the ask_user questionnaire). Submitting sends a Deny decision
 	// whose Reason is the typed text, so the model reads it as the tool result and
@@ -972,7 +967,7 @@ func newModel(ctx context.Context, options Options) model {
 		Mode:      notify.Mode(strings.TrimSpace(options.Notify.Mode)),
 		FocusMode: notify.FocusMode(strings.TrimSpace(options.Notify.FocusMode)),
 	})
-	// Opt-in webhook fan-out (ZERO_NOTIFY_WEBHOOK_URL). Delivery failures stay
+	// Opt-in webhook fan-out (QG_NOTIFY_WEBHOOK_URL). Delivery failures stay
 	// silent here: the TUI owns the alt-screen, so writing to stderr would
 	// corrupt the display.
 	notify.MaybeAddWebhookSink(notifier, os.Getenv, nil)
@@ -1009,7 +1004,6 @@ func newModel(ctx context.Context, options Options) model {
 		newTurnSessionProvider:      options.NewTurnSessionProvider,
 		probeProviderHealth:         options.ProbeProviderHealth,
 		discoverProviderModels:      options.DiscoverProviderModels,
-		discoverOllamaContextWindow: options.DiscoverOllamaContextWindow,
 		registry:                    registry,
 		awaitToolReadiness:          options.AwaitToolReadiness,
 		sessionStore:                sessionStore,
@@ -1030,7 +1024,7 @@ func newModel(ctx context.Context, options Options) model {
 		petEntries:                  map[string]terminalpet.Entry{},
 		petID:                       strings.TrimSpace(options.SavedPet),
 		keyBindings:                 resolvedKeyBindings,
-		themeMode:                   resolveThemeMode(options.Theme, os.Getenv("ZERO_THEME"), options.SavedTheme),
+		themeMode:                   resolveThemeMode(options.Theme, os.Getenv("QG_THEME"), options.SavedTheme),
 		hasDarkBg:                   true,
 		userAgent:                   options.UserAgent,
 		usageTracker:                usageTracker,
@@ -1051,6 +1045,9 @@ func newModel(ctx context.Context, options Options) model {
 		setup:                       newSetupState(options.Setup),
 		setupSave:                   options.Setup.Save,
 		dictation:                   newDictationController(options),
+	}
+	if m.reasoningEffort == "" {
+		m = m.loadPanelEffort()
 	}
 	petRoot := userConfigDir
 	if strings.TrimSpace(options.UserConfigPath) != "" {
@@ -1083,7 +1080,7 @@ func newModel(ctx context.Context, options Options) model {
 	// Terminals that handle scroll regions correctly can opt back into the
 	// fast incremental path; the redraw workaround (see the ClearScreen
 	// scheduling in updateModel) is otherwise on, rate-limited.
-	if v := strings.TrimSpace(os.Getenv("ZERO_NO_STREAM_CLEAR")); v != "" && v != "0" && !strings.EqualFold(v, "false") {
+	if v := strings.TrimSpace(os.Getenv("QG_NO_STREAM_CLEAR")); v != "" && v != "0" && !strings.EqualFold(v, "false") {
 		m.streamClearDisabled = true
 	}
 	// One session-long LSP manager (cheap to build — servers start lazily on the
@@ -1126,7 +1123,7 @@ func (m model) doctorOptions(connectivity bool) doctor.Options {
 }
 
 const (
-	composerPlaceholder     = "describe a task for zero…"
+	composerPlaceholder     = "describe a task for qg…"
 	composerMaxVisibleLines = 4
 )
 
@@ -1186,7 +1183,7 @@ func (m model) Init() tea.Cmd {
 	// `if m.altScreen && m.height > 0` (transcriptView) falls back to the
 	// unpadded, non-fullscreen render path for the rest of the session, and
 	// the alt-screen viewport never gets filled below the actual content.
-	// Explicitly requesting it here means Zero doesn't depend solely on the
+	// Explicitly requesting it here means QG doesn't depend solely on the
 	// terminal's unprompted push.
 	cmds = append(cmds, tea.RequestWindowSize)
 	// Read the terminal background only to keep a selected palette legible. This
@@ -1206,13 +1203,6 @@ func (m model) Init() tea.Cmd {
 	// just shows the used-token count until the window is otherwise learned.
 	if descriptor, ok := m.activeProviderDescriptor(); ok {
 		if cmd := m.modelPickerProviderDiscoveryCmd(descriptor, m.providerProfile); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		// The generic discovery above has no source for a local Ollama model's
-		// context window (see ollamaContextWindowDiscoveryCmd); probe its
-		// native /api/show separately so the gauge works for custom/local
-		// Ollama models too, not just ones in the curated catalog.
-		if cmd := m.ollamaContextWindowDiscoveryCmd(descriptor, m.providerProfile.BaseURL, m.modelName); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
@@ -1252,9 +1242,6 @@ func (m model) noBlockingModal() bool {
 }
 
 func (m model) quit() (tea.Model, tea.Cmd) {
-	if m.providerWizard != nil {
-		m.providerWizard.resetAimlapiOnboard()
-	}
 	m.stopPRWatcher()
 	m.stopAllBackgroundTerminalSessions()
 	m.shutdownLSPManager()
@@ -1442,12 +1429,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, composerBlinkCmd(m.composerBlinkSeq)
 	case tea.BackgroundColorMsg:
-		// A background reading changes only the contrast direction used for named
-		// palettes. It never repaints the terminal canvas.
+		// Reapply contrast-sensitive colors without repainting the terminal canvas.
 		m.hasDarkBg = msg.IsDark()
-		if m.themeMode != themeSystem {
-			applyTheme(m.themeMode, m.hasDarkBg)
-		}
+		applyTheme(m.themeMode, m.hasDarkBg)
 		return m, nil
 	case tea.MouseMsg:
 		// Attached to a live terminal: the overlay owns the viewport, so mouse
@@ -1503,14 +1487,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = m.dragToEdgeScroll(m.edgeScrollDelta, m.edgeScrollMouseX)
 		return m, dragEdgeScrollTickCmd(m.edgeScrollSeq)
-	case providerWizardOAuthMsg:
-		return m.applyProviderWizardOAuth(msg)
-	case aimlapiOnboardMsg:
-		return m.applyAimlapiOnboard(msg)
-	case aimlapiExistingBalanceMsg:
-		return m.applyExistingAimlapiBalance(msg)
-	case providerWizardDeviceCodeMsg:
-		return m.applyProviderWizardDeviceCode(msg)
 	case providerManagerCredsMsg:
 		return m.applyProviderManagerCreds(msg)
 	case providerManagerCleanupMsg:
@@ -1592,6 +1568,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, terminalAutoAttachTickCmd(msg.runID)
 	case terminalAutoAttachTickMsg:
 		return m.pollTerminalAutoAttach(msg)
+	case usageAccountResult:
+		if m.picker != nil && m.picker == msg.picker {
+			m.picker.accountLoading = false
+			m.picker.account = &msg
+		}
+		return m, nil
 	case tea.KeyPressMsg:
 		if m.petDragActive {
 			pixelDrag := m.petPixelDrag
@@ -1668,6 +1650,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.burstCount = 0
 			return m, nil
+		}
+		if next, cmd, handled := m.handlePanelKey(msg); handled {
+			return next, cmd
 		}
 		if keyCtrl(msg, 'c') {
 			if m.leaderPending {
@@ -2315,11 +2300,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.streamCallDecoder.feed(msg.fragment)
-		// A streamed tool-call argument (e.g. a file's contents in write_file) is
-		// real generated output: count it toward the live token estimate so the
-		// "↑ N tok" pulse climbs during a long write, and bump lastStreamActivity so
-		// the quiet-generation hint stays clear of an actively-streaming provider.
-		m.turnStreamedRunes += utf8.RuneCountInString(msg.fragment)
 		m.lastStreamActivity = m.now()
 		return m, nil
 	case agentTextMsg:
@@ -2330,7 +2310,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// live "writing" block so it doesn't linger over new prose.
 		m.clearStreamingToolCall()
 		m.streamingText = append(m.streamingText, msg.delta...)
-		m.turnStreamedRunes += utf8.RuneCountInString(msg.delta)
 		// recordStreamingDelta appends a time.Time to lineAges for every
 		// newline in the delta and bumps lastStreamActivity. It also
 		// re-stamps the in-progress last entry so the line that's still
@@ -2349,7 +2328,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// on SSH and slow links. ~10 redraws/second is enough to keep the
 		// caret clean without dominating the write path; terminals that
 		// render scroll regions correctly can opt out entirely with
-		// ZERO_NO_STREAM_CLEAR=1. A newline that arrives inside the throttle
+		// QG_NO_STREAM_CLEAR=1. A newline that arrives inside the throttle
 		// window still owes a repair — it's marked pending and a one-shot
 		// timer is scheduled to flush it (see streamClearFlushMsg), instead
 		// of being dropped outright. That covers a throttled newline that
@@ -2371,7 +2350,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// case schedules the next one). Schedule the FIRST tick only on
 		// the inactive→active transition; subsequent deltas just refresh
 		// state and rely on the existing tick chain.
-		// When the fade is disabled (ZERO_NO_FADE / SSH / tmux / low-color),
+		// When the fade is disabled (QG_NO_FADE / SSH / tmux / low-color),
 		// fadeActive stays false so styleStreamingLine renders streaming text
 		// statically at base ink, and no self-perpetuating tick is scheduled.
 		if !m.fadeDisabled {
@@ -2387,7 +2366,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.streamingReasoning += msg.delta
-		m.turnStreamedRunes += utf8.RuneCountInString(msg.delta)
 		// Reasoning IS live provider output, so refresh the activity clock — else the
 		// quiet-generation hint can wrongly read "still generating…" mid-think.
 		if msg.delta != "" {
@@ -2404,16 +2382,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// its short lifecycle fade needs the phase to keep advancing until the
 		// agents clear.
 		if !m.pending && !m.compactInFlight && !m.doctorInFlight {
-			// The tick also keeps advancing while the aimlapi.com onboarding sub-flow is
-			// busy (its progress screen is spinner-only), even though no agent run is in
-			// flight, so its shared MiniDot spinner keeps animating.
-			//
 			// Return the FPS-throttled tick that Update hands back — NOT m.spinner.Tick,
 			// which fires immediately and busy-loops the frame at event-loop speed. That
 			// makes the glyph spin far too fast (and burns CPU) on screens that sit here
-			// for a while, e.g. the aimlapi checkout wait. The active-run path below
-			// already does this; this keeps idle animation at the same cadence.
-			if (m.sidebarHasAgents() || m.aimlapiOnboardAnimating()) && !m.reducedMotion {
+			// for a while. The active-run path below already does this; this keeps idle
+			// animation at the same cadence.
+			if m.sidebarHasAgents() && !m.reducedMotion {
 				var cmd tea.Cmd
 				m.spinner, cmd = m.spinner.Update(msg)
 				m.spinnerPhase++
@@ -2597,11 +2571,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// readout doesn't undercount interrupted turns.
 				liveUsageCount := m.liveUsageCounts[msg.runID]
 				for index, event := range msg.usageEvents {
-					if index < liveUsageCount {
+					if index < liveUsageCount || flushSessionID != m.activeSession.SessionID {
 						continue
 					}
 					var usageRows []transcriptRow
-					m, usageRows = m.recordUsageEvent(msg.usageModelIDAt(index), event)
+					m, usageRows = m.recordUsageEvent(msg.usageModelIDAt(index), event, msg.usageReceiptAt(index))
 					for _, row := range usageRows {
 						m.transcript = appendTranscriptRow(m.transcript, row)
 					}
@@ -2689,7 +2663,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				continue
 			}
 			var usageRows []transcriptRow
-			m, usageRows = m.recordUsageEvent(msg.usageModelIDAt(index), event)
+			m, usageRows = m.recordUsageEvent(msg.usageModelIDAt(index), event, msg.usageReceiptAt(index))
 			for _, row := range usageRows {
 				m.transcript = appendTranscriptRow(m.transcript, row)
 			}
@@ -2871,12 +2845,22 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcript = m.appendPlanStepCard(msg.stepIndex, text, false)
 		}
 		return m, nil
+	case agentUsageProgressMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		if _, _, err := usage.Normalize(msg.usage); err != nil {
+			m.streamUsage = qgruntime.Usage{}
+		} else {
+			m.streamUsage = msg.usage
+		}
+		return m, nil
 	case agentUsageMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
 		}
 		var usageRows []transcriptRow
-		m, usageRows = m.recordUsageEvent(msg.modelID, msg.usage)
+		m, usageRows = m.recordUsageEvent(msg.modelID, msg.usage, msg.receipt)
 		if m.liveUsageCounts == nil {
 			m.liveUsageCounts = map[int]int{}
 		}
@@ -3021,12 +3005,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case providerModelsDiscoveredMsg:
 		return m.applyProviderModelsDiscovered(msg), nil
-	case setupModelsDiscoveredMsg:
-		return m.applySetupModelsDiscovered(msg), nil
-	case setupOAuthMsg:
-		return m.applySetupOAuth(msg)
-	case setupOAuthDeviceMsg:
-		return m.applySetupOAuthDeviceCode(msg)
+	case setupKeyCheckMsg:
+		return m.applySetupKeyCheck(msg), nil
 	case modelPickerModelsDiscoveredMsg:
 		return m.applyModelPickerModelsDiscovered(msg), nil
 	case petCatalogLoadedMsg:
@@ -3057,14 +3037,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.petPhase++
 		}
 		return m, petTickCmd(m.petTickSeq, m.petFrameDelay())
-	case ollamaContextWindowDiscoveredMsg:
-		if msg.err == nil && msg.contextWindow > 0 {
-			if m.ollamaContextWindowByModel == nil {
-				m.ollamaContextWindowByModel = map[string]int{}
-			}
-			m.ollamaContextWindowByModel[msg.modelName] = msg.contextWindow
-		}
-		return m, nil
 	case mcpCommandResultMsg:
 		return m.applyMCPCommandResultMessage(msg), nil
 	}
@@ -3096,7 +3068,7 @@ func (m model) View() tea.View {
 	view := tea.NewView(content)
 	view.AltScreen = m.altScreen
 	// Keep the terminal's canvas intact. Named themes may color local cards, but
-	// Zero never replaces the user's background, opacity, wallpaper, or profile.
+	// QG never replaces the user's background, opacity, wallpaper, or profile.
 	// Always requested, independent of the notifier: the composer cursor's
 	// focus/blink behavior (composerBlinkMsg above) needs tea.FocusMsg/BlurMsg
 	// regardless of notification config. A standard, widely supported DEC
@@ -3269,7 +3241,7 @@ func (m model) footerView(width int) string {
 	// field) consume every key, so the composer is inert. Suppress it and the idle
 	// hints/plan panel like the ask_user modal above, keeping only the status line.
 	// The card itself renders in the transcript body. This also keeps the shared
-	// input from echoing in two places once "tell Zero what to do differently"
+	// input from echoing in two places once "tell QG what to do differently"
 	// opens the on-card feedback field.
 	if m.pendingPermission != nil {
 		footer.WriteString(m.footerStatusLine(width))
@@ -3280,11 +3252,11 @@ func (m model) footerView(width int) string {
 	// cue on the right when scrolled up. Always one line (blank when nothing shows),
 	// so the footer height is unchanged.
 	if copyStatus := strings.TrimSpace(m.copyStatus); copyStatus != "" {
-		footer.WriteString(rightAlignedLine(zeroTheme.ink.Render(copyStatus), width))
+		footer.WriteString(rightAlignedLine(qgTheme.ink.Render(copyStatus), width))
 	} else if notice := m.transientNoticeLine(width); notice != "" {
 		footer.WriteString(notice)
 	} else if recap := strings.TrimSpace(m.idleRecap); recap != "" {
-		footer.WriteString(fitStyledLine("  "+zeroTheme.faint.Render("※ "+recap), width))
+		footer.WriteString(fitStyledLine("  "+qgTheme.faint.Render("※ "+recap), width))
 	} else if left, right := m.composerIdleHint(), m.jumpToBottomHint(); left != "" || right != "" {
 		footer.WriteString(fitStyledLine(joinHeaderLine("  "+left, right, width), width))
 	}
@@ -3311,7 +3283,7 @@ func (m model) composerIdleHint() string {
 	// Leader-pending is always shown (even mid-type) so the user knows the next
 	// key is a chord, not composer input.
 	if m.leaderPending {
-		return zeroTheme.faint.Render("Ctrl+X — await shortcut (m model · p provider · ? list · Esc cancel)")
+		return qgTheme.faint.Render("Ctrl+X — await shortcut (m model · p provider · ? list · Esc cancel)")
 	}
 	// Managed (alt-screen) mode only: inline mode prints to native scrollback where
 	// this footer row isn't a stable surface. Hidden while typing, during a run, in
@@ -3344,7 +3316,7 @@ func (m model) composerIdleHint() string {
 		parts = append(parts, detailKey+" detail", mouseKey+" copy", "Shift+Tab mode")
 		hint = strings.Join(parts, " · ")
 	}
-	return zeroTheme.faint.Render(hint)
+	return qgTheme.faint.Render(hint)
 }
 
 // jumpToBottomHint returns a faint "↓ N more · PgDn" cue when the transcript is
@@ -3354,7 +3326,7 @@ func (m model) jumpToBottomHint() string {
 	if m.chatScrollOffset <= 0 {
 		return ""
 	}
-	return zeroTheme.faint.Render(fmt.Sprintf("↓ %d more · PgDn", m.chatScrollOffset))
+	return qgTheme.faint.Render(fmt.Sprintf("↓ %d more · PgDn", m.chatScrollOffset))
 }
 
 type tuiRect struct {
@@ -3534,7 +3506,7 @@ func scrimViewportLine(line string, width int) string {
 		return line
 	}
 	if !hasExternalANSIStyle(line) {
-		return zeroTheme.faint.Render(line)
+		return qgTheme.faint.Render(line)
 	}
 
 	const faintSGR = "\x1b[2m"
@@ -3681,7 +3653,7 @@ func (m model) chatTranscriptViewport() (transcriptViewport, bool) {
 	if m.transcriptDetailed {
 		items := m.transcriptBodyItems(width, "", true)
 		body := measureTranscriptBodyItems(items, m.transcriptBodyHeights)
-		header := detailedTranscriptHeader(width) + "\n" + zeroTheme.line.Render(strings.Repeat("-", width))
+		header := detailedTranscriptHeader(width) + "\n" + qgTheme.line.Render(strings.Repeat("-", width))
 		footer := m.detailedTranscriptFooter(width)
 		frame := m.scrollableTranscriptFrame(header, footer)
 		return transcriptViewportForLayout(body, frame, m.chatScrollOffset), true
@@ -3717,7 +3689,7 @@ func (m model) syncChatScroll() model {
 	}
 	// Shift by the signed delta so the absolute view holds whether the body grew
 	// (streaming appended lines) or shrank (a tool card collapsed, transcript
-	// cleared). Clamp at zero so a large shrink lands the user back at the tail
+	// cleared). Clamp at qg so a large shrink lands the user back at the tail
 	// rather than underflowing past it.
 	m.chatScrollOffset = clampInt(m.chatScrollOffset+current-m.chatBodyLines, 0, maxOffset)
 	m.chatBodyLines = current
@@ -3881,40 +3853,18 @@ func (m model) workingStatusLine() string {
 	// Phase label so a long, output-less step reads as live progress rather than a
 	// frozen screen: "writing" while the answer streams, "thinking" otherwise
 	// (reasoning, waiting on the model, or running a tool).
-	line += zeroTheme.faint.Render("  ·  " + m.workingActivity())
+	line += qgTheme.faint.Render("  ·  " + m.workingActivity())
 	if !m.turnStartedAt.IsZero() {
-		line += zeroTheme.faint.Render("  ·  " + formatWorkingElapsed(m.activeTurnElapsed(m.turnStartedAt)))
+		line += qgTheme.faint.Render("  ·  " + formatWorkingElapsed(m.activeTurnElapsed(m.turnStartedAt)))
 	}
-	// Live token estimate so the working line visibly climbs as the model reasons
-	// and writes, instead of a static figure. Shown from the start of the turn (at
-	// 0) so the counter is never missing — the authoritative totals stay in the
-	// status line and sidebar; this is the at-a-glance "it's generating" pulse.
-	line += zeroTheme.faint.Render("  ·  " + m.workingTokenIndicator())
 	// If the model has gone quiet (no streamed text, reasoning, OR tool-call output
 	// for a while — common when a provider buffers a large tool call instead of
 	// streaming it), say so plainly with an advancing timer, so a long silent
 	// generation never reads as a frozen screen.
 	if hint := m.quietGenerationHint(); hint != "" {
-		line += zeroTheme.amber.Render("  ·  " + hint)
+		line += qgTheme.amber.Render("  ·  " + hint)
 	}
 	return line
-}
-
-// workingTokenIndicator renders a live "↑ <n> tok" estimate of the tokens
-// generated so far in the current turn, so the working line keeps moving while
-// the model reasons and writes. It is shown for the whole turn — starting at
-// "↑ 0 tok" before the first delta and climbing — so the counter never blinks
-// out. Providers only report exact usage when a step finishes, so this estimates
-// from the streamed reasoning+answer length at the usual ~4 characters per
-// token; turnStreamedRunes accumulates across the whole turn (it survives the
-// per-segment buffer clears), giving a monotonic climb that resets on the next
-// turn.
-func (m model) workingTokenIndicator() string {
-	tokens := m.turnStreamedRunes / 4
-	if m.turnStreamedRunes > 0 && tokens < 1 {
-		tokens = 1
-	}
-	return "↑ " + humanCount(tokens) + " tok"
 }
 
 // quietWorkingHint is how long the stream must be silent (no streamed text,
@@ -3928,7 +3878,7 @@ const quietWorkingHint = 8 * time.Second
 // else "". The advancing number is itself the liveness signal.
 //
 // Past half the provider's idle timeout, the cue escalates to name what's
-// actually happening and when Zero will act on its own: a heartbeating-but-
+// actually happening and when QG will act on its own: a heartbeating-but-
 // silent stream (observed on chatgpt/gpt-5.x and ollama reasoning models,
 // see providerio.ErrStreamStalled) is bounded by the content-stall watchdog at
 // providerio.ContentStallTimeout(idle), but until it fires this exact same
@@ -3952,7 +3902,7 @@ func (m model) quietGenerationHint() string {
 	}
 	if idleTimeout := providerio.ResolveStreamIdleTimeout(0); idleTimeout > 0 && quiet >= idleTimeout/2 {
 		ceiling := providerio.ContentStallTimeout(idleTimeout)
-		return fmt.Sprintf("still generating… %s — unusually quiet, Zero will auto-recover by ~%s if it doesn't resume", formatWorkingElapsed(quiet), formatWorkingElapsed(ceiling))
+		return fmt.Sprintf("still generating… %s — unusually quiet, QG will auto-recover by ~%s if it doesn't resume", formatWorkingElapsed(quiet), formatWorkingElapsed(ceiling))
 	}
 	return "still generating… " + formatWorkingElapsed(quiet)
 }
@@ -3992,7 +3942,7 @@ func reasoningPreviewLines(reasoning string, width int) []string {
 	}
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
-		out = append(out, "  "+zeroTheme.faint.Render(previewTail(line, avail)))
+		out = append(out, "  "+qgTheme.faint.Render(previewTail(line, avail)))
 	}
 	return out
 }
@@ -4015,9 +3965,9 @@ func (m model) appendStreamingCursor(lines []string, width int) []string {
 	// Pulse the caret on the shared spinner clock so the typing edge reads as alive
 	// even during fade-tick gaps or upstream stalls. Width-stable (bright ↔ dim,
 	// never on/off, so the line never jitters). Steady bright under reduced motion.
-	cursor := zeroTheme.accent.Render("▌")
+	cursor := qgTheme.accent.Render("▌")
 	if !m.reducedMotion && (m.spinnerPhase/6)%2 == 1 {
-		cursor = zeroTheme.faint.Render("▌")
+		cursor = qgTheme.faint.Render("▌")
 	}
 	if len(lines) == 0 {
 		return []string{cursor}
@@ -4089,7 +4039,7 @@ func renderComposerInput(input textinput.Model, state composerState, width int, 
 		if cursorVisible {
 			cursor = composerCursor(" ")
 		}
-		return fitStyledLine(composerVisualLinePrefix(input, true)+cursor+zeroTheme.faint.Render(input.Placeholder), width)
+		return fitStyledLine(composerVisualLinePrefix(input, true)+cursor+qgTheme.faint.Render(input.Placeholder), width)
 	}
 
 	segments, cursorLine := composerVisibleVisualLines(input, state, width)
@@ -4180,7 +4130,7 @@ func composerCursorVisualLine(segments []composerVisualLine, cursor int) int {
 func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState) string {
 	runes := []rune(state.text)
 	prefix := composerVisualLinePrefix(input, segment.first)
-	textStyle := zeroTheme.ink.Inline(true)
+	textStyle := qgTheme.ink.Inline(true)
 	selectionStart, selectionEnd, hasSelection := selection.rangeFor(state)
 	cursorIndex := -1
 	if hasCursor && !hasSelection {
@@ -4195,7 +4145,7 @@ func renderComposerVisualLine(input textinput.Model, state composerState, segmen
 		case index == cursorIndex && cursorVisible:
 			line.WriteString(composerCursor(cell))
 		case hasSelection && index >= selectionStart && index < selectionEnd:
-			line.WriteString(zeroTheme.selection.Render(cell))
+			line.WriteString(qgTheme.selection.Render(cell))
 		default:
 			line.WriteString(textStyle.Render(cell))
 		}
@@ -4208,7 +4158,7 @@ func renderComposerVisualLine(input textinput.Model, state composerState, segmen
 
 func composerVisualLinePrefix(input textinput.Model, first bool) string {
 	if first {
-		return zeroTheme.userPrompt.Render(input.Prompt)
+		return qgTheme.userPrompt.Render(input.Prompt)
 	}
 	return "  "
 }
@@ -4340,19 +4290,19 @@ func commandArgumentHintComposerLine(input textinput.Model, argumentHint string,
 	// This alternate composer path must follow the same caret contract as
 	// renderComposerInput: hidden while the terminal is unfocused and blinking
 	// per composerCursorVisible, not a permanently painted cursor cell.
-	cursor := zeroTheme.faint.Render(string(hintRunes[0]))
+	cursor := qgTheme.faint.Render(string(hintRunes[0]))
 	if cursorVisible {
 		cursor = composerCursor(cursor)
 	}
-	return zeroTheme.userPrompt.Render(input.Prompt) +
-		zeroTheme.ink.Inline(true).Render(displayValue) +
-		zeroTheme.faint.Render(" ") +
+	return qgTheme.userPrompt.Render(input.Prompt) +
+		qgTheme.ink.Inline(true).Render(displayValue) +
+		qgTheme.faint.Render(" ") +
 		cursor +
-		zeroTheme.faint.Render(string(hintRunes[1:]))
+		qgTheme.faint.Render(string(hintRunes[1:]))
 }
 
 func composerCursor(char string) string {
-	return zeroTheme.selection.Render(char)
+	return qgTheme.selection.Render(char)
 }
 
 func commandArgumentHintForInput(value string) string {
@@ -4375,32 +4325,32 @@ func (m model) composerBox(width int) string {
 	rightPad := strings.Repeat(" ", reserved)
 
 	rendered := make([]string, 0, len(lines)+3)
-	rendered = append(rendered, zeroTheme.lineStrong.Render("╭"+strings.Repeat("─", boxWidth-2)+"╮")+rightPad)
+	rendered = append(rendered, qgTheme.lineStrong.Render("╭"+strings.Repeat("─", boxWidth-2)+"╮")+rightPad)
 	// On graphics-capable terminals the first image receives a real thumbnail in
 	// this compact strip. Text-only terminals retain the numbered chip row below.
 	if m.attachmentThumbnailVisible(width) {
 		for _, line := range m.attachmentThumbnailLines(innerWidth) {
 			fitted := fitStyledLine(line, innerWidth)
 			pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
-			rendered = append(rendered, zeroTheme.lineStrong.Render("│ ")+fitted+pad+zeroTheme.lineStrong.Render(" │")+rightPad)
+			rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │")+rightPad)
 		}
 		// A thumbnail gallery makes the first few attachments visible. Keep a compact
 		// numbered row whenever there is more than one item (or a document), so the
 		// rest of a longer batch is never silently hidden.
 		if chips := m.attachmentThumbnailSupplementalChips(); chips != "" {
-			fitted := fitStyledLine(zeroTheme.muted.Render(chips), innerWidth)
+			fitted := fitStyledLine(qgTheme.muted.Render(chips), innerWidth)
 			pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
-			rendered = append(rendered, zeroTheme.lineStrong.Render("│ ")+fitted+pad+zeroTheme.lineStrong.Render(" │")+rightPad)
+			rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │")+rightPad)
 		}
 	} else if chips := renderAttachmentChips(m.pendingImageLabels, m.pendingDocuments); chips != "" {
-		fitted := fitStyledLine(zeroTheme.muted.Render(chips), innerWidth)
+		fitted := fitStyledLine(qgTheme.muted.Render(chips), innerWidth)
 		pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
-		rendered = append(rendered, zeroTheme.lineStrong.Render("│ ")+fitted+pad+zeroTheme.lineStrong.Render(" │")+rightPad)
+		rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │")+rightPad)
 	}
 	for _, line := range lines {
 		fitted := fitStyledLine(line, innerWidth)
 		pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
-		rendered = append(rendered, zeroTheme.lineStrong.Render("│ ")+fitted+pad+zeroTheme.lineStrong.Render(" │")+rightPad)
+		rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │")+rightPad)
 	}
 	rendered = append(rendered, m.composerDividerLine(width))
 	return strings.Join(rendered, "\n")
@@ -4455,7 +4405,7 @@ func (m model) resolvePermission(decision permissionDecision) (tea.Model, tea.Cm
 
 // resolvePermissionWithReason resolves the pending prompt with an explicit reason
 // string. It backs both the fixed-label choices (reason = permissionDecisionReason)
-// and the free-text "tell Zero what to do differently" path, where the reason is
+// and the free-text "tell QG what to do differently" path, where the reason is
 // the user's typed instruction and the action is Deny so the agent surfaces it as
 // the tool result and keeps going.
 func (m model) resolvePermissionWithReason(decision permissionDecision, reason string) (tea.Model, tea.Cmd) {
@@ -4510,6 +4460,9 @@ func permissionDecisionReason(decision permissionDecision) string {
 // typed command would have used, appends the resulting status text, and closes
 // the picker. Behavior is identical to running "/model <id>" or "/effort <v>".
 func (m model) choosePicker() (tea.Model, tea.Cmd) {
+	if m.picker != nil && (m.picker.kind == pickerEffort || m.picker.title == "Selecionar modelo") {
+		return m.applyPanelChoice(true)
+	}
 	if m.modelPickerIsLoading() {
 		return m, nil
 	}
@@ -4694,6 +4647,9 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 	}
 	switch command.kind {
 	case commandEmpty:
+		return m, nil
+	case commandUsage:
+		m.picker = &commandPicker{kind: pickerUsage, title: "Uso"}
 		return m, nil
 	case commandHelp:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: helpText()})
@@ -4961,7 +4917,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
 	case commandTurns:
-		// Changing the budget mid-run would mutate the inherited ZERO_MAX_TURNS env
+		// Changing the budget mid-run would mutate the inherited QG_MAX_TURNS env
 		// that sub-agents spawned later in THIS run read, making the run's budget
 		// inconsistent. Require an idle session (the new budget applies next run).
 		if m.pending && strings.TrimSpace(command.text) != "" {
@@ -4978,7 +4934,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		return m, nil
 	case commandProfile:
 		// Same idle-session rule as /turns: switching the profile mutates the
-		// turn budget (and its ZERO_MAX_TURNS propagation), so a change needs
+		// turn budget (and its QG_MAX_TURNS propagation), so a change needs
 		// an idle session; bare /profile (status) is always allowed.
 		if m.pending && strings.TrimSpace(command.text) != "" && !strings.EqualFold(strings.TrimSpace(command.text), "status") {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Profile\nFinish or stop the current run before switching the execution profile."})
@@ -5014,7 +4970,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		return m, nil
 	case commandUnknown:
 		// A "/name" not in the builtin registry may be a user-defined command
-		// from .zero/commands/<name>.md — expand its template and run it as a
+		// from .qg/commands/<name>.md — expand its template and run it as a
 		// normal prompt before reporting "unknown".
 		if next, cmd, handled := m.handleUserCommand(command.text); handled {
 			return next, cmd
@@ -5042,7 +4998,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		if m.permissionMode != agent.PermissionModeUnsafe {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{
 				kind: actionAppendSystem,
-				text: "Shell escape (!) is disabled in " + string(m.permissionMode) + " mode — it bypasses the sandbox. Relaunch with --skip-permissions-unsafe to run shell commands directly.",
+				text: "Shell escape (!) is disabled in " + string(m.permissionMode) + " mode — it bypasses the sandbox. Relaunch with --dangerously-skip-permissions to run shell commands directly.",
 			})
 			return m, nil
 		}
@@ -5169,7 +5125,7 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 	if m.provider == nil {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
 			kind: actionAppendAssistant,
-			text: "No provider configured. Run `zero setup` (guided) or `zero auth` (OAuth) from a shell, or set a provider API key env var, then relaunch.",
+			text: "No provider configured. Set " + providercatalog.KeyEnvHint + " in your environment or run `qg login`, then run `qg setup qg` (see `qg setup --help`), then relaunch.",
 		})
 		return m, nil
 	}
@@ -5301,10 +5257,10 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.planDetailOpen = false
 	m.planDetailGen++ // invalidate any in-flight step-explanation from the prior run
 	m.runDetailsOpen = false
+	m.streamUsage = qgruntime.Usage{}
 	m.turnStartedAt = m.now()
 	m.turnTimer = newActiveTurnTimer(m.turnStartedAt)
 	m.lastStreamActivity = m.turnStartedAt
-	m.turnStreamedRunes = 0
 	m.spinnerTicking = true
 	return m
 }
@@ -5318,7 +5274,7 @@ func (m *model) ensureSpinnerTick() tea.Cmd {
 	if m.spinnerTicking || m.reducedMotion {
 		return nil
 	}
-	if !m.sidebarHasAgents() && !m.aimlapiOnboardAnimating() {
+	if !m.sidebarHasAgents() {
 		return nil
 	}
 	m.spinnerTicking = true
@@ -5462,7 +5418,7 @@ func (m *model) cancelRun() {
 	m.resetStreamingFade()
 }
 
-func (m model) runAgent(runID int, runCtx context.Context, prompt string, images []zeroruntime.ImageBlock) tea.Cmd {
+func (m model) runAgent(runID int, runCtx context.Context, prompt string, images []qgruntime.ImageBlock) tea.Cmd {
 	return m.runAgentWithOptions(runID, runCtx, prompt, images, tuiAgentRunOptions{})
 }
 
@@ -5480,7 +5436,14 @@ func selfCorrectAutonomyForMode(mode agent.PermissionMode) string {
 	}
 }
 
-func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt string, images []zeroruntime.ImageBlock, runOptions tuiAgentRunOptions) tea.Cmd {
+func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt string, images []qgruntime.ImageBlock, runOptions tuiAgentRunOptions) tea.Cmd {
+	callCatalog := map[string]qgaccount.ModelInfo{}
+	for _, candidate := range m.discoveredModelsForActiveProvider() {
+		if candidate.Source == "live" && candidate.APIModel != nil {
+			callCatalog[strings.ToLower(candidate.ID)] = *candidate.APIModel
+		}
+	}
+
 	return func() tea.Msg {
 		started := m.now()
 		if m.turnTimer != nil {
@@ -5500,7 +5463,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		}
 		toolCalls := 0
 		rows := []transcriptRow{}
-		usageEvents := []zeroruntime.Usage{}
+		usageEvents := []qgruntime.Usage{}
 		sessionEvents := []pendingSessionEvent{}
 		usageModelID := m.modelName
 		// usageModelIDs records, per usage event, the model in force when it
@@ -5563,10 +5526,9 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// compaction (proactive + reactive) is enabled for every model, not just
 		// catalogued ones.
 		options.ContextWindow = modelregistry.AgentContextWindow(m.modelContextWindow(m.modelName))
-		// Route compaction summarization to a cheap model when one applies
-		// (env > config > curated default). The factory is lazy, re-evaluated
-		// against the model in force when the compactor asks (so an escalation
-		// away from the cheap model gains a summarizer), and the agent falls
+		// Route compaction summarization to an opted-in model when one applies
+		// (env > config; no curated default). The factory is lazy, re-evaluated
+		// against the model in force when the compactor asks, and the agent falls
 		// back to the main provider on any summarizer failure. Resolved against
 		// the ACTIVE profile so it tracks mid-session model switches.
 		options.Summarizer = providers.CompactionSummarizerFactory(m.providerProfile, m.compactionModel, m.newProvider)
@@ -5970,25 +5932,39 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 		}
 
-		onUsage := options.OnUsage
-		options.OnUsage = func(event zeroruntime.Usage) {
-			usageEvents = append(usageEvents, event)
-			usageModelIDs = append(usageModelIDs, usageModelID)
-			payload := usage.EventUsagePayload(event)
-			// AND ON THE PERSISTED EVENT TOO, not only the in-memory record: the
-			// report reconstructs cost from the payload, falling back to the
-			// session-wide model, so an escalated run would be priced entirely at
-			// the model it started on. Written only under escalation, which is the
-			// only way the model in force can change mid-run, matching what exec
-			// records under the same flag.
-			if m.allowEscalation {
-				payload["model"] = usageModelID
+		onProgress := options.OnUsageProgress
+		options.OnUsageProgress = func(event qgruntime.Usage) {
+			if m.runtimeMessageSink != nil {
+				m.runtimeMessageSink(agentUsageProgressMsg{runID: runID, usage: event})
 			}
+			if onProgress != nil {
+				onProgress(event)
+			}
+		}
+		onUsage := options.OnUsage
+		options.OnUsage = func(event qgruntime.Usage) {
+			callModelID := usageModelID
+			if event.ModelID != "" {
+				callModelID = event.ModelID
+			}
+			receipt := callUsageRow(runID, len(usageEvents)+1, callModelID, event, callCatalog[strings.ToLower(callModelID)])
+			rows = append(rows, receipt)
+			m.sendAgentRow(runID, receipt)
+			usageEvents = append(usageEvents, event)
+			usageModelIDs = append(usageModelIDs, callModelID)
+			payload := usage.EventUsagePayload(event)
+			payload["model"] = callModelID
+			payload["call_id"] = receipt.id
+			payload["call_label"] = receipt.text
+			payload["call_tokens"] = receipt.meta["tokens"]
+			payload["cost_exact"] = receipt.meta["amount"]
+			payload["cost_currency"] = receipt.meta["currency"]
+			payload["call_elapsed_ns"] = event.Elapsed.Nanoseconds()
 			sessionEvents = append(sessionEvents, pendingSessionEvent{
 				Type:    sessions.EventUsage,
 				Payload: payload,
 			})
-			m.sendAgentUsage(runID, usageModelID, event)
+			m.sendAgentUsage(runID, callModelID, event, receipt)
 			if onUsage != nil {
 				onUsage(event)
 			}
@@ -6130,11 +6106,11 @@ func (m model) sendAgentReasoning(runID int, delta string) {
 	m.runtimeMessageSink(agentReasoningMsg{runID: runID, delta: delta})
 }
 
-func (m model) sendAgentUsage(runID int, modelID string, event zeroruntime.Usage) {
+func (m model) sendAgentUsage(runID int, modelID string, event qgruntime.Usage, receipt transcriptRow) {
 	if m.runtimeMessageSink == nil {
 		return
 	}
-	m.runtimeMessageSink(agentUsageMsg{runID: runID, modelID: modelID, usage: event})
+	m.runtimeMessageSink(agentUsageMsg{runID: runID, modelID: modelID, usage: event, receipt: receipt})
 }
 
 // toolResultDetail is the card body source: the rich card-only Display.Preview

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/repoinfo"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/repoinfo"
 )
 
 func TestParseRepoInfoArgs(t *testing.T) {

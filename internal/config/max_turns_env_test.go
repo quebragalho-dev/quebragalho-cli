@@ -8,7 +8,7 @@ import (
 // SetMaxTurnsEnv must export the per-run turn budget so a child process (whose
 // resolution reads the inherited environment via the nil-map -> os.Getenv path in
 // applyEnv) runs with the SAME budget the user set via /turns. n <= 0 is a no-op,
-// and a non-numeric/zero env value must not clobber the configured budget.
+// and a non-numeric/qg env value must not clobber the configured budget.
 func TestSetMaxTurnsEnvRoundTrips(t *testing.T) {
 	t.Setenv(MaxTurnsEnv, "") // register cleanup; restores the original after
 

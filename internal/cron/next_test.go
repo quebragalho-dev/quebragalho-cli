@@ -50,7 +50,7 @@ func TestNextImpossibleReturnsZero(t *testing.T) {
 	// Feb 30 never occurs.
 	got := mustParse(t, "0 0 30 2 *").Next(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	if !got.IsZero() {
-		t.Fatalf("impossible schedule should return zero time, got %v", got)
+		t.Fatalf("impossible schedule should return qg time, got %v", got)
 	}
 }
 
@@ -130,7 +130,7 @@ func TestNextDSTFallBackReturnsRepeatedMinuteWhenAfterHasSubMinutePrecision(t *t
 
 func TestNextLeapYearCenturyGap(t *testing.T) {
 	// 2100 is NOT a leap year, so the next Feb 29 after 2096 is 2104 (an 8-year
-	// gap). The search window must be wide enough to find it (not report zero).
+	// gap). The search window must be wide enough to find it (not report qg).
 	got := mustParse(t, "0 0 29 2 *").Next(time.Date(2096, 3, 1, 0, 0, 0, 0, time.UTC))
 	want := time.Date(2104, 2, 29, 0, 0, 0, 0, time.UTC)
 	if !got.Equal(want) {

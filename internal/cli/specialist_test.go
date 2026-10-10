@@ -9,14 +9,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/specialist"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/specialist"
 )
 
 func TestRunSpecialistListShowAndPath(t *testing.T) {
 	cwd := t.TempDir()
 	configRoot := setSpecialistConfigRoot(t)
-	userDir := filepath.Join(configRoot, "zero", "specialists")
+	userDir := filepath.Join(configRoot, "qg", "specialists")
 	writeSpecialistManifest(t, filepath.Join(userDir, "triage.md"), `---
 name: triage
 description: Triage failing tests
@@ -31,7 +31,7 @@ Find the likely failure area.`)
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"Zero Specialists", "worker [builtin]", "triage [user]", "code-review"} {
+	for _, want := range []string{"QG Specialists", "worker [builtin]", "triage [user]", "code-review"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("list output missing %q: %s", want, stdout.String())
 		}
@@ -43,7 +43,7 @@ Find the likely failure area.`)
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Zero Specialist: triage") || !strings.Contains(stdout.String(), "Find the likely failure area.") {
+	if !strings.Contains(stdout.String(), "QG Specialist: triage") || !strings.Contains(stdout.String(), "Find the likely failure area.") {
 		t.Fatalf("unexpected show output: %s", stdout.String())
 	}
 
@@ -53,7 +53,7 @@ Find the likely failure area.`)
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), userDir) || !strings.Contains(stdout.String(), filepath.Join(cwd, ".zero", "specialists")) {
+	if !strings.Contains(stdout.String(), userDir) || !strings.Contains(stdout.String(), filepath.Join(cwd, ".qg", "specialists")) {
 		t.Fatalf("unexpected path output: %s", stdout.String())
 	}
 }
@@ -95,7 +95,7 @@ func TestRunSpecialistShowAndPathJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &pathPayload); err != nil {
 		t.Fatalf("failed to decode path JSON: %v\n%s", err, stdout.String())
 	}
-	if pathPayload.UserDir == "" || pathPayload.ProjectDir != filepath.Join(cwd, ".zero", "specialists") {
+	if pathPayload.UserDir == "" || pathPayload.ProjectDir != filepath.Join(cwd, ".qg", "specialists") {
 		t.Fatalf("unexpected path JSON: %#v", pathPayload)
 	}
 }
@@ -133,7 +133,7 @@ func TestRunSpecialistListJSON(t *testing.T) {
 func TestRunSpecialistCreateDeleteAndEdit(t *testing.T) {
 	cwd := t.TempDir()
 	configRoot := setSpecialistConfigRoot(t)
-	userDir := filepath.Join(configRoot, "zero", "specialists")
+	userDir := filepath.Join(configRoot, "qg", "specialists")
 	deps := appDeps{getwd: func() (string, error) { return cwd, nil }}
 
 	var stdout bytes.Buffer
@@ -230,7 +230,7 @@ func TestRunSpecialistEditRejectsSymlink(t *testing.T) {
 	}
 	cwd := t.TempDir()
 	configRoot := setSpecialistConfigRoot(t)
-	userDir := filepath.Join(configRoot, "zero", "specialists")
+	userDir := filepath.Join(configRoot, "qg", "specialists")
 	if err := os.MkdirAll(userDir, 0o700); err != nil {
 		t.Fatalf("create specialist dir: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestRunSpecialistCreateProjectAndRejectDuplicate(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("create project exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(cwd, ".zero", "specialists", "project-helper.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(cwd, ".qg", "specialists", "project-helper.md")); err != nil {
 		t.Fatalf("expected project specialist file: %v", err)
 	}
 

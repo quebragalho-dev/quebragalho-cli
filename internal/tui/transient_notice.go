@@ -129,12 +129,12 @@ func (m model) transientNoticeLine(width int) string {
 	// Keep confirmations as a quiet, text-only footer flash. A status dot makes
 	// routine outcomes read like a permanent run-state badge and competes with
 	// the composer status line below.
-	style := zeroTheme.muted
+	style := qgTheme.muted
 	switch notice.tone {
 	case transientNoticeSuccess:
-		style = zeroTheme.ink
+		style = qgTheme.ink
 	case transientNoticeWarning:
-		style = zeroTheme.amber
+		style = qgTheme.amber
 	}
 	return fitStyledLine("  "+style.Render(notice.text), width)
 }

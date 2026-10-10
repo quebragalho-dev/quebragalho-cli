@@ -9,12 +9,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodelcatalog"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 )
 
 // pickerKind identifies which command a picker selection feeds back into.
@@ -29,6 +28,7 @@ const (
 	pickerSTTModel
 	pickerSTTDownload
 	pickerPet
+	pickerUsage
 )
 
 // pickerItem is one selectable row: Label is shown, Value is passed to the
@@ -65,7 +65,12 @@ type commandPicker struct {
 	selected int
 	// loading marks a picker still fetching its rows (e.g. the STT model list from
 	// GitHub): the overlay shows a "fetching…" line instead of "no matching items".
-	loading bool
+	loading        bool
+	effort         string
+	usageTab       int
+	account        *usageAccountResult
+	accountLoading bool
+	searching      bool
 }
 
 func (p *commandPicker) move(delta int) {
@@ -194,6 +199,9 @@ func scorePickerItem(item pickerItem, query string) (int, bool) {
 // one. Returns nil when the catalog is unavailable so the caller falls back to
 // the plain status text.
 func (m model) newModelPicker() *commandPicker {
+	if p := m.liveQGModelPicker(); p != nil {
+		return p
+	}
 	registry, err := modelregistry.DefaultRegistry()
 	if err != nil {
 		return nil
@@ -340,9 +348,6 @@ func (m model) descriptorForProfile(profile config.ProviderProfile) (providercat
 	if descriptor, ok := providerDescriptorByBaseURL(profile.BaseURL); ok {
 		return descriptor, true
 	}
-	if descriptor, ok := customProviderDescriptorForProfile(profile); ok {
-		return descriptor, true
-	}
 	for _, candidate := range []string{profile.Name, profile.Provider, string(profile.ProviderKind)} {
 		if descriptor, ok := providercatalog.Get(candidate); ok {
 			return descriptor, true
@@ -365,6 +370,9 @@ func (m model) openModelPicker() (model, tea.Cmd) {
 	picker := m.newModelPicker()
 	if picker == nil {
 		return m, nil
+	}
+	if m.providerProfile.CatalogID == "qg" && len(m.discoveredModelsForActiveProvider()) == 0 {
+		picker = &commandPicker{kind: pickerModel, title: "Selecionar modelo"}
 	}
 	m.picker = picker
 	m.clearModelPickerLoadState()
@@ -397,8 +405,7 @@ func (m model) modelPickerDiscoveryCmds() tea.Cmd {
 }
 
 // modelPickerProviderDiscoveryCmd discovers one provider's live models, resolving
-// its credential the same way the wizard does: a stored/inline/env key, or a stored
-// OAuth bearer for token-login providers (e.g. xAI).
+// its credential the same way the wizard does: a stored/inline/env key.
 func (m model) modelPickerProviderDiscoveryCmd(descriptor providercatalog.Descriptor, profile config.ProviderProfile) tea.Cmd {
 	authed := profile
 	if store, err := m.providerKeyStore(); err == nil {
@@ -408,7 +415,6 @@ func (m model) modelPickerProviderDiscoveryCmd(descriptor providercatalog.Descri
 	if key == "" && strings.TrimSpace(authed.APIKeyEnv) != "" {
 		key = strings.TrimSpace(os.Getenv(authed.APIKeyEnv))
 	}
-	needOAuth := key == "" && descriptor.OAuth && !descriptor.OAuthMintsKey
 	discover := m.discoverProviderModels
 	if discover == nil {
 		discoveryOptions := m.modelPickerDiscoveryOptions(authed)
@@ -420,23 +426,14 @@ func (m model) modelPickerProviderDiscoveryCmd(descriptor providercatalog.Descri
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(m.ctx, 8*time.Second)
 		defer cancel()
-		k := key
-		if needOAuth {
-			if resolved := oauthStoredToken(ctx, providerID); resolved != "" {
-				k = resolved
-			}
-		}
-		models, err := discover(ctx, providerWizardDiscoveryProfile(descriptor, k, authed.BaseURL))
+		models, err := discover(ctx, providerWizardDiscoveryProfile(descriptor, key, authed.BaseURL))
 		return modelPickerModelsDiscoveredMsg{providerID: providerID, models: models, err: err}
 	}
 }
 
-func (m model) modelPickerDiscoveryOptions(profile config.ProviderProfile) providermodeldiscovery.Options {
-	oauthResolver, loginKey := providers.OAuthLoginForProfile(profile)
+func (m model) modelPickerDiscoveryOptions(config.ProviderProfile) providermodeldiscovery.Options {
 	return providermodeldiscovery.Options{
-		OAuthResolver:        oauthResolver,
-		CodexAccountResolver: providers.CodexAccountResolverForLogin(loginKey),
-		UserAgent:            m.userAgent,
+		UserAgent: m.userAgent,
 	}
 }
 
@@ -670,9 +667,9 @@ func registryModelPickerMeta(entry modelregistry.ModelEntry) string {
 
 func modelPickerDisplayName(id string, description string) string {
 	// The row title is the model NAME, not its marketing blurb. Catalog/discovery
-	// descriptions (from models.dev) are full sentences, and several models share
-	// the same one — using them as titles showed sentence-long rows that looked like
-	// exact duplicates and hid the actual id (which only survived in the meta line).
+	// descriptions are full sentences, and several models share the same one —
+	// using them as titles showed sentence-long rows that looked like exact
+	// duplicates and hid the actual id (which only survived in the meta line).
 	// Prefer the (prettified) id; fall back to a non-generic description only when
 	// there is no id to name the row.
 	id = strings.TrimSpace(id)
@@ -713,47 +710,6 @@ func modelPickerTitleWord(word string) string {
 func (m model) activeProviderDescriptor() (providercatalog.Descriptor, bool) {
 	return m.descriptorForProfile(m.providerProfile)
 }
-
-func customProviderDescriptorForProfile(profile config.ProviderProfile) (providercatalog.Descriptor, bool) {
-	if descriptor, ok := providercatalog.Get(profile.CatalogID); ok && genericProviderCatalogID(descriptor.ID) {
-		return descriptor, true
-	}
-
-	baseURL := strings.TrimSpace(profile.BaseURL)
-	if baseURL == "" {
-		return providercatalog.Descriptor{}, false
-	}
-	switch profileProviderKind(profile) {
-	case config.ProviderKindOpenAICompatible:
-		if !sameNormalizedProviderBaseURL(baseURL, config.OpenAIBaseURL) {
-			return providercatalog.Get("custom-openai-compatible")
-		}
-	case config.ProviderKindAnthropicCompat:
-		if !sameNormalizedProviderBaseURL(baseURL, config.AnthropicBaseURL) {
-			return providercatalog.Get("custom-anthropic-compatible")
-		}
-	case config.ProviderKindOpenAI:
-		if !sameNormalizedProviderBaseURL(baseURL, config.OpenAIBaseURL) {
-			return providercatalog.Get("custom-openai-compatible")
-		}
-	case config.ProviderKindAnthropic:
-		if !sameNormalizedProviderBaseURL(baseURL, config.AnthropicBaseURL) {
-			return providercatalog.Get("custom-anthropic-compatible")
-		}
-	}
-	return providercatalog.Descriptor{}, false
-}
-
-func profileProviderKind(profile config.ProviderProfile) config.ProviderKind {
-	if kind := strings.TrimSpace(string(profile.ProviderKind)); kind != "" {
-		return config.ProviderKind(strings.ToLower(kind))
-	}
-	if provider := strings.TrimSpace(profile.Provider); provider != "" {
-		return config.ProviderKind(strings.ToLower(provider))
-	}
-	return ""
-}
-
 func providerDescriptorByBaseURL(baseURL string) (providercatalog.Descriptor, bool) {
 	normalized := normalizeProviderBaseURL(baseURL)
 	if normalized == "" {
@@ -786,46 +742,6 @@ type modelPickerModelsDiscoveredMsg struct {
 	providerID string
 	models     []providermodeldiscovery.Model
 	err        error
-}
-
-// ollamaContextWindowDiscoveredMsg carries the result of an async /api/show
-// probe against a local Ollama daemon (see ollamaContextWindowDiscoveryCmd).
-// A zero contextWindow (or a non-nil err) means the probe found nothing
-// usable and the map is left untouched, not zeroed out.
-type ollamaContextWindowDiscoveredMsg struct {
-	modelName     string
-	contextWindow int
-	err           error
-}
-
-// ollamaContextWindowDiscoveryCmd probes a local Ollama daemon's native
-// /api/show endpoint for modelName's context length. Scoped to the local
-// Ollama provider only (catalog ID "ollama", not "ollama-cloud" — a
-// different hosted service this endpoint isn't assumed to exist on): the
-// generic /v1/models discovery has no source for this metadata for
-// custom/local model tags, so without this the context gauge just never
-// shows for them (see modelContextWindow).
-func (m model) ollamaContextWindowDiscoveryCmd(descriptor providercatalog.Descriptor, baseURL string, modelName string) tea.Cmd {
-	if descriptor.ID != "ollama" {
-		return nil
-	}
-	modelName = strings.TrimSpace(modelName)
-	baseURL = strings.TrimSpace(baseURL)
-	if modelName == "" || baseURL == "" {
-		return nil
-	}
-	discover := m.discoverOllamaContextWindow
-	if discover == nil {
-		discover = func(ctx context.Context, baseURL string, model string) (int, error) {
-			return providermodeldiscovery.DiscoverOllamaContextWindow(ctx, baseURL, model, providermodeldiscovery.Options{})
-		}
-	}
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(m.ctx, 8*time.Second)
-		defer cancel()
-		window, err := discover(ctx, baseURL, modelName)
-		return ollamaContextWindowDiscoveredMsg{modelName: modelName, contextWindow: window, err: err}
-	}
 }
 
 func (m model) normalizeProfileForProvider(provider providercatalog.Descriptor) config.ProviderProfile {
@@ -885,12 +801,16 @@ func (m model) applyModelPickerModelsDiscovered(msg modelPickerModelsDiscoveredM
 	if m.picker != nil && m.picker.kind == pickerModel {
 		selectedValue := ""
 		query := m.picker.query
+		effort := m.picker.effort
+		searching := m.picker.searching
 		if item, ok := m.picker.current(); ok {
 			selectedValue = item.Value
 		}
 		m.picker = m.newModelPicker()
 		if m.picker != nil {
 			m.picker.query = query
+			m.picker.effort = effort
+			m.picker.searching = searching
 			m.picker.applyQuery()
 			m.selectPickerValue(selectedValue)
 		}
@@ -1042,7 +962,7 @@ func (m *model) selectPickerValue(value string) {
 // reports "Active model does not expose reasoning effort controls" if they pick
 // anything other than auto.
 func (m model) newEffortPicker() *commandPicker {
-	efforts := m.availableReasoningEfforts()
+	efforts := m.panelReasoningEfforts()
 	items := []pickerItem{{Label: "auto", Value: "auto"}}
 	selected := 0
 	if m.reasoningEffort == "" {
@@ -1059,7 +979,7 @@ func (m model) newEffortPicker() *commandPicker {
 
 // newThemePicker lists the terminal-native system theme followed by named palettes
 // in one flat list. Old dark/light preferences migrate to System rather than
-// appearing as choices: they would imply a terminal-canvas change that Zero
+// appearing as choices: they would imply a terminal-canvas change that QG
 // deliberately does not make.
 func (m model) newThemePicker() *commandPicker {
 	items := make([]pickerItem, 0, len(themeModes))
@@ -1090,6 +1010,9 @@ func (m model) pickerMoved(delta int) (model, tea.Cmd) {
 		return m, nil
 	}
 	m.picker.move(delta)
+	if m.picker.kind == pickerModel {
+		m.picker.effort = ""
+	}
 	if m.picker.kind == pickerPet {
 		return m.schedulePetPreview()
 	}

@@ -1,11 +1,11 @@
 package selfverify
 
 import (
-	"github.com/Gitlawb/zero/internal/redaction"
-	"github.com/Gitlawb/zero/internal/verify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/verify"
 )
 
-const LoopContractVersion = "zero.selfverify.report.v1"
+const LoopContractVersion = "qg.selfverify.report.v1"
 
 type EventType string
 

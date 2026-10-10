@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 type mcpToolListItem struct {
@@ -25,7 +25,7 @@ type mcpToolListItem struct {
 // workspace-trust check: trustRoot is the ORIGINAL launch directory (resolved before
 // any --worktree reassignment) so a worktree of a trusted repo inherits that trust.
 // resolveTrust fails closed, so an empty trustRoot or a store-read error excludes the
-// project layer and a cloned repo cannot spawn its ./.zero/config.json MCP servers.
+// project layer and a cloned repo cannot spawn its ./.qg/config.json MCP servers.
 //
 // It returns a trustSkip alongside the runtime so the caller can fold the MCP gate
 // into the one-line trust notice (mirroring the hooks and plugins chokepoints);

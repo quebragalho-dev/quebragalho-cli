@@ -371,7 +371,7 @@ func (manager *ProcessManager) store(process *managedProcess) {
 	manager.processes[process.id] = process
 	manager.mu.Unlock()
 	if evicted != nil {
-		_, _ = evicted.output.Write([]byte("[zero] session evicted: too many background terminals\n"))
+		_, _ = evicted.output.Write([]byte("[qg] session evicted: too many background terminals\n"))
 		evicted.terminate()
 	}
 }

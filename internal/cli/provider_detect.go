@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/provideronboarding"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 )
 
 type providerDetectOptions struct {
@@ -40,7 +40,7 @@ type providerDetectReport struct {
 }
 
 // runProvidersDetect probes the machine for running local, OpenAI-compatible
-// model runtimes (Ollama, LM Studio, Atomic Chat) and prints a no-key adopt command for each
+// model runtimes (Ollama, LM Studio) and prints a no-key adopt command for each
 // one it finds, followed by the next-step actions for every already-configured
 // provider. It is the onboarding-advice surface — "what can I do right now?" —
 // and never errors on a machine with nothing running locally (it just reports an
@@ -153,7 +153,7 @@ func formatProviderDetectReport(report providerDetectReport) string {
 
 	lines = append(lines, "", "Configured providers:")
 	if len(report.Providers) == 0 {
-		lines = append(lines, "  (none configured — run `zero setup`)")
+		lines = append(lines, "  (none configured — run `qg setup`)")
 	}
 	for _, provider := range report.Providers {
 		name := strings.TrimSpace(provider.Name)

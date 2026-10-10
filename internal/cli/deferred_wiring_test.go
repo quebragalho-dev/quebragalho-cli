@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/mcp"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/tui"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
 
 // cliFakeDeferredTool is deferred-eligible (implements Deferred() bool), mirroring
@@ -234,6 +234,7 @@ func TestTUIRunThreadsDeferThresholdAndRegistersToolSearch(t *testing.T) {
 					Name:         "p",
 					ProviderKind: config.ProviderKindOpenAICompatible,
 					BaseURL:      "http://127.0.0.1/v1",
+					APIKey:       "sk-test",
 					Model:        "m",
 				},
 				Tools: config.ToolsConfig{DeferThreshold: 2},

@@ -1,13 +1,12 @@
-# Zero Documentation
+# QG Documentation
 
 This directory contains public documentation for using, extending, and releasing
-Zero.
+QG.
 
 ## User Docs
 
 - [Install](INSTALL.md)
 - [Update flow](UPDATE.md)
-- [OAuth logins and subscription-backed providers](oauth-subscriptions.md)
 
 ## Automation And Integrations
 
@@ -17,7 +16,7 @@ Zero.
 
 ## Maintainer Docs
 
-- [How Zero Works](HOW_ZERO_WORKS.md)
+- [How QG Works](HOW_QG_WORKS.md)
 - [npm wrapper smoke checklist](NPM_WRAPPER_SMOKE.md)
 - [Benchmarks](BENCHMARK.md)
 - [Performance benchmarks](PERFORMANCE.md)

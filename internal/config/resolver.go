@@ -9,11 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/aimlapi"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/notify"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 // ErrNoActiveProvider marks a resolve failure caused solely by a missing or
@@ -23,10 +22,10 @@ var ErrNoActiveProvider = errors.New("no active provider configured")
 
 // ErrProviderRequiresModel marks a resolve failure caused solely by the active
 // provider missing a model with no catalog default to fall back on (custom
-// openai-/anthropic-compatible endpoints — Zero cannot guess a gateway's model).
+// openai-/anthropic-compatible endpoints — QG cannot guess a gateway's model).
 // Like ErrNoActiveProvider, the interactive TUI treats it as "needs onboarding"
 // and drops into the setup wizard so the user can fix it; headless commands
-// (zero config, zero exec) still fail with the actionable message.
+// (qg config, qg exec) still fail with the actionable message.
 var ErrProviderRequiresModel = errors.New("provider requires model")
 
 // setupFixableError tags an error with a sentinel for errors.Is WITHOUT
@@ -54,7 +53,7 @@ const defaultMaxTurns = 80
 const MaxTurnsCeiling = 500
 
 // defaultDeferThreshold is the number of deferred-eligible (MCP) tools at which
-// Zero collapses their full JSON schemas into compact `tool_search` reminder
+// QG collapses their full JSON schemas into compact `tool_search` reminder
 // lines instead of advertising every schema on every turn. MCP tool schemas run
 // 300-600 tokens each, so eagerly shipping even a small server's toolset wastes
 // thousands of input tokens per message. Kept low so a typical single-server set
@@ -181,7 +180,7 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 }
 
 func ResolveMCP(options ResolveOptions) (MCPConfig, error) {
-	// Seed Zero's built-in default MCP servers (e.g. keyless Exa for free,
+	// Seed QG's built-in default MCP servers (e.g. keyless Exa for free,
 	// no-setup web search/scrape) BEFORE merging user/project config, so the user
 	// can override any field or disable a default by writing over it.
 	cfg := FileConfig{MCP: MCPConfig{Servers: DefaultMCPServers()}}
@@ -195,13 +194,13 @@ func ResolveMCP(options ResolveOptions) (MCPConfig, error) {
 		// server the user disabled (a user-level disable is sticky, but the user
 		// scope itself may lift it).
 		mergeMCPConfig(&cfg.MCP, fileConfig.MCP, true)
-		// Reconcile config written against a default Zero has since retired,
+		// Reconcile config written against a default QG has since retired,
 		// here while the user layer is the only one merged — so a carried-over
 		// disable counts as a user-level decision the project layer cannot lift.
 		migrateRetiredDefaultMCPServers(&cfg.MCP)
 	}
 	// Drop the project layer when the workspace is untrusted, so a cloned repo's
-	// ./.zero/config.json cannot register (and spawn) MCP servers. Fail-closed:
+	// ./.qg/config.json cannot register (and spawn) MCP servers. Fail-closed:
 	// only a trusted workspace clears ExcludeProject. Defaults and user config still load.
 	if options.ProjectConfigPath != "" && !options.ExcludeProject {
 		fileConfig, err := loadConfigFile(options.ProjectConfigPath)
@@ -309,11 +308,11 @@ func mergeProjectConfig(dst *FileConfig, src FileConfig) error {
 		return err
 	}
 	// Sandbox.Enabled is intentionally NOT merged from project config: a cloned
-	// repo's .zero/config.json must not be able to disable the sandbox that
+	// repo's .qg/config.json must not be able to disable the sandbox that
 	// constrains it. Only global config and CLI can turn the sandbox off.
 	//
 	// Sandbox.AdditionalWriteRoots is intentionally NOT merged from project
-	// config: a cloned repo's .zero/config.json must not be able to grant
+	// config: a cloned repo's .qg/config.json must not be able to grant
 	// itself write access outside the workspace. Global config and CLI flags
 	// are the only config sources for write roots.
 	//
@@ -479,18 +478,6 @@ func effectiveProviderKind(profile ProviderProfile) ProviderKind {
 	return ""
 }
 
-// catalogDefaultModel returns the default model of a catalog provider ("" when
-// the id is unknown), used to fill a missing profile.Model for the official-API
-// kinds so a hand-written profile without a model resolves instead of bricking
-// every command that resolves config up front (zero config, bare zero setup).
-func catalogDefaultModel(catalogID string) string {
-	descriptor, ok := providercatalog.Get(catalogID)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(descriptor.DefaultModel)
-}
-
 func catalogDescriptorForProfile(profile ProviderProfile) (providercatalog.Descriptor, bool) {
 	catalogID := providercatalog.NormalizeID(profile.CatalogID)
 	if catalogID == "" {
@@ -565,7 +552,7 @@ func mergeProfile(base ProviderProfile, next ProviderProfile) ProviderProfile {
 }
 
 // ActiveProviderEnv selects the active provider profile by name (read in applyEnv).
-const ActiveProviderEnv = "ZERO_PROVIDER"
+const ActiveProviderEnv = "QG_PROVIDER"
 
 // SetActiveProviderEnv exports the active provider name to the process environment
 // so a spawned child process (which inherits the environment) resolves the SAME
@@ -585,7 +572,7 @@ func SetActiveProviderEnv(name string) {
 }
 
 // MaxTurnsEnv overrides the per-run tool-turn budget by name (read in applyEnv).
-const MaxTurnsEnv = "ZERO_MAX_TURNS"
+const MaxTurnsEnv = "QG_MAX_TURNS"
 
 // SetMaxTurnsEnv exports the per-run tool-turn budget to the process environment so
 // a spawned child (sub-agent / swarm member, which inherits the environment) runs
@@ -996,7 +983,7 @@ func normalizeProvidersWithOptions(providers []ProviderProfile, activeName strin
 	}
 	if active.Model == "" {
 		return nil, ProviderProfile{}, &setupFixableError{
-			err:      providerError(active, "provider %s requires model — add \"model\" to its entry in config.json, or re-run: zero setup <catalog-id> --model <model>", active.Name),
+			err:      providerError(active, "provider %s requires model — add \"model\" to its entry in config.json, or re-run: qg setup <catalog-id> --model <model>", active.Name),
 			sentinel: ErrProviderRequiresModel,
 		}
 	}
@@ -1037,8 +1024,8 @@ func normalizeProvider(profile ProviderProfile, env map[string]string, options n
 	if profile.ProviderKind == "" {
 		profile.ProviderKind = ProviderKindOpenAI
 	}
-	if strings.TrimSpace(profile.APIKey) == "" && profile.APIKeyEnv != "" {
-		profile.APIKey = strings.TrimSpace(envValue(env, profile.APIKeyEnv))
+	if strings.TrimSpace(profile.APIKey) == "" {
+		profile.APIKey = profile.EnvAPIKey(func(key string) string { return envValue(env, key) })
 	}
 
 	switch profile.ProviderKind {
@@ -1062,9 +1049,6 @@ func normalizeProvider(profile ProviderProfile, env map[string]string, options n
 	case ProviderKindAnthropic:
 		if profile.BaseURL == "" || isOfficialAnthropicBaseURL(profile.BaseURL) {
 			profile.BaseURL = AnthropicBaseURL
-			if options.defaultModels && profile.Model == "" {
-				profile.Model = catalogDefaultModel("anthropic")
-			}
 			return profile, nil
 		}
 		return ProviderProfile{}, providerError(profile, "anthropic provider %s requires official baseURL %s", profile.Name, AnthropicBaseURL)
@@ -1079,9 +1063,6 @@ func normalizeProvider(profile ProviderProfile, env map[string]string, options n
 	case ProviderKindGoogle:
 		if profile.BaseURL == "" || isOfficialGoogleBaseURL(profile.BaseURL) {
 			profile.BaseURL = GoogleBaseURL
-			if options.defaultModels && profile.Model == "" {
-				profile.Model = catalogDefaultModel("google")
-			}
 			return profile, nil
 		}
 		return ProviderProfile{}, providerError(profile, "google provider %s requires official baseURL %s", profile.Name, GoogleBaseURL)
@@ -1108,11 +1089,7 @@ func applyCatalogDescriptor(profile *ProviderProfile, descriptor providercatalog
 	}
 	canonicalCatalogEndpoint := !explicitBaseURL || sameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)
 	if len(descriptor.CustomHeaders) > 0 && canonicalCatalogEndpoint {
-		catalogHeaders := descriptor.CustomHeaders
-		if strings.EqualFold(strings.TrimSpace(descriptor.ID), "aimlapi") {
-			catalogHeaders = aimlapi.WithResolvedPartnerHeader(catalogHeaders)
-		}
-		merged := copyStringMap(catalogHeaders)
+		merged := copyStringMap(descriptor.CustomHeaders)
 		for key, value := range profile.CustomHeaders {
 			// Header names are case-insensitive. Preserve the catalog spelling while
 			// replacing its value so request construction cannot see two colliding
@@ -1131,19 +1108,6 @@ func applyCatalogDescriptor(profile *ProviderProfile, descriptor providercatalog
 			merged[key] = value
 		}
 		profile.CustomHeaders = merged
-	} else if strings.EqualFold(strings.TrimSpace(descriptor.ID), "aimlapi") && !canonicalCatalogEndpoint {
-		// AIMLAPI attribution is owned by the catalog endpoint. A profile can retain
-		// those generated headers after its base URL is edited; strip their names
-		// before sending requests to an arbitrary staging/proxy host while preserving
-		// unrelated headers explicitly supplied by the user.
-		for profileKey := range profile.CustomHeaders {
-			for catalogKey := range descriptor.CustomHeaders {
-				if strings.EqualFold(profileKey, catalogKey) {
-					delete(profile.CustomHeaders, profileKey)
-					break
-				}
-			}
-		}
 	}
 }
 

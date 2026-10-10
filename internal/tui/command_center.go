@@ -12,16 +12,17 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/credstore"
-	"github.com/Gitlawb/zero/internal/doctor"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/oauth"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodelcatalog"
-	"github.com/Gitlawb/zero/internal/providers"
-	"github.com/Gitlawb/zero/internal/redaction"
-	zsearch "github.com/Gitlawb/zero/internal/search"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/credstore"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/doctor"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
+	zsearch "github.com/quebragalho-dev/quebragalho-cli/internal/search"
 )
 
 const doctorStatusRowID = "doctor/status"
@@ -178,7 +179,7 @@ func doctorFixLines(report doctor.Report) []string {
 			if remedy := doctorCheckDetailString(check, "remedy"); remedy != "" {
 				lines = append(lines, "native sandbox: "+remedy)
 			} else {
-				lines = append(lines, "native sandbox: run zero sandbox policy --effective to inspect backend status")
+				lines = append(lines, "native sandbox: run qg sandbox policy --effective to inspect backend status")
 			}
 		case "lsp.servers":
 			lines = append(lines, "language servers: install missing LSP binaries on PATH")
@@ -200,7 +201,7 @@ func doctorFixLines(report doctor.Report) []string {
 func (m model) doctorConnectivityRunningText() string {
 	return strings.Join([]string{
 		"Checking provider",
-		"Zero is probing the active endpoint. Keep typing; messages will queue until the check finishes.",
+		"QG is probing the active endpoint. Keep typing; messages will queue until the check finishes.",
 		m.doctorAnimationLine(),
 		"provider: " + displayValue(m.providerName, displayValue(m.providerProfile.Name, "unknown")),
 		"model: " + displayValue(m.modelName, displayValue(m.providerProfile.Model, "unknown")),
@@ -423,30 +424,35 @@ func relativeAge(timestamp string, now time.Time) string {
 // applied-notice, so a caller that only read the text would show an unqualified
 // success for a selection that will be gone after a restart.
 func (m model) handleModelCommand(args string) (model, string, error) {
+	next, text, _, err := m.handleModelCommandScope(args, true)
+	return next, text, err
+}
+
+func (m model) handleModelCommandScope(args string, persist bool) (model, string, bool, error) {
 	args = strings.TrimSpace(args)
 	switch strings.ToLower(args) {
 	case "":
-		return m, m.modelText(args), nil
+		return m, m.modelText(args), false, nil
 	case "list", "ls":
-		return m, m.modelListText(), nil
+		return m, m.modelListText(), false, nil
 	}
 	if m.pending {
-		return m, "Model\nCannot switch models while a run is active.", nil
+		return m, "Model\nCannot switch models while a run is active.", false, nil
 	}
 
 	registry, err := modelregistry.DefaultRegistry()
 	if err != nil {
-		return m, "Model\nFailed to load model catalog: " + err.Error(), nil
+		return m, "Model\nFailed to load model catalog: " + err.Error(), false, nil
 	}
 	target, ok := m.resolveModelSwitchTarget(registry, args)
 	if !ok {
-		return m, "Model\nunknown Zero model " + strconv.Quote(args), nil
+		return m, "Model\nunknown QG model " + strconv.Quote(args), false, nil
 	}
 	if !config.HasProviderProfile(m.providerProfile) {
-		return m, "Model\nNo provider profile is available for TUI model switching.", nil
+		return m, "Model\nNo provider profile is available for TUI model switching.", false, nil
 	}
 	if m.newProvider == nil {
-		return m, "Model\nProvider rebuild is not available for this TUI session.", nil
+		return m, "Model\nProvider rebuild is not available for this TUI session.", false, nil
 	}
 
 	previousProviderName := m.providerName
@@ -462,7 +468,7 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 	nextProfile = m.profileWithCredential(nextProfile)
 	metadata, err := providers.ResolveRuntimeMetadata(nextProfile, providers.Options{})
 	if err != nil {
-		return m, "Model\n" + err.Error(), nil
+		return m, "Model\n" + err.Error(), false, nil
 	}
 
 	if guarded, text, requested := m.requestCompactionBeforeModelSwitch(modelSwitchCompactionRequest{
@@ -470,14 +476,18 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 		TargetProvider:      string(metadata.ProviderKind),
 		TargetContextWindow: modelregistry.AgentContextWindow(m.modelContextWindow(target.modelID)),
 	}, "Model"); requested {
-		return guarded, text, nil
+		return guarded, text, false, nil
 	}
 
 	nextProvider, err := m.newProvider(nextProfile)
 	if err != nil {
-		return m, "Model\n" + err.Error(), nil
+		return m, "Model\n" + err.Error(), false, nil
 	}
-	persisted, persistErr := m.persistSelectedModel(nextProfile)
+	var persisted bool
+	var persistErr error
+	if persist {
+		persisted, persistErr = m.persistSelectedModel(nextProfile)
+	}
 
 	m.providerProfile = nextProfile
 	m.provider = nextProvider
@@ -485,6 +495,7 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 	// Keep sub-agent child processes on the same provider we just switched to.
 	config.SetActiveProviderEnv(nextProfile.Name)
 	m.modelName = target.modelID
+	m.streamUsage = qgruntime.Usage{}
 	m.serviceTier = ""
 	// Record the outgoing pair too, not just the destination: otherwise the
 	// model a session started on (never itself the target of a recordRecentModel
@@ -500,7 +511,7 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 		// dedupe against the entry just persisted here, showing the same switch twice.
 		{Provider: m.providerName, Model: target.modelID},
 	}
-	if errors.Is(persistErr, config.ErrLockUnavailable) {
+	if !persist || errors.Is(persistErr, config.ErrLockUnavailable) {
 		// The selection write already lost its race for the config lock, which is
 		// still held. A second blocking attempt would make one unavailable lock
 		// cost two full waits and add a redundant save error to the transcript, so
@@ -554,7 +565,7 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 	if warn := m.visionDropWarning(); warn != "" {
 		lines = append(lines, warn)
 	}
-	return m, strings.Join(lines, "\n"), persistErr
+	return m, strings.Join(lines, "\n"), true, persistErr
 }
 
 // switchProviderModel switches the active provider to providerName (one of the
@@ -569,6 +580,10 @@ func (m model) handleModelCommand(args string) (model, string, error) {
 // must not change behavior). The returned error reports that the in-session
 // switch succeeded but its provider/model transaction was not durably saved.
 func (m model) switchProviderModel(providerName, modelID string) (model, string, bool, tea.Cmd, error) {
+	return m.switchProviderModelScope(providerName, modelID, true)
+}
+
+func (m model) switchProviderModelScope(providerName, modelID string, persist bool) (model, string, bool, tea.Cmd, error) {
 	if m.pending {
 		return m, "Model\nCannot switch providers while a run is active.", false, nil, nil
 	}
@@ -591,7 +606,7 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 	// keyless on purpose so newProvider attaches the bearer resolver + login key.
 	if strings.TrimSpace(target.APIKey) == "" && strings.TrimSpace(target.AuthHeaderValue) == "" &&
 		(!hasDescriptor || !descriptor.Local) && !oauthLoginAvailable(target) {
-		return m, "Model\nprovider " + strconv.Quote(providerName) + " has no usable credential — run setup or `zero auth login " + providerName + "`.", false, nil, nil
+		return m, "Model\nprovider " + strconv.Quote(providerName) + " has no usable credential — set " + providercatalog.KeyEnvHint + " in your environment or run `qg login`, then run `qg setup qg`.", false, nil, nil
 	}
 	next, err := m.newProvider(target)
 	if err != nil {
@@ -601,6 +616,7 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 	m.providerProfile = target
 	m.providerName = target.Name
 	m.modelName = target.Model
+	m.streamUsage = qgruntime.Usage{}
 	m.serviceTier = ""
 	// An active profile's effort fill is per-model: re-derive it for the
 	// destination, exactly like handleModelCommand does. No generic
@@ -613,14 +629,14 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 	config.SetActiveProviderEnv(target.Name)
 	path := strings.TrimSpace(m.userConfigPath)
 	var persistErr error
-	if path != "" {
+	if persist && path != "" {
 		_, persistErr = config.SetActiveProviderModel(path, target.Name, target.Model)
 	}
 	recent := []config.RecentModelEntry{
 		{Provider: previousProviderName, Model: previousModel},
 		{Provider: target.Name, Model: target.Model},
 	}
-	if persistErr == nil {
+	if persist && persistErr == nil {
 		// Record the outgoing pair too — see the matching comment in
 		// handleModelCommand for why. Persist history only after the selection
 		// transaction succeeds, so one unavailable lock causes one wait.
@@ -636,12 +652,9 @@ func (m model) switchProviderModel(providerName, modelID string) (model, string,
 		if cmd := m.modelPickerProviderDiscoveryCmd(descriptor, target); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		if cmd := m.ollamaContextWindowDiscoveryCmd(descriptor, target.BaseURL, target.Model); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
 	}
 	status := fmt.Sprintf("Model\nSwitched to %s · %s", target.Name, target.Model)
-	if path != "" && persistErr == nil {
+	if persist && path != "" && persistErr == nil {
 		status += " · saved"
 	} else if persistErr != nil {
 		status += " · not saved (" + persistErr.Error() + ")"
@@ -705,7 +718,7 @@ func oauthLoginAvailable(profile config.ProviderProfile) bool {
 // oauthLoginName resolves WHICH stored login serves this profile — the same
 // FirstStored selection the runtime makes. User-facing hints must name this
 // entry, not the profile: after a rename ({name:"codex", catalogID:"chatgpt"})
-// the token lives under the catalog id, and `zero auth logout codex` would
+// the token lives under the catalog id, and `qg auth logout codex` would
 // delete nothing while the real login stays behind.
 func oauthLoginName(profile config.ProviderProfile) (string, bool) {
 	candidates := profile.OAuthLoginCandidates()
@@ -801,10 +814,9 @@ func (m model) resolveModelSwitchTarget(registry modelregistry.Registry, args st
 }
 
 // providerModelSwitchCandidates preserves provider-owned model IDs while
-// accepting the models.dev OpenAI namespace for ChatGPT subscription models.
-// The ChatGPT backend itself publishes bare model IDs (for example,
-// "gpt-5.6-sol"); gateway providers may legitimately require "openai/..."
-// as part of their model ID, so the alias is deliberately provider-specific.
+// accepting an "openai/"-prefixed request for legacy ChatGPT profiles, whose
+// backend publishes bare model IDs (for example, "gpt-5.6-sol"). The alias is
+// deliberately provider-specific — other providers' IDs are passed through.
 func providerModelSwitchCandidates(providerID string, input string) []string {
 	requested := strings.TrimSpace(input)
 	candidates := []string{requested}

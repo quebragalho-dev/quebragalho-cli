@@ -79,8 +79,8 @@ func TestRenameOpenFileWithRetryFailsAfterExhaustingAttempts(t *testing.T) {
 // at this path before running it again".
 func TestRestoreOriginalBinaryFlagsPossibleTamperingWhenRestoreFails(t *testing.T) {
 	dir := t.TempDir()
-	oldPath := filepath.Join(dir, "zero.exe.old")
-	targetPath := filepath.Join(dir, "zero.exe")
+	oldPath := filepath.Join(dir, "qg.exe.old")
+	targetPath := filepath.Join(dir, "qg.exe")
 	if err := os.WriteFile(oldPath, []byte("original"), 0o755); err != nil {
 		t.Fatalf("WriteFile oldPath: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestRestoreOriginalBinaryFlagsPossibleTamperingWhenRestoreFails(t *testing.
 // runs.
 func TestRestoreOriginalBinaryMarksPreservedCopy(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero.exe")
+	targetPath := filepath.Join(dir, "qg.exe")
 	oldPath := targetPath + ".old"
 	if err := os.WriteFile(oldPath, []byte("known-good"), 0o755); err != nil {
 		t.Fatalf("WriteFile old binary: %v", err)
@@ -152,7 +152,7 @@ func TestMarkOldBinaryPreservedRefusesPreCreatedLink(t *testing.T) {
 	for _, kind := range []string{"hardlink", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
 			dir := t.TempDir()
-			oldPath := filepath.Join(dir, "zero.exe.old")
+			oldPath := filepath.Join(dir, "qg.exe.old")
 			if err := os.WriteFile(oldPath, []byte("known-good"), 0o755); err != nil {
 				t.Fatalf("WriteFile old binary: %v", err)
 			}
@@ -196,7 +196,7 @@ func TestMarkOldBinaryPreservedRefusesPreCreatedLink(t *testing.T) {
 
 func TestMarkOldBinaryPreservedRemovesPartialMarkerBeforeRelocation(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero.exe")
+	targetPath := filepath.Join(dir, "qg.exe")
 	oldPath := targetPath + ".old"
 	if err := os.WriteFile(targetPath, []byte("unverified"), 0o755); err != nil {
 		t.Fatalf("WriteFile target: %v", err)
@@ -245,7 +245,7 @@ func TestMarkOldBinaryPreservedRemovesPartialMarkerBeforeRelocation(t *testing.T
 // the ordinary "<target>.old" recovery name.
 func TestRestoreOriginalBinaryKeepsRecoveryCopyWhenMarkingFails(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero.exe")
+	targetPath := filepath.Join(dir, "qg.exe")
 	oldPath := targetPath + ".old"
 	if err := os.WriteFile(targetPath, []byte("unverified"), 0o755); err != nil {
 		t.Fatalf("WriteFile target: %v", err)
@@ -296,7 +296,7 @@ func TestRestoreOriginalBinaryKeepsRecoveryCopyWhenMarkingFails(t *testing.T) {
 // deleted, because deleting it is irreversible and keeping it costs a file.
 func TestOldBinaryPreservedTreatsAnUnreadableMarkerAsPresent(t *testing.T) {
 	dir := t.TempDir()
-	oldPath := filepath.Join(dir, "zero.exe.old")
+	oldPath := filepath.Join(dir, "qg.exe.old")
 	if oldBinaryPreserved(oldPath) {
 		t.Fatal("a genuinely absent marker must report not-preserved")
 	}
@@ -316,7 +316,7 @@ func TestOldBinaryPreservedTreatsAnUnreadableMarkerAsPresent(t *testing.T) {
 // operator has to be told to act now rather than at their convenience.
 func TestRestoreOriginalBinarySurfacesMarkerWriteFailure(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero.exe")
+	targetPath := filepath.Join(dir, "qg.exe")
 	if err := os.WriteFile(targetPath, []byte("unverified"), 0o755); err != nil {
 		t.Fatalf("WriteFile target: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestRestoreOriginalBinarySurfacesMarkerWriteFailure(t *testing.T) {
 
 func TestKeepUnmarkedRecoveryCopyMovesTheOpenedObject(t *testing.T) {
 	dir := t.TempDir()
-	oldPath := filepath.Join(dir, "zero.exe.old")
+	oldPath := filepath.Join(dir, "qg.exe.old")
 	if err := os.WriteFile(oldPath, []byte("known-good"), 0o755); err != nil {
 		t.Fatalf("WriteFile recovery copy: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestKeepUnmarkedRecoveryCopyMovesTheOpenedObject(t *testing.T) {
 // operator to a path that no longer holds anything.
 func TestRestoreOriginalBinaryNamesTheRelocationItCouldNotVerify(t *testing.T) {
 	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "zero.exe")
+	targetPath := filepath.Join(dir, "qg.exe")
 	oldPath := targetPath + ".old"
 	if err := os.WriteFile(targetPath, []byte("unverified"), 0o755); err != nil {
 		t.Fatalf("WriteFile target: %v", err)

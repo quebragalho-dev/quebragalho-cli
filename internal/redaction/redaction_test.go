@@ -10,7 +10,7 @@ func TestRedactStringCoversCommonSecretShapes(t *testing.T) {
 	input := strings.Join([]string{
 		`{"apiKey":"sk-proj-abcdefghijklmnopqrstuvwxyz"}`,
 		"authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz123456",
-		"https://zero:super-secret@example.test/path?token=glpat-abcdefghijklmnopqrstuvwxyz",
+		"https://qg:super-secret@example.test/path?token=glpat-abcdefghijklmnopqrstuvwxyz",
 		"-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----",
 	}, "\n")
 

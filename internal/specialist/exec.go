@@ -16,10 +16,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Gitlawb/zero/internal/background"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 const (
@@ -692,7 +692,7 @@ func (executor Executor) binaryPath() (string, error) {
 	}
 	path, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("resolve zero executable: %w", err)
+		return "", fmt.Errorf("resolve qg executable: %w", err)
 	}
 	return path, nil
 }
@@ -804,7 +804,7 @@ func (executor Executor) writePromptFile(prompt string) (string, error) {
 }
 
 func writePromptFile(prompt string) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "zero-specialist-")
+	tmpDir, err := os.MkdirTemp("", "qg-specialist-")
 	if err != nil {
 		return "", fmt.Errorf("create specialist prompt temp dir: %w", err)
 	}
@@ -823,7 +823,7 @@ func cleanupPromptFile(promptFile string) {
 		return
 	}
 	dir := filepath.Dir(promptFile)
-	if strings.HasPrefix(filepath.Base(dir), "zero-specialist-") {
+	if strings.HasPrefix(filepath.Base(dir), "qg-specialist-") {
 		_ = os.RemoveAll(dir)
 		return
 	}

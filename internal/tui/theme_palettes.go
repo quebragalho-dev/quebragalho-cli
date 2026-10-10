@@ -37,19 +37,19 @@ var lightSystemSurfaces = systemSurfacePalette{
 	delWord:   "#ffcecb",
 }
 
-// darkPalette is the original Lime palette: a near-black chat surface with one
-// lime accent. bg (#070708) is the terminal's own canvas — deliberately never
+// darkPalette is the default QG palette: a near-black chat surface with one
+// QG accent. bg (#070708) is the terminal's own canvas — deliberately never
 // painted — so no token references it.
 var darkPalette = palette{
 	panel:     "#0e0e10",
 	promptBg:  "#262626",
 	line:      "#242429",
 	line2:     "#414147",
-	ink:       "#ececee",
+	ink:       "#FFFFFF",
 	muted:     "#9a9aa2", // secondary text — lifted so it clearly out-ranks faint
 	faint:     "#8a8a92", // hints/metadata — nudged up to separate from faintest
 	faintest:  "#7c7c82", // line numbers/separators — pinned at the WCAG-AA floor on the dark panel
-	accent:    "#caff3f", // original bright lime (the brand accent)
+	accent:    "#9DF723", // QG brand lime-green (mascot)
 	green:     "#5dd1a4",
 	red:       "#ff7a7a",
 	amber:     "#ffc25c",
@@ -390,7 +390,7 @@ var neonPalette = palette{
 }
 
 // lightPalette is dark-on-light: a warm cream surface (so cards lift off the
-// terminal page, which Zero never paints) with near-black ink and an olive-lime
+// terminal page, which QG never paints) with near-black ink and an olive-lime
 // accent that keeps the brand identity while clearing AA on the light panel. The
 // muted/faint/faintest grays get progressively LIGHTER toward the surface; diff and
 // permission tints are light surfaces. Replaces the old flat cool-gray light set
@@ -489,7 +489,7 @@ var dunePalette = palette{
 	cardPerm:  "#c2a04a",
 }
 
-// codeThemes provide syntax-token colors for named palettes. Zero continues to
+// codeThemes provide syntax-token colors for named palettes. QG continues to
 // use its cached Chroma lexers; this compact table avoids initializing an
 // unrelated global syntax-theme registry just to select a palette.
 var codeThemes = map[themeMode]codeSyntaxTheme{
@@ -648,7 +648,7 @@ var codeThemes = map[themeMode]codeSyntaxTheme{
 	},
 }
 
-// themeEntry is one registered theme: Name is the /theme value + ZERO_THEME/--theme
+// themeEntry is one registered theme: Name is the /theme value + QG_THEME/--theme
 // token (lowercase, kebab), Label is the picker display text, and IsDark groups the
 // picker into Dark/Light sections.
 type themeEntry struct {

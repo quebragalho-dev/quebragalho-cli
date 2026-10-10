@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/provideronboarding"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 )
 
 func TestRunProvidersDetectSurfacesLocalRuntimeAndProviderActions(t *testing.T) {
@@ -42,7 +42,7 @@ func TestRunProvidersDetectSurfacesLocalRuntimeAndProviderActions(t *testing.T) 
 		"Detected local runtimes:",
 		"Ollama Local — http://localhost:11434/v1",
 		"models: llama3.1",
-		"zero providers add ollama", // SetupAction's no-key adopt command
+		"qg providers add ollama", // SetupAction's no-key adopt command
 		"Configured providers:",
 		"openai",
 		"Use provider",
@@ -107,8 +107,8 @@ func TestRunProvidersDetectJSONNoRuntimesActiveProvider(t *testing.T) {
 }
 
 func TestProviderDetectShowsGuidanceWithoutCommand(t *testing.T) {
-	for _, models := range [][]string{nil, {"local-model"}, {"x&calc"}} {
-		runtime := provideronboarding.DetectedLocalRuntime{LocalRuntime: provideronboarding.LocalRuntime{CatalogID: "atomic-chat-local", Name: "Atomic Chat Local", DefaultModel: "local-model"}, Models: models}
+	for _, models := range [][]string{{"text-embedding-only"}, {"x&calc"}} {
+		runtime := provideronboarding.DetectedLocalRuntime{LocalRuntime: provideronboarding.LocalRuntime{CatalogID: "local", Name: "Local Runtime"}, Models: models}
 		out := formatProviderDetectReport(buildProviderDetectReport(config.ResolvedConfig{}, []provideronboarding.DetectedLocalRuntime{runtime}))
 		if strings.Contains(out, "providers add") || !strings.Contains(out, runtime.SetupAction().Detail) {
 			t.Fatalf("missing actionable guidance: %s", out)

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/testutil"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestAsyncDiagnosticsNilCollectorNoOps(t *testing.T) {
@@ -151,16 +151,16 @@ func TestRunDeliversAsyncDiagnosticsNudgeNextTurn(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(changedFilesTool{})
 	provider := &mockProvider{
-		turns: [][]zeroruntime.StreamEvent{
+		turns: [][]qgruntime.StreamEvent{
 			{
-				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "fake_edit"},
-				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{}`},
-				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "fake_edit"},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+				{Type: qgruntime.StreamEventDone},
 			},
 			{
-				{Type: zeroruntime.StreamEventText, Content: "done"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventText, Content: "done"},
+				{Type: qgruntime.StreamEventDone},
 			},
 		},
 	}
@@ -190,14 +190,14 @@ func TestRunDeliversAsyncDiagnosticsNudgeNextTurn(t *testing.T) {
 
 	// The tool result itself must NOT block on / embed diagnostics.
 	for _, message := range provider.requests[1].Messages {
-		if message.Role == zeroruntime.MessageRoleTool && strings.Contains(message.Content, "boom") {
+		if message.Role == qgruntime.MessageRoleTool && strings.Contains(message.Content, "boom") {
 			t.Fatalf("diagnostics leaked into the tool result: %q", message.Content)
 		}
 	}
 	// The nudge must be present in the second request as a user message.
 	found := false
 	for _, message := range provider.requests[1].Messages {
-		if message.Role == zeroruntime.MessageRoleUser && strings.HasPrefix(message.Content, asyncDiagnosticsNudge) {
+		if message.Role == qgruntime.MessageRoleUser && strings.HasPrefix(message.Content, asyncDiagnosticsNudge) {
 			if !strings.Contains(message.Content, "boom") {
 				t.Fatalf("nudge missing diagnostics: %q", message.Content)
 			}
@@ -221,16 +221,16 @@ func TestRunDrainsAsyncDiagnosticsBeforeMaxTurnsFinalAnswer(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(changedFilesTool{})
 	provider := &mockProvider{
-		turns: [][]zeroruntime.StreamEvent{
+		turns: [][]qgruntime.StreamEvent{
 			{
-				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "fake_edit"},
-				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{}`},
-				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "fake_edit"},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+				{Type: qgruntime.StreamEventDone},
 			},
 			{
-				{Type: zeroruntime.StreamEventText, Content: "summary"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventText, Content: "summary"},
+				{Type: qgruntime.StreamEventDone},
 			},
 		},
 	}
@@ -254,7 +254,7 @@ func TestRunDrainsAsyncDiagnosticsBeforeMaxTurnsFinalAnswer(t *testing.T) {
 	}
 	found := false
 	for _, message := range provider.requests[1].Messages {
-		if message.Role == zeroruntime.MessageRoleUser && strings.HasPrefix(message.Content, asyncDiagnosticsNudge) {
+		if message.Role == qgruntime.MessageRoleUser && strings.HasPrefix(message.Content, asyncDiagnosticsNudge) {
 			found = true
 		}
 	}
@@ -274,20 +274,20 @@ func TestRunFinalizationGateDeliversLateDiagnostics(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(changedFilesTool{})
 	provider := &mockProvider{
-		turns: [][]zeroruntime.StreamEvent{
+		turns: [][]qgruntime.StreamEvent{
 			{
-				{Type: zeroruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "fake_edit"},
-				{Type: zeroruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{}`},
-				{Type: zeroruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "fake_edit"},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+				{Type: qgruntime.StreamEventDone},
 			},
 			{
-				{Type: zeroruntime.StreamEventText, Content: "done"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventText, Content: "done"},
+				{Type: qgruntime.StreamEventDone},
 			},
 			{
-				{Type: zeroruntime.StreamEventText, Content: "done after fix"},
-				{Type: zeroruntime.StreamEventDone},
+				{Type: qgruntime.StreamEventText, Content: "done after fix"},
+				{Type: qgruntime.StreamEventDone},
 			},
 		},
 	}
@@ -313,7 +313,7 @@ func TestRunFinalizationGateDeliversLateDiagnostics(t *testing.T) {
 	}
 	found := false
 	for _, message := range provider.requests[2].Messages {
-		if message.Role == zeroruntime.MessageRoleUser && strings.HasPrefix(message.Content, asyncDiagnosticsNudge) {
+		if message.Role == qgruntime.MessageRoleUser && strings.HasPrefix(message.Content, asyncDiagnosticsNudge) {
 			if !strings.Contains(message.Content, "boom") {
 				t.Fatalf("nudge missing diagnostics: %q", message.Content)
 			}

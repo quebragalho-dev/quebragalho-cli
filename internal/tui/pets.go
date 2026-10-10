@@ -11,8 +11,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 )
 
 const (
@@ -293,7 +293,7 @@ func (m model) petPickerOverlay(width int) string {
 	if sidePreview {
 		listWidth -= petImageColumns + petPreviewPaneGap
 	}
-	previewDivider := zeroTheme.line.Render("│") + " "
+	previewDivider := qgTheme.line.Render("│") + " "
 	listLine := func(line string) string {
 		line = fitStyledLine(line, listWidth)
 		if !sidePreview {
@@ -307,31 +307,31 @@ func (m model) petPickerOverlay(width int) string {
 		m.picker.selected = clampInt(m.picker.selected, 0, len(m.picker.items)-1)
 		start = selectableListStart(len(m.picker.items), listHeight, m.picker.selected)
 	}
-	lines := []string{renderPickerSearchLine(m.picker.query, "search companions…", innerWidth), zeroTheme.line.Render(strings.Repeat("─", innerWidth))}
+	lines := []string{renderPickerSearchLine(m.picker.query, "search companions…", innerWidth), qgTheme.line.Render(strings.Repeat("─", innerWidth))}
 	listStartRow := len(lines)
 	if len(m.picker.items) == 0 {
-		lines = append(lines, listLine(zeroTheme.faint.Render("  no matching companions")))
+		lines = append(lines, listLine(qgTheme.faint.Render("  no matching companions")))
 	} else {
 		lastGroup := ""
 		for index, item := range m.picker.items[start : start+listHeight] {
 			if item.Group != "" && item.Group != lastGroup {
-				lines = append(lines, listLine(zeroTheme.accent.Render(item.Group)))
+				lines = append(lines, listLine(qgTheme.accent.Render(item.Group)))
 				lastGroup = item.Group
 			}
 			selected := start+index == m.picker.selected
 			surface := transparentSurface
 			marker := "  "
 			if selected {
-				surface = zeroTheme.onSel
+				surface = qgTheme.onSel
 				marker = "❯ "
 			}
 			name := truncatePetPickerColumn(item.Label, maxInt(1, listWidth-lipgloss.Width(marker)))
-			lines = append(lines, listLine(surface(zeroTheme.accent).Render(marker)+surface(zeroTheme.ink).Render(name)))
+			lines = append(lines, listLine(surface(qgTheme.accent).Render(marker)+surface(qgTheme.ink).Render(name)))
 		}
 	}
 	if m.picker.loading {
-		lines = append(lines, listLine(zeroTheme.accent.Render("Discover")))
-		lines = append(lines, listLine(zeroTheme.faint.Render("  Fetching companions…")))
+		lines = append(lines, listLine(qgTheme.accent.Render("Discover")))
+		lines = append(lines, listLine(qgTheme.faint.Render("  Fetching companions…")))
 	}
 	if sidePreview && m.petPreview != nil {
 		for len(lines)-listStartRow < petImageRows {
@@ -339,16 +339,16 @@ func (m model) petPickerOverlay(width int) string {
 		}
 	}
 	if sidePreview && len(lines) > listStartRow {
-		previewTitle := centerRenderedBlock(zeroTheme.accent.Render("Preview"), petImageColumns)
+		previewTitle := centerRenderedBlock(qgTheme.accent.Render("Preview"), petImageColumns)
 		lines[listStartRow] = padStyledLine(ansi.Cut(lines[listStartRow], 0, listWidth), listWidth) +
 			previewDivider + previewTitle
 	}
-	lines = append(lines, zeroTheme.line.Render(strings.Repeat("─", innerWidth)))
+	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
 	switch {
 	case m.petPreviewLoading:
-		lines = append(lines, zeroTheme.faint.Render("Loading preview…"))
+		lines = append(lines, qgTheme.faint.Render("Loading preview…"))
 	case m.petPreviewError != "":
-		lines = append(lines, zeroTheme.faint.Render(m.petPreviewError))
+		lines = append(lines, qgTheme.faint.Render(m.petPreviewError))
 	case m.petPreview != nil && !sidePreview:
 		for range petImageRows {
 			lines = append(lines, "")
@@ -363,12 +363,12 @@ func (m model) petPickerOverlay(width int) string {
 			if entry.SubmittedBy != "" {
 				details = append(details, "by "+entry.SubmittedBy)
 			}
-			lines = append(lines, centerRenderedBlock(zeroTheme.faint.Render(strings.Join(details, " · ")), innerWidth))
+			lines = append(lines, centerRenderedBlock(qgTheme.faint.Render(strings.Join(details, " · ")), innerWidth))
 		}
 	}
-	lines = append(lines, zeroTheme.line.Render(strings.Repeat("─", innerWidth)))
-	lines = append(lines, zeroTheme.faint.Render("↑/↓ preview   Enter select   Esc close"))
-	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Choose a companion", lines, zeroTheme.lineStrong, lipgloss.NewStyle()), width)
+	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
+	lines = append(lines, qgTheme.faint.Render("↑/↓ preview   Enter select   Esc close"))
+	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Choose a companion", lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
 
 func truncatePetPickerColumn(value string, width int) string {
@@ -659,7 +659,7 @@ func (m model) petPixelDragAvailable() bool {
 // of all.
 //
 // Sixel was excluded from the request, so on a sixel terminal the reply never
-// arrived, petCellPixelHeight stayed zero, petImageHeightPixels fell to its
+// arrived, petCellPixelHeight stayed qg, petImageHeightPixels fell to its
 // blind preferredHeight, and the erase kept using the petImageColumns and
 // petImageRows constants. Those constants describe the RESERVED area, not what
 // was painted: at a 20-pixel cell a 75-pixel sprite is 4 rows, so the erase

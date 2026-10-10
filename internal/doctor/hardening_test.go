@@ -5,19 +5,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 // validProvider is a fully-formed provider profile so the report's overall OK
 // status reflects only the check under test (not an unrelated provider failure).
 func validProvider() config.ProviderProfile {
 	return config.ProviderProfile{
-		Name:         "openai",
-		ProviderKind: config.ProviderKindOpenAI,
-		BaseURL:      config.OpenAIBaseURL,
+		Name:         "qg",
+		CatalogID:    "qg",
+		ProviderKind: config.ProviderKindOpenAICompatible,
+		BaseURL:      "https://api.quebragalho.dev/v1",
 		APIKey:       "sk-test",
-		Model:        "gpt-4.1",
+		Model:        "muse-spark-1.3-contributor",
 	}
 }
 
@@ -119,7 +120,7 @@ func TestSandboxCheckReportsWindowsNativeSetupStates(t *testing.T) {
 		t.Fatalf("expected native Windows backend in message, got %q", native.Message)
 	}
 
-	t.Setenv("ZERO_WINDOWS_SANDBOX_HOME", t.TempDir())
+	t.Setenv("QG_WINDOWS_SANDBOX_HOME", t.TempDir())
 	needsSetup := Run(Options{
 		Now:           fixedDoctorClock("2026-06-12T10:08:30Z"),
 		Runtime:       "go",
@@ -135,15 +136,15 @@ func TestSandboxCheckReportsWindowsNativeSetupStates(t *testing.T) {
 	}
 	setupStatus, _ := needsSetup.Details["setupStatus"].(string)
 	setupRemedy, _ := needsSetup.Details["remedy"].(string)
-	if setupStatus != "missing-or-out-of-date" || !strings.Contains(setupRemedy, "zero sandbox setup") {
+	if setupStatus != "missing-or-out-of-date" || !strings.Contains(setupRemedy, "qg sandbox setup") {
 		t.Fatalf("setup warning details = %#v, want missing/out-of-date with setup remedy", needsSetup.Details)
 	}
 
 	// With self-dispatch, the standalone helper .exe files no longer need to be
-	// on PATH for the Windows backend to be usable — the running zero binary acts
+	// on PATH for the Windows backend to be usable — the running qg binary acts
 	// as its own command-runner/setup helper. So a missing PATH helper no longer
 	// reports "unavailable"; the backend is available and (with no workspace to
-	// require a setup marker) the check passes. The actionable "run `zero sandbox
+	// require a setup marker) the check passes. The actionable "run `qg sandbox
 	// setup`" guidance is covered by the marker-missing case above.
 	noPathHelpers := Run(Options{
 		Now:              fixedDoctorClock("2026-06-12T10:09:00Z"),

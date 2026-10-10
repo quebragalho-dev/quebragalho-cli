@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/imageinput"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
 )
 
 func TestComposerInsertNewlineAtCursor(t *testing.T) {

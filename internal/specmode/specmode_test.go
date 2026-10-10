@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestSaveDraftWritesPlainMarkdownWithCollisionSuffix(t *testing.T) {
@@ -37,7 +37,7 @@ func TestSaveDraftWritesPlainMarkdownWithCollisionSuffix(t *testing.T) {
 	if first.ID != "2026-06-08-oauth-redirect" || second.ID != "2026-06-08-oauth-redirect-2" {
 		t.Fatalf("unexpected ids: first=%q second=%q", first.ID, second.ID)
 	}
-	if first.RelativePath != ".zero/specs/2026-06-08-oauth-redirect.md" {
+	if first.RelativePath != ".qg/specs/2026-06-08-oauth-redirect.md" {
 		t.Fatalf("relative path = %q", first.RelativePath)
 	}
 	content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(first.RelativePath)))
@@ -74,7 +74,7 @@ func TestSaveDraftContainsAdversarialTitles(t *testing.T) {
 				t.Fatalf("Rel(%q, %q): %v", root, saved.Path, err)
 			}
 			relative = filepath.ToSlash(relative)
-			if filepath.IsAbs(saved.RelativePath) || !strings.HasPrefix(saved.RelativePath, ".zero/specs/") {
+			if filepath.IsAbs(saved.RelativePath) || !strings.HasPrefix(saved.RelativePath, ".qg/specs/") {
 				t.Fatalf("RelativePath escaped spec dir: %q", saved.RelativePath)
 			}
 			if relative != saved.RelativePath {
@@ -105,7 +105,7 @@ func TestSubmitToolSavesSpecAndReturnsReviewControl(t *testing.T) {
 	if result.Meta["specId"] != "2026-06-08-implementation-plan" {
 		t.Fatalf("specId meta = %#v", result.Meta)
 	}
-	if len(result.ChangedFiles) != 1 || result.ChangedFiles[0] != ".zero/specs/2026-06-08-implementation-plan.md" {
+	if len(result.ChangedFiles) != 1 || result.ChangedFiles[0] != ".qg/specs/2026-06-08-implementation-plan.md" {
 		t.Fatalf("changed files = %#v", result.ChangedFiles)
 	}
 	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(result.ChangedFiles[0]))); err != nil {
@@ -134,13 +134,13 @@ func TestLoadSpecFileRejectsPathsOutsideSpecDirectory(t *testing.T) {
 
 	_, _, err := LoadSpecFile(root, outside)
 	if err == nil {
-		t.Fatal("expected LoadSpecFile to reject a path outside .zero/specs")
+		t.Fatal("expected LoadSpecFile to reject a path outside .qg/specs")
 	}
 }
 
 func TestLoadSpecFileRejectsNonRegularFiles(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, filepath.FromSlash(".zero/specs/not-a-file.md"))
+	dir := filepath.Join(root, filepath.FromSlash(".qg/specs/not-a-file.md"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -152,14 +152,14 @@ func TestLoadSpecFileRejectsNonRegularFiles(t *testing.T) {
 }
 
 func TestImplementationPromptIncludesReviewContext(t *testing.T) {
-	prompt := ImplementationPrompt("# Goal\n\nShip it.", "/repo/.zero/specs/plan.md", "zero_1", "Keep tests focused.")
+	prompt := ImplementationPrompt("# Goal\n\nShip it.", "/repo/.qg/specs/plan.md", "qg_1", "Keep tests focused.")
 
 	for _, want := range []string{
 		"Implement the following approved spec:",
 		"User note: Keep tests focused.",
 		"# Goal\n\nShip it.",
-		"Spec file: /repo/.zero/specs/plan.md",
-		"Planning session: zero_1",
+		"Spec file: /repo/.qg/specs/plan.md",
+		"Planning session: qg_1",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q: %s", want, prompt)

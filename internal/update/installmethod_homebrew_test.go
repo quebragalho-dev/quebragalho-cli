@@ -23,24 +23,24 @@ func TestHomebrewKegShapePerTarget(t *testing.T) {
 		path string
 		want bool
 	}{
-		{"darwin", "/opt/homebrew/Cellar/zero/0.7.1/bin/zero", true},
-		{"darwin", "/usr/local/Cellar/zero/0.7.1/bin/zero", true},
-		{"linux", "/home/linuxbrew/.linuxbrew/Cellar/zero/0.7.1/bin/zero", true},
-		{"darwin", "/usr/local/bin/zero", false},
-		{"darwin", "/Users/someone/.local/bin/zero", false},
-		{"linux", "/opt/cellar/bin/zero", false},          // lowercase is not a keg
-		{"linux", "/opt/CellarX/bin/zero", false},         // segment must match exactly
-		{"windows", `C:\Cellar\zero\bin\zero.exe`, false}, // Homebrew does not run here
+		{"darwin", "/opt/homebrew/Cellar/qg/0.7.1/bin/qg", true},
+		{"darwin", "/usr/local/Cellar/qg/0.7.1/bin/qg", true},
+		{"linux", "/home/linuxbrew/.linuxbrew/Cellar/qg/0.7.1/bin/qg", true},
+		{"darwin", "/usr/local/bin/qg", false},
+		{"darwin", "/Users/someone/.local/bin/qg", false},
+		{"linux", "/opt/cellar/bin/qg", false},        // lowercase is not a keg
+		{"linux", "/opt/CellarX/bin/qg", false},       // segment must match exactly
+		{"windows", `C:\Cellar\qg\bin\qg.exe`, false}, // Homebrew does not run here
 		// User directories called Cellar. Too shallow to be a keg.
-		{"linux", "/home/someone/Cellar/zero", false},
-		{"darwin", "/Users/someone/Cellar/bin/zero", false},
+		{"linux", "/home/someone/Cellar/qg", false},
+		{"darwin", "/Users/someone/Cellar/bin/qg", false},
 		// The case the reviewer of #910 raised. It is one segment short of a keg,
 		// so the depth rule alone already refuses it.
-		{"linux", "/work/Cellar/tools/bin/zero", false},
+		{"linux", "/work/Cellar/tools/bin/qg", false},
 		// One segment deeper it IS a keg by shape, and still not a keg. Nothing in
 		// the path can tell the difference — only the receipt can, which is what
 		// TestOnlyAKegWithAReceiptIsHomebrew covers.
-		{"linux", "/work/Cellar/tools/1.0/bin/zero", true},
+		{"linux", "/work/Cellar/tools/1.0/bin/qg", true},
 	}
 	for _, testCase := range cases {
 		if _, got := homebrewKeg(testCase.goos, testCase.path); got != testCase.want {
@@ -51,7 +51,7 @@ func TestHomebrewKegShapePerTarget(t *testing.T) {
 
 // THE REGRESSION THE REVIEWER ASKED FOR, and the reason the receipt check
 // exists: a directory tree a user built themselves can have exactly a keg's
-// shape. Classifying it as Homebrew refuses a `zero upgrade` that would have
+// shape. Classifying it as Homebrew refuses a `qg upgrade` that would have
 // worked perfectly, on a machine Homebrew has never touched.
 //
 // Homebrew writes INSTALL_RECEIPT.json into every keg it installs and nothing
@@ -67,13 +67,13 @@ func TestOnlyAKegWithAReceiptIsHomebrew(t *testing.T) {
 	root := t.TempDir()
 
 	// Same shape, same depth. The only difference is the receipt.
-	real := filepath.Join(root, "prefix", "Cellar", "zero", "0.7.1")
+	real := filepath.Join(root, "prefix", "Cellar", "qg", "0.7.1")
 	fake := filepath.Join(root, "work", "Cellar", "tools", "0.7.1")
 	for _, keg := range []string{real, fake} {
 		if err := os.MkdirAll(filepath.Join(keg, "bin"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(keg, "bin", "zero"), []byte("binary"), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(keg, "bin", "qg"), []byte("binary"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -81,11 +81,11 @@ func TestOnlyAKegWithAReceiptIsHomebrew(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !isHomebrewPath(target, filepath.Join(real, "bin", "zero")) {
+	if !isHomebrewPath(target, filepath.Join(real, "bin", "qg")) {
 		t.Error("a keg with a receipt was not recognised as Homebrew")
 	}
-	if isHomebrewPath(target, filepath.Join(fake, "bin", "zero")) {
-		t.Error("a user's own Cellar-shaped directory was classified as Homebrew; `zero upgrade` would refuse for nothing")
+	if isHomebrewPath(target, filepath.Join(fake, "bin", "qg")) {
+		t.Error("a user's own Cellar-shaped directory was classified as Homebrew; `qg upgrade` would refuse for nothing")
 	}
 }
 
@@ -95,19 +95,19 @@ func TestADirectoryNamedLikeTheReceiptIsNotOne(t *testing.T) {
 	// Explicit target, same reason as above: the rule is worth checking wherever
 	// the tests run, not only where the feature is switched on.
 	const target = "darwin"
-	keg := filepath.Join(t.TempDir(), "prefix", "Cellar", "zero", "0.7.1")
+	keg := filepath.Join(t.TempDir(), "prefix", "Cellar", "qg", "0.7.1")
 	if err := os.MkdirAll(filepath.Join(keg, "INSTALL_RECEIPT.json"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(keg, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if isHomebrewPath(target, filepath.Join(keg, "bin", "zero")) {
+	if isHomebrewPath(target, filepath.Join(keg, "bin", "qg")) {
 		t.Error("a directory named INSTALL_RECEIPT.json was accepted as a receipt")
 	}
 }
 
-// A Homebrew install is a keg under <prefix>/Cellar with <prefix>/bin/zero
+// A Homebrew install is a keg under <prefix>/Cellar with <prefix>/bin/qg
 // linked to it. Detection has to survive both spellings, because Check passes
 // the unresolved path and Apply passes the resolved one.
 func TestDetectInstallMethodRecognisesAHomebrewKeg(t *testing.T) {
@@ -115,7 +115,7 @@ func TestDetectInstallMethodRecognisesAHomebrewKeg(t *testing.T) {
 		t.Skip("DetectInstallMethod is GOOS-gated; the rule itself is covered by TestIsHomebrewPathPerTarget")
 	}
 	prefix := t.TempDir()
-	keg := filepath.Join(prefix, "Cellar", "zero", "0.7.1", "bin")
+	keg := filepath.Join(prefix, "Cellar", "qg", "0.7.1", "bin")
 	if err := os.MkdirAll(keg, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestDetectInstallMethodRecognisesAHomebrewKeg(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(keg), homebrewReceipt), []byte(`{"source":{}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(keg, "zero")
+	binary := filepath.Join(keg, "qg")
 	if err := os.WriteFile(binary, []byte("binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -137,12 +137,12 @@ func TestDetectInstallMethodRecognisesAHomebrewKeg(t *testing.T) {
 	if err := os.MkdirAll(linkDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(linkDir, "zero")
+	link := filepath.Join(linkDir, "qg")
 	if err := os.Symlink(binary, link); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	// The path Check sees. Without symlink resolution this reads as standalone
-	// and the guidance tells a Homebrew user to run `zero upgrade`.
+	// and the guidance tells a Homebrew user to run `qg upgrade`.
 	if got := DetectInstallMethod(link); got != InstallMethodHomebrew {
 		t.Errorf("linked path: got %q, want %q", got, InstallMethodHomebrew)
 	}
@@ -161,7 +161,7 @@ func TestDetectInstallMethodLeavesOrdinaryInstallsAlone(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		binary := filepath.Join(dir, "zero")
+		binary := filepath.Join(dir, "qg")
 		if err := os.WriteFile(binary, []byte("binary"), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -175,11 +175,11 @@ func TestDetectInstallMethodLeavesOrdinaryInstallsAlone(t *testing.T) {
 // runs first.
 func TestDetectInstallMethodStillRecognisesNpm(t *testing.T) {
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "zero")
+	binary := filepath.Join(dir, "qg")
 	if err := os.WriteFile(binary, []byte("binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".zero-binary-version"), []byte("0.7.1"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".qg-binary-version"), []byte("0.7.1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got := DetectInstallMethod(binary); got != InstallMethodNpm {
@@ -189,18 +189,18 @@ func TestDetectInstallMethodStillRecognisesNpm(t *testing.T) {
 
 func TestUpgradeGuidanceSendsHomebrewUsersToBrew(t *testing.T) {
 	guidance := upgradeGuidance(AssetCheck{}, "", InstallMethodHomebrew)
-	if !strings.Contains(guidance, "brew upgrade zero") {
+	if !strings.Contains(guidance, "brew upgrade qg") {
 		t.Errorf("guidance does not name the command that works: %q", guidance)
 	}
-	if strings.Contains(guidance, "Run `zero upgrade`") {
+	if strings.Contains(guidance, "Run `qg upgrade`") {
 		t.Errorf("guidance still offers the command that refuses: %q", guidance)
 	}
 }
 
-// A custom source flag must not talk a Homebrew user back into `zero upgrade`.
+// A custom source flag must not talk a Homebrew user back into `qg upgrade`.
 func TestUpgradeGuidanceIgnoresSourceFlagForHomebrew(t *testing.T) {
 	guidance := upgradeGuidance(AssetCheck{}, "--source", InstallMethodHomebrew)
-	if !strings.Contains(guidance, "brew upgrade zero") {
+	if !strings.Contains(guidance, "brew upgrade qg") {
 		t.Errorf("source flag changed the Homebrew answer: %q", guidance)
 	}
 }
@@ -209,7 +209,7 @@ func TestUpgradeGuidanceIgnoresSourceFlagForHomebrew(t *testing.T) {
 //
 // Homebrew is a property of the binary on THIS machine. When the check was asked
 // about a different target, the answer is about that other machine, and
-// `brew upgrade zero` would change this one instead. Pinned as a test because it
+// `brew upgrade qg` would change this one instead. Pinned as a test because it
 // reads like an ordering bug until you see which question is being answered.
 func TestUpgradeGuidanceKeepsCrossTargetAnswerForHomebrew(t *testing.T) {
 	local := localReleaseTarget()
@@ -224,7 +224,7 @@ func TestUpgradeGuidanceKeepsCrossTargetAnswerForHomebrew(t *testing.T) {
 	asset := AssetCheck{Platform: target.Platform, Arch: target.Arch}
 
 	guidance := upgradeGuidance(asset, "", InstallMethodHomebrew)
-	if strings.Contains(guidance, "brew upgrade zero") {
+	if strings.Contains(guidance, "brew upgrade qg") {
 		t.Errorf("a question about %s was answered with a command that changes this machine: %q", other, guidance)
 	}
 	if !strings.Contains(guidance, other) {
@@ -248,7 +248,7 @@ func localReleaseEndpoint(t *testing.T, version string) string {
 	if strings.HasPrefix(target, "windows") {
 		extension = ".zip"
 	}
-	archive := "zero-v" + version + "-" + target + extension
+	archive := "qg-v" + version + "-" + target + extension
 	payload := url.QueryEscape(`{"tag_name":"v` + version + `","html_url":"https://example.test/release","assets":[` +
 		`{"name":"` + archive + `","browser_download_url":"https://example.test/` + archive + `"},` +
 		`{"name":"` + archive + `.sha256","browser_download_url":"https://example.test/` + archive + `.sha256"}]}`)
@@ -278,7 +278,7 @@ func TestApplyRefusesToUpdateAHomebrewKeg(t *testing.T) {
 		t.Skip("DetectInstallMethod is GOOS-gated; see TestIsHomebrewPathPerTarget")
 	}
 	prefix := t.TempDir()
-	keg := filepath.Join(prefix, "Cellar", "zero", "0.7.0", "bin")
+	keg := filepath.Join(prefix, "Cellar", "qg", "0.7.0", "bin")
 	if err := os.MkdirAll(keg, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestApplyRefusesToUpdateAHomebrewKeg(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(keg), homebrewReceipt), []byte(`{"source":{}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(keg, "zero")
+	binary := filepath.Join(keg, "qg")
 	original := []byte("original binary")
 	if err := os.WriteFile(binary, original, 0o755); err != nil {
 		t.Fatal(err)
@@ -306,7 +306,7 @@ func TestApplyRefusesToUpdateAHomebrewKeg(t *testing.T) {
 	if err == nil {
 		t.Fatal("Apply updated a Homebrew keg instead of refusing")
 	}
-	if !strings.Contains(err.Error(), "brew upgrade zero") {
+	if !strings.Contains(err.Error(), "brew upgrade qg") {
 		t.Errorf("refusal does not name the command that works: %v", err)
 	}
 	after, readErr := os.ReadFile(binary)

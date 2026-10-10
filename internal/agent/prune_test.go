@@ -4,37 +4,37 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // bigToolResult builds a tool-result message with approximately tokens worth of
 // body, paired to a tool call id. ApproxTextTokens counts non-space chars / 4,
 // so 4*tokens non-space chars yields ~tokens.
-func bigToolResult(id string, tokens int) zeroruntime.Message {
-	return zeroruntime.Message{
-		Role:       zeroruntime.MessageRoleTool,
+func bigToolResult(id string, tokens int) qgruntime.Message {
+	return qgruntime.Message{
+		Role:       qgruntime.MessageRoleTool,
 		ToolCallID: id,
 		Content:    strings.Repeat("x", tokens*4),
 	}
 }
 
-func toolCallMsg(id, name string) zeroruntime.Message {
-	return zeroruntime.Message{
-		Role:      zeroruntime.MessageRoleAssistant,
-		ToolCalls: []zeroruntime.ToolCall{{ID: id, Name: name}},
+func toolCallMsg(id, name string) qgruntime.Message {
+	return qgruntime.Message{
+		Role:      qgruntime.MessageRoleAssistant,
+		ToolCalls: []qgruntime.ToolCall{{ID: id, Name: name}},
 	}
 }
 
-func toolCallWithArgs(id, name, args string) zeroruntime.Message {
-	return zeroruntime.Message{
-		Role:      zeroruntime.MessageRoleAssistant,
-		ToolCalls: []zeroruntime.ToolCall{{ID: id, Name: name, Arguments: args}},
+func toolCallWithArgs(id, name, args string) qgruntime.Message {
+	return qgruntime.Message{
+		Role:      qgruntime.MessageRoleAssistant,
+		ToolCalls: []qgruntime.ToolCall{{ID: id, Name: name, Arguments: args}},
 	}
 }
 
 func TestPruneSkipsSmallSessions(t *testing.T) {
 	// Total reclaimable is under the gate → no pruning.
-	msgs := []zeroruntime.Message{
+	msgs := []qgruntime.Message{
 		toolCallMsg("c1", "read_file"),
 		bigToolResult("c1", 5000),
 	}
@@ -49,14 +49,14 @@ func TestPruneSkipsSmallSessions(t *testing.T) {
 
 func TestPrunePreservesRecentAndPrunesOld(t *testing.T) {
 	// One huge OLD result (beyond the protect window) + recent small ones.
-	msgs := []zeroruntime.Message{
+	msgs := []qgruntime.Message{
 		toolCallMsg("old", "grep"),
 		bigToolResult("old", 60000), // old, big → prunable
 		// Filler to push "old" past the recent-protection window:
 		toolCallMsg("mid", "read_file"),
 		bigToolResult("mid", 45000), // protected by the 40k recent window
-		zeroruntime.Message{Role: zeroruntime.MessageRoleAssistant, Content: "thinking"},
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "next"},
+		qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "thinking"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "next"},
 	}
 	out, reclaimed := pruneStaleToolOutput(msgs, 2)
 	if reclaimed <= 0 {
@@ -69,7 +69,7 @@ func TestPrunePreservesRecentAndPrunesOld(t *testing.T) {
 	if !strings.Contains(out[1].Content, "grep") {
 		t.Fatalf("placeholder should name the tool, got %q", out[1].Content)
 	}
-	if out[1].ToolCallID != "old" || out[1].Role != zeroruntime.MessageRoleTool {
+	if out[1].ToolCallID != "old" || out[1].Role != qgruntime.MessageRoleTool {
 		t.Fatal("pruned message must keep its role and ToolCallID for replay")
 	}
 	// The recent big result stays verbatim.
@@ -79,12 +79,12 @@ func TestPrunePreservesRecentAndPrunesOld(t *testing.T) {
 }
 
 func TestPruneIsIdempotent(t *testing.T) {
-	msgs := []zeroruntime.Message{
+	msgs := []qgruntime.Message{
 		toolCallMsg("old", "bash"),
 		bigToolResult("old", 60000),
 		toolCallMsg("mid", "read_file"),
 		bigToolResult("mid", 45000),
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "go"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "go"},
 	}
 	once, r1 := pruneStaleToolOutput(msgs, 1)
 	if r1 == 0 {
@@ -97,9 +97,9 @@ func TestPruneIsIdempotent(t *testing.T) {
 }
 
 func TestPruneNeverTouchesNonToolMessages(t *testing.T) {
-	msgs := []zeroruntime.Message{
-		{Role: zeroruntime.MessageRoleUser, Content: strings.Repeat("u ", 60000)},
-		{Role: zeroruntime.MessageRoleAssistant, Content: strings.Repeat("a ", 60000)},
+	msgs := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleUser, Content: strings.Repeat("u ", 60000)},
+		{Role: qgruntime.MessageRoleAssistant, Content: strings.Repeat("a ", 60000)},
 	}
 	out, reclaimed := pruneStaleToolOutput(msgs, 0)
 	if reclaimed != 0 {
@@ -111,12 +111,12 @@ func TestPruneNeverTouchesNonToolMessages(t *testing.T) {
 }
 
 func TestPruneDoesNotMutateInput(t *testing.T) {
-	msgs := []zeroruntime.Message{
+	msgs := []qgruntime.Message{
 		toolCallMsg("old", "grep"),
 		bigToolResult("old", 60000),
 		toolCallMsg("mid", "read_file"),
 		bigToolResult("mid", 45000),
-		zeroruntime.Message{Role: zeroruntime.MessageRoleUser, Content: "go"},
+		qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "go"},
 	}
 	original := msgs[1].Content
 	_, reclaimed := pruneStaleToolOutput(msgs, 1)
@@ -130,13 +130,13 @@ func TestPruneDoesNotMutateInput(t *testing.T) {
 
 func TestPruneSupersededReadResultsOnlyDropsIdenticalOlderReads(t *testing.T) {
 	body := strings.Repeat("same source line\n", 1000)
-	messages := []zeroruntime.Message{
+	messages := []qgruntime.Message{
 		toolCallWithArgs("old", "read_file", `{"path":"a.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "old", Content: body},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "old", Content: body},
 		toolCallWithArgs("different", "read_file", `{"path":"b.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "different", Content: body},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "different", Content: body},
 		toolCallWithArgs("new", "read_file", `{"path":"a.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "new", Content: body},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "new", Content: body},
 	}
 	out, reclaimed := pruneSupersededReadResults(messages)
 	if reclaimed <= 0 || !strings.Contains(out[1].Content, "superseded identical") {
@@ -151,15 +151,15 @@ func TestPruneSupersededReadResultsOnlyDropsIdenticalOlderReads(t *testing.T) {
 }
 
 func TestPruneSupersededReadResultsKeepsChangedAndMutatingResults(t *testing.T) {
-	messages := []zeroruntime.Message{
+	messages := []qgruntime.Message{
 		toolCallWithArgs("r1", "read_file", `{"path":"a.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "r1", Content: "version one"},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "r1", Content: "version one"},
 		toolCallWithArgs("r2", "read_file", `{"path":"a.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "r2", Content: "version two"},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "r2", Content: "version two"},
 		toolCallWithArgs("e1", "edit_file", `{"path":"a.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "e1", Content: "edited"},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "e1", Content: "edited"},
 		toolCallWithArgs("e2", "edit_file", `{"path":"a.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "e2", Content: "edited"},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "e2", Content: "edited"},
 	}
 	out, reclaimed := pruneSupersededReadResults(messages)
 	if reclaimed != 0 {
@@ -175,13 +175,13 @@ func TestPruneSupersededReadResultsKeepsChangedAndMutatingResults(t *testing.T) 
 func TestPruneSupersededReadResultsFindsMatchingBodyAcrossChangedRead(t *testing.T) {
 	bodyA := strings.Repeat("version a\n", 100)
 	bodyB := strings.Repeat("version b\n", 100)
-	messages := []zeroruntime.Message{
+	messages := []qgruntime.Message{
 		toolCallWithArgs("old-a", "read_file", `{"path":"a.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "old-a", Content: bodyA},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "old-a", Content: bodyA},
 		toolCallWithArgs("middle-b", "read_file", `{"path":"a.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "middle-b", Content: bodyB},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "middle-b", Content: bodyB},
 		toolCallWithArgs("new-a", "read_file", `{"path":"a.go"}`),
-		{Role: zeroruntime.MessageRoleTool, ToolCallID: "new-a", Content: bodyA},
+		{Role: qgruntime.MessageRoleTool, ToolCallID: "new-a", Content: bodyA},
 	}
 
 	out, reclaimed := pruneSupersededReadResults(messages)

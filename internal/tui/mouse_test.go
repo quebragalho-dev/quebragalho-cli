@@ -8,10 +8,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/terminalpet"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestMouseClickSelectsThenAppliesCommandSuggestionRow(t *testing.T) {
@@ -49,7 +49,7 @@ func TestMouseClickSelectsThenAppliesCommandSuggestionRow(t *testing.T) {
 
 func TestMouseClickSelectsThenAppliesPickerRow(t *testing.T) {
 	m := mouseTestModel()
-	m.modelName = "claude-sonnet-4.5"
+	m.modelName = "gpt-5.6-luna"
 	m.picker = &commandPicker{
 		kind:  pickerEffort,
 		title: "select reasoning effort",
@@ -64,8 +64,9 @@ func TestMouseClickSelectsThenAppliesPickerRow(t *testing.T) {
 
 	width := m.chatColumnWidth()
 	top := m.overlayMouseTop(len(viewLines(m.pickerOverlay(width))), width)
-	// Rows: y=0 titled border, y=1 search, y=2 separator, y=3 "auto", y=4 "high".
-	click := testMouseClick(tea.MouseLeft, width/2, top+4)
+	rows := strings.Split(plainRender(t, m.pickerOverlay(width)), "\n")
+	x := lipgloss.Width(rows[3][:strings.Index(rows[3], "high")])
+	click := testMouseClick(tea.MouseLeft, x, top+3)
 	updated, cmd := m.Update(click)
 	next := updated.(model)
 	if cmd != nil {
@@ -86,84 +87,6 @@ func TestMouseClickSelectsThenAppliesPickerRow(t *testing.T) {
 	}
 	if next.reasoningEffort != "high" {
 		t.Fatalf("reasoning effort after second picker click = %q, want high", next.reasoningEffort)
-	}
-}
-
-func TestMouseClickSelectsProviderWizardRow(t *testing.T) {
-	m := mouseTestModel()
-	m.providerWizard = m.newProviderWizard()
-	m.providerWizard.step = providerWizardStepProvider // skip the new method chooser
-	if m.providerWizard == nil || len(m.providerWizard.providers) < 2 {
-		t.Fatalf("expected multiple providers, got %#v", m.providerWizard)
-	}
-	m.mouseCapture = true
-
-	width := m.chatColumnWidth()
-	top := m.overlayMouseTop(len(viewLines(m.providerWizardOverlay(width))), width)
-	click := testMouseClick(tea.MouseLeft, width/2, top+5)
-	updated, cmd := m.Update(click)
-	next := updated.(model)
-	if cmd != nil {
-		t.Fatal("mouse selection should not return a command")
-	}
-	if next.providerWizard == nil || next.providerWizard.selectedProvider != 1 {
-		t.Fatalf("provider selection = %#v, want selected index 1", next.providerWizard)
-	}
-	if next.providerWizard.step != providerWizardStepProvider {
-		t.Fatalf("first provider click should not advance, got step %v", next.providerWizard.step)
-	}
-
-	updated, cmd = next.Update(click)
-	next = updated.(model)
-	_ = cmd
-	if next.providerWizard == nil || next.providerWizard.step == providerWizardStepProvider {
-		t.Fatalf("second provider click should advance, got %#v", next.providerWizard)
-	}
-}
-
-func TestMouseWheelMovesProviderWizardRows(t *testing.T) {
-	m := mouseTestModel()
-	m.providerWizard = m.newProviderWizard()
-	m.providerWizard.step = providerWizardStepProvider // skip the new method chooser
-	m.mouseCapture = true
-
-	updated, cmd := m.Update(testMouseWheel(tea.MouseWheelDown, 0, 0))
-	next := updated.(model)
-	if cmd != nil {
-		t.Fatal("mouse wheel should not return a command")
-	}
-	if next.providerWizard == nil || next.providerWizard.selectedProvider != 1 {
-		t.Fatalf("provider selection after wheel = %#v, want selected index 1", next.providerWizard)
-	}
-}
-
-func TestMouseClickSelectsThenContinuesSetupProviderRow(t *testing.T) {
-	m := setupMouseTestModel()
-	m.mouseCapture = true
-	m.setup.stage = setupStageProvider
-
-	width := m.chatColumnWidth()
-	height := normalizedStartupHeight(m.height)
-	rowWidth := setupProviderBlockWidth(width, m.setup.providers)
-	top := setupContentTop(height, len(m.setupProviderLines(width, height)), m.setup.err != "")
-	click := testMouseClick(tea.MouseLeft, maxInt(0, (width-rowWidth)/2)+2, top+3)
-	updated, cmd := m.Update(click)
-	next := updated.(model)
-	if cmd != nil {
-		t.Fatal("first setup provider click should not return a command")
-	}
-	if next.setup.selected != 1 {
-		t.Fatalf("setup provider selection = %d, want 1", next.setup.selected)
-	}
-	if next.setup.stage != setupStageProvider {
-		t.Fatalf("first setup provider click advanced to %v", next.setup.stage)
-	}
-
-	updated, cmd = next.Update(click)
-	next = updated.(model)
-	_ = cmd
-	if next.setup.stage != setupStageCredentials {
-		t.Fatalf("second setup provider click should advance to credentials, got %v", next.setup.stage)
 	}
 }
 
@@ -197,8 +120,9 @@ func TestMouseClickSelectsThenContinuesSetupModelRow(t *testing.T) {
 	updated, cmd = next.Update(click)
 	next = updated.(model)
 	_ = cmd
-	if next.setup.stage != setupStageSafety {
-		t.Fatalf("second setup model click should advance to safety, got %v", next.setup.stage)
+	// The model screen is the last stage: a repeat click completes setup.
+	if next.setup.visible {
+		t.Fatal("second setup model click should complete setup and close the wizard")
 	}
 }
 
@@ -206,7 +130,7 @@ func TestMouseCaptureOnlyWhileInteractiveSurfaceOpen(t *testing.T) {
 	m := mouseTestModel()
 	m.transcript = appendRow(m.transcript, rowUser, "hello")
 	if !m.wantsMouseCapture() {
-		t.Fatal("chat should capture mouse for Zero-owned transcript selection")
+		t.Fatal("chat should capture mouse for QG-owned transcript selection")
 	}
 
 	m = typeRunes(t, m, "/")
@@ -230,7 +154,7 @@ func TestMouseCaptureOnEmptyChatSplash(t *testing.T) {
 
 	m.transcript = appendRow(m.transcript, rowUser, "hello")
 	if !m.wantsMouseCapture() {
-		t.Fatal("chat with transcript rows should keep mouse capture for Zero-owned selection")
+		t.Fatal("chat with transcript rows should keep mouse capture for QG-owned selection")
 	}
 }
 
@@ -256,7 +180,7 @@ func TestComposerMouseClickMovesCursor(t *testing.T) {
 func TestComposerMouseClickMovesCursorBelowImageThumbnail(t *testing.T) {
 	m := mouseTestModel()
 	m.attachmentRenderers = []*terminalpet.ImageRenderer{terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})}
-	m.pendingImages = []zeroruntime.ImageBlock{previewImageBlock(t)}
+	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.refreshPendingImageThumbnail()
 	m.input.SetValue("hello world")
 
@@ -929,11 +853,8 @@ func TestMouseCaptureOnlyDuringInteractiveSetupStages(t *testing.T) {
 		want  bool
 	}{
 		{setupStageWelcome, false},
-		{setupStageProvider, true},
 		{setupStageCredentials, false},
 		{setupStageModel, true},
-		{setupStageSafety, false},
-		{setupStageReady, false},
 	}
 
 	for _, tt := range stages {

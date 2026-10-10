@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/Gitlawb/zero/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
 // profileController observes per-turn run signals and decides at most one

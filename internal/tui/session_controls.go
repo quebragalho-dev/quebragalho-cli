@@ -9,15 +9,15 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/execprofile"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/usage"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execprofile"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
 var responseStyles = []string{"balanced", "concise", "explanatory", "review"}
@@ -65,14 +65,14 @@ func (m model) handleEffortCommand(args string) (model, string) {
 	if args == "auto" {
 		m.reasoningEffort = ""
 		m = m.markProfileEffortTouched()
-		return m, m.effortStatusCard("auto", "Reasoning effort selection will follow the active model/provider defaults.")
+		return m, m.effortStatusCard("auto", "Auto é a preferência local: não envia reasoning_effort. O esforço aplicado pelo servidor não é informado.")
 	}
 
 	requested := modelregistry.ReasoningEffort(args)
 	if !modelregistry.ValidReasoningEffort(requested) {
 		return m, m.effortStatusCard(args, "Unknown reasoning effort: "+args)
 	}
-	efforts := m.availableReasoningEfforts()
+	efforts := m.panelReasoningEfforts()
 	if len(efforts) == 0 {
 		return m, m.effortStatusCard("", "Active model does not expose reasoning effort controls.")
 	}
@@ -204,15 +204,17 @@ func (m model) effortStatusCard(value string, detail string) string {
 func (m model) effortText() string {
 	efforts := m.availableReasoningEfforts()
 	fields := []commandField{
+		{Key: "preferência local", Value: m.effortDisplay()},
+		{Key: "auto", Value: "não envia reasoning_effort; default do servidor não confirmado"},
 		{Key: "active effort", Value: m.effortDisplay()},
 		{Key: "model", Value: displayValue(m.modelName, "none")},
 	}
 	actions := []string{"use /effort <value> to switch", "/effort auto to clear"}
 	if len(efforts) == 0 {
-		fields = append(fields, commandField{Key: "available", Value: "none for active model"})
+		fields = append(fields, commandField{Key: "available", Value: "API não informa níveis disponíveis"})
 		return renderCommandCardTranscript(commandCard{
 			Title:    "Effort",
-			Summary:  []string{"active effort: " + m.effortDisplay(), "no reasoning controls on this model"},
+			Summary:  []string{"active effort: " + m.effortDisplay(), "API não informa níveis disponíveis"},
 			Sections: []commandCardSection{{Title: "State", Fields: fields}},
 			Actions:  actions,
 		})
@@ -489,7 +491,7 @@ func (m model) handleSelfCorrectCommand(args string) (model, string) {
 
 // maxTurnsCeiling caps the per-session /turns budget so a typo (e.g. /turns 99999)
 // can't set an absurd ceiling; real multi-step tasks fit comfortably under it. Shared
-// with config so applyEnv enforces the same bound on an inherited ZERO_MAX_TURNS.
+// with config so applyEnv enforces the same bound on an inherited QG_MAX_TURNS.
 const maxTurnsCeiling = config.MaxTurnsCeiling
 
 func (m model) handleTurnsCommand(args string) (model, string) {
@@ -593,9 +595,9 @@ func (m model) revertExecProfile() model {
 		if m.execProfileDisplacedMaxTurns > 0 {
 			config.SetMaxTurnsEnv(m.execProfileDisplacedMaxTurns)
 		} else {
-			// The profile's apply exported its budget to ZERO_MAX_TURNS (for
-			// sub-agents), and SetMaxTurnsEnv ignores zero — so restoring a
-			// zero displaced budget must clear the env explicitly or spawned
+			// The profile's apply exported its budget to QG_MAX_TURNS (for
+			// sub-agents), and SetMaxTurnsEnv ignores qg — so restoring a
+			// qg displaced budget must clear the env explicitly or spawned
 			// children would keep the removed profile's budget.
 			_ = os.Unsetenv(config.MaxTurnsEnv)
 		}
@@ -1036,18 +1038,18 @@ func sessionEventsForRefs(events []sessions.Event, refs []sessions.EventRef) ([]
 	return selected, nil
 }
 
-func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []zeroruntime.Message) (agent.CompactionSummaryResult, error) {
-	return agent.SummarizeCompactionMessages(messages, func(projected []zeroruntime.Message) (string, error) {
+func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []qgruntime.Message) (agent.CompactionSummaryResult, error) {
+	return agent.SummarizeCompactionMessages(messages, func(projected []qgruntime.Message) (string, error) {
 		if m.provider == nil {
 			return deterministicCompactionSummary(plan), nil
 		}
-		stream, streamErr := m.provider.StreamCompletion(m.ctx, zeroruntime.CompletionRequest{
-			Messages: append([]zeroruntime.Message{{Role: zeroruntime.MessageRoleSystem, Content: agent.CompactionSummaryInstructions}}, projected...),
+		stream, streamErr := m.provider.StreamCompletion(m.ctx, qgruntime.CompletionRequest{
+			Messages: append([]qgruntime.Message{{Role: qgruntime.MessageRoleSystem, Content: agent.CompactionSummaryInstructions}}, projected...),
 		})
 		if streamErr != nil {
 			return "", fmt.Errorf("summarize compacted session: %w", streamErr)
 		}
-		collected := zeroruntime.CollectStream(m.ctx, stream)
+		collected := qgruntime.CollectStream(m.ctx, stream)
 		if collected.Error != "" {
 			return "", fmt.Errorf("summarize compacted session: %s", collected.Error)
 		}
@@ -1135,7 +1137,7 @@ func (m model) setCompactStatusRow(text string) model {
 	return m
 }
 
-func (m model) recordUsageEvent(modelID string, event zeroruntime.Usage) (model, []transcriptRow) {
+func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt transcriptRow) (model, []transcriptRow) {
 	if m.usageTracker == nil || strings.TrimSpace(modelID) == "" {
 		return m, nil
 	}
@@ -1143,7 +1145,14 @@ func (m model) recordUsageEvent(modelID string, event zeroruntime.Usage) (model,
 	if err != nil {
 		return m, []transcriptRow{{kind: rowError, text: "usage: " + err.Error()}}
 	}
+	if event.ModelID != "" {
+		modelID = event.ModelID
+	}
 	m.lastUsage = normalized
+	if receipt.meta == nil {
+		receipt.meta = map[string]string{"model": modelID}
+	}
+	m.lastUsageReceipt = receipt
 	m.lastUsageSeen = true
 	if _, err := m.usageTracker.Record(usage.RecordInput{
 		ModelID: modelID,
@@ -1176,7 +1185,7 @@ func isUnpricedUsageError(err error) bool {
 	}
 	message := strings.ToLower(err.Error())
 	for _, marker := range []string{
-		"unknown zero model",
+		"unknown qg model",
 		"missing model input pricing rate",
 		"missing model output pricing rate",
 		"invalid model cached input pricing rate",

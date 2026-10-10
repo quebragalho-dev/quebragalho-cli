@@ -13,7 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Gitlawb/zero/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 )
 
 // terminalAttachState is the modal "attach to a live terminal" overlay: while
@@ -418,7 +418,7 @@ func (m model) terminalAttachOverlay(width int) string {
 	}
 	// styledBlockFillTitle drops the title when it can't fit the top rule, so
 	// truncate the command to whatever the border can carry.
-	titlePrefix := zeroTheme.accent.Render("●") + " Terminal  "
+	titlePrefix := qgTheme.accent.Render("●") + " Terminal  "
 	titleSuffix := "  [running]"
 	titleBudget := width - 5 - lipgloss.Width(titleSuffix)
 	title := titlePrefix + truncateRunes(command, maxInt(0, titleBudget-lipgloss.Width(titlePrefix))) + titleSuffix
@@ -436,11 +436,11 @@ func (m model) terminalAttachOverlay(width int) string {
 		cursor = 0
 	}
 	if cursor >= 0 {
-		tail[cursor] += zeroTheme.accent.Render("▌")
+		tail[cursor] += qgTheme.accent.Render("▌")
 	}
 	footer := fmt.Sprintf("Esc detach · Ctrl+C goes to the process · /stop %d to kill", state.sessionID)
 	lines := make([]string, 0, len(tail)+1)
 	lines = append(lines, tail...)
-	lines = append(lines, zeroTheme.faint.Render(footer))
-	return styledBlockFillTitle(width, title, lines, zeroTheme.lineStrong, lipgloss.NewStyle())
+	lines = append(lines, qgTheme.faint.Render(footer))
+	return styledBlockFillTitle(width, title, lines, qgTheme.lineStrong, lipgloss.NewStyle())
 }

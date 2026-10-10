@@ -16,7 +16,7 @@ permissions:
 jobs:
   quality:
     name: Code Quality & Lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 10
     permissions:
       contents: read
@@ -49,7 +49,7 @@ jobs:
 
   test:
     name: Unit Tests & Coverage
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     permissions:
       contents: read
@@ -101,21 +101,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: zero-coverage-report
+          name: qg-coverage-report
           path: coverage.out
           if-no-files-found: warn
 
   smoke:
-    name: Smoke (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
+    name: Smoke + cross-compile
+    runs-on: self-hosted
+    timeout-minutes: 20
 
     permissions:
       contents: read
@@ -136,14 +129,32 @@ jobs:
         run: go test ./...
 
       - name: Build binary
-        run: go run ./cmd/zero-release build
+        run: go run ./cmd/qg-release build
 
       - name: Smoke binary
-        run: go run ./cmd/zero-release smoke
+        run: go run ./cmd/qg-release smoke
+
+      # The only runner is macOS ARM64, so linux/windows coverage is a
+      # cross-compile check: a broken GOOS/GOARCH build fails CI here instead
+      # of the release. darwin-amd64 is included for the Intel package.
+      - name: Cross-compile release targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r goos goarch; do
+            echo "building ${goos}/${goarch}"
+            go run ./cmd/qg-release build --goos "$goos" --goarch "$goarch"
+          done <<'EOF'
+          darwin arm64
+          darwin amd64
+          linux arm64
+          linux amd64
+          windows amd64
+          EOF
 
   race:
     name: Race Detector
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
     # A race the detector newly reports can present as a deadlock rather than a
@@ -167,13 +178,14 @@ jobs:
       # is already `go test ./... -race -count=1`, so running it here is what
       # stops the project's declared test command and what CI actually runs
       # from drifting apart again. The race detector needs cgo, which the
-      # hosted ubuntu runner supplies without an extra setup step.
+      # self-hosted macOS runner's Xcode toolchain supplies without an extra
+      # setup step.
       - name: Test with the race detector
         run: make test
 
   performance:
     name: Performance Smoke
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 10
     permissions:
       contents: read
@@ -191,24 +203,24 @@ jobs:
           cache: true
 
       - name: Build binary
-        run: go run ./cmd/zero-release build
+        run: go run ./cmd/qg-release build
 
       - name: Performance smoke
         run: |
           mkdir -p dist/perf
-          go run ./cmd/zero-perf-bench --output dist/perf/perf-bench.json --ci
+          go run ./cmd/qg-perf-bench --output dist/perf/perf-bench.json --ci
 
       - name: Upload performance report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: zero-performance-smoke
+          name: qg-performance-smoke
           path: dist/perf/perf-bench.json
           if-no-files-found: warn
 
   security:
     name: Security & Code Health
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 10
     permissions:
       contents: read

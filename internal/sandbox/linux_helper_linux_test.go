@@ -31,7 +31,7 @@ func TestLinuxSandboxInnerStageReliesOnOuterNamespaceForNetworkDeny(t *testing.T
 	code := runLinuxSandboxInnerStage(LinuxSandboxHelperConfig{
 		PermissionProfile: PermissionProfile{Network: NetworkPolicy{Mode: NetworkDeny}},
 		BlockUnixSockets:  true,
-		Command:           []string{"definitely-not-a-real-zero-test-command"},
+		Command:           []string{"definitely-not-a-real-qg-test-command"},
 	}, &stderr)
 
 	if code != 127 {
@@ -58,7 +58,7 @@ func TestLinuxSandboxInnerStageSkipsIsolatedNetworkGuardWhenNetworkAllowed(t *te
 	var stderr bytes.Buffer
 	code := runLinuxSandboxInnerStage(LinuxSandboxHelperConfig{
 		PermissionProfile: PermissionProfile{Network: NetworkPolicy{Mode: NetworkAllow}},
-		Command:           []string{"definitely-not-a-real-zero-test-command"},
+		Command:           []string{"definitely-not-a-real-qg-test-command"},
 	}, &stderr)
 
 	if code != 127 {

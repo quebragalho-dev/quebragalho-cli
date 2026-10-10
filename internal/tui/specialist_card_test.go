@@ -270,7 +270,7 @@ func TestParseTaskCallArgs(t *testing.T) {
 
 func TestRenderLeftRuleCard(t *testing.T) {
 	lines := []string{"header line", "body line"}
-	got := renderLeftRuleCard(40, lines, zeroTheme.accent)
+	got := renderLeftRuleCard(40, lines, qgTheme.accent)
 	if got == "" {
 		t.Fatal("expected non-empty left-rule card")
 	}
@@ -321,7 +321,7 @@ func TestRenderSpecialistSummary(t *testing.T) {
 	}
 	// No errors → no error segment.
 	if strings.Contains(got, "error") {
-		t.Errorf("summary should omit errors when zero, got %q", got)
+		t.Errorf("summary should omit errors when qg, got %q", got)
 	}
 
 	// With an error.

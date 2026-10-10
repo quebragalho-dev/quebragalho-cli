@@ -818,7 +818,7 @@ func TestWaitForDiagnosticsDrainsFollowUpPublishOnCloseDuringDebounce(t *testing
 	uri := PathToURI("/repo/main.go")
 	sess := &session{
 		client: client,
-		// Zero on purpose: the post-closure drain must not be bounded by the
+		// QG on purpose: the post-closure drain must not be bounded by the
 		// live-client grace.
 		catchUpGrace: 0,
 		diagnostics:  map[string][]Diagnostic{},

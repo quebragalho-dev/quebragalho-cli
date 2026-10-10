@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 )
 
 type RemoteTool struct {
@@ -235,7 +235,7 @@ func (client *Client) initialize(ctx context.Context) error {
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
-			"name":    "zero",
+			"name":    "qg",
 			"version": "dev",
 		},
 	}, &result); err != nil {

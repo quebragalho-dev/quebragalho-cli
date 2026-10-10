@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestServeListsAndCallsRegistryTools(t *testing.T) {
@@ -38,12 +38,12 @@ func TestServeListsAndCallsRegistryTools(t *testing.T) {
 		Method: "tools/call",
 		Params: mustRaw(map[string]any{
 			"name":      "lookup",
-			"arguments": map[string]any{"query": "zero"},
+			"arguments": map[string]any{"query": "qg"},
 		}),
 	})
 
 	var output bytes.Buffer
-	if err := Serve(context.Background(), &input, &output, registry, ServeOptions{Name: "zero-test", Version: "1.2.3"}); err != nil {
+	if err := Serve(context.Background(), &input, &output, registry, ServeOptions{Name: "qg-test", Version: "1.2.3"}); err != nil {
 		t.Fatalf("Serve() error = %v", err)
 	}
 
@@ -58,7 +58,7 @@ func TestServeListsAndCallsRegistryTools(t *testing.T) {
 		} `json:"serverInfo"`
 	}
 	decodeServerTestResult(t, initialize, &initResult)
-	if initResult.ProtocolVersion != defaultProtocolVersion || initResult.ServerInfo.Name != "zero-test" || initResult.ServerInfo.Version != "1.2.3" {
+	if initResult.ProtocolVersion != defaultProtocolVersion || initResult.ServerInfo.Name != "qg-test" || initResult.ServerInfo.Version != "1.2.3" {
 		t.Fatalf("initialize result = %#v", initResult)
 	}
 	if _, ok := initResult.Capabilities["tools"]; !ok {
@@ -87,8 +87,8 @@ func TestServeListsAndCallsRegistryTools(t *testing.T) {
 	if callResult.IsError {
 		t.Fatalf("call result IsError = true: %#v", callResult)
 	}
-	if got := TextContent(callResult.Content); got != "lookup: zero" {
-		t.Fatalf("call result text = %q, want lookup: zero", got)
+	if got := TextContent(callResult.Content); got != "lookup: qg" {
+		t.Fatalf("call result text = %q, want lookup: qg", got)
 	}
 }
 
@@ -139,7 +139,7 @@ func TestSchemaToMCPInputSchema(t *testing.T) {
 			"query": {
 				Type:        "string",
 				Description: "Search query",
-				Enum:        []string{"zero", "docs"},
+				Enum:        []string{"qg", "docs"},
 			},
 			"limit": {
 				Type:    "integer",

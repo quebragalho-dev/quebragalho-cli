@@ -11,12 +11,12 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // ansiPattern strips SGR styling and OSC sequences (hyperlinks) so
@@ -124,12 +124,12 @@ func TestAskUserQuestionnaireNamesWaitingForAnswer(t *testing.T) {
 		request: agent.AskUserRequest{
 			Header: "Quick question",
 			Questions: []agent.AskUserQuestion{{
-				Question: "Which task should Zero handle first?",
+				Question: "Which task should QG handle first?",
 				Options:  []string{"Work helper"},
 			}},
 		},
 		states: newAskUserStates([]agent.AskUserQuestion{{
-			Question: "Which task should Zero handle first?",
+			Question: "Which task should QG handle first?",
 			Options:  []string{"Work helper"},
 		}}),
 	}
@@ -972,7 +972,7 @@ func TestRunningToolCardShowsHeadAndSpinnerSlot(t *testing.T) {
 func TestResolvedToolCallCollapsesIntoResultCard(t *testing.T) {
 	rows := []transcriptRow{
 		{kind: rowToolCall, id: "call_1", tool: "read_file", detail: "README.md"},
-		{kind: rowToolResult, id: "call_1", tool: "read_file", status: tools.StatusOK, detail: "File: README.md\n\n1: # Zero"},
+		{kind: rowToolResult, id: "call_1", tool: "read_file", status: tools.StatusOK, detail: "File: README.md\n\n1: # QG"},
 	}
 	rc := buildRowContext(rows)
 	if !rc.skip(rows[0]) {
@@ -995,7 +995,7 @@ func TestDiffCardBodyRendersCountsNumbersAndCap(t *testing.T) {
 	}, "\n")
 	row := transcriptRow{kind: rowToolResult, id: "call_1", tool: "write_file", status: tools.StatusOK, detail: diff}
 	styled := m.renderRow(row, 80, buildRowContext(nil))
-	for _, want := range []string{zeroTheme.diffAdd.Render("+3"), zeroTheme.diffDel.Render("-0")} {
+	for _, want := range []string{qgTheme.diffAdd.Render("+3"), qgTheme.diffDel.Render("-0")} {
 		if !strings.Contains(styled, want) {
 			t.Fatalf("diff card count tag should color additions/deletions, missing styled %q in:\n%s", want, styled)
 		}
@@ -1154,11 +1154,11 @@ func TestToolCardHeadCollapsesMultilineCommand(t *testing.T) {
 }
 
 func TestToolCardHeadStylesShellCommandButNotCommandOutput(t *testing.T) {
-	previous := zeroTheme
-	defer func() { zeroTheme = previous }()
-	_, zeroTheme = themeForMode("nord", true)
+	previous := qgTheme
+	defer func() { qgTheme = previous }()
+	_, qgTheme = themeForMode("nord", true)
 
-	head := toolCardHead("bash", "gofmt -w calculator.go && go run . divide 9 2", "", "", "", "", false, zeroTheme.green, false, 120, cardRenderOptions{})
+	head := toolCardHead("bash", "gofmt -w calculator.go && go run . divide 9 2", "", "", "", "", false, qgTheme.green, false, 120, cardRenderOptions{})
 	if !strings.Contains(head, "\x1b[") {
 		t.Fatalf("shell command head should be styled, got %q", head)
 	}
@@ -1206,10 +1206,10 @@ func TestExecCommandCardBodyShowsSessionAndExit(t *testing.T) {
 func TestLocalControlCardsUseFriendlyCompactLabels(t *testing.T) {
 	m := limeTestModel()
 
-	open := transcriptRow{kind: rowToolResult, id: "call_1", tool: "browser_open", status: tools.StatusOK, detail: "✓ ZERO - terminal agent\nhttp://localhost:8080/"}
+	open := transcriptRow{kind: rowToolResult, id: "call_1", tool: "browser_open", status: tools.StatusOK, detail: "✓ QG - terminal agent\nhttp://localhost:8080/"}
 	openRC := buildRowContext([]transcriptRow{{kind: rowToolCall, id: "call_1", tool: "browser_open", detail: "http://localhost:8080"}})
 	got := plainRender(t, m.renderRow(open, 100, openRC))
-	for _, want := range []string{"Opened", "http://localhost:8080", "ZERO - terminal agent"} {
+	for _, want := range []string{"Opened", "http://localhost:8080", "QG - terminal agent"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("browser_open card missing %q:\n%s", want, got)
 		}
@@ -1230,7 +1230,7 @@ func TestLocalControlCardsUseFriendlyCompactLabels(t *testing.T) {
 		t.Fatalf("browser_snapshot card should stay compact and friendly:\n%s", got)
 	}
 
-	artifact := transcriptRow{kind: rowToolResult, id: "call_3", tool: "capture_artifact", status: tools.StatusOK, detail: "Artifact captured: /tmp/zero-artifacts/page.png\n\nhelper wrote screenshot"}
+	artifact := transcriptRow{kind: rowToolResult, id: "call_3", tool: "capture_artifact", status: tools.StatusOK, detail: "Artifact captured: /tmp/qg-artifacts/page.png\n\nhelper wrote screenshot"}
 	got = plainRender(t, m.renderRow(artifact, 100, buildRowContext(nil)))
 	for _, want := range []string{"Captured", "page.png"} {
 		if !strings.Contains(got, want) {
@@ -1321,11 +1321,11 @@ func TestBashCardBodyShowsShellIssueHint(t *testing.T) {
 		"stderr:",
 		"The syntax of the command is incorrect.",
 		"exit_code: 1",
-		"[zero] shell issue: Windows cmd.exe rejected the command syntax.",
+		"[qg] shell issue: Windows cmd.exe rejected the command syntax.",
 		"Suggestion: Use the cwd argument instead of cd.",
 	}, "\n")
 	row := transcriptRow{kind: rowToolResult, id: "call_1", tool: "bash", status: tools.StatusError, detail: detail}
-	rc := buildRowContext([]transcriptRow{{kind: rowToolCall, id: "call_1", tool: "bash", detail: "cd /d/tmp/zero-pr-158 && ls -la"}})
+	rc := buildRowContext([]transcriptRow{{kind: rowToolCall, id: "call_1", tool: "bash", detail: "cd /d/tmp/qg-pr-158 && ls -la"}})
 	got := plainRender(t, m.renderRow(row, 96, rc))
 	for _, want := range []string{"shell issue", "Windows cmd.exe", "Suggestion:", "cwd"} {
 		if !strings.Contains(got, want) {
@@ -1542,25 +1542,25 @@ func TestStatusLineOmitsEffortWhenAuto(t *testing.T) {
 	}
 }
 
-func TestTitleBarShowsWorkspaceAndModel(t *testing.T) {
+func TestTitleBarShowsBranchWithoutWorkspaceOrModel(t *testing.T) {
 	m := limeTestModel()
 	m.width = 120
-	m.cwd = "/workspace/zero"
+	m.cwd = "/workspace/qg"
 	m.gitBranch = "main"
 	got := plainRender(t, m.titleBar(120))
-	for _, want := range []string{" main", "/workspace/zero", "test-provider/test-model"} {
+	for _, want := range []string{" main"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("title bar = %q, missing %q", got, want)
 		}
 	}
-	for _, notWant := range []string{" 0 ", "zero /"} {
+	for _, notWant := range []string{"/workspace/qg", " 0 ", "qg /", "test-provider", "test-model"} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("title bar = %q, should not include old brand cluster %q", got, notWant)
 		}
 	}
 }
 
-func TestTitleBarHighlightsBranchOverWorkspace(t *testing.T) {
+func TestTitleBarStylesBranchWithoutWorkspace(t *testing.T) {
 	oldProfile := lipgloss.Writer.Profile
 	lipgloss.Writer.Profile = colorprofile.TrueColor
 	t.Cleanup(func() {
@@ -1568,45 +1568,21 @@ func TestTitleBarHighlightsBranchOverWorkspace(t *testing.T) {
 	})
 
 	m := limeTestModel()
-	m.cwd = "/workspace/zero"
+	m.cwd = "/workspace/qg"
 	m.gitBranch = "main"
 	got := m.titleWorkspaceSegment()
 
-	highlightedBranch := zeroTheme.muted.Render("") + " " + zeroTheme.muted.Render("main")
-	recessedWorkspace := zeroTheme.faint.Render("/workspace/zero")
-	for _, want := range []string{highlightedBranch, recessedWorkspace} {
+	highlightedBranch := qgTheme.muted.Render("") + " " + qgTheme.muted.Render("main")
+	assertNotContains(t, got, "/workspace/qg")
+	for _, want := range []string{highlightedBranch} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("title workspace segment = %q, missing styled segment %q", got, want)
 		}
 	}
-	if faintBranch := zeroTheme.faint.Render("") + " " + zeroTheme.faint.Render("main"); strings.Contains(got, faintBranch) {
+	if faintBranch := qgTheme.faint.Render("") + " " + qgTheme.faint.Render("main"); strings.Contains(got, faintBranch) {
 		t.Fatalf("title workspace segment = %q, branch should use highlighted title colour", got)
 	}
 }
-
-func TestGenericCustomProviderDisplayUsesEndpointName(t *testing.T) {
-	m := newModel(context.Background(), Options{
-		ProviderName: "custom-openai-compatible",
-		ModelName:    "MiniMax-M3",
-		ProviderProfile: config.ProviderProfile{
-			Name:      "custom-openai-compatible",
-			CatalogID: "custom-openai-compatible",
-			BaseURL:   "https://api.minimax.io/v1",
-			Model:     "MiniMax-M3",
-		},
-	})
-
-	// The derived provider label lives in the title bar (no longer duplicated in
-	// the status line, which now shows the run-state chip instead).
-	title := plainRender(t, m.titleBar(120))
-	if !strings.Contains(title, "minimax/MiniMax-M3") {
-		t.Fatalf("title bar = %q, want derived custom provider label", title)
-	}
-	if strings.Contains(title, "custom-openai-compatible/MiniMax-M3") {
-		t.Fatalf("title bar = %q, should not show generic custom catalog id", title)
-	}
-}
-
 func TestFormatContextWindow(t *testing.T) {
 	cases := map[int]string{200000: "200K", 1000000: "1M", 128000: "128K", 0: ""}
 	for window, want := range cases {
@@ -1662,7 +1638,7 @@ func TestToolResultCardRendersInlineWithoutRail(t *testing.T) {
 		id:     "c",
 		tool:   "read_file",
 		status: tools.StatusOK,
-		detail: "File: README.md\n\n1: # Zero\n2: line two",
+		detail: "File: README.md\n\n1: # QG\n2: line two",
 	}
 	card := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
 	lines := strings.Split(card, "\n")
@@ -1908,7 +1884,11 @@ func TestModelPickerRowOmitsProviderTag(t *testing.T) {
 }
 
 func TestModelPickerItemsCarryProviderTag(t *testing.T) {
-	m := limeTestModel()
+	m := newModel(context.Background(), Options{
+		ProviderName:    "qg",
+		ModelName:       "muse-spark-1.3-contributor",
+		ProviderProfile: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor"},
+	})
 	picker := m.newModelPicker()
 	if picker == nil {
 		t.Fatal("expected a model picker")
@@ -1926,10 +1906,10 @@ func TestModelPickerItemsCarryProviderTag(t *testing.T) {
 
 func TestSpecReviewCardShowsBadgePathAndKeys(t *testing.T) {
 	got := plainRender(t, renderFocusedSpecReviewPrompt(pendingSpecReviewPrompt{
-		SpecFilePath: "/repo/specs/zero-1.md",
-		RelativePath: "specs/zero-1.md",
+		SpecFilePath: "/repo/specs/qg-1.md",
+		RelativePath: "specs/qg-1.md",
 	}, 80))
-	for _, want := range []string{"SPEC REVIEW", "specs/zero-1.md", "[a] approve", "[r] reject", "[e] edit file", "[esc] cancel"} {
+	for _, want := range []string{"SPEC REVIEW", "specs/qg-1.md", "[a] approve", "[r] reject", "[e] edit file", "[esc] cancel"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("spec review card = %q, missing %q", got, want)
 		}

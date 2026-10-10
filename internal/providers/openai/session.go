@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 // prewarmTimeout bounds the best-effort prewarm probe. The probe runs in the
@@ -25,20 +25,20 @@ const prewarmTimeout = 3 * time.Second
 // plus request-prefix stability telemetry. Stream is Provider.StreamCompletion
 // verbatim, so runtime request behavior is identical to the default adapter —
 // the session adds observation and pool priming, never a different request.
-func NewTurnSessionProvider(provider *Provider, caps zeroruntime.ProviderCapabilities) zeroruntime.TurnSessionProvider {
+func NewTurnSessionProvider(provider *Provider, caps qgruntime.ProviderCapabilities) qgruntime.TurnSessionProvider {
 	return &turnSessionProvider{provider: provider, caps: caps}
 }
 
 type turnSessionProvider struct {
 	provider *Provider
-	caps     zeroruntime.ProviderCapabilities
+	caps     qgruntime.ProviderCapabilities
 }
 
-func (p *turnSessionProvider) OpenTurnSession(context.Context) (zeroruntime.TurnSession, error) {
+func (p *turnSessionProvider) OpenTurnSession(context.Context) (qgruntime.TurnSession, error) {
 	return &turnSession{provider: p.provider}, nil
 }
 
-func (p *turnSessionProvider) Capabilities() zeroruntime.ProviderCapabilities {
+func (p *turnSessionProvider) Capabilities() qgruntime.ProviderCapabilities {
 	return p.caps
 }
 
@@ -120,13 +120,13 @@ func transportRetainsIdleConns(client *http.Client) bool {
 	return true
 }
 
-func (s *turnSession) Stream(ctx context.Context, request zeroruntime.CompletionRequest) (<-chan zeroruntime.StreamEvent, error) {
+func (s *turnSession) Stream(ctx context.Context, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	s.observePrefix(ctx, request)
 	return s.provider.StreamCompletion(ctx, request)
 }
 
-func (s *turnSession) Compact(context.Context, zeroruntime.CompletionRequest) ([]zeroruntime.Message, error) {
-	return nil, zeroruntime.ErrCompactionUnsupported
+func (s *turnSession) Compact(context.Context, qgruntime.CompletionRequest) ([]qgruntime.Message, error) {
+	return nil, qgruntime.ErrCompactionUnsupported
 }
 
 // Close is an idempotent no-op: the shared transport pool owns the connections.
@@ -135,7 +135,7 @@ func (s *turnSession) Close() error { return nil }
 // observePrefix tracks whether the request-prefix parameters stayed stable
 // between this session's streams. The first stream seeds the fingerprint and
 // counts as neither stable nor drift.
-func (s *turnSession) observePrefix(ctx context.Context, request zeroruntime.CompletionRequest) {
+func (s *turnSession) observePrefix(ctx context.Context, request qgruntime.CompletionRequest) {
 	fingerprint := s.computeFingerprint(request)
 	if s.lastFingerprint == "" {
 		s.lastFingerprint = fingerprint
@@ -167,7 +167,7 @@ func (s *turnSession) observePrefix(ctx context.Context, request zeroruntime.Com
 // stateful response reuse MUST combine both signals plus the remaining
 // wire-affecting fields before reusing provider-side state; these counters
 // alone are not sufficient compatibility protection.
-func (s *turnSession) computeFingerprint(request zeroruntime.CompletionRequest) string {
+func (s *turnSession) computeFingerprint(request qgruntime.CompletionRequest) string {
 	var builder strings.Builder
 	builder.WriteString(s.provider.model)
 	builder.WriteByte('|')
@@ -192,13 +192,13 @@ func (s *turnSession) computeFingerprint(request zeroruntime.CompletionRequest) 
 // request bytes too. A schema that fails to marshal is recorded under a
 // stable sentinel — this digest feeds telemetry counters, so cruder handling
 // of that pathological case is acceptable.
-func wireToolsDigest(tools []zeroruntime.ToolDefinition) string {
+func wireToolsDigest(tools []qgruntime.ToolDefinition) string {
 	rendered := make([]string, 0, len(tools))
 	for _, tool := range tools {
 		wireShape := struct {
-			Type       zeroruntime.ToolDefinitionType    `json:"type,omitempty"`
-			Parameters map[string]any                    `json:"parameters,omitempty"`
-			Format     *zeroruntime.ToolDefinitionFormat `json:"format,omitempty"`
+			Type       qgruntime.ToolDefinitionType    `json:"type,omitempty"`
+			Parameters map[string]any                  `json:"parameters,omitempty"`
+			Format     *qgruntime.ToolDefinitionFormat `json:"format,omitempty"`
 		}{Type: tool.Type, Parameters: tool.Parameters, Format: tool.Format}
 		schema, err := json.Marshal(wireShape)
 		if err != nil {
