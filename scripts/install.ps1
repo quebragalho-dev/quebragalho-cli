@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$Version = $env:QG_VERSION,
-  [string]$Repository = $(if ($env:QG_REPO) { $env:QG_REPO } else { "quebragalho-dev/quebragalho-cli" }),
+  [string]$Repository = $(if ($env:QG_REPO) { $env:QG_REPO } else { "quebragalho-dev/qg-releases" }),
   [string]$InstallDir = $env:QG_INSTALL_DIR,
   [string]$GitHubApi = $(if ($env:QG_GITHUB_API) { $env:QG_GITHUB_API } else { "https://api.github.com" }),
   [string]$GitHubBaseUrl = $(if ($env:QG_GITHUB_BASE_URL) { $env:QG_GITHUB_BASE_URL } else { "https://github.com" })
