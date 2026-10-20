@@ -174,6 +174,10 @@ func (c *Client) PollDeviceToken(ctx context.Context, auth DeviceAuth, opts Devi
 func (c *Client) pollDeviceOnce(ctx context.Context, auth DeviceAuth) (string, time.Duration, error) {
 	endpoint := strings.TrimRight(c.AuthBaseURL, "/") + "/auth/device/token"
 	form := url.Values{}
+	// RFC 8628 §3.5: the token poll is an access-token request, so it carries
+	// the device_code grant type. Without it the gateway answers HTTP 400
+	// "invalid_request: grant_type is required".
+	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
 	form.Set("device_code", auth.DeviceCode)
 	form.Set("client_id", DeviceClientID)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))

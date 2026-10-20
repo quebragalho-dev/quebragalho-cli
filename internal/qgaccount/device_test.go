@@ -323,3 +323,36 @@ func TestDeviceFlowPrimitivesAreSharedWithOAuth(t *testing.T) {
 // assertSameDeviceAuthType accepts values of one single type: a structurally
 // identical but distinct DeviceAuth would fail to compile here.
 func assertSameDeviceAuthType(_, _ DeviceAuth) {}
+
+// The gateway's token endpoint requires the RFC 8628 grant_type field: a poll
+// without it fails with HTTP 400 "invalid_request: grant_type is required"
+// (reproduced against the live server with the worktree binary). The client
+// must send grant_type=urn:ietf:params:oauth:grant-type:device_code, the same
+// value the sibling oauth package already sends (oauth/device.go).
+func TestPollDeviceTokenSendsGrantType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/auth/device/token" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		if got := r.Form.Get("grant_type"); got != "urn:ietf:params:oauth:grant-type:device_code" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_request","error_description":"grant_type is required."}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"api_key":"qg-sk-from-device-0123456789"}`))
+	}))
+	defer server.Close()
+	client := NewClient("")
+	client.AuthBaseURL = server.URL
+
+	key, err := client.PollDeviceToken(context.Background(), freshAuth(), fastPollOptions())
+	if err != nil {
+		t.Fatalf("PollDeviceToken: %v", err)
+	}
+	if key != "qg-sk-from-device-0123456789" {
+		t.Fatalf("key = %q", key)
+	}
+}
