@@ -62,3 +62,6 @@ internal/perfbench/reports/*.json
 
 # Local disposable caches (lint/build scratch)
 .tmp-*/
+
+# Maestri agent workspace overlay (local only, never tree state)
+.maestri/
