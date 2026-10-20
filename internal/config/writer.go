@@ -56,6 +56,14 @@ func upsertProviderLocked(path string, profile ProviderProfile, setActive bool) 
 		for index := range cfg.Providers {
 			if cfg.Providers[index].Name == profile.Name {
 				cfg.Providers[index].APIKeyStored = true
+				// A stored-key save supersedes any inline secret left by an
+				// earlier plaintext-fallback login: mergeProfile's "only
+				// overwrite when non-empty" rule would otherwise keep the stale
+				// inline key on disk, where it wins over env and store at
+				// resolve time. APIKeyEnv is preserved: an env pointer is an
+				// explicit user choice, and env outranks the stored key by
+				// design — only the stale inline secret is dropped.
+				cfg.Providers[index].APIKey = ""
 				break
 			}
 		}

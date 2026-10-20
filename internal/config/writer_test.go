@@ -795,3 +795,48 @@ func TestRenameProviderCaseOnlyKeepsStoredKey(t *testing.T) {
 		t.Fatalf("stored key lost on case-only rename: key=%q ok=%v err=%v", key, ok, err)
 	}
 }
+
+// A stale inline key from an earlier plaintext-fallback login must not survive
+// a later login that stores the new key in the credential store: the secured
+// profile carries APIKeyStored with an empty APIKey, and mergeProfile's
+// "only overwrite when non-empty" rule would otherwise keep the OLD inline
+// secret on disk — where it wins over env and store at resolve time.
+func TestUpsertProviderClearsStaleInlineKeyWhenKeyStored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "qg.json")
+	writeConfigFixture(t, path, FileConfig{
+		ActiveProvider: "qg",
+		Providers: []ProviderProfile{{
+			Name:   "qg",
+			Model:  "deepseek-v4.1-flash",
+			APIKey: "sk-inline-obsoleta",
+		}},
+	}, 0o600)
+
+	// Shape produced by SecureProviderProfile after the new key lands in the
+	// store: marker set, inline cleared.
+	if _, err := UpsertProvider(path, ProviderProfile{Name: "qg", APIKeyStored: true}, true); err != nil {
+		t.Fatalf("UpsertProvider() error = %v", err)
+	}
+
+	persisted := readConfigFixture(t, path)
+	if len(persisted.Providers) != 1 {
+		t.Fatalf("providers = %#v", persisted.Providers)
+	}
+	profile := persisted.Providers[0]
+	if profile.APIKey != "" {
+		t.Fatalf("stale inline key survived a stored-key save: APIKey = %q", profile.APIKey)
+	}
+	if !profile.APIKeyStored {
+		t.Fatalf("APIKeyStored marker must be set, got %+v", profile)
+	}
+	if profile.Model != "deepseek-v4.1-flash" {
+		t.Fatalf("unrelated field changed: %+v", profile)
+	}
+	// End-to-end of the reported bug: resolving the persisted profile against
+	// a store holding the NEW key must yield the new key, not the stale inline
+	// one (ApplyStoredAPIKey only fills when inline is empty).
+	resolved := ApplyStoredAPIKey(profile, fakeKeyGetter{keys: map[string]string{"qg": "sk-nova-do-store"}})
+	if resolved.APIKey != "sk-nova-do-store" {
+		t.Fatalf("resolved APIKey = %q, want the stored new key", resolved.APIKey)
+	}
+}
