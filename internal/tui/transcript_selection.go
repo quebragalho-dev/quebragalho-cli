@@ -28,12 +28,14 @@ type transcriptSelectionState struct {
 	// non-empty selection isn't reset to {} until transcriptCopiedMsg lands).
 	// mouseMotion gates on THIS, not active, so a genuine hover motion arriving
 	// in that post-release window doesn't get misrouted as a drag continuation.
-	// It also deliberately does NOT require msg's own Button field to be
-	// non-None on each motion event: some terminals don't restate the button on
-	// every motion report during a real drag (see
-	// TestTranscriptSelectionUpdatesOnGenericMotion), so trusting the
-	// per-event button field would break those terminals — dragging tracks the
-	// app's own press/release bracket instead.
+	// It also requires the motion event itself to carry a pressed button
+	// (Button != MouseNone): under AllMotion (1003) a pure cursor move arrives
+	// with Button == MouseNone, and treating it as a drag continuation selects
+	// text the user never asked to select. Terminals that don't restate the
+	// button on every motion report during a real drag still set dragging via
+	// the app's own press/release bracket, but without a pressed-button signal
+	// on the event there is no drag to continue — the motion falls through to
+	// hover handling instead.
 	dragging bool
 	anchor   transcriptSelectionPoint
 	cursor   transcriptSelectionPoint
@@ -1410,9 +1412,13 @@ func (m model) handleTranscriptSelectionMouse(msg tea.MouseMsg) (model, tea.Cmd,
 		// after release, so without this a genuine hover motion arriving in
 		// that window would be misrouted here and silently move the
 		// just-released selection instead of falling through to hover
-		// handling. Deliberately NOT gated on msg's own Button field — see
-		// transcriptSelectionState.dragging's doc comment.
-		if !m.transcriptSelection.dragging {
+		// handling. Also gate on the event's own Button field: under AllMotion
+		// (1003) a pure hover arrives as motion with Button == MouseNone, and
+		// treating it as a drag continuation selects text on mere cursor
+		// movement after a single press. Only a motion that still carries a
+		// pressed button extends the selection; a buttonless motion falls
+		// through to hover handling via the (nil, nil, false) return below.
+		if !m.transcriptSelection.dragging || mouseEvent(msg).Button == tea.MouseNone {
 			return m, nil, false
 		}
 		if line, ok := m.transcriptLineAtMouse(msg); ok {

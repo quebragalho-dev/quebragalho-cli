@@ -303,7 +303,7 @@ func TestTranscriptSelectionExtractsVisibleTextRange(t *testing.T) {
 	}
 }
 
-func TestTranscriptSelectionUpdatesOnGenericMotion(t *testing.T) {
+func TestTranscriptSelectionIgnoresButtonlessMotion(t *testing.T) {
 	m := withSidebarContent(mouseTestModel())
 	m.mouseCapture = true
 	m.transcript = appendRow(m.transcript, rowUser, "hello world")
@@ -311,11 +311,15 @@ func TestTranscriptSelectionUpdatesOnGenericMotion(t *testing.T) {
 
 	updated, _ := m.Update(testMouseClick(tea.MouseLeft, 3, textY))
 	m = updated.(model)
+	// A pure hover (motion with no button pressed, as AllMotion/1003 reports
+	// it) must NOT extend the selection: it falls through to hover handling
+	// instead. Only a motion carrying a pressed button continues the drag
+	// (see TestTranscriptSelectionLeftDragDoesNotResetAnchor).
 	updated, _ = m.Update(testMouseMotion(tea.MouseNone, 8, textY))
 	m = updated.(model)
 
-	if got := m.selectedTranscriptText(); got != "hello" {
-		t.Fatalf("selectedTranscriptText() after generic motion = %q, want hello", got)
+	if got := m.selectedTranscriptText(); got != "" {
+		t.Fatalf("selectedTranscriptText() after buttonless motion = %q, want empty (hover must not select)", got)
 	}
 }
 
@@ -999,4 +1003,56 @@ func setupMouseTestModel() model {
 	m.height = 30
 	m.altScreen = true
 	return m
+}
+
+// A press followed by a pure hover (no button held) must not extend the
+// selection: after the click lands on "hello", a Button-None motion to the end
+// of the line must leave selectedTranscriptText() empty rather than dragging
+// "hello" along with the cursor.
+func TestHoverWithoutButtonDoesNotSelectAfterPress(t *testing.T) {
+	m := withSidebarContent(mouseTestModel())
+	m.mouseCapture = true
+	m.transcript = appendRow(m.transcript, rowUser, "hello world")
+	textY := firstTranscriptTextMouseY(t, m)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, 3, textY))
+	m = updated.(model)
+	if !m.transcriptSelection.active {
+		t.Fatal("sanity check failed: press should start transcript selection")
+	}
+	updated, _ = m.Update(testMouseMotion(tea.MouseNone, 8, textY))
+	m = updated.(model)
+
+	if got := m.selectedTranscriptText(); got != "" {
+		t.Fatalf("selectedTranscriptText() after buttonless hover = %q, want empty", got)
+	}
+}
+
+// A release must always end the drag, even when setup becomes visible mid-drag
+// and swallows the release through handleSetupMouse: after press, release with
+// setup.visible=true, then hover — dragging must be false so the hover does
+// not keep extending a stuck selection.
+func TestReleaseEndsDragEvenWhenSetupIntercepts(t *testing.T) {
+	m := withSidebarContent(mouseTestModel())
+	m.mouseCapture = true
+	m.transcript = appendRow(m.transcript, rowUser, "hello world")
+	textY := firstTranscriptTextMouseY(t, m)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, 3, textY))
+	m = updated.(model)
+	if !m.transcriptSelection.dragging {
+		t.Fatal("sanity check failed: press should set dragging")
+	}
+	// Setup appears mid-drag (e.g. a first-run gate) and would route the
+	// release to handleSetupMouse, which ignores it today.
+	m.setup.visible = true
+	updated, _ = m.Update(testMouseRelease(tea.MouseNone, 8, textY))
+	m = updated.(model)
+	m.setup.visible = false
+	updated, _ = m.Update(testMouseMotion(tea.MouseNone, 10, textY))
+	m = updated.(model)
+
+	if m.transcriptSelection.dragging {
+		t.Fatal("dragging must be false after release, even when setup intercepted it")
+	}
 }
