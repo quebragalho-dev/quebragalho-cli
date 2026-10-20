@@ -14,6 +14,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
 
@@ -44,6 +45,25 @@ func runSetup(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	}
 	if strings.TrimSpace(options.catalogID) == "" {
 		return writeAppError(stderr, setupUnavailableMessage(), exitUsage)
+	}
+
+	// A QG API key is validated exactly like qg login does (same validator,
+	// same GET /v1/models probe) BEFORE anything is persisted: saving a
+	// rejected key would leave a dead credential in the store and a marker
+	// claiming the provider works. Other providers keep their existing
+	// behavior — their keys have no shared validator.
+	if strings.EqualFold(strings.TrimSpace(options.catalogID), providercatalog.QGID) {
+		if key := strings.TrimSpace(options.apiKey); key != "" {
+			if deps.validateLoginKey == nil {
+				return writeAppError(stderr, "login validator unavailable", exitCrash)
+			}
+			ctx, stop := signalContext()
+			defer stop()
+			if validateErr := deps.validateLoginKey(ctx, key); validateErr != nil {
+				msg := redaction.RedactString(validateErr.Error(), redaction.Options{ExtraSecretValues: []string{key}})
+				return writeAppError(stderr, "setup failed: "+msg, exitProvider)
+			}
+		}
 	}
 
 	result, err := saveSetupProvider(deps, tui.SetupSelection{
