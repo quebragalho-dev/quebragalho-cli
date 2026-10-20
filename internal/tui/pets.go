@@ -727,7 +727,7 @@ func (m model) handlePetMouse(msg tea.MouseMsg) (model, tea.Cmd, bool) {
 			return m, petPixelMouseEnableCmd(), true
 		}
 		return m, nil, true
-	case mouseMotion(msg) && m.petDragActive && m.petPixelDrag:
+	case mouseMotion(msg) && m.petDragActive && m.petPixelDrag && mouseEvent(msg).Button != tea.MouseNone:
 		previousState := m.petDragState
 		leavePixelMode := m.updatePixelPetTarget(x, y)
 		animationCmd := m.restartPetDragPlayback(previousState)
@@ -735,11 +735,11 @@ func (m model) handlePetMouse(msg tea.MouseMsg) (model, tea.Cmd, bool) {
 			return m.leavePixelPetDrag(), batchCommands(petPixelMouseDisableAndFlushCmd(), animationCmd), true
 		}
 		return m, batchCommands(petImageFlushCmd(), animationCmd), true
-	case mouseMotion(msg) && m.petDragActive && !m.petSupportsAlphaOverlay():
+	case mouseMotion(msg) && m.petDragActive && !m.petSupportsAlphaOverlay() && mouseEvent(msg).Button != tea.MouseNone:
 		// Sixel images are part of the terminal cell grid. Keep them in the
 		// dedicated dock so moving one can never overwrite cells Bubble Tea owns.
 		return m, nil, true
-	case mouseMotion(msg) && m.petDragActive:
+	case mouseMotion(msg) && m.petDragActive && mouseEvent(msg).Button != tea.MouseNone:
 		oldX, oldY := m.petDragTargetX, m.petDragTargetY
 		newX := clampInt(x-m.petDragOffsetX, 0, maxInt(0, m.width-petImageColumns))
 		newY := clampInt(y-m.petDragOffsetY, 0, maxInt(0, m.height-petImageRows))

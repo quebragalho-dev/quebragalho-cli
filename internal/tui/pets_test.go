@@ -1390,3 +1390,46 @@ func TestPetsCommandExplainsUnsupportedTerminal(t *testing.T) {
 		t.Fatalf("unsupported-terminal guidance is missing: %q", got)
 	}
 }
+
+// A press on the pet followed by a pure hover (no button held) must not move
+// it: only a motion carrying a pressed button continues the drag (the pet twin
+// of TestHoverWithoutButtonDoesNotSelectAfterPress).
+func TestAmbientPetHoverWithoutButtonDoesNotDrag(t *testing.T) {
+	m := interactivePetTestModel(t)
+	startX, startY := m.ambientPetPosition(m.width, m.height)
+
+	m, _, handled := m.handlePetMouse(testMouseClick(tea.MouseLeft, startX+2, startY+2))
+	if !handled || !m.petDragActive {
+		t.Fatal("sanity check failed: press inside the pet should start a drag")
+	}
+	beforeX, beforeY := m.petDragTargetX, m.petDragTargetY
+	m, _, _ = m.handlePetMouse(testMouseMotion(tea.MouseNone, startX+10, startY+10))
+
+	if m.petDragTargetX != beforeX || m.petDragTargetY != beforeY {
+		t.Fatalf("pet drag target moved on buttonless hover: got (%d,%d), want unchanged (%d,%d)", m.petDragTargetX, m.petDragTargetY, beforeX, beforeY)
+	}
+}
+
+// A release must always end the pet drag, even when setup becomes visible
+// mid-drag and swallows the release: after press, release with setup.visible,
+// then hover — petDragActive must be false so the hover cannot move the pet.
+func TestAmbientPetReleaseEndsDragEvenWhenSetupIntercepts(t *testing.T) {
+	m := interactivePetTestModel(t)
+	startX, startY := m.ambientPetPosition(m.width, m.height)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, startX+2, startY+2))
+	m = updated.(model)
+	if !m.petDragActive {
+		t.Fatal("sanity check failed: press inside the pet should start a drag")
+	}
+	m.setup.visible = true
+	updated, _ = m.Update(testMouseRelease(tea.MouseNone, startX+2, startY+2))
+	m = updated.(model)
+	m.setup.visible = false
+	updated, _ = m.Update(testMouseMotion(tea.MouseNone, startX+10, startY+10))
+	m = updated.(model)
+
+	if m.petDragActive {
+		t.Fatal("petDragActive must be false after release, even when setup intercepted it")
+	}
+}
