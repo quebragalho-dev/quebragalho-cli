@@ -1433,16 +1433,25 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		applyTheme(m.themeMode, m.hasDarkBg)
 		return m, nil
 	case tea.MouseMsg:
-		// A release always ends an in-progress transcript drag, even when a
-		// modal surface (setup, terminal attach) would otherwise swallow it
-		// below: handleSetupMouse ignores releases and the terminal-attach
-		// branch drops every mouse event, either of which would leave
-		// transcriptSelection.dragging stuck and turn the next hover into a
-		// drag continuation. Finalize the drag bracket first, then route the
+		// A release always ends an in-progress drag, even when a modal surface
+		// (setup, terminal attach) would otherwise swallow it below:
+		// handleSetupMouse ignores releases and the terminal-attach branch
+		// drops every mouse event, either of which would leave a dragging flag
+		// stuck and turn the next hover into a drag continuation. Finalize
+		// every drag bracket first (transcript, composer, pet), then route the
 		// event itself to whichever surface owns it.
-		if mouseRelease(msg) && m.transcriptSelection.dragging {
-			m = m.stopEdgeScroll()
-			m.transcriptSelection.dragging = false
+		if mouseRelease(msg) {
+			if m.transcriptSelection.dragging {
+				m = m.stopEdgeScroll()
+				m.transcriptSelection.dragging = false
+			}
+			m.composerSelection.dragging = false
+			// No finishPetDrag here on purpose: without movement that plays a
+			// click animation (waving/jumping), a visual side effect for a
+			// release the pet surface never saw. Just close the bracket so a
+			// later hover cannot move the pet with no button held.
+			m.petDragActive = false
+			m.petPixelDrag = false
 		}
 		// Attached to a live terminal: the overlay owns the viewport, so mouse
 		// events go nowhere rather than hitting transcript selection below.
