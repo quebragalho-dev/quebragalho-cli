@@ -1433,6 +1433,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		applyTheme(m.themeMode, m.hasDarkBg)
 		return m, nil
 	case tea.MouseMsg:
+		// A release always ends an in-progress transcript drag, even when a
+		// modal surface (setup, terminal attach) would otherwise swallow it
+		// below: handleSetupMouse ignores releases and the terminal-attach
+		// branch drops every mouse event, either of which would leave
+		// transcriptSelection.dragging stuck and turn the next hover into a
+		// drag continuation. Finalize the drag bracket first, then route the
+		// event itself to whichever surface owns it.
+		if mouseRelease(msg) && m.transcriptSelection.dragging {
+			m = m.stopEdgeScroll()
+			m.transcriptSelection.dragging = false
+		}
 		// Attached to a live terminal: the overlay owns the viewport, so mouse
 		// events go nowhere rather than hitting transcript selection below.
 		if m.terminalAttach != nil {

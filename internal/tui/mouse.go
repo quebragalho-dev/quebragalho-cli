@@ -118,7 +118,11 @@ type mouseSelectionTarget struct {
 // moved over — capped at the viewport that was visible before the scroll.
 func (m model) scrollChatExtendingSelection(delta int, msg tea.MouseMsg) model {
 	m = m.scrollChat(delta)
-	if !m.transcriptSelection.active {
+	// Gate on dragging, not active alone: after release the selection stays
+	// active through the async copy-command grace window, but the drag is
+	// over — a wheel-scroll then must not keep moving the released cursor,
+	// mirroring the mouseMotion gate in handleTranscriptSelectionMouse.
+	if !m.transcriptSelection.dragging {
 		return m
 	}
 	if line, ok := m.nearestTranscriptLineAtMouse(msg); ok {
