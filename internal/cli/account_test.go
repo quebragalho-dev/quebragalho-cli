@@ -191,3 +191,15 @@ func TestAccountCommandsStayHermeticDespiteQGAPIKey(t *testing.T) {
 		t.Fatalf("output came from somewhere other than the injected fake:\n%s", stdout.String())
 	}
 }
+
+func TestRunKeyHelpDocumentsPrecedence(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"key", "--help"}, &stdout, &stderr, appDeps{}); code != exitSuccess {
+		t.Fatalf("exit = %d, want %d: %s", code, exitSuccess, stderr.String())
+	}
+	for _, want := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY", "qg exec --api-key"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("key help missing %q:\n%s", want, stdout.String())
+		}
+	}
+}

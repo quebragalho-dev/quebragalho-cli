@@ -258,6 +258,10 @@ key is written to config.json in plaintext instead and a warning is printed.
 
 --device starts the browser device flow instead: approve the shown code at
 the printed link and the account API key is fetched and saved automatically.
+
+Precedence at runtime: QG_API_KEY (or QUEBRAGALHO_API_KEY) from the
+environment wins over the saved key, and `+"`qg exec --api-key <key>`"+` wins
+over everything for that run.
 `)
 	return err
 }

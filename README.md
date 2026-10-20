@@ -52,7 +52,8 @@ Veja mais opções no [guia de instalação](docs/INSTALL.md).
 2. Na primeira abertura, informe sua chave do Quebra Galho e escolha um modelo.
 3. Escreva seu pedido e pressione Enter.
 
-Para trocar ou cadastrar a chave depois, use `qg login`. Se algo não funcionar,
+Para trocar ou cadastrar a chave depois, use `qg login` (ou `qg login --device`
+para aprovar o acesso no navegador em vez de colar a chave). Se algo não funcionar,
 `qg doctor` ajuda a conferir a configuração e a conexão.
 
 ## No dia a dia

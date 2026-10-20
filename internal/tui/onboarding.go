@@ -596,7 +596,7 @@ func (m model) setupStageLines(width int, height int) []string {
 			qgTheme.ink.Render("A terminal agent for changing real code."),
 			qgTheme.faint.Render("Plan changes, edit with approval, run checks, and resume sessions."),
 			"",
-			qgTheme.faint.Render("Re-enter your API key anytime with: qg login"),
+			qgTheme.faint.Render("Re-enter your API key anytime with: qg login (or qg login --device)"),
 		}
 	}
 }
@@ -721,7 +721,7 @@ func (m model) setupCredentialLines(width int) []string {
 		m.setupAPIKeyInputLine(width),
 		"",
 		qgTheme.faint.Render("Saved keys stay encrypted in your user config."),
-		qgTheme.faint.Render("Re-enter it anytime with: qg login"),
+		qgTheme.faint.Render("Re-enter it anytime with: qg login (or qg login --device)"),
 	}
 }
 

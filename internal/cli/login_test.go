@@ -162,7 +162,7 @@ func TestLoginHelp(t *testing.T) {
 		t.Fatalf("exit = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"qg login", "--api-key", "plaintext", "hidden"} {
+	for _, want := range []string{"qg login", "--api-key", "plaintext", "hidden", "--device", "QG_API_KEY", "QUEBRAGALHO_API_KEY", "qg exec --api-key"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("login help missing %q:\n%s", want, out)
 		}
