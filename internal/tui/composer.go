@@ -18,8 +18,13 @@ type composerState struct {
 
 type composerSelectionState struct {
 	active bool
-	anchor int
-	cursor int
+	// dragging is true from press until release — narrower than active. The
+	// mouseMotion case gates on THIS plus the event's own pressed button, so
+	// a pure hover (Button == MouseNone under AllMotion/1003) never extends
+	// the selection, mirroring transcriptSelectionState.dragging.
+	dragging bool
+	anchor   int
+	cursor   int
 }
 
 type composerPastePreview struct {
@@ -220,10 +225,15 @@ func (m model) handleComposerSelectionMouse(msg tea.MouseMsg) (model, tea.Cmd, b
 		state.cursor = pos
 		m.setComposerState(state)
 		m.copyStatus = ""
-		m.composerSelection = composerSelectionState{active: true, anchor: pos, cursor: pos}
+		m.composerSelection = composerSelectionState{active: true, dragging: true, anchor: pos, cursor: pos}
 		return m, nil, true
 	case mouseMotion(msg):
-		if !m.composerSelection.active {
+		// Only a motion carrying a pressed button continues the drag. A pure
+		// hover (Button == MouseNone under AllMotion/1003) falls through to
+		// transcript/hover handling instead of selecting text on mere cursor
+		// movement after a single press — the composer twin of the transcript
+		// gate in handleTranscriptSelectionMouse.
+		if !m.composerSelection.dragging || mouseEvent(msg).Button == tea.MouseNone {
 			return m, nil, false
 		}
 		if pos, ok := m.composerPositionAtMouse(msg); ok {
@@ -238,6 +248,9 @@ func (m model) handleComposerSelectionMouse(msg tea.MouseMsg) (model, tea.Cmd, b
 		if !m.composerSelection.active {
 			return m, nil, false
 		}
+		// The drag itself ends here even though active stays true until the
+		// selection is consumed below — see dragging's doc comment.
+		m.composerSelection.dragging = false
 		if pos, ok := m.composerPositionAtMouse(msg); ok {
 			state := m.currentComposerState()
 			state.cursor = pos

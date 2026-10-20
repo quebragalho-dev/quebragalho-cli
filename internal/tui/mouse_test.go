@@ -1056,3 +1056,57 @@ func TestReleaseEndsDragEvenWhenSetupIntercepts(t *testing.T) {
 		t.Fatal("dragging must be false after release, even when setup intercepted it")
 	}
 }
+
+// A press in the composer followed by a pure hover (no button held) must not
+// extend the composer selection: after the click lands, a Button-None motion
+// further along the line must leave selectedComposerText() empty rather than
+// dragging a selection along with the cursor (the composer twin of
+// TestHoverWithoutButtonDoesNotSelectAfterPress).
+func TestComposerHoverWithoutButtonDoesNotSelectAfterPress(t *testing.T) {
+	m := mouseTestModel()
+	m.input.SetValue("hello world")
+	startX, y := composerMousePoint(t, m, 0)
+	endX, _ := composerMousePoint(t, m, 5)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, startX, y))
+	m = updated.(model)
+	if !m.composerSelection.active {
+		t.Fatal("sanity check failed: press should start composer selection")
+	}
+	updated, _ = m.Update(testMouseMotion(tea.MouseNone, endX, y))
+	m = updated.(model)
+
+	if got := m.selectedComposerText(); got != "" {
+		t.Fatalf("selectedComposerText() after buttonless hover = %q, want empty", got)
+	}
+}
+
+// A release must always end the composer drag, even when setup becomes visible
+// mid-drag and swallows the release through handleSetupMouse: after press,
+// release with setup.visible=true, then hover — the composer selection must
+// not keep extending as if the button were still held.
+func TestComposerReleaseEndsDragEvenWhenSetupIntercepts(t *testing.T) {
+	m := mouseTestModel()
+	m.input.SetValue("hello world")
+	startX, y := composerMousePoint(t, m, 0)
+	midX, _ := composerMousePoint(t, m, 5)
+	endX, _ := composerMousePoint(t, m, 8)
+
+	updated, _ := m.Update(testMouseClick(tea.MouseLeft, startX, y))
+	m = updated.(model)
+	if !m.composerSelection.active {
+		t.Fatal("sanity check failed: press should start composer selection")
+	}
+	// Setup appears mid-drag (e.g. a first-run gate) and would route the
+	// release to handleSetupMouse, which ignores it.
+	m.setup.visible = true
+	updated, _ = m.Update(testMouseRelease(tea.MouseNone, midX, y))
+	m = updated.(model)
+	m.setup.visible = false
+	updated, _ = m.Update(testMouseMotion(tea.MouseNone, endX, y))
+	m = updated.(model)
+
+	if got := m.selectedComposerText(); got != "" {
+		t.Fatalf("selectedComposerText() after intercepted release + hover = %q, want empty (drag must be over)", got)
+	}
+}
