@@ -360,10 +360,10 @@ func TestRunNoArgsFallsBackToQGProviderWhenNoneMarkedActive(t *testing.T) {
 		t.Fatal("TUI was not launched")
 	}
 	if launchedOptions.Setup.Visible || launchedOptions.Setup.Required {
-		t.Fatalf("Setup = %#v, want no setup wizard — a usable saved provider exists", launchedOptions.Setup)
+		t.Fatalf("Setup = %#v, want no setup wizard — a QG credential exists", launchedOptions.Setup)
 	}
 	if providerProfile.Name != "qg" {
-		t.Fatalf("provider used = %q, want fallback to the usable saved provider %q", providerProfile.Name, "qg")
+		t.Fatalf("provider used = %q, want fallback to the QG provider %q", providerProfile.Name, "qg")
 	}
 }
 
@@ -783,7 +783,7 @@ func TestRunNoArgsLaunchesTUIWithResolvedProviderMetadata(t *testing.T) {
 		t.Fatalf("UserConfigPath = %q, want %q", launchedOptions.UserConfigPath, userConfigPath)
 	}
 	if launchedOptions.ProviderName != "qg" {
-		t.Fatalf("ProviderName = %q, want work", launchedOptions.ProviderName)
+		t.Fatalf("ProviderName = %q, want qg", launchedOptions.ProviderName)
 	}
 	if launchedOptions.ModelName != "gpt-test" {
 		t.Fatalf("ModelName = %q, want gpt-test", launchedOptions.ModelName)

@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 )
 
 func TestResolveInteractiveSetupOpensOnboardingWithoutKey(t *testing.T) {
@@ -57,14 +59,6 @@ func TestInteractiveSetupOpensWhenOnlyOtherProviderUsable(t *testing.T) {
 	}
 }
 
-func TestInteractiveSetupSkipsWithStoredQGKey(t *testing.T) {
-	withAuthStore(t)
-	cfg := `{"activeProvider":"qg","providers":[{"name":"qg","catalogId":"qg","apiKeyStored":true}]}`
-	if resolveSetupGate(t, cfg, nil) {
-		t.Fatal("a stored QG key must skip the login")
-	}
-}
-
 func TestInteractiveSetupSkipsWithQGEnvKey(t *testing.T) {
 	withAuthStore(t)
 	cfg := `{"activeProvider":"qg","providers":[{"name":"qg","catalogId":"qg"}]}`
@@ -87,5 +81,35 @@ func TestInteractiveSetupOpensAfterLogout(t *testing.T) {
 	}
 	if _, onboarding := resolveInteractiveSetup(resolved); !onboarding {
 		t.Fatal("after logout the login must open again")
+	}
+}
+
+func TestInteractiveSetupSwitchesKeylessActiveProviderToQG(t *testing.T) {
+	resolved := config.ResolvedConfig{
+		ActiveProvider: "work",
+		Provider:       config.ProviderProfile{Name: "work", ProviderKind: config.ProviderKindOpenAICompatible},
+		Providers: []config.ProviderProfile{
+			{Name: "work", ProviderKind: config.ProviderKindOpenAICompatible},
+			{Name: "qg", CatalogID: "qg", ProviderKind: config.ProviderKindOpenAICompatible, APIKeyStored: true},
+		},
+	}
+	got, onboarding := resolveInteractiveSetup(resolved)
+	if onboarding || got.Provider.Name != "qg" || got.ActiveProvider != "qg" {
+		t.Fatalf("got provider=%q active=%q onboarding=%v, want qg/qg/false", got.Provider.Name, got.ActiveProvider, onboarding)
+	}
+}
+
+func TestInteractiveSetupSkipsWithLegacyQGOAuthLogin(t *testing.T) {
+	path := withAuthStore(t)
+	store, err := oauth.NewStore(oauth.StoreOptions{FilePath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(oauth.ProviderKey("qg"), oauth.Token{AccessToken: "tok", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"activeProvider":"qg","providers":[{"name":"qg","catalogId":"qg"}]}`
+	if resolveSetupGate(t, cfg, nil) {
+		t.Fatal("a stored legacy QG OAuth login must skip the login")
 	}
 }

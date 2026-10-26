@@ -694,13 +694,8 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		if errors.Is(err, config.ErrProviderRequiresModel) || !errors.Is(err, config.ErrNoActiveProvider) {
 			return writeAppError(stderr, err.Error(), 1)
 		}
-		// ErrNoActiveProvider: providers may be saved but none active. Keep the
-		// normalized list so the login gate below can still see a saved QG
-		// credential; other providers never count for it.
-		if qg, ok := qgCredentialProfile(resolved); ok {
-			resolved.Provider = qg
-			resolved.ActiveProvider = qg.Name
-		}
+		// ErrNoActiveProvider: resolved keeps the normalized providers; the login
+		// gate below picks the QG profile or opens the onboarding.
 	}
 	userConfigPath, err := deps.userConfigPath()
 	if err != nil {
@@ -1045,6 +1040,14 @@ func tuiSandboxSetupCommand(backend sandbox.Backend, deps appDeps) func(context.
 func resolveInteractiveSetup(resolved config.ResolvedConfig) (config.ResolvedConfig, bool) {
 	if resolved.ActiveProvider == "" && resolved.Provider.Name != "" {
 		resolved.ActiveProvider = resolved.Provider.Name
+	}
+	// An active provider without a credential never boots: switch to the QG
+	// profile when it has one, otherwise the login opens.
+	if setupRequired(resolved) {
+		if qg, ok := qgCredentialProfile(resolved); ok {
+			resolved.Provider = qg
+			resolved.ActiveProvider = qg.Name
+		}
 	}
 	return resolved, !qgCredentialPresent(resolved)
 }

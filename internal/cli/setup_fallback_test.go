@@ -29,8 +29,3 @@ func TestProviderProfileIsLocal(t *testing.T) {
 		})
 	}
 }
-
-// TestFirstUsableProviderAcceptsOAuthLoginProfile: a keyless catalog profile
-// whose credential is a stored OAuth login (the shape the login flows persist)
-// must be usable during active-pointer recovery — the same rule setupRequired
-// and usableSavedProviders apply — instead of falling through to onboarding.
