@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/browser"
 	"io"
 	"net/netip"
 	"net/url"
@@ -72,7 +73,10 @@ type appDeps struct {
 	// newQGDeviceClient builds the unauthenticated device-flow client for
 	// `qg login --device`; nil uses the production endpoints. Tests inject a
 	// fake, the same way newQGAccountClient is injected.
-	newQGDeviceClient            func() (qgDeviceAPI, error)
+	newQGDeviceClient func() (qgDeviceAPI, error)
+	// openBrowser opens the device-flow approval link (production:
+	// browser.Open); tests inject a fake so no real browser launches.
+	openBrowser                  func(ctx context.Context, url string) error
 	detectLocalRuntimes          func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
 	newSessionStore              func() *sessions.Store
 	loadPlugins                  func(plugins.LoadOptions) (plugins.LoadResult, error)
@@ -669,6 +673,9 @@ func fillAppDeps(deps appDeps) appDeps {
 	deps.probeProviderHealth = func(ctx context.Context, options providerhealth.Options) providerhealth.Result {
 		options.Profile = applyStoredProviderKeyAt(options.Profile, userConfigPath)
 		return baseProbeProviderHealth(ctx, options)
+	}
+	if deps.openBrowser == nil {
+		deps.openBrowser = browser.Open
 	}
 	if deps.validateLoginKey == nil {
 		deps.validateLoginKey = defaults.validateLoginKey

@@ -233,3 +233,31 @@ func TestValidateQuebraGalhoKey(t *testing.T) {
 		t.Fatal("transport failure accepted, want error")
 	}
 }
+
+func TestLoginNoBrowserWithoutDeviceIsUsageError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"login", "--no-browser"}, &stdout, &stderr, appDeps{stdin: strings.NewReader("")}); code != exitUsage {
+		t.Fatalf("exit = %d, want usage", code)
+	}
+	if !strings.Contains(stderr.String(), "--device") {
+		t.Fatalf("stderr = %q, want guidance naming --device", stderr.String())
+	}
+}
+
+func TestLoginHelpPrecedenceMatchesCode(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"login", "--help"}, &stdout, &stderr, appDeps{stdin: strings.NewReader("")}); code != exitSuccess {
+		t.Fatalf("exit = %d: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "--no-browser") {
+		t.Fatalf("login help does not document --no-browser:\n%s", out)
+	}
+	// Real order: inline key > environment > saved key.
+	inline := strings.Index(out, "inline")
+	env := strings.Index(out, "QG_API_KEY")
+	saved := strings.LastIndex(out, "saved key")
+	if inline < 0 || env < 0 || saved < 0 || !(inline < env && env < saved) {
+		t.Fatalf("help must order inline > env > saved key (idx %d, %d, %d):\n%s", inline, env, saved, out)
+	}
+}
