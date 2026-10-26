@@ -694,18 +694,12 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		if errors.Is(err, config.ErrProviderRequiresModel) || !errors.Is(err, config.ErrNoActiveProvider) {
 			return writeAppError(stderr, err.Error(), 1)
 		}
-		// ErrNoActiveProvider can mean "nothing configured yet" or "providers
-		// ARE configured, just none marked active". In the second case
-		// resolved.Providers still carries the already-normalized list — prefer
-		// falling back to one of those over forcing the user to re-enter
-		// credentials they already saved. With neither, reset to a blank config
-		// so the launch gate below opens onboarding for a fresh install.
-		usable, ok := firstUsableProvider(resolved.Providers)
-		if !ok {
-			resolved = config.ResolvedConfig{}
-		} else {
-			resolved.Provider = usable
-			resolved.ActiveProvider = usable.Name
+		// ErrNoActiveProvider: providers may be saved but none active. Keep the
+		// normalized list so the login gate below can still see a saved QG
+		// credential; other providers never count for it.
+		if qg, ok := qgCredentialProfile(resolved); ok {
+			resolved.Provider = qg
+			resolved.ActiveProvider = qg.Name
 		}
 	}
 	userConfigPath, err := deps.userConfigPath()
@@ -1045,26 +1039,14 @@ func tuiSandboxSetupCommand(backend sandbox.Backend, deps appDeps) func(context.
 // buildProvider constructs the run's provider at STARTUP — it is called only from
 // the two launch paths (interactive TUI and headless exec), never from mid-run
 // rebuilds (escalation, wizard, ACP go through deps.newProvider directly).
-// resolveInteractiveSetup decides the interactive launch shape: it first tries
-// to fall back to any saved provider that already has a credential, and reports
-// whether the TUI must open the first-run onboarding instead.
+// resolveInteractiveSetup reports whether the TUI must open the first-run login:
+// only a QG credential skips it, so other saved providers never keep the user
+// out of the login after a QG logout.
 func resolveInteractiveSetup(resolved config.ResolvedConfig) (config.ResolvedConfig, bool) {
-	needsSetup := setupRequired(resolved)
-	if needsSetup {
-		// The active provider lacks a usable credential, but if another saved
-		// provider already has one, fall back to it instead of forcing
-		// onboarding again. Saved logins persist across launches; switch the
-		// active provider any time with `qg providers use <name>`.
-		if usable, ok := firstUsableProvider(resolved.Providers); ok {
-			resolved.Provider = usable
-			resolved.ActiveProvider = usable.Name
-			return resolved, false
-		}
-	}
 	if resolved.ActiveProvider == "" && resolved.Provider.Name != "" {
 		resolved.ActiveProvider = resolved.Provider.Name
 	}
-	return resolved, needsSetup
+	return resolved, !qgCredentialPresent(resolved)
 }
 
 func buildProvider(resolved config.ResolvedConfig, deps appDeps) (qgruntime.Provider, error) {

@@ -305,7 +305,7 @@ func TestRunNoArgsOpensOnboardingWhenResolveReportsNoActiveProvider(t *testing.T
 	}
 }
 
-func TestRunNoArgsFallsBackToUsableProviderWhenNoneMarkedActive(t *testing.T) {
+func TestRunNoArgsFallsBackToQGProviderWhenNoneMarkedActive(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cwd := t.TempDir()
@@ -317,7 +317,8 @@ func TestRunNoArgsFallsBackToUsableProviderWhenNoneMarkedActive(t *testing.T) {
 	fake := &cliFakeProvider{}
 
 	usable := config.ProviderProfile{
-		Name:         "work",
+		Name:         "qg",
+		CatalogID:    "qg",
 		ProviderKind: config.ProviderKindOpenAI,
 		BaseURL:      config.OpenAIBaseURL,
 		APIKey:       "sk-test",
@@ -361,8 +362,8 @@ func TestRunNoArgsFallsBackToUsableProviderWhenNoneMarkedActive(t *testing.T) {
 	if launchedOptions.Setup.Visible || launchedOptions.Setup.Required {
 		t.Fatalf("Setup = %#v, want no setup wizard — a usable saved provider exists", launchedOptions.Setup)
 	}
-	if providerProfile.Name != "work" {
-		t.Fatalf("provider used = %q, want fallback to the usable saved provider %q", providerProfile.Name, "work")
+	if providerProfile.Name != "qg" {
+		t.Fatalf("provider used = %q, want fallback to the usable saved provider %q", providerProfile.Name, "qg")
 	}
 }
 
@@ -740,9 +741,10 @@ func TestRunNoArgsLaunchesTUIWithResolvedProviderMetadata(t *testing.T) {
 				t.Fatalf("workspaceRoot = %q, want %q", workspaceRoot, cwd)
 			}
 			return config.ResolvedConfig{
-				ActiveProvider: "work",
+				ActiveProvider: "qg",
 				Provider: config.ProviderProfile{
-					Name:         "work",
+					Name:         "qg",
+					CatalogID:    "qg",
 					ProviderKind: config.ProviderKindOpenAI,
 					BaseURL:      config.OpenAIBaseURL,
 					APIKey:       "sk-test",
@@ -771,7 +773,7 @@ func TestRunNoArgsLaunchesTUIWithResolvedProviderMetadata(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d", exitCode)
 	}
-	if providerProfile.Name != "work" || providerProfile.Model != "gpt-test" {
+	if providerProfile.Name != "qg" || providerProfile.Model != "gpt-test" {
 		t.Fatalf("providerProfile = %#v, want resolved provider", providerProfile)
 	}
 	if launchedOptions.Provider != fake {
@@ -780,7 +782,7 @@ func TestRunNoArgsLaunchesTUIWithResolvedProviderMetadata(t *testing.T) {
 	if launchedOptions.UserConfigPath != userConfigPath {
 		t.Fatalf("UserConfigPath = %q, want %q", launchedOptions.UserConfigPath, userConfigPath)
 	}
-	if launchedOptions.ProviderName != "work" {
+	if launchedOptions.ProviderName != "qg" {
 		t.Fatalf("ProviderName = %q, want work", launchedOptions.ProviderName)
 	}
 	if launchedOptions.ModelName != "gpt-test" {

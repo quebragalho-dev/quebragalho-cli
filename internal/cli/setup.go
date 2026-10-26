@@ -377,6 +377,23 @@ func mustMissingCredentialEnv(profile config.ProviderProfile) string {
 	return envVar
 }
 
+// qgCredentialProfile returns the QG profile (the active one or any saved) that
+// holds a credential: inline/stored/env key or a legacy OAuth login.
+func qgCredentialProfile(resolved config.ResolvedConfig) (config.ProviderProfile, bool) {
+	for _, profile := range append([]config.ProviderProfile{resolved.Provider}, resolved.Providers...) {
+		isQG := providercatalog.NormalizeID(profile.CatalogID) == providercatalog.QGID || providercatalog.NormalizeID(profile.Name) == providercatalog.QGID
+		if isQG && !setupRequired(config.ResolvedConfig{Provider: profile}) {
+			return profile, true
+		}
+	}
+	return config.ProviderProfile{}, false
+}
+
+func qgCredentialPresent(resolved config.ResolvedConfig) bool {
+	_, ok := qgCredentialProfile(resolved)
+	return ok
+}
+
 func setupRequired(resolved config.ResolvedConfig) bool {
 	if !config.HasProviderProfile(resolved.Provider) {
 		return true
@@ -427,50 +444,6 @@ func oauthLoggedInProviders() map[string]bool {
 		}
 	}
 	return out
-}
-
-// firstUsableProvider returns the saved provider best suited to run without
-// onboarding: the first usable (inline credential, stored OAuth login, or
-// no-auth/local) non-local provider, else the first usable local one. It lets
-// the CLI fall back to an already-configured login when the active provider
-// happens to lack a credential, instead of re-running onboarding every launch.
-func firstUsableProvider(providers []config.ProviderProfile) (config.ProviderProfile, bool) {
-	logins := oauthLoggedInProviders()
-	var localFallback config.ProviderProfile
-	haveLocal := false
-	for _, profile := range providers {
-		if !config.HasProviderProfile(profile) {
-			continue
-		}
-		// A profile whose catalog entry no longer resolves AND that has no explicit
-		// BaseURL has no endpoint to talk to, so it cannot become a working
-		// provider — skip it rather than picking a fallback that fails at first use.
-		// (A stale CatalogID with a BaseURL still works as a custom endpoint.)
-		if catalogID := strings.TrimSpace(profile.CatalogID); catalogID != "" && strings.TrimSpace(profile.BaseURL) == "" {
-			if _, err := providercatalog.Require(catalogID); err != nil {
-				continue
-			}
-		}
-		// A stored OAuth login from an earlier version is a credential too, even
-		// when the profile has no inline key / env var — mirrors setupRequired
-		// and usableSavedProviders so this fallback doesn't force onboarding for
-		// a provider the user already authenticated.
-		if _, missing := setupMissingCredentialEnv(profile); missing && !providerHasOAuthLogin(profile, logins) {
-			continue
-		}
-		if providerProfileIsLocal(profile) {
-			if !haveLocal {
-				localFallback = profile
-				haveLocal = true
-			}
-			continue
-		}
-		return profile, true
-	}
-	if haveLocal {
-		return localFallback, true
-	}
-	return config.ProviderProfile{}, false
 }
 
 // usableSavedProviders filters configured providers to those the user can actually
