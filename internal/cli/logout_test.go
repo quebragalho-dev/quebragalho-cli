@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,4 +142,40 @@ func TestAuthLogoutQGUsesSharedCore(t *testing.T) {
 		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
 	}
 	assertQGCredentialsGone(t, configPath)
+}
+
+// Legacy consumers of `auth logout qg --json` read "provider" and "removed".
+func TestAuthLogoutQGJSONKeepsLegacyFields(t *testing.T) {
+	deps, configPath := logoutEnv(t)
+	seedQGCredentials(t, configPath)
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"auth", "logout", "qg", "--json"}, &stdout, &stderr, deps); code != exitSuccess {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{`"provider": "qg"`, `"removed": true`} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("json = %s, missing %s", stdout.String(), want)
+		}
+	}
+}
+
+func TestLogoutIgnoresWhitespaceOnlyEnvKey(t *testing.T) {
+	deps, _ := logoutEnv(t)
+	t.Setenv("QG_API_KEY", "  ")
+	result, err := logoutQG(deps, &bytes.Buffer{})
+	if err != nil || result.EnvStillActive != "" {
+		t.Fatalf("result = %+v err=%v, want no env warning", result, err)
+	}
+}
+
+func TestLogoutSurfacesConfigPathError(t *testing.T) {
+	deps, _ := logoutEnv(t)
+	deps.userConfigPath = func() (string, error) { return "", errors.New("no config dir") }
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"logout"}, &stdout, &stderr, deps); code == exitSuccess {
+		t.Fatalf("exit = success, want failure; stdout=%q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "no config dir") {
+		t.Fatalf("stderr = %q, want the path error", stderr.String())
+	}
 }

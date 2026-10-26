@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
@@ -13,21 +14,22 @@ import (
 // LogoutResult reports which QG credentials a logout removed. The profile stays
 // in config.json; only credentials go away.
 type LogoutResult struct {
-	KeyRemoved    bool `json:"keyRemoved"`
-	InlineCleared bool `json:"inlineCleared"`
-	OAuthRemoved  bool `json:"oauthRemoved"`
+	// Provider and Removed keep the legacy `auth logout --json` shape.
+	Provider      string `json:"provider"`
+	Removed       bool   `json:"removed"`
+	KeyRemoved    bool   `json:"keyRemoved"`
+	InlineCleared bool   `json:"inlineCleared"`
+	OAuthRemoved  bool   `json:"oauthRemoved"`
 	// EnvStillActive names the API-key variable still set in the environment, which
 	// logout cannot unset.
 	EnvStillActive string `json:"envStillActive,omitempty"`
 }
 
-func (r LogoutResult) removedAny() bool { return r.KeyRemoved || r.InlineCleared || r.OAuthRemoved }
-
 // logoutQG clears every saved QG credential: OAuth token, vault key and marker,
 // and the inline apiKey. Removal errors surface instead of reporting success
 // while a credential remains.
 func logoutQG(deps appDeps, stdout io.Writer) (LogoutResult, error) {
-	var result LogoutResult
+	result := LogoutResult{Provider: providercatalog.QGID}
 	manager, err := newAuthManager(deps, stdout)
 	if err != nil {
 		return result, err
@@ -38,16 +40,16 @@ func logoutQG(deps appDeps, stdout io.Writer) (LogoutResult, error) {
 	if result.KeyRemoved, err = config.ForgetProviderKey(providercatalog.QGID); err != nil {
 		return result, err
 	}
-	if configPath, perr := deps.userConfigPath(); perr == nil {
-		if _, err := config.ClearProviderKeyStored(configPath, providercatalog.QGID); err != nil {
-			return result, err
-		}
-		if result.InlineCleared, err = config.ClearProviderInlineKey(configPath, providercatalog.QGID); err != nil {
-			return result, err
-		}
+	configPath, err := deps.userConfigPath()
+	if err != nil {
+		return result, err
 	}
+	if result.InlineCleared, err = config.ClearProviderInlineKey(configPath, providercatalog.QGID); err != nil {
+		return result, err
+	}
+	result.Removed = result.KeyRemoved || result.InlineCleared || result.OAuthRemoved
 	for _, name := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY"} {
-		if os.Getenv(name) != "" {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
 			result.EnvStillActive = name
 			break
 		}
@@ -79,7 +81,7 @@ func runLogout(args []string, stdout, stderr io.Writer, deps appDeps) int {
 		return exitSuccess
 	}
 	msg := "Nenhuma credencial salva do Quebra Galho: já deslogado.\n"
-	if result.removedAny() {
+	if result.Removed {
 		msg = "Logged out of Quebra Galho.\n"
 	}
 	if result.EnvStillActive != "" {

@@ -93,15 +93,15 @@ func ClearProviderKeyStored(path, provider string) (cleared bool, err error) {
 	})
 }
 
-// ClearProviderInlineKey blanks the inline plaintext apiKey of a provider's
-// profile in the config at path (the profile itself stays). Same no-op rules as
-// ClearProviderKeyStored.
+// ClearProviderInlineKey blanks the inline plaintext apiKey and the stored-key
+// marker of a provider's profile in the config at path in one locked write (the
+// profile itself stays). Same no-op rules as ClearProviderKeyStored.
 func ClearProviderInlineKey(path, provider string) (cleared bool, err error) {
 	return mutateProviderProfile(path, provider, func(p *ProviderProfile) bool {
-		if p.APIKey == "" {
+		if p.APIKey == "" && !p.APIKeyStored {
 			return false
 		}
-		p.APIKey = ""
+		p.APIKey, p.APIKeyStored = "", false
 		return true
 	})
 }
