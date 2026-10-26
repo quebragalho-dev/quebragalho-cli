@@ -93,13 +93,17 @@ func (c *Client) RequestDeviceCode(ctx context.Context) (DeviceAuth, error) {
 	if expiresIn <= 0 {
 		expiresIn = defaultDeviceCodeLifetime
 	}
+	now := c.Now
+	if now == nil {
+		now = time.Now
+	}
 	return DeviceAuth{
 		DeviceCode:              parsed.DeviceCode,
 		UserCode:                parsed.UserCode,
 		VerificationURI:         parsed.VerificationURI,
 		VerificationURIComplete: parsed.VerificationURIComplete,
 		Interval:                interval,
-		ExpiresAt:               time.Now().Add(expiresIn),
+		ExpiresAt:               now().Add(expiresIn),
 	}, nil
 }
 

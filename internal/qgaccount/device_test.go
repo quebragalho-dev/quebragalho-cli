@@ -110,6 +110,25 @@ func TestRequestDeviceCodeDefaultsWhenFieldsMissing(t *testing.T) {
 	}
 }
 
+func TestRequestDeviceCodeUsesInjectedClock(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"device_code":"d","user_code":"U","expires_in":600}`))
+	}))
+	defer server.Close()
+	t0 := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	client := NewClient("")
+	client.AuthBaseURL = server.URL
+	client.Now = func() time.Time { return t0 }
+
+	auth, err := client.RequestDeviceCode(context.Background())
+	if err != nil {
+		t.Fatalf("RequestDeviceCode: %v", err)
+	}
+	if want := t0.Add(600 * time.Second); !auth.ExpiresAt.Equal(want) {
+		t.Fatalf("ExpiresAt = %v, want %v from the injected clock", auth.ExpiresAt, want)
+	}
+}
+
 func TestPollDeviceTokenPendingThenSuccess(t *testing.T) {
 	server, polls := testTokenServer(t, []tokenStep{
 		{status: http.StatusBadRequest, body: `{"error":"authorization_pending"}`},

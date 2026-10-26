@@ -31,6 +31,8 @@ type Client struct {
 	AuthBaseURL string
 	HTTP        *http.Client
 	APIKey      string
+	// Now is the clock for code expiry; nil means time.Now.
+	Now func() time.Time
 }
 
 // NewClient returns a Client with the production endpoints and a bounded
