@@ -84,6 +84,31 @@ func ForgetProviderKey(provider string) (bool, error) {
 // removed. No-op when path/provider is empty, the config is absent, or the marker
 // is already unset.
 func ClearProviderKeyStored(path, provider string) (cleared bool, err error) {
+	return mutateProviderProfile(path, provider, func(p *ProviderProfile) bool {
+		if !p.APIKeyStored {
+			return false
+		}
+		p.APIKeyStored = false
+		return true
+	})
+}
+
+// ClearProviderInlineKey blanks the inline plaintext apiKey of a provider's
+// profile in the config at path (the profile itself stays). Same no-op rules as
+// ClearProviderKeyStored.
+func ClearProviderInlineKey(path, provider string) (cleared bool, err error) {
+	return mutateProviderProfile(path, provider, func(p *ProviderProfile) bool {
+		if p.APIKey == "" {
+			return false
+		}
+		p.APIKey = ""
+		return true
+	})
+}
+
+// mutateProviderProfile applies mutate to every profile named provider under the
+// config file lock and rewrites the file only when one reported a change.
+func mutateProviderProfile(path, provider string, mutate func(*ProviderProfile) bool) (changed bool, err error) {
 	path = strings.TrimSpace(path)
 	provider = strings.TrimSpace(provider)
 	if path == "" || provider == "" {
@@ -109,10 +134,8 @@ func ClearProviderKeyStored(path, provider string) (cleared bool, err error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return false, fmt.Errorf("invalid config JSON %s: %w", path, err)
 	}
-	changed := false
 	for index := range cfg.Providers {
-		if strings.EqualFold(strings.TrimSpace(cfg.Providers[index].Name), provider) && cfg.Providers[index].APIKeyStored {
-			cfg.Providers[index].APIKeyStored = false
+		if strings.EqualFold(strings.TrimSpace(cfg.Providers[index].Name), provider) && mutate(&cfg.Providers[index]) {
 			changed = true
 		}
 	}

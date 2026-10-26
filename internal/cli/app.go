@@ -489,6 +489,8 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		return runCron(args[1:], stdout, stderr, deps)
 	case "repo-info", "repoinfo":
 		return runRepoInfo(args[1:], stdout, stderr, deps)
+	case "logout":
+		return runLogout(args[1:], stdout, stderr, deps)
 	case "serve":
 		return runServe(args[1:], stdout, stderr, deps)
 	case "acp":
@@ -496,15 +498,6 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	default:
 		if _, err := fmt.Fprintf(stderr, "unknown command %q\n", args[0]); err != nil {
 			return 1
-		}
-		// First-run users reach for `qg logout` (reported in the wild); point
-		// them at the real command instead of a bare usage pointer. `qg login`
-		// is a real command now (API-key onboarding) and never lands here.
-		switch strings.ToLower(args[0]) {
-		case "logout":
-			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "qg auth logout"); err != nil {
-				return 1
-			}
 		}
 		if _, err := fmt.Fprintln(stderr, "Run qg --help for usage."); err != nil {
 			return 1

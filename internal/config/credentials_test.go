@@ -370,3 +370,28 @@ func TestProviderProfileMissingCredentialEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestClearProviderInlineKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"providers":[{"name":"qg","apiKey":"sk-qg"},{"name":"other","apiKey":"sk-other"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := ClearProviderInlineKey(path, "qg")
+	if err != nil || !cleared {
+		t.Fatalf("clear = %v,%v; want true,nil", cleared, err)
+	}
+	raw, _ := os.ReadFile(path)
+	var cfg FileConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Providers) != 2 || cfg.Providers[0].Name != "qg" || cfg.Providers[0].APIKey != "" {
+		t.Fatalf("qg profile = %+v, want kept with empty apiKey", cfg.Providers)
+	}
+	if cfg.Providers[1].APIKey != "sk-other" {
+		t.Fatalf("other apiKey = %q, want untouched", cfg.Providers[1].APIKey)
+	}
+	if cleared, _ := ClearProviderInlineKey(path, "qg"); cleared {
+		t.Fatal("second clear should report no change")
+	}
+}

@@ -1954,9 +1954,8 @@ func TestRunNoArgsErrorsWhenActiveProviderMissesModel(t *testing.T) {
 	}
 }
 
-// `qg login` is a real command (API-key onboarding). `qg logout` still doesn't
-// exist, so the unknown-command error keeps pointing at `qg auth logout`.
-func TestRunLoginIsKnownAndLogoutStillRedirects(t *testing.T) {
+// `qg login` and `qg logout` are real commands; only unknown ones get the error.
+func TestRunLoginIsKnownAndUnknownGetsNoHint(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// login runs: with no key supplied it fails on the missing-key usage error,
 	// never as an unknown command.
@@ -1968,15 +1967,6 @@ func TestRunLoginIsKnownAndLogoutStillRedirects(t *testing.T) {
 		t.Fatalf("stderr = %q, want the missing-key guidance", stderr.String())
 	}
 	_ = exitCode
-
-	stderr.Reset()
-	exitCode = runWithDeps([]string{"logout"}, &stdout, &stderr, appDeps{})
-	if exitCode != 2 {
-		t.Fatalf("exit = %d, want 2 (unknown command)", exitCode)
-	}
-	if !strings.Contains(stderr.String(), `"qg auth logout"`) {
-		t.Fatalf("stderr = %q, want a qg auth logout suggestion", stderr.String())
-	}
 
 	// An unrelated unknown command gets no misleading suggestion.
 	stderr.Reset()

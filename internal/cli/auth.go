@@ -191,6 +191,12 @@ func runAuthLogout(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		return writeExecUsageError(stderr, "usage: qg auth logout <provider>")
 	}
 	provider := parsed.positional[0]
+	if provider == providercatalog.QGID {
+		if parsed.json {
+			return runLogout([]string{"--json"}, stdout, stderr, deps)
+		}
+		return runLogout(nil, stdout, stderr, deps)
+	}
 	manager, err := newAuthManager(deps, stdout)
 	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
