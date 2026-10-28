@@ -377,12 +377,17 @@ func mustMissingCredentialEnv(profile config.ProviderProfile) string {
 	return envVar
 }
 
+// isQGProfile is the one definition of "a Quebra Galho profile", shared by the
+// login gate and logout so they always agree on which profiles count.
+func isQGProfile(p config.ProviderProfile) bool {
+	return providercatalog.NormalizeID(p.CatalogID) == providercatalog.QGID || providercatalog.NormalizeID(p.Name) == providercatalog.QGID
+}
+
 // qgCredentialProfile returns the QG profile (the active one or any saved) that
 // holds a credential: inline/stored/env key or a legacy OAuth login.
 func qgCredentialProfile(resolved config.ResolvedConfig) (config.ProviderProfile, bool) {
 	for _, profile := range append([]config.ProviderProfile{resolved.Provider}, resolved.Providers...) {
-		isQG := providercatalog.NormalizeID(profile.CatalogID) == providercatalog.QGID || providercatalog.NormalizeID(profile.Name) == providercatalog.QGID
-		if isQG && !setupRequired(config.ResolvedConfig{Provider: profile}) {
+		if isQGProfile(profile) && !setupRequired(config.ResolvedConfig{Provider: profile}) {
 			return profile, true
 		}
 	}

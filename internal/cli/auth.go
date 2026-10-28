@@ -191,7 +191,7 @@ func runAuthLogout(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		return writeExecUsageError(stderr, "usage: qg auth logout <provider>")
 	}
 	provider := parsed.positional[0]
-	if provider == providercatalog.QGID {
+	if descriptor, ok := providercatalog.Get(provider); ok && descriptor.ID == providercatalog.QGID {
 		if parsed.json {
 			return runLogout([]string{"--json"}, stdout, stderr, deps)
 		}

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/browser"
 	"io"
 	"net/netip"
 	"net/url"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/browser"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
@@ -317,7 +317,14 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	}
 	addDirs, theme, allowEscalation := root.addDirs, root.theme, root.allowEscalation
 
+	// --no-browser (or QG_NO_BROWSER=1) keeps the first-run device login from
+	// opening a browser; the approval link and code still show. Only the
+	// interactive launch consumes it.
+	noBrowser := root.noBrowser || os.Getenv("QG_NO_BROWSER") == "1"
 	if len(args) == 0 {
+		if noBrowser {
+			deps.openBrowser = nil
+		}
 		return runInteractiveTUI(stderr, deps, agent.PermissionModeAsk, addDirs, theme, allowEscalation)
 	}
 
@@ -338,6 +345,9 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	}
 	if allowEscalation && !forwardsRootFlags {
 		return writeAppError(stderr, "--allow-escalation is only supported for the interactive TUI and exec", 1)
+	}
+	if root.noBrowser && args[0] != "--dangerously-skip-permissions" && args[0] != "--skip-permissions-unsafe" {
+		return writeAppError(stderr, "--no-browser is only supported for the interactive TUI (see `qg login --help` for the login flag)", 1)
 	}
 
 	switch args[0] {
@@ -365,6 +375,9 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 			skipTheme = more.theme
 		}
 		skipAllowEscalation := more.allowEscalation
+		if noBrowser || more.noBrowser {
+			deps.openBrowser = nil
+		}
 		// A misplaced --add-dir anywhere in the remainder is the more specific error,
 		// so check for it across all of rest before rejecting stray args.
 		for _, arg := range rest {
@@ -1353,6 +1366,7 @@ Commands:
   daemon     Manage the local background worker daemon (start/stop/status/run/attach)
   setup      Guide first-run provider setup
   login      Save and validate your Quebra Galho API key
+  logout     Remove saved Quebra Galho credentials
   config     Inspect resolved Go configuration without leaking secrets
   models     List QG model registry entries
   balance    Show the live Quebra Galho wallet balance
@@ -1395,6 +1409,7 @@ Flags:
   -p, --prompt                   Run a one-shot prompt
       --add-dir <path>           Allow writes in an extra directory (repeatable)
       --allow-escalation         Let the agent escalate to a stronger model mid-run via escalate_model
+      --no-browser               Show the first-run login link without opening a browser (or set QG_NO_BROWSER=1)
       --dangerously-skip-permissions
                                 Launch the interactive shell in unsafe mode (enables the ! shell escape)
       --skip-permissions-unsafe  Alias for --dangerously-skip-permissions
@@ -1470,6 +1485,7 @@ type rootFlags struct {
 	addDirs         []string
 	theme           string
 	allowEscalation bool
+	noBrowser       bool
 }
 
 // splitLeadingRootFlags strips --add-dir, --theme and --allow-escalation from
@@ -1505,6 +1521,10 @@ func splitLeadingRootFlags(args []string) (rootFlags, []string, error) {
 			return rootFlags{}, nil, err
 		}
 		flags.allowEscalation = flags.allowEscalation || allowEscalation
+		for len(rest) > 0 && rest[0] == "--no-browser" {
+			flags.noBrowser = true
+			rest = rest[1:]
+		}
 		args = rest
 		if len(args) == before {
 			return flags, args, nil

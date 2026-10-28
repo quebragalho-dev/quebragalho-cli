@@ -4800,11 +4800,11 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		return m.startDoctorCommand(command.text)
 	case commandLogout:
 		if m.pending || m.loopActive() {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "/logout: pare a execução antes de sair."})
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "/logout: stop the current run first."})
 			return m, nil
 		}
 		if m.logout == nil {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "/logout indisponível nesta sessão."})
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "/logout is not available in this session."})
 			return m, nil
 		}
 		summary, err := m.logout()

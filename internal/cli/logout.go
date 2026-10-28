@@ -1,9 +1,13 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
@@ -30,22 +34,47 @@ type LogoutResult struct {
 // while a credential remains.
 func logoutQG(deps appDeps, stdout io.Writer) (LogoutResult, error) {
 	result := LogoutResult{Provider: providercatalog.QGID}
-	manager, err := newAuthManager(deps, stdout)
-	if err != nil {
-		return result, err
-	}
-	if result.OAuthRemoved, err = manager.Logout(providercatalog.QGID); err != nil {
-		return result, err
-	}
-	if result.KeyRemoved, err = config.ForgetProviderKey(providercatalog.QGID); err != nil {
-		return result, err
-	}
+	// The config path locates the credential store, so resolve it before
+	// deleting anything: a failure here must leave every credential in place.
 	configPath, err := deps.userConfigPath()
 	if err != nil {
 		return result, err
 	}
-	if result.InlineCleared, err = config.ClearProviderInlineKey(configPath, providercatalog.QGID); err != nil {
+	store, err := config.ProviderKeyStoreAt(filepath.Dir(configPath))
+	if err != nil {
 		return result, err
+	}
+	resolved, err := config.Resolve(config.ResolveOptions{UserConfigPath: configPath, Env: map[string]string{}})
+	if err != nil && !errors.Is(err, config.ErrNoActiveProvider) && !errors.Is(err, fs.ErrNotExist) {
+		return result, err
+	}
+	manager, err := newAuthManager(deps, stdout)
+	if err != nil {
+		return result, err
+	}
+	// Every profile the login gate treats as QG, plus the legacy "qg" OAuth name.
+	names := []string{providercatalog.QGID}
+	for _, profile := range resolved.Providers {
+		if isQGProfile(profile) && !slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, profile.Name) }) {
+			names = append(names, profile.Name)
+		}
+	}
+	for _, name := range names {
+		oauthRemoved, err := manager.Logout(name)
+		if err != nil {
+			return result, err
+		}
+		keyRemoved, err := store.Delete(name)
+		if err != nil {
+			return result, err
+		}
+		inlineCleared, err := config.ClearProviderInlineKey(configPath, name)
+		if err != nil {
+			return result, err
+		}
+		result.OAuthRemoved = result.OAuthRemoved || oauthRemoved
+		result.KeyRemoved = result.KeyRemoved || keyRemoved
+		result.InlineCleared = result.InlineCleared || inlineCleared
 	}
 	result.Removed = result.KeyRemoved || result.InlineCleared || result.OAuthRemoved
 	for _, name := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY"} {
@@ -64,7 +93,7 @@ func runLogout(args []string, stdout, stderr io.Writer, deps appDeps) int {
 		return writeExecUsageError(stderr, err.Error())
 	}
 	if parsed.help {
-		_ = writeAuthHelp(stdout)
+		_ = writeLogoutHelp(stdout)
 		return exitSuccess
 	}
 	if len(parsed.positional) != 0 {
@@ -86,14 +115,31 @@ func runLogout(args []string, stdout, stderr io.Writer, deps appDeps) int {
 	return exitSuccess
 }
 
+func writeLogoutHelp(w io.Writer) error {
+	_, err := fmt.Fprint(w, `Usage: qg logout [--json]
+
+Removes the saved Quebra Galho API key from the credential store, the
+apiKeyStored marker, any inline apiKey in config.json and legacy OAuth tokens.
+The profile stays in config.json; the next interactive launch opens the login.
+
+QG_API_KEY / QUEBRAGALHO_API_KEY in your environment are not touched: unset
+them yourself to fully log out.
+
+Flags:
+      --json   Print result as JSON
+  -h, --help   Show this help
+`)
+	return err
+}
+
 // logoutMessage is the human summary shared by `qg logout` and the TUI /logout.
 func logoutMessage(result LogoutResult) string {
-	msg := "Nenhuma credencial salva do Quebra Galho: já deslogado."
+	msg := "Already logged out: no saved Quebra Galho credentials."
 	if result.Removed {
 		msg = "Logged out of Quebra Galho."
 	}
 	if result.EnvStillActive != "" {
-		msg += fmt.Sprintf("\nAviso: %s continua definida no ambiente e segue ativa; remova-a do shell para sair de vez.", result.EnvStillActive)
+		msg += fmt.Sprintf("\nWarning: %s is still set in your environment and stays active; unset it to fully log out.", result.EnvStillActive)
 	}
 	return msg
 }

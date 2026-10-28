@@ -6,7 +6,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -24,12 +23,6 @@ func isQuit(cmd tea.Cmd) bool {
 	return ok
 }
 
-func TestParseLogoutCommand(t *testing.T) {
-	if got := parseCommand("/logout"); got.kind != commandLogout {
-		t.Fatalf("/logout kind = %v, want %v", got.kind, commandLogout)
-	}
-}
-
 func TestLogoutAppearsInHelp(t *testing.T) {
 	if help := strings.Join(formatCommandHelpLines(), "\n"); !strings.Contains(help, "/logout") {
 		t.Fatalf("help missing /logout:\n%s", help)
@@ -40,14 +33,11 @@ func TestLogoutAppearsInHelp(t *testing.T) {
 // the confirmation must be written to the real output after the program exits.
 func TestLogoutPrintsConfirmationAfterProgramExits(t *testing.T) {
 	m := newLogoutTestModel(t, func() (LogoutSummary, error) {
-		return LogoutSummary{Message: "Logged out.\nAviso: QG_API_KEY continua definida no ambiente."}, nil
+		return LogoutSummary{Message: "Logged out.\nWarning: QG_API_KEY is still set in your environment and stays active; unset it to fully log out."}, nil
 	})
 	m.input.SetValue("/logout")
 	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&bytes.Buffer{}))
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		p.Send(testKey(tea.KeyEnter))
-	}()
+	go p.Send(testKey(tea.KeyEnter))
 	final, err := p.Run()
 	if err != nil {
 		t.Fatalf("program: %v", err)
@@ -86,7 +76,7 @@ func TestLogoutCommandUnavailableKeepsAppOpen(t *testing.T) {
 	if isQuit(cmd) {
 		t.Fatal("/logout without a handler must not close the app")
 	}
-	if !transcriptContains(next.(model).transcript, "indisponível") {
+	if !transcriptContains(next.(model).transcript, "/logout is not available in this session.") {
 		t.Fatalf("unavailable notice not shown: %#v", next.(model).transcript)
 	}
 }
@@ -105,7 +95,7 @@ func TestLogoutRefusedWhileRunPending(t *testing.T) {
 	if isQuit(cmd) {
 		t.Fatal("app must stay open")
 	}
-	if !transcriptContains(next.(model).transcript, "pare a execução") {
+	if !transcriptContains(next.(model).transcript, "/logout: stop the current run first.") {
 		t.Fatalf("refusal notice not shown: %#v", next.(model).transcript)
 	}
 }

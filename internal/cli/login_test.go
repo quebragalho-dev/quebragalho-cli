@@ -244,7 +244,7 @@ func TestLoginNoBrowserWithoutDeviceIsUsageError(t *testing.T) {
 	}
 }
 
-func TestLoginHelpPrecedenceMatchesCode(t *testing.T) {
+func TestLoginHelpDocumentsPrecedence(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runWithDeps([]string{"login", "--help"}, &stdout, &stderr, appDeps{stdin: strings.NewReader("")}); code != exitSuccess {
 		t.Fatalf("exit = %d: %s", code, stderr.String())

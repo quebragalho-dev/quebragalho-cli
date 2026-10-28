@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/credstore"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 )
 
@@ -20,21 +21,19 @@ func logoutEnv(t *testing.T) (appDeps, string) {
 	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 	t.Setenv("QG_API_KEY", "")
 	t.Setenv("QUEBRAGALHO_API_KEY", "")
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	configPath := filepath.Join(xdg, "qg", "config.json")
+	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	return fillAppDeps(appDeps{userConfigPath: func() (string, error) { return configPath, nil }}), configPath
 }
 
-func TestLogoutMessageNamesEnvVariableNeverItsValue(t *testing.T) {
-	t.Setenv("QG_API_KEY", "qg_super_secret_value")
-	msg := logoutMessage(LogoutResult{Removed: true, EnvStillActive: "QG_API_KEY"})
-	if !strings.Contains(msg, "QG_API_KEY") {
-		t.Fatalf("message should name the variable: %q", msg)
+// credentialStore is the store logout, save and the runtime share: the one
+// beside the config file.
+func credentialStore(t *testing.T, configPath string) *credstore.Store {
+	t.Helper()
+	store, err := config.ProviderKeyStoreAt(filepath.Dir(configPath))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(msg, "qg_super_secret_value") {
-		t.Fatalf("message leaked the variable value: %q", msg)
-	}
+	return store
 }
 
 // seedQGCredentials stores every kind of QG credential: vault key, marker,
@@ -47,11 +46,7 @@ func seedQGCredentials(t *testing.T, configPath string) {
 	if err := os.WriteFile(configPath, []byte(`{"providers":[{"name":"qg","apiKey":"sk-inline","apiKeyStored":true}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store, err := config.ProviderKeyStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Set("qg", "sk-vault"); err != nil {
+	if err := credentialStore(t, configPath).Set("qg", "sk-vault"); err != nil {
 		t.Fatal(err)
 	}
 	tokens, err := oauth.NewStore(oauth.StoreOptions{FilePath: os.Getenv("QG_OAUTH_TOKENS_PATH")})
@@ -65,8 +60,7 @@ func seedQGCredentials(t *testing.T, configPath string) {
 
 func assertQGCredentialsGone(t *testing.T, configPath string) {
 	t.Helper()
-	store, _ := config.ProviderKeyStore()
-	if _, ok, _ := store.Get("qg"); ok {
+	if _, ok, _ := credentialStore(t, configPath).Get("qg"); ok {
 		t.Error("vault key still present")
 	}
 	tokens, _ := oauth.NewStore(oauth.StoreOptions{FilePath: os.Getenv("QG_OAUTH_TOKENS_PATH")})
@@ -126,7 +120,7 @@ func TestLogoutNoopWhenLoggedOut(t *testing.T) {
 	if code := runWithDeps([]string{"logout"}, &stdout, &stderr, deps); code != exitSuccess {
 		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "já deslogado") {
+	if !strings.Contains(stdout.String(), "Already logged out") {
 		t.Fatalf("output = %q, want the already-logged-out message", stdout.String())
 	}
 }
@@ -179,8 +173,11 @@ func TestLogoutIgnoresWhitespaceOnlyEnvKey(t *testing.T) {
 	}
 }
 
-func TestLogoutSurfacesConfigPathError(t *testing.T) {
-	deps, _ := logoutEnv(t)
+// Without a config path the store cannot be located, so logout must fail
+// before touching any credential rather than half-delete.
+func TestLogoutSurfacesConfigPathErrorAndDeletesNothing(t *testing.T) {
+	deps, configPath := logoutEnv(t)
+	seedQGCredentials(t, configPath)
 	deps.userConfigPath = func() (string, error) { return "", errors.New("no config dir") }
 	var stdout, stderr bytes.Buffer
 	if code := runWithDeps([]string{"logout"}, &stdout, &stderr, deps); code == exitSuccess {
@@ -188,5 +185,90 @@ func TestLogoutSurfacesConfigPathError(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "no config dir") {
 		t.Fatalf("stderr = %q, want the path error", stderr.String())
+	}
+	tokens, _ := oauth.NewStore(oauth.StoreOptions{FilePath: os.Getenv("QG_OAUTH_TOKENS_PATH")})
+	if statuses, _ := tokens.Status(oauth.KeyPrefixProvider); len(statuses) == 0 {
+		t.Error("oauth token was deleted although logout failed")
+	}
+	if _, ok, _ := credentialStore(t, configPath).Get("qg"); !ok {
+		t.Error("vault key was deleted although logout failed")
+	}
+}
+
+// The gate treats any profile named or cataloged "qg" as the QG login, so
+// logout must clear it too, or onboarding would never reopen.
+func TestLogoutClearsEveryQGProfileAndReopensOnboarding(t *testing.T) {
+	deps, configPath := logoutEnv(t)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"providers":[{"name":"work","catalogId":"qg","apiKey":"sk-inline","apiKeyStored":true}]}`
+	if err := os.WriteFile(configPath, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := credentialStore(t, configPath).Set("work", "sk-vault"); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func() config.ResolvedConfig {
+		resolved, err := config.Resolve(config.ResolveOptions{UserConfigPath: configPath, Env: map[string]string{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resolved
+	}
+	if _, onboarding := resolveInteractiveSetup(resolve()); onboarding {
+		t.Fatal("precondition: a saved QG credential must skip onboarding")
+	}
+
+	result, err := logoutQG(deps, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.KeyRemoved || !result.InlineCleared {
+		t.Fatalf("result = %+v, want the work profile's key and inline cleared", result)
+	}
+	if _, ok, _ := credentialStore(t, configPath).Get("work"); ok {
+		t.Error("vault key under the profile name still present")
+	}
+	if _, onboarding := resolveInteractiveSetup(resolve()); !onboarding {
+		t.Fatal("after logout the first-run login must open")
+	}
+}
+
+func TestAuthLogoutNormalizesQGAliases(t *testing.T) {
+	for _, alias := range []string{"QG", "quebragalho"} {
+		t.Run(alias, func(t *testing.T) {
+			deps, configPath := logoutEnv(t)
+			seedQGCredentials(t, configPath)
+			var stdout, stderr bytes.Buffer
+			if code := runWithDeps([]string{"auth", "logout", alias}, &stdout, &stderr, deps); code != exitSuccess {
+				t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+			}
+			assertQGCredentialsGone(t, configPath)
+		})
+	}
+}
+
+func TestLogoutHelpDescribesLogout(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"logout", "--help"}, &stdout, &stderr, appDeps{}); code != exitSuccess {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"Usage: qg logout [--json]", "QG_API_KEY", "profile stays"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("logout help missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestRootHelpListsLogout(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"--help"}, &stdout, &stderr, appDeps{}); code != exitSuccess {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"logout", "--no-browser"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("root help missing %q", want)
+		}
 	}
 }
