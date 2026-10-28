@@ -65,3 +65,6 @@ internal/perfbench/reports/*.json
 
 # Maestri agent workspace overlay (local only, never tree state)
 .maestri/
+__pycache__/
+*.egg-info/
+sdk/python/build/

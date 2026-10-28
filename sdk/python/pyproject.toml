@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quebragalho-sdk"
+version = "0.1.0"
+description = "Run the Quebra-Galho (qg) coding agent from Python."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["quebragalho", "qg", "agent", "sdk", "coding-agent"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/quebragalho-dev/quebragalho-cli/tree/main/sdk/python"
+Issues = "https://github.com/quebragalho-dev/quebragalho-cli/issues"
+
+[tool.setuptools]
+packages = ["quebragalho"]
+
+[tool.setuptools.package-data]
+quebragalho = ["py.typed"]
