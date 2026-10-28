@@ -31,7 +31,7 @@ if [ ! -s "$tmp/urls.log" ]; then
 fi
 first="$(head -n 1 "$tmp/urls.log")"
 case "$first" in
-  https://github.com/quebragalho-dev/qg-releases/releases/download/v0.0.1/*) ;;
-  *) echo "install_mirror_test: default URL = $first, want qg-releases mirror v0.0.1" >&2; exit 1 ;;
+  https://github.com/quebragalho-dev/quebragalho-cli/releases/download/v0.0.1/*) ;;
+  *) echo "install_mirror_test: default URL = $first, want release repo v0.0.1" >&2; exit 1 ;;
 esac
 echo "install_mirror_test: ok"

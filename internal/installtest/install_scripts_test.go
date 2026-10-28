@@ -22,7 +22,7 @@ func TestUnixInstallerScriptMatchesReleaseContracts(t *testing.T) {
 	}
 	containsAll(t, script, []string{
 		"set -euo pipefail",
-		`QG_REPO="${QG_REPO:-quebragalho-dev/qg-releases}"`,
+		`QG_REPO="${QG_REPO:-quebragalho-dev/quebragalho-cli}"`,
 		`QG_INSTALL_DIR="${QG_INSTALL_DIR:-/usr/local/bin}"`,
 		`archive_name="qg-v${version}-${platform}-${arch}.tar.gz"`,
 		`checksum_name="${archive_name}.sha256"`,
@@ -34,7 +34,7 @@ func TestUnixInstallerScriptMatchesReleaseContracts(t *testing.T) {
 		`copy_optional_file "qg-linux-sandbox"`,
 		`copy_optional_file "qg-seccomp"`,
 		`copy_optional_dir "helpers"`,
-		"  QG_REPO             GitHub repository. Defaults to quebragalho-dev/qg-releases.",
+		"  QG_REPO             GitHub repository. Defaults to quebragalho-dev/quebragalho-cli.",
 	})
 }
 

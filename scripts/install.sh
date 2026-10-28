@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-QG_REPO="${QG_REPO:-quebragalho-dev/qg-releases}"
+QG_REPO="${QG_REPO:-quebragalho-dev/quebragalho-cli}"
 QG_VERSION="${QG_VERSION:-latest}"
 install_dir_source=default
 if [ -n "${QG_INSTALL_DIR:-}" ]; then
@@ -23,7 +23,7 @@ user directory, preferring candidates already in PATH.
 
 Environment:
   QG_VERSION          Release version or tag. Defaults to latest.
-  QG_REPO             GitHub repository. Defaults to quebragalho-dev/qg-releases.
+  QG_REPO             GitHub repository. Defaults to quebragalho-dev/quebragalho-cli.
   QG_INSTALL_DIR      Directory for the qg binary. Defaults to /usr/local/bin.
   QG_GITHUB_API       GitHub API base URL. Defaults to https://api.github.com.
   QG_GITHUB_BASE_URL  GitHub web base URL. Defaults to https://github.com.
@@ -227,7 +227,7 @@ path_hint() {
 }
 
 install_dir_error() {
-  local installer_url='https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh'
+  local installer_url='https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh'
   {
     printf 'qg install: não é possível escrever em %s.\n' "$QG_INSTALL_DIR"
     if [ "$install_dir_source" = default ]; then

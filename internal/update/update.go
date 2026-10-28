@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	DefaultRepository = "quebragalho-dev/qg-releases"
+	DefaultRepository = "quebragalho-dev/quebragalho-cli"
 	DefaultTimeout    = 5 * time.Second
 )
 
