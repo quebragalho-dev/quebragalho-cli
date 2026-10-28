@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -300,14 +302,18 @@ func TestVerifySetupProviderDistinguishesMissingFromRejectedKey(t *testing.T) {
 	}
 }
 
-// `qg setup qg --api-key <key>` persists the key in one step: setup is fully
-// self-sufficient without a pre-existing env var.
+// `qg setup qg --api-key <key>` validates the key like `qg login` does and
+// then persists it in one step: setup is fully self-sufficient without a
+// pre-existing env var.
 func TestSetupQGWithAPIKeyFlagStoresKey(t *testing.T) {
 	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
 	deps := appDeps{
 		userConfigPath: func() (string, error) { return configPath, nil },
+		validateLoginKey: func(context.Context, string) error {
+			return nil // gateway accepts the key
+		},
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -341,6 +347,9 @@ func TestSetupWarnsWhenKeyStoreFallsBack(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	deps := appDeps{
 		userConfigPath: func() (string, error) { return configPath, nil },
+		validateLoginKey: func(context.Context, string) error {
+			return nil // this test covers the store fallback, not validation
+		},
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -394,5 +403,39 @@ func TestSetupAfterLoginKeepsStoredKey(t *testing.T) {
 	}
 	if stored, ok, _ := store.Get("qg"); !ok || stored != "sk-login-key" {
 		t.Fatalf("stored key = (%q, %v), want sk-login-key", stored, ok)
+	}
+}
+
+// setup qg --api-key must validate the key the same way qg login does before
+// persisting anything: an invalid key is a clear error and NOTHING is written
+// (no config.json, no credential-store entry).
+func TestSetupQGWithInvalidAPIKeySavesNothing(t *testing.T) {
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	deps := appDeps{
+		userConfigPath: func() (string, error) { return configPath, nil },
+		validateLoginKey: func(context.Context, string) error {
+			return errors.New("the gateway rejected the API key (HTTP 401)")
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"setup", "qg", "--api-key", "sk-invalida"}, &stdout, &stderr, deps)
+	if exitCode == exitSuccess {
+		t.Fatal("setup with an invalid key must fail")
+	}
+	if strings.Contains(stderr.String(), "sk-invalida") {
+		t.Fatalf("stderr leaked the API key: %q", stderr.String())
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("config must not be written on validation failure: %v", err)
+	}
+	store, err := config.ProviderKeyStoreAt(dir)
+	if err != nil {
+		t.Fatalf("ProviderKeyStoreAt: %v", err)
+	}
+	if _, ok, _ := store.Get("qg"); ok {
+		t.Fatal("credential store must not hold a key that failed validation")
 	}
 }

@@ -9,13 +9,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The org has no hosted-runner quota: every job in the CI and release workflows
-// must run on the self-hosted macOS ARM64 runner. Cross-platform binaries come
-// from Go cross-compilation on that runner, not from per-OS hosted runners.
-var selfHostedWorkflows = []string{
+// The repo is public, so pull_request workflows must never reach a self-hosted
+// runner: every job runs on a GitHub-hosted Ubuntu runner. Cross-platform
+// binaries come from Go cross-compilation, not from per-OS runners.
+var hostedWorkflows = []string{
 	"ci.yml",
 	"release-please.yml",
 	"release-artifacts.yml",
+	"pr-auto-review.yml",
+	"qg-action-smoke.yml",
 }
 
 type runsOnWorkflow struct {
@@ -24,8 +26,8 @@ type runsOnWorkflow struct {
 	} `yaml:"jobs"`
 }
 
-func TestReleaseWorkflowsRunOnSelfHostedOnly(t *testing.T) {
-	for _, name := range selfHostedWorkflows {
+func TestWorkflowsNeverRunOnSelfHostedRunners(t *testing.T) {
+	for _, name := range hostedWorkflows {
 		rel := filepath.Join(".github", "workflows", name)
 		var doc runsOnWorkflow
 		if err := yaml.Unmarshal([]byte(readRepoText(t, rel)), &doc); err != nil {
@@ -35,9 +37,8 @@ func TestReleaseWorkflowsRunOnSelfHostedOnly(t *testing.T) {
 			t.Fatalf("%s: no jobs parsed", rel)
 		}
 		for jobName, job := range doc.Jobs {
-			label, ok := job.RunsOn.(string)
-			if !ok || label != "self-hosted" {
-				t.Errorf("%s job %q: runs-on = %v, want exactly the string self-hosted", rel, jobName, job.RunsOn)
+			if label, ok := job.RunsOn.(string); !ok || label != "ubuntu-latest" {
+				t.Errorf("%s job %q: runs-on = %v, want ubuntu-latest (the repo is public, so no self-hosted runners)", rel, jobName, job.RunsOn)
 			}
 		}
 	}

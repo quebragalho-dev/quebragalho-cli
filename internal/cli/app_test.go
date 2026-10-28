@@ -17,6 +17,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -179,6 +180,55 @@ func TestRunNoArgsOpensOnboardingWhenNoProviderConfigured(t *testing.T) {
 	if launchedOptions.Setup.ValidateAPIKey == nil {
 		t.Fatal("onboarding must wire the gateway key validator")
 	}
+	if launchedOptions.Setup.DeviceStart == nil || launchedOptions.Setup.DeviceWait == nil || launchedOptions.Setup.OpenBrowser == nil {
+		t.Fatal("onboarding must wire browser device login")
+	}
+}
+
+// The first-run browser login drives the same device client as
+// `qg login --device`: the code the TUI shows and the auth it polls with are
+// the client's own.
+func TestOnboardingDeviceLoginUsesDeviceClient(t *testing.T) {
+	fake := &fakeQGDevice{
+		auth: qgaccount.DeviceAuth{
+			DeviceCode:              "dev-code",
+			UserCode:                "ABCD-1234",
+			VerificationURI:         "https://app.quebragalho.dev/connect/cli",
+			VerificationURIComplete: "https://app.quebragalho.dev/connect/cli?user_code=ABCD-1234",
+		},
+		key: "qg-sk-device-key",
+	}
+	var launched tui.Options
+	exitCode := runWithDeps([]string{}, &bytes.Buffer{}, &bytes.Buffer{}, appDeps{
+		getwd: func() (string, error) { return t.TempDir(), nil },
+		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
+			return config.ResolvedConfig{MaxTurns: 12}, nil
+		},
+		userConfigPath: func() (string, error) {
+			return filepath.Join(t.TempDir(), "qg", "config.json"), nil
+		},
+		registerMCPTools: func(context.Context, *tools.Registry, config.MCPConfig, mcp.RegisterOptions) (mcpToolRuntime, error) {
+			return noopMCPRuntime{}, nil
+		},
+		newQGDeviceClient: func() (qgDeviceAPI, error) { return fake, nil },
+		openBrowser:       func(context.Context, string) error { return nil },
+		runTUI: func(_ context.Context, options tui.Options) int {
+			launched = options
+			return 0
+		},
+	})
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, want 0", exitCode)
+	}
+
+	shown, opaque, err := launched.Setup.DeviceStart(context.Background())
+	if err != nil || shown.UserCode != "ABCD-1234" || shown.VerificationURIComplete != fake.auth.VerificationURIComplete {
+		t.Fatalf("DeviceStart = %+v, %v; want the client's code and URL", shown, err)
+	}
+	key, err := launched.Setup.DeviceWait(context.Background(), opaque)
+	if err != nil || key != "qg-sk-device-key" || fake.polled.DeviceCode != "dev-code" {
+		t.Fatalf("DeviceWait = %q, %v (polled %+v); want the client's key for the started auth", key, err, fake.polled)
+	}
 }
 
 type fakeMCPRuntimeWithSkips struct {
@@ -305,7 +355,7 @@ func TestRunNoArgsOpensOnboardingWhenResolveReportsNoActiveProvider(t *testing.T
 	}
 }
 
-func TestRunNoArgsFallsBackToUsableProviderWhenNoneMarkedActive(t *testing.T) {
+func TestRunNoArgsFallsBackToQGProviderWhenNoneMarkedActive(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cwd := t.TempDir()
@@ -317,7 +367,8 @@ func TestRunNoArgsFallsBackToUsableProviderWhenNoneMarkedActive(t *testing.T) {
 	fake := &cliFakeProvider{}
 
 	usable := config.ProviderProfile{
-		Name:         "work",
+		Name:         "qg",
+		CatalogID:    "qg",
 		ProviderKind: config.ProviderKindOpenAI,
 		BaseURL:      config.OpenAIBaseURL,
 		APIKey:       "sk-test",
@@ -359,10 +410,10 @@ func TestRunNoArgsFallsBackToUsableProviderWhenNoneMarkedActive(t *testing.T) {
 		t.Fatal("TUI was not launched")
 	}
 	if launchedOptions.Setup.Visible || launchedOptions.Setup.Required {
-		t.Fatalf("Setup = %#v, want no setup wizard — a usable saved provider exists", launchedOptions.Setup)
+		t.Fatalf("Setup = %#v, want no setup wizard — a QG credential exists", launchedOptions.Setup)
 	}
-	if providerProfile.Name != "work" {
-		t.Fatalf("provider used = %q, want fallback to the usable saved provider %q", providerProfile.Name, "work")
+	if providerProfile.Name != "qg" {
+		t.Fatalf("provider used = %q, want fallback to the QG provider %q", providerProfile.Name, "qg")
 	}
 }
 
@@ -740,9 +791,10 @@ func TestRunNoArgsLaunchesTUIWithResolvedProviderMetadata(t *testing.T) {
 				t.Fatalf("workspaceRoot = %q, want %q", workspaceRoot, cwd)
 			}
 			return config.ResolvedConfig{
-				ActiveProvider: "work",
+				ActiveProvider: "qg",
 				Provider: config.ProviderProfile{
-					Name:         "work",
+					Name:         "qg",
+					CatalogID:    "qg",
 					ProviderKind: config.ProviderKindOpenAI,
 					BaseURL:      config.OpenAIBaseURL,
 					APIKey:       "sk-test",
@@ -771,7 +823,7 @@ func TestRunNoArgsLaunchesTUIWithResolvedProviderMetadata(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d", exitCode)
 	}
-	if providerProfile.Name != "work" || providerProfile.Model != "gpt-test" {
+	if providerProfile.Name != "qg" || providerProfile.Model != "gpt-test" {
 		t.Fatalf("providerProfile = %#v, want resolved provider", providerProfile)
 	}
 	if launchedOptions.Provider != fake {
@@ -780,8 +832,8 @@ func TestRunNoArgsLaunchesTUIWithResolvedProviderMetadata(t *testing.T) {
 	if launchedOptions.UserConfigPath != userConfigPath {
 		t.Fatalf("UserConfigPath = %q, want %q", launchedOptions.UserConfigPath, userConfigPath)
 	}
-	if launchedOptions.ProviderName != "work" {
-		t.Fatalf("ProviderName = %q, want work", launchedOptions.ProviderName)
+	if launchedOptions.ProviderName != "qg" {
+		t.Fatalf("ProviderName = %q, want qg", launchedOptions.ProviderName)
 	}
 	if launchedOptions.ModelName != "gpt-test" {
 		t.Fatalf("ModelName = %q, want gpt-test", launchedOptions.ModelName)
@@ -1954,9 +2006,8 @@ func TestRunNoArgsErrorsWhenActiveProviderMissesModel(t *testing.T) {
 	}
 }
 
-// `qg login` is a real command (API-key onboarding). `qg logout` still doesn't
-// exist, so the unknown-command error keeps pointing at `qg auth logout`.
-func TestRunLoginIsKnownAndLogoutStillRedirects(t *testing.T) {
+// `qg login` and `qg logout` are real commands; only unknown ones get the error.
+func TestRunLoginIsKnownAndUnknownGetsNoHint(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// login runs: with no key supplied it fails on the missing-key usage error,
 	// never as an unknown command.
@@ -1968,15 +2019,6 @@ func TestRunLoginIsKnownAndLogoutStillRedirects(t *testing.T) {
 		t.Fatalf("stderr = %q, want the missing-key guidance", stderr.String())
 	}
 	_ = exitCode
-
-	stderr.Reset()
-	exitCode = runWithDeps([]string{"logout"}, &stdout, &stderr, appDeps{})
-	if exitCode != 2 {
-		t.Fatalf("exit = %d, want 2 (unknown command)", exitCode)
-	}
-	if !strings.Contains(stderr.String(), `"qg auth logout"`) {
-		t.Fatalf("stderr = %q, want a qg auth logout suggestion", stderr.String())
-	}
 
 	// An unrelated unknown command gets no misleading suggestion.
 	stderr.Reset()

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
@@ -43,6 +45,43 @@ type setupState struct {
 	modelQuery string
 	modelForID string
 	modelGen   uint64
+
+	// Browser (device-flow) login. deviceCancel is non-nil while a login is
+	// in flight; deviceGen binds async results to that login so a reply that
+	// lands after Esc/Tab cannot move the screen.
+	credMode     setupCredMode
+	deviceStart  func(context.Context) (DeviceAuth, any, error)
+	deviceWait   func(context.Context, any) (string, error)
+	openBrowser  func(context.Context, string) error
+	deviceAuth   *DeviceAuth
+	deviceCancel context.CancelFunc
+	deviceGen    uint64
+	browserHint  bool // the opener failed; the printed link is the way in
+}
+
+type setupCredMode int
+
+const (
+	credModeKey setupCredMode = iota
+	credModeBrowser
+)
+
+type setupDeviceStartedMsg struct {
+	gen    uint64
+	auth   DeviceAuth
+	opaque any
+	err    error
+}
+
+type setupDeviceDoneMsg struct {
+	gen uint64
+	key string
+	err error
+}
+
+type setupBrowserOpenedMsg struct {
+	gen uint64
+	err error
 }
 
 // setupKeyCheckMsg carries the async GET /v1/models validation result back to
@@ -72,7 +111,7 @@ func newSetupState(options SetupOptions) setupState {
 	// terminal bracketed paste (Paste: true) is the single paste path.
 	apiKey.KeyMap.Paste.SetEnabled(false)
 	apiKey.Focus()
-	return setupState{
+	state := setupState{
 		visible:      options.Visible,
 		required:     options.Required,
 		configPath:   strings.TrimSpace(options.ConfigPath),
@@ -81,6 +120,13 @@ func newSetupState(options SetupOptions) setupState {
 		apiKey:       apiKey,
 		validate:     options.ValidateAPIKey,
 	}
+	if options.DeviceStart != nil && options.DeviceWait != nil {
+		state.credMode = credModeBrowser
+		state.deviceStart = options.DeviceStart
+		state.deviceWait = options.DeviceWait
+		state.openBrowser = options.OpenBrowser
+	}
+	return state
 }
 
 func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -150,6 +196,11 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) handleSetupPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	switch {
+	case m.setupBrowserMode() && !m.setup.keyCheck:
+		// Pasting means the user has a key: switch to paste mode and take it.
+		m.cancelDeviceLogin()
+		m.setup.credMode = credModeKey
+		fallthrough
 	case m.setupCredentialInputActive():
 		if m.setup.keyCheck {
 			return m, nil
@@ -352,7 +403,16 @@ func (m model) completeSetup() (tea.Model, tea.Cmd) {
 	if result.KeyStoreFallback {
 		m = m.showTransientNoticeInline("Credential store unavailable — API key saved in plaintext in "+result.ConfigPath, transientNoticeWarning)
 	}
-	return m.exitSetupToChat()
+	updated, _ := m.exitSetupToChat()
+	m = updated.(model)
+	// Init warms discovery only when a provider already exists at launch, which a
+	// first run does not; without it per-call cost and the context window are
+	// unknown until the model picker is opened.
+	var warm tea.Cmd
+	if descriptor, ok := m.activeProviderDescriptor(); ok {
+		warm = m.modelPickerProviderDiscoveryCmd(descriptor, m.providerProfile)
+	}
+	return m, warm
 }
 
 func (m *model) resetSetupModels() {
@@ -391,12 +451,127 @@ func (m model) applySetupKeyCheck(msg setupKeyCheckMsg) model {
 	m.setup.keyCheck = false
 	if msg.err != nil {
 		m.setup.err = redaction.RedactString(msg.err.Error(), redaction.Options{ExtraSecretValues: []string{strings.TrimSpace(m.setup.apiKey.Value())}})
+		if m.setup.credMode == credModeBrowser {
+			// The rejected key came from the browser login; never leave it
+			// behind in the paste field.
+			m.setup.apiKey.SetValue("")
+		}
 		return m
 	}
 	m.setup.stage = setupStageModel
 	m.setup.err = ""
 	m.resetSetupModels()
 	return m
+}
+
+func (m model) setupBrowserMode() bool {
+	return m.setupCredentialInputActive() && m.setup.credMode == credModeBrowser
+}
+
+// cancelDeviceLogin stops any in-flight browser login and invalidates its
+// pending messages.
+func (m *model) cancelDeviceLogin() {
+	if m.setup.deviceCancel != nil {
+		m.setup.deviceCancel()
+	}
+	m.setup.deviceCancel = nil
+	m.setup.deviceAuth = nil
+	m.setup.browserHint = false
+	m.setup.deviceGen++
+}
+
+func (m model) deviceLoginCurrent(gen uint64) bool {
+	return m.setup.visible && m.setup.stage == setupStageCredentials && m.setup.deviceCancel != nil && m.setup.deviceGen == gen
+}
+
+// startDeviceLogin requests a device code off the UI thread.
+func (m model) startDeviceLogin() (tea.Model, tea.Cmd) {
+	m.cancelDeviceLogin()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	m.setup.deviceCancel = cancel
+	m.setup.err = ""
+	start, gen := m.setup.deviceStart, m.setup.deviceGen
+	return m, func() tea.Msg {
+		auth, opaque, err := start(ctx)
+		return setupDeviceStartedMsg{gen: gen, auth: auth, opaque: opaque, err: err}
+	}
+}
+
+// applySetupDeviceStarted shows the code and URL, then polls for approval and
+// opens the browser concurrently; a failed opener never stops the poll.
+func (m model) applySetupDeviceStarted(msg setupDeviceStartedMsg) (tea.Model, tea.Cmd) {
+	if !m.deviceLoginCurrent(msg.gen) {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.cancelDeviceLogin()
+		m.setup.err = deviceLoginError(msg.err, "")
+		return m, nil
+	}
+	m.setup.deviceCancel() // release the code request's timeout
+	ctx, cancel := context.WithCancel(context.Background())
+	m.setup.deviceCancel = cancel
+	auth := msg.auth
+	m.setup.deviceAuth = &auth
+	wait, gen, opaque := m.setup.deviceWait, msg.gen, msg.opaque
+	cmds := []tea.Cmd{func() tea.Msg {
+		key, err := wait(ctx, opaque)
+		return setupDeviceDoneMsg{gen: gen, key: key, err: err}
+	}}
+	if open := m.setup.openBrowser; open != nil {
+		url := deviceVerificationURL(auth)
+		cmds = append(cmds, func() tea.Msg {
+			openCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+			defer stop()
+			return setupBrowserOpenedMsg{gen: gen, err: open(openCtx, url)}
+		})
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// applySetupDeviceDone feeds an approved key through the same validation as a
+// pasted one; denial or expiry returns to the login choice.
+func (m model) applySetupDeviceDone(msg setupDeviceDoneMsg) (tea.Model, tea.Cmd) {
+	if !m.deviceLoginCurrent(msg.gen) {
+		return m, nil
+	}
+	m.cancelDeviceLogin()
+	if msg.err != nil {
+		m.setup.err = deviceLoginError(msg.err, msg.key)
+		return m, nil
+	}
+	m.setup.apiKey.SetValue(msg.key)
+	if m.setup.validate == nil {
+		m.setup.stage = setupStageModel
+		m.resetSetupModels()
+		return m, nil
+	}
+	m.setup.keyCheck = true
+	return m, m.setupKeyCheckCmd()
+}
+
+func (m model) applySetupBrowserOpened(msg setupBrowserOpenedMsg) model {
+	if m.deviceLoginCurrent(msg.gen) && msg.err != nil {
+		m.setup.browserHint = true
+	}
+	return m
+}
+
+func deviceLoginError(err error, key string) string {
+	switch {
+	case errors.Is(err, qgaccount.ErrAccessDenied):
+		return "Sign-in was denied in the browser."
+	case errors.Is(err, qgaccount.ErrDeviceCodeExpired):
+		return "The sign-in code expired before it was approved."
+	}
+	return "Browser sign-in failed: " + redaction.RedactString(err.Error(), redaction.Options{ExtraSecretValues: []string{key}})
+}
+
+func deviceVerificationURL(auth DeviceAuth) string {
+	if auth.VerificationURIComplete != "" {
+		return auth.VerificationURIComplete
+	}
+	return auth.VerificationURI
 }
 
 func (m model) setupProviderDescriptor() providercatalog.Descriptor {
@@ -499,17 +674,38 @@ func (m model) setupCredentialInputActive() bool {
 func (m model) handleSetupCredentialKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case keyCtrl(msg, 'c'):
+		m.cancelDeviceLogin()
 		return m, tea.Quit
 	case m.setup.keyCheck:
 		// The gateway check owns the screen until its result lands.
 		return m, nil
+	case keyIs(msg, tea.KeyTab) && m.setup.deviceStart != nil:
+		m.cancelDeviceLogin()
+		m.setup.err = ""
+		if m.setup.credMode == credModeBrowser {
+			m.setup.credMode = credModeKey
+		} else {
+			m.setup.credMode = credModeBrowser
+		}
+		return m, nil
 	case keyIs(msg, tea.KeyEsc) || keyIs(msg, tea.KeyLeft):
+		if m.setup.deviceCancel != nil {
+			// Waiting on the browser: back to the login choice, not out.
+			m.cancelDeviceLogin()
+			return m, nil
+		}
 		m.setup.stage = m.previousSetupStage()
 		m.setup.err = ""
 		return m, nil
 	case keyIs(msg, tea.KeyEnter):
-		return m.advanceSetup()
-	case keyIs(msg, tea.KeyUp) || keyIs(msg, tea.KeyDown):
+		if !m.setupBrowserMode() {
+			return m.advanceSetup()
+		}
+		if m.setup.deviceCancel == nil {
+			return m.startDeviceLogin()
+		}
+		return m, nil
+	case keyIs(msg, tea.KeyUp) || keyIs(msg, tea.KeyDown), m.setupBrowserMode():
 		return m, nil
 	}
 	previousAPIKey := m.setup.apiKey.Value()
@@ -545,6 +741,9 @@ func (m model) setupProvider() SetupProviderOption {
 func (m model) setupErrorAffordance() string {
 	switch m.setup.stage {
 	case setupStageCredentials:
+		if m.setupBrowserMode() && !m.setup.keyCheck {
+			return "→ Enter to try again, or Tab to paste an API key"
+		}
 		if m.setupCredentialInputActive() && !m.setup.keyCheck {
 			return "→ re-enter the key above, then Enter to retry (← to go back)"
 		}
@@ -596,7 +795,7 @@ func (m model) setupStageLines(width int, height int) []string {
 			qgTheme.ink.Render("A terminal agent for changing real code."),
 			qgTheme.faint.Render("Plan changes, edit with approval, run checks, and resume sessions."),
 			"",
-			qgTheme.faint.Render("Re-enter your API key anytime with: qg login"),
+			qgTheme.faint.Render("Next, sign in with your browser or paste an API key."),
 		}
 	}
 }
@@ -712,6 +911,9 @@ func blankSetupBlockLine(width int) string {
 }
 
 func (m model) setupCredentialLines(width int) []string {
+	if m.setupBrowserMode() {
+		return m.setupBrowserLines(width)
+	}
 	return []string{
 		qgTheme.ink.Bold(true).Render("Your Quebra Galho API key"),
 		"",
@@ -721,7 +923,43 @@ func (m model) setupCredentialLines(width int) []string {
 		m.setupAPIKeyInputLine(width),
 		"",
 		qgTheme.faint.Render("Saved keys stay encrypted in your user config."),
-		qgTheme.faint.Render("Re-enter it anytime with: qg login"),
+		qgTheme.faint.Render("Re-enter it anytime with: qg login (or qg login --device)"),
+	}
+}
+
+func (m model) setupBrowserLines(width int) []string {
+	title := qgTheme.ink.Bold(true).Render("Sign in to Quebra Galho")
+	auth := m.setup.deviceAuth
+	switch {
+	case auth != nil:
+		lines := []string{
+			title,
+			"",
+			"Open this link in your browser and enter the code:",
+			qgTheme.accent.Render(auth.VerificationURI),
+			"",
+			"Code  " + qgTheme.accent.Bold(true).Render(auth.UserCode),
+		}
+		// A truncated URL is neither clickable nor copyable: show the
+		// pre-filled link only when it fits whole.
+		if full := auth.VerificationURIComplete; full != "" && full != auth.VerificationURI && lipgloss.Width(full) <= width {
+			lines = append(lines, "", qgTheme.faint.Render("Or open the link with the code filled in:"), qgTheme.accent.Render(full))
+		}
+		lines = append(lines, "", qgTheme.faint.Render("Waiting for approval..."))
+		if m.setup.browserHint {
+			lines = append(lines, qgTheme.faint.Render("Couldn't open the browser; open the link above."))
+		}
+		return lines
+	case m.setup.deviceCancel != nil:
+		return []string{title, "", qgTheme.faint.Render("Requesting a sign-in code...")}
+	}
+	return []string{
+		title,
+		"",
+		"Sign in with your browser: press Enter to get a one-time code.",
+		"Approve it there and your API key is saved for this terminal.",
+		"",
+		qgTheme.faint.Render("Already have an API key? Press Tab to paste it."),
 	}
 }
 
@@ -744,7 +982,17 @@ func (m model) setupFooter() string {
 		if m.setup.keyCheck {
 			return qgTheme.faint.Render("validating key...")
 		}
-		return qgTheme.faint.Render("paste key   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" validate & continue   left back")
+		if m.setupBrowserMode() {
+			if m.setup.deviceCancel != nil {
+				return qgTheme.faint.Render("waiting for approval   ") + qgTheme.accent.Render("Esc") + qgTheme.faint.Render(" cancel   Tab paste API key")
+			}
+			return qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" sign in with browser   Tab paste API key   left back")
+		}
+		footer := qgTheme.faint.Render("paste key   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" validate & continue   left back")
+		if m.setup.deviceStart != nil {
+			footer += qgTheme.faint.Render("   Tab browser login")
+		}
+		return footer
 	case setupStageModel:
 		return qgTheme.faint.Render("↑/↓ choose   type search   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continue")
 	default:

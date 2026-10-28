@@ -27,21 +27,21 @@ Encontre o motivo do teste que falhou e corrija o problema.
 No Linux ou macOS, instale pelo mirror público e abra o QG:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | bash
 qg
 ```
 
 No Windows, use o PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 | iex
 qg
 ```
 
 Para escolher uma versão no Linux ou macOS, substitua `vX.Y.Z` pela versão desejada:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh | bash -s -- --version vX.Y.Z
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | bash -s -- --version vX.Y.Z
 ```
 
 Veja mais opções no [guia de instalação](docs/INSTALL.md).
@@ -52,8 +52,25 @@ Veja mais opções no [guia de instalação](docs/INSTALL.md).
 2. Na primeira abertura, informe sua chave do Quebra Galho e escolha um modelo.
 3. Escreva seu pedido e pressione Enter.
 
-Para trocar ou cadastrar a chave depois, use `qg login`. Se algo não funcionar,
+Para trocar ou cadastrar a chave depois, use `qg login` (ou `qg login --device`
+para aprovar o acesso no navegador em vez de colar a chave). Se algo não funcionar,
 `qg doctor` ajuda a conferir a configuração e a conexão.
+
+### Login e chave
+
+Se não houver login salvo, `qg` (ou `quebragalho`) abre uma tela de entrada que usa o
+navegador: o CLI abre a página de aprovação, mostra o link e um código curto, e
+depois de aprovar vai direto para a escolha do modelo e para o chat. Para colar uma
+chave de API, use Tab nessa tela. Nas próximas vezes, `qg` abre direto no chat.
+
+- `/logout` (dentro do TUI) ou `qg logout` remove a chave salva, qualquer chave inline
+  e tokens OAuth antigos. O perfil é mantido. Se `QG_API_KEY` ou `QUEBRAGALHO_API_KEY`
+  estiverem definidas, remova-as você mesmo para o logout valer.
+- `--no-browser` (em `qg` e em `qg login --device`) desativa a abertura automática do
+  navegador, útil em SSH ou sem interface gráfica. O link e o código continuam sendo
+  mostrados. Na abertura interativa, `QG_NO_BROWSER=1` tem o mesmo efeito.
+- Precedência da chave: chave inline do perfil (e `qg exec --api-key`, só naquela
+  execução) > `QG_API_KEY` / `QUEBRAGALHO_API_KEY` > chave salva.
 
 ## No dia a dia
 

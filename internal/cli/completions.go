@@ -20,7 +20,7 @@ type completionContext struct {
 }
 
 var completionRoot = completionNode{
-	flags: []string{"-h", "--help", "-v", "--version", "-p", "--prompt", "--add-dir", "--allow-escalation", "--theme", "--dangerously-skip-permissions", "--skip-permissions-unsafe"},
+	flags: []string{"-h", "--help", "-v", "--version", "-p", "--prompt", "--add-dir", "--allow-escalation", "--no-browser", "--theme", "--dangerously-skip-permissions", "--skip-permissions-unsafe"},
 	children: []completionNode{
 		{names: []string{"exec"}, flags: []string{
 			"-h", "--help", "-f", "--file", "--image", "--add-dir", "--mode", "-m", "--model",
@@ -40,7 +40,8 @@ var completionRoot = completionNode{
 		},
 		{names: []string{"daemon"}, children: leafNodes("start", "stop", "status", "run", "attach", "serve-remote", "link")},
 		{names: []string{"setup"}},
-		{names: []string{"login"}},
+		{names: []string{"login"}, flags: []string{"--api-key", "--device", "--no-browser", "-h", "--help"}},
+		{names: []string{"logout"}, flags: []string{"--json", "-h", "--help"}},
 		{names: []string{"config"}},
 		{names: []string{"models"}, children: []completionNode{{names: []string{"list", "ls"}}}},
 		{names: []string{"balance"}},

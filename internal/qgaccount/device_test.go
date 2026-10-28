@@ -110,6 +110,25 @@ func TestRequestDeviceCodeDefaultsWhenFieldsMissing(t *testing.T) {
 	}
 }
 
+func TestRequestDeviceCodeUsesInjectedClock(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"device_code":"d","user_code":"U","expires_in":600}`))
+	}))
+	defer server.Close()
+	t0 := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	client := NewClient("")
+	client.AuthBaseURL = server.URL
+	client.Now = func() time.Time { return t0 }
+
+	auth, err := client.RequestDeviceCode(context.Background())
+	if err != nil {
+		t.Fatalf("RequestDeviceCode: %v", err)
+	}
+	if want := t0.Add(600 * time.Second); !auth.ExpiresAt.Equal(want) {
+		t.Fatalf("ExpiresAt = %v, want %v from the injected clock", auth.ExpiresAt, want)
+	}
+}
+
 func TestPollDeviceTokenPendingThenSuccess(t *testing.T) {
 	server, polls := testTokenServer(t, []tokenStep{
 		{status: http.StatusBadRequest, body: `{"error":"authorization_pending"}`},
@@ -268,6 +287,22 @@ func TestPollDeviceTokenAcceptsKeyAndAccessTokenAliases(t *testing.T) {
 	}
 }
 
+func TestPollDeviceTokenUsesAccessTokenWhenAPIKeyIsMetadata(t *testing.T) {
+	server, _ := testTokenServer(t, []tokenStep{
+		{status: http.StatusOK, body: `{"access_token":"qg-sk-secret-0123456789abcdef","token_type":"Bearer","api_key":{"id":"k1","name":"cli","key_prefix":"qg-sk-secret"}}`},
+	})
+	defer server.Close()
+	client := NewClient("")
+	client.AuthBaseURL = server.URL
+	key, err := client.PollDeviceToken(context.Background(), freshAuth(), fastPollOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "qg-sk-secret-0123456789abcdef" {
+		t.Fatalf("key = %q", key)
+	}
+}
+
 func TestPollDeviceTokenClampsRetryAfterToExpiry(t *testing.T) {
 	// First poll is rate-limited with a huge Retry-After; the code expires in
 	// ~2s. The wait must be clamped to the remaining lifetime, not 1 hour.
@@ -323,3 +358,36 @@ func TestDeviceFlowPrimitivesAreSharedWithOAuth(t *testing.T) {
 // assertSameDeviceAuthType accepts values of one single type: a structurally
 // identical but distinct DeviceAuth would fail to compile here.
 func assertSameDeviceAuthType(_, _ DeviceAuth) {}
+
+// The gateway's token endpoint requires the RFC 8628 grant_type field: a poll
+// without it fails with HTTP 400 "invalid_request: grant_type is required"
+// (reproduced against the live server with the worktree binary). The client
+// must send grant_type=urn:ietf:params:oauth:grant-type:device_code, the same
+// value the sibling oauth package already sends (oauth/device.go).
+func TestPollDeviceTokenSendsGrantType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/auth/device/token" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		if got := r.Form.Get("grant_type"); got != "urn:ietf:params:oauth:grant-type:device_code" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_request","error_description":"grant_type is required."}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"api_key":"qg-sk-from-device-0123456789"}`))
+	}))
+	defer server.Close()
+	client := NewClient("")
+	client.AuthBaseURL = server.URL
+
+	key, err := client.PollDeviceToken(context.Background(), freshAuth(), fastPollOptions())
+	if err != nil {
+		t.Fatalf("PollDeviceToken: %v", err)
+	}
+	if key != "qg-sk-from-device-0123456789" {
+		t.Fatalf("key = %q", key)
+	}
+}

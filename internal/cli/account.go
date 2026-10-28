@@ -47,7 +47,7 @@ func resolveQGAccountClient(stderr io.Writer, deps appDeps, quiet bool) (qgAccou
 	}
 	authed := discoveryCredentialProfile(profile)
 	if strings.TrimSpace(authed.APIKey) == "" {
-		return nil, codeForQuiet(quiet, exitProvider, writeExecUsageError(stderr, "no Quebra Galho API key: run qg login (or export QG_API_KEY)"))
+		return nil, codeForQuiet(quiet, exitProvider, writeExecUsageError(stderr, "no Quebra Galho API key: run qg login (or qg login --device, or export QG_API_KEY)"))
 	}
 	return qgaccount.NewClient(authed.APIKey), exitSuccess
 }
@@ -72,7 +72,7 @@ func findQGProfile(resolved config.ResolvedConfig) (config.ProviderProfile, erro
 	if resolved.Provider.CatalogID == providercatalog.QGID || resolved.Provider.Name == providercatalog.QGID {
 		return resolved.Provider, nil
 	}
-	return config.ProviderProfile{}, fmt.Errorf("no Quebra Galho provider configured: run qg login")
+	return config.ProviderProfile{}, fmt.Errorf("no Quebra Galho provider configured: run qg login (or qg login --device)")
 }
 
 func runBalance(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
@@ -132,7 +132,7 @@ func runKey(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int
 		return writeExecUsageError(stderr, err.Error())
 	}
 	if help {
-		if _, err := fmt.Fprint(stdout, "Usage: qg key [--json]\n\nShow the profile of the active Quebra Galho API key (alias: qg whoami).\nThe key itself is never printed.\n\nFlags:\n      --json   Machine-readable output\n"); err != nil {
+		if _, err := fmt.Fprint(stdout, "Usage: qg key [--json]\n\nShow the profile of the active Quebra Galho API key (alias: qg whoami).\nThe key itself is never printed.\n\nThe profile reflects the key this run resolves, in order: an inline key in the\nprofile, then QG_API_KEY (or QUEBRAGALHO_API_KEY) from the environment, then the\nsaved key. `qg exec --api-key <key>` wins over everything for that run.\n\nFlags:\n      --json   Machine-readable output\n"); err != nil {
 			return exitCrash
 		}
 		return exitSuccess

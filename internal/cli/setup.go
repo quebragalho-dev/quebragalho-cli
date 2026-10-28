@@ -14,6 +14,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
 
@@ -44,6 +45,25 @@ func runSetup(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	}
 	if strings.TrimSpace(options.catalogID) == "" {
 		return writeAppError(stderr, setupUnavailableMessage(), exitUsage)
+	}
+
+	// A QG API key is validated exactly like qg login does (same validator,
+	// same GET /v1/models probe) BEFORE anything is persisted: saving a
+	// rejected key would leave a dead credential in the store and a marker
+	// claiming the provider works. Other providers keep their existing
+	// behavior — their keys have no shared validator.
+	if strings.EqualFold(strings.TrimSpace(options.catalogID), providercatalog.QGID) {
+		if key := strings.TrimSpace(options.apiKey); key != "" {
+			if deps.validateLoginKey == nil {
+				return writeAppError(stderr, "login validator unavailable", exitCrash)
+			}
+			ctx, stop := signalContext()
+			defer stop()
+			if validateErr := deps.validateLoginKey(ctx, key); validateErr != nil {
+				msg := redaction.RedactString(validateErr.Error(), redaction.Options{ExtraSecretValues: []string{key}})
+				return writeAppError(stderr, "setup failed: "+msg, exitProvider)
+			}
+		}
 	}
 
 	result, err := saveSetupProvider(deps, tui.SetupSelection{
@@ -357,6 +377,28 @@ func mustMissingCredentialEnv(profile config.ProviderProfile) string {
 	return envVar
 }
 
+// isQGProfile is the one definition of "a Quebra Galho profile", shared by the
+// login gate and logout so they always agree on which profiles count.
+func isQGProfile(p config.ProviderProfile) bool {
+	return providercatalog.NormalizeID(p.CatalogID) == providercatalog.QGID || providercatalog.NormalizeID(p.Name) == providercatalog.QGID
+}
+
+// qgCredentialProfile returns the QG profile (the active one or any saved) that
+// holds a credential: inline/stored/env key or a legacy OAuth login.
+func qgCredentialProfile(resolved config.ResolvedConfig) (config.ProviderProfile, bool) {
+	for _, profile := range append([]config.ProviderProfile{resolved.Provider}, resolved.Providers...) {
+		if isQGProfile(profile) && !setupRequired(config.ResolvedConfig{Provider: profile}) {
+			return profile, true
+		}
+	}
+	return config.ProviderProfile{}, false
+}
+
+func qgCredentialPresent(resolved config.ResolvedConfig) bool {
+	_, ok := qgCredentialProfile(resolved)
+	return ok
+}
+
 func setupRequired(resolved config.ResolvedConfig) bool {
 	if !config.HasProviderProfile(resolved.Provider) {
 		return true
@@ -407,50 +449,6 @@ func oauthLoggedInProviders() map[string]bool {
 		}
 	}
 	return out
-}
-
-// firstUsableProvider returns the saved provider best suited to run without
-// onboarding: the first usable (inline credential, stored OAuth login, or
-// no-auth/local) non-local provider, else the first usable local one. It lets
-// the CLI fall back to an already-configured login when the active provider
-// happens to lack a credential, instead of re-running onboarding every launch.
-func firstUsableProvider(providers []config.ProviderProfile) (config.ProviderProfile, bool) {
-	logins := oauthLoggedInProviders()
-	var localFallback config.ProviderProfile
-	haveLocal := false
-	for _, profile := range providers {
-		if !config.HasProviderProfile(profile) {
-			continue
-		}
-		// A profile whose catalog entry no longer resolves AND that has no explicit
-		// BaseURL has no endpoint to talk to, so it cannot become a working
-		// provider — skip it rather than picking a fallback that fails at first use.
-		// (A stale CatalogID with a BaseURL still works as a custom endpoint.)
-		if catalogID := strings.TrimSpace(profile.CatalogID); catalogID != "" && strings.TrimSpace(profile.BaseURL) == "" {
-			if _, err := providercatalog.Require(catalogID); err != nil {
-				continue
-			}
-		}
-		// A stored OAuth login from an earlier version is a credential too, even
-		// when the profile has no inline key / env var — mirrors setupRequired
-		// and usableSavedProviders so this fallback doesn't force onboarding for
-		// a provider the user already authenticated.
-		if _, missing := setupMissingCredentialEnv(profile); missing && !providerHasOAuthLogin(profile, logins) {
-			continue
-		}
-		if providerProfileIsLocal(profile) {
-			if !haveLocal {
-				localFallback = profile
-				haveLocal = true
-			}
-			continue
-		}
-		return profile, true
-	}
-	if haveLocal {
-		return localFallback, true
-	}
-	return config.ProviderProfile{}, false
 }
 
 // usableSavedProviders filters configured providers to those the user can actually

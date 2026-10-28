@@ -34,6 +34,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/skills"
@@ -272,6 +273,8 @@ type model struct {
 	altScreen       bool
 	setup           setupState
 	setupSave       func(SetupSelection) (SetupResult, error)
+	logout          func() (LogoutSummary, error)
+	farewell        string // printed to stdout after the alt screen closes
 	// spinner animates the turn-level activity glyph. Its tick is started with
 	// each run and stops itself once pending clears (the TickMsg is simply not
 	// forwarded), so an idle UI schedules no timers.
@@ -1043,6 +1046,7 @@ func newModel(ctx context.Context, options Options) model {
 		swarmSessionMap:             map[string]string{},
 		setup:                       newSetupState(options.Setup),
 		setupSave:                   options.Setup.Save,
+		logout:                      options.Logout,
 		dictation:                   newDictationController(options),
 	}
 	if m.reasoningEffort == "" {
@@ -1433,6 +1437,26 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		applyTheme(m.themeMode, m.hasDarkBg)
 		return m, nil
 	case tea.MouseMsg:
+		// A release always ends an in-progress drag, even when a modal surface
+		// (setup, terminal attach) would otherwise swallow it below:
+		// handleSetupMouse ignores releases and the terminal-attach branch
+		// drops every mouse event, either of which would leave a dragging flag
+		// stuck and turn the next hover into a drag continuation. Finalize
+		// every drag bracket first (transcript, composer, pet), then route the
+		// event itself to whichever surface owns it.
+		if mouseRelease(msg) {
+			if m.transcriptSelection.dragging {
+				m = m.stopEdgeScroll()
+				m.transcriptSelection.dragging = false
+			}
+			m.composerSelection.dragging = false
+			// No finishPetDrag here on purpose: without movement that plays a
+			// click animation (waving/jumping), a visual side effect for a
+			// release the pet surface never saw. Just close the bracket so a
+			// later hover cannot move the pet with no button held.
+			m.petDragActive = false
+			m.petPixelDrag = false
+		}
 		// Attached to a live terminal: the overlay owns the viewport, so mouse
 		// events go nowhere rather than hitting transcript selection below.
 		if m.terminalAttach != nil {
@@ -2982,6 +3006,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case setupKeyCheckMsg:
 		return m.applySetupKeyCheck(msg), nil
+	case setupDeviceStartedMsg:
+		return m.applySetupDeviceStarted(msg)
+	case setupDeviceDoneMsg:
+		return m.applySetupDeviceDone(msg)
+	case setupBrowserOpenedMsg:
+		return m.applySetupBrowserOpened(msg), nil
 	case modelPickerModelsDiscoveredMsg:
 		return m.applyModelPickerModelsDiscovered(msg), nil
 	case petCatalogLoadedMsg:
@@ -4768,6 +4798,22 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		return m, nil
 	case commandDoctor:
 		return m.startDoctorCommand(command.text)
+	case commandLogout:
+		if m.pending || m.loopActive() {
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "/logout: stop the current run first."})
+			return m, nil
+		}
+		if m.logout == nil {
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "/logout is not available in this session."})
+			return m, nil
+		}
+		summary, err := m.logout()
+		if err != nil {
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: redaction.ErrorMessage(err, redaction.Options{})})
+			return m, nil
+		}
+		m.farewell = summary.Message
+		return m.dispatchCommand(parsedCommand{kind: commandExit})
 	case commandSearch:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.searchText(command.text)})
 		return m, nil

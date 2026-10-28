@@ -65,7 +65,6 @@ func runAuth(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 type authArgs struct {
 	positional []string
 	json       bool
-	device     bool
 	watch      bool
 	confirm    bool
 	scopes     []string
@@ -89,8 +88,6 @@ func parseAuthArgs(sub string, args []string) (authArgs, error) {
 			parsed.help = true
 		case arg == "--json":
 			parsed.json = true
-		case arg == "--device":
-			parsed.device = true
 		case arg == "--watch":
 			parsed.watch = true
 		case arg == "--confirm":
@@ -134,9 +131,6 @@ func validateAuthFlags(sub string, a authArgs) error {
 	bad := func(name string) error { return fmt.Errorf("qg auth %s does not accept %s", sub, name) }
 	if a.json && !allowed["json"] {
 		return bad("--json")
-	}
-	if a.device && !allowed["device"] {
-		return bad("--device")
 	}
 	if a.watch && !allowed["watch"] {
 		return bad("--watch")
@@ -197,6 +191,12 @@ func runAuthLogout(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		return writeExecUsageError(stderr, "usage: qg auth logout <provider>")
 	}
 	provider := parsed.positional[0]
+	if descriptor, ok := providercatalog.Get(provider); ok && descriptor.ID == providercatalog.QGID {
+		if parsed.json {
+			return runLogout([]string{"--json"}, stdout, stderr, deps)
+		}
+		return runLogout(nil, stdout, stderr, deps)
+	}
 	manager, err := newAuthManager(deps, stdout)
 	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
@@ -389,6 +389,10 @@ Commands:
 OAuth login was removed: run "qg login" to save your API key — QG_API_KEY
 (or QUEBRAGALHO_API_KEY) from the environment also works; see "qg setup
 --help". These commands maintain token stores written by earlier versions.
+
+Note: "qg auth status" reports OAuth token stores only. It does not cover
+the Quebra Galho provider API key (credential store / QG_API_KEY); use
+"qg key" for that.
 
 Storage: tokens are written 0600 under $XDG_CONFIG_HOME/qg (override with
 QG_OAUTH_TOKENS_PATH). Set QG_OAUTH_STORAGE=encrypted-file to encrypt them at

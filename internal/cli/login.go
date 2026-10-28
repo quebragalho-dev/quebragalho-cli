@@ -63,20 +63,20 @@ func validateQuebraGalhoKey(ctx context.Context, baseURL, key string, client *ht
 // same setup path (`saveSetupProvider`) so the secret lands in the credential
 // store with config.json keeping only the apiKeyStored marker.
 func runLogin(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
-	flagKey, device, help, err := parseLoginArgs(args)
+	parsed, err := parseLoginArgs(args)
 	if err != nil {
 		return writeExecUsageError(stderr, err.Error())
 	}
-	if help {
+	if parsed.help {
 		if err := writeLoginHelp(stdout); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
 	}
-	if device {
-		return runLoginDevice(stdout, stderr, deps)
+	if parsed.device {
+		return runLoginDevice(stdout, stderr, deps, parsed.noBrowser)
 	}
-	key := strings.TrimSpace(flagKey)
+	key := strings.TrimSpace(parsed.apiKey)
 	if key == "" {
 		key, err = readLoginKeyPrompt(stdout, deps.stdin)
 		if err != nil {
@@ -121,18 +121,23 @@ type qgDeviceAPI interface {
 
 var _ qgDeviceAPI = (*qgaccount.Client)(nil)
 
+// qgDeviceClient returns the injected device-flow client, or the production
+// one against the default endpoints.
+func qgDeviceClient(deps appDeps) (qgDeviceAPI, error) {
+	if deps.newQGDeviceClient != nil {
+		return deps.newQGDeviceClient()
+	}
+	return qgaccount.NewClient(""), nil
+}
+
 // runLoginDevice performs the QG device-flow login: the app issues a short
 // code, the user approves it at /connect/cli, and the account API key comes
 // back on the poll. The key is then validated and stored through the exact
 // same path as a pasted key (credstore + apiKeyStored marker).
-func runLoginDevice(stdout io.Writer, stderr io.Writer, deps appDeps) int {
-	var client qgDeviceAPI = qgaccount.NewClient("")
-	if deps.newQGDeviceClient != nil {
-		built, err := deps.newQGDeviceClient()
-		if err != nil {
-			return writeAppError(stderr, err.Error(), exitCrash)
-		}
-		client = built
+func runLoginDevice(stdout io.Writer, stderr io.Writer, deps appDeps, noBrowser bool) int {
+	client, err := qgDeviceClient(deps)
+	if err != nil {
+		return writeAppError(stderr, err.Error(), exitCrash)
 	}
 	ctx, stop := signalContext()
 	defer stop()
@@ -147,6 +152,15 @@ func runLoginDevice(stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	}
 	if _, err := fmt.Fprintf(stdout, "Aprove o acesso em:\n  %s\nCódigo: %s\n\nAguardando aprovação…\n", uri, auth.UserCode); err != nil {
 		return exitCrash
+	}
+	if !noBrowser && deps.openBrowser != nil {
+		// Bounded so a stuck opener cannot stall the login; failure only
+		// warns, the printed link still works.
+		openCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := deps.openBrowser(openCtx, uri); err != nil {
+			_, _ = fmt.Fprintf(stderr, "could not open the browser (%v); open the link above manually\n", err)
+		}
+		cancel()
 	}
 	key, err := client.PollDeviceToken(ctx, auth, qgaccount.DevicePollOptions{})
 	if err != nil {
@@ -177,41 +191,50 @@ func runLoginDevice(stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	return exitSuccess
 }
 
-// parseLoginArgs accepts -h/--help/help and --api-key in both forms; every
-// other flag or positional argument is a usage error.
-func parseLoginArgs(args []string) (string, bool, bool, error) {
-	apiKey := ""
-	device := false
+type loginArgs struct {
+	apiKey                  string
+	device, noBrowser, help bool
+}
+
+// parseLoginArgs accepts -h/--help/help, --api-key in both forms, --device and
+// --no-browser; every other flag or positional argument is a usage error.
+func parseLoginArgs(args []string) (loginArgs, error) {
+	var parsed loginArgs
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case arg == "-h" || arg == "--help" || arg == "help":
-			return "", false, true, nil
+			return loginArgs{help: true}, nil
 		case arg == "--api-key":
 			value, next, err := nextFlagValue(args, i, arg)
 			if err != nil {
-				return "", false, false, err
+				return loginArgs{}, err
 			}
-			apiKey = value
+			parsed.apiKey = value
 			i = next
 		case strings.HasPrefix(arg, "--api-key="):
 			value, err := requiredInlineFlagValue(arg, "--api-key")
 			if err != nil {
-				return "", false, false, err
+				return loginArgs{}, err
 			}
-			apiKey = value
+			parsed.apiKey = value
 		case arg == "--device":
-			device = true
+			parsed.device = true
+		case arg == "--no-browser":
+			parsed.noBrowser = true
 		case strings.HasPrefix(arg, "-"):
-			return "", false, false, execUsageError{fmt.Sprintf("unknown flag %q", arg)}
+			return loginArgs{}, execUsageError{fmt.Sprintf("unknown flag %q", arg)}
 		default:
-			return "", false, false, execUsageError{fmt.Sprintf("unexpected argument %q", arg)}
+			return loginArgs{}, execUsageError{fmt.Sprintf("unexpected argument %q", arg)}
 		}
 	}
-	if device && strings.TrimSpace(apiKey) != "" {
-		return "", false, false, execUsageError{"--device and --api-key are mutually exclusive"}
+	if parsed.device && strings.TrimSpace(parsed.apiKey) != "" {
+		return loginArgs{}, execUsageError{"--device and --api-key are mutually exclusive"}
 	}
-	return apiKey, device, false, nil
+	if parsed.noBrowser && !parsed.device {
+		return loginArgs{}, execUsageError{"--no-browser requires --device"}
+	}
+	return parsed, nil
 }
 
 // readLoginKeyPrompt writes the prompt to stdout and reads one line from
@@ -249,7 +272,7 @@ func readLoginKeyPrompt(stdout io.Writer, stdin io.Reader) (string, error) {
 func writeLoginHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Usage:
   qg login [--api-key <key>]
-  qg login --device
+  qg login --device [--no-browser]
 
 Validates a Quebra Galho API key against GET /v1/models and saves it to the
 credential store (provider qg, set active). Without --api-key the key is
@@ -258,6 +281,11 @@ key is written to config.json in plaintext instead and a warning is printed.
 
 --device starts the browser device flow instead: approve the shown code at
 the printed link and the account API key is fetched and saved automatically.
+The link is opened in your browser; --no-browser only prints it (SSH, headless).
+
+Key precedence at runtime: an inline key in the profile (and
+`+"`qg exec --api-key <key>`"+` for that run) wins over QG_API_KEY (or
+QUEBRAGALHO_API_KEY) from the environment, which wins over the saved key.
 `)
 	return err
 }

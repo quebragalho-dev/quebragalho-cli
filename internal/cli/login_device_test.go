@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,6 +55,7 @@ func TestRunLoginDeviceFlowSavesKeyWithStoredMarker(t *testing.T) {
 			return nil
 		},
 		newQGDeviceClient: func() (qgDeviceAPI, error) { return fake, nil },
+		openBrowser:       func(context.Context, string) error { return nil },
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -99,5 +101,75 @@ func TestRunLoginDeviceRejectsUnknownFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runWithDeps([]string{"login", "--device", "--bogus"}, &stdout, &stderr, appDeps{}); code != exitUsage {
 		t.Fatalf("exit = %d, want usage", code)
+	}
+}
+
+// deviceBrowserDeps wires a fake device client and opener so the browser
+// behavior of `qg login --device` is observable without a real browser.
+func deviceBrowserDeps(t *testing.T, openErr error) (appDeps, *fakeQGDevice, *[]string) {
+	t.Helper()
+	t.Setenv("QG_CRED_STORAGE", "encrypted-file")
+	fake := &fakeQGDevice{
+		auth: qgaccount.DeviceAuth{
+			DeviceCode:              "dev-code",
+			UserCode:                "ABCD-1234",
+			VerificationURI:         "https://app.quebragalho.dev/connect/cli",
+			VerificationURIComplete: "https://app.quebragalho.dev/connect/cli?user_code=ABCD-1234",
+		},
+		key: "qg-sk-device-0123456789abcdef",
+	}
+	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
+	opened := &[]string{}
+	deps := appDeps{
+		userConfigPath:    func() (string, error) { return configPath, nil },
+		validateLoginKey:  func(context.Context, string) error { return nil },
+		newQGDeviceClient: func() (qgDeviceAPI, error) { return fake, nil },
+		openBrowser: func(_ context.Context, url string) error {
+			*opened = append(*opened, url)
+			return openErr
+		},
+	}
+	return deps, fake, opened
+}
+
+func TestLoginDeviceOpensBrowserWithCompleteURI(t *testing.T) {
+	deps, fake, opened := deviceBrowserDeps(t, nil)
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"login", "--device"}, &stdout, &stderr, deps); code != exitSuccess {
+		t.Fatalf("exit = %d: %s", code, stderr.String())
+	}
+	if len(*opened) != 1 || (*opened)[0] != fake.auth.VerificationURIComplete {
+		t.Fatalf("opened = %v, want the verification_uri_complete once", *opened)
+	}
+}
+
+func TestLoginDeviceNoBrowserFlagSkipsOpen(t *testing.T) {
+	deps, _, opened := deviceBrowserDeps(t, nil)
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"login", "--device", "--no-browser"}, &stdout, &stderr, deps); code != exitSuccess {
+		t.Fatalf("exit = %d: %s", code, stderr.String())
+	}
+	if len(*opened) != 0 {
+		t.Fatalf("opened = %v, want no browser launch", *opened)
+	}
+	if !strings.Contains(stdout.String(), "user_code=ABCD-1234") {
+		t.Fatalf("link must stay printed:\n%s", stdout.String())
+	}
+}
+
+func TestLoginDeviceOpenerErrorStillPrintsLinkAndPolls(t *testing.T) {
+	deps, fake, _ := deviceBrowserDeps(t, errors.New("no opener available"))
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"login", "--device"}, &stdout, &stderr, deps); code != exitSuccess {
+		t.Fatalf("exit = %d: %s", code, stderr.String())
+	}
+	if fake.polls != 1 {
+		t.Fatalf("polls = %d, want the flow to continue after the opener failed", fake.polls)
+	}
+	if !strings.Contains(stdout.String(), "user_code=ABCD-1234") {
+		t.Fatalf("link must stay printed:\n%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "no opener available") {
+		t.Fatalf("stderr = %q, want a one-line opener warning", stderr.String())
 	}
 }

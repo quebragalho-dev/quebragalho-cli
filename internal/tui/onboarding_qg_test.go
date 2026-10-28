@@ -136,8 +136,8 @@ func TestSetupModelListIsQG19WithMuseSparkPreselected(t *testing.T) {
 	}
 }
 
-// The welcome screen names Quebra Galho and points at `qg login` for re-running
-// only the key later.
+// The welcome screen names Quebra Galho and announces the browser login that
+// follows it.
 func TestSetupWelcomeNamesQuebraGalhoAndLogin(t *testing.T) {
 	m := newModel(context.Background(), Options{Setup: qgSetupOptions(nil, nil)})
 	m.width, m.height = 100, 30
@@ -145,7 +145,7 @@ func TestSetupWelcomeNamesQuebraGalhoAndLogin(t *testing.T) {
 	if !strings.Contains(view, "Welcome to Quebra Galho") {
 		t.Fatalf("welcome title missing:\n%s", view)
 	}
-	if !strings.Contains(view, "qg login") {
-		t.Fatalf("welcome must hint qg login for re-entering the key later:\n%s", view)
+	if !strings.Contains(view, "sign in with your browser") {
+		t.Fatalf("welcome must announce the browser login:\n%s", view)
 	}
 }

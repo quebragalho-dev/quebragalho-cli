@@ -17,6 +17,7 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/browser"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
@@ -29,6 +30,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
@@ -72,7 +74,10 @@ type appDeps struct {
 	// newQGDeviceClient builds the unauthenticated device-flow client for
 	// `qg login --device`; nil uses the production endpoints. Tests inject a
 	// fake, the same way newQGAccountClient is injected.
-	newQGDeviceClient            func() (qgDeviceAPI, error)
+	newQGDeviceClient func() (qgDeviceAPI, error)
+	// openBrowser opens the device-flow approval link (production:
+	// browser.Open); tests inject a fake so no real browser launches.
+	openBrowser                  func(ctx context.Context, url string) error
 	detectLocalRuntimes          func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
 	newSessionStore              func() *sessions.Store
 	loadPlugins                  func(plugins.LoadOptions) (plugins.LoadResult, error)
@@ -312,7 +317,14 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	}
 	addDirs, theme, allowEscalation := root.addDirs, root.theme, root.allowEscalation
 
+	// --no-browser (or QG_NO_BROWSER=1) keeps the first-run device login from
+	// opening a browser; the approval link and code still show. Only the
+	// interactive launch consumes it.
+	noBrowser := root.noBrowser || os.Getenv("QG_NO_BROWSER") == "1"
 	if len(args) == 0 {
+		if noBrowser {
+			deps.openBrowser = nil
+		}
 		return runInteractiveTUI(stderr, deps, agent.PermissionModeAsk, addDirs, theme, allowEscalation)
 	}
 
@@ -333,6 +345,9 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	}
 	if allowEscalation && !forwardsRootFlags {
 		return writeAppError(stderr, "--allow-escalation is only supported for the interactive TUI and exec", 1)
+	}
+	if root.noBrowser && args[0] != "--dangerously-skip-permissions" && args[0] != "--skip-permissions-unsafe" {
+		return writeAppError(stderr, "--no-browser is only supported for the interactive TUI (see `qg login --help` for the login flag)", 1)
 	}
 
 	switch args[0] {
@@ -360,6 +375,9 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 			skipTheme = more.theme
 		}
 		skipAllowEscalation := more.allowEscalation
+		if noBrowser || more.noBrowser {
+			deps.openBrowser = nil
+		}
 		// A misplaced --add-dir anywhere in the remainder is the more specific error,
 		// so check for it across all of rest before rejecting stray args.
 		for _, arg := range rest {
@@ -489,6 +507,8 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		return runCron(args[1:], stdout, stderr, deps)
 	case "repo-info", "repoinfo":
 		return runRepoInfo(args[1:], stdout, stderr, deps)
+	case "logout":
+		return runLogout(args[1:], stdout, stderr, deps)
 	case "serve":
 		return runServe(args[1:], stdout, stderr, deps)
 	case "acp":
@@ -496,15 +516,6 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	default:
 		if _, err := fmt.Fprintf(stderr, "unknown command %q\n", args[0]); err != nil {
 			return 1
-		}
-		// First-run users reach for `qg logout` (reported in the wild); point
-		// them at the real command instead of a bare usage pointer. `qg login`
-		// is a real command now (API-key onboarding) and never lands here.
-		switch strings.ToLower(args[0]) {
-		case "logout":
-			if _, err := fmt.Fprintf(stderr, "did you mean %q?\n", "qg auth logout"); err != nil {
-				return 1
-			}
 		}
 		if _, err := fmt.Fprintln(stderr, "Run qg --help for usage."); err != nil {
 			return 1
@@ -677,6 +688,9 @@ func fillAppDeps(deps appDeps) appDeps {
 		options.Profile = applyStoredProviderKeyAt(options.Profile, userConfigPath)
 		return baseProbeProviderHealth(ctx, options)
 	}
+	if deps.openBrowser == nil {
+		deps.openBrowser = browser.Open
+	}
 	if deps.validateLoginKey == nil {
 		deps.validateLoginKey = defaults.validateLoginKey
 	}
@@ -701,19 +715,8 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		if errors.Is(err, config.ErrProviderRequiresModel) || !errors.Is(err, config.ErrNoActiveProvider) {
 			return writeAppError(stderr, err.Error(), 1)
 		}
-		// ErrNoActiveProvider can mean "nothing configured yet" or "providers
-		// ARE configured, just none marked active". In the second case
-		// resolved.Providers still carries the already-normalized list — prefer
-		// falling back to one of those over forcing the user to re-enter
-		// credentials they already saved. With neither, reset to a blank config
-		// so the launch gate below opens onboarding for a fresh install.
-		usable, ok := firstUsableProvider(resolved.Providers)
-		if !ok {
-			resolved = config.ResolvedConfig{}
-		} else {
-			resolved.Provider = usable
-			resolved.ActiveProvider = usable.Name
-		}
+		// ErrNoActiveProvider: resolved keeps the normalized providers; the login
+		// gate below picks the QG profile or opens the onboarding.
 	}
 	userConfigPath, err := deps.userConfigPath()
 	if err != nil {
@@ -1017,6 +1020,13 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		STTDownloadRoot:           sttDownloadRoot,
 		STTKeyStatus:              newSTTKeyStatus(resolved, userConfigPath),
 		SaveSTTKey:                newSaveSTTKey(userConfigPath),
+		Logout: func() (tui.LogoutSummary, error) {
+			result, err := logoutQG(deps, io.Discard)
+			if err != nil {
+				return tui.LogoutSummary{}, err
+			}
+			return tui.LogoutSummary{Message: logoutMessage(result)}, nil
+		},
 		Setup: tui.SetupOptions{
 			// The launch gate opens this overlay whenever the config resolves
 			// without a usable credential; the pasted key is checked against
@@ -1030,6 +1040,31 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 			Save: func(selection tui.SetupSelection) (tui.SetupResult, error) {
 				return saveSetupProvider(deps, selection, setupSaveOptions{})
 			},
+			DeviceStart: func(ctx context.Context) (tui.DeviceAuth, any, error) {
+				client, err := qgDeviceClient(deps)
+				if err != nil {
+					return tui.DeviceAuth{}, nil, err
+				}
+				auth, err := client.RequestDeviceCode(ctx)
+				return tui.DeviceAuth{
+					UserCode:                auth.UserCode,
+					VerificationURI:         auth.VerificationURI,
+					VerificationURIComplete: auth.VerificationURIComplete,
+					ExpiresAt:               auth.ExpiresAt,
+				}, auth, err
+			},
+			DeviceWait: func(ctx context.Context, opaque any) (string, error) {
+				client, err := qgDeviceClient(deps)
+				if err != nil {
+					return "", err
+				}
+				auth, ok := opaque.(qgaccount.DeviceAuth)
+				if !ok {
+					return "", fmt.Errorf("device login: unexpected auth state %T", opaque)
+				}
+				return client.PollDeviceToken(ctx, auth, qgaccount.DevicePollOptions{})
+			},
+			OpenBrowser: deps.openBrowser,
 		},
 	})
 }
@@ -1052,26 +1087,22 @@ func tuiSandboxSetupCommand(backend sandbox.Backend, deps appDeps) func(context.
 // buildProvider constructs the run's provider at STARTUP — it is called only from
 // the two launch paths (interactive TUI and headless exec), never from mid-run
 // rebuilds (escalation, wizard, ACP go through deps.newProvider directly).
-// resolveInteractiveSetup decides the interactive launch shape: it first tries
-// to fall back to any saved provider that already has a credential, and reports
-// whether the TUI must open the first-run onboarding instead.
+// resolveInteractiveSetup reports whether the TUI must open the first-run login:
+// only a QG credential skips it, so other saved providers never keep the user
+// out of the login after a QG logout.
 func resolveInteractiveSetup(resolved config.ResolvedConfig) (config.ResolvedConfig, bool) {
-	needsSetup := setupRequired(resolved)
-	if needsSetup {
-		// The active provider lacks a usable credential, but if another saved
-		// provider already has one, fall back to it instead of forcing
-		// onboarding again. Saved logins persist across launches; switch the
-		// active provider any time with `qg providers use <name>`.
-		if usable, ok := firstUsableProvider(resolved.Providers); ok {
-			resolved.Provider = usable
-			resolved.ActiveProvider = usable.Name
-			return resolved, false
-		}
-	}
 	if resolved.ActiveProvider == "" && resolved.Provider.Name != "" {
 		resolved.ActiveProvider = resolved.Provider.Name
 	}
-	return resolved, needsSetup
+	// An active provider without a credential never boots: switch to the QG
+	// profile when it has one, otherwise the login opens.
+	if setupRequired(resolved) {
+		if qg, ok := qgCredentialProfile(resolved); ok {
+			resolved.Provider = qg
+			resolved.ActiveProvider = qg.Name
+		}
+	}
+	return resolved, !qgCredentialPresent(resolved)
 }
 
 func buildProvider(resolved config.ResolvedConfig, deps appDeps) (qgruntime.Provider, error) {
@@ -1335,6 +1366,7 @@ Commands:
   daemon     Manage the local background worker daemon (start/stop/status/run/attach)
   setup      Guide first-run provider setup
   login      Save and validate your Quebra Galho API key
+  logout     Remove saved Quebra Galho credentials
   config     Inspect resolved Go configuration without leaking secrets
   models     List QG model registry entries
   balance    Show the live Quebra Galho wallet balance
@@ -1377,6 +1409,7 @@ Flags:
   -p, --prompt                   Run a one-shot prompt
       --add-dir <path>           Allow writes in an extra directory (repeatable)
       --allow-escalation         Let the agent escalate to a stronger model mid-run via escalate_model
+      --no-browser               Show the first-run login link without opening a browser (or set QG_NO_BROWSER=1)
       --dangerously-skip-permissions
                                 Launch the interactive shell in unsafe mode (enables the ! shell escape)
       --skip-permissions-unsafe  Alias for --dangerously-skip-permissions
@@ -1452,6 +1485,7 @@ type rootFlags struct {
 	addDirs         []string
 	theme           string
 	allowEscalation bool
+	noBrowser       bool
 }
 
 // splitLeadingRootFlags strips --add-dir, --theme and --allow-escalation from
@@ -1487,6 +1521,10 @@ func splitLeadingRootFlags(args []string) (rootFlags, []string, error) {
 			return rootFlags{}, nil, err
 		}
 		flags.allowEscalation = flags.allowEscalation || allowEscalation
+		for len(rest) > 0 && rest[0] == "--no-browser" {
+			flags.noBrowser = true
+			rest = rest[1:]
+		}
 		args = rest
 		if len(args) == before {
 			return flags, args, nil

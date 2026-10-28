@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -20,8 +21,14 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
+// LogoutSummary is the user-facing result of a /logout.
+type LogoutSummary struct{ Message string }
+
 // Options configures the reusable QG terminal UI shell.
 type Options struct {
+	// Logout clears saved QG credentials for /logout; nil disables the command.
+	Logout func() (LogoutSummary, error)
+
 	Cwd                  string
 	Version              string // CLI build version, shown on the home screen; empty hides it
 	UserConfigPath       string
@@ -163,6 +170,20 @@ type SetupOptions struct {
 	// without a gateway).
 	ValidateAPIKey func(context.Context, string) error
 	Save           func(SetupSelection) (SetupResult, error)
+	// DeviceStart requests a device-flow code for browser login; the opaque
+	// value is handed back to DeviceWait unchanged. nil keeps the credential
+	// screen paste-key only.
+	DeviceStart func(context.Context) (DeviceAuth, any, error)
+	// DeviceWait polls until the browser approval yields the account API key.
+	DeviceWait func(context.Context, any) (string, error)
+	// OpenBrowser opens the approval URL; failure only shows a hint.
+	OpenBrowser func(context.Context, string) error
+}
+
+// DeviceAuth is what the credential screen shows while a browser login waits.
+type DeviceAuth struct {
+	UserCode, VerificationURI, VerificationURIComplete string
+	ExpiresAt                                          time.Time
 }
 
 // SetupProviderOption is one provider choice offered by the setup takeover.

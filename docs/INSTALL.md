@@ -4,10 +4,10 @@ Escolha o método que já faz parte da sua rotina. Nenhum deles é o "oficial".
 
 | Método | Comando | Auto-update |
 | --- | --- | --- |
-| Script de instalação (Linux, macOS) | `curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh \| bash` | `qg upgrade` |
-| Script de instalação (Windows) | `irm https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.ps1 \| iex` | `qg upgrade` |
+| Script de instalação (Linux, macOS) | `curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh \| bash` | `qg upgrade` |
+| Script de instalação (Windows) | `irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 \| iex` | `qg upgrade` |
 | npm | `npm install -g @quebragalho-dev/cli` | `qg upgrade` (roda npm) |
-| Arquivo de release | baixe em [Releases](https://github.com/quebragalho-dev/qg-releases/releases) | `qg upgrade` |
+| Arquivo de release | baixe em [Releases](https://github.com/quebragalho-dev/quebragalho-cli/releases) | `qg upgrade` |
 | mise (requer acesso) | `mise use -g ubi:quebragalho-dev/quebragalho-cli` | `mise upgrade` |
 | `go install` (requer acesso) | `go install github.com/quebragalho-dev/quebragalho-cli/cmd/qg@latest` | rode de novo |
 | Fonte (requer acesso) | `make build` | recompile |
@@ -25,7 +25,7 @@ o checksum antes de instalar.
 ## Instalação rápida (curl | sh) — Linux e macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | bash
 ```
 
 O que o script faz:
@@ -55,10 +55,10 @@ o script falhar por permissão, escolha um dos caminhos:
 
 ```bash
 # opção 1: com sudo
-curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | sudo bash
 
 # opção 2: diretório do usuário (sem sudo)
-curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.sh | QG_INSTALL_DIR="$HOME/.local/bin" bash
+curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | QG_INSTALL_DIR="$HOME/.local/bin" bash
 ```
 
 Flags úteis: `--version <versão>` fixa a release (padrão: `latest`),
@@ -138,13 +138,13 @@ quiser:
 ln -s "$(command -v qg)" ~/.local/bin/quebragalho
 ```
 
-Requer Go 1.26.6+.
+Requer Go 1.26.10+.
 
 ## A partir do código-fonte
 
 O clone usa o repositório privado (requer acesso).
 
-Requer Go 1.26.6+.
+Requer Go 1.26.10+.
 
 ```bash
 git clone https://github.com/quebragalho-dev/quebragalho-cli.git
@@ -171,7 +171,7 @@ Coloque `qg` e `qg-linux-sandbox` no mesmo diretório do `PATH`. No macOS não
 ## Windows PowerShell Script
 
 ```powershell
-irm https://raw.githubusercontent.com/quebragalho-dev/qg-releases/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 | iex
 ```
 
 ## mise

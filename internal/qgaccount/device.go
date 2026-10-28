@@ -93,13 +93,17 @@ func (c *Client) RequestDeviceCode(ctx context.Context) (DeviceAuth, error) {
 	if expiresIn <= 0 {
 		expiresIn = defaultDeviceCodeLifetime
 	}
+	now := c.Now
+	if now == nil {
+		now = time.Now
+	}
 	return DeviceAuth{
 		DeviceCode:              parsed.DeviceCode,
 		UserCode:                parsed.UserCode,
 		VerificationURI:         parsed.VerificationURI,
 		VerificationURIComplete: parsed.VerificationURIComplete,
 		Interval:                interval,
-		ExpiresAt:               time.Now().Add(expiresIn),
+		ExpiresAt:               now().Add(expiresIn),
 	}, nil
 }
 
@@ -174,6 +178,10 @@ func (c *Client) PollDeviceToken(ctx context.Context, auth DeviceAuth, opts Devi
 func (c *Client) pollDeviceOnce(ctx context.Context, auth DeviceAuth) (string, time.Duration, error) {
 	endpoint := strings.TrimRight(c.AuthBaseURL, "/") + "/auth/device/token"
 	form := url.Values{}
+	// RFC 8628 §3.5: the token poll is an access-token request, so it carries
+	// the device_code grant type. Without it the gateway answers HTTP 400
+	// "invalid_request: grant_type is required".
+	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
 	form.Set("device_code", auth.DeviceCode)
 	form.Set("client_id", DeviceClientID)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
@@ -214,14 +222,18 @@ func (c *Client) pollDeviceOnce(ctx context.Context, auth DeviceAuth) (string, t
 		}
 	}
 	var parsed struct {
-		APIKey      string `json:"api_key"`
-		Key         string `json:"key"`
-		AccessToken string `json:"access_token"`
+		// api_key is a string in older servers; the current one returns the
+		// key's metadata as an object there and the secret in access_token.
+		APIKey      json.RawMessage `json:"api_key"`
+		Key         string          `json:"key"`
+		AccessToken string          `json:"access_token"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return "", 0, fmt.Errorf("qg account: decode device-token response: %w", err)
 	}
-	for _, candidate := range []string{parsed.APIKey, parsed.Key, parsed.AccessToken} {
+	var legacyKey string
+	_ = json.Unmarshal(parsed.APIKey, &legacyKey)
+	for _, candidate := range []string{legacyKey, parsed.Key, parsed.AccessToken} {
 		if strings.TrimSpace(candidate) != "" {
 			return strings.TrimSpace(candidate), 0, nil
 		}
