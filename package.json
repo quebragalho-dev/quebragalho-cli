@@ -1,6 +1,6 @@
 {
   "name": "@quebragalho-dev/cli",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "QG — a fast, multi-provider terminal coding agent.",
   "type": "module",
   "module": "bin/qg.js",
