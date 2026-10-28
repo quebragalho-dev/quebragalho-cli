@@ -7,7 +7,7 @@ from .errors import (
     QGProtocolError,
     QGRunError,
 )
-from .types import SCHEMA_VERSION, Event, RunResult, Usage
+from .types import SCHEMA_VERSION, Event, PermissionDenial, RunResult, Usage
 
 __all__ = [
     "QG",
@@ -16,6 +16,7 @@ __all__ = [
     "build_args",
     "RunResult",
     "Usage",
+    "PermissionDenial",
     "Event",
     "SCHEMA_VERSION",
     "QGError",

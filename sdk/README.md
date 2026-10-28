@@ -21,7 +21,8 @@ Design rules shared by both SDKs:
   dies without `run_end` raises `QGProtocolError`; cancelling raises `QGAbortError`.
 - Breaking out of an event loop stops the process.
 - An unknown `schemaVersion` fails fast instead of mis-parsing events.
-- Headless runs cannot answer permission prompts. Pre-approve with `auto`,
+- Headless runs cannot answer permission prompts. Blocked calls are reported in
+  `permissionDenials` / `permission_denials`; widen access with `auto` or
   `permissionMode`, or restrict tools with `enabledTools` / `disabledTools`.
 
 Protocol changes (a `schemaVersion` bump) must update both SDKs; CI runs both on

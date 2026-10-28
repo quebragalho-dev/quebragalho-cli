@@ -27,7 +27,11 @@ test("run aggregates text, usage, changed files and warnings", async () => {
     cachedInputTokens: 0,
     totalTokens: 12,
     costUsd: 0.5,
+    costBrl: 2.5,
   });
+  assert.deepEqual(result.permissionDenials, [
+    { id: "p1", tool: "exec_command", reason: "network access requires approval", riskLevel: "critical", categories: ["network", "shell"] },
+  ]);
   assert.deepEqual(result.changedFiles, ["a.txt", "b.txt"]);
   assert.deepEqual(result.warnings, ["careful"]);
 });

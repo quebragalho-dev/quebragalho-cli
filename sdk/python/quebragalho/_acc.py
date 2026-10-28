@@ -4,7 +4,7 @@ import json
 from typing import Dict, List, Optional
 
 from .errors import QGProtocolError
-from .types import SCHEMA_VERSION, Event, RunResult, Usage
+from .types import SCHEMA_VERSION, Event, PermissionDenial, RunResult, Usage
 
 
 class Accumulator:
@@ -21,6 +21,7 @@ class Accumulator:
         self.usage = Usage()
         self.changed: List[str] = []
         self.warnings: List[str] = []
+        self.pending: Dict[str, PermissionDenial] = {}
 
     @staticmethod
     def parse(line: str, stderr: str = "") -> Event:
@@ -55,6 +56,22 @@ class Accumulator:
             u.total_tokens += event.get("totalTokens") or 0
             if event.get("costUsd") is not None:
                 u.cost_usd = (u.cost_usd or 0.0) + event["costUsd"]
+            if event.get("costBrl") is not None:
+                u.cost_brl = (u.cost_brl or 0.0) + event["costBrl"]
+        elif kind == "permission_request":
+            ident = event.get("id")
+            if ident:
+                risk = event.get("risk") or {}
+                self.pending[ident] = PermissionDenial(
+                    id=ident,
+                    tool=event.get("name", ""),
+                    reason=event.get("reason"),
+                    risk_level=risk.get("level"),
+                    categories=list(risk.get("categories") or []),
+                )
+        elif kind == "permission_decision":
+            if event.get("permissionGranted"):
+                self.pending.pop(event.get("id", ""), None)
         elif kind == "tool_result":
             for path in event.get("changedFiles") or []:
                 if path not in self.changed:
@@ -78,4 +95,5 @@ class Accumulator:
             usage=self.usage,
             changed_files=list(self.changed),
             warnings=list(self.warnings),
+            permission_denials=list(self.pending.values()),
         )

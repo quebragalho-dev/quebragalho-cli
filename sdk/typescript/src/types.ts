@@ -85,7 +85,9 @@ export interface UsageEvent extends Base {
   cachedInputTokens?: number;
   cacheWriteTokens?: number;
   totalTokens?: number;
+  /** Per-call price from the live QG catalog; absent when the model has no catalog price. */
   costUsd?: number;
+  costBrl?: number;
 }
 export interface FinalEvent extends Base {
   type: "final";
@@ -127,8 +129,18 @@ export interface Usage {
   completionTokens: number;
   cachedInputTokens: number;
   totalTokens: number;
-  /** Provider-reported cost in USD, when the server returns one. */
+  /** Run cost from the QG catalog pricing; undefined when no call could be priced. */
   costUsd?: number;
+  costBrl?: number;
+}
+
+/** A tool call that needed approval, which a headless run cannot give. */
+export interface PermissionDenial {
+  id: string;
+  tool: string;
+  reason?: string;
+  riskLevel?: string;
+  categories: string[];
 }
 
 export interface RunResult {
@@ -143,6 +155,8 @@ export interface RunResult {
   /** Files changed by tool calls, deduplicated. */
   changedFiles: string[];
   warnings: string[];
+  /** Calls blocked for lack of approval. Re-run with `permissionMode`/`auto`, or narrow the task. */
+  permissionDenials: PermissionDenial[];
 }
 
 export interface ImageInput {

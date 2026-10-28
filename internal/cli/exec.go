@@ -583,6 +583,10 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		runID:        runID,
 		sessionID:    preparedSession.Session.SessionID,
 		streamedText: &strings.Builder{},
+		model:        currentModel,
+	}
+	if options.outputFormat == execOutputStreamJSON {
+		writer.pricing = startExecPricing(context.Background(), resolved.Provider)
 	}
 	writer.runStart(workspaceRoot, runMetadata, permissionMode)
 	if writer.err != nil {
@@ -730,6 +734,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 			sessionRecorder.append(sessions.EventToolResult, payload)
 		},
 		OnUsage: func(u agent.Usage) {
+			writer.model = currentModel
 			writer.usage(u)
 			payload := usage.EventUsagePayload(u)
 			// Attribute usage to a specific model ONLY when escalation is enabled:

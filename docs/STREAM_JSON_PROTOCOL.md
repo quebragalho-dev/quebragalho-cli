@@ -47,10 +47,16 @@ events when present.
 { "schemaVersion": 2, "type": "permission_request", "runId": "run_20260603_abc123", "id": "call_2", "name": "write_file", "action": "prompt", "permission": "prompt", "permissionMode": "ask", "sideEffect": "write", "reason": "Creates or overwrites files." }
 { "schemaVersion": 2, "type": "permission_decision", "runId": "run_20260603_abc123", "id": "call_2", "name": "write_file", "action": "allow", "permission": "prompt", "permissionGranted": true, "decisionReason": "approved in TUI" }
 { "schemaVersion": 2, "type": "tool_result", "runId": "run_20260603_abc123", "id": "call_1", "status": "ok", "output": "...", "truncated": false }
-{ "schemaVersion": 2, "type": "usage", "runId": "run_20260603_abc123", "promptTokens": 12, "completionTokens": 8, "totalTokens": 20 }
+{ "schemaVersion": 2, "type": "usage", "runId": "run_20260603_abc123", "promptTokens": 12, "completionTokens": 8, "totalTokens": 20, "costBrl": 0.0021, "costUsd": 0.0004 }
 { "schemaVersion": 2, "type": "final", "runId": "run_20260603_abc123", "text": "..." }
 { "schemaVersion": 2, "type": "run_end", "runId": "run_20260603_abc123", "status": "success", "exitCode": 0 }
 ```
+
+`usage` events from the QG provider also carry `costBrl` and `costUsd`: the
+price of that call from the live QG model catalog (the same figure the TUI shows
+per answer). Each is omitted when the catalog has no price for the model or
+cannot be fetched, so clients must treat them as optional. Other providers never
+send them.
 
 `reasoning` events carry live model reasoning/status deltas for providers that
 stream them separately from answer text. They are liveness/progress events only:
