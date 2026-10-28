@@ -222,14 +222,18 @@ func (c *Client) pollDeviceOnce(ctx context.Context, auth DeviceAuth) (string, t
 		}
 	}
 	var parsed struct {
-		APIKey      string `json:"api_key"`
-		Key         string `json:"key"`
-		AccessToken string `json:"access_token"`
+		// api_key is a string in older servers; the current one returns the
+		// key's metadata as an object there and the secret in access_token.
+		APIKey      json.RawMessage `json:"api_key"`
+		Key         string          `json:"key"`
+		AccessToken string          `json:"access_token"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return "", 0, fmt.Errorf("qg account: decode device-token response: %w", err)
 	}
-	for _, candidate := range []string{parsed.APIKey, parsed.Key, parsed.AccessToken} {
+	var legacyKey string
+	_ = json.Unmarshal(parsed.APIKey, &legacyKey)
+	for _, candidate := range []string{legacyKey, parsed.Key, parsed.AccessToken} {
 		if strings.TrimSpace(candidate) != "" {
 			return strings.TrimSpace(candidate), 0, nil
 		}

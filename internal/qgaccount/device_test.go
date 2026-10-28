@@ -287,6 +287,22 @@ func TestPollDeviceTokenAcceptsKeyAndAccessTokenAliases(t *testing.T) {
 	}
 }
 
+func TestPollDeviceTokenUsesAccessTokenWhenAPIKeyIsMetadata(t *testing.T) {
+	server, _ := testTokenServer(t, []tokenStep{
+		{status: http.StatusOK, body: `{"access_token":"qg-sk-secret-0123456789abcdef","token_type":"Bearer","api_key":{"id":"k1","name":"cli","key_prefix":"qg-sk-secret"}}`},
+	})
+	defer server.Close()
+	client := NewClient("")
+	client.AuthBaseURL = server.URL
+	key, err := client.PollDeviceToken(context.Background(), freshAuth(), fastPollOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "qg-sk-secret-0123456789abcdef" {
+		t.Fatalf("key = %q", key)
+	}
+}
+
 func TestPollDeviceTokenClampsRetryAfterToExpiry(t *testing.T) {
 	// First poll is rate-limited with a huge Retry-After; the code expires in
 	// ~2s. The wait must be clamped to the remaining lifetime, not 1 hour.
