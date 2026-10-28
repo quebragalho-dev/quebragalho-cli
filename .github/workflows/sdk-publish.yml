@@ -1,0 +1,127 @@
+name: SDK Publish
+
+# Publishes the TypeScript and Python SDKs when an `sdk-vX.Y.Z` tag is pushed.
+# The SDK version is independent of the CLI version (`vX.Y.Z` tags release the
+# CLI). Both registries use OIDC trusted publishing: no tokens are stored.
+on:
+  push:
+    tags:
+      - "sdk-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Check tag matches both package versions
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#sdk-v}"
+          ts="$(node -p "require('./sdk/typescript/package.json').version")"
+          py="$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/python/pyproject.toml | head -1)"
+          if [ "$tag" != "$ts" ] || [ "$tag" != "$py" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package versions (typescript=${ts}, python=${py})." >&2
+            exit 1
+          fi
+          echo "version ${tag}"
+
+      - name: TypeScript — install, check, build, test, pack
+        working-directory: sdk/typescript
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          npm test
+          mkdir -p ../../dist/sdk-npm
+          npm pack --pack-destination ../../dist/sdk-npm
+
+      - name: Python — test and build
+        working-directory: sdk/python
+        run: |
+          PYTHONPATH=. python3 -W error -m unittest discover -s tests -t .
+          python3 -m venv /tmp/build-venv
+          /tmp/build-venv/bin/pip install --quiet build
+          /tmp/build-venv/bin/python -m build --outdir ../../dist/sdk-pypi
+
+      - name: Upload npm tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sdk-npm
+          path: dist/sdk-npm
+          if-no-files-found: error
+
+      - name: Upload Python distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sdk-pypi
+          path: dist/sdk-pypi
+          if-no-files-found: error
+
+  # Both publish jobs wait on the same environment, which carries a
+  # required-reviewer rule: one approval releases both registries. Approve in
+  # the Actions UI or with scripts/approve-npm-publish.sh.
+  publish-npm:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: sdk-publish
+      url: https://www.npmjs.com/package/@quebragalho-dev/sdk
+    permissions:
+      contents: read
+      id-token: write # OIDC trusted publishing + provenance
+    steps:
+      # No registry-url on purpose (see release-artifacts.yml): trusted
+      # publishing needs no token and an .npmrc token reference breaks it.
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Download npm tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sdk-npm
+          path: dist/sdk-npm
+
+      - name: Publish
+        shell: bash
+        run: |
+          npm --version
+          npm publish dist/sdk-npm/*.tgz --access public
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: sdk-publish
+      url: https://pypi.org/project/quebragalho-sdk/
+    permissions:
+      contents: read
+      id-token: write # OIDC trusted publishing
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sdk-pypi
+          path: dist
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
