@@ -644,6 +644,18 @@ func (f *fakeDeviceLogin) snapshot() (starts int, opened, validated []string, wa
 	return f.starts, append([]string{}, f.opened...), append([]string{}, f.validate...), f.waitCtx
 }
 
+// eventually polls until the goroutine-driven fake reaches the expected state.
+func eventually(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func newDeviceSetupModel(f *fakeDeviceLogin) model {
 	f.auth = DeviceAuth{
 		UserCode:                "WXYZ-1234",
@@ -755,6 +767,10 @@ func TestBrowserLoginShowsURLAndCodeAndOpensBrowser(t *testing.T) {
 	if strings.Contains(view, "error:") || r.m.setup.stage != setupStageCredentials {
 		t.Fatalf("opener failure must not abort the login, stage=%v view:\n%s", r.m.setup.stage, view)
 	}
+	eventually(t, "the browser opener and the poll to start", func() bool {
+		_, opened, _, waitCtx := f.snapshot()
+		return len(opened) > 0 && waitCtx != nil
+	})
 	_, opened, _, waitCtx := f.snapshot()
 	if len(opened) != 1 || opened[0] != f.auth.VerificationURIComplete {
 		t.Fatalf("opened = %q, want the complete verification URL once", opened)
@@ -822,6 +838,7 @@ func TestEscCancelsDeviceWaitAndKeepsApp(t *testing.T) {
 
 	r.press(testKey(tea.KeyEnter))
 	r.until("the code", func(view string) bool { return strings.Contains(view, "WXYZ-1234") })
+	eventually(t, "the poll to start", func() bool { _, _, _, ctx := f.snapshot(); return ctx != nil })
 	_, _, _, waitCtx := f.snapshot()
 
 	if cmd := r.press(testKey(tea.KeyEsc)); cmd != nil {
@@ -923,6 +940,7 @@ func TestPasteOnBrowserScreenSwitchesToKeyMode(t *testing.T) {
 	r := newSetupRuntime(t, newDeviceSetupModel(f))
 	r.press(testKey(tea.KeyEnter))
 	r.until("the code", func(view string) bool { return strings.Contains(view, "WXYZ-1234") })
+	eventually(t, "the poll to start", func() bool { _, _, _, ctx := f.snapshot(); return ctx != nil })
 	_, _, _, waitCtx := f.snapshot()
 
 	updated, _ := r.m.Update(testPaste(key))
