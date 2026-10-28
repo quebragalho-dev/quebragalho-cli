@@ -16,8 +16,20 @@ class Usage:
     completion_tokens: int = 0
     cached_input_tokens: int = 0
     total_tokens: int = 0
-    #: Provider-reported cost in USD, when the server returns one.
+    #: Run cost from the QG catalog pricing; None when no call could be priced.
     cost_usd: Optional[float] = None
+    cost_brl: Optional[float] = None
+
+
+@dataclass
+class PermissionDenial:
+    """A tool call that needed approval, which a headless run cannot give."""
+
+    id: str
+    tool: str
+    reason: Optional[str] = None
+    risk_level: Optional[str] = None
+    categories: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -31,6 +43,8 @@ class RunResult:
     usage: Usage = field(default_factory=Usage)
     changed_files: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    #: Calls blocked for lack of approval. Re-run with permission_mode/auto, or narrow the task.
+    permission_denials: List[PermissionDenial] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:

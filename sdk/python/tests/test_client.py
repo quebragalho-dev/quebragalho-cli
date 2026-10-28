@@ -24,7 +24,10 @@ class SyncTests(unittest.TestCase):
         r = qg("ok").run("hi")
         self.assertEqual((r.text, r.status, r.exit_code, r.session_id), ("hello", "success", 0, "s1"))
         self.assertEqual(r.usage.total_tokens, 12)
-        self.assertEqual(r.usage.cost_usd, 0.5)
+        self.assertEqual((r.usage.cost_usd, r.usage.cost_brl), (0.5, 2.5))
+        self.assertEqual(len(r.permission_denials), 1)
+        d = r.permission_denials[0]
+        self.assertEqual((d.id, d.tool, d.risk_level, d.categories), ("p1", "exec_command", "critical", ["network", "shell"]))
         self.assertEqual(r.changed_files, ["a.txt", "b.txt"])
         self.assertEqual(r.warnings, ["careful"])
         self.assertTrue(r.ok)

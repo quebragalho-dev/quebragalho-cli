@@ -29,6 +29,10 @@ type execEventWriter struct {
 	sessionID    string
 	streamedText *strings.Builder
 	err          error
+	// model attributes usage events that carry no model of their own; pricing
+	// (nil unless the provider is QG) fills costBrl/costUsd on stream-json usage.
+	model   string
+	pricing *execPricing
 }
 
 func (writer *execEventWriter) runStart(cwd string, metadata execRunMetadata, permissionMode agent.PermissionMode) {
@@ -282,7 +286,14 @@ func (writer *execEventWriter) usage(usage agent.Usage) {
 		cachedInputTokens := usage.CachedInputTokens
 		cacheWriteTokens := usage.CacheWriteTokens
 		totalTokens := usage.TotalTokens()
+		model := usage.ModelID
+		if model == "" {
+			model = writer.model
+		}
+		costBRL, costUSD := writer.pricing.cost(model, usage)
 		writer.writeStreamJSON(streamjson.Event{
+			CostBRL:           costBRL,
+			CostUSD:           costUSD,
 			Type:              streamjson.EventUsage,
 			RunID:             writer.runID,
 			PromptTokens:      &promptTokens,

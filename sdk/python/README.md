@@ -37,4 +37,8 @@ async for event in run: ...
 
 Errors: `QGRunError` (`exit_code`, `code`, `result`, `stderr`), `QGProtocolError`, `QGAbortError`, `QGBinaryNotFoundError`, all extending `QGError`.
 
-`usage.cost_usd` is set only when the server reports a cost.
+`usage.cost_brl` / `usage.cost_usd` sum the per-call prices from the QG catalog. They are `None` when no call could be priced (for example, a `qg` older than the field, or a model missing from the catalog).
+
+## Permissions
+
+A headless run cannot answer approval prompts. By default (`auto` mode) sandboxed shell work, including writing files in the workspace, is allowed; actions such as network access are not. The blocked calls come back as `result.permission_denials` (`PermissionDenial`: `id`, `tool`, `reason`, `risk_level`, `categories`), and the model usually explains the failure in `result.text`. To allow more, pass `permission_mode` or `auto="high"` (which enables unsafe tools), or hand the model a narrower task. `enabled_tools` / `disabled_tools` restrict what it can try.

@@ -1,7 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { QGAbortError, QGBinaryNotFoundError, QGProtocolError, QGRunError } from "./errors.ts";
-import { SCHEMA_VERSION, type QGEvent, type RunResult } from "./types.ts";
+import { SCHEMA_VERSION, type PermissionDenial, type QGEvent, type RunResult } from "./types.ts";
 
 const STDERR_LIMIT = 64 * 1024;
 const KILL_GRACE_MS = 5000;
@@ -34,6 +34,7 @@ export class Run implements AsyncIterable<QGEvent> {
   #usage = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, totalTokens: 0 } as RunResult["usage"];
   #changed = new Set<string>();
   #warnings: string[] = [];
+  #pending = new Map<string, PermissionDenial>();
 
   constructor(child: ChildProcessWithoutNullStreams, binary: string, signal?: AbortSignal) {
     this.#child = child;
@@ -152,8 +153,23 @@ export class Run implements AsyncIterable<QGEvent> {
         u.cachedInputTokens += event.cachedInputTokens ?? 0;
         u.totalTokens += event.totalTokens ?? 0;
         if (event.costUsd !== undefined) u.costUsd = (u.costUsd ?? 0) + event.costUsd;
+        if (event.costBrl !== undefined) u.costBrl = (u.costBrl ?? 0) + event.costBrl;
         break;
       }
+      case "permission_request":
+        if (event.id) {
+          this.#pending.set(event.id, {
+            id: event.id,
+            tool: event.name ?? "",
+            reason: event.reason,
+            riskLevel: event.risk?.level,
+            categories: event.risk?.categories ?? [],
+          });
+        }
+        break;
+      case "permission_decision":
+        if (event.id && event.permissionGranted) this.#pending.delete(event.id);
+        break;
       case "tool_result":
         for (const file of event.changedFiles ?? []) this.#changed.add(file);
         break;
@@ -180,6 +196,7 @@ export class Run implements AsyncIterable<QGEvent> {
       usage: { ...this.#usage },
       changedFiles: [...this.#changed],
       warnings: [...this.#warnings],
+      permissionDenials: [...this.#pending.values()],
     };
   }
 }

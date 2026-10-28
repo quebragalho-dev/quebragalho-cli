@@ -33,4 +33,8 @@ const done = await run.result(); // { text, status, usage, changedFiles, session
 
 Errors: `QGRunError` (has `exitCode`, `code`, `result`, `stderr`), `QGProtocolError`, `QGAbortError`, `QGBinaryNotFoundError`, all extending `QGError`.
 
-`usage.costUsd` is set only when the server reports a cost.
+`usage.costBrl` / `usage.costUsd` sum the per-call prices from the QG catalog. They are `undefined` when no call could be priced (for example, a `qg` older than the field, or a model missing from the catalog).
+
+## Permissions
+
+A headless run cannot answer approval prompts. By default (`auto` mode) sandboxed shell work, including writing files in the workspace, is allowed; actions such as network access are not. The blocked calls come back as `result.permissionDenials` (`{ id, tool, reason, riskLevel, categories }`), and the model usually explains the failure in `result.text`. To allow more, pass `permissionMode` or `auto: "high"` (which enables unsafe tools), or hand the model a narrower task. `enabledTools` / `disabledTools` restrict what it can try.

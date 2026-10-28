@@ -98,6 +98,7 @@ type Event struct {
 	CacheWriteTokens  *int              `json:"cacheWriteTokens,omitempty"`
 	TotalTokens       *int              `json:"totalTokens,omitempty"`
 	CostUSD           *float64          `json:"costUsd,omitempty"`
+	CostBRL           *float64          `json:"costBrl,omitempty"`
 	Text              string            `json:"text,omitempty"`
 	Message           string            `json:"message,omitempty"`
 	Code              string            `json:"code,omitempty"`
