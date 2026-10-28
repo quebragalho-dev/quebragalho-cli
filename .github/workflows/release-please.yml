@@ -1,9 +1,10 @@
 name: Release Please
 
+# Manual only: the organization forbids Actions from creating pull requests, so
+# the automatic release PR cannot be opened. Releases are cut by bumping
+# package.json and pushing a v* tag (see release-artifacts.yml).
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: write # push the release-PR branch, create the tag + GitHub Release
