@@ -34,6 +34,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/skills"
@@ -272,6 +273,7 @@ type model struct {
 	altScreen       bool
 	setup           setupState
 	setupSave       func(SetupSelection) (SetupResult, error)
+	logout          func() (LogoutSummary, error)
 	// spinner animates the turn-level activity glyph. Its tick is started with
 	// each run and stops itself once pending clears (the TickMsg is simply not
 	// forwarded), so an idle UI schedules no timers.
@@ -1043,6 +1045,7 @@ func newModel(ctx context.Context, options Options) model {
 		swarmSessionMap:             map[string]string{},
 		setup:                       newSetupState(options.Setup),
 		setupSave:                   options.Setup.Save,
+		logout:                      options.Logout,
 		dictation:                   newDictationController(options),
 	}
 	if m.reasoningEffort == "" {
@@ -4794,6 +4797,18 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		return m, nil
 	case commandDoctor:
 		return m.startDoctorCommand(command.text)
+	case commandLogout:
+		if m.logout == nil {
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "/logout indisponível nesta sessão."})
+			return m, nil
+		}
+		summary, err := m.logout()
+		if err != nil {
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: redaction.ErrorMessage(err, redaction.Options{})})
+			return m, nil
+		}
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: summary.Message})
+		return m.quit()
 	case commandSearch:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.searchText(command.text)})
 		return m, nil

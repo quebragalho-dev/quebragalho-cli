@@ -26,6 +26,7 @@ const (
 	commandConfig
 	commandDebug
 	commandDoctor
+	commandLogout
 	commandPlan
 	commandSearch
 	commandResume
@@ -380,6 +381,13 @@ var commandDefinitions = []commandDefinition{
 		group:       commandGroupRuntime,
 		description: "Show diagnostics, open safe fixes, or run provider connectivity checks.",
 		kind:        commandDoctor,
+	},
+	{
+		name:        "/logout",
+		usage:       "/logout",
+		group:       commandGroupRuntime,
+		description: "Remove saved Quebra Galho credentials and close the app.",
+		kind:        commandLogout,
 	},
 	{
 		name:        "/config",

@@ -1007,6 +1007,13 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		STTDownloadRoot:           sttDownloadRoot,
 		STTKeyStatus:              newSTTKeyStatus(resolved, userConfigPath),
 		SaveSTTKey:                newSaveSTTKey(userConfigPath),
+		Logout: func() (tui.LogoutSummary, error) {
+			result, err := logoutQG(deps, io.Discard)
+			if err != nil {
+				return tui.LogoutSummary{}, err
+			}
+			return tui.LogoutSummary{Message: logoutMessage(result)}, nil
+		},
 		Setup: tui.SetupOptions{
 			// The launch gate opens this overlay whenever the config resolves
 			// without a usable credential; the pasted key is checked against

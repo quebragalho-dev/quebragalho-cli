@@ -21,8 +21,14 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
+// LogoutSummary is the user-facing result of a /logout.
+type LogoutSummary struct{ Message string }
+
 // Options configures the reusable QG terminal UI shell.
 type Options struct {
+	// Logout clears saved QG credentials for /logout; nil disables the command.
+	Logout func() (LogoutSummary, error)
+
 	Cwd                  string
 	Version              string // CLI build version, shown on the home screen; empty hides it
 	UserConfigPath       string

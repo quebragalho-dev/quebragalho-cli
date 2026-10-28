@@ -80,15 +80,20 @@ func runLogout(args []string, stdout, stderr io.Writer, deps appDeps) int {
 		}
 		return exitSuccess
 	}
-	msg := "Nenhuma credencial salva do Quebra Galho: já deslogado.\n"
-	if result.Removed {
-		msg = "Logged out of Quebra Galho.\n"
-	}
-	if result.EnvStillActive != "" {
-		msg += fmt.Sprintf("Aviso: %s continua definida no ambiente e segue ativa; remova-a do shell para sair de vez.\n", result.EnvStillActive)
-	}
-	if _, err := fmt.Fprint(stdout, msg); err != nil {
+	if _, err := fmt.Fprintln(stdout, logoutMessage(result)); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
+}
+
+// logoutMessage is the human summary shared by `qg logout` and the TUI /logout.
+func logoutMessage(result LogoutResult) string {
+	msg := "Nenhuma credencial salva do Quebra Galho: já deslogado."
+	if result.Removed {
+		msg = "Logged out of Quebra Galho."
+	}
+	if result.EnvStillActive != "" {
+		msg += fmt.Sprintf("\nAviso: %s continua definida no ambiente e segue ativa; remova-a do shell para sair de vez.", result.EnvStillActive)
+	}
+	return msg
 }
