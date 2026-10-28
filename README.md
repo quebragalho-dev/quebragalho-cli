@@ -152,6 +152,7 @@ segurança, siga [SECURITY.md](SECURITY.md).
 - [Instalar e atualizar](docs/INSTALL.md)
 - [Mudar o tema](docs/THEMES.md)
 - [Adicionar skills, ferramentas e integrações](docs/EXTENDING.md)
+- [Usar o QG no seu código (SDK TypeScript e Python)](sdk/README.md)
 - [Pedir ajuda](SUPPORT.md)
 - [Contribuir com o projeto](CONTRIBUTING.md)
 

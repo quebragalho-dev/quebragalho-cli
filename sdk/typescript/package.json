@@ -1,0 +1,41 @@
+{
+  "name": "@quebragalho-dev/sdk",
+  "version": "0.1.0",
+  "description": "Run the Quebra-Galho (qg) coding agent from TypeScript.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quebragalho-dev/quebragalho-cli.git",
+    "directory": "sdk/typescript"
+  },
+  "homepage": "https://github.com/quebragalho-dev/quebragalho-cli/tree/main/sdk/typescript#readme",
+  "bugs": {
+    "url": "https://github.com/quebragalho-dev/quebragalho-cli/issues"
+  },
+  "license": "MIT",
+  "keywords": ["quebragalho", "qg", "agent", "sdk", "coding-agent"]
+}
