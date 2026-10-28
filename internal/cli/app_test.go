@@ -17,6 +17,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -178,6 +179,55 @@ func TestRunNoArgsOpensOnboardingWhenNoProviderConfigured(t *testing.T) {
 	}
 	if launchedOptions.Setup.ValidateAPIKey == nil {
 		t.Fatal("onboarding must wire the gateway key validator")
+	}
+	if launchedOptions.Setup.DeviceStart == nil || launchedOptions.Setup.DeviceWait == nil || launchedOptions.Setup.OpenBrowser == nil {
+		t.Fatal("onboarding must wire browser device login")
+	}
+}
+
+// The first-run browser login drives the same device client as
+// `qg login --device`: the code the TUI shows and the auth it polls with are
+// the client's own.
+func TestOnboardingDeviceLoginUsesDeviceClient(t *testing.T) {
+	fake := &fakeQGDevice{
+		auth: qgaccount.DeviceAuth{
+			DeviceCode:              "dev-code",
+			UserCode:                "ABCD-1234",
+			VerificationURI:         "https://app.quebragalho.dev/connect/cli",
+			VerificationURIComplete: "https://app.quebragalho.dev/connect/cli?user_code=ABCD-1234",
+		},
+		key: "qg-sk-device-key",
+	}
+	var launched tui.Options
+	exitCode := runWithDeps([]string{}, &bytes.Buffer{}, &bytes.Buffer{}, appDeps{
+		getwd: func() (string, error) { return t.TempDir(), nil },
+		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
+			return config.ResolvedConfig{MaxTurns: 12}, nil
+		},
+		userConfigPath: func() (string, error) {
+			return filepath.Join(t.TempDir(), "qg", "config.json"), nil
+		},
+		registerMCPTools: func(context.Context, *tools.Registry, config.MCPConfig, mcp.RegisterOptions) (mcpToolRuntime, error) {
+			return noopMCPRuntime{}, nil
+		},
+		newQGDeviceClient: func() (qgDeviceAPI, error) { return fake, nil },
+		openBrowser:       func(context.Context, string) error { return nil },
+		runTUI: func(_ context.Context, options tui.Options) int {
+			launched = options
+			return 0
+		},
+	})
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, want 0", exitCode)
+	}
+
+	shown, opaque, err := launched.Setup.DeviceStart(context.Background())
+	if err != nil || shown.UserCode != "ABCD-1234" || shown.VerificationURIComplete != fake.auth.VerificationURIComplete {
+		t.Fatalf("DeviceStart = %+v, %v; want the client's code and URL", shown, err)
+	}
+	key, err := launched.Setup.DeviceWait(context.Background(), opaque)
+	if err != nil || key != "qg-sk-device-key" || fake.polled.DeviceCode != "dev-code" {
+		t.Fatalf("DeviceWait = %q, %v (polled %+v); want the client's key for the started auth", key, err, fake.polled)
 	}
 }
 

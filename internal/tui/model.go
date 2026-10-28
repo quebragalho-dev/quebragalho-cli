@@ -3002,6 +3002,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case setupKeyCheckMsg:
 		return m.applySetupKeyCheck(msg), nil
+	case setupDeviceStartedMsg:
+		return m.applySetupDeviceStarted(msg)
+	case setupDeviceDoneMsg:
+		return m.applySetupDeviceDone(msg)
+	case setupBrowserOpenedMsg:
+		return m.applySetupBrowserOpened(msg), nil
 	case modelPickerModelsDiscoveredMsg:
 		return m.applyModelPickerModelsDiscovered(msg), nil
 	case petCatalogLoadedMsg:

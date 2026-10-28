@@ -30,6 +30,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
@@ -1019,6 +1020,28 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 			Save: func(selection tui.SetupSelection) (tui.SetupResult, error) {
 				return saveSetupProvider(deps, selection, setupSaveOptions{})
 			},
+			DeviceStart: func(ctx context.Context) (tui.DeviceAuth, any, error) {
+				client, err := qgDeviceClient(deps)
+				if err != nil {
+					return tui.DeviceAuth{}, nil, err
+				}
+				auth, err := client.RequestDeviceCode(ctx)
+				return tui.DeviceAuth{
+					UserCode:                auth.UserCode,
+					VerificationURI:         auth.VerificationURI,
+					VerificationURIComplete: auth.VerificationURIComplete,
+					ExpiresAt:               auth.ExpiresAt,
+				}, auth, err
+			},
+			DeviceWait: func(ctx context.Context, opaque any) (string, error) {
+				client, err := qgDeviceClient(deps)
+				if err != nil {
+					return "", err
+				}
+				auth, _ := opaque.(qgaccount.DeviceAuth)
+				return client.PollDeviceToken(ctx, auth, qgaccount.DevicePollOptions{})
+			},
+			OpenBrowser: deps.openBrowser,
 		},
 	})
 }

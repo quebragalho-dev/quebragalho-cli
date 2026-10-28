@@ -121,18 +121,23 @@ type qgDeviceAPI interface {
 
 var _ qgDeviceAPI = (*qgaccount.Client)(nil)
 
+// qgDeviceClient returns the injected device-flow client, or the production
+// one against the default endpoints.
+func qgDeviceClient(deps appDeps) (qgDeviceAPI, error) {
+	if deps.newQGDeviceClient != nil {
+		return deps.newQGDeviceClient()
+	}
+	return qgaccount.NewClient(""), nil
+}
+
 // runLoginDevice performs the QG device-flow login: the app issues a short
 // code, the user approves it at /connect/cli, and the account API key comes
 // back on the poll. The key is then validated and stored through the exact
 // same path as a pasted key (credstore + apiKeyStored marker).
 func runLoginDevice(stdout io.Writer, stderr io.Writer, deps appDeps, noBrowser bool) int {
-	var client qgDeviceAPI = qgaccount.NewClient("")
-	if deps.newQGDeviceClient != nil {
-		built, err := deps.newQGDeviceClient()
-		if err != nil {
-			return writeAppError(stderr, err.Error(), exitCrash)
-		}
-		client = built
+	client, err := qgDeviceClient(deps)
+	if err != nil {
+		return writeAppError(stderr, err.Error(), exitCrash)
 	}
 	ctx, stop := signalContext()
 	defer stop()
