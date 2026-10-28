@@ -239,14 +239,14 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           (cd dist/npm/wrapper && npm publish --access public)
           # Confirm the wrapper owns `latest` (retry: registry metadata can lag
-          # a publish by a few seconds).
-          for attempt in 1 2 3 4 5; do
+          # a publish by up to a couple of minutes).
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
             latest="$(npm view @quebragalho-dev/cli dist-tags.latest || true)"
             if [ "$latest" = "$version" ]; then
               echo "dist-tag latest is ${version}."
               exit 0
             fi
-            sleep 5
+            sleep 10
           done
           echo "::error::dist-tag latest is ${latest}, expected ${version} after the wrapper publish." >&2
           exit 1

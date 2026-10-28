@@ -160,3 +160,15 @@ silently under Bun's default script blocking, and coupled `npm install` to
 GitHub Releases availability. The platform-package model removes the warnings
 structurally — there is nothing left in the tree for a package manager to warn
 about — rather than asking users to approve or suppress them.
+
+## Approving a publish from the terminal
+
+The `npm-publish` environment has a required reviewer, so the publish job waits
+after the binaries are packaged. Approve it without opening the Actions page:
+
+```bash
+scripts/approve-npm-publish.sh vX.Y.Z
+```
+
+It uses your own `gh` login and the same API the "Approve and deploy" button
+calls, so only a required reviewer can run it.
