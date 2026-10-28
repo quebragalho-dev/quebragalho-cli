@@ -274,6 +274,7 @@ type model struct {
 	setup           setupState
 	setupSave       func(SetupSelection) (SetupResult, error)
 	logout          func() (LogoutSummary, error)
+	farewell        string // printed to stdout after the alt screen closes
 	// spinner animates the turn-level activity glyph. Its tick is started with
 	// each run and stops itself once pending clears (the TickMsg is simply not
 	// forwarded), so an idle UI schedules no timers.
@@ -4798,6 +4799,10 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 	case commandDoctor:
 		return m.startDoctorCommand(command.text)
 	case commandLogout:
+		if m.pending || m.loopActive() {
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "/logout: pare a execução antes de sair."})
+			return m, nil
+		}
 		if m.logout == nil {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "/logout indisponível nesta sessão."})
 			return m, nil
@@ -4807,8 +4812,8 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: redaction.ErrorMessage(err, redaction.Options{})})
 			return m, nil
 		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: summary.Message})
-		return m.quit()
+		m.farewell = summary.Message
+		return m.dispatchCommand(parsedCommand{kind: commandExit})
 	case commandSearch:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.searchText(command.text)})
 		return m, nil

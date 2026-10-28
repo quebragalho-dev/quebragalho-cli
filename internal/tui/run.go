@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,8 +108,9 @@ func Run(ctx context.Context, options Options) int {
 		}
 	}
 
-	_, runErr := program.Run()
+	finalModel, runErr := program.Run()
 	clearErr := petOutput.clearImage()
+	writeFarewell(os.Stdout, finalModel)
 	var closeErr error
 	if peerStarted {
 		closeErr = options.PeerService.Close()
@@ -128,6 +130,13 @@ func Run(ctx context.Context, options Options) int {
 		return 1
 	}
 	return 0
+}
+
+// writeFarewell prints the exit message the alt screen would otherwise swallow.
+func writeFarewell(w io.Writer, final tea.Model) {
+	if m, ok := final.(model); ok && m.farewell != "" {
+		fmt.Fprintln(w, m.farewell)
+	}
 }
 
 func terminalPetFrameCache(options Options) string {

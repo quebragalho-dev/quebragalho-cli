@@ -26,6 +26,17 @@ func logoutEnv(t *testing.T) (appDeps, string) {
 	return fillAppDeps(appDeps{userConfigPath: func() (string, error) { return configPath, nil }}), configPath
 }
 
+func TestLogoutMessageNamesEnvVariableNeverItsValue(t *testing.T) {
+	t.Setenv("QG_API_KEY", "qg_super_secret_value")
+	msg := logoutMessage(LogoutResult{Removed: true, EnvStillActive: "QG_API_KEY"})
+	if !strings.Contains(msg, "QG_API_KEY") {
+		t.Fatalf("message should name the variable: %q", msg)
+	}
+	if strings.Contains(msg, "qg_super_secret_value") {
+		t.Fatalf("message leaked the variable value: %q", msg)
+	}
+}
+
 // seedQGCredentials stores every kind of QG credential: vault key, marker,
 // inline key and an OAuth token.
 func seedQGCredentials(t *testing.T, configPath string) {
