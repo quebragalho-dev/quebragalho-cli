@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -44,9 +45,18 @@ func logoutQG(deps appDeps, stdout io.Writer) (LogoutResult, error) {
 	if err != nil {
 		return result, err
 	}
-	resolved, err := config.Resolve(config.ResolveOptions{UserConfigPath: configPath, Env: map[string]string{}})
-	if err != nil && !errors.Is(err, config.ErrNoActiveProvider) && !errors.Is(err, fs.ErrNotExist) {
-		return result, err
+	// Raw read, not config.Resolve: semantic validation errors must never block
+	// removing credentials. Only unreadable or unparseable JSON aborts, since the
+	// inline key could not be cleared then anyway.
+	var saved config.FileConfig
+	data, err := os.ReadFile(configPath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return result, fmt.Errorf("read config %s: %w", configPath, err)
+	}
+	if err == nil {
+		if err := json.Unmarshal(data, &saved); err != nil {
+			return result, fmt.Errorf("invalid config JSON %s: %w", configPath, err)
+		}
 	}
 	manager, err := newAuthManager(deps, stdout)
 	if err != nil {
@@ -54,7 +64,7 @@ func logoutQG(deps appDeps, stdout io.Writer) (LogoutResult, error) {
 	}
 	// Every profile the login gate treats as QG, plus the legacy "qg" OAuth name.
 	names := []string{providercatalog.QGID}
-	for _, profile := range resolved.Providers {
+	for _, profile := range saved.Providers {
 		if isQGProfile(profile) && !slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, profile.Name) }) {
 			names = append(names, profile.Name)
 		}

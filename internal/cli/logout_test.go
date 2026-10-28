@@ -195,6 +195,47 @@ func TestLogoutSurfacesConfigPathErrorAndDeletesNothing(t *testing.T) {
 	}
 }
 
+// A config that parses but fails validation must never stop credential removal.
+func TestLogoutWorksWithSemanticallyInvalidConfig(t *testing.T) {
+	deps, configPath := logoutEnv(t)
+	seedQGCredentials(t, configPath)
+	// The active custom provider has no model, which the resolver rejects.
+	cfg := `{"activeProvider":"custom","providers":[` +
+		`{"name":"custom","providerKind":"openai-compatible","baseUrl":"https://example.test/v1"},` +
+		`{"name":"qg","catalogId":"qg","apiKey":"sk-inline","apiKeyStored":true}]}`
+	if err := os.WriteFile(configPath, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Resolve(config.ResolveOptions{UserConfigPath: configPath, Env: map[string]string{}}); err == nil {
+		t.Fatal("precondition: this config must fail validation")
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"logout"}, &stdout, &stderr, deps); code != exitSuccess {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	assertQGCredentialsGone(t, configPath)
+}
+
+// Unparseable JSON cannot be edited, so logout aborts with the error and
+// leaves every credential in place.
+func TestLogoutAbortsOnUnparseableConfigAndDeletesNothing(t *testing.T) {
+	deps, configPath := logoutEnv(t)
+	seedQGCredentials(t, configPath)
+	if err := os.WriteFile(configPath, []byte(`{not json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"logout"}, &stdout, &stderr, deps); code == exitSuccess {
+		t.Fatalf("exit = success, want failure; stdout=%q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "config") {
+		t.Fatalf("stderr = %q, want a config error", stderr.String())
+	}
+	if _, ok, _ := credentialStore(t, configPath).Get("qg"); !ok {
+		t.Error("vault key was deleted although logout failed")
+	}
+}
+
 // The gate treats any profile named or cataloged "qg" as the QG login, so
 // logout must clear it too, or onboarding would never reopen.
 func TestLogoutClearsEveryQGProfileAndReopensOnboarding(t *testing.T) {
