@@ -13,11 +13,11 @@ on:
 
 jobs:
   package:
-    name: Package (cross, self-hosted)
-    runs-on: self-hosted
+    name: Package (cross)
+    runs-on: ubuntu-latest
     permissions:
       contents: write # create/upload the GitHub Release on a tag push
-    # One macOS ARM64 self-hosted runner builds every target. `qg-release
+    # One GitHub-hosted Linux runner builds every target. `qg-release
     # package --allow-cross` cross-compiles (GOOS/GOARCH) and skips the native
     # smoke it cannot run for a foreign target; `qg-release verify` re-checks
     # every archive + checksum, and the publish-npm job probes the uploaded
@@ -124,7 +124,7 @@ jobs:
     name: Publish npm package
     needs: package
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     # Manual approval gate: this environment carries a required-reviewer rule
     # (Settings -> Environments -> npm-publish), so the job pauses until a
     # maintainer approves it in the Actions UI before anything reaches npm.

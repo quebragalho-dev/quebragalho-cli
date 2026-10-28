@@ -14,7 +14,7 @@ permissions:
 jobs:
   release-please:
     name: Release PR / tag
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Run release-please
         id: release
