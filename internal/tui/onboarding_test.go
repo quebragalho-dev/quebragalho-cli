@@ -68,7 +68,9 @@ func TestSetupTakeoverRendersAndCompletes(t *testing.T) {
 	updated, cmd = m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
 	if cmd != nil {
-		t.Fatal("setup completion should stay in the fullscreen chat surface")
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Fatal("setup completion should stay in the fullscreen chat surface")
+		}
 	}
 
 	if m.setup.visible {
@@ -116,7 +118,9 @@ func TestSetupCompletionResetsChatSurfaceInsideAltScreen(t *testing.T) {
 	updated, cmd := m.completeSetup()
 	m = updated.(model)
 	if cmd != nil {
-		t.Fatal("setup completion should not exit the alt-screen")
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Fatal("setup completion should not exit the alt-screen")
+		}
 	}
 	if m.setup.visible {
 		t.Fatal("setup should be hidden")
@@ -935,5 +939,37 @@ func TestPasteOnBrowserScreenSwitchesToKeyMode(t *testing.T) {
 	r.until("the model stage", func(string) bool { return r.m.setup.stage == setupStageModel })
 	if _, _, validated, _ := f.snapshot(); len(validated) != 1 || validated[0] != key {
 		t.Fatalf("validated = %q, want the pasted key", validated)
+	}
+}
+
+func TestSetupCompletionWarmsModelDiscoveryForCallCost(t *testing.T) {
+	discovered := make(chan struct{}, 1)
+	m := newModel(context.Background(), Options{
+		DiscoverProviderModels: func(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
+			discovered <- struct{}{}
+			return []providermodeldiscovery.Model{{ID: "deepseek-v4.1-flash", Source: "live", APIModel: &qgaccount.ModelInfo{ID: "deepseek-v4.1-flash"}}}, nil
+		},
+		Setup: SetupOptions{
+			Visible:   true,
+			Providers: []SetupProviderOption{{ID: "qg", Name: "Quebra Galho", DefaultModel: "deepseek-v4.1-flash"}},
+			Save: func(selection SetupSelection) (SetupResult, error) {
+				return SetupResult{Provider: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: selection.Model}}, nil
+			},
+		},
+	})
+	m.setup.stage = setupStageModel
+
+	updated, cmd := m.completeSetup()
+	if cmd == nil {
+		t.Fatal("completing setup must start model discovery")
+	}
+	msg, ok := cmd().(modelPickerModelsDiscoveredMsg)
+	if !ok {
+		t.Fatalf("cmd result = %T, want modelPickerModelsDiscoveredMsg", msg)
+	}
+	<-discovered
+	m = updated.(model).applyModelPickerModelsDiscovered(msg)
+	if m.apiModel("deepseek-v4.1-flash") == nil {
+		t.Fatal("discovered model info is not available to call-cost lookup")
 	}
 }

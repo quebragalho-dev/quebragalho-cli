@@ -403,7 +403,16 @@ func (m model) completeSetup() (tea.Model, tea.Cmd) {
 	if result.KeyStoreFallback {
 		m = m.showTransientNoticeInline("Credential store unavailable — API key saved in plaintext in "+result.ConfigPath, transientNoticeWarning)
 	}
-	return m.exitSetupToChat()
+	updated, _ := m.exitSetupToChat()
+	m = updated.(model)
+	// Init warms discovery only when a provider already exists at launch, which a
+	// first run does not; without it per-call cost and the context window are
+	// unknown until the model picker is opened.
+	var warm tea.Cmd
+	if descriptor, ok := m.activeProviderDescriptor(); ok {
+		warm = m.modelPickerProviderDiscoveryCmd(descriptor, m.providerProfile)
+	}
+	return m, warm
 }
 
 func (m *model) resetSetupModels() {
