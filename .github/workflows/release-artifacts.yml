@@ -211,16 +211,6 @@ jobs:
       # `latest` dist-tag — that would make `npm install @quebragalho-dev/cli`
       # deliver a platform payload as the CLI. Publish them under a dedicated
       # tag and assert `latest` survived before the wrapper goes out.
-      # Bootstrap only: the package does not exist on npm yet, and trusted
-      # publishing can only be configured on an existing package. Remove this
-      # step (and the NPM_TOKEN secret) once the trusted publisher is set up.
-      - name: Configure npm token (bootstrap)
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$RUNNER_TEMP/npmrc"
-          echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/npmrc" >> "$GITHUB_ENV"
-
       - name: Publish platform packages to npm
         shell: bash
         run: |
