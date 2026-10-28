@@ -955,9 +955,16 @@ func createZipArchive(stagingDir string, archivePath string) error {
 		if path == stagingDir || entry.IsDir() {
 			return nil
 		}
-		info, err := entry.Info()
+		// Stat, not Lstat: the entry's bytes are read through the link, so the
+		// header must describe the file it points to. A symlink-flagged header
+		// carrying file contents extracts on Linux as a symlink whose target is
+		// the script text, which breaks the vendored .bin shims.
+		info, err := os.Stat(path)
 		if err != nil {
 			return err
+		}
+		if info.IsDir() {
+			return nil
 		}
 		header, err := zip.FileInfoHeader(info)
 		if err != nil {

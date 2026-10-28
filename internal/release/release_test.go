@@ -751,3 +751,55 @@ func TestCopyPackageFilesAddsRealAliasSymlink(t *testing.T) {
 		t.Fatalf("alias target = %q, want relative %q", target, "qg")
 	}
 }
+
+func TestZipArchiveStoresSymlinkedFilesAsRegularFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on windows")
+	}
+	staging := t.TempDir()
+	script := "#!/usr/bin/env node\nconsole.log('shim')\n"
+	if err := os.MkdirAll(filepath.Join(staging, "pkg", "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(staging, ".bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, "pkg", "bin", "cli.js"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../pkg/bin/cli.js", filepath.Join(staging, ".bin", "cli")); err != nil {
+		t.Fatal(err)
+	}
+
+	archive := filepath.Join(t.TempDir(), "out.zip")
+	if err := createZipArchive(staging, archive); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.OpenReader(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }()
+	for _, file := range reader.File {
+		if file.Name != ".bin/cli" {
+			continue
+		}
+		if file.Mode()&os.ModeSymlink != 0 {
+			t.Fatal(".bin/cli is flagged as a symlink but carries file contents")
+		}
+		if file.Mode().Perm()&0o111 == 0 {
+			t.Fatalf(".bin/cli lost its executable bit: %v", file.Mode())
+		}
+		rc, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(rc)
+		_ = rc.Close()
+		if string(body) != script {
+			t.Fatalf(".bin/cli body = %q", body)
+		}
+		return
+	}
+	t.Fatal(".bin/cli missing from the zip")
+}
