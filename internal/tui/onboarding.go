@@ -196,8 +196,11 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) handleSetupPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case m.setupBrowserMode():
-		return m, nil
+	case m.setupBrowserMode() && !m.setup.keyCheck:
+		// Pasting means the user has a key: switch to paste mode and take it.
+		m.cancelDeviceLogin()
+		m.setup.credMode = credModeKey
+		fallthrough
 	case m.setupCredentialInputActive():
 		if m.setup.keyCheck {
 			return m, nil
@@ -900,7 +903,7 @@ func blankSetupBlockLine(width int) string {
 
 func (m model) setupCredentialLines(width int) []string {
 	if m.setupBrowserMode() {
-		return m.setupBrowserLines()
+		return m.setupBrowserLines(width)
 	}
 	return []string{
 		qgTheme.ink.Bold(true).Render("Your Quebra Galho API key"),
@@ -915,7 +918,7 @@ func (m model) setupCredentialLines(width int) []string {
 	}
 }
 
-func (m model) setupBrowserLines() []string {
+func (m model) setupBrowserLines(width int) []string {
 	title := qgTheme.ink.Bold(true).Render("Sign in to Quebra Galho")
 	auth := m.setup.deviceAuth
 	switch {
@@ -923,13 +926,17 @@ func (m model) setupBrowserLines() []string {
 		lines := []string{
 			title,
 			"",
-			"Approve this terminal in your browser:",
-			qgTheme.accent.Render(deviceVerificationURL(*auth)),
+			"Open this link in your browser and enter the code:",
+			qgTheme.accent.Render(auth.VerificationURI),
 			"",
 			"Code  " + qgTheme.accent.Bold(true).Render(auth.UserCode),
-			"",
-			qgTheme.faint.Render("Waiting for approval..."),
 		}
+		// A truncated URL is neither clickable nor copyable: show the
+		// pre-filled link only when it fits whole.
+		if full := auth.VerificationURIComplete; full != "" && full != auth.VerificationURI && lipgloss.Width(full) <= width {
+			lines = append(lines, "", qgTheme.faint.Render("Or open the link with the code filled in:"), qgTheme.accent.Render(full))
+		}
+		lines = append(lines, "", qgTheme.faint.Render("Waiting for approval..."))
 		if m.setup.browserHint {
 			lines = append(lines, qgTheme.faint.Render("Couldn't open the browser; open the link above."))
 		}

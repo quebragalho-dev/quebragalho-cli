@@ -1038,7 +1038,10 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 				if err != nil {
 					return "", err
 				}
-				auth, _ := opaque.(qgaccount.DeviceAuth)
+				auth, ok := opaque.(qgaccount.DeviceAuth)
+				if !ok {
+					return "", fmt.Errorf("device login: unexpected auth state %T", opaque)
+				}
 				return client.PollDeviceToken(ctx, auth, qgaccount.DevicePollOptions{})
 			},
 			OpenBrowser: deps.openBrowser,

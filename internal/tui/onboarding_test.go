@@ -876,3 +876,64 @@ func TestTabSwitchesToPasteKeyMode(t *testing.T) {
 		t.Fatalf("validated = %q, want the pasted key", validated)
 	}
 }
+
+// A cut-off URL can be neither clicked nor copied: the short URI and the code
+// always render, the pre-filled link only when it fits whole.
+func TestBrowserLoginNeverTruncatesVerificationURL(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		width    int
+		wantFull bool
+	}{
+		{"narrow", 44, false},
+		{"wide", 100, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeDeviceLogin{block: true}
+			m := newDeviceSetupModel(f)
+			m.width = tc.width
+			r := newSetupRuntime(t, m)
+
+			r.press(testKey(tea.KeyEnter))
+			view := r.until("the code", func(view string) bool { return strings.Contains(view, "WXYZ-1234") })
+
+			for _, line := range strings.Split(view, "\n") {
+				if strings.Contains(line, "https://") && strings.Contains(line, "…") {
+					t.Fatalf("URL rendered truncated: %q", line)
+				}
+			}
+			if !strings.Contains(view, f.auth.VerificationURI) {
+				t.Fatalf("short verification URI missing:\n%s", view)
+			}
+			if got := strings.Contains(view, f.auth.VerificationURIComplete); got != tc.wantFull {
+				t.Fatalf("full URL shown = %v, want %v:\n%s", got, tc.wantFull, view)
+			}
+			r.press(testKey(tea.KeyEsc))
+		})
+	}
+}
+
+func TestPasteOnBrowserScreenSwitchesToKeyMode(t *testing.T) {
+	const key = "sk-pasted-on-browser"
+	f := &fakeDeviceLogin{block: true}
+	r := newSetupRuntime(t, newDeviceSetupModel(f))
+	r.press(testKey(tea.KeyEnter))
+	r.until("the code", func(view string) bool { return strings.Contains(view, "WXYZ-1234") })
+	_, _, _, waitCtx := f.snapshot()
+
+	updated, _ := r.m.Update(testPaste(key))
+	r.m = updated.(model)
+
+	if waitCtx.Err() == nil {
+		t.Fatal("pasting a key should cancel the browser login")
+	}
+	view := plainRender(t, r.m.View())
+	if !strings.Contains(view, strings.Repeat("*", len(key))) || strings.Contains(view, key) {
+		t.Fatalf("paste should land masked in the API key field:\n%s", view)
+	}
+	r.press(testKey(tea.KeyEnter))
+	r.until("the model stage", func(string) bool { return r.m.setup.stage == setupStageModel })
+	if _, _, validated, _ := f.snapshot(); len(validated) != 1 || validated[0] != key {
+		t.Fatalf("validated = %q, want the pasted key", validated)
+	}
+}
