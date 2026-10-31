@@ -151,9 +151,11 @@ func TestResolveEnvKeyBeatsStoredMarker(t *testing.T) {
 		}]
 	}`)
 
+	// The stored-key marker only exists in user config (`qg login` writes it
+	// there; project profiles cannot opt into the user's credential store).
 	resolved, err := Resolve(ResolveOptions{
-		ProjectConfigPath: path,
-		Env:               map[string]string{"QG_API_KEY": "sk-qg-short"},
+		UserConfigPath: path,
+		Env:            map[string]string{"QG_API_KEY": "sk-qg-short"},
 	})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
