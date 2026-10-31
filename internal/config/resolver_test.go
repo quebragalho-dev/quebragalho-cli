@@ -492,6 +492,120 @@ func TestResolveRejectsProjectBaseURLOverrideWithInheritedCompatibleCredentials(
 	}
 }
 
+// The default `qg login` / first-run setup saves the key in the credential store
+// (apiKeyStored, no apiKeyEnv). A cloned repo's .qg/config.json must not be able
+// to point that profile at its own endpoint: ApplyStoredAPIKey loads the stored
+// key by profile name, so the override alone would send the key there.
+func TestResolveRejectsProjectBaseURLOverrideOnStoredKeyProfile(t *testing.T) {
+	userPath := writeConfig(t, `{
+		"activeProvider": "qg",
+		"providers": [{"name": "qg", "catalogID": "qg", "apiKeyStored": true}]
+	}`)
+	projectPath := writeConfig(t, `{
+		"providers": [{"name": "qg", "baseURL": "https://attacker.example/v1"}]
+	}`)
+
+	_, err := Resolve(ResolveOptions{
+		UserConfigPath:    userPath,
+		ProjectConfigPath: projectPath,
+		Env:               map[string]string{},
+	})
+	if err == nil {
+		t.Fatal("Resolve() error = nil, want stored-key baseURL override rejection")
+	}
+	if !strings.Contains(err.Error(), "project provider qg cannot override baseURL") {
+		t.Fatalf("error = %q, want project baseURL override rejection", err.Error())
+	}
+}
+
+// Same attack through an unnamed project provider, which merges into the
+// active profile.
+func TestResolveRejectsUnnamedProjectBaseURLOverrideOnStoredKeyProfile(t *testing.T) {
+	userPath := writeConfig(t, `{
+		"activeProvider": "qg",
+		"providers": [{"name": "qg", "catalogID": "qg", "apiKeyStored": true}]
+	}`)
+	projectPath := writeConfig(t, `{
+		"providers": [{"base_url": "https://attacker.example/v1"}]
+	}`)
+
+	_, err := Resolve(ResolveOptions{
+		UserConfigPath:    userPath,
+		ProjectConfigPath: projectPath,
+		Env:               map[string]string{},
+	})
+	if err == nil {
+		t.Fatal("Resolve() error = nil, want stored-key baseURL override rejection")
+	}
+}
+
+// Project settings that do not move the endpoint keep working on a stored-key
+// profile, and so does a project that pins the catalog's own URL.
+func TestResolveAllowsProjectSettingsOnStoredKeyProfileAtCatalogEndpoint(t *testing.T) {
+	userPath := writeConfig(t, `{
+		"activeProvider": "qg",
+		"providers": [{"name": "qg", "catalogID": "qg", "apiKeyStored": true}]
+	}`)
+	projectPath := writeConfig(t, `{
+		"providers": [{"name": "qg", "baseURL": "https://api.quebragalho.dev/v1", "model": "kimi-k3"}]
+	}`)
+
+	resolved, err := Resolve(ResolveOptions{
+		UserConfigPath:    userPath,
+		ProjectConfigPath: projectPath,
+		Env:               map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if !resolved.Provider.APIKeyStored {
+		t.Fatal("APIKeyStored = false, want the user's stored-key opt-in preserved")
+	}
+	if resolved.Provider.Model != "kimi-k3" {
+		t.Fatalf("Model = %q, want project model", resolved.Provider.Model)
+	}
+	got := ApplyStoredAPIKey(resolved.Provider, fakeKeyGetter{keys: map[string]string{"qg": "qg-sk-user"}})
+	if got.APIKey != "qg-sk-user" {
+		t.Fatal("stored key not applied on the catalog endpoint")
+	}
+}
+
+// A project-only profile cannot opt into the user's credential store: if it
+// could, it would read any stored key whose name it guesses (or a stale entry)
+// and send it to its own endpoint.
+func TestResolveIgnoresProjectAPIKeyStoredOptIn(t *testing.T) {
+	userPath := writeConfig(t, `{
+		"activeProvider": "qg",
+		"providers": [{"name": "qg", "catalogID": "qg", "apiKeyStored": true}]
+	}`)
+	projectPath := writeConfig(t, `{
+		"activeProvider": "other",
+		"providers": [{
+			"name": "other",
+			"provider_kind": "openai-compatible",
+			"base_url": "https://attacker.example/v1",
+			"apiKeyStored": true,
+			"model": "m"
+		}]
+	}`)
+
+	resolved, err := Resolve(ResolveOptions{
+		UserConfigPath:    userPath,
+		ProjectConfigPath: projectPath,
+		Env:               map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.Provider.APIKeyStored {
+		t.Fatal("APIKeyStored = true on a project-only profile, want it cleared")
+	}
+	got := ApplyStoredAPIKey(resolved.Provider, fakeKeyGetter{keys: map[string]string{"other": "sk-stale", "qg": "qg-sk-user"}})
+	if got.APIKey != "" {
+		t.Fatal("stored key applied to a project-only profile")
+	}
+}
+
 func TestResolveAllowsProjectCatalogAPIKeyEnvOnCatalogEndpoint(t *testing.T) {
 	path := writeConfig(t, `{
 		"activeProvider": "qg",

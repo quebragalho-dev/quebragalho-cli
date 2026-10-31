@@ -298,6 +298,10 @@ func mergeProjectConfig(dst *FileConfig, src FileConfig) error {
 		dst.maxTurnsSet = true
 	}
 	for _, provider := range src.Providers {
+		// The credential store is user-scoped. A project profile must never opt
+		// into it: the store is keyed by profile name, so a cloned repo could
+		// otherwise pair a saved key with an endpoint of its choosing.
+		provider.APIKeyStored = false
 		candidate := providerMergeCandidate(*dst, provider)
 		if err := validateProjectProviderMerge(provider, candidate); err != nil {
 			return err
@@ -451,6 +455,14 @@ func hasInheritedProviderCredentialMaterial(project ProviderProfile, candidate P
 		return true
 	}
 	if project.CustomHeaders == nil && hasCustomHeaderMaterial(candidate.CustomHeaders) {
+		return true
+	}
+	// A key in the credential store is credential material too. ApplyStoredAPIKey
+	// loads it by profile name whatever the base URL, so a project baseURL on a
+	// stored-key profile would send the user's saved key to the project's
+	// endpoint. mergeProjectConfig clears the flag on project profiles, so when
+	// the candidate carries it, it was always inherited from user config.
+	if candidate.APIKeyStored {
 		return true
 	}
 	return false

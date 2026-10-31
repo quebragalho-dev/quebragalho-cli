@@ -85,3 +85,24 @@ func TestLSPNavigateIsReadOnly(t *testing.T) {
 		t.Fatalf("name = %q", tool.Name())
 	}
 }
+
+func TestLSPNavigateTellsModelToTrustWorkspace(t *testing.T) {
+	// An empty trust store: the fresh workspace below is untrusted, so the
+	// language server must not start and the model gets a usable message.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewScopedLSPNavigateTool(root, nil)
+	got := tool.Run(context.Background(), map[string]any{
+		"op": "definition", "path": "main.go", "line": 1, "character": 1,
+	})
+	if got.Status != StatusOK {
+		t.Fatalf("untrusted workspace should degrade to StatusOK, got %s: %s", got.Status, got.Output)
+	}
+	if !strings.Contains(got.Output, "qg trust") {
+		t.Fatalf("expected a `qg trust` hint, got %q", got.Output)
+	}
+}

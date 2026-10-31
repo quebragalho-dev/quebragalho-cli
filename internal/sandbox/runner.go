@@ -1146,6 +1146,11 @@ func scrubSensitiveEnv(env []string, additionalKeys ...string) []string {
 			sensitiveKeys = append(sensitiveKeys, key)
 		}
 	}
+	// The QG key pair by name, not only via the catalog: the catalog lists
+	// QUEBRAGALHO_API_KEY, but QG_API_KEY (the documented first choice, read by
+	// config.ProviderProfile.EnvAPIKey) is not a catalog auth var, and a
+	// stored-key profile has no apiKeyEnv to pass in additionalKeys.
+	sensitiveKeys = append(sensitiveKeys, providercatalog.QGCredentialEnvVars()...)
 	sensitiveKeys = append(sensitiveKeys, normalizeSensitiveEnvKeys(additionalKeys)...)
 
 	out := make([]string, 0, len(env))
