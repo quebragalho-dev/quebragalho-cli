@@ -849,6 +849,11 @@ func TestScrubSensitiveEnv(t *testing.T) {
 		// path to read it from (#677).
 		"QG_DAEMON_REMOTE_TOKEN=bridge-token-inline",
 		"QG_DAEMON_REMOTE_TOKEN_FILE=/home/user/.qg/remote-token",
+		// The QG key pair. QUEBRAGALHO_API_KEY comes from the catalog;
+		// QG_API_KEY is the documented first choice and is not a catalog auth
+		// var, so it leaked into sandboxed and direct commands.
+		"QG_API_KEY=qg-sk-primary",
+		"QUEBRAGALHO_API_KEY=qg-sk-catalog",
 		"COMPANY_LLM_SECRET=custom-secret",
 		"QG_OAUTH_MY_SVC_CLIENT_SECRET=oauth-secret",
 		"qg_oauth_second_client_secret=case-insensitive-secret",

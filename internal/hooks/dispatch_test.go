@@ -270,3 +270,29 @@ func TestDispatchBeforeToolFailsClosedWhenHookTimesOut(t *testing.T) {
 		t.Fatalf("Reason = %q, want a timeout reason", outcome.Reason)
 	}
 }
+
+func TestDispatchDoesNotPassQGKeyToHooks(t *testing.T) {
+	t.Setenv("QG_API_KEY", "qg-sk-primary")
+	t.Setenv("QUEBRAGALHO_API_KEY", "qg-sk-catalog")
+	t.Setenv("QG_HOOK_TEST_KEEP", "kept")
+	var seen []string
+	runner := func(ctx context.Context, command string, args []string, stdin []byte, cwd string, env []string) commandResult {
+		seen = env
+		return commandResult{ExitCode: 0}
+	}
+	config := beforeToolConfig(Definition{ID: "observe", Event: EventBeforeTool, Command: "observe", Enabled: true})
+	NewDispatcher(DispatcherOptions{Config: config, run: runner}).Dispatch(context.Background(), DispatchInput{Event: EventBeforeTool, ToolName: "bash"})
+
+	kept := false
+	for _, kv := range seen {
+		if strings.HasPrefix(kv, "QG_API_KEY=") || strings.HasPrefix(kv, "QUEBRAGALHO_API_KEY=") {
+			t.Fatalf("hook env carries the QG key: %q", kv)
+		}
+		if kv == "QG_HOOK_TEST_KEEP=kept" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatal("hook env lost an unrelated inherited variable")
+	}
+}

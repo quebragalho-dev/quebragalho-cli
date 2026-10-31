@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 // defaultHookTimeout bounds a single hook command so a hung or slow hook cannot
@@ -197,7 +198,9 @@ func (dispatcher *Dispatcher) Dispatch(ctx context.Context, input DispatchInput)
 func (dispatcher *Dispatcher) runWithTimeout(ctx context.Context, hook Definition, stdin []byte) commandResult {
 	runCtx, cancel := context.WithTimeout(ctx, dispatcher.timeout)
 	defer cancel()
-	env := os.Environ()
+	// Hooks are arbitrary commands (project hooks come from the repo once it is
+	// trusted); they never need the user's QG key, so it is not inherited.
+	env := providercatalog.WithoutQGCredentials(os.Environ())
 	if len(dispatcher.env) > 0 {
 		env = append(env, dispatcher.env...)
 	}

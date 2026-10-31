@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 type RemoteTool struct {
@@ -728,8 +729,11 @@ func (client *Client) notify(method string, params any) error {
 	})
 }
 
+// mergeProcessEnv builds a stdio MCP server's environment: the inherited
+// environment minus the user's QG key (an MCP server never needs it), then the
+// server's own configured env, which may still set any variable explicitly.
 func mergeProcessEnv(env map[string]string) []string {
-	merged := append([]string{}, os.Environ()...)
+	merged := providercatalog.WithoutQGCredentials(os.Environ())
 	for key, value := range env {
 		merged = append(merged, key+"="+value)
 	}
