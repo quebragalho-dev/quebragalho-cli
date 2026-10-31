@@ -9,7 +9,8 @@ import (
 )
 
 // runTrust implements `qg trust`, letting the user opt a workspace into running
-// its project-scoped executable config (hooks, plugins, MCP servers). Trust is
+// its project-scoped executable config (hooks, plugins, MCP servers) and start
+// language servers for it (internal/lsp gates every server start). Trust is
 // keyed on the exact normalized working directory, matching the exact-match trust
 // model and cwd-relative project-config discovery.
 //
@@ -115,7 +116,8 @@ func writeTrustUsage(w io.Writer) {
   qg trust remove [path]  Untrust the current directory, or a named path
 
 Trust lets QG run a workspace's project-scoped hooks, plugins, and MCP
-servers (./.qg/hooks.json, ./.qg/plugins/, project MCP config). Trust is
-exact per directory.
+servers (./.qg/hooks.json, ./.qg/plugins/, project MCP config), and start
+language servers for it (they run outside the sandbox and can execute project
+code while indexing). Trust is exact per directory.
 `)
 }

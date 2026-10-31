@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/workspacetrust"
 )
 
 // diagnosticsDebounce is how long to wait for a quiet period after the last
@@ -20,6 +22,34 @@ type serverStarter func(ctx context.Context, command []string, root string) (lsp
 
 func defaultStarter(ctx context.Context, command []string, root string) (lspServer, error) {
 	return StartServer(ctx, command, root)
+}
+
+// ErrWorkspaceUntrusted is returned instead of starting a language server in a
+// workspace the user has not trusted with `qg trust`.
+//
+// Language servers run outside the sandbox with the user's full rights, and
+// several of them execute project code while indexing (rust-analyzer runs
+// build.rs and proc-macros, gopls runs the go command, pyright can run the
+// project's interpreter). They start automatically after an edit, so without
+// this gate a cloned repo would get code execution the moment the agent touched
+// one of its files. Same trust boundary as project hooks, plugins and MCP.
+var ErrWorkspaceUntrusted = errors.New("language servers are disabled until this workspace is trusted (run `qg trust`)")
+
+// isWorkspaceTrusted is the trust check behind every server start. A variable so
+// tests can stub it without touching the user's trust store.
+var isWorkspaceTrusted = workspacetrust.IsTrusted
+
+// trustGatedStarter wraps a starter so no server process is spawned unless the
+// workspace root is trusted. It fails closed: an unreadable trust store counts
+// as untrusted.
+func trustGatedStarter(next serverStarter) serverStarter {
+	return func(ctx context.Context, command []string, root string) (lspServer, error) {
+		trusted, err := isWorkspaceTrusted(root)
+		if err != nil || !trusted {
+			return nil, ErrWorkspaceUntrusted
+		}
+		return next(ctx, command, root)
+	}
 }
 
 // Manager is the single entry point the rest of QG uses for LSP. It owns one
@@ -36,9 +66,11 @@ type Manager struct {
 	sessions map[string]*session // keyed by server binary
 }
 
-// NewManager creates a Manager rooted at workspaceRoot.
+// NewManager creates a Manager rooted at workspaceRoot. Servers start only when
+// workspaceRoot is trusted (see ErrWorkspaceUntrusted); the gate lives here, in
+// the one constructor every caller uses, so no call site can forget it.
 func NewManager(workspaceRoot string) *Manager {
-	return newManagerWithStarter(workspaceRoot, defaultStarter)
+	return newManagerWithStarter(workspaceRoot, trustGatedStarter(defaultStarter))
 }
 
 func newManagerWithStarter(workspaceRoot string, starter serverStarter) *Manager {
@@ -66,9 +98,9 @@ func (m *Manager) Check(ctx context.Context, path, text string) ([]Diagnostic, e
 	if err != nil {
 		// A configured extension whose language-server binary isn't installed must
 		// degrade exactly like an unsupported extension — LSP is an opportunistic
-		// layer, not a hard dependency. Only a missing binary degrades; any other
-		// start failure still surfaces.
-		if isServerUnavailable(err) {
+		// layer, not a hard dependency. Only a missing binary (or an untrusted
+		// workspace) degrades; any other start failure still surfaces.
+		if isServerUnavailable(err) || errors.Is(err, ErrWorkspaceUntrusted) {
 			return nil, nil
 		}
 		return nil, err

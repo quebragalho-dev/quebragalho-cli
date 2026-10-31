@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -113,6 +114,9 @@ func (tool lspNavigateTool) Run(ctx context.Context, args map[string]any) Result
 	}
 
 	locations, symbols, ok, navErr := tool.manager.Navigate(ctx, req)
+	if errors.Is(navErr, lsp.ErrWorkspaceUntrusted) {
+		return okResult("Language servers are off in this workspace until the user trusts it with `qg trust` — lsp_navigate is unavailable. Fall back to grep/read_file.")
+	}
 	if navErr != nil {
 		return errorResult("Error: lsp_navigate failed: " + navErr.Error())
 	}
