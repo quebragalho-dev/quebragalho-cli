@@ -728,18 +728,25 @@ func TestFormatExecPromptTruncatesConversationMessagesAfterFilteringNoise(t *tes
 
 // A truncation cut at a raw byte offset can land in the middle of a
 // multi-byte UTF-8 rune (e.g. CJK text), embedding invalid UTF-8 into the
-// exec prompt. summarizePayload must back off to a rune boundary instead.
-func TestSummarizePayloadTruncatesOnRuneBoundary(t *testing.T) {
-	content := strings.Repeat("中文", 300) // 900 bytes of 3-byte runes
-	payload := json.RawMessage(fmt.Sprintf(`{"role":"user","content":%q}`, content))
+// exec prompt. The per-event head+tail cut must back off to a rune boundary
+// instead.
+func TestFormatExecPromptTruncatesCJKOnRuneBoundary(t *testing.T) {
+	content := strings.Repeat("中文", 1000) // 6000 bytes of 3-byte runes, over the 2 KiB event budget
+	prompt := FormatExecPrompt("continue", PreparedExec{
+		Mode:    ModeResume,
+		Session: Metadata{SessionID: "rune"},
+		ContextEvents: []Event{
+			{Sequence: 1, Type: EventMessage, Payload: json.RawMessage(`{"role":"user","content":"first request"}`)},
+			{Sequence: 2, Type: EventMessage, Payload: json.RawMessage(`{"role":"assistant","content":"ok"}`)},
+			{Sequence: 3, Type: EventMessage, Payload: json.RawMessage(fmt.Sprintf(`{"role":"user","content":%q}`, content))},
+		},
+	})
 
-	got := summarizePayload(payload)
-
-	if !utf8.ValidString(got) {
-		t.Fatalf("summarizePayload produced invalid UTF-8: %q", got)
+	if !utf8.ValidString(prompt) {
+		t.Fatalf("exec prompt produced invalid UTF-8")
 	}
-	if len(got) > 500 {
-		t.Fatalf("expected summary to be at most 500 bytes, got %d", len(got))
+	if !strings.Contains(prompt, "bytes omitted") {
+		t.Fatalf("expected head+tail omission marker:\n%s", prompt)
 	}
 }
 

@@ -163,16 +163,62 @@ func readExecContextEvents(store *Store, sessionID string) ([]Event, error) {
 	return rawEvents, nil
 }
 
+const (
+	execContextTotalBudgetBytes        = 48 * 1024
+	execContextLastAssistantLimitBytes = 24 * 1024
+	execContextLastAssistantEdgeBytes  = 12 * 1024
+	execContextEventLimitBytes         = 2 * 1024
+	execContextEventEdgeBytes          = 1 * 1024
+)
+
 func FormatExecPrompt(prompt string, prepared PreparedExec) string {
 	if prepared.Mode == ModeNew || len(prepared.ContextEvents) == 0 {
 		return prompt
 	}
 	events := promptContextEvents(prepared.ContextEvents)
 
-	lines := []string{}
-	for _, event := range events {
-		lines = append(lines, fmt.Sprintf("- #%d %s: %s", event.Sequence, event.Type, summarizePayload(event.Payload)))
+	lastAssistant := -1
+	firstUser := -1
+	for index, event := range events {
+		if event.Type != EventMessage {
+			continue
+		}
+		role := payloadRole(event.Payload)
+		if role == "assistant" {
+			lastAssistant = index
+		}
+		if role == "user" && firstUser == -1 {
+			firstUser = index
+		}
 	}
+
+	lines := make([]string, len(events))
+	sizes := make([]int, len(events))
+	for index, event := range events {
+		label, body := execContextLabelAndBody(event, index == lastAssistant)
+		line := fmt.Sprintf("- #%d %s: %s", event.Sequence, label, body)
+		lines[index] = line
+		sizes[index] = len(line)
+	}
+	kept := selectExecContext(len(events), firstUser, lastAssistant, sizes)
+
+	out := make([]string, 0, len(events)+1)
+	gap := 0
+	flushGap := func() {
+		if gap > 0 {
+			out = append(out, fmt.Sprintf("- … [%d events omitted] …", gap))
+			gap = 0
+		}
+	}
+	for index := range events {
+		if !kept[index] {
+			gap++
+			continue
+		}
+		flushGap()
+		out = append(out, lines[index])
+	}
+	flushGap()
 	label := "Continuing"
 	sessionID := prepared.Session.SessionID
 	if prepared.Mode == ModeFork {
@@ -184,11 +230,144 @@ func FormatExecPrompt(prompt string, prepared PreparedExec) string {
 	return strings.Join([]string{
 		fmt.Sprintf("%s QG session %s.", label, sessionID),
 		"Previous session context:",
-		strings.Join(lines, "\n"),
+		strings.Join(out, "\n"),
 		"",
 		"Current user request:",
 		prompt,
 	}, "\n")
+}
+
+// execContextLabelAndBody renders one context event. Message events name the
+// role first so the speaker survives the cut; everything else keeps its type.
+func execContextLabelAndBody(event Event, isLastAssistant bool) (string, string) {
+	if event.Type == EventMessage {
+		role := payloadRole(event.Payload)
+		if role == "" {
+			return string(event.Type), limitWithOmission(normalizePayloadText(event.Payload), execContextEventLimitBytes, execContextEventEdgeBytes, execContextEventEdgeBytes)
+		}
+		full := messageContentText(event.Payload)
+		if isLastAssistant {
+			return role, limitWithOmission(full, execContextLastAssistantLimitBytes, execContextLastAssistantEdgeBytes, execContextLastAssistantEdgeBytes)
+		}
+		return role, limitWithOmission(full, execContextEventLimitBytes, execContextEventEdgeBytes, execContextEventEdgeBytes)
+	}
+	return string(event.Type), limitWithOmission(normalizePayloadText(event.Payload), execContextEventLimitBytes, execContextEventEdgeBytes, execContextEventEdgeBytes)
+}
+
+// selectExecContext chooses which filtered events fit the total budget. The
+// first user message and the last assistant answer are always kept; the rest
+// is the contiguous suffix that fits from the most recent event backwards.
+// Scanning stops at the first event that does not fit, so everything older
+// than it stays omitted and the single omission line tells the truth.
+func selectExecContext(count, firstUser, lastAssistant int, sizes []int) []bool {
+	kept := make([]bool, count)
+	pinned := func(index int) bool {
+		return index == firstUser || index == lastAssistant
+	}
+	total := 0
+	for index, size := range sizes {
+		if pinned(index) {
+			kept[index] = true
+			total += size
+		}
+	}
+	if total > execContextTotalBudgetBytes {
+		// Pins alone exceed the budget only for a pathological session; keep
+		// both anyway since each is already capped by its own per-event limit.
+		return kept
+	}
+	for index := count - 1; index >= 0; index-- {
+		if kept[index] {
+			continue
+		}
+		if total+sizes[index] > execContextTotalBudgetBytes {
+			break
+		}
+		kept[index] = true
+		total += sizes[index]
+	}
+	return kept
+}
+
+// messageContentText returns the content field of a message payload, falling
+// back to the generic rendering for shapes without one (ask_user and friends).
+// A content list carries text parts next to binary ones (images); only the
+// text of text-type parts is kept so base64 never reaches the prompt.
+func messageContentText(payload json.RawMessage) string {
+	if len(payload) == 0 {
+		return normalizePayloadText(payload)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return normalizePayloadText(payload)
+	}
+	raw, ok := fields["content"]
+	if !ok {
+		return normalizePayloadText(payload)
+	}
+	var content string
+	if err := json.Unmarshal(raw, &content); err == nil {
+		return strings.Join(strings.Fields(content), " ")
+	}
+	var parts []json.RawMessage
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return normalizePayloadText(payload)
+	}
+	var texts []string
+	for _, part := range parts {
+		var block struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(part, &block); err != nil {
+			continue
+		}
+		if block.Type == "text" && block.Text != "" {
+			texts = append(texts, block.Text)
+		}
+	}
+	return strings.Join(strings.Fields(strings.Join(texts, "")), " ")
+}
+
+// normalizePayloadText renders the stable text for one event before the
+// budget applies its own head+tail limit.
+func normalizePayloadText(payload any) string {
+	text := extractText(payload)
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return "{}"
+		}
+		text = string(data)
+	}
+	return text
+}
+
+// limitWithOmission keeps text whole within limit, otherwise head+marker+tail.
+// Cuts land on rune boundaries so no invalid UTF-8 reaches the prompt.
+func limitWithOmission(text string, limit, headSize, tailSize int) string {
+	if len(text) <= limit {
+		return text
+	}
+	head := truncateUTF8(text, headSize)
+	tail := tailSliceUTF8(text, tailSize)
+	omitted := len(text) - len(head) - len(tail)
+	if omitted < 0 {
+		omitted = 0
+	}
+	return head + fmt.Sprintf("… [%d bytes omitted] …", omitted) + tail
+}
+
+func tailSliceUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	start := len(s) - n
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
 }
 
 // promptContextEvents chooses what a resumed turn is told about the session so
@@ -448,11 +627,10 @@ func toolCallIdentity(event Event) Event {
 //
 // The tail exists so a resumed turn knows what the interrupted one did, and the
 // CALL already carries that: the tool name and its arguments, which is the path
-// for a read. The result adds only a 500-byte prefix of the output, which is
-// worth little beside the call and is the one part of an event that can carry
-// file contents. Nothing redacts on the way into a prompt, so keeping it would
-// re-emit raw tool output into a later turn on the strength of a truncation
-// limit alone.
+// for a read. The result keeps only the tool name and how it ended, dropping
+// the output body, which is worth little beside the call and is the one part
+// of an event that can carry file contents. Nothing redacts on the way into a
+// prompt, so keeping it would re-emit raw tool output into a later turn.
 //
 // The status stays, because dropping it would be worse than dropping the whole
 // result: a bare call reads as work that succeeded, so a failed read would come
@@ -499,22 +677,6 @@ func forkTitle(title string) string {
 		return ""
 	}
 	return title + " (fork)"
-}
-
-func summarizePayload(payload any) string {
-	text := extractText(payload)
-	text = strings.Join(strings.Fields(text), " ")
-	if text == "" {
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return "{}"
-		}
-		text = string(data)
-	}
-	if len(text) > 500 {
-		return truncateUTF8(text, 500)
-	}
-	return text
 }
 
 // truncateUTF8 returns the longest prefix of s that is at most n bytes,
