@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -14,7 +15,6 @@ import (
 // binaries come from Go cross-compilation, not from per-OS runners.
 var hostedWorkflows = []string{
 	"ci.yml",
-	"release-please.yml",
 	"release-artifacts.yml",
 	"pr-auto-review.yml",
 	"qg-action-smoke.yml",
@@ -44,9 +44,8 @@ func TestWorkflowsNeverRunOnSelfHostedRunners(t *testing.T) {
 	}
 }
 
-// Package.json and the release-please manifest must carry the same valid
-// semver, or the tag-vs-package.json guard in release-artifacts.yml rejects
-// the release and installers build 404 download URLs.
+// Package.json must carry a valid semver and CHANGELOG.md must already have
+// its section, or the tag guard in release-artifacts.yml rejects the release.
 var releaseVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 func TestReleaseVersionIsFirstCut(t *testing.T) {
@@ -59,11 +58,16 @@ func TestReleaseVersionIsFirstCut(t *testing.T) {
 	if !releaseVersionPattern.MatchString(pkg.Version) {
 		t.Fatalf("package.json version = %q, want valid semver X.Y.Z", pkg.Version)
 	}
-	var manifest map[string]string
-	if err := json.Unmarshal([]byte(readRepoText(t, ".release-please-manifest.json")), &manifest); err != nil {
-		t.Fatalf("parse .release-please-manifest.json: %v", err)
+	changelog := readRepoText(t, "CHANGELOG.md")
+	heading := "## " + pkg.Version + " — "
+	hasSection := false
+	for _, line := range strings.Split(changelog, "\n") {
+		if strings.HasPrefix(line, heading) {
+			hasSection = true
+			break
+		}
 	}
-	if manifest["."] != pkg.Version {
-		t.Fatalf("release-please manifest version = %q, want package.json version %q", manifest["."], pkg.Version)
+	if !hasSection {
+		t.Fatalf("CHANGELOG.md has no section for package.json version %q (want a %q line)", pkg.Version, heading)
 	}
 }
