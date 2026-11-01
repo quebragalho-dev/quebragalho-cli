@@ -118,7 +118,7 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *qgSan
 		return interactiveBlockResult(interactive)
 	}
 
-	absoluteCwd, relativeCwd, err := resolveScopedPath(tool.workspaceRoot, tool.scope, cwd)
+	absoluteCwd, relativeCwd, err := resolveScopedPath(tool.workspaceRoot, tool.scope, cwd, false)
 	if err != nil {
 		return errorResult("Error running bash: " + err.Error())
 	}

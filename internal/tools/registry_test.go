@@ -309,16 +309,21 @@ func TestRegistryReportsUnknownTools(t *testing.T) {
 
 func TestRegistryAppliesSandboxBeforeToolExecution(t *testing.T) {
 	root := t.TempDir()
-	outside := filepath.Join(tempDirOutsideDefaultTemp(t), "escape.txt")
+	denied := filepath.Join(root, "secrets.txt")
+	if err := os.WriteFile(denied, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policy := sandbox.DefaultPolicy()
+	policy.DenyWrite = []string{denied}
 	registry := NewRegistry()
 	registry.Register(NewScopedWriteFileTool(root, nil))
 	engine := sandbox.NewEngine(sandbox.EngineOptions{
 		WorkspaceRoot: root,
-		Policy:        sandbox.DefaultPolicy(),
+		Policy:        policy,
 	})
 
 	result := registry.RunWithOptions(context.Background(), "write_file", map[string]any{
-		"path":      outside,
+		"path":      denied,
 		"content":   "escape",
 		"overwrite": true,
 	}, RunOptions{
@@ -331,24 +336,29 @@ func TestRegistryAppliesSandboxBeforeToolExecution(t *testing.T) {
 	if result.Status != StatusError {
 		t.Fatalf("expected sandbox block status, got %s", result.Status)
 	}
-	if !strings.Contains(result.Output, "Sandbox block") || !strings.Contains(result.Output, "outside_workspace") {
+	if !strings.Contains(result.Output, "Sandbox block") || !strings.Contains(result.Output, string(sandbox.BlockDenied)) {
 		t.Fatalf("unexpected sandbox block output: %q", result.Output)
 	}
 }
 
 // Regression: write_file/edit_file accept path aliases (file_path, filename); the
-// sandbox must inspect those keys too, otherwise a model routes an out-of-workspace
-// write around the gate by choosing an alias the sandbox doesn't see.
+// sandbox must inspect those keys too, otherwise a model routes a denied write
+// around the gate by choosing an alias the sandbox doesn't see.
 func TestRegistrySandboxGatesPathAliasKeys(t *testing.T) {
 	for _, key := range []string{"file_path", "filename", "filepath"} {
 		root := t.TempDir()
-		outside := filepath.Join(tempDirOutsideDefaultTemp(t), "escape.txt")
+		denied := filepath.Join(root, "secrets.txt")
+		if err := os.WriteFile(denied, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		policy := sandbox.DefaultPolicy()
+		policy.DenyWrite = []string{denied}
 		registry := NewRegistry()
 		registry.Register(NewScopedWriteFileTool(root, nil))
-		engine := sandbox.NewEngine(sandbox.EngineOptions{WorkspaceRoot: root, Policy: sandbox.DefaultPolicy()})
+		engine := sandbox.NewEngine(sandbox.EngineOptions{WorkspaceRoot: root, Policy: policy})
 
 		result := registry.RunWithOptions(context.Background(), "write_file", map[string]any{
-			key:         outside,
+			key:         denied,
 			"content":   "escape",
 			"overwrite": true,
 		}, RunOptions{
@@ -358,11 +368,15 @@ func TestRegistrySandboxGatesPathAliasKeys(t *testing.T) {
 			Autonomy:          "high",
 		})
 
-		if result.Status != StatusError || !strings.Contains(result.Output, "outside_workspace") {
+		if result.Status != StatusError || !strings.Contains(result.Output, string(sandbox.BlockDenied)) {
 			t.Fatalf("alias %q bypassed the sandbox gate: %#v", key, result)
 		}
-		if _, err := os.Stat(outside); !os.IsNotExist(err) {
-			t.Fatalf("alias %q: file written outside workspace", key)
+		content, err := os.ReadFile(denied)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(content) != "x" {
+			t.Fatalf("alias %q: denied file was modified", key)
 		}
 	}
 }

@@ -1434,6 +1434,18 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 		}
 	}
 
+	// Unsafe accepts unconfined execution, so a sandboxed shell runs with turn
+	// network egress instead of failing shut after an auto-allow. Turn scope
+	// matches the normal allow path, without any dialog.
+	if permissionMode == PermissionModeUnsafe && toolFound && isShellCommandTool(call.Name) && options.Sandbox != nil {
+		enabled := true
+		if cleanup, err := options.Sandbox.GrantRequestPermissions(sandbox.RequestPermissionProfile{
+			Network: &sandbox.NetworkPermissions{Enabled: &enabled},
+		}, sandbox.PermissionGrantScopeTurn); err == nil {
+			permissionCleanups = append(permissionCleanups, cleanup)
+		}
+	}
+
 	result := registry.RunWithOptions(ctx, call.Name, args, tools.RunOptions{
 		PermissionGranted: permissionGranted,
 		PermissionMode:    string(permissionMode),
@@ -1608,6 +1620,16 @@ func maybeRetryWithNetworkAfterSandboxDenial(ctx context.Context, registry *tool
 	requestEvent := sandboxDeniedNetworkRetryEvent(call, tool, args, permissionMode, options, result)
 	request := permissionRequestFromEvent(requestEvent, args, options)
 	if permissionMode == PermissionModeUnsafe {
+		cleanup, err := grantNetworkForSandboxPrompt(requestEvent, sandbox.PermissionGrantScopeTurn, options)
+		if err != nil {
+			reason := "failed to grant network permission: " + err.Error()
+			emitDeniedPermission(options, call, requestEvent, reason)
+			denied := deniedPermissionResult(call, reason, requestEvent)
+			return result, &denied, true, PermissionDecisionAllow, reason, nil
+		}
+		if cleanup != nil {
+			defer cleanup()
+		}
 		retry := runToolForNetworkRetry(ctx, registry, call.Name, call.ID, args, permissionMode, options, progressCallback)
 		return retry, nil, true, PermissionDecisionAllow, "unsafe permission mode permits sandbox network retry", nil
 	}
@@ -2318,6 +2340,35 @@ func executeRequestPermissions(ctx context.Context, call ToolCall, args map[stri
 			Status:     tools.StatusError,
 			Output:     "Error: Invalid permissions for request_permissions: " + err.Error(),
 		}, nil
+	}
+	if permissionMode == PermissionModeUnsafe {
+		// Unsafe runs never prompt: the operator accepted unconfined
+		// execution with the mode, so a requested scope is granted for the
+		// session instead of opening a dialog (TUI) or failing closed
+		// (headless). plan/spec-draft already returned above and keep
+		// denying.
+		response := sandbox.RequestPermissionsResponse{
+			Permissions: grantProfile,
+			Scope:       sandbox.PermissionGrantScopeSession,
+		}
+		if options.Sandbox == nil {
+			return ToolResult{
+				ToolCallID: call.ID,
+				Name:       call.Name,
+				Status:     tools.StatusError,
+				Output:     "Error: request_permissions cannot grant permissions because the sandbox engine is not configured.",
+			}, nil
+		}
+		if _, err := options.Sandbox.GrantRequestPermissions(response.Permissions, response.Scope); err != nil {
+			return ToolResult{
+				ToolCallID: call.ID,
+				Name:       call.Name,
+				Status:     tools.StatusError,
+				Output:     "Error: Failed to grant requested permissions: " + err.Error(),
+			}, nil
+		}
+		emitRequestPermissionsDecision(options, call, requestPermissionsPrompt(call, parsed, grantProfile, permissionMode, options), PermissionDecisionAllowForSession, "unsafe permission mode grants requested scope for the session", true)
+		return requestPermissionsResult(call, response, false), nil
 	}
 
 	request := requestPermissionsPrompt(call, parsed, grantProfile, permissionMode, options)

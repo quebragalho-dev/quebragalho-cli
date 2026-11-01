@@ -16,7 +16,7 @@ func MutationTargets(workspaceRoot string, name string, args map[string]any) []s
 		if err != nil {
 			return nil
 		}
-		_, relative, err := resolveWorkspaceTargetPath(workspaceRoot, path)
+		_, relative, err := resolveWorkspaceTargetPath(workspaceRoot, path, false)
 		if err != nil {
 			return nil
 		}
@@ -34,7 +34,7 @@ func MutationTargets(workspaceRoot string, name string, args map[string]any) []s
 		if err != nil {
 			return nil
 		}
-		applyRoot, relativeRoot, err := resolveWorkspacePath(workspaceRoot, cwd)
+		applyRoot, relativeRoot, err := resolveWorkspacePath(workspaceRoot, cwd, false)
 		if err != nil {
 			return nil
 		}
@@ -45,7 +45,7 @@ func MutationTargets(workspaceRoot string, name string, args map[string]any) []s
 			}
 			paths := structuredPatchOperationPaths(operations)
 			for _, path := range paths {
-				if _, _, err := resolveWorkspaceTargetPath(applyRoot, path); err != nil {
+				if _, _, err := resolveWorkspaceTargetPath(applyRoot, path, false); err != nil {
 					return nil
 				}
 			}

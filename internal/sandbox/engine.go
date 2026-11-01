@@ -358,6 +358,9 @@ func (engine *Engine) Evaluate(ctx context.Context, request Request) Decision {
 	var promptableBlock *pathBlock
 	for _, requested := range requestPaths(request) {
 		if block := validatePathWithPolicy(scope, policy, request.SideEffect, enforceWorkspace, request.WorkspaceRoot, requested); block != nil {
+			if unsafeAllowsPathBlock(request, block) {
+				continue
+			}
 			if promptablePathBlock(request, block) {
 				if promptableBlock == nil {
 					promptableBlock = block
@@ -369,6 +372,9 @@ func (engine *Engine) Evaluate(ctx context.Context, request Request) Decision {
 	}
 	netMode := engine.effectiveNetworkMode(policy)
 	if netMode == NetworkDeny && HasRiskCategory(risk, "network") && !engine.toolNetworkExempt(request) {
+		if request.SideEffect == SideEffectShell && request.PermissionMode == PermissionUnsafe {
+			return Decision{Action: ActionAllow, Risk: risk, Reason: "unsafe permission mode permits network access"}
+		}
 		if request.SideEffect == SideEffectShell && request.PermissionMode != PermissionUnsafe {
 			return Decision{Action: ActionPrompt, Risk: risk, Reason: ReasonNetworkBlocked}
 		}
@@ -386,8 +392,13 @@ func (engine *Engine) Evaluate(ctx context.Context, request Request) Decision {
 		if !request.PermissionGranted && request.PermissionMode != PermissionUnsafe {
 			return Decision{Action: ActionPrompt, Risk: risk, Reason: ReasonEscalatedSandboxRequired}
 		}
-		// Unsafe mode may auto-allow ordinary shell prompts, but it must not
-		// silently convert a sandboxed shell run into an unsandboxed one.
+		// Unsafe mode proceeds unsandboxed instead of prompting: the operator
+		// accepted unconfined execution with the mode. The prompt above stays
+		// for every other mode, and the deny below stays for every other
+		// ungranted case.
+		if !request.PermissionGranted && request.PermissionMode == PermissionUnsafe {
+			return Decision{Action: ActionAllow, Risk: risk, Reason: "unsafe permission mode permits escalated sandbox rerun"}
+		}
 		if !request.PermissionGranted {
 			return deny(request, risk, BlockDeniedPermission, "", ReasonEscalatedSandboxRequired, false)
 		}
@@ -501,6 +512,22 @@ func workspaceWriteAutoAllowed(policy Policy, request Request, scope *Scope) boo
 	default:
 		return false
 	}
+}
+
+// unsafeAllowsPathBlock reports whether an unsafe run may ignore a path
+// block: only the workspace-boundary denial itself. Traversal, symlink,
+// deny-list and unvalidatable-path blocks keep denying, and apply_patch body
+// traversal is rejected separately above. Unsafe accepts unconfined
+// filesystem access; the OS call itself still arbitrates paths the sandbox
+// could not validate.
+func unsafeAllowsPathBlock(request Request, block *pathBlock) bool {
+	if request.PermissionMode != PermissionUnsafe {
+		return false
+	}
+	if block == nil || block.Code != BlockOutsideWorkspace {
+		return false
+	}
+	return !strings.Contains(block.Reason, "cannot be validated without a workspace root")
 }
 
 func promptablePathBlock(request Request, block *pathBlock) bool {

@@ -57,7 +57,7 @@ func (tool writeFileTool) RunWithOptions(ctx context.Context, args map[string]an
 		return errorResult("Error: Invalid arguments for write_file: " + err.Error())
 	}
 
-	absolutePath, relativePath, err := resolveScopedTargetPath(tool.workspaceRoot, tool.scope, requestedPath)
+	absolutePath, relativePath, err := resolveScopedTargetPath(tool.workspaceRoot, tool.scope, requestedPath, unsafeMode(options))
 	if err != nil {
 		return errorResult("Error writing file " + requestedPath + ": " + err.Error())
 	}
@@ -110,7 +110,7 @@ func (tool writeFileTool) RunWithOptions(ctx context.Context, args map[string]an
 	if err := os.MkdirAll(filepath.Dir(absolutePath), 0o755); err != nil {
 		return errorResult("Error writing file " + relativePath + ": " + err.Error())
 	}
-	if err := recheckScopedWriteTarget(tool.workspaceRoot, tool.scope, requestedPath); err != nil {
+	if err := recheckScopedWriteTarget(tool.workspaceRoot, tool.scope, requestedPath, unsafeMode(options)); err != nil {
 		return errorResult("Error writing file " + relativePath + ": " + err.Error())
 	}
 	var expectedContent *string

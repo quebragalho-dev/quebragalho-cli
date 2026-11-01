@@ -196,7 +196,7 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 			return result
 		}
 	}
-	absoluteCwd, relativeCwd, err := resolveScopedPath(tool.workspaceRoot, tool.scope, workdir)
+	absoluteCwd, relativeCwd, err := resolveScopedPath(tool.workspaceRoot, tool.scope, workdir, false)
 	if err != nil {
 		return errorResult("Error running exec_command: " + err.Error())
 	}

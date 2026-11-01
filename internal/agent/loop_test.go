@@ -2958,13 +2958,13 @@ func TestRunSessionAllowsLaterOutsideWorkspaceWrite(t *testing.T) {
 	}
 }
 
-func TestRunAppliesSandboxEvenInUnsafeMode(t *testing.T) {
+func TestRunAllowsOutsideWorkspaceWriteInUnsafeMode(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(tempDirOutsideDefaultTemp(t), "escape.txt")
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewScopedWriteFileTool(root, nil))
-	provider := providerCallingWritePathThenAnswer(outside, "sandbox handled")
-	var permissionEvents []PermissionEvent
+	provider := providerCallingWritePathThenAnswer(outside, "write done")
+	var requests []PermissionRequest
 
 	result, err := Run(context.Background(), "write outside", provider, Options{
 		Registry:       registry,
@@ -2974,36 +2974,83 @@ func TestRunAppliesSandboxEvenInUnsafeMode(t *testing.T) {
 			WorkspaceRoot: root,
 			Policy:        sandbox.DefaultPolicy(),
 		}),
-		OnPermission: func(event PermissionEvent) {
-			permissionEvents = append(permissionEvents, event)
+		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
+			requests = append(requests, request)
+			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "test monitor, must not be called"}, nil
 		},
 	})
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.FinalAnswer != "sandbox handled" {
+	if result.FinalAnswer != "write done" {
 		t.Fatalf("expected final answer, got %q", result.FinalAnswer)
 	}
-	if _, err := os.Stat(outside); !os.IsNotExist(err) {
-		t.Fatalf("expected sandbox to prevent outside write, stat error: %v", err)
+	content, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
 	}
-	lastMessage := provider.requests[1].Messages[len(provider.requests[1].Messages)-1]
-	if !strings.Contains(lastMessage.Content, "Sandbox block") || !strings.Contains(lastMessage.Content, "outside_workspace") {
-		t.Fatalf("expected sandbox block tool result, got %q", lastMessage.Content)
+	if string(content) != "hello" {
+		t.Fatalf("expected outside write content, got %q", content)
 	}
-	if len(permissionEvents) != 1 {
-		t.Fatalf("expected one permission event, got %#v", permissionEvents)
+	if len(requests) != 0 {
+		t.Fatalf("expected no permission requests in unsafe mode, got %#v", requests)
 	}
-	event := permissionEvents[0]
-	if event.Action != PermissionActionDeny {
-		t.Fatalf("expected denied permission event, got %#v", event)
+}
+
+func TestUnsafeAllowsOutsideWorkspaceRead(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(tempDirOutsideDefaultTemp(t), "secret.txt")
+	if err := os.WriteFile(outside, []byte("top secret\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if event.Block == nil || event.Block.Code != sandbox.BlockOutsideWorkspace {
-		t.Fatalf("expected outside_workspace block in permission event, got %#v", event)
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewScopedReadFileTool(root, nil))
+	provider := &mockProvider{
+		turns: [][]qgruntime.StreamEvent{
+			{
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "read_file"},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{"path":` + quoteJSONString(outside) + `}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+				{Type: qgruntime.StreamEventDone},
+			},
+			{
+				{Type: qgruntime.StreamEventText, Content: "read it"},
+				{Type: qgruntime.StreamEventDone},
+			},
+		},
 	}
-	if event.Risk.Level != sandbox.RiskCritical {
-		t.Fatalf("expected critical risk in permission event, got %#v", event)
+	var requests []PermissionRequest
+	var results []ToolResult
+
+	result, err := Run(context.Background(), "read outside", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeUnsafe,
+		Autonomy:       "high",
+		Sandbox: sandbox.NewEngine(sandbox.EngineOptions{
+			WorkspaceRoot: root,
+			Policy:        sandbox.DefaultPolicy(),
+		}),
+		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
+			requests = append(requests, request)
+			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "test monitor, must not be called"}, nil
+		},
+		OnToolResult: func(result ToolResult) {
+			results = append(results, result)
+		},
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "read it" {
+		t.Fatalf("expected final answer, got %q", result.FinalAnswer)
+	}
+	if len(results) != 1 || results[0].Status != tools.StatusOK || !strings.Contains(results[0].Output, "top secret") {
+		t.Fatalf("expected ok read with file content, got %#v", results)
+	}
+	if len(requests) != 0 {
+		t.Fatalf("expected no permission requests in unsafe mode, got %#v", requests)
 	}
 }
 
@@ -4358,6 +4405,178 @@ func TestPlanModeHonorsBeforeToolVeto(t *testing.T) {
 	}
 	if !strings.Contains(combined, "blocked") && !strings.Contains(combined, "qg.veto") && !strings.Contains(strings.ToLower(combined), "hook") {
 		t.Fatalf("expected tool result to mention the beforeTool veto, got %q", combined)
+	}
+}
+
+// Unsafe shell network retry must run with a turn-scoped network grant, so the
+// OS profile actually allows egress without a dialog. The probe records the
+// effective CommandPlan network mode seen during the retry.
+type unsafeNetworkGrantProbeTool struct {
+	modes []sandbox.NetworkMode
+}
+
+func (tool *unsafeNetworkGrantProbeTool) Name() string { return "bash" }
+func (tool *unsafeNetworkGrantProbeTool) Description() string {
+	return "test shell tool"
+}
+func (tool *unsafeNetworkGrantProbeTool) Parameters() tools.Schema {
+	return tools.Schema{
+		Type: "object",
+		Properties: map[string]tools.PropertySchema{
+			"command": {Type: "string"},
+		},
+		Required:             []string{"command"},
+		AdditionalProperties: false,
+	}
+}
+func (tool *unsafeNetworkGrantProbeTool) Safety() tools.Safety {
+	return tools.Safety{SideEffect: tools.SideEffectShell, Permission: tools.PermissionPrompt, Reason: "runs shell commands"}
+}
+func (tool *unsafeNetworkGrantProbeTool) Run(ctx context.Context, args map[string]any) tools.Result {
+	return tool.RunWithOptions(ctx, args, tools.RunOptions{})
+}
+func (tool *unsafeNetworkGrantProbeTool) RunWithOptions(ctx context.Context, args map[string]any, options tools.RunOptions) tools.Result {
+	if options.Sandbox != nil {
+		plan, err := options.Sandbox.BuildCommandPlan(sandbox.CommandSpec{
+			Name: "sh",
+			Args: []string{"-c", "curl https://example.com"},
+			Dir:  options.Cwd,
+		})
+		if err == nil {
+			tool.modes = append(tool.modes, plan.PermissionProfile.Network.Mode)
+		}
+	}
+	return tools.Result{Status: tools.StatusOK, Output: "server started"}
+}
+
+func unsafeNetworkDeniedResult() tools.Result {
+	return tools.Result{
+		Status: tools.StatusError,
+		ExecutionOutcome: &execution.Outcome{
+			State: execution.StateDenied,
+			Kind:  execution.OutcomeEnforcementDenied,
+			Denial: &execution.Denial{
+				Capability:  execution.Capability{Kind: execution.CapabilityExternalNetwork},
+				Source:      execution.DenialSourcePlatformSandbox,
+				Reason:      "denied by the sandbox",
+				Recoverable: true,
+				NextAction:  execution.DenialNextActionRequestApproval,
+			},
+		},
+	}
+}
+
+func TestUnsafeNetworkRetryGrantsTurnNetwork(t *testing.T) {
+	dir := t.TempDir()
+	engine := sandbox.NewEngine(sandbox.EngineOptions{WorkspaceRoot: dir, Policy: sandbox.DefaultPolicy()})
+	probe := &unsafeNetworkGrantProbeTool{}
+	registry := tools.NewRegistry()
+	registry.Register(probe)
+	options := Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeUnsafe,
+		Autonomy:       "medium",
+		Sandbox:        engine,
+		Cwd:            dir,
+	}
+	call := ToolCall{ID: "call-1", Name: "bash", Arguments: `{"command":"curl https://example.com"}`}
+	args := map[string]any{"command": "curl https://example.com"}
+	retryResult, _, retried, _, _, _ := maybeRetryWithNetworkAfterSandboxDenial(
+		context.Background(), registry, call, probe, args, unsafeNetworkDeniedResult(), PermissionModeUnsafe, options, nil)
+	if !retried {
+		t.Fatalf("unsafe network denial did not retry")
+	}
+	if retryResult.Status != tools.StatusOK {
+		t.Fatalf("unsafe retry result = %#v, want OK", retryResult)
+	}
+	if len(probe.modes) != 1 {
+		t.Fatalf("probe ran %d times, want exactly 1 retry run", len(probe.modes))
+	}
+	if probe.modes[0] != sandbox.NetworkAllow {
+		t.Fatalf("unsafe retry ran with network mode %q, want %q", probe.modes[0], sandbox.NetworkAllow)
+	}
+}
+
+func TestNormalNetworkDenialStaysDeniedWithoutApproval(t *testing.T) {
+	dir := t.TempDir()
+	engine := sandbox.NewEngine(sandbox.EngineOptions{WorkspaceRoot: dir, Policy: sandbox.DefaultPolicy()})
+	probe := &unsafeNetworkGrantProbeTool{}
+	registry := tools.NewRegistry()
+	registry.Register(probe)
+	options := Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeAsk,
+		Autonomy:       "medium",
+		Sandbox:        engine,
+		Cwd:            dir,
+		OnPermissionRequest: func(context.Context, PermissionRequest) (PermissionDecision, error) {
+			return PermissionDecision{Action: PermissionDecisionDeny, Reason: "deny network"}, nil
+		},
+	}
+	call := ToolCall{ID: "call-1", Name: "bash", Arguments: `{"command":"curl https://example.com"}`}
+	args := map[string]any{"command": "curl https://example.com"}
+	_, directResult, _, _, _, _ := maybeRetryWithNetworkAfterSandboxDenial(
+		context.Background(), registry, call, probe, args, unsafeNetworkDeniedResult(), PermissionModeAsk, options, nil)
+	if directResult == nil {
+		t.Fatalf("expected a denied result without approval")
+	}
+	if len(probe.modes) != 0 {
+		t.Fatalf("denied retry ran %d times, want 0", len(probe.modes))
+	}
+	plan, err := engine.BuildCommandPlan(sandbox.CommandSpec{
+		Name: "sh",
+		Args: []string{"-c", "curl https://example.com"},
+		Dir:  dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.PermissionProfile.Network.Mode != sandbox.NetworkDeny {
+		t.Fatalf("normal mode plan network = %q, want %q without approval", plan.PermissionProfile.Network.Mode, sandbox.NetworkDeny)
+	}
+}
+
+// The unsafe pre-grant in executeToolCall must widen sandboxed shell egress
+// on the FIRST run, not only on the network-denial retry. The probe records
+// the effective CommandPlan network mode during the run; after the call the
+// turn grant must be gone again.
+func TestUnsafeFirstShellRunGrantsTurnNetwork(t *testing.T) {
+	dir := t.TempDir()
+	engine := sandbox.NewEngine(sandbox.EngineOptions{WorkspaceRoot: dir, Policy: sandbox.DefaultPolicy()})
+	probe := &unsafeNetworkGrantProbeTool{}
+	registry := tools.NewRegistry()
+	registry.Register(probe)
+	options := Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeUnsafe,
+		Autonomy:       "medium",
+		Sandbox:        engine,
+		Cwd:            dir,
+	}
+	call := ToolCall{ID: "call-1", Name: "bash", Arguments: `{"command":"curl https://example.com"}`}
+	result, err := executeToolCall(context.Background(), registry, call, PermissionModeUnsafe, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != tools.StatusOK {
+		t.Fatalf("unsafe first run status = %q, want ok: %q", result.Status, result.Output)
+	}
+	if len(probe.modes) != 1 {
+		t.Fatalf("probe ran %d times, want exactly 1 first run", len(probe.modes))
+	}
+	if probe.modes[0] != sandbox.NetworkAllow {
+		t.Fatalf("unsafe first run network mode = %q, want %q", probe.modes[0], sandbox.NetworkAllow)
+	}
+	plan, err := engine.BuildCommandPlan(sandbox.CommandSpec{
+		Name: "sh",
+		Args: []string{"-c", "curl https://example.com"},
+		Dir:  dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.PermissionProfile.Network.Mode != sandbox.NetworkDeny {
+		t.Fatalf("turn grant leaked: plan network after call = %q, want %q", plan.PermissionProfile.Network.Mode, sandbox.NetworkDeny)
 	}
 }
 

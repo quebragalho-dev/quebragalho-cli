@@ -60,9 +60,28 @@ func TestRunAddDirDispatchForwardsGrantIntoExecScope(t *testing.T) {
 			}
 
 			// Negative control: the SAME run without --add-dir must be denied —
-			// the grant is the only thing that widens the scope.
+			// the grant is the only thing that widens the scope. It runs in
+			// the default mode (no --skip-permissions-unsafe): an unsafe run
+			// no longer prompts or denies outside writes, so it cannot prove
+			// fail-closed behavior. Headless, the prompt has no handler and
+			// denies.
 			denied := filepath.Join(extra, "denied.txt")
-			deniedArgs := tc.args(extra)[2:]
+			var deniedArgs []string
+			skipNext := false
+			for _, arg := range tc.args(extra) {
+				if skipNext {
+					skipNext = false
+					continue
+				}
+				if arg == "--add-dir" {
+					skipNext = true
+					continue
+				}
+				if arg == "--skip-permissions-unsafe" {
+					continue
+				}
+				deniedArgs = append(deniedArgs, arg)
+			}
 			deniedExit, deniedStderr := runExecAddDirWriteProbe(t, cwd, deniedArgs, denied)
 			if deniedExit != exitSuccess {
 				t.Fatalf("denied-run exit = %d, want %d (tool denial is not fatal); stderr = %q", deniedExit, exitSuccess, deniedStderr)

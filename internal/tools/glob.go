@@ -49,7 +49,7 @@ func NewScopedGlobTool(workspaceRoot string, scope PathScope) Tool {
 }
 
 func (tool globTool) Run(ctx context.Context, args map[string]any) Result {
-	return tool.runWith(ctx, args, readExcluder{}, true)
+	return tool.runWith(ctx, args, readExcluder{}, true, false)
 }
 
 func (tool globTool) RunWithOptions(ctx context.Context, args map[string]any, options RunOptions) Result {
@@ -57,17 +57,17 @@ func (tool globTool) RunWithOptions(ctx context.Context, args map[string]any, op
 	if options.Sandbox != nil {
 		exclude = sandboxReadExcluder(options.Sandbox)
 	}
-	return tool.runWith(ctx, args, exclude, false)
+	return tool.runWith(ctx, args, exclude, false, unsafeMode(options))
 }
 
 // RunWithSandbox runs glob while skipping subtrees the sandbox policy denies
 // reads to (DenyRead). With no DenyRead configured the excluder is a no-op and
 // behavior is unchanged.
 func (tool globTool) RunWithSandbox(ctx context.Context, args map[string]any, engine *sandbox.Engine) Result {
-	return tool.runWith(ctx, args, sandboxReadExcluder(engine), true)
+	return tool.runWith(ctx, args, sandboxReadExcluder(engine), true, false)
 }
 
-func (tool globTool) runWith(ctx context.Context, args map[string]any, exclude readExcluder, directBudget bool) Result {
+func (tool globTool) runWith(ctx context.Context, args map[string]any, exclude readExcluder, directBudget bool, unsafe bool) Result {
 	pattern, err := aliasedStringArg(args, []string{"pattern", "glob", "match", "query", "expression"}, "", true, false)
 	if err != nil {
 		return errorResult("Error: Invalid arguments for glob: " + err.Error())
@@ -90,7 +90,7 @@ func (tool globTool) runWith(ctx context.Context, args map[string]any, exclude r
 		return errorResult("Error: Invalid arguments for glob: " + err.Error())
 	}
 
-	root, displayRoot, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, cwd)
+	root, displayRoot, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, cwd, unsafe)
 	if err != nil {
 		return errorResult("Error running glob " + fmt.Sprintf("%q", pattern) + ": " + err.Error())
 	}

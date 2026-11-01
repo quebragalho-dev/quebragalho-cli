@@ -13,6 +13,205 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
+func TestUnsafeAutoGrantsRequestPermissions(t *testing.T) {
+	workspace := t.TempDir()
+	outside := tempDirOutsideDefaultTemp(t)
+	target := filepath.Join(outside, "carrot.txt")
+	engine := sandbox.NewEngine(sandbox.EngineOptions{
+		WorkspaceRoot: workspace,
+		Policy:        sandbox.DefaultPolicy(),
+	})
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewRequestPermissionsTool())
+	provider := &mockProvider{
+		turns: [][]qgruntime.StreamEvent{
+			{
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "grant-1", ToolName: tools.RequestPermissionsToolName},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "grant-1", ArgumentsFragment: `{"reason":"Need to write outside the workspace.","permissions":{"file_system":{"write":[` + quoteJSONString(target) + `]}}}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "grant-1"},
+				{Type: qgruntime.StreamEventDone},
+			},
+			{
+				{Type: qgruntime.StreamEventText, Content: "done"},
+				{Type: qgruntime.StreamEventDone},
+			},
+		},
+	}
+	var requests []PermissionRequest
+	var results []ToolResult
+	normalizedProfile, err := sandbox.NormalizeRequestPermissionProfile(sandbox.RequestPermissionProfile{
+		FileSystem: &sandbox.FileSystemPermissions{Write: []string{target}},
+	}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedGrantProfile, err := sandbox.RequestPermissionGrantProfile(normalizedProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedWriteRoot := expectedGrantProfile.FileSystem.Write[0]
+
+	result, err := Run(context.Background(), "write the file", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeUnsafe,
+		Autonomy:       "high",
+		Cwd:            workspace,
+		Sandbox:        engine,
+		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
+			requests = append(requests, request)
+			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "test monitor, must not be called"}, nil
+		},
+		OnToolResult: func(result ToolResult) {
+			results = append(results, result)
+		},
+		MaxTurns: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "done" {
+		t.Fatalf("final answer = %q, want done", result.FinalAnswer)
+	}
+	if len(requests) != 0 {
+		t.Fatalf("permission requests = %#v, want none in unsafe mode", requests)
+	}
+	if len(results) != 1 || results[0].Status != tools.StatusOK {
+		t.Fatalf("tool results = %#v, want one granted request_permissions", results)
+	}
+	var grantResponse sandbox.RequestPermissionsResponse
+	if err := json.Unmarshal([]byte(results[0].Output), &grantResponse); err != nil {
+		t.Fatalf("unmarshal grant response %q: %v", results[0].Output, err)
+	}
+	if grantResponse.Scope != sandbox.PermissionGrantScopeSession {
+		t.Fatalf("grant scope = %q, want session scope", grantResponse.Scope)
+	}
+	if grantResponse.Permissions.FileSystem == nil ||
+		len(grantResponse.Permissions.FileSystem.Write) != 1 ||
+		grantResponse.Permissions.FileSystem.Write[0] != expectedWriteRoot {
+		t.Fatalf("grant response permissions = %#v, want write root %q", grantResponse.Permissions, expectedWriteRoot)
+	}
+}
+
+func TestUnsafeRequestPermissionsGrantsWithoutPrompt(t *testing.T) {
+	workspace := t.TempDir()
+	outside := tempDirOutsideDefaultTemp(t)
+	target := filepath.Join(outside, "vegetables.txt")
+	scope, err := sandbox.NewScope(workspace, nil)
+	if err != nil {
+		t.Fatalf("NewScope: %v", err)
+	}
+	engine := sandbox.NewEngine(sandbox.EngineOptions{
+		WorkspaceRoot: workspace,
+		Policy:        sandbox.DefaultPolicy(),
+		Scope:         scope,
+	})
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewRequestPermissionsTool())
+	registry.Register(tools.NewScopedWriteFileTool(workspace, scope))
+	provider := &mockProvider{
+		turns: [][]qgruntime.StreamEvent{
+			{
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "grant-1", ToolName: tools.RequestPermissionsToolName},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "grant-1", ArgumentsFragment: `{"reason":"Need to write outside the workspace.","permissions":{"file_system":{"write":[` + quoteJSONString(target) + `]}}}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "grant-1"},
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "write-1", ToolName: "write_file"},
+				{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "write-1", ArgumentsFragment: `{"path":` + quoteJSONString(target) + `,"content":"carrot\n","overwrite":true}`},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "write-1"},
+				{Type: qgruntime.StreamEventDone},
+			},
+			{
+				{Type: qgruntime.StreamEventText, Content: "done"},
+				{Type: qgruntime.StreamEventDone},
+			},
+		},
+	}
+	var requests []PermissionRequest
+	var results []ToolResult
+
+	result, err := Run(context.Background(), "write the file", provider, Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeUnsafe,
+		Autonomy:       "high",
+		Cwd:            workspace,
+		Sandbox:        engine,
+		OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
+			requests = append(requests, request)
+			return PermissionDecision{Action: PermissionDecisionAllow, Reason: "test monitor, must not be called"}, nil
+		},
+		OnToolResult: func(result ToolResult) {
+			results = append(results, result)
+		},
+		MaxTurns: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "done" {
+		t.Fatalf("final answer = %q, want done", result.FinalAnswer)
+	}
+	if len(requests) != 0 {
+		t.Fatalf("permission requests = %#v, want none in unsafe mode", requests)
+	}
+	if len(results) != 2 || results[0].Status != tools.StatusOK || results[1].Status != tools.StatusOK {
+		t.Fatalf("tool results = %#v, want granted request_permissions and ok write_file", results)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "carrot\n" {
+		t.Fatalf("target content = %q", content)
+	}
+}
+
+func TestRequestPermissionsStillDeniedInPlanAndSpecDraft(t *testing.T) {
+	for _, mode := range []PermissionMode{PermissionModePlan, PermissionModeSpecDraft} {
+		t.Run(string(mode), func(t *testing.T) {
+			registry := tools.NewRegistry()
+			registry.Register(tools.NewRequestPermissionsTool())
+			provider := &mockProvider{
+				turns: [][]qgruntime.StreamEvent{
+					{
+						{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "grant-1", ToolName: tools.RequestPermissionsToolName},
+						{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "grant-1", ArgumentsFragment: `{"reason":"Need access.","permissions":{"file_system":{"read":["/tmp"]}}}`},
+						{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "grant-1"},
+						{Type: qgruntime.StreamEventDone},
+					},
+					{
+						{Type: qgruntime.StreamEventText, Content: "done"},
+						{Type: qgruntime.StreamEventDone},
+					},
+				},
+			}
+			var requests []PermissionRequest
+			var results []ToolResult
+
+			_, err := Run(context.Background(), "need access", provider, Options{
+				Registry:       registry,
+				PermissionMode: mode,
+				Cwd:            t.TempDir(),
+				OnPermissionRequest: func(_ context.Context, request PermissionRequest) (PermissionDecision, error) {
+					requests = append(requests, request)
+					return PermissionDecision{Action: PermissionDecisionAllow, Reason: "test monitor, must not be called"}, nil
+				},
+				OnToolResult: func(result ToolResult) {
+					results = append(results, result)
+				},
+				MaxTurns: 2,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(requests) != 0 {
+				t.Fatalf("permission requests = %#v, want none in %s mode", requests, mode)
+			}
+			if len(results) != 1 || results[0].Status != tools.StatusError {
+				t.Fatalf("tool results = %#v, want denied request_permissions in %s mode", results, mode)
+			}
+		})
+	}
+}
+
 func TestRequestPermissionsTurnGrantAllowsLaterToolAndCleansUp(t *testing.T) {
 	workspace := t.TempDir()
 	outside := tempDirOutsideDefaultTemp(t)

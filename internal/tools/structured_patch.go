@@ -515,7 +515,7 @@ func resolveStructuredPatchTarget(root, path string) (structuredPatchTarget, err
 	if path == ".." || strings.HasPrefix(filepath.ToSlash(path), "../") {
 		return structuredPatchTarget{}, fmt.Errorf("patch path %q must stay inside the workspace", path)
 	}
-	absolute, relative, err := resolveWorkspaceTargetPath(root, normalizePatchPathForRoot(root, path))
+	absolute, relative, err := resolveWorkspaceTargetPath(root, normalizePatchPathForRoot(root, path), false)
 	if err != nil {
 		return structuredPatchTarget{}, err
 	}

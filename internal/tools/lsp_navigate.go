@@ -65,6 +65,14 @@ func NewScopedLSPNavigateTool(workspaceRoot string, scope PathScope) Tool {
 }
 
 func (tool lspNavigateTool) Run(ctx context.Context, args map[string]any) Result {
+	return tool.run(ctx, args, false)
+}
+
+func (tool lspNavigateTool) RunWithOptions(ctx context.Context, args map[string]any, options RunOptions) Result {
+	return tool.run(ctx, args, unsafeMode(options))
+}
+
+func (tool lspNavigateTool) run(ctx context.Context, args map[string]any, unsafe bool) Result {
 	opRaw, err := stringArg(args, "op", "", true)
 	if err != nil {
 		return errorResult("Error: Invalid arguments for lsp_navigate: " + err.Error())
@@ -80,7 +88,7 @@ func (tool lspNavigateTool) Run(ctx context.Context, args map[string]any) Result
 	// BEFORE reading it or handing it to the language server — a `..` or absolute
 	// path must not read/open a file outside the boundary the sibling read-only
 	// tools enforce. Errors echo only the relative path, never an absolute one.
-	absPath, relPath, scopeErr := resolveScopedReadPath(tool.workspaceRoot, tool.scope, requestedPath)
+	absPath, relPath, scopeErr := resolveScopedReadPath(tool.workspaceRoot, tool.scope, requestedPath, unsafe)
 	if scopeErr != nil {
 		return errorResult("Error: lsp_navigate " + scopeErr.Error())
 	}
