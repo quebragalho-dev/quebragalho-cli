@@ -300,7 +300,7 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 	}
 	runCtx, cancel := context.WithCancel(m.ctx)
 	m = m.beginRun(cancel)
-	return m, tea.Batch(m.runAgent(m.activeRunID, runCtx, prompt, nil), m.spinner.Tick)
+	return m, tea.Batch(m.runAgentWithOptions(m.activeRunID, runCtx, prompt, nil, tuiAgentRunOptions{goalContinuation: true}), m.spinner.Tick)
 }
 
 func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error) model {
