@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/update"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/workspacetrust"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/worktrees"
 )
 
 var errWriteFailed = errors.New("write failed")
@@ -1204,6 +1206,21 @@ func TestRunNoArgsReportsConfigErrorsWithoutLaunchingTUI(t *testing.T) {
 }
 
 func TestRunCommandsDoNotLaunchTUI(t *testing.T) {
+	// Hermetic roots: no subcommand below may touch the developer's real
+	// home, config, session store, or worktree state, nor run anything in
+	// the repository the test binary runs from.
+	t.Setenv("HOME", t.TempDir())
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cwd := t.TempDir()
+
+	// A `worktrees`/`worktree` bare invocation used to prepare a real locked
+	// worktree in the current repo plus a state-dir entry, twice per full
+	// `go test ./internal/cli` run. Fail the suite if that ever recurs.
+	before, haveWorktrees := gitWorktreeCount(t)
+
 	for _, args := range [][]string{
 		{"--help"},
 		{"-h"},
@@ -1240,6 +1257,13 @@ func TestRunCommandsDoNotLaunchTUI(t *testing.T) {
 			launchCalled := false
 
 			_ = runWithDeps(args, &stdout, &stderr, appDeps{
+				getwd: func() (string, error) { return cwd, nil },
+				// The bare `worktrees`/`worktree` commands default to
+				// `prepare`, which creates a real locked worktree. Never
+				// let the default (real Prepare) run in tests.
+				prepareWorktree: func(context.Context, worktrees.Options) (worktrees.Result, error) {
+					return worktrees.Result{Path: filepath.Join(cwd, "stub-worktree")}, nil
+				},
 				runTUI: func(ctx context.Context, options tui.Options) int {
 					launchCalled = true
 					return 0
@@ -1258,6 +1282,38 @@ func TestRunCommandsDoNotLaunchTUI(t *testing.T) {
 			}
 		})
 	}
+
+	if after, ok := gitWorktreeCount(t); !haveWorktrees || !ok {
+		t.Log("git worktree list unavailable; worktree-leak guard skipped")
+	} else if after != before {
+		t.Fatalf("repo worktrees grew from %d to %d: a subcommand prepared a real worktree", before, after)
+	}
+	entries, err := os.ReadDir(filepath.Join(stateHome, "qg", "worktrees"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read temp worktree state dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("temp worktree state dir holds %d entries, want none", len(entries))
+	}
+}
+
+// gitWorktreeCount shells out because the leak this guards writes through the
+// real repository, which no in-process seam observes. It reports false when
+// git is unavailable so the caller skips only the worktree guard, never the
+// subtests, which do not depend on git.
+func gitWorktreeCount(t *testing.T) (int, bool) {
+	t.Helper()
+	out, err := exec.Command("git", "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		return 0, false
+	}
+	count := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "worktree ") {
+			count++
+		}
+	}
+	return count, true
 }
 
 func TestRunSetupNoArgsReportsSetupUnavailable(t *testing.T) {
