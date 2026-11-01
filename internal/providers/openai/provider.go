@@ -61,7 +61,10 @@ type Options struct {
 	// enabled; the QG_DISABLE_PROMPT_CACHE_KEY env kill switch still applies
 	// on top for any endpoint.
 	DisablePromptCacheKey bool
-	SessionHeader         string
+	// SessionHeader, when non-empty, names the request header that carries
+	// the caller's session identity (QG gateway affinity). Empty or invalid
+	// identities are never sent.
+	SessionHeader string
 }
 
 // Provider streams completions from an OpenAI-compatible chat completions API.

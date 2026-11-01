@@ -357,7 +357,7 @@ func (profile ProviderProfile) targetsQGGateway() bool {
 		// unset URL on a qg-catalog profile still means the gateway.
 		return true
 	}
-	return sameBaseURL(baseURL, descriptor.DefaultBaseURL)
+	return SameBaseURL(baseURL, descriptor.DefaultBaseURL)
 }
 
 // ApplyStoredAPIKey fills profile.APIKey from the credential store when it is not

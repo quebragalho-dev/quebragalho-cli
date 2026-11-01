@@ -20,6 +20,12 @@ type Options struct {
 	ModelRegistry *modelregistry.Registry
 }
 
+// QGConversationIDHeader is the session-affinity header the QG gateway
+// honors on POST /v1/chat/completions: one id per conversation, same value on
+// every turn and resume, a new one per session. It is sent only to the QG
+// catalog endpoint, never to custom ones, and never with an invented value.
+const QGConversationIDHeader = "X-QG-Conversation-ID"
+
 // New creates the single QG runtime provider (OpenAI-compatible,
 // https://api.quebragalho.dev/v1). Any non OpenAI-compatible provider kind is
 // rejected: Etapa 2 removes Anthropic/Google/Codex branches.
@@ -44,7 +50,23 @@ func New(profile config.ProviderProfile, options Options) (qgruntime.Provider, e
 		UserAgent:             options.UserAgent,
 		ParseThinkTags:        parseThinkTagsForProfile(profile, resolved),
 		DisablePromptCacheKey: resolved.providerKind == config.ProviderKindOpenAICompatible,
+		SessionHeader:         conversationHeader(resolved.baseURL),
 	})
+}
+
+// conversationHeader names the session-affinity header for the QG gateway and
+// only for it: the resolved endpoint must be the qg catalog endpoint
+// (normalized comparison, so trailing slashes and case do not matter). Any
+// other endpoint — custom base URLs, local proxies — gets none.
+func conversationHeader(baseURL string) string {
+	descriptor, ok := providercatalog.Get(providercatalog.QGID)
+	if !ok {
+		return ""
+	}
+	if !config.SameBaseURL(baseURL, descriptor.DefaultBaseURL) {
+		return ""
+	}
+	return QGConversationIDHeader
 }
 
 // NewTurnSessionProvider builds the default TurnSessionProvider for a resolved
