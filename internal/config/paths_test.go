@@ -96,13 +96,16 @@ func setUserConfigRoot(t *testing.T) string {
 	t.Helper()
 
 	root := t.TempDir()
+	// UserConfigDir honors XDG_CONFIG_HOME on every OS QG supports (macOS
+	// explicitly; os.UserConfigDir reads it on the rest), so an ambient
+	// export would redirect the test at the developer's real config. Neutralize
+	// it everywhere, then set the OS-native root below it.
+	t.Setenv("XDG_CONFIG_HOME", root)
 	switch runtime.GOOS {
 	case "windows":
 		t.Setenv("APPDATA", root)
-	case "darwin":
-		t.Setenv("HOME", root)
 	default:
-		t.Setenv("XDG_CONFIG_HOME", root)
+		t.Setenv("HOME", root)
 	}
 
 	configRoot, err := UserConfigDir()
