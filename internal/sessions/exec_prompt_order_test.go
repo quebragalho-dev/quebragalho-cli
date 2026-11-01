@@ -12,14 +12,14 @@ import (
 // iteration, so the resume context put the same fields in a different order in
 // every process: `c1 read_file {"path":...}` one run, `{"path":...} c1
 // read_file` the next. That block is part of the user prompt, so the prompt
-// itself changed run to run, which leaves a provider nothing stable to
+// itself changed run to run, which gives a provider nothing stable to
 // prefix-cache and makes two resumes of one session impossible to diff.
 //
 // PINNED AS AN EXACT STRING, NOT AS TWO RUNS AGREEING. A test that renders the
 // same payload twice in one process and compares the results passes whenever
 // the randomized order happens to repeat, which for a small map is often. The
 // only assertion that cannot pass by luck names the order it expects.
-func TestSummarizePayloadRendersFieldsInKeyOrder(t *testing.T) {
+func TestNormalizePayloadTextRendersFieldsInKeyOrder(t *testing.T) {
 	payload := map[string]any{
 		"id":        "c1",
 		"name":      "read_file",
@@ -30,7 +30,7 @@ func TestSummarizePayloadRendersFieldsInKeyOrder(t *testing.T) {
 	// Keys sorted: arguments, id, name, status.
 	const want = `{"path":"deploy/prod.env"} c1 read_file ok`
 	for attempt := range 50 {
-		if got := summarizePayload(payload); got != want {
+		if got := normalizePayloadText(payload); got != want {
 			t.Fatalf("attempt %d rendered %q, want %q", attempt, got, want)
 		}
 	}
@@ -38,7 +38,7 @@ func TestSummarizePayloadRendersFieldsInKeyOrder(t *testing.T) {
 
 // The same for a payload that arrives as raw JSON, which is the shape the store
 // hands back, since that decodes into a map and takes the same path.
-func TestSummarizePayloadRendersRawJSONInKeyOrder(t *testing.T) {
+func TestNormalizePayloadTextRendersRawJSONInKeyOrder(t *testing.T) {
 	raw, err := json.Marshal(map[string]any{
 		"zulu":  "last",
 		"alpha": "first",
@@ -50,7 +50,7 @@ func TestSummarizePayloadRendersRawJSONInKeyOrder(t *testing.T) {
 
 	const want = "first middle last"
 	for attempt := range 50 {
-		if got := summarizePayload(json.RawMessage(raw)); got != want {
+		if got := normalizePayloadText(json.RawMessage(raw)); got != want {
 			t.Fatalf("attempt %d rendered %q, want %q", attempt, got, want)
 		}
 	}
@@ -58,38 +58,34 @@ func TestSummarizePayloadRendersRawJSONInKeyOrder(t *testing.T) {
 
 // The summary short-circuit is untouched: a payload carrying one still answers
 // with it alone, rather than with every field in key order.
-func TestSummarizePayloadStillPrefersASummary(t *testing.T) {
+func TestNormalizePayloadTextStillPrefersASummary(t *testing.T) {
 	payload := map[string]any{
 		"alpha":   "not this",
 		"summary": "this one",
 		"zulu":    "nor this",
 	}
-	if got := summarizePayload(payload); got != "this one" {
+	if got := normalizePayloadText(payload); got != "this one" {
 		t.Fatalf("rendered %q, want the summary alone", got)
 	}
 }
 
 // And a list keeps the order it was written in, which is the caller's and not
 // this function's to sort.
-func TestSummarizePayloadKeepsListOrder(t *testing.T) {
+func TestNormalizePayloadTextKeepsListOrder(t *testing.T) {
 	payload := map[string]any{"items": []any{"third", "first", "second"}}
-	if got := summarizePayload(payload); got != "third first second" {
+	if got := normalizePayloadText(payload); got != "third first second" {
 		t.Fatalf("rendered %q, want the list in its written order", got)
 	}
 }
 
-// THE WHOLE BLOCK IS STABLE, not just one payload. Rendered through the
-// prompt-context path a resume actually uses, so a future renderer that walks a
-// map of its own is caught here too.
+// THE WHOLE BLOCK IS STABLE, not just one payload. Rendered through the exact
+// prompt path a resume actually uses, so a future renderer that walks a map of
+// its own is caught here too. Message lines name the role first.
 //
-// THE EXPECTED BLOCK IS WRITTEN OUT, NOT TAKEN FROM THE FIRST RENDER. Comparing
-// later renders against the first only asks whether the renderer is stable, and
-// a renderer that is stably wrong passes: any fixed field order satisfies it,
-// including the one this change replaces. It also hid something. The first
-// version of this test used tool events, which promptContextEvents filters out
-// of the resume context on this branch, so the block being compared was a
-// single line and nobody could tell. Naming the expected block makes both
-// failures visible.
+// THE EXPECTED PROMPT IS WRITTEN OUT, NOT TAKEN FROM THE FIRST RENDER.
+// Comparing later renders against the first only asks whether the renderer is
+// stable, and a renderer that is stably wrong passes: any fixed field order
+// satisfies it. Naming the expected prompt makes both failures visible.
 func TestResumeContextBlockIsIdenticalAcrossRenders(t *testing.T) {
 	events := []Event{
 		{Sequence: 1, Type: EventMessage, Payload: mustOrderPayload(t, map[string]any{"role": "user", "content": "rotate the deploy key"})},
@@ -97,33 +93,27 @@ func TestResumeContextBlockIsIdenticalAcrossRenders(t *testing.T) {
 		{Sequence: 3, Type: EventMessage, Payload: mustOrderPayload(t, map[string]any{"role": "user", "content": "and the hooks"})},
 	}
 
-	// Keys sorted, so content comes before role in every line.
 	want := strings.Join([]string{
-		"message: rotate the deploy key user",
-		"message: reading the env file assistant",
-		"message: and the hooks user",
+		"Continuing QG session order.",
+		"Previous session context:",
+		"- #1 user: rotate the deploy key",
+		"- #2 assistant: reading the env file",
+		"- #3 user: and the hooks",
+		"",
+		"Current user request:",
+		"continue",
 	}, "\n")
 
 	for attempt := range 50 {
-		if got := renderOrderContext(t, events); got != want {
+		got := FormatExecPrompt("continue", PreparedExec{
+			Mode:          ModeResume,
+			Session:       Metadata{SessionID: "order"},
+			ContextEvents: events,
+		})
+		if got != want {
 			t.Fatalf("attempt %d rendered:\n%s\nwant:\n%s", attempt, got, want)
 		}
 	}
-}
-
-func renderOrderContext(t *testing.T, events []Event) string {
-	t.Helper()
-	lines := []string{}
-	for _, event := range promptContextEvents(events) {
-		var decoded any
-		if len(event.Payload) > 0 {
-			if err := json.Unmarshal(event.Payload, &decoded); err != nil {
-				t.Fatal(err)
-			}
-		}
-		lines = append(lines, string(event.Type)+": "+summarizePayload(decoded))
-	}
-	return strings.Join(lines, "\n")
 }
 
 func mustOrderPayload(t *testing.T, payload map[string]any) json.RawMessage {
