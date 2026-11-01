@@ -433,7 +433,7 @@ func projectAPIKeyEnvAllowed(profile ProviderProfile, envName string) bool {
 	if baseURL == "" {
 		baseURL = descriptor.DefaultBaseURL
 	}
-	if !sameBaseURL(baseURL, descriptor.DefaultBaseURL) {
+	if !SameBaseURL(baseURL, descriptor.DefaultBaseURL) {
 		return false
 	}
 	return containsStringFold(descriptor.AuthEnvVars, envName)
@@ -441,7 +441,7 @@ func projectAPIKeyEnvAllowed(profile ProviderProfile, envName string) bool {
 
 func projectBaseURLAllowed(profile ProviderProfile) bool {
 	descriptor, ok := catalogDescriptorForProfile(profile)
-	return ok && sameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)
+	return ok && SameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)
 }
 
 func hasInheritedProviderCredentialMaterial(project ProviderProfile, candidate ProviderProfile) bool {
@@ -1096,10 +1096,10 @@ func applyCatalogDescriptor(profile *ProviderProfile, descriptor providercatalog
 	if profile.Model == "" {
 		profile.Model = descriptor.DefaultModel
 	}
-	if profile.APIKeyEnv == "" && len(descriptor.AuthEnvVars) > 0 && (!explicitBaseURL || sameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)) {
+	if profile.APIKeyEnv == "" && len(descriptor.AuthEnvVars) > 0 && (!explicitBaseURL || SameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)) {
 		profile.APIKeyEnv = descriptor.AuthEnvVars[0]
 	}
-	canonicalCatalogEndpoint := !explicitBaseURL || sameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)
+	canonicalCatalogEndpoint := !explicitBaseURL || SameBaseURL(profile.BaseURL, descriptor.DefaultBaseURL)
 	if len(descriptor.CustomHeaders) > 0 && canonicalCatalogEndpoint {
 		merged := copyStringMap(descriptor.CustomHeaders)
 		for key, value := range profile.CustomHeaders {
@@ -1123,7 +1123,10 @@ func applyCatalogDescriptor(profile *ProviderProfile, descriptor providercatalog
 	}
 }
 
-func sameBaseURL(left string, right string) bool {
+// SameBaseURL reports whether two endpoint URLs name the same base: leading
+// and trailing whitespace and trailing slashes are ignored and the host
+// comparison is case-insensitive, so catalog defaults match user spellings.
+func SameBaseURL(left string, right string) bool {
 	return strings.EqualFold(
 		strings.TrimRight(strings.TrimSpace(left), "/"),
 		strings.TrimRight(strings.TrimSpace(right), "/"),

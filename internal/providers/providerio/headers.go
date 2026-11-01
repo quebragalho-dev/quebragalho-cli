@@ -1,9 +1,9 @@
 package providerio
 
 import (
-	"crypto/rand"
 	"net/http"
 	"strings"
+	"unicode"
 )
 
 type AuthHeaders struct {
@@ -54,25 +54,43 @@ func ApplyAuthHeaders(request *http.Request, options AuthHeaders) {
 }
 
 type SessionHeader struct {
-	name     string
-	fallback string
+	name string
 }
 
 func NewSessionHeader(name string) SessionHeader {
-	if name == "" {
-		return SessionHeader{}
-	}
-	return SessionHeader{name: name, fallback: rand.Text()}
+	return SessionHeader{name: strings.TrimSpace(name)}
 }
 
 func (header SessionHeader) Apply(request *http.Request, sessionID string) {
 	if header.name == "" {
 		return
 	}
-	if sessionID = strings.TrimSpace(sessionID); sessionID == "" {
-		sessionID = header.fallback
+	// The gateway contract rejects values over 128 bytes and values with
+	// leading/trailing space or control bytes; the server ignores such a
+	// header silently, so an invalid value is simply not sent — never
+	// replaced with an invented one.
+	if !validConversationID(sessionID) {
+		return
 	}
 	request.Header.Set(header.name, sessionID)
+}
+
+// validConversationID reports whether value may ride a session-affinity
+// header: printable text, at most 128 bytes, no surrounding space, no
+// control characters.
+func validConversationID(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	if strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func CopyHeaders(headers map[string]string) map[string]string {
