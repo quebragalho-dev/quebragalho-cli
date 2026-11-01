@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/repomap"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/workspaceseed"
@@ -80,6 +81,7 @@ func buildSystemPrompt(options Options) string {
 // computed from the same prompt bytes placed in the request.
 type systemPromptParts struct {
 	prompt             string
+	sections           []string
 	baseInstructions   string
 	confirmationPolicy string
 	projectContext     string
@@ -140,11 +142,39 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 	}
 	return systemPromptParts{
 		prompt:             strings.Join(sections, "\n\n"),
+		sections:           sections,
 		baseInstructions:   core,
 		confirmationPolicy: policy,
 		projectContext:     project,
 		skills:             skillsBlock,
 	}
+}
+
+// continuationUserMessage builds the user turn appended to a prior turn's
+// messages: the prompt plus a [context update] note listing the current
+// system-prompt sections absent from the frozen system message. No drift
+// means the bare prompt, so the request prefix stays cache-stable.
+func continuationUserMessage(promptParts systemPromptParts, options Options, prompt string) qgruntime.Message {
+	content := prompt
+	if note := contextUpdateNote(promptParts.sections, options.Continuation[0].Content); note != "" {
+		content = note + "\n\n" + prompt
+	}
+	return qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: content, Images: qgruntime.CloneImageBlocks(options.Images)}
+}
+
+// contextUpdateNote lists the sections missing from frozen, separated by a
+// blank line. Empty when nothing changed.
+func contextUpdateNote(sections []string, frozen string) string {
+	var missing []string
+	for _, section := range sections {
+		if !strings.Contains(frozen, section) {
+			missing = append(missing, section)
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return "[context update]\n" + strings.Join(missing, "\n\n")
 }
 
 // responseStyleContext renders the operator-selected reply style (TUI /style) as

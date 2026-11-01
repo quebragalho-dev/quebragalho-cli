@@ -341,6 +341,17 @@ type Options struct {
 	// nil for text-only runs (the seeded message then carries no images, exactly
 	// as before).
 	Images []qgruntime.ImageBlock
+	// Continuation carries the previous turn's complete messages, with the
+	// frozen system message at [0]. When non-empty the loop seeds
+	// [...continuation, user] instead of [system, user]; empty preserves the
+	// current behavior byte-for-byte. The TUI owns this per session+model and
+	// drops it on anything that is not a normal turn.
+	Continuation []Message
+	// LoadedDeferredTools seeds the per-run loaded-tool map, so a tool the
+	// model pulled via tool_search in the previous turn is already exposed
+	// with its full schema on this run's first request. Only honored with a
+	// non-empty Continuation; the TUI passes both together.
+	LoadedDeferredTools []string
 	// ContextWindow is the model's maximum input token budget. When > 0 the agent
 	// loop compacts long conversations once the estimated size crosses a fraction
 	// of this window. 0 DISABLES compaction entirely (every existing caller/test
@@ -479,7 +490,12 @@ type Result struct {
 	FinalAnswer string
 	Turns       int
 	Messages    []Message
-	StopReason  StopReason
+	// LoadedDeferredTools lists the deferred tools the model loaded via
+	// tool_search by the end of the run, sorted. The next turn seeds its
+	// loaded-tool map from it so the same schemas stay exposed. Nil when
+	// nothing was loaded.
+	LoadedDeferredTools []string
+	StopReason          StopReason
 	// FinishReason is the provider's normalized terminal stop reason for the turn
 	// that produced FinalAnswer: qgruntime.FinishReasonLength when the output
 	// hit the token cap, FinishReasonContentFilter when it was filtered. Empty for
