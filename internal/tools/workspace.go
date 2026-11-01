@@ -31,7 +31,15 @@ func normalizeWorkspaceRoot(workspaceRoot string) string {
 	return root
 }
 
-func resolveWorkspacePath(workspaceRoot string, requestedPath string) (string, string, error) {
+// unsafeMode reports whether tool calls run without workspace confinement:
+// the operator accepted unconfined execution. Only the workspace-boundary
+// denial is lifted; traversal, symlink, deny-list and unvalidatable-path
+// blocks are enforced by their own checks.
+func unsafeMode(options RunOptions) bool {
+	return options.PermissionMode == string(sandbox.PermissionUnsafe)
+}
+
+func resolveWorkspacePath(workspaceRoot string, requestedPath string, unsafe bool) (string, string, error) {
 	if requestedPath == "" {
 		requestedPath = "."
 	}
@@ -63,7 +71,12 @@ func resolveWorkspacePath(workspaceRoot string, requestedPath string) (string, s
 	if err != nil {
 		return "", "", outsideWorkspaceError(requestedPath)
 	}
-	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+	// Unsafe runs are unconfined: the workspace boundary does not apply, so a
+	// path outside the root (including a relative one that escapes it) is
+	// allowed through and the OS call itself arbitrates. Every other failure
+	// above still fails closed; traversal, symlink and deny-list blocks are
+	// enforced by their own checks (and by the sandbox engine before tools run).
+	if !unsafe && (relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative)) {
 		return "", "", outsideWorkspaceError(requestedPath)
 	}
 	if relative == "." {
@@ -72,7 +85,7 @@ func resolveWorkspacePath(workspaceRoot string, requestedPath string) (string, s
 	return target, filepath.ToSlash(relative), nil
 }
 
-func resolveWorkspaceTargetPath(workspaceRoot string, requestedPath string) (string, string, error) {
+func resolveWorkspaceTargetPath(workspaceRoot string, requestedPath string, unsafe bool) (string, string, error) {
 	if requestedPath == "" {
 		requestedPath = "."
 	}
@@ -94,7 +107,7 @@ func resolveWorkspaceTargetPath(workspaceRoot string, requestedPath string) (str
 	if err != nil {
 		return "", "", err
 	}
-	if err := recheckWorkspaceWriteTarget(root, target); err != nil {
+	if err := recheckWorkspaceWriteTarget(root, target, unsafe); err != nil {
 		return "", "", err
 	}
 
@@ -128,7 +141,12 @@ func resolveWorkspaceTargetPath(workspaceRoot string, requestedPath string) (str
 	if err != nil {
 		return "", "", outsideWorkspaceError(requestedPath)
 	}
-	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+	// Unsafe runs are unconfined: the workspace boundary does not apply, so a
+	// path outside the root (including a relative one that escapes it) is
+	// allowed through and the OS call itself arbitrates; every other failure
+	// above still fails closed. Traversal, symlink and deny-list blocks are
+	// enforced by their own checks (and by the sandbox engine before tools run).
+	if !unsafe && (relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative)) {
 		return "", "", outsideWorkspaceError(requestedPath)
 	}
 	if relative == "." {
@@ -137,7 +155,7 @@ func resolveWorkspaceTargetPath(workspaceRoot string, requestedPath string) (str
 	return resolved, filepath.ToSlash(relative), nil
 }
 
-func recheckWorkspaceWriteTarget(workspaceRoot string, requestedPath string) error {
+func recheckWorkspaceWriteTarget(workspaceRoot string, requestedPath string, unsafe bool) error {
 	if requestedPath == "" {
 		requestedPath = "."
 	}
@@ -164,7 +182,12 @@ func recheckWorkspaceWriteTarget(workspaceRoot string, requestedPath string) err
 	if err != nil {
 		return outsideWorkspaceError(requestedPath)
 	}
-	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+	// Unsafe runs are unconfined: the workspace boundary does not apply, so a
+	// path outside the root (including a relative one that escapes it) is
+	// allowed through and the OS call itself arbitrates; every other failure
+	// above still fails closed. Traversal, symlink and deny-list blocks are
+	// enforced by their own checks (and by the sandbox engine before tools run).
+	if !unsafe && (relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative)) {
 		return outsideWorkspaceError(requestedPath)
 	}
 	if relative == "." {
@@ -253,7 +276,7 @@ func scopedReadRoots(workspaceRoot string, scope PathScope) ([]string, error) {
 	return scopedRoots(workspaceRoot, scope)
 }
 
-func resolveScopedReadPath(workspaceRoot string, scope PathScope, requestedPath string) (string, string, error) {
+func resolveScopedReadPath(workspaceRoot string, scope PathScope, requestedPath string, unsafe bool) (string, string, error) {
 	// Spill files (truncated tool output saved under the per-uid temp dir) are
 	// readable regardless of scope: the truncation notice tells the model to
 	// read_file/grep them, which must actually work. resolveSpillReadPath
@@ -263,7 +286,7 @@ func resolveScopedReadPath(workspaceRoot string, scope PathScope, requestedPath 
 		return spillPath, spillPath, nil
 	}
 	if requestedPath == "" || !filepath.IsAbs(requestedPath) || scope == nil {
-		return resolveWorkspacePath(workspaceRoot, requestedPath)
+		return resolveWorkspacePath(workspaceRoot, requestedPath, unsafe)
 	}
 	roots, err := scopedReadRoots(workspaceRoot, scope)
 	if err != nil {
@@ -272,7 +295,7 @@ func resolveScopedReadPath(workspaceRoot string, scope PathScope, requestedPath 
 	var firstErr error
 	for index, root := range roots {
 		candidate := sandbox.NormalizePrefixForRoot(requestedPath, root)
-		absolute, relative, err := resolveWorkspacePath(root, candidate)
+		absolute, relative, err := resolveWorkspacePath(root, candidate, unsafe)
 		if err == nil {
 			if index > 0 {
 				return absolute, absolute, nil
@@ -301,9 +324,9 @@ func resolveScopedReadPath(workspaceRoot string, scope PathScope, requestedPath 
 // When all roots deny, the workspace root's error is returned; unlike
 // sandbox.Scope.validate this does not prefer traversal blocks — the
 // engine layer reports those with full fidelity before tools run.
-func resolveScopedPath(workspaceRoot string, scope PathScope, requestedPath string) (string, string, error) {
+func resolveScopedPath(workspaceRoot string, scope PathScope, requestedPath string, unsafe bool) (string, string, error) {
 	if requestedPath == "" || !filepath.IsAbs(requestedPath) || scope == nil {
-		return resolveWorkspacePath(workspaceRoot, requestedPath)
+		return resolveWorkspacePath(workspaceRoot, requestedPath, unsafe)
 	}
 	roots, err := scopedRoots(workspaceRoot, scope)
 	if err != nil {
@@ -315,7 +338,7 @@ func resolveScopedPath(workspaceRoot string, scope PathScope, requestedPath stri
 		// in the prefix outside this root only, leaving in-root components
 		// verbatim for the single-root symlink checks.
 		candidate := sandbox.NormalizePrefixForRoot(requestedPath, root)
-		absolute, relative, err := resolveWorkspacePath(root, candidate)
+		absolute, relative, err := resolveWorkspacePath(root, candidate, unsafe)
 		if err == nil {
 			if index > 0 {
 				// Extra-root matches report the absolute path: "relative to
@@ -341,9 +364,9 @@ func resolveScopedPath(workspaceRoot string, scope PathScope, requestedPath stri
 // When all roots deny, the workspace root's error is returned; unlike
 // sandbox.Scope.validate this does not prefer traversal blocks — the
 // engine layer reports those with full fidelity before tools run.
-func resolveScopedTargetPath(workspaceRoot string, scope PathScope, requestedPath string) (string, string, error) {
+func resolveScopedTargetPath(workspaceRoot string, scope PathScope, requestedPath string, unsafe bool) (string, string, error) {
 	if requestedPath == "" || !filepath.IsAbs(requestedPath) || scope == nil {
-		return resolveWorkspaceTargetPath(workspaceRoot, requestedPath)
+		return resolveWorkspaceTargetPath(workspaceRoot, requestedPath, unsafe)
 	}
 	roots, err := scopedRoots(workspaceRoot, scope)
 	if err != nil {
@@ -355,7 +378,7 @@ func resolveScopedTargetPath(workspaceRoot string, scope PathScope, requestedPat
 		// in the prefix outside this root only; in-root components stay
 		// verbatim so the per-segment write-target symlink checks apply.
 		candidate := sandbox.NormalizePrefixForRoot(requestedPath, root)
-		absolute, relative, err := resolveWorkspaceTargetPath(root, candidate)
+		absolute, relative, err := resolveWorkspaceTargetPath(root, candidate, unsafe)
 		if err == nil {
 			if index > 0 {
 				// Extra-root matches report the absolute path: "relative to
@@ -378,9 +401,9 @@ func resolveScopedTargetPath(workspaceRoot string, scope PathScope, requestedPat
 // target may resolve through a symlink only when its final location lies
 // inside a DIFFERENT granted root — mirroring sandbox.Scope.validate's
 // documented widening.
-func recheckScopedWriteTarget(workspaceRoot string, scope PathScope, requestedPath string) error {
+func recheckScopedWriteTarget(workspaceRoot string, scope PathScope, requestedPath string, unsafe bool) error {
 	if requestedPath == "" || !filepath.IsAbs(requestedPath) || scope == nil {
-		return recheckWorkspaceWriteTarget(workspaceRoot, requestedPath)
+		return recheckWorkspaceWriteTarget(workspaceRoot, requestedPath, unsafe)
 	}
 	roots, err := scopedRoots(workspaceRoot, scope)
 	if err != nil {
@@ -389,7 +412,7 @@ func recheckScopedWriteTarget(workspaceRoot string, scope PathScope, requestedPa
 	var firstErr error
 	for _, root := range roots {
 		candidate := sandbox.NormalizePrefixForRoot(requestedPath, root)
-		err := recheckWorkspaceWriteTarget(root, candidate)
+		err := recheckWorkspaceWriteTarget(root, candidate, unsafe)
 		if err == nil {
 			return nil
 		}

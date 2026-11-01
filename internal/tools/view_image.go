@@ -54,11 +54,19 @@ type viewImageTool struct {
 }
 
 func (tool viewImageTool) Run(_ context.Context, args map[string]any) Result {
+	return tool.run(args, false)
+}
+
+func (tool viewImageTool) RunWithOptions(_ context.Context, args map[string]any, options RunOptions) Result {
+	return tool.run(args, unsafeMode(options))
+}
+
+func (tool viewImageTool) run(args map[string]any, unsafe bool) Result {
 	requestedPath, err := aliasedStringArg(args, []string{"path", "file", "file_path", "filepath", "filename", "image"}, "", true, false)
 	if err != nil {
 		return errorResult("Error: Invalid arguments for " + ViewImageToolName + ": " + err.Error())
 	}
-	absolutePath, relativePath, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, requestedPath)
+	absolutePath, relativePath, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, requestedPath, unsafe)
 	if err != nil {
 		return errorResult("Error: " + err.Error())
 	}

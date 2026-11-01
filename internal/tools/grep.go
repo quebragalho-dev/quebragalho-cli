@@ -63,7 +63,7 @@ func NewScopedGrepTool(workspaceRoot string, scope PathScope) Tool {
 }
 
 func (tool grepTool) Run(ctx context.Context, args map[string]any) Result {
-	return tool.runWith(ctx, args, readExcluder{}, true)
+	return tool.runWith(ctx, args, readExcluder{}, true, false)
 }
 
 func (tool grepTool) RunWithOptions(ctx context.Context, args map[string]any, options RunOptions) Result {
@@ -71,7 +71,11 @@ func (tool grepTool) RunWithOptions(ctx context.Context, args map[string]any, op
 	if options.Sandbox != nil {
 		exclude = sandboxReadExcluder(options.Sandbox)
 	}
-	return tool.runWith(ctx, args, exclude, false)
+	// Grep follows the workspace boundary like the read tools: in unsafe mode
+	// the entry check is lifted and the walk is anchored at the requested
+	// target itself (see below), so outside matches are found, not silently
+	// skipped. DenyRead exclusions still apply per file.
+	return tool.runWith(ctx, args, exclude, false, unsafeMode(options))
 }
 
 // RunWithSandbox runs the search while skipping subtrees the sandbox policy
@@ -79,10 +83,10 @@ func (tool grepTool) RunWithOptions(ctx context.Context, args map[string]any, op
 // path. With no DenyRead configured the excluder is a no-op and behavior is
 // unchanged.
 func (tool grepTool) RunWithSandbox(ctx context.Context, args map[string]any, engine *sandbox.Engine) Result {
-	return tool.runWith(ctx, args, sandboxReadExcluder(engine), true)
+	return tool.runWith(ctx, args, sandboxReadExcluder(engine), true, false)
 }
 
-func (tool grepTool) runWith(ctx context.Context, args map[string]any, exclude readExcluder, directBudget bool) Result {
+func (tool grepTool) runWith(ctx context.Context, args map[string]any, exclude readExcluder, directBudget bool, unsafe bool) Result {
 	pattern, err := aliasedStringArg(args, []string{"pattern", "query", "regex", "search", "expression"}, "", true, false)
 	if err != nil {
 		return errorResult("Error: Invalid arguments for grep: " + err.Error())
@@ -128,7 +132,7 @@ func (tool grepTool) runWith(ctx context.Context, args map[string]any, exclude r
 		return errorResult("Error running grep: " + err.Error())
 	}
 
-	target, displayRoot, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, targetPath)
+	target, displayRoot, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, targetPath, unsafe)
 	if err != nil {
 		return errorResult("Error running grep: " + err.Error())
 	}
@@ -143,6 +147,13 @@ func (tool grepTool) runWith(ctx context.Context, args map[string]any, exclude r
 	resolvedRoot, err := resolveGrepRoot(tool.workspaceRoot, tool.scope, target)
 	if err != nil {
 		return errorResult("Error running grep: " + err.Error())
+	}
+	if unsafe {
+		// In unsafe mode the walk may start outside the workspace: anchor
+		// confinement at the requested target itself so its files are not
+		// silently skipped. Symlink escapes are still skipped by
+		// confineGrepFile below, and DenyRead exclusions still apply.
+		resolvedRoot = target
 	}
 
 	var globMatcher *regexp.Regexp

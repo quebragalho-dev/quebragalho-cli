@@ -147,7 +147,7 @@ func (tool applyPatchTool) RunWithOptions(ctx context.Context, args map[string]a
 		return errorResult("Error: Invalid arguments for apply_patch: " + err.Error())
 	}
 
-	applyRoot, relativeRoot, err := resolveScopedPath(tool.workspaceRoot, tool.scope, cwd)
+	applyRoot, relativeRoot, err := resolveScopedPath(tool.workspaceRoot, tool.scope, cwd, unsafeMode(options))
 	if err != nil {
 		return errorResult("Error applying patch: " + err.Error())
 	}
@@ -220,7 +220,7 @@ func validatePatchPaths(root string, patch string) error {
 		if path == ".." || strings.HasPrefix(path, "../") {
 			return fmt.Errorf("patch path %q must stay inside the workspace", path)
 		}
-		if _, _, err := resolveWorkspaceTargetPath(root, normalizePatchPathForRoot(root, path)); err != nil {
+		if _, _, err := resolveWorkspaceTargetPath(root, normalizePatchPathForRoot(root, path), false); err != nil {
 			return err
 		}
 	}

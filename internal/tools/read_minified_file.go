@@ -69,7 +69,7 @@ func (tool readMinifiedFileTool) run(args map[string]any, options RunOptions, di
 		return errorResult("Error: Invalid arguments for read_minified_file: " + err.Error())
 	}
 
-	absolutePath, relativePath, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, requestedPath)
+	absolutePath, relativePath, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, requestedPath, unsafeMode(options))
 	if err != nil {
 		return errorResult("Error reading file " + requestedPath + ": " + err.Error())
 	}

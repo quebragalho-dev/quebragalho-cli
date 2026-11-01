@@ -60,7 +60,7 @@ func (tool editFileTool) RunWithOptions(ctx context.Context, args map[string]any
 		return errorResult("Error: Invalid arguments for edit_file: " + err.Error())
 	}
 
-	absolutePath, relativePath, err := resolveScopedPath(tool.workspaceRoot, tool.scope, requestedPath)
+	absolutePath, relativePath, err := resolveScopedPath(tool.workspaceRoot, tool.scope, requestedPath, unsafeMode(options))
 	if err != nil {
 		return errorResult("Error reading " + requestedPath + ": " + err.Error())
 	}
@@ -154,7 +154,7 @@ func (tool editFileTool) RunWithOptions(ctx context.Context, args map[string]any
 		return okResult("No changes: new_string is identical to old_string.")
 	}
 	editedSpans := replacementByteSpans(content, oldString, newString, replaceAll)
-	if err := recheckScopedWriteTarget(tool.workspaceRoot, tool.scope, requestedPath); err != nil {
+	if err := recheckScopedWriteTarget(tool.workspaceRoot, tool.scope, requestedPath, unsafeMode(options)); err != nil {
 		return errorResult("Error writing " + relativePath + ": " + err.Error())
 	}
 	if err := commitFileContents(absolutePath, priorInfo, &content, updated); err != nil {

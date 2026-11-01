@@ -123,7 +123,7 @@ func (tool readFileTool) run(args map[string]any, options RunOptions, directBudg
 		}
 	}
 
-	absolutePath, relativePath, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, requestedPath)
+	absolutePath, relativePath, err := resolveScopedReadPath(tool.workspaceRoot, tool.scope, requestedPath, unsafeMode(options))
 	if err != nil {
 		return errorResult("Error reading file " + requestedPath + ": " + err.Error())
 	}
