@@ -199,6 +199,12 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		promptParts:    promptParts,
 	})
 	messages := qgruntime.SeedMessagesWithImages(promptParts.prompt, prompt, options.Images)
+	if len(options.Continuation) > 0 {
+		// A prior turn's messages (frozen system at [0]) replace the fresh
+		// seed; system-prompt drift is announced on the user turn, never in
+		// the cached prefix.
+		messages = append(copyMessages(options.Continuation), continuationUserMessage(promptParts, options, prompt))
+	}
 
 	guards := newGuardState()
 	task := newTaskState(prompt, options.Trace)
@@ -255,6 +261,27 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	// during THIS run. It is consulted by partitionTools each turn to expose a
 	// loaded tool's full schema; it lives only for the run (v1 within-run scope).
 	loaded := map[string]bool{}
+	if len(options.Continuation) > 0 {
+		for _, name := range options.LoadedDeferredTools {
+			if trimmed := strings.TrimSpace(name); trimmed != "" {
+				loaded[trimmed] = true
+			}
+		}
+	}
+	// Report the deferred tools loaded by the end of the run, sorted, so the
+	// next turn can re-expose the same schemas. Deferred to cover every exit;
+	// named returns make the assignment visible to the caller.
+	defer func() {
+		if len(loaded) == 0 {
+			return
+		}
+		names := make([]string, 0, len(loaded))
+		for name := range loaded {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		result.LoadedDeferredTools = names
+	}()
 
 	// The feature-gated completion policy keeps local completion decisions and its
 	// bounded follow-up state out of the central loop. Self-correcting profiles

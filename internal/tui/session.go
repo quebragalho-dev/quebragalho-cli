@@ -69,6 +69,8 @@ func (m model) startNewSession() model {
 	previousID := m.activeSession.SessionID
 
 	m.activeSession = sessions.Metadata{}
+	// The new session has no shared history with the previous one.
+	m.continuation = turnContinuation{}
 	m.pendingSessionTitle = ""
 	m.sessionEvents = nil
 
@@ -241,6 +243,9 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	// the already-active session, whose loops belong to it, not a "previous" one.
 	previousID := m.activeSession.SessionID
 	m.activeSession = *session
+	// Resuming reloads the session's own events, so any stored real history is
+	// stale even when re-resuming the same session.
+	m.continuation = turnContinuation{}
 	m.pendingSessionTitle = ""
 	m.sessionEvents = append([]sessions.Event{}, events...)
 	m.lastUsage, m.lastUsageSeen, m.lastUsageReceipt = lastUsageFromSessionEvents(rawUsageEvents)

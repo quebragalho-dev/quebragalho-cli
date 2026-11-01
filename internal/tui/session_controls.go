@@ -764,6 +764,11 @@ func (m model) handleRewindCommand(args string) (model, string) {
 	if err != nil {
 		return m, "Rewind\n" + err.Error()
 	}
+	// The persisted log was truncated above the rewind point; stored real
+	// history may reference events that no longer exist. Cleared here, before
+	// the reload, so even a reload failure cannot leave the stale continuation
+	// behind.
+	m.continuation = turnContinuation{}
 
 	// ApplyRewind truncated the persisted event log, restored files, and appended a
 	// rewind marker — so reload the in-memory session state. Otherwise the dropped

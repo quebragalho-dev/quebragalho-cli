@@ -457,6 +457,9 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	m.providerProfile = nextProfile
 	m.provider = nextProvider
 	m.providerName = displayValue(nextProfile.Name, string(metadata.ProviderKind))
+	// A model switch changes the context window and the model addendum, so the
+	// stored real history no longer matches the prefix the next turn builds.
+	m.continuation = turnContinuation{}
 	// Keep sub-agent child processes on the same provider we just switched to.
 	config.SetActiveProviderEnv(nextProfile.Name)
 	m.modelName = target.modelID

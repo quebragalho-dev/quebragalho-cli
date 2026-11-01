@@ -343,6 +343,11 @@ type model struct {
 	// the checkpoints stay referenced, then removes the id.
 	flushRunIDs     map[int]string
 	liveUsageCounts map[int]int
+	// continuation holds the previous successful turn's real messages for the
+	// active session and model. The next submit reuses it instead of the
+	// textual summary; anything that is not a normal turn clears or replaces
+	// it (beginRun consumes it, a successful eligible run stores a new one).
+	continuation turnContinuation
 	// swarmSessionMap maps a swarm task id to its member's durable child session
 	// id (carried up by swarm_collect's Meta), so the AGENTS sidebar rows can drill
 	// into a member's conversation. Persists across turns; only completed members
@@ -664,6 +669,12 @@ type agentResponseMsg struct {
 	runID       int
 	rows        []transcriptRow
 	usageEvents []qgruntime.Usage
+	// continuation carries the just-finished run's messages for the next turn.
+	// Set only on the normal success path of an eligible run; nil on error,
+	// cancellation, spec drafts, peer/goal/loop runs, and side sessions. The
+	// handler stores it only when its session still matches the active one, so
+	// a late response can never leak into a new session.
+	continuation *turnContinuation
 	// usageModelID is the model in force when the run ended. usageModelIDs is
 	// the model in force when each usageEvents entry fired: a mid-run
 	// escalation changes it partway through the run, and billing the events
@@ -893,6 +904,67 @@ type tuiAgentRunOptions struct {
 	systemPrompt          string
 	transientSystemPrompt string
 	specDraft             bool
+	// continuation carries the previous turn's real messages into this run
+	// (agent.Options.Continuation); loadedTools reseeds the deferred-tool map.
+	// Set only by a normal submit whose stored continuation is still valid.
+	continuation []qgruntime.Message
+	loadedTools  []string
+	// goalContinuation marks runs launched by the goal machinery. They must
+	// never store a continuation: the next user turn goes back to the textual
+	// summary even when the goal did not change.
+	goalContinuation bool
+}
+
+// turnContinuation is the real history one successful turn hands to the next:
+// the session and model it was recorded under, the goal it ran with, and the
+// run's messages plus the deferred tools the model had loaded.
+type turnContinuation struct {
+	sessionID   string
+	modelID     string
+	goalKey     string
+	messages    []qgruntime.Message
+	loadedTools []string
+}
+
+// goalKeyForSession derives the continuation identity of a session's goal: it
+// changes the system prompt's core section, so a goal change must invalidate
+// the stored messages (otherwise the drift note would dump the whole core).
+func goalKeyForSession(session sessions.Metadata) string {
+	if session.Goal == nil {
+		return ""
+	}
+	return session.Goal.Objective + "\x00" + string(session.Goal.Status)
+}
+
+// realHistoryEnabled reports whether the TUI may send real history between
+// turns. QG_TUI_REAL_HISTORY=0 (or false) drops back to the textual summary;
+// anything else (including unset) keeps it on. Read at submit time.
+func realHistoryEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("QG_TUI_REAL_HISTORY"))) {
+	case "0", "false":
+		return false
+	default:
+		return true
+	}
+}
+
+// validContinuation reports whether the stored continuation may seed this
+// submit: same session, same model, same goal, and a non-empty history.
+func (m model) validContinuation() (turnContinuation, bool) {
+	c := m.continuation
+	if len(c.messages) == 0 {
+		return turnContinuation{}, false
+	}
+	if c.sessionID == "" || c.sessionID != m.activeSession.SessionID {
+		return turnContinuation{}, false
+	}
+	if c.modelID == "" || c.modelID != m.modelName {
+		return turnContinuation{}, false
+	}
+	if c.goalKey != goalKeyForSession(m.activeSession) {
+		return turnContinuation{}, false
+	}
+	return c, true
 }
 
 func newModel(ctx context.Context, options Options) model {
@@ -2704,6 +2776,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				turnTools:   msg.turnTools,
 				turnElapsed: msg.turnElapsed,
 			})
+		} else if msg.continuation != nil && msg.continuation.sessionID != "" && msg.continuation.sessionID == m.activeSession.SessionID {
+			// A successful eligible run hands its real messages to the next
+			// turn. The session check keeps a late response from leaking into
+			// a session started after the run began.
+			m.continuation = *msg.continuation
 		}
 		if m.runCompletionWarning != nil {
 			if notice := strings.TrimSpace(m.runCompletionWarning()); notice != "" {
@@ -2810,6 +2887,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcript = append([]transcriptRow{}, msg.transcript...)
 			m.resetFlushFrontier("· compacted ·")
 		}
+		// Compaction rewrote the session log, so stored real history no longer
+		// matches it. Cleared here (not inside compactActiveSession, whose
+		// rebuilt model the run closure discards) to cover both the local and
+		// the session-compactor paths.
+		m.continuation = turnContinuation{}
 		m.lastCompactResult = &msg.result
 		m = m.setCompactStatusRow(m.compactText(true))
 		return m, nil
@@ -5142,6 +5224,11 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 	}
 	var err error
 	m, err = m.ensureActiveSession(prompt)
+	// Carries a valid stored continuation from the submit gate below into the
+	// run launch after beginRun consumes it. Declared here so both the
+	// session-event branch and the launch below see it.
+	var runContinuation []qgruntime.Message
+	var runLoadedTools []string
 	if err != nil {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
 			kind: actionAppendError,
@@ -5157,6 +5244,17 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 			}
 		}
 		agentPrompt := m.sessionPrompt(prompt)
+		// With a valid stored continuation the model gets the previous turn's
+		// real messages instead of the textual summary, and the prompt goes
+		// clean (already specialist-expanded with the document preamble, as
+		// above). Anything else keeps the sessionPrompt path byte-for-byte.
+		if peer == nil && m.activeLoopID == "" && sessions.IsResumableKind(m.activeSession.SessionKind) && realHistoryEnabled() {
+			if c, ok := m.validContinuation(); ok {
+				agentPrompt = prompt
+				runContinuation = c.messages
+				runLoadedTools = c.loadedTools
+			}
+		}
 		messagePayload := map[string]any{
 			"role":    "user",
 			"content": prompt,
@@ -5221,7 +5319,10 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 			transientSystemPrompt: peerTurnSystemPrompt,
 		})
 	} else {
-		agentCmd = m.runAgent(m.activeRunID, runCtx, prompt, turnImages)
+		agentCmd = m.runAgentWithOptions(m.activeRunID, runCtx, prompt, turnImages, tuiAgentRunOptions{
+			continuation: runContinuation,
+			loadedTools:  runLoadedTools,
+		})
 	}
 	return m, tea.Batch(agentCmd, m.spinner.Tick)
 }
@@ -5257,6 +5358,12 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.turnTimer = newActiveTurnTimer(m.turnStartedAt)
 	m.lastStreamActivity = m.turnStartedAt
 	m.spinnerTicking = true
+	// Every run starts by consuming the stored continuation: the submit path
+	// reads it before beginRun and passes it into the run explicitly, so an
+	// error, cancellation, peer turn, goal turn, loop iteration, or spec run
+	// discards it with no extra code — only a successful eligible run stores
+	// a new one.
+	m.continuation = turnContinuation{}
 	return m
 }
 
@@ -5502,6 +5609,15 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		if goalAwareRun {
 			options.SystemPrompt = m.goalSystemPrompt(options.SystemPrompt)
 		}
+		// The continuation is keyed by the session and goal in force when the
+		// run starts; the model id is read at the end (usageModelID tracks
+		// mid-run escalation). Only an eligible normal run stores one.
+		runSessionID := m.activeSession.SessionID
+		runGoalKey := goalKeyForSession(m.activeSession)
+		continuationEligible := !runOptions.specDraft && runOptions.registry == nil &&
+			runOptions.systemPrompt == "" && runOptions.transientSystemPrompt == "" &&
+			runOptions.permissionMode == "" && !runOptions.goalContinuation &&
+			m.activeLoopID == "" && sessions.IsResumableKind(m.activeSession.SessionKind) && !peerAwareRun
 		options.SessionID = m.activeSession.SessionID
 		options.ProviderName = m.providerName
 		options.Model = m.modelName
@@ -5510,6 +5626,8 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		options.ResponseStyle = m.responseStyle
 		options.Cwd = m.cwd
 		options.Images = images
+		options.Continuation = runOptions.continuation
+		options.LoadedDeferredTools = runOptions.loadedTools
 		if m.newTurnSessionProvider != nil && m.provider != nil {
 			options.TurnSessionProvider = m.newTurnSessionProvider(m.providerProfile, m.provider)
 		}
@@ -6006,7 +6124,20 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				"content": result.FinalAnswer,
 			},
 		})
-		return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: elapsed, ttft: firstTokenElapsed}
+		// Only a successful eligible run hands real history to the next turn.
+		// The message slice is a fresh copy; the agent already deep-clones
+		// image bytes when seeding, so no backing array is shared in place.
+		var continuation *turnContinuation
+		if continuationEligible {
+			continuation = &turnContinuation{
+				sessionID:   runSessionID,
+				modelID:     usageModelID,
+				goalKey:     runGoalKey,
+				messages:    append([]qgruntime.Message(nil), result.Messages...),
+				loadedTools: append([]string(nil), result.LoadedDeferredTools...),
+			}
+		}
+		return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: elapsed, ttft: firstTokenElapsed, continuation: continuation}
 	}
 }
 
