@@ -4,6 +4,10 @@
 local CLI version. `qg update --apply` (or its shorthand, `qg upgrade`)
 downloads, verifies, and installs it.
 
+Opening the interactive TUI may first show an update screen or, with the TUI
+already open, a quiet footer notice. Both read the same stored check result;
+see "Interactive startup check" below.
+
 Os exemplos com `--repo quebragalho-dev/quebragalho-cli` usam o repositório
 privado (requer acesso), inclusive com `--check`.
 
@@ -123,3 +127,32 @@ the safe direction: the alternative is an update that overwrites the only
 verified copy of the previous binary. If updates start refusing, inspect those
 files before removing them — an installation directory that a lower-privileged
 account can write to is itself worth fixing.
+
+## Interactive startup check
+
+Opening the interactive TUI with a newer known version shows a startup screen
+with four options: install and start, skip and start, read the changelog
+(opens it in the browser), or quit. A quiet footer notice appears instead
+while the TUI is already open. Neither ever appears in `qg exec`, pipes, CI,
+or any non-interactive use.
+
+- The screen only uses the last stored check; it never waits on the network.
+  The check runs in the background at most once an hour and on startup when
+  the stored result is older than that.
+- "Skip" records the version: the screen and the notice stay away until a
+  newer version shows up. quitting or closing does not record anything.
+- Choosing install runs the install inside the screen: the card shows the
+  progress, and a failed install shows the failure in the card before
+  carrying on with the current version. A failed install records nothing,
+  so the screen asks again on the next launch.
+- `QG_NO_UPDATE_CHECK=1` (or `true`) disables the check, the screen, and the
+  notice. Dev builds (version `dev`) and Homebrew installs never check.
+- Endpoint overrides for mirrors and tests: `QG_UPDATE_RELEASE_URL` (GitHub
+  releases, already honored by `qg update`) and `QG_UPDATE_NPM_ENDPOINT`
+  (npm registry base URL, used for npm installs).
+- State lives in `<state>/qg/update.json` (`$XDG_STATE_HOME`, else
+  `~/.local/state`; `%LOCALAPPDATA%` on Windows). Corrupt or missing state is
+  treated as empty.
+- After an install the wrapper reopens qg with
+  `QG_UPDATE_JUST_INSTALLED=<version>`; if the running version still differs,
+  qg prints one line and carries on without prompting, instead of looping.

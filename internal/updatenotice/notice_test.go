@@ -274,3 +274,32 @@ func TestStateDirRootCoversAllPlatforms(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateMergesWithoutClobbering(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "qg", "update.json")
+	before := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	if err := Save(path, State{LastCheck: before, LatestVersion: "0.0.11"}); err != nil {
+		t.Fatal(err)
+	}
+	// The user presses "skip": only SkippedVersion is touched.
+	if err := Update(path, func(s *State) { s.SkippedVersion = "0.0.11" }); err != nil {
+		t.Fatal(err)
+	}
+	// A background refresh that started earlier lands now: it only merges
+	// LastCheck/LatestVersion, keeping the recorded skip.
+	after := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	if err := Update(path, func(s *State) {
+		s.LastCheck = after
+		s.LatestVersion = "0.0.12"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := Load(path)
+	if got.SkippedVersion != "0.0.11" {
+		t.Fatalf("late refresh clobbered the skip: %#v", got)
+	}
+	if !got.LastCheck.Equal(after) || got.LatestVersion != "0.0.12" {
+		t.Fatalf("refresh merge lost: %#v", got)
+	}
+}

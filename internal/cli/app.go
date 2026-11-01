@@ -718,6 +718,40 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		// ErrNoActiveProvider: resolved keeps the normalized providers; the login
 		// gate below picks the QG profile or opens the onboarding.
 	}
+
+	// Update check after config resolution (the saved theme lives there) but
+	// before any heavy setup (providers, LSP, sandbox): a known newer release
+	// gets the startup prompt in the same theme the TUI itself would use. It
+	// never blocks on the network — the prompt only uses the stored check
+	// result — and it stays out of exec, subcommands, and pipes: only this
+	// interactive entry point calls it, and stdin must be a terminal.
+	tui.ApplyUpdatePromptTheme(theme, resolved.Preferences.Theme, os.Getenv("QG_THEME"))
+	if code, proceed := runUpdateStartup(context.Background(), stderr, updateStartupDeps{
+		currentVersion: version,
+		stdinIsTTY:     term.IsTerminal(os.Stdin.Fd()),
+		env:            deps.getenv,
+		args:           os.Args,
+		runPrompt:      tui.RunUpdatePrompt,
+		openURL: func(url string) error {
+			if deps.openBrowser != nil {
+				return deps.openBrowser(context.Background(), url)
+			}
+			return browser.Open(context.Background(), url)
+		},
+		applyUpdate: func(ctx context.Context) (string, error) {
+			result, err := update.Apply(ctx, update.Options{CurrentVersion: version})
+			if err != nil {
+				return "", err
+			}
+			if !result.Applied {
+				return "", nil
+			}
+			return result.BinaryPath, nil
+		},
+		relaunch: relaunchBinary,
+	}); !proceed {
+		return code
+	}
 	userConfigPath, err := deps.userConfigPath()
 	if err != nil {
 		return writeAppError(stderr, "failed to resolve user config path: "+err.Error(), 1)

@@ -63,6 +63,17 @@ func Due(config Config, state State) bool {
 	return elapsed >= time.Hour
 }
 
+// Update loads the state file, applies mutate, and saves it back atomically.
+// Every writer re-reads the file at save time, so independent fields survive
+// interleaved writers: a background refresh that finishes after the user
+// pressed "skip" keeps the recorded skip (and vice versa) instead of blanking
+// it with a stale copy. The last writer still wins on the same field.
+func Update(path string, mutate func(*State)) error {
+	state := Load(path)
+	mutate(&state)
+	return Save(path, state)
+}
+
 // Refresh checks for a new release and folds it into a copy of the state:
 // success records LatestVersion; the check time is always recorded, even on
 // error, so a dead network backs off instead of retrying every turn. Errors
