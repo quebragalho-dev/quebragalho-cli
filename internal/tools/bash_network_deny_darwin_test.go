@@ -21,11 +21,10 @@ import (
 // must tag the run itself.
 //
 // The command connects to a literal IP on purpose: it reaches the tagged
-// TCP socket denial (network-outbound remote:*:443) directly and
-// deterministically, even on a cold log stream. The hostname variant below
-// covers the slower DNS path (network-outbound /private/var/run/mDNSResponder)
-// that missed the 25 ms tag grace on a cold stream and showed a raw
-// DNS/EPERM error instead of the permission prompt.
+// TCP socket denial directly and deterministically. The hostname variant
+// below covers the DNS path (network-outbound /private/var/run/mDNSResponder),
+// where after minutes without system violations the tag is never emitted and
+// only the output signature remains to offer the same prompt.
 func TestBashNetworkDenialPromptsRetry(t *testing.T) {
 	if _, err := exec.LookPath("sandbox-exec"); err != nil {
 		t.Skipf("sandbox-exec unavailable: %v", err)
@@ -67,10 +66,9 @@ func TestBashNetworkDenialPromptsRetry(t *testing.T) {
 // network denial reached through hostname resolution (the DNS path), not a
 // literal IP. The sandbox denies the resolver itself
 // (network-outbound /private/var/run/mDNSResponder), so urllib fails with a
-// raw gaierror instead of reaching TCP; the tagged network rule still fires
-// for that denial, and the monitor must attribute it to offer the same
-// structured denial. On a cold log stream the tag was lost (no warmup beyond
-// the header), so the TUI showed the raw error with no prompt.
+// raw gaierror instead of reaching TCP. After minutes without system
+// violations the tag for that denial is never emitted, so the output
+// signature is what offers the same structured denial.
 func TestBashNetworkDenialPromptsRetryOverHostname(t *testing.T) {
 	if _, err := exec.LookPath("sandbox-exec"); err != nil {
 		t.Skipf("sandbox-exec unavailable: %v", err)

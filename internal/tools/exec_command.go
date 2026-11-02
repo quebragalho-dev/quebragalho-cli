@@ -237,7 +237,7 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 			blocks := monitor.Stop()
 			// Record a network denial for the structured report the agent
 			// loop turns into a permission retry. Attribution comes from the
-			// monitor tag, never from command output.
+			// monitor tag; the output fallback below runs after Start.
 			_ = plan.WriteNetworkDenialReport(blocks)
 			if len(blocks) == 0 {
 				return nil
@@ -248,6 +248,14 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 	if err != nil {
 		_ = monitor.Stop()
 		return errorResult("Error starting exec_command: " + err.Error())
+	}
+	if processResult.Report.Denial == nil && processResult.Exited && processResult.ExitCode != 0 {
+		// Same output fallback as bash: when the tagged feed missed after
+		// idle, a synchronous output signature offers the same prompt.
+		// Synchronous and cheap, never off macOS, never for allow plans.
+		if fallback := qgSandbox.NetworkOutputFallbackDenial(processResult.ExitCode, false, plan.Wrapped, plan.TargetBackend, plan.PermissionProfile.Network.Mode, plan.MonitorTag, runtimeGOOS(), processResult.Output); fallback != nil {
+			processResult.Report.Denial = fallback
+		}
 	}
 	return execToolResultWithBudget(execToolResultInput{
 		commandText: processResult.CommandText, output: processResult.Output,
