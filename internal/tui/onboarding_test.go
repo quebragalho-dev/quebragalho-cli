@@ -43,7 +43,7 @@ func TestSetupTakeoverRendersAndCompletes(t *testing.T) {
 	m.width = 100
 	m.height = 30
 
-	if view := plainRender(t, m.View()); !strings.Contains(view, "Welcome to Quebra Galho") || !strings.Contains(view, "Space to set up QG") || !strings.Contains(view, "terminal agent for changing real code") {
+	if view := plainRender(t, m.View()); !strings.Contains(view, "Welcome to Quebra Galho") || !strings.Contains(view, "Space/Enter to set up QG") || !strings.Contains(view, "terminal agent for changing real code") {
 		t.Fatalf("setup welcome view missing expected text:\n%s", view)
 	}
 
@@ -161,8 +161,13 @@ func TestSetupTakeoverBlocksPromptSubmission(t *testing.T) {
 	if m.pending {
 		t.Fatal("setup enter should not start a prompt")
 	}
-	if m.setup.stage != setupStageWelcome {
-		t.Fatalf("stage = %v, want welcome because Enter is not advertised here", m.setup.stage)
+	// Enter on welcome moves into setup like Space does; it must not leave
+	// the wizard or submit anything.
+	if m.setup.stage != setupStageCredentials {
+		t.Fatalf("stage = %v, want credentials because Enter advances welcome", m.setup.stage)
+	}
+	if !m.setup.visible {
+		t.Fatal("setup enter should not hide setup")
 	}
 }
 
@@ -206,8 +211,10 @@ func TestSetupRightArrowDoesNotAdvance(t *testing.T) {
 
 func TestSetupEnterDoesNotAdvanceSpaceOnlyStages(t *testing.T) {
 	saveCalls := 0
+	// Welcome left this list: Enter advances it like Space (it carries no
+	// input and confirms nothing). Credentials without an active key field
+	// stays Enter-dead so Enter can never skip it.
 	for _, stage := range []setupStage{
-		setupStageWelcome,
 		setupStageCredentials,
 	} {
 		m := newModel(context.Background(), Options{
@@ -989,5 +996,29 @@ func TestSetupCompletionWarmsModelDiscoveryForCallCost(t *testing.T) {
 	m = updated.(model).applyModelPickerModelsDiscovered(msg)
 	if m.apiModel("deepseek-v4.1-flash") == nil {
 		t.Fatal("discovered model info is not available to call-cost lookup")
+	}
+}
+
+func TestSetupEnterAdvancesWelcomeToCredentials(t *testing.T) {
+	m := newModel(context.Background(), Options{
+		Setup: SetupOptions{
+			Visible: true,
+			Providers: []SetupProviderOption{
+				{ID: "ollama", Name: "Ollama Local", DefaultModel: "llama3.1", Local: true},
+			},
+		},
+	})
+	m.setup.stage = setupStageWelcome
+
+	updated, cmd := m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatal("enter on welcome should not return a command")
+	}
+	if m.setup.stage != setupStageCredentials {
+		t.Fatalf("enter at welcome left stage %v, want credentials", m.setup.stage)
+	}
+	if !m.setup.visible {
+		t.Fatal("enter at welcome should not hide setup")
 	}
 }

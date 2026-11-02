@@ -148,7 +148,10 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.exitSetupToChat()
 	case keyIs(msg, tea.KeyEnter):
-		if m.setup.stage == setupStageModel {
+		// Welcome advances like Space: it carries no input and confirms
+		// nothing, so Enter cannot submit anything by accident. At
+		// credentials Enter stays with the key field and browser flow.
+		if m.setup.stage == setupStageModel || m.setup.stage == setupStageWelcome {
 			return m.advanceSetup()
 		}
 		return m, nil
@@ -996,7 +999,7 @@ func (m model) setupFooter() string {
 	case setupStageModel:
 		return qgTheme.faint.Render("↑/↓ choose   type search   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continue")
 	default:
-		return qgTheme.accent.Render("Space") + qgTheme.faint.Render(" to set up QG")
+		return qgTheme.accent.Render("Space/Enter") + qgTheme.faint.Render(" to set up QG")
 	}
 }
 
