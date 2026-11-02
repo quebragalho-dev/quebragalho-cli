@@ -160,16 +160,25 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *qgSan
 	// wait, so a backgrounded child cannot outlive the command or hang Run().
 	hardenProcessLifetime(command)
 
-	// Capture sandbox denials when the plan opted in (macOS + Policy.MonitorDenials).
-	// A no-op when MonitorTag is empty, so the default path is unchanged.
+	// Capture sandbox denials when the plan opted in (macOS seatbelt with a
+	// monitor tag: an explicit MonitorDenials policy or a deny-network
+	// profile). A no-op when MonitorTag is empty, so the default path is
+	// unchanged.
 	monitor := qgSandbox.StartDenialMonitor(context.Background(), plan.MonitorTag)
 	err = command.Run()
 	exitCode := commandExitCode(err)
+	blocks := monitor.Stop()
 	adapterReport, reportErr := plan.ExecutionReport()
+	if adapterReport.Denial == nil {
+		// A network denial the sandbox enforced becomes the structured denial
+		// the agent loop turns into a permission retry. Attribution comes
+		// from the monitor tag, never from command output.
+		adapterReport.Denial = qgSandbox.NetworkDenialFromBlocks(blocks)
+	}
 	meta["exit_code"] = strconv.Itoa(exitCode)
 	stdoutText := stdout.retained()
 	stderrRetained := stderr.retained()
-	stderrText := appendSandboxBlocks(stderrRetained, monitor.Stop())
+	stderrText := appendSandboxBlocks(stderrRetained, blocks)
 	// Sandbox blocks are extra model-visible stderr bytes appended after capture;
 	// count them toward the true total so the budget/marker stay accurate.
 	stderrTotal := stderr.total + (len(stderrText) - len(stderrRetained))

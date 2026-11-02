@@ -261,7 +261,7 @@ func linuxSandboxHelperCommandPlan(execRequest SandboxExecutionRequest, policy P
 		helper = resolved
 	}
 	command := append([]string{spec.Name}, spec.Args...)
-	reportPath, err := newLinuxExecutionReportPath()
+	reportPath, err := newSandboxExecutionReportPath()
 	if err != nil {
 		return CommandPlan{}, err
 	}
@@ -303,7 +303,9 @@ func linuxSandboxHelperCommandPlan(execRequest SandboxExecutionRequest, policy P
 	return withSandboxExecutionMetadata(plan, execRequest), nil
 }
 
-func newLinuxExecutionReportPath() (string, error) {
+// newSandboxExecutionReportPath mints a side-channel path for a structured
+// adapter report. The Linux helper and the macOS denial monitor share it.
+func newSandboxExecutionReportPath() (string, error) {
 	var token [16]byte
 	if _, err := rand.Read(token[:]); err != nil {
 		return "", fmt.Errorf("generate sandbox execution report path: %w", err)
@@ -408,7 +410,11 @@ func seatbeltCommandPlan(execRequest SandboxExecutionRequest, policy Policy, bac
 
 func seatbeltCommandPlanWithProfile(spec CommandSpec, workspaceRoot string, profile PermissionProfile, policy Policy, backend Backend) CommandPlan {
 	denialTag := ""
-	if policy.MonitorDenials {
+	// Monitored runs attribute kernel denials to this exact command via the
+	// tag. Besides an explicit opt-in, monitoring is on for network-denying
+	// plans: only they can produce the network denial the agent loop turns
+	// into a permission retry, so allow-network commands pay nothing.
+	if policy.MonitorDenials || NormalizeNetworkMode(profile.Network.Mode) == NetworkDeny {
 		denialTag = nextSandboxDenialTag()
 	}
 	args := []string{"-p", seatbeltProfileFromPermissionProfile(profile, policy, denialTag), spec.Name}
@@ -436,7 +442,40 @@ func seatbeltCommandPlanWithProfile(spec CommandSpec, workspaceRoot string, prof
 	// The plan's monitor tag MUST equal the one embedded in the profile above so the
 	// monitor matches exactly this run's denials.
 	plan.MonitorTag = denialTag
+	if denialTag != "" {
+		// Monitored runs get a report slot for a structured denial, the same
+		// channel the Linux helper uses. The tools fill it from the monitor
+		// output; an empty slot reads as no denial.
+		if reportPath, err := newSandboxExecutionReportPath(); err == nil {
+			plan.executionReportPath = reportPath
+			plan.cleanup = combineSandboxCleanups(plan.cleanup, func() {
+				_ = os.Remove(reportPath)
+			})
+		}
+	}
 	return plan
+}
+
+// WriteNetworkDenialReport inspects attributed seatbelt denial messages and,
+// on a network denial, records the structured report the agent loop turns
+// into a permission retry. It never touches command output: the report file
+// is a side channel outside the workspace. A no-op without a report slot.
+func (plan CommandPlan) WriteNetworkDenialReport(blocks []string) error {
+	if strings.TrimSpace(plan.executionReportPath) == "" {
+		return nil
+	}
+	denial := NetworkDenialFromBlocks(blocks)
+	if denial == nil {
+		return nil
+	}
+	data, err := json.Marshal(execution.AdapterReport{Denial: denial})
+	if err != nil {
+		return fmt.Errorf("encode network denial report: %w", err)
+	}
+	if err := os.WriteFile(plan.executionReportPath, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write network denial report: %w", err)
+	}
+	return nil
 }
 
 func sandboxEnvironmentForCommand(specEnv []string, policy Policy, backend BackendName, workspaceRoot string) []string {
@@ -629,11 +668,19 @@ func seatbeltProfileFromPermissionProfile(profile PermissionProfile, policy Poli
 	readRule := seatbeltReadRule(profile.FileSystem)
 	writeRule := seatbeltWriteRule(profile.FileSystem)
 	denyDefault := "(deny default)"
-	if denialTag != "" {
-		// Tag denials so the runtime log monitor can attribute them to THIS run; the
-		// message is emitted to the unified log on every deny and StartDenialMonitor
-		// filters `log stream` for this exact (per-plan) tag.
+	if policy.MonitorDenials && denialTag != "" {
+		// Explicit opt-in: tag every denial so the runtime log monitor can
+		// attribute them to THIS run; the message is emitted to the unified
+		// log on every deny and StartDenialMonitor filters `log stream` for
+		// this exact (per-plan) tag.
 		denyDefault = `(deny default (with message "` + sandboxProfileString(denialTag) + `"))`
+	}
+	if denialTag != "" && NormalizeNetworkMode(profile.Network.Mode) == NetworkDeny {
+		// Network denials match this explicit rule rather than the default
+		// above (last-match-wins), so without their own message they would
+		// stay invisible to the monitor. Tagging only the network rule keeps
+		// auto-monitored runs quiet about unrelated file denials.
+		networkRule = `(deny network* (with message "` + sandboxProfileString(denialTag) + `"))`
 	}
 	rules := []string{
 		"(version 1)",

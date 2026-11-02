@@ -230,6 +230,10 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 		TTY: ttyRequested, Metadata: meta,
 		AfterWait: func() []byte {
 			blocks := monitor.Stop()
+			// Record a network denial for the structured report the agent
+			// loop turns into a permission retry. Attribution comes from the
+			// monitor tag, never from command output.
+			_ = plan.WriteNetworkDenialReport(blocks)
 			if len(blocks) == 0 {
 				return nil
 			}
