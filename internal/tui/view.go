@@ -161,7 +161,7 @@ func (m model) statusLine(width int) string {
 	}
 
 	if m.activeServiceTier() == "priority" {
-		left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render("fast")
+		left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render("rápido")
 	}
 	showWorkspace := false
 	if m.exitConfirmActive {
