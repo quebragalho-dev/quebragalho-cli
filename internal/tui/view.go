@@ -645,7 +645,7 @@ func (m model) pickerOverlay(width int) string {
 	title := strings.TrimSpace(m.picker.title)
 	// A visible "search > …" line so typing to filter shows what you've typed,
 	// matching the /model picker. Followed by a separator, then the rows.
-	lines = append(lines, renderPickerSearchLine(m.picker.query, "type to filter…", innerWidth))
+	lines = append(lines, renderPickerSearchLine(m.picker.query, "digite para filtrar…", innerWidth))
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
 	lastGroup := ""
 	for index, item := range visible {
@@ -996,12 +996,12 @@ func renderModelPickerSearchLine(query string, width int) string {
 	return renderPickerSearchLine(query, "nome do modelo...", width)
 }
 
-// renderPickerSearchLine renders the "search > <query>▌" input line shared by the
+// renderPickerSearchLine renders the "buscar > <query>▌" input line shared by the
 // popup pickers, so what you type while filtering is always visible. placeholder
 // is the faint hint shown when the query is empty.
 func renderPickerSearchLine(query, placeholder string, width int) string {
 	query = strings.TrimSpace(query)
-	prompt := qgTheme.userPrompt.Render("search > ")
+	prompt := qgTheme.userPrompt.Render("buscar > ")
 	cursor := qgTheme.accent.Render("▌")
 	if query == "" {
 		return fitStyledLine(prompt+cursor+qgTheme.faint.Render(placeholder), width)

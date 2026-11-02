@@ -345,7 +345,7 @@ func (m model) applyPanelChoice(persist bool) (model, tea.Cmd) {
 		preview := m
 		preview.modelName = item.Value
 		if p.effort != "" && p.effort != "auto" && !reasoningEffortAllowed(preview.panelReasoningEfforts(), modelregistry.ReasoningEffort(p.effort)) {
-			return m.showTransientNoticeInline("Effort indisponível para o modelo selecionado", transientNoticeWarning), nil
+			return m.showTransientNoticeInline("Nível indisponível para o modelo selecionado", transientNoticeWarning), nil
 		}
 		var switched bool
 		m, detail, switched, err = m.handleModelCommandScope(item.Value, persist)

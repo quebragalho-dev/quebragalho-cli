@@ -71,7 +71,7 @@ func TestEffortCommandRejectsUnsupportedActiveModel(t *testing.T) {
 	if next.reasoningEffort != "" {
 		t.Fatalf("expected effort to remain auto, got %q", next.reasoningEffort)
 	}
-	if !transcriptContains(next.transcript, "does not expose reasoning effort controls") {
+	if !transcriptContains(next.transcript, "não oferece controles de nível de raciocínio") {
 		t.Fatalf("expected unsupported model message, got %#v", next.transcript)
 	}
 }

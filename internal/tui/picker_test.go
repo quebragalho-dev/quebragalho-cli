@@ -231,7 +231,7 @@ func TestModelPickerSearchFiltersModels(t *testing.T) {
 		t.Fatalf("picker query = %q, want qwen", next.picker.query)
 	}
 	view := plainRender(t, next.pickerOverlay(100))
-	assertContains(t, view, "search > qwen")
+	assertContains(t, view, "buscar > qwen")
 	assertContains(t, view, "Qwen")
 	assertNotContains(t, view, "Muse Spark")
 }

@@ -70,20 +70,20 @@ func (m model) handleEffortCommand(args string) (model, string) {
 
 	requested := modelregistry.ReasoningEffort(args)
 	if !modelregistry.ValidReasoningEffort(requested) {
-		return m, m.effortStatusCard(args, "Unknown reasoning effort: "+args)
+		return m, m.effortStatusCard(args, "Nível de raciocínio desconhecido: "+args)
 	}
 	efforts := m.panelReasoningEfforts()
 	if len(efforts) == 0 {
-		return m, m.effortStatusCard("", "Active model does not expose reasoning effort controls.")
+		return m, m.effortStatusCard("", "O modelo ativo não oferece controles de nível de raciocínio.")
 	}
 	if !reasoningEffortAllowed(efforts, requested) {
 		return m, m.effortStatusCard(string(requested),
-			fmt.Sprintf("Reasoning effort %q is not supported by %s.", requested, displayValue(m.modelName, "the active model")))
+			fmt.Sprintf("Nível de raciocínio %q não suportado por %s.", requested, displayValue(m.modelName, "o modelo ativo")))
 	}
 
 	m.reasoningEffort = requested
 	m = m.markProfileEffortTouched()
-	return m, m.effortStatusCard(string(requested), "Reasoning effort preference is stored for this TUI session.")
+	return m, m.effortStatusCard(string(requested), "Preferência de nível de raciocínio salva nesta sessão.")
 }
 
 func (m model) handleFastCommand(args string) (model, string) {
