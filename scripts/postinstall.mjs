@@ -103,7 +103,6 @@ if (!platform || !arch) {
   );
 }
 
-
 const ext = platform === 'windows' ? 'zip' : 'tar.gz';
 const binaryName = platform === 'windows' ? 'qg.exe' : 'qg';
 const tag = `v${VERSION}`;
