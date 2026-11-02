@@ -171,3 +171,69 @@ func TestStreamingIncrementalBareFlipRecomputes(t *testing.T) {
 		}
 	}
 }
+
+// TestStreamingHeadProseGuardsBareFlip pins the headHasProse guard: a
+// code-only head standing while the tail turns the whole answer into a bare
+// code block must fall back to the integral render. Forcing headHasProse true
+// skips that fallback and composes plain head lines with a plain tail,
+// missing the highlight the integral render applies.
+func TestStreamingHeadProseGuardsBareFlip(t *testing.T) {
+	doc := "func main() {\n  \n    x = 1"
+	frames := []string{doc[:20], doc}
+	for _, width := range []int{20} {
+		resetStreamingMarkdownCache()
+		for i, prefix := range frames {
+			got := strings.Join(renderStreamingAssistantMarkdownText(prefix, width, width), "\n")
+			want := strings.Join(renderAssistantMarkdownText(streamingMarkdownStablePrefix(prefix), width, width, true), "\n")
+			if got != want {
+				t.Fatalf("width=%d frame %d prefix %q differs:\ngot:  %q\nwant: %q", width, i, prefix, got, want)
+			}
+		}
+	}
+}
+
+// TestStreamingFenceDepthInTableRow pins fence tracking inside table rows: a
+// fence marker that appears as a table cell must not toggle the open-fence
+// state, or the head split goes fence-safe the wrong way and the composition
+// diverges from the integral render.
+func TestStreamingFenceDepthInTableRow(t *testing.T) {
+	docs := []string{
+		"| a | b |\n|---|---|\n```|x|\n\nPara depois.\n\n```\ncodigo 1\n\ncodigo 2\n\ncodigo 3\n```\n\nFim do texto aqui.",
+		"Intro.\n\n| a | b |\n|---|---|\n| y | z |\n~~~ | w |\n\ntexto\n\n~~~\nx\n\ny\n\nz\n~~~\n\nfim",
+		"| a | b |\n|---|---|\n```go | x |\n```\n\npara\n\n```\nlinha\n\noutra\n```\n\nfim",
+	}
+	for _, doc := range docs {
+		for _, w := range []int{40, 80} {
+			resetStreamingMarkdownCache()
+			for _, prefix := range runeAlignedPrefixes(doc, 1) {
+				got := strings.Join(renderStreamingAssistantMarkdownText(prefix, w, w), "\n")
+				want := strings.Join(renderAssistantMarkdownText(streamingMarkdownStablePrefix(prefix), w, w, true), "\n")
+				if got != want {
+					t.Fatalf("w=%d prefix %q differs:\ngot:  %q\nwant: %q", w, prefix, got, want)
+				}
+			}
+		}
+	}
+}
+
+// TestStreamingSmallMeasuresMatchIntegral pins the prose floor: measures below
+// 16 wrap at 16 like the integral renderer, so narrow frames stay
+// byte-identical instead of rewrapping the resumed paragraph at 12/15.
+func TestStreamingSmallMeasuresMatchIntegral(t *testing.T) {
+	docs := []string{
+		"Hello world, this is a simple paragraph that wraps across lines and continues here with more words to force several wraps.",
+		"First paragraph with enough words to wrap at narrow measures several times over.\n\nSecond paragraph after a blank line, also long enough to wrap a few times here.",
+	}
+	for _, width := range []int{12, 15} {
+		for _, doc := range docs {
+			resetStreamingMarkdownCache()
+			for _, prefix := range runeAlignedPrefixes(doc, 1) {
+				got := strings.Join(renderStreamingAssistantMarkdownText(prefix, width, width), "\n")
+				want := strings.Join(renderAssistantMarkdownText(streamingMarkdownStablePrefix(prefix), width, width, true), "\n")
+				if got != want {
+					t.Fatalf("width=%d prefix %q differs:\ngot:  %q\nwant: %q", width, prefix, got, want)
+				}
+			}
+		}
+	}
+}

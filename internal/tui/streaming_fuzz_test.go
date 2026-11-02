@@ -13,7 +13,10 @@ import (
 // Permanent differential fuzz for the streaming markdown renderer: every
 // streamed frame must render byte-identical to the integral render of the
 // same prefix. Fixed seed and size in CI (fast); FUZZ_SEED/FUZZ_DOCS override
-// for wider manual sweeps, FUZZ_BYTES=1 splits chunks at raw bytes.
+// for wider manual sweeps, FUZZ_BYTES=1 splits chunks at raw bytes. Prose
+// stays capped at 96 while the table measure roams (100/150/200), so a
+// table-only resize mid-stream exercises the tableMeasure guard; the theme
+// flips once per doc to pin the reset path.
 var fuzzWords = []string{"a", "palavra", "comprida", "**negrito**", "*ênfase*", "`code`", "[link](http://x.y)",
 	"中文字符", "👍🏽", "👨‍👩‍👧", "é", "ação", "x", "supercalifragilisticexpialidocious-muito-longa-sem-espaco",
 	"**abre", "fecha**", "`abre", "\t", "  ", "1.", "-", ">", "#", "|", "~~~", "```"}
@@ -126,15 +129,32 @@ func TestStreamingDifferentialFuzz(t *testing.T) {
 	docs := fuzzEnvInt("FUZZ_DOCS", 300)
 	byteMode := os.Getenv("FUZZ_BYTES") == "1"
 	r := rand.New(rand.NewSource(int64(seed)))
-	widths := []int{16, 33, 50, 80, 120}
+	proseWidths := []int{16, 33, 50, 80, 96}
+	previousTheme := qgTheme
+	defer func() {
+		qgTheme = previousTheme
+		rebuildStreamingFadePalette()
+		resetStreamingMarkdownCache()
+	}()
 	frames, fails := 0, 0
 	var first []string
+	inNord := false
 	for d := 0; d < docs; d++ {
 		doc := fuzzDoc(r)
 		if r.Intn(4) != 0 {
 			resetStreamingMarkdownCache()
 		}
-		pw := widths[r.Intn(len(widths))]
+		if inNord {
+			qgTheme = previousTheme
+			rebuildStreamingFadePalette()
+			resetStreamingMarkdownCache()
+			inNord = false
+		}
+		pw := proseWidths[r.Intn(len(proseWidths))]
+		twChoices := []int{pw, 100, 150, 200}
+		tw := twChoices[r.Intn(len(twChoices))]
+		half := len(doc) / 2
+		themeSwitched := false
 		pos := 0
 		for pos < len(doc) {
 			step := 1 + r.Intn(40)
@@ -157,16 +177,21 @@ func TestStreamingDifferentialFuzz(t *testing.T) {
 			}
 			pos = next
 			if r.Intn(50) == 0 {
-				pw = widths[r.Intn(len(widths))]
+				tw = twChoices[r.Intn(len(twChoices))]
+			}
+			if !themeSwitched && pos >= half {
+				applyTheme("nord", true)
+				themeSwitched = true
+				inNord = true
 			}
 			prefix := doc[:pos]
-			got := strings.Join(renderStreamingAssistantMarkdownText(prefix, pw, pw), "\n")
-			want := strings.Join(renderAssistantMarkdownText(streamingMarkdownStablePrefix(prefix), pw, pw, true), "\n")
+			got := strings.Join(renderStreamingAssistantMarkdownText(prefix, pw, tw), "\n")
+			want := strings.Join(renderAssistantMarkdownText(streamingMarkdownStablePrefix(prefix), pw, tw, true), "\n")
 			frames++
 			if got != want {
 				fails++
 				if len(first) < 5 {
-					first = append(first, fmt.Sprintf("seed=%d doc=%d w=%d prefix=%q\n got: %q\nwant: %q", seed, d, pw, prefix, got, want))
+					first = append(first, fmt.Sprintf("seed=%d doc=%d pw=%d tw=%d prefix=%q\n got: %q\nwant: %q", seed, d, pw, tw, prefix, got, want))
 				}
 			}
 		}

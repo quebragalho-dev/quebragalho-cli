@@ -229,6 +229,9 @@ func renderStreamingHeadText(head string, proseMeasure int, tableMeasure int) []
 }
 
 func renderStreamingAssistantMarkdownText(text string, proseMeasure int, tableMeasure int) []string {
+	if proseMeasure < 16 {
+		proseMeasure = 16
+	}
 	if defaultRenderCache == nil {
 		return renderAssistantMarkdownText(streamingMarkdownStablePrefix(text), proseMeasure, tableMeasure, true)
 	}

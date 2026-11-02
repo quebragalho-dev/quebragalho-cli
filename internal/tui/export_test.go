@@ -120,12 +120,20 @@ func (c *staticRenderCache) retainedCharacters() int {
 }
 
 // streamingStyledMemoBytes reports retained key+value bytes across both
-// styled-line tables, so tests can pin the memory bound without naming the
-// cap constant.
+// styled-line tables, measured by scanning the maps (not the counter), so a
+// mutant that stops counting still fails while the tables keep growing.
 func streamingStyledMemoBytes() (int, int) {
 	streamMarkdownCache.mu.Lock()
 	defer streamMarkdownCache.mu.Unlock()
-	return streamMarkdownCache.ink.bytes, streamMarkdownCache.marker.bytes
+	inkBytes := 0
+	for k, v := range streamMarkdownCache.ink.lines {
+		inkBytes += len(k) + len(v)
+	}
+	markerBytes := 0
+	for k, v := range streamMarkdownCache.marker.lines {
+		markerBytes += len(k) + len(v)
+	}
+	return inkBytes, markerBytes
 }
 
 func (c *staticRenderCache) stats() renderCacheStats {

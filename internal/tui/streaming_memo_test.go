@@ -64,7 +64,8 @@ func TestStreamingStyledLinesSurviveThemeChange(t *testing.T) {
 // TestStreamingMemosStayBounded pins the memory bound behaviorally: filling
 // both tables with megabytes of wide lines must keep retained bytes flat
 // (tables drop and recompute instead of growing with the stream) and every
-// value must still render correctly afterwards.
+// value must still render correctly afterwards. Retained bytes are measured by
+// scanning the maps, so a mutant that stops counting still fails.
 func TestStreamingMemosStayBounded(t *testing.T) {
 	for i := 0; i < 5000; i++ {
 		cachedDisplayWidth(fmt.Sprintf("word-%d", i))
@@ -92,7 +93,7 @@ func TestStreamingMemosStayBounded(t *testing.T) {
 		}
 	}
 	inkBytes, markerBytes := streamingStyledMemoBytes()
-	const maxReasonable = 3 << 20
+	const maxReasonable = 2 << 20
 	if inkBytes > maxReasonable || markerBytes > maxReasonable {
 		t.Fatalf("styled memos retain %d/%d bytes after overfill, want bounded tables", inkBytes, markerBytes)
 	}
