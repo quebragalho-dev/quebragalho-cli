@@ -24,8 +24,10 @@ func TestStartPeerServiceReturnsWithBlockingForward(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := make(chan struct{})
+	gotErr := make(chan error, 1)
 	forward := func(msg tea.Msg) {
-		if _, ok := msg.(peerRuntimeErrorMsg); ok {
+		if m, ok := msg.(peerRuntimeErrorMsg); ok {
+			gotErr <- m.err
 			<-release
 		}
 	}
@@ -42,4 +44,12 @@ func TestStartPeerServiceReturnsWithBlockingForward(t *testing.T) {
 		t.Fatal("startPeerService blocked on a blocking forward; TUI startup would hang")
 	}
 	close(release)
+	select {
+	case err := <-gotErr:
+		if err == nil {
+			t.Fatal("peerRuntimeErrorMsg arrived with nil error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("peerRuntimeErrorMsg was never forwarded; deleting the send passes the hang check")
+	}
 }
