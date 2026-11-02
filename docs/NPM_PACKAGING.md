@@ -82,10 +82,11 @@ There is deliberately **no `scripts.postinstall`** in any published
 **vendored binaries/packages inside the platform payload**, not npm
 dependencies of the wrapper:
 
-- As a dependency, agent-browser's `engines: { node: ">=24", pnpm: ">=11" }`
-  and postinstall script produce `EBADENGINE` and `allow-scripts` warnings for
-  every installer. As a vendored tree it produces none, because npm never
-  resolves it.
+- The repo pins `agent-browser` below the versions that declare
+  `engines: { node: ">=24", pnpm: ">=11" }` (introduced upstream in 0.28.0),
+  so even a direct `npm install` of the repo stays `EBADENGINE`-free on the
+  supported Node `>=18` range. As a vendored tree it produces no warnings at
+  all, because npm never resolves it.
 - `qg-release package` already stages the helpers tree into every release
   archive (`stageLocalControlHelpers` runs `npm ci` from the repo's
   `package.json` pins + lockfile on the native builder). The assembly script
@@ -144,7 +145,9 @@ lockfile pinned at build time.
 
 - Routine bump: `npm install agent-browser@<version>` (or `tuistory@…`) in the
   repo to update pin + lockfile, verify the browser/terminal tools end-to-end,
-  ship with the next release.
+  ship with the next release. Keep `agent-browser` below the upstream versions
+  that declare `engines: node >=24` (first seen in 0.28.0): anything higher
+  reintroduces `EBADENGINE` for users on the supported Node `>=18` range.
 - Security response: if a vendored helper publishes a security fix, the bump
   is release-worthy on its own — cut a patch release of qg carrying only the
   pin change.
