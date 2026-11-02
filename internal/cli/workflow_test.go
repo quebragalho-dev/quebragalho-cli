@@ -3207,3 +3207,34 @@ func TestFormatVerifyReportPTResumo(t *testing.T) {
 		t.Fatalf("verify leaked old plural:\n%s", out)
 	}
 }
+
+func TestFormatVerifyLoopReportCoversAllBranches(t *testing.T) {
+	report := selfverify.Report{
+		StopReason: selfverify.StopReasonMaxAttempts,
+		Summary:    verify.Summary{Total: 4, Passed: 1, Failed: 1, Errors: 2},
+		Attempts: []selfverify.Attempt{
+			{Number: 1, Report: verify.Report{Root: "/repo", OK: false}, Remediation: &selfverify.Remediation{Message: "retry later", Error: "boom"}},
+			{Number: 2, Report: verify.Report{Root: "/repo", OK: true}, Remediation: &selfverify.Remediation{Applied: true, Message: "prepared retry"}},
+		},
+		Error: "loop failed",
+	}
+	out := formatVerifyLoopReport(report)
+	for _, want := range []string{
+		"Autoverificação QG",
+		"tentativas: 2",
+		"parada: max_attempts",
+		"resumo: total: 4, aprovados: 1, reprovados: 1, com erro: 2",
+		"tentativa 1: falhou",
+		"correção: não aplicada - retry later - erro: boom",
+		"tentativa 2: passou",
+		"correção: aplicada - prepared retry",
+		"erro: loop failed",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("verify loop report missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "raiz: ") {
+		t.Fatalf("empty root must omit the raiz line:\n%s", out)
+	}
+}

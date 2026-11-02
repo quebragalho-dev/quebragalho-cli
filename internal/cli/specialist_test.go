@@ -357,13 +357,16 @@ func TestRunSpecialistArgCountErrors(t *testing.T) {
 func setSpecialistConfigRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	// config.UserConfigDir consults XDG_CONFIG_HOME first on every platform
+	// (including darwin), so it must be redirected along with the platform
+	// roots. Otherwise tests leak into the developer's real config and later
+	// runs fail with "already exists".
+	t.Setenv("XDG_CONFIG_HOME", root)
 	switch runtime.GOOS {
 	case "windows":
 		t.Setenv("APPDATA", root)
 	case "darwin":
 		t.Setenv("HOME", root)
-	default:
-		t.Setenv("XDG_CONFIG_HOME", root)
 	}
 	configRoot, err := config.UserConfigDir()
 	if err != nil {
