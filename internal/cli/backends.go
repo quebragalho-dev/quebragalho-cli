@@ -265,8 +265,8 @@ func writeBackendsDoctorHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg backends doctor [flags]
 
-Diagnostica a configuração dos backends de MCP, hook e plugin sem conectar a servidores MCP
-externos nem executar hooks/plugins.
+Diagnostica a configuração dos backends de MCP, hook e plugin sem
+conectar a servidores MCP externos nem executar hooks/plugins.
 
 Opções:
       --json    Imprime o diagnóstico dos backends em JSON

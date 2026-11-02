@@ -276,15 +276,15 @@ func writeLoginHelp(w io.Writer) error {
 
 Valida uma chave de API do Quebra Galho em GET /v1/models e a salva no
 cofre de credenciais (provedor qg, ativado). Sem --api-key, a chave é
-pedida no terminal, oculta em um TTY. Se o cofre de credenciais estiver indisponível, a
-chave é gravada em config.json em texto puro e um aviso é mostrado.
+pedida no terminal, oculta em um TTY. Se o cofre estiver indisponível,
+a chave é gravada em config.json em texto puro e um aviso é mostrado.
 
 --device inicia o fluxo device no navegador: aprove o código mostrado no
 link impresso e a chave de API da conta é buscada e salva automaticamente.
 O link abre no seu navegador; --no-browser só o imprime (SSH, headless).
 
 Precedência da chave em runtime: uma chave inline no perfil (e
-"qg exec --api-key <key>" naquela execução) vale mais que QG_API_KEY (ou
+`+"`qg exec --api-key <key>`"+` naquela execução) vale mais que QG_API_KEY (ou
 QUEBRAGALHO_API_KEY) do ambiente, que vale mais que a chave salva.
 `)
 	return err

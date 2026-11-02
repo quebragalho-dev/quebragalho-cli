@@ -481,9 +481,9 @@ func renderSuggestionPalette(items []selectableListItem, selected, width int, ti
 		lines = append(lines, fillPaletteLine(line, innerWidth, surface))
 	}
 	if len(visible) == 0 {
-		message := "sem comandos correspondentes"
+		message := "Nenhum comando correspondente"
 		if isFiles {
-			message = "sem arquivos correspondentes"
+			message = "Nenhum arquivo correspondente"
 		}
 		lines = append(lines, fillPaletteLine(searchPrefix+qgTheme.faint.Render(message), innerWidth, transparentSurface))
 	}
@@ -594,7 +594,7 @@ func fileSelectableItem(token string) selectableListItem {
 	cleanRel := strings.TrimSuffix(rel, "/")
 	base := path.Base(cleanRel)
 	if base == "." || base == "/" || base == "" {
-		return selectableListItem{Label: strings.TrimPrefix(token, "@"), Description: "file"}
+		return selectableListItem{Label: strings.TrimPrefix(token, "@"), Description: "arquivo"}
 	}
 	if isDir {
 		base += "/"

@@ -1029,7 +1029,7 @@ func writeMCPAddHelp(w io.Writer) error {
   qg mcp add <server> --url <url> [flags]
 
 Opções:
-      --auth <auth>        Modo de autenticação para servidores remotos (por exemplo: oauth)
+      --auth <auth>        Auth de servidores remotos (ex. oauth)
       --disabled           Salva o servidor como desativado
       --env KEY=VALUE      Adiciona variável de ambiente stdio (repetível)
       --header KEY=VALUE   Adiciona cabeçalho HTTP/SSE (repetível)

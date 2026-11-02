@@ -284,11 +284,12 @@ func writeRepoMapHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg repo-map [flags]
 
-Monta um mapa determinístico do repositório para o contexto do agente e inspeção local.
+Monta um mapa determinístico do repositório para o contexto do agente e
+inspeção local.
 
 Opções:
       --json                Imprime o relatório em JSON
-      --query <text>        Mostra arquivos correspondentes ranqueados para uma consulta
+      --query <text>        Mostra arquivos ranqueados para a consulta
       --max-files <number>  Limita arquivos ou ocorrências mostradas
       --scan-max-files <n>  Limita arquivos varridos antes de truncar
       --max-depth <number>  Limita a profundidade da varredura

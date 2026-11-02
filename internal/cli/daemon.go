@@ -58,20 +58,23 @@ Comandos:
   run --session <id> [--cwd <dir>] [--prompt <text>] [exec flags...]
                             Cria/encaminha uma sessão e transmite a saída.
   attach <session>          Anexa ao stream de uma sessão em execução.
-  serve-remote --addr <host:port> --tls-cert <f> --tls-key <f> [--bundle-dir <d>]
-                            Serve uma ponte de rede opt-in, só TLS, para este
-                            daemon. Exige um bearer token em $QG_DAEMON_REMOTE_TOKEN
-                            (ou $QG_DAEMON_REMOTE_TOKEN_FILE). --bundle-dir ativa
-                            uploads de git-bundle, extraídos em worktrees por link.
+  serve-remote --addr <host:port> --tls-cert <f> --tls-key <f>
+      [--bundle-dir <d>]
+                            Serve uma ponte de rede opt-in, só TLS, para
+                            este daemon. Exige bearer token em
+                            $QG_DAEMON_REMOTE_TOKEN (ou
+                            $QG_DAEMON_REMOTE_TOKEN_FILE). --bundle-dir
+                            ativa uploads de git-bundle em worktrees.
   link --remote <host:port> --repo <dir> --id <name> [--out <file>]
-                            Envia o histórico git do repo para o remoto como bundle e
-                            imprime o caminho remoto extraído. --out salva um arquivo
-                            de link de sessão (0600). Aceita --token/--ca-cert/--server-name.
+                            Envia o histórico git do repo para o remoto
+                            como bundle e imprime o caminho extraído.
+                            --out salva um arquivo de link (0600). Aceita
+                            --token/--ca-cert/--server-name.
   link --show <file>        Imprime um link de sessão salvo.
 
 run e attach aceitam --remote <host:port> [--token <t>] [--ca-cert <f>]
 [--server-name <name>] para usar um daemon remoto pela ponte em vez do
-socket local. Use o caminho remoto do link como --cwd para rodar contra um repo linkado.
+socket local. Use o caminho do link como --cwd no repo linkado.
 `)
 	return code
 }

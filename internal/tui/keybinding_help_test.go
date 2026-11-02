@@ -306,8 +306,8 @@ func TestExplicitDefaultChordConfigStillRequiresEmptyComposer(t *testing.T) {
 func TestHelpOverlayFittingRowsRenderWholeAtFullWidths(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "gpt-4o"})
 	whole := []string{
-		"Clica no especialista",
-		"Clica na ferramenta",
+		"Clicar no especialista",
+		"Clicar na ferramenta",
 		"envia a mensagem",
 		"insere uma quebra de linha (multilinha)",
 		"cancela a execução e sai",
@@ -321,9 +321,11 @@ func TestHelpOverlayFittingRowsRenderWholeAtFullWidths(t *testing.T) {
 		"entra na subsessão dele",
 		"volta para o chat principal",
 		"alterna o modelo destacado como favorito",
-		"expande / recolhe a saída dele",
+		"expande / recolhe a saída dela",
 		"cola a área de transferência",
 	}
+	footer := "? ou Esc fechar · /help para comandos com /"
+	whole = append(whole, footer)
 	for _, width := range []int{80, 120} {
 		got := plainRender(t, m.renderKeybindingHelpOverlay(width))
 		for _, want := range whole {
@@ -331,5 +333,9 @@ func TestHelpOverlayFittingRowsRenderWholeAtFullWidths(t *testing.T) {
 				t.Fatalf("help overlay at width %d truncates %q:\n%s", width, want, got)
 			}
 		}
+	}
+	got50 := plainRender(t, m.renderKeybindingHelpOverlay(50))
+	if !strings.Contains(got50, footer) {
+		t.Fatalf("help overlay at width 50 truncates footer %q:\n%s", footer, got50)
 	}
 }

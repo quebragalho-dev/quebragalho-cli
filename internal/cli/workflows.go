@@ -885,7 +885,7 @@ Se a pasta da worktree foi apagada à mão, rode release com -C apontando
 para o repositório de origem para limpar o lock órfão.
 
 Opções do prepare:
-      --name <name>       Nome da worktree; padrão é um nome de tarefa com timestamp
+      --name <name>       Nome da worktree (padrão: tarefa com timestamp)
       --dir <path>        Pasta base das worktrees do QG
   -C, --cwd <path>        Pasta do repositório de origem
       --json              Imprime a saída em JSON
@@ -930,16 +930,16 @@ Opções:
   -C, --cwd <path>        Pasta de trabalho
       --base <ref>        Compara com <ref>...HEAD em vez da árvore de trabalho
       --diff-bytes <n>    Máximo de bytes de diff incluídos
-  -m, --message <text>    Mensagem de commit para "qg changes commit"
-      --dry-run           Pré-visualiza metadados do commit / push sem alterar o estado do git
-      --remote <name>     Remoto do push (padrão: branch rastreada do upstream ou origin)
+  -m, --message <text>    Mensagem de commit para `+"`qg changes commit`"+`
+      --dry-run           Prévia do commit/push sem alterar o git
+      --remote <name>     Remoto do push (padrão: upstream ou origin)
       --force             Usa force-with-lease no push
       --title <text>      Título do PR
       --body <text>       Corpo do PR
-      --fill              Preenche título e corpo do PR automaticamente a partir dos commits
+      --fill              Preenche título e corpo do PR pelos commits
       --draft             Cria o PR como rascunho
       --yes               Confirma o push para uma branch padrão/protegida
-  -a, --auto              Usa o LLM: commit gera a mensagem, push/pr nomeiam a branch autocriada (envia o diff ao provedor)
+  -a, --auto              Gera mensagem e branch com o LLM
       --json              Imprime a saída em JSON
   -h, --help              Mostra esta ajuda
 `)

@@ -353,12 +353,12 @@ func writeSpecHelp(w io.Writer) error {
 
 Comandos:
   show      Mostra o rascunho salvo da spec
-  approve   Marca um rascunho como aprovado e cria uma sessão de implementação da spec
+  approve   Aprova o rascunho e cria a sessão de implementação
   reject    Marca um rascunho como rejeitado
 
 Opções:
       --json            Imprime a saída em JSON
-      --comment <text>  Nota de aprovação para incluir na mensagem de implementação
+      --comment <text>  Nota para incluir na implementação
       --reason <text>   Motivo da rejeição
   -h, --help            Mostra esta ajuda
 `)

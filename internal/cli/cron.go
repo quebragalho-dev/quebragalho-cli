@@ -287,7 +287,8 @@ func writeCronHelp(w io.Writer) {
 	fmt.Fprint(w, `qg cron — agenda tarefas do agente (primeiro plano, em arquivo)
 
 Uso:
-  qg cron add <cron-expr> [--prompt P | --recipe R] [--cwd D] [--model M] [--run-now]
+  qg cron add <cron-expr> [--prompt P|--recipe R] [--cwd D]
+      [--model M] [--run-now]
   qg cron list
   qg cron pause <id> | resume <id> | rm <id>
   qg cron run [--once] [--catch-up] [id...]

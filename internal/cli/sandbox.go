@@ -643,9 +643,9 @@ func writeSandboxHelp(w io.Writer) error {
   qg sandbox <command>
 
 Comandos:
-  policy      Inspeciona a política ativa do ambiente isolado e o backend da plataforma
+  policy      Mostra a política ativa e o backend
   setup       Executa a configuração nativa do ambiente isolado da plataforma
-  check       Avalia a decisão do ambiente isolado para uma ação hipotética de ferramenta
+  check       Avalia decisão para ação hipotética
   grants      Gerencia permissões persistentes do ambiente isolado
 
 `)
@@ -657,7 +657,7 @@ func writeSandboxPolicyHelp(w io.Writer) error {
   qg sandbox policy [flags]
 
 Opções:
-      --effective         Imprime a política efetiva resolvida (config mesclada + guards)
+      --effective         Mostra a política efetiva (config + guards)
       --json              Imprime a saída em JSON
   -h, --help              Mostra esta ajuda
 `)
@@ -668,7 +668,8 @@ func writeSandboxSetupHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg sandbox setup [flags]
 
-Executa a configuração nativa do ambiente isolado quando o backend selecionado exige.
+Executa a configuração nativa do ambiente isolado quando o backend
+selecionado exige.
 
 Opções:
       --json              Imprime a saída em JSON
@@ -698,7 +699,7 @@ func writeSandboxGrantSetHelp(w io.Writer) error {
 
 Opções:
       --reason <text>     Motivo legível da permissão
-      --path <path>       Limita a permissão a um arquivo exato (padrão: a ferramenta toda)
+      --path <path>       Limita a um arquivo exato (padrão: tudo)
       --json              Imprime a saída em JSON
   -h, --help              Mostra esta ajuda
 `)
@@ -710,7 +711,7 @@ func writeSandboxGrantRevokeHelp(w io.Writer) error {
   qg sandbox grants revoke <tool> [flags]
 
 Opções:
-      --path <path>       Revoga só a permissão limitada a este arquivo/pasta exato
+      --path <path>       Revoga a permissão deste arquivo/pasta
                           (padrão: revoga todas as permissões da ferramenta)
       --json              Imprime a saída em JSON
   -h, --help              Mostra esta ajuda
@@ -723,7 +724,7 @@ func writeSandboxGrantClearHelp(w io.Writer) error {
   qg sandbox grants clear --confirm [flags]
 
 Opções:
-      --confirm           Confirma a remoção de todas as permissões do ambiente isolado
+      --confirm           Confirma remover todas as permissões
       --json              Imprime a saída em JSON
   -h, --help              Mostra esta ajuda
 `)

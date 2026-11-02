@@ -248,10 +248,10 @@ func writeSandboxCheckHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg sandbox check <tool> [flags]
 
-Avalia a decisão do ambiente isolado para uma ação hipotética de ferramenta com a
-política resolvida, e mostra o plano, a decisão (allow/prompt/deny com risco
-e bloqueio, se houver) e qualquer permissão persistente da ferramenta. Segredos
-nos motivos são ocultados.
+Avalia a decisão do ambiente isolado para uma ação hipotética de ferramenta
+com a política resolvida, e mostra o plano, a decisão
+(allow/prompt/deny com risco e bloqueio, se houver) e qualquer permissão
+persistente da ferramenta. Segredos nos motivos são ocultados.
 
 Opções:
       --side-effect <kind>   read | write | shell | network | none (padrão read)

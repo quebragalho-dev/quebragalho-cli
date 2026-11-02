@@ -514,10 +514,10 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	case "acp":
 		return runACP(args[1:], stdout, stderr, deps)
 	default:
-		if _, err := fmt.Fprintf(stderr, "unknown command %q\n", args[0]); err != nil {
+		if _, err := fmt.Fprintf(stderr, "comando desconhecido %q\n", args[0]); err != nil {
 			return 1
 		}
-		if _, err := fmt.Fprintln(stderr, "Run qg --help for usage."); err != nil {
+		if _, err := fmt.Fprintln(stderr, "Rode qg --help para ver o uso."); err != nil {
 			return 1
 		}
 		return 2
@@ -1399,7 +1399,7 @@ Uso:
 Comandos:
   exec        Executa uma mensagem única no runtime do agente em Go
   completions Gera scripts de completion para o shell
-  daemon      Gerencia o worker daemon local em segundo plano (start/stop/status/run/attach)
+  daemon      Gerencia o daemon local (start/stop/status/run/attach)
   setup       Guia a configuração inicial do provedor
   login       Salva e valida sua chave de API do Quebra Galho
   logout      Remove as credenciais salvas do Quebra Galho
@@ -1409,7 +1409,7 @@ Comandos:
   key         Mostra o perfil ativo da chave de API (alias: whoami)
   whoami      Alias de key
   providers   Inspeciona os perfis de provedor configurados
-  doctor      Executa verificações de saúde do backend de configuração e provedor
+  doctor      Verifica a saúde da configuração e do provedor
   context     Relata o uso do orçamento de contexto da pasta de trabalho
   repo-map    Monta um mapa determinístico do repositório para o agente
   search      Pesquisa eventos de sessão locais do QG
@@ -1425,7 +1425,7 @@ Comandos:
   mcp         Gerencia as configurações do backend MCP
   auth        Faz login nos provedores de modelo via OAuth
   sandbox     Inspeciona a política do ambiente isolado e permissões salvas
-  update      Verifica ou aplica atualizações da CLI QG (exige --check ou --apply)
+  update      Verifica ou aplica atualizações do QG (exige --check ou --apply)
   upgrade     Baixa, verifica e instala atualizações disponíveis da CLI QG
   worktrees   Prepara worktrees git isoladas
   verify      Detecta e executa verificações locais
@@ -1444,10 +1444,11 @@ Opções:
   -v, --version                  Mostra a versão
   -p, --prompt                   Executa uma mensagem única
       --add-dir <path>           Permite escrita em pasta extra (repetível)
-      --allow-escalation         Deixa o agente escalar para um modelo mais forte via escalate_model
-      --no-browser               Mostra o link de login inicial sem abrir o navegador (ou defina QG_NO_BROWSER=1)
+      --allow-escalation         Permite escalar o modelo (escalate_model)
+      --no-browser               Mostra o link de login sem abrir o navegador
+                                 (ou defina QG_NO_BROWSER=1)
       --dangerously-skip-permissions
-                                 Abre o shell interativo no modo sem confirmação (ativa o escape ! do shell)
+                                 Abre o shell sem confirmação (escape !)
       --skip-permissions-unsafe  Alias de --dangerously-skip-permissions
 `)
 	return err
@@ -1677,56 +1678,60 @@ Executa uma mensagem única no runtime do agente em Go.
 
 Opções:
   -f, --file <path>                  Lê o texto da mensagem de um arquivo
-      --image <path>                 Anexa uma imagem local (repetível; só modelos de visão)
+      --image <path>                 Anexa imagem local (repetível; visão)
       --add-dir <path>               Permite escrita em pasta extra (repetível)
-      --mode <name>                  Aplica um preset (smart, deep, fast, large, precise); flags explícitas têm prioridade
-  -m, --model <model>                Seleciona o modelo para a configuração do provedor
-      --api-key <key>                Troca a chave de API desta execução (vale mais que QG_API_KEY,
-                                     QUEBRAGALHO_API_KEY e a credencial salva)
-      --use-spec                     Rascunha uma spec primeiro e para para revisão
-      --spec-model <model>           Troca o modelo do rascunho quando --use-spec está ativo
+      --mode <name>                  Aplica um preset (smart, deep, fast,
+                                     large, precise); flags explícitas vencem
+  -m, --model <model>                Seleciona o modelo do provedor
+      --api-key <key>                Troca a chave desta execução (vale mais
+                                     que QG_API_KEY, QUEBRAGALHO_API_KEY e a
+                                     credencial salva)
+      --use-spec                     Rascunha uma spec e pausa para revisão
+      --spec-model <model>           Modelo do rascunho com --use-spec
       --spec-reasoning-effort <effort>
-                                     Troca o nível de raciocínio do rascunho quando --use-spec está ativo
-      --plan                         Modo de planejamento só leitura: ferramentas de escrita e shell ficam ocultas
-      --permission-mode <mode>       Define o modo de permissão direto (plan, spec-draft, auto, member,
-                                     ask, unsafe). Vale mais que --auto; prefira --plan / --auto no
-                                     uso interativo. Usado por processos filhos de especialista/swarm.
+                                     Nível de raciocínio do rascunho
+      --plan                         Modo só leitura: escrita e shell ocultas
+      --permission-mode <mode>       Permissão direta (plan, spec-draft, auto,
+                                     member, ask, unsafe). Prefira --plan /
+                                     --auto. Para filhos de especialista/swarm.
       --max-turns <number>           Troca o máximo de turnos do loop do agente
-      --exec-profile <name>          Aplica um perfil de execução (balanced, fast, thorough): só postura
-                                     do loop (orçamento de turnos, esforço, autocorreção, escalação);
-                                     combina com --mode (que escolhe o modelo) e flags explícitas vencem
-      --auto <low|medium|high>       Define a autonomia da execução; high ativa ferramentas sem confirmação
-      --enabled-tools <tools>        Expõe só estas ferramentas separadas por vírgula ou espaço
-      --disabled-tools <tools>       Oculta estas ferramentas separadas por vírgula ou espaço
-      --list-tools                   Lista as ferramentas visíveis ao modelo e sai
+      --exec-profile <name>          Perfil de execução (balanced, fast,
+                                     thorough): postura do loop (turnos,
+                                     esforço, correção, escalação); combina com
+                                     --mode e flags explícitas vencem
+      --auto <low|medium|high>       Autonomia (high libera sem confirmar)
+      --enabled-tools <tools>        Expõe ferramentas por vírgula ou espaço
+      --disabled-tools <tools>       Oculta ferramentas por vírgula ou espaço
+      --list-tools                   Lista as ferramentas visíveis e sai
       --profile <profile>            Aceita seleção legada de perfil de modelo
-  -r, --reasoning-effort <effort>    Aceita seleção legada de nível de raciocínio
+  -r, --reasoning-effort <effort>    Aceita nível legado de raciocínio
   -C, --cwd <path>                   Define a pasta de trabalho
-  -w, --worktree [name]              Executa a partir de uma worktree git isolada
+  -w, --worktree [name]              Roda em worktree git isolada
       --worktree-dir <path>          Pasta base das worktrees criadas
   -i, --input-format text|stream-json
                                      Seleciona o formato de entrada da mensagem
   -o, --output-format text|json|stream-json
-                                     Seleciona saída em texto, JSON ou JSONL com versão de schema
-                                     ("debug" é aceito como alias de stream-json)
+                                     Saída em texto, JSON ou JSONL com schema
+                                     ("debug" é alias de stream-json)
       --prompt <prompt>              Passa o texto da mensagem como flag
-      --resume [id]                  Retoma uma sessão; omita o id para usar a mais recente
-      --fork <id>                    Faz fork de uma sessão existente em uma sessão nova
-      --calling-session-id <id>      Id da sessão pai para execuções filhas de especialista
-      --calling-tool-use-id <id>     Id da chamada de ferramenta pai para execuções filhas de especialista
-      --tag <tag>                    Anexa metadados de tag do runtime à execução
-      --depth <number>               Define metadados de profundidade de aninhamento do especialista
+      --resume [id]                  Retoma sessão; sem id usa a mais recente
+      --fork <id>                    Faz fork de sessão para sessão nova
+      --calling-session-id <id>      Id da sessão pai do especialista
+      --calling-tool-use-id <id>     Id da chamada pai do especialista
+      --tag <tag>                    Anexa a tag do runtime à execução
+      --depth <number>               Profundidade do aninhamento do especialista
       --session-title <text>         Define o título da sessão criada
-      --init-session-id <id>         Cria uma sessão nova de execução com este id
-      --dangerously-skip-permissions Libera sem aprovação as ferramentas que pedem confirmação
+      --init-session-id <id>         Cria sessão de execução com este id
+      --dangerously-skip-permissions Libera ferramentas sem pedir confirmação
       --skip-permissions-unsafe      Alias de --dangerously-skip-permissions
-      --allow-escalation             Deixa o agente escalar para um modelo mais forte via escalate_model
-      --self-correct                 Executa o loop pós-edição de verificar e corrigir (a correção automática precisa de --auto medium ou high)
+      --allow-escalation             Permite escalar o modelo (escalate_model)
+      --self-correct                 Executa o loop de verificar e corrigir após
+                                     editar (precisa de --auto medium ou high)
       --notify <off|bell|notify|both>
                                      Troca o modo de notificação desta execução
       --no-notify                    Desativa notificações desta execução
-      --no-completion-gate           Aceita uma resposta sem chamada de ferramenta como final sem o rebaixamento
-                                     INCOMPLETE (para chamadores conversacionais com um operador presente)
+      --no-completion-gate           Aceita resposta sem ferramenta como final
+                                     INCOMPLETE (com operador presente)
 `)
 	return err
 }

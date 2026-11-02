@@ -416,7 +416,7 @@ func writeUsageHelp(w io.Writer) error {
   qg usage [--from <when> --to <when> --scope user|key] [--json]
   qg usage report [flags]
 
-"qg usage" puro consulta o gateway (GET /v1/usage) das últimas 24 horas.
+`+"`qg usage`"+` puro consulta o gateway (GET /v1/usage) das últimas 24 horas.
 input_tokens já inclui tokens de cache; total = input + output.
 
 Opções remotas:
@@ -426,7 +426,7 @@ Opções remotas:
       --json                       Relatório legível por máquina
   -h, --help                       Mostra esta ajuda
 
-"qg usage report" resume o uso de tokens e o custo reconstruído (estimado)
+`+"`qg usage report`"+` resume o uso de tokens e o custo reconstruído (estimado)
 a partir de eventos de uso de sessões locais persistidas do QG, mais uma
 estimativa de eficiência de LOC líquido da worktree.
 
@@ -437,8 +437,8 @@ Opções do relatório:
       --session <id>         Limita o relatório a uma sessão
   -h, --help                 Mostra esta ajuda
 
-O custo é reconstruído dos metadados de modelo da sessão e é uma estimativa; o LOC
-líquido é um proxy de diff da worktree e vem marcado como estimativa.
+O custo é reconstruído dos metadados de modelo da sessão e é uma estimativa;
+o LOC líquido é um proxy de diff da worktree e vem marcado como estimativa.
 `)
 	return err
 }

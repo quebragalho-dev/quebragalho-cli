@@ -381,23 +381,25 @@ func writeAuthHelp(w io.Writer) error {
   qg auth <command>
 
 Comandos:
-  logout <provider>                               Apaga o login salvo de um provedor
-  status [provider]                               Mostra presença/expiração do login (nunca o token)
-  refresh <provider> [--watch]                    Força a atualização do token (--watch mantém atualizado)
-  reset --confirm [--json]                        Limpa todos os logins OAuth e tokens MCP compartilhados (também repara stores corrompidos)
+  logout <provider>                               Apaga o login de um provedor
+  status [provider]                               Mostra o login (nunca o token)
+  refresh <provider> [--watch]                    Atualiza o token (--watch)
+  reset --confirm [--json]                        Limpa logins e tokens MCP
 
-O login OAuth foi removido: rode "qg login" para salvar sua chave de API — QG_API_KEY
-(ou QUEBRAGALHO_API_KEY) do ambiente também funciona; veja "qg setup
---help". Estes comandos mantêm os stores de tokens gravados por versões anteriores.
+O login OAuth saiu: rode `+"`qg login`"+` para salvar a chave — QG_API_KEY
+(ou QUEBRAGALHO_API_KEY) do ambiente também funciona; veja
+`+"`qg setup --help`"+`. Estes comandos mantêm os tokens gravados por versões
+anteriores.
 
-Nota: "qg auth status" cobre só os stores de tokens OAuth. Não inclui
+Nota: `+"`qg auth status`"+` cobre só os stores de tokens OAuth. Não inclui
 a chave de API do provedor Quebra Galho (cofre de credenciais / QG_API_KEY); use
-"qg key" para isso.
+`+"`qg key`"+` para isso.
 
 Armazenamento: tokens são gravados 0600 em $XDG_CONFIG_HOME/qg (troque com
-QG_OAUTH_TOKENS_PATH). Defina QG_OAUTH_STORAGE=encrypted-file para criptografar em
-repouso com AES-256-GCM (um segredo por usuário ao lado do arquivo), ou
-QG_OAUTH_STORAGE=keyring para usar o keyring do SO (macOS Keychain / Linux
+QG_OAUTH_TOKENS_PATH). Defina QG_OAUTH_STORAGE=encrypted-file para
+criptografar em repouso com AES-256-GCM (um segredo por usuário ao lado
+do arquivo), ou QG_OAUTH_STORAGE=keyring para usar o keyring do SO
+(macOS Keychain / Linux
 secret-tool). Tokens de servidores MCP usam o mesmo store.
 
 Opções:

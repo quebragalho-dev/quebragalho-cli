@@ -1061,3 +1061,16 @@ func TestImageCommandIsDiscoverable(t *testing.T) {
 		t.Fatal("/image should be listed so it appears in help and autocomplete")
 	}
 }
+
+func TestSlashHelpPTDescriptionsFit80Cells(t *testing.T) {
+	byName := map[string]string{}
+	for _, c := range commandDefinitions {
+		byName[c.name] = c.description
+	}
+	if got := byName["/resume"]; got != "Lista sessões recentes ou mostra como retomar." {
+		t.Fatalf("/resume description = %q", got)
+	}
+	if got := byName["/spec"]; got != "Escreve uma spec para revisar antes de editar." {
+		t.Fatalf("/spec description = %q", got)
+	}
+}

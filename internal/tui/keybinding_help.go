@@ -74,10 +74,10 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 		{
 			title: "Especialistas e seletores",
 			bindings: []keybinding{
-				{"Clica no especialista", "entra na subsessão dele"},
+				{"Clicar no especialista", "entra na subsessão dele"},
 				{"\u2191 / Esc (numa subsessão)", "volta para o chat principal"},
 				{"Ctrl+F (no /model)", "alterna o modelo destacado como favorito"},
-				{"Clica na ferramenta", "expande / recolhe a saída dele"},
+				{"Clicar na ferramenta", "expande / recolhe a saída dela"},
 				{"Botão direito", "cola a área de transferência"},
 			},
 		},
@@ -85,7 +85,7 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 }
 
 // keybindingHelpFooter is the dismiss hint shown at the bottom of the overlay.
-const keybindingHelpFooter = "? ou Esc para fechar \u00b7 /help para comandos com /"
+const keybindingHelpFooter = "? ou Esc fechar \u00b7 /help para comandos com /"
 
 // renderKeybindingHelpLines builds the overlay body lines (group titles +
 // aligned key/description rows + footer), wrapped to the inner width. Exposed

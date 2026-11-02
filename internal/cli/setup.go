@@ -598,8 +598,8 @@ func writeSetupHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg setup <provider> [flags]
 
-Configura <provider> como o provedor ativo. A interface interativa de configuração foi
-removida, então o argumento do provedor é obrigatório.
+Configura <provider> como o provedor ativo. A interface interativa de
+configuração foi removida, então o provedor é obrigatório.
 
 Exemplos:
   qg setup qg
@@ -611,10 +611,11 @@ Opções:
       --name <name>             Nome do perfil de provedor
       --model <model>           Troca o modelo padrão
       --base-url <url>          Troca a URL base do provedor
-      --api-key <key>           Salva uma chave de API direto no cofre de credenciais
-      --api-key-env <name>      Salva o nome da variável de ambiente da chave de API
-      --verify                  Sonda o provedor após salvar e relata um erro corrigível se falhar
-      --json                    Imprime o resultado da configuração legível por máquina
+      --api-key <key>           Salva a chave de API no cofre de credenciais
+      --api-key-env <name>      Salva a variável com a chave de API
+      --verify                  Sonda o provedor após salvar e relata um erro
+                                corrigível se falhar
+      --json                    Resultado da configuração em JSON
   -h, --help                    Mostra esta ajuda
 `)
 	return err

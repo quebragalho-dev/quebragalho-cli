@@ -625,7 +625,8 @@ func writeSkillAddHelp(w io.Writer) error {
   qg skill add <git-url|path> [flags]
 
 Instala uma skill de uma URL git ou caminho local na pasta de skills e
-registra um hash do conteúdo em skills.lock. O conteúdo baixado nunca é executado.
+registra um hash do conteúdo em skills.lock. O conteúdo baixado nunca é
+executado.
 
 Opções:
   -f, --force    Sobrescreve uma skill instalada de outra origem
@@ -658,8 +659,9 @@ func writePluginAddHelp(w io.Writer) error {
   qg plugin add <git-url|path> [flags]
 
 Instala um plugin de uma URL git ou caminho local. O manifesto é validado e um
-hash do conteúdo é registrado em plugins.lock. Nenhum script de instalação é executado; o plugin
-continua ativando pelo fluxo normal de permissão.
+hash do conteúdo é registrado em plugins.lock. Nenhum script de
+instalação é executado; o plugin continua ativando pelo fluxo normal de
+permissão.
 
 Opções:
   -f, --force    Sobrescreve um plugin instalado de outra origem
@@ -705,11 +707,11 @@ func writeToolsMakeHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg tools make <name> [flags]
 
-Gera a estrutura inicial de plugin-tool (um manifesto de plugin mais um stub de entrada executável)
-na pasta toolbox. Após a ativação do plugin, a ferramenta fica carregável.
+Gera a estrutura inicial de plugin-tool (manifesto e stub de entrada) na
+pasta toolbox. Após ativar o plugin, a ferramenta fica carregável.
 
 Opções:
-      --runtime <shell|node|python>   Linguagem do stub de entrada (padrão shell)
+      --runtime <shell|node|python>   Linguagem do stub (padrão shell)
       --description <text>            Descrição da ferramenta
       --json                          Imprime o resultado da criação em JSON
   -h, --help                          Mostra esta ajuda

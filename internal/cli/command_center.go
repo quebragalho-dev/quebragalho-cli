@@ -616,7 +616,7 @@ Lista as entradas do registro de modelos do QG.
 
 Opções:
       --json                  Imprime a lista de modelos em JSON
-      --provider <provider>   Filtra por openai, anthropic, google ou openai-compatible
+      --provider <provider>   Filtra por openai, anthropic, google, etc.
       --include-deprecated    Inclui modelos descontinuados
   -h, --help                  Mostra esta ajuda
 `)
@@ -637,9 +637,14 @@ func writeProvidersHelp(w io.Writer) error {
   qg providers detect [flags]
   qg providers models [name] [flags]
 
-Inspeciona perfis de provedor e descritores do catálogo sem imprimir segredos.
-Detect sonda runtimes locais em execução (Ollama, LM Studio) e mostra comandos de adoção mais os próximos passos por provedor.
-Models sonda o endpoint de listagem de modelos do provedor (ex. /v1/models compatível com OpenAI) e lista os modelos servidos — incluindo endpoints personalizados compatíveis com OpenAI/Anthropic — então um provedor próprio não precisa de config por modelo.
+Inspeciona perfis de provedor e descritores do catálogo sem imprimir
+segredos.
+Detect sonda runtimes locais em execução (Ollama, LM Studio) e mostra
+comandos de adoção mais os próximos passos por provedor.
+Models sonda o endpoint de listagem de modelos do provedor (ex.
+/v1/models compatível com OpenAI) e lista os modelos servidos —
+incluindo endpoints personalizados compatíveis com OpenAI/Anthropic —
+então um provedor próprio não precisa de config por modelo.
 
 Opções:
       --json                    Imprime o resumo em JSON
@@ -652,8 +657,8 @@ Opções do add:
       --base-url <url>          Troca a URL base padrão do catálogo
       --api-key-env <name>      Variável de ambiente com a chave de API
       --auth-header <header>    Nome personalizado do cabeçalho da chave de API
-      --auth-scheme <scheme>    Prefixo do esquema de auth, por exemplo Bearer ou Token
-      --auth-header-value <v>   Valor exato do cabeçalho de auth; salvo na config
+      --auth-scheme <scheme>    Prefixo do auth (ex. Bearer ou Token)
+      --auth-header-value <v>   Cabeçalho de auth exato; salvo na config
       --header <key=value>      Cabeçalho personalizado do provedor; repetível
       --set-active              Ativa o provedor adicionado
 

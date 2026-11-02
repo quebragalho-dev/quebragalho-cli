@@ -227,7 +227,7 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/sessions"},
 		usage:       "/resume [id]",
 		group:       commandGroupSession,
-		description: "Lista as sessões recentes ou mostra como retomar uma.",
+		description: "Lista sessões recentes ou mostra como retomar.",
 		kind:        commandResume,
 	},
 	{
@@ -241,7 +241,7 @@ var commandDefinitions = []commandDefinition{
 		name:        "/spec",
 		usage:       "/spec <task>",
 		group:       commandGroupSession,
-		description: "Escreve uma spec de implementação para revisar antes de editar.",
+		description: "Escreve uma spec para revisar antes de editar.",
 		kind:        commandSpec,
 	},
 	{

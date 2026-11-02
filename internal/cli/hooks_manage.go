@@ -312,7 +312,8 @@ func writeHooksAddHelp(w io.Writer) error {
   qg hooks add <id> --event <event> --command <cmd> [flags]
 
 Eventos:
-  beforeTool, afterTool, sessionStart, sessionEnd, specialistStart, specialistStop
+  beforeTool, afterTool, sessionStart, sessionEnd,
+  specialistStart, specialistStop
 
 Opções:
       --event <event>        Evento do hook (obrigatório)
@@ -325,7 +326,7 @@ Opções:
       --json                 Imprime o resultado do comando em JSON
   -h, --help                 Mostra esta ajuda
 
-Hooks novos já nascem ativos; use "qg hooks disable <id>" para desativar.
+Hooks novos já nascem ativos; use `+"`qg hooks disable <id>`"+` para desativar.
 `)
 	return err
 }

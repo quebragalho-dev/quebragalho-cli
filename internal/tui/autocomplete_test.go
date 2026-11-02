@@ -428,7 +428,7 @@ func TestCommandPaletteStaysOpenForNoMatches(t *testing.T) {
 		t.Fatalf("expected no command matches, got %v", suggestionNames(m))
 	}
 	plain := plainRender(t, m.View())
-	for _, want := range []string{"buscar > ,", "sem comandos correspondentes"} {
+	for _, want := range []string{"buscar > ,", "Nenhum comando correspondente"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("no-match palette should include %q in %q", want, plain)
 		}
@@ -471,7 +471,7 @@ func TestFilePaletteStaysOpenForNoMatches(t *testing.T) {
 		t.Fatalf("expected no file matches, got %v", suggestionNames(m))
 	}
 	plain := plainRender(t, m.View())
-	for _, want := range []string{"Arquivos", "buscar > missing", "sem arquivos correspondentes"} {
+	for _, want := range []string{"Arquivos", "buscar > missing", "Nenhum arquivo correspondente"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("no-match file palette should include %q in %q", want, plain)
 		}
@@ -849,5 +849,12 @@ func mustWriteFile(t *testing.T, root, rel string) {
 	}
 	if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFileSelectableItemDotFallbackIsArquivo(t *testing.T) {
+	item := fileSelectableItem("@")
+	if item.Description != "arquivo" {
+		t.Fatalf("dot fallback = %q, want arquivo", item.Description)
 	}
 }
