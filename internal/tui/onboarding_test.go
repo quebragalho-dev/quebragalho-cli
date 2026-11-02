@@ -43,7 +43,7 @@ func TestSetupTakeoverRendersAndCompletes(t *testing.T) {
 	m.width = 100
 	m.height = 30
 
-	if view := plainRender(t, m.View()); !strings.Contains(view, "Bem-vindo ao Quebra Galho") || !strings.Contains(view, "para configurar o QG") || !strings.Contains(view, "agente no terminal para alterar código real") {
+	if view := plainRender(t, m.View()); !strings.Contains(view, "Bem-vindo ao Quebra Galho") || !strings.Contains(view, "Space/Enter para configurar o QG") || !strings.Contains(view, "agente no terminal para alterar código real") {
 		t.Fatalf("setup welcome view missing expected text:\n%s", view)
 	}
 
