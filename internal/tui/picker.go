@@ -361,7 +361,7 @@ func (m model) openModelPicker() (model, tea.Cmd) {
 		return m, nil
 	}
 	if m.providerProfile.CatalogID == "qg" && len(m.discoveredModelsForActiveProvider()) == 0 {
-		picker = &commandPicker{kind: pickerModel, title: "Escolher modelo"}
+		picker = &commandPicker{kind: pickerModel, title: "Escolher modelo", panel: true}
 	}
 	m.picker = picker
 	m.clearModelPickerLoadState()

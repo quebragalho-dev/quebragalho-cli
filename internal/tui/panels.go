@@ -59,6 +59,28 @@ func effortDisplayLabel(value string) string {
 	}
 }
 
+// canonicalEffortInput maps a Portuguese display label (with or without
+// accent) or an English value to its canonical English value. Auto accepts
+// both languages. Unknown inputs return the trimmed input unchanged.
+func canonicalEffortInput(input string) string {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "automático", "automatico":
+		return "auto"
+	case "baixo":
+		return "low"
+	case "médio", "medio":
+		return "medium"
+	case "alto":
+		return "high"
+	case "muito alto":
+		return "xhigh"
+	case "máximo", "maximo":
+		return "max"
+	default:
+		return strings.TrimSpace(input)
+	}
+}
+
 func (m model) loadPanelEffort() model {
 	if m.userConfigPath == "" {
 		return m

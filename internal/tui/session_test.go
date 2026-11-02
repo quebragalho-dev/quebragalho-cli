@@ -1262,13 +1262,13 @@ func TestRelativeAgeFormatsLastActivity(t *testing.T) {
 		ts   time.Time
 		want string
 	}{
-		{"just now", now.Add(-10 * time.Second), "now"},
-		{"slight clock skew", now.Add(30 * time.Second), "now"},
+		{"just now", now.Add(-10 * time.Second), "agora"},
+		{"slight clock skew", now.Add(30 * time.Second), "agora"},
 		{"minutes", now.Add(-42 * time.Minute), "há 42 min"},
 		{"hours", now.Add(-3 * time.Hour), "há 3 h"},
 		{"days", now.Add(-12 * 24 * time.Hour), "há 12 d"},
 		{"exactly one month", now.Add(-30 * 24 * time.Hour), "há 30 d"},
-		{"this year", time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC), time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC).Local().Format("Jan _2")},
+		{"this year", time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC), "5 jan"},
 		{"last year", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC).Local().Format("2006-01-02")},
 	}
 	for _, tc := range cases {
@@ -1281,6 +1281,14 @@ func TestRelativeAgeFormatsLastActivity(t *testing.T) {
 	}
 	if got := relativeAge("", now); got != "" {
 		t.Errorf("empty timestamp = %q, want empty", got)
+	}
+}
+func TestEventCountLabelSingularPlural(t *testing.T) {
+	if got := eventCountLabel(1); got != "1 evento" {
+		t.Fatalf("eventCountLabel(1) = %q, want 1 evento", got)
+	}
+	if got := eventCountLabel(2); got != "2 eventos" {
+		t.Fatalf("eventCountLabel(2) = %q, want 2 eventos", got)
 	}
 }
 

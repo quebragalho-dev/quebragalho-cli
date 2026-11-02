@@ -191,11 +191,11 @@ func TestProfileEffortTouchedSurvivesModelSwitch(t *testing.T) {
 
 func TestProfileCommandStatus(t *testing.T) {
 	_, out := model{}.handleProfileCommand("")
-	if !strings.Contains(out, "balanced (default)") {
+	if !strings.Contains(out, "balanced (padrão)") {
 		t.Fatalf("bare /profile must report the balanced default, got %q", out)
 	}
 	_, out = model{}.handleProfileCommand("status")
-	if !strings.Contains(out, "balanced (default)") {
+	if !strings.Contains(out, "balanced (padrão)") {
 		t.Fatalf("/profile status must report the balanced default, got %q", out)
 	}
 }

@@ -116,6 +116,44 @@ func TestBatchNineModelPickerDoesNotOfferOtherProviders(t *testing.T) {
 	}
 }
 
+func TestBatchNinePanelModelChoiceRejectsOtherProvider(t *testing.T) {
+	for _, key := range []struct {
+		name string
+		msg  tea.KeyPressMsg
+	}{
+		{"enter", testKey(tea.KeyEnter)},
+		{"s", testKeyText("s")},
+	} {
+		t.Run(key.name, func(t *testing.T) {
+			m := batchThreeLiveModel(t)
+			m.providerName = "qg"
+			m.providerProfile.Name = "qg"
+			m.providerProfile.CatalogID = "qg"
+			m.savedProviders = []config.ProviderProfile{
+				{Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor", APIKey: "fixture"},
+				{Name: "legacy", Model: "foreign-model", APIKey: "fixture"},
+			}
+			m.newProvider = func(config.ProviderProfile) (qgruntime.Provider, error) {
+				t.Error("provider factory must not run for another provider row")
+				return &fakeProvider{}, nil
+			}
+			m.picker = &commandPicker{kind: pickerModel, title: "Escolher modelo", panel: true, items: []pickerItem{{Value: "foreign-model", OwnerProvider: "legacy"}}}
+			updated, _, handled := m.handlePanelKey(key.msg)
+			if !handled {
+				t.Fatal("panel key not handled")
+			}
+			next := updated
+			if next.providerName != "qg" || next.modelName != m.modelName {
+				t.Fatalf("another-provider row changed session to %s/%s", next.providerName, next.modelName)
+			}
+			assertContains(t, next.transientNotice.text, "qg login")
+			if next.picker == nil {
+				t.Fatal("refusal must keep the picker open")
+			}
+		})
+	}
+}
+
 func TestBatchNineStaleModelChoiceCannotActivateProvider(t *testing.T) {
 	for _, title := range []string{"Choose a model", "Escolher modelo"} {
 		t.Run(title, func(t *testing.T) {

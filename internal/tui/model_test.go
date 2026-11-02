@@ -20,6 +20,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -841,7 +842,7 @@ func TestModelCommandRequiresProviderRebuildForSwitch(t *testing.T) {
 	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
-	if !transcriptContains(next.transcript, "Provider rebuild is not available") {
+	if !transcriptContains(next.transcript, "Reconstrução do provedor indisponível") {
 		t.Fatalf("expected provider rebuild availability error, got %#v", next.transcript)
 	}
 }
@@ -3328,4 +3329,86 @@ func TestMissingProviderNoticeCitesQGSetupAndAPIKey(t *testing.T) {
 			t.Fatalf("missing-provider notice must not mention %q, got %q", banned, text)
 		}
 	}
+}
+
+func TestHandleModelCommandScopeEffortLevels(t *testing.T) {
+	baseProfile := config.ProviderProfile{
+		Name:         "qg",
+		CatalogID:    "qg",
+		ProviderKind: config.ProviderKindOpenAICompatible,
+		BaseURL:      "https://api.quebragalho.dev/v1",
+		APIKey:       "sk-test",
+		Model:        "muse-spark-1.3-contributor",
+	}
+	newBase := func() model {
+		return newModel(context.Background(), Options{
+			ProviderName:    "qg",
+			ModelName:       "muse-spark-1.3-contributor",
+			ProviderProfile: baseProfile,
+			Provider:        &fakeProvider{},
+			NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
+				return &fakeProvider{}, nil
+			},
+		})
+	}
+
+	t.Run("explicit level keeps single nivel", func(t *testing.T) {
+		m := newBase()
+		m.reasoningEffort = "high"
+		m.providerProfile.CatalogID = "qg"
+		m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{"qg": {{ID: "custom-explicit", Source: "live"}}}
+		// activeProviderDescriptor resolves qg from the profile above.
+		next, text, ok, err := m.handleModelCommandScope("custom-explicit", false)
+		if err != nil || !ok {
+			t.Fatalf("explicit switch refused: text=%q err=%v", text, err)
+		}
+		if next.reasoningEffort != "high" {
+			t.Fatalf("explicit preference dropped: %q", next.reasoningEffort)
+		}
+		if !strings.Contains(text, "nível alto") {
+			t.Fatalf("explicit summary must show nível alto, got: %q", text)
+		}
+		if strings.Contains(text, "nível nível:") || strings.Contains(text, "(redefinido)") || strings.Contains(text, "(reset)") {
+			t.Fatalf("explicit summary has duplicated/reset marker: %q", text)
+		}
+	})
+
+	t.Run("reset shows redefinido", func(t *testing.T) {
+		m := newBase()
+		m.reasoningEffort = "high"
+		next, text, ok, err := m.handleModelCommandScope("qwen3.8-max", false)
+		if err != nil || !ok {
+			t.Fatalf("reset switch refused: text=%q err=%v", text, err)
+		}
+		if next.reasoningEffort != "" {
+			t.Fatalf("dropped preference must reset to auto, got %q", next.reasoningEffort)
+		}
+		if !strings.Contains(text, "nível automático (redefinido)") {
+			t.Fatalf("reset summary must show redefinido, got: %q", text)
+		}
+		if strings.Contains(text, "(reset)") {
+			t.Fatalf("reset summary must not use old (reset): %q", text)
+		}
+	})
+
+	t.Run("automatic shows effective nivel", func(t *testing.T) {
+		m := newBase()
+		m.reasoningEffort = ""
+		next, text, ok, err := m.handleModelCommandScope("deepseek-v4-pro", false)
+		if err != nil || !ok {
+			t.Fatalf("auto switch refused: text=%q err=%v", text, err)
+		}
+		if next.modelName != "deepseek-v4-pro" {
+			t.Fatalf("auto switch model = %q, want deepseek-v4-pro", next.modelName)
+		}
+		if strings.Contains(text, "(redefinido)") || strings.Contains(text, "(reset)") {
+			t.Fatalf("auto summary must not show reset: %q", text)
+		}
+		if !strings.Contains(text, "· nível baixo") {
+			t.Fatalf("auto summary must show effective baixo, got: %q", text)
+		}
+		if strings.Contains(text, "nível nível:") {
+			t.Fatalf("auto summary must not duplicate nivel: %q", text)
+		}
+	})
 }

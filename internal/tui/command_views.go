@@ -407,7 +407,7 @@ func firstProviderDisplayValue(values ...string) string {
 
 func (m model) modelText(args string) string {
 	return renderCommandOutput(commandOutput{
-		Title:  "Model",
+		Title:  "Modelo",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
 			Title: "Active",

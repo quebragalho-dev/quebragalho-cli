@@ -372,6 +372,15 @@ func sanitizeCardField(value string) string {
 // back to the month/day this year and the bare date for sessions older than a
 // month, so deep history reads as a calendar date rather than "400d ago"; ""
 // when the timestamp does not parse, so the card simply omits it.
+func formatDayMonthPT(t time.Time) string {
+	months := []string{"jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"}
+	m := int(t.Month())
+	if m < 1 || m > 12 {
+		return t.Format("2006-01-02")
+	}
+	return fmt.Sprintf("%d %s", t.Day(), months[m-1])
+}
+
 func relativeAge(timestamp string, now time.Time) string {
 	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(timestamp))
 	if err != nil {
@@ -380,7 +389,7 @@ func relativeAge(timestamp string, now time.Time) string {
 	age := now.Sub(parsed)
 	switch {
 	case age < time.Minute:
-		return "now"
+		return "agora"
 	case age < time.Hour:
 		return fmt.Sprintf("há %d min", int(age.Minutes()))
 	case age < 24*time.Hour:
@@ -390,7 +399,7 @@ func relativeAge(timestamp string, now time.Time) string {
 	}
 	parsed, now = parsed.Local(), now.Local()
 	if parsed.Year() == now.Year() {
-		return parsed.Format("Jan _2")
+		return formatDayMonthPT(parsed)
 	}
 	return parsed.Format("2006-01-02")
 }
@@ -414,17 +423,17 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 
 	registry, err := modelregistry.DefaultRegistry()
 	if err != nil {
-		return m, "Model\nFailed to load model catalog: " + err.Error(), false, nil
+		return m, "Modelo\nFalha ao carregar o catálogo de modelos: " + err.Error(), false, nil
 	}
 	target, ok := m.resolveModelSwitchTarget(registry, args)
 	if !ok {
-		return m, "Model\nunknown QG model " + strconv.Quote(args), false, nil
+		return m, "Modelo\nmodelo QG desconhecido " + strconv.Quote(args), false, nil
 	}
 	if !config.HasProviderProfile(m.providerProfile) {
-		return m, "Model\nNo provider profile is available for TUI model switching.", false, nil
+		return m, "Modelo\nNenhum perfil de provedor disponível para trocar de modelo.", false, nil
 	}
 	if m.newProvider == nil {
-		return m, "Model\nProvider rebuild is not available for this TUI session.", false, nil
+		return m, "Modelo\nReconstrução do provedor indisponível para esta sessão TUI.", false, nil
 	}
 
 	previousProviderName := m.providerName
@@ -440,20 +449,20 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	nextProfile = m.profileWithCredential(nextProfile)
 	metadata, err := providers.ResolveRuntimeMetadata(nextProfile, providers.Options{})
 	if err != nil {
-		return m, "Model\n" + err.Error(), false, nil
+		return m, "Modelo\n" + err.Error(), false, nil
 	}
 
 	if guarded, text, requested := m.requestCompactionBeforeModelSwitch(modelSwitchCompactionRequest{
 		TargetModel:         target.modelID,
 		TargetProvider:      string(metadata.ProviderKind),
 		TargetContextWindow: modelregistry.AgentContextWindow(m.modelContextWindow(target.modelID)),
-	}, "Model"); requested {
+	}, "Modelo"); requested {
 		return guarded, text, false, nil
 	}
 
 	nextProvider, err := m.newProvider(nextProfile)
 	if err != nil {
-		return m, "Model\n" + err.Error(), false, nil
+		return m, "Modelo\n" + err.Error(), false, nil
 	}
 	var persisted bool
 	var persistErr error
@@ -515,18 +524,18 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	summary := target.modelID + " · " + displayValue(nextProfile.Name, string(metadata.ProviderKind))
 	effort := strings.TrimSpace(strings.TrimPrefix(effortLine, "nível: "))
 	if resetEffort {
-		summary += " · nível automático (reset)"
+		summary += " · nível automático (redefinido)"
 	} else if effort != "" && effort != "automático" {
 		summary += " · nível " + effort
 	}
 	if persisted {
-		summary += " · saved"
+		summary += " · salvo"
 	} else if persistErr != nil {
 		// Keep the failure reason (e.g. an unwritable config path) so persistence
 		// problems stay debuggable from the status line.
 		summary += " · not saved (" + persistErr.Error() + ")"
 	}
-	lines := []string{"Model"}
+	lines := []string{"Modelo"}
 	if target.notice != "" {
 		lines = append(lines, target.notice)
 	}

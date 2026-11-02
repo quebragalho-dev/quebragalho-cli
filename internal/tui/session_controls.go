@@ -58,26 +58,27 @@ type compactResultMsg struct {
 }
 
 func (m model) handleEffortCommand(args string) (model, string) {
-	args = strings.TrimSpace(strings.ToLower(args))
-	if args == "" || args == "list" {
+	raw := strings.TrimSpace(args)
+	normalized := strings.TrimSpace(strings.ToLower(canonicalEffortInput(raw)))
+	if normalized == "" || normalized == "list" {
 		return m, m.effortText()
 	}
-	if args == "auto" {
+	if normalized == "auto" {
 		m.reasoningEffort = ""
 		m = m.markProfileEffortTouched()
 		return m, m.effortStatusCard("auto", "Auto é a preferência local: não envia reasoning_effort. O esforço aplicado pelo servidor não é informado.")
 	}
 
-	requested := modelregistry.ReasoningEffort(args)
+	requested := modelregistry.ReasoningEffort(normalized)
 	if !modelregistry.ValidReasoningEffort(requested) {
-		return m, m.effortStatusCard(args, "Nível de raciocínio desconhecido: "+args)
+		return m, m.effortStatusCard(m.effortDisplay(), "Nível de raciocínio desconhecido: "+raw)
 	}
 	efforts := m.panelReasoningEfforts()
 	if len(efforts) == 0 {
 		return m, m.effortStatusCard("", "O modelo ativo não oferece controles de nível de raciocínio.")
 	}
 	if !reasoningEffortAllowed(efforts, requested) {
-		return m, m.effortStatusCard(string(requested),
+		return m, m.effortStatusCard(m.effortDisplay(),
 			fmt.Sprintf("Nível de raciocínio %q não suportado por %s.", requested, displayValue(m.modelName, "o modelo ativo")))
 	}
 
@@ -629,11 +630,11 @@ func (m model) revertExecProfile() model {
 func (m model) profileText() string {
 	name := m.execProfileName
 	if name == "" {
-		name = execprofile.Balanced.Name + " (default)"
+		name = execprofile.Balanced.Name + " (padrão)"
 	}
 	lines := []string{
 		"perfil de execução: " + name,
-		fmt.Sprintf("max tool-turns per run: %d", m.agentOptions.MaxTurns),
+		fmt.Sprintf("máximo de turnos de ferramenta por execução: %d", m.agentOptions.MaxTurns),
 		"nível de raciocínio: " + effortDisplayLabel(m.effortDisplay()),
 	}
 	if m.agentOptions.Profile != nil && m.agentOptions.Profile.Escalate != nil {
@@ -646,13 +647,13 @@ func (m model) profileText() string {
 			"note: the uncertain-completion signal is headless-only (the completion gate never runs interactively), so it cannot fire in the TUI")
 	}
 	return renderCommandOutput(commandOutput{
-		Title:  "Profile",
+		Title:  "Perfil",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
 			Title: "State",
 			Lines: lines,
 		}},
-		Hints: []string{"/profile " + strings.Join(execprofile.Names(), "|") + " switches the next run's loop posture (turn budget, effort, self-correction, escalation); pick the model separately with /model"},
+		Hints: []string{"use /profile " + strings.Join(execprofile.Names(), "|") + " para alternar a postura da próxima execução (orçamento de turnos, nível, autocorreção, escalonamento); escolha o modelo separadamente com /model"},
 	})
 }
 

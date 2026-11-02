@@ -118,6 +118,27 @@ func TestBatchSixNoCatalogFallbackAndPasteIsolation(t *testing.T) {
 		t.Fatal("paste filtered a slider")
 	}
 }
+func TestEmptyQGPickerOpensInPanelMode(t *testing.T) {
+	m := batchThreeLiveModel(t)
+	m.modelPickerLiveByProvider = nil
+	m.width = 100
+	m.height = 30
+	m, _ = m.openModelPicker()
+	if m.picker == nil {
+		t.Fatal("empty QG picker must open")
+	}
+	if !m.picker.panel {
+		t.Fatal("empty QG picker must open in panel mode")
+	}
+	if len(m.picker.items) != 0 {
+		t.Fatalf("empty picker items = %d, want 0", len(m.picker.items))
+	}
+	got := plainRender(t, m.pickerOverlay(100))
+	for _, want := range []string{"0 disponíveis", "Catálogo API ainda não disponível", "Tab lista", "Enter padrão", "s só nesta sessão"} {
+		assertContains(t, got, want)
+	}
+	assertNotContains(t, got, "Enter selecionar")
+}
 
 func TestBatchSixPanelsWidthsAndLiveRefresh(t *testing.T) {
 	m := batchThreeLiveModel(t)

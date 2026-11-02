@@ -61,6 +61,71 @@ func TestEffortCommandListsAndSetsSupportedEffort(t *testing.T) {
 	}
 }
 
+func TestEffortCommandAcceptsPortugueseLabels(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  modelregistry.ReasoningEffort
+		label string
+	}{
+		{"baixo", modelregistry.ReasoningEffortLow, "baixo"},
+		{"medio", modelregistry.ReasoningEffortMedium, "médio"},
+		{"médio", modelregistry.ReasoningEffortMedium, "médio"},
+		{"MÉDIO", modelregistry.ReasoningEffortMedium, "médio"},
+		{"alto", modelregistry.ReasoningEffortHigh, "alto"},
+		{"muito alto", modelregistry.ReasoningEffortXHigh, "muito alto"},
+		{"maximo", modelregistry.ReasoningEffortMax, "máximo"},
+		{"máximo", modelregistry.ReasoningEffortMax, "máximo"},
+		{"MÁXIMO", modelregistry.ReasoningEffortMax, "máximo"},
+		{"low", modelregistry.ReasoningEffortLow, "baixo"},
+		{"high", modelregistry.ReasoningEffortHigh, "alto"},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			m := batchThreeLiveModel(t)
+			m.modelPickerLiveByProvider["qg"][0].APIModel.Capabilities.Reasoning = true
+			next, text := m.handleEffortCommand(tc.input)
+			if next.reasoningEffort != tc.want {
+				t.Fatalf("handleEffortCommand(%q) stored = %q, want %q", tc.input, next.reasoningEffort, tc.want)
+			}
+			if !strings.Contains(text, tc.label) {
+				t.Fatalf("handleEffortCommand(%q) card missing label %q: %q", tc.input, tc.label, text)
+			}
+		})
+	}
+	for _, input := range []string{"auto", "automatico", "automático", "AUTOMÁTICO"} {
+		t.Run("auto-"+input, func(t *testing.T) {
+			m := batchThreeLiveModel(t)
+			m.modelPickerLiveByProvider["qg"][0].APIModel.Capabilities.Reasoning = true
+			m.reasoningEffort = modelregistry.ReasoningEffortHigh
+			next, text := m.handleEffortCommand(input)
+			if next.reasoningEffort != "" {
+				t.Fatalf("handleEffortCommand(%q) stored = %q, want auto", input, next.reasoningEffort)
+			}
+			if !strings.Contains(text, "automático") {
+				t.Fatalf("handleEffortCommand(%q) card missing automático: %q", input, text)
+			}
+		})
+	}
+}
+
+func TestEffortCommandUnknownShowsCurrentLevel(t *testing.T) {
+	m := batchThreeLiveModel(t)
+	m.modelPickerLiveByProvider["qg"][0].APIModel.Capabilities.Reasoning = true
+	m.reasoningEffort = modelregistry.ReasoningEffortHigh
+	next, text := m.handleEffortCommand("xyz-bogus")
+	if next.reasoningEffort != modelregistry.ReasoningEffortHigh {
+		t.Fatalf("unknown effort changed stored value to %q", next.reasoningEffort)
+	}
+	if !strings.Contains(text, "desconhecido") {
+		t.Fatalf("unknown effort card missing desconhecido: %q", text)
+	}
+	if !strings.Contains(text, "nível ativo: alto") {
+		t.Fatalf("unknown effort card must show current alto, got: %q", text)
+	}
+	if strings.Contains(text, "nível ativo: xyz-bogus") {
+		t.Fatalf("unknown effort card must not show rejected arg as active: %q", text)
+	}
+}
+
 func TestEffortCommandRejectsUnsupportedActiveModel(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "gpt-4.1"})
 	m.input.SetValue("/effort high")
@@ -959,7 +1024,7 @@ func TestModelSwitchUnknownModelReportsError(t *testing.T) {
 	if next.modelName != "gpt-4.1" {
 		t.Fatalf("expected active model to stay gpt-4.1, got %q", next.modelName)
 	}
-	if !transcriptContains(next.transcript, "unknown QG model") {
+	if !transcriptContains(next.transcript, "modelo QG desconhecido") {
 		t.Fatalf("expected unknown model error, got %#v", next.transcript)
 	}
 }
