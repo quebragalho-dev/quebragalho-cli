@@ -321,7 +321,7 @@ func runAuthRefreshWatch(manager *oauth.Manager, key, provider string, stdout io
 	scheduler := oauth.NewRefreshScheduler()
 	scheduler.Start(ctx, manager, key)
 	defer scheduler.Stop()
-	if _, err := fmt.Fprintf(stdout, "Monitorando %s — o token é renovado antes de expirar.\n", provider); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Monitorando %s — o token é renovado antes de expirar. Pressione Ctrl+C para parar.\n", provider); err != nil {
 		return exitCrash
 	}
 	<-ctx.Done()

@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 )
@@ -245,5 +248,85 @@ func TestRunAuthReset(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "No OAuth provider logins are stored.") {
 		t.Fatalf("expected empty store after reset, got: %q", stdout.String())
+	}
+}
+
+// watchBuffer is a goroutine-safe writer for the blocking --watch test: the
+// watch loop writes from its own signal handler lifetime while the test polls.
+type watchBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (w *watchBuffer) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+func (w *watchBuffer) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+// TestRunAuthRefreshWatchStatesStopHint locks the --watch banner: it must name
+// the provider, promise renewal before expiry, and tell the user Ctrl+C stops
+// the foreground wait. Removing the stop hint must fail this test.
+func TestRunAuthRefreshWatchStatesStopHint(t *testing.T) {
+	path := withAuthStore(t)
+	t.Setenv("HOME", t.TempDir())
+	store, err := oauth.NewStore(oauth.StoreOptions{FilePath: path})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.Save(oauth.ProviderKey("demo"), oauth.Token{
+		AccessToken:  "watch-test-access",
+		RefreshToken: "watch-test-refresh",
+		ExpiresAt:    time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	manager, err := oauth.NewManager(oauth.ManagerOptions{Store: store})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	var stdout watchBuffer
+	var stderr watchBuffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runAuthRefreshWatch(manager, oauth.ProviderKey("demo"), "demo", &stdout, &stderr)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(stdout.String(), "Monitorando demo") {
+		if time.Now().After(deadline) {
+			t.Fatalf("watch banner never printed, stdout=%q stderr=%q", stdout.String(), stderr.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	proc, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("FindProcess: %v", err)
+	}
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("Signal: %v", err)
+	}
+	select {
+	case code := <-done:
+		if code != exitSuccess {
+			t.Fatalf("watch exit = %d stderr=%q", code, stderr.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("watch did not stop after SIGTERM")
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Monitorando demo") || !strings.Contains(out, "o token é renovado antes de expirar") {
+		t.Fatalf("watch banner missing renewal promise, got %q", out)
+	}
+	if !strings.Contains(out, "Pressione Ctrl+C para parar") {
+		t.Fatalf("watch banner must state Ctrl+C stops it, got %q", out)
 	}
 }
