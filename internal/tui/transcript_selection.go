@@ -556,7 +556,7 @@ func (m model) renderExploreResultGroup(rows []transcriptRow, width int, rc rowC
 		key := rcKey(row.runID, row.id)
 		body = append(body, exploreCardLine(toolRowName(row), rc.hints[key], rc.args[key], row.detail, width, opts, marker))
 	}
-	head := qgTheme.green.Bold(true).Render("Explored")
+	head := qgTheme.green.Bold(true).Render("Explorado")
 	return toolCard(head, qgTheme.green.Render("•"), body, "", qgTheme.line, width)
 }
 

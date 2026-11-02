@@ -524,7 +524,7 @@ func TestPlanCommandShowsCurrentPlan(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /plan to be handled without starting an agent run")
 	}
-	for _, want := range []string{"Current Plan", "Wire model catalog", "Add max turns", "in_progress", "Go exec parity"} {
+	for _, want := range []string{"Plano atual", "Wire model catalog", "Add max turns", "in_progress", "Go exec parity"} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected plan transcript to contain %q, got %#v", want, next.transcript)
 		}
@@ -538,7 +538,7 @@ func TestPlanCommandHandlesMissingPlanTool(t *testing.T) {
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "No plan is active") {
+	if !transcriptContains(next.transcript, "Nenhum plano ativo") {
 		t.Fatalf("expected missing plan message, got %#v", next.transcript)
 	}
 }
@@ -2032,7 +2032,7 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 				tool:   "read_file",
 				detail: "README.md",
 			},
-			wants: []string{"Read", "README.md"},
+			wants: []string{"Lendo", "README.md"},
 		},
 		qgruntime.AgentEventToolResult: {
 			row: transcriptRow{
@@ -2048,7 +2048,7 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 					"+new",
 				}, "\n"),
 			},
-			wants: []string{"Patched", "file.txt", "old", "new"},
+			wants: []string{"Aplicado", "file.txt", "old", "new"},
 		},
 		qgruntime.AgentEventPlanUpdate: {
 			row:   transcriptRow{kind: rowSystem, text: "Plan updated\n- inspect: completed"},
@@ -2375,8 +2375,8 @@ func TestLiveReasoningExpandIsCappedAndAligned(t *testing.T) {
 	if len(lines) > cap+3 {
 		t.Fatalf("live reasoning not capped: %d lines for cap %d", len(lines), cap)
 	}
-	if !strings.Contains(plainRender(t, strings.Join(lines, "\n")), "earlier lines") {
-		t.Fatalf("expected the '… earlier lines' marker:\n%s", strings.Join(lines, "\n"))
+	if !strings.Contains(plainRender(t, strings.Join(lines, "\n")), "linhas anteriores") {
+		t.Fatalf("expected the '… linhas anteriores' marker:\n%s", strings.Join(lines, "\n"))
 	}
 	// The display path must produce the same line count as the selectable path.
 	display := renderReasoningBlock(strings.TrimSpace(text), true, width, true, 0, cap)

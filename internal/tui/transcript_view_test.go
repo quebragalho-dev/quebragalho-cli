@@ -60,7 +60,7 @@ func TestDetailedTranscriptIncludesToolOutputBeyondLiveCap(t *testing.T) {
 	// the body is hidden behind a one-line summary.
 	compact := plainRender(t, m.renderRow(row, m.width, buildRowContext(m.transcript)))
 	assertNotContains(t, compact, "line-020")
-	assertContains(t, compact, "click to expand")
+	assertContains(t, compact, "clique para expandir")
 
 	// The detailed transcript view (Ctrl+O) still shows the full, uncapped output.
 	updated, _ := m.Update(testKeyCtrl('o'))
@@ -68,7 +68,7 @@ func TestDetailedTranscriptIncludesToolOutputBeyondLiveCap(t *testing.T) {
 	view := plainRender(t, next.View())
 	assertContains(t, view, "line-404")
 	assertNotContains(t, view, "more lines")
-	assertNotContains(t, view, "click to expand")
+	assertNotContains(t, view, "clique para expandir")
 }
 
 func TestDetailedTranscriptViewNeverExceedsTerminalWidth(t *testing.T) {

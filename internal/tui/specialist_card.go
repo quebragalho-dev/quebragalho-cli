@@ -395,11 +395,11 @@ func toolCallSummary(event streamjson.Event) string {
 		chars, _ := args["chars"].(string)
 		switch chars {
 		case "":
-			return fmt.Sprintf("poll session %d", sessionID)
+			return fmt.Sprintf("consultar sessão %d", sessionID)
 		case "\x03":
-			return fmt.Sprintf("interrupt session %d", sessionID)
+			return fmt.Sprintf("interromper sessão %d", sessionID)
 		default:
-			return fmt.Sprintf("send input to session %d", sessionID)
+			return fmt.Sprintf("enviar entrada para a sessão %d", sessionID)
 		}
 	case "update_plan":
 		return "plan"

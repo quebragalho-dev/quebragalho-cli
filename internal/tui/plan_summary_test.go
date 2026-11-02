@@ -14,7 +14,7 @@ func TestRenderPlanUpdateCardUsesTranscriptChecklist(t *testing.T) {
 		t.Fatal("well-formed plan output should render as a checklist")
 	}
 	plain := plainRender(t, got)
-	for _, want := range []string{"Updated Plan", "✔ Explore workspace", "□ Create pages", "□ Build CSS", "✗ Verify"} {
+	for _, want := range []string{"Plano atualizado", "✔ Explore workspace", "□ Create pages", "□ Build CSS", "✗ Verify"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("checklist missing %q: %q", want, plain)
 		}
@@ -51,7 +51,7 @@ func TestUpdatePlanResultRendersChecklistInTranscript(t *testing.T) {
 		detail: "Current Plan:\n1. [completed] Inspect the workspace\n2. [in_progress] Add the feature\n3. [pending] Run the tests",
 	}
 	got := plainRender(t, m.renderRow(row, 72, buildRowContext([]transcriptRow{row})))
-	for _, want := range []string{"Updated Plan", "✔ Inspect the workspace", "□ Add the feature", "□ Run the tests"} {
+	for _, want := range []string{"Plano atualizado", "✔ Inspect the workspace", "□ Add the feature", "□ Run the tests"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("transcript plan missing %q: %q", want, got)
 		}

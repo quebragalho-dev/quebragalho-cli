@@ -31,7 +31,7 @@ func TestWorkingActivityNamesCurrentPhase(t *testing.T) {
 		{name: "assistant text", model: model{streamingText: []byte("drafting")}, want: "escrevendo"},
 		{name: "permission", model: model{pendingPermission: &pendingPermissionPrompt{}}, want: "aguardando aprovação"},
 		{name: "question", model: model{pendingAskUser: &pendingAskUserPrompt{}}, want: "aguardando sua resposta"},
-		{name: "streamed tool", model: model{streamCallName: "grep"}, want: "searching"},
+		{name: "streamed tool", model: model{streamCallName: "grep"}, want: "buscando"},
 		{
 			name: "outstanding tool",
 			model: model{
@@ -39,7 +39,7 @@ func TestWorkingActivityNamesCurrentPhase(t *testing.T) {
 				activeRunID: 7,
 				transcript:  []transcriptRow{{kind: rowToolCall, id: "call-1", runID: 7, tool: "read_file"}},
 			},
-			want: "reading",
+			want: "lendo",
 		},
 		{
 			name: "completed tool",

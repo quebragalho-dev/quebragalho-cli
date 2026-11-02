@@ -77,7 +77,7 @@ func renderPlanUpdateCard(detail string, width int) (string, bool) {
 		width = 8
 	}
 
-	lines := []string{qgTheme.faint.Render("• ") + qgTheme.ink.Bold(true).Render("Updated Plan")}
+	lines := []string{qgTheme.faint.Render("• ") + qgTheme.ink.Bold(true).Render("Plano atualizado")}
 	for index, item := range items {
 		firstPrefix := "    "
 		if index == 0 {
@@ -93,7 +93,7 @@ func renderPlanUpdateItem(item planUpdateItem, prefix string, width int) []strin
 	contentWidth := maxInt(1, width-len([]rune(prefix))-len([]rune(marker)))
 	wrapped := wrapPlainText(item.content, contentWidth)
 	if len(wrapped) == 0 {
-		wrapped = []string{"(unnamed step)"}
+		wrapped = []string{"(passo sem nome)"}
 	}
 
 	lines := make([]string, 0, len(wrapped)+1)

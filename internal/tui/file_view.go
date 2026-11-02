@@ -95,14 +95,14 @@ func (m model) setFileViewMode(mode int) model {
 // the title bar's geometry.
 func (m model) fileViewNavBar(width int) string {
 	mode := "diff"
-	other := "f full"
+	other := "f completo"
 	if m.fileView.mode == fileViewFull {
-		mode = "full"
+		mode = "completo"
 		other = "d diff"
 	}
 	left := qgTheme.accent.Render("← "+truncatePathLeft(m.fileView.path, maxInt(8, width/2))) +
 		qgTheme.faint.Render("  ·  "+mode)
-	right := qgTheme.faint.Render(other + " · esc back")
+	right := qgTheme.faint.Render(other + " · esc volta")
 	return fitStyledLine(joinHeaderLine(left, right, width), width)
 }
 
@@ -175,7 +175,7 @@ func (m model) renderFileViewFull(width int) string {
 	// fileViewMaxLines exists to prevent.
 	file, err := os.Open(target)
 	if err != nil {
-		return qgTheme.faint.Render("Could not read file: " + err.Error())
+		return qgTheme.faint.Render("Não foi possível ler o arquivo: " + err.Error())
 	}
 	defer file.Close()
 	var lines []string
@@ -191,7 +191,7 @@ func (m model) renderFileViewFull(width int) string {
 	}
 	if err := scanner.Err(); err != nil {
 		if len(lines) == 0 {
-			return qgTheme.faint.Render("Could not read file: " + err.Error())
+			return qgTheme.faint.Render("Não foi possível ler o arquivo: " + err.Error())
 		}
 		truncated = true // e.g. a single over-long line mid-file: show what we have
 	}

@@ -71,7 +71,7 @@ func TestStreamingToolCallView(t *testing.T) {
 		}
 	}
 	plain := plainRender(t, out)
-	for _, want := range []string{"Adding", "a/b.go", "(+3 -0)"} {
+	for _, want := range []string{"Adicionando", "a/b.go", "(+3 -0)"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("view missing %q:\n%s", want, out)
 		}
@@ -89,7 +89,7 @@ func TestStreamingToolCallViewShowsLatePath(t *testing.T) {
 	feedChunks(dec, `{"content":"from datetime import datetime\n`, `print(datetime.now())",`, `"path":"time_test.py"}`)
 	m := model{streamCallID: "1", streamCallName: "write_file", streamCallDecoder: dec}
 	out := plainRender(t, m.streamingToolCallView(80))
-	for _, want := range []string{"Adding", "time_test.py", "(+2 -0)"} {
+	for _, want := range []string{"Adicionando", "time_test.py", "(+2 -0)"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("live write header = %q, missing %q", out, want)
 		}

@@ -59,7 +59,7 @@ func TestSidebarActivityNamesCurrentTool(t *testing.T) {
 	m.transcript = append(m.transcript, transcriptRow{kind: rowToolCall, id: "call-1", runID: 7, tool: "grep", detail: "internal/tui"})
 
 	got := plainRender(t, strings.Join(m.sidebarActivityLines(40, 10), "\n"))
-	if !strings.Contains(got, "searching") {
+	if !strings.Contains(got, "buscando") {
 		t.Fatalf("sidebar activity should name the active tool, got:\n%s", got)
 	}
 }

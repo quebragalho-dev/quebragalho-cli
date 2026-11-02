@@ -4613,7 +4613,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// /clear wipes the transcript but not the session, so loops keep running;
 		// say so rather than let them silently fire into a "cleared" screen.
 		if m.loopActive() {
-			m = m.appendLoopSystem(m.loopFooterSummary() + " still running — /loop stop all to end them.")
+			m = m.appendLoopSystem(m.loopFooterSummary() + " em execução — /loop stop all para encerrar.")
 		}
 		return m, nil
 	case commandNew:
@@ -5096,7 +5096,7 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		if m.activeLoopID == "" && sessions.IsResumableKind(m.activeSession.SessionKind) &&
 			m.activeSession.Goal != nil && m.activeSession.Goal.Status == sessions.GoalStatusActive {
 			if updated, resetErr := m.sessionStore.ResetGoalContinuations(m.activeSession.SessionID); resetErr != nil {
-				m = m.appendGoalError("reset automatic continuation count: " + resetErr.Error())
+				m = m.appendGoalError("erro ao zerar contagem de continuações automáticas: " + resetErr.Error())
 			} else {
 				m.activeSession = updated
 			}
@@ -5350,12 +5350,12 @@ func (m *model) cancelRun() {
 	if goalWasActive && m.sessionStore != nil && m.activeSession.SessionID != "" {
 		updated, event, err := m.sessionStore.PauseGoalIfActive(m.activeSession.SessionID, "run cancelled by user")
 		if err != nil {
-			m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "Goal: pause after cancellation: " + err.Error()})
+			m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "Meta: pausa após cancelamento: " + err.Error()})
 		} else {
 			m.activeSession = updated
 			if event != nil {
 				m.sessionEvents = append(m.sessionEvents, *event)
-				m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Goal paused. Use /goal resume to continue."})
+				m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Meta pausada. Use /goal resume para continuar."})
 			}
 		}
 	}

@@ -18,20 +18,20 @@ func (m model) handlePlanCommand(args string) (model, string) {
 		return m, m.planText()
 	case "", "on":
 		if m.pending {
-			return m, "Cannot change plan mode while a turn is active."
+			return m, "Não dá para trocar o modo de plano com um turno em andamento."
 		}
 		if m.permissionMode == agent.PermissionModePlan {
-			return m, "Plan mode\nAlready active. Write and shell tools stay hidden until /plan off."
+			return m, "Modo de planejamento\nJá ativo. Ferramentas de escrita e shell ficam ocultas até /plan off."
 		}
 		m.permissionModeBeforePlan = m.permissionMode
 		m.permissionMode = agent.PermissionModePlan
-		return m, "Plan mode\nActive: read-only planning. Write and shell tools are hidden until /plan off."
+		return m, "Modo de planejamento\nAtivo: planejamento só de leitura. Ferramentas de escrita e shell ficam ocultas até /plan off."
 	case "off":
 		if m.pending {
-			return m, "Cannot change plan mode while a turn is active."
+			return m, "Não dá para trocar o modo de plano com um turno em andamento."
 		}
 		if m.permissionMode != agent.PermissionModePlan {
-			return m, "Plan mode\nNot currently active."
+			return m, "Modo de planejamento\nNão está ativo no momento."
 		}
 		restored := m.permissionModeBeforePlan
 		if restored == "" {
@@ -39,9 +39,9 @@ func (m model) handlePlanCommand(args string) (model, string) {
 		}
 		m.permissionMode = restored
 		m.permissionModeBeforePlan = ""
-		return m, "Plan mode\nExited. Permission mode restored to " + string(restored) + "."
+		return m, "Modo de planejamento\nEncerrado. Modo de permissão restaurado para " + string(restored) + "."
 	default:
-		return m, "Plan mode\nUsage: /plan [status|on|off]"
+		return m, "Modo de planejamento\nUso: /plan [status|on|off]"
 	}
 }
 
@@ -70,25 +70,25 @@ func planModeCommandUnavailable(command parsedCommand) bool {
 func (m model) planText() string {
 	tool, ok := m.registry.Get("update_plan")
 	if !ok {
-		return "No plan is active."
+		return "Nenhum plano ativo."
 	}
 
 	reader, ok := tool.(currentPlanReader)
 	if !ok {
-		return "No plan is active."
+		return "Nenhum plano ativo."
 	}
 
 	plan := reader.CurrentPlan()
 	if len(plan) == 0 {
-		return "No plan is active."
+		return "Nenhum plano ativo."
 	}
 
 	lines := make([]string, 0, len(plan)+1)
-	lines = append(lines, "Current Plan")
+	lines = append(lines, "Plano atual")
 	for index, item := range plan {
 		line := fmt.Sprintf("%d. [%s] %s", index+1, item.Status, item.Content)
 		if item.Notes != "" {
-			line += "\n   Notes: " + item.Notes
+			line += "\n   Notas: " + item.Notes
 		}
 		lines = append(lines, line)
 	}

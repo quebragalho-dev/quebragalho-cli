@@ -59,7 +59,7 @@ func TestToolResultCollapsesLongOutputByDefault(t *testing.T) {
 	if strings.Contains(collapsed, "line-005") {
 		t.Errorf("collapsed card must hide the body, got:\n%s", collapsed)
 	}
-	if !strings.Contains(collapsed, "click to expand") {
+	if !strings.Contains(collapsed, "clique para expandir") {
 		t.Errorf("collapsed card must show the expand hint, got:\n%s", collapsed)
 	}
 
@@ -74,7 +74,7 @@ func TestToolResultShortOutputStaysInline(t *testing.T) {
 	m := transcriptViewTestModel()
 	row := transcriptRow{kind: rowToolResult, id: "t2", tool: "mcp_exa_web_search_exa", status: tools.StatusOK, detail: numberedLines(3)}
 	out := plainRender(t, m.renderRow(row, m.width, buildRowContext(nil)))
-	if strings.Contains(out, "click to expand") {
+	if strings.Contains(out, "clique para expandir") {
 		t.Errorf("short output must not collapse, got:\n%s", out)
 	}
 	if !strings.Contains(out, "line-003") {
@@ -88,7 +88,7 @@ func TestDiffToolOutputNeverCollapses(t *testing.T) {
 	for _, tool := range []string{"edit_file", "apply_patch", "write_file"} {
 		row := transcriptRow{kind: rowToolResult, id: "d", tool: tool, status: tools.StatusOK, detail: long}
 		out := plainRender(t, m.renderRow(row, m.width, buildRowContext(nil)))
-		if strings.Contains(out, "click to expand") {
+		if strings.Contains(out, "clique para expandir") {
 			t.Errorf("%s output must stay reviewable, not collapse:\n%s", tool, out)
 		}
 	}

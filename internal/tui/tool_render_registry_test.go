@@ -42,7 +42,7 @@ func TestDefaultToolBodyRegistrySelectsCoreRenderers(t *testing.T) {
 			name:   "read_file",
 			hint:   "README.md",
 			detail: "File: README.md\n\n7→# QG",
-			want:   []string{"Read", "README.md"},
+			want:   []string{"Ler", "README.md"},
 		},
 		{
 			name:   "bash",
@@ -54,7 +54,7 @@ func TestDefaultToolBodyRegistrySelectsCoreRenderers(t *testing.T) {
 			name:   "grep",
 			arg:    "func render",
 			detail: "internal/tui/rendering.go:41: func render()",
-			want:   []string{"Search", "func render"},
+			want:   []string{"Buscar", "func render"},
 		},
 		{
 			name:   "unknown_tool",

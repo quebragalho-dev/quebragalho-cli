@@ -100,7 +100,7 @@ func TestRunningToolCardUsesLiveRailOnlyForActiveRun(t *testing.T) {
 	if !strings.HasPrefix(active, "│ ") {
 		t.Fatalf("active card should begin with a live rail, got %q", active)
 	}
-	if !strings.Contains(active, "Reading") {
+	if !strings.Contains(active, "Lendo") {
 		t.Fatalf("active card should retain its action label, got %q", active)
 	}
 
@@ -158,7 +158,7 @@ func TestTranscriptSeparatesUserPromptFromContinuation(t *testing.T) {
 	body, _ := m.transcriptBody(96, "")
 	got := plainRender(t, body)
 	lines := strings.Split(got, "\n")
-	if len(lines) < 4 || !strings.HasPrefix(lines[1], "▌  hey") || lines[2] != "" || !strings.HasPrefix(lines[3], "▸ Thought") {
+	if len(lines) < 4 || !strings.HasPrefix(lines[1], "▌  hey") || lines[2] != "" || !strings.HasPrefix(lines[3], "▸ Pensamento") {
 		t.Fatalf("transcript body should keep a small gap before thought, got:\n%s", got)
 	}
 }
@@ -644,7 +644,7 @@ func TestFinalAnswerRendersPlainTextAndCompletionLine(t *testing.T) {
 	if !strings.Contains(got, "Done — the CLI now prints its version.") {
 		t.Fatalf("final row = %q, want final answer text", got)
 	}
-	if strings.Contains(got, "completed in") || strings.Contains(got, "worked for") {
+	if strings.Contains(got, "concluído em") || strings.Contains(got, "durou ") {
 		t.Fatalf("short final row = %q, must not carry a completion bookend", got)
 	}
 }
@@ -654,7 +654,7 @@ func TestReasoningRowIsCollapsedByDefaultAndExpands(t *testing.T) {
 	row := transcriptRow{kind: rowReasoning, text: "\n\nprivate **chain**\nsecond line"}
 
 	collapsed := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if !strings.Contains(collapsed, "▸ Thought") {
+	if !strings.Contains(collapsed, "▸ Pensamento") {
 		t.Fatalf("collapsed reasoning row missing summary:\n%s", collapsed)
 	}
 	if strings.Contains(collapsed, "private chain") {
@@ -663,7 +663,7 @@ func TestReasoningRowIsCollapsedByDefaultAndExpands(t *testing.T) {
 
 	row.expanded = true
 	expanded := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if !strings.Contains(expanded, "▾ Thought") || !strings.Contains(expanded, "private chain") {
+	if !strings.Contains(expanded, "▾ Pensamento") || !strings.Contains(expanded, "private chain") {
 		t.Fatalf("expanded reasoning row missing content:\n%s", expanded)
 	}
 	if strings.Contains(expanded, "**") {
@@ -684,13 +684,13 @@ func TestReasoningRowShowsElapsedWhenKnown(t *testing.T) {
 	}
 
 	collapsed := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if !strings.Contains(collapsed, "▸ Thought for 2.3s") {
+	if !strings.Contains(collapsed, "▸ Pensamento por 2.3s") {
 		t.Fatalf("collapsed reasoning row missing elapsed:\n%s", collapsed)
 	}
 
 	row.expanded = true
 	expanded := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if !strings.Contains(expanded, "▾ Thought for 2.3s") {
+	if !strings.Contains(expanded, "▾ Pensamento por 2.3s") {
 		t.Fatalf("expanded reasoning row missing elapsed:\n%s", expanded)
 	}
 }
@@ -742,7 +742,7 @@ func TestFinalAnswerRendersMarkdownTableForTerminal(t *testing.T) {
 	if !strings.Contains(got, " │ ") || !strings.Contains(got, "─┼─") {
 		t.Fatalf("markdown table should render terminal table separators, got:\n%s", got)
 	}
-	if strings.Contains(got, "worked for") {
+	if strings.Contains(got, "durou ") {
 		t.Fatalf("short markdown final row = %q, must not carry a terminator", got)
 	}
 	for index, line := range strings.Split(rendered, "\n") {
@@ -866,15 +866,15 @@ func TestFinalAnswerRendersCrowdedMarkdownTablesAsTables(t *testing.T) {
 }
 
 // Short turns get no terminator (the next user prompt is the separator); only a
-// long turn earns a faint "worked for …" bookend.
+// long turn earns a faint "durou …" bookend.
 func TestDoneLineOnlyOnLongTurns(t *testing.T) {
 	short := plainRender(t, renderAssistantRow(transcriptRow{final: true, text: "hi", turnElapsed: 2 * time.Second}, 80))
 	if strings.Contains(short, "worked for") {
 		t.Fatalf("short turn should have no bookend, got: %q", short)
 	}
 	long := plainRender(t, renderAssistantRow(transcriptRow{final: true, text: "hi", turnElapsed: 90 * time.Second}, 80))
-	if !strings.Contains(long, "worked for") {
-		t.Fatalf("long turn should show a 'worked for' bookend, got: %q", long)
+	if !strings.Contains(long, "durou ") {
+		t.Fatalf("long turn should show a 'durou' bookend, got: %q", long)
 	}
 }
 
@@ -958,7 +958,7 @@ func TestRunningToolCardShowsHeadAndSpinnerSlot(t *testing.T) {
 	m.pending = true
 	row := transcriptRow{kind: rowToolCall, id: "call_1", tool: "grep", detail: "internal/cli"}
 	got := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if !strings.Contains(got, "Searching") || !strings.Contains(got, "internal/cli") {
+	if !strings.Contains(got, "Buscando") || !strings.Contains(got, "internal/cli") {
 		t.Fatalf("running card = %q, want action label and target in head", got)
 	}
 	if strings.HasPrefix(got, "│ ") || strings.Contains(got, "\n│ ") {
@@ -1001,7 +1001,7 @@ func TestDiffCardBodyRendersCountsNumbersAndCap(t *testing.T) {
 		}
 	}
 	got := plainRender(t, styled)
-	for _, want := range []string{"Added", "internal/cli/root.go", "(+3 -0)", "package cli", "++var Version = \"dev\"", "   1"} {
+	for _, want := range []string{"Adicionado", "internal/cli/root.go", "(+3 -0)", "package cli", "++var Version = \"dev\"", "   1"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("diff card = %q, missing %q", got, want)
 		}
@@ -1020,7 +1020,7 @@ func TestDiffCardBodyRendersCountsNumbersAndCap(t *testing.T) {
 	}
 	row.detail = strings.Join(long, "\n")
 	got = plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if !strings.Contains(got, "more lines") {
+	if !strings.Contains(got, "linhas a mais") {
 		t.Fatalf("long diff card should cap at %d lines with a trailer, got %q", cardBodyMaxLines, got)
 	}
 }
@@ -1038,7 +1038,7 @@ func TestEditedDiffCardHidesHunkHeader(t *testing.T) {
 	}, "\n")
 	row := transcriptRow{kind: rowToolResult, id: "call_1", tool: "edit_file", status: tools.StatusOK, detail: diff}
 	got := plainRender(t, m.renderRow(row, 96, buildRowContext(nil)))
-	for _, want := range []string{"Edited", "time_test.py", "(+1 -1)", "from datetime import datetime", "   3 −", "   3 +"} {
+	for _, want := range []string{"Editado", "time_test.py", "(+1 -1)", "from datetime import datetime", "   3 −", "   3 +"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("edited diff card = %q, missing %q", got, want)
 		}
@@ -1061,7 +1061,7 @@ func TestEditedDiffCardHandlesBareBlankHunkContext(t *testing.T) {
 	}, "\n")
 	row := transcriptRow{kind: rowToolResult, id: "call_1", tool: "edit_file", status: tools.StatusOK, detail: diff}
 	got := plainRender(t, m.renderRow(row, 96, buildRowContext(nil)))
-	for _, want := range []string{"Edited", "time_test.py", "(+1 -1)", "from datetime import datetime", "   3 −", "   3 +"} {
+	for _, want := range []string{"Editado", "time_test.py", "(+1 -1)", "from datetime import datetime", "   3 −", "   3 +"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("edited diff card = %q, missing %q", got, want)
 		}
@@ -1081,12 +1081,12 @@ func TestReadCardBodyShowsExploredSummary(t *testing.T) {
 	row := transcriptRow{kind: rowToolResult, id: "call_1", tool: "read_file", status: tools.StatusOK, detail: detail}
 	rc := buildRowContext([]transcriptRow{{kind: rowToolCall, id: "call_1", tool: "read_file", detail: "internal/agent/loop.go"}})
 	got := plainRender(t, m.renderRow(row, 80, rc))
-	for _, want := range []string{"Explored", "└ Read", "internal/agent/loop.go"} {
+	for _, want := range []string{"Explorado", "└ Ler", "internal/agent/loop.go"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("read card = %q, missing %q", got, want)
 		}
 	}
-	if !strings.Contains(got, "▸ details") {
+	if !strings.Contains(got, "▸ detalhes") {
 		t.Fatalf("read card = %q, missing expand affordance", got)
 	}
 	if strings.Contains(got, "L12") || strings.Contains(got, "func Run()") || strings.Contains(got, "  12 ") {
@@ -1098,7 +1098,7 @@ func TestReadCardBodyShowsExploredSummary(t *testing.T) {
 
 	row.expanded = true
 	expanded := plainRender(t, m.renderRow(row, 80, rc))
-	for _, want := range []string{"Explored", "└ Read", "internal/agent/loop.go", "func Run()", "13→"} {
+	for _, want := range []string{"Explorado", "└ Ler", "internal/agent/loop.go", "func Run()", "13→"} {
 		if !strings.Contains(expanded, want) {
 			t.Fatalf("expanded read card = %q, missing %q", expanded, want)
 		}
@@ -1111,7 +1111,7 @@ func TestBashCardBodyShowsCommandOutputAndExit(t *testing.T) {
 	row := transcriptRow{kind: rowToolResult, id: "call_1", tool: "bash", status: tools.StatusError, detail: detail}
 	rc := buildRowContext([]transcriptRow{{kind: rowToolCall, id: "call_1", tool: "bash", detail: "go build ./..."}})
 	got := plainRender(t, m.renderRow(row, 80, rc))
-	for _, want := range []string{"Ran", "go build ./...", "ok build", "warning: slow", "exit 1"} {
+	for _, want := range []string{"Executado", "go build ./...", "ok build", "warning: slow", "saída 1"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("bash card = %q, missing %q", got, want)
 		}
@@ -1148,7 +1148,7 @@ func TestToolCardHeadCollapsesMultilineCommand(t *testing.T) {
 	if strings.Contains(got, "\nconst fs") || strings.Contains(got, "\n\"") {
 		t.Fatalf("multi-line command should not break the card header, got:\n%s", got)
 	}
-	if !strings.Contains(got, "Ran node -e") || !strings.Contains(got, "const fs = require") {
+	if !strings.Contains(got, "Executado node -e") || !strings.Contains(got, "const fs = require") {
 		t.Fatalf("multi-line command summary should stay visible on one line, got:\n%s", got)
 	}
 }
@@ -1162,7 +1162,7 @@ func TestToolCardHeadStylesShellCommandButNotCommandOutput(t *testing.T) {
 	if !strings.Contains(head, "\x1b[") {
 		t.Fatalf("shell command head should be styled, got %q", head)
 	}
-	if plain := ansiPattern.ReplaceAllString(head, ""); !strings.Contains(plain, "Ran gofmt -w calculator.go && go run . divide 9 2") {
+	if plain := ansiPattern.ReplaceAllString(head, ""); !strings.Contains(plain, "Executado gofmt -w calculator.go && go run . divide 9 2") {
 		t.Fatalf("shell command head changed visible text to %q", plain)
 	}
 }
@@ -1173,7 +1173,7 @@ func TestExecCommandCardBodyShowsSessionAndExit(t *testing.T) {
 	running := transcriptRow{kind: rowToolResult, id: "call_1", tool: "exec_command", status: tools.StatusOK, detail: runningDetail}
 	rc := buildRowContext([]transcriptRow{{kind: rowToolCall, id: "call_1", tool: "exec_command", detail: "python3 -m http.server 8000"}})
 	got := plainRender(t, m.renderRow(running, 90, rc))
-	for _, want := range []string{"Ran", "python3 -m http.server 8000", "Serving HTTP", "session 1000"} {
+	for _, want := range []string{"Executado", "python3 -m http.server 8000", "Serving HTTP", "sessão 1000"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("exec_command card = %q, missing %q", got, want)
 		}
@@ -1198,7 +1198,7 @@ func TestExecCommandCardBodyShowsSessionAndExit(t *testing.T) {
 
 	interrupted := transcriptRow{kind: rowToolResult, id: "call_3", tool: "write_stdin", status: tools.StatusOK, detail: "output:\n127.0.0.1 GET / HTTP/1.1 200\ninterrupted: true\nexit_code: -1"}
 	got = plainRender(t, m.renderRow(interrupted, 90, buildRowContext(nil)))
-	if !strings.Contains(got, "interrupted") || strings.Contains(got, "exit -1") {
+	if !strings.Contains(got, "interrompido") || strings.Contains(got, "saída -1") {
 		t.Fatalf("interrupted write_stdin card = %q", got)
 	}
 }
@@ -1209,7 +1209,7 @@ func TestLocalControlCardsUseFriendlyCompactLabels(t *testing.T) {
 	open := transcriptRow{kind: rowToolResult, id: "call_1", tool: "browser_open", status: tools.StatusOK, detail: "✓ QG - terminal agent\nhttp://localhost:8080/"}
 	openRC := buildRowContext([]transcriptRow{{kind: rowToolCall, id: "call_1", tool: "browser_open", detail: "http://localhost:8080"}})
 	got := plainRender(t, m.renderRow(open, 100, openRC))
-	for _, want := range []string{"Opened", "http://localhost:8080", "QG - terminal agent"} {
+	for _, want := range []string{"Aberto", "http://localhost:8080", "QG - terminal agent"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("browser_open card missing %q:\n%s", want, got)
 		}
@@ -1221,7 +1221,7 @@ func TestLocalControlCardsUseFriendlyCompactLabels(t *testing.T) {
 	snapshotDetail := strings.Repeat("button \"Item\"\n", 31)
 	snapshot := transcriptRow{kind: rowToolResult, id: "call_2", tool: "browser_snapshot", status: tools.StatusOK, detail: snapshotDetail}
 	got = plainRender(t, m.renderRow(snapshot, 100, buildRowContext(nil)))
-	for _, want := range []string{"Captured", "snapshot"} {
+	for _, want := range []string{"Capturado", "snapshot"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("browser_snapshot card missing %q:\n%s", want, got)
 		}
@@ -1232,7 +1232,7 @@ func TestLocalControlCardsUseFriendlyCompactLabels(t *testing.T) {
 
 	artifact := transcriptRow{kind: rowToolResult, id: "call_3", tool: "capture_artifact", status: tools.StatusOK, detail: "Artifact captured: /tmp/qg-artifacts/page.png\n\nhelper wrote screenshot"}
 	got = plainRender(t, m.renderRow(artifact, 100, buildRowContext(nil)))
-	for _, want := range []string{"Captured", "page.png"} {
+	for _, want := range []string{"Capturado", "page.png"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("capture_artifact card missing %q:\n%s", want, got)
 		}
@@ -1250,7 +1250,7 @@ func TestPermissionRowsUseFriendlyLocalControlLabels(t *testing.T) {
 		Action:     agent.PermissionActionPrompt,
 	}}
 	got := plainRender(t, m.renderRow(row, 100, buildRowContext(nil)))
-	if !strings.Contains(got, "Open browser") {
+	if !strings.Contains(got, "Abrir navegador") {
 		t.Fatalf("permission row should use local-control display name:\n%s", got)
 	}
 	if strings.Contains(got, "browser_open") {
@@ -1273,15 +1273,15 @@ func TestToolCallSummaryDescribesExecSessions(t *testing.T) {
 		},
 		{
 			event: streamjson.Event{Name: "write_stdin", Args: map[string]any{"session_id": 1000}},
-			want:  "poll session 1000",
+			want:  "consultar sessão 1000",
 		},
 		{
 			event: streamjson.Event{Name: "write_stdin", Args: map[string]any{"session_id": float64(1001), "chars": "\x03"}},
-			want:  "interrupt session 1001",
+			want:  "interromper sessão 1001",
 		},
 		{
 			event: streamjson.Event{Name: "write_stdin", Args: map[string]any{"session_id": "1002", "chars": "q"}},
-			want:  "send input to session 1002",
+			want:  "enviar entrada para a sessão 1002",
 		},
 	}
 	for _, tc := range cases {
@@ -1297,7 +1297,7 @@ func TestGrepCardBodyShowsExploredSummary(t *testing.T) {
 	row := transcriptRow{kind: rowToolResult, id: "call_1", tool: "grep", status: tools.StatusOK, detail: detail}
 	rc := buildRowContext([]transcriptRow{{kind: rowToolCall, id: "call_1", tool: "grep", detail: "internal/cli", arg: "flag"}})
 	got := plainRender(t, m.renderRow(row, 90, rc))
-	for _, want := range []string{"Explored", "└ Search", "flag"} {
+	for _, want := range []string{"Explorado", "└ Buscar", "flag"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("grep card = %q, missing %q", got, want)
 		}
@@ -1725,7 +1725,7 @@ func TestGrepCardHeadShowsTargetAndPatternColumns(t *testing.T) {
 	}
 	rc := buildRowContext(rows)
 	got := plainRender(t, m.renderRow(rows[1], 110, rc))
-	for _, want := range []string{"Explored", "└ Search", `flag\.|RegisterFlag`} {
+	for _, want := range []string{"Explorado", "└ Buscar", `flag\.|RegisterFlag`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("grep card = %q, missing %q", got, want)
 		}

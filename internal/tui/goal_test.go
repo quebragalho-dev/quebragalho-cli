@@ -65,7 +65,7 @@ func TestGoalCommandDoesNotCreateGoalDuringActiveRun(t *testing.T) {
 	if loaded.Goal != nil {
 		t.Fatalf("goal was persisted during an active run: %#v", loaded.Goal)
 	}
-	if !transcriptContains(next.transcript, "A run is already in progress.") {
+	if !transcriptContains(next.transcript, "Já há uma execução em andamento.") {
 		t.Fatalf("missing active-run explanation: %#v", next.transcript)
 	}
 }
@@ -258,7 +258,7 @@ func TestActiveGoalLaunchesContinuation(t *testing.T) {
 	if cmd == nil || !next.pending {
 		t.Fatal("active goal should launch a continuation while idle")
 	}
-	if !transcriptContains(next.transcript, "Continuing goal: Keep going") {
+	if !transcriptContains(next.transcript, "Continuando meta: Keep going") {
 		t.Fatalf("continuation was not surfaced: %#v", next.transcript)
 	}
 }
@@ -298,7 +298,7 @@ func TestGoalContinuationChainStopsAtPersistedLimit(t *testing.T) {
 		t.Fatal("goal exceeded its automatic continuation limit")
 	}
 	if stopped.activeSession.Goal.Status != sessions.GoalStatusPaused ||
-		!transcriptContains(stopped.transcript, "Goal paused after") {
+		!transcriptContains(stopped.transcript, "Meta pausada após") {
 		t.Fatalf("hard stop was not surfaced: goal=%#v transcript=%#v", stopped.activeSession.Goal, stopped.transcript)
 	}
 }
@@ -307,7 +307,7 @@ func TestGoalActionsRejectTrailingArguments(t *testing.T) {
 	for _, action := range []string{"status extra", "pause extra", "resume extra", "clear extra"} {
 		m := newModel(context.Background(), Options{})
 		next, cmd := m.handleGoalCommand(action)
-		if cmd != nil || !transcriptContains(next.transcript, "Usage: /goal") {
+		if cmd != nil || !transcriptContains(next.transcript, "Uso: /goal") {
 			t.Fatalf("%q silently accepted trailing arguments: %#v", action, next.transcript)
 		}
 	}
@@ -333,7 +333,7 @@ func TestCancelRunPausesActiveGoal(t *testing.T) {
 	if m.activeSession.Goal.Status != sessions.GoalStatusPaused {
 		t.Fatalf("cancelled goal status = %q", m.activeSession.Goal.Status)
 	}
-	if !transcriptContains(m.transcript, "Goal paused") {
+	if !transcriptContains(m.transcript, "Meta pausada") {
 		t.Fatalf("cancel did not explain goal pause: %#v", m.transcript)
 	}
 }
@@ -347,7 +347,7 @@ func TestParseGoalObjective(t *testing.T) {
 		t.Fatalf("parsed objective/budget = %q/%d", objective, budget)
 	}
 	if _, _, err := parseGoalObjective("--tokens nope task"); err == nil ||
-		!strings.Contains(err.Error(), "non-negative integer") {
+		!strings.Contains(err.Error(), "inteiro não negativo") {
 		t.Fatalf("invalid budget error = %v", err)
 	}
 }
@@ -356,7 +356,7 @@ func TestGoalStatusIsVisibleInNarrowFooter(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m.activeSession.Goal = &sessions.Goal{Objective: "Ship", Status: sessions.GoalStatusActive}
 	status := plainRender(t, m.statusLine(51))
-	if !strings.Contains(status, "goal active") {
+	if !strings.Contains(status, "meta ativa") {
 		t.Fatalf("narrow status omitted active goal: %q", status)
 	}
 }
