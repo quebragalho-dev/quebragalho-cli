@@ -75,11 +75,11 @@ func TestHelpOverlayViewRendersGroupsAndKeys(t *testing.T) {
 	m.helpOverlay = true
 	view := plainRender(t, m.View())
 	for _, want := range []string{
-		"Keyboard Shortcuts",
+		"Atalhos de teclado",
 		"Ctrl+T", "alterna o nível de raciocínio",
 		"Shift+Tab", "Ctrl+P", "Ctrl+O",
 		"entra na subsessão dele",
-		"Ctrl+X then letter", "/model",
+		"Ctrl+X e letra", "/model",
 		keybindingHelpFooter,
 	} {
 		if !strings.Contains(view, want) {
@@ -114,7 +114,7 @@ func TestBuildKeybindingGroupsAreWellFormed(t *testing.T) {
 // only the centered shortcut block on a blank canvas — no title bar, no
 // composer. With the overlay open, surrounding chat chrome that is NOT covered
 // by the centered box (the model title bar at top, the composer at bottom) must
-// still be present alongside "Keyboard Shortcuts".
+// still be present alongside "Atalhos de teclado".
 func TestHelpOverlayCompositesOverChatNotReplacingIt(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "gpt-4o"})
 	m.width = 100
@@ -125,7 +125,7 @@ func TestHelpOverlayCompositesOverChatNotReplacingIt(t *testing.T) {
 	m.helpOverlay = true
 	over := plainRender(t, m.View())
 
-	if !strings.Contains(over, "Keyboard Shortcuts") {
+	if !strings.Contains(over, "Atalhos de teclado") {
 		t.Fatalf("help overlay not rendered:\n%s", over)
 	}
 	// Chrome that renders in the baseline (and sits outside the centered overlay
@@ -152,7 +152,7 @@ func TestHelpOverlayKeepsTranscriptBodyBehindIt(t *testing.T) {
 	m.helpOverlay = true
 
 	view := plainRender(t, m.View())
-	if !strings.Contains(view, "Keyboard Shortcuts") {
+	if !strings.Contains(view, "Atalhos de teclado") {
 		t.Fatalf("help overlay not rendered:\n%s", view)
 	}
 	// The start of the transcript line peeks to the left of the centered box.

@@ -140,7 +140,7 @@ func renderLeaderHelpLines(innerWidth int) []string {
 func (m model) renderLeaderHelpOverlay(width int) string {
 	overlayWidth := keybindingHelpOverlayWidth(width)
 	lines := renderLeaderHelpLines(overlayWidth - 4)
-	block := styledBlockFillTitle(overlayWidth, "Ctrl+X Shortcuts", lines, qgTheme.line, lipgloss.NewStyle())
+	block := styledBlockFillTitle(overlayWidth, "Atalhos Ctrl+X", lines, qgTheme.line, lipgloss.NewStyle())
 	return centerRenderedBlock(block, width)
 }
 

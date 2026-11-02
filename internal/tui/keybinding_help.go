@@ -47,7 +47,7 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 				{"Shift+Enter / Alt+Enter", "insere uma quebra de linha (mensagem multilinha)"},
 				{"Esc (\u00d72)", "cancela a execução / fecha o pop-up / limpa a entrada"},
 				{"Ctrl+C", ctrlCDescription},
-				{"Ctrl+X then letter", "comandos com / comuns (m=/model, r=/resume, \u2026)"},
+				{"Ctrl+X e letra", "comandos com / comuns (m=/model, r=/resume, \u2026)"},
 				{"Ctrl+X ?", "lista todos os atalhos Ctrl+X com /"},
 				{"?", "mostra esta ajuda (com a entrada vazia)"},
 			},
@@ -74,11 +74,11 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 		{
 			title: "Especialistas e seletores",
 			bindings: []keybinding{
-				{"Click a specialist card", "entra na subsessão dele"},
-				{"\u2191 / Esc (in a sub-session)", "volta para o chat principal"},
-				{"Ctrl+F (in /model)", "alterna o modelo destacado como favorito"},
-				{"Click a tool card", "expande / recolhe a saída dele"},
-				{"Right-click", "cola a área de transferência"},
+				{"Clica no cartão do especialista", "entra na subsessão dele"},
+				{"\u2191 / Esc (numa subsessão)", "volta para o chat principal"},
+				{"Ctrl+F (no /model)", "alterna o modelo destacado como favorito"},
+				{"Clica no cartão de ferramenta", "expande / recolhe a saída dele"},
+				{"Botão direito", "cola a área de transferência"},
 			},
 		},
 	}
@@ -147,7 +147,7 @@ func formatKeybindingLine(binding keybinding, keyColumn int, innerWidth int) str
 func (m model) renderKeybindingHelpOverlay(width int) string {
 	overlayWidth := keybindingHelpOverlayWidth(width)
 	lines := m.renderKeybindingHelpLines(overlayWidth - 4)
-	block := styledBlockFillTitle(overlayWidth, "Keyboard Shortcuts", lines, qgTheme.line, lipgloss.NewStyle())
+	block := styledBlockFillTitle(overlayWidth, "Atalhos de teclado", lines, qgTheme.line, lipgloss.NewStyle())
 	return centerRenderedBlock(block, width)
 }
 
