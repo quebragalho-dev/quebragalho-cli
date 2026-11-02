@@ -132,7 +132,12 @@ type model struct {
 	// already been attempted this process, so a finished turn re-fires the title
 	// generator at most once per session (even before its async result lands).
 	// Lazily initialized.
-	titledSessions              map[string]bool
+	titledSessions map[string]bool
+	// titleAttempts counts scheduled title generations per session. A silent
+	// failure releases the gate above so a later turn can retry, but retries
+	// stop after two attempts so a persistently failing provider cannot burn
+	// tokens on every turn.
+	titleAttempts               map[string]int
 	renamePrompt                *sessionRenamePrompt
 	usageTracker                *usage.Tracker
 	sessionCompactor            SessionCompactor

@@ -86,15 +86,25 @@ func decorateModelDepth(entries []ModelEntry) {
 		patterns      []string
 		deprecation   *DeprecationRule
 		upgradeTarget string
+		efforts       []ReasoningEffort
 	}{
 		"muse-spark-1.3-contributor": {
 			patterns: []string{`(?i)^muse[^a-z0-9]*spark$`},
 		},
 		"deepseek-v4.1-flash": {upgradeTarget: "deepseek-v4-pro"},
-		"glm-5.2":             {upgradeTarget: "glm-5.3"},
-		"glm-5.3-flash":       {upgradeTarget: "glm-5.3"},
-		"gpt-6-luna":          {upgradeTarget: "gpt-6.1-terra"},
-		"kimi-k3.1-pro":       {upgradeTarget: "kimi-k3"},
+		"glm-5.2": {
+			upgradeTarget: "glm-5.3",
+			// Minimal measured accepted on the live gateway (Sonda E2E);
+			// smallest tier also minimizes title cost.
+			efforts: []ReasoningEffort{ReasoningEffortMinimal},
+		},
+		"glm-5.3-flash": {upgradeTarget: "glm-5.3"},
+		"gpt-6-luna": {
+			upgradeTarget: "gpt-6.1-terra",
+			// Minimal measured accepted on the live gateway (Sonda E2E).
+			efforts: []ReasoningEffort{ReasoningEffortMinimal},
+		},
+		"kimi-k3.1-pro": {upgradeTarget: "kimi-k3"},
 	}
 	for index := range entries {
 		extra, ok := depth[entries[index].ID]
@@ -112,6 +122,9 @@ func decorateModelDepth(entries []ModelEntry) {
 		}
 		if extra.upgradeTarget != "" {
 			entries[index].UpgradeTargetID = extra.upgradeTarget
+		}
+		if len(extra.efforts) > 0 {
+			entries[index].ReasoningEfforts = append([]ReasoningEffort{}, extra.efforts...)
 		}
 	}
 }

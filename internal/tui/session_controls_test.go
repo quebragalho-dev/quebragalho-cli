@@ -979,18 +979,18 @@ func TestModelSwitchClearsUnsupportedEffortPreference(t *testing.T) {
 	nextProvider := &fakeProvider{}
 	m := newModel(context.Background(), Options{
 		ProviderName:    "openai",
-		ModelName:       "gpt-5.6-luna",
+		ModelName:       "gpt-6-luna",
 		ReasoningEffort: modelregistry.ReasoningEffortHigh,
 		Provider:        &fakeProvider{},
-		ProviderProfile: openAITestProfile("gpt-5.6-luna"),
+		ProviderProfile: openAITestProfile("gpt-6-luna"),
 		NewProvider: func(profile config.ProviderProfile) (qgruntime.Provider, error) {
-			if profile.Model != "qwen3.8-max" {
-				t.Fatalf("expected provider rebuild for qwen3.8-max, got %#v", profile)
+			if profile.Model != "muse-spark-1.3-contributor" {
+				t.Fatalf("expected provider rebuild for muse-spark-1.3-contributor, got %#v", profile)
 			}
 			return nextProvider, nil
 		},
 	})
-	m.input.SetValue("/model qwen3.8-max")
+	m.input.SetValue("/model muse-spark-1.3-contributor")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
