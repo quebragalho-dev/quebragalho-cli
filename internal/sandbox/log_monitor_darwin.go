@@ -36,7 +36,11 @@ const denialMonitorConnectTimeout = 300 * time.Millisecond
 // A/B (base eae1efc5 vs this change, 30 interleaved rounds each): success
 // overhead p50 +8-10ms (log-stream connect and Stop only), failing-command
 // overhead p50 +34ms (connect/Stop plus this 25ms grace).
-const denialMonitorTagGrace = 25 * time.Millisecond
+//
+// A var rather than a const so timing tests can widen it under load (with
+// margins that still kill the interesting mutants) and restore it after;
+// production code never assigns it.
+var denialMonitorTagGrace = 25 * time.Millisecond
 
 // DenialMonitor tails `log stream` for seatbelt denials carrying a unique tag and
 // collects them so a caller can report what the sandbox blocked. It is

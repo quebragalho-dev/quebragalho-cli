@@ -224,12 +224,19 @@ func TestDenialAttributorIgnoresLongerSequenceTags(t *testing.T) {
 
 // TestAwaitTagWakesOnTagAndBoundsMiss pins the AwaitTag contract: a tag that
 // lands mid-grace wakes the waiter with true, and a run with no tag returns
-// false after the grace instead of hanging.
+// false after the grace instead of hanging. The grace is widened far beyond
+// production (restored afterwards) so loaded machines and CI runners still
+// pass with room to spare, while the mutants stay dead: without the channel
+// close a hit waits the full 2 s grace, and an 8x timer pushes a miss to
+// 800 ms.
 func TestAwaitTagWakesOnTagAndBoundsMiss(t *testing.T) {
+	previousGrace := denialMonitorTagGrace
+	t.Cleanup(func() { denialMonitorTagGrace = previousGrace })
 	newConnected := func() *DenialMonitor {
 		return &DenialMonitor{done: make(chan struct{}), tagCh: make(chan struct{}), connected: true}
 	}
 
+	denialMonitorTagGrace = 2 * time.Second
 	hit := newConnected()
 	go func() {
 		time.Sleep(5 * time.Millisecond)
@@ -239,17 +246,18 @@ func TestAwaitTagWakesOnTagAndBoundsMiss(t *testing.T) {
 	if !hit.AwaitTag() {
 		t.Fatal("AwaitTag must report a tag that lands during the grace")
 	}
-	if elapsed := time.Since(start); elapsed >= 15*time.Millisecond {
-		t.Fatalf("AwaitTag hit took %v, want a wake before the grace timer", elapsed)
+	if elapsed := time.Since(start); elapsed >= 1*time.Second {
+		t.Fatalf("AwaitTag hit took %v, want a wake well before the grace timer", elapsed)
 	}
 
+	denialMonitorTagGrace = 100 * time.Millisecond
 	miss := newConnected()
 	start = time.Now()
 	if miss.AwaitTag() {
 		t.Fatal("AwaitTag must report no tag when none lands")
 	}
-	if elapsed := time.Since(start); elapsed > 2*denialMonitorTagGrace {
-		t.Fatalf("AwaitTag miss took %v, want a bounded grace wait", elapsed)
+	if elapsed := time.Since(start); elapsed < 100*time.Millisecond || elapsed >= 500*time.Millisecond {
+		t.Fatalf("AwaitTag miss took %v, want the full grace wait bounded well below 8x", elapsed)
 	}
 
 	// A monitor that never connected, or one that already saw its tag, never
