@@ -160,13 +160,18 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *qgSan
 	// wait, so a backgrounded child cannot outlive the command or hang Run().
 	hardenProcessLifetime(command)
 
-	// Capture sandbox denials when the plan opted in (macOS seatbelt with a
-	// monitor tag: an explicit MonitorDenials policy or a deny-network
-	// profile). A no-op when MonitorTag is empty, so the default path is
-	// unchanged.
-	monitor := qgSandbox.StartDenialMonitor(context.Background(), plan.MonitorTag)
+	// Capture sandbox denials with the monitor matching the plan (tag-only
+	// network feed for auto-monitored deny-network runs, broad feed for the
+	// explicit opt-in). A no-op when MonitorTag is empty, so the default
+	// path is unchanged.
+	monitor := plan.StartMonitor(context.Background())
 	err = command.Run()
 	exitCode := commandExitCode(err)
+	if err != nil {
+		// A denial can land just after the command exits; wait for the tag
+		// (bounded), never for output. Successful commands skip the wait.
+		monitor.AwaitTag()
+	}
 	blocks := monitor.Stop()
 	adapterReport, reportErr := plan.ExecutionReport()
 	if adapterReport.Denial == nil {

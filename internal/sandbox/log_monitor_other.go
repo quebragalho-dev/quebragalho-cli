@@ -11,5 +11,11 @@ type DenialMonitor struct{}
 // StartDenialMonitor returns a no-op monitor on non-macOS platforms.
 func StartDenialMonitor(_ context.Context, _ string) *DenialMonitor { return &DenialMonitor{} }
 
+// StartNetworkDenialMonitor returns a no-op monitor on non-macOS platforms.
+func StartNetworkDenialMonitor(_ context.Context, _ string) *DenialMonitor { return &DenialMonitor{} }
+
 // Stop returns no blocks on non-macOS platforms.
 func (monitor *DenialMonitor) Stop() []string { return nil }
+
+// AwaitTag reports no tag on non-macOS platforms.
+func (monitor *DenialMonitor) AwaitTag() bool { return false }

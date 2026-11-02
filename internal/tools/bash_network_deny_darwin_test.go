@@ -13,16 +13,17 @@ import (
 )
 
 // TestBashNetworkDenialPromptsRetry runs an unclassified network command
-// (python urllib, not curl/npm) through the real seatbelt sandbox with a
-// deny-network policy and requires the structured external-network denial the
-// agent loop uses to offer a permission retry. Policy.MonitorDenials is
-// deliberately NOT set: the deny-network profile must tag the run itself.
+// (a python socket connect, not curl/npm) through the real seatbelt sandbox
+// with a deny-network policy and requires the structured external-network
+// denial the agent loop uses to offer a permission retry.
+// Policy.MonitorDenials is deliberately NOT set: the deny-network profile
+// must tag the run itself.
 //
-// The `log stream` capture is best-effort: a command that fails in
-// milliseconds can emit its denials before the stream attaches (measured
-// attach is ~15-30ms). Each attempt is side-effect-free (the network call
-// fails), so the test retries a bounded number of fresh runs and fails only
-// when none attributes the denial.
+// The command connects to a literal IP on purpose: a hostname forces the
+// failure through DNS/getaddrinfo, which on some interpreters can die on an
+// ancillary denial before ever attempting the socket, so the tagged network
+// rule never fires and there is nothing to attribute. A raw connect always
+// reaches the socket denial first, deterministically.
 func TestBashNetworkDenialPromptsRetry(t *testing.T) {
 	if _, err := exec.LookPath("sandbox-exec"); err != nil {
 		t.Skipf("sandbox-exec unavailable: %v", err)
@@ -45,20 +46,17 @@ func TestBashNetworkDenialPromptsRetry(t *testing.T) {
 	tool := NewScopedBashTool(root, nil).(interface {
 		RunWithSandbox(context.Context, map[string]any, *sandbox.Engine) Result
 	})
-	const attempts = 3
-	for attempt := 1; attempt <= attempts; attempt++ {
-		result := tool.RunWithSandbox(ctx, map[string]any{
-			"command": "python3 -c \"import urllib.request; print(urllib.request.urlopen('https://example.com', timeout=5).status)\"",
-		}, engine)
-		if result.Status != StatusError {
-			t.Fatalf("denied network must fail, got %s: %s", result.Status, result.Output)
-		}
-		outcome := result.ExecutionOutcome
-		if outcome != nil && outcome.Denial != nil &&
-			outcome.Denial.Capability.Kind == execution.CapabilityExternalNetwork {
-			return
-		}
-		t.Logf("attempt %d/%d: no structured network denial yet (outcome %#v)", attempt, attempts, outcome)
+	result := tool.RunWithSandbox(ctx, map[string]any{
+		"command": "python3 -c \"import socket; socket.create_connection(('93.184.216.34', 443), timeout=5)\"",
+	}, engine)
+	if result.Status != StatusError {
+		t.Fatalf("denied network must fail, got %s: %s", result.Status, result.Output)
 	}
-	t.Fatal("denied network must carry a structured external_network denial after 3 attempts")
+	outcome := result.ExecutionOutcome
+	if outcome == nil || outcome.Denial == nil {
+		t.Fatalf("denied network must carry a structured denial, got outcome %#v", outcome)
+	}
+	if outcome.Denial.Capability.Kind != execution.CapabilityExternalNetwork {
+		t.Fatalf("denial capability = %q, want external_network", outcome.Denial.Capability.Kind)
+	}
 }

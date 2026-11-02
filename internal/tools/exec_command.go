@@ -215,7 +215,7 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 	}
 	meta := map[string]string{}
 	addSandboxMeta(meta, plan)
-	monitor := qgSandbox.StartDenialMonitor(context.Background(), plan.MonitorTag)
+	monitor := plan.StartMonitor(context.Background())
 	processResult, err := tool.manager.Start(ctx, execution.ProcessStart{
 		Prepared: execution.PreparedCommand{
 			Command:     command,
@@ -229,6 +229,11 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 		Request: executionRequest, CommandText: commandText, RelativeCwd: relativeCwd,
 		TTY: ttyRequested, Metadata: meta,
 		AfterWait: func() []byte {
+			if command.ProcessState != nil && !command.ProcessState.Success() {
+				// A denial can land just after the process exits; wait for
+				// the tag (bounded). Successful sessions skip the wait.
+				monitor.AwaitTag()
+			}
 			blocks := monitor.Stop()
 			// Record a network denial for the structured report the agent
 			// loop turns into a permission retry. Attribution comes from the

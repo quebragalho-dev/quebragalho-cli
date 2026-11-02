@@ -55,10 +55,15 @@ type CommandPlan struct {
 	Env                     []string          `json:"env,omitempty"`
 	SandboxDir              string            `json:"sandboxDir,omitempty"`
 	// MonitorTag, when non-empty, is the unique marker embedded in the
-	// sandbox-exec profile's denial messages; a caller passes it to
-	// StartDenialMonitor to capture what the sandbox blocked. Empty unless
-	// Policy.MonitorDenials is set on a macOS sandbox-exec plan.
+	// sandbox-exec profile's denial messages; the plan's StartMonitor feeds
+	// it to the matching log-stream monitor. Empty unless the macOS plan is
+	// explicitly opted in (Policy.MonitorDenials) or denies network, in
+	// which case the network rule carries the tag.
 	MonitorTag string `json:"monitorTag,omitempty"`
+	// monitorNarrow selects the tag-only network monitor over the broad
+	// violation feed. Set for auto-monitored deny-network runs; the explicit
+	// MonitorDenials opt-in keeps the broad feed.
+	monitorNarrow bool
 	// Notes records auditable least-privilege downgrade notes, such as native
 	// isolation being unavailable in the selected environment. Surfaced to the
 	// operator; never affects enforcement.
@@ -78,6 +83,20 @@ func (plan CommandPlan) Cleanup() {
 	if plan.cleanup != nil {
 		plan.cleanup()
 	}
+}
+
+// StartMonitor starts the denial monitor matching this plan: the narrow
+// tag-only network feed for auto-monitored deny-network runs, the broad
+// violation feed for the explicit MonitorDenials opt-in, a no-op when the
+// plan carries no tag.
+func (plan CommandPlan) StartMonitor(ctx context.Context) *DenialMonitor {
+	if strings.TrimSpace(plan.MonitorTag) == "" {
+		return StartDenialMonitor(ctx, "")
+	}
+	if plan.monitorNarrow {
+		return StartNetworkDenialMonitor(ctx, plan.MonitorTag)
+	}
+	return StartDenialMonitor(ctx, plan.MonitorTag)
 }
 
 // ExecutionReport reads the structured platform-adapter report for a finished
@@ -442,6 +461,7 @@ func seatbeltCommandPlanWithProfile(spec CommandSpec, workspaceRoot string, prof
 	// The plan's monitor tag MUST equal the one embedded in the profile above so the
 	// monitor matches exactly this run's denials.
 	plan.MonitorTag = denialTag
+	plan.monitorNarrow = denialTag != "" && !policy.MonitorDenials
 	if denialTag != "" {
 		// Monitored runs get a report slot for a structured denial, the same
 		// channel the Linux helper uses. The tools fill it from the monitor
@@ -663,6 +683,12 @@ func sandboxMachLookupRule() string {
 	return "(allow mach-lookup\n  " + strings.Join(filters, "\n  ") + ")"
 }
 
+// sandboxNetworkDenialTag derives the network-only tag from a plan denial
+// tag. A hit on this tag proves a network denial of that exact run.
+func sandboxNetworkDenialTag(denialTag string) string {
+	return denialTag + "-net"
+}
+
 func seatbeltProfileFromPermissionProfile(profile PermissionProfile, policy Policy, denialTag string) string {
 	networkRule := networkRuleForProfile(profile.Network)
 	readRule := seatbeltReadRule(profile.FileSystem)
@@ -676,11 +702,10 @@ func seatbeltProfileFromPermissionProfile(profile PermissionProfile, policy Poli
 		denyDefault = `(deny default (with message "` + sandboxProfileString(denialTag) + `"))`
 	}
 	if denialTag != "" && NormalizeNetworkMode(profile.Network.Mode) == NetworkDeny {
-		// Network denials match this explicit rule rather than the default
-		// above (last-match-wins), so without their own message they would
-		// stay invisible to the monitor. Tagging only the network rule keeps
-		// auto-monitored runs quiet about unrelated file denials.
-		networkRule = `(deny network* (with message "` + sandboxProfileString(denialTag) + `"))`
+		// The network rule carries its own tag, so a tag hit alone proves a
+		// network denial of this exact run: no positional pairing with
+		// violation lines, and the stream predicate filters on the tag only.
+		networkRule = `(deny network* (with message "` + sandboxProfileString(sandboxNetworkDenialTag(denialTag)) + `"))`
 	}
 	rules := []string{
 		"(version 1)",

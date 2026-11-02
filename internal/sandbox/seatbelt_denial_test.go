@@ -14,6 +14,9 @@ func TestNetworkDenialFromBlocks(t *testing.T) {
 		want   bool
 	}{
 		{"network denial attributed", []string{network}, true},
+		{"tag-only network hit", []string{
+			"Sandbox: deny network (network access blocked by sandbox)",
+		}, true},
 		{"network denial among file denials", []string{
 			"Sandbox: python3(87035) deny(1) file-read-data /",
 			network,

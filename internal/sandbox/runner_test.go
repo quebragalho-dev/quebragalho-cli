@@ -709,8 +709,15 @@ func TestSandboxExecCommandPlanUsesUniquePerPlanDenialTag(t *testing.T) {
 	if denyPlan.MonitorTag == "" {
 		t.Fatal("a deny-network plan must carry a denial tag without MonitorDenials")
 	}
-	if !strings.Contains(strings.Join(denyPlan.Args, " "), denyPlan.MonitorTag) {
-		t.Fatalf("deny-network plan profile must embed its own tag %q:\n%v", denyPlan.MonitorTag, denyPlan.Args)
+	netTag := denyPlan.MonitorTag + "-net"
+	if !strings.Contains(strings.Join(denyPlan.Args, " "), `(deny network* (with message "`+netTag+`"))`) {
+		t.Fatalf("deny-network plan profile must tag the network rule with %q:\n%v", netTag, denyPlan.Args)
+	}
+	if !denyPlan.monitorNarrow {
+		t.Fatal("an auto-monitored deny-network plan must use the narrow network monitor")
+	}
+	if p1.monitorNarrow {
+		t.Fatal("an explicit MonitorDenials opt-in must keep the broad violation feed")
 	}
 }
 

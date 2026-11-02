@@ -45,6 +45,42 @@ func TestDenialMonitorEmptyTagIsNoop(t *testing.T) {
 	if got := monitor.Stop(); got != nil {
 		t.Fatalf("a no-op monitor must return no blocks, got %#v", got)
 	}
+	if monitor.AwaitTag() {
+		t.Fatal("a no-op monitor must never report a tag")
+	}
+	narrow := StartNetworkDenialMonitor(t.Context(), "")
+	if got := narrow.Stop(); got != nil {
+		t.Fatalf("a no-op narrow monitor must return no blocks, got %#v", got)
+	}
+	if narrow.AwaitTag() {
+		t.Fatal("a no-op narrow monitor must never report a tag")
+	}
+}
+
+func TestNarrowObserve(t *testing.T) {
+	netTag := "qg-sandbox-denied-v1-1-2-net"
+	cases := []struct {
+		name   string
+		line   string
+		wantOK bool
+	}{
+		{"tag hit", `2026-11-02 E kernel[0:1] [com.apple.sandbox.reporting:violation] ` + netTag, true},
+		{"bare tag hit", netTag, true},
+		{"header skipped", `Filtering the log data using "composedMessage CONTAINS \"` + netTag + `\""`, false},
+		{"plain tag without suffix is not a hit", `2026-11-02 E kernel[0:1] qg-sandbox-denied-v1-1-2`, false},
+		{"unrelated line", `2026-11-02 E cfprefsd[1:2] Could not open <private>`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			block, ok := narrowObserve(tc.line, netTag)
+			if ok != tc.wantOK {
+				t.Fatalf("narrowObserve(%q) ok=%v, want %v", tc.line, ok, tc.wantOK)
+			}
+			if ok && NetworkDenialFromBlocks([]string{block}) == nil {
+				t.Fatalf("narrow block %q must classify as a network denial", block)
+			}
+		})
+	}
 }
 
 func TestDenialAttributorPairsTagWithViolation(t *testing.T) {

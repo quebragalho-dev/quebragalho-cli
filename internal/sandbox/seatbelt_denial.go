@@ -14,10 +14,14 @@ import (
 func NetworkDenialFromBlocks(blocks []string) *execution.Denial {
 	for _, block := range blocks {
 		if op := seatbeltDenyOperation(block); strings.HasPrefix(op, "network") {
+			reason := "sandbox blocked network access"
+			if op != "network" {
+				reason += " (" + op + ")"
+			}
 			return &execution.Denial{
 				Capability:  execution.Capability{Kind: execution.CapabilityExternalNetwork},
 				Source:      execution.DenialSourcePlatformSandbox,
-				Reason:      "sandbox blocked network access (" + op + ")",
+				Reason:      reason,
 				Recoverable: true,
 				NextAction:  execution.DenialNextActionRequestApproval,
 			}
