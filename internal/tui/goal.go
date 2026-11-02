@@ -84,7 +84,7 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 		m.sessionEvents = append(m.sessionEvents, event)
 		message := "Meta atualizada e retomada: " + objective
 		if updated.Goal.Status == sessions.GoalStatusBudgetLimited {
-			message = "Meta atualizada, mas o orçamento de tokens segue esgotado. Aumente o orçamento ou use --tokens 0 para sem limite específico."
+			message = "Meta atualizada, mas o orçamento de tokens segue esgotado. Aumente o orçamento ou use --tokens 0 para remover o limite."
 		}
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: message})
 		return m.launchGoalContinuationIfReady()
@@ -337,7 +337,7 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 		"content": goalContinuationPrompt,
 	})
 	if err != nil {
-		return m.appendGoalError("session record error: " + err.Error()), nil
+		return m.appendGoalError("erro ao gravar a sessão: " + err.Error()), nil
 	}
 	runCtx, cancel := context.WithCancel(m.ctx)
 	m = m.beginRun(cancel)

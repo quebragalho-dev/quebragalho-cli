@@ -18,7 +18,7 @@ func (m model) handlePlanCommand(args string) (model, string) {
 		return m, m.planText()
 	case "", "on":
 		if m.pending {
-			return m, "Não dá para trocar o modo de plano com um turno em andamento."
+			return m, "Não é possível trocar o modo de planejamento com um turno em andamento."
 		}
 		if m.permissionMode == agent.PermissionModePlan {
 			return m, "Modo de planejamento\nJá ativo. Ferramentas de escrita e shell ficam ocultas até /plan off."
@@ -28,7 +28,7 @@ func (m model) handlePlanCommand(args string) (model, string) {
 		return m, "Modo de planejamento\nAtivo: planejamento só de leitura. Ferramentas de escrita e shell ficam ocultas até /plan off."
 	case "off":
 		if m.pending {
-			return m, "Não dá para trocar o modo de plano com um turno em andamento."
+			return m, "Não é possível trocar o modo de planejamento com um turno em andamento."
 		}
 		if m.permissionMode != agent.PermissionModePlan {
 			return m, "Modo de planejamento\nNão está ativo no momento."

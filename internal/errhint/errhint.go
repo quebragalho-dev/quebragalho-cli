@@ -104,13 +104,19 @@ func TUIHint(err error) string {
 	}
 }
 
+// keyEnvHintHuman renders KeyEnvHint with the conjunction translated for
+// Portuguese human text. Machine output keeps the canonical constant.
+func keyEnvHintHuman() string {
+	return strings.Replace(providercatalog.KeyEnvHint, "(or ", "(ou ", 1)
+}
+
 // CLIHint returns a one-line hint referencing `qg …` subcommands, or "" when the
 // category is Unknown. Meant for the non-interactive `qg exec` error path, where
 // slash commands don't apply.
 func CLIHint(err error) string {
 	switch Classify(err) {
 	case Auth:
-		return "Chave de API rejeitada — configure " + providercatalog.KeyEnvHint + " no ambiente ou rode `qg login`, depois rode `qg setup qg`"
+		return "Chave de API rejeitada — configure " + keyEnvHintHuman() + " no ambiente ou rode `qg login`, depois rode `qg setup qg`"
 	case RateLimit:
 		return "Limite de taxa atingido — aguarde um momento ou troque de modelo com --model"
 	case Connectivity:

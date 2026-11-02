@@ -286,7 +286,7 @@ func TestPermissionHotkeysStillResolveDirectly(t *testing.T) {
 }
 
 // feedbackRequest is a bash prompt whose decision set includes Cancel, so the
-// "tell QG what to do differently" row (and its [n] hotkey) is present.
+// "Não, e dizer ao QG como fazer" row (and its [n] hotkey) is present.
 func feedbackRequest() agent.PermissionRequest {
 	request := testPromptPermissionRequest()
 	request.ToolName = "bash"
@@ -298,7 +298,7 @@ func feedbackRequest() agent.PermissionRequest {
 	return request
 }
 
-// The [n] "tell QG what to do differently" hotkey no longer resolves cancel
+// The [n] "Não, e dizer ao QG como fazer" hotkey no longer resolves cancel
 // immediately: it opens the inline feedback field and sends nothing yet.
 func TestPermissionTellDifferentlyOpensFeedbackField(t *testing.T) {
 	var got []agent.PermissionDecision

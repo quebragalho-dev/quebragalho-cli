@@ -36,7 +36,7 @@ func TestHumanExecMessageTable(t *testing.T) {
 }
 
 func TestHumanPermissionText(t *testing.T) {
-	if got := humanPermissionAction(agent.PermissionActionPrompt); got != "pedido" {
+	if got := humanPermissionAction(agent.PermissionActionPrompt); got != "aguardando aprovação" {
 		t.Fatalf("action = %q", got)
 	}
 	if got := humanPermissionReason("network access requires approval"); got != "O acesso à rede precisa de aprovação." {
@@ -87,7 +87,7 @@ func TestPermissionTextTranslatedButJSONKept(t *testing.T) {
 		t.Fatalf("permission: %v", textWriter.err)
 	}
 	got := textErr.String()
-	for _, want := range []string{"[permission]", "bash", "pedido", "O acesso à rede precisa de aprovação."} {
+	for _, want := range []string{"[permission]", "bash", "aguardando aprovação", "O acesso à rede precisa de aprovação."} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("text permission line = %q, missing %q", got, want)
 		}
