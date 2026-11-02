@@ -355,7 +355,7 @@ var commandDefinitions = []commandDefinition{
 		name:        "/goal",
 		usage:       "/goal [--tokens N] <objective> | status | pause | resume | edit | clear",
 		group:       commandGroupSession,
-		description: "Cria e persegue um objetivo único nesta sessão.",
+		description: "Define um objetivo e trabalha nele até concluir.",
 		kind:        commandGoal,
 	},
 	{
