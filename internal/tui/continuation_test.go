@@ -622,7 +622,7 @@ func TestTUISystemPromptStableAcrossTurns(t *testing.T) {
 	// The drift must arrive as a [context update] note on the user turn, not
 	// in the cached system prefix.
 	last := lastUserMessage(provider.requests[2])
-	if !strings.HasPrefix(last.Content, "[context update]\n") {
+	if !strings.HasPrefix(last.Content, "[context update: style]\n") {
 		t.Fatalf("changed-section turn must open with the context-update note, got %q", last.Content)
 	}
 	if !strings.HasSuffix(last.Content, "third") {
