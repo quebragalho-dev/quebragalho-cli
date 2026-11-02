@@ -174,6 +174,14 @@ Coloque `qg` e `qg-linux-sandbox` no mesmo diretório do `PATH`. No macOS não
 irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 | iex
 ```
 
+Se o PowerShell bloquear o `qg.ps1` ("não pode ser carregado porque a
+execução de scripts foi desabilitada neste sistema"), use `qg.cmd`
+(ou rode pelo `cmd`), ou libere scripts locais com:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
 ## mise
 
 Este método usa o repositório privado (requer acesso).

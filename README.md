@@ -38,6 +38,11 @@ irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scrip
 qg
 ```
 
+Se o PowerShell disser que o `qg.ps1` "não pode ser carregado porque a
+execução de scripts foi desabilitada", use `qg.cmd` no lugar de `qg`
+(ou rode pelo `cmd`), ou libere scripts locais com
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
 Para escolher uma versão no Linux ou macOS, substitua `vX.Y.Z` pela versão desejada:
 
 ```bash
