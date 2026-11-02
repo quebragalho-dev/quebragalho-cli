@@ -921,12 +921,12 @@ func (m model) setupCredentialLines(width int) []string {
 		qgTheme.ink.Bold(true).Render("Sua chave de API do Quebra Galho"),
 		"",
 		"Cole a chave e pressione Enter para validar no gateway.",
-		"Ela é lida como QG_API_KEY ou QUEBRAGALHO_API_KEY no seu shell depois.",
+		"Ela também pode vir das variáveis QG_API_KEY ou QUEBRAGALHO_API_KEY.",
 		"",
 		m.setupAPIKeyInputLine(width),
 		"",
 		qgTheme.faint.Render("Chaves salvas ficam criptografadas na sua configuração."),
-		qgTheme.faint.Render("Digite de novo quando quiser com: qg login (ou qg login --device)"),
+		qgTheme.faint.Render("Para trocar a chave depois, use: qg login (ou qg login --device)"),
 	}
 }
 
