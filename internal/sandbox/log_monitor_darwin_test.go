@@ -235,16 +235,20 @@ func TestAwaitTagWakesOnTagAndBoundsMiss(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 		hit.markTagSeen()
 	}()
+	start := time.Now()
 	if !hit.AwaitTag() {
 		t.Fatal("AwaitTag must report a tag that lands during the grace")
 	}
+	if elapsed := time.Since(start); elapsed >= 15*time.Millisecond {
+		t.Fatalf("AwaitTag hit took %v, want a wake before the grace timer", elapsed)
+	}
 
 	miss := newConnected()
-	start := time.Now()
+	start = time.Now()
 	if miss.AwaitTag() {
 		t.Fatal("AwaitTag must report no tag when none lands")
 	}
-	if elapsed := time.Since(start); elapsed > 10*denialMonitorTagGrace {
+	if elapsed := time.Since(start); elapsed > 2*denialMonitorTagGrace {
 		t.Fatalf("AwaitTag miss took %v, want a bounded grace wait", elapsed)
 	}
 
