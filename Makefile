@@ -28,6 +28,8 @@ release:
 	go run ./cmd/qg-release package --goos darwin --goarch amd64 --allow-cross
 	go run ./cmd/qg-release package --goos linux  --goarch amd64 --allow-cross
 	go run ./cmd/qg-release package --goos linux  --goarch arm64 --allow-cross
+	go run ./cmd/qg-release package --goos windows --goarch amd64 --allow-cross
+	go run ./cmd/qg-release package --goos windows --goarch arm64 --allow-cross
 	go run ./cmd/qg-release verify
 
 # Run the full test suite with the race detector (matches CI expectations).

@@ -34,6 +34,19 @@ function Get-QGLatestTag {
 }
 
 function Get-QGArch {
+  # Under emulation (an x86/x64 PowerShell on ARM64 Windows) .NET reports the
+  # emulated architecture, so prefer the host arch Windows stashes in
+  # PROCESSOR_ARCHITEW6432 (absent on native processes, where the regular
+  # variable already names the host arch).
+  $hostArch = $env:PROCESSOR_ARCHITEW6432
+  if ([string]::IsNullOrWhiteSpace($hostArch)) {
+    $hostArch = $env:PROCESSOR_ARCHITECTURE
+  }
+  switch ($hostArch.ToUpperInvariant()) {
+    "ARM64" { return "arm64" }
+    "AMD64" { return "x64" }
+  }
+
   $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
 
   switch ($arch) {

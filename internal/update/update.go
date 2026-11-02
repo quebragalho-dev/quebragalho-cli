@@ -273,9 +273,6 @@ func publishedReleaseTarget(goos, goarch string) string {
 		return ""
 	}
 	target := platform + "-" + arch
-	if target == "windows-arm64" {
-		return ""
-	}
 	return target
 }
 

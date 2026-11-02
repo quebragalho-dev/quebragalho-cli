@@ -30,7 +30,8 @@ plus per-platform payloads carrying the native binaries.
 ├─ @quebragalho-dev/cli-darwin-x64   -> npm:@quebragalho-dev/cli@{version}-darwin-x64
 ├─ @quebragalho-dev/cli-linux-arm64  -> npm:@quebragalho-dev/cli@{version}-linux-arm64
 ├─ @quebragalho-dev/cli-linux-x64    -> npm:@quebragalho-dev/cli@{version}-linux-x64
-└─ @quebragalho-dev/cli-win32-x64    -> npm:@quebragalho-dev/cli@{version}-win32-x64
+├─ @quebragalho-dev/cli-win32-x64    -> npm:@quebragalho-dev/cli@{version}-win32-x64
+└─ @quebragalho-dev/cli-win32-arm64  -> npm:@quebragalho-dev/cli@{version}-win32-arm64
 ```
 
 - The platform "packages" are **versions of the same `@quebragalho-dev/cli` package**,
@@ -51,8 +52,10 @@ plus per-platform payloads carrying the native binaries.
   exact-version `optionalDependencies`. (The repo `package.json` keeps
   `agent-browser`/`tuistory` in `dependencies` purely as the version pins for
   the vendored helpers tree; they are never installed by consumers.)
-- There is **no windows-arm64 build** (matches the release matrix); Windows on
-  ARM runs the x64 build under emulation via the first-run fallback.
+- There is **no windows-arm64 agent-browser helper binary** (upstream ships no
+  win32-arm64 build); the win32-arm64 payload stages the x64 helper under the
+  arm64 name the launcher resolves, so it runs under emulation on Windows on
+  ARM while `qg.exe` itself is native.
 
 ### Binary resolution in `bin/qg.js`
 
@@ -66,8 +69,7 @@ plus per-platform payloads carrying the native binaries.
    verified against the release's own checksum file, no zip-slip), invoked by
    the wrapper itself. Failures are deliberately not cached — the fetch
    retries on every run until a binary is in place, so a transient network
-   error self-heals. Platforms with no release asset (anything outside the
-   matrix above, including windows-arm64) skip the attempt entirely rather
+   error self-heals. Platforms outside the matrix above skip the attempt entirely rather
    than probing the network each run.
 4. If the download is impossible too, print build-from-source guidance.
 

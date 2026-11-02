@@ -200,15 +200,14 @@ function platformPackageBinary() {
 }
 
 // Mirrors the release matrix (internal/release/release.go): the platforms a
-// GitHub Release asset exists for. android maps to the linux asset; there is
-// no windows-arm64 asset (Windows on ARM runs the x64 build under emulation).
+// GitHub Release asset exists for. android maps to the linux asset.
 function releaseAssetAvailable() {
   const platform = { linux: 'linux', android: 'linux', darwin: 'macos', win32: 'windows' }[
     process.platform
   ];
   const arch = process.arch === 'x64' || process.arch === 'arm64' ? process.arch : null;
   if (!platform || !arch) return false;
-  return !(platform === 'windows' && arch === 'arm64');
+  return true;
 }
 
 // Fallback for installs without a platform package (--omit=optional, package

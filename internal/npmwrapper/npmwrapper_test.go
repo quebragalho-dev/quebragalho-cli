@@ -133,6 +133,7 @@ func TestPostinstallComputesAssetPlan(t *testing.T) {
 		{"linux", "x64", "qg-v" + version + "-linux-x64.tar.gz", "qg"},
 		{"darwin", "arm64", "qg-v" + version + "-macos-arm64.tar.gz", "qg"},
 		{"win32", "x64", "qg-v" + version + "-windows-x64.zip", "qg.exe"},
+		{"win32", "arm64", "qg-v" + version + "-windows-arm64.zip", "qg.exe"},
 	}
 	for _, tc := range cases {
 		stdout, stderr, err := runPostinstall(t,
@@ -185,23 +186,21 @@ func TestPostinstallSkipsUnsupportedPlatform(t *testing.T) {
 	}
 }
 
-func TestPostinstallSkipsWindowsArm64(t *testing.T) {
-	// (win32, arm64) resolves to a valid platform/arch but the release matrix has
-	// no windows-arm64 artifact, so the install must skip gracefully (exit 0)
-	// rather than hard-fail on a 404 download.
+func TestPostinstallPlansWindowsArm64(t *testing.T) {
+	// windows-arm64 now ships a native release asset (see the release matrix),
+	// so the dry-run must print a windows-arm64 plan instead of skipping.
 	stdout, stderr, err := runPostinstall(t,
 		"QG_INSTALL_DRY_RUN=1",
 		"QG_INSTALL_PLATFORM=win32",
 		"QG_INSTALL_ARCH=arm64",
 	)
 	if err != nil {
-		t.Fatalf("windows-arm64 should exit 0, got err=%v stderr=%s", err, stderr)
+		t.Fatalf("windows-arm64 dry-run err=%v stderr=%s", err, stderr)
 	}
-	if strings.TrimSpace(stdout) != "" {
-		t.Fatalf("windows-arm64 should not print a plan, got %q", stdout)
-	}
-	if !strings.Contains(stderr, "no prebuilt binary for windows-arm64") {
-		t.Fatalf("stderr=%q, want the windows-arm64 skip message", stderr)
+	version := packageVersion(t)
+	want := "qg-v" + version + "-windows-arm64.zip"
+	if !strings.Contains(stdout, want) {
+		t.Fatalf("windows-arm64 plan should mention %q, got stdout=%q stderr=%q", want, stdout, stderr)
 	}
 }
 

@@ -128,7 +128,7 @@ an approved feature.
 
 ## Supported platforms
 
-QG publishes five native prebuilt artifacts from
+QG publishes six native prebuilt artifacts from
 `.github/workflows/release-artifacts.yml`:
 
 - `linux-x64` (`linux/amd64`)
@@ -136,11 +136,12 @@ QG publishes five native prebuilt artifacts from
 - `macos-arm64` (`darwin/arm64`)
 - `macos-x64` (`darwin/amd64`)
 - `windows-x64` (`windows/amd64`)
+- `windows-arm64` (`windows/arm64`)
 
 The shell installer and npm wrapper resolve the applicable artifacts from that
-list. The PowerShell installer supports the published `windows-x64` artifact;
-there is no native Windows ARM64 artifact. Windows on ARM users can run the x64
-build under emulation or build from source.
+list. The PowerShell installer supports the published `windows-x64` and
+`windows-arm64` artifacts; it detects ARM64 even when PowerShell itself runs
+emulated (via `PROCESSOR_ARCHITEW6432`).
 
 Android/Termux is also supported even though it has no distinct release
 artifact. The npm wrapper maps Android to the Linux artifact, and

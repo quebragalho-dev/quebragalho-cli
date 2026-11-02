@@ -191,14 +191,14 @@ Os arquivos se chamam:
 - `qg-v<versão>-windows-<arq>.zip`
 
 Alvos suportados: `macos-x64`, `macos-arm64`, `linux-x64`, `linux-arm64`,
-`windows-x64` (Windows em ARM roda o build x64 emulação).
+`windows-x64`, `windows-arm64`.
 
 Cada arquivo tem um `.sha256` correspondente — os scripts de instalação
 baixam os dois, verificam o checksum e só então copiam o binário. Os arquivos
 são produzidos localmente com:
 
 ```bash
-make release   # cross-build dos 4 alvos unix + checksums + verify
+make release   # cross-build dos 6 alvos + checksums + verify
 ```
 
 Dentro do tarball estão o binário `qg`, o symlink `quebragalho` (alias real),

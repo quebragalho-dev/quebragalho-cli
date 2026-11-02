@@ -20,7 +20,7 @@
 // See docs/NPM_PACKAGING.md for the publishing rules this feeds.
 //
 // Archives are verified against their .sha256 files before extraction. All
-// five platforms are required unless --only limits the set (testing only —
+// six platforms are required unless --only limits the set (testing only —
 // CI must always assemble the full matrix, and the wrapper's
 // optionalDependencies always reference the full matrix regardless).
 //
@@ -51,14 +51,14 @@ const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 // Node platform/arch names (they name the alias suffixes so bin/qg.js can
 // derive its platform package from process.platform/process.arch) mapped to
-// the release asset naming from internal/release/release.go. windows-arm64 is
-// deliberately absent — the release matrix does not build it.
+// the release asset naming from internal/release/release.go.
 const MATRIX = [
   { platform: 'darwin', arch: 'arm64', release: 'macos-arm64', ext: 'tar.gz' },
   { platform: 'darwin', arch: 'x64', release: 'macos-x64', ext: 'tar.gz' },
   { platform: 'linux', arch: 'arm64', release: 'linux-arm64', ext: 'tar.gz' },
   { platform: 'linux', arch: 'x64', release: 'linux-x64', ext: 'tar.gz' },
   { platform: 'win32', arch: 'x64', release: 'windows-x64', ext: 'zip' },
+  { platform: 'win32', arch: 'arm64', release: 'windows-arm64', ext: 'zip' },
 ];
 
 // Files staged into release archives for the shell installers / humans that
@@ -230,6 +230,20 @@ function materializeSymlinks(dir) {
 function pruneAgentBrowserBinaries(packageDir, entry) {
   const binDir = join(packageDir, 'helpers', 'node_modules', 'agent-browser', 'bin');
   if (!existsSync(binDir)) return;
+  // agent-browser ships no win32-arm64 binary; the win32-x64 build runs under
+  // emulation on Windows on ARM, so stage it under the arm64 name the
+  // launcher resolves (getBinaryName derives it from process.arch).
+  if (entry.platform === 'win32' && entry.arch === 'arm64') {
+    const x64 = join(binDir, 'agent-browser-win32-x64.exe');
+    const arm64 = join(binDir, 'agent-browser-win32-arm64.exe');
+    if (!existsSync(x64)) fail(`agent-browser helpers tree has no win32 binary to stage for win32-arm64`);
+    if (!existsSync(arm64)) {
+      cpSync(x64, arm64);
+      // The payload only ever runs on arm64; nothing references the x64 name.
+      rmSync(x64);
+    }
+    return;
+  }
   const keep = new Set(
     entry.platform === 'linux'
       ? [`linux-${entry.arch}`, `linux-musl-${entry.arch}`]
