@@ -1504,9 +1504,9 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 			lines = append(lines, "  "+fill(qgTheme.muted).Render(typeOwn))
 		}
 		lines = append(lines, "")
-		footer := "↑↓ selecionar · enter confirmar · esc fechar"
+		footer := "↑↓ mover · enter confirmar · esc fechar"
 		if multi {
-			footer = "⇆ tab · ↑↓ selecionar · enter confirmar · esc fechar"
+			footer = "⇆ tab · ↑↓ mover · enter confirmar · esc fechar"
 		}
 		lines = append(lines, fill(qgTheme.faint).Render(footer))
 		return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
