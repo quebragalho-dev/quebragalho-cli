@@ -140,8 +140,9 @@ a platform payload too — and updates via `npm install -g @quebragalho-dev/cli@
 
 The vendored helper versions are pinned by the repo `package.json`
 `dependencies` + `package-lock.json`; the release build vendors exactly what
-the lockfile resolves. No `^range` surprises ship: a release carries what its
-lockfile pinned at build time.
+the lockfile resolves. `agent-browser` carries no range at all (exact
+`0.27.0`), so no `npm install` can float it past the `engines: node >=24`
+floor; other helpers stay `^`-pinned to the lockfile.
 
 - Routine bump: `npm install agent-browser@<version>` (or `tuistory@…`) in the
   repo to update pin + lockfile, verify the browser/terminal tools end-to-end,

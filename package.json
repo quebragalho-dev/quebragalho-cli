@@ -16,7 +16,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "agent-browser": "^0.27.0",
+    "agent-browser": "0.27.0",
     "tuistory": "^0.10.0"
   },
   "os": [

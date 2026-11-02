@@ -57,7 +57,7 @@ node /tmp/qg-sim/node_modules/@quebragalho-dev/cli/bin/qg.js --version
   `package.json` is `@quebragalho-dev/cli@<version>-<platform>-<arch>` with matching
   `os`/`cpu`, contains the executable binary and the vendored `helpers/` tree
   with regular-file (non-symlink) `.bin` shims, and a wrapper payload with no
-  scripts, no dependencies, and the full five-alias `optionalDependencies`
+  scripts, no dependencies, and the full six-alias `optionalDependencies`
   matrix.
 - `scripts/postinstall.mjs` (the first-run fallback) resolves the correct
   release asset name/URL per platform (`QG_INSTALL_DRY_RUN=1` prints the

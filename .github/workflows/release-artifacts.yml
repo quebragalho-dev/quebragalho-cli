@@ -112,7 +112,7 @@ jobs:
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes 2>/dev/null || true
           gh release upload "$tag" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber
 
-  # Publishes @quebragalho-dev/cli to npm: first the five platform payloads (versions
+  # Publishes @quebragalho-dev/cli to npm: first the six platform payloads (versions
   # of the SAME package at suffixed versions like X.Y.Z-linux-x64, carrying the
   # native binary + vendored helpers), then the wrapper at X.Y.Z whose
   # optionalDependencies alias those platform versions. Platform versions MUST
