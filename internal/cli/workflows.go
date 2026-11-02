@@ -1087,7 +1087,7 @@ func runChangesPR(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 	// probe fails, the subsequent push or PR operation provides fail-closed behavior.
 	if deps.isUnbornRemote != nil {
 		if unborn, unbornErr := deps.isUnbornRemote(context.Background(), workspaceRoot, targetRemote); unbornErr == nil && unborn {
-			return writeExecUsageError(stderr, fmt.Sprintf("não é possível abrir pull request no remoto %s, que ainda está vazio", targetRemote))
+			return writeExecUsageError(stderr, fmt.Sprintf("não é possível abrir pull request no remoto %s, que ainda está vazio; envie primeiro a branch padrão", targetRemote))
 		}
 	}
 

@@ -227,6 +227,49 @@ func TestRunPluginAddListRemove(t *testing.T) {
 	if !strings.Contains(stdout.String(), "qg.demo") || !strings.Contains(stdout.String(), "manifest:") {
 		t.Fatalf("info output missing plugin details:\n%s", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "hash divergente: não") {
+		t.Fatalf("info missing hash drift status:\n%s", stdout.String())
+	}
+
+	// Editing the installed manifest flips the drift status, the same way a
+	// skill edit does: text shows "sim" and --json reports hashDrift true.
+	manifestPath := filepath.Join(pluginsDir, "qg.demo", "plugin.json")
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read installed manifest: %v", err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("parse installed manifest: %v", err)
+	}
+	manifest["version"] = "0.2.0"
+	edited, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal edited manifest: %v", err)
+	}
+	if err := os.WriteFile(manifestPath, edited, 0o644); err != nil {
+		t.Fatalf("write edited manifest: %v", err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if exit := runWithDeps([]string{"plugin", "info", "qg.demo"}, &stdout, &stderr, deps); exit != 0 {
+		t.Fatalf("plugin info after edit exit = %d, stderr = %s", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "hash divergente: sim") {
+		t.Fatalf("info missing hash drift after edit:\n%s", stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if exit := runWithDeps([]string{"plugin", "info", "qg.demo", "--json"}, &stdout, &stderr, deps); exit != 0 {
+		t.Fatalf("plugin info --json after edit exit = %d, stderr = %s", exit, stderr.String())
+	}
+	var afterJSON map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &afterJSON); err != nil {
+		t.Fatalf("parse plugin info json after edit: %v\n%s", err, stdout.String())
+	}
+	if afterJSON["hashDrift"] != true {
+		t.Fatalf("hashDrift after edit = %#v, want true", afterJSON["hashDrift"])
+	}
 
 	// remove
 	stdout.Reset()

@@ -621,7 +621,7 @@ func TestRunVerifyAttemptsFormatsSelfVerifyText(t *testing.T) {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Autoverificação QG", "raiz: " + cwd, "parada: passed", "tentativa 1: falhou", "correção: aplicada - prepared retry", "tentativa 2: passou"} {
+	for _, want := range []string{"Autoverificação QG", "raiz: " + cwd, "parada: passed", "resumo: total: 1, aprovados: 1, reprovados: 0, com erro: 0", "tentativa 1: falhou", "correção: aplicada - prepared retry", "tentativa 2: passou"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output: %q", want, output)
 		}
@@ -2038,7 +2038,7 @@ func TestRunChangesPRRejectsUnbornRemoteEvenWithYes(t *testing.T) {
 	if !isUnbornRemoteCalled {
 		t.Fatal("expected isUnbornRemote to be consulted even when --yes is passed")
 	}
-	if !strings.Contains(stderr.String(), "não é possível abrir pull request no remoto origin, que ainda está vazio") {
+	if !strings.Contains(stderr.String(), "não é possível abrir pull request no remoto origin, que ainda está vazio; envie primeiro a branch padrão") {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
@@ -3021,7 +3021,7 @@ func TestRunChangesPRYesRejectsUnbornNonOriginUpstream(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("expected exit code %d, got %d: %s", exitUsage, exitCode, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "não é possível abrir pull request no remoto upstream, que ainda está vazio") {
+	if !strings.Contains(stderr.String(), "não é possível abrir pull request no remoto upstream, que ainda está vazio; envie primeiro a branch padrão") {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }

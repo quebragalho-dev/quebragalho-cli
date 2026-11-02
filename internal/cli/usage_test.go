@@ -240,7 +240,7 @@ func TestRunUsageUnknownFlag(t *testing.T) {
 func TestRunUsageEmptySessionRejected(t *testing.T) {
 	// The "=" form is validated by the usage command itself (pt-BR message).
 	// The spaced form goes through the shared nextFlagValue helper owned by
-	// PR5, so only the exit code is asserted for it — never the language.
+	// the shared flag parser, so only the exit code is asserted for it — never the language.
 	equalsCases := []struct {
 		name string
 		args []string

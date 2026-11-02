@@ -186,7 +186,7 @@ func parseHooksTargetArgs(args []string, command string) (hookTargetOptions, []s
 			options.user = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return options, positional, false, execUsageError{fmt.Sprintf("flag hooks %s desconhecida %q", command, arg)}
+				return options, positional, false, execUsageError{fmt.Sprintf("flag desconhecida em hooks %s: %q", command, arg)}
 			}
 			positional = append(positional, arg)
 		}
@@ -280,7 +280,7 @@ func parseHooksAddArgs(args []string) (hookAddOptions, bool, error) {
 			}
 			options.def.Args = append(options.def.Args, value)
 		case strings.HasPrefix(arg, "-"):
-			return options, false, execUsageError{fmt.Sprintf("flag hooks add desconhecida %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag desconhecida em hooks add: %q", arg)}
 		case options.def.ID == "":
 			options.def.ID = arg
 		default:

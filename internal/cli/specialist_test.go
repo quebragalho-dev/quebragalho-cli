@@ -408,3 +408,48 @@ func TestSpecialistValidateRequiresDescriptionStaysEnglish(t *testing.T) {
 		t.Fatalf("Validate error must stay English, got %q", err.Error())
 	}
 }
+
+func TestRunSpecialistCreateNodescJSONStaysEnglish(t *testing.T) {
+	setSpecialistConfigRoot(t)
+	deps := appDeps{getwd: func() (string, error) { return t.TempDir(), nil }}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"specialist", "create", "nodesc", "--json"}, &stdout, &stderr, deps)
+	if exitCode != exitUsage {
+		t.Fatalf("exitCode = %d, want usage", exitCode)
+	}
+	if got, want := stderr.String(), "[qg] specialist \"nodesc\" requires a description\n"; got != want {
+		t.Fatalf("json stderr = %q, want %q", got, want)
+	}
+	if strings.Contains(stdout.String(), "precisa de uma descrição") {
+		t.Fatalf("json output must not carry the human translation: %q", stdout.String())
+	}
+}
+
+func TestRunSpecialistCreateExtendsWorkerSucceeds(t *testing.T) {
+	setSpecialistConfigRoot(t)
+	deps := appDeps{getwd: func() (string, error) { return t.TempDir(), nil }}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"specialist", "create", "ext", "--extends", "worker"}, &stdout, &stderr, deps)
+	if exitCode != exitSuccess {
+		t.Fatalf("exitCode = %d, want success: stderr=%s", exitCode, stderr.String())
+	}
+}
+
+func TestRunSpecialistCreateBadNameReportsInvalidName(t *testing.T) {
+	setSpecialistConfigRoot(t)
+	deps := appDeps{getwd: func() (string, error) { return t.TempDir(), nil }}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"specialist", "create", "Bad Name"}, &stdout, &stderr, deps)
+	if exitCode != exitUsage {
+		t.Fatalf("exitCode = %d, want usage", exitCode)
+	}
+	if !strings.Contains(stderr.String(), `invalid specialist name "Bad Name"`) {
+		t.Fatalf("expected invalid-name error, got %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "precisa de uma descrição") {
+		t.Fatalf("name validation must run before the description guard: %q", stderr.String())
+	}
+}

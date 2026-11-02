@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -271,9 +272,6 @@ func runSpecialistShow(paths specialist.Paths, name string, options specialistOp
 }
 
 func runSpecialistCreate(paths specialist.Paths, name string, options specialistOptions, stdout io.Writer, stderr io.Writer) int {
-	if !options.json && strings.TrimSpace(options.description) == "" && strings.TrimSpace(options.extends) == "" {
-		return writeExecUsageError(stderr, fmt.Sprintf("O especialista %q precisa de uma descrição (--description).", name))
-	}
 	storage := specialist.NewStorage(paths)
 	manifest, err := storage.Create(specialist.CreateInput{
 		Name:            name,
@@ -287,6 +285,9 @@ func runSpecialistCreate(paths specialist.Paths, name string, options specialist
 		Overwrite:       options.force,
 	})
 	if err != nil {
+		if !options.json && errors.Is(err, specialist.ErrDescriptionRequired) {
+			return writeExecUsageError(stderr, fmt.Sprintf("O especialista %q precisa de uma descrição (--description).", name))
+		}
 		return writeExecUsageError(stderr, err.Error())
 	}
 	return writeSpecialistCreateResult(manifest, options.json, stdout, stderr)
