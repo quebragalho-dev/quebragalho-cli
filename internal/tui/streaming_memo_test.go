@@ -61,9 +61,10 @@ func TestStreamingStyledLinesSurviveThemeChange(t *testing.T) {
 	}
 }
 
-// TestStreamingMemosStayBounded pins the memory caps: past 4096 distinct
-// entries each table drops and recomputes instead of growing with the stream.
-// Values stay correct across the drop.
+// TestStreamingMemosStayBounded pins the memory bound behaviorally: filling
+// both tables with megabytes of wide lines must keep retained bytes flat
+// (tables drop and recompute instead of growing with the stream) and every
+// value must still render correctly afterwards.
 func TestStreamingMemosStayBounded(t *testing.T) {
 	for i := 0; i < 5000; i++ {
 		cachedDisplayWidth(fmt.Sprintf("word-%d", i))
@@ -79,18 +80,51 @@ func TestStreamingMemosStayBounded(t *testing.T) {
 	}
 
 	resetStreamingMarkdownCache()
-	for i := 0; i < 5000; i++ {
-		streamMemoLine(false, fmt.Sprintf("plain line %d", i), func() string { return "x" })
-		streamMemoLine(true, fmt.Sprintf("marker line %d", i), func() string { return "y" })
+	wide := strings.Repeat("👩‍👩‍👧‍👦", 40) + strings.Repeat("x", 200)
+	for i := 0; i < 3000; i++ {
+		line := fmt.Sprintf("plain %d %s", i, wide)
+		if got := streamMemoLine(false, line, func() string { return "v:" + line }); got != "v:"+line {
+			t.Fatalf("ink memo returned %q", got)
+		}
+		mline := fmt.Sprintf("with "+markdownBoldStart+"bold %d %s"+markdownBoldEnd+" inside", i, wide)
+		if got := streamMemoLine(true, mline, func() string { return "w:" + mline }); got != "w:"+mline {
+			t.Fatalf("marker memo returned %q", got)
+		}
 	}
-	streamMarkdownCache.mu.Lock()
-	inkEntries, markerEntries := len(streamMarkdownCache.inkLines), len(streamMarkdownCache.markerLines)
-	streamMarkdownCache.mu.Unlock()
-	if inkEntries > streamingStyledMemoMaxEntries || markerEntries > streamingStyledMemoMaxEntries {
-		t.Fatalf("styled memos hold %d/%d entries, want at most %d each", inkEntries, markerEntries, streamingStyledMemoMaxEntries)
-	}
-	if got := streamMemoLine(false, "plain line 7", func() string { return "x" }); got != "x" {
-		t.Fatalf("styled memo after overflow = %q, want recomputed value", got)
+	inkBytes, markerBytes := streamingStyledMemoBytes()
+	const maxReasonable = 3 << 20
+	if inkBytes > maxReasonable || markerBytes > maxReasonable {
+		t.Fatalf("styled memos retain %d/%d bytes after overfill, want bounded tables", inkBytes, markerBytes)
 	}
 	resetStreamingMarkdownCache()
+	if ink, _ := streamingStyledMemoBytes(); ink != 0 {
+		t.Fatalf("reset must clear styled memos, ink holds %d bytes", ink)
+	}
+}
+
+// TestStreamingThemeResetWithNilSharedCache pins the theme-reset guarantee
+// when the shared LRU is disabled (tests only): the streaming memo still
+// holds painted lines, so applyTheme must zero it through its own path.
+func TestStreamingThemeResetWithNilSharedCache(t *testing.T) {
+	previous := qgTheme
+	previousCache := defaultRenderCache
+	defer func() {
+		qgTheme = previous
+		defaultRenderCache = previousCache
+		rebuildStreamingFadePalette()
+		resetStreamingMarkdownCache()
+	}()
+
+	resetStreamingMarkdownCache()
+	defaultRenderCache = nil
+	m := model{}
+	line := "plain prose line"
+	before := m.styleStreamingLine(line, 0, 1)
+	if before != qgTheme.ink.Render(line) {
+		t.Fatalf("setup: unstyled line = %q, want base ink render", before)
+	}
+	applyTheme("nord", true)
+	if got := m.styleStreamingLine(line, 0, 1); got != qgTheme.ink.Render(line) {
+		t.Fatalf("after theme change with nil shared cache: got %q, want fresh ink render %q", got, qgTheme.ink.Render(line))
+	}
 }

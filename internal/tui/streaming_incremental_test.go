@@ -43,6 +43,7 @@ func streamingIncrementalCorpus() []string {
 		fence + "py\ncode1\n\ncode2\n" + fence + "\nmore",
 		"\n\n# Title after leading blanks\n\nBody after the title.",
 		fence + "\n" + fence + "\n\ntail after empty fence",
+		"Intro para.\n\n" + fence + "\ncode\n" + fence + "\n\ntail",
 	}
 }
 
@@ -132,5 +133,41 @@ func TestStreamingRenderDoesNotChurnSharedCache(t *testing.T) {
 	}
 	if after != before {
 		t.Fatalf("shared cache stats changed on repeat streaming render: before=%+v after=%+v", before, after)
+	}
+}
+
+// TestStreamingIncrementalBackwardHeadRecompute pins the trailing-blank
+// transition: a whitespace-only final line that receives text absorbs the
+// phantom trailing blank run, so the head resets instead of growing and the
+// frame recomputes from scratch. Output stays byte-identical either way.
+func TestStreamingIncrementalBackwardHeadRecompute(t *testing.T) {
+	for _, width := range []int{16, 50, 80, 120} {
+		resetStreamingMarkdownCache()
+		first := "para\n  "
+		second := "para\n  - x"
+		_ = renderStreamingAssistantMarkdownText(first, width, width)
+		got := strings.Join(renderStreamingAssistantMarkdownText(second, width, width), "\n")
+		want := strings.Join(renderAssistantMarkdownText(streamingMarkdownStablePrefix(second), width, width, true), "\n")
+		if got != want {
+			t.Fatalf("width=%d: backward head differs:\ngot:  %q\nwant: %q", width, got, want)
+		}
+	}
+}
+
+// TestStreamingIncrementalBareFlipRecomputes pins the whole-text bare-code
+// contract across a flip: an all-code head standing while the tail turns the
+// whole answer into a bare code block must fall back to the integral render,
+// not compose a prose head with a highlighted tail.
+func TestStreamingIncrementalBareFlipRecomputes(t *testing.T) {
+	full := "import os\n\nimport sys\nprint(os.getcwd())"
+	for _, width := range []int{50, 80} {
+		resetStreamingMarkdownCache()
+		for _, prefix := range []string{"import os", "import os\n", "import os\n\nimport sys", full} {
+			got := strings.Join(renderStreamingAssistantMarkdownText(prefix, width, width), "\n")
+			want := strings.Join(renderAssistantMarkdownText(streamingMarkdownStablePrefix(prefix), width, width, true), "\n")
+			if got != want {
+				t.Fatalf("width=%d prefix %q differs:\ngot:  %q\nwant: %q", width, prefix, got, want)
+			}
+		}
 	}
 }

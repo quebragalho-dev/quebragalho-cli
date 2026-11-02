@@ -108,6 +108,10 @@ func applyTheme(mode themeMode, terminalDark bool) themeMode {
 		// clear also resets the streaming incremental state, so this stays
 		// the single invalidation point on theme change.
 		defaultRenderCache.clear()
+	} else {
+		// The shared cache can be disabled in tests while the streaming
+		// memo still holds painted lines: reset it unconditionally.
+		resetStreamingMarkdownCache()
 	}
 	return resolved
 }

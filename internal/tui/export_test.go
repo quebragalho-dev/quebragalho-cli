@@ -119,6 +119,15 @@ func (c *staticRenderCache) retainedCharacters() int {
 	return c.retained
 }
 
+// streamingStyledMemoBytes reports retained key+value bytes across both
+// styled-line tables, so tests can pin the memory bound without naming the
+// cap constant.
+func streamingStyledMemoBytes() (int, int) {
+	streamMarkdownCache.mu.Lock()
+	defer streamMarkdownCache.mu.Unlock()
+	return streamMarkdownCache.ink.bytes, streamMarkdownCache.marker.bytes
+}
+
 func (c *staticRenderCache) stats() renderCacheStats {
 	if c == nil {
 		return renderCacheStats{}
