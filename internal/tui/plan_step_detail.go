@@ -322,7 +322,7 @@ func (m model) planStepExplanationLines(step planStep, explanation string, loadi
 	case "in_progress":
 		return planWrapText("Trabalho em andamento. Alterações e comandos aparecem abaixo conforme acontecem.", 76)
 	default: // pending
-		return planWrapText("Este passo está na fila e ainda não começou. Quando o agente chegar nele, as alterações de arquivo e os comandos aparecem aqui.", 76)
+		return planWrapText("Quando o agente chegar nele, alterações e comandos aparecem aqui.", 76)
 	}
 }
 
