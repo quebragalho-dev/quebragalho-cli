@@ -112,7 +112,7 @@ func TestRunWithContinuationAnnouncesChangedSections(t *testing.T) {
 	if last.Role != qgruntime.MessageRoleUser {
 		t.Fatalf("last message role = %q, want user", last.Role)
 	}
-	want := "[context update: style]\n" + conciseStyleSection + "\n\nSim"
+	want := "[context update: style]\n" + conciseStyleSection + "\n" + contextUpdateEndMarker + "\n\nSim"
 	if last.Content != want {
 		t.Fatalf("last user message = %q, want %q", last.Content, want)
 	}

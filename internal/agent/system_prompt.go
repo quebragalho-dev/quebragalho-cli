@@ -248,6 +248,7 @@ var sectionFrozenMarker = map[string]string{
 	sectionKeyDelegation:     "<specialists>",
 	sectionKeySkills:         "<available_skills>",
 	sectionKeyStyle:          "Response style:",
+	sectionKeyPolicy:         "# Confirmation Policy",
 }
 
 // contextUpdateNote lists the sections whose current value differs from the
@@ -276,7 +277,7 @@ func contextUpdateNote(parts systemPromptParts, continuation []qgruntime.Message
 				continue
 			}
 		} else if present {
-			if sectionAnnounced(raw[key], continuation) {
+			if frozenSectionMatches(key, raw[key], continuation) {
 				continue
 			}
 		} else if marker, ok := sectionFrozenMarker[key]; !ok || !strings.Contains(frozen, marker) {
@@ -284,7 +285,7 @@ func contextUpdateNote(parts systemPromptParts, continuation []qgruntime.Message
 		} else {
 			body = "(removed)"
 		}
-		missing = append(missing, "[context update: "+key+"]\n"+body)
+		missing = append(missing, "[context update: "+key+"]\n"+body+"\n"+contextUpdateEndMarker)
 	}
 	if len(missing) == 0 {
 		return ""
@@ -317,62 +318,137 @@ func noteSectionBody(text string) string {
 	return strings.Trim(text, "\n")
 }
 
-// sectionAnnounced reports whether section already appears in the history,
-// either in the frozen system message or in a prior note.
-func sectionAnnounced(section string, continuation []qgruntime.Message) bool {
-	for _, msg := range continuation {
-		if strings.Contains(msg.Content, section) {
+// contextUpdateEndMarker closes every [context update] block so the recorded
+// body is delimited exactly. Without it the last block in a note absorbs the
+// trailing user prompt, forcing prefix matching that hides a later FIM cut.
+const contextUpdateEndMarker = "[/context update]"
+
+// frozenSectionMatches reports whether the current body for key equals the
+// frozen system value for that same key. The frozen value is extracted from
+// the first system message by section limits (start marker to the next
+// section's marker), never by substring, so a truncated tail that remains a
+// substring of the full form still compares as different.
+func frozenSectionMatches(key, section string, continuation []qgruntime.Message) bool {
+	currentBody := noteSectionBody(section)
+	frozen := firstFrozenSystem(continuation)
+	if frozen == "" {
+		return false
+	}
+	marker, ok := sectionFrozenMarker[key]
+	if !ok {
+		// Keys without a stable head (free-form text) cannot be extracted by
+		// limits; fall back to delimited presence in the frozen prompt.
+		if frozen == section {
 			return true
 		}
+		if strings.HasPrefix(frozen, section+"\n\n") {
+			return true
+		}
+		if strings.HasSuffix(frozen, "\n\n"+section) {
+			return true
+		}
+		return strings.Contains(frozen, "\n\n"+section+"\n\n")
 	}
-	return false
+	extracted, ok := frozenSectionForKey(frozen, key, marker)
+	if !ok {
+		return false
+	}
+	return noteSectionBody(extracted) == currentBody
 }
 
-// lastAnnouncedSections replays the history in order and records, per section
-// key, the body of its most recent [context update] note. Keys without a note
-// keep the frozen system value. A trailing user prompt after the last note is
-// part of the recorded body, so a block matches when it equals the section
-// body or starts with the body plus the note separator.
+// firstFrozenSystem returns the first system message content in history, the
+// frozen prompt the run started from. Later system messages (compaction
+// summaries) only widen removal detection, never value comparison.
+func firstFrozenSystem(continuation []qgruntime.Message) string {
+	for _, msg := range continuation {
+		if msg.Role == qgruntime.MessageRoleSystem {
+			return msg.Content
+		}
+	}
+	return ""
+}
+
+// frozenSectionForKey extracts the section starting at marker from the frozen
+// prompt, ending at the next later section's marker or the prompt end.
+func frozenSectionForKey(frozen, key, marker string) (string, bool) {
+	start := strings.Index(frozen, marker)
+	if start < 0 {
+		return "", false
+	}
+	orderIdx := -1
+	for i, k := range sectionBuildOrder {
+		if k == key {
+			orderIdx = i
+			break
+		}
+	}
+	if orderIdx < 0 {
+		return "", false
+	}
+	end := len(frozen)
+	for _, later := range sectionBuildOrder[orderIdx+1:] {
+		laterMarker, ok := sectionFrozenMarker[later]
+		if !ok || laterMarker == "" {
+			continue
+		}
+		if rel := strings.Index(frozen[start+len(marker):], laterMarker); rel >= 0 {
+			candidate := start + len(marker) + rel
+			if candidate < end {
+				end = candidate
+			}
+		}
+	}
+	section := strings.Trim(frozen[start:end], "\n")
+	return section, true
+}
+
+// lastAnnouncedSections replays user notes in order and records, per section
+// key, the exact body of its most recent [context update] block delimited by
+// contextUpdateEndMarker. Only messages with role user whose content starts
+// with a note are read, so a forged "[context update: ...]" inside a tool
+// result never suppresses a real warning. Keys without a note keep the frozen
+// system value.
 func lastAnnouncedSections(continuation []qgruntime.Message) map[string]string {
 	const prefix = "[context update: "
 	announced := map[string]string{}
 	for _, msg := range continuation {
+		if msg.Role != qgruntime.MessageRoleUser {
+			continue
+		}
 		rest := msg.Content
-		for {
-			start := strings.Index(rest, prefix)
-			if start < 0 {
-				break
-			}
-			rest = rest[start+len(prefix):]
+		if !strings.HasPrefix(rest, prefix) {
+			continue
+		}
+		for strings.HasPrefix(rest, prefix) {
+			rest = rest[len(prefix):]
 			end := strings.Index(rest, "]")
 			if end < 0 {
 				break
 			}
 			key := rest[:end]
-			body := rest[end+1:]
-			if next := strings.Index(body, prefix); next >= 0 {
-				body = body[:next]
+			rest = rest[end+1:]
+			rest = strings.TrimPrefix(rest, "\n")
+			closeIdx := strings.Index(rest, contextUpdateEndMarker)
+			if closeIdx < 0 {
+				break
 			}
-			body = strings.TrimPrefix(body, "\n")
+			body := strings.TrimSuffix(rest[:closeIdx], "\n")
 			if key != "" {
 				announced[key] = body
 			}
-			rest = rest[end+1:]
-			if next := strings.Index(rest, prefix); next >= 0 {
-				rest = rest[next:]
-			} else {
-				break
-			}
+			rest = rest[closeIdx+len(contextUpdateEndMarker):]
+			rest = strings.TrimPrefix(rest, "\n\n")
+			rest = strings.TrimPrefix(rest, "\n")
 		}
 	}
 	return announced
 }
 
-// announcedSectionCurrent reports whether body is the recorded announcement
-// for a section: exact, or the recorded block opening with the body plus the
-// separator the note was emitted with (a user prompt follows the last note).
+// announcedSectionCurrent reports whether body equals the recorded announcement
+// for a section. Exact only: a truncated body is a prefix of the recorded full
+// form and must not compare as current.
 func announcedSectionCurrent(body, recorded string) bool {
-	return recorded == body || strings.HasPrefix(recorded, body+"\n\n")
+	return recorded == body
 }
 
 // responseStyleContext renders the operator-selected reply style (TUI /style) as
