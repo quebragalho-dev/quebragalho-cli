@@ -136,6 +136,20 @@ func TestFileViewFullBody(t *testing.T) {
 	}
 }
 
+// TestFileViewNavBarKeepsEscVisibleAtNarrowWidths: the nav bar truncates
+// from the end, so the mode-toggle hint must trail the Esc hint — at 50
+// columns the old "… · esc voltar" order dropped Esc entirely.
+func TestFileViewNavBarKeepsEscVisibleAtNarrowWidths(t *testing.T) {
+	m := filesPanelTestModel()
+	m = m.openFileView("internal/tui/sidebar.go")
+	for _, width := range []int{50, 80, 120} {
+		nav := plainRender(t, m.fileViewNavBar(width))
+		if !strings.Contains(nav, "esc voltar") {
+			t.Fatalf("nav bar at width %d must keep Esc visible, got %q", width, nav)
+		}
+	}
+}
+
 // TestFileViewSwapsTranscriptBody: while active, transcriptBodyItems returns
 // the file body (a single block) instead of the chat rows, and the pinned
 // title bar swaps to the one-line nav bar — the geometry every frame consumer

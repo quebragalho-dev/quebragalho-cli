@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
 func TestClassify(t *testing.T) {
@@ -90,5 +92,21 @@ func TestHintsPresentForKnownCategories(t *testing.T) {
 	}
 	if h := CLIHint(unknown); h != "" {
 		t.Fatalf("CLIHint(unknown) = %q, want empty", h)
+	}
+}
+
+// The human Auth hint must render the env-var conjunction in Portuguese while
+// the canonical constant stays English: reverting keyEnvHintHuman to the raw
+// constant (or editing KeyEnvHint itself) must fail here.
+func TestCLIHintAuthRendersTranslatedEnvConjunction(t *testing.T) {
+	if got := providercatalog.KeyEnvHint; got != "QG_API_KEY (or QUEBRAGALHO_API_KEY)" {
+		t.Fatalf("KeyEnvHint = %q, want canonical English", got)
+	}
+	hint := CLIHint(errors.New("auth error: bad key"))
+	if !strings.Contains(hint, "(ou QUEBRAGALHO_API_KEY)") {
+		t.Fatalf("CLIHint auth = %q, want translated conjunction", hint)
+	}
+	if strings.Contains(hint, "(or QUEBRAGALHO_API_KEY)") {
+		t.Fatalf("CLIHint auth leaked canonical conjunction: %q", hint)
 	}
 }

@@ -102,7 +102,9 @@ func (m model) fileViewNavBar(width int) string {
 	}
 	left := qgTheme.accent.Render("← "+truncatePathLeft(m.fileView.path, maxInt(8, width/2))) +
 		qgTheme.faint.Render("  ·  "+mode)
-	right := qgTheme.faint.Render(other + " · esc voltar")
+	// Esc leads so a narrow card truncates the mode-toggle hint instead of the
+	// key that leaves the view.
+	right := qgTheme.faint.Render("esc voltar · " + other)
 	return fitStyledLine(joinHeaderLine(left, right, width), width)
 }
 

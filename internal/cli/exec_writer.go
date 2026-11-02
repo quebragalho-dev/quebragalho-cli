@@ -322,7 +322,7 @@ func (writer *execEventWriter) permission(event agent.PermissionEvent) {
 func humanPermissionAction(action agent.PermissionAction) string {
 	switch action {
 	case agent.PermissionActionPrompt:
-		return "aguardando aprovação"
+		return "requer aprovação"
 	case agent.PermissionActionAllow:
 		return "permitida"
 	case agent.PermissionActionDeny:
