@@ -38,6 +38,38 @@ const (
 	markdownTableAlignRight
 )
 
+// displayWidthMemo caches lipgloss.Width for short strings. Width measurement
+// (grapheme segmentation) repeats thousands of times per streaming frame over
+// the same words, so memoizing the pure function cuts the per-frame cost to a
+// map lookup. Widths never depend on the theme; entries are capped and the
+// whole table is dropped on overflow (still correct, just recomputed).
+const (
+	displayWidthMemoMaxEntries = 4096
+	displayWidthMemoMaxBytes   = 64
+)
+
+var displayWidthMemo = struct {
+	sync.Mutex
+	entries map[string]int
+}{entries: map[string]int{}}
+
+func cachedDisplayWidth(s string) int {
+	if len(s) > displayWidthMemoMaxBytes {
+		return lipgloss.Width(s)
+	}
+	displayWidthMemo.Lock()
+	defer displayWidthMemo.Unlock()
+	if w, ok := displayWidthMemo.entries[s]; ok {
+		return w
+	}
+	w := lipgloss.Width(s)
+	if len(displayWidthMemo.entries) >= displayWidthMemoMaxEntries {
+		displayWidthMemo.entries = map[string]int{}
+	}
+	displayWidthMemo.entries[s] = w
+	return w
+}
+
 func renderAssistantMarkdownText(text string, proseMeasure int, tableMeasure int, allowHighlight bool) []string {
 	if proseMeasure < 16 {
 		proseMeasure = 16
@@ -205,7 +237,13 @@ type streamingMarkdownCache struct {
 	proseMeasure int
 	tableMeasure int
 	tailResume   *streamingParagraphResume
+	inkLines     map[string]string
+	markerLines  map[string]string
 }
+
+// streamingStyledMemoMaxEntries bounds each styled-line table; on overflow
+// the table is dropped (still correct, just recomputed).
+const streamingStyledMemoMaxEntries = 4096
 
 var streamMarkdownCache streamingMarkdownCache
 
@@ -224,6 +262,42 @@ func resetStreamingMarkdownCache() {
 	streamMarkdownCache.proseMeasure = 0
 	streamMarkdownCache.tableMeasure = 0
 	streamMarkdownCache.tailResume = nil
+	streamMarkdownCache.inkLines = nil
+	streamMarkdownCache.markerLines = nil
+}
+
+// streamMemoLine returns the cached styled form of a streaming line, rendering
+// and storing it on miss. The style is a pure function of the line content
+// while the theme stands; theme changes reset the whole cache.
+func streamMemoLine(marker bool, line string, render func() string) string {
+	streamMarkdownCache.mu.Lock()
+	defer streamMarkdownCache.mu.Unlock()
+	var table map[string]string
+	if marker {
+		if streamMarkdownCache.markerLines == nil {
+			streamMarkdownCache.markerLines = map[string]string{}
+		}
+		table = streamMarkdownCache.markerLines
+	} else {
+		if streamMarkdownCache.inkLines == nil {
+			streamMarkdownCache.inkLines = map[string]string{}
+		}
+		table = streamMarkdownCache.inkLines
+	}
+	if styled, ok := table[line]; ok {
+		return styled
+	}
+	styled := render()
+	if len(table) >= streamingStyledMemoMaxEntries {
+		table = map[string]string{}
+		if marker {
+			streamMarkdownCache.markerLines = table
+		} else {
+			streamMarkdownCache.inkLines = table
+		}
+	}
+	table[line] = styled
+	return styled
 }
 
 func (c *streamingMarkdownCache) render(text string, proseMeasure int, tableMeasure int) []string {
@@ -1328,7 +1402,7 @@ func wrapMarkdownInlineWithPrefixes(firstPrefix string, continuationPrefix strin
 // collects the word index starting each emitted visual line, parallel to the
 // returned lines, for the next resume point.
 func appendWrappedMarkdownWords(lines []string, words []markdownInlineSegment, start int, line string, lineWidth int, prefix string, continuationPrefix string, measure int, starts *[]int) []string {
-	available := maxInt(1, measure-lipgloss.Width(prefix))
+	available := maxInt(1, measure-cachedDisplayWidth(prefix))
 	lineStart := start
 	record := func() {
 		if starts != nil {
@@ -1341,13 +1415,13 @@ func appendWrappedMarkdownWords(lines []string, words []markdownInlineSegment, s
 		line = ""
 		lineWidth = 0
 		prefix = continuationPrefix
-		available = maxInt(1, measure-lipgloss.Width(prefix))
+		available = maxInt(1, measure-cachedDisplayWidth(prefix))
 		lineStart = next
 	}
 
 	for wi := start; wi < len(words); wi++ {
 		word := words[wi]
-		for lipgloss.Width(word.text) > available {
+		for cachedDisplayWidth(word.text) > available {
 			if line != "" {
 				flush(wi)
 			}
@@ -1356,10 +1430,10 @@ func appendWrappedMarkdownWords(lines []string, words []markdownInlineSegment, s
 			record()
 			word.text = tail
 			prefix = continuationPrefix
-			available = maxInt(1, measure-lipgloss.Width(prefix))
+			available = maxInt(1, measure-cachedDisplayWidth(prefix))
 			lineStart = wi
 		}
-		wordWidth := lipgloss.Width(word.text)
+		wordWidth := cachedDisplayWidth(word.text)
 		rendered := renderMarkdownInlineSegment(word)
 		separator := " "
 		separatorWidth := 1

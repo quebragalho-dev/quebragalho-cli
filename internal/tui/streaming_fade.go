@@ -266,21 +266,33 @@ func (m *model) resetStreamingFade() {
 // styleStreamingLine applies the fade palette to one visual line of prose in the
 // streaming block. Already-styled lines (markdown/code/table highlighting) are
 // returned unchanged so live colors match committed colors instead of snapping at
-// turn end.
+// turn end. Settled lines and marker-styled lines are pure functions of their
+// content while the theme stands, so they are memoized; only fading lines
+// re-render every frame.
 func (m model) styleStreamingLine(line string, visualIndex, visualCount int) string {
 	// Inline markdown uses private SGR markers while it is being parsed. They
 	// include reverse-video for code spans, which must be converted to the
 	// palette-aware final style before the line reaches the terminal. Otherwise
 	// a streaming frame briefly flashes the terminal's reverse background.
 	if hasMarkdownDisplayControls(line) {
-		return styleAssistantMarkdownLine(line, qgTheme.ink)
+		return streamMemoLine(true, line, func() string {
+			return styleAssistantMarkdownLine(line, qgTheme.ink)
+		})
 	}
 	if strings.Contains(line, "\x1b") {
 		return line
 	}
 	if !m.fadeActive || m.lineAges == nil {
-		return qgTheme.ink.Render(line)
+		return streamMemoLine(false, line, func() string {
+			return qgTheme.ink.Render(line)
+		})
 	}
 	bornAt := streamingLineBornAt(visualIndex, visualCount, m.lineAges, m.lastStreamActivity)
-	return ageDimLine(line, bornAt, m.now(), qgTheme.ink)
+	now := m.now()
+	if bornAt.IsZero() || now.Sub(bornAt) >= streamingFadeDuration {
+		return streamMemoLine(false, line, func() string {
+			return qgTheme.ink.Render(line)
+		})
+	}
+	return ageDimLine(line, bornAt, now, qgTheme.ink)
 }
