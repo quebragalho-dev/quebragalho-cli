@@ -529,18 +529,22 @@ Comandos:
   children <id>         Lista sessões filhas diretas de uma sessão pai
   lineage <id>          Mostra o caminho da linhagem da raiz até a sessão
   tree <id>             Mostra a árvore de sessões filhas
-  rewind-plan <id>      Pré-visualiza o retorno a um ponto anterior
-  rewind <id>           Restaura arquivos e trunca o log até o ponto
-  compact-plan <id>     Pré-visualiza a compactação
+  rewind-plan <id>      Pré-visualiza eventos mantidos e descartados
+                        (voltar a um ponto anterior)
+  rewind <id>           Restaura arquivos da pasta de trabalho
+                        e trunca o log até o ponto de restauração
+  compact-plan <id>     Pré-visualiza eventos compactados e preservados
 
 Opções:
       --json            Imprime a saída em JSON
-      --kind <kind>     Filtra por fork, child, side, spec-draft, spec-impl
+      --kind <kind>     Filtra a lista por fork, child, side,
+                        spec-draft, spec-impl
       --sequence <n>    Sequência alvo (rewind-plan, rewind)
       --event <id>      Evento alvo por id (rewind-plan, rewind)
       --exclude-target  Descarta o evento alvo (rewind-plan, rewind)
       --preserve-last <n> Mantém eventos recentes no compact-plan
-      --max-prompt-chars <n> Limite de caracteres do resumo do compact-plan
+      --max-prompt-chars <n> Limite de caracteres da mensagem
+                             de resumo do compact-plan
   -h, --help            Mostra esta ajuda
 `)
 	return err

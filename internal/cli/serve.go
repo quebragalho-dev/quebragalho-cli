@@ -185,6 +185,7 @@ Inicia o QG como servidor MCP stdio.
 Opções:
       --mcp                   Executa o servidor MCP stdio
   -C, --cwd <path>            Define a pasta de trabalho
+                               (recursos + ferramentas)
       --add-dir <path>        Raiz extra de recursos/ferramentas (repetível)
       --allow-unsafe-tools    Expõe ferramentas de escrita e shell ao host MCP
   -h, --help                  Mostra esta ajuda

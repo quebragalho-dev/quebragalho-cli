@@ -1444,9 +1444,10 @@ Opções:
   -v, --version                  Mostra a versão
   -p, --prompt                   Executa uma mensagem única
       --add-dir <path>           Permite escrita em pasta extra (repetível)
-      --allow-escalation         Permite escalar o modelo (escalate_model)
-      --no-browser               Mostra o link de login sem abrir o navegador
-                                 (ou defina QG_NO_BROWSER=1)
+      --allow-escalation         Permite escalar para um modelo
+                                 mais forte (escalate_model)
+      --no-browser               Mostra o link de login inicial sem abrir
+                                 o navegador (ou defina QG_NO_BROWSER=1)
       --dangerously-skip-permissions
                                  Abre o shell sem confirmação (escape !)
       --skip-permissions-unsafe  Alias de --dangerously-skip-permissions
@@ -1678,7 +1679,7 @@ Executa uma mensagem única no runtime do agente em Go.
 
 Opções:
   -f, --file <path>                  Lê o texto da mensagem de um arquivo
-      --image <path>                 Anexa imagem local (repetível; visão)
+      --image <path>                 Anexa imagem (repetível; modelos de visão)
       --add-dir <path>               Permite escrita em pasta extra (repetível)
       --mode <name>                  Aplica um preset (smart, deep, fast,
                                      large, precise); flags explícitas vencem
@@ -1690,19 +1691,23 @@ Opções:
       --spec-model <model>           Modelo do rascunho com --use-spec
       --spec-reasoning-effort <effort>
                                      Nível de raciocínio do rascunho
+                                     com --use-spec
       --plan                         Modo só leitura: escrita e shell ocultas
       --permission-mode <mode>       Permissão direta (plan, spec-draft, auto,
-                                     member, ask, unsafe). Prefira --plan /
-                                     --auto. Para filhos de especialista/swarm.
+                                     member, ask, unsafe). Vale mais que --auto;
+                                     prefira --plan / --auto. Para filhos de
+                                     especialista/swarm.
       --max-turns <number>           Troca o máximo de turnos do loop do agente
       --exec-profile <name>          Perfil de execução (balanced, fast,
                                      thorough): postura do loop (turnos,
                                      esforço, correção, escalação); combina com
                                      --mode e flags explícitas vencem
       --auto <low|medium|high>       Autonomia (high libera sem confirmar)
-      --enabled-tools <tools>        Expõe ferramentas por vírgula ou espaço
-      --disabled-tools <tools>       Oculta ferramentas por vírgula ou espaço
-      --list-tools                   Lista as ferramentas visíveis e sai
+      --enabled-tools <tools>        Expõe só estas ferramentas, por vírgula
+                                     ou espaço
+      --disabled-tools <tools>       Oculta estas ferramentas, por vírgula
+                                     ou espaço
+      --list-tools                   Lista ferramentas visíveis ao modelo e sai
       --profile <profile>            Aceita seleção legada de perfil de modelo
   -r, --reasoning-effort <effort>    Aceita nível legado de raciocínio
   -C, --cwd <path>                   Define a pasta de trabalho
@@ -1711,8 +1716,8 @@ Opções:
   -i, --input-format text|stream-json
                                      Seleciona o formato de entrada da mensagem
   -o, --output-format text|json|stream-json
-                                     Saída em texto, JSON ou JSONL com schema
-                                     ("debug" é alias de stream-json)
+                                     Saída em texto, JSON ou JSONL com versão
+                                     de schema; "debug" é alias de stream-json
       --prompt <prompt>              Passa o texto da mensagem como flag
       --resume [id]                  Retoma sessão; sem id usa a mais recente
       --fork <id>                    Faz fork de sessão para sessão nova
@@ -1724,14 +1729,17 @@ Opções:
       --init-session-id <id>         Cria sessão de execução com este id
       --dangerously-skip-permissions Libera ferramentas sem pedir confirmação
       --skip-permissions-unsafe      Alias de --dangerously-skip-permissions
-      --allow-escalation             Permite escalar o modelo (escalate_model)
-      --self-correct                 Executa o loop de verificar e corrigir após
-                                     editar (precisa de --auto medium ou high)
+      --allow-escalation             Permite escalar para um modelo
+                                     mais forte (escalate_model)
+      --self-correct                 Executa o loop de verificar e corrigir
+                                     após editar (autocorreção exige
+                                     --auto medium ou high)
       --notify <off|bell|notify|both>
                                      Troca o modo de notificação desta execução
       --no-notify                    Desativa notificações desta execução
       --no-completion-gate           Aceita resposta sem ferramenta como final
-                                     INCOMPLETE (com operador presente)
+                                     sem rebaixamento INCOMPLETE (chamadores
+                                     conversacionais com operador presente)
 `)
 	return err
 }

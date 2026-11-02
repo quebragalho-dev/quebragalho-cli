@@ -616,7 +616,8 @@ Lista as entradas do registro de modelos do QG.
 
 Opções:
       --json                  Imprime a lista de modelos em JSON
-      --provider <provider>   Filtra por openai, anthropic, google, etc.
+      --provider <provider>   Filtra por openai, anthropic, google ou
+                              openai-compatible
       --include-deprecated    Inclui modelos descontinuados
   -h, --help                  Mostra esta ajuda
 `)

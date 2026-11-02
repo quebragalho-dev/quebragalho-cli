@@ -382,9 +382,12 @@ func writeAuthHelp(w io.Writer) error {
 
 Comandos:
   logout <provider>                               Apaga o login de um provedor
-  status [provider]                               Mostra o login (nunca o token)
-  refresh <provider> [--watch]                    Atualiza o token (--watch)
+  status [provider]                               Mostra login e expiração
+                                                  (nunca o token)
+  refresh <provider> [--watch]                    Atualiza o token (--watch
+                                                  mantém atualizado)
   reset --confirm [--json]                        Limpa logins e tokens MCP
+                                                  (repara stores corrompidos)
 
 O login OAuth saiu: rode `+"`qg login`"+` para salvar a chave — QG_API_KEY
 (ou QUEBRAGALHO_API_KEY) do ambiente também funciona; veja

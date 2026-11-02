@@ -358,7 +358,7 @@ Comandos:
 
 Opções:
       --json            Imprime a saída em JSON
-      --comment <text>  Nota para incluir na implementação
+      --comment <text>  Nota de aprovação para a mensagem de implementação
       --reason <text>   Motivo da rejeição
   -h, --help            Mostra esta ajuda
 `)

@@ -289,7 +289,8 @@ inspeção local.
 
 Opções:
       --json                Imprime o relatório em JSON
-      --query <text>        Mostra arquivos ranqueados para a consulta
+      --query <text>        Mostra arquivos correspondentes ranqueados
+                            para a consulta
       --max-files <number>  Limita arquivos ou ocorrências mostradas
       --scan-max-files <n>  Limita arquivos varridos antes de truncar
       --max-depth <number>  Limita a profundidade da varredura

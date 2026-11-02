@@ -117,7 +117,7 @@ func writeTrustUsage(w io.Writer) {
 
 Confiar deixa o QG rodar hooks, plugins e servidores MCP do projeto da pasta
 (./.qg/hooks.json, ./.qg/plugins/, config MCP do projeto) e iniciar
-language servers para ela (rodam fora do ambiente isolado e podem executar código
-do projeto ao indexar). A confiança é exata por pasta.
+language servers para ela (rodam fora do ambiente isolado e podem
+executar código do projeto ao indexar). A confiança é exata por pasta.
 `)
 }

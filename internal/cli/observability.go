@@ -271,7 +271,8 @@ Executa verificações de saúde do backend Go de configuração e provedor.
 
 Opções:
       --json            Imprime o relatório em JSON
-      --connectivity    Sonda o endpoint quando disponível
+      --connectivity    Sonda a conectividade do endpoint
+                        do provedor, se disponível
   -h, --help            Mostra esta ajuda
 `)
 	return err

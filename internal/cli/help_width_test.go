@@ -8,79 +8,93 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-func TestHelpLinesFit80Cells(t *testing.T) {
-	helps := map[string]func(*bytes.Buffer) error{
-		"help":                 func(b *bytes.Buffer) error { return writeHelp(b) },
-		"exec":                 func(b *bytes.Buffer) error { return writeExecHelp(b) },
-		"setup":                func(b *bytes.Buffer) error { return writeSetupHelp(b) },
-		"login":                func(b *bytes.Buffer) error { return writeLoginHelp(b) },
-		"logout":               func(b *bytes.Buffer) error { return writeLogoutHelp(b) },
-		"auth":                 func(b *bytes.Buffer) error { return writeAuthHelp(b) },
-		"providers":            func(b *bytes.Buffer) error { return writeProvidersHelp(b) },
-		"repo-map":             func(b *bytes.Buffer) error { return writeRepoMapHelp(b) },
-		"sessions":             func(b *bytes.Buffer) error { return writeSessionsHelp(b) },
-		"spec":                 func(b *bytes.Buffer) error { return writeSpecHelp(b) },
-		"skills":               func(b *bytes.Buffer) error { return writeSkillsHelp(b) },
-		"skills-list":          func(b *bytes.Buffer) error { return writeSkillsListHelp(b) },
-		"skill-add":            func(b *bytes.Buffer) error { return writeSkillAddHelp(b) },
-		"skill-info":           func(b *bytes.Buffer) error { return writeSkillInfoHelp(b) },
-		"skill-remove":         func(b *bytes.Buffer) error { return writeSkillRemoveHelp(b) },
-		"plugins":              func(b *bytes.Buffer) error { return writePluginsHelp(b) },
-		"plugins-list":         func(b *bytes.Buffer) error { return writePluginsListHelp(b) },
-		"plugin-add":           func(b *bytes.Buffer) error { return writePluginAddHelp(b) },
-		"plugin-info":          func(b *bytes.Buffer) error { return writePluginInfoHelp(b) },
-		"plugin-remove":        func(b *bytes.Buffer) error { return writePluginRemoveHelp(b) },
-		"tools":                func(b *bytes.Buffer) error { return writeToolsHelp(b) },
-		"tools-make":           func(b *bytes.Buffer) error { return writeToolsMakeHelp(b) },
-		"tools-list":           func(b *bytes.Buffer) error { return writeToolsListHelp(b) },
-		"doctor":               func(b *bytes.Buffer) error { return writeDoctorHelp(b) },
-		"search":               func(b *bytes.Buffer) error { return writeSearchHelp(b) },
-		"serve":                func(b *bytes.Buffer) error { return writeServeHelp(b) },
-		"hooks":                func(b *bytes.Buffer) error { return writeHooksHelp(b) },
-		"hooks-list":           func(b *bytes.Buffer) error { return writeHooksListHelp(b) },
-		"hooks-add":            func(b *bytes.Buffer) error { return writeHooksAddHelp(b) },
-		"cron":                 func(b *bytes.Buffer) error { writeCronHelp(b); return nil },
-		"mcp":                  func(b *bytes.Buffer) error { return writeMCPHelp(b) },
-		"mcp-add":              func(b *bytes.Buffer) error { return writeMCPAddHelp(b) },
-		"mcp-remove":           func(b *bytes.Buffer) error { return writeMCPRemoveHelp(b) },
-		"mcp-check":            func(b *bytes.Buffer) error { return writeMCPCheckHelp(b) },
-		"mcp-tools":            func(b *bytes.Buffer) error { return writeMCPToolsHelp(b) },
-		"mcp-permissions":      func(b *bytes.Buffer) error { return writeMCPPermissionsHelp(b) },
-		"mcp-oauth":            func(b *bytes.Buffer) error { return writeMCPOAuthHelp(b) },
-		"mcp-legacy-list":      func(b *bytes.Buffer) error { return writeMCPLegacyListHelp(b) },
-		"worktrees":            func(b *bytes.Buffer) error { return writeWorktreesHelp(b) },
-		"verify":               func(b *bytes.Buffer) error { return writeVerifyHelp(b) },
-		"changes":              func(b *bytes.Buffer) error { return writeChangesHelp(b) },
-		"config":               func(b *bytes.Buffer) error { return writeConfigHelp(b) },
-		"models":               func(b *bytes.Buffer) error { return writeModelsHelp(b) },
-		"context":              func(b *bytes.Buffer) error { return writeContextHelp(b) },
-		"backends":             func(b *bytes.Buffer) error { return writeBackendsHelp(b) },
-		"backends-doctor":      func(b *bytes.Buffer) error { return writeBackendsDoctorHelp(b) },
-		"sandbox":              func(b *bytes.Buffer) error { return writeSandboxHelp(b) },
-		"sandbox-policy":       func(b *bytes.Buffer) error { return writeSandboxPolicyHelp(b) },
-		"sandbox-setup":        func(b *bytes.Buffer) error { return writeSandboxSetupHelp(b) },
-		"sandbox-grants":       func(b *bytes.Buffer) error { return writeSandboxGrantsHelp(b) },
-		"sandbox-grant-set":    func(b *bytes.Buffer) error { return writeSandboxGrantSetHelp(b) },
-		"sandbox-grant-revoke": func(b *bytes.Buffer) error { return writeSandboxGrantRevokeHelp(b) },
-		"sandbox-grant-clear":  func(b *bytes.Buffer) error { return writeSandboxGrantClearHelp(b) },
-		"sandbox-check":        func(b *bytes.Buffer) error { return writeSandboxCheckHelp(b) },
-		"repo-info":            func(b *bytes.Buffer) error { writeRepoInfoHelp(b); return nil },
-		"completions":          func(b *bytes.Buffer) error { return writeCompletionsHelp(b) },
-		"usage":                func(b *bytes.Buffer) error { return writeUsageHelp(b) },
-		"specialist":           func(b *bytes.Buffer) error { return writeSpecialistHelp(b) },
-		"agent-eval":           func(b *bytes.Buffer) error { return writeAgentEvalHelp(b) },
-		"update":               func(b *bytes.Buffer) error { return writeUpdateHelp(b) },
-		"daemon":               func(b *bytes.Buffer) error { writeDaemonUsage(b, 0); return nil },
-	}
-	for name, fn := range helps {
-		var buf bytes.Buffer
-		if err := fn(&buf); err != nil {
-			t.Fatalf("%s help failed: %v", name, err)
+// TestHelpTreeFits80Cells walks the real command tree — top-level help plus
+// every subcommand listed under a "Comandos:" section — and requires each
+// --help output to fit in 80 cells. A new command appears here automatically
+// because the walk discovers it from its parent's "Comandos:" section.
+func TestHelpTreeFits80Cells(t *testing.T) {
+	seen := map[string]bool{}
+	var walk func(path []string, parent string)
+	walk = func(path []string, parent string) {
+		key := strings.Join(path, " ")
+		if seen[key] {
+			return
 		}
-		for _, line := range strings.Split(buf.String(), "\n") {
+		seen[key] = true
+		args := append(append([]string{}, path...), "--help")
+		var stdout, stderr bytes.Buffer
+		if code := runWithDeps(args, &stdout, &stderr, appDeps{}); code != exitSuccess {
+			t.Errorf("qg %s --help exited %d: %s", key, code, stderr.String())
+			return
+		}
+		out := stdout.String()
+		for _, line := range strings.Split(out, "\n") {
 			if w := lipgloss.Width(line); w > 80 {
-				t.Errorf("%s help exceeds 80 cells (%d): %q", name, w, line)
+				t.Errorf("qg %s --help exceeds 80 cells (%d): %q", key, w, line)
 			}
 		}
+		if out == parent {
+			return
+		}
+		for _, sub := range helpSubcommands(out) {
+			walk(append(append([]string{}, path...), sub), out)
+		}
 	}
+	walk(nil, "")
+	// Helpers not reachable from the top-level command list.
+	walk([]string{"trust"}, "")
+	// `qg cron` without arguments prints usage to stderr and exits non-zero.
+	var cronOut, cronErr bytes.Buffer
+	if code := runWithDeps([]string{"cron"}, &cronOut, &cronErr, appDeps{}); code == exitSuccess {
+		t.Fatalf("qg cron without args should print usage and fail")
+	}
+	for _, line := range strings.Split(cronErr.String(), "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("qg cron usage exceeds 80 cells (%d): %q", w, line)
+		}
+	}
+	t.Logf("checked %d help outputs", len(seen))
+}
+
+// helpSubcommands lists the subcommands of a help text from its "Comandos:"
+// section. Only rows starting with exactly two spaces count, so wrapped
+// description continuations never parse as commands.
+func helpSubcommands(out string) []string {
+	var subs []string
+	inSection := false
+	for _, line := range strings.Split(out, "\n") {
+		if line == "Comandos:" {
+			inSection = true
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		if strings.TrimSpace(line) == "" {
+			inSection = false
+			continue
+		}
+		if len(line) > 2 && line[0] == ' ' && line[1] == ' ' && line[2] != ' ' {
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				continue
+			}
+			name := fields[0]
+			ok := name != ""
+			for _, r := range name {
+				if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				subs = append(subs, name)
+			}
+			continue
+		}
+		if len(line) > 0 && line[0] != ' ' {
+			break
+		}
+	}
+	return subs
 }

@@ -564,7 +564,7 @@ func writePluginsHelp(w io.Writer) error {
 Comandos:
   list                 Lista plugins locais do QG
   info <id>            Mostra detalhes do plugin e metadados do lockfile
-  add <git-url|path>   Instala plugin (fixado em plugins.lock)
+  add <git-url|path>   Instala plugin (manifesto validado; plugins.lock)
   remove <id>          Remove um plugin instalado e sua entrada do lockfile
 `)
 	return err
@@ -616,7 +616,7 @@ Comandos:
   enable <server>   Ativa um servidor MCP da config do usuário
   disable <server>  Desativa um servidor MCP da config do usuário
   check <server>    Conecta a um servidor MCP e lista suas ferramentas
-  list              Lista servidores MCP ou ferramentas (--tools)
+  list              Lista servidores MCP configurados ou ferramentas (--tools)
   oauth             Gerencia credenciais OAuth de servidores MCP remotos
   permissions       Gerencia permissões persistentes de ferramentas MCP
   tools             Inspeciona ferramentas MCP configuradas

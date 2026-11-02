@@ -128,9 +128,10 @@ func writeSkillsHelp(w io.Writer) error {
 
 Comandos:
   list                 Lista as skills encontradas (pasta QG + ~/.agents/skills)
-  add <git-url|path>   Instala skill na pasta do QG (fixada em skills.lock)
-  info <name>          Mostra frontmatter, origem e hash da skill
-  remove <name>        Remove skill e sua entrada do lockfile
+  add <git-url|path>   Instala skill na pasta do QG (fixada
+                       por checksum em skills.lock)
+  info <name>          Mostra frontmatter, origem e hash fixado da skill
+  remove <name>        Remove skill e sua entrada do lockfile do QG
 
 list e info também pesquisam ~/.agents/skills quando existe (somente leitura).
 add e remove sempre usam a pasta de skills específica do QG.

@@ -276,8 +276,9 @@ func writeLoginHelp(w io.Writer) error {
 
 Valida uma chave de API do Quebra Galho em GET /v1/models e a salva no
 cofre de credenciais (provedor qg, ativado). Sem --api-key, a chave é
-pedida no terminal, oculta em um TTY. Se o cofre estiver indisponível,
-a chave é gravada em config.json em texto puro e um aviso é mostrado.
+pedida no terminal, oculta em um TTY. Se o cofre
+de credenciais estiver indisponível, a chave é
+gravada em config.json em texto puro e um aviso é mostrado.
 
 --device inicia o fluxo device no navegador: aprove o código mostrado no
 link impresso e a chave de API da conta é buscada e salva automaticamente.

@@ -893,8 +893,8 @@ Opções do prepare:
 
 Opções do release:
   -C, --cwd <path>        Pasta do repositório de origem; necessária quando a
-                            pasta da worktree já foi apagada e você
-                            não está dentro do repositório de origem
+                          pasta da worktree já foi apagada e você
+                          não está dentro do repositório de origem
   -h, --help              Mostra esta ajuda
 `)
 	return err
@@ -939,7 +939,8 @@ Opções:
       --fill              Preenche título e corpo do PR pelos commits
       --draft             Cria o PR como rascunho
       --yes               Confirma o push para uma branch padrão/protegida
-  -a, --auto              Gera mensagem e branch com o LLM
+  -a, --auto              Usa o LLM: commit gera a mensagem, push/pr nomeiam
+                          a branch criada (envia o diff ao provedor)
       --json              Imprime a saída em JSON
   -h, --help              Mostra esta ajuda
 `)

@@ -199,17 +199,19 @@ func writeUpdateHelp(w io.Writer) error {
   qg upgrade [flags]
 
 Opções:
-      --check                 Verifica a release mais recente sem instalar
+      --check                 Verifica a release mais recente do GitHub
+                              sem instalar
       --apply                 Baixa, verifica e instala a release mais recente
       --json                  Imprime o resultado da atualização em JSON
-      --repo <owner/repo>     Repositório sem endpoint informado (--check e
-                              --apply; ignorado como fonte por apply gerenciado
-                              pelo npm)
-      --endpoint <url|repo>   URL da API ou slug owner/repo (--check e --apply;
-                              ignorado como fonte por apply gerenciado pelo npm)
+      --repo <owner/repo>     Repositório a usar sem endpoint informado
+                              (--check e --apply; ignorado como fonte de
+                              instalação por apply gerenciado pelo npm)
+      --endpoint <url|repo>   URL da API de releases ou slug owner/repo
+                              a usar (--check e --apply; ignorado como fonte
+                              de instalação por apply gerenciado pelo npm)
       --timeout <duration>    Timeout da verificação de release (padrão 5s)
-      --target <platform>     Alvo com --check (ex. windows-x64); inválido com
-                              --apply
+      --target <platform>     Alvo de release a verificar com --check
+                              (ex. windows-x64); inválido com --apply
   -h, --help                  Mostra esta ajuda
 `)
 	return err
