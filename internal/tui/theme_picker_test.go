@@ -148,7 +148,7 @@ func TestThemePickerPreviewIsContained(t *testing.T) {
 		t.Errorf("preview mutated the committed mode to %q", m.themeMode)
 	}
 	view := m.pickerOverlay(100)
-	for _, want := range []string{"Preview", "no bugs, probably"} {
+	for _, want := range []string{"Prévia", "no bugs, probably"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("contained preview missing %q:\n%s", want, view)
 		}

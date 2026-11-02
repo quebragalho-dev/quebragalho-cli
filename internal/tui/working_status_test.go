@@ -27,8 +27,8 @@ func TestWorkingActivityNamesCurrentPhase(t *testing.T) {
 		model model
 		want  string
 	}{
-		{name: "default", want: "thinking"},
-		{name: "assistant text", model: model{streamingText: []byte("drafting")}, want: "writing"},
+		{name: "default", want: "pensando"},
+		{name: "assistant text", model: model{streamingText: []byte("drafting")}, want: "escrevendo"},
 		{name: "permission", model: model{pendingPermission: &pendingPermissionPrompt{}}, want: "waiting for approval"},
 		{name: "question", model: model{pendingAskUser: &pendingAskUserPrompt{}}, want: "waiting for your answer"},
 		{name: "streamed tool", model: model{streamCallName: "grep"}, want: "searching"},
@@ -51,7 +51,7 @@ func TestWorkingActivityNamesCurrentPhase(t *testing.T) {
 					{kind: rowToolResult, id: "call-1", runID: 7, tool: "read_file", status: tools.StatusOK},
 				},
 			},
-			want: "thinking",
+			want: "pensando",
 		},
 	}
 	for _, test := range tests {

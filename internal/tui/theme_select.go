@@ -184,10 +184,20 @@ func (m model) themeStateText() string {
 		Sections: []commandSection{{
 			Title: "Estado",
 			Lines: []string{
-				"tema ativo: " + string(m.themeMode),
+				"tema ativo: " + m.themeDisplayLabel(),
 				"disponíveis: " + strings.Join(themeModes, ", "),
 			},
 		}},
-		Hints: []string{"execute /theme sem argumento para abrir o seletor, ou /theme <nome> para trocar direto"},
+		Hints: []string{"use /theme sem argumento para abrir o seletor, ou /theme <nome> para trocar direto"},
 	})
+}
+
+func (m model) themeDisplayLabel() string {
+	if m.themeMode == themeSystem {
+		return "Sistema"
+	}
+	if entry, ok := lookupTheme(string(m.themeMode)); ok {
+		return entry.Label
+	}
+	return string(m.themeMode)
 }

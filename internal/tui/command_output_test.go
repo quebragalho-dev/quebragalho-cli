@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 func TestFormatCommandOutputRendersSectionsFieldsRowsAndHints(t *testing.T) {
@@ -242,5 +244,43 @@ func TestFormatCommandOutputCompactsWhitespaceAndSkipsEmptyItems(t *testing.T) {
 
 	if got != want {
 		t.Fatalf("unexpected compact command output:\nwant:\n%s\n\ngot:\n%s", want, got)
+	}
+}
+
+func TestFormatCommandCardAlignsAccentedKeysByCellWidth(t *testing.T) {
+	got := renderCommandCard(commandCard{
+		Title: "Nível",
+		Sections: []commandCardSection{{
+			Title: "Estado",
+			Fields: []commandField{
+				{Key: "nível ativo", Value: "baixo"},
+				{Key: "modelo", Value: "nenhum"},
+				{Key: "disponíveis", Value: "baixo, médio"},
+			},
+		}},
+	})
+	lines := strings.Split(got, "\n")
+	positions := map[string]int{}
+	for _, line := range lines {
+		for _, key := range []string{"nível ativo", "modelo", "disponíveis"} {
+			if strings.Contains(line, key) {
+				value := map[string]string{"nível ativo": "baixo", "modelo": "nenhum", "disponíveis": "baixo, médio"}[key]
+				at := strings.Index(line, value)
+				if at < 0 {
+					t.Fatalf("missing value %q in %q", value, line)
+				}
+				prefix := line[:at]
+				positions[key] = lipgloss.Width(prefix)
+			}
+		}
+	}
+	if len(positions) != 3 {
+		t.Fatalf("expected 3 aligned rows, got:\n%s", got)
+	}
+	first := positions["nível ativo"]
+	for _, at := range positions {
+		if at != first {
+			t.Fatalf("value column misaligned: %v in:\n%s", positions, got)
+		}
 	}
 }

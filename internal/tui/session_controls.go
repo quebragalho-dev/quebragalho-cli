@@ -632,9 +632,9 @@ func (m model) profileText() string {
 		name = execprofile.Balanced.Name + " (default)"
 	}
 	lines := []string{
-		"execution profile: " + name,
+		"perfil de execução: " + name,
 		fmt.Sprintf("max tool-turns per run: %d", m.agentOptions.MaxTurns),
-		"reasoning effort: " + m.effortDisplay(),
+		"nível de raciocínio: " + effortDisplayLabel(m.effortDisplay()),
 	}
 	if m.agentOptions.Profile != nil && m.agentOptions.Profile.Escalate != nil {
 		turnTarget := "keeps the pinned turn budget"
@@ -1023,7 +1023,7 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 	rows := initialTranscript()
 	rows = appendTranscriptRowsDedup(rows, transcriptRowsFromSessionEvents(events))
 	m.transcript = rows
-	m.resetFlushFrontier("· compacted ·")
+	m.resetFlushFrontier("· compactado ·")
 
 	return m, CompactResult{
 		Compacted:    len(events) < len(beforeEvents)+1,

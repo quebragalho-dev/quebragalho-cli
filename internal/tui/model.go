@@ -3745,9 +3745,9 @@ func (m model) workingActivity() string {
 		return strings.ToLower(toolCardActionLabel(toolRowName(row), row.detail, true))
 	}
 	if strings.TrimSpace(m.streamingTextString()) != "" {
-		return "writing"
+		return "escrevendo"
 	}
-	return "thinking"
+	return "pensando"
 }
 
 // activeToolCallScanLimit bounds per-frame work while the spinner is active.

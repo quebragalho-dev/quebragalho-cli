@@ -244,7 +244,7 @@ func TestFooterViewWhileAttachedDropsComposer(t *testing.T) {
 	next, _ := m.openTerminalAttach(7)
 
 	footer := ansi.Strip(next.footerView(100))
-	if strings.Contains(footer, "describe a task") {
+	if strings.Contains(footer, "descreva uma tarefa") {
 		t.Fatalf("attached footer still shows the composer: %q", footer)
 	}
 	if strings.TrimSpace(footer) == "" {

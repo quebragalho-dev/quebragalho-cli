@@ -526,14 +526,14 @@ func backgroundCode(hex string) string {
 }
 
 // A focused permission prompt suppresses the composer: keys drive the card, so a
-// "describe a task for qg…" box below it is inert and misleading — and once the
+// "descreva uma tarefa para o qg…" box below it is inert and misleading — and once the
 // feedback field is open, the shared input must not echo in both places.
 func TestComposerSuppressedDuringPermissionPrompt(t *testing.T) {
 	m := pendingPermissionModelWithRequest(t, feedbackRequest(), func(agent.PermissionDecision) {})
 	m.width, m.height = 96, 30
 
 	view := plainRender(t, m.View())
-	if strings.Contains(view, "describe a task for qg") {
+	if strings.Contains(view, "descreva uma tarefa para o qg") {
 		t.Errorf("composer must be hidden while a permission prompt is focused:\n%s", view)
 	}
 
@@ -541,7 +541,7 @@ func TestComposerSuppressedDuringPermissionPrompt(t *testing.T) {
 	next, _ := m.Update(testKeyText("n"))
 	typed := typeRunes(t, next.(model), "use apply_patch")
 	tv := plainRender(t, typed.View())
-	if strings.Contains(tv, "describe a task for qg") {
+	if strings.Contains(tv, "descreva uma tarefa para o qg") {
 		t.Errorf("composer must stay hidden in feedback mode:\n%s", tv)
 	}
 	if strings.Count(tv, "use apply_patch") != 1 {

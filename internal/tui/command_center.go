@@ -273,7 +273,7 @@ func (m model) resumeText() string {
 		meta := strings.Join([]string{
 			sanitizeCardField(displayValue(session.ModelID, "sem modelo")),
 			sanitizeCardField(displayValue(session.Provider, "sem provedor")),
-			fmt.Sprintf("%d eventos", session.EventCount),
+			eventCountLabel(session.EventCount),
 		}, " · ")
 		records = append(records, strings.Join([]string{
 			sanitizeCardField(session.SessionID),
@@ -288,6 +288,13 @@ func (m model) resumeText() string {
 		records = append(records, "use /resume latest ou /resume <id> para carregar uma sessão")
 	}
 	return sessionsCardsPrefix + strings.Join(records, "\n")
+}
+
+func eventCountLabel(count int) string {
+	if count == 1 {
+		return "1 evento"
+	}
+	return fmt.Sprintf("%d eventos", count)
 }
 
 const (
@@ -361,7 +368,7 @@ func sanitizeCardField(value string) string {
 	return out.String()
 }
 
-// relativeAge renders an RFC3339 timestamp as a short age ("2h ago"), falling
+// relativeAge renders an RFC3339 timestamp as a short age ("há 2 h"), falling
 // back to the month/day this year and the bare date for sessions older than a
 // month, so deep history reads as a calendar date rather than "400d ago"; ""
 // when the timestamp does not parse, so the card simply omits it.
@@ -375,11 +382,11 @@ func relativeAge(timestamp string, now time.Time) string {
 	case age < time.Minute:
 		return "now"
 	case age < time.Hour:
-		return fmt.Sprintf("%dm ago", int(age.Minutes()))
+		return fmt.Sprintf("há %d min", int(age.Minutes()))
 	case age < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(age.Hours()))
+		return fmt.Sprintf("há %d h", int(age.Hours()))
 	case age <= 30*24*time.Hour:
-		return fmt.Sprintf("%dd ago", int(age.Hours()/24))
+		return fmt.Sprintf("há %d d", int(age.Hours()/24))
 	}
 	parsed, now = parsed.Local(), now.Local()
 	if parsed.Year() == now.Year() {
@@ -402,7 +409,7 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 		return m, m.modelListText(), false, nil
 	}
 	if m.pending {
-		return m, "Model\nCannot switch models while a run is active.", false, nil
+		return m, "Modelo\nNão é possível trocar de modelo com uma execução em andamento.", false, nil
 	}
 
 	registry, err := modelregistry.DefaultRegistry()
@@ -493,24 +500,24 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	// auto).
 	var resetEffort bool
 	m, resetEffort = m.reconcileEffortForModelSwitch(target.reasoningEfforts, target.entry != nil)
-	effortLine := "effort: " + m.effortDisplay()
+	effortLine := "nível: " + effortDisplayLabel(m.effortDisplay())
 	if resetEffort {
 		// Preference was dropped: show "auto" (model default applies), not a
 		// concrete value that would read as an explicit setting.
-		effortLine += " (unsupported preference reset)"
+		effortLine += " (preferência sem suporte redefinida)"
 	} else if target.entry != nil {
 		if effective := modelregistry.EffectiveReasoningEffort(*target.entry, m.reasoningEffort); effective != modelregistry.ReasoningEffortNone {
-			effortLine = "effort: " + string(effective)
+			effortLine = "nível: " + effortDisplayLabel(string(effective))
 		}
 	}
-	// Compact one-line summary — "<model> · <provider>[ · effort …][ · saved]" —
+	// Compact one-line summary — "<model> · <provider>[ · nível …][ · saved]" —
 	// instead of a multi-line model/provider/api/effort/saved block.
 	summary := target.modelID + " · " + displayValue(nextProfile.Name, string(metadata.ProviderKind))
-	effort := strings.TrimSpace(strings.TrimPrefix(effortLine, "effort: "))
+	effort := strings.TrimSpace(strings.TrimPrefix(effortLine, "nível: "))
 	if resetEffort {
-		summary += " · effort auto (reset)"
-	} else if effort != "" && effort != "auto" {
-		summary += " · effort " + effort
+		summary += " · nível automático (reset)"
+	} else if effort != "" && effort != "automático" {
+		summary += " · nível " + effort
 	}
 	if persisted {
 		summary += " · saved"

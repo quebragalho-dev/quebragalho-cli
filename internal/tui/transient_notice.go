@@ -9,7 +9,7 @@ import (
 )
 
 func (m model) modelAppliedNotice() string {
-	return "Modelo: " + displayValue(m.modelName, "nenhum") + " · " + displayValue(m.providerName, "provedor padrão") + " · nível " + m.effortDisplay()
+	return "Modelo: " + displayValue(m.modelName, "nenhum") + " · " + displayValue(m.providerName, "provedor padrão") + " · nível " + effortDisplayLabel(m.effortDisplay())
 }
 
 // modelAppliedNoticeFor renders the applied-notice for a committed model
@@ -43,7 +43,7 @@ func (m model) selfCorrectAppliedNotice() string {
 }
 
 func (m model) turnsAppliedNotice() string {
-	return fmt.Sprintf("Orçamento de turnos: %d", m.agentOptions.MaxTurns)
+	return fmt.Sprintf("Limite de turnos: %d", m.agentOptions.MaxTurns)
 }
 
 func (m model) profileAppliedNotice() string {

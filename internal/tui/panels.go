@@ -119,7 +119,7 @@ func (m model) liveQGModelPicker() *commandPicker {
 	if len(items) == 0 {
 		return nil
 	}
-	return &commandPicker{kind: pickerModel, title: "Selecionar modelo", items: items, allItems: append([]pickerItem{}, items...), selected: selected, panel: true}
+	return &commandPicker{kind: pickerModel, title: "Escolher modelo", items: items, allItems: append([]pickerItem{}, items...), selected: selected, panel: true}
 }
 
 func (m model) panelBlock(width int, title string, lines []string) string {
@@ -236,7 +236,7 @@ func (m model) modelPanelOverlay(width int) string {
 		lines = append(lines, "", "nível: "+effortDisplayLabel(value)+" · ←/→ ajustar")
 	}
 	lines = append(lines, "", "↑/↓ mover · / buscar · Tab lista · Enter padrão", "s só nesta sessão · Esc cancelar")
-	return m.panelBlock(width, "Selecionar modelo", lines)
+	return m.panelBlock(width, "Escolher modelo", lines)
 }
 
 func (m model) handlePanelKey(key tea.KeyPressMsg) (model, tea.Cmd, bool) {

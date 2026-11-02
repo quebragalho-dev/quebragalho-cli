@@ -234,14 +234,14 @@ func (m model) newModelPicker() *commandPicker {
 			if entry.ID == activeModel && (activeProvider == "" || strings.EqualFold(string(entry.Provider), activeProvider)) {
 				continue
 			}
-			catalog = append(catalog, registryModelPickerItem(entry, "Catalog"))
+			catalog = append(catalog, registryModelPickerItem(entry, "Catálogo"))
 		}
 	}
 	items := m.assembleModelPickerItems(recent, catalog)
 	if len(items) == 0 {
 		return nil
 	}
-	return &commandPicker{kind: pickerModel, title: "Selecionar modelo", items: items, allItems: append([]pickerItem{}, items...), selected: 0}
+	return &commandPicker{kind: pickerModel, title: "Escolher modelo", items: items, allItems: append([]pickerItem{}, items...), selected: 0}
 }
 
 // newSkillPicker lists the installed skills for browse-and-run: type to filter,
@@ -361,7 +361,7 @@ func (m model) openModelPicker() (model, tea.Cmd) {
 		return m, nil
 	}
 	if m.providerProfile.CatalogID == "qg" && len(m.discoveredModelsForActiveProvider()) == 0 {
-		picker = &commandPicker{kind: pickerModel, title: "Selecionar modelo"}
+		picker = &commandPicker{kind: pickerModel, title: "Escolher modelo"}
 	}
 	m.picker = picker
 	m.clearModelPickerLoadState()
@@ -454,7 +454,7 @@ func (m model) assembleModelPickerItems(recent []pickerItem, catalog []pickerIte
 			if item.Value == "" || !m.favoriteModels[item.Value] || favoriteSeen[item.Value] {
 				continue
 			}
-			item.Group = "Favorites"
+			item.Group = "Favoritos"
 			item.Favorite = true
 			result = append(result, item)
 			favoriteSeen[item.Value] = true
@@ -476,7 +476,7 @@ func (m model) assembleModelPickerItems(recent []pickerItem, catalog []pickerIte
 		if seen[key] {
 			continue
 		}
-		item.Group = "Recent"
+		item.Group = "Recentes"
 		item.Favorite = m.favoriteModels[item.Value]
 		result = append(result, item)
 		seen[key] = true
@@ -549,7 +549,7 @@ func (m model) recentPairUsesChatGPT(providerName string) bool {
 func (m model) modelPickerRecentItem(registry modelregistry.Registry, providerName, modelID string) pickerItem {
 	providerName = strings.TrimSpace(providerName)
 	if entry, ok := registry.Resolve(modelID); ok {
-		item := registryModelPickerItem(entry, "Recent")
+		item := registryModelPickerItem(entry, "Recentes")
 		item.Value = modelID
 		item.OwnerProvider = providerName
 		return item
@@ -558,19 +558,19 @@ func (m model) modelPickerRecentItem(registry modelregistry.Registry, providerNa
 		if descriptor, hasDescriptor := m.descriptorForProfile(profile); hasDescriptor {
 			for _, model := range providermodelcatalog.Models(descriptor) {
 				if model.ID == modelID {
-					item := providerModelPickerItem(descriptor, model, "Recent")
+					item := providerModelPickerItem(descriptor, model, "Recentes")
 					item.Value = modelID
 					item.OwnerProvider = profile.Name
 					return item
 				}
 			}
-			item := providerModelPickerItem(descriptor, providermodelcatalog.Model{ID: modelID}, "Recent")
+			item := providerModelPickerItem(descriptor, providermodelcatalog.Model{ID: modelID}, "Recentes")
 			item.Value = modelID
 			item.OwnerProvider = profile.Name
 			return item
 		}
 	}
-	return pickerItem{Group: "Recent", Label: modelPickerDisplayName(modelID, ""), Value: modelID, OwnerProvider: providerName}
+	return pickerItem{Group: "Recentes", Label: modelPickerDisplayName(modelID, ""), Value: modelID, OwnerProvider: providerName}
 }
 
 func registryModelPickerItem(entry modelregistry.ModelEntry, group string) pickerItem {
@@ -982,7 +982,7 @@ func (m model) newThemePicker() *commandPicker {
 	}
 	// allItems lets the query filter restore rows on Backspace (one-way narrowing
 	// otherwise, since applyQuery falls back to the current items without it).
-	return &commandPicker{kind: pickerTheme, title: "Choose a theme", items: items, allItems: append([]pickerItem{}, items...), selected: selected}
+	return &commandPicker{kind: pickerTheme, title: "Escolher tema", items: items, allItems: append([]pickerItem{}, items...), selected: selected}
 }
 
 // pickerMoved advances the open picker's cursor by delta. Theme candidates render

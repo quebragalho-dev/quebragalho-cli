@@ -756,7 +756,7 @@ func (m model) themePickerOverlay(width int) string {
 	listWidth, previewWidth, showPreview := themePickerColumnWidths(innerWidth)
 
 	lines := []string{
-		renderPickerSearchLine(m.picker.query, "buscar um tema…", innerWidth),
+		renderPickerSearchLine(m.picker.query, "nome do tema…", innerWidth),
 		qgTheme.line.Render(strings.Repeat("─", innerWidth)),
 	}
 	listLines := m.themePickerListLines(listWidth)
@@ -852,7 +852,7 @@ func (m model) themePickerPreviewLines(width int) []string {
 	codeClose := preview.ink.Render("}")
 	status := preview.green.Render("✓") + preview.faint.Render(" tests   ") + preview.accent.Render("0") + preview.faint.Render(" bugs (probably)")
 	return []string{
-		fill(preview.accent.Bold(true).Render("Preview")),
+		fill(preview.accent.Bold(true).Render("Prévia")),
 		fill(codeOpen),
 		fill(codeWork),
 		fill(codeComment),
@@ -928,7 +928,7 @@ func (m model) modelPickerOverlay(width int) string {
 	lines = append(lines, fillPaletteLine(qgTheme.faint.Render(footer), innerWidth, transparentSurface))
 	title := strings.TrimSpace(m.picker.title)
 	if title == "" {
-		title = "Escolher um modelo"
+		title = "Escolher modelo"
 	}
 	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, title, lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
@@ -944,7 +944,7 @@ func (m model) modelPickerLoadingOverlay(width int) string {
 	}
 	title := strings.TrimSpace(m.picker.title)
 	if title == "" {
-		title = "Escolher um modelo"
+		title = "Escolher modelo"
 	}
 	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, title, lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
@@ -958,7 +958,7 @@ func modelPickerLoadingOverlayWidth(terminalWidth int) int {
 		available = terminalWidth
 	}
 	target := lipgloss.Width("Será usada a lista interna se a descoberta falhar.")
-	target = maxInt(target, lipgloss.Width("Escolher um modelo"))
+	target = maxInt(target, lipgloss.Width("Escolher modelo"))
 	target = maxInt(target, lipgloss.Width("Esc fechar"))
 	overlayWidth := maxInt(modelPickerOverlayMinWidth, target+4)
 	return minInt(overlayWidth, maxInt(4, available))
@@ -972,7 +972,7 @@ func modelPickerOverlayWidth(terminalWidth int, picker *commandPicker) int {
 	if terminalWidth < modelPickerOverlayMinWidth {
 		available = terminalWidth
 	}
-	target := lipgloss.Width("Escolher um modelo")
+	target := lipgloss.Width("Escolher modelo")
 	target = maxInt(target, lipgloss.Width("  buscar > nome do modelo..."))
 	target = maxInt(target, lipgloss.Width("↑/↓ mover   Enter selecionar   Ctrl+F favoritar   Esc fechar"))
 	target = maxInt(target, lipgloss.Width("  Usando a lista interna"))

@@ -869,7 +869,7 @@ func TestModelCommandRejectsSwitchWhilePending(t *testing.T) {
 	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
-	if !transcriptContains(next.transcript, "Cannot switch models while a run is active") {
+	if !transcriptContains(next.transcript, "Não é possível trocar de modelo com uma execução em andamento") {
 		t.Fatalf("expected pending switch error, got %#v", next.transcript)
 	}
 }

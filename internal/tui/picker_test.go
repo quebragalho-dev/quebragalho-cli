@@ -236,6 +236,34 @@ func TestModelPickerSearchFiltersModels(t *testing.T) {
 	assertNotContains(t, view, "Muse Spark")
 }
 
+func TestModelPickerSearchMatchesRecentesGroup(t *testing.T) {
+	m := newModel(context.Background(), Options{
+		ProviderName: "qg",
+		ModelName:    "muse-spark-1.3-contributor",
+		ProviderProfile: config.ProviderProfile{
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			APIKeyEnv:    "QUEBRAGALHO_API_KEY",
+			Model:        "muse-spark-1.3-contributor",
+		},
+	})
+	m.picker = m.newModelPicker()
+	if m.picker == nil {
+		t.Fatal("expected model picker")
+	}
+	m.picker.query = "recentes"
+	m.picker.applyQuery()
+	if len(m.picker.items) == 0 {
+		t.Fatal("search for recentes should match the Recentes group")
+	}
+	for _, item := range m.picker.items {
+		if item.Group != "Recentes" {
+			t.Fatalf("search for recentes matched non-Recentes group %q (%#v)", item.Group, item)
+		}
+	}
+}
+
 func TestModelPickerFavoriteShortcutTogglesSelectedModel(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	m := newModel(context.Background(), Options{
@@ -265,7 +293,7 @@ func TestModelPickerFavoriteShortcutTogglesSelectedModel(t *testing.T) {
 	if !next.favoriteModels["glm-5.3"] {
 		t.Fatalf("favorite map = %#v, want qwen3-coder:480b favorited", next.favoriteModels)
 	}
-	if next.picker.items[0].Group != "Favorites" || next.picker.items[0].Value != "glm-5.3" {
+	if next.picker.items[0].Group != "Favoritos" || next.picker.items[0].Value != "glm-5.3" {
 		t.Fatalf("first picker item = %#v, want favorite group row", next.picker.items[0])
 	}
 	persisted := readTUIConfigFixture(t, configPath)
@@ -278,7 +306,7 @@ func TestModelPickerFavoriteShortcutTogglesSelectedModel(t *testing.T) {
 	if next.favoriteModels["glm-5.3"] {
 		t.Fatalf("favorite map = %#v, want qwen3-coder:480b unfavorited", next.favoriteModels)
 	}
-	if len(next.picker.items) > 0 && next.picker.items[0].Group == "Favorites" {
+	if len(next.picker.items) > 0 && next.picker.items[0].Group == "Favoritos" {
 		t.Fatalf("favorites group should be gone after unfavorite, got first item %#v", next.picker.items[0])
 	}
 	persisted = readTUIConfigFixture(t, configPath)
@@ -298,7 +326,7 @@ func TestModelPickerLoadsFavoriteModelsFromOptions(t *testing.T) {
 	if picker == nil {
 		t.Fatal("expected model picker")
 	}
-	if picker.items[0].Group != "Favorites" || picker.items[0].Value != "glm-5.3" {
+	if picker.items[0].Group != "Favoritos" || picker.items[0].Value != "glm-5.3" {
 		t.Fatalf("first picker item = %#v, want persisted favorite first", picker.items[0])
 	}
 }
@@ -320,8 +348,8 @@ func TestModelPickerShowsRecentThenActiveProviderCatalog(t *testing.T) {
 	if picker == nil {
 		t.Fatal("expected a model picker")
 	}
-	if picker.items[0].Group != "Recent" {
-		t.Fatalf("first picker group = %q, want Recent", picker.items[0].Group)
+	if picker.items[0].Group != "Recentes" {
+		t.Fatalf("first picker group = %q, want Recentes", picker.items[0].Group)
 	}
 	if picker.items[0].Value != "muse-spark-1.3-contributor" {
 		t.Fatalf("first picker value = %q, want active recent model", picker.items[0].Value)
@@ -377,7 +405,7 @@ func TestModelPickerAppliesActiveProviderCatalogModelID(t *testing.T) {
 // recentModelPairsForPicker pins the active provider+model first (even before
 // it is recorded to history), then follows persisted history in order,
 // de-duplicating by provider+model pair and capping to config.MaxRecentModels
-// (issue: /model picker's "Recent" section only ever showed the active model).
+// (issue: /model picker's "Recentes" section only ever showed the active model).
 func TestRecentModelPairsForPickerPinsActiveDedupesAndCaps(t *testing.T) {
 	m := model{
 		providerName: "openrouter",
@@ -475,7 +503,7 @@ func TestAssembleModelPickerItemsFavoritesDedupByModelIDAndHideFromOtherGroups(t
 
 	var favorites []pickerItem
 	for _, item := range items {
-		if item.Group == "Favorites" {
+		if item.Group == "Favoritos" {
 			favorites = append(favorites, item)
 		}
 	}
@@ -489,13 +517,13 @@ func TestAssembleModelPickerItemsFavoritesDedupByModelIDAndHideFromOtherGroups(t
 		t.Fatalf("expected surviving favorite to keep first-seen provider %q, got %#v", "provider-a", favorites[0])
 	}
 	for _, item := range items {
-		if item.Group != "Favorites" && item.Value == "shared-model" {
+		if item.Group != "Favoritos" && item.Value == "shared-model" {
 			t.Fatalf("favorited model id leaked into %s: %#v", item.Group, item)
 		}
 	}
 	var otherCatalog []pickerItem
 	for _, item := range items {
-		if item.Group != "Favorites" && item.Group != "Recent" && item.Value == "other-model" {
+		if item.Group != "Favoritos" && item.Group != "Recentes" && item.Value == "other-model" {
 			otherCatalog = append(otherCatalog, item)
 		}
 	}
@@ -514,7 +542,7 @@ func TestAssembleModelPickerItemsFavoritesDedupByModelIDAndHideFromOtherGroups(t
 func TestRegistryModelPickerItemSetsOwnerProvider(t *testing.T) {
 	entry := testModelEntry("shared-model", 128000, nil)
 	entry.Provider = modelregistry.ProviderAnthropic
-	item := registryModelPickerItem(entry, "Catalog")
+	item := registryModelPickerItem(entry, "Catálogo")
 	if item.OwnerProvider != string(modelregistry.ProviderAnthropic) {
 		t.Fatalf("expected OwnerProvider %q, got %q", modelregistry.ProviderAnthropic, item.OwnerProvider)
 	}
@@ -526,8 +554,8 @@ func TestRegistryModelPickerItemSetsOwnerProvider(t *testing.T) {
 	entryB := testModelEntry("shared-model", 128000, nil)
 	entryB.Provider = modelregistry.ProviderOpenAI
 	catalog := []pickerItem{
-		registryModelPickerItem(entryA, "Catalog"),
-		registryModelPickerItem(entryB, "Catalog"),
+		registryModelPickerItem(entryA, "Catálogo"),
+		registryModelPickerItem(entryB, "Catálogo"),
 	}
 	m := model{}
 	items := m.assembleModelPickerItems(nil, catalog)
@@ -536,7 +564,7 @@ func TestRegistryModelPickerItemSetsOwnerProvider(t *testing.T) {
 	}
 }
 
-// End-to-end: the picker's "Recent" section shows the active model plus prior
+// End-to-end: the picker's "Recentes" section shows the active model plus prior
 // history, newest first, with the active entry deduped against a stale copy
 // already present in history.
 func TestModelPickerRecentSectionShowsHistoryPastTheActiveModel(t *testing.T) {
@@ -564,7 +592,7 @@ func TestModelPickerRecentSectionShowsHistoryPastTheActiveModel(t *testing.T) {
 	}
 	recentValues := []string{}
 	for _, item := range picker.items {
-		if item.Group != "Recent" {
+		if item.Group != "Recentes" {
 			break
 		}
 		recentValues = append(recentValues, item.Value)
@@ -947,7 +975,7 @@ func TestPickerRenders(t *testing.T) {
 	m.input.SetValue("/model")
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
-	if !strings.Contains(viewString(m.View()), "Selecionar modelo") {
+	if !strings.Contains(viewString(m.View()), "Escolher modelo") {
 		t.Fatal("view should render the picker title")
 	}
 }

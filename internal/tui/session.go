@@ -702,7 +702,7 @@ func transcriptRowsFromSessionEvents(events []sessions.Event) []transcriptRow {
 		case sessions.EventSessionFork:
 			parentID := payloadString(payload, "parentSessionId")
 			if parentID != "" {
-				rows = append(rows, transcriptRow{kind: rowSystem, text: "fork da sessão: " + parentID})
+				rows = append(rows, transcriptRow{kind: rowSystem, text: "sessão derivada de: " + parentID})
 			}
 		case sessions.EventSpecialistStart:
 			info := specialistInfoFromPayload(payload)
