@@ -849,7 +849,7 @@ func TestRunExecResolvesCanonicalModelAlias(t *testing.T) {
 func TestRunExecReasoningEffortNoticeForNonReasoningModel(t *testing.T) {
 	root := t.TempDir()
 
-	exitCode, stdout, stderr := runExecWithEcho(t, []string{"exec", "--cwd", root, "-m", "qwen3.8-max", "-r", "high", "-o", "json", "hi"})
+	exitCode, stdout, stderr := runExecWithEcho(t, []string{"exec", "--cwd", root, "-m", "jev-1.13", "-r", "high", "-o", "json", "hi"})
 
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr)
@@ -867,16 +867,16 @@ func TestReasoningEffortNoticeCoercesUnsupportedEffort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultRegistry: %v", err)
 	}
-	// gpt-5.6-luna supports minimal/low/medium/high with no declared default, so
-	// xhigh is unsupported and coerces to the first supported tier (minimal).
-	notice := reasoningEffortNotice(registry, "gpt-5.6-luna", "xhigh")
-	if !strings.Contains(notice, "not supported") || !strings.Contains(notice, "minimal") {
-		t.Fatalf("expected coercion notice to first supported tier minimal, got %q", notice)
+	// deepseek-v4-pro exposes low/high/max via the name fallback with no declared
+	// default, so xhigh is unsupported and coerces to the first tier (low).
+	notice := reasoningEffortNotice(registry, "deepseek-v4-pro", "xhigh")
+	if !strings.Contains(notice, "not supported") || !strings.Contains(notice, "low") {
+		t.Fatalf("expected coercion notice to first supported tier low, got %q", notice)
 	}
-	if got := reasoningEffortNotice(registry, "gpt-5.6-luna", "high"); got != "" {
+	if got := reasoningEffortNotice(registry, "deepseek-v4-pro", "high"); got != "" {
 		t.Fatalf("expected no notice for a supported effort, got %q", got)
 	}
-	if got := reasoningEffortNotice(registry, "qwen3.8-max", "high"); !strings.Contains(got, "does not support") {
+	if got := reasoningEffortNotice(registry, "jev-1.13", "high"); !strings.Contains(got, "does not support") {
 		t.Fatalf("expected unsupported-model notice, got %q", got)
 	}
 }
@@ -892,10 +892,10 @@ func TestForwardedReasoningEffortGating(t *testing.T) {
 		requested string
 		want      string
 	}{
-		{"empty request", "gpt-5.6-luna", "", ""},
-		{"supported reasoning model", "gpt-5.6-luna", "high", "high"},
-		{"unsupported effort coerced to first tier", "gpt-5.6-luna", "xhigh", "minimal"},
-		{"known non-reasoning model suppressed", "qwen3.8-max", "high", ""},
+		{"empty request", "deepseek-v4-pro", "", ""},
+		{"supported reasoning model", "deepseek-v4-pro", "high", "high"},
+		{"unsupported effort coerced to first tier", "deepseek-v4-pro", "xhigh", "low"},
+		{"known non-reasoning model suppressed", "jev-1.13", "high", ""},
 		{"unknown model forwards as-is", "custom-endpoint-model", "high", "high"},
 	}
 	for _, tc := range cases {
@@ -1173,10 +1173,10 @@ func runExecWithEffectiveModel(t *testing.T, effectiveModel string, args []strin
 // --reasoning-effort is validated against the EFFECTIVE (resolved) model even
 // when --model is omitted, so the advisory notice still surfaces.
 func TestRunExecReasoningEffortNoticeUsesEffectiveModel(t *testing.T) {
-	// qwen3.8-max is a registry-known non-reasoning model. With no --model the
+	// jev-1.13 is a registry-known non-reasoning model. With no --model the
 	// override model is empty, so the notice must be evaluated against the
 	// effective model resolved by resolveConfig.
-	exitCode, stdout, stderr := runExecWithEffectiveModel(t, "qwen3.8-max", []string{
+	exitCode, stdout, stderr := runExecWithEffectiveModel(t, "jev-1.13", []string{
 		"exec", "-r", "high", "hi",
 	})
 
@@ -1355,17 +1355,17 @@ func TestRunExecWiresModelSwitcherUnderFlag(t *testing.T) {
 	var builtProviders []*escalatingExecProvider
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exitCode := runWithDeps([]string{"exec", "--allow-escalation", "--model", "mimo-v2.6-flash", "escalate please"}, &stdout, &stderr, appDeps{
+	exitCode := runWithDeps([]string{"exec", "--allow-escalation", "--model", "deepseek-v4.1-flash", "escalate please"}, &stdout, &stderr, appDeps{
 		getwd: func() (string, error) {
 			return cwd, nil
 		},
 		resolveConfig: func(_ string, overrides config.Overrides) (config.ResolvedConfig, error) {
-			model := "mimo-v2.6-flash"
+			model := "deepseek-v4.1-flash"
 			if overrides.Provider.Model != "" {
 				model = overrides.Provider.Model
 			}
 			cfg := execResolvedConfig()
-			// The escalation chain (mimo flash -> pro) runs on the base
+			// The escalation chain (deepseek flash -> pro) runs on the base
 			// openai-compatible transport the fixture already declares.
 			cfg.Provider.Model = model
 			cfg.MaxTurns = 3
@@ -1387,12 +1387,12 @@ func TestRunExecWiresModelSwitcherUnderFlag(t *testing.T) {
 	if len(providerModels) != 2 {
 		t.Fatalf("newProvider called for models %#v, want exactly 2 builds (initial + escalated)", providerModels)
 	}
-	if providerModels[0] != "mimo-v2.6-flash" {
-		t.Fatalf("initial provider model = %q, want mimo-v2.6-flash", providerModels[0])
+	if providerModels[0] != "deepseek-v4.1-flash" {
+		t.Fatalf("initial provider model = %q, want deepseek-v4.1-flash", providerModels[0])
 	}
-	target, ok := mustUpgradeTarget(t, "mimo-v2.6-flash")
+	target, ok := mustUpgradeTarget(t, "deepseek-v4.1-flash")
 	if !ok {
-		t.Skip("registry has no upgrade target for mimo-v2.6-flash")
+		t.Skip("registry has no upgrade target for deepseek-v4.1-flash")
 	}
 	if providerModels[1] != target {
 		t.Fatalf("escalated provider model = %q, want %q", providerModels[1], target)

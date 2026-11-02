@@ -104,7 +104,6 @@ func decorateModelDepth(entries []ModelEntry) {
 			// Minimal measured accepted on the live gateway (Sonda E2E).
 			efforts: []ReasoningEffort{ReasoningEffortMinimal},
 		},
-		"kimi-k3.1-pro": {upgradeTarget: "kimi-k3"},
 	}
 	for index := range entries {
 		extra, ok := depth[entries[index].ID]
