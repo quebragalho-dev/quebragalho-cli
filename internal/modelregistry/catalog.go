@@ -94,15 +94,16 @@ func decorateModelDepth(entries []ModelEntry) {
 		"deepseek-v4.1-flash": {upgradeTarget: "deepseek-v4-pro"},
 		"glm-5.2": {
 			upgradeTarget: "glm-5.3",
-			// Minimal measured accepted on the live gateway (Sonda E2E);
-			// smallest tier also minimizes title cost.
-			efforts: []ReasoningEffort{ReasoningEffortMinimal},
+			// Live probe 2026-11-02 (few tokens each): minimal/low/medium/high
+			// all return 200 on the gateway; title picks the smallest (minimal).
+			efforts: []ReasoningEffort{ReasoningEffortMinimal, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh},
 		},
 		"glm-5.3-flash": {upgradeTarget: "glm-5.3"},
 		"gpt-6-luna": {
 			upgradeTarget: "gpt-6.1-terra",
-			// Minimal measured accepted on the live gateway (Sonda E2E).
-			efforts: []ReasoningEffort{ReasoningEffortMinimal},
+			// Live probe 2026-11-02 (few tokens each): minimal/low/medium/high
+			// all return 200 on the gateway; title picks the smallest (minimal).
+			efforts: []ReasoningEffort{ReasoningEffortMinimal, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh},
 		},
 	}
 	for index := range entries {
