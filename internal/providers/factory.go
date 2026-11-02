@@ -49,9 +49,18 @@ func New(profile config.ProviderProfile, options Options) (qgruntime.Provider, e
 		HTTPClient:            options.HTTPClient,
 		UserAgent:             options.UserAgent,
 		ParseThinkTags:        parseThinkTagsForProfile(profile, resolved),
-		DisablePromptCacheKey: resolved.providerKind == config.ProviderKindOpenAICompatible,
+		DisablePromptCacheKey: resolved.providerKind == config.ProviderKindOpenAICompatible && !isQGEndpoint(resolved.baseURL),
 		SessionHeader:         conversationHeader(resolved.baseURL),
 	})
+}
+
+// isQGEndpoint reports whether baseURL is the QG catalog endpoint.
+func isQGEndpoint(baseURL string) bool {
+	descriptor, ok := providercatalog.Get(providercatalog.QGID)
+	if !ok {
+		return false
+	}
+	return config.SameBaseURL(baseURL, descriptor.DefaultBaseURL)
 }
 
 // conversationHeader names the session-affinity header for the QG gateway and
@@ -59,11 +68,7 @@ func New(profile config.ProviderProfile, options Options) (qgruntime.Provider, e
 // (normalized comparison, so trailing slashes and case do not matter). Any
 // other endpoint — custom base URLs, local proxies — gets none.
 func conversationHeader(baseURL string) string {
-	descriptor, ok := providercatalog.Get(providercatalog.QGID)
-	if !ok {
-		return ""
-	}
-	if !config.SameBaseURL(baseURL, descriptor.DefaultBaseURL) {
+	if !isQGEndpoint(baseURL) {
 		return ""
 	}
 	return QGConversationIDHeader
