@@ -147,19 +147,31 @@ func TestModelCostRequiresCompleteBasePricing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected incomplete base pricing validation error")
 	}
-	if !strings.Contains(err.Error(), "base input and output rates") {
-		t.Fatalf("error = %q, want base input and output rates", err.Error())
+	if !strings.Contains(err.Error(), "base input rate") {
+		t.Fatalf("error = %q, want base input rate", err.Error())
 	}
 
 	model = validModelEntry()
+	model.Cost.InputPerMillion = 0
 	model.Cost.OutputPerMillion = 0
 
 	err = model.Validate()
 	if err == nil {
-		t.Fatal("expected incomplete base pricing validation error")
+		t.Fatal("expected missing base pricing validation error")
 	}
-	if !strings.Contains(err.Error(), "base input and output rates") {
-		t.Fatalf("error = %q, want base input and output rates", err.Error())
+	if !strings.Contains(err.Error(), "base pricing or pricing tiers") {
+		t.Fatalf("error = %q, want base pricing or pricing tiers", err.Error())
+	}
+}
+
+func TestModelCostAllowsFreeOutputRate(t *testing.T) {
+	// Decision-only models charge input only (live jev-1.13: input 0.0378,
+	// output 0). A zero output rate with a positive input rate is valid.
+	model := validModelEntry()
+	model.Cost.OutputPerMillion = 0
+
+	if err := model.Validate(); err != nil {
+		t.Fatalf("Validate returned error for free-output pricing: %v", err)
 	}
 }
 

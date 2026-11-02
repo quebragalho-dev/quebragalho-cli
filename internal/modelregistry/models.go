@@ -233,8 +233,10 @@ func (cost ModelCost) Validate() error {
 		if cost.InputPerMillion == 0 && cost.OutputPerMillion == 0 {
 			return fmt.Errorf("model cost must include base pricing or pricing tiers")
 		}
-		if cost.InputPerMillion == 0 || cost.OutputPerMillion == 0 {
-			return fmt.Errorf("model cost base input and output rates must be positive")
+		// Output may be zero: decision-only models (e.g. jev) charge input
+		// only. Input must stay positive so a missing rate still fails.
+		if cost.InputPerMillion == 0 {
+			return fmt.Errorf("model cost base input rate must be positive")
 		}
 	}
 	if err := validateCostTiers(cost.Tiers); err != nil {

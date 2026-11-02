@@ -32,7 +32,7 @@ func TestEscalatedRunAttributesUsageToTheModelInForce(t *testing.T) {
 
 	// A catalog model with an upgrade target; the target is whatever the
 	// catalog says, read back from the provider factory rather than assumed.
-	const startModel = "mimo-v2.6-flash"
+	const startModel = "deepseek-v4.1-flash"
 	starting := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
 		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 10, OutputTokens: 1}},
 		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "escalate", ToolName: "escalate_model"},
@@ -138,7 +138,7 @@ func TestEscalatedRunPricesPersistedUsageAtEachModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const startModel = "mimo-v2.6-flash"
+	const startModel = "deepseek-v4.1-flash"
 	before := qgruntime.Usage{InputTokens: 10, OutputTokens: 1}
 	after := qgruntime.Usage{InputTokens: 20, OutputTokens: 2}
 	starting := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
