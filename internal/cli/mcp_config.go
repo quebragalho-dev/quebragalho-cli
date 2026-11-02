@@ -392,20 +392,24 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 		if skipped.Name != serverName {
 			continue
 		}
-		message := fmt.Sprintf("Servidor MCP %s não está acessível", serverName)
+		canonical := fmt.Sprintf("MCP server %s is not reachable", serverName)
 		if skipped.Err != nil {
-			message = fmt.Sprintf("%s: %s", message, redaction.ErrorMessage(skipped.Err, redaction.Options{}))
+			canonical = fmt.Sprintf("%s: %s", canonical, redaction.ErrorMessage(skipped.Err, redaction.Options{}))
 		}
 		if options.json {
 			payload := struct {
 				ServerName string `json:"serverName"`
 				Status     string `json:"status"`
 				Error      string `json:"error,omitempty"`
-			}{ServerName: serverName, Status: "unreachable", Error: message}
+			}{ServerName: serverName, Status: "unreachable", Error: canonical}
 			if err := writePrettyJSON(stdout, redaction.RedactValue(payload, redaction.Options{})); err != nil {
 				return exitCrash
 			}
 			return exitCrash
+		}
+		message := fmt.Sprintf("Servidor MCP %s não está acessível", serverName)
+		if skipped.Err != nil {
+			message = fmt.Sprintf("%s: %s", message, redaction.ErrorMessage(skipped.Err, redaction.Options{}))
 		}
 		return writeAppError(stderr, message, exitCrash)
 	}

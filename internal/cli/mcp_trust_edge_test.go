@@ -244,7 +244,7 @@ func TestRunMCPCheckReportsUnreachableServer(t *testing.T) {
 	if code := runWithDeps([]string{"mcp", "check", "broken"}, &out, &errBuf, deps); code == exitSuccess {
 		t.Fatalf("mcp check must fail for a server that did not start; stdout=%q stderr=%q", out.String(), errBuf.String())
 	}
-	if got := out.String(); strings.Contains(got, "is reachable") {
+	if got := out.String(); strings.Contains(got, "Ferramentas disponíveis") {
 		t.Fatalf("mcp check reported a failed server as reachable: %q", got)
 	}
 	if got := errBuf.String(); !strings.Contains(got, "não está acessível") {
@@ -288,7 +288,7 @@ func TestRunMCPCheckReportsUnreachableServerJSON(t *testing.T) {
 	if payload.Status != "unreachable" {
 		t.Fatalf("status = %q, want %q", payload.Status, "unreachable")
 	}
-	if !strings.Contains(payload.Error, "não está acessível") {
+	if !strings.Contains(payload.Error, "not reachable") {
 		t.Fatalf("error = %q, want it to say the server is not reachable", payload.Error)
 	}
 	// A reachable payload carries a tool count; an unreachable one must not

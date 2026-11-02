@@ -80,7 +80,7 @@ func TestRunProvidersCheckConnectivitySkippedPrintsNextAction(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "próximo: execute qg providers check work --connectivity") {
+	if !strings.Contains(output, "próximo: rode qg providers check work --connectivity") {
 		t.Fatalf("missing connectivity next action: %q", output)
 	}
 	if stderr.Len() != 0 {
@@ -147,7 +147,7 @@ func TestRunProvidersCheckConnectivityOKPrintsExecNextAction(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, `próximo: execute qg exec "hello" --model gpt-4.1`) {
+	if !strings.Contains(output, `próximo: rode qg exec "hello" --model gpt-4.1`) {
 		t.Fatalf("missing ready next action: %q", output)
 	}
 }

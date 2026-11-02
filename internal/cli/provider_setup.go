@@ -152,7 +152,7 @@ func runProvidersCheck(args []string, stdout io.Writer, stderr io.Writer, deps a
 			}
 		}
 	}
-	for _, nextAction := range providerCheckNextActions(profile, options.connectivity, health) {
+	for _, nextAction := range providerCheckNextActionsHuman(profile, options.connectivity, health) {
 		if _, err := fmt.Fprintf(stdout, "próximo: %s\n", nextAction); err != nil {
 			return exitCrash
 		}
@@ -185,12 +185,34 @@ func providerCheckErrorMessage(err error, profile config.ProviderProfile) string
 func providerCheckNextActions(profile config.ProviderProfile, connectivity bool, health providerhealth.Result) []string {
 	name := providerCheckName(profile)
 	if !connectivity {
-		return []string{fmt.Sprintf("execute qg providers check %s --connectivity", name)}
+		return []string{fmt.Sprintf("run qg providers check %s --connectivity", name)}
 	}
 	switch health.Status {
 	case providerhealth.StatusFail:
 		// A keyless profile failing the probe needs the credential recipe, not
 		// the generic verify advice: name both gateway env vars and `qg login`.
+		if _, missing := profile.MissingCredentialEnv(); missing && !providerProfileHasCredential(profile) {
+			return []string{fmt.Sprintf("set %s in your environment or run `qg login`, then rerun qg providers check %s --connectivity", providercatalog.KeyEnvHint, name)}
+		}
+		return []string{fmt.Sprintf("verify the API key, base URL, and model, then rerun qg providers check %s --connectivity", name)}
+	case providerhealth.StatusWarn:
+		return []string{fmt.Sprintf("review the warning, then rerun qg providers check %s --connectivity", name)}
+	default:
+		model := strings.TrimSpace(profile.Model)
+		if model == "" {
+			return []string{"provider is ready"}
+		}
+		return []string{fmt.Sprintf("run qg exec %q --model %s", "hello", model)}
+	}
+}
+
+func providerCheckNextActionsHuman(profile config.ProviderProfile, connectivity bool, health providerhealth.Result) []string {
+	name := providerCheckName(profile)
+	if !connectivity {
+		return []string{fmt.Sprintf("rode qg providers check %s --connectivity", name)}
+	}
+	switch health.Status {
+	case providerhealth.StatusFail:
 		if _, missing := profile.MissingCredentialEnv(); missing && !providerProfileHasCredential(profile) {
 			return []string{fmt.Sprintf("defina %s no seu ambiente ou rode `qg login`, depois rode de novo qg providers check %s --connectivity", providercatalog.KeyEnvHint, name)}
 		}
@@ -202,7 +224,7 @@ func providerCheckNextActions(profile config.ProviderProfile, connectivity bool,
 		if model == "" {
 			return []string{"provedor pronto"}
 		}
-		return []string{fmt.Sprintf("execute qg exec %q --model %s", "hello", model)}
+		return []string{fmt.Sprintf("rode qg exec %q --model %s", "hello", model)}
 	}
 }
 
