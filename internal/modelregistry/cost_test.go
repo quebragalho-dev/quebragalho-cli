@@ -13,7 +13,7 @@ func TestRegistryEstimatesCostFromNormalizedUsage(t *testing.T) {
 		t.Fatalf("DefaultRegistry returned error: %v", err)
 	}
 
-	// muse-spark rates: 0.04 input / 0.08 output / 0.001 cached per 1M.
+	// muse-spark rates: 0.09 input / 0.18 output / 0.0018 cached per 1M (live 2026-11-02).
 	cost, err := registry.EstimateCost("muse-spark-1.3-contributor", qgruntime.Usage{
 		InputTokens:       1_000_000,
 		CachedInputTokens: 100_000,
@@ -26,10 +26,10 @@ func TestRegistryEstimatesCostFromNormalizedUsage(t *testing.T) {
 	if cost.ModelID != "muse-spark-1.3-contributor" || cost.Provider != ProviderQG {
 		t.Fatalf("cost identity = %#v, want muse-spark-1.3-contributor/qg", cost)
 	}
-	assertClose(t, cost.InputCost, 0.036)
-	assertClose(t, cost.CachedInputCost, 0.0001)
-	assertClose(t, cost.OutputCost, 0.04)
-	assertClose(t, cost.TotalCost, 0.0761)
+	assertClose(t, cost.InputCost, 0.081)
+	assertClose(t, cost.CachedInputCost, 0.00018)
+	assertClose(t, cost.OutputCost, 0.09)
+	assertClose(t, cost.TotalCost, 0.17118)
 }
 
 func TestRegistryCostSupportsAliasesAndFullyCachedInput(t *testing.T) {
@@ -49,8 +49,8 @@ func TestRegistryCostSupportsAliasesAndFullyCachedInput(t *testing.T) {
 	if cost.InputCost != 0 {
 		t.Fatalf("InputCost = %v, want 0 for fully cached input", cost.InputCost)
 	}
-	assertClose(t, cost.CachedInputCost, 0.001)
-	assertClose(t, cost.TotalCost, 0.001)
+	assertClose(t, cost.CachedInputCost, 0.0018)
+	assertClose(t, cost.TotalCost, 0.0018)
 }
 
 func TestRegistryCostUsesPromptAndCompletionAliases(t *testing.T) {

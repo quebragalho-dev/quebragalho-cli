@@ -30,7 +30,7 @@ func AgentContextWindow(resolved int) int {
 
 // sourceLastVerified records the last live observation of GET /v1/models
 // (ids, context labels, vision/reasoning flags, per-1M prices).
-const sourceLastVerified = "2026-10-09"
+const sourceLastVerified = "2026-11-02"
 
 const qgPricingSource = "https://api.quebragalho.dev/v1"
 
@@ -46,13 +46,13 @@ func DefaultRegistry() (Registry, error) {
 
 func DefaultModelEntries() []ModelEntry {
 	// The 19 models served by https://api.quebragalho.dev/v1, observed via
-	// GET /v1/models on 2026-10-09: context windows come from context_label
+	// GET /v1/models on 2026-11-02: context windows come from context_label
 	// (live context_length was null), prices are the live per-1M rates, and
 	// MaxOutputTokens stays 0 because the API publishes no output cap.
 	entries := []ModelEntry{
-		qgModel("muse-spark-1.3-contributor", "Muse Spark", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.04, OutputPerMillion: 0.08, CachedInputPerMillion: 0.001}, []string{"muse-spark"}),
+		qgModel("muse-spark-1.3-contributor", "Muse Spark", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.09, OutputPerMillion: 0.18, CachedInputPerMillion: 0.0018}, []string{"muse-spark"}),
 		qgModel("deepseek-v4-pro", "DeepSeek V4 Pro", 1_000_000, []ModelCapability{ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.32, OutputPerMillion: 0.97, CachedInputPerMillion: 0.033}, nil),
-		qgModel("deepseek-v4.1-flash", "DeepSeek V4.1 Flash", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.14, OutputPerMillion: 0.56, CachedInputPerMillion: 0.009}, nil),
+		qgModel("deepseek-v4.1-flash", "DeepSeek V4.1 Flash", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.14, OutputPerMillion: 0.56, CachedInputPerMillion: 0.0028}, nil),
 		qgModel("glm-5.3", "GLM 5.3", 1_000_000, []ModelCapability{ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.54, OutputPerMillion: 1.70, CachedInputPerMillion: 0.08}, nil),
 		qgModel("glm-5.3-flash", "GLM 5.3 Flash", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.05, OutputPerMillion: 0.17, CachedInputPerMillion: 0.009}, nil),
 		qgModel("gpt-5.6-luna", "GPT 5.6 Luna", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.055, OutputPerMillion: 0.33, CachedInputPerMillion: 0.009}, nil),
@@ -64,11 +64,11 @@ func DefaultModelEntries() []ModelEntry {
 		qgModel("grok-4.7", "Grok 4.7", 500_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.80, OutputPerMillion: 2.40, CachedInputPerMillion: 0.08}, nil),
 		qgModel("hy4", "Hy4", 1_000_000, []ModelCapability{ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.33, OutputPerMillion: 1.00, CachedInputPerMillion: 0.033}, nil),
 		qgModel("kimi-k3", "Kimi K3", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 1.19, OutputPerMillion: 6.20, CachedInputPerMillion: 0.15}, nil),
-		qgModel("mimo-v2.6-flash", "Mimo V2.6 Flash", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.028, OutputPerMillion: 0.056, CachedInputPerMillion: 0.00056}, nil),
+		qgModel("mimo-v2.6-flash", "Mimo V2.6 Flash", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.07, OutputPerMillion: 0.14, CachedInputPerMillion: 0.0014}, nil),
 		qgModel("mimo-v2.6-pro", "Mimo V2.6 Pro", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.28, OutputPerMillion: 0.56, CachedInputPerMillion: 0.00241}, nil),
 		qgModel("mimo-v2.6-pro-ultraspeed", "Mimo V2.6 Pro Ultraspeed", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 3.05, OutputPerMillion: 6.09, CachedInputPerMillion: 0.0252}, nil),
 		qgModel("qwen3.8-max", "Qwen 3.8 Max", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.80, OutputPerMillion: 2.40, CachedInputPerMillion: 0.10}, nil),
-		qgModel("qwen3.8-omni-flash", "Qwen 3.8 Omni Flash", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.06, OutputPerMillion: 0.188, CachedInputPerMillion: 0.0099}, nil),
+		qgModel("qwen3.8-omni-flash", "Qwen 3.8 Omni Flash", 1_000_000, []ModelCapability{ModelCapabilityVision, ModelCapabilityReasoning}, ModelCost{InputPerMillion: 0.063, OutputPerMillion: 0.198, CachedInputPerMillion: 0.0102}, nil),
 	}
 	decorateModelDepth(entries)
 	return cloneModelEntries(entries)
@@ -77,7 +77,7 @@ func DefaultModelEntries() []ModelEntry {
 // decorateModelDepth layers registry-depth metadata (fuzzy match patterns,
 // default reasoning efforts, deprecation fallbacks, and escalation targets)
 // onto the base catalog entries. Upgrade targets follow ascending input price
-// within a model family (live rates observed 2026-10-09), so escalate_model
+// within a model family (live rates observed 2026-11-02), so escalate_model
 // moves a struggling session up one tier instead of across vendors.
 func decorateModelDepth(entries []ModelEntry) {
 	depth := map[string]struct {
