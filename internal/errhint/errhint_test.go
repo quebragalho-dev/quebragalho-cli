@@ -71,20 +71,32 @@ func TestContextOverflowBeatsConnectivity(t *testing.T) {
 }
 
 func TestModelNotAllowedHintIsModelUnavailable(t *testing.T) {
-	err := errors.New("provider request error: model not allowed for this account")
-	if got := Classify(err); got != ModelNotFound {
+	// A gateway 403 with code model_not_allowed reaches errhint as a provider
+	// request error (providerio strips the numeric code and the auth prefix),
+	// so it must bucket as ModelNotFound, not Auth.
+	denied := errors.New("provider request error: model not allowed for this account")
+	if got := Classify(denied); got != ModelNotFound {
 		t.Fatalf("Classify = %v, want ModelNotFound", got)
 	}
-	tui := TUIHint(err)
-	if tui != "Model unavailable — pick another with /model" {
-		t.Fatalf("TUIHint = %q, want generic ModelNotFound hint", tui)
+	// Reference shape for the same category: both hints must match it exactly,
+	// so the test survives hint rewording and i18n.
+	known := errors.New("provider request error: model does not exist")
+	if got := Classify(known); got != ModelNotFound {
+		t.Fatalf("Classify(reference) = %v, want ModelNotFound", got)
 	}
-	cli := CLIHint(err)
-	if cli != "Model unavailable — run `qg doctor` or pick another with --model" {
-		t.Fatalf("CLIHint = %q, want generic ModelNotFound hint", cli)
+	if got, want := TUIHint(denied), TUIHint(known); got == "" || got != want {
+		t.Fatalf("TUIHint(denied) = %q, want reference hint %q", got, want)
 	}
-	if strings.Contains(strings.ToLower(tui+cli), "auth error") {
-		t.Fatalf("model_not_allowed hints must not mention auth error: %q %q", tui, cli)
+	if got, want := CLIHint(denied), CLIHint(known); got == "" || got != want {
+		t.Fatalf("CLIHint(denied) = %q, want reference hint %q", got, want)
+	}
+	// Must not collapse into the key/auth hint on either surface.
+	authErr := errors.New("auth error: bad key")
+	if got, auth := TUIHint(denied), TUIHint(authErr); got == auth {
+		t.Fatalf("TUIHint(denied) = %q, must differ from auth hint", got)
+	}
+	if got, auth := CLIHint(denied), CLIHint(authErr); got == auth {
+		t.Fatalf("CLIHint(denied) = %q, must differ from auth hint", got)
 	}
 }
 
