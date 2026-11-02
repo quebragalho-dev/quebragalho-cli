@@ -26,7 +26,7 @@ func TestBatchFiveSmallCostIsNotFreeAndCounterIsHidden(t *testing.T) {
 }
 
 func TestBatchFiveRightComposerAvoidsUnicodeRuleOverdraw(t *testing.T) {
-	m := interactivePetTestModel(t)
+	m := mouseTestModel()
 	m.modelName = "muse-spark-1.3-contributor"
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 		m.width = width

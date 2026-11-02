@@ -25,7 +25,7 @@ func TestBatchFourEmptyStateKeepsBrandWithoutPromptExamples(t *testing.T) {
 }
 
 func TestBatchFourComposerLabelAvoidsUnicodeRuleOverdraw(t *testing.T) {
-	m := interactivePetTestModel(t)
+	m := mouseTestModel()
 	m.modelName = "muse-spark-1.3-contributor"
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 		m.width = width
@@ -35,9 +35,6 @@ func TestBatchFourComposerLabelAvoidsUnicodeRuleOverdraw(t *testing.T) {
 			t.Fatalf("width %d: rule overdraws model label: %q", width, got)
 		}
 		assertRenderedLineWidths(t, got, width)
-		if !strings.HasSuffix(got, strings.Repeat(" ", petReservedColumns)) {
-			t.Fatalf("pet reservation lost: %q", got)
-		}
 	}
 }
 

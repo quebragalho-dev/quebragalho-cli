@@ -94,9 +94,6 @@ type Options struct {
 	// SavedTheme is the theme persisted in user config (Preferences.Theme). Applied
 	// at startup below --theme and QG_THEME, so a /theme choice survives restart.
 	SavedTheme string
-	// SavedPet is the persisted terminal companion id. Empty means no pet has
-	// been selected yet; "disabled" records an explicit opt-out.
-	SavedPet string
 	// UpdateNotice configures the quiet footer notice about a new release:
 	// current version, detected install method, env, and npm endpoint. Nil
 	// disables the check and the notice.

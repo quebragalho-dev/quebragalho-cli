@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -15,7 +14,6 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
@@ -39,7 +37,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/skills"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/updatenotice"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
@@ -171,49 +169,7 @@ type model struct {
 	execProfileEffortTouched      bool
 	execProfileSelfCorrectTouched bool
 	responseStyle                 string
-	petClient                     *terminalpet.Client
-	petRenderer                   *terminalpet.ImageRenderer
-	attachmentRenderers           []*terminalpet.ImageRenderer
-	petEntries                    map[string]terminalpet.Entry
-	petID                         string
-	petName                       string
-	petAnimation                  *terminalpet.Animation
-	petPreview                    *terminalpet.Animation
-	petPreviewSlug                string
-	petPreviewError               string
-	petPreviewLoading             bool
-	petPreviewSeq                 uint64
-	petPreviewCancel              context.CancelFunc
-	petRequestedSlug              string
-	petPhase                      int
-	petTickSeq                    uint64
-	petPlaybackState              terminalpet.State
-	petClickAnimationIndex        int
-	petOutcome                    terminalpet.State
-	petOutcomeAt                  time.Time
-	petLayoutRendering            bool
-	petPositionSet                bool
-	petPositionX                  int
-	petPositionY                  int
-	petDragActive                 bool
-	petDragMoved                  bool
-	petDragStartedDocked          bool
-	petDragOffsetX                int
-	petDragOffsetY                int
-	petDragTargetX                int
-	petDragTargetY                int
-	petDragTargetOffsetX          int
-	petDragTargetOffsetY          int
-	petPositionOffsetX            int
-	petPositionOffsetY            int
-	petCellPixelWidth             int
-	petCellPixelHeight            int
-	petPixelDrag                  bool
-	petPixelAnchorSet             bool
-	petDragOffsetPixelX           int
-	petDragOffsetPixelY           int
-	petDragState                  terminalpet.State
-	petLastClickAt                time.Time
+	attachmentRenderers           []*termimage.ImageRenderer
 	keyBindings                   keyBindings
 	themeMode                     themeMode // palette preference: system (default) or named palette
 	hasDarkBg                     bool      // last terminal background-detection result, if one is delivered
@@ -578,7 +534,7 @@ type model struct {
 	// pendingImageThumbnails are decoded previews for a bounded gallery of staged
 	// images. They are only rendered by terminals with an inline-image protocol;
 	// every other terminal continues to use the compact text attachment row.
-	pendingImageThumbnails []*terminalpet.Animation
+	pendingImageThumbnails []*termimage.Animation
 
 	// pendingDocuments holds PDF text layers staged by /image for the next user
 	// turn; the text is prepended to the prompt as a preamble at submit time and
@@ -1099,8 +1055,6 @@ func newModel(ctx context.Context, options Options) model {
 		permissionMode:              permissionMode,
 		reasoningEffort:             options.ReasoningEffort,
 		responseStyle:               defaultedResponseStyle(options.ResponseStyle),
-		petEntries:                  map[string]terminalpet.Entry{},
-		petID:                       strings.TrimSpace(options.SavedPet),
 		keyBindings:                 resolvedKeyBindings,
 		themeMode:                   resolveThemeMode(options.Theme, os.Getenv("QG_THEME"), options.SavedTheme),
 		hasDarkBg:                   true,
@@ -1129,22 +1083,6 @@ func newModel(ctx context.Context, options Options) model {
 	}
 	if m.reasoningEffort == "" {
 		m = m.loadPanelEffort()
-	}
-	petRoot := userConfigDir
-	if strings.TrimSpace(options.UserConfigPath) != "" {
-		petRoot = filepath.Dir(options.UserConfigPath)
-	}
-	if strings.TrimSpace(petRoot) != "" {
-		m.petClient = terminalpet.NewClient(petRoot)
-		if m.petID != "" && m.petID != terminalpet.DisabledID {
-			if animation, loadErr := m.petClient.LoadInstalled(m.petID); loadErr == nil {
-				m.petAnimation = animation
-				m.petName = m.petID
-				if entry, entryErr := m.petClient.InstalledEntry(m.petID); entryErr == nil {
-					m.petName = entry.Label()
-				}
-			}
-		}
 	}
 	// Apply an explicit palette immediately. System is applied by Run immediately
 	// before Bubble Tea starts, which keeps package-level helper rendering
@@ -1245,17 +1183,6 @@ func (m model) armComposerBlink() (model, tea.Cmd) {
 
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textinput.Blink, composerBlinkCmd(m.composerBlinkSeq)}
-	if m.petAnimation != nil && !m.reducedMotion {
-		cmds = append(cmds, petTickCmd(m.petTickSeq, m.petFrameDelay()))
-	}
-	// Every image protocol wants this, not just the ones that support pixel
-	// dragging. Sixel needs it most: it erases itself by writing over cells, so
-	// without the pixels-per-cell figure it cannot know how many cells it
-	// covered, and falls back to constants describing the reserved area rather
-	// than the image.
-	if m.petCellMetricsWanted() {
-		cmds = append(cmds, tea.Raw(ansi.WindowOp(16)))
-	}
 	// Bubble Tea documents an initial WindowSizeMsg as delivered automatically
 	// on program start, so m.height/m.width are normally set before the first
 	// render. But that's the terminal proactively pushing a size — if it's
@@ -1458,12 +1385,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	switch msg := msg.(type) {
-	case uv.CellSizeEvent:
-		if msg.Width > 0 && msg.Height > 0 {
-			m.petCellPixelWidth = msg.Width
-			m.petCellPixelHeight = msg.Height
-		}
-		return m, nil
 	case peerMessageMsg:
 		admitted := m.canAcceptPeerMessage(msg.message)
 		if msg.admit != nil {
@@ -1537,7 +1458,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// handleSetupMouse ignores releases and the terminal-attach branch
 		// drops every mouse event, either of which would leave a dragging flag
 		// stuck and turn the next hover into a drag continuation. Finalize
-		// every drag bracket first (transcript, composer, pet), then route the
+		// every drag bracket first (transcript, composer), then route the
 		// event itself to whichever surface owns it.
 		if mouseRelease(msg) {
 			if m.transcriptSelection.dragging {
@@ -1545,12 +1466,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcriptSelection.dragging = false
 			}
 			m.composerSelection.dragging = false
-			// No finishPetDrag here on purpose: without movement that plays a
-			// click animation (waving/jumping), a visual side effect for a
-			// release the pet surface never saw. Just close the bracket so a
-			// later hover cannot move the pet with no button held.
-			m.petDragActive = false
-			m.petPixelDrag = false
 		}
 		// Attached to a live terminal: the overlay owns the viewport, so mouse
 		// events go nowhere rather than hitting transcript selection below.
@@ -1689,19 +1604,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyPressMsg:
-		if m.petDragActive {
-			pixelDrag := m.petPixelDrag
-			if !keyIs(msg, tea.KeyEsc) && !keyCtrl(msg, 'c') {
-				return m, nil
-			}
-			m.cancelPetDrag()
-			m.lastKeyTime = time.Time{}
-			m.burstCount = 0
-			if pixelDrag {
-				return m, petPixelMouseDisableCmd()
-			}
-			return m, nil
-		}
 		// Paste-detection timing trackers. MUST run before any early return
 		// so burst counting stays accurate regardless of which branch fires.
 		now := m.now()
@@ -1914,9 +1816,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.picker.kind == pickerModel {
 					m.clearModelPickerLoadState()
 				}
-				if m.picker.kind == pickerPet {
-					m.cancelPetPreview()
-				}
 				m.picker = nil
 				return m, nil
 			}
@@ -2119,9 +2018,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.picker.deleteQueryRune()
-				if m.picker.kind == pickerPet {
-					return m.schedulePetPreview()
-				}
 				return m, nil
 			}
 			// On an empty composer, Backspace removes the last attachment chip
@@ -2333,9 +2229,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if keyPrintable(msg) {
 				m.picker.appendQuery(keyRunes(msg))
-				if m.picker.kind == pickerPet {
-					return m.schedulePetPreview()
-				}
 			}
 			return m, nil
 		}
@@ -2364,16 +2257,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.BlurMsg:
-		var petMouseCmd tea.Cmd
-		if m.petDragActive {
-			pixelDrag := m.petPixelDrag
-			m.cancelPetDrag()
-			m.lastKeyTime = time.Time{}
-			m.burstCount = 0
-			if pixelDrag {
-				petMouseCmd = petPixelMouseDisableCmd()
-			}
-		}
 		m.terminalFocused = false
 		m.composerCursorVisible = false
 		m.composerBlinkTicking = false
@@ -2381,7 +2264,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.notifier != nil {
 			m.notifier.SetFocused(false)
 		}
-		return m, petMouseCmd
+		return m, nil
 	case toolCallStreamStartMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
@@ -2540,7 +2423,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
-		m.resizeFreePetPosition(m.width, m.height, msg.Width, msg.Height)
 		m.width = msg.Width
 		m.height = msg.Height
 		if msg.Width < runDetailsMinWidth {
@@ -2704,12 +2586,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.clearStreamingToolCall() // active run finished — drop any lingering "writing" block
-		if msg.err != nil {
-			m.petOutcome = terminalpet.Failed
-		} else {
-			m.petOutcome = terminalpet.Review
-		}
-		m.petOutcomeAt = m.now()
 		m.pending = false
 		m = m.disarmCancelConfirmation() // the run finished on its own — nothing left to confirm cancelling
 		// A newline-triggered redraw deferred by the stream-clear throttle
@@ -3119,34 +2995,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applySetupBrowserOpened(msg), nil
 	case modelPickerModelsDiscoveredMsg:
 		return m.applyModelPickerModelsDiscovered(msg), nil
-	case petCatalogLoadedMsg:
-		return m.applyPetCatalog(msg)
-	case petPreviewDebounceMsg:
-		return m.startPetPreview(msg)
-	case petPreviewLoadedMsg:
-		m = m.applyPetPreview(msg)
-		if m.petPreview != nil && m.petAnimation == nil && !m.reducedMotion {
-			m.petTickSeq++
-			return m, petTickCmd(m.petTickSeq, m.petFrameDelay())
-		}
-		return m, nil
-	case petInstalledMsg:
-		return m.applyPetInstall(msg)
-	case petTickMsg:
-		if msg.seq != m.petTickSeq {
-			return m, nil
-		}
-		if (m.petAnimation == nil && (m.picker == nil || m.petPreview == nil)) || m.reducedMotion {
-			return m, nil
-		}
-		_, state := m.petPlayback()
-		if state != m.petPlaybackState {
-			m.petPlaybackState = state
-			m.petPhase = 0
-		} else {
-			m.petPhase++
-		}
-		return m, petTickCmd(m.petTickSeq, m.petFrameDelay())
 	case mcpCommandResultMsg:
 		return m.applyMCPCommandResultMessage(msg), nil
 	}
@@ -3167,9 +3015,6 @@ func (m model) View() tea.View {
 		content = m.transcriptView()
 	} else {
 		content = m.detailedTranscriptView()
-	}
-	if m.petRenderer != nil {
-		m.petRenderer.Set(m.petImageDraw(content))
 	}
 	for index, renderer := range m.attachmentRenderers {
 		renderer.Set(m.attachmentImageDraw(index))
@@ -3217,10 +3062,6 @@ func (m model) transcriptEmpty() bool {
 // the managed conversation view. Streaming/modal blocks and composer chrome are
 // always rendered here.
 func (m model) transcriptView() string {
-	if m.petLayoutActive() {
-		return m.floatingPetTranscriptView()
-	}
-
 	width := chatWidth(m.width)
 
 	// Subchat drill-in: when active, show the child session's transcript with
@@ -3327,12 +3168,12 @@ func (m model) footerView(width int) string {
 	// renders. Frame math routes through footerView, so this also shrinks the
 	// footer rect the overlay's row budget is derived from.
 	if m.terminalAttach != nil {
-		return m.footerStatusLine(width)
+		return m.statusLine(width)
 	}
 	if m.renamePrompt != nil {
 		footer.WriteString(m.sessionRenamePromptView(width))
 		footer.WriteString("\n")
-		footer.WriteString(m.footerStatusLine(width))
+		footer.WriteString(m.statusLine(width))
 		return footer.String()
 	}
 	// While an ask-user questionnaire is active it REPLACES the composer box (the
@@ -3341,7 +3182,7 @@ func (m model) footerView(width int) string {
 	if m.pendingAskUser != nil {
 		footer.WriteString(renderAskUserQuestionnaire(*m.pendingAskUser, m.input.Value(), width))
 		footer.WriteString("\n")
-		footer.WriteString(m.footerStatusLine(width))
+		footer.WriteString(m.statusLine(width))
 		return footer.String()
 	}
 	// A focused permission prompt owns the keyboard: its options (and the feedback
@@ -3351,7 +3192,7 @@ func (m model) footerView(width int) string {
 	// input from echoing in two places once "tell QG what to do differently"
 	// opens the on-card feedback field.
 	if m.pendingPermission != nil {
-		footer.WriteString(m.footerStatusLine(width))
+		footer.WriteString(m.statusLine(width))
 		return footer.String()
 	}
 	// The row above the composer: transient copy feedback takes priority; otherwise
@@ -3377,7 +3218,7 @@ func (m model) footerView(width int) string {
 	}
 	footer.WriteString(m.composerBox(width))
 	footer.WriteString("\n")
-	footer.WriteString(m.footerStatusLine(width))
+	footer.WriteString(m.statusLine(width))
 	return footer.String()
 }
 
@@ -4424,22 +4265,20 @@ func (m model) composerBox(width int) string {
 	if width < 8 {
 		return fitStyledLine(m.composerLine(width), width)
 	}
-	reserved := m.petComposerReservedColumns(width)
-	boxWidth := width - reserved
+	boxWidth := width
 	innerWidth := maxInt(1, boxWidth-4)
 	content := m.composerLine(innerWidth)
 	lines := strings.Split(content, "\n")
-	rightPad := strings.Repeat(" ", reserved)
 
 	rendered := make([]string, 0, len(lines)+3)
-	rendered = append(rendered, qgTheme.lineStrong.Render("╭"+strings.Repeat("─", boxWidth-2)+"╮")+rightPad)
+	rendered = append(rendered, qgTheme.lineStrong.Render("╭"+strings.Repeat("─", boxWidth-2)+"╮"))
 	// On graphics-capable terminals the first image receives a real thumbnail in
 	// this compact strip. Text-only terminals retain the numbered chip row below.
 	if m.attachmentThumbnailVisible(width) {
 		for _, line := range m.attachmentThumbnailLines(innerWidth) {
 			fitted := fitStyledLine(line, innerWidth)
 			pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
-			rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │")+rightPad)
+			rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │"))
 		}
 		// A thumbnail gallery makes the first few attachments visible. Keep a compact
 		// numbered row whenever there is more than one item (or a document), so the
@@ -4447,17 +4286,17 @@ func (m model) composerBox(width int) string {
 		if chips := m.attachmentThumbnailSupplementalChips(); chips != "" {
 			fitted := fitStyledLine(qgTheme.muted.Render(chips), innerWidth)
 			pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
-			rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │")+rightPad)
+			rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │"))
 		}
 	} else if chips := renderAttachmentChips(m.pendingImageLabels, m.pendingDocuments); chips != "" {
 		fitted := fitStyledLine(qgTheme.muted.Render(chips), innerWidth)
 		pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
-		rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │")+rightPad)
+		rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │"))
 	}
 	for _, line := range lines {
 		fitted := fitStyledLine(line, innerWidth)
 		pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
-		rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │")+rightPad)
+		rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │"))
 	}
 	rendered = append(rendered, m.composerDividerLine(width))
 	return strings.Join(rendered, "\n")
@@ -4636,8 +4475,6 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 		}
 	case pickerSTTDownload:
 		return m.handleSTTDownloadSelection(item.Value)
-	case pickerPet:
-		return m.installPet(item.Value)
 	case pickerTheme:
 		// Selection is applied only after Enter. Moving through the picker renders a
 		// local preview and never changes the active palette.
@@ -4794,8 +4631,6 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		return m.handleLoopCommand(command.text)
 	case commandGoal:
 		return m.handleGoalCommand(command.text)
-	case commandPets:
-		return m.handlePetsCommand(command.text)
 	case commandExit:
 		// Closing the session stops its foreground loops mid-task; warn once so a
 		// token-spending loop isn't ended by reflex.

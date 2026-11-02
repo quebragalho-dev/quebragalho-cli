@@ -15,7 +15,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
 	_ "golang.org/x/image/webp"
 )
 
@@ -306,7 +306,7 @@ func (m *model) refreshPendingImageThumbnail() {
 		return
 	}
 	count := min(len(m.pendingImages), attachmentPreviewMaxImages)
-	m.pendingImageThumbnails = make([]*terminalpet.Animation, count)
+	m.pendingImageThumbnails = make([]*termimage.Animation, count)
 	for index := 0; index < count; index++ {
 		preview, err := attachmentThumbnail(m.pendingImages[index])
 		if err == nil {
@@ -315,7 +315,7 @@ func (m *model) refreshPendingImageThumbnail() {
 	}
 }
 
-func attachmentThumbnail(block qgruntime.ImageBlock) (*terminalpet.Animation, error) {
+func attachmentThumbnail(block qgruntime.ImageBlock) (*termimage.Animation, error) {
 	config, _, err := image.DecodeConfig(bytes.NewReader(block.Data))
 	if err != nil {
 		return nil, err
@@ -327,7 +327,7 @@ func attachmentThumbnail(block qgruntime.ImageBlock) (*terminalpet.Animation, er
 	if err != nil {
 		return nil, err
 	}
-	return terminalpet.ThumbnailAnimation(decoded)
+	return termimage.ThumbnailAnimation(decoded)
 }
 
 // renderAttachmentChips builds the pending-attachment row from both staged images

@@ -969,7 +969,6 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		SavedTheme:            resolved.Preferences.Theme,
 		UpdateNotice:          updateNotice,
 		UpdateNoticeStateFile: updateNoticeState,
-		SavedPet:              resolved.Preferences.Pet,
 		UserConfigPath:        userConfigPath,
 		DoctorUserConfigPath:  doctorUserConfigPath,
 		ProjectConfigPath:     projectConfigPath,

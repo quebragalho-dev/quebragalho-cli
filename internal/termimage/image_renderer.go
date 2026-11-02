@@ -1,4 +1,4 @@
-package terminalpet
+package termimage
 
 import (
 	"crypto/sha256"
@@ -346,24 +346,24 @@ func kittyOffsetControl(offsetX, offsetY int) string {
 
 func cachePNGFrame(cacheDir string, pngBytes []byte) (string, error) {
 	if cacheDir == "" {
-		return "", fmt.Errorf("terminal pet image cache is unavailable")
+		return "", fmt.Errorf("terminal image cache is unavailable")
 	}
 	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
-		return "", fmt.Errorf("create terminal pet image cache: %w", err)
+		return "", fmt.Errorf("create terminal image cache: %w", err)
 	}
 	digest := sha256.Sum256(pngBytes)
 	path := filepath.Join(cacheDir, fmt.Sprintf("%x.png", digest))
 	if _, err := os.Stat(path); err != nil {
 		if !os.IsNotExist(err) {
-			return "", fmt.Errorf("inspect cached terminal pet frame: %w", err)
+			return "", fmt.Errorf("inspect cached terminal image frame: %w", err)
 		}
 		if err := installtxn.WriteFileAtomically(path, pngBytes, 0o600); err != nil {
-			return "", fmt.Errorf("cache terminal pet frame: %w", err)
+			return "", fmt.Errorf("cache terminal image frame: %w", err)
 		}
 	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("resolve cached terminal pet frame: %w", err)
+		return "", fmt.Errorf("resolve cached terminal image frame: %w", err)
 	}
 	return absolute, nil
 }
@@ -400,7 +400,7 @@ func dottedVersionAtLeast(value string, major, minor, patch int) bool {
 
 func renderSixel(frame image.Image, heightPixels int) ([]byte, error) {
 	if frame == nil || frame.Bounds().Empty() {
-		return nil, fmt.Errorf("pet animation has no frame to encode")
+		return nil, fmt.Errorf("image has no frame to encode")
 	}
 	if heightPixels < 1 {
 		heightPixels = 75

@@ -107,9 +107,6 @@ func (m model) routePaste(content string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.picker.appendQuery([]rune(sanitizeComposerInput(content)))
-		if m.picker.kind == pickerPet {
-			return m.schedulePetPreview()
-		}
 		return m, nil
 	}
 	if m.transcriptDetailed || m.pendingSpecReview != nil || m.pendingPermission != nil || m.mcpAddWizard != nil || m.mcpManager != nil {

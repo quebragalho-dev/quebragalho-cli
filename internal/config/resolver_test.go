@@ -168,19 +168,32 @@ func TestResolveLoadsRecentModelsFromUserConfigOnly(t *testing.T) {
 	}
 }
 
-func TestResolveLoadsPetFromUserConfigOnly(t *testing.T) {
-	userPath := writeConfig(t, `{"preferences":{"pet":" boba "}}`)
+func TestResolveIgnoresLegacyPetPreference(t *testing.T) {
+	// The /pets companion is gone, but existing user configs may still carry
+	// preferences.pet. Resolving must succeed and leave the file untouched.
+	userPath := writeConfig(t, `{"preferences":{"pet":" boba ","theme":"dracula"}}`)
 	projectPath := writeConfig(t, `{"preferences":{"pet":"project-pet"}}`)
+	before, err := os.ReadFile(userPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	resolved, err := Resolve(ResolveOptions{
 		UserConfigPath:    userPath,
 		ProjectConfigPath: projectPath,
 		Env:               map[string]string{},
 	})
 	if err != nil {
+		t.Fatalf("Resolve with legacy pet preference failed: %v", err)
+	}
+	if resolved.Preferences.Theme != "dracula" {
+		t.Fatalf("Preferences.Theme = %q, want dracula", resolved.Preferences.Theme)
+	}
+	after, err := os.ReadFile(userPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Preferences.Pet != "boba" {
-		t.Fatalf("Preferences.Pet = %q, want user preference boba", resolved.Preferences.Pet)
+	if string(after) != string(before) {
+		t.Fatalf("Resolve rewrote the user config: %q", after)
 	}
 }
 

@@ -104,8 +104,7 @@ func (m model) titlePRSegment() string {
 
 func (m model) composerDividerLine(width int) string {
 	model := displayValue(strings.TrimSpace(m.modelName), "no model")
-	reserved := m.petComposerReservedColumns(width)
-	availableWidth := width - reserved
+	availableWidth := width
 	padding := " "
 	if lipgloss.Width(model) > availableWidth-4 {
 		padding = ""
@@ -122,11 +121,11 @@ func (m model) composerDividerLine(width int) string {
 	}
 	if availableWidth < metaWidth+frameWidth {
 		line := qgTheme.lineStrong.Render("╰" + strings.Repeat("─", availableWidth-2) + "╯")
-		return line + strings.Repeat(" ", reserved)
+		return line
 	}
 	rule := strings.Repeat("-", availableWidth-metaWidth-frameWidth)
 	line := qgTheme.lineStrong.Render("╰"+rule+padding) + meta + qgTheme.lineStrong.Render(padding+"╯")
-	return line + strings.Repeat(" ", reserved)
+	return line
 }
 
 func (m model) statusLine(width int) string {
@@ -623,9 +622,6 @@ func (m model) pickerOverlay(width int) string {
 	}
 	if m.picker.kind == pickerModel {
 		return m.modelPanelOverlay(width)
-	}
-	if m.picker.kind == pickerPet {
-		return m.petPickerOverlay(width)
 	}
 	if m.picker.kind == pickerTheme {
 		return m.themePickerOverlay(width)

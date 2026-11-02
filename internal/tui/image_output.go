@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
 )
 
 const (
@@ -20,28 +20,28 @@ type terminalOutputFile interface {
 	Fd() uintptr
 }
 
-type petImageOutput struct {
+type imageOutput struct {
 	output         terminalOutputFile
-	renderers      []*terminalpet.ImageRenderer
+	renderers      []*termimage.ImageRenderer
 	renderDisabled []bool
 	mu             sync.Mutex
 }
 
-func newPetImageOutput(output terminalOutputFile, renderers ...*terminalpet.ImageRenderer) *petImageOutput {
-	active := make([]*terminalpet.ImageRenderer, 0, len(renderers))
+func newImageOutput(output terminalOutputFile, renderers ...*termimage.ImageRenderer) *imageOutput {
+	active := make([]*termimage.ImageRenderer, 0, len(renderers))
 	for _, renderer := range renderers {
 		if renderer != nil {
 			active = append(active, renderer)
 		}
 	}
-	return &petImageOutput{output: output, renderers: active, renderDisabled: make([]bool, len(active))}
+	return &imageOutput{output: output, renderers: active, renderDisabled: make([]bool, len(active))}
 }
 
-func (o *petImageOutput) Read(value []byte) (int, error) {
+func (o *imageOutput) Read(value []byte) (int, error) {
 	return o.output.Read(value)
 }
 
-func (o *petImageOutput) Write(value []byte) (int, error) {
+func (o *imageOutput) Write(value []byte) (int, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	leavingAltScreen := bytes.Contains(value, []byte("\x1b[?1049l"))
@@ -83,8 +83,8 @@ func (o *petImageOutput) Write(value []byte) (int, error) {
 		var rendererErase, rendererUpdate bytes.Buffer
 		if err := renderer.RenderFrame(&rendererErase, &rendererUpdate); err != nil {
 			// Terminal images are decorative. Disable only the failing renderer for
-			// this output session so an attachment issue cannot hide a companion
-			// (or vice versa) or terminate the interactive shell.
+			// this output session so one bad attachment cannot hide the others
+			// or terminate the interactive shell.
 			o.renderDisabled[index] = true
 			continue
 		}
@@ -96,7 +96,7 @@ func (o *petImageOutput) Write(value []byte) (int, error) {
 	}
 
 	// Bubble Tea encloses supported terminal frames in synchronized-output
-	// markers. Keep the pet placement inside that same transaction so the
+	// markers. Keep the image update inside that same transaction so the
 	// terminal never presents the text frame and image movement separately.
 	syncStart := bytes.LastIndex(value, []byte(terminalSyncStart))
 	syncEnd := bytes.LastIndex(value, []byte(terminalSyncEnd))
@@ -143,9 +143,9 @@ func (o *petImageOutput) Write(value []byte) (int, error) {
 	return written, endErr
 }
 
-func rendererUsesKitty(renderer *terminalpet.ImageRenderer) bool {
+func rendererUsesKitty(renderer *termimage.ImageRenderer) bool {
 	switch renderer.Support().Protocol {
-	case terminalpet.ImageProtocolKitty, terminalpet.ImageProtocolKittyLocalFile:
+	case termimage.ImageProtocolKitty, termimage.ImageProtocolKittyLocalFile:
 		return true
 	default:
 		return false
@@ -178,7 +178,7 @@ func originalBytesWritten(written, prefixLength, injectedLength, originalLength 
 	return min(consumed, originalLength)
 }
 
-func (o *petImageOutput) writeImageUpdate(render func(io.Writer) error) error {
+func (o *imageOutput) writeImageUpdate(render func(io.Writer) error) error {
 	var update bytes.Buffer
 	if err := render(&update); err != nil {
 		return err
@@ -197,15 +197,15 @@ func (o *petImageOutput) writeImageUpdate(render func(io.Writer) error) error {
 	return endErr
 }
 
-func (o *petImageOutput) Close() error {
+func (o *imageOutput) Close() error {
 	return nil
 }
 
-func (o *petImageOutput) Fd() uintptr {
+func (o *imageOutput) Fd() uintptr {
 	return o.output.Fd()
 }
 
-func (o *petImageOutput) clearImage() error {
+func (o *imageOutput) clearImage() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.writeImageUpdate(func(writer io.Writer) error {
@@ -220,7 +220,7 @@ func (o *petImageOutput) clearImage() error {
 		if len(o.renderers) == 0 {
 			return nil
 		}
-		ids := append([]uint32{petAmbientImageID, petPreviewImageID}, attachmentPreviewImageIDs()...)
+		ids := attachmentPreviewImageIDs()
 		return o.renderers[0].DeleteImages(writer, ids...)
 	})
 }
