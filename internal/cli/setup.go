@@ -611,7 +611,7 @@ Opções:
       --name <name>             Nome do perfil de provedor
       --model <model>           Troca o modelo padrão
       --base-url <url>          Troca a URL base do provedor
-      --api-key <key>           Salva uma chave de API direto no credential store
+      --api-key <key>           Salva uma chave de API direto no cofre de credenciais
       --api-key-env <name>      Salva o nome da variável de ambiente da chave de API
       --verify                  Sonda o provedor após salvar e relata um erro corrigível se falhar
       --json                    Imprime o resultado da configuração legível por máquina

@@ -876,9 +876,9 @@ func writeWorktreesHelp(w io.Writer) error {
   qg worktrees prepare [flags] [name]
   qg worktrees release [flags] <path>
 
-Prepara uma worktree git isolada para uma tarefa da QG.
+Prepara uma worktree git isolada para uma tarefa do QG.
 
-prepare trava a worktree que cria para a limpeza automática da QG nunca
+prepare trava a worktree que cria para a limpeza automática do QG nunca
 removê-la durante o uso. release destrava uma worktree criada pelo prepare,
 quando você termina, para a limpeza poder recuperá-la se ficar obsoleta.
 Se a pasta da worktree foi apagada à mão, rode release com -C apontando
@@ -886,7 +886,7 @@ para o repositório de origem para limpar o lock órfão.
 
 Opções do prepare:
       --name <name>       Nome da worktree; padrão é um nome de tarefa com timestamp
-      --dir <path>        Pasta base das worktrees da QG
+      --dir <path>        Pasta base das worktrees do QG
   -C, --cwd <path>        Pasta do repositório de origem
       --json              Imprime a saída em JSON
   -h, --help              Mostra esta ajuda

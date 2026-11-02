@@ -427,7 +427,7 @@ Opções remotas:
   -h, --help                       Mostra esta ajuda
 
 "qg usage report" resume o uso de tokens e o custo reconstruído (estimado)
-a partir de eventos de uso de sessões locais persistidas da QG, mais uma
+a partir de eventos de uso de sessões locais persistidas do QG, mais uma
 estimativa de eficiência de LOC líquido da worktree.
 
 Opções do relatório:

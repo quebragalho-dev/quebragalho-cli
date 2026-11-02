@@ -180,7 +180,7 @@ func writeServeHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg serve --mcp [flags]
 
-Inicia a QG como servidor MCP stdio.
+Inicia o QG como servidor MCP stdio.
 
 Opções:
       --mcp                   Executa o servidor MCP stdio

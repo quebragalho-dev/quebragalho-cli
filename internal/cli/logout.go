@@ -128,7 +128,7 @@ func runLogout(args []string, stdout, stderr io.Writer, deps appDeps) int {
 func writeLogoutHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso: qg logout [--json]
 
-Remove a chave de API salva da Quebra Galho do credential store, o
+Remove a chave de API salva do Quebra Galho do cofre de credenciais, o
 marcador apiKeyStored, qualquer apiKey inline em config.json e tokens OAuth legados.
 O perfil continua em config.json; a próxima abertura interativa mostra o login.
 

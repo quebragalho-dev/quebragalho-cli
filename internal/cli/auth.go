@@ -391,7 +391,7 @@ O login OAuth foi removido: rode "qg login" para salvar sua chave de API — QG_
 --help". Estes comandos mantêm os stores de tokens gravados por versões anteriores.
 
 Nota: "qg auth status" cobre só os stores de tokens OAuth. Não inclui
-a chave de API do provedor Quebra Galho (credential store / QG_API_KEY); use
+a chave de API do provedor Quebra Galho (cofre de credenciais / QG_API_KEY); use
 "qg key" para isso.
 
 Armazenamento: tokens são gravados 0600 em $XDG_CONFIG_HOME/qg (troque com

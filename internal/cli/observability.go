@@ -281,7 +281,7 @@ func writeSearchHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg search [flags] <query>
 
-Pesquisa eventos de sessão locais persistidos da QG.
+Pesquisa eventos de sessão locais persistidos do QG.
 
 Opções:
       --json                 Imprime os resultados em JSON

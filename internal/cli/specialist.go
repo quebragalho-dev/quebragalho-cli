@@ -384,13 +384,13 @@ Comandos:
   delete NAME
              Apaga um perfil de especialista do usuário
   edit NAME  Abre um perfil de especialista do usuário em $VISUAL ou $EDITOR
-  path       Mostra os diretórios de especialistas
+  path       Mostra as pastas de especialistas
   help       Mostra esta ajuda
 
 Opções:
   --json                      Imprime a saída em JSON
-  --user                      Usa o diretório de especialistas do usuário (padrão)
-  --project                   Usa o diretório .qg/specialists do projeto
+  --user                      Usa a pasta de especialistas do usuário (padrão)
+  --project                   Usa a pasta .qg/specialists do projeto
   --description <text>        Descrição ao criar
   --prompt <text>             Mensagem de sistema ao criar
   --tools <list>              Ferramentas ao criar (ids/categorias)

@@ -525,7 +525,7 @@ func writeSessionsHelp(w io.Writer) error {
   qg sessions <command> [flags]
 
 Comandos:
-  list                  Lista sessões locais da QG
+  list                  Lista sessões locais do QG
   children <id>         Lista sessões filhas diretas de uma sessão pai
   lineage <id>          Mostra o caminho da linhagem da raiz até a sessão
   tree <id>             Mostra a árvore de sessões filhas
