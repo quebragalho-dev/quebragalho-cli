@@ -44,16 +44,16 @@ func runUpdateCommand(args []string, stdout io.Writer, stderr io.Writer, deps ap
 		return exitSuccess
 	}
 	if options.check && options.apply {
-		return writeUsageError(stderr, "Pass only one of --check or --apply.")
+		return writeUsageError(stderr, "Passe apenas uma das opções: --check ou --apply.")
 	}
 	if !options.check && !options.apply {
 		if !defaultApply {
-			return writeUsageError(stderr, "Pass --check to check for updates or --apply to install one (or use `qg upgrade`).")
+			return writeUsageError(stderr, "Passe --check para verificar atualizações ou --apply para instalar uma (ou use `qg upgrade`).")
 		}
 		options.apply = true
 	}
 	if options.apply && options.target != "" {
-		return writeUsageError(stderr, "--target cannot be combined with --apply; it only verifies release assets for --check.")
+		return writeUsageError(stderr, "--target não pode ser combinado com --apply; ele só verifica artefatos de release para --check.")
 	}
 	updateOptions := update.Options{
 		CurrentVersion: version,
@@ -72,7 +72,7 @@ func runUpdateCommand(args []string, stdout io.Writer, stderr io.Writer, deps ap
 	if options.apply {
 		result, err := deps.applyUpdate(context.Background(), updateOptions)
 		if err != nil {
-			return writeAppError(stderr, "Could not install update: "+err.Error(), exitCrash)
+			return writeAppError(stderr, "Não foi possível instalar a atualização. Detalhe: "+err.Error(), exitCrash)
 		}
 		if options.json {
 			if err := writePrettyJSON(stdout, result); err != nil {
@@ -87,7 +87,7 @@ func runUpdateCommand(args []string, stdout io.Writer, stderr io.Writer, deps ap
 	}
 	result, err := deps.checkUpdate(context.Background(), updateOptions)
 	if err != nil {
-		return writeAppError(stderr, "Could not check for updates: "+err.Error(), exitCrash)
+		return writeAppError(stderr, "Não foi possível verificar atualizações. Detalhe: "+err.Error(), exitCrash)
 	}
 	if options.json {
 		if err := writePrettyJSON(stdout, result); err != nil {
@@ -167,7 +167,7 @@ func parseUpdateArgs(args []string) (updateOptions, bool, error) {
 			}
 			options.target = target
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unknown update flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag update desconhecida %q", arg)}
 		}
 	}
 	return options, false, nil
@@ -176,10 +176,10 @@ func parseUpdateArgs(args []string) (updateOptions, bool, error) {
 func parseUpdateTimeout(value string) (time.Duration, error) {
 	timeout, err := time.ParseDuration(strings.TrimSpace(value))
 	if err != nil {
-		return 0, execUsageError{fmt.Sprintf("invalid update timeout %q: use a duration like 5s or 750ms", value)}
+		return 0, execUsageError{fmt.Sprintf("timeout de atualização inválido %q: use uma duração como 5s ou 750ms", value)}
 	}
 	if timeout <= 0 {
-		return 0, execUsageError{fmt.Sprintf("invalid update timeout %q: timeout must be a positive duration", value)}
+		return 0, execUsageError{fmt.Sprintf("timeout de atualização inválido %q: o timeout precisa ser uma duração positiva", value)}
 	}
 	return timeout, nil
 }
@@ -187,7 +187,7 @@ func parseUpdateTimeout(value string) (time.Duration, error) {
 func parseUpdateTarget(value string) (string, error) {
 	target := strings.TrimSpace(value)
 	if target == "" {
-		return "", execUsageError{"--target requires a non-empty value"}
+		return "", execUsageError{"--target exige um valor não vazio"}
 	}
 	return target, nil
 }

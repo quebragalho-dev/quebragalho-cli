@@ -200,7 +200,7 @@ func TestWriteSpecialistCreateResultSurfacesWarningsOnlyForHumanOutput(t *testin
 	if code := writeSpecialistCreateResult(manifest, false, &stdout, &stderr); code != exitSuccess {
 		t.Fatalf("human output exit code = %d", code)
 	}
-	if got, want := stdout.String(), "Created specialist triage at /specialists/triage.md\n"; got != want {
+	if got, want := stdout.String(), "Especialista triage criado em /specialists/triage.md\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 	if got, want := stderr.String(), "warning: replacement backup /specialists/.triage.bak retained: access denied\n"; got != want {
@@ -257,7 +257,7 @@ func TestRunSpecialistEditRejectsSymlink(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("exitCode = %d, want usage; stderr=%s", exitCode, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "refusing to edit symlink") {
+	if !strings.Contains(stderr.String(), "não edito arquivo symlink") {
 		t.Fatalf("expected symlink refusal, got %q", stderr.String())
 	}
 }
@@ -299,7 +299,7 @@ func TestRunSpecialistShowMissingReturnsUsage(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("exitCode = %d, want usage", exitCode)
 	}
-	if !strings.Contains(stderr.String(), "not found") {
+	if !strings.Contains(stderr.String(), "não encontrado") {
 		t.Fatalf("expected not found error, got %q", stderr.String())
 	}
 }
@@ -317,7 +317,7 @@ func TestRunSpecialistUnknownCommandDoesNotResolveWorkspace(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("exitCode = %d, want usage", exitCode)
 	}
-	if !strings.Contains(stderr.String(), `unknown specialist command "missing"`) {
+	if !strings.Contains(stderr.String(), `comando specialist desconhecido "missing"`) {
 		t.Fatalf("expected unknown command error, got %q", stderr.String())
 	}
 }
@@ -332,12 +332,12 @@ func TestRunSpecialistArgCountErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{args: []string{"specialist", "list", "extra"}, want: "does not accept positional"},
-		{args: []string{"specialist", "show"}, want: "show requires a specialist name"},
-		{args: []string{"specialist", "create"}, want: "create requires a specialist name"},
-		{args: []string{"specialist", "delete"}, want: "delete requires a specialist name"},
-		{args: []string{"specialist", "edit"}, want: "edit requires a specialist name"},
-		{args: []string{"specialist", "path", "extra"}, want: "path does not accept positional"},
+		{args: []string{"specialist", "list", "extra"}, want: "não aceita argumentos de posição"},
+		{args: []string{"specialist", "show"}, want: "specialist show precisa do nome do especialista"},
+		{args: []string{"specialist", "create"}, want: "specialist create precisa do nome do especialista"},
+		{args: []string{"specialist", "delete"}, want: "specialist delete precisa do nome do especialista"},
+		{args: []string{"specialist", "edit"}, want: "specialist edit precisa do nome do especialista"},
+		{args: []string{"specialist", "path", "extra"}, want: "não aceita argumentos de posição"},
 	}
 	for _, tc := range tests {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {

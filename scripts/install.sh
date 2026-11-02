@@ -38,17 +38,17 @@ fail() {
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version)
-      [ "$#" -ge 2 ] || fail "--version requires a value"
+      [ "$#" -ge 2 ] || fail "--version precisa de um valor"
       QG_VERSION="$2"
       shift 2
       ;;
     --repo)
-      [ "$#" -ge 2 ] || fail "--repo requires a value"
+      [ "$#" -ge 2 ] || fail "--repo precisa de um valor"
       QG_REPO="$2"
       shift 2
       ;;
     --install-dir)
-      [ "$#" -ge 2 ] || fail "--install-dir requires a value"
+      [ "$#" -ge 2 ] || fail "--install-dir precisa de um valor"
       QG_INSTALL_DIR="$2"
       install_dir_source=argument
       shift 2
@@ -58,13 +58,13 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      fail "unknown argument: $1"
+      fail "argumento desconhecido: $1"
       ;;
   esac
 done
 
 need_command() {
-  command -v "$1" >/dev/null 2>&1 || fail "$1 is required"
+  command -v "$1" >/dev/null 2>&1 || fail "$1 é obrigatório"
 }
 
 download() {
@@ -76,7 +76,7 @@ download() {
   elif command -v wget >/dev/null 2>&1; then
     wget "$url" --output-document "$output"
   else
-    fail "curl or wget is required"
+    fail "curl ou wget é obrigatório"
   fi
 }
 
@@ -89,7 +89,7 @@ download_json() {
   elif command -v wget >/dev/null 2>&1; then
     wget --quiet --header='Accept: application/vnd.github+json' "$url" --output-document "$output"
   else
-    fail "curl or wget is required"
+    fail "curl ou wget é obrigatório"
   fi
 }
 
@@ -97,7 +97,7 @@ detect_platform() {
   case "$(uname -s)" in
     Linux) echo "linux" ;;
     Darwin) echo "macos" ;;
-    *) fail "unsupported platform: $(uname -s)" ;;
+    *) fail "plataforma sem suporte: $(uname -s)" ;;
   esac
 }
 
@@ -105,7 +105,7 @@ detect_arch() {
   case "$(uname -m)" in
     x86_64|amd64) echo "x64" ;;
     arm64|aarch64) echo "arm64" ;;
-    *) fail "unsupported architecture: $(uname -m)" ;;
+    *) fail "arquitetura sem suporte: $(uname -m)" ;;
   esac
 }
 
@@ -116,7 +116,7 @@ latest_tag() {
 
   download_json "$api_url" "$metadata_file"
   tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$metadata_file" | head -n 1)"
-  [ -n "$tag" ] || fail "could not read tag_name from $api_url"
+  [ -n "$tag" ] || fail "não foi possível ler tag_name de $api_url"
   echo "$tag"
 }
 
@@ -128,7 +128,7 @@ verify_checksum() {
   elif command -v sha256sum >/dev/null 2>&1; then
     sha256sum -c "$checksum_file"
   else
-    fail "shasum or sha256sum is required"
+    fail "shasum ou sha256sum é obrigatório"
   fi
 }
 
@@ -282,7 +282,7 @@ archive_path="$tmp_dir/$archive_name"
 checksum_path="$tmp_dir/$checksum_name"
 extract_dir="$tmp_dir/extract"
 
-echo "Installing QG ${tag} for ${platform}-${arch}"
+echo "Instalando QG ${tag} para ${platform}-${arch}"
 printf 'qg install: Baixando %s...\n' "$archive_name" >&2
 download "${release_url}/${archive_name}" "$archive_path"
 download "${release_url}/${checksum_name}" "$checksum_path"
@@ -296,7 +296,7 @@ printf 'qg install: Verificando SHA-256...\n' >&2
 mkdir -p "$extract_dir"
 tar -xzf "$archive_path" -C "$extract_dir"
 
-binary_path="$(find_extracted_binary "$extract_dir")" || fail "release archive did not contain qg"
+binary_path="$(find_extracted_binary "$extract_dir")" || fail "pacote do release não trouxe o qg"
 
 printf 'qg install: Instalando em %s...\n' "$QG_INSTALL_DIR" >&2
 cp "$binary_path" "$QG_INSTALL_DIR/qg"
@@ -311,10 +311,10 @@ copy_optional_dir "helpers"
 installed_version=""
 if ! installed_version="$("$QG_INSTALL_DIR/qg" --version 2>&1 | head -n 1)" \
   || [ -z "$installed_version" ]; then
-  fail "$QG_INSTALL_DIR/qg --version did not run — the installed binary does not work on this platform"
+  fail "$QG_INSTALL_DIR/qg --version não rodou — o binário instalado não funciona nesta plataforma"
 fi
 
-echo "Installed $QG_INSTALL_DIR/qg ($installed_version)"
+echo "Instalado $QG_INSTALL_DIR/qg ($installed_version)"
 echo "Alias: $QG_INSTALL_DIR/quebragalho -> qg"
 
 path_hint "$QG_INSTALL_DIR"

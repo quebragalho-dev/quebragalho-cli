@@ -71,7 +71,7 @@ func runWorktrees(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return runWorktreesRelease(args, stdout, stderr, deps)
 	}
 	if command != "prepare" {
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown worktrees command %q", command))
+		return writeExecUsageError(stderr, fmt.Sprintf("comando worktrees desconhecido %q", command))
 	}
 	options, help, err := parseWorktreeCommandArgs(args)
 	if err != nil {
@@ -136,17 +136,17 @@ func runWorktreesRelease(args []string, stdout io.Writer, stderr io.Writer, deps
 		case strings.HasPrefix(arg, "--cwd="):
 			cwdFlag = strings.TrimSpace(strings.TrimPrefix(arg, "--cwd="))
 		case strings.HasPrefix(arg, "-"):
-			return writeExecUsageError(stderr, fmt.Sprintf("unknown worktrees release flag %q", arg))
+			return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida em worktrees release: %q", arg))
 		default:
 			if path != "" {
-				return writeExecUsageError(stderr, "worktree path was provided more than once")
+				return writeExecUsageError(stderr, "caminho da worktree informado mais de uma vez")
 			}
 			path = arg
 		}
 	}
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return writeExecUsageError(stderr, "worktrees release requires a worktree path")
+		return writeExecUsageError(stderr, "worktrees release precisa do caminho da worktree")
 	}
 	// git worktree unlock matches against the path git recorded when the
 	// worktree was created, so a relative argument here (resolved against
@@ -182,7 +182,7 @@ func runWorktreesRelease(args []string, stdout io.Writer, stderr io.Writer, deps
 	}
 	// Print the absolute path that was released so relative arguments still
 	// show an unambiguous target in the confirmation line.
-	if _, err := fmt.Fprintf(stdout, "released %s\n", redactCLIString(absPath)); err != nil {
+	if _, err := fmt.Fprintf(stdout, "worktree liberada: %s\n", redactCLIString(absPath)); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -303,26 +303,26 @@ func runChanges(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 				MaxDiffBytes: options.maxDiffBytes,
 			})
 			if err != nil {
-				return writeExecUsageError(stderr, fmt.Sprintf("failed to inspect changes: %v", err))
+				return writeExecUsageError(stderr, fmt.Sprintf("Não foi possível inspecionar as alterações. Detalhe: %v", err))
 			}
 			if summary.Clean {
-				return writeExecUsageError(stderr, "no changes to commit")
+				return writeExecUsageError(stderr, "nada para commitar")
 			}
 
 			resolved, err := deps.resolveConfig(workspaceRoot, config.Overrides{})
 			if err != nil {
-				return writeExecUsageError(stderr, fmt.Sprintf("failed to resolve config: %v", err))
+				return writeExecUsageError(stderr, fmt.Sprintf("Não foi possível carregar a configuração. Detalhe: %v", err))
 			}
 			if !config.HasProviderProfile(resolved.Provider) {
-				return writeExecUsageError(stderr, "no provider configured for auto-commit message")
+				return writeExecUsageError(stderr, "nenhum provedor configurado para gerar a mensagem de commit")
 			}
 			provider, err := deps.newProvider(resolved.Provider)
 			if err != nil {
-				return writeExecUsageError(stderr, fmt.Sprintf("failed to create provider: %v", err))
+				return writeExecUsageError(stderr, fmt.Sprintf("Não foi possível criar o provedor. Detalhe: %v", err))
 			}
 
 			if !options.json {
-				if _, err := fmt.Fprintln(stdout, "Generating commit message using LLM..."); err != nil {
+				if _, err := fmt.Fprintln(stdout, "Gerando mensagem de commit..."); err != nil {
 					return exitCrash
 				}
 			}
@@ -332,7 +332,7 @@ func runChanges(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 			defer cancel()
 			msg, err := generateAutoCommitMessage(genCtx, provider, resolved.Provider.Model, safeSummary)
 			if err != nil {
-				return writeExecUsageError(stderr, fmt.Sprintf("failed to generate commit message: %v", err))
+				return writeExecUsageError(stderr, fmt.Sprintf("Não foi possível gerar a mensagem de commit. Detalhe: %v", err))
 			}
 			message = msg
 		} else {
@@ -364,7 +364,7 @@ func runChanges(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 	case "pr", "pull-request":
 		return runChangesPR(args, stdout, stderr, deps)
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown changes command %q", command))
+		return writeExecUsageError(stderr, fmt.Sprintf("comando changes desconhecido %q", command))
 	}
 }
 
@@ -409,7 +409,7 @@ func parseWorktreeCommandArgs(args []string) (worktreeCommandOptions, bool, erro
 		case strings.HasPrefix(arg, "--cwd="):
 			options.cwd = strings.TrimSpace(strings.TrimPrefix(arg, "--cwd="))
 		case strings.HasPrefix(arg, "-"):
-			return options, false, execUsageError{fmt.Sprintf("unknown worktrees flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag worktrees desconhecida %q", arg)}
 		default:
 			if err := setWorktreeName(&options, arg); err != nil {
 				return options, false, err
@@ -425,7 +425,7 @@ func setWorktreeName(options *worktreeCommandOptions, value string) error {
 		return nil
 	}
 	if options.name != "" {
-		return execUsageError{"worktree name was provided more than once"}
+		return execUsageError{"caminho da worktree informado mais de uma vez"}
 	}
 	options.name = name
 	return nil
@@ -493,9 +493,9 @@ func parseVerifyCommandArgs(args []string) (verifyCommandOptions, bool, error) {
 			}
 			options.attempts = attempts
 		case strings.HasPrefix(arg, "-"):
-			return options, false, execUsageError{fmt.Sprintf("unknown verify flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag verify desconhecida %q", arg)}
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unexpected verify argument %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("argumento verify inesperado %q", arg)}
 		}
 	}
 	return options, false, nil
@@ -531,7 +531,7 @@ func parseChangesArgs(args []string, command string) (changesCommandOptions, boo
 		case strings.HasPrefix(arg, "--base="):
 			v := strings.TrimSpace(strings.TrimPrefix(arg, "--base="))
 			if v == "" || flagValueLooksLikeOption(v) {
-				return options, false, execUsageError{"--base requires a value"}
+				return options, false, execUsageError{"--base precisa de um valor"}
 			}
 			options.baseRef = v
 		case arg == "-m" || arg == "--message":
@@ -600,36 +600,36 @@ func parseChangesArgs(args []string, command string) (changesCommandOptions, boo
 		case arg == "-a" || arg == "--auto":
 			options.auto = true
 		case strings.HasPrefix(arg, "-"):
-			return options, false, execUsageError{fmt.Sprintf("unknown changes flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag changes desconhecida %q", arg)}
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unexpected changes argument %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("argumento changes inesperado %q", arg)}
 		}
 	}
 	if command != "commit" && options.hasMessage {
-		return options, false, execUsageError{"--message is only valid with `qg changes commit`"}
+		return options, false, execUsageError{"--message só vale para `qg changes commit`"}
 	}
 	if command == "commit" && options.hasMessage && options.auto {
-		return options, false, execUsageError{"cannot specify both --message and --auto"}
+		return options, false, execUsageError{"não dá para usar --message e --auto juntos"}
 	}
 	if command != "commit" && command != "push" && options.dryRun {
-		return options, false, execUsageError{"--dry-run is only valid with commit or push"}
+		return options, false, execUsageError{"--dry-run só vale para commit ou push"}
 	}
 	// --auto on push/pr is the explicit opt-in for LLM branch naming (see
 	// ensureFeatureBranch); on commit it opts into the LLM commit message.
 	if command != "commit" && command != "push" && command != "pr" && options.auto {
-		return options, false, execUsageError{"--auto is only valid with commit, push, or pr"}
+		return options, false, execUsageError{"--auto só vale para commit, push ou pr"}
 	}
 	if command != "inspect" && options.baseRef != "" {
-		return options, false, execUsageError{"--base is only valid with `qg changes inspect`"}
+		return options, false, execUsageError{"--base só vale para `qg changes inspect`"}
 	}
 	if command != "push" && command != "pr" && (options.remote != "" || options.force) {
-		return options, false, execUsageError{"--remote and --force are only valid with push or pr"}
+		return options, false, execUsageError{"--remote e --force só valem para push ou pr"}
 	}
 	if command != "pr" && (options.title != "" || options.body != "" || options.fill || options.draft) {
-		return options, false, execUsageError{"--title, --body, --fill, and --draft are only valid with `qg changes pr`"}
+		return options, false, execUsageError{"--title, --body, --fill e --draft só valem para `qg changes pr`"}
 	}
 	if command != "push" && command != "pr" && options.yes {
-		return options, false, execUsageError{"--yes is only valid with push or pr"}
+		return options, false, execUsageError{"--yes só vale para push ou pr"}
 	}
 	return options, false, nil
 }
@@ -637,11 +637,11 @@ func parseChangesArgs(args []string, command string) (changesCommandOptions, boo
 func parsePositiveIntFlag(flag string, value string) (int, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return 0, execUsageError{flag + " requires a value"}
+		return 0, execUsageError{flag + " precisa de um valor"}
 	}
 	number, err := strconv.Atoi(trimmed)
 	if err != nil || number <= 0 {
-		return 0, execUsageError{fmt.Sprintf("invalid %s %q. Expected a positive integer.", flag, value)}
+		return 0, execUsageError{fmt.Sprintf("%s %q inválido: use um inteiro positivo.", flag, value)}
 	}
 	return number, nil
 }
@@ -731,10 +731,10 @@ func redactCLIString(value string) string {
 
 func formatWorktreeResult(result worktrees.Result) string {
 	lines := []string{
-		"QG worktree ready",
-		"name: " + result.Name,
-		"path: " + result.Path,
-		"repo: " + result.RepoRoot,
+		"Worktree QG pronta",
+		"nome: " + result.Name,
+		"caminho: " + result.Path,
+		"repositório: " + result.RepoRoot,
 	}
 	if result.SourceBranch != "" {
 		lines = append(lines, "branch: "+result.SourceBranch)
@@ -743,19 +743,19 @@ func formatWorktreeResult(result worktrees.Result) string {
 		lines = append(lines, "commit: "+result.SourceCommit)
 	}
 	if result.Reused {
-		lines = append(lines, "reused: true")
+		lines = append(lines, "reutilizada: true")
 	}
 	return strings.Join(lines, "\n")
 }
 
 func formatVerifyReport(report verify.Report) string {
 	lines := []string{
-		"QG verification",
-		"root: " + report.Root,
-		fmt.Sprintf("summary: %d total, %d passed, %d failed, %d errors", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
+		"Verificação QG",
+		"raiz: " + report.Root,
+		fmt.Sprintf("resumo: %d no total, %d passaram, %d falharam, %d com erro", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
 	}
 	if len(report.Results) == 0 {
-		lines = append(lines, "  (no checks detected)")
+		lines = append(lines, "  (nenhuma verificação encontrada)")
 		return strings.Join(lines, "\n")
 	}
 	for _, result := range report.Results {
@@ -768,74 +768,74 @@ func formatVerifyReport(report verify.Report) string {
 				}
 				detail := failure.Name
 				if failure.File != "" {
-					detail += " at " + failure.File
+					detail += " em " + failure.File
 				}
-				lines = append(lines, "    failure: "+detail)
+				lines = append(lines, "    falha: "+detail)
 			}
 		}
 		if result.Error != "" {
-			lines = append(lines, "    error: "+result.Error)
+			lines = append(lines, "    erro: "+result.Error)
 		}
 	}
 	return strings.Join(lines, "\n")
 }
 
 func formatVerifyTestSummary(summary *testrunner.Summary) string {
-	line := fmt.Sprintf("    tests: %d total, %d passed, %d failed", summary.Total, summary.Passed, summary.Failed)
+	line := fmt.Sprintf("    testes: %d no total, %d passaram, %d falharam", summary.Total, summary.Passed, summary.Failed)
 	if summary.Skipped > 0 {
-		line += fmt.Sprintf(", %d skipped", summary.Skipped)
+		line += fmt.Sprintf(", %d ignorados", summary.Skipped)
 	}
 	return line
 }
 
 func formatVerifyLoopReport(report selfverify.Report) string {
 	lines := []string{
-		"QG self-verification",
+		"Autoverificação QG",
 	}
 	if report.Root != "" {
-		lines = append(lines, "root: "+report.Root)
+		lines = append(lines, "raiz: "+report.Root)
 	}
 	lines = append(lines,
-		fmt.Sprintf("attempts: %d", len(report.Attempts)),
-		"stop: "+string(report.StopReason),
-		fmt.Sprintf("summary: %d total, %d passed, %d failed, %d errors", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
+		fmt.Sprintf("tentativas: %d", len(report.Attempts)),
+		"parada: "+string(report.StopReason),
+		fmt.Sprintf("resumo: %d no total, %d passaram, %d falharam, %d com erro", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
 	)
 	for _, attempt := range report.Attempts {
-		status := "failed"
+		status := "falhou"
 		if attempt.Report.OK {
-			status = "passed"
+			status = "passou"
 		}
-		lines = append(lines, fmt.Sprintf("  attempt %d: %s", attempt.Number, status))
+		lines = append(lines, fmt.Sprintf("  tentativa %d: %s", attempt.Number, status))
 		if attempt.Remediation != nil {
-			lines = append(lines, "    remediation: "+formatRemediation(*attempt.Remediation))
+			lines = append(lines, "    correção: "+formatRemediation(*attempt.Remediation))
 		}
 	}
 	if report.Error != "" {
-		lines = append(lines, "error: "+report.Error)
+		lines = append(lines, "erro: "+report.Error)
 	}
 	return strings.Join(lines, "\n")
 }
 
 func formatRemediation(remediation selfverify.Remediation) string {
-	status := "not applied"
+	status := "não aplicada"
 	if remediation.Applied {
-		status = "applied"
+		status = "aplicada"
 	}
 	details := []string{status}
 	if remediation.Message != "" {
 		details = append(details, remediation.Message)
 	}
 	if remediation.Error != "" {
-		details = append(details, "error: "+remediation.Error)
+		details = append(details, "erro: "+remediation.Error)
 	}
 	return strings.Join(details, " - ")
 }
 
 func formatChangeSummary(summary qggit.ChangeSummary) string {
 	lines := []string{
-		"QG changes",
-		"root: " + summary.Root,
-		fmt.Sprintf("files: %d changed", len(summary.Files)),
+		"Alterações QG",
+		"raiz: " + summary.Root,
+		fmt.Sprintf("arquivos: %d alterados", len(summary.Files)),
 	}
 	if summary.Branch != "" {
 		lines = append(lines, "branch: "+summary.Branch)
@@ -847,7 +847,7 @@ func formatChangeSummary(summary qggit.ChangeSummary) string {
 		lines = append(lines, "commit: "+summary.Commit)
 	}
 	if summary.Clean {
-		lines = append(lines, "clean: true")
+		lines = append(lines, "limpo: true")
 		return strings.Join(lines, "\n")
 	}
 	for _, file := range summary.Files {
@@ -858,12 +858,12 @@ func formatChangeSummary(summary qggit.ChangeSummary) string {
 
 func formatCommitResult(result qggit.CommitResult) string {
 	lines := []string{
-		"QG changes commit",
-		"root: " + result.Root,
-		"message: " + result.Message,
+		"Commit de alterações QG",
+		"raiz: " + result.Root,
+		"mensagem: " + result.Message,
 		fmt.Sprintf("dry-run: %t", result.DryRun),
-		fmt.Sprintf("committed: %t", result.Committed),
-		fmt.Sprintf("files: %d changed", len(result.Before.Files)),
+		fmt.Sprintf("efetivado: %t", result.Committed),
+		fmt.Sprintf("arquivos: %d alterados", len(result.Before.Files)),
 	}
 	if result.CommitHash != "" {
 		lines = append(lines, "commit: "+result.CommitHash)
@@ -1002,9 +1002,9 @@ func runChangesPush(args []string, stdout io.Writer, stderr io.Writer, deps appD
 
 	dryRunStr := ""
 	if options.dryRun {
-		dryRunStr = " (dry run)"
+		dryRunStr = " (simulação)"
 	}
-	if _, err := fmt.Fprintf(stdout, "Pushed branch %s to remote %s%s\n", result.Branch, result.Remote, dryRunStr); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Branch %s enviada para %s%s\n", result.Branch, result.Remote, dryRunStr); err != nil {
 		return exitCrash
 	}
 	if result.Output != "" {
@@ -1027,7 +1027,7 @@ func runChangesPR(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return exitSuccess
 	}
 	if !options.fill && options.title == "" {
-		return writeExecUsageError(stderr, "must provide either --fill or --title to run non-interactively")
+		return writeExecUsageError(stderr, "informe --fill ou --title para rodar sem interação")
 	}
 	workspaceRoot, err := resolveWorkspaceRoot(options.cwd, deps)
 	if err != nil {
@@ -1072,12 +1072,12 @@ func runChangesPR(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 	// probe fails, the subsequent push or PR operation provides fail-closed behavior.
 	if deps.isUnbornRemote != nil {
 		if unborn, unbornErr := deps.isUnbornRemote(context.Background(), workspaceRoot, targetRemote); unbornErr == nil && unborn {
-			return writeExecUsageError(stderr, fmt.Sprintf("cannot create pull request on unborn remote %s: push the initial default branch first", targetRemote))
+			return writeExecUsageError(stderr, fmt.Sprintf("não dá para abrir pull request no remoto %s ainda vazio: envie a branch padrão primeiro", targetRemote))
 		}
 	}
 
 	if !options.json {
-		if _, err := fmt.Fprintln(stdout, "Pushing current branch to set upstream..."); err != nil {
+		if _, err := fmt.Fprintln(stdout, "Enviando a branch atual para definir o upstream..."); err != nil {
 			return exitCrash
 		}
 	}
@@ -1093,10 +1093,10 @@ func runChangesPR(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		AllowPushDefaultBranch: options.yes,
 	})
 	if err != nil {
-		return writeExecUsageError(stderr, fmt.Sprintf("auto-push failed: %v", err))
+		return writeExecUsageError(stderr, fmt.Sprintf("Não foi possível enviar automaticamente. Detalhe: %v", err))
 	}
 	if !options.json {
-		if _, err := fmt.Fprintf(stdout, "Pushed branch %s to remote %s\n", pushResult.Branch, pushResult.Remote); err != nil {
+		if _, err := fmt.Fprintf(stdout, "Branch %s enviada para %s\n", pushResult.Branch, pushResult.Remote); err != nil {
 			return exitCrash
 		}
 	}
@@ -1167,7 +1167,7 @@ func generateAutoCommitMessage(ctx context.Context, provider qgruntime.Provider,
 	msg = strings.TrimSuffix(msg, "```")
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
-		return "", fmt.Errorf("provider returned empty commit message")
+		return "", fmt.Errorf("o provedor retornou uma mensagem de commit vazia")
 	}
 	return msg, nil
 }
@@ -1375,7 +1375,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 		if resolved, cfgErr := deps.resolveConfig(workspaceRoot, config.Overrides{}); cfgErr == nil && config.HasProviderProfile(resolved.Provider) {
 			if provider, provErr := deps.newProvider(resolved.Provider); provErr == nil {
 				if !opts.JSONMode {
-					fmt.Fprintln(stdout, "Generating branch name using LLM...")
+					fmt.Fprintln(stdout, "Gerando nome de branch...")
 				}
 				genCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 				generated, genErr := generateAutoBranchSlug(genCtx, provider, resolved.Provider.Model, redactChangeSummary(summary))
@@ -1390,8 +1390,8 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 		} else if !opts.JSONMode {
 			// Cover resolveConfig failures, missing provider profiles,
 			// newProvider errors, generation errors, and empty results so the
-			// user is not left guessing after "Generating..." or silence.
-			fmt.Fprintln(stdout, "LLM branch naming unavailable; using deterministic name.")
+			// user is not left guessing after "Gerando..." or silence.
+			fmt.Fprintln(stdout, "Nome automático indisponível; usando nome padrão.")
 		}
 	}
 
@@ -1500,7 +1500,7 @@ func ensureFeatureBranch(ctx context.Context, stdout io.Writer, workspaceRoot st
 		}
 	}
 	if !opts.JSONMode {
-		fmt.Fprintf(stdout, "Created branch %s (was on %s)\n", result.Branch, plan.CurrentBranch)
+		fmt.Fprintf(stdout, "Branch %s criada (estava em %s)\n", result.Branch, plan.CurrentBranch)
 	}
 	return result.Branch, plan.PushRemote, true, nil
 }
@@ -1547,7 +1547,7 @@ func generateAutoBranchSlug(ctx context.Context, provider qgruntime.Provider, mo
 
 	slug := qggit.SlugifyBranchComponent(extractBranchSlug(collected.Text))
 	if slug == "" {
-		return "", fmt.Errorf("provider returned empty branch slug")
+		return "", fmt.Errorf("o provedor retornou um slug vazio")
 	}
 	return slug, nil
 }

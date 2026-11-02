@@ -48,7 +48,7 @@ func TestRunUsageTextReport(t *testing.T) {
 		t.Fatalf("expected exit %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"2026-06-01", "1.800", "estimate", "net LOC", "+100", "-30"} {
+	for _, want := range []string{"2026-06-01", "1.800", "estimativa", "LOC líquido", "+100", "-30"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("usage report missing %q in:\n%s", want, output)
 		}
@@ -227,7 +227,7 @@ func TestRunUsageUnknownFlag(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("expected usage exit %d, got %d", exitUsage, exitCode)
 	}
-	if !strings.Contains(stderr.String(), "unknown usage flag") {
+	if !strings.Contains(stderr.String(), "flag usage desconhecida") {
 		t.Fatalf("expected unknown-flag error, got %q", stderr.String())
 	}
 }
@@ -240,11 +240,12 @@ func TestRunUsageEmptySessionRejected(t *testing.T) {
 		name string
 		args []string
 		flag string
+		want string
 	}{
-		{name: "session equals empty", args: []string{"usage", "report", "--session="}, flag: "--session"},
-		{name: "session-id equals empty", args: []string{"usage", "report", "--session-id="}, flag: "--session-id"},
-		{name: "session spaced empty", args: []string{"usage", "report", "--session", "   "}, flag: "--session"},
-		{name: "session-id spaced empty", args: []string{"usage", "report", "--session-id", ""}, flag: "--session-id"},
+		{name: "session equals empty", args: []string{"usage", "report", "--session="}, flag: "--session", want: "--session precisa de um valor"},
+		{name: "session-id equals empty", args: []string{"usage", "report", "--session-id="}, flag: "--session-id", want: "--session-id precisa de um valor"},
+		{name: "session spaced empty", args: []string{"usage", "report", "--session", "   "}, flag: "--session", want: "--session requires a value"},
+		{name: "session-id spaced empty", args: []string{"usage", "report", "--session-id", ""}, flag: "--session-id", want: "--session-id requires a value"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -260,8 +261,8 @@ func TestRunUsageEmptySessionRejected(t *testing.T) {
 				t.Fatalf("%s: expected exitUsage (%d), got %d", tc.flag, exitUsage, exitCode)
 			}
 			msg := stderr.String()
-			if !strings.Contains(msg, tc.flag+" requires a value") {
-				t.Fatalf("%s: expected value-required error in stderr, got %q", tc.flag, msg)
+			if !strings.Contains(msg, tc.want) {
+				t.Fatalf("%s: expected value-required error %q in stderr, got %q", tc.flag, tc.want, msg)
 			}
 		})
 	}
@@ -376,7 +377,7 @@ func TestRunUsageInvalidSince(t *testing.T) {
 					t.Fatalf("--since %q: expected exitUsage (%d), got %d", tc.since, exitUsage, exitCode)
 				}
 				msg := stderr.String()
-				if !strings.Contains(msg, "invalid --since") {
+				if !strings.Contains(msg, "inválido") {
 					t.Fatalf("--since %q: expected validation error in stderr, got %q", tc.since, msg)
 				}
 				if !strings.Contains(msg, "YYYY-MM-DD") {
@@ -405,7 +406,7 @@ func TestRunUsageEmptyStore(t *testing.T) {
 		t.Fatalf("empty store: expected exit %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "Usage report") {
+	if !strings.Contains(output, "Relatório de uso") {
 		t.Fatalf("empty store: expected header in output, got:\n%s", output)
 	}
 	// Total row must show qg requests / tokens.

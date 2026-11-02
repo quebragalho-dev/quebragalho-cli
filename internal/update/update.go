@@ -115,7 +115,7 @@ func ResolveTarget(target string) (Target, error) {
 	case "windows-arm64":
 		return Target{Name: value, GOOS: "windows", GOARCH: "arm64", Platform: "windows", Arch: "arm64"}, nil
 	default:
-		return Target{}, fmt.Errorf("unsupported update target %q: expected one of linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64, windows-arm64", target)
+		return Target{}, fmt.Errorf("destino de atualização inválido %q: esperado um de linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64, windows-arm64", target)
 	}
 }
 

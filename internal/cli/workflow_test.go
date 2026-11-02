@@ -76,7 +76,7 @@ func TestRunWorktreesPrepareTextAndJSON(t *testing.T) {
 				if decoded.Path != prepared.Path || decoded.Name != prepared.Name {
 					t.Fatalf("unexpected JSON result: %#v", decoded)
 				}
-			} else if !strings.Contains(stdout.String(), "QG worktree ready") || !strings.Contains(stdout.String(), prepared.Path) {
+			} else if !strings.Contains(stdout.String(), "Worktree QG pronta") || !strings.Contains(stdout.String(), prepared.Path) {
 				t.Fatalf("unexpected worktree text output: %q", stdout.String())
 			}
 		})
@@ -162,7 +162,7 @@ func TestRunWorktreesPrepareRejectsDuplicateNames(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("expected empty stdout, got %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "worktree name was provided more than once") {
+	if !strings.Contains(stderr.String(), "caminho da worktree informado mais de uma vez") {
 		t.Fatalf("expected duplicate name error, got %q", stderr.String())
 	}
 }
@@ -254,7 +254,7 @@ func TestRunWorktreesReleaseRequiresPath(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("expected usage exit %d, got %d", exitUsage, exitCode)
 	}
-	if !strings.Contains(stderr.String(), "requires a worktree path") {
+	if !strings.Contains(stderr.String(), "precisa do caminho da worktree") {
 		t.Fatalf("expected missing-path error, got %q", stderr.String())
 	}
 }
@@ -432,7 +432,7 @@ func TestRunVerifyTextAndJSON(t *testing.T) {
 				if snapshot.Contract != verify.ReportContractVersion || len(snapshot.Events) == 0 {
 					t.Fatalf("verify JSON did not expose runtime contract: %#v", snapshot)
 				}
-			} else if !strings.Contains(stdout.String(), "QG verification") || !strings.Contains(stdout.String(), "go.test") || !strings.Contains(stdout.String(), cwd) || !strings.Contains(stdout.String(), "tests: 2 total, 1 passed, 1 failed") {
+			} else if !strings.Contains(stdout.String(), "Verificação QG") || !strings.Contains(stdout.String(), "go.test") || !strings.Contains(stdout.String(), cwd) || !strings.Contains(stdout.String(), "testes: 2 no total, 1 passaram, 1 falharam") {
 				t.Fatalf("unexpected verify text output: %q", stdout.String())
 			}
 		})
@@ -532,7 +532,7 @@ func TestRunVerifyReturnsProviderExitWhenChecksFail(t *testing.T) {
 	if exitCode != exitProvider {
 		t.Fatalf("expected provider-style failure exit %d, got %d", exitProvider, exitCode)
 	}
-	if !strings.Contains(stdout.String(), "failed") {
+	if !strings.Contains(stdout.String(), "falharam") {
 		t.Fatalf("expected failure summary in stdout, got %q", stdout.String())
 	}
 }
@@ -621,7 +621,7 @@ func TestRunVerifyAttemptsFormatsSelfVerifyText(t *testing.T) {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"QG self-verification", "root: " + cwd, "stop: passed", "attempt 1: failed", "remediation: applied - prepared retry", "attempt 2: passed"} {
+	for _, want := range []string{"Autoverificação QG", "raiz: " + cwd, "parada: passed", "tentativa 1: falhou", "correção: aplicada - prepared retry", "tentativa 2: passou"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output: %q", want, output)
 		}
@@ -693,7 +693,7 @@ func TestRunChangesInspectAndCommit(t *testing.T) {
 		if exitCode != exitSuccess {
 			t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 		}
-		if !strings.Contains(stdout.String(), "QG changes commit") || !strings.Contains(stdout.String(), "dry-run: true") {
+		if !strings.Contains(stdout.String(), "Commit de alterações QG") || !strings.Contains(stdout.String(), "dry-run: true") {
 			t.Fatalf("unexpected changes commit output: %q", stdout.String())
 		}
 	})
@@ -1038,19 +1038,19 @@ func TestParseChangesArgsAuto(t *testing.T) {
 
 	// 2. Reject --auto on inspect
 	_, _, err := parseChangesArgs([]string{"--auto"}, "inspect")
-	if err == nil || !strings.Contains(err.Error(), "--auto is only valid with commit, push, or pr") {
+	if err == nil || !strings.Contains(err.Error(), "--auto só vale para commit, push ou pr") {
 		t.Fatalf("expected --auto rejection on inspect, got %v", err)
 	}
 
 	// 3. Reject both --message and --auto on commit
 	_, _, err = parseChangesArgs([]string{"--message", "foo", "--auto"}, "commit")
-	if err == nil || !strings.Contains(err.Error(), "cannot specify both --message and --auto") {
+	if err == nil || !strings.Contains(err.Error(), "não dá para usar --message e --auto juntos") {
 		t.Fatalf("expected --message and --auto conflict error, got %v", err)
 	}
 
 	// 4. Reject both empty message and --auto on commit
 	_, _, err = parseChangesArgs([]string{"--message=", "--auto"}, "commit")
-	if err == nil || !strings.Contains(err.Error(), "cannot specify both --message and --auto") {
+	if err == nil || !strings.Contains(err.Error(), "não dá para usar --message e --auto juntos") {
 		t.Fatalf("expected empty --message and --auto conflict error, got %v", err)
 	}
 
@@ -1063,7 +1063,7 @@ func TestParseChangesArgsAuto(t *testing.T) {
 	}
 	for _, cmd := range []string{"pr", "inspect"} {
 		_, _, err := parseChangesArgs([]string{"--dry-run"}, cmd)
-		if err == nil || !strings.Contains(err.Error(), "--dry-run is only valid with commit or push") {
+		if err == nil || !strings.Contains(err.Error(), "--dry-run só vale para commit ou push") {
 			t.Fatalf("expected --dry-run rejected on %q, got %v", cmd, err)
 		}
 	}
@@ -1147,7 +1147,7 @@ func TestRunChangesCommitAuto(t *testing.T) {
 	if !strings.Contains(promptContent, "[REDACTED]") && !strings.Contains(promptContent, "REDACTED") {
 		t.Fatalf("expected redacted diff content in prompt, got: %q", promptContent)
 	}
-	if !strings.Contains(stdout.String(), "Generating commit message using LLM...") {
+	if !strings.Contains(stdout.String(), "Gerando mensagem de commit...") {
 		t.Fatalf("expected status message in stdout, got %q", stdout.String())
 	}
 
@@ -1171,7 +1171,7 @@ func TestRunChangesCommitAuto(t *testing.T) {
 		if code == exitSuccess {
 			t.Fatal("expected command to fail when LLM returns empty response, got success")
 		}
-		if !strings.Contains(stderr.String(), "empty commit message") {
+		if !strings.Contains(stderr.String(), "mensagem de commit vazia") {
 			t.Fatalf("expected empty commit message error in stderr, got %q", stderr.String())
 		}
 	})
@@ -1421,7 +1421,7 @@ func TestEnsureFeatureBranchFallsBackWhenLLMNamingFails(t *testing.T) {
 			if branch != "someone/login-go" || createdName != "someone/login-go" {
 				t.Fatalf("expected deterministic fallback someone/login-go, got %q (created %q)", branch, createdName)
 			}
-			if !strings.Contains(stdout.String(), "LLM branch naming unavailable; using deterministic name.") {
+			if !strings.Contains(stdout.String(), "Nome automático indisponível; usando nome padrão.") {
 				t.Fatalf("expected fallback notice in stdout, got %q", stdout.String())
 			}
 		})
@@ -1453,7 +1453,7 @@ func TestEnsureFeatureBranchFallsBackWhenLLMNamingFails(t *testing.T) {
 		if branch != "someone/login-go" {
 			t.Fatalf("expected deterministic fallback, got %q", branch)
 		}
-		if strings.Contains(stdout.String(), "LLM branch naming unavailable") || strings.Contains(stdout.String(), "Generating branch name") {
+		if strings.Contains(stdout.String(), "Nome automático indisponível") || strings.Contains(stdout.String(), "Gerando nome de branch") {
 			t.Fatalf("json mode must suppress naming notices, got %q", stdout.String())
 		}
 	})
@@ -1924,7 +1924,7 @@ func TestRunChangesPushCreatesFeatureBranchWhenOnDefault(t *testing.T) {
 	if pushedBranch != "someone/readme-md" {
 		t.Fatalf("expected push to target the newly created branch, got %q", pushedBranch)
 	}
-	if !strings.Contains(stdout.String(), "Created branch someone/readme-md") {
+	if !strings.Contains(stdout.String(), "Branch someone/readme-md criada") {
 		t.Fatalf("expected branch-creation message in stdout, got %q", stdout.String())
 	}
 	// CreateBranch's own remote-collision probe runs before this push, so the
@@ -1973,7 +1973,7 @@ func TestRunChangesPRCreatesFeatureBranchWhenOnDefault(t *testing.T) {
 	if pushedBranch != "someone/readme-md" {
 		t.Fatalf("expected pushChanges to target the newly created branch, got %q", pushedBranch)
 	}
-	if !strings.Contains(stdout.String(), "Created branch someone/readme-md") {
+	if !strings.Contains(stdout.String(), "Branch someone/readme-md criada") {
 		t.Fatalf("expected branch-creation message in stdout, got %q", stdout.String())
 	}
 }
@@ -2038,7 +2038,7 @@ func TestRunChangesPRRejectsUnbornRemoteEvenWithYes(t *testing.T) {
 	if !isUnbornRemoteCalled {
 		t.Fatal("expected isUnbornRemote to be consulted even when --yes is passed")
 	}
-	if !strings.Contains(stderr.String(), "cannot create pull request on unborn remote origin") {
+	if !strings.Contains(stderr.String(), "não dá para abrir pull request no remoto origin ainda vazio") {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
@@ -3021,7 +3021,7 @@ func TestRunChangesPRYesRejectsUnbornNonOriginUpstream(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("expected exit code %d, got %d: %s", exitUsage, exitCode, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "cannot create pull request on unborn remote upstream") {
+	if !strings.Contains(stderr.String(), "não dá para abrir pull request no remoto upstream ainda vazio") {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }

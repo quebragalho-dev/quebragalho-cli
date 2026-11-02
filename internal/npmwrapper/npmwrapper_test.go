@@ -23,11 +23,11 @@ const (
 // Canonical Bun recovery copy from bin/qg.js bunRecoveryParagraph() — shared
 // by the generic missing-binary path and the doctor text fallback.
 const (
-	bunRecoveryLead        = "You installed with Bun, which does not run dependency lifecycle scripts"
+	bunRecoveryLead        = "Você instalou com Bun, que não roda scripts de ciclo de vida"
 	bunPmTrustProject      = "bun pm trust @quebragalho-dev/cli"
 	bunPmTrustGlobal       = "bun pm -g trust @quebragalho-dev/cli"
 	bunRecoveryTrustedDeps = `"trustedDependencies": ["@quebragalho-dev/cli"]`
-	buildFromSourceLead    = "If this platform has no prebuilt binary, build from source:"
+	buildFromSourceLead    = "Se não há binário pré-compilado para esta plataforma, compile do código-fonte:"
 )
 
 func runWrapperFixture(t *testing.T, wrapperPath string, args ...string) (stdout string, stderr string, exitCode int) {
@@ -181,7 +181,7 @@ func TestPostinstallSkipsUnsupportedPlatform(t *testing.T) {
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("unsupported platform should not print a plan, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "no prebuilt binary") {
+	if !strings.Contains(stderr, "sem binário pré-compilado") {
 		t.Fatalf("stderr=%q, want it to mention no prebuilt binary", stderr)
 	}
 }
@@ -212,7 +212,7 @@ func TestPostinstallHonorsSkipEnv(t *testing.T) {
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("skip should print nothing to stdout, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "skipping native binary download") {
+	if !strings.Contains(stderr, "pulando o download do binário nativo") {
 		t.Fatalf("stderr=%q, want skip message", stderr)
 	}
 }
@@ -300,7 +300,7 @@ func TestNodeWrapperReportsMissingNativeBinary(t *testing.T) {
 	if !ok || exitErr.ExitCode() != 1 {
 		t.Fatalf("wrapper err = %v, want exit 1; output: %s", err, output)
 	}
-	if !strings.Contains(string(output), "No native binary is available for this install") {
+	if !strings.Contains(string(output), "Nenhum binário nativo disponível para esta instalação") {
 		t.Fatalf("missing-native output = %q", string(output))
 	}
 }
@@ -409,13 +409,13 @@ func TestNodeWrapperRunsFirstRunDownloaderWhenBinaryMissing(t *testing.T) {
 		t.Fatalf("wrapper err = %v, want exit 1; output: %s", err, output)
 	}
 	text := string(output)
-	if !strings.Contains(text, "fetching the native binary from the GitHub Release") {
+	if !strings.Contains(text, "baixando o binário nativo do GitHub Release") {
 		t.Fatalf("output missing fallback download notice: %q", text)
 	}
-	if !strings.Contains(text, "skipping native binary download") {
+	if !strings.Contains(text, "pulando o download do binário nativo") {
 		t.Fatalf("output shows the downloader did not run: %q", text)
 	}
-	if !strings.Contains(text, "No native binary is available for this install") {
+	if !strings.Contains(text, "Nenhum binário nativo disponível para esta instalação") {
 		t.Fatalf("output missing guidance: %q", text)
 	}
 }
@@ -459,16 +459,16 @@ func TestNodeWrapperDoctorReportsMissingNativeBinaryAsDoctorFail(t *testing.T) {
 	// Doctor-shaped report, not the generic wrapper bail. Matches the shape the
 	// Go-side doctor.Format emits: a header, "Overall: <pass/fail>", then
 	// "[<status>] <id> - <message>" lines.
-	if !strings.Contains(stdout, "QG doctor report (") {
+	if !strings.Contains(stdout, "Relatório QG doctor (") {
 		t.Fatalf("doctor output should start with a doctor report header, got stdout=%q", stdout)
 	}
-	if !strings.Contains(stdout, "Overall: fail") {
+	if !strings.Contains(stdout, "Geral: reprovado") {
 		t.Fatalf("doctor overall must be fail when the native binary is missing, got stdout=%q", stdout)
 	}
 	if !strings.Contains(stdout, "[fail] runtime.go") {
 		t.Fatalf("doctor must report a failing runtime.go check, got stdout=%q", stdout)
 	}
-	if !strings.Contains(stdout, "Native qg binary is missing next to the npm wrapper") {
+	if !strings.Contains(stdout, "Binário nativo do qg não encontrado ao lado do wrapper npm") {
 		t.Fatalf("doctor must name the actual cause (missing native binary), got stdout=%q", stdout)
 	}
 	// The actionable remedy must point at the postinstall script that would fix
@@ -479,7 +479,7 @@ func TestNodeWrapperDoctorReportsMissingNativeBinaryAsDoctorFail(t *testing.T) {
 	// Regression guard for the original blind-alley bug: the doctor path must
 	// NOT emit the generic wrapper bail (that's what sent users debugging the
 	// wrong thing).
-	if strings.Contains(stdout, "[qg] No native binary is available for this install") {
+	if strings.Contains(stdout, "[qg] Nenhum binário nativo disponível para esta instalação") {
 		t.Fatalf("doctor must not emit the generic wrapper bail, got stdout=%q", stdout)
 	}
 }
@@ -520,7 +520,7 @@ func TestNodeWrapperDoctorJSONReportsMissingNativeBinaryAsJSONFail(t *testing.T)
 	if check.ID != "runtime.go" || check.Label != "Go runtime" || check.Status != "fail" {
 		t.Fatalf("doctor --json runtime check = %#v, want failing runtime.go check", check)
 	}
-	if !strings.Contains(check.Message, "Native qg binary is missing next to the npm wrapper") {
+	if !strings.Contains(check.Message, "Binário nativo do qg não encontrado ao lado do wrapper npm") {
 		t.Fatalf("doctor --json must name the actual cause, got %#v", check)
 	}
 	remedy, _ := check.Details["remedy"].(string)
@@ -554,7 +554,7 @@ func TestNodeWrapperDoctorRejectsUnknownFlag(t *testing.T) {
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("invalid doctor flag should not write stdout, got %q", stdout)
 	}
-	if stderr != "[qg] unknown doctor flag \"--bogus\"\n" {
+	if stderr != "[qg] flag do doctor desconhecida \"--bogus\"\n" {
 		t.Fatalf("invalid doctor flag stderr = %q", stderr)
 	}
 }
@@ -574,7 +574,7 @@ func TestNodeWrapperDoctorWithFlagsStillReportsDoctorFail(t *testing.T) {
 	if !strings.Contains(stdout, "[fail] runtime.go") {
 		t.Fatalf("doctor --connectivity must still emit the failing runtime.go line, got stdout=%q", stdout)
 	}
-	if strings.Contains(stdout, "[qg] No native binary is available for this install") {
+	if strings.Contains(stdout, "[qg] Nenhum binário nativo disponível para esta instalação") {
 		t.Fatalf("doctor --connectivity must not fall back to the generic bail, got stdout=%q", stdout)
 	}
 }
@@ -638,7 +638,7 @@ func assertBunRecoveryMessage(t *testing.T, output string) {
 	if !strings.Contains(output, bunRecoveryTrustedDeps) {
 		t.Fatalf("output should include trustedDependencies fallback guidance, got %q", output)
 	}
-	if !strings.Contains(output, "to your project package.json and reinstall.") {
+	if !strings.Contains(output, "ao package.json do projeto e reinstale.") {
 		t.Fatalf("output should mention package.json reinstall fallback, got %q", output)
 	}
 }

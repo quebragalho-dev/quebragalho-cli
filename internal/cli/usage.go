@@ -100,7 +100,7 @@ func runUsage(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 		if subcommand == "report" {
 			return runUsageReport(args[1:], stdout, stderr, deps)
 		}
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown usage command %q (the local report lives under qg usage report)", subcommand))
+		return writeExecUsageError(stderr, fmt.Sprintf("comando usage desconhecido %q (o relatório local fica em qg usage report)", subcommand))
 	}
 	return runUsageRemote(args, stdout, stderr, deps)
 }
@@ -118,7 +118,7 @@ func runUsageRemote(args []string, stdout io.Writer, stderr io.Writer, deps appD
 		return exitSuccess
 	}
 	if options.scope != "" && options.scope != "user" && options.scope != "key" {
-		return writeExecUsageError(stderr, fmt.Sprintf("invalid --scope %q: want user or key", options.scope))
+		return writeExecUsageError(stderr, fmt.Sprintf("--scope %q inválida: use user ou key", options.scope))
 	}
 	from, err := parseRemoteUsageTime("--from", options.from)
 	if err != nil {
@@ -214,9 +214,9 @@ func parseRemoteUsageArgs(args []string) (remoteUsageOptions, bool, error) {
 				continue
 			}
 			if strings.HasPrefix(arg, "-") {
-				return options, false, execUsageError{fmt.Sprintf("unknown usage flag %q (local report flags live under qg usage report)", arg)}
+				return options, false, execUsageError{fmt.Sprintf("flag usage desconhecida %q (as flags do relatório local ficam em qg usage report)", arg)}
 			}
-			return options, false, execUsageError{fmt.Sprintf("unexpected usage argument %q (local report lives under qg usage report)", arg)}
+			return options, false, execUsageError{fmt.Sprintf("argumento usage inesperado %q (o relatório local fica em qg usage report)", arg)}
 		}
 	}
 	return options, false, nil
@@ -234,7 +234,7 @@ func parseRemoteUsageTime(flag, value string) (time.Time, error) {
 	if parsed, err := time.Parse("2006-01-02", value); err == nil {
 		return parsed.UTC(), nil
 	}
-	return time.Time{}, execUsageError{fmt.Sprintf("invalid %s %q: want YYYY-MM-DD or RFC3339", flag, value)}
+	return time.Time{}, execUsageError{fmt.Sprintf("%s %q inválido: use YYYY-MM-DD ou RFC3339", flag, value)}
 }
 
 func runUsageReport(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
@@ -336,14 +336,14 @@ func parseUsageArgs(args []string) (usageOptions, bool, error) {
 				return options, false, err
 			}
 			if _, parseErr := time.Parse("2006-01-02", value); parseErr != nil {
-				return options, false, execUsageError{fmt.Sprintf("invalid --since %q: expected YYYY-MM-DD", value)}
+				return options, false, execUsageError{fmt.Sprintf("--since %q inválido: use YYYY-MM-DD", value)}
 			}
 			options.since = value
 			index = next
 		case strings.HasPrefix(arg, "--since="):
 			value := strings.TrimSpace(strings.TrimPrefix(arg, "--since="))
 			if _, parseErr := time.Parse("2006-01-02", value); parseErr != nil {
-				return options, false, execUsageError{fmt.Sprintf("invalid --since %q: expected YYYY-MM-DD", value)}
+				return options, false, execUsageError{fmt.Sprintf("--since %q inválido: use YYYY-MM-DD", value)}
 			}
 			options.since = value
 		case arg == "--session" || arg == "--session-id":
@@ -352,24 +352,24 @@ func parseUsageArgs(args []string) (usageOptions, bool, error) {
 				return options, false, err
 			}
 			if strings.TrimSpace(value) == "" {
-				return options, false, execUsageError{fmt.Sprintf("%s requires a value", arg)}
+				return options, false, execUsageError{fmt.Sprintf("%s precisa de um valor", arg)}
 			}
 			options.sessionID = strings.TrimSpace(value)
 			index = next
 		case strings.HasPrefix(arg, "--session="):
 			value := strings.TrimSpace(strings.TrimPrefix(arg, "--session="))
 			if value == "" {
-				return options, false, execUsageError{"--session requires a value"}
+				return options, false, execUsageError{"--session precisa de um valor"}
 			}
 			options.sessionID = value
 		case strings.HasPrefix(arg, "--session-id="):
 			value := strings.TrimSpace(strings.TrimPrefix(arg, "--session-id="))
 			if value == "" {
-				return options, false, execUsageError{"--session-id requires a value"}
+				return options, false, execUsageError{"--session-id precisa de um valor"}
 			}
 			options.sessionID = value
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unknown usage flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag usage desconhecida %q", arg)}
 		}
 	}
 	return options, false, nil
@@ -382,8 +382,8 @@ func parseUsageArgs(args []string) (usageOptions, bool, error) {
 // counts come straight from the parsed working-tree --stat.
 func FormatReport(report usage.Report, insertions int, deletions int) string {
 	var builder strings.Builder
-	builder.WriteString("Usage report (cost is a reconstructed estimate)\n\n")
-	fmt.Fprintf(&builder, "%-12s %10s %14s %14s\n", "date", "requests", "tokens", "est. cost")
+	builder.WriteString("Relatório de uso (custo é uma estimativa reconstruída)\n\n")
+	fmt.Fprintf(&builder, "%-12s %10s %14s %14s\n", "data", "pedidos", "tokens", "custo est.")
 	for _, bucket := range report.Buckets {
 		fmt.Fprintf(&builder, "%-12s %10d %14s %14s\n",
 			bucket.Date, bucket.Requests, formatCount(int64(bucket.TotalTokens)), formatUSD(bucket.TotalCost))
@@ -391,14 +391,14 @@ func FormatReport(report usage.Report, insertions int, deletions int) string {
 	fmt.Fprintf(&builder, "\n%-12s %10d %14s %14s\n",
 		"total", report.Total.Requests, formatCount(int64(report.Total.TotalTokens)), formatUSD(report.Total.TotalCost))
 
-	fmt.Fprintf(&builder, "\nnet LOC (estimate): +%d / -%d = %d\n",
+	fmt.Fprintf(&builder, "\nLOC líquido (estimativa): +%d / -%d = %d\n",
 		insertions, deletions, report.NetLOC)
 	if report.NetLOCPositive {
-		fmt.Fprintf(&builder, "tokens per net LOC: %.1f\n", report.TokensPerNetLOC)
-		fmt.Fprintf(&builder, "est. cost per net LOC: %s\n", formatUSD(report.CostPerNetLOC))
+		fmt.Fprintf(&builder, "tokens por LOC líquido: %.1f\n", report.TokensPerNetLOC)
+		fmt.Fprintf(&builder, "custo est. por LOC líquido: %s\n", formatUSD(report.CostPerNetLOC))
 	} else {
-		builder.WriteString("tokens per net LOC: n/a (net LOC <= 0)\n")
-		builder.WriteString("est. cost per net LOC: n/a (net LOC <= 0)\n")
+		builder.WriteString("tokens por LOC líquido: n/d (LOC líquido <= 0)\n")
+		builder.WriteString("custo est. por LOC líquido: n/d (LOC líquido <= 0)\n")
 	}
 	return strings.TrimRight(builder.String(), "\n")
 }

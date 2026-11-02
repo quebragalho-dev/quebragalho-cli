@@ -61,12 +61,12 @@ function localControlHelperManifest(packageRoot) {
 const DOCTOR_HELP = `Usage:
   qg doctor [flags]
 
-Runs Go backend health checks for config and provider setup.
+Roda as verificações de saúde do backend Go para configuração e provedor.
 
 Flags:
-      --json            Print JSON report
-      --connectivity    Include provider endpoint connectivity probe when available
-  -h, --help            Show this help
+      --json            Mostra o relatório em JSON
+      --connectivity    Inclui a sondagem de conectividade do provedor quando disponível
+  -h, --help            Mostra esta ajuda
 `;
 
 const EXIT_USAGE = 2;
@@ -80,29 +80,29 @@ function installedByBun() {
 
 function bunRecoveryParagraph() {
   return (
-    'You installed with Bun, which does not run dependency lifecycle scripts\n' +
-    'by default. Trust the package to run the blocked postinstall:\n' +
-    '  bun pm trust @quebragalho-dev/cli       (project install)\n' +
-    '  bun pm -g trust @quebragalho-dev/cli    (global install)\n' +
-    'On Bun versions without `bun pm trust`, add\n' +
+    'Você instalou com Bun, que não roda scripts de ciclo de vida das dependências\n' +
+    'por padrão. Autorize o pacote para rodar o postinstall bloqueado:\n' +
+    '  bun pm trust @quebragalho-dev/cli       (instalação no projeto)\n' +
+    '  bun pm -g trust @quebragalho-dev/cli    (instalação global)\n' +
+    'Em versões do Bun sem `bun pm trust`, adicione\n' +
     '  "trustedDependencies": ["@quebragalho-dev/cli"]\n' +
-    'to your project package.json and reinstall.\n' +
+    'ao package.json do projeto e reinstale.\n' +
     '\n'
   );
 }
 
 function buildFromSourceParagraph() {
   return (
-    'If this platform has no prebuilt binary, build from source:\n' +
+    'Se não há binário pré-compilado para esta plataforma, compile do código-fonte:\n' +
     'https://github.com/quebragalho-dev/quebragalho-cli (go run ./cmd/qg, requires Go 1.26+).'
   );
 }
 
 function missingBinaryContextParagraph() {
   return (
-    'Normally npm installs it as an optional dependency of @quebragalho-dev/cli\n' +
-    `(@quebragalho-dev/cli-${process.platform}-${process.arch}), and the wrapper can\n` +
-    'also download it from the GitHub Release when it is missing.'
+    'Normalmente o npm instala ele como dependência opcional de @quebragalho-dev/cli\n' +
+    `(@quebragalho-dev/cli-${process.platform}-${process.arch}), e o wrapper também\n` +
+    'consegue baixar ele do GitHub Release quando está faltando.'
   );
 }
 
@@ -112,10 +112,10 @@ function missingNativeRecoveryParagraphs(postinstallScript) {
     missingBinaryContextParagraph() +
     '\n' +
     '\n' +
-    'Things to try:\n' +
-    '  - reinstall without omitting optional dependencies:\n' +
+    'O que tentar:\n' +
+    '  - reinstale sem omitir as dependências opcionais:\n' +
     '      npm install -g @quebragalho-dev/cli\n' +
-    '  - run the downloader manually (needs write access to the package dir):\n' +
+    '  - rode o downloader manualmente (precisa de escrita na pasta do pacote):\n' +
     `      node "${postinstallScript}"\n` +
     '\n' +
     (ranByBun ? bunRecoveryParagraph() : '') +
@@ -125,7 +125,7 @@ function missingNativeRecoveryParagraphs(postinstallScript) {
 
 function formatGenericMissingNativeBinaryMessage(postinstallScript) {
   return (
-    '[qg] No native binary is available for this install.\n' +
+    '[qg] Nenhum binário nativo disponível para esta instalação.\n' +
     missingNativeRecoveryParagraphs(postinstallScript)
   );
 }
@@ -144,7 +144,7 @@ function parseDoctorArgs(args) {
       case '--connectivity':
         break;
       default:
-        return { kind: 'error', message: `unknown doctor flag ${JSON.stringify(arg)}` };
+        return { kind: 'error', message: `flag do doctor desconhecida ${JSON.stringify(arg)}` };
     }
   }
   return { kind: 'run', json };
@@ -159,7 +159,7 @@ function missingNativeDoctorJSONReport(postinstallScript) {
         id: 'runtime.go',
         label: 'Go runtime',
         status: 'fail',
-        message: 'Native qg binary is missing next to the npm wrapper.',
+        message: 'Binário nativo do qg não encontrado ao lado do wrapper npm.',
         details: {
           remedy: `node "${postinstallScript}"`,
         },
@@ -170,11 +170,11 @@ function missingNativeDoctorJSONReport(postinstallScript) {
 
 function missingNativeDoctorTextReport(postinstallScript) {
   return (
-    'QG doctor report (' +
+    'Relatório QG doctor (' +
     new Date().toISOString() +
     ')\n' +
-    'Overall: fail\n' +
-    '[fail] runtime.go - Native qg binary is missing next to the npm wrapper.\n' +
+    'Geral: reprovado\n' +
+    '[fail] runtime.go - Binário nativo do qg não encontrado ao lado do wrapper npm.\n' +
     '  remedy: node "' +
     postinstallScript +
     '"\n' +
@@ -220,7 +220,7 @@ function downloadMissingBinary(packageRoot) {
   const downloadScript = join(packageRoot, 'scripts', 'postinstall.mjs');
   if (!existsSync(downloadScript) || !releaseAssetAvailable()) return;
   console.error(
-    '[qg] no platform package installed — fetching the native binary from the GitHub Release (retried on each run until it succeeds).',
+    '[qg] pacote de plataforma ausente — baixando o binário nativo do GitHub Release (tenta de novo a cada execução até conseguir).',
   );
   spawnSync(process.execPath, [downloadScript], {
     stdio: ['ignore', 'inherit', 'inherit'],
@@ -293,7 +293,7 @@ function reopenAfterNpmInstall(version) {
   env.QG_UPDATE_JUST_INSTALLED = version;
   const child = spawnSync(process.execPath, [process.argv[1], ...process.argv.slice(2)], { stdio: 'inherit', env });
   if (child.error) {
-    console.error(`[qg] Failed to reopen after update: ${child.error.message}`);
+    console.error(`[qg] Não foi possível reabrir após a atualização: ${child.error.message}`);
     return 1;
   }
   if (child.signal) {
@@ -360,7 +360,7 @@ const child = spawnSync(nativePath, process.argv.slice(2), {
 const handoffVersion = takeUpdateHandoff(env.QG_NPM_UPDATE_HANDOFF);
 
 if (child.error) {
-  console.error(`[qg] Failed to launch wrapper target: ${child.error.message}`);
+  console.error(`[qg] Não foi possível iniciar o binário: ${child.error.message}`);
   process.exit(1);
 }
 

@@ -45,7 +45,7 @@ func TestRunSessionsListsLineageAndTree(t *testing.T) {
 		t.Fatalf("sessions list exit = %d, stderr = %q", exitCode, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "QG sessions") || !strings.Contains(output, root.SessionID) || !strings.Contains(output, child.SessionID) || !strings.Contains(output, "code-review") || !strings.Contains(output, "tag=specialist") || !strings.Contains(output, "depth=1") {
+	if !strings.Contains(output, "Sessões QG") || !strings.Contains(output, root.SessionID) || !strings.Contains(output, child.SessionID) || !strings.Contains(output, "code-review") || !strings.Contains(output, "tag=specialist") || !strings.Contains(output, "depth=1") {
 		t.Fatalf("sessions list output = %q, want root, child, and agent", output)
 	}
 
@@ -183,7 +183,7 @@ func TestRunSessionsValidatesArgs(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("sessions children exit = %d, want usage", exitCode)
 	}
-	if !strings.Contains(stderr.String(), "QG session not found: missing") {
+	if !strings.Contains(stderr.String(), "Sessão QG não encontrada: missing") {
 		t.Fatalf("sessions children stderr = %q, want missing-session error", stderr.String())
 	}
 
@@ -192,11 +192,11 @@ func TestRunSessionsValidatesArgs(t *testing.T) {
 		args       []string
 		wantStderr string
 	}{
-		{name: "unknown command", args: []string{"sessions", "foo"}, wantStderr: `unknown sessions command "foo"`},
-		{name: "list extra arg", args: []string{"sessions", "list", "extra"}, wantStderr: "sessions list does not accept positional arguments"},
-		{name: "rewind flag on list", args: []string{"sessions", "list", "--sequence", "2"}, wantStderr: "only valid for sessions rewind-plan"},
-		{name: "compaction flag on tree", args: []string{"sessions", "tree", "root", "--preserve-last", "2"}, wantStderr: "only valid for sessions compact-plan"},
-		{name: "empty event flag", args: []string{"sessions", "list", "--event="}, wantStderr: "--event requires a value"},
+		{name: "unknown command", args: []string{"sessions", "foo"}, wantStderr: `comando sessions desconhecido "foo"`},
+		{name: "list extra arg", args: []string{"sessions", "list", "extra"}, wantStderr: "sessions list não aceita argumentos de posição"},
+		{name: "rewind flag on list", args: []string{"sessions", "list", "--sequence", "2"}, wantStderr: "só valem para sessions rewind-plan"},
+		{name: "compaction flag on tree", args: []string{"sessions", "tree", "root", "--preserve-last", "2"}, wantStderr: "só valem para sessions compact-plan"},
+		{name: "empty event flag", args: []string{"sessions", "list", "--event="}, wantStderr: "--event precisa de um valor"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stdout.Reset()
@@ -270,7 +270,7 @@ func TestRunSessionsListFiltersByKind(t *testing.T) {
 			return store
 		},
 	})
-	if exitCode != exitUsage || !strings.Contains(stderr.String(), "--kind is only valid for sessions list") {
+	if exitCode != exitUsage || !strings.Contains(stderr.String(), "--kind só vale para sessions list") {
 		t.Fatalf("expected --kind validation error, exit=%d stderr=%q", exitCode, stderr.String())
 	}
 }

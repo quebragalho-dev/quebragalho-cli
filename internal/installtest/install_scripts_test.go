@@ -71,7 +71,7 @@ func TestUnixInstallerInstallsFromPrefixedReleaseArchiveWithoutNetwork(t *testin
 		}
 		previous = at
 	}
-	if !strings.Contains(stdout, "Installed "+filepath.Join(fixture.installDir, "qg")) {
+	if !strings.Contains(stdout, "Instalado "+filepath.Join(fixture.installDir, "qg")) {
 		t.Fatalf("install.sh stdout missing install path:\n%s", stdout)
 	}
 

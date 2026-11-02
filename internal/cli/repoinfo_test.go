@@ -33,7 +33,7 @@ func TestFormatRepoInfoText(t *testing.T) {
 	contrib := 3
 	info := repoInfoTestData(age, contrib)
 	out := formatRepoInfo(info)
-	for _, want := range []string{"Files", "TypeScript", "main", "GitHub Actions", "42", "3", "Commits:      100", "Branches:     5", "Tags:         10"} {
+	for _, want := range []string{"Arquivos", "TypeScript", "main", "GitHub Actions", "42", "3", "Commits:      100", "Branches:     5", "Tags:         10"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("text output missing %q:\n%s", want, out)
 		}

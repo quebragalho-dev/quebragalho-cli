@@ -125,7 +125,7 @@ func TestRunContextRejectsUnknownFlag(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("expected empty stdout, got %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), `unknown context flag "--wat"`) {
+	if !strings.Contains(stderr.String(), `flag context desconhecida "--wat"`) {
 		t.Fatalf("expected unknown flag error, got %q", stderr.String())
 	}
 }

@@ -75,7 +75,7 @@ func parseRepoInfoArgs(args []string) (repoInfoOptions, bool, error) {
 		case strings.HasPrefix(arg, "--cwd="):
 			options.cwd = strings.TrimSpace(strings.TrimPrefix(arg, "--cwd="))
 		default:
-			return options, false, execUsageError{fmt.Sprintf("Unknown repo-info flag: %s", arg)}
+			return options, false, execUsageError{fmt.Sprintf("Flag repo-info desconhecida: %s", arg)}
 		}
 	}
 	return options, false, nil
@@ -85,9 +85,9 @@ const repoInfoTopLanguages = 8
 
 func formatRepoInfo(info repoinfo.Info) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Files:        %d\n", info.FileCount)
-	fmt.Fprintf(&b, "Directories:  %d (max depth %d)\n", info.DirectoryCount, info.MaxDepth)
-	fmt.Fprintf(&b, "Est. LOC:     %d\n", info.LOCEstimate)
+	fmt.Fprintf(&b, "Arquivos:     %d\n", info.FileCount)
+	fmt.Fprintf(&b, "Pastas:       %d (profundidade máx. %d)\n", info.DirectoryCount, info.MaxDepth)
+	fmt.Fprintf(&b, "LOC estimada: %d\n", info.LOCEstimate)
 	if info.CommitCount != nil {
 		fmt.Fprintf(&b, "Commits:      %d\n", *info.CommitCount)
 	}
@@ -98,10 +98,10 @@ func formatRepoInfo(info repoinfo.Info) string {
 		fmt.Fprintf(&b, "Tags:         %d\n", *info.TagCount)
 	}
 	if info.PrimaryLanguage != "" {
-		fmt.Fprintf(&b, "Primary lang: %s\n", info.PrimaryLanguage)
+		fmt.Fprintf(&b, "Linguagem principal: %s\n", info.PrimaryLanguage)
 	}
 	if len(info.Languages) > 0 {
-		b.WriteString("Languages:\n")
+		b.WriteString("Linguagens:\n")
 		shown := info.Languages
 		extra := 0
 		if len(shown) > repoInfoTopLanguages {
@@ -109,34 +109,34 @@ func formatRepoInfo(info repoinfo.Info) string {
 			shown = shown[:repoInfoTopLanguages]
 		}
 		for _, lang := range shown {
-			fmt.Fprintf(&b, "  %-14s ~%d LOC  (%d files)\n", lang.Name, lang.LOCEstimate, lang.FileCount)
+			fmt.Fprintf(&b, "  %-14s ~%d LOC  (%d arquivos)\n", lang.Name, lang.LOCEstimate, lang.FileCount)
 		}
 		if extra > 0 {
-			fmt.Fprintf(&b, "  +%d more\n", extra)
+			fmt.Fprintf(&b, "  +%d outras\n", extra)
 		}
 	}
-	fmt.Fprintf(&b, "Workspace:    %s", info.WorkspaceType)
+	fmt.Fprintf(&b, "Pasta de trabalho: %s", info.WorkspaceType)
 	if info.WorkspacePackageCount > 0 {
-		fmt.Fprintf(&b, " (%d packages)", info.WorkspacePackageCount)
+		fmt.Fprintf(&b, " (%d pacotes)", info.WorkspacePackageCount)
 	}
 	b.WriteString("\n")
-	writeRepoInfoList(&b, "Build tools", info.BuildTools)
-	writeRepoInfoList(&b, "Test tools", info.TestTools)
+	writeRepoInfoList(&b, "Ferramentas de build", info.BuildTools)
+	writeRepoInfoList(&b, "Ferramentas de teste", info.TestTools)
 	writeRepoInfoList(&b, "CI/CD", info.CICD)
 	if info.Branch != "" {
 		fmt.Fprintf(&b, "Branch:       %s\n", info.Branch)
 	}
 	if info.RemoteURL != "" {
-		fmt.Fprintf(&b, "Remote:       %s\n", info.RemoteURL)
+		fmt.Fprintf(&b, "Remoto:       %s\n", info.RemoteURL)
 	}
 	if info.AgeDays != nil {
-		fmt.Fprintf(&b, "Age:          %d days\n", *info.AgeDays)
+		fmt.Fprintf(&b, "Idade:        %d dias\n", *info.AgeDays)
 	}
 	if info.Contributors90d != nil {
-		fmt.Fprintf(&b, "Contributors: %d (last 90d)\n", *info.Contributors90d)
+		fmt.Fprintf(&b, "Contribuidores: %d (últimos 90d)\n", *info.Contributors90d)
 	}
 	if info.CommitVelocity30d != nil {
-		fmt.Fprintf(&b, "Velocity:     %d commits (last 30d)\n", *info.CommitVelocity30d)
+		fmt.Fprintf(&b, "Ritmo:         %d commits (últimos 30d)\n", *info.CommitVelocity30d)
 	}
 	return b.String()
 }

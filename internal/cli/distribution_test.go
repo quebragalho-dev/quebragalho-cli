@@ -194,7 +194,7 @@ func TestRunSkillAddReinstallShowsHashChange(t *testing.T) {
 		t.Fatalf("reinstall: %s", stderr.String())
 	}
 	// The output should communicate that the hash changed (an update).
-	if !strings.Contains(strings.ToLower(stdout.String()), "updated") {
+	if !strings.Contains(strings.ToLower(stdout.String()), "atualizad") {
 		t.Fatalf("reinstall output should report an update:\n%s", stdout.String())
 	}
 }
@@ -318,7 +318,7 @@ func TestRunToolsListSurfacesDiagnostics(t *testing.T) {
 	if exit := runWithDeps([]string{"tools", "list"}, &stdout, &stderr, deps); exit != exitSuccess {
 		t.Fatalf("tools list exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(strings.ToLower(stdout.String()), "diagnostic") {
+	if !strings.Contains(strings.ToLower(stdout.String()), "diagnóstic") {
 		t.Fatalf("text listing should surface loader diagnostics:\n%s", stdout.String())
 	}
 
@@ -365,7 +365,7 @@ func TestRunToolsListEmpty(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("tools list on empty dir exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(strings.ToLower(stdout.String()), "no") {
+	if !strings.Contains(strings.ToLower(stdout.String()), "nenhuma") {
 		t.Fatalf("expected an empty-toolbox message:\n%s", stdout.String())
 	}
 }

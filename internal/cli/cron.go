@@ -38,15 +38,15 @@ func runCronWith(store *cron.Store, now func() time.Time, args []string, stdout 
 	case "list", "ls":
 		return cronList(store, now, stdout, stderr)
 	case "rm", "remove":
-		return cronSimple(store, rest, stdout, stderr, func(id string) error { return store.Remove(id) }, "Removed")
+		return cronSimple(store, rest, stdout, stderr, func(id string) error { return store.Remove(id) }, "removida")
 	case "pause":
-		return cronSetStatus(store, rest, stdout, stderr, cron.StatusPaused, "Paused")
+		return cronSetStatus(store, rest, stdout, stderr, cron.StatusPaused, "pausada")
 	case "resume":
 		return cronResume(store, now, rest, stdout, stderr)
 	case "run":
 		return cronRun(store, now, rest, stdout, stderr, Run)
 	default:
-		fmt.Fprintf(stderr, "Unknown cron subcommand: %s\n", sub)
+		fmt.Fprintf(stderr, "Subcomando cron desconhecido: %s\n", sub)
 		return exitUsage
 	}
 }
@@ -96,7 +96,7 @@ func cronAdd(store *cron.Store, now func() time.Time, args []string, stdout io.W
 		case a == "--run-now":
 			runNow = true
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(stderr, "Unknown cron add flag: %s\n", a)
+			fmt.Fprintf(stderr, "Flag desconhecida em cron add: %s\n", a)
 			return exitUsage
 		default:
 			positional = append(positional, a)
@@ -104,7 +104,7 @@ func cronAdd(store *cron.Store, now func() time.Time, args []string, stdout io.W
 	}
 
 	if len(positional) > 1 {
-		fmt.Fprintf(stderr, "Unexpected extra arguments: %s\n", strings.Join(positional[1:], " "))
+		fmt.Fprintf(stderr, "Argumentos extras inesperados: %s\n", strings.Join(positional[1:], " "))
 		return exitUsage
 	}
 	// Consume an explicit positional expression BEFORE applying recipe defaults,
@@ -116,7 +116,7 @@ func cronAdd(store *cron.Store, now func() time.Time, args []string, stdout io.W
 	if recipe != "" {
 		r, ok := cron.Recipe(recipe)
 		if !ok {
-			fmt.Fprintf(stderr, "Unknown recipe %q. Available: %s\n", recipe, recipeIDs())
+			fmt.Fprintf(stderr, "Receita %q desconhecida. Opções: %s\n", recipe, recipeIDs())
 			return exitUsage
 		}
 		if expr == "" {
@@ -127,7 +127,7 @@ func cronAdd(store *cron.Store, now func() time.Time, args []string, stdout io.W
 		}
 	}
 	if expr == "" {
-		fmt.Fprintln(stderr, "A cron expression is required (e.g. `qg cron add \"0 9 * * *\" --prompt ...`).")
+		fmt.Fprintln(stderr, "Falta a expressão cron (ex.: `qg cron add \"0 9 * * *\" --prompt ...`).")
 		return exitUsage
 	}
 	schedule, err := cron.Parse(expr)
@@ -152,7 +152,7 @@ func cronAdd(store *cron.Store, now func() time.Time, args []string, stdout io.W
 	// re-fire every tick under `cron run`).
 	next := schedule.Next(now())
 	if next.IsZero() {
-		fmt.Fprintln(stderr, "That schedule never fires.")
+		fmt.Fprintln(stderr, "Esse agendamento nunca dispara.")
 		return exitUsage
 	}
 	if runNow {
@@ -163,8 +163,8 @@ func cronAdd(store *cron.Store, now func() time.Time, args []string, stdout io.W
 		fmt.Fprintln(stderr, err.Error())
 		return exitCrash
 	}
-	fmt.Fprintf(stdout, "Added cron job %s (%s); next run %s.\n", job.ID, expr, formatCronTime(job.NextRunAt))
-	fmt.Fprintln(stdout, "Note: the prompt is stored in plaintext on disk — do not embed secrets.")
+	fmt.Fprintf(stdout, "Tarefa de cron %s (%s) criada; próxima execução %s.\n", job.ID, expr, formatCronTime(job.NextRunAt))
+	fmt.Fprintln(stdout, "Atenção: a mensagem fica salva em texto puro no disco; não coloque segredos.")
 	return exitSuccess
 }
 
@@ -175,7 +175,7 @@ func cronList(store *cron.Store, now func() time.Time, stdout io.Writer, stderr 
 		fmt.Fprintln(stderr, "warning:", err.Error())
 	}
 	if len(jobs) == 0 {
-		fmt.Fprintln(stdout, "No scheduled jobs.")
+		fmt.Fprintln(stdout, "Nenhuma tarefa agendada.")
 		return exitSuccess
 	}
 	sort.Slice(jobs, func(i, j int) bool {
@@ -189,7 +189,7 @@ func cronList(store *cron.Store, now func() time.Time, stdout io.Writer, stderr 
 		return jobs[i].ID < jobs[j].ID
 	})
 	for _, j := range jobs {
-		fmt.Fprintf(stdout, "%s · %s · %s (next: %s) · #%d · %s\n",
+		fmt.Fprintf(stdout, "%s · %s · %s (próxima: %s) · #%d · %s\n",
 			j.ID, j.Status, j.Expr, formatCronTime(j.NextRunAt), j.FireCount, promptExcerpt(j.Prompt))
 	}
 	return exitSuccess
@@ -197,20 +197,20 @@ func cronList(store *cron.Store, now func() time.Time, stdout io.Writer, stderr 
 
 func cronSimple(store *cron.Store, args []string, stdout io.Writer, stderr io.Writer, fn func(string) error, verb string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "An id is required.")
+		fmt.Fprintln(stderr, "Informe o id.")
 		return exitUsage
 	}
 	if err := fn(args[0]); err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return exitUsage
 	}
-	fmt.Fprintf(stdout, "%s cron job %s.\n", verb, args[0])
+	fmt.Fprintf(stdout, "tarefa de cron %s %s.\n", args[0], verb)
 	return exitSuccess
 }
 
 func cronSetStatus(store *cron.Store, args []string, stdout io.Writer, stderr io.Writer, status string, verb string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "An id is required.")
+		fmt.Fprintln(stderr, "Informe o id.")
 		return exitUsage
 	}
 	job, err := store.Get(args[0])
@@ -223,14 +223,14 @@ func cronSetStatus(store *cron.Store, args []string, stdout io.Writer, stderr io
 		fmt.Fprintln(stderr, err.Error())
 		return exitCrash
 	}
-	fmt.Fprintf(stdout, "%s cron job %s.\n", verb, job.ID)
+	fmt.Fprintf(stdout, "tarefa de cron %s %s.\n", job.ID, verb)
 	return exitSuccess
 }
 
 // cronResume sets a job active and recomputes NextRunAt.
 func cronResume(store *cron.Store, now func() time.Time, args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "An id is required.")
+		fmt.Fprintln(stderr, "Informe o id.")
 		return exitUsage
 	}
 	job, err := store.Get(args[0])
@@ -248,7 +248,7 @@ func cronResume(store *cron.Store, now func() time.Time, args []string, stdout i
 	}
 	next := sched.Next(now())
 	if next.IsZero() {
-		fmt.Fprintln(stderr, "That schedule never fires.")
+		fmt.Fprintln(stderr, "Esse agendamento nunca dispara.")
 		return exitUsage
 	}
 	job.NextRunAt = next
@@ -256,7 +256,7 @@ func cronResume(store *cron.Store, now func() time.Time, args []string, stdout i
 		fmt.Fprintln(stderr, err.Error())
 		return exitCrash
 	}
-	fmt.Fprintf(stdout, "Resumed cron job %s (next run %s).\n", job.ID, next.Format(time.RFC3339))
+	fmt.Fprintf(stdout, "Tarefa de cron %s retomada (próxima execução %s).\n", job.ID, next.Format(time.RFC3339))
 	return exitSuccess
 }
 
@@ -270,7 +270,7 @@ func recipeIDs() string {
 
 func formatCronTime(t time.Time) string {
 	if t.IsZero() {
-		return "never"
+		return "nunca"
 	}
 	return t.UTC().Format("2006-01-02 15:04 MST")
 }

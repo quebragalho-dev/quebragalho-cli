@@ -27,7 +27,7 @@ func cronRun(store *cron.Store, now func() time.Time, args []string, stdout io.W
 		case a == "--catch-up":
 			catchUp = true
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(stderr, "Unknown cron run flag: %s\n", a)
+			fmt.Fprintf(stderr, "Flag desconhecida em cron run: %s\n", a)
 			return exitUsage
 		default:
 			ids = append(ids, a)
@@ -79,7 +79,7 @@ func cronRun(store *cron.Store, now func() time.Time, args []string, stdout io.W
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Fprintln(stdout, "cron scheduler stopped.")
+			fmt.Fprintln(stdout, "Agendador de cron parado.")
 			return exitSuccess
 		case <-ticker.C:
 			fireDue()
@@ -185,12 +185,12 @@ func fireJob(store *cron.Store, now func() time.Time, job cron.Job, stdout io.Wr
 	if sched, perr := cron.Parse(job.Expr); perr != nil {
 		job.Status = cron.StatusPaused
 		if rec.Error == "" {
-			rec.Error = "invalid schedule; job paused: " + perr.Error()
+			rec.Error = "agendamento inválido; tarefa pausada: " + perr.Error()
 		}
 	} else if nxt := sched.Next(fired.Truncate(time.Minute)); nxt.IsZero() {
 		job.Status = cron.StatusPaused
 		if rec.Error == "" {
-			rec.Error = "schedule no longer fires; job paused"
+			rec.Error = "o agendamento não dispara mais; tarefa pausada"
 		}
 	} else {
 		// Minute-aligned input keeps this advance identical to claimFire's and lets
@@ -220,7 +220,7 @@ func fireJob(store *cron.Store, now func() time.Time, job cron.Job, stdout io.Wr
 	})
 	if errors.Is(err, cron.ErrJobNotFound) {
 		// Genuinely removed mid-run: don't recreate it (no run record, no persist).
-		fmt.Fprintf(stdout, "fired %s -> exit %d (job removed during run)\n", job.ID, code)
+		fmt.Fprintf(stdout, "executou %s -> saída %d (tarefa removida durante a execução)\n", job.ID, code)
 		return
 	}
 	// Record the fire. AppendRun takes the per-job lock and bails if the job's
@@ -233,7 +233,7 @@ func fireJob(store *cron.Store, now func() time.Time, job cron.Job, stdout io.Wr
 		fmt.Fprintf(stderr, "warning: failed to persist job state for %s: %v\n", job.ID, err)
 		persisted = job
 	}
-	fmt.Fprintf(stdout, "fired %s -> exit %d (next: %s)\n", job.ID, code, formatCronTime(persisted.NextRunAt))
+	fmt.Fprintf(stdout, "executou %s -> saída %d (próxima: %s)\n", job.ID, code, formatCronTime(persisted.NextRunAt))
 }
 
 // claimFire atomically claims a due job's fire under the per-job lock and reports

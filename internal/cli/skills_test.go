@@ -65,7 +65,7 @@ func TestRunSkillsListWarnsOnDuplicateNames(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), `duplicate skill "shared"`) {
+	if !strings.Contains(stderr.String(), `skill duplicada "shared"`) {
 		t.Fatalf("expected a duplicate-skill warning on stderr, got: %q", stderr.String())
 	}
 }
@@ -130,7 +130,7 @@ func TestRunSkillsEmptyDir(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(strings.ToLower(stdout.String()), "no skills found") {
+	if !strings.Contains(strings.ToLower(stdout.String()), "nenhuma skill encontrada") {
 		t.Fatalf("expected a no-skills message, got:\n%s", stdout.String())
 	}
 }
@@ -181,7 +181,7 @@ func TestRunSkillsListPrimaryShadowsAgents(t *testing.T) {
 	if !strings.Contains(stdout.String(), primary) {
 		t.Fatalf("primary path should be shown:\n%s", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), `duplicate skill "shared"`) {
+	if !strings.Contains(stderr.String(), `skill duplicada "shared"`) {
 		t.Fatalf("expected cross-root duplicate warning, got: %q", stderr.String())
 	}
 }
@@ -205,7 +205,7 @@ func TestRunSkillInfoResolvesAgentsOnly(t *testing.T) {
 	if !strings.Contains(out, "agents-info") || !strings.Contains(out, "Agents info.") {
 		t.Fatalf("info missing agents skill:\n%s", out)
 	}
-	if strings.Contains(out, "source:") || strings.Contains(out, "hash:") {
+	if strings.Contains(out, "origem:") || strings.Contains(out, "hash:") {
 		t.Fatalf("agents-only info must not invent lock metadata:\n%s", out)
 	}
 	if !strings.Contains(out, agents) {
