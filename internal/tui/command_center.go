@@ -229,11 +229,11 @@ func (m model) resumeText() string {
 	// render a safe message rather than panic on the nil dereference below.
 	if m.sessionStore == nil {
 		return renderCommandOutput(commandOutput{
-			Title:  "Sessions",
+			Title:  "Sessões",
 			Status: commandStatusBlocked,
 			Sections: []commandSection{{
-				Title: "Store",
-				Lines: []string{"session store unavailable"},
+				Title: "Armazenamento",
+				Lines: []string{"armazenamento de sessões indisponível"},
 			}},
 		})
 	}
@@ -242,21 +242,21 @@ func (m model) resumeText() string {
 	sessions, err := m.sessionStore.ListResumable()
 	if err != nil {
 		return renderCommandOutput(commandOutput{
-			Title:  "Sessions",
+			Title:  "Sessões",
 			Status: commandStatusBlocked,
 			Sections: []commandSection{{
-				Title: "Store",
-				Lines: []string{"error: " + err.Error()},
+				Title: "Armazenamento",
+				Lines: []string{"erro: " + err.Error()},
 			}},
 		})
 	}
 	if len(sessions) == 0 {
 		return renderCommandOutput(commandOutput{
-			Title:  "Sessions",
+			Title:  "Sessões",
 			Status: commandStatusInfo,
 			Sections: []commandSection{{
-				Title: "Recent",
-				Lines: []string{"none"},
+				Title: "Recentes",
+				Lines: []string{"nenhuma"},
 			}},
 		})
 	}
@@ -271,21 +271,21 @@ func (m model) resumeText() string {
 	for index := 0; index < limit; index++ {
 		session := sessions[index]
 		meta := strings.Join([]string{
-			sanitizeCardField(displayValue(session.ModelID, "no model")),
-			sanitizeCardField(displayValue(session.Provider, "no provider")),
-			fmt.Sprintf("%d events", session.EventCount),
+			sanitizeCardField(displayValue(session.ModelID, "sem modelo")),
+			sanitizeCardField(displayValue(session.Provider, "sem provedor")),
+			fmt.Sprintf("%d eventos", session.EventCount),
 		}, " · ")
 		records = append(records, strings.Join([]string{
 			sanitizeCardField(session.SessionID),
 			relativeAge(session.UpdatedAt, m.now()),
-			sanitizeCardField(displayValue(session.Title, "untitled")),
+			sanitizeCardField(displayValue(session.Title, "sem título")),
 			meta,
 		}, sessionsCardFieldSep))
 	}
 	if len(sessions) > limit {
-		records = append(records, fmt.Sprintf("… %d more · /resume <id>", len(sessions)-limit))
+		records = append(records, fmt.Sprintf("… mais %d · /resume <id>", len(sessions)-limit))
 	} else {
-		records = append(records, "use /resume latest or /resume <id> to load a session")
+		records = append(records, "use /resume latest ou /resume <id> para carregar uma sessão")
 	}
 	return sessionsCardsPrefix + strings.Join(records, "\n")
 }
