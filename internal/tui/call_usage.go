@@ -127,6 +127,11 @@ func (m model) statusReadout(left string, width int) string {
 			left += qgTheme.line.Render(" │ ") + qgTheme.muted.Render(" "+truncateDisplayWidth(branch, minInt(24, budget-2)))
 		}
 	}
+	if forms := m.updateNoticeForms(); forms != nil {
+		if line, ok := m.joinStatusWithNotice(left, right, forms, width); ok {
+			return fitStyledLine(line, width)
+		}
+	}
 	left = m.appendStatusWorkspace(left, right, width)
 	if right == "" {
 		return fitStyledLine(left, width)

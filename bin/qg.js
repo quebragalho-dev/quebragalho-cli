@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -238,6 +239,70 @@ function resolveNativeBinary() {
   return existsSync(downloaded) ? downloaded : null;
 }
 
+// A npm install hands the actual upgrade to this wrapper: the native binary
+// cannot replace its own .exe while it runs (Windows locks it), and a single
+// flow covers every OS. The Go side writes {"version":"X"} to the handoff file
+// below and exits 0; the wrapper installs globally, then reopens the same
+// command line. The reopened qg verifies itself through
+// QG_UPDATE_JUST_INSTALLED and reports a mismatch instead of looping.
+function updateHandoffPath() {
+  return join(tmpdir(), `qg-npm-update-${process.pid}-${Date.now()}.json`);
+}
+
+// Reads and removes a written handoff file, returning the requested version,
+// or null when there is no install to perform (normal runs, failed installs,
+// unreadable or malformed files).
+function takeUpdateHandoff(path) {
+  if (!path) return null;
+  let raw;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  } finally {
+    try {
+      unlinkSync(path);
+    } catch {
+      /* best effort: a stale handoff file is harmless, the next run overwrites it */
+    }
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.version === 'string' && parsed.version.length > 0) {
+      return parsed.version;
+    }
+  } catch {
+    /* fall through: malformed handoff means no install */
+  }
+  return null;
+}
+
+// Installs the new version globally with inherited stdio so the operator
+// watches npm do its work. Resolves npm the same way npm's own shims do:
+// directly off PATH on POSIX, through ComSpec on Windows.
+function installNpmUpdate(version) {
+  const spec = `@quebragalho-dev/cli@${version}`;
+  if (process.platform === 'win32') {
+    return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm', 'install', '-g', spec], { stdio: 'inherit' });
+  }
+  return spawnSync('npm', ['install', '-g', spec], { stdio: 'inherit' });
+}
+
+function reopenAfterNpmInstall(version) {
+  const env = { ...process.env };
+  delete env.QG_NPM_UPDATE_HANDOFF;
+  env.QG_UPDATE_JUST_INSTALLED = version;
+  const child = spawnSync(process.execPath, [process.argv[1], ...process.argv.slice(2)], { stdio: 'inherit', env });
+  if (child.error) {
+    console.error(`[qg] Failed to reopen after update: ${child.error.message}`);
+    return 1;
+  }
+  if (child.signal) {
+    process.kill(process.pid, child.signal);
+  }
+  return child.status ?? 1;
+}
+
 const nativePath = resolveNativeBinary();
 
 if (!nativePath) {
@@ -283,11 +348,17 @@ if (localControlHelpers) {
 } else {
   delete env.QG_LOCAL_CONTROL_HELPERS;
 }
+// The wrapper always offers a handoff path: if this run ends with an update
+// choice, the Go side records the version here and exits, and the wrapper
+// performs the global npm install that the running binary cannot do itself.
+env.QG_NPM_UPDATE_HANDOFF = updateHandoffPath();
 
 const child = spawnSync(nativePath, process.argv.slice(2), {
   stdio: 'inherit',
   env,
 });
+
+const handoffVersion = takeUpdateHandoff(env.QG_NPM_UPDATE_HANDOFF);
 
 if (child.error) {
   console.error(`[qg] Failed to launch wrapper target: ${child.error.message}`);
@@ -296,6 +367,17 @@ if (child.error) {
 
 if (child.signal) {
   process.kill(process.pid, child.signal);
+}
+
+// An installed update takes effect here: install globally, then reopen the
+// same command line. On npm failure print one line and still reopen — the
+// current version opens instead of leaving the user without a working qg.
+if (handoffVersion !== null && child.status === 0) {
+  const installed = installNpmUpdate(handoffVersion);
+  if (installed.error || installed.status !== 0) {
+    console.error(`[qg] Não foi possível instalar a versão ${handoffVersion} via npm; abrindo a versão atual.`);
+  }
+  process.exit(reopenAfterNpmInstall(handoffVersion));
 }
 
 process.exit(child.status ?? 1);

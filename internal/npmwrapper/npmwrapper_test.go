@@ -858,3 +858,101 @@ func repoRoot(t *testing.T) string {
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
+
+// updateHandoffFixture is a wrapper checkout with a fake native binary that
+// plays the npm-handoff protocol: unless QG_UPDATE_JUST_INSTALLED is set, it
+// records QG_NPM_UPDATE_HANDOFF={"version":"9.9.99"} and exits 0. A fake npm
+// on PATH records its invocations. POSIX-only: the fakes are shell scripts,
+// and Windows coverage comes from the Tarefa 5 E2E VMs.
+type updateHandoffFixture struct {
+	wrapperPath string
+	binLog      string
+	npmLog      string
+}
+
+func newUpdateHandoffFixture(t *testing.T, npmExit string) updateHandoffFixture {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
+	}
+	root := filepath.Dir(filepath.Dir(copyWrapperFixture(t)))
+	binLog := filepath.Join(root, "qg-runs.log")
+	npmLog := filepath.Join(root, "npm-calls.log")
+	binary := filepath.Join(root, "qg")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(binLog) + "\n" +
+		"if [ -z \"$QG_UPDATE_JUST_INSTALLED\" ]; then\n" +
+		"  printf '{\"version\":\"9.9.99\"}' > \"$QG_NPM_UPDATE_HANDOFF\"\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	npmShim := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(npmLog) + "\n" +
+		"exit ${QG_TEST_NPM_EXIT:-0}\n"
+	npmPath := filepath.Join(root, "npm")
+	if err := os.WriteFile(npmPath, []byte(npmShim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("QG_TEST_NPM_LOG", npmLog)
+	t.Setenv("QG_TEST_NPM_EXIT", npmExit)
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return updateHandoffFixture{
+		wrapperPath: filepath.Join(root, "bin", "qg.js"),
+		binLog:      binLog,
+		npmLog:      npmLog,
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func readLines(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile %s: %v", path, err)
+	}
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
+}
+
+func TestWrapperRunsNpmOnHandoff(t *testing.T) {
+	fixture := newUpdateHandoffFixture(t, "0")
+	stdout, stderr, exitCode := runWrapperFixtureWithEnv(t, fixture.wrapperPath, nil, "--version")
+	if exitCode != wrapperExitSuccess {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	npmCalls := readLines(t, fixture.npmLog)
+	if len(npmCalls) != 1 || npmCalls[0] != "install -g @quebragalho-dev/cli@9.9.99" {
+		t.Fatalf("npm calls = %#v, want one global install of 9.9.99", npmCalls)
+	}
+	binRuns := readLines(t, fixture.binLog)
+	if len(binRuns) != 2 {
+		t.Fatalf("native binary runs = %d, want 2 (install, then reopened)", len(binRuns))
+	}
+}
+
+func TestWrapperRelaunchesWhenNpmFails(t *testing.T) {
+	fixture := newUpdateHandoffFixture(t, "1")
+	stdout, stderr, exitCode := runWrapperFixtureWithEnv(t, fixture.wrapperPath, nil, "--version")
+	if exitCode != wrapperExitSuccess {
+		t.Fatalf("exit = %d, want 0 (reopen the current version); stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	npmCalls := readLines(t, fixture.npmLog)
+	if len(npmCalls) != 1 {
+		t.Fatalf("npm calls = %#v, want exactly one failed install attempt", npmCalls)
+	}
+	if !strings.Contains(stderr, "9.9.99") {
+		t.Fatalf("expected the npm failure to name the version on stderr, got %q", stderr)
+	}
+	binRuns := readLines(t, fixture.binLog)
+	if len(binRuns) != 2 {
+		t.Fatalf("native binary runs = %d, want 2 (install, then reopened current)", len(binRuns))
+	}
+}

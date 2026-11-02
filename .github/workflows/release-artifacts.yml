@@ -50,8 +50,8 @@ jobs:
       # is published under the pushed git tag. If they disagree, install.sh/install.ps1
       # and the npm postinstall all build a download URL that 404s. Fail fast so a
       # forgotten version bump can never publish mis-versioned, un-installable assets.
-      # Matches on the ref (not event_name) because release-please dispatches this
-      # workflow at the tag ref — its GITHUB_TOKEN-created tag cannot fire `push`.
+      # Matches on the ref (not event_name) so the tag-only steps stay off for
+      # manual workflow_dispatch runs that are not at a tag ref.
       - name: Check tag matches package.json version
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         shell: bash
@@ -62,6 +62,14 @@ jobs:
             exit 1
           fi
           echo "tag $GITHUB_REF_NAME matches package.json version v$pkg_version."
+
+      # The release link points at CHANGELOG.md at the tag, so a missing
+      # section would open an empty page. Fail fast so the section is always
+      # written in the same commit as the version bump (see docs/RELEASING.md).
+      - name: Check CHANGELOG has the release section
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        run: scripts/check-changelog.sh "${GITHUB_REF_NAME#v}"
 
       - name: Package release artifacts (all targets)
         shell: bash
@@ -88,13 +96,11 @@ jobs:
           path: dist/release/*
           if-no-files-found: error
 
-      # On a `v*` tag ref (pushed manually, or dispatched at the tag by the
-      # release-please workflow), publish the packaged archive + .sha256 as GitHub
+      # On a `v*` tag ref (pushed manually), publish the packaged archive + .sha256 as GitHub
       # Release assets so the documented `scripts/install.sh` / `install.ps1` path
       # (which reads /releases/latest) works. Uses the preinstalled `gh` (no new
-      # action dependency); each matrix OS creates the release if absent
-      # (best-effort — release-please normally creates it first) then uploads its
-      # own assets with --clobber. Tags come from merging the release-please PR.
+      # action dependency); creates the release if absent, then uploads its
+      # own assets with --clobber.
       - name: Publish to GitHub Release
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         shell: bash

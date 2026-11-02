@@ -79,6 +79,21 @@ func ValidThemeArg(s string) bool {
 	return validThemeMode(s)
 }
 
+// ApplyUpdatePromptTheme resolves and applies the update prompt palette with
+// exactly the main-TUI procedure: --theme flag, QG_THEME env, saved
+// preference, then the terminal background. Call it right before showing the
+// startup prompt so the first frame already matches the TUI theme. Like the
+// main TUI (which starts with hasDarkBg true), the first frame assumes a dark
+// terminal; the prompt program then asks the terminal for its background and
+// corrects itself on BackgroundColorMsg. It returns the resolved mode so the
+// program can reapply it when the terminal answers.
+func ApplyUpdatePromptTheme(flagTheme, savedTheme, qgThemeEnv string) themeMode {
+	mode := resolveThemeMode(flagTheme, strings.TrimSpace(qgThemeEnv), savedTheme)
+	applyTheme(mode, true)
+	updatePromptThemeMode = mode
+	return mode
+}
+
 // applyTheme swaps the active palette (qgTheme) and the globals derived from it
 // — the streaming-fade ramp and the static render cache — so a committed switch
 // repaints every subsequent render. `system` (and legacy `auto`) preserve the
