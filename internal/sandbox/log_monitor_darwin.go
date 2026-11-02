@@ -29,18 +29,30 @@ var sandboxLogNoise = []string{
 // the monitor degrades to a no-op rather than trapping the command.
 const denialMonitorConnectTimeout = 300 * time.Millisecond
 
+// denialMonitorWarmupDelay gives the first `log stream` in a fresh process
+// time beyond its header for the predicate to catch kernel sandbox reports.
+// The header proves the stream attached, but a cold predicate still drops the
+// first command's tag (cold miss): the network denial runs, fails with a raw
+// DNS/EPERM error, and no permission prompt appears. A short sleep on the
+// first monitor only (subsequent streams in the same process are already
+// warm) fixes it without slowing every command.
+const denialMonitorWarmupDelay = 200 * time.Millisecond
+
+var denialMonitorWarmup sync.Once
+
 // denialMonitorTagGrace bounds the wait for a late tag line after a failed
 // command. It runs only on failure; successes never wait. AwaitTag blocks on
 // a channel closed by markTagSeen with a timer for this grace, so a miss
-// waits the full grace but never beyond it (no polling overshoot). Measured
-// A/B (base eae1efc5 vs this change, 30 interleaved rounds each): success
-// overhead p50 +8-10ms (log-stream connect and Stop only), failing-command
-// overhead p50 +34ms (connect/Stop plus this 25ms grace).
+// waits the full grace but never beyond it (no polling overshoot). A hit
+// during the command returns immediately, so the grace only costs failing
+// commands whose tag lands late (cold stream, loaded host). 200 ms covers the
+// DNS-path (mDNSResponder) denial that missed 25 ms under TUI load; warm TCP
+// hits still return in microseconds.
 //
 // A var rather than a const so timing tests can widen it under load (with
 // margins that still kill the interesting mutants) and restore it after;
 // production code never assigns it.
-var denialMonitorTagGrace = 25 * time.Millisecond
+var denialMonitorTagGrace = 200 * time.Millisecond
 
 // DenialMonitor tails `log stream` for seatbelt denials carrying a unique tag and
 // collects them so a caller can report what the sandbox blocked. It is
@@ -211,6 +223,7 @@ func startMonitor(ctx context.Context, tag, predicate string, handle func(*Denia
 		monitor.connected = true
 		handle(monitor, first.line)
 		go monitor.scan(reader, handle)
+		denialMonitorWarmup.Do(func() { time.Sleep(denialMonitorWarmupDelay) })
 		return monitor
 	case <-time.After(denialMonitorConnectTimeout):
 		monitor.shutdown()
