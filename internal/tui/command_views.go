@@ -97,7 +97,7 @@ func (m model) startMCPTranscriptCommand(args string) (model, tea.Cmd) {
 	parsedArgs, err := splitMCPCommandArgs(args)
 	if err != nil {
 		text := strings.Join([]string{
-			"MCP action failed",
+			"Ação de MCP falhou",
 			err.Error(),
 			"",
 			m.mcpText(),
@@ -112,7 +112,7 @@ func (m model) startMCPCommand(request mcpCommandRequest) (model, tea.Cmd) {
 	if m.mcpCommand == nil {
 		result := MCPCommandResult{
 			ExitCode: 1,
-			Error:    "MCP action unavailable",
+			Error:    "Ação de MCP indisponível",
 			Config:   m.mcpConfig,
 		}
 		return m.applyMCPCommandResultMessage(mcpCommandResultMsg{request: request, result: result}), nil
@@ -177,10 +177,10 @@ func (m model) applyMCPCommandResult(args string, result MCPCommandResult) (mode
 			message = strings.TrimSpace(result.Output)
 		}
 		if message == "" {
-			message = "MCP command failed"
+			message = "Comando MCP falhou"
 		}
 		return m, strings.Join([]string{
-			"MCP action failed",
+			"Ação de MCP falhou",
 			message,
 			"",
 			m.mcpText(),
@@ -195,7 +195,7 @@ func (m model) applyMCPCommandResult(args string, result MCPCommandResult) (mode
 		output = "qg mcp " + args
 	}
 	return m, strings.Join([]string{
-		"MCP action complete",
+		"Ação de MCP concluída",
 		output,
 		"",
 		m.mcpText(),

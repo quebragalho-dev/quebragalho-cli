@@ -203,10 +203,10 @@ func TestMCPCommandRendersConfiguredStateWithoutAgentRun(t *testing.T) {
 		"Adicionar servidor MCP",
 		"Adicionar MCP stdio local",
 		"Listar configurados",
-		"d desativa",
-		"r remove",
-		"Enter age",
-		"Esc fecha",
+		"d desativar",
+		"r remover",
+		"Enter abrir",
+		"Esc fechar",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected clean MCP manager overlay to contain %q, got:\n%s", want, text)
@@ -356,7 +356,7 @@ func TestMCPManagerAddRemoteOpensWizard(t *testing.T) {
 		"Adicionar servidor MCP",
 		"Nome do servidor",
 		"HTTP remoto",
-		"Enter continua",
+		"Enter continuar",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("MCP add wizard missing %q:\n%s", want, view)
@@ -764,7 +764,7 @@ func TestMCPManagerRunsSelectedServerAction(t *testing.T) {
 	}
 	text := transcriptText(next.transcript)
 	for _, want := range []string{
-		"MCP action complete",
+		"Ação de MCP concluída",
 		"MCP server docs is now disabled.",
 		"docs",
 		"disabled",
@@ -809,7 +809,7 @@ func TestMCPCommandRunsManagerActionAndRefreshesState(t *testing.T) {
 	}
 	text := transcriptText(next.transcript)
 	for _, want := range []string{
-		"MCP action complete",
+		"Ação de MCP concluída",
 		"MCP server docs is now disabled.",
 		"docs · disabled · stdio",
 		"qg mcp enable docs",
@@ -878,7 +878,7 @@ func TestMCPCommandDoesNotApplyFailedConfig(t *testing.T) {
 		t.Fatalf("failed MCP command cleared existing config: %#v", next.mcpConfig.Servers)
 	}
 	text := transcriptText(next.transcript)
-	if !strings.Contains(text, "MCP action failed") || !strings.Contains(text, "permission denied") {
+	if !strings.Contains(text, "Ação de MCP falhou") || !strings.Contains(text, "permission denied") {
 		t.Fatalf("missing failure output:\n%s", text)
 	}
 }
