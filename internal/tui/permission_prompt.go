@@ -43,9 +43,9 @@ func permissionOptions(request agent.PermissionRequest) []permissionOption {
 		case agent.PermissionDecisionAllowForSession:
 			options = append(options, permissionOption{label: "permitir nesta sessão", hotkey: "s", choice: permissionDecisionAllowForSession})
 		case agent.PermissionDecisionAllowPrefix:
-			options = append(options, permissionOption{label: prefixApprovalLabel("permitir prefixo de comando nesta sessão", request), hotkey: "p", choice: permissionDecisionAllowPrefix})
+			options = append(options, permissionOption{label: "permitir prefixo de comando nesta sessão", hotkey: "p", choice: permissionDecisionAllowPrefix})
 		case agent.PermissionDecisionAlwaysAllowPrefix:
-			options = append(options, permissionOption{label: prefixApprovalLabel("sempre permitir prefixo de comando", request), hotkey: "y", choice: permissionDecisionAlwaysAllowPrefix})
+			options = append(options, permissionOption{label: "sempre permitir prefixo de comando", hotkey: "y", choice: permissionDecisionAlwaysAllowPrefix})
 		case agent.PermissionDecisionAlwaysAllow:
 			options = append(options, permissionOption{label: "sempre permitir", hotkey: "y", choice: permissionDecisionAlwaysAllow})
 		case agent.PermissionDecisionDeny:
@@ -154,23 +154,4 @@ func (m model) cancelPermissionTyping() (tea.Model, tea.Cmd) {
 	m.input.SetValue(m.pendingPermission.savedDraft)
 	m.pendingPermission.savedDraft = ""
 	return m, nil
-}
-
-// prefixApprovalLabel spells out that approving a prefix also takes the command
-// out of the sandbox.
-//
-// Approving a prefix rewrites the call to require_escalated, which resolves to
-// unsandboxed execution, and the engine's escalation prompt is then satisfied by
-// the approval just given for the sandboxed form. The operator was shown only
-// "allow command prefix for session" and got something wider, which is a consent
-// gap rather than a bug in the escalation itself.
-//
-// The warning leads so a narrow card truncates the command instead of the
-// disclosure. The backend computes the flag from the same guards the rewrite
-// uses, so a prompt that says this always means it.
-func prefixApprovalLabel(base string, request agent.PermissionRequest) string {
-	if !request.PrefixApprovalEscalates {
-		return base
-	}
-	return "fora do ambiente isolado: " + base
 }

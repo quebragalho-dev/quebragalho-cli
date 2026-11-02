@@ -642,3 +642,27 @@ func TestPermissionFeedbackRendersNoClickableOptionsWhileTyping(t *testing.T) {
 		t.Fatalf("feedback mode must register no clickable option offsets, got %#v", typingOffsets)
 	}
 }
+
+// TestPendingPermissionRowWrapsScopeInsteadOfTruncating pins the no-cut
+// contract for the pending transcript line: at 50 columns the scope value no
+// longer fits beside the disclosure, so it wraps onto its own line instead
+// of losing its tail to an ellipsis.
+func TestPendingPermissionRowWrapsScopeInsteadOfTruncating(t *testing.T) {
+	event := &agent.PermissionEvent{
+		ToolName:   "web_fetch",
+		Action:     agent.PermissionActionPrompt,
+		SideEffect: string(tools.SideEffectNetwork),
+		Scope:      "example.com",
+	}
+	got := plainRender(t, renderPermissionRow(transcriptRow{tool: "web_fetch", permission: event}, 50))
+	for _, want := range []string{"permissão", "web_fetch", "pendente", "destino:example.com"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("pending permission row = %q, missing %q", got, want)
+		}
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "…") {
+			t.Fatalf("pending scope must wrap, not truncate: line %q in %q", line, got)
+		}
+	}
+}

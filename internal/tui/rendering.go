@@ -1134,11 +1134,24 @@ func renderPermissionRow(row transcriptRow, width int) string {
 		}
 		return out
 	default:
-		line := qgTheme.amber.Render("permissão") + "  " + qgTheme.ink.Render(displayName) + "  " + qgTheme.amber.Render("pendente")
+		head := qgTheme.amber.Render("permissão") + "  " + qgTheme.ink.Render(displayName) + "  " + qgTheme.amber.Render("pendente")
+		lines := []string{head}
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
-			line += "  " + qgTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
+			scopeText := permissionEventScopeLabel(event) + ":" + scope
+			if lipgloss.Width(head+"  "+scopeText) <= width {
+				lines[0] += "  " + qgTheme.muted.Render(scopeText)
+			} else {
+				// The disclosure stays on its own line; the scope value
+				// wraps instead of being cut.
+				for _, wrapped := range wrapPlainText(scopeText, maxInt(1, width-2)) {
+					lines = append(lines, "  "+qgTheme.muted.Render(wrapped))
+				}
+			}
 		}
-		out := fitStyledLine(line, width)
+		out := fitStyledLine(lines[0], width)
+		for _, extra := range lines[1:] {
+			out += "\n" + fitStyledLine(extra, width)
+		}
 		if detail := strings.TrimSpace(row.detail); detail != "" {
 			out += "\n" + wrapDetailBlock(detail, width)
 		}
@@ -1359,17 +1372,19 @@ func prefixAvailWidth(width int) int {
 }
 
 // prefixCommandLines renders the approved command once above the prefix
-// options. A single line when it fits; otherwise the label breaks onto its
-// own line so the command itself is never truncated.
+// options. A single line when it fits; otherwise the label takes its own
+// line and the command wraps by word (a token longer than the line breaks by
+// cell), so the command is never truncated.
 func prefixCommandLines(request agent.PermissionRequest, avail int) []string {
 	cmd := "`" + strings.Join(request.CommandPrefix, " ") + "`"
 	if lipgloss.Width("prefixo de comando: "+cmd) <= avail {
 		return []string{qgTheme.muted.Render("prefixo de comando: ") + qgTheme.ink.Render(cmd)}
 	}
-	return []string{
-		qgTheme.muted.Render("prefixo de comando:"),
-		qgTheme.ink.Render("  " + cmd),
+	lines := []string{qgTheme.muted.Render("prefixo de comando:")}
+	for _, wrapped := range wrapPlainText(cmd, maxInt(1, avail-2)) {
+		lines = append(lines, qgTheme.ink.Render("  "+wrapped))
 	}
+	return lines
 }
 
 func permissionEventScopeLabel(event *agent.PermissionEvent) string {
