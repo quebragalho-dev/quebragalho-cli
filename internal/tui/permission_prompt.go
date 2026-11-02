@@ -43,9 +43,9 @@ func permissionOptions(request agent.PermissionRequest) []permissionOption {
 		case agent.PermissionDecisionAllowForSession:
 			options = append(options, permissionOption{label: "permitir nesta sessão", hotkey: "s", choice: permissionDecisionAllowForSession})
 		case agent.PermissionDecisionAllowPrefix:
-			options = append(options, permissionOption{label: prefixApprovalLabel("permitir prefixo do comando nesta sessão", request), hotkey: "p", choice: permissionDecisionAllowPrefix})
+			options = append(options, permissionOption{label: prefixApprovalLabel("permitir prefixo de comando nesta sessão", request), hotkey: "p", choice: permissionDecisionAllowPrefix})
 		case agent.PermissionDecisionAlwaysAllowPrefix:
-			options = append(options, permissionOption{label: prefixApprovalLabel("sempre permitir prefixo do comando", request), hotkey: "y", choice: permissionDecisionAlwaysAllowPrefix})
+			options = append(options, permissionOption{label: prefixApprovalLabel("sempre permitir prefixo de comando", request), hotkey: "y", choice: permissionDecisionAlwaysAllowPrefix})
 		case agent.PermissionDecisionAlwaysAllow:
 			options = append(options, permissionOption{label: "sempre permitir", hotkey: "y", choice: permissionDecisionAlwaysAllow})
 		case agent.PermissionDecisionDeny:
@@ -92,7 +92,7 @@ func (m model) movePermissionCursor(delta int) model {
 
 // confirmPermissionCursor resolves the currently highlighted option. It is the
 // Enter-key counterpart to the a/y/d hotkeys and a mouse click. Confirming the
-// "Não, e diga ao QG o que fazer diferente" choice opens the inline feedback field
+// "Não, e dizer ao QG o que fazer de outro jeito" choice opens the inline feedback field
 // instead of resolving immediately.
 func (m model) confirmPermissionCursor() (tea.Model, tea.Cmd) {
 	if m.pendingPermission == nil {
@@ -106,7 +106,7 @@ func (m model) confirmPermissionCursor() (tea.Model, tea.Cmd) {
 }
 
 // choosePermissionOption applies a chosen decision. The cancel choice (the
-// "Não, e diga ao QG o que fazer diferente" row and its [n] hotkey) opens the inline
+// "Não, e dizer ao QG o que fazer de outro jeito" row and its [n] hotkey) opens the inline
 // feedback field rather than aborting the run; every other choice resolves
 // immediately as before.
 func (m model) choosePermissionOption(choice permissionDecision) (tea.Model, tea.Cmd) {
@@ -165,11 +165,12 @@ func (m model) cancelPermissionTyping() (tea.Model, tea.Cmd) {
 // "allow command prefix for session" and got something wider, which is a consent
 // gap rather than a bug in the escalation itself.
 //
-// Only appended when it is true. The backend computes that from the same guards
-// the rewrite uses, so a prompt that says this always means it.
+// The warning leads so a narrow card truncates the command instead of the
+// disclosure. The backend computes the flag from the same guards the rewrite
+// uses, so a prompt that says this always means it.
 func prefixApprovalLabel(base string, request agent.PermissionRequest) string {
 	if !request.PrefixApprovalEscalates {
 		return base
 	}
-	return base + prefixEscalationSuffix(request)
+	return "fora do ambiente isolado: " + base
 }

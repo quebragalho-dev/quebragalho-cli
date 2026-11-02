@@ -1092,7 +1092,7 @@ func renderPermissionRow(row transcriptRow, width int) string {
 	case agent.PermissionActionAllow:
 		label := "permitido uma vez"
 		if event.DecisionAction == agent.PermissionDecisionAlwaysAllowPrefix {
-			label = "prefixo sempre permitido"
+			label = "prefixo sempre"
 		} else if event.DecisionAction == agent.PermissionDecisionAllowPrefix {
 			label = "prefixo permitido"
 		} else if event.DecisionAction == agent.PermissionDecisionAllowForSession ||
@@ -1134,7 +1134,7 @@ func renderPermissionRow(row transcriptRow, width int) string {
 		}
 		return out
 	default:
-		line := qgTheme.amber.Render("permissão") + "  " + qgTheme.ink.Render(displayName) + "  " + qgTheme.amber.Render("mensagem")
+		line := qgTheme.amber.Render("permissão") + "  " + qgTheme.ink.Render(displayName) + "  " + qgTheme.amber.Render("pendente")
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
 			line += "  " + qgTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
 		}
@@ -1180,7 +1180,7 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 		top = qgTheme.permBadge.Render(" MENSAGEM DE AGENTE ")
 		body = fill(qgTheme.amber).Bold(true).Render("Mensagem retida de outra sessão")
 	} else if request.ToolName == tools.RequestPermissionsToolName {
-		body = fill(qgTheme.amber).Bold(true).Render("Conceder as permissões pedidas?")
+		body = fill(qgTheme.amber).Bold(true).Render("Conceder as permissões solicitadas?")
 	} else if request.SideEffect != "" {
 		body += fill(qgTheme.ink).Render("  " + request.SideEffect)
 	}
@@ -1206,7 +1206,7 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	// ask_user "type your own answer" surface. What is typed is sent to the model
 	// as the denial reason, so it reads the instruction and adjusts.
 	if typing {
-		lines = append(lines, fill(qgTheme.muted).Render("Diga ao QG o que fazer diferente:"))
+		lines = append(lines, fill(qgTheme.muted).Render("Diga ao QG o que fazer de outro jeito:"))
 		lines = append(lines, qgTheme.userPrompt.Render("❯ ")+fill(qgTheme.ink).Render(feedback)+fill(qgTheme.accent).Render("▌"))
 		lines = append(lines, "")
 		lines = append(lines, fill(qgTheme.faint).Render("enter · enviar ao QG    esc · voltar às opções"))
@@ -1221,10 +1221,19 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	options := permissionOptions(request)
 	cursor = clampPermissionCursor(cursor, request)
 	offsets := make([]int, len(options))
+	avail := width
+	if widthTier(width) != tierTiny {
+		avail = maxInt(1, width-4)
+	}
+	maxLabelWidth := maxInt(1, avail-8)
 	for index, option := range options {
 		offsets[index] = 1 + len(lines)
 		hotkey := fill(qgTheme.faint).Render(" [" + option.hotkey + "]")
 		optionLabel := permissionOptionLabel(option, request)
+		if request.PrefixApprovalEscalates && (option.choice == permissionDecisionAllowPrefix || option.choice == permissionDecisionAlwaysAllowPrefix) {
+			always := option.choice == permissionDecisionAlwaysAllowPrefix
+			optionLabel = escalatingPrefixLabel(request, always, maxLabelWidth)
+		}
 		if index == cursor {
 			// onSel, not badge. qgTheme.badge is the brand chip (" 0 ", " ASK ",
 			// " SPEC REVIEW ") — a full-brightness accent fill meant for short
@@ -1244,12 +1253,12 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	}
 
 	lines = append(lines, "")
-	footer := "↑↓ mover · enter ou clique confirma · [esc] cancela"
+	footer := "↑↓ mover · enter confirmar · [esc] cancelar a execução"
 	switch request.ToolName {
 	case tools.RequestPermissionsToolName:
-		footer = "↑↓ mover · enter ou clique confirma · [esc] continuar sem permissões"
+		footer = "↑↓ mover · enter confirmar · [esc] continuar sem permissões"
 	case peerPermissionToolName:
-		footer = "↑↓ mover · enter ou clique confirma · [esc] nega"
+		footer = "↑↓ mover · enter confirmar · [esc] negar"
 	}
 	lines = append(lines, fill(qgTheme.faint).Render(footer))
 
@@ -1285,7 +1294,7 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 		case permissionDecisionAllow:
 			return "Conceder para esta tarefa"
 		case permissionDecisionAllowStrict:
-			return "Conceder para esta tarefa e pedir ao modelo para revisar os comandos"
+			return "Conceder para esta tarefa e pedir ao modelo que revise os comandos"
 		case permissionDecisionAllowForSession:
 			return "Conceder para esta sessão"
 		case permissionDecisionDeny, permissionDecisionCancel:
@@ -1299,7 +1308,7 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 		if request.SideEffect == string(tools.SideEffectNetwork) {
 			return "Sim, só desta vez"
 		}
-		return "Sim, continuar"
+		return "Sim, prosseguir"
 	case permissionDecisionAllowForSession:
 		if request.SideEffect == string(tools.SideEffectNetwork) {
 			return "Sim, e permitir este host nesta conversa"
@@ -1309,42 +1318,85 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 		}
 		return "Sim, e não perguntar de novo para este comando nesta sessão"
 	case permissionDecisionAllowPrefix:
-		if len(request.CommandPrefix) > 0 {
-			return "Sim, e permitir `" + strings.Join(request.CommandPrefix, " ") + "` nesta sessão" + prefixEscalationSuffix(request)
+		if request.PrefixApprovalEscalates {
+			return escalatingPrefixLabel(request, false, 0)
 		}
-		return "Sim, e permitir este prefixo do comando nesta sessão" + prefixEscalationSuffix(request)
+		if len(request.CommandPrefix) > 0 {
+			return "Sim, e permitir `" + strings.Join(request.CommandPrefix, " ") + "` nesta sessão"
+		}
+		return "Sim, e permitir este prefixo de comando nesta sessão"
 	case permissionDecisionAlwaysAllowPrefix:
-		if len(request.CommandPrefix) > 0 {
-			return "Sim, e sempre permitir `" + strings.Join(request.CommandPrefix, " ") + "`" + prefixEscalationSuffix(request)
+		if request.PrefixApprovalEscalates {
+			return escalatingPrefixLabel(request, true, 0)
 		}
-		return "Sim, e sempre permitir este prefixo do comando" + prefixEscalationSuffix(request)
+		if len(request.CommandPrefix) > 0 {
+			return "Sim, e sempre permitir `" + strings.Join(request.CommandPrefix, " ") + "`"
+		}
+		return "Sim, e sempre permitir este prefixo de comando"
 	case permissionDecisionAlwaysAllow:
 		if request.SideEffect == string(tools.SideEffectNetwork) {
 			return "Sim, e permitir este host no futuro"
 		}
 		if strings.TrimSpace(request.Scope) != "" {
-			return "Sim, e não perguntar de novo para este escopo"
+			return "Sim, e não perguntar de novo neste escopo"
 		}
 		return option.label
 	case permissionDecisionDeny:
 		return "Não, continuar sem executar"
 	case permissionDecisionCancel:
-		return "Não, e diga ao QG o que fazer diferente"
+		return "Não, e dizer ao QG o que fazer de outro jeito"
 	default:
 		return option.label
 	}
 }
 
-// prefixEscalationSuffix appends the outside-sandbox warning to a rendered
-// prefix option when approving it escalates. The base option labels carry the
-// same disclosure via prefixApprovalLabel; the rendered overrides must not
-// drop it, since the card is where the decision is made. The short form keeps
-// the option on one clickable row at 80 columns.
-func prefixEscalationSuffix(request agent.PermissionRequest) string {
-	if !request.PrefixApprovalEscalates {
-		return ""
+// escalatingPrefixLabel builds the outside-sandbox warning first so a narrow
+// card truncates the variable command instead of the disclosure. The warning
+// and the hotkey live outside the truncated span: the caller reserves room for
+// the hotkey, and this helper shrinks only the command (or the whole label as
+// a fallback) to the given cell budget. A non-positive budget returns the full
+// label for width-unaware callers.
+func escalatingPrefixLabel(request agent.PermissionRequest, always bool, maxLabelWidth int) string {
+	cmd := strings.Join(request.CommandPrefix, " ")
+	var head, tail, full string
+	if always {
+		head = "Sim, fora do ambiente isolado: sempre permitir `"
+		tail = "`"
+		if cmd == "" {
+			full = "Sim, fora do ambiente isolado: sempre permitir este prefixo de comando"
+			if maxLabelWidth <= 0 || lipgloss.Width(full) <= maxLabelWidth {
+				return full
+			}
+			return truncateDisplayWidth(full, maxLabelWidth)
+		}
+		full = head + cmd + tail
+		if maxLabelWidth <= 0 || lipgloss.Width(full) <= maxLabelWidth {
+			return full
+		}
+		availForCmd := maxLabelWidth - lipgloss.Width(head) - lipgloss.Width(tail)
+		if availForCmd <= 0 {
+			return truncateDisplayWidth(full, maxLabelWidth)
+		}
+		return head + truncateDisplayWidth(cmd, availForCmd) + tail
 	}
-	return " (fora do ambiente isolado)"
+	head = "Sim, fora do ambiente isolado: permitir `"
+	tail = "` nesta sessão"
+	if cmd == "" {
+		full = "Sim, fora do ambiente isolado: permitir este prefixo de comando nesta sessão"
+		if maxLabelWidth <= 0 || lipgloss.Width(full) <= maxLabelWidth {
+			return full
+		}
+		return truncateDisplayWidth(full, maxLabelWidth)
+	}
+	full = head + cmd + tail
+	if maxLabelWidth <= 0 || lipgloss.Width(full) <= maxLabelWidth {
+		return full
+	}
+	availForCmd := maxLabelWidth - lipgloss.Width(head) - lipgloss.Width(tail)
+	if availForCmd <= 0 {
+		return truncateDisplayWidth(full, maxLabelWidth)
+	}
+	return head + truncateDisplayWidth(cmd, availForCmd) + tail
 }
 
 func permissionEventScopeLabel(event *agent.PermissionEvent) string {
@@ -1416,7 +1468,7 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 			lines = append(lines, "  "+fill(qgTheme.muted).Render(askUserTabTitle(question, index)+": ")+rendered)
 		}
 		lines = append(lines, "")
-		lines = append(lines, fill(qgTheme.faint).Render("⇆ tab · enter envia · esc dispensa"))
+		lines = append(lines, fill(qgTheme.faint).Render("⇆ tab · enter enviar · esc fechar"))
 		return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
 	}
 
@@ -1452,9 +1504,9 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 			lines = append(lines, "  "+fill(qgTheme.muted).Render(typeOwn))
 		}
 		lines = append(lines, "")
-		footer := "↑↓ seleciona · enter confirma · esc dispensa"
+		footer := "↑↓ selecionar · enter confirmar · esc fechar"
 		if multi {
-			footer = "⇆ tab · ↑↓ seleciona · enter confirma · esc dispensa"
+			footer = "⇆ tab · ↑↓ selecionar · enter confirmar · esc fechar"
 		}
 		lines = append(lines, fill(qgTheme.faint).Render(footer))
 		return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
@@ -1465,12 +1517,12 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 		lines = append(lines, fill(qgTheme.muted).Render("sugestões: "+strings.Join(question.Options, ", ")))
 	}
 	lines = append(lines, qgTheme.userPrompt.Render("❯ ")+fill(qgTheme.ink).Render(input)+fill(qgTheme.accent).Render("▌"))
-	footer := "enter envia · esc dispensa"
+	footer := "enter enviar · esc fechar"
 	switch {
 	case !question.MultiSelect && len(question.Options) > 0:
-		footer = "enter envia · esc volta às opções"
+		footer = "enter enviar · esc voltar às opções"
 	case multi:
-		footer = "⇆ tab · enter envia · esc dispensa"
+		footer = "⇆ tab · enter enviar · esc fechar"
 	}
 	lines = append(lines, fill(qgTheme.faint).Render(footer))
 	return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
