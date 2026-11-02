@@ -119,10 +119,17 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 	if user := userGuidelines(); user != "" {
 		sections = append(sections, user)
 	}
-	project := workspaceContext(options.Cwd)
-	if project != "" {
-		sections = append(sections, project)
+	env, guidelines, repoSection := workspaceSections(options.Cwd)
+	if env != "" {
+		sections = append(sections, env)
 	}
+	if guidelines != "" {
+		sections = append(sections, guidelines)
+	}
+	if repoSection != "" {
+		sections = append(sections, repoSection)
+	}
+	project := joinWorkspaceSections(env, guidelines, repoSection)
 	if modeCtx := permissionModeContext(options); modeCtx != "" {
 		sections = append(sections, modeCtx)
 	}
@@ -152,29 +159,43 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 
 // continuationUserMessage builds the user turn appended to a prior turn's
 // messages: the prompt plus a [context update] note listing the current
-// system-prompt sections absent from the frozen system message. No drift
-// means the bare prompt, so the request prefix stays cache-stable.
+// system-prompt sections absent from the frozen system message and from any
+// earlier note in the history. No drift means the bare prompt, so the
+// request prefix stays cache-stable.
 func continuationUserMessage(promptParts systemPromptParts, options Options, prompt string) qgruntime.Message {
 	content := prompt
-	if note := contextUpdateNote(promptParts.sections, options.Continuation[0].Content); note != "" {
+	if note := contextUpdateNote(promptParts.sections, options.Continuation); note != "" {
 		content = note + "\n\n" + prompt
 	}
 	return qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: content, Images: qgruntime.CloneImageBlocks(options.Images)}
 }
 
-// contextUpdateNote lists the sections missing from frozen, separated by a
-// blank line. Empty when nothing changed.
-func contextUpdateNote(sections []string, frozen string) string {
+// contextUpdateNote lists the sections missing from every message in
+// continuation (frozen system at [0] plus prior turns, including earlier
+// [context update] notes). Empty when nothing changed.
+func contextUpdateNote(sections []string, continuation []qgruntime.Message) string {
 	var missing []string
 	for _, section := range sections {
-		if !strings.Contains(frozen, section) {
-			missing = append(missing, section)
+		if sectionAnnounced(section, continuation) {
+			continue
 		}
+		missing = append(missing, section)
 	}
 	if len(missing) == 0 {
 		return ""
 	}
 	return "[context update]\n" + strings.Join(missing, "\n\n")
+}
+
+// sectionAnnounced reports whether section already appears in the history,
+// either in the frozen system message or in a prior note.
+func sectionAnnounced(section string, continuation []qgruntime.Message) bool {
+	for _, msg := range continuation {
+		if strings.Contains(msg.Content, section) {
+			return true
+		}
+	}
+	return false
 }
 
 // responseStyleContext renders the operator-selected reply style (TUI /style) as
@@ -332,11 +353,42 @@ func sessionRuntimeContext(options Options) string {
 	return b.String()
 }
 
-// workspaceContext returns an <environment> block describing the working
-// directory, git branch, and any project guideline doc, so the model grounds its
-// work in the actual repo. Returns "" when cwd is unset (keeps headless/test
-// runs deterministic).
-func workspaceContext(cwd string) string {
+// workspaceSections splits the workspace context into three independent
+// sections so a repo-map change does not resend the environment block or
+// project guidelines. The joined prompt stays byte-identical to the old
+// monolithic workspaceContext: env + "\n\n" + guidelines + "\n\n" + repo.
+func workspaceSections(cwd string) (env, guidelines, repoSection string) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return "", "", ""
+	}
+	env = environmentContext(cwd)
+	if raw := projectGuidelines(cwd, FindProjectGitRoot(cwd)); raw != "" {
+		guidelines = strings.TrimLeft(raw, "\n")
+	}
+	repoSection = repoMapSection(cwd)
+	return env, guidelines, repoSection
+}
+
+// joinWorkspaceSections recombines split sections into the single
+// projectContext string used for fingerprinting.
+func joinWorkspaceSections(env, guidelines, repoSection string) string {
+	var parts []string
+	if env != "" {
+		parts = append(parts, env)
+	}
+	if guidelines != "" {
+		parts = append(parts, guidelines)
+	}
+	if repoSection != "" {
+		parts = append(parts, repoSection)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// environmentContext returns the <environment> block describing the working
+// directory, OS, and git branch. Returns "" when cwd is unset.
+func environmentContext(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
 		return ""
@@ -350,12 +402,29 @@ func workspaceContext(cwd string) string {
 		b.WriteString("Git branch: " + branch + "\n")
 	}
 	b.WriteString("</environment>")
-
-	b.WriteString(projectGuidelines(cwd, FindProjectGitRoot(cwd)))
-	if repoMap := repoMapContext(cwd); repoMap != "" {
-		b.WriteString("\n\n## Repo map\n\n" + repoMap)
-	}
 	return b.String()
+}
+
+// repoMapSection returns the repo-map section ("## Repo map" + content) or ""
+// when the scan yields nothing.
+func repoMapSection(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return ""
+	}
+	if repoMap := repoMapContext(cwd); repoMap != "" {
+		return "## Repo map\n\n" + repoMap
+	}
+	return ""
+}
+
+// workspaceContext returns an <environment> block describing the working
+// directory, git branch, and any project guideline doc, so the model grounds its
+// work in the actual repo. Returns "" when cwd is unset (keeps headless/test
+// runs deterministic).
+func workspaceContext(cwd string) string {
+	env, guidelines, repoSection := workspaceSections(cwd)
+	return joinWorkspaceSections(env, guidelines, repoSection)
 }
 
 // projectGuidelines walks the directory chain from the git root to cwd
