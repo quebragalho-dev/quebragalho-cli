@@ -203,6 +203,7 @@ func TestBuildPlatformPackagesAssemblesPublishPayloads(t *testing.T) {
 		"@quebragalho-dev/cli-linux-arm64":  "npm:@quebragalho-dev/cli@" + version + "-linux-arm64",
 		"@quebragalho-dev/cli-linux-x64":    "npm:@quebragalho-dev/cli@" + version + "-linux-x64",
 		"@quebragalho-dev/cli-win32-x64":    "npm:@quebragalho-dev/cli@" + version + "-win32-x64",
+		"@quebragalho-dev/cli-win32-arm64":  "npm:@quebragalho-dev/cli@" + version + "-win32-arm64",
 	}
 	if len(wrapperPkg.Optional) != len(wantAliases) {
 		t.Fatalf("wrapper optionalDependencies = %v, want %v", wrapperPkg.Optional, wantAliases)
@@ -216,6 +217,99 @@ func TestBuildPlatformPackagesAssemblesPublishPayloads(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(wrapperDir, filepath.FromSlash(file))); err != nil {
 			t.Fatalf("wrapper payload missing %s: %v", file, err)
 		}
+	}
+}
+
+// agent-browser ships no win32-arm64 binary, so the win32-arm64 payload must
+// stage the emulated x64 build under the arm64 name the launcher resolves.
+func TestBuildPlatformPackagesStagesEmulatedAgentBrowserForWindowsArm64(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses POSIX symlinks and shell scripts")
+	}
+	node := requireNode(t)
+	python := requireCommand(t, "python3")
+	version := packageVersion(t)
+
+	root := t.TempDir()
+	staging := filepath.Join(root, "staging")
+
+	writeFixtureFile(t, filepath.Join(staging, "qg.exe"), "MZ-fixture\n", 0o755)
+	writeFixtureFile(t, filepath.Join(staging, "package.json"), `{"name":"@quebragalho-dev/cli"}`, 0o644)
+	writeFixtureFile(t, filepath.Join(staging, "README.md"), "readme\n", 0o644)
+	writeFixtureFile(t, filepath.Join(staging, "VERSION"), version+"\n", 0o644)
+	agentBrowserDir := filepath.Join(staging, "helpers", "node_modules", "agent-browser")
+	writeFixtureFile(t, filepath.Join(agentBrowserDir, "package.json"), `{"name":"agent-browser"}`, 0o644)
+	writeFixtureFile(t, filepath.Join(agentBrowserDir, "bin", "agent-browser.js"), "#!/usr/bin/env node\n", 0o644)
+	writeFixtureFile(t, filepath.Join(agentBrowserDir, "bin", "agent-browser-win32-x64.exe"), "native-x64\n", 0o755)
+	tuistoryDir := filepath.Join(staging, "helpers", "node_modules", "tuistory")
+	writeFixtureFile(t, filepath.Join(tuistoryDir, "dist", "cli.js"), "#!/usr/bin/env node\n", 0o644)
+	binDir := filepath.Join(staging, "helpers", "node_modules", ".bin")
+	mustMkdirAllFixture(t, binDir)
+	if err := os.Symlink("../agent-browser/bin/agent-browser.js", filepath.Join(binDir, "agent-browser")); err != nil {
+		t.Fatalf("Symlink agent-browser shim: %v", err)
+	}
+	if err := os.Symlink("../tuistory/dist/cli.js", filepath.Join(binDir, "tuistory")); err != nil {
+		t.Fatalf("Symlink tuistory shim: %v", err)
+	}
+
+	assetName := fmt.Sprintf("qg-v%s-windows-arm64.zip", version)
+	archivePath := filepath.Join(root, assetName)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	zipScript := "import sys, zipfile, os\n" +
+		"staging, archive = sys.argv[1], sys.argv[2]\n" +
+		"with zipfile.ZipFile(archive, 'w', zipfile.ZIP_STORED) as z:\n" +
+		"    for base, dirs, files in os.walk(staging):\n" +
+		"        for name in files:\n" +
+		"            full = os.path.join(base, name)\n" +
+		"            z.write(full, os.path.relpath(full, os.path.dirname(staging)))\n"
+	if output, err := exec.CommandContext(ctx, python, "-c", zipScript, staging, archivePath).CombinedOutput(); err != nil {
+		t.Fatalf("zip fixture failed: %v\n%s", err, output)
+	}
+	archiveBytes, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatalf("ReadFile archive: %v", err)
+	}
+	digest := sha256.Sum256(archiveBytes)
+	writeFixtureFile(t, archivePath+".sha256", fmt.Sprintf("%x  %s\n", digest, assetName), 0o644)
+
+	outDir := filepath.Join(root, "out")
+	script := filepath.Join(repoRoot(t), "scripts", "npm", "build-platform-packages.mjs")
+	runCtx, runCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer runCancel()
+	command := exec.CommandContext(runCtx, node, script, "--artifacts-dir", root, "--out-dir", outDir, "--only", "win32-arm64")
+	command.Env = append(os.Environ(), "NODE_OPTIONS=")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build-platform-packages failed: %v\n%s", err, output)
+	}
+
+	prunedBinDir := filepath.Join(outDir, "platforms", "qg-win32-arm64", "helpers", "node_modules", "agent-browser", "bin")
+	entries, err := os.ReadDir(prunedBinDir)
+	if err != nil {
+		t.Fatalf("ReadDir pruned bin: %v", err)
+	}
+	got := []string{}
+	for _, entry := range entries {
+		got = append(got, entry.Name())
+	}
+	want := map[string]bool{
+		"agent-browser.js":              true,
+		"agent-browser-win32-arm64.exe": true,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("pruned agent-browser bin = %v, want exactly %v", got, want)
+	}
+	for _, name := range got {
+		if !want[name] {
+			t.Fatalf("pruning left unexpected %q (full set: %v)", name, got)
+		}
+	}
+	staged, err := os.ReadFile(filepath.Join(prunedBinDir, "agent-browser-win32-arm64.exe"))
+	if err != nil {
+		t.Fatalf("ReadFile staged arm64 helper: %v", err)
+	}
+	if string(staged) != "native-x64\n" {
+		t.Fatalf("staged arm64 helper = %q, want the emulated x64 bytes", staged)
 	}
 }
 

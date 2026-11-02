@@ -646,7 +646,7 @@ func TestPublishedReleaseTargetRejectsUnsupportedCombinations(t *testing.T) {
 		{goos: "linux", goarch: "amd64", want: "linux-x64"},
 		{goos: "darwin", goarch: "arm64", want: "macos-arm64"},
 		{goos: "windows", goarch: "amd64", want: "windows-x64"},
-		{goos: "windows", goarch: "arm64", want: ""},
+		{goos: "windows", goarch: "arm64", want: "windows-arm64"},
 		{goos: "android", goarch: "arm64", want: ""},
 	}
 	for _, test := range tests {

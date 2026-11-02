@@ -81,9 +81,9 @@ These classes drive multi-round reviews. Fix them before requesting review:
   assert raw `t.TempDir()` spellings (`/var` vs `/private/var` on macOS, short
   paths on Windows). Prefer one cross-platform function with small `GOOS`
   checks over duplicated helpers that drift.
-- **Supported targets only:** CONTRIBUTING.md names the five native prebuilt
+- **Supported targets only:** CONTRIBUTING.md names the six native prebuilt
   release artifacts (`linux-x64`, `linux-arm64`, `macos-arm64`, `macos-x64`,
-  `windows-x64`) and the additional supported Android/Termux source-build and
+  `windows-x64`, `windows-arm64`) and the additional supported Android/Termux source-build and
   artifact-fallback path. Other `GOOS`/`GOARCH` combinations, including
   `plan9`, are unsupported and are not a review criterion. Do not block a PR
   for failing to compile on an unsupported `GOOS`/`GOARCH`. Tests may use

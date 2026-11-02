@@ -174,6 +174,14 @@ Coloque `qg` e `qg-linux-sandbox` no mesmo diretório do `PATH`. No macOS não
 irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 | iex
 ```
 
+Se o PowerShell bloquear o `qg.ps1` ("não pode ser carregado porque a
+execução de scripts foi desabilitada neste sistema"), use `qg.cmd`
+(ou rode pelo `cmd`), ou libere scripts locais com:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
 ## mise
 
 Este método usa o repositório privado (requer acesso).
@@ -191,14 +199,14 @@ Os arquivos se chamam:
 - `qg-v<versão>-windows-<arq>.zip`
 
 Alvos suportados: `macos-x64`, `macos-arm64`, `linux-x64`, `linux-arm64`,
-`windows-x64` (Windows em ARM roda o build x64 emulação).
+`windows-x64`, `windows-arm64`.
 
 Cada arquivo tem um `.sha256` correspondente — os scripts de instalação
 baixam os dois, verificam o checksum e só então copiam o binário. Os arquivos
 são produzidos localmente com:
 
 ```bash
-make release   # cross-build dos 4 alvos unix + checksums + verify
+make release   # cross-build dos 6 alvos + checksums + verify
 ```
 
 Dentro do tarball estão o binário `qg`, o symlink `quebragalho` (alias real),

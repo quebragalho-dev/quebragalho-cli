@@ -84,6 +84,7 @@ jobs:
           linux arm64
           linux amd64
           windows amd64
+          windows arm64
           EOF
 
       - name: Verify release checksums
@@ -111,7 +112,7 @@ jobs:
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes 2>/dev/null || true
           gh release upload "$tag" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber
 
-  # Publishes @quebragalho-dev/cli to npm: first the five platform payloads (versions
+  # Publishes @quebragalho-dev/cli to npm: first the six platform payloads (versions
   # of the SAME package at suffixed versions like X.Y.Z-linux-x64, carrying the
   # native binary + vendored helpers), then the wrapper at X.Y.Z whose
   # optionalDependencies alias those platform versions. Platform versions MUST
@@ -192,7 +193,8 @@ jobs:
             "qg-v${version}-linux-arm64.tar.gz" \
             "qg-v${version}-macos-x64.tar.gz" \
             "qg-v${version}-macos-arm64.tar.gz" \
-            "qg-v${version}-windows-x64.zip"; do
+            "qg-v${version}-windows-x64.zip" \
+            "qg-v${version}-windows-arm64.zip"; do
             for url in "${base}/${asset}" "${base}/${asset}.sha256"; do
               if ! curl -fsSLI -o /dev/null "$url"; then
                 echo "::error::${url} is not publicly downloadable — the wrapper's fallback downloader and install.sh would fail. Is the repo public and are all assets uploaded?" >&2

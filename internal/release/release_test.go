@@ -449,7 +449,7 @@ func TestStageLocalControlHelpersUsesPackageDependencies(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "package.json"), `{
   "version": "0.1.0",
   "dependencies": {
-    "agent-browser": "0.30.1",
+    "agent-browser": "0.27.0",
     "tuistory": "0.10.0"
   }
 }`)
@@ -459,12 +459,12 @@ func TestStageLocalControlHelpersUsesPackageDependencies(t *testing.T) {
   "packages": {
     "": {
       "dependencies": {
-        "agent-browser": "0.30.1",
+        "agent-browser": "0.27.0",
         "tuistory": "0.10.0"
       }
     },
     "node_modules/agent-browser": {
-      "version": "0.30.1"
+      "version": "0.27.0"
     },
     "node_modules/tuistory": {
       "version": "0.10.0"
@@ -483,7 +483,7 @@ func TestStageLocalControlHelpersUsesPackageDependencies(t *testing.T) {
 		t.Fatalf("ReadFile helper package.json: %v", err)
 	}
 	manifest := string(manifestBytes)
-	for _, want := range []string{`"agent-browser": "0.30.1"`, `"tuistory": "0.10.0"`} {
+	for _, want := range []string{`"agent-browser": "0.27.0"`, `"tuistory": "0.10.0"`} {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("helper package.json missing %s:\n%s", want, manifest)
 		}
@@ -511,7 +511,7 @@ func TestStageLocalControlHelpersRequiresPackageLock(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "package.json"), `{
   "version": "0.1.0",
   "dependencies": {
-    "agent-browser": "0.30.1",
+    "agent-browser": "0.27.0",
     "tuistory": "0.10.0"
   }
 }`)
@@ -524,7 +524,7 @@ func TestStageLocalControlHelpersRequiresPackageLock(t *testing.T) {
 
 func TestLocalControlHelperDependenciesRequiresConfiguredPackages(t *testing.T) {
 	root := t.TempDir()
-	mustWriteFile(t, filepath.Join(root, "package.json"), `{"version":"0.1.0","dependencies":{"agent-browser":"0.30.1"}}`)
+	mustWriteFile(t, filepath.Join(root, "package.json"), `{"version":"0.1.0","dependencies":{"agent-browser":"0.27.0"}}`)
 
 	_, err := localControlHelperDependencies(root)
 	if err == nil || !strings.Contains(err.Error(), `dependency "tuistory"`) {
