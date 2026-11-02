@@ -168,7 +168,7 @@ func HandleWalkError(cleanRoot string, current string, entry fs.DirEntry, walkEr
 
 func ShouldSkipDir(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case ".cache", ".git", ".next", ".worktrees", ".qg", "__pycache__", ".pytest_cache", "build", "coverage", "dist", "node_modules", "vendor":
+	case ".cache", ".git", ".next", ".worktrees", ".qg", "build", "coverage", "dist", "node_modules", "vendor":
 		return true
 	default:
 		return false
@@ -187,7 +187,7 @@ func ShouldSkipFile(rel string) bool {
 
 func LooksBinaryPath(file string) bool {
 	switch strings.ToLower(path.Ext(filepath.ToSlash(file))) {
-	case ".a", ".avif", ".bmp", ".class", ".dll", ".dylib", ".exe", ".gif", ".gz", ".ico", ".jar", ".jpeg", ".jpg", ".o", ".pdf", ".png", ".pyc", ".pyo", ".so", ".tar", ".tgz", ".webp", ".zip":
+	case ".a", ".avif", ".bmp", ".class", ".dll", ".dylib", ".exe", ".gif", ".gz", ".ico", ".jar", ".jpeg", ".jpg", ".o", ".pdf", ".png", ".so", ".tar", ".tgz", ".webp", ".zip":
 		return true
 	default:
 		return false

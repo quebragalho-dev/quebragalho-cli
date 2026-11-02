@@ -81,41 +81,12 @@ func buildSystemPrompt(options Options) string {
 // computed from the same prompt bytes placed in the request.
 type systemPromptParts struct {
 	prompt             string
-	sections           []promptSection
+	sections           []string
 	baseInstructions   string
 	confirmationPolicy string
 	projectContext     string
 	skills             string
 }
-
-// promptSection is one independently tracked system-prompt section. The key is
-// a stable identity used to match a section against its last announced value
-// across turns; only non-empty texts join the prompt, in build order, so the
-// prompt stays byte-identical to the unkeyed assembly.
-type promptSection struct {
-	key  string
-	text string
-}
-
-// Section keys for drift tracking. One key per dynamic section; static
-// sections keep keys too so a future change is attributed, never dumped.
-const (
-	sectionKeyCore           = "core"
-	sectionKeyTransient      = "transient"
-	sectionKeyModel          = "model"
-	sectionKeySession        = "session"
-	sectionKeyPrefixes       = "prefixes"
-	sectionKeySeed           = "seed"
-	sectionKeyUserGuidelines = "user-guidelines"
-	sectionKeyEnvironment    = "environment"
-	sectionKeyGuidelines     = "guidelines"
-	sectionKeyRepoMap        = "repo-map"
-	sectionKeyPermissionMode = "permission-mode"
-	sectionKeyDelegation     = "delegation"
-	sectionKeySkills         = "skills"
-	sectionKeyStyle          = "style"
-	sectionKeyPolicy         = "policy"
-)
 
 func buildSystemPromptParts(options Options) systemPromptParts {
 	core := strings.TrimSpace(options.SystemPrompt)
@@ -125,59 +96,52 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 	if core == "" {
 		core = fallbackSystemPrompt
 	}
-	sections := []promptSection{{key: sectionKeyCore, text: core}}
+	sections := []string{core}
 	if transient := strings.TrimSpace(options.TransientSystemPrompt); transient != "" {
-		sections = append(sections, promptSection{key: sectionKeyTransient, text: transient})
+		sections = append(sections, transient)
 	}
 	if addendum := modelPromptAddendum(options.Model); addendum != "" {
-		sections = append(sections, promptSection{key: sectionKeyModel, text: addendum})
+		sections = append(sections, addendum)
 	}
 	if session := sessionRuntimeContext(options); session != "" {
-		sections = append(sections, promptSection{key: sectionKeySession, text: session})
+		sections = append(sections, session)
 	}
 	if prefixes := approvedCommandPrefixContext(options); prefixes != "" {
-		sections = append(sections, promptSection{key: sectionKeyPrefixes, text: prefixes})
+		sections = append(sections, prefixes)
 	}
 	if seed := workspaceSeedContext(options.Cwd); seed != "" {
-		sections = append(sections, promptSection{key: sectionKeySeed, text: seed})
+		sections = append(sections, seed)
 	}
 	// User guidelines are injected before workspace/project guidelines so the
 	// project's AGENTS.md/QG.md is the later, more specific instruction
 	// block. See userGuidelines for the explicit precedence note carried in
 	// the section text itself.
 	if user := userGuidelines(); user != "" {
-		sections = append(sections, promptSection{key: sectionKeyUserGuidelines, text: user})
+		sections = append(sections, user)
 	}
-	env, guidelines, repoSection := workspaceSections(options.Cwd)
-	if env != "" {
-		sections = append(sections, promptSection{key: sectionKeyEnvironment, text: env})
+	project := workspaceContext(options.Cwd)
+	if project != "" {
+		sections = append(sections, project)
 	}
-	if guidelines != "" {
-		sections = append(sections, promptSection{key: sectionKeyGuidelines, text: guidelines})
-	}
-	if repoSection != "" {
-		sections = append(sections, promptSection{key: sectionKeyRepoMap, text: repoSection})
-	}
-	project := joinWorkspaceSections(env, guidelines, repoSection)
 	if modeCtx := permissionModeContext(options); modeCtx != "" {
-		sections = append(sections, promptSection{key: sectionKeyPermissionMode, text: modeCtx})
+		sections = append(sections, modeCtx)
 	}
 	if delegation := specialistDelegationContext(options); delegation != "" {
-		sections = append(sections, promptSection{key: sectionKeyDelegation, text: delegation})
+		sections = append(sections, delegation)
 	}
 	skillsBlock := skillsContext(options)
 	if skillsBlock != "" {
-		sections = append(sections, promptSection{key: sectionKeySkills, text: skillsBlock})
+		sections = append(sections, skillsBlock)
 	}
 	if style := responseStyleContext(options); style != "" {
-		sections = append(sections, promptSection{key: sectionKeyStyle, text: style})
+		sections = append(sections, style)
 	}
 	policy := strings.TrimSpace(confirmationPolicy)
 	if policy != "" {
-		sections = append(sections, promptSection{key: sectionKeyPolicy, text: policy})
+		sections = append(sections, policy)
 	}
 	return systemPromptParts{
-		prompt:             joinPromptSections(sections),
+		prompt:             strings.Join(sections, "\n\n"),
 		sections:           sections,
 		baseInstructions:   core,
 		confirmationPolicy: policy,
@@ -186,269 +150,31 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 	}
 }
 
-// joinPromptSections joins non-empty section texts in build order. Centralized
-// so the prompt stays byte-identical to the unkeyed assembly.
-func joinPromptSections(sections []promptSection) string {
-	texts := make([]string, 0, len(sections))
-	for _, section := range sections {
-		if section.text != "" {
-			texts = append(texts, section.text)
-		}
-	}
-	return strings.Join(texts, "\n\n")
-}
-
 // continuationUserMessage builds the user turn appended to a prior turn's
-// messages: the prompt plus a [context update] note listing the sections whose
-// current value differs from their last announced value. No drift means the
-// bare prompt, so the request prefix stays cache-stable.
+// messages: the prompt plus a [context update] note listing the current
+// system-prompt sections absent from the frozen system message. No drift
+// means the bare prompt, so the request prefix stays cache-stable.
 func continuationUserMessage(promptParts systemPromptParts, options Options, prompt string) qgruntime.Message {
 	content := prompt
-	if note := contextUpdateNote(promptParts, options.Continuation); note != "" {
+	if note := contextUpdateNote(promptParts.sections, options.Continuation[0].Content); note != "" {
 		content = note + "\n\n" + prompt
 	}
 	return qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: content, Images: qgruntime.CloneImageBlocks(options.Images)}
 }
 
-// sectionBuildOrder is the assembly order of prompt sections. Drift notes
-// follow it so repeated runs render deterministically.
-var sectionBuildOrder = []string{
-	sectionKeyCore,
-	sectionKeyTransient,
-	sectionKeyModel,
-	sectionKeySession,
-	sectionKeyPrefixes,
-	sectionKeySeed,
-	sectionKeyUserGuidelines,
-	sectionKeyEnvironment,
-	sectionKeyGuidelines,
-	sectionKeyRepoMap,
-	sectionKeyPermissionMode,
-	sectionKeyDelegation,
-	sectionKeySkills,
-	sectionKeyStyle,
-	sectionKeyPolicy,
-}
-
-// sectionFrozenMarker maps a section key to a stable head its text always
-// carries. It lets a removal be detected from the frozen system message when
-// a section disappears before its first note: the marker proves the section
-// was announced at build time. Keys without a marker (free-form transient
-// text) cannot prove frozen presence and skip silent-removal detection.
-var sectionFrozenMarker = map[string]string{
-	sectionKeyModel:          "<model_guidance>",
-	sectionKeySession:        "<session>",
-	sectionKeyPrefixes:       "## Approved Command Prefixes",
-	sectionKeySeed:           "<workspace_seed>",
-	sectionKeyUserGuidelines: "## User guidelines (",
-	sectionKeyEnvironment:    "<environment>",
-	sectionKeyGuidelines:     "## Project guidelines (",
-	sectionKeyRepoMap:        "## Repo map",
-	sectionKeyPermissionMode: "Plan mode is active",
-	sectionKeyDelegation:     "<specialists>",
-	sectionKeySkills:         "<available_skills>",
-	sectionKeyStyle:          "Response style:",
-	sectionKeyPolicy:         "# Confirmation Policy",
-}
-
-// contextUpdateNote lists the sections whose current value differs from the
-// last announced value for their key. A key announced in a prior note compares
-// against that note; a key never noted compares against the frozen system,
-// which holds until its first note. A previously announced key that is now
-// absent announces as removed, as does a never-noted key whose frozen marker
-// proves it was in the frozen system. Empty when nothing changed.
-func contextUpdateNote(parts systemPromptParts, continuation []qgruntime.Message) string {
-	announced := lastAnnouncedSections(continuation)
-	frozen := frozenSystemText(continuation)
-	current := map[string]string{}
-	raw := map[string]string{}
-	for _, section := range parts.sections {
-		current[section.key] = noteSectionBody(section.text)
-		raw[section.key] = section.text
-	}
+// contextUpdateNote lists the sections missing from frozen, separated by a
+// blank line. Empty when nothing changed.
+func contextUpdateNote(sections []string, frozen string) string {
 	var missing []string
-	for _, key := range sectionBuildOrder {
-		body, present := current[key]
-		if last, ok := announced[key]; ok {
-			if !present {
-				body = "(removed)"
-			}
-			if announcedSectionCurrent(body, last) {
-				continue
-			}
-		} else if present {
-			if frozenSectionMatches(key, raw[key], continuation) {
-				continue
-			}
-		} else if marker, ok := sectionFrozenMarker[key]; !ok || !strings.Contains(frozen, marker) {
-			continue
-		} else {
-			body = "(removed)"
+	for _, section := range sections {
+		if !strings.Contains(frozen, section) {
+			missing = append(missing, section)
 		}
-		missing = append(missing, "[context update: "+key+"]\n"+body+"\n"+contextUpdateEndMarker)
 	}
 	if len(missing) == 0 {
 		return ""
 	}
-	return strings.Join(missing, "\n\n")
-}
-
-// frozenSystemText concatenates the system-role messages in history. The
-// first is normally the frozen system prompt the run started from; later
-// system messages (compaction summaries) only widen the match set for
-// removal detection, never for value comparison.
-func frozenSystemText(continuation []qgruntime.Message) string {
-	var b strings.Builder
-	for _, msg := range continuation {
-		if msg.Role == qgruntime.MessageRoleSystem {
-			b.WriteString(msg.Content)
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
-}
-
-// noteSectionBody is the announced form of a section text. An absent section
-// (removed file, default style, exited plan mode) announces as removed so the
-// model learns the loss instead of silently keeping stale instructions.
-func noteSectionBody(text string) string {
-	if strings.Trim(text, "\n") == "" {
-		return "(removed)"
-	}
-	return strings.Trim(text, "\n")
-}
-
-// contextUpdateEndMarker closes every [context update] block so the recorded
-// body is delimited exactly. Without it the last block in a note absorbs the
-// trailing user prompt, forcing prefix matching that hides a later FIM cut.
-const contextUpdateEndMarker = "[/context update]"
-
-// frozenSectionMatches reports whether the current body for key equals the
-// frozen system value for that same key. The frozen value is extracted from
-// the first system message by section limits (start marker to the next
-// section's marker), never by substring, so a truncated tail that remains a
-// substring of the full form still compares as different.
-func frozenSectionMatches(key, section string, continuation []qgruntime.Message) bool {
-	currentBody := noteSectionBody(section)
-	frozen := firstFrozenSystem(continuation)
-	if frozen == "" {
-		return false
-	}
-	marker, ok := sectionFrozenMarker[key]
-	if !ok {
-		// Keys without a stable head (free-form text) cannot be extracted by
-		// limits; fall back to delimited presence in the frozen prompt.
-		if frozen == section {
-			return true
-		}
-		if strings.HasPrefix(frozen, section+"\n\n") {
-			return true
-		}
-		if strings.HasSuffix(frozen, "\n\n"+section) {
-			return true
-		}
-		return strings.Contains(frozen, "\n\n"+section+"\n\n")
-	}
-	extracted, ok := frozenSectionForKey(frozen, key, marker)
-	if !ok {
-		return false
-	}
-	return noteSectionBody(extracted) == currentBody
-}
-
-// firstFrozenSystem returns the first system message content in history, the
-// frozen prompt the run started from. Later system messages (compaction
-// summaries) only widen removal detection, never value comparison.
-func firstFrozenSystem(continuation []qgruntime.Message) string {
-	for _, msg := range continuation {
-		if msg.Role == qgruntime.MessageRoleSystem {
-			return msg.Content
-		}
-	}
-	return ""
-}
-
-// frozenSectionForKey extracts the section starting at marker from the frozen
-// prompt, ending at the next later section's marker or the prompt end.
-func frozenSectionForKey(frozen, key, marker string) (string, bool) {
-	start := strings.Index(frozen, marker)
-	if start < 0 {
-		return "", false
-	}
-	orderIdx := -1
-	for i, k := range sectionBuildOrder {
-		if k == key {
-			orderIdx = i
-			break
-		}
-	}
-	if orderIdx < 0 {
-		return "", false
-	}
-	end := len(frozen)
-	for _, later := range sectionBuildOrder[orderIdx+1:] {
-		laterMarker, ok := sectionFrozenMarker[later]
-		if !ok || laterMarker == "" {
-			continue
-		}
-		if rel := strings.Index(frozen[start+len(marker):], laterMarker); rel >= 0 {
-			candidate := start + len(marker) + rel
-			if candidate < end {
-				end = candidate
-			}
-		}
-	}
-	section := strings.Trim(frozen[start:end], "\n")
-	return section, true
-}
-
-// lastAnnouncedSections replays user notes in order and records, per section
-// key, the exact body of its most recent [context update] block delimited by
-// contextUpdateEndMarker. Only messages with role user whose content starts
-// with a note are read, so a forged "[context update: ...]" inside a tool
-// result never suppresses a real warning. Keys without a note keep the frozen
-// system value.
-func lastAnnouncedSections(continuation []qgruntime.Message) map[string]string {
-	const prefix = "[context update: "
-	announced := map[string]string{}
-	for _, msg := range continuation {
-		if msg.Role != qgruntime.MessageRoleUser {
-			continue
-		}
-		rest := msg.Content
-		if !strings.HasPrefix(rest, prefix) {
-			continue
-		}
-		for strings.HasPrefix(rest, prefix) {
-			rest = rest[len(prefix):]
-			end := strings.Index(rest, "]")
-			if end < 0 {
-				break
-			}
-			key := rest[:end]
-			rest = rest[end+1:]
-			rest = strings.TrimPrefix(rest, "\n")
-			closeIdx := strings.Index(rest, contextUpdateEndMarker)
-			if closeIdx < 0 {
-				break
-			}
-			body := strings.TrimSuffix(rest[:closeIdx], "\n")
-			if key != "" {
-				announced[key] = body
-			}
-			rest = rest[closeIdx+len(contextUpdateEndMarker):]
-			rest = strings.TrimPrefix(rest, "\n\n")
-			rest = strings.TrimPrefix(rest, "\n")
-		}
-	}
-	return announced
-}
-
-// announcedSectionCurrent reports whether body equals the recorded announcement
-// for a section. Exact only: a truncated body is a prefix of the recorded full
-// form and must not compare as current.
-func announcedSectionCurrent(body, recorded string) bool {
-	return recorded == body
+	return "[context update]\n" + strings.Join(missing, "\n\n")
 }
 
 // responseStyleContext renders the operator-selected reply style (TUI /style) as
@@ -606,42 +332,11 @@ func sessionRuntimeContext(options Options) string {
 	return b.String()
 }
 
-// workspaceSections splits the workspace context into three independent
-// sections so a repo-map change does not resend the environment block or
-// project guidelines. The joined prompt stays byte-identical to the old
-// monolithic workspaceContext: env + "\n\n" + guidelines + "\n\n" + repo.
-func workspaceSections(cwd string) (env, guidelines, repoSection string) {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return "", "", ""
-	}
-	env = environmentContext(cwd)
-	if raw := projectGuidelines(cwd, FindProjectGitRoot(cwd)); raw != "" {
-		guidelines = strings.TrimLeft(raw, "\n")
-	}
-	repoSection = repoMapSection(cwd)
-	return env, guidelines, repoSection
-}
-
-// joinWorkspaceSections recombines split sections into the single
-// projectContext string used for fingerprinting.
-func joinWorkspaceSections(env, guidelines, repoSection string) string {
-	var parts []string
-	if env != "" {
-		parts = append(parts, env)
-	}
-	if guidelines != "" {
-		parts = append(parts, guidelines)
-	}
-	if repoSection != "" {
-		parts = append(parts, repoSection)
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-// environmentContext returns the <environment> block describing the working
-// directory, OS, and git branch. Returns "" when cwd is unset.
-func environmentContext(cwd string) string {
+// workspaceContext returns an <environment> block describing the working
+// directory, git branch, and any project guideline doc, so the model grounds its
+// work in the actual repo. Returns "" when cwd is unset (keeps headless/test
+// runs deterministic).
+func workspaceContext(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
 		return ""
@@ -655,29 +350,12 @@ func environmentContext(cwd string) string {
 		b.WriteString("Git branch: " + branch + "\n")
 	}
 	b.WriteString("</environment>")
-	return b.String()
-}
 
-// repoMapSection returns the repo-map section ("## Repo map" + content) or ""
-// when the scan yields nothing.
-func repoMapSection(cwd string) string {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return ""
-	}
+	b.WriteString(projectGuidelines(cwd, FindProjectGitRoot(cwd)))
 	if repoMap := repoMapContext(cwd); repoMap != "" {
-		return "## Repo map\n\n" + repoMap
+		b.WriteString("\n\n## Repo map\n\n" + repoMap)
 	}
-	return ""
-}
-
-// workspaceContext returns an <environment> block describing the working
-// directory, git branch, and any project guideline doc, so the model grounds its
-// work in the actual repo. Returns "" when cwd is unset (keeps headless/test
-// runs deterministic).
-func workspaceContext(cwd string) string {
-	env, guidelines, repoSection := workspaceSections(cwd)
-	return joinWorkspaceSections(env, guidelines, repoSection)
+	return b.String()
 }
 
 // projectGuidelines walks the directory chain from the git root to cwd
