@@ -30,10 +30,12 @@ var sandboxLogNoise = []string{
 const denialMonitorConnectTimeout = 300 * time.Millisecond
 
 // denialMonitorTagGrace bounds the wait for a late tag line after a failed
-// command. It runs only on failure; successes never wait. Sized from the
-// measured tag-arrival lag (n=220, max 12.7µs after Run ends): 25ms still
-// covers it by >1000x while keeping failing non-network commands cheap,
-// since the tag is either already delivered or lost entirely.
+// command. It runs only on failure; successes never wait. AwaitTag blocks on
+// a channel closed by markTagSeen with a timer for this grace, so a miss
+// waits the full grace but never beyond it (no polling overshoot). Measured
+// A/B (base eae1efc5 vs this change, 30 interleaved rounds each): success
+// overhead p50 +8-10ms (log-stream connect and Stop only), failing-command
+// overhead p50 +34ms (connect/Stop plus this 25ms grace).
 const denialMonitorTagGrace = 25 * time.Millisecond
 
 // DenialMonitor tails `log stream` for seatbelt denials carrying a unique tag and
@@ -44,14 +46,14 @@ type DenialMonitor struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
 	done   chan struct{}
+	// tagCh closes when markTagSeen records a tag hit, so AwaitTag wakes the
+	// moment the tag lands instead of polling for it.
+	tagCh chan struct{}
 
 	mu        sync.Mutex
 	blocks    []string
 	tagSeen   bool
 	connected bool
-	// narrow selects the tag-only network feed; the broad opt-in feed
-	// reports only what the live stream paired.
-	narrow bool
 }
 
 // StartDenialMonitor begins streaming sandbox denials tagged with tag: every
@@ -61,25 +63,24 @@ type DenialMonitor struct {
 // uses StartNetworkDenialMonitor.
 func StartDenialMonitor(ctx context.Context, tag string) *DenialMonitor {
 	if strings.TrimSpace(tag) == "" {
-		monitor := &DenialMonitor{done: make(chan struct{})}
+		monitor := &DenialMonitor{done: make(chan struct{}), tagCh: make(chan struct{})}
 		close(monitor.done)
 		return monitor
 	}
 	attributor := newDenialAttributor(tag)
 	monitor := startMonitor(ctx, tag,
-		`(eventMessage CONTAINS "`+tag+`") OR (eventMessage CONTAINS "Sandbox:" AND eventMessage CONTAINS "deny")`,
+		`(eventMessage CONTAINS "`+tag+`-net" OR eventMessage CONTAINS "`+tag+` " OR eventMessage ENDSWITH "`+tag+`") OR (eventMessage CONTAINS "Sandbox:" AND eventMessage CONTAINS "deny")`,
 		func(monitor *DenialMonitor, line string) {
 			if isLogStreamHeader(line) {
 				return
 			}
-			if strings.Contains(line, tag) {
+			if containsTagToken(line, tag) {
 				monitor.markTagSeen()
 			}
 			if msg, ok := attributor.observe(line); ok {
 				monitor.record(msg)
 			}
 		})
-	monitor.narrow = false
 	return monitor
 }
 
@@ -89,7 +90,7 @@ func StartDenialMonitor(ctx context.Context, tag string) *DenialMonitor {
 // stays off the system-wide Sandbox firehose. An empty tag yields a no-op.
 func StartNetworkDenialMonitor(ctx context.Context, tag string) *DenialMonitor {
 	if strings.TrimSpace(tag) == "" {
-		monitor := &DenialMonitor{done: make(chan struct{})}
+		monitor := &DenialMonitor{done: make(chan struct{}), tagCh: make(chan struct{})}
 		close(monitor.done)
 		return monitor
 	}
@@ -102,7 +103,6 @@ func StartNetworkDenialMonitor(ctx context.Context, tag string) *DenialMonitor {
 				monitor.record(block)
 			}
 		})
-	monitor.narrow = true
 	return monitor
 }
 
@@ -114,10 +114,56 @@ func narrowObserve(line, netTag string) (string, bool) {
 	if isLogStreamHeader(line) {
 		return "", false
 	}
-	if netTag == "" || !strings.Contains(line, netTag) {
+	if netTag == "" || !containsTagToken(line, netTag) {
 		return "", false
 	}
 	return "Sandbox: deny network (network access blocked by sandbox)", true
+}
+
+// isTagChar reports bytes that continue a denial tag token. Tags are
+// alphanumerics plus '-'/'_' ("qg-sandbox-denied-v1-<pid>-<seq>" and the
+// "-net" network form), so any of those right after a tag means a longer tag.
+func isTagChar(c byte) bool {
+	return c == '-' || c == '_' ||
+		('0' <= c && c <= '9') ||
+		('a' <= c && c <= 'z') ||
+		('A' <= c && c <= 'Z')
+}
+
+// containsTagToken reports whether tag occurs in line as a whole token: at a
+// token boundary, followed by end-of-line, a non-tag byte, or the "-net"
+// network suffix (itself boundary-terminated) that carries a run's base tag on
+// a network-denial line. A bare prefix of a longer tag ("...-1" inside
+// "...-10-net") is not a hit, so concurrent runs with adjacent sequence
+// numbers cannot ingest each other's denials.
+func containsTagToken(line, tag string) bool {
+	if tag == "" {
+		return false
+	}
+	for start := 0; start+len(tag) <= len(line); {
+		idx := strings.Index(line[start:], tag)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		end := pos + len(tag)
+		if pos > 0 && isTagChar(line[pos-1]) {
+			start = pos + 1
+			continue
+		}
+		if end == len(line) {
+			return true
+		}
+		if rest := line[end:]; strings.HasPrefix(rest, "-net") {
+			if after := end + len("-net"); after == len(line) || !isTagChar(line[after]) {
+				return true
+			}
+		} else if !isTagChar(line[end]) {
+			return true
+		}
+		start = pos + 1
+	}
+	return false
 }
 
 // isLogStreamHeader reports the `log stream` startup line. It carries the
@@ -132,7 +178,7 @@ func isLogStreamHeader(line string) bool {
 // run the command. Past the timeout it degrades to a disconnected monitor
 // rather than delaying the command.
 func startMonitor(ctx context.Context, tag, predicate string, handle func(*DenialMonitor, string)) *DenialMonitor {
-	monitor := &DenialMonitor{done: make(chan struct{}), connected: false}
+	monitor := &DenialMonitor{done: make(chan struct{}), tagCh: make(chan struct{})}
 	streamCtx, cancel := context.WithCancel(ctx)
 	monitor.cancel = cancel
 	monitor.cmd = exec.CommandContext(streamCtx, "log", "stream", "--style", "compact",
@@ -226,38 +272,48 @@ func (monitor *DenialMonitor) Stop() []string {
 func (monitor *DenialMonitor) markTagSeen() {
 	monitor.mu.Lock()
 	defer monitor.mu.Unlock()
+	if monitor.tagSeen {
+		return
+	}
 	monitor.tagSeen = true
+	// tagCh is always set by startMonitor and the no-op constructors; the
+	// guard only covers a zero-value monitor, which degrades to the timer
+	// path in AwaitTag instead of panicking here.
+	if monitor.tagCh != nil {
+		close(monitor.tagCh)
+	}
 }
 
 // AwaitTag waits up to denialMonitorTagGrace for a tag hit: a denial of this
 // run that lands just after the command exits. It returns immediately when
-// the stream never connected or a tag already landed. Callers invoke it only
-// for failed commands, so successes never wait.
+// the stream never connected or a tag already landed, and otherwise blocks on
+// the tag channel with a timer for the grace: a hit wakes it at once, a miss
+// costs the full grace but never beyond it. Callers invoke it only for failed
+// commands, so successes never wait.
 func (monitor *DenialMonitor) AwaitTag() bool {
 	monitor.mu.Lock()
 	connected, seen := monitor.connected, monitor.tagSeen
+	tagCh := monitor.tagCh
 	monitor.mu.Unlock()
 	if !connected || seen {
 		return seen
 	}
-	deadline := time.Now().Add(denialMonitorTagGrace)
-	for time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-tagCh:
+		return true
+	case <-time.After(denialMonitorTagGrace):
 		monitor.mu.Lock()
-		seen = monitor.tagSeen
-		monitor.mu.Unlock()
-		if seen {
-			return true
-		}
+		defer monitor.mu.Unlock()
+		return monitor.tagSeen
 	}
-	return false
 }
 
 // denialAttributor pairs kernel Sandbox violation lines with the `with
 // message` tag line the seatbelt profile emits right after each denial. The
 // tag never rides on the violation line itself, so single-line matching can
 // never fire; attribution is positional (latest pending violation wins) and
-// best-effort, exactly like the monitor itself.
+// best-effort, exactly like the monitor itself. Every tag check is a
+// whole-token match, so a run never pairs with a longer tag of another run.
 type denialAttributor struct {
 	tag     string
 	pending string
@@ -268,6 +324,9 @@ func newDenialAttributor(tag string) *denialAttributor {
 }
 
 // observe feeds one log line; it returns the attributed violation, if any.
+// A violation line that itself carries this run's tag token attributes that
+// line's own violation (hence its own pid), never the latest pending one;
+// a bare tag token line attributes the pending violation it follows.
 func (a *denialAttributor) observe(line string) (string, bool) {
 	if msg, ok := parseSandboxDenyLine(line, a.tag); ok {
 		a.pending = ""
@@ -277,7 +336,7 @@ func (a *denialAttributor) observe(line string) (string, bool) {
 		a.pending = msg
 		return "", false
 	}
-	if a.tag != "" && a.pending != "" && strings.Contains(line, a.tag) {
+	if a.tag != "" && a.pending != "" && containsTagToken(line, a.tag) {
 		msg := a.pending
 		a.pending = ""
 		return msg, true
@@ -334,7 +393,7 @@ func parseSandboxDenyLine(line string, tag string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if tag != "" && !strings.Contains(line, tag) {
+	if tag != "" && !containsTagToken(line, tag) {
 		return "", false
 	}
 	if tag != "" {
