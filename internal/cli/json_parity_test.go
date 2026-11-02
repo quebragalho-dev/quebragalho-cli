@@ -138,6 +138,33 @@ func TestProvidersCheckJSONStaysCanonicalEnglish(t *testing.T) {
 			t.Fatalf("providers check --json leaked Portuguese: %q", stdout.String())
 		}
 	})
+
+	t.Run("connectivity fail keyless", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		deps := commandCenterDeps(t)
+		deps.resolveConfig = func(string, config.Overrides) (config.ResolvedConfig, error) {
+			profile := providerCheckGuidanceProfile()
+			return config.ResolvedConfig{ActiveProvider: "qg", Provider: profile, Providers: []config.ProviderProfile{profile}, MaxTurns: 7}, nil
+		}
+		deps.probeProviderHealth = func(context.Context, providerhealth.Options) providerhealth.Result {
+			return providerhealth.Result{
+				Status: providerhealth.StatusFail,
+				Checks: []providerhealth.Check{{ID: "provider.auth", Status: providerhealth.StatusFail, Message: "boom"}},
+			}
+		}
+		if code := runWithDeps([]string{"providers", "check", "qg", "--json", "--connectivity"}, &stdout, &stderr, deps); code != exitProvider {
+			t.Fatalf("exit = %d, want %d, stderr = %q", code, exitProvider, stderr.String())
+		}
+		payload := decodeProvidersCheckJSON(t, stdout.String())
+		got := providersCheckNextActionsJSON(t, payload)
+		want := []string{"set QG_API_KEY (or QUEBRAGALHO_API_KEY) in your environment or run `qg login`, then rerun qg providers check qg --connectivity"}
+		if len(got) != len(want) || got[0] != want[0] {
+			t.Fatalf("nextActions = %q, want %q", got, want)
+		}
+		if strings.Contains(stdout.String(), "(ou ") || strings.Contains(stdout.String(), "rode ") {
+			t.Fatalf("providers check --json leaked Portuguese: %q", stdout.String())
+		}
+	})
 }
 
 func TestMCPCheckJSONStaysCanonicalEnglish(t *testing.T) {

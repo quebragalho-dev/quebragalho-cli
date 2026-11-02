@@ -188,7 +188,7 @@ func TestRunProvidersCheckConnectivityKeylessCitesCredentialEnv(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitProvider, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "QG_API_KEY (or QUEBRAGALHO_API_KEY)") {
+	if !strings.Contains(output, "QG_API_KEY (ou QUEBRAGALHO_API_KEY)") {
 		t.Fatalf("keyless connectivity advice must cite both gateway env vars: %q", output)
 	}
 	if !strings.Contains(output, "qg login") {

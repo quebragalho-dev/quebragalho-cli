@@ -206,6 +206,12 @@ func providerCheckNextActions(profile config.ProviderProfile, connectivity bool,
 	}
 }
 
+// humanKeyEnvHint renders KeyEnvHint with the conjunction translated for
+// Portuguese human text. Machine output keeps the canonical constant.
+func humanKeyEnvHint() string {
+	return strings.Replace(providercatalog.KeyEnvHint, "(or ", "(ou ", 1)
+}
+
 func providerCheckNextActionsHuman(profile config.ProviderProfile, connectivity bool, health providerhealth.Result) []string {
 	name := providerCheckName(profile)
 	if !connectivity {
@@ -214,7 +220,7 @@ func providerCheckNextActionsHuman(profile config.ProviderProfile, connectivity 
 	switch health.Status {
 	case providerhealth.StatusFail:
 		if _, missing := profile.MissingCredentialEnv(); missing && !providerProfileHasCredential(profile) {
-			return []string{fmt.Sprintf("defina %s no seu ambiente ou rode `qg login`, depois rode de novo qg providers check %s --connectivity", providercatalog.KeyEnvHint, name)}
+			return []string{fmt.Sprintf("defina %s no seu ambiente ou rode `qg login`, depois rode de novo qg providers check %s --connectivity", humanKeyEnvHint(), name)}
 		}
 		return []string{fmt.Sprintf("confira a chave de API, a URL base e o modelo, depois rode de novo qg providers check %s --connectivity", name)}
 	case providerhealth.StatusWarn:

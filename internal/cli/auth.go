@@ -19,7 +19,7 @@ import (
 // QG authenticates with a plain API key, so browser/device login has no path
 // left. logout / status / refresh / reset keep working on pre-existing token
 // stores.
-const authLoginRemovedMessage = "Login via OAuth não é suportado: rode `qg login` para salvar uma chave de API (" + providercatalog.KeyEnvHint + " também valem no ambiente), depois rode `qg setup qg` (veja `qg setup --help`)"
+var authLoginRemovedMessage = "Login via OAuth não é suportado: rode `qg login` para salvar uma chave de API (" + humanKeyEnvHint() + " também valem no ambiente), depois rode `qg setup qg` (veja `qg setup --help`)"
 
 // runAuth dispatches `qg auth <command>`. The login subcommands are removed
 // (Etapa 4) and report authLoginRemovedMessage; what remains is maintenance of
