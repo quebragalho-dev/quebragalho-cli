@@ -78,6 +78,7 @@ func TestEffortCommandAcceptsPortugueseLabels(t *testing.T) {
 		{"MÁXIMO", modelregistry.ReasoningEffortMax, "máximo"},
 		{"low", modelregistry.ReasoningEffortLow, "baixo"},
 		{"high", modelregistry.ReasoningEffortHigh, "alto"},
+		{"HIGH", modelregistry.ReasoningEffortHigh, "alto"},
 	} {
 		t.Run(tc.input, func(t *testing.T) {
 			m := batchThreeLiveModel(t)
@@ -1046,5 +1047,33 @@ func anthropicTestProfile(modelID string) config.ProviderProfile {
 		BaseURL:      config.AnthropicBaseURL,
 		APIKey:       "sk-test",
 		Model:        modelID,
+	}
+}
+
+// TestEffortCommandUnsupportedShowsCurrentLevel pins the unsupported card:
+// the requested level is named translated in the message, but the active
+// level shown stays the current one, never the rejected request.
+func TestEffortCommandUnsupportedShowsCurrentLevel(t *testing.T) {
+	m := batchThreeLiveModel(t)
+	live := m.modelPickerLiveByProvider["qg"]
+	live[0].APIModel.Capabilities.Reasoning = true
+	live[0].ReasoningEfforts = []string{"low"}
+	live[0].DefaultReasoningEffort = "low"
+	m.reasoningEffort = modelregistry.ReasoningEffortLow
+	_, text := m.handleEffortCommand("high")
+	if !strings.Contains(text, "não suportado") {
+		t.Fatalf("unsupported effort card missing não suportado: %q", text)
+	}
+	if !strings.Contains(text, `"alto"`) {
+		t.Fatalf("unsupported effort card must name the requested level translated: %q", text)
+	}
+	if strings.Contains(text, `"high"`) {
+		t.Fatalf("unsupported effort card must not show the raw requested value: %q", text)
+	}
+	if !strings.Contains(text, "nível ativo: baixo") {
+		t.Fatalf("unsupported effort card must keep the current level active: %q", text)
+	}
+	if strings.Contains(text, "nível ativo: alto") {
+		t.Fatalf("unsupported effort card must not show the requested level as active: %q", text)
 	}
 }

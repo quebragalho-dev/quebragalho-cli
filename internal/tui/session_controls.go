@@ -79,7 +79,7 @@ func (m model) handleEffortCommand(args string) (model, string) {
 	}
 	if !reasoningEffortAllowed(efforts, requested) {
 		return m, m.effortStatusCard(m.effortDisplay(),
-			fmt.Sprintf("Nível de raciocínio %q não suportado por %s.", requested, displayValue(m.modelName, "o modelo ativo")))
+			fmt.Sprintf("Nível de raciocínio %q não suportado por %s.", effortDisplayLabel(string(requested)), displayValue(m.modelName, "o modelo ativo")))
 	}
 
 	m.reasoningEffort = requested

@@ -368,10 +368,9 @@ func sanitizeCardField(value string) string {
 	return out.String()
 }
 
-// relativeAge renders an RFC3339 timestamp as a short age ("há 2 h"), falling
-// back to the month/day this year and the bare date for sessions older than a
-// month, so deep history reads as a calendar date rather than "400d ago"; ""
-// when the timestamp does not parse, so the card simply omits it.
+// formatDayMonthPT renders a date as day + abbreviated Portuguese month
+// ("5 jun"), the calendar form relativeAge falls back to for sessions older
+// than a month.
 func formatDayMonthPT(t time.Time) string {
 	months := []string{"jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"}
 	m := int(t.Month())
@@ -381,6 +380,10 @@ func formatDayMonthPT(t time.Time) string {
 	return fmt.Sprintf("%d %s", t.Day(), months[m-1])
 }
 
+// relativeAge renders an RFC3339 timestamp as a short age ("há 2 h"), falling
+// back to the month/day this year and the bare date for sessions older than a
+// month, so deep history reads as a calendar date rather than "400d ago"; ""
+// when the timestamp does not parse, so the card simply omits it.
 func relativeAge(timestamp string, now time.Time) string {
 	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(timestamp))
 	if err != nil {
@@ -433,7 +436,7 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 		return m, "Modelo\nNenhum perfil de provedor disponível para trocar de modelo.", false, nil
 	}
 	if m.newProvider == nil {
-		return m, "Modelo\nReconstrução do provedor indisponível para esta sessão TUI.", false, nil
+		return m, "Modelo\nProvedor não pode ser reconstruído nesta sessão.", false, nil
 	}
 
 	previousProviderName := m.providerName

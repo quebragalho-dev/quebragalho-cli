@@ -5135,7 +5135,7 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		if err != nil {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{
 				kind: actionAppendError,
-				text: "erro ao registrar sessão: " + err.Error(),
+				text: "erro ao gravar a sessão: " + err.Error(),
 			})
 		}
 		prompt = agentPrompt

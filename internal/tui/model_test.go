@@ -842,8 +842,54 @@ func TestModelCommandRequiresProviderRebuildForSwitch(t *testing.T) {
 	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
-	if !transcriptContains(next.transcript, "Reconstrução do provedor indisponível") {
+	if !transcriptContains(next.transcript, "Provedor não pode ser reconstruído nesta sessão") {
 		t.Fatalf("expected provider rebuild availability error, got %#v", next.transcript)
+	}
+}
+
+// TestModelCommandRebuildErrorRendersWholeAtNarrowWidths pins item 9 of the
+// translation pattern for the rebuild card: the shortened message must reach
+// the card intact from 50 to 120 columns, with no ellipsis beyond the base.
+func TestModelCommandRebuildErrorRendersWholeAtNarrowWidths(t *testing.T) {
+	m := newModel(context.Background(), Options{
+		ModelName: "muse-spark-1.3-contributor",
+		ProviderProfile: config.ProviderProfile{
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
+		},
+	})
+	m.input.SetValue("/model qwen3.8-omni-flash")
+
+	updated, cmd := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	if cmd != nil {
+		t.Fatal("expected /model to be handled without starting an agent run")
+	}
+	var row transcriptRow
+	found := false
+	for _, r := range next.transcript {
+		if strings.Contains(r.text, "Provedor não pode ser reconstruído") {
+			row, found = r, true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected provider rebuild error row, got %#v", next.transcript)
+	}
+	for _, width := range []int{50, 58, 80, 120} {
+		got := plainRender(t, next.renderRow(row, width, buildRowContext(next.transcript)))
+		for _, line := range strings.Split(got, "\n") {
+			if strings.Contains(line, "…") {
+				t.Fatalf("width=%d: rebuild message cut: %q in %q", width, line, got)
+			}
+		}
+		if !strings.Contains(got, "Provedor não pode ser reconstruído nesta sessão.") {
+			t.Fatalf("width=%d: rebuild message missing, got %q", width, got)
+		}
 	}
 }
 
@@ -3409,6 +3455,22 @@ func TestHandleModelCommandScopeEffortLevels(t *testing.T) {
 		}
 		if strings.Contains(text, "nível nível:") {
 			t.Fatalf("auto summary must not duplicate nivel: %q", text)
+		}
+	})
+
+	t.Run("automatic without effective level omits nivel segment", func(t *testing.T) {
+		m := newBase()
+		m.reasoningEffort = ""
+		m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{"qg": {{ID: "custom-explicit", Source: "live"}}}
+		_, text, ok, err := m.handleModelCommandScope("custom-explicit", false)
+		if err != nil || !ok {
+			t.Fatalf("auto switch refused: text=%q err=%v", text, err)
+		}
+		// The comparison is against the displayed label: only "automático"
+		// means no segment. Comparing against raw "auto" would wrongly append
+		// "· nível automático" here.
+		if strings.Contains(text, "· nível") {
+			t.Fatalf("auto summary without effective level must omit the nível segment, got: %q", text)
 		}
 	})
 }
