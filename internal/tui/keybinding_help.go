@@ -44,7 +44,7 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 			title: "Chat",
 			bindings: []keybinding{
 				{"Enter", "envia a mensagem"},
-				{"Shift+Enter / Alt+Enter", "insere uma quebra de linha (mensagem multilinha)"},
+				{"Shift+Enter / Alt+Enter", "insere uma quebra de linha (multilinha)"},
 				{"Esc (\u00d72)", "cancela a execução / fecha o pop-up / limpa a entrada"},
 				{"Ctrl+C", ctrlCDescription},
 				{"Ctrl+X e letra", "comandos com / comuns (m=/model, r=/resume, \u2026)"},
@@ -68,16 +68,16 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 				{labelOr(m.keyBindings.toggleDetailed, "Ctrl+O"), "alterna o histórico detalhado (tela cheia)"},
 				{labelOr(m.keyBindings.toggleSidebar, "Ctrl+B"), "mostra / oculta os detalhes da execução"},
 				{labelOr(m.keyBindings.toggleMouse, "Ctrl+E"), "libera o mouse para selecionar texto com arrasto e copiar"},
-				{"Tab", "confirma a seleção do autocompletar / seletor"},
+				{"Tab", "confirma seleção do autocompletar / seletor"},
 			},
 		},
 		{
 			title: "Especialistas e seletores",
 			bindings: []keybinding{
-				{"Clica no cartão do especialista", "entra na subsessão dele"},
+				{"Clica no especialista", "entra na subsessão dele"},
 				{"\u2191 / Esc (numa subsessão)", "volta para o chat principal"},
 				{"Ctrl+F (no /model)", "alterna o modelo destacado como favorito"},
-				{"Clica no cartão de ferramenta", "expande / recolhe a saída dele"},
+				{"Clica na ferramenta", "expande / recolhe a saída dele"},
 				{"Botão direito", "cola a área de transferência"},
 			},
 		},

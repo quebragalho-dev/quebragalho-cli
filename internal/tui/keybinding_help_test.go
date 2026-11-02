@@ -298,3 +298,38 @@ func TestExplicitDefaultChordConfigStillRequiresEmptyComposer(t *testing.T) {
 		t.Fatal("explicit ctrl+b config should NOT toggle run details with a non-empty composer")
 	}
 }
+
+// The pt-BR key labels must keep the key column at the base width so every
+// description that fits in English still fits in Portuguese: at the overlay's
+// full widths (80 and 120 share the capped 76-cell geometry) each fitting row
+// renders whole. Rows the base already truncates stay truncated in both.
+func TestHelpOverlayFittingRowsRenderWholeAtFullWidths(t *testing.T) {
+	m := newModel(context.Background(), Options{ModelName: "gpt-4o"})
+	whole := []string{
+		"Clica no especialista",
+		"Clica na ferramenta",
+		"envia a mensagem",
+		"insere uma quebra de linha (multilinha)",
+		"cancela a execução e sai",
+		"lista todos os atalhos Ctrl+X com /",
+		"mostra esta ajuda (com a entrada vazia)",
+		"alterna o modo de permissão (auto ↔ ask)",
+		"rola o histórico por página",
+		"alterna o histórico detalhado (tela cheia)",
+		"mostra / oculta os detalhes da execução",
+		"confirma seleção do autocompletar / seletor",
+		"entra na subsessão dele",
+		"volta para o chat principal",
+		"alterna o modelo destacado como favorito",
+		"expande / recolhe a saída dele",
+		"cola a área de transferência",
+	}
+	for _, width := range []int{80, 120} {
+		got := plainRender(t, m.renderKeybindingHelpOverlay(width))
+		for _, want := range whole {
+			if !strings.Contains(got, want) {
+				t.Fatalf("help overlay at width %d truncates %q:\n%s", width, want, got)
+			}
+		}
+	}
+}
