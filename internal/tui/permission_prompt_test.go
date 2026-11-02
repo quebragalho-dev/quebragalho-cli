@@ -76,10 +76,15 @@ func TestPermissionOptionsExposeApprovalCancelWhenSupplied(t *testing.T) {
 
 	card, _ := renderFocusedPermissionPrompt(request, 3, false, "", 80)
 	got := plainRender(t, card)
-	for _, want := range []string{"Não, continuar sem executar", "[d]", "Não, e dizer ao QG o que fazer de outro jeito", "[n]"} {
+	for _, want := range []string{"Não, continuar sem executar", "[d]", "Não, e dizer ao QG como fazer", "[n]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
+	}
+	// The short cancel label must keep its hotkey at 50 columns.
+	narrow, _ := renderFocusedPermissionPrompt(request, 3, false, "", 50)
+	if narrowGot := plainRender(t, narrow); !strings.Contains(narrowGot, "[n]") {
+		t.Fatalf("permission card at 50 = %q, missing [n]", narrowGot)
 	}
 }
 
@@ -184,7 +189,7 @@ func TestPermissionOptionsCanExposePatchCancelWithoutRecoverableDeny(t *testing.
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 2, false, "", 80)
 	got := plainRender(t, card)
-	if !strings.Contains(got, "Não, e dizer ao QG o que fazer de outro jeito") || !strings.Contains(got, "[n]") {
+	if !strings.Contains(got, "Não, e dizer ao QG como fazer") || !strings.Contains(got, "[n]") {
 		t.Fatalf("permission card = %q, missing cancel option", got)
 	}
 	if strings.Contains(got, "Não, continuar sem executar") || strings.Contains(got, "[d]") {
