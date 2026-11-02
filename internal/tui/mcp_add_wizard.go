@@ -60,7 +60,7 @@ var mcpAddWizardTypes = []struct {
 	Meta  string
 }{
 	{ID: "http", Label: "HTTP remoto", Meta: "endpoint HTTP de streaming"},
-	{ID: "sse", Label: "SSE remoto", Meta: "endpoint legado de eventos server-sent"},
+	{ID: "sse", Label: "SSE remoto", Meta: "endpoint SSE legado (server-sent events)"},
 	{ID: "stdio", Label: "Stdio local", Meta: "processo de comando local"},
 }
 
@@ -185,7 +185,7 @@ func (m model) advanceMCPAddWizard() (model, tea.Cmd) {
 			return m, nil
 		}
 		if strings.TrimSpace(wizard.endpoint) == "" {
-			wizard.err = "comando é obrigatório"
+			wizard.err = "o comando é obrigatório"
 			return m, nil
 		}
 		wizard.step = mcpAddWizardStepConfirm
@@ -336,7 +336,7 @@ func (wizard *mcpAddWizardState) commandArgs(disabled bool) ([]string, error) {
 		return nil, err
 	}
 	if len(command) == 0 {
-		return nil, fmt.Errorf("comando é obrigatório")
+		return nil, fmt.Errorf("o comando é obrigatório")
 	}
 	args = append(args, "--")
 	args = append(args, command...)
@@ -442,7 +442,7 @@ func validateMCPAddWizardURL(value string) error {
 	value = strings.TrimSpace(value)
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return fmt.Errorf("não foi possível interpretar a url")
+		return fmt.Errorf("não foi possível interpretar a URL")
 	}
 	return nil
 }

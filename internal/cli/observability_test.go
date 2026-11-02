@@ -50,7 +50,7 @@ func TestRunDoctorFormatsRedactedProviderDiagnostics(t *testing.T) {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Relatório QG doctor", "Geral: aprovado", "[pass] provider.config", "[warn] provider.connectivity"} {
+	for _, want := range []string{"Relatório do qg doctor", "Resultado: ok", "[pass] provider.config", "[warn] provider.connectivity"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected doctor output to contain %q, got %q", want, output)
 		}

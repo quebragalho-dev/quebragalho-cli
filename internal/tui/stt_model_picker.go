@@ -71,7 +71,7 @@ func (m model) newSTTModelPicker() *commandPicker {
 	}
 	return &commandPicker{
 		kind:     pickerSTTModel,
-		title:    "Escolha um modelo de ditado (fala para texto)",
+		title:    "Escolher modelo de ditado (fala para texto)",
 		items:    items,
 		allItems: append([]pickerItem{}, items...),
 	}

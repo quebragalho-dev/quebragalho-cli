@@ -91,7 +91,7 @@ func (m model) handleDictationDownloaded(msg dictationDownloadedMsg) (model, tea
 	}
 	m, err := m.applyEngineComponents(msg.components, msg.streaming)
 	if err != nil {
-		return m.appendSystemNotice("Baixei o motor, mas não foi possível salvar a configuração: " + err.Error()), nil
+		return m.appendSystemNotice("Motor baixado, mas não foi possível salvar a configuração: " + err.Error()), nil
 	}
 	return m.showTransientNoticeInline("Ditado local pronto. Rode /voice para começar a ditar.", transientNoticeSuccess), nil
 }

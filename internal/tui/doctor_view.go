@@ -193,7 +193,7 @@ func doctorActions(checks []doctor.Check, backend *qgcommands.BackendLifecycleSn
 			}
 		case "lsp.servers":
 			if strings.Contains(message, "missing") {
-				add("instale os language servers ausentes - restaura a inteligência de código no PATH")
+				add("instale os language servers ausentes - reativa a análise de código")
 			}
 		}
 	}

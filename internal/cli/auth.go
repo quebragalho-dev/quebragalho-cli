@@ -300,7 +300,7 @@ func runAuthRefresh(args []string, stdout io.Writer, stderr io.Writer, deps appD
 	if _, err := manager.Handle401(context.Background(), key); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
-	if _, err := fmt.Fprintf(stdout, "Token OAuth de %s atualizado.\n", provider); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Token OAuth de %s renovado.\n", provider); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -321,7 +321,7 @@ func runAuthRefreshWatch(manager *oauth.Manager, key, provider string, stdout io
 	scheduler := oauth.NewRefreshScheduler()
 	scheduler.Start(ctx, manager, key)
 	defer scheduler.Stop()
-	if _, err := fmt.Fprintf(stdout, "Acompanhando %s — atualizando antes de expirar. Pressione Ctrl+C para parar.\n", provider); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Monitorando %s — o token é renovado antes de expirar.\n", provider); err != nil {
 		return exitCrash
 	}
 	<-ctx.Done()
@@ -359,7 +359,7 @@ func runAuthReset(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintln(stdout, "Repositório de tokens OAuth zerado."); err != nil {
+	if _, err := fmt.Fprintln(stdout, "Tokens OAuth guardados foram apagados."); err != nil {
 		return exitCrash
 	}
 	return exitSuccess

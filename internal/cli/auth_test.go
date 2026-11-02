@@ -233,7 +233,7 @@ func TestRunAuthReset(t *testing.T) {
 	if code := runWithDeps([]string{"auth", "reset", "--confirm"}, &stdout, &stderr, appDeps{}); code != exitSuccess {
 		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Repositório de tokens OAuth zerado.") {
+	if !strings.Contains(stdout.String(), "Tokens OAuth guardados foram apagados.") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 

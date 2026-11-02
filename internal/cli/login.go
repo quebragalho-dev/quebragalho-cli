@@ -84,7 +84,7 @@ func runLogin(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 		}
 	}
 	if key == "" {
-		return writeExecUsageError(stderr, "Chave de API obrigatória: cole no prompt ou passe --api-key")
+		return writeExecUsageError(stderr, "Chave de API obrigatória: cole quando for pedido ou passe --api-key")
 	}
 	if deps.validateLoginKey == nil {
 		return writeAppError(stderr, "login validator unavailable", exitCrash)

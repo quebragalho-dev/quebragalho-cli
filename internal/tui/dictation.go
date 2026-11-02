@@ -427,7 +427,7 @@ func (m model) handleDictationTranscribed(msg dictationTranscribedMsg) (tea.Mode
 		// Partial text may still be worth keeping on a mid-stream failure (§6).
 		if strings.TrimSpace(msg.text) != "" && !streaming {
 			m = m.insertDictatedText(msg.text)
-			return m.appendSystemNotice("Ditado interrompido; mantive a transcrição parcial. " + dictationErrorText(msg.err)), nil
+			return m.appendSystemNotice("Ditado interrompido; a transcrição parcial foi mantida. " + dictationErrorText(msg.err)), nil
 		}
 		// Keyed so hammering the dictation gesture against the same unusable model doesn't spam the
 		// identical error line over and over.
@@ -480,7 +480,7 @@ func needsLeadingSpace(state composerState) bool {
 func (m model) dictationStatusChip() string {
 	switch m.dictation.phase {
 	case dictStarting, dictRecording:
-		wave := qgTheme.amber.Render("● " + renderWaveBars(m.dictation.waveBars) + " GRAV")
+		wave := qgTheme.amber.Render("● " + renderWaveBars(m.dictation.waveBars) + " REC")
 		return wave + qgTheme.muted.Render(" · "+m.voiceCaptureStatus()+", Esc para cancelar")
 	case dictTranscribing:
 		return qgTheme.accent.Render("●") + " " + qgTheme.muted.Render("transcrevendo…")

@@ -65,7 +65,7 @@ func (m model) handleSTTKeyPromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyIs(msg, tea.KeyEsc), keyCtrl(msg, 'c'):
 		if p.optional {
 			// A key is already on file — keep it and apply the model selection.
-			return m.finalizeSTTModelFromKey(p, "Mantive sua chave de API de "+p.label+" salva. ")
+			return m.finalizeSTTModelFromKey(p, "Chave de API de "+p.label+" mantida. ")
 		}
 		m.sttKeyPrompt = nil
 		return m.showTransientNoticeInline("Cancelado — nenhuma chave de API de "+p.label+" salva.", transientNoticeInfo), nil
@@ -94,7 +94,7 @@ func (m model) submitSTTKey() (tea.Model, tea.Cmd) {
 	if key == "" {
 		if p.optional {
 			// Nothing typed but a key is already on file — keep it and apply the model.
-			return m.finalizeSTTModelFromKey(p, "Mantive sua chave de API de "+p.label+" salva. ")
+			return m.finalizeSTTModelFromKey(p, "Chave de API de "+p.label+" mantida. ")
 		}
 		m.sttKeyPrompt = nil
 		return m.showTransientNoticeInline("Nenhuma chave digitada — nada salvo.", transientNoticeInfo), nil
@@ -105,7 +105,7 @@ func (m model) submitSTTKey() (tea.Model, tea.Cmd) {
 			return m.appendSystemNotice("Não foi possível salvar a chave de API de " + p.label + ": " + err.Error()), nil
 		}
 	}
-	return m.finalizeSTTModelFromKey(p, "Salvei sua chave de API de "+p.label+". ")
+	return m.finalizeSTTModelFromKey(p, "Chave de API de "+p.label+" salva. ")
 }
 
 // finalizeSTTModelFromKey closes the prompt and commits the pending cloud model
@@ -144,13 +144,13 @@ func (m model) sttKeyPromptOverlay(width int) string {
 	if p.input != "" {
 		value = qgTheme.ink.Render(maskedProviderWizardKey(p.input)) + qgTheme.accent.Render("▌")
 	}
-	input := qgTheme.userPrompt.Render("chave de api > ") + value
+	input := qgTheme.userPrompt.Render("chave de API > ") + value
 	intro := p.label + " ainda não está configurado. Cole ou digite sua chave de API de " + p.label + ":"
-	footer := "⏎ salva · Esc cancela · guardada no armazenamento de credenciais do QG"
+	footer := "Enter salvar · Esc cancelar · fica no cofre de credenciais do QG"
 	if p.optional {
 		// A key already resolves — this pass is for replacing an invalid/old one.
 		intro = p.label + " já tem uma chave de API. Cole uma nova para substituir ou pressione Esc para manter:"
-		footer = "⏎ substitui · Esc mantém a chave salva · guardada no armazenamento de credenciais do QG"
+		footer = "Enter substituir · Esc manter a chave salva · fica no cofre de credenciais do QG"
 	}
 	lines := []string{
 		qgTheme.ink.Render(intro),
