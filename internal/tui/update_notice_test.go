@@ -135,6 +135,74 @@ func TestUpdateNoticeYieldsOnNarrowWidth(t *testing.T) {
 	}
 }
 
+func updateNoticeLongCwdModel(t *testing.T) model {
+	t.Helper()
+	m := batchThreeLiveModel(t)
+	m.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
+	m.updateAvailable = "0.0.12"
+	return m
+}
+
+func TestUpdateNoticeSharesSpaceWithWorkspace(t *testing.T) {
+	// With a long cwd at 120, the notice must still show whole while the
+	// path truncates to make room for it.
+	m := updateNoticeLongCwdModel(t)
+	got := plainRender(t, m.statusLine(120))
+	assertContains(t, got, "nova versão 0.0.12 · reinicie para instalar")
+	assertContains(t, got, "…")
+	assertNotContains(t, got, "/private/var/folders/dt/xyz/T/opencode/t5/ws-D")
+}
+
+func TestUpdateNoticeDowngradesBeforeDroppingPath(t *testing.T) {
+	// At 80 the full form no longer fits next to the path: the path shrinks
+	// to its floor and the notice steps down, instead of vanishing.
+	m := updateNoticeLongCwdModel(t)
+	got := plainRender(t, m.statusLine(80))
+	assertContains(t, got, "nova 0.0.12 · reinicie")
+	assertContains(t, got, "…")
+	assertNotContains(t, got, "/private/var/folders/dt/xyz/T/opencode/t5/ws-D")
+}
+
+func TestUpdateNoticeSurvivesDroppedPath(t *testing.T) {
+	// Narrow enough that path plus notice cannot coexist: the path and its
+	// separator drop, and the tiny form stays docked right.
+	m := updateNoticeLongCwdModel(t)
+	got := plainRender(t, m.statusLine(56))
+	assertContains(t, got, "nova 0.0.12")
+	assertNotContains(t, got, "opencode")
+	assertNotContains(t, got, " │ ")
+	assertNotContains(t, got, "…")
+}
+
+func TestUpdateNoticeFallsBackToFullFooterWhenNothingFits(t *testing.T) {
+	// Too narrow for even the tiny form without the path: since no notice
+	// shows, the footer must equal the notice-free rendering at the same
+	// width, path included.
+	withNotice := updateNoticeLongCwdModel(t)
+	got := plainRender(t, withNotice.statusLine(46))
+	withoutNotice := batchThreeLiveModel(t)
+	withoutNotice.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
+	want := plainRender(t, withoutNotice.statusLine(46))
+	if got != want {
+		t.Fatalf("footer without room must match the notice-free footer:\n got %q\nwant %q", got, want)
+	}
+	assertNotContains(t, got, "nova")
+	assertContains(t, got, "/priv")
+}
+
+func TestUpdateNoticeAbsentKeepsWorkspaceByteIdentical(t *testing.T) {
+	// No new version: the footer renders exactly as before, with the
+	// workspace taking every free cell.
+	m := batchThreeLiveModel(t)
+	m.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
+	got := plainRender(t, m.statusLine(120))
+	want := "  ● auto-approve · n/d │ /private/var/folders/dt/xyz/T/opencode/t5/ws-D" +
+		strings.Repeat(" ", 36) + "ctx 1.000.000"
+	if got != want {
+		t.Fatalf("footer changed without a notice:\n got %q\nwant %q", got, want)
+	}
+}
+
 func TestUpdateNoticeHiddenDuringPriorityStates(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
