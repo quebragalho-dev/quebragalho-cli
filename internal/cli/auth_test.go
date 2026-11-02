@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -274,6 +275,9 @@ func (w *watchBuffer) String() string {
 // the provider, promise renewal before expiry, and tell the user Ctrl+C stops
 // the foreground wait. Removing the stop hint must fail this test.
 func TestRunAuthRefreshWatchStatesStopHint(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SIGTERM cannot interrupt signal.NotifyContext on Windows (os.Process.Signal only supports Kill there), so the watch goroutine would hang")
+	}
 	path := withAuthStore(t)
 	t.Setenv("HOME", t.TempDir())
 	store, err := oauth.NewStore(oauth.StoreOptions{FilePath: path})
