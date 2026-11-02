@@ -1166,7 +1166,7 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 	}
 	m.lastUsageReceipt = receipt
 	m.lastUsageSeen = true
-	if _, err := m.usageTracker.Record(usage.RecordInput{
+	if record, err := m.usageTracker.Record(usage.RecordInput{
 		ModelID: modelID,
 		Usage:   runtimeUsage,
 		Source:  "tui",
@@ -1177,6 +1177,14 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 			return m, nil
 		}
 		return m, []transcriptRow{{kind: rowError, text: "usage: " + err.Error()}}
+	} else if record.Cost.Currency == "" {
+		// The tracker records gateway models missing from the curated catalog
+		// with an explicitly unknown cost instead of failing. Count their
+		// tokens through the unpriced path so the summary reads "cost
+		// unavailable" rather than a fabricated $0.00.
+		m.unpricedRequests++
+		m.unpricedTokens += normalized.TotalTokens
+		return m, nil
 	}
 	return m, nil
 }
