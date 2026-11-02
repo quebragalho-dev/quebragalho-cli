@@ -520,7 +520,7 @@ func TestNodeWrapperDoctorJSONReportsMissingNativeBinaryAsJSONFail(t *testing.T)
 	if check.ID != "runtime.go" || check.Label != "Go runtime" || check.Status != "fail" {
 		t.Fatalf("doctor --json runtime check = %#v, want failing runtime.go check", check)
 	}
-	if !strings.Contains(check.Message, "Binário nativo do qg não encontrado ao lado do wrapper npm") {
+	if !strings.Contains(check.Message, "Native qg binary is missing next to the npm wrapper") {
 		t.Fatalf("doctor --json must name the actual cause, got %#v", check)
 	}
 	remedy, _ := check.Details["remedy"].(string)
@@ -539,7 +539,7 @@ func TestNodeWrapperDoctorHelpShowsUsage(t *testing.T) {
 		if strings.TrimSpace(stderr) != "" {
 			t.Fatalf("%v help must write to stdout only, got stderr=%q", args, stderr)
 		}
-		if !strings.Contains(stdout, "Usage:") || !strings.Contains(stdout, "qg doctor [flags]") {
+		if !strings.Contains(stdout, "Uso:") || !strings.Contains(stdout, "qg doctor [opções]") {
 			t.Fatalf("%v help output = %q, want doctor usage text", args, stdout)
 		}
 	}

@@ -412,7 +412,7 @@ func runMCPPermissionsRevoke(args []string, stdout io.Writer, stderr io.Writer, 
 			if err := writePrettyJSON(stdout, payload); err != nil {
 				return exitCrash
 			}
-		} else if _, err := fmt.Fprintf(stdout, "Revogadas %d permissões de ferramenta MCP para %s/%s.\n", revoked, serverName, positional[1]); err != nil {
+		} else if _, err := fmt.Fprintf(stdout, "Permissões revogadas: %d (ferramenta MCP %s/%s).\n", revoked, serverName, positional[1]); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
@@ -431,7 +431,7 @@ func runMCPPermissionsRevoke(args []string, stdout io.Writer, stderr io.Writer, 
 		if err := writePrettyJSON(stdout, payload); err != nil {
 			return exitCrash
 		}
-	} else if _, err := fmt.Fprintf(stdout, "Revogadas %d permissões de servidor MCP para %s.\n", revoked, serverName); err != nil {
+	} else if _, err := fmt.Fprintf(stdout, "Permissões revogadas: %d (servidor MCP %s).\n", revoked, serverName); err != nil {
 		return exitCrash
 	}
 	return exitSuccess

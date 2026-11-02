@@ -122,7 +122,7 @@ func reconcileOverdue(store *cron.Store, now func() time.Time, ids []string, std
 			if nxt := sched.Next(now()); !nxt.IsZero() {
 				j.NextRunAt = nxt
 				if err := store.Update(j); err != nil {
-					fmt.Fprintf(stderr, "warning: failed to reschedule %s: %v\n", j.ID, err)
+					fmt.Fprintf(stderr, "aviso: não foi possível reagendar %s: %v\n", j.ID, err)
 				}
 			}
 		}
@@ -145,7 +145,7 @@ func fireJob(store *cron.Store, now func() time.Time, job cron.Job, stdout io.Wr
 		if errors.Is(claimErr, cron.ErrJobNotFound) {
 			return // removed before we could claim
 		}
-		fmt.Fprintf(stderr, "warning: could not claim job %s: %v\n", job.ID, claimErr)
+		fmt.Fprintf(stderr, "aviso: não foi possível reservar a tarefa %s: %v\n", job.ID, claimErr)
 		return
 	}
 	if !claimed {
@@ -208,7 +208,7 @@ func fireJob(store *cron.Store, now func() time.Time, job cron.Job, stdout io.Wr
 			// A transient read failure (IO/permission) is NOT removal — persist the
 			// computed next state anyway so the schedule advances and the job does not
 			// re-fire next tick.
-			fmt.Fprintf(stderr, "warning: could not re-read job %s before persist: %v\n", job.ID, readErr)
+			fmt.Fprintf(stderr, "aviso: não foi possível reler a tarefa %s antes de salvar: %v\n", job.ID, readErr)
 			return job, nil
 		}
 		current.FireCount = job.FireCount
@@ -227,10 +227,10 @@ func fireJob(store *cron.Store, now func() time.Time, job cron.Job, stdout io.Wr
 	// metadata is gone, so a Remove landing here cannot resurrect a deleted job's
 	// directory with an orphaned runs.jsonl.
 	if aerr := store.AppendRun(job.ID, rec); aerr != nil {
-		fmt.Fprintf(stderr, "warning: failed to record run for %s: %v\n", job.ID, aerr)
+		fmt.Fprintf(stderr, "aviso: falha ao registrar a execução de %s: %v\n", job.ID, aerr)
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "warning: failed to persist job state for %s: %v\n", job.ID, err)
+		fmt.Fprintf(stderr, "aviso: falha ao salvar o estado da tarefa %s: %v\n", job.ID, err)
 		persisted = job
 	}
 	fmt.Fprintf(stdout, "executou %s -> saída %d (próxima: %s)\n", job.ID, code, formatCronTime(persisted.NextRunAt))

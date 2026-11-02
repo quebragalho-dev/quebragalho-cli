@@ -34,7 +34,7 @@ func TestUnixInstallerScriptMatchesReleaseContracts(t *testing.T) {
 		`copy_optional_file "qg-linux-sandbox"`,
 		`copy_optional_file "qg-seccomp"`,
 		`copy_optional_dir "helpers"`,
-		"  QG_REPO             GitHub repository. Defaults to quebragalho-dev/quebragalho-cli.",
+		"  QG_REPO             Repositório no GitHub. Padrão: quebragalho-dev/quebragalho-cli.",
 	})
 }
 

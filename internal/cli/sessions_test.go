@@ -193,7 +193,7 @@ func TestRunSessionsValidatesArgs(t *testing.T) {
 		wantStderr string
 	}{
 		{name: "unknown command", args: []string{"sessions", "foo"}, wantStderr: `comando sessions desconhecido "foo"`},
-		{name: "list extra arg", args: []string{"sessions", "list", "extra"}, wantStderr: "sessions list não aceita argumentos de posição"},
+		{name: "list extra arg", args: []string{"sessions", "list", "extra"}, wantStderr: "sessions list não aceita argumentos posicionais"},
 		{name: "rewind flag on list", args: []string{"sessions", "list", "--sequence", "2"}, wantStderr: "só valem para sessions rewind-plan"},
 		{name: "compaction flag on tree", args: []string{"sessions", "tree", "root", "--preserve-last", "2"}, wantStderr: "só valem para sessions compact-plan"},
 		{name: "empty event flag", args: []string{"sessions", "list", "--event="}, wantStderr: "--event precisa de um valor"},

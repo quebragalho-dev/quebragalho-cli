@@ -154,7 +154,7 @@ func parseGenerateParameters(args map[string]any) (generateParameters, error) {
 	}
 	description = strings.TrimSpace(description)
 	if description == "" {
-		return generateParameters{}, fmt.Errorf("generate specialist requires description")
+		return generateParameters{}, fmt.Errorf("gerar especialista exige descrição")
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {

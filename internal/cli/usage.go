@@ -118,7 +118,7 @@ func runUsageRemote(args []string, stdout io.Writer, stderr io.Writer, deps appD
 		return exitSuccess
 	}
 	if options.scope != "" && options.scope != "user" && options.scope != "key" {
-		return writeExecUsageError(stderr, fmt.Sprintf("--scope %q inválida: use user ou key", options.scope))
+		return writeExecUsageError(stderr, fmt.Sprintf("valor inválido para --scope: %q. Use user ou key.", options.scope))
 	}
 	from, err := parseRemoteUsageTime("--from", options.from)
 	if err != nil {
@@ -234,7 +234,7 @@ func parseRemoteUsageTime(flag, value string) (time.Time, error) {
 	if parsed, err := time.Parse("2006-01-02", value); err == nil {
 		return parsed.UTC(), nil
 	}
-	return time.Time{}, execUsageError{fmt.Sprintf("%s %q inválido: use YYYY-MM-DD ou RFC3339", flag, value)}
+	return time.Time{}, execUsageError{fmt.Sprintf("valor inválido para %s: %q. Use YYYY-MM-DD ou RFC3339.", flag, value)}
 }
 
 func runUsageReport(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
@@ -336,14 +336,14 @@ func parseUsageArgs(args []string) (usageOptions, bool, error) {
 				return options, false, err
 			}
 			if _, parseErr := time.Parse("2006-01-02", value); parseErr != nil {
-				return options, false, execUsageError{fmt.Sprintf("--since %q inválido: use YYYY-MM-DD", value)}
+				return options, false, execUsageError{fmt.Sprintf("valor inválido para --since: %q. Use YYYY-MM-DD.", value)}
 			}
 			options.since = value
 			index = next
 		case strings.HasPrefix(arg, "--since="):
 			value := strings.TrimSpace(strings.TrimPrefix(arg, "--since="))
 			if _, parseErr := time.Parse("2006-01-02", value); parseErr != nil {
-				return options, false, execUsageError{fmt.Sprintf("--since %q inválido: use YYYY-MM-DD", value)}
+				return options, false, execUsageError{fmt.Sprintf("valor inválido para --since: %q. Use YYYY-MM-DD.", value)}
 			}
 			options.since = value
 		case arg == "--session" || arg == "--session-id":
@@ -383,7 +383,7 @@ func parseUsageArgs(args []string) (usageOptions, bool, error) {
 func FormatReport(report usage.Report, insertions int, deletions int) string {
 	var builder strings.Builder
 	builder.WriteString("Relatório de uso (custo é uma estimativa reconstruída)\n\n")
-	fmt.Fprintf(&builder, "%-12s %10s %14s %14s\n", "data", "pedidos", "tokens", "custo est.")
+	fmt.Fprintf(&builder, "%-12s %10s %14s %14s\n", "data", "requisições", "tokens", "custo est.")
 	for _, bucket := range report.Buckets {
 		fmt.Fprintf(&builder, "%-12s %10d %14s %14s\n",
 			bucket.Date, bucket.Requests, formatCount(int64(bucket.TotalTokens)), formatUSD(bucket.TotalCost))
@@ -391,14 +391,14 @@ func FormatReport(report usage.Report, insertions int, deletions int) string {
 	fmt.Fprintf(&builder, "\n%-12s %10d %14s %14s\n",
 		"total", report.Total.Requests, formatCount(int64(report.Total.TotalTokens)), formatUSD(report.Total.TotalCost))
 
-	fmt.Fprintf(&builder, "\nLOC líquido (estimativa): +%d / -%d = %d\n",
+	fmt.Fprintf(&builder, "\nLOC líquidas (estimativa): +%d / -%d = %d\n",
 		insertions, deletions, report.NetLOC)
 	if report.NetLOCPositive {
-		fmt.Fprintf(&builder, "tokens por LOC líquido: %.1f\n", report.TokensPerNetLOC)
-		fmt.Fprintf(&builder, "custo est. por LOC líquido: %s\n", formatUSD(report.CostPerNetLOC))
+		fmt.Fprintf(&builder, "tokens por LOC líquidas: %.1f\n", report.TokensPerNetLOC)
+		fmt.Fprintf(&builder, "custo est. por LOC líquidas: %s\n", formatUSD(report.CostPerNetLOC))
 	} else {
-		builder.WriteString("tokens por LOC líquido: n/d (LOC líquido <= 0)\n")
-		builder.WriteString("custo est. por LOC líquido: n/d (LOC líquido <= 0)\n")
+		builder.WriteString("tokens por LOC líquidas: n/d (LOC líquidas <= 0)\n")
+		builder.WriteString("custo est. por LOC líquidas: n/d (LOC líquidas <= 0)\n")
 	}
 	return strings.TrimRight(builder.String(), "\n")
 }

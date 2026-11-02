@@ -162,7 +162,7 @@ func TestRunWorktreesPrepareRejectsDuplicateNames(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("expected empty stdout, got %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "caminho da worktree informado mais de uma vez") {
+	if !strings.Contains(stderr.String(), "nome da worktree informado mais de uma vez") {
 		t.Fatalf("expected duplicate name error, got %q", stderr.String())
 	}
 }
@@ -432,7 +432,7 @@ func TestRunVerifyTextAndJSON(t *testing.T) {
 				if snapshot.Contract != verify.ReportContractVersion || len(snapshot.Events) == 0 {
 					t.Fatalf("verify JSON did not expose runtime contract: %#v", snapshot)
 				}
-			} else if !strings.Contains(stdout.String(), "Verificação QG") || !strings.Contains(stdout.String(), "go.test") || !strings.Contains(stdout.String(), cwd) || !strings.Contains(stdout.String(), "testes: 2 no total, 1 passaram, 1 falharam") {
+			} else if !strings.Contains(stdout.String(), "Verificação QG") || !strings.Contains(stdout.String(), "go.test") || !strings.Contains(stdout.String(), cwd) || !strings.Contains(stdout.String(), "testes: 2 no total, 1 aprovados, 1 reprovados") {
 				t.Fatalf("unexpected verify text output: %q", stdout.String())
 			}
 		})
@@ -532,7 +532,7 @@ func TestRunVerifyReturnsProviderExitWhenChecksFail(t *testing.T) {
 	if exitCode != exitProvider {
 		t.Fatalf("expected provider-style failure exit %d, got %d", exitProvider, exitCode)
 	}
-	if !strings.Contains(stdout.String(), "falharam") {
+	if !strings.Contains(stdout.String(), "reprovados") {
 		t.Fatalf("expected failure summary in stdout, got %q", stdout.String())
 	}
 }
@@ -1655,7 +1655,7 @@ func TestEnsureFeatureBranchRefusesWhenNothingToPublish(t *testing.T) {
 			return qggit.BranchResult{Branch: options.Name}, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "no changes to publish") {
+	if err == nil || !strings.Contains(err.Error(), "nada para publicar") {
 		t.Fatalf("expected a no-changes-to-publish error, got %v", err)
 	}
 	if createBranchCalled {
@@ -1692,7 +1692,7 @@ func TestEnsureFeatureBranchRefusesDirtyWorkingTree(t *testing.T) {
 			return qggit.BranchResult{Branch: options.Name}, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+	if err == nil || !strings.Contains(err.Error(), "mudanças não registradas") {
 		t.Fatalf("expected an uncommitted-changes error, got %v", err)
 	}
 	if createBranchCalled {
@@ -1730,7 +1730,7 @@ func TestEnsureFeatureBranchFailsWhenAheadCountUnknown(t *testing.T) {
 			return qggit.BranchResult{Branch: options.Name}, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "cannot determine whether HEAD is ahead") {
+	if err == nil || !strings.Contains(err.Error(), "se HEAD está à frente") {
 		t.Fatalf("expected an ahead-count-unknown error, got %v", err)
 	}
 	if createBranchCalled {
@@ -1766,7 +1766,7 @@ func TestEnsureFeatureBranchFailsWhenUnbornCheckErrors(t *testing.T) {
 			return qggit.BranchResult{Branch: options.Name}, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "cannot determine whether HEAD is ahead") {
+	if err == nil || !strings.Contains(err.Error(), "se HEAD está à frente") {
 		t.Fatalf("expected an ahead-count-unknown error, got %v", err)
 	}
 	if createBranchCalled {
@@ -1804,7 +1804,7 @@ func TestEnsureFeatureBranchRefusesUnbornRemote(t *testing.T) {
 			return qggit.BranchResult{Branch: options.Name}, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "no branches yet") || !strings.Contains(err.Error(), "--yes") {
+	if err == nil || !strings.Contains(err.Error(), "ainda não tem branches") || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("expected unborn-remote refuse error mentioning --yes, got %v", err)
 	}
 	if !isUnbornRemoteCalled {
@@ -2262,7 +2262,7 @@ func TestEnsureFeatureBranchFailsClosedWhenTrackingRefCannotBeRefreshed(t *testi
 			return qggit.BranchResult{Branch: options.Name}, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "cannot determine whether HEAD is ahead") {
+	if err == nil || !strings.Contains(err.Error(), "se HEAD está à frente") {
 		t.Fatalf("expected a fail-closed error when the tracking ref could not be refreshed, got %v", err)
 	}
 	if createBranchCalled {
@@ -2283,7 +2283,7 @@ func TestEnsureFeatureBranchErrorsWhenRemoteCheckFails(t *testing.T) {
 			return false, errors.New("remote unreachable")
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "cannot check whether") {
+	if err == nil || !strings.Contains(err.Error(), "não foi possível verificar se") {
 		t.Fatalf("expected a clear remote-check error, got %v", err)
 	}
 }
@@ -2384,7 +2384,7 @@ func TestEnsureFeatureBranchRollsBackWhenDefaultRestoreFails(t *testing.T) {
 			return nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "restore default branch") {
+	if err == nil || !strings.Contains(err.Error(), "restaurar a branch padrão") {
 		t.Fatalf("expected restore error, got %v", err)
 	}
 	if deletedBranch != "user/readme-md" {
@@ -2419,7 +2419,7 @@ func TestEnsureFeatureBranchReportsRollbackFailureWhenDeleteAlsoFails(t *testing
 		t.Fatal("expected dual-failure error, got nil")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "restore default branch") || !strings.Contains(msg, "rollback of user/readme-md also failed") {
+	if !strings.Contains(msg, "restaurar a branch padrão") || !strings.Contains(msg, "rollback de user/readme-md também falhou") {
 		t.Fatalf("expected restore+rollback error, got %v", err)
 	}
 	if !strings.Contains(msg, "cannot delete branch") {
@@ -2461,7 +2461,7 @@ func TestEnsureFeatureBranchPreservesBranchOnCompareAndSwapConflict(t *testing.T
 	if deleteCalled {
 		t.Fatal("compare-and-swap conflict must not delete the generated branch: it owns the user's commits")
 	}
-	if !strings.Contains(err.Error(), "preserved") {
+	if !strings.Contains(err.Error(), "preservada") {
 		t.Fatalf("expected the error to report the branch was preserved, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "user/readme-md") {
@@ -2630,7 +2630,7 @@ func TestEnsureFeatureBranchResolvesRestoreTipToCommit(t *testing.T) {
 			upstreamBranch: "main",
 			tipErr:         errors.New("remote has no branch main to restore to"),
 			wantErr:        true,
-			errContains:    "cannot resolve restore tip",
+			errContains:    "referência de restauração",
 		},
 	}
 
@@ -2717,7 +2717,7 @@ func TestEnsureFeatureBranchUnbornDestinationMatrix(t *testing.T) {
 			defaultRemote:   "origin",
 			unbornRemotes:   map[string]bool{"backup": true, "origin": false},
 			wantErr:         true,
-			errContains:     "remote backup has no branches yet",
+			errContains:     "remoto backup ainda não tem branches",
 		},
 		{
 			name:            "SourceUpstreamUnbornRefuses",
@@ -2725,7 +2725,7 @@ func TestEnsureFeatureBranchUnbornDestinationMatrix(t *testing.T) {
 			defaultRemote:   "origin",
 			unbornRemotes:   map[string]bool{"origin": true},
 			wantErr:         true,
-			errContains:     "remote origin has no branches yet",
+			errContains:     "remoto origin ainda não tem branches",
 		},
 		{
 			name:            "PopulatedDestinationAndSourceAllows",
@@ -2892,7 +2892,7 @@ func TestResolveBranchPushPlan(t *testing.T) {
 				return qggit.ChangeSummary{Clean: false}, nil
 			},
 		})
-		if err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		if err == nil || !strings.Contains(err.Error(), "mudanças não registradas") {
 			t.Fatalf("expected dirty working tree error, got %v", err)
 		}
 	})
@@ -3068,7 +3068,7 @@ func TestRunChangesBareRemotePushThenPRUsable(t *testing.T) {
 	if exitCode == exitSuccess {
 		t.Fatalf("expected unborn remote to refuse auto-branch, stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "no branches yet") {
+	if !strings.Contains(stderr.String(), "ainda não tem branches") {
 		t.Fatalf("expected unborn refuse message, got stderr=%q", stderr.String())
 	}
 

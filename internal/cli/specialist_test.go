@@ -257,7 +257,7 @@ func TestRunSpecialistEditRejectsSymlink(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("exitCode = %d, want usage; stderr=%s", exitCode, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "não edito arquivo symlink") {
+	if !strings.Contains(stderr.String(), "Não é possível editar um especialista que é symlink") {
 		t.Fatalf("expected symlink refusal, got %q", stderr.String())
 	}
 }
@@ -332,12 +332,12 @@ func TestRunSpecialistArgCountErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{args: []string{"specialist", "list", "extra"}, want: "não aceita argumentos de posição"},
+		{args: []string{"specialist", "list", "extra"}, want: "não aceita argumentos posicionais"},
 		{args: []string{"specialist", "show"}, want: "specialist show precisa do nome do especialista"},
 		{args: []string{"specialist", "create"}, want: "specialist create precisa do nome do especialista"},
 		{args: []string{"specialist", "delete"}, want: "specialist delete precisa do nome do especialista"},
 		{args: []string{"specialist", "edit"}, want: "specialist edit precisa do nome do especialista"},
-		{args: []string{"specialist", "path", "extra"}, want: "não aceita argumentos de posição"},
+		{args: []string{"specialist", "path", "extra"}, want: "não aceita argumentos posicionais"},
 	}
 	for _, tc := range tests {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {

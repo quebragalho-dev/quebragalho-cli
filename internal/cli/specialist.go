@@ -196,7 +196,7 @@ func validateSpecialistCommand(command string, remaining []string) error {
 	switch command {
 	case "list":
 		if len(remaining) != 0 {
-			return fmt.Errorf("specialist list não aceita argumentos de posição")
+			return fmt.Errorf("specialist list não aceita argumentos posicionais")
 		}
 	case "show":
 		if len(remaining) != 1 {
@@ -216,7 +216,7 @@ func validateSpecialistCommand(command string, remaining []string) error {
 		}
 	case "path":
 		if len(remaining) != 0 {
-			return fmt.Errorf("specialist path não aceita argumentos de posição")
+			return fmt.Errorf("specialist path não aceita argumentos posicionais")
 		}
 	default:
 		return fmt.Errorf("comando specialist desconhecido %q", command)
@@ -319,7 +319,7 @@ func runSpecialistDelete(paths specialist.Paths, name string, options specialist
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Especialista %s removido em %s\n", name, path); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Especialista %s removido de %s\n", name, path); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -344,7 +344,7 @@ func runSpecialistEdit(paths specialist.Paths, name string, options specialistOp
 		return writeAppError(stderr, err.Error(), exitCrash)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return writeExecUsageError(stderr, "não edito arquivo symlink de especialista: "+path)
+		return writeExecUsageError(stderr, "Não é possível editar um especialista que é symlink: "+path)
 	}
 	runEditor := deps.runEditor
 	if runEditor == nil {

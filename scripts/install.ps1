@@ -1,4 +1,5 @@
 [CmdletBinding()]
+# ASCII de proposito: o PowerShell 5.1 le .ps1 sem BOM como ANSI.
 param(
   [string]$Version = $env:QG_VERSION,
   [string]$Repository = $(if ($env:QG_REPO) { $env:QG_REPO } else { "quebragalho-dev/quebragalho-cli" }),

@@ -296,10 +296,10 @@ func parseHooksAddArgs(args []string) (hookAddOptions, bool, error) {
 		return options, false, execUsageError{"qg hooks add exige --event"}
 	}
 	if !hooks.IsValidEvent(options.def.Event) {
-		return options, false, execUsageError{fmt.Sprintf("--event %q inválido; valores válidos: beforeTool, afterTool, sessionStart, sessionEnd, specialistStart, specialistStop", options.def.Event)}
+		return options, false, execUsageError{fmt.Sprintf("valor inválido para --event: %q; valores válidos: beforeTool, afterTool, sessionStart, sessionEnd, specialistStart, specialistStop", options.def.Event)}
 	}
 	if strings.TrimSpace(options.def.Command) == "" {
-		return options, false, execUsageError{"qg hooks add requires --command"}
+		return options, false, execUsageError{"qg hooks add exige --command"}
 	}
 	if options.def.Args == nil {
 		options.def.Args = []string{}

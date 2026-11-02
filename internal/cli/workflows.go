@@ -425,7 +425,7 @@ func setWorktreeName(options *worktreeCommandOptions, value string) error {
 		return nil
 	}
 	if options.name != "" {
-		return execUsageError{"caminho da worktree informado mais de uma vez"}
+		return execUsageError{"nome da worktree informado mais de uma vez"}
 	}
 	options.name = name
 	return nil
@@ -743,23 +743,38 @@ func formatWorktreeResult(result worktrees.Result) string {
 		lines = append(lines, "commit: "+result.SourceCommit)
 	}
 	if result.Reused {
-		lines = append(lines, "reutilizada: true")
+		lines = append(lines, "reutilizada: sim")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// verifyStatusDisplay maps a machine status to its human label. The JSON
+// report keeps the raw values; only the text rendering translates.
+func verifyStatusDisplay(status verify.Status) string {
+	switch status {
+	case verify.StatusPass:
+		return "aprovado"
+	case verify.StatusFail:
+		return "reprovado"
+	case verify.StatusError:
+		return "erro"
+	default:
+		return string(status)
+	}
 }
 
 func formatVerifyReport(report verify.Report) string {
 	lines := []string{
 		"Verificação QG",
 		"raiz: " + report.Root,
-		fmt.Sprintf("resumo: %d no total, %d passaram, %d falharam, %d com erro", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
+		fmt.Sprintf("resumo: %d no total, %d aprovados, %d reprovados, %d com erro", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
 	}
 	if len(report.Results) == 0 {
 		lines = append(lines, "  (nenhuma verificação encontrada)")
 		return strings.Join(lines, "\n")
 	}
 	for _, result := range report.Results {
-		lines = append(lines, fmt.Sprintf("  [%s] %s - %s", result.Status, result.ID, strings.Join(result.Command, " ")))
+		lines = append(lines, fmt.Sprintf("  [%s] %s - %s", verifyStatusDisplay(result.Status), result.ID, strings.Join(result.Command, " ")))
 		if result.TestSummary != nil {
 			lines = append(lines, formatVerifyTestSummary(result.TestSummary))
 			for _, failure := range result.TestSummary.Failures {
@@ -781,7 +796,7 @@ func formatVerifyReport(report verify.Report) string {
 }
 
 func formatVerifyTestSummary(summary *testrunner.Summary) string {
-	line := fmt.Sprintf("    testes: %d no total, %d passaram, %d falharam", summary.Total, summary.Passed, summary.Failed)
+	line := fmt.Sprintf("    testes: %d no total, %d aprovados, %d reprovados", summary.Total, summary.Passed, summary.Failed)
 	if summary.Skipped > 0 {
 		line += fmt.Sprintf(", %d ignorados", summary.Skipped)
 	}
@@ -798,7 +813,7 @@ func formatVerifyLoopReport(report selfverify.Report) string {
 	lines = append(lines,
 		fmt.Sprintf("tentativas: %d", len(report.Attempts)),
 		"parada: "+string(report.StopReason),
-		fmt.Sprintf("resumo: %d no total, %d passaram, %d falharam, %d com erro", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
+		fmt.Sprintf("resumo: %d no total, %d aprovados, %d reprovados, %d com erro", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
 	)
 	for _, attempt := range report.Attempts {
 		status := "falhou"
@@ -1241,7 +1256,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 		targetRemote := firstNonEmptyString(requestedRemote, remote)
 		exists, existsErr := deps.remoteHasBranch(ctx, workspaceRoot, targetRemote, currentBranch)
 		if existsErr != nil {
-			return branchPushPlan{}, fmt.Errorf("cannot check whether %s already exists on remote %s: %w", currentBranch, targetRemote, existsErr)
+			return branchPushPlan{}, fmt.Errorf("não foi possível verificar se %s já existe no remoto %s: %w", currentBranch, targetRemote, existsErr)
 		}
 		return branchPushPlan{
 			ShouldBranch:           false,
@@ -1256,10 +1271,10 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	// them, so refuse until the tree is clean (commit or stash first).
 	workingTree, err := deps.inspectChanges(ctx, qggit.InspectOptions{Cwd: workspaceRoot})
 	if err != nil {
-		return branchPushPlan{}, fmt.Errorf("failed to inspect working tree: %w", err)
+		return branchPushPlan{}, fmt.Errorf("falha ao inspecionar a árvore de trabalho: %w", err)
 	}
 	if !workingTree.Clean {
-		return branchPushPlan{}, fmt.Errorf("working tree has uncommitted changes; commit or stash them before pushing from the default branch")
+		return branchPushPlan{}, fmt.Errorf("há mudanças não registradas; faça commit ou stash antes de publicar a partir da branch padrão")
 	}
 
 	// Capture the source default branch's own upstream before refreshing or
@@ -1300,7 +1315,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	pushRemote := firstNonEmptyString(requestedRemote, remote)
 	if deps.isUnbornRemote != nil {
 		if unbornDest, unbornDestErr := deps.isUnbornRemote(ctx, workspaceRoot, pushRemote); unbornDestErr == nil && unbornDest {
-			return branchPushPlan{}, fmt.Errorf("remote %s has no branches yet; push the initial default branch first with --yes (`qg changes push --yes`), then use auto-branching for subsequent work", pushRemote)
+			return branchPushPlan{}, fmt.Errorf("o remoto %s ainda não tem branches; publique a branch padrão inicial primeiro com --yes (`qg changes push --yes`) e use auto-branch nos próximos", pushRemote)
 		}
 	}
 
@@ -1320,16 +1335,16 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 			unbornRemote, unbornErr = deps.isUnbornRemote(ctx, workspaceRoot, trackingRemote)
 		}
 		if unbornErr == nil && unbornRemote {
-			return branchPushPlan{}, fmt.Errorf("remote %s has no branches yet; push the initial default branch first with --yes (`qg changes push --yes`), then use auto-branching for subsequent work", trackingRemote)
+			return branchPushPlan{}, fmt.Errorf("o remoto %s ainda não tem branches; publique a branch padrão inicial primeiro com --yes (`qg changes push --yes`) e use auto-branch nos próximos", trackingRemote)
 		}
 		cause := aheadErr
 		if cause == nil {
 			cause = fetchErr
 		}
-		return branchPushPlan{}, fmt.Errorf("cannot determine whether HEAD is ahead of %s/%s: %w; fetch the remote tracking branch first", trackingRemote, trackingBranch, cause)
+		return branchPushPlan{}, fmt.Errorf("não deu para saber se HEAD está à frente de %s/%s: %w; atualize a branch de rastreamento do remoto primeiro", trackingRemote, trackingBranch, cause)
 	}
 	if ahead == 0 {
-		return branchPushPlan{}, fmt.Errorf("no changes to publish: HEAD is not ahead of %s/%s; commit your work before pushing", trackingRemote, trackingBranch)
+		return branchPushPlan{}, fmt.Errorf("nada para publicar: HEAD não está à frente de %s/%s; faça commit do seu trabalho antes de publicar", trackingRemote, trackingBranch)
 	}
 
 	// Resolve the restore tip to a concrete commit before creating any branch.
@@ -1343,7 +1358,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	if deps.resolveRemoteBranchTip != nil {
 		tip, tipErr := deps.resolveRemoteBranchTip(ctx, workspaceRoot, trackingRemote, trackingBranch)
 		if tipErr != nil {
-			return branchPushPlan{}, fmt.Errorf("cannot resolve restore tip for %s/%s: %w", trackingRemote, trackingBranch, tipErr)
+			return branchPushPlan{}, fmt.Errorf("não foi possível resolver a referência de restauração para %s/%s: %w", trackingRemote, trackingBranch, tipErr)
 		}
 		restoreTip = tip
 	}
@@ -1358,7 +1373,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	baseRef := restoreTip
 	summary, err := deps.inspectChanges(ctx, qggit.InspectOptions{Cwd: workspaceRoot, BaseRef: baseRef, MaxDiffBytes: opts.MaxDiffBytes})
 	if err != nil {
-		return branchPushPlan{}, fmt.Errorf("failed to inspect changes: %w", err)
+		return branchPushPlan{}, fmt.Errorf("falha ao inspecionar mudanças: %w", err)
 	}
 
 	slug := fallbackBranchSlug(summary)
@@ -1468,7 +1483,7 @@ func ensureFeatureBranch(ctx context.Context, stdout io.Writer, workspaceRoot st
 	name := qggit.BuildBranchName(deps.currentGitUser(ctx, workspaceRoot), plan.Slug)
 	result, err := deps.createBranch(ctx, qggit.BranchOptions{Cwd: workspaceRoot, Name: name, Remote: plan.PushRemote})
 	if err != nil {
-		return "", "", false, fmt.Errorf("failed to create branch: %w", err)
+		return "", "", false, fmt.Errorf("falha ao criar a branch: %w", err)
 	}
 	// The normal flow commits on the default branch first, then creates the
 	// feature branch at the same HEAD. Without moving the original default
@@ -1487,16 +1502,16 @@ func ensureFeatureBranch(ctx context.Context, stdout io.Writer, workspaceRoot st
 			// work to recover from a race we can simply report. Keep the
 			// branch and let the user reconcile the default branch.
 			if errors.Is(err, qggit.ErrCompareAndSwapConflict) {
-				return "", "", false, fmt.Errorf("failed to restore default branch %s to %s after auto-branching: %w; generated branch %s was preserved because the default branch changed concurrently", plan.CurrentBranch, plan.RestoreTip, err, result.Branch)
+				return "", "", false, fmt.Errorf("falha ao restaurar a branch padrão %s para %s após auto-branch: %w; a branch gerada %s foi preservada porque a branch padrão mudou ao mesmo tempo", plan.CurrentBranch, plan.RestoreTip, err, result.Branch)
 			}
 			var rollbackErr error
 			if deps.deleteBranch != nil {
 				rollbackErr = deps.deleteBranch(ctx, workspaceRoot, plan.CurrentBranch, result.Branch)
 			}
 			if rollbackErr != nil {
-				return "", "", false, fmt.Errorf("failed to restore default branch %s to %s after auto-branching: %w; rollback of %s also failed: %v", plan.CurrentBranch, plan.RestoreTip, err, result.Branch, rollbackErr)
+				return "", "", false, fmt.Errorf("falha ao restaurar a branch padrão %s para %s após auto-branch: %w; o rollback de %s também falhou: %v", plan.CurrentBranch, plan.RestoreTip, err, result.Branch, rollbackErr)
 			}
-			return "", "", false, fmt.Errorf("failed to restore default branch %s to %s after auto-branching: %w", plan.CurrentBranch, plan.RestoreTip, err)
+			return "", "", false, fmt.Errorf("falha ao restaurar a branch padrão %s para %s após auto-branch: %w", plan.CurrentBranch, plan.RestoreTip, err)
 		}
 	}
 	if !opts.JSONMode {

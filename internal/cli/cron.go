@@ -204,7 +204,7 @@ func cronSimple(store *cron.Store, args []string, stdout io.Writer, stderr io.Wr
 		fmt.Fprintln(stderr, err.Error())
 		return exitUsage
 	}
-	fmt.Fprintf(stdout, "tarefa de cron %s %s.\n", args[0], verb)
+	fmt.Fprintf(stdout, "Tarefa de cron %s %s.\n", args[0], verb)
 	return exitSuccess
 }
 
@@ -223,7 +223,7 @@ func cronSetStatus(store *cron.Store, args []string, stdout io.Writer, stderr io
 		fmt.Fprintln(stderr, err.Error())
 		return exitCrash
 	}
-	fmt.Fprintf(stdout, "tarefa de cron %s %s.\n", job.ID, verb)
+	fmt.Fprintf(stdout, "Tarefa de cron %s %s.\n", job.ID, verb)
 	return exitSuccess
 }
 

@@ -252,7 +252,7 @@ func Validate(manifest *Manifest) error {
 		return fmt.Errorf("invalid specialist name %q: use lowercase letters, numbers, and dashes", manifest.Metadata.Name)
 	}
 	if manifest.Metadata.Description == "" && manifest.Metadata.Extends == "" {
-		return fmt.Errorf("specialist %q requires a description", manifest.Metadata.Name)
+		return fmt.Errorf("especialista %q exige uma descrição", manifest.Metadata.Name)
 	}
 	if manifest.Metadata.Extends != "" && !namePattern.MatchString(manifest.Metadata.Extends) {
 		return fmt.Errorf("invalid base specialist name %q: use lowercase letters, numbers, and dashes", manifest.Metadata.Extends)

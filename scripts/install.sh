@@ -13,20 +13,20 @@ QG_GITHUB_BASE_URL="${QG_GITHUB_BASE_URL:-https://github.com}"
 
 usage() {
   cat <<'EOF'
-Install QG from GitHub Releases.
+Instala o QG a partir dos GitHub Releases.
 
-Usage:
-  scripts/install.sh [--version <version>] [--repo <owner/repo>] [--install-dir <path>]
+Uso:
+  scripts/install.sh [--version <versão>] [--repo <dono/repo>] [--install-dir <caminho>]
 
-Without a configured directory, an unwritable default falls back to a writable
-user directory, preferring candidates already in PATH.
+Sem pasta configurada, um padrão sem escrita cai para uma pasta do usuário com
+escrita, preferindo candidatas que já estão no PATH.
 
-Environment:
-  QG_VERSION          Release version or tag. Defaults to latest.
-  QG_REPO             GitHub repository. Defaults to quebragalho-dev/quebragalho-cli.
-  QG_INSTALL_DIR      Directory for the qg binary. Defaults to /usr/local/bin.
-  QG_GITHUB_API       GitHub API base URL. Defaults to https://api.github.com.
-  QG_GITHUB_BASE_URL  GitHub web base URL. Defaults to https://github.com.
+Ambiente:
+  QG_VERSION          Versão ou tag da release. Padrão: latest.
+  QG_REPO             Repositório no GitHub. Padrão: quebragalho-dev/quebragalho-cli.
+  QG_INSTALL_DIR      Pasta do binário qg. Padrão: /usr/local/bin.
+  QG_GITHUB_API       URL base da API do GitHub. Padrão: https://api.github.com.
+  QG_GITHUB_BASE_URL  URL base web do GitHub. Padrão: https://github.com.
 EOF
 }
 

@@ -39,7 +39,7 @@ func runSessions(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	switch command {
 	case "list":
 		if len(remaining) != 0 {
-			return writeExecUsageError(stderr, "sessions list não aceita argumentos de posição")
+			return writeExecUsageError(stderr, "sessions list não aceita argumentos posicionais")
 		}
 		return runSessionsList(store, options, stdout, stderr)
 	case "children":
@@ -219,7 +219,7 @@ func parseSessionKindFlag(value string) (sessions.SessionKind, error) {
 	case sessions.SessionKindFork, sessions.SessionKindChild, sessions.SessionKindSide, sessions.SessionKindSpecDraft, sessions.SessionKindSpecImpl:
 		return kind, nil
 	default:
-		return "", execUsageError{fmt.Sprintf("--kind %q inválida. Valores: fork, child, side, spec-draft ou spec-impl.", value)}
+		return "", execUsageError{fmt.Sprintf("valor inválido para --kind: %q. Valores: fork, child, side, spec-draft ou spec-impl.", value)}
 	}
 }
 

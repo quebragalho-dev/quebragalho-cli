@@ -58,12 +58,12 @@ function localControlHelperManifest(packageRoot) {
 
 // Mirrors internal/cli/observability.go parseDoctorArgs + writeDoctorHelp so the
 // wrapper's missing-binary doctor fallback matches the Go doctor CLI surface.
-const DOCTOR_HELP = `Usage:
-  qg doctor [flags]
+const DOCTOR_HELP = `Uso:
+  qg doctor [opções]
 
 Roda as verificações de saúde do backend Go para configuração e provedor.
 
-Flags:
+Opções:
       --json            Mostra o relatório em JSON
       --connectivity    Inclui a sondagem de conectividade do provedor quando disponível
   -h, --help            Mostra esta ajuda
@@ -94,15 +94,15 @@ function bunRecoveryParagraph() {
 function buildFromSourceParagraph() {
   return (
     'Se não há binário pré-compilado para esta plataforma, compile do código-fonte:\n' +
-    'https://github.com/quebragalho-dev/quebragalho-cli (go run ./cmd/qg, requires Go 1.26+).'
+    'https://github.com/quebragalho-dev/quebragalho-cli (go run ./cmd/qg, precisa de Go 1.26+).'
   );
 }
 
 function missingBinaryContextParagraph() {
   return (
-    'Normalmente o npm instala ele como dependência opcional de @quebragalho-dev/cli\n' +
+    'Normalmente o npm o instala como dependência opcional de @quebragalho-dev/cli\n' +
     `(@quebragalho-dev/cli-${process.platform}-${process.arch}), e o wrapper também\n` +
-    'consegue baixar ele do GitHub Release quando está faltando.'
+    'consegue baixá-lo do GitHub Release quando está faltando.'
   );
 }
 
@@ -159,7 +159,7 @@ function missingNativeDoctorJSONReport(postinstallScript) {
         id: 'runtime.go',
         label: 'Go runtime',
         status: 'fail',
-        message: 'Binário nativo do qg não encontrado ao lado do wrapper npm.',
+        message: 'Native qg binary is missing next to the npm wrapper.',
         details: {
           remedy: `node "${postinstallScript}"`,
         },

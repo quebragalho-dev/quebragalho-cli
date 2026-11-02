@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func TestRunUsageTextReport(t *testing.T) {
 		t.Fatalf("expected exit %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"2026-06-01", "1.800", "estimativa", "LOC líquido", "+100", "-30"} {
+	for _, want := range []string{"2026-06-01", "1.800", "estimativa", "LOC líquidas", "+100", "-30"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("usage report missing %q in:\n%s", want, output)
 		}
@@ -236,7 +237,10 @@ func TestRunUsageUnknownFlag(t *testing.T) {
 // value is rejected with exitUsage and the value-required error, matching the
 // --since validation style, rather than silently filtering to no session.
 func TestRunUsageEmptySessionRejected(t *testing.T) {
-	cases := []struct {
+	// The "=" form is validated by the usage command itself (pt-BR message).
+	// The spaced form goes through the shared nextFlagValue helper owned by
+	// PR5, so only the exit code is asserted for it — never the language.
+	equalsCases := []struct {
 		name string
 		args []string
 		flag string
@@ -244,10 +248,8 @@ func TestRunUsageEmptySessionRejected(t *testing.T) {
 	}{
 		{name: "session equals empty", args: []string{"usage", "report", "--session="}, flag: "--session", want: "--session precisa de um valor"},
 		{name: "session-id equals empty", args: []string{"usage", "report", "--session-id="}, flag: "--session-id", want: "--session-id precisa de um valor"},
-		{name: "session spaced empty", args: []string{"usage", "report", "--session", "   "}, flag: "--session", want: "--session requires a value"},
-		{name: "session-id spaced empty", args: []string{"usage", "report", "--session-id", ""}, flag: "--session-id", want: "--session-id requires a value"},
 	}
-	for _, tc := range cases {
+	for _, tc := range equalsCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -265,6 +267,22 @@ func TestRunUsageEmptySessionRejected(t *testing.T) {
 				t.Fatalf("%s: expected value-required error %q in stderr, got %q", tc.flag, tc.want, msg)
 			}
 		})
+	}
+	spacedCases := [][]string{
+		{"usage", "report", "--session", "   "},
+		{"usage", "report", "--session-id", ""},
+	}
+	for _, args := range spacedCases {
+		var stdout, stderr bytes.Buffer
+		exitCode := runWithDeps(args, &stdout, &stderr, appDeps{
+			newSessionStore: func() *sessions.Store {
+				return sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+			},
+			inspectChanges: stubInspectChanges(""),
+		})
+		if exitCode != exitUsage {
+			t.Fatalf("%v: expected exitUsage (%d), got %d (%q)", args, exitUsage, exitCode, stderr.String())
+		}
 	}
 }
 
@@ -377,11 +395,9 @@ func TestRunUsageInvalidSince(t *testing.T) {
 					t.Fatalf("--since %q: expected exitUsage (%d), got %d", tc.since, exitUsage, exitCode)
 				}
 				msg := stderr.String()
-				if !strings.Contains(msg, "inválido") {
-					t.Fatalf("--since %q: expected validation error in stderr, got %q", tc.since, msg)
-				}
-				if !strings.Contains(msg, "YYYY-MM-DD") {
-					t.Fatalf("--since %q: expected YYYY-MM-DD hint in stderr, got %q", tc.since, msg)
+				want := fmt.Sprintf("valor inválido para --since: %q. Use YYYY-MM-DD.", tc.since)
+				if !strings.Contains(msg, want) {
+					t.Fatalf("--since %q: expected validation error %q in stderr, got %q", tc.since, want, msg)
 				}
 			} else {
 				if exitCode != exitSuccess {

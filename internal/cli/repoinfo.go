@@ -83,22 +83,44 @@ func parseRepoInfoArgs(args []string) (repoInfoOptions, bool, error) {
 
 const repoInfoTopLanguages = 8
 
+// repoInfoLabelWidth aligns every row label to the same column. Verified
+// against real `qg repo-info` output (see TestFormatRepoInfoText).
+const repoInfoLabelWidth = 21
+
+func repoInfoRow(label, value string) string {
+	return fmt.Sprintf("%-*s %s\n", repoInfoLabelWidth, label+":", value)
+}
+
+func repoInfoFileCountLabel(n int) string {
+	if n == 1 {
+		return "1 arquivo"
+	}
+	return fmt.Sprintf("%d arquivos", n)
+}
+
+func repoInfoCommitLabel(n int) string {
+	if n == 1 {
+		return "1 commit"
+	}
+	return fmt.Sprintf("%d commits", n)
+}
+
 func formatRepoInfo(info repoinfo.Info) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Arquivos:     %d\n", info.FileCount)
-	fmt.Fprintf(&b, "Pastas:       %d (profundidade máx. %d)\n", info.DirectoryCount, info.MaxDepth)
-	fmt.Fprintf(&b, "LOC estimada: %d\n", info.LOCEstimate)
+	b.WriteString(repoInfoRow("Arquivos", fmt.Sprint(info.FileCount)))
+	b.WriteString(repoInfoRow("Pastas", fmt.Sprintf("%d (profundidade máx. %d)", info.DirectoryCount, info.MaxDepth)))
+	b.WriteString(repoInfoRow("LOC estimada", fmt.Sprint(info.LOCEstimate)))
 	if info.CommitCount != nil {
-		fmt.Fprintf(&b, "Commits:      %d\n", *info.CommitCount)
+		b.WriteString(repoInfoRow("Commits", fmt.Sprint(*info.CommitCount)))
 	}
 	if info.BranchCount != nil {
-		fmt.Fprintf(&b, "Branches:     %d\n", *info.BranchCount)
+		b.WriteString(repoInfoRow("Branches", fmt.Sprint(*info.BranchCount)))
 	}
 	if info.TagCount != nil {
-		fmt.Fprintf(&b, "Tags:         %d\n", *info.TagCount)
+		b.WriteString(repoInfoRow("Tags", fmt.Sprint(*info.TagCount)))
 	}
 	if info.PrimaryLanguage != "" {
-		fmt.Fprintf(&b, "Linguagem principal: %s\n", info.PrimaryLanguage)
+		b.WriteString(repoInfoRow("Linguagem principal", info.PrimaryLanguage))
 	}
 	if len(info.Languages) > 0 {
 		b.WriteString("Linguagens:\n")
@@ -109,34 +131,38 @@ func formatRepoInfo(info repoinfo.Info) string {
 			shown = shown[:repoInfoTopLanguages]
 		}
 		for _, lang := range shown {
-			fmt.Fprintf(&b, "  %-14s ~%d LOC  (%d arquivos)\n", lang.Name, lang.LOCEstimate, lang.FileCount)
+			fmt.Fprintf(&b, "  %-14s ~%d LOC  (%s)\n", lang.Name, lang.LOCEstimate, repoInfoFileCountLabel(lang.FileCount))
 		}
 		if extra > 0 {
 			fmt.Fprintf(&b, "  +%d outras\n", extra)
 		}
 	}
-	fmt.Fprintf(&b, "Pasta de trabalho: %s", info.WorkspaceType)
-	if info.WorkspacePackageCount > 0 {
-		fmt.Fprintf(&b, " (%d pacotes)", info.WorkspacePackageCount)
+	workspaceType := info.WorkspaceType
+	if workspaceType == "none" {
+		workspaceType = "nenhuma"
 	}
-	b.WriteString("\n")
+	workspaceValue := workspaceType
+	if info.WorkspacePackageCount > 0 {
+		workspaceValue += fmt.Sprintf(" (%d pacotes)", info.WorkspacePackageCount)
+	}
+	b.WriteString(repoInfoRow("Pasta de trabalho", workspaceValue))
 	writeRepoInfoList(&b, "Ferramentas de build", info.BuildTools)
 	writeRepoInfoList(&b, "Ferramentas de teste", info.TestTools)
 	writeRepoInfoList(&b, "CI/CD", info.CICD)
 	if info.Branch != "" {
-		fmt.Fprintf(&b, "Branch:       %s\n", info.Branch)
+		b.WriteString(repoInfoRow("Branch", info.Branch))
 	}
 	if info.RemoteURL != "" {
-		fmt.Fprintf(&b, "Remoto:       %s\n", info.RemoteURL)
+		b.WriteString(repoInfoRow("Remoto", info.RemoteURL))
 	}
 	if info.AgeDays != nil {
-		fmt.Fprintf(&b, "Idade:        %d dias\n", *info.AgeDays)
+		b.WriteString(repoInfoRow("Idade", fmt.Sprintf("%d dias", *info.AgeDays)))
 	}
 	if info.Contributors90d != nil {
-		fmt.Fprintf(&b, "Contribuidores: %d (últimos 90d)\n", *info.Contributors90d)
+		b.WriteString(repoInfoRow("Contribuidores", fmt.Sprintf("%d (últimos 90d)", *info.Contributors90d)))
 	}
 	if info.CommitVelocity30d != nil {
-		fmt.Fprintf(&b, "Ritmo:         %d commits (últimos 30d)\n", *info.CommitVelocity30d)
+		b.WriteString(repoInfoRow("Ritmo", fmt.Sprintf("%s (últimos 30d)", repoInfoCommitLabel(*info.CommitVelocity30d))))
 	}
 	return b.String()
 }
@@ -147,7 +173,7 @@ func writeRepoInfoList(b *strings.Builder, label string, items []string) {
 	}
 	sorted := append([]string{}, items...)
 	sort.Strings(sorted)
-	fmt.Fprintf(b, "%-13s %s\n", label+":", strings.Join(sorted, ", "))
+	fmt.Fprintf(b, "%-*s %s\n", repoInfoLabelWidth, label+":", strings.Join(sorted, ", "))
 }
 
 func writeRepoInfoHelp(w io.Writer) {
