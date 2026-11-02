@@ -102,7 +102,7 @@ func (m model) fileViewNavBar(width int) string {
 	}
 	left := qgTheme.accent.Render("← "+truncatePathLeft(m.fileView.path, maxInt(8, width/2))) +
 		qgTheme.faint.Render("  ·  "+mode)
-	right := qgTheme.faint.Render(other + " · esc volta")
+	right := qgTheme.faint.Render(other + " · esc voltar")
 	return fitStyledLine(joinHeaderLine(left, right, width), width)
 }
 

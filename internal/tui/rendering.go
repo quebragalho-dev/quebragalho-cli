@@ -679,7 +679,7 @@ func reasoningHeaderParts(_ string, expanded bool, running bool, elapsed time.Du
 	}
 	label := "Pensamento"
 	if elapsed > 0 {
-		label = fmt.Sprintf("Pensamento por %s", formatElapsedSeconds(elapsed))
+		label = fmt.Sprintf("Pensou por %s", formatElapsedSeconds(elapsed))
 	}
 	return icon, label
 }
@@ -2846,7 +2846,7 @@ func bashCardBody(command string, detail string, width int, opts cardRenderOptio
 		case strings.HasPrefix(line, "exit_code: "):
 			code := strings.TrimPrefix(line, "exit_code: ")
 			if code != "0" {
-				footer = qgTheme.red.Render("saída " + code)
+				footer = qgTheme.red.Render("código " + code)
 			}
 		default:
 			style := qgTheme.muted
@@ -2879,7 +2879,7 @@ func execCommandCardBody(command string, detail string, width int, opts cardRend
 			} else if interrupted {
 				footer = qgTheme.green.Render("interrompido")
 			} else {
-				footer = qgTheme.red.Render("saída " + code)
+				footer = qgTheme.red.Render("código " + code)
 			}
 		case strings.HasPrefix(line, "session_id: "):
 			footer = qgTheme.faint.Render("sessão " + strings.TrimSpace(strings.TrimPrefix(line, "session_id: ")))

@@ -42,7 +42,7 @@ func TestPlanStepDetailByStatus(t *testing.T) {
 		t.Error("no provider: openPlanStepDetail should not dispatch a model call")
 	}
 	done := lastCardText(m)
-	for _, want := range []string{"Concluído em 1m 20s.", "Concluído: 1 arquivo alterado, 1 comando.", "O que fizemos", "wired the click handler", "Arquivos alterados (1)", "Comandos executados (1)", "o que foi feito neste passo"} {
+	for _, want := range []string{"Concluído em 1m 20s.", "Concluído: 1 arquivo alterado, 1 comando.", "O que foi feito", "wired the click handler", "Arquivos alterados (1)", "Comandos executados (1)", "o que foi feito neste passo"} {
 		if !strings.Contains(done, want) {
 			t.Errorf("completed card missing %q\n---\n%s", want, done)
 		}
@@ -51,7 +51,7 @@ func TestPlanStepDetailByStatus(t *testing.T) {
 	// Pending step -> "what we will do".
 	m, _ = m.openPlanStepDetail(1)
 	pending := lastCardText(m)
-	for _, want := range []string{"O que faremos", "o que este passo fará", "cover the new flag", "fila"} {
+	for _, want := range []string{"O que será feito", "o que este passo fará", "cover the new flag", "fila"} {
 		if !strings.Contains(pending, want) {
 			t.Errorf("pending card missing %q\n---\n%s", want, pending)
 		}

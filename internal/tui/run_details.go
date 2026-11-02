@@ -60,6 +60,6 @@ func (m model) runDetailsLines(width int) []string {
 	if len(lines) == 0 {
 		return []string{qgTheme.faint.Render("Sem detalhes de execução no momento.")}
 	}
-	lines = append(lines, "", qgTheme.faint.Render("Esc ou Ctrl+B fecha"))
+	lines = append(lines, "", qgTheme.faint.Render("Esc ou Ctrl+B fechar"))
 	return lines
 }

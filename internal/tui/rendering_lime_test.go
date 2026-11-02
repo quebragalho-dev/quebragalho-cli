@@ -684,13 +684,13 @@ func TestReasoningRowShowsElapsedWhenKnown(t *testing.T) {
 	}
 
 	collapsed := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if !strings.Contains(collapsed, "▸ Pensamento por 2.3s") {
+	if !strings.Contains(collapsed, "▸ Pensou por 2.3s") {
 		t.Fatalf("collapsed reasoning row missing elapsed:\n%s", collapsed)
 	}
 
 	row.expanded = true
 	expanded := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if !strings.Contains(expanded, "▾ Pensamento por 2.3s") {
+	if !strings.Contains(expanded, "▾ Pensou por 2.3s") {
 		t.Fatalf("expanded reasoning row missing elapsed:\n%s", expanded)
 	}
 }
@@ -1111,7 +1111,7 @@ func TestBashCardBodyShowsCommandOutputAndExit(t *testing.T) {
 	row := transcriptRow{kind: rowToolResult, id: "call_1", tool: "bash", status: tools.StatusError, detail: detail}
 	rc := buildRowContext([]transcriptRow{{kind: rowToolCall, id: "call_1", tool: "bash", detail: "go build ./..."}})
 	got := plainRender(t, m.renderRow(row, 80, rc))
-	for _, want := range []string{"Executado", "go build ./...", "ok build", "warning: slow", "saída 1"} {
+	for _, want := range []string{"Executado", "go build ./...", "ok build", "warning: slow", "código 1"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("bash card = %q, missing %q", got, want)
 		}
@@ -1198,7 +1198,7 @@ func TestExecCommandCardBodyShowsSessionAndExit(t *testing.T) {
 
 	interrupted := transcriptRow{kind: rowToolResult, id: "call_3", tool: "write_stdin", status: tools.StatusOK, detail: "output:\n127.0.0.1 GET / HTTP/1.1 200\ninterrupted: true\nexit_code: -1"}
 	got = plainRender(t, m.renderRow(interrupted, 90, buildRowContext(nil)))
-	if !strings.Contains(got, "interrompido") || strings.Contains(got, "saída -1") {
+	if !strings.Contains(got, "interrompido") || strings.Contains(got, "código -1") {
 		t.Fatalf("interrupted write_stdin card = %q", got)
 	}
 }
@@ -1226,7 +1226,7 @@ func TestLocalControlCardsUseFriendlyCompactLabels(t *testing.T) {
 			t.Fatalf("browser_snapshot card missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "browser_snapshot") || strings.Contains(got, "click to expand") || strings.Contains(got, "button \"Item\"") {
+	if strings.Contains(got, "browser_snapshot") || strings.Contains(got, "clique para expandir") || strings.Contains(got, "button \"Item\"") {
 		t.Fatalf("browser_snapshot card should stay compact and friendly:\n%s", got)
 	}
 

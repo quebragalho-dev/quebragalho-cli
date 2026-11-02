@@ -149,7 +149,7 @@ func TestFileViewSwapsTranscriptBody(t *testing.T) {
 		t.Fatalf("file view should swap the body to a single block item, got %d items", len(items))
 	}
 	nav := plainRender(t, m.pinnedTitleBar(m.chatColumnWidth()))
-	if !strings.Contains(nav, "sidebar.go") || !strings.Contains(nav, "esc volta") {
+	if !strings.Contains(nav, "sidebar.go") || !strings.Contains(nav, "esc voltar") {
 		t.Fatalf("nav bar should show the path and key hints: %q", nav)
 	}
 	if lines := len(viewLines(m.fileViewNavBar(m.chatColumnWidth()))); lines != 1 {
@@ -157,7 +157,7 @@ func TestFileViewSwapsTranscriptBody(t *testing.T) {
 	}
 
 	// The whole view renders without panicking in both modes and shows the nav.
-	if view := plainRender(t, m.transcriptView()); !strings.Contains(view, "esc volta") {
+	if view := plainRender(t, m.transcriptView()); !strings.Contains(view, "esc voltar") {
 		t.Fatal("transcript view should carry the file nav bar")
 	}
 }

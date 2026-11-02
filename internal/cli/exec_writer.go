@@ -322,7 +322,7 @@ func (writer *execEventWriter) permission(event agent.PermissionEvent) {
 func humanPermissionAction(action agent.PermissionAction) string {
 	switch action {
 	case agent.PermissionActionPrompt:
-		return "pedido"
+		return "aguardando aprovação"
 	case agent.PermissionActionAllow:
 		return "permitida"
 	case agent.PermissionActionDeny:
@@ -345,7 +345,7 @@ func humanPermissionReason(reason string) string {
 	case sandbox.ReasonEscalatedSandboxRequired:
 		return "Este comando precisa rodar fora do ambiente isolado."
 	case "sandbox output is limited to the sandbox PID namespace; host/global state requires approval":
-		return "O estado de host/global fica oculto pelo ambiente isolado, então este comando precisa rodar fora dele."
+		return "O ambiente isolado esconde o estado global do sistema, então este comando precisa rodar fora dele."
 	case "workspace write is allowed":
 		return "A escrita na pasta de trabalho é permitida."
 	default:

@@ -283,7 +283,7 @@ func (m model) planStepOutcomeLines(step planStep, nChanges, nCommands int) []st
 		}
 		return []string{head, planWorkTally("Até agora", nChanges, nCommands)}
 	default: // pending
-		return []string{"Ainda não começou — veja abaixo o que este passo fará."}
+		return []string{"Ainda não começou; veja o que fará."}
 	}
 }
 
@@ -293,11 +293,11 @@ func (m model) planStepOutcomeLines(step planStep, nChanges, nCommands int) []st
 func planStepExplanationTitle(status string) string {
 	switch status {
 	case "completed", "failed":
-		return "O que fizemos"
+		return "O que foi feito"
 	case "in_progress":
-		return "O que estamos fazendo"
+		return "O que está sendo feito"
 	default:
-		return "O que faremos"
+		return "O que será feito"
 	}
 }
 
@@ -449,7 +449,7 @@ func planStepDigestItems(items []planStepWork, max int) []string {
 // recorded yet. verb frames it for the step's state ("Concluído", "Até agora", …).
 func planWorkTally(verb string, nChanges, nCommands int) string {
 	if nChanges == 0 && nCommands == 0 {
-		return "Nenhuma alteração de arquivo ou comando registrada ainda."
+		return "Sem alterações ou comandos ainda."
 	}
 	var parts []string
 	if nChanges > 0 {
