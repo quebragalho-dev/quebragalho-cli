@@ -940,7 +940,7 @@ Opções:
       --draft             Cria o PR como rascunho
       --yes               Confirma o push para uma branch padrão/protegida
   -a, --auto              Usa o LLM: commit gera a mensagem, push/pr nomeiam
-                          a branch criada (envia o diff ao provedor)
+                          a branch autocriada (envia o diff ao provedor)
       --json              Imprime a saída em JSON
   -h, --help              Mostra esta ajuda
 `)

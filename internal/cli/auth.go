@@ -384,9 +384,10 @@ Comandos:
   logout <provider>                               Apaga o login de um provedor
   status [provider]                               Mostra login e expiração
                                                   (nunca o token)
-  refresh <provider> [--watch]                    Atualiza o token (--watch
-                                                  mantém atualizado)
-  reset --confirm [--json]                        Limpa logins e tokens MCP
+  refresh <provider> [--watch]                    Força a atualização do token
+                                                  (--watch mantém atualizado)
+  reset --confirm [--json]                        Limpa todos os logins OAuth
+                                                  e tokens MCP compartilhados
                                                   (repara stores corrompidos)
 
 O login OAuth saiu: rode `+"`qg login`"+` para salvar a chave — QG_API_KEY

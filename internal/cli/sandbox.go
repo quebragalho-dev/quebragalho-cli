@@ -645,7 +645,7 @@ func writeSandboxHelp(w io.Writer) error {
 Comandos:
   policy      Mostra a política ativa e o backend da plataforma
   setup       Executa a configuração nativa do ambiente isolado da plataforma
-  check       Avalia a decisão para uma ação hipotética
+  check       Avalia o ambiente isolado para uma ação hipotética de ferramenta
   grants      Gerencia permissões persistentes do ambiente isolado
 
 `)

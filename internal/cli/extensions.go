@@ -564,7 +564,8 @@ func writePluginsHelp(w io.Writer) error {
 Comandos:
   list                 Lista plugins locais do QG
   info <id>            Mostra detalhes do plugin e metadados do lockfile
-  add <git-url|path>   Instala plugin (manifesto validado; plugins.lock)
+  add <git-url|path>   Instala plugin (manifesto validado, fixado
+                       em plugins.lock)
   remove <id>          Remove um plugin instalado e sua entrada do lockfile
 `)
 	return err

@@ -1399,7 +1399,7 @@ Uso:
 Comandos:
   exec        Executa uma mensagem única no runtime do agente em Go
   completions Gera scripts de completion para o shell
-  daemon      Gerencia o daemon local (start/stop/status/run/attach)
+  daemon      Gerencia o worker em segundo plano (start/stop/status/run/attach)
   setup       Guia a configuração inicial do provedor
   login       Salva e valida sua chave de API do Quebra Galho
   logout      Remove as credenciais salvas do Quebra Galho
@@ -1409,7 +1409,7 @@ Comandos:
   key         Mostra o perfil ativo da chave de API (alias: whoami)
   whoami      Alias de key
   providers   Inspeciona os perfis de provedor configurados
-  doctor      Verifica a saúde da configuração e do provedor
+  doctor      Verifica a saúde do backend de configuração e do provedor
   context     Relata o uso do orçamento de contexto da pasta de trabalho
   repo-map    Monta um mapa determinístico do repositório para o agente
   search      Pesquisa eventos de sessão locais do QG
@@ -1449,7 +1449,8 @@ Opções:
       --no-browser               Mostra o link de login inicial sem abrir
                                  o navegador (ou defina QG_NO_BROWSER=1)
       --dangerously-skip-permissions
-                                 Abre o shell sem confirmação (escape !)
+                                 Abre o shell interativo sem confirmação
+                                 (ativa o escape ! do shell)
       --skip-permissions-unsafe  Alias de --dangerously-skip-permissions
 `)
 	return err
@@ -1679,7 +1680,8 @@ Executa uma mensagem única no runtime do agente em Go.
 
 Opções:
   -f, --file <path>                  Lê o texto da mensagem de um arquivo
-      --image <path>                 Anexa imagem (repetível; modelos de visão)
+      --image <path>                 Anexa imagem local (repetível; só modelos
+                                     de visão)
       --add-dir <path>               Permite escrita em pasta extra (repetível)
       --mode <name>                  Aplica um preset (smart, deep, fast,
                                      large, precise); flags explícitas vencem
@@ -1695,13 +1697,14 @@ Opções:
       --plan                         Modo só leitura: escrita e shell ocultas
       --permission-mode <mode>       Permissão direta (plan, spec-draft, auto,
                                      member, ask, unsafe). Vale mais que --auto;
-                                     prefira --plan / --auto. Para filhos de
-                                     especialista/swarm.
+                                     prefira --plan / --auto no uso interativo.
+                                     Para filhos de especialista/swarm.
       --max-turns <number>           Troca o máximo de turnos do loop do agente
       --exec-profile <name>          Perfil de execução (balanced, fast,
                                      thorough): postura do loop (turnos,
-                                     esforço, correção, escalação); combina com
-                                     --mode e flags explícitas vencem
+                                     esforço, autocorreção, escalação); combina
+                                     com --mode (que escolhe o modelo); flags
+                                     explícitas vencem
       --auto <low|medium|high>       Autonomia (high libera sem confirmar)
       --enabled-tools <tools>        Expõe só estas ferramentas, por vírgula
                                      ou espaço

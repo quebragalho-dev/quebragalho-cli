@@ -334,7 +334,7 @@ var commandDefinitions = []commandDefinition{
 		name:        "/copy",
 		usage:       "/copy",
 		group:       commandGroupSession,
-		description: "Copia a última resposta para a área de transferência.",
+		description: "Copia a última resposta.",
 		kind:        commandCopy,
 	},
 	{
