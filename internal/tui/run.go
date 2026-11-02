@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -31,14 +32,12 @@ func Run(ctx context.Context, options Options) int {
 	}
 
 	externalSink := options.RuntimeMessageSink
-	var program *tea.Program
+	var sender *programSender
 	forward := func(msg tea.Msg) {
 		if externalSink != nil {
 			externalSink(msg)
 		}
-		if program != nil {
-			program.Send(msg)
-		}
+		sender.send(msg)
 	}
 	// Coalesce streamed assistant-text deltas to ~one frame each so a fast provider
 	// can't drive a full Update→View per token; every other message flushes pending
@@ -80,7 +79,8 @@ func Run(ctx context.Context, options Options) int {
 	if initialModel.wantsMouseCapture() {
 		initialModel.mouseCapture = true
 	}
-	program = tea.NewProgram(initialModel, programOpts...)
+	program := tea.NewProgram(initialModel, programOpts...)
+	sender = newProgramSender(program)
 	peerStarted := false
 	if options.PeerService != nil {
 		options.PeerService.SetStatusHandler(func(event peermsg.StatusEvent) {
@@ -130,6 +130,54 @@ func Run(ctx context.Context, options Options) int {
 		return 1
 	}
 	return 0
+}
+
+// programSender delivers tea messages to a Bubble Tea program in call order
+// from a single goroutine, so senders never block: the program's message
+// channel is unbuffered, and a Send issued before the event loop starts
+// reading (or after it stops) hangs its caller forever — fatal when that
+// caller is the goroutine about to call Run.
+type programSender struct {
+	program *tea.Program
+	mu      sync.Mutex
+	queue   []tea.Msg
+	kick    chan struct{}
+}
+
+func newProgramSender(program *tea.Program) *programSender {
+	sender := &programSender{program: program, kick: make(chan struct{}, 1)}
+	go sender.loop()
+	return sender
+}
+
+// send queues msg for ordered delivery. It never blocks, even when the event
+// loop is not running (yet or anymore); queued messages wait for it instead
+// of hanging their sender.
+func (s *programSender) send(msg tea.Msg) {
+	s.mu.Lock()
+	s.queue = append(s.queue, msg)
+	s.mu.Unlock()
+	select {
+	case s.kick <- struct{}{}:
+	default:
+	}
+}
+
+func (s *programSender) loop() {
+	for range s.kick {
+		for {
+			s.mu.Lock()
+			if len(s.queue) == 0 {
+				s.queue = nil
+				s.mu.Unlock()
+				break
+			}
+			var msg tea.Msg
+			msg, s.queue = s.queue[0], s.queue[1:]
+			s.mu.Unlock()
+			s.program.Send(msg)
+		}
+	}
 }
 
 // writeFarewell prints the exit message the alt screen would otherwise swallow.
