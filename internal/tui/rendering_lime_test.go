@@ -305,7 +305,7 @@ func TestInterimBlockShowsStreamingTextWithCursor(t *testing.T) {
 
 	// Before the first delta the block falls back to the liveness spinner.
 	m.streamingText = nil
-	if got := plainRender(t, m.interimBlock(96)); !strings.Contains(got, "Working") {
+	if got := plainRender(t, m.interimBlock(96)); !strings.Contains(got, "Trabalhando") {
 		t.Fatalf("empty interim block = %q, want the liveness label", got)
 	}
 }
@@ -1860,7 +1860,7 @@ func TestModelPickerRowsCarryCapabilityMeta(t *testing.T) {
 
 	m.picker = picker
 	got := plainRender(t, m.pickerOverlay(100))
-	for _, want := range []string{"Choose a model", "Enter select", "Ctrl+F favorite", "❯"} {
+	for _, want := range []string{"Selecionar modelo", "Enter selecionar", "Ctrl+F favoritar", "❯"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("picker overlay = %q, missing %q", got, want)
 		}

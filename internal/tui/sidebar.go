@@ -563,7 +563,7 @@ func (m model) renderContextSidebar(width, height int) []string {
 	add(m.sidebarAgentHeader(width))
 	agentLines := m.sidebarAgentLines(width)
 	if len(agentLines) == 0 {
-		add(sidebarPlaceholder("no agents spawned", width))
+		add(sidebarPlaceholder("nenhum agente iniciado", width))
 	} else {
 		lines = append(lines, agentLines...)
 	}
@@ -586,7 +586,7 @@ func (m model) renderContextSidebar(width, height int) []string {
 	add(m.sidebarFilesHeader(width))
 	fileLines, _ := m.sidebarFileLines(width)
 	if len(fileLines) == 0 {
-		add(sidebarPlaceholder("no files touched", width))
+		add(sidebarPlaceholder("nenhum arquivo alterado", width))
 	} else {
 		lines = append(lines, fileLines...)
 	}
@@ -597,7 +597,7 @@ func (m model) renderContextSidebar(width, height int) []string {
 	// rather than letting the end-truncation eat into the plan. Absent when empty.
 	if activityLines := m.sidebarActivityLines(width, maxInt(0, height-1-len(lines))); len(activityLines) > 0 {
 		add("")
-		add(sidebarHeader("ACTIVITY", width))
+		add(sidebarHeader("ATIVIDADE", width))
 		lines = append(lines, activityLines...)
 	}
 

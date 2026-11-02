@@ -589,7 +589,7 @@ func TestModelCommandShowsActiveModelWithoutRunningAgent(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	for _, want := range []string{"Active model: muse-spark-1.3-contributor", "provider: qg", "Available models", "* muse-spark-1.3-contributor"} {
+	for _, want := range []string{"Modelo ativo: muse-spark-1.3-contributor", "provedor: qg", "Modelos disponíveis", "* muse-spark-1.3-contributor"} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected model transcript to contain %q, got %#v", want, next.transcript)
 		}
@@ -1027,7 +1027,7 @@ func TestResumeCommandListsRecentSessions(t *testing.T) {
 	}
 	// The picker overlay renders clean title rows plus a position indicator.
 	view := viewString(next.View())
-	for _, want := range []string{"Resume a session", "Newer", "Older", "1 / 2"} {
+	for _, want := range []string{"Retomar uma sessão", "Newer", "Older", "1 / 2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("session picker view missing %q:\n%s", want, view)
 		}
@@ -1106,7 +1106,7 @@ func TestResumePickerSelectionHydratesSession(t *testing.T) {
 	if next.activeSession.SessionID != target.SessionID {
 		t.Fatalf("active session = %q, want %q", next.activeSession.SessionID, target.SessionID)
 	}
-	if !transcriptContains(next.transcript, "Resumed QG session") || !transcriptContains(next.transcript, target.SessionID) {
+	if !transcriptContains(next.transcript, "Sessão do QG retomada") || !transcriptContains(next.transcript, target.SessionID) {
 		t.Fatalf("expected the resume summary in the transcript, got %#v", next.transcript)
 	}
 }
@@ -1208,7 +1208,7 @@ func TestResumeCommandWithUnknownIDReportsMissingSession(t *testing.T) {
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "qg session not found: qg_123") {
+	if !transcriptContains(next.transcript, "sessão do qg não encontrada: qg_123") {
 		t.Fatalf("expected missing session message, got %#v", next.transcript)
 	}
 }

@@ -32,23 +32,23 @@ func (m model) modelListText() string {
 		modelLines = append(modelLines, fmt.Sprintf("%s %s (%s) - %s", marker, model.ID, model.Provider, model.DisplayName))
 	}
 	return renderCommandOutput(commandOutput{
-		Title:  "Models",
+		Title:  "Modelos",
 		Status: commandStatusOK,
 		Sections: []commandSection{
 			{
-				Title: "Active",
+				Title: "Ativo",
 				Lines: []string{
-					"Active model: " + displayValue(m.modelName, "none"),
-					"provider: " + displayValue(m.providerName, "none"),
-					"effort: " + m.effortDisplay(),
+					"Modelo ativo: " + displayValue(m.modelName, "nenhum"),
+					"provedor: " + displayValue(m.providerName, "nenhum"),
+					"nível: " + effortDisplayLabel(m.effortDisplay()),
 				},
 			},
 			{
-				Title: "Available models:",
+				Title: "Modelos disponíveis:",
 				Lines: modelLines,
 			},
 		},
-		Hints: []string{"use /model <id> to switch this TUI session"},
+		Hints: []string{"use /model <id> para trocar o modelo desta sessão"},
 	})
 }
 

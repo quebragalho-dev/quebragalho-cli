@@ -293,15 +293,15 @@ func TestHandleThemeCommand(t *testing.T) {
 
 	before := m.themeMode
 	m, removed := m.handleThemeCommand("dark")
-	if m.themeMode != before || !strings.Contains(removed, "Unknown theme") {
+	if m.themeMode != before || !strings.Contains(removed, "Tema desconhecido") {
 		t.Fatalf("retired dark theme should not be selectable: mode=%q output=%q", m.themeMode, removed)
 	}
 
 	_, state := m.handleThemeCommand("")
-	if !strings.Contains(state, "active theme") {
+	if !strings.Contains(state, "tema ativo") {
 		t.Errorf("no-arg /theme should show state: %q", state)
 	}
-	if _, bad := m.handleThemeCommand("solarized"); !strings.Contains(bad, "Unknown theme") {
+	if _, bad := m.handleThemeCommand("solarized"); !strings.Contains(bad, "Tema desconhecido") {
 		t.Errorf("invalid theme should error: %q", bad)
 	}
 }

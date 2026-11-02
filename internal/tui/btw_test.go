@@ -355,7 +355,7 @@ func TestBTWRejectsExplicitResumeOfSideSession(t *testing.T) {
 	m := newBTWTestModel(t)
 	side, _ := m.handleBTWCommand("")
 
-	if _, err := m.resolveResumeSession(side.activeSession.SessionID); err == nil || !strings.Contains(err.Error(), "not resumable") {
+	if _, err := m.resolveResumeSession(side.activeSession.SessionID); err == nil || !strings.Contains(err.Error(), "não pode ser retomada") {
 		t.Fatalf("explicit side-session resume error = %v, want non-resumable rejection", err)
 	}
 }

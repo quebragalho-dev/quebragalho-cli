@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	workingStatusText        = "Working"
+	workingStatusText        = "Trabalhando"
 	workingDriveGridWidth    = 3
 	workingDriveGridHeight   = 3
 	workingDriveStep         = 90 * time.Millisecond

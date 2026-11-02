@@ -119,7 +119,7 @@ func (m model) liveQGModelPicker() *commandPicker {
 	if len(items) == 0 {
 		return nil
 	}
-	return &commandPicker{kind: pickerModel, title: "Selecionar modelo", items: items, allItems: append([]pickerItem{}, items...), selected: selected}
+	return &commandPicker{kind: pickerModel, title: "Selecionar modelo", items: items, allItems: append([]pickerItem{}, items...), selected: selected, panel: true}
 }
 
 func (m model) panelBlock(width int, title string, lines []string) string {
@@ -206,7 +206,7 @@ func (m model) effortPanelOverlay(width int) string {
 }
 
 func (m model) modelPanelOverlay(width int) string {
-	if m.picker.title != "Selecionar modelo" {
+	if m.picker == nil || !(m.picker.kind == pickerModel && m.picker.panel) {
 		return m.modelPickerOverlay(width)
 	}
 	if m.modelPickerLoading {
@@ -298,12 +298,12 @@ func (m model) handlePanelKey(key tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	}
-	if p.kind == pickerModel && p.title == "Selecionar modelo" && keyText(key) == "/" && !p.searching {
+	if p.kind == pickerModel && p.panel && keyText(key) == "/" && !p.searching {
 		p.searching = true
 		return m, nil, true
 	}
 	if keyIs(key, tea.KeyEnter) || (keyText(key) == "s" && !p.searching) {
-		if p.kind == pickerModel && p.title != "Selecionar modelo" && keyIs(key, tea.KeyEnter) {
+		if p.kind == pickerModel && !p.panel && keyIs(key, tea.KeyEnter) {
 			next, cmd := m.choosePicker()
 			return next.(model), cmd, true
 		}
@@ -313,7 +313,7 @@ func (m model) handlePanelKey(key tea.KeyPressMsg) (model, tea.Cmd, bool) {
 	if p.kind == pickerEffort {
 		return m, nil, true
 	}
-	if p.kind == pickerModel && p.title == "Selecionar modelo" && !p.searching && keyText(key) != "" {
+	if p.kind == pickerModel && p.panel && !p.searching && keyText(key) != "" {
 		if n, err := strconv.Atoi(keyText(key)); err == nil && n > 0 && n <= len(p.items) {
 			p.selected = n - 1
 			p.effort = ""

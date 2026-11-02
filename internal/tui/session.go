@@ -110,16 +110,16 @@ func (m model) startNewSession() model {
 	m.lastImageLabels = nil
 	m.lastDocuments = nil
 
-	note := "Started a new session."
+	note := "Nova sessão iniciada."
 	if previousID != "" {
-		note = "New session started. Previous session saved as " + previousID +
-			" — resume it anytime with /resume " + previousID + "."
+		note = "Nova sessão iniciada. Sessão anterior salva como " + previousID +
+			" — retome quando quiser com /resume " + previousID + "."
 	}
 	m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionClear})
 	m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: note})
 	// Scrollback above can't be un-printed; a faint divider marks the boundary and
 	// the flush frontier restarts for the fresh transcript (mirrors /clear, /resume).
-	m.resetFlushFrontier("· new session ·")
+	m.resetFlushFrontier("· nova sessão ·")
 	// Loops belong to the previous session; stop them so they don't fire the old
 	// conversation's prompt into the fresh one.
 	if updated, cleared := m.clearLoopsForSessionSwitch(); cleared > 0 {
@@ -213,7 +213,7 @@ func tuiSessionTitle(prompt string) string {
 	// a multi-byte rune and persist invalid UTF-8 into the session metadata.
 	title := cutRunes(strings.Join(strings.Fields(prompt), " "), tuiSessionTitleLimit)
 	if title == "" {
-		return "QG TUI session"
+		return "Sessão TUI do QG"
 	}
 	return title
 }
@@ -226,16 +226,16 @@ func (m model) handleResumeCommand(args string) (model, string) {
 
 	session, err := m.resolveResumeSession(args)
 	if err != nil {
-		return m, "Sessions\n" + err.Error()
+		return m, "Sessões\n" + err.Error()
 	}
 	events, err := m.resumeEvents(session.SessionID)
 	if err != nil {
-		return m, "Sessions\nerror: " + err.Error()
+		return m, "Sessões\nerro: " + err.Error()
 	}
 
 	rawUsageEvents, err := m.sessionStore.ReadEvents(session.SessionID)
 	if err != nil {
-		return m, "Sessions\nerror: " + err.Error()
+		return m, "Sessões\nerro: " + err.Error()
 	}
 
 	// Capture the current session id before switching so loops are only torn down
@@ -271,7 +271,7 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	// Every rehydrated row is settled by construction, so resetting the flush
 	// frontier sends the whole resumed history to native scrollback in one
 	// batch — scrollable, selectable, and O(1) for every later frame.
-	m.resetFlushFrontier("· resumed ·")
+	m.resetFlushFrontier("· retomada ·")
 	m = m.syncPeerIdentity()
 	return m, ""
 }
@@ -302,7 +302,7 @@ func (m model) resolveResumeSession(args string) (*sessions.Metadata, error) {
 			return nil, err
 		}
 		if latest == nil {
-			return nil, errors.New("no qg sessions available to resume")
+			return nil, errors.New("nenhuma sessão do qg disponível para retomar")
 		}
 		return latest, nil
 	}
@@ -312,10 +312,10 @@ func (m model) resolveResumeSession(args string) (*sessions.Metadata, error) {
 		return nil, err
 	}
 	if session == nil {
-		return nil, fmt.Errorf("qg session not found: %s", args)
+		return nil, fmt.Errorf("sessão do qg não encontrada: %s", args)
 	}
 	if !sessions.IsResumableKind(session.SessionKind) {
-		return nil, fmt.Errorf("qg session is not resumable: %s", args)
+		return nil, fmt.Errorf("sessão do qg não pode ser retomada: %s", args)
 	}
 	return session, nil
 }
@@ -342,20 +342,20 @@ func (m model) resumeEvents(sessionID string) ([]sessions.Event, error) {
 // with (the active model/provider), noting the session's recorded model/provider
 // when it differs — resume keeps the current model rather than switching.
 func (m model) formatResumeSummary(session sessions.Metadata, eventCount int) string {
-	modelLine := "model: " + displayValue(m.modelName, "none")
+	modelLine := "modelo: " + displayValue(m.modelName, "nenhum")
 	if recorded := strings.TrimSpace(session.ModelID); recorded != "" && !strings.EqualFold(recorded, m.modelName) {
-		modelLine += "  (recorded: " + recorded + ")"
+		modelLine += "  (registrado: " + recorded + ")"
 	}
-	providerLine := "provider: " + displayValue(m.providerName, "none")
+	providerLine := "provedor: " + displayValue(m.providerName, "nenhum")
 	if recorded := strings.TrimSpace(session.Provider); recorded != "" && !strings.EqualFold(recorded, m.providerName) {
-		providerLine += "  (recorded: " + recorded + ")"
+		providerLine += "  (registrado: " + recorded + ")"
 	}
 	lines := []string{
 		"id: " + session.SessionID,
-		"title: " + displayValue(session.Title, "untitled"),
+		"título: " + displayValue(session.Title, "sem título"),
 		modelLine,
 		providerLine,
-		fmt.Sprintf("events: %d", eventCount),
+		fmt.Sprintf("eventos: %d", eventCount),
 	}
 	if session.Goal != nil {
 		goalLine := "goal: " + string(session.Goal.Status) + " — " + session.Goal.Objective
@@ -365,10 +365,10 @@ func (m model) formatResumeSummary(session sessions.Metadata, eventCount int) st
 		lines = append(lines, goalLine)
 	}
 	return renderCommandOutput(commandOutput{
-		Title:  "Resumed QG session",
+		Title:  "Sessão do QG retomada",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
-			Title: "Session",
+			Title: "Sessão",
 			Lines: lines,
 		}},
 	})
@@ -409,7 +409,7 @@ func (m model) newSessionPicker() *commandPicker {
 		// Session metadata is persisted, user-controlled text — a title from
 		// --session-title or /rename can legally contain newlines, which would
 		// break the picker's fixed row geometry.
-		label := displayValue(sanitizeCardField(meta.Title), "untitled")
+		label := displayValue(sanitizeCardField(meta.Title), "sem título")
 		if when := relativeAge(meta.UpdatedAt, now); when != "" {
 			label = sessionPickerLabel(when, label)
 		}
@@ -424,7 +424,7 @@ func (m model) newSessionPicker() *commandPicker {
 	}
 	return &commandPicker{
 		kind:     pickerSession,
-		title:    "Resume a session",
+		title:    "Retomar uma sessão",
 		items:    items,
 		allItems: append([]pickerItem{}, items...),
 		selected: 0,
@@ -702,7 +702,7 @@ func transcriptRowsFromSessionEvents(events []sessions.Event) []transcriptRow {
 		case sessions.EventSessionFork:
 			parentID := payloadString(payload, "parentSessionId")
 			if parentID != "" {
-				rows = append(rows, transcriptRow{kind: rowSystem, text: "forked from session: " + parentID})
+				rows = append(rows, transcriptRow{kind: rowSystem, text: "fork da sessão: " + parentID})
 			}
 		case sessions.EventSpecialistStart:
 			info := specialistInfoFromPayload(payload)

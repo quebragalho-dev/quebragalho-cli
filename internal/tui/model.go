@@ -2784,7 +2784,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeSession = msg.activeSession
 			m.sessionEvents = append([]sessions.Event{}, msg.sessionEvents...)
 			m.transcript = append([]transcriptRow{}, msg.transcript...)
-			m.resetFlushFrontier("· compacted ·")
+			m.resetFlushFrontier("· compactado ·")
 		}
 		// Compaction rewrote the session log, so stored real history no longer
 		// matches it. Cleared here (not inside compactActiveSession, whose
@@ -4406,7 +4406,7 @@ func permissionDecisionReason(decision permissionDecision) string {
 // typed command would have used, appends the resulting status text, and closes
 // the picker. Behavior is identical to running "/model <id>" or "/effort <v>".
 func (m model) choosePicker() (tea.Model, tea.Cmd) {
-	if m.picker != nil && (m.picker.kind == pickerEffort || m.picker.title == "Selecionar modelo") {
+	if m.picker != nil && (m.picker.kind == pickerEffort || (m.picker.kind == pickerModel && m.picker.panel)) {
 		return m.applyPanelChoice(true)
 	}
 	if m.modelPickerIsLoading() {
@@ -4542,7 +4542,7 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 	if command.kind == commandPrompt && m.compactInFlight {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
 			kind: actionAppendSystem,
-			text: "Compact\nstatus: warning\nCompaction is running. Your next prompt will use the compacted context when this finishes.",
+			text: "Compact\nstatus: warning\nCompactação em andamento. Sua próxima mensagem vai usar o contexto compactado quando ela terminar.",
 		})
 		return m, nil
 	}
@@ -4761,7 +4761,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		if m.pending {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{
 				kind: actionAppendError,
-				text: "Cannot resume sessions while a run is active.",
+				text: "Não é possível retomar sessões com uma execução em andamento.",
 			})
 			return m, nil
 		}
@@ -5090,7 +5090,7 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 	if err != nil {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
 			kind: actionAppendError,
-			text: "session create error: " + err.Error(),
+			text: "erro ao criar sessão: " + err.Error(),
 		})
 	} else {
 		if m.activeLoopID == "" && sessions.IsResumableKind(m.activeSession.SessionKind) &&
@@ -5135,7 +5135,7 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		if err != nil {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{
 				kind: actionAppendError,
-				text: "session record error: " + err.Error(),
+				text: "erro ao registrar sessão: " + err.Error(),
 			})
 		}
 		prompt = agentPrompt

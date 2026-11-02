@@ -60,13 +60,18 @@ type commandPicker struct {
 	query    string
 	selected int
 	// loading marks a picker still fetching its rows (e.g. the STT model list from
-	// GitHub): the overlay shows a "fetching…" line instead of "no matching items".
+	// GitHub): the overlay shows a "buscando…" line instead of "nenhum item encontrado".
 	loading        bool
 	effort         string
 	usageTab       int
 	account        *usageAccountResult
 	accountLoading bool
 	searching      bool
+	// panel marks the live model-picker panel (persist-on-apply, effort draft,
+	// "/"-gated search, number shortcuts). The registry fallback shares the
+	// pickerModel kind and title but keeps the generic list behavior, so the
+	// title stays display-only and never drives behavior.
+	panel bool
 }
 
 func (p *commandPicker) move(delta int) {
@@ -236,7 +241,7 @@ func (m model) newModelPicker() *commandPicker {
 	if len(items) == 0 {
 		return nil
 	}
-	return &commandPicker{kind: pickerModel, title: "Choose a model", items: items, allItems: append([]pickerItem{}, items...), selected: 0}
+	return &commandPicker{kind: pickerModel, title: "Selecionar modelo", items: items, allItems: append([]pickerItem{}, items...), selected: 0}
 }
 
 // newSkillPicker lists the installed skills for browse-and-run: type to filter,
@@ -347,7 +352,7 @@ func modelPickerProviderGroup(profile config.ProviderProfile, descriptor provide
 	if name := strings.TrimSpace(profile.Name); name != "" {
 		return name
 	}
-	return "Provider"
+	return "Provedor"
 }
 
 func (m model) openModelPicker() (model, tea.Cmd) {
@@ -953,7 +958,7 @@ func (m model) newEffortPicker() *commandPicker {
 			selected = len(items) - 1
 		}
 	}
-	return &commandPicker{kind: pickerEffort, title: "select reasoning effort", items: items, selected: selected}
+	return &commandPicker{kind: pickerEffort, title: "selecionar nível de raciocínio", items: items, selected: selected}
 }
 
 // newThemePicker lists the terminal-native system theme followed by named palettes
@@ -966,7 +971,7 @@ func (m model) newThemePicker() *commandPicker {
 	for _, name := range themeModes {
 		item := pickerItem{Label: name, Value: name}
 		if name == string(themeSystem) {
-			item.Label = "System"
+			item.Label = "Sistema"
 		} else if entry, ok := lookupTheme(name); ok {
 			item.Label = entry.Label
 		}

@@ -135,14 +135,14 @@ func (m model) handleThemeCommand(args string) (model, string) {
 		return m, m.themeStateText()
 	}
 	if !validThemeMode(arg) {
-		return m, "Theme\nUnknown theme: " + arg + " (use /theme with no argument to pick from the list)"
+		return m, "Tema\nTema desconhecido: " + arg + " (use /theme sem argumento para escolher na lista)"
 	}
 	m.themeMode = resolveThemeMode(arg)
 	active := string(applyTheme(m.themeMode, m.hasDarkBg))
 	lines := []string{
-		"Theme",
-		"active theme: " + active,
-		"Already-printed scrollback keeps its previous colors; new output uses the new theme.",
+		"Tema",
+		"tema ativo: " + active,
+		"A rolagem já impressa mantém as cores anteriores; a saída nova usa o novo tema.",
 	}
 	if note := m.persistThemePreference(); note != "" {
 		lines = append(lines, note)
@@ -154,12 +154,12 @@ func (m model) handleThemeCommand(args string) (model, string) {
 // theme switch. The full state card remains available through /theme list.
 func (m model) themeAppliedNotice() string {
 	if m.themeMode == themeSystem {
-		return "Theme: System"
+		return "Tema: Sistema"
 	}
 	if entry, ok := lookupTheme(string(m.themeMode)); ok {
-		return "Theme: " + entry.Label
+		return "Tema: " + entry.Label
 	}
-	return "Theme: " + string(m.themeMode)
+	return "Tema: " + string(m.themeMode)
 }
 
 // persistThemePreference writes the committed theme to user config so it is applied
@@ -171,7 +171,7 @@ func (m model) persistThemePreference() string {
 		return ""
 	}
 	if _, err := config.SetTheme(m.userConfigPath, string(m.themeMode)); err != nil {
-		return "note: could not save theme preference (" + err.Error() + ")"
+		return "nota: não foi possível salvar a preferência de tema (" + err.Error() + ")"
 	}
 	return ""
 }
@@ -179,15 +179,15 @@ func (m model) persistThemePreference() string {
 // themeStateText renders the /theme state view.
 func (m model) themeStateText() string {
 	return renderCommandOutput(commandOutput{
-		Title:  "Theme",
+		Title:  "Tema",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
-			Title: "State",
+			Title: "Estado",
 			Lines: []string{
-				"active theme: " + string(m.themeMode),
-				"available: " + strings.Join(themeModes, ", "),
+				"tema ativo: " + string(m.themeMode),
+				"disponíveis: " + strings.Join(themeModes, ", "),
 			},
 		}},
-		Hints: []string{"run /theme with no argument to open the picker, or /theme <name> to switch directly"},
+		Hints: []string{"execute /theme sem argumento para abrir o seletor, ou /theme <nome> para trocar direto"},
 	})
 }

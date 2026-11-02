@@ -947,7 +947,7 @@ func TestPickerRenders(t *testing.T) {
 	m.input.SetValue("/model")
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
-	if !strings.Contains(viewString(m.View()), "Choose a model") {
+	if !strings.Contains(viewString(m.View()), "Selecionar modelo") {
 		t.Fatal("view should render the picker title")
 	}
 }
@@ -1021,8 +1021,8 @@ func TestEffortPickerOpensForModelWithoutEffortControls(t *testing.T) {
 	if len(m.picker.items) != 1 || m.picker.items[0].Value != "auto" {
 		t.Fatalf("expected [auto] as the only effort option on an unsupported model, got %#v", m.picker.items)
 	}
-	if m.picker.title != "select reasoning effort" {
-		t.Fatalf("picker title = %q, want %q", m.picker.title, "select reasoning effort")
+	if m.picker.title != "selecionar nível de raciocínio" {
+		t.Fatalf("picker title = %q, want %q", m.picker.title, "selecionar nível de raciocínio")
 	}
 }
 

@@ -693,15 +693,15 @@ func (m model) pickerOverlay(width int) string {
 	}
 	if len(visible) == 0 {
 		if m.picker.loading {
-			lines = append(lines, qgTheme.faint.Render("Fetching available models…"))
+			lines = append(lines, qgTheme.faint.Render("Buscando modelos disponíveis…"))
 		} else {
-			lines = append(lines, qgTheme.faint.Render("  no matching items"))
+			lines = append(lines, qgTheme.faint.Render("  nenhum item encontrado"))
 		}
 	}
 	// Hints live in the footer (a separator + faint keys), matching the /model
 	// picker and the other bordered boxes.
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
-	footer := qgTheme.faint.Render("↑/↓ move   Enter select   Esc close")
+	footer := qgTheme.faint.Render("↑/↓ mover   Enter selecionar   Esc fechar")
 	if m.picker.kind == pickerSession {
 		position := 0
 		if len(m.picker.items) > 0 {
@@ -756,7 +756,7 @@ func (m model) themePickerOverlay(width int) string {
 	listWidth, previewWidth, showPreview := themePickerColumnWidths(innerWidth)
 
 	lines := []string{
-		renderPickerSearchLine(m.picker.query, "find a theme…", innerWidth),
+		renderPickerSearchLine(m.picker.query, "buscar um tema…", innerWidth),
 		qgTheme.line.Render(strings.Repeat("─", innerWidth)),
 	}
 	listLines := m.themePickerListLines(listWidth)
@@ -766,14 +766,14 @@ func (m model) themePickerOverlay(width int) string {
 	} else {
 		lines = append(lines, listLines...)
 		if item, ok := m.picker.current(); ok {
-			lines = append(lines, qgTheme.faint.Render("Preview: "+item.Label+" — Enter applies"))
+			lines = append(lines, qgTheme.faint.Render("Prévia: "+item.Label+" — Enter aplica"))
 		}
 	}
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
-	lines = append(lines, qgTheme.faint.Render("↑/↓ preview   Enter apply   Esc close"))
+	lines = append(lines, qgTheme.faint.Render("↑/↓ prévia   Enter aplicar   Esc fechar"))
 	title := strings.TrimSpace(m.picker.title)
 	if title == "" {
-		title = "Choose a theme"
+		title = "Escolher tema"
 	}
 	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, title, lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
@@ -826,7 +826,7 @@ func (m model) themePickerListLines(width int) []string {
 		lines = append(lines, fitStyledLine(line, width))
 	}
 	if len(visible) == 0 {
-		lines = append(lines, qgTheme.faint.Render("  no matching themes"))
+		lines = append(lines, qgTheme.faint.Render("  Nenhum tema correspondente"))
 	}
 	return lines
 }
@@ -837,7 +837,7 @@ func (m model) themePickerPreviewLines(width int) []string {
 	}
 	item, ok := m.picker.current()
 	if !ok {
-		return []string{qgTheme.faint.Render("Preview"), qgTheme.faint.Render("No matching theme")}
+		return []string{qgTheme.faint.Render("Prévia"), qgTheme.faint.Render("Nenhum tema correspondente")}
 	}
 	_, preview := themeForMode(themeMode(item.Value), m.hasDarkBg)
 	fill := func(line string) string {
@@ -915,7 +915,7 @@ func (m model) modelPickerOverlay(width int) string {
 		lines = append(lines, renderModelPickerRow(innerWidth, start+index == m.picker.selected, item))
 	}
 	if len(visible) == 0 {
-		lines = append(lines, fillPaletteLine(searchPrefix+qgTheme.faint.Render("no matching models"), innerWidth, transparentSurface))
+		lines = append(lines, fillPaletteLine(searchPrefix+qgTheme.faint.Render("Nenhum modelo correspondente"), innerWidth, transparentSurface))
 	}
 	if item, ok := m.picker.current(); ok {
 		if detail := modelPickerItemDetail(item); detail != "" {
@@ -924,11 +924,11 @@ func (m model) modelPickerOverlay(width int) string {
 		}
 	}
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
-	footer := "↑/↓ move   Enter select   Ctrl+F favorite   Esc close"
+	footer := "↑/↓ mover   Enter selecionar   Ctrl+F favoritar   Esc fechar"
 	lines = append(lines, fillPaletteLine(qgTheme.faint.Render(footer), innerWidth, transparentSurface))
 	title := strings.TrimSpace(m.picker.title)
 	if title == "" {
-		title = "Choose a model"
+		title = "Escolher um modelo"
 	}
 	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, title, lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
@@ -937,14 +937,14 @@ func (m model) modelPickerLoadingOverlay(width int) string {
 	overlayWidth := modelPickerLoadingOverlayWidth(width)
 	innerWidth := maxInt(1, overlayWidth-4)
 	lines := []string{
-		fillPaletteLine(qgTheme.faint.Render("Checking available models..."), innerWidth, transparentSurface),
-		fillPaletteLine(qgTheme.faint.Render("Built-in models will be used if discovery fails."), innerWidth, transparentSurface),
+		fillPaletteLine(qgTheme.faint.Render("Consultando modelos disponíveis..."), innerWidth, transparentSurface),
+		fillPaletteLine(qgTheme.faint.Render("Será usada a lista interna se a descoberta falhar."), innerWidth, transparentSurface),
 		qgTheme.line.Render(strings.Repeat("─", innerWidth)),
-		fillPaletteLine(qgTheme.faint.Render("Esc close"), innerWidth, transparentSurface),
+		fillPaletteLine(qgTheme.faint.Render("Esc fechar"), innerWidth, transparentSurface),
 	}
 	title := strings.TrimSpace(m.picker.title)
 	if title == "" {
-		title = "Choose a model"
+		title = "Escolher um modelo"
 	}
 	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, title, lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
@@ -957,9 +957,9 @@ func modelPickerLoadingOverlayWidth(terminalWidth int) int {
 	if terminalWidth < modelPickerOverlayMinWidth {
 		available = terminalWidth
 	}
-	target := lipgloss.Width("Built-in models will be used if discovery fails.")
-	target = maxInt(target, lipgloss.Width("Choose a model"))
-	target = maxInt(target, lipgloss.Width("Esc close"))
+	target := lipgloss.Width("Será usada a lista interna se a descoberta falhar.")
+	target = maxInt(target, lipgloss.Width("Escolher um modelo"))
+	target = maxInt(target, lipgloss.Width("Esc fechar"))
 	overlayWidth := maxInt(modelPickerOverlayMinWidth, target+4)
 	return minInt(overlayWidth, maxInt(4, available))
 }
@@ -972,10 +972,10 @@ func modelPickerOverlayWidth(terminalWidth int, picker *commandPicker) int {
 	if terminalWidth < modelPickerOverlayMinWidth {
 		available = terminalWidth
 	}
-	target := lipgloss.Width("Choose a model")
-	target = maxInt(target, lipgloss.Width("  search > model name..."))
-	target = maxInt(target, lipgloss.Width("↑/↓ move   Enter select   Ctrl+F favorite   Esc close"))
-	target = maxInt(target, lipgloss.Width("  Using built-in model list"))
+	target := lipgloss.Width("Escolher um modelo")
+	target = maxInt(target, lipgloss.Width("  buscar > nome do modelo..."))
+	target = maxInt(target, lipgloss.Width("↑/↓ mover   Enter selecionar   Ctrl+F favoritar   Esc fechar"))
+	target = maxInt(target, lipgloss.Width("  Usando a lista interna"))
 	if picker != nil {
 		for _, item := range picker.items {
 			labelWidth := lipgloss.Width(item.Label)
@@ -993,7 +993,7 @@ func modelPickerOverlayWidth(terminalWidth int, picker *commandPicker) int {
 }
 
 func renderModelPickerSearchLine(query string, width int) string {
-	return renderPickerSearchLine(query, "model name...", width)
+	return renderPickerSearchLine(query, "nome do modelo...", width)
 }
 
 // renderPickerSearchLine renders the "search > <query>▌" input line shared by the

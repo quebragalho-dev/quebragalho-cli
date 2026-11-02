@@ -141,7 +141,7 @@ func TestSessionTitleIsAuto(t *testing.T) {
 	if !sessionTitleIsAuto("", events) {
 		t.Fatal("an empty title must count as auto")
 	}
-	if !sessionTitleIsAuto("QG TUI session", events) {
+	if !sessionTitleIsAuto("Sessão TUI do QG", events) {
 		t.Fatal("the default placeholder title must count as auto")
 	}
 	if sessionTitleIsAuto("Hand Picked Name", events) {

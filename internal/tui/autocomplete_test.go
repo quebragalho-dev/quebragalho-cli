@@ -661,7 +661,7 @@ func TestFileSuggestionCompletionKeepsPastePreviewCollapsed(t *testing.T) {
 		t.Fatalf("composer value after file completion = %q", got)
 	}
 	view := plainRender(t, m.composerBox(96))
-	for _, want := range []string{"[Create a book library dashboard page", "lines", "@docs/guide.md"} {
+	for _, want := range []string{"[Create a book library dashboard page", "linhas", "@docs/guide.md"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("file completion view missing %q:\n%s", want, view)
 		}
@@ -698,7 +698,7 @@ func TestFileSuggestionDismissKeepsPastePreviewCollapsed(t *testing.T) {
 		t.Fatal("file suggestion dismiss should close the file palette")
 	}
 	view := plainRender(t, m.composerBox(96))
-	for _, want := range []string{"[Create a book library dashboard page", "lines"} {
+	for _, want := range []string{"[Create a book library dashboard page", "linhas"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("file dismiss view missing %q:\n%s", want, view)
 		}
@@ -734,7 +734,7 @@ func TestBackspaceAfterCompletedFileSuggestionKeepsPastePreviewCollapsed(t *test
 		t.Fatalf("composer value after deleting completed file mention = %q", got)
 	}
 	view := plainRender(t, m.composerBox(96))
-	for _, want := range []string{"[Create a book library dashboard page", "lines"} {
+	for _, want := range []string{"[Create a book library dashboard page", "linhas"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("backspace after file completion view missing %q:\n%s", want, view)
 		}
