@@ -31,10 +31,10 @@ const denialMonitorConnectTimeout = 300 * time.Millisecond
 
 // denialMonitorTagGrace bounds the wait for a late tag line after a failed
 // command. It runs only on failure; successes never wait. Sized from the
-// measured tag-arrival lag (p99 ~1µs after Run ends over 220 runs): 100ms
-// covers it with wide margin while keeping failing non-network commands
-// cheap, since the tag is either already delivered or lost entirely.
-const denialMonitorTagGrace = 100 * time.Millisecond
+// measured tag-arrival lag (n=220, max 12.7µs after Run ends): 25ms still
+// covers it by >1000x while keeping failing non-network commands cheap,
+// since the tag is either already delivered or lost entirely.
+const denialMonitorTagGrace = 25 * time.Millisecond
 
 // DenialMonitor tails `log stream` for seatbelt denials carrying a unique tag and
 // collects them so a caller can report what the sandbox blocked. It is
