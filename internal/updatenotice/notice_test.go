@@ -303,3 +303,27 @@ func TestUpdateMergesWithoutClobbering(t *testing.T) {
 		t.Fatalf("refresh merge lost: %#v", got)
 	}
 }
+
+func TestRecordCheckMergesWithoutClobberingSkip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "qg", "update.json")
+	before := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	if err := Save(path, State{LastCheck: before, LatestVersion: "0.0.11", SkippedVersion: "0.0.11"}); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	if err := RecordCheck(path, State{LastCheck: after, LatestVersion: "0.0.12"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(path); got.SkippedVersion != "0.0.11" || !got.LastCheck.Equal(after) || got.LatestVersion != "0.0.12" {
+		t.Fatalf("RecordCheck lost a field: %#v", got)
+	}
+	// A failed check (no version) still records its time and keeps the rest.
+	later := time.Date(2026, 11, 1, 13, 0, 0, 0, time.UTC)
+	if err := RecordCheck(path, State{LastCheck: later}); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(path); got.SkippedVersion != "0.0.11" || !got.LastCheck.Equal(later) || got.LatestVersion != "0.0.12" {
+		t.Fatalf("empty RecordCheck lost a field: %#v", got)
+	}
+}

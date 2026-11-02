@@ -128,10 +128,30 @@ func (m model) statusReadout(left string, width int) string {
 		}
 	}
 	left = m.appendStatusWorkspace(left, right, width)
-	if right == "" {
+	// Quiet update notice docks at the right edge of the status area, after
+	// the existing states. It only takes whole forms that fit past a two-cell
+	// gap on each side it crosses, so it never squeezes mode, effort,
+	// context, branch, or workspace: with a right side present the budget
+	// reserves the left-to-block gap and the right-to-notice gap, and the
+	// join below always has room for its own padding.
+	remaining := width - lipgloss.Width(left) - 2
+	if right != "" {
+		remaining -= lipgloss.Width(right) + 2
+	}
+	styledRight := ""
+	if right != "" {
+		styledRight = qgTheme.faint.Render(right)
+	}
+	if notice := m.updateNoticeSegment(remaining); notice != "" {
+		if styledRight != "" {
+			styledRight += "  "
+		}
+		styledRight += notice
+	}
+	if styledRight == "" {
 		return fitStyledLine(left, width)
 	}
-	return fitStyledLine(joinHeaderLine(left, qgTheme.faint.Render(right), width), width)
+	return fitStyledLine(joinHeaderLine(left, styledRight, width), width)
 }
 
 func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool, transcriptRow) {

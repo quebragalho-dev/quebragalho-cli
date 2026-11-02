@@ -76,12 +76,7 @@ func runUpdateStartup(ctx context.Context, stderr io.Writer, deps updateStartupD
 	}
 	method := deps.installMethod
 	if method == "" {
-		executable, err := os.Executable()
-		if err != nil {
-			method = update.InstallMethodStandalone
-		} else {
-			method = update.DetectInstallMethod(executable)
-		}
+		method = detectUpdateInstallMethod()
 	}
 	config := updatenotice.Config{
 		CurrentVersion: current,
@@ -102,22 +97,9 @@ func runUpdateStartup(ctx context.Context, stderr io.Writer, deps updateStartupD
 		stateFile = resolved
 	}
 	state := updatenotice.Load(stateFile)
-	if updatenotice.Due(config, state) {
-		refreshCtx, cancel := context.WithTimeout(ctx, update.DefaultTimeout)
-		go func() {
-			defer cancel()
-			// Check first, merge after: Update re-reads the file, so a
-			// refresh that finishes after the user pressed "skip" keeps the
-			// recorded skip instead of blanking it with a stale copy.
-			refreshed := updatenotice.Refresh(refreshCtx, config, updatenotice.State{})
-			_ = updatenotice.Update(stateFile, func(latest *updatenotice.State) {
-				latest.LastCheck = refreshed.LastCheck
-				if refreshed.LatestVersion != "" {
-					latest.LatestVersion = refreshed.LatestVersion
-				}
-			})
-		}()
-	}
+	// No network here: the running TUI owns the periodic refresh (its Init
+	// issues the check as a tea.Cmd), so this startup path only reads the
+	// stored check and never waits.
 	version := updatenotice.PromptVersion(config, state)
 	if version == "" || deps.runPrompt == nil {
 		return 0, true
@@ -191,6 +173,35 @@ func updateStartupArgs(deps updateStartupDeps) []string {
 		return nil
 	}
 	return append([]string{}, args[1:]...)
+}
+
+// detectUpdateInstallMethod reports how this binary was installed for the
+// update check, defaulting to standalone when the executable is unknown.
+func detectUpdateInstallMethod() update.InstallMethod {
+	executable, err := os.Executable()
+	if err != nil {
+		return update.InstallMethodStandalone
+	}
+	return update.DetectInstallMethod(executable)
+}
+
+// buildUpdateNoticeOptions wires the footer notice check: same install-method
+// detection and npm endpoint as the startup screen. A state-path failure
+// disables the notice instead of breaking startup.
+func buildUpdateNoticeOptions(env func(string) string) (*updatenotice.Config, string) {
+	if env == nil {
+		env = os.Getenv
+	}
+	stateFile, err := updatenotice.StatePath(env)
+	if err != nil {
+		return nil, ""
+	}
+	return &updatenotice.Config{
+		CurrentVersion: version,
+		InstallMethod:  detectUpdateInstallMethod(),
+		Env:            env,
+		NpmEndpoint:    strings.TrimSpace(env("QG_UPDATE_NPM_ENDPOINT")),
+	}, stateFile
 }
 
 // writeUpdateInstallFailure prints the one-line relaunch failure and keeps

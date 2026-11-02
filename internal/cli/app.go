@@ -961,25 +961,28 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	// notice when project hooks/plugins were dropped for an untrusted workspace.
 	hookDispatcher, hookSkip := newHookDispatcherWithExtra(workspaceRoot, pluginActivation.hooks, trustRoot, executionRunner)
 	emitTrustNotice(stderr, hookSkip, pluginActivation.trustSkip, mcpSkip)
+	updateNotice, updateNoticeState := buildUpdateNoticeOptions(deps.getenv)
 	return deps.runTUI(context.Background(), tui.Options{
-		Cwd:                  workspaceRoot,
-		Version:              version,
-		Theme:                theme,
-		SavedTheme:           resolved.Preferences.Theme,
-		SavedPet:             resolved.Preferences.Pet,
-		UserConfigPath:       userConfigPath,
-		DoctorUserConfigPath: doctorUserConfigPath,
-		ProjectConfigPath:    projectConfigPath,
-		ProviderName:         resolved.Provider.Name,
-		ModelName:            resolved.Provider.Model,
-		ProviderProfile:      resolved.Provider,
-		SavedProviders:       usableSavedProviders(resolved.Providers),
-		FavoriteModels:       resolved.Preferences.FavoriteModels,
-		RecentModels:         resolved.Preferences.RecentModels,
-		RecapsEnabled:        resolved.Preferences.RecapsEnabled(),
-		CompactionModel:      resolved.Preferences.CompactionModel,
-		Provider:             provider,
-		NewProvider:          deps.newProvider,
+		Cwd:                   workspaceRoot,
+		Version:               version,
+		Theme:                 theme,
+		SavedTheme:            resolved.Preferences.Theme,
+		UpdateNotice:          updateNotice,
+		UpdateNoticeStateFile: updateNoticeState,
+		SavedPet:              resolved.Preferences.Pet,
+		UserConfigPath:        userConfigPath,
+		DoctorUserConfigPath:  doctorUserConfigPath,
+		ProjectConfigPath:     projectConfigPath,
+		ProviderName:          resolved.Provider.Name,
+		ModelName:             resolved.Provider.Model,
+		ProviderProfile:       resolved.Provider,
+		SavedProviders:        usableSavedProviders(resolved.Providers),
+		FavoriteModels:        resolved.Preferences.FavoriteModels,
+		RecentModels:          resolved.Preferences.RecentModels,
+		RecapsEnabled:         resolved.Preferences.RecapsEnabled(),
+		CompactionModel:       resolved.Preferences.CompactionModel,
+		Provider:              provider,
+		NewProvider:           deps.newProvider,
 		NewTurnSessionProvider: func(profile config.ProviderProfile, provider qgruntime.Provider) qgruntime.TurnSessionProvider {
 			if provider == nil {
 				return nil

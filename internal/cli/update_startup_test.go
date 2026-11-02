@@ -324,26 +324,13 @@ func TestUpdateStartupNeverBlocksOnNetwork(t *testing.T) {
 	before := time.Now()
 	code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps)
 	if elapsed := time.Since(before); elapsed >= 200*time.Millisecond {
-		t.Fatalf("startup blocked %v on the background check, want < 200ms", elapsed)
+		t.Fatalf("startup blocked %v on a check it must never wait for, want < 200ms", elapsed)
 	}
 	if code != 0 || !proceed {
 		t.Fatalf("got (%d, %v), want (0, true)", code, proceed)
 	}
-	// Drain the background refresh before cleanup: it is still blocked on the
-	// sleeping server, and TempDir removal races its atomic save otherwise.
-	// Releasing the server lets the check finish; the saved LastCheck proves
-	// the write landed.
-	close(release)
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if got := updatenotice.Load(statePath); !got.LastCheck.IsZero() {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("background refresh never recorded its check")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// No background refresh exists anymore (the running TUI owns the check),
+	// so there is nothing to drain: the sleeping server is never touched.
 }
 
 func TestExecNeverPrompts(t *testing.T) {
@@ -381,42 +368,48 @@ func TestExecNeverPrompts(t *testing.T) {
 }
 
 func TestUpdateStartupSkipSurvivesLateRefresh(t *testing.T) {
-	// A background refresh that finishes after the user pressed "skip" must
-	// merge into the stored state, not blank the recorded skip with the
-	// pre-check copy it started from.
+	// The startup screen records the refusal; the TUI footer refresh lands
+	// after (same merge the running TUI uses) and must keep the recorded
+	// skip instead of blanking it.
 	release := make(chan struct{})
 	server := newSleepingUpdateServer(t, release)
 	defer server.Close()
-	stateFile := writeUpdateState(t, updatenotice.State{LastCheck: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC), LatestVersion: "0.0.11"})
+	oldCheck := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	stateFile := writeUpdateState(t, updatenotice.State{LastCheck: oldCheck, LatestVersion: "0.0.11"})
 	deps, _ := updateStartupTestDeps(stateFile, map[string]string{"QG_UPDATE_NPM_ENDPOINT": server.URL},
 		func(_ context.Context, _, _, _ string, _ func(string) error, _ func(context.Context) error) (tui.UpdateChoice, error) {
 			return tui.UpdateSkip, nil
 		})
 	deps.installMethod = update.InstallMethodNpm
-	code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps)
-	if code != 0 || !proceed {
+	if code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps); code != 0 || !proceed {
 		t.Fatalf("got (%d, %v), want (0, true)", code, proceed)
 	}
-	// The prompt answered before the release: now let the refresh land and
-	// prove the skip survived it.
+	if got := updatenotice.Load(stateFile); got.SkippedVersion != "0.0.11" {
+		t.Fatalf("refusal not recorded: %#v", got)
+	}
+	// The prompt answered while the network was still asleep: now let the
+	// TUI-side check land through the same merge path refreshUpdateNotice uses.
 	close(release)
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if got := updatenotice.Load(stateFile); !got.LastCheck.IsZero() && got.LastCheck.After(time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)) {
-			if got.SkippedVersion != "0.0.11" {
-				t.Fatalf("late refresh clobbered the skip: %#v", got)
-			}
-			// The sleeping fake answers 0.0.99 once released: the point is the
-			// refresh landed at all without touching the recorded skip.
-			if got.LatestVersion != "0.0.99" {
-				t.Fatalf("late refresh did not record its version: %#v", got)
-			}
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("background refresh never recorded its check")
-		}
-		time.Sleep(10 * time.Millisecond)
+	refreshed := updatenotice.Refresh(context.Background(), updatenotice.Config{
+		CurrentVersion: "0.0.10",
+		InstallMethod:  update.InstallMethodNpm,
+		Env:            func(string) string { return "" },
+		NpmEndpoint:    server.URL,
+	}, updatenotice.State{})
+	if err := updatenotice.RecordCheck(stateFile, refreshed); err != nil {
+		t.Fatal(err)
+	}
+	got := updatenotice.Load(stateFile)
+	if got.SkippedVersion != "0.0.11" {
+		t.Fatalf("late refresh clobbered the skip: %#v", got)
+	}
+	// The sleeping fake answers 0.0.99 once released: the point is the
+	// refresh landed at all without touching the recorded skip.
+	if got.LatestVersion != "0.0.99" {
+		t.Fatalf("late refresh did not record its version: %#v", got)
+	}
+	if !got.LastCheck.After(oldCheck) {
+		t.Fatalf("late refresh did not record its check: %#v", got)
 	}
 }
 

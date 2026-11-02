@@ -41,6 +41,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/updatenotice"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usercommands"
 )
@@ -216,6 +217,9 @@ type model struct {
 	keyBindings                   keyBindings
 	themeMode                     themeMode // palette preference: system (default) or named palette
 	hasDarkBg                     bool      // last terminal background-detection result, if one is delivered
+	updateNotice                  *updatenotice.Config
+	updateNoticeState             string // state file the footer check reads and merges
+	updateAvailable               string // version shown in the footer notice, "" hides it
 	userAgent                     string
 	compactRequests               int
 	compactInFlight               bool
@@ -1100,6 +1104,8 @@ func newModel(ctx context.Context, options Options) model {
 		keyBindings:                 resolvedKeyBindings,
 		themeMode:                   resolveThemeMode(options.Theme, os.Getenv("QG_THEME"), options.SavedTheme),
 		hasDarkBg:                   true,
+		updateNotice:                options.UpdateNotice,
+		updateNoticeState:           options.UpdateNoticeStateFile,
 		userAgent:                   options.UserAgent,
 		usageTracker:                usageTracker,
 		transcript:                  initialTranscript(),
@@ -1261,6 +1267,11 @@ func (m model) Init() tea.Cmd {
 	// Explicitly requesting it here means QG doesn't depend solely on the
 	// terminal's unprompted push.
 	cmds = append(cmds, tea.RequestWindowSize)
+	// Quiet footer notice: one check at startup when due, then hourly. It
+	// never blocks the UI, and stays unscheduled when the kill-switch is off.
+	if cmd := m.updateCheckInitCmd(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	// Read the terminal background only to keep a selected palette legible. This
 	// query never changes the terminal canvas; View deliberately leaves both
 	// terminal-wide color fields unset.
@@ -1508,6 +1519,18 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hasDarkBg = msg.IsDark()
 		applyTheme(m.themeMode, m.hasDarkBg)
 		return m, nil
+	case updateCheckMsg:
+		cfg := updatenotice.Config{}
+		if m.updateNotice != nil {
+			cfg = *m.updateNotice
+		}
+		m.updateAvailable = updatenotice.PromptVersion(cfg, msg.state)
+		return m, scheduleUpdateCheck()
+	case updateCheckTickMsg:
+		if !m.updateCheckEnabled() {
+			return m, nil
+		}
+		return m, m.updateCheckCmd()
 	case tea.MouseMsg:
 		// A release always ends an in-progress drag, even when a modal surface
 		// (setup, terminal attach) would otherwise swallow it below:

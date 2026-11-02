@@ -74,6 +74,19 @@ func Update(path string, mutate func(*State)) error {
 	return Save(path, state)
 }
 
+// RecordCheck merges a finished check into the state file: it always records
+// the check time and adopts a newer version when one was found, without
+// touching the recorded refusal. Every writer re-reads the file, so a check
+// that finishes after the user pressed "skip" keeps the skip.
+func RecordCheck(path string, refreshed State) error {
+	return Update(path, func(current *State) {
+		current.LastCheck = refreshed.LastCheck
+		if refreshed.LatestVersion != "" {
+			current.LatestVersion = refreshed.LatestVersion
+		}
+	})
+}
+
 // Refresh checks for a new release and folds it into a copy of the state:
 // success records LatestVersion; the check time is always recorded, even on
 // error, so a dead network backs off instead of retrying every turn. Errors

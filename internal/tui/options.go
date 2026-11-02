@@ -18,6 +18,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/skills"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/updatenotice"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
@@ -95,8 +96,15 @@ type Options struct {
 	SavedTheme string
 	// SavedPet is the persisted terminal companion id. Empty means no pet has
 	// been selected yet; "disabled" records an explicit opt-out.
-	SavedPet  string
-	UserAgent string
+	SavedPet string
+	// UpdateNotice configures the quiet footer notice about a new release:
+	// current version, detected install method, env, and npm endpoint. Nil
+	// disables the check and the notice.
+	UpdateNotice *updatenotice.Config
+	// UpdateNoticeStateFile is the stored-state path the footer check reads
+	// and merges into. Only used when UpdateNotice is set.
+	UpdateNoticeStateFile string
+	UserAgent             string
 
 	// Notify configures completion / awaiting-input notifications.
 	Notify config.NotifyConfig
