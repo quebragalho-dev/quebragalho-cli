@@ -9,9 +9,15 @@ import (
 // streamingIncrementalCorpus covers the block shapes whose rendering can
 // change as a stream grows: open/closed fences, lists split by blank lines,
 // tables that gain rows, quotes, headings, rules, inline spans, wide runes
-// and stray carriage returns.
+// and stray carriage returns. A2/A4/A5 pin unhighlighted fenced blocks
+// (no language, unknown language) whose last code line is blank: the head
+// must keep that blank line so it survives composition with the tail.
 func streamingIncrementalCorpus() []string {
 	fence := "\x60\x60\x60"
+	longCode := ""
+	for i := 0; i < 40; i++ {
+		longCode += "line_number_" + string(rune('a'+i%26)) + " = compute_something(input_value)\n"
+	}
 	return []string{
 		"",
 		"\n\n",
@@ -29,6 +35,14 @@ func streamingIncrementalCorpus() []string {
 		"from helpers import util\nprint(util.run())\nresult = util.run()\n\nThe answer above shows **prose** now.",
 		"**bold without end and `code without end\n\nmore *stars",
 		"Intro with a decent amount of prose to push the incremental path over several blocks and lines.\n\n- first item in a list\n- second item\n\n" + fence + "python\ndef f():\n    return 1\n" + fence + "\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n> a closing quote\n\nOutro paragraph at the very end.",
+		fence + "\nx = 1\n\n" + fence + "\n\ne",
+		fence + "zzlang\nx = 1\n\n" + fence + "\n\ne",
+		"Prose intro line here.\n\n" + fence + "\nx = 1\n\n" + fence + "\n\ne",
+		"First paragraph before a long fence.\n\n" + fence + "python\n" + longCode + fence + "\n\nTail after the long fence.",
+		"**bold that stays open across many words until it finally closes here** and then prose continues after the late close.",
+		fence + "py\ncode1\n\ncode2\n" + fence + "\nmore",
+		"\n\n# Title after leading blanks\n\nBody after the title.",
+		fence + "\n" + fence + "\n\ntail after empty fence",
 	}
 }
 
@@ -46,19 +60,31 @@ func runeAlignedPrefixes(text string, step int) []string {
 }
 
 func TestStreamingIncrementalMatchesIntegralOnEveryPrefix(t *testing.T) {
+	previous := qgTheme
+	defer func() {
+		qgTheme = previous
+		rebuildStreamingFadePalette()
+		resetStreamingMarkdownCache()
+	}()
+	widths := []int{16, 33, 50, 80, 120}
 	for docIndex, doc := range streamingIncrementalCorpus() {
 		resetStreamingMarkdownCache()
-		prefixes := runeAlignedPrefixes(doc, 4)
+		prefixes := runeAlignedPrefixes(doc, 1)
 		for prefixIndex, prefix := range prefixes {
-			prose, table := 80, 80
-			if prefixIndex > len(prefixes)/2 {
-				prose, table = 50, 50
+			measure := widths[prefixIndex*len(widths)/len(prefixes)]
+			if prefixIndex == len(prefixes)/3 {
+				applyTheme("nord", true)
 			}
-			got := strings.Join(renderStreamingAssistantMarkdownText(prefix, prose, table), "\n")
-			want := strings.Join(renderAssistantMarkdownText(streamingMarkdownStablePrefix(prefix), prose, table, true), "\n")
+			if prefixIndex == 2*len(prefixes)/3 {
+				qgTheme = previous
+				rebuildStreamingFadePalette()
+				resetStreamingMarkdownCache()
+			}
+			got := strings.Join(renderStreamingAssistantMarkdownText(prefix, measure, measure), "\n")
+			want := strings.Join(renderAssistantMarkdownText(streamingMarkdownStablePrefix(prefix), measure, measure, true), "\n")
 			if got != want {
 				t.Fatalf("doc %d prefix %d (%q, %dx%d): incremental differs from integral\ngot:  %q\nwant: %q",
-					docIndex, prefixIndex, prefix, prose, table, got, want)
+					docIndex, prefixIndex, prefix, measure, measure, got, want)
 			}
 		}
 	}
@@ -90,7 +116,9 @@ func TestStreamingIncrementalSurvivesThemeChange(t *testing.T) {
 // TestStreamingRenderDoesNotChurnSharedCache pins the perf fix: repeated
 // streaming frames must not insert a new giant entry per frame into the
 // shared LRU (the old sha-of-whole-text key missed on every frame while the
-// text grew).
+// text grew). It supersedes TestStreamingMarkdownStablePrefixUsesRenderCache,
+// which asserted LRU hits that no longer exist by design: repeat renders are
+// served from the incremental cache, and the shared LRU is untouched.
 func TestStreamingRenderDoesNotChurnSharedCache(t *testing.T) {
 	cache := replaceDefaultRenderCache(t, newStaticRenderCache(8, 1000))
 	resetStreamingMarkdownCache()

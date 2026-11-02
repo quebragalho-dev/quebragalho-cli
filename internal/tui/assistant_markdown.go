@@ -71,6 +71,14 @@ func cachedDisplayWidth(s string) int {
 }
 
 func renderAssistantMarkdownText(text string, proseMeasure int, tableMeasure int, allowHighlight bool) []string {
+	return trimMarkdownDisplayBlankEdges(renderAssistantMarkdownTextUntrimmed(text, proseMeasure, tableMeasure, allowHighlight))
+}
+
+// renderAssistantMarkdownTextUntrimmed is the block renderer without edge
+// trimming. The integral path trims both edges; the incremental head keeps
+// its trailing blanks, because a block that ends the head (e.g. a code
+// block whose last line is blank) still owns them in the whole render.
+func renderAssistantMarkdownTextUntrimmed(text string, proseMeasure int, tableMeasure int, allowHighlight bool) []string {
 	if proseMeasure < 16 {
 		proseMeasure = 16
 	}
@@ -83,7 +91,7 @@ func renderAssistantMarkdownText(text string, proseMeasure int, tableMeasure int
 	}
 	if allowHighlight && looksLikeBareCodeBlock(raw) {
 		if highlighted, ok := highlightCodeAuto(raw, "", tableMeasure); ok {
-			return trimMarkdownDisplayBlankEdges(highlighted)
+			return highlighted
 		}
 	}
 
@@ -208,7 +216,14 @@ func renderAssistantMarkdownText(text string, proseMeasure int, tableMeasure int
 		lines = append(lines, wrapMarkdownInline(strings.Join(paragraph, " "), proseMeasure)...)
 	}
 
-	return trimMarkdownDisplayBlankEdges(lines)
+	return lines
+}
+
+// renderStreamingHeadText renders a stable head for incremental composition:
+// leading blanks trimmed like the integral render, trailing blanks kept,
+// because the head's final block still owns them in the whole render.
+func renderStreamingHeadText(head string, proseMeasure int, tableMeasure int) []string {
+	return trimMarkdownDisplayLeadingBlankLines(renderAssistantMarkdownTextUntrimmed(head, proseMeasure, tableMeasure, true))
 }
 
 func renderStreamingAssistantMarkdownText(text string, proseMeasure int, tableMeasure int) []string {
@@ -340,7 +355,7 @@ func (c *streamingMarkdownCache) refresh(stable string, proseMeasure int, tableM
 		return renderAssistantMarkdownText(stable, proseMeasure, tableMeasure, true)
 	}
 	c.headText = head
-	c.headLines = renderAssistantMarkdownText(head, proseMeasure, tableMeasure, true)
+	c.headLines = renderStreamingHeadText(head, proseMeasure, tableMeasure)
 	c.headHasProse = streamingMarkdownHeadHasProse(head)
 	tailLines, resume := renderStreamingTail(nil, stable[tailStart:], proseMeasure, tableMeasure)
 	lines := make([]string, 0, len(c.headLines)+blanks+len(tailLines))
@@ -350,7 +365,7 @@ func (c *streamingMarkdownCache) refresh(stable string, proseMeasure int, tableM
 	}
 	lines = append(lines, tailLines...)
 	c.tailResume = resume
-	return trimMarkdownDisplayTrailingBlankLines(lines)
+	return trimMarkdownDisplayBlankEdges(lines)
 }
 
 // extend re-renders after append-only growth over the last served input. The
@@ -362,12 +377,10 @@ func (c *streamingMarkdownCache) extend(stable string, proseMeasure int, tableMe
 	headEnd, tailStart, blanks := splitStreamingMarkdownStable(stable)
 	head := stable[:headEnd]
 	if head != c.headText {
-		// The head only grows forward: appending text cannot move the last
-		// blank run backwards. Anything else (e.g. a trailing blank run
-		// absorbed by continued text) needs a recompute.
-		if c.headText != "" && !strings.HasPrefix(head, c.headText) {
-			return nil, false
-		}
+		// A changed split means absorbing complete blocks (the head only
+		// grows: appending text cannot move the last blank run backwards,
+		// and a trailing blank run absorbed by continued text resets the
+		// head, which renders the same as a recompute).
 		if !streamingMarkdownHeadValid(head) {
 			return nil, false
 		}
@@ -375,7 +388,7 @@ func (c *streamingMarkdownCache) extend(stable string, proseMeasure int, tableMe
 		if head == "" {
 			c.headLines = nil
 		} else {
-			c.headLines = renderAssistantMarkdownText(head, proseMeasure, tableMeasure, true)
+			c.headLines = renderStreamingHeadText(head, proseMeasure, tableMeasure)
 		}
 		c.headHasProse = streamingMarkdownHeadHasProse(head)
 		c.tailResume = nil
@@ -391,7 +404,7 @@ func (c *streamingMarkdownCache) extend(stable string, proseMeasure int, tableMe
 	}
 	lines = append(lines, tailLines...)
 	c.tailResume = resume
-	return trimMarkdownDisplayTrailingBlankLines(lines), true
+	return trimMarkdownDisplayBlankEdges(lines), true
 }
 
 // streamingMarkdownRawLines splits normalized text the same way
@@ -422,7 +435,9 @@ func streamingMarkdownHeadHasProse(head string) bool {
 // splitStreamingMarkdownStable finds the last blank run in stable text,
 // returning byte offsets: head ends where the run starts, tail starts where
 // it ends, plus the run length in lines. Blocks before a blank run render
-// identically standalone and in context, so head is reusable verbatim.
+// identically standalone and in context, so the head is reusable once
+// rendered without trimming its trailing edge: a final block (e.g. a code
+// block whose last line is blank) still owns those blanks in the whole.
 func splitStreamingMarkdownStable(stable string) (headEnd, tailStart, blanks int) {
 	runStart, runCount := -1, 0
 	lastStart, lastEnd, lastCount := 0, 0, 0
@@ -461,9 +476,12 @@ func splitStreamingMarkdownStable(stable string) (headEnd, tailStart, blanks int
 	return lastStart, lastEnd, lastCount
 }
 
-func trimMarkdownDisplayTrailingBlankLines(lines []string) []string {
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
+// trimMarkdownDisplayLeadingBlankLines drops only leading blank lines. The
+// incremental head keeps its trailing blanks: its final block still owns
+// them in the whole render (e.g. a code block whose last line is blank).
+func trimMarkdownDisplayLeadingBlankLines(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
 	}
 	if len(lines) == 0 {
 		return []string{""}
@@ -504,7 +522,7 @@ func resumeStreamingParagraph(prev *streamingParagraphResume, tail string, measu
 	if len(words) == 0 {
 		return nil, nil, false
 	}
-	if prev == nil || prev.measure != measure || !strings.HasPrefix(tail, prev.tailText) {
+	if prev == nil || prev.measure != measure {
 		var starts []int
 		lines := appendWrappedMarkdownWords(nil, words, 0, "", 0, "", "", measure, &starts)
 		return lines, &streamingParagraphResume{tailText: tail, words: words, lineStarts: starts, lines: lines, measure: measure}, true

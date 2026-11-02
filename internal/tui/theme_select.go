@@ -105,9 +105,10 @@ func applyTheme(mode themeMode, terminalDark bool) themeMode {
 	qgTheme = theme
 	rebuildStreamingFadePalette()
 	if defaultRenderCache != nil {
-		defaultRenderCache.clear() // old-palette entries must not be reused
+		// clear also resets the streaming incremental state, so this stays
+		// the single invalidation point on theme change.
+		defaultRenderCache.clear()
 	}
-	resetStreamingMarkdownCache()
 	return resolved
 }
 
