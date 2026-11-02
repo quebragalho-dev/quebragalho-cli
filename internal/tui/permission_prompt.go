@@ -92,7 +92,7 @@ func (m model) movePermissionCursor(delta int) model {
 
 // confirmPermissionCursor resolves the currently highlighted option. It is the
 // Enter-key counterpart to the a/y/d hotkeys and a mouse click. Confirming the
-// "Não, e dizer ao QG como fazer" choice opens the inline feedback field
+// "tell QG what to do differently" choice opens the inline feedback field
 // instead of resolving immediately.
 func (m model) confirmPermissionCursor() (tea.Model, tea.Cmd) {
 	if m.pendingPermission == nil {
@@ -106,7 +106,7 @@ func (m model) confirmPermissionCursor() (tea.Model, tea.Cmd) {
 }
 
 // choosePermissionOption applies a chosen decision. The cancel choice (the
-// "Não, e dizer ao QG como fazer" row and its [n] hotkey) opens the inline
+// "tell QG what to do differently" row and its [n] hotkey) opens the inline
 // feedback field rather than aborting the run; every other choice resolves
 // immediately as before.
 func (m model) choosePermissionOption(choice permissionDecision) (tea.Model, tea.Cmd) {

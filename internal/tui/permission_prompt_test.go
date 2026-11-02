@@ -189,7 +189,7 @@ func TestPermissionOptionsCanExposePatchCancelWithoutRecoverableDeny(t *testing.
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 2, false, "", 80)
 	got := plainRender(t, card)
-	if !strings.Contains(got, "Não, e dizer ao QG como fazer") || !strings.Contains(got, "[n]") {
+	if !strings.Contains(got, "tell QG what to do differently") || !strings.Contains(got, "[n]") {
 		t.Fatalf("permission card = %q, missing cancel option", got)
 	}
 	if strings.Contains(got, "Não, continuar sem executar") || strings.Contains(got, "[d]") {
@@ -286,7 +286,7 @@ func TestPermissionHotkeysStillResolveDirectly(t *testing.T) {
 }
 
 // feedbackRequest is a bash prompt whose decision set includes Cancel, so the
-// "Não, e dizer ao QG como fazer" row (and its [n] hotkey) is present.
+// "tell QG what to do differently" row (and its [n] hotkey) is present.
 func feedbackRequest() agent.PermissionRequest {
 	request := testPromptPermissionRequest()
 	request.ToolName = "bash"
@@ -298,7 +298,7 @@ func feedbackRequest() agent.PermissionRequest {
 	return request
 }
 
-// The [n] "Não, e dizer ao QG como fazer" hotkey no longer resolves cancel
+// The [n] "tell QG what to do differently" hotkey no longer resolves cancel
 // immediately: it opens the inline feedback field and sends nothing yet.
 func TestPermissionTellDifferentlyOpensFeedbackField(t *testing.T) {
 	var got []agent.PermissionDecision
