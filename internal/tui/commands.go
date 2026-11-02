@@ -118,14 +118,14 @@ var commandDefinitions = []commandDefinition{
 		name:        "/permissions",
 		usage:       "/permissions",
 		group:       commandGroupRuntime,
-		description: "Mostra o modo de permissão ativo e os acessos do ambiente isolado.",
+		description: "Mostra o modo de permissão e o ambiente isolado.",
 		kind:        commandPermissions,
 	},
 	{
 		name:        "/ps",
 		usage:       "/ps",
 		group:       commandGroupRuntime,
-		description: "Lista os terminais em segundo plano em execução.",
+		description: "Lista terminais em segundo plano.",
 		kind:        commandPS,
 	},
 	{
@@ -219,7 +219,7 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/mcp-status"},
 		usage:       "/mcp",
 		group:       commandGroupTools,
-		description: "Mostra o estado dos servidores MCP.",
+		description: "Mostra servidores MCP.",
 		kind:        commandMCP,
 	},
 	{
@@ -392,7 +392,7 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/debug-mode"},
 		usage:       "/debug",
 		group:       commandGroupRuntime,
-		description: "Mostra o estado do modo debug.",
+		description: "Mostra o modo debug.",
 		kind:        commandDebug,
 	},
 	{
