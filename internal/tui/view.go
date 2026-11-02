@@ -395,18 +395,18 @@ func (m model) suggestionOverlay(width int) string {
 	if !m.suggestionsActive() {
 		return ""
 	}
-	title := "Commands"
+	title := "Comandos"
 	query := commandSuggestionQuery(m.input.Value())
-	footer := "↑/↓ move   Enter run   Esc close"
+	footer := "↑/↓ mover   Enter executar   Esc fechar"
 	if m.selectedCommandSuggestionRequiresInput() {
-		footer = "↑/↓ move   Enter insert   Esc close"
+		footer = "↑/↓ mover   Enter inserir   Esc fechar"
 	}
 	if m.suggestionsAreFiles {
-		title = "Files"
+		title = "Arquivos"
 		query = fileSuggestionQuery(m.input.Value())
-		footer = "↑/↓ move   Enter insert   Esc close"
+		footer = "↑/↓ mover   Enter inserir   Esc fechar"
 	}
-	return centerRenderedBlock(renderSuggestionPalette(selectableItems(m.suggestions, m.suggestionsAreFiles), m.suggestionIdx, width, title, query, footer), width)
+	return centerRenderedBlock(renderSuggestionPalette(selectableItems(m.suggestions, m.suggestionsAreFiles), m.suggestionIdx, width, title, query, footer, m.suggestionsAreFiles), width)
 }
 
 func commandSuggestionQuery(value string) string {
@@ -427,7 +427,7 @@ func fileSuggestionQuery(value string) string {
 	return ""
 }
 
-func renderSuggestionPalette(items []selectableListItem, selected, width int, title, query, footer string) string {
+func renderSuggestionPalette(items []selectableListItem, selected, width int, title, query, footer string, isFiles bool) string {
 	if width <= 0 {
 		width = defaultStartupWidth
 	}
@@ -481,9 +481,9 @@ func renderSuggestionPalette(items []selectableListItem, selected, width int, ti
 		lines = append(lines, fillPaletteLine(line, innerWidth, surface))
 	}
 	if len(visible) == 0 {
-		message := "no matching commands"
-		if strings.EqualFold(strings.TrimSpace(title), "Files") {
-			message = "no matching files"
+		message := "sem comandos correspondentes"
+		if isFiles {
+			message = "sem arquivos correspondentes"
 		}
 		lines = append(lines, fillPaletteLine(searchPrefix+qgTheme.faint.Render(message), innerWidth, transparentSurface))
 	}
@@ -536,7 +536,7 @@ func styledBlockFillTitleStyled(width int, title string, lines []string, borderS
 
 func renderSuggestionSearchLine(query string, width int) string {
 	query = strings.TrimSpace(query)
-	label := qgTheme.userPrompt.Render("search > ")
+	label := qgTheme.userPrompt.Render("buscar > ")
 	valueWidth := maxInt(1, width-lipgloss.Width(label))
 	value := qgTheme.ink.Render(truncateRunes(query, valueWidth))
 	return fitStyledLine(label+value, width)
