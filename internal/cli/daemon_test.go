@@ -33,7 +33,7 @@ func TestDaemonUsage(t *testing.T) {
 		t.Fatalf("no-args exit = %d, want exitUsage", code)
 	}
 	code, out, _ := runDaemonCLI(t, "--help")
-	if code != exitSuccess || !strings.Contains(out, "Usage: qg daemon") {
+	if code != exitSuccess || !strings.Contains(out, "Uso: qg daemon") {
 		t.Fatalf("--help exit=%d out=%q", code, out)
 	}
 }

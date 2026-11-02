@@ -110,7 +110,7 @@ func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 }
 
 func writeTrustUsage(w io.Writer) {
-	_, _ = fmt.Fprint(w, `Usage:
+	_, _ = fmt.Fprint(w, `Uso:
   qg trust                Confia na pasta de trabalho atual
   qg trust list           Lista as raízes de pasta confiáveis
   qg trust remove [path]  Desconfia da pasta atual, ou de um caminho dado

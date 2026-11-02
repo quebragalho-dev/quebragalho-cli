@@ -403,7 +403,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	case "-v", "--version", "version":
 		for _, a := range args[1:] {
 			if a == "-h" || a == "--help" {
-				if _, err := fmt.Fprintln(stdout, "Usage: qg version\n\nMostra a versão da CLI do QG. Não aceita flags."); err != nil {
+				if _, err := fmt.Fprintln(stdout, "Uso: qg version\n\nMostra a versão da CLI do QG. Não aceita flags."); err != nil {
 					return 1
 				}
 				return 0
@@ -1401,27 +1401,27 @@ Comandos:
   completions Gera scripts de completion para o shell
   daemon      Gerencia o worker daemon local em segundo plano (start/stop/status/run/attach)
   setup       Guia a configuração inicial do provedor
-  login       Salva e valida sua chave de API da Quebra Galho
-  logout      Remove as credenciais salvas da Quebra Galho
+  login       Salva e valida sua chave de API do Quebra Galho
+  logout      Remove as credenciais salvas do Quebra Galho
   config      Inspeciona a configuração Go resolvida sem expor segredos
-  models      Lista as entradas do registro de modelos da QG
-  balance     Mostra o saldo atual da carteira Quebra Galho
+  models      Lista as entradas do registro de modelos do QG
+  balance     Mostra o saldo atual da carteira do Quebra Galho
   key         Mostra o perfil ativo da chave de API (alias: whoami)
   whoami      Alias de key
   providers   Inspeciona os perfis de provedor configurados
   doctor      Executa verificações de saúde do backend de configuração e provedor
   context     Relata o uso do orçamento de contexto da pasta de trabalho
   repo-map    Monta um mapa determinístico do repositório para o agente
-  search      Pesquisa eventos de sessão locais da QG
+  search      Pesquisa eventos de sessão locais do QG
   find        Alias de search
-  sessions    Inspeciona a linhagem das sessões locais da QG
+  sessions    Inspeciona a linhagem das sessões locais do QG
   spec        Revisa e aprova rascunhos salvos do modo spec
-  specialist  Gerencia perfis de especialista locais da QG
-  plugins     Inspeciona, instala e remove plugins locais da QG
+  specialist  Gerencia perfis de especialista locais do QG
+  plugins     Inspeciona, instala e remove plugins locais do QG
   backends    Inspeciona o ciclo de vida dos backends de MCP, hook e plugin
-  skills      Inspeciona, instala e remove skills locais da QG
-  tools       Cria modelos e lista plugin-tools locais da QG
-  hooks       Inspeciona a configuração de hooks da QG
+  skills      Inspeciona, instala e remove skills locais do QG
+  tools       Gera a estrutura inicial e lista plugin-tools locais do QG
+  hooks       Inspeciona a configuração de hooks do QG
   mcp         Gerencia as configurações do backend MCP
   auth        Faz login nos provedores de modelo via OAuth
   sandbox     Inspeciona a política do ambiente isolado e permissões salvas
@@ -1434,7 +1434,7 @@ Comandos:
   usage       Consulta tokens do gateway (relatório de uso = resumo local)
   cron        Agenda tarefas do agente (primeiro plano, em arquivo)
   repo-info   Caracteriza o repositório atual (só git local)
-  serve       Executa servidores de protocolo da QG
+  serve       Executa servidores de protocolo do QG
   acp         Serve o Agent Client Protocol via stdio (backend de editor)
   help        Mostra esta ajuda
   version     Mostra a versão
@@ -1718,7 +1718,7 @@ Opções:
       --depth <number>               Define metadados de profundidade de aninhamento do especialista
       --session-title <text>         Define o título da sessão criada
       --init-session-id <id>         Cria uma sessão nova de execução com este id
-      --dangerously-skip-permissions Permite ferramentas com gate de mensagem sem aprovação
+      --dangerously-skip-permissions Libera sem aprovação as ferramentas que pedem confirmação
       --skip-permissions-unsafe      Alias de --dangerously-skip-permissions
       --allow-escalation             Deixa o agente escalar para um modelo mais forte via escalate_model
       --self-correct                 Executa o loop pós-edição de verificar e corrigir (a correção automática precisa de --auto medium ou high)

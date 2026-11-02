@@ -624,7 +624,7 @@ func writeSkillAddHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg skill add <git-url|path> [flags]
 
-Instala uma skill de uma URL git ou caminho local no diretório de skills e
+Instala uma skill de uma URL git ou caminho local na pasta de skills e
 registra um hash do conteúdo em skills.lock. O conteúdo baixado nunca é executado.
 
 Opções:
@@ -648,7 +648,7 @@ func writeSkillRemoveHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg skill remove <name>
 
-Remove o diretório de uma skill instalada e sua entrada em skills.lock.
+Remove a pasta de uma skill instalada e sua entrada em skills.lock.
 `)
 	return err
 }
@@ -673,7 +673,7 @@ func writePluginRemoveHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg plugin remove <id>
 
-Remove o diretório de um plugin instalado e sua entrada em plugins.lock.
+Remove a pasta de um plugin instalado e sua entrada em plugins.lock.
 `)
 	return err
 }
@@ -695,8 +695,8 @@ func writeToolsHelp(w io.Writer) error {
   qg tools <command>
 
 Comandos:
-  make <name>    Cria um modelo novo de plugin-tool no diretório toolbox
-  list           Lista plugin-tools no diretório toolbox
+  make <name>    Gera a estrutura inicial de plugin-tool na pasta toolbox
+  list           Lista plugin-tools na pasta toolbox
 `)
 	return err
 }
@@ -705,8 +705,8 @@ func writeToolsMakeHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg tools make <name> [flags]
 
-Cria um modelo de plugin-tool (um manifesto de plugin mais um stub de entrada executável)
-no diretório toolbox. Após a ativação do plugin, a ferramenta fica carregável.
+Gera a estrutura inicial de plugin-tool (um manifesto de plugin mais um stub de entrada executável)
+na pasta toolbox. Após a ativação do plugin, a ferramenta fica carregável.
 
 Opções:
       --runtime <shell|node|python>   Linguagem do stub de entrada (padrão shell)

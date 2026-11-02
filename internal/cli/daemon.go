@@ -49,9 +49,9 @@ func runDaemon(args []string, stdout io.Writer, stderr io.Writer, _ appDeps) int
 }
 
 func writeDaemonUsage(w io.Writer, code int) int {
-	fmt.Fprint(w, `Usage: qg daemon <command>
+	fmt.Fprint(w, `Uso: qg daemon <command>
 
-Commands:
+Comandos:
   start [--foreground]      Inicia o daemon (em segundo plano por padrão).
   stop                      Para o daemon em execução com cuidado.
   status                    Mostra o estado do daemon / pool / sessão.

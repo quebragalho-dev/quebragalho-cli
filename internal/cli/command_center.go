@@ -612,7 +612,7 @@ func writeModelsHelp(w io.Writer) error {
 	_, err := fmt.Fprint(w, `Uso:
   qg models list [flags]
 
-Lista as entradas do registro de modelos da QG.
+Lista as entradas do registro de modelos do QG.
 
 Opções:
       --json                  Imprime a lista de modelos em JSON
@@ -646,7 +646,7 @@ Opções:
       --connectivity            Sonda o endpoint do provedor no providers check
       --transport <transport>   Filtra descritores do catálogo por transporte
 
-Flags do add:
+Opções do add:
       --name <name>             Nome do perfil de provedor salvo
       --model <model>           Troca o modelo padrão do catálogo
       --base-url <url>          Troca a URL base padrão do catálogo
@@ -657,7 +657,7 @@ Flags do add:
       --header <key=value>      Cabeçalho personalizado do provedor; repetível
       --set-active              Ativa o provedor adicionado
 
-Flags do setup:
+Opções do setup:
       --name <name>             Nome planejado do perfil de provedor
       --model <model>           Modelo planejado (troca o padrão)
       --base-url <url>          URL base planejada (troca o padrão)

@@ -25,7 +25,7 @@ func runCron(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 // cron_run.go (Task 6).
 func runCronWith(store *cron.Store, now func() time.Time, args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: qg cron <add|list|rm|pause|resume|run> ...")
+		fmt.Fprintln(stderr, "Uso: qg cron <add|list|rm|pause|resume|run> ...")
 		return exitUsage
 	}
 	sub, rest := args[0], args[1:]

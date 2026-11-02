@@ -67,7 +67,7 @@ Roda um turno do agente com uma varredura local do repo (linguagens, ferramentas
 de build/teste, CI, layout da pasta de trabalho), investiga as lacunas e escreve
 um AGENTS.md conciso na raiz do repo para as próximas execuções começarem com contexto.
 
-Usage:
+Uso:
   qg init [exec flags]
 
 Aceita as mesmas flags de 'qg exec' (ex.: --model, -w/--worktree, --add-dir).

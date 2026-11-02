@@ -23,7 +23,7 @@ Editores que falam ACP (Zed, JetBrains, Neovim, ...) criam este comando e usam
 o QG como backend via JSON-RPC 2.0 em stdin/stdout. O QG guarda seu provedor,
 modelo e chaves de API (BYOK); o editor só hospeda o fio da conversa.
 
-Usage:
+Uso:
   qg acp
 
 Não é para rodar interativamente — aponte o ajuste de ACP / agente externo do

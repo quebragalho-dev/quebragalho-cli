@@ -217,7 +217,7 @@ func TestRunTrustHelp(t *testing.T) {
 		if code := runTrust([]string{flag}, &out, &errBuf, deps); code != exitSuccess {
 			t.Fatalf("trust %s returned %d, want %d", flag, code, exitSuccess)
 		}
-		if !strings.Contains(out.String(), "Usage") {
+		if !strings.Contains(out.String(), "Uso:") {
 			t.Fatalf("trust %s stdout = %q, want it to contain usage text", flag, out.String())
 		}
 		if errBuf.Len() != 0 {
