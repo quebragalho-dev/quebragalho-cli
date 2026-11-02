@@ -46,17 +46,18 @@ func TestPrefixOptionsDiscloseLeavingTheSandbox(t *testing.T) {
 	}
 }
 
-// The disclosure must survive rendering: the card shows override labels,
-// not the base option text, so a warning that only exists on the base label
-// would never reach the person deciding.
+// The disclosure must survive rendering: the card shows the fixed short
+// labels plus the command on its own line, so both the warning and the full
+// command reach the person deciding.
 func TestRenderedPrefixOptionsDiscloseLeavingTheSandbox(t *testing.T) {
 	request := prefixRequest(true)
 	request.CommandPrefix = []string{"git", "status"}
 	card, _ := renderFocusedPermissionPrompt(request, 1, false, "", 100)
 	got := plainRender(t, card)
 	for _, want := range []string{
-		"Sim, fora do ambiente isolado: permitir `git status` nesta sessão",
-		"Sim, fora do ambiente isolado: sempre permitir `git status`",
+		"prefixo de comando: `git status`",
+		"Fora do ambiente isolado, nesta sessão",
+		"Fora do ambiente isolado, sempre",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rendered prefix card = %q, missing %q", got, want)
@@ -98,29 +99,59 @@ func TestPrefixOptionsStaySilentWhenNoEscalationHappens(t *testing.T) {
 // The warning leads so a narrow card truncates the variable command instead
 // of the disclosure. At 50 and 80 columns with a long prefix, the full warning
 // and both hotkeys must survive; only the command may carry the ellipsis.
+// The warning and the scope must survive narrow cards with the cursor on any
+// option: the fixed short labels carry the disclosure, the hotkeys stay
+// visible, and the full command rides on its own line above the options.
 func TestRenderedEscalatingPrefixKeepsWarningAndHotkeyWhenTruncated(t *testing.T) {
-	long := []string{"docker", "compose", "up", "--build"}
-	short := []string{"git", "status"}
-	for _, width := range []int{50, 80} {
-		for _, prefix := range [][][]string{{short}, {long}} {
-			cmd := prefix[0]
+	prefixes := []struct {
+		name string
+		cmd  []string
+	}{
+		{"short", []string{"git", "status"}},
+		{"long", []string{"docker", "compose", "up", "--build"}},
+	}
+	for _, width := range []int{50, 58, 80} {
+		for _, prefix := range prefixes {
+			cmd := strings.Join(prefix.cmd, " ")
 			request := prefixRequest(true)
-			request.CommandPrefix = cmd
-			for _, cursor := range []int{1, 2} {
+			request.CommandPrefix = prefix.cmd
+			for cursor := 0; cursor < len(permissionOptions(request)); cursor++ {
 				card, _ := renderFocusedPermissionPrompt(request, cursor, false, "", width)
 				got := plainRender(t, card)
-				if !strings.Contains(got, "Sim, fora do ambiente isolado:") {
-					t.Fatalf("width=%d cmd=%q cursor=%d: warning truncated, got %q", width, cmd, cursor, got)
+				if !strings.Contains(got, "Fora do ambiente isolado") {
+					t.Fatalf("width=%d cmd=%q cursor=%d: disclosure missing, got %q", width, cmd, cursor, got)
 				}
-				if !strings.Contains(got, "[p]") {
-					t.Fatalf("width=%d cmd=%q: [p] truncated, got %q", width, cmd, got)
+				pLine := cardLineWith(got, "[p]")
+				if pLine == "" {
+					t.Fatalf("width=%d cmd=%q cursor=%d: [p] truncated, got %q", width, cmd, cursor, got)
 				}
-				if !strings.Contains(got, "[y]") {
-					t.Fatalf("width=%d cmd=%q: [y] truncated, got %q", width, cmd, got)
+				if !strings.Contains(pLine, "nesta sessão") {
+					t.Fatalf("width=%d cmd=%q cursor=%d: scope cut from [p] line %q, got %q", width, cmd, cursor, pLine, got)
+				}
+				yLine := cardLineWith(got, "[y]")
+				if yLine == "" {
+					t.Fatalf("width=%d cmd=%q cursor=%d: [y] truncated, got %q", width, cmd, cursor, got)
+				}
+				if !strings.Contains(yLine, "sempre") {
+					t.Fatalf("width=%d cmd=%q cursor=%d: scope cut from [y] line %q, got %q", width, cmd, cursor, yLine, got)
+				}
+				if !strings.Contains(got, cmd) {
+					t.Fatalf("width=%d cmd=%q cursor=%d: full command missing, got %q", width, cmd, cursor, got)
 				}
 			}
 		}
 	}
+}
+
+// cardLineWith returns the first card line containing mark, or "" when the
+// mark was truncated away.
+func cardLineWith(card, mark string) string {
+	for _, line := range strings.Split(card, "\n") {
+		if strings.Contains(line, mark) {
+			return line
+		}
+	}
+	return ""
 }
 
 // The non-prefix options do not escalate, so the flag must not bleed into them.

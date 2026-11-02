@@ -1092,7 +1092,7 @@ func renderPermissionRow(row transcriptRow, width int) string {
 	case agent.PermissionActionAllow:
 		label := "permitido uma vez"
 		if event.DecisionAction == agent.PermissionDecisionAlwaysAllowPrefix {
-			label = "prefixo sempre"
+			label = "prefixo: sempre"
 		} else if event.DecisionAction == agent.PermissionDecisionAllowPrefix {
 			label = "prefixo permitido"
 		} else if event.DecisionAction == agent.PermissionDecisionAllowForSession ||
@@ -1202,11 +1202,19 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 
 	lines = append(lines, "")
 
+	// The approved prefix is shown once above the options so a narrow card
+	// never has to choose between the disclosure and the command: the short
+	// fixed labels carry the warning and the full command stays intact on
+	// its own line(s).
+	if request.PrefixApprovalEscalates && len(request.CommandPrefix) > 0 {
+		lines = append(lines, prefixCommandLines(request, prefixAvailWidth(width))...)
+	}
+
 	// Feedback mode: the option list is replaced by a free-text field, like the
 	// ask_user "type your own answer" surface. What is typed is sent to the model
 	// as the denial reason, so it reads the instruction and adjusts.
 	if typing {
-		lines = append(lines, fill(qgTheme.muted).Render("Diga ao QG o que fazer de outro jeito:"))
+		lines = append(lines, fill(qgTheme.muted).Render("Diga ao QG como fazer:"))
 		lines = append(lines, qgTheme.userPrompt.Render("❯ ")+fill(qgTheme.ink).Render(feedback)+fill(qgTheme.accent).Render("▌"))
 		lines = append(lines, "")
 		lines = append(lines, fill(qgTheme.faint).Render("enter · enviar ao QG    esc · voltar às opções"))
@@ -1221,19 +1229,10 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	options := permissionOptions(request)
 	cursor = clampPermissionCursor(cursor, request)
 	offsets := make([]int, len(options))
-	avail := width
-	if widthTier(width) != tierTiny {
-		avail = maxInt(1, width-4)
-	}
-	maxLabelWidth := maxInt(1, avail-8)
 	for index, option := range options {
 		offsets[index] = 1 + len(lines)
 		hotkey := fill(qgTheme.faint).Render(" [" + option.hotkey + "]")
 		optionLabel := permissionOptionLabel(option, request)
-		if request.PrefixApprovalEscalates && (option.choice == permissionDecisionAllowPrefix || option.choice == permissionDecisionAlwaysAllowPrefix) {
-			always := option.choice == permissionDecisionAlwaysAllowPrefix
-			optionLabel = escalatingPrefixLabel(request, always, maxLabelWidth)
-		}
 		if index == cursor {
 			// onSel, not badge. qgTheme.badge is the brand chip (" 0 ", " ASK ",
 			// " SPEC REVIEW ") — a full-brightness accent fill meant for short
@@ -1319,7 +1318,7 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 		return "Sim, e não perguntar de novo para este comando nesta sessão"
 	case permissionDecisionAllowPrefix:
 		if request.PrefixApprovalEscalates {
-			return escalatingPrefixLabel(request, false, 0)
+			return "Fora do ambiente isolado, nesta sessão"
 		}
 		if len(request.CommandPrefix) > 0 {
 			return "Sim, e permitir `" + strings.Join(request.CommandPrefix, " ") + "` nesta sessão"
@@ -1327,7 +1326,7 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 		return "Sim, e permitir este prefixo de comando nesta sessão"
 	case permissionDecisionAlwaysAllowPrefix:
 		if request.PrefixApprovalEscalates {
-			return escalatingPrefixLabel(request, true, 0)
+			return "Fora do ambiente isolado, sempre"
 		}
 		if len(request.CommandPrefix) > 0 {
 			return "Sim, e sempre permitir `" + strings.Join(request.CommandPrefix, " ") + "`"
@@ -1344,59 +1343,33 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 	case permissionDecisionDeny:
 		return "Não, continuar sem executar"
 	case permissionDecisionCancel:
-		return "Não, e dizer ao QG o que fazer de outro jeito"
+		return "Não, e dizer ao QG como fazer"
 	default:
 		return option.label
 	}
 }
 
-// escalatingPrefixLabel builds the outside-sandbox warning first so a narrow
-// card truncates the variable command instead of the disclosure. The warning
-// and the hotkey live outside the truncated span: the caller reserves room for
-// the hotkey, and this helper shrinks only the command (or the whole label as
-// a fallback) to the given cell budget. A non-positive budget returns the full
-// label for width-unaware callers.
-func escalatingPrefixLabel(request agent.PermissionRequest, always bool, maxLabelWidth int) string {
-	cmd := strings.Join(request.CommandPrefix, " ")
-	var head, tail, full string
-	if always {
-		head = "Sim, fora do ambiente isolado: sempre permitir `"
-		tail = "`"
-		if cmd == "" {
-			full = "Sim, fora do ambiente isolado: sempre permitir este prefixo de comando"
-			if maxLabelWidth <= 0 || lipgloss.Width(full) <= maxLabelWidth {
-				return full
-			}
-			return truncateDisplayWidth(full, maxLabelWidth)
-		}
-		full = head + cmd + tail
-		if maxLabelWidth <= 0 || lipgloss.Width(full) <= maxLabelWidth {
-			return full
-		}
-		availForCmd := maxLabelWidth - lipgloss.Width(head) - lipgloss.Width(tail)
-		if availForCmd <= 0 {
-			return truncateDisplayWidth(full, maxLabelWidth)
-		}
-		return head + truncateDisplayWidth(cmd, availForCmd) + tail
+// prefixAvailWidth is the cell budget each card content line is fitted to:
+// the full width on tiny cards, minus the border padding elsewhere.
+func prefixAvailWidth(width int) int {
+	if widthTier(width) == tierTiny {
+		return maxInt(1, width)
 	}
-	head = "Sim, fora do ambiente isolado: permitir `"
-	tail = "` nesta sessão"
-	if cmd == "" {
-		full = "Sim, fora do ambiente isolado: permitir este prefixo de comando nesta sessão"
-		if maxLabelWidth <= 0 || lipgloss.Width(full) <= maxLabelWidth {
-			return full
-		}
-		return truncateDisplayWidth(full, maxLabelWidth)
+	return maxInt(1, width-4)
+}
+
+// prefixCommandLines renders the approved command once above the prefix
+// options. A single line when it fits; otherwise the label breaks onto its
+// own line so the command itself is never truncated.
+func prefixCommandLines(request agent.PermissionRequest, avail int) []string {
+	cmd := "`" + strings.Join(request.CommandPrefix, " ") + "`"
+	if lipgloss.Width("prefixo de comando: "+cmd) <= avail {
+		return []string{qgTheme.muted.Render("prefixo de comando: ") + qgTheme.ink.Render(cmd)}
 	}
-	full = head + cmd + tail
-	if maxLabelWidth <= 0 || lipgloss.Width(full) <= maxLabelWidth {
-		return full
+	return []string{
+		qgTheme.muted.Render("prefixo de comando:"),
+		qgTheme.ink.Render("  " + cmd),
 	}
-	availForCmd := maxLabelWidth - lipgloss.Width(head) - lipgloss.Width(tail)
-	if availForCmd <= 0 {
-		return truncateDisplayWidth(full, maxLabelWidth)
-	}
-	return head + truncateDisplayWidth(cmd, availForCmd) + tail
 }
 
 func permissionEventScopeLabel(event *agent.PermissionEvent) string {
