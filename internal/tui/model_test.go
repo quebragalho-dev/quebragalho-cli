@@ -3422,7 +3422,9 @@ func TestHandleModelCommandScopeEffortLevels(t *testing.T) {
 	t.Run("reset shows redefinido", func(t *testing.T) {
 		m := newBase()
 		m.reasoningEffort = "high"
-		next, text, ok, err := m.handleModelCommandScope("qwen3.8-max", false)
+		// qwen3.8-omni-flash has an empty effort ring in every catalog, so an
+		// explicit preference must reset (qwen3.8-max was removed by cost cuts).
+		next, text, ok, err := m.handleModelCommandScope("qwen3.8-omni-flash", false)
 		if err != nil || !ok {
 			t.Fatalf("reset switch refused: text=%q err=%v", text, err)
 		}
