@@ -786,7 +786,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 					return exitCrash
 				}
 			default:
-				fmt.Fprintln(stderr, "Interrupted.")
+				fmt.Fprintln(stderr, "Interrompido.")
 			}
 			return exitInterrupted
 		}
