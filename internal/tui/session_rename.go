@@ -12,7 +12,7 @@ type sessionRenamePrompt struct{}
 
 func (m model) openSessionRenamePrompt() model {
 	if m.sessionStore == nil {
-		return m.appendSessionRenameError("session storage is unavailable")
+		return m.appendSessionRenameError("armazenamento de sessões indisponível")
 	}
 	m.clearComposer()
 	title := m.activeSession.Title
@@ -46,16 +46,16 @@ func (m model) handleSessionRenameKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) renameActiveSession(title string) model {
 	title = cutRunes(strings.TrimSpace(title), tuiSessionTitleLimit)
 	if title == "" {
-		return m.appendSessionRenameError("session name cannot be empty")
+		return m.appendSessionRenameError("o nome da sessão não pode ficar vazio")
 	}
 	if m.sessionStore == nil {
-		return m.appendSessionRenameError("session storage is unavailable")
+		return m.appendSessionRenameError("armazenamento de sessões indisponível")
 	}
 	if m.activeSession.SessionID == "" {
 		m.pendingSessionTitle = title
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
 			kind: actionAppendSystem,
-			text: "Session renamed to " + title + ".",
+			text: "Sessão renomeada para " + title + ".",
 		})
 		return m
 	}
@@ -70,7 +70,7 @@ func (m model) renameActiveSession(title string) model {
 	m.titledSessions[updated.SessionID] = true
 	m.transcript = reduceTranscript(m.transcript, transcriptAction{
 		kind: actionAppendSystem,
-		text: "Session renamed to " + updated.Title + ".",
+		text: "Sessão renomeada para " + updated.Title + ".",
 	})
 	m = m.syncPeerIdentity()
 	return m
@@ -79,7 +79,7 @@ func (m model) renameActiveSession(title string) model {
 func (m model) appendSessionRenameError(detail string) model {
 	m.transcript = reduceTranscript(m.transcript, transcriptAction{
 		kind: actionAppendError,
-		text: fmt.Sprintf("Could not rename session: %s.", strings.TrimSuffix(strings.TrimSpace(detail), ".")),
+		text: fmt.Sprintf("Não foi possível renomear a sessão: %s.", strings.TrimSuffix(strings.TrimSpace(detail), ".")),
 	})
 	return m
 }
@@ -90,7 +90,7 @@ func (m model) sessionRenamePromptView(width int) string {
 	}
 	input := m.input
 	input.Prompt = "> "
-	input.Placeholder = "Type a name"
+	input.Placeholder = "Digite um nome"
 	innerWidth := maxInt(1, width-4)
 	line := renderComposerInput(
 		input,
@@ -101,7 +101,7 @@ func (m model) sessionRenamePromptView(width int) string {
 	)
 	lines := append(strings.Split(line, "\n"),
 		qgTheme.line.Render(strings.Repeat("─", innerWidth)),
-		qgTheme.faint.Render("Enter save   Esc cancel"),
+		qgTheme.faint.Render("Enter salvar   Esc cancelar"),
 	)
-	return styledBlockFillTitle(width, "Rename session", lines, qgTheme.lineStrong, lipgloss.NewStyle())
+	return styledBlockFillTitle(width, "Renomear sessão", lines, qgTheme.lineStrong, lipgloss.NewStyle())
 }

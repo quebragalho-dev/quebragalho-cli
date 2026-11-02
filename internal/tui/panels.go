@@ -37,6 +37,28 @@ func (m model) panelReasoningEfforts() []modelregistry.ReasoningEffort {
 
 func (m model) effortPreferenceKey() string { return m.providerName + "/" + m.modelName }
 
+// effortDisplayLabel maps a reasoning-effort value to its Portuguese display
+// label. Values (low, medium, ...) stay English everywhere else: config,
+// protocol and tests keep comparing the raw value.
+func effortDisplayLabel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return "automático"
+	case "low":
+		return "baixo"
+	case "medium":
+		return "médio"
+	case "high":
+		return "alto"
+	case "xhigh":
+		return "muito alto"
+	case "max":
+		return "máximo"
+	default:
+		return value
+	}
+}
+
 func (m model) loadPanelEffort() model {
 	if m.userConfigPath == "" {
 		return m
@@ -135,12 +157,13 @@ func (m model) effortPanelLines(width int, value string) []string {
 	labels := []string{}
 	supported := m.panelReasoningEfforts()
 	for _, level := range []string{"low", "medium", "high", "xhigh", "max"} {
-		label := " " + level + " "
+		name := effortDisplayLabel(level)
+		label := " " + name + " "
 		if !reasoningEffortAllowed(supported, modelregistry.ReasoningEffort(level)) {
-			label = "(" + level + ")"
+			label = "(" + name + ")"
 		}
 		if level == value {
-			label = "[" + level + "]"
+			label = "[" + name + "]"
 		}
 		labels = append(labels, label)
 	}
@@ -151,12 +174,25 @@ func (m model) effortPanelLines(width int, value string) []string {
 	labelLine := strings.Join(labels, gap)
 	track := []rune(strings.Repeat("─", lipgloss.Width(labelLine)))
 	if value != "auto" {
-		if at := strings.Index(labelLine, "["+value+"]"); at >= 0 {
-			track[at+1+len(value)/2] = '▲'
+		// Index in runes, not bytes: translated labels carry accents, so a
+		// byte offset would misplace the marker on narrow terminals.
+		if at := strings.Index(labelLine, "["+effortDisplayLabel(value)+"]"); at >= 0 {
+			pos := len([]rune(labelLine[:at])) + 1 + len([]rune(effortDisplayLabel(value)))/2
+			if pos < len(track) {
+				track[pos] = '▲'
+			}
 		}
 	}
-	lines := []string{"Faster" + strings.Repeat(" ", maxInt(1, len(track)-13)) + "Smarter", string(track), labelLine, "effort: " + value}
+	lines := []string{effortPanelEndsLine(string(track)), string(track), labelLine, "nível: " + effortDisplayLabel(value)}
 	return lines
+}
+
+// effortPanelEndsLine renders the "faster / smarter" ends of the effort track,
+// padded to the track width in cells (not bytes, so accented labels align).
+func effortPanelEndsLine(track string) string {
+	left, right := "Mais rápido", "Mais inteligente"
+	pad := maxInt(1, lipgloss.Width(track)-lipgloss.Width(left)-lipgloss.Width(right))
+	return left + strings.Repeat(" ", pad) + right
 }
 
 func (m model) effortPanelOverlay(width int) string {
@@ -166,7 +202,7 @@ func (m model) effortPanelOverlay(width int) string {
 	}
 	lines := m.effortPanelLines(width, value)
 	lines = append(lines, "", "←/→ ajustar · Enter padrão", "s só nesta sessão · Esc cancelar")
-	return m.panelBlock(width, "Effort", lines)
+	return m.panelBlock(width, "Nível", lines)
 }
 
 func (m model) modelPanelOverlay(width int) string {
@@ -197,7 +233,7 @@ func (m model) modelPanelOverlay(width int) string {
 		if value == "" {
 			value = m.effortDisplay()
 		}
-		lines = append(lines, "", "effort: "+value+" · ←/→ ajustar")
+		lines = append(lines, "", "nível: "+effortDisplayLabel(value)+" · ←/→ ajustar")
 	}
 	lines = append(lines, "", "↑/↓ mover · / buscar · Tab lista · Enter padrão", "s só nesta sessão · Esc cancelar")
 	return m.panelBlock(width, "Selecionar modelo", lines)
@@ -448,16 +484,16 @@ func (m *model) selectEffortPanelAtMouse(msg tea.MouseMsg) (mouseSelectionTarget
 	}
 	_, rows, _ := normalizeOverlayBlock(viewLines(overlay), width)
 	line := ansi.Strip(rows[hit.y])
-	if strings.Contains(line, "effort:") {
+	if strings.Contains(line, "nível:") {
 		return mouseSelectionTarget{}, false
 	}
 	for i, item := range m.picker.items {
-		at := strings.Index(line, item.Value)
+		at := strings.Index(line, effortDisplayLabel(item.Value))
 		if at < 0 {
 			continue
 		}
 		x := lipgloss.Width(line[:at])
-		if hit.x >= x && hit.x < x+len(item.Value) {
+		if hit.x >= x && hit.x < x+lipgloss.Width(effortDisplayLabel(item.Value)) {
 			m.picker.selected = i
 			return mouseSelectionTarget{Scope: "picker", Kind: int(pickerEffort), Value: item.Value, Index: i}, true
 		}

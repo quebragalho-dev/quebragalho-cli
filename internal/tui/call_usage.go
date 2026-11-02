@@ -168,7 +168,7 @@ func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool
 
 func (m model) statusEffort() string {
 	if m.reasoningEffort != "" {
-		return string(m.reasoningEffort)
+		return effortDisplayLabel(string(m.reasoningEffort))
 	}
 	for _, candidate := range m.discoveredModelsForActiveProvider() {
 		if candidate.Source != "live" || !strings.EqualFold(candidate.ID, m.modelName) {
@@ -176,7 +176,7 @@ func (m model) statusEffort() string {
 		}
 		effort := modelregistry.ReasoningEffort(strings.TrimSpace(candidate.DefaultReasoningEffort))
 		if effort != "" && modelregistry.ValidReasoningEffort(effort) {
-			return string(effort) + " (API)"
+			return effortDisplayLabel(string(effort)) + " (API)"
 		}
 	}
 	return "n/d"

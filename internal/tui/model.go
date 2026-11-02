@@ -52,7 +52,7 @@ const chatWheelScrollLines = 5
 // running a timer when QG is idle. It also drives the shared liveness spinner.
 const activeAnimationFrameInterval = time.Second / 30
 const ctrlCExitConfirmDuration = 3 * time.Second
-const ctrlCExitConfirmText = "Press Ctrl+C again to exit"
+const ctrlCExitConfirmText = "Pressione Ctrl+C de novo para sair"
 
 // escCancelConfirmDuration/escCancelConfirmText guard Esc cancelling a running
 // turn, mirroring ctrlCExitConfirmDuration/ctrlCExitConfirmText's pattern (same
@@ -61,7 +61,7 @@ const ctrlCExitConfirmText = "Press Ctrl+C again to exit"
 // suggestion overlay that had already closed — silently threw away an
 // in-progress run with no chance to reconsider.
 const escCancelConfirmDuration = 3 * time.Second
-const escCancelConfirmText = "Press Esc again to cancel"
+const escCancelConfirmText = "Pressione Esc de novo para cancelar"
 
 // dragEdgeScrollInterval/dragEdgeScrollStep drive the smooth-glide auto-scroll
 // while a drag holds past the transcript edge (see edgeScrollDelta). A small step
@@ -1142,7 +1142,7 @@ func (m model) doctorOptions(connectivity bool) doctor.Options {
 }
 
 const (
-	composerPlaceholder     = "describe a task for qg…"
+	composerPlaceholder     = "descreva uma tarefa para o qg…"
 	composerMaxVisibleLines = 4
 )
 
@@ -1480,10 +1480,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.copyStatusSeq++
 		if msg.err != nil {
 			// Keep the selection so the user can retry; just surface the failure.
-			m.copyStatus = "Copy failed"
+			m.copyStatus = "Falha ao copiar"
 		} else {
 			m.transcriptSelection = transcriptSelectionState{}
-			m.copyStatus = "Copied!"
+			m.copyStatus = "Copiado!"
 		}
 		seq := m.copyStatusSeq
 		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
@@ -1526,7 +1526,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// a remote session). An empty clipboard is a silent no-op.
 		if msg.err != nil {
 			m.copyStatusSeq++
-			m.copyStatus = "Paste failed"
+			m.copyStatus = "Falha ao colar"
 			seq := m.copyStatusSeq
 			return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
 				return transcriptCopyStatusExpiredMsg{seq: seq}
@@ -1539,7 +1539,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.routePaste(msg.content)
 	case clipboardImageMsg:
 		if msg.err != nil {
-			return m.appendImageNotice("Clipboard image read failed: " + msg.err.Error()), nil
+			return m.appendImageNotice("Falha ao ler a imagem da área de transferência: " + msg.err.Error()), nil
 		}
 		if msg.data == nil {
 			return m, nil // no image — silent no-op
@@ -1726,9 +1726,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mouseReleased = !m.mouseReleased
 			if m.mouseReleased {
 				mouseKey := labelOr(m.keyBindings.toggleMouse, "Ctrl+E")
-				return m.appendSystemNotice(fmt.Sprintf("Mouse released — drag to select and copy text. Press %s again to re-enable mouse interaction (clicks, right-click paste).", mouseKey)), nil
+				return m.appendSystemNotice(fmt.Sprintf("Mouse liberado — arraste para selecionar e copiar. Pressione %s de novo para reativar a interação do mouse (cliques, colar com botão direito).", mouseKey)), nil
 			}
-			return m.showTransientNoticeInline("Mouse interaction re-enabled.", transientNoticeSuccess), nil
+			return m.showTransientNoticeInline("Interação do mouse reativada.", transientNoticeSuccess), nil
 		case m.dictation.voiceModeEnabled && !m.transcriptDetailed && voiceCaptureKey(msg) && m.noBlockingModal():
 			// Voice mode reserves Ctrl+Space for recording; ordinary Space continues
 			// through the composer path below.

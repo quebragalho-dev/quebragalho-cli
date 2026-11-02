@@ -40,7 +40,7 @@ func TestEffortCommandListsAndSetsSupportedEffort(t *testing.T) {
 	if cardPayload == "" {
 		t.Fatalf("expected an effort command card row, got %#v", next.transcript)
 	}
-	for _, want := range []string{"Effort", "active effort: auto", "available", "low, medium, high"} {
+	for _, want := range []string{"Nível", "nível ativo: automático", "disponíveis", "baixo, médio, alto"} {
 		if !strings.Contains(cardPayload, want) {
 			t.Fatalf("expected card to contain %q, got %q", want, cardPayload)
 		}
@@ -56,7 +56,7 @@ func TestEffortCommandListsAndSetsSupportedEffort(t *testing.T) {
 	if next.reasoningEffort != modelregistry.ReasoningEffortHigh {
 		t.Fatalf("expected effort high, got %q", next.reasoningEffort)
 	}
-	if next.transientNotice.text != "Reasoning effort: high" {
+	if next.transientNotice.text != "Nível de raciocínio: alto" {
 		t.Fatalf("effort switch notice = %q", next.transientNotice.text)
 	}
 }
@@ -935,7 +935,7 @@ func TestModelSwitchClearsUnsupportedEffortPreference(t *testing.T) {
 	if next.reasoningEffort != "" {
 		t.Fatalf("expected unsupported effort preference to reset, got %q", next.reasoningEffort)
 	}
-	if !strings.Contains(next.transientNotice.text, "effort auto") {
+	if !strings.Contains(next.transientNotice.text, "nível auto") {
 		t.Fatalf("expected model switch notice to mention effort reset, got %q", next.transientNotice.text)
 	}
 }

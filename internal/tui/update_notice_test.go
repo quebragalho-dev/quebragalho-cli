@@ -59,7 +59,7 @@ func TestUpdateNoticeAppearsInFooter(t *testing.T) {
 	if !strings.HasSuffix(got, "nova versão 0.0.11 · reinicie para instalar") {
 		t.Fatalf("footer must end with the full notice, got:\n%s", got)
 	}
-	for _, want := range []string{"auto-approve", "ctx 1.000.000"} {
+	for _, want := range []string{"automático", "ctx 1.000.000"} {
 		assertContains(t, got, want)
 	}
 }
@@ -97,12 +97,12 @@ func TestUpdateNoticeFitsWholeFormOrNone(t *testing.T) {
 		width int
 		want  string
 	}{
-		{82, "nova versão 0.0.11 · reinicie para instalar"},
-		{81, "nova 0.0.11 · reinicie"},
-		{61, "nova 0.0.11 · reinicie"},
+		{80, "nova versão 0.0.11 · reinicie para instalar"},
+		{79, "nova 0.0.11 · reinicie"},
+		{59, "nova 0.0.11 · reinicie"},
 		{60, "nova 0.0.11"},
-		{50, "nova 0.0.11"},
-		{49, ""},
+		{48, "nova 0.0.11"},
+		{47, ""},
 	} {
 		t.Run(fmt.Sprintf("%d", tc.width), func(t *testing.T) {
 			m := batchThreeLiveModel(t)
@@ -125,12 +125,12 @@ func TestUpdateNoticeYieldsOnNarrowWidth(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	m.cwd = ""
 	m.updateAvailable = "0.0.11"
-	// Width 34: the right side no longer fits so it drops, and the 11-cell
+	// Width 32: the right side no longer fits so it drops, and the 11-cell
 	// tiny form still loses to the two-cell gap — while mode and effort stay
 	// whole on the left.
-	got := plainRender(t, m.statusLine(34))
+	got := plainRender(t, m.statusLine(32))
 	assertNotContains(t, got, "nova")
-	for _, want := range []string{"auto-approve", "n/d"} {
+	for _, want := range []string{"automático", "n/d"} {
 		assertContains(t, got, want)
 	}
 }
@@ -196,8 +196,8 @@ func TestUpdateNoticeAbsentKeepsWorkspaceByteIdentical(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	m.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
 	got := plainRender(t, m.statusLine(120))
-	want := "  ● auto-approve · n/d │ /private/var/folders/dt/xyz/T/opencode/t5/ws-D" +
-		strings.Repeat(" ", 36) + "ctx 1.000.000"
+	want := "  ● automático · n/d │ /private/var/folders/dt/xyz/T/opencode/t5/ws-D" +
+		strings.Repeat(" ", 38) + "ctx 1.000.000"
 	if got != want {
 		t.Fatalf("footer changed without a notice:\n got %q\nwant %q", got, want)
 	}

@@ -563,7 +563,7 @@ func TestClipboardImageUnreadableSurfacesToUser(t *testing.T) {
 	}
 	found := false
 	for _, row := range next.transcript {
-		if row.kind == rowError && strings.Contains(row.text, "Clipboard image read failed") {
+		if row.kind == rowError && strings.Contains(row.text, "Falha ao ler a imagem da área de transferência") {
 			found = true
 			break
 		}

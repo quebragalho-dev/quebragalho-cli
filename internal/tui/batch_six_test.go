@@ -33,7 +33,7 @@ func TestBatchSixEffortPanelDraftAndScope(t *testing.T) {
 	m.userConfigPath = filepath.Join(t.TempDir(), "config.json")
 	m = batchSixOpen(m, "/effort")
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"Faster", "Smarter", "xhigh", "max"} {
+	for _, want := range []string{"Mais rápido", "Mais inteligente", "muito alto", "máximo"} {
 		assertContains(t, got, want)
 	}
 	m = batchSixKey(m, tea.KeyRight, "")
@@ -78,7 +78,7 @@ func TestBatchSixModelPanelLiveDetails(t *testing.T) {
 	info.Capabilities.Reasoning = true
 	m.picker = m.newModelPicker()
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"1.", "Muse Spark", m.modelName, "BRL", "R$ 1,648", "bônus", "reasoning", "effort", "sessão"} {
+	for _, want := range []string{"1.", "Muse Spark", m.modelName, "BRL", "R$ 1,648", "bônus", "reasoning", "nível", "sessão"} {
 		assertContains(t, got, want)
 	}
 }

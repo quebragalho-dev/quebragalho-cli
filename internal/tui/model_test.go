@@ -381,7 +381,7 @@ func TestEmptyStateCollapsesAfterFirstPrompt(t *testing.T) {
 	}
 	// Working view shows provider status and the composer divider model fallback.
 	assertNotContains(t, view, "interactive")
-	assertContains(t, view, "no model")
+	assertContains(t, view, "sem modelo")
 }
 
 func TestEmptyStateStaysVisibleOnEmptySubmit(t *testing.T) {
@@ -636,7 +636,7 @@ func TestModelCommandSwitchesSessionModel(t *testing.T) {
 	if rebuilt.Model != "qwen3.8-omni-flash" {
 		t.Fatalf("expected provider rebuild with selected model, got %#v", rebuilt)
 	}
-	for _, want := range []string{"Model:", "qwen3.8-omni-flash · qg"} {
+	for _, want := range []string{"Modelo:", "qwen3.8-omni-flash · qg"} {
 		if !strings.Contains(next.transientNotice.text, want) {
 			t.Fatalf("expected model notice to contain %q, got %q", want, next.transientNotice.text)
 		}
@@ -2033,7 +2033,7 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 	assertContains(t, m.sidebarTokenText(), "120 tokens")
 	assertContains(t, m.composerDividerLine(96), "gpt-4.1")
 	// Permission mode moved from the composer rule to the status line.
-	assertContains(t, m.statusLine(96), "ask")
+	assertContains(t, m.statusLine(96), "aprovação")
 }
 
 func TestToolResultRowDefaultsEmptyStatusToOK(t *testing.T) {
@@ -2077,7 +2077,7 @@ func TestShiftTabCyclesPermissionMode(t *testing.T) {
 
 	// The rendered status label tracks the cycled mode.
 	label, _ := m.modeLabel()
-	if label != "auto-approve" {
+	if label != "automático" {
 		t.Fatalf("expected mode label to track cycled mode, got %q", label)
 	}
 }
@@ -2227,7 +2227,7 @@ func TestCtrlCClearsComposerBeforeExitConfirmation(t *testing.T) {
 	status := plainRender(t, next.statusLine(80))
 	// No exit confirmation armed, so the normal run-state chip shows (the status
 	// line carries the permission mode now, not the provider).
-	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "auto-approve") {
+	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "automático") {
 		t.Fatalf("status line = %q, want the run-state chip with no exit confirmation", status)
 	}
 
@@ -2262,7 +2262,7 @@ func TestCtrlCExitConfirmationExpires(t *testing.T) {
 	status := plainRender(t, next.statusLine(80))
 	// After expiry the warning clears and the normal run-state chip is restored
 	// (the status line now shows the permission mode, not the provider).
-	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "auto-approve") {
+	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "automático") {
 		t.Fatalf("status line after expiry = %q, want the run-state chip restored", status)
 	}
 }

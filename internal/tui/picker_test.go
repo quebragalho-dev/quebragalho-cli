@@ -719,7 +719,7 @@ func TestActiveProviderPickerShowsPersistenceFailure(t *testing.T) {
 	if next.modelName != "glm-5.3" {
 		t.Fatalf("in-session picker selection was lost: model=%q", next.modelName)
 	}
-	if !strings.Contains(next.transientNotice.text, "not saved (") ||
+	if !strings.Contains(next.transientNotice.text, "não salvo (") ||
 		!strings.Contains(next.transientNotice.text, "timed out acquiring config lock") {
 		t.Fatalf("picker notice = %q, want a concrete not-saved lock failure", next.transientNotice.text)
 	}
@@ -773,7 +773,7 @@ func TestTypedModelCommandShowsPersistenceFailure(t *testing.T) {
 	if next.modelName != "glm-5.3" {
 		t.Fatalf("in-session switch was lost: model=%q", next.modelName)
 	}
-	if !strings.Contains(next.transientNotice.text, "not saved (") {
+	if !strings.Contains(next.transientNotice.text, "não salvo (") {
 		t.Fatalf("notice = %q, want persistence failure", next.transientNotice.text)
 	}
 	if next.transientNotice.tone != transientNoticeWarning {
@@ -858,7 +858,7 @@ func TestModelPickerNavigatesAndChoosesAppliesHandler(t *testing.T) {
 	if m.modelName != "deepseek-v4-pro" {
 		t.Fatalf("expected model switched to deepseek-v4-pro via handler, got %q", m.modelName)
 	}
-	if !strings.Contains(m.transientNotice.text, "Model:") {
+	if !strings.Contains(m.transientNotice.text, "Modelo:") {
 		t.Fatalf("model picker notice = %q", m.transientNotice.text)
 	}
 }

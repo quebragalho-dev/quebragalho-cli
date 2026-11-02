@@ -44,7 +44,7 @@ func TestRenameCommandRenamesCurrentSessionWithoutAgentRun(t *testing.T) {
 	if !next.titledSessions[session.SessionID] {
 		t.Fatal("manual rename should suppress later automatic naming")
 	}
-	if !transcriptContains(next.transcript, "Session renamed to Better session name.") {
+	if !transcriptContains(next.transcript, "Sessão renomeada para Better session name.") {
 		t.Fatalf("missing rename confirmation: %#v", next.transcript)
 	}
 }
@@ -100,7 +100,7 @@ func TestBareRenameOpensPrefilledEditorAndSaves(t *testing.T) {
 		t.Fatalf("editor value = %q", next.input.Value())
 	}
 	view := plainRender(t, next.View())
-	for _, want := range []string{"Rename session", "Current session name", "Enter save", "Esc cancel"} {
+	for _, want := range []string{"Renomear sessão", "Current session name", "Enter salvar", "Esc cancelar"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("rename editor missing %q:\n%s", want, view)
 		}
@@ -158,7 +158,7 @@ func TestRenameEditorRejectsBlankAndEscCancels(t *testing.T) {
 	if next.renamePrompt != nil {
 		t.Fatal("blank submit should close the editor")
 	}
-	if !transcriptContains(next.transcript, "session name cannot be empty") {
+	if !transcriptContains(next.transcript, "o nome da sessão não pode ficar vazio") {
 		t.Fatalf("missing blank-name error: %#v", next.transcript)
 	}
 	stored, _ := store.Get(session.SessionID)

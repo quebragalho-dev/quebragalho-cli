@@ -187,14 +187,14 @@ func (m model) effortStatusCard(value string, detail string) string {
 		active = "auto"
 	}
 	fields := []commandField{
-		{Key: "active effort", Value: active},
-		{Key: "model", Value: displayValue(m.modelName, "none")},
+		{Key: "nível ativo", Value: effortDisplayLabel(active)},
+		{Key: "modelo", Value: displayValue(m.modelName, "nenhum")},
 	}
 	return renderCommandCardTranscript(commandCard{
-		Title:   "Effort",
-		Summary: []string{"active effort: " + active},
+		Title:   "Nível",
+		Summary: []string{"nível ativo: " + effortDisplayLabel(active)},
 		Sections: []commandCardSection{{
-			Title:  "State",
+			Title:  "Estado",
 			Fields: fields,
 			Lines:  []string{detail},
 		}},
@@ -206,26 +206,40 @@ func (m model) effortText() string {
 	fields := []commandField{
 		{Key: "preferência local", Value: m.effortDisplay()},
 		{Key: "auto", Value: "não envia reasoning_effort; default do servidor não confirmado"},
-		{Key: "active effort", Value: m.effortDisplay()},
-		{Key: "model", Value: displayValue(m.modelName, "none")},
+		{Key: "nível ativo", Value: effortDisplayLabel(m.effortDisplay())},
+		{Key: "modelo", Value: displayValue(m.modelName, "nenhum")},
 	}
-	actions := []string{"use /effort <value> to switch", "/effort auto to clear"}
+	actions := []string{"use /effort <valor> para trocar", "/effort auto para limpar"}
 	if len(efforts) == 0 {
-		fields = append(fields, commandField{Key: "available", Value: "API não informa níveis disponíveis"})
+		fields = append(fields, commandField{Key: "disponíveis", Value: "API não informa níveis disponíveis"})
 		return renderCommandCardTranscript(commandCard{
-			Title:    "Effort",
-			Summary:  []string{"active effort: " + m.effortDisplay(), "API não informa níveis disponíveis"},
-			Sections: []commandCardSection{{Title: "State", Fields: fields}},
+			Title:    "Nível",
+			Summary:  []string{"nível ativo: " + effortDisplayLabel(m.effortDisplay()), "API não informa níveis disponíveis"},
+			Sections: []commandCardSection{{Title: "Estado", Fields: fields}},
 			Actions:  actions,
 		})
 	}
-	fields = append(fields, commandField{Key: "available", Value: joinReasoningEfforts(efforts)})
+	fields = append(fields, commandField{Key: "disponíveis", Value: joinReasoningEffortLabels(efforts)})
+	levelsSummary := fmt.Sprintf("%d níveis suportados", len(efforts))
+	if len(efforts) == 1 {
+		levelsSummary = "1 nível suportado"
+	}
 	return renderCommandCardTranscript(commandCard{
-		Title:    "Effort",
-		Summary:  []string{"active effort: " + m.effortDisplay(), fmt.Sprintf("%d supported level(s)", len(efforts))},
-		Sections: []commandCardSection{{Title: "State", Fields: fields}},
+		Title:    "Nível",
+		Summary:  []string{"nível ativo: " + effortDisplayLabel(m.effortDisplay()), levelsSummary},
+		Sections: []commandCardSection{{Title: "Estado", Fields: fields}},
 		Actions:  actions,
 	})
+}
+
+// joinReasoningEffortLabels renders supported effort values as a Portuguese
+// display list; the raw values stay untouched for config and protocol.
+func joinReasoningEffortLabels(efforts []modelregistry.ReasoningEffort) string {
+	values := make([]string, 0, len(efforts))
+	for _, effort := range efforts {
+		values = append(values, effortDisplayLabel(string(effort)))
+	}
+	return strings.Join(values, ", ")
 }
 
 // markProfileEffortTouched records an explicit effort choice made while a
@@ -419,14 +433,6 @@ func reasoningEffortIndex(efforts []modelregistry.ReasoningEffort, want modelreg
 		}
 	}
 	return -1
-}
-
-func joinReasoningEfforts(efforts []modelregistry.ReasoningEffort) string {
-	values := make([]string, 0, len(efforts))
-	for _, effort := range efforts {
-		values = append(values, string(effort))
-	}
-	return strings.Join(values, ", ")
 }
 
 func (m model) handleStyleCommand(args string) (model, string) {

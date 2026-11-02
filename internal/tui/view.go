@@ -103,7 +103,7 @@ func (m model) titlePRSegment() string {
 }
 
 func (m model) composerDividerLine(width int) string {
-	model := displayValue(strings.TrimSpace(m.modelName), "no model")
+	model := displayValue(strings.TrimSpace(m.modelName), "sem modelo")
 	availableWidth := width
 	padding := " "
 	if lipgloss.Width(model) > availableWidth-4 {
@@ -244,17 +244,17 @@ func nextPermissionMode(mode agent.PermissionMode) agent.PermissionMode {
 func (m model) modeLabel() (string, lipgloss.Style) {
 	switch m.permissionMode {
 	case agent.PermissionModeAuto:
-		return "auto-approve", qgTheme.modeAuto
+		return "automático", qgTheme.modeAuto
 	case agent.PermissionModeAsk:
-		return "ask", qgTheme.modeAsk
+		return "aprovação", qgTheme.modeAsk
 	case agent.PermissionModeUnsafe:
-		return "unsafe", qgTheme.modeUnsafe
+		return "sem confirmação", qgTheme.modeUnsafe
 	case agent.PermissionModePlan:
-		return "plan", qgTheme.modePlan
+		return "plano", qgTheme.modePlan
 	default:
 		mode := strings.TrimSpace(string(m.permissionMode))
 		if mode == "" {
-			return "auto-approve", qgTheme.modeAuto
+			return "automático", qgTheme.modeAuto
 		}
 		return mode, qgTheme.muted
 	}

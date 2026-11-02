@@ -1430,7 +1430,7 @@ func TestComposerBoxFramesInputAndBottomModelLabel(t *testing.T) {
 			t.Fatalf("composer box = %q, missing %q", got, want)
 		}
 	}
-	if strings.Contains(got, "auto-approve") {
+	if strings.Contains(got, "automático") {
 		t.Fatalf("composer box = %q, should not show the mode (moved to status line)", got)
 	}
 	if strings.Contains(got, "run ↵") {
@@ -1507,7 +1507,7 @@ func TestStatusLineGroups(t *testing.T) {
 	got := plainRender(t, m.statusLine(110))
 	// Status line shows the run-state chip (permission mode), NOT the provider,
 	// surface, or model — those live in the title bar / composer rule.
-	if !strings.Contains(got, "● auto-approve") {
+	if !strings.Contains(got, "● automático") {
 		t.Fatalf("status line = %q, missing the permission-mode chip", got)
 	}
 	if strings.Contains(got, "interactive") || strings.Contains(got, "test-model") || strings.Contains(got, "test-provider") {
@@ -1517,7 +1517,7 @@ func TestStatusLineGroups(t *testing.T) {
 	if !strings.Contains(divider, "test-model") {
 		t.Fatalf("composer divider = %q, missing the model label", divider)
 	}
-	if strings.Contains(divider, "auto-approve") {
+	if strings.Contains(divider, "automático") {
 		t.Fatalf("composer divider = %q, should not show the mode (moved to status line)", divider)
 	}
 }
@@ -1526,7 +1526,7 @@ func TestStatusLineShowsEffortWhenSet(t *testing.T) {
 	m := limeTestModel()
 	m.reasoningEffort = modelregistry.ReasoningEffortHigh
 	status := plainRender(t, m.statusLine(110))
-	if !strings.Contains(status, "high") {
+	if !strings.Contains(status, "alto") {
 		t.Fatalf("status line = %q, missing effort segment when set", status)
 	}
 }
@@ -1535,7 +1535,7 @@ func TestStatusLineOmitsEffortWhenAuto(t *testing.T) {
 	m := limeTestModel()
 	// reasoningEffort == "" (auto) by default — the effort segment is omitted.
 	status := plainRender(t, m.statusLine(110))
-	for _, effort := range []string{"low", "medium", "high", "minimal", "xhigh", "none"} {
+	for _, effort := range []string{"low", "medium", "high", "minimal", "xhigh", "none", "baixo", "médio", "alto", "muito alto", "máximo"} {
 		if strings.Contains(status, effort) {
 			t.Fatalf("status line = %q, should omit effort segment when auto", status)
 		}
