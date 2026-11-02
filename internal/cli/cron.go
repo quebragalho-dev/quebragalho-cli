@@ -190,7 +190,7 @@ func cronList(store *cron.Store, now func() time.Time, stdout io.Writer, stderr 
 	})
 	for _, j := range jobs {
 		fmt.Fprintf(stdout, "%s · %s · %s (próxima: %s) · #%d · %s\n",
-			j.ID, j.Status, j.Expr, formatCronTime(j.NextRunAt), j.FireCount, promptExcerpt(j.Prompt))
+			j.ID, cronStatusDisplay(j.Status), j.Expr, formatCronTime(j.NextRunAt), j.FireCount, promptExcerpt(j.Prompt))
 	}
 	return exitSuccess
 }
@@ -225,6 +225,19 @@ func cronSetStatus(store *cron.Store, args []string, stdout io.Writer, stderr io
 	}
 	fmt.Fprintf(stdout, "Tarefa de cron %s %s.\n", job.ID, verb)
 	return exitSuccess
+}
+
+// cronStatusDisplay maps the persisted machine status to its human label.
+// The stored JSON keeps the raw "active"/"paused" values.
+func cronStatusDisplay(status string) string {
+	switch status {
+	case cron.StatusActive:
+		return "ativa"
+	case cron.StatusPaused:
+		return "pausada"
+	default:
+		return status
+	}
 }
 
 // cronResume sets a job active and recomputes NextRunAt.

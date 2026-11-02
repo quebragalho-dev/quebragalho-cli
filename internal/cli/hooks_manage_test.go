@@ -52,6 +52,20 @@ func TestRunHooksAddPersistsToProjectConfig(t *testing.T) {
 	}
 }
 
+func TestRunHooksAddRequiresCommandMessage(t *testing.T) {
+	cwd := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := runHooksAdd([]string{"h1", "--event", "beforeTool"}, &stdout, &stderr, hooksManageDeps(cwd)); code == exitSuccess {
+		t.Fatalf("expected non-success exit without --command")
+	}
+	if !strings.Contains(stderr.String(), "qg hooks add exige --command") {
+		t.Fatalf("expected exact --command message, got %q", stderr.String())
+	}
+	if len(projectHooks(t, cwd).Hooks) != 0 {
+		t.Fatalf("no hook should be written on a usage error")
+	}
+}
+
 func TestRunHooksAddRejectsMissingRequiredFlags(t *testing.T) {
 	cwd := t.TempDir()
 	for _, tc := range []struct {

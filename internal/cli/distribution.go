@@ -139,7 +139,11 @@ func runSkillInfo(args []string, dir string, stdout io.Writer, stderr io.Writer)
 	}
 	if info.Hash != "" {
 		lines = append(lines, "  hash: "+info.Hash)
-		lines = append(lines, fmt.Sprintf("  hash drift: %t", info.HashDrift))
+		drift := "não"
+		if info.HashDrift {
+			drift = "sim"
+		}
+		lines = append(lines, "  hash divergente: "+drift)
 	}
 	lines = append(lines, "  caminho: "+info.Skill.Path)
 	if _, err := fmt.Fprintln(stdout, redaction.RedactString(strings.Join(lines, "\n"), redaction.Options{})); err != nil {
@@ -315,7 +319,11 @@ func runPluginInfo(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 	}
 	if info.LockHash != "" {
 		lines = append(lines, "  lock hash: "+info.LockHash)
-		lines = append(lines, fmt.Sprintf("  hash drift: %t", info.HashDrift))
+		drift := "não"
+		if info.HashDrift {
+			drift = "sim"
+		}
+		lines = append(lines, "  hash divergente: "+drift)
 	}
 	lines = append(lines, "  manifest: "+plugin.ManifestPath)
 	if _, err := fmt.Fprintln(stdout, redaction.RedactString(strings.Join(lines, "\n"), redaction.Options{})); err != nil {
@@ -457,8 +465,8 @@ func runToolsMake(args []string, dir string, stdout io.Writer, stderr io.Writer)
 		"",
 		"Próximos passos:",
 		"  1. Implemente o TODO no script de entrada.",
-		"  2. Execute `qg tools list` para confirmar o carregamento.",
-		"  3. A ferramenta ativa pelo fluxo normal de permissão.",
+		"  2. Rode `qg tools list` para confirmar o carregamento.",
+		"  3. A ferramenta é ativada pelo fluxo normal de permissão.",
 	}
 	if _, err := fmt.Fprintln(stdout, redaction.RedactString(strings.Join(lines, "\n"), redaction.Options{})); err != nil {
 		return exitCrash

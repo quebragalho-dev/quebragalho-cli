@@ -152,6 +152,34 @@ func TestCronRunPausesUnadvanceableJob(t *testing.T) {
 	}
 }
 
+func TestCronRunPersistsPauseErrorInEnglish(t *testing.T) {
+	now := time.Date(2026, 6, 9, 9, 0, 0, 0, time.UTC)
+	store := cron.NewStore(cron.StoreOptions{RootDir: t.TempDir(), Now: func() time.Time { return now }})
+	job, _ := store.Add(cron.Job{Expr: "0 0 30 2 *", Prompt: "x", Status: cron.StatusActive, NextRunAt: now.Add(-time.Minute)})
+	fx := &fakeExec{}
+	var out, errb bytes.Buffer
+	cronRun(store, func() time.Time { return now }, []string{"--once"}, &out, &errb, fx.run)
+	runs, _ := store.Runs(job.ID)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run record, got %+v", runs)
+	}
+	if runs[0].Error != "schedule no longer fires; job paused" {
+		t.Fatalf("persisted run error = %q, want English pause text", runs[0].Error)
+	}
+
+	badStore := cron.NewStore(cron.StoreOptions{RootDir: t.TempDir(), Now: func() time.Time { return now }})
+	bad, _ := badStore.Add(cron.Job{Expr: "not a cron", Prompt: "x", Status: cron.StatusActive, NextRunAt: now.Add(-time.Minute)})
+	var out2, errb2 bytes.Buffer
+	cronRun(badStore, func() time.Time { return now }, []string{"--once"}, &out2, &errb2, fx.run)
+	badRuns, _ := badStore.Runs(bad.ID)
+	if len(badRuns) != 1 {
+		t.Fatalf("expected 1 run record for invalid schedule, got %+v", badRuns)
+	}
+	if !strings.HasPrefix(badRuns[0].Error, "invalid schedule; job paused: ") {
+		t.Fatalf("invalid-schedule run error = %q, want English prefix", badRuns[0].Error)
+	}
+}
+
 func TestCronRunDashLeadingPromptUsesInlineForm(t *testing.T) {
 	now := time.Date(2026, 6, 9, 9, 0, 0, 0, time.UTC)
 	store := cron.NewStore(cron.StoreOptions{RootDir: t.TempDir(), Now: func() time.Time { return now }})

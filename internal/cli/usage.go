@@ -383,12 +383,12 @@ func parseUsageArgs(args []string) (usageOptions, bool, error) {
 func FormatReport(report usage.Report, insertions int, deletions int) string {
 	var builder strings.Builder
 	builder.WriteString("Relatório de uso (custo é uma estimativa reconstruída)\n\n")
-	fmt.Fprintf(&builder, "%-12s %10s %14s %14s\n", "data", "requisições", "tokens", "custo est.")
+	fmt.Fprintf(&builder, "%-12s %11s %14s %14s\n", "data", "requisições", "tokens", "custo est.")
 	for _, bucket := range report.Buckets {
-		fmt.Fprintf(&builder, "%-12s %10d %14s %14s\n",
+		fmt.Fprintf(&builder, "%-12s %11d %14s %14s\n",
 			bucket.Date, bucket.Requests, formatCount(int64(bucket.TotalTokens)), formatUSD(bucket.TotalCost))
 	}
-	fmt.Fprintf(&builder, "\n%-12s %10d %14s %14s\n",
+	fmt.Fprintf(&builder, "\n%-12s %11d %14s %14s\n",
 		"total", report.Total.Requests, formatCount(int64(report.Total.TotalTokens)), formatUSD(report.Total.TotalCost))
 
 	fmt.Fprintf(&builder, "\nLOC líquidas (estimativa): +%d / -%d = %d\n",

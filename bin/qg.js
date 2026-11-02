@@ -174,7 +174,7 @@ function missingNativeDoctorTextReport(postinstallScript) {
     new Date().toISOString() +
     ')\n' +
     'Geral: reprovado\n' +
-    '[fail] runtime.go - Binário nativo do qg não encontrado ao lado do wrapper npm.\n' +
+    '[reprovado] runtime.go - Binário nativo do qg não encontrado ao lado do wrapper npm.\n' +
     '  remedy: node "' +
     postinstallScript +
     '"\n' +

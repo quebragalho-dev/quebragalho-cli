@@ -40,6 +40,36 @@ func TestFormatRepoInfoText(t *testing.T) {
 	}
 }
 
+func TestFormatRepoInfoPTLabels(t *testing.T) {
+	age := 42
+	contrib := 3
+	info := repoInfoTestData(age, contrib)
+	out := formatRepoInfo(info)
+	for _, want := range []string{"LOC estimadas", "Monorepo:", "nenhum", "42 dias"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("repo-info PT missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "LOC estimada\n") || strings.Contains(out, "Pasta de trabalho") || strings.Contains(out, "nenhuma") {
+		t.Fatalf("repo-info leaked old labels:\n%s", out)
+	}
+
+	oneDay := 1
+	onePkg := 1
+	singular := repoInfoTestData(oneDay, contrib)
+	singular.WorkspacePackageCount = onePkg
+	singularOut := formatRepoInfo(singular)
+	if !strings.Contains(singularOut, "1 dia") {
+		t.Fatalf("singular age missing 1 dia:\n%s", singularOut)
+	}
+	if !strings.Contains(singularOut, "(1 pacote)") {
+		t.Fatalf("singular package missing (1 pacote):\n%s", singularOut)
+	}
+	if strings.Contains(singularOut, "1 dias") || strings.Contains(singularOut, "1 pacotes") {
+		t.Fatalf("singular leaked plural:\n%s", singularOut)
+	}
+}
+
 func TestRunRepoInfoJSON(t *testing.T) {
 	dir := initTempGitRepo(t) // hermetic: do not depend on running inside a checkout
 	var stdout, stderr bytes.Buffer

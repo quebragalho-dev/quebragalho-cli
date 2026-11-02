@@ -228,19 +228,34 @@ func formatBackendLifecycleSnapshot(snapshot qgcommands.BackendLifecycleSnapshot
 func formatBackendDoctorReport(report qgcommands.BackendDoctorReport) string {
 	lines := []string{
 		"Diagnóstico de backends QG",
-		"Geral: " + string(report.Status),
+		"Geral: " + backendDoctorStatusDisplay(report.Status),
 	}
 	for _, check := range report.Checks {
 		target := ""
 		if check.Target != "" {
 			target = " " + check.Target
 		}
-		lines = append(lines, fmt.Sprintf("[%s] %s%s - %s", check.Status, check.ID, target, check.Message))
+		lines = append(lines, fmt.Sprintf("[%s] %s%s - %s", backendDoctorStatusDisplay(check.Status), check.ID, target, check.Message))
 		if check.Action != "" {
 			lines = append(lines, "  ação: "+check.Action)
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// backendDoctorStatusDisplay maps a machine status to its human label. The
+// JSON report keeps the raw values; only the text rendering translates.
+func backendDoctorStatusDisplay(status qgcommands.BackendDoctorStatus) string {
+	switch status {
+	case qgcommands.BackendDoctorStatusPass:
+		return "aprovado"
+	case qgcommands.BackendDoctorStatusWarn:
+		return "aviso"
+	case qgcommands.BackendDoctorStatusFail:
+		return "reprovado"
+	default:
+		return string(status)
+	}
 }
 
 func writeBackendsHelp(w io.Writer) error {

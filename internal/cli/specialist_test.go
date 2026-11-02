@@ -381,3 +381,30 @@ func writeSpecialistManifest(t *testing.T, path string, content string) {
 		t.Fatalf("write manifest: %v", err)
 	}
 }
+
+func TestRunSpecialistCreateRequiresDescriptionPT(t *testing.T) {
+	setSpecialistConfigRoot(t)
+	deps := appDeps{getwd: func() (string, error) { return t.TempDir(), nil }}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"specialist", "create", "nodesc"}, &stdout, &stderr, deps)
+	if exitCode != exitUsage {
+		t.Fatalf("exitCode = %d, want usage", exitCode)
+	}
+	if !strings.Contains(stderr.String(), `O especialista "nodesc" precisa de uma descrição (--description).`) {
+		t.Fatalf("expected PT description error, got %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "requires a description") {
+		t.Fatalf("human error must not leak English Validate text: %q", stderr.String())
+	}
+}
+
+func TestSpecialistValidateRequiresDescriptionStaysEnglish(t *testing.T) {
+	err := specialist.Validate(&specialist.Manifest{Metadata: specialist.Metadata{Name: "nodesc"}})
+	if err == nil {
+		t.Fatal("expected Validate error for missing description")
+	}
+	if !strings.Contains(err.Error(), `specialist "nodesc" requires a description`) {
+		t.Fatalf("Validate error must stay English, got %q", err.Error())
+	}
+}

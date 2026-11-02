@@ -232,10 +232,13 @@ func TestRunBackendsDoctorJSONAndTextWithoutConnectingMCP(t *testing.T) {
 	if exitCode != exitProvider {
 		t.Fatalf("text exitCode = %d, want %d stderr=%s", exitCode, exitProvider, stderr.String())
 	}
-	for _, want := range []string{"Diagnóstico de backends QG", "[fail] backend.mcp.invalid", "qg mcp add broken", "[fail] backend.hooks.diagnostic"} {
+	for _, want := range []string{"Diagnóstico de backends QG", "Geral: reprovado", "[reprovado] backend.mcp.invalid", "qg mcp add broken", "[reprovado] backend.hooks.diagnostic", "[aprovado] backend.mcp.server"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("backend doctor text missing %q:\n%s", want, stdout.String())
 		}
+	}
+	if strings.Contains(stdout.String(), "[fail]") || strings.Contains(stdout.String(), "[pass]") || strings.Contains(stdout.String(), "Geral: fail") {
+		t.Fatalf("backend doctor text leaked English status:\n%s", stdout.String())
 	}
 }
 

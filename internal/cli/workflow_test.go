@@ -432,7 +432,7 @@ func TestRunVerifyTextAndJSON(t *testing.T) {
 				if snapshot.Contract != verify.ReportContractVersion || len(snapshot.Events) == 0 {
 					t.Fatalf("verify JSON did not expose runtime contract: %#v", snapshot)
 				}
-			} else if !strings.Contains(stdout.String(), "Verificação QG") || !strings.Contains(stdout.String(), "go.test") || !strings.Contains(stdout.String(), cwd) || !strings.Contains(stdout.String(), "testes: 2 no total, 1 aprovados, 1 reprovados") {
+			} else if !strings.Contains(stdout.String(), "Verificação QG") || !strings.Contains(stdout.String(), "go.test") || !strings.Contains(stdout.String(), cwd) || !strings.Contains(stdout.String(), "testes: total: 2, aprovados: 1, reprovados: 1") {
 				t.Fatalf("unexpected verify text output: %q", stdout.String())
 			}
 		})
@@ -1692,7 +1692,7 @@ func TestEnsureFeatureBranchRefusesDirtyWorkingTree(t *testing.T) {
 			return qggit.BranchResult{Branch: options.Name}, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "mudanças não registradas") {
+	if err == nil || !strings.Contains(err.Error(), "mudanças sem commit") {
 		t.Fatalf("expected an uncommitted-changes error, got %v", err)
 	}
 	if createBranchCalled {
@@ -2038,7 +2038,7 @@ func TestRunChangesPRRejectsUnbornRemoteEvenWithYes(t *testing.T) {
 	if !isUnbornRemoteCalled {
 		t.Fatal("expected isUnbornRemote to be consulted even when --yes is passed")
 	}
-	if !strings.Contains(stderr.String(), "não dá para abrir pull request no remoto origin ainda vazio") {
+	if !strings.Contains(stderr.String(), "não é possível abrir pull request no remoto origin, que ainda está vazio") {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
@@ -2892,7 +2892,7 @@ func TestResolveBranchPushPlan(t *testing.T) {
 				return qggit.ChangeSummary{Clean: false}, nil
 			},
 		})
-		if err == nil || !strings.Contains(err.Error(), "mudanças não registradas") {
+		if err == nil || !strings.Contains(err.Error(), "mudanças sem commit") {
 			t.Fatalf("expected dirty working tree error, got %v", err)
 		}
 	})
@@ -3021,7 +3021,7 @@ func TestRunChangesPRYesRejectsUnbornNonOriginUpstream(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("expected exit code %d, got %d: %s", exitUsage, exitCode, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "não dá para abrir pull request no remoto upstream ainda vazio") {
+	if !strings.Contains(stderr.String(), "não é possível abrir pull request no remoto upstream, que ainda está vazio") {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
@@ -3185,5 +3185,25 @@ func writeWorkflowFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func TestFormatVerifyReportPTResumo(t *testing.T) {
+	report := verify.Report{
+		Root:    "/repo",
+		Summary: verify.Summary{Total: 3, Passed: 1, Failed: 1, Errors: 1},
+		Results: []verify.Result{
+			{ID: "go.test", Command: []string{"go", "test"}, Status: verify.StatusPass, TestSummary: &testrunner.Summary{Total: 2, Passed: 1, Failed: 1}},
+		},
+	}
+	out := formatVerifyReport(report)
+	if !strings.Contains(out, "resumo: total: 3, aprovados: 1, reprovados: 1, com erro: 1") {
+		t.Fatalf("verify resumo PT missing:\n%s", out)
+	}
+	if !strings.Contains(out, "testes: total: 2, aprovados: 1, reprovados: 1") {
+		t.Fatalf("verify testes PT missing:\n%s", out)
+	}
+	if strings.Contains(out, "no total") {
+		t.Fatalf("verify leaked old plural:\n%s", out)
 	}
 }

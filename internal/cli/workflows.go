@@ -767,7 +767,7 @@ func formatVerifyReport(report verify.Report) string {
 	lines := []string{
 		"Verificação QG",
 		"raiz: " + report.Root,
-		fmt.Sprintf("resumo: %d no total, %d aprovados, %d reprovados, %d com erro", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
+		fmt.Sprintf("resumo: total: %d, aprovados: %d, reprovados: %d, com erro: %d", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
 	}
 	if len(report.Results) == 0 {
 		lines = append(lines, "  (nenhuma verificação encontrada)")
@@ -796,7 +796,7 @@ func formatVerifyReport(report verify.Report) string {
 }
 
 func formatVerifyTestSummary(summary *testrunner.Summary) string {
-	line := fmt.Sprintf("    testes: %d no total, %d aprovados, %d reprovados", summary.Total, summary.Passed, summary.Failed)
+	line := fmt.Sprintf("    testes: total: %d, aprovados: %d, reprovados: %d", summary.Total, summary.Passed, summary.Failed)
 	if summary.Skipped > 0 {
 		line += fmt.Sprintf(", %d ignorados", summary.Skipped)
 	}
@@ -813,7 +813,7 @@ func formatVerifyLoopReport(report selfverify.Report) string {
 	lines = append(lines,
 		fmt.Sprintf("tentativas: %d", len(report.Attempts)),
 		"parada: "+string(report.StopReason),
-		fmt.Sprintf("resumo: %d no total, %d aprovados, %d reprovados, %d com erro", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
+		fmt.Sprintf("resumo: total: %d, aprovados: %d, reprovados: %d, com erro: %d", report.Summary.Total, report.Summary.Passed, report.Summary.Failed, report.Summary.Errors),
 	)
 	for _, attempt := range report.Attempts {
 		status := "falhou"
@@ -1087,7 +1087,7 @@ func runChangesPR(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 	// probe fails, the subsequent push or PR operation provides fail-closed behavior.
 	if deps.isUnbornRemote != nil {
 		if unborn, unbornErr := deps.isUnbornRemote(context.Background(), workspaceRoot, targetRemote); unbornErr == nil && unborn {
-			return writeExecUsageError(stderr, fmt.Sprintf("não dá para abrir pull request no remoto %s ainda vazio: envie a branch padrão primeiro", targetRemote))
+			return writeExecUsageError(stderr, fmt.Sprintf("não é possível abrir pull request no remoto %s, que ainda está vazio", targetRemote))
 		}
 	}
 
@@ -1274,7 +1274,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 		return branchPushPlan{}, fmt.Errorf("falha ao inspecionar a árvore de trabalho: %w", err)
 	}
 	if !workingTree.Clean {
-		return branchPushPlan{}, fmt.Errorf("há mudanças não registradas; faça commit ou stash antes de publicar a partir da branch padrão")
+		return branchPushPlan{}, fmt.Errorf("há mudanças sem commit; faça commit ou stash antes de publicar a partir da branch padrão")
 	}
 
 	// Capture the source default branch's own upstream before refreshing or

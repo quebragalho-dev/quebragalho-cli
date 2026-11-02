@@ -465,7 +465,7 @@ func TestNodeWrapperDoctorReportsMissingNativeBinaryAsDoctorFail(t *testing.T) {
 	if !strings.Contains(stdout, "Geral: reprovado") {
 		t.Fatalf("doctor overall must be fail when the native binary is missing, got stdout=%q", stdout)
 	}
-	if !strings.Contains(stdout, "[fail] runtime.go") {
+	if !strings.Contains(stdout, "[reprovado] runtime.go") {
 		t.Fatalf("doctor must report a failing runtime.go check, got stdout=%q", stdout)
 	}
 	if !strings.Contains(stdout, "Binário nativo do qg não encontrado ao lado do wrapper npm") {
@@ -571,7 +571,7 @@ func TestNodeWrapperDoctorWithFlagsStillReportsDoctorFail(t *testing.T) {
 	if strings.TrimSpace(stderr) != "" {
 		t.Fatalf("doctor --connectivity must write to stdout only, got stderr=%q", stderr)
 	}
-	if !strings.Contains(stdout, "[fail] runtime.go") {
+	if !strings.Contains(stdout, "[reprovado] runtime.go") {
 		t.Fatalf("doctor --connectivity must still emit the failing runtime.go line, got stdout=%q", stdout)
 	}
 	if strings.Contains(stdout, "[qg] Nenhum binário nativo disponível para esta instalação") {
@@ -600,7 +600,7 @@ func TestNodeWrapperDoctorReportsBunRecoveryWhenInstalledByBun(t *testing.T) {
 	if strings.TrimSpace(stderr) != "" {
 		t.Fatalf("doctor bun report must go to stdout only, got stderr=%q", stderr)
 	}
-	if !strings.Contains(stdout, "[fail] runtime.go") {
+	if !strings.Contains(stdout, "[reprovado] runtime.go") {
 		t.Fatalf("doctor bun report must still fail runtime.go, got stdout=%q", stdout)
 	}
 	assertBunRecoveryMessage(t, stdout)

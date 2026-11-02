@@ -178,7 +178,7 @@ func TestGenerateToolValidationEdges(t *testing.T) {
 		{
 			name: "empty description",
 			args: map[string]any{"description": "   "},
-			want: "exige descrição",
+			want: "requires description",
 		},
 		{
 			name: "invalid name",

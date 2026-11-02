@@ -83,7 +83,7 @@ func TestRunSkillAddInfoRemove(t *testing.T) {
 	if !strings.Contains(info, src) || !strings.Contains(info, "sha256:") {
 		t.Fatalf("info missing source/hash:\n%s", info)
 	}
-	if !strings.Contains(info, "hash drift: false") {
+	if !strings.Contains(info, "hash divergente: não") {
 		t.Fatalf("info missing hash drift status:\n%s", info)
 	}
 
@@ -109,7 +109,7 @@ func TestRunSkillAddInfoRemove(t *testing.T) {
 	if exit := runWithDeps([]string{"skill", "info", "confirmation-policy"}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("skill info after edit exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "hash drift: true") {
+	if !strings.Contains(stdout.String(), "hash divergente: sim") {
 		t.Fatalf("info missing hash drift after edit:\n%s", stdout.String())
 	}
 
@@ -266,6 +266,12 @@ func TestRunToolsMakeAndList(t *testing.T) {
 	// The path and next steps should be printed.
 	if !strings.Contains(out, filepath.Join(toolsDir, "foo")) {
 		t.Fatalf("make output should print the created path:\n%s", out)
+	}
+	if !strings.Contains(out, "2. Rode `qg tools list` para confirmar o carregamento.") {
+		t.Fatalf("tools make next steps missing Rode line:\n%s", out)
+	}
+	if !strings.Contains(out, "3. A ferramenta é ativada pelo fluxo normal de permissão.") {
+		t.Fatalf("tools make next steps missing ativada line:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(toolsDir, "foo", "plugin.json")); err != nil {
 		t.Fatalf("manifest not created: %v", err)

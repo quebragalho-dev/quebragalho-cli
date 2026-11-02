@@ -105,11 +105,25 @@ func repoInfoCommitLabel(n int) string {
 	return fmt.Sprintf("%d commits", n)
 }
 
+func repoInfoAgeLabel(n int) string {
+	if n == 1 {
+		return "1 dia"
+	}
+	return fmt.Sprintf("%d dias", n)
+}
+
+func repoInfoPackageSuffix(n int) string {
+	if n == 1 {
+		return " (1 pacote)"
+	}
+	return fmt.Sprintf(" (%d pacotes)", n)
+}
+
 func formatRepoInfo(info repoinfo.Info) string {
 	var b strings.Builder
 	b.WriteString(repoInfoRow("Arquivos", fmt.Sprint(info.FileCount)))
 	b.WriteString(repoInfoRow("Pastas", fmt.Sprintf("%d (profundidade máx. %d)", info.DirectoryCount, info.MaxDepth)))
-	b.WriteString(repoInfoRow("LOC estimada", fmt.Sprint(info.LOCEstimate)))
+	b.WriteString(repoInfoRow("LOC estimadas", fmt.Sprint(info.LOCEstimate)))
 	if info.CommitCount != nil {
 		b.WriteString(repoInfoRow("Commits", fmt.Sprint(*info.CommitCount)))
 	}
@@ -139,13 +153,13 @@ func formatRepoInfo(info repoinfo.Info) string {
 	}
 	workspaceType := info.WorkspaceType
 	if workspaceType == "none" {
-		workspaceType = "nenhuma"
+		workspaceType = "nenhum"
 	}
 	workspaceValue := workspaceType
 	if info.WorkspacePackageCount > 0 {
-		workspaceValue += fmt.Sprintf(" (%d pacotes)", info.WorkspacePackageCount)
+		workspaceValue += repoInfoPackageSuffix(info.WorkspacePackageCount)
 	}
-	b.WriteString(repoInfoRow("Pasta de trabalho", workspaceValue))
+	b.WriteString(repoInfoRow("Monorepo", workspaceValue))
 	writeRepoInfoList(&b, "Ferramentas de build", info.BuildTools)
 	writeRepoInfoList(&b, "Ferramentas de teste", info.TestTools)
 	writeRepoInfoList(&b, "CI/CD", info.CICD)
@@ -156,7 +170,7 @@ func formatRepoInfo(info repoinfo.Info) string {
 		b.WriteString(repoInfoRow("Remoto", info.RemoteURL))
 	}
 	if info.AgeDays != nil {
-		b.WriteString(repoInfoRow("Idade", fmt.Sprintf("%d dias", *info.AgeDays)))
+		b.WriteString(repoInfoRow("Idade", repoInfoAgeLabel(*info.AgeDays)))
 	}
 	if info.Contributors90d != nil {
 		b.WriteString(repoInfoRow("Contribuidores", fmt.Sprintf("%d (últimos 90d)", *info.Contributors90d)))

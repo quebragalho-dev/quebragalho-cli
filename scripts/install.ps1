@@ -1,5 +1,5 @@
-[CmdletBinding()]
 # ASCII de proposito: o PowerShell 5.1 le .ps1 sem BOM como ANSI.
+[CmdletBinding()]
 param(
   [string]$Version = $env:QG_VERSION,
   [string]$Repository = $(if ($env:QG_REPO) { $env:QG_REPO } else { "quebragalho-dev/quebragalho-cli" }),
@@ -115,7 +115,7 @@ function Find-QGOptionalExtractedDirectory {
     return $matches[0].FullName
   }
 
-  throw "Pacote do release trouxe varios diretorios $DirectoryName"
+  throw "Pacote do release trouxe varias pastas $DirectoryName"
 }
 
 if ($Version -eq "latest") {
@@ -174,7 +174,7 @@ try {
   }
 
   $targetPath = Join-Path $InstallDir "qg.exe"
-  Write-Host "Instalado $targetPath"
+  Write-Host "QG instalado em $targetPath"
 
   $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
   if (-not (Test-QGPathContainsDir -PathValue $userPath -Dir $InstallDir)) {
@@ -184,7 +184,7 @@ try {
       Write-Host "Adicionado $InstallDir ao PATH do usuario. Reinicie o terminal para usar 'qg'."
     } catch {
       Write-Warning "Nao foi possivel atualizar seu PATH de usuario automaticamente: $_"
-      Write-Warning "Adicione $InstallDir ao PATH manualmente para rodar qg de qualquer diretorio."
+      Write-Warning "Adicione $InstallDir ao PATH manualmente para rodar qg de qualquer pasta."
     }
   }
 

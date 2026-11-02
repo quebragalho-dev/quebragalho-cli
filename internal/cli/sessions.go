@@ -372,7 +372,7 @@ func runSessionsRewind(store *sessions.Store, sessionID string, options sessionC
 	}
 	workspaceRoot := strings.TrimSpace(session.Cwd)
 	if workspaceRoot == "" {
-		return writeExecUsageError(stderr, "sessão sem pasta de trabalho registrada (cwd); não dá para restaurar os arquivos")
+		return writeExecUsageError(stderr, "a sessão não tem pasta de trabalho registrada (cwd); não é possível restaurar os arquivos")
 	}
 	// Honor --exclude-target: ApplyRewind keeps events THROUGH the given sequence,
 	// so when the target event itself must be dropped (KeepTarget=false), apply
@@ -456,15 +456,17 @@ func formatRewindPlan(plan sessions.RewindPlan) string {
 }
 
 func formatCompactionPlan(plan sessions.CompactionPlan) string {
+	truncado := "não"
+	if plan.Truncated {
+		truncado = "sim"
+	}
 	lines := []string{
 		"Plano de compactação da sessão QG",
 		"sessão: " + redact(plan.SessionID),
 		fmt.Sprintf("compactáveis: %d", plan.CompactableCount),
 		fmt.Sprintf("preservados: %d", plan.PreservedCount),
 		fmt.Sprintf("caracteres da mensagem: %d", plan.PromptChars),
-	}
-	if plan.Truncated {
-		lines = append(lines, "truncado: true")
+		"truncado: " + truncado,
 	}
 	return strings.Join(lines, "\n")
 }

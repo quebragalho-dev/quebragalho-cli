@@ -154,3 +154,34 @@ func TestCronResumeRejectsImpossibleSchedule(t *testing.T) {
 		t.Fatalf("job must remain paused after a rejected resume, got %q", j.Status)
 	}
 }
+
+func TestCronListShowsAtivaEPausada(t *testing.T) {
+	store := testCronStore(t)
+	now := func() time.Time { return time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC) }
+	active, err := store.Add(cron.Job{Expr: "0 9 * * *", Prompt: "daily", Status: cron.StatusActive, NextRunAt: now().Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("Add active: %v", err)
+	}
+	paused, err := store.Add(cron.Job{Expr: "0 10 * * *", Prompt: "later", Status: cron.StatusPaused, NextRunAt: now().Add(2 * time.Hour)})
+	if err != nil {
+		t.Fatalf("Add paused: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if code := runCronWith(store, now, []string{"list"}, &out, &errb); code != 0 {
+		t.Fatalf("list exit=%d err=%s", code, errb.String())
+	}
+	text := out.String()
+	if !strings.Contains(text, active.ID+" · ativa ·") {
+		t.Fatalf("active job must show ativa:\n%s", text)
+	}
+	if !strings.Contains(text, paused.ID+" · pausada ·") {
+		t.Fatalf("paused job must show pausada:\n%s", text)
+	}
+	if strings.Contains(text, "· active ·") || strings.Contains(text, "· paused ·") {
+		t.Fatalf("list leaked English status:\n%s", text)
+	}
+	stored, _ := store.Get(active.ID)
+	if stored.Status != cron.StatusActive {
+		t.Fatalf("persisted status must stay English active, got %q", stored.Status)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
 func seedUsageStore(t *testing.T) *sessions.Store {
@@ -428,5 +429,39 @@ func TestRunUsageEmptyStore(t *testing.T) {
 	// Total row must show qg requests / tokens.
 	if !strings.Contains(output, "total") {
 		t.Fatalf("empty store: expected 'total' row in output, got:\n%s", output)
+	}
+}
+
+func TestFormatReportColumnsAlign(t *testing.T) {
+	report := usage.Report{
+		Buckets: []usage.DayBucket{
+			{Date: "2026-06-01", Requests: 5, TotalTokens: 1800, TotalCost: 1.0},
+			{Date: "2026-06-02", Requests: 12345, TotalTokens: 2000, TotalCost: 2.0},
+		},
+		Total: usage.Totals{Requests: 12350, TotalTokens: 3800, TotalCost: 3.0},
+	}
+	out := FormatReport(report, 100, 30)
+	lines := strings.Split(out, "\n")
+	var table []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "data ") || strings.HasPrefix(line, "2026-") || strings.HasPrefix(line, "total") {
+			table = append(table, line)
+		}
+	}
+	if len(table) != 4 {
+		t.Fatalf("expected 4 table rows (header+2 buckets+total), got %d:\n%s", len(table), out)
+	}
+	if !strings.Contains(table[0], "requisições") {
+		t.Fatalf("header missing requisições:\n%s", out)
+	}
+	base := len([]rune(table[0]))
+	for _, line := range table[1:] {
+		if got := len([]rune(line)); got != base {
+			t.Fatalf("column misalignment: header %d runes but row %d runes:\n%s", base, got, out)
+		}
 	}
 }

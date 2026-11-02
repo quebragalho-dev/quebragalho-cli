@@ -185,12 +185,12 @@ func fireJob(store *cron.Store, now func() time.Time, job cron.Job, stdout io.Wr
 	if sched, perr := cron.Parse(job.Expr); perr != nil {
 		job.Status = cron.StatusPaused
 		if rec.Error == "" {
-			rec.Error = "agendamento inválido; tarefa pausada: " + perr.Error()
+			rec.Error = "invalid schedule; job paused: " + perr.Error()
 		}
 	} else if nxt := sched.Next(fired.Truncate(time.Minute)); nxt.IsZero() {
 		job.Status = cron.StatusPaused
 		if rec.Error == "" {
-			rec.Error = "o agendamento não dispara mais; tarefa pausada"
+			rec.Error = "schedule no longer fires; job paused"
 		}
 	} else {
 		// Minute-aligned input keeps this advance identical to claimFire's and lets

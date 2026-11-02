@@ -286,3 +286,38 @@ func sequenceClockCLI(values []time.Time) func() time.Time {
 		return value
 	}
 }
+
+func TestFormatCompactionPlanTruncadoSimNao(t *testing.T) {
+	truncated := formatCompactionPlan(sessions.CompactionPlan{SessionID: "s1", Truncated: true})
+	if !strings.Contains(truncated, "truncado: sim") {
+		t.Fatalf("truncated plan must show sim:\n%s", truncated)
+	}
+	if strings.Contains(truncated, "truncado: true") {
+		t.Fatalf("truncated plan leaked English bool:\n%s", truncated)
+	}
+	plain := formatCompactionPlan(sessions.CompactionPlan{SessionID: "s1", Truncated: false})
+	if !strings.Contains(plain, "truncado: não") {
+		t.Fatalf("non-truncated plan must show não:\n%s", plain)
+	}
+}
+
+func TestRunSessionsRewindMissingCwdMessage(t *testing.T) {
+	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir(), Now: fixedCLITime("2026-06-04T19:30:00Z")})
+	session, err := store.Create(sessions.CreateInput{SessionID: "nocwd", Title: "NoCwd", Cwd: ""})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := store.AppendEvent(session.SessionID, sessions.AppendEventInput{Type: sessions.EventMessage, Payload: map[string]string{"content": "hi"}}); err != nil {
+		t.Fatalf("AppendEvent: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"sessions", "rewind", session.SessionID, "--sequence", "1"}, &stdout, &stderr, appDeps{
+		newSessionStore: func() *sessions.Store { return store },
+	})
+	if exitCode != exitUsage {
+		t.Fatalf("exit = %d, want usage", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "a sessão não tem pasta de trabalho registrada (cwd); não é possível restaurar os arquivos") {
+		t.Fatalf("rewind cwd message = %q", stderr.String())
+	}
+}
