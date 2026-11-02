@@ -12,15 +12,15 @@ func TestMCPViewRendersEmptyState(t *testing.T) {
 	got := plainRender(t, renderMCPView(MCPViewState{}, 72))
 
 	for _, want := range []string{
-		"Manage MCP servers",
-		"0 servers",
-		"User MCPs",
-		"No MCP servers configured.",
-		"Add MCP server",
+		"Gerenciar servidores MCP",
+		"0 servidores",
+		"MCPs do usuário",
+		"Nenhum servidor MCP configurado.",
+		"Adicionar servidor MCP",
 		"qg mcp add <name> --url <url>",
-		"Actions",
-		"add remote",
-		"check health",
+		"Ações",
+		"adicionar remoto",
+		"verificar",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("empty MCP view = %q, missing %q", got, want)
@@ -37,9 +37,9 @@ func TestMCPViewRendersEmptyStateWhenOnlyPermissionModeExists(t *testing.T) {
 	}, 96))
 
 	for _, want := range []string{
-		"Manage MCP servers",
-		"0 servers",
-		"No MCP servers configured.",
+		"Gerenciar servidores MCP",
+		"0 servidores",
+		"Nenhum servidor MCP configurado.",
 		"qg mcp add",
 	} {
 		if !strings.Contains(got, want) {
@@ -60,16 +60,16 @@ func TestMCPViewRendersServerRows(t *testing.T) {
 	}, 96))
 
 	for _, want := range []string{
-		"Manage MCP servers",
-		"2 servers",
-		"User MCPs",
-		"filesystem · connected · 3 tools · stdio",
+		"Gerenciar servidores MCP",
+		"2 servidores",
+		"MCPs do usuário",
+		"filesystem · connected · 3 ferramentas · stdio",
 		"linear · disabled · oauth · http",
 		"qg mcp disable filesystem",
 		"qg mcp enable linear",
 		"https://mcp.linear.app",
-		"disconnect: qg mcp disable <name>",
-		"remove: qg mcp remove <name>",
+		"desconectar: qg mcp disable <name>",
+		"remover: qg mcp remove <name>",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("MCP server view = %q, missing %q", got, want)
@@ -86,11 +86,11 @@ func TestMCPViewRendersToolRows(t *testing.T) {
 	}, 140))
 
 	for _, want := range []string{
-		"Tools",
-		"filesystem tools (1)",
+		"Ferramentas",
+		"filesystem ferramentas (1)",
 		"read_file [read/allow] - mcp_filesystem_read_file",
 		"filesystem/read_file",
-		"github tools (1)",
+		"github ferramentas (1)",
 		"create_issue [network/prompt] - mcp_github_create_issue",
 		"Create an issue in GitHub",
 	} {
@@ -117,15 +117,15 @@ func TestMCPViewRendersPermissionStates(t *testing.T) {
 	}, 92))
 
 	for _, want := range []string{
-		"Permissions",
-		"mode: ask",
-		"persistent grants: 2",
-		"server grants: 1",
-		"tool grants: 1",
-		"prompted this session: 4",
-		"denied this session: 1",
-		"filesystem/* [low] approved 2026-06-13T09:30:00Z",
-		"github/create_issue [medium] approved 2026-06-13T10:00:00Z",
+		"Permissões",
+		"modo: ask",
+		"autorizações persistentes: 2",
+		"autorizações de servidor: 1",
+		"autorizações de ferramenta: 1",
+		"solicitadas nesta sessão: 4",
+		"negadas nesta sessão: 1",
+		"filesystem/* [low] aprovado em 2026-06-13T09:30:00Z",
+		"github/create_issue [medium] aprovado em 2026-06-13T10:00:00Z",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("MCP permission view = %q, missing %q", got, want)
@@ -147,9 +147,9 @@ func TestMCPViewRendersOAuthSummary(t *testing.T) {
 
 	for _, want := range []string{
 		"OAuth",
-		"linear configured token refresh expires 2026-06-13T11:45:00Z Bearer scopes issues:read,issues:write",
-		"notion configured token expired",
-		"plain not configured",
+		"linear configurado token refresh expira em 2026-06-13T11:45:00Z Bearer escopos issues:read,issues:write",
+		"notion configurado token expirado",
+		"plain não configurado",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("MCP OAuth view = %q, missing %q", got, want)

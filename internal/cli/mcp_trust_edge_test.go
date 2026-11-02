@@ -85,7 +85,7 @@ func TestRunMCPOAuthLoginStoreErrorNotice(t *testing.T) {
 	if code := runWithDeps([]string{"mcp", "oauth", "login", "proj"}, &out, &errBuf, deps); code == exitSuccess {
 		t.Fatal("login must fail closed on a trust-store read error")
 	}
-	if got := errBuf.String(); !strings.Contains(got, "could not be read") || !strings.Contains(got, "not configured") {
+	if got := errBuf.String(); !strings.Contains(got, "could not be read") || !strings.Contains(got, "não está configurado") {
 		t.Fatalf("store-error login must emit the store-errored notice AND not-configured, got %q", got)
 	}
 }
@@ -195,7 +195,7 @@ func TestRunMCPCheckDisabledServer(t *testing.T) {
 	if code := runWithDeps([]string{"mcp", "check", "proj"}, &out, &errBuf, deps); code == exitSuccess {
 		t.Fatal("mcp check on a disabled server must fail")
 	}
-	if got := errBuf.String(); !strings.Contains(got, "is disabled") {
+	if got := errBuf.String(); !strings.Contains(got, "está desativado") {
 		t.Fatalf("want disabled error, got %q", got)
 	}
 }
@@ -247,7 +247,7 @@ func TestRunMCPCheckReportsUnreachableServer(t *testing.T) {
 	if got := out.String(); strings.Contains(got, "is reachable") {
 		t.Fatalf("mcp check reported a failed server as reachable: %q", got)
 	}
-	if got := errBuf.String(); !strings.Contains(got, "not reachable") {
+	if got := errBuf.String(); !strings.Contains(got, "não está acessível") {
 		t.Fatalf("want an unreachable error naming the server, got %q", got)
 	}
 }
@@ -288,7 +288,7 @@ func TestRunMCPCheckReportsUnreachableServerJSON(t *testing.T) {
 	if payload.Status != "unreachable" {
 		t.Fatalf("status = %q, want %q", payload.Status, "unreachable")
 	}
-	if !strings.Contains(payload.Error, "not reachable") {
+	if !strings.Contains(payload.Error, "não está acessível") {
 		t.Fatalf("error = %q, want it to say the server is not reachable", payload.Error)
 	}
 	// A reachable payload carries a tool count; an unreachable one must not

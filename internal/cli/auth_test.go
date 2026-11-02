@@ -77,7 +77,7 @@ func TestRunAuthLogoutNothing(t *testing.T) {
 	if code := runWithDeps([]string{"auth", "logout", "demo"}, &stdout, &stderr, appDeps{}); code != exitSuccess {
 		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "No stored credential for demo") {
+	if !strings.Contains(stdout.String(), "Nenhuma credencial guardada para demo") {
 		t.Fatalf("logout output = %q", stdout.String())
 	}
 }
@@ -233,7 +233,7 @@ func TestRunAuthReset(t *testing.T) {
 	if code := runWithDeps([]string{"auth", "reset", "--confirm"}, &stdout, &stderr, appDeps{}); code != exitSuccess {
 		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Reset OAuth token store") {
+	if !strings.Contains(stdout.String(), "Repositório de tokens OAuth zerado.") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 

@@ -51,7 +51,7 @@ func trustCurrentDir(stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if err := workspacetrust.Trust(cwd); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
-	if _, err := fmt.Fprintf(stdout, "Trusted %s\n", cwd); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Workspace confiável: %s\n", cwd); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -65,7 +65,7 @@ func trustList(stdout io.Writer, stderr io.Writer) int {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
 	if len(roots) == 0 {
-		if _, err := fmt.Fprintln(stdout, "No trusted workspaces."); err != nil {
+		if _, err := fmt.Fprintln(stdout, "Nenhum workspace confiável."); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
@@ -103,7 +103,7 @@ func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	if err := workspacetrust.Untrust(target); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
-	if _, err := fmt.Fprintf(stdout, "Untrusted %s\n", target); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Workspace deixou de ser confiável: %s\n", target); err != nil {
 		return exitCrash
 	}
 	return exitSuccess

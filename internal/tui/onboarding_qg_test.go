@@ -142,10 +142,10 @@ func TestSetupWelcomeNamesQuebraGalhoAndLogin(t *testing.T) {
 	m := newModel(context.Background(), Options{Setup: qgSetupOptions(nil, nil)})
 	m.width, m.height = 100, 30
 	view := plainRender(t, m.View())
-	if !strings.Contains(view, "Welcome to Quebra Galho") {
+	if !strings.Contains(view, "Bem-vindo ao Quebra Galho") {
 		t.Fatalf("welcome title missing:\n%s", view)
 	}
-	if !strings.Contains(view, "sign in with your browser") {
+	if !strings.Contains(view, "entre com o navegador") {
 		t.Fatalf("welcome must announce the browser login:\n%s", view)
 	}
 }

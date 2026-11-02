@@ -54,12 +54,12 @@ func stitchMCPSetupIntent(prompt string) mcpSetupIntent {
 		ServerName:  "stitch",
 		ServerType:  "stdio",
 		Endpoint:    "npx -y @_davideast/stitch-mcp@latest proxy",
-		SourceLabel: "Stitch MCP setup",
+		SourceLabel: "Configuração do MCP Stitch",
 		SourceURL:   firstURLWithHost(prompt, "stitch.withgoogle.com"),
 		Prerequisites: []string{
-			"Google Cloud auth configured",
-			"Stitch API enabled for the selected project",
-			"GOOGLE_CLOUD_PROJECT available when the proxy runs",
+			"Autenticação do Google Cloud configurada",
+			"API do Stitch ativada no projeto selecionado",
+			"GOOGLE_CLOUD_PROJECT disponível quando o proxy executar",
 		},
 	}
 }

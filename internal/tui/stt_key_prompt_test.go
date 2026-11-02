@@ -77,7 +77,7 @@ func TestCloudKeyPromptOptionalWhenAuthenticated(t *testing.T) {
 	if got.dictation.cfg.Provider != config.STTProviderGroq || got.dictation.cfg.Model != "whisper-large-v3-turbo" {
 		t.Errorf("model not applied on keep: %q/%q", got.dictation.cfg.Provider, got.dictation.cfg.Model)
 	}
-	if !strings.Contains(got.transientNotice.text, "Kept your saved Groq API key") {
+	if !strings.Contains(got.transientNotice.text, "Mantive sua chave de API de Groq salva") {
 		t.Error("expected a kept-key notice")
 	}
 }
@@ -104,7 +104,7 @@ func TestCloudKeyPromptOptionalReplaceSavesNewKey(t *testing.T) {
 	if got.dictation.cfg.Model != "whisper-large-v3-turbo" {
 		t.Errorf("model not applied after replace: %q", got.dictation.cfg.Model)
 	}
-	if !strings.Contains(got.transientNotice.text, "Saved your Groq API key") {
+	if !strings.Contains(got.transientNotice.text, "Salvei sua chave de API de Groq") {
 		t.Error("expected a saved-key notice")
 	}
 }
@@ -127,7 +127,7 @@ func TestCloudKeySavedAndModelApplied(t *testing.T) {
 	if got.dictation.cfg.Model != "whisper-large-v3-turbo" {
 		t.Errorf("model not applied: %q", got.dictation.cfg.Model)
 	}
-	if !strings.Contains(got.transientNotice.text, "Saved your Groq API key") {
+	if !strings.Contains(got.transientNotice.text, "Salvei sua chave de API de Groq") {
 		t.Error("expected a saved-key notice")
 	}
 }

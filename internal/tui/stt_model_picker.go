@@ -38,9 +38,9 @@ func (m model) newSTTModelPicker() *commandPicker {
 	var items []pickerItem
 
 	// Local engine row — its model is a filesystem path set separately.
-	localMeta := "sherpa-onnx offline engine"
+	localMeta := "motor offline sherpa-onnx"
 	if current.STTProvider() == config.STTProviderLocal {
-		localMeta = "current · " + localMeta
+		localMeta = "atual · " + localMeta
 	}
 	items = append(items, pickerItem{
 		Group: "Local",
@@ -56,7 +56,7 @@ func (m model) newSTTModelPicker() *commandPicker {
 		for _, id := range sttModelsForProvider(prov) {
 			meta := ""
 			if current.STTProvider() == config.STTProviderKind(prov) && current.Model == id {
-				meta = "current"
+				meta = "atual"
 			}
 			items = append(items, pickerItem{
 				Group: group,
@@ -71,7 +71,7 @@ func (m model) newSTTModelPicker() *commandPicker {
 	}
 	return &commandPicker{
 		kind:     pickerSTTModel,
-		title:    "Choose a dictation (speech-to-text) model",
+		title:    "Escolha um modelo de ditado (fala para texto)",
 		items:    items,
 		allItems: append([]pickerItem{}, items...),
 	}
@@ -151,7 +151,7 @@ func (m model) maybeOpenSTTDownloadPicker(value string) (model, tea.Cmd, bool) {
 func newSTTDownloadLoadingPicker() *commandPicker {
 	return &commandPicker{
 		kind:    pickerSTTDownload,
-		title:   "Download a local dictation model — loading…",
+		title:   "Baixar um modelo de ditado local — carregando…",
 		loading: true,
 	}
 }
@@ -217,15 +217,15 @@ func (m model) handleSTTModelSelection(value string) (model, string) {
 		m.dictation.cfg.Provider = kind
 		// Leave localModelPath as-is; the local model is a path, not chosen here.
 		if _, err := config.SetSTTProvider(m.userConfigPath, kind); err != nil {
-			return m, "Could not save dictation provider: " + err.Error()
+			return m, "Não foi possível salvar o provedor de ditado: " + err.Error()
 		}
-		hint := "Dictation set to the local sherpa-onnx engine."
+		hint := "Ditado configurado para o motor local sherpa-onnx."
 		if strings.TrimSpace(m.dictation.cfg.LocalModelPath) == "" {
 			// Auto-download platforms never reach here (the download chooser opens
 			// instead); this is the manual-setup path (e.g. Termux).
-			hint += " Set stt.localModelPath to a model directory (see docs/dictation.md)."
+			hint += " Configure stt.localModelPath para uma pasta de modelo (veja docs/dictation.md)."
 		} else {
-			hint += " Run /voice; " + voiceCaptureUsage + "."
+			hint += " Rode /voice; " + voiceCaptureUsage + "."
 		}
 		return m, hint
 	}
@@ -241,9 +241,9 @@ func (m model) handleSTTModelSelection(value string) (model, string) {
 		m.dictation.cfg.Provider = kind
 		m.dictation.cfg.Model = modelID
 		if _, err := config.SetSTTModel(m.userConfigPath, kind, modelID); err != nil {
-			return m, "Could not save dictation model: " + err.Error()
+			return m, "Não foi possível salvar o modelo de ditado: " + err.Error()
 		}
-		return m, "Dictation model set to " + titleCase(provider) + " " + modelID + "."
+		return m, "Modelo de ditado configurado para " + titleCase(provider) + " " + modelID + "."
 	}
 	hasKey := m.dictation.keyAvailable != nil && m.dictation.keyAvailable(provider)
 	return m.openSTTKeyPrompt(provider, value, hasKey), ""
@@ -297,9 +297,9 @@ func newSTTDownloadPickerFrom(variants []dictation.ModelVariant, loading bool, d
 			totalMB += engineDownloadBytes >> 20 // engine is downloaded once, shared by all models
 		}
 		// Meta reads: pipeline tag · [description] · size · [state].
-		tag := "Batch"
+		tag := "Em lote"
 		if v.Streaming {
-			tag = "Live"
+			tag = "Ao vivo"
 		}
 		parts := []string{tag}
 		if v.Description != "" {
@@ -308,9 +308,9 @@ func newSTTDownloadPickerFrom(variants []dictation.ModelVariant, loading bool, d
 		parts = append(parts, fmt.Sprintf("%d MB", totalMB))
 		switch {
 		case isCurrent(v):
-			parts = append(parts, "● current")
+			parts = append(parts, "● atual")
 		case installed(v):
-			parts = append(parts, "✓ downloaded") // selecting re-applies it, no re-download
+			parts = append(parts, "✓ baixado") // selecting re-applies it, no re-download
 		}
 		items = append(items, pickerItem{
 			Label: label,
@@ -322,9 +322,9 @@ func newSTTDownloadPickerFrom(variants []dictation.ModelVariant, loading bool, d
 	}
 	// The search line and footer already convey "type to filter" and "Esc", so the
 	// title stays just the name.
-	title := "Download a local dictation model"
+	title := "Baixar um modelo de ditado local"
 	if loading {
-		title = "Download a local dictation model — loading full list…"
+		title = "Baixar um modelo de ditado local — carregando a lista completa…"
 	}
 	return &commandPicker{
 		kind:     pickerSTTDownload,
@@ -370,9 +370,9 @@ func (m model) applyInstalledModel(v dictation.ModelVariant) (model, tea.Cmd) {
 	}
 	m, aerr := m.applyEngineComponents(comp, v.Streaming)
 	if aerr != nil {
-		return m.appendSystemNotice("Couldn't save the config: " + aerr.Error()), nil
+		return m.appendSystemNotice("Não foi possível salvar a configuração: " + aerr.Error()), nil
 	}
-	return m.showTransientNoticeInline(v.Label+" is ready. Run /voice to start dictating.", transientNoticeSuccess), nil
+	return m.showTransientNoticeInline(v.Label+" está pronto. Rode /voice para começar a ditar.", transientNoticeSuccess), nil
 }
 
 // sttDownloadVariants returns the variants currently offered — the full fetched

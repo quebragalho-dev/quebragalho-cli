@@ -4,7 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const voiceCaptureUsage = "hold Ctrl+Space to record; press it to toggle where key releases are unavailable"
+const voiceCaptureUsage = "segure Ctrl+Space para gravar; pressione para alternar se soltar a tecla não for detectado"
 
 // Voice mode's Ctrl+Space gesture — the (only) dictation trigger. Two terminal
 // tiers:
@@ -45,16 +45,16 @@ func (m model) voiceCaptureStatus() string {
 	switch m.dictation.phase {
 	case dictStarting, dictRecording:
 		if m.dictation.eventTypesSupported {
-			return "release Ctrl+Space to stop"
+			return "solte Ctrl+Space para parar"
 		}
-		return "press Ctrl+Space to stop"
+		return "pressione Ctrl+Space para parar"
 	case dictTranscribing:
-		return "transcribing…"
+		return "transcrevendo…"
 	default:
 		if m.dictation.eventTypesSupported {
-			return "hold Ctrl+Space to record"
+			return "segure Ctrl+Space para gravar"
 		}
-		return "press Ctrl+Space to record"
+		return "pressione Ctrl+Space para gravar"
 	}
 }
 

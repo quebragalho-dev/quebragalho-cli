@@ -73,7 +73,7 @@ func runProvidersAdd(args []string, stdout io.Writer, stderr io.Writer, deps app
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Added provider %s to %s\n", profile.Name, configPath); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Provedor %s adicionado a %s\n", profile.Name, configPath); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -139,11 +139,11 @@ func runProvidersCheck(args []string, stdout io.Writer, stderr io.Writer, deps a
 	if options.connectivity {
 		status = providerHealthStatusLabel(health.Status)
 	}
-	if _, err := fmt.Fprintf(stdout, "Provider check\nname: %s\nstatus: %s\nkind: %s\nmodel: %s\napi model: %s\n", snapshot.Name, status, snapshot.ProviderKind, snapshot.Model, snapshot.APIModel); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Verificação do provedor\nnome: %s\nestado: %s\ntipo: %s\nmodelo: %s\nmodelo da API: %s\n", snapshot.Name, status, snapshot.ProviderKind, snapshot.Model, snapshot.APIModel); err != nil {
 		return exitCrash
 	}
 	if options.connectivity {
-		if _, err := fmt.Fprintf(stdout, "connectivity: %s\n", health.Status); err != nil {
+		if _, err := fmt.Fprintf(stdout, "conectividade: %s\n", health.Status); err != nil {
 			return exitCrash
 		}
 		if check := health.PrimaryCheck(); check != nil {
@@ -153,7 +153,7 @@ func runProvidersCheck(args []string, stdout io.Writer, stderr io.Writer, deps a
 		}
 	}
 	for _, nextAction := range providerCheckNextActions(profile, options.connectivity, health) {
-		if _, err := fmt.Fprintf(stdout, "next: %s\n", nextAction); err != nil {
+		if _, err := fmt.Fprintf(stdout, "próximo: %s\n", nextAction); err != nil {
 			return exitCrash
 		}
 	}
@@ -177,7 +177,7 @@ func providerHealthStatusLabel(status providerhealth.Status) string {
 func providerCheckErrorMessage(err error, profile config.ProviderProfile) string {
 	message := err.Error()
 	if nextAction := providerCheckMissingKeyNextAction(profile); nextAction != "" {
-		message += "\nnext: " + nextAction
+		message += "\npróximo: " + nextAction
 	}
 	return message
 }
@@ -185,24 +185,24 @@ func providerCheckErrorMessage(err error, profile config.ProviderProfile) string
 func providerCheckNextActions(profile config.ProviderProfile, connectivity bool, health providerhealth.Result) []string {
 	name := providerCheckName(profile)
 	if !connectivity {
-		return []string{fmt.Sprintf("run qg providers check %s --connectivity", name)}
+		return []string{fmt.Sprintf("execute qg providers check %s --connectivity", name)}
 	}
 	switch health.Status {
 	case providerhealth.StatusFail:
 		// A keyless profile failing the probe needs the credential recipe, not
 		// the generic verify advice: name both gateway env vars and `qg login`.
 		if _, missing := profile.MissingCredentialEnv(); missing && !providerProfileHasCredential(profile) {
-			return []string{fmt.Sprintf("set %s in your environment or run `qg login`, then rerun qg providers check %s --connectivity", providercatalog.KeyEnvHint, name)}
+			return []string{fmt.Sprintf("defina %s no seu ambiente ou rode `qg login`, depois rode de novo qg providers check %s --connectivity", providercatalog.KeyEnvHint, name)}
 		}
-		return []string{fmt.Sprintf("verify the API key, base URL, and model, then rerun qg providers check %s --connectivity", name)}
+		return []string{fmt.Sprintf("confira a chave de API, a URL base e o modelo, depois rode de novo qg providers check %s --connectivity", name)}
 	case providerhealth.StatusWarn:
-		return []string{fmt.Sprintf("review the warning, then rerun qg providers check %s --connectivity", name)}
+		return []string{fmt.Sprintf("reveja o aviso, depois rode de novo qg providers check %s --connectivity", name)}
 	default:
 		model := strings.TrimSpace(profile.Model)
 		if model == "" {
-			return []string{"provider is ready"}
+			return []string{"provedor pronto"}
 		}
-		return []string{fmt.Sprintf("run qg exec %q --model %s", "hello", model)}
+		return []string{fmt.Sprintf("execute qg exec %q --model %s", "hello", model)}
 	}
 }
 
@@ -214,7 +214,7 @@ func providerCheckMissingKeyNextAction(profile config.ProviderProfile) string {
 	if apiKeyEnv == "" {
 		return ""
 	}
-	return fmt.Sprintf("set %s and rerun qg providers check %s", providercatalog.DisplayKeyEnv(apiKeyEnv), providerCheckName(profile))
+	return fmt.Sprintf("defina %s e rode de novo qg providers check %s", providercatalog.DisplayKeyEnv(apiKeyEnv), providerCheckName(profile))
 }
 
 func providerCheckAPIKeyEnv(profile config.ProviderProfile) string {
@@ -470,14 +470,14 @@ func selectProviderForCheck(resolved config.ResolvedConfig, name string) (config
 		if config.HasProviderProfile(resolved.Provider) {
 			return resolved.Provider, nil
 		}
-		return config.ProviderProfile{}, fmt.Errorf("no active provider configured")
+		return config.ProviderProfile{}, fmt.Errorf("nenhum provedor ativo configurado")
 	}
 	for _, profile := range resolved.Providers {
 		if profile.Name == name {
 			return profile, nil
 		}
 	}
-	return config.ProviderProfile{}, fmt.Errorf("provider %q not found", name)
+	return config.ProviderProfile{}, fmt.Errorf("provedor %q não encontrado", name)
 }
 
 func validateProviderRuntimeReady(profile config.ProviderProfile) error {
@@ -502,9 +502,9 @@ func validateProviderRuntimeReady(profile config.ProviderProfile) error {
 	// actually missing a credential.
 	if envVar, missing := profile.MissingCredentialEnv(); missing {
 		if envVar != "" {
-			return fmt.Errorf("provider %s requires API key; set %s", profile.Name, providercatalog.DisplayKeyEnv(envVar))
+			return fmt.Errorf("o provedor %s precisa de chave de API; defina %s", profile.Name, providercatalog.DisplayKeyEnv(envVar))
 		}
-		return fmt.Errorf("provider %s requires API key", profile.Name)
+		return fmt.Errorf("o provedor %s precisa de chave de API", profile.Name)
 	}
 	return nil
 }

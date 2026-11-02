@@ -304,7 +304,7 @@ func TestRunMCPOAuthLoginGatedInUntrustedWorkspace(t *testing.T) {
 	if exitCode == exitSuccess {
 		t.Fatalf("login on a project-only OAuth server in an untrusted workspace must fail; stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "not configured") {
+	if !strings.Contains(stderr.String(), "não está configurado") {
 		t.Fatalf("stderr must report the server as not configured, got %q", stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "MCP servers") || !strings.Contains(stderr.String(), "qg trust") {
@@ -386,7 +386,7 @@ func TestResolveOAuthServerGatedInUntrustedWorkspace(t *testing.T) {
 	if err == nil {
 		t.Fatal("untrusted workspace must not resolve a project-only OAuth server")
 	}
-	if !strings.Contains(err.Error(), "not configured") {
+	if !strings.Contains(err.Error(), "não está configurado") {
 		t.Fatalf("want not-configured error, got %v", err)
 	}
 	if !skip.excludedProjectConfig {

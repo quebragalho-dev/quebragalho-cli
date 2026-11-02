@@ -249,7 +249,7 @@ func TestRunMCPToolsListJSONAndText(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"MCP Tools:", "mcp_docs_lookup", "Lookup documentation", "allow"} {
+	for _, want := range []string{"Ferramentas MCP:", "mcp_docs_lookup", "Lookup documentation", "allow"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("MCP tools text missing %q: %s", want, stdout.String())
 		}

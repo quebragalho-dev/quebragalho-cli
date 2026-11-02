@@ -144,12 +144,12 @@ Flags:
 
 // logoutMessage is the human summary shared by `qg logout` and the TUI /logout.
 func logoutMessage(result LogoutResult) string {
-	msg := "Already logged out: no saved Quebra Galho credentials."
+	msg := "Já desconectado: nenhuma credencial Quebra Galho guardada."
 	if result.Removed {
-		msg = "Logged out of Quebra Galho."
+		msg = "Desconectado do Quebra Galho."
 	}
 	if result.EnvStillActive != "" {
-		msg += fmt.Sprintf("\nWarning: %s is still set in your environment and stays active; unset it to fully log out.", result.EnvStillActive)
+		msg += fmt.Sprintf("\nAtenção: %s continua definido no seu ambiente e segue ativo; remova-o para desconectar de vez.", result.EnvStillActive)
 	}
 	return msg
 }

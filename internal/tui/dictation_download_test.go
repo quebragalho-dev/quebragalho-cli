@@ -80,7 +80,7 @@ func TestDownloadedBatchModelAppliedToConfig(t *testing.T) {
 	if got.dictation.cfg.StreamingEnabled() {
 		t.Error("a batch variant should set streaming off")
 	}
-	if !strings.Contains(got.transientNotice.text, "ready") {
+	if !strings.Contains(got.transientNotice.text, "pronto") {
 		t.Error("expected a ready notice")
 	}
 }

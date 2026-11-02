@@ -35,7 +35,7 @@ func TestRunProvidersModelsListsDiscoveredModels(t *testing.T) {
 		t.Fatalf("probed provider = %q, want active provider work", probed.Name)
 	}
 	out := stdout.String()
-	for _, want := range []string{"Provider models (work)", "team/model-a — first", "team/model-b", "2 models discovered", "--model team/model-a"} {
+	for _, want := range []string{"Modelos do provedor (work)", "team/model-a — first", "team/model-b", "Modelos encontrados: 2", "--model team/model-a"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
 		}
@@ -127,7 +127,7 @@ func TestRunProvidersModelsUnknownProviderFails(t *testing.T) {
 	if called {
 		t.Fatal("discovery must not run for an unknown provider")
 	}
-	if !strings.Contains(stderr.String(), `provider "ghost" not found`) {
+	if !strings.Contains(stderr.String(), `provedor "ghost" não encontrado`) {
 		t.Fatalf("stderr = %q, want provider-not-found", stderr.String())
 	}
 }
@@ -175,7 +175,7 @@ func TestRunProvidersModelsListsEveryDiscoveredModel(t *testing.T) {
 			t.Fatalf("output missing discovered model %q:\n%s", want, out)
 		}
 	}
-	if !strings.Contains(out, "5 models discovered") {
+	if !strings.Contains(out, "Modelos encontrados: 5") {
 		t.Fatalf("output should show 5 models:\n%s", out)
 	}
 }

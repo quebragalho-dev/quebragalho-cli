@@ -51,7 +51,7 @@ var mcpMarketplaceCatalog = []mcpMarketplaceEntry{
 	{
 		ID:             "filesystem",
 		Name:           "Filesystem",
-		Description:    "Read and manage files under an explicit workspace path.",
+		Description:    "Lê e gerencia arquivos numa pasta de trabalho explícita.",
 		Meta:           "stdio · official · files",
 		InstallCommand: "/mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem .",
 		Tags:           []string{"files", "local", "official", "workspace"},
@@ -59,7 +59,7 @@ var mcpMarketplaceCatalog = []mcpMarketplaceEntry{
 	{
 		ID:             "memory",
 		Name:           "Memory",
-		Description:    "Persistent knowledge graph memory for long-lived project facts.",
+		Description:    "Memória persistente de grafo de conhecimento para fatos de projeto duradouros.",
 		Meta:           "stdio · official · memory",
 		InstallCommand: "/mcp add memory -- npx -y @modelcontextprotocol/server-memory",
 		Tags:           []string{"memory", "knowledge", "official"},
@@ -67,7 +67,7 @@ var mcpMarketplaceCatalog = []mcpMarketplaceEntry{
 	{
 		ID:             "fetch",
 		Name:           "Fetch",
-		Description:    "Fetch and convert web content for model-readable context.",
+		Description:    "Busca e converte conteúdo web para contexto legível pelo modelo.",
 		Meta:           "stdio · official · web",
 		InstallCommand: "/mcp add fetch -- npx -y @modelcontextprotocol/server-fetch",
 		Tags:           []string{"web", "fetch", "official"},
@@ -75,7 +75,7 @@ var mcpMarketplaceCatalog = []mcpMarketplaceEntry{
 	{
 		ID:             "sequential-thinking",
 		Name:           "Sequential Thinking",
-		Description:    "Structured step-by-step reasoning as an MCP tool.",
+		Description:    "Raciocínio estruturado passo a passo como ferramenta MCP.",
 		Meta:           "stdio · official · reasoning",
 		InstallCommand: "/mcp add sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking",
 		Tags:           []string{"reasoning", "planning", "official"},
@@ -83,7 +83,7 @@ var mcpMarketplaceCatalog = []mcpMarketplaceEntry{
 	{
 		ID:             "context7",
 		Name:           "Context7",
-		Description:    "Fresh library documentation and examples over HTTP MCP.",
+		Description:    "Documentação e exemplos atualizados de bibliotecas via MCP HTTP.",
 		Meta:           "http · docs · remote",
 		InstallCommand: "/mcp add context7 --url https://mcp.context7.com/mcp",
 		Tags:           []string{"docs", "libraries", "context7", "remote"},
@@ -91,7 +91,7 @@ var mcpMarketplaceCatalog = []mcpMarketplaceEntry{
 	{
 		ID:             "playwright",
 		Name:           "Playwright",
-		Description:    "Browser automation and page inspection through Playwright MCP.",
+		Description:    "Automação de navegador e inspeção de páginas via MCP do Playwright.",
 		Meta:           "stdio · browser · @playwright/mcp",
 		InstallCommand: "/mcp add playwright -- npx -y @playwright/mcp",
 		Tags:           []string{"browser", "automation", "testing", "playwright"},
@@ -250,7 +250,7 @@ func (m model) mcpManagerItems() []mcpManagerItem {
 	installed := make(map[string]bool, len(state.Servers))
 	items := make([]mcpManagerItem, 0, len(state.Servers)+len(mcpMarketplaceCatalog)+3)
 	for _, server := range state.Servers {
-		name := displayValue(strings.TrimSpace(server.Name), "unnamed")
+		name := displayValue(strings.TrimSpace(server.Name), "sem nome")
 		installed[strings.ToLower(name)] = true
 		item := mcpManagerItem{
 			Kind:   mcpManagerItemServer,
@@ -273,9 +273,9 @@ func (m model) mcpManagerItems() []mcpManagerItem {
 		}
 	}
 	for _, item := range []mcpManagerItem{
-		{Kind: mcpManagerItemAddRemote, Name: "custom-remote", Label: "Add MCP server", Meta: "qg mcp add <name> --url <url>", Detail: "custom remote http sse url"},
-		{Kind: mcpManagerItemAddStdio, Name: "custom-stdio", Label: "Add local stdio MCP", Meta: "qg mcp add <name> -- <command> [args...]", Detail: "custom local stdio command"},
-		{Kind: mcpManagerItemList, Name: "list", Label: "List configured", Meta: "qg mcp list", Detail: "configured installed servers"},
+		{Kind: mcpManagerItemAddRemote, Name: "custom-remote", Label: "Adicionar servidor MCP", Meta: "qg mcp add <name> --url <url>", Detail: "custom remote http sse url"},
+		{Kind: mcpManagerItemAddStdio, Name: "custom-stdio", Label: "Adicionar MCP stdio local", Meta: "qg mcp add <name> -- <command> [args...]", Detail: "custom local stdio command"},
+		{Kind: mcpManagerItemList, Name: "list", Label: "Listar configurados", Meta: "qg mcp list", Detail: "configured installed servers"},
 	} {
 		if mcpManagerItemMatches(item, query) {
 			items = append(items, item)
@@ -314,7 +314,7 @@ func mcpManagerItemMatches(item mcpManagerItem, query string) bool {
 
 func mcpManagerServerMeta(server MCPServerView) string {
 	parts := []string{
-		displayValue(strings.TrimSpace(server.State), "configured"),
+		displayValue(strings.TrimSpace(server.State), "configurado"),
 	}
 	if auth := strings.TrimSpace(server.Auth); auth != "" {
 		parts = append(parts, auth)
@@ -322,7 +322,7 @@ func mcpManagerServerMeta(server MCPServerView) string {
 	if server.ToolCount > 0 {
 		parts = append(parts, pluralCount(server.ToolCount, "tool"))
 	}
-	parts = append(parts, displayValue(strings.TrimSpace(server.Transport), "unknown"))
+	parts = append(parts, displayValue(strings.TrimSpace(server.Transport), "desconhecido"))
 	return strings.Join(parts, " · ")
 }
 
@@ -347,10 +347,10 @@ func (m model) mcpManagerOverlay(width int) string {
 	lines := []string{
 		fillPaletteLine(qgTheme.ink.Bold(true).Render(pluralCount(len(state.Servers), "server")), innerWidth, transparentSurface),
 		fillPaletteLine(renderMCPManagerSearchLine(m.mcpManager.query, innerWidth), innerWidth, transparentSurface),
-		qgTheme.accent.Bold(true).Render("User MCPs"),
+		qgTheme.accent.Bold(true).Render("MCPs do usuário"),
 	}
 	if len(state.Servers) == 0 {
-		lines = append(lines, qgTheme.faint.Render("  No MCP servers configured."))
+		lines = append(lines, qgTheme.faint.Render("  Nenhum servidor MCP configurado."))
 	}
 	itemLines, _ := m.renderMCPManagerItemLines(innerWidth, items)
 	lines = append(lines, itemLines...)
@@ -359,22 +359,22 @@ func (m model) mcpManagerOverlay(width int) string {
 		lines = append(lines, detail...)
 	}
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
-	lines = append(lines, fillPaletteLine(qgTheme.faint.Render("type search   up/down navigate   Enter action   Alt+d disable   Esc close"), innerWidth, transparentSurface))
-	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Manage MCP servers", lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
+	lines = append(lines, fillPaletteLine(qgTheme.faint.Render("digite para buscar   cima/baixo navega   Enter age   Alt+d desativa   Esc fecha"), innerWidth, transparentSurface))
+	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Gerenciar servidores MCP", lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
 
 func renderMCPManagerSearchLine(query string, width int) string {
 	query = strings.TrimSpace(query)
-	prompt := qgTheme.userPrompt.Render("search > ")
+	prompt := qgTheme.userPrompt.Render("buscar > ")
 	if query == "" {
-		return fitStyledLine(prompt+qgTheme.faint.Render("MCP servers, tools, docs..."), width)
+		return fitStyledLine(prompt+qgTheme.faint.Render("Servidores MCP, ferramentas, docs..."), width)
 	}
 	return fitStyledLine(prompt+qgTheme.ink.Render(query), width)
 }
 
 func (m model) renderMCPManagerItemLines(width int, items []mcpManagerItem) ([]string, []int) {
 	if len(items) == 0 {
-		return []string{fillPaletteLine(qgTheme.faint.Render("  no MCP actions"), width, transparentSurface)}, []int{-1}
+		return []string{fillPaletteLine(qgTheme.faint.Render("  nenhuma ação de MCP"), width, transparentSurface)}, []int{-1}
 	}
 	maxVisible := minInt(mcpManagerMaxVisible, len(items))
 	start := selectableListStart(len(items), maxVisible, m.mcpManager.selected)
@@ -413,7 +413,7 @@ func mcpManagerItemGroup(kind mcpManagerItemKind) string {
 	case mcpManagerItemMarketplace:
 		return "Marketplace"
 	case mcpManagerItemAddRemote, mcpManagerItemAddStdio, mcpManagerItemList:
-		return "Actions"
+		return "Ações"
 	default:
 		return ""
 	}
@@ -436,11 +436,11 @@ func (m model) mcpManagerSelectionDetail(width int) []string {
 		if target := strings.TrimSpace(server.Target); target != "" {
 			lines = append(lines, fitStyledLine(qgTheme.faint.Render(target), width))
 		}
-		action := "Alt+d disable"
+		action := "Alt+d desativa"
 		if strings.EqualFold(strings.TrimSpace(server.State), "disabled") {
-			action = "Alt+e enable"
+			action = "Alt+e ativa"
 		}
-		lines = append(lines, fillPaletteLine(qgTheme.faint.Render("Enter check   Alt+c check   "+action+"   Alt+r remove"), width, transparentSurface))
+		lines = append(lines, fillPaletteLine(qgTheme.faint.Render("Enter verifica   Alt+c verifica   "+action+"   Alt+r remove"), width, transparentSurface))
 		return lines
 	case mcpManagerItemMarketplace:
 		lines := []string{
@@ -449,14 +449,14 @@ func (m model) mcpManagerSelectionDetail(width int) []string {
 		if detail := firstMCPMarketplaceDetailLine(item); detail != "" {
 			lines = append(lines, fitStyledLine(qgTheme.faint.Render(detail), width))
 		}
-		lines = append(lines, fillPaletteLine(qgTheme.faint.Render("Enter fills composer: "+item.InstallCommand), width, transparentSurface))
+		lines = append(lines, fillPaletteLine(qgTheme.faint.Render("Enter preenche a entrada: "+item.InstallCommand), width, transparentSurface))
 		return lines
 	case mcpManagerItemAddRemote:
-		return []string{fillPaletteLine(qgTheme.faint.Render("Enter fills composer: /mcp add <name> --url <url>"), width, transparentSurface)}
+		return []string{fillPaletteLine(qgTheme.faint.Render("Enter preenche a entrada: /mcp add <name> --url <url>"), width, transparentSurface)}
 	case mcpManagerItemAddStdio:
-		return []string{fillPaletteLine(qgTheme.faint.Render("Enter fills composer: /mcp add <name> -- <command> [args...]"), width, transparentSurface)}
+		return []string{fillPaletteLine(qgTheme.faint.Render("Enter preenche a entrada: /mcp add <name> -- <command> [args...]"), width, transparentSurface)}
 	case mcpManagerItemList:
-		return []string{fillPaletteLine(qgTheme.faint.Render("Enter runs qg mcp list and refreshes this manager."), width, transparentSurface)}
+		return []string{fillPaletteLine(qgTheme.faint.Render("Enter roda qg mcp list e atualiza este gerenciador."), width, transparentSurface)}
 	default:
 		return nil
 	}

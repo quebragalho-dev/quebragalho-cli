@@ -139,7 +139,7 @@ func TestDoctorConnectivityCommandRunsProbeAsynchronously(t *testing.T) {
 	}
 	updated, _ = next.Update(msg)
 	final := updated.(model)
-	for _, want := range []string{"Diagnostics", "[pass] provider.connectivity", "reachable"} {
+	for _, want := range []string{"Diagnóstico", "[pass] provider.connectivity", "reachable"} {
 		if !transcriptContains(final.transcript, want) {
 			t.Fatalf("expected final doctor transcript to contain %q, got %#v", want, final.transcript)
 		}
@@ -170,7 +170,7 @@ func TestDoctorCommandUsesDiagnosticCenterRow(t *testing.T) {
 		t.Fatalf("expected /doctor row id %q, got %q", doctorStatusRowID, row.id)
 	}
 	text := row.text
-	for _, want := range []string{"Diagnostics", "checks need attention", "Actions"} {
+	for _, want := range []string{"Diagnóstico", "precisam de atenção", "Ações"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("doctor row missing %q:\n%s", want, text)
 		}

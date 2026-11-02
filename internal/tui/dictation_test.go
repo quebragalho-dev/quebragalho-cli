@@ -33,10 +33,10 @@ func TestDictationTranscribedEmptyIsNoticed(t *testing.T) {
 	if got.composer.text != "" {
 		t.Errorf("composer should stay empty, got %q", got.composer.text)
 	}
-	if got.transientNotice.text != "No speech detected." {
+	if got.transientNotice.text != "Nenhuma fala detectada." {
 		t.Errorf("no-speech notice = %q", got.transientNotice.text)
 	}
-	if transcriptHasText(got, "No speech detected") {
+	if transcriptHasText(got, "Nenhuma fala detectada") {
 		t.Error("no-speech confirmation should not be persisted in the transcript")
 	}
 }
@@ -148,7 +148,7 @@ func TestStaleDictationStartedIgnoredWhileLive(t *testing.T) {
 func TestDictationUnavailableShowsHint(t *testing.T) {
 	m := model{} // no build factory
 	next, _ := m.toggleDictation()
-	if !transcriptHasText(next, "not configured") {
+	if !transcriptHasText(next, "não configurado") {
 		t.Error("expected a 'not configured' hint when dictation is unavailable")
 	}
 }
@@ -400,7 +400,7 @@ func TestCurrentModelLabel(t *testing.T) {
 	}
 	// Local with no model.
 	d = dictationController{cfg: config.STTConfig{Provider: config.STTProviderLocal}}
-	if got := d.currentModelLabel(); got != "Local (no model set)" {
+	if got := d.currentModelLabel(); got != "Local (sem modelo)" {
 		t.Errorf("no-model label = %q", got)
 	}
 }

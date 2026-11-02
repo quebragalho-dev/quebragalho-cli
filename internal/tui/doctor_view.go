@@ -10,26 +10,26 @@ import (
 
 func doctorCommandOutput(report doctor.Report, backend *qgcommands.BackendLifecycleSnapshot) commandOutput {
 	sections := []commandSection{{
-		Title: "Summary",
+		Title: "Resumo",
 		Lines: doctorSummaryLines(report.Checks),
 	}}
 
 	provider, platform, other := doctorCheckSections(report.Checks)
-	sections = appendNonEmptyDoctorSection(sections, "Provider", provider)
-	sections = appendNonEmptyDoctorSection(sections, "Platform", platform)
-	sections = appendNonEmptyDoctorSection(sections, "Other", other)
+	sections = appendNonEmptyDoctorSection(sections, "Provedor", provider)
+	sections = appendNonEmptyDoctorSection(sections, "Plataforma", platform)
+	sections = appendNonEmptyDoctorSection(sections, "Outros", other)
 	if backend != nil {
 		sections = append(sections, doctorBackendSection(*backend))
 	}
 	if actions := doctorActions(report.Checks, backend); len(actions) > 0 {
 		sections = append(sections, commandSection{
-			Title: "Actions",
+			Title: "Ações",
 			Lines: actions,
 		})
 	}
 
 	return commandOutput{
-		Title:    "Diagnostics",
+		Title:    "Diagnóstico",
 		Status:   doctorCommandStatus(report),
 		Sections: sections,
 	}
@@ -85,28 +85,35 @@ func doctorSummaryLines(checks []doctor.Check) []string {
 	attention := warn + fail
 	if attention == 0 {
 		return []string{
-			fmt.Sprintf("%s healthy", doctorCheckCountLabel(pass)),
-			"All core systems are ready.",
+			doctorHealthyLabel(pass),
+			"Todos os sistemas principais estão prontos.",
 		}
 	}
 	return []string{
-		fmt.Sprintf("%s %s attention", doctorCheckCountLabel(attention), doctorAttentionVerb(attention)),
-		fmt.Sprintf("%s healthy", doctorCheckCountLabel(pass)),
+		fmt.Sprintf("%s %s", doctorCheckCountLabel(attention), doctorAttentionVerb(attention)),
+		doctorHealthyLabel(pass),
 	}
+}
+
+func doctorHealthyLabel(count int) string {
+	if count == 1 {
+		return "1 verificação saudável"
+	}
+	return fmt.Sprintf("%d verificações saudáveis", count)
 }
 
 func doctorCheckCountLabel(count int) string {
 	if count == 1 {
-		return "1 check"
+		return "1 verificação"
 	}
-	return fmt.Sprintf("%d checks", count)
+	return fmt.Sprintf("%d verificações", count)
 }
 
 func doctorAttentionVerb(count int) string {
 	if count == 1 {
-		return "needs"
+		return "precisa de atenção"
 	}
-	return "need"
+	return "precisam de atenção"
 }
 
 func doctorStatusCounts(checks []doctor.Check) (pass int, warn int, fail int) {
@@ -148,7 +155,7 @@ func doctorBackendSection(backend qgcommands.BackendLifecycleSnapshot) commandSe
 	return commandSection{
 		Title: "Backend",
 		Fields: []commandField{
-			{Key: "MCP servers", Value: fmt.Sprintf("%d", len(backend.MCPServers))},
+			{Key: "Servidores MCP", Value: fmt.Sprintf("%d", len(backend.MCPServers))},
 			{Key: "Hooks", Value: fmt.Sprintf("%d", len(backend.Hooks))},
 			{Key: "Plugins", Value: fmt.Sprintf("%d", len(backend.Plugins))},
 		},
@@ -175,18 +182,18 @@ func doctorActions(checks []doctor.Check, backend *qgcommands.BackendLifecycleSn
 		switch check.ID {
 		case "provider.config", "provider.model":
 			add("qg login - conectar ao Quebra Galho pelo terminal")
-			add("/doctor fix - open guided diagnostics repair")
+			add("/doctor fix - abre o reparo guiado de diagnóstico")
 		case "provider.connectivity":
-			add("/doctor --connectivity - probe the provider endpoint")
+			add("/doctor --connectivity - testa o endpoint do provedor")
 		case "sandbox.backend":
 			if remedy := doctorCheckDetailString(check, "remedy"); remedy != "" {
 				add(remedy)
 			} else if strings.Contains(message, "unavailable") {
-				add("qg sandbox policy --effective - inspect sandbox backend and enforcement status")
+				add("qg sandbox policy --effective - mostra o backend do ambiente isolado e a aplicação")
 			}
 		case "lsp.servers":
 			if strings.Contains(message, "missing") {
-				add("install missing language servers - restore code intelligence on PATH")
+				add("instale os language servers ausentes - restaura a inteligência de código no PATH")
 			}
 		}
 	}

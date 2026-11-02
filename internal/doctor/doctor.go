@@ -104,8 +104,8 @@ func (report Report) Check(id string) *Check {
 
 func Format(report Report) string {
 	lines := []string{
-		fmt.Sprintf("QG doctor report (%s)", redaction.RedactString(report.GeneratedAt, redaction.Options{})),
-		fmt.Sprintf("Overall: %s", passFail(report.OK)),
+		fmt.Sprintf("Relatório QG doctor (%s)", redaction.RedactString(report.GeneratedAt, redaction.Options{})),
+		fmt.Sprintf("Geral: %s", passFail(report.OK)),
 	}
 	for _, check := range report.Checks {
 		lines = append(lines, fmt.Sprintf("[%s] %s - %s", check.Status, redaction.RedactString(check.ID, redaction.Options{}), redaction.RedactString(check.Message, redaction.Options{})))
@@ -168,7 +168,7 @@ func providerConfigCheck(profile config.ProviderProfile) Check {
 		"authConfigured": credential,
 	}
 	// A remote provider with no credential cannot make a request, so doctor must NOT
-	// report it as healthy — otherwise "Overall: pass" gives a false all-clear for the
+	// report it as healthy — otherwise "Geral: aprovado" gives a false all-clear for the
 	// one tool meant to verify keys. Keyless local providers (loopback base_url, e.g.
 	// Ollama/LM Studio) legitimately need no key, so they stay a pass. (AUDIT-H9)
 	if credential == "not set" && !localProviderBaseURL(profile.BaseURL) {
@@ -463,9 +463,9 @@ func jsonParsePosition(data []byte) (int, int, bool) {
 
 func passFail(ok bool) string {
 	if ok {
-		return "pass"
+		return "aprovado"
 	}
-	return "fail"
+	return "reprovado"
 }
 
 // offsetToLineCol converts a byte offset (as reported by *json.SyntaxError /

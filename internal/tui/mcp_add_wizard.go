@@ -59,9 +59,9 @@ var mcpAddWizardTypes = []struct {
 	Label string
 	Meta  string
 }{
-	{ID: "http", Label: "HTTP remote", Meta: "streamable HTTP endpoint"},
-	{ID: "sse", Label: "SSE remote", Meta: "legacy server-sent events endpoint"},
-	{ID: "stdio", Label: "Local stdio", Meta: "local command process"},
+	{ID: "http", Label: "HTTP remoto", Meta: "endpoint HTTP de streaming"},
+	{ID: "sse", Label: "SSE remoto", Meta: "endpoint legado de eventos server-sent"},
+	{ID: "stdio", Label: "Stdio local", Meta: "processo de comando local"},
 }
 
 func newMCPAddWizard(defaultType string) *mcpAddWizardState {
@@ -173,10 +173,10 @@ func (m model) advanceMCPAddWizard() (model, tea.Cmd) {
 		if wizard.isRemote() {
 			if err := validateMCPAddWizardURL(wizard.endpoint); err != nil {
 				wizard.result = mcpAddWizardResult{
-					Title:      "MCP setup issue",
-					State:      "not saved",
-					Message:    "URL could not be parsed: " + redactMCPWizardDisplayValue(wizard.endpoint),
-					ActionHint: "Edit URL",
+					Title:      "Problema de configuração do MCP",
+					State:      "não salvo",
+					Message:    "Não foi possível interpretar a URL: " + redactMCPWizardDisplayValue(wizard.endpoint),
+					ActionHint: "Editar URL",
 				}
 				wizard.step = mcpAddWizardStepResult
 				return m, nil
@@ -185,7 +185,7 @@ func (m model) advanceMCPAddWizard() (model, tea.Cmd) {
 			return m, nil
 		}
 		if strings.TrimSpace(wizard.endpoint) == "" {
-			wizard.err = "command is required"
+			wizard.err = "comando é obrigatório"
 			return m, nil
 		}
 		wizard.step = mcpAddWizardStepConfirm
@@ -253,7 +253,7 @@ func (m model) saveMCPAddWizard(disabled bool) (model, tea.Cmd) {
 		return m, nil
 	}
 	if m.mcpCommand == nil {
-		wizard.result = mcpAddWizardResult{Title: "MCP setup issue", State: "not saved", Message: "MCP action unavailable", ActionHint: "Discard"}
+		wizard.result = mcpAddWizardResult{Title: "Problema de configuração do MCP", State: "não salvo", Message: "Ação de MCP indisponível", ActionHint: "Descartar"}
 		wizard.step = mcpAddWizardStepResult
 		return m, nil
 	}
@@ -262,7 +262,7 @@ func (m model) saveMCPAddWizard(disabled bool) (model, tea.Cmd) {
 		wizard.err = err.Error()
 		return m, nil
 	}
-	wizard.result = mcpAddWizardResult{Title: "Testing MCP server", State: "running", Message: "Connecting and saving the MCP server...", ActionHint: "Esc cancels"}
+	wizard.result = mcpAddWizardResult{Title: "Testando servidor MCP", State: "em execução", Message: "Conectando e salvando o servidor MCP...", ActionHint: "Esc cancela"}
 	wizard.resultSelected = 0
 	wizard.step = mcpAddWizardStepResult
 	return m.startMCPCommand(mcpCommandRequest{origin: mcpCommandOriginWizard, args: args, wizardDisabled: disabled})
@@ -279,13 +279,13 @@ func (m model) applyMCPAddWizardSaveResult(result MCPCommandResult, disabled boo
 			message = strings.TrimSpace(result.Output)
 		}
 		if message == "" {
-			message = "MCP command failed"
+			message = "Comando MCP falhou"
 		}
 		wizard.result = mcpAddWizardResult{
-			Title:      "MCP setup issue",
-			State:      "not saved",
+			Title:      "Problema de configuração do MCP",
+			State:      "não salvo",
 			Message:    redaction.RedactString(message, redaction.Options{}),
-			ActionHint: "Edit config",
+			ActionHint: "Editar configuração",
 		}
 		wizard.step = mcpAddWizardStepResult
 		wizard.resultSelected = 0
@@ -297,18 +297,18 @@ func (m model) applyMCPAddWizardSaveResult(result MCPCommandResult, disabled boo
 	}
 	server := result.Config.Servers[wizard.serverName]
 	wizard.result = mcpAddWizardResult{
-		Title:      "MCP server ready",
-		State:      "connected",
+		Title:      "Servidor MCP pronto",
+		State:      "conectado",
 		Saved:      true,
 		Connected:  true,
 		ToolCount:  0,
-		ActionHint: "Use server",
+		ActionHint: "Usar servidor",
 	}
 	if disabled || server.Disabled {
-		wizard.result.Title = "MCP server saved"
-		wizard.result.State = "disabled"
+		wizard.result.Title = "Servidor MCP salvo"
+		wizard.result.State = "desativado"
 		wizard.result.Connected = false
-		wizard.result.ActionHint = "Edit config"
+		wizard.result.ActionHint = "Editar configuração"
 	}
 	wizard.step = mcpAddWizardStepResult
 	wizard.resultSelected = 0
@@ -336,7 +336,7 @@ func (wizard *mcpAddWizardState) commandArgs(disabled bool) ([]string, error) {
 		return nil, err
 	}
 	if len(command) == 0 {
-		return nil, fmt.Errorf("command is required")
+		return nil, fmt.Errorf("comando é obrigatório")
 	}
 	args = append(args, "--")
 	args = append(args, command...)
@@ -442,7 +442,7 @@ func validateMCPAddWizardURL(value string) error {
 	value = strings.TrimSpace(value)
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return fmt.Errorf("url could not be parsed")
+		return fmt.Errorf("não foi possível interpretar a url")
 	}
 	return nil
 }
@@ -455,7 +455,7 @@ func parseMCPWizardHeader(raw string) (string, string, error) {
 	key = strings.TrimSpace(key)
 	value = strings.TrimSpace(value)
 	if !ok || key == "" || value == "" {
-		return "", "", fmt.Errorf("header must be in format key: value")
+		return "", "", fmt.Errorf("cabeçalho precisa estar no formato chave: valor")
 	}
 	return key, value, nil
 }

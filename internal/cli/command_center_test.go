@@ -376,7 +376,7 @@ func TestRunProvidersAddWritesCatalogProfile(t *testing.T) {
 		t.Fatalf("providers add must not persist raw API keys: %#v", profile)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "Added provider fast") || !strings.Contains(output, configPath) {
+	if !strings.Contains(output, "Provedor fast adicionado a") || !strings.Contains(output, configPath) {
 		t.Fatalf("unexpected add output: %q", output)
 	}
 }
@@ -429,7 +429,7 @@ func TestRunProvidersCheckConstructsProvider(t *testing.T) {
 		t.Fatalf("checked profile = %#v, want work provider", checked)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "Provider check") || !strings.Contains(output, "status: ok") {
+	if !strings.Contains(output, "Verificação do provedor") || !strings.Contains(output, "estado: ok") {
 		t.Fatalf("unexpected check output: %q", output)
 	}
 }
@@ -634,7 +634,7 @@ func TestRunProvidersCheckAcceptsAuthHeaderValueCredential(t *testing.T) {
 	if checked.AuthHeaderValue != "direct-secret" || checked.APIKey != "" {
 		t.Fatalf("checked profile = %#v, want direct auth header value without API key", checked)
 	}
-	if !strings.Contains(stdout.String(), "status: ok") {
+	if !strings.Contains(stdout.String(), "estado: ok") {
 		t.Fatalf("expected successful check output, got %q", stdout.String())
 	}
 }

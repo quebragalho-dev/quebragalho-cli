@@ -72,7 +72,7 @@ func runMCPOAuthLogin(args []string, stdout io.Writer, stderr io.Writer, deps ap
 	// The opener prints the authorization URL so headless environments can copy
 	// it into a browser. The URL carries no token material.
 	opener := func(authURL string) error {
-		_, err := fmt.Fprintf(stdout, "Open this URL in your browser to authorize %s:\n\n  %s\n\nWaiting for the authorization callback...\n", serverName, authURL)
+		_, err := fmt.Fprintf(stdout, "Abra esta URL no navegador para autorizar %s:\n\n  %s\n\nAguardando a confirmação da autorização...\n", serverName, authURL)
 		return err
 	}
 
@@ -90,7 +90,7 @@ func runMCPOAuthLogin(args []string, stdout io.Writer, stderr io.Writer, deps ap
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
 
-	if _, err := fmt.Fprintf(stdout, "Stored OAuth credentials for %s.\n", serverName); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Credenciais OAuth de %s guardadas.\n", serverName); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -131,10 +131,10 @@ func runMCPOAuthLogout(args []string, stdout io.Writer, stderr io.Writer, deps a
 		return exitSuccess
 	}
 	if removed {
-		if _, err := fmt.Fprintf(stdout, "Removed OAuth credentials for %s.\n", serverName); err != nil {
+		if _, err := fmt.Fprintf(stdout, "Credenciais OAuth de %s removidas.\n", serverName); err != nil {
 			return exitCrash
 		}
-	} else if _, err := fmt.Fprintf(stdout, "No OAuth credentials stored for %s.\n", serverName); err != nil {
+	} else if _, err := fmt.Fprintf(stdout, "Nenhuma credencial OAuth guardada para %s.\n", serverName); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -233,11 +233,11 @@ func resolveOAuthServer(deps appDeps, serverName string) (mcp.Server, trustSkip,
 			continue
 		}
 		if !strings.EqualFold(server.Auth, mcp.ServerAuthOAuth) {
-			return mcp.Server{}, skip, fmt.Errorf("MCP server %q does not declare auth: \"oauth\"", serverName)
+			return mcp.Server{}, skip, fmt.Errorf("Servidor MCP %q não declara auth: \"oauth\"", serverName)
 		}
 		return server, skip, nil
 	}
-	return mcp.Server{}, skip, fmt.Errorf("MCP server %q is not configured", serverName)
+	return mcp.Server{}, skip, fmt.Errorf("Servidor MCP %q não está configurado", serverName)
 }
 
 func oauthConfigForServer(server mcp.Server) mcp.OAuthConfig {

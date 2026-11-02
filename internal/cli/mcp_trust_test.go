@@ -336,7 +336,7 @@ func TestMCPCheckSurfacesTrustNotice(t *testing.T) {
 	if code := runWithDeps([]string{"mcp", "check", "proj"}, &out, &errBuf, deps); code == exitSuccess {
 		t.Fatalf("mcp check on a gated project server must fail, got success; stderr=%q", errBuf.String())
 	}
-	if got := errBuf.String(); !strings.Contains(got, "not configured") ||
+	if got := errBuf.String(); !strings.Contains(got, "não está configurado") ||
 		!strings.Contains(got, "MCP servers") || !strings.Contains(got, "qg trust") {
 		t.Fatalf("untrusted mcp check must report not-configured AND surface the trust notice, got %q", got)
 	}
@@ -349,7 +349,7 @@ func TestMCPCheckSurfacesTrustNotice(t *testing.T) {
 	if code := runWithDeps([]string{"mcp", "check", "ghost"}, &out2, &errBuf2, deps2); code == exitSuccess {
 		t.Fatalf("mcp check on an absent server must fail")
 	}
-	if got := errBuf2.String(); !strings.Contains(got, "not configured") {
+	if got := errBuf2.String(); !strings.Contains(got, "não está configurado") {
 		t.Fatalf("stderr must report not configured, got %q", got)
 	}
 	if got := errBuf2.String(); strings.Contains(got, "ignoring project") || strings.Contains(got, "qg trust") {

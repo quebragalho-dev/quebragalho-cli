@@ -42,7 +42,7 @@ func (d dictationController) canOfferDownload(err error) bool {
 // variant, reporting progress live, then persists and applies the resolved paths.
 func (m model) startVariantDownload(v dictation.ModelVariant) (model, tea.Cmd) {
 	if m.dictation.downloading {
-		return m.showTransientNoticeInline("Dictation setup is already in progress.", transientNoticeWarning), nil
+		return m.showTransientNoticeInline("A configuração do ditado já está em andamento.", transientNoticeWarning), nil
 	}
 	m.dictation.downloading = true
 	sink := m.runtimeMessageSink
@@ -52,8 +52,8 @@ func (m model) startVariantDownload(v dictation.ModelVariant) (model, tea.Cmd) {
 	if base == nil {
 		base = context.Background()
 	}
-	m.dictation.downloadStatus = "Starting download…"
-	m = m.showTransientNoticeInline(fmt.Sprintf("Setting up local dictation (%s) — progress is in the status line.", v.Label), transientNoticeInfo)
+	m.dictation.downloadStatus = "Iniciando download…"
+	m = m.showTransientNoticeInline(fmt.Sprintf("Configurando ditado local (%s) — o progresso está na linha de status.", v.Label), transientNoticeInfo)
 	return m, func() tea.Msg {
 		comp, err := dictation.EnsureLocalEngine(base, dictation.DownloadOptions{
 			DestRoot:          root,
@@ -87,13 +87,13 @@ func (m model) handleDictationDownloaded(msg dictationDownloadedMsg) (model, tea
 	m.dictation.downloading = false
 	m.dictation.downloadStatus = ""
 	if msg.err != nil {
-		return m.appendSystemNotice("Dictation setup failed: " + dictationErrorText(msg.err)), nil
+		return m.appendSystemNotice("Falha na configuração do ditado: " + dictationErrorText(msg.err)), nil
 	}
 	m, err := m.applyEngineComponents(msg.components, msg.streaming)
 	if err != nil {
-		return m.appendSystemNotice("Downloaded the engine, but couldn't save the config: " + err.Error()), nil
+		return m.appendSystemNotice("Baixei o motor, mas não foi possível salvar a configuração: " + err.Error()), nil
 	}
-	return m.showTransientNoticeInline("Local dictation is ready. Run /voice to start dictating.", transientNoticeSuccess), nil
+	return m.showTransientNoticeInline("Ditado local pronto. Rode /voice para começar a ditar.", transientNoticeSuccess), nil
 }
 
 // applyEngineComponents persists and applies resolved engine/model paths to the

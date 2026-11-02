@@ -104,7 +104,7 @@ func newSetupState(options SetupOptions) setupState {
 	}
 	apiKey := textinput.New()
 	apiKey.Prompt = ""
-	apiKey.Placeholder = "paste your Quebra Galho API key"
+	apiKey.Placeholder = "cole sua chave de API do Quebra Galho"
 	apiKey.EchoMode = textinput.EchoPassword
 	apiKey.EchoCharacter = '*'
 	// Bubble's Ctrl+V binding reads the clipboard itself. Keep it disabled so
@@ -337,7 +337,7 @@ func (m model) advanceSetup() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if strings.TrimSpace(m.setup.apiKey.Value()) == "" {
-			m.setup.err = "Paste your Quebra Galho API key to continue."
+			m.setup.err = "Cole sua chave de API do Quebra Galho para continuar."
 			return m, nil
 		}
 		if m.setup.validate == nil {
@@ -351,7 +351,7 @@ func (m model) advanceSetup() (tea.Model, tea.Cmd) {
 		return m, m.setupKeyCheckCmd()
 	case setupStageModel:
 		if m.setupCurrentModel().ID == "" {
-			m.setup.err = "Choose a matching model before continuing."
+			m.setup.err = "Escolha um modelo correspondente para continuar."
 			return m, nil
 		}
 		return m.completeSetup()
@@ -362,7 +362,7 @@ func (m model) advanceSetup() (tea.Model, tea.Cmd) {
 func (m model) completeSetup() (tea.Model, tea.Cmd) {
 	option := m.setupProvider()
 	if option.ID == "" {
-		m.setup.err = "No provider option is available."
+		m.setup.err = "Nenhuma opção de provedor disponível."
 		return m, nil
 	}
 	if m.setupSave == nil {
@@ -404,7 +404,7 @@ func (m model) completeSetup() (tea.Model, tea.Cmd) {
 	}
 
 	if result.KeyStoreFallback {
-		m = m.showTransientNoticeInline("Credential store unavailable — API key saved in plaintext in "+result.ConfigPath, transientNoticeWarning)
+		m = m.showTransientNoticeInline("Armazenamento de credenciais indisponível — chave de API salva em texto puro em "+result.ConfigPath, transientNoticeWarning)
 	}
 	updated, _ := m.exitSetupToChat()
 	m = updated.(model)
@@ -563,11 +563,11 @@ func (m model) applySetupBrowserOpened(msg setupBrowserOpenedMsg) model {
 func deviceLoginError(err error, key string) string {
 	switch {
 	case errors.Is(err, qgaccount.ErrAccessDenied):
-		return "Sign-in was denied in the browser."
+		return "Login negado no navegador."
 	case errors.Is(err, qgaccount.ErrDeviceCodeExpired):
-		return "The sign-in code expired before it was approved."
+		return "O código de login expirou antes da aprovação."
 	}
-	return "Browser sign-in failed: " + redaction.RedactString(err.Error(), redaction.Options{ExtraSecretValues: []string{key}})
+	return "Login no navegador falhou: " + redaction.RedactString(err.Error(), redaction.Options{ExtraSecretValues: []string{key}})
 }
 
 func deviceVerificationURL(auth DeviceAuth) string {
@@ -607,7 +607,7 @@ func (m model) setupCurrentModel() providerWizardModel {
 	m.ensureSetupModels()
 	models := m.setupFilteredModels()
 	if len(models) == 0 {
-		return providerWizardModel{Description: "no matching models"}
+		return providerWizardModel{Description: "nenhum modelo correspondente"}
 	}
 	index := clamp(m.setup.modelIndex, 0, len(models)-1)
 	return models[index]
@@ -745,13 +745,13 @@ func (m model) setupErrorAffordance() string {
 	switch m.setup.stage {
 	case setupStageCredentials:
 		if m.setupBrowserMode() && !m.setup.keyCheck {
-			return "→ Enter to try again, or Tab to paste an API key"
+			return "→ Enter para tentar de novo, ou Tab para colar uma chave de API"
 		}
 		if m.setupCredentialInputActive() && !m.setup.keyCheck {
-			return "→ re-enter the key above, then Enter to retry (← to go back)"
+			return "→ digite a chave de novo acima e Enter para tentar de novo (← para voltar)"
 		}
 	case setupStageModel:
-		return "→ pick another model with ↑/↓, or type to search"
+		return "→ escolha outro modelo com ↑/↓ ou digite para buscar"
 	}
 	return ""
 }
@@ -762,7 +762,7 @@ func (m model) setupView(width int) string {
 	height := normalizedStartupHeight(m.height)
 	content := m.setupStageLines(width, height)
 	if m.setup.err != "" {
-		content = append(content, "", qgTheme.red.Render("error: "+m.setup.err))
+		content = append(content, "", qgTheme.red.Render("erro: "+m.setup.err))
 		if hint := m.setupErrorAffordance(); hint != "" {
 			content = append(content, qgTheme.faint.Render(hint))
 		}
@@ -793,12 +793,12 @@ func (m model) setupStageLines(width int, height int) []string {
 		return m.setupModelLines(width, height)
 	default:
 		return []string{
-			qgTheme.accent.Render("Welcome to Quebra Galho"),
+			qgTheme.accent.Render("Bem-vindo ao Quebra Galho"),
 			"",
-			qgTheme.ink.Render("A terminal agent for changing real code."),
-			qgTheme.faint.Render("Plan changes, edit with approval, run checks, and resume sessions."),
+			qgTheme.ink.Render("Um agente de terminal para mudar código de verdade."),
+			qgTheme.faint.Render("Planeje mudanças, edite com aprovação, rode verificações e retome sessões."),
 			"",
-			qgTheme.faint.Render("Next, sign in with your browser or paste an API key."),
+			qgTheme.faint.Render("A seguir, entre com o navegador ou cole uma chave de API."),
 		}
 	}
 }
@@ -810,13 +810,13 @@ func (m model) setupModelLines(width int, height int) []string {
 	maxVisible := setupModelMaxVisible(height, len(models))
 	start := selectableListStart(len(models), maxVisible, m.setup.modelIndex)
 	lines := []string{
-		padSetupLine("  "+qgTheme.ink.Bold(true).Render("Choose a model"), rowWidth),
+		padSetupLine("  "+qgTheme.ink.Bold(true).Render("Selecionar modelo"), rowWidth),
 		blankSetupBlockLine(rowWidth),
 		padSetupLine("  "+m.setupModelSearchLine(rowWidth-2), rowWidth),
 	}
 	lines = append(lines, blankSetupBlockLine(rowWidth))
 	if len(models) == 0 {
-		lines = append(lines, padSetupLine("  "+qgTheme.faint.Render("No matching models"), rowWidth))
+		lines = append(lines, padSetupLine("  "+qgTheme.faint.Render("Nenhum modelo correspondente"), rowWidth))
 		return lines
 	}
 	visibleModels := models[start : start+maxVisible]
@@ -861,8 +861,8 @@ func setupModelMaxVisible(height int, total int) int {
 
 func setupModelBlockWidth(terminalWidth int, models []providerWizardModel) int {
 	available := maxInt(34, minInt(terminalWidth-8, 72))
-	target := lipgloss.Width("  Choose a model")
-	target = maxInt(target, lipgloss.Width("  search > model name..."))
+	target := lipgloss.Width("  Selecionar modelo")
+	target = maxInt(target, lipgloss.Width("  buscar > nome do modelo..."))
 	for _, model := range models {
 		target = maxInt(target, 4+lipgloss.Width(model.displayLabel()))
 		if detail := setupModelSelectedDetail(model); detail != "" {
@@ -875,10 +875,10 @@ func setupModelBlockWidth(terminalWidth int, models []providerWizardModel) int {
 
 func (m model) setupModelSearchLine(width int) string {
 	query := strings.TrimSpace(m.setup.modelQuery)
-	prompt := qgTheme.userPrompt.Render("search > ")
+	prompt := qgTheme.userPrompt.Render("buscar > ")
 	cursor := qgTheme.accent.Render("▌")
 	if query == "" {
-		return fitStyledLine(prompt+cursor+qgTheme.faint.Render("model name..."), width)
+		return fitStyledLine(prompt+cursor+qgTheme.faint.Render("nome do modelo..."), width)
 	}
 	return fitStyledLine(prompt+qgTheme.ink.Render(query)+cursor, width)
 }
@@ -918,51 +918,51 @@ func (m model) setupCredentialLines(width int) []string {
 		return m.setupBrowserLines(width)
 	}
 	return []string{
-		qgTheme.ink.Bold(true).Render("Your Quebra Galho API key"),
+		qgTheme.ink.Bold(true).Render("Sua chave de API do Quebra Galho"),
 		"",
-		"Paste the key, then Enter to validate it against the gateway.",
-		"It is read as QG_API_KEY or QUEBRAGALHO_API_KEY from your shell later.",
+		"Cole a chave e pressione Enter para validar no gateway.",
+		"Ela é lida como QG_API_KEY ou QUEBRAGALHO_API_KEY no seu shell depois.",
 		"",
 		m.setupAPIKeyInputLine(width),
 		"",
-		qgTheme.faint.Render("Saved keys stay encrypted in your user config."),
-		qgTheme.faint.Render("Re-enter it anytime with: qg login (or qg login --device)"),
+		qgTheme.faint.Render("Chaves salvas ficam criptografadas na sua configuração."),
+		qgTheme.faint.Render("Digite de novo quando quiser com: qg login (ou qg login --device)"),
 	}
 }
 
 func (m model) setupBrowserLines(width int) []string {
-	title := qgTheme.ink.Bold(true).Render("Sign in to Quebra Galho")
+	title := qgTheme.ink.Bold(true).Render("Entrar no Quebra Galho")
 	auth := m.setup.deviceAuth
 	switch {
 	case auth != nil:
 		lines := []string{
 			title,
 			"",
-			"Open this link in your browser and enter the code:",
+			"Abra este link no navegador e digite o código:",
 			qgTheme.accent.Render(auth.VerificationURI),
 			"",
-			"Code  " + qgTheme.accent.Bold(true).Render(auth.UserCode),
+			"Código  " + qgTheme.accent.Bold(true).Render(auth.UserCode),
 		}
 		// A truncated URL is neither clickable nor copyable: show the
 		// pre-filled link only when it fits whole.
 		if full := auth.VerificationURIComplete; full != "" && full != auth.VerificationURI && lipgloss.Width(full) <= width {
-			lines = append(lines, "", qgTheme.faint.Render("Or open the link with the code filled in:"), qgTheme.accent.Render(full))
+			lines = append(lines, "", qgTheme.faint.Render("Ou abra o link já com o código:"), qgTheme.accent.Render(full))
 		}
-		lines = append(lines, "", qgTheme.faint.Render("Waiting for approval..."))
+		lines = append(lines, "", qgTheme.faint.Render("Aguardando aprovação..."))
 		if m.setup.browserHint {
-			lines = append(lines, qgTheme.faint.Render("Couldn't open the browser; open the link above."))
+			lines = append(lines, qgTheme.faint.Render("Não foi possível abrir o navegador; abra o link acima."))
 		}
 		return lines
 	case m.setup.deviceCancel != nil:
-		return []string{title, "", qgTheme.faint.Render("Requesting a sign-in code...")}
+		return []string{title, "", qgTheme.faint.Render("Pedindo um código de login...")}
 	}
 	return []string{
 		title,
 		"",
-		"Sign in with your browser: press Enter to get a one-time code.",
-		"Approve it there and your API key is saved for this terminal.",
+		"Entre com o navegador: pressione Enter para gerar um código único.",
+		"Aprove lá e sua chave de API fica salva neste terminal.",
 		"",
-		qgTheme.faint.Render("Already have an API key? Press Tab to paste it."),
+		qgTheme.faint.Render("Já tem uma chave de API? Pressione Tab para colar."),
 	}
 }
 
@@ -983,23 +983,23 @@ func (m model) setupFooter() string {
 	switch m.setup.stage {
 	case setupStageCredentials:
 		if m.setup.keyCheck {
-			return qgTheme.faint.Render("validating key...")
+			return qgTheme.faint.Render("validando a chave...")
 		}
 		if m.setupBrowserMode() {
 			if m.setup.deviceCancel != nil {
-				return qgTheme.faint.Render("waiting for approval   ") + qgTheme.accent.Render("Esc") + qgTheme.faint.Render(" cancel   Tab paste API key")
+				return qgTheme.faint.Render("aguardando aprovação   ") + qgTheme.accent.Render("Esc") + qgTheme.faint.Render(" cancelar   Tab colar chave de API")
 			}
-			return qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" sign in with browser   Tab paste API key   left back")
+			return qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" entrar com o navegador   Tab colar chave de API   ← voltar")
 		}
-		footer := qgTheme.faint.Render("paste key   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" validate & continue   left back")
+		footer := qgTheme.faint.Render("cole a chave   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" validar e continuar   ← voltar")
 		if m.setup.deviceStart != nil {
-			footer += qgTheme.faint.Render("   Tab browser login")
+			footer += qgTheme.faint.Render("   Tab entrar no navegador")
 		}
 		return footer
 	case setupStageModel:
-		return qgTheme.faint.Render("↑/↓ choose   type search   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continue")
+		return qgTheme.faint.Render("↑/↓ escolher   digitar busca   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continuar")
 	default:
-		return qgTheme.accent.Render("Space/Enter") + qgTheme.faint.Render(" to set up QG")
+		return qgTheme.accent.Render("Espaço/Enter") + qgTheme.faint.Render(" para configurar o QG")
 	}
 }
 

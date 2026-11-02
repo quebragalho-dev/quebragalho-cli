@@ -218,9 +218,9 @@ func TestBuildMCPViewStateSummarizesOAuthTokens(t *testing.T) {
 
 	rendered := renderMCPView(state, 160)
 	for _, want := range []string{
-		"linear configured token refresh expires 2026-06-13T13:00:00Z Bearer scopes issues:read,issues:write",
-		"notion configured token expired",
-		"orphan not configured",
+		"linear configurado token refresh expira em 2026-06-13T13:00:00Z Bearer escopos issues:read,issues:write",
+		"notion configurado token expirado",
+		"orphan não configurado",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered OAuth state = %q, missing %q", rendered, want)

@@ -88,7 +88,7 @@ func runProvidersModels(args []string, stdout io.Writer, stderr io.Writer, deps 
 	if name == "" {
 		name = "provider"
 	}
-	if _, err := fmt.Fprintf(stdout, "Provider models (%s)\n", name); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Modelos do provedor (%s)\n", name); err != nil {
 		return exitCrash
 	}
 	for _, model := range models {
@@ -100,15 +100,11 @@ func runProvidersModels(args []string, stdout io.Writer, stderr io.Writer, deps 
 			return exitCrash
 		}
 	}
-	suffix := "s"
-	if len(models) == 1 {
-		suffix = ""
-	}
-	if _, err := fmt.Fprintf(stdout, "%d model%s discovered\n", len(models), suffix); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Modelos encontrados: %d\n", len(models)); err != nil {
 		return exitCrash
 	}
 	if len(models) > 0 {
-		if _, err := fmt.Fprintf(stdout, "next: qg exec %q --model %s\n", "hello", setupCommandArg(models[0].ID)); err != nil {
+		if _, err := fmt.Fprintf(stdout, "próximo: qg exec %q --model %s\n", "hello", setupCommandArg(models[0].ID)); err != nil {
 			return exitCrash
 		}
 	}

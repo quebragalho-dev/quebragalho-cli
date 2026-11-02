@@ -64,35 +64,35 @@ type MCPOAuthServerView struct {
 
 func renderMCPView(state MCPViewState, width int) string {
 	lines := []string{
-		"Manage MCP servers",
+		"Gerenciar servidores MCP",
 		pluralCount(len(state.Servers), "server"),
 		"",
 	}
 
 	if !hasMCPViewContent(state) {
 		lines = append(lines,
-			"User MCPs",
-			"  No MCP servers configured.",
-			"  › Add MCP server      qg mcp add <name> --url <url>",
-			"  › Add local stdio MCP qg mcp add <name> -- <command> [args...]",
-			"  › List configured     qg mcp list",
+			"MCPs do usuário",
+			"  Nenhum servidor MCP configurado.",
+			"  › Adicionar servidor MCP      qg mcp add <name> --url <url>",
+			"  › Adicionar MCP stdio local qg mcp add <name> -- <command> [args...]",
+			"  › Listar configurados     qg mcp list",
 			"",
-			"Actions",
-			"  add remote · add stdio · list configured · check health",
+			"Ações",
+			"  adicionar remoto · adicionar stdio · listar · verificar",
 		)
 		return fitMCPManagerLines(lines, width)
 	}
 
 	if len(state.Servers) > 0 {
-		lines = append(lines, "User MCPs")
+		lines = append(lines, "MCPs do usuário")
 		lines = append(lines, mcpManagerServerLines(state.Servers)...)
 	}
 	if len(state.Tools) > 0 {
-		lines = append(lines, "", "Tools")
+		lines = append(lines, "", "Ferramentas")
 		lines = append(lines, mcpToolLines(state.Tools)...)
 	}
 	if hasMCPPermissionSummary(state.Permissions) {
-		lines = append(lines, "", "Permissions")
+		lines = append(lines, "", "Permissões")
 		for _, line := range mcpPermissionLines(state.Permissions) {
 			lines = append(lines, "  "+line)
 		}
@@ -104,11 +104,11 @@ func renderMCPView(state MCPViewState, width int) string {
 
 	lines = append(lines,
 		"",
-		"Actions",
-		"  add: qg mcp add <name> --url <url>",
-		"  disconnect: qg mcp disable <name>",
-		"  reconnect: qg mcp enable <name>",
-		"  remove: qg mcp remove <name>",
+		"Ações",
+		"  adicionar: qg mcp add <name> --url <url>",
+		"  desconectar: qg mcp disable <name>",
+		"  reconectar: qg mcp enable <name>",
+		"  remover: qg mcp remove <name>",
 	)
 	return fitMCPManagerLines(lines, width)
 }
@@ -136,9 +136,9 @@ func hasMCPPermissionActivity(summary MCPPermissionSummary) bool {
 func mcpManagerServerLines(servers []MCPServerView) []string {
 	lines := make([]string, 0, len(servers)*3)
 	for index, server := range servers {
-		name := displayValue(strings.TrimSpace(server.Name), "unnamed")
-		transport := displayValue(strings.TrimSpace(server.Transport), "unknown")
-		state := displayValue(strings.TrimSpace(server.State), "configured")
+		name := displayValue(strings.TrimSpace(server.Name), "sem nome")
+		transport := displayValue(strings.TrimSpace(server.Transport), "desconhecido")
+		state := displayValue(strings.TrimSpace(server.State), "configurado")
 		prefix := "  "
 		if index == 0 {
 			prefix = "› "
@@ -167,7 +167,7 @@ func mcpToolLines(tools []MCPToolView) []string {
 	grouped := map[string][]MCPToolView{}
 	order := []string{}
 	for _, tool := range tools {
-		serverName := displayValue(strings.TrimSpace(tool.ServerName), "unknown")
+		serverName := displayValue(strings.TrimSpace(tool.ServerName), "desconhecido")
 		if _, ok := grouped[serverName]; !ok {
 			order = append(order, serverName)
 		}
@@ -177,7 +177,7 @@ func mcpToolLines(tools []MCPToolView) []string {
 	lines := make([]string, 0, len(tools)+len(order))
 	for _, serverName := range order {
 		serverTools := grouped[serverName]
-		lines = append(lines, commandBullet(fmt.Sprintf("%s tools (%d)", serverName, len(serverTools))))
+		lines = append(lines, commandBullet(fmt.Sprintf("%s ferramentas (%d)", serverName, len(serverTools))))
 		for _, tool := range serverTools {
 			lines = append(lines, "  "+commandBullet(mcpToolLine(tool)))
 		}
@@ -194,8 +194,8 @@ func mcpToolLine(tool MCPToolView) string {
 		name = "mcp_tool"
 	}
 
-	sideEffect := displayValue(strings.TrimSpace(tool.SideEffect), "unknown")
-	permission := displayValue(strings.TrimSpace(tool.Permission), "prompt")
+	sideEffect := displayValue(strings.TrimSpace(tool.SideEffect), "desconhecido")
+	permission := displayValue(strings.TrimSpace(tool.Permission), "perguntar")
 	displayName := displayValue(strings.TrimSpace(tool.Name), name)
 	line := fmt.Sprintf("%s [%s/%s]", displayName, sideEffect, permission)
 	if name != "" && name != displayName {
@@ -235,22 +235,22 @@ func hasMCPPermissionSummary(summary MCPPermissionSummary) bool {
 
 func mcpPermissionLines(summary MCPPermissionSummary) []string {
 	lines := []string{
-		"mode: " + displayValue(strings.TrimSpace(summary.Mode), "unknown"),
-		fmt.Sprintf("persistent grants: %d", summary.GrantCount),
-		fmt.Sprintf("server grants: %d", summary.ServerGrants),
-		fmt.Sprintf("tool grants: %d", summary.ToolGrants),
-		fmt.Sprintf("prompted this session: %d", summary.PromptCount),
-		fmt.Sprintf("denied this session: %d", summary.DeniedCount),
+		"modo: " + displayValue(strings.TrimSpace(summary.Mode), "unknown"),
+		fmt.Sprintf("autorizações persistentes: %d", summary.GrantCount),
+		fmt.Sprintf("autorizações de servidor: %d", summary.ServerGrants),
+		fmt.Sprintf("autorizações de ferramenta: %d", summary.ToolGrants),
+		fmt.Sprintf("solicitadas nesta sessão: %d", summary.PromptCount),
+		fmt.Sprintf("negadas nesta sessão: %d", summary.DeniedCount),
 	}
 	if len(summary.Grants) == 0 {
 		return lines
 	}
 	for _, grant := range summary.Grants {
-		target := displayValue(strings.TrimSpace(grant.Target), "unknown")
-		autonomy := displayValue(strings.TrimSpace(grant.Autonomy), "low")
+		target := displayValue(strings.TrimSpace(grant.Target), "desconhecido")
+		autonomy := displayValue(strings.TrimSpace(grant.Autonomy), "baixo")
 		line := fmt.Sprintf("%s [%s]", target, autonomy)
 		if approvedAt := strings.TrimSpace(grant.ApprovedAt); approvedAt != "" {
-			line += " approved " + approvedAt
+			line += " aprovado em " + approvedAt
 		}
 		lines = append(lines, commandBullet(line))
 	}
@@ -260,31 +260,31 @@ func mcpPermissionLines(summary MCPPermissionSummary) []string {
 func mcpOAuthLines(servers []MCPOAuthServerView) []string {
 	lines := make([]string, 0, len(servers))
 	for _, server := range servers {
-		name := displayValue(strings.TrimSpace(server.ServerName), "unnamed")
+		name := displayValue(strings.TrimSpace(server.ServerName), "sem nome")
 		parts := []string{name}
 		if server.Configured {
-			parts = append(parts, "configured")
+			parts = append(parts, "configurado")
 			if server.HasToken {
 				parts = append(parts, "token")
 			} else {
-				parts = append(parts, "no token")
+				parts = append(parts, "sem token")
 			}
 			if server.HasRefreshToken {
 				parts = append(parts, "refresh")
 			}
 			if server.Expired {
-				parts = append(parts, "expired")
+				parts = append(parts, "expirado")
 			} else if !server.ExpiresAt.IsZero() {
-				parts = append(parts, "expires", server.ExpiresAt.UTC().Format(time.RFC3339))
+				parts = append(parts, "expira em", server.ExpiresAt.UTC().Format(time.RFC3339))
 			}
 			if tokenType := strings.TrimSpace(server.TokenType); tokenType != "" {
 				parts = append(parts, tokenType)
 			}
 			if len(server.Scopes) > 0 {
-				parts = append(parts, "scopes", strings.Join(server.Scopes, ","))
+				parts = append(parts, "escopos", strings.Join(server.Scopes, ","))
 			}
 		} else {
-			parts = append(parts, "not configured")
+			parts = append(parts, "não configurado")
 		}
 		lines = append(lines, commandBullet(strings.Join(parts, " ")))
 		if actions := mcpOAuthActionLine(server); actions != "" {
@@ -309,7 +309,7 @@ func mcpServerActionLine(server MCPServerView) string {
 	if strings.EqualFold(strings.TrimSpace(server.Auth), "oauth") {
 		actions = append(actions, "qg mcp oauth login "+name)
 	}
-	return "    actions: " + strings.Join(actions, " | ")
+	return "    ações: " + strings.Join(actions, " | ")
 }
 
 func mcpOAuthActionLine(server MCPOAuthServerView) string {
@@ -326,7 +326,7 @@ func mcpOAuthActionLine(server MCPOAuthServerView) string {
 	if server.Expired && !server.HasRefreshToken {
 		actions = append(actions, "qg mcp oauth refresh "+name)
 	}
-	return "    actions: " + strings.Join(dedupeStrings(actions), " | ")
+	return "    ações: " + strings.Join(dedupeStrings(actions), " | ")
 }
 
 func dedupeStrings(values []string) []string {
@@ -353,8 +353,21 @@ func fitMCPManagerLines(lines []string, width int) string {
 }
 
 func pluralCount(count int, noun string) string {
-	if count == 1 {
-		return "1 " + noun
+	switch noun {
+	case "server":
+		if count == 1 {
+			return "1 servidor"
+		}
+		return fmt.Sprintf("%d servidores", count)
+	case "tool":
+		if count == 1 {
+			return "1 ferramenta"
+		}
+		return fmt.Sprintf("%d ferramentas", count)
+	default:
+		if count == 1 {
+			return "1 " + noun
+		}
+		return fmt.Sprintf("%d %ss", count, noun)
 	}
-	return fmt.Sprintf("%d %ss", count, noun)
 }
