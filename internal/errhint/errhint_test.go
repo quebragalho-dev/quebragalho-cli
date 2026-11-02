@@ -25,6 +25,7 @@ func TestClassify(t *testing.T) {
 		{"context_length_exceeded", "provider request error: context_length_exceeded", ContextOverflow},
 		{"model not found", "provider request error: 404 the model `gpt-9` does not exist", ModelNotFound},
 		{"unknown model", "provider request error: unknown model: sonnet-99", ModelNotFound},
+		{"model not allowed for account", "provider request error: model not allowed for this account", ModelNotFound},
 		{"dns failure", "provider stream error: Post \"https://api...\": dial tcp: lookup api.foo.com: no such host", Connectivity},
 		{"connection refused", "provider stream error: dial tcp 127.0.0.1:443: connection refused", Connectivity},
 		{"deadline", "provider stream error: context deadline exceeded (Client.Timeout exceeded)", Connectivity},
@@ -66,6 +67,24 @@ func TestContextOverflowBeatsConnectivity(t *testing.T) {
 	err := errors.New("provider request error: maximum context length exceeded; request timeout")
 	if got := Classify(err); got != ContextOverflow {
 		t.Fatalf("Classify = %v, want ContextOverflow", got)
+	}
+}
+
+func TestModelNotAllowedHintIsModelUnavailable(t *testing.T) {
+	err := errors.New("provider request error: model not allowed for this account")
+	if got := Classify(err); got != ModelNotFound {
+		t.Fatalf("Classify = %v, want ModelNotFound", got)
+	}
+	tui := TUIHint(err)
+	if tui != "Model unavailable — pick another with /model" {
+		t.Fatalf("TUIHint = %q, want generic ModelNotFound hint", tui)
+	}
+	cli := CLIHint(err)
+	if cli != "Model unavailable — run `qg doctor` or pick another with --model" {
+		t.Fatalf("CLIHint = %q, want generic ModelNotFound hint", cli)
+	}
+	if strings.Contains(strings.ToLower(tui+cli), "auth error") {
+		t.Fatalf("model_not_allowed hints must not mention auth error: %q %q", tui, cli)
 	}
 }
 

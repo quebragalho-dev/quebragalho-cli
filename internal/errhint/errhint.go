@@ -63,8 +63,6 @@ func Classify(err error) Category {
 		return Unknown
 	}
 	switch {
-	case containsAny(m, "model_not_allowed", "model not allowed"):
-		return ModelNotFound
 	case containsAny(m, "auth error:", "unauthorized", "api key", "api_key", "invalid_api_key",
 		"authentication", "permission denied", "forbidden") || containsStatusCode(m, "401", "403"):
 		return Auth
@@ -75,7 +73,7 @@ func Classify(err error) Category {
 		"too many tokens", "prompt is too long", "reduce the length", "maximum context length"):
 		return ContextOverflow
 	case containsAny(m, "model not found", "model_not_found", "does not exist", "unknown model",
-		"no such model", "unsupported model", "invalid model", "model is not"):
+		"no such model", "unsupported model", "invalid model", "model is not", "model not allowed"):
 		return ModelNotFound
 	case containsAny(m, "dial tcp", "no such host", "connection refused", "network is unreachable",
 		"i/o timeout", "context deadline exceeded", "tls handshake", "connection reset",
@@ -90,9 +88,6 @@ func Classify(err error) Category {
 // when the category is Unknown. Meant to sit under the raw error in the live
 // error row.
 func TUIHint(err error) string {
-	if err != nil && strings.Contains(strings.ToLower(err.Error()), "model_not_allowed") {
-		return "Modelo indisponível para esta conta. Escolha outro com /model."
-	}
 	switch Classify(err) {
 	case Auth:
 		return "Chave de API rejeitada — rode /provider para conferir as credenciais"
@@ -119,9 +114,6 @@ func keyEnvHintHuman() string {
 // category is Unknown. Meant for the non-interactive `qg exec` error path, where
 // slash commands don't apply.
 func CLIHint(err error) string {
-	if err != nil && strings.Contains(strings.ToLower(err.Error()), "model_not_allowed") {
-		return "Modelo indisponível para esta conta. Escolha outro com --model."
-	}
 	switch Classify(err) {
 	case Auth:
 		return "Chave de API rejeitada — configure " + keyEnvHintHuman() + " no ambiente ou rode `qg login`, depois rode `qg setup qg`"

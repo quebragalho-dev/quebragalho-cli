@@ -424,6 +424,9 @@ func ScanSSEDataWithContext(
 
 // ClassifiedError normalizes provider HTTP/stream errors and redacts secrets.
 func ClassifiedError(statusCode int, message string, secrets ...string) string {
+	if statusCode == http.StatusForbidden && isModelNotAllowed(message) {
+		return Redact("provider request error: "+message, secrets...)
+	}
 	switch statusCode {
 	case http.StatusUnauthorized, http.StatusForbidden:
 		// Lead with an actionable instruction rather than the raw upstream auth blurb
@@ -443,6 +446,13 @@ func ClassifiedError(statusCode int, message string, secrets ...string) string {
 		}
 		return Redact(prefix+message, secrets...)
 	}
+}
+
+// isModelNotAllowed reports whether message carries the gateway's
+// model_not_allowed signal, either as the code or as human text.
+func isModelNotAllowed(message string) bool {
+	lowered := strings.ToLower(message)
+	return strings.Contains(lowered, "model_not_allowed") || strings.Contains(lowered, "model not allowed")
 }
 
 // tokenShape matches a long credential-like token (API key / JWT) so the Bearer
