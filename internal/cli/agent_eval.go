@@ -414,7 +414,7 @@ Opções:
       --work-root <path>      Raiz para pastas de benchmark materializadas
                               (só eval bench)
       --model <id>            Modelo para matriz do eval bench; repetível
-      --models <ids>          Modelos para matriz do bench; vírgula
+      --models <ids>          Modelos separados por vírgula (bench)
       --timeout <duration>    Timeout por tarefa (ex. 90s, 5m)
       --keep-workspaces       Mantém pastas do benchmark (só bench)
       --report-dir <path>     Grava agent-eval-report.json (eval run
