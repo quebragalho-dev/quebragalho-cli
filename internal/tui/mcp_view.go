@@ -73,9 +73,9 @@ func renderMCPView(state MCPViewState, width int) string {
 		lines = append(lines,
 			"MCPs do usuário",
 			"  Nenhum servidor MCP configurado.",
-			"  › Adicionar servidor MCP      qg mcp add <name> --url <url>",
+			"  › Adicionar servidor MCP    qg mcp add <name> --url <url>",
 			"  › Adicionar MCP stdio local qg mcp add <name> -- <command> [args...]",
-			"  › Listar configurados     qg mcp list",
+			"  › Listar configurados       qg mcp list",
 			"",
 			"Ações",
 			"  adicionar remoto · adicionar stdio · listar · verificar",
@@ -235,7 +235,7 @@ func hasMCPPermissionSummary(summary MCPPermissionSummary) bool {
 
 func mcpPermissionLines(summary MCPPermissionSummary) []string {
 	lines := []string{
-		"modo: " + displayValue(strings.TrimSpace(summary.Mode), "unknown"),
+		"modo: " + displayValue(strings.TrimSpace(summary.Mode), "desconhecido"),
 		fmt.Sprintf("autorizações persistentes: %d", summary.GrantCount),
 		fmt.Sprintf("autorizações de servidor: %d", summary.ServerGrants),
 		fmt.Sprintf("autorizações de ferramenta: %d", summary.ToolGrants),
@@ -247,7 +247,7 @@ func mcpPermissionLines(summary MCPPermissionSummary) []string {
 	}
 	for _, grant := range summary.Grants {
 		target := displayValue(strings.TrimSpace(grant.Target), "desconhecido")
-		autonomy := displayValue(strings.TrimSpace(grant.Autonomy), "baixo")
+		autonomy := displayValue(strings.TrimSpace(grant.Autonomy), "desconhecido")
 		line := fmt.Sprintf("%s [%s]", target, autonomy)
 		if approvedAt := strings.TrimSpace(grant.ApprovedAt); approvedAt != "" {
 			line += " aprovado em " + approvedAt

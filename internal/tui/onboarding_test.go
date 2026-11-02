@@ -43,7 +43,7 @@ func TestSetupTakeoverRendersAndCompletes(t *testing.T) {
 	m.width = 100
 	m.height = 30
 
-	if view := plainRender(t, m.View()); !strings.Contains(view, "Bem-vindo ao Quebra Galho") || !strings.Contains(view, "para configurar o QG") || !strings.Contains(view, "agente de terminal para mudar código de verdade") {
+	if view := plainRender(t, m.View()); !strings.Contains(view, "Bem-vindo ao Quebra Galho") || !strings.Contains(view, "para configurar o QG") || !strings.Contains(view, "agente no terminal para alterar código real") {
 		t.Fatalf("setup welcome view missing expected text:\n%s", view)
 	}
 
@@ -360,10 +360,10 @@ func TestSetupModelFooterUsesEnter(t *testing.T) {
 	m.setup.stage = setupStageModel
 
 	view := plainRender(t, m.View())
-	if !strings.Contains(view, "digitar busca") || !strings.Contains(view, "Enter continuar") {
+	if !strings.Contains(view, "digite para buscar") || !strings.Contains(view, "Enter continuar") {
 		t.Fatalf("model footer should advertise search and Enter, got:\n%s", view)
 	}
-	if strings.Contains(view, "Espaço para continuar") {
+	if strings.Contains(view, "Space") {
 		t.Fatalf("model footer should not advertise Space, got:\n%s", view)
 	}
 }
@@ -458,7 +458,7 @@ func TestSetupProgressRendersAboveFooter(t *testing.T) {
 		if strings.Contains(line, "Enter continuar") {
 			footerIndex = index
 		}
-		if strings.Contains(line, "Selecionar modelo") && strings.Contains(line, "3/3") {
+		if strings.Contains(line, "Escolher modelo") && strings.Contains(line, "3/3") {
 			t.Fatalf("progress should not render in setup body: %q", line)
 		}
 	}

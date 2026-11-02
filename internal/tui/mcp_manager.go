@@ -359,7 +359,7 @@ func (m model) mcpManagerOverlay(width int) string {
 		lines = append(lines, detail...)
 	}
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
-	lines = append(lines, fillPaletteLine(qgTheme.faint.Render("digite para buscar   cima/baixo navega   Enter age   Alt+d desativa   Esc fecha"), innerWidth, transparentSurface))
+	lines = append(lines, fillPaletteLine(qgTheme.faint.Render("digite para buscar   ↑/↓ navegar   Enter abrir   Alt+d desativar   Esc fechar"), innerWidth, transparentSurface))
 	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Gerenciar servidores MCP", lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
 
@@ -436,11 +436,11 @@ func (m model) mcpManagerSelectionDetail(width int) []string {
 		if target := strings.TrimSpace(server.Target); target != "" {
 			lines = append(lines, fitStyledLine(qgTheme.faint.Render(target), width))
 		}
-		action := "Alt+d desativa"
+		action := "Alt+d desativar"
 		if strings.EqualFold(strings.TrimSpace(server.State), "disabled") {
-			action = "Alt+e ativa"
+			action = "Alt+e ativar"
 		}
-		lines = append(lines, fillPaletteLine(qgTheme.faint.Render("Enter verifica   Alt+c verifica   "+action+"   Alt+r remove"), width, transparentSurface))
+		lines = append(lines, fillPaletteLine(qgTheme.faint.Render("Enter verificar   Alt+c verificar   "+action+"   Alt+r remover"), width, transparentSurface))
 		return lines
 	case mcpManagerItemMarketplace:
 		lines := []string{

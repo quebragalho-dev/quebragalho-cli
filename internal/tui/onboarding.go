@@ -567,7 +567,7 @@ func deviceLoginError(err error, key string) string {
 	case errors.Is(err, qgaccount.ErrDeviceCodeExpired):
 		return "O código de login expirou antes da aprovação."
 	}
-	return "Login no navegador falhou: " + redaction.RedactString(err.Error(), redaction.Options{ExtraSecretValues: []string{key}})
+	return "Não foi possível entrar pelo navegador. Detalhe: " + redaction.RedactString(err.Error(), redaction.Options{ExtraSecretValues: []string{key}})
 }
 
 func deviceVerificationURL(auth DeviceAuth) string {
@@ -795,7 +795,7 @@ func (m model) setupStageLines(width int, height int) []string {
 		return []string{
 			qgTheme.accent.Render("Bem-vindo ao Quebra Galho"),
 			"",
-			qgTheme.ink.Render("Um agente de terminal para mudar código de verdade."),
+			qgTheme.ink.Render("Um agente no terminal para alterar código real."),
 			qgTheme.faint.Render("Planeje mudanças, edite com aprovação, rode verificações e retome sessões."),
 			"",
 			qgTheme.faint.Render("A seguir, entre com o navegador ou cole uma chave de API."),
@@ -810,7 +810,7 @@ func (m model) setupModelLines(width int, height int) []string {
 	maxVisible := setupModelMaxVisible(height, len(models))
 	start := selectableListStart(len(models), maxVisible, m.setup.modelIndex)
 	lines := []string{
-		padSetupLine("  "+qgTheme.ink.Bold(true).Render("Selecionar modelo"), rowWidth),
+		padSetupLine("  "+qgTheme.ink.Bold(true).Render("Escolher modelo"), rowWidth),
 		blankSetupBlockLine(rowWidth),
 		padSetupLine("  "+m.setupModelSearchLine(rowWidth-2), rowWidth),
 	}
@@ -861,7 +861,7 @@ func setupModelMaxVisible(height int, total int) int {
 
 func setupModelBlockWidth(terminalWidth int, models []providerWizardModel) int {
 	available := maxInt(34, minInt(terminalWidth-8, 72))
-	target := lipgloss.Width("  Selecionar modelo")
+	target := lipgloss.Width("  Escolher modelo")
 	target = maxInt(target, lipgloss.Width("  buscar > nome do modelo..."))
 	for _, model := range models {
 		target = maxInt(target, 4+lipgloss.Width(model.displayLabel()))
@@ -954,7 +954,7 @@ func (m model) setupBrowserLines(width int) []string {
 		}
 		return lines
 	case m.setup.deviceCancel != nil:
-		return []string{title, "", qgTheme.faint.Render("Pedindo um código de login...")}
+		return []string{title, "", qgTheme.faint.Render("Solicitando um código de login…")}
 	}
 	return []string{
 		title,
@@ -997,9 +997,9 @@ func (m model) setupFooter() string {
 		}
 		return footer
 	case setupStageModel:
-		return qgTheme.faint.Render("↑/↓ escolher   digitar busca   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continuar")
+		return qgTheme.faint.Render("↑/↓ escolher   digite para buscar   ") + qgTheme.accent.Render("Enter") + qgTheme.faint.Render(" continuar")
 	default:
-		return qgTheme.accent.Render("Espaço/Enter") + qgTheme.faint.Render(" para configurar o QG")
+		return qgTheme.accent.Render("Space/Enter") + qgTheme.faint.Render(" para configurar o QG")
 	}
 }
 

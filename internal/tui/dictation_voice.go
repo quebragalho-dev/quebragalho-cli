@@ -4,7 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const voiceCaptureUsage = "segure Ctrl+Space para gravar; pressione para alternar se soltar a tecla não for detectado"
+const voiceCaptureUsage = "segure Ctrl+Space para gravar; se não funcionar, pressione para alternar"
 
 // Voice mode's Ctrl+Space gesture — the (only) dictation trigger. Two terminal
 // tiers:

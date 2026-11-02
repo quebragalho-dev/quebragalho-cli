@@ -210,7 +210,7 @@ func (wizard *mcpAddWizardState) resultActionLabels() []string {
 	case wizard.result.Connected:
 		return []string{"Usar servidor", "Gerenciar ferramentas", "Editar configuração", "Desativar servidor"}
 	case wizard.result.Saved:
-		return []string{"Tentar conexão de novo", "Editar configuração", "Desativar servidor", "Remover servidor"}
+		return []string{"Tentar conectar de novo", "Editar configuração", "Desativar servidor", "Remover servidor"}
 	default:
 		return []string{"Editar URL", "Salvar desativado", "Descartar"}
 	}
@@ -219,11 +219,11 @@ func (wizard *mcpAddWizardState) resultActionLabels() []string {
 func (wizard *mcpAddWizardState) footer() string {
 	switch wizard.step {
 	case mcpAddWizardStepType:
-		return "cima/baixo escolhe   Enter continua   Esc fecha"
+		return "↑/↓ escolher   Enter continuar   Esc fechar"
 	case mcpAddWizardStepResult:
-		return "Enter escolhe   r tenta de novo   s salva desativado   d descarta"
+		return "Enter escolher   r tentar de novo   s salvar desativado   d descartar"
 	default:
-		return "Enter continua   ← volta   Esc fecha"
+		return "Enter continuar   ← voltar   Esc fechar"
 	}
 }
 
