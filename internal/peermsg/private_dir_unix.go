@@ -22,7 +22,10 @@ func ensurePrivateDir(path string) error {
 	if err != nil {
 		return err
 	}
-	defer unix.Close(parentFD)
+	// Close the current fd at return time: the loop closes each fd as it
+	// descends, so a plain defer would re-close the root fd (hitting a
+	// reused number) and leak the last one. This also covers error paths.
+	defer func() { unix.Close(parentFD) }()
 	for index, component := range components {
 		if component == "" {
 			continue

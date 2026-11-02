@@ -78,32 +78,7 @@ func Run(ctx context.Context, options Options) int {
 		initialModel.mouseCapture = true
 	}
 	program = tea.NewProgram(initialModel, programOpts...)
-	peerStarted := false
-	if options.PeerService != nil {
-		options.PeerService.SetStatusHandler(func(event peermsg.StatusEvent) {
-			forward(peerStatusMsg{event: event})
-		})
-		options.PeerService.SetHeldEvictionHandler(func(messageID string) {
-			forward(peerApprovalExpiredMsg{messageID: messageID})
-		})
-		options.PeerService.SetHeldReleaseHandler(func(message peermsg.InboundMessage) {
-			forward(peerHeldReleasedMsg{message: message})
-		})
-		if err := options.PeerService.Start(func(message peermsg.InboundMessage) bool {
-			admit := make(chan bool, 1)
-			forward(peerMessageMsg{message: message, admit: admit})
-			select {
-			case accepted := <-admit:
-				return accepted
-			case <-time.After(4 * time.Second):
-				return false
-			}
-		}); err != nil {
-			forward(peerRuntimeErrorMsg{err: err})
-		} else {
-			peerStarted = true
-		}
-	}
+	peerStarted := startPeerService(options.PeerService, forward)
 
 	finalModel, runErr := program.Run()
 	clearErr := imageOutput.clearImage()
@@ -127,6 +102,40 @@ func Run(ctx context.Context, options Options) int {
 		return 1
 	}
 	return 0
+}
+
+// startPeerService wires the peer callbacks and starts the endpoint,
+// reporting a failed start through forward off the main goroutine: the
+// program's message channel is unbuffered, and the event loop starts reading
+// only after Run returns this call, so a synchronous send here would hang
+// startup forever.
+func startPeerService(service *peermsg.Service, forward func(tea.Msg)) bool {
+	if service == nil {
+		return false
+	}
+	service.SetStatusHandler(func(event peermsg.StatusEvent) {
+		forward(peerStatusMsg{event: event})
+	})
+	service.SetHeldEvictionHandler(func(messageID string) {
+		forward(peerApprovalExpiredMsg{messageID: messageID})
+	})
+	service.SetHeldReleaseHandler(func(message peermsg.InboundMessage) {
+		forward(peerHeldReleasedMsg{message: message})
+	})
+	if err := service.Start(func(message peermsg.InboundMessage) bool {
+		admit := make(chan bool, 1)
+		forward(peerMessageMsg{message: message, admit: admit})
+		select {
+		case accepted := <-admit:
+			return accepted
+		case <-time.After(4 * time.Second):
+			return false
+		}
+	}); err != nil {
+		go forward(peerRuntimeErrorMsg{err: err})
+		return false
+	}
+	return true
 }
 
 // writeFarewell prints the exit message the alt screen would otherwise swallow.
