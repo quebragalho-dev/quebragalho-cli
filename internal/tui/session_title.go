@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
@@ -137,6 +138,7 @@ func cleanGeneratedTitle(raw string) string {
 // generateSessionTitle asks the provider for a concise title for digest and
 // returns the cleaned result. It is provider-shaped exactly like the one-shot
 // summarization call: system instructions + a single user turn, no tools.
+// Reasoning is capped at the cheapest tier: a 3-6 word title needs no chain.
 func generateSessionTitle(ctx context.Context, provider qgruntime.Provider, digest string) (string, error) {
 	if provider == nil {
 		return "", errors.New("no provider configured")
@@ -149,6 +151,7 @@ func generateSessionTitle(ctx context.Context, provider qgruntime.Provider, dige
 			{Role: qgruntime.MessageRoleSystem, Content: sessionTitleSystemPrompt},
 			{Role: qgruntime.MessageRoleUser, Content: "Conversation:\n\n" + digest + "\n\nTitle:"},
 		},
+		ReasoningEffort: string(modelregistry.ReasoningEffortMinimal),
 	}
 	stream, err := provider.StreamCompletion(ctx, request)
 	if err != nil {
