@@ -521,27 +521,27 @@ func redact(value string) string {
 }
 
 func writeSessionsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg sessions <command> [flags]
 
-Commands:
-  list                  List local QG sessions
-  children <id>         List direct child sessions for a parent session
-  lineage <id>          Print the root-to-session lineage path
-  tree <id>             Print a child-session tree
-  rewind-plan <id>      Preview events kept and dropped by a rewind
-  rewind <id>           Restore workspace files and truncate the log to a checkpoint
-  compact-plan <id>     Preview events compacted and preserved by compaction
+Comandos:
+  list                  Lista sessões locais da QG
+  children <id>         Lista sessões filhas diretas de uma sessão pai
+  lineage <id>          Mostra o caminho da linhagem da raiz até a sessão
+  tree <id>             Mostra a árvore de sessões filhas
+  rewind-plan <id>      Pré-visualiza eventos mantidos e descartados ao voltar a um ponto anterior
+  rewind <id>           Restaura arquivos da pasta de trabalho e trunca o log até um ponto de restauração
+  compact-plan <id>     Pré-visualiza eventos compactados e preservados pela compactação
 
-Flags:
-      --json            Print JSON output
-      --kind <kind>     Filter list by fork, child, side, spec-draft, or spec-impl
-      --sequence <n>    Rewind target sequence (rewind-plan, rewind)
-      --event <id>      Rewind target event id (rewind-plan, rewind)
-      --exclude-target  Drop the target event (rewind-plan, rewind)
-      --preserve-last <n> Keep recent events in compact-plan
-      --max-prompt-chars <n> Limit compact-plan summary prompt
-  -h, --help            Show this help
+Opções:
+      --json            Imprime a saída em JSON
+      --kind <kind>     Filtra a lista por fork, child, side, spec-draft ou spec-impl
+      --sequence <n>    Sequência alvo (rewind-plan, rewind)
+      --event <id>      Evento alvo por id (rewind-plan, rewind)
+      --exclude-target  Descarta o evento alvo (rewind-plan, rewind)
+      --preserve-last <n> Mantém eventos recentes no compact-plan
+      --max-prompt-chars <n> Limite de caracteres da mensagem de resumo do compact-plan
+  -h, --help            Mostra esta ajuda
 `)
 	return err
 }

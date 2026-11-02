@@ -1622,7 +1622,7 @@ func TestTopLevelHelpDocumentsRequiredUpdateMode(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	if got := stdout.String(); !strings.Contains(got, "update     Check or apply QG CLI updates (requires --check or --apply)") {
+	if got := stdout.String(); !strings.Contains(got, "update      Verifica ou aplica atualizações da CLI QG (exige --check ou --apply)") {
 		t.Fatalf("expected top-level help to document required update mode, got %q", got)
 	}
 }
@@ -1815,8 +1815,8 @@ func assertHelpOutput(t *testing.T, args []string) {
 
 	output := stdout.String()
 	for _, want := range []string{
-		"QG terminal coding agent",
-		"Usage:",
+		"Agente de codificação QG no terminal",
+		"Uso:",
 		"qg [command]",
 		"exec",
 		"config",

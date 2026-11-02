@@ -111,13 +111,13 @@ func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 
 func writeTrustUsage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Usage:
-  qg trust                Trust the current working directory
-  qg trust list           List trusted workspace roots
-  qg trust remove [path]  Untrust the current directory, or a named path
+  qg trust                Confia na pasta de trabalho atual
+  qg trust list           Lista as raízes de pasta confiáveis
+  qg trust remove [path]  Desconfia da pasta atual, ou de um caminho dado
 
-Trust lets QG run a workspace's project-scoped hooks, plugins, and MCP
-servers (./.qg/hooks.json, ./.qg/plugins/, project MCP config), and start
-language servers for it (they run outside the sandbox and can execute project
-code while indexing). Trust is exact per directory.
+Confiar deixa o QG rodar hooks, plugins e servidores MCP do projeto da pasta
+(./.qg/hooks.json, ./.qg/plugins/, config MCP do projeto) e iniciar
+language servers para ela (rodam fora do ambiente isolado e podem executar código
+do projeto ao indexar). A confiança é exata por pasta.
 `)
 }

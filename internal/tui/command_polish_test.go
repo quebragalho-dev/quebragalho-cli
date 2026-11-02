@@ -27,15 +27,15 @@ func TestHelpCommandRendersGroupedSections(t *testing.T) {
 	}
 	text := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Commands",
-		"Model",
-		"Session",
-		"Runtime",
-		"Tools",
+		"Comandos",
+		"Modelo",
+		"Sessão",
+		"Execução",
+		"Ferramentas",
 		"Meta",
 		"  /model [list|id]",
 		"  /permissions",
-		"hint: submit plain text to ask QG",
+		"hint: escreva um texto para perguntar ao QG",
 	} {
 		assertContains(t, text, want)
 	}

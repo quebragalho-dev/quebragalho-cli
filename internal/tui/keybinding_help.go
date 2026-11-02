@@ -35,57 +35,57 @@ type keybindingGroup struct {
 // Sourced from the real key cases in model.go (Update) — not invented. When a
 // binding is added/changed there, update this method too.
 func (m model) buildKeybindingGroups() []keybindingGroup {
-	ctrlCDescription := "cancel the run, then quit"
+	ctrlCDescription := "cancela a execução e sai"
 	if m.btw.active {
-		ctrlCDescription = "return to the main session when the BTW run is idle"
+		ctrlCDescription = "volta à sessão principal se o BTW estiver parado"
 	}
 	return []keybindingGroup{
 		{
 			title: "Chat",
 			bindings: []keybinding{
-				{"Enter", "send the message"},
-				{"Shift+Enter / Alt+Enter", "insert a newline (multi-line compose)"},
-				{"Esc (\u00d72)", "cancel the run / dismiss a popup / clear the input"},
+				{"Enter", "envia a mensagem"},
+				{"Shift+Enter / Alt+Enter", "insere uma quebra de linha (mensagem multilinha)"},
+				{"Esc (\u00d72)", "cancela a execução / fecha o pop-up / limpa a entrada"},
 				{"Ctrl+C", ctrlCDescription},
-				{"Ctrl+X then letter", "common slash commands (m=/model, r=/resume, \u2026)"},
-				{"Ctrl+X ?", "list every Ctrl+X slash shortcut"},
-				{"?", "show this help (on an empty input)"},
+				{"Ctrl+X then letter", "comandos com / comuns (m=/model, r=/resume, \u2026)"},
+				{"Ctrl+X ?", "lista todos os atalhos Ctrl+X com /"},
+				{"?", "mostra esta ajuda (com a entrada vazia)"},
 			},
 		},
 		{
-			title: "Model & run controls",
+			title: "Modelo e execução",
 			bindings: []keybinding{
-				{labelOr(m.keyBindings.cycleReasoning, "Ctrl+T"), "cycle reasoning effort (auto \u2192 low \u2192 medium \u2192 high)"},
-				{"Shift+Tab", "cycle permission mode (auto \u2194 ask)"},
+				{labelOr(m.keyBindings.cycleReasoning, "Ctrl+T"), "alterna o nível de raciocínio (auto \u2192 low \u2192 medium \u2192 high)"},
+				{"Shift+Tab", "alterna o modo de permissão (auto \u2194 ask)"},
 			},
 		},
 		{
-			title: "Navigation & scrollback",
+			title: "Navegação e rolagem",
 			bindings: []keybinding{
-				{"PgUp / PgDn", "scroll the transcript by a page"},
-				{"\u2191 / \u2193", "scroll, or move within a popup / multi-line input"},
-				{"Ctrl+P / Ctrl+N", "previous / next item in menus (emacs-style)"},
-				{labelOr(m.keyBindings.toggleDetailed, "Ctrl+O"), "toggle the detailed (full-screen) transcript"},
-				{labelOr(m.keyBindings.toggleSidebar, "Ctrl+B"), "show / hide run details"},
-				{labelOr(m.keyBindings.toggleMouse, "Ctrl+E"), "release the mouse to drag-select & copy text"},
-				{"Tab", "accept the autocomplete / picker selection"},
+				{"PgUp / PgDn", "rola o histórico por página"},
+				{"\u2191 / \u2193", "rola ou move dentro do pop-up / entrada multilinha"},
+				{"Ctrl+P / Ctrl+N", "item anterior / próximo nos menus (estilo emacs)"},
+				{labelOr(m.keyBindings.toggleDetailed, "Ctrl+O"), "alterna o histórico detalhado (tela cheia)"},
+				{labelOr(m.keyBindings.toggleSidebar, "Ctrl+B"), "mostra / oculta os detalhes da execução"},
+				{labelOr(m.keyBindings.toggleMouse, "Ctrl+E"), "libera o mouse para selecionar texto com arrasto e copiar"},
+				{"Tab", "confirma a seleção do autocompletar / seletor"},
 			},
 		},
 		{
-			title: "Specialists & pickers",
+			title: "Especialistas e seletores",
 			bindings: []keybinding{
-				{"Click a specialist card", "drill into its sub-session"},
-				{"\u2191 / Esc (in a sub-session)", "return to the main chat"},
-				{"Ctrl+F (in /model)", "toggle the highlighted model as a favorite"},
-				{"Click a tool card", "expand / collapse its output"},
-				{"Right-click", "paste the clipboard"},
+				{"Click a specialist card", "entra na subsessão dele"},
+				{"\u2191 / Esc (in a sub-session)", "volta para o chat principal"},
+				{"Ctrl+F (in /model)", "alterna o modelo destacado como favorito"},
+				{"Click a tool card", "expande / recolhe a saída dele"},
+				{"Right-click", "cola a área de transferência"},
 			},
 		},
 	}
 }
 
 // keybindingHelpFooter is the dismiss hint shown at the bottom of the overlay.
-const keybindingHelpFooter = "? or Esc to close \u00b7 /help for slash commands"
+const keybindingHelpFooter = "? ou Esc para fechar \u00b7 /help para comandos com /"
 
 // renderKeybindingHelpLines builds the overlay body lines (group titles +
 // aligned key/description rows + footer), wrapped to the inner width. Exposed

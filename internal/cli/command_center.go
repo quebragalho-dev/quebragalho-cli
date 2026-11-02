@@ -596,35 +596,35 @@ func formatProviderCatalogValue(value string, fallback string) string {
 }
 
 func writeConfigHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg config [flags]
 
-Inspects resolved Go configuration without printing secrets.
+Inspeciona a configuração Go resolvida sem imprimir segredos.
 
-Flags:
-      --json      Print JSON summary
-  -h, --help      Show this help
+Opções:
+      --json      Imprime o resumo em JSON
+  -h, --help      Mostra esta ajuda
 `)
 	return err
 }
 
 func writeModelsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg models list [flags]
 
-Lists QG model registry entries.
+Lista as entradas do registro de modelos da QG.
 
-Flags:
-      --json                  Print JSON model list
-      --provider <provider>   Filter by openai, anthropic, google, or openai-compatible
-      --include-deprecated    Include deprecated models
-  -h, --help                  Show this help
+Opções:
+      --json                  Imprime a lista de modelos em JSON
+      --provider <provider>   Filtra por openai, anthropic, google ou openai-compatible
+      --include-deprecated    Inclui modelos descontinuados
+  -h, --help                  Mostra esta ajuda
 `)
 	return err
 }
 
 func writeProvidersHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg providers current [flags]
   qg providers list [flags]
   qg providers catalog [flags]
@@ -637,33 +637,33 @@ func writeProvidersHelp(w io.Writer) error {
   qg providers detect [flags]
   qg providers models [name] [flags]
 
-Inspects resolved provider profiles and provider catalog descriptors without printing secrets.
-Detect probes for running local runtimes (Ollama, LM Studio) and prints adopt commands plus per-provider next steps.
-Models probes a provider's live model-listing endpoint (e.g. an OpenAI-compatible /v1/models) and lists the models it serves — including custom OpenAI-/Anthropic-compatible endpoints — so a self-hosted provider needs no per-model config.
+Inspeciona perfis de provedor e descritores do catálogo sem imprimir segredos.
+Detect sonda runtimes locais em execução (Ollama, LM Studio) e mostra comandos de adoção mais os próximos passos por provedor.
+Models sonda o endpoint de listagem de modelos do provedor (ex. /v1/models compatível com OpenAI) e lista os modelos servidos — incluindo endpoints personalizados compatíveis com OpenAI/Anthropic — então um provedor próprio não precisa de config por modelo.
 
-Flags:
-      --json                    Print JSON summary
-      --connectivity            Probe provider endpoint for providers check
-      --transport <transport>   Filter catalog descriptors by transport
+Opções:
+      --json                    Imprime o resumo em JSON
+      --connectivity            Sonda o endpoint do provedor no providers check
+      --transport <transport>   Filtra descritores do catálogo por transporte
 
-Add flags:
-      --name <name>             Saved provider profile name
-      --model <model>           Override catalog default model
-      --base-url <url>          Override catalog default base URL
-      --api-key-env <name>      Environment variable that contains the API key
-      --auth-header <header>    Custom API-key header name
-      --auth-scheme <scheme>    Auth scheme prefix, for example Bearer or Token
-      --auth-header-value <v>   Exact auth header value; stored in config
-      --header <key=value>      Custom provider header; repeatable
-      --set-active              Make the added provider active
+Flags do add:
+      --name <name>             Nome do perfil de provedor salvo
+      --model <model>           Troca o modelo padrão do catálogo
+      --base-url <url>          Troca a URL base padrão do catálogo
+      --api-key-env <name>      Variável de ambiente com a chave de API
+      --auth-header <header>    Nome personalizado do cabeçalho da chave de API
+      --auth-scheme <scheme>    Prefixo do esquema de auth, por exemplo Bearer ou Token
+      --auth-header-value <v>   Valor exato do cabeçalho de auth; salvo na config
+      --header <key=value>      Cabeçalho personalizado do provedor; repetível
+      --set-active              Ativa o provedor adicionado
 
-Setup flags:
-      --name <name>             Planned provider profile name
-      --model <model>           Planned model override
-      --base-url <url>          Planned base URL override
-      --api-key-env <name>      Planned API key environment variable
-      --set-active              Include --set-active in the add command
-  -h, --help                    Show this help
+Flags do setup:
+      --name <name>             Nome planejado do perfil de provedor
+      --model <model>           Modelo planejado (troca o padrão)
+      --base-url <url>          URL base planejada (troca o padrão)
+      --api-key-env <name>      Variável de ambiente planejada da chave de API
+      --set-active              Inclui --set-active no comando add
+  -h, --help                    Mostra esta ajuda
 `)
 	return err
 }

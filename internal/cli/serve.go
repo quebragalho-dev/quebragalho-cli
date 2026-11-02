@@ -177,17 +177,17 @@ func parseServeArgs(args []string) (serveOptions, bool, error) {
 }
 
 func writeServeHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg serve --mcp [flags]
 
-Starts QG as an MCP stdio server.
+Inicia a QG como servidor MCP stdio.
 
-Flags:
-      --mcp                   Run the MCP stdio server
-  -C, --cwd <path>            Set the workspace directory (resources + tools)
-      --add-dir <path>        Extra resource/tool root (repeatable)
-      --allow-unsafe-tools    Expose write and shell tools to the MCP host
-  -h, --help                  Show this help
+Opções:
+      --mcp                   Executa o servidor MCP stdio
+  -C, --cwd <path>            Define a pasta de trabalho (recursos + ferramentas)
+      --add-dir <path>        Raiz extra de recursos/ferramentas (repetível)
+      --allow-unsafe-tools    Expõe ferramentas de escrita e shell ao host MCP
+  -h, --help                  Mostra esta ajuda
 `)
 	return err
 }

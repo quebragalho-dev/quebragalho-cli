@@ -1024,52 +1024,52 @@ func replaceMCPWritableConfigFile(tmpPath string, path string) error {
 }
 
 func writeMCPAddHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg mcp add <server> [flags] -- <command> [args...]
   qg mcp add <server> --url <url> [flags]
 
-Flags:
-      --auth <auth>        Authentication mode for remote servers (for example: oauth)
-      --disabled           Persist the server as disabled
-      --env KEY=VALUE      Add stdio environment variable (repeatable)
-      --header KEY=VALUE   Add HTTP/SSE header (repeatable)
-      --json               Print command result as JSON
-      --type <type>        MCP transport: stdio, http, or sse
-      --url <url>          Remote MCP endpoint URL
-  -h, --help               Show this help
+Opções:
+      --auth <auth>        Modo de autenticação para servidores remotos (por exemplo: oauth)
+      --disabled           Salva o servidor como desativado
+      --env KEY=VALUE      Adiciona variável de ambiente stdio (repetível)
+      --header KEY=VALUE   Adiciona cabeçalho HTTP/SSE (repetível)
+      --json               Imprime o resultado do comando em JSON
+      --type <type>        Transporte MCP: stdio, http ou sse
+      --url <url>          URL do endpoint MCP remoto
+  -h, --help               Mostra esta ajuda
 `)
 	return err
 }
 
 func writeMCPRemoveHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg mcp remove <server> [flags]
 
-Flags:
-      --json    Print command result as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime o resultado do comando em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }
 
 func writeMCPToggleHelp(w io.Writer, commandName string) error {
-	_, err := fmt.Fprintf(w, `Usage:
+	_, err := fmt.Fprintf(w, `Uso:
   qg mcp %s <server> [flags]
 
-Flags:
-      --json    Print command result as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime o resultado do comando em JSON
+  -h, --help    Mostra esta ajuda
 `, commandName)
 	return err
 }
 
 func writeMCPCheckHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg mcp check <server> [flags]
 
-Flags:
-      --json    Print command result as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime o resultado do comando em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }

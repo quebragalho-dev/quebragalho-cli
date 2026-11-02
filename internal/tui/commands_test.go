@@ -45,19 +45,19 @@ func TestFormatCommandHelpLinesGroupsCommandsByStableOrder(t *testing.T) {
 
 	for _, want := range []string{
 		"model:",
-		"  /model [list|id] - Show or switch the active model.",
-		"  /effort [list|level|auto] - Show or set reasoning effort for supported models.",
-		"  /fast - Toggle fast mode for supported ChatGPT subscription models.",
+		"  /model [list|id] - Mostra ou troca o modelo ativo.",
+		"  /effort [list|level|auto] - Mostra ou ajusta o nível de raciocínio nos modelos suportados.",
+		"  /fast - Liga ou desliga o modo rápido nos modelos ChatGPT suportados.",
 		"session:",
 		"  /plan [status|on|off] - Entrar no modo de planejamento; status consulta e off sai.",
 		"runtime:",
-		"  /permissions - Show the active permission mode and sandbox grants.",
-		"  /debug (/debug-mode) - Show debug mode status.",
+		"  /permissions - Mostra o modo de permissão ativo e os acessos do ambiente isolado.",
+		"  /debug (/debug-mode) - Mostra o estado do modo debug.",
 		"tools:",
-		"  /mcp (/mcp-status) - Show MCP server status.",
-		"  /search <query> (/find) - Search local session events. Requires a query argument.",
+		"  /mcp (/mcp-status) - Mostra o estado dos servidores MCP.",
+		"  /search <query> (/find) - Busca nos eventos da sessão. Exige o termo de busca.",
 		"meta:",
-		"  /exit (/quit) - Exit QG.",
+		"  /exit (/quit) - Sai do QG.",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected grouped help to contain %q, got:\n%s", want, help)

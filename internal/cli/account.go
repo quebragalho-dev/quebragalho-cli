@@ -81,7 +81,7 @@ func runBalance(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 		return writeExecUsageError(stderr, err.Error())
 	}
 	if help {
-		if _, err := fmt.Fprint(stdout, "Usage: qg balance [--json]\n\nShow the live Quebra Galho wallet balance (always a fresh API call).\n\nFlags:\n      --json   Machine-readable output (decimal strings, no rounding)\n"); err != nil {
+		if _, err := fmt.Fprint(stdout, "Usage: qg balance [--json]\n\nMostra o saldo live da carteira Quebra Galho (sempre uma chamada nova à API).\n\nFlags:\n      --json   Saída legível por máquina (decimais em texto, sem arredondar)\n"); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
@@ -132,7 +132,7 @@ func runKey(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int
 		return writeExecUsageError(stderr, err.Error())
 	}
 	if help {
-		if _, err := fmt.Fprint(stdout, "Usage: qg key [--json]\n\nShow the profile of the active Quebra Galho API key (alias: qg whoami).\nThe key itself is never printed.\n\nThe profile reflects the key this run resolves, in order: an inline key in the\nprofile, then QG_API_KEY (or QUEBRAGALHO_API_KEY) from the environment, then the\nsaved key. `qg exec --api-key <key>` wins over everything for that run.\n\nFlags:\n      --json   Machine-readable output\n"); err != nil {
+		if _, err := fmt.Fprint(stdout, "Usage: qg key [--json]\n\nMostra o perfil da chave de API Quebra Galho ativa (apelido: qg whoami).\nA chave em si nunca é impressa.\n\nO perfil reflete a chave que esta execução resolve, nesta ordem: uma chave direta no\nperfil, depois QG_API_KEY (ou QUEBRAGALHO_API_KEY) do ambiente, depois a chave\nsalva. `qg exec --api-key <key>` vale para aquela execução acima de tudo.\n\nFlags:\n      --json   Saída legível por máquina\n"); err != nil {
 			return exitCrash
 		}
 		return exitSuccess

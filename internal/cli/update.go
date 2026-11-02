@@ -193,20 +193,20 @@ func parseUpdateTarget(value string) (string, error) {
 }
 
 func writeUpdateHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg update --check [flags]
   qg update --apply [flags]
   qg upgrade [flags]
 
-Flags:
-      --check                 Check the latest GitHub release without installing
-      --apply                 Download, verify, and install the latest release
-      --json                  Print the update result as JSON
-      --repo <owner/repo>     Repository to use when no endpoint is provided (--check and --apply; ignored for the install source by an npm-managed apply)
-      --endpoint <url|repo>   Release API URL or owner/repo slug to use (--check and --apply; ignored for the install source by an npm-managed apply)
-      --timeout <duration>    Release check timeout (default 5s)
-      --target <platform>     Release target to verify with --check (for example windows-x64); not valid with --apply
-  -h, --help                  Show this help
+Opções:
+      --check                 Verifica a release mais recente do GitHub sem instalar
+      --apply                 Baixa, verifica e instala a release mais recente
+      --json                  Imprime o resultado da atualização em JSON
+      --repo <owner/repo>     Repositório a usar quando nenhum endpoint é informado (--check e --apply; ignorado como fonte de instalação por um apply gerenciado pelo npm)
+      --endpoint <url|repo>   URL da API de releases ou slug owner/repo a usar (--check e --apply; ignorado como fonte de instalação por um apply gerenciado pelo npm)
+      --timeout <duration>    Timeout da verificação de release (padrão 5s)
+      --target <platform>     Alvo de release a verificar com --check (por exemplo windows-x64); inválido com --apply
+  -h, --help                  Mostra esta ajuda
 `)
 	return err
 }

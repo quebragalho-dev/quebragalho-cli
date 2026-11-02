@@ -244,33 +244,33 @@ func formatBackendDoctorReport(report qgcommands.BackendDoctorReport) string {
 }
 
 func writeBackendsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg backends [flags]
   qg backends doctor [flags]
 
-Inspect MCP, hook, and plugin backend lifecycle state without connecting to
-external MCP servers.
+Inspeciona o ciclo de vida dos backends de MCP, hook e plugin sem conectar a
+servidores MCP externos.
 
-Commands:
-  doctor    Diagnose MCP, hook, and plugin backend setup
+Comandos:
+  doctor    Diagnostica a configuração dos backends de MCP, hook e plugin
 
-Flags:
-      --json    Print backend lifecycle data as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime os dados do ciclo de vida dos backends em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }
 
 func writeBackendsDoctorHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg backends doctor [flags]
 
-Diagnose MCP, hook, and plugin backend setup without connecting to external MCP
-servers or executing hooks/plugins.
+Diagnostica a configuração dos backends de MCP, hook e plugin sem conectar a servidores MCP
+externos nem executar hooks/plugins.
 
-Flags:
-      --json    Print backend diagnostics as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime o diagnóstico dos backends em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }

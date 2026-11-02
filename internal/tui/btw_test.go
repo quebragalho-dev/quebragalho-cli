@@ -381,7 +381,7 @@ func TestBTWStatusAndHelpStayVisible(t *testing.T) {
 		t.Fatalf("status line has no persistent BTW indicator: %q", status)
 	}
 	groups := side.buildKeybindingGroups()
-	if got := groups[0].bindings[3].desc; !strings.Contains(got, "return to the main session") {
+	if got := groups[0].bindings[3].desc; !strings.Contains(got, "volta à sessão principal") {
 		t.Fatalf("BTW Ctrl+C help = %q", got)
 	}
 }

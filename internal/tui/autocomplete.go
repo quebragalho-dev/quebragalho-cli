@@ -380,7 +380,7 @@ func (m model) selectedCommandSuggestionRequiresInput() bool {
 }
 
 func fileSuggestionIsDirectory(suggestion commandSuggestion) bool {
-	return suggestion.Desc == "directory" || strings.HasSuffix(suggestion.Name, "/")
+	return suggestion.Desc == "pasta" || strings.HasSuffix(suggestion.Name, "/")
 }
 
 // trailingAtToken returns the file-reference fragment at the end of value: the
@@ -634,10 +634,10 @@ func rankedFileSuggestions(index fileSuggestionIndex, partial string, limit int)
 			break
 		}
 		name := "@" + item.candidate.path
-		desc := "file"
+		desc := "arquivo"
 		if item.candidate.isDir {
 			name += "/"
-			desc = "directory"
+			desc = "pasta"
 		}
 		out = append(out, commandSuggestion{Name: name, Desc: desc})
 	}

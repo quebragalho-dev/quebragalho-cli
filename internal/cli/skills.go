@@ -123,28 +123,28 @@ func parseSkillListArgs(args []string) (skillListOptions, bool, error) {
 }
 
 func writeSkillsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg skills <command>
 
-Commands:
-  list                 List discovered skills (QG dir + ~/.agents/skills)
-  add <git-url|path>   Install a skill into the QG skills dir (checksum-pinned in skills.lock)
-  info <name>          Show a skill's frontmatter, source, and pinned hash
-  remove <name>        Remove an installed skill and its lockfile entry from the QG skills dir
+Comandos:
+  list                 Lista as skills encontradas (dir QG + ~/.agents/skills)
+  add <git-url|path>   Instala uma skill no diretório de skills da QG (fixada por checksum em skills.lock)
+  info <name>          Mostra o frontmatter, a origem e o hash fixado de uma skill
+  remove <name>        Remove uma skill instalada e sua entrada do lockfile do diretório de skills da QG
 
-list and info also search ~/.agents/skills when present (read-only).
-add and remove always target the QG-specific skills directory.
+list e info também pesquisam ~/.agents/skills quando existe (somente leitura).
+add e remove sempre usam o diretório de skills específico da QG.
 `)
 	return err
 }
 
 func writeSkillsListHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg skills list [flags]
 
-Flags:
-      --json    Print discovered skills as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime as skills encontradas em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }

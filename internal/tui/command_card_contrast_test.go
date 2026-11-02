@@ -32,7 +32,7 @@ func TestCommandCardDropsNeutralStatusLine(t *testing.T) {
 		t.Fatalf("the neutral 'status: info' line should be dropped, got:\n%s", got)
 	}
 	// But the real content must survive.
-	for _, want := range []string{"Model", "/model", "Session", "/help"} {
+	for _, want := range []string{"Modelo", "/model", "Sessão", "/help"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("command card missing %q, got:\n%s", want, got)
 		}

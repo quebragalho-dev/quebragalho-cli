@@ -76,9 +76,9 @@ func TestHelpOverlayViewRendersGroupsAndKeys(t *testing.T) {
 	view := plainRender(t, m.View())
 	for _, want := range []string{
 		"Keyboard Shortcuts",
-		"Ctrl+T", "cycle reasoning effort",
+		"Ctrl+T", "alterna o nível de raciocínio",
 		"Shift+Tab", "Ctrl+P", "Ctrl+O",
-		"drill into its sub-session",
+		"entra na subsessão dele",
 		"Ctrl+X then letter", "/model",
 		keybindingHelpFooter,
 	} {

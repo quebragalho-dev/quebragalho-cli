@@ -126,18 +126,18 @@ func runLogout(args []string, stdout, stderr io.Writer, deps appDeps) int {
 }
 
 func writeLogoutHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage: qg logout [--json]
+	_, err := fmt.Fprint(w, `Uso: qg logout [--json]
 
-Removes the saved Quebra Galho API key from the credential store, the
-apiKeyStored marker, any inline apiKey in config.json and legacy OAuth tokens.
-The profile stays in config.json; the next interactive launch opens the login.
+Remove a chave de API salva da Quebra Galho do credential store, o
+marcador apiKeyStored, qualquer apiKey inline em config.json e tokens OAuth legados.
+O perfil continua em config.json; a próxima abertura interativa mostra o login.
 
-QG_API_KEY / QUEBRAGALHO_API_KEY in your environment are not touched: unset
-them yourself to fully log out.
+QG_API_KEY / QUEBRAGALHO_API_KEY no seu ambiente não são tocadas: remova-as
+você para sair por completo.
 
-Flags:
-      --json   Print result as JSON
-  -h, --help   Show this help
+Opções:
+      --json   Imprime o resultado em JSON
+  -h, --help   Mostra esta ajuda
 `)
 	return err
 }

@@ -308,36 +308,36 @@ func parseHooksAddArgs(args []string) (hookAddOptions, bool, error) {
 }
 
 func writeHooksAddHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg hooks add <id> --event <event> --command <cmd> [flags]
 
-Events:
+Eventos:
   beforeTool, afterTool, sessionStart, sessionEnd, specialistStart, specialistStop
 
-Flags:
-      --event <event>        Hook event (required)
-      --command <cmd>        Command to run (required)
-      --name <name>          Human-readable hook name
-      --description <text>   Hook description
-      --matcher <pattern>    Tool matcher (beforeTool/afterTool only)
-      --arg <value>          Command argument (repeatable)
-      --user                 Write to user config instead of the project
-      --json                 Print command result as JSON
-  -h, --help                 Show this help
+Opções:
+      --event <event>        Evento do hook (obrigatório)
+      --command <cmd>        Comando a executar (obrigatório)
+      --name <name>          Nome legível do hook
+      --description <text>   Descrição do hook
+      --matcher <pattern>    Matcher de ferramenta (só beforeTool/afterTool)
+      --arg <value>          Argumento do comando (repetível)
+      --user                 Grava na config do usuário em vez da do projeto
+      --json                 Imprime o resultado do comando em JSON
+  -h, --help                 Mostra esta ajuda
 
-New hooks are enabled; use "qg hooks disable <id>" to turn one off.
+Hooks novos já nascem ativos; use "qg hooks disable <id>" para desativar.
 `)
 	return err
 }
 
 func writeHooksTargetHelp(w io.Writer, command string) error {
-	_, err := fmt.Fprintf(w, `Usage:
+	_, err := fmt.Fprintf(w, `Uso:
   qg hooks %s <id> [flags]
 
-Flags:
-      --user    Target user config instead of the project
-      --json    Print command result as JSON
-  -h, --help    Show this help
+Opções:
+      --user    Usa a config do usuário em vez da do projeto
+      --json    Imprime o resultado do comando em JSON
+  -h, --help    Mostra esta ajuda
 `, command)
 	return err
 }

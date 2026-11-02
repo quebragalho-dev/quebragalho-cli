@@ -281,18 +281,18 @@ func formatRepoMapStrings(values []string) string {
 }
 
 func writeRepoMapHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg repo-map [flags]
 
-Builds a deterministic repository map for agent context and local inspection.
+Monta um mapa determinístico do repositório para o contexto do agente e inspeção local.
 
-Flags:
-      --json                Print JSON report
-      --query <text>        Print ranked file matches for a query
-      --max-files <number>  Limit files or query matches shown
-      --scan-max-files <n>  Limit files scanned before truncation
-      --max-depth <number>  Limit scan depth
-  -h, --help                Show this help
+Opções:
+      --json                Imprime o relatório em JSON
+      --query <text>        Mostra arquivos correspondentes ranqueados para uma consulta
+      --max-files <number>  Limita arquivos ou ocorrências mostradas
+      --scan-max-files <n>  Limita arquivos varridos antes de truncar
+      --max-depth <number>  Limita a profundidade da varredura
+  -h, --help                Mostra esta ajuda
 `)
 	return err
 }

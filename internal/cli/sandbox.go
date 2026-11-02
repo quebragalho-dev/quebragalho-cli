@@ -639,93 +639,93 @@ func formatSandboxPolicy(workspaceRoot string, policy qgSandbox.Policy, backend 
 }
 
 func writeSandboxHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg sandbox <command>
 
-Commands:
-  policy      Inspect active sandbox policy and platform backend
-  setup       Run native platform sandbox setup
-  check       Evaluate the sandbox decision for a hypothetical tool action
-  grants      Manage persistent sandbox grants
+Comandos:
+  policy      Inspeciona a política ativa do ambiente isolado e o backend da plataforma
+  setup       Executa a configuração nativa do ambiente isolado da plataforma
+  check       Avalia a decisão do ambiente isolado para uma ação hipotética de ferramenta
+  grants      Gerencia permissões persistentes do ambiente isolado
 
 `)
 	return err
 }
 
 func writeSandboxPolicyHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg sandbox policy [flags]
 
-Flags:
-      --effective         Print the resolved effective policy (merged config + guards)
-      --json              Print JSON output
-  -h, --help              Show this help
+Opções:
+      --effective         Imprime a política efetiva resolvida (config mesclada + guards)
+      --json              Imprime a saída em JSON
+  -h, --help              Mostra esta ajuda
 `)
 	return err
 }
 
 func writeSandboxSetupHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg sandbox setup [flags]
 
-Runs native platform sandbox setup when the selected backend requires it.
+Executa a configuração nativa do ambiente isolado quando o backend selecionado exige.
 
-Flags:
-      --json              Print JSON output
-  -h, --help              Show this help
+Opções:
+      --json              Imprime a saída em JSON
+  -h, --help              Mostra esta ajuda
 `)
 	return err
 }
 
 func writeSandboxGrantsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg sandbox grants <command>
 
-Commands:
-  list        List persistent sandbox grants
-  allow       Persistently allow a tool
-  deny        Persistently deny a tool
-  revoke      Revoke a tool grant
-  clear       Clear all sandbox grants
+Comandos:
+  list        Lista permissões persistentes do ambiente isolado
+  allow       Permite uma ferramenta de forma persistente
+  deny        Nega uma ferramenta de forma persistente
+  revoke      Revoga a permissão de uma ferramenta
+  clear       Limpa todas as permissões do ambiente isolado
 `)
 	return err
 }
 
 func writeSandboxGrantSetHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg sandbox grants allow <tool> [flags]
   qg sandbox grants deny <tool> [flags]
 
-Flags:
-      --reason <text>     Human-readable reason for the grant
-      --path <path>       Scope the grant to one exact file (default: tool-wide)
-      --json              Print JSON output
-  -h, --help              Show this help
+Opções:
+      --reason <text>     Motivo legível da permissão
+      --path <path>       Limita a permissão a um arquivo exato (padrão: a ferramenta toda)
+      --json              Imprime a saída em JSON
+  -h, --help              Mostra esta ajuda
 `)
 	return err
 }
 
 func writeSandboxGrantRevokeHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg sandbox grants revoke <tool> [flags]
 
-Flags:
-      --path <path>       Revoke only the grant scoped to this exact file/dir
-                          (default: revoke every grant for the tool)
-      --json              Print JSON output
-  -h, --help              Show this help
+Opções:
+      --path <path>       Revoga só a permissão limitada a este arquivo/pasta exato
+                          (padrão: revoga todas as permissões da ferramenta)
+      --json              Imprime a saída em JSON
+  -h, --help              Mostra esta ajuda
 `)
 	return err
 }
 
 func writeSandboxGrantClearHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg sandbox grants clear --confirm [flags]
 
-Flags:
-      --confirm           Confirm removal of all sandbox grants
-      --json              Print JSON output
-  -h, --help              Show this help
+Opções:
+      --confirm           Confirma a remoção de todas as permissões do ambiente isolado
+      --json              Imprime a saída em JSON
+  -h, --help              Mostra esta ajuda
 `)
 	return err
 }

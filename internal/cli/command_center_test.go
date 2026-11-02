@@ -708,7 +708,7 @@ func TestRunProvidersPositionalHelp(t *testing.T) {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Usage:", "qg providers", "list", "current", "catalog"} {
+	for _, want := range []string{"Uso:", "qg providers", "list", "current", "catalog"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected providers help to contain %q, got %q", want, output)
 		}

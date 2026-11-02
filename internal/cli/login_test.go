@@ -162,7 +162,7 @@ func TestLoginHelp(t *testing.T) {
 		t.Fatalf("exit = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"qg login", "--api-key", "plaintext", "hidden", "--device", "QG_API_KEY", "QUEBRAGALHO_API_KEY", "qg exec --api-key"} {
+	for _, want := range []string{"qg login", "--api-key", "texto puro", "oculta", "--device", "QG_API_KEY", "QUEBRAGALHO_API_KEY", "qg exec --api-key"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("login help missing %q:\n%s", want, out)
 		}
@@ -256,8 +256,8 @@ func TestLoginHelpDocumentsPrecedence(t *testing.T) {
 	// Real order: inline key > environment > saved key.
 	inline := strings.Index(out, "inline")
 	env := strings.Index(out, "QG_API_KEY")
-	saved := strings.LastIndex(out, "saved key")
+	saved := strings.LastIndex(out, "chave salva")
 	if inline < 0 || env < 0 || saved < 0 || !(inline < env && env < saved) {
-		t.Fatalf("help must order inline > env > saved key (idx %d, %d, %d):\n%s", inline, env, saved, out)
+		t.Fatalf("help must order inline > env > chave salva (idx %d, %d, %d):\n%s", inline, env, saved, out)
 	}
 }

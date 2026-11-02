@@ -151,7 +151,7 @@ func TestEnterRunsCommandSuggestion(t *testing.T) {
 	if m.suggestionsActive() {
 		t.Fatal("running a command suggestion should dismiss the overlay")
 	}
-	if !transcriptContains(m.transcript, "Commands") {
+	if !transcriptContains(m.transcript, "Comandos") {
 		t.Fatal("running /help from suggestions should append help output")
 	}
 }

@@ -284,14 +284,14 @@ func promptExcerpt(p string) string {
 }
 
 func writeCronHelp(w io.Writer) {
-	fmt.Fprint(w, `qg cron — schedule agent jobs (foreground, file-backed)
+	fmt.Fprint(w, `qg cron — agenda tarefas do agente (primeiro plano, em arquivo)
 
-Usage:
+Uso:
   qg cron add <cron-expr> [--prompt P | --recipe R] [--cwd D] [--model M] [--run-now]
   qg cron list
   qg cron pause <id> | resume <id> | rm <id>
   qg cron run [--once] [--catch-up] [id...]
 
-Cron expression: standard 5 fields "minute hour day-of-month month day-of-week".
+Expressão cron: 5 campos padrão "minute hour day-of-month month day-of-week".
 `)
 }

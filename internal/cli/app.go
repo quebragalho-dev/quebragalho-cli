@@ -403,7 +403,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	case "-v", "--version", "version":
 		for _, a := range args[1:] {
 			if a == "-h" || a == "--help" {
-				if _, err := fmt.Fprintln(stdout, "Usage: qg version\n\nPrint the QG CLI version. Takes no flags."); err != nil {
+				if _, err := fmt.Fprintln(stdout, "Usage: qg version\n\nMostra a versão da CLI do QG. Não aceita flags."); err != nil {
 					return 1
 				}
 				return 0
@@ -1391,64 +1391,64 @@ func writeUsageError(stderr io.Writer, message string) int {
 }
 
 func writeHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `QG terminal coding agent
+	_, err := fmt.Fprint(w, `Agente de codificação QG no terminal
 
-Usage:
+Uso:
   qg [command]
 
-Commands:
-  exec       Run a one-shot prompt through the Go agent runtime
-  completions Generate shell completion scripts
-  daemon     Manage the local background worker daemon (start/stop/status/run/attach)
-  setup      Guide first-run provider setup
-  login      Save and validate your Quebra Galho API key
-  logout     Remove saved Quebra Galho credentials
-  config     Inspect resolved Go configuration without leaking secrets
-  models     List QG model registry entries
-  balance    Show the live Quebra Galho wallet balance
-  key        Show the active API key profile (alias: whoami)
-  whoami     Alias for key
-  providers  Inspect resolved provider profiles
-  doctor     Run backend health checks for config and provider setup
-  context    Report workspace context budget usage
-  repo-map   Build a deterministic repository map for agent context
-  search     Search persisted local QG session events
-  find       Alias for search
-  sessions   Inspect local QG session lineage
-  spec       Review and approve saved spec-mode drafts
-  specialist Manage local QG specialist profiles
-  plugins    Inspect, install, and remove local QG plugins
-  backends   Inspect MCP, hook, and plugin backend lifecycle state
-  skills     Inspect, install, and remove local QG skills
-  tools      Scaffold and list local QG plugin-tools
-  hooks      Inspect QG hook configuration
-  mcp        Manage MCP backend settings
-  auth       Log in to model providers via OAuth
-  sandbox    Inspect sandbox policy and persistent grants
-  update     Check or apply QG CLI updates (requires --check or --apply)
-  upgrade    Download, verify, and install available QG CLI updates
-  worktrees  Prepare isolated git worktrees
-  verify     Detect and run local verification checks
-  eval       Validate offline agent eval suites
-  changes    Inspect and commit local git changes
-  usage      Query gateway token usage (usage report = local session summary)
-  cron       Schedule agent jobs (foreground, file-backed)
-  repo-info  Characterize the current repository (local git only)
-  serve      Run QG protocol servers
-  acp        Serve the Agent Client Protocol over stdio (editor backend)
-  help       Show this help
-  version    Print version
+Comandos:
+  exec        Executa uma mensagem única no runtime do agente em Go
+  completions Gera scripts de completion para o shell
+  daemon      Gerencia o worker daemon local em segundo plano (start/stop/status/run/attach)
+  setup       Guia a configuração inicial do provedor
+  login       Salva e valida sua chave de API da Quebra Galho
+  logout      Remove as credenciais salvas da Quebra Galho
+  config      Inspeciona a configuração Go resolvida sem expor segredos
+  models      Lista as entradas do registro de modelos da QG
+  balance     Mostra o saldo atual da carteira Quebra Galho
+  key         Mostra o perfil ativo da chave de API (alias: whoami)
+  whoami      Alias de key
+  providers   Inspeciona os perfis de provedor configurados
+  doctor      Executa verificações de saúde do backend de configuração e provedor
+  context     Relata o uso do orçamento de contexto da pasta de trabalho
+  repo-map    Monta um mapa determinístico do repositório para o agente
+  search      Pesquisa eventos de sessão locais da QG
+  find        Alias de search
+  sessions    Inspeciona a linhagem das sessões locais da QG
+  spec        Revisa e aprova rascunhos salvos do modo spec
+  specialist  Gerencia perfis de especialista locais da QG
+  plugins     Inspeciona, instala e remove plugins locais da QG
+  backends    Inspeciona o ciclo de vida dos backends de MCP, hook e plugin
+  skills      Inspeciona, instala e remove skills locais da QG
+  tools       Cria modelos e lista plugin-tools locais da QG
+  hooks       Inspeciona a configuração de hooks da QG
+  mcp         Gerencia as configurações do backend MCP
+  auth        Faz login nos provedores de modelo via OAuth
+  sandbox     Inspeciona a política do ambiente isolado e permissões salvas
+  update      Verifica ou aplica atualizações da CLI QG (exige --check ou --apply)
+  upgrade     Baixa, verifica e instala atualizações disponíveis da CLI QG
+  worktrees   Prepara worktrees git isoladas
+  verify      Detecta e executa verificações locais
+  eval        Valida suítes offline de eval de agentes
+  changes     Inspeciona mudanças git locais e faz commit
+  usage       Consulta tokens do gateway (relatório de uso = resumo local)
+  cron        Agenda tarefas do agente (primeiro plano, em arquivo)
+  repo-info   Caracteriza o repositório atual (só git local)
+  serve       Executa servidores de protocolo da QG
+  acp         Serve o Agent Client Protocol via stdio (backend de editor)
+  help        Mostra esta ajuda
+  version     Mostra a versão
 
-Flags:
-  -h, --help                     Show this help
-  -v, --version                  Print version
-  -p, --prompt                   Run a one-shot prompt
-      --add-dir <path>           Allow writes in an extra directory (repeatable)
-      --allow-escalation         Let the agent escalate to a stronger model mid-run via escalate_model
-      --no-browser               Show the first-run login link without opening a browser (or set QG_NO_BROWSER=1)
+Opções:
+  -h, --help                     Mostra esta ajuda
+  -v, --version                  Mostra a versão
+  -p, --prompt                   Executa uma mensagem única
+      --add-dir <path>           Permite escrita em pasta extra (repetível)
+      --allow-escalation         Deixa o agente escalar para um modelo mais forte via escalate_model
+      --no-browser               Mostra o link de login inicial sem abrir o navegador (ou defina QG_NO_BROWSER=1)
       --dangerously-skip-permissions
-                                Launch the interactive shell in unsafe mode (enables the ! shell escape)
-      --skip-permissions-unsafe  Alias for --dangerously-skip-permissions
+                                 Abre o shell interativo no modo sem confirmação (ativa o escape ! do shell)
+      --skip-permissions-unsafe  Alias de --dangerously-skip-permissions
 `)
 	return err
 }
@@ -1670,63 +1670,63 @@ func writePromptRequired(stderr io.Writer) int {
 }
 
 func writeExecHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg exec [flags] [prompt]
 
-Runs a one-shot prompt through the Go agent runtime.
+Executa uma mensagem única no runtime do agente em Go.
 
-Flags:
-  -f, --file <path>                  Read prompt text from a file
-      --image <path>                 Attach a local image (repeatable; vision models only)
-      --add-dir <path>               Allow writes in an extra directory (repeatable)
-      --mode <name>                  Apply a preset (smart, deep, fast, large, precise); explicit flags override it
-  -m, --model <model>                Select the model for provider setup
-      --api-key <key>                Override the API key for this run (outranks QG_API_KEY,
-                                    QUEBRAGALHO_API_KEY, and the stored credential)
-      --use-spec                     Draft a spec first and stop for review
-      --spec-model <model>           Override the draft model when --use-spec is set
+Opções:
+  -f, --file <path>                  Lê o texto da mensagem de um arquivo
+      --image <path>                 Anexa uma imagem local (repetível; só modelos de visão)
+      --add-dir <path>               Permite escrita em pasta extra (repetível)
+      --mode <name>                  Aplica um preset (smart, deep, fast, large, precise); flags explícitas têm prioridade
+  -m, --model <model>                Seleciona o modelo para a configuração do provedor
+      --api-key <key>                Troca a chave de API desta execução (vale mais que QG_API_KEY,
+                                     QUEBRAGALHO_API_KEY e a credencial salva)
+      --use-spec                     Rascunha uma spec primeiro e para para revisão
+      --spec-model <model>           Troca o modelo do rascunho quando --use-spec está ativo
       --spec-reasoning-effort <effort>
-                                    Override draft reasoning effort when --use-spec is set
-      --plan                         Read-only planning mode: write and shell tools are hidden
-      --permission-mode <mode>       Set permission mode directly (plan, spec-draft, auto, member,
-                                    ask, unsafe). Outranks --auto; prefer --plan / --auto for
-                                    interactive use. Used by specialist/swarm child processes.
-      --max-turns <number>           Override the maximum agent loop turns
-      --exec-profile <name>          Apply an execution profile (balanced, fast, thorough): loop
-                                    posture only (turn budget, effort, self-correction, escalation);
-                                    composes with --mode (which picks the model) and explicit flags win
-      --auto <low|medium|high>       Set exec autonomy; high enables unsafe tools
-      --enabled-tools <tools>        Only expose these comma or space separated tools
-      --disabled-tools <tools>       Hide these comma or space separated tools
-      --list-tools                   List model-visible tools and exit
-      --profile <profile>            Accept legacy model profile selection
-  -r, --reasoning-effort <effort>    Accept legacy reasoning effort selection
-  -C, --cwd <path>                   Set the workspace directory
-  -w, --worktree [name]              Run from an isolated git worktree
-      --worktree-dir <path>          Base directory for created worktrees
+                                     Troca o nível de raciocínio do rascunho quando --use-spec está ativo
+      --plan                         Modo de planejamento só leitura: ferramentas de escrita e shell ficam ocultas
+      --permission-mode <mode>       Define o modo de permissão direto (plan, spec-draft, auto, member,
+                                     ask, unsafe). Vale mais que --auto; prefira --plan / --auto no
+                                     uso interativo. Usado por processos filhos de especialista/swarm.
+      --max-turns <number>           Troca o máximo de turnos do loop do agente
+      --exec-profile <name>          Aplica um perfil de execução (balanced, fast, thorough): só postura
+                                     do loop (orçamento de turnos, esforço, autocorreção, escalação);
+                                     combina com --mode (que escolhe o modelo) e flags explícitas vencem
+      --auto <low|medium|high>       Define a autonomia da execução; high ativa ferramentas sem confirmação
+      --enabled-tools <tools>        Expõe só estas ferramentas separadas por vírgula ou espaço
+      --disabled-tools <tools>       Oculta estas ferramentas separadas por vírgula ou espaço
+      --list-tools                   Lista as ferramentas visíveis ao modelo e sai
+      --profile <profile>            Aceita seleção legada de perfil de modelo
+  -r, --reasoning-effort <effort>    Aceita seleção legada de nível de raciocínio
+  -C, --cwd <path>                   Define a pasta de trabalho
+  -w, --worktree [name]              Executa a partir de uma worktree git isolada
+      --worktree-dir <path>          Pasta base das worktrees criadas
   -i, --input-format text|stream-json
-                                    Select prompt input format
+                                     Seleciona o formato de entrada da mensagem
   -o, --output-format text|json|stream-json
-                                    Select text, JSON, or schema-versioned JSONL output
-                                    ("debug" is accepted as a stream-json alias)
-      --prompt <prompt>              Provide prompt text as a flag
-      --resume [id]                  Resume a session; omit id to use the latest
-      --fork <id>                    Fork an existing session into a new session
-      --calling-session-id <id>      Parent session id for specialist child runs
-      --calling-tool-use-id <id>     Parent tool-call id for specialist child runs
-      --tag <tag>                    Attach runtime tag metadata to the exec run
-      --depth <number>               Set specialist nesting depth metadata
-      --session-title <text>         Set the created session title
-      --init-session-id <id>         Create a new exec session with this id
-      --dangerously-skip-permissions Allow prompt-gated tools without approval
-      --skip-permissions-unsafe      Alias for --dangerously-skip-permissions
-      --allow-escalation             Let the agent escalate to a stronger model mid-run via escalate_model
-      --self-correct                 Run the post-edit verify-and-correct loop (auto-fix needs --auto medium or high)
+                                     Seleciona saída em texto, JSON ou JSONL com versão de schema
+                                     ("debug" é aceito como alias de stream-json)
+      --prompt <prompt>              Passa o texto da mensagem como flag
+      --resume [id]                  Retoma uma sessão; omita o id para usar a mais recente
+      --fork <id>                    Faz fork de uma sessão existente em uma sessão nova
+      --calling-session-id <id>      Id da sessão pai para execuções filhas de especialista
+      --calling-tool-use-id <id>     Id da chamada de ferramenta pai para execuções filhas de especialista
+      --tag <tag>                    Anexa metadados de tag do runtime à execução
+      --depth <number>               Define metadados de profundidade de aninhamento do especialista
+      --session-title <text>         Define o título da sessão criada
+      --init-session-id <id>         Cria uma sessão nova de execução com este id
+      --dangerously-skip-permissions Permite ferramentas com gate de mensagem sem aprovação
+      --skip-permissions-unsafe      Alias de --dangerously-skip-permissions
+      --allow-escalation             Deixa o agente escalar para um modelo mais forte via escalate_model
+      --self-correct                 Executa o loop pós-edição de verificar e corrigir (a correção automática precisa de --auto medium ou high)
       --notify <off|bell|notify|both>
-                                    Override notification mode for this run
-      --no-notify                   Disable notifications for this run
-      --no-completion-gate          Accept a no-tool-call reply as final without the INCOMPLETE
-                                    downgrade (for conversational callers with an operator present)
+                                     Troca o modo de notificação desta execução
+      --no-notify                    Desativa notificações desta execução
+      --no-completion-gate           Aceita uma resposta sem chamada de ferramenta como final sem o rebaixamento
+                                     INCOMPLETE (para chamadores conversacionais com um operador presente)
 `)
 	return err
 }
