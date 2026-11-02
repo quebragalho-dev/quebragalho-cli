@@ -411,7 +411,7 @@ func TestSetupCredentialLinesCenterLikeWelcome(t *testing.T) {
 	assertSetupLineCentered(t, view, "Sua chave de API do Quebra Galho", m.width)
 	assertSetupLineCentered(t, view, "Cole a chave", m.width)
 	assertSetupLineCentered(t, view, "cole a chave", m.width)
-	assertSetupLineCentered(t, view, "Chaves salvas", m.width)
+	assertSetupLineCentered(t, view, "As chaves salvas", m.width)
 }
 
 func TestSetupCredentialEmptyInputDoesNotHighlightPlaceholder(t *testing.T) {

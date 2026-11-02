@@ -182,7 +182,7 @@ func doctorActions(checks []doctor.Check, backend *qgcommands.BackendLifecycleSn
 		switch check.ID {
 		case "provider.config", "provider.model":
 			add("qg login - conectar ao Quebra Galho pelo terminal")
-			add("/doctor fix - abre o reparo guiado de diagnóstico")
+			add("/doctor fix - reparo guiado do diagnóstico")
 		case "provider.connectivity":
 			add("/doctor --connectivity - testa o endpoint do provedor")
 		case "sandbox.backend":

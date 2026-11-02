@@ -206,7 +206,7 @@ func TestMCPCommandRendersConfiguredStateWithoutAgentRun(t *testing.T) {
 		"d desativar",
 		"r remover",
 		"Enter abrir",
-		"Esc fechar",
+		"Esc sair",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected clean MCP manager overlay to contain %q, got:\n%s", want, text)

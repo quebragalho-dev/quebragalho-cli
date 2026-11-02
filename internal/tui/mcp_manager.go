@@ -359,7 +359,7 @@ func (m model) mcpManagerOverlay(width int) string {
 		lines = append(lines, detail...)
 	}
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
-	lines = append(lines, fillPaletteLine(qgTheme.faint.Render("digite para buscar   ↑/↓ navegar   Enter abrir   Alt+d desativar   Esc fechar"), innerWidth, transparentSurface))
+	lines = append(lines, fillPaletteLine(qgTheme.faint.Render("digite para buscar   ↑/↓ navegar   Enter abrir   Alt+d desativar   Esc sair"), innerWidth, transparentSurface))
 	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Gerenciar servidores MCP", lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
 

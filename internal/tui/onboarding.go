@@ -925,7 +925,7 @@ func (m model) setupCredentialLines(width int) []string {
 		"",
 		m.setupAPIKeyInputLine(width),
 		"",
-		qgTheme.faint.Render("Chaves salvas ficam criptografadas na sua configuração."),
+		qgTheme.faint.Render("As chaves salvas ficam criptografadas."),
 		qgTheme.faint.Render("Para trocar a chave depois, use: qg login (ou qg login --device)"),
 	}
 }

@@ -1769,11 +1769,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mcpCommandCancel != nil {
 				m.cancelMCPCommand()
 				if m.mcpAddWizard != nil {
-					m.mcpAddWizard.result = mcpAddWizardResult{Title: "MCP setup cancelled", State: "cancelled", Message: "MCP action was cancelled.", ActionHint: "Edit config"}
+					m.mcpAddWizard.result = mcpAddWizardResult{Title: "Configuração de MCP cancelada", State: "cancelado", Message: "Ação de MCP cancelada.", ActionHint: "Editar configuração"}
 					m.mcpAddWizard.step = mcpAddWizardStepResult
 					return m, nil
 				}
-				m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, tool: "mcp", text: "MCP action cancelled"})
+				m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, tool: "mcp", text: "Ação de MCP cancelada"})
 				return m, nil
 			}
 			if m.transcriptDetailed {

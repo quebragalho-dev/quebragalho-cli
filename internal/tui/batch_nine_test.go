@@ -117,7 +117,7 @@ func TestBatchNineModelPickerDoesNotOfferOtherProviders(t *testing.T) {
 }
 
 func TestBatchNineStaleModelChoiceCannotActivateProvider(t *testing.T) {
-	for _, title := range []string{"Choose a model", "Escolher modelo"} {
+	for _, title := range []string{"Choose a model", "Selecionar modelo"} {
 		t.Run(title, func(t *testing.T) {
 			m := batchThreeLiveModel(t)
 			m.savedProviders = []config.ProviderProfile{{Name: "legacy", CatalogID: "qg", Model: "foreign-model", APIKey: "fixture"}}
