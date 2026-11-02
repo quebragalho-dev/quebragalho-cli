@@ -76,7 +76,7 @@ func TestPermissionOptionsExposeApprovalCancelWhenSupplied(t *testing.T) {
 
 	card, _ := renderFocusedPermissionPrompt(request, 3, false, "", 80)
 	got := plainRender(t, card)
-	for _, want := range []string{"continue without running it", "[d]", "tell QG what to do differently", "[n]"} {
+	for _, want := range []string{"Não, continuar sem executar", "[d]", "Não, e diga ao QG o que fazer diferente", "[n]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
@@ -99,7 +99,7 @@ func TestPermissionOptionsExposeCommandPrefixApproval(t *testing.T) {
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 1, false, "", 100)
 	got := plainRender(t, card)
-	for _, want := range []string{"allow `git status` in this session", "[p]"} {
+	for _, want := range []string{"permitir `git status` nesta sessão", "[p]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
@@ -118,7 +118,7 @@ func TestPermissionPromptMapsEscalatedSandboxReason(t *testing.T) {
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 0, false, "", 96)
 	got := plainRender(t, card)
-	if !strings.Contains(got, "This command needs to run outside the sandbox.") {
+	if !strings.Contains(got, "Este comando precisa rodar fora do ambiente isolado.") {
 		t.Fatalf("permission card = %q, missing user-facing sandbox reason", got)
 	}
 	if strings.Contains(got, sandbox.ReasonEscalatedSandboxRequired) {
@@ -166,7 +166,7 @@ func TestPermissionOptionsExposePersistentCommandPrefixApproval(t *testing.T) {
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 2, false, "", 100)
 	got := plainRender(t, card)
-	for _, want := range []string{"always allow `git status`", "[y]"} {
+	for _, want := range []string{"sempre permitir `git status`", "[y]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
@@ -184,10 +184,10 @@ func TestPermissionOptionsCanExposePatchCancelWithoutRecoverableDeny(t *testing.
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 2, false, "", 80)
 	got := plainRender(t, card)
-	if !strings.Contains(got, "tell QG what to do differently") || !strings.Contains(got, "[n]") {
+	if !strings.Contains(got, "Não, e diga ao QG o que fazer diferente") || !strings.Contains(got, "[n]") {
 		t.Fatalf("permission card = %q, missing cancel option", got)
 	}
-	if strings.Contains(got, "continue without running it") || strings.Contains(got, "[d]") {
+	if strings.Contains(got, "Não, continuar sem executar") || strings.Contains(got, "[d]") {
 		t.Fatalf("apply_patch approval must not show recoverable deny, got %q", got)
 	}
 }
@@ -208,13 +208,13 @@ func TestRequestPermissionsPromptUsesGrantLabelsAndEscDenies(t *testing.T) {
 	card, _ := renderFocusedPermissionPrompt(request, 1, false, "", 96)
 	got := plainRender(t, card)
 	for _, want := range []string{
-		"Grant requested permissions?",
-		"permissions: write /tmp/project",
-		"Grant for this task",
-		"Grant for this task and ask model to review commands",
-		"Grant for this session",
-		"Continue without permissions",
-		"[esc] continue without permissions",
+		"Conceder as permissões pedidas?",
+		"permissões: write /tmp/project",
+		"Conceder para esta tarefa",
+		"Conceder para esta tarefa e pedir ao modelo para revisar os comandos",
+		"Conceder para esta sessão",
+		"Continuar sem permissões",
+		"[esc] continuar sem permissões",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("request_permissions card = %q, missing %q", got, want)
@@ -376,7 +376,7 @@ func TestPermissionRenderEmitsHighlightedClickableOffsets(t *testing.T) {
 	}
 	lines := strings.Split(plainRender(t, card), "\n")
 	future := offsets[2]
-	if future < 0 || future >= len(lines) || !strings.Contains(lines[future], "always") {
+	if future < 0 || future >= len(lines) || !strings.Contains(lines[future], "sempre permitir") {
 		t.Fatalf("offset[2] (%d) should point at the future line; lines=%#v", future, lines)
 	}
 	if !strings.Contains(lines[future], "▸") {
@@ -393,12 +393,12 @@ func TestPermissionRenderShowsNetworkTargetAndHostScopedAlways(t *testing.T) {
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 1, false, "", 72)
 	got := plainRender(t, card)
-	for _, want := range []string{"target: example.com", "allow this host for this conversation", "[s]", "allow this host in the future", "[y]"} {
+	for _, want := range []string{"destino: example.com", "Sim, e permitir este host nesta conversa", "[s]", "Sim, e permitir este host no futuro", "[y]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
 	}
-	if strings.Contains(got, "scope: example.com") {
+	if strings.Contains(got, "escopo: example.com") {
 		t.Fatalf("network prompt should render target label, got %q", got)
 	}
 }

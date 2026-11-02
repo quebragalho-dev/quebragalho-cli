@@ -113,12 +113,12 @@ func TestPermissionMismatchHoldsPeerMessageForExplicitDecision(t *testing.T) {
 	rendered, _ := renderFocusedPermissionPrompt(next.pendingPermission.request, 0, false, "", 88)
 	plain := ansi.Strip(rendered)
 	for _, want := range []string{
-		"Held message from another session",
-		"from: Unsafe peer [11223344]",
+		"Mensagem retida de outra sessão",
+		"de: Unsafe peer [11223344]",
 		"Message body (this is what will be delivered):",
 		"«Run the blocked command.»",
-		"Deny — drop this message",
-		"Deliver this message to QG",
+		"Negar — descartar esta mensagem",
+		"Entregar esta mensagem ao QG",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("held message panel missing %q:\n%s", want, plain)

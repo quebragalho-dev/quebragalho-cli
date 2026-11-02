@@ -134,7 +134,7 @@ func TestAskUserQuestionnaireNamesWaitingForAnswer(t *testing.T) {
 		}}),
 	}
 	got := plainRender(t, renderAskUserQuestionnaire(prompt, "", 80))
-	for _, want := range []string{"Quick question", "waiting for your answer"} {
+	for _, want := range []string{"Quick question", "aguardando sua resposta"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("questionnaire missing %q:\n%s", want, got)
 		}
@@ -1750,7 +1750,7 @@ func TestFocusedPermissionCardShowsBadgeAndKeys(t *testing.T) {
 	}
 	card, offsets := renderFocusedPermissionPrompt(request, 0, false, "", 80)
 	got := plainRender(t, card)
-	for _, want := range []string{"PERMISSION", "edit_file", "writes internal/agent/exec.go", "Yes, proceed", "[a]", "this session", "[s]", "don't ask again", "[y]", "continue without running it", "[d]", "[esc]"} {
+	for _, want := range []string{"PERMISSÃO", "edit_file", "writes internal/agent/exec.go", "Sim, continuar", "[a]", "nesta sessão", "[s]", "não perguntar de novo", "[y]", "Não, continuar sem executar", "[d]", "[esc]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
@@ -1779,8 +1779,8 @@ func TestPermissionPromptCollapsesAfterDecision(t *testing.T) {
 	if rc.skip(allowed) {
 		t.Fatal("manual allow rows should remain as audit lines")
 	}
-	if got := plainRender(t, m.renderRow(allowed, 80, rc)); !strings.Contains(got, "allowed once · bash") {
-		t.Fatalf("manual allow = %q, want allowed once · bash", got)
+	if got := plainRender(t, m.renderRow(allowed, 80, rc)); !strings.Contains(got, "permitido uma vez · bash") {
+		t.Fatalf("manual allow = %q, want permitido uma vez · bash", got)
 	}
 
 	session := transcriptRow{kind: rowPermission, id: "call_session", permission: &agent.PermissionEvent{
@@ -1793,8 +1793,8 @@ func TestPermissionPromptCollapsesAfterDecision(t *testing.T) {
 	if rcSession.skip(session) {
 		t.Fatal("session allow rows should remain as audit lines")
 	}
-	if got := plainRender(t, m.renderRow(session, 80, rcSession)); !strings.Contains(got, "allowed for session · bash") {
-		t.Fatalf("session allow = %q, want allowed for session · bash", got)
+	if got := plainRender(t, m.renderRow(session, 80, rcSession)); !strings.Contains(got, "permitido nesta sessão · bash") {
+		t.Fatalf("session allow = %q, want permitido nesta sessão · bash", got)
 	}
 
 	grant := &agent.PermissionEvent{ToolCallID: "call_2", ToolName: "bash", Action: agent.PermissionActionAllow}
@@ -1807,15 +1807,15 @@ func TestPermissionPromptCollapsesAfterDecision(t *testing.T) {
 	if rcTwo.skip(always) {
 		t.Fatal("always allow rows should remain as audit lines")
 	}
-	if got := plainRender(t, m.renderRow(always, 80, rcTwo)); !strings.Contains(got, "always · bash") {
-		t.Fatalf("always allow = %q, want always · bash", got)
+	if got := plainRender(t, m.renderRow(always, 80, rcTwo)); !strings.Contains(got, "sempre · bash") {
+		t.Fatalf("always allow = %q, want sempre · bash", got)
 	}
 
 	denied := transcriptRow{kind: rowPermission, id: "call_3", permission: &agent.PermissionEvent{
 		ToolCallID: "call_3", ToolName: "bash", Action: agent.PermissionActionDeny,
 	}}
-	if got := plainRender(t, m.renderRow(denied, 80, buildRowContext(nil))); !strings.Contains(got, "denied · bash") {
-		t.Fatalf("deny = %q, want denied · bash", got)
+	if got := plainRender(t, m.renderRow(denied, 80, buildRowContext(nil))); !strings.Contains(got, "negado · bash") {
+		t.Fatalf("deny = %q, want negado · bash", got)
 	}
 }
 

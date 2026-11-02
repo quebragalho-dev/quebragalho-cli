@@ -40,8 +40,26 @@ func TestPrefixOptionsDiscloseLeavingTheSandbox(t *testing.T) {
 		t.Fatalf("expected both prefix options, got %#v", labels)
 	}
 	for _, label := range labels {
-		if !strings.Contains(label, "outside the sandbox") {
+		if !strings.Contains(label, "fora do ambiente isolado") {
 			t.Errorf("prefix option %q does not say the command leaves the sandbox, so approving it is uninformed consent", label)
+		}
+	}
+}
+
+// The disclosure must survive rendering: the card shows override labels,
+// not the base option text, so a suffix that only exists on the base label
+// would never reach the person deciding.
+func TestRenderedPrefixOptionsDiscloseLeavingTheSandbox(t *testing.T) {
+	request := prefixRequest(true)
+	request.CommandPrefix = []string{"git", "status"}
+	card, _ := renderFocusedPermissionPrompt(request, 1, false, "", 100)
+	got := plainRender(t, card)
+	for _, want := range []string{
+		"permitir `git status` nesta sessão (fora do ambiente isolado)",
+		"sempre permitir `git status` (fora do ambiente isolado)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered prefix card = %q, missing %q", got, want)
 		}
 	}
 }

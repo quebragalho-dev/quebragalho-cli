@@ -1782,7 +1782,7 @@ func TestAgentResponsePreservesPermissionMetadata(t *testing.T) {
 		t.Fatalf("permission metadata was not preserved: %#v", row)
 	}
 	rendered := next.renderRow(row, 96, buildRowContext(next.transcript))
-	for _, want := range []string{"permission", "write_file", "prompt", "Creates or overwrites"} {
+	for _, want := range []string{"permissão", "write_file", "mensagem", "Creates or overwrites"} {
 		assertContains(t, rendered, want)
 	}
 	for _, blocked := range []string{"risk:", "risk=", "mode=", "permission=", "side_effect=", "autonomy="} {
@@ -1820,7 +1820,7 @@ func TestPermissionRequestShowsFocusedPrompt(t *testing.T) {
 		t.Fatalf("expected permission row to preserve scope %q, got %#v", request.Scope, row)
 	}
 	view := plainRender(t, next.View())
-	for _, want := range []string{"write_file", "Yes, proceed", "[a]", "these files in this session", "[s]", "don't ask again for this scope", "[y]", "continue without running it", "[d]", "scope: src/main.go", "Creates or overwrites files."} {
+	for _, want := range []string{"write_file", "Sim, continuar", "[a]", "estes arquivos nesta sessão", "[s]", "não perguntar de novo para este escopo", "[y]", "Não, continuar sem executar", "[d]", "escopo: src/main.go", "Creates or overwrites files."} {
 		assertContains(t, view, want)
 	}
 	if strings.Contains(view, "risk:") || strings.Contains(view, "risk=") {
@@ -1933,7 +1933,7 @@ func TestPermissionRowRendersSandboxBlocks(t *testing.T) {
 
 	rendered := newModel(context.Background(), Options{}).renderRow(permissionTranscriptRow(event), 96, buildRowContext(nil))
 
-	for _, want := range []string{"write_file", "denied", "outside workspace", "../secret.txt"} {
+	for _, want := range []string{"write_file", "negado", "fora da pasta de trabalho", "../secret.txt"} {
 		assertContains(t, rendered, want)
 	}
 	for _, blocked := range []string{"risk:", "risk=", "block=", "mode=", "permission=", "side_effect=", "autonomy="} {
@@ -1964,7 +1964,7 @@ func TestPermissionRowRendersIdenticalEventAndBlockReasonOnce(t *testing.T) {
 	if count := strings.Count(event.Reason+"\n"+row.detail, reason); count != 1 {
 		t.Fatalf("permission reason represented %d times, want once: detail=%q", count, row.detail)
 	}
-	for _, want := range []string{"denied by user", "outside workspace", "path: /home/dev/.nvm"} {
+	for _, want := range []string{"negado por você", "fora da pasta de trabalho", "caminho: /home/dev/.nvm"} {
 		if !strings.Contains(row.detail, want) {
 			t.Fatalf("permission detail missing %q: %q", want, row.detail)
 		}

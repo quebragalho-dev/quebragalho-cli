@@ -436,21 +436,21 @@ func permissionDetailText(event agent.PermissionEvent) string {
 func permissionDecisionDetail(decision agent.PermissionDecisionAction) string {
 	switch decision {
 	case agent.PermissionDecisionAllow:
-		return "approved once"
+		return "aprovado uma vez"
 	case agent.PermissionDecisionAllowStrict:
-		return "approved with review"
+		return "aprovado com revisão"
 	case agent.PermissionDecisionAllowForSession:
-		return "approved for this session"
+		return "aprovado para esta sessão"
 	case agent.PermissionDecisionAllowPrefix:
-		return "approved command prefix for this session"
+		return "prefixo de comando aprovado para esta sessão"
 	case agent.PermissionDecisionAlwaysAllowPrefix:
-		return "always approved command prefix"
+		return "prefixo de comando sempre aprovado"
 	case agent.PermissionDecisionAlwaysAllow:
-		return "always approved"
+		return "sempre aprovado"
 	case agent.PermissionDecisionDeny:
-		return "denied by user"
+		return "negado por você"
 	case agent.PermissionDecisionCancel:
-		return "cancelled by user"
+		return "cancelado por você"
 	default:
 		return strings.ReplaceAll(string(decision), "_", " ")
 	}
@@ -460,9 +460,9 @@ func permissionBlockDetail(event agent.PermissionEvent) string {
 	if event.Block == nil {
 		return ""
 	}
-	parts := []string{"blocked: " + permissionBlockLabel(string(event.Block.Code))}
+	parts := []string{"bloqueado: " + permissionBlockLabel(string(event.Block.Code))}
 	if path := strings.TrimSpace(event.Block.Path); path != "" {
-		parts = append(parts, "path: "+path)
+		parts = append(parts, "caminho: "+path)
 	}
 	reason := permissionDisplayReason(event.Block.Reason)
 	eventReason := permissionDisplayReason(event.Reason)
@@ -475,21 +475,21 @@ func permissionBlockDetail(event agent.PermissionEvent) string {
 func permissionBlockLabel(code string) string {
 	switch code {
 	case "outside_workspace":
-		return "outside workspace"
+		return "fora da pasta de trabalho"
 	case "symlink_traversal":
-		return "symlink traversal"
+		return "travessia de link simbólico"
 	case "network":
-		return "network access"
+		return "acesso à rede"
 	case "destructive_command":
-		return "destructive command"
+		return "comando destrutivo"
 	case "persistent_deny":
-		return "saved deny"
+		return "negação salva"
 	case "denied_permission":
-		return "permission denied"
+		return "permissão negada"
 	case "context_canceled":
-		return "request cancelled"
+		return "pedido cancelado"
 	case "denied":
-		return "not allowed"
+		return "não permitido"
 	default:
 		return strings.ReplaceAll(code, "_", " ")
 	}
@@ -499,13 +499,13 @@ func permissionDisplayReason(reason string) string {
 	reason = strings.TrimSpace(reason)
 	switch reason {
 	case "network access requires approval":
-		return "Network access requires approval."
+		return "O acesso à rede precisa de aprovação."
 	case sandbox.ReasonEscalatedSandboxRequired:
-		return "This command needs to run outside the sandbox."
+		return "Este comando precisa rodar fora do ambiente isolado."
 	case "sandbox output is limited to the sandbox PID namespace; host/global state requires approval":
-		return "Host/global state is hidden by the sandbox, so this command needs to run outside it."
+		return "O estado de host/global fica oculto pelo ambiente isolado, então este comando precisa rodar fora dele."
 	case "workspace write is allowed":
-		return "Workspace write is allowed."
+		return "A escrita na pasta de trabalho é permitida."
 	default:
 		return reason
 	}

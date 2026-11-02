@@ -65,11 +65,11 @@ func TestAskUserSinglePickerDefaultsToRecommendedAndSubmits(t *testing.T) {
 		t.Fatalf("expected cursor on the recommended option (index 1), got %d", next.pendingAskUser.states[0].cursor)
 	}
 	view := next.View()
-	for _, want := range []string{"Postgres", "SQLite", "MySQL", "(recommended)", askUserTypeMyOwnLabel} {
+	for _, want := range []string{"Postgres", "SQLite", "MySQL", "(recomendado)", askUserTypeMyOwnLabel} {
 		assertContains(t, view, want)
 	}
 	// A single question has no tab row / Confirm step.
-	assertNotContains(t, view, "Confirm")
+	assertNotContains(t, view, "Confirmar")
 
 	updated, _ := next.Update(testKey(tea.KeyEnter))
 	next = updated.(model)
@@ -154,7 +154,7 @@ func TestAskUserMultiSelectIsFreeTextWithSuggestions(t *testing.T) {
 	if !next.pendingAskUser.states[0].typing {
 		t.Fatalf("multi-select must use free-text, got %#v", next.pendingAskUser)
 	}
-	assertContains(t, next.View(), "suggested:")
+	assertContains(t, next.View(), "sugestões:")
 	assertContains(t, next.View(), "lint")
 	next.input.SetValue("lint, typecheck")
 	updated, _ := next.Update(testKey(tea.KeyEnter))
@@ -238,7 +238,7 @@ func TestAskUserMultiQuestionTabbedSubmit(t *testing.T) {
 	if !next.pendingAskUser.onConfirmTab() {
 		t.Fatalf("expected to land on the Confirm tab, active=%d", next.pendingAskUser.active)
 	}
-	assertContains(t, next.View(), "Review and submit")
+	assertContains(t, next.View(), "Revise e envie")
 	// Confirm: submit all.
 	updated, _ = next.Update(testKey(tea.KeyEnter))
 	next = updated.(model)
@@ -311,7 +311,7 @@ func TestAskUserMultiQuestionShowsTabsAndOptions(t *testing.T) {
 		},
 	}, &answers)
 	view := next.View()
-	for _, want := range []string{"Framework", "TypeScript", "Confirm", "Which framework?", "React", "Vue"} {
+	for _, want := range []string{"Framework", "TypeScript", "Confirmar", "Which framework?", "React", "Vue"} {
 		assertContains(t, view, want)
 	}
 }

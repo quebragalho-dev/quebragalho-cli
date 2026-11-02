@@ -37,25 +37,25 @@ func permissionOptions(request agent.PermissionRequest) []permissionOption {
 		seen[decision] = true
 		switch decision {
 		case agent.PermissionDecisionAllow:
-			options = append(options, permissionOption{label: "allow once", hotkey: "a", choice: permissionDecisionAllow})
+			options = append(options, permissionOption{label: "permitir uma vez", hotkey: "a", choice: permissionDecisionAllow})
 		case agent.PermissionDecisionAllowStrict:
-			options = append(options, permissionOption{label: "allow with review", hotkey: "r", choice: permissionDecisionAllowStrict})
+			options = append(options, permissionOption{label: "permitir com revisão", hotkey: "r", choice: permissionDecisionAllowStrict})
 		case agent.PermissionDecisionAllowForSession:
-			options = append(options, permissionOption{label: "allow for session", hotkey: "s", choice: permissionDecisionAllowForSession})
+			options = append(options, permissionOption{label: "permitir nesta sessão", hotkey: "s", choice: permissionDecisionAllowForSession})
 		case agent.PermissionDecisionAllowPrefix:
-			options = append(options, permissionOption{label: prefixApprovalLabel("allow command prefix for session", request), hotkey: "p", choice: permissionDecisionAllowPrefix})
+			options = append(options, permissionOption{label: prefixApprovalLabel("permitir prefixo do comando nesta sessão", request), hotkey: "p", choice: permissionDecisionAllowPrefix})
 		case agent.PermissionDecisionAlwaysAllowPrefix:
-			options = append(options, permissionOption{label: prefixApprovalLabel("always allow command prefix", request), hotkey: "y", choice: permissionDecisionAlwaysAllowPrefix})
+			options = append(options, permissionOption{label: prefixApprovalLabel("sempre permitir prefixo do comando", request), hotkey: "y", choice: permissionDecisionAlwaysAllowPrefix})
 		case agent.PermissionDecisionAlwaysAllow:
-			options = append(options, permissionOption{label: "always", hotkey: "y", choice: permissionDecisionAlwaysAllow})
+			options = append(options, permissionOption{label: "sempre permitir", hotkey: "y", choice: permissionDecisionAlwaysAllow})
 		case agent.PermissionDecisionDeny:
-			options = append(options, permissionOption{label: "deny", hotkey: "d", choice: permissionDecisionDeny})
+			options = append(options, permissionOption{label: "negar", hotkey: "d", choice: permissionDecisionDeny})
 		case agent.PermissionDecisionCancel:
-			options = append(options, permissionOption{label: "cancel", hotkey: "n", choice: permissionDecisionCancel})
+			options = append(options, permissionOption{label: "cancelar", hotkey: "n", choice: permissionDecisionCancel})
 		}
 	}
 	if len(options) == 0 {
-		return []permissionOption{{label: "deny", hotkey: "d", choice: permissionDecisionDeny}}
+		return []permissionOption{{label: "negar", hotkey: "d", choice: permissionDecisionDeny}}
 	}
 	return options
 }
@@ -92,7 +92,7 @@ func (m model) movePermissionCursor(delta int) model {
 
 // confirmPermissionCursor resolves the currently highlighted option. It is the
 // Enter-key counterpart to the a/y/d hotkeys and a mouse click. Confirming the
-// "tell QG what to do differently" choice opens the inline feedback field
+// "Não, e diga ao QG o que fazer diferente" choice opens the inline feedback field
 // instead of resolving immediately.
 func (m model) confirmPermissionCursor() (tea.Model, tea.Cmd) {
 	if m.pendingPermission == nil {
@@ -106,7 +106,7 @@ func (m model) confirmPermissionCursor() (tea.Model, tea.Cmd) {
 }
 
 // choosePermissionOption applies a chosen decision. The cancel choice (the
-// "tell QG what to do differently" row and its [n] hotkey) opens the inline
+// "Não, e diga ao QG o que fazer diferente" row and its [n] hotkey) opens the inline
 // feedback field rather than aborting the run; every other choice resolves
 // immediately as before.
 func (m model) choosePermissionOption(choice permissionDecision) (tea.Model, tea.Cmd) {
@@ -171,5 +171,5 @@ func prefixApprovalLabel(base string, request agent.PermissionRequest) string {
 	if !request.PrefixApprovalEscalates {
 		return base
 	}
-	return base + " (runs outside the sandbox)"
+	return base + prefixEscalationSuffix(request)
 }
