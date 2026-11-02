@@ -109,8 +109,8 @@ func TestCLILaunchHelpersLeaveUserStateAlone(t *testing.T) {
 			if strings.HasPrefix(resolved, seedRoot) {
 				t.Errorf("user config still resolves inside the seeded root (%s): the helper installed no isolation", resolved)
 			}
-			if os.Getenv("QG_CRED_STORAGE") == "" {
-				t.Error("the helper left credential storage resolving keyring-first, so a migrated key can reach the host keychain")
+			if os.Getenv("QG_CRED_STORAGE") != "encrypted-file" {
+				t.Error("the helper did not pin encrypted-file credential storage, so a migrated key can reach the host keychain")
 			}
 		})
 	}
