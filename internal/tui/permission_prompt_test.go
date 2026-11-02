@@ -76,7 +76,7 @@ func TestPermissionOptionsExposeApprovalCancelWhenSupplied(t *testing.T) {
 
 	card, _ := renderFocusedPermissionPrompt(request, 3, false, "", 80)
 	got := plainRender(t, card)
-	for _, want := range []string{"Não, continuar sem executar", "[d]", "Não, e diga ao QG o que fazer diferente", "[n]"} {
+	for _, want := range []string{"Não, continuar sem executar", "[d]", "Não, e dizer ao QG o que fazer de outro jeito", "[n]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
@@ -184,7 +184,7 @@ func TestPermissionOptionsCanExposePatchCancelWithoutRecoverableDeny(t *testing.
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 2, false, "", 80)
 	got := plainRender(t, card)
-	if !strings.Contains(got, "Não, e diga ao QG o que fazer diferente") || !strings.Contains(got, "[n]") {
+	if !strings.Contains(got, "Não, e dizer ao QG o que fazer de outro jeito") || !strings.Contains(got, "[n]") {
 		t.Fatalf("permission card = %q, missing cancel option", got)
 	}
 	if strings.Contains(got, "Não, continuar sem executar") || strings.Contains(got, "[d]") {
@@ -208,10 +208,10 @@ func TestRequestPermissionsPromptUsesGrantLabelsAndEscDenies(t *testing.T) {
 	card, _ := renderFocusedPermissionPrompt(request, 1, false, "", 96)
 	got := plainRender(t, card)
 	for _, want := range []string{
-		"Conceder as permissões pedidas?",
+		"Conceder as permissões solicitadas?",
 		"permissões: write /tmp/project",
 		"Conceder para esta tarefa",
-		"Conceder para esta tarefa e pedir ao modelo para revisar os comandos",
+		"Conceder para esta tarefa e pedir ao modelo que revise os comandos",
 		"Conceder para esta sessão",
 		"Continuar sem permissões",
 		"[esc] continuar sem permissões",

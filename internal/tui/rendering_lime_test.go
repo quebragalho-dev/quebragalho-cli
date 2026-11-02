@@ -1750,7 +1750,7 @@ func TestFocusedPermissionCardShowsBadgeAndKeys(t *testing.T) {
 	}
 	card, offsets := renderFocusedPermissionPrompt(request, 0, false, "", 80)
 	got := plainRender(t, card)
-	for _, want := range []string{"PERMISSÃO", "edit_file", "writes internal/agent/exec.go", "Sim, continuar", "[a]", "nesta sessão", "[s]", "não perguntar de novo", "[y]", "Não, continuar sem executar", "[d]", "[esc]"} {
+	for _, want := range []string{"PERMISSÃO", "edit_file", "writes internal/agent/exec.go", "Sim, prosseguir", "[a]", "nesta sessão", "[s]", "não perguntar de novo", "[y]", "Não, continuar sem executar", "[d]", "[esc]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}

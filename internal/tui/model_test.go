@@ -1782,7 +1782,7 @@ func TestAgentResponsePreservesPermissionMetadata(t *testing.T) {
 		t.Fatalf("permission metadata was not preserved: %#v", row)
 	}
 	rendered := next.renderRow(row, 96, buildRowContext(next.transcript))
-	for _, want := range []string{"permissão", "write_file", "mensagem", "Creates or overwrites"} {
+	for _, want := range []string{"permissão", "write_file", "pendente", "Creates or overwrites"} {
 		assertContains(t, rendered, want)
 	}
 	for _, blocked := range []string{"risk:", "risk=", "mode=", "permission=", "side_effect=", "autonomy="} {
@@ -1820,7 +1820,7 @@ func TestPermissionRequestShowsFocusedPrompt(t *testing.T) {
 		t.Fatalf("expected permission row to preserve scope %q, got %#v", request.Scope, row)
 	}
 	view := plainRender(t, next.View())
-	for _, want := range []string{"write_file", "Sim, continuar", "[a]", "estes arquivos nesta sessão", "[s]", "não perguntar de novo para este escopo", "[y]", "Não, continuar sem executar", "[d]", "escopo: src/main.go", "Creates or overwrites files."} {
+	for _, want := range []string{"write_file", "Sim, prosseguir", "[a]", "estes arquivos nesta sessão", "[s]", "não perguntar de novo neste escopo", "[y]", "Não, continuar sem executar", "[d]", "escopo: src/main.go", "Creates or overwrites files."} {
 		assertContains(t, view, want)
 	}
 	if strings.Contains(view, "risk:") || strings.Contains(view, "risk=") {
