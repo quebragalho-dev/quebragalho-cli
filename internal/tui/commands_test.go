@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
@@ -1073,4 +1074,67 @@ func TestSlashHelpPTDescriptionsFit80Cells(t *testing.T) {
 	if got := byName["/spec"]; got != "Escreve uma spec para revisar antes de editar." {
 		t.Fatalf("/spec description = %q", got)
 	}
+	// These two descriptions were shortened once to fit, losing information
+	// (the profile scopes and the /loop example). Any shortening must fail.
+	if got := byName["/profile"]; got != "Mostra ou troca o perfil de execução (turnos, raciocínio, autocorreção, escalação; o modelo não muda)." {
+		t.Fatalf("/profile description = %q", got)
+	}
+	if got := byName["/loop"]; got != "Repete uma mensagem ou comando em intervalo (ex.: /loop 5m /babysit-prs); sem intervalo roda no próprio ritmo." {
+		t.Fatalf("/loop description = %q", got)
+	}
+
+	// Every description must reach the real /help output in full.
+	grouped := formatGroupedCommandHelp()
+	for _, c := range commandDefinitions {
+		if !strings.Contains(grouped, c.description) {
+			t.Errorf("/help drops %s description %q", c.name, c.description)
+		}
+	}
+
+	// Each real /help line must fit 80 cells, except the long lines the base
+	// already ships: those must stay exactly as approved, so a longer
+	// description (a new cut at 80 columns) and a silent shortening both fail.
+	// A new command with a short description passes without touching this table.
+	for _, c := range commandDefinitions {
+		line := "  " + formatCommandHelpLine(c)
+		w := lipgloss.Width(line)
+		if base, ok := slashHelpOver80BaseWidths[c.name]; ok {
+			if w != base {
+				t.Errorf("%s /help line is %d cells, want base %d: %q", c.name, w, base, line)
+			}
+			continue
+		}
+		if w > 80 {
+			t.Errorf("%s /help line exceeds 80 cells (%d): %q", c.name, w, line)
+		}
+	}
+	for name := range slashHelpOver80BaseWidths {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("grandfathered /help width for %s has no command; update the table", name)
+		}
+	}
+}
+
+// slashHelpOver80BaseWidths pins the rendered /help lines that already exceed
+// 80 cells in the approved base. No new line may join them and no pinned line
+// may change without a deliberate table update.
+var slashHelpOver80BaseWidths = map[string]int{
+	"/selfcorrect": 186,
+	"/loop":        184,
+	"/profile":     147,
+	"/voice":       124,
+	"/goal":        124,
+	"/theme":       115,
+	"/add-dir":     115,
+	"/image":       112,
+	"/rewind":      109,
+	"/doctor":      108,
+	"/turns":       98,
+	"/style":       92,
+	"/effort":      92,
+	"/compact":     90,
+	"/config":      89,
+	"/btw":         86,
+	"/plan":        83,
+	"/skills":      81,
 }
