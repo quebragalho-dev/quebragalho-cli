@@ -1,9 +1,8 @@
 package tui
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -181,20 +180,307 @@ func renderAssistantMarkdownText(text string, proseMeasure int, tableMeasure int
 }
 
 func renderStreamingAssistantMarkdownText(text string, proseMeasure int, tableMeasure int) []string {
-	stablePrefix := streamingMarkdownStablePrefix(text)
 	if defaultRenderCache == nil {
-		return renderAssistantMarkdownText(stablePrefix, proseMeasure, tableMeasure, true)
+		return renderAssistantMarkdownText(streamingMarkdownStablePrefix(text), proseMeasure, tableMeasure, true)
 	}
-	key := streamingMarkdownRenderCacheKey(stablePrefix, proseMeasure, tableMeasure)
-	rendered := defaultRenderCache.render(key, true, func() string {
-		return strings.Join(renderAssistantMarkdownText(stablePrefix, proseMeasure, tableMeasure, true), "\n")
-	})
-	return viewLines(rendered)
+	streamMarkdownCache.mu.Lock()
+	defer streamMarkdownCache.mu.Unlock()
+	return streamMarkdownCache.render(text, proseMeasure, tableMeasure)
 }
 
-func streamingMarkdownRenderCacheKey(text string, proseMeasure int, tableMeasure int) string {
-	sum := sha256.Sum256([]byte(text))
-	return fmt.Sprintf("stream-md-v1:%d:%d:%x", proseMeasure, tableMeasure, sum)
+// streamingMarkdownCache renders the streaming answer incrementally. Every
+// frame used to re-parse and re-render the whole accumulated text, so CPU
+// grew with the answer (quadratic over the stream). The closed head of the
+// answer never changes, so it is rendered once and only the open tail is
+// re-rendered per frame. Output is byte-identical to the integral render;
+// see TestStreamingIncrementalMatchesIntegralOnEveryPrefix.
+type streamingMarkdownCache struct {
+	mu           sync.Mutex
+	rawText      string
+	headText     string
+	headLines    []string
+	headHasProse bool
+	fullText     string
+	lines        []string
+	proseMeasure int
+	tableMeasure int
+	tailResume   *streamingParagraphResume
+}
+
+var streamMarkdownCache streamingMarkdownCache
+
+// resetStreamingMarkdownCache drops incremental streaming state. Called when
+// the theme changes (highlight colors are baked into rendered lines) and from
+// staticRenderCache.clear so both caches share one invalidation story.
+func resetStreamingMarkdownCache() {
+	streamMarkdownCache.mu.Lock()
+	defer streamMarkdownCache.mu.Unlock()
+	streamMarkdownCache.rawText = ""
+	streamMarkdownCache.headText = ""
+	streamMarkdownCache.headLines = nil
+	streamMarkdownCache.headHasProse = false
+	streamMarkdownCache.fullText = ""
+	streamMarkdownCache.lines = nil
+	streamMarkdownCache.proseMeasure = 0
+	streamMarkdownCache.tableMeasure = 0
+	streamMarkdownCache.tailResume = nil
+}
+
+func (c *streamingMarkdownCache) render(text string, proseMeasure int, tableMeasure int) []string {
+	if c.lines != nil && text == c.rawText && proseMeasure == c.proseMeasure && tableMeasure == c.tableMeasure {
+		return append([]string(nil), c.lines...)
+	}
+	stable := streamingMarkdownStablePrefix(text)
+	if c.lines != nil && stable == c.fullText && proseMeasure == c.proseMeasure && tableMeasure == c.tableMeasure {
+		return append([]string(nil), c.lines...)
+	}
+	if proseMeasure == c.proseMeasure && tableMeasure == c.tableMeasure &&
+		strings.HasPrefix(stable, c.fullText) {
+		if lines, ok := c.extend(stable, proseMeasure, tableMeasure); ok {
+			c.rawText = text
+			c.fullText = stable
+			c.lines = lines
+			return append([]string(nil), lines...)
+		}
+	}
+	lines := c.refresh(stable, proseMeasure, tableMeasure)
+	c.rawText = text
+	c.fullText = stable
+	c.lines = lines
+	c.proseMeasure, c.tableMeasure = proseMeasure, tableMeasure
+	return append([]string(nil), lines...)
+}
+
+// refresh recomputes from scratch after a reset, a width change, or text that
+// does not extend the last served input. It also resets the resume state,
+// which only survives append-only growth.
+func (c *streamingMarkdownCache) refresh(stable string, proseMeasure int, tableMeasure int) []string {
+	headEnd, tailStart, blanks := splitStreamingMarkdownStable(stable)
+	head := stable[:headEnd]
+	c.headText = ""
+	c.headLines = nil
+	c.headHasProse = false
+	c.tailResume = nil
+	if head == "" || !streamingMarkdownHeadValid(head) ||
+		looksLikeBareCodeBlock(streamingMarkdownRawLines(stable)) {
+		return renderAssistantMarkdownText(stable, proseMeasure, tableMeasure, true)
+	}
+	c.headText = head
+	c.headLines = renderAssistantMarkdownText(head, proseMeasure, tableMeasure, true)
+	c.headHasProse = streamingMarkdownHeadHasProse(head)
+	tailLines, resume := renderStreamingTail(nil, stable[tailStart:], proseMeasure, tableMeasure)
+	lines := make([]string, 0, len(c.headLines)+blanks+len(tailLines))
+	lines = append(lines, c.headLines...)
+	for i := 0; i < blanks; i++ {
+		lines = append(lines, "")
+	}
+	lines = append(lines, tailLines...)
+	c.tailResume = resume
+	return trimMarkdownDisplayTrailingBlankLines(lines)
+}
+
+// extend re-renders after append-only growth over the last served input. The
+// head only ever grows forward (appending text cannot move the last blank run
+// backwards), so a changed split means absorbing complete blocks; otherwise
+// just the tail is re-rendered. Returns false when the cached head no longer
+// applies and the caller must recompute from scratch.
+func (c *streamingMarkdownCache) extend(stable string, proseMeasure int, tableMeasure int) ([]string, bool) {
+	headEnd, tailStart, blanks := splitStreamingMarkdownStable(stable)
+	head := stable[:headEnd]
+	if head != c.headText {
+		// The head only grows forward: appending text cannot move the last
+		// blank run backwards. Anything else (e.g. a trailing blank run
+		// absorbed by continued text) needs a recompute.
+		if c.headText != "" && !strings.HasPrefix(head, c.headText) {
+			return nil, false
+		}
+		if !streamingMarkdownHeadValid(head) {
+			return nil, false
+		}
+		c.headText = head
+		if head == "" {
+			c.headLines = nil
+		} else {
+			c.headLines = renderAssistantMarkdownText(head, proseMeasure, tableMeasure, true)
+		}
+		c.headHasProse = streamingMarkdownHeadHasProse(head)
+		c.tailResume = nil
+	}
+	if !c.headHasProse && looksLikeBareCodeBlock(streamingMarkdownRawLines(stable)) {
+		return nil, false
+	}
+	tailLines, resume := renderStreamingTail(c.tailResume, stable[tailStart:], proseMeasure, tableMeasure)
+	lines := make([]string, 0, len(c.headLines)+blanks+len(tailLines))
+	lines = append(lines, c.headLines...)
+	for i := 0; i < blanks; i++ {
+		lines = append(lines, "")
+	}
+	lines = append(lines, tailLines...)
+	c.tailResume = resume
+	return trimMarkdownDisplayTrailingBlankLines(lines), true
+}
+
+// streamingMarkdownRawLines splits normalized text the same way
+// renderAssistantMarkdownText does, so block predicates agree with it.
+func streamingMarkdownRawLines(stable string) []string {
+	return strings.Split(strings.TrimRight(stable, "\n"), "\n")
+}
+
+// streamingMarkdownHeadValid reports whether head ends outside a fenced code
+// block, reusing the buffering rule: a head containing an open fence cannot
+// be split off.
+func streamingMarkdownHeadValid(head string) bool {
+	return streamingMarkdownStablePrefix(head) == head
+}
+
+// streamingMarkdownHeadHasProse reports whether head holds a line that can
+// never be code. A head with prose can never flip the whole-text bare-code
+// predicate, so later frames skip that scan while the head stands.
+func streamingMarkdownHeadHasProse(head string) bool {
+	for _, line := range streamingMarkdownRawLines(head) {
+		if strings.TrimSpace(line) != "" && !looksLikeBareCodeLine(line) {
+			return true
+		}
+	}
+	return false
+}
+
+// splitStreamingMarkdownStable finds the last blank run in stable text,
+// returning byte offsets: head ends where the run starts, tail starts where
+// it ends, plus the run length in lines. Blocks before a blank run render
+// identically standalone and in context, so head is reusable verbatim.
+func splitStreamingMarkdownStable(stable string) (headEnd, tailStart, blanks int) {
+	runStart, runCount := -1, 0
+	lastStart, lastEnd, lastCount := 0, 0, 0
+	hasLast := false
+	off := 0
+	for off <= len(stable) {
+		var next int
+		var blank bool
+		if nl := strings.IndexByte(stable[off:], '\n'); nl < 0 {
+			blank = strings.TrimSpace(stable[off:]) == ""
+			next = len(stable) + 1
+		} else {
+			blank = strings.TrimSpace(stable[off:off+nl]) == ""
+			next = off + nl + 1
+		}
+		if blank {
+			if runStart < 0 {
+				runStart = off
+			}
+			runCount++
+		} else if runStart >= 0 {
+			lastStart, lastEnd, lastCount, hasLast = runStart, off, runCount, true
+			runStart, runCount = -1, 0
+		}
+		if next > len(stable) {
+			break
+		}
+		off = next
+	}
+	if runStart >= 0 {
+		lastStart, lastEnd, lastCount, hasLast = runStart, len(stable), runCount, true
+	}
+	if !hasLast {
+		return 0, 0, 0
+	}
+	return lastStart, lastEnd, lastCount
+}
+
+func trimMarkdownDisplayTrailingBlankLines(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+// renderStreamingTail renders the open tail after the last blank run. A
+// single-line prose tail reuses the previous frame's wrap (only words after
+// the last stable line break are re-wrapped); anything else renders
+// integrally, which is cheap because open tails are short.
+func renderStreamingTail(prev *streamingParagraphResume, tail string, proseMeasure int, tableMeasure int) ([]string, *streamingParagraphResume) {
+	if lines, resume, ok := resumeStreamingParagraph(prev, tail, proseMeasure); ok {
+		return lines, resume
+	}
+	return renderAssistantMarkdownText(tail, proseMeasure, tableMeasure, true), nil
+}
+
+// streamingParagraphResume holds one wrapped single-line paragraph tail so
+// the next frame re-wraps only the words after the last stable line break.
+type streamingParagraphResume struct {
+	tailText   string
+	words      []markdownInlineSegment
+	lineStarts []int
+	lines      []string
+	measure    int
+}
+
+func resumeStreamingParagraph(prev *streamingParagraphResume, tail string, measure int) ([]string, *streamingParagraphResume, bool) {
+	if strings.Contains(tail, "\n") {
+		return nil, nil, false
+	}
+	trimmed := strings.TrimSpace(tail)
+	if trimmed == "" || !streamingParagraphLineEligible(trimmed) {
+		return nil, nil, false
+	}
+	words := markdownInlineWords(parseMarkdownInline(trimmed))
+	if len(words) == 0 {
+		return nil, nil, false
+	}
+	if prev == nil || prev.measure != measure || !strings.HasPrefix(tail, prev.tailText) {
+		var starts []int
+		lines := appendWrappedMarkdownWords(nil, words, 0, "", 0, "", "", measure, &starts)
+		return lines, &streamingParagraphResume{tailText: tail, words: words, lineStarts: starts, lines: lines, measure: measure}, true
+	}
+	firstDiff := len(prev.words)
+	if len(words) < firstDiff {
+		firstDiff = len(words)
+	}
+	for i := 0; i < firstDiff; i++ {
+		if prev.words[i] != words[i] {
+			firstDiff = i
+			break
+		}
+	}
+	resumeAt := 0
+	for _, s := range prev.lineStarts {
+		if s > firstDiff {
+			break
+		}
+		resumeAt = s
+	}
+	// A hard-split word starts two visual lines, so resumeAt can repeat; the
+	// first occurrence owns the right prefix (first line uses it exactly when
+	// it is the first emitted line).
+	resumeIndex := 0
+	for resumeIndex < len(prev.lineStarts) && prev.lineStarts[resumeIndex] < resumeAt {
+		resumeIndex++
+	}
+	lines := append([]string(nil), prev.lines[:resumeIndex]...)
+	starts := append([]int(nil), prev.lineStarts[:resumeIndex]...)
+	lines = appendWrappedMarkdownWords(lines, words, resumeAt, "", 0, "", "", measure, &starts)
+	return lines, &streamingParagraphResume{tailText: tail, words: words, lineStarts: starts, lines: lines, measure: measure}, true
+}
+
+// streamingParagraphLineEligible reports whether a single trimmed line takes
+// the paragraph path in the integral renderer, so resuming its wrap is
+// exact. Block openers (fences, headings, rules, lists, quotes) render
+// through other paths and stay on the integral fallback.
+func streamingParagraphLineEligible(trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	if _, ok := markdownFenceMarker(trimmed); ok {
+		return false
+	}
+	if markdownHeadingText(trimmed) != "" || isMarkdownHorizontalRule(trimmed) ||
+		isMarkdownListLine(trimmed) || strings.HasPrefix(trimmed, ">") {
+		return false
+	}
+	return true
 }
 
 func streamingMarkdownStablePrefix(text string) string {
@@ -1033,31 +1319,45 @@ func wrapMarkdownInlineWithPrefixes(firstPrefix string, continuationPrefix strin
 	if len(words) == 0 {
 		return []string{firstPrefix}
 	}
+	return appendWrappedMarkdownWords(nil, words, 0, "", 0, firstPrefix, continuationPrefix, measure, nil)
+}
 
-	lines := []string{}
-	line := ""
-	lineWidth := 0
-	prefix := firstPrefix
+// appendWrappedMarkdownWords runs the greedy wrap over words[start:] carrying
+// the in-progress line state, so a streaming paragraph resumes where the last
+// frame stopped instead of re-wrapping from scratch. When starts is non-nil it
+// collects the word index starting each emitted visual line, parallel to the
+// returned lines, for the next resume point.
+func appendWrappedMarkdownWords(lines []string, words []markdownInlineSegment, start int, line string, lineWidth int, prefix string, continuationPrefix string, measure int, starts *[]int) []string {
 	available := maxInt(1, measure-lipgloss.Width(prefix))
-
-	flush := func() {
+	lineStart := start
+	record := func() {
+		if starts != nil {
+			*starts = append(*starts, lineStart)
+		}
+	}
+	flush := func(next int) {
 		lines = append(lines, prefix+line)
+		record()
 		line = ""
 		lineWidth = 0
 		prefix = continuationPrefix
 		available = maxInt(1, measure-lipgloss.Width(prefix))
+		lineStart = next
 	}
 
-	for _, word := range words {
+	for wi := start; wi < len(words); wi++ {
+		word := words[wi]
 		for lipgloss.Width(word.text) > available {
 			if line != "" {
-				flush()
+				flush(wi)
 			}
 			head, tail := splitAtWidth(word.text, available)
 			lines = append(lines, prefix+renderMarkdownInlineSegment(markdownInlineSegment{text: head, bold: word.bold, code: word.code}))
+			record()
 			word.text = tail
 			prefix = continuationPrefix
 			available = maxInt(1, measure-lipgloss.Width(prefix))
+			lineStart = wi
 		}
 		wordWidth := lipgloss.Width(word.text)
 		rendered := renderMarkdownInlineSegment(word)
@@ -1075,13 +1375,14 @@ func wrapMarkdownInlineWithPrefixes(firstPrefix string, continuationPrefix strin
 			line += separator + rendered
 			lineWidth += separatorWidth + wordWidth
 		default:
-			flush()
+			flush(wi)
 			line = rendered
 			lineWidth = wordWidth
 		}
 	}
 	if line != "" {
 		lines = append(lines, prefix+line)
+		record()
 	}
 	return lines
 }
