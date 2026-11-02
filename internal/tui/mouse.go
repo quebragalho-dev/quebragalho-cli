@@ -149,9 +149,6 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if mouseRightPress(msg) {
 		return m, pasteFromClipboardCmd()
 	}
-	if next, cmd, handled := m.handlePetMouse(msg); handled {
-		return next, cmd
-	}
 	if mouseLeftPress(msg) {
 		switch {
 		case m.mcpAddWizard != nil:
@@ -179,9 +176,6 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 					return m.choosePicker()
 				}
 				m.lastMouseSelection = target
-				if m.picker.kind == pickerPet {
-					return m.schedulePetPreview()
-				}
 				return m, nil
 			}
 		case m.suggestionsActive():

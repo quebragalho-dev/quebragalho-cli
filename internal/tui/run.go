@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/peermsg"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
 )
 
 // Run starts the QG Bubble Tea shell and returns a process-style exit code.
@@ -45,22 +45,20 @@ func Run(ctx context.Context, options Options) int {
 	// text first, keeping order intact.
 	options.RuntimeMessageSink = newTextCoalescer(forward).send
 	options.AltScreen = useAltScreen(options)
-	imageSupport := terminalpet.DetectImageSupport(os.Getenv)
-	imageCache := terminalPetFrameCache(options)
-	petRenderer := terminalpet.NewImageRendererWithCache(imageSupport, imageCache)
-	attachmentRenderers := make([]*terminalpet.ImageRenderer, attachmentPreviewMaxImages)
-	outputRenderers := make([]*terminalpet.ImageRenderer, 0, 1+len(attachmentRenderers))
-	outputRenderers = append(outputRenderers, petRenderer)
+	imageSupport := termimage.DetectImageSupport(os.Getenv)
+	imageCache := terminalImageFrameCache(options)
+	attachmentRenderers := make([]*termimage.ImageRenderer, attachmentPreviewMaxImages)
+	outputRenderers := make([]*termimage.ImageRenderer, 0, len(attachmentRenderers))
 	for index := range attachmentRenderers {
-		attachmentRenderers[index] = terminalpet.NewImageRendererWithCache(imageSupport, imageCache)
+		attachmentRenderers[index] = termimage.NewImageRendererWithCache(imageSupport, imageCache)
 		outputRenderers = append(outputRenderers, attachmentRenderers[index])
 	}
-	petOutput := newPetImageOutput(os.Stdout, outputRenderers...)
+	imageOutput := newImageOutput(os.Stdout, outputRenderers...)
 
 	programOpts := []tea.ProgramOption{
 		tea.WithContext(ctx),
 		tea.WithInput(os.Stdin),
-		tea.WithOutput(petOutput),
+		tea.WithOutput(imageOutput),
 		tea.WithFilter(mouseEventFilter()),
 	}
 	// Honor the no-color.org spec ourselves: NO_COLOR set to ANY non-empty value
@@ -75,7 +73,6 @@ func Run(ctx context.Context, options Options) int {
 	// Constructing a model alone is also useful to tests and non-TUI helpers, and
 	// should not mutate the package-level render palette for those callers.
 	applyTheme(initialModel.themeMode, initialModel.hasDarkBg)
-	initialModel.petRenderer = petRenderer
 	initialModel.attachmentRenderers = attachmentRenderers
 	if initialModel.wantsMouseCapture() {
 		initialModel.mouseCapture = true
@@ -109,7 +106,7 @@ func Run(ctx context.Context, options Options) int {
 	}
 
 	finalModel, runErr := program.Run()
-	clearErr := petOutput.clearImage()
+	clearErr := imageOutput.clearImage()
 	writeFarewell(os.Stdout, finalModel)
 	var closeErr error
 	if peerStarted {
@@ -126,7 +123,7 @@ func Run(ctx context.Context, options Options) int {
 		return 1
 	}
 	if clearErr != nil {
-		fmt.Fprintln(os.Stderr, "qg: terminal companion cleanup error:", clearErr)
+		fmt.Fprintln(os.Stderr, "qg: terminal image cleanup error:", clearErr)
 		return 1
 	}
 	return 0
@@ -139,11 +136,11 @@ func writeFarewell(w io.Writer, final tea.Model) {
 	}
 }
 
-func terminalPetFrameCache(options Options) string {
-	return terminalPetFrameCacheWith(options, os.UserConfigDir, os.UserCacheDir)
+func terminalImageFrameCache(options Options) string {
+	return terminalImageFrameCacheWith(options, os.UserConfigDir, os.UserCacheDir)
 }
 
-func terminalPetFrameCacheWith(options Options, userConfigDir, userCacheDir func() (string, error)) string {
+func terminalImageFrameCacheWith(options Options, userConfigDir, userCacheDir func() (string, error)) string {
 	root := ""
 	if configPath := strings.TrimSpace(options.UserConfigPath); filepath.IsAbs(configPath) {
 		root = filepath.Dir(filepath.Clean(configPath))
@@ -163,7 +160,7 @@ func terminalPetFrameCacheWith(options Options, userConfigDir, userCacheDir func
 	if root == "" {
 		return ""
 	}
-	return filepath.Join(root, "pets", "frame-cache")
+	return filepath.Join(root, "images", "frame-cache")
 }
 
 func useAltScreen(_ Options) bool {

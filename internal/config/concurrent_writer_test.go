@@ -64,11 +64,14 @@ func TestConcurrentMutationsDoNotLoseUpdates(t *testing.T) {
 			},
 		},
 		{
-			name:  "pet",
-			apply: func() error { _, err := SetPet(path, "otter"); return err },
+			name: "recentModels",
+			apply: func() error {
+				_, err := SetRecentModels(path, []RecentModelEntry{{Provider: "p", Model: "m"}})
+				return err
+			},
 			check: func(cfg FileConfig) error {
-				if cfg.Preferences.Pet != "otter" {
-					return fmt.Errorf("pet = %q, want otter", cfg.Preferences.Pet)
+				if len(cfg.Preferences.RecentModels) != 1 || cfg.Preferences.RecentModels[0].Model != "m" {
+					return fmt.Errorf("recentModels = %v, want [{p m}]", cfg.Preferences.RecentModels)
 				}
 				return nil
 			},
@@ -110,8 +113,7 @@ func TestConcurrentMutationsDoNotLoseUpdates(t *testing.T) {
 		},
 	}
 
-	// SetPet edits the raw bytes rather than round-tripping the struct, so it is
-	// included deliberately: it must take the same lock as the struct writers or
+	// Every writer above takes the same config-file lock; a writer that skipped
 	// it would clobber, and be clobbered by, everything else.
 	errs := make([]error, len(mutations))
 	start := make(chan struct{})

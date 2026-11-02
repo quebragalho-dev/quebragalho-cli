@@ -31,23 +31,17 @@ func TestHeaderOmitsContextCapacity(t *testing.T) {
 }
 
 func TestComposerModelUsesPaddingBeforeTruncating(t *testing.T) {
-	m := interactivePetTestModel(t)
+	m := mouseTestModel()
 	m.modelName = "muse-spark-1.3-contributor"
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
 			m.width = width
-			if m.petComposerReservedColumns(width) != petReservedColumns {
-				t.Fatal("fixture must reserve the docked pet columns")
-			}
 			box := plainRender(t, m.composerBox(width))
 			lines := strings.Split(box, "\n")
 			divider := lines[len(lines)-1]
 			assertContains(t, divider, m.modelName)
 			assertNotContains(t, divider, "…")
 			assertRenderedLineWidths(t, box, width)
-			if !strings.HasSuffix(divider, strings.Repeat(" ", petReservedColumns)) {
-				t.Fatalf("model invaded pet reservation: %q", divider)
-			}
 		})
 	}
 }

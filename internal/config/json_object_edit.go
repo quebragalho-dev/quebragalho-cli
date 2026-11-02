@@ -21,85 +21,6 @@ type jsonMemberSpan struct {
 	commaAfter   int
 }
 
-// setPetPreferenceJSON changes only preferences.pet. It keeps the original
-// bytes for every unrelated member so choosing a companion does not reorder or
-// reformat the user's configuration file.
-func setPetPreferenceJSON(data []byte, pet string) ([]byte, error) {
-	rootStart := skipJSONSpace(data, 0)
-	root, err := parseJSONObject(data, rootStart)
-	if err != nil {
-		return nil, err
-	}
-	preferencesIndex := lastJSONMember(root.members, "preferences")
-	if preferencesIndex < 0 {
-		if pet == "" {
-			return data, nil
-		}
-		encodedPet, err := json.Marshal(pet)
-		if err != nil {
-			return nil, fmt.Errorf("encode pet preference: %w", err)
-		}
-		return insertJSONMember(data, root, "preferences", petJSONObject(encodedPet)), nil
-	}
-
-	preferenceMember := root.members[preferencesIndex]
-	preferenceValue := bytes.TrimSpace(data[preferenceMember.valueStart:preferenceMember.valueEnd])
-	if bytes.Equal(preferenceValue, []byte("null")) {
-		if pet == "" {
-			if lastJSONMember(root.members[:preferencesIndex], "preferences") >= 0 {
-				return data, nil
-			}
-			return removeJSONMember(data, root, preferencesIndex), nil
-		}
-		encodedPet, err := json.Marshal(pet)
-		if err != nil {
-			return nil, fmt.Errorf("encode pet preference: %w", err)
-		}
-		return replaceJSONRange(data, preferenceMember.valueStart, preferenceMember.valueEnd, petJSONObject(encodedPet)), nil
-	}
-	preferences, err := parseJSONObject(data, preferenceMember.valueStart)
-	if err != nil {
-		return nil, fmt.Errorf("preferences must be a JSON object: %w", err)
-	}
-	petIndex := lastJSONMember(preferences.members, "pet")
-	if pet != "" {
-		encodedPet, err := json.Marshal(pet)
-		if err != nil {
-			return nil, fmt.Errorf("encode pet preference: %w", err)
-		}
-		if petIndex >= 0 {
-			member := preferences.members[petIndex]
-			return replaceJSONRange(data, member.valueStart, member.valueEnd, encodedPet), nil
-		}
-		return insertJSONMember(data, preferences, "pet", encodedPet), nil
-	}
-
-	for petIndex >= 0 {
-		data = removeJSONMember(data, preferences, petIndex)
-		root, err = parseJSONObject(data, rootStart)
-		if err != nil {
-			return nil, err
-		}
-		preferencesIndex = lastJSONMember(root.members, "preferences")
-		if preferencesIndex < 0 {
-			return data, nil
-		}
-		preferenceMember = root.members[preferencesIndex]
-		preferences, err = parseJSONObject(data, preferenceMember.valueStart)
-		if err != nil {
-			return nil, err
-		}
-		petIndex = lastJSONMember(preferences.members, "pet")
-	}
-	if len(preferences.members) == 0 {
-		if lastJSONMember(root.members[:preferencesIndex], "preferences") >= 0 {
-			return data, nil
-		}
-		return removeJSONMember(data, root, preferencesIndex), nil
-	}
-	return data, nil
-}
-
 func parseJSONObject(data []byte, start int) (jsonObjectSpan, error) {
 	if start < 0 || start >= len(data) || data[start] != '{' {
 		return jsonObjectSpan{}, fmt.Errorf("expected JSON object")
@@ -237,11 +158,6 @@ func lastJSONMember(members []jsonMemberSpan, key string) int {
 		}
 	}
 	return -1
-}
-
-func petJSONObject(encodedPet []byte) []byte {
-	result := append([]byte(`{"pet":`), encodedPet...)
-	return append(result, '}')
 }
 
 func replaceJSONRange(data []byte, start, end int, replacement []byte) []byte {

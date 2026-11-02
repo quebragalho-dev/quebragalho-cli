@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
 )
 
 type shortTerminalOutput struct {
@@ -27,21 +27,21 @@ func (o *shortTerminalOutput) Write(value []byte) (int, error) {
 	return min(o.limit, len(value)), o.err
 }
 
-func TestPetImageOutputAppendsScheduledImageAfterFrame(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputAppendsScheduledImageAfterFrame(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
 	frame.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255})
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
-	output := newPetImageOutput(file, renderer)
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
+	output := newImageOutput(file, renderer)
 	if _, err := output.Write([]byte("bubbletea-frame")); err != nil {
 		t.Fatal(err)
 	}
@@ -62,20 +62,20 @@ func TestPetImageOutputAppendsScheduledImageAfterFrame(t *testing.T) {
 	}
 }
 
-func TestPetImageOutputKeepsImageInsideBubbleTeaSynchronizedFrame(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputKeepsImageInsideBubbleTeaSynchronizedFrame(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
-	output := newPetImageOutput(file, renderer)
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
+	output := newImageOutput(file, renderer)
 	bubbleTeaFrame := terminalSyncStart + "streamed-text-frame" + terminalSyncEnd
 	if _, err := output.Write([]byte(bubbleTeaFrame)); err != nil {
 		t.Fatal(err)
@@ -95,24 +95,24 @@ func TestPetImageOutputKeepsImageInsideBubbleTeaSynchronizedFrame(t *testing.T) 
 	imageAt := strings.Index(got, "_Ga=T,t=d,f=100,c=4,r=3")
 	syncEnd := strings.Index(got, terminalSyncEnd)
 	if frameAt < 0 || imageAt < frameAt || syncEnd < imageAt {
-		t.Fatalf("pet update was presented outside the Bubble Tea frame: %q", got)
+		t.Fatalf("image update was presented outside the Bubble Tea frame: %q", got)
 	}
 }
 
-func TestPetImageOutputMapsPartialSynchronizedWriteToOriginalBytes(t *testing.T) {
+func TestImageOutputMapsPartialSynchronizedWriteToOriginalBytes(t *testing.T) {
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
 	bubbleTeaFrame := terminalSyncStart + "streamed-text-frame" + terminalSyncEnd
 	prefixLength := strings.Index(bubbleTeaFrame, terminalSyncEnd)
 	wantErr := errors.New("partial terminal write")
 	sink := &shortTerminalOutput{limit: prefixLength + 3, err: wantErr}
 
-	written, err := newPetImageOutput(sink, renderer).Write([]byte(bubbleTeaFrame))
+	written, err := newImageOutput(sink, renderer).Write([]byte(bubbleTeaFrame))
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Write error = %v, want %v", err, wantErr)
 	}
@@ -121,19 +121,19 @@ func TestPetImageOutputMapsPartialSynchronizedWriteToOriginalBytes(t *testing.T)
 	}
 }
 
-func TestPetImageOutputReportsNilErrorShortWrite(t *testing.T) {
+func TestImageOutputReportsNilErrorShortWrite(t *testing.T) {
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
 	bubbleTeaFrame := terminalSyncStart + "streamed-text-frame" + terminalSyncEnd
 	prefixLength := strings.Index(bubbleTeaFrame, terminalSyncEnd)
 	sink := &shortTerminalOutput{limit: prefixLength + 3}
 
-	written, err := newPetImageOutput(sink, renderer).Write([]byte(bubbleTeaFrame))
+	written, err := newImageOutput(sink, renderer).Write([]byte(bubbleTeaFrame))
 	if !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("Write error = %v, want %v", err, io.ErrShortWrite)
 	}
@@ -142,21 +142,21 @@ func TestPetImageOutputReportsNilErrorShortWrite(t *testing.T) {
 	}
 }
 
-func TestPetImageOutputKeepsDraggedPlacementInsideStreamingFrame(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputKeepsDraggedPlacementInsideStreamingFrame(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	draw := terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, X: 2, Y: 3, Columns: 4, Rows: 3}
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	draw := termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, X: 2, Y: 3, Columns: 4, Rows: 3}
 	renderer.Set(&draw)
-	output := newPetImageOutput(file, renderer)
+	output := newImageOutput(file, renderer)
 	if _, err := output.Write([]byte(terminalSyncStart + "initial-frame" + terminalSyncEnd)); err != nil {
 		t.Fatal(err)
 	}
@@ -185,28 +185,28 @@ func TestPetImageOutputKeepsDraggedPlacementInsideStreamingFrame(t *testing.T) {
 	moveAt := strings.Index(got, "\x1b[7;9H\x1b_Ga=p")
 	syncEnd := strings.Index(got, terminalSyncEnd)
 	if textAt < 0 || moveAt < textAt || syncEnd < moveAt {
-		t.Fatalf("dragged pet placement was presented outside the streaming frame: %q", got)
+		t.Fatalf("dragged image placement was presented outside the streaming frame: %q", got)
 	}
 	if strings.Contains(got, "_Ga=T") {
 		t.Fatalf("dragging retransmitted image data instead of moving its placement: %q", got)
 	}
 }
 
-func TestPetImageOutputFlushesMovedPlacementWithoutTextChange(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputFlushesMovedPlacementWithoutTextChange(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	draw := terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, X: 2, Y: 3, Columns: 4, Rows: 3}
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	draw := termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, X: 2, Y: 3, Columns: 4, Rows: 3}
 	renderer.Set(&draw)
-	output := newPetImageOutput(file, renderer)
+	output := newImageOutput(file, renderer)
 	if _, err := output.Write([]byte(terminalSyncStart + "initial-frame" + terminalSyncEnd)); err != nil {
 		t.Fatal(err)
 	}
@@ -228,27 +228,27 @@ func TestPetImageOutputFlushesMovedPlacementWithoutTextChange(t *testing.T) {
 	moveAt := strings.Index(got, "\x1b[7;9H\x1b_Ga=p")
 	syncEnd := strings.Index(got, terminalSyncEnd)
 	if moveAt < 0 || syncEnd < moveAt {
-		t.Fatalf("idle drag flush did not place the pet inside its empty frame: %q", got)
+		t.Fatalf("idle drag flush did not place the image inside its empty frame: %q", got)
 	}
 	if strings.Contains(got, "_Ga=T") {
 		t.Fatalf("idle drag flush retransmitted image data: %q", got)
 	}
 }
 
-func TestPetImageOutputRetransmitsAfterFullScreenClear(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputRetransmitsAfterFullScreenClear(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, X: 2, Y: 3, Columns: 4, Rows: 3})
-	output := newPetImageOutput(file, renderer)
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, X: 2, Y: 3, Columns: 4, Rows: 3})
+	output := newImageOutput(file, renderer)
 	if _, err := output.Write([]byte(terminalSyncStart + "initial-frame" + terminalSyncEnd)); err != nil {
 		t.Fatal(err)
 	}
@@ -269,24 +269,24 @@ func TestPetImageOutputRetransmitsAfterFullScreenClear(t *testing.T) {
 	transmitAt := strings.Index(got, "_Ga=T,t=d,f=100,c=4,r=3")
 	syncEnd := strings.Index(got, terminalSyncEnd)
 	if clearAt < 0 || transmitAt < clearAt || syncEnd < transmitAt {
-		t.Fatalf("pet was not restored inside the full-screen redraw: %q", got)
+		t.Fatalf("image was not restored inside the full-screen redraw: %q", got)
 	}
 }
 
-func TestPetImageOutputClearsKittyImageAfterLeavingAltScreen(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputClearsKittyImageAfterLeavingAltScreen(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
-	output := newPetImageOutput(file, renderer)
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
+	output := newImageOutput(file, renderer)
 	if _, err := output.Write([]byte("frame")); err != nil {
 		t.Fatal(err)
 	}
@@ -310,20 +310,20 @@ func TestPetImageOutputClearsKittyImageAfterLeavingAltScreen(t *testing.T) {
 	}
 }
 
-func TestPetImageOutputFinalCleanupRepeatsAllKittyDeletes(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputFinalCleanupRepeatsAllKittyDeletes(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: petAmbientImageID, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
-	output := newPetImageOutput(file, renderer)
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: attachmentImageID, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
+	output := newImageOutput(file, renderer)
 	if _, err := output.Write([]byte("frame")); err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestPetImageOutputFinalCleanupRepeatsAllKittyDeletes(t *testing.T) {
 	if !strings.Contains(cleanup, ansi.ResetModeMouseExtSgrPixel) {
 		t.Fatalf("final cleanup did not reset pixel mouse mode: %q", cleanup)
 	}
-	for _, id := range []uint32{petAmbientImageID, petPreviewImageID} {
+	for _, id := range []uint32{attachmentImageID, attachmentImageID + 1} {
 		want := fmt.Sprintf("_Ga=d,d=I,i=%d,q=2", id)
 		if !strings.Contains(cleanup, want) {
 			t.Errorf("final cleanup did not repeat Kitty delete for image %d: %q", id, cleanup)
@@ -353,20 +353,20 @@ func TestPetImageOutputFinalCleanupRepeatsAllKittyDeletes(t *testing.T) {
 	}
 }
 
-func TestPetImageOutputClearsSixelBeforeLeavingAltScreen(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputClearsSixelBeforeLeavingAltScreen(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
 	frame := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	animation, err := terminalpet.ThumbnailAnimation(frame)
+	animation, err := termimage.ThumbnailAnimation(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolSixel})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, X: 2, Y: 3, Columns: 4, Rows: 3, HeightPixels: 12})
-	output := newPetImageOutput(file, renderer)
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolSixel})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, X: 2, Y: 3, Columns: 4, Rows: 3, HeightPixels: 12})
+	output := newImageOutput(file, renderer)
 	if _, err := output.Write([]byte("frame")); err != nil {
 		t.Fatal(err)
 	}
@@ -385,19 +385,19 @@ func TestPetImageOutputClearsSixelBeforeLeavingAltScreen(t *testing.T) {
 	}
 }
 
-func TestPetImageOutputDoesNotCloseAnExistingSynchronizedFrame(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputDoesNotCloseAnExistingSynchronizedFrame(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
-	animation, err := terminalpet.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
+	animation, err := termimage.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
-	if _, err := newPetImageOutput(file, renderer).Write([]byte(terminalSyncStart + "partial-frame")); err != nil {
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
+	if _, err := newImageOutput(file, renderer).Write([]byte(terminalSyncStart + "partial-frame")); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(file.Name())
@@ -406,40 +406,40 @@ func TestPetImageOutputDoesNotCloseAnExistingSynchronizedFrame(t *testing.T) {
 	}
 	got := string(data)
 	if strings.Count(got, terminalSyncStart) != 1 || strings.Contains(got, terminalSyncEnd) {
-		t.Fatalf("pet output changed caller-owned synchronized frame boundaries: %q", got)
+		t.Fatalf("image output changed caller-owned synchronized frame boundaries: %q", got)
 	}
 	if strings.Index(got, "_Ga=T") < strings.Index(got, "partial-frame") {
-		t.Fatalf("pet image was not appended to the open frame: %q", got)
+		t.Fatalf("image was not appended to the open frame: %q", got)
 	}
 }
 
-func TestPetImageOutputReportsUnsynchronizedShortWrite(t *testing.T) {
-	animation, err := terminalpet.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
+func TestImageOutputReportsUnsynchronizedShortWrite(t *testing.T) {
+	animation, err := termimage.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
 	sink := &shortTerminalOutput{limit: len(terminalSyncStart)}
-	written, err := newPetImageOutput(sink, renderer).Write([]byte("long-frame-payload"))
+	written, err := newImageOutput(sink, renderer).Write([]byte("long-frame-payload"))
 	if !errors.Is(err, io.ErrShortWrite) || written != len(terminalSyncStart) {
 		t.Fatalf("Write() = %d, %v; want %d, %v", written, err, len(terminalSyncStart), io.ErrShortWrite)
 	}
 }
 
-func TestPetImageOutputKeepsTextAliveAfterRendererFailure(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputKeepsTextAliveAfterRendererFailure(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
-	animation, err := terminalpet.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
+	animation, err := termimage.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKittyLocalFile})
-	renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
-	output := newPetImageOutput(file, renderer)
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKittyLocalFile})
+	renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
+	output := newImageOutput(file, renderer)
 	for _, frame := range []string{"first-frame", "second-frame"} {
 		if written, err := output.Write([]byte(frame)); err != nil || written != len(frame) {
 			t.Fatalf("Write(%q) = %d, %v", frame, written, err)
@@ -454,19 +454,19 @@ func TestPetImageOutputKeepsTextAliveAfterRendererFailure(t *testing.T) {
 	}
 }
 
-func TestPetImageOutputSerializesWriteAndCleanup(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "pet-output-*")
+func TestImageOutputSerializesWriteAndCleanup(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
-	animation, err := terminalpet.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
+	animation, err := termimage.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	renderer.Set(&terminalpet.ImageDraw{ID: petAmbientImageID, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
-	output := newPetImageOutput(file, renderer)
+	renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	renderer.Set(&termimage.ImageDraw{ID: attachmentImageID, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
+	output := newImageOutput(file, renderer)
 	var wait sync.WaitGroup
 	errorsSeen := make(chan error, 9)
 	for range 8 {
@@ -499,26 +499,24 @@ func TestSixelEraseCannotOverwriteNewComposer(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer file.Close()
-			animation, err := terminalpet.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
+			animation, err := termimage.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 1, 1)))
 			if err != nil {
 				t.Fatal(err)
 			}
-			renderer := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolSixel})
-			renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, X: 29, Y: 37, Columns: 11, Rows: 3, HeightPixels: 12})
-			out := newPetImageOutput(file, renderer)
+			renderer := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolSixel})
+			renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, X: 29, Y: 37, Columns: 11, Rows: 3, HeightPixels: 12})
+			out := newImageOutput(file, renderer)
 			if _, err := out.Write([]byte("old-frame")); err != nil {
 				t.Fatal(err)
 			}
-			m := interactivePetTestModel(t)
-			m.petRenderer = renderer
+			m := mouseTestModel()
 			m.modelName = "muse-spark-1.3-contributor"
 			width := 58
 			if hide {
 				renderer.Set(nil)
-				m.petAnimation = nil
 				width = 40
 			} else {
-				renderer.Set(&terminalpet.ImageDraw{ID: 7, Animation: animation, State: terminalpet.Idle, X: 47, Y: 37, Columns: 11, Rows: 3, HeightPixels: 12})
+				renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, X: 47, Y: 37, Columns: 11, Rows: 3, HeightPixels: 12})
 			}
 			frame := terminalSyncStart + "\x1b[38;1H" + m.composerDividerLine(width) + terminalSyncEnd
 			if _, err := out.Write([]byte(frame)); err != nil {
@@ -532,7 +530,7 @@ func TestSixelEraseCannotOverwriteNewComposer(t *testing.T) {
 			eraseAt := strings.LastIndex(got, "\x1b[38;30H"+strings.Repeat(" ", 11))
 			modelAt := strings.LastIndex(got, m.modelName)
 			if eraseAt < 0 || modelAt < 0 || eraseAt > modelAt {
-				t.Fatalf("old pet rectangle erased AFTER new model label: erase=%d model=%d", eraseAt, modelAt)
+				t.Fatalf("old image rectangle erased AFTER new model label: erase=%d model=%d", eraseAt, modelAt)
 			}
 		})
 	}

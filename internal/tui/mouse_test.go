@@ -10,7 +10,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
@@ -179,7 +179,7 @@ func TestComposerMouseClickMovesCursor(t *testing.T) {
 
 func TestComposerMouseClickMovesCursorBelowImageThumbnail(t *testing.T) {
 	m := mouseTestModel()
-	m.attachmentRenderers = []*terminalpet.ImageRenderer{terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})}
+	m.attachmentRenderers = []*termimage.ImageRenderer{termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})}
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.refreshPendingImageThumbnail()
 	m.input.SetValue("hello world")

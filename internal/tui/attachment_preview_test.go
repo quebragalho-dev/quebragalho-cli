@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
 )
 
 func previewImageBlock(t *testing.T) qgruntime.ImageBlock {
@@ -35,7 +35,7 @@ func TestAttachmentThumbnailRendersInsideComposerWhenSupported(t *testing.T) {
 	m.width, m.height = 100, 30
 	m.altScreen = true
 	m.headerPrinted = true
-	m.attachmentRenderers = []*terminalpet.ImageRenderer{terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})}
+	m.attachmentRenderers = []*termimage.ImageRenderer{termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})}
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.pendingImageLabels = []string{"diagram.png"}
 	m.refreshPendingImageThumbnail()
@@ -65,9 +65,9 @@ func TestAttachmentThumbnailKeepsAdditionalImagesVisibleWhenSupported(t *testing
 	m := newModel(context.Background(), Options{})
 	m.width, m.height = 100, 30
 	m.altScreen = true
-	m.attachmentRenderers = []*terminalpet.ImageRenderer{
-		terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty}),
-		terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty}),
+	m.attachmentRenderers = []*termimage.ImageRenderer{
+		termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty}),
+		termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty}),
 	}
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t), previewImageBlock(t)}
 	m.pendingImageLabels = []string{"first.png", "second.png"}
@@ -112,7 +112,7 @@ func TestAttachmentThumbnailClearsWithPendingImage(t *testing.T) {
 	m.width, m.height = 100, 30
 	m.altScreen = true
 	m.headerPrinted = true
-	m.attachmentRenderers = []*terminalpet.ImageRenderer{terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})}
+	m.attachmentRenderers = []*termimage.ImageRenderer{termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})}
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.pendingImageLabels = []string{"diagram.png"}
 	m.refreshPendingImageThumbnail()
@@ -135,21 +135,21 @@ func TestAttachmentThumbnailClearsWithPendingImage(t *testing.T) {
 	}
 }
 
-func TestPetOutputCompositesAttachmentAndPetInOneFrame(t *testing.T) {
-	animation, err := terminalpet.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 2, 2)))
+func TestImageOutputCompositesAttachmentsInOneFrame(t *testing.T) {
+	animation, err := termimage.ThumbnailAnimation(image.NewNRGBA(image.Rect(0, 0, 2, 2)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pet := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	attachment := terminalpet.NewImageRenderer(terminalpet.ImageSupport{Protocol: terminalpet.ImageProtocolKitty})
-	pet.Set(&terminalpet.ImageDraw{ID: petAmbientImageID, Animation: animation, State: terminalpet.Idle, Columns: 4, Rows: 3})
-	attachment.Set(&terminalpet.ImageDraw{ID: attachmentImageID, Animation: animation, State: terminalpet.Idle, Columns: 10, Rows: 4})
+	first := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	second := termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})
+	first.Set(&termimage.ImageDraw{ID: attachmentImageID, Animation: animation, State: termimage.Idle, Columns: 4, Rows: 3})
+	second.Set(&termimage.ImageDraw{ID: attachmentImageID + 1, Animation: animation, State: termimage.Idle, Columns: 10, Rows: 4})
 	sink, err := os.CreateTemp(t.TempDir(), "image-output-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sink.Close() })
-	if _, err := newPetImageOutput(sink, pet, attachment).Write([]byte(terminalSyncStart + "frame" + terminalSyncEnd)); err != nil {
+	if _, err := newImageOutput(sink, first, second).Write([]byte(terminalSyncStart + "frame" + terminalSyncEnd)); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(sink.Name())
@@ -160,7 +160,7 @@ func TestPetOutputCompositesAttachmentAndPetInOneFrame(t *testing.T) {
 	if strings.Count(got, terminalSyncStart) != 1 || strings.Count(got, terminalSyncEnd) != 1 {
 		t.Fatalf("graphics should share Bubble Tea's synchronized frame: %q", got)
 	}
-	for _, id := range []string{"i=49374", "i=49376"} {
+	for _, id := range []string{"i=49376", "i=49377"} {
 		if !strings.Contains(got, id) {
 			t.Fatalf("missing image placement %s: %q", id, got)
 		}

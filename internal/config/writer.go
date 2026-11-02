@@ -527,44 +527,6 @@ func SetTheme(path string, theme string) (result FileConfig, err error) {
 	return cfg, nil
 }
 
-// SetPet persists only the terminal-pet preference while preserving every
-// unrelated user setting through the config writer's atomic replace path.
-func SetPet(path string, pet string) (result FileConfig, err error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return FileConfig{}, fmt.Errorf("config path is required")
-	}
-	unlock, err := lockConfigFileFn(path)
-	if err != nil {
-		return FileConfig{}, err
-	}
-	// Joined, not chosen between: a release failure annotates the result
-	// instead of masking the mutation error that actually explains what went
-	// wrong. Reporting success after a failed unlock would claim a state the
-	// next mutation cannot reproduce.
-	defer func() { err = errors.Join(err, unlock()) }()
-	cfg := FileConfig{}
-	data := []byte("{}")
-	if existing, err := os.ReadFile(path); err == nil {
-		if err := json.Unmarshal(existing, &cfg); err != nil {
-			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
-		}
-		data = existing
-	} else if !os.IsNotExist(err) {
-		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
-	}
-	pet = strings.TrimSpace(pet)
-	cfg.Preferences.Pet = pet
-	data, err = setPetPreferenceJSON(data, pet)
-	if err != nil {
-		return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
-	}
-	if err := writeConfigData(path, data); err != nil {
-		return FileConfig{}, err
-	}
-	return cfg, nil
-}
-
 // SetSTTModel persists the dictation model and its provider, mirroring
 // SetTheme (read-modify-atomic-write). provider must be one of the known STT
 // provider kinds; a local provider stores the model as stt.localModelPath,

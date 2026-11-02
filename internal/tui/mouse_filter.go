@@ -17,9 +17,6 @@ func newMouseEventFilter(now func() time.Time, minInterval time.Duration) func(t
 	return func(current tea.Model, msg tea.Msg) tea.Msg {
 		switch msg.(type) {
 		case tea.MouseWheelMsg, tea.MouseMotionMsg:
-			if _, motion := msg.(tea.MouseMotionMsg); motion && petDragActive(current) {
-				return msg
-			}
 			timestamp := now()
 			if !last.IsZero() && timestamp.Sub(last) < minInterval {
 				return nil
@@ -27,16 +24,5 @@ func newMouseEventFilter(now func() time.Time, minInterval time.Duration) func(t
 			last = timestamp
 		}
 		return msg
-	}
-}
-
-func petDragActive(current tea.Model) bool {
-	switch current := current.(type) {
-	case model:
-		return current.petDragActive
-	case *model:
-		return current != nil && current.petDragActive
-	default:
-		return false
 	}
 }

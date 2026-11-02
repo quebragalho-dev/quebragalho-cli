@@ -1,4 +1,4 @@
-package terminalpet
+package termimage
 
 import (
 	"fmt"

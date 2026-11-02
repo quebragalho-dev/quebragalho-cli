@@ -18,7 +18,7 @@ func TestUseAltScreenForInteractiveChat(t *testing.T) {
 	}
 }
 
-func TestTerminalPetFrameCache(t *testing.T) {
+func TestTerminalImageFrameCache(t *testing.T) {
 	configRoot := filepath.Join(t.TempDir(), "config-root")
 	cacheRoot := filepath.Join(t.TempDir(), "cache-root")
 	absConfig := filepath.Join(t.TempDir(), "custom", "config.json")
@@ -30,32 +30,32 @@ func TestTerminalPetFrameCache(t *testing.T) {
 		options Options
 		want    string
 	}{
-		{name: "absolute config", options: Options{UserConfigPath: absConfig}, want: filepath.Join(filepath.Dir(absConfig), "pets", "frame-cache")},
-		{name: "relative config falls back", options: Options{UserConfigPath: "config.json"}, want: filepath.Join(configRoot, "qg", "pets", "frame-cache")},
-		{name: "whitespace config falls back", options: Options{UserConfigPath: "   "}, want: filepath.Join(configRoot, "qg", "pets", "frame-cache")},
-		{name: "empty config falls back", options: Options{}, want: filepath.Join(configRoot, "qg", "pets", "frame-cache")},
+		{name: "absolute config", options: Options{UserConfigPath: absConfig}, want: filepath.Join(filepath.Dir(absConfig), "images", "frame-cache")},
+		{name: "relative config falls back", options: Options{UserConfigPath: "config.json"}, want: filepath.Join(configRoot, "qg", "images", "frame-cache")},
+		{name: "whitespace config falls back", options: Options{UserConfigPath: "   "}, want: filepath.Join(configRoot, "qg", "images", "frame-cache")},
+		{name: "empty config falls back", options: Options{}, want: filepath.Join(configRoot, "qg", "images", "frame-cache")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := terminalPetFrameCacheWith(test.options, configDir, cacheDir)
+			got := terminalImageFrameCacheWith(test.options, configDir, cacheDir)
 			if canonicalTestPath(t, got) != canonicalTestPath(t, test.want) {
-				t.Fatalf("terminalPetFrameCacheWith() = %q, want %q", got, test.want)
+				t.Fatalf("terminalImageFrameCacheWith() = %q, want %q", got, test.want)
 			}
 		})
 	}
 
 	unavailable := func() (string, error) { return "", errors.New("unavailable") }
 	blank := func() (string, error) { return "", nil }
-	if got, want := terminalPetFrameCacheWith(Options{}, unavailable, cacheDir), filepath.Join(cacheRoot, "qg", "pets", "frame-cache"); canonicalTestPath(t, got) != canonicalTestPath(t, want) {
+	if got, want := terminalImageFrameCacheWith(Options{}, unavailable, cacheDir), filepath.Join(cacheRoot, "qg", "images", "frame-cache"); canonicalTestPath(t, got) != canonicalTestPath(t, want) {
 		t.Fatalf("cache fallback = %q, want %q", got, want)
 	}
-	if got, want := terminalPetFrameCacheWith(Options{}, blank, cacheDir), filepath.Join(cacheRoot, "qg", "pets", "frame-cache"); canonicalTestPath(t, got) != canonicalTestPath(t, want) {
+	if got, want := terminalImageFrameCacheWith(Options{}, blank, cacheDir), filepath.Join(cacheRoot, "qg", "images", "frame-cache"); canonicalTestPath(t, got) != canonicalTestPath(t, want) {
 		t.Fatalf("blank config root fallback = %q, want %q", got, want)
 	}
-	if got := terminalPetFrameCacheWith(Options{}, unavailable, unavailable); got != "" {
+	if got := terminalImageFrameCacheWith(Options{}, unavailable, unavailable); got != "" {
 		t.Fatalf("unavailable roots returned %q, want empty", got)
 	}
-	if got := terminalPetFrameCacheWith(Options{}, unavailable, blank); got != "" {
+	if got := terminalImageFrameCacheWith(Options{}, unavailable, blank); got != "" {
 		t.Fatalf("blank cache root returned %q, want empty", got)
 	}
 }

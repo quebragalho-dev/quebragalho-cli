@@ -27,7 +27,6 @@ const (
 	pickerSkill
 	pickerSTTModel
 	pickerSTTDownload
-	pickerPet
 	pickerUsage
 )
 
@@ -992,9 +991,6 @@ func (m model) pickerMoved(delta int) (model, tea.Cmd) {
 	m.picker.move(delta)
 	if m.picker.kind == pickerModel {
 		m.picker.effort = ""
-	}
-	if m.picker.kind == pickerPet {
-		return m.schedulePetPreview()
 	}
 	return m, nil
 }

@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/quebragalho-dev/quebragalho-cli/internal/terminalpet"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
 )
 
 const (
@@ -37,7 +37,7 @@ func (m model) attachmentThumbnailVisible(width int) bool {
 }
 
 func (m model) attachmentThumbnailSlots(width int) int {
-	innerWidth := maxInt(1, width-m.petComposerReservedColumns(width)-4)
+	innerWidth := maxInt(1, width-4)
 	slots := maxInt(1, innerWidth/(attachmentPreviewCols+1))
 	return min(attachmentPreviewMaxImages, min(slots, len(m.attachmentRenderers)))
 }
@@ -79,7 +79,7 @@ func (m model) attachmentComposerPrefixRows(width int) int {
 // of the composer. The position comes from the same footer layout used for mouse
 // input, so it follows sidebar changes and terminal resizes instead of relying on
 // a brittle absolute bottom-right calculation.
-func (m model) attachmentImageDraw(index int) *terminalpet.ImageDraw {
+func (m model) attachmentImageDraw(index int) *termimage.ImageDraw {
 	width := m.chatColumnWidth()
 	if !m.attachmentThumbnailVisible(width) || index < 0 || index >= m.attachmentThumbnailSlots(width) ||
 		index >= len(m.pendingImageThumbnails) || m.pendingImageThumbnails[index] == nil {
@@ -89,10 +89,10 @@ func (m model) attachmentImageDraw(index int) *terminalpet.ImageDraw {
 	if frame.composerRect.height < attachmentPreviewRows+2 {
 		return nil
 	}
-	return &terminalpet.ImageDraw{
+	return &termimage.ImageDraw{
 		ID:           attachmentImageID + uint32(index),
 		Animation:    m.pendingImageThumbnails[index],
-		State:        terminalpet.Idle,
+		State:        termimage.Idle,
 		X:            frame.composerRect.x + 2 + index*(attachmentPreviewCols+1),
 		Y:            frame.composerRect.y + 1,
 		Columns:      attachmentPreviewCols,
