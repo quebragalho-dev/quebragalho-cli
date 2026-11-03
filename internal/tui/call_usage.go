@@ -48,14 +48,21 @@ func (m model) contextWindowDisplay() (int, string) {
 }
 
 func usageRate(event qgruntime.Usage) string {
-	if event.Elapsed <= 0 || event.EffectiveOutputTokens() <= 0 {
+	return usageRateText(event.EffectiveOutputTokens(), event.Elapsed)
+}
+
+// usageRateText renders tokens-per-second ("42 tok/s", "12.4k tok/s") for an
+// output count over an elapsed time. "" when there is nothing to divide:
+// zero elapsed, no output tokens, or a rounded rate of zero.
+func usageRateText(outputTokens int, elapsed time.Duration) string {
+	if elapsed <= 0 || outputTokens <= 0 {
 		return ""
 	}
-	rate := int(float64(event.EffectiveOutputTokens()) / max(event.Elapsed.Seconds(), time.Second.Seconds()))
+	rate := int(float64(outputTokens) / max(elapsed.Seconds(), time.Second.Seconds()))
 	if rate == 0 {
 		return ""
 	}
-	return formatUsageTokens(rate) + " tk/s"
+	return formatUsageTokens(rate) + " tok/s"
 }
 
 func callUsageRow(runID, ordinal int, modelID string, event qgruntime.Usage, info qgaccount.ModelInfo) transcriptRow {
@@ -65,6 +72,9 @@ func callUsageRow(runID, ordinal int, modelID string, event qgruntime.Usage, inf
 	row := transcriptRow{kind: rowSystem, tool: "model-usage", id: fmt.Sprintf("usage_%d_%d", runID, ordinal), runID: runID, text: modelID, meta: map[string]string{"model": modelID}}
 	if normalized, _, err := usage.Normalize(event); err == nil {
 		row.meta["tokens"] = formatUsageTokens(normalized.TotalTokens)
+	}
+	if rate := usageRate(event); rate != "" {
+		row.meta["rate"] = rate
 	}
 	if info.ID != "" {
 		for _, pricing := range []qgaccount.ModelPricing{info.PricingBRL, info.Pricing} {
@@ -100,22 +110,19 @@ func callCostText(row transcriptRow) string {
 func renderCallUsage(row transcriptRow, width int) string {
 	modelID := displayValue(row.meta["model"], row.text)
 	label := modelID
-	if tokens := row.meta["tokens"]; tokens != "" {
-		label += " · " + tokens + " tok"
+	// The rate reads one step brighter than the muted receipt body; without a
+	// known rate the receipt stays "model · cost", with no gap and no zero.
+	if rate := strings.TrimSpace(row.meta["rate"]); rate != "" {
+		label += " · " + qgTheme.ink.Render(rate)
 	}
 	return renderSystemNote(strings.Join(wrapPlainText(label+" · "+callCostText(row), maxInt(1, width-2)), "\n"), width)
 }
 
 func (m model) statusReadout(left string, width int) string {
+	// Speed now lives on the composer's top border; the status line keeps
+	// only the context readout.
 	context := m.contextStatusText(width)
 	right := context
-	if rate := usageRate(m.streamUsage); rate != "" && lipgloss.Width(left)+lipgloss.Width(context)+lipgloss.Width(rate)+12 <= width {
-		if context == "" {
-			right = qgTheme.faint.Render(rate)
-		} else {
-			right = qgTheme.faint.Render(rate+" │ ") + context
-		}
-	}
 	if lipgloss.Width(left)+lipgloss.Width(right)+9 > width {
 		right = ""
 	}
@@ -178,6 +185,32 @@ func (m model) statusEffort() string {
 		}
 	}
 	return "n/d"
+}
+
+// countStreamEstimate accumulates streamed output runes for the live speed
+// estimate, stamping the first output. Called from the TUI update loop, so no
+// locking is needed.
+func (m *model) countStreamEstimate(delta string) {
+	if n := len([]rune(delta)); n > 0 {
+		if m.streamEstimateStart.IsZero() {
+			m.streamEstimateStart = m.now()
+		}
+		m.streamEstimateChars += n
+	}
+}
+
+// liveEstimateRate guesses the current speed from streamed output (~4
+// characters per token, the same heuristic as the output budgets) over the
+// wall time since the first output. "" until ~1s of output has arrived.
+func (m model) liveEstimateRate() string {
+	if m.streamEstimateStart.IsZero() || m.streamEstimateChars <= 0 {
+		return ""
+	}
+	elapsed := m.now().Sub(m.streamEstimateStart)
+	if elapsed < time.Second {
+		return ""
+	}
+	return usageRateText(m.streamEstimateChars/4, elapsed)
 }
 
 func formatUsageTokens(n int) string {

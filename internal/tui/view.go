@@ -105,15 +105,23 @@ func (m model) titlePRSegment() string {
 func (m model) composerTopBorder(width int) string {
 	model := displayValue(strings.TrimSpace(m.modelName), "sem modelo")
 	availableWidth := width
+	rateSeg, rateWidth := m.composerRateSegment()
 	padding := " "
-	if lipgloss.Width(model) > availableWidth-4 {
+	if rateWidth+lipgloss.Width(model) > availableWidth-4 {
 		padding = ""
 	}
 	frameWidth := 2 + 2*len(padding)
-	model = truncateDisplayWidth(model, availableWidth-frameWidth)
+	// The model shrinks first; when even a stub would not fit, the speed
+	// goes and only the model stays.
+	modelBudget := availableWidth - frameWidth - rateWidth
+	if modelBudget < 1 && rateWidth > 0 {
+		rateSeg = ""
+		modelBudget = availableWidth - frameWidth
+	}
+	model = truncateDisplayWidth(model, maxInt(1, modelBudget))
 	// The model label lives on the composer's top rule now; the bottom rule
 	// is the live context meter. Same ink label, same truncation as before.
-	meta := qgTheme.ink.Render(model)
+	meta := rateSeg + qgTheme.ink.Render(model)
 	metaWidth := lipgloss.Width(meta)
 	if width < 8 {
 		return qgTheme.lineStrong.Render(strings.Repeat("─", width))
@@ -125,6 +133,34 @@ func (m model) composerTopBorder(width int) string {
 	rule := strings.Repeat("─", availableWidth-metaWidth-frameWidth)
 	line := qgTheme.lineStrong.Render("╭"+rule+padding) + meta + qgTheme.lineStrong.Render(padding+"╮")
 	return line
+}
+
+// composerRateSegment is the speed readout ahead of the model name on the
+// composer's top border: while the model writes, "● <R> tok/s" with the dot
+// and number in accent (exact provider rate when one arrived, else the live
+// output estimate); after the run, the last exact rate faint; nothing before
+// the first response. Returns the styled segment and its cell width.
+func (m model) composerRateSegment() (string, int) {
+	rate, live := "", false
+	if m.pending {
+		if exact := usageRate(m.streamUsage); exact != "" {
+			rate, live = exact, true
+		} else if est := m.liveEstimateRate(); est != "" {
+			rate, live = est, true
+		}
+	} else {
+		rate = strings.TrimSpace(m.lastCompletedRate)
+	}
+	if rate == "" {
+		return "", 0
+	}
+	if live {
+		number, _, _ := strings.Cut(rate, " ")
+		segment := qgTheme.accent.Render("●") + " " + qgTheme.accent.Render(number) + qgTheme.faint.Render(" tok/s") + qgTheme.faint.Render(" · ")
+		return segment, lipgloss.Width("● " + rate + " · ")
+	}
+	segment := qgTheme.faint.Render(rate) + qgTheme.faint.Render(" · ")
+	return segment, lipgloss.Width(rate + " · ")
 }
 
 func (m model) composerDividerLine(width int) string {

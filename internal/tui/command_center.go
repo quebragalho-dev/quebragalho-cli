@@ -483,6 +483,7 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	config.SetActiveProviderEnv(nextProfile.Name)
 	m.modelName = target.modelID
 	m.streamUsage = qgruntime.Usage{}
+	m.lastCompletedRate = ""
 	// The usage belongs to the session, not to the model: the meter keeps
 	// showing the last figure against the new model's window, and the next
 	// completed call corrects it. (A compaction before the switch already

@@ -190,9 +190,19 @@ type model struct {
 	unpricedRequests              int
 	unpricedTokens                int
 	streamUsage                   qgruntime.Usage
-	lastUsage                     usage.Normalized
-	lastUsageSeen                 bool
-	lastUsageReceipt              transcriptRow
+	// streamEstimateChars counts streamed output runes (text, reasoning and
+	// tool-call arguments) since streamEstimateStart, the live speed estimate
+	// behind the composer border. liveEstimateRate divides by the elapsed
+	// wall time; the exact usage wins once the provider reports it.
+	streamEstimateChars int
+	streamEstimateStart time.Time
+	// lastCompletedRate is the exact "42 tok/s" of the last finished call,
+	// shown faint on the border after the run. Cleared on /new, /clear and
+	// model switch; /resume restores it from the reloaded receipt.
+	lastCompletedRate string
+	lastUsage         usage.Normalized
+	lastUsageSeen     bool
+	lastUsageReceipt  transcriptRow
 	// meterLive tracks whether the live context meter may show lastUsage.
 	// The /usage panel keeps its frozen last-call report across session
 	// switches and compactions, while the meter only drops what is stale:
@@ -2295,6 +2305,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.streamCallDecoder.feed(msg.fragment)
+		m.countStreamEstimate(msg.fragment)
 		m.lastStreamActivity = m.now()
 		return m, nil
 	case agentTextMsg:
@@ -2305,6 +2316,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// live "writing" block so it doesn't linger over new prose.
 		m.clearStreamingToolCall()
 		m.streamingText = append(m.streamingText, msg.delta...)
+		m.countStreamEstimate(msg.delta)
 		// recordStreamingDelta appends a time.Time to lineAges for every
 		// newline in the delta and bumps lastStreamActivity. It also
 		// re-stamps the in-progress last entry so the line that's still
@@ -2361,6 +2373,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.streamingReasoning += msg.delta
+		m.countStreamEstimate(msg.delta)
 		// Reasoning IS live provider output, so refresh the activity clock — else the
 		// quiet-generation hint can wrongly read "still generating…" mid-think.
 		if msg.delta != "" {
@@ -2859,6 +2872,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentUsageMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
+		}
+		if rate := strings.TrimSpace(msg.receipt.meta["rate"]); rate != "" {
+			m.lastCompletedRate = rate
 		}
 		var usageRows []transcriptRow
 		m, usageRows = m.recordUsageEvent(msg.modelID, msg.usage, msg.receipt)
@@ -5210,6 +5226,8 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.planDetailGen++ // invalidate any in-flight step-explanation from the prior run
 	m.runDetailsOpen = false
 	m.streamUsage = qgruntime.Usage{}
+	m.streamEstimateChars = 0
+	m.streamEstimateStart = time.Time{}
 	m.turnStartedAt = m.now()
 	m.turnTimer = newActiveTurnTimer(m.turnStartedAt)
 	m.lastStreamActivity = m.turnStartedAt
