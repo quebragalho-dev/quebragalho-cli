@@ -74,6 +74,16 @@ func runUpdateCommand(args []string, stdout io.Writer, stderr io.Writer, deps ap
 		if err != nil {
 			return writeAppError(stderr, "Não foi possível instalar a atualização. Detalhe: "+err.Error(), exitCrash)
 		}
+		if result.HandoffPending && options.json {
+			// Pending handoff with --json: stdout stays clean for the
+			// reopened process's final JSON (the wrapper redirects npm
+			// output to stderr too). The human pending line goes to
+			// stderr instead.
+			if _, err := fmt.Fprintln(stderr, update.FormatApply(result)); err != nil {
+				return exitCrash
+			}
+			return exitSuccess
+		}
 		if options.json {
 			if err := writePrettyJSON(stdout, result); err != nil {
 				return exitCrash

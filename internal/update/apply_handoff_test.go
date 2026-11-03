@@ -174,32 +174,58 @@ func TestApplyJustInstalledMismatchFailsWithoutRetryingNpm(t *testing.T) {
 	}
 }
 
-// TestApplyJustInstalledMatchProceedsToCheck ensures a successful wrapper
-// install does not block the normal already-up-to-date path.
-func TestApplyJustInstalledMatchProceedsToCheck(t *testing.T) {
+// TestApplyJustInstalledMatchReportsUpdatedWithoutCheck pins the reopened
+// upgrade success: when the wrapper just installed this version, Apply
+// reports Applied:true without another network check.
+func TestApplyJustInstalledMatchReportsUpdatedWithoutCheck(t *testing.T) {
 	_, _, binary := realNpmLayout(t, "0.1.0", "0.1.0-darwin-arm64")
 	stubCurrentExecutable(t, binary)
+	calls := 0
+	original := runNpm
+	runNpm = func(context.Context, string, []string) error {
+		calls++
+		return nil
+	}
+	t.Cleanup(func() { runNpm = original })
 	t.Setenv("QG_UPDATE_JUST_INSTALLED", "0.1.0")
 	t.Setenv("QG_NPM_UPDATE_HANDOFF", "")
 
-	checked := false
 	result, err := Apply(context.Background(), Options{
 		CurrentVersion: "0.1.0",
 		GOOS:           "linux",
 		GOARCH:         "amd64",
 		Fetch: func(_ context.Context, _ string) (Release, error) {
-			checked = true
-			return releaseForTarget(t, "v0.1.0", "linux", "amd64"), nil
+			t.Fatal("a matching just-installed install must not reach the network check")
+			return Release{}, nil
 		},
 	})
 	if err != nil {
 		t.Fatalf("Apply returned error: %v", err)
 	}
-	if !checked {
-		t.Fatal("a matching just-installed install must still check")
+	if calls != 0 {
+		t.Fatalf("runNpm ran %d times, want 0: the wrapper already installed", calls)
 	}
-	if result.Applied || result.HandoffPending {
-		t.Fatalf("matching install with no newer release must be noop, got %#v", result)
+	if !result.Applied || result.HandoffPending {
+		t.Fatalf("matching install must report Applied:true without handoff, got %#v", result)
+	}
+	if result.InstallMethod != InstallMethodNpm {
+		t.Fatalf("InstallMethod = %q, want npm", result.InstallMethod)
+	}
+	if result.LatestVersion != "0.1.0" {
+		t.Fatalf("LatestVersion = %q, want 0.1.0", result.LatestVersion)
+	}
+	if !strings.Contains(result.Message, "updated via npm to 0.1.0") {
+		t.Fatalf("Message = %q, want the English npm success", result.Message)
+	}
+	human := FormatApply(result)
+	if !strings.Contains(human, "atualizado via npm para 0.1.0") {
+		t.Fatalf("human output = %q, want the completed-update line", human)
+	}
+	if strings.Contains(human, "já está na versão mais recente") {
+		t.Fatalf("reopened success must not claim already up to date: %q", human)
+	}
+	if strings.Contains(human, "->") {
+		t.Fatalf("matching versions must not print a range: %q", human)
 	}
 	if got := strings.TrimSpace(os.Getenv("QG_UPDATE_JUST_INSTALLED")); got != "" {
 		t.Fatalf("QG_UPDATE_JUST_INSTALLED leaked: %q", got)

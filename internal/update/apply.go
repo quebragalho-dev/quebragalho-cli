@@ -76,28 +76,48 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 	// npm install: if the running version still differs from what the
 	// wrapper tried to install, report an honest error with the manual
 	// command instead of retrying npm in-process (which would relock the
-	// running binary on Windows). A match proceeds to the normal check,
-	// which then reports already up to date or a newer release.
+	// running binary on Windows). A match means the wrapper just installed
+	// this version, so report success without another network check.
 	if justInstalled := strings.TrimSpace(os.Getenv("QG_UPDATE_JUST_INSTALLED")); justInstalled != "" {
 		_ = os.Unsetenv("QG_UPDATE_JUST_INSTALLED")
-		if cmp, cmpErr := CompareVersions(options.CurrentVersion, justInstalled); cmpErr == nil && cmp != 0 {
-			packageRoot, hasRoot := findNpmPackageRoot(executablePath)
-			prefix, hasPrefix := "", false
-			if hasRoot {
-				prefix, hasPrefix = npmPrefixFromPackageRoot(packageRoot)
-			}
-			spec := npmPackageName + "@" + justInstalled
-			manual := npmInstallCommand("", spec)
-			if hasPrefix {
-				manual = npmInstallCommand(prefix, spec)
-			}
-			stuck := strings.TrimSpace(options.CurrentVersion)
-			if hasRoot {
-				if got, readErr := readNpmPackageVersion(packageRoot); readErr == nil {
-					stuck = got
+		if cmp, cmpErr := CompareVersions(options.CurrentVersion, justInstalled); cmpErr == nil {
+			if cmp != 0 {
+				packageRoot, hasRoot := findNpmPackageRoot(executablePath)
+				prefix, hasPrefix := "", false
+				if hasRoot {
+					prefix, hasPrefix = npmPrefixFromPackageRoot(packageRoot)
 				}
+				spec := npmPackageName + "@" + justInstalled
+				manual := npmInstallCommand("", spec)
+				if hasPrefix {
+					manual = npmInstallCommand(prefix, spec)
+				}
+				stuck := strings.TrimSpace(options.CurrentVersion)
+				if hasRoot {
+					if got, readErr := readNpmPackageVersion(packageRoot); readErr == nil {
+						stuck = got
+					}
+				}
+				return ApplyResult{}, fmt.Errorf("a atualização via npm para %s não ficou ativa: a instalação continua na versão %s. Para atualizar à mão, rode: %s", justInstalled, stuck, manual)
 			}
-			return ApplyResult{}, fmt.Errorf("a atualização via npm para %s não ficou ativa: a instalação continua na versão %s. Para atualizar à mão, rode: %s", justInstalled, stuck, manual)
+			justNorm, _ := normalizeVersionTag(justInstalled)
+			currentNorm, _ := normalizeVersionTag(options.CurrentVersion)
+			method := DetectInstallMethod(executablePath)
+			message := fmt.Sprintf("updated to %s", justNorm)
+			if method == InstallMethodNpm {
+				message = fmt.Sprintf("updated via npm to %s", justNorm)
+			}
+			return ApplyResult{
+				Result: Result{
+					CurrentVersion:  currentNorm,
+					LatestVersion:   justNorm,
+					UpdateAvailable: false,
+				},
+				Applied:       true,
+				InstallMethod: method,
+				BinaryPath:    executablePath,
+				Message:       message,
+			}, nil
 		}
 	}
 
@@ -185,6 +205,16 @@ func FormatApply(result ApplyResult) string {
 		message = fmt.Sprintf("atualizado via npm para %s", result.LatestVersion)
 	case strings.HasPrefix(message, "updated to "):
 		message = fmt.Sprintf("atualizado para %s", result.LatestVersion)
+	}
+	if result.CurrentVersion == result.LatestVersion {
+		lines := []string{
+			fmt.Sprintf("[qg] %s", message),
+			"Binário: " + result.BinaryPath,
+		}
+		for _, warning := range result.Warnings {
+			lines = append(lines, "Aviso: "+warning)
+		}
+		return strings.Join(lines, "\n")
 	}
 	lines := []string{
 		fmt.Sprintf("[qg] %s (%s -> %s)", message, result.CurrentVersion, result.LatestVersion),

@@ -11,8 +11,9 @@ import (
 )
 
 // TestRunUpgradeHandoffPendingTextAndJSON pins the `qg upgrade` handoff
-// contract: the pending result exits 0 with the pt-BR pending line, and
-// --json stays honest (applied:false with a clear pending status).
+// contract: without --json the pending line goes to stdout; with --json
+// stdout stays empty for the reopened process's single final JSON while the
+// pending line goes to stderr.
 func TestRunUpgradeHandoffPendingTextAndJSON(t *testing.T) {
 	pending := update.ApplyResult{
 		Result: update.Result{
@@ -49,18 +50,63 @@ func TestRunUpgradeHandoffPendingTextAndJSON(t *testing.T) {
 	if code := runWithDeps([]string{"upgrade", "--json"}, &stdout, &stderr, deps); code != exitSuccess {
 		t.Fatalf("json exit = %d, want 0; stderr=%q", code, stderr.String())
 	}
+	if strings.TrimSpace(stdout.String()) != "" {
+		t.Fatalf("pending --json must leave stdout empty for the final JSON, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "termina quando o qg fechar") {
+		t.Fatalf("pending --json must print the pt-BR line to stderr, got %q", stderr.String())
+	}
+}
+
+// TestRunUpgradeHandoffSuccessTextAndJSON pins the reopened upgrade success:
+// Applied:true prints the normal completed-update text and a single JSON.
+func TestRunUpgradeHandoffSuccessTextAndJSON(t *testing.T) {
+	updated := update.ApplyResult{
+		Result: update.Result{
+			CurrentVersion:  "0.2.0",
+			LatestVersion:   "0.2.0",
+			UpdateAvailable: false,
+		},
+		Applied:       true,
+		InstallMethod: update.InstallMethodNpm,
+		BinaryPath:    "/tmp/qg",
+		Message:       "updated via npm to 0.2.0",
+	}
+	deps := appDeps{
+		applyUpdate: func(context.Context, update.Options) (update.ApplyResult, error) {
+			return updated, nil
+		},
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := runWithDeps([]string{"upgrade"}, &stdout, &stderr, deps); code != exitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "atualizado via npm para 0.2.0") {
+		t.Fatalf("success text = %q, want the completed-update line", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "já está na versão mais recente") {
+		t.Fatalf("reopened success must not claim already up to date: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runWithDeps([]string{"upgrade", "--json"}, &stdout, &stderr, deps); code != exitSuccess {
+		t.Fatalf("json exit = %d, want 0; stderr=%q", code, stderr.String())
+	}
 	var payload struct {
-		Applied        bool   `json:"applied"`
-		HandoffPending bool   `json:"handoffPending"`
-		Message        string `json:"message"`
+		Applied       bool   `json:"applied"`
+		InstallMethod string `json:"installMethod"`
+		Message       string `json:"message"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("pending JSON did not decode: %v\n%s", err, stdout.String())
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &payload); err != nil {
+		t.Fatalf("success JSON did not decode: %v\n%s", err, stdout.String())
 	}
-	if payload.Applied || !payload.HandoffPending {
-		t.Fatalf("pending JSON must be applied:false handoffPending:true, got %+v", payload)
+	if !payload.Applied || payload.InstallMethod != string(update.InstallMethodNpm) {
+		t.Fatalf("success JSON must be applied:true npm, got %+v", payload)
 	}
-	if strings.Contains(payload.Message, "atualizado") {
-		t.Fatalf("pending JSON message must stay English, got %q", payload.Message)
+	if payload.Message != "updated via npm to 0.2.0" {
+		t.Fatalf("success JSON message = %q, want byte-identical English", payload.Message)
 	}
 }

@@ -1,6 +1,7 @@
 package npmwrapper
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -94,6 +95,95 @@ func TestWrapperRunsNpmOnUpgradeHandoff(t *testing.T) {
 	}
 	if !strings.Contains(binRuns[0], "upgrade") || !strings.Contains(binRuns[1], "upgrade") {
 		t.Fatalf("binary runs = %#v, want both to carry the upgrade command", binRuns)
+	}
+}
+
+// TestWrapperUpgradeJSONFlowEmitsSingleJSON pins the --json handoff contract
+// for the whole flow: the first process prints nothing to stdout (pending to
+// stderr), npm output goes to stderr too, and the reopened process prints the
+// single final JSON to stdout.
+func TestWrapperUpgradeJSONFlowEmitsSingleJSON(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
+	}
+	prefix := t.TempDir()
+	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	binDir := filepath.Join(packageRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := os.ReadFile(filepath.Join(repoRoot(t), "bin", "qg.js"))
+	if err != nil {
+		t.Fatalf("ReadFile wrapper: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "package.json"), realWrapperManifest(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrapperPath := filepath.Join(binDir, "qg.js")
+	if err := os.WriteFile(wrapperPath, bytes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binLog := filepath.Join(prefix, "qg-runs.log")
+	binary := filepath.Join(packageRoot, "qg")
+	// First run (old binary, no JUST_INSTALLED): pending handoff, nothing to
+	// stdout, pending line to stderr. Second run (reopened, JUST_INSTALLED):
+	// the single final JSON to stdout.
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(binLog) + "\n" +
+		"if [ -z \"$QG_UPDATE_JUST_INSTALLED\" ]; then\n" +
+		"  printf '{\"version\":\"9.9.99\"}' > \"$QG_NPM_UPDATE_HANDOFF\"\n" +
+		"  echo '[qg] a atualização para 9.9.99 termina quando o qg fechar' >&2\n" +
+		"else\n" +
+		"  printf '{\"applied\":true,\"installMethod\":\"npm\",\"binaryPath\":\"/tmp/qg\",\"message\":\"updated via npm to 9.9.99\",\"currentVersion\":\"9.9.99\",\"latestVersion\":\"9.9.99\",\"updateAvailable\":false}'\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	npmShim := "#!/bin/sh\n" +
+		"echo 'npm noise that must not pollute stdout'\n" +
+		"exit 0\n"
+	shimDir := filepath.Join(prefix, "shims")
+	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shimDir, "npm"), []byte(npmShim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stdout, stderr, exitCode := runWrapperFixtureWithEnv(t, wrapperPath, nil, "upgrade", "--json")
+	if exitCode != wrapperExitSuccess {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	trimmed := strings.TrimSpace(stdout)
+	if trimmed == "" {
+		t.Fatalf("stdout must hold the single final JSON, got empty; stderr=%q", stderr)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		t.Fatalf("stdout must be exactly one valid JSON, got %q: %v; stderr=%q", stdout, err, stderr)
+	}
+	if payload["applied"] != true {
+		t.Fatalf("final JSON must be applied:true, got %v (stdout=%q)", payload, stdout)
+	}
+	if strings.Contains(trimmed, "\n") {
+		// More than one JSON document or extra lines would leave newlines
+		// beyond the single object; the wrapper must not emit two.
+		t.Fatalf("stdout must hold a single JSON document, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "termina quando o qg fechar") {
+		t.Fatalf("stderr = %q, want the pending line from the first process", stderr)
+	}
+	if !strings.Contains(stderr, "npm noise that must not pollute stdout") {
+		t.Fatalf("stderr = %q, want npm output redirected to stderr", stderr)
+	}
+	if strings.Contains(stdout, "npm noise") {
+		t.Fatalf("stdout must not contain npm output: %q", stdout)
+	}
+	binRuns := readLines(t, binLog)
+	if len(binRuns) != 2 {
+		t.Fatalf("native binary runs = %d, want 2 (pending, then reopened JSON)", len(binRuns))
 	}
 }
 
