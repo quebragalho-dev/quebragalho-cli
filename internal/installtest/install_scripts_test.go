@@ -31,9 +31,6 @@ func TestUnixInstallerScriptMatchesReleaseContracts(t *testing.T) {
 		`tar -xzf "$archive_path" -C "$extract_dir"`,
 		`find_extracted_binary "$extract_dir"`,
 		`install_file "$binary_path" "$QG_INSTALL_DIR/qg"`,
-		`mktemp "$QG_INSTALL_DIR/.qg.XXXXXX"`,
-		`mv -f "$install_tmp"`,
-		`a versão anterior foi mantida`,
 		`copy_optional_file "qg-linux-sandbox"`,
 		`copy_optional_file "qg-seccomp"`,
 		`copy_optional_dir "helpers"`,
@@ -59,6 +56,7 @@ func TestPowerShellInstallerScriptMatchesWindowsReleaseContracts(t *testing.T) {
 		`.qg-install-`,
 		`.trash`,
 		`Copy-Item -Path $sourcePath -Destination $destPath -Force`,
+		`a versao anterior foi mantida`,
 		`Find-QGOptionalExtractedDirectory -Root $extractDir -DirectoryName "helpers"`,
 		`Copy-Item -Path $helpersPath -Destination $targetHelpersPath -Recurse -Force`,
 	})
@@ -97,6 +95,58 @@ func TestUnixInstallerInstallsFromPrefixedReleaseArchiveWithoutNetwork(t *testin
 	}
 	if _, err := os.Stat(filepath.Join(fixture.installDir, "qg-linux-sandbox")); err != nil {
 		t.Fatalf("installed linux sandbox helper missing: %v", err)
+	}
+
+	// Reinstalling over a live install must swap the binary atomically
+	// (rename, never cp over): the installed file must be a new inode and
+	// no .qg.* temp file may be left behind.
+	before, err := os.Stat(filepath.Join(fixture.installDir, "qg"))
+	if err != nil {
+		t.Fatalf("stat installed qg before reinstall: %v", err)
+	}
+	if _, _, err := runUnixInstaller(t, fixture); err != nil {
+		t.Fatalf("install.sh reinstall failed: %v", err)
+	}
+	after, err := os.Stat(filepath.Join(fixture.installDir, "qg"))
+	if err != nil {
+		t.Fatalf("stat installed qg after reinstall: %v", err)
+	}
+	if os.SameFile(before, after) {
+		t.Fatalf("reinstall kept the same installed file, want atomic rename")
+	}
+	assertNoInstallTempFiles(t, fixture.installDir)
+
+	// A failing copy must fail the install, keep the previous binary, clean
+	// the temp file, and say the previous version was kept.
+	failBin := t.TempDir()
+	writeFile(t, filepath.Join(failBin, "cp"), []byte("#!/usr/bin/env sh\nexit 1\n"), 0o755)
+	_, failStderr, err := runUnixInstallerWithPath(t, fixture, failBin)
+	if err == nil {
+		t.Fatalf("install.sh succeeded with a failing cp")
+	}
+	kept, err := os.Stat(filepath.Join(fixture.installDir, "qg"))
+	if err != nil {
+		t.Fatalf("stat installed qg after failed copy: %v", err)
+	}
+	if !os.SameFile(after, kept) {
+		t.Fatalf("failed copy replaced the installed binary, want the previous version kept")
+	}
+	assertNoInstallTempFiles(t, fixture.installDir)
+	if !strings.Contains(failStderr, "a versão anterior foi mantida") {
+		t.Fatalf("failed copy stderr missing kept-version message:\n%s", failStderr)
+	}
+}
+
+func assertNoInstallTempFiles(t *testing.T, installDir string) {
+	t.Helper()
+	entries, err := os.ReadDir(installDir)
+	if err != nil {
+		t.Fatalf("ReadDir %s: %v", installDir, err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".qg.") {
+			t.Fatalf("temporary file left in %s: %s", installDir, entry.Name())
+		}
 	}
 }
 
@@ -214,10 +264,10 @@ done
 
 case "$url" in
   */%s)
-    cp %s "$output"
+    /bin/cp %s "$output"
     ;;
   */%s)
-    cp %s "$output"
+    /bin/cp %s "$output"
     ;;
   *)
     echo "unexpected url: $url" >&2
@@ -232,12 +282,21 @@ esac
 
 func runUnixInstaller(t *testing.T, fixture unixInstallFixture) (string, string, error) {
 	t.Helper()
+	return runUnixInstallerWithPath(t, fixture, "")
+}
+
+func runUnixInstallerWithPath(t *testing.T, fixture unixInstallFixture, pathPrefix string) (string, string, error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, fixture.bash, filepath.Join(repoRoot(t), "scripts/install.sh"), "--version", "0.1.0", "--install-dir", fixture.installDir)
 	command.Dir = repoRoot(t)
+	path := fixture.mockBin + string(os.PathListSeparator) + os.Getenv("PATH")
+	if pathPrefix != "" {
+		path = pathPrefix + string(os.PathListSeparator) + path
+	}
 	command.Env = append(os.Environ(),
-		"PATH="+fixture.mockBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"PATH="+path,
 		"QG_GITHUB_BASE_URL=https://example.test",
 		"QG_REPO=quebragalho-dev/quebragalho-cli",
 	)

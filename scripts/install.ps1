@@ -174,32 +174,33 @@ try {
     try {
       Copy-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction Stop
     } catch {
+      $firstError = $_
       # Windows nao deixa sobrescrever um exe em execucao, mas deixa renomear
       # no mesmo volume: o processo antigo segue no arquivo renomeado.
       $trashName = ".qg-install-" + [System.Guid]::NewGuid().ToString("N") + ".trash"
       try {
         Rename-Item -Path $destPath -NewName $trashName -Force -ErrorAction Stop
       } catch {
-        throw "Nao foi possivel atualizar $fileName em $InstallDir; o arquivo parece estar em uso"
+        throw "Nao foi possivel atualizar $fileName em ${InstallDir}: $($firstError.Exception.Message)"
       }
-      Copy-Item -Path $sourcePath -Destination $destPath -Force
+      try {
+        Copy-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction Stop
+      } catch {
+        $copyError = $_
+        Remove-Item -LiteralPath $destPath -Force -ErrorAction SilentlyContinue
+        Rename-Item -LiteralPath (Join-Path $InstallDir $trashName) -NewName $fileName -ErrorAction SilentlyContinue
+        throw "Nao foi possivel instalar $fileName em $InstallDir; a versao anterior foi mantida. $($copyError.Exception.Message)"
+      }
     }
   }
   $helpersPath = Find-QGOptionalExtractedDirectory -Root $extractDir -DirectoryName "helpers"
   if ($null -ne $helpersPath) {
     $targetHelpersPath = Join-Path $InstallDir "helpers"
     if (Test-Path $targetHelpersPath) {
-      try {
-        Remove-Item -Path $targetHelpersPath -Recurse -Force -ErrorAction Stop
-      } catch {
-        $helpersTrash = ".helpers-" + [System.Guid]::NewGuid().ToString("N") + ".trash"
-        try {
-          Rename-Item -Path $targetHelpersPath -NewName $helpersTrash -Force -ErrorAction Stop
-        } catch {
-          throw "Nao foi possivel atualizar helpers em $InstallDir; arquivos parecem estar em uso"
-        }
-        Write-Host "helpers antigo renomeado para $helpersTrash; sera removido na proxima instalacao."
-      }
+      $helpersTrash = ".helpers-" + [System.Guid]::NewGuid().ToString("N") + ".trash"
+      try { Rename-Item -Path $targetHelpersPath -NewName $helpersTrash -Force -ErrorAction Stop }
+      catch { throw "Nao foi possivel atualizar helpers em $InstallDir; arquivos parecem estar em uso" }
+      try { Remove-Item -LiteralPath (Join-Path $InstallDir $helpersTrash) -Recurse -Force -ErrorAction Stop } catch { }
     }
     Copy-Item -Path $helpersPath -Destination $targetHelpersPath -Recurse -Force
   }
