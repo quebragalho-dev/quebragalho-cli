@@ -7,7 +7,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
 )
 
-// DefaultRegistry must mirror the curated QG fallback exactly: the 19 models
+// DefaultRegistry must mirror the curated QG fallback exactly: the 18 models
 // served by https://api.quebragalho.dev/v1, all tagged ProviderQG, with no
 // legacy claude/gemini/gpt entries left over from the multi-provider catalog.
 func TestDefaultRegistryMirrorsCuratedQGCatalog(t *testing.T) {
@@ -20,8 +20,8 @@ func TestDefaultRegistryMirrorsCuratedQGCatalog(t *testing.T) {
 		t.Fatal("qg descriptor missing from catalog")
 	}
 	curated := providermodelcatalog.Models(descriptor)
-	if len(curated) != 19 {
-		t.Fatalf("curated QG fallback has %d models, want 19", len(curated))
+	if len(curated) != 18 {
+		t.Fatalf("curated QG fallback has %d models, want 18", len(curated))
 	}
 	got := registry.List(ListOptions{IncludeDeprecated: true})
 	if len(got) != len(curated) {

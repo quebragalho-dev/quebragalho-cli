@@ -116,15 +116,15 @@ func TestSetupCredentialsValidationFailureKeepsStage(t *testing.T) {
 	}
 }
 
-// The model screen is the offline 19-model QG catalog with the default model
+// The model screen is the offline 18-model QG catalog with the default model
 // preselected, so Enter alone completes a correct setup.
-func TestSetupModelListIsQG19WithMuseSparkPreselected(t *testing.T) {
+func TestSetupModelListIsQG18WithMuseSparkPreselected(t *testing.T) {
 	m := newModel(context.Background(), Options{Setup: qgSetupOptions(nil, nil)})
 	m.setup.stage = setupStageModel
 	m.resetSetupModels()
 	models := m.setupFilteredModels()
-	if len(models) != 19 {
-		t.Fatalf("model count = %d, want 19 QG models", len(models))
+	if len(models) != 18 {
+		t.Fatalf("model count = %d, want 18 QG models", len(models))
 	}
 	if current := m.setupCurrentModel(); current.ID != "muse-spark-1.3-contributor" {
 		t.Fatalf("preselected model = %q, want muse-spark-1.3-contributor", current.ID)

@@ -102,7 +102,10 @@ func NewTracker(options TrackerOptions) *Tracker {
 func (tracker *Tracker) Record(input RecordInput) (Record, error) {
 	model, err := tracker.registry.Require(input.ModelID)
 	if err != nil {
-		return Record{}, err
+		// A model served by the gateway but missing from the curated catalog
+		// must not break usage reporting: count its tokens with unknown
+		// (zero) cost instead of failing the record.
+		return tracker.recordUnknownModel(input)
 	}
 	normalized, runtimeUsage, err := Normalize(input.Usage)
 	if err != nil {
@@ -126,6 +129,29 @@ func (tracker *Tracker) Record(input RecordInput) (Record, error) {
 	}
 	tracker.records = append(tracker.records, record)
 	return record, nil
+}
+
+// recordUnknownModel normalizes usage for a model id the registry does not
+// know without failing: the returned cost is an explicitly unknown (empty,
+// zero) breakdown and the record is not added to the priced tally, so
+// summaries never present a fabricated $0.00. Callers count the tokens
+// through the unpriced path instead.
+func (tracker *Tracker) recordUnknownModel(input RecordInput) (Record, error) {
+	normalized, _, err := Normalize(input.Usage)
+	if err != nil {
+		return Record{}, err
+	}
+	sequence := tracker.nextSeq
+	tracker.nextSeq++
+	return Record{
+		ID:        fmt.Sprintf("qg_usage_%d", sequence),
+		Sequence:  sequence,
+		ModelID:   input.ModelID,
+		Source:    input.Source,
+		CreatedAt: tracker.now().UTC().Format(time.RFC3339),
+		Usage:     normalized,
+		Cost:      modelregistry.CostBreakdown{ModelID: input.ModelID},
+	}, nil
 }
 
 func (tracker *Tracker) Records() []Record {

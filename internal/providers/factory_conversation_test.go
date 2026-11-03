@@ -42,7 +42,8 @@ func requestConversationID(t *testing.T, provider qgruntime.Provider, transport 
 }
 
 // The QG gateway gets the session id on every request: same session, same
-// value across turns, and never a prompt_cache_key body field.
+// value across turns, plus a prompt_cache_key body field for prefix-cache
+// routing.
 func TestFactorySendsConversationIDForQGEndpoint(t *testing.T) {
 	for _, baseURL := range []string{"", "https://api.quebragalho.dev/v1", "https://api.quebragalho.dev/v1/", "HTTPS://API.QUEBRAGALHO.DEV/V1"} {
 		profile := qgProfile()
@@ -60,8 +61,8 @@ func TestFactorySendsConversationIDForQGEndpoint(t *testing.T) {
 		if second != testConversationSession {
 			t.Fatalf("baseURL %q: second turn header = %q, want the session id", baseURL, second)
 		}
-		if strings.Contains(body, "prompt_cache_key") {
-			t.Fatalf("baseURL %q: body carries prompt_cache_key for the qg endpoint: %s", baseURL, body)
+		if !strings.Contains(body, `"prompt_cache_key":"`+testConversationSession+`"`) {
+			t.Fatalf("baseURL %q: body must carry prompt_cache_key for the qg endpoint: %s", baseURL, body)
 		}
 	}
 }

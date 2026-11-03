@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -396,6 +397,10 @@ func scanGrepFile(ctx context.Context, resolvedRoot string, absolutePaths bool, 
 	}
 	defer handle.Close()
 
+	if isBinaryHandle(handle) {
+		return nil
+	}
+
 	reader := bufio.NewReader(handle)
 	lineNumber := 1
 	sawLine := false
@@ -429,6 +434,20 @@ func trimTrailingCarriageReturns(line []byte) []byte {
 		line = line[:len(line)-1]
 	}
 	return line
+}
+
+// isBinaryHandle reports whether the open file looks binary: a NUL byte in
+// the first 8 KiB, like ripgrep. The offset is rewound so the caller can
+// scan from the start.
+func isBinaryHandle(handle *os.File) bool {
+	const peekSize = 8000
+	buf := make([]byte, peekSize)
+	n, _ := handle.Read(buf)
+	if bytes.IndexByte(buf[:n], 0) >= 0 {
+		return true
+	}
+	_, _ = handle.Seek(0, io.SeekStart)
+	return false
 }
 
 func emitGrepLine(matcher grepLineMatcher, fileLabel string, lineNumber int, line []byte, emit func(grepMatch) bool) error {

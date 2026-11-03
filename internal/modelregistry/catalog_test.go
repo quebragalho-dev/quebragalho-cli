@@ -127,8 +127,13 @@ func TestDefaultRegistryReasoningAndProviderAssertions(t *testing.T) {
 			t.Fatalf("ReasoningEfforts[%d] = %q, want %q", index, efforts[index], effort)
 		}
 	}
-	if efforts := registry.ReasoningEfforts("qwen3.8-max"); len(efforts) != 0 {
-		t.Fatalf("qwen3.8-max reasoning efforts = %#v, want empty", efforts)
+	// qwen3.8-omni-flash ships no effort ring: pin the entry first so a future
+	// removal fails here instead of passing vacuously on the name fallback.
+	if _, err := registry.Require("qwen3.8-omni-flash"); err != nil {
+		t.Fatalf("Require(qwen3.8-omni-flash) returned error: %v", err)
+	}
+	if efforts := registry.ReasoningEfforts("qwen3.8-omni-flash"); len(efforts) != 0 {
+		t.Fatalf("qwen3.8-omni-flash reasoning efforts = %#v, want empty", efforts)
 	}
 
 	model, err := registry.RequireProvider("muse-spark-1.3-contributor", ProviderQG)

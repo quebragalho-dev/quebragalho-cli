@@ -35,7 +35,7 @@ func TestDiscoverCatalogFallsBackWhenLiveIDsUnusable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverCatalog returned error: %v", err)
 	}
-	if len(models) != 19 || models[0].ID != "muse-spark-1.3-contributor" {
-		t.Fatalf("models = %#v, want the 19-id fixed catalog fallback", modelIDs(models))
+	if len(models) != 18 || models[0].ID != "muse-spark-1.3-contributor" {
+		t.Fatalf("models = %#v, want the 18-id fixed catalog fallback", modelIDs(models))
 	}
 }

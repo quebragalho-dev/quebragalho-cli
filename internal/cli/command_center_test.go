@@ -118,11 +118,12 @@ func TestRunConfigRejectsModelOnlyFlags(t *testing.T) {
 
 func TestRunModelsListsRegistryModels(t *testing.T) {
 	qgModels := []string{
-		"muse-spark-1.3-contributor", "deepseek-v4-pro", "deepseek-v4.1-flash",
-		"glm-5.3", "glm-5.3-flash", "gpt-5.6-luna", "gpt-5.6-sol",
-		"gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol",
-		"grok-4.7", "hy4", "kimi-k3", "mimo-v2.6-flash", "mimo-v2.6-pro",
-		"mimo-v2.6-pro-ultraspeed", "qwen3.8-max", "qwen3.8-omni-flash",
+		"muse-spark-1.3-contributor", "muse-wonder", "claude-haiku-5.5",
+		"deepseek-v4-pro", "deepseek-v4.1-flash", "gemini-4-argon",
+		"glm-5.2", "glm-5.3", "glm-5.3-flash", "gpt-6-luna",
+		"gpt-6.1-terra", "grok-4.7", "jev-1.13", "jev-1.14",
+		"kimi-k3", "kimi-k3.1-pro", "mimo-v2.6-flash",
+		"qwen3.8-omni-flash",
 	}
 	legacy := []string{"claude-sonnet-4.5", "gpt-4.1", "gemini-2.5-pro"}
 

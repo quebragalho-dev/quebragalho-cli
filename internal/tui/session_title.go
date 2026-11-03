@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
@@ -25,6 +26,10 @@ const (
 	// sessionTitleTimeout bounds a single title generation so a hung provider can
 	// never wedge the background command.
 	sessionTitleTimeout = 30 * time.Second
+	// maxSessionTitleAttempts bounds silent-failure retries per session: the
+	// failure path releases the one-shot gate so a later turn can retry, but
+	// after this many scheduled attempts the gate stays shut.
+	maxSessionTitleAttempts = 2
 )
 
 // titleTrimCutset is stripped from both ends of a model-produced title:
@@ -134,10 +139,58 @@ func cleanGeneratedTitle(raw string) string {
 	return cutRunes(strings.Join(fields, " "), tuiSessionTitleLimit)
 }
 
+// titleReasoningEffortRank orders reasoning tiers cheapest-first so the
+// title call uses the smallest tier a model supports.
+func titleReasoningEffortRank(effort modelregistry.ReasoningEffort) int {
+	switch effort {
+	case modelregistry.ReasoningEffortNone:
+		return 0
+	case modelregistry.ReasoningEffortMinimal:
+		return 1
+	case modelregistry.ReasoningEffortLow:
+		return 2
+	case modelregistry.ReasoningEffortMedium:
+		return 3
+	case modelregistry.ReasoningEffortHigh:
+		return 4
+	case modelregistry.ReasoningEffortXHigh:
+		return 5
+	case modelregistry.ReasoningEffortMax:
+		return 6
+	case modelregistry.ReasoningEffortUltra:
+		return 7
+	default:
+		return 8
+	}
+}
+
+// titleReasoningEffort returns the smallest reasoning tier the model
+// supports, or "" when the model lists none (e.g. muse-spark, where an
+// effort flag changes nothing): the title call then omits the parameter.
+func titleReasoningEffort(modelID string) string {
+	registry, err := modelregistry.DefaultRegistry()
+	if err != nil {
+		return ""
+	}
+	efforts := registry.ReasoningEfforts(modelID)
+	if len(efforts) == 0 {
+		return ""
+	}
+	best := efforts[0]
+	for _, effort := range efforts[1:] {
+		if titleReasoningEffortRank(effort) < titleReasoningEffortRank(best) {
+			best = effort
+		}
+	}
+	return string(best)
+}
+
 // generateSessionTitle asks the provider for a concise title for digest and
 // returns the cleaned result. It is provider-shaped exactly like the one-shot
 // summarization call: system instructions + a single user turn, no tools.
-func generateSessionTitle(ctx context.Context, provider qgruntime.Provider, digest string) (string, error) {
+// Reasoning is capped at the cheapest tier the model supports: a 3-6 word
+// title needs no chain, and models without an effort list get no parameter.
+func generateSessionTitle(ctx context.Context, provider qgruntime.Provider, modelID string, digest string) (string, error) {
 	if provider == nil {
 		return "", errors.New("no provider configured")
 	}
@@ -149,6 +202,7 @@ func generateSessionTitle(ctx context.Context, provider qgruntime.Provider, dige
 			{Role: qgruntime.MessageRoleSystem, Content: sessionTitleSystemPrompt},
 			{Role: qgruntime.MessageRoleUser, Content: "Conversation:\n\n" + digest + "\n\nTitle:"},
 		},
+		ReasoningEffort: titleReasoningEffort(modelID),
 	}
 	stream, err := provider.StreamCompletion(ctx, request)
 	if err != nil {
@@ -173,10 +227,11 @@ func (m model) generateSessionTitleCmd(sessionID string, digest string) tea.Cmd 
 	provider := m.provider
 	store := m.sessionStore
 	originalTitle := m.activeSession.Title
+	modelID := m.modelName
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), sessionTitleTimeout)
 		defer cancel()
-		title, err := generateSessionTitle(ctx, provider, digest)
+		title, err := generateSessionTitle(ctx, provider, modelID, digest)
 		if err != nil {
 			return sessionTitleGeneratedMsg{sessionID: sessionID, err: err}
 		}
@@ -246,6 +301,14 @@ func (m model) maybeAutoTitleActiveSession() (model, tea.Cmd) {
 	if m.titledSessions == nil {
 		m.titledSessions = map[string]bool{}
 	}
+	if m.titleAttempts == nil {
+		m.titleAttempts = map[string]int{}
+	}
+	if m.titleAttempts[sessionID] >= maxSessionTitleAttempts {
+		m.titledSessions[sessionID] = true
+		return m, nil
+	}
+	m.titleAttempts[sessionID]++
 	m.titledSessions[sessionID] = true
 	return m, m.generateSessionTitleCmd(sessionID, digest)
 }

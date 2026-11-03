@@ -25,6 +25,7 @@ func TestClassify(t *testing.T) {
 		{"context_length_exceeded", "provider request error: context_length_exceeded", ContextOverflow},
 		{"model not found", "provider request error: 404 the model `gpt-9` does not exist", ModelNotFound},
 		{"unknown model", "provider request error: unknown model: sonnet-99", ModelNotFound},
+		{"model not allowed for account", "provider request error: model not allowed for this account", ModelNotFound},
 		{"dns failure", "provider stream error: Post \"https://api...\": dial tcp: lookup api.foo.com: no such host", Connectivity},
 		{"connection refused", "provider stream error: dial tcp 127.0.0.1:443: connection refused", Connectivity},
 		{"deadline", "provider stream error: context deadline exceeded (Client.Timeout exceeded)", Connectivity},
@@ -66,6 +67,36 @@ func TestContextOverflowBeatsConnectivity(t *testing.T) {
 	err := errors.New("provider request error: maximum context length exceeded; request timeout")
 	if got := Classify(err); got != ContextOverflow {
 		t.Fatalf("Classify = %v, want ContextOverflow", got)
+	}
+}
+
+func TestModelNotAllowedHintIsModelUnavailable(t *testing.T) {
+	// A gateway 403 with code model_not_allowed reaches errhint as a provider
+	// request error (providerio strips the numeric code and the auth prefix),
+	// so it must bucket as ModelNotFound, not Auth.
+	denied := errors.New("provider request error: model not allowed for this account")
+	if got := Classify(denied); got != ModelNotFound {
+		t.Fatalf("Classify = %v, want ModelNotFound", got)
+	}
+	// Reference shape for the same category: both hints must match it exactly,
+	// so the test survives hint rewording and i18n.
+	known := errors.New("provider request error: model does not exist")
+	if got := Classify(known); got != ModelNotFound {
+		t.Fatalf("Classify(reference) = %v, want ModelNotFound", got)
+	}
+	if got, want := TUIHint(denied), TUIHint(known); got == "" || got != want {
+		t.Fatalf("TUIHint(denied) = %q, want reference hint %q", got, want)
+	}
+	if got, want := CLIHint(denied), CLIHint(known); got == "" || got != want {
+		t.Fatalf("CLIHint(denied) = %q, want reference hint %q", got, want)
+	}
+	// Must not collapse into the key/auth hint on either surface.
+	authErr := errors.New("auth error: bad key")
+	if got, auth := TUIHint(denied), TUIHint(authErr); got == auth {
+		t.Fatalf("TUIHint(denied) = %q, must differ from auth hint", got)
+	}
+	if got, auth := CLIHint(denied), CLIHint(authErr); got == auth {
+		t.Fatalf("CLIHint(denied) = %q, must differ from auth hint", got)
 	}
 }
 

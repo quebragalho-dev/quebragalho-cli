@@ -73,7 +73,7 @@ func Classify(err error) Category {
 		"too many tokens", "prompt is too long", "reduce the length", "maximum context length"):
 		return ContextOverflow
 	case containsAny(m, "model not found", "model_not_found", "does not exist", "unknown model",
-		"no such model", "unsupported model", "invalid model", "model is not"):
+		"no such model", "unsupported model", "invalid model", "model is not", "model not allowed"):
 		return ModelNotFound
 	case containsAny(m, "dial tcp", "no such host", "connection refused", "network is unreachable",
 		"i/o timeout", "context deadline exceeded", "tls handshake", "connection reset",

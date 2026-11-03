@@ -52,3 +52,19 @@ func TestClassifiedErrorCuratesAuthFailure(t *testing.T) {
 		t.Errorf("403 should also be curated, got %q", got)
 	}
 }
+
+func TestClassifiedErrorModelNotAllowedIsNotAuth(t *testing.T) {
+	realBody := `{"error":{"message":"model not allowed for this account","code":"model_not_allowed"}}`
+	for _, message := range []string{realBody, "model not allowed for this account"} {
+		got := ClassifiedError(http.StatusForbidden, message)
+		if strings.Contains(got, "auth error:") {
+			t.Errorf("403 model_not_allowed must not say auth error, got %q", got)
+		}
+		if !strings.HasPrefix(got, "provider request error:") {
+			t.Errorf("403 model_not_allowed must stay a provider request error, got %q", got)
+		}
+		if !strings.Contains(got, "model not allowed") {
+			t.Errorf("403 model_not_allowed must keep the upstream detail, got %q", got)
+		}
+	}
+}
