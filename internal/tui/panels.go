@@ -58,8 +58,6 @@ func effortDisplayLabel(value string) string {
 		return "muito alto"
 	case "max":
 		return "máximo"
-	case "ultra":
-		return "ultra"
 	default:
 		return value
 	}
@@ -86,8 +84,6 @@ func canonicalEffortInput(input string) string {
 		return "xhigh"
 	case "máximo", "maximo":
 		return "max"
-	case "ultra":
-		return "ultra"
 	default:
 		return strings.TrimSpace(input)
 	}

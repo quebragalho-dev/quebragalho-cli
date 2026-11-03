@@ -2863,7 +2863,7 @@ func userFacingPermissionReason(toolName string, args map[string]any, reason str
 		if justification, ok := firstStringArg(args, "justification"); ok {
 			return justification
 		}
-		return "This command needs to run outside the sandbox."
+		return ReasonShellNeedsUnsandboxed
 	}
 
 	// Ordinary shell approvals need no invented explanation. The raw fallback is

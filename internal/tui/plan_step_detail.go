@@ -210,8 +210,8 @@ func (m model) appendPlanStepCard(stepIndex int, explanation string, loading boo
 		Lines: m.planStepOutcomeLines(step, len(changes), len(commands)),
 	}}
 
-	// The centerpiece: a fresh, Brazilian-Portuguese explanation in simple language
-	// click — "what we did" for a finished step, "what we'll do" for a queued one.
+	// The centerpiece: a short write-up of the step in simple Brazilian Portuguese,
+	// written by the model on click — "what we did" for a finished step, "what we'll do" for a queued one.
 	sections = append(sections, commandSection{
 		Title: planStepExplanationTitle(step.status),
 		Lines: m.planStepExplanationLines(step, explanation, loading),
@@ -331,7 +331,7 @@ func (m model) planStepExplanationLines(step planStep, explanation string, loadi
 const planStepExplanationTimeout = 30 * time.Second
 
 // requestPlanStepExplanation returns a tea.Cmd that asks the model, in ONE
-// non-turn request, for a short Brazilian-Portuguese write-up in simple language of the step — past tense
+// non-turn request, for a short write-up of the step in simple Brazilian Portuguese — past tense
 // for a finished step, future tense for an unsolved one. It reuses the TUI's own
 // provider (no new client, no hardcoded provider) and emits a
 // planStepExplanationMsg. The request is built from already-captured local data

@@ -703,8 +703,8 @@ type planUpdateMsg struct {
 	items []tools.PlanItem
 }
 
-// planStepExplanationMsg carries the model's fresh, Brazilian-Portuguese write-up in simple language of a
-// clicked plan step back to the live model (the one-shot request runs on a
+// planStepExplanationMsg carries the model's short write-up of the step in simple Brazilian Portuguese back to
+// the live model (the one-shot request runs on a
 // goroutine via a tea.Cmd, so it can't mutate m directly). text is the written
 // explanation; err is set when the request failed (the card then falls back to
 // the local summary). key caches the result so re-clicking the step in the same

@@ -606,7 +606,7 @@ func TestRunUsesUserFacingEscalatedFallbackForPermissionPrompt(t *testing.T) {
 	if len(requestReasons) != 1 {
 		t.Fatalf("permission reasons = %#v, want one request", requestReasons)
 	}
-	if requestReasons[0] != "This command needs to run outside the sandbox." {
+	if requestReasons[0] != ReasonShellNeedsUnsandboxed {
 		t.Fatalf("permission reason = %q, want user-facing fallback", requestReasons[0])
 	}
 	if strings.Contains(requestReasons[0], sandbox.ReasonEscalatedSandboxRequired) {

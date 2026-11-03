@@ -8,7 +8,6 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
@@ -496,21 +495,7 @@ func permissionBlockLabel(code string) string {
 }
 
 func permissionDisplayReason(reason string) string {
-	reason = strings.TrimSpace(reason)
-	switch reason {
-	case "network access requires approval":
-		return "O acesso à rede precisa de aprovação."
-	case sandbox.ReasonEscalatedSandboxRequired:
-		return "Este comando precisa rodar fora do ambiente isolado."
-	case "This command needs to run outside the sandbox.":
-		return "Este comando precisa rodar fora do ambiente isolado."
-	case "sandbox output is limited to the sandbox PID namespace; host/global state requires approval":
-		return "O ambiente isolado esconde o estado global do sistema, então este comando precisa rodar fora dele."
-	case "workspace write is allowed":
-		return "A escrita na pasta de trabalho é permitida."
-	default:
-		return reason
-	}
+	return agent.DisplayPermissionReason(reason)
 }
 
 func truncateTUIOutput(output string, limit int) string {

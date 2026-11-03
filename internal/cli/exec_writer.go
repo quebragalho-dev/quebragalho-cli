@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -335,22 +334,10 @@ func humanPermissionAction(action agent.PermissionAction) string {
 }
 
 // humanPermissionReason renders a canonical permission reason for exec text
-// output. It mirrors permissionDisplayReason in internal/tui/transcript.go:
-// the agent and JSON layers keep the canonical English string, only the
-// human branch translates.
+// output through the shared agent mapping: the agent and JSON layers keep the
+// canonical English string, only the human branch translates.
 func humanPermissionReason(reason string) string {
-	switch strings.TrimSpace(reason) {
-	case sandbox.ReasonNetworkBlocked:
-		return "O acesso à rede precisa de aprovação."
-	case sandbox.ReasonEscalatedSandboxRequired:
-		return "Este comando precisa rodar fora do ambiente isolado."
-	case "sandbox output is limited to the sandbox PID namespace; host/global state requires approval":
-		return "O ambiente isolado esconde o estado global do sistema, então este comando precisa rodar fora dele."
-	case "workspace write is allowed":
-		return "A escrita na pasta de trabalho é permitida."
-	default:
-		return reason
-	}
+	return agent.DisplayPermissionReason(reason)
 }
 
 func streamJSONPermissionEventType(event agent.PermissionEvent) streamjson.EventType {
