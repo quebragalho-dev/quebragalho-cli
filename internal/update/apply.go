@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -38,6 +39,12 @@ type ApplyResult struct {
 	BinaryPath    string        `json:"binaryPath,omitempty"`
 	Message       string        `json:"message,omitempty"`
 	Warnings      []string      `json:"warnings,omitempty"`
+	// HandoffPending reports that an npm update was handed to the wrapper
+	// (QG_NPM_UPDATE_HANDOFF) instead of running npm in-process: the running
+	// binary cannot be replaced on Windows while it is open, and a single
+	// handoff flow covers every OS. Applied stays false so --json never
+	// claims the update already happened.
+	HandoffPending bool `json:"handoffPending,omitempty"`
 }
 
 // windowsOptionalBinaries/linuxOptionalBinaries mirror the helper binary
@@ -52,18 +59,51 @@ var (
 // Apply checks for an update and, if one is available, installs it: via
 // `npm install -g` for npm-managed installs, or by downloading, verifying,
 // and atomically replacing the binary for standalone installs.
+//
+// When QG_NPM_UPDATE_HANDOFF is set (the binary runs under the npm wrapper)
+// an npm update does not run npm in-process: it records the target version in
+// the handoff file and returns a pending result, so the wrapper can install
+// after this process exits. The same path runs on every OS.
 func Apply(ctx context.Context, options Options) (ApplyResult, error) {
-	checkResult, err := Check(ctx, options)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-
 	executablePath, err := currentExecutable()
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("resolve current executable: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(executablePath); err == nil {
 		executablePath = resolved
+	}
+	// One-shot verification for the reopened process after the wrapper's
+	// npm install: if the running version still differs from what the
+	// wrapper tried to install, report an honest error with the manual
+	// command instead of retrying npm in-process (which would relock the
+	// running binary on Windows). A match proceeds to the normal check,
+	// which then reports already up to date or a newer release.
+	if justInstalled := strings.TrimSpace(os.Getenv("QG_UPDATE_JUST_INSTALLED")); justInstalled != "" {
+		_ = os.Unsetenv("QG_UPDATE_JUST_INSTALLED")
+		if cmp, cmpErr := CompareVersions(options.CurrentVersion, justInstalled); cmpErr == nil && cmp != 0 {
+			packageRoot, hasRoot := findNpmPackageRoot(executablePath)
+			prefix, hasPrefix := "", false
+			if hasRoot {
+				prefix, hasPrefix = npmPrefixFromPackageRoot(packageRoot)
+			}
+			spec := npmPackageName + "@" + justInstalled
+			manual := npmInstallCommand("", spec)
+			if hasPrefix {
+				manual = npmInstallCommand(prefix, spec)
+			}
+			stuck := strings.TrimSpace(options.CurrentVersion)
+			if hasRoot {
+				if got, readErr := readNpmPackageVersion(packageRoot); readErr == nil {
+					stuck = got
+				}
+			}
+			return ApplyResult{}, fmt.Errorf("a atualização via npm para %s não ficou ativa: a instalação continua na versão %s. Para atualizar à mão, rode: %s", justInstalled, stuck, manual)
+		}
+	}
+
+	checkResult, err := Check(ctx, options)
+	if err != nil {
+		return ApplyResult{}, err
 	}
 	method := DetectInstallMethod(executablePath)
 	// Only the standalone path rewrites the binary in place, so only it needs the
@@ -89,6 +129,19 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 			executablePath,
 		)
 	case InstallMethodNpm:
+		if handoffPath := strings.TrimSpace(os.Getenv("QG_NPM_UPDATE_HANDOFF")); handoffPath != "" {
+			if err := writeNpmHandoff(handoffPath, checkResult.LatestVersion); err != nil {
+				return ApplyResult{}, err
+			}
+			return ApplyResult{
+				Result:         checkResult,
+				Applied:        false,
+				HandoffPending: true,
+				InstallMethod:  method,
+				BinaryPath:     executablePath,
+				Message:        fmt.Sprintf("handed off npm update to wrapper for %s", checkResult.LatestVersion),
+			}, nil
+		}
 		if err := applyNpmUpdate(ctx, executablePath, checkResult.LatestVersion); err != nil {
 			return ApplyResult{}, err
 		}
@@ -120,6 +173,9 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 // ApplyResult.Message stays in English: it is serialized into --json output,
 // so the human line is translated here instead of at the source.
 func FormatApply(result ApplyResult) string {
+	if result.HandoffPending {
+		return fmt.Sprintf("[qg] a atualização para %s termina quando o qg fechar (%s -> %s)", result.LatestVersion, result.CurrentVersion, result.LatestVersion)
+	}
 	if !result.Applied {
 		return Format(result.Result)
 	}
@@ -161,6 +217,17 @@ func npmInstallCommand(npmPrefix string, spec string) string {
 		return "npm install -g " + spec
 	}
 	return "npm install -g --prefix \"" + npmPrefix + "\" " + spec
+}
+
+// writeNpmHandoff records the target version for the npm wrapper, which
+// installs after this process exits so the running binary is never replaced
+// while it is open. Mirrors the TUI startup handoff payload.
+func writeNpmHandoff(path string, version string) error {
+	payload, err := json.Marshal(map[string]string{"version": version})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(payload, '\n'), 0o600)
 }
 
 // applyNpmUpdate reinstalls the package with `npm install -g` scoped to the
