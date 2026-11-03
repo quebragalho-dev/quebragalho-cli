@@ -39,11 +39,20 @@ mkdir -p "$download_dir"
 cp "$release_dir/$archive" "$release_dir/$archive.sha256" "$download_dir/"
 
 install_dir="$tmp/bin"
-cat "$ROOT/scripts/install.sh" | QG_VERSION="v$VERSION" \
-QG_REPO="$REPO" \
-QG_GITHUB_BASE_URL="file://$fake_base" \
-QG_INSTALL_DIR="$install_dir" \
-  bash -s >"$tmp/install.out" 2>"$tmp/install.err" \
+
+# shellcheck disable=SC2012 # ls -i is the portable way to read the inode here
+inode() { ls -i "$1" | awk '{print $1}'; }
+
+run_install() {
+  local out="$1"
+  cat "$ROOT/scripts/install.sh" | QG_VERSION="v$VERSION" \
+  QG_REPO="$REPO" \
+  QG_GITHUB_BASE_URL="file://$fake_base" \
+  QG_INSTALL_DIR="$install_dir" \
+    bash -s >"$out.out" 2>"$out.err"
+}
+
+run_install "$tmp/install" \
   || { echo "install_test: install.sh failed"; cat "$tmp/install.out" "$tmp/install.err" >&2; exit 1; }
 
 fail() { echo "install_test: $1" >&2; exit 1; }
@@ -72,16 +81,10 @@ echo "PASS: install.sh -> $install_dir/qg ($version_out) + alias quebragalho -> 
 
 # Atomic replace: reinstalling over an existing install must swap the inode
 # (rename, not cp over) and leave no .qg.* temp files.
-# shellcheck disable=SC2012 # ls -i is the portable way to read the inode here
-ino_before="$(ls -i "$install_dir/qg" | awk '{print $1}')"
-cat "$ROOT/scripts/install.sh" | QG_VERSION="v$VERSION" \
-  QG_REPO="$REPO" \
-  QG_GITHUB_BASE_URL="file://$fake_base" \
-  QG_INSTALL_DIR="$install_dir" \
-  bash -s >"$tmp/reinstall.out" 2>"$tmp/reinstall.err" \
+ino_before="$(inode "$install_dir/qg")"
+run_install "$tmp/reinstall" \
   || fail "reinstall over existing install failed"
-# shellcheck disable=SC2012 # ls -i is the portable way to read the inode here
-ino_after="$(ls -i "$install_dir/qg" | awk '{print $1}')"
+ino_after="$(inode "$install_dir/qg")"
 [ "$ino_before" != "$ino_after" ] || fail "reinstall kept inode $ino_before, want atomic rename"
 if find "$install_dir" -maxdepth 1 -name '.qg.*' | grep -q .; then
   fail "temporary .qg.* files left after reinstall"
@@ -97,16 +100,11 @@ echo "PASS: reinstall swaps inode ($ino_before -> $ino_after) with no .qg.* left
 mkdir -p "$tmp/failcp"
 printf '#!/usr/bin/env bash\nexit 1\n' >"$tmp/failcp/cp"
 chmod +x "$tmp/failcp/cp"
-if cat "$ROOT/scripts/install.sh" | QG_VERSION="v$VERSION" \
-  QG_REPO="$REPO" \
-  QG_GITHUB_BASE_URL="file://$fake_base" \
-  QG_INSTALL_DIR="$install_dir" \
-  PATH="$tmp/failcp:$PATH" \
-  bash -s >"$tmp/failcopy.out" 2>"$tmp/failcopy.err"; then
+if PATH="$tmp/failcp:$PATH" run_install "$tmp/failcopy"; then
   fail "install with failing cp succeeded"
 fi
-# shellcheck disable=SC2012 # ls -i is the portable way to read the inode here
-ino_failed="$(ls -i "$install_dir/qg" | awk '{print $1}')"
+grep -q "a versão anterior foi mantida" "$tmp/failcopy.err" || fail "missing kept-previous-version message after failed copy"
+ino_failed="$(inode "$install_dir/qg")"
 [ "$ino_failed" = "$ino_after" ] || fail "failed reinstall changed inode $ino_after -> $ino_failed"
 if find "$install_dir" -maxdepth 1 -name '.qg.*' | grep -q .; then
   fail "temporary .qg.* files left after failed copy"

@@ -30,7 +30,10 @@ func TestUnixInstallerScriptMatchesReleaseContracts(t *testing.T) {
 		`verify_checksum "$checksum_name"`,
 		`tar -xzf "$archive_path" -C "$extract_dir"`,
 		`find_extracted_binary "$extract_dir"`,
-		`cp "$binary_path" "$QG_INSTALL_DIR/qg"`,
+		`install_file "$binary_path" "$QG_INSTALL_DIR/qg"`,
+		`mktemp "$QG_INSTALL_DIR/.qg.XXXXXX"`,
+		`mv -f "$install_tmp"`,
+		`a versão anterior foi mantida`,
 		`copy_optional_file "qg-linux-sandbox"`,
 		`copy_optional_file "qg-seccomp"`,
 		`copy_optional_dir "helpers"`,
@@ -51,10 +54,20 @@ func TestPowerShellInstallerScriptMatchesWindowsReleaseContracts(t *testing.T) {
 		`Find-QGExtractedFile -Root $extractDir -FileName $fileName`,
 		`"qg-windows-command-runner.exe"`,
 		`"qg-windows-sandbox-setup.exe"`,
-		`Copy-Item -Path $sourcePath -Destination (Join-Path $InstallDir $fileName) -Force`,
+		`$destPath = Join-Path $InstallDir $fileName`,
+		`Rename-Item -Path $destPath -NewName $trashName -Force`,
+		`.qg-install-`,
+		`.trash`,
+		`Copy-Item -Path $sourcePath -Destination $destPath -Force`,
 		`Find-QGOptionalExtractedDirectory -Root $extractDir -DirectoryName "helpers"`,
 		`Copy-Item -Path $helpersPath -Destination $targetHelpersPath -Recurse -Force`,
 	})
+	// The updater treats <base>.*.old as unresolved recovery state and blocks
+	// promotion while such a file exists (internal/update/stage_windows.go), so
+	// the installer must never sideline executables under a .old name.
+	if strings.Contains(script, ".old") {
+		t.Fatalf("install.ps1 must not use .old aside names; use .qg-install-<guid>.trash")
+	}
 }
 
 func TestUnixInstallerInstallsFromPrefixedReleaseArchiveWithoutNetwork(t *testing.T) {
