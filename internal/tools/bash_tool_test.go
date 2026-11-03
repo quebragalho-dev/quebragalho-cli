@@ -721,7 +721,7 @@ func TestBashToolBuildsWrappedSandboxExecCommand(t *testing.T) {
 	if command.Path != "/usr/bin/sandbox-exec" || !plan.Wrapped {
 		t.Fatalf("command path = %q plan = %#v, want wrapped sandbox-exec", command.Path, plan)
 	}
-	if len(command.Args) < 5 || command.Args[1] != "-p" || !strings.Contains(command.Args[2], "(deny network*)") {
+	if len(command.Args) < 5 || command.Args[1] != "-p" || !strings.Contains(command.Args[2], "(deny network*") {
 		t.Fatalf("sandbox-exec args = %#v, want inline profile", command.Args)
 	}
 	if command.Dir != resolvedRoot || plan.SandboxDir != resolvedRoot {

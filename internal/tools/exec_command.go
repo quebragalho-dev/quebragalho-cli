@@ -215,7 +215,7 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 	}
 	meta := map[string]string{}
 	addSandboxMeta(meta, plan)
-	monitor := qgSandbox.StartDenialMonitor(context.Background(), plan.MonitorTag)
+	monitor := plan.StartMonitor(context.Background())
 	processResult, err := tool.manager.Start(ctx, execution.ProcessStart{
 		Prepared: execution.PreparedCommand{
 			Command:     command,
@@ -229,7 +229,16 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 		Request: executionRequest, CommandText: commandText, RelativeCwd: relativeCwd,
 		TTY: ttyRequested, Metadata: meta,
 		AfterWait: func() []byte {
+			if command.ProcessState != nil && !command.ProcessState.Success() {
+				// A denial can land just after the process exits; wait for
+				// the tag (bounded). Successful sessions skip the wait.
+				monitor.AwaitTag()
+			}
 			blocks := monitor.Stop()
+			// Record a network denial for the structured report the agent
+			// loop turns into a permission retry. Attribution comes from the
+			// monitor tag; the output fallback below runs after Start.
+			_ = plan.WriteNetworkDenialReport(blocks)
 			if len(blocks) == 0 {
 				return nil
 			}
@@ -239,6 +248,14 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 	if err != nil {
 		_ = monitor.Stop()
 		return errorResult("Error starting exec_command: " + err.Error())
+	}
+	if processResult.Report.Denial == nil && processResult.Exited && processResult.ExitCode != 0 {
+		// Same output fallback as bash: when the tagged feed missed after
+		// idle, a synchronous output signature offers the same prompt.
+		// Synchronous and cheap, never off macOS, never for allow plans.
+		if fallback := qgSandbox.NetworkOutputFallbackDenial(processResult.ExitCode, false, plan.Wrapped, plan.TargetBackend, plan.PermissionProfile.Network.Mode, plan.MonitorTag, runtimeGOOS(), processResult.Output); fallback != nil {
+			processResult.Report.Denial = fallback
+		}
 	}
 	return execToolResultWithBudget(execToolResultInput{
 		commandText: processResult.CommandText, output: processResult.Output,

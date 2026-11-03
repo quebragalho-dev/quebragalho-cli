@@ -160,16 +160,41 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *qgSan
 	// wait, so a backgrounded child cannot outlive the command or hang Run().
 	hardenProcessLifetime(command)
 
-	// Capture sandbox denials when the plan opted in (macOS + Policy.MonitorDenials).
-	// A no-op when MonitorTag is empty, so the default path is unchanged.
-	monitor := qgSandbox.StartDenialMonitor(context.Background(), plan.MonitorTag)
+	// Capture sandbox denials with the monitor matching the plan (tag-only
+	// network feed for auto-monitored deny-network runs, broad feed for the
+	// explicit opt-in). A no-op when MonitorTag is empty, so the default
+	// path is unchanged.
+	monitor := plan.StartMonitor(context.Background())
 	err = command.Run()
 	exitCode := commandExitCode(err)
+	tagSeen := false
+	if err != nil {
+		// A denial can land just after the command exits; wait for the tag
+		// (bounded), never for output. Successful commands skip the wait.
+		tagSeen = monitor.AwaitTag()
+	}
+	blocks := monitor.Stop()
 	adapterReport, reportErr := plan.ExecutionReport()
+	if adapterReport.Denial == nil {
+		// A network denial the sandbox enforced becomes the structured denial
+		// the agent loop turns into a permission retry. Attribution comes
+		// from the monitor tag.
+		adapterReport.Denial = qgSandbox.NetworkDenialFromBlocks(blocks)
+	}
 	meta["exit_code"] = strconv.Itoa(exitCode)
 	stdoutText := stdout.retained()
 	stderrRetained := stderr.retained()
-	stderrText := appendSandboxBlocks(stderrRetained, monitor.Stop())
+	if adapterReport.Denial == nil && err != nil && exitCode >= 0 {
+		// After minutes without system violations the tag for the DNS denial
+		// is never emitted, so no wait brings it back. When the tagged feed
+		// missed, a synchronous output signature offers the same prompt.
+		// Never in unsafe (allow plan), never off macOS, never loosens the
+		// profile; the decision stays with the user.
+		if fallback := qgSandbox.NetworkOutputFallbackDenial(exitCode, tagSeen, plan.Wrapped, plan.TargetBackend, plan.PermissionProfile.Network.Mode, plan.MonitorTag, runtime.GOOS, stdoutText+"\n"+stderrRetained); fallback != nil {
+			adapterReport.Denial = fallback
+		}
+	}
+	stderrText := appendSandboxBlocks(stderrRetained, blocks)
 	// Sandbox blocks are extra model-visible stderr bytes appended after capture;
 	// count them toward the true total so the budget/marker stay accurate.
 	stderrTotal := stderr.total + (len(stderrText) - len(stderrRetained))

@@ -86,7 +86,7 @@ func TestBuildCommandPlanWrapsSandboxExec(t *testing.T) {
 	profile := plan.Args[1]
 	for _, want := range []string{
 		"(deny default)",
-		"(deny network*)",
+		"(deny network*",
 		`(subpath "` + sandboxProfileString(resolvedRoot) + `")`,
 		`(literal "/dev/null")`,
 		`(subpath "/private/tmp")`,
@@ -694,10 +694,30 @@ func TestSandboxExecCommandPlanUsesUniquePerPlanDenialTag(t *testing.T) {
 		t.Fatalf("plan profile must embed its own tag %q:\n%v", p1.MonitorTag, p1.Args)
 	}
 
-	offPolicy := Policy{Mode: ModeEnforce, EnforceWorkspace: true}
+	offPolicy := Policy{Mode: ModeEnforce, EnforceWorkspace: true, Network: NetworkAllow}
 	off := seatbeltCommandPlanWithProfile(spec, "/ws", seatbeltCompatibilityPermissionProfile([]string{"/ws"}, offPolicy), offPolicy, backend)
 	if off.MonitorTag != "" {
 		t.Fatalf("a non-monitored plan must carry no tag, got %q", off.MonitorTag)
+	}
+
+	// Deny-network plans self-monitor without an explicit opt-in: only they
+	// can produce the network denial the agent loop turns into a retry, so
+	// allow-network commands pay nothing.
+	denyPolicy := Policy{Mode: ModeEnforce, EnforceWorkspace: true, Network: NetworkDeny}
+	denyProfile := seatbeltCompatibilityPermissionProfile([]string{"/ws"}, denyPolicy)
+	denyPlan := seatbeltCommandPlanWithProfile(spec, "/ws", denyProfile, denyPolicy, backend)
+	if denyPlan.MonitorTag == "" {
+		t.Fatal("a deny-network plan must carry a denial tag without MonitorDenials")
+	}
+	netTag := denyPlan.MonitorTag + "-net"
+	if !strings.Contains(strings.Join(denyPlan.Args, " "), `(deny network* (with message "`+netTag+`"))`) {
+		t.Fatalf("deny-network plan profile must tag the network rule with %q:\n%v", netTag, denyPlan.Args)
+	}
+	if !denyPlan.monitorNarrow {
+		t.Fatal("an auto-monitored deny-network plan must use the narrow network monitor")
+	}
+	if p1.monitorNarrow {
+		t.Fatal("an explicit MonitorDenials opt-in must keep the broad violation feed")
 	}
 }
 
