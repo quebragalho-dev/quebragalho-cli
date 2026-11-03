@@ -8,15 +8,15 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 )
 
-// OutputIndicatesBlockedNetwork reports whether combined command output
-// carries an unequivocal blocked-network signature. It only matches short,
-// tested DNS strings and exact network-syscall failures; file writes, echoed
-// text, and bare words never match.
 var (
 	goLookupNoSuchHost = regexp.MustCompile(`lookup [^\s:]+(?: on \S+)?: no such host`)
 	pythonBareEPERM    = regexp.MustCompile(`(?m)^permissionerror: \[errno 1\] operation not permitted\s*$`)
 )
 
+// OutputIndicatesBlockedNetwork reports whether combined command output
+// carries an unequivocal blocked-network signature. It only matches short,
+// tested DNS strings and exact network-syscall failures; file writes, echoed
+// text, and bare words never match.
 func OutputIndicatesBlockedNetwork(output string) bool {
 	lower := strings.ToLower(output)
 	if strings.Contains(lower, "nodename nor servname provided") {
