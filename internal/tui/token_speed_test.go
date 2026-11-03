@@ -54,9 +54,19 @@ func TestExactRateReplacesEstimate(t *testing.T) {
 	*clock = now.Add(2 * time.Second)
 	next, _ = m.Update(agentUsageProgressMsg{runID: m.activeRunID, usage: qgruntime.Usage{OutputTokens: 850, Elapsed: time.Second}})
 	m = next.(model)
+	// The usage arrival ends the live state: exact rate, faint, no dot.
 	got := plainRender(t, m.composerTopBorder(120))
+	if !strings.Contains(got, "850 tok/s") || strings.Contains(got, "●") {
+		t.Fatalf("usage arrival must settle faint, got %q", got)
+	}
+	// More output opens a new live window: the exact partial wins over the
+	// fresh estimate.
+	next, _ = m.Update(agentTextMsg{runID: m.activeRunID, delta: strings.Repeat("b", 4000)})
+	m = next.(model)
+	*clock = now.Add(4 * time.Second)
+	got = plainRender(t, m.composerTopBorder(120))
 	if !strings.Contains(got, "● 850 tok/s") {
-		t.Fatalf("exact partial usage must win, got %q", got)
+		t.Fatalf("exact partial must win, got %q", got)
 	}
 	if strings.Contains(got, "500 tok/s") {
 		t.Fatalf("estimate must not shadow the exact rate, got %q", got)
@@ -91,10 +101,12 @@ func TestRateClearedOnNewSession(t *testing.T) {
 func TestBorderWidthsNeverBreak(t *testing.T) {
 	longName := "a-very-long-model-name-that-needs-truncation-on-narrow-screens-12345-and-keeps-going-past-one-hundred-cells-total"
 	for _, width := range []int{50, 80, 120} {
-		m := batchThreeLiveModel(t)
+		now := time.Unix(1_000_000, 0)
+		m, clock := liveBorderModel(t, now)
 		m.modelName = longName
-		m.pending = true
-		m.streamUsage = qgruntime.Usage{OutputTokens: 850, Elapsed: time.Second}
+		next, _ := m.Update(agentTextMsg{runID: m.activeRunID, delta: strings.Repeat("a", 4000)})
+		m = next.(model)
+		*clock = now.Add(2 * time.Second)
 		got := plainRender(t, m.composerTopBorder(width))
 		for _, line := range strings.Split(got, "\n") {
 			if w := lipgloss.Width(line); w != width {
@@ -109,10 +121,12 @@ func TestBorderWidthsNeverBreak(t *testing.T) {
 		}
 	}
 	// Too narrow for model plus rate: the rate drops, the model stays.
-	m := batchThreeLiveModel(t)
+	now := time.Unix(1_000_000, 0)
+	m, clock := liveBorderModel(t, now)
 	m.modelName = longName
-	m.pending = true
-	m.streamUsage = qgruntime.Usage{OutputTokens: 850, Elapsed: time.Second}
+	next, _ := m.Update(agentTextMsg{runID: m.activeRunID, delta: strings.Repeat("a", 4000)})
+	m = next.(model)
+	*clock = now.Add(2 * time.Second)
 	got := plainRender(t, m.composerTopBorder(16))
 	if strings.Contains(got, "tok/s") {
 		t.Fatalf("tiny border must drop the rate, got %q", got)
@@ -122,6 +136,41 @@ func TestBorderWidthsNeverBreak(t *testing.T) {
 	}
 	if w := lipgloss.Width(got); w != 16 {
 		t.Fatalf("tiny border line is %d cells, want 16: %q", w, got)
+	}
+}
+
+func TestToolStartMutesLiveRate(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	m, clock := liveBorderModel(t, now)
+	next, _ := m.Update(agentTextMsg{runID: m.activeRunID, delta: strings.Repeat("a", 4000)})
+	m = next.(model)
+	*clock = now.Add(2 * time.Second)
+	m.lastCompletedRate = "99 tok/s"
+	next, _ = m.Update(toolCallStreamStartMsg{runID: m.activeRunID, id: "call-1", name: "bash"})
+	m = next.(model)
+	got := plainRender(t, m.composerTopBorder(120))
+	if strings.Contains(got, "●") || strings.Contains(got, "500 tok/s") {
+		t.Fatalf("tool run must mute the live rate, got %q", got)
+	}
+	if !strings.Contains(got, "99 tok/s") {
+		t.Fatalf("tool run must keep the last exact rate faint, got %q", got)
+	}
+}
+
+func TestApprovalWaitShowsFaintRate(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	m, clock := liveBorderModel(t, now)
+	next, _ := m.Update(agentTextMsg{runID: m.activeRunID, delta: strings.Repeat("a", 4000)})
+	m = next.(model)
+	*clock = now.Add(2 * time.Second)
+	m.lastCompletedRate = "99 tok/s"
+	m.pendingPermission = &pendingPermissionPrompt{}
+	got := plainRender(t, m.composerTopBorder(120))
+	if strings.Contains(got, "●") || strings.Contains(got, "500 tok/s") {
+		t.Fatalf("approval wait must not flash live, got %q", got)
+	}
+	if !strings.Contains(got, "99 tok/s") {
+		t.Fatalf("approval wait must keep the last exact rate faint, got %q", got)
 	}
 }
 

@@ -99,11 +99,12 @@ func CollectStreamWithOptions(ctx context.Context, events <-chan StreamEvent, op
 	progress()
 	finish := func() CollectedStream {
 		collector.flush(&collected)
-		// The final usage never carries Elapsed (providers report token
-		// counts, not wall time), so stamp it here: receipts and the saved
-		// session payload derive the exact end rate from the same clock as
-		// the live snapshots.
-		if !firstOutput.IsZero() && collected.Usage.Elapsed <= 0 {
+		// Speed is output tokens over generation time: always measure from
+		// the first output here, even when the provider stamped its own
+		// Elapsed from the request start (which includes the wait for the
+		// first word). Matches the live snapshots' measured clock, so the
+		// live estimate and the final receipt agree.
+		if !firstOutput.IsZero() {
 			collected.Usage.Elapsed = time.Since(firstOutput)
 		}
 		if usageSeen && options.OnUsage != nil {

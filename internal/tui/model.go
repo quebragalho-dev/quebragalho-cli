@@ -196,6 +196,10 @@ type model struct {
 	// wall time; the exact usage wins once the provider reports it.
 	streamEstimateChars int
 	streamEstimateStart time.Time
+	// streamLive marks a model call currently emitting output whose usage
+	// has not arrived yet: only then the border shows the live rate. Usage
+	// arrival, tool start and a new run mute it; output wakes it.
+	streamLive bool
 	// lastCompletedRate is the exact "42 tok/s" of the last finished call,
 	// shown faint on the border after the run. Cleared on /new, /clear and
 	// model switch; /resume restores it from the reloaded receipt.
@@ -2299,6 +2303,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamCallID = msg.id
 		m.streamCallName = msg.name
 		m.streamCallDecoder = newStreamingDecoder()
+		m.muteStreamLive()
 		return m, nil
 	case toolCallStreamDeltaMsg:
 		if msg.runID != m.activeRunID || msg.id != m.streamCallID || m.streamCallDecoder == nil {
@@ -2867,6 +2872,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.streamUsage = qgruntime.Usage{}
 		} else {
 			m.streamUsage = msg.usage
+			if msg.usage.EffectiveOutputTokens() > 0 {
+				m.muteStreamLive()
+			}
+			if rate := usageRate(msg.usage); rate != "" {
+				m.lastCompletedRate = rate
+			}
 		}
 		return m, nil
 	case agentUsageMsg:
@@ -5226,8 +5237,7 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.planDetailGen++ // invalidate any in-flight step-explanation from the prior run
 	m.runDetailsOpen = false
 	m.streamUsage = qgruntime.Usage{}
-	m.streamEstimateChars = 0
-	m.streamEstimateStart = time.Time{}
+	m.muteStreamLive()
 	m.turnStartedAt = m.now()
 	m.turnTimer = newActiveTurnTimer(m.turnStartedAt)
 	m.lastStreamActivity = m.turnStartedAt

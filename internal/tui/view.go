@@ -114,7 +114,9 @@ func (m model) composerTopBorder(width int) string {
 	// The model shrinks first; when even a stub would not fit, the speed
 	// goes and only the model stays.
 	modelBudget := availableWidth - frameWidth - rateWidth
-	if modelBudget < 1 && rateWidth > 0 {
+	// Below a readable model stub the number costs more than the name:
+	// drop the speed and keep the model.
+	if modelBudget < 8 && rateWidth > 0 {
 		rateSeg = ""
 		modelBudget = availableWidth - frameWidth
 	}
@@ -142,7 +144,9 @@ func (m model) composerTopBorder(width int) string {
 // the first response. Returns the styled segment and its cell width.
 func (m model) composerRateSegment() (string, int) {
 	rate, live := "", false
-	if m.pending {
+	// The dot only shows while the current call is emitting output and its
+	// usage has not arrived yet. Otherwise the last exact rate shows faint.
+	if m.pending && m.streamLive && m.pendingPermission == nil {
 		if exact := usageRate(m.streamUsage); exact != "" {
 			rate, live = exact, true
 		} else if est := m.liveEstimateRate(); est != "" {

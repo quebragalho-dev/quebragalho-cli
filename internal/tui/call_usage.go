@@ -110,10 +110,10 @@ func callCostText(row transcriptRow) string {
 func renderCallUsage(row transcriptRow, width int) string {
 	modelID := displayValue(row.meta["model"], row.text)
 	label := modelID
-	// The rate reads one step brighter than the muted receipt body; without a
-	// known rate the receipt stays "model · cost", with no gap and no zero.
+	// A brighter rate would not survive the plain-text wrap below, so the
+	// whole receipt stays muted like before; the speed still reads first.
 	if rate := strings.TrimSpace(row.meta["rate"]); rate != "" {
-		label += " · " + qgTheme.ink.Render(rate)
+		label += " · " + rate
 	}
 	return renderSystemNote(strings.Join(wrapPlainText(label+" · "+callCostText(row), maxInt(1, width-2)), "\n"), width)
 }
@@ -188,15 +188,25 @@ func (m model) statusEffort() string {
 }
 
 // countStreamEstimate accumulates streamed output runes for the live speed
-// estimate, stamping the first output. Called from the TUI update loop, so no
-// locking is needed.
+// estimate, stamping the first output and marking the call live. Called from
+// the TUI update loop, so no locking is needed.
 func (m *model) countStreamEstimate(delta string) {
 	if n := len([]rune(delta)); n > 0 {
 		if m.streamEstimateStart.IsZero() {
 			m.streamEstimateStart = m.now()
 		}
 		m.streamEstimateChars += n
+		m.streamLive = true
 	}
+}
+
+// muteStreamLive ends the live-output state: the call's usage arrived or the
+// model stopped emitting (tool running). The estimate resets so tool time
+// never dilutes the next call's count.
+func (m *model) muteStreamLive() {
+	m.streamLive = false
+	m.streamEstimateChars = 0
+	m.streamEstimateStart = time.Time{}
 }
 
 // liveEstimateRate guesses the current speed from streamed output (~4

@@ -97,6 +97,7 @@ func TestBatchSevenStreamingProgressIsUnbilledAndIsolated(t *testing.T) {
 	next, _ := m.Update(agentUsageProgressMsg{runID: 3, usage: event})
 	m = next.(model)
 	assertContains(t, plainRender(t, m.composerTopBorder(120)), "850 tok/s")
+	assertNotContains(t, plainRender(t, m.composerTopBorder(120)), "●")
 	if m.lastUsageSeen || m.usageTracker.Summary().LastRecord != nil {
 		t.Fatal("progress created accounting")
 	}
@@ -105,7 +106,9 @@ func TestBatchSevenStreamingProgressIsUnbilledAndIsolated(t *testing.T) {
 	assertContains(t, plainRender(t, m.composerTopBorder(120)), "850 tok/s")
 	next, _ = m.Update(agentUsageProgressMsg{runID: 3})
 	m = next.(model)
-	assertNotContains(t, plainRender(t, m.composerTopBorder(120)), "tok/s")
+	got := plainRender(t, m.composerTopBorder(120))
+	assertContains(t, got, "850 tok/s")
+	assertNotContains(t, got, "●")
 }
 
 func TestBatchSevenRuntimeStreamsBeforeReceipt(t *testing.T) {
