@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -105,22 +104,11 @@ func TestDetectInstallMethodWithRealManifests(t *testing.T) {
 	if got := DetectInstallMethod(binary); got != InstallMethodNpm {
 		t.Fatalf("platform binary DetectInstallMethod = %q, want npm", got)
 	}
-	standalone := filepath.Join(root, "qg-standalone-probe")
-	if err := os.WriteFile(standalone, []byte("binary"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	broad := filepath.Join(dir, "qg")
+	broad := filepath.Join(root, "qg")
 	if err := os.WriteFile(broad, []byte("binary"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), realManifest(t, "wrapper-package.json", "0.0.11"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got := DetectInstallMethod(broad); got != InstallMethodStandalone {
 		t.Fatalf("broad wrapper manifest DetectInstallMethod = %q, want standalone", got)
-	}
-	if !strings.HasSuffix(root, "cli") {
-		t.Fatalf("test layout broken: %q", root)
 	}
 }

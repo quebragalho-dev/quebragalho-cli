@@ -181,11 +181,10 @@ func TestApplyNpmUpdateFailsWhenVersionMovesElsewhere(t *testing.T) {
 	}
 }
 
-// TestApplyNpmUpdateWithoutPrefixFallsBackToBareInstall pins the fail-open
-// shape with a fail-closed check: when no prefix can be inferred the command
-// stays a bare `npm install -g`, and the verification still rejects an
-// unchanged install instead of reporting success.
-func TestApplyNpmUpdateWithoutPrefixFallsBackToBareInstall(t *testing.T) {
+// TestApplyNpmUpdateRefusesWithoutPrefix pins the fail-closed no-prefix
+// rule: when no prefix can be inferred the updater runs nothing and reports
+// the manual command, instead of installing elsewhere and failing after.
+func TestApplyNpmUpdateRefusesWithoutPrefix(t *testing.T) {
 	dir := t.TempDir()
 	writeNpmWrapperPackage(t, dir, "0.1.0")
 	binary := filepath.Join(dir, "qg")
@@ -193,7 +192,13 @@ func TestApplyNpmUpdateWithoutPrefixFallsBackToBareInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	stubCurrentExecutable(t, binary)
-	gotArgs := stubNpmRun(t, nil)
+	var calls int
+	original := runNpm
+	runNpm = func(context.Context, string, []string) error {
+		calls++
+		return nil
+	}
+	t.Cleanup(func() { runNpm = original })
 
 	_, err := Apply(context.Background(), Options{
 		CurrentVersion: "0.1.0",
@@ -204,14 +209,19 @@ func TestApplyNpmUpdateWithoutPrefixFallsBackToBareInstall(t *testing.T) {
 		},
 	})
 	if err == nil {
-		t.Fatal("expected an error when the unchanged install cannot be verified as new")
+		t.Fatal("expected an error when no npm prefix can be inferred")
 	}
-	wantArgs := []string{"install", "-g", npmPackageName + "@0.2.0"}
-	if !reflect.DeepEqual(*gotArgs, wantArgs) {
-		t.Fatalf("npm args = %q, want the bare global install %q", *gotArgs, wantArgs)
+	if calls != 0 {
+		t.Fatalf("runNpm ran %d times, want 0: nothing may be installed without a prefix", calls)
 	}
-	if !strings.Contains(err.Error(), "não ficou ativa") {
-		t.Fatalf("error = %v, want the honest pt-BR failure", err)
+	for _, want := range []string{
+		"não foi possível determinar o prefixo npm",
+		"nada foi instalado",
+		"Para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@0.2.0",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want it to contain %q", err, want)
+		}
 	}
 	if strings.Contains(err.Error(), "--prefix") {
 		t.Fatalf("error = %v, must not invent a prefix it could not infer", err)
@@ -249,7 +259,8 @@ func TestIsWritePermissionError(t *testing.T) {
 // its pt-BR guidance.
 func TestApplyNpmUpdateReportsMissingNpm(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	err := applyNpmUpdate(context.Background(), filepath.Join(t.TempDir(), "qg"), "0.2.0")
+	_, binary := npmApplyFixture(t, "0.1.0")
+	err := applyNpmUpdate(context.Background(), binary, "0.2.0")
 	if err == nil {
 		t.Fatal("expected an error when npm is not on PATH")
 	}

@@ -135,7 +135,7 @@ func FormatApply(result ApplyResult) string {
 		"Binário: " + result.BinaryPath,
 	}
 	for _, warning := range result.Warnings {
-		lines = append(lines, "Warning: "+warning)
+		lines = append(lines, "Aviso: "+warning)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -180,19 +180,19 @@ func applyNpmUpdate(ctx context.Context, executablePath string, wantVersion stri
 		args = []string{"install", "-g", "--prefix", prefix, spec}
 		manual = npmInstallCommand(prefix, spec)
 	}
+	if !hasPrefix {
+		return fmt.Errorf("não foi possível determinar o prefixo npm da instalação atual (%s); nada foi instalado. Para atualizar à mão, rode: %s", executablePath, manual)
+	}
 	npmPath, err := npmLookPath("npm")
 	if err != nil {
 		return fmt.Errorf("npm não encontrado no PATH: reinstale com `%s`", manual)
 	}
 	if err := runNpm(ctx, npmPath, args); err != nil {
 		command := "npm " + strings.Join(args, " ")
-		if hasPrefix && isWritePermissionError(err) {
+		if isWritePermissionError(err) {
 			return fmt.Errorf("falha ao atualizar pelo npm (%s): %w. Sem permissão de escrita em %s. Para atualizar à mão, rode: %s", command, err, prefix, manual)
 		}
 		return fmt.Errorf("falha ao atualizar pelo npm (%s): %w. Para atualizar à mão, rode: %s", command, err, manual)
-	}
-	if !hasRoot {
-		return fmt.Errorf("a atualização via npm para %s não ficou ativa: não foi possível determinar o pacote npm da instalação atual (%s). Para atualizar à mão, rode: %s", wantVersion, executablePath, manual)
 	}
 	gotVersion, err := readNpmPackageVersion(packageRoot)
 	if err != nil {

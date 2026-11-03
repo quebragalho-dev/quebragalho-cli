@@ -37,9 +37,11 @@ them explicitly; `qg upgrade` is `qg update` with `--apply` implied.
 
 - npm installs delegate to `npm install -g --prefix "<prefix>"
   @quebragalho-dev/cli@<version>`, where `<prefix>` is the npm prefix owning
-  the invoked install and `<version>` is the release being installed. The
-  update only reports success when the invoked install actually moved to the
-  new version; otherwise it errors with the manual command instead of claiming
+  the invoked install and `<version>` is the release being installed. When no
+  prefix can be inferred (a local install, pnpm, bun), the update refuses
+  before running npm and prints the manual command instead. The update only
+  reports success when the invoked install actually moved to the new
+  version; otherwise it errors with the manual command instead of claiming
   an update that went elsewhere.
 - Standalone installs download the release archive, verify its checksum,
   extract it, and atomically replace the running binary plus any installed

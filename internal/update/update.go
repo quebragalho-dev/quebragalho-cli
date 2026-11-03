@@ -229,10 +229,10 @@ func Format(result Result) string {
 	if result.UpdateAvailable {
 		lines := []string{
 			fmt.Sprintf("[qg] Atualização disponível: %s -> %s", result.CurrentVersion, result.LatestVersion),
-			"Versão: " + result.ReleaseURL,
+			"Página da versão: " + result.ReleaseURL,
 		}
 		lines = appendAssetLines(lines, result.ReleaseAsset)
-		lines = append(lines, upgradeGuidance(result.ReleaseAsset, result.SourceFlag, result.installMethod, result.npmPrefix))
+		lines = append(lines, upgradeGuidance(result.ReleaseAsset, result.SourceFlag, result.installMethod, result.npmPrefix, result.LatestVersion))
 		return strings.Join(lines, "\n")
 	}
 	lines := []string{
@@ -294,7 +294,7 @@ func publishedReleaseTarget(goos, goarch string) string {
 //
 // An asset with no target recorded is the ordinary current-platform check (the
 // target fields are only populated when a target was resolved).
-func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallMethod, npmPrefix string) string {
+func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallMethod, npmPrefix string, latestVersion string) string {
 	target := releaseAssetTarget(asset)
 	local := localReleaseTarget()
 	if target != "" && target != local {
@@ -328,12 +328,12 @@ func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallM
 	}
 	if sourceFlag != "" {
 		if installMethod == InstallMethodNpm {
-			return "Esta instalação gerenciada pelo npm pode ser atualizada com `" + npmInstallCommand(npmPrefix, npmPackageName+"@latest") + "`, que instala o pacote oficial do npm. A fonte personalizada `" + sourceFlag + "` afeta só a verificação da release e a decisão de atualizar, não a instalação pelo npm."
+			return "Esta instalação gerenciada pelo npm pode ser atualizada com `" + npmInstallCommand(npmPrefix, npmPackageName+"@"+latestVersion) + "`, que instala o pacote oficial do npm. A fonte personalizada `" + sourceFlag + "` afeta só a verificação da release e a decisão de atualizar, não a instalação pelo npm."
 		}
 		return "Rode `qg upgrade " + sourceFlag + "` para instalar a partir da fonte usada nesta verificação; `qg upgrade` sem a fonte não repete aquela fonte explícita."
 	}
 	if installMethod == InstallMethodNpm {
-		return "Esta instalação gerenciada pelo npm é atualizada com `qg upgrade`, que delega ao npm (`" + npmInstallCommand(npmPrefix, npmPackageName+"@latest") + "`)."
+		return "Esta instalação gerenciada pelo npm é atualizada com `qg upgrade`, que delega ao npm (`" + npmInstallCommand(npmPrefix, npmPackageName+"@"+latestVersion) + "`)."
 	}
 	return "Rode `qg upgrade` para baixar, verificar e instalar a release mais recente."
 }
