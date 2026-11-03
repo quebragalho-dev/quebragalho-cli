@@ -84,12 +84,12 @@ func DisplayPermissionReason(reason string) string {
 	reason = strings.TrimSpace(reason)
 	if path, ok := strings.CutPrefix(reason, "Reading "); ok {
 		if path, ok := strings.CutSuffix(path, " requires access outside the workspace."); ok {
-			return "Lendo " + path + " fora da pasta de trabalho."
+			return "Ler " + path + " exige acesso fora da pasta de trabalho."
 		}
 	}
 	if path, ok := strings.CutPrefix(reason, "Writing to "); ok {
 		if path, ok := strings.CutSuffix(path, " requires access outside the workspace. Use /add-dir or --add-dir to allow writes there."); ok {
-			return "Escrevendo em " + path + " fora da pasta de trabalho. Use /add-dir ou --add-dir para permitir escrita lá."
+			return "Escrever em " + path + " exige acesso fora da pasta de trabalho. Use /add-dir ou --add-dir para permitir escrita lá."
 		}
 	}
 	switch reason {
@@ -112,13 +112,11 @@ func DisplayPermissionReason(reason string) string {
 	case "run superseded":
 		return "execução substituída"
 	case "permission prompt unavailable":
-		return "prompt indisponível"
+		return "pedido de permissão indisponível"
 	case "run cancelled":
 		return "execução cancelada"
 	case "blocked by a beforeTool hook":
 		return "bloqueado pelo hook beforeTool"
-	case "approved by saved permission":
-		return "aprovado por permissão salva"
 	default:
 		return reason
 	}

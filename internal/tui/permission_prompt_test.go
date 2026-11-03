@@ -144,7 +144,7 @@ func TestPermissionPromptWrapsLongReasonWithoutTruncating(t *testing.T) {
 
 	card, _ := renderFocusedPermissionPrompt(request, 0, false, "", 60)
 	got := plainRender(t, card)
-	for _, want := range []string{"Lendo", "/home/dev/projects", "fora da pasta de trabalho."} {
+	for _, want := range []string{"Ler", "/home/dev/projects", "exige acesso fora da pasta de trabalho."} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card truncated reason; missing %q:\n%s", want, got)
 		}

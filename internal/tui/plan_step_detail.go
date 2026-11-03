@@ -211,7 +211,8 @@ func (m model) appendPlanStepCard(stepIndex int, explanation string, loading boo
 	}}
 
 	// The centerpiece: a short write-up of the step in simple Brazilian Portuguese,
-	// written by the model on click — "what we did" for a finished step, "what we'll do" for a queued one.
+	// written by the model on click — "what we did" for a finished step,
+	// "what we'll do" for a queued one.
 	sections = append(sections, commandSection{
 		Title: planStepExplanationTitle(step.status),
 		Lines: m.planStepExplanationLines(step, explanation, loading),
