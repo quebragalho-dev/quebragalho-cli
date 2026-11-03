@@ -3,6 +3,19 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.15 — 2026-11-03
+
+### Novidades
+
+- Medidor de contexto ao vivo: a borda de baixo da caixa de texto enche conforme o modelo usa o contexto, verde até 59%, âmbar até 84% e vermelho a partir de 85%. A linha de status mostra o uso, por exemplo `30% · 300k/1m`. O tamanho do contexto vem do catálogo de cada modelo. O nome do modelo foi para a borda de cima.
+- `/model` novo: abre já buscando, separa Favoritos, Recentes e Catálogo, e mostra o tamanho do contexto e o preço de cada modelo. O modelo marcado mostra o que sabe fazer e o preço de saída. Como as letras vão para a busca, "só nesta sessão" passou para Alt+s e favoritar para Alt+f. Tab abre o nível.
+- `/effort` novo: os níveis aparecem em escada, com pontos e uma frase curta em cada um, e só aparecem os níveis que o modelo aceita.
+
+### Mudanças
+
+- `/clear` agora começa uma conversa nova, como o `/new`; a anterior continua no `/resume`. Antes ele só limpava a tela, e o modelo seguia com a conversa inteira.
+- Trocar de modelo mantém a conversa, e o medidor passa a mostrar o uso contra o tamanho do modelo novo.
+
 ## 0.0.14 — 2026-11-03
 
 ### Correções
