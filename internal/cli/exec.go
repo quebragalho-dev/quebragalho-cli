@@ -362,7 +362,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		}
 		defer closeMCPRuntime(stderr, mcpRuntime)
 	}
-	pluginActivation = activatePlugins(workspaceRoot, registry, deps, stderr, trustRoot, executionRunner)
+	pluginActivation = activatePlugins(workspaceRoot, registry, deps, stderr, options.outputFormat, trustRoot, executionRunner)
 	registerLocalControlTools(registry, workspaceRoot, resolved.LocalControl)
 	if err := validateExecToolFilters(options, registry); err != nil {
 		return writeExecFormatUsageError(stdout, stderr, options.outputFormat, err.Error())
@@ -613,7 +613,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 
 	sessionRecorder := execSessionRecorder{prepared: preparedSession}
 	// Surface a best-effort session-recording failure once, on every exit path.
-	defer sessionRecorder.warnIfRecordingFailed(stderr)
+	defer sessionRecorder.warnIfRecordingFailed(stderr, options.outputFormat)
 	sessionRecorder.append(sessions.EventMessage, map[string]any{
 		"role":    "user",
 		"content": prompt,
@@ -1149,7 +1149,7 @@ func writeExecProviderError(stdout io.Writer, stderr io.Writer, format execOutpu
 		}
 		return exitProvider
 	}
-	if _, err := fmt.Fprintf(stderr, "[qg] %s\n", message); err != nil {
+	if _, err := fmt.Fprintf(stderr, "[qg] %s\n", humanExecMessage(message)); err != nil {
 		return exitCrash
 	}
 	// Append a one-line next step for recognized provider failures (auth /

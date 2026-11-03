@@ -207,11 +207,14 @@ func TestCommandCardRowRendersAsTitledCard(t *testing.T) {
 		"Available",
 		"- bash",
 		"- read_file",
-		"actions: /mcp manage servers | /permissions manage access",
+		"ações: /mcp manage servers | /permissions manage access",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("command card missing %q in:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "actions: /mcp") {
+		t.Fatalf("command card kept English actions label:\n%s", got)
 	}
 }
 
@@ -244,11 +247,14 @@ func TestEffortCommandCardRendersAsTitledCard(t *testing.T) {
 		"auto",
 		"claude-sonnet-4.5",
 		"low, medium, high",
-		"actions: use /effort <value> to switch | /effort auto to clear",
+		"ações: use /effort <value> to switch | /effort auto to clear",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("effort card missing %q in:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "actions: use /effort") {
+		t.Fatalf("effort card kept English actions label:\n%s", got)
 	}
 	// Status card for unsupported models should still surface the no-controls
 	// hint rather than falling back to the grey commandOutput panel.
@@ -281,16 +287,19 @@ func TestCommandCardRowTrimsIndentedActionsLabel(t *testing.T) {
 		text: commandCardTranscriptPrefix + strings.Join([]string{
 			"Tools",
 			"2 registered | registered catalog",
-			"  actions: /mcp manage servers | /permissions manage access",
+			"  ações: /mcp manage servers | /permissions manage access",
 		}, "\n"),
 	}
 
 	got := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if strings.Contains(got, "actions:  actions:") {
-		t.Fatalf("command card duplicated indented actions label:\n%s", got)
+	if gotCount := strings.Count(got, "ações:"); gotCount != 1 {
+		t.Fatalf("command card must render exactly one ações label, got %d in:\n%s", gotCount, got)
 	}
-	if !strings.Contains(got, "actions: /mcp manage servers | /permissions manage access") {
+	if !strings.Contains(got, "ações: /mcp manage servers | /permissions manage access") {
 		t.Fatalf("command card missing actions line:\n%s", got)
+	}
+	if strings.Contains(got, "actions:") {
+		t.Fatalf("command card kept English actions label:\n%s", got)
 	}
 }
 

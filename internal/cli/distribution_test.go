@@ -224,11 +224,20 @@ func TestRunPluginAddListRemove(t *testing.T) {
 	if exit := runWithDeps([]string{"plugin", "info", "qg.demo"}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("plugin info exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "qg.demo") || !strings.Contains(stdout.String(), "manifest:") {
+	if !strings.Contains(stdout.String(), "qg.demo") || !strings.Contains(stdout.String(), "manifesto:") {
 		t.Fatalf("info output missing plugin details:\n%s", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "hash divergente: não") {
 		t.Fatalf("info missing hash drift status:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "origem do lock:") || !strings.Contains(stdout.String(), "hash do lock:") {
+		t.Fatalf("info missing pt lock labels:\n%s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "lock source:") || strings.Contains(stdout.String(), "lock hash:") {
+		t.Fatalf("info kept English lock labels:\n%s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "  manifest: ") {
+		t.Fatalf("info kept English manifest label:\n%s", stdout.String())
 	}
 
 	// Editing the installed manifest flips the drift status, the same way a
@@ -312,6 +321,12 @@ func TestRunToolsMakeAndList(t *testing.T) {
 	}
 	if !strings.Contains(out, "2. Rode `qg tools list` para confirmar o carregamento.") {
 		t.Fatalf("tools make next steps missing Rode line:\n%s", out)
+	}
+	if !strings.Contains(out, "  manifesto: ") {
+		t.Fatalf("tools make output missing pt manifesto label:\n%s", out)
+	}
+	if strings.Contains(out, "  manifest: ") {
+		t.Fatalf("tools make output kept English manifest label:\n%s", out)
 	}
 	if !strings.Contains(out, "3. A ferramenta é ativada pelo fluxo normal de permissão.") {
 		t.Fatalf("tools make next steps missing ativada line:\n%s", out)

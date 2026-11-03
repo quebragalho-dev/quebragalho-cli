@@ -132,8 +132,12 @@ func (recorder *execSessionRecorder) append(eventType sessions.EventType, payloa
 // Recording is best-effort (it never fails the run), but a silent drop would let
 // a user believe a session was persisted when it was not — so the first failure
 // is reported once at run end. No-op when recording succeeded.
-func (recorder *execSessionRecorder) warnIfRecordingFailed(stderr io.Writer) {
+func (recorder *execSessionRecorder) warnIfRecordingFailed(stderr io.Writer, format execOutputFormat) {
 	if recorder.err != nil {
-		fmt.Fprintf(stderr, "[qg] WARNING: session not fully recorded: %v\n", recorder.err)
+		if format == execOutputJSON || format == execOutputStreamJSON {
+			fmt.Fprintf(stderr, "[qg] WARNING: session not fully recorded: %v\n", recorder.err)
+			return
+		}
+		fmt.Fprintf(stderr, "[qg] Aviso: a sessão não foi gravada por completo: %v\n", recorder.err)
 	}
 }

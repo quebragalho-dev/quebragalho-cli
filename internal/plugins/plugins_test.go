@@ -161,9 +161,14 @@ func TestFormatListSurfacesOptionalMetadata(t *testing.T) {
 		License:       "MIT",
 		Keywords:      []string{"automation", "macos"},
 	}}, nil)
-	for _, want := range []string{"author: OpenAI", "license: MIT", "keywords: automation, macos"} {
+	for _, want := range []string{"autor: OpenAI", "licença: MIT", "palavras-chave: automation, macos", "Plugins do QG:", "ativado"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("FormatList output missing %q:\n%s", want, output)
+		}
+	}
+	for _, banned := range []string{"author: OpenAI", "license: MIT", "keywords: ", "QG Plugins:", "Plugins QG:", "enabled"} {
+		if strings.Contains(output, banned) {
+			t.Fatalf("FormatList kept English %q:\n%s", banned, output)
 		}
 	}
 }
@@ -527,4 +532,44 @@ func hasPluginDiagnostic(diagnostics []Diagnostic, kind DiagnosticKind, pluginID
 		}
 	}
 	return false
+}
+
+func TestFormatListPortuguese(t *testing.T) {
+	single := LoadedPlugin{SchemaVersion: 1, ID: "qg.um", Name: "Um", Version: "1.0.0", Enabled: true, Source: SourceUser,
+		Tools: []ToolExtension{{Name: "a"}}, Prompts: []PathExtension{{Name: "p"}}, Skills: []PathExtension{{Name: "s"}}, Hooks: []HookExtension{{Name: "h"}}}
+	for _, tc := range []struct {
+		name    string
+		plugins []LoadedPlugin
+		diag    []Diagnostic
+		want    []string
+		banned  []string
+	}{
+		{"vazio", nil, nil,
+			[]string{"Nenhum plugin local do QG carregado."},
+			[]string{"No local QG plugins", "QG Plugins:", "Plugin diagnostics:"}},
+		{"singular", []LoadedPlugin{single}, nil,
+			[]string{"Plugins do QG:", "1 ferramenta, 1 prompt, 1 skill, 1 hook", "ativado"},
+			[]string{"QG Plugins:", "1 ferramentas", "enabled", "author:", "license:", "keywords:"}},
+		{"plural", []LoadedPlugin{{SchemaVersion: 1, ID: "qg.dois", Name: "Dois", Version: "1.0.0", Enabled: false, Source: SourceUser,
+			Tools: []ToolExtension{{Name: "a"}, {Name: "b"}}, Hooks: []HookExtension{{Name: "h"}, {Name: "i"}}}}, nil,
+			[]string{"2 ferramentas", "0 prompts", "0 skills", "2 hooks", "desativado"},
+			[]string{"2 ferramenta,", "enabled", "disabled"}},
+		{"diagnostico", nil, []Diagnostic{{Kind: DiagnosticSchema, Message: "bad plugin", ManifestPath: "/p/plugin.json"}},
+			[]string{"Diagnóstico de plugins:", "[schema] bad plugin", "manifestPath=/p/plugin.json"},
+			[]string{"Plugin diagnostics:"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FormatList(tc.plugins, tc.diag)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("FormatList %s missing %q:\n%s", tc.name, want, got)
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(got, banned) {
+					t.Fatalf("FormatList %s kept English %q:\n%s", tc.name, banned, got)
+				}
+			}
+		})
+	}
 }

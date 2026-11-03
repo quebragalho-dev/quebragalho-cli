@@ -411,8 +411,11 @@ func TestFormatListUsesSpecialistTerminology(t *testing.T) {
 		FilePath: "(builtin)",
 	}}}
 	output := FormatList(result)
-	if !strings.Contains(output, "QG Specialists") || !strings.Contains(output, "worker [builtin]") {
+	if !strings.Contains(output, "Especialistas do QG:") || !strings.Contains(output, "worker [builtin]") {
 		t.Fatalf("unexpected list output: %s", output)
+	}
+	if strings.Contains(output, "QG Specialists:") || strings.Contains(output, "tools: ") || strings.Contains(output, "warning: ") {
+		t.Fatalf("list output kept English labels: %s", output)
 	}
 	show := FormatShow(result.Specialists[0])
 	if !strings.Contains(show, "extends: base") {
@@ -437,4 +440,32 @@ func contains(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestFormatListPortugueseTable(t *testing.T) {
+	withWarnings := Manifest{Metadata: Metadata{Name: "triage", Description: "Triagem"}, Location: LocationUser, FilePath: "/u/triage.md", Warnings: []string{"w1", "w2"}, ResolvedTools: []string{"read_file"}}
+	for _, tc := range []struct {
+		name   string
+		result LoadResult
+		want   []string
+		banned []string
+	}{
+		{"vazio", LoadResult{}, []string{"Especialistas do QG:", "(nenhum)"}, []string{"QG Specialists", "(none)", "warning:", "warnings:", "tools:"}},
+		{"aviso lista", LoadResult{Warnings: []string{"w0"}}, []string{"  aviso: w0"}, []string{"warning:"}},
+		{"avisos manifesto", LoadResult{Specialists: []Manifest{withWarnings}}, []string{"  avisos: w1; w2", "ferramentas:", " (padrão)"}, []string{"warnings:", "tools:", "warning:", " (default)"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FormatList(tc.result)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("FormatList %s missing %q:\n%s", tc.name, want, got)
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(got, banned) {
+					t.Fatalf("FormatList %s kept English %q:\n%s", tc.name, banned, got)
+				}
+			}
+		})
+	}
 }

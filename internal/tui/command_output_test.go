@@ -40,7 +40,7 @@ func TestFormatCommandOutputRendersSectionsFieldsRowsAndHints(t *testing.T) {
 		"  provider: openai",
 		"  model: gpt-5",
 		"  - model shell is ready",
-		"  hint: use /model list to compare options",
+		"  dica: use /model list to compare options",
 		"Available",
 		"  - gpt-5",
 		"  - claude-sonnet-4.5",
@@ -48,6 +48,9 @@ func TestFormatCommandOutputRendersSectionsFieldsRowsAndHints(t *testing.T) {
 
 	if got != want {
 		t.Fatalf("unexpected command output:\nwant:\n%s\n\ngot:\n%s", want, got)
+	}
+	if strings.Contains(got, "hint: ") {
+		t.Fatalf("command output kept English hint label:\n%s", got)
 	}
 }
 
@@ -81,11 +84,14 @@ func TestFormatCommandCardRendersBoundedDashboard(t *testing.T) {
 		"  provider  openai",
 		"Tools",
 		"  registered  1",
-		"actions: /permissions manage access | /tools inspect catalog",
+		"ações: /permissions manage access | /tools inspect catalog",
 	}, "\n")
 
 	if got != want {
 		t.Fatalf("unexpected command card:\nwant:\n%s\n\ngot:\n%s", want, got)
+	}
+	if strings.Contains(got, "actions: ") {
+		t.Fatalf("command card kept English actions label:\n%s", got)
 	}
 }
 
@@ -238,8 +244,8 @@ func TestFormatCommandOutputCompactsWhitespaceAndSkipsEmptyItems(t *testing.T) {
 		"status: warning",
 		"  sandbox: danger-full-access (no prompt)",
 		"  - checks complete needs review",
-		"  hint: use /doctor for details soon",
-		"hint: top-level hint is compacted",
+		"  dica: use /doctor for details soon",
+		"dica: top-level hint is compacted",
 	}, "\n")
 
 	if got != want {

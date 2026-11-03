@@ -231,8 +231,11 @@ func TestBuildAccountsForWorkspaceMapContext(t *testing.T) {
 		t.Fatalf("free token delta = %d, want workspace map delta %d", freeDelta, workspaceDelta)
 	}
 	formatted := Format(report)
-	if !strings.Contains(formatted, "Workspace map") {
+	if !strings.Contains(formatted, "Mapa da pasta de trabalho") {
 		t.Fatalf("Format missing workspace map category:\n%s", formatted)
+	}
+	if strings.Contains(formatted, "Workspace map") {
+		t.Fatalf("Format kept English workspace map category:\n%s", formatted)
 	}
 }
 
@@ -257,8 +260,10 @@ func TestBuildShowsWorkspaceMapScanErrors(t *testing.T) {
 	if !strings.Contains(cat.Name, "Workspace map (error:") {
 		t.Fatalf("workspace map category name = %q, want visible error", cat.Name)
 	}
-	if formatted := Format(report); !strings.Contains(formatted, "Workspace map (error:") {
+	if formatted := Format(report); !strings.Contains(formatted, "Mapa da pasta de trabalho (erro: ") {
 		t.Fatalf("Format missing workspace map error:\n%s", formatted)
+	} else if strings.Contains(formatted, "Workspace map (error:") {
+		t.Fatalf("Format kept English workspace map error:\n%s", formatted)
 	}
 }
 
@@ -305,9 +310,14 @@ func TestFormatIncludesRootModelAndCategories(t *testing.T) {
 
 	formatted := Format(report)
 
-	for _, want := range []string{"QG context report", "root: D:/repo", "model: gpt-4.1", "api_model: gpt-4.1", "System prompt", "Free"} {
+	for _, want := range []string{"Relatório de contexto do QG", "pasta: D:/repo", "provedor: openai", "modelo: gpt-4.1", "modelo da API: gpt-4.1", "Prompt do sistema", "Livres"} {
 		if !strings.Contains(formatted, want) {
 			t.Fatalf("Format missing %q:\n%s", want, formatted)
+		}
+	}
+	for _, banned := range []string{"QG context report", "root: D:/repo", "provider: openai", "\nmodel: gpt-4.1", "api_model:", "System prompt", "\nFree:"} {
+		if strings.Contains(formatted, banned) {
+			t.Fatalf("Format kept English %q:\n%s", banned, formatted)
 		}
 	}
 }
@@ -328,16 +338,22 @@ func TestFormatHandlesUnknownContextWindow(t *testing.T) {
 	formatted := Format(report)
 
 	for _, want := range []string{
-		"QG context report",
-		"root: D:/repo",
-		"model: gpt-4.1",
-		"api_model: gpt-4.1",
-		"usage: 250 tokens (context window unknown)",
-		"System prompt: 100 tokens",
-		"Free: 0 tokens",
+		"Relatório de contexto do QG",
+		"pasta: D:/repo",
+		"provedor: openai",
+		"modelo: gpt-4.1",
+		"modelo da API: gpt-4.1",
+		"uso: 250 tokens (janela de contexto desconhecida)",
+		"Prompt do sistema: 100 tokens",
+		"Livres: 0 tokens",
 	} {
 		if !strings.Contains(formatted, want) {
 			t.Fatalf("Format missing %q:\n%s", want, formatted)
+		}
+	}
+	for _, banned := range []string{"QG context report", "root: D:/repo", "usage: 250 tokens", "(context window unknown)", "System prompt: 100 tokens"} {
+		if strings.Contains(formatted, banned) {
+			t.Fatalf("Format kept English %q:\n%s", banned, formatted)
 		}
 	}
 }
@@ -380,5 +396,62 @@ func writeTestFile(t *testing.T, root string, name string, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
+	}
+}
+
+func TestFormatToolLineCountsPortuguese(t *testing.T) {
+	for _, tc := range []struct {
+		name                         string
+		exposed, available, deferred int
+		want                         []string
+		banned                       []string
+	}{
+		{"plural", 16, 29, 14,
+			[]string{"ferramentas: 16 expostas, 29 disponíveis, 14 adiadas"},
+			[]string{"tools:", "exposed", "available", "deferred", "1 exposta", "1 disponível", "1 adiada"}},
+		{"singular", 1, 1, 1,
+			[]string{"ferramenta: 1 exposta"},
+			[]string{"ferramentas: 1", "expostas", "exposed"}},
+		{"diferida singular", 1, 2, 1,
+			[]string{"ferramenta: 1 exposta, 2 disponíveis, 1 adiada"},
+			[]string{"exposed", "available", "deferred", "1 adiadas"}},
+		{"sem diferidas", 2, 0, 0,
+			[]string{"ferramentas: 2 expostas"},
+			[]string{"disponíveis", "adiadas", "available"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := Report{Contract: ContractV1, Runtime: RuntimeGo, Root: "D:/repo",
+				ContextWindow: 1000, UsedTokens: 10, FreeTokens: 990, UsedFraction: 0.01,
+				ToolCount: tc.exposed, AvailableToolCount: tc.available, DeferredToolCount: tc.deferred,
+				Categories: []Category{{Key: CategoryFree, Name: "Free", Tokens: 990, Percent: 99}}}
+			got := Format(report)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("Format %s missing %q:\n%s", tc.name, want, got)
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(got, banned) {
+					t.Fatalf("Format %s kept %q:\n%s", tc.name, banned, got)
+				}
+			}
+		})
+	}
+	// "1 disponível" não sai pelo Format: o sufixo diferido exige
+	// available > exposed >= 1, então available == 1 nunca o alcança.
+	// O singular do helper fica coberto direto.
+	for _, tc := range []struct {
+		n        int
+		singular string
+		plural   string
+		want     string
+	}{
+		{1, "disponível", "disponíveis", "1 disponível"},
+		{2, "disponível", "disponíveis", "2 disponíveis"},
+		{1, "adiada", "adiadas", "1 adiada"},
+	} {
+		if got := contextCountNoun(tc.n, tc.singular, tc.plural); got != tc.want {
+			t.Fatalf("contextCountNoun(%d) = %q, want %q", tc.n, got, tc.want)
+		}
 	}
 }

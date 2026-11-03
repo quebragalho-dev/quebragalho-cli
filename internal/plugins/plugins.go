@@ -469,14 +469,19 @@ func firstNonNil(values ...any) any {
 func FormatList(plugins []LoadedPlugin, diagnostics []Diagnostic) string {
 	lines := []string{}
 	if len(plugins) == 0 {
-		lines = append(lines, "No local QG plugins loaded.")
+		lines = append(lines, "Nenhum plugin local do QG carregado.")
 	} else {
-		lines = append(lines, "QG Plugins:")
+		lines = append(lines, "Plugins do QG:")
 		for _, plugin := range plugins {
-			counts := fmt.Sprintf("%d tools, %d prompts, %d skills, %d hooks", len(plugin.Tools), len(plugin.Prompts), len(plugin.Skills), len(plugin.Hooks))
-			state := "enabled"
+			counts := strings.Join([]string{
+				pluginCountNoun(len(plugin.Tools), "ferramenta", "ferramentas"),
+				pluginCountNoun(len(plugin.Prompts), "prompt", "prompts"),
+				pluginCountNoun(len(plugin.Skills), "skill", "skills"),
+				pluginCountNoun(len(plugin.Hooks), "hook", "hooks"),
+			}, ", ")
+			state := "ativado"
 			if !plugin.Enabled {
-				state = "disabled"
+				state = "desativado"
 			}
 			lines = append(lines, fmt.Sprintf("  %s@%s %s [%s] %s - %s", plugin.ID, plugin.Version, plugin.Name, plugin.Source, state, counts))
 			for _, meta := range formatPluginMetadata(plugin) {
@@ -486,7 +491,7 @@ func FormatList(plugins []LoadedPlugin, diagnostics []Diagnostic) string {
 	}
 
 	if len(diagnostics) > 0 {
-		lines = append(lines, "Plugin diagnostics:")
+		lines = append(lines, "Diagnóstico de plugins:")
 		for _, diagnostic := range diagnostics {
 			line := fmt.Sprintf("  [%s] %s", diagnostic.Kind, diagnostic.Message)
 			if location := formatDiagnosticLocation(diagnostic); location != "" {
@@ -498,18 +503,26 @@ func FormatList(plugins []LoadedPlugin, diagnostics []Diagnostic) string {
 	return strings.Join(lines, "\n")
 }
 
+// pluginCountNoun renders a count with a Portuguese noun, agreeing in number.
+func pluginCountNoun(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
+}
+
 // formatPluginMetadata renders only the optional metadata fields that are
 // present, one entry per line, so listings stay clean for plugins that omit them.
 func formatPluginMetadata(plugin LoadedPlugin) []string {
 	meta := []string{}
 	if author := formatAuthor(plugin.Author); author != "" {
-		meta = append(meta, "author: "+author)
+		meta = append(meta, "autor: "+author)
 	}
 	if plugin.License != "" {
-		meta = append(meta, "license: "+plugin.License)
+		meta = append(meta, "licença: "+plugin.License)
 	}
 	if len(plugin.Keywords) > 0 {
-		meta = append(meta, "keywords: "+strings.Join(plugin.Keywords, ", "))
+		meta = append(meta, "palavras-chave: "+strings.Join(plugin.Keywords, ", "))
 	}
 	return meta
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
@@ -789,8 +790,11 @@ func TestRunExecUnsafeTextModeWarns(t *testing.T) {
 	if !strings.Contains(stdout, "hello") {
 		t.Fatalf("expected prompt in stdout, got %q", stdout)
 	}
-	if got := stderr; !strings.Contains(got, "WARNING") || !strings.Contains(got, "--dangerously-skip-permissions") {
+	if got := stderr; !strings.Contains(got, "[qg] Aviso:") || !strings.Contains(got, "--dangerously-skip-permissions") {
 		t.Fatalf("expected unsafe warning, got %q", got)
+	}
+	if strings.Contains(stderr, "[qg] WARNING:") {
+		t.Fatalf("warning kept English prefix, got %q", stderr)
 	}
 }
 
@@ -1039,15 +1043,41 @@ func runExecWithEcho(t *testing.T, args []string) (int, string, string) {
 func TestExecSessionRecorderWarnsOnRecordingFailure(t *testing.T) {
 	// A latched session-append failure must be surfaced once to stderr so a user
 	// is not misled into believing the session was persisted; a clean recorder
-	// stays silent.
-	var failed bytes.Buffer
-	(&execSessionRecorder{err: errors.New("disk full")}).warnIfRecordingFailed(&failed)
-	if !strings.Contains(failed.String(), "session not fully recorded") || !strings.Contains(failed.String(), "disk full") {
-		t.Fatalf("expected a recording-failure warning, got %q", failed.String())
+	// stays silent. Texto humano sai em pt; json/stream-json ficam byte-idênticos.
+	for _, tc := range []struct {
+		name   string
+		format execOutputFormat
+		want   []string
+		banned []string
+	}{
+		{"texto", execOutputText,
+			[]string{"[qg] Aviso: a sessão não foi gravada por completo: disk full"},
+			[]string{"[qg] WARNING:", "session not fully recorded"}},
+		{"stream-json", execOutputStreamJSON,
+			[]string{"[qg] WARNING: session not fully recorded: disk full"},
+			[]string{"[qg] Aviso:", "gravada por completo"}},
+		{"json", execOutputJSON,
+			[]string{"[qg] WARNING: session not fully recorded: disk full"},
+			[]string{"[qg] Aviso:", "gravada por completo"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var failed bytes.Buffer
+			(&execSessionRecorder{err: errors.New("disk full")}).warnIfRecordingFailed(&failed, tc.format)
+			for _, want := range tc.want {
+				if !strings.Contains(failed.String(), want) {
+					t.Fatalf("expected a recording-failure warning with %q, got %q", want, failed.String())
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(failed.String(), banned) {
+					t.Fatalf("warning leaked %q, got %q", banned, failed.String())
+				}
+			}
+		})
 	}
 
 	var clean bytes.Buffer
-	(&execSessionRecorder{}).warnIfRecordingFailed(&clean)
+	(&execSessionRecorder{}).warnIfRecordingFailed(&clean, execOutputText)
 	if clean.Len() != 0 {
 		t.Fatalf("expected silence when recording succeeded, got %q", clean.String())
 	}
@@ -2012,14 +2042,67 @@ func TestExecWithoutProviderCitesQGSetupAndAPIKey(t *testing.T) {
 		t.Fatalf("exit = %d, want %d (provider error)", exitCode, exitProvider)
 	}
 	out := stderr.String()
-	for _, want := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY", "qg setup qg", "qg login", "No provider configured."} {
+	for _, want := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY", "rode `qg setup qg`", "rode `qg login`", "Nenhum provedor configurado.", "ou adicione .qg/config.json"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stderr = %q, want it to cite %q", out, want)
 		}
 	}
-	for _, banned := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "qg auth"} {
+	for _, banned := range []string{"No provider configured.", "in your environment", "run `qg login`", "run `qg setup qg`", "(see `qg setup --help`)", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "qg auth"} {
 		if strings.Contains(out, banned) {
 			t.Fatalf("stderr = %q, must not mention %q", out, banned)
 		}
+	}
+}
+
+func TestExecBrokenUserPluginWarningFollowsOutputFormat(t *testing.T) {
+	// Um plugin de usuário quebrado avisa no stderr em qualquer formato, mas o
+	// idioma segue o formato: texto sai em pt, json/stream-json ficam
+	// byte-idênticos à base (o stderr do filho cola no resultado da Task).
+	// Mata a mutação de passar o formato errado em exec.go:365.
+	for _, tc := range []struct {
+		name   string
+		args   []string
+		want   []string
+		banned []string
+	}{
+		{"text", []string{"exec", "hello"},
+			[]string{"[qg] Aviso: falha ao ativar plugin:", "schemaVersion quebrado"},
+			[]string{"[qg] WARNING:", "plugin activation:"}},
+		{"stream-json", []string{"exec", "--output-format", "stream-json", "hello"},
+			[]string{"[qg] WARNING: plugin activation:", "schemaVersion quebrado"},
+			[]string{"[qg] Aviso:", "falha ao ativar"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			exitCode := runWithDeps(tc.args, &stdout, &stderr, appDeps{
+				getwd: func() (string, error) {
+					return t.TempDir(), nil
+				},
+				resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
+					return config.ResolvedConfig{MaxTurns: 30}, nil
+				},
+				loadPlugins: func(plugins.LoadOptions) (plugins.LoadResult, error) {
+					return plugins.LoadResult{
+						Diagnostics: []plugins.Diagnostic{{
+							Kind:    plugins.DiagnosticSchema,
+							Message: "schemaVersion quebrado",
+						}},
+					}, nil
+				},
+			})
+			if exitCode != exitProvider {
+				t.Fatalf("exit = %d, want %d (provider error)", exitCode, exitProvider)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(stderr.String(), want) {
+					t.Fatalf("stderr missing %q, got %q", want, stderr.String())
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(stderr.String(), banned) {
+					t.Fatalf("stderr kept %q, got %q", banned, stderr.String())
+				}
+			}
+		})
 	}
 }

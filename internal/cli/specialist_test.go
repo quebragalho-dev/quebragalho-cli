@@ -31,9 +31,14 @@ Find the likely failure area.`)
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"QG Specialists", "worker [builtin]", "triage [user]", "code-review"} {
+	for _, want := range []string{"Especialistas do QG:", "worker [builtin]", "triage [user]", "code-review"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("list output missing %q: %s", want, stdout.String())
+		}
+	}
+	for _, banned := range []string{"QG Specialists:", "Especialistas QG:", "tools: ", "(none)", "(nenhum", "warning: ", "warnings: ", " (default)"} {
+		if strings.Contains(stdout.String(), banned) {
+			t.Fatalf("list output kept English %q: %s", banned, stdout.String())
 		}
 	}
 
@@ -203,8 +208,11 @@ func TestWriteSpecialistCreateResultSurfacesWarningsOnlyForHumanOutput(t *testin
 	if got, want := stdout.String(), "Especialista triage criado em /specialists/triage.md\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
-	if got, want := stderr.String(), "warning: replacement backup /specialists/.triage.bak retained: access denied\n"; got != want {
+	if got, want := stderr.String(), "aviso: replacement backup /specialists/.triage.bak retained: access denied\n"; got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	if strings.Contains(stderr.String(), "warning: ") {
+		t.Fatalf("human warning kept English prefix: %q", stderr.String())
 	}
 
 	stdout.Reset()
@@ -412,7 +420,7 @@ func TestSpecialistValidateRequiresDescriptionStaysEnglish(t *testing.T) {
 	}
 }
 
-func TestRunSpecialistCreateNodescJSONStaysEnglish(t *testing.T) {
+func TestRunSpecialistCreateNodescJSONShowsPT(t *testing.T) {
 	setSpecialistConfigRoot(t)
 	deps := appDeps{getwd: func() (string, error) { return t.TempDir(), nil }}
 	var stdout bytes.Buffer
@@ -421,8 +429,14 @@ func TestRunSpecialistCreateNodescJSONStaysEnglish(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("exitCode = %d, want usage", exitCode)
 	}
-	if got, want := stderr.String(), "[qg] specialist \"nodesc\" requires a description\n"; got != want {
+	if got, want := stderr.String(), "[qg] O especialista \"nodesc\" precisa de uma descrição (--description).\n"; got != want {
 		t.Fatalf("json stderr = %q, want %q", got, want)
+	}
+	if strings.Contains(stderr.String(), "requires a description") {
+		t.Fatalf("json stderr kept English Validate text: %q", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("error must not emit JSON payload on stdout: %q", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "precisa de uma descrição") {
 		t.Fatalf("json output must not carry the human translation: %q", stdout.String())

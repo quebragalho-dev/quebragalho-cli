@@ -285,7 +285,7 @@ func runSpecialistCreate(paths specialist.Paths, name string, options specialist
 		Overwrite:       options.force,
 	})
 	if err != nil {
-		if !options.json && errors.Is(err, specialist.ErrDescriptionRequired) {
+		if errors.Is(err, specialist.ErrDescriptionRequired) {
 			return writeExecUsageError(stderr, fmt.Sprintf("O especialista %q precisa de uma descrição (--description).", name))
 		}
 		return writeExecUsageError(stderr, err.Error())
@@ -304,7 +304,7 @@ func writeSpecialistCreateResult(manifest specialist.Manifest, jsonOutput bool, 
 		return exitCrash
 	}
 	for _, warning := range manifest.Warnings {
-		if _, err := fmt.Fprintf(stderr, "warning: %s\n", warning); err != nil {
+		if _, err := fmt.Fprintf(stderr, "aviso: %s\n", warning); err != nil {
 			return exitCrash
 		}
 	}

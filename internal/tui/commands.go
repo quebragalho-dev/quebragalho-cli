@@ -474,7 +474,7 @@ func formatGroupedCommandHelp() string {
 		lines = append(lines, commandGroupTitle(group))
 		lines = append(lines, groupLines...)
 	}
-	lines = append(lines, "hint: escreva um texto para perguntar ao QG")
+	lines = append(lines, "dica: escreva um texto para perguntar ao QG")
 	return strings.Join(lines, "\n")
 }
 

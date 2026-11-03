@@ -307,7 +307,7 @@ func TestPluginGateUntrustedExcludesProject(t *testing.T) {
 	}
 	registry := tools.NewRegistry()
 	var stderr bytes.Buffer
-	activation := activatePlugins(repo, registry, deps, &stderr, repo)
+	activation := activatePlugins(repo, registry, deps, &stderr, execOutputText, repo)
 
 	if !gotExclude {
 		t.Fatalf("untrusted workspace must pass ExcludeProject=true to loadPlugins")
@@ -339,7 +339,7 @@ func TestPluginGateTrustedIncludesProject(t *testing.T) {
 	}
 	registry := tools.NewRegistry()
 	var stderr bytes.Buffer
-	activation := activatePlugins(repo, registry, deps, &stderr, repo)
+	activation := activatePlugins(repo, registry, deps, &stderr, execOutputText, repo)
 
 	if gotExclude {
 		t.Fatalf("trusted workspace must pass ExcludeProject=false to loadPlugins")
@@ -372,7 +372,7 @@ func TestPluginGateFailClosedOnStoreError(t *testing.T) {
 	}
 	registry := tools.NewRegistry()
 	var stderr bytes.Buffer
-	activation := activatePlugins(repo, registry, deps, &stderr, repo)
+	activation := activatePlugins(repo, registry, deps, &stderr, execOutputText, repo)
 
 	if !gotExclude {
 		t.Fatalf("a store-read error must fail closed (ExcludeProject=true)")

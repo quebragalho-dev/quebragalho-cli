@@ -877,7 +877,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	// The interactive TUI is not worktree-reassigned, so the trust root is the
 	// launch directory itself.
 	trustRoot := workspaceRoot
-	pluginActivation := activatePlugins(workspaceRoot, registry, deps, stderr, trustRoot, executionRunner)
+	pluginActivation := activatePlugins(workspaceRoot, registry, deps, stderr, execOutputText, trustRoot, executionRunner)
 	// Ask (not Auto) is the interactive default: in Auto, ToolAdvertised exposes
 	// only PermissionAllow tools, so prompt-gated tools (write_file/edit_file/bash/
 	// apply_patch) would never be offered to the model — the TUI could neither edit

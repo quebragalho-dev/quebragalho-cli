@@ -104,7 +104,7 @@ func renderCommandCard(card commandCard) string {
 	}
 
 	if actions := compactCommandCardList(card.Actions); len(actions) > 0 {
-		lines = append(lines, "actions: "+strings.Join(actions, " | "))
+		lines = append(lines, "ações: "+strings.Join(actions, " | "))
 	}
 
 	return strings.Join(lines, "\n")
@@ -175,7 +175,7 @@ func formatCommandOutput(output commandOutput) string {
 	}
 	for _, hint := range output.Hints {
 		if text := compactCommandOutputText(hint); text != "" {
-			lines = append(lines, "hint: "+text)
+			lines = append(lines, "dica: "+text)
 		}
 	}
 
@@ -208,7 +208,7 @@ func formatCommandSection(section commandSection) []string {
 	}
 	for _, hint := range section.Hints {
 		if text := compactCommandOutputText(hint); text != "" {
-			lines = append(lines, "  hint: "+text)
+			lines = append(lines, "  dica: "+text)
 		}
 	}
 

@@ -101,7 +101,7 @@ func runExecSpecDraft(run execSpecDraftRun) int {
 	}
 	sessionRecorder := execSessionRecorder{prepared: preparedSession}
 	// Surface a best-effort session-recording failure once, on every exit path.
-	defer sessionRecorder.warnIfRecordingFailed(run.stderr)
+	defer sessionRecorder.warnIfRecordingFailed(run.stderr, run.options.outputFormat)
 	sessionRecorder.append(sessions.EventMessage, map[string]any{
 		"role":    "user",
 		"content": run.prompt,

@@ -162,42 +162,86 @@ func systemPromptFootprint(root string, modelID string) string {
 
 func Format(report Report) string {
 	lines := []string{
-		"QG context report",
-		"root: " + report.Root,
+		"Relatório de contexto do QG",
+		"pasta: " + report.Root,
 	}
 	if report.ProviderName != "" {
-		lines = append(lines, "provider: "+report.ProviderName)
+		lines = append(lines, "provedor: "+report.ProviderName)
 	}
 	if report.ModelID != "" {
-		lines = append(lines, "model: "+report.ModelID)
+		lines = append(lines, "modelo: "+report.ModelID)
 	}
 	if report.APIModel != "" {
-		lines = append(lines, "api_model: "+report.APIModel)
+		lines = append(lines, "modelo da API: "+report.APIModel)
 	}
 	if report.ContextWindow > 0 {
-		lines = append(lines, fmt.Sprintf("usage: %s/%s tokens (%.1f%%)", compactNumber(report.UsedTokens), compactNumber(report.ContextWindow), report.UsedFraction*100))
+		lines = append(lines, fmt.Sprintf("uso: %s/%s tokens (%.1f%%)", compactNumber(report.UsedTokens), compactNumber(report.ContextWindow), report.UsedFraction*100))
 	} else {
-		lines = append(lines, fmt.Sprintf("usage: %s tokens (context window unknown)", compactNumber(report.UsedTokens)))
+		lines = append(lines, fmt.Sprintf("uso: %s tokens (janela de contexto desconhecida)", compactNumber(report.UsedTokens)))
 	}
 	if report.ToolCount > 0 {
-		toolLine := fmt.Sprintf("tools: %d exposed", report.ToolCount)
-		if report.AvailableToolCount > report.ToolCount {
-			toolLine += fmt.Sprintf(", %d available, %d deferred", report.AvailableToolCount, report.DeferredToolCount)
-		}
+		toolLine := contextToolLine(report.ToolCount, report.AvailableToolCount, report.DeferredToolCount)
 		lines = append(lines, toolLine)
 	}
 	if report.ProjectGuidelineFile != "" {
-		lines = append(lines, "project_guidelines: "+report.ProjectGuidelineFile)
+		lines = append(lines, "diretrizes do projeto: "+report.ProjectGuidelineFile)
 	}
-	lines = append(lines, "", "Categories:")
+	lines = append(lines, "", "Categorias:")
 	for _, cat := range report.Categories {
+		name := humanCategoryName(cat)
 		if report.ContextWindow > 0 {
-			lines = append(lines, fmt.Sprintf("  %s: %s tokens (%.1f%%)", cat.Name, compactNumber(cat.Tokens), cat.Percent))
+			lines = append(lines, fmt.Sprintf("  %s: %s tokens (%.1f%%)", name, compactNumber(cat.Tokens), cat.Percent))
 		} else {
-			lines = append(lines, fmt.Sprintf("  %s: %s tokens", cat.Name, compactNumber(cat.Tokens)))
+			lines = append(lines, fmt.Sprintf("  %s: %s tokens", name, compactNumber(cat.Tokens)))
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// contextToolLine renders the tool budget line with Portuguese number agreement.
+func contextToolLine(exposed, available, deferred int) string {
+	head := fmt.Sprintf("ferramentas: %d expostas", exposed)
+	if exposed == 1 {
+		head = fmt.Sprintf("ferramenta: %d exposta", exposed)
+	}
+	if available <= exposed {
+		return head
+	}
+	head += ", " + contextCountNoun(available, "disponível", "disponíveis")
+	head += ", " + contextCountNoun(deferred, "adiada", "adiadas")
+	return head
+}
+
+func contextCountNoun(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
+}
+
+// humanCategoryName renders a category for human text. The stored Name stays
+// in English because it is serialized into --json output, so the human line
+// is translated here from the stable Key instead.
+func humanCategoryName(cat Category) string {
+	switch cat.Key {
+	case CategorySystemPrompt:
+		return "Prompt do sistema"
+	case CategoryProjectGuidelines:
+		return "Diretrizes do projeto"
+	case CategoryWorkspaceMap:
+		if rest, ok := strings.CutPrefix(cat.Name, "Workspace map (error: "); ok {
+			if detail, ok := strings.CutSuffix(rest, ")"); ok {
+				return "Mapa da pasta de trabalho (erro: " + detail + ")"
+			}
+		}
+		return "Mapa da pasta de trabalho"
+	case CategoryTools:
+		return "Ferramentas"
+	case CategoryFree:
+		return "Livres"
+	default:
+		return cat.Name
+	}
 }
 
 func contextWindowForModel(modelID string, apiModel string) int {
