@@ -2,142 +2,120 @@ package sandbox
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
 
-// The Linux helper must resolve beside the running binary first (the
-// installer and npm platform-package layout) and only then on PATH —
-// mirroring the Windows tiers — so a qg installed outside PATH still finds
-// its sandbox helper instead of degrading to unwrapped execution.
-func TestResolveLinuxSandboxHelperTiers(t *testing.T) {
-	restore := osExecutable
-	defer func() { osExecutable = restore }()
-
-	t.Run("adjacent helper wins over PATH", func(t *testing.T) {
-		dir := t.TempDir()
-		adjacent := filepath.Join(dir, LinuxSandboxHelperName)
-		writeFile(t, adjacent)
-		osExecutable = func() (string, error) { return filepath.Join(dir, "qg"), nil }
-		got, err := ResolveLinuxSandboxHelperCommand(func(string) (string, error) {
-			return "/usr/bin/" + LinuxSandboxHelperName, nil // must NOT be chosen
-		})
-		if err != nil {
-			t.Fatalf("resolve: %v", err)
-		}
-		if got.Name != adjacent {
-			t.Fatalf("helper = %q, want adjacent %q", got.Name, adjacent)
-		}
-	})
-
-	t.Run("PATH when no adjacent helper", func(t *testing.T) {
-		dir := t.TempDir()
-		osExecutable = func() (string, error) { return filepath.Join(dir, "qg"), nil }
-		got, err := ResolveLinuxSandboxHelperCommand(func(name string) (string, error) {
-			if name == LinuxSandboxHelperName {
-				return "/usr/bin/" + LinuxSandboxHelperName, nil
-			}
-			return "", errors.New("missing")
-		})
-		if err != nil {
-			t.Fatalf("resolve: %v", err)
-		}
-		if got.Name != "/usr/bin/"+LinuxSandboxHelperName {
-			t.Fatalf("helper = %q, want the PATH entry", got.Name)
-		}
-	})
-
-	t.Run("error when neither adjacent nor PATH", func(t *testing.T) {
-		dir := t.TempDir()
-		osExecutable = func() (string, error) { return filepath.Join(dir, "qg"), nil }
-		if _, err := ResolveLinuxSandboxHelperCommand(func(string) (string, error) {
-			return "", errors.New("missing")
-		}); err == nil {
-			t.Fatal("expected an error when the helper is nowhere to be found")
-		}
-	})
-}
-
-func TestSelectLinuxBackendUsesAdjacentHelper(t *testing.T) {
+// TestSelectLinuxBackendResolvesHelper pins the single Linux helper resolution
+// (beside the running binary first, then PATH) through backend selection: an
+// executable adjacent helper wins even when PATH offers another, a
+// non-executable adjacent entry is skipped in favor of PATH, and the missing
+// pieces report their exact machine diagnostics.
+func TestSelectLinuxBackendResolvesHelper(t *testing.T) {
 	restore := osExecutable
 	defer func() { osExecutable = restore }()
 	missing := func(string) (string, error) { return "", errors.New("missing") }
+	pathLookup := func(name string) (string, error) {
+		if name == LinuxSandboxHelperName || name == "bwrap" {
+			return "/usr/bin/" + name, nil
+		}
+		return "", errors.New("missing")
+	}
 
-	t.Run("helper beside binary without PATH entry is available", func(t *testing.T) {
-		dir := t.TempDir()
-		adjacent := filepath.Join(dir, LinuxSandboxHelperName)
-		writeFile(t, adjacent)
-		osExecutable = func() (string, error) { return filepath.Join(dir, "qg"), nil }
-		backend := SelectBackend(BackendOptions{
-			GOOS: "linux",
-			LookupExecutable: func(name string) (string, error) {
-				if name == "bwrap" {
-					return "/usr/bin/bwrap", nil
+	tests := []struct {
+		name string
+		// adjacent is the fixture placed beside the fake qg binary: "exec" (an
+		// executable file), "plain" (a 0644 file), or "" (absent).
+		adjacent string
+		lookup   func(string) (string, error)
+		// wantExecutable is "adjacent" for the beside-the-binary helper, a
+		// literal PATH entry, or "" when unavailable.
+		wantExecutable string
+		wantAvailable  bool
+		wantName       BackendName
+		wantMessage    string
+	}{
+		{
+			name:           "adjacent executable wins over PATH",
+			adjacent:       "exec",
+			lookup:         func(name string) (string, error) { return "/decoy/" + name, nil },
+			wantExecutable: "adjacent",
+			wantAvailable:  true,
+			wantName:       BackendLinuxBwrap,
+		},
+		{
+			name:           "helper beside binary without PATH entry is available",
+			adjacent:       "exec",
+			lookup:         func(name string) (string, error) { return "/usr/bin/bwrap", nil },
+			wantExecutable: "adjacent",
+			wantAvailable:  true,
+			wantName:       BackendLinuxBwrap,
+		},
+		{
+			name:           "helper on PATH without adjacent entry is available",
+			lookup:         pathLookup,
+			wantExecutable: "/usr/bin/" + LinuxSandboxHelperName,
+			wantAvailable:  true,
+			wantName:       BackendLinuxBwrap,
+		},
+		{
+			name:     "non-executable adjacent entry falls back to PATH",
+			adjacent: "plain",
+			lookup:   pathLookup,
+			// A 0644 file beside the binary must NOT be chosen: only an
+			// executable regular file counts, so resolution falls through.
+			wantExecutable: "/usr/bin/" + LinuxSandboxHelperName,
+			wantAvailable:  true,
+			wantName:       BackendLinuxBwrap,
+		},
+		{
+			name:          "no helper is unavailable with the helper message",
+			lookup:        missing,
+			wantAvailable: false,
+			wantName:      BackendUnavailable,
+			wantMessage:   "Linux sandbox helper is not available",
+		},
+		{
+			name:          "missing bwrap is unavailable with the bwrap message",
+			adjacent:      "exec",
+			lookup:        missing,
+			wantAvailable: false,
+			wantName:      BackendUnavailable,
+			wantMessage:   "bubblewrap is not installed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			switch tc.adjacent {
+			case "exec":
+				writeFile(t, filepath.Join(dir, LinuxSandboxHelperName))
+			case "plain":
+				if err := os.WriteFile(filepath.Join(dir, LinuxSandboxHelperName), []byte("stub"), 0o644); err != nil {
+					t.Fatalf("write plain helper: %v", err)
 				}
-				return "", errors.New("missing")
-			},
-			DetectWSL: func() WSLInfo { return WSLInfo{} },
+			}
+			osExecutable = func() (string, error) { return filepath.Join(dir, "qg"), nil }
+			backend := SelectBackend(BackendOptions{
+				GOOS:             "linux",
+				LookupExecutable: tc.lookup,
+				DetectWSL:        func() WSLInfo { return WSLInfo{} },
+			})
+			if backend.Name != tc.wantName || backend.Available != tc.wantAvailable {
+				t.Fatalf("backend = %#v, want name %q available %v", backend, tc.wantName, tc.wantAvailable)
+			}
+			wantExecutable := tc.wantExecutable
+			if wantExecutable == "adjacent" {
+				wantExecutable = filepath.Join(dir, LinuxSandboxHelperName)
+			}
+			if backend.Executable != wantExecutable {
+				t.Fatalf("executable = %q, want %q", backend.Executable, wantExecutable)
+			}
+			if tc.wantMessage != "" && backend.Message != tc.wantMessage {
+				t.Fatalf("message = %q, want %q", backend.Message, tc.wantMessage)
+			}
 		})
-		if backend.Name != BackendLinuxBwrap || !backend.Available {
-			t.Fatalf("backend = %#v, want available linux-bwrap", backend)
-		}
-		if backend.Executable != adjacent {
-			t.Fatalf("executable = %q, want adjacent helper %q", backend.Executable, adjacent)
-		}
-	})
-
-	t.Run("helper on PATH without adjacent entry is available", func(t *testing.T) {
-		dir := t.TempDir()
-		osExecutable = func() (string, error) { return filepath.Join(dir, "qg"), nil }
-		backend := SelectBackend(BackendOptions{
-			GOOS: "linux",
-			LookupExecutable: func(name string) (string, error) {
-				if name == LinuxSandboxHelperName || name == "bwrap" {
-					return "/usr/bin/" + name, nil
-				}
-				return "", errors.New("missing")
-			},
-			DetectWSL: func() WSLInfo { return WSLInfo{} },
-		})
-		if backend.Name != BackendLinuxBwrap || !backend.Available {
-			t.Fatalf("backend = %#v, want available linux-bwrap", backend)
-		}
-		if backend.Executable != "/usr/bin/"+LinuxSandboxHelperName {
-			t.Fatalf("executable = %q, want the PATH helper", backend.Executable)
-		}
-	})
-
-	t.Run("no helper is unavailable with the helper message", func(t *testing.T) {
-		dir := t.TempDir()
-		osExecutable = func() (string, error) { return filepath.Join(dir, "qg"), nil }
-		backend := SelectBackend(BackendOptions{
-			GOOS:             "linux",
-			LookupExecutable: missing,
-			DetectWSL:        func() WSLInfo { return WSLInfo{} },
-		})
-		if backend.Name != BackendUnavailable || backend.Available {
-			t.Fatalf("backend = %#v, want unavailable", backend)
-		}
-		if backend.Message != "Linux sandbox helper is not available" {
-			t.Fatalf("message = %q, want the helper diagnostic", backend.Message)
-		}
-	})
-
-	t.Run("missing bwrap is unavailable with the bwrap message", func(t *testing.T) {
-		dir := t.TempDir()
-		adjacent := filepath.Join(dir, LinuxSandboxHelperName)
-		writeFile(t, adjacent)
-		osExecutable = func() (string, error) { return filepath.Join(dir, "qg"), nil }
-		backend := SelectBackend(BackendOptions{
-			GOOS:             "linux",
-			LookupExecutable: missing,
-			DetectWSL:        func() WSLInfo { return WSLInfo{} },
-		})
-		if backend.Name != BackendUnavailable || backend.Available {
-			t.Fatalf("backend = %#v, want unavailable", backend)
-		}
-		if backend.Message != "bubblewrap is not installed" {
-			t.Fatalf("message = %q, want the bwrap diagnostic", backend.Message)
-		}
-	})
+	}
 }
