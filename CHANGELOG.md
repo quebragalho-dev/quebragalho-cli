@@ -3,6 +3,16 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.13 — 2026-11-03
+
+### Correções
+
+- Quem instalou o qg pelo npm numa pasta própria agora recebe a atualização nessa pasta; antes o qg dizia que tinha atualizado, mas continuava na versão antiga.
+- O qg só diz que atualizou depois de conferir a versão nova; se não der para atualizar, mostra o comando para fazer à mão.
+- Mensagens da atualização em português.
+
+Quem instalou pelo npm numa pasta própria e está na 0.0.11 ou na 0.0.12: para chegar à 0.0.13, rode `npm install -g --prefix "<pasta>" @quebragalho-dev/cli@latest`. A atualização automática dessas versões ainda usa o jeito antigo.
+
 ## 0.0.12 — 2026-11-03
 
 ### Correções
