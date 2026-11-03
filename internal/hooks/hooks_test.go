@@ -445,3 +445,39 @@ func hasHookDiagnostic(diagnostics []Diagnostic, kind DiagnosticKind, hookID str
 	}
 	return false
 }
+
+func TestFormatListPortuguese(t *testing.T) {
+	hook := Definition{ID: "qg.pre", Event: EventBeforeTool, Command: "node", Enabled: true}
+	diagnostic := Diagnostic{Kind: DiagnosticSchema, Message: "bad hook"}
+	for _, tc := range []struct {
+		name   string
+		config Config
+		diag   []Diagnostic
+		want   []string
+		banned []string
+	}{
+		{"sem hooks", Config{Enabled: true}, nil,
+			[]string{"Hooks do QG: ativado", "Nenhum hook configurado."},
+			[]string{"QG Hooks:", "No hooks configured.", "enabled", "Hook diagnostics:"}},
+		{"com hook", Config{Enabled: false, Hooks: []Definition{hook}}, nil,
+			[]string{"Hooks do QG: desativado", "qg.pre", "ativado", "node"},
+			[]string{"QG Hooks:", "enabled", "disabled"}},
+		{"diagnostico", Config{Enabled: true}, []Diagnostic{diagnostic},
+			[]string{"Diagnóstico de hooks:", "[schema] bad hook"},
+			[]string{"Hook diagnostics:"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FormatList(tc.config, tc.diag)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("FormatList %s missing %q:\n%s", tc.name, want, got)
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(got, banned) {
+					t.Fatalf("FormatList %s kept English %q:\n%s", tc.name, banned, got)
+				}
+			}
+		})
+	}
+}

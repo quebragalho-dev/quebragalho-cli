@@ -292,26 +292,14 @@ func TestCommandCardRowTrimsIndentedActionsLabel(t *testing.T) {
 	}
 
 	got := plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if strings.Contains(got, "ações:  ações:") {
-		t.Fatalf("command card duplicated indented actions label:\n%s", got)
+	if gotCount := strings.Count(got, "ações:"); gotCount != 1 {
+		t.Fatalf("command card must render exactly one ações label, got %d in:\n%s", gotCount, got)
 	}
 	if !strings.Contains(got, "ações: /mcp manage servers | /permissions manage access") {
 		t.Fatalf("command card missing actions line:\n%s", got)
 	}
-	if strings.Contains(got, "actions: /mcp") {
+	if strings.Contains(got, "actions:") {
 		t.Fatalf("command card kept English actions label:\n%s", got)
-	}
-
-	// Old stored transcripts still use the English label; the renderer keeps
-	// reading them so an update never breaks visible history.
-	row.text = commandCardTranscriptPrefix + strings.Join([]string{
-		"Tools",
-		"2 registered | registered catalog",
-		"  actions: /mcp manage servers | /permissions manage access",
-	}, "\n")
-	got = plainRender(t, m.renderRow(row, 80, buildRowContext(nil)))
-	if !strings.Contains(got, "ações: /mcp manage servers | /permissions manage access") {
-		t.Fatalf("command card did not translate legacy actions line:\n%s", got)
 	}
 }
 

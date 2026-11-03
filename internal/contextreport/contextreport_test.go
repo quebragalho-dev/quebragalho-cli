@@ -310,7 +310,7 @@ func TestFormatIncludesRootModelAndCategories(t *testing.T) {
 
 	formatted := Format(report)
 
-	for _, want := range []string{"Relatório de contexto do QG", "pasta: D:/repo", "provedor: openai", "modelo: gpt-4.1", "modelo_api: gpt-4.1", "Prompt do sistema", "Livres"} {
+	for _, want := range []string{"Relatório de contexto do QG", "pasta: D:/repo", "provedor: openai", "modelo: gpt-4.1", "modelo da API: gpt-4.1", "Prompt do sistema", "Livres"} {
 		if !strings.Contains(formatted, want) {
 			t.Fatalf("Format missing %q:\n%s", want, formatted)
 		}
@@ -342,7 +342,7 @@ func TestFormatHandlesUnknownContextWindow(t *testing.T) {
 		"pasta: D:/repo",
 		"provedor: openai",
 		"modelo: gpt-4.1",
-		"modelo_api: gpt-4.1",
+		"modelo da API: gpt-4.1",
 		"uso: 250 tokens (janela de contexto desconhecida)",
 		"Prompt do sistema: 100 tokens",
 		"Livres: 0 tokens",
@@ -396,5 +396,42 @@ func writeTestFile(t *testing.T, root string, name string, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
+	}
+}
+
+func TestFormatToolLineCountsPortuguese(t *testing.T) {
+	for _, tc := range []struct {
+		name                         string
+		exposed, available, deferred int
+		want                         []string
+		banned                       []string
+	}{
+		{"plural", 16, 29, 14,
+			[]string{"ferramentas: 16 expostas, 29 disponíveis, 14 adiadas"},
+			[]string{"tools:", "exposed", "available", "deferred", "1 exposta", "1 disponível", "1 adiada"}},
+		{"singular", 1, 1, 1,
+			[]string{"ferramenta: 1 exposta"},
+			[]string{"ferramentas: 1", "expostas", "exposed"}},
+		{"sem diferidas", 2, 0, 0,
+			[]string{"ferramentas: 2 expostas"},
+			[]string{"disponíveis", "adiadas", "available"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := Report{Contract: ContractV1, Runtime: RuntimeGo, Root: "D:/repo",
+				ContextWindow: 1000, UsedTokens: 10, FreeTokens: 990, UsedFraction: 0.01,
+				ToolCount: tc.exposed, AvailableToolCount: tc.available, DeferredToolCount: tc.deferred,
+				Categories: []Category{{Key: CategoryFree, Name: "Free", Tokens: 990, Percent: 99}}}
+			got := Format(report)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("Format %s missing %q:\n%s", tc.name, want, got)
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(got, banned) {
+					t.Fatalf("Format %s kept %q:\n%s", tc.name, banned, got)
+				}
+			}
+		})
 	}
 }

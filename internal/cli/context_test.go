@@ -59,7 +59,7 @@ func TestRunContextTextReport(t *testing.T) {
 			t.Fatalf("expected context output to contain %q, got %q", want, stdout.String())
 		}
 	}
-	for _, banned := range []string{"QG context report", "root: " + cwd, "provider: "} {
+	for _, banned := range []string{"QG context report", "root: " + cwd, "provider: ", "api_model:", "modelo_api:"} {
 		if strings.Contains(stdout.String(), banned) {
 			t.Fatalf("context output kept English %q, got %q", banned, stdout.String())
 		}

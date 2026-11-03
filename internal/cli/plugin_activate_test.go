@@ -53,7 +53,7 @@ func TestActivatePluginsRegistersToolAndCollectsHooks(t *testing.T) {
 	registry := tools.NewRegistry()
 	var stderr bytes.Buffer
 	workspace := t.TempDir()
-	activation := activatePlugins(workspace, registry, fakePluginDeps(t, loaded), &stderr, workspace)
+	activation := activatePlugins(workspace, registry, fakePluginDeps(t, loaded), &stderr, execOutputText, workspace)
 
 	if _, ok := registry.Get("demo_lookup"); !ok {
 		t.Fatalf("plugin tool not registered into the bootstrap registry")
@@ -98,7 +98,7 @@ func TestActivatePluginsRegistersPluginSkillTool(t *testing.T) {
 	registry.Register(tools.NewSkillTool(t.TempDir())) // core skill tool, like the real bootstrap
 	var stderr bytes.Buffer
 	workspace := t.TempDir()
-	activation := activatePlugins(workspace, registry, fakePluginDeps(t, loaded), &stderr, workspace)
+	activation := activatePlugins(workspace, registry, fakePluginDeps(t, loaded), &stderr, execOutputText, workspace)
 
 	if len(activation.skillRoots) != 1 {
 		t.Fatalf("expected one plugin skill root, got %#v", activation.skillRoots)
@@ -136,7 +136,7 @@ func TestActivatePluginsAlwaysRegistersMultiRootSkillTool(t *testing.T) {
 	registry.Register(tools.NewSkillTool(t.TempDir())) // core single-dir tool
 	var stderr bytes.Buffer
 	workspace := t.TempDir()
-	activation := activatePlugins(workspace, registry, fakePluginDeps(t, nil), &stderr, workspace)
+	activation := activatePlugins(workspace, registry, fakePluginDeps(t, nil), &stderr, execOutputText, workspace)
 	if len(activation.skillRoots) != 0 {
 		t.Fatalf("expected no plugin skill roots, got %#v", activation.skillRoots)
 	}
@@ -153,35 +153,57 @@ func TestActivatePluginsAlwaysRegistersMultiRootSkillTool(t *testing.T) {
 func TestActivatePluginsSurfacesLoadDiagnostics(t *testing.T) {
 	// Load succeeds (no top-level error) but reports a per-plugin diagnostic for a
 	// plugin it had to skip. activatePlugins must forward that diagnostic to stderr
-	// rather than dropping it, so a skipped plugin is never silent.
-	deps := appDeps{
-		getwd: func() (string, error) { return t.TempDir(), nil },
-		loadPlugins: func(plugins.LoadOptions) (plugins.LoadResult, error) {
-			return plugins.LoadResult{
-				Diagnostics: []plugins.Diagnostic{{
-					Kind:    plugins.DiagnosticSchema,
-					Message: "schemaVersion: Expected schemaVersion 1.",
-				}},
-			}, nil
-		},
-		skillsDir: func() string { return t.TempDir() },
+	// rather than dropping it, so a skipped plugin is never silent. Texto humano
+	// sai em pt; json/stream-json ficam byte-idênticos à base.
+	newDeps := func() appDeps {
+		return appDeps{
+			getwd: func() (string, error) { return t.TempDir(), nil },
+			loadPlugins: func(plugins.LoadOptions) (plugins.LoadResult, error) {
+				return plugins.LoadResult{
+					Diagnostics: []plugins.Diagnostic{{
+						Kind:    plugins.DiagnosticSchema,
+						Message: "schemaVersion: Expected schemaVersion 1.",
+					}},
+				}, nil
+			},
+			skillsDir: func() string { return t.TempDir() },
+		}
 	}
-	registry := tools.NewRegistry()
-	var stderr bytes.Buffer
-	workspace := t.TempDir()
-	activatePlugins(workspace, registry, deps, &stderr, workspace)
-
-	if stderr.Len() == 0 {
-		t.Fatal("a load diagnostic must be surfaced on stderr")
-	}
-	if !bytes.Contains(stderr.Bytes(), []byte("Expected schemaVersion 1")) {
-		t.Fatalf("stderr should carry the diagnostic message, got %q", stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "[qg] Aviso:") {
-		t.Fatalf("warning must use the pt prefix, got %q", stderr.String())
-	}
-	if strings.Contains(stderr.String(), "[qg] WARNING:") {
-		t.Fatalf("warning kept English prefix, got %q", stderr.String())
+	for _, tc := range []struct {
+		name   string
+		format execOutputFormat
+		want   []string
+		banned []string
+	}{
+		{"texto", execOutputText,
+			[]string{"[qg] Aviso: falha ao ativar plugin:", "Expected schemaVersion 1"},
+			[]string{"[qg] WARNING:", "plugin activation:"}},
+		{"stream-json", execOutputStreamJSON,
+			[]string{"[qg] WARNING: plugin activation:", "Expected schemaVersion 1"},
+			[]string{"[qg] Aviso:", "falha ao ativar"}},
+		{"json", execOutputJSON,
+			[]string{"[qg] WARNING: plugin activation:", "Expected schemaVersion 1"},
+			[]string{"[qg] Aviso:", "falha ao ativar"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := tools.NewRegistry()
+			var stderr bytes.Buffer
+			workspace := t.TempDir()
+			activatePlugins(workspace, registry, newDeps(), &stderr, tc.format, workspace)
+			if stderr.Len() == 0 {
+				t.Fatal("a load diagnostic must be surfaced on stderr")
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(stderr.String(), want) {
+					t.Fatalf("stderr missing %q, got %q", want, stderr.String())
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(stderr.String(), banned) {
+					t.Fatalf("stderr kept %q, got %q", banned, stderr.String())
+				}
+			}
+		})
 	}
 }
 
@@ -195,7 +217,7 @@ func TestActivatePluginsFailsOpenOnLoadError(t *testing.T) {
 	registry := tools.NewRegistry()
 	var stderr bytes.Buffer
 	workspace := t.TempDir()
-	activation := activatePlugins(workspace, registry, deps, &stderr, workspace)
+	activation := activatePlugins(workspace, registry, deps, &stderr, execOutputText, workspace)
 
 	if len(activation.hooks) != 0 || len(activation.skillRoots) != 0 {
 		t.Fatalf("a load error must yield an inert activation, got %#v", activation)
@@ -226,7 +248,7 @@ func TestActivatePluginsWarnsOnMalformedPluginButKeepsGood(t *testing.T) {
 	registry := tools.NewRegistry()
 	var stderr bytes.Buffer
 	workspace := t.TempDir()
-	activatePlugins(workspace, registry, fakePluginDeps(t, []plugins.LoadedPlugin{bad, good}), &stderr, workspace)
+	activatePlugins(workspace, registry, fakePluginDeps(t, []plugins.LoadedPlugin{bad, good}), &stderr, execOutputText, workspace)
 
 	if _, ok := registry.Get("good_tool"); !ok {
 		t.Fatal("the good plugin tool must still register despite a malformed sibling")

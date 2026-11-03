@@ -43,7 +43,7 @@ type pluginActivation struct {
 // trustRoot is the original launch directory (resolved before any --worktree
 // reassignment). The returned activation carries the skip report so the caller can
 // emit one combined notice; the notice itself is NOT emitted here.
-func activatePlugins(workspaceRoot string, registry *tools.Registry, deps appDeps, stderr io.Writer, trustRoot string, runners ...*execution.Runner) pluginActivation {
+func activatePlugins(workspaceRoot string, registry *tools.Registry, deps appDeps, stderr io.Writer, format execOutputFormat, trustRoot string, runners ...*execution.Runner) pluginActivation {
 	excludeProject, trustCheckErrored := resolveTrust(trustRoot)
 	skip := trustSkip{
 		excludedProjectConfig: excludeProject && projectPluginsDirExists(workspaceRoot),
@@ -52,7 +52,7 @@ func activatePlugins(workspaceRoot string, registry *tools.Registry, deps appDep
 
 	loaded, err := deps.loadPlugins(plugins.LoadOptions{Cwd: workspaceRoot, ExcludeProject: excludeProject})
 	if err != nil {
-		writePluginActivationWarning(stderr, "failed to load plugins: "+err.Error())
+		writePluginActivationWarning(stderr, format, "failed to load plugins: "+err.Error())
 		// Still overlay multi-root discovery (primary + agents) so a plugin load
 		// failure cannot hide shared skills.
 		registry.Register(plugins.NewSkillTool(deps.skillsDir(), nil))
@@ -63,7 +63,7 @@ func activatePlugins(workspaceRoot string, registry *tools.Registry, deps appDep
 	// and the plugin is dropped rather than aborting the whole load. Surface those
 	// diagnostics so a skipped plugin is never silent.
 	for _, diagnostic := range loaded.Diagnostics {
-		writePluginActivationWarning(stderr, formatLoadDiagnostic(diagnostic))
+		writePluginActivationWarning(stderr, format, formatLoadDiagnostic(diagnostic))
 	}
 
 	var runner *execution.Runner
@@ -72,7 +72,7 @@ func activatePlugins(workspaceRoot string, registry *tools.Registry, deps appDep
 	}
 	result := plugins.Activate(registry, loaded.Plugins, plugins.ActivateOptions{Cwd: workspaceRoot, Execution: runner})
 	for _, warning := range result.Warnings {
-		writePluginActivationWarning(stderr, warning)
+		writePluginActivationWarning(stderr, format, warning)
 	}
 
 	// Always overlay the multi-root skill tool so discovery is identical with or
@@ -135,9 +135,13 @@ func formatLoadDiagnostic(diagnostic plugins.Diagnostic) string {
 	return message
 }
 
-func writePluginActivationWarning(stderr io.Writer, message string) {
+func writePluginActivationWarning(stderr io.Writer, format execOutputFormat, message string) {
 	if stderr == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(stderr, "[qg] Aviso: plugin activation: %s\n", message)
+	if format == execOutputJSON || format == execOutputStreamJSON {
+		_, _ = fmt.Fprintf(stderr, "[qg] WARNING: plugin activation: %s\n", message)
+		return
+	}
+	_, _ = fmt.Fprintf(stderr, "[qg] Aviso: falha ao ativar plugin: %s\n", message)
 }

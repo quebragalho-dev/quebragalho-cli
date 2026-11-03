@@ -325,7 +325,7 @@ func runPluginInfo(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		}
 		lines = append(lines, "  hash divergente: "+drift)
 	}
-	lines = append(lines, "  manifest: "+plugin.ManifestPath)
+	lines = append(lines, "  manifesto: "+plugin.ManifestPath)
 	if _, err := fmt.Fprintln(stdout, redaction.RedactString(strings.Join(lines, "\n"), redaction.Options{})); err != nil {
 		return exitCrash
 	}
@@ -460,7 +460,7 @@ func runToolsMake(args []string, dir string, stdout io.Writer, stderr io.Writer)
 	}
 	lines := []string{
 		fmt.Sprintf("Ferramenta %q criada em %s.", result.Name, result.PluginDir),
-		"  manifest: " + result.ManifestPath,
+		"  manifesto: " + result.ManifestPath,
 		"  entrada:   " + result.EntryPath,
 		"",
 		"Próximos passos:",

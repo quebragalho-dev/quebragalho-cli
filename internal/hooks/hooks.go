@@ -401,7 +401,7 @@ func FormatList(config Config, diagnostics []Diagnostic) string {
 	if config.Enabled {
 		state = "ativado"
 	}
-	lines := []string{"Hooks QG: " + state}
+	lines := []string{"Hooks do QG: " + state}
 	if len(config.Hooks) == 0 {
 		lines = append(lines, "  Nenhum hook configurado.")
 	} else {

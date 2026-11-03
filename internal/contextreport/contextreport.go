@@ -172,7 +172,7 @@ func Format(report Report) string {
 		lines = append(lines, "modelo: "+report.ModelID)
 	}
 	if report.APIModel != "" {
-		lines = append(lines, "modelo_api: "+report.APIModel)
+		lines = append(lines, "modelo da API: "+report.APIModel)
 	}
 	if report.ContextWindow > 0 {
 		lines = append(lines, fmt.Sprintf("uso: %s/%s tokens (%.1f%%)", compactNumber(report.UsedTokens), compactNumber(report.ContextWindow), report.UsedFraction*100))
@@ -180,10 +180,7 @@ func Format(report Report) string {
 		lines = append(lines, fmt.Sprintf("uso: %s tokens (janela de contexto desconhecida)", compactNumber(report.UsedTokens)))
 	}
 	if report.ToolCount > 0 {
-		toolLine := fmt.Sprintf("ferramentas: %d expostas", report.ToolCount)
-		if report.AvailableToolCount > report.ToolCount {
-			toolLine += fmt.Sprintf(", %d disponíveis, %d adiadas", report.AvailableToolCount, report.DeferredToolCount)
-		}
+		toolLine := contextToolLine(report.ToolCount, report.AvailableToolCount, report.DeferredToolCount)
 		lines = append(lines, toolLine)
 	}
 	if report.ProjectGuidelineFile != "" {
@@ -199,6 +196,27 @@ func Format(report Report) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// contextToolLine renders the tool budget line with Portuguese number agreement.
+func contextToolLine(exposed, available, deferred int) string {
+	head := fmt.Sprintf("ferramentas: %d expostas", exposed)
+	if exposed == 1 {
+		head = fmt.Sprintf("ferramenta: %d exposta", exposed)
+	}
+	if available <= exposed {
+		return head
+	}
+	head += ", " + contextCountNoun(available, "disponível", "disponíveis")
+	head += ", " + contextCountNoun(deferred, "adiada", "adiadas")
+	return head
+}
+
+func contextCountNoun(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }
 
 // humanCategoryName renders a category for human text. The stored Name stays

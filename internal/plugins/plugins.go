@@ -469,11 +469,16 @@ func firstNonNil(values ...any) any {
 func FormatList(plugins []LoadedPlugin, diagnostics []Diagnostic) string {
 	lines := []string{}
 	if len(plugins) == 0 {
-		lines = append(lines, "Nenhum plugin QG local carregado.")
+		lines = append(lines, "Nenhum plugin local do QG carregado.")
 	} else {
-		lines = append(lines, "Plugins QG:")
+		lines = append(lines, "Plugins do QG:")
 		for _, plugin := range plugins {
-			counts := fmt.Sprintf("%d ferramentas, %d prompts, %d skills, %d hooks", len(plugin.Tools), len(plugin.Prompts), len(plugin.Skills), len(plugin.Hooks))
+			counts := strings.Join([]string{
+				pluginCountNoun(len(plugin.Tools), "ferramenta", "ferramentas"),
+				pluginCountNoun(len(plugin.Prompts), "prompt", "prompts"),
+				pluginCountNoun(len(plugin.Skills), "skill", "skills"),
+				pluginCountNoun(len(plugin.Hooks), "hook", "hooks"),
+			}, ", ")
 			state := "ativado"
 			if !plugin.Enabled {
 				state = "desativado"
@@ -496,6 +501,14 @@ func FormatList(plugins []LoadedPlugin, diagnostics []Diagnostic) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// pluginCountNoun renders a count with a Portuguese noun, agreeing in number.
+func pluginCountNoun(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }
 
 // formatPluginMetadata renders only the optional metadata fields that are

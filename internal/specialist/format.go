@@ -6,7 +6,7 @@ import (
 )
 
 func FormatList(result LoadResult) string {
-	lines := []string{"Especialistas QG:"}
+	lines := []string{"Especialistas do QG:"}
 	for _, warning := range result.Warnings {
 		lines = append(lines, "  aviso: "+warning)
 	}
@@ -67,7 +67,7 @@ func FormatPaths(paths Paths) string {
 
 func formatTools(manifest Manifest) string {
 	if len(manifest.Metadata.Tools) == 0 && len(manifest.ResolvedTools) > 0 {
-		return strings.Join(manifest.ResolvedTools, ", ") + " (default)"
+		return strings.Join(manifest.ResolvedTools, ", ") + " (padrão)"
 	}
 	if len(manifest.ResolvedTools) == 0 {
 		return strings.Join(manifest.Metadata.Tools, ", ")

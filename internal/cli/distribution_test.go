@@ -224,7 +224,7 @@ func TestRunPluginAddListRemove(t *testing.T) {
 	if exit := runWithDeps([]string{"plugin", "info", "qg.demo"}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("plugin info exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "qg.demo") || !strings.Contains(stdout.String(), "manifest:") {
+	if !strings.Contains(stdout.String(), "qg.demo") || !strings.Contains(stdout.String(), "manifesto:") {
 		t.Fatalf("info output missing plugin details:\n%s", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "hash divergente: não") {
@@ -235,6 +235,9 @@ func TestRunPluginAddListRemove(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "lock source:") || strings.Contains(stdout.String(), "lock hash:") {
 		t.Fatalf("info kept English lock labels:\n%s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "  manifest: ") {
+		t.Fatalf("info kept English manifest label:\n%s", stdout.String())
 	}
 
 	// Editing the installed manifest flips the drift status, the same way a

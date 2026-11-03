@@ -31,12 +31,12 @@ Find the likely failure area.`)
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"Especialistas QG:", "worker [builtin]", "triage [user]", "code-review"} {
+	for _, want := range []string{"Especialistas do QG:", "worker [builtin]", "triage [user]", "code-review"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("list output missing %q: %s", want, stdout.String())
 		}
 	}
-	for _, banned := range []string{"QG Specialists:", "tools: ", "(none)", "warning: ", "warnings: "} {
+	for _, banned := range []string{"QG Specialists:", "Especialistas QG:", "tools: ", "(none)", "(nenhum", "warning: ", "warnings: ", " (default)"} {
 		if strings.Contains(stdout.String(), banned) {
 			t.Fatalf("list output kept English %q: %s", banned, stdout.String())
 		}

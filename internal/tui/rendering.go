@@ -882,18 +882,15 @@ func styledCommandCardStatus(trimmed string) string {
 }
 
 func isCommandCardActionsLine(trimmed string) bool {
-	return strings.HasPrefix(trimmed, "ações:") || strings.HasPrefix(trimmed, "actions:")
+	return strings.HasPrefix(trimmed, "ações:")
 }
 
 func commandCardActionsContent(trimmed string) string {
-	if rest, ok := strings.CutPrefix(trimmed, "ações:"); ok {
-		return rest
-	}
-	return strings.TrimPrefix(trimmed, "actions:")
+	return strings.TrimPrefix(trimmed, "ações:")
 }
 
 func isCommandCardHintLine(trimmed string) bool {
-	return strings.HasPrefix(trimmed, "dica:") || strings.HasPrefix(trimmed, "hint:")
+	return strings.HasPrefix(trimmed, "dica:")
 }
 
 func renderMCPManagerCard(text string, width int) string {
@@ -1010,7 +1007,7 @@ func renderDoctorResultCard(text string, width int) string {
 			lines = append(lines, qgTheme.amber.Render(line))
 		case strings.HasPrefix(trimmed, "- [fail]"):
 			lines = append(lines, qgTheme.red.Render(line))
-		case strings.HasPrefix(trimmed, "hint:") || strings.HasPrefix(trimmed, "dica:"):
+		case strings.HasPrefix(trimmed, "dica:"):
 			lines = append(lines, qgTheme.faint.Render(line))
 		case strings.HasPrefix(trimmed, "/") ||
 			strings.HasPrefix(trimmed, "WSL2") ||

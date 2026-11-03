@@ -1042,15 +1042,41 @@ func runExecWithEcho(t *testing.T, args []string) (int, string, string) {
 func TestExecSessionRecorderWarnsOnRecordingFailure(t *testing.T) {
 	// A latched session-append failure must be surfaced once to stderr so a user
 	// is not misled into believing the session was persisted; a clean recorder
-	// stays silent.
-	var failed bytes.Buffer
-	(&execSessionRecorder{err: errors.New("disk full")}).warnIfRecordingFailed(&failed)
-	if !strings.Contains(failed.String(), "session not fully recorded") || !strings.Contains(failed.String(), "disk full") {
-		t.Fatalf("expected a recording-failure warning, got %q", failed.String())
+	// stays silent. Texto humano sai em pt; json/stream-json ficam byte-idênticos.
+	for _, tc := range []struct {
+		name   string
+		format execOutputFormat
+		want   []string
+		banned []string
+	}{
+		{"texto", execOutputText,
+			[]string{"[qg] Aviso: a sessão não foi gravada por completo: disk full"},
+			[]string{"[qg] WARNING:", "session not fully recorded"}},
+		{"stream-json", execOutputStreamJSON,
+			[]string{"[qg] WARNING: session not fully recorded: disk full"},
+			[]string{"[qg] Aviso:", "gravada por completo"}},
+		{"json", execOutputJSON,
+			[]string{"[qg] WARNING: session not fully recorded: disk full"},
+			[]string{"[qg] Aviso:", "gravada por completo"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var failed bytes.Buffer
+			(&execSessionRecorder{err: errors.New("disk full")}).warnIfRecordingFailed(&failed, tc.format)
+			for _, want := range tc.want {
+				if !strings.Contains(failed.String(), want) {
+					t.Fatalf("expected a recording-failure warning with %q, got %q", want, failed.String())
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(failed.String(), banned) {
+					t.Fatalf("warning leaked %q, got %q", banned, failed.String())
+				}
+			}
+		})
 	}
 
 	var clean bytes.Buffer
-	(&execSessionRecorder{}).warnIfRecordingFailed(&clean)
+	(&execSessionRecorder{}).warnIfRecordingFailed(&clean, execOutputText)
 	if clean.Len() != 0 {
 		t.Fatalf("expected silence when recording succeeded, got %q", clean.String())
 	}
