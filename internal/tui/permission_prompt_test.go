@@ -189,7 +189,7 @@ func TestPermissionOptionsCanExposePatchCancelWithoutRecoverableDeny(t *testing.
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 2, false, "", 80)
 	got := plainRender(t, card)
-	if !strings.Contains(got, "tell QG what to do differently") || !strings.Contains(got, "[n]") {
+	if !strings.Contains(got, "Não, e dizer ao QG como fazer") || !strings.Contains(got, "[n]") {
 		t.Fatalf("permission card = %q, missing cancel option", got)
 	}
 	if strings.Contains(got, "Não, continuar sem executar") || strings.Contains(got, "[d]") {

@@ -1227,7 +1227,7 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	// ask_user "type your own answer" surface. What is typed is sent to the model
 	// as the denial reason, so it reads the instruction and adjusts.
 	if typing {
-		lines = append(lines, fill(qgTheme.muted).Render("Tell QG what to do differently:"))
+		lines = append(lines, fill(qgTheme.muted).Render("Diga ao QG como fazer:"))
 		lines = append(lines, qgTheme.userPrompt.Render("❯ ")+fill(qgTheme.ink).Render(feedback)+fill(qgTheme.accent).Render("▌"))
 		lines = append(lines, "")
 		lines = append(lines, fill(qgTheme.faint).Render("enter · enviar ao QG    esc · voltar às opções"))
@@ -1356,7 +1356,7 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 	case permissionDecisionDeny:
 		return "Não, continuar sem executar"
 	case permissionDecisionCancel:
-		return "No, and tell QG what to do differently"
+		return "Não, e dizer ao QG como fazer"
 	default:
 		return option.label
 	}
