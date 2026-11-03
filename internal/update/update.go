@@ -221,7 +221,7 @@ func shellQuote(value string) string {
 func Format(result Result) string {
 	if result.UpdateAvailable {
 		lines := []string{
-			fmt.Sprintf("[qg] Update available: %s -> %s", result.CurrentVersion, result.LatestVersion),
+			fmt.Sprintf("[qg] Atualização disponível: %s -> %s", result.CurrentVersion, result.LatestVersion),
 			"Release: " + result.ReleaseURL,
 		}
 		lines = appendAssetLines(lines, result.ReleaseAsset)
@@ -229,7 +229,7 @@ func Format(result Result) string {
 		return strings.Join(lines, "\n")
 	}
 	lines := []string{
-		fmt.Sprintf("[qg] up to date (%s)", result.CurrentVersion),
+		fmt.Sprintf("[qg] atualizado (%s)", result.CurrentVersion),
 		"Latest release: " + result.ReleaseURL,
 	}
 	lines = appendAssetLines(lines, result.ReleaseAsset)
@@ -291,11 +291,11 @@ func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallM
 	target := releaseAssetTarget(asset)
 	local := localReleaseTarget()
 	if target != "" && target != local {
-		guidance := "Download the verified " + target + " release asset and replace the qg binary on that machine."
+		guidance := "Baixe o asset verificado " + target + " da release e troque o binário do qg naquela máquina."
 		if sourceFlag != "" {
-			guidance += " The download URLs above are from the custom source selected by `" + sourceFlag + "`; a bare `qg upgrade` does not repeat that source."
+			guidance += " As URLs de download acima vêm da fonte personalizada selecionada por `" + sourceFlag + "`; `qg upgrade` sem a fonte não repete aquela fonte."
 			if local != "" {
-				guidance += " It installs onto this machine (" + local + ") instead."
+				guidance += " Ele instala nesta máquina (" + local + ")."
 			}
 			return guidance
 		}
@@ -306,7 +306,7 @@ func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallM
 			// this machine at all.
 			return guidance
 		}
-		return guidance + " `qg upgrade` installs onto this machine (" + local + ") instead."
+		return guidance + " `qg upgrade` instala nesta máquina (" + local + ")."
 	}
 	if installMethod == InstallMethodHomebrew {
 		// Said before the source-flag branch below: whatever source the check read,
@@ -317,15 +317,15 @@ func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallM
 		// is a property of the binary on THIS machine; when the check was asked
 		// about a different target the answer belongs to that other machine, and
 		// `brew upgrade qg` would change this one instead.
-		return "This Homebrew-managed installation is updated with `brew upgrade qg`. `qg upgrade` refuses here, because replacing the keg binary would leave Homebrew's records describing a version that is no longer installed."
+		return "Esta instalação gerenciada pelo Homebrew é atualizada com `brew upgrade qg`. `qg upgrade` recusa aqui, porque trocar o binário do keg deixaria os registros do Homebrew descrevendo uma versão que não está mais instalada."
 	}
 	if sourceFlag != "" {
 		if installMethod == InstallMethodNpm {
-			return "This npm-managed installation can be updated with `npm install -g " + npmPackageName + "@latest`, which installs the official npm package. The custom `" + sourceFlag + "` source only affects the release check and update gating, not the npm install source."
+			return "Esta instalação gerenciada pelo npm pode ser atualizada com `npm install -g " + npmPackageName + "@latest`, que instala o pacote oficial do npm. A fonte personalizada `" + sourceFlag + "` afeta só a verificação da release e a decisão de atualizar, não a instalação pelo npm."
 		}
-		return "Run `qg upgrade " + sourceFlag + "` to install from the source this check used; a bare `qg upgrade` does not repeat that explicit source flag."
+		return "Rode `qg upgrade " + sourceFlag + "` para instalar a partir da fonte usada nesta verificação; `qg upgrade` sem a fonte não repete aquela fonte explícita."
 	}
-	return "Run `qg upgrade` to download, verify, and install the latest release."
+	return "Rode `qg upgrade` para baixar, verificar e instalar a release mais recente."
 }
 
 func fetchRelease(ctx context.Context, endpoint string) (release Release, err error) {

@@ -431,8 +431,11 @@ func TestFormatResult(t *testing.T) {
 		ReleaseAsset:    assetCheckForTest(t, "v0.2.0", "linux", "amd64"),
 		UpdateAvailable: true,
 	})
-	if !strings.Contains(output, "Update available: 0.1.0 -> 0.2.0") {
+	if !strings.Contains(output, "Atualização disponível: 0.1.0 -> 0.2.0") {
 		t.Fatalf("unexpected update output: %q", output)
+	}
+	if strings.Contains(output, "Update available:") {
+		t.Fatalf("update output kept the English headline: %q", output)
 	}
 	if !strings.Contains(output, "Release asset: qg-v0.2.0-linux-x64.tar.gz") || !strings.Contains(output, "Checksum asset: qg-v0.2.0-linux-x64.tar.gz.sha256") {
 		t.Fatalf("update output did not include release assets: %q", output)
@@ -456,8 +459,11 @@ func TestFormatResult(t *testing.T) {
 		ReleaseAsset:    assetCheckForTest(t, "v0.2.0", runtime.GOOS, runtime.GOARCH),
 		UpdateAvailable: true,
 	})
-	if !strings.Contains(local, "Run `qg upgrade` to download, verify, and install") {
+	if !strings.Contains(local, "Rode `qg upgrade` para baixar, verificar e instalar") {
 		t.Fatalf("current-platform check did not recommend qg upgrade: %q", local)
+	}
+	if strings.Contains(local, "Run `qg upgrade`") {
+		t.Fatalf("upgrade guidance kept the English call to action: %q", local)
 	}
 
 	output = Format(Result{
@@ -468,8 +474,11 @@ func TestFormatResult(t *testing.T) {
 		ReleaseAsset:    assetCheckForTest(t, "v0.2.0", "linux", "amd64"),
 		UpdateAvailable: false,
 	})
-	if !strings.Contains(output, "up to date") {
+	if !strings.Contains(output, "atualizado") {
 		t.Fatalf("unexpected up-to-date output: %q", output)
+	}
+	if strings.Contains(output, "up to date") {
+		t.Fatalf("up-to-date output kept the English status: %q", output)
 	}
 	if !strings.Contains(output, "Release target: linux-x64") {
 		t.Fatalf("up-to-date output did not include release target: %q", output)
@@ -505,8 +514,11 @@ func TestFormatCustomSourceCheckRepeatsTheSourceFlag(t *testing.T) {
 			if !strings.Contains(output, tc.want) {
 				t.Fatalf("output = %q, want it to repeat %q", output, tc.want)
 			}
-			if !strings.Contains(output, "bare `qg upgrade` does not repeat") {
+			if !strings.Contains(output, "não repete aquela fonte explícita") {
 				t.Fatalf("output = %q, want it to distinguish a bare upgrade", output)
+			}
+			if strings.Contains(output, "does not repeat") {
+				t.Fatalf("output = %q, kept the English bare-upgrade warning", output)
 			}
 		})
 	}
@@ -523,8 +535,11 @@ func TestFormatCustomSourceCheckRepeatsTheSourceFlag(t *testing.T) {
 			UpdateAvailable: true,
 			SourceFlag:      upgradeSourceFlag(options),
 		})
-		if !strings.Contains(output, "Run `qg upgrade` to download") {
+		if !strings.Contains(output, "Rode `qg upgrade` para baixar") {
 			t.Fatalf("default-source output = %q, want the plain upgrade recommendation", output)
+		}
+		if strings.Contains(output, "Run `qg upgrade`") {
+			t.Fatalf("default-source output = %q, kept the English call to action", output)
 		}
 	}
 }
@@ -587,8 +602,11 @@ func TestFormatNpmCustomSourceExplainsInstallSource(t *testing.T) {
 		SourceFlag: "--repo someone/fork", installMethod: InstallMethodNpm,
 	}
 	output := Format(result)
-	if strings.Contains(output, "qg upgrade --repo") || !strings.Contains(output, "npm install -g @quebragalho-dev/cli@latest") || !strings.Contains(output, "only affects the release check and update gating") {
+	if strings.Contains(output, "qg upgrade --repo") || !strings.Contains(output, "npm install -g @quebragalho-dev/cli@latest") || !strings.Contains(output, "afeta só a verificação da release") {
 		t.Fatalf("npm custom-source guidance is misleading: %q", output)
+	}
+	if strings.Contains(output, "only affects the release check") {
+		t.Fatalf("npm custom-source guidance kept the English caveat: %q", output)
 	}
 }
 
@@ -602,7 +620,7 @@ func TestFormatCrossTargetCustomSourceKeepsAccurateGuidance(t *testing.T) {
 		ReleaseAsset: assetCheckForTest(t, "v0.2.0", goos, goarch), UpdateAvailable: true,
 		SourceFlag: "--repo someone/fork",
 	})
-	if strings.Contains(output, "Run `qg upgrade") || !strings.Contains(output, "Download the verified") || !strings.Contains(output, "custom source selected by `--repo someone/fork`") || !strings.Contains(output, "bare `qg upgrade` does not repeat that source") {
+	if strings.Contains(output, "Run `qg upgrade") || strings.Contains(output, "Download the verified") || !strings.Contains(output, "Baixe o asset verificado") || !strings.Contains(output, "selecionada por `--repo someone/fork`") || !strings.Contains(output, "não repete aquela fonte") {
 		t.Fatalf("cross-target custom-source guidance is misleading: %q", output)
 	}
 }
@@ -627,15 +645,21 @@ func TestFormatCrossTargetCheckDoesNotRecommendLocalUpgrade(t *testing.T) {
 		ReleaseAsset:    other,
 		UpdateAvailable: true,
 	})
-	if strings.Contains(output, "Run `qg upgrade`") {
+	if strings.Contains(output, "Run `qg upgrade`") || strings.Contains(output, "Rode `qg upgrade`") {
 		t.Fatalf("a cross-target check must not recommend the local upgrade: %q", output)
 	}
 	target := other.Platform + "-" + other.Arch
-	if !strings.Contains(output, "Download the verified "+target+" release asset") {
+	if !strings.Contains(output, "Baixe o asset verificado "+target+" da release") {
 		t.Fatalf("cross-target check lost its target-specific guidance: %q", output)
 	}
-	if localReleaseTarget() != "" && !strings.Contains(output, "installs onto this machine") {
+	if strings.Contains(output, "Download the verified") {
+		t.Fatalf("cross-target check kept the English download guidance: %q", output)
+	}
+	if localReleaseTarget() != "" && !strings.Contains(output, "instala nesta máquina") {
 		t.Fatalf("cross-target check should say which machine qg upgrade would touch: %q", output)
+	}
+	if strings.Contains(output, "installs onto this machine") {
+		t.Fatalf("cross-target check kept the English machine note: %q", output)
 	}
 }
 

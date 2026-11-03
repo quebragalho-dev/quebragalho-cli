@@ -192,7 +192,13 @@ func TestUpgradeGuidanceSendsHomebrewUsersToBrew(t *testing.T) {
 	if !strings.Contains(guidance, "brew upgrade qg") {
 		t.Errorf("guidance does not name the command that works: %q", guidance)
 	}
-	if strings.Contains(guidance, "Run `qg upgrade`") {
+	if !strings.Contains(guidance, "gerenciada pelo Homebrew") {
+		t.Errorf("guidance is not in pt-BR: %q", guidance)
+	}
+	if strings.Contains(guidance, "Homebrew-managed") {
+		t.Errorf("guidance kept the English sentence: %q", guidance)
+	}
+	if strings.Contains(guidance, "Rode `qg upgrade`") {
 		t.Errorf("guidance still offers the command that refuses: %q", guidance)
 	}
 }

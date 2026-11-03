@@ -955,3 +955,72 @@ func TestWrapperRelaunchesWhenNpmFails(t *testing.T) {
 		t.Fatalf("native binary runs = %d, want 2 (install, then reopened current)", len(binRuns))
 	}
 }
+
+// TestWrapperPassesPrefixOnHandoff is the regression test for the --prefix
+// bug: a wrapper installed with `npm install -g --prefix <prefix>` must
+// reinstall into that same prefix instead of the default global one.
+func TestWrapperPassesPrefixOnHandoff(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
+	}
+	prefix := t.TempDir()
+	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	binDir := filepath.Join(packageRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := os.ReadFile(filepath.Join(repoRoot(t), "bin", "qg.js"))
+	if err != nil {
+		t.Fatalf("ReadFile wrapper: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "package.json"), []byte(`{"type":"module"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrapperPath := filepath.Join(binDir, "qg.js")
+	if err := os.WriteFile(wrapperPath, bytes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binLog := filepath.Join(prefix, "qg-runs.log")
+	npmLog := filepath.Join(prefix, "npm-calls.log")
+	binary := filepath.Join(packageRoot, "qg")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(binLog) + "\n" +
+		"if [ -z \"$QG_UPDATE_JUST_INSTALLED\" ]; then\n" +
+		"  printf '{\"version\":\"9.9.99\"}' > \"$QG_NPM_UPDATE_HANDOFF\"\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	npmShim := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(npmLog) + "\n" +
+		"exit 0\n"
+	shimDir := filepath.Join(prefix, "shims")
+	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shimDir, "npm"), []byte(npmShim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, stderr, exitCode := runWrapperFixtureWithEnv(t, wrapperPath, nil, "--version")
+	if exitCode != wrapperExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%q", exitCode, stderr)
+	}
+	npmCalls := readLines(t, npmLog)
+	// Node resolves the wrapper path (macOS /var -> /private/var), so the
+	// prefix the wrapper derives is the canonical form; compare against it.
+	canonical, err := filepath.EvalSymlinks(prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "install -g --prefix " + canonical + " @quebragalho-dev/cli@9.9.99"
+	if len(npmCalls) != 1 || npmCalls[0] != want {
+		t.Fatalf("npm calls = %#v, want %q", npmCalls, want)
+	}
+	binRuns := readLines(t, binLog)
+	if len(binRuns) != 2 {
+		t.Fatalf("native binary runs = %d, want 2 (install, then reopened)", len(binRuns))
+	}
+}

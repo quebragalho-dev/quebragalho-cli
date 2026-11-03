@@ -276,15 +276,40 @@ function takeUpdateHandoff(path) {
   return null;
 }
 
+// npmPrefixFromPackageRoot infers the global npm prefix owning this wrapper:
+// Unix keeps the package at <prefix>/lib/node_modules/@quebragalho-dev/cli,
+// Windows at <prefix>\node_modules\@quebragalho-dev\cli. A Unix path without
+// the lib segment is a local install, not a global prefix, so the bare
+// node_modules suffix only counts for Windows-looking paths. Anything else
+// returns null and the install below stays a bare `npm install -g`, exactly
+// as before, instead of guessing.
+function npmPrefixFromPackageRoot(root) {
+  const normalized = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  const scopeSuffix = '/node_modules/@quebragalho-dev/cli';
+  const libSuffix = '/lib' + scopeSuffix;
+  if (normalized.endsWith(libSuffix)) {
+    const prefix = normalized.slice(0, -libSuffix.length);
+    return prefix === '' ? null : prefix;
+  }
+  const windowsLooking = root.includes('\\') || /^[A-Za-z]:/.test(normalized);
+  if (normalized.endsWith(scopeSuffix) && windowsLooking) {
+    const prefix = normalized.slice(0, -scopeSuffix.length);
+    return prefix === '' ? null : prefix;
+  }
+  return null;
+}
+
 // Installs the new version globally with inherited stdio so the operator
 // watches npm do its work. Resolves npm the same way npm's own shims do:
 // directly off PATH on POSIX, through ComSpec on Windows.
 function installNpmUpdate(version) {
   const spec = `@quebragalho-dev/cli@${version}`;
+  const prefix = npmPrefixFromPackageRoot(packageRoot);
+  const args = prefix ? ['install', '-g', '--prefix', prefix, spec] : ['install', '-g', spec];
   if (process.platform === 'win32') {
-    return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm', 'install', '-g', spec], { stdio: 'inherit' });
+    return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm', ...args], { stdio: 'inherit' });
   }
-  return spawnSync('npm', ['install', '-g', spec], { stdio: 'inherit' });
+  return spawnSync('npm', args, { stdio: 'inherit' });
 }
 
 function reopenAfterNpmInstall(version) {

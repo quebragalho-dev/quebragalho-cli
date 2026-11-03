@@ -85,11 +85,11 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 		// leaves brew reporting a version that is no longer installed, and the next
 		// `brew upgrade` or `brew reinstall` silently reverts it.
 		return ApplyResult{}, fmt.Errorf(
-			"this qg was installed with Homebrew (%s); run `brew upgrade qg` instead, so Homebrew's records match the binary on disk",
+			"este qg foi instalado com o Homebrew (%s); rode `brew upgrade qg`, para os registros do Homebrew combinarem com o binário em disco",
 			executablePath,
 		)
 	case InstallMethodNpm:
-		if err := applyNpmUpdate(ctx); err != nil {
+		if err := applyNpmUpdate(ctx, executablePath, checkResult.LatestVersion); err != nil {
 			return ApplyResult{}, err
 		}
 		return ApplyResult{
@@ -116,12 +116,22 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 }
 
 // FormatApply renders an ApplyResult as human-readable text.
+//
+// ApplyResult.Message stays in English: it is serialized into --json output,
+// so the human line is translated here instead of at the source.
 func FormatApply(result ApplyResult) string {
 	if !result.Applied {
 		return Format(result.Result)
 	}
+	message := result.Message
+	switch {
+	case result.InstallMethod == InstallMethodNpm:
+		message = fmt.Sprintf("atualizado via npm para %s", result.LatestVersion)
+	case strings.HasPrefix(message, "updated to "):
+		message = fmt.Sprintf("atualizado para %s", result.LatestVersion)
+	}
 	lines := []string{
-		fmt.Sprintf("[qg] %s (%s -> %s)", result.Message, result.CurrentVersion, result.LatestVersion),
+		fmt.Sprintf("[qg] %s (%s -> %s)", message, result.CurrentVersion, result.LatestVersion),
 		"Binary: " + result.BinaryPath,
 	}
 	for _, warning := range result.Warnings {
@@ -130,16 +140,52 @@ func FormatApply(result ApplyResult) string {
 	return strings.Join(lines, "\n")
 }
 
-func applyNpmUpdate(ctx context.Context) error {
-	npmPath, err := exec.LookPath("npm")
-	if err != nil {
-		return fmt.Errorf("npm not found on PATH: reinstall with `npm install -g %s@latest`", npmPackageName)
+var (
+	npmLookPath = exec.LookPath
+	// runNpm executes the npm CLI for applyNpmUpdate. It is a package var so
+	// tests can record the arguments and simulate installs without the
+	// network; production runs npm with inherited stdio so the operator
+	// watches it do its work.
+	runNpm = func(ctx context.Context, npmPath string, args []string) error {
+		command := exec.CommandContext(ctx, npmPath, args...)
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+		return command.Run()
 	}
-	command := exec.CommandContext(ctx, npmPath, "install", "-g", npmPackageName+"@latest")
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	if err := command.Run(); err != nil {
-		return fmt.Errorf("npm install -g %s@latest: %w", npmPackageName, err)
+)
+
+// applyNpmUpdate reinstalls the package with `npm install -g` scoped to the
+// prefix owning the invoked installation, then verifies the invoked install
+// actually moved before reporting success. An unverifiable or unchanged
+// install is an honest error with the manual command, never an "updated".
+func applyNpmUpdate(ctx context.Context, executablePath string, wantVersion string) error {
+	npmPath, err := npmLookPath("npm")
+	if err != nil {
+		return fmt.Errorf("npm não encontrado no PATH: reinstale com `npm install -g %s@latest`", npmPackageName)
+	}
+	packageRoot, hasRoot := findNpmPackageRoot(executablePath)
+	prefix, hasPrefix := "", false
+	if hasRoot {
+		prefix, hasPrefix = npmPrefixFromPackageRoot(packageRoot)
+	}
+	args := []string{"install", "-g", npmPackageName + "@latest"}
+	manual := "npm install -g " + npmPackageName + "@latest"
+	if hasPrefix {
+		args = []string{"install", "-g", "--prefix", prefix, npmPackageName + "@latest"}
+		manual = "npm install -g --prefix " + prefix + " " + npmPackageName + "@latest"
+	}
+	if err := runNpm(ctx, npmPath, args); err != nil {
+		return fmt.Errorf("falha ao atualizar pelo npm (`%s`): %w", strings.Join(args, " "), err)
+	}
+	if !hasRoot {
+		return fmt.Errorf("a atualização via npm para %s não ficou ativa: não foi possível determinar o pacote npm da instalação atual (%s). Para atualizar à mão, rode: %s", wantVersion, executablePath, manual)
+	}
+	gotVersion, err := readNpmPackageVersion(packageRoot)
+	if err != nil {
+		return fmt.Errorf("a atualização via npm para %s não ficou ativa: não foi possível ler a versão da instalação em %s: %v. Para atualizar à mão, rode: %s", wantVersion, packageRoot, err, manual)
+	}
+	if updated, cmpErr := CompareVersions(gotVersion, wantVersion); cmpErr != nil || updated != 0 {
+		return fmt.Errorf("a atualização via npm para %s não ficou ativa: a instalação em %s continua na versão %s. Para atualizar à mão, rode: %s", wantVersion, packageRoot, gotVersion, manual)
 	}
 	return nil
 }
