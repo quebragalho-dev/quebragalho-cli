@@ -337,21 +337,32 @@ func TestCronListJSON(t *testing.T) {
 
 	for _, tc := range []struct {
 		args []string
-		want string
+		code int
+		out  string
+		err  string
 	}{
-		{args: []string{"list", "extra"}, want: "argumento inesperado em cron list"},
-		{args: []string{"list", "-x"}, want: "flag desconhecida em cron list"},
+		{args: []string{"list", "extra"}, code: exitUsage, err: "argumento inesperado em cron list"},
+		{args: []string{"list", "-x"}, code: exitUsage, err: "flag desconhecida em cron list"},
+		{args: []string{"list", "--help"}, code: exitSuccess, out: "qg cron"},
 	} {
 		out.Reset()
 		errb.Reset()
-		if code := runCronWith(store, now, tc.args, &out, &errb); code != exitUsage {
-			t.Fatalf("cron %v exit=%d, want %d", tc.args, code, exitUsage)
+		if code := runCronWith(store, now, tc.args, &out, &errb); code != tc.code {
+			t.Fatalf("cron %v exit=%d, want %d", tc.args, code, tc.code)
 		}
-		if out.Len() != 0 {
-			t.Fatalf("cron %v must not print to stdout, got %q", tc.args, out.String())
+		if tc.out == "" {
+			if out.Len() != 0 {
+				t.Fatalf("cron %v must not print to stdout, got %q", tc.args, out.String())
+			}
+		} else if !strings.Contains(out.String(), tc.out) {
+			t.Fatalf("cron %v stdout = %q, want it to contain %q", tc.args, out.String(), tc.out)
 		}
-		if !strings.Contains(errb.String(), tc.want) {
-			t.Fatalf("cron %v stderr = %q, want %q", tc.args, errb.String(), tc.want)
+		if tc.err == "" {
+			if errb.Len() != 0 {
+				t.Fatalf("cron %v must not print to stderr, got %q", tc.args, errb.String())
+			}
+		} else if !strings.Contains(errb.String(), tc.err) {
+			t.Fatalf("cron %v stderr = %q, want %q", tc.args, errb.String(), tc.err)
 		}
 	}
 }
