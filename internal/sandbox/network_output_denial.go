@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -11,6 +12,11 @@ import (
 // carries an unequivocal blocked-network signature. It only matches short,
 // tested DNS strings and exact network-syscall failures; file writes, echoed
 // text, and bare words never match.
+var (
+	goLookupNoSuchHost = regexp.MustCompile(`lookup [^\s:]+(?: on \S+)?: no such host`)
+	pythonBareEPERM    = regexp.MustCompile(`(?m)^permissionerror: \[errno 1\] operation not permitted\s*$`)
+)
+
 func OutputIndicatesBlockedNetwork(output string) bool {
 	lower := strings.ToLower(output)
 	if strings.Contains(lower, "nodename nor servname provided") {
@@ -26,7 +32,7 @@ func OutputIndicatesBlockedNetwork(output string) bool {
 		(strings.Contains(lower, "enotfound") || strings.Contains(lower, "eai_noname")) {
 		return true
 	}
-	if strings.Contains(lower, "lookup ") && strings.Contains(lower, "no such host") {
+	if goLookupNoSuchHost.MatchString(lower) {
 		return true
 	}
 	if strings.Contains(lower, "urlopen error [errno 1]") {
@@ -41,11 +47,9 @@ func OutputIndicatesBlockedNetwork(output string) bool {
 	if strings.Contains(lower, "syscall: 'connect'") {
 		return true
 	}
-	// Python raw-socket tracebacks call sock.connect(sa) before surfacing
-	// EPERM; file paths merely containing socket/connect never use dot-call
-	// syntax, so this stays precise while covering socket.create_connection.
-	if (strings.Contains(lower, "operation not permitted") || strings.Contains(lower, "eperm")) &&
-		strings.Contains(lower, ".connect(") {
+	// A file PermissionError always names its path; a refused socket connect
+	// ends the traceback with the bare message.
+	if pythonBareEPERM.MatchString(lower) && strings.Contains(lower, ".connect(") {
 		return true
 	}
 	return false

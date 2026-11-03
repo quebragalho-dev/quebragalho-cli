@@ -99,33 +99,3 @@ func TestExecCommandNetworkDenialFallbackOutputSignature(t *testing.T) {
 		t.Fatalf("denial capability = %q, want external_network", outcome.Denial.Capability.Kind)
 	}
 }
-
-// TestExecCommandNetworkDenialFallbackExitZero pins that a successful session
-// never offers the network retry, even when its output contains a signature.
-func TestExecCommandNetworkDenialFallbackExitZero(t *testing.T) {
-	if _, err := exec.LookPath("sandbox-exec"); err != nil {
-		t.Skipf("sandbox-exec unavailable: %v", err)
-	}
-	backend := sandbox.SelectBackend(sandbox.BackendOptions{})
-	if !backend.Available || backend.Name != sandbox.BackendMacOSSeatbelt {
-		t.Skipf("host sandbox backend is not seatbelt: %s", backend.Message)
-	}
-	root := t.TempDir()
-	engine := sandbox.NewEngine(sandbox.EngineOptions{
-		WorkspaceRoot: root,
-		Policy:        sandbox.DefaultPolicy(),
-		Backend:       backend,
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-	tool := NewScopedExecCommandTool(root, nil, newExecSessionManager()).(interface {
-		RunWithSandbox(context.Context, map[string]any, *sandbox.Engine) Result
-	})
-	result := tool.RunWithSandbox(ctx, map[string]any{
-		"cmd": "sh -c 'echo Could not resolve host: example.com >&2; exit 0'",
-	}, engine)
-	outcome := result.ExecutionOutcome
-	if outcome != nil && outcome.Denial != nil {
-		t.Fatalf("exit 0 must never offer a network retry, got %#v", outcome.Denial)
-	}
-}

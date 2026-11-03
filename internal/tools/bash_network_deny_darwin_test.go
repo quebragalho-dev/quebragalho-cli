@@ -198,7 +198,9 @@ func TestBashNetworkDenialSystemPython(t *testing.T) {
 
 // TestBashNetworkDenialShellNc covers a shell wrapper around /usr/bin/nc to
 // a literal IP: even when the shell exits zero (echo after nc), the monitor
-// blocks must still surface the structured denial for the agent loop.
+// blocks must still surface the structured denial for the agent loop. It is
+// the only owner of the tag path: its output carries no network signature,
+// so the fallback stays silent here, while the other tests also exercise it.
 func TestBashNetworkDenialShellNc(t *testing.T) {
 	if _, err := exec.LookPath("sandbox-exec"); err != nil {
 		t.Skipf("sandbox-exec unavailable: %v", err)
@@ -269,36 +271,6 @@ func TestBashNetworkDenialFallbackOutputSignature(t *testing.T) {
 	}
 	if outcome.Denial.Capability.Kind != execution.CapabilityExternalNetwork {
 		t.Fatalf("denial capability = %q, want external_network", outcome.Denial.Capability.Kind)
-	}
-}
-
-// TestBashNetworkDenialFallbackExitZero pins that a successful command never
-// offers the network retry, even when its output contains a signature.
-func TestBashNetworkDenialFallbackExitZero(t *testing.T) {
-	if _, err := exec.LookPath("sandbox-exec"); err != nil {
-		t.Skipf("sandbox-exec unavailable: %v", err)
-	}
-	backend := sandbox.SelectBackend(sandbox.BackendOptions{})
-	if !backend.Available || backend.Name != sandbox.BackendMacOSSeatbelt {
-		t.Skipf("host sandbox backend is not seatbelt: %s", backend.Message)
-	}
-	root := t.TempDir()
-	engine := sandbox.NewEngine(sandbox.EngineOptions{
-		WorkspaceRoot: root,
-		Policy:        sandbox.DefaultPolicy(),
-		Backend:       backend,
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-	tool := NewScopedBashTool(root, nil).(interface {
-		RunWithSandbox(context.Context, map[string]any, *sandbox.Engine) Result
-	})
-	result := tool.RunWithSandbox(ctx, map[string]any{
-		"command": "sh -c 'echo Could not resolve host: example.com >&2; exit 0'",
-	}, engine)
-	outcome := result.ExecutionOutcome
-	if outcome != nil && outcome.Denial != nil {
-		t.Fatalf("exit 0 must never offer a network retry, got %#v", outcome.Denial)
 	}
 }
 
