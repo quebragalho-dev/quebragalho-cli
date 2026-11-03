@@ -59,9 +59,10 @@ func TestUpdateNoticeAppearsInFooter(t *testing.T) {
 	if !strings.HasSuffix(got, "nova versão 0.0.11 · reinicie para instalar") {
 		t.Fatalf("footer must end with the full notice, got:\n%s", got)
 	}
-	for _, want := range []string{"automático", "ctx 1.000.000"} {
+	for _, want := range []string{"automático"} {
 		assertContains(t, got, want)
 	}
+	assertNotContains(t, got, "ctx")
 }
 
 func TestUpdateNoticeFormsByWidth(t *testing.T) {
@@ -89,20 +90,21 @@ func TestUpdateNoticeFormsByWidth(t *testing.T) {
 }
 
 func TestUpdateNoticeFitsWholeFormOrNone(t *testing.T) {
-	// With the right side present (ctx, 13 cells) each width below sits
-	// exactly on a form boundary: left is 22 cells, and the budget keeps a
-	// two-cell gap on each crossed side. The line must hold the whole form
-	// or nothing — never a cut version — and never overflow the width.
+	// With no right side each width below sits exactly on a form boundary:
+	// left is 22 cells, and the budget keeps a two-cell gap on each crossed
+	// side. The line must hold the whole form or nothing — never a cut
+	// version — and never overflow the width.
 	for _, tc := range []struct {
 		width int
 		want  string
 	}{
-		{80, "nova versão 0.0.11 · reinicie para instalar"},
-		{79, "nova 0.0.11 · reinicie"},
-		{59, "nova 0.0.11 · reinicie"},
-		{60, "nova 0.0.11"},
-		{48, "nova 0.0.11"},
-		{47, ""},
+		{68, "nova versão 0.0.11 · reinicie para instalar"},
+		{65, "nova versão 0.0.11 · reinicie para instalar"},
+		{64, "nova 0.0.11 · reinicie"},
+		{44, "nova 0.0.11 · reinicie"},
+		{43, "nova 0.0.11"},
+		{33, "nova 0.0.11"},
+		{32, ""},
 	} {
 		t.Run(fmt.Sprintf("%d", tc.width), func(t *testing.T) {
 			m := batchThreeLiveModel(t)
@@ -144,20 +146,24 @@ func updateNoticeLongCwdModel(t *testing.T) model {
 }
 
 func TestUpdateNoticeSharesSpaceWithWorkspace(t *testing.T) {
-	// With a long cwd at 120, the notice must still show whole while the
+	// With a long cwd at 100, the notice must still show whole while the
 	// path truncates to make room for it.
 	m := updateNoticeLongCwdModel(t)
-	got := plainRender(t, m.statusLine(120))
+	got := plainRender(t, m.statusLine(100))
 	assertContains(t, got, "nova versão 0.0.12 · reinicie para instalar")
 	assertContains(t, got, "…")
 	assertNotContains(t, got, "/private/var/folders/dt/xyz/T/opencode/t5/ws-D")
 }
 
 func TestUpdateNoticeDowngradesBeforeDroppingPath(t *testing.T) {
-	// At 80 the full form no longer fits next to the path: the path shrinks
+	// At 66 the full form no longer fits next to the path: the path shrinks
 	// to its floor and the notice steps down, instead of vanishing.
 	m := updateNoticeLongCwdModel(t)
-	got := plainRender(t, m.statusLine(80))
+	got := plainRender(t, m.statusLine(66))
+	assertContains(t, got, "nova 0.0.12 · reinicie")
+	assertNotContains(t, got, "nova versão")
+	assertContains(t, got, "…")
+	assertNotContains(t, got, "/private/var/folders/dt/xyz/T/opencode/t5/ws-D")
 	assertContains(t, got, "nova 0.0.12 · reinicie")
 	assertContains(t, got, "…")
 	assertNotContains(t, got, "/private/var/folders/dt/xyz/T/opencode/t5/ws-D")
@@ -167,7 +173,7 @@ func TestUpdateNoticeSurvivesDroppedPath(t *testing.T) {
 	// Narrow enough that path plus notice cannot coexist: the path and its
 	// separator drop, and the tiny form stays docked right.
 	m := updateNoticeLongCwdModel(t)
-	got := plainRender(t, m.statusLine(56))
+	got := plainRender(t, m.statusLine(33))
 	assertContains(t, got, "nova 0.0.12")
 	assertNotContains(t, got, "opencode")
 	assertNotContains(t, got, " │ ")
@@ -179,10 +185,10 @@ func TestUpdateNoticeFallsBackToFullFooterWhenNothingFits(t *testing.T) {
 	// shows, the footer must equal the notice-free rendering at the same
 	// width, path included.
 	withNotice := updateNoticeLongCwdModel(t)
-	got := plainRender(t, withNotice.statusLine(46))
+	got := plainRender(t, withNotice.statusLine(32))
 	withoutNotice := batchThreeLiveModel(t)
 	withoutNotice.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
-	want := plainRender(t, withoutNotice.statusLine(46))
+	want := plainRender(t, withoutNotice.statusLine(32))
 	if got != want {
 		t.Fatalf("footer without room must match the notice-free footer:\n got %q\nwant %q", got, want)
 	}
@@ -196,8 +202,7 @@ func TestUpdateNoticeAbsentKeepsWorkspaceByteIdentical(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	m.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
 	got := plainRender(t, m.statusLine(120))
-	want := "  ● automático · n/d │ /private/var/folders/dt/xyz/T/opencode/t5/ws-D" +
-		strings.Repeat(" ", 38) + "ctx 1.000.000"
+	want := "  ● automático · n/d │ /private/var/folders/dt/xyz/T/opencode/t5/ws-D"
 	if got != want {
 		t.Fatalf("footer changed without a notice:\n got %q\nwant %q", got, want)
 	}

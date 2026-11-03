@@ -1166,6 +1166,7 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 	}
 	m.lastUsageReceipt = receipt
 	m.lastUsageSeen = true
+	m.meterLive = true
 	if record, err := m.usageTracker.Record(usage.RecordInput{
 		ModelID: modelID,
 		Usage:   runtimeUsage,

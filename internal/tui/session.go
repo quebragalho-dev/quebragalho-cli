@@ -83,6 +83,7 @@ func (m model) startNewSession() model {
 	m.lastUsageSeen = false
 	m.streamUsage = qgruntime.Usage{}
 	m.lastUsageReceipt = transcriptRow{}
+	m.meterLive = false
 	m.unpricedRequests = 0
 	m.unpricedTokens = 0
 	m.compactRequests = 0
@@ -249,6 +250,9 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	m.pendingSessionTitle = ""
 	m.sessionEvents = append([]sessions.Event{}, events...)
 	m.lastUsage, m.lastUsageSeen, m.lastUsageReceipt = lastUsageFromSessionEvents(rawUsageEvents)
+	// The reloaded receipt belongs to the resumed session, not to live
+	// meter state: the meter restarts and the next call re-informs it.
+	m.meterLive = false
 	m.streamUsage = qgruntime.Usage{}
 	if m.providerName == "" {
 		m.providerName = session.Provider

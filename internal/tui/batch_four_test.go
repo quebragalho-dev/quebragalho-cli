@@ -24,14 +24,14 @@ func TestBatchFourEmptyStateKeepsBrandWithoutPromptExamples(t *testing.T) {
 	}
 }
 
-func TestBatchFourComposerLabelAvoidsUnicodeRuleOverdraw(t *testing.T) {
+func TestBatchFourTopBorderKeepsModelWhole(t *testing.T) {
 	m := mouseTestModel()
 	m.modelName = "muse-spark-1.3-contributor"
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 		m.width = width
-		got := plainRender(t, m.composerDividerLine(width))
-		before, _, found := strings.Cut(got, m.modelName)
-		if !found || strings.Contains(before, "─") {
+		got := plainRender(t, m.composerTopBorder(width))
+		_, after, found := strings.Cut(got, m.modelName)
+		if !found || strings.ContainsAny(after, "─━") || !strings.HasSuffix(after, "╮") {
 			t.Fatalf("width %d: rule overdraws model label: %q", width, got)
 		}
 		assertRenderedLineWidths(t, got, width)

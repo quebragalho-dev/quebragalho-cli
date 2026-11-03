@@ -2078,7 +2078,7 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 		t.Fatalf("valid usage should update footer without transcript rows, got %#v", usageRows)
 	}
 	assertContains(t, m.sidebarTokenText(), "120 tokens")
-	assertContains(t, m.composerDividerLine(96), "gpt-4.1")
+	assertContains(t, m.composerTopBorder(96), "gpt-4.1")
 	// Permission mode moved from the composer rule to the status line.
 	assertContains(t, m.statusLine(96), "aprovação")
 }

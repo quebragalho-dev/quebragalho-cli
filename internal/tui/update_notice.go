@@ -123,7 +123,9 @@ func (m model) joinStatusWithNotice(left, right string, forms []string, width in
 	styledRight := ""
 	sep := ""
 	if right != "" {
-		styledRight = qgTheme.faint.Render(right)
+		// Right is already styled by the caller (level-colored percent,
+		// faint context/rate); don't wrap it again.
+		styledRight = right
 		sep = "  "
 	}
 	sepWidth := lipgloss.Width(sep)

@@ -13,7 +13,7 @@ import (
 )
 
 func TestBatchNineContextStatusSimple(t *testing.T) {
-	for _, tc := range []struct{ id, want string }{{"muse-spark-1.3-contributor", "ctx 1.000.000"}, {"grok-4.7", "ctx 500.000"}} {
+	for _, tc := range []struct{ id string }{{"muse-spark-1.3-contributor"}, {"grok-4.7"}} {
 		t.Run(tc.id, func(t *testing.T) {
 			m := batchThreeLiveModel(t)
 			m.modelName = tc.id
@@ -21,16 +21,18 @@ func TestBatchNineContextStatusSimple(t *testing.T) {
 			for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 				got := plainRender(t, m.statusLine(width))
 				assertNotContains(t, got, "fallback/docs")
-				if width >= 80 {
-					assertContains(t, got, tc.want)
-				}
+				// No live API window: the meter shows nothing rather than
+				// the old fixed guess.
+				assertNotContains(t, got, "ctx")
+				assertNotContains(t, got, "janela")
 				if lipgloss.Width(got) > width {
 					t.Fatalf("width %d overflow: %q", width, got)
 				}
 			}
 			n := int64(131072)
 			m.modelPickerLiveByProvider["qg"][0].APIModel.ContextLength = &n
-			assertContains(t, plainRender(t, m.statusLine(120)), "ctx 131.072")
+			assertContains(t, plainRender(t, m.statusLine(120)), "janela 131.1k")
+			assertNotContains(t, plainRender(t, m.statusLine(120)), "fallback/docs")
 		})
 	}
 }

@@ -38,9 +38,9 @@ func TestComposerModelUsesPaddingBeforeTruncating(t *testing.T) {
 			m.width = width
 			box := plainRender(t, m.composerBox(width))
 			lines := strings.Split(box, "\n")
-			divider := lines[len(lines)-1]
-			assertContains(t, divider, m.modelName)
-			assertNotContains(t, divider, "…")
+			top := lines[0]
+			assertContains(t, top, m.modelName)
+			assertNotContains(t, top, "…")
 			assertRenderedLineWidths(t, box, width)
 		})
 	}
