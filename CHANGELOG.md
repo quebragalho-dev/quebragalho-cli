@@ -3,6 +3,20 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.14 — 2026-11-03
+
+### Correções
+
+- No Linux, o qg encontra o ambiente isolado mesmo quando instalado pelo npm ou numa pasta fora do PATH. Antes, nesses casos, os comandos do agente rodavam sem isolamento (só com o pedido de permissão), e o `qg doctor` dizia que o ambiente isolado não estava disponível.
+- O `qg doctor` diz qual peça do ambiente isolado falta no Linux e como resolver.
+- A resposta do modelo não trava mais no Linux e no Windows quando o provedor não fecha a conexão no fim.
+- No Windows, atualizar o qg instalado pelo npm não deixa mais uma pasta de ~200 MB sobrando. Quem está na 0.0.13 ou antes ainda passa pelo jeito antigo uma última vez.
+- `qg cron list --json`, `qg trust list --json` e `qg trust remove --json` agora devolvem JSON de verdade; o prompt das tarefas agendadas aparece com segredos escondidos.
+
+### Interface em português
+
+- Motivos dos pedidos de permissão, linhas de negado, cartões do /model, /profile e /effort, e saída de hooks, plugins, context e especialistas agora em português. A explicação de um passo do plano também vem em português.
+
 ## 0.0.13 — 2026-11-03
 
 ### Correções
