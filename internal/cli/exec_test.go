@@ -17,6 +17,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
@@ -2050,5 +2051,58 @@ func TestExecWithoutProviderCitesQGSetupAndAPIKey(t *testing.T) {
 		if strings.Contains(out, banned) {
 			t.Fatalf("stderr = %q, must not mention %q", out, banned)
 		}
+	}
+}
+
+func TestExecBrokenUserPluginWarningFollowsOutputFormat(t *testing.T) {
+	// Um plugin de usuário quebrado avisa no stderr em qualquer formato, mas o
+	// idioma segue o formato: texto sai em pt, json/stream-json ficam
+	// byte-idênticos à base (o stderr do filho cola no resultado da Task).
+	// Mata a mutação de passar o formato errado em exec.go:365.
+	for _, tc := range []struct {
+		name   string
+		args   []string
+		want   []string
+		banned []string
+	}{
+		{"text", []string{"exec", "hello"},
+			[]string{"[qg] Aviso: falha ao ativar plugin:", "schemaVersion quebrado"},
+			[]string{"[qg] WARNING:", "plugin activation:"}},
+		{"stream-json", []string{"exec", "--output-format", "stream-json", "hello"},
+			[]string{"[qg] WARNING: plugin activation:", "schemaVersion quebrado"},
+			[]string{"[qg] Aviso:", "falha ao ativar"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			exitCode := runWithDeps(tc.args, &stdout, &stderr, appDeps{
+				getwd: func() (string, error) {
+					return t.TempDir(), nil
+				},
+				resolveConfig: func(_ string, _ config.Overrides) (config.ResolvedConfig, error) {
+					return config.ResolvedConfig{MaxTurns: 30}, nil
+				},
+				loadPlugins: func(plugins.LoadOptions) (plugins.LoadResult, error) {
+					return plugins.LoadResult{
+						Diagnostics: []plugins.Diagnostic{{
+							Kind:    plugins.DiagnosticSchema,
+							Message: "schemaVersion quebrado",
+						}},
+					}, nil
+				},
+			})
+			if exitCode != exitProvider {
+				t.Fatalf("exit = %d, want %d (provider error)", exitCode, exitProvider)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(stderr.String(), want) {
+					t.Fatalf("stderr missing %q, got %q", want, stderr.String())
+				}
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(stderr.String(), banned) {
+					t.Fatalf("stderr kept %q, got %q", banned, stderr.String())
+				}
+			}
+		})
 	}
 }

@@ -412,6 +412,9 @@ func TestFormatToolLineCountsPortuguese(t *testing.T) {
 		{"singular", 1, 1, 1,
 			[]string{"ferramenta: 1 exposta"},
 			[]string{"ferramentas: 1", "expostas", "exposed"}},
+		{"diferida singular", 1, 2, 1,
+			[]string{"ferramenta: 1 exposta, 2 disponíveis, 1 adiada"},
+			[]string{"exposed", "available", "deferred", "1 adiadas"}},
 		{"sem diferidas", 2, 0, 0,
 			[]string{"ferramentas: 2 expostas"},
 			[]string{"disponíveis", "adiadas", "available"}},
@@ -433,5 +436,22 @@ func TestFormatToolLineCountsPortuguese(t *testing.T) {
 				}
 			}
 		})
+	}
+	// "1 disponível" não sai pelo Format: o sufixo diferido exige
+	// available > exposed >= 1, então available == 1 nunca o alcança.
+	// O singular do helper fica coberto direto.
+	for _, tc := range []struct {
+		n        int
+		singular string
+		plural   string
+		want     string
+	}{
+		{1, "disponível", "disponíveis", "1 disponível"},
+		{2, "disponível", "disponíveis", "2 disponíveis"},
+		{1, "adiada", "adiadas", "1 adiada"},
+	} {
+		if got := contextCountNoun(tc.n, tc.singular, tc.plural); got != tc.want {
+			t.Fatalf("contextCountNoun(%d) = %q, want %q", tc.n, got, tc.want)
+		}
 	}
 }

@@ -322,6 +322,12 @@ func TestRunToolsMakeAndList(t *testing.T) {
 	if !strings.Contains(out, "2. Rode `qg tools list` para confirmar o carregamento.") {
 		t.Fatalf("tools make next steps missing Rode line:\n%s", out)
 	}
+	if !strings.Contains(out, "  manifesto: ") {
+		t.Fatalf("tools make output missing pt manifesto label:\n%s", out)
+	}
+	if strings.Contains(out, "  manifest: ") {
+		t.Fatalf("tools make output kept English manifest label:\n%s", out)
+	}
 	if !strings.Contains(out, "3. A ferramenta é ativada pelo fluxo normal de permissão.") {
 		t.Fatalf("tools make next steps missing ativada line:\n%s", out)
 	}
