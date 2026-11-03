@@ -450,16 +450,40 @@ func (wizard *mcpAddWizardState) mcpAddWizardResultActionStartRow() int {
 func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
 	if m.picker.kind == pickerModel && m.picker.panel {
 		width := chatWidth(m.width)
-		hit, ok := m.overlayMouseHit(msg, m.modelPanelOverlay(width), width)
-		count := minInt(len(m.picker.items), maxInt(1, minInt(8, m.height-18)))
-		row := hit.y - 4
-		if !ok || row < 0 || row >= count {
+		overlayWidth := paletteFrameWidth(width, modelPaletteMaxWidth)
+		inner := maxInt(1, overlayWidth-4)
+		hit, ok := m.overlayMouseHit(msg, m.modelPaletteOverlay(width), width)
+		if !ok {
 			return mouseSelectionTarget{}, false
 		}
-		start := panelListStart(len(m.picker.items), count, m.picker.selected)
-		index := start + row
-		m.picker.selected = index
-		return mouseSelectionTarget{Scope: "picker", Kind: int(pickerModel), Value: m.picker.items[index].Value, Index: index}, true
+		visible, start, _ := m.modelPalettePage()
+		// Mirror modelPaletteOverlay: top border, "modelo" header, search
+		// line, optional load-error line, then rows with faint group labels;
+		// the selected row owns an extra line when it shows a detail.
+		y := 3
+		if strings.TrimSpace(m.modelPickerLoadError) != "" {
+			y++
+		}
+		lastGroup := ""
+		for index, item := range visible {
+			if item.Group != "" && item.Group != lastGroup {
+				if hit.y == y {
+					return mouseSelectionTarget{}, false
+				}
+				y++
+				lastGroup = item.Group
+			}
+			height := 1
+			if start+index == m.picker.selected {
+				height += len(renderPaletteDetail(inner, item, true))
+			}
+			if hit.y >= y && hit.y < y+height {
+				m.picker.selected = start + index
+				return mouseSelectionTarget{Scope: "picker", Kind: int(pickerModel), Value: item.Value, Index: start + index}, true
+			}
+			y += height
+		}
+		return mouseSelectionTarget{}, false
 	}
 	width := chatWidth(m.width)
 	hit, ok := m.overlayMouseHit(msg, m.modelPickerOverlay(width), width)

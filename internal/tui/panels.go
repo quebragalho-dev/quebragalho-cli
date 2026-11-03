@@ -11,7 +11,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
@@ -33,6 +32,32 @@ func (m model) panelReasoningEfforts() []modelregistry.ReasoningEffort {
 		}
 	}
 	return efforts
+}
+
+// panelReasoningEffortsFor resolves the accepted levels for a marked (not
+// necessarily active) model: the active model's ring when it matches,
+// otherwise live discovery, the registry (catalog + name inference), and the
+// QG reasoning fallback. Nil when the model exposes no effort controls.
+func (m model) panelReasoningEffortsFor(modelID string) []modelregistry.ReasoningEffort {
+	if id := strings.TrimSpace(modelID); id == "" || strings.EqualFold(id, strings.TrimSpace(m.modelName)) {
+		return m.panelReasoningEfforts()
+	}
+	if efforts, found := reasoningEffortsFromModels(m.discoveredModelsForActiveProvider(), modelID); found && len(efforts) > 0 {
+		return efforts
+	}
+	if registry, err := modelregistry.DefaultRegistry(); err == nil {
+		if efforts := registry.ReasoningEfforts(modelID); len(efforts) > 0 {
+			return efforts
+		}
+	}
+	if m.providerProfile.CatalogID == "qg" {
+		for _, candidate := range m.discoveredModelsForActiveProvider() {
+			if strings.EqualFold(strings.TrimSpace(candidate.ID), strings.TrimSpace(modelID)) && candidate.Reasoning {
+				return []modelregistry.ReasoningEffort{"low", "medium", "high", "xhigh", "max"}
+			}
+		}
+	}
+	return nil
 }
 
 func (m model) effortPreferenceKey() string { return m.providerName + "/" + m.modelName }
@@ -140,16 +165,56 @@ func (m model) liveQGModelPicker() *commandPicker {
 			}
 			price = "BRL/1M entrada " + money(info.PricingBRL.Input) + " · saída " + money(info.PricingBRL.Output) + " · cache " + money(info.PricingBRL.CachedInput)
 		}
-		items = append(items, pickerItem{Label: label, Value: info.ID, OwnerProvider: m.providerName, Meta: price, Detail: "bônus " + bonus + " · " + caps})
-		if info.ID == m.modelName {
-			selected = len(items) - 1
-		}
+		items = append(items, pickerItem{Label: label, Value: info.ID, OwnerProvider: m.providerName, Meta: price, Detail: "bônus " + bonus + " · " + caps,
+			Window:       apiModelContextWindow(info),
+			PriceIn:      formatPalettePriceBRL(info.PricingBRL.Input),
+			PriceOut:     formatPalettePriceBRL(info.PricingBRL.Output),
+			HasTools:     info.Capabilities.Tools,
+			HasVision:    info.Capabilities.Vision,
+			HasReasoning: info.Capabilities.Reasoning,
+			HasBonus:     info.AcceptsBonus,
+			Favorite:     m.favoriteModels[info.ID],
+		})
 	}
 
 	if len(items) == 0 {
 		return nil
 	}
+	items, selected = orderLivePaletteItems(m, items)
 	return &commandPicker{kind: pickerModel, title: "Escolher modelo", items: items, allItems: append([]pickerItem{}, items...), selected: selected, panel: true}
+}
+
+// orderLivePaletteItems groups the live palette the way the generic picker
+// does — favorites first ("Favoritos"), then the active model and recent
+// history ("Recentes"), then the rest ("Catálogo") — keeping discovery order
+// inside each group and pointing selected at the active model.
+func orderLivePaletteItems(m model, items []pickerItem) ([]pickerItem, int) {
+	recent := map[string]bool{}
+	for _, pair := range m.recentModelPairsForPicker() {
+		recent[strings.TrimSpace(pair.Model)] = true
+	}
+	var favorites, recents, catalog []pickerItem
+	for _, item := range items {
+		switch {
+		case m.favoriteModels[item.Value]:
+			item.Group = "Favoritos"
+			favorites = append(favorites, item)
+		case strings.TrimSpace(item.Value) == strings.TrimSpace(m.modelName) || recent[item.Value]:
+			item.Group = "Recentes"
+			recents = append(recents, item)
+		default:
+			item.Group = "Catálogo"
+			catalog = append(catalog, item)
+		}
+	}
+	ordered := append(append(append([]pickerItem{}, favorites...), recents...), catalog...)
+	selected := 0
+	for index, item := range ordered {
+		if strings.TrimSpace(item.Value) == strings.TrimSpace(m.modelName) {
+			selected = index
+		}
+	}
+	return ordered, selected
 }
 
 func (m model) panelBlock(width int, title string, lines []string) string {
@@ -183,90 +248,15 @@ func (m model) panelBlock(width int, title string, lines []string) string {
 	return strings.Join(rows, "\n")
 }
 
-func (m model) effortPanelLines(width int, value string) []string {
-	labels := []string{}
-	supported := m.panelReasoningEfforts()
-	for _, level := range []string{"low", "medium", "high", "xhigh", "max"} {
-		name := effortDisplayLabel(level)
-		label := " " + name + " "
-		if !reasoningEffortAllowed(supported, modelregistry.ReasoningEffort(level)) {
-			label = "(" + name + ")"
-		}
-		if level == value {
-			label = "[" + name + "]"
-		}
-		labels = append(labels, label)
-	}
-	gap := "  "
-	if width < 58 {
-		gap = " "
-	}
-	labelLine := strings.Join(labels, gap)
-	track := []rune(strings.Repeat("─", lipgloss.Width(labelLine)))
-	if value != "auto" {
-		// Index in runes, not bytes: translated labels carry accents, so a
-		// byte offset would misplace the marker on narrow terminals.
-		if at := strings.Index(labelLine, "["+effortDisplayLabel(value)+"]"); at >= 0 {
-			pos := len([]rune(labelLine[:at])) + 1 + len([]rune(effortDisplayLabel(value)))/2
-			if pos < len(track) {
-				track[pos] = '▲'
-			}
-		}
-	}
-	lines := []string{effortPanelEndsLine(string(track)), string(track), labelLine, "nível: " + effortDisplayLabel(value)}
-	return lines
-}
-
-// effortPanelEndsLine renders the "faster / smarter" ends of the effort track,
-// padded to the track width in cells (not bytes, so accented labels align).
-func effortPanelEndsLine(track string) string {
-	left, right := "Mais rápido", "Mais inteligente"
-	pad := maxInt(1, lipgloss.Width(track)-lipgloss.Width(left)-lipgloss.Width(right))
-	return left + strings.Repeat(" ", pad) + right
-}
-
 func (m model) effortPanelOverlay(width int) string {
-	value := "auto"
-	if item, ok := m.picker.current(); ok {
-		value = item.Value
-	}
-	lines := m.effortPanelLines(width, value)
-	lines = append(lines, "", "←/→ ajustar · Enter padrão", "s só nesta sessão · Esc cancelar")
-	return m.panelBlock(width, "Nível", lines)
+	return m.effortLadderOverlay(width)
 }
 
 func (m model) modelPanelOverlay(width int) string {
 	if m.picker == nil || !(m.picker.kind == pickerModel && m.picker.panel) {
 		return m.modelPickerOverlay(width)
 	}
-	if m.modelPickerLoading {
-		return m.modelPickerLoadingOverlay(width)
-	}
-	p := m.picker
-	lines := []string{"Modelos · " + strconv.Itoa(len(p.items)) + " disponíveis", truncateDisplayWidth("Busca: "+p.query, maxInt(1, minInt(width, 100)-4)), ""}
-	if len(p.items) == 0 {
-		lines = append(lines, "Catálogo API ainda não disponível.")
-	}
-	count := minInt(len(p.items), maxInt(1, minInt(8, m.height-18)))
-	start := panelListStart(len(p.items), count, p.selected)
-	for i := start; i < start+count; i++ {
-		item := p.items[i]
-		mark := "  "
-		if i == p.selected {
-			mark = "› "
-		}
-		lines = append(lines, truncateDisplayWidth(mark+strconv.Itoa(i+1)+". "+item.Label, maxInt(1, minInt(width, 100)-4)))
-	}
-	if item, ok := p.current(); ok {
-		lines = append(lines, "", item.Value, item.Meta, item.Detail)
-		value := p.effort
-		if value == "" {
-			value = m.effortDisplay()
-		}
-		lines = append(lines, "", "nível: "+effortDisplayLabel(value)+" · ←/→ ajustar")
-	}
-	lines = append(lines, "", "↑/↓ mover · / buscar · Tab lista · Enter padrão", "s só nesta sessão · Esc cancelar")
-	return m.panelBlock(width, "Escolher modelo", lines)
+	return m.modelPaletteOverlay(width)
 }
 
 func (m model) handlePanelKey(key tea.KeyPressMsg) (model, tea.Cmd, bool) {
@@ -275,6 +265,11 @@ func (m model) handlePanelKey(key tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	if keyIs(key, tea.KeyEsc) {
+		// A Tab-opened ladder restores the palette; every other overlay closes.
+		if p.kind == pickerEffort && p.resume != nil {
+			m.picker = p.resume
+			return m, nil, true
+		}
 		m.picker = nil
 		m.clearModelPickerLoadState()
 		return m, nil, true
@@ -293,63 +288,91 @@ func (m model) handlePanelKey(key tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	}
-	if p.kind == pickerModel && p.searching && keyIs(key, tea.KeyTab) {
-		p.searching = false
+	if p.kind == pickerEffort {
+		// The ladder has no search, so "s" keeps its shortcut meaning with or
+		// without Alt. Arrows and Backspace fall through to the shared picker
+		// keys; everything else is swallowed so it never reaches the composer.
+		if keyIs(key, tea.KeyEnter) || strings.EqualFold(keyText(key), "s") {
+			next, cmd := m.applyPanelChoice(keyIs(key, tea.KeyEnter))
+			return next, cmd, true
+		}
+		if keyIs(key, tea.KeyLeft) || keyIs(key, tea.KeyRight) {
+			delta := 1
+			if keyIs(key, tea.KeyLeft) {
+				delta = -1
+			}
+			p.selected = clampInt(p.selected+delta, 0, len(p.items)-1)
+			return m, nil, true
+		}
+		if keyIs(key, tea.KeyUp) || keyIs(key, tea.KeyDown) || keyBackspace(key) {
+			return m, nil, false
+		}
 		return m, nil, true
+	}
+	// Model palette from here on.
+	if m.modelPickerIsLoading() {
+		return m, nil, true
+	}
+	if !p.panel {
+		// The registry fallback keeps the generic popup behavior (global keys).
+		return m, nil, false
+	}
+	// The palette searches as you type, so letter shortcuts moved to Alt:
+	// Alt+s applies to the session, Alt+f toggles the favorite (Ctrl+f kept
+	// as a synonym). Plain letters fall through to the shared query filter.
+	if keyAlt(key) {
+		switch {
+		case strings.EqualFold(keyText(key), "s"):
+			next, cmd := m.applyPanelChoice(false)
+			return next, cmd, true
+		case strings.EqualFold(keyText(key), "f"):
+			return m.toggleModelFavorite(), nil, true
+		}
+		return m, nil, true
+	}
+	if keyIs(key, tea.KeyTab) {
+		// Zoom into the marked model's levels; Esc returns to the palette.
+		if item, ok := p.current(); ok && strings.TrimSpace(item.Value) != "" {
+			preselect := p.effort
+			if preselect == "" {
+				preselect = m.effortDisplay()
+			}
+			m.picker = m.newEffortPickerFor(item.Value, preselect, p)
+		}
+		return m, nil, true
+	}
+	if keyIs(key, tea.KeyEnter) {
+		next, cmd := m.applyPanelChoice(true)
+		return next, cmd, true
 	}
 	if keyIs(key, tea.KeyLeft) || keyIs(key, tea.KeyRight) {
 		delta := 1
 		if keyIs(key, tea.KeyLeft) {
 			delta = -1
 		}
-		if p.kind == pickerEffort {
-			p.selected = clampInt(p.selected+delta, 0, len(p.items)-1)
-		} else {
-			if item, ok := p.current(); ok {
-				preview := m
-				preview.modelName = item.Value
-				if owner, ok := m.savedProviderByName(item.OwnerProvider); ok {
-					preview.providerProfile = owner
-					preview.providerName = owner.Name
-				}
-				efforts := preview.newEffortPicker()
-				value := p.effort
-				if value == "" {
-					value = m.effortDisplay()
-				}
-				index := 0
-				for i, item := range efforts.items {
-					if item.Value == value {
-						index = i
-					}
-				}
-				p.effort = efforts.items[clampInt(index+delta, 0, len(efforts.items)-1)].Value
+		if item, ok := p.current(); ok {
+			preview := m
+			preview.modelName = item.Value
+			if owner, ok := m.savedProviderByName(item.OwnerProvider); ok {
+				preview.providerProfile = owner
+				preview.providerName = owner.Name
 			}
+			efforts := preview.newEffortPicker()
+			value := p.effort
+			if value == "" {
+				value = m.effortDisplay()
+			}
+			index := 0
+			for i, item := range efforts.items {
+				if item.Value == value {
+					index = i
+				}
+			}
+			p.effort = efforts.items[clampInt(index+delta, 0, len(efforts.items)-1)].Value
 		}
 		return m, nil, true
 	}
-	if p.kind == pickerModel && p.panel && keyText(key) == "/" && !p.searching {
-		p.searching = true
-		return m, nil, true
-	}
-	if keyIs(key, tea.KeyEnter) || (keyText(key) == "s" && !p.searching) {
-		if p.kind == pickerModel && !p.panel && keyIs(key, tea.KeyEnter) {
-			next, cmd := m.choosePicker()
-			return next.(model), cmd, true
-		}
-		next, cmd := m.applyPanelChoice(keyIs(key, tea.KeyEnter))
-		return next, cmd, true
-	}
-	if p.kind == pickerEffort {
-		return m, nil, true
-	}
-	if p.kind == pickerModel && p.panel && !p.searching && keyText(key) != "" {
-		if n, err := strconv.Atoi(keyText(key)); err == nil && n > 0 && n <= len(p.items) {
-			p.selected = n - 1
-			p.effort = ""
-		}
-		return m, nil, true
-	}
+	// ↑/↓ move, Backspace deletes, printable keys filter: shared handling.
 	return m, nil, false
 }
 
@@ -390,6 +413,13 @@ func (m model) applyPanelChoice(persist bool) (model, tea.Cmd) {
 		} else {
 			m = m.loadPanelEffort()
 		}
+	} else if target := strings.TrimSpace(p.effortModel); target != "" && !strings.EqualFold(target, strings.TrimSpace(m.modelName)) {
+		// Tab ladder over a marked model: switch to it, then set the level.
+		var switched bool
+		m, detail, switched, err = m.applyModelEffortSwitch(target, item.Value, persist)
+		if !switched {
+			return m.showTransientNoticeInline(detail, transientNoticeWarning), nil
+		}
 	} else {
 		m, _ = m.handleEffortCommand(item.Value)
 	}
@@ -419,6 +449,30 @@ func (m model) applyPanelChoice(persist bool) (model, tea.Cmd) {
 		tone = transientNoticeWarning
 	}
 	return m.showTransientNoticeInline(notice, tone), cmd
+}
+
+// applyModelEffortSwitch switches to the ladder's marked model and sets the
+// chosen level on top, mirroring the palette branch (provider persistence
+// failure surfaces through err for the shared notice tail).
+func (m model) applyModelEffortSwitch(target, effort string, persist bool) (model, string, bool, error) {
+	m, detail, switched, err := m.handleModelCommandScope(target, persist)
+	if !switched {
+		return m, detail, false, err
+	}
+	if strings.TrimSpace(effort) != "" {
+		m, _ = m.handleEffortCommand(effort)
+	} else {
+		m = m.loadPanelEffort()
+	}
+	if persist && m.userConfigPath != "" && err == nil {
+		saved, checkErr := config.ProviderPersisted(m.userConfigPath, m.providerProfile.Name)
+		if checkErr != nil {
+			err = checkErr
+		} else if !saved {
+			err = fmt.Errorf("provedor não cadastrado; modelo não salvo como padrão")
+		}
+	}
+	return m, detail, true, err
 }
 
 func (m model) fetchPanelAccount() tea.Cmd {
@@ -507,26 +561,15 @@ func panelListStart(total, count, selected int) int {
 
 func (m *model) selectEffortPanelAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
 	width := chatWidth(m.width)
-	overlay := m.effortPanelOverlay(width)
+	overlay := m.effortLadderOverlay(width)
 	hit, ok := m.overlayMouseHit(msg, overlay, width)
-	if !ok || hit.y < 3 || hit.y > 4 {
+	// Ladder rows start after the top border, the "Nível" title and the
+	// accepted-range line; auto is row 0, one row per level after it.
+	index := hit.y - 3
+	if !ok || index < 0 || index >= len(m.picker.items) {
 		return mouseSelectionTarget{}, false
 	}
-	_, rows, _ := normalizeOverlayBlock(viewLines(overlay), width)
-	line := ansi.Strip(rows[hit.y])
-	if strings.Contains(line, "nível:") {
-		return mouseSelectionTarget{}, false
-	}
-	for i, item := range m.picker.items {
-		at := strings.Index(line, effortDisplayLabel(item.Value))
-		if at < 0 {
-			continue
-		}
-		x := lipgloss.Width(line[:at])
-		if hit.x >= x && hit.x < x+lipgloss.Width(effortDisplayLabel(item.Value)) {
-			m.picker.selected = i
-			return mouseSelectionTarget{Scope: "picker", Kind: int(pickerEffort), Value: item.Value, Index: i}, true
-		}
-	}
-	return mouseSelectionTarget{}, false
+	m.picker.selected = index
+	item := m.picker.items[index]
+	return mouseSelectionTarget{Scope: "picker", Kind: int(pickerEffort), Value: item.Value, Index: index}, true
 }

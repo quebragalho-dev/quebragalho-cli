@@ -308,6 +308,10 @@ func TestSuggestionsSuppressedDuringSpecReview(t *testing.T) {
 func TestSuggestionOverlayRenders(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m.width, m.height = 96, 30
+	// The status bar shows the real checkout branch: pin it so a branch name
+	// containing "/model" (e.g. feat/model-picker-redesign) cannot fail the
+	// slash-prefix assertion below.
+	m.gitBranch = "dev"
 	m = typeRunes(t, m, "/mo")
 
 	view := m.View()

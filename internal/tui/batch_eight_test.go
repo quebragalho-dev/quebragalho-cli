@@ -16,7 +16,8 @@ func TestBatchEightEffortCopy(t *testing.T) {
 	m.reasoningEffort = "max"
 	m = batchSixOpen(m, "/effort")
 	got := plainRender(t, m.pickerOverlay(120))
-	assertContains(t, got, "nível: máximo")
+	assertContains(t, got, "máximo")
+	assertContains(t, got, "atual")
 	assertNotContains(t, got, "preferência local")
 	assertNotContains(t, got, "não confirmado")
 }
@@ -26,12 +27,15 @@ func TestBatchEightModelPrices(t *testing.T) {
 	m.modelPickerLiveByProvider["qg"][0].APIModel.PricingBRL = qgaccount.ModelPricing{Currency: "BRL", Input: "6.1285", Output: "31.93", CachedInput: "0.7725"}
 	m = batchSixOpen(m, "/model")
 	got := plainRender(t, m.pickerOverlay(120))
-	assertContains(t, got, "entrada R$ 6,1285 · saída R$ 31,93 · cache R$ 0,7725")
+	assertContains(t, got, "R$ 6,13")
+	assertContains(t, got, "saída R$ 31,93")
 	assertNotContains(t, got, "Níveis locais")
 	assertNotContains(t, got, "não confirmado")
 	m.modelPickerLiveByProvider["qg"][0].APIModel.PricingBRL.Input = ""
 	m = batchSixOpen(m, "/model")
-	assertContains(t, plainRender(t, m.pickerOverlay(120)), "entrada n/d")
+	got = plainRender(t, m.pickerOverlay(120))
+	assertNotContains(t, got, "R$ 6,13")
+	assertContains(t, got, "saída R$ 31,93")
 }
 
 func TestBatchEightSessionWindow(t *testing.T) {
