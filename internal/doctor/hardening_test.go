@@ -204,6 +204,55 @@ func TestLSPCheckPassesWhenAllServersPresent(t *testing.T) {
 	}
 }
 
+// TestSandboxCheckLinuxWarningNamesMissingPiece proves the human warning says
+// which Linux piece is missing and what to do, in Portuguese, while the JSON
+// detail names stay unchanged.
+func TestSandboxCheckLinuxWarningNamesMissingPiece(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		present    []string
+		wantSubstr []string
+	}{
+		{
+			name:       "missing helper says reinstall qg",
+			present:    []string{"gopls", "typescript-language-server", "pyright-langserver", "rust-analyzer"},
+			wantSubstr: []string{"qg-linux-sandbox", "reinstale o qg"},
+		},
+		{
+			name:       "missing bwrap says install bubblewrap",
+			present:    []string{sandbox.LinuxSandboxHelperName},
+			wantSubstr: []string{"bwrap", "sudo apt install bubblewrap"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			check := Run(Options{
+				Now:              fixedDoctorClock("2026-06-12T10:11:00Z"),
+				Runtime:          "go",
+				GOOS:             "linux",
+				Provider:         validProvider(),
+				LookupExecutable: stubLookup(tc.present...),
+			}).Check("sandbox.backend")
+			if check == nil || check.Status != StatusWarn {
+				t.Fatalf("expected sandbox.backend warn, got %#v", check)
+			}
+			for _, want := range tc.wantSubstr {
+				if !strings.Contains(check.Message, want) {
+					t.Fatalf("message = %q, want it to contain %q", check.Message, want)
+				}
+			}
+			for _, key := range []string{"backend", "platform", "supportLevel", "downgradeReason", "remedy"} {
+				if _, ok := check.Details[key]; !ok {
+					t.Fatalf("details = %#v, want key %q to keep its name", check.Details, key)
+				}
+			}
+			remedy, _ := check.Details["remedy"].(string)
+			if !strings.Contains(remedy, "bubblewrap") {
+				t.Fatalf("remedy = %q, want the unchanged English machine remedy", remedy)
+			}
+		})
+	}
+}
+
 func TestHardeningChecksSkipWhenNoLookupProvided(t *testing.T) {
 	// Without an injected lookup the checks fall back to the real PATH. That is
 	// environment-dependent, so we only assert the checks are present and never
