@@ -21,13 +21,6 @@ const (
 	effortLadderMaxWidth = 72
 )
 
-// pickerContextWindow renders a model's context window the way the title bar
-// does, lowercased for the palette ("1M" -> "1m", "200K" -> "200k").
-// Swap for formatContextTokens once the context-meter work lands in dev.
-func pickerContextWindow(window int) string {
-	return strings.ToLower(formatContextWindow(window))
-}
-
 // formatPalettePriceBRL renders a BRL amount string ("1.648") as "R$ 1,65":
 // two decimals with a comma, the way prices read elsewhere in BRL. A positive
 // value that would round to zero shows "< R$ 0,01" (never "R$ 0,00"), the way
@@ -273,7 +266,10 @@ func renderPaletteRow(inner int, selected bool, item pickerItem) []string {
 	if name == "" {
 		name = strings.TrimSpace(item.Value)
 	}
-	window := pickerContextWindow(item.Window)
+	window := ""
+	if item.Window > 0 {
+		window = formatContextTokens(item.Window)
+	}
 	right := ""
 	if window != "" && strings.TrimSpace(item.PriceIn) != "" {
 		right = window + " · " + strings.TrimSpace(item.PriceIn)
@@ -497,11 +493,9 @@ func renderLadderRow(inner int, selected bool, name string, filled int, hint str
 	}
 	// The "atual" tag never clips: the hint shrinks first. Hide the hint
 	// column entirely when even the longest hint would not fit whole.
-	hintText := hint
+	hintText := ""
 	if showHints {
 		hintText = truncateDisplayWidth(hint, maxInt(0, inner-lipgloss.Width(base)-2-lipgloss.Width(current)-1))
-	} else {
-		hintText = ""
 	}
 	line := base
 	if hintText != "" {
