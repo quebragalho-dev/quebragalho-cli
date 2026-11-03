@@ -155,6 +155,14 @@ try {
   Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
 
   New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+  # Apaga sobras de instalacoes anteriores que renomearam arquivos em uso.
+  # Sem erro se alguma ainda estiver travada: a proxima instalacao tenta de novo.
+  Get-ChildItem -Path $InstallDir -Filter ".qg-install-*.trash" -Force -ErrorAction SilentlyContinue | ForEach-Object {
+    try { Remove-Item -Path $_.FullName -Force -ErrorAction Stop } catch { }
+  }
+  Get-ChildItem -Path $InstallDir -Directory -Filter ".helpers-*.trash" -Force -ErrorAction SilentlyContinue | ForEach-Object {
+    try { Remove-Item -Path $_.FullName -Recurse -Force -ErrorAction Stop } catch { }
+  }
   $requiredFiles = @(
     "qg.exe",
     "qg-windows-command-runner.exe",
@@ -162,13 +170,37 @@ try {
   )
   foreach ($fileName in $requiredFiles) {
     $sourcePath = Find-QGExtractedFile -Root $extractDir -FileName $fileName
-    Copy-Item -Path $sourcePath -Destination (Join-Path $InstallDir $fileName) -Force
+    $destPath = Join-Path $InstallDir $fileName
+    try {
+      Copy-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction Stop
+    } catch {
+      $firstError = $_
+      # Windows nao deixa sobrescrever um exe em execucao, mas deixa renomear
+      # no mesmo volume: o processo antigo segue no arquivo renomeado.
+      $trashName = ".qg-install-" + [System.Guid]::NewGuid().ToString("N") + ".trash"
+      try {
+        Rename-Item -Path $destPath -NewName $trashName -Force -ErrorAction Stop
+      } catch {
+        throw "Nao foi possivel atualizar $fileName em ${InstallDir}: $($firstError.Exception.Message)"
+      }
+      try {
+        Copy-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction Stop
+      } catch {
+        $copyError = $_
+        Remove-Item -LiteralPath $destPath -Force -ErrorAction SilentlyContinue
+        Rename-Item -LiteralPath (Join-Path $InstallDir $trashName) -NewName $fileName -ErrorAction SilentlyContinue
+        throw "Nao foi possivel instalar $fileName em $InstallDir; a versao anterior foi mantida. $($copyError.Exception.Message)"
+      }
+    }
   }
   $helpersPath = Find-QGOptionalExtractedDirectory -Root $extractDir -DirectoryName "helpers"
   if ($null -ne $helpersPath) {
     $targetHelpersPath = Join-Path $InstallDir "helpers"
     if (Test-Path $targetHelpersPath) {
-      Remove-Item -Path $targetHelpersPath -Recurse -Force
+      $helpersTrash = ".helpers-" + [System.Guid]::NewGuid().ToString("N") + ".trash"
+      try { Rename-Item -Path $targetHelpersPath -NewName $helpersTrash -Force -ErrorAction Stop }
+      catch { throw "Nao foi possivel atualizar helpers em $InstallDir; arquivos parecem estar em uso" }
+      try { Remove-Item -LiteralPath (Join-Path $InstallDir $helpersTrash) -Recurse -Force -ErrorAction Stop } catch { }
     }
     Copy-Item -Path $helpersPath -Destination $targetHelpersPath -Recurse -Force
   }

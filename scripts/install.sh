@@ -170,9 +170,16 @@ copy_optional_file() {
   local source_path
 
   if source_path="$(find_extracted_entry "$extract_dir" "$name" "file")"; then
-    cp "$source_path" "$QG_INSTALL_DIR/$name"
-    chmod 755 "$QG_INSTALL_DIR/$name"
+    install_file "$source_path" "$QG_INSTALL_DIR/$name" || fail "não foi possível instalar $name em $QG_INSTALL_DIR"
   fi
+}
+
+install_file() {
+  install_tmp="$(mktemp "$QG_INSTALL_DIR/.qg.XXXXXX")" &&
+    cp "$1" "$install_tmp" &&
+    chmod 755 "$install_tmp" &&
+    mv -f "$install_tmp" "$2" &&
+    install_tmp=""
 }
 
 copy_optional_dir() {
@@ -257,8 +264,12 @@ if ! prepare_install_dir "$QG_INSTALL_DIR"; then
 fi
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/qg-install.XXXXXX")"
+install_tmp=""
 cleanup() {
   rm -rf "$tmp_dir"
+  if [ -n "${install_tmp:-}" ]; then
+    rm -f "$install_tmp"
+  fi
 }
 trap cleanup EXIT
 
@@ -299,8 +310,7 @@ tar -xzf "$archive_path" -C "$extract_dir"
 binary_path="$(find_extracted_binary "$extract_dir")" || fail "pacote do release não trouxe o qg"
 
 printf 'qg install: Instalando em %s...\n' "$QG_INSTALL_DIR" >&2
-cp "$binary_path" "$QG_INSTALL_DIR/qg"
-chmod 755 "$QG_INSTALL_DIR/qg"
+install_file "$binary_path" "$QG_INSTALL_DIR/qg" || fail "não foi possível instalar o qg em $QG_INSTALL_DIR; a versão anterior foi mantida"
 # Real on-disk alias: same binary reachable as `quebragalho` (relative link, so
 # a moved install dir keeps working).
 ln -sf qg "$QG_INSTALL_DIR/quebragalho"
