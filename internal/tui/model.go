@@ -815,7 +815,7 @@ type pendingPermissionPrompt struct {
 	// resting approval choice. Moved by ↑/↓/Tab; confirmed by Enter or a click.
 	// Hotkeys resolve the matching request-provided option directly.
 	cursor int
-	// typing is true once the user chose "tell QG what to do differently": the
+	// typing is true once the user chose "Não, e dizer ao QG como fazer": the
 	// card replaces its option list with a free-text field (sharing the composer
 	// input, like the ask_user questionnaire). Submitting sends a Deny decision
 	// whose Reason is the typed text, so the model reads it as the tool result and
@@ -3189,7 +3189,7 @@ func (m model) footerView(width int) string {
 	// field) consume every key, so the composer is inert. Suppress it and the idle
 	// hints/plan panel like the ask_user modal above, keeping only the status line.
 	// The card itself renders in the transcript body. This also keeps the shared
-	// input from echoing in two places once "tell QG what to do differently"
+	// input from echoing in two places once "Não, e dizer ao QG como fazer"
 	// opens the on-card feedback field.
 	if m.pendingPermission != nil {
 		footer.WriteString(m.statusLine(width))
@@ -3733,10 +3733,10 @@ func (m model) spinnerGlyph() string {
 // without guessing from elapsed time alone.
 func (m model) workingActivity() string {
 	if m.pendingPermission != nil {
-		return "waiting for approval"
+		return "aguardando aprovação"
 	}
 	if m.pendingAskUser != nil {
-		return "waiting for your answer"
+		return "aguardando sua resposta"
 	}
 	if m.streamCallName != "" {
 		return strings.ToLower(toolCardActionLabel(m.streamCallName, "", true))
@@ -4351,7 +4351,7 @@ func (m model) resolvePermission(decision permissionDecision) (tea.Model, tea.Cm
 
 // resolvePermissionWithReason resolves the pending prompt with an explicit reason
 // string. It backs both the fixed-label choices (reason = permissionDecisionReason)
-// and the free-text "tell QG what to do differently" path, where the reason is
+// and the free-text "Não, e dizer ao QG como fazer" path, where the reason is
 // the user's typed instruction and the action is Deny so the agent surfaces it as
 // the tool result and keeps going.
 func (m model) resolvePermissionWithReason(decision permissionDecision, reason string) (tea.Model, tea.Cmd) {

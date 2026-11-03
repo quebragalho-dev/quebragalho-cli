@@ -37,25 +37,25 @@ func permissionOptions(request agent.PermissionRequest) []permissionOption {
 		seen[decision] = true
 		switch decision {
 		case agent.PermissionDecisionAllow:
-			options = append(options, permissionOption{label: "allow once", hotkey: "a", choice: permissionDecisionAllow})
+			options = append(options, permissionOption{label: "permitir uma vez", hotkey: "a", choice: permissionDecisionAllow})
 		case agent.PermissionDecisionAllowStrict:
-			options = append(options, permissionOption{label: "allow with review", hotkey: "r", choice: permissionDecisionAllowStrict})
+			options = append(options, permissionOption{label: "permitir com revisão", hotkey: "r", choice: permissionDecisionAllowStrict})
 		case agent.PermissionDecisionAllowForSession:
-			options = append(options, permissionOption{label: "allow for session", hotkey: "s", choice: permissionDecisionAllowForSession})
+			options = append(options, permissionOption{label: "permitir nesta sessão", hotkey: "s", choice: permissionDecisionAllowForSession})
 		case agent.PermissionDecisionAllowPrefix:
-			options = append(options, permissionOption{label: prefixApprovalLabel("allow command prefix for session", request), hotkey: "p", choice: permissionDecisionAllowPrefix})
+			options = append(options, permissionOption{label: "permitir prefixo de comando nesta sessão", hotkey: "p", choice: permissionDecisionAllowPrefix})
 		case agent.PermissionDecisionAlwaysAllowPrefix:
-			options = append(options, permissionOption{label: prefixApprovalLabel("always allow command prefix", request), hotkey: "y", choice: permissionDecisionAlwaysAllowPrefix})
+			options = append(options, permissionOption{label: "sempre permitir prefixo de comando", hotkey: "y", choice: permissionDecisionAlwaysAllowPrefix})
 		case agent.PermissionDecisionAlwaysAllow:
-			options = append(options, permissionOption{label: "always", hotkey: "y", choice: permissionDecisionAlwaysAllow})
+			options = append(options, permissionOption{label: "sempre permitir", hotkey: "y", choice: permissionDecisionAlwaysAllow})
 		case agent.PermissionDecisionDeny:
-			options = append(options, permissionOption{label: "deny", hotkey: "d", choice: permissionDecisionDeny})
+			options = append(options, permissionOption{label: "negar", hotkey: "d", choice: permissionDecisionDeny})
 		case agent.PermissionDecisionCancel:
-			options = append(options, permissionOption{label: "cancel", hotkey: "n", choice: permissionDecisionCancel})
+			options = append(options, permissionOption{label: "cancelar", hotkey: "n", choice: permissionDecisionCancel})
 		}
 	}
 	if len(options) == 0 {
-		return []permissionOption{{label: "deny", hotkey: "d", choice: permissionDecisionDeny}}
+		return []permissionOption{{label: "negar", hotkey: "d", choice: permissionDecisionDeny}}
 	}
 	return options
 }
@@ -92,7 +92,7 @@ func (m model) movePermissionCursor(delta int) model {
 
 // confirmPermissionCursor resolves the currently highlighted option. It is the
 // Enter-key counterpart to the a/y/d hotkeys and a mouse click. Confirming the
-// "tell QG what to do differently" choice opens the inline feedback field
+// "Não, e dizer ao QG como fazer" choice opens the inline feedback field
 // instead of resolving immediately.
 func (m model) confirmPermissionCursor() (tea.Model, tea.Cmd) {
 	if m.pendingPermission == nil {
@@ -106,7 +106,7 @@ func (m model) confirmPermissionCursor() (tea.Model, tea.Cmd) {
 }
 
 // choosePermissionOption applies a chosen decision. The cancel choice (the
-// "tell QG what to do differently" row and its [n] hotkey) opens the inline
+// "Não, e dizer ao QG como fazer" row and its [n] hotkey) opens the inline
 // feedback field rather than aborting the run; every other choice resolves
 // immediately as before.
 func (m model) choosePermissionOption(choice permissionDecision) (tea.Model, tea.Cmd) {
@@ -154,22 +154,4 @@ func (m model) cancelPermissionTyping() (tea.Model, tea.Cmd) {
 	m.input.SetValue(m.pendingPermission.savedDraft)
 	m.pendingPermission.savedDraft = ""
 	return m, nil
-}
-
-// prefixApprovalLabel spells out that approving a prefix also takes the command
-// out of the sandbox.
-//
-// Approving a prefix rewrites the call to require_escalated, which resolves to
-// unsandboxed execution, and the engine's escalation prompt is then satisfied by
-// the approval just given for the sandboxed form. The operator was shown only
-// "allow command prefix for session" and got something wider, which is a consent
-// gap rather than a bug in the escalation itself.
-//
-// Only appended when it is true. The backend computes that from the same guards
-// the rewrite uses, so a prompt that says this always means it.
-func prefixApprovalLabel(base string, request agent.PermissionRequest) string {
-	if !request.PrefixApprovalEscalates {
-		return base
-	}
-	return base + " (runs outside the sandbox)"
 }

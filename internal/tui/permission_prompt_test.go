@@ -76,10 +76,15 @@ func TestPermissionOptionsExposeApprovalCancelWhenSupplied(t *testing.T) {
 
 	card, _ := renderFocusedPermissionPrompt(request, 3, false, "", 80)
 	got := plainRender(t, card)
-	for _, want := range []string{"continue without running it", "[d]", "tell QG what to do differently", "[n]"} {
+	for _, want := range []string{"Não, continuar sem executar", "[d]", "Não, e dizer ao QG como fazer", "[n]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
+	}
+	// The short cancel label must keep its hotkey at 50 columns.
+	narrow, _ := renderFocusedPermissionPrompt(request, 3, false, "", 50)
+	if narrowGot := plainRender(t, narrow); !strings.Contains(narrowGot, "[n]") {
+		t.Fatalf("permission card at 50 = %q, missing [n]", narrowGot)
 	}
 }
 
@@ -99,7 +104,7 @@ func TestPermissionOptionsExposeCommandPrefixApproval(t *testing.T) {
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 1, false, "", 100)
 	got := plainRender(t, card)
-	for _, want := range []string{"allow `git status` in this session", "[p]"} {
+	for _, want := range []string{"permitir `git status` nesta sessão", "[p]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
@@ -118,7 +123,7 @@ func TestPermissionPromptMapsEscalatedSandboxReason(t *testing.T) {
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 0, false, "", 96)
 	got := plainRender(t, card)
-	if !strings.Contains(got, "This command needs to run outside the sandbox.") {
+	if !strings.Contains(got, "Este comando precisa rodar fora do ambiente isolado.") {
 		t.Fatalf("permission card = %q, missing user-facing sandbox reason", got)
 	}
 	if strings.Contains(got, sandbox.ReasonEscalatedSandboxRequired) {
@@ -166,7 +171,7 @@ func TestPermissionOptionsExposePersistentCommandPrefixApproval(t *testing.T) {
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 2, false, "", 100)
 	got := plainRender(t, card)
-	for _, want := range []string{"always allow `git status`", "[y]"} {
+	for _, want := range []string{"sempre permitir `git status`", "[y]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
@@ -184,10 +189,10 @@ func TestPermissionOptionsCanExposePatchCancelWithoutRecoverableDeny(t *testing.
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 2, false, "", 80)
 	got := plainRender(t, card)
-	if !strings.Contains(got, "tell QG what to do differently") || !strings.Contains(got, "[n]") {
+	if !strings.Contains(got, "Não, e dizer ao QG como fazer") || !strings.Contains(got, "[n]") {
 		t.Fatalf("permission card = %q, missing cancel option", got)
 	}
-	if strings.Contains(got, "continue without running it") || strings.Contains(got, "[d]") {
+	if strings.Contains(got, "Não, continuar sem executar") || strings.Contains(got, "[d]") {
 		t.Fatalf("apply_patch approval must not show recoverable deny, got %q", got)
 	}
 }
@@ -208,13 +213,13 @@ func TestRequestPermissionsPromptUsesGrantLabelsAndEscDenies(t *testing.T) {
 	card, _ := renderFocusedPermissionPrompt(request, 1, false, "", 96)
 	got := plainRender(t, card)
 	for _, want := range []string{
-		"Grant requested permissions?",
-		"permissions: write /tmp/project",
-		"Grant for this task",
-		"Grant for this task and ask model to review commands",
-		"Grant for this session",
-		"Continue without permissions",
-		"[esc] continue without permissions",
+		"Conceder as permissões solicitadas?",
+		"permissões: write /tmp/project",
+		"Conceder para esta tarefa",
+		"Conceder para esta tarefa e pedir ao modelo que revise os comandos",
+		"Conceder para esta sessão",
+		"Continuar sem permissões",
+		"[esc] continuar sem permissões",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("request_permissions card = %q, missing %q", got, want)
@@ -376,7 +381,7 @@ func TestPermissionRenderEmitsHighlightedClickableOffsets(t *testing.T) {
 	}
 	lines := strings.Split(plainRender(t, card), "\n")
 	future := offsets[2]
-	if future < 0 || future >= len(lines) || !strings.Contains(lines[future], "always") {
+	if future < 0 || future >= len(lines) || !strings.Contains(lines[future], "sempre permitir") {
 		t.Fatalf("offset[2] (%d) should point at the future line; lines=%#v", future, lines)
 	}
 	if !strings.Contains(lines[future], "▸") {
@@ -393,12 +398,12 @@ func TestPermissionRenderShowsNetworkTargetAndHostScopedAlways(t *testing.T) {
 	}
 	card, _ := renderFocusedPermissionPrompt(request, 1, false, "", 72)
 	got := plainRender(t, card)
-	for _, want := range []string{"target: example.com", "allow this host for this conversation", "[s]", "allow this host in the future", "[y]"} {
+	for _, want := range []string{"destino: example.com", "Sim, e permitir este host nesta conversa", "[s]", "Sim, e permitir este host no futuro", "[y]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card = %q, missing %q", got, want)
 		}
 	}
-	if strings.Contains(got, "scope: example.com") {
+	if strings.Contains(got, "escopo: example.com") {
 		t.Fatalf("network prompt should render target label, got %q", got)
 	}
 }
@@ -635,5 +640,29 @@ func TestPermissionFeedbackRendersNoClickableOptionsWhileTyping(t *testing.T) {
 	_, typingOffsets := renderFocusedPermissionPrompt(request, 0, true, "some feedback", 80)
 	if typingOffsets != nil {
 		t.Fatalf("feedback mode must register no clickable option offsets, got %#v", typingOffsets)
+	}
+}
+
+// TestPendingPermissionRowWrapsScopeInsteadOfTruncating pins the no-cut
+// contract for the pending transcript line: at 50 columns the scope value no
+// longer fits beside the disclosure, so it wraps onto its own line instead
+// of losing its tail to an ellipsis.
+func TestPendingPermissionRowWrapsScopeInsteadOfTruncating(t *testing.T) {
+	event := &agent.PermissionEvent{
+		ToolName:   "web_fetch",
+		Action:     agent.PermissionActionPrompt,
+		SideEffect: string(tools.SideEffectNetwork),
+		Scope:      "example.com",
+	}
+	got := plainRender(t, renderPermissionRow(transcriptRow{tool: "web_fetch", permission: event}, 50))
+	for _, want := range []string{"permissão", "web_fetch", "pendente", "destino:example.com"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("pending permission row = %q, missing %q", got, want)
+		}
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "…") {
+			t.Fatalf("pending scope must wrap, not truncate: line %q in %q", line, got)
+		}
 	}
 }

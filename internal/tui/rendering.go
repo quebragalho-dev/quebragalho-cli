@@ -1078,7 +1078,7 @@ func renderAskUserRow(row transcriptRow, width int) string {
 func renderPermissionRow(row transcriptRow, width int) string {
 	event := row.permission
 	if event == nil {
-		return qgTheme.amber.Render("permission") + "  " + qgTheme.ink.Render(row.text)
+		return qgTheme.amber.Render("permissão") + "  " + qgTheme.ink.Render(row.text)
 	}
 
 	name := event.ToolName
@@ -1090,17 +1090,17 @@ func renderPermissionRow(row transcriptRow, width int) string {
 
 	switch event.Action {
 	case agent.PermissionActionAllow:
-		label := "allowed once"
+		label := "permitido uma vez"
 		if event.DecisionAction == agent.PermissionDecisionAlwaysAllowPrefix {
-			label = "always prefix"
+			label = "prefixo: sempre"
 		} else if event.DecisionAction == agent.PermissionDecisionAllowPrefix {
-			label = "allowed prefix"
+			label = "prefixo permitido"
 		} else if event.DecisionAction == agent.PermissionDecisionAllowForSession ||
 			(event.Grant != nil && event.Grant.Session) {
-			label = "allowed for session"
+			label = "permitido nesta sessão"
 		} else if event.DecisionAction == agent.PermissionDecisionAlwaysAllow ||
 			event.Grant != nil || event.GrantMatched {
-			label = "always"
+			label = "sempre"
 		}
 		line := qgTheme.green.Render(label) + dot + qgTheme.green.Render(displayName)
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
@@ -1108,7 +1108,7 @@ func renderPermissionRow(row transcriptRow, width int) string {
 		}
 		return fitStyledLine(line, width)
 	case agent.PermissionActionDeny:
-		line := qgTheme.red.Render("denied") + dot + qgTheme.red.Render(displayName)
+		line := qgTheme.red.Render("negado") + dot + qgTheme.red.Render(displayName)
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
 			line += dot + qgTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
 		}
@@ -1121,7 +1121,7 @@ func renderPermissionRow(row transcriptRow, width int) string {
 		}
 		return out
 	case agent.PermissionActionCancel:
-		line := qgTheme.red.Render("cancelled") + dot + qgTheme.red.Render(displayName)
+		line := qgTheme.red.Render("cancelado") + dot + qgTheme.red.Render(displayName)
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
 			line += dot + qgTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
 		}
@@ -1134,11 +1134,24 @@ func renderPermissionRow(row transcriptRow, width int) string {
 		}
 		return out
 	default:
-		line := qgTheme.amber.Render("permission") + "  " + qgTheme.ink.Render(displayName) + "  " + qgTheme.amber.Render("prompt")
+		head := qgTheme.amber.Render("permissão") + "  " + qgTheme.ink.Render(displayName) + "  " + qgTheme.amber.Render("pendente")
+		lines := []string{head}
 		if scope := strings.TrimSpace(event.Scope); scope != "" {
-			line += "  " + qgTheme.muted.Render(permissionEventScopeLabel(event)+":"+scope)
+			scopeText := permissionEventScopeLabel(event) + ":" + scope
+			if lipgloss.Width(head+"  "+scopeText) <= width {
+				lines[0] += "  " + qgTheme.muted.Render(scopeText)
+			} else {
+				// The disclosure stays on its own line; the scope value
+				// wraps instead of being cut.
+				for _, wrapped := range wrapPlainText(scopeText, maxInt(1, width-2)) {
+					lines = append(lines, "  "+qgTheme.muted.Render(wrapped))
+				}
+			}
 		}
-		out := fitStyledLine(line, width)
+		out := fitStyledLine(lines[0], width)
+		for _, extra := range lines[1:] {
+			out += "\n" + fitStyledLine(extra, width)
+		}
 		if detail := strings.TrimSpace(row.detail); detail != "" {
 			out += "\n" + wrapDetailBlock(detail, width)
 		}
@@ -1173,14 +1186,14 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	// signal; the body no longer clashes with the surrounding theme.
 	fill := func(style lipgloss.Style) lipgloss.Style { return style }
 
-	top := qgTheme.permBadge.Render(" PERMISSION ")
+	top := qgTheme.permBadge.Render(" PERMISSÃO ")
 
 	body := fill(qgTheme.amber).Bold(true).Render(name)
 	if request.ToolName == peerPermissionToolName {
-		top = qgTheme.permBadge.Render(" PEER MESSAGE ")
-		body = fill(qgTheme.amber).Bold(true).Render("Held message from another session")
+		top = qgTheme.permBadge.Render(" MENSAGEM DE AGENTE ")
+		body = fill(qgTheme.amber).Bold(true).Render("Mensagem retida de outra sessão")
 	} else if request.ToolName == tools.RequestPermissionsToolName {
-		body = fill(qgTheme.amber).Bold(true).Render("Grant requested permissions?")
+		body = fill(qgTheme.amber).Bold(true).Render("Conceder as permissões solicitadas?")
 	} else if request.SideEffect != "" {
 		body += fill(qgTheme.ink).Render("  " + request.SideEffect)
 	}
@@ -1202,14 +1215,22 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 
 	lines = append(lines, "")
 
+	// The approved prefix is shown once above the options so a narrow card
+	// never has to choose between the disclosure and the command: the short
+	// fixed labels carry the warning and the full command stays intact on
+	// its own line(s).
+	if request.PrefixApprovalEscalates && len(request.CommandPrefix) > 0 {
+		lines = append(lines, prefixCommandLines(request, prefixAvailWidth(width))...)
+	}
+
 	// Feedback mode: the option list is replaced by a free-text field, like the
 	// ask_user "type your own answer" surface. What is typed is sent to the model
 	// as the denial reason, so it reads the instruction and adjusts.
 	if typing {
-		lines = append(lines, fill(qgTheme.muted).Render("Tell QG what to do differently:"))
+		lines = append(lines, fill(qgTheme.muted).Render("Diga ao QG como fazer:"))
 		lines = append(lines, qgTheme.userPrompt.Render("❯ ")+fill(qgTheme.ink).Render(feedback)+fill(qgTheme.accent).Render("▌"))
 		lines = append(lines, "")
-		lines = append(lines, fill(qgTheme.faint).Render("enter · send to QG    esc · back to options"))
+		lines = append(lines, fill(qgTheme.faint).Render("enter · enviar ao QG    esc · voltar às opções"))
 		return styledBlockFill(width, lines, qgTheme.permBorder, qgTheme.permBg), nil
 	}
 
@@ -1244,12 +1265,12 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 	}
 
 	lines = append(lines, "")
-	footer := "↑↓ move · enter or click to confirm · [esc] cancel run"
+	footer := "↑↓ mover · enter confirmar · [esc] cancelar a execução"
 	switch request.ToolName {
 	case tools.RequestPermissionsToolName:
-		footer = "↑↓ move · enter or click to confirm · [esc] continue without permissions"
+		footer = "↑↓ mover · enter confirmar · [esc] continuar sem permissões"
 	case peerPermissionToolName:
-		footer = "↑↓ move · enter or click to confirm · [esc] deny"
+		footer = "↑↓ mover · enter confirmar · [esc] negar"
 	}
 	lines = append(lines, fill(qgTheme.faint).Render(footer))
 
@@ -1258,24 +1279,24 @@ func renderFocusedPermissionPrompt(request agent.PermissionRequest, cursor int, 
 
 func permissionScopeLine(request agent.PermissionRequest, scope string) string {
 	if request.ToolName == peerPermissionToolName {
-		return "from: " + scope
+		return "de: " + scope
 	}
 	if request.ToolName == tools.RequestPermissionsToolName {
-		return "permissions: " + scope
+		return "permissões: " + scope
 	}
 	if request.SideEffect == string(tools.SideEffectNetwork) {
-		return "target: " + scope
+		return "destino: " + scope
 	}
-	return "scope: " + scope
+	return "escopo: " + scope
 }
 
 func permissionOptionLabel(option permissionOption, request agent.PermissionRequest) string {
 	if request.ToolName == peerPermissionToolName {
 		switch option.choice {
 		case permissionDecisionDeny:
-			return "Deny — drop this message"
+			return "Negar — descartar esta mensagem"
 		case permissionDecisionAllow:
-			return "Deliver this message to QG"
+			return "Entregar esta mensagem ao QG"
 		default:
 			return option.label
 		}
@@ -1283,13 +1304,13 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 	if request.ToolName == tools.RequestPermissionsToolName {
 		switch option.choice {
 		case permissionDecisionAllow:
-			return "Grant for this task"
+			return "Conceder para esta tarefa"
 		case permissionDecisionAllowStrict:
-			return "Grant for this task and ask model to review commands"
+			return "Conceder para esta tarefa e pedir ao modelo que revise os comandos"
 		case permissionDecisionAllowForSession:
-			return "Grant for this session"
+			return "Conceder para esta sessão"
 		case permissionDecisionDeny, permissionDecisionCancel:
-			return "Continue without permissions"
+			return "Continuar sem permissões"
 		default:
 			return option.label
 		}
@@ -1297,49 +1318,80 @@ func permissionOptionLabel(option permissionOption, request agent.PermissionRequ
 	switch option.choice {
 	case permissionDecisionAllow:
 		if request.SideEffect == string(tools.SideEffectNetwork) {
-			return "Yes, just this once"
+			return "Sim, só desta vez"
 		}
-		return "Yes, proceed"
+		return "Sim, prosseguir"
 	case permissionDecisionAllowForSession:
 		if request.SideEffect == string(tools.SideEffectNetwork) {
-			return "Yes, and allow this host for this conversation"
+			return "Sim, e permitir este host nesta conversa"
 		}
 		if request.SideEffect == string(tools.SideEffectWrite) && strings.TrimSpace(request.Scope) != "" {
-			return "Yes, and don't ask again for these files in this session"
+			return "Sim, e não perguntar de novo para estes arquivos nesta sessão"
 		}
-		return "Yes, and don't ask again for this command in this session"
+		return "Sim, e não perguntar de novo para este comando nesta sessão"
 	case permissionDecisionAllowPrefix:
-		if len(request.CommandPrefix) > 0 {
-			return "Yes, and allow `" + strings.Join(request.CommandPrefix, " ") + "` in this session"
+		if request.PrefixApprovalEscalates {
+			return "Fora do ambiente isolado, nesta sessão"
 		}
-		return "Yes, and allow this command prefix in this session"
+		if len(request.CommandPrefix) > 0 {
+			return "Sim, e permitir `" + strings.Join(request.CommandPrefix, " ") + "` nesta sessão"
+		}
+		return "Sim, e permitir este prefixo de comando nesta sessão"
 	case permissionDecisionAlwaysAllowPrefix:
-		if len(request.CommandPrefix) > 0 {
-			return "Yes, and always allow `" + strings.Join(request.CommandPrefix, " ") + "`"
+		if request.PrefixApprovalEscalates {
+			return "Fora do ambiente isolado, sempre"
 		}
-		return "Yes, and always allow this command prefix"
+		if len(request.CommandPrefix) > 0 {
+			return "Sim, e sempre permitir `" + strings.Join(request.CommandPrefix, " ") + "`"
+		}
+		return "Sim, e sempre permitir este prefixo de comando"
 	case permissionDecisionAlwaysAllow:
 		if request.SideEffect == string(tools.SideEffectNetwork) {
-			return "Yes, and allow this host in the future"
+			return "Sim, e permitir este host no futuro"
 		}
 		if strings.TrimSpace(request.Scope) != "" {
-			return "Yes, and don't ask again for this scope"
+			return "Sim, e não perguntar de novo neste escopo"
 		}
 		return option.label
 	case permissionDecisionDeny:
-		return "No, continue without running it"
+		return "Não, continuar sem executar"
 	case permissionDecisionCancel:
-		return "No, and tell QG what to do differently"
+		return "Não, e dizer ao QG como fazer"
 	default:
 		return option.label
 	}
 }
 
+// prefixAvailWidth is the cell budget each card content line is fitted to:
+// the full width on tiny cards, minus the border padding elsewhere.
+func prefixAvailWidth(width int) int {
+	if widthTier(width) == tierTiny {
+		return maxInt(1, width)
+	}
+	return maxInt(1, width-4)
+}
+
+// prefixCommandLines renders the approved command once above the prefix
+// options. A single line when it fits; otherwise the label takes its own
+// line and the command wraps by word (a token longer than the line breaks by
+// cell), so the command is never truncated.
+func prefixCommandLines(request agent.PermissionRequest, avail int) []string {
+	cmd := "`" + strings.Join(request.CommandPrefix, " ") + "`"
+	if lipgloss.Width("prefixo de comando: "+cmd) <= avail {
+		return []string{qgTheme.muted.Render("prefixo de comando: ") + qgTheme.ink.Render(cmd)}
+	}
+	lines := []string{qgTheme.muted.Render("prefixo de comando:")}
+	for _, wrapped := range wrapPlainText(cmd, maxInt(1, avail-2)) {
+		lines = append(lines, qgTheme.ink.Render("  "+wrapped))
+	}
+	return lines
+}
+
 func permissionEventScopeLabel(event *agent.PermissionEvent) string {
 	if event != nil && event.SideEffect == string(tools.SideEffectNetwork) {
-		return "target"
+		return "destino"
 	}
-	return "scope"
+	return "escopo"
 }
 
 // renderAskUserQuestionnaire draws the ask-user prompt that replaces the composer
@@ -1384,9 +1436,9 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 			}
 		}
 		if active == confirm {
-			tabs = append(tabs, qgTheme.badge.Render(" Confirm "))
+			tabs = append(tabs, qgTheme.badge.Render(" Confirmar "))
 		} else {
-			tabs = append(tabs, fill(qgTheme.faint).Render(" Confirm "))
+			tabs = append(tabs, fill(qgTheme.faint).Render(" Confirmar "))
 		}
 		lines = append(lines, strings.Join(tabs, " "))
 	}
@@ -1394,17 +1446,17 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 	// Confirm tab: a review of the collected answers.
 	if active == confirm {
 		lines = append(lines, "")
-		lines = append(lines, fill(qgTheme.ink).Render("Review and submit:"))
+		lines = append(lines, fill(qgTheme.ink).Render("Revise e envie:"))
 		for index, question := range questions {
 			answer := strings.TrimSpace(prompt.states[index].answer)
 			rendered := fill(qgTheme.ink).Render(answer)
 			if answer == "" {
-				rendered = fill(qgTheme.faint).Render("(no answer)")
+				rendered = fill(qgTheme.faint).Render("(sem resposta)")
 			}
 			lines = append(lines, "  "+fill(qgTheme.muted).Render(askUserTabTitle(question, index)+": ")+rendered)
 		}
 		lines = append(lines, "")
-		lines = append(lines, fill(qgTheme.faint).Render("⇆ tab · enter submit · esc dismiss"))
+		lines = append(lines, fill(qgTheme.faint).Render("⇆ tab · enter enviar · esc fechar"))
 		return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
 	}
 
@@ -1422,7 +1474,7 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 		for index, option := range question.Options {
 			label := fmt.Sprintf("%d. %s", index+1, option)
 			if option == question.Recommended {
-				label += "  (recommended)"
+				label += "  (recomendado)"
 			}
 			if index == cursor {
 				lines = append(lines, fill(qgTheme.accent).Render("▸ ")+qgTheme.badge.Render(" "+label+" "))
@@ -1440,9 +1492,9 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 			lines = append(lines, "  "+fill(qgTheme.muted).Render(typeOwn))
 		}
 		lines = append(lines, "")
-		footer := "↑↓ select · enter confirm · esc dismiss"
+		footer := "↑↓ mover · enter confirmar · esc fechar"
 		if multi {
-			footer = "⇆ tab · ↑↓ select · enter confirm · esc dismiss"
+			footer = "⇆ tab · ↑↓ mover · enter confirmar · esc fechar"
 		}
 		lines = append(lines, fill(qgTheme.faint).Render(footer))
 		return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
@@ -1450,15 +1502,15 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 
 	// Free-text mode: the typed answer is echoed here (this region IS the input now).
 	if question.MultiSelect && len(question.Options) > 0 {
-		lines = append(lines, fill(qgTheme.muted).Render("suggested: "+strings.Join(question.Options, ", ")))
+		lines = append(lines, fill(qgTheme.muted).Render("sugestões: "+strings.Join(question.Options, ", ")))
 	}
 	lines = append(lines, qgTheme.userPrompt.Render("❯ ")+fill(qgTheme.ink).Render(input)+fill(qgTheme.accent).Render("▌"))
-	footer := "enter submit · esc dismiss"
+	footer := "enter enviar · esc fechar"
 	switch {
 	case !question.MultiSelect && len(question.Options) > 0:
-		footer = "enter submit · esc back to options"
+		footer = "enter enviar · esc voltar às opções"
 	case multi:
-		footer = "⇆ tab · enter submit · esc dismiss"
+		footer = "⇆ tab · enter enviar · esc fechar"
 	}
 	lines = append(lines, fill(qgTheme.faint).Render(footer))
 	return styledBlockFill(width, lines, qgTheme.lineStrong, lipgloss.NewStyle())
@@ -1469,7 +1521,7 @@ func renderAskUserQuestionnaire(prompt pendingAskUserPrompt, input string, width
 // not background progress, so a spinner would imply QG can advance without an
 // answer. The state label wins over the optional title on narrow terminals.
 func renderAskUserWaitingState(title string, width int, fill func(lipgloss.Style) lipgloss.Style) string {
-	state := qgTheme.accent.Render("●") + " " + fill(qgTheme.faint).Render("waiting for your answer")
+	state := qgTheme.accent.Render("●") + " " + fill(qgTheme.faint).Render("aguardando sua resposta")
 	available := maxInt(1, width-4)
 	if title == "" {
 		return fitStyledLine(state, available)

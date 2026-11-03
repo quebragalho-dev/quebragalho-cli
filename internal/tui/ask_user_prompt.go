@@ -14,10 +14,10 @@ import (
 // plus a trailing Confirm tab): Tab/Shift+Tab switch questions, answers are given in
 // any order, and Confirm submits them all through the loop's answer channel. A
 // single-select question with options is a picker (↑↓ + Enter, cursor on the
-// recommended option) with a trailing "type your own" entry that drops into the
+// recommended option) with a trailing "Digite outra resposta" entry that drops into the
 // composer free-text; a multi-select or open-ended question is plain free-text.
 
-const askUserTypeMyOwnLabel = "Type your own answer"
+const askUserTypeMyOwnLabel = "Digite outra resposta"
 
 // askUserAnswerState is the per-question state in a multi-question prompt.
 type askUserAnswerState struct {
@@ -57,7 +57,7 @@ func recommendedAskUserIndex(question agent.AskUserQuestion) int {
 	return 0
 }
 
-// askUserSelectableCount is the options count plus the trailing "type your own" row.
+// askUserSelectableCount is the options count plus the trailing "Digite outra resposta" row.
 func askUserSelectableCount(question agent.AskUserQuestion) int {
 	return len(question.Options) + 1
 }
@@ -168,7 +168,7 @@ func (m model) confirmAskUser() (tea.Model, tea.Cmd) {
 	}
 	cursor := clampAskUserCursor(state.cursor, askUserSelectableCount(question))
 	if cursor >= len(question.Options) {
-		// "type your own" — switch this question into free-text.
+		// "Digite outra resposta" — switch this question into free-text.
 		state.typing = true
 		m.input.SetValue(state.typed)
 		return m, nil
@@ -207,7 +207,7 @@ func (m model) advanceAskUserTab() model {
 	return m.askUserSwitchTab(m.pendingAskUser.active + 1)
 }
 
-// escapeAskUser handles Esc: from a single-select "type your own" it steps back to
+// escapeAskUser handles Esc: from a single-select "Digite outra resposta" it steps back to
 // that question's picker; otherwise it dismisses the questionnaire, delivering
 // whatever has been answered so the agent loop unblocks (unanswered stay empty).
 func (m model) escapeAskUser() (tea.Model, tea.Cmd) {
@@ -253,7 +253,7 @@ func askUserTabTitle(question agent.AskUserQuestion, index int) string {
 	}
 	question.Question = strings.TrimSpace(question.Question)
 	if question.Question == "" {
-		return "Question " + strconv.Itoa(index+1)
+		return "Pergunta " + strconv.Itoa(index+1)
 	}
 	const maxLen = 18
 	runes := []rune(question.Question)
