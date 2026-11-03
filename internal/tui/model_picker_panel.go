@@ -199,6 +199,26 @@ func padCenteredBlock(block string, width int) string {
 	return strings.Join(rows, "\n")
 }
 
+// ladderCurrentLevel is the level the ladder tags "atual": the session's
+// level when the ladder's model accepts it, else auto. The palette title
+// shows the session level for the active model; the ladder tag shows the
+// level that effectively applies to the ladder's (possibly marked) model.
+func (m model) ladderCurrentLevel(levels []pickerItem) string {
+	want := strings.ToLower(strings.TrimSpace(m.effortDisplay()))
+	if want == "" {
+		want = "auto"
+	}
+	if want == "auto" {
+		return "auto"
+	}
+	for _, item := range levels {
+		if strings.ToLower(strings.TrimSpace(item.Value)) == want {
+			return want
+		}
+	}
+	return "auto"
+}
+
 // paletteModelName is the model id shown in headers: the ladder target, else
 // the active model.
 func (m model) paletteModelName() string {
@@ -232,18 +252,20 @@ func renderPaletteSearchLine(query string, width int) string {
 	return fitStyledLine(prompt+qgTheme.ink.Render(query)+cursor, width)
 }
 
-// renderPaletteRow renders one palette row (plus the expanded detail line for
-// the selected row): "* "/two-space favorite mark, name left, window + entry
-// price right ("1m · R$ 0,52"); the price drops first on narrow frames while
-// the window stays.
+// renderPaletteRow renders one palette row (plus the expanded detail lines
+// for the selected row): "* "/two-space favorite mark, name left (truncated
+// with "…" when tight — window and entry price never drop), window + entry
+// price right ("1m · R$ 0,52"). Every inner cell of a selected row carries the
+// selection background so the band reads continuous edge to edge.
 func renderPaletteRow(inner int, selected bool, item pickerItem) []string {
 	surface := transparentSurface
 	marker := surface(qgTheme.faintest).Render("  ")
+	star := "  "
 	if selected {
 		surface = qgTheme.onSel
 		marker = surface(qgTheme.accent).Render("▌ ")
+		star = surface(qgTheme.faintest).Render("  ")
 	}
-	star := "  "
 	if item.Favorite {
 		star = surface(qgTheme.accent).Render("* ")
 	}
@@ -252,20 +274,17 @@ func renderPaletteRow(inner int, selected bool, item pickerItem) []string {
 		name = strings.TrimSpace(item.Value)
 	}
 	window := pickerContextWindow(item.Window)
-	rightFull, rightSlim := "", window
+	right := ""
 	if window != "" && strings.TrimSpace(item.PriceIn) != "" {
-		rightFull = window + " · " + strings.TrimSpace(item.PriceIn)
+		right = window + " · " + strings.TrimSpace(item.PriceIn)
 	} else if strings.TrimSpace(item.PriceIn) != "" {
-		rightFull, rightSlim = strings.TrimSpace(item.PriceIn), strings.TrimSpace(item.PriceIn)
+		right = strings.TrimSpace(item.PriceIn)
+	} else {
+		right = window
 	}
-	// The entry price drops before the name is ever cut: shrink the right
-	// side to the window (or nothing) first, truncate the name last.
+	// The name is truncated last: window and entry price stay even on narrow
+	// frames, so a 50-column palette still reads "200k · R$ 1,65".
 	leftBase := marker + star
-	right := rightFull
-	if lipgloss.Width(leftBase)+1+lipgloss.Width(name)+1+lipgloss.Width(right) > inner &&
-		lipgloss.Width(leftBase)+1+lipgloss.Width(name)+1+lipgloss.Width(rightSlim) <= inner {
-		right = rightSlim
-	}
 	nameBudget := maxInt(1, inner-lipgloss.Width(leftBase)-1-lipgloss.Width(right)-1)
 	if lipgloss.Width(leftBase)+1+lipgloss.Width(name)+1+lipgloss.Width(right) > inner {
 		name = truncateDisplayWidth(name, nameBudget)
@@ -273,56 +292,73 @@ func renderPaletteRow(inner int, selected bool, item pickerItem) []string {
 	line := leftBase + surface(qgTheme.ink).Render(name)
 	if strings.TrimSpace(right) != "" {
 		gap := inner - lipgloss.Width(leftBase) - lipgloss.Width(name) - lipgloss.Width(right)
-		line += strings.Repeat(" ", maxInt(1, gap)) + surface(qgTheme.faint).Render(right)
+		line += surface(qgTheme.faint).Render(strings.Repeat(" ", maxInt(1, gap))) + surface(qgTheme.faint).Render(right)
 	}
 	lines := []string{fillPaletteLine(line, inner, surface)}
 	if selected {
-		if detail := renderPaletteDetail(inner, item); detail != "" {
-			lines = append(lines, detail)
-		}
+		lines = append(lines, renderPaletteDetail(inner, item, true)...)
 	}
 	return lines
 }
 
-// renderPaletteDetail is the expanded second line of the selected row:
-// present capabilities left ("ferramentas · imagens · raciocínio", "bônus" in
-// amber), exit price right ("saída R$ 0,93"). "" when there is nothing to show.
-func renderPaletteDetail(inner int, item pickerItem) string {
+// renderPaletteDetail is the expanded lines under the selected row: present
+// capabilities on one line ("ferramentas · imagens · raciocínio", "bônus" in
+// amber) and the exit price ("saída R$ 0,93") on the next when both do not fit
+// side by side, instead of clipping the list mid-separator. Nil when there is
+// nothing to show. Selected lines carry the selection background on every
+// cell, like the row above them.
+func renderPaletteDetail(inner int, item pickerItem, selected bool) []string {
+	surface := transparentSurface
+	if selected {
+		surface = qgTheme.onSel
+	}
 	caps := []string{}
 	if item.HasTools {
-		caps = append(caps, qgTheme.faint.Render("ferramentas"))
+		caps = append(caps, surface(qgTheme.faint).Render("ferramentas"))
 	}
 	if item.HasVision {
-		caps = append(caps, qgTheme.faint.Render("imagens"))
+		caps = append(caps, surface(qgTheme.faint).Render("imagens"))
 	}
 	if item.HasReasoning {
-		caps = append(caps, qgTheme.faint.Render("raciocínio"))
+		caps = append(caps, surface(qgTheme.faint).Render("raciocínio"))
 	}
 	if item.HasBonus {
-		caps = append(caps, qgTheme.amber.Render("bônus"))
+		caps = append(caps, surface(qgTheme.amber).Render("bônus"))
 	}
 	right := ""
 	if strings.TrimSpace(item.PriceOut) != "" {
-		right = qgTheme.faint.Render("saída " + strings.TrimSpace(item.PriceOut))
+		right = surface(qgTheme.faint).Render("saída " + strings.TrimSpace(item.PriceOut))
 	}
 	if len(caps) == 0 && right == "" {
-		return ""
+		return nil
 	}
-	left := strings.Repeat(" ", 4) + strings.Join(caps, qgTheme.faint.Render(" · "))
-	line := left
-	if right != "" {
-		// The exit price stays; the capability list is trimmed first.
-		if lipgloss.Width(left)+1+lipgloss.Width(right) > inner {
-			if budget := inner - lipgloss.Width(right) - 1; budget <= 4 {
-				return fillPaletteLine(right, inner, transparentSurface)
-			} else {
-				left = fitStyledLine(left, budget)
-			}
-		}
+	indent := surface(qgTheme.faint).Render("    ")
+	left := indent + strings.Join(caps, surface(qgTheme.faint).Render(" · "))
+	if right == "" {
+		return []string{fillPaletteLine(left, inner, surface)}
+	}
+	if lipgloss.Width(left)+1+lipgloss.Width(right) <= inner {
 		gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
-		line = left + strings.Repeat(" ", maxInt(1, gap)) + right
+		return []string{fillPaletteLine(left+surface(qgTheme.faint).Render(strings.Repeat(" ", maxInt(1, gap)))+right, inner, surface)}
 	}
-	return fillPaletteLine(line, inner, transparentSurface)
+	// Both do not fit side by side: capabilities on their own line (keeping
+	// the largest indent that still fits whole) and the exit price below,
+	// instead of clipping the list mid-separator.
+	wrapped := ""
+	for _, pad := range []int{4, 2, 0} {
+		candidate := surface(qgTheme.faint).Render(strings.Repeat(" ", pad)) + strings.Join(caps, surface(qgTheme.faint).Render(" · "))
+		if lipgloss.Width(candidate) <= inner {
+			wrapped = candidate
+			break
+		}
+	}
+	if wrapped == "" {
+		wrapped = fitStyledLine(surface(qgTheme.faint).Render("  ")+strings.Join(caps, surface(qgTheme.faint).Render(" · ")), inner)
+	}
+	lines := []string{fillPaletteLine(wrapped, inner, surface)}
+	pad := inner - lipgloss.Width(right)
+	lines = append(lines, fillPaletteLine(surface(qgTheme.faint).Render(strings.Repeat(" ", maxInt(0, pad)))+right, inner, surface))
+	return lines
 }
 
 // modelPaletteOverlay renders the compact /model palette: 78-column frame,
@@ -391,9 +427,22 @@ func (m model) effortLadderOverlay(width int) string {
 		}
 		levels = append(levels, item)
 	}
-	current := strings.ToLower(strings.TrimSpace(m.effortDisplay()))
-	if current == "" {
-		current = "auto"
+	current := m.ladderCurrentLevel(levels)
+	// The hint column shows only when every hint fits whole; on narrow frames
+	// the dots and the "atual" tag stay and the phrases go away.
+	showHints := true
+	for index, item := range p.items {
+		hintWidth := lipgloss.Width(effortLadderHint(item.Value))
+		need := 2 + 13 + 1 + 5 + 2 + hintWidth
+		rowCurrent := index == 0 && current == "auto" ||
+			index > 0 && strings.ToLower(strings.TrimSpace(item.Value)) == current
+		if rowCurrent {
+			need += 1 + lipgloss.Width("atual")
+		}
+		if need > inner {
+			showHints = false
+			break
+		}
 	}
 	rangeLine := modelName + " não tem níveis ajustáveis"
 	if len(levels) > 0 {
@@ -404,10 +453,10 @@ func (m model) effortLadderOverlay(width int) string {
 		fillPaletteLine(qgTheme.faint.Render(truncateDisplayWidth(rangeLine, inner)), inner, transparentSurface),
 	}
 	autoSelected := p.selected == 0
-	content = append(content, renderLadderRow(inner, autoSelected, "automático", 0, effortLadderHint("auto"), current == "auto")...)
+	content = append(content, renderLadderRow(inner, autoSelected, "automático", 0, effortLadderHint("auto"), current == "auto", showHints)...)
 	for rank, item := range levels {
 		selected := p.selected == rank+1
-		content = append(content, renderLadderRow(inner, selected, effortDisplayLabel(item.Value), effortLadderFilled(rank+1, len(levels)), effortLadderHint(item.Value), strings.ToLower(strings.TrimSpace(item.Value)) == current)...)
+		content = append(content, renderLadderRow(inner, selected, effortDisplayLabel(item.Value), effortLadderFilled(rank+1, len(levels)), effortLadderHint(item.Value), strings.ToLower(strings.TrimSpace(item.Value)) == current, showHints)...)
 	}
 	content = append(content, paletteHints(inner,
 		[]string{"↑/↓", "Enter", "s", "Esc"},
@@ -416,9 +465,11 @@ func (m model) effortLadderOverlay(width int) string {
 }
 
 // renderLadderRow renders one ladder row: "›"/blank mark, name in 13 columns,
-// five dots (accent filled, faint rest; auto uses "·····"), faint hint,
-// right-aligned "atual" in accent for the level in use.
-func renderLadderRow(inner int, selected bool, name string, filled int, hint string, isCurrent bool) []string {
+// five dots (accent filled, faint rest; auto uses "·····"), faint hint unless
+// the frame hides the column, right-aligned "atual" in accent for the level
+// in use. Every inner cell of a selected row carries the selection
+// background so the band reads continuous edge to edge.
+func renderLadderRow(inner int, selected bool, name string, filled int, hint string, isCurrent bool, showHints bool) []string {
 	surface := transparentSurface
 	mark := "  "
 	if selected {
@@ -439,19 +490,25 @@ func renderLadderRow(inner int, selected bool, name string, filled int, hint str
 			}
 		}
 	}
-	base := mark + surface(qgTheme.ink).Render(nameCell) + " " + dotCells
+	base := mark + surface(qgTheme.ink).Render(nameCell) + surface(qgTheme.faint).Render(" ") + dotCells
 	current := ""
 	if isCurrent {
 		current = surface(qgTheme.accent).Render("atual")
 	}
-	// The "atual" tag never clips: the hint shrinks first.
-	hintText := truncateDisplayWidth(hint, maxInt(0, inner-lipgloss.Width(base)-2-lipgloss.Width(current)-1))
+	// The "atual" tag never clips: the hint shrinks first. Hide the hint
+	// column entirely when even the longest hint would not fit whole.
+	hintText := hint
+	if showHints {
+		hintText = truncateDisplayWidth(hint, maxInt(0, inner-lipgloss.Width(base)-2-lipgloss.Width(current)-1))
+	} else {
+		hintText = ""
+	}
 	line := base
 	if hintText != "" {
-		line += "  " + surface(qgTheme.faint).Render(hintText)
+		line += surface(qgTheme.faint).Render("  ") + surface(qgTheme.faint).Render(hintText)
 	}
 	if current != "" {
-		line += strings.Repeat(" ", maxInt(1, inner-lipgloss.Width(line)-lipgloss.Width(current))) + current
+		line += surface(qgTheme.faint).Render(strings.Repeat(" ", maxInt(1, inner-lipgloss.Width(line)-lipgloss.Width(current)))) + current
 	}
 	return []string{fillPaletteLine(line, inner, surface)}
 }

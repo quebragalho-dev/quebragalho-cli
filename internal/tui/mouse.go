@@ -474,8 +474,8 @@ func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget
 				lastGroup = item.Group
 			}
 			height := 1
-			if start+index == m.picker.selected && renderPaletteDetail(inner, item) != "" {
-				height = 2
+			if start+index == m.picker.selected {
+				height += len(renderPaletteDetail(inner, item, true))
 			}
 			if hit.y >= y && hit.y < y+height {
 				m.picker.selected = start + index

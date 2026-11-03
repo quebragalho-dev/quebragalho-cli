@@ -1,13 +1,16 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
@@ -161,6 +164,167 @@ func TestLadderShowsAcceptedLevelsAndCurrent(t *testing.T) {
 	}
 }
 
+var styledSGR = regexp.MustCompile("\x1b\\[([0-9;]*)m")
+
+// styledCellBGs records the background of every printable cell: "none" or
+// "r,g,b". Resets (including bare \x1b[m) clear it, mirroring the terminal.
+func styledCellBGs(line string) []string {
+	bgs := []string{}
+	cur := "none"
+	rest := line
+	for len(rest) > 0 {
+		loc := styledSGR.FindStringSubmatchIndex(rest)
+		if loc == nil {
+			for range rest {
+				bgs = append(bgs, cur)
+			}
+			break
+		}
+		for range rest[:loc[0]] {
+			bgs = append(bgs, cur)
+		}
+		raw := rest[loc[2]:loc[3]]
+		if strings.Trim(raw, ";") == "" {
+			cur = "none"
+		} else {
+			parts := strings.Split(raw, ";")
+			for i := 0; i < len(parts); i++ {
+				switch parts[i] {
+				case "0":
+					cur = "none"
+				case "48":
+					if i+1 < len(parts) && parts[i+1] == "2" && i+4 < len(parts) {
+						cur = parts[i+2] + "," + parts[i+3] + "," + parts[i+4]
+						i += 4
+					} else if i+1 < len(parts) && parts[i+1] == "5" {
+						i++
+					}
+				case "49":
+					cur = "none"
+				case "38":
+					if i+1 < len(parts) && parts[i+1] == "2" {
+						i += 4
+					} else if i+1 < len(parts) && parts[i+1] == "5" {
+						i++
+					}
+				}
+			}
+		}
+		rest = rest[loc[1]:]
+	}
+	return bgs
+}
+
+// assertSelectionBand checks that every inner cell of the given overlay rows
+// carries the selection background: no holes between segments, no unpainted
+// detail line. offset is the centering pad before the frame.
+func assertSelectionBand(t *testing.T, overlay string, rows []int, offset, inner int, want string) {
+	t.Helper()
+	lines := strings.Split(overlay, "\n")
+	for _, idx := range rows {
+		if idx < 0 || idx >= len(lines) {
+			t.Fatalf("selected row %d outside %d rendered lines", idx, len(lines))
+		}
+		cells := styledCellBGs(lines[idx])
+		if len(cells) < offset+2+inner {
+			t.Fatalf("row %d has %d cells, want at least %d", idx, len(cells), offset+2+inner)
+		}
+		for _, bg := range cells[offset+2 : offset+2+inner] {
+			if bg != want {
+				t.Fatalf("row %d has a cell without the selection background: %q", idx, lines[idx])
+			}
+		}
+	}
+}
+
+func TestSelectedRowsCarrySelectionBackground(t *testing.T) {
+	old := lipgloss.Writer.Profile
+	lipgloss.Writer.Profile = colorprofile.TrueColor
+	defer func() { lipgloss.Writer.Profile = old }()
+	r, g, b, _ := qgTheme.bgSel.RGBA()
+	want := fmt.Sprintf("%d,%d,%d", r>>8, g>>8, b>>8)
+	m := paletteLiveModel(t)
+	m.height = 40
+	m.picker = m.newModelPicker()
+	width := 120
+	overlayWidth := paletteFrameWidth(width, modelPaletteMaxWidth)
+	inner := overlayWidth - 4
+	offset := (width - overlayWidth) / 2
+	lines := strings.Split(m.pickerOverlay(width), "\n")
+	sel := -1
+	for i, line := range lines {
+		if strings.Contains(line, "▌") {
+			sel = i
+			break
+		}
+	}
+	if sel < 0 {
+		t.Fatal("no selected palette row")
+	}
+	item, ok := m.picker.current()
+	if !ok {
+		t.Fatal("no current palette item")
+	}
+	rows := []int{sel}
+	for k := range renderPaletteDetail(inner, item, true) {
+		rows = append(rows, sel+1+k)
+	}
+	if len(rows) < 2 {
+		t.Fatal("fixture must expand the selected row")
+	}
+	assertSelectionBand(t, m.pickerOverlay(width), rows, offset, inner, want)
+	m.picker = m.newEffortPickerFor(strings.TrimSpace(m.modelName), m.effortDisplay(), nil)
+	overlayWidth = paletteFrameWidth(width, effortLadderMaxWidth)
+	inner = overlayWidth - 4
+	offset = (width - overlayWidth) / 2
+	lines = strings.Split(m.pickerOverlay(width), "\n")
+	sel = -1
+	for i, line := range lines {
+		if strings.Contains(line, "›") {
+			sel = i
+			break
+		}
+	}
+	if sel < 0 {
+		t.Fatal("no selected ladder row")
+	}
+	assertSelectionBand(t, m.pickerOverlay(width), []int{sel}, offset, inner, want)
+}
+
+func TestLadderCurrentIsEffectiveForMarkedModel(t *testing.T) {
+	m := batchThreeLiveModel(t)
+	m.modelPickerLiveByProvider["qg"] = append(m.modelPickerLiveByProvider["qg"], providermodeldiscovery.Model{
+		ID: "marked-low", Source: "live",
+		ReasoningEfforts: []string{"low", "medium"},
+		APIModel:         &qgaccount.ModelInfo{ID: "marked-low"},
+	})
+	m.reasoningEffort = "high"
+	m.picker = m.newModelPicker()
+	// The palette title shows the session level for the active model.
+	assertContains(t, plainRender(t, m.pickerOverlay(120)), "nível alto")
+	for i, item := range m.picker.items {
+		if item.Value == "marked-low" {
+			m.picker.selected = i
+		}
+	}
+	m = paletteKey(m, testKey(tea.KeyTab))
+	got := plainRender(t, m.pickerOverlay(120))
+	// High is not accepted by the marked model, so "atual" falls back to the
+	// level that effectively applies to it instead of pointing nowhere.
+	auto := false
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "atual") {
+			if !strings.Contains(line, "automático") {
+				t.Fatalf("atual must sit on automático, got %q", line)
+			}
+			auto = true
+		}
+	}
+	if !auto {
+		t.Fatal("ladder must tag the effective level atual")
+	}
+}
+
 func TestPaletteAndLadderFitRequiredWidths(t *testing.T) {
 	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "APPDATA", "LOCALAPPDATA"} {
 		t.Setenv(key, t.TempDir())
@@ -187,11 +351,26 @@ func TestPaletteAndLadderFitRequiredWidths(t *testing.T) {
 		}
 	}
 	got50 := plainRender(t, m.pickerOverlay(50))
-	assertContains(t, got50, "200k")
-	assertNotContains(t, got50, "R$ 1,65")
+	// The 50-column palette keeps window and entry price and cuts the name.
+	assertContains(t, got50, "200k · R$ 1,65")
+	assertContains(t, got50, "muse-spark-1.3-contri…")
+	assertNotContains(t, got50, "muse-spark-1.3-contributor")
+	// The detail breaks into capabilities + exit price instead of clipping
+	// the capability list mid-separator.
+	assertContains(t, got50, "raciocínio · bônus")
+	assertContains(t, got50, "saída R$ 5,00")
+	assertNotContains(t, got50, "imagens ·…")
 	got120 := plainRender(t, m.pickerOverlay(120))
-	assertContains(t, got120, "200k")
-	assertContains(t, got120, "R$ 1,65")
+	assertContains(t, got120, "200k · R$ 1,65")
+	assertContains(t, got120, "muse-spark-1.3-contributor")
+	// The 50-column ladder drops the hint column; dots and "atual" stay.
+	ladder50 := plainRender(t, m.effortLadderForTest(50))
+	assertNotContains(t, ladder50, "respostas")
+	assertNotContains(t, ladder50, "pensa com")
+	assertContains(t, ladder50, "●")
+	assertContains(t, ladder50, "atual")
+	ladder80 := plainRender(t, m.effortLadderForTest(80))
+	assertContains(t, ladder80, "respostas rápidas")
 }
 
 // effortLadderForTest renders the ladder for the active model the way Tab
