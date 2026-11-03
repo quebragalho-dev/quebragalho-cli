@@ -4,6 +4,8 @@
 
 # Quebra-Galho
 
+**Democratizando o acesso à IA.**
+
 O QG é uma ajuda para programar direto no terminal. Você pede o que precisa,
 ele lê o projeto, propõe mudanças, edita arquivos e roda comandos. Você escolhe
 o modelo e acompanha o que está acontecendo.
