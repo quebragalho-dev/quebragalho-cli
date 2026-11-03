@@ -58,6 +58,7 @@ func (c *staticRenderCache) clear() {
 	c.items = map[string]*list.Element{}
 	c.lru.Init()
 	c.retained = 0
+	resetStreamingMarkdownCache()
 }
 
 func (c *staticRenderCache) render(key string, stable bool, render func() string) string {

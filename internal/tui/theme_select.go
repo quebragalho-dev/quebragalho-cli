@@ -105,7 +105,13 @@ func applyTheme(mode themeMode, terminalDark bool) themeMode {
 	qgTheme = theme
 	rebuildStreamingFadePalette()
 	if defaultRenderCache != nil {
-		defaultRenderCache.clear() // old-palette entries must not be reused
+		// clear also resets the streaming incremental state, so this stays
+		// the single invalidation point on theme change.
+		defaultRenderCache.clear()
+	} else {
+		// The shared cache can be disabled in tests while the streaming
+		// memo still holds painted lines: reset it unconditionally.
+		resetStreamingMarkdownCache()
 	}
 	return resolved
 }

@@ -119,6 +119,23 @@ func (c *staticRenderCache) retainedCharacters() int {
 	return c.retained
 }
 
+// streamingStyledMemoBytes reports retained key+value bytes across both
+// styled-line tables, measured by scanning the maps (not the counter), so a
+// mutant that stops counting still fails while the tables keep growing.
+func streamingStyledMemoBytes() (int, int) {
+	streamMarkdownCache.mu.Lock()
+	defer streamMarkdownCache.mu.Unlock()
+	inkBytes := 0
+	for k, v := range streamMarkdownCache.ink.lines {
+		inkBytes += len(k) + len(v)
+	}
+	markerBytes := 0
+	for k, v := range streamMarkdownCache.marker.lines {
+		markerBytes += len(k) + len(v)
+	}
+	return inkBytes, markerBytes
+}
+
 func (c *staticRenderCache) stats() renderCacheStats {
 	if c == nil {
 		return renderCacheStats{}
