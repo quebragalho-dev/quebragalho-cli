@@ -188,18 +188,24 @@ func TestDetectInstallMethodStillRecognisesNpm(t *testing.T) {
 }
 
 func TestUpgradeGuidanceSendsHomebrewUsersToBrew(t *testing.T) {
-	guidance := upgradeGuidance(AssetCheck{}, "", InstallMethodHomebrew)
+	guidance := upgradeGuidance(AssetCheck{}, "", InstallMethodHomebrew, "", "")
 	if !strings.Contains(guidance, "brew upgrade qg") {
 		t.Errorf("guidance does not name the command that works: %q", guidance)
 	}
-	if strings.Contains(guidance, "Run `qg upgrade`") {
+	if !strings.Contains(guidance, "gerenciada pelo Homebrew") {
+		t.Errorf("guidance is not in pt-BR: %q", guidance)
+	}
+	if strings.Contains(guidance, "Homebrew-managed") {
+		t.Errorf("guidance kept the English sentence: %q", guidance)
+	}
+	if strings.Contains(guidance, "Rode `qg upgrade`") {
 		t.Errorf("guidance still offers the command that refuses: %q", guidance)
 	}
 }
 
 // A custom source flag must not talk a Homebrew user back into `qg upgrade`.
 func TestUpgradeGuidanceIgnoresSourceFlagForHomebrew(t *testing.T) {
-	guidance := upgradeGuidance(AssetCheck{}, "--source", InstallMethodHomebrew)
+	guidance := upgradeGuidance(AssetCheck{}, "--source", InstallMethodHomebrew, "", "")
 	if !strings.Contains(guidance, "brew upgrade qg") {
 		t.Errorf("source flag changed the Homebrew answer: %q", guidance)
 	}
@@ -223,7 +229,7 @@ func TestUpgradeGuidanceKeepsCrossTargetAnswerForHomebrew(t *testing.T) {
 	}
 	asset := AssetCheck{Platform: target.Platform, Arch: target.Arch}
 
-	guidance := upgradeGuidance(asset, "", InstallMethodHomebrew)
+	guidance := upgradeGuidance(asset, "", InstallMethodHomebrew, "", "")
 	if strings.Contains(guidance, "brew upgrade qg") {
 		t.Errorf("a question about %s was answered with a command that changes this machine: %q", other, guidance)
 	}

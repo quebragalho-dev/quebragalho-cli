@@ -1,0 +1,16 @@
+{
+  "name": "@quebragalho-dev/cli",
+  "version": "0.0.12-darwin-arm64",
+  "description": "qg native binary for darwin-arm64 (installed via @quebragalho-dev/cli@0.0.12)",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quebragalho-dev/quebragalho-cli.git"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "@quebragalho-dev/cli",
+  "version": "0.0.12",
+  "description": "QG — a fast, multi-provider terminal coding agent.",
+  "type": "module",
+  "module": "bin/qg.js",
+  "bin": {
+    "qg": "bin/qg.js",
+    "quebragalho": "bin/qg.js"
+  },
+  "files": [
+    "bin/qg.js",
+    "scripts/postinstall.mjs"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "linux",
+    "darwin",
+    "win32",
+    "android"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quebragalho-dev/quebragalho-cli.git"
+  },
+  "homepage": "https://github.com/quebragalho-dev/quebragalho-cli#readme",
+  "bugs": {
+    "url": "https://github.com/quebragalho-dev/quebragalho-cli/issues"
+  },
+  "license": "MIT",
+  "optionalDependencies": {
+    "@quebragalho-dev/cli-darwin-arm64": "npm:@quebragalho-dev/cli@0.0.12-darwin-arm64",
+    "@quebragalho-dev/cli-darwin-x64": "npm:@quebragalho-dev/cli@0.0.12-darwin-x64",
+    "@quebragalho-dev/cli-linux-arm64": "npm:@quebragalho-dev/cli@0.0.12-linux-arm64",
+    "@quebragalho-dev/cli-linux-x64": "npm:@quebragalho-dev/cli@0.0.12-linux-x64",
+    "@quebragalho-dev/cli-win32-x64": "npm:@quebragalho-dev/cli@0.0.12-win32-x64",
+    "@quebragalho-dev/cli-win32-arm64": "npm:@quebragalho-dev/cli@0.0.12-win32-arm64"
+  }
+}

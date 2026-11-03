@@ -232,6 +232,9 @@ func TestApplyStandaloneUpdateWarnsWhenHelperRefreshFails(t *testing.T) {
 	if len(warnings) != 1 || !strings.Contains(warnings[0], optionalName) {
 		t.Fatalf("expected one warning mentioning %s, got %v", optionalName, warnings)
 	}
+	if !strings.Contains(warnings[0], "auxiliar") || strings.Contains(warnings[0], "failed to update helper") {
+		t.Fatalf("helper warning = %q, want pt-BR without the English lead", warnings[0])
+	}
 
 	data, err := os.ReadFile(executablePath)
 	if err != nil {

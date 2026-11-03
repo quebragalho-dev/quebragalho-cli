@@ -1,7 +1,6 @@
 package update
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,27 +52,10 @@ func DetectInstallMethod(executablePath string) InstallMethod {
 		return InstallMethodHomebrew
 	}
 	dir := filepath.Dir(executablePath)
-	if _, err := os.Stat(filepath.Join(dir, ".qg-binary-version")); err == nil {
-		return InstallMethodNpm
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
-	if err != nil {
-		return InstallMethodStandalone
-	}
-	var pkg struct {
-		Name string          `json:"name"`
-		OS   []string        `json:"os"`
-		CPU  []string        `json:"cpu"`
-		Bin  json.RawMessage `json:"bin"`
-	}
-	if err := json.Unmarshal(data, &pkg); err != nil {
-		return InstallMethodStandalone
-	}
-	// The native platform package is inert and constrained to one OS/CPU. The
-	// repository's wrapper package has the same name but carries a bin entry and
-	// broad platform lists, so name alone would misclassify `go build -o qg`
-	// from the repository root as an npm-managed install.
-	if pkg.Name == npmPackageName && len(pkg.OS) == 1 && len(pkg.CPU) == 1 && len(pkg.Bin) == 0 {
+	// The repository checkout carries the same package name but with a bin
+	// entry and broad platform lists; isNpmPackageDir excludes it so `go
+	// build -o qg` from the repo root never reads as npm-managed.
+	if isNpmPackageDir(dir) {
 		return InstallMethodNpm
 	}
 	return InstallMethodStandalone

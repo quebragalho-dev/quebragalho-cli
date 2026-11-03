@@ -1413,10 +1413,13 @@ func TestRunUpdateCheckTextAndJSON(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Update available: dev -> 0.2.0") {
+	if !strings.Contains(stdout.String(), "Atualização disponível: dev -> 0.2.0") {
 		t.Fatalf("unexpected update text: %q", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "Release asset: qg-v0.2.0-linux-x64.tar.gz") || !strings.Contains(stdout.String(), "Checksum asset: qg-v0.2.0-linux-x64.tar.gz.sha256") {
+	if strings.Contains(stdout.String(), "Update available:") {
+		t.Fatalf("update text kept the English headline: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Asset da release: qg-v0.2.0-linux-x64.tar.gz") || !strings.Contains(stdout.String(), "Checksum do asset: qg-v0.2.0-linux-x64.tar.gz.sha256") {
 		t.Fatalf("unexpected update asset text: %q", stdout.String())
 	}
 	if stderr.Len() != 0 {
@@ -1646,8 +1649,11 @@ func TestRunUpdateReportsUpToDate(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "up to date") {
-		t.Fatalf("expected up-to-date output, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "[qg] já está na versão mais recente (dev)") {
+		t.Fatalf("expected the exact up-to-date line, got %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "up to date") {
+		t.Fatalf("up-to-date output kept the English status, got %q", stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
@@ -1684,8 +1690,11 @@ func TestRunUpdateApplyTextAndJSON(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "updated to 0.2.0") {
+	if !strings.Contains(stdout.String(), "atualizado para 0.2.0") {
 		t.Fatalf("unexpected apply text: %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "updated to 0.2.0") {
+		t.Fatalf("apply text kept the English message: %q", stdout.String())
 	}
 	if gotOptions.CurrentVersion != "dev" {
 		t.Fatalf("unexpected options passed to applyUpdate: %#v", gotOptions)
