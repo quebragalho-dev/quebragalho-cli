@@ -2071,7 +2071,7 @@ func TestRunLoginIsKnownAndUnknownGetsNoHint(t *testing.T) {
 	if strings.Contains(stderr.String(), "unknown command") || strings.Contains(stderr.String(), "did you mean") {
 		t.Fatalf("qg login must be a known command, stderr = %q", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "API key") {
+	if !strings.Contains(stderr.String(), "Chave de API") {
 		t.Fatalf("stderr = %q, want the missing-key guidance", stderr.String())
 	}
 	_ = exitCode

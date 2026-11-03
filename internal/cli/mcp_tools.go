@@ -95,9 +95,9 @@ func mcpToolList(registry *tools.Registry) []mcpToolListItem {
 
 func formatMCPToolList(items []mcpToolListItem) string {
 	if len(items) == 0 {
-		return "No MCP tools configured."
+		return "Nenhuma ferramenta MCP configurada."
 	}
-	lines := []string{"MCP Tools:"}
+	lines := []string{"Ferramentas MCP:"}
 	for _, item := range items {
 		lines = append(lines, fmt.Sprintf("  %s [%s/%s] - %s", item.Name, item.SideEffect, item.Permission, item.Description))
 	}
@@ -106,19 +106,19 @@ func formatMCPToolList(items []mcpToolListItem) string {
 
 func formatMCPServerList(servers map[string]config.MCPServerConfig) string {
 	if len(servers) == 0 {
-		return "No MCP servers configured."
+		return "Nenhum servidor MCP configurado."
 	}
 	names := make([]string, 0, len(servers))
 	for name := range servers {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	lines := []string{"MCP Servers:"}
+	lines := []string{"Servidores MCP:"}
 	for _, name := range names {
 		server := servers[name]
-		state := "enabled"
+		state := "ativado"
 		if server.Disabled {
-			state = "disabled"
+			state = "desativado"
 		}
 		identity := strings.TrimSpace(server.Command)
 		if identity == "" {

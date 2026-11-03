@@ -26,8 +26,8 @@ func TestRunTrustAddThenList(t *testing.T) {
 	if code := runTrust(nil, &out, &errBuf, deps); code != exitSuccess {
 		t.Fatalf("trust returned %d, want %d; stderr=%q", code, exitSuccess, errBuf.String())
 	}
-	if !strings.Contains(out.String(), "Trusted "+cwd) {
-		t.Fatalf("trust stdout = %q, want it to contain %q", out.String(), "Trusted "+cwd)
+	if !strings.Contains(out.String(), "Pasta de trabalho confiável: "+cwd) {
+		t.Fatalf("trust stdout = %q, want it to contain %q", out.String(), "Pasta de trabalho confiável: "+cwd)
 	}
 
 	trusted, err := workspacetrust.IsTrusted(cwd)
@@ -109,8 +109,8 @@ func TestRunTrustRemoveCurrentDir(t *testing.T) {
 	if code := runTrust([]string{"remove"}, &out, &errBuf, deps); code != exitSuccess {
 		t.Fatalf("trust remove returned %d, want %d; stderr=%q", code, exitSuccess, errBuf.String())
 	}
-	if !strings.Contains(out.String(), "Untrusted "+cwd) {
-		t.Fatalf("trust remove stdout = %q, want it to contain %q", out.String(), "Untrusted "+cwd)
+	if !strings.Contains(out.String(), "Pasta de trabalho removida da lista de confiáveis: "+cwd) {
+		t.Fatalf("trust remove stdout = %q, want it to contain %q", out.String(), "Pasta de trabalho removida da lista de confiáveis: "+cwd)
 	}
 
 	trusted, err := workspacetrust.IsTrusted(cwd)
@@ -126,8 +126,8 @@ func TestRunTrustRemoveCurrentDir(t *testing.T) {
 	if code := runTrust([]string{"list"}, &out, &errBuf, deps); code != exitSuccess {
 		t.Fatalf("trust list returned %d, want %d", code, exitSuccess)
 	}
-	if !strings.Contains(out.String(), "No trusted workspaces.") {
-		t.Fatalf("trust list stdout = %q, want %q for an empty store", out.String(), "No trusted workspaces.")
+	if !strings.Contains(out.String(), "Nenhuma pasta de trabalho confiável.") {
+		t.Fatalf("trust list stdout = %q, want %q for an empty store", out.String(), "Nenhuma pasta de trabalho confiável.")
 	}
 }
 

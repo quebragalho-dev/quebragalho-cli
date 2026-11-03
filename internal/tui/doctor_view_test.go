@@ -55,14 +55,14 @@ func TestDoctorSummaryLinesUseSingularGrammar(t *testing.T) {
 	healthy := doctorSummaryLines([]doctor.Check{
 		doctorCheck("runtime.go", doctor.StatusPass, "Go runtime is available."),
 	})
-	if got, want := healthy[0], "1 check healthy"; got != want {
+	if got, want := healthy[0], "1 verificação saudável"; got != want {
 		t.Fatalf("healthy summary = %q, want %q", got, want)
 	}
 
 	attention := doctorSummaryLines([]doctor.Check{
 		doctorCheck("provider.model", doctor.StatusWarn, "Provider model is not configured."),
 	})
-	if got, want := attention[0], "1 check needs attention"; got != want {
+	if got, want := attention[0], "1 verificação precisa de atenção"; got != want {
 		t.Fatalf("attention summary = %q, want %q", got, want)
 	}
 }
@@ -94,16 +94,16 @@ func TestDoctorCommandOutputGroupsProviderAndPlatformChecks(t *testing.T) {
 		doctorCheck("config.files", doctor.StatusPass, "QG config file inputs are available."),
 	}}, nil)
 
-	provider := doctorSection(output, "Provider")
+	provider := doctorSection(output, "Provedor")
 	if provider == nil {
-		t.Fatalf("missing Provider section: %#v", output.Sections)
+		t.Fatalf("missing Provedor section: %#v", output.Sections)
 	}
 	assertRowsContain(t, provider.Rows, "provider.model", "provider.connectivity")
 	assertRowsDoNotContain(t, provider.Rows, "provider.config")
 
-	platform := doctorSection(output, "Platform")
+	platform := doctorSection(output, "Plataforma")
 	if platform == nil {
-		t.Fatalf("missing Platform section: %#v", output.Sections)
+		t.Fatalf("missing Plataforma section: %#v", output.Sections)
 	}
 	assertRowsContain(t, platform.Rows, "sandbox.backend")
 	assertRowsDoNotContain(t, platform.Rows, "runtime.go", "config.files")
@@ -121,12 +121,12 @@ func TestDoctorCommandOutputIsProblemFirstDiagnosticCenter(t *testing.T) {
 
 	text := formatCommandOutput(output)
 	for _, want := range []string{
-		"3 checks need attention",
-		"3 checks healthy",
+		"3 verificações precisam de atenção",
+		"3 verificações saudáveis",
 		"provider.model",
 		"provider.connectivity",
 		"lsp.servers",
-		"Actions",
+		"Ações",
 		"/doctor fix",
 	} {
 		if !strings.Contains(text, want) {
@@ -168,7 +168,7 @@ func TestDoctorCommandOutputAddsActionableHints(t *testing.T) {
 		"qg login",
 		"/doctor --connectivity",
 		"qg sandbox setup",
-		"install missing language servers",
+		"instale os language servers ausentes",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("formatted output missing %q:\n%s", want, text)
@@ -206,7 +206,7 @@ func TestDoctorCommandOutputIncludesBackendCountsAndHints(t *testing.T) {
 	if section == nil {
 		t.Fatalf("missing Backend section: %#v", output.Sections)
 	}
-	assertField(t, section.Fields, "MCP servers", "2")
+	assertField(t, section.Fields, "Servidores MCP", "2")
 	assertField(t, section.Fields, "Hooks", "1")
 	assertField(t, section.Fields, "Plugins", "3")
 

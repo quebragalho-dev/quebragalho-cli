@@ -143,7 +143,7 @@ func (d dictationController) currentModelLabel() string {
 	switch cfg.STTProvider() {
 	case config.STTProviderLocal:
 		if strings.TrimSpace(cfg.LocalModelPath) == "" {
-			return "Local (no model set)"
+			return "Local (sem modelo)"
 		}
 		// "Local" prefix mirrors the "Groq …"/"OpenAI …" cloud labels so the status
 		// line always names the backend, not just the model.
@@ -177,10 +177,10 @@ func (d dictationController) active() bool { return d.phase != dictIdle }
 // startup/transcription is ignored (the machine is mid-transition).
 func (m model) toggleDictation() (model, tea.Cmd) {
 	if !m.dictation.available() {
-		return m.appendSystemNotice("Dictation is not configured. See docs/dictation.md to set up a local engine or a Groq/OpenAI key."), nil
+		return m.appendSystemNotice("Ditado não configurado. Veja docs/dictation.md para configurar um motor local ou uma chave Groq/OpenAI."), nil
 	}
 	if m.dictation.downloading {
-		return m.appendDictationNotice("downloading", "Still setting up the dictation engine — one moment."), nil
+		return m.appendDictationNotice("downloading", "Ainda configurando o motor de ditado — um momento."), nil
 	}
 	switch m.dictation.phase {
 	case dictIdle:
@@ -197,17 +197,17 @@ func (m model) toggleDictation() (model, tea.Cmd) {
 // Ctrl+Space records and ordinary Space continues to type normally.
 func (m model) toggleVoiceMode() (model, tea.Cmd) {
 	if !m.dictation.available() {
-		return m.appendSystemNotice("Dictation is not configured. See docs/dictation.md to set up a local engine or a Groq/OpenAI key."), nil
+		return m.appendSystemNotice("Ditado não configurado. Veja docs/dictation.md para configurar um motor local ou uma chave Groq/OpenAI."), nil
 	}
 	m.dictation.voiceModeEnabled = !m.dictation.voiceModeEnabled
 	if m.dictation.voiceModeEnabled {
-		return m.showTransientNoticeInline("Voice mode on — "+voiceCaptureUsage+". Run /voice again to turn it off.", transientNoticeSuccess), nil
+		return m.showTransientNoticeInline("Modo de voz ligado — "+voiceCaptureUsage+". Rode /voice de novo para desligar.", transientNoticeSuccess), nil
 	}
 	// Turning voice off is the "done dictating" signal, so release the warm sherpa
 	// streaming server — otherwise a loaded model keeps idling in RAM (and holding
 	// its port) until the app exits. It respawns lazily on the next streaming
 	// recording. Skip while a recording is still in flight so we don't kill it.
-	next := m.showTransientNoticeInline("Voice mode off.", transientNoticeInfo)
+	next := m.showTransientNoticeInline("Modo de voz desligado.", transientNoticeInfo)
 	if next.dictation.active() {
 		return next, nil
 	}
@@ -239,7 +239,7 @@ func (m model) startDictation() (model, tea.Cmd) {
 		// selection rather than a press-again-to-confirm dance).
 		if m.dictation.canOfferDownload(err) {
 			return m.appendDictationNotice("download-offer",
-				"No local dictation model yet. Run /stt-model to choose and download one — or set stt.localModelPath yourself, or pick a cloud provider."), nil
+				"Ainda sem modelo de ditado local. Rode /stt-model para escolher e baixar um — ou configure stt.localModelPath você mesmo, ou escolha um provedor de nuvem."), nil
 		}
 		return m.appendDictationNotice("setup:"+err.Error(), dictationErrorText(err)), nil
 	}
@@ -299,7 +299,7 @@ func (m model) cancelDictation() (model, tea.Cmd) {
 	}
 	m = m.discardDictationRegion()
 	m.dictation.reset()
-	return m.showTransientNoticeInline("Dictation cancelled.", transientNoticeInfo), nil
+	return m.showTransientNoticeInline("Ditado cancelado.", transientNoticeInfo), nil
 }
 
 // wantStreaming decides whether this recording uses the streaming pipeline:
@@ -427,7 +427,7 @@ func (m model) handleDictationTranscribed(msg dictationTranscribedMsg) (tea.Mode
 		// Partial text may still be worth keeping on a mid-stream failure (§6).
 		if strings.TrimSpace(msg.text) != "" && !streaming {
 			m = m.insertDictatedText(msg.text)
-			return m.appendSystemNotice("Dictation interrupted; kept the partial transcript. " + dictationErrorText(msg.err)), nil
+			return m.appendSystemNotice("Ditado interrompido; a transcrição parcial foi mantida. " + dictationErrorText(msg.err)), nil
 		}
 		// Keyed so hammering the dictation gesture against the same unusable model doesn't spam the
 		// identical error line over and over.
@@ -438,7 +438,7 @@ func (m model) handleDictationTranscribed(msg dictationTranscribedMsg) (tea.Mode
 		if streaming {
 			return m, nil // streaming already rendered live; nothing to add
 		}
-		return m.showTransientNoticeInline("No speech detected.", transientNoticeInfo), nil
+		return m.showTransientNoticeInline("Nenhuma fala detectada.", transientNoticeInfo), nil
 	}
 	if !streaming {
 		m = m.insertDictatedText(msg.text)
@@ -481,9 +481,9 @@ func (m model) dictationStatusChip() string {
 	switch m.dictation.phase {
 	case dictStarting, dictRecording:
 		wave := qgTheme.amber.Render("● " + renderWaveBars(m.dictation.waveBars) + " REC")
-		return wave + qgTheme.muted.Render(" · "+m.voiceCaptureStatus()+", Esc to cancel")
+		return wave + qgTheme.muted.Render(" · "+m.voiceCaptureStatus()+", Esc para cancelar")
 	case dictTranscribing:
-		return qgTheme.accent.Render("●") + " " + qgTheme.muted.Render("transcribing…")
+		return qgTheme.accent.Render("●") + " " + qgTheme.muted.Render("transcrevendo…")
 	}
 	return ""
 }
@@ -602,7 +602,7 @@ func (m model) voiceModeIndicator() string {
 	if !m.dictation.voiceModeEnabled {
 		return ""
 	}
-	return qgTheme.accent.Render("🎙 voice") + qgTheme.muted.Render(" · "+m.voiceCaptureStatus()+" · "+m.dictation.currentModelLabel())
+	return qgTheme.accent.Render("🎙 voz") + qgTheme.muted.Render(" · "+m.voiceCaptureStatus()+" · "+m.dictation.currentModelLabel())
 }
 
 // dictationErrorText renders a dictation error for the transcript: a missing-
@@ -610,7 +610,7 @@ func (m model) voiceModeIndicator() string {
 func dictationErrorText(err error) string {
 	var setupErr *dictation.SetupError
 	if errors.As(err, &setupErr) {
-		return "Dictation unavailable: " + setupErr.Error()
+		return "Ditado indisponível: " + setupErr.Error()
 	}
-	return fmt.Sprintf("Dictation failed: %v", err)
+	return fmt.Sprintf("Falha no ditado: %v", err)
 }

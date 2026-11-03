@@ -39,7 +39,7 @@ func (m model) maybeOfferKeyOnAuthError(err error) (model, bool) {
 		return m, false
 	}
 	value := provider + sttValueSep + m.dictation.cfg.Model
-	m = m.appendSystemNotice(dictationErrorText(err) + " — paste your " + titleCase(provider) + " API key below to fix it and retry.")
+	m = m.appendSystemNotice(dictationErrorText(err) + " — cole sua chave de API de " + titleCase(provider) + " abaixo para corrigir e tentar de novo.")
 	// The existing key is invalid, so a new one is required here (Esc cancels).
 	return m.openSTTKeyPrompt(provider, value, false), true
 }
@@ -65,10 +65,10 @@ func (m model) handleSTTKeyPromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyIs(msg, tea.KeyEsc), keyCtrl(msg, 'c'):
 		if p.optional {
 			// A key is already on file — keep it and apply the model selection.
-			return m.finalizeSTTModelFromKey(p, "Kept your saved "+p.label+" API key. ")
+			return m.finalizeSTTModelFromKey(p, "Chave de API de "+p.label+" mantida. ")
 		}
 		m.sttKeyPrompt = nil
-		return m.showTransientNoticeInline("Cancelled — no "+p.label+" API key saved.", transientNoticeInfo), nil
+		return m.showTransientNoticeInline("Cancelado — nenhuma chave de API de "+p.label+" salva.", transientNoticeInfo), nil
 	case keyIs(msg, tea.KeyEnter):
 		return m.submitSTTKey()
 	case keyBackspace(msg):
@@ -94,18 +94,18 @@ func (m model) submitSTTKey() (tea.Model, tea.Cmd) {
 	if key == "" {
 		if p.optional {
 			// Nothing typed but a key is already on file — keep it and apply the model.
-			return m.finalizeSTTModelFromKey(p, "Kept your saved "+p.label+" API key. ")
+			return m.finalizeSTTModelFromKey(p, "Chave de API de "+p.label+" mantida. ")
 		}
 		m.sttKeyPrompt = nil
-		return m.showTransientNoticeInline("No key entered — nothing saved.", transientNoticeInfo), nil
+		return m.showTransientNoticeInline("Nenhuma chave digitada — nada salvo.", transientNoticeInfo), nil
 	}
 	if m.dictation.saveKey != nil {
 		if err := m.dictation.saveKey(p.provider, key); err != nil {
 			m.sttKeyPrompt = nil
-			return m.appendSystemNotice("Couldn't save the " + p.label + " API key: " + err.Error()), nil
+			return m.appendSystemNotice("Não foi possível salvar a chave de API de " + p.label + ": " + err.Error()), nil
 		}
 	}
-	return m.finalizeSTTModelFromKey(p, "Saved your "+p.label+" API key. ")
+	return m.finalizeSTTModelFromKey(p, "Chave de API de "+p.label+" salva. ")
 }
 
 // finalizeSTTModelFromKey closes the prompt and commits the pending cloud model
@@ -117,13 +117,13 @@ func (m model) finalizeSTTModelFromKey(p *sttKeyPromptState, prefix string) (tea
 	m.dictation.cfg.Provider = kind
 	m.dictation.cfg.Model = modelID
 	if _, err := config.SetSTTModel(m.userConfigPath, kind, modelID); err != nil {
-		return m.appendSystemNotice(prefix + "But couldn't save the model: " + err.Error()), nil
+		return m.appendSystemNotice(prefix + "Mas não foi possível salvar o modelo: " + err.Error()), nil
 	}
 	label := p.label
 	if modelID != "" {
 		label += " " + modelID
 	}
-	return m.showTransientNoticeInline(prefix+"Dictation model: "+label+". Run /voice; "+voiceCaptureUsage+".", transientNoticeSuccess), nil
+	return m.showTransientNoticeInline(prefix+"Modelo de ditado: "+label+". Rode /voice; "+voiceCaptureUsage+".", transientNoticeSuccess), nil
 }
 
 // sttKeyPromptOverlay renders the API-key prompt as a centered modal, matching
@@ -140,17 +140,17 @@ func (m model) sttKeyPromptOverlay(width int) string {
 	// Input line mirrors the provider wizard's credential step (renderCredentialStep):
 	// an "api key > " prompt, cursor-before-placeholder when empty, masked key with a
 	// trailing cursor once typing starts — so both key prompts read the same.
-	value := qgTheme.accent.Render("▌") + qgTheme.faint.Render("paste key here")
+	value := qgTheme.accent.Render("▌") + qgTheme.faint.Render("cole a chave aqui")
 	if p.input != "" {
 		value = qgTheme.ink.Render(maskedProviderWizardKey(p.input)) + qgTheme.accent.Render("▌")
 	}
-	input := qgTheme.userPrompt.Render("api key > ") + value
-	intro := p.label + " isn't set up yet. Paste or type your " + p.label + " API key:"
-	footer := "⏎ save · Esc cancel · stored in QG's credential store"
+	input := qgTheme.userPrompt.Render("chave de API > ") + value
+	intro := p.label + " ainda não está configurado. Cole ou digite sua chave de API de " + p.label + ":"
+	footer := "Enter salvar · Esc cancelar · fica no cofre de credenciais do QG"
 	if p.optional {
 		// A key already resolves — this pass is for replacing an invalid/old one.
-		intro = p.label + " already has an API key. Paste a new one to replace it, or press Esc to keep it:"
-		footer = "⏎ replace · Esc keep saved key · stored in QG's credential store"
+		intro = p.label + " já tem uma chave de API. Cole uma nova para substituir ou pressione Esc para manter:"
+		footer = "Enter substituir · Esc manter a chave salva · fica no cofre de credenciais do QG"
 	}
 	lines := []string{
 		qgTheme.ink.Render(intro),
@@ -159,5 +159,5 @@ func (m model) sttKeyPromptOverlay(width int) string {
 		"",
 		qgTheme.faint.Render(footer),
 	}
-	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, p.label+" API key", lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
+	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Chave de API de "+p.label, lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }

@@ -120,7 +120,7 @@ func TestLogoutNoopWhenLoggedOut(t *testing.T) {
 	if code := runWithDeps([]string{"logout"}, &stdout, &stderr, deps); code != exitSuccess {
 		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Already logged out") {
+	if !strings.Contains(stdout.String(), "Já desconectado") {
 		t.Fatalf("output = %q, want the already-logged-out message", stdout.String())
 	}
 }

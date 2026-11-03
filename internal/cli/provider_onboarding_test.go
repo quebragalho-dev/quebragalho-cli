@@ -33,7 +33,7 @@ func TestRunProvidersUseSetsActiveProvider(t *testing.T) {
 		t.Fatalf("ActiveProvider = %q, want fast", cfg.ActiveProvider)
 	}
 	output := stdout.String()
-	for _, want := range []string{"Active provider set to fast", "qg providers check fast"} {
+	for _, want := range []string{"Provedor ativo: fast", "qg providers check fast"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected providers use output to contain %q, got %q", want, output)
 		}
@@ -108,11 +108,11 @@ func TestRunProvidersUseWarnsWhenEnvOverrides(t *testing.T) {
 	if cfg := readFileConfig(t, configPath); cfg.ActiveProvider != "fast" {
 		t.Fatalf("ActiveProvider = %q, want fast (the write still lands)", cfg.ActiveProvider)
 	}
-	if !strings.Contains(stdout.String(), "Active provider set to fast") {
+	if !strings.Contains(stdout.String(), "Provedor ativo: fast") {
 		t.Fatalf("stdout missing the success line: %q", stdout.String())
 	}
 	note := stderr.String()
-	for _, want := range []string{config.ActiveProviderEnv, "overrides config.json", "work"} {
+	for _, want := range []string{config.ActiveProviderEnv, "tem prioridade sobre o config.json", "work"} {
 		if !strings.Contains(note, want) {
 			t.Fatalf("override note missing %q, got %q", want, note)
 		}
@@ -250,7 +250,7 @@ func TestRunProvidersRenameEnvDerivedExplainsNoSavedProfile(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "no saved profile to rename") {
+	if !strings.Contains(stdout.String(), "não há perfil salvo para renomear") {
 		t.Fatalf("stdout = %q, want unpersisted explanation", stdout.String())
 	}
 }
@@ -329,7 +329,7 @@ func TestRunProvidersSetupPrintsCommandPlan(t *testing.T) {
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"Set FAST_API_KEY to your API key",
+		"Defina FAST_API_KEY com sua chave de API",
 		"qg providers add qg --name fast --model muse-spark-1.3-contributor --base-url https://gateway.example/v1 --api-key-env FAST_API_KEY",
 		"qg providers check fast --connectivity",
 		"qg providers use fast",

@@ -66,7 +66,7 @@ func runMCPAdd(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 
 	configPath, err := deps.userConfigPath()
 	if err != nil {
-		return writeAppError(stderr, "failed to resolve user config: "+err.Error(), exitCrash)
+		return writeAppError(stderr, "Não foi possível resolver a configuração do usuário. Detalhe: "+err.Error(), exitCrash)
 	}
 	// This edits the same user config document the config package mutates, with
 	// the same read-modify-write + rename shape, so it takes the same
@@ -125,11 +125,11 @@ func runMCPAdd(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 		return exitSuccess
 	}
 
-	action := "Added"
+	action := "adicionado"
 	if updated {
-		action = "Updated"
+		action = "atualizado"
 	}
-	if _, err := fmt.Fprintf(stdout, "%s MCP server %s in %s.\n", action, options.serverName, configPath); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Servidor MCP %s %s em %s.\n", options.serverName, action, configPath); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -156,7 +156,7 @@ func runMCPRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 
 	configPath, err := deps.userConfigPath()
 	if err != nil {
-		return writeAppError(stderr, "failed to resolve user config: "+err.Error(), exitCrash)
+		return writeAppError(stderr, "Não foi possível resolver a configuração do usuário. Detalhe: "+err.Error(), exitCrash)
 	}
 	// This edits the same user config document the config package mutates, with
 	// the same read-modify-write + rename shape, so it takes the same
@@ -208,10 +208,10 @@ func runMCPRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return exitSuccess
 	}
 	if removed {
-		if _, err := fmt.Fprintf(stdout, "Removed MCP server %s from %s.\n", serverName, configPath); err != nil {
+		if _, err := fmt.Fprintf(stdout, "Servidor MCP %s removido de %s.\n", serverName, configPath); err != nil {
 			return exitCrash
 		}
-	} else if _, err := fmt.Fprintf(stdout, "No MCP server named %s is configured in %s.\n", serverName, configPath); err != nil {
+	} else if _, err := fmt.Fprintf(stdout, "Nenhum servidor MCP chamado %s configurado em %s.\n", serverName, configPath); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -242,7 +242,7 @@ func runMCPToggle(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 
 	configPath, err := deps.userConfigPath()
 	if err != nil {
-		return writeAppError(stderr, "failed to resolve user config: "+err.Error(), exitCrash)
+		return writeAppError(stderr, "Não foi possível resolver a configuração do usuário. Detalhe: "+err.Error(), exitCrash)
 	}
 	// This edits the same user config document the config package mutates, with
 	// the same read-modify-write + rename shape, so it takes the same
@@ -273,7 +273,7 @@ func runMCPToggle(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
 	if !found {
-		return writeExecUsageError(stderr, fmt.Sprintf("MCP server %s is not configured in user config", serverName))
+		return writeExecUsageError(stderr, fmt.Sprintf("Servidor MCP %s não está configurado na configuração do usuário", serverName))
 	}
 	if changed {
 		if err := writeMCPWritableConfig(configPath, cfg); err != nil {
@@ -298,15 +298,15 @@ func runMCPToggle(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return exitSuccess
 	}
 
-	state := "enabled"
+	state := "ativado"
 	if disabled {
-		state = "disabled"
+		state = "desativado"
 	}
 	if changed {
-		if _, err := fmt.Fprintf(stdout, "MCP server %s is now %s in %s.\n", serverName, state, configPath); err != nil {
+		if _, err := fmt.Fprintf(stdout, "Servidor MCP %s agora está %s em %s.\n", serverName, state, configPath); err != nil {
 			return exitCrash
 		}
-	} else if _, err := fmt.Fprintf(stdout, "MCP server %s was already %s in %s.\n", serverName, state, configPath); err != nil {
+	} else if _, err := fmt.Fprintf(stdout, "Servidor MCP %s já estava %s em %s.\n", serverName, state, configPath); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -336,7 +336,7 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 
 	cwd, err := deps.getwd()
 	if err != nil {
-		return writeAppError(stderr, "failed to resolve workspace: "+err.Error(), exitCrash)
+		return writeAppError(stderr, "Não foi possível resolver a pasta de trabalho. Detalhe: "+err.Error(), exitCrash)
 	}
 	// `mcp check` connects to (spawns) the named server below to enumerate its tools,
 	// so it is a spawn site: gate the project layer behind the trust check (fail-closed)
@@ -357,10 +357,10 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 			excludedProjectConfig: mcpExcludeProject && projectMCPConfigExists(cwd),
 			trustCheckErrored:     trustCheckErrored,
 		})
-		return writeAppError(stderr, fmt.Sprintf("MCP server %q is not configured", serverName), exitCrash)
+		return writeAppError(stderr, fmt.Sprintf("Servidor MCP %q não está configurado", serverName), exitCrash)
 	}
 	if raw.Disabled {
-		return writeAppError(stderr, fmt.Sprintf("MCP server %q is disabled", serverName), exitCrash)
+		return writeAppError(stderr, fmt.Sprintf("Servidor MCP %q está desativado", serverName), exitCrash)
 	}
 	scoped := config.MCPConfig{Servers: map[string]config.MCPServerConfig{serverName: raw}}
 	if _, err := mcp.NormalizeConfig(scoped); err != nil {
@@ -386,26 +386,30 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	// best-effort so one unreachable server cannot stop QG launching: it records
 	// the failure on the runtime and returns nil. That is right for startup and
 	// wrong to ignore here, because this is the command a user runs precisely when
-	// a server is misbehaving, and reporting "is reachable" for a server that never
+	// a server is misbehaving, and reporting "acessível" for a server that never
 	// started sends them looking somewhere else.
 	for _, skipped := range mcpRuntime.Skipped() {
 		if skipped.Name != serverName {
 			continue
 		}
-		message := fmt.Sprintf("MCP server %s is not reachable", serverName)
+		canonical := fmt.Sprintf("MCP server %s is not reachable", serverName)
 		if skipped.Err != nil {
-			message = fmt.Sprintf("%s: %s", message, redaction.ErrorMessage(skipped.Err, redaction.Options{}))
+			canonical = fmt.Sprintf("%s: %s", canonical, redaction.ErrorMessage(skipped.Err, redaction.Options{}))
 		}
 		if options.json {
 			payload := struct {
 				ServerName string `json:"serverName"`
 				Status     string `json:"status"`
 				Error      string `json:"error,omitempty"`
-			}{ServerName: serverName, Status: "unreachable", Error: message}
+			}{ServerName: serverName, Status: "unreachable", Error: canonical}
 			if err := writePrettyJSON(stdout, redaction.RedactValue(payload, redaction.Options{})); err != nil {
 				return exitCrash
 			}
 			return exitCrash
+		}
+		message := fmt.Sprintf("Servidor MCP %s não está acessível", serverName)
+		if skipped.Err != nil {
+			message = fmt.Sprintf("%s: %s", message, redaction.ErrorMessage(skipped.Err, redaction.Options{}))
 		}
 		return writeAppError(stderr, message, exitCrash)
 	}
@@ -423,7 +427,7 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "MCP server %s is reachable. %d tool(s) available.\n", serverName, len(items)); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Servidor MCP %s acessível. Ferramentas disponíveis: %d.\n", serverName, len(items)); err != nil {
 		return exitCrash
 	}
 	return exitSuccess

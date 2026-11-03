@@ -27,7 +27,7 @@ func (wizard *mcpAddWizardState) render(width int) string {
 		qgTheme.line.Render(strings.Repeat("-", innerWidth)),
 	}
 	if wizard.err != "" {
-		lines = append(lines, qgTheme.red.Render("error: "+wizard.err), "")
+		lines = append(lines, qgTheme.red.Render("erro: "+wizard.err), "")
 	}
 	switch wizard.step {
 	case mcpAddWizardStepName:
@@ -47,22 +47,22 @@ func (wizard *mcpAddWizardState) render(width int) string {
 		qgTheme.line.Render(strings.Repeat("-", innerWidth)),
 		qgTheme.faint.Render(wizard.footer()),
 	)
-	block := styledBlockFillTitle(overlayWidth, "Add MCP Server", lines, qgTheme.lineStrong, lipgloss.NewStyle())
+	block := styledBlockFillTitle(overlayWidth, "Adicionar servidor MCP", lines, qgTheme.lineStrong, lipgloss.NewStyle())
 	return centerRenderedBlock(block, width)
 }
 
 func (wizard *mcpAddWizardState) renderNameStep(width int) []string {
-	value := displayValue(strings.TrimSpace(wizard.serverName), "type a stable name")
+	value := displayValue(strings.TrimSpace(wizard.serverName), "digite um nome estável")
 	return []string{
-		qgTheme.accent.Render("Server Name"),
+		qgTheme.accent.Render("Nome do servidor"),
 		fitStyledLine(qgTheme.ink.Render("> "+value), width),
-		qgTheme.faint.Render("Default: " + mcpAddWizardTypes[clampInt(wizard.selectedType, 0, len(mcpAddWizardTypes)-1)].Label),
-		qgTheme.faint.Render("Use lowercase letters, numbers, dashes, or underscores."),
+		qgTheme.faint.Render("Padrão: " + mcpAddWizardTypes[clampInt(wizard.selectedType, 0, len(mcpAddWizardTypes)-1)].Label),
+		qgTheme.faint.Render("Use letras minúsculas, números, traços ou sublinhados."),
 	}
 }
 
 func (wizard *mcpAddWizardState) renderTypeStep(width int) []string {
-	lines := []string{qgTheme.accent.Render("Server Type")}
+	lines := []string{qgTheme.accent.Render("Tipo de servidor")}
 	for index, item := range mcpAddWizardTypes {
 		marker := "  "
 		surface := transparentSurface
@@ -80,10 +80,10 @@ func (wizard *mcpAddWizardState) renderTypeStep(width int) []string {
 }
 
 func (wizard *mcpAddWizardState) renderEndpointStep(width int) []string {
-	title := "Endpoint URL"
+	title := "URL do endpoint"
 	placeholder := "https://example.com/mcp"
 	if !wizard.isRemote() {
-		title = "Command"
+		title = "Comando"
 		placeholder = "npx -y @modelcontextprotocol/server-filesystem ."
 	}
 	value := displayValue(strings.TrimSpace(wizard.endpoint), placeholder)
@@ -94,22 +94,22 @@ func (wizard *mcpAddWizardState) renderEndpointStep(width int) []string {
 }
 
 func (wizard *mcpAddWizardState) renderHeaderStep(width int) []string {
-	value := displayValue(strings.TrimSpace(wizard.headerInput), "press Enter to skip")
+	value := displayValue(strings.TrimSpace(wizard.headerInput), "pressione Enter para pular")
 	return []string{
-		qgTheme.accent.Render("Add header"),
+		qgTheme.accent.Render("Adicionar cabeçalho"),
 		fitStyledLine(qgTheme.ink.Render("> "+redaction.RedactString(value, redaction.Options{})), width),
-		qgTheme.faint.Render(`Paste "Key: Value" or "Key=Value".`),
+		qgTheme.faint.Render(`Cole "Chave: Valor" ou "Chave=Valor".`),
 	}
 }
 
 func (wizard *mcpAddWizardState) renderConfirmStep(width int) []string {
 	lines := []string{
-		qgTheme.accent.Render("Review setup"),
-		"server: " + qgTheme.ink.Render(wizard.serverName),
-		"type: " + qgTheme.ink.Render(strings.ToUpper(wizard.serverType)),
+		qgTheme.accent.Render("Revisar configuração"),
+		"servidor: " + qgTheme.ink.Render(wizard.serverName),
+		"tipo: " + qgTheme.ink.Render(strings.ToUpper(wizard.serverType)),
 	}
 	if source := strings.TrimSpace(wizard.sourceLabel); source != "" {
-		lines = append(lines, "source: "+qgTheme.ink.Render(source))
+		lines = append(lines, "fonte: "+qgTheme.ink.Render(source))
 	}
 	if sourceURL := strings.TrimSpace(wizard.sourceURL); sourceURL != "" {
 		lines = append(lines, "docs: "+qgTheme.ink.Render(redactMCPWizardDisplayValue(sourceURL)))
@@ -117,18 +117,18 @@ func (wizard *mcpAddWizardState) renderConfirmStep(width int) []string {
 	if wizard.isRemote() {
 		lines = append(lines, "url: "+qgTheme.ink.Render(redactMCPWizardDisplayValue(wizard.endpoint)))
 		if wizard.headerKey != "" {
-			lines = append(lines, "header: "+qgTheme.ink.Render(wizard.headerKey+"=[REDACTED]"))
+			lines = append(lines, "cabeçalho: "+qgTheme.ink.Render(wizard.headerKey+"=[REDACTED]"))
 		}
 	} else {
-		lines = append(lines, "command: "+qgTheme.ink.Render(redactMCPWizardCommand(wizard.endpoint)))
+		lines = append(lines, "comando: "+qgTheme.ink.Render(redactMCPWizardCommand(wizard.endpoint)))
 	}
 	if len(wizard.prerequisites) > 0 {
-		lines = append(lines, "", qgTheme.accent.Render("Needs"))
+		lines = append(lines, "", qgTheme.accent.Render("Pré-requisitos"))
 		for _, item := range wizard.prerequisites {
 			lines = append(lines, "  - "+qgTheme.ink.Render(item))
 		}
 	}
-	lines = append(lines, "", qgTheme.faint.Render("Enter saves and tests the server."))
+	lines = append(lines, "", qgTheme.faint.Render("Enter salva e testa o servidor."))
 	for index, line := range lines {
 		lines[index] = fitStyledLine(line, width)
 	}
@@ -139,27 +139,27 @@ func (wizard *mcpAddWizardState) renderResultStep(width int) []string {
 	result := wizard.result
 	title := result.Title
 	if title == "" {
-		title = "MCP setup issue"
+		title = "Problema de configuração do MCP"
 	}
-	state := displayValue(result.State, "not saved")
-	transport := "HTTP remote"
+	state := displayValue(result.State, "não salvo")
+	transport := "HTTP remoto"
 	if !wizard.isRemote() {
-		transport = "Local stdio"
+		transport = "Stdio local"
 	} else if wizard.serverType == "sse" {
-		transport = "SSE remote"
+		transport = "SSE remoto"
 	}
 	lines := []string{
 		qgTheme.accent.Render(title),
-		qgTheme.ink.Bold(true).Render(displayValue(wizard.serverName, "unnamed")) + "  " + qgTheme.faint.Render(state),
+		qgTheme.ink.Bold(true).Render(displayValue(wizard.serverName, "sem nome")) + "  " + qgTheme.faint.Render(state),
 		qgTheme.faint.Render(transport),
 	}
 	if result.Message != "" {
 		lines = append(lines, fitStyledLine(qgTheme.red.Render(result.Message), width))
 	}
 	if !result.Saved {
-		lines = append(lines, qgTheme.faint.Render("No config was saved yet."))
+		lines = append(lines, qgTheme.faint.Render("Nenhuma configuração foi salva ainda."))
 	} else {
-		lines = append(lines, fmt.Sprintf("Tools: %d discovered", maxInt(0, result.ToolCount)))
+		lines = append(lines, fmt.Sprintf("Ferramentas encontradas: %d", maxInt(0, result.ToolCount)))
 	}
 	lines = append(lines, "")
 	for index, action := range wizard.resultActionLabels() {
@@ -208,22 +208,22 @@ func (wizard *mcpAddWizardState) resultActionLabels() []string {
 	case wizard == nil:
 		return nil
 	case wizard.result.Connected:
-		return []string{"Use server", "Manage tools", "Edit config", "Disable server"}
+		return []string{"Usar servidor", "Gerenciar ferramentas", "Editar configuração", "Desativar servidor"}
 	case wizard.result.Saved:
-		return []string{"Retry connection", "Edit config", "Disable server", "Remove server"}
+		return []string{"Tentar conectar de novo", "Editar configuração", "Desativar servidor", "Remover servidor"}
 	default:
-		return []string{"Edit URL", "Save disabled", "Discard"}
+		return []string{"Editar URL", "Salvar desativado", "Descartar"}
 	}
 }
 
 func (wizard *mcpAddWizardState) footer() string {
 	switch wizard.step {
 	case mcpAddWizardStepType:
-		return "up/down select   Enter continue   Esc close"
+		return "↑/↓ escolher   Enter continuar   Esc fechar"
 	case mcpAddWizardStepResult:
-		return "Enter select   r retry   s save disabled   d discard"
+		return "Enter escolher   r tentar de novo   s salvar desativado   d descartar"
 	default:
-		return "Enter continue   left back   Esc close"
+		return "Enter continuar   ← voltar   Esc fechar"
 	}
 }
 
@@ -243,11 +243,11 @@ func mcpAddWizardStepLine(step mcpAddWizardStep) string {
 		step  mcpAddWizardStep
 		label string
 	}{
-		{mcpAddWizardStepName, "1 name"},
-		{mcpAddWizardStepType, "2 type"},
+		{mcpAddWizardStepName, "1 nome"},
+		{mcpAddWizardStepType, "2 tipo"},
 		{mcpAddWizardStepEndpoint, "3 endpoint"},
-		{mcpAddWizardStepHeader, "4 auth"},
-		{mcpAddWizardStepConfirm, "5 confirm"},
+		{mcpAddWizardStepHeader, "4 autenticação"},
+		{mcpAddWizardStepConfirm, "5 confirmar"},
 	}
 	parts := make([]string, 0, len(steps))
 	for _, item := range steps {

@@ -104,7 +104,7 @@ var commandDefinitions = []commandDefinition{
 		name:        "/voice",
 		usage:       "/voice",
 		group:       commandGroupRuntime,
-		description: "Toggle voice mode (" + voiceCaptureUsage + ").",
+		description: "Liga ou desliga o modo de voz (" + voiceCaptureUsage + ").",
 		kind:        commandVoice,
 	},
 	{

@@ -193,20 +193,20 @@ func TestMCPCommandRendersConfiguredStateWithoutAgentRun(t *testing.T) {
 	}
 	text := plainRender(t, next.View())
 	for _, want := range []string{
-		"Manage MCP servers",
-		"2 servers",
-		"User MCPs",
+		"Gerenciar servidores MCP",
+		"2 servidores",
+		"MCPs do usuário",
 		"docs",
 		"enabled",
 		"github",
 		"oauth",
-		"Add MCP server",
-		"Add local stdio MCP",
-		"List configured",
-		"d disable",
-		"r remove",
-		"Enter action",
-		"Esc close",
+		"Adicionar servidor MCP",
+		"Adicionar MCP stdio local",
+		"Listar configurados",
+		"d desativar",
+		"r remover",
+		"Enter abrir",
+		"Esc sair",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected clean MCP manager overlay to contain %q, got:\n%s", want, text)
@@ -277,7 +277,7 @@ func TestMCPManagerSearchFiltersMarketplace(t *testing.T) {
 
 	view := plainRender(t, next.View())
 	for _, want := range []string{
-		"search > playwright",
+		"buscar > playwright",
 		"Marketplace",
 		"Playwright",
 		"@playwright/mcp",
@@ -353,10 +353,10 @@ func TestMCPManagerAddRemoteOpensWizard(t *testing.T) {
 	}
 	view := plainRender(t, next.View())
 	for _, want := range []string{
-		"Add MCP Server",
-		"Server Name",
-		"HTTP remote",
-		"Enter continue",
+		"Adicionar servidor MCP",
+		"Nome do servidor",
+		"HTTP remoto",
+		"Enter continuar",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("MCP add wizard missing %q:\n%s", want, view)
@@ -394,21 +394,21 @@ func TestMCPAddWizardInvalidURLShowsUnsavedResult(t *testing.T) {
 	}
 	view := plainRender(t, m.View())
 	for _, want := range []string{
-		"MCP setup issue",
+		"Problema de configuração do MCP",
 		"adds",
-		"HTTP remote",
-		"URL could not be parsed",
-		"No config was saved yet.",
-		"Edit URL",
-		"Save disabled",
-		"Discard",
+		"HTTP remoto",
+		"Não foi possível interpretar a URL",
+		"Nenhuma configuração foi salva ainda.",
+		"Editar URL",
+		"Salvar desativado",
+		"Descartar",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("invalid URL result missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "Disable server") {
-		t.Fatalf("unsaved invalid result should not offer Disable server:\n%s", view)
+	if strings.Contains(view, "Desativar servidor") {
+		t.Fatalf("unsaved invalid result should not offer Desativar servidor:\n%s", view)
 	}
 }
 
@@ -459,7 +459,7 @@ func TestMCPAddWizardInvalidURLCanSaveDisabledDraft(t *testing.T) {
 		t.Fatalf("draft server was not saved disabled: %#v", m.mcpConfig.Servers["draft"])
 	}
 	view := plainRender(t, m.View())
-	for _, want := range []string{"MCP server saved", "disabled", "Edit config"} {
+	for _, want := range []string{"Servidor MCP salvo", "desativado", "Editar configuração"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("disabled draft result missing %q:\n%s", want, view)
 		}
@@ -516,11 +516,11 @@ func TestMCPAddWizardSavesRemoteWithPastedHeader(t *testing.T) {
 	}
 	view := plainRender(t, m.View())
 	for _, want := range []string{
-		"MCP server ready",
+		"Servidor MCP pronto",
 		"docs",
-		"connected",
-		"Use server",
-		"Manage tools",
+		"conectado",
+		"Usar servidor",
+		"Gerenciar ferramentas",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("saved result missing %q:\n%s", want, view)
@@ -554,12 +554,12 @@ func TestChatMCPSetupStitchURLOpensPrefilledWizard(t *testing.T) {
 	}
 	view := plainRender(t, next.View())
 	for _, want := range []string{
-		"Add MCP Server",
-		"Review setup",
+		"Adicionar servidor MCP",
+		"Revisar configuração",
 		"stitch",
 		"STDIO",
 		"npx -y @_davideast/stitch-mcp@latest proxy",
-		"Google Cloud auth",
+		"Autenticação do Google Cloud",
 		"stitch.withgoogle.com/docs/mcp/setup",
 	} {
 		if !strings.Contains(view, want) {
@@ -714,7 +714,7 @@ func TestChatMCPSetupStitchConfirmSavesServer(t *testing.T) {
 		t.Fatalf("stitch server was not applied to TUI state: %#v", next.mcpConfig.Servers)
 	}
 	view := plainRender(t, next.View())
-	for _, want := range []string{"MCP server ready", "stitch", "connected", "Use server"} {
+	for _, want := range []string{"Servidor MCP pronto", "stitch", "conectado", "Usar servidor"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("saved Stitch result missing %q:\n%s", want, view)
 		}
@@ -764,7 +764,7 @@ func TestMCPManagerRunsSelectedServerAction(t *testing.T) {
 	}
 	text := transcriptText(next.transcript)
 	for _, want := range []string{
-		"MCP action complete",
+		"Ação de MCP concluída",
 		"MCP server docs is now disabled.",
 		"docs",
 		"disabled",
@@ -809,7 +809,7 @@ func TestMCPCommandRunsManagerActionAndRefreshesState(t *testing.T) {
 	}
 	text := transcriptText(next.transcript)
 	for _, want := range []string{
-		"MCP action complete",
+		"Ação de MCP concluída",
 		"MCP server docs is now disabled.",
 		"docs · disabled · stdio",
 		"qg mcp enable docs",
@@ -878,7 +878,7 @@ func TestMCPCommandDoesNotApplyFailedConfig(t *testing.T) {
 		t.Fatalf("failed MCP command cleared existing config: %#v", next.mcpConfig.Servers)
 	}
 	text := transcriptText(next.transcript)
-	if !strings.Contains(text, "MCP action failed") || !strings.Contains(text, "permission denied") {
+	if !strings.Contains(text, "Ação de MCP falhou") || !strings.Contains(text, "permission denied") {
 		t.Fatalf("missing failure output:\n%s", text)
 	}
 }

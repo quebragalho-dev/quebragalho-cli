@@ -90,11 +90,11 @@ func runProvidersUse(args []string, stdout io.Writer, stderr io.Writer, deps app
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Active provider set to %s\nnext: %s\n", cfg.ActiveProvider, providerCheckCommand(cfg.ActiveProvider, false)); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Provedor ativo: %s\npróximo: %s\n", cfg.ActiveProvider, providerCheckCommand(cfg.ActiveProvider, false)); err != nil {
 		return exitCrash
 	}
 	if override != "" {
-		if _, err := fmt.Fprintf(stderr, "Note: %s=%s is set and overrides config.json, so %s stays the active provider until you unset %s.\n", config.ActiveProviderEnv, override, override, config.ActiveProviderEnv); err != nil {
+		if _, err := fmt.Fprintf(stderr, "Atenção: %s=%s está definido e tem prioridade sobre o config.json, então %s continua sendo o provedor ativo até você remover %s.\n", config.ActiveProviderEnv, override, override, config.ActiveProviderEnv); err != nil {
 			return exitCrash
 		}
 	}
@@ -307,11 +307,11 @@ func providerSetupEnvVar(descriptor providercatalog.Descriptor, profile config.P
 }
 
 func formatProviderSetupPlan(plan providerSetupPlan) string {
-	lines := []string{"Provider setup plan"}
+	lines := []string{"Plano de configuração do provedor"}
 	if plan.EnvVar != "" {
-		lines = append(lines, "Set "+plan.EnvVar+" to your API key before running connectivity checks.")
+		lines = append(lines, "Defina "+plan.EnvVar+" com sua chave de API antes de rodar as verificações de conectividade.")
 	}
-	lines = append(lines, "Next commands:", "  "+plan.AddCommand, "  "+plan.CheckCommand)
+	lines = append(lines, "Próximos comandos:", "  "+plan.AddCommand, "  "+plan.CheckCommand)
 	if plan.UseCommand != "" {
 		lines = append(lines, "  "+plan.UseCommand)
 	}
@@ -438,24 +438,24 @@ func runProvidersRemove(args []string, stdout io.Writer, stderr io.Writer, deps 
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Removed provider %s\n", name); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Provedor %s removido\n", name); err != nil {
 		return exitCrash
 	}
 	if keyErr != nil {
-		if _, err := fmt.Fprintf(stderr, "warning: its stored API key could not be deleted and remains in the credential store: %v\n", keyErr); err != nil {
+		if _, err := fmt.Fprintf(stderr, "aviso: não foi possível apagar a chave de API guardada, que continua no cofre de credenciais. Detalhe: %v\n", keyErr); err != nil {
 			return exitCrash
 		}
 	} else if keyRemoved {
-		if _, err := fmt.Fprintln(stdout, "Deleted its stored API key."); err != nil {
+		if _, err := fmt.Fprintln(stdout, "Chave de API guardada apagada."); err != nil {
 			return exitCrash
 		}
 	}
 	if active := strings.TrimSpace(cfg.ActiveProvider); active != "" {
-		if _, err := fmt.Fprintf(stdout, "Active provider: %s\n", active); err != nil {
+		if _, err := fmt.Fprintf(stdout, "Provedor ativo: %s\n", active); err != nil {
 			return exitCrash
 		}
 	} else {
-		if _, err := fmt.Fprintln(stdout, "No providers remain — run qg setup to add one."); err != nil {
+		if _, err := fmt.Fprintln(stdout, "Não resta nenhum provedor — rode qg setup para adicionar um."); err != nil {
 			return exitCrash
 		}
 	}
@@ -514,7 +514,7 @@ func runProvidersRename(args []string, stdout io.Writer, stderr io.Writer, deps 
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Renamed provider %s to %s\n", options.names[0], options.names[1]); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Provedor %s renomeado para %s\n", options.names[0], options.names[1]); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -552,7 +552,7 @@ func reportUnpersistedProviderUse(stdout, stderr io.Writer, deps appDeps, option
 		return exitCode, false
 	}
 	message := fmt.Sprintf(
-		"Provider %q is not saved in config.json (likely set via an environment variable), so there is no saved profile to switch to.\nIt is available whenever its environment variable is set, but is only active when selected (for example via QG_PROVIDER); unset its environment variable to stop QG from detecting it automatically.",
+		"O provedor %q não está salvo no config.json (provavelmente definido por variável de ambiente), então não há perfil salvo para ativar.\nEle fica disponível enquanto a variável de ambiente estiver definida, mas só vale quando selecionado (por exemplo via QG_PROVIDER); remova a variável de ambiente para o QG parar de detectá-lo.",
 		options.name,
 	)
 	if options.json {
@@ -586,7 +586,7 @@ func reportUnpersistedProviderRemove(stdout, stderr io.Writer, deps appDeps, nam
 		return exitCode, false
 	}
 	message := fmt.Sprintf(
-		"Provider %q is not saved in config.json (likely set via an environment variable) — nothing to remove there.\nUnset its environment variable to stop QG from detecting it automatically.",
+		"O provedor %q não está salvo no config.json (provavelmente definido por variável de ambiente) — não há nada para remover.\nRemova a variável de ambiente para o QG parar de detectá-lo.",
 		name,
 	)
 	if jsonOutput {
@@ -617,7 +617,7 @@ func reportUnpersistedProviderRename(stdout, stderr io.Writer, deps appDeps, nam
 		return exitCode, false
 	}
 	message := fmt.Sprintf(
-		"Provider %q is not saved in config.json (likely set via an environment variable), so there is no saved profile to rename.",
+		"O provedor %q não está salvo no config.json (provavelmente definido por variável de ambiente), então não há perfil salvo para renomear.",
 		name,
 	)
 	if jsonOutput {

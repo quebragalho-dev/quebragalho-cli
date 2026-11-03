@@ -39,11 +39,11 @@ func TestRunProvidersDetectSurfacesLocalRuntimeAndProviderActions(t *testing.T) 
 	}
 	out := stdout.String()
 	for _, want := range []string{
-		"Detected local runtimes:",
+		"Runtimes locais detectados:",
 		"Ollama Local — http://localhost:11434/v1",
-		"models: llama3.1",
+		"modelos: llama3.1",
 		"qg providers add ollama", // SetupAction's no-key adopt command
-		"Configured providers:",
+		"Provedores configurados:",
 		"openai",
 		"Use provider",
 		"Check provider",

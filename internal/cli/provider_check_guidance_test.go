@@ -33,10 +33,10 @@ func TestRunProvidersCheckMissingKeyPrintsNextAction(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 	output := stderr.String()
-	if !strings.Contains(output, "provider qg requires API key; set QG_API_KEY (or QUEBRAGALHO_API_KEY)") {
+	if !strings.Contains(output, "o provedor qg precisa de chave de API; defina QG_API_KEY (or QUEBRAGALHO_API_KEY)") {
 		t.Fatalf("missing key error did not name env var: %q", output)
 	}
-	if !strings.Contains(output, "next: set QG_API_KEY (or QUEBRAGALHO_API_KEY) and rerun qg providers check qg") {
+	if !strings.Contains(output, "próximo: defina QG_API_KEY (or QUEBRAGALHO_API_KEY) e rode de novo qg providers check qg") {
 		t.Fatalf("missing next action: %q", output)
 	}
 }
@@ -80,7 +80,7 @@ func TestRunProvidersCheckConnectivitySkippedPrintsNextAction(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "next: run qg providers check work --connectivity") {
+	if !strings.Contains(output, "próximo: rode qg providers check work --connectivity") {
 		t.Fatalf("missing connectivity next action: %q", output)
 	}
 	if stderr.Len() != 0 {
@@ -120,7 +120,7 @@ func TestRunProvidersCheckConnectivityFailurePrintsGuidance(t *testing.T) {
 	if !strings.Contains(output, "provider.connectivity: Provider endpoint returned 401: invalid API key") {
 		t.Fatalf("missing primary health check message: %q", output)
 	}
-	if !strings.Contains(output, "next: verify the API key, base URL, and model, then rerun qg providers check local --connectivity") {
+	if !strings.Contains(output, "próximo: confira a chave de API, a URL base e o modelo, depois rode de novo qg providers check local --connectivity") {
 		t.Fatalf("missing connectivity failure next action: %q", output)
 	}
 	if strings.Contains(output, "sk-test-secret") {
@@ -147,7 +147,7 @@ func TestRunProvidersCheckConnectivityOKPrintsExecNextAction(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitSuccess, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, `next: run qg exec "hello" --model gpt-4.1`) {
+	if !strings.Contains(output, `próximo: rode qg exec "hello" --model gpt-4.1`) {
 		t.Fatalf("missing ready next action: %q", output)
 	}
 }
@@ -188,7 +188,7 @@ func TestRunProvidersCheckConnectivityKeylessCitesCredentialEnv(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d: %s", exitCode, exitProvider, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "QG_API_KEY (or QUEBRAGALHO_API_KEY)") {
+	if !strings.Contains(output, "QG_API_KEY (ou QUEBRAGALHO_API_KEY)") {
 		t.Fatalf("keyless connectivity advice must cite both gateway env vars: %q", output)
 	}
 	if !strings.Contains(output, "qg login") {

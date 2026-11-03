@@ -131,9 +131,9 @@ func providerDetectActionFrom(action provideronboarding.Action) providerDetectAc
 }
 
 func formatProviderDetectReport(report providerDetectReport) string {
-	lines := []string{"Detected local runtimes:"}
+	lines := []string{"Runtimes locais detectados:"}
 	if len(report.DetectedRuntimes) == 0 {
-		lines = append(lines, "  (none running on default ports)")
+		lines = append(lines, "  (nenhum em execução nas portas padrão)")
 	}
 	for _, runtime := range report.DetectedRuntimes {
 		name := strings.TrimSpace(runtime.Name)
@@ -142,7 +142,7 @@ func formatProviderDetectReport(report providerDetectReport) string {
 		}
 		lines = append(lines, "  "+name+" — "+runtime.BaseURL)
 		if len(runtime.Models) > 0 {
-			lines = append(lines, "    models: "+strings.Join(runtime.Models, ", "))
+			lines = append(lines, "    modelos: "+strings.Join(runtime.Models, ", "))
 		}
 		if command := strings.TrimSpace(runtime.Action.Command); command != "" {
 			lines = append(lines, "    "+runtime.Action.Label+": "+command)
@@ -151,22 +151,22 @@ func formatProviderDetectReport(report providerDetectReport) string {
 		}
 	}
 
-	lines = append(lines, "", "Configured providers:")
+	lines = append(lines, "", "Provedores configurados:")
 	if len(report.Providers) == 0 {
-		lines = append(lines, "  (none configured — run `qg setup`)")
+		lines = append(lines, "  (nenhum configurado — rode `qg setup`)")
 	}
 	for _, provider := range report.Providers {
 		name := strings.TrimSpace(provider.Name)
 		if name == "" {
-			name = "(unnamed)"
+			name = "(sem nome)"
 		}
 		marker := ""
 		if provider.Active {
-			marker = " (active)"
+			marker = " (ativo)"
 		}
 		lines = append(lines, "  "+name+marker)
 		if len(provider.Actions) == 0 {
-			lines = append(lines, "    (ready)")
+			lines = append(lines, "    (pronto)")
 		}
 		for _, action := range provider.Actions {
 			line := "    " + action.Label

@@ -47,7 +47,7 @@ func resolveQGAccountClient(stderr io.Writer, deps appDeps, quiet bool) (qgAccou
 	}
 	authed := discoveryCredentialProfile(profile)
 	if strings.TrimSpace(authed.APIKey) == "" {
-		return nil, codeForQuiet(quiet, exitProvider, writeExecUsageError(stderr, "no Quebra Galho API key: run qg login (or qg login --device, or export QG_API_KEY)"))
+		return nil, codeForQuiet(quiet, exitProvider, writeExecUsageError(stderr, "nenhuma chave de API do Quebra Galho: rode qg login (ou qg login --device, ou exporte QG_API_KEY)"))
 	}
 	return qgaccount.NewClient(authed.APIKey), exitSuccess
 }
@@ -72,7 +72,7 @@ func findQGProfile(resolved config.ResolvedConfig) (config.ProviderProfile, erro
 	if resolved.Provider.CatalogID == providercatalog.QGID || resolved.Provider.Name == providercatalog.QGID {
 		return resolved.Provider, nil
 	}
-	return config.ProviderProfile{}, fmt.Errorf("no Quebra Galho provider configured: run qg login (or qg login --device)")
+	return config.ProviderProfile{}, fmt.Errorf("nenhum provedor Quebra Galho configurado: rode qg login (ou qg login --device)")
 }
 
 func runBalance(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {

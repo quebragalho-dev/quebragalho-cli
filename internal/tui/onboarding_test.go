@@ -43,7 +43,7 @@ func TestSetupTakeoverRendersAndCompletes(t *testing.T) {
 	m.width = 100
 	m.height = 30
 
-	if view := plainRender(t, m.View()); !strings.Contains(view, "Welcome to Quebra Galho") || !strings.Contains(view, "Space/Enter to set up QG") || !strings.Contains(view, "terminal agent for changing real code") {
+	if view := plainRender(t, m.View()); !strings.Contains(view, "Bem-vindo ao Quebra Galho") || !strings.Contains(view, "Space/Enter para configurar o QG") || !strings.Contains(view, "agente no terminal para alterar código real") {
 		t.Fatalf("setup welcome view missing expected text:\n%s", view)
 	}
 
@@ -360,10 +360,10 @@ func TestSetupModelFooterUsesEnter(t *testing.T) {
 	m.setup.stage = setupStageModel
 
 	view := plainRender(t, m.View())
-	if !strings.Contains(view, "type search") || !strings.Contains(view, "Enter continue") {
+	if !strings.Contains(view, "digite para buscar") || !strings.Contains(view, "Enter continuar") {
 		t.Fatalf("model footer should advertise search and Enter, got:\n%s", view)
 	}
-	if strings.Contains(view, "Space to continue") {
+	if strings.Contains(view, "Space") {
 		t.Fatalf("model footer should not advertise Space, got:\n%s", view)
 	}
 }
@@ -380,16 +380,16 @@ func TestSetupModelSearchPlaceholderPutsCursorBeforeHint(t *testing.T) {
 	m.setup.stage = setupStageModel
 
 	empty := plainRender(t, m.setupModelSearchLine(60))
-	if !strings.Contains(empty, "search > ▌model name...") {
+	if !strings.Contains(empty, "buscar > ▌nome do modelo...") {
 		t.Fatalf("empty search line = %q, want cursor before placeholder", empty)
 	}
-	if strings.Contains(empty, "model name...▌") {
+	if strings.Contains(empty, "nome do modelo...▌") {
 		t.Fatalf("empty search line should not place cursor after placeholder: %q", empty)
 	}
 
 	m.setup.modelQuery = "qwen"
 	filled := plainRender(t, m.setupModelSearchLine(60))
-	if !strings.Contains(filled, "search > qwen▌") {
+	if !strings.Contains(filled, "buscar > qwen▌") {
 		t.Fatalf("filled search line = %q, want cursor after query", filled)
 	}
 }
@@ -408,10 +408,10 @@ func TestSetupCredentialLinesCenterLikeWelcome(t *testing.T) {
 	m.setup.stage = setupStageCredentials
 
 	view := m.View()
-	assertSetupLineCentered(t, view, "Your Quebra Galho API key", m.width)
-	assertSetupLineCentered(t, view, "Paste the key", m.width)
-	assertSetupLineCentered(t, view, "paste key", m.width)
-	assertSetupLineCentered(t, view, "Saved keys", m.width)
+	assertSetupLineCentered(t, view, "Sua chave de API do Quebra Galho", m.width)
+	assertSetupLineCentered(t, view, "Cole a chave", m.width)
+	assertSetupLineCentered(t, view, "cole a chave", m.width)
+	assertSetupLineCentered(t, view, "As chaves salvas", m.width)
 }
 
 func TestSetupCredentialEmptyInputDoesNotHighlightPlaceholder(t *testing.T) {
@@ -427,10 +427,10 @@ func TestSetupCredentialEmptyInputDoesNotHighlightPlaceholder(t *testing.T) {
 
 	line := m.setupAPIKeyInputLine(80)
 	plain := plainRender(t, line)
-	if plain != "paste your Quebra Galho API key" {
+	if plain != "cole sua chave de API do Quebra Galho" {
 		t.Fatalf("empty API key input = %q, want placeholder only", plain)
 	}
-	if strings.Count(plain, "paste") != 1 {
+	if strings.Count(plain, "cole") != 1 {
 		t.Fatalf("empty API key input should render placeholder once, got %q", plain)
 	}
 }
@@ -455,10 +455,10 @@ func TestSetupProgressRendersAboveFooter(t *testing.T) {
 		if strings.Contains(line, "3/3") {
 			stepIndex = index
 		}
-		if strings.Contains(line, "Enter continue") {
+		if strings.Contains(line, "Enter continuar") {
 			footerIndex = index
 		}
-		if strings.Contains(line, "Choose a model") && strings.Contains(line, "3/3") {
+		if strings.Contains(line, "Escolher modelo") && strings.Contains(line, "3/3") {
 			t.Fatalf("progress should not render in setup body: %q", line)
 		}
 	}
@@ -753,10 +753,10 @@ func TestCredentialsDefaultsToBrowserLoginWhenDeviceConfigured(t *testing.T) {
 	m := newDeviceSetupModel(&fakeDeviceLogin{})
 
 	view := plainRender(t, m.View())
-	if !strings.Contains(view, "Sign in with your browser") || !strings.Contains(view, "Tab") {
+	if !strings.Contains(view, "Entre com o navegador") || !strings.Contains(view, "Tab") {
 		t.Fatalf("credentials screen should offer browser login first, with Tab for a key:\n%s", view)
 	}
-	if strings.Contains(view, "paste your Quebra Galho API key") {
+	if strings.Contains(view, "cole sua chave de API do Quebra Galho") {
 		t.Fatalf("browser mode should not show the API key field:\n%s", view)
 	}
 }
@@ -766,12 +766,12 @@ func TestBrowserLoginShowsURLAndCodeAndOpensBrowser(t *testing.T) {
 	r := newSetupRuntime(t, newDeviceSetupModel(f))
 
 	r.press(testKey(tea.KeyEnter))
-	view := r.until("the browser hint", func(view string) bool { return strings.Contains(view, "open the link") })
+	view := r.until("the browser hint", func(view string) bool { return strings.Contains(view, "abra o link") })
 
 	if !strings.Contains(view, "WXYZ-1234") || !strings.Contains(view, f.auth.VerificationURIComplete) {
 		t.Fatalf("waiting screen should show the code and the URL:\n%s", view)
 	}
-	if strings.Contains(view, "error:") || r.m.setup.stage != setupStageCredentials {
+	if strings.Contains(view, "erro:") || r.m.setup.stage != setupStageCredentials {
 		t.Fatalf("opener failure must not abort the login, stage=%v view:\n%s", r.m.setup.stage, view)
 	}
 	eventually(t, "the browser opener and the poll to start", func() bool {
@@ -813,20 +813,20 @@ func TestDeviceDeniedAndExpiredShowErrorAndReturnToChoice(t *testing.T) {
 		err  error
 		want string
 	}{
-		{qgaccount.ErrAccessDenied, "denied"},
-		{qgaccount.ErrDeviceCodeExpired, "expired"},
+		{qgaccount.ErrAccessDenied, "negado"},
+		{qgaccount.ErrDeviceCodeExpired, "expirou"},
 	} {
 		t.Run(tc.want, func(t *testing.T) {
 			f := &fakeDeviceLogin{waitErr: tc.err}
 			r := newSetupRuntime(t, newDeviceSetupModel(f))
 
 			r.press(testKey(tea.KeyEnter))
-			view := r.until("the error", func(view string) bool { return strings.Contains(view, "error:") })
+			view := r.until("the error", func(view string) bool { return strings.Contains(view, "erro:") })
 
 			if !strings.Contains(view, tc.want) || strings.Contains(view, "qg account:") {
 				t.Fatalf("want a readable %q error, got:\n%s", tc.want, view)
 			}
-			if strings.Contains(view, "WXYZ-1234") || !strings.Contains(view, "Sign in with your browser") {
+			if strings.Contains(view, "WXYZ-1234") || !strings.Contains(view, "Entre com o navegador") {
 				t.Fatalf("a failed login should return to the choice screen:\n%s", view)
 			}
 			if r.m.setup.stage != setupStageCredentials {
@@ -857,7 +857,7 @@ func TestEscCancelsDeviceWaitAndKeepsApp(t *testing.T) {
 		t.Fatal("Esc should cancel the device wait")
 	}
 	view := plainRender(t, r.m.View())
-	if r.m.setup.stage != setupStageCredentials || strings.Contains(view, "WXYZ-1234") || !strings.Contains(view, "Sign in with your browser") {
+	if r.m.setup.stage != setupStageCredentials || strings.Contains(view, "WXYZ-1234") || !strings.Contains(view, "Entre com o navegador") {
 		t.Fatalf("Esc should return to the login choice, stage=%v view:\n%s", r.m.setup.stage, view)
 	}
 }
@@ -877,7 +877,7 @@ func TestStaleDeviceMsgIgnoredAfterEsc(t *testing.T) {
 		t.Fatalf("a stale approval should not be validated, got %q", validated)
 	}
 	view := plainRender(t, r.m.View())
-	if r.m.setup.stage != setupStageCredentials || r.m.setup.apiKey.Value() != "" || strings.Contains(view, "error:") {
+	if r.m.setup.stage != setupStageCredentials || r.m.setup.apiKey.Value() != "" || strings.Contains(view, "erro:") {
 		t.Fatalf("stale device result changed the screen, stage=%v view:\n%s", r.m.setup.stage, view)
 	}
 }
@@ -888,7 +888,7 @@ func TestTabSwitchesToPasteKeyMode(t *testing.T) {
 	r := newSetupRuntime(t, newDeviceSetupModel(f))
 
 	r.press(testKey(tea.KeyTab))
-	if view := plainRender(t, r.m.View()); !strings.Contains(view, "paste your Quebra Galho API key") {
+	if view := plainRender(t, r.m.View()); !strings.Contains(view, "cole sua chave de API do Quebra Galho") {
 		t.Fatalf("Tab should show the API key field:\n%s", view)
 	}
 	updated, _ := r.m.Update(testPaste(key))

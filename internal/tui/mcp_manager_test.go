@@ -43,10 +43,10 @@ func TestMCPManagerViewGroupsToolsUnderServers(t *testing.T) {
 	}, 160))
 
 	for _, want := range []string{
-		"docs tools (2)",
+		"docs ferramentas (2)",
 		"lookup [network/prompt] - mcp_docs_lookup - docs/lookup - Look up documentation",
 		"search [network/prompt] - mcp_docs_search - docs/search - Search documentation",
-		"github tools (1)",
+		"github ferramentas (1)",
 		"create_issue [network/prompt] - mcp_github_create_issue - github/create_issue - Create an issue",
 	} {
 		if !strings.Contains(got, want) {

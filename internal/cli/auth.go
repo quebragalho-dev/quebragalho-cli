@@ -19,7 +19,7 @@ import (
 // QG authenticates with a plain API key, so browser/device login has no path
 // left. logout / status / refresh / reset keep working on pre-existing token
 // stores.
-const authLoginRemovedMessage = "OAuth login is not supported: run `qg login` to save an API key (" + providercatalog.KeyEnvHint + " also work from the environment), then run `qg setup qg` (see `qg setup --help`)"
+var authLoginRemovedMessage = "Login via OAuth não é suportado: rode `qg login` para salvar uma chave de API (" + humanKeyEnvHint() + " também valem no ambiente), depois rode `qg setup qg` (veja `qg setup --help`)"
 
 // runAuth dispatches `qg auth <command>`. The login subcommands are removed
 // (Etapa 4) and report authLoginRemovedMessage; what remains is maintenance of
@@ -157,7 +157,7 @@ func newAuthManager(deps appDeps, out io.Writer) (*oauth.Manager, error) {
 	switch storage {
 	case "", "file", "encrypted-file", "keyring":
 	default:
-		return nil, fmt.Errorf("invalid QG_OAUTH_STORAGE %q (supported: file, encrypted-file, keyring)", storage)
+		return nil, fmt.Errorf("QG_OAUTH_STORAGE inválido: %q (valores aceitos: file, encrypted-file, keyring)", storage)
 	}
 	store, err := oauth.NewStore(oauth.StoreOptions{
 		Now:     deps.now,
@@ -228,9 +228,9 @@ func runAuthLogout(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		}
 		return exitSuccess
 	}
-	msg := fmt.Sprintf("No stored credential for %s.\n", provider)
+	msg := fmt.Sprintf("Nenhuma credencial guardada para %s.\n", provider)
 	if removed {
-		msg = fmt.Sprintf("Logged out of %s.\n", provider)
+		msg = fmt.Sprintf("Desconectado de %s.\n", provider)
 	}
 	if _, err := fmt.Fprint(stdout, msg); err != nil {
 		return exitCrash
@@ -300,7 +300,7 @@ func runAuthRefresh(args []string, stdout io.Writer, stderr io.Writer, deps appD
 	if _, err := manager.Handle401(context.Background(), key); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
-	if _, err := fmt.Fprintf(stdout, "Refreshed OAuth token for %s.\n", provider); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Token OAuth de %s renovado.\n", provider); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -321,7 +321,7 @@ func runAuthRefreshWatch(manager *oauth.Manager, key, provider string, stdout io
 	scheduler := oauth.NewRefreshScheduler()
 	scheduler.Start(ctx, manager, key)
 	defer scheduler.Stop()
-	if _, err := fmt.Fprintf(stdout, "Watching %s — refreshing before expiry. Press Ctrl+C to stop.\n", provider); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Monitorando %s — o token é renovado antes de expirar. Pressione Ctrl+C para parar.\n", provider); err != nil {
 		return exitCrash
 	}
 	<-ctx.Done()
@@ -341,7 +341,7 @@ func runAuthReset(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		return writeExecUsageError(stderr, fmt.Sprintf("qg auth reset takes no arguments (got %q)", parsed.positional[0]))
 	}
 	if !parsed.confirm {
-		return writeExecUsageError(stderr, "qg auth reset clears all stored OAuth logins and shared MCP tokens; rerun with --confirm to reset")
+		return writeExecUsageError(stderr, "qg auth reset apaga todos os logins OAuth guardados e os tokens MCP compartilhados; rode de novo com --confirm para confirmar")
 	}
 	manager, err := newAuthManager(deps, stdout)
 	if err != nil {
@@ -359,7 +359,7 @@ func runAuthReset(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintln(stdout, "Reset OAuth token store."); err != nil {
+	if _, err := fmt.Fprintln(stdout, "Tokens OAuth guardados foram apagados."); err != nil {
 		return exitCrash
 	}
 	return exitSuccess

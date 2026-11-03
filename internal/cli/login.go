@@ -84,7 +84,7 @@ func runLogin(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 		}
 	}
 	if key == "" {
-		return writeExecUsageError(stderr, "API key required: paste it at the prompt or pass --api-key")
+		return writeExecUsageError(stderr, "Chave de API obrigatória: cole quando for pedido ou passe --api-key")
 	}
 	if deps.validateLoginKey == nil {
 		return writeAppError(stderr, "login validator unavailable", exitCrash)
@@ -93,7 +93,7 @@ func runLogin(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	defer stop()
 	if validateErr := deps.validateLoginKey(ctx, key); validateErr != nil {
 		msg := redaction.RedactString(validateErr.Error(), redaction.Options{ExtraSecretValues: []string{key}})
-		return writeAppError(stderr, "login failed: "+msg, exitProvider)
+		return writeAppError(stderr, "Não foi possível concluir o login. Detalhe: "+msg, exitProvider)
 	}
 	result, saveErr := saveSetupProvider(deps, tui.SetupSelection{
 		CatalogID: providercatalog.QGID,
@@ -106,7 +106,7 @@ func runLogin(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	if result.KeyStoreFallback {
 		warnKeyStoreFallback(stderr, result.ConfigPath)
 	}
-	if _, err := fmt.Fprintf(stdout, "API key validated and saved.\nProvider %s is now active (config: %s).\n", result.Provider.Name, result.ConfigPath); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Chave de API validada e salva.\nProvedor %s agora ativo (config: %s).\n", result.Provider.Name, result.ConfigPath); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -144,7 +144,7 @@ func runLoginDevice(stdout io.Writer, stderr io.Writer, deps appDeps, noBrowser 
 	auth, err := client.RequestDeviceCode(ctx)
 	if err != nil {
 		msg := redaction.ErrorMessage(err, redaction.Options{})
-		return writeAppError(stderr, "device login failed: "+msg, exitProvider)
+		return writeAppError(stderr, "Não foi possível concluir o login via dispositivo. Detalhe: "+msg, exitProvider)
 	}
 	uri := auth.VerificationURIComplete
 	if uri == "" {
@@ -158,21 +158,21 @@ func runLoginDevice(stdout io.Writer, stderr io.Writer, deps appDeps, noBrowser 
 		// warns, the printed link still works.
 		openCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		if err := deps.openBrowser(openCtx, uri); err != nil {
-			_, _ = fmt.Fprintf(stderr, "could not open the browser (%v); open the link above manually\n", err)
+			_, _ = fmt.Fprintf(stderr, "não foi possível abrir o navegador (%v); abra o link acima manualmente\n", err)
 		}
 		cancel()
 	}
 	key, err := client.PollDeviceToken(ctx, auth, qgaccount.DevicePollOptions{})
 	if err != nil {
 		msg := redaction.ErrorMessage(err, redaction.Options{ExtraSecretValues: []string{key}})
-		return writeAppError(stderr, "device login failed: "+msg, exitProvider)
+		return writeAppError(stderr, "Não foi possível concluir o login via dispositivo. Detalhe: "+msg, exitProvider)
 	}
 	if deps.validateLoginKey == nil {
 		return writeAppError(stderr, "login validator unavailable", exitCrash)
 	}
 	if validateErr := deps.validateLoginKey(ctx, key); validateErr != nil {
 		msg := redaction.RedactString(validateErr.Error(), redaction.Options{ExtraSecretValues: []string{key}})
-		return writeAppError(stderr, "login failed: "+msg, exitProvider)
+		return writeAppError(stderr, "Não foi possível concluir o login. Detalhe: "+msg, exitProvider)
 	}
 	result, saveErr := saveSetupProvider(deps, tui.SetupSelection{
 		CatalogID: providercatalog.QGID,
@@ -185,7 +185,7 @@ func runLoginDevice(stdout io.Writer, stderr io.Writer, deps appDeps, noBrowser 
 	if result.KeyStoreFallback {
 		warnKeyStoreFallback(stderr, result.ConfigPath)
 	}
-	if _, err := fmt.Fprintf(stdout, "API key validated and saved.\nProvider %s is now active (config: %s).\n", result.Provider.Name, result.ConfigPath); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Chave de API validada e salva.\nProvedor %s agora ativo (config: %s).\n", result.Provider.Name, result.ConfigPath); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -247,7 +247,7 @@ func readLoginKeyPrompt(stdout io.Writer, stdin io.Reader) (string, error) {
 		return "", nil
 	}
 	if file, ok := stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
-		if _, err := fmt.Fprint(stdout, "Quebra Galho API key: "); err != nil {
+		if _, err := fmt.Fprint(stdout, "Chave de API do Quebra Galho: "); err != nil {
 			return "", err
 		}
 		hidden, err := term.ReadPassword(int(file.Fd()))
@@ -259,7 +259,7 @@ func readLoginKeyPrompt(stdout io.Writer, stdin io.Reader) (string, error) {
 		}
 		return strings.TrimSpace(string(hidden)), nil
 	}
-	if _, err := fmt.Fprint(stdout, "Quebra Galho API key: "); err != nil {
+	if _, err := fmt.Fprint(stdout, "Chave de API do Quebra Galho: "); err != nil {
 		return "", err
 	}
 	line, err := bufio.NewReader(stdin).ReadString('\n')
