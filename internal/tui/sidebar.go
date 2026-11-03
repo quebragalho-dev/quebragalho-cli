@@ -105,7 +105,7 @@ func (m model) sidebarHasContent() bool {
 	if len(m.sidebarSpecialists()) > 0 || len(m.swarmSpawnedAgents()) > 0 {
 		return true
 	}
-	if len(m.touchedFiles()) > 0 || m.liveEditingPath() != "" {
+	if m.hasTouchedFiles() || m.liveEditingPath() != "" {
 		// A live in-flight write counts before its result row exists, so the
 		// FILES pulse for the session's first mutation isn't hidden.
 		return true

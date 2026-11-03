@@ -380,6 +380,9 @@ type model struct {
 	altScreenSettledItems    []transcriptBodyItem
 	altScreenSettledWidth    int
 	altScreenSettledFrontier int
+	// altScreenSettledDetailed holds the detailed view's (Ctrl+O) items for the
+	// same snapshot, built the first time the detailed view draws it.
+	altScreenSettledDetailed *transcriptDetailedSnapshot
 
 	// Composer input history (shell-style ↑/↓ recall of submitted inputs).
 	// lastPrompt is the verbatim text of the most recent submitted prompt, so

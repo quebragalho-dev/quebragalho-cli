@@ -309,3 +309,32 @@ func TestSidebarHasContentForLiveWrite(t *testing.T) {
 		t.Fatal("a live in-flight write must count as sidebar content")
 	}
 }
+
+// TestHasTouchedFilesMatchesTouchedFiles keeps the per-frame existence check in
+// step with the list it stands in for.
+func TestHasTouchedFilesMatchesTouchedFiles(t *testing.T) {
+	cases := map[string]func(*model){
+		"empty":      func(*model) {},
+		"no changes": func(m *model) { m.transcript = append(m.transcript, transcriptRow{kind: rowToolResult, tool: "grep"}) },
+		"empty path only": func(m *model) {
+			m.transcript = append(m.transcript, transcriptRow{kind: rowToolResult, changedFiles: []string{""}})
+		},
+		"call row with file": func(m *model) {
+			m.transcript = append(m.transcript, transcriptRow{kind: rowToolCall, changedFiles: []string{"a.go"}})
+		},
+		"changed file": func(m *model) {
+			m.transcript = append(m.transcript, transcriptRow{kind: rowToolResult, changedFiles: []string{"", "a.go"}})
+		},
+		"change summary": func(m *model) {
+			m.transcript = append(m.transcript, transcriptRow{kind: rowToolResult, changeSummaries: []execution.Change{{Path: "b.go"}}})
+		},
+		"git sweep": func(m *model) { m.gitTouched = append(m.gitTouched, gitSweepFile{path: "c.go"}) },
+	}
+	for name, setup := range cases {
+		m := transcriptViewTestModel()
+		setup(&m)
+		if got, want := m.hasTouchedFiles(), len(m.touchedFiles()) > 0; got != want {
+			t.Errorf("%s: hasTouchedFiles = %v, touchedFiles lists %d", name, got, len(m.touchedFiles()))
+		}
+	}
+}

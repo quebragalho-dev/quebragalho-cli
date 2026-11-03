@@ -41,6 +41,33 @@ type touchedFile struct {
 // can't persist a registry from View), mirroring swarmSpawnedAgents; the scan is
 // a single pass over the transcript per render, same order as the sidebar's
 // other sections.
+// hasTouchedFiles reports whether touchedFiles would list anything, without
+// building the list. Building it parses the diff of every edit in the session
+// for its line counts, and the composer's idle hint asks the question on every
+// frame (through sidebarHasContent): on a long session the footer alone parsed
+// the whole history once per frame.
+func (m model) hasTouchedFiles() bool {
+	if len(m.gitTouched) > 0 {
+		return true
+	}
+	for _, row := range m.transcript {
+		if row.kind != rowToolResult {
+			continue
+		}
+		for _, path := range row.changedFiles {
+			if path != "" {
+				return true
+			}
+		}
+		for _, summary := range row.changeSummaries {
+			if summary.Path != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (m model) touchedFiles() []touchedFile {
 	var files []touchedFile
 	index := map[string]int{}
@@ -383,7 +410,8 @@ func (m model) scrollOffsetForTranscriptRow(rowIndex int) (int, bool) {
 	items := m.transcriptBodyItems(width, "", false)
 	metrics := measureTranscriptBodyItems(items, m.transcriptBodyHeights)
 	startY := -1
-	for _, span := range metrics.spans {
+	for index := 0; index < metrics.spanCount(); index++ {
+		span := metrics.spanAt(index)
 		if span.kind == transcriptBodyItemRow && span.rowIndex == rowIndex {
 			startY = span.startY
 			break
