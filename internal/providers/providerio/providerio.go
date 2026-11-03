@@ -242,6 +242,7 @@ func SendEvent(ctx context.Context, events chan<- qgruntime.StreamEvent, event q
 // scanSSEPayloads accumulates SSE "data:" lines into payloads (joined across
 // continuation lines, flushed on a blank line or EOF) and forwards each to
 // handle. It is the shared core of ScanSSEData and the idle-aware variant.
+// A "[DONE]" payload ends the stream at once, without waiting for EOF.
 // onComment (optional) fires for ":"-prefixed comment lines — SSE keep-alive
 // heartbeats (e.g. OpenRouter's ": OPENROUTER PROCESSING") that carry no data
 // but prove the upstream is alive; returning false stops the scan.
@@ -253,8 +254,11 @@ func scanSSEPayloads(scanner *bufio.Scanner, handle func(data string) bool, onCo
 		}
 		data := strings.TrimSpace(strings.Join(dataLines, "\n"))
 		dataLines = dataLines[:0]
-		if data == "" || data == "[DONE]" {
+		if data == "" {
 			return true
+		}
+		if data == "[DONE]" {
+			return false
 		}
 		return handle(data)
 	}
@@ -274,7 +278,11 @@ func scanSSEPayloads(scanner *bufio.Scanner, handle func(data string) bool, onCo
 			continue
 		}
 		if strings.HasPrefix(line, "data:") {
-			dataLines = append(dataLines, strings.TrimLeft(strings.TrimPrefix(line, "data:"), " \t"))
+			fragment := strings.TrimLeft(strings.TrimPrefix(line, "data:"), " \t")
+			if len(dataLines) == 0 && strings.TrimSpace(fragment) == "[DONE]" {
+				return nil
+			}
+			dataLines = append(dataLines, fragment)
 		}
 	}
 	if err := scanner.Err(); err != nil {
