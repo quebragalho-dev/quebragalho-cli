@@ -299,13 +299,12 @@ function npmPrefixFromPackageRoot(root) {
   return null;
 }
 
-// Installs the new version globally with inherited stdio so the operator
-// watches npm do its work. Resolves npm the same way npm's own shims do:
-// directly off PATH on POSIX, through ComSpec on Windows.
-function installNpmUpdate(version) {
+// Installs the new version in the given global prefix with inherited stdio
+// so the operator watches npm do its work. Resolves npm the same way npm's
+// own shims do: directly off PATH on POSIX, through ComSpec on Windows.
+function installNpmUpdate(version, prefix) {
   const spec = `@quebragalho-dev/cli@${version}`;
-  const prefix = npmPrefixFromPackageRoot(packageRoot);
-  const args = prefix ? ['install', '-g', '--prefix', prefix, spec] : ['install', '-g', spec];
+  const args = ['install', '-g', '--prefix', prefix, spec];
   if (process.platform === 'win32') {
     return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm', ...args], { stdio: 'inherit' });
   }
@@ -393,11 +392,20 @@ if (child.signal) {
   process.kill(process.pid, child.signal);
 }
 
-// An installed update takes effect here: install globally, then reopen the
-// same command line. On npm failure print one line and still reopen — the
-// current version opens instead of leaving the user without a working qg.
+// An installed update takes effect here: install into the prefix owning this
+// wrapper, then reopen the same command line. Without an inferable prefix a
+// bare `npm install -g` would land in the default global prefix instead of
+// this install, so print the manual command and reopen the current version
+// instead of installing elsewhere. On npm failure print one line and still
+// reopen — the current version opens instead of leaving the user without a
+// working qg.
 if (handoffVersion !== null && child.status === 0) {
-  const installed = installNpmUpdate(handoffVersion);
+  const prefix = npmPrefixFromPackageRoot(packageRoot);
+  if (!prefix) {
+    console.error(`[qg] Não foi possível determinar o prefixo npm desta instalação (${packageRoot}); para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@${handoffVersion}. Abrindo a versão atual.`);
+    process.exit(reopenAfterNpmInstall(handoffVersion));
+  }
+  const installed = installNpmUpdate(handoffVersion, prefix);
   if (installed.error || installed.status !== 0) {
     console.error(`[qg] Não foi possível instalar a versão ${handoffVersion} via npm; abrindo a versão atual.`);
   }

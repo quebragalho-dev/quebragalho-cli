@@ -132,7 +132,7 @@ func FormatApply(result ApplyResult) string {
 	}
 	lines := []string{
 		fmt.Sprintf("[qg] %s (%s -> %s)", message, result.CurrentVersion, result.LatestVersion),
-		"Binary: " + result.BinaryPath,
+		"Binário: " + result.BinaryPath,
 	}
 	for _, warning := range result.Warnings {
 		lines = append(lines, "Warning: "+warning)
@@ -154,28 +154,42 @@ var (
 	}
 )
 
+// npmInstallCommand renders the manual reinstall command for human output.
+// A known prefix is always quoted, so copy/paste survives spaces.
+func npmInstallCommand(npmPrefix string, spec string) string {
+	if npmPrefix == "" {
+		return "npm install -g " + spec
+	}
+	return "npm install -g --prefix \"" + npmPrefix + "\" " + spec
+}
+
 // applyNpmUpdate reinstalls the package with `npm install -g` scoped to the
 // prefix owning the invoked installation, then verifies the invoked install
 // actually moved before reporting success. An unverifiable or unchanged
 // install is an honest error with the manual command, never an "updated".
 func applyNpmUpdate(ctx context.Context, executablePath string, wantVersion string) error {
-	npmPath, err := npmLookPath("npm")
-	if err != nil {
-		return fmt.Errorf("npm não encontrado no PATH: reinstale com `npm install -g %s@latest`", npmPackageName)
-	}
 	packageRoot, hasRoot := findNpmPackageRoot(executablePath)
 	prefix, hasPrefix := "", false
 	if hasRoot {
 		prefix, hasPrefix = npmPrefixFromPackageRoot(packageRoot)
 	}
-	args := []string{"install", "-g", npmPackageName + "@latest"}
-	manual := "npm install -g " + npmPackageName + "@latest"
+	spec := npmPackageName + "@" + wantVersion
+	args := []string{"install", "-g", spec}
+	manual := npmInstallCommand("", spec)
 	if hasPrefix {
-		args = []string{"install", "-g", "--prefix", prefix, npmPackageName + "@latest"}
-		manual = "npm install -g --prefix " + prefix + " " + npmPackageName + "@latest"
+		args = []string{"install", "-g", "--prefix", prefix, spec}
+		manual = npmInstallCommand(prefix, spec)
+	}
+	npmPath, err := npmLookPath("npm")
+	if err != nil {
+		return fmt.Errorf("npm não encontrado no PATH: reinstale com `%s`", manual)
 	}
 	if err := runNpm(ctx, npmPath, args); err != nil {
-		return fmt.Errorf("falha ao atualizar pelo npm (`%s`): %w", strings.Join(args, " "), err)
+		command := "npm " + strings.Join(args, " ")
+		if hasPrefix && isWritePermissionError(err) {
+			return fmt.Errorf("falha ao atualizar pelo npm (%s): %w. Sem permissão de escrita em %s. Para atualizar à mão, rode: %s", command, err, prefix, manual)
+		}
+		return fmt.Errorf("falha ao atualizar pelo npm (%s): %w. Para atualizar à mão, rode: %s", command, err, manual)
 	}
 	if !hasRoot {
 		return fmt.Errorf("a atualização via npm para %s não ficou ativa: não foi possível determinar o pacote npm da instalação atual (%s). Para atualizar à mão, rode: %s", wantVersion, executablePath, manual)
@@ -188,6 +202,23 @@ func applyNpmUpdate(ctx context.Context, executablePath string, wantVersion stri
 		return fmt.Errorf("a atualização via npm para %s não ficou ativa: a instalação em %s continua na versão %s. Para atualizar à mão, rode: %s", wantVersion, packageRoot, gotVersion, manual)
 	}
 	return nil
+}
+
+// isWritePermissionError reports whether an npm failure looks like a
+// filesystem permission refusal: EACCES/EPERM in text, or npm's EACCES exit
+// status 243 (observed: npm prints EACCES to stderr, which the updater does
+// not capture, and exits 243).
+func isWritePermissionError(err error) bool {
+	text := strings.ToLower(err.Error())
+	if strings.Contains(text, "eacces") ||
+		strings.Contains(text, "eperm") ||
+		strings.Contains(text, "permission denied") ||
+		strings.Contains(text, "operation not permitted") ||
+		strings.Contains(text, "access is denied") {
+		return true
+	}
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 243
 }
 
 func applyStandaloneUpdate(ctx context.Context, result Result, executablePath string) ([]string, error) {
@@ -270,7 +301,7 @@ func applyStandaloneUpdate(ctx context.Context, result Result, executablePath st
 			if errors.Is(err, ErrTargetPossiblyTampered) {
 				return nil, fmt.Errorf("update helper %s: %w", name, err)
 			}
-			warnings = append(warnings, fmt.Sprintf("failed to update helper %s: %v", name, err))
+			warnings = append(warnings, fmt.Sprintf("não foi possível atualizar o auxiliar %s: %v", name, err))
 		}
 	}
 	// Refresh helpers before the main executable. If a helper path may have

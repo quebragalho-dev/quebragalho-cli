@@ -858,52 +858,6 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
-// updateHandoffFixture is a wrapper checkout with a fake native binary that
-// plays the npm-handoff protocol: unless QG_UPDATE_JUST_INSTALLED is set, it
-// records QG_NPM_UPDATE_HANDOFF={"version":"9.9.99"} and exits 0. A fake npm
-// on PATH records its invocations. POSIX-only: the fakes are shell scripts,
-// and Windows coverage comes from the Tarefa 5 E2E VMs.
-type updateHandoffFixture struct {
-	wrapperPath string
-	binLog      string
-	npmLog      string
-}
-
-func newUpdateHandoffFixture(t *testing.T, npmExit string) updateHandoffFixture {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
-	}
-	root := filepath.Dir(filepath.Dir(copyWrapperFixture(t)))
-	binLog := filepath.Join(root, "qg-runs.log")
-	npmLog := filepath.Join(root, "npm-calls.log")
-	binary := filepath.Join(root, "qg")
-	script := "#!/bin/sh\n" +
-		"echo \"$@\" >> " + shellQuote(binLog) + "\n" +
-		"if [ -z \"$QG_UPDATE_JUST_INSTALLED\" ]; then\n" +
-		"  printf '{\"version\":\"9.9.99\"}' > \"$QG_NPM_UPDATE_HANDOFF\"\n" +
-		"fi\n" +
-		"exit 0\n"
-	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	npmShim := "#!/bin/sh\n" +
-		"echo \"$@\" >> " + shellQuote(npmLog) + "\n" +
-		"exit ${QG_TEST_NPM_EXIT:-0}\n"
-	npmPath := filepath.Join(root, "npm")
-	if err := os.WriteFile(npmPath, []byte(npmShim), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("QG_TEST_NPM_LOG", npmLog)
-	t.Setenv("QG_TEST_NPM_EXIT", npmExit)
-	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return updateHandoffFixture{
-		wrapperPath: filepath.Join(root, "bin", "qg.js"),
-		binLog:      binLog,
-		npmLog:      npmLog,
-	}
-}
-
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
@@ -922,41 +876,255 @@ func readLines(t *testing.T, path string) []string {
 }
 
 func TestWrapperRunsNpmOnHandoff(t *testing.T) {
-	fixture := newUpdateHandoffFixture(t, "0")
-	stdout, stderr, exitCode := runWrapperFixtureWithEnv(t, fixture.wrapperPath, nil, "--version")
+	if runtime.GOOS == "windows" {
+		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
+	}
+	prefix := t.TempDir()
+	canonical, err := filepath.EvalSymlinks(prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	binDir := filepath.Join(packageRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := os.ReadFile(filepath.Join(repoRoot(t), "bin", "qg.js"))
+	if err != nil {
+		t.Fatalf("ReadFile wrapper: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "package.json"), []byte(`{"type":"module"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrapperPath := filepath.Join(binDir, "qg.js")
+	if err := os.WriteFile(wrapperPath, bytes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binLog := filepath.Join(prefix, "qg-runs.log")
+	npmLog := filepath.Join(prefix, "npm-calls.log")
+	binary := filepath.Join(packageRoot, "qg")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(binLog) + "\n" +
+		"if [ -z \"$QG_UPDATE_JUST_INSTALLED\" ]; then\n" +
+		"  printf '{\"version\":\"9.9.99\"}' > \"$QG_NPM_UPDATE_HANDOFF\"\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	npmShim := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(npmLog) + "\n" +
+		"exit 0\n"
+	shimDir := filepath.Join(prefix, "shims")
+	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shimDir, "npm"), []byte(npmShim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, stderr, exitCode := runWrapperFixtureWithEnv(t, wrapperPath, nil, "--version")
 	if exitCode != wrapperExitSuccess {
-		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", exitCode, stdout, stderr)
+		t.Fatalf("exit = %d, want 0; stderr=%q", exitCode, stderr)
 	}
-	npmCalls := readLines(t, fixture.npmLog)
-	if len(npmCalls) != 1 || npmCalls[0] != "install -g @quebragalho-dev/cli@9.9.99" {
-		t.Fatalf("npm calls = %#v, want one global install of 9.9.99", npmCalls)
+	npmCalls := readLines(t, npmLog)
+	want := "install -g --prefix " + canonical + " @quebragalho-dev/cli@9.9.99"
+	if len(npmCalls) != 1 || npmCalls[0] != want {
+		t.Fatalf("npm calls = %#v, want %q", npmCalls, want)
 	}
-	binRuns := readLines(t, fixture.binLog)
+	binRuns := readLines(t, binLog)
 	if len(binRuns) != 2 {
 		t.Fatalf("native binary runs = %d, want 2 (install, then reopened)", len(binRuns))
 	}
 }
 
-func TestWrapperRelaunchesWhenNpmFails(t *testing.T) {
-	fixture := newUpdateHandoffFixture(t, "1")
-	stdout, stderr, exitCode := runWrapperFixtureWithEnv(t, fixture.wrapperPath, nil, "--version")
-	if exitCode != wrapperExitSuccess {
-		t.Fatalf("exit = %d, want 0 (reopen the current version); stdout=%q stderr=%q", exitCode, stdout, stderr)
+// TestWrapperRefusesBareInstallWithoutPrefix pins the P3.1 fail-closed rule:
+// without an inferable prefix the wrapper must not run a bare
+// `npm install -g` into the default global prefix. It prints the manual
+// command and reopens the current version instead.
+func TestWrapperRefusesBareInstallWithoutPrefix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
 	}
-	npmCalls := readLines(t, fixture.npmLog)
+	root := t.TempDir()
+	bytes, err := os.ReadFile(filepath.Join(repoRoot(t), "bin", "qg.js"))
+	if err != nil {
+		t.Fatalf("ReadFile wrapper: %v", err)
+	}
+	// A flat checkout copy: no node_modules/@quebragalho-dev/cli shape, so no
+	// prefix is inferable.
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"type":"module"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wrapperPath := filepath.Join(binDir, "qg.js")
+	if err := os.WriteFile(wrapperPath, bytes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binLog := filepath.Join(root, "qg-runs.log")
+	npmLog := filepath.Join(root, "npm-calls.log")
+	binary := filepath.Join(root, "qg")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(binLog) + "\n" +
+		"if [ -z \"$QG_UPDATE_JUST_INSTALLED\" ]; then\n" +
+		"  printf '{\"version\":\"9.9.99\"}' > \"$QG_NPM_UPDATE_HANDOFF\"\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	npmShim := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(npmLog) + "\n" +
+		"exit 0\n"
+	shimDir := filepath.Join(root, "shims")
+	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shimDir, "npm"), []byte(npmShim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, stderr, exitCode := runWrapperFixtureWithEnv(t, wrapperPath, nil, "--version")
+	if exitCode != wrapperExitSuccess {
+		t.Fatalf("exit = %d, want 0 (reopen the current version); stderr=%q", exitCode, stderr)
+	}
+	if _, err := os.Stat(npmLog); !os.IsNotExist(err) {
+		t.Fatalf("npm must not run without an inferable prefix; log: %q", strings.Join(readLines(t, npmLog), "\n"))
+	}
+	for _, want := range []string{"Não foi possível determinar o prefixo npm", "para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@9.9.99"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want it to contain %q", stderr, want)
+		}
+	}
+	binRuns := readLines(t, binLog)
+	if len(binRuns) != 2 {
+		t.Fatalf("native binary runs = %d, want 2 (refused install, then reopened)", len(binRuns))
+	}
+}
+
+func TestWrapperRelaunchesWhenNpmFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
+	}
+	prefix := t.TempDir()
+	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	binDir := filepath.Join(packageRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := os.ReadFile(filepath.Join(repoRoot(t), "bin", "qg.js"))
+	if err != nil {
+		t.Fatalf("ReadFile wrapper: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "package.json"), []byte(`{"type":"module"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrapperPath := filepath.Join(binDir, "qg.js")
+	if err := os.WriteFile(wrapperPath, bytes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binLog := filepath.Join(prefix, "qg-runs.log")
+	npmLog := filepath.Join(prefix, "npm-calls.log")
+	binary := filepath.Join(packageRoot, "qg")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(binLog) + "\n" +
+		"if [ -z \"$QG_UPDATE_JUST_INSTALLED\" ]; then\n" +
+		"  printf '{\"version\":\"9.9.99\"}' > \"$QG_NPM_UPDATE_HANDOFF\"\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	npmShim := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuote(npmLog) + "\n" +
+		"exit 1\n"
+	shimDir := filepath.Join(prefix, "shims")
+	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shimDir, "npm"), []byte(npmShim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, stderr, exitCode := runWrapperFixtureWithEnv(t, wrapperPath, nil, "--version")
+	if exitCode != wrapperExitSuccess {
+		t.Fatalf("exit = %d, want 0 (reopen the current version); stderr=%q", exitCode, stderr)
+	}
+	npmCalls := readLines(t, npmLog)
 	if len(npmCalls) != 1 {
 		t.Fatalf("npm calls = %#v, want exactly one failed install attempt", npmCalls)
 	}
 	if !strings.Contains(stderr, "9.9.99") {
 		t.Fatalf("expected the npm failure to name the version on stderr, got %q", stderr)
 	}
-	binRuns := readLines(t, fixture.binLog)
+	binRuns := readLines(t, binLog)
 	if len(binRuns) != 2 {
 		t.Fatalf("native binary runs = %d, want 2 (install, then reopened current)", len(binRuns))
 	}
 }
 
-// TestWrapperPassesPrefixOnHandoff is the regression test for the --prefix
+// TestWrapperWindowsPrefixShape drives the windowsLooking branch of the
+
+// TestWrapperWindowsPrefixShape evaluates the shipped
+// npmPrefixFromPackageRoot against Windows-shaped roots: a Windows package
+// root (backslashes, no lib segment) must yield its --prefix, while a Unix
+// local install must not. The function text is extracted from bin/qg.js and
+// run in node, so the mutant that drops the windowsLooking branch fails the
+// Windows vectors. A full wrapper run is impossible here: node refuses to
+// load a module whose path contains backslashes.
+func TestWrapperWindowsPrefixShape(t *testing.T) {
+	node := requireNode(t)
+	wrapper, err := os.ReadFile(filepath.Join(repoRoot(t), "bin", "qg.js"))
+	if err != nil {
+		t.Fatalf("ReadFile wrapper: %v", err)
+	}
+	start := strings.Index(string(wrapper), "function npmPrefixFromPackageRoot(root) {")
+	if start == -1 {
+		t.Fatal("npmPrefixFromPackageRoot not found in bin/qg.js")
+	}
+	rest := string(wrapper)[start:]
+	end := strings.Index(rest, "\n}\n")
+	if end == -1 {
+		t.Fatal("npmPrefixFromPackageRoot end not found in bin/qg.js")
+	}
+	function := rest[:end+3]
+	script := function + `
+const cases = [
+  ["/opt/p/lib/node_modules/@quebragalho-dev/cli", "/opt/p"],
+  ["C:\\g\\node_modules\\@quebragalho-dev\\cli", "C:/g"],
+  ["C:/g/node_modules/@quebragalho-dev/cli", "C:/g"],
+  ["/home/u/proj/node_modules/@quebragalho-dev/cli", null],
+  ["/x", null],
+];
+for (const [input, want] of cases) {
+  const got = npmPrefixFromPackageRoot(input);
+  if (got !== want) {
+    console.error("input " + input + ": got " + got + ", want " + want);
+    process.exit(1);
+  }
+}
+console.log("windows prefix shapes ok");
+`
+	probe := filepath.Join(t.TempDir(), "prefix-probe.mjs")
+	if err := os.WriteFile(probe, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), nodeWrapperTimeout())
+	defer cancel()
+	command := exec.CommandContext(ctx, node, probe)
+	command.Env = append(os.Environ(), "NODE_OPTIONS=")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("prefix probe failed: %v\n%s", err, output)
+	}
+}
+
 // bug: a wrapper installed with `npm install -g --prefix <prefix>` must
 // reinstall into that same prefix instead of the default global one.
 func TestWrapperPassesPrefixOnHandoff(t *testing.T) {

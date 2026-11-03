@@ -48,6 +48,10 @@ type Result struct {
 	// accurate. ApplyResult exposes the method after an install; adding it to
 	// check JSON would unnecessarily change that API.
 	installMethod InstallMethod
+	// npmPrefix is the --prefix owning this install when it could be inferred
+	// (same local-process-state status as installMethod: human guidance only,
+	// never serialized).
+	npmPrefix string
 }
 
 type AssetCheck struct {
@@ -187,6 +191,9 @@ func Check(ctx context.Context, options Options) (Result, error) {
 	}
 	if executablePath, executableErr := os.Executable(); executableErr == nil {
 		result.installMethod = DetectInstallMethod(executablePath)
+		if result.installMethod == InstallMethodNpm {
+			result.npmPrefix, _ = npmInstallPrefix(executablePath)
+		}
 	}
 	return result, nil
 }
@@ -222,15 +229,15 @@ func Format(result Result) string {
 	if result.UpdateAvailable {
 		lines := []string{
 			fmt.Sprintf("[qg] Atualização disponível: %s -> %s", result.CurrentVersion, result.LatestVersion),
-			"Release: " + result.ReleaseURL,
+			"Versão: " + result.ReleaseURL,
 		}
 		lines = appendAssetLines(lines, result.ReleaseAsset)
-		lines = append(lines, upgradeGuidance(result.ReleaseAsset, result.SourceFlag, result.installMethod))
+		lines = append(lines, upgradeGuidance(result.ReleaseAsset, result.SourceFlag, result.installMethod, result.npmPrefix))
 		return strings.Join(lines, "\n")
 	}
 	lines := []string{
-		fmt.Sprintf("[qg] atualizado (%s)", result.CurrentVersion),
-		"Latest release: " + result.ReleaseURL,
+		fmt.Sprintf("[qg] já está na versão mais recente (%s)", result.CurrentVersion),
+		"Última versão: " + result.ReleaseURL,
 	}
 	lines = appendAssetLines(lines, result.ReleaseAsset)
 	return strings.Join(lines, "\n")
@@ -241,11 +248,11 @@ func appendAssetLines(lines []string, asset AssetCheck) []string {
 		return lines
 	}
 	if target := releaseAssetTarget(asset); target != "" {
-		lines = append(lines, "Release target: "+target)
+		lines = append(lines, "Alvo da release: "+target)
 	}
-	lines = append(lines, "Release asset: "+asset.ArchiveName)
+	lines = append(lines, "Asset da release: "+asset.ArchiveName)
 	if asset.ChecksumName != "" {
-		lines = append(lines, "Checksum asset: "+asset.ChecksumName)
+		lines = append(lines, "Checksum do asset: "+asset.ChecksumName)
 	}
 	return lines
 }
@@ -287,7 +294,7 @@ func publishedReleaseTarget(goos, goarch string) string {
 //
 // An asset with no target recorded is the ordinary current-platform check (the
 // target fields are only populated when a target was resolved).
-func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallMethod) string {
+func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallMethod, npmPrefix string) string {
 	target := releaseAssetTarget(asset)
 	local := localReleaseTarget()
 	if target != "" && target != local {
@@ -321,9 +328,12 @@ func upgradeGuidance(asset AssetCheck, sourceFlag string, installMethod InstallM
 	}
 	if sourceFlag != "" {
 		if installMethod == InstallMethodNpm {
-			return "Esta instalação gerenciada pelo npm pode ser atualizada com `npm install -g " + npmPackageName + "@latest`, que instala o pacote oficial do npm. A fonte personalizada `" + sourceFlag + "` afeta só a verificação da release e a decisão de atualizar, não a instalação pelo npm."
+			return "Esta instalação gerenciada pelo npm pode ser atualizada com `" + npmInstallCommand(npmPrefix, npmPackageName+"@latest") + "`, que instala o pacote oficial do npm. A fonte personalizada `" + sourceFlag + "` afeta só a verificação da release e a decisão de atualizar, não a instalação pelo npm."
 		}
 		return "Rode `qg upgrade " + sourceFlag + "` para instalar a partir da fonte usada nesta verificação; `qg upgrade` sem a fonte não repete aquela fonte explícita."
+	}
+	if installMethod == InstallMethodNpm {
+		return "Esta instalação gerenciada pelo npm é atualizada com `qg upgrade`, que delega ao npm (`" + npmInstallCommand(npmPrefix, npmPackageName+"@latest") + "`)."
 	}
 	return "Rode `qg upgrade` para baixar, verificar e instalar a release mais recente."
 }

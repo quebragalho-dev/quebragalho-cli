@@ -437,10 +437,13 @@ func TestFormatResult(t *testing.T) {
 	if strings.Contains(output, "Update available:") {
 		t.Fatalf("update output kept the English headline: %q", output)
 	}
-	if !strings.Contains(output, "Release asset: qg-v0.2.0-linux-x64.tar.gz") || !strings.Contains(output, "Checksum asset: qg-v0.2.0-linux-x64.tar.gz.sha256") {
+	if !strings.Contains(output, "Asset da release: qg-v0.2.0-linux-x64.tar.gz") || !strings.Contains(output, "Checksum do asset: qg-v0.2.0-linux-x64.tar.gz.sha256") {
 		t.Fatalf("update output did not include release assets: %q", output)
 	}
-	if !strings.Contains(output, "Release target: linux-x64") {
+	if strings.Contains(output, "Release asset:") || strings.Contains(output, "Checksum asset:") {
+		t.Fatalf("update output kept the English asset labels: %q", output)
+	}
+	if !strings.Contains(output, "Alvo da release: linux-x64") {
 		t.Fatalf("update output did not include target-specific guidance: %q", output)
 	}
 	if strings.Contains(output, "your platform") {
@@ -474,13 +477,13 @@ func TestFormatResult(t *testing.T) {
 		ReleaseAsset:    assetCheckForTest(t, "v0.2.0", "linux", "amd64"),
 		UpdateAvailable: false,
 	})
-	if !strings.Contains(output, "atualizado") {
+	if !strings.Contains(output, "[qg] já está na versão mais recente (0.2.0)") {
 		t.Fatalf("unexpected up-to-date output: %q", output)
 	}
 	if strings.Contains(output, "up to date") {
 		t.Fatalf("up-to-date output kept the English status: %q", output)
 	}
-	if !strings.Contains(output, "Release target: linux-x64") {
+	if !strings.Contains(output, "Alvo da release: linux-x64") {
 		t.Fatalf("up-to-date output did not include release target: %q", output)
 	}
 }
@@ -541,6 +544,42 @@ func TestFormatCustomSourceCheckRepeatsTheSourceFlag(t *testing.T) {
 		if strings.Contains(output, "Run `qg upgrade`") {
 			t.Fatalf("default-source output = %q, kept the English call to action", output)
 		}
+	}
+}
+
+// TestUpgradeGuidanceNpmUsesQuotedPrefix pins the manual npm command with a
+// quoted --prefix, and that the default npm answer never describes the
+// standalone download-verify-install flow.
+func TestUpgradeGuidanceNpmUsesQuotedPrefix(t *testing.T) {
+	local := assetCheckForTest(t, "v0.2.0", runtime.GOOS, runtime.GOARCH)
+
+	custom := upgradeGuidance(local, "--repo someone/fork", InstallMethodNpm, `/opt/qg prefix`)
+	if !strings.Contains(custom, `npm install -g --prefix "/opt/qg prefix" @quebragalho-dev/cli@latest`) {
+		t.Fatalf("npm custom-source guidance = %q, want the quoted --prefix command", custom)
+	}
+	if strings.Contains(custom, "--prefix /opt") {
+		t.Fatalf("npm custom-source guidance left the prefix unquoted: %q", custom)
+	}
+
+	bare := upgradeGuidance(local, "--repo someone/fork", InstallMethodNpm, "")
+	if !strings.Contains(bare, "npm install -g @quebragalho-dev/cli@latest") {
+		t.Fatalf("npm custom-source guidance without prefix = %q, want the bare global command", bare)
+	}
+
+	def := upgradeGuidance(local, "", InstallMethodNpm, `/opt/qg prefix`)
+	if !strings.Contains(def, "`qg upgrade`") {
+		t.Fatalf("npm default guidance = %q, want it to name `qg upgrade`", def)
+	}
+	if strings.Contains(def, "baixar, verificar e instalar") {
+		t.Fatalf("npm default guidance describes the standalone flow: %q", def)
+	}
+	if !strings.Contains(def, `npm install -g --prefix "/opt/qg prefix"`) {
+		t.Fatalf("npm default guidance = %q, want the quoted --prefix command", def)
+	}
+
+	defBare := upgradeGuidance(local, "", InstallMethodNpm, "")
+	if strings.Contains(defBare, "baixar, verificar e instalar") {
+		t.Fatalf("npm default guidance without prefix describes the standalone flow: %q", defBare)
 	}
 }
 
