@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/cron"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 // runCron is the dispatch entry for `qg cron`.
@@ -36,7 +37,7 @@ func runCronWith(store *cron.Store, now func() time.Time, args []string, stdout 
 	case "add":
 		return cronAdd(store, now, rest, stdout, stderr)
 	case "list", "ls":
-		return cronList(store, now, stdout, stderr)
+		return cronList(store, now, rest, stdout, stderr)
 	case "rm", "remove":
 		return cronSimple(store, rest, stdout, stderr, func(id string) error { return store.Remove(id) }, "removida")
 	case "pause":
@@ -168,11 +169,35 @@ func cronAdd(store *cron.Store, now func() time.Time, args []string, stdout io.W
 	return exitSuccess
 }
 
-func cronList(store *cron.Store, now func() time.Time, stdout io.Writer, stderr io.Writer) int {
+func cronList(store *cron.Store, now func() time.Time, args []string, stdout io.Writer, stderr io.Writer) int {
+	asJSON := false
+	for _, a := range args {
+		switch a {
+		case "--json":
+			asJSON = true
+		case "-h", "--help":
+			writeCronHelp(stdout)
+			return exitSuccess
+		default:
+			if strings.HasPrefix(a, "-") {
+				return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida em cron list: %q", a))
+			}
+			return writeExecUsageError(stderr, fmt.Sprintf("argumento inesperado em cron list: %q", a))
+		}
+	}
 	jobs, err := store.List()
 	if err != nil {
 		// A corrupt job is surfaced as a warning; the listable jobs are still shown.
 		fmt.Fprintln(stderr, "warning:", err.Error())
+	}
+	if asJSON {
+		if jobs == nil {
+			jobs = []cron.Job{}
+		}
+		if err := writePrettyJSON(stdout, map[string]any{"jobs": redactCronJobs(jobs)}); err != nil {
+			return exitCrash
+		}
+		return exitSuccess
 	}
 	if len(jobs) == 0 {
 		fmt.Fprintln(stdout, "Nenhuma tarefa agendada.")
@@ -196,6 +221,13 @@ func cronList(store *cron.Store, now func() time.Time, stdout io.Writer, stderr 
 }
 
 func cronSimple(store *cron.Store, args []string, stdout io.Writer, stderr io.Writer, fn func(string) error, verb string) int {
+	if cronWantsHelp(args) {
+		writeCronHelp(stdout)
+		return exitSuccess
+	}
+	if rejectCronFlags(args, "rm", stderr) {
+		return exitUsage
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "Informe o id.")
 		return exitUsage
@@ -209,6 +241,13 @@ func cronSimple(store *cron.Store, args []string, stdout io.Writer, stderr io.Wr
 }
 
 func cronSetStatus(store *cron.Store, args []string, stdout io.Writer, stderr io.Writer, status string, verb string) int {
+	if cronWantsHelp(args) {
+		writeCronHelp(stdout)
+		return exitSuccess
+	}
+	if rejectCronFlags(args, "pause", stderr) {
+		return exitUsage
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "Informe o id.")
 		return exitUsage
@@ -242,6 +281,13 @@ func cronStatusDisplay(status string) string {
 
 // cronResume sets a job active and recomputes NextRunAt.
 func cronResume(store *cron.Store, now func() time.Time, args []string, stdout io.Writer, stderr io.Writer) int {
+	if cronWantsHelp(args) {
+		writeCronHelp(stdout)
+		return exitSuccess
+	}
+	if rejectCronFlags(args, "resume", stderr) {
+		return exitUsage
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "Informe o id.")
 		return exitUsage
@@ -273,6 +319,47 @@ func cronResume(store *cron.Store, now func() time.Time, args []string, stdout i
 	return exitSuccess
 }
 
+// cronWantsHelp reports whether -h/--help is present, so id-taking cron
+// subcommands (rm, pause, resume) print help before the flag guard rejects
+// dash-led arguments.
+func cronWantsHelp(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+// rejectCronFlags fails closed on dash-led arguments to id-taking cron
+// subcommands (rm, pause, resume): generated ids never start with "-", so such
+// an argument is always a misplaced flag (e.g. a trailing --json), which must
+// error loudly instead of being silently swallowed as an id.
+func rejectCronFlags(args []string, command string, stderr io.Writer) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida em cron %s: %q", command, a))
+			return true
+		}
+	}
+	return false
+}
+
+// redactCronJobs copies jobs for machine output: prompts may carry pasted
+// secrets (the store keeps them in plain text), so they are redacted, and
+// timestamps are normalized to UTC like the human rendering. The stored jobs
+// are left untouched.
+func redactCronJobs(jobs []cron.Job) []cron.Job {
+	out := make([]cron.Job, 0, len(jobs))
+	for _, j := range jobs {
+		j.Prompt = redaction.RedactString(j.Prompt, redaction.Options{})
+		j.NextRunAt = j.NextRunAt.UTC()
+		j.CreatedAt = j.CreatedAt.UTC()
+		out = append(out, j)
+	}
+	return out
+}
+
 func recipeIDs() string {
 	var ids []string
 	for _, r := range cron.Recipes() {
@@ -289,6 +376,7 @@ func formatCronTime(t time.Time) string {
 }
 
 func promptExcerpt(p string) string {
+	p = redaction.RedactString(p, redaction.Options{})
 	p = strings.TrimSpace(strings.ReplaceAll(p, "\n", " "))
 	if len(p) > 48 {
 		return cutRuneBoundary(p, 47) + "…"
@@ -302,7 +390,7 @@ func writeCronHelp(w io.Writer) {
 Uso:
   qg cron add <cron-expr> [--prompt P|--recipe R] [--cwd D]
       [--model M] [--run-now]
-  qg cron list
+  qg cron list [--json]
   qg cron pause <id> | resume <id> | rm <id>
   qg cron run [--once] [--catch-up] [id...]
 

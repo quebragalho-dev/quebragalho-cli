@@ -142,6 +142,15 @@ func saveStore(s store) error {
 	return nil
 }
 
+// NormalizedPath resolves a workspace root to the canonical absolute form the
+// store keys entries by (filepath.Abs then filepath.EvalSymlinks, falling back
+// to the Abs path when the target does not exist). It is the same normalization
+// Trust/Untrust/IsTrusted apply, exposed so callers can echo the exact stored
+// entry instead of the raw argument.
+func NormalizedPath(workspaceRoot string) (string, error) {
+	return normalize(workspaceRoot)
+}
+
 // IsTrusted reports whether workspaceRoot's own normalized root is in the trust
 // store. It is an EXACT membership check: no ancestor or subtree walk, so a
 // nested repo under a trusted root is not trusted. An empty root returns

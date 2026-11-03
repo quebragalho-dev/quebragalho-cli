@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/workspacetrust"
@@ -23,7 +24,7 @@ func runTrust(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	}
 	switch args[0] {
 	case "list":
-		return trustList(stdout, stderr)
+		return trustList(args[1:], stdout, stderr)
 	case "remove", "rm", "untrust":
 		return trustRemove(args[1:], stdout, stderr, deps)
 	case "-h", "--help", "help":
@@ -58,11 +59,35 @@ func trustCurrentDir(stdout io.Writer, stderr io.Writer, deps appDeps) int {
 }
 
 // trustList prints each trusted root, one per line, or a friendly line when none
-// are trusted.
-func trustList(stdout io.Writer, stderr io.Writer) int {
+// are trusted. With --json it prints {"roots": [...]} ([] when empty).
+func trustList(args []string, stdout io.Writer, stderr io.Writer) int {
+	asJSON := false
+	for _, a := range args {
+		switch a {
+		case "--json":
+			asJSON = true
+		case "-h", "--help":
+			writeTrustUsage(stdout)
+			return exitSuccess
+		default:
+			if strings.HasPrefix(a, "-") {
+				return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida em trust list: %q", a))
+			}
+			return writeExecUsageError(stderr, fmt.Sprintf("argumento inesperado em trust list: %q", a))
+		}
+	}
 	roots, err := workspacetrust.List()
 	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	if asJSON {
+		if roots == nil {
+			roots = []string{}
+		}
+		if err := writePrettyJSON(stdout, map[string]any{"roots": roots}); err != nil {
+			return exitCrash
+		}
+		return exitSuccess
 	}
 	if len(roots) == 0 {
 		if _, err := fmt.Fprintln(stdout, "Nenhuma pasta de trabalho confiável."); err != nil {
@@ -78,13 +103,31 @@ func trustList(stdout io.Writer, stderr io.Writer) int {
 	return exitSuccess
 }
 
-// trustRemove untrusts the current directory, or a named path when one is given.
-// The path argument is passed to workspacetrust.Untrust verbatim, which normalizes
-// it (filepath.Abs + filepath.EvalSymlinks) the same way the store does, so a
-// relative or trailing-slash argument still matches the stored entry.
+// trustRemove untrusts the current directory, or a named path when one is given,
+// accepting --json in any position. The JSON payload echoes the normalized path
+// (the same entry `trust list` shows) and whether it was actually listed. The
+// human text keeps echoing the argument as given.
 func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			writeTrustUsage(stdout)
+			return exitSuccess
+		}
+	}
+	asJSON := false
+	var positional []string
+	for _, a := range args {
+		switch {
+		case a == "--json":
+			asJSON = true
+		case strings.HasPrefix(a, "-"):
+			return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida em trust remove: %q", a))
+		default:
+			positional = append(positional, a)
+		}
+	}
 	var target string
-	switch len(args) {
+	switch len(positional) {
 	case 0:
 		cwd, err := deps.getwd()
 		if err != nil {
@@ -93,15 +136,29 @@ func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		}
 		target = cwd
 	case 1:
-		target = args[0]
+		target = positional[0]
 	default:
 		if _, err := fmt.Fprintln(stderr, "usage: qg trust remove [path]"); err != nil {
 			return exitCrash
 		}
 		return exitUsage
 	}
-	if err := workspacetrust.Untrust(target); err != nil {
+	normalized, err := workspacetrust.NormalizedPath(target)
+	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	wasTrusted, err := workspacetrust.IsTrusted(normalized)
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	if err := workspacetrust.Untrust(normalized); err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	if asJSON {
+		if err := writePrettyJSON(stdout, map[string]any{"path": normalized, "removed": wasTrusted}); err != nil {
+			return exitCrash
+		}
+		return exitSuccess
 	}
 	if _, err := fmt.Fprintf(stdout, "Pasta de trabalho removida da lista de confiáveis: %s\n", target); err != nil {
 		return exitCrash
@@ -112,8 +169,9 @@ func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 func writeTrustUsage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Uso:
   qg trust                Confia na pasta de trabalho atual
-  qg trust list           Lista as raízes de pasta confiáveis
-  qg trust remove [path]  Desconfia da pasta atual, ou de um caminho dado
+  qg trust list [--json]  Lista as raízes de pasta confiáveis
+  qg trust remove [--json] [path]
+                          Desconfia da pasta atual, ou de um caminho dado
 
 Confiar deixa o QG rodar hooks, plugins e servidores MCP do projeto da pasta
 (./.qg/hooks.json, ./.qg/plugins/, config MCP do projeto) e iniciar
