@@ -39,7 +39,7 @@ func TestBatchFiveTopBorderKeepsModelRightAligned(t *testing.T) {
 	}
 }
 
-func TestBatchFiveUsageCommandSurvivesClearWithFrozenCost(t *testing.T) {
+func TestBatchFiveUsageCommandResetsOnClearWithNewSession(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	m.provider = &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 12000, OutputTokens: 771}}, {Type: qgruntime.StreamEventDone}}}}
 	m.activeRunID = 1
@@ -52,10 +52,12 @@ func TestBatchFiveUsageCommandSurvivesClearWithFrozenCost(t *testing.T) {
 	updated, _ = m.dispatchCommand(parseCommand("/usage"))
 	m = updated.(model)
 	text := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"12.771", m.modelName, "R$ 0,02", "Janela: 1.000.000 tokens"} {
+	for _, want := range []string{"Uso não informado", m.modelName} {
 		assertContains(t, text, want)
 	}
-	assertNotContains(t, plainRender(t, m.statusLine(120)), "12.771 tok")
+	for _, unwanted := range []string{"12.771", "R$ 0,02", "12.771 tok"} {
+		assertNotContains(t, text+plainRender(t, m.statusLine(120)), unwanted)
+	}
 	assertNotContains(t, plainRender(t, m.statusLine(120)), "toks/s")
 	assertContains(t, helpText(), "/usage")
 }

@@ -67,11 +67,12 @@ func (level contextLevel) style() lipgloss.Style {
 	}
 }
 
-// contextMeterUse returns the input tokens of the last completed call for
-// the current model. Only receipts tagged with the current model count, so a
-// stale value never survives a model switch.
+// contextMeterUse returns the last completed call's input tokens for the
+// live context meter. The usage belongs to the session, not to the model:
+// after a model switch the same figure renders against the new window, and
+// the next completed call corrects it.
 func (m model) contextMeterUse() (int, bool) {
-	if m.meterLive && m.lastUsageSeen && m.lastUsageReceipt.meta["model"] == m.modelName && m.lastUsage.InputTokens > 0 {
+	if m.meterLive && m.lastUsageSeen && m.lastUsage.InputTokens > 0 {
 		return m.lastUsage.InputTokens, true
 	}
 	return 0, false

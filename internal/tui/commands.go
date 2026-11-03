@@ -189,7 +189,7 @@ var commandDefinitions = []commandDefinition{
 		name:        "/clear",
 		usage:       "/clear",
 		group:       commandGroupMeta,
-		description: "Limpa o histórico visível.",
+		description: "Limpa a conversa e começa do zero.",
 		kind:        commandClear,
 	},
 	{

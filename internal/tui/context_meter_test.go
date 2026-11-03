@@ -183,8 +183,9 @@ func batchMeterModelName(t *testing.T) string {
 	return batchThreeLiveModel(t).modelName
 }
 
-// Switching models zeroes the meter: the new model restarts from its window.
-func TestContextMeterResetsOnModelSwitch(t *testing.T) {
+// Switching models keeps the session usage and renders it against the new
+// window; the next completed call corrects the figure.
+func TestContextMeterFollowsUsageAcrossModelSwitch(t *testing.T) {
 	baseProfile := config.ProviderProfile{
 		Name:         "qg",
 		CatalogID:    "qg",
@@ -202,11 +203,12 @@ func TestContextMeterResetsOnModelSwitch(t *testing.T) {
 			return &fakeProvider{}, nil
 		},
 	})
-	window := int64(1000000)
+	window1M := int64(1000000)
+	window500k := int64(500000)
 	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{
 		"qg": {
-			{ID: "muse-spark-1.3-contributor", Source: "live", APIModel: &qgaccount.ModelInfo{ID: "muse-spark-1.3-contributor", ContextLength: &window}},
-			{ID: "other-model", Source: "live", APIModel: &qgaccount.ModelInfo{ID: "other-model", ContextLength: &window}},
+			{ID: "muse-spark-1.3-contributor", Source: "live", APIModel: &qgaccount.ModelInfo{ID: "muse-spark-1.3-contributor", ContextLength: &window1M}},
+			{ID: "other-model", Source: "live", APIModel: &qgaccount.ModelInfo{ID: "other-model", ContextLength: &window500k}},
 		},
 	}
 	m, _ = m.recordUsageEvent("muse-spark-1.3-contributor", qgruntime.Usage{InputTokens: 300000, OutputTokens: 10}, transcriptRow{})
@@ -217,15 +219,59 @@ func TestContextMeterResetsOnModelSwitch(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("switch refused: %v", err)
 	}
+	if !next.meterLive {
+		t.Fatal("model switch must keep the meter live on the session usage")
+	}
+	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "60% · 300k/500k") {
+		t.Fatalf("switched status should recalculate against the new window, got %q", got)
+	}
+}
+
+// A compaction before the switch still zeroes the meter: the switch must
+// not resurrect the old fill, and the next call sets the new value.
+func TestContextMeterSwitchAfterCompactionStaysZeroed(t *testing.T) {
+	baseProfile := config.ProviderProfile{
+		Name:         "qg",
+		CatalogID:    "qg",
+		ProviderKind: config.ProviderKindOpenAICompatible,
+		BaseURL:      "https://api.quebragalho.dev/v1",
+		APIKey:       "sk-test",
+		Model:        "muse-spark-1.3-contributor",
+	}
+	m := newModel(context.Background(), Options{
+		ProviderName:    "qg",
+		ModelName:       "muse-spark-1.3-contributor",
+		ProviderProfile: baseProfile,
+		Provider:        &fakeProvider{},
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
+			return &fakeProvider{}, nil
+		},
+	})
+	window1M := int64(1000000)
+	window500k := int64(500000)
+	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{
+		"qg": {
+			{ID: "muse-spark-1.3-contributor", Source: "live", APIModel: &qgaccount.ModelInfo{ID: "muse-spark-1.3-contributor", ContextLength: &window1M}},
+			{ID: "other-model", Source: "live", APIModel: &qgaccount.ModelInfo{ID: "other-model", ContextLength: &window500k}},
+		},
+	}
+	m, _ = m.recordUsageEvent("muse-spark-1.3-contributor", qgruntime.Usage{InputTokens: 300000, OutputTokens: 10}, transcriptRow{})
+	m.compactInFlight = true
+	updated, _ := m.Update(compactResultMsg{result: CompactResult{Compacted: true}})
+	m = updated.(model)
+	next, _, ok, err := m.handleModelCommandScope("other-model", false)
+	if err != nil || !ok {
+		t.Fatalf("switch refused: %v", err)
+	}
 	if next.meterLive {
-		t.Fatal("model switch must zero the meter")
+		t.Fatal("a compaction before the switch must keep the meter zeroed")
 	}
-	got := plainRender(t, next.statusLine(120))
-	if strings.Contains(got, "30%") {
-		t.Fatalf("switched status must not show the old fill, got %q", got)
+	if got := plainRender(t, next.statusLine(120)); strings.Contains(got, "%") || !strings.Contains(got, "janela 500k") {
+		t.Fatalf("switched status should show only the new window, got %q", got)
 	}
-	if !strings.Contains(got, "janela 1m") {
-		t.Fatalf("switched status should show the new model window, got %q", got)
+	next, _ = next.recordUsageEvent(next.modelName, qgruntime.Usage{InputTokens: 100000, OutputTokens: 10}, transcriptRow{})
+	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "20% · 100k/500k") {
+		t.Fatalf("next call should set the new fill, got %q", got)
 	}
 }
 
@@ -241,47 +287,56 @@ func TestContextMeterResetsOnNewSession(t *testing.T) {
 	}
 }
 
-// /clear keeps the session context, so the meter keeps showing it: the
-// next completed call refreshes the figure.
-func TestContextMeterSurvivesClear(t *testing.T) {
+// /clear starts a fresh session like /new: usage, panel and meter reset,
+// and the previous session stays available under /resume.
+func TestContextMeterClearsWithNewSession(t *testing.T) {
 	m := meterFixture(t, 1000000, 300000, batchMeterModelName(t))
-	before := plainRender(t, m.composerDividerLine(80))
+	store := testSessionStore(t)
+	session, err := store.Create(sessions.CreateInput{SessionID: "before-clear"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.sessionStore = store
+	m.activeSession = session
 	updated, _ := m.dispatchCommand(parseCommand("/clear"))
 	next := updated.(model)
-	if !next.meterLive {
-		t.Fatal("/clear must keep the meter live on the intact context")
+	if next.meterLive || next.lastUsageSeen {
+		t.Fatal("/clear must zero usage and the meter with the fresh session")
 	}
-	if !next.lastUsageSeen {
-		t.Fatal("/clear must keep the panel's last call")
+	if next.activeSession.SessionID != "" {
+		t.Fatalf("/clear must leave no active session, got %q", next.activeSession.SessionID)
 	}
-	got := plainRender(t, next.statusLine(120))
-	if !strings.Contains(got, "30% · 300k/1m") {
-		t.Fatalf("cleared status must keep the fill, got %q", got)
+	if got := transcriptText(next.transcript); !strings.Contains(got, "Sessão anterior salva como before-clear") || !strings.Contains(got, "/resume before-clear") {
+		t.Fatalf("/clear must point at the saved previous session, got %q", got)
 	}
-	if after := plainRender(t, next.composerDividerLine(80)); after != before {
-		t.Fatalf("cleared border must keep the fill:\nbefore %q\nafter  %q", before, after)
+	if got := plainRender(t, next.statusLine(120)); strings.Contains(got, "30%") || !strings.Contains(got, "janela 1m") {
+		t.Fatalf("cleared status must restart from the window, got %q", got)
+	}
+	if divider := plainRender(t, next.composerDividerLine(80)); strings.Contains(divider, "━") {
+		t.Fatalf("cleared border must have no fill:\n%s", divider)
+	}
+	if got, err := store.Get("before-clear"); err != nil || got == nil {
+		t.Fatalf("previous session must stay resumable: %v (%v)", got, err)
 	}
 }
 
-// A receipt tagged with another model never feeds this model's meter.
-func TestContextMeterIgnoresOtherModelReceipt(t *testing.T) {
+// Usage belongs to the session, not to the model: a receipt tagged with
+// another model still feeds this session's meter.
+func TestContextMeterCountsForeignModelReceipt(t *testing.T) {
 	m := meterFixture(t, 1000000, 0, "")
 	m, _ = m.recordUsageEvent("other-model", qgruntime.Usage{InputTokens: 300000, OutputTokens: 10}, transcriptRow{})
-	if m.meterLive && m.lastUsageReceipt.meta["model"] == m.modelName {
-		t.Fatal("foreign receipt must not count for the current model")
+	if !m.meterLive {
+		t.Fatal("a recorded call must go live even with another model's tag")
 	}
 	got := plainRender(t, m.statusLine(120))
-	if strings.Contains(got, "30%") || strings.Contains(got, "300k/1m") {
-		t.Fatalf("foreign receipt must not fill the meter, got %q", got)
-	}
-	if !strings.Contains(got, "janela 1m") {
-		t.Fatalf("meter should fall back to the window, got %q", got)
+	if !strings.Contains(got, "30% · 300k/1m") {
+		t.Fatalf("foreign receipt must fill the session meter, got %q", got)
 	}
 }
 
-// Resuming adopts the session's own receipt: a same-model receipt fills the
-// meter at once, anything else leaves it empty. The previous live value
-// never leaks through.
+// Resuming adopts the session's own receipt whatever its model tag: usage
+// belongs to the session. A session without usage leaves the meter empty,
+// and the previous live value never leaks through the reload.
 func TestContextMeterFollowsResumedReceipt(t *testing.T) {
 	resumeWithUsage := func(t *testing.T, payload string) model {
 		t.Helper()
@@ -325,11 +380,11 @@ func TestContextMeterFollowsResumedReceipt(t *testing.T) {
 		if !m.lastUsageSeen {
 			t.Fatal("resume must reload the panel's last call from session events")
 		}
-		if _, ok := m.contextMeterUse(); ok {
-			t.Fatal("a foreign receipt must not feed this model's meter")
+		if !m.meterLive {
+			t.Fatal("resume must adopt the restored receipt regardless of its model tag")
 		}
-		if got := plainRender(t, m.statusLine(120)); !strings.Contains(got, "janela 1m") || strings.Contains(got, "40%") {
-			t.Fatalf("resumed status should fall back to the window, got %q", got)
+		if got := plainRender(t, m.statusLine(120)); !strings.Contains(got, "40% · 400k/1m") {
+			t.Fatalf("resumed status should show the restored 40%%, got %q", got)
 		}
 	})
 

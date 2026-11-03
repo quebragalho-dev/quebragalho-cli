@@ -249,8 +249,8 @@ func TestClearResetsFlushFrontier(t *testing.T) {
 	if len(next.transcript) != 2 || next.transcript[0].kind != rowWelcome {
 		t.Fatalf("expected /clear to reset transcript to welcome + note, got %#v", next.transcript)
 	}
-	if !transcriptContains(next.transcript, "/new") {
-		t.Fatalf("expected /clear to point users to /new, got %#v", next.transcript)
+	if !transcriptContains(next.transcript, "Nova sessão iniciada") {
+		t.Fatalf("expected /clear to start a fresh session like /new, got %#v", next.transcript)
 	}
 	if next.flushed != len(next.transcript) {
 		t.Fatalf("expected frontier reset to match cleared transcript (%d rows), got %d", len(next.transcript), next.flushed)
