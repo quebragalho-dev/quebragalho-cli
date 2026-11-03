@@ -161,9 +161,14 @@ func TestFormatListSurfacesOptionalMetadata(t *testing.T) {
 		License:       "MIT",
 		Keywords:      []string{"automation", "macos"},
 	}}, nil)
-	for _, want := range []string{"author: OpenAI", "license: MIT", "keywords: automation, macos"} {
+	for _, want := range []string{"autor: OpenAI", "licença: MIT", "palavras-chave: automation, macos", "Plugins QG:", "ativado"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("FormatList output missing %q:\n%s", want, output)
+		}
+	}
+	for _, banned := range []string{"author: OpenAI", "license: MIT", "keywords: ", "QG Plugins:", "enabled"} {
+		if strings.Contains(output, banned) {
+			t.Fatalf("FormatList kept English %q:\n%s", banned, output)
 		}
 	}
 }

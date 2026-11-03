@@ -6,22 +6,22 @@ import (
 )
 
 func FormatList(result LoadResult) string {
-	lines := []string{"QG Specialists:"}
+	lines := []string{"Especialistas QG:"}
 	for _, warning := range result.Warnings {
-		lines = append(lines, "  warning: "+warning)
+		lines = append(lines, "  aviso: "+warning)
 	}
 	if len(result.Specialists) == 0 {
-		lines = append(lines, "  (none)")
+		lines = append(lines, "  (nenhum)")
 		return strings.Join(lines, "\n")
 	}
 	for _, manifest := range result.Specialists {
 		lines = append(lines, fmt.Sprintf("  %s [%s] - %s", manifest.Metadata.Name, manifest.Location, manifest.Metadata.Description))
 		tools := formatTools(manifest)
 		if tools != "" {
-			lines = append(lines, "    tools: "+tools)
+			lines = append(lines, "    ferramentas: "+tools)
 		}
 		if len(manifest.Warnings) > 0 {
-			lines = append(lines, "    warnings: "+strings.Join(manifest.Warnings, "; "))
+			lines = append(lines, "    avisos: "+strings.Join(manifest.Warnings, "; "))
 		}
 	}
 	return strings.Join(lines, "\n")

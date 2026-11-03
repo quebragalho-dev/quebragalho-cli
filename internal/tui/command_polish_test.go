@@ -35,10 +35,11 @@ func TestHelpCommandRendersGroupedSections(t *testing.T) {
 		"Meta",
 		"  /model [list|id]",
 		"  /permissions",
-		"hint: escreva um texto para perguntar ao QG",
+		"dica: escreva um texto para perguntar ao QG",
 	} {
 		assertContains(t, text, want)
 	}
+	assertNotContains(t, text, "hint: escreva um texto")
 	assertNotContains(t, text, "Commands:\n/provider")
 }
 
@@ -127,7 +128,7 @@ func TestToolsCommandRendersCommandCard(t *testing.T) {
 		"0 registered | no tools available",
 		"Registry",
 		"registered  0",
-		"actions: /mcp manage servers | /permissions manage access",
+		"ações: /mcp manage servers | /permissions manage access",
 	} {
 		assertContains(t, emptyText, want)
 	}
@@ -155,7 +156,7 @@ func TestToolsCommandRendersCommandCard(t *testing.T) {
 		"registered  1",
 		"Available",
 		"- read_file",
-		"actions: /mcp manage servers | /permissions manage access",
+		"ações: /mcp manage servers | /permissions manage access",
 	} {
 		assertContains(t, toolsText, want)
 	}
@@ -286,7 +287,7 @@ func TestContextAndPermissionsCommandsRenderProductState(t *testing.T) {
 		"compaction  idle",
 		"Tools",
 		"registered  1",
-		"actions: /permissions manage access | /tools inspect catalog",
+		"ações: /permissions manage access | /tools inspect catalog",
 	} {
 		assertContains(t, contextText, want)
 	}

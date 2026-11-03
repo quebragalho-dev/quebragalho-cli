@@ -309,7 +309,7 @@ func TestCompactCommandCallsInjectedCompactorAndReportsResult(t *testing.T) {
 			t.Fatalf("expected compact start transcript to contain %q, got %#v", want, next.transcript)
 		}
 	}
-	for _, unwanted := range []string{"context window:", "compactable:", "hint:", "State"} {
+	for _, unwanted := range []string{"context window:", "compactable:", "hint:", "dica:", "State"} {
 		if transcriptContains(next.transcript, unwanted) {
 			t.Fatalf("compact running transcript should not contain diagnostic %q, got %#v", unwanted, next.transcript)
 		}
@@ -348,7 +348,7 @@ func TestCompactCommandCallsInjectedCompactorAndReportsResult(t *testing.T) {
 			t.Fatalf("expected compact transcript to contain %q, got %#v", want, next.transcript)
 		}
 	}
-	for _, unwanted := range []string{"context window:", "compactable:", "hint:", "summarized earlier turns"} {
+	for _, unwanted := range []string{"context window:", "compactable:", "hint:", "dica:", "summarized earlier turns"} {
 		if transcriptContains(next.transcript, unwanted) {
 			t.Fatalf("compact completion transcript should not contain diagnostic %q, got %#v", unwanted, next.transcript)
 		}

@@ -411,8 +411,11 @@ func TestFormatListUsesSpecialistTerminology(t *testing.T) {
 		FilePath: "(builtin)",
 	}}}
 	output := FormatList(result)
-	if !strings.Contains(output, "QG Specialists") || !strings.Contains(output, "worker [builtin]") {
+	if !strings.Contains(output, "Especialistas QG:") || !strings.Contains(output, "worker [builtin]") {
 		t.Fatalf("unexpected list output: %s", output)
+	}
+	if strings.Contains(output, "QG Specialists:") || strings.Contains(output, "tools: ") || strings.Contains(output, "warning: ") {
+		t.Fatalf("list output kept English labels: %s", output)
 	}
 	show := FormatShow(result.Specialists[0])
 	if !strings.Contains(show, "extends: base") {

@@ -139,5 +139,5 @@ func writePluginActivationWarning(stderr io.Writer, message string) {
 	if stderr == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(stderr, "[qg] WARNING: plugin activation: %s\n", message)
+	_, _ = fmt.Fprintf(stderr, "[qg] Aviso: plugin activation: %s\n", message)
 }

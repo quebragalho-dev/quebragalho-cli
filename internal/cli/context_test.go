@@ -54,9 +54,14 @@ func TestRunContextTextReport(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	for _, want := range []string{"QG context report", "root: " + cwd, "model: gpt-4.1"} {
+	for _, want := range []string{"Relatório de contexto do QG", "pasta: " + cwd, "modelo: gpt-4.1"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected context output to contain %q, got %q", want, stdout.String())
+		}
+	}
+	for _, banned := range []string{"QG context report", "root: " + cwd, "provider: "} {
+		if strings.Contains(stdout.String(), banned) {
+			t.Fatalf("context output kept English %q, got %q", banned, stdout.String())
 		}
 	}
 	if stderr.Len() != 0 {

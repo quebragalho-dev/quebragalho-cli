@@ -764,7 +764,7 @@ func renderCommandCardRow(text string, width int) string {
 				lines = append(lines, styled)
 			}
 		case isCommandCardActionsLine(trimmed):
-			lines = append(lines, qgTheme.accent.Render("actions: ")+qgTheme.ink.Render(strings.TrimSpace(strings.TrimPrefix(trimmed, "actions:"))))
+			lines = append(lines, qgTheme.accent.Render("ações: ")+qgTheme.ink.Render(strings.TrimSpace(commandCardActionsContent(trimmed))))
 		case isCommandCardHintLine(trimmed):
 			lines = append(lines, qgTheme.faint.Render(line))
 		case isIndentedCommandCardRow(line):
@@ -882,11 +882,18 @@ func styledCommandCardStatus(trimmed string) string {
 }
 
 func isCommandCardActionsLine(trimmed string) bool {
-	return strings.HasPrefix(trimmed, "actions:")
+	return strings.HasPrefix(trimmed, "ações:") || strings.HasPrefix(trimmed, "actions:")
+}
+
+func commandCardActionsContent(trimmed string) string {
+	if rest, ok := strings.CutPrefix(trimmed, "ações:"); ok {
+		return rest
+	}
+	return strings.TrimPrefix(trimmed, "actions:")
 }
 
 func isCommandCardHintLine(trimmed string) bool {
-	return strings.HasPrefix(trimmed, "hint:")
+	return strings.HasPrefix(trimmed, "dica:") || strings.HasPrefix(trimmed, "hint:")
 }
 
 func renderMCPManagerCard(text string, width int) string {
@@ -1003,7 +1010,7 @@ func renderDoctorResultCard(text string, width int) string {
 			lines = append(lines, qgTheme.amber.Render(line))
 		case strings.HasPrefix(trimmed, "- [fail]"):
 			lines = append(lines, qgTheme.red.Render(line))
-		case strings.HasPrefix(trimmed, "hint:"):
+		case strings.HasPrefix(trimmed, "hint:") || strings.HasPrefix(trimmed, "dica:"):
 			lines = append(lines, qgTheme.faint.Render(line))
 		case strings.HasPrefix(trimmed, "/") ||
 			strings.HasPrefix(trimmed, "WSL2") ||

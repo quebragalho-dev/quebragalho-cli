@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -68,7 +69,7 @@ func (writer *execEventWriter) warning(message string) {
 		writer.writeStreamJSON(streamjson.Event{Type: streamjson.EventWarning, RunID: writer.runID, Message: message})
 		return
 	}
-	writer.writeStderr("[qg] WARNING: " + humanExecMessage(message) + "\n")
+	writer.writeStderr("[qg] Aviso: " + humanExecMessage(message) + "\n")
 }
 
 // humanExecMessage renders a canonical exec warning or error message for a
@@ -95,8 +96,9 @@ var humanExecMessageTable = map[string]string{
 	"Unsafe permissions are active for this run because --permission-mode unsafe was passed.":       "Permissões sem confirmação ativas nesta execução porque --permission-mode unsafe foi passado.",
 	"run cancelled by signal":          "execução cancelada por sinal",
 	"run stopped with work unfinished": "execução parada com trabalho inacabado",
-	"Response was cut off at the output token limit and may be incomplete. Raise the model's max output tokens or ask qg to continue.": "A resposta foi cortada no limite de tokens de saída e pode estar incompleta. Aumente o máximo de tokens de saída do modelo ou peça ao qg para continuar.",
-	"Response was withheld or cut by the provider's content filter and may be incomplete.":                                             "A resposta foi retida ou cortada pelo filtro de conteúdo do provedor e pode estar incompleta.",
+	"Response was cut off at the output token limit and may be incomplete. Raise the model's max output tokens or ask qg to continue.":                                              "A resposta foi cortada no limite de tokens de saída e pode estar incompleta. Aumente o máximo de tokens de saída do modelo ou peça ao qg para continuar.",
+	"Response was withheld or cut by the provider's content filter and may be incomplete.":                                                                                          "A resposta foi retida ou cortada pelo filtro de conteúdo do provedor e pode estar incompleta.",
+	"No provider configured. Set " + providercatalog.KeyEnvHint + " in your environment or run `qg login`, then run `qg setup qg` (see `qg setup --help`), or add .qg/config.json.": "Nenhum provedor configurado. Defina " + strings.Replace(providercatalog.KeyEnvHint, "(or ", "(ou ", 1) + " no ambiente ou rode `qg login`, depois rode `qg setup qg` (veja `qg setup --help`), ou adicione .qg/config.json.",
 }
 
 // humanExecScratchWarning renders the scratch-file warning, which carries a

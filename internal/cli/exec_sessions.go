@@ -134,6 +134,6 @@ func (recorder *execSessionRecorder) append(eventType sessions.EventType, payloa
 // is reported once at run end. No-op when recording succeeded.
 func (recorder *execSessionRecorder) warnIfRecordingFailed(stderr io.Writer) {
 	if recorder.err != nil {
-		fmt.Fprintf(stderr, "[qg] WARNING: session not fully recorded: %v\n", recorder.err)
+		fmt.Fprintf(stderr, "[qg] Aviso: session not fully recorded: %v\n", recorder.err)
 	}
 }

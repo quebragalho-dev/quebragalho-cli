@@ -1149,7 +1149,7 @@ func writeExecProviderError(stdout io.Writer, stderr io.Writer, format execOutpu
 		}
 		return exitProvider
 	}
-	if _, err := fmt.Fprintf(stderr, "[qg] %s\n", message); err != nil {
+	if _, err := fmt.Fprintf(stderr, "[qg] %s\n", humanExecMessage(message)); err != nil {
 		return exitCrash
 	}
 	// Append a one-line next step for recognized provider failures (auth /

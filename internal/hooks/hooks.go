@@ -397,13 +397,13 @@ func Select(config Config, input SelectInput) []Definition {
 }
 
 func FormatList(config Config, diagnostics []Diagnostic) string {
-	state := "disabled"
+	state := "desativado"
 	if config.Enabled {
-		state = "enabled"
+		state = "ativado"
 	}
-	lines := []string{"QG Hooks: " + state}
+	lines := []string{"Hooks QG: " + state}
 	if len(config.Hooks) == 0 {
-		lines = append(lines, "  No hooks configured.")
+		lines = append(lines, "  Nenhum hook configurado.")
 	} else {
 		for _, hook := range config.Hooks {
 			matcher := ""
@@ -411,15 +411,15 @@ func FormatList(config Config, diagnostics []Diagnostic) string {
 				matcher = " " + hook.Matcher
 			}
 			command := strings.Join(append([]string{hook.Command}, hook.Args...), " ")
-			hookState := "disabled"
+			hookState := "desativado"
 			if hook.Enabled {
-				hookState = "enabled"
+				hookState = "ativado"
 			}
 			lines = append(lines, fmt.Sprintf("  %s [%s%s] %s - %s", hook.ID, hook.Event, matcher, hookState, command))
 		}
 	}
 	if len(diagnostics) > 0 {
-		lines = append(lines, "Hook diagnostics:")
+		lines = append(lines, "Diagnóstico de hooks:")
 		for _, diagnostic := range diagnostics {
 			lines = append(lines, fmt.Sprintf("  [%s] %s", diagnostic.Kind, diagnostic.Message))
 		}

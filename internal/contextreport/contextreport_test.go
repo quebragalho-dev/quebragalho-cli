@@ -231,8 +231,11 @@ func TestBuildAccountsForWorkspaceMapContext(t *testing.T) {
 		t.Fatalf("free token delta = %d, want workspace map delta %d", freeDelta, workspaceDelta)
 	}
 	formatted := Format(report)
-	if !strings.Contains(formatted, "Workspace map") {
+	if !strings.Contains(formatted, "Mapa da pasta de trabalho") {
 		t.Fatalf("Format missing workspace map category:\n%s", formatted)
+	}
+	if strings.Contains(formatted, "Workspace map") {
+		t.Fatalf("Format kept English workspace map category:\n%s", formatted)
 	}
 }
 
@@ -257,8 +260,10 @@ func TestBuildShowsWorkspaceMapScanErrors(t *testing.T) {
 	if !strings.Contains(cat.Name, "Workspace map (error:") {
 		t.Fatalf("workspace map category name = %q, want visible error", cat.Name)
 	}
-	if formatted := Format(report); !strings.Contains(formatted, "Workspace map (error:") {
+	if formatted := Format(report); !strings.Contains(formatted, "Mapa da pasta de trabalho (erro: ") {
 		t.Fatalf("Format missing workspace map error:\n%s", formatted)
+	} else if strings.Contains(formatted, "Workspace map (error:") {
+		t.Fatalf("Format kept English workspace map error:\n%s", formatted)
 	}
 }
 
@@ -305,9 +310,14 @@ func TestFormatIncludesRootModelAndCategories(t *testing.T) {
 
 	formatted := Format(report)
 
-	for _, want := range []string{"QG context report", "root: D:/repo", "model: gpt-4.1", "api_model: gpt-4.1", "System prompt", "Free"} {
+	for _, want := range []string{"Relatório de contexto do QG", "pasta: D:/repo", "provedor: openai", "modelo: gpt-4.1", "modelo_api: gpt-4.1", "Prompt do sistema", "Livres"} {
 		if !strings.Contains(formatted, want) {
 			t.Fatalf("Format missing %q:\n%s", want, formatted)
+		}
+	}
+	for _, banned := range []string{"QG context report", "root: D:/repo", "provider: openai", "\nmodel: gpt-4.1", "api_model:", "System prompt", "\nFree:"} {
+		if strings.Contains(formatted, banned) {
+			t.Fatalf("Format kept English %q:\n%s", banned, formatted)
 		}
 	}
 }
@@ -328,16 +338,22 @@ func TestFormatHandlesUnknownContextWindow(t *testing.T) {
 	formatted := Format(report)
 
 	for _, want := range []string{
-		"QG context report",
-		"root: D:/repo",
-		"model: gpt-4.1",
-		"api_model: gpt-4.1",
-		"usage: 250 tokens (context window unknown)",
-		"System prompt: 100 tokens",
-		"Free: 0 tokens",
+		"Relatório de contexto do QG",
+		"pasta: D:/repo",
+		"provedor: openai",
+		"modelo: gpt-4.1",
+		"modelo_api: gpt-4.1",
+		"uso: 250 tokens (janela de contexto desconhecida)",
+		"Prompt do sistema: 100 tokens",
+		"Livres: 0 tokens",
 	} {
 		if !strings.Contains(formatted, want) {
 			t.Fatalf("Format missing %q:\n%s", want, formatted)
+		}
+	}
+	for _, banned := range []string{"QG context report", "root: D:/repo", "usage: 250 tokens", "(context window unknown)", "System prompt: 100 tokens"} {
+		if strings.Contains(formatted, banned) {
+			t.Fatalf("Format kept English %q:\n%s", banned, formatted)
 		}
 	}
 }

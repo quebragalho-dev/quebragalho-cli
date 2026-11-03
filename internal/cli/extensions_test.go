@@ -70,9 +70,14 @@ func TestRunPluginsListsJSONAndText(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"QG Plugins:", "qg.docs", "Docs", "1.0.0", "1 prompts"} {
+	for _, want := range []string{"Plugins QG:", "qg.docs", "Docs", "1.0.0", "1 prompts", "ativado"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("plugin text missing %q: %s", want, stdout.String())
+		}
+	}
+	for _, banned := range []string{"QG Plugins:", "No local QG plugins loaded.", "1 tools,", "enabled", "author:", "license:", "keywords:", "Plugin diagnostics:"} {
+		if strings.Contains(stdout.String(), banned) {
+			t.Fatalf("plugin text kept English %q: %s", banned, stdout.String())
 		}
 	}
 }
@@ -128,8 +133,16 @@ func TestRunHooksListsRedactedJSONAndText(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "QG Hooks") || !strings.Contains(stdout.String(), "qg.preflight") {
+	if !strings.Contains(stdout.String(), "Hooks QG:") || !strings.Contains(stdout.String(), "qg.preflight") {
 		t.Fatalf("unexpected hook text: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "ativado") {
+		t.Fatalf("hook text missing pt state: %s", stdout.String())
+	}
+	for _, banned := range []string{"QG Hooks:", "No hooks configured.", "Hook diagnostics:", "enabled"} {
+		if strings.Contains(stdout.String(), banned) {
+			t.Fatalf("hook text kept English %q: %s", banned, stdout.String())
+		}
 	}
 	if strings.Contains(stdout.String(), secret) || !strings.Contains(stdout.String(), "[REDACTED]") {
 		t.Fatalf("hook text redaction failed: %s", stdout.String())

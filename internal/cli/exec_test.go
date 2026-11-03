@@ -789,8 +789,11 @@ func TestRunExecUnsafeTextModeWarns(t *testing.T) {
 	if !strings.Contains(stdout, "hello") {
 		t.Fatalf("expected prompt in stdout, got %q", stdout)
 	}
-	if got := stderr; !strings.Contains(got, "WARNING") || !strings.Contains(got, "--dangerously-skip-permissions") {
+	if got := stderr; !strings.Contains(got, "[qg] Aviso:") || !strings.Contains(got, "--dangerously-skip-permissions") {
 		t.Fatalf("expected unsafe warning, got %q", got)
+	}
+	if strings.Contains(stderr, "[qg] WARNING:") {
+		t.Fatalf("warning kept English prefix, got %q", stderr)
 	}
 }
 
@@ -2012,12 +2015,12 @@ func TestExecWithoutProviderCitesQGSetupAndAPIKey(t *testing.T) {
 		t.Fatalf("exit = %d, want %d (provider error)", exitCode, exitProvider)
 	}
 	out := stderr.String()
-	for _, want := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY", "qg setup qg", "qg login", "No provider configured."} {
+	for _, want := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY", "rode `qg setup qg`", "rode `qg login`", "Nenhum provedor configurado.", "ou adicione .qg/config.json"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stderr = %q, want it to cite %q", out, want)
 		}
 	}
-	for _, banned := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "qg auth"} {
+	for _, banned := range []string{"No provider configured.", "in your environment", "run `qg login`", "run `qg setup qg`", "(see `qg setup --help`)", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "qg auth"} {
 		if strings.Contains(out, banned) {
 			t.Fatalf("stderr = %q, must not mention %q", out, banned)
 		}

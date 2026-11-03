@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
@@ -175,6 +176,12 @@ func TestActivatePluginsSurfacesLoadDiagnostics(t *testing.T) {
 	}
 	if !bytes.Contains(stderr.Bytes(), []byte("Expected schemaVersion 1")) {
 		t.Fatalf("stderr should carry the diagnostic message, got %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "[qg] Aviso:") {
+		t.Fatalf("warning must use the pt prefix, got %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "[qg] WARNING:") {
+		t.Fatalf("warning kept English prefix, got %q", stderr.String())
 	}
 }
 

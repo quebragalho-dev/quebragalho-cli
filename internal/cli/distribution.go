@@ -315,10 +315,10 @@ func runPluginInfo(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		lines = append(lines, fmt.Sprintf("  prompts: %d", len(plugin.Prompts)))
 	}
 	if info.LockSource != "" {
-		lines = append(lines, "  lock source: "+info.LockSource)
+		lines = append(lines, "  origem do lock: "+info.LockSource)
 	}
 	if info.LockHash != "" {
-		lines = append(lines, "  lock hash: "+info.LockHash)
+		lines = append(lines, "  hash do lock: "+info.LockHash)
 		drift := "não"
 		if info.HashDrift {
 			drift = "sim"

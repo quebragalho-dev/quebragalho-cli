@@ -102,8 +102,14 @@ func TestRunExecAPIKeyFlagWithoutProfileReportsNoProvider(t *testing.T) {
 		t.Fatalf("exit = 0, want a provider error; stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 	combined := stdout.String() + stderr.String()
-	if !strings.Contains(combined, "No provider configured") {
+	if !strings.Contains(combined, "Nenhum provedor configurado") {
 		t.Fatalf("output = %q, want the no-provider guidance", combined)
+	}
+	if !strings.Contains(combined, "rode `qg login`") {
+		t.Fatalf("output = %q, want the pt action", combined)
+	}
+	if strings.Contains(combined, "No provider configured") {
+		t.Fatalf("output kept English guidance: %q", combined)
 	}
 	if strings.Contains(combined, "sk-flag") {
 		t.Fatalf("output leaked the --api-key value: %q", combined)

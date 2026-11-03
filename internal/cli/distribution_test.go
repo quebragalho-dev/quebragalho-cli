@@ -230,6 +230,12 @@ func TestRunPluginAddListRemove(t *testing.T) {
 	if !strings.Contains(stdout.String(), "hash divergente: não") {
 		t.Fatalf("info missing hash drift status:\n%s", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "origem do lock:") || !strings.Contains(stdout.String(), "hash do lock:") {
+		t.Fatalf("info missing pt lock labels:\n%s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "lock source:") || strings.Contains(stdout.String(), "lock hash:") {
+		t.Fatalf("info kept English lock labels:\n%s", stdout.String())
+	}
 
 	// Editing the installed manifest flips the drift status, the same way a
 	// skill edit does: text shows "sim" and --json reports hashDrift true.
