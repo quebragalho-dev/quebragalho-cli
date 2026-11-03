@@ -648,7 +648,7 @@ func renderReasoningBlock(text string, expanded bool, width int, running bool, e
 // reasoningHiddenMarker is the faint line shown in place of capped reasoning body
 // lines; the display and selectable paths share it so they stay line-aligned.
 func reasoningHiddenMarker(hidden int) string {
-	return qgTheme.faint.Render(fmt.Sprintf("… %d earlier lines · Ctrl+O for all", hidden))
+	return qgTheme.faint.Render(fmt.Sprintf("… %d linhas anteriores · Ctrl+O para tudo", hidden))
 }
 
 func renderReasoningBodyLines(text string, width int) []string {
@@ -671,15 +671,15 @@ func reasoningHeaderText(text string, expanded bool, running bool, elapsed time.
 
 func reasoningHeaderParts(_ string, expanded bool, running bool, elapsed time.Duration) (string, string) {
 	if running {
-		return "", "Thinking"
+		return "", "Pensando"
 	}
 	icon := "▸"
 	if expanded {
 		icon = "▾"
 	}
-	label := "Thought"
+	label := "Pensamento"
 	if elapsed > 0 {
-		label = fmt.Sprintf("Thought for %s", formatElapsedSeconds(elapsed))
+		label = fmt.Sprintf("Pensou por %s", formatElapsedSeconds(elapsed))
 	}
 	return icon, label
 }
@@ -697,7 +697,7 @@ const longTurnBookend = 60 * time.Second
 // It carries no tool count (the tool cards above already show that) and never
 // marks errors (the bordered error note already signals failure).
 func doneLine(row transcriptRow) string {
-	return qgTheme.faint.Render("worked for " + formatElapsedSeconds(row.turnElapsed))
+	return qgTheme.faint.Render("durou " + formatElapsedSeconds(row.turnElapsed))
 }
 
 // renderSystemNote draws a system notice as plain, lightly-marked lines — not a
@@ -1630,7 +1630,7 @@ func renderToolResultCard(row transcriptRow, width int, rc rowContext, opts card
 	head := toolCardHead(name, headTarget, headArg, joinToolHeadTags(body.headTag, toolResultBudgetTag(row.meta)), row.detail, row.text, false, nameStyle, rc.auto[key], width, opts)
 	footer := body.footer
 	if collapsedFooter != "" && row.expanded && footer == "" {
-		footer = "▾ collapse"
+		footer = "▾ recolher"
 	}
 	return toolCard(head, glyph, body.lines, footer, borderStyle, width)
 }
@@ -1661,12 +1661,12 @@ func toolResultBudgetTag(meta map[string]string) string {
 	if commandRetained, err := strconv.Atoi(meta["command_output_retained_tokens"]); err == nil {
 		retained, retainedErr = commandRetained, nil
 	}
-	tag := "compact output"
+	tag := "saída compactada"
 	if originalErr == nil && retainedErr == nil && original > retained {
-		tag = fmt.Sprintf("compact %s→%s tok", compactCount(original), compactCount(retained))
+		tag = fmt.Sprintf("compactada %s→%s tok", compactCount(original), compactCount(retained))
 	}
 	if strings.TrimSpace(meta["spill_path"]) != "" {
-		tag += " · raw saved"
+		tag += " · original salvo"
 	}
 	return tag
 }
@@ -1720,7 +1720,15 @@ func collapsedToolFooter(detail string) string {
 	if n <= cardBodyMaxLines {
 		return ""
 	}
-	return fmt.Sprintf("▸ %d lines — click to expand", n)
+	return fmt.Sprintf("▸ %d linhas — clique para expandir", n)
+}
+
+// pluralNoun renders a count with a Portuguese noun, agreeing in number.
+func pluralNoun(n int, singular, plural string) string {
+	if n == 1 {
+		return "1 " + singular
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }
 
 func toolRowName(row transcriptRow) string {
@@ -1756,51 +1764,53 @@ func isLocalControlTool(name string) bool {
 func toolDisplayName(name string) string {
 	switch name {
 	case "write_file":
-		return "Create"
+		return "Criar"
 	case "edit_file":
-		return "Edit"
+		return "Editar"
 	case "apply_patch":
 		return "Patch"
 	case "read_file", "read_minified_file":
-		return "Read"
+		return "Ler"
 	case "list_directory":
-		return "List"
+		return "Listar"
 	case "grep":
-		return "Search"
+		return "Buscar"
 	case "glob":
-		return "Find"
+		return "Encontrar"
 	case "bash", "exec_command":
-		return "Run"
+		return "Executar"
 	case "write_stdin":
-		return "Send input"
+		return "Enviar entrada"
 	case "browser_install":
-		return "Install browser"
+		return "Instalar navegador"
 	case "browser_launch":
-		return "Launch browser"
+		return "Iniciar navegador"
 	case "browser_connect":
-		return "Connect browser"
+		return "Conectar navegador"
 	case "browser_open":
-		return "Open browser"
+		return "Abrir navegador"
 	case "browser_snapshot":
-		return "Browser snapshot"
+		return "Captura do navegador"
 	case "browser_click":
-		return "Click"
+		return "Clicar"
 	case "browser_type":
-		return "Type"
+		return "Digitar"
 	case "browser_press":
-		return "Press key"
+		return "Pressionar tecla"
 	case "browser_action":
-		return "Browser action"
+		return "Ação do navegador"
 	case "desktop_windows":
-		return "Desktop windows"
+		return "Janelas do desktop"
 	case "desktop_snapshot":
-		return "Desktop snapshot"
+		return "Captura do desktop"
 	case "desktop_action":
-		return "Desktop action"
+		return "Ação do desktop"
 	case "terminal_session":
-		return "Terminal session"
+		return "Sessão de terminal"
 	case "capture_artifact":
-		return "Capture"
+		return "Capturar"
+	case "update_plan":
+		return "Plano"
 	}
 	if !strings.HasPrefix(name, "mcp_") {
 		return name
@@ -1824,58 +1834,58 @@ func toolCardActionLabel(name string, detail string, running bool) string {
 	if running {
 		switch name {
 		case "write_file":
-			return "Adding"
+			return "Adicionando"
 		case "edit_file":
-			return "Editing"
+			return "Editando"
 		case "apply_patch":
-			return "Patching"
+			return "Aplicando patch"
 		case "read_file", "read_minified_file":
-			return "Reading"
+			return "Lendo"
 		case "list_directory":
-			return "Listing"
+			return "Listando"
 		case "grep":
-			return "Searching"
+			return "Buscando"
 		case "glob":
-			return "Finding"
+			return "Encontrando"
 		case "bash", "exec_command":
-			return "Running"
+			return "Executando"
 		case "write_stdin":
-			return "Sending input"
+			return "Enviando entrada"
 		case "browser_install":
-			return "Installing"
+			return "Instalando"
 		case "browser_launch":
-			return "Launching"
+			return "Iniciando"
 		case "browser_connect":
-			return "Connecting"
+			return "Conectando"
 		case "browser_open":
-			return "Opening"
+			return "Abrindo"
 		case "browser_snapshot", "desktop_snapshot", "capture_artifact":
-			return "Capturing"
+			return "Capturando"
 		case "browser_click":
-			return "Clicking"
+			return "Clicando"
 		case "browser_type":
-			return "Typing"
+			return "Digitando"
 		case "browser_press":
-			return "Pressing"
+			return "Pressionando"
 		case "browser_action", "desktop_action":
-			return "Interacting"
+			return "Interagindo"
 		case "desktop_windows":
-			return "Listing"
+			return "Listando"
 		case "terminal_session":
-			return "Running"
+			return "Executando"
 		case "update_plan":
-			return "Planning"
+			return "Planejando"
 		case "tool_search":
-			return "Preparing tools"
+			return "Preparando ferramentas"
 		case "Task":
-			return "Delegating"
+			return "Delegando"
 		default:
 			return toolDisplayName(name)
 		}
 	}
 	switch name {
 	case "read_file", "read_minified_file", "list_directory", "grep", "glob":
-		return "Explored"
+		return "Explorado"
 	case "write_file":
 		meta := diffCardMetadata(detail)
 		trimmed := strings.TrimSpace(detail)
@@ -1885,54 +1895,54 @@ func toolCardActionLabel(name string, detail string, running bool) string {
 		case strings.Contains(trimmed, "Created "):
 			return "Added"
 		case meta.adds > 0 && meta.dels == 0:
-			return "Added"
+			return "Adicionado"
 		case meta.adds > 0 || meta.dels > 0:
-			return "Updated"
+			return "Atualizado"
 		default:
-			return "Create"
+			return "Criar"
 		}
 	case "edit_file":
 		if strings.TrimSpace(detail) != "" {
-			return "Edited"
+			return "Editado"
 		}
-		return "Edit"
+		return "Editar"
 	case "apply_patch":
 		if strings.TrimSpace(detail) != "" {
-			return "Patched"
+			return "Aplicado"
 		}
 		return "Patch"
 	case "bash", "exec_command":
-		return "Ran"
+		return "Executado"
 	case "write_stdin":
-		return "Sent input"
+		return "Entrada enviada"
 	case "browser_install":
-		return "Installed"
+		return "Instalado"
 	case "browser_launch":
-		return "Launched"
+		return "Iniciado"
 	case "browser_connect":
-		return "Connected"
+		return "Conectado"
 	case "browser_open":
-		return "Opened"
+		return "Aberto"
 	case "browser_snapshot":
-		return "Captured"
+		return "Capturado"
 	case "browser_click":
-		return "Clicked"
+		return "Clicado"
 	case "browser_type":
-		return "Typed"
+		return "Digitado"
 	case "browser_press":
-		return "Pressed"
+		return "Pressionado"
 	case "browser_action":
-		return "Ran action"
+		return "Ação executada"
 	case "desktop_windows":
-		return "Listed"
+		return "Listado"
 	case "desktop_snapshot":
-		return "Captured"
+		return "Capturado"
 	case "desktop_action":
-		return "Ran desktop action"
+		return "Ação de desktop executada"
 	case "terminal_session":
-		return "Ran"
+		return "Executado"
 	case "capture_artifact":
-		return "Captured"
+		return "Capturado"
 	default:
 		return toolDisplayName(name)
 	}
@@ -2095,7 +2105,7 @@ func capCardLines(lines []string, cap int) []string {
 	}
 	hidden := len(lines) - cap
 	lines = lines[:cap]
-	return append(lines, qgTheme.faint.Render(fmt.Sprintf("… %d more lines", hidden)))
+	return append(lines, qgTheme.faint.Render("… "+pluralNoun(hidden, "linha", "linhas")+" a mais"))
 }
 
 func genericCardBody(detail string, opts cardRenderOptions) cardBody {
@@ -2253,7 +2263,7 @@ func diffCardBody(detail string, width int, opts cardRenderOptions) cardBody {
 		line := displayLine.text
 		switch {
 		case displayLine.hiddenContext > 0:
-			lines = append(lines, qgTheme.diffMeta.Render(fmt.Sprintf("… %d unchanged lines", displayLine.hiddenContext)))
+			lines = append(lines, qgTheme.diffMeta.Render("… "+pluralNoun(displayLine.hiddenContext, "linha inalterada", "linhas inalteradas")))
 			hunk.consumeContext(displayLine.hiddenContext)
 		case isDiffFileHeader(line) && !hunk.active():
 			// Path and counts live in the tool head row.
@@ -2650,7 +2660,7 @@ func exploreCardBody(name string, hint string, arg string, detail string, width 
 	if !opts.expanded && opts.bodyCap > 0 {
 		footer := ""
 		if strings.TrimSpace(detail) != "" {
-			footer = qgTheme.faint.Render("▸ details")
+			footer = qgTheme.faint.Render("▸ detalhes")
 		}
 		return cardBody{lines: []string{summary}, footer: footer, canToggle: footer != ""}
 	}
@@ -2659,7 +2669,7 @@ func exploreCardBody(name string, hint string, arg string, detail string, width 
 	footer := body.footer
 	canToggle := body.canToggle
 	if opts.expanded && opts.bodyCap > 0 && footer == "" {
-		footer = qgTheme.faint.Render("▾ collapse")
+		footer = qgTheme.faint.Render("▾ recolher")
 		canToggle = true
 	}
 	return cardBody{lines: lines, footer: footer, canToggle: canToggle}
@@ -2699,13 +2709,13 @@ func exploreCardLine(name string, hint string, arg string, detail string, width 
 func exploreChildAction(name string) string {
 	switch name {
 	case "read_file", "read_minified_file":
-		return "Read"
+		return "Ler"
 	case "list_directory":
-		return "List"
+		return "Listar"
 	case "grep":
-		return "Search"
+		return "Buscar"
 	case "glob":
-		return "Find"
+		return "Encontrar"
 	default:
 		return toolDisplayName(name)
 	}
@@ -2836,7 +2846,7 @@ func bashCardBody(command string, detail string, width int, opts cardRenderOptio
 		case strings.HasPrefix(line, "exit_code: "):
 			code := strings.TrimPrefix(line, "exit_code: ")
 			if code != "0" {
-				footer = qgTheme.red.Render("exit " + code)
+				footer = qgTheme.red.Render("código " + code)
 			}
 		default:
 			style := qgTheme.muted
@@ -2861,18 +2871,18 @@ func execCommandCardBody(command string, detail string, width int, opts cardRend
 			section = "output"
 		case line == "interrupted: true":
 			interrupted = true
-			footer = qgTheme.green.Render("interrupted")
+			footer = qgTheme.green.Render("interrompido")
 		case strings.HasPrefix(line, "exit_code: "):
 			code := strings.TrimPrefix(line, "exit_code: ")
 			if code == "0" {
 				// Successful completion is already visible from the green status dot.
 			} else if interrupted {
-				footer = qgTheme.green.Render("interrupted")
+				footer = qgTheme.green.Render("interrompido")
 			} else {
-				footer = qgTheme.red.Render("exit " + code)
+				footer = qgTheme.red.Render("código " + code)
 			}
 		case strings.HasPrefix(line, "session_id: "):
-			footer = qgTheme.faint.Render("session " + strings.TrimSpace(strings.TrimPrefix(line, "session_id: ")))
+			footer = qgTheme.faint.Render("sessão " + strings.TrimSpace(strings.TrimPrefix(line, "session_id: ")))
 		case strings.HasPrefix(line, "Use write_stdin "):
 			continue
 		default:

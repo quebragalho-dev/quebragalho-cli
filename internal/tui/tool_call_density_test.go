@@ -136,7 +136,7 @@ func TestExplorationOutputSummarizesBody(t *testing.T) {
 		detail: "internal/cli/root.go:41: fs := flag.NewFlagSet",
 	}}
 	card := plainRender(t, m.renderRow(rows[1], 80, buildRowContext(rows)))
-	for _, want := range []string{"Explored", "Search", "flag.NewFlagSet"} {
+	for _, want := range []string{"Explorado", "Buscar", "flag.NewFlagSet"} {
 		if !strings.Contains(card, want) {
 			t.Fatalf("exploration card missing %q:\n%s", want, card)
 		}
@@ -177,13 +177,13 @@ func TestConsecutiveExplorationResultsGroup(t *testing.T) {
 
 	body, _ := m.transcriptBody(96, "")
 	got := plainRender(t, body)
-	if strings.Count(got, "Explored") != 1 {
+	if strings.Count(got, "Explorado") != 1 {
 		t.Fatalf("adjacent exploration results should group into one card, got:\n%s", got)
 	}
-	if strings.Count(got, "Search") != 2 || !strings.Contains(got, "├ Search") || !strings.Contains(got, "└ Search") {
+	if strings.Count(got, "Buscar") != 2 || !strings.Contains(got, "├ Buscar") || !strings.Contains(got, "└ Buscar") {
 		t.Fatalf("grouped exploration card should show both searches, got:\n%s", got)
 	}
-	if strings.Contains(got, "details") {
+	if strings.Contains(got, "detalhes") {
 		t.Fatalf("grouped exploration card must not advertise an inert details action, got:\n%s", got)
 	}
 }

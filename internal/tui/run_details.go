@@ -27,7 +27,7 @@ func (m model) runDetailsOverlay(width int) string {
 	overlayWidth = minInt(overlayWidth, width)
 	inner := maxInt(12, overlayWidth-4)
 	lines := m.runDetailsLines(inner)
-	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Run details", lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
+	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Detalhes da execução", lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }
 
 func (m model) runDetailsLines(width int) []string {
@@ -41,7 +41,7 @@ func (m model) runDetailsLines(width int) []string {
 		}
 		lines = append(lines, header)
 		if len(rows) > runDetailsMaxItems {
-			rows = append(append([]string(nil), rows[:runDetailsMaxItems-1]...), "  "+qgTheme.faint.Render("… more in transcript"))
+			rows = append(append([]string(nil), rows[:runDetailsMaxItems-1]...), "  "+qgTheme.faint.Render("… mais na transcrição"))
 		}
 		lines = append(lines, rows...)
 	}
@@ -58,8 +58,8 @@ func (m model) runDetailsLines(width int) []string {
 		lines = append(lines, qgTheme.faint.Render(tokens))
 	}
 	if len(lines) == 0 {
-		return []string{qgTheme.faint.Render("No active run details yet.")}
+		return []string{qgTheme.faint.Render("Sem detalhes de execução no momento.")}
 	}
-	lines = append(lines, "", qgTheme.faint.Render("Esc or Ctrl+B closes"))
+	lines = append(lines, "", qgTheme.faint.Render("Esc ou Ctrl+B fechar"))
 	return lines
 }

@@ -48,7 +48,7 @@ func TestDiffViewerCollapsesLongUnchangedContext(t *testing.T) {
 
 	body := diffCardBody(diff, 80, cardRenderOptions{bodyCap: 0})
 	got := plainRender(t, strings.Join(body.lines, "\n"))
-	if !strings.Contains(got, "… 6 unchanged lines") {
+	if !strings.Contains(got, "… 6 linhas inalteradas") {
 		t.Fatalf("diff viewer did not collapse long unchanged context:\n%s", got)
 	}
 	for _, want := range []string{"context a", "context b", "context c", "context j", "context k", "context l"} {
@@ -70,7 +70,7 @@ func TestDiffViewerKeepsSevenUnchangedContextLines(t *testing.T) {
 
 	body := diffCardBody(strings.Join(lines, "\n"), 80, cardRenderOptions{bodyCap: 0})
 	got := plainRender(t, strings.Join(body.lines, "\n"))
-	if strings.Contains(got, "unchanged lines") {
+	if strings.Contains(got, "inalteradas") {
 		t.Fatalf("seven unchanged context lines should remain visible:\n%s", got)
 	}
 	for _, want := range []string{"context a", "context d", "context g"} {

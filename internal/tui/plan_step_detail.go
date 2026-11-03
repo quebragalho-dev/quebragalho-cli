@@ -220,28 +220,28 @@ func (m model) appendPlanStepCard(stepIndex int, explanation string, loading boo
 	// The model's own per-step note is a second, distilled statement of intent
 	// (before) or record (after); surface it verbatim under a fitting label.
 	if note := strings.TrimSpace(step.notes); note != "" {
-		label := "Plan"
+		label := "Plano"
 		if done {
-			label = "Notes"
+			label = "Notas"
 		}
 		sections = append(sections, commandSection{Title: label, Lines: planWrapText(note, 76)})
 	}
 
 	if len(changes) > 0 {
 		sections = append(sections, commandSection{
-			Title: fmt.Sprintf("Files changed (%d)", len(changes)),
+			Title: fmt.Sprintf("Arquivos alterados (%d)", len(changes)),
 			Lines: planChangeLines(changes),
 		})
 	}
 	if len(commands) > 0 {
 		sections = append(sections, commandSection{
-			Title: fmt.Sprintf("Commands run (%d)", len(commands)),
+			Title: fmt.Sprintf("Comandos executados (%d)", len(commands)),
 			Lines: planCommandLines(commands),
 		})
 	}
 
 	card := renderPlanCard(commandOutput{
-		Title:    fmt.Sprintf("Plan step %d of %d · %s", stepIndex+1, len(m.plan.steps), planStepStateLabel(step.status)),
+		Title:    fmt.Sprintf("Passo %d de %d do plano · %s", stepIndex+1, len(m.plan.steps), planStepStateLabel(step.status)),
 		Status:   planStepDetailStatus(step.status),
 		Sections: sections,
 		Hints:    []string{planStepDetailHint(step.status)},
@@ -265,25 +265,25 @@ func planStepExplanationKey(step planStep) string {
 func (m model) planStepOutcomeLines(step planStep, nChanges, nCommands int) []string {
 	switch step.status {
 	case "completed":
-		head := "Done."
+		head := "Concluído."
 		if d := formatPlanStepDuration(step.completedAt.Sub(step.startedAt)); d != "" {
-			head = "Done in " + d + "."
+			head = "Concluído em " + d + "."
 		}
-		return []string{head, planWorkTally("Built", nChanges, nCommands)}
+		return []string{head, planWorkTally("Concluído", nChanges, nCommands)}
 	case "failed":
-		head := "Failed."
+		head := "Falhou."
 		if d := formatPlanStepDuration(step.completedAt.Sub(step.startedAt)); d != "" {
-			head = "Failed after " + d + "."
+			head = "Falhou após " + d + "."
 		}
-		return []string{head, planWorkTally("Attempted", nChanges, nCommands)}
+		return []string{head, planWorkTally("Tentado", nChanges, nCommands)}
 	case "in_progress":
-		head := "In progress."
+		head := "Em andamento."
 		if d := formatPlanStepDuration(m.planNow().Sub(step.startedAt)); d != "" {
-			head = "In progress — running for " + d + "."
+			head = "Em andamento há " + d + "."
 		}
-		return []string{head, planWorkTally("So far", nChanges, nCommands)}
+		return []string{head, planWorkTally("Até agora", nChanges, nCommands)}
 	default: // pending
-		return []string{"Not started yet — here's what this step will do."}
+		return []string{"Ainda não começou; veja o que fará."}
 	}
 }
 
@@ -293,11 +293,11 @@ func (m model) planStepOutcomeLines(step planStep, nChanges, nCommands int) []st
 func planStepExplanationTitle(status string) string {
 	switch status {
 	case "completed", "failed":
-		return "What we did"
+		return "O que foi feito"
 	case "in_progress":
-		return "What we're doing"
+		return "O que está sendo feito"
 	default:
-		return "What we'll do"
+		return "O que será feito"
 	}
 }
 
@@ -309,20 +309,20 @@ func planStepExplanationTitle(status string) string {
 // summary stands in, pointing at the structured sections below.
 func (m model) planStepExplanationLines(step planStep, explanation string, loading bool) []string {
 	if loading {
-		return []string{"Writing explanation…"}
+		return []string{"Escrevendo explicação…"}
 	}
 	if e := strings.TrimSpace(explanation); e != "" {
 		return planWrapText(e, 76)
 	}
 	switch step.status {
 	case "completed":
-		return planWrapText("This step finished. The files and commands it touched are listed below.", 76)
+		return planWrapText("Este passo terminou. Os arquivos e comandos tocados estão listados abaixo.", 76)
 	case "failed":
-		return planWrapText("This step failed. What it attempted is listed below.", 76)
+		return planWrapText("Este passo falhou. O que ele tentou está listado abaixo.", 76)
 	case "in_progress":
-		return planWrapText("Work is underway. Changes and commands appear below as they happen.", 76)
+		return planWrapText("Trabalho em andamento. Alterações e comandos aparecem abaixo conforme acontecem.", 76)
 	default: // pending
-		return planWrapText("This step is queued and hasn't started. Once the agent reaches it, its file changes and commands will appear here.", 76)
+		return planWrapText("Quando o agente chegar nele, alterações e comandos aparecem aqui.", 76)
 	}
 }
 
@@ -446,19 +446,19 @@ func planStepDigestItems(items []planStepWork, max int) []string {
 }
 
 // planWorkTally summarizes how much work a step captured, or notes that none was
-// recorded yet. verb frames it for the step's state ("Built", "So far", …).
+// recorded yet. verb frames it for the step's state ("Concluído", "Até agora", …).
 func planWorkTally(verb string, nChanges, nCommands int) string {
 	if nChanges == 0 && nCommands == 0 {
-		return "No file changes or commands recorded yet."
+		return "Sem alterações ou comandos ainda."
 	}
 	var parts []string
 	if nChanges > 0 {
-		parts = append(parts, pluralCount(nChanges, "file change"))
+		parts = append(parts, pluralNoun(nChanges, "arquivo alterado", "arquivos alterados"))
 	}
 	if nCommands > 0 {
-		parts = append(parts, pluralCount(nCommands, "command"))
+		parts = append(parts, pluralNoun(nCommands, "comando", "comandos"))
 	}
-	return verb + " " + strings.Join(parts, " and ") + "."
+	return verb + ": " + strings.Join(parts, ", ") + "."
 }
 
 // planChangeLines lists each file mutation as a bullet with a +added/−removed
@@ -534,13 +534,13 @@ func planDetailExcerpt(detail string, max int) []string {
 func planStepStateLabel(status string) string {
 	switch status {
 	case "completed":
-		return "done"
+		return "concluído"
 	case "failed":
-		return "failed"
+		return "falhou"
 	case "in_progress":
-		return "in progress"
+		return "em andamento"
 	default:
-		return "up next"
+		return "a seguir"
 	}
 }
 
@@ -562,11 +562,11 @@ func planStepDetailStatus(status string) commandStatus {
 func planStepDetailHint(status string) string {
 	switch status {
 	case "completed", "failed":
-		return "what was done in this step"
+		return "o que foi feito neste passo"
 	case "in_progress":
-		return "what this step is doing now"
+		return "o que este passo está fazendo agora"
 	default:
-		return "what this step will do"
+		return "o que este passo fará"
 	}
 }
 

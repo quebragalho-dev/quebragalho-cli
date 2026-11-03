@@ -19,14 +19,14 @@ const goalContinuationPrompt = "Continue pursuing the active goal. Review the ex
 func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 	action, rest := splitGoalCommand(args)
 	if rest != "" && (action == "status" || action == "pause" || action == "resume" || action == "clear") {
-		return m.appendGoalError("Usage: /goal " + action), nil
+		return m.appendGoalError("Uso: /goal " + action), nil
 	}
 	switch action {
 	case "status":
 		return m.appendGoalStatus(), nil
 	case "pause":
 		if m.activeSession.Goal == nil {
-			return m.appendGoalError("No goal is set for this session."), nil
+			return m.appendGoalError("Nenhuma meta definida para esta sessão."), nil
 		}
 		if m.pending {
 			m.cancelRun()
@@ -35,21 +35,21 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 		return m.setGoalStatus(sessions.GoalStatusPaused, "paused by user"), nil
 	case "resume":
 		if m.pending {
-			return m.appendGoalError("A run is already in progress."), nil
+			return m.appendGoalError("Já há uma execução em andamento."), nil
 		}
 		if m.activeSession.Goal == nil {
-			return m.appendGoalError("No goal is set for this session."), nil
+			return m.appendGoalError("Nenhuma meta definida para esta sessão."), nil
 		}
 		if m.activeSession.Goal.Status == sessions.GoalStatusBudgetLimited &&
 			m.activeSession.Goal.TokenBudget > 0 &&
 			m.activeSession.Goal.TokensUsed >= m.activeSession.Goal.TokenBudget {
-			return m.appendGoalError("The token budget is exhausted. Increase it with /goal edit --tokens N <objective>."), nil
+			return m.appendGoalError("O orçamento de tokens esgotou. Aumente com /goal edit --tokens N <objective>."), nil
 		}
 		m = m.setGoalStatus(sessions.GoalStatusActive, "")
 		return m.launchGoalContinuationIfReady()
 	case "clear":
 		if m.activeSession.Goal == nil {
-			return m.appendGoalError("No goal is set for this session."), nil
+			return m.appendGoalError("Nenhuma meta definida para esta sessão."), nil
 		}
 		if m.pending {
 			m.cancelRun()
@@ -60,7 +60,7 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 		}
 		m.activeSession = updated
 		m.sessionEvents = append(m.sessionEvents, event)
-		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Goal cleared."})
+		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Meta apagada."})
 		return m, nil
 	case "edit":
 		objective, budget, err := parseGoalObjective(rest)
@@ -68,10 +68,10 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 			return m.appendGoalError(err.Error()), nil
 		}
 		if m.activeSession.Goal == nil {
-			return m.appendGoalError("No goal is set for this session."), nil
+			return m.appendGoalError("Nenhuma meta definida para esta sessão."), nil
 		}
 		if m.pending {
-			return m.appendGoalError("Pause the current run before editing its goal."), nil
+			return m.appendGoalError("Pause a execução atual antes de editar a meta."), nil
 		}
 		if !goalBudgetSpecified(rest) {
 			budget = m.activeSession.Goal.TokenBudget
@@ -82,26 +82,26 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 		}
 		m.activeSession = updated
 		m.sessionEvents = append(m.sessionEvents, event)
-		message := "Goal updated and resumed: " + objective
+		message := "Meta atualizada e retomada: " + objective
 		if updated.Goal.Status == sessions.GoalStatusBudgetLimited {
-			message = "Goal updated, but its token budget is still exhausted. Increase the budget or use --tokens 0 for no goal-specific limit."
+			message = "Meta atualizada, mas o orçamento de tokens segue esgotado. Aumente o orçamento ou use --tokens 0 para remover o limite."
 		}
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: message})
 		return m.launchGoalContinuationIfReady()
 	case "create":
 		if m.pending {
-			return m.appendGoalError("A run is already in progress."), nil
+			return m.appendGoalError("Já há uma execução em andamento."), nil
 		}
 		objective, budget, err := parseGoalObjective(rest)
 		if err != nil {
 			return m.appendGoalError(err.Error()), nil
 		}
 		if m.activeSession.Goal != nil {
-			return m.appendGoalError("This session already has a goal. Use /goal edit <objective> or /goal clear first."), nil
+			return m.appendGoalError("Esta sessão já tem uma meta. Use /goal edit <objective> ou /goal clear antes."), nil
 		}
 		m, err = m.ensureActiveSession(objective)
 		if err != nil {
-			return m.appendGoalError("session create error: " + err.Error()), nil
+			return m.appendGoalError("erro ao criar sessão: " + err.Error()), nil
 		}
 		updated, event, err := m.sessionStore.CreateGoal(m.activeSession.SessionID, objective, budget)
 		if err != nil {
@@ -111,7 +111,7 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 		m.sessionEvents = append(m.sessionEvents, event)
 		return m.launchPrompt(objective)
 	default:
-		return m.appendGoalError("Unknown action. Use /goal, /goal pause, /goal resume, /goal edit <objective>, or /goal clear."), nil
+		return m.appendGoalError("Ação desconhecida. Use /goal, /goal pause, /goal resume, /goal edit <objective> ou /goal clear."), nil
 	}
 }
 
@@ -134,23 +134,23 @@ func splitGoalCommand(args string) (string, string) {
 func parseGoalObjective(input string) (string, int, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
-		return "", 0, fmt.Errorf("goal objective is required")
+		return "", 0, fmt.Errorf("é preciso informar o objetivo da meta")
 	}
 	budget := 0
 	if strings.HasPrefix(input, "--tokens") {
 		fields := strings.Fields(input)
 		if len(fields) < 3 || fields[0] != "--tokens" {
-			return "", 0, fmt.Errorf("usage: /goal [--tokens N] <objective>")
+			return "", 0, fmt.Errorf("uso: /goal [--tokens N] <objective>")
 		}
 		value, err := strconv.Atoi(fields[1])
 		if err != nil || value < 0 {
-			return "", 0, fmt.Errorf("goal token budget must be a non-negative integer")
+			return "", 0, fmt.Errorf("o orçamento de tokens da meta deve ser um inteiro não negativo")
 		}
 		budget = value
 		input = strings.TrimSpace(strings.Join(fields[2:], " "))
 	}
 	if input == "" {
-		return "", 0, fmt.Errorf("goal objective is required")
+		return "", 0, fmt.Errorf("é preciso informar o objetivo da meta")
 	}
 	return input, budget, nil
 }
@@ -164,29 +164,29 @@ func (m model) appendGoalStatus() model {
 	if goal == nil {
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 			kind: rowSystem,
-			text: "Goal\nstatus: none\nStart one with /goal <objective>.",
+			text: "Meta\nestado: nenhum\nComece uma com /goal <objective>.",
 		})
 		return m
 	}
-	budget := "unlimited"
+	budget := "ilimitado"
 	if goal.TokenBudget > 0 {
 		budget = fmt.Sprintf("%d / %d tokens", goal.TokensUsed, goal.TokenBudget)
 	} else if goal.TokensUsed > 0 {
-		budget = fmt.Sprintf("%d tokens used", goal.TokensUsed)
+		budget = fmt.Sprintf("%d tokens usados", goal.TokensUsed)
 	}
 	lines := []string{
-		"Goal",
-		"status: " + string(goal.Status),
-		"objective: " + goal.Objective,
-		"budget: " + budget,
+		"Meta",
+		"estado: " + goalStatusDisplay(goal.Status),
+		"objetivo: " + goal.Objective,
+		"orçamento: " + budget,
 		fmt.Sprintf(
-			"automatic continuations: %d / %d",
+			"continuações automáticas: %d / %d",
 			goal.ContinuationCount,
 			goalContinuationLimit(goal),
 		),
 	}
 	if goal.StatusReason != "" {
-		lines = append(lines, "reason: "+goal.StatusReason)
+		lines = append(lines, "motivo: "+goal.StatusReason)
 	}
 	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: strings.Join(lines, "\n")})
 	return m
@@ -203,17 +203,58 @@ func (m model) goalFooterSummary() string {
 	if m.activeSession.Goal == nil {
 		return ""
 	}
-	return "goal " + string(m.activeSession.Goal.Status)
+	return "meta " + goalStatusDisplay(m.activeSession.Goal.Status)
+}
+
+// goalStatusDisplay renders a goal status in Portuguese for display. The
+// sessions.GoalStatus value itself stays in English as the stored contract.
+func goalStatusDisplay(status sessions.GoalStatus) string {
+	switch status {
+	case sessions.GoalStatusActive:
+		return "ativa"
+	case sessions.GoalStatusPaused:
+		return "pausada"
+	case sessions.GoalStatusBlocked:
+		return "bloqueada"
+	case sessions.GoalStatusBudgetLimited:
+		return "orçamento esgotado"
+	case sessions.GoalStatusUsageLimited:
+		return "limite de uso"
+	case sessions.GoalStatusComplete:
+		return "concluída"
+	default:
+		return string(status)
+	}
+}
+
+// goalStatusSentence renders a one-line goal status change in Portuguese.
+func goalStatusSentence(status sessions.GoalStatus) string {
+	switch status {
+	case sessions.GoalStatusActive:
+		return "Meta ativa."
+	case sessions.GoalStatusPaused:
+		return "Meta pausada."
+	case sessions.GoalStatusBlocked:
+		return "Meta bloqueada."
+	case sessions.GoalStatusBudgetLimited:
+		return "Meta com orçamento esgotado."
+	case sessions.GoalStatusUsageLimited:
+		return "Meta com limite de uso."
+	case sessions.GoalStatusComplete:
+		return "Meta concluída."
+	default:
+		return "Meta " + string(status) + "."
+	}
 }
 
 func (m model) appendGoalError(message string) model {
-	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "Goal: " + message})
+	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "Meta: " + message})
 	return m
 }
 
 func (m model) setGoalStatus(status sessions.GoalStatus, reason string) model {
 	if m.sessionStore == nil || m.activeSession.SessionID == "" || m.activeSession.Goal == nil {
-		return m.appendGoalError("Goal state is unavailable.")
+		return m.appendGoalError("Estado da meta indisponível.")
 	}
 	updated, event, err := m.sessionStore.UpdateGoal(m.activeSession.SessionID, status, reason)
 	if err != nil {
@@ -223,7 +264,7 @@ func (m model) setGoalStatus(status sessions.GoalStatus, reason string) model {
 	m.sessionEvents = append(m.sessionEvents, event)
 	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 		kind: rowSystem,
-		text: "Goal " + string(status) + ".",
+		text: goalStatusSentence(status),
 	})
 	return m
 }
@@ -278,7 +319,7 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 			m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 				kind: rowSystem,
 				text: fmt.Sprintf(
-					"Goal paused after %d automatic continuations. Review progress, then use /goal resume to continue.",
+					"Meta pausada após %d continuações automáticas. Revise o progresso e use /goal resume para continuar.",
 					goalContinuationLimit(updated.Goal),
 				),
 			})
@@ -288,7 +329,7 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 	goal = updated.Goal
 	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 		kind: rowSystem,
-		text: "Continuing goal: " + goal.Objective,
+		text: "Continuando meta: " + goal.Objective,
 	})
 	prompt := m.sessionPrompt(goalContinuationPrompt)
 	m, err = m.appendSessionEvent(sessions.EventMessage, map[string]any{
@@ -296,7 +337,7 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 		"content": goalContinuationPrompt,
 	})
 	if err != nil {
-		return m.appendGoalError("session record error: " + err.Error()), nil
+		return m.appendGoalError("erro ao gravar a sessão: " + err.Error()), nil
 	}
 	runCtx, cancel := context.WithCancel(m.ctx)
 	m = m.beginRun(cancel)
@@ -341,12 +382,12 @@ func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error
 			reason,
 		)
 		if updateErr != nil {
-			return m.appendGoalError("pause after error: " + updateErr.Error())
+			return m.appendGoalError("pausa após erro: " + updateErr.Error())
 		}
 		loaded = &updated
-		message := "Goal paused because the run stopped with an error. Use /goal resume to continue."
+		message := "Meta pausada porque a execução parou com erro. Use /goal resume para continuar."
 		if status == sessions.GoalStatusUsageLimited {
-			message = "Goal stopped at the provider usage limit. Use /goal resume when capacity is available."
+			message = "Meta parada no limite de uso do provedor. Use /goal resume quando houver capacidade."
 		}
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: message})
 	}

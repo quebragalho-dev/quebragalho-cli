@@ -12,13 +12,13 @@ func TestToolDisplayNameCleansMCPNames(t *testing.T) {
 		"mcp_exa_web_search_exa": "web search",
 		"mcp_exa_web_fetch_exa":  "web fetch",
 		"mcp_foo_bar":            "bar",
-		"write_file":             "Create",
-		"edit_file":              "Edit",
-		"read_file":              "Read",
-		"bash":                   "Run",
-		"browser_open":           "Open browser",
-		"browser_snapshot":       "Browser snapshot",
-		"capture_artifact":       "Capture",
+		"write_file":             "Criar",
+		"edit_file":              "Editar",
+		"read_file":              "Ler",
+		"bash":                   "Executar",
+		"browser_open":           "Abrir navegador",
+		"browser_snapshot":       "Captura do navegador",
+		"capture_artifact":       "Capturar",
 		"web_search":             "web_search", // built-in, unchanged
 	}
 	for in, want := range cases {
@@ -55,9 +55,18 @@ func TestToolResultCardShowsCompactOutputAndRawArtifact(t *testing.T) {
 		},
 	}
 	rendered := plainRender(t, (model{}).renderRow(row, 100, buildRowContext([]transcriptRow{row})))
-	for _, want := range []string{"compact 4.2k→180 tok", "raw saved"} {
+	for _, want := range []string{"compactada 4.2k→180 tok", "original salvo"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered compact result missing %q:\n%s", want, rendered)
 		}
+	}
+}
+
+func TestPluralNounAgreesInNumber(t *testing.T) {
+	if got := pluralNoun(1, "linha", "linhas"); got != "1 linha" {
+		t.Fatalf("pluralNoun(1) = %q, want singular", got)
+	}
+	if got := pluralNoun(6, "linha inalterada", "linhas inalteradas"); got != "6 linhas inalteradas" {
+		t.Fatalf("pluralNoun(6) = %q, want plural", got)
 	}
 }

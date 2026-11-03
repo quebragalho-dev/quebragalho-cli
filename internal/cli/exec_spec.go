@@ -194,7 +194,7 @@ func runExecSpecDraft(run execSpecDraftRun) int {
 					return exitCrash
 				}
 			} else {
-				fmt.Fprintln(run.stderr, "Interrupted.")
+				fmt.Fprintln(run.stderr, "Interrompido.")
 			}
 			return exitInterrupted
 		}

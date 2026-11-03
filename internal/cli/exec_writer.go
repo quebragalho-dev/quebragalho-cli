@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -68,7 +69,65 @@ func (writer *execEventWriter) warning(message string) {
 		writer.writeStreamJSON(streamjson.Event{Type: streamjson.EventWarning, RunID: writer.runID, Message: message})
 		return
 	}
-	writer.writeStderr("[qg] WARNING: " + message + "\n")
+	writer.writeStderr("[qg] WARNING: " + humanExecMessage(message) + "\n")
+}
+
+// humanExecMessage renders a canonical exec warning or error message for a
+// person. Only the text branch uses it: JSON and stream-json keep the
+// canonical English message byte-identical, and dynamic content the table
+// cannot name (file lists, provider errors, finish reasons) stays in
+// English as the detail. Entries match exact strings or anchored shapes of
+// messages the CLI itself builds, never provider output.
+func humanExecMessage(message string) string {
+	if translated, ok := humanExecMessageTable[message]; ok {
+		return translated
+	}
+	if translated, ok := humanExecScratchWarning(message); ok {
+		return translated
+	}
+	return message
+}
+
+// humanExecMessageTable maps exact canonical exec messages to their human
+// rendering. Keep in sync with the call sites that build these strings.
+var humanExecMessageTable = map[string]string{
+	"Unsafe permissions are active for this run because --dangerously-skip-permissions was passed.": "Permissões sem confirmação ativas nesta execução porque --dangerously-skip-permissions foi passado.",
+	"Unsafe permissions are active for this run because --auto high was passed.":                    "Permissões sem confirmação ativas nesta execução porque --auto high foi passado.",
+	"Unsafe permissions are active for this run because --permission-mode unsafe was passed.":       "Permissões sem confirmação ativas nesta execução porque --permission-mode unsafe foi passado.",
+	"run cancelled by signal":          "execução cancelada por sinal",
+	"run stopped with work unfinished": "execução parada com trabalho inacabado",
+	"Response was cut off at the output token limit and may be incomplete. Raise the model's max output tokens or ask qg to continue.": "A resposta foi cortada no limite de tokens de saída e pode estar incompleta. Aumente o máximo de tokens de saída do modelo ou peça ao qg para continuar.",
+	"Response was withheld or cut by the provider's content filter and may be incomplete.":                                             "A resposta foi retida ou cortada pelo filtro de conteúdo do provedor e pode estar incompleta.",
+}
+
+// humanExecScratchWarning renders the scratch-file warning, which carries a
+// count and file list. It matches the anchored shape built by
+// scratchFileWarning; anything else passes through untouched.
+func humanExecScratchWarning(message string) (string, bool) {
+	const prefix = "This run left "
+	rest, ok := strings.CutPrefix(message, prefix)
+	if !ok {
+		return "", false
+	}
+	countEnd := strings.Index(rest, " new scratch/debug-like file")
+	if countEnd < 0 {
+		return "", false
+	}
+	const middle = " untracked in git: "
+	middleAt := strings.Index(rest, middle)
+	if middleAt < 0 {
+		return "", false
+	}
+	const suffix = ". Review before committing/staging."
+	files, ok := strings.CutSuffix(rest[middleAt+len(middle):], suffix)
+	if !ok {
+		return "", false
+	}
+	noun := "arquivos temporários"
+	if rest[:countEnd] == "1" {
+		noun = "arquivo temporário"
+	}
+	return "Esta execução deixou " + rest[:countEnd] + " " + noun + " sem rastrear no git: " + files + ". Revise antes de fazer commit.", true
 }
 
 func (writer *execEventWriter) text(delta string) {
@@ -254,7 +313,43 @@ func (writer *execEventWriter) permission(event agent.PermissionEvent) {
 		return
 	}
 	if event.Action != agent.PermissionActionAllow {
-		writer.writeStderr("[permission] " + event.ToolName + " " + string(event.Action) + ": " + event.Reason + "\n")
+		writer.writeStderr("[permission] " + event.ToolName + " " + humanPermissionAction(event.Action) + ": " + humanPermissionReason(event.Reason) + "\n")
+	}
+}
+
+// humanPermissionAction renders a permission action for exec text output.
+// The JSON and stream-json branches keep the canonical action value.
+func humanPermissionAction(action agent.PermissionAction) string {
+	switch action {
+	case agent.PermissionActionPrompt:
+		return "requer aprovação"
+	case agent.PermissionActionAllow:
+		return "permitida"
+	case agent.PermissionActionDeny:
+		return "negada"
+	case agent.PermissionActionCancel:
+		return "cancelada"
+	default:
+		return string(action)
+	}
+}
+
+// humanPermissionReason renders a canonical permission reason for exec text
+// output. It mirrors permissionDisplayReason in internal/tui/transcript.go:
+// the agent and JSON layers keep the canonical English string, only the
+// human branch translates.
+func humanPermissionReason(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case sandbox.ReasonNetworkBlocked:
+		return "O acesso à rede precisa de aprovação."
+	case sandbox.ReasonEscalatedSandboxRequired:
+		return "Este comando precisa rodar fora do ambiente isolado."
+	case "sandbox output is limited to the sandbox PID namespace; host/global state requires approval":
+		return "O ambiente isolado esconde o estado global do sistema, então este comando precisa rodar fora dele."
+	case "workspace write is allowed":
+		return "A escrita na pasta de trabalho é permitida."
+	default:
+		return reason
 	}
 }
 
@@ -340,7 +435,7 @@ func (writer *execEventWriter) errorEvent(code string, message string, recoverab
 		writer.writeJSON(map[string]any{"type": "error", "code": code, "message": message})
 		return
 	}
-	writer.writeStderr("[qg] " + message + "\n")
+	writer.writeStderr("[qg] " + humanExecMessage(message) + "\n")
 }
 
 func (writer *execEventWriter) runEnd(status string, exitCode int) {

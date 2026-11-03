@@ -90,18 +90,24 @@ func Classify(err error) Category {
 func TUIHint(err error) string {
 	switch Classify(err) {
 	case Auth:
-		return "API key rejected — run /provider to re-check your credentials"
+		return "Chave de API rejeitada — rode /provider para conferir as credenciais"
 	case RateLimit:
-		return "Rate limited — wait a moment, or switch model with /model"
+		return "Limite de taxa atingido — aguarde um momento ou troque de modelo com /model"
 	case Connectivity:
-		return "Can't reach the provider — run /doctor --connectivity"
+		return "Não foi possível alcançar o provedor — rode /doctor --connectivity"
 	case ModelNotFound:
-		return "Model unavailable — pick another with /model"
+		return "Modelo indisponível — escolha outro com /model"
 	case ContextOverflow:
-		return "Context window full — run /compact to free space"
+		return "Limite de contexto cheio — rode /compact para liberar espaço"
 	default:
 		return ""
 	}
+}
+
+// keyEnvHintHuman renders KeyEnvHint with the conjunction translated for
+// Portuguese human text. Machine output keeps the canonical constant.
+func keyEnvHintHuman() string {
+	return strings.Replace(providercatalog.KeyEnvHint, "(or ", "(ou ", 1)
 }
 
 // CLIHint returns a one-line hint referencing `qg …` subcommands, or "" when the
@@ -110,15 +116,15 @@ func TUIHint(err error) string {
 func CLIHint(err error) string {
 	switch Classify(err) {
 	case Auth:
-		return "API key rejected — set " + providercatalog.KeyEnvHint + " in your environment or run `qg login`, then run `qg setup qg`"
+		return "Chave de API rejeitada — configure " + keyEnvHintHuman() + " no ambiente ou rode `qg login`, depois rode `qg setup qg`"
 	case RateLimit:
-		return "Rate limited — wait a moment, or switch model with --model"
+		return "Limite de taxa atingido — aguarde um momento ou troque de modelo com --model"
 	case Connectivity:
-		return "Can't reach the provider — run `qg doctor`"
+		return "Não foi possível alcançar o provedor — rode `qg doctor`"
 	case ModelNotFound:
-		return "Model unavailable — run `qg doctor` or pick another with --model"
+		return "Modelo indisponível — rode `qg doctor` ou escolha outro com --model"
 	case ContextOverflow:
-		return "Context window full — shorten the prompt or start a fresh session"
+		return "Limite de contexto cheio — encurte a mensagem ou comece uma nova sessão"
 	default:
 		return ""
 	}

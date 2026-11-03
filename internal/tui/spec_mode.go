@@ -47,7 +47,7 @@ func (m model) handleSpecCommand(task string) (tea.Model, tea.Cmd) {
 		"content": task,
 	})
 	if err != nil {
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "session record error: " + err.Error()})
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "erro ao gravar a sessão: " + err.Error()})
 	}
 
 	turnImages := m.pendingImages

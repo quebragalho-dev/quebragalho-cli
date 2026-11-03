@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
@@ -42,7 +43,7 @@ func TestPlanStepDetailByStatus(t *testing.T) {
 		t.Error("no provider: openPlanStepDetail should not dispatch a model call")
 	}
 	done := lastCardText(m)
-	for _, want := range []string{"Done in 1m 20s.", "Built 1 file change and 1 command.", "What we did", "wired the click handler", "Files changed (1)", "Commands run (1)", "what was done in this step"} {
+	for _, want := range []string{"Concluído em 1m 20s.", "Concluído: 1 arquivo alterado, 1 comando.", "O que foi feito", "wired the click handler", "Arquivos alterados (1)", "Comandos executados (1)", "o que foi feito neste passo"} {
 		if !strings.Contains(done, want) {
 			t.Errorf("completed card missing %q\n---\n%s", want, done)
 		}
@@ -51,7 +52,7 @@ func TestPlanStepDetailByStatus(t *testing.T) {
 	// Pending step -> "what we will do".
 	m, _ = m.openPlanStepDetail(1)
 	pending := lastCardText(m)
-	for _, want := range []string{"What we'll do", "what this step will do", "cover the new flag", "queued"} {
+	for _, want := range []string{"O que será feito", "o que este passo fará", "cover the new flag", "aparecem aqui"} {
 		if !strings.Contains(pending, want) {
 			t.Errorf("pending card missing %q\n---\n%s", want, pending)
 		}
@@ -79,7 +80,7 @@ func TestPlanStepDetailAIExplanation(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("with a provider, clicking a step should dispatch a model call")
 	}
-	if loading := lastCardText(m); !strings.Contains(loading, "Writing explanation…") {
+	if loading := lastCardText(m); !strings.Contains(loading, "Escrevendo explicação…") {
 		t.Errorf("loading card should show the writing line:\n%s", loading)
 	}
 
@@ -256,5 +257,36 @@ func TestPlanStepDetailToggle(t *testing.T) {
 	}
 	if len(m.transcript) != base+1 {
 		t.Errorf("switching steps should keep exactly one card: got %d, base %d", len(m.transcript), base)
+	}
+}
+
+// TestPlanStepExplanationLinesStayShort: the local fallback summaries must wrap
+// to rows that a 50-column card cuts no more than the base English text does
+// (one row each). The pending fallback regressed to two cut rows and dropped
+// its closing "aqui.", so it is pinned to a single short row here.
+func TestPlanStepExplanationLinesStayShort(t *testing.T) {
+	m := model{}
+	cases := []struct {
+		status string
+		want   []string
+	}{
+		{"completed", []string{"Este passo terminou. Os arquivos e comandos tocados estão listados abaixo."}},
+		{"failed", []string{"Este passo falhou. O que ele tentou está listado abaixo."}},
+		{"in_progress", []string{"Trabalho em andamento. Alterações e comandos aparecem abaixo conforme", "acontecem."}},
+		{"pending", []string{"Quando o agente chegar nele, alterações e comandos aparecem aqui."}},
+	}
+	for _, tc := range cases {
+		got := m.planStepExplanationLines(planStep{status: tc.status}, "", false)
+		if len(got) != len(tc.want) {
+			t.Fatalf("status %s: got %d rows %q, want %d", tc.status, len(got), got, len(tc.want))
+		}
+		for i := range tc.want {
+			if got[i] != tc.want[i] {
+				t.Fatalf("status %s row %d = %q, want %q", tc.status, i, got[i], tc.want[i])
+			}
+			if w := utf8.RuneCountInString(got[i]); w > 76 {
+				t.Fatalf("status %s row %d is %d cells wide, over the 76-cell wrap", tc.status, i, w)
+			}
+		}
 	}
 }

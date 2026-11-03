@@ -99,9 +99,9 @@ func (l *loopState) due(now time.Time) bool {
 // cadenceText renders the loop's cadence for status lines.
 func (l *loopState) cadenceText() string {
 	if l.mode == loopModeSelfPaced {
-		return "self-paced"
+		return "ritmo próprio"
 	}
-	return "every " + formatLoopDuration(l.interval)
+	return "a cada " + formatLoopDuration(l.interval)
 }
 
 type loopAction int
@@ -235,9 +235,9 @@ func parseLoopInterval(token string) (time.Duration, bool) {
 func clampLoopInterval(d time.Duration) (time.Duration, string) {
 	switch {
 	case d < loopMinInterval:
-		return loopMinInterval, fmt.Sprintf("interval raised to the %s minimum", formatLoopDuration(loopMinInterval))
+		return loopMinInterval, fmt.Sprintf("intervalo elevado para o mínimo de %s", formatLoopDuration(loopMinInterval))
 	case d > loopMaxInterval:
-		return loopMaxInterval, fmt.Sprintf("interval lowered to the %s maximum", formatLoopDuration(loopMaxInterval))
+		return loopMaxInterval, fmt.Sprintf("intervalo reduzido para o máximo de %s", formatLoopDuration(loopMaxInterval))
 	default:
 		return d, ""
 	}
@@ -280,7 +280,7 @@ func (m model) startLoop(cmd loopCommand) (model, tea.Cmd) {
 	// /command would silently degrade to adaptive polling with no way to report
 	// done. Require an explicit interval for command loops instead.
 	if cmd.mode == loopModeSelfPaced && strings.HasPrefix(strings.TrimSpace(cmd.prompt), "/") {
-		return m.appendLoopSystem("A /command loop needs an interval — e.g. /loop 5m " + strings.Fields(cmd.prompt)[0] + ". Self-paced mode (no interval) is for a free-form goal."), nil
+		return m.appendLoopSystem("Um loop de /command precisa de intervalo — ex.: /loop 5m " + strings.Fields(cmd.prompt)[0] + ". O ritmo próprio (sem intervalo) é para uma meta livre."), nil
 	}
 	m.loopCounter++
 	id := "L" + strconv.Itoa(m.loopCounter)
@@ -298,7 +298,7 @@ func (m model) startLoop(cmd loopCommand) (model, tea.Cmd) {
 		note = " (" + cmd.note + ")"
 	}
 	m = m.appendLoopSystem(fmt.Sprintf(
-		"Loop %s started — %s%s. Runs while this session is idle; stop with /loop stop %s.",
+		"Loop %s iniciado — %s%s. Roda enquanto esta sessão está ociosa; pare com /loop stop %s.",
 		id, loop.cadenceText(), note, id))
 	return m.ensureLoopTick()
 }
@@ -306,31 +306,34 @@ func (m model) startLoop(cmd loopCommand) (model, tea.Cmd) {
 // stopLoop stops one loop by id, or the single active loop when the id is omitted.
 func (m model) stopLoop(id string) (model, tea.Cmd) {
 	if len(m.loops) == 0 {
-		return m.appendLoopSystem("No active loops."), nil
+		return m.appendLoopSystem("Nenhum loop ativo."), nil
 	}
 	if id == "" {
 		if len(m.loops) == 1 {
-			return m.removeLoop(m.loops[0].id, "Loop "+m.loops[0].id+" stopped.").ensureLoopTick()
+			return m.removeLoop(m.loops[0].id, "Loop "+m.loops[0].id+" parado.").ensureLoopTick()
 		}
-		return m.appendLoopSystem("Multiple loops active — use /loop stop <id> or /loop stop all.\n" + m.loopListText()), nil
+		return m.appendLoopSystem("Vários loops ativos — use /loop stop <id> ou /loop stop all.\n" + m.loopListText()), nil
 	}
 	if m.findLoop(id) == nil {
-		return m.appendLoopSystem("No loop " + id + ". " + m.loopListText()), nil
+		return m.appendLoopSystem("Nenhum loop " + id + ". " + m.loopListText()), nil
 	}
 	// removeLoop stops the poll ticker; re-arm it so any OTHER loops that remain
 	// keep firing (ensureLoopTick no-ops when this was the last loop).
-	return m.removeLoop(id, "Loop "+id+" stopped.").ensureLoopTick()
+	return m.removeLoop(id, "Loop "+id+" parado.").ensureLoopTick()
 }
 
 func (m model) stopAllLoops() (model, tea.Cmd) {
 	if len(m.loops) == 0 {
-		return m.appendLoopSystem("No active loops."), nil
+		return m.appendLoopSystem("Nenhum loop ativo."), nil
 	}
 	n := len(m.loops)
 	m.loops = nil
 	m.loopSeq++ // invalidate the pending poll tick
 	m.loopTicking = false
-	return m.appendLoopSystem(fmt.Sprintf("Stopped all %d loop(s).", n)), nil
+	if n == 1 {
+		return m.appendLoopSystem("Loop parado."), nil
+	}
+	return m.appendLoopSystem(fmt.Sprintf("Todos os %d loops parados.", n)), nil
 }
 
 // fireDueLoopIfIdle fires the earliest due loop when the session is idle. Called
@@ -409,15 +412,27 @@ func (m model) advanceLoop(id, finalAnswer string, runErr error) model {
 
 	switch {
 	case done:
-		return m.removeLoop(id, fmt.Sprintf("Loop %s finished — the task reported done after %d iteration(s).", id, l.iteration))
+		if l.iteration == 1 {
+			return m.removeLoop(id, fmt.Sprintf("Loop %s concluído — a tarefa foi dada como pronta após 1 iteração.", id))
+		}
+		return m.removeLoop(id, fmt.Sprintf("Loop %s concluído — a tarefa foi dada como pronta após %d iterações.", id, l.iteration))
 	case l.failRun >= loopMaxFailures:
-		return m.removeLoop(id, fmt.Sprintf("Loop %s stopped after %d consecutive failed iterations.", id, l.failRun))
+		if l.failRun == 1 {
+			return m.removeLoop(id, fmt.Sprintf("Loop %s parado após 1 iteração com falha.", id))
+		}
+		return m.removeLoop(id, fmt.Sprintf("Loop %s parado após %d iterações com falha seguidas.", id, l.failRun))
 	case l.iteration >= l.iterationCap():
-		return m.removeLoop(id, fmt.Sprintf("Loop %s stopped at its %d-iteration cap.", id, l.iteration))
+		if l.iteration == 1 {
+			return m.removeLoop(id, fmt.Sprintf("Loop %s parado no limite de 1 iteração.", id))
+		}
+		return m.removeLoop(id, fmt.Sprintf("Loop %s parado no limite de %d iterações.", id, l.iteration))
 	case !l.createdAt.IsZero() && m.now().Sub(l.createdAt) >= loopMaxAge:
-		return m.removeLoop(id, fmt.Sprintf("Loop %s expired after %s.", id, formatLoopDuration(loopMaxAge)))
+		return m.removeLoop(id, fmt.Sprintf("Loop %s expirado após %s.", id, formatLoopDuration(loopMaxAge)))
 	case l.repeatRun >= loopDoomThreshold:
-		return m.removeLoop(id, fmt.Sprintf("Loop %s stopped — %d identical results in a row (no progress).", id, l.repeatRun))
+		if l.repeatRun == 1 {
+			return m.removeLoop(id, fmt.Sprintf("Loop %s parado — 1 resultado idêntico em sequência (sem progresso).", id))
+		}
+		return m.removeLoop(id, fmt.Sprintf("Loop %s parado — %d resultados idênticos em sequência (sem progresso).", id, l.repeatRun))
 	}
 
 	if l.mode == loopModeSelfPaced {
@@ -575,40 +590,40 @@ func (m model) loopFooterSummary() string {
 	if next.IsZero() {
 		return label
 	}
-	return label + " · next " + next.Format("3:04pm")
+	return label + " · próximo " + next.Format("3:04pm")
 }
 
 func (m model) loopListText() string {
 	if len(m.loops) == 0 {
-		return "No active loops."
+		return "Nenhum loop ativo."
 	}
 	var b strings.Builder
-	b.WriteString("Active loops:\n")
+	b.WriteString("Loops ativos:\n")
 	now := m.now()
 	for _, l := range m.loops {
-		when := "running"
+		when := "em execução"
 		if !l.nextRunAt.IsZero() {
 			if d := l.nextRunAt.Sub(now); d > 0 {
-				when = "next in " + formatLoopDuration(d.Round(time.Second))
+				when = "próximo em " + formatLoopDuration(d.Round(time.Second))
 			} else {
-				when = "due"
+				when = "agora"
 			}
 		}
-		fmt.Fprintf(&b, "  %s · %s · iter %d · %s · %s\n",
+		fmt.Fprintf(&b, "  %s · %s · iteração %d · %s · %s\n",
 			l.id, l.cadenceText(), l.iteration, when, truncateLoopPrompt(l.prompt))
 	}
-	b.WriteString("Stop with /loop stop <id> or /loop stop all.")
+	b.WriteString("Pare com /loop stop <id> ou /loop stop all.")
 	return b.String()
 }
 
 func loopUsageText() string {
-	return "Repeat a prompt or command:\n" +
-		"  /loop 5m /babysit-prs   — run a command every 5 minutes\n" +
-		"  /loop watch CI every 2m — trailing interval form\n" +
-		"  /loop keep tidying docs — self-paced (the model picks its own cadence and stops when done)\n" +
-		"  /loop list              — show active loops\n" +
-		"  /loop stop [id|all]     — stop a loop\n" +
-		"Loops run while this session is idle and stop when you close it."
+	return "Repita uma mensagem ou comando:\n" +
+		"  /loop 5m /babysit-prs   — roda um comando a cada 5 minutos\n" +
+		"  /loop watch CI every 2m — forma de intervalo no fim\n" +
+		"  /loop keep tidying docs — ritmo próprio (o modelo escolhe a própria cadência e para quando termina)\n" +
+		"  /loop list              — mostra os loops ativos\n" +
+		"  /loop stop [id|all]     — para um loop\n" +
+		"Loops rodam enquanto esta sessão está ociosa e param quando você a fecha."
 }
 
 // validateLoopTarget rejects looping a built-in command or an unresolved custom
@@ -618,7 +633,7 @@ func loopUsageText() string {
 func (m model) validateLoopTarget(prompt string) (string, bool) {
 	p := strings.TrimSpace(prompt)
 	if p == "" {
-		return "Nothing to loop — give a prompt or a /command.", false
+		return "Nada para repetir — informe uma mensagem ou um /command.", false
 	}
 	if strings.HasPrefix(p, "/") {
 		switch parseCommand(p).kind {
@@ -627,10 +642,10 @@ func (m model) validateLoopTarget(prompt string) (string, bool) {
 		case commandUnknown:
 			name, _ := splitUserCommand(p)
 			if _, ok := m.lookupUserCommand(name); !ok {
-				return "No command /" + name + " — a loop can only run a prompt or an existing custom /command.", false
+				return "Sem comando /" + name + " — um loop só roda uma mensagem ou um /command personalizado existente.", false
 			}
 		default:
-			return "A loop can only run a prompt or a custom /command, not a built-in like " + strings.Fields(p)[0] + ".", false
+			return "Um loop só roda uma mensagem ou um /command personalizado, não um embutido como " + strings.Fields(p)[0] + ".", false
 		}
 	}
 	return "", true

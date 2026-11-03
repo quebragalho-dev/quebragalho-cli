@@ -215,7 +215,7 @@ func TestLoopFooterSummary(t *testing.T) {
 	m = startFixedLoop(m, "a", 5*time.Minute)
 	m.loops[0].nextRunAt = now.Add(5 * time.Minute)
 	got := m.loopFooterSummary()
-	wantWake := "next " + now.Add(5*time.Minute).Format("3:04pm")
+	wantWake := "próximo " + now.Add(5*time.Minute).Format("3:04pm")
 	if !strings.HasPrefix(got, "1 loop") || !strings.Contains(got, wantWake) {
 		t.Fatalf("footer summary = %q, want it to start with a loop count and contain %q", got, wantWake)
 	}

@@ -11,7 +11,7 @@ func TestRunDetailsOverlaySurfacesCurrentState(t *testing.T) {
 	m := sidebarTestModel()
 	m.runDetailsOpen = true
 	plain := plainRender(t, m.runDetailsOverlay(m.width))
-	for _, want := range []string{"Run details", "PLAN", "wire it up", "Esc or Ctrl+B closes"} {
+	for _, want := range []string{"Detalhes da execução", "PLAN", "wire it up", "Esc ou Ctrl+B fechar"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("run details missing %q:\n%s", want, plain)
 		}

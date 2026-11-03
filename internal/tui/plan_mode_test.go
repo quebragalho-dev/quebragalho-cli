@@ -29,7 +29,7 @@ func TestPlanCommandEntersAndExitsPlanMode(t *testing.T) {
 	if next.permissionMode != agent.PermissionModePlan {
 		t.Fatalf("permissionMode after /plan on = %s, want plan", next.permissionMode)
 	}
-	if !transcriptContains(next.transcript, "read-only planning") {
+	if !transcriptContains(next.transcript, "só de leitura") {
 		t.Fatalf("expected activation notice in transcript, got %#v", next.transcript)
 	}
 
@@ -41,7 +41,7 @@ func TestPlanCommandEntersAndExitsPlanMode(t *testing.T) {
 	if next.permissionMode != agent.PermissionModeAuto {
 		t.Fatalf("permissionMode after /plan off = %s, want auto (restored)", next.permissionMode)
 	}
-	if !transcriptContains(next.transcript, "restored to auto") {
+	if !transcriptContains(next.transcript, "restaurado para auto") {
 		t.Fatalf("expected restore notice in transcript, got %#v", next.transcript)
 	}
 }
@@ -82,7 +82,7 @@ func TestPlanCommandOffWithoutActivePlanIsNoop(t *testing.T) {
 	if next.permissionMode != agent.PermissionModeAuto {
 		t.Fatalf("permissionMode = %s, want unchanged auto", next.permissionMode)
 	}
-	if !transcriptContains(next.transcript, "Not currently active") {
+	if !transcriptContains(next.transcript, "Não está ativo no momento") {
 		t.Fatalf("expected not-active notice in transcript, got %#v", next.transcript)
 	}
 }

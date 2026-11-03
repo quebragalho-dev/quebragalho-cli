@@ -131,8 +131,22 @@ func TestFileViewFullBody(t *testing.T) {
 	}
 
 	m.fileView.path = "gone.js"
-	if got := plainRender(t, m.renderFileViewFull(78)); !strings.Contains(got, "Could not read file") {
+	if got := plainRender(t, m.renderFileViewFull(78)); !strings.Contains(got, "Não foi possível ler o arquivo") {
 		t.Errorf("missing file should degrade to an error line, got:\n%s", got)
+	}
+}
+
+// TestFileViewNavBarKeepsEscVisibleAtNarrowWidths: the nav bar truncates
+// from the end, so the mode-toggle hint must trail the Esc hint — at 50
+// columns the old "… · esc voltar" order dropped Esc entirely.
+func TestFileViewNavBarKeepsEscVisibleAtNarrowWidths(t *testing.T) {
+	m := filesPanelTestModel()
+	m = m.openFileView("internal/tui/sidebar.go")
+	for _, width := range []int{50, 80, 120} {
+		nav := plainRender(t, m.fileViewNavBar(width))
+		if !strings.Contains(nav, "esc voltar") {
+			t.Fatalf("nav bar at width %d must keep Esc visible, got %q", width, nav)
+		}
 	}
 }
 
@@ -149,7 +163,7 @@ func TestFileViewSwapsTranscriptBody(t *testing.T) {
 		t.Fatalf("file view should swap the body to a single block item, got %d items", len(items))
 	}
 	nav := plainRender(t, m.pinnedTitleBar(m.chatColumnWidth()))
-	if !strings.Contains(nav, "sidebar.go") || !strings.Contains(nav, "esc back") {
+	if !strings.Contains(nav, "sidebar.go") || !strings.Contains(nav, "esc voltar") {
 		t.Fatalf("nav bar should show the path and key hints: %q", nav)
 	}
 	if lines := len(viewLines(m.fileViewNavBar(m.chatColumnWidth()))); lines != 1 {
@@ -157,7 +171,7 @@ func TestFileViewSwapsTranscriptBody(t *testing.T) {
 	}
 
 	// The whole view renders without panicking in both modes and shows the nav.
-	if view := plainRender(t, m.transcriptView()); !strings.Contains(view, "esc back") {
+	if view := plainRender(t, m.transcriptView()); !strings.Contains(view, "esc voltar") {
 		t.Fatal("transcript view should carry the file nav bar")
 	}
 }

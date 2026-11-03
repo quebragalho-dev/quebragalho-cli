@@ -160,7 +160,7 @@ func (m model) appendSessionEvents(events []pendingSessionEvent) (model, []trans
 	}
 	appended, err := m.sessionStore.AppendEvents(m.activeSession.SessionID, inputs)
 	if err != nil {
-		rows = append(rows, transcriptRow{kind: rowError, text: "session record error: " + err.Error()})
+		rows = append(rows, transcriptRow{kind: rowError, text: "erro ao gravar a sessão: " + err.Error()})
 		return m, rows
 	}
 	if len(appended) > 0 {
@@ -186,7 +186,7 @@ func (m model) appendSessionEventsTo(sessionID string, events []pendingSessionEv
 		inputs = append(inputs, sessions.AppendEventInput{Type: event.Type, Payload: event.Payload})
 	}
 	if _, err := m.sessionStore.AppendEvents(sessionID, inputs); err != nil {
-		rows = append(rows, transcriptRow{kind: rowError, text: "session record error: " + err.Error()})
+		rows = append(rows, transcriptRow{kind: rowError, text: "erro ao gravar a sessão: " + err.Error()})
 	}
 	return rows
 }
