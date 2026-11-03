@@ -9,6 +9,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
@@ -621,13 +624,18 @@ func TestFullWidthFooterKeepsContextAndComposerVisible(t *testing.T) {
 	m := sidebarTestModel()
 	m.width, m.height = 120, 34
 	m.unpricedTokens = 10000
+	window := int64(1000000)
+	m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{
+		"test-provider": {{ID: "test-model", Source: "live", APIModel: &qgaccount.ModelInfo{ID: "test-model", ContextLength: &window}}},
+	}
+	m, _ = m.recordUsageEvent("test-model", qgruntime.Usage{InputTokens: 300000, OutputTokens: 10}, transcriptRow{})
 	out := plainRender(t, m.transcriptView())
 	lines := strings.Split(out, "\n")
 
 	tokenRow := -1
 	composerTop := -1
 	for index, line := range lines {
-		if strings.Contains(line, "ctx não informado") {
+		if strings.Contains(line, "300k/1m") {
 			tokenRow = index
 		}
 		if strings.HasPrefix(line, "╭") {

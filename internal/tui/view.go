@@ -102,7 +102,7 @@ func (m model) titlePRSegment() string {
 	return renderPRSegments(BuildPRSegments(m.prState, false))
 }
 
-func (m model) composerDividerLine(width int) string {
+func (m model) composerTopBorder(width int) string {
 	model := displayValue(strings.TrimSpace(m.modelName), "sem modelo")
 	availableWidth := width
 	padding := " "
@@ -111,21 +111,27 @@ func (m model) composerDividerLine(width int) string {
 	}
 	frameWidth := 2 + 2*len(padding)
 	model = truncateDisplayWidth(model, availableWidth-frameWidth)
-	// The composer rule is the model label below the input. Permission mode
-	// and reasoning effort now live in the persistent status line (the conventional
-	// footer for run-state), so they're not duplicated on this rule.
+	// The model label lives on the composer's top rule now; the bottom rule
+	// is the live context meter. Same ink label, same truncation as before.
 	meta := qgTheme.ink.Render(model)
 	metaWidth := lipgloss.Width(meta)
 	if width < 8 {
 		return qgTheme.lineStrong.Render(strings.Repeat("─", width))
 	}
 	if availableWidth < metaWidth+frameWidth {
-		line := qgTheme.lineStrong.Render("╰" + strings.Repeat("─", availableWidth-2) + "╯")
+		line := qgTheme.lineStrong.Render("╭" + strings.Repeat("─", availableWidth-2) + "╮")
 		return line
 	}
-	rule := strings.Repeat("-", availableWidth-metaWidth-frameWidth)
-	line := qgTheme.lineStrong.Render("╰"+rule+padding) + meta + qgTheme.lineStrong.Render(padding+"╯")
+	rule := strings.Repeat("─", availableWidth-metaWidth-frameWidth)
+	line := qgTheme.lineStrong.Render("╭"+rule+padding) + meta + qgTheme.lineStrong.Render(padding+"╮")
 	return line
+}
+
+func (m model) composerDividerLine(width int) string {
+	if width < 8 {
+		return qgTheme.lineStrong.Render(strings.Repeat("─", width))
+	}
+	return m.composerMeterLine(width)
 }
 
 func (m model) statusLine(width int) string {

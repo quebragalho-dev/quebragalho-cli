@@ -193,6 +193,13 @@ type model struct {
 	lastUsage                     usage.Normalized
 	lastUsageSeen                 bool
 	lastUsageReceipt              transcriptRow
+	// meterLive tracks whether the live context meter may show lastUsage.
+	// The /usage panel keeps its frozen last-call report across /clear,
+	// session switches and compactions, while the meter only drops what is
+	// stale: set on every recorded call, cleared on /new, model switch and
+	// compaction; on resume it follows the reloaded receipt, and /clear
+	// keeps showing the intact session context.
+	meterLive bool
 	// turnLatencySum / turnLatencyCount accumulate completed-run wall time so
 	// /context can show a rolling average turn latency (the "is it slow?" signal).
 	// Reset by /new.
@@ -2795,8 +2802,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Compaction rewrote the session log, so stored real history no longer
 		// matches it. Cleared here (not inside compactActiveSession, whose
 		// rebuilt model the run closure discards) to cover both the local and
-		// the session-compactor paths.
+		// the session-compactor paths. The pre-compaction usage figure is stale
+		// now: the meter restarts, and the next call's receipt sets the new
+		// value. The /usage panel keeps its own last-call report.
 		m.continuation = turnContinuation{}
+		m.meterLive = false
 		m.lastCompactResult = &msg.result
 		m = m.setCompactStatusRow(m.compactText(true))
 		return m, nil
@@ -4277,7 +4287,7 @@ func (m model) composerBox(width int) string {
 	lines := strings.Split(content, "\n")
 
 	rendered := make([]string, 0, len(lines)+3)
-	rendered = append(rendered, qgTheme.lineStrong.Render("╭"+strings.Repeat("─", boxWidth-2)+"╮"))
+	rendered = append(rendered, m.composerTopBorder(boxWidth))
 	// On graphics-capable terminals the first image receives a real thumbnail in
 	// this compact strip. Text-only terminals retain the numbered chip row below.
 	if m.attachmentThumbnailVisible(width) {
@@ -4613,6 +4623,8 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// intact, so the next prompt still replays the full history. Say so, and
 		// point to /new, so "cleared screen" isn't mistaken for "fresh context."
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Transcript cleared. The agent still has the full session context — use /new to start a fresh session."})
+		// /clear keeps the session (and its context), so the visible meter
+		// keeps showing the last fill: the next completed call refreshes it.
 		// Scrollback above can't be un-printed; a faint divider marks where the
 		// cleared surface ended and the frontier restarts for the fresh transcript.
 		m.resetFlushFrontier("· cleared ·")

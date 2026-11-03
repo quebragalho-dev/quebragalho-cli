@@ -1522,9 +1522,9 @@ func TestStatusLineGroups(t *testing.T) {
 	if strings.Contains(got, "interactive") || strings.Contains(got, "test-model") || strings.Contains(got, "test-provider") {
 		t.Fatalf("status line = %q, should not include surface, model, or provider", got)
 	}
-	divider := plainRender(t, m.composerDividerLine(110))
+	divider := plainRender(t, m.composerTopBorder(110))
 	if !strings.Contains(divider, "test-model") {
-		t.Fatalf("composer divider = %q, missing the model label", divider)
+		t.Fatalf("composer top border = %q, missing the model label", divider)
 	}
 	if strings.Contains(divider, "automático") {
 		t.Fatalf("composer divider = %q, should not show the mode (moved to status line)", divider)

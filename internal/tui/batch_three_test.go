@@ -66,13 +66,14 @@ func TestBatchThreeStatusUsesAPIFacts(t *testing.T) {
 	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 10, Elapsed: time.Second}, transcriptRow{})
 	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{OutputTokens: 90, Elapsed: 3 * time.Second}, transcriptRow{})
 	status := plainRender(t, m.statusLine(120))
-	for _, want := range []string{"alto", "feature/user-branch", "ctx 1.000.000"} {
+	for _, want := range []string{"alto", "feature/user-branch"} {
 		assertContains(t, status, want)
 	}
-	assertNotContains(t, status, "1M")
+	// Input tokens are zero here, so the meter has nothing to show yet.
+	assertNotContains(t, status, "ctx")
 	n := int64(131072)
 	m.modelPickerLiveByProvider["qg"][0].APIModel.ContextLength = &n
-	assertContains(t, plainRender(t, m.statusLine(120)), "ctx 131.072")
+	assertContains(t, plainRender(t, m.statusLine(120)), "janela 131.1k")
 }
 
 func TestBatchThreeCallCostFrozenAndInline(t *testing.T) {

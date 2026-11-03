@@ -483,6 +483,11 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	config.SetActiveProviderEnv(nextProfile.Name)
 	m.modelName = target.modelID
 	m.streamUsage = qgruntime.Usage{}
+	// The new model has no usage history yet: the meter restarts from
+	// "janela" instead of showing the previous model's fill. The receipt
+	// guard would also ignore it, but an explicit reset keeps the meter
+	// honest even before the first receipt arrives.
+	m.meterLive = false
 	m.serviceTier = ""
 	// Record the outgoing pair too, not just the destination: otherwise the
 	// model a session started on (never itself the target of a recordRecentModel

@@ -18,12 +18,16 @@ func TestBatchSevenDocumentedContext(t *testing.T) {
 			m.modelName = tc.id
 			m.modelPickerLiveByProvider["qg"][0].ID = tc.id
 			m.modelPickerLiveByProvider["qg"][0].APIModel.ID = tc.id
-			assertContains(t, plainRender(t, m.statusLine(120)), "ctx "+tc.want)
+			// Without a live API window the status shows no context figure
+			// instead of the old fixed guess; the /usage panel below still
+			// reports the documented fallback.
+			assertNotContains(t, plainRender(t, m.statusLine(120)), "ctx")
 			m = batchSixOpen(m, "/usage")
 			assertContains(t, plainRender(t, m.pickerOverlay(120)), tc.want+" tokens")
 			n := int64(131072)
 			m.modelPickerLiveByProvider["qg"][0].APIModel.ContextLength = &n
-			assertContains(t, plainRender(t, m.statusLine(120)), "ctx 131.072")
+			assertContains(t, plainRender(t, m.statusLine(120)), "janela 131.1k")
+			assertContains(t, plainRender(t, m.pickerOverlay(120)), "131.072 tokens")
 			assertNotContains(t, plainRender(t, m.pickerOverlay(120)), "fallback/docs")
 		})
 	}

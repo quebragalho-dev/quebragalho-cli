@@ -923,10 +923,13 @@ func TestStatusLineShowsUnknownAPIContextWithoutPersistentRail(t *testing.T) {
 	if got := m.sidebarTokenText(); !strings.Contains(got, "120 tokens") {
 		t.Fatalf("sidebar token text = %q, want it to carry the 120-token figure", got)
 	}
-	// No live API context was supplied.
+	// No live API context was supplied, but the recorded call still shows.
 	status := plainRender(t, m.statusLine(m.width))
-	if !strings.Contains(status, "ctx não informado") {
-		t.Fatalf("status line = %q, want honest missing API context", status)
+	if !strings.Contains(status, "100") {
+		t.Fatalf("status line = %q, want the recorded 100 input-token figure", status)
+	}
+	if strings.Contains(status, "ctx") {
+		t.Fatalf("status line = %q, must not show the old ctx readout", status)
 	}
 }
 

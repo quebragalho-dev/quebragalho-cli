@@ -518,7 +518,7 @@ func TestSixelEraseCannotOverwriteNewComposer(t *testing.T) {
 			} else {
 				renderer.Set(&termimage.ImageDraw{ID: 7, Animation: animation, State: termimage.Idle, X: 47, Y: 37, Columns: 11, Rows: 3, HeightPixels: 12})
 			}
-			frame := terminalSyncStart + "\x1b[38;1H" + m.composerDividerLine(width) + terminalSyncEnd
+			frame := terminalSyncStart + "\x1b[38;1H" + m.composerTopBorder(width) + terminalSyncEnd
 			if _, err := out.Write([]byte(frame)); err != nil {
 				t.Fatal(err)
 			}

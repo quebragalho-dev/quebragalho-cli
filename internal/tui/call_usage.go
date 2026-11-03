@@ -107,16 +107,14 @@ func renderCallUsage(row transcriptRow, width int) string {
 }
 
 func (m model) statusReadout(left string, width int) string {
-	context := "ctx não informado"
-	if n, _ := m.contextWindowDisplay(); n > 0 {
-		context = "ctx " + formatUsageTokens(n)
-	}
-	if n, _ := m.contextWindowDisplay(); width < 58 && n == 0 {
-		context = "ctx n/d"
-	}
+	context := m.contextStatusText(width)
 	right := context
 	if rate := usageRate(m.streamUsage); rate != "" && lipgloss.Width(left)+lipgloss.Width(context)+lipgloss.Width(rate)+12 <= width {
-		right = rate + " │ " + context
+		if context == "" {
+			right = qgTheme.faint.Render(rate)
+		} else {
+			right = qgTheme.faint.Render(rate+" │ ") + context
+		}
 	}
 	if lipgloss.Width(left)+lipgloss.Width(right)+9 > width {
 		right = ""
@@ -136,7 +134,7 @@ func (m model) statusReadout(left string, width int) string {
 	if right == "" {
 		return fitStyledLine(left, width)
 	}
-	return fitStyledLine(joinHeaderLine(left, qgTheme.faint.Render(right), width), width)
+	return fitStyledLine(joinHeaderLine(left, right, width), width)
 }
 
 func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool, transcriptRow) {

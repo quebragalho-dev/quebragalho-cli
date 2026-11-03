@@ -79,7 +79,9 @@ func TestWidthTierSegments(t *testing.T) {
 		if !strings.Contains(status, "automático") {
 			t.Errorf("width %d: status should show the permission mode (%q)", tc.width, status)
 		}
-		divider := plainRender(t, m.composerDividerLine(tc.width))
+		divider := plainRender(t, m.composerTopBorder(tc.width))
+		// The model label moved to the composer's top rule; the bottom rule
+		// is the live context meter now.
 		// The composer rule is model-only now; mode/effort moved to the status line.
 		if !strings.Contains(divider, "muse-spark-1.3-contributor") {
 			t.Errorf("width %d: composer divider must keep the model label (%q)", tc.width, divider)
@@ -103,7 +105,7 @@ func TestTinyTierSingleSegmentAndRailLessCards(t *testing.T) {
 	if strings.Contains(status, "anthropic") || strings.Contains(status, "muse-spark-1.3-contributor") {
 		t.Fatalf("tiny status = %q, want mode only (no provider/model)", status)
 	}
-	divider := plainRender(t, m.composerDividerLine(40))
+	divider := plainRender(t, m.composerTopBorder(40))
 	if !strings.Contains(divider, "muse-spark-1.3-contributor") {
 		t.Fatalf("tiny composer divider = %q, want the model label", divider)
 	}
@@ -149,13 +151,14 @@ func TestComposerDividerRendersMetaAtExactFit(t *testing.T) {
 		ModelName:      "gpt-4o",
 		PermissionMode: agent.PermissionModeAsk,
 	})
-	// The divider meta is model-only now (mode/effort moved to the status line).
+	// The top-border meta is model-only now (mode/effort moved to the status line,
+	// the usage fill to the bottom meter).
 	meta := qgTheme.muted.Render("gpt-4o")
 	width := lipgloss.Width(meta) + 4
 
-	got := plainRender(t, m.composerDividerLine(width))
+	got := plainRender(t, m.composerTopBorder(width))
 	if !strings.Contains(got, "gpt-4o") {
-		t.Fatalf("exact-fit composer divider = %q, want the model label", got)
+		t.Fatalf("exact-fit composer top border = %q, want the model label", got)
 	}
 }
 
@@ -214,12 +217,15 @@ var permissionEventLongDetailFixture = agent.PermissionEvent{
 func TestComposerDividerTruncatesLongModelByCells(t *testing.T) {
 	m := newModel(context.Background(), Options{ProviderName: "ollama-cloud", ModelName: "cogito-2.1:671b-extra-long-model-name-beyond-forty-columns"})
 	for _, width := range []int{0, 1, 4, 7, 8, 40, 58, 80} {
+		top := plainRender(t, m.composerTopBorder(width))
 		divider := plainRender(t, m.composerDividerLine(width))
-		if got := lipgloss.Width(divider); got > width {
-			t.Fatalf("width %d: divider is %d cells, want <= %d: %q", width, got, width, divider)
+		for name, got := range map[string]string{"top": top, "divider": divider} {
+			if w := lipgloss.Width(got); w > width {
+				t.Fatalf("width %d: %s is %d cells, want <= %d: %q", width, name, w, width, got)
+			}
 		}
 	}
-	narrow := plainRender(t, m.composerDividerLine(40))
+	narrow := plainRender(t, m.composerTopBorder(40))
 	if !strings.Contains(narrow, "…") {
 		t.Fatalf("width 40: long model should truncate with an ellipsis: %q", narrow)
 	}
