@@ -325,6 +325,29 @@ func TestLadderCurrentIsEffectiveForMarkedModel(t *testing.T) {
 	}
 }
 
+func TestPaletteDetailWrapKeepsIndent(t *testing.T) {
+	item := pickerItem{HasTools: true, HasVision: true, HasReasoning: true, HasBonus: true, PriceOut: "R$ 5,00"}
+	for _, inner := range []int{42, 20} {
+		lines := renderPaletteDetail(inner, item, true)
+		if len(lines) < 2 {
+			t.Fatalf("inner %d: detail must wrap, got %d lines", inner, len(lines))
+		}
+		for _, line := range lines {
+			plain := plainRender(t, line)
+			if !strings.HasPrefix(plain, "    ") {
+				t.Fatalf("inner %d: detail line lost its indent: %q", inner, plain)
+			}
+			if strings.Contains(plain, "…") {
+				t.Fatalf("inner %d: detail line clipped mid-separator: %q", inner, plain)
+			}
+		}
+		last := plainRender(t, lines[len(lines)-1])
+		if !strings.HasSuffix(strings.TrimRight(last, " "), "saída R$ 5,00") {
+			t.Fatalf("exit price must close the detail: %q", last)
+		}
+	}
+}
+
 func TestPaletteAndLadderFitRequiredWidths(t *testing.T) {
 	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "APPDATA", "LOCALAPPDATA"} {
 		t.Setenv(key, t.TempDir())
@@ -355,9 +378,9 @@ func TestPaletteAndLadderFitRequiredWidths(t *testing.T) {
 	assertContains(t, got50, "200k · R$ 1,65")
 	assertContains(t, got50, "muse-spark-1.3-contri…")
 	assertNotContains(t, got50, "muse-spark-1.3-contributor")
-	// The detail breaks into capabilities + exit price instead of clipping
-	// the capability list mid-separator.
-	assertContains(t, got50, "raciocínio · bônus")
+	// The detail wraps over indented lines instead of clipping mid-separator.
+	assertContains(t, got50, "    ferramentas · imagens · raciocínio")
+	assertContains(t, got50, "    bônus")
 	assertContains(t, got50, "saída R$ 5,00")
 	assertNotContains(t, got50, "imagens ·…")
 	got120 := plainRender(t, m.pickerOverlay(120))

@@ -298,11 +298,12 @@ func renderPaletteRow(inner int, selected bool, item pickerItem) []string {
 }
 
 // renderPaletteDetail is the expanded lines under the selected row: present
-// capabilities on one line ("ferramentas · imagens · raciocínio", "bônus" in
-// amber) and the exit price ("saída R$ 0,93") on the next when both do not fit
-// side by side, instead of clipping the list mid-separator. Nil when there is
-// nothing to show. Selected lines carry the selection background on every
-// cell, like the row above them.
+// capabilities on indented lines (same indent as the model name, wrapping
+// over as many lines as needed) and the exit price ("saída R$ 0,93") on its
+// own right-aligned line when both do not fit side by side, instead of
+// clipping the list mid-separator. Nil when there is nothing to show.
+// Selected lines carry the selection background on every cell, like the row
+// above them.
 func renderPaletteDetail(inner int, item pickerItem, selected bool) []string {
 	surface := transparentSurface
 	if selected {
@@ -337,21 +338,34 @@ func renderPaletteDetail(inner int, item pickerItem, selected bool) []string {
 		gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
 		return []string{fillPaletteLine(left+surface(qgTheme.faint).Render(strings.Repeat(" ", maxInt(1, gap)))+right, inner, surface)}
 	}
-	// Both do not fit side by side: capabilities on their own line (keeping
-	// the largest indent that still fits whole) and the exit price below,
-	// instead of clipping the list mid-separator.
-	wrapped := ""
-	for _, pad := range []int{4, 2, 0} {
-		candidate := surface(qgTheme.faint).Render(strings.Repeat(" ", pad)) + strings.Join(caps, surface(qgTheme.faint).Render(" · "))
-		if lipgloss.Width(candidate) <= inner {
-			wrapped = candidate
-			break
+	// Both do not fit side by side: wrap the capability list over as many
+	// indented lines as needed (same indent as the model name above) and put
+	// the exit price on its own right-aligned line, instead of clipping the
+	// list mid-separator or dropping the indent.
+	sep := surface(qgTheme.faint).Render(" · ")
+	var wrapped []string
+	current := ""
+	for _, cap := range caps {
+		piece := cap
+		if current != "" {
+			piece = sep + cap
 		}
+		if lipgloss.Width(indent)+lipgloss.Width(current)+lipgloss.Width(piece) <= inner {
+			current += piece
+			continue
+		}
+		if current != "" {
+			wrapped = append(wrapped, current)
+		}
+		current = cap
 	}
-	if wrapped == "" {
-		wrapped = fitStyledLine(surface(qgTheme.faint).Render("  ")+strings.Join(caps, surface(qgTheme.faint).Render(" · ")), inner)
+	if current != "" {
+		wrapped = append(wrapped, current)
 	}
-	lines := []string{fillPaletteLine(wrapped, inner, surface)}
+	lines := []string{}
+	for _, line := range wrapped {
+		lines = append(lines, fillPaletteLine(fitStyledLine(indent+line, inner), inner, surface))
+	}
 	pad := inner - lipgloss.Width(right)
 	lines = append(lines, fillPaletteLine(surface(qgTheme.faint).Render(strings.Repeat(" ", maxInt(0, pad)))+right, inner, surface))
 	return lines
