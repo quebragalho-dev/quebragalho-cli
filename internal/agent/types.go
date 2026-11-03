@@ -112,7 +112,7 @@ func DisplayPermissionReason(reason string) string {
 	case "run superseded":
 		return "execução substituída"
 	case "permission prompt unavailable":
-		return "pedido de permissão indisponível"
+		return "pedido indisponível"
 	case "run cancelled":
 		return "execução cancelada"
 	case "blocked by a beforeTool hook":

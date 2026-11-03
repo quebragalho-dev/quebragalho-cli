@@ -194,7 +194,7 @@ func TestPTBRDisplayPermissionReasonTable(t *testing.T) {
 		{"tool requires approval before execution", "Ferramenta precisa de aprovação prévia."},
 		{"cancelled in TUI", "cancelado na TUI"},
 		{"run superseded", "execução substituída"},
-		{"permission prompt unavailable", "pedido de permissão indisponível"},
+		{"permission prompt unavailable", "pedido indisponível"},
 		{"run cancelled", "execução cancelada"},
 		{"blocked by a beforeTool hook", "bloqueado pelo hook beforeTool"},
 		{"Reading /tmp/data.json requires access outside the workspace.", "Ler /tmp/data.json exige acesso fora da pasta de trabalho."},
