@@ -232,3 +232,110 @@ func TestBashNetworkDenialShellNc(t *testing.T) {
 		t.Fatalf("denial capability = %q, want external_network", outcome.Denial.Capability.Kind)
 	}
 }
+
+// TestBashNetworkDenialFallbackOutputSignature covers the output fallback
+// wiring: with no tag hit, a failed deny-network run whose output carries an
+// unequivocal blocked-network signature must still offer the network retry.
+// Deterministic and offline: echo prints the signature, no network is
+// attempted, so no tag can land.
+func TestBashNetworkDenialFallbackOutputSignature(t *testing.T) {
+	if _, err := exec.LookPath("sandbox-exec"); err != nil {
+		t.Skipf("sandbox-exec unavailable: %v", err)
+	}
+	backend := sandbox.SelectBackend(sandbox.BackendOptions{})
+	if !backend.Available || backend.Name != sandbox.BackendMacOSSeatbelt {
+		t.Skipf("host sandbox backend is not seatbelt: %s", backend.Message)
+	}
+	root := t.TempDir()
+	engine := sandbox.NewEngine(sandbox.EngineOptions{
+		WorkspaceRoot: root,
+		Policy:        sandbox.DefaultPolicy(),
+		Backend:       backend,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	tool := NewScopedBashTool(root, nil).(interface {
+		RunWithSandbox(context.Context, map[string]any, *sandbox.Engine) Result
+	})
+	result := tool.RunWithSandbox(ctx, map[string]any{
+		"command": "sh -c 'echo Could not resolve host: example.com >&2; exit 1'",
+	}, engine)
+	if result.Status != StatusError {
+		t.Fatalf("failed command must fail, got %s: %s", result.Status, result.Output)
+	}
+	outcome := result.ExecutionOutcome
+	if outcome == nil || outcome.Denial == nil {
+		t.Fatalf("output fallback must carry a structured denial, got outcome %#v", outcome)
+	}
+	if outcome.Denial.Capability.Kind != execution.CapabilityExternalNetwork {
+		t.Fatalf("denial capability = %q, want external_network", outcome.Denial.Capability.Kind)
+	}
+}
+
+// TestBashNetworkDenialFallbackExitZero pins that a successful command never
+// offers the network retry, even when its output contains a signature.
+func TestBashNetworkDenialFallbackExitZero(t *testing.T) {
+	if _, err := exec.LookPath("sandbox-exec"); err != nil {
+		t.Skipf("sandbox-exec unavailable: %v", err)
+	}
+	backend := sandbox.SelectBackend(sandbox.BackendOptions{})
+	if !backend.Available || backend.Name != sandbox.BackendMacOSSeatbelt {
+		t.Skipf("host sandbox backend is not seatbelt: %s", backend.Message)
+	}
+	root := t.TempDir()
+	engine := sandbox.NewEngine(sandbox.EngineOptions{
+		WorkspaceRoot: root,
+		Policy:        sandbox.DefaultPolicy(),
+		Backend:       backend,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	tool := NewScopedBashTool(root, nil).(interface {
+		RunWithSandbox(context.Context, map[string]any, *sandbox.Engine) Result
+	})
+	result := tool.RunWithSandbox(ctx, map[string]any{
+		"command": "sh -c 'echo Could not resolve host: example.com >&2; exit 0'",
+	}, engine)
+	outcome := result.ExecutionOutcome
+	if outcome != nil && outcome.Denial != nil {
+		t.Fatalf("exit 0 must never offer a network retry, got %#v", outcome.Denial)
+	}
+}
+
+// TestBashNetworkDenialFallbackTagSeen pins that an observed tag outcome is
+// never overridden by the output fallback: with the explicit opt-in feed, a
+// file denial carries the tag, so a coincidental network signature in output
+// must stay a raw failure with no network denial.
+func TestBashNetworkDenialFallbackTagSeen(t *testing.T) {
+	if _, err := exec.LookPath("sandbox-exec"); err != nil {
+		t.Skipf("sandbox-exec unavailable: %v", err)
+	}
+	backend := sandbox.SelectBackend(sandbox.BackendOptions{})
+	if !backend.Available || backend.Name != sandbox.BackendMacOSSeatbelt {
+		t.Skipf("host sandbox backend is not seatbelt: %s", backend.Message)
+	}
+	policy := sandbox.DefaultPolicy()
+	policy.MonitorDenials = true
+	root := t.TempDir()
+	engine := sandbox.NewEngine(sandbox.EngineOptions{
+		WorkspaceRoot: root,
+		Policy:        policy,
+		Backend:       backend,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	tool := NewScopedBashTool(root, nil).(interface {
+		RunWithSandbox(context.Context, map[string]any, *sandbox.Engine) Result
+	})
+	result := tool.RunWithSandbox(ctx, map[string]any{
+		"command": "sh -c 'echo Could not resolve host: example.com >&2; touch /etc/crivo-fallback-tagseen; exit 1'",
+	}, engine)
+	if result.Status != StatusError {
+		t.Fatalf("failed command must fail, got %s: %s", result.Status, result.Output)
+	}
+	outcome := result.ExecutionOutcome
+	if outcome != nil && outcome.Denial != nil &&
+		outcome.Denial.Capability.Kind == execution.CapabilityExternalNetwork {
+		t.Fatalf("observed tag outcome must never fall back to a network denial, got %#v", outcome.Denial)
+	}
+}

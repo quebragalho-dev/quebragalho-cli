@@ -9,8 +9,8 @@ import (
 
 // OutputIndicatesBlockedNetwork reports whether combined command output
 // carries an unequivocal blocked-network signature. It only matches short,
-// tested DNS and connect/socket failures; a bare "network" or a file
-// "permission denied" never matches.
+// tested DNS strings and exact network-syscall failures; file writes, echoed
+// text, and bare words never match.
 func OutputIndicatesBlockedNetwork(output string) bool {
 	lower := strings.ToLower(output)
 	if strings.Contains(lower, "nodename nor servname provided") {
@@ -26,9 +26,26 @@ func OutputIndicatesBlockedNetwork(output string) bool {
 		(strings.Contains(lower, "enotfound") || strings.Contains(lower, "eai_noname")) {
 		return true
 	}
-	hasEPERM := strings.Contains(lower, "operation not permitted") || strings.Contains(lower, "eperm")
-	if hasEPERM &&
-		(strings.Contains(lower, "connect") || strings.Contains(lower, "socket") || strings.Contains(lower, "urlopen")) {
+	if strings.Contains(lower, "lookup ") && strings.Contains(lower, "no such host") {
+		return true
+	}
+	if strings.Contains(lower, "urlopen error [errno 1]") {
+		return true
+	}
+	if strings.Contains(lower, "connect: operation not permitted") {
+		return true
+	}
+	if strings.Contains(lower, "connect eperm") {
+		return true
+	}
+	if strings.Contains(lower, "syscall: 'connect'") {
+		return true
+	}
+	// Python raw-socket tracebacks call sock.connect(sa) before surfacing
+	// EPERM; file paths merely containing socket/connect never use dot-call
+	// syntax, so this stays precise while covering socket.create_connection.
+	if (strings.Contains(lower, "operation not permitted") || strings.Contains(lower, "eperm")) &&
+		strings.Contains(lower, ".connect(") {
 		return true
 	}
 	return false
