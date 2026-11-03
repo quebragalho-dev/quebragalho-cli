@@ -31,7 +31,7 @@ func TestBatchSevenDocumentedContext(t *testing.T) {
 
 func TestBatchSevenEffortWithoutAbbreviation(t *testing.T) {
 	m := batchThreeLiveModel(t)
-	for _, tc := range []struct{ local, api, want string }{{"", "", "n/d"}, {"", "high", "high (API)"}, {"max", "high", "max"}, {"", "made-up", "n/d"}} {
+	for _, tc := range []struct{ local, api, want string }{{"", "", "n/d"}, {"", "high", "alto (API)"}, {"max", "high", "máximo"}, {"", "made-up", "n/d"}} {
 		m.reasoningEffort = ""
 		m.modelPickerLiveByProvider["qg"][0].DefaultReasoningEffort = tc.api
 		if tc.local == "max" {

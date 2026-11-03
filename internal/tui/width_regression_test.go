@@ -37,7 +37,7 @@ func TestBatchOneLayoutFitsRequiredWidths(t *testing.T) {
 					assertNotContains(t, title, "model-")
 					assertNotContains(t, empty, "model-")
 					if modelName == "" {
-						assertContains(t, divider, "no model")
+						assertContains(t, divider, "sem modelo")
 					} else {
 						assertContains(t, divider, "model-")
 						if strings.Contains(modelName, "界") {

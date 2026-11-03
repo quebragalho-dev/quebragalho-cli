@@ -40,7 +40,7 @@ func TestEffortCommandListsAndSetsSupportedEffort(t *testing.T) {
 	if cardPayload == "" {
 		t.Fatalf("expected an effort command card row, got %#v", next.transcript)
 	}
-	for _, want := range []string{"Effort", "active effort: auto", "available", "low, medium, high"} {
+	for _, want := range []string{"Nível", "nível ativo: automático", "disponíveis", "baixo, médio, alto"} {
 		if !strings.Contains(cardPayload, want) {
 			t.Fatalf("expected card to contain %q, got %q", want, cardPayload)
 		}
@@ -56,8 +56,74 @@ func TestEffortCommandListsAndSetsSupportedEffort(t *testing.T) {
 	if next.reasoningEffort != modelregistry.ReasoningEffortHigh {
 		t.Fatalf("expected effort high, got %q", next.reasoningEffort)
 	}
-	if next.transientNotice.text != "Reasoning effort: high" {
+	if next.transientNotice.text != "Nível de raciocínio: alto" {
 		t.Fatalf("effort switch notice = %q", next.transientNotice.text)
+	}
+}
+
+func TestEffortCommandAcceptsPortugueseLabels(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  modelregistry.ReasoningEffort
+		label string
+	}{
+		{"baixo", modelregistry.ReasoningEffortLow, "baixo"},
+		{"medio", modelregistry.ReasoningEffortMedium, "médio"},
+		{"médio", modelregistry.ReasoningEffortMedium, "médio"},
+		{"MÉDIO", modelregistry.ReasoningEffortMedium, "médio"},
+		{"alto", modelregistry.ReasoningEffortHigh, "alto"},
+		{"muito alto", modelregistry.ReasoningEffortXHigh, "muito alto"},
+		{"maximo", modelregistry.ReasoningEffortMax, "máximo"},
+		{"máximo", modelregistry.ReasoningEffortMax, "máximo"},
+		{"MÁXIMO", modelregistry.ReasoningEffortMax, "máximo"},
+		{"low", modelregistry.ReasoningEffortLow, "baixo"},
+		{"high", modelregistry.ReasoningEffortHigh, "alto"},
+		{"HIGH", modelregistry.ReasoningEffortHigh, "alto"},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			m := batchThreeLiveModel(t)
+			m.modelPickerLiveByProvider["qg"][0].APIModel.Capabilities.Reasoning = true
+			next, text := m.handleEffortCommand(tc.input)
+			if next.reasoningEffort != tc.want {
+				t.Fatalf("handleEffortCommand(%q) stored = %q, want %q", tc.input, next.reasoningEffort, tc.want)
+			}
+			if !strings.Contains(text, tc.label) {
+				t.Fatalf("handleEffortCommand(%q) card missing label %q: %q", tc.input, tc.label, text)
+			}
+		})
+	}
+	for _, input := range []string{"auto", "automatico", "automático", "AUTOMÁTICO"} {
+		t.Run("auto-"+input, func(t *testing.T) {
+			m := batchThreeLiveModel(t)
+			m.modelPickerLiveByProvider["qg"][0].APIModel.Capabilities.Reasoning = true
+			m.reasoningEffort = modelregistry.ReasoningEffortHigh
+			next, text := m.handleEffortCommand(input)
+			if next.reasoningEffort != "" {
+				t.Fatalf("handleEffortCommand(%q) stored = %q, want auto", input, next.reasoningEffort)
+			}
+			if !strings.Contains(text, "automático") {
+				t.Fatalf("handleEffortCommand(%q) card missing automático: %q", input, text)
+			}
+		})
+	}
+}
+
+func TestEffortCommandUnknownShowsCurrentLevel(t *testing.T) {
+	m := batchThreeLiveModel(t)
+	m.modelPickerLiveByProvider["qg"][0].APIModel.Capabilities.Reasoning = true
+	m.reasoningEffort = modelregistry.ReasoningEffortHigh
+	next, text := m.handleEffortCommand("xyz-bogus")
+	if next.reasoningEffort != modelregistry.ReasoningEffortHigh {
+		t.Fatalf("unknown effort changed stored value to %q", next.reasoningEffort)
+	}
+	if !strings.Contains(text, "desconhecido") {
+		t.Fatalf("unknown effort card missing desconhecido: %q", text)
+	}
+	if !strings.Contains(text, "nível ativo: alto") {
+		t.Fatalf("unknown effort card must show current alto, got: %q", text)
+	}
+	if strings.Contains(text, "nível ativo: xyz-bogus") {
+		t.Fatalf("unknown effort card must not show rejected arg as active: %q", text)
 	}
 }
 
@@ -71,7 +137,7 @@ func TestEffortCommandRejectsUnsupportedActiveModel(t *testing.T) {
 	if next.reasoningEffort != "" {
 		t.Fatalf("expected effort to remain auto, got %q", next.reasoningEffort)
 	}
-	if !transcriptContains(next.transcript, "does not expose reasoning effort controls") {
+	if !transcriptContains(next.transcript, "não oferece controles de nível de raciocínio") {
 		t.Fatalf("expected unsupported model message, got %#v", next.transcript)
 	}
 }
@@ -935,7 +1001,7 @@ func TestModelSwitchClearsUnsupportedEffortPreference(t *testing.T) {
 	if next.reasoningEffort != "" {
 		t.Fatalf("expected unsupported effort preference to reset, got %q", next.reasoningEffort)
 	}
-	if !strings.Contains(next.transientNotice.text, "effort auto") {
+	if !strings.Contains(next.transientNotice.text, "nível auto") {
 		t.Fatalf("expected model switch notice to mention effort reset, got %q", next.transientNotice.text)
 	}
 }
@@ -959,7 +1025,7 @@ func TestModelSwitchUnknownModelReportsError(t *testing.T) {
 	if next.modelName != "gpt-4.1" {
 		t.Fatalf("expected active model to stay gpt-4.1, got %q", next.modelName)
 	}
-	if !transcriptContains(next.transcript, "unknown QG model") {
+	if !transcriptContains(next.transcript, "modelo QG desconhecido") {
 		t.Fatalf("expected unknown model error, got %#v", next.transcript)
 	}
 }
@@ -981,5 +1047,33 @@ func anthropicTestProfile(modelID string) config.ProviderProfile {
 		BaseURL:      config.AnthropicBaseURL,
 		APIKey:       "sk-test",
 		Model:        modelID,
+	}
+}
+
+// TestEffortCommandUnsupportedShowsCurrentLevel pins the unsupported card:
+// the requested level is named translated in the message, but the active
+// level shown stays the current one, never the rejected request.
+func TestEffortCommandUnsupportedShowsCurrentLevel(t *testing.T) {
+	m := batchThreeLiveModel(t)
+	live := m.modelPickerLiveByProvider["qg"]
+	live[0].APIModel.Capabilities.Reasoning = true
+	live[0].ReasoningEfforts = []string{"low"}
+	live[0].DefaultReasoningEffort = "low"
+	m.reasoningEffort = modelregistry.ReasoningEffortLow
+	_, text := m.handleEffortCommand("high")
+	if !strings.Contains(text, "não suportado") {
+		t.Fatalf("unsupported effort card missing não suportado: %q", text)
+	}
+	if !strings.Contains(text, `"alto"`) {
+		t.Fatalf("unsupported effort card must name the requested level translated: %q", text)
+	}
+	if strings.Contains(text, `"high"`) {
+		t.Fatalf("unsupported effort card must not show the raw requested value: %q", text)
+	}
+	if !strings.Contains(text, "nível ativo: baixo") {
+		t.Fatalf("unsupported effort card must keep the current level active: %q", text)
+	}
+	if strings.Contains(text, "nível ativo: alto") {
+		t.Fatalf("unsupported effort card must not show the requested level as active: %q", text)
 	}
 }

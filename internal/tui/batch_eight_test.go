@@ -16,7 +16,7 @@ func TestBatchEightEffortCopy(t *testing.T) {
 	m.reasoningEffort = "max"
 	m = batchSixOpen(m, "/effort")
 	got := plainRender(t, m.pickerOverlay(120))
-	assertContains(t, got, "effort: max")
+	assertContains(t, got, "nível: máximo")
 	assertNotContains(t, got, "preferência local")
 	assertNotContains(t, got, "não confirmado")
 }

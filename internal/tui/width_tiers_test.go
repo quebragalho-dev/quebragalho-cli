@@ -76,7 +76,7 @@ func TestWidthTierSegments(t *testing.T) {
 		if strings.Contains(status, "interactive") || strings.Contains(status, "muse-spark-1.3-contributor") {
 			t.Errorf("width %d: status should not include surface or model (%q)", tc.width, status)
 		}
-		if !strings.Contains(status, "auto-approve") {
+		if !strings.Contains(status, "automático") {
 			t.Errorf("width %d: status should show the permission mode (%q)", tc.width, status)
 		}
 		divider := plainRender(t, m.composerDividerLine(tc.width))
@@ -84,7 +84,7 @@ func TestWidthTierSegments(t *testing.T) {
 		if !strings.Contains(divider, "muse-spark-1.3-contributor") {
 			t.Errorf("width %d: composer divider must keep the model label (%q)", tc.width, divider)
 		}
-		if strings.Contains(divider, "auto-approve") {
+		if strings.Contains(divider, "automático") {
 			t.Errorf("width %d: composer divider should no longer show the mode (%q)", tc.width, divider)
 		}
 	}
@@ -97,7 +97,7 @@ func TestTinyTierSingleSegmentAndRailLessCards(t *testing.T) {
 	status := plainRender(t, m.statusLine(40))
 	// Tiny status shows the permission-mode chip (the safety-relevant run-state),
 	// not the provider or model.
-	if !strings.Contains(status, "auto-approve") {
+	if !strings.Contains(status, "automático") {
 		t.Fatalf("tiny status = %q, want the permission-mode chip", status)
 	}
 	if strings.Contains(status, "anthropic") || strings.Contains(status, "muse-spark-1.3-contributor") {
@@ -107,7 +107,7 @@ func TestTinyTierSingleSegmentAndRailLessCards(t *testing.T) {
 	if !strings.Contains(divider, "muse-spark-1.3-contributor") {
 		t.Fatalf("tiny composer divider = %q, want the model label", divider)
 	}
-	if strings.Contains(divider, "auto-approve") {
+	if strings.Contains(divider, "automático") {
 		t.Fatalf("tiny composer divider = %q, mode should have moved to the status line", divider)
 	}
 

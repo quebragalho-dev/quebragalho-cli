@@ -4,7 +4,7 @@ import "strings"
 
 // queuedEditHint replaces the composer placeholder while a message is queued
 // and informs the user they can press up to edit it.
-const queuedEditHint = "Press up to edit queued messages"
+const queuedEditHint = "Pressione ↑ para editar as mensagens na fila"
 
 func (m model) queueMessage(text string) model {
 	text = strings.TrimSpace(text)
@@ -56,6 +56,6 @@ func renderQueuedMessagePreview(message string, width int) string {
 	if message == "" {
 		return ""
 	}
-	line := qgTheme.accent.Render("[queued]") + " " + qgTheme.muted.Render(message)
+	line := qgTheme.accent.Render("[na fila]") + " " + qgTheme.muted.Render(message)
 	return fitStyledLine(line, width)
 }

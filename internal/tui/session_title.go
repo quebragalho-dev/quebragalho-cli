@@ -212,7 +212,7 @@ func firstUserMessageTitle(events []sessions.Event) string {
 // alone.
 func sessionTitleIsAuto(currentTitle string, events []sessions.Event) bool {
 	trimmed := strings.TrimSpace(currentTitle)
-	if trimmed == "" || trimmed == tuiSessionTitle("") {
+	if trimmed == "" || trimmed == tuiSessionTitle("") || trimmed == "QG TUI session" {
 		return true
 	}
 	if first := firstUserMessageTitle(events); first != "" && trimmed == first {

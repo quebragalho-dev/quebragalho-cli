@@ -241,11 +241,15 @@ func TestTerminalAttachOverlayFillsViewport(t *testing.T) {
 
 func TestFooterViewWhileAttachedDropsComposer(t *testing.T) {
 	m, _ := attachedModel(t)
+	m.input.Placeholder = composerPlaceholder
 	next, _ := m.openTerminalAttach(7)
 
 	footer := ansi.Strip(next.footerView(100))
-	if strings.Contains(footer, "describe a task") {
+	if strings.Contains(footer, "descreva uma tarefa") {
 		t.Fatalf("attached footer still shows the composer: %q", footer)
+	}
+	if strings.Contains(footer, "\u256d") {
+		t.Fatalf("attached footer still shows the composer box: %q", footer)
 	}
 	if strings.TrimSpace(footer) == "" {
 		t.Fatal("attached footer should still render the status line")

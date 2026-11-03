@@ -11,7 +11,7 @@ func TestResumeTextHandlesNilSessionStore(t *testing.T) {
 	m.sessionStore = nil // force the defensive path
 
 	got := m.resumeText() // must not panic
-	if !strings.Contains(got, "unavailable") {
+	if !strings.Contains(got, "indisponível") {
 		t.Fatalf("expected a safe 'store unavailable' message, got %q", got)
 	}
 }

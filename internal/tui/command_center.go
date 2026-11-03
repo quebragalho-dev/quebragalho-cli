@@ -229,11 +229,11 @@ func (m model) resumeText() string {
 	// render a safe message rather than panic on the nil dereference below.
 	if m.sessionStore == nil {
 		return renderCommandOutput(commandOutput{
-			Title:  "Sessions",
+			Title:  "Sessões",
 			Status: commandStatusBlocked,
 			Sections: []commandSection{{
-				Title: "Store",
-				Lines: []string{"session store unavailable"},
+				Title: "Armazenamento",
+				Lines: []string{"armazenamento de sessões indisponível"},
 			}},
 		})
 	}
@@ -242,21 +242,21 @@ func (m model) resumeText() string {
 	sessions, err := m.sessionStore.ListResumable()
 	if err != nil {
 		return renderCommandOutput(commandOutput{
-			Title:  "Sessions",
+			Title:  "Sessões",
 			Status: commandStatusBlocked,
 			Sections: []commandSection{{
-				Title: "Store",
-				Lines: []string{"error: " + err.Error()},
+				Title: "Armazenamento",
+				Lines: []string{"erro: " + err.Error()},
 			}},
 		})
 	}
 	if len(sessions) == 0 {
 		return renderCommandOutput(commandOutput{
-			Title:  "Sessions",
+			Title:  "Sessões",
 			Status: commandStatusInfo,
 			Sections: []commandSection{{
-				Title: "Recent",
-				Lines: []string{"none"},
+				Title: "Recentes",
+				Lines: []string{"nenhuma"},
 			}},
 		})
 	}
@@ -271,23 +271,30 @@ func (m model) resumeText() string {
 	for index := 0; index < limit; index++ {
 		session := sessions[index]
 		meta := strings.Join([]string{
-			sanitizeCardField(displayValue(session.ModelID, "no model")),
-			sanitizeCardField(displayValue(session.Provider, "no provider")),
-			fmt.Sprintf("%d events", session.EventCount),
+			sanitizeCardField(displayValue(session.ModelID, "sem modelo")),
+			sanitizeCardField(displayValue(session.Provider, "sem provedor")),
+			eventCountLabel(session.EventCount),
 		}, " · ")
 		records = append(records, strings.Join([]string{
 			sanitizeCardField(session.SessionID),
 			relativeAge(session.UpdatedAt, m.now()),
-			sanitizeCardField(displayValue(session.Title, "untitled")),
+			sanitizeCardField(displayValue(session.Title, "sem título")),
 			meta,
 		}, sessionsCardFieldSep))
 	}
 	if len(sessions) > limit {
-		records = append(records, fmt.Sprintf("… %d more · /resume <id>", len(sessions)-limit))
+		records = append(records, fmt.Sprintf("… mais %d · /resume <id>", len(sessions)-limit))
 	} else {
-		records = append(records, "use /resume latest or /resume <id> to load a session")
+		records = append(records, "use /resume latest ou /resume <id> para carregar uma sessão")
 	}
 	return sessionsCardsPrefix + strings.Join(records, "\n")
+}
+
+func eventCountLabel(count int) string {
+	if count == 1 {
+		return "1 evento"
+	}
+	return fmt.Sprintf("%d eventos", count)
 }
 
 const (
@@ -361,7 +368,19 @@ func sanitizeCardField(value string) string {
 	return out.String()
 }
 
-// relativeAge renders an RFC3339 timestamp as a short age ("2h ago"), falling
+// formatDayMonthPT renders a date as day + abbreviated Portuguese month
+// ("5 jun"), the calendar form relativeAge falls back to for sessions older
+// than a month.
+func formatDayMonthPT(t time.Time) string {
+	months := []string{"jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"}
+	m := int(t.Month())
+	if m < 1 || m > 12 {
+		return t.Format("2006-01-02")
+	}
+	return fmt.Sprintf("%d %s", t.Day(), months[m-1])
+}
+
+// relativeAge renders an RFC3339 timestamp as a short age ("há 2 h"), falling
 // back to the month/day this year and the bare date for sessions older than a
 // month, so deep history reads as a calendar date rather than "400d ago"; ""
 // when the timestamp does not parse, so the card simply omits it.
@@ -373,17 +392,17 @@ func relativeAge(timestamp string, now time.Time) string {
 	age := now.Sub(parsed)
 	switch {
 	case age < time.Minute:
-		return "now"
+		return "agora"
 	case age < time.Hour:
-		return fmt.Sprintf("%dm ago", int(age.Minutes()))
+		return fmt.Sprintf("há %d min", int(age.Minutes()))
 	case age < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(age.Hours()))
+		return fmt.Sprintf("há %d h", int(age.Hours()))
 	case age <= 30*24*time.Hour:
-		return fmt.Sprintf("%dd ago", int(age.Hours()/24))
+		return fmt.Sprintf("há %d d", int(age.Hours()/24))
 	}
 	parsed, now = parsed.Local(), now.Local()
 	if parsed.Year() == now.Year() {
-		return parsed.Format("Jan _2")
+		return formatDayMonthPT(parsed)
 	}
 	return parsed.Format("2006-01-02")
 }
@@ -402,22 +421,22 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 		return m, m.modelListText(), false, nil
 	}
 	if m.pending {
-		return m, "Model\nCannot switch models while a run is active.", false, nil
+		return m, "Modelo\nNão é possível trocar de modelo com uma execução em andamento.", false, nil
 	}
 
 	registry, err := modelregistry.DefaultRegistry()
 	if err != nil {
-		return m, "Model\nFailed to load model catalog: " + err.Error(), false, nil
+		return m, "Modelo\nFalha ao carregar o catálogo de modelos: " + err.Error(), false, nil
 	}
 	target, ok := m.resolveModelSwitchTarget(registry, args)
 	if !ok {
-		return m, "Model\nunknown QG model " + strconv.Quote(args), false, nil
+		return m, "Modelo\nmodelo QG desconhecido " + strconv.Quote(args), false, nil
 	}
 	if !config.HasProviderProfile(m.providerProfile) {
-		return m, "Model\nNo provider profile is available for TUI model switching.", false, nil
+		return m, "Modelo\nNenhum perfil de provedor disponível para trocar de modelo.", false, nil
 	}
 	if m.newProvider == nil {
-		return m, "Model\nProvider rebuild is not available for this TUI session.", false, nil
+		return m, "Modelo\nProvedor não pode ser reconstruído nesta sessão.", false, nil
 	}
 
 	previousProviderName := m.providerName
@@ -433,20 +452,20 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	nextProfile = m.profileWithCredential(nextProfile)
 	metadata, err := providers.ResolveRuntimeMetadata(nextProfile, providers.Options{})
 	if err != nil {
-		return m, "Model\n" + err.Error(), false, nil
+		return m, "Modelo\n" + err.Error(), false, nil
 	}
 
 	if guarded, text, requested := m.requestCompactionBeforeModelSwitch(modelSwitchCompactionRequest{
 		TargetModel:         target.modelID,
 		TargetProvider:      string(metadata.ProviderKind),
 		TargetContextWindow: modelregistry.AgentContextWindow(m.modelContextWindow(target.modelID)),
-	}, "Model"); requested {
+	}, "Modelo"); requested {
 		return guarded, text, false, nil
 	}
 
 	nextProvider, err := m.newProvider(nextProfile)
 	if err != nil {
-		return m, "Model\n" + err.Error(), false, nil
+		return m, "Modelo\n" + err.Error(), false, nil
 	}
 	var persisted bool
 	var persistErr error
@@ -493,33 +512,33 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	// auto).
 	var resetEffort bool
 	m, resetEffort = m.reconcileEffortForModelSwitch(target.reasoningEfforts, target.entry != nil)
-	effortLine := "effort: " + m.effortDisplay()
+	effortLine := "nível: " + effortDisplayLabel(m.effortDisplay())
 	if resetEffort {
 		// Preference was dropped: show "auto" (model default applies), not a
 		// concrete value that would read as an explicit setting.
-		effortLine += " (unsupported preference reset)"
+		effortLine += " (preferência sem suporte redefinida)"
 	} else if target.entry != nil {
 		if effective := modelregistry.EffectiveReasoningEffort(*target.entry, m.reasoningEffort); effective != modelregistry.ReasoningEffortNone {
-			effortLine = "effort: " + string(effective)
+			effortLine = "nível: " + effortDisplayLabel(string(effective))
 		}
 	}
-	// Compact one-line summary — "<model> · <provider>[ · effort …][ · saved]" —
+	// Compact one-line summary — "<model> · <provider>[ · nível …][ · saved]" —
 	// instead of a multi-line model/provider/api/effort/saved block.
 	summary := target.modelID + " · " + displayValue(nextProfile.Name, string(metadata.ProviderKind))
-	effort := strings.TrimSpace(strings.TrimPrefix(effortLine, "effort: "))
+	effort := strings.TrimSpace(strings.TrimPrefix(effortLine, "nível: "))
 	if resetEffort {
-		summary += " · effort auto (reset)"
-	} else if effort != "" && effort != "auto" {
-		summary += " · effort " + effort
+		summary += " · nível automático (redefinido)"
+	} else if effort != "" && effort != "automático" {
+		summary += " · nível " + effort
 	}
 	if persisted {
-		summary += " · saved"
+		summary += " · salvo"
 	} else if persistErr != nil {
 		// Keep the failure reason (e.g. an unwritable config path) so persistence
 		// problems stay debuggable from the status line.
 		summary += " · not saved (" + persistErr.Error() + ")"
 	}
-	lines := []string{"Model"}
+	lines := []string{"Modelo"}
 	if target.notice != "" {
 		lines = append(lines, target.notice)
 	}

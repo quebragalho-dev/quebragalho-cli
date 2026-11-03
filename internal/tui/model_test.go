@@ -20,6 +20,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -381,7 +382,7 @@ func TestEmptyStateCollapsesAfterFirstPrompt(t *testing.T) {
 	}
 	// Working view shows provider status and the composer divider model fallback.
 	assertNotContains(t, view, "interactive")
-	assertContains(t, view, "no model")
+	assertContains(t, view, "sem modelo")
 }
 
 func TestEmptyStateStaysVisibleOnEmptySubmit(t *testing.T) {
@@ -589,7 +590,7 @@ func TestModelCommandShowsActiveModelWithoutRunningAgent(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /model to be handled without starting an agent run")
 	}
-	for _, want := range []string{"Active model: muse-spark-1.3-contributor", "provider: qg", "Available models", "* muse-spark-1.3-contributor"} {
+	for _, want := range []string{"Modelo ativo: muse-spark-1.3-contributor", "provedor: qg", "Modelos disponíveis", "* muse-spark-1.3-contributor"} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected model transcript to contain %q, got %#v", want, next.transcript)
 		}
@@ -636,7 +637,7 @@ func TestModelCommandSwitchesSessionModel(t *testing.T) {
 	if rebuilt.Model != "qwen3.8-omni-flash" {
 		t.Fatalf("expected provider rebuild with selected model, got %#v", rebuilt)
 	}
-	for _, want := range []string{"Model:", "qwen3.8-omni-flash · qg"} {
+	for _, want := range []string{"Modelo:", "qwen3.8-omni-flash · qg"} {
 		if !strings.Contains(next.transientNotice.text, want) {
 			t.Fatalf("expected model notice to contain %q, got %q", want, next.transientNotice.text)
 		}
@@ -841,8 +842,54 @@ func TestModelCommandRequiresProviderRebuildForSwitch(t *testing.T) {
 	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
-	if !transcriptContains(next.transcript, "Provider rebuild is not available") {
+	if !transcriptContains(next.transcript, "Provedor não pode ser reconstruído nesta sessão") {
 		t.Fatalf("expected provider rebuild availability error, got %#v", next.transcript)
+	}
+}
+
+// TestModelCommandRebuildErrorRendersWholeAtNarrowWidths pins item 9 of the
+// translation pattern for the rebuild card: the shortened message must reach
+// the card intact from 50 to 120 columns, with no ellipsis beyond the base.
+func TestModelCommandRebuildErrorRendersWholeAtNarrowWidths(t *testing.T) {
+	m := newModel(context.Background(), Options{
+		ModelName: "muse-spark-1.3-contributor",
+		ProviderProfile: config.ProviderProfile{
+			Name:         "qg",
+			CatalogID:    "qg",
+			ProviderKind: config.ProviderKindOpenAICompatible,
+			BaseURL:      "https://api.quebragalho.dev/v1",
+			Model:        "muse-spark-1.3-contributor",
+		},
+	})
+	m.input.SetValue("/model qwen3.8-omni-flash")
+
+	updated, cmd := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	if cmd != nil {
+		t.Fatal("expected /model to be handled without starting an agent run")
+	}
+	var row transcriptRow
+	found := false
+	for _, r := range next.transcript {
+		if strings.Contains(r.text, "Provedor não pode ser reconstruído") {
+			row, found = r, true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected provider rebuild error row, got %#v", next.transcript)
+	}
+	for _, width := range []int{50, 58, 80, 120} {
+		got := plainRender(t, next.renderRow(row, width, buildRowContext(next.transcript)))
+		for _, line := range strings.Split(got, "\n") {
+			if strings.Contains(line, "…") {
+				t.Fatalf("width=%d: rebuild message cut: %q in %q", width, line, got)
+			}
+		}
+		if !strings.Contains(got, "Provedor não pode ser reconstruído nesta sessão.") {
+			t.Fatalf("width=%d: rebuild message missing, got %q", width, got)
+		}
 	}
 }
 
@@ -869,7 +916,7 @@ func TestModelCommandRejectsSwitchWhilePending(t *testing.T) {
 	if next.modelName != "muse-spark-1.3-contributor" {
 		t.Fatalf("expected active model to remain unchanged, got %q", next.modelName)
 	}
-	if !transcriptContains(next.transcript, "Cannot switch models while a run is active") {
+	if !transcriptContains(next.transcript, "Não é possível trocar de modelo com uma execução em andamento") {
 		t.Fatalf("expected pending switch error, got %#v", next.transcript)
 	}
 }
@@ -1027,7 +1074,7 @@ func TestResumeCommandListsRecentSessions(t *testing.T) {
 	}
 	// The picker overlay renders clean title rows plus a position indicator.
 	view := viewString(next.View())
-	for _, want := range []string{"Resume a session", "Newer", "Older", "1 / 2"} {
+	for _, want := range []string{"Retomar uma sessão", "Newer", "Older", "1 / 2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("session picker view missing %q:\n%s", want, view)
 		}
@@ -1106,7 +1153,7 @@ func TestResumePickerSelectionHydratesSession(t *testing.T) {
 	if next.activeSession.SessionID != target.SessionID {
 		t.Fatalf("active session = %q, want %q", next.activeSession.SessionID, target.SessionID)
 	}
-	if !transcriptContains(next.transcript, "Resumed QG session") || !transcriptContains(next.transcript, target.SessionID) {
+	if !transcriptContains(next.transcript, "Sessão do QG retomada") || !transcriptContains(next.transcript, target.SessionID) {
 		t.Fatalf("expected the resume summary in the transcript, got %#v", next.transcript)
 	}
 }
@@ -1208,7 +1255,7 @@ func TestResumeCommandWithUnknownIDReportsMissingSession(t *testing.T) {
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "qg session not found: qg_123") {
+	if !transcriptContains(next.transcript, "sessão do qg não encontrada: qg_123") {
 		t.Fatalf("expected missing session message, got %#v", next.transcript)
 	}
 }
@@ -2033,7 +2080,7 @@ func TestAgentEventRenderingMappingCoversRuntimeContract(t *testing.T) {
 	assertContains(t, m.sidebarTokenText(), "120 tokens")
 	assertContains(t, m.composerDividerLine(96), "gpt-4.1")
 	// Permission mode moved from the composer rule to the status line.
-	assertContains(t, m.statusLine(96), "ask")
+	assertContains(t, m.statusLine(96), "aprovação")
 }
 
 func TestToolResultRowDefaultsEmptyStatusToOK(t *testing.T) {
@@ -2077,7 +2124,7 @@ func TestShiftTabCyclesPermissionMode(t *testing.T) {
 
 	// The rendered status label tracks the cycled mode.
 	label, _ := m.modeLabel()
-	if label != "auto-approve" {
+	if label != "automático" {
 		t.Fatalf("expected mode label to track cycled mode, got %q", label)
 	}
 }
@@ -2227,7 +2274,7 @@ func TestCtrlCClearsComposerBeforeExitConfirmation(t *testing.T) {
 	status := plainRender(t, next.statusLine(80))
 	// No exit confirmation armed, so the normal run-state chip shows (the status
 	// line carries the permission mode now, not the provider).
-	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "auto-approve") {
+	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "automático") {
 		t.Fatalf("status line = %q, want the run-state chip with no exit confirmation", status)
 	}
 
@@ -2262,7 +2309,7 @@ func TestCtrlCExitConfirmationExpires(t *testing.T) {
 	status := plainRender(t, next.statusLine(80))
 	// After expiry the warning clears and the normal run-state chip is restored
 	// (the status line now shows the permission mode, not the provider).
-	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "auto-approve") {
+	if strings.Contains(status, ctrlCExitConfirmText) || !strings.Contains(status, "automático") {
 		t.Fatalf("status line after expiry = %q, want the run-state chip restored", status)
 	}
 }
@@ -3328,4 +3375,104 @@ func TestMissingProviderNoticeCitesQGSetupAndAPIKey(t *testing.T) {
 			t.Fatalf("missing-provider notice must not mention %q, got %q", banned, text)
 		}
 	}
+}
+
+func TestHandleModelCommandScopeEffortLevels(t *testing.T) {
+	baseProfile := config.ProviderProfile{
+		Name:         "qg",
+		CatalogID:    "qg",
+		ProviderKind: config.ProviderKindOpenAICompatible,
+		BaseURL:      "https://api.quebragalho.dev/v1",
+		APIKey:       "sk-test",
+		Model:        "muse-spark-1.3-contributor",
+	}
+	newBase := func() model {
+		return newModel(context.Background(), Options{
+			ProviderName:    "qg",
+			ModelName:       "muse-spark-1.3-contributor",
+			ProviderProfile: baseProfile,
+			Provider:        &fakeProvider{},
+			NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
+				return &fakeProvider{}, nil
+			},
+		})
+	}
+
+	t.Run("explicit level keeps single nivel", func(t *testing.T) {
+		m := newBase()
+		m.reasoningEffort = "high"
+		m.providerProfile.CatalogID = "qg"
+		m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{"qg": {{ID: "custom-explicit", Source: "live"}}}
+		// activeProviderDescriptor resolves qg from the profile above.
+		next, text, ok, err := m.handleModelCommandScope("custom-explicit", false)
+		if err != nil || !ok {
+			t.Fatalf("explicit switch refused: text=%q err=%v", text, err)
+		}
+		if next.reasoningEffort != "high" {
+			t.Fatalf("explicit preference dropped: %q", next.reasoningEffort)
+		}
+		if !strings.Contains(text, "nível alto") {
+			t.Fatalf("explicit summary must show nível alto, got: %q", text)
+		}
+		if strings.Contains(text, "nível nível:") || strings.Contains(text, "(redefinido)") || strings.Contains(text, "(reset)") {
+			t.Fatalf("explicit summary has duplicated/reset marker: %q", text)
+		}
+	})
+
+	t.Run("reset shows redefinido", func(t *testing.T) {
+		m := newBase()
+		m.reasoningEffort = "high"
+		// qwen3.8-omni-flash has an empty effort ring in every catalog, so an
+		// explicit preference must reset (qwen3.8-max was removed by cost cuts).
+		next, text, ok, err := m.handleModelCommandScope("qwen3.8-omni-flash", false)
+		if err != nil || !ok {
+			t.Fatalf("reset switch refused: text=%q err=%v", text, err)
+		}
+		if next.reasoningEffort != "" {
+			t.Fatalf("dropped preference must reset to auto, got %q", next.reasoningEffort)
+		}
+		if !strings.Contains(text, "nível automático (redefinido)") {
+			t.Fatalf("reset summary must show redefinido, got: %q", text)
+		}
+		if strings.Contains(text, "(reset)") {
+			t.Fatalf("reset summary must not use old (reset): %q", text)
+		}
+	})
+
+	t.Run("automatic shows effective nivel", func(t *testing.T) {
+		m := newBase()
+		m.reasoningEffort = ""
+		next, text, ok, err := m.handleModelCommandScope("deepseek-v4-pro", false)
+		if err != nil || !ok {
+			t.Fatalf("auto switch refused: text=%q err=%v", text, err)
+		}
+		if next.modelName != "deepseek-v4-pro" {
+			t.Fatalf("auto switch model = %q, want deepseek-v4-pro", next.modelName)
+		}
+		if strings.Contains(text, "(redefinido)") || strings.Contains(text, "(reset)") {
+			t.Fatalf("auto summary must not show reset: %q", text)
+		}
+		if !strings.Contains(text, "· nível baixo") {
+			t.Fatalf("auto summary must show effective baixo, got: %q", text)
+		}
+		if strings.Contains(text, "nível nível:") {
+			t.Fatalf("auto summary must not duplicate nivel: %q", text)
+		}
+	})
+
+	t.Run("automatic without effective level omits nivel segment", func(t *testing.T) {
+		m := newBase()
+		m.reasoningEffort = ""
+		m.modelPickerLiveByProvider = map[string][]providermodeldiscovery.Model{"qg": {{ID: "custom-explicit", Source: "live"}}}
+		_, text, ok, err := m.handleModelCommandScope("custom-explicit", false)
+		if err != nil || !ok {
+			t.Fatalf("auto switch refused: text=%q err=%v", text, err)
+		}
+		// The comparison is against the displayed label: only "automático"
+		// means no segment. Comparing against raw "auto" would wrongly append
+		// "· nível automático" here.
+		if strings.Contains(text, "· nível") {
+			t.Fatalf("auto summary without effective level must omit the nível segment, got: %q", text)
+		}
+	})
 }

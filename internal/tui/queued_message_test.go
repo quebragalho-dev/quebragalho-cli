@@ -48,7 +48,7 @@ func TestQueuedPromptPreviewAppearsInView(t *testing.T) {
 	next := updated.(model)
 
 	view := viewString(next.View())
-	for _, want := range []string{"queued", "summarize the failing test output"} {
+	for _, want := range []string{"na fila", "summarize the failing test output"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected queued prompt preview to contain %q, got:\n%s", want, view)
 		}
@@ -72,7 +72,7 @@ func TestQueuedPromptPreviewSitsAboveComposer(t *testing.T) {
 	lines := strings.Split(footer, "\n")
 	queuedLine, composerTopLine := -1, -1
 	for i, ln := range lines {
-		if queuedLine < 0 && strings.Contains(ln, "queued") {
+		if queuedLine < 0 && strings.Contains(ln, "na fila") {
 			queuedLine = i
 		}
 		if composerTopLine < 0 && strings.Contains(ln, "╭") { // composer box top border

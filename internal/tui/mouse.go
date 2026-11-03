@@ -448,7 +448,7 @@ func (wizard *mcpAddWizardState) mcpAddWizardResultActionStartRow() int {
 }
 
 func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
-	if m.picker.title == "Selecionar modelo" {
+	if m.picker.kind == pickerModel && m.picker.panel {
 		width := chatWidth(m.width)
 		hit, ok := m.overlayMouseHit(msg, m.modelPanelOverlay(width), width)
 		count := minInt(len(m.picker.items), maxInt(1, minInt(8, m.height-18)))

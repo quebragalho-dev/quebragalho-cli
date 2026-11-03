@@ -65,7 +65,7 @@ func TestMouseClickSelectsThenAppliesPickerRow(t *testing.T) {
 	width := m.chatColumnWidth()
 	top := m.overlayMouseTop(len(viewLines(m.pickerOverlay(width))), width)
 	rows := strings.Split(plainRender(t, m.pickerOverlay(width)), "\n")
-	x := lipgloss.Width(rows[3][:strings.Index(rows[3], "high")])
+	x := lipgloss.Width(rows[3][:strings.Index(rows[3], "alto")])
 	click := testMouseClick(tea.MouseLeft, x, top+3)
 	updated, cmd := m.Update(click)
 	next := updated.(model)
@@ -610,8 +610,8 @@ func TestTranscriptSelectionClearsAfterCopy(t *testing.T) {
 	if next.transcriptSelection.active {
 		t.Fatal("selection highlight should clear after copy feedback")
 	}
-	if next.copyStatus != "Copied!" {
-		t.Fatalf("copyStatus = %q, want Copied!", next.copyStatus)
+	if next.copyStatus != "Copiado!" {
+		t.Fatalf("copyStatus = %q, want Copiado!", next.copyStatus)
 	}
 }
 
@@ -736,7 +736,7 @@ func TestTranscriptCopyStatusClearsOnlyForLatestCopy(t *testing.T) {
 
 	updated, _ = m.Update(transcriptCopyStatusExpiredMsg{seq: firstSeq})
 	m = updated.(model)
-	if m.copyStatus != "Copied!" {
+	if m.copyStatus != "Copiado!" {
 		t.Fatalf("stale expiry cleared status: %q", m.copyStatus)
 	}
 

@@ -24,7 +24,7 @@ func TestThemeAutoAliasUsesSystemWithoutBackgroundProbe(t *testing.T) {
 	if next.themeMode != themeSystem {
 		t.Fatalf("/theme auto mode = %q, want system", next.themeMode)
 	}
-	if next.transientNotice.text != "Theme: System" {
+	if next.transientNotice.text != "Tema: Sistema" {
 		t.Fatalf("/theme auto notice = %q", next.transientNotice.text)
 	}
 }

@@ -9,7 +9,7 @@ import (
 )
 
 func (m model) modelAppliedNotice() string {
-	return "Model: " + displayValue(m.modelName, "none") + " · " + displayValue(m.providerName, "default provider") + " · effort " + m.effortDisplay()
+	return "Modelo: " + displayValue(m.modelName, "nenhum") + " · " + displayValue(m.providerName, "provedor padrão") + " · nível " + effortDisplayLabel(m.effortDisplay())
 }
 
 // modelAppliedNoticeFor renders the applied-notice for a committed model
@@ -19,35 +19,35 @@ func (m model) modelAppliedNotice() string {
 // failure is invisible on either path unless it is rendered here.
 func (m model) modelAppliedNoticeFor(persistErr error) (string, transientNoticeTone) {
 	if persistErr != nil {
-		return m.modelAppliedNotice() + " · not saved (" + persistErr.Error() + ")", transientNoticeWarning
+		return m.modelAppliedNotice() + " · não salvo (" + persistErr.Error() + ")", transientNoticeWarning
 	}
 	return m.modelAppliedNotice(), transientNoticeSuccess
 }
 
 func (m model) effortAppliedNotice() string {
-	return "Reasoning effort: " + m.effortDisplay()
+	return "Nível de raciocínio: " + effortDisplayLabel(m.effortDisplay())
 }
 
 func (m model) fastAppliedNotice() string {
 	if m.activeServiceTier() == "priority" {
-		return "Fast mode: on"
+		return "Modo rápido: ativado"
 	}
-	return "Fast mode: off"
+	return "Modo rápido: desativado"
 }
 
 func (m model) selfCorrectAppliedNotice() string {
 	if m.selfCorrectTests {
-		return "Self-correction: on"
+		return "Autocorreção: ativada"
 	}
-	return "Self-correction: off"
+	return "Autocorreção: desativada"
 }
 
 func (m model) turnsAppliedNotice() string {
-	return fmt.Sprintf("Turn budget: %d", m.agentOptions.MaxTurns)
+	return fmt.Sprintf("Limite de turnos: %d", m.agentOptions.MaxTurns)
 }
 
 func (m model) profileAppliedNotice() string {
-	return "Profile: " + displayValue(m.execProfileName, "balanced")
+	return "Perfil: " + profileDisplayLabel(m.execProfileName)
 }
 
 // transientNoticeDuration is deliberately long enough to read at a glance but
@@ -119,6 +119,22 @@ func (m model) setTransientNotice(text string, tone transientNoticeTone) (model,
 	}
 	m.transientNoticeSeq++
 	return m, true
+}
+
+// profileDisplayLabel maps an execution-profile name to its Portuguese
+// display label. Unknown (custom) names pass through; empty means the
+// balanced restore profile.
+func profileDisplayLabel(name string) string {
+	switch strings.TrimSpace(name) {
+	case "", "balanced":
+		return "equilibrado"
+	case "fast":
+		return "rápido"
+	case "thorough":
+		return "minucioso"
+	default:
+		return name
+	}
 }
 
 func (m model) transientNoticeLine(width int) string {

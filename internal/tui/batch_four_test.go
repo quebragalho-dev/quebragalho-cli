@@ -60,9 +60,9 @@ func TestBatchFourEffortUnknownAndAPIDefault(t *testing.T) {
 	live := m.modelPickerLiveByProvider["qg"]
 	live[0].ReasoningEfforts = []string{"low", "high"}
 	live[0].DefaultReasoningEffort = "low"
-	assertContains(t, plainRender(t, m.statusLine(120)), "low (API)")
+	assertContains(t, plainRender(t, m.statusLine(120)), "baixo (API)")
 	m, _ = m.handleEffortCommand("high")
-	assertContains(t, plainRender(t, m.statusLine(120)), "high")
+	assertContains(t, plainRender(t, m.statusLine(120)), "alto")
 	if string(m.reasoningEffort) != "high" {
 		t.Fatal("selection was not stored")
 	}

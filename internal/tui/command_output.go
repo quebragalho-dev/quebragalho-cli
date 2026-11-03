@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
@@ -123,13 +125,13 @@ func formatCommandCardSection(section commandCardSection) []string {
 		if key == "" || value == "" {
 			continue
 		}
-		if len(key) > keyWidth {
-			keyWidth = len(key)
+		if w := lipgloss.Width(key); w > keyWidth {
+			keyWidth = w
 		}
 		fields = append(fields, commandField{Key: key, Value: value})
 	}
 	for _, field := range fields {
-		lines = append(lines, "  "+field.Key+strings.Repeat(" ", keyWidth-len(field.Key)+2)+field.Value)
+		lines = append(lines, "  "+field.Key+strings.Repeat(" ", keyWidth-lipgloss.Width(field.Key)+2)+field.Value)
 	}
 
 	for _, line := range section.Lines {

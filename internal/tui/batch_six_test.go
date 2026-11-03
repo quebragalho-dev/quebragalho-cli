@@ -33,7 +33,7 @@ func TestBatchSixEffortPanelDraftAndScope(t *testing.T) {
 	m.userConfigPath = filepath.Join(t.TempDir(), "config.json")
 	m = batchSixOpen(m, "/effort")
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"Faster", "Smarter", "xhigh", "max"} {
+	for _, want := range []string{"Mais rápido", "Mais inteligente", "muito alto", "máximo"} {
 		assertContains(t, got, want)
 	}
 	m = batchSixKey(m, tea.KeyRight, "")
@@ -78,7 +78,7 @@ func TestBatchSixModelPanelLiveDetails(t *testing.T) {
 	info.Capabilities.Reasoning = true
 	m.picker = m.newModelPicker()
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"1.", "Muse Spark", m.modelName, "BRL", "R$ 1,648", "bônus", "reasoning", "effort", "sessão"} {
+	for _, want := range []string{"1.", "Muse Spark", m.modelName, "BRL", "R$ 1,648", "bônus", "reasoning", "nível", "sessão"} {
 		assertContains(t, got, want)
 	}
 }
@@ -117,6 +117,27 @@ func TestBatchSixNoCatalogFallbackAndPasteIsolation(t *testing.T) {
 	if m.picker.query != "" {
 		t.Fatal("paste filtered a slider")
 	}
+}
+func TestEmptyQGPickerOpensInPanelMode(t *testing.T) {
+	m := batchThreeLiveModel(t)
+	m.modelPickerLiveByProvider = nil
+	m.width = 100
+	m.height = 30
+	m, _ = m.openModelPicker()
+	if m.picker == nil {
+		t.Fatal("empty QG picker must open")
+	}
+	if !m.picker.panel {
+		t.Fatal("empty QG picker must open in panel mode")
+	}
+	if len(m.picker.items) != 0 {
+		t.Fatalf("empty picker items = %d, want 0", len(m.picker.items))
+	}
+	got := plainRender(t, m.pickerOverlay(100))
+	for _, want := range []string{"0 disponíveis", "Catálogo API ainda não disponível", "Tab lista", "Enter padrão", "s só nesta sessão"} {
+		assertContains(t, got, want)
+	}
+	assertNotContains(t, got, "Enter selecionar")
 }
 
 func TestBatchSixPanelsWidthsAndLiveRefresh(t *testing.T) {

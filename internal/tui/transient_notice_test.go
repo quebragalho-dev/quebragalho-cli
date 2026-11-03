@@ -80,7 +80,7 @@ func TestThemeSwitchUsesTransientNotice(t *testing.T) {
 	m := model{themeMode: themeSystem, hasDarkBg: true}
 	next, _ := m.dispatchCommand(parseCommand("/theme dracula"))
 	got := next.(model)
-	if got.transientNotice.text != "Theme: Dracula" {
+	if got.transientNotice.text != "Tema: Dracula" {
 		t.Fatalf("notice = %q", got.transientNotice.text)
 	}
 	if len(got.transcript) != 0 {

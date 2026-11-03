@@ -486,12 +486,12 @@ func composerPastePreviewLabel(text string, wrapWidth int) (string, bool) {
 	}
 	snippet = strings.Join(strings.Fields(snippet), " ")
 	if snippet == "" {
-		snippet = "pasted text"
+		snippet = "texto colado"
 	}
 	snippet = truncateComposerPasteSnippet(snippet, 48)
-	label := "lines"
+	label := "linhas"
 	if lineCount == 1 {
-		label = "line"
+		label = "linha"
 	}
 	return "[" + snippet + " · " + strconv.Itoa(lineCount) + " " + label + "]", true
 }
@@ -500,7 +500,7 @@ func composerPastePreviewLabelWithIndex(label string, pasteNumber int) string {
 	if pasteNumber <= 1 || !strings.HasSuffix(label, "]") {
 		return label
 	}
-	return strings.TrimSuffix(label, "]") + ", paste " + strconv.Itoa(pasteNumber) + "]"
+	return strings.TrimSuffix(label, "]") + ", colagem " + strconv.Itoa(pasteNumber) + "]"
 }
 
 func composerPastePreviewVisualLineCount(text string, wrapWidth int) int {

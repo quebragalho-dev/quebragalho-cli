@@ -218,7 +218,7 @@ func TestPastedMultilineComposerContentRendersAsPreview(t *testing.T) {
 		t.Fatalf("composer value should preserve full paste = %q, want %q", got, paste)
 	}
 	view := plainRender(t, next.composerBox(96))
-	for _, want := range []string{"[Create a book library dashboard page", "4 lines"} {
+	for _, want := range []string{"[Create a book library dashboard page", "4 linhas"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("composer preview missing %q in:\n%s", want, view)
 		}
@@ -240,7 +240,7 @@ func TestPastedLongSingleLineComposerContentRendersWrappedLineCount(t *testing.T
 		t.Fatalf("composer value should preserve full paste = %q, want %q", got, paste)
 	}
 	view := plainRender(t, next.composerBox(44))
-	for _, want := range []string{"[word word word", "5 lines"} {
+	for _, want := range []string{"[word word word", "5 linhas"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("composer preview missing %q in:\n%s", want, view)
 		}
@@ -303,7 +303,7 @@ func TestBackspaceAfterTypedTextKeepsPastedPreviewCollapsed(t *testing.T) {
 		t.Fatalf("composer value after deleting typed suffix = %q, want original paste", got)
 	}
 	view := plainRender(t, next.composerBox(96))
-	for _, want := range []string{"[first line", "3 lines"} {
+	for _, want := range []string{"[first line", "3 linhas"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("composer preview missing %q after deleting typed suffix:\n%s", want, view)
 		}
@@ -338,7 +338,7 @@ func TestPastingTwiceKeepsBothComposerPreviews(t *testing.T) {
 		t.Fatalf("composer value should preserve both pastes = %q", got)
 	}
 	view := plainRender(t, next.composerBox(120))
-	for _, want := range []string{"[Create a dashboard.", "3 lines", "[Log line one", "4 lines, paste 2"} {
+	for _, want := range []string{"[Create a dashboard.", "3 linhas", "[Log line one", "4 linhas, colagem 2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("composer preview missing %q in:\n%s", want, view)
 		}
@@ -563,7 +563,7 @@ func TestClipboardImageUnreadableSurfacesToUser(t *testing.T) {
 	}
 	found := false
 	for _, row := range next.transcript {
-		if row.kind == rowError && strings.Contains(row.text, "Clipboard image read failed") {
+		if row.kind == rowError && strings.Contains(row.text, "Falha ao ler a imagem da área de transferência") {
 			found = true
 			break
 		}

@@ -49,7 +49,7 @@ func TestClipboardReadRoutesToFocusedField(t *testing.T) {
 func TestClipboardReadErrorShowsStatus(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	updated, _ := m.Update(clipboardReadMsg{err: errors.New("no clipboard utility")})
-	if next := updated.(model); next.copyStatus != "Paste failed" {
+	if next := updated.(model); next.copyStatus != "Falha ao colar" {
 		t.Fatalf("a clipboard-read error should surface a status, got %q", next.copyStatus)
 	}
 }

@@ -27,8 +27,8 @@ func TestWorkingActivityNamesCurrentPhase(t *testing.T) {
 		model model
 		want  string
 	}{
-		{name: "default", want: "thinking"},
-		{name: "assistant text", model: model{streamingText: []byte("drafting")}, want: "writing"},
+		{name: "default", want: "pensando"},
+		{name: "assistant text", model: model{streamingText: []byte("drafting")}, want: "escrevendo"},
 		{name: "permission", model: model{pendingPermission: &pendingPermissionPrompt{}}, want: "waiting for approval"},
 		{name: "question", model: model{pendingAskUser: &pendingAskUserPrompt{}}, want: "waiting for your answer"},
 		{name: "streamed tool", model: model{streamCallName: "grep"}, want: "searching"},
@@ -51,7 +51,7 @@ func TestWorkingActivityNamesCurrentPhase(t *testing.T) {
 					{kind: rowToolResult, id: "call-1", runID: 7, tool: "read_file", status: tools.StatusOK},
 				},
 			},
-			want: "thinking",
+			want: "pensando",
 		},
 	}
 	for _, test := range tests {
@@ -81,7 +81,7 @@ func TestWorkingStatusAnimationAdvancesAcrossActiveRun(t *testing.T) {
 		t.Fatalf("working status animation did not advance across phases:\nfirst:  %q\nsecond: %q", first, second)
 	}
 	firstPlain, secondPlain := []rune(plainRender(t, first)), []rune(plainRender(t, second))
-	if len(firstPlain) < 3 || len(secondPlain) < 3 || string(firstPlain[2:]) != string(secondPlain[2:]) || !strings.Contains(string(firstPlain), "Working") {
+	if len(firstPlain) < 3 || len(secondPlain) < 3 || string(firstPlain[2:]) != string(secondPlain[2:]) || !strings.Contains(string(firstPlain), "Trabalhando") {
 		t.Fatalf("status animation must preserve its text while the grid moves:\nfirst:  %q\nsecond: %q", string(firstPlain), string(secondPlain))
 	}
 	if got := plainRender(t, m.workingStatusIndicator()); len([]rune(got)) != 2 {
@@ -94,7 +94,7 @@ func TestWorkingStatusAnimationAdvancesAcrossActiveRun(t *testing.T) {
 	if firstLabel == secondLabel {
 		t.Fatalf("working label shimmer did not advance across phases:\nfirst:  %q\nsecond: %q", firstLabel, secondLabel)
 	}
-	if got := plainRender(t, firstLabel); got != "Working" {
+	if got := plainRender(t, firstLabel); got != "Trabalhando" {
 		t.Fatalf("working label shimmer changed its text: %q", got)
 	}
 
@@ -102,7 +102,7 @@ func TestWorkingStatusAnimationAdvancesAcrossActiveRun(t *testing.T) {
 		t.Fatalf("chevron lead cell level = %v, want bright", got)
 	}
 	if got := workingDriveLevelAt(12, 4*workingDriveStep); got != workingDriveBright {
-		t.Fatalf("first Working letter level = %v, want bright after the grid", got)
+		t.Fatalf("first Trabalhando letter level = %v, want bright after the grid", got)
 	}
 
 	m.reducedMotion = true
@@ -116,7 +116,7 @@ func TestWorkingStatusAnimationAdvancesAcrossActiveRun(t *testing.T) {
 	if got := m.workingStatusIndicator(); got != "" {
 		t.Fatalf("reduced-motion status indicator = %q, want empty", got)
 	}
-	if got := plainRender(t, m.workingStatusLabel()); got != "Working" {
+	if got := plainRender(t, m.workingStatusLabel()); got != "Trabalhando" {
 		t.Fatalf("reduced-motion working label = %q, want Working", got)
 	}
 }
@@ -312,7 +312,7 @@ func TestInterimBlockShowsWorkingLineWithStreamedText(t *testing.T) {
 	if !strings.Contains(got, "12s") {
 		t.Fatalf("interim block should show live elapsed (12s) below the text:\n%s", got)
 	}
-	if !strings.Contains(got, "Working") {
+	if !strings.Contains(got, "Trabalhando") {
 		t.Fatalf("interim block should show the liveness label:\n%s", got)
 	}
 }

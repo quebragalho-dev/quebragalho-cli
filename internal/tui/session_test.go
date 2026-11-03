@@ -742,7 +742,7 @@ func TestResumeCommandHydratesSessionTranscript(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /resume to hydrate synchronously")
 	}
-	for _, want := range []string{"Resumed QG session", session.SessionID, "previous request", "tool call: grep", "permission: grep allow", "tool result: grep error matches", "previous answer", "old error"} {
+	for _, want := range []string{"Sessão do QG retomada", session.SessionID, "previous request", "tool call: grep", "permission: grep allow", "tool result: grep error matches", "previous answer", "old error"} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected resumed transcript to contain %q, got %#v", want, next.transcript)
 		}
@@ -836,7 +836,7 @@ func TestResumeCommandIsBlockedWhileRunPending(t *testing.T) {
 	if next.activeSession.SessionID != active.SessionID {
 		t.Fatalf("expected pending /resume not to replace active session, got %#v", next.activeSession)
 	}
-	if !transcriptContains(next.transcript, "Cannot resume sessions while a run is active") {
+	if !transcriptContains(next.transcript, "Não é possível retomar sessões com uma execução em andamento.") {
 		t.Fatalf("expected pending resume error, got %#v", next.transcript)
 	}
 }
@@ -1188,7 +1188,7 @@ func TestResumeCommandReportsMissingSession(t *testing.T) {
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "qg session not found: missing_session") {
+	if !transcriptContains(next.transcript, "sessão do qg não encontrada: missing_session") {
 		t.Fatalf("expected missing session error, got %#v", next.transcript)
 	}
 }
@@ -1262,13 +1262,13 @@ func TestRelativeAgeFormatsLastActivity(t *testing.T) {
 		ts   time.Time
 		want string
 	}{
-		{"just now", now.Add(-10 * time.Second), "now"},
-		{"slight clock skew", now.Add(30 * time.Second), "now"},
-		{"minutes", now.Add(-42 * time.Minute), "42m ago"},
-		{"hours", now.Add(-3 * time.Hour), "3h ago"},
-		{"days", now.Add(-12 * 24 * time.Hour), "12d ago"},
-		{"exactly one month", now.Add(-30 * 24 * time.Hour), "30d ago"},
-		{"this year", time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC), time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC).Local().Format("Jan _2")},
+		{"just now", now.Add(-10 * time.Second), "agora"},
+		{"slight clock skew", now.Add(30 * time.Second), "agora"},
+		{"minutes", now.Add(-42 * time.Minute), "há 42 min"},
+		{"hours", now.Add(-3 * time.Hour), "há 3 h"},
+		{"days", now.Add(-12 * 24 * time.Hour), "há 12 d"},
+		{"exactly one month", now.Add(-30 * 24 * time.Hour), "há 30 d"},
+		{"this year", time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC), "5 jan"},
 		{"last year", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC).Local().Format("2006-01-02")},
 	}
 	for _, tc := range cases {
@@ -1281,6 +1281,14 @@ func TestRelativeAgeFormatsLastActivity(t *testing.T) {
 	}
 	if got := relativeAge("", now); got != "" {
 		t.Errorf("empty timestamp = %q, want empty", got)
+	}
+}
+func TestEventCountLabelSingularPlural(t *testing.T) {
+	if got := eventCountLabel(1); got != "1 evento" {
+		t.Fatalf("eventCountLabel(1) = %q, want 1 evento", got)
+	}
+	if got := eventCountLabel(2); got != "2 eventos" {
+		t.Fatalf("eventCountLabel(2) = %q, want 2 eventos", got)
 	}
 }
 

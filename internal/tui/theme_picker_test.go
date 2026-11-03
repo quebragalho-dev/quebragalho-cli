@@ -148,7 +148,7 @@ func TestThemePickerPreviewIsContained(t *testing.T) {
 		t.Errorf("preview mutated the committed mode to %q", m.themeMode)
 	}
 	view := m.pickerOverlay(100)
-	for _, want := range []string{"Preview", "no bugs, probably"} {
+	for _, want := range []string{"Prévia", "no bugs, probably"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("contained preview missing %q:\n%s", want, view)
 		}
@@ -179,8 +179,8 @@ func TestThemePickerCommitAppliesAndRecords(t *testing.T) {
 	if got, want := colorHex(t, qgTheme.inkColor), draculaPalette.ink; got != want {
 		t.Errorf("committed dracula ink = %s, want %s", got, want)
 	}
-	if m.transientNotice.text != "Theme: Dracula" {
-		t.Errorf("commit notice = %q, want Theme: Dracula", m.transientNotice.text)
+	if m.transientNotice.text != "Tema: Dracula" {
+		t.Errorf("commit notice = %q, want Tema: Dracula", m.transientNotice.text)
 	}
 	if transcriptContains(m.transcript, "active theme") {
 		t.Errorf("commit should not add a durable transcript result:\n%s", transcriptText(m.transcript))
