@@ -144,10 +144,13 @@ func TestPermissionPromptWrapsLongReasonWithoutTruncating(t *testing.T) {
 
 	card, _ := renderFocusedPermissionPrompt(request, 0, false, "", 60)
 	got := plainRender(t, card)
-	for _, want := range []string{"Reading", "/home/dev/projects", "requires access outside the workspace."} {
+	for _, want := range []string{"Ler", "/home/dev/projects", "exige acesso fora da pasta de trabalho."} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("permission card truncated reason; missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "Reading") || strings.Contains(got, "requires access outside the workspace.") {
+		t.Fatalf("permission card kept canonical English reason:\n%s", got)
 	}
 	if strings.Contains(got, "…") {
 		t.Fatalf("permission card must wrap the decision reason instead of truncating it:\n%s", got)

@@ -42,6 +42,9 @@ func TestHumanPermissionText(t *testing.T) {
 	if got := humanPermissionReason("network access requires approval"); got != "O acesso à rede precisa de aprovação." {
 		t.Fatalf("reason = %q", got)
 	}
+	if got := humanPermissionReason(agent.ReasonShellNeedsUnsandboxed); got != "Este comando precisa rodar fora do ambiente isolado." {
+		t.Fatalf("reason = %q", got)
+	}
 	if got := humanPermissionReason("some model-provided reason"); got != "some model-provided reason" {
 		t.Fatalf("unknown reason must pass through, got %q", got)
 	}

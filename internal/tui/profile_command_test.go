@@ -234,7 +234,7 @@ func TestProfileCommandSetsFastPosture(t *testing.T) {
 	if got.reasoningEffort != "" {
 		t.Fatalf("effort = %q, must stay auto when the model exposes no effort ring", got.reasoningEffort)
 	}
-	if !strings.Contains(out, "fast") || !strings.Contains(out, "headless-only") {
+	if !strings.Contains(out, "fast") || !strings.Contains(out, "sem TUI") {
 		t.Fatalf("status must name the profile and the TUI signal asymmetry, got %q", out)
 	}
 }

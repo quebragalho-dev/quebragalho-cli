@@ -44,6 +44,10 @@ func effortDisplayLabel(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "auto":
 		return "automático"
+	case "none":
+		return "nenhum"
+	case "minimal":
+		return "mínimo"
 	case "low":
 		return "baixo"
 	case "medium":
@@ -66,6 +70,10 @@ func canonicalEffortInput(input string) string {
 	switch strings.ToLower(strings.TrimSpace(input)) {
 	case "automático", "automatico":
 		return "auto"
+	case "nenhum":
+		return "none"
+	case "mínimo", "minimo":
+		return "minimal"
 	case "baixo":
 		return "low"
 	case "médio", "medio":

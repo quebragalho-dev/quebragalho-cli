@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
@@ -69,6 +70,57 @@ const (
 	PermissionDecisionAlwaysAllow       PermissionDecisionAction = "always_allow"
 	PermissionDecisionCancel            PermissionDecisionAction = "cancel"
 )
+
+// ReasonShellNeedsUnsandboxed is the canonical reason for an escalated shell
+// approval: the command must run outside the sandbox. It stays English for
+// the model, the JSON output and the decision log; human surfaces render it
+// through DisplayPermissionReason.
+const ReasonShellNeedsUnsandboxed = "This command needs to run outside the sandbox."
+
+// DisplayPermissionReason maps a canonical permission reason to its
+// Portuguese text for human surfaces (TUI cards, CLI text output). Unknown
+// reasons pass through unchanged. Machine output keeps the canonical string.
+func DisplayPermissionReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if path, ok := strings.CutPrefix(reason, "Reading "); ok {
+		if path, ok := strings.CutSuffix(path, " requires access outside the workspace."); ok {
+			return "Ler " + path + " exige acesso fora da pasta de trabalho."
+		}
+	}
+	if path, ok := strings.CutPrefix(reason, "Writing to "); ok {
+		if path, ok := strings.CutSuffix(path, " requires access outside the workspace. Use /add-dir or --add-dir to allow writes there."); ok {
+			return "Escrever em " + path + " exige acesso fora da pasta de trabalho. Use /add-dir ou --add-dir para permitir escrita lá."
+		}
+	}
+	switch reason {
+	case "network access requires approval":
+		return "O acesso à rede precisa de aprovação."
+	case sandbox.ReasonEscalatedSandboxRequired, ReasonShellNeedsUnsandboxed:
+		return "Este comando precisa rodar fora do ambiente isolado."
+	case "sandbox output is limited to the sandbox PID namespace; host/global state requires approval":
+		return "O ambiente isolado esconde o estado global do sistema, então este comando precisa rodar fora dele."
+	case "workspace write is allowed":
+		return "A escrita na pasta de trabalho é permitida."
+	case "destructive shell command requires approval":
+		return "Comando destrutivo precisa de aprovação."
+	case "The agent is requesting additional permissions.":
+		return "O agente está pedindo permissões adicionais."
+	case "tool requires approval before execution":
+		return "Ferramenta precisa de aprovação prévia."
+	case "cancelled in TUI":
+		return "cancelado na TUI"
+	case "run superseded":
+		return "execução substituída"
+	case "permission prompt unavailable":
+		return "pedido indisponível"
+	case "run cancelled":
+		return "execução cancelada"
+	case "blocked by a beforeTool hook":
+		return "bloqueado pelo hook beforeTool"
+	default:
+		return reason
+	}
+}
 
 type ToolResult struct {
 	ToolCallID string

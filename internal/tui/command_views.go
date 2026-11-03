@@ -410,14 +410,14 @@ func (m model) modelText(args string) string {
 		Title:  "Modelo",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
-			Title: "Active",
+			Title: "Ativo",
 			Lines: []string{
-				"model: " + displayValue(m.modelName, "none"),
-				"provider: " + displayValue(m.providerName, "none"),
-				"effort: " + m.effortDisplay(),
+				"modelo: " + displayValue(m.modelName, "nenhum"),
+				"provedor: " + displayValue(m.providerName, "nenhum"),
+				"nível: " + effortDisplayLabel(m.effortDisplay()),
 			},
 		}},
-		Hints: []string{"use /model list to inspect models or /model <id> to switch this TUI session"},
+		Hints: []string{"use /model list para ver os modelos ou /model <id> para trocar o modelo desta sessão"},
 	})
 }
 

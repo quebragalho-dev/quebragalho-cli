@@ -638,19 +638,19 @@ func (m model) profileText() string {
 		"nível de raciocínio: " + effortDisplayLabel(m.effortDisplay()),
 	}
 	if m.agentOptions.Profile != nil && m.agentOptions.Profile.Escalate != nil {
-		turnTarget := "keeps the pinned turn budget"
+		turnTarget := "mantém o orçamento de turnos fixado"
 		if target := m.agentOptions.Profile.Escalate.MaxTurns; target > 0 {
-			turnTarget = fmt.Sprintf("restores the turn budget to %d", target)
+			turnTarget = fmt.Sprintf("restaura o orçamento de turnos para %d", target)
 		}
 		lines = append(lines,
-			"escalation: armed — one-shot on a tool-failure streak, a failing self-correct cycle, or a critical-risk mutation; "+turnTarget,
-			"note: the uncertain-completion signal is headless-only (the completion gate never runs interactively), so it cannot fire in the TUI")
+			"escalonamento: armado — uma vez, após falhas seguidas de ferramenta, um ciclo de autocorreção que falha ou uma mutação de risco crítico; "+turnTarget,
+			"nota: o sinal de conclusão incerta só existe sem TUI (o portão de conclusão nunca roda no modo interativo), então não dispara aqui")
 	}
 	return renderCommandOutput(commandOutput{
 		Title:  "Perfil",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
-			Title: "State",
+			Title: "Estado",
 			Lines: lines,
 		}},
 		Hints: []string{"use /profile " + strings.Join(execprofile.Names(), "|") + " para alternar a postura da próxima execução (orçamento de turnos, nível, autocorreção, escalonamento); escolha o modelo separadamente com /model"},

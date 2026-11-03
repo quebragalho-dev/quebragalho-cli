@@ -536,7 +536,7 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	} else if persistErr != nil {
 		// Keep the failure reason (e.g. an unwritable config path) so persistence
 		// problems stay debuggable from the status line.
-		summary += " · not saved (" + persistErr.Error() + ")"
+		summary += " · não salvo (" + persistErr.Error() + ")"
 	}
 	lines := []string{"Modelo"}
 	if target.notice != "" {
