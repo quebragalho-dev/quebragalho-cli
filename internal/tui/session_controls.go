@@ -643,8 +643,8 @@ func (m model) profileText() string {
 			turnTarget = fmt.Sprintf("restores the turn budget to %d", target)
 		}
 		lines = append(lines,
-			"escalation: armed — one-shot on a tool-failure streak, a failing self-correct cycle, or a critical-risk mutation; "+turnTarget,
-			"note: the uncertain-completion signal is headless-only (the completion gate never runs interactively), so it cannot fire in the TUI")
+			"escalonamento: armed — one-shot on a tool-failure streak, a failing self-correct cycle, or a critical-risk mutation; "+turnTarget,
+			"nota: the uncertain-completion signal is headless-only (the completion gate never runs interactively), so it cannot fire in the TUI")
 	}
 	return renderCommandOutput(commandOutput{
 		Title:  "Perfil",

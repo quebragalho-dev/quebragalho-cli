@@ -419,7 +419,7 @@ func permissionDetailText(event agent.PermissionEvent) string {
 		parts = append(parts, permissionDecisionDetail(event.DecisionAction))
 	}
 	if event.GrantMatched {
-		parts = append(parts, "approved by saved permission")
+		parts = append(parts, permissionDisplayReason("approved by saved permission"))
 	}
 	if event.Action == agent.PermissionActionPrompt {
 		if reason := permissionDisplayReason(event.Reason); reason != "" {

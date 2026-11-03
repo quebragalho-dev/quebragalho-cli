@@ -25,44 +25,67 @@ func TestPTBRPermissionEscalationReasonCard(t *testing.T) {
 		t.Fatalf("shared mapping = %q, want %q", got, wantPT)
 	}
 
-	for _, width := range []int{50, 80, 120} {
-		request := agent.PermissionRequest{
-			ToolName:   "exec_command",
-			SideEffect: "shell",
-			Reason:     agent.ReasonShellNeedsUnsandboxed,
-			AvailableDecisions: []agent.PermissionDecisionAction{
-				agent.PermissionDecisionAllow,
-				agent.PermissionDecisionDeny,
-			},
-		}
-		card, _ := renderFocusedPermissionPrompt(request, 0, false, "", width)
-		flat := strings.Join(strings.Fields(plainRender(t, card)), " ")
-		if !strings.Contains(flat, wantPT) {
-			t.Fatalf("width %d: permission card missing %q:\n%s", width, wantPT, card)
-		}
-		if strings.Contains(flat, agent.ReasonShellNeedsUnsandboxed) {
-			t.Fatalf("width %d: permission card leaked canonical English:\n%s", width, card)
+	for _, tc := range []struct{ reason, wantPT string }{
+		{agent.ReasonShellNeedsUnsandboxed, "Este comando precisa rodar fora do ambiente isolado."},
+		{"destructive shell command requires approval", "Comando destrutivo precisa de aprovação."},
+	} {
+		for _, width := range []int{50, 80, 120} {
+			request := agent.PermissionRequest{
+				ToolName:   "exec_command",
+				SideEffect: "shell",
+				Reason:     tc.reason,
+				AvailableDecisions: []agent.PermissionDecisionAction{
+					agent.PermissionDecisionAllow,
+					agent.PermissionDecisionDeny,
+				},
+			}
+			card, _ := renderFocusedPermissionPrompt(request, 0, false, "", width)
+			flat := strings.Join(strings.Fields(plainRender(t, card)), " ")
+			if !strings.Contains(flat, tc.wantPT) {
+				t.Fatalf("width %d: permission card missing %q:\n%s", width, tc.wantPT, card)
+			}
+			if strings.Contains(flat, tc.reason) {
+				t.Fatalf("width %d: permission card leaked canonical English:\n%s", width, card)
+			}
 		}
 	}
 }
 
-// /model and /profile cards render Portuguese titles at 50 and 80 columns.
+// /model and /profile cards render Portuguese at 50 and 80 columns.
 func TestPTBRModelAndProfileCards(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "gpt-test", ProviderName: "qg"})
-	cards := []struct{ name, text, wantPT, wantEN string }{
-		{"model", m.modelText(""), "Ativo", "Active"},
-		{"profile", model{}.profileText(), "Estado", "State"},
+	pm := model{}
+	pm.agentOptions.Profile = &agent.ProfilePolicy{Escalate: &agent.PostureEscalation{MaxTurns: 80}}
+	cards := []struct {
+		name, text string
+		pts, ens   []string
+	}{
+		{"model", m.modelText(""), []string{"Ativo", "modelo:", "provedor:", "nível: automático"}, []string{"Active", "model:", "provider:", "effort:"}},
+		{"profile", pm.profileText(), []string{"Estado", "escalonamento:", "nota:"}, []string{"State", "escalation:", "note:"}},
 	}
 	for _, c := range cards {
 		for _, width := range []int{50, 80} {
 			got := plainRender(t, m.renderRow(transcriptRow{kind: rowSystem, text: c.text}, width, buildRowContext(nil)))
-			if !strings.Contains(got, c.wantPT) {
-				t.Fatalf("%s at %d missing %q:\n%s", c.name, width, c.wantPT, got)
+			for _, want := range c.pts {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s at %d missing %q:\n%s", c.name, width, want, got)
+				}
 			}
-			if strings.Contains(got, c.wantEN) {
-				t.Fatalf("%s at %d leaked %q:\n%s", c.name, width, c.wantEN, got)
+			for _, unwanted := range c.ens {
+				if strings.Contains(got, unwanted) {
+					t.Fatalf("%s at %d leaked %q:\n%s", c.name, width, unwanted, got)
+				}
 			}
 		}
+	}
+
+	// The full /model hint fits at 120 columns.
+	wide := plainRender(t, m.renderRow(transcriptRow{kind: rowSystem, text: m.modelText("")}, 120, buildRowContext(nil)))
+	if !strings.Contains(wide, "para trocar o modelo") {
+		t.Fatalf("model hint missing Portuguese at 120:\n%s", wide)
+	}
+	if strings.Contains(wide, "to inspect models") || strings.Contains(wide, "to switch this TUI session") {
+		t.Fatalf("model hint kept English at 120:\n%s", wide)
 	}
 
 	// The /model switch summary keeps the note when persistence fails.
@@ -138,5 +161,67 @@ func TestPTBRPlanStepExplanationPrompt(t *testing.T) {
 	}
 	if strings.Contains(system, "plain-English") {
 		t.Fatalf("system prompt kept plain-English:\n%s", system)
+	}
+}
+
+// One table for the whole canonical -> Portuguese permission map.
+func TestPTBRDisplayPermissionReasonTable(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"destructive shell command requires approval", "Comando destrutivo precisa de aprovação."},
+		{"The agent is requesting additional permissions.", "O agente está pedindo permissões adicionais."},
+		{"tool requires approval before execution", "Ferramenta precisa de aprovação prévia."},
+		{"cancelled in TUI", "cancelado na TUI"},
+		{"run superseded", "execução substituída"},
+		{"permission prompt unavailable", "prompt indisponível"},
+		{"run cancelled", "execução cancelada"},
+		{"blocked by a beforeTool hook", "bloqueado pelo hook beforeTool"},
+		{"approved by saved permission", "aprovado por permissão salva"},
+		{"Reading /tmp/data.json requires access outside the workspace.", "Lendo /tmp/data.json fora da pasta de trabalho."},
+		{"Writing to /tmp/out.txt requires access outside the workspace. Use /add-dir or --add-dir to allow writes there.", "Escrevendo em /tmp/out.txt fora da pasta de trabalho. Use /add-dir ou --add-dir para permitir escrita lá."},
+		{"some model-provided reason", "some model-provided reason"},
+	} {
+		if got := agent.DisplayPermissionReason(tc.in); got != tc.want {
+			t.Fatalf("DisplayPermissionReason(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// The grant-matched detail renders through the same map.
+func TestPTBRGrantMatchedDetailRendersPortuguese(t *testing.T) {
+	detail := permissionDetailText(agent.PermissionEvent{Action: agent.PermissionActionAllow, GrantMatched: true})
+	if !strings.Contains(detail, "aprovado por permissão salva") {
+		t.Fatalf("grant detail missing Portuguese: %q", detail)
+	}
+	if strings.Contains(detail, "approved by saved permission") {
+		t.Fatalf("grant detail kept English: %q", detail)
+	}
+}
+
+// Denied/cancelled rows render the mapped reason without new cuts.
+func TestPTBRDenyRowRendersPortuguese(t *testing.T) {
+	for _, tc := range []struct{ reason, wantPT string }{
+		{"cancelled in TUI", "cancelado na TUI"},
+		{"run cancelled", "execução cancelada"},
+		{"run superseded", "execução substituída"},
+		{"permission prompt unavailable", "prompt indisponível"},
+		{"blocked by a beforeTool hook", "bloqueado pelo hook beforeTool"},
+	} {
+		for _, width := range []int{50, 80, 120} {
+			event := &agent.PermissionEvent{ToolName: "bash", Action: agent.PermissionActionDeny, Reason: tc.reason}
+			got := plainRender(t, renderPermissionRow(transcriptRow{tool: "bash", permission: event}, width))
+			flat := strings.Join(strings.Fields(got), " ")
+			if !strings.Contains(flat, "negado") {
+				t.Fatalf("width %d: deny row lost negado:\n%s", width, got)
+			}
+			if !strings.Contains(flat, tc.wantPT) {
+				t.Fatalf("width %d: deny row missing %q:\n%s", width, tc.wantPT, got)
+			}
+			if strings.Contains(flat, tc.reason) {
+				t.Fatalf("width %d: deny row leaked canonical English:\n%s", width, got)
+			}
+			if strings.Contains(got, "…") {
+				t.Fatalf("width %d: deny row cut the reason:\n%s", width, got)
+			}
+		}
 	}
 }

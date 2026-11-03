@@ -81,7 +81,18 @@ const ReasonShellNeedsUnsandboxed = "This command needs to run outside the sandb
 // Portuguese text for human surfaces (TUI cards, CLI text output). Unknown
 // reasons pass through unchanged. Machine output keeps the canonical string.
 func DisplayPermissionReason(reason string) string {
-	switch strings.TrimSpace(reason) {
+	reason = strings.TrimSpace(reason)
+	if path, ok := strings.CutPrefix(reason, "Reading "); ok {
+		if path, ok := strings.CutSuffix(path, " requires access outside the workspace."); ok {
+			return "Lendo " + path + " fora da pasta de trabalho."
+		}
+	}
+	if path, ok := strings.CutPrefix(reason, "Writing to "); ok {
+		if path, ok := strings.CutSuffix(path, " requires access outside the workspace. Use /add-dir or --add-dir to allow writes there."); ok {
+			return "Escrevendo em " + path + " fora da pasta de trabalho. Use /add-dir ou --add-dir para permitir escrita lá."
+		}
+	}
+	switch reason {
 	case "network access requires approval":
 		return "O acesso à rede precisa de aprovação."
 	case sandbox.ReasonEscalatedSandboxRequired, ReasonShellNeedsUnsandboxed:
@@ -90,6 +101,24 @@ func DisplayPermissionReason(reason string) string {
 		return "O ambiente isolado esconde o estado global do sistema, então este comando precisa rodar fora dele."
 	case "workspace write is allowed":
 		return "A escrita na pasta de trabalho é permitida."
+	case "destructive shell command requires approval":
+		return "Comando destrutivo precisa de aprovação."
+	case "The agent is requesting additional permissions.":
+		return "O agente está pedindo permissões adicionais."
+	case "tool requires approval before execution":
+		return "Ferramenta precisa de aprovação prévia."
+	case "cancelled in TUI":
+		return "cancelado na TUI"
+	case "run superseded":
+		return "execução substituída"
+	case "permission prompt unavailable":
+		return "prompt indisponível"
+	case "run cancelled":
+		return "execução cancelada"
+	case "blocked by a beforeTool hook":
+		return "bloqueado pelo hook beforeTool"
+	case "approved by saved permission":
+		return "aprovado por permissão salva"
 	default:
 		return reason
 	}
