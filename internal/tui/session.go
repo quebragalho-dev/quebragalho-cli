@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
@@ -82,6 +83,9 @@ func (m model) startNewSession() model {
 	m.lastUsage = usage.Normalized{}
 	m.lastUsageSeen = false
 	m.streamUsage = qgruntime.Usage{}
+	m.streamEstimateChars = 0
+	m.streamEstimateStart = time.Time{}
+	m.lastCompletedRate = ""
 	m.lastUsageReceipt = transcriptRow{}
 	m.meterLive = false
 	m.unpricedRequests = 0
@@ -255,6 +259,9 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	// from the previous session can ever leak through.
 	m.meterLive = m.lastUsageSeen
 	m.streamUsage = qgruntime.Usage{}
+	// The border follows the resumed receipt: known rate when the session
+	// saved enough to recompute it, model-only otherwise.
+	m.lastCompletedRate = strings.TrimSpace(m.lastUsageReceipt.meta["rate"])
 	if m.providerName == "" {
 		m.providerName = session.Provider
 	}
@@ -593,7 +600,14 @@ func transcriptRowsFromSessionEvents(events []sessions.Event) []transcriptRow {
 		switch event.Type {
 		case sessions.EventUsage:
 			if label := payloadString(payload, "call_label"); label != "" {
-				rows = append(rows, transcriptRow{kind: rowSystem, tool: "model-usage", id: event.ID, text: label, meta: map[string]string{"model": payloadString(payload, "model"), "amount": payloadString(payload, "cost_exact"), "currency": payloadString(payload, "cost_currency"), "tokens": payloadString(payload, "call_tokens")}})
+				meta := map[string]string{"model": payloadString(payload, "model"), "amount": payloadString(payload, "cost_exact"), "currency": payloadString(payload, "cost_currency"), "tokens": payloadString(payload, "call_tokens")}
+				// The saved payload already carries what the live rate needs
+				// (output tokens + elapsed nanoseconds), so a resumed receipt
+				// shows the same speed with no schema change.
+				if rate := resumeUsageRate(payload); rate != "" {
+					meta["rate"] = rate
+				}
+				rows = append(rows, transcriptRow{kind: rowSystem, tool: "model-usage", id: event.ID, text: label, meta: meta})
 			}
 
 		case sessions.EventMessage:
@@ -862,6 +876,32 @@ func payloadString(payload map[string]any, key string) string {
 		}
 		return string(data)
 	}
+}
+
+// payloadInt reads a persisted integer (JSON round-trips numbers as
+// float64). 0 when absent or unparseable.
+func payloadInt(payload map[string]any, key string) int {
+	return int(payloadInt64(payload, key))
+}
+
+func payloadInt64(payload map[string]any, key string) int64 {
+	switch typed := payload[key].(type) {
+	case int:
+		return int64(typed)
+	case int64:
+		return typed
+	case float64:
+		return int64(typed)
+	default:
+		return 0
+	}
+}
+
+// resumeUsageRate recomputes a saved call's speed from its payload, the same
+// usageRateText math as the live receipt. "" when the session predates the
+// elapsed-nanoseconds field.
+func resumeUsageRate(payload map[string]any) string {
+	return usageRateText(payloadInt(payload, "completionTokens"), time.Duration(payloadInt64(payload, "call_elapsed_ns")))
 }
 
 // payloadStringSlice reads a []string persisted into a session payload (JSON

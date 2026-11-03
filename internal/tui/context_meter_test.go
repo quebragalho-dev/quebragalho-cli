@@ -482,10 +482,25 @@ func TestContextStatusTextShapes(t *testing.T) {
 	if got := plainRender(t, m.statusLine(50)); !strings.Contains(got, "30%") || strings.Contains(got, "300k") {
 		t.Fatalf("narrow status should show only the percent, got %q", got)
 	}
-	// A live rate precedes the meter figure.
+	// A live rate leaves the status line and moves to the composer border.
 	m.streamUsage = qgruntime.Usage{OutputTokens: 100, Elapsed: 2 * time.Second}
-	if got := plainRender(t, m.statusLine(120)); !strings.Contains(got, "tk/s │ 30%") {
-		t.Fatalf("status should join rate and meter, got %q", got)
+	if got := plainRender(t, m.statusLine(120)); strings.Contains(got, "tok/s") {
+		t.Fatalf("status must not carry the rate, got %q", got)
+	}
+	// Usage arrival settles the faint rate; emitting wakes the live one.
+	fixed := time.Unix(2_000_000, 0)
+	m.now = func() time.Time { return fixed }
+	next, _ := m.Update(agentUsageProgressMsg{runID: m.activeRunID, usage: qgruntime.Usage{OutputTokens: 100, Elapsed: 2 * time.Second}})
+	m = next.(model)
+	if got := plainRender(t, m.composerTopBorder(120)); strings.Contains(got, "●") {
+		t.Fatalf("settled usage must not flash live, got %q", got)
+	}
+	m.pending = true
+	next, _ = m.Update(agentTextMsg{runID: m.activeRunID, delta: strings.Repeat("x", 4000)})
+	m = next.(model)
+	m.now = func() time.Time { return fixed.Add(2 * time.Second) }
+	if got := plainRender(t, m.composerTopBorder(120)); !strings.Contains(got, "● 50 tok/s") {
+		t.Fatalf("border should show the live rate, got %q", got)
 	}
 	// No use yet, window known.
 	bare := meterFixture(t, 1000000, 0, "")

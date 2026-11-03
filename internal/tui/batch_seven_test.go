@@ -52,20 +52,23 @@ func TestBatchSevenTokenCountAndRate(t *testing.T) {
 	for _, tc := range []struct {
 		elapsed time.Duration
 		want    string
-	}{{time.Second, "850 tk/s"}, {time.Millisecond, "850 tk/s"}, {2 * time.Second, "425 tk/s"}, {0, ""}, {-time.Second, ""}} {
+	}{{time.Second, "850 tok/s"}, {time.Millisecond, "850 tok/s"}, {2 * time.Second, "425 tok/s"}, {0, ""}, {-time.Second, ""}} {
 		m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{InputTokens: 11785, OutputTokens: 850, Elapsed: tc.elapsed}, transcriptRow{})
 		next, _ := m.Update(agentUsageProgressMsg{runID: m.activeRunID, usage: qgruntime.Usage{InputTokens: 11785, OutputTokens: 850, Elapsed: tc.elapsed}})
 		m = next.(model)
 		got := plainRender(t, m.statusLine(120))
+		assertNotContains(t, got, "tk/s")
+		assertNotContains(t, got, "tok/s")
 		assertNotContains(t, got, "12.635 tok")
-		receipt := callUsageRow(1, 1, m.modelName, qgruntime.Usage{InputTokens: 11785, OutputTokens: 850}, *m.apiModel(m.modelName))
-		assertContains(t, plainRender(t, renderCallUsage(receipt, 120)), m.modelName+" · 12.635 tok · ")
-		assertNotContains(t, got, "última")
+		receipt := callUsageRow(1, 1, m.modelName, qgruntime.Usage{InputTokens: 11785, OutputTokens: 850, Elapsed: tc.elapsed}, *m.apiModel(m.modelName))
+		rendered := plainRender(t, renderCallUsage(receipt, 120))
 		if tc.want != "" {
-			assertContains(t, got, tc.want)
+			assertContains(t, rendered, m.modelName+" · "+tc.want+" · ")
 		} else {
-			assertNotContains(t, got, "tk/s")
+			assertNotContains(t, rendered, "tok/s")
+			assertNotContains(t, rendered, " tok ")
 		}
+		assertNotContains(t, got, "última")
 		for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 			if got := plainRender(t, m.statusLine(width)); lipgloss.Width(got) > width {
 				t.Fatalf("overflow width %d: %q", width, got)
@@ -89,19 +92,23 @@ func TestBatchSevenLocalEffortIsNotAPISupport(t *testing.T) {
 func TestBatchSevenStreamingProgressIsUnbilledAndIsolated(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	m.activeRunID = 3
+	m.pending = true
 	event := qgruntime.Usage{InputTokens: 11785, OutputTokens: 850, Elapsed: time.Second}
 	next, _ := m.Update(agentUsageProgressMsg{runID: 3, usage: event})
 	m = next.(model)
-	assertContains(t, plainRender(t, m.statusLine(120)), "850 tk/s")
+	assertContains(t, plainRender(t, m.composerTopBorder(120)), "850 tok/s")
+	assertNotContains(t, plainRender(t, m.composerTopBorder(120)), "●")
 	if m.lastUsageSeen || m.usageTracker.Summary().LastRecord != nil {
 		t.Fatal("progress created accounting")
 	}
 	next, _ = m.Update(agentUsageProgressMsg{runID: 2, usage: qgruntime.Usage{OutputTokens: 999, Elapsed: time.Second}})
 	m = next.(model)
-	assertContains(t, plainRender(t, m.statusLine(120)), "850 tk/s")
+	assertContains(t, plainRender(t, m.composerTopBorder(120)), "850 tok/s")
 	next, _ = m.Update(agentUsageProgressMsg{runID: 3})
 	m = next.(model)
-	assertNotContains(t, plainRender(t, m.statusLine(120)), "tk/s")
+	got := plainRender(t, m.composerTopBorder(120))
+	assertContains(t, got, "850 tok/s")
+	assertNotContains(t, got, "●")
 }
 
 func TestBatchSevenRuntimeStreamsBeforeReceipt(t *testing.T) {
@@ -115,10 +122,11 @@ func TestBatchSevenRuntimeStreamsBeforeReceipt(t *testing.T) {
 		{Type: qgruntime.StreamEventDone},
 	}}}
 	seen := false
+	m.pending = true
 	m.agentOptions.OnText = func(delta string) {
 		if delta == "second" {
 			seen = true
-			assertContains(t, plainRender(t, m.statusLine(120)), "400 tk/s")
+			assertContains(t, plainRender(t, m.composerTopBorder(120)), "400 tok/s")
 			if m.lastUsageSeen {
 				t.Fatal("snapshot was billed before completion")
 			}
@@ -129,8 +137,9 @@ func TestBatchSevenRuntimeStreamsBeforeReceipt(t *testing.T) {
 	if !seen || len(response.usageEvents) != 1 {
 		t.Fatalf("stream=%v bills=%d", seen, len(response.usageEvents))
 	}
-	assertContains(t, plainRender(t, renderCallUsage(response.usageReceiptAt(0), 120)), "12.850 tok")
-	assertContains(t, plainRender(t, m.statusLine(120)), "850 tk/s")
+	assertContains(t, plainRender(t, renderCallUsage(response.usageReceiptAt(0), 120)), "850 tok/s")
+	m.pending = false
+	assertContains(t, plainRender(t, m.composerTopBorder(120)), "850 tok/s")
 	for _, event := range response.sessionEvents {
 		if event.Type == sessions.EventUsage {
 			payload := event.Payload.(map[string]any)
@@ -141,6 +150,7 @@ func TestBatchSevenRuntimeStreamsBeforeReceipt(t *testing.T) {
 	}
 	m = m.startNewSession()
 	assertNotContains(t, plainRender(t, m.statusLine(120)), "tk/s")
+	assertNotContains(t, plainRender(t, m.composerTopBorder(120)), "tok/s")
 }
 
 func TestBatchSevenWorkingLineDoesNotInventTokens(t *testing.T) {

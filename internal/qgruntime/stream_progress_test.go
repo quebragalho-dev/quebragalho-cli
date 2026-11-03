@@ -3,6 +3,7 @@ package qgruntime
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestBatchSevenStreamingProgressDoesNotBillSnapshots(t *testing.T) {
@@ -39,6 +40,21 @@ func TestBatchSevenStreamingProgressDoesNotBillSnapshots(t *testing.T) {
 	CollectStreamWithOptions(context.Background(), closedProgressEvents(Usage{OutputTokens: 12}), CollectOptions{OnUsageProgress: func(u Usage) { final = u }})
 	if final.Elapsed != 0 {
 		t.Fatalf("non-streaming call invented speed: %+v", final)
+	}
+}
+
+func TestFinishStampsGenerationTimeOverProviderElapsed(t *testing.T) {
+	events := make(chan StreamEvent, 3)
+	events <- StreamEvent{Type: StreamEventText, Content: "first"}
+	events <- StreamEvent{Type: StreamEventUsage, Usage: Usage{InputTokens: 8, OutputTokens: 42, Elapsed: 30 * time.Second}}
+	events <- StreamEvent{Type: StreamEventDone}
+	close(events)
+	collected := CollectStream(context.Background(), events)
+	if collected.Usage.EffectiveOutputTokens() != 42 {
+		t.Fatalf("tokens lost: %+v", collected.Usage)
+	}
+	if collected.Usage.Elapsed >= 30*time.Second || collected.Usage.Elapsed < 0 {
+		t.Fatalf("final elapsed must measure generation, got %v", collected.Usage.Elapsed)
 	}
 }
 
