@@ -650,7 +650,7 @@ func (m model) profileText() string {
 		Title:  "Perfil",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
-			Title: "State",
+			Title: "Estado",
 			Lines: lines,
 		}},
 		Hints: []string{"use /profile " + strings.Join(execprofile.Names(), "|") + " para alternar a postura da próxima execução (orçamento de turnos, nível, autocorreção, escalonamento); escolha o modelo separadamente com /model"},

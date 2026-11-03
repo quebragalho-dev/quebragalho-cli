@@ -210,7 +210,7 @@ func (m model) appendPlanStepCard(stepIndex int, explanation string, loading boo
 		Lines: m.planStepOutcomeLines(step, len(changes), len(commands)),
 	}}
 
-	// The centerpiece: a fresh, plain-English explanation written by the model on
+	// The centerpiece: a fresh, Brazilian-Portuguese explanation in simple language
 	// click — "what we did" for a finished step, "what we'll do" for a queued one.
 	sections = append(sections, commandSection{
 		Title: planStepExplanationTitle(step.status),
@@ -331,7 +331,7 @@ func (m model) planStepExplanationLines(step planStep, explanation string, loadi
 const planStepExplanationTimeout = 30 * time.Second
 
 // requestPlanStepExplanation returns a tea.Cmd that asks the model, in ONE
-// non-turn request, for a short plain-English write-up of the step — past tense
+// non-turn request, for a short Brazilian-Portuguese write-up in simple language of the step — past tense
 // for a finished step, future tense for an unsolved one. It reuses the TUI's own
 // provider (no new client, no hardcoded provider) and emits a
 // planStepExplanationMsg. The request is built from already-captured local data
@@ -374,7 +374,7 @@ func planStepExplanationPrompt(step planStep, work []planStepWork, narration []s
 		tense = "past tense (what was accomplished in this step)"
 	}
 	system = "You explain one step of a coding agent's task plan to a non-technical person. " +
-		"Write a SHORT, friendly, plain-English explanation — a few sentences at most. " +
+		"Write a SHORT, friendly explanation in Brazilian Portuguese, using simple language — a few sentences at most. " +
 		"No code, no file paths, no command lines, no jargon. Do not use bullet points or headings; " +
 		"reply with the explanation prose only, nothing else. Frame it in " + tense + "."
 

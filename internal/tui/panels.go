@@ -44,6 +44,10 @@ func effortDisplayLabel(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "auto":
 		return "automático"
+	case "none":
+		return "nenhum"
+	case "minimal":
+		return "mínimo"
 	case "low":
 		return "baixo"
 	case "medium":
@@ -54,6 +58,8 @@ func effortDisplayLabel(value string) string {
 		return "muito alto"
 	case "max":
 		return "máximo"
+	case "ultra":
+		return "ultra"
 	default:
 		return value
 	}
@@ -66,6 +72,10 @@ func canonicalEffortInput(input string) string {
 	switch strings.ToLower(strings.TrimSpace(input)) {
 	case "automático", "automatico":
 		return "auto"
+	case "nenhum":
+		return "none"
+	case "mínimo", "minimo":
+		return "minimal"
 	case "baixo":
 		return "low"
 	case "médio", "medio":
@@ -76,6 +86,8 @@ func canonicalEffortInput(input string) string {
 		return "xhigh"
 	case "máximo", "maximo":
 		return "max"
+	case "ultra":
+		return "ultra"
 	default:
 		return strings.TrimSpace(input)
 	}

@@ -502,6 +502,8 @@ func permissionDisplayReason(reason string) string {
 		return "O acesso à rede precisa de aprovação."
 	case sandbox.ReasonEscalatedSandboxRequired:
 		return "Este comando precisa rodar fora do ambiente isolado."
+	case "This command needs to run outside the sandbox.":
+		return "Este comando precisa rodar fora do ambiente isolado."
 	case "sandbox output is limited to the sandbox PID namespace; host/global state requires approval":
 		return "O ambiente isolado esconde o estado global do sistema, então este comando precisa rodar fora dele."
 	case "workspace write is allowed":

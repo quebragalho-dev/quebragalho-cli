@@ -410,7 +410,7 @@ func (m model) modelText(args string) string {
 		Title:  "Modelo",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
-			Title: "Active",
+			Title: "Ativo",
 			Lines: []string{
 				"model: " + displayValue(m.modelName, "none"),
 				"provider: " + displayValue(m.providerName, "none"),
