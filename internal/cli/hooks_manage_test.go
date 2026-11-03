@@ -52,6 +52,20 @@ func TestRunHooksAddPersistsToProjectConfig(t *testing.T) {
 	}
 }
 
+func TestRunHooksAddRequiresCommandMessage(t *testing.T) {
+	cwd := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := runHooksAdd([]string{"h1", "--event", "beforeTool"}, &stdout, &stderr, hooksManageDeps(cwd)); code == exitSuccess {
+		t.Fatalf("expected non-success exit without --command")
+	}
+	if !strings.Contains(stderr.String(), "qg hooks add exige --command") {
+		t.Fatalf("expected exact --command message, got %q", stderr.String())
+	}
+	if len(projectHooks(t, cwd).Hooks) != 0 {
+		t.Fatalf("no hook should be written on a usage error")
+	}
+}
+
 func TestRunHooksAddRejectsMissingRequiredFlags(t *testing.T) {
 	cwd := t.TempDir()
 	for _, tc := range []struct {
@@ -143,5 +157,19 @@ func TestRunHooksToggleAndRemove(t *testing.T) {
 	// removing again is a no-op success
 	if code := runHooksRemove([]string{"h1"}, &out, &errBuf, deps); code != exitSuccess {
 		t.Fatalf("removing a missing hook should succeed as a no-op, got %d", code)
+	}
+}
+
+func TestRunHooksAddRejectsUnknownFlag(t *testing.T) {
+	cwd := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := runHooksAdd([]string{"h1", "--event", "beforeTool", "--command", "sh", "--bogus"}, &stdout, &stderr, hooksManageDeps(cwd)); code == exitSuccess {
+		t.Fatalf("expected non-success exit for an unknown flag; stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `flag desconhecida em hooks add: "--bogus"`) {
+		t.Fatalf("expected unknown-flag message naming the flag, got %q", stderr.String())
+	}
+	if len(projectHooks(t, cwd).Hooks) != 0 {
+		t.Fatalf("no hook should be written when a flag is invalid")
 	}
 }

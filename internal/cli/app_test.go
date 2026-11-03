@@ -1497,8 +1497,8 @@ func TestRunUpdateRejectsInvalidTarget(t *testing.T) {
 		args      []string
 		errorText string
 	}{
-		{args: []string{"update", "--check", "--target", "solaris-sparc"}, errorText: "unsupported update target"},
-		{args: []string{"update", "--check", "--target="}, errorText: "--target requires a non-empty value"},
+		{args: []string{"update", "--check", "--target", "solaris-sparc"}, errorText: "destino de atualização inválido"},
+		{args: []string{"update", "--check", "--target="}, errorText: "--target exige um valor não vazio"},
 	}
 
 	for _, tt := range tests {
@@ -1566,7 +1566,7 @@ func TestRunUpdateRejectsInvalidTimeout(t *testing.T) {
 			if stdout.Len() != 0 {
 				t.Fatalf("expected empty stdout, got %q", stdout.String())
 			}
-			if got := stderr.String(); !strings.Contains(got, "invalid update timeout") {
+			if got := stderr.String(); !strings.Contains(got, "timeout de atualização inválido") {
 				t.Fatalf("expected timeout usage error, got %q", got)
 			}
 		})
@@ -1752,7 +1752,7 @@ func TestRunUpdateRejectsCheckAndApplyTogether(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("expected usage exit code, got %d", exitCode)
 	}
-	if got := stderr.String(); !strings.Contains(got, "only one of --check or --apply") {
+	if got := stderr.String(); !strings.Contains(got, "apenas uma das opções: --check ou --apply") {
 		t.Fatalf("expected --check/--apply usage error, got %q", got)
 	}
 }
@@ -1776,7 +1776,7 @@ func TestRunUpdateRejectsTargetWithApply(t *testing.T) {
 			if exitCode != exitUsage {
 				t.Fatalf("expected usage exit code, got %d", exitCode)
 			}
-			if got := stderr.String(); !strings.Contains(got, "--target cannot be combined with --apply") {
+			if got := stderr.String(); !strings.Contains(got, "--target não pode ser combinado com --apply") {
 				t.Fatalf("expected --target/--apply usage error, got %q", got)
 			}
 		})

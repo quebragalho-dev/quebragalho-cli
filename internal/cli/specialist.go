@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -61,7 +62,7 @@ func runSpecialists(args []string, stdout io.Writer, stderr io.Writer, deps appD
 	case "path":
 		return runSpecialistPath(paths, options, stdout)
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown specialist command %q", command))
+		return writeExecUsageError(stderr, fmt.Sprintf("comando specialist desconhecido %q", command))
 	}
 }
 
@@ -149,7 +150,7 @@ func parseSpecialistArgs(args []string) (string, []string, specialistOptions, bo
 				continue
 			}
 			if strings.HasPrefix(arg, "-") {
-				return command, remaining, options, false, fmt.Errorf("unknown specialist flag %q", arg)
+				return command, remaining, options, false, fmt.Errorf("flag specialist desconhecida %q", arg)
 			}
 			if !commandExplicit {
 				command = arg
@@ -172,7 +173,7 @@ func applySpecialistOption(options *specialistOptions, flag string, value string
 		case "project":
 			options.location = specialist.LocationProject
 		default:
-			return fmt.Errorf("--location must be user or project")
+			return fmt.Errorf("--location precisa ser user ou project")
 		}
 	case "--description":
 		options.description = value
@@ -187,7 +188,7 @@ func applySpecialistOption(options *specialistOptions, flag string, value string
 	case "--reasoning-effort":
 		options.reasoningEffort = value
 	default:
-		return fmt.Errorf("unknown specialist flag %q", flag)
+		return fmt.Errorf("flag specialist desconhecida %q", flag)
 	}
 	return nil
 }
@@ -196,30 +197,30 @@ func validateSpecialistCommand(command string, remaining []string) error {
 	switch command {
 	case "list":
 		if len(remaining) != 0 {
-			return fmt.Errorf("specialist list does not accept positional arguments")
+			return fmt.Errorf("specialist list não aceita argumentos posicionais")
 		}
 	case "show":
 		if len(remaining) != 1 {
-			return fmt.Errorf("specialist show requires a specialist name")
+			return fmt.Errorf("specialist show precisa do nome do especialista")
 		}
 	case "create":
 		if len(remaining) != 1 {
-			return fmt.Errorf("specialist create requires a specialist name")
+			return fmt.Errorf("specialist create precisa do nome do especialista")
 		}
 	case "delete", "rm":
 		if len(remaining) != 1 {
-			return fmt.Errorf("specialist delete requires a specialist name")
+			return fmt.Errorf("specialist delete precisa do nome do especialista")
 		}
 	case "edit":
 		if len(remaining) != 1 {
-			return fmt.Errorf("specialist edit requires a specialist name")
+			return fmt.Errorf("specialist edit precisa do nome do especialista")
 		}
 	case "path":
 		if len(remaining) != 0 {
-			return fmt.Errorf("specialist path does not accept positional arguments")
+			return fmt.Errorf("specialist path não aceita argumentos posicionais")
 		}
 	default:
-		return fmt.Errorf("unknown specialist command %q", command)
+		return fmt.Errorf("comando specialist desconhecido %q", command)
 	}
 	return nil
 }
@@ -256,7 +257,7 @@ func runSpecialistShow(paths specialist.Paths, name string, options specialistOp
 	}
 	manifest, ok := specialist.Find(result, name)
 	if !ok {
-		return writeExecUsageError(stderr, "QG specialist not found: "+name)
+		return writeExecUsageError(stderr, "Especialista QG não encontrado: "+name)
 	}
 	if options.json {
 		if err := writePrettyJSON(stdout, manifest); err != nil {
@@ -284,6 +285,9 @@ func runSpecialistCreate(paths specialist.Paths, name string, options specialist
 		Overwrite:       options.force,
 	})
 	if err != nil {
+		if !options.json && errors.Is(err, specialist.ErrDescriptionRequired) {
+			return writeExecUsageError(stderr, fmt.Sprintf("O especialista %q precisa de uma descrição (--description).", name))
+		}
 		return writeExecUsageError(stderr, err.Error())
 	}
 	return writeSpecialistCreateResult(manifest, options.json, stdout, stderr)
@@ -296,7 +300,7 @@ func writeSpecialistCreateResult(manifest specialist.Manifest, jsonOutput bool, 
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Created specialist %s at %s\n", manifest.Metadata.Name, manifest.FilePath); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Especialista %s criado em %s\n", manifest.Metadata.Name, manifest.FilePath); err != nil {
 		return exitCrash
 	}
 	for _, warning := range manifest.Warnings {
@@ -319,7 +323,7 @@ func runSpecialistDelete(paths specialist.Paths, name string, options specialist
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Deleted specialist %s at %s\n", name, path); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Especialista %s removido de %s\n", name, path); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -336,15 +340,15 @@ func runSpecialistEdit(paths specialist.Paths, name string, options specialistOp
 		if os.IsNotExist(err) {
 			for _, b := range specialist.Builtins() {
 				if b.Metadata.Name == name {
-					return writeExecUsageError(stderr, fmt.Sprintf("cannot edit builtin specialist %q: builtins are read-only. Create a user or project specialist of the same name to override it.", name))
+					return writeExecUsageError(stderr, fmt.Sprintf("não dá para editar o especialista interno %q: ele é só leitura. Crie um especialista de usuário ou de projeto com o mesmo nome.", name))
 				}
 			}
-			return writeExecUsageError(stderr, "specialist not found: "+name)
+			return writeExecUsageError(stderr, "especialista não encontrado: "+name)
 		}
 		return writeAppError(stderr, err.Error(), exitCrash)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return writeExecUsageError(stderr, "refusing to edit symlink specialist file: "+path)
+		return writeExecUsageError(stderr, "Não é possível editar um especialista que é symlink: "+path)
 	}
 	runEditor := deps.runEditor
 	if runEditor == nil {
@@ -353,7 +357,7 @@ func runSpecialistEdit(paths specialist.Paths, name string, options specialistOp
 	if err := runEditor(path); err != nil {
 		return writeExecUsageError(stderr, err.Error())
 	}
-	if _, err := fmt.Fprintf(stdout, "Edited specialist %s at %s\n", name, path); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Especialista %s editado em %s\n", name, path); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -408,18 +412,18 @@ func openEditor(path string) error {
 		editor = strings.TrimSpace(os.Getenv("EDITOR"))
 	}
 	if editor == "" {
-		return fmt.Errorf("VISUAL or EDITOR must be set to edit specialists")
+		return fmt.Errorf("VISUAL ou EDITOR precisa estar definido para editar especialistas")
 	}
 	parts := strings.Fields(editor)
 	if len(parts) == 0 {
-		return fmt.Errorf("VISUAL or EDITOR must be set to edit specialists")
+		return fmt.Errorf("VISUAL ou EDITOR precisa estar definido para editar especialistas")
 	}
 	command := osexec.Command(parts[0], append(parts[1:], path)...)
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	if err := command.Run(); err != nil {
-		return fmt.Errorf("editor failed: %w", err)
+		return fmt.Errorf("não foi possível abrir o editor. Detalhe: %w", err)
 	}
 	return nil
 }

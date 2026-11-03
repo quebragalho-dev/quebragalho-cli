@@ -106,7 +106,7 @@ func TestResolveTarget(t *testing.T) {
 		})
 	}
 
-	if _, err := ResolveTarget("solaris-sparc"); err == nil || !strings.Contains(err.Error(), "unsupported update target") {
+	if _, err := ResolveTarget("solaris-sparc"); err == nil || !strings.Contains(err.Error(), "destino de atualização inválido") {
 		t.Fatalf("ResolveTarget invalid error = %v, want unsupported target", err)
 	}
 }

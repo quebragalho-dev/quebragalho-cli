@@ -1,3 +1,4 @@
+# ASCII de proposito: o PowerShell 5.1 le .ps1 sem BOM como ANSI.
 [CmdletBinding()]
 param(
   [string]$Version = $env:QG_VERSION,
@@ -27,7 +28,7 @@ function Get-QGLatestTag {
     -TimeoutSec 15
 
   if ([string]::IsNullOrWhiteSpace($release.tag_name)) {
-    throw "GitHub release response did not include tag_name"
+    throw "Resposta do release no GitHub nao incluiu tag_name"
   }
 
   return [string]$release.tag_name
@@ -52,7 +53,7 @@ function Get-QGArch {
   switch ($arch) {
     "X64" { return "x64" }
     "Arm64" { return "arm64" }
-    default { throw "Unsupported architecture: $arch" }
+    default { throw "Arquitetura sem suporte: $arch" }
   }
 }
 
@@ -72,7 +73,7 @@ function Find-QGExtractedFile {
     return $matches[0].FullName
   }
 
-  throw "Release archive did not contain exactly one $FileName"
+  throw "Pacote do release nao trouxe exatamente um $FileName"
 }
 
 function Test-QGPathContainsDir {
@@ -114,7 +115,7 @@ function Find-QGOptionalExtractedDirectory {
     return $matches[0].FullName
   }
 
-  throw "Release archive contained multiple $DirectoryName directories"
+  throw "Pacote do release trouxe varias pastas $DirectoryName"
 }
 
 if ($Version -eq "latest") {
@@ -139,7 +140,7 @@ $checksumPath = Join-Path $tempDir $checksumName
 try {
   New-Item -ItemType Directory -Path $tempDir, $extractDir -Force | Out-Null
 
-  Write-Host "Installing QG $tag for windows-$arch"
+  Write-Host "Instalando QG $tag para windows-$arch"
   Invoke-WebRequest -Uri "$releaseUrl/$archiveName" -OutFile $archivePath -UseBasicParsing -TimeoutSec 300
   Invoke-WebRequest -Uri "$releaseUrl/$checksumName" -OutFile $checksumPath -UseBasicParsing -TimeoutSec 300
 
@@ -148,7 +149,7 @@ try {
   $actualChecksum = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
 
   if ($expectedChecksum -ne $actualChecksum) {
-    throw "Checksum mismatch for $archiveName"
+    throw "Checksum nao confere para $archiveName"
   }
 
   Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
@@ -173,17 +174,17 @@ try {
   }
 
   $targetPath = Join-Path $InstallDir "qg.exe"
-  Write-Host "Installed $targetPath"
+  Write-Host "QG instalado em $targetPath"
 
   $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
   if (-not (Test-QGPathContainsDir -PathValue $userPath -Dir $InstallDir)) {
     try {
       $newUserPath = if ([string]::IsNullOrEmpty($userPath)) { $InstallDir } else { "$userPath;$InstallDir" }
       [Environment]::SetEnvironmentVariable("PATH", $newUserPath, "User")
-      Write-Host "Added $InstallDir to your user PATH. Restart your terminal to use 'qg'."
+      Write-Host "Adicionado $InstallDir ao PATH do usuario. Reinicie o terminal para usar 'qg'."
     } catch {
-      Write-Warning "Could not update your user PATH automatically: $_"
-      Write-Warning "Add $InstallDir to PATH manually to run qg from any directory."
+      Write-Warning "Nao foi possivel atualizar seu PATH de usuario automaticamente: $_"
+      Write-Warning "Adicione $InstallDir ao PATH manualmente para rodar qg de qualquer pasta."
     }
   }
 

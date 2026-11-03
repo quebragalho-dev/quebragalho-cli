@@ -98,7 +98,7 @@ func parseBackendsArgs(args []string) (backendStatusOptions, bool, error) {
 		case "--json":
 			options.json = true
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unknown backends flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag backends desconhecida %q", arg)}
 		}
 	}
 	return options, false, nil
@@ -113,7 +113,7 @@ func parseBackendsDoctorArgs(args []string) (backendDoctorOptions, bool, error) 
 		case "--json":
 			options.json = true
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unknown backends doctor flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag backends doctor desconhecida %q", arg)}
 		}
 	}
 	return options, false, nil
@@ -122,7 +122,7 @@ func parseBackendsDoctorArgs(args []string) (backendDoctorOptions, bool, error) 
 func backendLifecycleSnapshot(deps appDeps) (qgcommands.BackendLifecycleSnapshot, error) {
 	cwd, err := deps.getwd()
 	if err != nil {
-		return qgcommands.BackendLifecycleSnapshot{}, fmt.Errorf("failed to resolve workspace: %w", err)
+		return qgcommands.BackendLifecycleSnapshot{}, fmt.Errorf("não foi possível resolver a pasta de trabalho: %w", err)
 	}
 
 	// Reporting/enumeration only, never spawns a server, so it is left ungated
@@ -151,7 +151,7 @@ func backendLifecycleSnapshot(deps appDeps) (qgcommands.BackendLifecycleSnapshot
 func backendDoctorReport(deps appDeps) (qgcommands.BackendDoctorReport, error) {
 	cwd, err := deps.getwd()
 	if err != nil {
-		return qgcommands.BackendDoctorReport{}, fmt.Errorf("failed to resolve workspace: %w", err)
+		return qgcommands.BackendDoctorReport{}, fmt.Errorf("não foi possível resolver a pasta de trabalho: %w", err)
 	}
 
 	// Reporting/enumeration only, never spawns a server, so it is left ungated
@@ -177,8 +177,8 @@ func backendDoctorReport(deps appDeps) (qgcommands.BackendDoctorReport, error) {
 }
 
 func formatBackendLifecycleSnapshot(snapshot qgcommands.BackendLifecycleSnapshot) string {
-	lines := []string{"QG Backends:"}
-	lines = append(lines, fmt.Sprintf("  MCP servers: %d", len(snapshot.MCPServers)))
+	lines := []string{"Backends QG:"}
+	lines = append(lines, fmt.Sprintf("  Servidores MCP: %d", len(snapshot.MCPServers)))
 	for _, server := range snapshot.MCPServers {
 		detail := server.Command
 		if detail == "" {
@@ -207,18 +207,18 @@ func formatBackendLifecycleSnapshot(snapshot qgcommands.BackendLifecycleSnapshot
 		if label == "" {
 			label = hook.ID
 		}
-		state := "disabled"
+		state := "desativado"
 		if hook.Enabled {
-			state = "enabled"
+			state = "ativado"
 		}
 		lines = append(lines, fmt.Sprintf("    - %s [%s] %s %s", label, hook.Event, state, hook.Command))
 	}
 
 	lines = append(lines, fmt.Sprintf("  Plugins: %d", len(snapshot.Plugins)))
 	for _, plugin := range snapshot.Plugins {
-		state := "disabled"
+		state := "desativado"
 		if plugin.Enabled {
-			state = "enabled"
+			state = "ativado"
 		}
 		lines = append(lines, fmt.Sprintf("    - %s [%s] %s tools=%d prompts=%d skills=%d hooks=%d", plugin.ID, plugin.Source, state, plugin.ToolCount, plugin.PromptCount, plugin.SkillCount, plugin.HookCount))
 	}
@@ -227,20 +227,35 @@ func formatBackendLifecycleSnapshot(snapshot qgcommands.BackendLifecycleSnapshot
 
 func formatBackendDoctorReport(report qgcommands.BackendDoctorReport) string {
 	lines := []string{
-		"QG backend doctor",
-		"Overall: " + string(report.Status),
+		"Diagnóstico de backends QG",
+		"Geral: " + backendDoctorStatusDisplay(report.Status),
 	}
 	for _, check := range report.Checks {
 		target := ""
 		if check.Target != "" {
 			target = " " + check.Target
 		}
-		lines = append(lines, fmt.Sprintf("[%s] %s%s - %s", check.Status, check.ID, target, check.Message))
+		lines = append(lines, fmt.Sprintf("[%s] %s%s - %s", backendDoctorStatusDisplay(check.Status), check.ID, target, check.Message))
 		if check.Action != "" {
-			lines = append(lines, "  action: "+check.Action)
+			lines = append(lines, "  ação: "+check.Action)
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// backendDoctorStatusDisplay maps a machine status to its human label. The
+// JSON report keeps the raw values; only the text rendering translates.
+func backendDoctorStatusDisplay(status qgcommands.BackendDoctorStatus) string {
+	switch status {
+	case qgcommands.BackendDoctorStatusPass:
+		return "aprovado"
+	case qgcommands.BackendDoctorStatusWarn:
+		return "aviso"
+	case qgcommands.BackendDoctorStatusFail:
+		return "reprovado"
+	default:
+		return string(status)
+	}
 }
 
 func writeBackendsHelp(w io.Writer) error {

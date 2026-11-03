@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
 func seedUsageStore(t *testing.T) *sessions.Store {
@@ -48,7 +50,7 @@ func TestRunUsageTextReport(t *testing.T) {
 		t.Fatalf("expected exit %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"2026-06-01", "1.800", "estimate", "net LOC", "+100", "-30"} {
+	for _, want := range []string{"2026-06-01", "1.800", "estimativa", "LOC líquidas", "+100", "-30"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("usage report missing %q in:\n%s", want, output)
 		}
@@ -227,7 +229,7 @@ func TestRunUsageUnknownFlag(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("expected usage exit %d, got %d", exitUsage, exitCode)
 	}
-	if !strings.Contains(stderr.String(), "unknown usage flag") {
+	if !strings.Contains(stderr.String(), "flag usage desconhecida") {
 		t.Fatalf("expected unknown-flag error, got %q", stderr.String())
 	}
 }
@@ -236,17 +238,19 @@ func TestRunUsageUnknownFlag(t *testing.T) {
 // value is rejected with exitUsage and the value-required error, matching the
 // --since validation style, rather than silently filtering to no session.
 func TestRunUsageEmptySessionRejected(t *testing.T) {
-	cases := []struct {
+	// The "=" form is validated by the usage command itself (pt-BR message).
+	// The spaced form goes through the shared nextFlagValue helper owned by
+	// the shared flag parser, so only the exit code is asserted for it — never the language.
+	equalsCases := []struct {
 		name string
 		args []string
 		flag string
+		want string
 	}{
-		{name: "session equals empty", args: []string{"usage", "report", "--session="}, flag: "--session"},
-		{name: "session-id equals empty", args: []string{"usage", "report", "--session-id="}, flag: "--session-id"},
-		{name: "session spaced empty", args: []string{"usage", "report", "--session", "   "}, flag: "--session"},
-		{name: "session-id spaced empty", args: []string{"usage", "report", "--session-id", ""}, flag: "--session-id"},
+		{name: "session equals empty", args: []string{"usage", "report", "--session="}, flag: "--session", want: "--session precisa de um valor"},
+		{name: "session-id equals empty", args: []string{"usage", "report", "--session-id="}, flag: "--session-id", want: "--session-id precisa de um valor"},
 	}
-	for _, tc := range cases {
+	for _, tc := range equalsCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -260,10 +264,26 @@ func TestRunUsageEmptySessionRejected(t *testing.T) {
 				t.Fatalf("%s: expected exitUsage (%d), got %d", tc.flag, exitUsage, exitCode)
 			}
 			msg := stderr.String()
-			if !strings.Contains(msg, tc.flag+" requires a value") {
-				t.Fatalf("%s: expected value-required error in stderr, got %q", tc.flag, msg)
+			if !strings.Contains(msg, tc.want) {
+				t.Fatalf("%s: expected value-required error %q in stderr, got %q", tc.flag, tc.want, msg)
 			}
 		})
+	}
+	spacedCases := [][]string{
+		{"usage", "report", "--session", "   "},
+		{"usage", "report", "--session-id", ""},
+	}
+	for _, args := range spacedCases {
+		var stdout, stderr bytes.Buffer
+		exitCode := runWithDeps(args, &stdout, &stderr, appDeps{
+			newSessionStore: func() *sessions.Store {
+				return sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+			},
+			inspectChanges: stubInspectChanges(""),
+		})
+		if exitCode != exitUsage {
+			t.Fatalf("%v: expected exitUsage (%d), got %d (%q)", args, exitUsage, exitCode, stderr.String())
+		}
 	}
 }
 
@@ -376,11 +396,9 @@ func TestRunUsageInvalidSince(t *testing.T) {
 					t.Fatalf("--since %q: expected exitUsage (%d), got %d", tc.since, exitUsage, exitCode)
 				}
 				msg := stderr.String()
-				if !strings.Contains(msg, "invalid --since") {
-					t.Fatalf("--since %q: expected validation error in stderr, got %q", tc.since, msg)
-				}
-				if !strings.Contains(msg, "YYYY-MM-DD") {
-					t.Fatalf("--since %q: expected YYYY-MM-DD hint in stderr, got %q", tc.since, msg)
+				want := fmt.Sprintf("valor inválido para --since: %q. Use YYYY-MM-DD.", tc.since)
+				if !strings.Contains(msg, want) {
+					t.Fatalf("--since %q: expected validation error %q in stderr, got %q", tc.since, want, msg)
 				}
 			} else {
 				if exitCode != exitSuccess {
@@ -405,11 +423,45 @@ func TestRunUsageEmptyStore(t *testing.T) {
 		t.Fatalf("empty store: expected exit %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "Usage report") {
+	if !strings.Contains(output, "Relatório de uso") {
 		t.Fatalf("empty store: expected header in output, got:\n%s", output)
 	}
 	// Total row must show qg requests / tokens.
 	if !strings.Contains(output, "total") {
 		t.Fatalf("empty store: expected 'total' row in output, got:\n%s", output)
+	}
+}
+
+func TestFormatReportColumnsAlign(t *testing.T) {
+	report := usage.Report{
+		Buckets: []usage.DayBucket{
+			{Date: "2026-06-01", Requests: 5, TotalTokens: 1800, TotalCost: 1.0},
+			{Date: "2026-06-02", Requests: 12345, TotalTokens: 2000, TotalCost: 2.0},
+		},
+		Total: usage.Totals{Requests: 12350, TotalTokens: 3800, TotalCost: 3.0},
+	}
+	out := FormatReport(report, 100, 30)
+	lines := strings.Split(out, "\n")
+	var table []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "data ") || strings.HasPrefix(line, "2026-") || strings.HasPrefix(line, "total") {
+			table = append(table, line)
+		}
+	}
+	if len(table) != 4 {
+		t.Fatalf("expected 4 table rows (header+2 buckets+total), got %d:\n%s", len(table), out)
+	}
+	if !strings.Contains(table[0], "requisições") {
+		t.Fatalf("header missing requisições:\n%s", out)
+	}
+	base := len([]rune(table[0]))
+	for _, line := range table[1:] {
+		if got := len([]rune(line)); got != base {
+			t.Fatalf("column misalignment: header %d runes but row %d runes:\n%s", base, got, out)
+		}
 	}
 }

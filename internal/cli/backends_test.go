@@ -140,7 +140,7 @@ func TestRunBackendsTextAndHelp(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"QG Backends:", "MCP servers: 0", "Hooks: 0", "Plugins: 0"} {
+	for _, want := range []string{"Backends QG:", "Servidores MCP: 0", "Hooks: 0", "Plugins: 0"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("backend text missing %q:\n%s", want, stdout.String())
 		}
@@ -232,10 +232,13 @@ func TestRunBackendsDoctorJSONAndTextWithoutConnectingMCP(t *testing.T) {
 	if exitCode != exitProvider {
 		t.Fatalf("text exitCode = %d, want %d stderr=%s", exitCode, exitProvider, stderr.String())
 	}
-	for _, want := range []string{"QG backend doctor", "[fail] backend.mcp.invalid", "qg mcp add broken", "[fail] backend.hooks.diagnostic"} {
+	for _, want := range []string{"Diagnóstico de backends QG", "Geral: reprovado", "[reprovado] backend.mcp.invalid", "qg mcp add broken", "[reprovado] backend.hooks.diagnostic", "[aprovado] backend.mcp.server"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("backend doctor text missing %q:\n%s", want, stdout.String())
 		}
+	}
+	if strings.Contains(stdout.String(), "[fail]") || strings.Contains(stdout.String(), "[pass]") || strings.Contains(stdout.String(), "Geral: fail") {
+		t.Fatalf("backend doctor text leaked English status:\n%s", stdout.String())
 	}
 }
 

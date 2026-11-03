@@ -29,7 +29,7 @@ func runSkills(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 			// Treat a leading flag (e.g. --json) as belonging to the implicit
 			// `list` command so `qg skills --json` works like `qg plugins`.
 			if !strings.HasPrefix(args[0], "-") {
-				return writeExecUsageError(stderr, fmt.Sprintf("unknown skills subcommand %q", args[0]))
+				return writeExecUsageError(stderr, fmt.Sprintf("subcomando skills desconhecido %q", args[0]))
 			}
 		}
 	}
@@ -54,7 +54,7 @@ func runSkills(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 	case "remove", "rm":
 		return runSkillRemove(rest, deps.skillsDir(), stdout, stderr)
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown skills subcommand %q", command))
+		return writeExecUsageError(stderr, fmt.Sprintf("subcomando skills desconhecido %q", command))
 	}
 }
 
@@ -70,7 +70,7 @@ func runSkillsList(dir string, options skillListOptions, stdout io.Writer, stder
 	// wins), so a shadowed same-named skill is reported instead of just
 	// disappearing. Warnings go to stderr, keeping stdout (including --json) clean.
 	for _, dup := range dups {
-		fmt.Fprintf(stderr, "warning: duplicate skill %q: using %s, ignoring %s\n",
+		fmt.Fprintf(stderr, "aviso: skill duplicada %q: usando %s, ignorando %s\n",
 			redaction.RedactString(dup.Name, redaction.Options{}),
 			redaction.RedactString(dup.Winner, redaction.Options{}),
 			redaction.RedactString(dup.Loser, redaction.Options{}))
@@ -93,9 +93,9 @@ func runSkillsList(dir string, options skillListOptions, stdout io.Writer, stder
 
 func formatSkillList(discovered []skills.Skill) string {
 	if len(discovered) == 0 {
-		return "No skills found."
+		return "Nenhuma skill encontrada."
 	}
-	lines := []string{"QG Skills:"}
+	lines := []string{"Skills QG:"}
 	for _, skill := range discovered {
 		line := "  " + skill.Name
 		if skill.Description != "" {
@@ -116,7 +116,7 @@ func parseSkillListArgs(args []string) (skillListOptions, bool, error) {
 		case "--json":
 			options.json = true
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unknown skills list flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag skills list desconhecida %q", arg)}
 		}
 	}
 	return options, false, nil

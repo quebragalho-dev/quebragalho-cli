@@ -34,7 +34,7 @@ type mcpLegacyListOptions struct {
 
 func runPlugins(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "plugins subcommand required. Use `qg plugins list`.")
+		return writeExecUsageError(stderr, "subcomando plugins obrigatório. Use `qg plugins list`.")
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
@@ -55,7 +55,7 @@ func runPlugins(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 		}
 		cwd, err := deps.getwd()
 		if err != nil {
-			return writeAppError(stderr, "failed to resolve workspace: "+err.Error(), exitCrash)
+			return writeAppError(stderr, "Não foi possível resolver a pasta de trabalho. Detalhe: "+err.Error(), exitCrash)
 		}
 		result, err := deps.loadPlugins(plugins.LoadOptions{Cwd: cwd})
 		if err != nil {
@@ -83,13 +83,13 @@ func runPlugins(args []string, stdout io.Writer, stderr io.Writer, deps appDeps)
 	case "remove", "rm":
 		return runPluginRemove(args[1:], deps.pluginsDir(), stdout, stderr)
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown plugins subcommand %q", args[0]))
+		return writeExecUsageError(stderr, fmt.Sprintf("subcomando plugins desconhecido %q", args[0]))
 	}
 }
 
 func runHooks(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "hooks subcommand required. Use `qg hooks list`.")
+		return writeExecUsageError(stderr, "subcomando hooks obrigatório. Use `qg hooks list`.")
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
@@ -110,7 +110,7 @@ func runHooks(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 		}
 		cwd, err := deps.getwd()
 		if err != nil {
-			return writeAppError(stderr, "failed to resolve workspace: "+err.Error(), exitCrash)
+			return writeAppError(stderr, "Não foi possível resolver a pasta de trabalho. Detalhe: "+err.Error(), exitCrash)
 		}
 		result, err := deps.loadHooks(hooks.LoadOptions{Cwd: cwd})
 		if err != nil {
@@ -140,7 +140,7 @@ func runHooks(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	case "disable":
 		return runHooksToggle(args[1:], stdout, stderr, deps, true)
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown hooks subcommand %q", args[0]))
+		return writeExecUsageError(stderr, fmt.Sprintf("subcomando hooks desconhecido %q", args[0]))
 	}
 }
 
@@ -153,7 +153,7 @@ func runMCPWithContext(ctx context.Context, args []string, stdout io.Writer, std
 		ctx = context.Background()
 	}
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "mcp subcommand required. Use `qg mcp permissions list`.")
+		return writeExecUsageError(stderr, "subcomando mcp obrigatório. Use `qg mcp permissions list`.")
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
@@ -180,7 +180,7 @@ func runMCPWithContext(ctx context.Context, args []string, stdout io.Writer, std
 	case "list":
 		return runMCPLegacyList(args[1:], stdout, stderr, deps)
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown mcp subcommand %q", args[0]))
+		return writeExecUsageError(stderr, fmt.Sprintf("subcomando mcp desconhecido %q", args[0]))
 	}
 }
 
@@ -205,7 +205,7 @@ func runMCPLegacyList(args []string, stdout io.Writer, stderr io.Writer, deps ap
 
 	cwd, err := deps.getwd()
 	if err != nil {
-		return writeAppError(stderr, "failed to resolve workspace: "+err.Error(), exitCrash)
+		return writeAppError(stderr, "Não foi possível resolver a pasta de trabalho. Detalhe: "+err.Error(), exitCrash)
 	}
 	// Enumeration for the extensions listing, never spawns a server, so it is left
 	// ungated (excludeProject=false) like the other doctor/status report sites.
@@ -264,7 +264,7 @@ func runMCPTools(ctx context.Context, args []string, stdout io.Writer, stderr io
 		ctx = context.Background()
 	}
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "mcp tools subcommand required. Use `qg mcp tools list`.")
+		return writeExecUsageError(stderr, "subcomando mcp tools obrigatório. Use `qg mcp tools list`.")
 	}
 	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		if err := writeMCPToolsHelp(stdout); err != nil {
@@ -287,7 +287,7 @@ func runMCPTools(ctx context.Context, args []string, stdout io.Writer, stderr io
 		}
 		cwd, err := deps.getwd()
 		if err != nil {
-			return writeAppError(stderr, "failed to resolve workspace: "+err.Error(), exitCrash)
+			return writeAppError(stderr, "Não foi possível resolver a pasta de trabalho. Detalhe: "+err.Error(), exitCrash)
 		}
 		registry := tools.NewRegistry()
 		// `mcp tools list` connects to (spawns) each server to enumerate its live tools,
@@ -320,13 +320,13 @@ func runMCPTools(ctx context.Context, args []string, stdout io.Writer, stderr io
 		}
 		return exitSuccess
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown mcp tools subcommand %q", args[0]))
+		return writeExecUsageError(stderr, fmt.Sprintf("subcomando mcp tools desconhecido %q", args[0]))
 	}
 }
 
 func runMCPPermissions(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "mcp permissions subcommand required. Use `qg mcp permissions list`.")
+		return writeExecUsageError(stderr, "subcomando mcp permissions obrigatório. Use `qg mcp permissions list`.")
 	}
 	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		if err := writeMCPPermissionsHelp(stdout); err != nil {
@@ -373,7 +373,7 @@ func runMCPPermissions(args []string, stdout io.Writer, stderr io.Writer, deps a
 	case "clear":
 		return runMCPPermissionsClear(args[1:], stdout, stderr, deps)
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown mcp permissions subcommand %q", args[0]))
+		return writeExecUsageError(stderr, fmt.Sprintf("subcomando mcp permissions desconhecido %q", args[0]))
 	}
 }
 
@@ -412,7 +412,7 @@ func runMCPPermissionsRevoke(args []string, stdout io.Writer, stderr io.Writer, 
 			if err := writePrettyJSON(stdout, payload); err != nil {
 				return exitCrash
 			}
-		} else if _, err := fmt.Fprintf(stdout, "Revoked %d MCP tool permission grant(s) for %s/%s.\n", revoked, serverName, positional[1]); err != nil {
+		} else if _, err := fmt.Fprintf(stdout, "Permissões revogadas: %d (ferramenta MCP %s/%s).\n", revoked, serverName, positional[1]); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
@@ -431,7 +431,7 @@ func runMCPPermissionsRevoke(args []string, stdout io.Writer, stderr io.Writer, 
 		if err := writePrettyJSON(stdout, payload); err != nil {
 			return exitCrash
 		}
-	} else if _, err := fmt.Fprintf(stdout, "Revoked %d MCP server permission grant(s) for %s.\n", revoked, serverName); err != nil {
+	} else if _, err := fmt.Fprintf(stdout, "Permissões revogadas: %d (servidor MCP %s).\n", revoked, serverName); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -449,7 +449,7 @@ func runMCPPermissionsClear(args []string, stdout io.Writer, stderr io.Writer, d
 		return exitSuccess
 	}
 	if !options.confirm {
-		return writeExecUsageError(stderr, "Pass --confirm to clear all MCP permission grants.")
+		return writeExecUsageError(stderr, "Passe --confirm para apagar todas as permissões MCP persistentes.")
 	}
 	store, err := deps.newMCPStore()
 	if err != nil {
@@ -466,7 +466,7 @@ func runMCPPermissionsClear(args []string, stdout io.Writer, stderr io.Writer, d
 		if err := writePrettyJSON(stdout, payload); err != nil {
 			return exitCrash
 		}
-	} else if _, err := fmt.Fprintf(stdout, "Cleared %d MCP permission grant(s).\n", cleared); err != nil {
+	} else if _, err := fmt.Fprintf(stdout, "Permissões MCP apagadas: %d.\n", cleared); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -481,7 +481,7 @@ func parsePluginListArgs(args []string) (pluginListOptions, bool, error) {
 		case "--json":
 			options.json = true
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unknown plugins list flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag plugins list desconhecida %q", arg)}
 		}
 	}
 	return options, false, nil
@@ -496,7 +496,7 @@ func parseHookListArgs(args []string) (hookListOptions, bool, error) {
 		case "--json":
 			options.json = true
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unknown hooks list flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag hooks list desconhecida %q", arg)}
 		}
 	}
 	return options, false, nil
@@ -513,7 +513,7 @@ func parseMCPCommandOptions(args []string) (mcpCommandOptions, bool, error) {
 		case "--confirm":
 			options.confirm = true
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unknown mcp flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag mcp desconhecida %q", arg)}
 		}
 	}
 	return options, false, nil
@@ -530,7 +530,7 @@ func parseMCPLegacyListArgs(args []string) (mcpLegacyListOptions, bool, error) {
 		case "--tools":
 			options.tools = true
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unknown mcp list flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag mcp list desconhecida %q", arg)}
 		}
 	}
 	return options, false, nil
@@ -549,7 +549,7 @@ func parseMCPPositionalCommand(args []string) (mcpCommandOptions, []string, bool
 			options.confirm = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return options, positional, false, execUsageError{fmt.Sprintf("unknown mcp permissions flag %q", arg)}
+				return options, positional, false, execUsageError{fmt.Sprintf("flag mcp permissions desconhecida %q", arg)}
 			}
 			positional = append(positional, arg)
 		}

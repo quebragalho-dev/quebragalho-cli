@@ -45,7 +45,7 @@ func TestRunSessionsListsLineageAndTree(t *testing.T) {
 		t.Fatalf("sessions list exit = %d, stderr = %q", exitCode, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "QG sessions") || !strings.Contains(output, root.SessionID) || !strings.Contains(output, child.SessionID) || !strings.Contains(output, "code-review") || !strings.Contains(output, "tag=specialist") || !strings.Contains(output, "depth=1") {
+	if !strings.Contains(output, "Sessões QG") || !strings.Contains(output, root.SessionID) || !strings.Contains(output, child.SessionID) || !strings.Contains(output, "code-review") || !strings.Contains(output, "tag=specialist") || !strings.Contains(output, "depth=1") {
 		t.Fatalf("sessions list output = %q, want root, child, and agent", output)
 	}
 
@@ -183,7 +183,7 @@ func TestRunSessionsValidatesArgs(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("sessions children exit = %d, want usage", exitCode)
 	}
-	if !strings.Contains(stderr.String(), "QG session not found: missing") {
+	if !strings.Contains(stderr.String(), "Sessão QG não encontrada: missing") {
 		t.Fatalf("sessions children stderr = %q, want missing-session error", stderr.String())
 	}
 
@@ -192,11 +192,11 @@ func TestRunSessionsValidatesArgs(t *testing.T) {
 		args       []string
 		wantStderr string
 	}{
-		{name: "unknown command", args: []string{"sessions", "foo"}, wantStderr: `unknown sessions command "foo"`},
-		{name: "list extra arg", args: []string{"sessions", "list", "extra"}, wantStderr: "sessions list does not accept positional arguments"},
-		{name: "rewind flag on list", args: []string{"sessions", "list", "--sequence", "2"}, wantStderr: "only valid for sessions rewind-plan"},
-		{name: "compaction flag on tree", args: []string{"sessions", "tree", "root", "--preserve-last", "2"}, wantStderr: "only valid for sessions compact-plan"},
-		{name: "empty event flag", args: []string{"sessions", "list", "--event="}, wantStderr: "--event requires a value"},
+		{name: "unknown command", args: []string{"sessions", "foo"}, wantStderr: `comando sessions desconhecido "foo"`},
+		{name: "list extra arg", args: []string{"sessions", "list", "extra"}, wantStderr: "sessions list não aceita argumentos posicionais"},
+		{name: "rewind flag on list", args: []string{"sessions", "list", "--sequence", "2"}, wantStderr: "só valem para sessions rewind-plan"},
+		{name: "compaction flag on tree", args: []string{"sessions", "tree", "root", "--preserve-last", "2"}, wantStderr: "só valem para sessions compact-plan"},
+		{name: "empty event flag", args: []string{"sessions", "list", "--event="}, wantStderr: "--event precisa de um valor"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stdout.Reset()
@@ -270,7 +270,7 @@ func TestRunSessionsListFiltersByKind(t *testing.T) {
 			return store
 		},
 	})
-	if exitCode != exitUsage || !strings.Contains(stderr.String(), "--kind is only valid for sessions list") {
+	if exitCode != exitUsage || !strings.Contains(stderr.String(), "--kind só vale para sessions list") {
 		t.Fatalf("expected --kind validation error, exit=%d stderr=%q", exitCode, stderr.String())
 	}
 }
@@ -284,5 +284,40 @@ func sequenceClockCLI(values []time.Time) func() time.Time {
 		value := values[index]
 		index++
 		return value
+	}
+}
+
+func TestFormatCompactionPlanTruncadoSimNao(t *testing.T) {
+	truncated := formatCompactionPlan(sessions.CompactionPlan{SessionID: "s1", Truncated: true})
+	if !strings.Contains(truncated, "truncado: sim") {
+		t.Fatalf("truncated plan must show sim:\n%s", truncated)
+	}
+	if strings.Contains(truncated, "truncado: true") {
+		t.Fatalf("truncated plan leaked English bool:\n%s", truncated)
+	}
+	plain := formatCompactionPlan(sessions.CompactionPlan{SessionID: "s1", Truncated: false})
+	if !strings.Contains(plain, "truncado: não") {
+		t.Fatalf("non-truncated plan must show não:\n%s", plain)
+	}
+}
+
+func TestRunSessionsRewindMissingCwdMessage(t *testing.T) {
+	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir(), Now: fixedCLITime("2026-06-04T19:30:00Z")})
+	session, err := store.Create(sessions.CreateInput{SessionID: "nocwd", Title: "NoCwd", Cwd: ""})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := store.AppendEvent(session.SessionID, sessions.AppendEventInput{Type: sessions.EventMessage, Payload: map[string]string{"content": "hi"}}); err != nil {
+		t.Fatalf("AppendEvent: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"sessions", "rewind", session.SessionID, "--sequence", "1"}, &stdout, &stderr, appDeps{
+		newSessionStore: func() *sessions.Store { return store },
+	})
+	if exitCode != exitUsage {
+		t.Fatalf("exit = %d, want usage", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "a sessão não tem pasta de trabalho registrada (cwd); não é possível restaurar os arquivos") {
+		t.Fatalf("rewind cwd message = %q", stderr.String())
 	}
 }

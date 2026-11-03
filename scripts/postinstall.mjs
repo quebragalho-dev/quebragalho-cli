@@ -88,7 +88,7 @@ function resolveArch(a) {
 }
 
 if (process.env.QG_SKIP_DOWNLOAD === '1') {
-  warnSkip('QG_SKIP_DOWNLOAD=1 set — skipping native binary download.');
+  warnSkip('QG_SKIP_DOWNLOAD=1 definido — pulando o download do binário nativo.');
 }
 
 const rawPlatform = process.env.QG_INSTALL_PLATFORM || process.platform;
@@ -98,7 +98,7 @@ const arch = resolveArch(rawArch);
 
 if (!platform || !arch) {
   warnSkip(
-    `no prebuilt binary for ${rawPlatform}/${rawArch}. Build from source: ` +
+    `sem binário pré-compilado para ${rawPlatform}/${rawArch}. Para compilar do código-fonte: ` +
       `https://github.com/${REPO} (go run ./cmd/qg).`,
   );
 }
@@ -150,35 +150,35 @@ if (
 async function download(url) {
   if (!ALLOW_INSECURE && !url.startsWith('https://')) {
     fail(
-      `refusing insecure download origin for ${url}: only https:// is allowed ` +
-        `(set QG_ALLOW_INSECURE_DOWNLOAD=1 to override for local testing).`,
+      `origem de download insegura recusada para ${url}: só https:// é permitido ` +
+        `(defina QG_ALLOW_INSECURE_DOWNLOAD=1 para liberar em testes locais).`,
     );
   }
   let response;
   try {
     response = await fetch(url, { redirect: 'follow' });
   } catch (error) {
-    fail(`download failed for ${url}: ${error.message}`);
+    fail(`não foi possível baixar ${url}: ${error.message}`);
   }
   // Catch an https->http downgrade across redirects: the verified bytes must
   // still have arrived over TLS for the same-origin checksum to mean anything.
   if (!ALLOW_INSECURE && response.url && !response.url.startsWith('https://')) {
-    fail(`refusing insecure redirect to ${response.url}`);
+    fail(`redirecionamento inseguro recusado para ${response.url}`);
   }
   if (!response.ok) {
     fail(
-      `download failed (HTTP ${response.status}) for ${url} (release tag ${tag}). ` +
-        `If no release exists yet, or the tag and package.json version disagree, ` +
-        `build from source: https://github.com/${REPO} (go run ./cmd/qg).`,
+      `não foi possível baixar (HTTP ${response.status}) de ${url} (tag do release ${tag}). ` +
+        `Se ainda não existe release, ou se a tag e a versão do package.json divergem, ` +
+        `compile do código-fonte: https://github.com/${REPO} (go run ./cmd/qg).`,
     );
   }
   const declared = Number(response.headers.get('content-length') || 0);
   if (declared && declared > MAX_DOWNLOAD_BYTES) {
-    fail(`refusing oversized download (${declared} bytes) from ${url}`);
+    fail(`download grande demais recusado (${declared} bytes) de ${url}`);
   }
   const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.length > MAX_DOWNLOAD_BYTES) {
-    fail(`download from ${url} exceeded ${MAX_DOWNLOAD_BYTES} bytes`);
+    fail(`download de ${url} passou de ${MAX_DOWNLOAD_BYTES} bytes`);
   }
   return buffer;
 }
@@ -197,7 +197,7 @@ function parseSha256(text, wantName) {
       return hex.toLowerCase();
     }
   }
-  fail(`could not find a SHA-256 digest for ${wantName} in ${wantName}.sha256`);
+  fail(`sem digest SHA-256 para ${wantName} em ${wantName}.sha256`);
 }
 
 function findByBasename(dir, name) {
@@ -237,11 +237,11 @@ function extract(workDir, archiveName, destName) {
       ],
       { stdio: 'inherit' },
     );
-    if (viaPwsh.status !== 0) fail(`failed to extract ${assetName}`);
+    if (viaPwsh.status !== 0) fail(`não foi possível extrair ${assetName}`);
     return;
   }
   const viaTar = spawnSync('tar', ['-xzf', archiveName, '-C', destName], opts);
-  if (viaTar.status !== 0) fail(`failed to extract ${assetName} (tar exited ${viaTar.status})`);
+  if (viaTar.status !== 0) fail(`não foi possível extrair ${assetName} (tar saiu com ${viaTar.status})`);
 }
 
 async function main() {
@@ -250,7 +250,7 @@ async function main() {
   const expected = parseSha256(checksumText, assetName);
   const actual = createHash('sha256').update(archiveBuffer).digest('hex');
   if (actual !== expected) {
-    fail(`checksum mismatch for ${assetName}: expected ${expected}, got ${actual}`);
+    fail(`checksum não confere para ${assetName}: esperado ${expected}, recebido ${actual}`);
   }
 
   const tempDir = mkdtempSync(join(tmpdir(), 'qg-install-'));
@@ -264,7 +264,7 @@ async function main() {
     // Copy only known basenames into the package root. We never honor
     // archive-relative paths, so a crafted entry cannot escape the package.
     const primarySource = findByBasename(extractDir, binaryName);
-    if (!primarySource) fail(`archive ${assetName} did not contain ${binaryName}`);
+    if (!primarySource) fail(`pacote ${assetName} não trouxe ${binaryName}`);
     copyFileSync(primarySource, installedBinary);
     if (platform !== 'windows') chmodSync(installedBinary, 0o755);
 
@@ -272,8 +272,8 @@ async function main() {
       const source = findByBasename(extractDir, name);
       if (!source) {
         console.error(
-          `[qg] note: optional helper ${name} was not in ${assetName}; ` +
-            `the sandbox may run with reduced isolation.`,
+          `[qg] aviso: helper opcional ${name} não estava em ${assetName}; ` +
+            `o ambiente isolado pode rodar com isolamento reduzido.`,
         );
         continue;
       }
@@ -284,7 +284,7 @@ async function main() {
 
     writeFileSync(markerPath, VERSION + '\n');
     const sizeKb = Math.round(statSync(installedBinary).size / 1024);
-    console.error(`[qg] installed ${binaryName} ${VERSION} (${platform}-${arch}, ${sizeKb} KB).`);
+    console.error(`[qg] ${binaryName} ${VERSION} instalado (${platform}-${arch}, ${sizeKb} KB).`);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

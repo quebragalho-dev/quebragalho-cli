@@ -70,9 +70,9 @@ func parseContextArgs(args []string) (contextOptions, bool, error) {
 		case arg == "--json":
 			options.json = true
 		case strings.HasPrefix(arg, "-"):
-			return options, false, execUsageError{fmt.Sprintf("unknown context flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag context desconhecida %q", arg)}
 		default:
-			return options, false, execUsageError{fmt.Sprintf("unexpected context argument %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("argumento context inesperado %q", arg)}
 		}
 	}
 	return options, false, nil

@@ -39,41 +39,41 @@ func runSessions(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	switch command {
 	case "list":
 		if len(remaining) != 0 {
-			return writeExecUsageError(stderr, "sessions list does not accept positional arguments")
+			return writeExecUsageError(stderr, "sessions list não aceita argumentos posicionais")
 		}
 		return runSessionsList(store, options, stdout, stderr)
 	case "children":
 		if len(remaining) != 1 {
-			return writeExecUsageError(stderr, "sessions children requires a session id")
+			return writeExecUsageError(stderr, "sessions children precisa do id da sessão")
 		}
 		return runSessionsChildren(store, remaining[0], options, stdout, stderr)
 	case "lineage":
 		if len(remaining) != 1 {
-			return writeExecUsageError(stderr, "sessions lineage requires a session id")
+			return writeExecUsageError(stderr, "sessions lineage precisa do id da sessão")
 		}
 		return runSessionsLineage(store, remaining[0], options, stdout, stderr)
 	case "tree":
 		if len(remaining) != 1 {
-			return writeExecUsageError(stderr, "sessions tree requires a session id")
+			return writeExecUsageError(stderr, "sessions tree precisa do id da sessão")
 		}
 		return runSessionsTree(store, remaining[0], options, stdout, stderr)
 	case "rewind-plan":
 		if len(remaining) != 1 {
-			return writeExecUsageError(stderr, "sessions rewind-plan requires a session id")
+			return writeExecUsageError(stderr, "sessions rewind-plan precisa do id da sessão")
 		}
 		return runSessionsRewindPlan(store, remaining[0], options, stdout, stderr)
 	case "rewind":
 		if len(remaining) != 1 {
-			return writeExecUsageError(stderr, "sessions rewind requires a session id")
+			return writeExecUsageError(stderr, "sessions rewind precisa do id da sessão")
 		}
 		return runSessionsRewind(store, remaining[0], options, stdout, stderr)
 	case "compact-plan":
 		if len(remaining) != 1 {
-			return writeExecUsageError(stderr, "sessions compact-plan requires a session id")
+			return writeExecUsageError(stderr, "sessions compact-plan precisa do id da sessão")
 		}
 		return runSessionsCompactPlan(store, remaining[0], options, stdout, stderr)
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown sessions command %q", command))
+		return writeExecUsageError(stderr, fmt.Sprintf("comando sessions desconhecido %q", command))
 	}
 }
 
@@ -189,7 +189,7 @@ func parseSessionsArgs(args []string) (string, []string, sessionCommandOptions, 
 				continue
 			}
 			if strings.HasPrefix(arg, "-") {
-				return command, remaining, options, false, execUsageError{fmt.Sprintf("unknown sessions flag %q", arg)}
+				return command, remaining, options, false, execUsageError{fmt.Sprintf("flag sessions desconhecida %q", arg)}
 			}
 			if !commandExplicit && len(remaining) == 0 && isSessionsCommand(arg) {
 				command = arg
@@ -197,7 +197,7 @@ func parseSessionsArgs(args []string) (string, []string, sessionCommandOptions, 
 				continue
 			}
 			if !commandExplicit && len(remaining) == 0 {
-				return command, remaining, options, false, execUsageError{fmt.Sprintf("unknown sessions command %q", arg)}
+				return command, remaining, options, false, execUsageError{fmt.Sprintf("comando sessions desconhecido %q", arg)}
 			}
 			remaining = append(remaining, arg)
 		}
@@ -208,7 +208,7 @@ func parseSessionsArgs(args []string) (string, []string, sessionCommandOptions, 
 func parseNonEmptySessionsFlag(flag string, value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return "", execUsageError{flag + " requires a value"}
+		return "", execUsageError{flag + " precisa de um valor"}
 	}
 	return trimmed, nil
 }
@@ -219,7 +219,7 @@ func parseSessionKindFlag(value string) (sessions.SessionKind, error) {
 	case sessions.SessionKindFork, sessions.SessionKindChild, sessions.SessionKindSide, sessions.SessionKindSpecDraft, sessions.SessionKindSpecImpl:
 		return kind, nil
 	default:
-		return "", execUsageError{fmt.Sprintf("invalid --kind %q. Expected fork, child, side, spec-draft, or spec-impl.", value)}
+		return "", execUsageError{fmt.Sprintf("valor inválido para --kind: %q. Valores: fork, child, side, spec-draft ou spec-impl.", value)}
 	}
 }
 
@@ -234,15 +234,15 @@ func isSessionsCommand(command string) bool {
 
 func validateSessionCommandFlags(command string, options sessionCommandOptions) error {
 	if options.kind != "" && command != "list" {
-		return execUsageError{"--kind is only valid for sessions list"}
+		return execUsageError{"--kind só vale para sessions list"}
 	}
 	hasRewindFlag := options.sequence > 0 || strings.TrimSpace(options.eventID) != "" || options.excludeTarget
 	if hasRewindFlag && command != "rewind-plan" && command != "rewind" {
-		return execUsageError{"--sequence, --event, and --exclude-target are only valid for sessions rewind-plan and rewind"}
+		return execUsageError{"--sequence, --event e --exclude-target só valem para sessions rewind-plan e rewind"}
 	}
 	hasCompactionFlag := options.preserveLast > 0 || options.maxPromptChars > 0
 	if hasCompactionFlag && command != "compact-plan" {
-		return execUsageError{"--preserve-last and --max-prompt-chars are only valid for sessions compact-plan"}
+		return execUsageError{"--preserve-last e --max-prompt-chars só valem para sessions compact-plan"}
 	}
 	return nil
 }
@@ -368,11 +368,11 @@ func runSessionsRewind(store *sessions.Store, sessionID string, options sessionC
 		return writeSessionCommandError(stderr, err)
 	}
 	if session == nil {
-		return writeExecUsageError(stderr, "QG session not found: "+redact(sessionID))
+		return writeExecUsageError(stderr, "Sessão QG não encontrada: "+redact(sessionID))
 	}
 	workspaceRoot := strings.TrimSpace(session.Cwd)
 	if workspaceRoot == "" {
-		return writeExecUsageError(stderr, "session has no recorded workspace (cwd); cannot restore files")
+		return writeExecUsageError(stderr, "a sessão não tem pasta de trabalho registrada (cwd); não é possível restaurar os arquivos")
 	}
 	// Honor --exclude-target: ApplyRewind keeps events THROUGH the given sequence,
 	// so when the target event itself must be dropped (KeepTarget=false), apply
@@ -391,7 +391,7 @@ func runSessionsRewind(store *sessions.Store, sessionID string, options sessionC
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Rewound %s to sequence %d: %d file(s) restored, %d deleted, %d skipped.\n",
+	if _, err := fmt.Fprintf(stdout, "Sessão %s voltou para a sequência %d: arquivos restaurados: %d, excluídos: %d, ignorados: %d.\n",
 		redact(sessionID), keepThrough, report.FilesRestored, report.FilesDeleted, len(report.Skipped)); err != nil {
 		return exitCrash
 	}
@@ -424,40 +424,58 @@ func writeSessionCommandError(stderr io.Writer, err error) int {
 		message = "QG session" + message
 	}
 	if strings.Contains(message, "not found") || strings.Contains(message, "invalid qg session id") {
-		return writeExecUsageError(stderr, message)
+		return writeExecUsageError(stderr, formatSessionCommandError(message))
 	}
 	return writeAppError(stderr, message, exitCrash)
 }
 
+// formatSessionCommandError presents store "not found"/"invalid id" failures
+// in pt-BR. Routing above still matches the original English strings, and ids
+// pass through untouched.
+func formatSessionCommandError(message string) string {
+	if rest, ok := strings.CutPrefix(message, "QG session not found: "); ok {
+		return "Sessão QG não encontrada: " + rest
+	}
+	if rest, ok := strings.CutPrefix(message, "QG parent session not found: "); ok {
+		return "Sessão QG pai não encontrada: " + rest
+	}
+	if rest, ok := strings.CutPrefix(message, "invalid qg session id "); ok {
+		return "id de sessão qg inválido " + rest
+	}
+	return message
+}
+
 func formatRewindPlan(plan sessions.RewindPlan) string {
 	return strings.Join([]string{
-		"QG session rewind plan",
-		"session: " + redact(plan.SessionID),
-		"target: " + redact(plan.TargetEventID),
-		fmt.Sprintf("kept: %d", plan.KeptCount),
-		fmt.Sprintf("dropped: %d", plan.DroppedCount),
+		"Plano de retorno da sessão QG",
+		"sessão: " + redact(plan.SessionID),
+		"alvo: " + redact(plan.TargetEventID),
+		fmt.Sprintf("mantidos: %d", plan.KeptCount),
+		fmt.Sprintf("descartados: %d", plan.DroppedCount),
 	}, "\n")
 }
 
 func formatCompactionPlan(plan sessions.CompactionPlan) string {
-	lines := []string{
-		"QG session compaction plan",
-		"session: " + redact(plan.SessionID),
-		fmt.Sprintf("compactable: %d", plan.CompactableCount),
-		fmt.Sprintf("preserved: %d", plan.PreservedCount),
-		fmt.Sprintf("prompt chars: %d", plan.PromptChars),
-	}
+	truncado := "não"
 	if plan.Truncated {
-		lines = append(lines, "truncated: true")
+		truncado = "sim"
+	}
+	lines := []string{
+		"Plano de compactação da sessão QG",
+		"sessão: " + redact(plan.SessionID),
+		fmt.Sprintf("compactáveis: %d", plan.CompactableCount),
+		fmt.Sprintf("preservados: %d", plan.PreservedCount),
+		fmt.Sprintf("caracteres da mensagem: %d", plan.PromptChars),
+		"truncado: " + truncado,
 	}
 	return strings.Join(lines, "\n")
 }
 
 func formatSessionSnapshotsList(items []qgcommands.SessionSnapshot) string {
 	if len(items) == 0 {
-		return "No QG sessions found."
+		return "Nenhuma sessão QG encontrada."
 	}
-	lines := []string{fmt.Sprintf("QG sessions (%d):", len(items))}
+	lines := []string{fmt.Sprintf("Sessões QG (%d):", len(items))}
 	for _, session := range items {
 		lines = append(lines, "  "+formatSessionSnapshotLine(session))
 	}
@@ -465,7 +483,7 @@ func formatSessionSnapshotsList(items []qgcommands.SessionSnapshot) string {
 }
 
 func formatSessionSnapshotTree(node qgcommands.SessionTreeSnapshot) string {
-	lines := []string{"QG session tree:"}
+	lines := []string{"Árvore da sessão QG:"}
 	appendSessionSnapshotTree(&lines, node, "")
 	return strings.Join(lines, "\n") + "\n"
 }

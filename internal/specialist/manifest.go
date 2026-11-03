@@ -2,6 +2,7 @@ package specialist
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -239,6 +240,12 @@ func ParseMarkdown(content string) (Manifest, error) {
 	return manifest, nil
 }
 
+// ErrDescriptionRequired matches create requests that carry neither a
+// description nor a base specialist to inherit one from. It wraps into the
+// Validate message without changing a byte of it, so machine output stays
+// identical while human output can translate the condition.
+var ErrDescriptionRequired = errors.New("requires a description")
+
 func Validate(manifest *Manifest) error {
 	manifest.Metadata.Name = strings.TrimSpace(manifest.Metadata.Name)
 	manifest.Metadata.Description = strings.TrimSpace(manifest.Metadata.Description)
@@ -252,7 +259,7 @@ func Validate(manifest *Manifest) error {
 		return fmt.Errorf("invalid specialist name %q: use lowercase letters, numbers, and dashes", manifest.Metadata.Name)
 	}
 	if manifest.Metadata.Description == "" && manifest.Metadata.Extends == "" {
-		return fmt.Errorf("specialist %q requires a description", manifest.Metadata.Name)
+		return fmt.Errorf("specialist %q %w", manifest.Metadata.Name, ErrDescriptionRequired)
 	}
 	if manifest.Metadata.Extends != "" && !namePattern.MatchString(manifest.Metadata.Extends) {
 		return fmt.Errorf("invalid base specialist name %q: use lowercase letters, numbers, and dashes", manifest.Metadata.Extends)

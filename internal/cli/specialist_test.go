@@ -200,7 +200,7 @@ func TestWriteSpecialistCreateResultSurfacesWarningsOnlyForHumanOutput(t *testin
 	if code := writeSpecialistCreateResult(manifest, false, &stdout, &stderr); code != exitSuccess {
 		t.Fatalf("human output exit code = %d", code)
 	}
-	if got, want := stdout.String(), "Created specialist triage at /specialists/triage.md\n"; got != want {
+	if got, want := stdout.String(), "Especialista triage criado em /specialists/triage.md\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 	if got, want := stderr.String(), "warning: replacement backup /specialists/.triage.bak retained: access denied\n"; got != want {
@@ -257,7 +257,7 @@ func TestRunSpecialistEditRejectsSymlink(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("exitCode = %d, want usage; stderr=%s", exitCode, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "refusing to edit symlink") {
+	if !strings.Contains(stderr.String(), "Não é possível editar um especialista que é symlink") {
 		t.Fatalf("expected symlink refusal, got %q", stderr.String())
 	}
 }
@@ -299,7 +299,7 @@ func TestRunSpecialistShowMissingReturnsUsage(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("exitCode = %d, want usage", exitCode)
 	}
-	if !strings.Contains(stderr.String(), "not found") {
+	if !strings.Contains(stderr.String(), "não encontrado") {
 		t.Fatalf("expected not found error, got %q", stderr.String())
 	}
 }
@@ -317,7 +317,7 @@ func TestRunSpecialistUnknownCommandDoesNotResolveWorkspace(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("exitCode = %d, want usage", exitCode)
 	}
-	if !strings.Contains(stderr.String(), `unknown specialist command "missing"`) {
+	if !strings.Contains(stderr.String(), `comando specialist desconhecido "missing"`) {
 		t.Fatalf("expected unknown command error, got %q", stderr.String())
 	}
 }
@@ -332,12 +332,12 @@ func TestRunSpecialistArgCountErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{args: []string{"specialist", "list", "extra"}, want: "does not accept positional"},
-		{args: []string{"specialist", "show"}, want: "show requires a specialist name"},
-		{args: []string{"specialist", "create"}, want: "create requires a specialist name"},
-		{args: []string{"specialist", "delete"}, want: "delete requires a specialist name"},
-		{args: []string{"specialist", "edit"}, want: "edit requires a specialist name"},
-		{args: []string{"specialist", "path", "extra"}, want: "path does not accept positional"},
+		{args: []string{"specialist", "list", "extra"}, want: "não aceita argumentos posicionais"},
+		{args: []string{"specialist", "show"}, want: "specialist show precisa do nome do especialista"},
+		{args: []string{"specialist", "create"}, want: "specialist create precisa do nome do especialista"},
+		{args: []string{"specialist", "delete"}, want: "specialist delete precisa do nome do especialista"},
+		{args: []string{"specialist", "edit"}, want: "specialist edit precisa do nome do especialista"},
+		{args: []string{"specialist", "path", "extra"}, want: "não aceita argumentos posicionais"},
 	}
 	for _, tc := range tests {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
@@ -357,13 +357,16 @@ func TestRunSpecialistArgCountErrors(t *testing.T) {
 func setSpecialistConfigRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	// config.UserConfigDir consults XDG_CONFIG_HOME first on every platform
+	// (including darwin), so it must be redirected along with the platform
+	// roots. Otherwise tests leak into the developer's real config and later
+	// runs fail with "already exists".
+	t.Setenv("XDG_CONFIG_HOME", root)
 	switch runtime.GOOS {
 	case "windows":
 		t.Setenv("APPDATA", root)
 	case "darwin":
 		t.Setenv("HOME", root)
-	default:
-		t.Setenv("XDG_CONFIG_HOME", root)
 	}
 	configRoot, err := config.UserConfigDir()
 	if err != nil {
@@ -379,5 +382,77 @@ func writeSpecialistManifest(t *testing.T, path string, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
+	}
+}
+
+func TestRunSpecialistCreateRequiresDescriptionPT(t *testing.T) {
+	setSpecialistConfigRoot(t)
+	deps := appDeps{getwd: func() (string, error) { return t.TempDir(), nil }}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"specialist", "create", "nodesc"}, &stdout, &stderr, deps)
+	if exitCode != exitUsage {
+		t.Fatalf("exitCode = %d, want usage", exitCode)
+	}
+	if !strings.Contains(stderr.String(), `O especialista "nodesc" precisa de uma descrição (--description).`) {
+		t.Fatalf("expected PT description error, got %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "requires a description") {
+		t.Fatalf("human error must not leak English Validate text: %q", stderr.String())
+	}
+}
+
+func TestSpecialistValidateRequiresDescriptionStaysEnglish(t *testing.T) {
+	err := specialist.Validate(&specialist.Manifest{Metadata: specialist.Metadata{Name: "nodesc"}})
+	if err == nil {
+		t.Fatal("expected Validate error for missing description")
+	}
+	if !strings.Contains(err.Error(), `specialist "nodesc" requires a description`) {
+		t.Fatalf("Validate error must stay English, got %q", err.Error())
+	}
+}
+
+func TestRunSpecialistCreateNodescJSONStaysEnglish(t *testing.T) {
+	setSpecialistConfigRoot(t)
+	deps := appDeps{getwd: func() (string, error) { return t.TempDir(), nil }}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"specialist", "create", "nodesc", "--json"}, &stdout, &stderr, deps)
+	if exitCode != exitUsage {
+		t.Fatalf("exitCode = %d, want usage", exitCode)
+	}
+	if got, want := stderr.String(), "[qg] specialist \"nodesc\" requires a description\n"; got != want {
+		t.Fatalf("json stderr = %q, want %q", got, want)
+	}
+	if strings.Contains(stdout.String(), "precisa de uma descrição") {
+		t.Fatalf("json output must not carry the human translation: %q", stdout.String())
+	}
+}
+
+func TestRunSpecialistCreateExtendsWorkerSucceeds(t *testing.T) {
+	setSpecialistConfigRoot(t)
+	deps := appDeps{getwd: func() (string, error) { return t.TempDir(), nil }}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"specialist", "create", "ext", "--extends", "worker"}, &stdout, &stderr, deps)
+	if exitCode != exitSuccess {
+		t.Fatalf("exitCode = %d, want success: stderr=%s", exitCode, stderr.String())
+	}
+}
+
+func TestRunSpecialistCreateBadNameReportsInvalidName(t *testing.T) {
+	setSpecialistConfigRoot(t)
+	deps := appDeps{getwd: func() (string, error) { return t.TempDir(), nil }}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"specialist", "create", "Bad Name"}, &stdout, &stderr, deps)
+	if exitCode != exitUsage {
+		t.Fatalf("exitCode = %d, want usage", exitCode)
+	}
+	if !strings.Contains(stderr.String(), `invalid specialist name "Bad Name"`) {
+		t.Fatalf("expected invalid-name error, got %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "precisa de uma descrição") {
+		t.Fatalf("name validation must run before the description guard: %q", stderr.String())
 	}
 }

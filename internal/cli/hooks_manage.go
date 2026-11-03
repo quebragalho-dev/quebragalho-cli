@@ -15,7 +15,7 @@ import (
 func hookConfigStore(deps appDeps, user bool) (*hooks.ConfigStore, string, error) {
 	cwd, err := deps.getwd()
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to resolve workspace: %w", err)
+		return nil, "", fmt.Errorf("não foi possível resolver a pasta de trabalho: %w", err)
 	}
 	paths, err := hooks.ResolvePaths(hooks.ResolvePathOptions{Cwd: cwd})
 	if err != nil {
@@ -72,7 +72,7 @@ func runHooksAdd(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Saved hook %s [%s] in %s.\n", saved.ID, saved.Event, path); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Hook %s [%s] salvo em %s.\n", saved.ID, saved.Event, path); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -113,10 +113,10 @@ func runHooksRemove(args []string, stdout io.Writer, stderr io.Writer, deps appD
 		return exitSuccess
 	}
 	if removed {
-		if _, err := fmt.Fprintf(stdout, "Removed hook %s from %s.\n", hookID, path); err != nil {
+		if _, err := fmt.Fprintf(stdout, "Hook %s removido de %s.\n", hookID, path); err != nil {
 			return exitCrash
 		}
-	} else if _, err := fmt.Fprintf(stdout, "No hook named %s is configured in %s.\n", hookID, path); err != nil {
+	} else if _, err := fmt.Fprintf(stdout, "Nenhum hook chamado %s configurado em %s.\n", hookID, path); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -150,11 +150,11 @@ func runHooksToggle(args []string, stdout io.Writer, stderr io.Writer, deps appD
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
 	if !found {
-		return writeExecUsageError(stderr, fmt.Sprintf("no hook named %s is configured in %s", hookID, path))
+		return writeExecUsageError(stderr, fmt.Sprintf("nenhum hook chamado %s configurado em %s", hookID, path))
 	}
-	state := "enabled"
+	state := "ativado"
 	if disabled {
-		state = "disabled"
+		state = "desativado"
 	}
 	if options.json {
 		payload := struct {
@@ -167,7 +167,7 @@ func runHooksToggle(args []string, stdout io.Writer, stderr io.Writer, deps appD
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintf(stdout, "Hook %s is now %s in %s.\n", hookID, state, path); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Hook %s agora está %s em %s.\n", hookID, state, path); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -186,7 +186,7 @@ func parseHooksTargetArgs(args []string, command string) (hookTargetOptions, []s
 			options.user = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return options, positional, false, execUsageError{fmt.Sprintf("unknown hooks %s flag %q", command, arg)}
+				return options, positional, false, execUsageError{fmt.Sprintf("flag desconhecida em hooks %s: %q", command, arg)}
 			}
 			positional = append(positional, arg)
 		}
@@ -280,7 +280,7 @@ func parseHooksAddArgs(args []string) (hookAddOptions, bool, error) {
 			}
 			options.def.Args = append(options.def.Args, value)
 		case strings.HasPrefix(arg, "-"):
-			return options, false, execUsageError{fmt.Sprintf("unknown hooks add flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag desconhecida em hooks add: %q", arg)}
 		case options.def.ID == "":
 			options.def.ID = arg
 		default:
@@ -293,13 +293,13 @@ func parseHooksAddArgs(args []string) (hookAddOptions, bool, error) {
 		return options, false, execUsageError{"usage: qg hooks add <id> --event <event> --command <cmd> [flags]"}
 	}
 	if strings.TrimSpace(string(options.def.Event)) == "" {
-		return options, false, execUsageError{"qg hooks add requires --event"}
+		return options, false, execUsageError{"qg hooks add exige --event"}
 	}
 	if !hooks.IsValidEvent(options.def.Event) {
-		return options, false, execUsageError{fmt.Sprintf("invalid --event %q; expected one of: beforeTool, afterTool, sessionStart, sessionEnd, specialistStart, specialistStop", options.def.Event)}
+		return options, false, execUsageError{fmt.Sprintf("valor inválido para --event: %q; valores válidos: beforeTool, afterTool, sessionStart, sessionEnd, specialistStart, specialistStop", options.def.Event)}
 	}
 	if strings.TrimSpace(options.def.Command) == "" {
-		return options, false, execUsageError{"qg hooks add requires --command"}
+		return options, false, execUsageError{"qg hooks add exige --command"}
 	}
 	if options.def.Args == nil {
 		options.def.Args = []string{}

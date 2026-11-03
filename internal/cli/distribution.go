@@ -41,10 +41,10 @@ func parseDistributionAddArgs(args []string, label string) (string, distribution
 			options.json = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return "", options, false, execUsageError{fmt.Sprintf("unknown %s add flag %q", label, arg)}
+				return "", options, false, execUsageError{fmt.Sprintf("flag %s add desconhecida %q", label, arg)}
 			}
 			if source != "" {
-				return "", options, false, execUsageError{fmt.Sprintf("%s add takes a single source (git URL or path)", label)}
+				return "", options, false, execUsageError{fmt.Sprintf("%s add aceita uma única origem (URL git ou caminho)", label)}
 			}
 			source = arg
 		}
@@ -69,7 +69,7 @@ func runSkillAdd(args []string, dir string, stdout io.Writer, stderr io.Writer) 
 		return writeExecUsageError(stderr, "usage: qg skill add <git-url|path> [--force] [--json]")
 	}
 	if dir == "" {
-		return writeAppError(stderr, "could not resolve the skills directory", exitCrash)
+		return writeAppError(stderr, "não foi possível localizar a pasta de skills", exitCrash)
 	}
 
 	result, err := skills.Install(context.Background(), skills.InstallOptions{
@@ -91,14 +91,14 @@ func runSkillAdd(args []string, dir string, stdout io.Writer, stderr io.Writer) 
 	}
 	lines := []string{}
 	if result.Updated {
-		lines = append(lines, fmt.Sprintf("Updated skill %q.", result.Name))
+		lines = append(lines, fmt.Sprintf("Skill %q atualizada.", result.Name))
 		lines = append(lines, fmt.Sprintf("  hash: %s -> %s", shortHash(result.PreviousHash), shortHash(result.Hash)))
 	} else {
-		lines = append(lines, fmt.Sprintf("Installed skill %q.", result.Name))
+		lines = append(lines, fmt.Sprintf("Skill %q instalada.", result.Name))
 		lines = append(lines, "  hash: "+result.Hash)
 	}
-	lines = append(lines, "  source: "+result.Source)
-	lines = append(lines, "  path: "+result.Path)
+	lines = append(lines, "  origem: "+result.Source)
+	lines = append(lines, "  caminho: "+result.Path)
 	if _, err := fmt.Fprintln(stdout, redaction.RedactString(strings.Join(lines, "\n"), redaction.Options{})); err != nil {
 		return exitCrash
 	}
@@ -122,7 +122,7 @@ func runSkillInfo(args []string, dir string, stdout io.Writer, stderr io.Writer)
 	// Resolve across primary + ~/.agents/skills; lock metadata only from primary.
 	info, ok := skills.InfoFromRoots(dir, skills.GlobalRoots(dir), name)
 	if !ok {
-		return writeAppError(stderr, fmt.Sprintf("skill %q not found", name), exitUsage)
+		return writeAppError(stderr, fmt.Sprintf("skill %q não encontrada", name), exitUsage)
 	}
 	if asJSON {
 		if err := writePrettyJSON(stdout, redaction.RedactValue(info, redaction.Options{})); err != nil {
@@ -135,13 +135,17 @@ func runSkillInfo(args []string, dir string, stdout io.Writer, stderr io.Writer)
 		lines = append(lines, "  "+info.Skill.Description)
 	}
 	if info.Source != "" {
-		lines = append(lines, "  source: "+info.Source)
+		lines = append(lines, "  origem: "+info.Source)
 	}
 	if info.Hash != "" {
 		lines = append(lines, "  hash: "+info.Hash)
-		lines = append(lines, fmt.Sprintf("  hash drift: %t", info.HashDrift))
+		drift := "não"
+		if info.HashDrift {
+			drift = "sim"
+		}
+		lines = append(lines, "  hash divergente: "+drift)
 	}
-	lines = append(lines, "  path: "+info.Skill.Path)
+	lines = append(lines, "  caminho: "+info.Skill.Path)
 	if _, err := fmt.Fprintln(stdout, redaction.RedactString(strings.Join(lines, "\n"), redaction.Options{})); err != nil {
 		return exitCrash
 	}
@@ -160,7 +164,7 @@ func runSkillRemove(args []string, dir string, stdout io.Writer, stderr io.Write
 		return exitSuccess
 	}
 	if asJSON {
-		return writeExecUsageError(stderr, "skill remove does not support --json")
+		return writeExecUsageError(stderr, "skill remove não aceita --json")
 	}
 	if name == "" {
 		return writeExecUsageError(stderr, "usage: qg skill remove <name>")
@@ -168,7 +172,7 @@ func runSkillRemove(args []string, dir string, stdout io.Writer, stderr io.Write
 	if err := skills.Remove(dir, name); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitUsage)
 	}
-	if _, err := fmt.Fprintf(stdout, "Removed skill %q.\n", name); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Skill %q removida.\n", name); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -191,7 +195,7 @@ func runPluginAdd(args []string, dir string, stdout io.Writer, stderr io.Writer)
 		return writeExecUsageError(stderr, "usage: qg plugin add <git-url|path> [--force] [--json]")
 	}
 	if dir == "" {
-		return writeAppError(stderr, "could not resolve the plugins directory", exitCrash)
+		return writeAppError(stderr, "não foi possível localizar a pasta de plugins", exitCrash)
 	}
 
 	result, err := plugins.Install(context.Background(), plugins.InstallOptions{
@@ -213,15 +217,15 @@ func runPluginAdd(args []string, dir string, stdout io.Writer, stderr io.Writer)
 	}
 	lines := []string{}
 	if result.Updated {
-		lines = append(lines, fmt.Sprintf("Updated plugin %s@%s.", result.ID, result.Version))
+		lines = append(lines, fmt.Sprintf("Plugin %s@%s atualizado.", result.ID, result.Version))
 		lines = append(lines, fmt.Sprintf("  hash: %s -> %s", shortHash(result.PreviousHash), shortHash(result.Hash)))
 	} else {
-		lines = append(lines, fmt.Sprintf("Installed plugin %s@%s.", result.ID, result.Version))
+		lines = append(lines, fmt.Sprintf("Plugin %s@%s instalado.", result.ID, result.Version))
 		lines = append(lines, "  hash: "+result.Hash)
 	}
-	lines = append(lines, "  source: "+result.Source)
-	lines = append(lines, "  path: "+result.ManifestPath)
-	lines = append(lines, "Activation gates each tool through the normal permission flow; no install script was run.")
+	lines = append(lines, "  origem: "+result.Source)
+	lines = append(lines, "  caminho: "+result.ManifestPath)
+	lines = append(lines, "A ativação passa pelo fluxo normal de permissão; nenhum script de instalação foi executado.")
 	if _, err := fmt.Fprintln(stdout, redaction.RedactString(strings.Join(lines, "\n"), redaction.Options{})); err != nil {
 		return exitCrash
 	}
@@ -240,7 +244,7 @@ func runPluginRemove(args []string, dir string, stdout io.Writer, stderr io.Writ
 		return exitSuccess
 	}
 	if asJSON {
-		return writeExecUsageError(stderr, "plugin remove does not support --json")
+		return writeExecUsageError(stderr, "plugin remove não aceita --json")
 	}
 	if id == "" {
 		return writeExecUsageError(stderr, "usage: qg plugin remove <id>")
@@ -248,7 +252,7 @@ func runPluginRemove(args []string, dir string, stdout io.Writer, stderr io.Writ
 	if err := plugins.Remove(dir, id); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitUsage)
 	}
-	if _, err := fmt.Fprintf(stdout, "Removed plugin %q.\n", id); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Plugin %q removido.\n", id); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -271,7 +275,7 @@ func runPluginInfo(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 
 	cwd, err := deps.getwd()
 	if err != nil {
-		return writeAppError(stderr, "failed to resolve workspace: "+err.Error(), exitCrash)
+		return writeAppError(stderr, "Não foi possível resolver a pasta de trabalho. Detalhe: "+err.Error(), exitCrash)
 	}
 	info, err := plugins.Info(plugins.InfoOptions{
 		LoadOptions: pluginLoadOptions(deps, cwd, options.user),
@@ -292,14 +296,14 @@ func runPluginInfo(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 
 	plugin := info.Plugin
 	lines := []string{fmt.Sprintf("%s (%s) %s", plugin.ID, plugin.Name, plugin.Version)}
-	state := "enabled"
+	state := "ativado"
 	if !plugin.Enabled {
-		state = "disabled"
+		state = "desativado"
 	}
-	lines = append(lines, "  state: "+state)
-	lines = append(lines, "  source: "+string(plugin.Source))
+	lines = append(lines, "  estado: "+state)
+	lines = append(lines, "  origem: "+string(plugin.Source))
 	if len(plugin.Tools) > 0 {
-		lines = append(lines, fmt.Sprintf("  tools: %d", len(plugin.Tools)))
+		lines = append(lines, fmt.Sprintf("  ferramentas: %d", len(plugin.Tools)))
 	}
 	if len(plugin.Hooks) > 0 {
 		lines = append(lines, fmt.Sprintf("  hooks: %d", len(plugin.Hooks)))
@@ -315,7 +319,11 @@ func runPluginInfo(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 	}
 	if info.LockHash != "" {
 		lines = append(lines, "  lock hash: "+info.LockHash)
-		lines = append(lines, fmt.Sprintf("  hash drift: %t", info.HashDrift))
+		drift := "não"
+		if info.HashDrift {
+			drift = "sim"
+		}
+		lines = append(lines, "  hash divergente: "+drift)
 	}
 	lines = append(lines, "  manifest: "+plugin.ManifestPath)
 	if _, err := fmt.Fprintln(stdout, redaction.RedactString(strings.Join(lines, "\n"), redaction.Options{})); err != nil {
@@ -342,10 +350,10 @@ func parsePluginInfoArgs(args []string) (string, pluginInfoOptions, bool, error)
 			options.user = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return "", options, false, execUsageError{fmt.Sprintf("unknown plugins info flag %q", arg)}
+				return "", options, false, execUsageError{fmt.Sprintf("flag plugins info desconhecida %q", arg)}
 			}
 			if id != "" {
-				return "", options, false, execUsageError{"plugins info takes a single id"}
+				return "", options, false, execUsageError{"plugins info aceita um único id"}
 			}
 			id = arg
 		}
@@ -367,7 +375,7 @@ func pluginLoadOptions(deps appDeps, cwd string, userOnly bool) plugins.LoadOpti
 
 func runTools(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	if len(args) == 0 {
-		return writeExecUsageError(stderr, "tools subcommand required. Use `qg tools make <name>` or `qg tools list`.")
+		return writeExecUsageError(stderr, "subcomando tools obrigatório. Use `qg tools make <name>` ou `qg tools list`.")
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
@@ -380,7 +388,7 @@ func runTools(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	case "list", "ls":
 		return runToolsList(args[1:], deps.toolsDir(), stdout, stderr)
 	default:
-		return writeExecUsageError(stderr, fmt.Sprintf("unknown tools subcommand %q", args[0]))
+		return writeExecUsageError(stderr, fmt.Sprintf("subcomando tools desconhecido %q", args[0]))
 	}
 }
 
@@ -420,10 +428,10 @@ func runToolsMake(args []string, dir string, stdout io.Writer, stderr io.Writer)
 		case strings.HasPrefix(arg, "--description="):
 			options.description = strings.TrimSpace(strings.TrimPrefix(arg, "--description="))
 		case strings.HasPrefix(arg, "-"):
-			return writeExecUsageError(stderr, fmt.Sprintf("unknown tools make flag %q", arg))
+			return writeExecUsageError(stderr, fmt.Sprintf("flag tools make desconhecida %q", arg))
 		default:
 			if name != "" {
-				return writeExecUsageError(stderr, "tools make takes a single tool name")
+				return writeExecUsageError(stderr, "tools make aceita um único nome de ferramenta")
 			}
 			name = arg
 		}
@@ -432,7 +440,7 @@ func runToolsMake(args []string, dir string, stdout io.Writer, stderr io.Writer)
 		return writeExecUsageError(stderr, "usage: qg tools make <name> [--runtime shell|node|python] [--description text]")
 	}
 	if dir == "" {
-		return writeAppError(stderr, "could not resolve the toolbox directory", exitCrash)
+		return writeAppError(stderr, "não foi possível localizar a pasta de ferramentas", exitCrash)
 	}
 
 	result, err := tools.Scaffold(tools.ScaffoldOptions{
@@ -451,14 +459,14 @@ func runToolsMake(args []string, dir string, stdout io.Writer, stderr io.Writer)
 		return exitSuccess
 	}
 	lines := []string{
-		fmt.Sprintf("Scaffolded tool %q at %s.", result.Name, result.PluginDir),
+		fmt.Sprintf("Ferramenta %q criada em %s.", result.Name, result.PluginDir),
 		"  manifest: " + result.ManifestPath,
-		"  entry:    " + result.EntryPath,
+		"  entrada:   " + result.EntryPath,
 		"",
-		"Next steps:",
-		"  1. Implement the TODO in the entry script.",
-		"  2. Run `qg tools list` to confirm it loads.",
-		"  3. The tool activates through the normal permission flow.",
+		"Próximos passos:",
+		"  1. Implemente o TODO no script de entrada.",
+		"  2. Rode `qg tools list` para confirmar o carregamento.",
+		"  3. A ferramenta é ativada pelo fluxo normal de permissão.",
 	}
 	if _, err := fmt.Fprintln(stdout, redaction.RedactString(strings.Join(lines, "\n"), redaction.Options{})); err != nil {
 		return exitCrash
@@ -478,11 +486,11 @@ func runToolsList(args []string, dir string, stdout io.Writer, stderr io.Writer)
 		case "--json":
 			asJSON = true
 		default:
-			return writeExecUsageError(stderr, fmt.Sprintf("unknown tools list flag %q", arg))
+			return writeExecUsageError(stderr, fmt.Sprintf("flag tools list desconhecida %q", arg))
 		}
 	}
 	if dir == "" {
-		return writeAppError(stderr, "could not resolve the toolbox directory", exitCrash)
+		return writeAppError(stderr, "não foi possível localizar a pasta de ferramentas", exitCrash)
 	}
 
 	// Scaffolded tools are plugins, so list them through the plugin loader scoped
@@ -546,9 +554,9 @@ func toolboxItems(loaded []plugins.LoadedPlugin) []toolboxItem {
 func formatToolboxList(items []toolboxItem, diagnostics []plugins.Diagnostic, dir string) string {
 	lines := []string{}
 	if len(items) == 0 {
-		lines = append(lines, fmt.Sprintf("No QG plugin-tools found in %s.", dir))
+		lines = append(lines, fmt.Sprintf("Nenhuma ferramenta de plugin QG encontrada em %s.", dir))
 	} else {
-		lines = append(lines, "QG Tools:")
+		lines = append(lines, "Ferramentas QG:")
 		for _, item := range items {
 			line := "  " + item.Name + " (" + item.Plugin + ")"
 			if item.Description != "" {
@@ -569,7 +577,7 @@ func formatToolboxDiagnostics(diagnostics []plugins.Diagnostic) []string {
 	if len(diagnostics) == 0 {
 		return nil
 	}
-	lines := []string{"Tool diagnostics:"}
+	lines := []string{"Diagnóstico de ferramentas:"}
 	for _, diagnostic := range diagnostics {
 		line := fmt.Sprintf("  [%s] %s", diagnostic.Kind, diagnostic.Message)
 		lines = append(lines, line)
@@ -590,10 +598,10 @@ func parseNameCommandArgs(args []string, label string) (string, bool, bool, erro
 			asJSON = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return "", false, false, execUsageError{fmt.Sprintf("unknown %s flag %q", label, arg)}
+				return "", false, false, execUsageError{fmt.Sprintf("flag %s desconhecida %q", label, arg)}
 			}
 			if name != "" {
-				return "", false, false, execUsageError{fmt.Sprintf("%s takes a single name", label)}
+				return "", false, false, execUsageError{fmt.Sprintf("%s aceita um único nome", label)}
 			}
 			name = arg
 		}

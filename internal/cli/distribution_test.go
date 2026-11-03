@@ -83,7 +83,7 @@ func TestRunSkillAddInfoRemove(t *testing.T) {
 	if !strings.Contains(info, src) || !strings.Contains(info, "sha256:") {
 		t.Fatalf("info missing source/hash:\n%s", info)
 	}
-	if !strings.Contains(info, "hash drift: false") {
+	if !strings.Contains(info, "hash divergente: não") {
 		t.Fatalf("info missing hash drift status:\n%s", info)
 	}
 
@@ -109,7 +109,7 @@ func TestRunSkillAddInfoRemove(t *testing.T) {
 	if exit := runWithDeps([]string{"skill", "info", "confirmation-policy"}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("skill info after edit exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "hash drift: true") {
+	if !strings.Contains(stdout.String(), "hash divergente: sim") {
 		t.Fatalf("info missing hash drift after edit:\n%s", stdout.String())
 	}
 
@@ -194,7 +194,7 @@ func TestRunSkillAddReinstallShowsHashChange(t *testing.T) {
 		t.Fatalf("reinstall: %s", stderr.String())
 	}
 	// The output should communicate that the hash changed (an update).
-	if !strings.Contains(strings.ToLower(stdout.String()), "updated") {
+	if !strings.Contains(strings.ToLower(stdout.String()), "atualizad") {
 		t.Fatalf("reinstall output should report an update:\n%s", stdout.String())
 	}
 }
@@ -226,6 +226,49 @@ func TestRunPluginAddListRemove(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "qg.demo") || !strings.Contains(stdout.String(), "manifest:") {
 		t.Fatalf("info output missing plugin details:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "hash divergente: não") {
+		t.Fatalf("info missing hash drift status:\n%s", stdout.String())
+	}
+
+	// Editing the installed manifest flips the drift status, the same way a
+	// skill edit does: text shows "sim" and --json reports hashDrift true.
+	manifestPath := filepath.Join(pluginsDir, "qg.demo", "plugin.json")
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read installed manifest: %v", err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("parse installed manifest: %v", err)
+	}
+	manifest["version"] = "0.2.0"
+	edited, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal edited manifest: %v", err)
+	}
+	if err := os.WriteFile(manifestPath, edited, 0o644); err != nil {
+		t.Fatalf("write edited manifest: %v", err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if exit := runWithDeps([]string{"plugin", "info", "qg.demo"}, &stdout, &stderr, deps); exit != 0 {
+		t.Fatalf("plugin info after edit exit = %d, stderr = %s", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "hash divergente: sim") {
+		t.Fatalf("info missing hash drift after edit:\n%s", stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if exit := runWithDeps([]string{"plugin", "info", "qg.demo", "--json"}, &stdout, &stderr, deps); exit != 0 {
+		t.Fatalf("plugin info --json after edit exit = %d, stderr = %s", exit, stderr.String())
+	}
+	var afterJSON map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &afterJSON); err != nil {
+		t.Fatalf("parse plugin info json after edit: %v\n%s", err, stdout.String())
+	}
+	if afterJSON["hashDrift"] != true {
+		t.Fatalf("hashDrift after edit = %#v, want true", afterJSON["hashDrift"])
 	}
 
 	// remove
@@ -266,6 +309,12 @@ func TestRunToolsMakeAndList(t *testing.T) {
 	// The path and next steps should be printed.
 	if !strings.Contains(out, filepath.Join(toolsDir, "foo")) {
 		t.Fatalf("make output should print the created path:\n%s", out)
+	}
+	if !strings.Contains(out, "2. Rode `qg tools list` para confirmar o carregamento.") {
+		t.Fatalf("tools make next steps missing Rode line:\n%s", out)
+	}
+	if !strings.Contains(out, "3. A ferramenta é ativada pelo fluxo normal de permissão.") {
+		t.Fatalf("tools make next steps missing ativada line:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(toolsDir, "foo", "plugin.json")); err != nil {
 		t.Fatalf("manifest not created: %v", err)
@@ -318,7 +367,7 @@ func TestRunToolsListSurfacesDiagnostics(t *testing.T) {
 	if exit := runWithDeps([]string{"tools", "list"}, &stdout, &stderr, deps); exit != exitSuccess {
 		t.Fatalf("tools list exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(strings.ToLower(stdout.String()), "diagnostic") {
+	if !strings.Contains(strings.ToLower(stdout.String()), "diagnóstic") {
 		t.Fatalf("text listing should surface loader diagnostics:\n%s", stdout.String())
 	}
 
@@ -365,7 +414,7 @@ func TestRunToolsListEmpty(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("tools list on empty dir exit = %d, stderr = %s", exit, stderr.String())
 	}
-	if !strings.Contains(strings.ToLower(stdout.String()), "no") {
+	if !strings.Contains(strings.ToLower(stdout.String()), "nenhuma") {
 		t.Fatalf("expected an empty-toolbox message:\n%s", stdout.String())
 	}
 }

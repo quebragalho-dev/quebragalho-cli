@@ -65,7 +65,7 @@ case "$alias_out" in
   *) fail "quebragalho --version printed: $alias_out" ;;
 esac
 
-grep -q "Installed $install_dir/qg" "$tmp/install.out" || fail "success line missing from output"
+grep -q "Instalado $install_dir/qg" "$tmp/install.out" || fail "success line missing from output"
 grep -q "qg" "$tmp/install.out" || fail "version not echoed"
 
 echo "PASS: install.sh -> $install_dir/qg ($version_out) + alias quebragalho -> qg"
