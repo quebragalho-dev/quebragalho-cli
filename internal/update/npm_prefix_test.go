@@ -148,7 +148,10 @@ func TestReadNpmPackageVersion(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"x"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readNpmPackageVersion(dir); err == nil || !strings.Contains(err.Error(), "no version") {
+	if _, err := readNpmPackageVersion(dir); err == nil || !strings.Contains(err.Error(), "não tem versão") {
 		t.Fatalf("expected a missing-version error, got %v", err)
+	}
+	if _, err := readNpmPackageVersion(dir); err == nil || strings.Contains(err.Error(), "no version") {
+		t.Fatalf("missing-version error kept English: %v", err)
 	}
 }

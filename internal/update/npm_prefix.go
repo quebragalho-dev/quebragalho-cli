@@ -22,12 +22,14 @@ func npmInstallPrefix(executablePath string) (string, bool) {
 }
 
 // findNpmPackageRoot walks up from the executable looking for the wrapper
-// package directory: the downloaded binary sits next to the wrapper
-// package.json, while a platform-package binary sits a few levels below it.
+// package directory: the downloaded binary sits in the wrapper root, while a
+// platform-package binary sits a few levels below it. The platform payload
+// manifest carries the same package name, so the walk keys on the wrapper
+// path shape, not the manifest alone.
 func findNpmPackageRoot(executablePath string) (string, bool) {
 	dir := filepath.Dir(executablePath)
 	for i := 0; i < 12; i++ {
-		if isNpmPackageDir(dir) {
+		if isNpmWrapperRoot(dir) {
 			return dir, true
 		}
 		parent := filepath.Dir(dir)
@@ -103,6 +105,25 @@ func looksWindowsPath(path string) bool {
 	return len(path) >= 2 && path[1] == ':' && (path[0] >= 'A' && path[0] <= 'Z' || path[0] >= 'a' && path[0] <= 'z')
 }
 
+// isNpmWrapperRoot reports whether dir is an installed wrapper package:
+// .../node_modules/@quebragalho-dev/cli holding the wrapper manifest. The
+// platform payload (an npm alias whose manifest is also named
+// @quebragalho-dev/cli) lives at .../node_modules/@quebragalho-dev/cli-<os>-<arch>
+// and is skipped, so the walk reaches the wrapper root and its version.
+func isNpmWrapperRoot(dir string) bool {
+	if filepath.Base(dir) != "cli" || filepath.Base(filepath.Dir(dir)) != "@quebragalho-dev" || filepath.Base(filepath.Dir(filepath.Dir(dir))) != "node_modules" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return false
+	}
+	var pkg struct {
+		Name string `json:"name"`
+	}
+	return json.Unmarshal(data, &pkg) == nil && pkg.Name == npmPackageName
+}
+
 // readNpmPackageVersion reads the version field of the wrapper package.json
 // at the invoked installation root.
 func readNpmPackageVersion(packageRoot string) (string, error) {
@@ -118,7 +139,7 @@ func readNpmPackageVersion(packageRoot string) (string, error) {
 	}
 	version := strings.TrimSpace(pkg.Version)
 	if version == "" {
-		return "", fmt.Errorf("package.json in %s has no version", packageRoot)
+		return "", fmt.Errorf("package.json em %s não tem versão", packageRoot)
 	}
 	return version, nil
 }
