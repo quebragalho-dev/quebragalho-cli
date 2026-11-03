@@ -3,6 +3,12 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.12 — 2026-11-03
+
+### Correções
+
+- Atualizar o qg pelo script de instalação com o qg aberto não quebra mais a instalação (macOS, Linux, Windows); se algo falhar, a versão anterior continua instalada.
+
 ## 0.0.11 — 2026-11-02
 
 ### Novidades
