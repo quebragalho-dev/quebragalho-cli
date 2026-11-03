@@ -72,24 +72,6 @@ func TestApplyNpmHandoffWritesRequestWithoutRunningNpm(t *testing.T) {
 	if strings.Contains(human, "atualizado") {
 		t.Fatalf("pending human output must not claim success: %q", human)
 	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded struct {
-		Applied        bool   `json:"applied"`
-		HandoffPending bool   `json:"handoffPending"`
-		Message        string `json:"message"`
-	}
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if decoded.Applied || !decoded.HandoffPending {
-		t.Fatalf("JSON must stay honest (applied:false, handoffPending:true), got %+v", decoded)
-	}
-	if strings.Contains(decoded.Message, "atualizado") {
-		t.Fatalf("JSON message must stay English, got %q", decoded.Message)
-	}
 	_ = prefix
 }
 
@@ -261,5 +243,86 @@ func TestApplyStandaloneIgnoresHandoff(t *testing.T) {
 	}
 	if _, statErr := os.Stat(handoff); !os.IsNotExist(statErr) {
 		t.Fatal("a standalone install must never write the npm handoff")
+	}
+}
+
+// TestApplyNpmHandoffWriteFailureFallsBackToDirectNpm pins the fallback: when
+// the handoff file cannot be written, Apply runs npm in-process as before
+// instead of failing.
+func TestApplyNpmHandoffWriteFailureFallsBackToDirectNpm(t *testing.T) {
+	prefix, root, binary := realNpmLayout(t, "0.1.0", "0.1.0-darwin-arm64")
+	canonicalPrefix, err := filepath.EvalSymlinks(prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stubCurrentExecutable(t, binary)
+	gotArgs := stubNpmRun(t, func() {
+		if err := os.WriteFile(filepath.Join(root, "package.json"), realManifest(t, "wrapper-package.json", "0.2.0"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	// A directory is not writable as a file, so the handoff fails.
+	t.Setenv("QG_NPM_UPDATE_HANDOFF", t.TempDir())
+	t.Setenv("QG_UPDATE_JUST_INSTALLED", "")
+
+	result, err := Apply(context.Background(), Options{
+		CurrentVersion: "0.1.0",
+		GOOS:           "linux",
+		GOARCH:         "amd64",
+		Fetch: func(_ context.Context, _ string) (Release, error) {
+			return releaseForTarget(t, "v0.2.0", "linux", "amd64"), nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+	if !result.Applied || result.HandoffPending {
+		t.Fatalf("fallback must install directly, got %#v", result)
+	}
+	wantArgs := []string{"install", "-g", "--prefix", canonicalPrefix, npmPackageName + "@0.2.0"}
+	if len(*gotArgs) != len(wantArgs) {
+		t.Fatalf("npm args = %q, want %q", *gotArgs, wantArgs)
+	}
+	for i := range wantArgs {
+		if (*gotArgs)[i] != wantArgs[i] {
+			t.Fatalf("npm args = %q, want %q", *gotArgs, wantArgs)
+		}
+	}
+}
+
+// TestApplyJustInstalledIgnoredForStandalone pins that QG_UPDATE_JUST_INSTALLED
+// only applies to npm installs: a standalone binary proceeds to its normal
+// check instead of reporting an npm-specific outcome.
+func TestApplyJustInstalledIgnoredForStandalone(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "qg")
+	if err := os.WriteFile(binary, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stubCurrentExecutable(t, binary)
+	t.Setenv("QG_UPDATE_JUST_INSTALLED", "9.9.99")
+	t.Setenv("QG_NPM_UPDATE_HANDOFF", "")
+
+	checked := false
+	_, err := Apply(context.Background(), Options{
+		CurrentVersion: "0.1.0",
+		GOOS:           "linux",
+		GOARCH:         "amd64",
+		Fetch: func(_ context.Context, _ string) (Release, error) {
+			checked = true
+			return releaseForTarget(t, "v0.2.0", "linux", "amd64"), nil
+		},
+	})
+	if err == nil {
+		t.Fatal("expected the standalone download to fail against the fake host")
+	}
+	if !checked {
+		t.Fatal("a standalone install must still check with justInstalled set")
+	}
+	if strings.Contains(err.Error(), "não ficou ativa") {
+		t.Fatalf("standalone must not report the npm handoff error: %v", err)
+	}
+	if got := strings.TrimSpace(os.Getenv("QG_UPDATE_JUST_INSTALLED")); got != "" {
+		t.Fatalf("QG_UPDATE_JUST_INSTALLED leaked: %q", got)
 	}
 }

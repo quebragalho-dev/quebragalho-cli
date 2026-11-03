@@ -404,12 +404,12 @@ if (child.signal) {
 if (handoffVersion !== null && child.status === 0) {
   const prefix = npmPrefixFromPackageRoot(packageRoot);
   if (!prefix) {
-    console.error(`[qg] Não foi possível determinar o prefixo npm desta instalação (${packageRoot}); para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@${handoffVersion}. Abrindo a versão atual.`);
+    console.error(`[qg] Não foi possível determinar o prefixo npm desta instalação (${packageRoot}); abrindo a versão atual. Para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@${handoffVersion}`);
     process.exit(reopenAfterNpmInstall(handoffVersion));
   }
   const installed = installNpmUpdate(handoffVersion, prefix);
   if (installed.error || installed.status !== 0) {
-    console.error(`[qg] Não foi possível instalar a versão ${handoffVersion} via npm; abrindo a versão atual. Para atualizar à mão, rode: npm install -g --prefix "${prefix}" @quebragalho-dev/cli@${handoffVersion}.`);
+    console.error(`[qg] Não foi possível instalar a versão ${handoffVersion} via npm; abrindo a versão atual. Para atualizar à mão, rode: npm install -g --prefix "${prefix}" @quebragalho-dev/cli@${handoffVersion}`);
   }
   process.exit(reopenAfterNpmInstall(handoffVersion));
 }

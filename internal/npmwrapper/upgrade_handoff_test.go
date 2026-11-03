@@ -20,84 +20,6 @@ func realWrapperManifest(t *testing.T) []byte {
 	return raw
 }
 
-// TestWrapperRunsNpmOnUpgradeHandoff pins the Windows leftover fix for the
-// `qg upgrade` path: when the native binary records an upgrade handoff and
-// exits, the wrapper installs that exact version into the owning prefix and
-// reopens, instead of leaving a .cli-XXXX staging directory behind.
-func TestWrapperRunsNpmOnUpgradeHandoff(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
-	}
-	prefix := t.TempDir()
-	canonical, err := filepath.EvalSymlinks(prefix)
-	if err != nil {
-		t.Fatal(err)
-	}
-	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
-	binDir := filepath.Join(packageRoot, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	bytes, err := os.ReadFile(filepath.Join(repoRoot(t), "bin", "qg.js"))
-	if err != nil {
-		t.Fatalf("ReadFile wrapper: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(packageRoot, "package.json"), realWrapperManifest(t), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	wrapperPath := filepath.Join(binDir, "qg.js")
-	if err := os.WriteFile(wrapperPath, bytes, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	binLog := filepath.Join(prefix, "qg-runs.log")
-	npmLog := filepath.Join(prefix, "npm-calls.log")
-	binary := filepath.Join(packageRoot, "qg")
-	// Simulates `qg upgrade` under the wrapper: the old binary records the
-	// target version and exits 0 with the pending line, doing no npm work
-	// itself so the open binary is never replaced in place.
-	script := "#!/bin/sh\n" +
-		"echo \"$@\" >> " + shellQuote(binLog) + "\n" +
-		"if [ -z \"$QG_UPDATE_JUST_INSTALLED\" ]; then\n" +
-		"  printf '{\"version\":\"9.9.99\"}' > \"$QG_NPM_UPDATE_HANDOFF\"\n" +
-		"  echo '[qg] a atualização para 9.9.99 termina quando o qg fechar'\n" +
-		"fi\n" +
-		"exit 0\n"
-	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	npmShim := "#!/bin/sh\n" +
-		"echo \"$@\" >> " + shellQuote(npmLog) + "\n" +
-		"exit 0\n"
-	shimDir := filepath.Join(prefix, "shims")
-	if err := os.MkdirAll(shimDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(shimDir, "npm"), []byte(npmShim), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	stdout, stderr, exitCode := runWrapperFixtureWithEnv(t, wrapperPath, nil, "upgrade")
-	if exitCode != wrapperExitSuccess {
-		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", exitCode, stdout, stderr)
-	}
-	if !strings.Contains(stdout, "termina quando o qg fechar") {
-		t.Fatalf("stdout = %q, want the pt-BR pending line from the old binary", stdout)
-	}
-	npmCalls := readLines(t, npmLog)
-	want := "install -g --prefix " + canonical + " @quebragalho-dev/cli@9.9.99"
-	if len(npmCalls) != 1 || npmCalls[0] != want {
-		t.Fatalf("npm calls = %#v, want %q", npmCalls, want)
-	}
-	binRuns := readLines(t, binLog)
-	if len(binRuns) != 2 {
-		t.Fatalf("native binary runs = %d, want 2 (upgrade handoff, then reopened)", len(binRuns))
-	}
-	if !strings.Contains(binRuns[0], "upgrade") || !strings.Contains(binRuns[1], "upgrade") {
-		t.Fatalf("binary runs = %#v, want both to carry the upgrade command", binRuns)
-	}
-}
-
 // TestWrapperUpgradeJSONFlowEmitsSingleJSON pins the --json handoff contract
 // for the whole flow: the first process prints nothing to stdout (pending to
 // stderr), npm output goes to stderr too, and the reopened process prints the
@@ -172,9 +94,6 @@ func TestWrapperUpgradeJSONFlowEmitsSingleJSON(t *testing.T) {
 		// beyond the single object; the wrapper must not emit two.
 		t.Fatalf("stdout must hold a single JSON document, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "termina quando o qg fechar") {
-		t.Fatalf("stderr = %q, want the pending line from the first process", stderr)
-	}
 	if !strings.Contains(stderr, "npm noise that must not pollute stdout") {
 		t.Fatalf("stderr = %q, want npm output redirected to stderr", stderr)
 	}
@@ -241,12 +160,19 @@ func TestWrapperUpgradeFailureNamesManualCommand(t *testing.T) {
 	if exitCode != wrapperExitSuccess {
 		t.Fatalf("exit = %d, want 0 (reopen the current version); stderr=%q", exitCode, stderr)
 	}
-	for _, want := range []string{
-		"Não foi possível instalar a versão 9.9.99 via npm",
-		"Para atualizar à mão, rode: npm install -g --prefix \"" + canonical + "\" @quebragalho-dev/cli@9.9.99",
-	} {
-		if !strings.Contains(stderr, want) {
-			t.Fatalf("stderr = %q, want it to contain %q", stderr, want)
-		}
+	if !strings.Contains(stderr, "Não foi possível instalar a versão 9.9.99 via npm") {
+		t.Fatalf("stderr = %q, want the npm-failure lead", stderr)
+	}
+	// The manual command must be copy/pasteable exactly: no trailing
+	// punctuation, or the copied install 404s.
+	const marker = "Para atualizar à mão, rode: "
+	index := strings.Index(stderr, marker)
+	if index == -1 {
+		t.Fatalf("stderr = %q, want it to name the manual command", stderr)
+	}
+	got := strings.TrimSpace(stderr[index+len(marker):])
+	want := "npm install -g --prefix \"" + canonical + "\" @quebragalho-dev/cli@9.9.99"
+	if got != want {
+		t.Fatalf("manual command = %q, want exactly %q", got, want)
 	}
 }

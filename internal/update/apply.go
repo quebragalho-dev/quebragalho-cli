@@ -72,52 +72,51 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 	if resolved, err := filepath.EvalSymlinks(executablePath); err == nil {
 		executablePath = resolved
 	}
+	method := DetectInstallMethod(executablePath)
 	// One-shot verification for the reopened process after the wrapper's
-	// npm install: if the running version still differs from what the
-	// wrapper tried to install, report an honest error with the manual
+	// npm install. It only applies to npm installs: other methods never go
+	// through the wrapper handoff, so a stray variable must not change
+	// their behavior. A mismatch reports an honest error with the manual
 	// command instead of retrying npm in-process (which would relock the
 	// running binary on Windows). A match means the wrapper just installed
 	// this version, so report success without another network check.
 	if justInstalled := strings.TrimSpace(os.Getenv("QG_UPDATE_JUST_INSTALLED")); justInstalled != "" {
 		_ = os.Unsetenv("QG_UPDATE_JUST_INSTALLED")
-		if cmp, cmpErr := CompareVersions(options.CurrentVersion, justInstalled); cmpErr == nil {
-			if cmp != 0 {
-				packageRoot, hasRoot := findNpmPackageRoot(executablePath)
-				prefix, hasPrefix := "", false
-				if hasRoot {
-					prefix, hasPrefix = npmPrefixFromPackageRoot(packageRoot)
-				}
-				spec := npmPackageName + "@" + justInstalled
-				manual := npmInstallCommand("", spec)
-				if hasPrefix {
-					manual = npmInstallCommand(prefix, spec)
-				}
-				stuck := strings.TrimSpace(options.CurrentVersion)
-				if hasRoot {
-					if got, readErr := readNpmPackageVersion(packageRoot); readErr == nil {
-						stuck = got
+		if method == InstallMethodNpm {
+			if cmp, cmpErr := CompareVersions(options.CurrentVersion, justInstalled); cmpErr == nil {
+				if cmp != 0 {
+					packageRoot, hasRoot := findNpmPackageRoot(executablePath)
+					prefix, hasPrefix := "", false
+					if hasRoot {
+						prefix, hasPrefix = npmPrefixFromPackageRoot(packageRoot)
 					}
+					spec := npmPackageName + "@" + justInstalled
+					manual := npmInstallCommand("", spec)
+					if hasPrefix {
+						manual = npmInstallCommand(prefix, spec)
+					}
+					stuck := strings.TrimSpace(options.CurrentVersion)
+					if hasRoot {
+						if got, readErr := readNpmPackageVersion(packageRoot); readErr == nil {
+							stuck = got
+						}
+					}
+					return ApplyResult{}, fmt.Errorf("a atualização via npm para %s não ficou ativa: a instalação continua na versão %s. Para atualizar à mão, rode: %s", justInstalled, stuck, manual)
 				}
-				return ApplyResult{}, fmt.Errorf("a atualização via npm para %s não ficou ativa: a instalação continua na versão %s. Para atualizar à mão, rode: %s", justInstalled, stuck, manual)
+				justNorm, _ := normalizeVersionTag(justInstalled)
+				currentNorm, _ := normalizeVersionTag(options.CurrentVersion)
+				return ApplyResult{
+					Result: Result{
+						CurrentVersion:  currentNorm,
+						LatestVersion:   justNorm,
+						UpdateAvailable: false,
+					},
+					Applied:       true,
+					InstallMethod: method,
+					BinaryPath:    executablePath,
+					Message:       fmt.Sprintf("updated via npm to %s", justNorm),
+				}, nil
 			}
-			justNorm, _ := normalizeVersionTag(justInstalled)
-			currentNorm, _ := normalizeVersionTag(options.CurrentVersion)
-			method := DetectInstallMethod(executablePath)
-			message := fmt.Sprintf("updated to %s", justNorm)
-			if method == InstallMethodNpm {
-				message = fmt.Sprintf("updated via npm to %s", justNorm)
-			}
-			return ApplyResult{
-				Result: Result{
-					CurrentVersion:  currentNorm,
-					LatestVersion:   justNorm,
-					UpdateAvailable: false,
-				},
-				Applied:       true,
-				InstallMethod: method,
-				BinaryPath:    executablePath,
-				Message:       message,
-			}, nil
 		}
 	}
 
@@ -125,7 +124,6 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	method := DetectInstallMethod(executablePath)
 	// Only the standalone path rewrites the binary in place, so only it needs the
 	// recovery state. npm and Homebrew hand the work to the package manager.
 	if method == InstallMethodStandalone {
@@ -150,17 +148,18 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 		)
 	case InstallMethodNpm:
 		if handoffPath := strings.TrimSpace(os.Getenv("QG_NPM_UPDATE_HANDOFF")); handoffPath != "" {
-			if err := writeNpmHandoff(handoffPath, checkResult.LatestVersion); err != nil {
-				return ApplyResult{}, err
+			if err := writeNpmHandoff(handoffPath, checkResult.LatestVersion); err == nil {
+				return ApplyResult{
+					Result:         checkResult,
+					Applied:        false,
+					HandoffPending: true,
+					InstallMethod:  method,
+					BinaryPath:     executablePath,
+					Message:        fmt.Sprintf("handed off npm update to wrapper for %s", checkResult.LatestVersion),
+				}, nil
 			}
-			return ApplyResult{
-				Result:         checkResult,
-				Applied:        false,
-				HandoffPending: true,
-				InstallMethod:  method,
-				BinaryPath:     executablePath,
-				Message:        fmt.Sprintf("handed off npm update to wrapper for %s", checkResult.LatestVersion),
-			}, nil
+			// An unwritable handoff path falls back to the direct install
+			// below, as before the wrapper existed, instead of failing.
 		}
 		if err := applyNpmUpdate(ctx, executablePath, checkResult.LatestVersion); err != nil {
 			return ApplyResult{}, err

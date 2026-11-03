@@ -996,7 +996,7 @@ func TestWrapperRefusesBareInstallWithoutPrefix(t *testing.T) {
 	if _, err := os.Stat(npmLog); !os.IsNotExist(err) {
 		t.Fatalf("npm must not run without an inferable prefix; log: %q", strings.Join(readLines(t, npmLog), "\n"))
 	}
-	for _, want := range []string{"Não foi possível determinar o prefixo npm", "para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@9.9.99"} {
+	for _, want := range []string{"Não foi possível determinar o prefixo npm", "Para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@9.9.99"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr = %q, want it to contain %q", stderr, want)
 		}
