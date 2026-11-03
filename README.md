@@ -24,7 +24,14 @@ Encontre o motivo do teste que falhou e corrija o problema.
 
 ## Instalação
 
-No Linux ou macOS, instale pelo mirror público e abra o QG:
+Pelo npm (Linux, macOS e Windows com Node 18+):
+
+```bash
+npm install -g @quebragalho-dev/cli
+qg
+```
+
+No Linux ou macOS, também dá pelo script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | bash
@@ -43,7 +50,8 @@ execução de scripts foi desabilitada", use `qg.cmd` no lugar de `qg`
 (ou rode pelo `cmd`), ou libere scripts locais com
 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
-Para escolher uma versão no Linux ou macOS, substitua `vX.Y.Z` pela versão desejada:
+Há binário nativo para ARM64, incluindo Windows. Para escolher uma versão
+no Linux ou macOS, substitua `vX.Y.Z` pela versão desejada:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh | bash -s -- --version vX.Y.Z
@@ -51,10 +59,23 @@ curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/mai
 
 Veja mais opções no [guia de instalação](docs/INSTALL.md).
 
+## Atualizar
+
+O qg avisa ao abrir quando sai versão nova. Dá para instalar na hora,
+pular, ler o changelog ou sair.
+
+```bash
+qg upgrade
+```
+
+`qg update --check` só confere, sem instalar. Para desligar o aviso
+automático, use `QG_NO_UPDATE_CHECK=1`. Detalhes no
+[guia de atualização](docs/UPDATE.md).
+
 ## Primeiros passos
 
 1. Abra o terminal na pasta do seu projeto e rode `qg`.
-2. Na primeira abertura, informe sua chave do Quebra Galho e escolha um modelo.
+2. Na primeira abertura, entre com o navegador ou cole sua chave do Quebra Galho e escolha um modelo.
 3. Escreva seu pedido e pressione Enter.
 
 Para trocar ou cadastrar a chave depois, use `qg login` (ou `qg login --device`
@@ -104,32 +125,50 @@ terminal, incluindo as opções para usar o QG em scripts.
 
 ## Veja funcionando
 
-Capturas do executável compilado deste projeto. A conversa é uma chamada curta
-de demonstração. Tokens e custos variam conforme o modelo e o pedido.
+Capturas do qg 0.0.14 num terminal comum. Tokens e custos variam conforme
+o modelo e o pedido.
 
 **Ajuda no terminal**
+
+Os comandos do qg sem sair do shell.
 
 ![Comandos do QG no terminal](docs/assets/demo-help.png)
 
 **Tela inicial**
 
+A entrada do qg na pasta do projeto.
+
 ![Tela inicial do Quebra-Galho](docs/assets/demo-inicio.png)
 
 **Escolha de modelo**
+
+O painel de modelos em português.
 
 ![Painel de modelos do QG](docs/assets/demo-model.png)
 
 **Preferência de esforço**
 
+O painel de esforço em português.
+
 ![Painel de esforço do QG](docs/assets/demo-effort.png)
 
 **Uso da sessão**
+
+Tokens, contexto e custo da sessão.
 
 ![Tokens e custo no painel de uso](docs/assets/demo-usage.png)
 
 **Uma conversa curta**
 
+Uma resposta do qg com o recibo da chamada.
+
 ![Resposta do QG com tokens e custo por chamada](docs/assets/demo-sessao.png)
+
+**Pedido de permissão**
+
+O qg pede antes de alterar arquivos ou rodar comandos.
+
+![Pedido de permissão em português](docs/assets/demo-permissao.png)
 
 A velocidade aparece em `tk/s` quando há medição real. O total de tokens fica
 no recibo, ao lado do custo. Na statusline, quando o contexto usa uma referência local,
@@ -141,6 +180,8 @@ aparece a indicação `fallback/docs`. Os detalhes estão no
 O QG pode alterar arquivos e executar comandos. Revise os pedidos de permissão
 e confira as mudanças antes de incorporá-las ao seu projeto.
 
+- Cada sistema isola os comandos do agente: Seatbelt no macOS, bwrap no Linux
+  e o ambiente isolado do Windows. `qg doctor` confere se o isolamento está ativo.
 - Use `/permissions` para entender o que a sessão pode fazer.
 - Para permitir escrita em outra pasta, use `--add-dir <pasta>` ou `/add-dir <pasta>`.
 - `--dangerously-skip-permissions` ativa o modo inseguro, dispensa aprovações e
@@ -155,6 +196,7 @@ segurança, siga [SECURITY.md](SECURITY.md).
 ## Quer ir além?
 
 - [Instalar e atualizar](docs/INSTALL.md)
+- [O que mudou em cada versão](CHANGELOG.md)
 - [Mudar o tema](docs/THEMES.md)
 - [Adicionar skills, ferramentas e integrações](docs/EXTENDING.md)
 - [Usar o QG no seu código (SDK TypeScript e Python)](sdk/README.md)
