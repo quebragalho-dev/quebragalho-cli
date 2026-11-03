@@ -471,15 +471,32 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
-func findLinuxSandboxHelperCommand() (LinuxSandboxHelperCommand, error) {
-	if exe, err := os.Executable(); err == nil {
+// ResolveLinuxSandboxHelperCommand locates qg-linux-sandbox beside the running
+// binary first (the installer and npm platform-package layout, where bin/qg.js
+// execs the sibling qg without touching PATH), then on PATH. This is the single
+// resolution shared by backend selection (manager.go), the doctor, and the
+// execution fallback below — there is no second list of paths. The `go run`
+// repo fallback stays only in findLinuxSandboxHelperCommand, which backs the
+// execution path.
+func ResolveLinuxSandboxHelperCommand(lookup func(string) (string, error)) (LinuxSandboxHelperCommand, error) {
+	if lookup == nil {
+		lookup = lookupExecutable
+	}
+	if exe, err := osExecutable(); err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), LinuxSandboxHelperName)
 		if executableRegularFile(candidate) {
 			return LinuxSandboxHelperCommand{Name: candidate}, nil
 		}
 	}
-	if path, err := exec.LookPath(LinuxSandboxHelperName); err == nil && path != "" {
+	if path, err := lookup(LinuxSandboxHelperName); err == nil && path != "" {
 		return LinuxSandboxHelperCommand{Name: path}, nil
+	}
+	return LinuxSandboxHelperCommand{}, errors.New("qg-linux-sandbox helper is not available")
+}
+
+func findLinuxSandboxHelperCommand() (LinuxSandboxHelperCommand, error) {
+	if resolved, err := ResolveLinuxSandboxHelperCommand(nil); err == nil {
+		return resolved, nil
 	}
 	if root := linuxSandboxRepoRoot(); root != "" {
 		mainPath := filepath.Join(root, "cmd", LinuxSandboxHelperName, "main.go")

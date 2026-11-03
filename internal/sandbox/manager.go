@@ -8,6 +8,16 @@ import (
 	"strings"
 )
 
+// Linux backend diagnostics, exported so the doctor can name the missing piece
+// from the backend message without resolving the helper a second time.
+const (
+	// LinuxSandboxHelperMissingMessage reports that qg-linux-sandbox was found
+	// neither beside the running qg binary nor on PATH.
+	LinuxSandboxHelperMissingMessage = "Linux sandbox helper is not available"
+	// BubblewrapMissingMessage reports that bwrap was not found on PATH.
+	BubblewrapMissingMessage = "bubblewrap is not installed"
+)
+
 // errWindowsSandboxNotInitialized is returned only to a caller that explicitly
 // REQUIRED the sandbox (--sandbox require) on Windows before `qg sandbox setup`
 // has run. The default (auto) preference degrades instead — see BuildExecutionRequest.
@@ -178,16 +188,16 @@ func selectPlatformBackend(goos string, lookup func(string) (string, error), det
 	}
 	switch goos {
 	case "linux":
-		if helper, err := lookup(LinuxSandboxHelperName); err == nil && helper != "" {
+		if helper, err := ResolveLinuxSandboxHelperCommand(lookup); err == nil && helper.Name != "" {
 			if _, bwrapErr := lookup("bwrap"); bwrapErr != nil {
-				return unavailableBackend(goos, "bubblewrap is not installed")
+				return unavailableBackend(goos, BubblewrapMissingMessage)
 			}
-			return nativeBackend(goos, BackendLinuxBwrap, helper, "Linux sandbox helper available")
+			return nativeBackend(goos, BackendLinuxBwrap, helper.Name, "Linux sandbox helper available")
 		}
 		if info := detect(); info.IsWSL {
 			return wslBackend(goos, info)
 		}
-		return unavailableBackend(goos, "Linux sandbox helper is not available")
+		return unavailableBackend(goos, LinuxSandboxHelperMissingMessage)
 	case "darwin":
 		if path, err := lookup("sandbox-exec"); err == nil && path != "" {
 			return nativeBackend(goos, BackendMacOSSeatbelt, path, "macOS Seatbelt backend available")

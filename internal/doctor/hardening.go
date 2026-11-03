@@ -34,13 +34,20 @@ func sandboxBackendCheck(goos string, lookup func(string) (string, error), works
 		})
 	}
 	remedy := sandboxRemedy(goos, backend)
-	return check("sandbox.backend", "Sandbox backend", StatusWarn, sandboxBackendWarning(goos, backend), map[string]any{
+	details := map[string]any{
 		"backend":         string(backend.Name),
 		"platform":        goos,
 		"supportLevel":    string(backend.SupportLevel()),
 		"downgradeReason": backend.DowngradeReason(sandbox.DefaultPolicy()),
 		"remedy":          remedy,
-	})
+	}
+	message := sandboxBackendWarning(goos, backend)
+	if goos == "linux" && !backend.Available && backend.Name != sandbox.BackendWSL {
+		if piece := linuxSandboxPieceMessage(backend.Message); piece != "" {
+			message = piece
+		}
+	}
+	return check("sandbox.backend", "Sandbox backend", StatusWarn, message, details)
 }
 
 func sandboxBackendWarning(goos string, backend sandbox.Backend) string {
@@ -48,6 +55,26 @@ func sandboxBackendWarning(goos string, backend sandbox.Backend) string {
 		return fmt.Sprintf("Native sandbox backend unavailable on %s: %s.", goos, backend.Message)
 	}
 	return fmt.Sprintf("Native sandbox backend unavailable on %s; sandboxed shell execution is unavailable.", goos)
+}
+
+// linuxSandboxPieceMessage maps the backend's machine diagnostic to the
+// Portuguese human warning naming which Linux sandbox piece is missing and
+// what to do: a missing helper means reinstalling qg (the installer and npm
+// layouts ship qg-linux-sandbox beside the qg binary), a missing bwrap means
+// installing the system package. It switches on the backend message the
+// selection already produced — the doctor never resolves the helper a second
+// time. Empty means the backend failed for another reason, so the generic
+// warning applies. The JSON details (including remedy) stay in canonical
+// English; only this human message is Portuguese.
+func linuxSandboxPieceMessage(backendMessage string) string {
+	switch backendMessage {
+	case sandbox.LinuxSandboxHelperMissingMessage:
+		return "Helper do ambiente isolado do Linux (qg-linux-sandbox) não encontrado ao lado do qg nem no PATH; reinstale o qg para restaurar o ambiente isolado."
+	case sandbox.BubblewrapMissingMessage:
+		return "bubblewrap (bwrap) não encontrado no PATH; instale com `sudo apt install bubblewrap` (ou o equivalente da sua distribuição) para ativar o ambiente isolado."
+	default:
+		return ""
+	}
 }
 
 // sandboxRemedy returns the platform-specific, actionable step to obtain a
