@@ -254,11 +254,8 @@ func scanSSEPayloads(scanner *bufio.Scanner, handle func(data string) bool, onCo
 		}
 		data := strings.TrimSpace(strings.Join(dataLines, "\n"))
 		dataLines = dataLines[:0]
-		if data == "" {
+		if data == "" || data == "[DONE]" {
 			return true
-		}
-		if data == "[DONE]" {
-			return false
 		}
 		return handle(data)
 	}
