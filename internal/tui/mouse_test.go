@@ -65,8 +65,10 @@ func TestMouseClickSelectsThenAppliesPickerRow(t *testing.T) {
 	width := m.chatColumnWidth()
 	top := m.overlayMouseTop(len(viewLines(m.pickerOverlay(width))), width)
 	rows := strings.Split(plainRender(t, m.pickerOverlay(width)), "\n")
-	x := lipgloss.Width(rows[3][:strings.Index(rows[3], "alto")])
-	click := testMouseClick(tea.MouseLeft, x, top+3)
+	// Ladder rows start after the border, title and range lines: auto, then
+	// one row per level ("alto" here).
+	x := lipgloss.Width(rows[4][:strings.Index(rows[4], "alto")])
+	click := testMouseClick(tea.MouseLeft, x, top+4)
 	updated, cmd := m.Update(click)
 	next := updated.(model)
 	if cmd != nil {

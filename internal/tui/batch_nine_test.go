@@ -124,7 +124,7 @@ func TestBatchNinePanelModelChoiceRejectsOtherProvider(t *testing.T) {
 		msg  tea.KeyPressMsg
 	}{
 		{"enter", testKey(tea.KeyEnter)},
-		{"s", testKeyText("s")},
+		{"alt+s", testKeyAltText("s")},
 	} {
 		t.Run(key.name, func(t *testing.T) {
 			m := batchThreeLiveModel(t)

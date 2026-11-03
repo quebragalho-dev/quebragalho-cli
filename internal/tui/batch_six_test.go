@@ -33,11 +33,11 @@ func TestBatchSixEffortPanelDraftAndScope(t *testing.T) {
 	m.userConfigPath = filepath.Join(t.TempDir(), "config.json")
 	m = batchSixOpen(m, "/effort")
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"Mais rápido", "Mais inteligente", "muito alto", "máximo"} {
+	for _, want := range []string{"aceita de baixo a máximo", "automático", "o modelo decide quanto pensar", "muito alto", "máximo", "usar sempre", "só nesta sessão"} {
 		assertContains(t, got, want)
 	}
 	m = batchSixKey(m, tea.KeyRight, "")
-	assertContains(t, plainRender(t, m.pickerOverlay(120)), "▲")
+	assertContains(t, plainRender(t, m.pickerOverlay(120)), "baixo")
 	if m.reasoningEffort != "" {
 		t.Fatal("draft changed active effort")
 	}
@@ -47,7 +47,8 @@ func TestBatchSixEffortPanelDraftAndScope(t *testing.T) {
 	}
 	m = batchSixOpen(m, "/effort")
 	m = batchSixKey(m, tea.KeyRight, "")
-	m = batchSixKey(m, 's', "s")
+	next, _ := m.Update(testKeyAltText("s"))
+	m = next.(model)
 	if m.picker != nil || m.reasoningEffort != "low" {
 		t.Fatalf("session selection: %s", m.reasoningEffort)
 	}
@@ -76,11 +77,14 @@ func TestBatchSixModelPanelLiveDetails(t *testing.T) {
 	info.DisplayName = &label
 	info.AcceptsBonus = true
 	info.Capabilities.Reasoning = true
+	info.Capabilities.Tools = true
 	m.picker = m.newModelPicker()
 	got := plainRender(t, m.pickerOverlay(120))
-	for _, want := range []string{"1.", "Muse Spark", m.modelName, "BRL", "R$ 1,648", "bônus", "reasoning", "nível", "sessão"} {
+	for _, want := range []string{"Muse Spark", "R$ 1,65", "saída R$ 5,00", "bônus", "ferramentas", "raciocínio", "nível", "sessão"} {
 		assertContains(t, got, want)
 	}
+	assertNotContains(t, got, "1. Muse Spark")
+	assertNotContains(t, got, "tools")
 }
 func TestBatchSixUsageModalTabsAndCancel(t *testing.T) {
 	m := batchThreeLiveModel(t)
@@ -134,7 +138,7 @@ func TestEmptyQGPickerOpensInPanelMode(t *testing.T) {
 		t.Fatalf("empty picker items = %d, want 0", len(m.picker.items))
 	}
 	got := plainRender(t, m.pickerOverlay(100))
-	for _, want := range []string{"0 disponíveis", "Catálogo API ainda não disponível", "Tab lista", "Enter padrão", "s só nesta sessão"} {
+	for _, want := range []string{"busque por nome", "Nenhum modelo correspondente", "Tab nível", "Enter usar", "Alt+s sessão"} {
 		assertContains(t, got, want)
 	}
 	assertNotContains(t, got, "Enter selecionar")
@@ -186,7 +190,8 @@ func TestBatchSixModelScopeAndEffortRestart(t *testing.T) {
 			m.picker.selected = 1
 			m = batchSixKey(m, tea.KeyRight, "")
 			if session {
-				m = batchSixKey(m, 's', "s")
+				next, _ := m.Update(testKeyAltText("s"))
+				m = next.(model)
 			} else {
 				m = batchSixKey(m, tea.KeyEnter, "")
 			}
@@ -306,15 +311,27 @@ func batchSixUsageText(m model) string {
 func TestBatchSixSearchCanReturnToSessionSelection(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	m.picker = m.newModelPicker()
-	m = batchSixKey(m, '/', "/")
 	m = batchSixKey(m, 'm', "m")
 	m = batchSixKey(m, 's', "s")
 	if m.picker == nil || m.picker.query != "ms" {
 		t.Fatal("search applied while typing")
 	}
+	if len(m.picker.items) == 0 {
+		t.Fatal("search filtered out every model")
+	}
+	// Tab zooms into the marked model's ladder; Esc returns to the palette
+	// with the query and selection intact, and Enter still applies.
+	marked := m.picker.items[m.picker.selected].Value
 	m = batchSixKey(m, tea.KeyTab, "")
-	if m.picker.searching {
-		t.Fatal("Tab must return to list without discarding search")
+	if m.picker == nil || m.picker.kind != pickerEffort || m.picker.resume == nil {
+		t.Fatal("Tab must open the marked model ladder")
+	}
+	m = batchSixKey(m, tea.KeyEsc, "")
+	if m.picker == nil || m.picker.kind != pickerModel || m.picker.query != "ms" {
+		t.Fatalf("Esc must return to palette without discarding search, got %+v", m.picker)
+	}
+	if item, ok := m.picker.current(); !ok || item.Value != marked {
+		t.Fatal("Esc must keep the marked selection")
 	}
 }
 func TestBatchSixSameModelRebuildFailureKeepsPanel(t *testing.T) {

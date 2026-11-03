@@ -32,10 +32,14 @@ const (
 
 // pickerItem is one selectable row: Label is shown, Value is passed to the
 // underlying command handler when chosen. Meta is the optional right-aligned
-// readout (ctx window · capabilities); the dot flags mark provider locality
-// for model rows (accent = remote, blue = local). Detail is an optional faint
-// second line under the row (project · model · size for sessions), rendered
-// only on medium-and-wider tiers where the extra line reads cleanly.
+// readout (ctx window · capabilities) for the generic popup pickers; the dot
+// flags mark provider locality for model rows (accent = remote, blue = local).
+// Detail is an optional faint second line under the row (project · model ·
+// size for sessions), rendered only on medium-and-wider tiers where the extra
+// line reads cleanly. Window/PriceIn/PriceOut/HasTools/HasVision/HasReasoning/
+// HasBonus feed the /model palette's compact readout: context window tokens,
+// preformatted entry/exit prices and the capability flags behind the expanded
+// selected row ("ferramentas · imagens · raciocínio" + "bônus").
 type pickerItem struct {
 	Group         string
 	Label         string
@@ -47,6 +51,13 @@ type pickerItem struct {
 	Remote        bool
 	Local         bool
 	Favorite      bool
+	Window        int
+	PriceIn       string
+	PriceOut      string
+	HasTools      bool
+	HasVision     bool
+	HasReasoning  bool
+	HasBonus      bool
 }
 
 // commandPicker is a generic single-select overlay reused by /model and /effort
@@ -72,6 +83,12 @@ type commandPicker struct {
 	// pickerModel kind and title but keeps the generic list behavior, so the
 	// title stays display-only and never drives behavior.
 	panel bool
+	// resume links a Tab-opened effort ladder back to the model palette that
+	// spawned it: Esc restores the palette with its query, selection and
+	// effort draft intact. effortModel is the marked model the ladder lists
+	// levels for (empty = the active model, i.e. the standalone /effort view).
+	resume      *commandPicker
+	effortModel string
 }
 
 func (p *commandPicker) move(delta int) {
@@ -585,6 +602,10 @@ func registryModelPickerItem(entry modelregistry.ModelEntry, group string) picke
 		// specific provider profile (e.g. modelPickerRecentItem) overwrite this
 		// with the profile name right after calling this constructor.
 		OwnerProvider: string(entry.Provider),
+		Window:        entry.ContextLimits.ContextWindow,
+		HasTools:      entry.Supports(modelregistry.ModelCapabilityToolCalling),
+		HasVision:     entry.Supports(modelregistry.ModelCapabilityVision),
+		HasReasoning:  entry.Supports(modelregistry.ModelCapabilityReasoning),
 	}
 	item.Meta = registryModelPickerMeta(entry)
 	if descriptor, ok := providercatalog.Get(string(entry.Provider)); ok {
@@ -600,6 +621,11 @@ func providerModelPickerItem(provider providercatalog.Descriptor, model provider
 		Value: model.ID,
 	}
 	item.Meta = providerWizardModelMeta(model.ContextWindow, model.ToolCall, model.Reasoning, model.InputCost, model.OutputCost, model.Tags)
+	item.Window = model.ContextWindow
+	item.PriceIn = formatPalettePriceUSD(model.InputCost)
+	item.PriceOut = formatPalettePriceUSD(model.OutputCost)
+	item.HasTools = model.ToolCall
+	item.HasReasoning = model.Reasoning
 	applyProviderPickerMeta(&item, provider)
 	return item
 }
@@ -611,6 +637,11 @@ func discoveredModelPickerItem(provider providercatalog.Descriptor, model provid
 		Value: model.ID,
 	}
 	item.Meta = providerWizardModelMeta(model.ContextWindow, model.ToolCall, model.Reasoning, model.InputCost, model.OutputCost, model.Tags)
+	item.Window = model.ContextWindow
+	item.PriceIn = formatPalettePriceUSD(model.InputCost)
+	item.PriceOut = formatPalettePriceUSD(model.OutputCost)
+	item.HasTools = model.ToolCall
+	item.HasReasoning = model.Reasoning
 	applyProviderPickerMeta(&item, provider)
 	return item
 }
@@ -959,6 +990,28 @@ func (m model) newEffortPicker() *commandPicker {
 		}
 	}
 	return &commandPicker{kind: pickerEffort, title: "selecionar nível de raciocínio", items: items, selected: selected}
+}
+
+// newEffortPickerFor lists auto plus the levels the given model accepts, for
+// the Tab-opened ladder over a marked (not necessarily active) model.
+// effortModel carries the marked id; resume links back to the model palette
+// so Esc restores it. preselect seeds the cursor: the palette draft when it
+// fits the marked model, else the session's current level when it fits, else
+// auto.
+func (m model) newEffortPickerFor(modelID string, preselect string, resume *commandPicker) *commandPicker {
+	efforts := m.panelReasoningEffortsFor(modelID)
+	ordered := orderAcceptedEfforts(efforts)
+	items := []pickerItem{{Label: effortDisplayLabel("auto"), Value: "auto"}}
+	for _, effort := range ordered {
+		items = append(items, pickerItem{Label: effortDisplayLabel(string(effort)), Value: string(effort)})
+	}
+	selected := 0
+	for index, item := range items {
+		if item.Value == strings.ToLower(strings.TrimSpace(preselect)) && (item.Value == "auto" || reasoningEffortAllowed(efforts, modelregistry.ReasoningEffort(item.Value))) {
+			selected = index
+		}
+	}
+	return &commandPicker{kind: pickerEffort, title: "Nível", items: items, allItems: append([]pickerItem{}, items...), selected: selected, resume: resume, effortModel: modelID}
 }
 
 // newThemePicker lists the terminal-native system theme followed by named palettes
