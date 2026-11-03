@@ -299,16 +299,18 @@ function npmPrefixFromPackageRoot(root) {
   return null;
 }
 
-// Installs the new version in the given global prefix with inherited stdio
-// so the operator watches npm do its work. Resolves npm the same way npm's
-// own shims do: directly off PATH on POSIX, through ComSpec on Windows.
+// Installs the new version in the given global prefix with npm's own output
+// sent to stderr, so a --json handoff leaves stdout clean for the reopened
+// process's single final JSON. Resolves npm the same way npm's own shims do:
+// directly off PATH on POSIX, through ComSpec on Windows.
 function installNpmUpdate(version, prefix) {
   const spec = `@quebragalho-dev/cli@${version}`;
   const args = ['install', '-g', '--prefix', prefix, spec];
+  const stdio = ['inherit', 2, 2];
   if (process.platform === 'win32') {
-    return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm', ...args], { stdio: 'inherit' });
+    return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm', ...args], { stdio });
   }
-  return spawnSync('npm', args, { stdio: 'inherit' });
+  return spawnSync('npm', args, { stdio });
 }
 
 function reopenAfterNpmInstall(version) {
@@ -402,12 +404,12 @@ if (child.signal) {
 if (handoffVersion !== null && child.status === 0) {
   const prefix = npmPrefixFromPackageRoot(packageRoot);
   if (!prefix) {
-    console.error(`[qg] Não foi possível determinar o prefixo npm desta instalação (${packageRoot}); para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@${handoffVersion}. Abrindo a versão atual.`);
+    console.error(`[qg] Não foi possível determinar o prefixo npm desta instalação (${packageRoot}); abrindo a versão atual. Para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@${handoffVersion}`);
     process.exit(reopenAfterNpmInstall(handoffVersion));
   }
   const installed = installNpmUpdate(handoffVersion, prefix);
   if (installed.error || installed.status !== 0) {
-    console.error(`[qg] Não foi possível instalar a versão ${handoffVersion} via npm; abrindo a versão atual.`);
+    console.error(`[qg] Não foi possível instalar a versão ${handoffVersion} via npm; abrindo a versão atual. Para atualizar à mão, rode: npm install -g --prefix "${prefix}" @quebragalho-dev/cli@${handoffVersion}`);
   }
   process.exit(reopenAfterNpmInstall(handoffVersion));
 }
