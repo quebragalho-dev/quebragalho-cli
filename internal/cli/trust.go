@@ -59,7 +59,7 @@ func trustCurrentDir(stdout io.Writer, stderr io.Writer, deps appDeps) int {
 }
 
 // trustList prints each trusted root, one per line, or a friendly line when none
-// are trusted. With --json it prints the roots as a JSON array ([] when empty).
+// are trusted. With --json it prints {"roots": [...]} ([] when empty).
 func trustList(args []string, stdout io.Writer, stderr io.Writer) int {
 	asJSON := false
 	for _, a := range args {
@@ -70,7 +70,10 @@ func trustList(args []string, stdout io.Writer, stderr io.Writer) int {
 			writeTrustUsage(stdout)
 			return exitSuccess
 		default:
-			return writeExecUsageError(stderr, fmt.Sprintf("flag trust list desconhecida %q", a))
+			if strings.HasPrefix(a, "-") {
+				return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida em trust list: %q", a))
+			}
+			return writeExecUsageError(stderr, fmt.Sprintf("argumento inesperado em trust list: %q", a))
 		}
 	}
 	roots, err := workspacetrust.List()
@@ -81,7 +84,7 @@ func trustList(args []string, stdout io.Writer, stderr io.Writer) int {
 		if roots == nil {
 			roots = []string{}
 		}
-		if err := writePrettyJSON(stdout, roots); err != nil {
+		if err := writePrettyJSON(stdout, map[string]any{"roots": roots}); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
@@ -101,22 +104,24 @@ func trustList(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 // trustRemove untrusts the current directory, or a named path when one is given,
-// accepting --json in any position. The path argument is passed to
-// workspacetrust.Untrust verbatim, which normalizes it (filepath.Abs +
-// filepath.EvalSymlinks) the same way the store does, so a relative or
-// trailing-slash argument still matches the stored entry.
+// accepting --json in any position. The JSON payload echoes the normalized path
+// (the same entry `trust list` shows) and whether it was actually listed. The
+// human text keeps echoing the argument as given.
 func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			writeTrustUsage(stdout)
+			return exitSuccess
+		}
+	}
 	asJSON := false
 	var positional []string
 	for _, a := range args {
 		switch {
 		case a == "--json":
 			asJSON = true
-		case a == "-h" || a == "--help":
-			writeTrustUsage(stdout)
-			return exitSuccess
 		case strings.HasPrefix(a, "-"):
-			return writeExecUsageError(stderr, fmt.Sprintf("flag trust remove desconhecida %q", a))
+			return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida em trust remove: %q", a))
 		default:
 			positional = append(positional, a)
 		}
@@ -138,11 +143,19 @@ func trustRemove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		}
 		return exitUsage
 	}
-	if err := workspacetrust.Untrust(target); err != nil {
+	normalized, err := workspacetrust.NormalizedPath(target)
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	wasTrusted, err := workspacetrust.IsTrusted(normalized)
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	if err := workspacetrust.Untrust(normalized); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
 	if asJSON {
-		if err := writePrettyJSON(stdout, map[string]any{"path": target, "removed": true}); err != nil {
+		if err := writePrettyJSON(stdout, map[string]any{"path": normalized, "removed": wasTrusted}); err != nil {
 			return exitCrash
 		}
 		return exitSuccess

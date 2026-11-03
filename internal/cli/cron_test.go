@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -189,7 +191,8 @@ func TestCronListShowsAtivaEPausada(t *testing.T) {
 
 // TestCronIDCommandsRejectFlags proves rm/pause/resume fail loudly on dash-led
 // arguments (e.g. a trailing --json) instead of silently swallowing them: the
-// job must be left untouched and nothing may be printed to stdout.
+// job must be left untouched and nothing may be printed to stdout. -h/--help
+// prints help before the flag guard.
 func TestCronIDCommandsRejectFlags(t *testing.T) {
 	store := testCronStore(t)
 	now := func() time.Time { return time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC) }
@@ -213,41 +216,142 @@ func TestCronIDCommandsRejectFlags(t *testing.T) {
 			t.Fatalf("cron %v must leave the job untouched: %v", args, err)
 		}
 	}
+	for _, args := range [][]string{
+		{"rm", "--help"},
+		{"pause", "-h"},
+		{"resume", "--help", "--json"},
+	} {
+		var out, errb bytes.Buffer
+		if code := runCronWith(store, now, args, &out, &errb); code != exitSuccess {
+			t.Fatalf("cron %v exit=%d, want %d; stderr=%q", args, code, exitSuccess, errb.String())
+		}
+		if !strings.Contains(out.String(), "qg cron") {
+			t.Fatalf("cron %v must print help to stdout, got %q", args, out.String())
+		}
+	}
 }
 
-// TestCronListJSON proves `cron list --json` emits the stored jobs as a JSON
-// array (English machine fields, never translated statuses) and encodes an
-// empty store as [] rather than null.
+// TestCronListJSON proves `cron list --json` emits {"jobs": [...]} with the
+// stored jobs (English machine fields, UTC timestamps, redacted prompts) and
+// {"jobs": []} for an empty store. Field names are pinned by decoding into
+// maps, so a renamed struct tag fails here. Unknown positionals and flags are
+// usage errors that write nothing to stdout.
 func TestCronListJSON(t *testing.T) {
 	store := testCronStore(t)
 	now := func() time.Time { return time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC) }
+	const token = "sk-fake-test-token-123456789"
 
 	var out, errb bytes.Buffer
 	if code := runCronWith(store, now, []string{"list", "--json"}, &out, &errb); code != 0 {
 		t.Fatalf("list --json exit=%d err=%s", code, errb.String())
 	}
-	if got := strings.TrimSpace(out.String()); got != "[]" {
-		t.Fatalf("empty list --json = %q, want [] (never null)", out.String())
+	var empty map[string]any
+	if err := json.Unmarshal(out.Bytes(), &empty); err != nil {
+		t.Fatalf("empty list --json is not valid JSON %q: %v", out.String(), err)
+	}
+	emptyJobs, ok := empty["jobs"].([]any)
+	if !ok || len(emptyJobs) != 0 {
+		t.Fatalf("empty list --json = %q, want {\"jobs\": []}", out.String())
+	}
+	if len(empty) != 1 {
+		t.Fatalf("empty list --json keys = %v, want only [jobs]", slices.Sorted(maps.Keys(empty)))
 	}
 
-	added, err := store.Add(cron.Job{Expr: "0 9 * * *", Prompt: "daily", Status: cron.StatusActive, NextRunAt: now().Add(time.Hour)})
+	added, err := store.Add(cron.Job{Expr: "0 9 * * *", Prompt: "rotate api_key=" + token, Status: cron.StatusActive, NextRunAt: now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
+	}
+	zoned, err := store.Add(cron.Job{Expr: "0 10 * * *", Prompt: "zoned", Status: cron.StatusPaused, NextRunAt: time.Date(2026, 6, 9, 12, 0, 0, 0, time.FixedZone("X", 3*3600))})
+	if err != nil {
+		t.Fatalf("Add zoned: %v", err)
 	}
 	out.Reset()
 	errb.Reset()
 	if code := runCronWith(store, now, []string{"list", "--json"}, &out, &errb); code != 0 {
 		t.Fatalf("list --json exit=%d err=%s", code, errb.String())
 	}
-	var jobs []cron.Job
-	if err := json.Unmarshal(out.Bytes(), &jobs); err != nil {
+	var payload map[string]any
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("list --json is not valid JSON %q: %v", out.String(), err)
 	}
-	if len(jobs) != 1 {
-		t.Fatalf("list --json decoded %d jobs, want 1: %q", len(jobs), out.String())
+	rawJobs, ok := payload["jobs"].([]any)
+	if !ok || len(rawJobs) != 2 {
+		t.Fatalf("list --json jobs = %v, want 2 jobs in %q", payload["jobs"], out.String())
 	}
-	got := jobs[0]
-	if got.ID != added.ID || got.Expr != "0 9 * * *" || got.Prompt != "daily" || got.Status != cron.StatusActive {
-		t.Fatalf("list --json job = %+v, want id %q expr %q prompt %q status %q", got, added.ID, "0 9 * * *", "daily", cron.StatusActive)
+	byID := map[string]map[string]any{}
+	for _, raw := range rawJobs {
+		jobMap, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("list --json job is not an object: %v", raw)
+		}
+		id, _ := jobMap["id"].(string)
+		byID[id] = jobMap
+	}
+	for id, want := range map[string]map[string]any{
+		added.ID: {
+			"expr":      "0 9 * * *",
+			"prompt":    "rotate api_key=[REDACTED]",
+			"status":    cron.StatusActive,
+			"fireCount": float64(0),
+			"nextRunAt": "2026-06-09T09:00:00Z",
+			"createdAt": "2026-06-09T08:00:00Z",
+		},
+		zoned.ID: {
+			"expr":      "0 10 * * *",
+			"prompt":    "zoned",
+			"status":    cron.StatusPaused,
+			"fireCount": float64(0),
+			"nextRunAt": "2026-06-09T09:00:00Z",
+			"createdAt": "2026-06-09T08:00:00Z",
+		},
+	} {
+		got, ok := byID[id]
+		if !ok {
+			t.Fatalf("list --json missing job %q in %q", id, out.String())
+		}
+		if got["id"] != id {
+			t.Fatalf("list --json job[id] = %v, want %q", got["id"], id)
+		}
+		if len(got) != len(want)+1 {
+			t.Fatalf("list --json job keys = %v, want %v plus id", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
+		}
+		for key, wantValue := range want {
+			if got[key] != wantValue {
+				t.Fatalf("list --json job[%q] = %v, want %v (full: %q)", key, got[key], wantValue, out.String())
+			}
+		}
+	}
+	if strings.Contains(out.String(), token) {
+		t.Fatalf("list --json leaked the token: %q", out.String())
+	}
+
+	// The human text redacts too, before the excerpt is cut.
+	out.Reset()
+	errb.Reset()
+	if code := runCronWith(store, now, []string{"list"}, &out, &errb); code != 0 {
+		t.Fatalf("list exit=%d err=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "[REDACTED]") || strings.Contains(out.String(), token) {
+		t.Fatalf("list text must redact the token, got %q", out.String())
+	}
+
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"list", "extra"}, want: "argumento inesperado em cron list"},
+		{args: []string{"list", "-x"}, want: "flag desconhecida em cron list"},
+	} {
+		out.Reset()
+		errb.Reset()
+		if code := runCronWith(store, now, tc.args, &out, &errb); code != exitUsage {
+			t.Fatalf("cron %v exit=%d, want %d", tc.args, code, exitUsage)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("cron %v must not print to stdout, got %q", tc.args, out.String())
+		}
+		if !strings.Contains(errb.String(), tc.want) {
+			t.Fatalf("cron %v stderr = %q, want %q", tc.args, errb.String(), tc.want)
+		}
 	}
 }

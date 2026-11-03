@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/cron"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 // runCron is the dispatch entry for `qg cron`.
@@ -178,8 +179,10 @@ func cronList(store *cron.Store, now func() time.Time, args []string, stdout io.
 			writeCronHelp(stdout)
 			return exitSuccess
 		default:
-			fmt.Fprintf(stderr, "Flag desconhecida em cron list: %s\n", a)
-			return exitUsage
+			if strings.HasPrefix(a, "-") {
+				return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida em cron list: %q", a))
+			}
+			return writeExecUsageError(stderr, fmt.Sprintf("argumento inesperado em cron list: %q", a))
 		}
 	}
 	jobs, err := store.List()
@@ -191,7 +194,7 @@ func cronList(store *cron.Store, now func() time.Time, args []string, stdout io.
 		if jobs == nil {
 			jobs = []cron.Job{}
 		}
-		if err := writePrettyJSON(stdout, jobs); err != nil {
+		if err := writePrettyJSON(stdout, map[string]any{"jobs": redactCronJobs(jobs)}); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
@@ -218,6 +221,10 @@ func cronList(store *cron.Store, now func() time.Time, args []string, stdout io.
 }
 
 func cronSimple(store *cron.Store, args []string, stdout io.Writer, stderr io.Writer, fn func(string) error, verb string) int {
+	if cronWantsHelp(args) {
+		writeCronHelp(stdout)
+		return exitSuccess
+	}
 	if rejectCronFlags(args, "rm", stderr) {
 		return exitUsage
 	}
@@ -234,6 +241,10 @@ func cronSimple(store *cron.Store, args []string, stdout io.Writer, stderr io.Wr
 }
 
 func cronSetStatus(store *cron.Store, args []string, stdout io.Writer, stderr io.Writer, status string, verb string) int {
+	if cronWantsHelp(args) {
+		writeCronHelp(stdout)
+		return exitSuccess
+	}
 	if rejectCronFlags(args, "pause", stderr) {
 		return exitUsage
 	}
@@ -270,6 +281,10 @@ func cronStatusDisplay(status string) string {
 
 // cronResume sets a job active and recomputes NextRunAt.
 func cronResume(store *cron.Store, now func() time.Time, args []string, stdout io.Writer, stderr io.Writer) int {
+	if cronWantsHelp(args) {
+		writeCronHelp(stdout)
+		return exitSuccess
+	}
 	if rejectCronFlags(args, "resume", stderr) {
 		return exitUsage
 	}
@@ -304,6 +319,18 @@ func cronResume(store *cron.Store, now func() time.Time, args []string, stdout i
 	return exitSuccess
 }
 
+// cronWantsHelp reports whether -h/--help is present, so id-taking cron
+// subcommands (rm, pause, resume) print help before the flag guard rejects
+// dash-led arguments.
+func cronWantsHelp(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
 // rejectCronFlags fails closed on dash-led arguments to id-taking cron
 // subcommands (rm, pause, resume): generated ids never start with "-", so such
 // an argument is always a misplaced flag (e.g. a trailing --json), which must
@@ -311,11 +338,26 @@ func cronResume(store *cron.Store, now func() time.Time, args []string, stdout i
 func rejectCronFlags(args []string, command string, stderr io.Writer) bool {
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") {
-			fmt.Fprintf(stderr, "Flag desconhecida em cron %s: %s\n", command, a)
+			writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida em cron %s: %q", command, a))
 			return true
 		}
 	}
 	return false
+}
+
+// redactCronJobs copies jobs for machine output: prompts may carry pasted
+// secrets (the store keeps them in plain text), so they are redacted, and
+// timestamps are normalized to UTC like the human rendering. The stored jobs
+// are left untouched.
+func redactCronJobs(jobs []cron.Job) []cron.Job {
+	out := make([]cron.Job, 0, len(jobs))
+	for _, j := range jobs {
+		j.Prompt = redaction.RedactString(j.Prompt, redaction.Options{})
+		j.NextRunAt = j.NextRunAt.UTC()
+		j.CreatedAt = j.CreatedAt.UTC()
+		out = append(out, j)
+	}
+	return out
 }
 
 func recipeIDs() string {
@@ -334,6 +376,7 @@ func formatCronTime(t time.Time) string {
 }
 
 func promptExcerpt(p string) string {
+	p = redaction.RedactString(p, redaction.Options{})
 	p = strings.TrimSpace(strings.ReplaceAll(p, "\n", " "))
 	if len(p) > 48 {
 		return cutRuneBoundary(p, 47) + "…"

@@ -206,8 +206,9 @@ func TestRunTrustRemoveTooManyArgs(t *testing.T) {
 	}
 }
 
-// TestTrustListJSON proves `trust list --json` emits the trusted roots as a
-// JSON array and encodes an empty store as [] rather than null.
+// TestTrustListJSON proves `trust list --json` emits {"roots": [...]} and
+// {"roots": []} for an empty store. Unknown positionals and flags are usage
+// errors that write nothing to stdout.
 func TestTrustListJSON(t *testing.T) {
 	setTrustConfigRoot(t)
 	cwd := t.TempDir()
@@ -217,8 +218,13 @@ func TestTrustListJSON(t *testing.T) {
 	if code := runTrust([]string{"list", "--json"}, &out, &errBuf, deps); code != exitSuccess {
 		t.Fatalf("trust list --json returned %d, want %d; stderr=%q", code, exitSuccess, errBuf.String())
 	}
-	if got := strings.TrimSpace(out.String()); got != "[]" {
-		t.Fatalf("empty trust list --json = %q, want [] (never null)", out.String())
+	var empty map[string]any
+	if err := json.Unmarshal(out.Bytes(), &empty); err != nil {
+		t.Fatalf("empty trust list --json is not valid JSON %q: %v", out.String(), err)
+	}
+	emptyRoots, ok := empty["roots"].([]any)
+	if !ok || len(emptyRoots) != 0 || len(empty) != 1 {
+		t.Fatalf("empty trust list --json = %q, want {\"roots\": []}", out.String())
 	}
 
 	if err := workspacetrust.Trust(cwd); err != nil {
@@ -234,58 +240,134 @@ func TestTrustListJSON(t *testing.T) {
 	if code := runTrust([]string{"list", "--json"}, &out, &errBuf, deps); code != exitSuccess {
 		t.Fatalf("trust list --json returned %d, want %d; stderr=%q", code, exitSuccess, errBuf.String())
 	}
-	var roots []string
-	if err := json.Unmarshal(out.Bytes(), &roots); err != nil {
+	var payload map[string]any
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("trust list --json is not valid JSON %q: %v", out.String(), err)
 	}
-	if len(roots) != 1 || roots[0] != wantListed {
-		t.Fatalf("trust list --json = %q, want [%q]", out.String(), wantListed)
+	rawRoots, ok := payload["roots"].([]any)
+	if !ok || len(rawRoots) != 1 || rawRoots[0] != wantListed || len(payload) != 1 {
+		t.Fatalf("trust list --json = %q, want {\"roots\": [%q]}", out.String(), wantListed)
+	}
+
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"list", "extra"}, want: "argumento inesperado em trust list"},
+		{args: []string{"list", "-x"}, want: "flag desconhecida em trust list"},
+	} {
+		out.Reset()
+		errBuf.Reset()
+		if code := runTrust(tc.args, &out, &errBuf, deps); code != exitUsage {
+			t.Fatalf("trust %v returned %d, want %d", tc.args, code, exitUsage)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("trust %v must not print to stdout, got %q", tc.args, out.String())
+		}
+		if !strings.Contains(errBuf.String(), tc.want) {
+			t.Fatalf("trust %v stderr = %q, want %q", tc.args, errBuf.String(), tc.want)
+		}
 	}
 }
 
 // TestTrustRemoveJSONFlagPosition proves `trust remove --json` accepts the flag
-// both before and after the path and returns a short JSON object carrying the
-// removed path.
+// both before and after the path, echoes the normalized path (the same entry
+// `trust list` shows), and reports whether the path was actually listed
+// (removed false for a never-trusted path, and "." resolves to the cwd).
 func TestTrustRemoveJSONFlagPosition(t *testing.T) {
 	setTrustConfigRoot(t)
 	cwd := t.TempDir()
 	deps := trustDeps(cwd)
 
-	before := t.TempDir()
-	after := t.TempDir()
-	if err := workspacetrust.Trust(before); err != nil {
-		t.Fatalf("Trust(before): %v", err)
-	}
-	if err := workspacetrust.Trust(after); err != nil {
-		t.Fatalf("Trust(after): %v", err)
+	normalize := func(path string) string {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			t.Fatalf("Abs(%q): %v", path, err)
+		}
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			return resolved
+		}
+		return abs
 	}
 
-	cases := []struct {
-		args   []string
-		target string
-	}{
-		{args: []string{"remove", "--json", before}, target: before},
-		{args: []string{"remove", after, "--json"}, target: after},
+	before := t.TempDir()
+	after := t.TempDir()
+	untrusted := t.TempDir()
+	for _, dir := range []string{before, after, cwd} {
+		if err := workspacetrust.Trust(dir); err != nil {
+			t.Fatalf("Trust(%q): %v", dir, err)
+		}
 	}
-	for _, tc := range cases {
-		args := tc.args
+
+	for _, tc := range []struct {
+		name        string
+		args        []string
+		target      string
+		wantRemoved bool
+	}{
+		{name: "flag before path", args: []string{"remove", "--json", before}, target: normalize(before), wantRemoved: true},
+		{name: "flag after path", args: []string{"remove", after, "--json"}, target: normalize(after), wantRemoved: true},
+		{name: "never trusted", args: []string{"remove", "--json", untrusted}, target: normalize(untrusted), wantRemoved: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errBuf bytes.Buffer
+			if code := runTrust(tc.args, &out, &errBuf, deps); code != exitSuccess {
+				t.Fatalf("trust %v returned %d, want %d; stderr=%q", tc.args, code, exitSuccess, errBuf.String())
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+				t.Fatalf("trust %v is not valid JSON %q: %v", tc.args, out.String(), err)
+			}
+			if len(payload) != 2 || payload["path"] != tc.target || payload["removed"] != tc.wantRemoved {
+				t.Fatalf("trust %v JSON = %q, want path %q removed %v", tc.args, out.String(), tc.target, tc.wantRemoved)
+			}
+			if trusted, err := workspacetrust.IsTrusted(tc.target); err != nil || trusted {
+				t.Fatalf("target %q should be untrusted after trust %v (trusted=%v err=%v)", tc.target, tc.args, trusted, err)
+			}
+		})
+	}
+
+	// "." resolves against the process cwd like any other relative path; the
+	// payload still echoes the normalized form.
+	t.Run("dot echoes normalized", func(t *testing.T) {
+		want := normalize(".")
 		var out, errBuf bytes.Buffer
-		if code := runTrust(args, &out, &errBuf, deps); code != exitSuccess {
-			t.Fatalf("trust %v returned %d, want %d; stderr=%q", args, code, exitSuccess, errBuf.String())
+		if code := runTrust([]string{"remove", ".", "--json"}, &out, &errBuf, deps); code != exitSuccess {
+			t.Fatalf("trust remove . --json returned %d, want %d; stderr=%q", code, exitSuccess, errBuf.String())
 		}
-		var payload struct {
-			Path    string `json:"path"`
-			Removed bool   `json:"removed"`
-		}
+		var payload map[string]any
 		if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-			t.Fatalf("trust %v is not valid JSON %q: %v", args, out.String(), err)
+			t.Fatalf("trust remove . --json is not valid JSON %q: %v", out.String(), err)
 		}
-		if payload.Path != tc.target || !payload.Removed {
-			t.Fatalf("trust %v JSON = %q, want path %q with removed true", args, out.String(), tc.target)
+		if len(payload) != 2 || payload["path"] != want || payload["removed"] != false {
+			t.Fatalf("trust remove . --json = %q, want path %q removed false", out.String(), want)
 		}
-		if trusted, err := workspacetrust.IsTrusted(tc.target); err != nil || trusted {
-			t.Fatalf("target %q should be untrusted after trust %v (trusted=%v err=%v)", tc.target, args, trusted, err)
+	})
+
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"remove", "-x"}, want: "flag desconhecida em trust remove"},
+	} {
+		var out, errBuf bytes.Buffer
+		if code := runTrust(append(tc.args, "--json"), &out, &errBuf, deps); code != exitUsage {
+			t.Fatalf("trust %v --json returned %d, want %d", tc.args, code, exitUsage)
 		}
+		if out.Len() != 0 {
+			t.Fatalf("trust %v --json must not print to stdout, got %q", tc.args, out.String())
+		}
+		if !strings.Contains(errBuf.String(), tc.want) {
+			t.Fatalf("trust %v --json stderr = %q, want %q", tc.args, errBuf.String(), tc.want)
+		}
+	}
+
+	var out, errBuf bytes.Buffer
+	if code := runTrust([]string{"remove", "--help", "--json"}, &out, &errBuf, deps); code != exitSuccess {
+		t.Fatalf("trust remove --help returned %d, want %d; stderr=%q", code, exitSuccess, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "Uso:") {
+		t.Fatalf("trust remove --help must print usage, got %q", out.String())
 	}
 }
 
