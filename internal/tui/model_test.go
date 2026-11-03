@@ -427,8 +427,24 @@ func TestClearCommandResetsTranscript(t *testing.T) {
 	if len(next.transcript) != 2 || next.transcript[0].kind != rowWelcome {
 		t.Fatalf("expected clear to reset transcript to welcome + note, got %#v", next.transcript)
 	}
-	if !transcriptContains(next.transcript, "/new") {
-		t.Fatalf("expected clear to point users to /new, got %#v", next.transcript)
+	if !transcriptContains(next.transcript, "Nova sessão iniciada") {
+		t.Fatalf("expected clear to start a fresh session like /new, got %#v", next.transcript)
+	}
+}
+
+func TestClearDuringPendingRunAsksToCancelFirst(t *testing.T) {
+	for _, cmd := range []string{"/clear", "/new"} {
+		m := newModel(context.Background(), Options{})
+		m.pending = true
+		m.input.SetValue(cmd)
+		updated, _ := m.Update(testKey(tea.KeyEnter))
+		next := updated.(model)
+		if !next.pending {
+			t.Fatalf("%s must not start a session while a run is in flight", cmd)
+		}
+		if !transcriptContains(next.transcript, "Press Esc to cancel it first, then "+cmd) {
+			t.Fatalf("%s must ask to cancel first, got %#v", cmd, next.transcript)
+		}
 	}
 }
 

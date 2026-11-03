@@ -380,57 +380,24 @@ func TestStartNewSessionStopsLoops(t *testing.T) {
 	}
 }
 
-func TestLoopClearRequiresConfirm(t *testing.T) {
+func TestLoopClearStopsLoopsLikeNew(t *testing.T) {
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
 	m := loopTestModel(t, now)
 	m = startFixedLoop(m, "x", time.Minute)
 
-	// First /clear with a loop active arms the confirm and does not clear yet.
+	// /clear starts a fresh session like /new: no leave confirm is armed,
+	// the previous session's loops stop with it.
 	m.input.SetValue("/clear")
 	u1, _ := m.Update(testKey(tea.KeyEnter))
 	n1 := u1.(model)
-	if n1.loopLeavePrompt != commandClear {
-		t.Fatal("first /clear with active loops should arm the confirm, not clear")
+	if n1.loopLeavePrompt != commandEmpty {
+		t.Fatal("/clear must not arm a leave confirm; it starts a fresh session like /new")
 	}
-	if len(n1.loops) != 1 {
-		t.Fatal("the loop should still be active after the warning")
+	if len(n1.loops) != 0 {
+		t.Fatal("/clear must stop loops tied to the previous session, like /new")
 	}
-
-	// A different command disarms the confirm.
-	n1.input.SetValue("/loop list")
-	u2, _ := n1.Update(testKey(tea.KeyEnter))
-	n2 := u2.(model)
-	if n2.loopLeavePrompt != commandEmpty {
-		t.Fatal("an intervening command should disarm the leave confirm")
-	}
-
-	// Re-arm, then a second consecutive /clear confirms (disarms + clears).
-	n2.input.SetValue("/clear")
-	u3, _ := n2.Update(testKey(tea.KeyEnter))
-	n3 := u3.(model)
-	n3.input.SetValue("/clear")
-	u4, _ := n3.Update(testKey(tea.KeyEnter))
-	n4 := u4.(model)
-	if n4.loopLeavePrompt != commandEmpty {
-		t.Fatal("a second consecutive /clear should confirm and disarm")
-	}
-	if len(n4.loops) != 1 {
-		t.Fatal("/clear keeps loops running (it wipes the screen, not the session)")
-	}
-	// The confirmed clear must actually wipe the transcript, not silently no-op:
-	// only the clear path appends the "Transcript cleared" note, and the pre-clear
-	// loop-start row must be gone.
-	clearedNote, staleRow := false, false
-	for _, r := range n4.transcript {
-		if strings.Contains(r.text, "Transcript cleared") {
-			clearedNote = true
-		}
-		if strings.Contains(r.text, "Loop L1 started") {
-			staleRow = true
-		}
-	}
-	if !clearedNote || staleRow {
-		t.Fatalf("the second /clear must wipe the transcript (clearedNote=%v staleRow=%v)", clearedNote, staleRow)
+	if !transcriptContains(n1.transcript, "Nova sessão iniciada") {
+		t.Fatalf("/clear must announce the fresh session, got %#v", n1.transcript)
 	}
 }
 
@@ -439,12 +406,12 @@ func TestLeaveConfirmDisarmedByQueuedPrompt(t *testing.T) {
 	m := loopTestModel(t, now)
 	m = startFixedLoop(m, "x", time.Minute)
 
-	// Arm the /clear confirm.
-	m.input.SetValue("/clear")
+	// Arm the /exit confirm (same one-shot leave confirm /clear used to arm).
+	m.input.SetValue("/exit")
 	u1, _ := m.Update(testKey(tea.KeyEnter))
 	n1 := u1.(model)
-	if n1.loopLeavePrompt != commandClear {
-		t.Fatal("first /clear should arm the confirm")
+	if n1.loopLeavePrompt != commandExit {
+		t.Fatal("first /exit should arm the confirm")
 	}
 
 	// A prompt submitted while a run streams is queued via an early return in

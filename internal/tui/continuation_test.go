@@ -449,7 +449,8 @@ func (provider *failOnceProvider) StreamCompletion(ctx context.Context, request 
 	return provider.inner.StreamCompletion(ctx, request)
 }
 
-func TestTUIClearKeepsContinuation(t *testing.T) {
+// /clear starts a fresh session like /new: the next turn carries no history.
+func TestTUIClearStartsFreshSession(t *testing.T) {
 	store := testSessionStore(t)
 	provider := &scriptedProvider{scripts: textScripts("first answer", "second answer", "after clear")}
 	m := continuationHarness(t, store, provider, nil)
@@ -466,11 +467,14 @@ func TestTUIClearKeepsContinuation(t *testing.T) {
 		t.Fatalf("provider requests = %d, want 3", len(provider.requests))
 	}
 	req := provider.requests[2]
-	if last := lastUserMessage(req); last.Content != "after clear" {
-		t.Fatalf("last user message = %q, want the clean prompt", last.Content)
+	if len(req.Messages) != 2 {
+		t.Fatalf("fresh session turn = %d messages, want [system user]", len(req.Messages))
 	}
-	if !requestContains(req, "second answer") {
-		t.Fatal("turn after /clear must keep using the stored continuation")
+	if last := lastUserMessage(req); last.Content != "after clear" {
+		t.Fatalf("fresh session prompt = %q, want it clean", last.Content)
+	}
+	if requestContains(req, "first answer") || requestContains(req, "second answer") {
+		t.Fatal("the pre-clear history must not leak into the fresh session")
 	}
 }
 

@@ -194,11 +194,11 @@ type model struct {
 	lastUsageSeen                 bool
 	lastUsageReceipt              transcriptRow
 	// meterLive tracks whether the live context meter may show lastUsage.
-	// The /usage panel keeps its frozen last-call report across /clear,
-	// session switches and compactions, while the meter only drops what is
-	// stale: set on every recorded call, cleared on /new, model switch and
-	// compaction; on resume it follows the reloaded receipt, and /clear
-	// keeps showing the intact session context.
+	// The /usage panel keeps its frozen last-call report across session
+	// switches and compactions, while the meter only drops what is stale:
+	// set on every recorded call, cleared on /new and compaction; on resume
+	// it follows the reloaded receipt. Model switches and /clear keep the
+	// session context, so the meter keeps showing it.
 	meterLive bool
 	// turnLatencySum / turnLatencyCount accumulate completed-run wall time so
 	// /context can show a rolling average turn latency (the "is it slow?" signal).
@@ -4609,37 +4609,14 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 	case commandHelp:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: helpText()})
 		return m, nil
-	case commandClear:
-		// A foreground loop keeps firing after /clear (it wipes the screen, not the
-		// session), so warn once before clearing the context it will run into.
-		if m.loopActive() && m.loopLeavePrompt != commandClear {
-			m.loopLeavePrompt = commandClear
-			m = m.appendLoopSystem(m.loopFooterSummary() + " still running — /clear keeps them firing behind a cleared screen. Run /clear again to confirm, or /loop stop all first.")
-			return m, nil
-		}
-		m.loopLeavePrompt = commandEmpty
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionClear})
-		// Clearing wipes the visible transcript only — the session's context is
-		// intact, so the next prompt still replays the full history. Say so, and
-		// point to /new, so "cleared screen" isn't mistaken for "fresh context."
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Transcript cleared. The agent still has the full session context — use /new to start a fresh session."})
-		// /clear keeps the session (and its context), so the visible meter
-		// keeps showing the last fill: the next completed call refreshes it.
-		// Scrollback above can't be un-printed; a faint divider marks where the
-		// cleared surface ended and the frontier restarts for the fresh transcript.
-		m.resetFlushFrontier("· cleared ·")
-		// /clear wipes the transcript but not the session, so loops keep running;
-		// say so rather than let them silently fire into a "cleared" screen.
-		if m.loopActive() {
-			m = m.appendLoopSystem(m.loopFooterSummary() + " em execução — /loop stop all para encerrar.")
-		}
-		return m, nil
-	case commandNew:
-		// A fresh session mid-run would strand the in-flight turn's events; make the
-		// user cancel first. Idle, /new saves the current session (already on disk)
-		// and clears the conversation in place.
+	case commandClear, commandNew:
+		// /clear starts a fresh session exactly like /new: the previous
+		// session stays on disk for /resume, and its loops stop with it. A
+		// fresh session mid-run would strand the in-flight turn's events; make
+		// the user cancel first. Idle, /clear saves the current session
+		// (already on disk) and clears the conversation in place.
 		if m.pending || m.compactInFlight {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "A run is in progress. Press Esc to cancel it first, then /new."})
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "A run is in progress. Press Esc to cancel it first, then " + command.name + "."})
 			return m, nil
 		}
 		return m.startNewSession(), nil
