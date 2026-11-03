@@ -241,19 +241,25 @@ func TestContextMeterResetsOnNewSession(t *testing.T) {
 	}
 }
 
-// /clear zeroes the meter but keeps the panel's frozen last call.
-func TestContextMeterResetsOnClear(t *testing.T) {
+// /clear keeps the session context, so the meter keeps showing it: the
+// next completed call refreshes the figure.
+func TestContextMeterSurvivesClear(t *testing.T) {
 	m := meterFixture(t, 1000000, 300000, batchMeterModelName(t))
+	before := plainRender(t, m.composerDividerLine(80))
 	updated, _ := m.dispatchCommand(parseCommand("/clear"))
 	next := updated.(model)
-	if next.meterLive {
-		t.Fatal("/clear must zero the meter")
+	if !next.meterLive {
+		t.Fatal("/clear must keep the meter live on the intact context")
 	}
 	if !next.lastUsageSeen {
 		t.Fatal("/clear must keep the panel's last call")
 	}
-	if got := plainRender(t, next.statusLine(120)); strings.Contains(got, "30%") {
-		t.Fatalf("cleared status must not show the old fill, got %q", got)
+	got := plainRender(t, next.statusLine(120))
+	if !strings.Contains(got, "30% · 300k/1m") {
+		t.Fatalf("cleared status must keep the fill, got %q", got)
+	}
+	if after := plainRender(t, next.composerDividerLine(80)); after != before {
+		t.Fatalf("cleared border must keep the fill:\nbefore %q\nafter  %q", before, after)
 	}
 }
 
@@ -273,33 +279,100 @@ func TestContextMeterIgnoresOtherModelReceipt(t *testing.T) {
 	}
 }
 
-// Resuming reloads the panel from the session log but restarts the meter.
-func TestContextMeterResetsOnResume(t *testing.T) {
-	m := batchThreeLiveModel(t)
-	store := testSessionStore(t)
-	session, err := store.Create(sessions.CreateInput{SessionID: "resume-meter"})
-	if err != nil {
-		t.Fatal(err)
+// Resuming adopts the session's own receipt: a same-model receipt fills the
+// meter at once, anything else leaves it empty. The previous live value
+// never leaks through.
+func TestContextMeterFollowsResumedReceipt(t *testing.T) {
+	resumeWithUsage := func(t *testing.T, payload string) model {
+		t.Helper()
+		m := batchThreeLiveModel(t)
+		window := int64(1000000)
+		m.modelPickerLiveByProvider["qg"][0].APIModel.ContextLength = &window
+		store := testSessionStore(t)
+		session, err := store.Create(sessions.CreateInput{SessionID: "resume-meter"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if payload != "" {
+			if _, err := store.AppendEvents(session.SessionID, []sessions.AppendEventInput{
+				{Type: sessions.EventUsage, Payload: json.RawMessage(payload)},
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		m.sessionStore = store
+		// A live meter before the switch must not leak into the resumed session.
+		m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{InputTokens: 100, OutputTokens: 5}, transcriptRow{})
+		if !m.meterLive {
+			t.Fatal("precondition: meter must be live before resume")
+		}
+		m, _ = m.handleResumeCommand(session.SessionID)
+		return m
 	}
-	payload := `{"promptTokens":300000,"completionTokens":10,"model":"` + m.modelName + `"}`
-	if _, err := store.AppendEvents(session.SessionID, []sessions.AppendEventInput{
-		{Type: sessions.EventUsage, Payload: json.RawMessage(payload)},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	m.sessionStore = store
-	// A live meter before the switch must not leak into the resumed session.
-	m, _ = m.recordUsageEvent(m.modelName, qgruntime.Usage{InputTokens: 100, OutputTokens: 5}, transcriptRow{})
-	if !m.meterLive {
-		t.Fatal("precondition: meter must be live before resume")
-	}
-	m, _ = m.handleResumeCommand(session.SessionID)
-	if !m.lastUsageSeen {
-		t.Fatal("resume must reload the panel's last call from session events")
-	}
-	if m.meterLive {
-		t.Fatal("resume must restart the meter even when the log has usage")
-	}
+
+	t.Run("same model receipt", func(t *testing.T) {
+		m := resumeWithUsage(t, `{"promptTokens":400000,"completionTokens":10,"model":"`+batchMeterModelName(t)+`"}`)
+		if !m.meterLive {
+			t.Fatal("resume must adopt the session's own receipt")
+		}
+		if got := plainRender(t, m.statusLine(120)); !strings.Contains(got, "40% · 400k/1m") {
+			t.Fatalf("resumed status should show 40%%, got %q", got)
+		}
+	})
+
+	t.Run("other model receipt", func(t *testing.T) {
+		m := resumeWithUsage(t, `{"promptTokens":400000,"completionTokens":10,"model":"other-model"}`)
+		if !m.lastUsageSeen {
+			t.Fatal("resume must reload the panel's last call from session events")
+		}
+		if _, ok := m.contextMeterUse(); ok {
+			t.Fatal("a foreign receipt must not feed this model's meter")
+		}
+		if got := plainRender(t, m.statusLine(120)); !strings.Contains(got, "janela 1m") || strings.Contains(got, "40%") {
+			t.Fatalf("resumed status should fall back to the window, got %q", got)
+		}
+	})
+
+	t.Run("no usage", func(t *testing.T) {
+		m := resumeWithUsage(t, "")
+		if m.meterLive {
+			t.Fatal("a session without usage must leave the meter dead")
+		}
+		if m.lastUsageSeen {
+			t.Fatal("panel must have nothing to reload")
+		}
+		if got := plainRender(t, m.statusLine(120)); !strings.Contains(got, "janela 1m") {
+			t.Fatalf("resumed status should fall back to the window, got %q", got)
+		}
+	})
+
+	t.Run("adopts receipt from a cold start", func(t *testing.T) {
+		m := batchThreeLiveModel(t)
+		window := int64(1000000)
+		m.modelPickerLiveByProvider["qg"][0].APIModel.ContextLength = &window
+		store := testSessionStore(t)
+		session, err := store.Create(sessions.CreateInput{SessionID: "resume-meter-cold"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload := `{"promptTokens":400000,"completionTokens":10,"model":"` + m.modelName + `"}`
+		if _, err := store.AppendEvents(session.SessionID, []sessions.AppendEventInput{
+			{Type: sessions.EventUsage, Payload: json.RawMessage(payload)},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		m.sessionStore = store
+		if m.meterLive {
+			t.Fatal("precondition: meter must be dead before resume")
+		}
+		m, _ = m.handleResumeCommand(session.SessionID)
+		if !m.meterLive {
+			t.Fatal("resume must adopt the session's own receipt even from a cold start")
+		}
+		if got := plainRender(t, m.statusLine(120)); !strings.Contains(got, "40% · 400k/1m") {
+			t.Fatalf("resumed status should show 40%%, got %q", got)
+		}
+	})
 }
 
 // Compaction zeroes the meter; the next call's receipt sets the new value.

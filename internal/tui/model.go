@@ -195,9 +195,10 @@ type model struct {
 	lastUsageReceipt              transcriptRow
 	// meterLive tracks whether the live context meter may show lastUsage.
 	// The /usage panel keeps its frozen last-call report across /clear,
-	// session switches and compactions, while the meter restarts: set on
-	// every recorded call, cleared on /new, /clear, model switch, session
-	// resume and compaction.
+	// session switches and compactions, while the meter only drops what is
+	// stale: set on every recorded call, cleared on /new, model switch and
+	// compaction; on resume it follows the reloaded receipt, and /clear
+	// keeps showing the intact session context.
 	meterLive bool
 	// turnLatencySum / turnLatencyCount accumulate completed-run wall time so
 	// /context can show a rolling average turn latency (the "is it slow?" signal).
@@ -4622,10 +4623,8 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// intact, so the next prompt still replays the full history. Say so, and
 		// point to /new, so "cleared screen" isn't mistaken for "fresh context."
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Transcript cleared. The agent still has the full session context — use /new to start a fresh session."})
-		// /clear keeps the session (and its context, so the /usage panel
-		// keeps its frozen report), but the visible meter restarts: the next
-		// completed call reports fresh usage.
-		m.meterLive = false
+		// /clear keeps the session (and its context), so the visible meter
+		// keeps showing the last fill: the next completed call refreshes it.
 		// Scrollback above can't be un-printed; a faint divider marks where the
 		// cleared surface ended and the frontier restarts for the fresh transcript.
 		m.resetFlushFrontier("· cleared ·")
