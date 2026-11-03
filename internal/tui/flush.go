@@ -159,6 +159,7 @@ func (m *model) resetFlushFrontier(divider string) {
 	m.altScreenSettledItems = nil
 	m.altScreenSettledWidth = 0
 	m.altScreenSettledFrontier = 0
+	m.altScreenSettledDetailed = nil
 	// Renumbers every row's bodyY from the top (used by /clear, /resume, /rewind,
 	// /compact); a transcript-hover target's bodyY would otherwise risk
 	// coincidentally matching an unrelated row in the rebuilt transcript.
@@ -176,6 +177,7 @@ func (m *model) rebuildAltScreenSettledItems(width int) {
 		m.altScreenSettledItems = nil
 		m.altScreenSettledWidth = width
 		m.altScreenSettledFrontier = m.flushed
+		m.altScreenSettledDetailed = nil
 		return
 	}
 	snapshot := *m
@@ -186,6 +188,7 @@ func (m *model) rebuildAltScreenSettledItems(width int) {
 	snapshot.altScreenSettledItems = nil
 	snapshot.altScreenSettledWidth = 0
 	snapshot.altScreenSettledFrontier = 0
+	snapshot.altScreenSettledDetailed = nil
 	snapshot.pending = false
 	snapshot.pendingSpecReview = nil
 	snapshot.fileView = fileViewState{}
@@ -196,6 +199,15 @@ func (m *model) rebuildAltScreenSettledItems(width int) {
 	// them on the single Bubble Tea render goroutine.
 	m.altScreenSettledItems = make([]transcriptBodyItem, len(built), len(built)+256)
 	copy(m.altScreenSettledItems, built)
+	// Every measurement that starts with this snapshot (View, mouse hit-testing,
+	// scroll metrics) shares one memoized layout, so the history is measured once
+	// per snapshot instead of once per frame. Heights still measured by the
+	// snapshot this one replaces are served by the height cache.
+	layout := newTranscriptSettledLayout(len(m.altScreenSettledItems))
+	for index := range m.altScreenSettledItems {
+		m.altScreenSettledItems[index].settled = layout
+	}
 	m.altScreenSettledWidth = width
 	m.altScreenSettledFrontier = m.flushed
+	m.altScreenSettledDetailed = &transcriptDetailedSnapshot{}
 }

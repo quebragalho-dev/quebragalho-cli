@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -112,6 +113,9 @@ type transcriptBodyItem struct {
 	heightCacheKey    string
 	heightCacheStable bool
 	render            func(startBodyY int) transcriptBodyRenderedItem
+	// settled is set on the items of the settled alt-screen snapshot and points
+	// at the snapshot's memoized layout (see transcriptSettledLayout).
+	settled *transcriptSettledLayout
 }
 
 type transcriptBodyRenderedItem struct {
@@ -129,16 +133,35 @@ type transcriptBodyItemSpan struct {
 type transcriptBodyLayout struct {
 	lines      []string
 	selectable []transcriptSelectableLine
-	spans      []transcriptBodyItemSpan
+	// settled holds the memoized spans of the settled snapshot the measured items
+	// started with. It is shared read-only with every other frame measured
+	// against the same snapshot, so measuring stays proportional to the live
+	// tail instead of the history. spans continues it: span i of the layout is
+	// settled[i] while i < len(settled), then spans[i-len(settled)].
+	settled []transcriptBodyItemSpan
+	spans   []transcriptBodyItemSpan
 }
 
 func (l transcriptBodyLayout) String() string {
 	return strings.Join(l.lines, "\n")
 }
 
+// spanCount is the number of measured items, settled prefix included.
+func (l transcriptBodyLayout) spanCount() int {
+	return len(l.settled) + len(l.spans)
+}
+
+// spanAt returns the span of the measured item at index (see settled).
+func (l transcriptBodyLayout) spanAt(index int) transcriptBodyItemSpan {
+	if index < len(l.settled) {
+		return l.settled[index]
+	}
+	return l.spans[index-len(l.settled)]
+}
+
 func (l transcriptBodyLayout) totalLines() int {
-	if len(l.spans) > 0 {
-		last := l.spans[len(l.spans)-1]
+	if count := l.spanCount(); count > 0 {
+		last := l.spanAt(count - 1)
 		return last.startY + last.height
 	}
 	return len(l.lines)
@@ -231,12 +254,30 @@ func (m model) transcriptBodyItems(width int, emptyOverlay string, detailed bool
 	// Steady-state alt-screen frames (notably the idle cursor blink) can reuse
 	// the settled list directly. Keeping this fast path outside the closure-heavy
 	// builder also prevents the large model receiver from escaping to the heap.
-	if m.altScreen && !detailed && !m.fileView.active && !m.pending && m.pendingSpecReview == nil &&
+	if m.altScreen && !m.fileView.active && !m.pending && m.pendingSpecReview == nil &&
 		m.flushedAny && m.flushed == len(m.transcript) &&
 		m.altScreenSettledWidth == width && m.altScreenSettledFrontier == m.flushed {
-		return m.altScreenSettledItems
+		if !detailed {
+			return m.altScreenSettledItems
+		}
+		if m.altScreenSettledDetailed != nil {
+			return m.settledDetailedItems(width, emptyOverlay)
+		}
 	}
 	return m.buildTranscriptBodyItems(width, emptyOverlay, detailed)
+}
+
+// settledDetailedItems serves the detailed view of a fully settled, idle
+// transcript from its snapshot, building it on first use. Only that state is
+// served: with every row settled and no live turn, a build from the first row is
+// exactly what the snapshot holds, so the detailed view shows the same thing it
+// did when it was rebuilt on every frame. It is a separate method so the large
+// model receiver escapes to the heap only on this path, not on every frame.
+func (m model) settledDetailedItems(width int, emptyOverlay string) []transcriptBodyItem {
+	if items, ok := m.altScreenSettledDetailed.load(); ok {
+		return items
+	}
+	return m.altScreenSettledDetailed.store(m.buildTranscriptBodyItems(width, emptyOverlay, true))
 }
 
 func (m model) buildTranscriptBodyItems(width int, emptyOverlay string, detailed bool) []transcriptBodyItem {
@@ -591,10 +632,16 @@ func (m model) transcriptBodyItemsFromRows(rows []transcriptRow, width int) []tr
 			items = append(items, transcriptBlankBodyItem())
 		}
 		rowIndex, transcriptRow := index, row
+		// The child rows are loaded once when the drill-in opens and never change
+		// while it is open, so they are keyed by content like the chat's own rows.
+		// Without a stable key every frame re-rendered the whole child session
+		// just to measure it.
+		heightCacheKey, heightCacheStable := m.transcriptRowBodyHeightCacheKeyOpts(transcriptRow, contentWidth, rc, cardBodyMaxLines)
 		items = append(items, transcriptBodyItem{
-			kind:           transcriptBodyItemRow,
-			rowIndex:       rowIndex,
-			heightCacheKey: "subchat:" + strconv.Itoa(index) + ":" + strconv.Itoa(contentWidth),
+			kind:              transcriptBodyItemRow,
+			rowIndex:          rowIndex,
+			heightCacheKey:    heightCacheKey,
+			heightCacheStable: heightCacheStable,
 			render: func(startBodyY int) transcriptBodyRenderedItem {
 				rendered, selectable := m.renderTranscriptRow(rowIndex, transcriptRow, contentWidth, rc, startBodyY)
 				return m.finalizeTranscriptBodyRow(rendered, selectable, gutter, startBodyY)
@@ -624,9 +671,22 @@ func layoutTranscriptBodyItems(items []transcriptBodyItem) transcriptBodyLayout 
 	return layout
 }
 
+// measureTranscriptBodyItems measures every item without rendering more than
+// it must: the settled snapshot the items start with is measured once and then
+// served from its memoized layout, so a frame only measures the live tail, and
+// the height cache is grown to hold the whole walk (see reserve).
 func measureTranscriptBodyItems(items []transcriptBodyItem, cache *transcriptBodyHeightCache) transcriptBodyLayout {
+	cache.reserve(len(items))
 	layout := transcriptBodyLayout{}
 	startY := 0
+	if settled := settledLayoutPrefix(items); settled != nil {
+		layout.settled = settled.measure(items[:settled.count], cache)
+		if count := len(layout.settled); count > 0 {
+			last := layout.settled[count-1]
+			startY = last.startY + last.height
+		}
+		items = items[settled.count:]
+	}
 	for _, item := range items {
 		height := transcriptBodyItemHeight(item, cache)
 		layout.spans = append(layout.spans, transcriptBodyItemSpan{
@@ -641,20 +701,26 @@ func measureTranscriptBodyItems(items []transcriptBodyItem, cache *transcriptBod
 }
 
 func layoutVisibleTranscriptBodyItems(items []transcriptBodyItem, metrics transcriptBodyLayout, window transcriptViewportWindow) transcriptBodyLayout {
-	layout := transcriptBodyLayout{spans: append([]transcriptBodyItemSpan(nil), metrics.spans...)}
+	// The measured spans are read-only, so the visible layout shares them;
+	// copying them would make every frame proportional to the history again.
+	layout := transcriptBodyLayout{settled: metrics.settled, spans: metrics.spans}
 	if window.end <= window.start {
 		return layout
 	}
-	for index, item := range items {
-		if index >= len(metrics.spans) {
+	count := minInt(len(items), metrics.spanCount())
+	// Spans are contiguous and in order, so their ends never decrease: the first
+	// item reaching into the window is found by binary search, and the walk stops
+	// at the first item starting below it.
+	first := sort.Search(count, func(index int) bool {
+		span := metrics.spanAt(index)
+		return span.startY+span.height > window.start
+	})
+	for index := first; index < count; index++ {
+		span := metrics.spanAt(index)
+		if span.startY >= window.end {
 			break
 		}
-		span := metrics.spans[index]
-		spanEnd := span.startY + span.height
-		if spanEnd <= window.start || span.startY >= window.end {
-			continue
-		}
-		rendered := renderTranscriptBodyItem(item, span.startY)
+		rendered := renderTranscriptBodyItem(items[index], span.startY)
 		localStart := clampInt(window.start-span.startY, 0, len(rendered.lines))
 		localEnd := clampInt(window.end-span.startY, localStart, len(rendered.lines))
 		layout.lines = append(layout.lines, rendered.lines[localStart:localEnd]...)
