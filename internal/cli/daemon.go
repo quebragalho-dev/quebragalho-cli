@@ -49,29 +49,35 @@ func runDaemon(args []string, stdout io.Writer, stderr io.Writer, _ appDeps) int
 }
 
 func writeDaemonUsage(w io.Writer, code int) int {
-	fmt.Fprint(w, `Usage: qg daemon <command>
+	fmt.Fprint(w, `Uso: qg daemon <command>
 
-Commands:
-  start [--foreground]      Start the daemon (background by default).
-  stop                      Gracefully stop the running daemon.
-  status                    Show daemon / pool / session status.
+Comandos:
+  start [--foreground]      Inicia o daemon (em segundo plano por padrão).
+  stop                      Para o daemon em execução com cuidado.
+  status                    Mostra o estado do daemon / pool / sessão.
   run --session <id> [--cwd <dir>] [--prompt <text>] [exec flags...]
-                            Create/route a session and stream its output.
-  attach <session>          Attach to a running session's stream.
-  serve-remote --addr <host:port> --tls-cert <f> --tls-key <f> [--bundle-dir <d>]
-                            Serve an opt-in, TLS-only network bridge to this
-                            daemon. Requires a bearer token in $QG_DAEMON_REMOTE_TOKEN
-                            (or $QG_DAEMON_REMOTE_TOKEN_FILE). --bundle-dir enables
-                            git-bundle uploads, extracted into per-link work trees.
+                            Cria/encaminha uma sessão e transmite a saída.
+  attach <session>          Anexa ao stream de uma sessão em execução.
+  serve-remote --addr <host:port> --tls-cert <f> --tls-key <f>
+      [--bundle-dir <d>]
+                            Serve uma ponte de rede opt-in, só TLS, para
+                            este daemon. Exige bearer token em
+                            $QG_DAEMON_REMOTE_TOKEN (ou
+                            $QG_DAEMON_REMOTE_TOKEN_FILE). --bundle-dir
+                            ativa uploads de git-bundle, extraídos
+                            em worktrees por link.
   link --remote <host:port> --repo <dir> --id <name> [--out <file>]
-                            Upload repo's git history to the remote as a bundle and
-                            print the extracted remote path. --out saves a session
-                            link file (0600). Accepts --token/--ca-cert/--server-name.
-  link --show <file>        Print a saved session link.
+                            Envia o histórico git do repo para o remoto
+                            como bundle e imprime o caminho remoto
+                            extraído. --out salva um arquivo de link
+                            de sessão (0600). Aceita
+                            --token/--ca-cert/--server-name.
+  link --show <file>        Imprime um link de sessão salvo.
 
-run and attach accept --remote <host:port> [--token <t>] [--ca-cert <f>]
-[--server-name <name>] to drive a remote daemon over the bridge instead of the
-local socket. Use the link's remote path as --cwd to run against a linked repo.
+run e attach aceitam --remote <host:port> [--token <t>] [--ca-cert <f>]
+[--server-name <name>] para usar um daemon remoto pela ponte em vez do
+socket local. Use o caminho remoto do link como --cwd para rodar
+contra um repo linkado.
 `)
 	return code
 }

@@ -90,14 +90,14 @@ var commandDefinitions = []commandDefinition{
 		name:        "/model",
 		usage:       "/model [list|id]",
 		group:       commandGroupModel,
-		description: "Show or switch the active model.",
+		description: "Mostra ou troca o modelo ativo.",
 		kind:        commandModel,
 	},
 	{
 		name:        "/stt-model",
 		usage:       "/stt-model",
 		group:       commandGroupModel,
-		description: "Choose the speech-to-text (dictation) model.",
+		description: "Escolhe o modelo de ditado (fala para texto).",
 		kind:        commandSTTModel,
 	},
 	{
@@ -111,56 +111,56 @@ var commandDefinitions = []commandDefinition{
 		name:        "/plan",
 		usage:       "/plan [status|on|off]",
 		group:       commandGroupSession,
-		description: "Entrar no modo de planejamento; status consulta e off sai.",
+		description: "Entra no modo de planejamento; status consulta e off sai.",
 		kind:        commandPlan,
 	},
 	{
 		name:        "/permissions",
 		usage:       "/permissions",
 		group:       commandGroupRuntime,
-		description: "Show the active permission mode and sandbox grants.",
+		description: "Mostra o modo de permissão e o ambiente isolado.",
 		kind:        commandPermissions,
 	},
 	{
 		name:        "/ps",
 		usage:       "/ps",
 		group:       commandGroupRuntime,
-		description: "List running background terminal sessions.",
+		description: "Lista terminais em segundo plano.",
 		kind:        commandPS,
 	},
 	{
 		name:        "/stop",
 		usage:       "/stop [session_id]",
 		group:       commandGroupRuntime,
-		description: "Stop running background terminal sessions.",
+		description: "Encerra os terminais em segundo plano.",
 		kind:        commandStop,
 	},
 	{
 		name:        "/attach",
 		usage:       "/attach [session_id]",
 		group:       commandGroupRuntime,
-		description: "Type directly into a running interactive terminal session.",
+		description: "Digita direto em um terminal interativo em execução.",
 		kind:        commandAttach,
 	},
 	{
 		name:        "/sandbox-setup",
 		usage:       "/sandbox-setup",
 		group:       commandGroupRuntime,
-		description: "Run native sandbox setup for this platform.",
+		description: "Prepara o ambiente isolado nativo desta plataforma.",
 		kind:        commandSandboxSetup,
 	},
 	{
 		name:        "/tools",
 		usage:       "/tools",
 		group:       commandGroupTools,
-		description: "List registered tools.",
+		description: "Lista as ferramentas registradas.",
 		kind:        commandTools,
 	},
 	{
 		name:        "/skills",
 		usage:       "/skills",
 		group:       commandGroupTools,
-		description: "List installed skills; run one directly with /<skill-name> [args].",
+		description: "Lista as skills instaladas; rode uma direto com /<skill-name> [args].",
 		kind:        commandSkills,
 	},
 	{name: "/usage", usage: "/usage", group: commandGroupSession, description: "Resumo da última chamada, custo e janela de contexto.", kind: commandUsage},
@@ -168,42 +168,42 @@ var commandDefinitions = []commandDefinition{
 		name:        "/context",
 		usage:       "/context",
 		group:       commandGroupSession,
-		description: "Show current workspace and runtime context.",
+		description: "Mostra a pasta de trabalho e o contexto do runtime.",
 		kind:        commandContext,
 	},
 	{
 		name:        "/image",
 		usage:       "/image <path> | clear",
 		group:       commandGroupSession,
-		description: "Attach a local image (vision models) or PDF (text layer for any model) to the next message. /image clear removes pending attachments.",
+		description: "Anexa imagem local ou PDF à próxima mensagem. /image clear remove os anexos pendentes.",
 		kind:        commandImage,
 	},
 	{
 		name:        "/add-dir",
 		usage:       "/add-dir [path]",
 		group:       commandGroupRuntime,
-		description: "Grant write access to a directory outside the workspace for this session; bare form lists current write roots.",
+		description: "Libera escrita fora da pasta de trabalho nesta sessão; sem argumento lista as pastas liberadas.",
 		kind:        commandAddDir,
 	},
 	{
 		name:        "/clear",
 		usage:       "/clear",
 		group:       commandGroupMeta,
-		description: "Clear the visible transcript.",
+		description: "Limpa o histórico visível.",
 		kind:        commandClear,
 	},
 	{
 		name:        "/new",
 		usage:       "/new",
 		group:       commandGroupSession,
-		description: "Start a fresh session; the current one stays resumable via /resume.",
+		description: "Abre uma sessão nova; a atual pode ser retomada em /resume.",
 		kind:        commandNew,
 	},
 	{
 		name:        "/btw",
 		usage:       "/btw [question]",
 		group:       commandGroupSession,
-		description: "Open an isolated side conversation; run /btw again to return.",
+		description: "Abre uma conversa paralela isolada; rode /btw de novo para voltar.",
 		kind:        commandBTW,
 	},
 	{
@@ -211,7 +211,7 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/find"},
 		usage:       "/search <query>",
 		group:       commandGroupTools,
-		description: "Search local session events. Requires a query argument.",
+		description: "Busca nos eventos da sessão. Exige o termo de busca.",
 		kind:        commandSearch,
 	},
 	{
@@ -219,7 +219,7 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/mcp-status"},
 		usage:       "/mcp",
 		group:       commandGroupTools,
-		description: "Show MCP server status.",
+		description: "Mostra servidores MCP.",
 		kind:        commandMCP,
 	},
 	{
@@ -227,42 +227,42 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/sessions"},
 		usage:       "/resume [id]",
 		group:       commandGroupSession,
-		description: "List recent sessions or show resume guidance.",
+		description: "Lista sessões recentes ou mostra como retomar.",
 		kind:        commandResume,
 	},
 	{
 		name:        "/rename",
 		usage:       "/rename [title]",
 		group:       commandGroupSession,
-		description: "Rename the current session (no arg opens an editor).",
+		description: "Renomeia a sessão atual (sem título abre um editor).",
 		kind:        commandRename,
 	},
 	{
 		name:        "/spec",
 		usage:       "/spec <task>",
 		group:       commandGroupSession,
-		description: "Draft an implementation spec for review before editing.",
+		description: "Escreve uma spec para revisar antes de editar.",
 		kind:        commandSpec,
 	},
 	{
 		name:        "/init",
 		usage:       "/init",
 		group:       commandGroupSession,
-		description: "Investigate the repo and generate an AGENTS.md for the agent.",
+		description: "Investiga o repo e gera um AGENTS.md para o agente.",
 		kind:        commandInit,
 	},
 	{
 		name:        "/compact",
 		usage:       "/compact [status|now]",
 		group:       commandGroupSession,
-		description: "Compact the transcript now, or show compaction state (/compact status).",
+		description: "Compacta o histórico agora ou mostra o estado (/compact status).",
 		kind:        commandCompact,
 	},
 	{
 		name:        "/transcript",
 		usage:       "/transcript",
 		group:       commandGroupSession,
-		description: "Toggle the detailed transcript view.",
+		description: "Liga ou desliga a visão detalhada do histórico.",
 		kind:        commandTranscript,
 	},
 	{
@@ -270,28 +270,28 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/undo"},
 		usage:       "/rewind [latest|<sequence>]",
 		group:       commandGroupSession,
-		description: "Restore workspace files to a checkpoint and truncate the session.",
+		description: "Volta a pasta de trabalho a um ponto de restauração e corta a sessão.",
 		kind:        commandRewind,
 	},
 	{
 		name:        "/effort",
 		usage:       "/effort [list|level|auto]",
 		group:       commandGroupModel,
-		description: "Show or set reasoning effort for supported models.",
+		description: "Mostra ou ajusta o nível de raciocínio nos modelos suportados.",
 		kind:        commandEffort,
 	},
 	{
 		name:        "/fast",
 		usage:       "/fast",
 		group:       commandGroupModel,
-		description: "Toggle fast mode for supported ChatGPT subscription models.",
+		description: "Liga ou desliga o modo rápido nos modelos ChatGPT suportados.",
 		kind:        commandFast,
 	},
 	{
 		name:        "/style",
 		usage:       "/style [list|balanced|concise|explanatory|review]",
 		group:       commandGroupSession,
-		description: "Show or set the response style preference.",
+		description: "Mostra ou ajusta o estilo de resposta.",
 		kind:        commandStyle,
 	},
 	{
@@ -299,70 +299,70 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/sc"},
 		usage:       "/selfcorrect [status|on|off|tests|full|lsp]",
 		group:       commandGroupSession,
-		description: "Show or set post-edit self-correction depth (LSP-only default; on/tests/full add the project test plan; off/lsp disable tests, LSP-only).",
+		description: "Mostra ou ajusta a autocorreção após editar (padrão só LSP; on/tests/full incluem os testes do projeto; off/lsp desligam os testes).",
 		kind:        commandSelfCorrect,
 	},
 	{
 		name:        "/turns",
 		usage:       "/turns [n]",
 		group:       commandGroupSession,
-		description: "Show or set the per-run tool-turn budget for this session (raise it for long multi-step tasks).",
+		description: "Mostra ou ajusta os turnos com ferramenta por execução (aumente em tarefas longas).",
 		kind:        commandTurns,
 	},
 	{
 		name:        "/profile",
 		usage:       "/profile [status|balanced|fast|thorough]",
 		group:       commandGroupSession,
-		description: "Show or switch the execution profile for the next run (loop posture: turn budget, effort, self-correction, escalation; model selection is unchanged).",
+		description: "Mostra ou troca o perfil de execução (turnos, raciocínio, autocorreção, escalação; o modelo não muda).",
 		kind:        commandProfile,
 	},
 	{
 		name:        "/retry",
 		usage:       "/retry",
 		group:       commandGroupSession,
-		description: "Resend your last prompt.",
+		description: "Reenvia sua última mensagem.",
 		kind:        commandRetry,
 	},
 	{
 		name:        "/edit",
 		usage:       "/edit",
 		group:       commandGroupSession,
-		description: "Recall your last prompt into the composer to edit and resend.",
+		description: "Traz sua última mensagem para a entrada para editar e reenviar.",
 		kind:        commandEdit,
 	},
 	{
 		name:        "/copy",
 		usage:       "/copy",
 		group:       commandGroupSession,
-		description: "Copy the last answer to the clipboard.",
+		description: "Copia a última resposta.",
 		kind:        commandCopy,
 	},
 	{
 		name:        "/export",
 		usage:       "/export [path]",
 		group:       commandGroupSession,
-		description: "Write the conversation transcript to a file.",
+		description: "Grava o histórico da conversa em um arquivo.",
 		kind:        commandExport,
 	},
 	{
 		name:        "/loop",
 		usage:       "/loop [interval] <prompt|/command> | /loop list | /loop stop [id|all]",
 		group:       commandGroupSession,
-		description: "Repeat a prompt or command on an interval (e.g. /loop 5m /babysit-prs), or self-paced when no interval is given.",
+		description: "Repete uma mensagem ou comando em intervalo (ex.: /loop 5m /babysit-prs); sem intervalo roda no próprio ritmo.",
 		kind:        commandLoop,
 	},
 	{
 		name:        "/goal",
 		usage:       "/goal [--tokens N] <objective> | status | pause | resume | edit | clear",
 		group:       commandGroupSession,
-		description: "Create and pursue one persistent objective for this session.",
+		description: "Define um objetivo e trabalha nele até concluir.",
 		kind:        commandGoal,
 	},
 	{
 		name:        "/help",
 		usage:       "/help",
 		group:       commandGroupMeta,
-		description: "Show available commands.",
+		description: "Mostra os comandos disponíveis.",
 		kind:        commandHelp,
 	},
 	{
@@ -370,21 +370,21 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/health"},
 		usage:       "/doctor [fix|--connectivity]",
 		group:       commandGroupRuntime,
-		description: "Show diagnostics, open safe fixes, or run provider connectivity checks.",
+		description: "Mostra o diagnóstico, abre correções seguras ou testa o provedor.",
 		kind:        commandDoctor,
 	},
 	{
 		name:        "/logout",
 		usage:       "/logout",
 		group:       commandGroupRuntime,
-		description: "Remove saved Quebra Galho credentials and close the app.",
+		description: "Remove as credenciais salvas do Quebra Galho e fecha o app.",
 		kind:        commandLogout,
 	},
 	{
 		name:        "/config",
 		usage:       "/config [recaps on|off]",
 		group:       commandGroupRuntime,
-		description: "Show active configuration; toggle settings (recaps on|off).",
+		description: "Mostra a configuração ativa; alterna ajustes (recaps on|off).",
 		kind:        commandConfig,
 	},
 	{
@@ -392,14 +392,14 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/debug-mode"},
 		usage:       "/debug",
 		group:       commandGroupRuntime,
-		description: "Show debug mode status.",
+		description: "Mostra o modo debug.",
 		kind:        commandDebug,
 	},
 	{
 		name:        "/theme",
 		usage:       "/theme [list|auto|name]",
 		group:       commandGroupSession,
-		description: "Pick a color theme (no arg opens the picker; auto detects the terminal background).",
+		description: "Escolhe o tema de cor (sem argumento abre o seletor; auto detecta o fundo do terminal).",
 		kind:        commandTheme,
 	},
 	{
@@ -407,7 +407,7 @@ var commandDefinitions = []commandDefinition{
 		aliases:     []string{"/quit"},
 		usage:       "/exit",
 		group:       commandGroupMeta,
-		description: "Exit QG.",
+		description: "Sai do QG.",
 		kind:        commandExit,
 	},
 }
@@ -465,7 +465,7 @@ func resolveCommand(name string) (commandDefinition, bool) {
 }
 
 func formatGroupedCommandHelp() string {
-	lines := []string{"Commands", "status: info"}
+	lines := []string{"Comandos", "status: info"}
 	for _, group := range commandGroupOrder() {
 		groupLines := commandHelpLinesForGroup(group)
 		if len(groupLines) == 0 {
@@ -474,7 +474,7 @@ func formatGroupedCommandHelp() string {
 		lines = append(lines, commandGroupTitle(group))
 		lines = append(lines, groupLines...)
 	}
-	lines = append(lines, "hint: submit plain text to ask QG")
+	lines = append(lines, "hint: escreva um texto para perguntar ao QG")
 	return strings.Join(lines, "\n")
 }
 
@@ -559,13 +559,13 @@ func commandGroupOrder() []commandGroup {
 func commandGroupTitle(group commandGroup) string {
 	switch group {
 	case commandGroupModel:
-		return "Model"
+		return "Modelo"
 	case commandGroupSession:
-		return "Session"
+		return "Sessão"
 	case commandGroupRuntime:
-		return "Runtime"
+		return "Execução"
 	case commandGroupTools:
-		return "Tools"
+		return "Ferramentas"
 	case commandGroupMeta:
 		return "Meta"
 	default:

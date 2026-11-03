@@ -558,111 +558,112 @@ func parseMCPPositionalCommand(args []string) (mcpCommandOptions, []string, bool
 }
 
 func writePluginsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg plugins <command>
 
-Commands:
-  list                 List local QG plugins
-  info <id>            Show plugin details and lockfile metadata
-  add <git-url|path>   Install a plugin (manifest-validated, pinned in plugins.lock)
-  remove <id>          Remove an installed plugin and its lockfile entry
+Comandos:
+  list                 Lista plugins locais do QG
+  info <id>            Mostra detalhes do plugin e metadados do lockfile
+  add <git-url|path>   Instala plugin (manifesto validado, fixado
+                       em plugins.lock)
+  remove <id>          Remove um plugin instalado e sua entrada do lockfile
 `)
 	return err
 }
 
 func writePluginsListHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg plugins list [flags]
 
-Flags:
-      --json    Print local plugin data as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime os dados de plugins locais em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }
 
 func writeHooksHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg hooks <command>
 
-Commands:
-  list      List configured QG hooks
-  add       Add or update a hook
-  remove    Remove a hook by id
-  enable    Enable a hook by id
-  disable   Disable a hook by id
+Comandos:
+  list      Lista hooks configurados do QG
+  add       Adiciona ou atualiza um hook
+  remove    Remove um hook por id
+  enable    Ativa um hook por id
+  disable   Desativa um hook por id
 `)
 	return err
 }
 
 func writeHooksListHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg hooks list [flags]
 
-Flags:
-      --json    Print hook config as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime a config de hooks em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }
 
 func writeMCPHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg mcp <command>
 
-Commands:
-  add <server>      Add or update an MCP server in user config
-  remove <server>   Remove an MCP server from user config
-  enable <server>   Enable a user-configured MCP server
-  disable <server>  Disable a user-configured MCP server
-  check <server>    Connect to one MCP server and list its tools
-  list              List configured MCP servers, or tools with --tools
-  oauth             Manage OAuth credentials for remote MCP servers
-  permissions       Manage persistent MCP tool permissions
-  tools             Inspect configured MCP tools
+Comandos:
+  add <server>      Adiciona ou atualiza um servidor MCP na config do usuário
+  remove <server>   Remove um servidor MCP da config do usuário
+  enable <server>   Ativa um servidor MCP da config do usuário
+  disable <server>  Desativa um servidor MCP da config do usuário
+  check <server>    Conecta a um servidor MCP e lista suas ferramentas
+  list              Lista servidores MCP configurados ou ferramentas (--tools)
+  oauth             Gerencia credenciais OAuth de servidores MCP remotos
+  permissions       Gerencia permissões persistentes de ferramentas MCP
+  tools             Inspeciona ferramentas MCP configuradas
 `)
 	return err
 }
 
 func writeMCPLegacyListHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg mcp list [flags]
 
-Flags:
-      --json     Print MCP servers or tools as JSON
-      --tools    Connect to enabled servers and list MCP tools
-  -h, --help     Show this help
+Opções:
+      --json     Imprime servidores ou ferramentas MCP em JSON
+      --tools    Conecta aos servidores ativos e lista ferramentas MCP
+  -h, --help     Mostra esta ajuda
 `)
 	return err
 }
 
 func writeMCPToolsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg mcp tools <command>
 
-Commands:
-  list    List configured MCP tools
+Comandos:
+  list    Lista ferramentas MCP configuradas
 
-Flags:
-      --json    Print MCP tools as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime ferramentas MCP em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }
 
 func writeMCPPermissionsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg mcp permissions <command>
 
-Commands:
-  list                  List all persistent MCP permissions
-  revoke <server> [<tool>] Revoke an MCP server or tool permission
-  clear --confirm       Clear all persistent MCP permissions
+Comandos:
+  list                  Lista todas as permissões MCP persistentes
+  revoke <server> [<tool>] Revoga a permissão de um servidor ou ferramenta MCP
+  clear --confirm       Limpa todas as permissões MCP persistentes
 
-Flags:
-      --json       Print command result as JSON
-      --confirm    Confirm destructive clear operation
-  -h, --help       Show this help
+Opções:
+      --json       Imprime o resultado do comando em JSON
+      --confirm    Confirma a limpeza destrutiva
+  -h, --help       Mostra esta ajuda
 `)
 	return err
 }

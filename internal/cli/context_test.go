@@ -18,7 +18,7 @@ func TestRunContextHelp(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	for _, want := range []string{"Usage:", "qg context [flags]", "--json", "-h, --help"} {
+	for _, want := range []string{"Uso:", "qg context [flags]", "--json", "-h, --help"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected context help to contain %q, got %q", want, stdout.String())
 		}

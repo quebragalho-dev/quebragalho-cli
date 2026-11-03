@@ -377,31 +377,31 @@ func runSpecialistPath(paths specialist.Paths, options specialistOptions, stdout
 }
 
 func writeSpecialistHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg specialist [command] [flags]
 
-Commands:
-  list       List built-in, user, and project specialists
-  show NAME  Show one specialist profile
+Comandos:
+  list       Lista especialistas embutidos, do usuário e do projeto
+  show NAME  Mostra um perfil de especialista
   create NAME
-             Create a user specialist profile
+             Cria um perfil de especialista do usuário
   delete NAME
-             Delete a user specialist profile
-  edit NAME  Open a user specialist profile in $VISUAL or $EDITOR
-  path       Print specialist directories
-  help       Show this help
+             Apaga um perfil de especialista do usuário
+  edit NAME  Abre um perfil de especialista do usuário em $VISUAL ou $EDITOR
+  path       Mostra as pastas de especialistas
+  help       Mostra esta ajuda
 
-Flags:
-  --json                      Print JSON output
-  --user                      Use the user specialist directory (default)
-  --project                   Use the project .qg/specialists directory
-  --description <text>        Description for create
-  --prompt <text>             System prompt for create
-  --tools <list>              Tool ids/categories for create
-  --extends <name>            Base specialist for create
-  --model <model>             Model override for create
-  --reasoning-effort <value>  Reasoning effort override for create
-  --force                     Replace an existing specialist during create
+Opções:
+  --json                      Imprime a saída em JSON
+  --user                      Usa a pasta de especialistas do usuário (padrão)
+  --project                   Usa a pasta .qg/specialists do projeto
+  --description <text>        Descrição ao criar
+  --prompt <text>             Mensagem de sistema ao criar
+  --tools <list>              Ferramentas ao criar (ids/categorias)
+  --extends <name>            Especialista base ao criar
+  --model <model>             Modelo ao criar
+  --reasoning-effort <value>  Nível de raciocínio ao criar
+  --force                     Substitui o especialista existente ao criar
 `)
 	return err
 }

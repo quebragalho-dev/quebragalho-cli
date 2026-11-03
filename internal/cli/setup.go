@@ -595,27 +595,30 @@ func setupCommandArg(value string) string {
 }
 
 func writeSetupHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg setup <provider> [flags]
 
-Configures <provider> as the active provider. The interactive setup UI was
-removed, so the provider argument is required.
+Configura <provider> como o provedor ativo. A interface interativa de
+configuração foi removida, então o provedor é obrigatório.
 
-Examples:
+Exemplos:
   qg setup qg
   qg setup qg --api-key sk-...
   qg setup qg --api-key-env QUEBRAGALHO_API_KEY
   qg setup qg --model muse-spark-1.3-contributor
 
-Flags:
-      --name <name>             Provider profile name
-      --model <model>           Override the default model
-      --base-url <url>          Override provider base URL
-      --api-key <key>           Save an API key directly in the credential store
-      --api-key-env <name>      Store an API key environment variable name
-      --verify                  Probe the provider after saving and report a fixable error on failure
-      --json                    Print machine-readable setup result
-  -h, --help                    Show this help
+Opções:
+      --name <name>             Nome do perfil de provedor
+      --model <model>           Troca o modelo padrão
+      --base-url <url>          Troca a URL base do provedor
+      --api-key <key>           Salva a chave de API direto no cofre
+                                de credenciais
+      --api-key-env <name>      Salva o nome da variável de ambiente
+                                da chave de API
+      --verify                  Sonda o provedor após salvar e relata um erro
+                                corrigível se falhar
+      --json                    Resultado da configuração em JSON
+  -h, --help                    Mostra esta ajuda
 `)
 	return err
 }

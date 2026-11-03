@@ -4,11 +4,13 @@ import (
 	"context"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
@@ -45,19 +47,19 @@ func TestFormatCommandHelpLinesGroupsCommandsByStableOrder(t *testing.T) {
 
 	for _, want := range []string{
 		"model:",
-		"  /model [list|id] - Show or switch the active model.",
-		"  /effort [list|level|auto] - Show or set reasoning effort for supported models.",
-		"  /fast - Toggle fast mode for supported ChatGPT subscription models.",
+		"  /model [list|id] - Mostra ou troca o modelo ativo.",
+		"  /effort [list|level|auto] - Mostra ou ajusta o nível de raciocínio nos modelos suportados.",
+		"  /fast - Liga ou desliga o modo rápido nos modelos ChatGPT suportados.",
 		"session:",
-		"  /plan [status|on|off] - Entrar no modo de planejamento; status consulta e off sai.",
+		"  /plan [status|on|off] - Entra no modo de planejamento; status consulta e off sai.",
 		"runtime:",
-		"  /permissions - Show the active permission mode and sandbox grants.",
-		"  /debug (/debug-mode) - Show debug mode status.",
+		"  /permissions - Mostra o modo de permissão e o ambiente isolado.",
+		"  /debug (/debug-mode) - Mostra o modo debug.",
 		"tools:",
-		"  /mcp (/mcp-status) - Show MCP server status.",
-		"  /search <query> (/find) - Search local session events. Requires a query argument.",
+		"  /mcp (/mcp-status) - Mostra servidores MCP.",
+		"  /search <query> (/find) - Busca nos eventos da sessão. Exige o termo de busca.",
 		"meta:",
-		"  /exit (/quit) - Exit QG.",
+		"  /exit (/quit) - Sai do QG.",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected grouped help to contain %q, got:\n%s", want, help)
@@ -1060,4 +1062,121 @@ func TestImageCommandIsDiscoverable(t *testing.T) {
 	if !found {
 		t.Fatal("/image should be listed so it appears in help and autocomplete")
 	}
+}
+
+func TestSlashHelpPTDescriptionsFit80Cells(t *testing.T) {
+	byName := map[string]string{}
+	for _, c := range commandDefinitions {
+		byName[c.name] = c.description
+	}
+	if got := byName["/resume"]; got != "Lista sessões recentes ou mostra como retomar." {
+		t.Fatalf("/resume description = %q", got)
+	}
+	if got := byName["/spec"]; got != "Escreve uma spec para revisar antes de editar." {
+		t.Fatalf("/spec description = %q", got)
+	}
+	// These two descriptions were shortened once to fit, losing information
+	// (the profile scopes and the /loop example). Any shortening must fail.
+	if got := byName["/profile"]; got != "Mostra ou troca o perfil de execução (turnos, raciocínio, autocorreção, escalação; o modelo não muda)." {
+		t.Fatalf("/profile description = %q", got)
+	}
+	if got := byName["/loop"]; got != "Repete uma mensagem ou comando em intervalo (ex.: /loop 5m /babysit-prs); sem intervalo roda no próprio ritmo." {
+		t.Fatalf("/loop description = %q", got)
+	}
+	// Maestro decision: /copy is short enough to survive the 50-column card,
+	// where the base never cut it.
+	if got := byName["/copy"]; got != "Copia a última resposta." {
+		t.Fatalf("/copy description = %q", got)
+	}
+
+	// Every description must reach the real /help output in full.
+	grouped := formatGroupedCommandHelp()
+	for _, c := range commandDefinitions {
+		if !strings.Contains(grouped, c.description) {
+			t.Errorf("/help drops %s description %q", c.name, c.description)
+		}
+	}
+
+	// The /help card truncates each row to width-4 cells, so raw line widths
+	// do not decide what the user sees. Render the real card at 50, 80 and
+	// 120 columns and require the cut set to stay within the base set: a new
+	// cut (a longer description) or a resurrected one fails.
+	for _, width := range []int{50, 80, 120} {
+		plain := plainRender(t, renderCommandCardRow(formatGroupedCommandHelp(), chatWidth(width)))
+		for _, c := range commandDefinitions {
+			if strings.Contains(plain, slashHelpRenderedRow(c)) {
+				continue
+			}
+			if !slices.Contains(slashHelpBaseCuts[width], c.name) {
+				t.Errorf("/help cuts %s at %d columns, beyond the base set", c.name, width)
+			}
+		}
+	}
+
+	// Each real /help line must fit 80 cells, except the long lines the base
+	// already ships: those must not grow beyond the base width, so a longer
+	// description (a new cut at 80 columns) fails while a shortening (for
+	// example a narrower voiceCaptureUsage from another PR) passes.
+	// A new command with a short description passes without touching this table.
+	for _, c := range commandDefinitions {
+		line := "  " + formatCommandHelpLine(c)
+		w := lipgloss.Width(line)
+		if base, ok := slashHelpOver80BaseWidths[c.name]; ok {
+			if w > base {
+				t.Errorf("%s /help line is %d cells, want at most base %d: %q", c.name, w, base, line)
+			}
+			continue
+		}
+		if w > 80 {
+			t.Errorf("%s /help line exceeds 80 cells (%d): %q", c.name, w, line)
+		}
+	}
+	for name := range slashHelpOver80BaseWidths {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("grandfathered /help width for %s has no command; update the table", name)
+		}
+	}
+}
+
+// slashHelpOver80BaseWidths pins the rendered /help lines that already exceed
+// 80 cells in the approved base. No new line may join them and no pinned line
+// may change without a deliberate table update.
+var slashHelpOver80BaseWidths = map[string]int{
+	"/selfcorrect": 186,
+	"/loop":        184,
+	"/profile":     147,
+	"/voice":       124,
+	"/goal":        124,
+	"/theme":       115,
+	"/add-dir":     115,
+	"/image":       112,
+	"/rewind":      109,
+	"/doctor":      108,
+	"/turns":       98,
+	"/style":       92,
+	"/effort":      92,
+	"/compact":     90,
+	"/config":      89,
+	"/btw":         86,
+	"/plan":        83,
+	"/skills":      81,
+}
+
+// slashHelpRenderedRow is the exact row the /help card renders for a command:
+// the card two-tones "label - description" into "label — description".
+func slashHelpRenderedRow(c commandDefinition) string {
+	label := c.usage
+	if len(c.aliases) > 0 {
+		label += " (" + strings.Join(c.aliases, ", ") + ")"
+	}
+	return "  " + label + " — " + c.description
+}
+
+// slashHelpBaseCuts pins, per card width, the commands the base bafc28a0
+// already truncates with "…" in the real /help card. The current cut set must
+// stay within these sets: any newly cut command fails the test.
+var slashHelpBaseCuts = map[int][]string{
+	50:  {"/model", "/stt-model", "/voice", "/plan", "/permissions", "/stop", "/attach", "/sandbox-setup", "/skills", "/usage", "/context", "/image", "/add-dir", "/new", "/btw", "/search", "/resume", "/rename", "/spec", "/init", "/compact", "/transcript", "/rewind", "/effort", "/fast", "/style", "/selfcorrect", "/turns", "/profile", "/edit", "/export", "/loop", "/goal", "/doctor", "/logout", "/config", "/theme"},
+	80:  {"/voice", "/plan", "/attach", "/skills", "/image", "/add-dir", "/btw", "/search", "/compact", "/rewind", "/effort", "/style", "/selfcorrect", "/turns", "/profile", "/loop", "/goal", "/doctor", "/config", "/theme"},
+	120: {"/image", "/add-dir", "/selfcorrect", "/profile", "/loop", "/goal"},
 }

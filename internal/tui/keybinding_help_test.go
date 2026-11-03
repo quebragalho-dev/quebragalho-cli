@@ -75,11 +75,11 @@ func TestHelpOverlayViewRendersGroupsAndKeys(t *testing.T) {
 	m.helpOverlay = true
 	view := plainRender(t, m.View())
 	for _, want := range []string{
-		"Keyboard Shortcuts",
-		"Ctrl+T", "cycle reasoning effort",
+		"Atalhos de teclado",
+		"Ctrl+T", "alterna o nível de raciocínio",
 		"Shift+Tab", "Ctrl+P", "Ctrl+O",
-		"drill into its sub-session",
-		"Ctrl+X then letter", "/model",
+		"entra na subsessão dele",
+		"Ctrl+X e letra", "/model",
 		keybindingHelpFooter,
 	} {
 		if !strings.Contains(view, want) {
@@ -114,7 +114,7 @@ func TestBuildKeybindingGroupsAreWellFormed(t *testing.T) {
 // only the centered shortcut block on a blank canvas — no title bar, no
 // composer. With the overlay open, surrounding chat chrome that is NOT covered
 // by the centered box (the model title bar at top, the composer at bottom) must
-// still be present alongside "Keyboard Shortcuts".
+// still be present alongside "Atalhos de teclado".
 func TestHelpOverlayCompositesOverChatNotReplacingIt(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "gpt-4o"})
 	m.width = 100
@@ -125,7 +125,7 @@ func TestHelpOverlayCompositesOverChatNotReplacingIt(t *testing.T) {
 	m.helpOverlay = true
 	over := plainRender(t, m.View())
 
-	if !strings.Contains(over, "Keyboard Shortcuts") {
+	if !strings.Contains(over, "Atalhos de teclado") {
 		t.Fatalf("help overlay not rendered:\n%s", over)
 	}
 	// Chrome that renders in the baseline (and sits outside the centered overlay
@@ -152,7 +152,7 @@ func TestHelpOverlayKeepsTranscriptBodyBehindIt(t *testing.T) {
 	m.helpOverlay = true
 
 	view := plainRender(t, m.View())
-	if !strings.Contains(view, "Keyboard Shortcuts") {
+	if !strings.Contains(view, "Atalhos de teclado") {
 		t.Fatalf("help overlay not rendered:\n%s", view)
 	}
 	// The start of the transcript line peeks to the left of the centered box.
@@ -296,5 +296,46 @@ func TestExplicitDefaultChordConfigStillRequiresEmptyComposer(t *testing.T) {
 	next = updated.(model)
 	if next.runDetailsOpen != initialDetails {
 		t.Fatal("explicit ctrl+b config should NOT toggle run details with a non-empty composer")
+	}
+}
+
+// The pt-BR key labels must keep the key column at the base width so every
+// description that fits in English still fits in Portuguese: at the overlay's
+// full widths (80 and 120 share the capped 76-cell geometry) each fitting row
+// renders whole. Rows the base already truncates stay truncated in both.
+func TestHelpOverlayFittingRowsRenderWholeAtFullWidths(t *testing.T) {
+	m := newModel(context.Background(), Options{ModelName: "gpt-4o"})
+	whole := []string{
+		"Clicar no especialista",
+		"Clicar na ferramenta",
+		"envia a mensagem",
+		"insere uma quebra de linha (multilinha)",
+		"cancela a execução e sai",
+		"lista todos os atalhos Ctrl+X com /",
+		"mostra esta ajuda (com a entrada vazia)",
+		"alterna o modo de permissão (auto ↔ ask)",
+		"rola o histórico por página",
+		"alterna o histórico detalhado (tela cheia)",
+		"mostra / oculta os detalhes da execução",
+		"confirma seleção do autocompletar / seletor",
+		"entra na subsessão dele",
+		"volta para o chat principal",
+		"alterna o modelo destacado como favorito",
+		"expande / recolhe a saída dela",
+		"cola a área de transferência",
+	}
+	footer := "? ou Esc fechar · /help para comandos com /"
+	whole = append(whole, footer)
+	for _, width := range []int{80, 120} {
+		got := plainRender(t, m.renderKeybindingHelpOverlay(width))
+		for _, want := range whole {
+			if !strings.Contains(got, want) {
+				t.Fatalf("help overlay at width %d truncates %q:\n%s", width, want, got)
+			}
+		}
+	}
+	got50 := plainRender(t, m.renderKeybindingHelpOverlay(50))
+	if !strings.Contains(got50, footer) {
+		t.Fatalf("help overlay at width 50 truncates footer %q:\n%s", footer, got50)
 	}
 }

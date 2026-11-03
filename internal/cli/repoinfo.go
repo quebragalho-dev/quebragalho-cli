@@ -191,13 +191,13 @@ func writeRepoInfoList(b *strings.Builder, label string, items []string) {
 }
 
 func writeRepoInfoHelp(w io.Writer) {
-	fmt.Fprint(w, `qg repo-info — characterize the current repository (local git only)
+	fmt.Fprint(w, `qg repo-info — caracteriza o repositório atual (só git local)
 
-Usage:
+Uso:
   qg repo-info [--json] [--cwd <dir>]
 
-Flags:
-  --json        Emit the full characterization as JSON.
-  -C, --cwd     Run against a different directory.
+Opções:
+  --json        Emite a caracterização completa em JSON.
+  -C, --cwd     Executa em uma pasta diferente.
 `)
 }

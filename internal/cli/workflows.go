@@ -887,76 +887,77 @@ func formatCommitResult(result qggit.CommitResult) string {
 }
 
 func writeWorktreesHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg worktrees prepare [flags] [name]
   qg worktrees release [flags] <path>
 
-Prepares an isolated git worktree for a QG task.
+Prepara uma worktree git isolada para uma tarefa do QG.
 
-prepare locks the worktree it creates so QG's automatic cleanup never
-removes it out from under you. release unlocks a worktree prepare created,
-once you are done with it, so cleanup can reclaim it later if it goes stale.
-If the worktree directory was deleted by hand, run release with -C pointing
-at the source repository so the orphaned lock can still be cleared.
+prepare trava a worktree que cria para a limpeza automática do QG nunca
+removê-la durante o uso. release destrava uma worktree criada pelo prepare,
+quando você termina, para a limpeza poder recuperá-la se ficar obsoleta.
+Se a pasta da worktree foi apagada à mão, rode release com -C apontando
+para o repositório de origem para limpar o lock órfão.
 
-prepare flags:
-      --name <name>       Worktree name; defaults to a timestamped task name
-      --dir <path>        Base directory for QG worktrees
-  -C, --cwd <path>        Source repository directory
-      --json              Print JSON output
-  -h, --help              Show this help
+Opções do prepare:
+      --name <name>       Nome da worktree (padrão: tarefa com timestamp)
+      --dir <path>        Pasta base das worktrees do QG
+  -C, --cwd <path>        Pasta do repositório de origem
+      --json              Imprime a saída em JSON
+  -h, --help              Mostra esta ajuda
 
-release flags:
-  -C, --cwd <path>        Source repository directory; needed when the
-                           worktree directory was already deleted and you
-                           are not running inside the source repository
-  -h, --help              Show this help
+Opções do release:
+  -C, --cwd <path>        Pasta do repositório de origem; necessária quando a
+                          pasta da worktree já foi apagada e você
+                          não está dentro do repositório de origem
+  -h, --help              Mostra esta ajuda
 `)
 	return err
 }
 
 func writeVerifyHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg verify [flags]
 
-Detects and runs local verification checks for the workspace.
+Detecta e executa verificações locais da pasta de trabalho.
 
-Flags:
-  -C, --cwd <path>        Workspace directory
-      --only <ids>        Run only matching check ids
-      --timeout-ms <n>    Per-check timeout in milliseconds
-      --attempts <n>      Run a bounded self-verification loop
-      --json              Print JSON output
-  -h, --help              Show this help
+Opções:
+  -C, --cwd <path>        Pasta de trabalho
+      --only <ids>        Executa só verificações com ids correspondentes
+      --timeout-ms <n>    Timeout por verificação em milissegundos
+      --attempts <n>      Executa um loop limitado de autoverificação
+      --json              Imprime a saída em JSON
+  -h, --help              Mostra esta ajuda
 `)
 	return err
 }
 
 func writeChangesHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg changes inspect [flags]
   qg changes commit [flags]
   qg changes push [flags]
   qg changes pr [flags]
 
-Inspects, commits, pushes, and creates pull requests for local git changes.
+Inspeciona mudanças git locais, faz commit e push, e cria pull requests.
 
-Flags:
-  -C, --cwd <path>        Workspace directory
-      --base <ref>        Diff against <ref>...HEAD instead of the working tree
-      --diff-bytes <n>    Maximum diff bytes to include
-  -m, --message <text>    Commit message for `+"`qg changes commit`"+`
-      --dry-run           Preview commit metadata / push without mutating git state
-      --remote <name>     Remote to push to (defaults to upstream tracked branch or origin)
-      --force             Use force-with-lease when pushing
-      --title <text>      PR title
-      --body <text>       PR body
-      --fill              Automatically populate PR title and body from commits
-      --draft             Create PR as a draft
-      --yes               Confirm pushing to a default/protected branch
-  -a, --auto              Use the LLM: commit generates the message, push/pr name the auto-created branch (sends the diff to the provider)
-      --json              Print JSON output
-  -h, --help              Show this help
+Opções:
+  -C, --cwd <path>        Pasta de trabalho
+      --base <ref>        Compara com <ref>...HEAD em vez da árvore de trabalho
+      --diff-bytes <n>    Máximo de bytes de diff incluídos
+  -m, --message <text>    Mensagem de commit para `+"`qg changes commit`"+`
+      --dry-run           Prévia do commit/push sem alterar o git
+      --remote <name>     Remoto do push (padrão: upstream ou origin)
+      --force             Usa force-with-lease no push
+      --title <text>      Título do PR
+      --body <text>       Corpo do PR
+      --fill              Preenche título e corpo do PR pelos commits
+      --draft             Cria o PR como rascunho
+      --yes               Confirma o push para uma branch padrão/protegida
+  -a, --auto              Usa o LLM: commit gera a mensagem, push/pr nomeiam
+                          a branch autocriada (envia o diff ao provedor)
+      --json              Imprime a saída em JSON
+  -h, --help              Mostra esta ajuda
 `)
 	return err
 }

@@ -629,109 +629,111 @@ func shortHash(hash string) string {
 }
 
 func writeSkillAddHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg skill add <git-url|path> [flags]
 
-Installs a skill from a git URL or local path into the skills directory and
-records a content hash in skills.lock. Fetched content is never executed.
+Instala uma skill de uma URL git ou caminho local na pasta de skills e
+registra um hash do conteúdo em skills.lock. O conteúdo baixado nunca é
+executado.
 
-Flags:
-  -f, --force    Overwrite a skill installed from a different source
-      --json     Print the install result as JSON
-  -h, --help     Show this help
+Opções:
+  -f, --force    Sobrescreve uma skill instalada de outra origem
+      --json     Imprime o resultado da instalação em JSON
+  -h, --help     Mostra esta ajuda
 `)
 	return err
 }
 
 func writeSkillInfoHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg skill info <name> [--json]
 
-Shows a skill's frontmatter plus its recorded source and pinned hash.
+Mostra o frontmatter da skill mais a origem registrada e o hash fixado.
 `)
 	return err
 }
 
 func writeSkillRemoveHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg skill remove <name>
 
-Removes an installed skill directory and its skills.lock entry.
+Remove a pasta de uma skill instalada e sua entrada em skills.lock.
 `)
 	return err
 }
 
 func writePluginAddHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg plugin add <git-url|path> [flags]
 
-Installs a plugin from a git URL or local path. The manifest is validated and a
-content hash is recorded in plugins.lock. No install script is run; the plugin
-still activates through the normal permission flow.
+Instala um plugin de uma URL git ou caminho local. O manifesto é validado e um
+hash do conteúdo é registrado em plugins.lock. Nenhum script de
+instalação é executado; o plugin continua ativando pelo fluxo normal de
+permissão.
 
-Flags:
-  -f, --force    Overwrite a plugin installed from a different source
-      --json     Print the install result as JSON
-  -h, --help     Show this help
+Opções:
+  -f, --force    Sobrescreve um plugin instalado de outra origem
+      --json     Imprime o resultado da instalação em JSON
+  -h, --help     Mostra esta ajuda
 `)
 	return err
 }
 
 func writePluginRemoveHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg plugin remove <id>
 
-Removes an installed plugin directory and its plugins.lock entry.
+Remove a pasta de um plugin instalado e sua entrada em plugins.lock.
 `)
 	return err
 }
 
 func writePluginInfoHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg plugins info <id> [flags]
 
-Flags:
-      --user    Target only user plugins (ignore ./.qg/plugins)
-      --json    Print plugin info as JSON
-  -h, --help    Show this help
+Opções:
+      --user    Só plugins do usuário (ignora ./.qg/plugins)
+      --json    Imprime os dados do plugin em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }
 
 func writeToolsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg tools <command>
 
-Commands:
-  make <name>    Scaffold a new plugin-tool skeleton in the toolbox dir
-  list           List plugin-tools in the toolbox dir
+Comandos:
+  make <name>    Gera a estrutura inicial de plugin-tool na pasta toolbox
+  list           Lista plugin-tools na pasta toolbox
 `)
 	return err
 }
 
 func writeToolsMakeHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg tools make <name> [flags]
 
-Scaffolds a plugin-tool skeleton (a plugin manifest plus a runnable entry stub)
-in the toolbox directory. After plugin activation the tool is loadable.
+Gera a estrutura inicial de plugin-tool (manifesto e stub de entrada) na
+pasta toolbox. Após ativar o plugin, a ferramenta fica carregável.
 
-Flags:
-      --runtime <shell|node|python>   Entry stub language (default shell)
-      --description <text>            Tool description
-      --json                          Print the scaffold result as JSON
-  -h, --help                          Show this help
+Opções:
+      --runtime <shell|node|python>   Linguagem do stub (padrão shell)
+      --description <text>            Descrição da ferramenta
+      --json                          Imprime o resultado da criação em JSON
+  -h, --help                          Mostra esta ajuda
 `)
 	return err
 }
 
 func writeToolsListHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg tools list [flags]
 
-Flags:
-      --json    Print plugin-tools as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime plugin-tools em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }

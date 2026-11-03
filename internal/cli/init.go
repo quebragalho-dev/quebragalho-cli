@@ -61,14 +61,14 @@ func wantsHelp(args []string) bool {
 	return false
 }
 
-const initHelp = `qg init — investigate the repository and generate an AGENTS.md.
+const initHelp = `qg init — investiga o repositório e gera um AGENTS.md.
 
-Runs an agent turn seeded with a local repo scan (languages, build/test tools,
-CI, workspace layout), investigates the gaps, and writes a concise AGENTS.md at
-the repo root so future runs start with project context.
+Roda um turno do agente com uma varredura local do repo (linguagens, ferramentas
+de build/teste, CI, layout da pasta de trabalho), investiga as lacunas e escreve
+um AGENTS.md conciso na raiz do repo para as próximas execuções começarem com contexto.
 
-Usage:
+Uso:
   qg init [exec flags]
 
-Accepts the same flags as 'qg exec' (e.g. --model, -w/--worktree, --add-dir).
+Aceita as mesmas flags de 'qg exec' (ex.: --model, -w/--worktree, --add-dir).
 `

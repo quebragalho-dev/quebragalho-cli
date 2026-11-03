@@ -196,9 +196,9 @@ func TestRunUsageHelp(t *testing.T) {
 	}
 	// The report block documents its own flags: `qg usage report -h` works, so
 	// the block has to name the shortcut.
-	_, reportBlock, _ := strings.Cut(stdout.String(), "Report flags:")
+	_, reportBlock, _ := strings.Cut(stdout.String(), "Opções do relatório:")
 	if !strings.Contains(reportBlock, "-h, --help") {
-		t.Fatalf("Report flags block missing \"-h, --help\" in:\n%s", reportBlock)
+		t.Fatalf("Opções do relatório block missing \"-h, --help\" in:\n%s", reportBlock)
 	}
 }
 

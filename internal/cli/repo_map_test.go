@@ -18,7 +18,7 @@ func TestRunRepoMapHelpDocumentsFlags(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr.String())
 	}
-	for _, want := range []string{"Usage:", "qg repo-map [flags]", "--json", "--query", "--max-files", "--scan-max-files", "--max-depth"} {
+	for _, want := range []string{"Uso:", "qg repo-map [flags]", "--json", "--query", "--max-files", "--scan-max-files", "--max-depth"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected repo-map help to contain %q, got %q", want, stdout.String())
 		}

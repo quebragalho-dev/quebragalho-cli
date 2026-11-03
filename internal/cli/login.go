@@ -270,22 +270,23 @@ func readLoginKeyPrompt(stdout io.Writer, stdin io.Reader) (string, error) {
 }
 
 func writeLoginHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg login [--api-key <key>]
   qg login --device [--no-browser]
 
-Validates a Quebra Galho API key against GET /v1/models and saves it to the
-credential store (provider qg, set active). Without --api-key the key is
-prompted for, hidden on a TTY. If the credential store is unavailable the
-key is written to config.json in plaintext instead and a warning is printed.
+Valida uma chave de API do Quebra Galho em GET /v1/models e a salva no
+cofre de credenciais (provedor qg, ativado). Sem --api-key, a chave é
+pedida no terminal, oculta em um TTY. Se o cofre
+de credenciais estiver indisponível, a chave é
+gravada em config.json em texto puro e um aviso é mostrado.
 
---device starts the browser device flow instead: approve the shown code at
-the printed link and the account API key is fetched and saved automatically.
-The link is opened in your browser; --no-browser only prints it (SSH, headless).
+--device inicia o fluxo device no navegador: aprove o código mostrado no
+link impresso e a chave de API da conta é buscada e salva automaticamente.
+O link abre no seu navegador; --no-browser só o imprime (SSH, headless).
 
-Key precedence at runtime: an inline key in the profile (and
-`+"`qg exec --api-key <key>`"+` for that run) wins over QG_API_KEY (or
-QUEBRAGALHO_API_KEY) from the environment, which wins over the saved key.
+Precedência da chave em runtime: uma chave inline no perfil (e
+`+"`qg exec --api-key <key>`"+` naquela execução) vale mais que QG_API_KEY (ou
+QUEBRAGALHO_API_KEY) do ambiente, que vale mais que a chave salva.
 `)
 	return err
 }

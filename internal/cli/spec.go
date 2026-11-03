@@ -346,21 +346,21 @@ func firstNonEmptyString(values ...string) string {
 }
 
 func writeSpecHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg spec show <spec-id|draft-session-id> [--json]
   qg spec approve <spec-id|draft-session-id> [--comment <text>] [--json]
   qg spec reject <spec-id|draft-session-id> [--reason <text>] [--json]
 
-Commands:
-  show      Print the saved draft spec
-  approve   Mark a draft approved and create a spec implementation session
-  reject    Mark a draft rejected
+Comandos:
+  show      Mostra o rascunho salvo da spec
+  approve   Aprova o rascunho e cria a sessão de implementação
+  reject    Marca um rascunho como rejeitado
 
-Flags:
-      --json            Print JSON output
-      --comment <text>  Approval note to include in the implementation prompt
-      --reason <text>   Rejection reason
-  -h, --help            Show this help
+Opções:
+      --json            Imprime a saída em JSON
+      --comment <text>  Nota de aprovação para a mensagem de implementação
+      --reason <text>   Motivo da rejeição
+  -h, --help            Mostra esta ajuda
 `)
 	return err
 }

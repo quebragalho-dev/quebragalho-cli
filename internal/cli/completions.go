@@ -154,23 +154,23 @@ func runCompletions(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func writeCompletionsHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Generate shell completion scripts.
+	_, err := fmt.Fprint(w, `Gera scripts de completion para o shell.
 
-Usage:
+Uso:
   qg completions <shell>
 
-Arguments:
-  <shell>  Target shell: bash, zsh, fish, powershell, or elvish
+Argumentos:
+  <shell>  Shell de destino: bash, zsh, fish, powershell ou elvish
 
-Examples:
+Exemplos:
   source <(qg completions bash)
   source <(qg completions zsh)
   qg completions fish > ~/.config/fish/completions/qg.fish
   qg completions powershell >> $PROFILE
   eval (qg completions elvish | slurp)
 
-Flags:
-  -h, --help  Show this help
+Opções:
+  -h, --help  Mostra esta ajuda
 `)
 	return err
 }

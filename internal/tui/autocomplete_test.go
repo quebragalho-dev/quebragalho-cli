@@ -151,7 +151,7 @@ func TestEnterRunsCommandSuggestion(t *testing.T) {
 	if m.suggestionsActive() {
 		t.Fatal("running a command suggestion should dismiss the overlay")
 	}
-	if !transcriptContains(m.transcript, "Commands") {
+	if !transcriptContains(m.transcript, "Comandos") {
 		t.Fatal("running /help from suggestions should append help output")
 	}
 }
@@ -213,11 +213,11 @@ func TestCommandSuggestionFooterReflectsInsertAction(t *testing.T) {
 	m = typeRunes(t, m, "/sp")
 
 	plain := plainRender(t, m.View())
-	if !strings.Contains(plain, "Enter insert") {
-		t.Fatalf("required-argument command footer should say Enter insert, got %q", plain)
+	if !strings.Contains(plain, "Enter inserir") {
+		t.Fatalf("required-argument command footer should say Enter inserir, got %q", plain)
 	}
-	if strings.Contains(plain, "Enter run") {
-		t.Fatalf("required-argument command footer should not say Enter run, got %q", plain)
+	if strings.Contains(plain, "Enter executar") {
+		t.Fatalf("required-argument command footer should not say Enter executar, got %q", plain)
 	}
 }
 
@@ -318,7 +318,7 @@ func TestSuggestionOverlayRenders(t *testing.T) {
 	if strings.Contains(plain, "/model") {
 		t.Fatalf("suggestion overlay should display command names without slash prefixes, got %q", plain)
 	}
-	for _, want := range []string{"╭── Commands", "╰", "search > mo", "↑/↓ move", "Enter run", "Esc close"} {
+	for _, want := range []string{"╭── Comandos", "╰", "buscar > mo", "↑/↓ mover", "Enter executar", "Esc fechar"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("suggestion overlay should include %q in %q", want, plain)
 		}
@@ -337,7 +337,7 @@ func TestSuggestionOverlayStaysVisibleWhenTranscriptScrolled(t *testing.T) {
 	m = typeRunes(t, m, "/")
 
 	plain := plainRender(t, m.View())
-	if !strings.Contains(plain, "Commands") || !strings.Contains(plain, "search >") {
+	if !strings.Contains(plain, "Comandos") || !strings.Contains(plain, "buscar >") {
 		t.Fatalf("suggestion overlay should stay visible above composer while transcript is scrolled, got %q", plain)
 	}
 	lines := strings.Split(plain, "\n")
@@ -348,7 +348,7 @@ func TestSuggestionOverlayStaysVisibleWhenTranscriptScrolled(t *testing.T) {
 	composerLine := -1
 	for index, line := range lines {
 		switch {
-		case strings.Contains(line, "Commands"):
+		case strings.Contains(line, "Comandos"):
 			paletteLine = index
 		case strings.Contains(line, "sem modelo"):
 			// The composer rule shows the model; the mode ("auto-approve") is now on
@@ -428,7 +428,7 @@ func TestCommandPaletteStaysOpenForNoMatches(t *testing.T) {
 		t.Fatalf("expected no command matches, got %v", suggestionNames(m))
 	}
 	plain := plainRender(t, m.View())
-	for _, want := range []string{"search > ,", "no matching commands"} {
+	for _, want := range []string{"buscar > ,", "Nenhum comando correspondente"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("no-match palette should include %q in %q", want, plain)
 		}
@@ -471,7 +471,7 @@ func TestFilePaletteStaysOpenForNoMatches(t *testing.T) {
 		t.Fatalf("expected no file matches, got %v", suggestionNames(m))
 	}
 	plain := plainRender(t, m.View())
-	for _, want := range []string{"Files", "search > missing", "no matching files"} {
+	for _, want := range []string{"Arquivos", "buscar > missing", "Nenhum arquivo correspondente"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("no-match file palette should include %q in %q", want, plain)
 		}
@@ -849,5 +849,12 @@ func mustWriteFile(t *testing.T, root, rel string) {
 	}
 	if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFileSelectableItemDotFallbackIsArquivo(t *testing.T) {
+	item := fileSelectableItem("@")
+	if item.Description != "arquivo" {
+		t.Fatalf("dot fallback = %q, want arquivo", item.Description)
 	}
 }

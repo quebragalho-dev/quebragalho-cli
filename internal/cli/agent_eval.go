@@ -397,28 +397,33 @@ func formatAgentEvalReport(report agentEvalReport) string {
 }
 
 func writeAgentEvalHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg eval --suite <path> [flags]
   qg eval run --suite <path> [flags]
-  qg eval bench --suite <path> [flags] [--model <id>] [--agent-command <argv...>]
+  qg eval bench --suite <path> [flags] [--model <id>]
+      [--agent-command <argv...>]
 
-Validates offline agent eval suites, scores an existing workspace, or benchmarks an agent command against fixture workspaces.
+Valida suítes offline de eval, pontua uma pasta de trabalho existente ou
+compara um comando de agente com pastas de trabalho de referência.
 
-Flags:
-      --suite <path>          Eval suite JSON file
-      --task <id>             Run one task (eval run or eval bench)
-      --workspace <path>      Workspace path for local scoring (eval run only, required)
-      --work-root <path>      Work root for materialized benchmark workspaces (eval bench only)
-      --model <id>            Model id for eval bench model-matrix runs; repeatable
-      --models <ids>          Comma-separated model ids for eval bench model-matrix runs
-      --timeout <duration>    Per-task timeout for eval bench (Go duration, e.g. 90s, 5m)
-      --keep-workspaces       Keep materialized benchmark workspaces (eval bench only)
-      --report-dir <path>     Write agent-eval-report.json (eval run or eval bench)
-      --agent-command <argv>  Agent command argv for eval bench; may include {prompt},
-                              {workspace}, {task_id}, and {model}; must be last as it
-                              consumes all remaining arguments
-      --json                  Print JSON output
-  -h, --help                  Show this help
+Opções:
+      --suite <path>          Arquivo JSON da suíte de eval
+      --task <id>             Executa uma tarefa (eval run ou eval bench)
+      --workspace <path>      Pasta de trabalho para pontuação local (só eval
+                              run, obrigatório)
+      --work-root <path>      Raiz para pastas de benchmark materializadas
+                              (só eval bench)
+      --model <id>            Modelo para matriz do eval bench; repetível
+      --models <ids>          Modelos separados por vírgula (bench)
+      --timeout <duration>    Timeout por tarefa (ex. 90s, 5m)
+      --keep-workspaces       Mantém pastas do benchmark (só bench)
+      --report-dir <path>     Grava agent-eval-report.json (eval run
+                              ou eval bench)
+      --agent-command <argv>  Comando do agente para bench; aceita {prompt},
+                              {workspace}, {task_id} e {model}; último, pois
+                              consome o resto dos argumentos
+      --json                  Imprime a saída em JSON
+  -h, --help                  Mostra esta ajuda
 `)
 	return err
 }

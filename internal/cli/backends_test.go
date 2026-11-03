@@ -152,7 +152,7 @@ func TestRunBackendsTextAndHelp(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("help exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"Usage:", "qg backends", "--json"} {
+	for _, want := range []string{"Uso:", "qg backends", "--json"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("backend help missing %q:\n%s", want, stdout.String())
 		}
@@ -249,7 +249,7 @@ func TestRunBackendsDoctorHelp(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"Usage:", "qg backends doctor", "--json"} {
+	for _, want := range []string{"Uso:", "qg backends doctor", "--json"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("backend doctor help missing %q:\n%s", want, stdout.String())
 		}

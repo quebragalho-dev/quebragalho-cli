@@ -226,7 +226,7 @@ func TestLeaderQuestionMarkOpensChordMap(t *testing.T) {
 	}
 	view := plainRender(t, next.View())
 	for _, want := range []string{
-		"Ctrl+X Shortcuts",
+		"Atalhos Ctrl+X",
 		"Slash commands",
 		"Ctrl+X m", "open /model",
 		"Ctrl+X R", "run /retry",
@@ -258,11 +258,11 @@ func TestLeaderHelpMatchesKeybindingHelpChrome(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(ansiPattern.ReplaceAllString(help, ""), "Keyboard Shortcuts") {
-		t.Fatal("help overlay should keep Keyboard Shortcuts title")
+	if !strings.Contains(ansiPattern.ReplaceAllString(help, ""), "Atalhos de teclado") {
+		t.Fatal("help overlay should keep Atalhos de teclado title")
 	}
-	if !strings.Contains(ansiPattern.ReplaceAllString(leader, ""), "Ctrl+X Shortcuts") {
-		t.Fatal("leader overlay should use Ctrl+X Shortcuts title in the border")
+	if !strings.Contains(ansiPattern.ReplaceAllString(leader, ""), "Atalhos Ctrl+X") {
+		t.Fatal("leader overlay should use Atalhos Ctrl+X title in the border")
 	}
 }
 

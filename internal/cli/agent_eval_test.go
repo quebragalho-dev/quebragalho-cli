@@ -27,7 +27,7 @@ func TestRunEvalHelpIsListed(t *testing.T) {
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "eval") || !strings.Contains(stdout.String(), "offline agent eval") {
+	if !strings.Contains(stdout.String(), "eval") || !strings.Contains(stdout.String(), "suítes offline de eval") {
 		t.Fatalf("expected eval command in help, got %q", stdout.String())
 	}
 }

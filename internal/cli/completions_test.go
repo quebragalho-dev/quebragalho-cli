@@ -15,7 +15,7 @@ func TestCompletionsHelpAndRootHelp(t *testing.T) {
 	}
 	for _, want := range []string{
 		"qg completions <shell>",
-		"bash, zsh, fish, powershell, or elvish",
+		"bash, zsh, fish, powershell ou elvish",
 		"source <(qg completions bash)",
 		"~/.config/fish/completions/qg.fish",
 		"eval (qg completions elvish | slurp)",
@@ -30,7 +30,7 @@ func TestCompletionsHelpAndRootHelp(t *testing.T) {
 	if code := runWithDeps([]string{"--help"}, &stdout, &stderr, appDeps{}); code != exitSuccess {
 		t.Fatalf("root help exit code = %d, want %d: %s", code, exitSuccess, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "completions Generate shell completion scripts") {
+	if !strings.Contains(stdout.String(), "completions Gera scripts de completion para o shell") {
 		t.Fatalf("root help does not list completions command:\n%s", stdout.String())
 	}
 }

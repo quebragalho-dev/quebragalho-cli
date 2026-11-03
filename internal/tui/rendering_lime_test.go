@@ -1986,11 +1986,11 @@ func TestCommandPaletteKeepsDescriptionInsideOverlay(t *testing.T) {
 		t.Fatalf("setup: expected a single /effort suggestion, got palette=%v matches=%#v", m.commandPaletteOpen, m.suggestions)
 	}
 	overlay := plainRender(t, m.suggestionOverlay(96))
-	if !strings.Contains(overlay, "reasoning effort") {
+	if !strings.Contains(overlay, "nível de raciocínio") {
 		t.Fatalf("palette description = %q", overlay)
 	}
 	footer := plainRender(t, m.footerView(96))
-	if strings.Contains(footer, "reasoning effort") {
+	if strings.Contains(footer, "nível de raciocínio") {
 		t.Fatalf("composer footer duplicated palette description: %q", footer)
 	}
 }

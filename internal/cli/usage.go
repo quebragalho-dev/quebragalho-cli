@@ -412,33 +412,33 @@ func formatUSD(value float64) string {
 }
 
 func writeUsageHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg usage [--from <when> --to <when> --scope user|key] [--json]
   qg usage report [flags]
 
-Bare "qg usage" queries the gateway (GET /v1/usage) for the last 24 hours.
-input_tokens already includes cached tokens; total = input + output.
+`+"`qg usage`"+` puro consulta o gateway (GET /v1/usage) das últimas 24 horas.
+input_tokens já inclui tokens de cache; total = input + output.
 
-Remote flags:
-      --from <YYYY-MM-DD|RFC3339>  Window start (default: gateway's 24h)
-      --to <YYYY-MM-DD|RFC3339>    Window end (max span: 31 days)
-      --scope <user|key>           Count usage for the whole account or this key
-      --json                       Machine-readable report
-  -h, --help                       Show this help
+Opções remotas:
+      --from <YYYY-MM-DD|RFC3339>  Início da janela (padrão: 24h do gateway)
+      --to <YYYY-MM-DD|RFC3339>    Fim da janela (intervalo máximo: 31 dias)
+      --scope <user|key>           Conta o uso da conta toda ou desta chave
+      --json                       Relatório legível por máquina
+  -h, --help                       Mostra esta ajuda
 
-"qg usage report" summarizes token usage and reconstructed (estimated) cost
-from persisted local QG session usage events, plus a working-tree net-LOC
-efficiency estimate.
+`+"`qg usage report`"+` resume o uso de tokens e o custo reconstruído (estimado)
+a partir de eventos de uso de sessões locais persistidas do QG, mais uma
+estimativa de eficiência de LOC líquido da worktree.
 
-Report flags:
-      --json                 Print JSON report
-      --days <number>        Only include the most recent N days
-      --since <YYYY-MM-DD>    Only include events on or after this date
-      --session <id>         Limit the report to one session
-  -h, --help                 Show this help
+Opções do relatório:
+      --json                 Imprime o relatório em JSON
+      --days <number>        Inclui só os N dias mais recentes
+      --since <YYYY-MM-DD>    Inclui só eventos nesta data ou depois
+      --session <id>         Limita o relatório a uma sessão
+  -h, --help                 Mostra esta ajuda
 
-Cost is reconstructed from session model metadata and is an estimate; net LOC
-is a working-tree diff proxy and is labeled as an estimate.
+O custo é reconstruído dos metadados de modelo da sessão e é uma estimativa;
+o LOC líquido é um proxy de diff da worktree e vem marcado como estimativa.
 `)
 	return err
 }

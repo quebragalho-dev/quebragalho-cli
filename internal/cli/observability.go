@@ -264,33 +264,34 @@ func writePrettyJSON(w io.Writer, value any) error {
 }
 
 func writeDoctorHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg doctor [flags]
 
-Runs Go backend health checks for config and provider setup.
+Executa verificações de saúde do backend Go de configuração e provedor.
 
-Flags:
-      --json            Print JSON report
-      --connectivity    Include provider endpoint connectivity probe when available
-  -h, --help            Show this help
+Opções:
+      --json            Imprime o relatório em JSON
+      --connectivity    Sonda a conectividade do endpoint
+                        do provedor, se disponível
+  -h, --help            Mostra esta ajuda
 `)
 	return err
 }
 
 func writeSearchHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg search [flags] <query>
 
-Searches persisted local QG session events.
+Pesquisa eventos de sessão locais persistidos do QG.
 
-Flags:
-      --json                 Print JSON results
-      --limit <number>       Maximum hits to return
-      --context-chars <n>    Characters of context around each match
-      --session-id <id>      Search one session
-      --type <event-type>    Filter by session event type
-      --reindex              Rebuild cached search indexes
-  -h, --help                 Show this help
+Opções:
+      --json                 Imprime os resultados em JSON
+      --limit <number>       Máximo de resultados a retornar
+      --context-chars <n>    Caracteres de contexto ao redor de cada ocorrência
+      --session-id <id>      Pesquisa uma sessão
+      --type <event-type>    Filtra por tipo de evento de sessão
+      --reindex              Reconstrói os índices de pesquisa em cache
+  -h, --help                 Mostra esta ajuda
 `)
 	return err
 }

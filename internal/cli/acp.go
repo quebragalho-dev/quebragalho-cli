@@ -17,17 +17,17 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
-const acpUsage = `qg acp — serve the Agent Client Protocol (ACP) over stdio
+const acpUsage = `qg acp — serve o Agent Client Protocol (ACP) via stdio
 
-Editors that speak ACP (Zed, JetBrains, Neovim, ...) spawn this command and drive
-QG as a backend over JSON-RPC 2.0 on stdin/stdout. QG keeps your provider,
-model, and API keys (BYOK); the editor only hosts the conversation thread.
+Editores que falam ACP (Zed, JetBrains, Neovim, ...) criam este comando e usam
+o QG como backend via JSON-RPC 2.0 em stdin/stdout. O QG guarda seu provedor,
+modelo e chaves de API (BYOK); o editor só hospeda o fio da conversa.
 
-Usage:
+Uso:
   qg acp
 
-Not meant to be run interactively — point your editor's ACP / external-agent
-setting at "qg acp".`
+Não é para rodar interativamente — aponte o ajuste de ACP / agente externo do
+seu editor para "qg acp".`
 
 var acpSignalContext = signalContext
 

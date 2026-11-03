@@ -25,7 +25,7 @@ func runCron(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 // cron_run.go (Task 6).
 func runCronWith(store *cron.Store, now func() time.Time, args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: qg cron <add|list|rm|pause|resume|run> ...")
+		fmt.Fprintln(stderr, "Uso: qg cron <add|list|rm|pause|resume|run> ...")
 		return exitUsage
 	}
 	sub, rest := args[0], args[1:]
@@ -297,14 +297,15 @@ func promptExcerpt(p string) string {
 }
 
 func writeCronHelp(w io.Writer) {
-	fmt.Fprint(w, `qg cron — schedule agent jobs (foreground, file-backed)
+	fmt.Fprint(w, `qg cron — agenda tarefas do agente (primeiro plano, em arquivo)
 
-Usage:
-  qg cron add <cron-expr> [--prompt P | --recipe R] [--cwd D] [--model M] [--run-now]
+Uso:
+  qg cron add <cron-expr> [--prompt P|--recipe R] [--cwd D]
+      [--model M] [--run-now]
   qg cron list
   qg cron pause <id> | resume <id> | rm <id>
   qg cron run [--once] [--catch-up] [id...]
 
-Cron expression: standard 5 fields "minute hour day-of-month month day-of-week".
+Expressão cron: 5 campos padrão "minute hour day-of-month month day-of-week".
 `)
 }

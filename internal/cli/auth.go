@@ -377,33 +377,39 @@ func filterAuthStatuses(statuses []oauth.Status, provider string) []oauth.Status
 }
 
 func writeAuthHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg auth <command>
 
-Commands:
-  logout <provider>                               Delete a provider's stored login
-  status [provider]                               Show login presence/expiry (never the token)
-  refresh <provider> [--watch]                    Force a token refresh (--watch keeps it fresh)
-  reset --confirm [--json]                        Clear all OAuth logins and shared MCP tokens (also repairs corrupted stores)
+Comandos:
+  logout <provider>                               Apaga o login de um provedor
+  status [provider]                               Mostra login e expiração
+                                                  (nunca o token)
+  refresh <provider> [--watch]                    Força a atualização do token
+                                                  (--watch mantém atualizado)
+  reset --confirm [--json]                        Limpa todos os logins OAuth
+                                                  e tokens MCP compartilhados
+                                                  (repara stores corrompidos)
 
-OAuth login was removed: run "qg login" to save your API key — QG_API_KEY
-(or QUEBRAGALHO_API_KEY) from the environment also works; see "qg setup
---help". These commands maintain token stores written by earlier versions.
+O login OAuth saiu: rode `+"`qg login`"+` para salvar a chave — QG_API_KEY
+(ou QUEBRAGALHO_API_KEY) do ambiente também funciona; veja
+`+"`qg setup --help`"+`. Estes comandos mantêm os tokens gravados por versões
+anteriores.
 
-Note: "qg auth status" reports OAuth token stores only. It does not cover
-the Quebra Galho provider API key (credential store / QG_API_KEY); use
-"qg key" for that.
+Nota: `+"`qg auth status`"+` cobre só os stores de tokens OAuth. Não inclui
+a chave de API do provedor Quebra Galho (cofre de credenciais / QG_API_KEY); use
+`+"`qg key`"+` para isso.
 
-Storage: tokens are written 0600 under $XDG_CONFIG_HOME/qg (override with
-QG_OAUTH_TOKENS_PATH). Set QG_OAUTH_STORAGE=encrypted-file to encrypt them at
-rest with AES-256-GCM (a per-user secret beside the file), or
-QG_OAUTH_STORAGE=keyring to use the OS keyring (macOS Keychain / Linux
-secret-tool). MCP server tokens share the same store.
+Armazenamento: tokens são gravados 0600 em $XDG_CONFIG_HOME/qg (troque com
+QG_OAUTH_TOKENS_PATH). Defina QG_OAUTH_STORAGE=encrypted-file para
+criptografar em repouso com AES-256-GCM (um segredo por usuário ao lado
+do arquivo), ou QG_OAUTH_STORAGE=keyring para usar o keyring do SO
+(macOS Keychain / Linux
+secret-tool). Tokens de servidores MCP usam o mesmo store.
 
-Flags:
-      --watch    Keep the token fresh in the foreground (refresh only)
-      --json     Print result as JSON (status/logout/reset)
-  -h, --help     Show this help
+Opções:
+      --watch    Mantém o token atualizado em primeiro plano (só refresh)
+      --json     Imprime o resultado em JSON (status/logout/reset)
+  -h, --help     Mostra esta ajuda
 `)
 	return err
 }

@@ -295,7 +295,7 @@ func TestLogoutHelpDescribesLogout(t *testing.T) {
 	if code := runWithDeps([]string{"logout", "--help"}, &stdout, &stderr, appDeps{}); code != exitSuccess {
 		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
 	}
-	for _, want := range []string{"Usage: qg logout [--json]", "QG_API_KEY", "profile stays"} {
+	for _, want := range []string{"Uso: qg logout [--json]", "QG_API_KEY", "O perfil continua"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("logout help missing %q:\n%s", want, stdout.String())
 		}

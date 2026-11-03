@@ -79,14 +79,14 @@ func parseContextArgs(args []string) (contextOptions, bool, error) {
 }
 
 func writeContextHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg context [flags]
 
-Reports the current workspace context budget.
+Relata o orçamento de contexto da pasta de trabalho atual.
 
-Flags:
-      --json      Print JSON report
-  -h, --help      Show this help
+Opções:
+      --json      Imprime o relatório em JSON
+  -h, --help      Mostra esta ajuda
 `)
 	return err
 }

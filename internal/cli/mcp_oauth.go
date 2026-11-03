@@ -248,17 +248,17 @@ func oauthConfigForServer(server mcp.Server) mcp.OAuthConfig {
 }
 
 func writeMCPOAuthHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg mcp oauth <command>
 
-Commands:
-  login <server>     Run the OAuth flow and store credentials for a server
-  logout <server>    Delete stored OAuth credentials for a server
-  status [server]    Show credential presence and expiry (never the token)
+Comandos:
+  login <server>     Executa o fluxo OAuth e salva as credenciais do servidor
+  logout <server>    Apaga as credenciais OAuth salvas do servidor
+  status [server]    Mostra presença e expiração da credencial (nunca o token)
 
-Flags:
-      --json    Print command result as JSON
-  -h, --help    Show this help
+Opções:
+      --json    Imprime o resultado do comando em JSON
+  -h, --help    Mostra esta ajuda
 `)
 	return err
 }

@@ -245,20 +245,20 @@ func formatSandboxCheckReport(report sandboxCheckReport) string {
 }
 
 func writeSandboxCheckHelp(w io.Writer) error {
-	_, err := fmt.Fprint(w, `Usage:
+	_, err := fmt.Fprint(w, `Uso:
   qg sandbox check <tool> [flags]
 
-Evaluates the sandbox decision for a hypothetical tool action against the
-resolved policy, and prints the plan, the decision (allow/prompt/deny with risk
-and any block), and any persistent grant that matches the tool. Secrets in
-grant reasons are redacted.
+Avalia a decisão do ambiente isolado para uma ação hipotética de ferramenta
+com a política resolvida, e mostra o plano, a decisão
+(allow/prompt/deny com risco e bloqueio, se houver) e qualquer permissão
+persistente da ferramenta. Segredos nos motivos são ocultados.
 
-Flags:
-      --side-effect <kind>   read | write | shell | network | none (default read)
-      --path <path>          Target path for the action (read/write checks)
-      --reason <text>        Reason recorded with the request
-      --json                 Print the machine-readable snapshot
-  -h, --help                 Show this help
+Opções:
+      --side-effect <kind>   read | write | shell | network | none (padrão read)
+      --path <path>          Caminho alvo da ação (verificações read/write)
+      --reason <text>        Motivo registrado com o pedido
+      --json                 Imprime o snapshot legível por máquina
+  -h, --help                 Mostra esta ajuda
 `)
 	return err
 }
