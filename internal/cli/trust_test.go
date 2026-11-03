@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,6 +203,89 @@ func TestRunTrustRemoveTooManyArgs(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("remove with two args should not write to stdout, got %q", out.String())
+	}
+}
+
+// TestTrustListJSON proves `trust list --json` emits the trusted roots as a
+// JSON array and encodes an empty store as [] rather than null.
+func TestTrustListJSON(t *testing.T) {
+	setTrustConfigRoot(t)
+	cwd := t.TempDir()
+	deps := trustDeps(cwd)
+
+	var out, errBuf bytes.Buffer
+	if code := runTrust([]string{"list", "--json"}, &out, &errBuf, deps); code != exitSuccess {
+		t.Fatalf("trust list --json returned %d, want %d; stderr=%q", code, exitSuccess, errBuf.String())
+	}
+	if got := strings.TrimSpace(out.String()); got != "[]" {
+		t.Fatalf("empty trust list --json = %q, want [] (never null)", out.String())
+	}
+
+	if err := workspacetrust.Trust(cwd); err != nil {
+		t.Fatalf("Trust(cwd): %v", err)
+	}
+	wantListed := cwd
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		wantListed = resolved
+	}
+
+	out.Reset()
+	errBuf.Reset()
+	if code := runTrust([]string{"list", "--json"}, &out, &errBuf, deps); code != exitSuccess {
+		t.Fatalf("trust list --json returned %d, want %d; stderr=%q", code, exitSuccess, errBuf.String())
+	}
+	var roots []string
+	if err := json.Unmarshal(out.Bytes(), &roots); err != nil {
+		t.Fatalf("trust list --json is not valid JSON %q: %v", out.String(), err)
+	}
+	if len(roots) != 1 || roots[0] != wantListed {
+		t.Fatalf("trust list --json = %q, want [%q]", out.String(), wantListed)
+	}
+}
+
+// TestTrustRemoveJSONFlagPosition proves `trust remove --json` accepts the flag
+// both before and after the path and returns a short JSON object carrying the
+// removed path.
+func TestTrustRemoveJSONFlagPosition(t *testing.T) {
+	setTrustConfigRoot(t)
+	cwd := t.TempDir()
+	deps := trustDeps(cwd)
+
+	before := t.TempDir()
+	after := t.TempDir()
+	if err := workspacetrust.Trust(before); err != nil {
+		t.Fatalf("Trust(before): %v", err)
+	}
+	if err := workspacetrust.Trust(after); err != nil {
+		t.Fatalf("Trust(after): %v", err)
+	}
+
+	cases := []struct {
+		args   []string
+		target string
+	}{
+		{args: []string{"remove", "--json", before}, target: before},
+		{args: []string{"remove", after, "--json"}, target: after},
+	}
+	for _, tc := range cases {
+		args := tc.args
+		var out, errBuf bytes.Buffer
+		if code := runTrust(args, &out, &errBuf, deps); code != exitSuccess {
+			t.Fatalf("trust %v returned %d, want %d; stderr=%q", args, code, exitSuccess, errBuf.String())
+		}
+		var payload struct {
+			Path    string `json:"path"`
+			Removed bool   `json:"removed"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+			t.Fatalf("trust %v is not valid JSON %q: %v", args, out.String(), err)
+		}
+		if payload.Path != tc.target || !payload.Removed {
+			t.Fatalf("trust %v JSON = %q, want path %q with removed true", args, out.String(), tc.target)
+		}
+		if trusted, err := workspacetrust.IsTrusted(tc.target); err != nil || trusted {
+			t.Fatalf("target %q should be untrusted after trust %v (trusted=%v err=%v)", tc.target, args, trusted, err)
+		}
 	}
 }
 

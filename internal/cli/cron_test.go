@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -183,5 +184,70 @@ func TestCronListShowsAtivaEPausada(t *testing.T) {
 	stored, _ := store.Get(active.ID)
 	if stored.Status != cron.StatusActive {
 		t.Fatalf("persisted status must stay English active, got %q", stored.Status)
+	}
+}
+
+// TestCronIDCommandsRejectFlags proves rm/pause/resume fail loudly on dash-led
+// arguments (e.g. a trailing --json) instead of silently swallowing them: the
+// job must be left untouched and nothing may be printed to stdout.
+func TestCronIDCommandsRejectFlags(t *testing.T) {
+	store := testCronStore(t)
+	now := func() time.Time { return time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC) }
+	job, err := store.Add(cron.Job{Expr: "0 9 * * *", Prompt: "daily", Status: cron.StatusPaused, NextRunAt: now().Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	for _, args := range [][]string{
+		{"rm", job.ID, "--json"},
+		{"pause", job.ID, "--json"},
+		{"resume", job.ID, "--json"},
+	} {
+		var out, errb bytes.Buffer
+		if code := runCronWith(store, now, args, &out, &errb); code != exitUsage {
+			t.Fatalf("cron %v exit=%d, want %d; stdout=%q stderr=%q", args, code, exitUsage, out.String(), errb.String())
+		}
+		if out.Len() != 0 {
+			t.Fatalf("cron %v must not print to stdout on a flag error, got %q", args, out.String())
+		}
+		if _, err := store.Get(job.ID); err != nil {
+			t.Fatalf("cron %v must leave the job untouched: %v", args, err)
+		}
+	}
+}
+
+// TestCronListJSON proves `cron list --json` emits the stored jobs as a JSON
+// array (English machine fields, never translated statuses) and encodes an
+// empty store as [] rather than null.
+func TestCronListJSON(t *testing.T) {
+	store := testCronStore(t)
+	now := func() time.Time { return time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC) }
+
+	var out, errb bytes.Buffer
+	if code := runCronWith(store, now, []string{"list", "--json"}, &out, &errb); code != 0 {
+		t.Fatalf("list --json exit=%d err=%s", code, errb.String())
+	}
+	if got := strings.TrimSpace(out.String()); got != "[]" {
+		t.Fatalf("empty list --json = %q, want [] (never null)", out.String())
+	}
+
+	added, err := store.Add(cron.Job{Expr: "0 9 * * *", Prompt: "daily", Status: cron.StatusActive, NextRunAt: now().Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := runCronWith(store, now, []string{"list", "--json"}, &out, &errb); code != 0 {
+		t.Fatalf("list --json exit=%d err=%s", code, errb.String())
+	}
+	var jobs []cron.Job
+	if err := json.Unmarshal(out.Bytes(), &jobs); err != nil {
+		t.Fatalf("list --json is not valid JSON %q: %v", out.String(), err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("list --json decoded %d jobs, want 1: %q", len(jobs), out.String())
+	}
+	got := jobs[0]
+	if got.ID != added.ID || got.Expr != "0 9 * * *" || got.Prompt != "daily" || got.Status != cron.StatusActive {
+		t.Fatalf("list --json job = %+v, want id %q expr %q prompt %q status %q", got, added.ID, "0 9 * * *", "daily", cron.StatusActive)
 	}
 }
