@@ -218,7 +218,7 @@ func TestUpdatePromptInitialView120(t *testing.T) {
 	}
 	margin := strings.Repeat(" ", 18)
 	want := []string{
-		margin + "╭" + "──" + " QG · ATUALIZAÇÃO " + strings.Repeat("─", 62) + "╮",
+		margin + "╭" + "──" + " quebra galho · ATUALIZAÇÃO " + strings.Repeat("─", 52) + "╮",
 		margin + "│ " + strings.Repeat(" ", 80) + " │",
 		margin + "│ Nova versão disponível" + strings.Repeat(" ", 80-22) + " │",
 		margin + "│ 0.0.10 → 0.0.11" + strings.Repeat(" ", 80-15) + " │",
@@ -248,7 +248,7 @@ func TestUpdatePromptInitialView80(t *testing.T) {
 	}
 	margin := strings.Repeat(" ", 2)
 	want := []string{
-		margin + "╭" + "──" + " QG · ATUALIZAÇÃO " + strings.Repeat("─", 54) + "╮",
+		margin + "╭" + "──" + " quebra galho · ATUALIZAÇÃO " + strings.Repeat("─", 44) + "╮",
 		margin + "│ " + strings.Repeat(" ", 72) + " │",
 		margin + "│ Nova versão disponível" + strings.Repeat(" ", 72-22) + " │",
 		margin + "│ 0.0.10 → 0.0.11" + strings.Repeat(" ", 72-15) + " │",
@@ -276,7 +276,7 @@ func TestUpdatePromptInitialView50(t *testing.T) {
 	margin := strings.Repeat(" ", 2)
 	dashes := strings.Repeat("─", 46)
 	want := []string{
-		margin + "QG · ATUALIZAÇÃO",
+		margin + "quebra galho · ATUALIZAÇÃO",
 		margin + dashes,
 		margin,
 		margin + "Nova versão disponível",
@@ -417,7 +417,7 @@ func TestUpdatePromptAsciiFallback(t *testing.T) {
 	t.Setenv("LC_CTYPE", "")
 	model := updatePromptModelForTest("0.0.10", "0.0.11", "https://example.com/CHANGELOG.md", nil)
 	view := strippedUpdatePromptView(model, 80, 0)
-	for _, want := range []string{"+-- QG", "--+", "> 1  Instalar e iniciar", "  2  Não instalar e iniciar", "| Nova versão", "0.0.10 -> 0.0.11", "Up/Down mover - Enter confirmar - 1-4 escolher - Esc sair"} {
+	for _, want := range []string{"+-- quebra galho", "--+", "> 1  Instalar e iniciar", "  2  Não instalar e iniciar", "| Nova versão", "0.0.10 -> 0.0.11", "Up/Down mover - Enter confirmar - 1-4 escolher - Esc sair"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ascii fallback must contain %q, got:\n%s", want, view)
 		}

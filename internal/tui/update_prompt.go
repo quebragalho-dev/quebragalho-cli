@@ -419,7 +419,7 @@ func (m updatePromptModel) renderUpdatePrompt() string {
 func (m updatePromptModel) borderedUpdateCard(runes updateBoxRunes, cardWidth int) []string {
 	inner := cardWidth - 4
 	bar := strings.Repeat(runes.horizontal, inner)
-	title := " " + qgTheme.accent.Render("QG") + " · " + qgTheme.amber.Bold(true).Render("ATUALIZAÇÃO") + " "
+	title := " " + brandWordmarkText() + " · " + qgTheme.amber.Bold(true).Render("ATUALIZAÇÃO") + " "
 	top := qgTheme.lineStrong.Render(runes.topLeft+strings.Repeat(runes.horizontal, 2)) + title + qgTheme.lineStrong.Render(strings.Repeat(runes.horizontal, maxInt(0, inner-lipgloss.Width(title)))+runes.topRight)
 	bottom := qgTheme.lineStrong.Render(runes.bottomLeft + strings.Repeat(runes.horizontal, cardWidth-2) + runes.bottomRight)
 	line := func(content string) string {
@@ -476,7 +476,7 @@ func (m updatePromptModel) borderedUpdateCard(runes updateBoxRunes, cardWidth in
 // below the card, which stays at column zero so copies stay clean.
 func (m updatePromptModel) plainUpdateCard(runes updateBoxRunes, contentWidth int) []string {
 	bar := strings.Repeat(runes.horizontal, contentWidth)
-	title := qgTheme.accent.Render("QG") + " · " + qgTheme.amber.Bold(true).Render("ATUALIZAÇÃO")
+	title := brandWordmarkText() + " · " + qgTheme.amber.Bold(true).Render("ATUALIZAÇÃO")
 	rule := qgTheme.lineStrong.Render(bar)
 	lines := []string{
 		title,

@@ -13,9 +13,9 @@ func TestEmptyStateShowsBrandAndTaglineOnly(t *testing.T) {
 	m.width, m.height = 100, 30
 
 	view := plainRender(t, m.View())
-	assertContains(t, view, "███████    ███████")
-	assertContains(t, view, "QUEBRA-GALHO")
-	assertContains(t, view, emptyStateTagline)
+	assertContains(t, view, brandWordmarkPlainRow(t, m, brandWordmarkSticker, 2))
+	assertContains(t, view, emptyStateTagline+" "+emptyStateHeart)
+	assertNotContains(t, view, "QUEBRA-GALHO")
 	assertNotContains(t, view, "Any model. Every tool.")
 	assertNotContains(t, view, "running qg against ")
 	assertNotContains(t, view, "add a --version flag")
@@ -23,54 +23,117 @@ func TestEmptyStateShowsBrandAndTaglineOnly(t *testing.T) {
 	assertNotContains(t, view, "fix the failing test in internal/tools")
 }
 
-// The QG lockup replaces ZERO: brand accent, QG block, QUEBRA-GALHO and the
-// QG tagline — the --version banner must carry all of it, uncolored.
-func TestWordmarkLockupIsQGBrand(t *testing.T) {
+// wantBrandWordmark is the uncolored small pixel wordmark, "quebragalho" in
+// the dashboard's lowercase, as `qg --version` prints it (trailing blanks
+// trimmed).
+var wantBrandWordmark = []string{
+	"                  ▄▄                           ▄▄ ▄▄",
+	" ▄▄▄▄ ▄▄ ▄▄  ▄▄▄  ██▄▄  ▄▄ ▄ ▄▄▄▄   ▄▄▄▄ ▄▄▄▄  ██ ██▄▄   ▄▄▄",
+	"██ ██ ██ ██ ██▄██ ██ ██ ██▀   ▄▄██ ██ ██  ▄▄██ ██ ██ ██ ██ ██",
+	"▀█▄██ ▀█▄██ ▀█▄▄▄ ██▄█▀ ██   ▀█▄██ ▀█▄██ ▀█▄██ ██ ██ ██ ▀█▄█▀",
+	"   ██                              ▄▄▄█▀",
+}
+
+// The brand lockup replaces the QG block: the pixel "quebragalho" and the
+// landing's tagline — the --version banner must carry both, uncolored.
+func TestWordmarkLockupIsTheBrand(t *testing.T) {
 	wordmark := Wordmark()
 	if strings.Contains(wordmark, "\x1b") {
 		t.Fatalf("expected uncolored wordmark, got %q", wordmark)
 	}
-	if strings.Contains(wordmark, "ZER") || strings.Contains(wordmark, "Any model. Every tool.") {
-		t.Fatalf("Zero-era wordmark leaked into the QG lockup: %q", wordmark)
+	if strings.Contains(wordmark, "ZER") || strings.Contains(wordmark, "Any model. Every tool.") || strings.Contains(wordmark, "QUEBRA-GALHO") {
+		t.Fatalf("old lockup leaked into the brand: %q", wordmark)
 	}
 	lines := strings.Split(wordmark, "\n")
-	if len(lines) != len(qgWordmarkGlyphLines)+4 {
-		t.Fatalf("lockup lines = %d, want glyph %d + blank + brand + blank + tagline",
-			len(lines), len(qgWordmarkGlyphLines))
+	if len(lines) != len(wantBrandWordmark)+2 {
+		t.Fatalf("lockup lines = %d, want wordmark %d + blank + tagline", len(lines), len(wantBrandWordmark))
 	}
-	for index, row := range qgWordmarkGlyphLines {
-		if want := row[0] + "  " + row[1]; lines[index] != want {
-			t.Fatalf("glyph line %d: got %q, want %q", index, lines[index], want)
+	for index, want := range wantBrandWordmark {
+		if lines[index] != want {
+			t.Fatalf("wordmark row %d:\n got %q\nwant %q", index+1, lines[index], want)
 		}
 	}
-	if lines[len(qgWordmarkGlyphLines)+1] != "QUEBRA-GALHO" {
-		t.Fatalf("brand line = %q, want QUEBRA-GALHO", lines[len(qgWordmarkGlyphLines)+1])
-	}
-	if lines[len(qgWordmarkGlyphLines)+3] != "Democratizando o acesso à IA" {
-		t.Fatalf("tagline = %q, want Democratizando o acesso à IA", lines[len(qgWordmarkGlyphLines)+3])
+	if got, want := lines[len(lines)-1], "democratizando a ia. ♥"; got != want {
+		t.Fatalf("tagline = %q, want %q", got, want)
 	}
 }
 
-func TestQGWordmarkGlyphsAreNineCellsWide(t *testing.T) {
-	for index, row := range qgWordmarkGlyphLines {
-		if got := lipgloss.Width(row[0]); got != 9 {
-			t.Fatalf("Q row %d width = %d, want 9: %q", index+1, got, row[0])
+// Every glyph of a pixel font shares its grid: the same rows, each of one
+// width, so letters line up on the baseline and the x-height. The x-height's
+// bottom row is the font's baseline: ink there, none in the row below except
+// for descenders.
+func TestBrandFontGlyphsShareTheGrid(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		font          brandFont
+		word          *brandWordmark
+		width, height int
+	}{
+		{"sticker", brandFontSticker, brandWordmarkSticker, 64, 5},
+		{"small", brandFontSmall, brandWordmarkSmall, 61, 5},
+	} {
+		rows := len(tc.font.glyphs['q'])
+		for _, word := range brandWords {
+			for _, letter := range word {
+				glyph, ok := tc.font.glyphs[letter]
+				if !ok {
+					t.Fatalf("%s font has no %q", tc.name, letter)
+				}
+				if len(glyph) != rows {
+					t.Fatalf("%s %q has %d rows, want %d", tc.name, letter, len(glyph), rows)
+				}
+				for row, pixels := range glyph {
+					if len(pixels) != len(glyph[0]) {
+						t.Fatalf("%s %q row %d is %d pixels wide, want %d", tc.name, letter, row+1, len(pixels), len(glyph[0]))
+					}
+					if strings.Trim(pixels, "#.") != "" {
+						t.Fatalf("%s %q row %d = %q, want only # and .", tc.name, letter, row+1, pixels)
+					}
+				}
+			}
 		}
-		if got := lipgloss.Width(row[1]); got != 9 {
-			t.Fatalf("G row %d width = %d, want 9: %q", index+1, got, row[1])
+		for _, letter := range "eo" {
+			glyph := tc.font.glyphs[letter]
+			if !strings.Contains(glyph[tc.font.baseline], "#") || strings.Contains(glyph[tc.font.baseline+1], "#") {
+				t.Fatalf("%s %q does not sit on baseline row %d", tc.name, letter, tc.font.baseline+1)
+			}
 		}
-		if got := lipgloss.Width(row[0] + "  " + row[1]); got != 20 {
-			t.Fatalf("combined row %d width = %d, want 20", index+1, got)
+		if tc.word.width != tc.width || tc.word.cellRows != tc.height {
+			t.Fatalf("%s wordmark = %d×%d cells, want %d×%d", tc.name, tc.word.width, tc.word.cellRows, tc.width, tc.height)
 		}
 	}
-	if len(qgWordmarkGlyphLines) != 6 {
-		t.Fatalf("wordmark rows = %d, want 6", len(qgWordmarkGlyphLines))
+}
+
+// The sticker's letters keep the heavy pixel font's weight: "l" and "r"
+// stand on two-pixel stems, and "q" and "g" share one bowl, told apart by
+// their descenders.
+func TestBrandFontStickerIsConsistent(t *testing.T) {
+	glyphs := brandFontSticker.glyphs
+	baseline := brandFontSticker.baseline
+	for _, letter := range "lr" {
+		if got := strings.Count(glyphs[letter][baseline], "#"); got != 2 {
+			t.Fatalf("%q stem is %d pixels at the baseline, want 2", letter, got)
+		}
 	}
-	if got := qgWordmarkGlyphLines[3][0]; got != "██  ██ ██" {
-		t.Fatalf("Q row 4 = %q, want %q", got, "██  ██ ██")
+	for row := baseline - 4; row <= baseline; row++ {
+		if glyphs['q'][row] != glyphs['g'][row] {
+			t.Fatalf("row %d: q %q and g %q do not share the bowl", row+1, glyphs['q'][row], glyphs['g'][row])
+		}
 	}
-	if got := qgWordmarkGlyphLines[5][0]; got != " █████ ██" {
-		t.Fatalf("Q row 6 = %q, want %q", got, " █████ ██")
+	if glyphs['q'][baseline+1] == glyphs['g'][baseline+1] {
+		t.Fatalf("q and g share the descender %q", glyphs['q'][baseline+1])
+	}
+}
+
+// The lockup appends the domain to the baseline row; drawing it again never
+// repeats ".dev".
+func TestBrandLockupDrawsTheDomainOnce(t *testing.T) {
+	m := brandTestModel(160, 30, true, false)
+	for range 3 {
+		view := plainRender(t, m.emptyState(160))
+		if got := strings.Count(view, brandDomain); got != 1 {
+			t.Fatalf("domain drawn %d times:\n%s", got, view)
+		}
 	}
 }
 
@@ -87,13 +150,17 @@ func TestSystemThemeAccentFollowsTerminalPalette(t *testing.T) {
 	}
 }
 
-// The dark palette carries the QG brand accent.
+// The dark palette carries the brand lime and ink of the dashboard and the
+// landing (apps/web .qg-theme: --qg-lime, --qg-tx).
 func TestDarkPaletteAccentIsQGBrand(t *testing.T) {
-	if !strings.EqualFold(darkPalette.accent, "#9DF723") {
-		t.Fatalf("darkPalette.accent = %q, want #9DF723", darkPalette.accent)
+	if !strings.EqualFold(darkPalette.accent, "#b7fe60") {
+		t.Fatalf("darkPalette.accent = %q, want #b7fe60", darkPalette.accent)
 	}
-	if !strings.EqualFold(darkPalette.ink, "#FFFFFF") {
-		t.Fatalf("darkPalette.ink = %q, want #FFFFFF", darkPalette.ink)
+	if !strings.EqualFold(darkPalette.ink, "#fafafa") {
+		t.Fatalf("darkPalette.ink = %q, want #fafafa", darkPalette.ink)
+	}
+	if !strings.EqualFold(brandMascotColors['L'], darkPalette.accent) {
+		t.Fatalf("mascot lime = %q, want the brand accent %q", brandMascotColors['L'], darkPalette.accent)
 	}
 }
 

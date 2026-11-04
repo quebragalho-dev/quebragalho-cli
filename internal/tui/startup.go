@@ -13,30 +13,83 @@ const (
 	minStartupWidth      = 58
 )
 
-var qgWordmarkGlyphLines = [][2]string{
-	{` ███████ `, ` ███████ `},
-	{`██     ██`, `██       `},
-	{`██     ██`, `██       `},
-	{`██  ██ ██`, `██  █████`},
-	{`██   ███ `, `██     ██`},
-	{` █████ ██`, ` ███████ `},
+// emptyStateTagline is the landing footer's line ("democratizando a ia.",
+// followed by a heart).
+const emptyStateTagline = "democratizando a ia."
+
+// emptyStateHeart follows the tagline, painted with the theme's red.
+const emptyStateHeart = "♥"
+
+// brandTier is how much of the brand the empty state draws at a terminal size.
+type brandTier int
+
+const (
+	// brandTierText is a one-line "quebra galho" over the tagline.
+	brandTierText brandTier = iota
+	// brandTierCompact puts the mascot beside the one-line wordmark, for
+	// panes too narrow for the pixel wordmark.
+	brandTierCompact
+	// brandTierWordmark is the pixel wordmark centered over the tagline, with
+	// the mascot centered above it when there is room.
+	brandTierWordmark
+	// brandTierLockup puts the mascot beside the pixel wordmark and its
+	// domain.
+	brandTierLockup
+)
+
+const (
+	brandLockupGap  = 3 // cells between the mascot and the pixel wordmark
+	brandCompactGap = 3 // cells between the mascot and the text block
+	brandMargin     = 2 // cells kept free on each side of the art
+	// brandDomain follows the pixel wordmark on its baseline, in small text.
+	brandDomain = ".dev"
+	// emptyStateChromeRows is what the frame around the stream area (title
+	// bar, rules, composer, status line) takes from the terminal height; the
+	// idle shortcut hint above the composer takes one more row when shown.
+	emptyStateChromeRows = 6
+)
+
+// brandCompactWidth reserves room for the widest text line, the tagline.
+var brandCompactWidth = brandMascotWidth + brandCompactGap + lipgloss.Width(emptyStateTagline+" "+emptyStateHeart)
+
+// brandLockupWidth is the mascot, the gap, the wordmark and its domain.
+func brandLockupWidth(word *brandWordmark) int {
+	return brandMascotWidth + brandLockupGap + word.width + 1 + len(brandDomain)
 }
 
-// wordmarkBrandLine is the plain-text brand line under the glyph.
-const wordmarkBrandLine = "QUEBRA-GALHO"
-
-const emptyStateTagline = "Democratizando o acesso à IA"
+// brandLayout is the brand art the empty state draws at a terminal size.
+type brandLayout struct {
+	tier brandTier
+	// word is the wordmark size of the lockup and wordmark tiers.
+	word *brandWordmark
+	// mascotAbove puts the mascot above the wordmark in the wordmark tier.
+	mascotAbove bool
+}
 
 // emptyState renders the centered stream-area block shown while the
-// transcript has no real content: the brand glyph and tagline.
+// transcript has no real content: the brand art and tagline.
 func (m model) emptyState(width int) string {
 	lines := m.emptyStateLines(width)
 
-	// Vertically center within the stream area: the frame around it (title bar,
-	// rules, composer, status line) occupies ~6 terminal rows.
-	height := normalizedStartupHeight(m.height)
-	gap := clamp((height-6-len(lines))/2, 0, 12)
+	// Vertically center within the stream area.
+	gap := clamp((m.emptyStateRows()-len(lines))/2, 0, 12)
 	return strings.Repeat("\n", gap) + strings.Join(lines, "\n") + strings.Repeat("\n", gap)
+}
+
+// emptyStateRows estimates the stream area's height from the real terminal
+// height (the default before the first resize). Unlike
+// normalizedStartupHeight it has no 18-row floor, so a short pane picks
+// smaller art and no centering gap pushes it out of view.
+func (m model) emptyStateRows() int {
+	height := m.height
+	if height <= 0 {
+		height = defaultStartupHeight
+	}
+	rows := height - emptyStateChromeRows
+	if m.composerIdleHint() != "" {
+		rows--
+	}
+	return rows
 }
 
 func (m model) emptyStateWithOverlay(width int, overlay string) string {
@@ -55,22 +108,181 @@ func (m model) emptyStateWithOverlay(width int, overlay string) string {
 	return strings.Repeat("\n", gap) + strings.Join(lines, "\n") + strings.Repeat("\n", gap)
 }
 
-func (m model) emptyStateLines(width int) []string {
-	lines := []string{}
-	for _, glyph := range qgWordmarkLines() {
-		lines = append(lines, centerLine(glyph, width))
+// brandMascotLayouts are the layouts with the mascot, in order of preference:
+// beside the wordmark, then above it.
+var brandMascotLayouts = []brandLayout{
+	{tier: brandTierLockup, word: brandWordmarkSticker},
+	{tier: brandTierWordmark, word: brandWordmarkSticker, mascotAbove: true},
+}
+
+// emptyStateLayout picks the first brand art that fits: a layout with the
+// mascot (brandMascotLayouts), then the largest wordmark alone, the mascot
+// beside one line of text, and the line alone.
+func (m model) emptyStateLayout(width int) brandLayout {
+	rows := m.emptyStateRows()
+	fits := func(art int) bool { return width >= art+2*brandMargin }
+	if m.canDrawMascot() {
+		for _, layout := range brandMascotLayouts {
+			word := layout.word
+			switch {
+			case layout.tier == brandTierLockup:
+				if fits(brandLockupWidth(word)) && rows >= maxInt(brandMascotCellRows, word.cellRows)+3 {
+					return layout
+				}
+			// Above the name the mascot needs the tagline under the
+			// wordmark; the orientation line and the spacers come when there
+			// is room.
+			case fits(word.width) && rows >= brandMascotCellRows+word.cellRows+2:
+				return layout
+			}
+		}
 	}
-	lines = append(lines, "")
-	lines = append(lines, centerLine(qgTheme.ink.Render("QUEBRA-")+qgTheme.accent.Render("GALHO"), width))
-	lines = append(lines, centerLine(qgTheme.muted.Render(emptyStateTagline), width))
-	if orient := m.emptyStateOrientation(); orient != "" {
-		lines = append(lines, "")
-		lines = append(lines, centerLine(orient, width))
+	if word := brandWordmarkSticker; fits(word.width) && rows >= word.cellRows+4 {
+		return brandLayout{tier: brandTierWordmark, word: word}
+	}
+	if m.canDrawMascot() && fits(brandCompactWidth) && rows >= brandMascotCellRows+2 {
+		return brandLayout{tier: brandTierCompact}
+	}
+	return brandLayout{tier: brandTierText}
+}
+
+// brandWordmarkRows renders a wordmark as the sticker, outlined like the
+// mascot unless the terminal is dark; without color, as plain letters.
+func (m model) brandWordmarkRows(word *brandWordmark) []string {
+	if m.noColor {
+		return word.rows(paintBrandWord)
+	}
+	return word.stickerRows(m.brandStickerOutlined())
+}
+
+// brandStickerOutlined reports whether the sticker wordmark needs its outline:
+// without it the white "quebra" vanishes on a light background. On a
+// background detected as dark the letters stand out alone, and the terminal's
+// own background shows around them. The model assumes a dark background until
+// the terminal answers, so the outline stays when the answer never comes.
+func (m model) brandStickerOutlined() bool {
+	return !m.terminalBgKnown || !m.hasDarkBg
+}
+
+// canDrawMascot reports whether the mascot's fixed colors will show: they need
+// color output. Its dark outline keeps it readable on light terminals too.
+func (m model) canDrawMascot() bool {
+	return !m.noColor
+}
+
+func (m model) emptyStateLines(width int) []string {
+	var lines []string
+	layout := m.emptyStateLayout(width)
+	switch layout.tier {
+	case brandTierLockup:
+		word := m.brandWordmarkRows(layout.word)
+		// The domain sits on the baseline, right after the last letter.
+		word[layout.word.baselineRow] += " " + qgTheme.faint.Render(brandDomain)
+		below := []string{"", brandTagline()}
+		if orient := m.emptyStateOrientation(); orient != "" {
+			below = append(below, orient)
+		}
+		lines = brandBesideMascot(width, brandLockupWidth(layout.word), brandLockupGap, word, below)
+	case brandTierCompact:
+		column := []string{brandWordmarkText(), brandTagline()}
+		if orient := m.emptyStateOrientation(); orient != "" {
+			column = append(column, orient)
+		}
+		lines = brandBesideMascot(width, brandCompactWidth, brandCompactGap, column, nil)
+	case brandTierWordmark:
+		// With the mascot above the name, the orientation line drops its
+		// spacer, as in the lockup, and comes only when there is a row for
+		// it; a blank row between the mascot and the name comes after it.
+		// Without that blank the name's first row, nearly empty under the
+		// centered mascot, still keeps them apart. A standard 80×24 terminal
+		// fits.
+		orient := m.emptyStateOrientation()
+		spare := m.emptyStateRows() - (brandMascotCellRows + layout.word.cellRows + 2)
+		if layout.mascotAbove {
+			for _, row := range brandMascotLines() {
+				lines = append(lines, centerLine(row, width))
+			}
+			if orient != "" {
+				spare--
+			}
+			if spare > 0 {
+				lines = append(lines, "")
+			}
+		}
+		for _, row := range m.brandWordmarkRows(layout.word) {
+			lines = append(lines, centerLine(row, width))
+		}
+		lines = append(lines, "", centerLine(brandTagline(), width))
+		switch {
+		case orient == "":
+		case !layout.mascotAbove:
+			lines = append(lines, "", centerLine(orient, width))
+		case spare >= 0:
+			lines = append(lines, centerLine(orient, width))
+		}
+	default:
+		lines = append(lines, centerLine(brandWordmarkText(), width), centerLine(brandTagline(), width))
+		if orient := m.emptyStateOrientation(); orient != "" {
+			lines = append(lines, "", centerLine(orient, width))
+		}
+		// A very short pane keeps the first lines that fit.
+		if rows := m.emptyStateRows(); rows > 0 && len(lines) > rows {
+			lines = lines[:rows]
+		}
 	}
 	for index := range lines {
 		lines[index] = fitStyledLine(lines[index], width)
 	}
 	return lines
+}
+
+// brandBesideMascot draws the mascot with column to its right, the two
+// centered on each other, then the lines of below aligned with the column. The
+// block is blockWidth cells wide and centered in width.
+func brandBesideMascot(width, blockWidth, gapWidth int, column, below []string) []string {
+	mascot := brandMascotLines()
+	rows := maxInt(len(mascot), len(column))
+	mascotTop := (rows - len(mascot)) / 2
+	columnTop := (rows - len(column) + 1) / 2
+	indent := strings.Repeat(" ", maxInt(0, (width-blockWidth)/2))
+	gap := strings.Repeat(" ", gapWidth)
+	lines := make([]string, 0, rows+len(below))
+	for row := 0; row < rows; row++ {
+		art := strings.Repeat(" ", brandMascotWidth)
+		if index := row - mascotTop; index >= 0 && index < len(mascot) {
+			art = mascot[index]
+		}
+		text := ""
+		if index := row - columnTop; index >= 0 && index < len(column) {
+			text = column[index]
+		}
+		lines = append(lines, indent+art+gap+text)
+	}
+	pad := indent + strings.Repeat(" ", brandMascotWidth+gapWidth)
+	for _, line := range below {
+		lines = append(lines, pad+line)
+	}
+	return lines
+}
+
+// paintBrandWord colors a run of wordmark cells: "quebra" in ink and "galho"
+// in the accent, like the dashboard's Wordmark. Bold is off so terminals that
+// embolden by brightening leave the block glyphs alone.
+func paintBrandWord(word int, cells string) string {
+	if word == 0 {
+		return qgTheme.ink.Bold(false).Render(cells)
+	}
+	return qgTheme.accent.Bold(false).Render(cells)
+}
+
+// brandWordmarkText is the one-line wordmark for terminals too narrow for the
+// pixel one.
+func brandWordmarkText() string {
+	return qgTheme.ink.Bold(true).Render("quebra") + " " + qgTheme.accent.Render("galho")
+}
+
+func brandTagline() string {
+	return qgTheme.muted.Render(emptyStateTagline) + " " + qgTheme.red.Render(emptyStateHeart)
 }
 
 func (m model) emptyStateOrientation() string {
@@ -101,25 +313,20 @@ func displayVersion(version string) string {
 	return version
 }
 
-func qgWordmarkLines() []string {
-	lines := make([]string, 0, len(qgWordmarkGlyphLines))
-	for _, row := range qgWordmarkGlyphLines {
-		lines = append(lines, qgTheme.ink.Bold(false).Render(row[0])+"  "+qgTheme.accent.Bold(false).Render(row[1]))
-	}
-	return lines
-}
-
-// Wordmark renders the brand ASCII art shown on the TUI's empty state, for
-// reuse outside the TUI (e.g. `qg --version`). It is deliberately
-// uncolored: only newModel resolves --theme/QG_THEME, so painting the
-// global palette here would ignore a selected light theme and be unreadable
-// on light terminals. The terminal's default foreground works everywhere.
+// Wordmark renders the brand art shown on the TUI's empty state, for reuse
+// outside the TUI (e.g. `qg --version`): the small pixel wordmark, which fits
+// narrow terminals, and the tagline.
+// It is deliberately uncolored: only newModel resolves --theme/QG_THEME, so
+// painting the global palette here would ignore a selected light theme and be
+// unreadable on light terminals. The terminal's default foreground works
+// everywhere.
 func Wordmark() string {
-	lines := make([]string, 0, len(qgWordmarkGlyphLines)+4)
-	for _, row := range qgWordmarkGlyphLines {
-		lines = append(lines, row[0]+"  "+row[1])
+	rows := brandWordmarkSmall.rows(func(_ int, cells string) string { return cells })
+	lines := make([]string, 0, len(rows)+2)
+	for _, row := range rows {
+		lines = append(lines, strings.TrimRight(row, " "))
 	}
-	lines = append(lines, "", wordmarkBrandLine, "", emptyStateTagline)
+	lines = append(lines, "", emptyStateTagline+" "+emptyStateHeart)
 	return strings.Join(lines, "\n")
 }
 

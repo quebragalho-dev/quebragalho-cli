@@ -46,21 +46,21 @@ func TestComposerModelUsesPaddingBeforeTruncating(t *testing.T) {
 	}
 }
 
-func TestWordmarkSeparatesGlyphsWithoutChangingTheirCells(t *testing.T) {
-	expected := []string{
-		" ███████    ███████ ",
-		"██     ██  ██       ",
-		"██     ██  ██       ",
-		"██  ██ ██  ██  █████",
-		"██   ███   ██     ██",
-		" █████ ██   ███████ ",
-	}
-	plain := strings.Split(Wordmark(), "\n")
-	styled := qgWordmarkLines()
-	for i, want := range expected {
-		for _, got := range []string{plain[i], plainRender(t, styled[i])} {
-			if got != want || lipgloss.Width(got) != 20 {
-				t.Fatalf("wordmark row %d = %q (%d cells), want %q (20 cells)", i+1, got, lipgloss.Width(got), want)
+// Painting the wordmark changes colors only: every styled row keeps the cells
+// of the uncolored rows, in both sizes.
+func TestWordmarkStyledRowsKeepTheirCells(t *testing.T) {
+	for _, word := range []*brandWordmark{brandWordmarkSticker, brandWordmarkSmall} {
+		plain := word.rows(func(_ int, cells string) string { return cells })
+		styled := word.rows(paintBrandWord)
+		if len(plain) != word.cellRows || len(styled) != word.cellRows {
+			t.Fatalf("rows: plain %d, styled %d, want %d", len(plain), len(styled), word.cellRows)
+		}
+		for i := range plain {
+			if got := plainRender(t, styled[i]); got != plain[i] {
+				t.Fatalf("styled row %d = %q, want %q", i+1, got, plain[i])
+			}
+			if got := lipgloss.Width(plain[i]); got != word.width {
+				t.Fatalf("row %d is %d cells, want %d", i+1, got, word.width)
 			}
 		}
 	}

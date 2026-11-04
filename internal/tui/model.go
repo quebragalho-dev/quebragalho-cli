@@ -178,6 +178,7 @@ type model struct {
 	keyBindings                   keyBindings
 	themeMode                     themeMode // palette preference: system (default) or named palette
 	hasDarkBg                     bool      // last terminal background-detection result, if one is delivered
+	terminalBgKnown               bool      // a background-detection result was delivered
 	updateNotice                  *updatenotice.Config
 	updateNoticeState             string // state file the footer check reads and merges
 	updateAvailable               string // version shown in the footer notice, "" hides it
@@ -453,6 +454,7 @@ type model struct {
 	lastStreamClear     time.Time
 	pendingStreamClear  bool
 	reducedMotion       bool // QG_REDUCED_MOTION / no-TTY: static spinner glyph, no fade
+	noColor             bool // NO_COLOR: the empty state skips the mascot, whose shape lives in its colors
 	// In-progress tool call whose arguments are streaming (a file being written),
 	// shown live by streamingToolCallView so a long write/edit isn't a frozen
 	// spinner. Cleared when the call completes (next text/turn) — see updateModel.
@@ -1121,6 +1123,7 @@ func newModel(ctx context.Context, options Options) model {
 		applyTheme(m.themeMode, true)
 	}
 	m.reducedMotion = defaultReducedMotion()
+	m.noColor = noColorRequested(os.Getenv)
 	// The streaming-text fade (a lime→ink glow on freshly streamed lines) is
 	// disabled: it read as a distracting glow rather than a subtle liveness cue.
 	// Streaming text always renders statically at base ink (the disabled path in
@@ -1468,6 +1471,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		// Reapply contrast-sensitive colors without repainting the terminal canvas.
 		m.hasDarkBg = msg.IsDark()
+		m.terminalBgKnown = true
 		applyTheme(m.themeMode, m.hasDarkBg)
 		return m, nil
 	case updateCheckMsg:
