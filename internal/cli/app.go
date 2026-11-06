@@ -722,9 +722,10 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	// Update check after config resolution (the saved theme lives there) but
 	// before any heavy setup (providers, LSP, sandbox): a known newer release
 	// gets the startup prompt in the same theme the TUI itself would use. It
-	// never blocks on the network — the prompt only uses the stored check
-	// result — and it stays out of exec, subcommands, and pipes: only this
-	// interactive entry point calls it, and stdin must be a terminal.
+	// waits at most 1.5s on the network, and only when the stored check is
+	// older than the notice interval — and it stays out of exec, subcommands,
+	// and pipes: only this interactive entry point calls it, and stdin must
+	// be a terminal.
 	tui.ApplyUpdatePromptTheme(theme, resolved.Preferences.Theme, os.Getenv("QG_THEME"))
 	if code, proceed := runUpdateStartup(context.Background(), stderr, updateStartupDeps{
 		currentVersion: version,

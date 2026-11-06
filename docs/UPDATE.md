@@ -151,9 +151,10 @@ with four options: install and start, skip and start, read the changelog
 while the TUI is already open. Neither ever appears in `qg exec`, pipes, CI,
 or any non-interactive use.
 
-- The screen only uses the last stored check; it never waits on the network.
-  The check runs in the background at most once an hour and on startup when
-  the stored result is older than that.
+- Opening the TUI checks for a new release when the stored result is older
+  than 10 minutes, waiting at most 1.5 s before carrying on with the stored
+  result. A failed check (offline, slow network) records nothing, so the
+  footer retries in the background right after opening.
 - "Skip" records the version: the screen and the notice stay away until a
   newer version shows up. quitting or closing does not record anything.
 - Choosing install runs the install inside the screen: the card shows the

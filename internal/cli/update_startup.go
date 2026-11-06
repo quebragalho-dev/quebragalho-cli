@@ -20,6 +20,10 @@ import (
 // without the wrapper handoff file, so there is nowhere to deliver it.
 var errUpdateStartupNoWrapper = errors.New("instalação npm indisponível fora do wrapper")
 
+// startupCheckTimeout bounds the opening update check: DNS, connect, and read
+// share this single budget, so a slow network delays opening by at most this.
+const startupCheckTimeout = 1500 * time.Millisecond
+
 // updateStartupDeps wires the interactive startup update check. Tests inject
 // fakes; the app passes the real providers.
 type updateStartupDeps struct {
@@ -32,7 +36,10 @@ type updateStartupDeps struct {
 	now        func() time.Time
 	// stateFile overrides the stored-state location ("" resolves it).
 	stateFile string
-	args      []string
+	// checkTimeout bounds the opening network check (0 selects
+	// startupCheckTimeout).
+	checkTimeout time.Duration
+	args         []string
 	// runPrompt shows the startup screen; nil proceeds without asking.
 	runPrompt func(ctx context.Context, current, latest, changelogURL string, openURL func(string) error, install func(ctx context.Context) error) (tui.UpdateChoice, error)
 	openURL   func(url string) error
@@ -57,9 +64,10 @@ func (deps updateStartupDeps) clock() func() time.Time {
 	return time.Now
 }
 
-// runUpdateStartup implements the interactive startup update step: it never
-// waits on the network, offers the new version through the TUI prompt when
-// one is known, installs on choice, and returns whether the TUI should open.
+// runUpdateStartup implements the interactive startup update step: when the
+// stored check is stale it refreshes over the network first (bounded by
+// checkTimeout), then offers the new version through the TUI prompt when one
+// is known, installs on choice, and returns whether the TUI should open.
 func runUpdateStartup(ctx context.Context, stderr io.Writer, deps updateStartupDeps) (exitCode int, proceed bool) {
 	env := deps.lookupEnv
 	// QG_UPDATE_JUST_INSTALLED is a one-shot handoff: consume it here so it
@@ -83,6 +91,7 @@ func runUpdateStartup(ctx context.Context, stderr io.Writer, deps updateStartupD
 		InstallMethod:  method,
 		Env:            deps.env,
 		Now:            deps.clock(),
+		GitHubEndpoint: strings.TrimSpace(env("QG_UPDATE_RELEASE_URL")),
 		NpmEndpoint:    strings.TrimSpace(env("QG_UPDATE_NPM_ENDPOINT")),
 	}
 	if !updatenotice.Enabled(config) {
@@ -97,9 +106,27 @@ func runUpdateStartup(ctx context.Context, stderr io.Writer, deps updateStartupD
 		stateFile = resolved
 	}
 	state := updatenotice.Load(stateFile)
-	// No network here: the running TUI owns the periodic refresh (its Init
-	// issues the check as a tea.Cmd), so this startup path only reads the
-	// stored check and never waits.
+	// A stale stored check would hide a release until the next opening: refresh
+	// now when due, waiting at most checkTimeout for the whole round trip (the
+	// update package's own 5s timeout never gets to fire first). A failed check
+	// records nothing, so the stored LastCheck stays stale and the TUI still
+	// refreshes in the background right after opening.
+	if updatenotice.Due(config, state) {
+		timeout := deps.checkTimeout
+		if timeout <= 0 {
+			timeout = startupCheckTimeout
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, timeout)
+		refreshed := updatenotice.Refresh(checkCtx, config, updatenotice.State{})
+		cancel()
+		// Refresh always stamps LastCheck but only sets LatestVersion on a
+		// successful check, so a non-empty version is the success signal.
+		if refreshed.LatestVersion != "" {
+			_ = updatenotice.RecordCheck(stateFile, refreshed)
+			state.LastCheck = refreshed.LastCheck
+			state.LatestVersion = refreshed.LatestVersion
+		}
+	}
 	version := updatenotice.PromptVersion(config, state)
 	if version == "" || deps.runPrompt == nil {
 		return 0, true
@@ -200,6 +227,7 @@ func buildUpdateNoticeOptions(env func(string) string) (*updatenotice.Config, st
 		CurrentVersion: version,
 		InstallMethod:  detectUpdateInstallMethod(),
 		Env:            env,
+		GitHubEndpoint: strings.TrimSpace(env("QG_UPDATE_RELEASE_URL")),
 		NpmEndpoint:    strings.TrimSpace(env("QG_UPDATE_NPM_ENDPOINT")),
 	}, stateFile
 }

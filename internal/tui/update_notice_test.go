@@ -312,13 +312,13 @@ func TestUpdateCheckSkipsRefreshWhenNotDue(t *testing.T) {
 	}
 }
 
-func TestUpdateCheckSchedulesHourly(t *testing.T) {
+func TestUpdateCheckSchedulesRecheck(t *testing.T) {
 	now := time.Now()
 	cfg := updateNoticeTestConfig(now)
 	m := updateNoticeTestModel(t, &cfg, updatenotice.State{LastCheck: now, LatestVersion: "0.0.11"})
 	_, cmd := applyUpdateCheckMsg(t, m, updatenotice.State{LastCheck: now, LatestVersion: "0.0.11"})
 	if cmd == nil {
-		t.Fatal("after a check the next hourly check must be scheduled")
+		t.Fatal("after a check the next check must be scheduled")
 	}
 	updated, cmd := m.Update(updateCheckTickMsg{})
 	_ = updated.(model)

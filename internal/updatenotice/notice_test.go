@@ -82,7 +82,7 @@ func TestEnabled(t *testing.T) {
 	}
 }
 
-func TestDueAfterOneHour(t *testing.T) {
+func TestDueAfterCheckInterval(t *testing.T) {
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	config := Config{Now: func() time.Time { return now }}
 	for _, test := range []struct {
@@ -90,8 +90,8 @@ func TestDueAfterOneHour(t *testing.T) {
 		state State
 		want  bool
 	}{
-		{name: "59 minutes ago is not due", state: State{LastCheck: now.Add(-59 * time.Minute)}, want: false},
-		{name: "60 minutes ago is due", state: State{LastCheck: now.Add(-60 * time.Minute)}, want: true},
+		{name: "9 minutes ago is not due", state: State{LastCheck: now.Add(-9 * time.Minute)}, want: false},
+		{name: "10 minutes ago is due", state: State{LastCheck: now.Add(-10 * time.Minute)}, want: true},
 		{name: "never checked is due", state: State{}, want: true},
 		{name: "last check in the future is due", state: State{LastCheck: now.Add(time.Hour)}, want: true},
 	} {

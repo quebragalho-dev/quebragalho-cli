@@ -1226,8 +1226,9 @@ func (m model) Init() tea.Cmd {
 	// Explicitly requesting it here means QG doesn't depend solely on the
 	// terminal's unprompted push.
 	cmds = append(cmds, tea.RequestWindowSize)
-	// Quiet footer notice: one check at startup when due, then hourly. It
-	// never blocks the UI, and stays unscheduled when the kill-switch is off.
+	// Quiet footer notice: one check at startup when due, then on the shared
+	// notice interval. It never blocks the UI, and stays unscheduled when the
+	// kill-switch is off.
 	if cmd := m.updateCheckInitCmd(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
