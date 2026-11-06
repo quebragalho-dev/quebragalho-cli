@@ -91,7 +91,7 @@ func TestMeasureTranscriptBodyItemsUsesHeightCache(t *testing.T) {
 	item := transcriptBodyItem{
 		kind:              transcriptBodyItemRow,
 		rowIndex:          7,
-		heightCacheKey:    "stable-row",
+		heightCacheKey:    transcriptBlockBodyHeightCacheKey(transcriptBodyItemRow, "stable-row"),
 		heightCacheStable: true,
 		render: func(int) transcriptBodyRenderedItem {
 			renders++
@@ -144,7 +144,7 @@ func TestVisibleTranscriptBodyLayoutKeepsSelectableBodyYAbsolute(t *testing.T) {
 		{
 			kind:              transcriptBodyItemRow,
 			rowIndex:          3,
-			heightCacheKey:    "selectable-row",
+			heightCacheKey:    transcriptBlockBodyHeightCacheKey(transcriptBodyItemRow, "selectable-row"),
 			heightCacheStable: true,
 			render: func(startBodyY int) transcriptBodyRenderedItem {
 				return transcriptBodyRenderedItem{
@@ -195,7 +195,7 @@ func TestScrollableTranscriptItemsViewMatchesFullLayout(t *testing.T) {
 func countingTranscriptBodyItem(key string, lines []string, renders *int) transcriptBodyItem {
 	return transcriptBodyItem{
 		kind:              transcriptBodyItemRow,
-		heightCacheKey:    key,
+		heightCacheKey:    transcriptBlockBodyHeightCacheKey(transcriptBodyItemRow, key),
 		heightCacheStable: true,
 		render: func(int) transcriptBodyRenderedItem {
 			(*renders)++

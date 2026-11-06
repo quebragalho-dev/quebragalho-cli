@@ -7,28 +7,41 @@ import (
 
 const defaultTranscriptBodyHeightCacheMaxEntries = 512
 
+// transcriptHeightKey is the exact identity of one measured body item. Block
+// items carry their rendered block as a string header (no copy of the bytes);
+// row items embed the render row key itself. Struct equality is exact, so two
+// different items never share a height.
+type transcriptHeightKey struct {
+	version string
+	kind    transcriptBodyItemKind
+	width   int
+	gutter  int
+	block   string
+	row     renderRowKey
+}
+
 type transcriptBodyHeightCache struct {
 	mu         sync.Mutex
 	maxEntries int
-	items      map[string]*list.Element
+	items      map[transcriptHeightKey]*list.Element
 	lru        *list.List
 }
 
 type transcriptBodyHeightCacheEntry struct {
-	key    string
+	key    transcriptHeightKey
 	height int
 }
 
 func newTranscriptBodyHeightCache(maxEntries int) *transcriptBodyHeightCache {
 	return &transcriptBodyHeightCache{
 		maxEntries: maxEntries,
-		items:      map[string]*list.Element{},
+		items:      map[transcriptHeightKey]*list.Element{},
 		lru:        list.New(),
 	}
 }
 
-func (c *transcriptBodyHeightCache) get(key string) (int, bool) {
-	if c == nil || key == "" {
+func (c *transcriptBodyHeightCache) get(key transcriptHeightKey) (int, bool) {
+	if c == nil || key.version == "" {
 		return 0, false
 	}
 	c.mu.Lock()
@@ -41,8 +54,8 @@ func (c *transcriptBodyHeightCache) get(key string) (int, bool) {
 	return element.Value.(*transcriptBodyHeightCacheEntry).height, true
 }
 
-func (c *transcriptBodyHeightCache) set(key string, height int) {
-	if c == nil || key == "" {
+func (c *transcriptBodyHeightCache) set(key transcriptHeightKey, height int) {
+	if c == nil || key.version == "" {
 		return
 	}
 	c.mu.Lock()
