@@ -104,6 +104,7 @@ func applyTheme(mode themeMode, terminalDark bool) themeMode {
 	resolved, theme := themeForMode(mode, terminalDark)
 	qgTheme = theme
 	rebuildStreamingFadePalette()
+	clearWorkingLabelCache()
 	if defaultRenderCache != nil {
 		// clear also resets the streaming incremental state, so this stays
 		// the single invalidation point on theme change.

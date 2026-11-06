@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 const (
@@ -17,6 +18,107 @@ const (
 	workingDriveSoftWindow   = 200 * time.Millisecond
 	workingDriveDimWindow    = 430 * time.Millisecond
 )
+
+// workingStatusWords are the rotating liveness verbs. Trabalhando stays first
+// so the zero-value model (fixtures without beginRun) keeps showing the brand
+// word, exactly as before; real turns pick a random start in beginRun.
+var workingStatusWords = []string{
+	"Trabalhando",
+	"Quebrando o Galho",
+	"Lapidando",
+	"Cozinhando 🔥",
+	"Pensando",
+	"Dando um jeito",
+	"No capricho",
+	"Fuçando",
+	"Caprichando",
+}
+
+// workingWordSwapInterval is how long one word shows before the next. The swap
+// derives from the turn's elapsed time, so no new ticker is needed.
+const workingWordSwapInterval = 3 * time.Second
+
+const (
+	workingFireWord      = "Cozinhando 🔥"
+	workingFireWordAscii = "Cozinhando"
+)
+
+// workingWordStartIndex draws the turn's first word from the turn-start time
+// plus the run ID, both already injected (m.now, runID). No new seam.
+func workingWordStartIndex(startedAt time.Time, runID int) int {
+	n := len(workingStatusWords)
+	if n == 0 {
+		return 0
+	}
+	if startedAt.IsZero() {
+		return 0
+	}
+	seed := startedAt.UnixNano() + int64(runID)
+	index := int(seed % int64(n))
+	if index < 0 {
+		index += n
+	}
+	return index
+}
+
+// workingStatusWord is the label's current word. Reduced motion pins the brand
+// word; otherwise (seed + elapsed/3s) mod N rotates without ever repeating the
+// previous word. A zero turnStartedAt (fixtures) means slot 0.
+func (m model) workingStatusWord() string {
+	if m.reducedMotion {
+		return workingStatusText
+	}
+	n := len(workingStatusWords)
+	if n == 0 {
+		return workingStatusText
+	}
+	seed := m.workingWordSeed
+	if seed < 0 || seed >= n {
+		seed = 0
+	}
+	slot := 0
+	if !m.turnStartedAt.IsZero() && m.now != nil {
+		elapsed := m.activeTurnElapsed(m.turnStartedAt)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		slot = int(elapsed / workingWordSwapInterval)
+	}
+	word := workingStatusWords[(seed+slot)%n]
+	if m.workingWordAscii() && word == workingFireWord {
+		return workingFireWordAscii
+	}
+	return word
+}
+
+// workingWordAscii reports whether the fire emoji must be dropped. NO_COLOR
+// forces the Ascii profile; TERM=dumb resolves to NoTTY (which already pins
+// reduced motion), so only the Ascii path needs the plain fallback.
+func (m model) workingWordAscii() bool {
+	return m.noColor || lipgloss.Writer.Profile == colorprofile.Ascii
+}
+
+// workingLabelCacheKey is the full animated-label identity: wave phase, word,
+// and color profile. Theme swaps clear the table in applyTheme.
+type workingLabelCacheKey struct {
+	phase   int
+	word    string
+	profile colorprofile.Profile
+}
+
+var workingLabelCache = map[workingLabelCacheKey]string{}
+
+func clearWorkingLabelCache() {
+	workingLabelCache = map[workingLabelCacheKey]string{}
+}
+
+func workingLabelCachePhases() int {
+	n := int(workingDriveCycle / activeAnimationFrameInterval)
+	if n < 1 {
+		return 1
+	}
+	return n
+}
 
 var workingDriveDelays = [...]time.Duration{
 	workingDriveStep, 2 * workingDriveStep, 3 * workingDriveStep,
@@ -69,20 +171,37 @@ func (m model) workingStatusIndicator() string {
 
 // workingStatusLabel continues the same wave after the grid. The first letter
 // starts immediately after the final grid column, making one animation travel
-// cleanly from the loader into the active label.
+// cleanly from the loader into the active label. The fire emoji keeps its own
+// color (no wave style) while still occupying its 2 columns.
 func (m model) workingStatusLabel() string {
 	if m.reducedMotion {
 		return qgTheme.ink.Render(workingStatusText)
 	}
 
+	word := m.workingStatusWord()
+	phase := m.spinnerPhase
+	if phase < 0 {
+		phase = 0
+	}
+	key := workingLabelCacheKey{phase: phase % workingLabelCachePhases(), word: word, profile: lipgloss.Writer.Profile}
+	if cached, ok := workingLabelCache[key]; ok {
+		return cached
+	}
+
 	var out strings.Builder
-	out.Grow(len(workingStatusText) * 12)
+	out.Grow(len(word) * 12)
 	start := 4 * workingDriveStep
-	for index, char := range []rune(workingStatusText) {
+	for index, char := range []rune(word) {
+		if char == '🔥' {
+			out.WriteString(string(char))
+			continue
+		}
 		delay := start + time.Duration(index)*workingDriveStep
 		out.WriteString(workingDriveStyle(workingDriveLevelAt(m.spinnerPhase, delay)).Render(string(char)))
 	}
-	return out.String()
+	rendered := out.String()
+	workingLabelCache[key] = rendered
+	return rendered
 }
 
 func workingDriveLevels(phase int) [workingDriveGridWidth * workingDriveGridHeight]workingDriveLevel {
