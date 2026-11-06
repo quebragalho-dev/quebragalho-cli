@@ -3,6 +3,12 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.17 — 2026-11-06
+
+### Mudanças
+
+- O aviso de versão nova aparece já na primeira vez que você abre o qg depois de uma versão sair. Ao abrir, se a última verificação tiver mais de 10 minutos, o qg pergunta se há versão nova e espera no máximo 1,5 segundo; se a internet estiver lenta ou fora, ele abre normal e verifica em segundo plano. A verificação agora acontece a cada 10 minutos, não mais a cada hora.
+
 ## 0.0.16 — 2026-11-06
 
 ### Novidades
