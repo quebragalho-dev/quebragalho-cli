@@ -11,17 +11,13 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/updatenotice"
 )
 
-// updateCheckInterval is how often the footer re-checks for a new release
-// after the startup check.
-const updateCheckInterval = time.Hour
-
 // updateCheckMsg carries the stored state after a footer check. The handler
 // derives the shown version from it and schedules the next check.
 type updateCheckMsg struct {
 	state updatenotice.State
 }
 
-// updateCheckTickMsg fires when the hourly re-check is due.
+// updateCheckTickMsg fires when the re-check is due.
 type updateCheckTickMsg struct{}
 
 // updateCheckEnabled reports whether the footer check runs: it needs a config
@@ -66,9 +62,10 @@ func refreshUpdateNotice(ctx context.Context, cfg updatenotice.Config, stateFile
 	return updatenotice.Load(stateFile)
 }
 
-// scheduleUpdateCheck queues the next hourly re-check.
+// scheduleUpdateCheck queues the next re-check on the shared notice interval,
+// so an opening check stays fresh for the footer instead of firing twice.
 func scheduleUpdateCheck() tea.Cmd {
-	return tea.Tick(updateCheckInterval, func(time.Time) tea.Msg {
+	return tea.Tick(updatenotice.CheckInterval, func(time.Time) tea.Msg {
 		return updateCheckTickMsg{}
 	})
 }

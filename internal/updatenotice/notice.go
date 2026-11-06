@@ -27,6 +27,10 @@ type Config struct {
 	NpmEndpoint string
 }
 
+// CheckInterval bounds how often the update check may run: at most once per
+// interval, shared by the opening check and the footer re-check.
+const CheckInterval = 10 * time.Minute
+
 // ChangelogURL is the public CHANGELOG.md page for a release: the newest
 // sections are on top, so one link covers every version the user skipped.
 func ChangelogURL(version string) string {
@@ -52,15 +56,15 @@ func Enabled(config Config) bool {
 }
 
 // Due reports whether the stored check is stale: the first check always runs,
-// afterwards at most once an hour. A LastCheck in the future (clock moved
-// backward, or a state file from a skewed machine) is due too: checking again
-// records a fresh LastCheck instead of waiting out the future timestamp.
+// afterwards at most once per CheckInterval. A LastCheck in the future (clock
+// moved backward, or a state file from a skewed machine) is due too: checking
+// again records a fresh LastCheck instead of waiting out the future timestamp.
 func Due(config Config, state State) bool {
 	elapsed := now(config.Now).Sub(state.LastCheck)
 	if elapsed < 0 {
 		return true
 	}
-	return elapsed >= time.Hour
+	return elapsed >= CheckInterval
 }
 
 // Update loads the state file, applies mutate, and saves it back atomically.

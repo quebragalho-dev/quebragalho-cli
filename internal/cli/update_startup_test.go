@@ -10,7 +10,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,9 +49,14 @@ func writeUpdateState(t *testing.T, state updatenotice.State) string {
 	return path
 }
 
+// updateStartupTestNow is the fake clock every startup test shares: states
+// stamped with it are fresh (no network), states older than CheckInterval
+// are due.
+var updateStartupTestNow = time.Date(2026, time.November, 2, 12, 0, 0, 0, time.UTC)
+
 func updateStartupTestDeps(stateFile string, env map[string]string, prompt func(context.Context, string, string, string, func(string) error, func(context.Context) error) (tui.UpdateChoice, error)) (updateStartupDeps, *bytes.Buffer) {
 	var stderr bytes.Buffer
-	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	now := updateStartupTestNow
 	deps := updateStartupDeps{
 		currentVersion: "0.0.10",
 		installMethod:  update.InstallMethodStandalone,
@@ -117,7 +124,7 @@ func TestUpdateStartupSkipsWhenStdinIsNotTTY(t *testing.T) {
 	// Armed state (a newer version is known) but no terminal: the prompt
 	// must never show, silently proceeding to the current version.
 	deps, stderr := updateStartupTestDeps(
-		writeUpdateState(t, updatenotice.State{LastCheck: time.Now(), LatestVersion: "0.0.11"}),
+		writeUpdateState(t, updatenotice.State{LastCheck: updateStartupTestNow, LatestVersion: "0.0.11"}),
 		nil,
 		func(context.Context, string, string, string, func(string) error, func(context.Context) error) (tui.UpdateChoice, error) {
 			t.Error("no prompt may show without a terminal")
@@ -174,7 +181,7 @@ func TestUpdateStartupSkipRecordsVersion(t *testing.T) {
 
 func TestUpdateStartupQuitExitsZero(t *testing.T) {
 	code, proceed, _ := runUpdateStartupWithState(t,
-		updatenotice.State{LastCheck: time.Now(), LatestVersion: "0.0.11"},
+		updatenotice.State{LastCheck: updateStartupTestNow, LatestVersion: "0.0.11"},
 		nil,
 		func(context.Context, string, string, string, func(string) error, func(context.Context) error) (tui.UpdateChoice, error) {
 			return tui.UpdateQuit, nil
@@ -186,7 +193,7 @@ func TestUpdateStartupQuitExitsZero(t *testing.T) {
 
 func TestUpdateStartupInstallFailureProceeds(t *testing.T) {
 	ranInstall := false
-	deps, stderr := updateStartupTestDeps(writeUpdateState(t, updatenotice.State{LastCheck: time.Now(), LatestVersion: "0.0.11"}), nil,
+	deps, stderr := updateStartupTestDeps(writeUpdateState(t, updatenotice.State{LastCheck: updateStartupTestNow, LatestVersion: "0.0.11"}), nil,
 		func(_ context.Context, _, _, _ string, _ func(string) error, install func(context.Context) error) (tui.UpdateChoice, error) {
 			ranInstall = true
 			if err := install(context.Background()); err == nil {
@@ -225,7 +232,7 @@ func TestUpdateStartupInstallStandaloneRelaunches(t *testing.T) {
 	var gotBinary string
 	var gotArgs []string
 	var gotEnv []string
-	deps, _ := updateStartupTestDeps(writeUpdateState(t, updatenotice.State{LastCheck: time.Now(), LatestVersion: "0.0.11"}), nil,
+	deps, _ := updateStartupTestDeps(writeUpdateState(t, updatenotice.State{LastCheck: updateStartupTestNow, LatestVersion: "0.0.11"}), nil,
 		func(ctx context.Context, _, _, _ string, _ func(string) error, install func(context.Context) error) (tui.UpdateChoice, error) {
 			if err := install(ctx); err != nil {
 				t.Fatalf("install failed: %v", err)
@@ -262,7 +269,7 @@ func TestUpdateStartupInstallStandaloneRelaunches(t *testing.T) {
 func TestUpdateStartupNpmHandoffWritesFile(t *testing.T) {
 	dir := t.TempDir()
 	handoff := filepath.Join(dir, "handoff.json")
-	deps, _ := updateStartupTestDeps(writeUpdateState(t, updatenotice.State{LastCheck: time.Now(), LatestVersion: "0.0.11"}),
+	deps, _ := updateStartupTestDeps(writeUpdateState(t, updatenotice.State{LastCheck: updateStartupTestNow, LatestVersion: "0.0.11"}),
 		map[string]string{"QG_NPM_UPDATE_HANDOFF": handoff},
 		func(ctx context.Context, _, _, _ string, _ func(string) error, install func(context.Context) error) (tui.UpdateChoice, error) {
 			if err := install(ctx); err != nil {
@@ -309,7 +316,10 @@ func TestUpdateStartupJustInstalledMismatchDoesNotPrompt(t *testing.T) {
 	}
 }
 
-func TestUpdateStartupNeverBlocksOnNetwork(t *testing.T) {
+func TestUpdateStartupSlowNetworkReturnsWithinBudget(t *testing.T) {
+	// A hung release endpoint must delay opening by at most the startup
+	// budget: the prompt is skipped and nothing is recorded, so the TUI
+	// still refreshes in the background right after opening.
 	release := make(chan struct{})
 	server := newSleepingUpdateServer(t, release)
 	defer server.Close()
@@ -317,27 +327,30 @@ func TestUpdateStartupNeverBlocksOnNetwork(t *testing.T) {
 	deps, _ := updateStartupTestDeps(statePath,
 		map[string]string{"QG_UPDATE_NPM_ENDPOINT": server.URL},
 		func(context.Context, string, string, string, func(string) error, func(context.Context) error) (tui.UpdateChoice, error) {
-			t.Error("no update is known, so no prompt may show")
+			t.Error("a timed-out check knows no version, so no prompt may show")
 			return tui.UpdateSkip, nil
 		})
 	deps.installMethod = update.InstallMethodNpm
 	before := time.Now()
 	code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps)
-	if elapsed := time.Since(before); elapsed >= 200*time.Millisecond {
-		t.Fatalf("startup blocked %v on a check it must never wait for, want < 200ms", elapsed)
+	elapsed := time.Since(before)
+	close(release)
+	if elapsed < time.Second || elapsed >= 2500*time.Millisecond {
+		t.Fatalf("startup waited %v on a hung check, want about the 1.5s budget (under 2.5s)", elapsed)
 	}
 	if code != 0 || !proceed {
 		t.Fatalf("got (%d, %v), want (0, true)", code, proceed)
 	}
-	// No background refresh exists anymore (the running TUI owns the check),
-	// so there is nothing to drain: the sleeping server is never touched.
+	if got := updatenotice.Load(statePath); got != (updatenotice.State{}) {
+		t.Fatalf("a failed check must record nothing, got %#v", got)
+	}
 }
 
 func TestExecNeverPrompts(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	state := updatenotice.State{LastCheck: time.Now(), LatestVersion: "0.0.11"}
+	state := updatenotice.State{LastCheck: updateStartupTestNow, LatestVersion: "0.0.11"}
 	stateFile := writeUpdateState(t, state)
 
 	exitCode, _, stderr := runExecWithEcho(t, []string{"exec", "-p", "say hi"})
@@ -368,14 +381,15 @@ func TestExecNeverPrompts(t *testing.T) {
 }
 
 func TestUpdateStartupSkipSurvivesLateRefresh(t *testing.T) {
-	// The startup screen records the refusal; the TUI footer refresh lands
-	// after (same merge the running TUI uses) and must keep the recorded
-	// skip instead of blanking it.
+	// The startup screen records the refusal without touching the network
+	// (the stored check is fresh); the TUI footer refresh lands after (same
+	// merge the running TUI uses) and must keep the recorded skip instead of
+	// blanking it.
 	release := make(chan struct{})
 	server := newSleepingUpdateServer(t, release)
 	defer server.Close()
-	oldCheck := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
-	stateFile := writeUpdateState(t, updatenotice.State{LastCheck: oldCheck, LatestVersion: "0.0.11"})
+	freshCheck := updateStartupTestNow.Add(-time.Minute)
+	stateFile := writeUpdateState(t, updatenotice.State{LastCheck: freshCheck, LatestVersion: "0.0.11"})
 	deps, _ := updateStartupTestDeps(stateFile, map[string]string{"QG_UPDATE_NPM_ENDPOINT": server.URL},
 		func(_ context.Context, _, _, _ string, _ func(string) error, _ func(context.Context) error) (tui.UpdateChoice, error) {
 			return tui.UpdateSkip, nil
@@ -387,8 +401,9 @@ func TestUpdateStartupSkipSurvivesLateRefresh(t *testing.T) {
 	if got := updatenotice.Load(stateFile); got.SkippedVersion != "0.0.11" {
 		t.Fatalf("refusal not recorded: %#v", got)
 	}
-	// The prompt answered while the network was still asleep: now let the
-	// TUI-side check land through the same merge path refreshUpdateNotice uses.
+	// The startup prompt used the fresh stored check without touching the
+	// network: now let the TUI-side check land through the same merge path
+	// refreshUpdateNotice uses.
 	close(release)
 	refreshed := updatenotice.Refresh(context.Background(), updatenotice.Config{
 		CurrentVersion: "0.0.10",
@@ -408,14 +423,14 @@ func TestUpdateStartupSkipSurvivesLateRefresh(t *testing.T) {
 	if got.LatestVersion != "0.0.99" {
 		t.Fatalf("late refresh did not record its version: %#v", got)
 	}
-	if !got.LastCheck.After(oldCheck) {
+	if !got.LastCheck.After(freshCheck) {
 		t.Fatalf("late refresh did not record its check: %#v", got)
 	}
 }
 
 func TestUpdateStartupJustInstalledDoesNotLeak(t *testing.T) {
 	t.Setenv("QG_UPDATE_JUST_INSTALLED", "0.0.9")
-	deps, _ := updateStartupTestDeps(writeUpdateState(t, updatenotice.State{LastCheck: time.Now()}), nil,
+	deps, _ := updateStartupTestDeps(writeUpdateState(t, updatenotice.State{LastCheck: updateStartupTestNow}), nil,
 		func(context.Context, string, string, string, func(string) error, func(context.Context) error) (tui.UpdateChoice, error) {
 			return tui.UpdateSkip, nil
 		})
@@ -429,5 +444,213 @@ func TestUpdateStartupJustInstalledDoesNotLeak(t *testing.T) {
 	}
 	if got := os.Getenv("QG_UPDATE_JUST_INSTALLED"); got != "" {
 		t.Fatalf("QG_UPDATE_JUST_INSTALLED leaked into the environment: %q", got)
+	}
+}
+
+// npmUpdateServer answers the npm .../latest document with version, counting
+// requests when hits is non-nil.
+func npmUpdateServer(t *testing.T, version string, hits *atomic.Int64) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if hits != nil {
+			hits.Add(1)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(writer, `{"version":%q}`, version)
+	}))
+}
+
+// githubUpdateServer answers the GitHub latest-release API with version and
+// the release assets for the test platform, which standalone checks verify.
+func githubUpdateServer(t *testing.T, version string) *httptest.Server {
+	t.Helper()
+	platform := map[string]string{"linux": "linux", "darwin": "macos", "windows": "windows"}[runtime.GOOS]
+	arch := map[string]string{"amd64": "x64", "arm64": "arm64"}[runtime.GOARCH]
+	if platform == "" || arch == "" {
+		t.Skipf("no release archive for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	extension := "tar.gz"
+	if platform == "windows" {
+		extension = "zip"
+	}
+	name := fmt.Sprintf("qg-v%s-%s-%s.%s", version, platform, arch, extension)
+	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(writer, `{"tag_name":"v%s","assets":[{"name":%q},{"name":%q}]}`,
+			version, name, name+".sha256")
+	}))
+}
+
+func TestUpdateStartupStaleCheckPromptsOnFirstOpening(t *testing.T) {
+	// No stored check yet and the registry answers fast: the screen shows in
+	// this opening with the fresh version, and the check is recorded so the
+	// footer does not check again right after opening.
+	var hits atomic.Int64
+	server := npmUpdateServer(t, "0.0.99", &hits)
+	defer server.Close()
+	statePath := writeUpdateState(t, updatenotice.State{})
+	var gotLatest string
+	deps, _ := updateStartupTestDeps(statePath,
+		map[string]string{"QG_UPDATE_NPM_ENDPOINT": server.URL},
+		func(_ context.Context, current, latest, changelogURL string, _ func(string) error, _ func(context.Context) error) (tui.UpdateChoice, error) {
+			gotLatest = latest
+			if current != "0.0.10" {
+				t.Errorf("prompt current = %q, want 0.0.10", current)
+			}
+			if changelogURL != "https://github.com/quebragalho-dev/quebragalho-cli/blob/v0.0.99/CHANGELOG.md" {
+				t.Errorf("changelog link = %q", changelogURL)
+			}
+			return tui.UpdateSkip, nil
+		})
+	deps.installMethod = update.InstallMethodNpm
+	if code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps); code != 0 || !proceed {
+		t.Fatalf("got (%d, %v), want (0, true)", code, proceed)
+	}
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("network checks = %d, want exactly 1", got)
+	}
+	if gotLatest != "0.0.99" {
+		t.Fatalf("prompt latest = %q, want 0.0.99 from this opening's check", gotLatest)
+	}
+	stored := updatenotice.Load(statePath)
+	if !stored.LastCheck.Equal(updateStartupTestNow) {
+		t.Fatalf("LastCheck = %v, want the check time", stored.LastCheck)
+	}
+	if stored.LatestVersion != "0.0.99" {
+		t.Fatalf("LatestVersion = %q, want 0.0.99", stored.LatestVersion)
+	}
+	if stored.SkippedVersion != "0.0.99" {
+		t.Fatalf("SkippedVersion = %q, want the answered 0.0.99", stored.SkippedVersion)
+	}
+	dueConfig := updatenotice.Config{Now: func() time.Time { return updateStartupTestNow }}
+	if updatenotice.Due(dueConfig, stored) {
+		t.Fatal("the recorded check must not be due right after opening")
+	}
+}
+
+func TestUpdateStartupGitHubCheckPromptsOnFirstOpening(t *testing.T) {
+	// Standalone installs read GitHub releases: a stale check refreshes from
+	// QG_UPDATE_RELEASE_URL and prompts in this opening.
+	server := githubUpdateServer(t, "0.0.99")
+	defer server.Close()
+	statePath := writeUpdateState(t, updatenotice.State{})
+	var gotLatest string
+	deps, _ := updateStartupTestDeps(statePath,
+		map[string]string{"QG_UPDATE_RELEASE_URL": server.URL},
+		func(_ context.Context, _, latest, _ string, _ func(string) error, _ func(context.Context) error) (tui.UpdateChoice, error) {
+			gotLatest = latest
+			return tui.UpdateSkip, nil
+		})
+	if code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps); code != 0 || !proceed {
+		t.Fatalf("got (%d, %v), want (0, true)", code, proceed)
+	}
+	if gotLatest != "0.0.99" {
+		t.Fatalf("prompt latest = %q, want 0.0.99 from GitHub", gotLatest)
+	}
+	if got := updatenotice.Load(statePath); got.LatestVersion != "0.0.99" || !got.LastCheck.Equal(updateStartupTestNow) {
+		t.Fatalf("successful GitHub check not recorded: %#v", got)
+	}
+}
+
+func TestUpdateStartupFailedCheckRecordsNothing(t *testing.T) {
+	// Port 1 refuses connections: the check fails fast, opening carries on
+	// with the stored result, and nothing is recorded.
+	statePath := writeUpdateState(t, updatenotice.State{})
+	deps, _ := updateStartupTestDeps(statePath,
+		map[string]string{"QG_UPDATE_NPM_ENDPOINT": "http://127.0.0.1:1/"},
+		func(context.Context, string, string, string, func(string) error, func(context.Context) error) (tui.UpdateChoice, error) {
+			t.Error("a failed check knows no version, so no prompt may show")
+			return tui.UpdateSkip, nil
+		})
+	deps.installMethod = update.InstallMethodNpm
+	if code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps); code != 0 || !proceed {
+		t.Fatalf("got (%d, %v), want (0, true)", code, proceed)
+	}
+	if got := updatenotice.Load(statePath); got != (updatenotice.State{}) {
+		t.Fatalf("a failed check must record nothing, got %#v", got)
+	}
+}
+
+func TestUpdateStartupFreshCheckMakesNoRequest(t *testing.T) {
+	var hits atomic.Int64
+	server := npmUpdateServer(t, "0.0.99", &hits)
+	defer server.Close()
+	statePath := writeUpdateState(t, updatenotice.State{LastCheck: updateStartupTestNow})
+	deps, _ := updateStartupTestDeps(statePath,
+		map[string]string{"QG_UPDATE_NPM_ENDPOINT": server.URL},
+		func(context.Context, string, string, string, func(string) error, func(context.Context) error) (tui.UpdateChoice, error) {
+			t.Error("a fresh stored check must not prompt")
+			return tui.UpdateSkip, nil
+		})
+	deps.installMethod = update.InstallMethodNpm
+	if code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps); code != 0 || !proceed {
+		t.Fatalf("got (%d, %v), want (0, true)", code, proceed)
+	}
+	if got := hits.Load(); got != 0 {
+		t.Fatalf("a fresh check made %d requests, want none", got)
+	}
+}
+
+func TestUpdateStartupGatedPathsMakeNoRequest(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		tty  bool
+		env  map[string]string
+	}{
+		{name: "kill switch", tty: true, env: map[string]string{"QG_NO_UPDATE_CHECK": "1"}},
+		{name: "no tty", tty: false, env: nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var hits atomic.Int64
+			server := npmUpdateServer(t, "0.0.99", &hits)
+			defer server.Close()
+			env := map[string]string{"QG_UPDATE_NPM_ENDPOINT": server.URL}
+			for key, value := range test.env {
+				env[key] = value
+			}
+			deps, _ := updateStartupTestDeps(writeUpdateState(t, updatenotice.State{}), env,
+				func(context.Context, string, string, string, func(string) error, func(context.Context) error) (tui.UpdateChoice, error) {
+					t.Error("a gated check must never prompt")
+					return tui.UpdateSkip, nil
+				})
+			deps.stdinIsTTY = test.tty
+			deps.installMethod = update.InstallMethodNpm
+			if code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps); code != 0 || !proceed {
+				t.Fatalf("got (%d, %v), want (0, true)", code, proceed)
+			}
+			if got := hits.Load(); got != 0 {
+				t.Fatalf("a gated check made %d requests, want none", got)
+			}
+		})
+	}
+}
+
+func TestUpdateStartupSkippedVersionStaysSilentWithNetwork(t *testing.T) {
+	// The registry answers with the declined version: the check succeeds and
+	// is recorded, but no screen shows.
+	var hits atomic.Int64
+	server := npmUpdateServer(t, "0.0.99", &hits)
+	defer server.Close()
+	oldCheck := updateStartupTestNow.Add(-time.Hour)
+	statePath := writeUpdateState(t, updatenotice.State{LastCheck: oldCheck, LatestVersion: "0.0.99", SkippedVersion: "0.0.99"})
+	deps, _ := updateStartupTestDeps(statePath,
+		map[string]string{"QG_UPDATE_NPM_ENDPOINT": server.URL},
+		func(context.Context, string, string, string, func(string) error, func(context.Context) error) (tui.UpdateChoice, error) {
+			t.Error("a skipped version must never prompt, even with a fresh network answer")
+			return tui.UpdateSkip, nil
+		})
+	deps.installMethod = update.InstallMethodNpm
+	if code, proceed := runUpdateStartup(context.Background(), &bytes.Buffer{}, deps); code != 0 || !proceed {
+		t.Fatalf("got (%d, %v), want (0, true)", code, proceed)
+	}
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("network checks = %d, want exactly 1", got)
+	}
+	stored := updatenotice.Load(statePath)
+	if stored.SkippedVersion != "0.0.99" {
+		t.Fatalf("SkippedVersion = %q, want to keep 0.0.99", stored.SkippedVersion)
+	}
+	if !stored.LastCheck.Equal(updateStartupTestNow) {
+		t.Fatalf("LastCheck = %v, want the successful check recorded", stored.LastCheck)
 	}
 }
