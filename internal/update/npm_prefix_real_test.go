@@ -38,8 +38,8 @@ func realManifest(t *testing.T, name string, version string) []byte {
 func realNpmLayout(t *testing.T, version string, platformVersion string) (string, string, string) {
 	t.Helper()
 	prefix := t.TempDir()
-	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
-	platformDir := filepath.Join(root, "node_modules", "@quebragalho-dev", "cli-darwin-arm64")
+	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
+	platformDir := filepath.Join(root, "node_modules", "@quebragalho", "cli-darwin-arm64")
 	if err := os.MkdirAll(platformDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func realNpmLayout(t *testing.T, version string, platformVersion string) (string
 // platform payload manifest carries the same package name with a single
 // os/cpu, so a name-and-manifest check stops at the platform directory and
 // the prefix inference fails. The walk must reach the wrapper root whose
-// path ends in node_modules/@quebragalho-dev/cli.
+// path ends in node_modules/@quebragalho/cli.
 func TestFindNpmPackageRootSkipsPlatformPayload(t *testing.T) {
 	prefix, root, binary := realNpmLayout(t, "0.0.11", "0.0.11-darwin-arm64")
 	got, ok := findNpmPackageRoot(binary)

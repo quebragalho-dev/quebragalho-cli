@@ -45,7 +45,7 @@ func TestCheckNpmReadsLatestVersion(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CheckNpm returned error: %v", err)
 			}
-			if want := "/@quebragalho-dev%2Fcli/latest"; gotPath != want {
+			if want := "/@quebragalho%2Fcli/latest"; gotPath != want {
 				t.Fatalf("npm request path = %q, want %q", gotPath, want)
 			}
 			if result.LatestVersion != test.wantLatest {

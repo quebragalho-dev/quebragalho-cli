@@ -36,7 +36,7 @@ func TestBuildPlatformPackagesAssemblesPublishPayloads(t *testing.T) {
 	writeFixtureFile(t, filepath.Join(staging, "qg-linux-sandbox"), "#!/usr/bin/env sh\n", 0o755)
 	writeFixtureFile(t, filepath.Join(staging, "qg-seccomp"), "#!/usr/bin/env sh\n", 0o755)
 	// Wrapper-owned files the platform package must exclude.
-	writeFixtureFile(t, filepath.Join(staging, "package.json"), `{"name":"@quebragalho-dev/cli"}`, 0o644)
+	writeFixtureFile(t, filepath.Join(staging, "package.json"), `{"name":"@quebragalho/cli"}`, 0o644)
 	writeFixtureFile(t, filepath.Join(staging, "README.md"), "readme\n", 0o644)
 	writeFixtureFile(t, filepath.Join(staging, "VERSION"), version+"\n", 0o644)
 	writeFixtureFile(t, filepath.Join(staging, "bin", "qg.js"), "#!/usr/bin/env node\n", 0o755)
@@ -101,8 +101,8 @@ func TestBuildPlatformPackagesAssemblesPublishPayloads(t *testing.T) {
 		Scripts map[string]string
 	}
 	unmarshalJSONFile(t, filepath.Join(platformDir, "package.json"), &platformPkg)
-	if platformPkg.Name != "@quebragalho-dev/cli" {
-		t.Fatalf("platform package name = %q, want @quebragalho-dev/cli (same-name suffixed versions share one trusted publisher)", platformPkg.Name)
+	if platformPkg.Name != "@quebragalho/cli" {
+		t.Fatalf("platform package name = %q, want @quebragalho/cli (same-name suffixed versions share one trusted publisher)", platformPkg.Name)
 	}
 	if want := version + "-linux-x64"; platformPkg.Version != want {
 		t.Fatalf("platform package version = %q, want %q", platformPkg.Version, want)
@@ -198,12 +198,12 @@ func TestBuildPlatformPackagesAssemblesPublishPayloads(t *testing.T) {
 		t.Fatalf("published wrapper has dependencies: %v (helpers are vendored in the platform payloads)", wrapperPkg.Dependencies)
 	}
 	wantAliases := map[string]string{
-		"@quebragalho-dev/cli-darwin-arm64": "npm:@quebragalho-dev/cli@" + version + "-darwin-arm64",
-		"@quebragalho-dev/cli-darwin-x64":   "npm:@quebragalho-dev/cli@" + version + "-darwin-x64",
-		"@quebragalho-dev/cli-linux-arm64":  "npm:@quebragalho-dev/cli@" + version + "-linux-arm64",
-		"@quebragalho-dev/cli-linux-x64":    "npm:@quebragalho-dev/cli@" + version + "-linux-x64",
-		"@quebragalho-dev/cli-win32-x64":    "npm:@quebragalho-dev/cli@" + version + "-win32-x64",
-		"@quebragalho-dev/cli-win32-arm64":  "npm:@quebragalho-dev/cli@" + version + "-win32-arm64",
+		"@quebragalho/cli-darwin-arm64": "npm:@quebragalho/cli@" + version + "-darwin-arm64",
+		"@quebragalho/cli-darwin-x64":   "npm:@quebragalho/cli@" + version + "-darwin-x64",
+		"@quebragalho/cli-linux-arm64":  "npm:@quebragalho/cli@" + version + "-linux-arm64",
+		"@quebragalho/cli-linux-x64":    "npm:@quebragalho/cli@" + version + "-linux-x64",
+		"@quebragalho/cli-win32-x64":    "npm:@quebragalho/cli@" + version + "-win32-x64",
+		"@quebragalho/cli-win32-arm64":  "npm:@quebragalho/cli@" + version + "-win32-arm64",
 	}
 	if len(wrapperPkg.Optional) != len(wantAliases) {
 		t.Fatalf("wrapper optionalDependencies = %v, want %v", wrapperPkg.Optional, wantAliases)
@@ -234,7 +234,7 @@ func TestBuildPlatformPackagesStagesEmulatedAgentBrowserForWindowsArm64(t *testi
 	staging := filepath.Join(root, "staging")
 
 	writeFixtureFile(t, filepath.Join(staging, "qg.exe"), "MZ-fixture\n", 0o755)
-	writeFixtureFile(t, filepath.Join(staging, "package.json"), `{"name":"@quebragalho-dev/cli"}`, 0o644)
+	writeFixtureFile(t, filepath.Join(staging, "package.json"), `{"name":"@quebragalho/cli"}`, 0o644)
 	writeFixtureFile(t, filepath.Join(staging, "README.md"), "readme\n", 0o644)
 	writeFixtureFile(t, filepath.Join(staging, "VERSION"), version+"\n", 0o644)
 	agentBrowserDir := filepath.Join(staging, "helpers", "node_modules", "agent-browser")
@@ -351,4 +351,77 @@ func requireCommand(t *testing.T, name string) string {
 		t.Skipf("%s is not available", name)
 	}
 	return path
+}
+
+// TestBuildPlatformPackagesUnderAnotherName pins --package-name, which the
+// bridge release uses to assemble the same artifacts under the legacy name:
+// every place that names the package follows it, so the wrapper and the
+// binary know which name they were installed as, and the wrapper's aliases
+// match the payloads published beside it.
+func TestBuildPlatformPackagesUnderAnotherName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses POSIX shell scripts")
+	}
+	node := requireNode(t)
+	tar := requireCommand(t, "tar")
+	version := packageVersion(t)
+	const legacy = "@quebragalho-dev/cli"
+
+	root := t.TempDir()
+	staging := filepath.Join(root, "staging")
+	writeFixtureFile(t, filepath.Join(staging, "qg"), "#!/usr/bin/env sh\necho fixture-qg\n", 0o755)
+	writeFixtureFile(t, filepath.Join(staging, "helpers", "node_modules", ".bin", "agent-browser"), "#!/bin/sh\n", 0o755)
+	writeFixtureFile(t, filepath.Join(staging, "helpers", "node_modules", ".bin", "tuistory"), "#!/bin/sh\n", 0o755)
+	assetName := fmt.Sprintf("qg-v%s-linux-x64.tar.gz", version)
+	archivePath := filepath.Join(root, assetName)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if output, err := exec.CommandContext(ctx, tar, "-C", staging, "-czf", archivePath, ".").CombinedOutput(); err != nil {
+		t.Fatalf("tar failed: %v\n%s", err, output)
+	}
+	archiveBytes, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureFile(t, archivePath+".sha256", fmt.Sprintf("%x  %s\n", sha256.Sum256(archiveBytes), assetName), 0o644)
+
+	script := filepath.Join(repoRoot(t), "scripts", "npm", "build-platform-packages.mjs")
+	outDir := filepath.Join(root, "out")
+	command := exec.CommandContext(ctx, node, script, "--artifacts-dir", root, "--out-dir", outDir, "--only", "linux-x64", "--package-name", legacy)
+	command.Env = append(os.Environ(), "NODE_OPTIONS=")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build-platform-packages failed: %v\n%s", err, output)
+	}
+
+	var platformPkg struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	unmarshalJSONFile(t, filepath.Join(outDir, "platforms", "qg-linux-x64", "package.json"), &platformPkg)
+	if platformPkg.Name != legacy || !strings.Contains(platformPkg.Description, legacy+"@"+version) {
+		t.Fatalf("platform package = %+v, want it named %s", platformPkg, legacy)
+	}
+	var wrapperPkg struct {
+		Name     string            `json:"name"`
+		Optional map[string]string `json:"optionalDependencies"`
+	}
+	unmarshalJSONFile(t, filepath.Join(outDir, "wrapper", "package.json"), &wrapperPkg)
+	if wrapperPkg.Name != legacy {
+		t.Fatalf("wrapper name = %q, want %q", wrapperPkg.Name, legacy)
+	}
+	if got, want := wrapperPkg.Optional[legacy+"-linux-x64"], "npm:"+legacy+"@"+version+"-linux-x64"; got != want {
+		t.Fatalf("wrapper alias = %q, want %q (all: %v)", got, want, wrapperPkg.Optional)
+	}
+	for alias := range wrapperPkg.Optional {
+		if !strings.HasPrefix(alias, legacy+"-") {
+			t.Fatalf("alias %q is not under %s", alias, legacy)
+		}
+	}
+
+	// A name that would turn into an odd path segment is refused.
+	bad := exec.CommandContext(ctx, node, script, "--artifacts-dir", root, "--out-dir", filepath.Join(root, "bad"), "--only", "linux-x64", "--package-name", "../escape")
+	bad.Env = append(os.Environ(), "NODE_OPTIONS=")
+	if output, err := bad.CombinedOutput(); err == nil || !strings.Contains(string(output), "is not an npm package name") {
+		t.Fatalf("--package-name ../escape: err = %v, output = %s; want a refusal", err, output)
+	}
 }

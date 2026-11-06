@@ -24,9 +24,9 @@ const (
 // by the generic missing-binary path and the doctor text fallback.
 const (
 	bunRecoveryLead        = "Você instalou com Bun, que não roda scripts de ciclo de vida"
-	bunPmTrustProject      = "bun pm trust @quebragalho-dev/cli"
-	bunPmTrustGlobal       = "bun pm -g trust @quebragalho-dev/cli"
-	bunRecoveryTrustedDeps = `"trustedDependencies": ["@quebragalho-dev/cli"]`
+	bunPmTrustProject      = "bun pm trust @quebragalho/cli"
+	bunPmTrustGlobal       = "bun pm -g trust @quebragalho/cli"
+	bunRecoveryTrustedDeps = `"trustedDependencies": ["@quebragalho/cli"]`
 	buildFromSourceLead    = "Se não há binário pré-compilado para esta plataforma, compile do código-fonte:"
 )
 
@@ -80,8 +80,8 @@ func TestPackageBinPointsToNodeWrapper(t *testing.T) {
 	if err := json.Unmarshal(bytes, &pkg); err != nil {
 		t.Fatalf("Unmarshal package.json: %v", err)
 	}
-	if pkg.Name != "@quebragalho-dev/cli" {
-		t.Fatalf("name = %q, want @quebragalho-dev/cli", pkg.Name)
+	if pkg.Name != "@quebragalho/cli" {
+		t.Fatalf("name = %q, want @quebragalho/cli", pkg.Name)
 	}
 	if pkg.Bin["qg"] != "bin/qg.js" {
 		t.Fatalf("bin.qg = %q, want bin/qg.js", pkg.Bin["qg"])
@@ -320,11 +320,11 @@ func TestNodeWrapperPrefersPlatformPackageBinary(t *testing.T) {
 		t.Fatalf("WriteFile downloaded fixture: %v", err)
 	}
 
-	platformDir := filepath.Join(root, "node_modules", "@quebragalho-dev", "cli-"+nodePlatformName()+"-"+nodeArchName())
+	platformDir := filepath.Join(root, "node_modules", "@quebragalho", "cli-"+nodePlatformName()+"-"+nodeArchName())
 	if err := os.MkdirAll(platformDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll platform package: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(platformDir, "package.json"), []byte(`{"name":"@quebragalho-dev/cli"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(platformDir, "package.json"), []byte(`{"name":"@quebragalho/cli"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile platform package.json: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(platformDir, "qg"), []byte("#!/usr/bin/env sh\nprintf 'platform-qg'; for arg in \"$@\"; do printf ' %s' \"$arg\"; done; printf '\\n'\n"), 0o755); err != nil {
@@ -392,7 +392,7 @@ func TestNodeWrapperRunsFirstRunDownloaderWhenBinaryMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(scriptsDir, "postinstall.mjs"), postinstall, 0o644); err != nil {
 		t.Fatalf("WriteFile postinstall fixture: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"type":"module","name":"@quebragalho-dev/cli","version":"0.0.0"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"type":"module","name":"@quebragalho/cli","version":"0.0.0"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile package fixture: %v", err)
 	}
 
@@ -884,7 +884,7 @@ func TestWrapperRunsNpmOnHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
 	binDir := filepath.Join(packageRoot, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -929,7 +929,7 @@ func TestWrapperRunsNpmOnHandoff(t *testing.T) {
 		t.Fatalf("exit = %d, want 0; stderr=%q", exitCode, stderr)
 	}
 	npmCalls := readLines(t, npmLog)
-	want := "install -g --prefix " + canonical + " @quebragalho-dev/cli@9.9.99"
+	want := "install -g --prefix " + canonical + " @quebragalho/cli@9.9.99"
 	if len(npmCalls) != 1 || npmCalls[0] != want {
 		t.Fatalf("npm calls = %#v, want %q", npmCalls, want)
 	}
@@ -952,7 +952,7 @@ func TestWrapperRefusesBareInstallWithoutPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile wrapper: %v", err)
 	}
-	// A flat checkout copy: no node_modules/@quebragalho-dev/cli shape, so no
+	// A flat checkout copy: no node_modules/@quebragalho/cli shape, so no
 	// prefix is inferable.
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"type":"module"}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -996,7 +996,7 @@ func TestWrapperRefusesBareInstallWithoutPrefix(t *testing.T) {
 	if _, err := os.Stat(npmLog); !os.IsNotExist(err) {
 		t.Fatalf("npm must not run without an inferable prefix; log: %q", strings.Join(readLines(t, npmLog), "\n"))
 	}
-	for _, want := range []string{"Não foi possível determinar o prefixo npm", "Para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@9.9.99"} {
+	for _, want := range []string{"Não foi possível determinar o prefixo npm", "Para atualizar à mão, rode: npm install -g @quebragalho/cli@9.9.99"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr = %q, want it to contain %q", stderr, want)
 		}
@@ -1012,7 +1012,7 @@ func TestWrapperRelaunchesWhenNpmFails(t *testing.T) {
 		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
 	}
 	prefix := t.TempDir()
-	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
 	binDir := filepath.Join(packageRoot, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -1084,7 +1084,7 @@ func TestWrapperWindowsPrefixShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile wrapper: %v", err)
 	}
-	start := strings.Index(string(wrapper), "function npmPrefixFromPackageRoot(root) {")
+	start := strings.Index(string(wrapper), "function npmPrefixFromPackageRoot(root, packageName) {")
 	if start == -1 {
 		t.Fatal("npmPrefixFromPackageRoot not found in bin/qg.js")
 	}
@@ -1095,15 +1095,21 @@ func TestWrapperWindowsPrefixShape(t *testing.T) {
 	}
 	function := rest[:end+3]
 	script := function + `
+const current = "@quebragalho/cli";
+const legacy = "@quebragalho-dev/cli";
 const cases = [
-  ["/opt/p/lib/node_modules/@quebragalho-dev/cli", "/opt/p"],
-  ["C:\\g\\node_modules\\@quebragalho-dev\\cli", "C:/g"],
-  ["C:/g/node_modules/@quebragalho-dev/cli", "C:/g"],
-  ["/home/u/proj/node_modules/@quebragalho-dev/cli", null],
-  ["/x", null],
+  ["/opt/p/lib/node_modules/@quebragalho/cli", current, "/opt/p"],
+  ["C:\\g\\node_modules\\@quebragalho\\cli", current, "C:/g"],
+  ["C:/g/node_modules/@quebragalho/cli", current, "C:/g"],
+  ["/home/u/proj/node_modules/@quebragalho/cli", current, null],
+  ["/x", current, null],
+  // A legacy install finds its prefix under its own name, and only there.
+  ["/opt/p/lib/node_modules/@quebragalho-dev/cli", legacy, "/opt/p"],
+  ["C:\\g\\node_modules\\@quebragalho-dev\\cli", legacy, "C:/g"],
+  ["/opt/p/lib/node_modules/@quebragalho-dev/cli", current, null],
 ];
-for (const [input, want] of cases) {
-  const got = npmPrefixFromPackageRoot(input);
+for (const [input, name, want] of cases) {
+  const got = npmPrefixFromPackageRoot(input, name);
   if (got !== want) {
     console.error("input " + input + ": got " + got + ", want " + want);
     process.exit(1);
@@ -1132,7 +1138,7 @@ func TestWrapperPassesPrefixOnHandoff(t *testing.T) {
 		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
 	}
 	prefix := t.TempDir()
-	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
 	binDir := filepath.Join(packageRoot, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -1183,7 +1189,7 @@ func TestWrapperPassesPrefixOnHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "install -g --prefix " + canonical + " @quebragalho-dev/cli@9.9.99"
+	want := "install -g --prefix " + canonical + " @quebragalho/cli@9.9.99"
 	if len(npmCalls) != 1 || npmCalls[0] != want {
 		t.Fatalf("npm calls = %#v, want %q", npmCalls, want)
 	}

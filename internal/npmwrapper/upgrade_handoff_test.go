@@ -29,7 +29,7 @@ func TestWrapperUpgradeJSONFlowEmitsSingleJSON(t *testing.T) {
 		t.Skip("handoff fixtures are POSIX shell scripts; Windows is covered by E2E VMs")
 	}
 	prefix := t.TempDir()
-	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
 	binDir := filepath.Join(packageRoot, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestWrapperUpgradeFailureNamesManualCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	packageRoot := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
 	binDir := filepath.Join(packageRoot, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestWrapperUpgradeFailureNamesManualCommand(t *testing.T) {
 		t.Fatalf("stderr = %q, want it to name the manual command", stderr)
 	}
 	got := strings.TrimSpace(stderr[index+len(marker):])
-	want := "npm install -g --prefix \"" + canonical + "\" @quebragalho-dev/cli@9.9.99"
+	want := "npm install -g --prefix \"" + canonical + "\" @quebragalho/cli@9.9.99"
 	if got != want {
 		t.Fatalf("manual command = %q, want exactly %q", got, want)
 	}

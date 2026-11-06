@@ -14,16 +14,22 @@ func TestNpmPrefixFromPackageRoot(t *testing.T) {
 		wantPrefix string
 		wantOk     bool
 	}{
-		{name: "unix global", root: "/opt/qg-test/lib/node_modules/@quebragalho-dev/cli", wantPrefix: "/opt/qg-test", wantOk: true},
-		{name: "unix usr local", root: "/usr/local/lib/node_modules/@quebragalho-dev/cli", wantPrefix: "/usr/local", wantOk: true},
-		{name: "unix trailing slash", root: "/opt/qg-test/lib/node_modules/@quebragalho-dev/cli/", wantPrefix: "/opt/qg-test", wantOk: true},
-		{name: "windows backslashes", root: `C:\npm-global\node_modules\@quebragalho-dev\cli`, wantPrefix: `C:\npm-global`, wantOk: true},
-		{name: "windows forward slashes", root: "C:/npm-global/node_modules/@quebragalho-dev/cli", wantPrefix: "C:/npm-global", wantOk: true},
-		{name: "windows trailing separator", root: `C:\npm-global\node_modules\@quebragalho-dev\cli\`, wantPrefix: `C:\npm-global`, wantOk: true},
-		{name: "unix local install is not a prefix", root: "/home/user/work/myapp/node_modules/@quebragalho-dev/cli", wantOk: false},
+		{name: "unix global", root: "/opt/qg-test/lib/node_modules/@quebragalho/cli", wantPrefix: "/opt/qg-test", wantOk: true},
+		{name: "unix usr local", root: "/usr/local/lib/node_modules/@quebragalho/cli", wantPrefix: "/usr/local", wantOk: true},
+		{name: "unix trailing slash", root: "/opt/qg-test/lib/node_modules/@quebragalho/cli/", wantPrefix: "/opt/qg-test", wantOk: true},
+		{name: "windows backslashes", root: `C:\npm-global\node_modules\@quebragalho\cli`, wantPrefix: `C:\npm-global`, wantOk: true},
+		{name: "windows forward slashes", root: "C:/npm-global/node_modules/@quebragalho/cli", wantPrefix: "C:/npm-global", wantOk: true},
+		{name: "windows trailing separator", root: `C:\npm-global\node_modules\@quebragalho\cli\`, wantPrefix: `C:\npm-global`, wantOk: true},
+		// An install still under the legacy name lives one package over; the
+		// move to the current name needs its prefix just the same.
+		{name: "legacy name unix global", root: "/opt/qg-test/lib/node_modules/@quebragalho-dev/cli", wantPrefix: "/opt/qg-test", wantOk: true},
+		{name: "legacy name windows backslashes", root: `C:\npm-global\node_modules\@quebragalho-dev\cli`, wantPrefix: `C:\npm-global`, wantOk: true},
+		{name: "legacy name unix local install is not a prefix", root: "/home/user/work/myapp/node_modules/@quebragalho-dev/cli", wantOk: false},
+		{name: "another scope's cli", root: "/opt/qg-test/lib/node_modules/@someone/cli", wantOk: false},
+		{name: "unix local install is not a prefix", root: "/home/user/work/myapp/node_modules/@quebragalho/cli", wantOk: false},
 		{name: "unrelated directory", root: "/opt/qg-test/lib/something-else", wantOk: false},
 		{name: "empty", root: "", wantOk: false},
-		{name: "bare scope without prefix", root: "/node_modules/@quebragalho-dev/cli", wantOk: false},
+		{name: "bare scope without prefix", root: "/node_modules/@quebragalho/cli", wantOk: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -41,14 +47,14 @@ func TestNpmPrefixFromPackageRoot(t *testing.T) {
 // TestNpmPrefixFromPackageRootRejectsBareLibRoot pins the fail-closed edge: a
 // package straight under the filesystem root has no prefix to pass.
 func TestNpmPrefixFromPackageRootRejectsBareLibRoot(t *testing.T) {
-	if prefix, ok := npmPrefixFromPackageRoot("/lib/node_modules/@quebragalho-dev/cli"); ok {
+	if prefix, ok := npmPrefixFromPackageRoot("/lib/node_modules/@quebragalho/cli"); ok {
 		t.Fatalf("expected no prefix, got %q", prefix)
 	}
 }
 
 func writeNpmWrapperPackage(t *testing.T, dir string, version string) {
 	t.Helper()
-	manifest := `{"name":"@quebragalho-dev/cli","version":"` + version + `","os":["linux"],"cpu":["x64"]}`
+	manifest := `{"name":"@quebragalho/cli","version":"` + version + `","os":["linux"],"cpu":["x64"]}`
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +65,7 @@ func writeNpmWrapperPackage(t *testing.T, dir string, version string) {
 
 func TestFindNpmPackageRootAtBinaryDir(t *testing.T) {
 	prefix := t.TempDir()
-	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -82,13 +88,13 @@ func TestFindNpmPackageRootAtBinaryDir(t *testing.T) {
 
 func TestFindNpmPackageRootAbovePlatformBinary(t *testing.T) {
 	prefix := t.TempDir()
-	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
-	platformDir := filepath.Join(root, "node_modules", "@quebragalho-dev", "cli-linux-x64")
+	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
+	platformDir := filepath.Join(root, "node_modules", "@quebragalho", "cli-linux-x64")
 	if err := os.MkdirAll(platformDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeNpmWrapperPackage(t, root, "0.1.0")
-	if err := os.WriteFile(filepath.Join(platformDir, "package.json"), []byte(`{"name":"@quebragalho-dev/cli-linux-x64","os":["linux"],"cpu":["x64"]}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(platformDir, "package.json"), []byte(`{"name":"@quebragalho/cli-linux-x64","os":["linux"],"cpu":["x64"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(platformDir, "qg")
@@ -120,14 +126,14 @@ func TestFindNpmPackageRootRejectsStandaloneDir(t *testing.T) {
 // prefix inference, mirroring DetectInstallMethod.
 func TestIsNpmPackageDirRejectsRepositoryManifest(t *testing.T) {
 	dir := t.TempDir()
-	manifest := `{"name":"@quebragalho-dev/cli","bin":{"qg":"bin/qg.js"},"os":["linux","darwin","win32","android"],"cpu":["x64","arm64"]}`
+	manifest := `{"name":"@quebragalho/cli","bin":{"qg":"bin/qg.js"},"os":["linux","darwin","win32","android"],"cpu":["x64","arm64"]}`
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if isNpmPackageDir(dir) {
 		t.Fatal("isNpmPackageDir matched the repository manifest")
 	}
-	if _, ok := npmPrefixFromPackageRoot(filepath.Join(dir, "lib", "node_modules", "@quebragalho-dev", "cli")); !ok {
+	if _, ok := npmPrefixFromPackageRoot(filepath.Join(dir, "lib", "node_modules", "@quebragalho", "cli")); !ok {
 		t.Fatal("shape check must not depend on the manifest")
 	}
 }

@@ -11,7 +11,7 @@ sandboxing and permissions all stay in the `qg` binary.
 | TypeScript / Node ≥ 18 | `@quebragalho-dev/sdk` | [typescript](typescript/README.md) |
 | Python ≥ 3.9 | `quebragalho-sdk` | [python](python/README.md) |
 
-Both need `qg` installed and logged in (`npm i -g @quebragalho-dev/cli`, then
+Both need `qg` installed and logged in (`npm i -g @quebragalho/cli`, then
 `qg login --device`), or an API key passed to the client.
 
 Design rules shared by both SDKs:

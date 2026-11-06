@@ -52,6 +52,10 @@ type Result struct {
 	// (same local-process-state status as installMethod: human guidance only,
 	// never serialized).
 	npmPrefix string
+	// npmLegacy reports an npm install still under npmLegacyPackageName, whose
+	// next step is the move to npmPackageName whatever the versions say (same
+	// local-process-state status: human guidance only, never serialized).
+	npmLegacy bool
 }
 
 type AssetCheck struct {
@@ -193,6 +197,7 @@ func Check(ctx context.Context, options Options) (Result, error) {
 		result.installMethod = DetectInstallMethod(executablePath)
 		if result.installMethod == InstallMethodNpm {
 			result.npmPrefix, _ = npmInstallPrefix(executablePath)
+			result.npmLegacy = isLegacyNpmInstall(executablePath)
 		}
 	}
 	return result, nil
@@ -226,13 +231,21 @@ func shellQuote(value string) string {
 }
 
 func Format(result Result) string {
+	// A legacy npm install is told how to move whether or not an update is
+	// out: the old name gets no more versions, and the plain npm reinstall of
+	// the other branches would fail on it (both names own the qg bin).
+	legacy := result.installMethod == InstallMethodNpm && result.npmLegacy
 	if result.UpdateAvailable {
 		lines := []string{
 			fmt.Sprintf("[qg] Atualização disponível: %s -> %s", result.CurrentVersion, result.LatestVersion),
 			"Página da versão: " + result.ReleaseURL,
 		}
 		lines = appendAssetLines(lines, result.ReleaseAsset)
-		lines = append(lines, upgradeGuidance(result.ReleaseAsset, result.SourceFlag, result.installMethod, result.npmPrefix, result.LatestVersion))
+		if legacy {
+			lines = append(lines, legacyNpmGuidance(result.npmPrefix))
+		} else {
+			lines = append(lines, upgradeGuidance(result.ReleaseAsset, result.SourceFlag, result.installMethod, result.npmPrefix, result.LatestVersion))
+		}
 		return strings.Join(lines, "\n")
 	}
 	lines := []string{
@@ -240,7 +253,20 @@ func Format(result Result) string {
 		"Última versão: " + result.ReleaseURL,
 	}
 	lines = appendAssetLines(lines, result.ReleaseAsset)
+	if legacy {
+		lines = append(lines, legacyNpmGuidance(result.npmPrefix))
+	}
 	return strings.Join(lines, "\n")
+}
+
+// legacyNpmGuidance is the next step for an npm install still under
+// npmLegacyPackageName: `qg upgrade`, which hands the move to the npm wrapper,
+// or the two npm commands by hand. The old package must go first: both own
+// the qg bin, and npm refuses the second install with EEXIST.
+func legacyNpmGuidance(npmPrefix string) string {
+	return "Esta instalação vem do nome antigo do pacote npm, " + npmLegacyPackageName + ", que não recebe mais versões. " +
+		"`qg upgrade` troca para " + npmPackageName + ", e a chave salva e as configurações continuam. " +
+		"Para trocar à mão, rode `" + npmUninstallCommand(npmPrefix, npmLegacyPackageName) + "` e depois `" + npmInstallCommand(npmPrefix, npmPackageName) + "`."
 }
 
 func appendAssetLines(lines []string, asset AssetCheck) []string {
@@ -464,7 +490,7 @@ func releasePlatform(goos string) (string, error) {
 		// self-updating release asset. Point users at `npm update` rather
 		// than a source rebuild, since that's the documented Termux
 		// install/upgrade path and doesn't require a Go toolchain.
-		return "", fmt.Errorf("no published release for %q (release assets: linux, macos, windows). Your build is the current version of record. Upgrade with `npm update -g @quebragalho-dev/cli` to get the latest.", goos) //nolint:staticcheck // Preserve established user-facing error text.
+		return "", fmt.Errorf("no published release for %q (release assets: linux, macos, windows). Your build is the current version of record. Upgrade with `npm update -g @quebragalho/cli` to get the latest.", goos) //nolint:staticcheck // Preserve established user-facing error text.
 	}
 }
 

@@ -10,7 +10,8 @@ import (
 )
 
 // DefaultNpmRegistry is the npm registry queried for the latest published
-// @quebragalho-dev/cli version. Overridden by Options.Endpoint in tests and
+// @quebragalho/cli version. An install still under the legacy name is checked
+// against the current name too: that is where its next version is. Overridden by Options.Endpoint in tests and
 // by QG_UPDATE_NPM_ENDPOINT where the caller wires it.
 const DefaultNpmRegistry = "https://registry.npmjs.org"
 

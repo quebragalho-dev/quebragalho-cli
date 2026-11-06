@@ -112,7 +112,7 @@ jobs:
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes 2>/dev/null || true
           gh release upload "$tag" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber
 
-  # Publishes @quebragalho-dev/cli to npm: first the six platform payloads (versions
+  # Publishes @quebragalho/cli to npm: first the six platform payloads (versions
   # of the SAME package at suffixed versions like X.Y.Z-linux-x64, carrying the
   # native binary + vendored helpers), then the wrapper at X.Y.Z whose
   # optionalDependencies alias those platform versions. Platform versions MUST
@@ -124,9 +124,11 @@ jobs:
   # npmjs.com settings must list this repo + workflow file as a trusted
   # publisher, and provenance is then generated automatically. Note npm only
   # allows configuring a trusted publisher on an EXISTING package, so the very
-  # first @quebragalho-dev/cli publish is a one-time manual `npm publish` bootstrap.
-  # Because the platform payloads are versions of the same package, they reuse
-  # that single trusted-publisher configuration.
+  # first @quebragalho/cli publish is a one-time manual `npm publish` bootstrap
+  # (docs/NPM_PACKAGING.md). Because the platform payloads are versions of the
+  # same package, they reuse that single trusted-publisher configuration. The
+  # bridge release under @quebragalho-dev/cli uses that package's own trusted
+  # publisher, which already names this repo and workflow.
   publish-npm:
     name: Publish npm package
     needs: package
@@ -137,7 +139,7 @@ jobs:
     # maintainer approves it in the Actions UI before anything reaches npm.
     environment:
       name: npm-publish
-      url: https://www.npmjs.com/package/@quebragalho-dev/cli
+      url: https://www.npmjs.com/package/@quebragalho/cli
     permissions:
       contents: read
       id-token: write # OIDC token exchange for npm trusted publishing + provenance
@@ -216,45 +218,59 @@ jobs:
 
       # Platform versions are semver PRERELEASES of the wrapper version
       # (X.Y.Z-linux-x64), so they must never publish under the default
-      # `latest` dist-tag — that would make `npm install @quebragalho-dev/cli`
-      # deliver a platform payload as the CLI. Publish them under a dedicated
-      # tag and assert `latest` survived before the wrapper goes out.
-      - name: Publish platform packages to npm
+      # `latest` dist-tag — that would make `npm install @quebragalho/cli`
+      # deliver a platform payload as the CLI. publish-packages.sh publishes
+      # them under a dedicated tag, asserts `latest` survived, publishes the
+      # wrapper, then asserts `latest` is the wrapper version. It skips
+      # versions already on the registry, so a re-run after a failure in the
+      # middle is safe.
+      - name: Publish npm packages
         shell: bash
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          for dir in dist/npm/platforms/*/; do
-            echo "publishing ${dir}"
-            (cd "$dir" && npm publish --access public --tag platform)
-          done
-          # Tolerate a failed lookup (registry lag, or no latest tag yet on a
-          # bootstrap publish): under set -e a bare failure here would abort
-          # AFTER the platform payloads went out, leaving no wrapper and a
-          # re-run that fails on republishing existing versions. An empty
-          # value falls through the guard below.
-          latest="$(npm view @quebragalho-dev/cli dist-tags.latest || true)"
-          case "$latest" in
-            "${version}-"*)
-              echo "::error::dist-tag latest points at platform version ${latest} — a platform publish clobbered it. Fix the dist-tag before the wrapper publish." >&2
-              exit 1
-              ;;
-          esac
-          echo "dist-tag latest is ${latest} (unchanged by platform publishes)."
+        run: scripts/npm/publish-packages.sh dist/npm
 
-      - name: Publish wrapper to npm
+      # Bridge: one release under the pre-rename name @quebragalho-dev/cli.
+      # qg 0.0.15 and older check and update that name, so without a newer
+      # version there they would stay where they are, with no notice. This
+      # release goes out once more under it: the same verified artifacts,
+      # assembled as @quebragalho-dev/cli, whose wrapper moves the install to
+      # @quebragalho/cli right after the update (docs/NPM_PACKAGING.md). Runs
+      # after the @quebragalho/cli publish, so the package it moves to exists.
+      #
+      # The gate keeps this to a single release: it is owed only while the old
+      # name's latest is still the last pre-rename version, or is this version
+      # (a re-run after it went out). After this release, `npm deprecate` the
+      # old package and delete these two steps.
+      - name: Check whether the bridge release under @quebragalho-dev/cli is owed
+        id: legacy-name
         shell: bash
+        env:
+          LAST_PRE_RENAME_VERSION: 0.0.15
         run: |
           version="$(node -p "require('./package.json').version")"
-          (cd dist/npm/wrapper && npm publish --access public)
-          # Confirm the wrapper owns `latest` (retry: registry metadata can lag
-          # a publish by up to a couple of minutes).
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-            latest="$(npm view @quebragalho-dev/cli dist-tags.latest || true)"
-            if [ "$latest" = "$version" ]; then
-              echo "dist-tag latest is ${version}."
-              exit 0
+          latest=""
+          for attempt in 1 2 3; do
+            latest="$(npm view @quebragalho-dev/cli dist-tags.latest 2>/dev/null || true)"
+            if [ -n "$latest" ]; then
+              break
             fi
             sleep 10
           done
-          echo "::error::dist-tag latest is ${latest}, expected ${version} after the wrapper publish." >&2
-          exit 1
+          if [ -z "$latest" ]; then
+            echo "::error::could not read the latest dist-tag of @quebragalho-dev/cli from the registry" >&2
+            exit 1
+          fi
+          if [ "$latest" = "$LAST_PRE_RENAME_VERSION" ] || [ "$latest" = "$version" ]; then
+            owed=true
+          else
+            owed=false
+          fi
+          echo "@quebragalho-dev/cli latest is ${latest}; bridge release owed: ${owed}"
+          echo "owed=${owed}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the bridge release under @quebragalho-dev/cli
+        if: ${{ steps.legacy-name.outputs.owed == 'true' }}
+        shell: bash
+        run: |
+          node scripts/npm/build-platform-packages.mjs \
+            --artifacts-dir dist/artifacts --out-dir dist/npm-legacy --package-name @quebragalho-dev/cli
+          scripts/npm/publish-packages.sh dist/npm-legacy

@@ -14,7 +14,7 @@ import (
 )
 
 // npmApplyFixture builds a fake global npm layout:
-// <prefix>/lib/node_modules/@quebragalho-dev/cli with a binary, a marker,
+// <prefix>/lib/node_modules/@quebragalho/cli with a binary, a marker,
 // and a wrapper manifest at version. It returns the prefix and the binary.
 func npmApplyFixture(t *testing.T, version string) (string, string) {
 	t.Helper()
@@ -26,7 +26,7 @@ func npmApplyFixture(t *testing.T, version string) (string, string) {
 		t.Fatal(err)
 	}
 	prefix = resolved
-	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func stubNpmRun(t *testing.T, install func()) *[]string {
 func TestApplyNpmUpdateUsesPrefixAndVerifiesVersion(t *testing.T) {
 	prefix, binary := npmApplyFixture(t, "0.1.0")
 	stubCurrentExecutable(t, binary)
-	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho-dev", "cli")
+	root := filepath.Join(prefix, "lib", "node_modules", "@quebragalho", "cli")
 	gotArgs := stubNpmRun(t, func() {
 		writeNpmWrapperPackage(t, root, "0.2.0")
 	})
@@ -217,7 +217,7 @@ func TestApplyNpmUpdateRefusesWithoutPrefix(t *testing.T) {
 	for _, want := range []string{
 		"não foi possível determinar o prefixo npm",
 		"nada foi instalado",
-		"Para atualizar à mão, rode: npm install -g @quebragalho-dev/cli@0.2.0",
+		"Para atualizar à mão, rode: npm install -g @quebragalho/cli@0.2.0",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %v, want it to contain %q", err, want)
@@ -281,7 +281,7 @@ func TestApplyNpmUpdateMissingNpmNamesPrefixedManual(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when npm is not on PATH")
 	}
-	want := `npm install -g --prefix "` + prefix + `" @quebragalho-dev/cli@0.2.0`
+	want := `npm install -g --prefix "` + prefix + `" @quebragalho/cli@0.2.0`
 	if !strings.Contains(err.Error(), want) {
 		t.Fatalf("error = %v, want the quoted manual command %q", err, want)
 	}

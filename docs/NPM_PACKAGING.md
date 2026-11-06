@@ -1,6 +1,6 @@
 # npm packaging
 
-How `@quebragalho-dev/cli` is put together on npm, why it is shaped this way, and the
+How `@quebragalho/cli` is put together on npm, why it is shaped this way, and the
 rules the release pipeline must follow. Read this before touching
 `package.json`, `bin/qg.js`, `scripts/postinstall.mjs`,
 `scripts/npm/build-platform-packages.mjs`, or the npm-publish steps of
@@ -8,7 +8,7 @@ rules the release pipeline must follow. Read this before touching
 
 ## Goals
 
-A `npm install -g @quebragalho-dev/cli` must be **silent and self-contained**:
+A `npm install -g @quebragalho/cli` must be **silent and self-contained**:
 
 - No `EBADENGINE` warnings — ours or from any package in the dependency tree.
 - No install scripts anywhere in the tree, so npm's `allow-scripts` gating,
@@ -25,16 +25,16 @@ The model is the one used by Codex, esbuild, and Biome: a tiny wrapper package
 plus per-platform payloads carrying the native binaries.
 
 ```
-@quebragalho-dev/cli                    <- wrapper: bin/qg.js + optionalDependencies
-├─ @quebragalho-dev/cli-darwin-arm64 -> npm:@quebragalho-dev/cli@{version}-darwin-arm64
-├─ @quebragalho-dev/cli-darwin-x64   -> npm:@quebragalho-dev/cli@{version}-darwin-x64
-├─ @quebragalho-dev/cli-linux-arm64  -> npm:@quebragalho-dev/cli@{version}-linux-arm64
-├─ @quebragalho-dev/cli-linux-x64    -> npm:@quebragalho-dev/cli@{version}-linux-x64
-├─ @quebragalho-dev/cli-win32-x64    -> npm:@quebragalho-dev/cli@{version}-win32-x64
-└─ @quebragalho-dev/cli-win32-arm64  -> npm:@quebragalho-dev/cli@{version}-win32-arm64
+@quebragalho/cli                    <- wrapper: bin/qg.js + optionalDependencies
+├─ @quebragalho/cli-darwin-arm64 -> npm:@quebragalho/cli@{version}-darwin-arm64
+├─ @quebragalho/cli-darwin-x64   -> npm:@quebragalho/cli@{version}-darwin-x64
+├─ @quebragalho/cli-linux-arm64  -> npm:@quebragalho/cli@{version}-linux-arm64
+├─ @quebragalho/cli-linux-x64    -> npm:@quebragalho/cli@{version}-linux-x64
+├─ @quebragalho/cli-win32-x64    -> npm:@quebragalho/cli@{version}-win32-x64
+└─ @quebragalho/cli-win32-arm64  -> npm:@quebragalho/cli@{version}-win32-arm64
 ```
 
-- The platform "packages" are **versions of the same `@quebragalho-dev/cli` package**,
+- The platform "packages" are **versions of the same `@quebragalho/cli` package**,
   published at suffixed versions (`0.4.0-linux-x64`) and referenced through
   `npm:` aliases in `optionalDependencies`. One package name means one npm
   trusted-publisher configuration — no new publish credentials per platform.
@@ -59,7 +59,7 @@ plus per-platform payloads carrying the native binaries.
 
 ### Binary resolution in `bin/qg.js`
 
-1. Resolve `@quebragalho-dev/cli-<platform>-<arch>` and exec the `qg` binary from
+1. Resolve `@quebragalho/cli-<platform>-<arch>` and exec the `qg` binary from
    it. This wins over any previously downloaded copy — the platform version is
    pinned to the wrapper release.
 2. Fall back to a binary previously downloaded next to the wrapper.
@@ -132,9 +132,107 @@ one is user-visible immediately.
    payloads are versions of the same package, they reuse the single
    trusted-publisher configuration.
 
-`qg update` keeps working unchanged: it detects an npm install by finding a
-`package.json` named `@quebragalho-dev/cli` next to the running binary — true inside
-a platform payload too — and updates via `npm install -g @quebragalho-dev/cli@latest`.
+`scripts/npm/publish-packages.sh` holds these rules. It reads the package name
+from the assembled wrapper, refuses to start when the wrapper's aliases do not
+match the platform payloads beside it, and skips versions already on the
+registry, so re-running a job that failed halfway is safe.
+`internal/npmwrapper/publish_test.go` runs it against a fake registry.
+
+The name lives in `package.json` only. `build-platform-packages.mjs` names the
+wrapper, the platform versions and the aliases from it (or from
+`--package-name`), `bin/qg.js` reads the name it was installed under from the
+`package.json` beside it, and the Go constant `npmPackageName` is held equal
+to `package.json` by a test.
+
+`qg update` detects an npm install by finding a `package.json` named
+`@quebragalho/cli` next to the running binary — true inside a platform payload
+too — and updates via `npm install -g @quebragalho/cli@latest`.
+
+## The rename from @quebragalho-dev/cli
+
+Up to 0.0.15 the package was `@quebragalho-dev/cli`. It moved to
+`@quebragalho/cli`, under the product's npm org. Deprecating the old name alone
+would strand every existing install: qg 0.0.15 checks and updates
+`@quebragalho-dev/cli`, so with nothing newer there it never sees an update,
+and npm only shows a deprecation message when it installs something.
+
+So one release (0.0.16) also goes out under the old name, as a **bridge**:
+
+- The publish job assembles the same verified artifacts a second time with
+  `build-platform-packages.mjs --package-name @quebragalho-dev/cli` and
+  publishes them with `publish-packages.sh`, after the `@quebragalho/cli`
+  publish. A gate runs it only while the old name's latest is still 0.0.15 (or
+  is this version, on a re-run), so it happens once.
+- qg 0.0.15 then updates to the bridge as usual. Its wrapper reopens the
+  bridge with `QG_UPDATE_JUST_INSTALLED`, and the bridge wrapper, reading the
+  old name in its own `package.json`, moves the install before its binary
+  runs: `npm uninstall -g --prefix <prefix> @quebragalho-dev/cli`, then
+  `npm install -g --prefix <prefix> @quebragalho/cli@<version>`, then it
+  reopens the same command line from the new install. The old package goes
+  first because both own the `qg` bin: npm refuses the second install with
+  EEXIST, and a forced install loses the bin when the old package is removed
+  later.
+- If the new install fails, the wrapper reinstalls the old name at its
+  version, so qg keeps working, and prints the two commands. The reopen then
+  carries `QG_NPM_MOVE_TRIED` (internal to the wrapper, never passed to qg) so
+  it is not tried twice in a row.
+- An install that did not move (installed by name from an old tutorial, or
+  outside a global prefix) hears about it after each run, on a terminal.
+  `qg upgrade` hands the move to the wrapper whether or not a newer version is
+  out, and `qg update --check` prints the steps. Run outside the wrapper, `qg
+  upgrade` refuses with the two commands instead of removing the package that
+  holds the running binary.
+
+### Runbook
+
+1. **Reserve the new name** (once, by an owner of the `quebragalho` npm org).
+   npm only lets a trusted publisher be configured on a package that exists,
+   so publish a placeholder by hand. It is a prerelease, so it needs a tag of
+   its own:
+
+   ```bash
+   mkdir qg-bootstrap && cd qg-bootstrap
+   cat > package.json <<'JSON'
+   {
+     "name": "@quebragalho/cli",
+     "version": "0.0.0-bootstrap.0",
+     "description": "Reserva do nome. O qg sai aqui a partir da 0.0.16.",
+     "license": "MIT",
+     "repository": { "type": "git", "url": "git+https://github.com/quebragalho-dev/quebragalho-cli.git" }
+   }
+   JSON
+   npm publish --access public --tag bootstrap
+   ```
+
+   If the registry points `latest` at the placeholder, that is fine: the
+   workflow's guard only rejects a `latest` on a platform version, and the
+   0.0.16 wrapper publish takes `latest`.
+2. **Trust the release workflow** on npmjs.com, in the settings of
+   `@quebragalho/cli`: publisher GitHub Actions, organization
+   `quebragalho-dev`, repository `quebragalho-cli`, workflow
+   `release-artifacts.yml`, environment `npm-publish`. The old package already
+   trusts the same workflow (0.0.15 went out through it), which the bridge
+   publish uses.
+3. **Release 0.0.16** the usual way (release PR, `v0.0.16` tag, approve the
+   `npm-publish` environment). The job publishes `@quebragalho/cli`, then the
+   bridge under `@quebragalho-dev/cli`.
+4. **Check:** `npm view @quebragalho/cli dist-tags` shows `latest: 0.0.16` and
+   `npm view @quebragalho-dev/cli dist-tags` shows `latest: 0.0.16`; a clean
+   `npm install -g @quebragalho/cli` runs `qg --version`; an install of
+   `@quebragalho-dev/cli@0.0.15` that runs `qg upgrade` ends under
+   `@quebragalho/cli`.
+5. **Deprecate the old name** (by an owner of `@quebragalho-dev/cli`):
+
+   ```bash
+   npm deprecate @quebragalho-dev/cli "O qg agora é @quebragalho/cli: npm uninstall -g @quebragalho-dev/cli && npm install -g @quebragalho/cli"
+   ```
+
+   Drop the placeholder too: `npm unpublish @quebragalho/cli@0.0.0-bootstrap.0`
+   within 72 hours of publishing it, or `npm deprecate` that version after.
+6. **Delete the two bridge steps** from `release-artifacts.yml` in the next
+   release, and revoke the old package's trusted publisher. The wrapper and Go
+   recognition of the old name stay: the bridge stays the old name's `latest`,
+   so whoever installs it later still gets moved.
 
 ## Runbook: bumping the vendored helpers
 

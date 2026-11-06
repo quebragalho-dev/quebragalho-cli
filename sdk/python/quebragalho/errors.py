@@ -15,7 +15,7 @@ class QGBinaryNotFoundError(QGError):
 
     def __init__(self, binary: str) -> None:
         super().__init__(
-            f'qg binary not found: "{binary}". Install it (npm i -g @quebragalho-dev/cli) '
+            f'qg binary not found: "{binary}". Install it (npm i -g @quebragalho/cli) '
             "or pass binary=... / set QG_BIN."
         )
         self.binary = binary

@@ -2,7 +2,7 @@
 
 Run the [Quebra-Galho](https://github.com/quebragalho-dev/quebragalho-cli) (`qg`)
 coding agent from TypeScript. Requires Node ≥ 18 and the `qg` binary
-(`npm i -g @quebragalho-dev/cli`).
+(`npm i -g @quebragalho/cli`).
 
 ```ts
 import { QG } from "@quebragalho-dev/sdk";
