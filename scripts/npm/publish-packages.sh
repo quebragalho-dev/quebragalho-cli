@@ -8,8 +8,7 @@
 #   3. the wrapper, which takes `latest`, then confirm `latest` is its version.
 #
 # The package name comes from the assembled wrapper's package.json, so the
-# same script publishes @quebragalho/cli and the bridge release under the
-# legacy name @quebragalho-dev/cli.
+# same script publishes @quebragalho/cli.
 #
 # A version that is already on the registry is skipped, which makes
 # re-running a release job that failed halfway safe: the platform payloads
