@@ -152,17 +152,22 @@ too — and updates via `npm install -g @quebragalho/cli@latest`.
 
 Up to 0.0.15 the package was `@quebragalho-dev/cli`. It moved to
 `@quebragalho/cli`, under the product's npm org. Deprecating the old name alone
-would strand every existing install: qg 0.0.15 checks and updates
-`@quebragalho-dev/cli`, so with nothing newer there it never sees an update,
-and npm only shows a deprecation message when it installs something.
+would have stranded every existing install: qg 0.0.15 checks and updates
+`@quebragalho-dev/cli`, so with nothing newer there it would never see an
+update, and npm only shows a deprecation message when it installs something.
 
-So one release (0.0.16) also goes out under the old name, as a **bridge**:
+So release 0.0.16 also went out under the old name, as a **bridge** — and only
+that release did. On 2026-11-06 the old name was deprecated with `npm
+deprecate` (message "Mudou para @quebragalho/cli"), and the two bridge steps
+have since been removed from `release-artifacts.yml`. The bridge stays the old
+name's `latest`, so whoever installs it later still gets moved. How the move
+works still applies to anyone on the old name:
 
-- The publish job assembles the same verified artifacts a second time with
-  `build-platform-packages.mjs --package-name @quebragalho-dev/cli` and
-  publishes them with `publish-packages.sh`, after the `@quebragalho/cli`
-  publish. A gate runs it only while the old name's latest is still 0.0.15 (or
-  is this version, on a re-run), so it happens once.
+- The 0.0.16 publish job assembled the same verified artifacts a second time
+  with `build-platform-packages.mjs --package-name @quebragalho-dev/cli` and
+  published them with `publish-packages.sh`, after the `@quebragalho/cli`
+  publish. A gate ran it only while the old name's latest was still 0.0.15 (or
+  was this version, on a re-run), so it happened once.
 - qg 0.0.15 then updates to the bridge as usual. Its wrapper reopens the
   bridge with `QG_UPDATE_JUST_INSTALLED`, and the bridge wrapper, reading the
   old name in its own `package.json`, moves the install before its binary
@@ -183,7 +188,7 @@ So one release (0.0.16) also goes out under the old name, as a **bridge**:
   upgrade` refuses with the two commands instead of removing the package that
   holds the running binary.
 
-### Runbook
+### Runbook (done; step 6 closed the bridge, one owner task left)
 
 1. **Reserve the new name** (once, by an owner of the `quebragalho` npm org).
    npm only lets a trusted publisher be configured on a package that exists,
@@ -211,28 +216,30 @@ So one release (0.0.16) also goes out under the old name, as a **bridge**:
    `@quebragalho/cli`: publisher GitHub Actions, organization
    `quebragalho-dev`, repository `quebragalho-cli`, workflow
    `release-artifacts.yml`, environment `npm-publish`. The old package already
-   trusts the same workflow (0.0.15 went out through it), which the bridge
-   publish uses.
+   trusts the same workflow (0.0.15 went out through it), which the 0.0.16
+   bridge publish used.
 3. **Release 0.0.16** the usual way (release PR, `v0.0.16` tag, approve the
-   `npm-publish` environment). The job publishes `@quebragalho/cli`, then the
+   `npm-publish` environment). The job published `@quebragalho/cli`, then the
    bridge under `@quebragalho-dev/cli`.
 4. **Check:** `npm view @quebragalho/cli dist-tags` shows `latest: 0.0.16` and
    `npm view @quebragalho-dev/cli dist-tags` shows `latest: 0.0.16`; a clean
    `npm install -g @quebragalho/cli` runs `qg --version`; an install of
    `@quebragalho-dev/cli@0.0.15` that runs `qg upgrade` ends under
    `@quebragalho/cli`.
-5. **Deprecate the old name** (by an owner of `@quebragalho-dev/cli`):
+5. **Deprecate the old name** (done 2026-11-06, by an owner of
+   `@quebragalho-dev/cli`):
 
    ```bash
-   npm deprecate @quebragalho-dev/cli "O qg agora é @quebragalho/cli: npm uninstall -g @quebragalho-dev/cli && npm install -g @quebragalho/cli"
+   npm deprecate @quebragalho-dev/cli "Mudou para @quebragalho/cli"
    ```
 
    Drop the placeholder too: `npm unpublish @quebragalho/cli@0.0.0-bootstrap.0`
    within 72 hours of publishing it, or `npm deprecate` that version after.
-6. **Delete the two bridge steps** from `release-artifacts.yml` in the next
-   release, and revoke the old package's trusted publisher. The wrapper and Go
-   recognition of the old name stay: the bridge stays the old name's `latest`,
-   so whoever installs it later still gets moved.
+6. **Delete the two bridge steps** from `release-artifacts.yml` (done after
+   0.0.16). The wrapper and Go recognition of the old name stay: the bridge
+   stays the old name's `latest`, so whoever installs it later still gets
+   moved. Pending, owner task (Gabriel): revoke the old package's trusted
+   publisher on npmjs.com.
 
 ## Runbook: bumping the vendored helpers
 
