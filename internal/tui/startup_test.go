@@ -13,7 +13,7 @@ func TestEmptyStateShowsBrandAndTaglineOnly(t *testing.T) {
 	m.width, m.height = 100, 30
 
 	view := plainRender(t, m.View())
-	assertContains(t, view, brandWordmarkPlainRow(t, m, brandWordmarkSticker, 2))
+	assertContains(t, view, "quebragalho"+brandDomain)
 	assertContains(t, view, emptyStateTagline+" "+emptyStateHeart)
 	assertNotContains(t, view, "QUEBRA-GALHO")
 	assertNotContains(t, view, "Any model. Every tool.")
@@ -69,7 +69,6 @@ func TestBrandFontGlyphsShareTheGrid(t *testing.T) {
 		word          *brandWordmark
 		width, height int
 	}{
-		{"sticker", brandFontSticker, brandWordmarkSticker, 64, 5},
 		{"small", brandFontSmall, brandWordmarkSmall, 61, 5},
 	} {
 		rows := len(tc.font.glyphs['q'])
@@ -100,39 +99,6 @@ func TestBrandFontGlyphsShareTheGrid(t *testing.T) {
 		}
 		if tc.word.width != tc.width || tc.word.cellRows != tc.height {
 			t.Fatalf("%s wordmark = %d×%d cells, want %d×%d", tc.name, tc.word.width, tc.word.cellRows, tc.width, tc.height)
-		}
-	}
-}
-
-// The sticker's letters keep the heavy pixel font's weight: "l" and "r"
-// stand on two-pixel stems, and "q" and "g" share one bowl, told apart by
-// their descenders.
-func TestBrandFontStickerIsConsistent(t *testing.T) {
-	glyphs := brandFontSticker.glyphs
-	baseline := brandFontSticker.baseline
-	for _, letter := range "lr" {
-		if got := strings.Count(glyphs[letter][baseline], "#"); got != 2 {
-			t.Fatalf("%q stem is %d pixels at the baseline, want 2", letter, got)
-		}
-	}
-	for row := baseline - 4; row <= baseline; row++ {
-		if glyphs['q'][row] != glyphs['g'][row] {
-			t.Fatalf("row %d: q %q and g %q do not share the bowl", row+1, glyphs['q'][row], glyphs['g'][row])
-		}
-	}
-	if glyphs['q'][baseline+1] == glyphs['g'][baseline+1] {
-		t.Fatalf("q and g share the descender %q", glyphs['q'][baseline+1])
-	}
-}
-
-// The lockup appends the domain to the baseline row; drawing it again never
-// repeats ".dev".
-func TestBrandLockupDrawsTheDomainOnce(t *testing.T) {
-	m := brandTestModel(160, 30, true, false)
-	for range 3 {
-		view := plainRender(t, m.emptyState(160))
-		if got := strings.Count(view, brandDomain); got != 1 {
-			t.Fatalf("domain drawn %d times:\n%s", got, view)
 		}
 	}
 }

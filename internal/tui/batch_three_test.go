@@ -15,11 +15,15 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
-func TestBatchThreeWorkspaceOnlyInStatus(t *testing.T) {
+// The workspace stays out of the title bar; in the empty state only the
+// welcome card shows it.
+func TestBatchThreeWorkspaceOnlyInStatusAndCard(t *testing.T) {
 	m := model{cwd: "/workspace/qg", gitBranch: "feature/user-branch"}
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 		assertNotContains(t, plainRender(t, m.titleBar(width)), m.cwd)
-		assertNotContains(t, plainRender(t, m.emptyState(width)), m.cwd)
+		if m.emptyStateTier(width) != brandTierCard {
+			assertNotContains(t, plainRender(t, m.emptyState(width)), m.cwd)
+		}
 		assertContains(t, plainRender(t, m.statusLine(width)), "/w")
 	}
 }

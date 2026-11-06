@@ -46,28 +46,25 @@ func TestComposerModelUsesPaddingBeforeTruncating(t *testing.T) {
 	}
 }
 
-// Painting the wordmark changes colors only: every styled row keeps the cells
-// of the uncolored rows, in both sizes.
-func TestWordmarkStyledRowsKeepTheirCells(t *testing.T) {
-	for _, word := range []*brandWordmark{brandWordmarkSticker, brandWordmarkSmall} {
-		plain := word.rows(func(_ int, cells string) string { return cells })
-		styled := word.rows(paintBrandWord)
-		if len(plain) != word.cellRows || len(styled) != word.cellRows {
-			t.Fatalf("rows: plain %d, styled %d, want %d", len(plain), len(styled), word.cellRows)
-		}
-		for i := range plain {
-			if got := plainRender(t, styled[i]); got != plain[i] {
-				t.Fatalf("styled row %d = %q, want %q", i+1, got, plain[i])
-			}
-			if got := lipgloss.Width(plain[i]); got != word.width {
-				t.Fatalf("row %d is %d cells, want %d", i+1, got, word.width)
-			}
+// The pixel wordmark fills whole cells: one row per cell row, every row as
+// wide as the wordmark, and no color in `qg --version`.
+func TestWordmarkRowsFillTheirCells(t *testing.T) {
+	word := brandWordmarkSmall
+	rows := word.rows()
+	if len(rows) != word.cellRows {
+		t.Fatalf("rows = %d, want %d", len(rows), word.cellRows)
+	}
+	for i, row := range rows {
+		if got := lipgloss.Width(row); got != word.width {
+			t.Fatalf("row %d is %d cells, want %d", i+1, got, word.width)
 		}
 	}
 	assertNotContains(t, Wordmark(), "\x1b")
 }
 
-func TestWorkspaceMovesFromEmptyStateToStatus(t *testing.T) {
+// The status line always carries the workspace; the empty state shows it
+// only inside the welcome card, among the session's details.
+func TestWorkspaceIsInTheStatusAndOnlyTheCard(t *testing.T) {
 	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "APPDATA", "LOCALAPPDATA"} {
 		t.Setenv(key, t.TempDir())
 	}
@@ -75,7 +72,11 @@ func TestWorkspaceMovesFromEmptyStateToStatus(t *testing.T) {
 	for _, mode := range []agent.PermissionMode{agent.PermissionModeAsk, agent.PermissionModeAuto} {
 		m.permissionMode = mode
 		for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
-			assertNotContains(t, plainRender(t, m.emptyState(width)), "/workspace/qg")
+			if m.emptyStateTier(width) == brandTierCard {
+				assertContains(t, plainRender(t, m.emptyState(width)), "/workspace/qg")
+			} else {
+				assertNotContains(t, plainRender(t, m.emptyState(width)), "/workspace/qg")
+			}
 			status := plainRender(t, m.statusLine(width))
 			label, _ := m.modeLabel()
 			assertContains(t, status, label+" · n/d")

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -27,21 +28,22 @@ const (
 	// brandTierText is a one-line "quebra galho" over the tagline.
 	brandTierText brandTier = iota
 	// brandTierCompact puts the mascot beside the one-line wordmark, for
-	// panes too narrow for the pixel wordmark.
+	// panes too small for the card.
 	brandTierCompact
-	// brandTierWordmark is the pixel wordmark centered over the tagline, with
-	// the mascot centered above it when there is room.
-	brandTierWordmark
-	// brandTierLockup puts the mascot beside the pixel wordmark and its
-	// domain.
-	brandTierLockup
+	// brandTierCard is the welcome card: a rounded border in the accent
+	// around the mascot, the name, the tagline and the session's details.
+	brandTierCard
 )
 
 const (
-	brandLockupGap  = 3 // cells between the mascot and the pixel wordmark
 	brandCompactGap = 3 // cells between the mascot and the text block
 	brandMargin     = 2 // cells kept free on each side of the art
-	// brandDomain follows the pixel wordmark on its baseline, in small text.
+	brandCardPad    = 2 // cells between the card's border and its content
+	brandCardGap    = 4 // cells between the mascot and the card's text
+	// brandCardMinText is the narrowest the card's text gets: the tagline
+	// still fits, and longer details are cut.
+	brandCardMinText = 24
+	// brandDomain follows the name in the card, in faint text.
 	brandDomain = ".dev"
 	// emptyStateChromeRows is what the frame around the stream area (title
 	// bar, rules, composer, status line) takes from the terminal height; the
@@ -51,20 +53,6 @@ const (
 
 // brandCompactWidth reserves room for the widest text line, the tagline.
 var brandCompactWidth = brandMascotWidth + brandCompactGap + lipgloss.Width(emptyStateTagline+" "+emptyStateHeart)
-
-// brandLockupWidth is the mascot, the gap, the wordmark and its domain.
-func brandLockupWidth(word *brandWordmark) int {
-	return brandMascotWidth + brandLockupGap + word.width + 1 + len(brandDomain)
-}
-
-// brandLayout is the brand art the empty state draws at a terminal size.
-type brandLayout struct {
-	tier brandTier
-	// word is the wordmark size of the lockup and wordmark tiers.
-	word *brandWordmark
-	// mascotAbove puts the mascot above the wordmark in the wordmark tier.
-	mascotAbove bool
-}
 
 // emptyState renders the centered stream-area block shown while the
 // transcript has no real content: the brand art and tagline.
@@ -108,60 +96,19 @@ func (m model) emptyStateWithOverlay(width int, overlay string) string {
 	return strings.Repeat("\n", gap) + strings.Join(lines, "\n") + strings.Repeat("\n", gap)
 }
 
-// brandMascotLayouts are the layouts with the mascot, in order of preference:
-// beside the wordmark, then above it.
-var brandMascotLayouts = []brandLayout{
-	{tier: brandTierLockup, word: brandWordmarkSticker},
-	{tier: brandTierWordmark, word: brandWordmarkSticker, mascotAbove: true},
-}
-
-// emptyStateLayout picks the first brand art that fits: a layout with the
-// mascot (brandMascotLayouts), then the largest wordmark alone, the mascot
-// beside one line of text, and the line alone.
-func (m model) emptyStateLayout(width int) brandLayout {
+// emptyStateTier picks the largest brand art that fits: the welcome card,
+// then the mascot beside one line of text, then the line alone. Without
+// color the card comes without the mascot.
+func (m model) emptyStateTier(width int) brandTier {
 	rows := m.emptyStateRows()
 	fits := func(art int) bool { return width >= art+2*brandMargin }
-	if m.canDrawMascot() {
-		for _, layout := range brandMascotLayouts {
-			word := layout.word
-			switch {
-			case layout.tier == brandTierLockup:
-				if fits(brandLockupWidth(word)) && rows >= maxInt(brandMascotCellRows, word.cellRows)+3 {
-					return layout
-				}
-			// Above the name the mascot needs the tagline under the
-			// wordmark; the orientation line and the spacers come when there
-			// is room.
-			case fits(word.width) && rows >= brandMascotCellRows+word.cellRows+2:
-				return layout
-			}
-		}
-	}
-	if word := brandWordmarkSticker; fits(word.width) && rows >= word.cellRows+4 {
-		return brandLayout{tier: brandTierWordmark, word: word}
+	if fits(2+2*brandCardPad+m.brandCardSide()+brandCardMinText) && rows >= m.brandCardRows() {
+		return brandTierCard
 	}
 	if m.canDrawMascot() && fits(brandCompactWidth) && rows >= brandMascotCellRows+2 {
-		return brandLayout{tier: brandTierCompact}
+		return brandTierCompact
 	}
-	return brandLayout{tier: brandTierText}
-}
-
-// brandWordmarkRows renders a wordmark as the sticker, outlined like the
-// mascot unless the terminal is dark; without color, as plain letters.
-func (m model) brandWordmarkRows(word *brandWordmark) []string {
-	if m.noColor {
-		return word.rows(paintBrandWord)
-	}
-	return word.stickerRows(m.brandStickerOutlined())
-}
-
-// brandStickerOutlined reports whether the sticker wordmark needs its outline:
-// without it the white "quebra" vanishes on a light background. On a
-// background detected as dark the letters stand out alone, and the terminal's
-// own background shows around them. The model assumes a dark background until
-// the terminal answers, so the outline stays when the answer never comes.
-func (m model) brandStickerOutlined() bool {
-	return !m.terminalBgKnown || !m.hasDarkBg
+	return brandTierText
 }
 
 // canDrawMascot reports whether the mascot's fixed colors will show: they need
@@ -172,54 +119,15 @@ func (m model) canDrawMascot() bool {
 
 func (m model) emptyStateLines(width int) []string {
 	var lines []string
-	layout := m.emptyStateLayout(width)
-	switch layout.tier {
-	case brandTierLockup:
-		word := m.brandWordmarkRows(layout.word)
-		// The domain sits on the baseline, right after the last letter.
-		word[layout.word.baselineRow] += " " + qgTheme.faint.Render(brandDomain)
-		below := []string{"", brandTagline()}
-		if orient := m.emptyStateOrientation(); orient != "" {
-			below = append(below, orient)
-		}
-		lines = brandBesideMascot(width, brandLockupWidth(layout.word), brandLockupGap, word, below)
+	switch m.emptyStateTier(width) {
+	case brandTierCard:
+		lines = m.brandCard(width)
 	case brandTierCompact:
 		column := []string{brandWordmarkText(), brandTagline()}
 		if orient := m.emptyStateOrientation(); orient != "" {
 			column = append(column, orient)
 		}
-		lines = brandBesideMascot(width, brandCompactWidth, brandCompactGap, column, nil)
-	case brandTierWordmark:
-		// With the mascot above the name, the orientation line drops its
-		// spacer, as in the lockup, and comes only when there is a row for
-		// it; a blank row between the mascot and the name comes after it.
-		// Without that blank the name's first row, nearly empty under the
-		// centered mascot, still keeps them apart. A standard 80×24 terminal
-		// fits.
-		orient := m.emptyStateOrientation()
-		spare := m.emptyStateRows() - (brandMascotCellRows + layout.word.cellRows + 2)
-		if layout.mascotAbove {
-			for _, row := range brandMascotLines() {
-				lines = append(lines, centerLine(row, width))
-			}
-			if orient != "" {
-				spare--
-			}
-			if spare > 0 {
-				lines = append(lines, "")
-			}
-		}
-		for _, row := range m.brandWordmarkRows(layout.word) {
-			lines = append(lines, centerLine(row, width))
-		}
-		lines = append(lines, "", centerLine(brandTagline(), width))
-		switch {
-		case orient == "":
-		case !layout.mascotAbove:
-			lines = append(lines, "", centerLine(orient, width))
-		case spare >= 0:
-			lines = append(lines, centerLine(orient, width))
-		}
+		lines = brandBesideMascot(width, brandCompactWidth, brandCompactGap, column)
 	default:
 		lines = append(lines, centerLine(brandWordmarkText(), width), centerLine(brandTagline(), width))
 		if orient := m.emptyStateOrientation(); orient != "" {
@@ -236,17 +144,104 @@ func (m model) emptyStateLines(width int) []string {
 	return lines
 }
 
+// brandCardMascot is the art on the card's left: the mascot, or nothing
+// without color.
+func (m model) brandCardMascot() []string {
+	if !m.canDrawMascot() {
+		return nil
+	}
+	return brandMascotLines()
+}
+
+// brandCardSide is the cells the mascot and its gap take in the card's rows.
+func (m model) brandCardSide() int {
+	if !m.canDrawMascot() {
+		return 0
+	}
+	return brandMascotWidth + brandCardGap
+}
+
+// brandCardRows is the card's height: its content between two borders, each
+// with a blank row inside.
+func (m model) brandCardRows() int {
+	return maxInt(len(m.brandCardMascot()), len(m.brandCardColumn())) + 4
+}
+
+// brandCardColumn is the card's text: the name with its domain, the tagline
+// and the session's details, as in kimi-code's welcome card.
+func (m model) brandCardColumn() []string {
+	label := qgTheme.faint.Bold(true)
+	value := qgTheme.ink.Bold(false)
+	detail := func(name, text string) string {
+		return label.Render(fmt.Sprintf("%-10s", name)) + " " + value.Render(text)
+	}
+	column := []string{
+		qgTheme.ink.Bold(true).Render("quebra") + qgTheme.accent.Bold(true).Render("galho") + qgTheme.faint.Render(brandDomain),
+		brandTagline(),
+		"",
+		detail("diretório", shortenPath(m.cwd)),
+	}
+	if branch := strings.TrimSpace(m.gitBranch); branch != "" {
+		column = append(column, detail("branch", branch))
+	}
+	column = append(column, detail("modelo", displayValue(strings.TrimSpace(m.modelName), "sem modelo")))
+	if version := displayVersion(m.appVersion); version != "" {
+		column = append(column, detail("versão", version))
+	}
+	return column
+}
+
+// brandCard draws the welcome card centered in width: a rounded border in the
+// accent around the mascot and brandCardColumn, centered on each other. The
+// card shrinks to the width, down to brandCardMinText cells of text; longer
+// lines are cut.
+func (m model) brandCard(width int) []string {
+	mascot := m.brandCardMascot()
+	column := m.brandCardColumn()
+	side := m.brandCardSide()
+	text := 0
+	for _, line := range column {
+		text = maxInt(text, lipgloss.Width(line))
+	}
+	inner := minInt(2*brandCardPad+side+text, width-2*brandMargin-2)
+	textWidth := inner - 2*brandCardPad - side
+	border := qgTheme.accent.Bold(false)
+	edge := border.Render("│")
+	indent := strings.Repeat(" ", maxInt(0, (width-inner-2)/2))
+	blank := indent + edge + strings.Repeat(" ", inner) + edge
+	rows := maxInt(len(mascot), len(column))
+	mascotTop := (rows - len(mascot)) / 2
+	columnTop := (rows - len(column)) / 2
+	lines := []string{indent + border.Render("╭"+strings.Repeat("─", inner)+"╮"), blank}
+	for row := 0; row < rows; row++ {
+		content := strings.Repeat(" ", brandCardPad)
+		if side > 0 {
+			art := strings.Repeat(" ", brandMascotWidth)
+			if index := row - mascotTop; index >= 0 && index < len(mascot) {
+				art = mascot[index]
+			}
+			content += art + strings.Repeat(" ", brandCardGap)
+		}
+		if index := row - columnTop; index >= 0 && index < len(column) {
+			content += fitStyledLine(column[index], textWidth)
+		}
+		content += strings.Repeat(" ", maxInt(0, inner-lipgloss.Width(content)))
+		lines = append(lines, indent+edge+content+edge)
+	}
+	return append(lines, blank, indent+border.Render("╰"+strings.Repeat("─", inner)+"╯"))
+}
+
 // brandBesideMascot draws the mascot with column to its right, the two
-// centered on each other, then the lines of below aligned with the column. The
-// block is blockWidth cells wide and centered in width.
-func brandBesideMascot(width, blockWidth, gapWidth int, column, below []string) []string {
+// centered on each other. The block is blockWidth cells wide and centered in
+// width.
+func brandBesideMascot(width, blockWidth, gapWidth int, column []string) []string {
 	mascot := brandMascotLines()
 	rows := maxInt(len(mascot), len(column))
 	mascotTop := (rows - len(mascot)) / 2
 	columnTop := (rows - len(column) + 1) / 2
 	indent := strings.Repeat(" ", maxInt(0, (width-blockWidth)/2))
 	gap := strings.Repeat(" ", gapWidth)
-	lines := make([]string, 0, rows+len(below))
+	lines := make([]string, 0, rows)
 	for row := 0; row < rows; row++ {
 		art := strings.Repeat(" ", brandMascotWidth)
 		if index := row - mascotTop; index >= 0 && index < len(mascot) {
@@ -258,25 +253,11 @@ func brandBesideMascot(width, blockWidth, gapWidth int, column, below []string) 
 		}
 		lines = append(lines, indent+art+gap+text)
 	}
-	pad := indent + strings.Repeat(" ", brandMascotWidth+gapWidth)
-	for _, line := range below {
-		lines = append(lines, pad+line)
-	}
 	return lines
 }
 
-// paintBrandWord colors a run of wordmark cells: "quebra" in ink and "galho"
-// in the accent, like the dashboard's Wordmark. Bold is off so terminals that
-// embolden by brightening leave the block glyphs alone.
-func paintBrandWord(word int, cells string) string {
-	if word == 0 {
-		return qgTheme.ink.Bold(false).Render(cells)
-	}
-	return qgTheme.accent.Bold(false).Render(cells)
-}
-
-// brandWordmarkText is the one-line wordmark for terminals too narrow for the
-// pixel one.
+// brandWordmarkText is the one-line wordmark for panes too small for the
+// card.
 func brandWordmarkText() string {
 	return qgTheme.ink.Bold(true).Render("quebra") + " " + qgTheme.accent.Render("galho")
 }
@@ -321,7 +302,7 @@ func displayVersion(version string) string {
 // unreadable on light terminals. The terminal's default foreground works
 // everywhere.
 func Wordmark() string {
-	rows := brandWordmarkSmall.rows(func(_ int, cells string) string { return cells })
+	rows := brandWordmarkSmall.rows()
 	lines := make([]string, 0, len(rows)+2)
 	for _, row := range rows {
 		lines = append(lines, strings.TrimRight(row, " "))

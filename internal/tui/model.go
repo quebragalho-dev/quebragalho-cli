@@ -178,7 +178,6 @@ type model struct {
 	keyBindings                   keyBindings
 	themeMode                     themeMode // palette preference: system (default) or named palette
 	hasDarkBg                     bool      // last terminal background-detection result, if one is delivered
-	terminalBgKnown               bool      // a background-detection result was delivered
 	updateNotice                  *updatenotice.Config
 	updateNoticeState             string // state file the footer check reads and merges
 	updateAvailable               string // version shown in the footer notice, "" hides it
@@ -1471,7 +1470,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		// Reapply contrast-sensitive colors without repainting the terminal canvas.
 		m.hasDarkBg = msg.IsDark()
-		m.terminalBgKnown = true
 		applyTheme(m.themeMode, m.hasDarkBg)
 		return m, nil
 	case updateCheckMsg:
