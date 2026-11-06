@@ -38,7 +38,7 @@ func TestSystemThemeReprobesAccentWithoutPaintingCanvas(t *testing.T) {
 		accent     string
 	}{
 		{color.White, "#54700a"},
-		{color.Black, "#9df723"},
+		{color.Black, "#b7fe60"},
 	} {
 		updated, _ := m.Update(tea.BackgroundColorMsg{Color: tc.background})
 		m = updated.(model)

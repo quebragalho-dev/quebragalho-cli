@@ -37,22 +37,40 @@ var lightSystemSurfaces = systemSurfacePalette{
 	delWord:   "#ffcecb",
 }
 
-// darkPalette is the default QG palette: a near-black chat surface with one
-// QG accent. bg (#070708) is the terminal's own canvas — deliberately never
-// painted — so no token references it.
+// brandMascotColors paints the empty-state mascot icon (brand_art.go). It is
+// artwork, not a theme token, so it stays the same under every palette: the
+// brand lime with a lighter tint and a yellow rim light, two greens for the
+// shade, near-black features, the white shine of the eyes, the gray shine of
+// the nose and the dark-green outline.
+var brandMascotColors = map[byte]string{
+	'L': "#b7fe60", // head
+	'l': "#dcff9e", // light
+	'y': "#eaff7a", // rim light
+	'G': "#80ec30", // shade
+	'g': "#4fcb0b", // deep shade
+	'K': "#0a0a0a", // eyes, nose and mouth
+	'W': "#fafafa", // shine of the eyes
+	'S': "#454545", // shine of the nose
+	'O': "#1f4a0a", // outline
+}
+
+// darkPalette is the default QG palette, aligned with the dashboard's
+// (apps/web globals.css, .qg-theme): neutral grays, the #b7fe60 lime and the
+// same ok/err/warn signals. bg (#0a0a0a) is the terminal's own canvas —
+// deliberately never painted — so no token references it.
 var darkPalette = palette{
-	panel:     "#0e0e10",
+	panel:     "#111111", // dashboard card
 	promptBg:  "#262626",
-	line:      "#242429",
-	line2:     "#414147",
-	ink:       "#FFFFFF",
-	muted:     "#9a9aa2", // secondary text — lifted so it clearly out-ranks faint
-	faint:     "#8a8a92", // hints/metadata — nudged up to separate from faintest
-	faintest:  "#7c7c82", // line numbers/separators — pinned at the WCAG-AA floor on the dark panel
-	accent:    "#9DF723", // QG brand lime-green (mascot)
-	green:     "#5dd1a4",
-	red:       "#ff7a7a",
-	amber:     "#ffc25c",
+	line:      "#222222", // dashboard border
+	line2:     "#3a3a3a", // dashboard border on hover
+	ink:       "#fafafa",
+	muted:     "#a3a3a3", // secondary text (dashboard tx2)
+	faint:     "#8a8a8a", // hints/metadata (dashboard dim)
+	faintest:  "#7c7c7c", // line numbers/separators — the dashboard's tx3 lifted to the WCAG-AA floor on the panel
+	accent:    "#b7fe60", // brand lime (dashboard and landing)
+	green:     "#34d399",
+	red:       "#f87171",
+	amber:     "#f5b83d",
 	blue:      "#7db4ff",
 	gitAdd:    "#7db87a",
 	gitDel:    "#b87a7a",
@@ -64,8 +82,8 @@ var darkPalette = palette{
 	selBg:     "#32401b", // selected row bg — brightened from #1d2114 so the highlighted row separates from the panel (sep 1.18→1.73) while ink label contrast stays ~9.4:1
 	addInk:    "#bdeed7",
 	delInk:    "#f2c4c4",
-	onAccent:  "#000000",
-	cardRun:   "#5a6b2e",
+	onAccent:  "#0a0a0a", // dashboard ink on lime
+	cardRun:   "#566f38", // accent mixed into line
 	cardErr:   "#6b3434",
 	cardPerm:  "#6b5a2e",
 }

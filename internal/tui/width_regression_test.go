@@ -36,7 +36,10 @@ func TestBatchOneLayoutFitsRequiredWidths(t *testing.T) {
 					}
 					assertNotContains(t, title, "ollama-cloud")
 					assertNotContains(t, title, "model-")
-					assertNotContains(t, empty, "model-")
+					// Only the welcome card carries the model, cut to its width.
+					if m.emptyStateTier(width) != brandTierCard {
+						assertNotContains(t, empty, "model-")
+					}
 					if modelName == "" {
 						assertContains(t, top, "sem modelo")
 					} else {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -13,30 +14,70 @@ const (
 	minStartupWidth      = 58
 )
 
-var qgWordmarkGlyphLines = [][2]string{
-	{` ███████ `, ` ███████ `},
-	{`██     ██`, `██       `},
-	{`██     ██`, `██       `},
-	{`██  ██ ██`, `██  █████`},
-	{`██   ███ `, `██     ██`},
-	{` █████ ██`, ` ███████ `},
-}
+// emptyStateTagline is the landing footer's line ("democratizando a ia.",
+// followed by a heart).
+const emptyStateTagline = "democratizando a ia."
 
-// wordmarkBrandLine is the plain-text brand line under the glyph.
-const wordmarkBrandLine = "QUEBRA-GALHO"
+// emptyStateHeart follows the tagline, painted with the theme's red.
+const emptyStateHeart = "♥"
 
-const emptyStateTagline = "Democratizando o acesso à IA"
+// brandTier is how much of the brand the empty state draws at a terminal size.
+type brandTier int
+
+const (
+	// brandTierText is a one-line "quebra galho" over the tagline.
+	brandTierText brandTier = iota
+	// brandTierCompact puts the mascot beside the one-line wordmark, for
+	// panes too small for the card.
+	brandTierCompact
+	// brandTierCard is the welcome card: a rounded border in the accent
+	// around the mascot, the name, the tagline and the session's details.
+	brandTierCard
+)
+
+const (
+	brandCompactGap = 3 // cells between the mascot and the text block
+	brandMargin     = 2 // cells kept free on each side of the art
+	brandCardPad    = 2 // cells between the card's border and its content
+	brandCardGap    = 4 // cells between the mascot and the card's text
+	// brandCardMinText is the narrowest the card's text gets: the tagline
+	// still fits, and longer details are cut.
+	brandCardMinText = 24
+	// brandDomain follows the name in the card, in faint text.
+	brandDomain = ".dev"
+	// emptyStateChromeRows is what the frame around the stream area (title
+	// bar, rules, composer, status line) takes from the terminal height; the
+	// idle shortcut hint above the composer takes one more row when shown.
+	emptyStateChromeRows = 6
+)
+
+// brandCompactWidth reserves room for the widest text line, the tagline.
+var brandCompactWidth = brandMascotWidth + brandCompactGap + lipgloss.Width(emptyStateTagline+" "+emptyStateHeart)
 
 // emptyState renders the centered stream-area block shown while the
-// transcript has no real content: the brand glyph and tagline.
+// transcript has no real content: the brand art and tagline.
 func (m model) emptyState(width int) string {
 	lines := m.emptyStateLines(width)
 
-	// Vertically center within the stream area: the frame around it (title bar,
-	// rules, composer, status line) occupies ~6 terminal rows.
-	height := normalizedStartupHeight(m.height)
-	gap := clamp((height-6-len(lines))/2, 0, 12)
+	// Vertically center within the stream area.
+	gap := clamp((m.emptyStateRows()-len(lines))/2, 0, 12)
 	return strings.Repeat("\n", gap) + strings.Join(lines, "\n") + strings.Repeat("\n", gap)
+}
+
+// emptyStateRows estimates the stream area's height from the real terminal
+// height (the default before the first resize). Unlike
+// normalizedStartupHeight it has no 18-row floor, so a short pane picks
+// smaller art and no centering gap pushes it out of view.
+func (m model) emptyStateRows() int {
+	height := m.height
+	if height <= 0 {
+		height = defaultStartupHeight
+	}
+	rows := height - emptyStateChromeRows
+	if m.composerIdleHint() != "" {
+		rows--
+	}
+	return rows
 }
 
 func (m model) emptyStateWithOverlay(width int, overlay string) string {
@@ -55,22 +96,174 @@ func (m model) emptyStateWithOverlay(width int, overlay string) string {
 	return strings.Repeat("\n", gap) + strings.Join(lines, "\n") + strings.Repeat("\n", gap)
 }
 
-func (m model) emptyStateLines(width int) []string {
-	lines := []string{}
-	for _, glyph := range qgWordmarkLines() {
-		lines = append(lines, centerLine(glyph, width))
+// emptyStateTier picks the largest brand art that fits: the welcome card,
+// then the mascot beside one line of text, then the line alone. Without
+// color the card comes without the mascot.
+func (m model) emptyStateTier(width int) brandTier {
+	rows := m.emptyStateRows()
+	fits := func(art int) bool { return width >= art+2*brandMargin }
+	if fits(2+2*brandCardPad+m.brandCardSide()+brandCardMinText) && rows >= m.brandCardRows() {
+		return brandTierCard
 	}
-	lines = append(lines, "")
-	lines = append(lines, centerLine(qgTheme.ink.Render("QUEBRA-")+qgTheme.accent.Render("GALHO"), width))
-	lines = append(lines, centerLine(qgTheme.muted.Render(emptyStateTagline), width))
-	if orient := m.emptyStateOrientation(); orient != "" {
-		lines = append(lines, "")
-		lines = append(lines, centerLine(orient, width))
+	if m.canDrawMascot() && fits(brandCompactWidth) && rows >= brandMascotCellRows+2 {
+		return brandTierCompact
+	}
+	return brandTierText
+}
+
+// canDrawMascot reports whether the mascot's fixed colors will show: they need
+// color output. Its dark outline keeps it readable on light terminals too.
+func (m model) canDrawMascot() bool {
+	return !m.noColor
+}
+
+func (m model) emptyStateLines(width int) []string {
+	var lines []string
+	switch m.emptyStateTier(width) {
+	case brandTierCard:
+		lines = m.brandCard(width)
+	case brandTierCompact:
+		column := []string{brandWordmarkText(), brandTagline()}
+		if orient := m.emptyStateOrientation(); orient != "" {
+			column = append(column, orient)
+		}
+		lines = brandBesideMascot(width, brandCompactWidth, brandCompactGap, column)
+	default:
+		lines = append(lines, centerLine(brandWordmarkText(), width), centerLine(brandTagline(), width))
+		if orient := m.emptyStateOrientation(); orient != "" {
+			lines = append(lines, "", centerLine(orient, width))
+		}
+		// A very short pane keeps the first lines that fit.
+		if rows := m.emptyStateRows(); rows > 0 && len(lines) > rows {
+			lines = lines[:rows]
+		}
 	}
 	for index := range lines {
 		lines[index] = fitStyledLine(lines[index], width)
 	}
 	return lines
+}
+
+// brandCardMascot is the art on the card's left: the mascot, or nothing
+// without color.
+func (m model) brandCardMascot() []string {
+	if !m.canDrawMascot() {
+		return nil
+	}
+	return brandMascotLines()
+}
+
+// brandCardSide is the cells the mascot and its gap take in the card's rows.
+func (m model) brandCardSide() int {
+	if !m.canDrawMascot() {
+		return 0
+	}
+	return brandMascotWidth + brandCardGap
+}
+
+// brandCardRows is the card's height: its content between two borders, each
+// with a blank row inside.
+func (m model) brandCardRows() int {
+	return maxInt(len(m.brandCardMascot()), len(m.brandCardColumn())) + 4
+}
+
+// brandCardColumn is the card's text: the name with its domain, the tagline
+// and the session's details, as in kimi-code's welcome card.
+func (m model) brandCardColumn() []string {
+	label := qgTheme.faint.Bold(true)
+	value := qgTheme.ink.Bold(false)
+	detail := func(name, text string) string {
+		return label.Render(fmt.Sprintf("%-10s", name)) + " " + value.Render(text)
+	}
+	column := []string{
+		qgTheme.ink.Bold(true).Render("quebra") + qgTheme.accent.Bold(true).Render("galho") + qgTheme.faint.Render(brandDomain),
+		brandTagline(),
+		"",
+		detail("diretório", shortenPath(m.cwd)),
+	}
+	if branch := strings.TrimSpace(m.gitBranch); branch != "" {
+		column = append(column, detail("branch", branch))
+	}
+	column = append(column, detail("modelo", displayValue(strings.TrimSpace(m.modelName), "sem modelo")))
+	if version := displayVersion(m.appVersion); version != "" {
+		column = append(column, detail("versão", version))
+	}
+	return column
+}
+
+// brandCard draws the welcome card centered in width: a rounded border in the
+// accent around the mascot and brandCardColumn, centered on each other. The
+// card shrinks to the width, down to brandCardMinText cells of text; longer
+// lines are cut.
+func (m model) brandCard(width int) []string {
+	mascot := m.brandCardMascot()
+	column := m.brandCardColumn()
+	side := m.brandCardSide()
+	text := 0
+	for _, line := range column {
+		text = maxInt(text, lipgloss.Width(line))
+	}
+	inner := minInt(2*brandCardPad+side+text, width-2*brandMargin-2)
+	textWidth := inner - 2*brandCardPad - side
+	border := qgTheme.accent.Bold(false)
+	edge := border.Render("│")
+	indent := strings.Repeat(" ", maxInt(0, (width-inner-2)/2))
+	blank := indent + edge + strings.Repeat(" ", inner) + edge
+	rows := maxInt(len(mascot), len(column))
+	mascotTop := (rows - len(mascot)) / 2
+	columnTop := (rows - len(column)) / 2
+	lines := []string{indent + border.Render("╭"+strings.Repeat("─", inner)+"╮"), blank}
+	for row := 0; row < rows; row++ {
+		content := strings.Repeat(" ", brandCardPad)
+		if side > 0 {
+			art := strings.Repeat(" ", brandMascotWidth)
+			if index := row - mascotTop; index >= 0 && index < len(mascot) {
+				art = mascot[index]
+			}
+			content += art + strings.Repeat(" ", brandCardGap)
+		}
+		if index := row - columnTop; index >= 0 && index < len(column) {
+			content += fitStyledLine(column[index], textWidth)
+		}
+		content += strings.Repeat(" ", maxInt(0, inner-lipgloss.Width(content)))
+		lines = append(lines, indent+edge+content+edge)
+	}
+	return append(lines, blank, indent+border.Render("╰"+strings.Repeat("─", inner)+"╯"))
+}
+
+// brandBesideMascot draws the mascot with column to its right, the two
+// centered on each other. The block is blockWidth cells wide and centered in
+// width.
+func brandBesideMascot(width, blockWidth, gapWidth int, column []string) []string {
+	mascot := brandMascotLines()
+	rows := maxInt(len(mascot), len(column))
+	mascotTop := (rows - len(mascot)) / 2
+	columnTop := (rows - len(column) + 1) / 2
+	indent := strings.Repeat(" ", maxInt(0, (width-blockWidth)/2))
+	gap := strings.Repeat(" ", gapWidth)
+	lines := make([]string, 0, rows)
+	for row := 0; row < rows; row++ {
+		art := strings.Repeat(" ", brandMascotWidth)
+		if index := row - mascotTop; index >= 0 && index < len(mascot) {
+			art = mascot[index]
+		}
+		text := ""
+		if index := row - columnTop; index >= 0 && index < len(column) {
+			text = column[index]
+		}
+		lines = append(lines, indent+art+gap+text)
+	}
+	return lines
+}
+
+// brandWordmarkText is the one-line wordmark for panes too small for the
+// card.
+func brandWordmarkText() string {
+	return qgTheme.ink.Bold(true).Render("quebra") + " " + qgTheme.accent.Render("galho")
+}
+
+func brandTagline() string {
+	return qgTheme.muted.Render(emptyStateTagline) + " " + qgTheme.red.Render(emptyStateHeart)
 }
 
 func (m model) emptyStateOrientation() string {
@@ -101,25 +294,20 @@ func displayVersion(version string) string {
 	return version
 }
 
-func qgWordmarkLines() []string {
-	lines := make([]string, 0, len(qgWordmarkGlyphLines))
-	for _, row := range qgWordmarkGlyphLines {
-		lines = append(lines, qgTheme.ink.Bold(false).Render(row[0])+"  "+qgTheme.accent.Bold(false).Render(row[1]))
-	}
-	return lines
-}
-
-// Wordmark renders the brand ASCII art shown on the TUI's empty state, for
-// reuse outside the TUI (e.g. `qg --version`). It is deliberately
-// uncolored: only newModel resolves --theme/QG_THEME, so painting the
-// global palette here would ignore a selected light theme and be unreadable
-// on light terminals. The terminal's default foreground works everywhere.
+// Wordmark renders the brand art shown on the TUI's empty state, for reuse
+// outside the TUI (e.g. `qg --version`): the small pixel wordmark, which fits
+// narrow terminals, and the tagline.
+// It is deliberately uncolored: only newModel resolves --theme/QG_THEME, so
+// painting the global palette here would ignore a selected light theme and be
+// unreadable on light terminals. The terminal's default foreground works
+// everywhere.
 func Wordmark() string {
-	lines := make([]string, 0, len(qgWordmarkGlyphLines)+4)
-	for _, row := range qgWordmarkGlyphLines {
-		lines = append(lines, row[0]+"  "+row[1])
+	rows := brandWordmarkSmall.rows()
+	lines := make([]string, 0, len(rows)+2)
+	for _, row := range rows {
+		lines = append(lines, strings.TrimRight(row, " "))
 	}
-	lines = append(lines, "", wordmarkBrandLine, "", emptyStateTagline)
+	lines = append(lines, "", emptyStateTagline+" "+emptyStateHeart)
 	return strings.Join(lines, "\n")
 }
 

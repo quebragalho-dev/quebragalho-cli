@@ -13,7 +13,7 @@ func TestBatchFourEmptyStateKeepsBrandWithoutPromptExamples(t *testing.T) {
 	m := batchThreeLiveModel(t)
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 		got := plainRender(t, m.emptyState(width))
-		assertContains(t, got, "Democratizando o acesso à IA")
+		assertContains(t, got, emptyStateTagline)
 		assertNotContains(t, got, "Try ")
 		assertNotContains(t, got, "Press ?")
 		for _, line := range strings.Split(got, "\n") {

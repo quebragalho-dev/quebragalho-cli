@@ -15,35 +15,27 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
-func TestBatchThreeWorkspaceOnlyInStatus(t *testing.T) {
+// The workspace stays out of the title bar; in the empty state only the
+// welcome card shows it.
+func TestBatchThreeWorkspaceOnlyInStatusAndCard(t *testing.T) {
 	m := model{cwd: "/workspace/qg", gitBranch: "feature/user-branch"}
 	for _, width := range []int{40, 57, 58, 79, 80, 99, 100, 120} {
 		assertNotContains(t, plainRender(t, m.titleBar(width)), m.cwd)
-		assertNotContains(t, plainRender(t, m.emptyState(width)), m.cwd)
+		if m.emptyStateTier(width) != brandTierCard {
+			assertNotContains(t, plainRender(t, m.emptyState(width)), m.cwd)
+		}
 		assertContains(t, plainRender(t, m.statusLine(width)), "/w")
 	}
 }
 
+// The pixel wordmark is drawn with half blocks only, so it stays solid in any
+// font that has the block elements (the old QG glyph used the same range).
 func TestBatchThreeSolidWordmark(t *testing.T) {
-	expected := [][2]string{
-		{" ███████ ", " ███████ "},
-		{"██     ██", "██       "},
-		{"██     ██", "██       "},
-		{"██  ██ ██", "██  █████"},
-		{"██   ███ ", "██     ██"},
-		{" █████ ██", " ███████ "},
-	}
-	lines := strings.Split(Wordmark(), "\n")
-	for i, row := range expected {
-		if lipgloss.Width(row[0]) != 9 || lipgloss.Width(row[1]) != 9 {
-			t.Fatal("fixture must be 6x9 per glyph")
-		}
-		want := row[0] + "  " + row[1]
-		if lines[i] != want {
-			t.Fatalf("row %d=%q, want clean blocks %q", i, lines[i], want)
-		}
-		if got := plainRender(t, qgWordmarkLines()[i]); got != want {
-			t.Fatalf("styled row=%q, want %q", got, want)
+	for _, row := range strings.Split(Wordmark(), "\n")[:brandWordmarkSmall.cellRows] {
+		for _, r := range row {
+			if !strings.ContainsRune(" ▀▄█", r) {
+				t.Fatalf("wordmark row %q uses %q, want only half blocks", row, r)
+			}
 		}
 	}
 	assertNotContains(t, Wordmark(), "\x1b")
