@@ -3,6 +3,21 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.16 — 2026-11-06
+
+### Novidades
+
+- Velocidade de tokens: enquanto o modelo escreve, a borda de cima da caixa de texto mostra a velocidade ao lado do nome do modelo, por exemplo `● 60 tok/s · modelo`; ao terminar, o número fica apagado. O recibo de cada resposta mostra a velocidade no lugar da contagem de tokens.
+- Tela inicial nova: um cartão com o mascote, `quebragalho.dev`, o slogan "democratizando a ia. ♥" e os detalhes da sessão (pasta, branch, modelo e versão). O `qg --version` mostra o nome em letras grandes, ou em texto em terminal estreito. O tema escuro ganhou um lima novo e cinzas novos.
+
+### Mudanças
+
+- O pacote do npm agora se chama `@quebragalho/cli`. Quem instalou pelo nome antigo, `@quebragalho-dev/cli`, passa para o nome novo sozinho ao atualizar (`qg upgrade` ou o aviso ao abrir); a chave salva e as configurações continuam. Para instalar do zero: `npm install -g @quebragalho/cli`.
+
+### Correções
+
+- Sessões longas não travam mais: rolar, passar o mouse e digitar voltam a responder na hora. Antes, em sessões com centenas de mensagens, uma letra digitada podia demorar quase 2 minutos para aparecer.
+
 ## 0.0.15 — 2026-11-03
 
 ### Novidades
