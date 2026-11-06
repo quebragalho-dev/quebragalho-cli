@@ -269,6 +269,10 @@ type model struct {
 	// drives only bounded secondary motion such as the streaming caret and agent
 	// lifecycle fades; it never creates a second live spinner.
 	spinnerPhase int
+	// workingWordSeed is the turn's drawn first liveness word (index into
+	// workingStatusWords), set in beginRun from the turn-start time. The visible
+	// word is (seed + elapsed/3s) mod N, so it rotates without a new ticker.
+	workingWordSeed int
 	// spinnerTicking tracks whether the spinner's self-scheduling tick loop is
 	// currently alive, so a kick (ensureSpinnerTick) never double-issues the tick
 	// when the loop is already running. Set true whenever a Tick cmd is returned
@@ -5215,10 +5219,10 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 
 // beginRun stamps the shared run-start state for a new agent turn: a fresh run
 // ID, the cancel func, pending = true, the turn-start timestamp (the source for
-// the working status line's live elapsed clock), and a reset working-verb
-// rotation so the brand word shows first. Centralized so every launch path
-// (normal prompt + spec draft/impl) keeps these in sync — a missing
-// turnStartedAt previously dropped the elapsed timer on spec-mode runs.
+// the working status line's live elapsed clock), and a drawn first liveness
+// word. Centralized so every launch path (normal prompt + spec draft/impl)
+// keeps these in sync — a missing turnStartedAt previously dropped the elapsed
+// timer on spec-mode runs.
 func (m model) beginRun(cancel context.CancelFunc) model {
 	m = m.cancelIdleRecap()
 	if m.prepareRunCompletionWarning != nil {
@@ -5243,6 +5247,7 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.muteStreamLive()
 	m.turnStartedAt = m.now()
 	m.turnTimer = newActiveTurnTimer(m.turnStartedAt)
+	m.workingWordSeed = workingWordStartIndex(m.turnStartedAt, m.runID)
 	m.lastStreamActivity = m.turnStartedAt
 	m.spinnerTicking = true
 	// Every run starts by consuming the stored continuation: the submit path
