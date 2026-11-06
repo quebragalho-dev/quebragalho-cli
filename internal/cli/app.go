@@ -419,7 +419,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 			}
 			return 0
 		}
-		if _, err := fmt.Fprintf(stdout, "%s\n\nqg %s\n", tui.Wordmark(), version); err != nil {
+		if _, err := fmt.Fprintf(stdout, "%s\n\nqg %s\n", tui.WordmarkForWidth(stdoutTerminalWidth(stdout)), version); err != nil {
 			return 1
 		}
 		return 0
@@ -1377,6 +1377,21 @@ func stdoutIsTerminal(w io.Writer) bool {
 		return false
 	}
 	return term.IsTerminal(f.Fd())
+}
+
+// stdoutTerminalWidth returns the terminal width in cells, or 0 when unknown:
+// non-files, GetSize errors and non-positive widths all keep the current
+// version banner instead of guessing a narrower layout.
+func stdoutTerminalWidth(w io.Writer) int {
+	f, ok := w.(*os.File)
+	if !ok {
+		return 0
+	}
+	width, _, err := term.GetSize(f.Fd())
+	if err != nil || width <= 0 {
+		return 0
+	}
+	return width
 }
 
 func writeAppError(stderr io.Writer, message string, exitCode int) int {

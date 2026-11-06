@@ -295,8 +295,9 @@ func displayVersion(version string) string {
 }
 
 // Wordmark renders the brand art shown on the TUI's empty state, for reuse
-// outside the TUI (e.g. `qg --version`): the small pixel wordmark, which fits
-// narrow terminals, and the tagline.
+// outside the TUI (e.g. `qg --version`): the small pixel wordmark and the
+// tagline. The wordmark needs brandWordmarkSmall.width cells; narrower
+// terminals must use WordmarkForWidth.
 // It is deliberately uncolored: only newModel resolves --theme/QG_THEME, so
 // painting the global palette here would ignore a selected light theme and be
 // unreadable on light terminals. The terminal's default foreground works
@@ -309,6 +310,16 @@ func Wordmark() string {
 	}
 	lines = append(lines, "", emptyStateTagline+" "+emptyStateHeart)
 	return strings.Join(lines, "\n")
+}
+
+// WordmarkForWidth returns the version banner that fits width: the pixel
+// wordmark, or the plain name with the tagline when the terminal is narrower.
+// Unknown widths (<=0) keep the wordmark, preserving the current behavior.
+func WordmarkForWidth(width int) string {
+	if width > 0 && width < brandWordmarkSmall.width {
+		return "quebragalho\n" + emptyStateTagline + " " + emptyStateHeart
+	}
+	return Wordmark()
 }
 
 // styledBlock draws a rounded box around lines with the given border style,
