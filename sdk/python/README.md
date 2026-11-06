@@ -2,7 +2,7 @@
 
 Run the [Quebra-Galho](https://github.com/quebragalho-dev/quebragalho-cli) (`qg`)
 coding agent from Python. Requires Python ≥ 3.9 and the `qg` binary
-(`npm i -g @quebragalho-dev/cli`). No dependencies.
+(`npm i -g @quebragalho/cli`). No dependencies.
 
 ```python
 from quebragalho import QG

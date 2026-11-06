@@ -1,7 +1,16 @@
 {
-  "name": "@quebragalho-dev/cli",
+  "name": "@quebragalho/cli",
   "version": "0.0.15",
-  "description": "QG — a fast, multi-provider terminal coding agent.",
+  "description": "QG, o agente de programação no terminal do Quebra-Galho.",
+  "keywords": [
+    "quebragalho",
+    "qg",
+    "cli",
+    "coding-agent",
+    "terminal",
+    "ai",
+    "llm"
+  ],
   "type": "module",
   "module": "bin/qg.js",
   "bin": {
@@ -37,5 +46,8 @@
   "bugs": {
     "url": "https://github.com/quebragalho-dev/quebragalho-cli/issues"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }

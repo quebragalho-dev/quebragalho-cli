@@ -36,13 +36,20 @@ them explicitly; `qg upgrade` is `qg update` with `--apply` implied.
 `--apply` installs the update in place:
 
 - npm installs delegate to `npm install -g --prefix "<prefix>"
-  @quebragalho-dev/cli@<version>`, where `<prefix>` is the npm prefix owning
+  @quebragalho/cli@<version>`, where `<prefix>` is the npm prefix owning
   the invoked install and `<version>` is the release being installed. When no
   prefix can be inferred (a local install, pnpm, bun), the update refuses
   before running npm and prints the manual command instead. The update only
   reports success when the invoked install actually moved to the new
   version; otherwise it errors with the manual command instead of claiming
   an update that went elsewhere.
+- npm installs still under the pre-rename name `@quebragalho-dev/cli` move to
+  `@quebragalho/cli` instead, whether or not a newer version is out: the old
+  name gets no more versions. The npm wrapper does the move after qg exits
+  (remove the old package, install the new one at the latest version, reopen);
+  if the new install fails, it reinstalls the old one so qg keeps working and
+  prints the two commands that do it by hand. Run outside the wrapper, the
+  update refuses with those commands. `--check` prints them too.
 - Standalone installs download the release archive, verify its checksum,
   extract it, and atomically replace the running binary plus any installed
   optional sandbox helpers.
@@ -53,7 +60,7 @@ them explicitly; `qg upgrade` is `qg update` with `--apply` implied.
   since applying always installs onto the current machine.
 - `--repo` and `--endpoint` are ignored when applying to an npm-managed
   install: that path delegates to `npm install -g --prefix "<prefix>"
-  @quebragalho-dev/cli@<version>` and
+  @quebragalho/cli@<version>` and
   takes its release from the npm registry, not from GitHub. They still apply to
   `--check` there.
 - `--json` serializes QG's final result. For npm-managed installs, npm may

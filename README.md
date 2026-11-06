@@ -27,7 +27,7 @@ Encontre o motivo do teste que falhou e corrija o problema.
 Pelo npm (Linux, macOS e Windows com Node 18+):
 
 ```bash
-npm install -g @quebragalho-dev/cli
+npm install -g @quebragalho/cli
 qg
 ```
 

@@ -1,5 +1,5 @@
 {
-  "name": "@quebragalho-dev/cli",
+  "name": "@quebragalho/cli",
   "version": "0.0.12",
   "description": "QG — a fast, multi-provider terminal coding agent.",
   "type": "module",
@@ -35,11 +35,11 @@
   },
   "license": "MIT",
   "optionalDependencies": {
-    "@quebragalho-dev/cli-darwin-arm64": "npm:@quebragalho-dev/cli@0.0.12-darwin-arm64",
-    "@quebragalho-dev/cli-darwin-x64": "npm:@quebragalho-dev/cli@0.0.12-darwin-x64",
-    "@quebragalho-dev/cli-linux-arm64": "npm:@quebragalho-dev/cli@0.0.12-linux-arm64",
-    "@quebragalho-dev/cli-linux-x64": "npm:@quebragalho-dev/cli@0.0.12-linux-x64",
-    "@quebragalho-dev/cli-win32-x64": "npm:@quebragalho-dev/cli@0.0.12-win32-x64",
-    "@quebragalho-dev/cli-win32-arm64": "npm:@quebragalho-dev/cli@0.0.12-win32-arm64"
+    "@quebragalho/cli-darwin-arm64": "npm:@quebragalho/cli@0.0.12-darwin-arm64",
+    "@quebragalho/cli-darwin-x64": "npm:@quebragalho/cli@0.0.12-darwin-x64",
+    "@quebragalho/cli-linux-arm64": "npm:@quebragalho/cli@0.0.12-linux-arm64",
+    "@quebragalho/cli-linux-x64": "npm:@quebragalho/cli@0.0.12-linux-x64",
+    "@quebragalho/cli-win32-x64": "npm:@quebragalho/cli@0.0.12-win32-x64",
+    "@quebragalho/cli-win32-arm64": "npm:@quebragalho/cli@0.0.12-win32-arm64"
   }
 }

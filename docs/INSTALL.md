@@ -6,7 +6,7 @@ Escolha o método que já faz parte da sua rotina. Nenhum deles é o "oficial".
 | --- | --- | --- |
 | Script de instalação (Linux, macOS) | `curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.sh \| bash` | `qg upgrade` |
 | Script de instalação (Windows) | `irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 \| iex` | `qg upgrade` |
-| npm | `npm install -g @quebragalho-dev/cli` | `qg upgrade` (roda npm) |
+| npm | `npm install -g @quebragalho/cli` | `qg upgrade` (roda npm) |
 | Arquivo de release | baixe em [Releases](https://github.com/quebragalho-dev/quebragalho-cli/releases) | `qg upgrade` |
 | mise (requer acesso) | `mise use -g ubi:quebragalho-dev/quebragalho-cli` | `mise upgrade` |
 | `go install` (requer acesso) | `go install github.com/quebragalho-dev/quebragalho-cli/cmd/qg@latest` | rode de novo |
@@ -108,12 +108,12 @@ de config do qg e `pets/frame-cache` na pasta de cache.
 ```
 
 Instalações via npm, mise ou `go install` devem ser removidas pelo próprio
-gerenciador (`npm uninstall -g @quebragalho-dev/cli`, `mise uninstall …`).
+gerenciador (`npm uninstall -g @quebragalho/cli`, `mise uninstall …`).
 
 ## npm
 
 ```bash
-npm install -g @quebragalho-dev/cli
+npm install -g @quebragalho/cli
 qg
 ```
 
@@ -124,6 +124,26 @@ forem puladas (`--omit=optional`), o wrapper baixa o binário da release
 compatível com a sua plataforma, com verificação de checksum.
 
 Requisitos: Node.js 18+ e acesso de rede ao npm.
+
+### Quem instalou pelo nome antigo
+
+Até a versão 0.0.15 o pacote se chamava `@quebragalho-dev/cli`. Esse nome
+não recebe mais versões, exceto a 0.0.16, que sai nele também só para fazer
+a troca:
+
+- **Atualizando de dentro do qg** (o aviso ao abrir ou `qg upgrade`): o qg
+  instala a 0.0.16 pelo nome antigo e, em seguida, troca sozinho para
+  `@quebragalho/cli` e reabre. Não precisa fazer nada.
+- **À mão:** remova o antigo antes de instalar o novo. Os dois instalam o
+  comando `qg`, e o npm recusa sobrescrever.
+
+  ```bash
+  npm uninstall -g @quebragalho-dev/cli
+  npm install -g @quebragalho/cli
+  ```
+
+A chave salva e as configurações ficam onde estavam; não é preciso entrar de
+novo.
 
 ## go install
 
@@ -230,7 +250,7 @@ plataforma.
 
 O `qg upgrade` comporta-se diferente conforme o dono do binário:
 
-- **npm**: roda `npm install -g @quebragalho-dev/cli@latest` para você.
+- **npm**: roda `npm install -g @quebragalho/cli@latest` para você.
 - **Homebrew**: recusa e manda no `brew upgrade qg` (substituir o binário do
   keg seria revertido no próximo `brew upgrade`).
 - **todo o resto** (inclusive `/usr/local/bin` do script curl): baixa o

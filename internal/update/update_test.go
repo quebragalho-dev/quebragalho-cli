@@ -560,7 +560,7 @@ func TestUpgradeGuidanceNpmUsesQuotedPrefix(t *testing.T) {
 	local := assetCheckForTest(t, "v0.2.0", runtime.GOOS, runtime.GOARCH)
 
 	custom := upgradeGuidance(local, "--repo someone/fork", InstallMethodNpm, `/opt/qg prefix`, "0.2.0")
-	if !strings.Contains(custom, `npm install -g --prefix "/opt/qg prefix" @quebragalho-dev/cli@0.2.0`) {
+	if !strings.Contains(custom, `npm install -g --prefix "/opt/qg prefix" @quebragalho/cli@0.2.0`) {
 		t.Fatalf("npm custom-source guidance = %q, want the quoted --prefix command", custom)
 	}
 	if strings.Contains(custom, "--prefix /opt") {
@@ -568,7 +568,7 @@ func TestUpgradeGuidanceNpmUsesQuotedPrefix(t *testing.T) {
 	}
 
 	bare := upgradeGuidance(local, "--repo someone/fork", InstallMethodNpm, "", "0.2.0")
-	if !strings.Contains(bare, "npm install -g @quebragalho-dev/cli@0.2.0") {
+	if !strings.Contains(bare, "npm install -g @quebragalho/cli@0.2.0") {
 		t.Fatalf("npm custom-source guidance without prefix = %q, want the bare global command", bare)
 	}
 
@@ -664,7 +664,7 @@ func TestFormatNpmCustomSourceExplainsInstallSource(t *testing.T) {
 		SourceFlag: "--repo someone/fork", installMethod: InstallMethodNpm,
 	}
 	output := Format(result)
-	if strings.Contains(output, "qg upgrade --repo") || !strings.Contains(output, "npm install -g @quebragalho-dev/cli@0.2.0") || !strings.Contains(output, "afeta só a verificação da release") {
+	if strings.Contains(output, "qg upgrade --repo") || !strings.Contains(output, "npm install -g @quebragalho/cli@0.2.0") || !strings.Contains(output, "afeta só a verificação da release") {
 		t.Fatalf("npm custom-source guidance is misleading: %q", output)
 	}
 	if strings.Contains(output, "only affects the release check") {

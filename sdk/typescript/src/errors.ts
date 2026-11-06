@@ -12,7 +12,7 @@ export class QGBinaryNotFoundError extends QGError {
   readonly binary: string;
   constructor(binary: string, cause?: unknown) {
     super(
-      `qg binary not found: "${binary}". Install it (npm i -g @quebragalho-dev/cli) or pass { binary } / set QG_BIN.`,
+      `qg binary not found: "${binary}". Install it (npm i -g @quebragalho/cli) or pass { binary } / set QG_BIN.`,
       { cause },
     );
     this.binary = binary;

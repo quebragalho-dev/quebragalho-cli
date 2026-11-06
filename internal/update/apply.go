@@ -45,6 +45,10 @@ type ApplyResult struct {
 	// handoff flow covers every OS. Applied stays false so --json never
 	// claims the update already happened.
 	HandoffPending bool `json:"handoffPending,omitempty"`
+	// NpmMove reports that the handed-off update also moves the install from
+	// the legacy package name to the current one (npmLegacyPackageName to
+	// npmPackageName), which the wrapper performs.
+	NpmMove bool `json:"npmMove,omitempty"`
 }
 
 // windowsOptionalBinaries/linuxOptionalBinaries mirror the helper binary
@@ -73,6 +77,7 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 		executablePath = resolved
 	}
 	method := DetectInstallMethod(executablePath)
+	legacy := method == InstallMethodNpm && isLegacyNpmInstall(executablePath)
 	// One-shot verification for the reopened process after the wrapper's
 	// npm install. It only applies to npm installs: other methods never go
 	// through the wrapper handoff, so a stray variable must not change
@@ -82,6 +87,12 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 	// this version, so report success without another network check.
 	if justInstalled := strings.TrimSpace(os.Getenv("QG_UPDATE_JUST_INSTALLED")); justInstalled != "" {
 		_ = os.Unsetenv("QG_UPDATE_JUST_INSTALLED")
+		if legacy {
+			// The wrapper reopened a legacy install after an update: the
+			// version may have moved, but the install did not reach the
+			// current name (the wrapper printed why), so this is no success.
+			return ApplyResult{}, legacyMoveError(executablePath, "a troca para "+npmPackageName+" não aconteceu")
+		}
 		if method == InstallMethodNpm {
 			if cmp, cmpErr := CompareVersions(options.CurrentVersion, justInstalled); cmpErr == nil {
 				if cmp != 0 {
@@ -121,6 +132,15 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 	}
 
 	checkResult, err := Check(ctx, options)
+	if legacy {
+		if err != nil {
+			// Offline, or no release metadata: the move still applies, at
+			// this version.
+			current, _ := normalizeVersionTag(options.CurrentVersion)
+			checkResult = Result{CurrentVersion: current, LatestVersion: current}
+		}
+		return handOffLegacyMove(checkResult, executablePath)
+	}
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -192,6 +212,9 @@ func Apply(ctx context.Context, options Options) (ApplyResult, error) {
 // ApplyResult.Message stays in English: it is serialized into --json output,
 // so the human line is translated here instead of at the source.
 func FormatApply(result ApplyResult) string {
+	if result.HandoffPending && result.NpmMove {
+		return fmt.Sprintf("[qg] a troca para %s, na versão %s, termina quando o qg fechar", npmPackageName, result.LatestVersion)
+	}
 	if result.HandoffPending {
 		return fmt.Sprintf("[qg] a atualização para %s termina quando o qg fechar (%s -> %s)", result.LatestVersion, result.CurrentVersion, result.LatestVersion)
 	}
@@ -242,10 +265,64 @@ var (
 // npmInstallCommand renders the manual reinstall command for human output.
 // A known prefix is always quoted, so copy/paste survives spaces.
 func npmInstallCommand(npmPrefix string, spec string) string {
+	return npmGlobalCommand("install", npmPrefix, spec)
+}
+
+// npmUninstallCommand renders the manual removal command for human output,
+// quoted like npmInstallCommand.
+func npmUninstallCommand(npmPrefix string, spec string) string {
+	return npmGlobalCommand("uninstall", npmPrefix, spec)
+}
+
+func npmGlobalCommand(verb string, npmPrefix string, spec string) string {
 	if npmPrefix == "" {
-		return "npm install -g " + spec
+		return "npm " + verb + " -g " + spec
 	}
-	return "npm install -g --prefix \"" + npmPrefix + "\" " + spec
+	return "npm " + verb + " -g --prefix \"" + npmPrefix + "\" " + spec
+}
+
+// handOffLegacyMove answers `qg upgrade` on an install still under the legacy
+// package name. The move is owed whatever the versions say (the old name gets
+// no more of them), so it does not wait for an update: the target is the
+// latest release, or this version when the check reports nothing newer.
+//
+// Only the wrapper can do it. It runs after this process exits, removes the
+// old package (whose directory holds this binary, locked on Windows while it
+// runs) and installs the new one; run directly, outside the wrapper, this
+// process refuses with the two commands instead.
+func handOffLegacyMove(checkResult Result, executablePath string) (ApplyResult, error) {
+	target := checkResult.LatestVersion
+	if newer, err := CompareVersions(target, checkResult.CurrentVersion); err != nil || newer < 0 {
+		target = checkResult.CurrentVersion
+	}
+	if target == "" {
+		return ApplyResult{}, legacyMoveError(executablePath, "não foi possível saber para qual versão trocar")
+	}
+	handoffPath := strings.TrimSpace(os.Getenv("QG_NPM_UPDATE_HANDOFF"))
+	if handoffPath == "" {
+		return ApplyResult{}, legacyMoveError(executablePath, "a troca de nome só acontece pelo comando qg instalado pelo npm")
+	}
+	if err := writeNpmHandoff(handoffPath, target); err != nil {
+		return ApplyResult{}, legacyMoveError(executablePath, fmt.Sprintf("não foi possível registrar a troca (%v)", err))
+	}
+	result := checkResult
+	result.LatestVersion = target
+	return ApplyResult{
+		Result:         result,
+		HandoffPending: true,
+		NpmMove:        true,
+		InstallMethod:  InstallMethodNpm,
+		BinaryPath:     executablePath,
+		Message:        fmt.Sprintf("handed off the move to %s@%s to the npm wrapper", npmPackageName, target),
+	}, nil
+}
+
+// legacyMoveError explains a move from the legacy package name that did not
+// happen, with the two commands that do it by hand.
+func legacyMoveError(executablePath string, reason string) error {
+	prefix, _ := npmInstallPrefix(executablePath)
+	return fmt.Errorf("este qg vem do nome antigo do pacote npm, %s, e %s. Para trocar à mão, rode `%s` e depois `%s`",
+		npmLegacyPackageName, reason, npmUninstallCommand(prefix, npmLegacyPackageName), npmInstallCommand(prefix, npmPackageName))
 }
 
 // writeNpmHandoff records the target version for the npm wrapper, which

@@ -8,11 +8,30 @@ import (
 )
 
 // npmPackageName is the published package name for the npm distribution of
-// qg (see package.json). scripts/postinstall.mjs downloads the native
-// binary into the same directory as package.json and leaves a
-// ".qg-binary-version" marker file next to it — both are reliable signals
-// that a given executable came from an npm install.
-const npmPackageName = "@quebragalho-dev/cli"
+// qg (package.json; TestNpmPackageNameMatchesPackageJSON holds the two
+// equal). scripts/postinstall.mjs downloads the native binary into the same
+// directory as package.json and leaves a ".qg-binary-version" marker file
+// next to it — both are reliable signals that a given executable came from an
+// npm install.
+const npmPackageName = "@quebragalho/cli"
+
+// npmLegacyPackageName is the name the package was published under up to
+// 0.0.15. One bridge release also went out under it: an install still under
+// it counts as npm-managed, and `qg upgrade` hands the npm wrapper the move to
+// npmPackageName (docs/NPM_PACKAGING.md).
+const npmLegacyPackageName = "@quebragalho-dev/cli"
+
+// npmPackageNames are the names an npm install of qg can be under.
+var npmPackageNames = [...]string{npmPackageName, npmLegacyPackageName}
+
+func isNpmPackageName(name string) bool {
+	for _, known := range npmPackageNames {
+		if name == known {
+			return true
+		}
+	}
+	return false
+}
 
 // InstallMethod identifies how the running qg binary was installed.
 type InstallMethod string
