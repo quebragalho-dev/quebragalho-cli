@@ -325,7 +325,14 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		if noBrowser {
 			deps.openBrowser = nil
 		}
-		return runInteractiveTUI(stderr, deps, agent.PermissionModeAsk, addDirs, theme, allowEscalation)
+		if root.continueSet || root.resumeSet {
+			sessionID, picker, err := resolveRootResume(root, deps)
+			if err != nil {
+				return writeAppError(stderr, err.Error(), 1)
+			}
+			return runInteractiveTUI(stderr, deps, agent.PermissionModeAsk, addDirs, theme, allowEscalation, sessionID, picker)
+		}
+		return runInteractiveTUI(stderr, deps, agent.PermissionModeAsk, addDirs, theme, allowEscalation, "", false)
 	}
 
 	// --add-dir grants an extra write root and --allow-escalation opts a run
@@ -348,6 +355,9 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	}
 	if root.noBrowser && args[0] != "--dangerously-skip-permissions" && args[0] != "--skip-permissions-unsafe" {
 		return writeAppError(stderr, "--no-browser is only supported for the interactive TUI (see `qg login --help` for the login flag)", 1)
+	}
+	if (root.continueSet || root.resumeSet) && args[0] != "--dangerously-skip-permissions" && args[0] != "--skip-permissions-unsafe" {
+		return writeAppError(stderr, "--continue and --resume are only supported for the interactive TUI (no subcommand); for one-shot runs use `qg exec --resume`", 1)
 	}
 
 	switch args[0] {
@@ -378,6 +388,23 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		if noBrowser || more.noBrowser {
 			deps.openBrowser = nil
 		}
+		mergedResume := root
+		if more.continueSet || more.resumeSet {
+			if (mergedResume.continueSet || mergedResume.resumeSet) && (more.continueSet || more.resumeSet) {
+				// splitLeadingRootFlags already rejects --continue+--resume
+				// within one split; reaching here means one side set
+				// --continue and the other --resume.
+				return writeAppError(stderr, "Use either --continue or --resume, not both", 1)
+			}
+			mergedResume.continueSet = mergedResume.continueSet || more.continueSet
+			if more.continueID != "" {
+				mergedResume.continueID = more.continueID
+			}
+			mergedResume.resumeSet = mergedResume.resumeSet || more.resumeSet
+			if more.resumeID != "" {
+				mergedResume.resumeID = more.resumeID
+			}
+		}
 		// A misplaced --add-dir anywhere in the remainder is the more specific error,
 		// so check for it across all of rest before rejecting stray args.
 		for _, arg := range rest {
@@ -394,7 +421,14 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 				return writeAppError(stderr, "--dangerously-skip-permissions launches the interactive TUI and takes no prompt or subcommand; for a one-shot unsafe run use `qg exec --dangerously-skip-permissions -p \"...\"`", 1)
 			}
 		}
-		return runInteractiveTUI(stderr, deps, agent.PermissionModeUnsafe, append(append([]string{}, addDirs...), moreDirs...), skipTheme, allowEscalation || skipAllowEscalation)
+		if mergedResume.continueSet || mergedResume.resumeSet {
+			sessionID, picker, err := resolveRootResume(mergedResume, deps)
+			if err != nil {
+				return writeAppError(stderr, err.Error(), 1)
+			}
+			return runInteractiveTUI(stderr, deps, agent.PermissionModeUnsafe, append(append([]string{}, addDirs...), moreDirs...), skipTheme, allowEscalation || skipAllowEscalation, sessionID, picker)
+		}
+		return runInteractiveTUI(stderr, deps, agent.PermissionModeUnsafe, append(append([]string{}, addDirs...), moreDirs...), skipTheme, allowEscalation || skipAllowEscalation, "", false)
 	case "-h", "--help", "help":
 		if err := writeHelp(stdout); err != nil {
 			return 1
@@ -697,11 +731,55 @@ func fillAppDeps(deps appDeps) appDeps {
 	return deps
 }
 
-func runInteractiveTUI(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, allowEscalation bool) int {
-	return runInteractiveTUIWithSetup(stderr, deps, permissionMode, addDirs, theme, allowEscalation)
+func runInteractiveTUI(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, allowEscalation bool, resumeSessionID string, resumePicker bool) int {
+	return runInteractiveTUIWithSetup(stderr, deps, permissionMode, addDirs, theme, allowEscalation, resumeSessionID, resumePicker)
 }
 
-func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, allowEscalation bool) int {
+// resolveRootResume validates qg --continue/--resume before the TUI opens so
+// an unknown id or a non-resumable kind exits non-zero without opening an
+// empty session. Bare --continue passes "latest" through for the TUI to
+// resolve workspace-scoped (same helper as /resume latest); bare --resume
+// opens the picker (same list as /resume).
+func resolveRootResume(root rootFlags, deps appDeps) (string, bool, error) {
+	store := deps.newSessionStore()
+	if root.continueSet && root.continueID != "" {
+		return validateResumableID(store, root.continueID)
+	}
+	if root.resumeSet && root.resumeID != "" {
+		return validateResumableID(store, root.resumeID)
+	}
+	if root.continueSet {
+		return "latest", false, nil
+	}
+	metas, err := store.ListResumable()
+	if err != nil {
+		return "", false, err
+	}
+	if len(metas) == 0 {
+		return "", false, errors.New("nenhuma sessão do qg disponível para retomar")
+	}
+	return "", true, nil
+}
+
+func validateResumableID(store *sessions.Store, id string) (string, bool, error) {
+	trimmed := strings.TrimSpace(id)
+	if !sessions.ValidSessionID(trimmed) {
+		return "", false, fmt.Errorf("sessão do qg inválida: %s", trimmed)
+	}
+	meta, err := store.Get(trimmed)
+	if err != nil {
+		return "", false, err
+	}
+	if meta == nil {
+		return "", false, fmt.Errorf("sessão do qg não encontrada: %s", trimmed)
+	}
+	if !sessions.IsResumableKind(meta.SessionKind) {
+		return "", false, fmt.Errorf("sessão do qg não pode ser retomada: %s", trimmed)
+	}
+	return trimmed, false, nil
+}
+
+func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode agent.PermissionMode, addDirs []string, theme string, allowEscalation bool, resumeSessionID string, resumePicker bool) int {
 	workspaceRoot, err := deps.getwd()
 	if err != nil {
 		return writeAppError(stderr, "failed to resolve workspace: "+err.Error(), 1)
@@ -1052,6 +1130,8 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		Notify:                    resolved.Notify,
 		KeyBindings:               resolved.KeyBindings,
 		STT:                       resolved.STT,
+		ResumeSessionID:           resumeSessionID,
+		ShowResumePicker:          resumePicker,
 		BuildDictationTranscriber: newDictationTranscriberFactory(resolved, userConfigPath, sttServerManager),
 		ShutdownDictationServer:   sttServerManager.Shutdown,
 		STTDownloadRoot:           sttDownloadRoot,
@@ -1459,6 +1539,10 @@ Opções:
   -h, --help                     Mostra esta ajuda
   -v, --version                  Mostra a versão
   -p, --prompt                   Executa uma mensagem única
+  -c, --continue [id]            Abre o qg na conversa (sem id: mais
+                                 recente desta pasta; com id: aquela sessão)
+      --resume [id]              Retoma sessão (sem id: lista para escolher;
+                                 com id: aquela sessão)
       --add-dir <path>           Permite escrita em pasta extra (repetível)
       --allow-escalation         Permite escalar para um modelo
                                  mais forte (escalate_model)
@@ -1541,6 +1625,12 @@ type rootFlags struct {
 	theme           string
 	allowEscalation bool
 	noBrowser       bool
+	// continueSet/resumeSet request opening the TUI on a session
+	// (qg --continue/--resume). IDs are empty when the flag was passed bare.
+	continueSet bool
+	continueID  string
+	resumeSet   bool
+	resumeID    string
 }
 
 // splitLeadingRootFlags strips --add-dir, --theme and --allow-escalation from
@@ -1576,6 +1666,34 @@ func splitLeadingRootFlags(args []string) (rootFlags, []string, error) {
 			return rootFlags{}, nil, err
 		}
 		flags.allowEscalation = flags.allowEscalation || allowEscalation
+		resume, rest, err := splitLeadingResumeFlags(rest)
+		if err != nil {
+			return rootFlags{}, nil, err
+		}
+		if resume.continueSet {
+			if flags.resumeSet {
+				return rootFlags{}, nil, errors.New("Use either --continue or --resume, not both")
+			}
+			flags.continueSet = true
+			if resume.continueID != "" {
+				if flags.continueID != "" {
+					return rootFlags{}, nil, errors.New("--continue accepts a single session id")
+				}
+				flags.continueID = resume.continueID
+			}
+		}
+		if resume.resumeSet {
+			if flags.continueSet {
+				return rootFlags{}, nil, errors.New("Use either --continue or --resume, not both")
+			}
+			flags.resumeSet = true
+			if resume.resumeID != "" {
+				if flags.resumeID != "" {
+					return rootFlags{}, nil, errors.New("--resume accepts a single session id")
+				}
+				flags.resumeID = resume.resumeID
+			}
+		}
 		for len(rest) > 0 && rest[0] == "--no-browser" {
 			flags.noBrowser = true
 			rest = rest[1:]
@@ -1584,6 +1702,91 @@ func splitLeadingRootFlags(args []string) (rootFlags, []string, error) {
 		if len(args) == before {
 			return flags, args, nil
 		}
+	}
+}
+
+// splitLeadingResumeFlags strips a leading --continue/-c or --resume (with an
+// optional session id) from the root argument list. The id is the next token
+// only when it does not look like a flag or a qg subcommand: the interactive
+// TUI takes no positional prompt, so a non-id token after --continue is a loud
+// error at validation, never a silent prompt. Bare --continue resumes the
+// workspace's latest session; bare --resume opens the session picker.
+func splitLeadingResumeFlags(args []string) (rootFlags, []string, error) {
+	var flags rootFlags
+	for len(args) > 0 {
+		var wantContinue bool
+		isResume := false
+		var inlineID string
+		hasInline := false
+		switch {
+		case args[0] == "-c" || args[0] == "--continue":
+			wantContinue = true
+			args = args[1:]
+		case strings.HasPrefix(args[0], "--continue="):
+			wantContinue = true
+			inlineID = strings.TrimSpace(strings.TrimPrefix(args[0], "--continue="))
+			hasInline = true
+			args = args[1:]
+		case args[0] == "--resume":
+			isResume = true
+			args = args[1:]
+		case strings.HasPrefix(args[0], "--resume="):
+			isResume = true
+			inlineID = strings.TrimSpace(strings.TrimPrefix(args[0], "--resume="))
+			hasInline = true
+			args = args[1:]
+		default:
+			return flags, args, nil
+		}
+		var id string
+		if hasInline {
+			if inlineID == "" {
+				if wantContinue {
+					return rootFlags{}, nil, errors.New("--continue requires a session id after = when = is used (omit = for the latest session)")
+				}
+				return rootFlags{}, nil, errors.New("--resume requires a session id after = when = is used (omit = to pick a session)")
+			}
+			id = inlineID
+		} else if len(args) > 0 && !strings.HasPrefix(args[0], "-") && !isRootSubcommand(args[0]) {
+			id = strings.TrimSpace(args[0])
+			args = args[1:]
+		}
+		if wantContinue {
+			if flags.continueSet || flags.resumeSet {
+				return rootFlags{}, nil, errors.New("Use either --continue or --resume, not both")
+			}
+			flags.continueSet = true
+			flags.continueID = id
+		} else if isResume {
+			if flags.continueSet || flags.resumeSet {
+				return rootFlags{}, nil, errors.New("Use either --continue or --resume, not both")
+			}
+			flags.resumeSet = true
+			flags.resumeID = id
+		} else {
+			return rootFlags{}, nil, errors.New("internal error: resume flag not recognized")
+		}
+	}
+	return flags, args, nil
+}
+
+// isRootSubcommand reports whether token is a qg subcommand or a root-level
+// flag that takes over dispatch, so --continue/--resume never swallow it as a
+// session id.
+func isRootSubcommand(token string) bool {
+	switch token {
+	case "-h", "--help", "help", "-v", "--version", "version", "-p", "--prompt",
+		"--dangerously-skip-permissions", "--skip-permissions-unsafe",
+		"exec", "completions", "daemon", "config", "models", "balance", "key", "whoami",
+		"providers", "doctor", "setup", "login", "context", "repo-map", "repomap",
+		"search", "find", "sessions", "session", "spec", "init", "specialists", "specialist",
+		"plugins", "plugin", "backends", "backend", "skills", "skill", "tools", "tool",
+		"hooks", "mcp", "auth", "sandbox", "update", "upgrade", "worktrees", "worktree",
+		"verify", "trust", "eval", "changes", "change", "usage", "cron", "repo-info", "repoinfo",
+		"logout", "serve", "acp":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -232,7 +232,21 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		m = updated.(model)
 
 		m = runTextTurn(t, m, "after resume")
-		assertTextualSummaryTurn(t, provider, 2, "after resume")
+		// /resume reloads the exact wire: the next turn replays history,
+		// never the textual summary.
+		if len(provider.requests) != 3 {
+			t.Fatalf("provider requests = %d, want 3", len(provider.requests))
+		}
+		req := provider.requests[2]
+		if requestContains(req, "Previous session context") {
+			t.Fatal("resumed turn must keep the real history, not the textual summary")
+		}
+		if !requestContains(req, "second answer") {
+			t.Fatal("resumed turn must carry the prior turn's answer")
+		}
+		if got := lastUserMessage(req).Content; !strings.HasSuffix(got, "after resume") {
+			t.Fatalf("resumed turn must end with the prompt, got %q", got)
+		}
 	})
 
 	t.Run("rewind", func(t *testing.T) {
@@ -302,7 +316,24 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		}
 
 		m = runTextTurn(t, m, "after switch")
-		assertTextualSummaryTurn(t, provider, 2, "after switch")
+		// A model switch keeps the real conversation (provider-native ids
+		// filtered) instead of falling back to the textual summary. The
+		// prompt may carry a [context update] drift note for the new model,
+		// so assert the shape: prior answer present, no summary wrapper,
+		// prompt at the end.
+		if len(provider.requests) != 3 {
+			t.Fatalf("provider requests = %d, want 3", len(provider.requests))
+		}
+		req := provider.requests[2]
+		if requestContains(req, "Previous session context") {
+			t.Fatal("model switch must keep the real history, not the textual summary")
+		}
+		if !requestContains(req, "second answer") {
+			t.Fatal("model switch must carry the prior turn's answer")
+		}
+		if got := lastUserMessage(req).Content; !strings.HasSuffix(got, "after switch") {
+			t.Fatalf("switched turn must end with the prompt, got %q", got)
+		}
 	})
 
 	t.Run("error", func(t *testing.T) {

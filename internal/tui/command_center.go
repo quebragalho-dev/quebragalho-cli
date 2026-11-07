@@ -476,9 +476,9 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	m.providerProfile = nextProfile
 	m.provider = nextProvider
 	m.providerName = displayValue(nextProfile.Name, string(metadata.ProviderKind))
-	// A model switch changes the context window and the model addendum, so the
-	// stored real history no longer matches the prefix the next turn builds.
-	m.continuation = turnContinuation{}
+	// A model switch keeps the real history: the submit path filters
+	// provider-native call ids so the next turn still sends the exact
+	// conversation instead of falling back to the textual summary.
 	// Keep sub-agent child processes on the same provider we just switched to.
 	config.SetActiveProviderEnv(nextProfile.Name)
 	m.modelName = target.modelID

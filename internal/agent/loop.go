@@ -200,10 +200,20 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	})
 	messages := qgruntime.SeedMessagesWithImages(promptParts.prompt, prompt, options.Images)
 	if len(options.Continuation) > 0 {
-		// A prior turn's messages (frozen system at [0]) replace the fresh
-		// seed; system-prompt drift is announced on the user turn, never in
-		// the cached prefix.
-		messages = append(copyMessages(options.Continuation), continuationUserMessage(promptParts, options, prompt))
+		if options.Continuation[0].Role == qgruntime.MessageRoleSystem {
+			// A prior turn's messages (frozen system at [0]) replace the fresh
+			// seed; system-prompt drift is announced on the user turn, never in
+			// the cached prefix.
+			messages = append(copyMessages(options.Continuation), continuationUserMessage(promptParts, options, prompt))
+		} else {
+			// Reconstructed history (exact resume of a session saved without
+			// a snapshot) carries no frozen system: seed a fresh one so the
+			// model keeps its instructions, then replay the history verbatim
+			// and append the bare prompt (nothing is stale against a fresh
+			// system, so no drift note).
+			messages = append([]qgruntime.Message{{Role: qgruntime.MessageRoleSystem, Content: promptParts.prompt}}, copyMessages(options.Continuation)...)
+			messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: prompt, Images: qgruntime.CloneImageBlocks(options.Images)})
+		}
 	}
 
 	guards := newGuardState()
@@ -282,6 +292,20 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		sort.Strings(names)
 		result.LoadedDeferredTools = names
 	}()
+	// emitStep hands the current wire to OnStepMessages for exact-resume
+	// snapshots. Runs on the agent goroutine, never the UI goroutine; nil
+	// disables it with no behavior change.
+	emitStep := func() {
+		if options.OnStepMessages == nil {
+			return
+		}
+		names := make([]string, 0, len(loaded))
+		for name := range loaded {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		options.OnStepMessages(copyMessages(messages), names)
+	}
 
 	// The feature-gated completion policy keeps local completion decisions and its
 	// bounded follow-up state out of the central loop. Self-correcting profiles
@@ -294,6 +318,10 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	toolDefCache := map[string]qgruntime.ToolDefinition{}
 
 	result = Result{Messages: copyMessages(messages)}
+	// Persist the turn's opening wire (history + user message) before the
+	// first provider call: a kill before any step still resumes exact, with
+	// the user's message already in the snapshot.
+	emitStep()
 	dispatchSessionStart(ctx, options)
 	defer func() {
 		// Use a context detached from ctx's cancellation: on Esc/Ctrl+C the run
@@ -555,6 +583,10 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// that use extended thinking reject tool conversations that drop them.
 			Reasoning: collected.ReasoningBlocks,
 		})
+		// Persist right after the assistant message lands, before tools run: a
+		// kill mid-execution leaves the advertised call on disk, and the resume
+		// repair closes it with an "interrupted" result.
+		emitStep()
 
 		if len(collected.ToolCalls) == 0 {
 			// The model intended a tool call but it was malformed and dropped.
@@ -574,6 +606,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			if guards.observeTurn(collected) {
 				result.FinalAnswer = noOutputStopAnswer(result.Turns)
 				result.Messages = copyMessages(messages)
+				emitStep()
 				return result, nil
 			}
 			if strings.TrimSpace(collected.Text) == "" {
@@ -599,6 +632,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					result.IncompleteReason = evaluation.Reason
 					result.FinalAnswer = collected.Text
 					result.Messages = copyMessages(messages)
+					emitStep()
 					return result, nil
 				case CompletionUncertain:
 					// Observe the uncertainty signal and apply any escalation NOW:
@@ -642,6 +676,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			}
 			result.FinalAnswer = collected.Text
 			result.Messages = copyMessages(messages)
+			emitStep()
 			return result, nil
 		}
 
@@ -755,6 +790,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				messages = appendAbortedToolResults(messages, collected.ToolCalls[index+1:])
 				messages = append(messages, toolImageMessages...)
 				result.Messages = copyMessages(messages)
+				emitStep()
 				return result, abortErr
 			}
 			if stopReason := stopReasonFromToolResult(toolResult); stopReason != "" {
@@ -763,6 +799,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				result.FinalAnswer = toolResult.ModelOutput()
 				result.StopReason = stopReason
 				result.Messages = copyMessages(messages)
+				emitStep()
 				return result, nil
 			}
 
@@ -786,6 +823,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				messages = append(messages, toolImageMessages...)
 				result.FinalAnswer = toolFailureStopAnswer(call.Name, outcome.Count)
 				result.Messages = copyMessages(messages)
+				emitStep()
 				return result, nil
 			}
 			if outcome.InjectHint && failureHint == "" {
@@ -930,6 +968,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// completion gate); never messages, model, or session. No-op forever
 		// after the first escalation and for every unprofiled run.
 		applyPosture()
+		emitStep()
 	}
 
 	if ctx.Err() != nil {
@@ -956,6 +995,8 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		result.FinalAnswer = answer
 		result.FinishReason = finishReason
 		result.Messages = copyMessages(finalMessages)
+		messages = finalMessages
+		emitStep()
 		if options.RequireCompletionSignal {
 			result.Incomplete = true
 			result.IncompleteReason = "reached the max-turns limit without completing"
@@ -965,6 +1006,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 
 	result.FinalAnswer = maxTurnsAnswer
 	result.Messages = copyMessages(messages)
+	emitStep()
 	if options.RequireCompletionSignal {
 		result.Incomplete = true
 		result.IncompleteReason = "reached the max-turns limit without a final answer"

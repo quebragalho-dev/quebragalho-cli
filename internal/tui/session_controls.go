@@ -776,6 +776,9 @@ func (m model) handleRewindCommand(args string) (model, string) {
 	// the reload, so even a reload failure cannot leave the stale continuation
 	// behind.
 	m.continuation = turnContinuation{}
+	if m.sessionStore != nil && m.activeSession.SessionID != "" {
+		_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
+	}
 
 	// ApplyRewind truncated the persisted event log, restored files, and appended a
 	// rewind marker — so reload the in-memory session state. Otherwise the dropped

@@ -69,6 +69,22 @@ func Run(ctx context.Context, options Options) int {
 		programOpts = append(programOpts, tea.WithColorProfile(colorprofile.Ascii))
 	}
 	initialModel := newModel(ctx, options)
+	// Startup resume (qg --continue/--resume): hydrate before the first frame
+	// so the screen opens with the full conversation and no model call.
+	// IDs were validated by the CLI; a race (deleted between check and load)
+	// fails closed here instead of opening an empty session.
+	if strings.TrimSpace(options.ResumeSessionID) != "" {
+		var notice string
+		initialModel, notice = initialModel.handleResumeCommand(strings.TrimSpace(options.ResumeSessionID))
+		if strings.TrimSpace(notice) != "" {
+			fmt.Fprintln(os.Stderr, notice)
+			return 1
+		}
+	} else if options.ShowResumePicker {
+		if picker := initialModel.newSessionPicker(); picker != nil {
+			initialModel.picker = picker
+		}
+	}
 	// Apply the terminal-native system default at the real interactive entry point.
 	// Constructing a model alone is also useful to tests and non-TUI helpers, and
 	// should not mutate the package-level render palette for those callers.
@@ -139,9 +155,26 @@ func startPeerService(service *peermsg.Service, forward func(tea.Msg)) bool {
 }
 
 // writeFarewell prints the exit message the alt screen would otherwise swallow.
+// On a normal quit with a live conversation it also shows how to resume,
+// without touching non-interactive output (only the interactive Run calls it).
+// A final synchronous snapshot lands first so the printed id resumes exact.
 func writeFarewell(w io.Writer, final tea.Model) {
-	if m, ok := final.(model); ok && m.farewell != "" {
+	m, ok := final.(model)
+	if !ok {
+		return
+	}
+	if m.snapshotWriter != nil && m.sessionStore != nil && m.activeSession.SessionID != "" && len(m.continuation.messages) > 0 && m.continuation.sessionID == m.activeSession.SessionID {
+		seq := m.activeSession.EventCount
+		if meta, err := m.sessionStore.Get(m.activeSession.SessionID); err == nil && meta != nil {
+			seq = meta.EventCount
+		}
+		m.snapshotWriter.Queue(buildContinuationSnapshot(m.activeSession.SessionID, m.continuation.modelID, m.providerName, string(m.reasoningEffort), m.continuation.goalKey, seq, m.continuation.turnBase, m.continuation.messages, m.continuation.loadedTools))
+	}
+	if m.farewell != "" {
 		fmt.Fprintln(w, m.farewell)
+	}
+	if strings.TrimSpace(m.activeSession.SessionID) != "" && len(m.sessionEvents) > 0 {
+		fmt.Fprintln(w, "Para continuar: qg --continue "+strings.TrimSpace(m.activeSession.SessionID))
 	}
 }
 

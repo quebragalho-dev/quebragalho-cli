@@ -30,6 +30,13 @@ type Options struct {
 	// Logout clears saved QG credentials for /logout; nil disables the command.
 	Logout func() (LogoutSummary, error)
 
+	// ResumeSessionID resumes this session on startup (qg --continue/--resume
+	// with an id). Empty starts fresh. Validated by the CLI before launch.
+	ResumeSessionID string
+	// ShowResumePicker opens the /resume session picker on startup
+	// (qg --resume without an id).
+	ShowResumePicker bool
+
 	Cwd                  string
 	Version              string // CLI build version, shown on the home screen; empty hides it
 	UserConfigPath       string
