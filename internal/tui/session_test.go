@@ -611,7 +611,9 @@ func submitAndDrivePermissionRun(t *testing.T, m model, prompt string, key strin
 
 	finalMsg := receiveFinalMessage(t, finalCh)
 	updated, _ = next.Update(finalMsg)
-	return updated.(model)
+	next = updated.(model)
+	settleModel(t, next)
+	return next
 }
 
 func newPermissionTestModel(root string, provider qgruntime.Provider, registry *tools.Registry, store *sessions.Store, grantStore *sandbox.GrantStore, runtimeMessages chan<- tea.Msg) model {

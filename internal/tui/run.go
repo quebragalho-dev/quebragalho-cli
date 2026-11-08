@@ -69,6 +69,11 @@ func Run(ctx context.Context, options Options) int {
 		programOpts = append(programOpts, tea.WithColorProfile(colorprofile.Ascii))
 	}
 	initialModel := newModel(ctx, options)
+	// Adopt a CLI-pre-acquired presence lease for the resumed session (same
+	// process, so re-acquiring would self-conflict).
+	if options.ResumeSessionLock != nil && options.ResumeSessionLock.SessionID() != "" {
+		initialModel.sessionLock = options.ResumeSessionLock
+	}
 	// Startup resume (qg --continue/--resume): hydrate before the first frame
 	// so the screen opens with the full conversation and no model call.
 	// IDs were validated by the CLI; a race (deleted between check and load)
@@ -157,7 +162,8 @@ func startPeerService(service *peermsg.Service, forward func(tea.Msg)) bool {
 // writeFarewell prints the exit message the alt screen would otherwise swallow.
 // On a normal quit with a live conversation it also shows how to resume,
 // without touching non-interactive output (only the interactive Run calls it).
-// A final synchronous snapshot lands first so the printed id resumes exact.
+// A final snapshot lands first (flushed with a cap) so the printed id
+// resumes exact.
 func writeFarewell(w io.Writer, final tea.Model) {
 	m, ok := final.(model)
 	if !ok {
@@ -168,7 +174,9 @@ func writeFarewell(w io.Writer, final tea.Model) {
 		if meta, err := m.sessionStore.Get(m.activeSession.SessionID); err == nil && meta != nil {
 			seq = meta.EventCount
 		}
-		m.snapshotWriter.Queue(buildContinuationSnapshot(m.activeSession.SessionID, m.continuation.modelID, m.providerName, string(m.reasoningEffort), m.continuation.goalKey, seq, m.continuation.turnBase, m.continuation.messages, m.continuation.loadedTools))
+		if m.snapshotWriter.Queue(buildContinuationSnapshot(m.activeSession.SessionID, m.continuation.modelID, m.providerName, string(m.reasoningEffort), m.continuation.goalKey, seq, m.continuation.messages, m.continuation.loadedTools), m.continuation.runID) {
+			m.snapshotWriter.Flush(2 * time.Second)
+		}
 	}
 	if m.farewell != "" {
 		fmt.Fprintln(w, m.farewell)

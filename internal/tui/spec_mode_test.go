@@ -208,6 +208,55 @@ func newSpecModeTestModel(root string, provider qgruntime.Provider, store *sessi
 	})
 }
 
+// TestSpecDraftRunDoesNotDuplicateSessionEvents guards the write-through
+// accounting on the spec-draft seam: the draft run persists its events live,
+// so the end-of-turn flush must append only the remainder (tracked through
+// flushedEvents), never the whole list a second time.
+func TestSpecDraftRunDoesNotDuplicateSessionEvents(t *testing.T) {
+	store := testSessionStore(t)
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		submitSpecScript("call-1", "Review Flow", "# Goal\n\nAdd review flow."),
+	}}
+	m := newSpecModeTestModel(t.TempDir(), provider, store)
+	m.input.SetValue("/spec add review flow")
+
+	updated, cmd := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+	if cmd == nil {
+		t.Fatal("expected a spec draft run")
+	}
+	updated, _ = next.Update(execCmd(cmd))
+	next = updated.(model)
+	if next.pendingSpecReview == nil {
+		t.Fatal("expected pending review after the draft run")
+	}
+	settleModel(t, next)
+
+	events, err := store.ReadEvents(next.activeSession.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, event := range events {
+		key := string(event.Type) + "\x00" + string(event.Payload)
+		seen[key]++
+	}
+	for key, count := range seen {
+		if count > 1 {
+			t.Fatalf("session event persisted %d times: %q", count, key)
+		}
+	}
+	calls := 0
+	for _, event := range events {
+		if event.Type == sessions.EventToolCall {
+			calls++
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("tool_call events = %d, want exactly 1 (no end-flush duplicate)", calls)
+	}
+}
+
 func submitSpecScript(callID string, title string, plan string) []qgruntime.StreamEvent {
 	args, _ := json.Marshal(map[string]string{
 		"title": title,

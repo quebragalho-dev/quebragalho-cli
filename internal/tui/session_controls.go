@@ -796,6 +796,12 @@ func (m model) handleRewindCommand(args string) (model, string) {
 		return m, fmt.Sprintf("Rewind\nrewound to sequence %d, but reloading the session failed (in-memory context cleared): %s", target, readErr.Error())
 	}
 	m.sessionEvents = append([]sessions.Event{}, events...)
+	// The snapshot is rewritten from the post-rewind log (not deleted): a
+	// resume right after still continues exact. Recovered checkpoints stay
+	// valid — ApplyRewind prunes only blobs unreferenced by the surviving
+	// events, and the rewrite covers the truncated head, so a later /rewind
+	// to an earlier checkpoint still finds its blobs.
+	m = m.rewriteSnapshotFromEvents()
 	rows := initialTranscript()
 	rows = appendTranscriptRowsDedup(rows, transcriptRowsFromSessionEvents(events))
 	m.transcript = rows

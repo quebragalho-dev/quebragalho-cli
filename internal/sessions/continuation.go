@@ -23,12 +23,10 @@ const continuationVersion = 1
 // ContinuationSnapshot is the last-write-wins exact-resume state for one
 // session. Only the newest state is kept; there is no history.
 //
-// EventSeq is the event-log head the snapshot was saved against: turn events
-// flush only at end of turn, so step snapshots taken mid-turn carry the
-// start-of-turn head. TurnBase is the index in Messages of the in-progress
-// turn's user message (len(previous history)); messages after TurnBase whose
-// events never reached the log (kill mid-turn) are backfilled on resume so the
-// screen shows what the model receives.
+// EventSeq is the event-log head the snapshot was saved against. RunID
+// identifies the agent run that wrote it: a single per-session writer only
+// accepts snapshots from the newest run, so a cancelled run that finishes
+// late can never overwrite a newer turn.
 type ContinuationSnapshot struct {
 	Version         int                 `json:"v"`
 	SessionID       string              `json:"sessionId"`
@@ -37,7 +35,7 @@ type ContinuationSnapshot struct {
 	ReasoningEffort string              `json:"reasoningEffort,omitempty"`
 	GoalKey         string              `json:"goalKey,omitempty"`
 	EventSeq        int                 `json:"eventSeq"`
-	TurnBase        int                 `json:"turnBase,omitempty"`
+	RunID           int64               `json:"runId,omitempty"`
 	Messages        []qgruntime.Message `json:"messages"`
 	LoadedTools     []string            `json:"loadedTools,omitempty"`
 	SavedAt         string              `json:"savedAt"`
@@ -80,8 +78,9 @@ func (store *Store) WriteContinuation(snap ContinuationSnapshot) error {
 }
 
 // ReadContinuation loads the session's snapshot, or nil when none was saved
-// (old sessions). A corrupt file is an error so the caller falls back to
-// event reconstruction with a warning instead of silently resuming partial.
+// (old sessions). A missing version, a cross-session file, a malformed wire
+// or an unpaired tool call is an error so the caller falls back to event
+// reconstruction with a specific warning instead of sending a bad request.
 func (store *Store) ReadContinuation(sessionID string) (*ContinuationSnapshot, error) {
 	if !ValidSessionID(sessionID) {
 		return nil, fmt.Errorf("invalid qg session id %q", sessionID)
@@ -97,15 +96,66 @@ func (store *Store) ReadContinuation(sessionID string) (*ContinuationSnapshot, e
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return nil, fmt.Errorf("invalid qg continuation %s: %w", sessionID, err)
 	}
-	if snap.Version != continuationVersion || snap.SessionID != sessionID || len(snap.Messages) == 0 {
-		return nil, fmt.Errorf("invalid qg continuation %s: version/session/messages mismatch", sessionID)
+	if err := ValidateContinuationSnapshot(sessionID, &snap); err != nil {
+		return nil, err
 	}
 	return &snap, nil
 }
 
-// InvalidateContinuation drops the snapshot so the next resume reconstructs
-// from events. Used after /rewind, /compact, /clear and /new semantics where
-// the frozen wire no longer matches the rehydrated history.
+// ValidateContinuationSnapshot rejects anything the provider would refuse:
+// wrong version or session, empty history, a non-conversation opener (the
+// wire must start with system or user — a post-/rewind snapshot rebuilt from
+// the truncated log carries no frozen system), unknown roles, a tool result
+// without an id or an answered call, and any orphaned call (snapshots are
+// repaired before every write, so orphans mean corruption).
+func ValidateContinuationSnapshot(sessionID string, snap *ContinuationSnapshot) error {
+	if snap == nil {
+		return fmt.Errorf("invalid qg continuation %s: empty snapshot", sessionID)
+	}
+	if snap.Version != continuationVersion {
+		return fmt.Errorf("invalid qg continuation %s: unsupported version %d", sessionID, snap.Version)
+	}
+	if strings.TrimSpace(snap.SessionID) == "" || snap.SessionID != sessionID {
+		return fmt.Errorf("invalid qg continuation %s: session mismatch %q", sessionID, snap.SessionID)
+	}
+	if len(snap.Messages) == 0 {
+		return fmt.Errorf("invalid qg continuation %s: no messages", sessionID)
+	}
+	if first := snap.Messages[0].Role; first != qgruntime.MessageRoleSystem && first != qgruntime.MessageRoleUser {
+		return fmt.Errorf("invalid qg continuation %s: first message is %q, want system or user", sessionID, first)
+	}
+	calls := map[string]bool{}
+	for index, message := range snap.Messages {
+		switch message.Role {
+		case qgruntime.MessageRoleSystem, qgruntime.MessageRoleUser, qgruntime.MessageRoleAssistant, qgruntime.MessageRoleTool:
+		default:
+			return fmt.Errorf("invalid qg continuation %s: message %d has unknown role %q", sessionID, index, message.Role)
+		}
+		if message.Role == qgruntime.MessageRoleAssistant {
+			for _, call := range message.ToolCalls {
+				if strings.TrimSpace(call.ID) == "" {
+					return fmt.Errorf("invalid qg continuation %s: message %d has a nameless tool call", sessionID, index)
+				}
+				calls[call.ID] = false
+			}
+		}
+		if message.Role == qgruntime.MessageRoleTool {
+			if strings.TrimSpace(message.ToolCallID) == "" {
+				return fmt.Errorf("invalid qg continuation %s: message %d is a tool result without a call id", sessionID, index)
+			}
+			calls[message.ToolCallID] = true
+		}
+	}
+	for id, answered := range calls {
+		if !answered {
+			return fmt.Errorf("invalid qg continuation %s: tool call %q has no result", sessionID, id)
+		}
+	}
+	return nil
+}
+
+// InvalidateContinuation drops the snapshot. Used when a session is abandoned;
+// /rewind and /compact rewrite from the new state instead.
 func (store *Store) InvalidateContinuation(sessionID string) error {
 	if !ValidSessionID(sessionID) {
 		return fmt.Errorf("invalid qg session id %q", sessionID)
@@ -118,10 +168,12 @@ func (store *Store) InvalidateContinuation(sessionID string) error {
 }
 
 // CheckContinuationFresh reports whether the snapshot still covers the event
-// log head. Usage/error/permission-only drift keeps it fresh (those events
-// never enter the provider wire); any conversation, compaction, rewind, fork,
-// goal or spec event after snap.EventSeq makes it stale. Returns the stale
-// delta for the caller to inspect.
+// log head. Usage/error/permission/checkpoint-only drift keeps it fresh:
+// those events never enter the provider wire (checkpoints are file-restore
+// blobs for /rewind; a kill landing between the snapshot and the checkpoint
+// write must still resume exact). Any conversation, compaction, rewind,
+// fork, goal or spec event after snap.EventSeq makes it stale. Returns the
+// stale delta for the caller to inspect.
 func (store *Store) CheckContinuationFresh(sessionID string, snap *ContinuationSnapshot) (bool, []Event, error) {
 	if snap == nil {
 		return false, nil, nil
@@ -148,10 +200,32 @@ func (store *Store) CheckContinuationFresh(sessionID string, snap *ContinuationS
 			delta = append(delta, event)
 		}
 	}
+	// Call ids the snapshot already carries (advertised calls and their
+	// results). A kill can land between the step snapshot and the log
+	// catching up with that same step's tool_call/tool_result: the wire
+	// already covers those ids, so they don't invalidate the snapshot.
+	// Anything else conversational (a new message, an unknown call, a
+	// compaction, rewind, fork, goal or spec event) makes it stale.
+	covered := map[string]bool{}
+	for _, message := range snap.Messages {
+		for _, call := range message.ToolCalls {
+			if strings.TrimSpace(call.ID) != "" {
+				covered[call.ID] = true
+			}
+		}
+		if message.Role == qgruntime.MessageRoleTool && strings.TrimSpace(message.ToolCallID) != "" {
+			covered[message.ToolCallID] = true
+		}
+	}
 	for _, event := range delta {
 		switch event.Type {
-		case EventUsage, EventError, EventPermission, EventPermissionRequest, EventPermissionDecision:
+		case EventUsage, EventError, EventPermission, EventPermissionRequest, EventPermissionDecision, EventSessionCheckpoint:
 			continue
+		case EventToolCall, EventToolResult:
+			if id := eventToolCallID(event.Payload); id != "" && covered[id] {
+				continue
+			}
+			return false, delta, nil
 		default:
 			return false, delta, nil
 		}
@@ -234,18 +308,20 @@ func spliceOrphanResults(messages []qgruntime.Message, answered map[string]bool)
 }
 
 // FilterContinuationForModel adapts a snapshot's messages for a model change.
-// Same model: deep copy unchanged. Different model: clears provider-native
-// call ids and reasoning signatures bound to the previous call (Gemini
-// thoughtSignature and per-provider native ids must not leak across
-// families); reasoning blocks are kept because adapters ignore foreign
-// blocks, so the conversation stays real instead of falling back to a text
-// summary. Never mutates the input.
+// Same model: deep copy unchanged. Different model: the frozen system prompt
+// belongs to the old family, so it is dropped and the loop rebuilds the
+// current one; provider-native call ids, reasoning signatures and foreign
+// reasoning blocks must not leak across families. Never mutates the input.
 func FilterContinuationForModel(messages []qgruntime.Message, fromModel, toModel string) []qgruntime.Message {
 	if strings.TrimSpace(fromModel) == strings.TrimSpace(toModel) {
 		return deepCopyMessages(messages)
 	}
 	out := deepCopyMessages(messages)
+	if len(out) > 0 && out[0].Role == qgruntime.MessageRoleSystem {
+		out = out[1:]
+	}
 	for i := range out {
+		out[i].Reasoning = nil
 		for j := range out[i].ToolCalls {
 			out[i].ToolCalls[j].ProviderCallID = ""
 			out[i].ToolCalls[j].Signature = ""
@@ -333,250 +409,75 @@ func mergeToolCallAssistants(messages []qgruntime.Message) []qgruntime.Message {
 	return out
 }
 
-// TurnMessagesToBackfillEvents converts snapshot wire messages back into the
-// session-event inputs the live turn would have flushed, so a resume after a
-// mid-turn kill can rewrite the lost events and the screen shows what the
-// model receives. Messages before from (the in-progress turn's first new
-// message index) are already logged and skipped; user nudges, image carriers
-// and reasoning never rode the event log, so they stay out — exactly like a
-// live flush.
-func TurnMessagesToBackfillEvents(messages []qgruntime.Message, from int) []AppendEventInput {
-	if from < 0 {
-		from = 0
-	}
-	inputs := []AppendEventInput{}
-	callNames := map[string]string{}
-	for _, message := range messages {
-		if message.Role == qgruntime.MessageRoleAssistant {
-			for _, call := range message.ToolCalls {
-				if call.ID != "" {
-					callNames[call.ID] = call.Name
-				}
-			}
-		}
-	}
-	for index := from; index < len(messages); index++ {
-		message := messages[index]
-		switch message.Role {
-		case qgruntime.MessageRoleAssistant:
-			for _, call := range message.ToolCalls {
-				if strings.TrimSpace(call.ID) == "" {
-					continue
-				}
-				inputs = append(inputs, AppendEventInput{Type: EventToolCall, Payload: map[string]any{
-					"id": call.ID, "name": call.Name, "arguments": call.Arguments,
-				}})
-			}
-			if len(message.ToolCalls) == 0 && strings.TrimSpace(message.Content) != "" {
-				inputs = append(inputs, AppendEventInput{Type: EventMessage, Payload: map[string]any{
-					"role": "assistant", "content": message.Content,
-				}})
-			}
-		case qgruntime.MessageRoleTool:
-			if strings.TrimSpace(message.ToolCallID) == "" {
-				continue
-			}
-			status := "ok"
-			if message.IsError {
-				status = "error"
-			}
-			payload := map[string]any{
-				"toolCallId": message.ToolCallID,
-				"name":       callNames[message.ToolCallID],
-				"status":     status,
-				"output":     message.Content,
-			}
-			if len(message.ChangedFiles) > 0 {
-				payload["changedFiles"] = message.ChangedFiles
-			}
-			inputs = append(inputs, AppendEventInput{Type: EventToolResult, Payload: payload})
-		}
-	}
-	return inputs
-}
-
-// backfillEventKey identifies a conversation event for idempotency: a resume
-// that finds its steps already logged (clean cancel flushed them) appends
-// nothing twice.
-func backfillEventKey(input AppendEventInput) string {
-	payload, _ := input.Payload.(map[string]any)
-	str := func(key string) string {
-		value, _ := payload[key].(string)
-		return value
-	}
-	switch input.Type {
-	case EventToolCall:
-		return "call\x00" + firstNonEmpty(str("toolCallId"), str("id"))
-	case EventToolResult:
-		return "result\x00" + firstNonEmpty(str("toolCallId"), str("id"))
-	case EventMessage:
-		return "msg\x00" + str("role") + "\x00" + str("content")
-	default:
-		return string(input.Type) + "\x00" + str("id")
-	}
-}
-
-// eventKeyOf maps a stored event to the same key space as backfill inputs.
-func eventKeyOf(event Event) string {
-	var payload map[string]any
-	_ = json.Unmarshal(event.Payload, &payload)
-	str := func(key string) string {
-		value, _ := payload[key].(string)
-		return value
-	}
-	switch event.Type {
-	case EventToolCall:
-		id := firstNonEmpty(str("toolCallId"), str("id"))
-		return "call\x00" + id
-	case EventToolResult:
-		id := firstNonEmpty(str("toolCallId"), str("id"))
-		return "result\x00" + id
-	case EventMessage:
-		return "msg\x00" + strings.ToLower(str("role")) + "\x00" + str("content")
-	default:
-		return string(event.Type) + "\x00" + str("id")
-	}
-}
-
-// DeltaCoveredBySnapshot reports whether every conversation event logged after
-// snap.EventSeq is already contained in the snapshot's in-progress turn
-// (messages from TurnBase onward). That is the flush-vs-snapshot race: the
-// turn flushed, then the process died before the final snapshot rewrote the
-// file. Usage, permission, error, checkpoint and goal/spec events never ride
-// the wire and are ignored.
-func DeltaCoveredBySnapshot(delta []Event, snap *ContinuationSnapshot) bool {
-	if snap == nil {
-		return false
-	}
-	base := snap.TurnBase
-	if base <= 0 || base > len(snap.Messages) {
-		return false
-	}
-	needles := map[string]bool{}
-	for _, input := range TurnMessagesToBackfillEvents(snap.Messages, base) {
-		needles[backfillEventKey(input)] = true
-	}
-	for _, event := range delta {
-		switch event.Type {
-		case EventUsage, EventError, EventPermission, EventPermissionRequest, EventPermissionDecision,
-			EventSessionCheckpoint, EventSessionFork, EventSessionChild,
-			EventSpecialistStart, EventSpecialistStop,
-			EventSpecDraft, EventSpecApproved, EventSpecRejected,
-			EventGoalCreated, EventGoalUpdated, EventGoalCleared,
-			EventSessionRewind, EventCompaction:
-			continue
-		}
-		if !needles[eventKeyOf(event)] {
-			return false
-		}
-	}
-	return true
-}
-
-// InferTurnBase locates the in-progress turn's user message for snapshots
-// saved without TurnBase: the last user message matching the last logged
-// user prompt (suffix match tolerates the live [context update] drift note).
-// Returns -1 when nothing matches; callers then skip the backfill.
-func InferTurnBase(messages []qgruntime.Message, prompt string) int {
-	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
-		return -1
-	}
-	for index := len(messages) - 1; index >= 0; index-- {
-		message := messages[index]
-		if message.Role != qgruntime.MessageRoleUser {
-			continue
-		}
-		content := strings.TrimSpace(message.Content)
-		if content == prompt || strings.HasSuffix(content, prompt) {
-			return index
-		}
-	}
-	return -1
-}
-
-// BackfillTurnEvents appends the snapshot's unlogged turn messages to the
-// session log and returns the new head sequence. It is idempotent: steps
-// already logged (clean cancel flushed them) are skipped by key, so a second
-// resume appends nothing. Only missing conversation events are written;
-// usage, permission and checkpoint payloads cannot be reconstructed and stay
-// out (the meter keeps the pre-turn figure, noted on resume). The anchor is
-// the turn's logged user prompt: only events after it are eligible, so reused
-// tool ids from earlier turns can never collide.
-func (store *Store) BackfillTurnEvents(sessionID string, snap *ContinuationSnapshot) (int, error) {
-	if snap == nil {
+// BackfillOrphanResults appends the missing tool_call event (when the kill
+// landed before it was logged) and a synthetic interrupted tool_result for
+// every snapshot tool call with no logged result, so log, screen and model
+// agree after a mid-turn kill. It is idempotent: logged calls and results are
+// skipped by call ID, so a second resume appends nothing. Returns the number
+// of appended events.
+func (store *Store) BackfillOrphanResults(sessionID string, snap *ContinuationSnapshot) (int, error) {
+	if snap == nil || len(snap.Messages) == 0 {
 		return 0, nil
 	}
-	base := snap.TurnBase
 	events, err := store.ReadEvents(sessionID)
 	if err != nil {
 		return 0, err
 	}
-	head := 0
-	if len(events) > 0 {
-		head = events[len(events)-1].Sequence
-	}
-	// TurnBase 0 means unknown (snapshots saved before the field existed);
-	// callers resolve it via InferTurnBase first. Without a base there is
-	// nothing safe to backfill.
-	if base <= 0 || base >= len(snap.Messages) {
-		return head, nil
-	}
-	prompt := ""
-	for index := len(events) - 1; index >= 0; index-- {
-		if events[index].Type != EventMessage {
-			continue
-		}
-		if role, content := eventMessageRoleContent(events[index]); role == "user" && content != "" {
-			prompt = content
-			break
-		}
-	}
-	if prompt == "" {
-		return head, nil
-	}
-	anchor := 0
-	for index := len(events) - 1; index >= 0; index-- {
-		if events[index].Type != EventMessage {
-			continue
-		}
-		if role, content := eventMessageRoleContent(events[index]); role == "user" && (content == prompt || strings.HasSuffix(content, prompt) || strings.HasSuffix(prompt, content)) {
-			anchor = events[index].Sequence
-			break
-		}
-	}
-	present := map[string]bool{}
-	anchored := false
+	loggedCalls := map[string]bool{}
+	loggedResults := map[string]bool{}
 	for _, event := range events {
-		if event.Sequence > anchor {
-			anchored = true
-			present[eventKeyOf(event)] = true
+		switch event.Type {
+		case EventToolCall:
+			if id := eventToolCallID(event.Payload); id != "" {
+				loggedCalls[id] = true
+			}
+		case EventToolResult:
+			if id := eventToolCallID(event.Payload); id != "" {
+				loggedResults[id] = true
+			}
 		}
-	}
-	if !anchored && anchor == 0 {
-		return head, nil
 	}
 	inputs := []AppendEventInput{}
-	for _, input := range TurnMessagesToBackfillEvents(snap.Messages, base+1) {
-		if present[backfillEventKey(input)] {
+	seen := map[string]bool{}
+	for _, message := range snap.Messages {
+		if message.Role != qgruntime.MessageRoleAssistant {
 			continue
 		}
-		inputs = append(inputs, input)
+		for _, call := range message.ToolCalls {
+			if strings.TrimSpace(call.ID) == "" || seen[call.ID] || loggedResults[call.ID] {
+				continue
+			}
+			seen[call.ID] = true
+			if !loggedCalls[call.ID] {
+				inputs = append(inputs, AppendEventInput{Type: EventToolCall, Payload: map[string]any{
+					"id": call.ID, "name": call.Name, "arguments": call.Arguments,
+				}})
+			}
+			inputs = append(inputs, AppendEventInput{Type: EventToolResult, Payload: map[string]any{
+				"toolCallId": call.ID,
+				"name":       call.Name,
+				"status":     "error",
+				"output":     interruptedToolResultNotice,
+			}})
+		}
 	}
 	if len(inputs) == 0 {
-		return head, nil
+		return 0, nil
 	}
 	appended, err := store.AppendEvents(sessionID, inputs)
 	if err != nil {
-		return head, err
+		return 0, err
 	}
-	return appended[len(appended)-1].Sequence, nil
+	return len(appended), nil
 }
 
-func eventMessageRoleContent(event Event) (string, string) {
-	var payload map[string]any
-	_ = json.Unmarshal(event.Payload, &payload)
-	role, _ := payload["role"].(string)
-	content, _ := payload["content"].(string)
-	return strings.ToLower(strings.TrimSpace(role)), strings.TrimSpace(content)
+func eventToolCallID(payload json.RawMessage) string {
+	var decoded map[string]any
+	_ = json.Unmarshal(payload, &decoded)
+	for _, key := range []string{"toolCallId", "id"} {
+		if value, _ := decoded[key].(string); strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -3,54 +3,186 @@ package tui
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
-// continuationWriter persists exact-resume snapshots with a mutex so
-// concurrent background writers (agent steps and the turn-final save) never
-// interleave tmp files. Every write is atomic tmp+rename+fsync and 0600.
-// Queue blocks the caller for one small write: agent steps run on the agent
-// goroutine and the turn-final save runs once per completed turn, so the UI
-// goroutine never stalls mid-stream. Writes are sequential per session in
-// practice; cross-thread races resolve last-wins on an always-valid prefix,
-// so a crash loses at most the in-progress turn.
+// syncSnapshotWrites forces Queue to persist synchronously on the calling
+// goroutine instead of the background loop. Production always leaves it
+// false — disk I/O stays off the UI goroutine and quit waits via Flush.
+// The test suite sets it true in TestMain so no background write can race
+// TempDir cleanup; the runID gate and failure accounting apply identically
+// in both modes, and async behavior has dedicated unit tests.
+var syncSnapshotWrites = false
+
+// continuationWriter persists exact-resume snapshots off the UI goroutine.
+// Queue never blocks: it only records the latest snapshot per session (and
+// drops writes from superseded runs, e.g. a cancelled run whose goroutine
+// finishes after the next turn started). A background loop writes each
+// session's latest snapshot in order; quit waits for it with Flush.
 type continuationWriter struct {
 	store *sessions.Store
 
-	mu sync.Mutex
+	mu       sync.Mutex
+	pending  map[string]pendingWrite
+	lastRun  map[string]int64
+	lastSeq  map[string]int
+	failures map[string]int
+	inFlight bool
+
+	// onRepeatedFailure fires (at most once per failure streak) when the
+	// same session fails to persist 3 times in a row. Set by the TUI to
+	// surface a one-line warning; nil disables the notice.
+	onRepeatedFailure func(sessionID string)
+
+	wake chan struct{}
+	once sync.Once
+}
+
+type pendingWrite struct {
+	snap  sessions.ContinuationSnapshot
+	runID int64
 }
 
 func newContinuationWriter(store *sessions.Store) *continuationWriter {
-	return &continuationWriter{store: store}
+	return &continuationWriter{
+		store:    store,
+		pending:  map[string]pendingWrite{},
+		lastRun:  map[string]int64{},
+		lastSeq:  map[string]int{},
+		failures: map[string]int{},
+		wake:     make(chan struct{}, 1),
+	}
 }
 
-// Queue repairs and durably writes the snapshot.
-func (w *continuationWriter) Queue(snap sessions.ContinuationSnapshot) {
+// Queue records snap as the session's latest state. Writes from an older run
+// than the last accepted one are discarded, so a cancelled run that drains
+// late can never overwrite a newer turn. Never blocks and never touches
+// disk: the background loop owns all I/O (except in the test-only
+// synchronous mode, where the write lands inline on the calling goroutine).
+func (w *continuationWriter) Queue(snap sessions.ContinuationSnapshot, runID int64) bool {
 	if w == nil || w.store == nil {
-		return
+		return false
 	}
 	if strings.TrimSpace(snap.SessionID) == "" || len(snap.Messages) == 0 {
-		return
+		return false
 	}
-	snap.Messages = sessions.RepairOrphanToolCalls(snap.Messages)
+	if !syncSnapshotWrites {
+		w.once.Do(func() { go w.loop() })
+	}
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	_ = w.store.WriteContinuation(snap)
+	if last, ok := w.lastRun[snap.SessionID]; ok {
+		if runID < last {
+			w.mu.Unlock()
+			return false
+		}
+		if runID == last && snap.EventSeq < w.lastSeq[snap.SessionID] {
+			w.mu.Unlock()
+			return false
+		}
+	}
+	w.lastRun[snap.SessionID] = runID
+	w.lastSeq[snap.SessionID] = snap.EventSeq
+	if syncSnapshotWrites {
+		w.mu.Unlock()
+		// Test-only synchronous path: same gate as above, but the write
+		// lands inline so nothing outlives the test.
+		if err := w.store.WriteContinuation(snap); err != nil {
+			w.mu.Lock()
+			w.failures[snap.SessionID]++
+			notify := w.failures[snap.SessionID] == 3 && w.onRepeatedFailure != nil
+			cb := w.onRepeatedFailure
+			w.mu.Unlock()
+			if notify {
+				cb(snap.SessionID)
+			}
+			return true
+		}
+		w.mu.Lock()
+		w.failures[snap.SessionID] = 0
+		w.mu.Unlock()
+		return true
+	}
+	w.pending[snap.SessionID] = pendingWrite{snap: snap, runID: runID}
+	w.mu.Unlock()
+	select {
+	case w.wake <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+// Flush waits (up to timeout) for every queued snapshot to reach disk.
+// Used on quit so the farewell resume line always names durable state.
+func (w *continuationWriter) Flush(timeout time.Duration) bool {
+	if w == nil {
+		return true
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		w.mu.Lock()
+		empty := len(w.pending) == 0 && !w.inFlight
+		w.mu.Unlock()
+		if empty {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return false
+}
+
+func (w *continuationWriter) loop() {
+	for range w.wake {
+		for {
+			w.mu.Lock()
+			if len(w.pending) == 0 {
+				w.mu.Unlock()
+				break
+			}
+			batch := make([]pendingWrite, 0, len(w.pending))
+			for _, pending := range w.pending {
+				batch = append(batch, pending)
+			}
+			for sessionID := range w.pending {
+				delete(w.pending, sessionID)
+			}
+			w.inFlight = true
+			w.mu.Unlock()
+			for _, pending := range batch {
+				if err := w.store.WriteContinuation(pending.snap); err != nil {
+					w.mu.Lock()
+					w.failures[pending.snap.SessionID]++
+					notify := w.failures[pending.snap.SessionID] == 3 && w.onRepeatedFailure != nil
+					w.mu.Unlock()
+					if notify {
+						w.onRepeatedFailure(pending.snap.SessionID)
+					}
+					continue
+				}
+				w.mu.Lock()
+				w.failures[pending.snap.SessionID] = 0
+				w.mu.Unlock()
+			}
+			w.mu.Lock()
+			w.inFlight = false
+			w.mu.Unlock()
+		}
+	}
 }
 
 // buildContinuationSnapshot assembles the snapshot the next turn would send
 // had qg never closed: the repaired wire plus the deferred tools loaded.
-// turnBase is the index of the in-progress turn's user message in messages
-// (len(previous history), or 1 on a history-less first turn).
-func buildContinuationSnapshot(sessionID, modelID, provider, effort, goalKey string, eventSeq, turnBase int, messages []qgruntime.Message, loadedTools []string) sessions.ContinuationSnapshot {
+// Repair happens here, once, so every stored snapshot (and the in-memory
+// continuation built alongside it) already pairs every tool call.
+func buildContinuationSnapshot(sessionID string, modelID, provider, effort, goalKey string, eventSeq int, messages []qgruntime.Message, loadedTools []string) sessions.ContinuationSnapshot {
 	repaired := sessions.RepairOrphanToolCalls(messages)
 	msgs := append([]qgruntime.Message(nil), repaired...)
 	loaded := append([]string(nil), loadedTools...)
 	return sessions.ContinuationSnapshot{
 		SessionID: sessionID, ModelID: modelID, Provider: provider,
-		ReasoningEffort: effort, GoalKey: goalKey, EventSeq: eventSeq, TurnBase: turnBase,
+		ReasoningEffort: effort, GoalKey: goalKey, EventSeq: eventSeq,
 		Messages: msgs, LoadedTools: loaded,
 	}
 }

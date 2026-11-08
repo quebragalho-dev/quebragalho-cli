@@ -3,26 +3,22 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-// writeFinalSnapshot mimics the turn-final snapshot command production queues:
-// the continuation's wire with the post-flush event count.
-func writeFinalSnapshot(t *testing.T, store *sessions.Store, m model, turnBase int) {
+// flushSnapshot waits for the async snapshot writer to persist the latest
+// state, so tests can assert on the file the production path wrote.
+func flushSnapshot(t *testing.T, m model) {
 	t.Helper()
-	if len(m.continuation.messages) == 0 {
-		t.Fatal("no continuation to snapshot")
+	if m.snapshotWriter == nil {
+		t.Fatal("no snapshot writer")
 	}
-	meta, err := store.Get(m.activeSession.SessionID)
-	if err != nil || meta == nil {
-		t.Fatalf("Get: %v", err)
-	}
-	snap := buildContinuationSnapshot(m.activeSession.SessionID, m.continuation.modelID, m.providerName, string(m.reasoningEffort), m.continuation.goalKey, meta.EventCount, turnBase, m.continuation.messages, m.continuation.loadedTools)
-	if err := store.WriteContinuation(snap); err != nil {
-		t.Fatalf("WriteContinuation: %v", err)
+	if !m.snapshotWriter.Flush(5 * time.Second) {
+		t.Fatal("snapshot writer did not flush")
 	}
 }
 
@@ -48,7 +44,7 @@ func TestExactResumeSendsIdenticalWire(t *testing.T) {
 	// Turn 3 must resend exactly this plus the new prompt (text-only turns add
 	// no new tool ids, so the wire is fully deterministic).
 	turn2Wire := provider.requests[2]
-	writeFinalSnapshot(t, store, m, len(m.continuation.messages)-2)
+	flushSnapshot(t, m)
 	sessionID := m.activeSession.SessionID
 	usageBefore := m.lastUsage
 
@@ -153,7 +149,7 @@ func TestStaleSnapshotFallsBackWithWarning(t *testing.T) {
 	provider := &scriptedProvider{scripts: textScripts("first answer", "second answer")}
 	m := continuationHarness(t, store, provider, nil)
 	m = runTextTurn(t, m, "first question")
-	writeFinalSnapshot(t, store, m, len(m.continuation.messages)-2)
+	flushSnapshot(t, m)
 	sessionID := m.activeSession.SessionID
 
 	// Another process appends conversation after the snapshot.

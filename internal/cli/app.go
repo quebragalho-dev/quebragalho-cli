@@ -357,7 +357,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		return writeAppError(stderr, "--no-browser is only supported for the interactive TUI (see `qg login --help` for the login flag)", 1)
 	}
 	if (root.continueSet || root.resumeSet) && args[0] != "--dangerously-skip-permissions" && args[0] != "--skip-permissions-unsafe" {
-		return writeAppError(stderr, "--continue and --resume are only supported for the interactive TUI (no subcommand); for one-shot runs use `qg exec --resume`", 1)
+		return writeAppError(stderr, "--continue e --resume servem só para o TUI interativo (sem subcomando); para execuções únicas use `qg exec --resume`", 1)
 	}
 
 	switch args[0] {
@@ -394,7 +394,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 				// splitLeadingRootFlags already rejects --continue+--resume
 				// within one split; reaching here means one side set
 				// --continue and the other --resume.
-				return writeAppError(stderr, "Use either --continue or --resume, not both", 1)
+				return writeAppError(stderr, "use --continue ou --resume, não ambos", 1)
 			}
 			mergedResume.continueSet = mergedResume.continueSet || more.continueSet
 			if more.continueID != "" {
@@ -410,6 +410,19 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		for _, arg := range rest {
 			if arg == "--add-dir" || strings.HasPrefix(arg, "--add-dir=") {
 				return writeAppError(stderr, "--add-dir must come before any other arguments (it may precede or follow --dangerously-skip-permissions)", 1)
+			}
+		}
+		// An id may trail --dangerously-skip-permissions when the resume flag
+		// came first (`qg --continue --dsp <id>`): a single valid id is the
+		// session, anything else is the same stray-arg error as before.
+		if (mergedResume.continueSet && mergedResume.continueID == "") || (mergedResume.resumeSet && mergedResume.resumeID == "") {
+			if len(rest) == 1 && strings.TrimSpace(rest[0]) != "" && !strings.HasPrefix(strings.TrimSpace(rest[0]), "-") && sessions.ValidSessionID(strings.TrimSpace(rest[0])) {
+				if mergedResume.continueSet {
+					mergedResume.continueID = strings.TrimSpace(rest[0])
+				} else {
+					mergedResume.resumeID = strings.TrimSpace(rest[0])
+				}
+				rest = nil
 			}
 		}
 		// This path launches the interactive TUI, which takes no positional prompt or
@@ -1672,26 +1685,43 @@ func splitLeadingRootFlags(args []string) (rootFlags, []string, error) {
 		}
 		if resume.continueSet {
 			if flags.resumeSet {
-				return rootFlags{}, nil, errors.New("Use either --continue or --resume, not both")
+				return rootFlags{}, nil, errors.New("use --continue ou --resume, não ambos")
 			}
 			flags.continueSet = true
 			if resume.continueID != "" {
 				if flags.continueID != "" {
-					return rootFlags{}, nil, errors.New("--continue accepts a single session id")
+					return rootFlags{}, nil, errors.New("--continue aceita um único id de sessão")
 				}
 				flags.continueID = resume.continueID
 			}
 		}
 		if resume.resumeSet {
 			if flags.continueSet {
-				return rootFlags{}, nil, errors.New("Use either --continue or --resume, not both")
+				return rootFlags{}, nil, errors.New("use --continue ou --resume, não ambos")
 			}
 			flags.resumeSet = true
 			if resume.resumeID != "" {
 				if flags.resumeID != "" {
-					return rootFlags{}, nil, errors.New("--resume accepts a single session id")
+					return rootFlags{}, nil, errors.New("--resume aceita um único id de sessão")
 				}
 				flags.resumeID = resume.resumeID
+			}
+		}
+		// An id token may trail its flag after other root flags
+		// (`qg --continue --theme auto <id>`): absorb it here, where the
+		// flag from an earlier pass is known. Anything else stays put.
+		if (flags.continueSet && flags.continueID == "") || (flags.resumeSet && flags.resumeID == "") {
+			if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") && !isRootSubcommand(rest[0]) {
+				id := strings.TrimSpace(rest[0])
+				if !sessions.ValidSessionID(id) {
+					return rootFlags{}, nil, fmt.Errorf("id de sessão inválido %q: use qg --continue <id> com o id mostrado em \"Para continuar\"", id)
+				}
+				if flags.continueSet {
+					flags.continueID = id
+				} else {
+					flags.resumeID = id
+				}
+				rest = rest[1:]
 			}
 		}
 		for len(rest) > 0 && rest[0] == "--no-browser" {
@@ -1705,14 +1735,26 @@ func splitLeadingRootFlags(args []string) (rootFlags, []string, error) {
 	}
 }
 
-// splitLeadingResumeFlags strips a leading --continue/-c or --resume (with an
-// optional session id) from the root argument list. The id is the next token
-// only when it does not look like a flag or a qg subcommand: the interactive
-// TUI takes no positional prompt, so a non-id token after --continue is a loud
-// error at validation, never a silent prompt. Bare --continue resumes the
-// workspace's latest session; bare --resume opens the session picker.
+// splitLeadingResumeFlags strips a leading --continue/-c or --resume (each
+// with an optional session id) from the root argument list. The id is the
+// next token only when it directly follows its flag and it does not look
+// like a flag or a qg subcommand; an id after other root flags is absorbed
+// by the outer splitter loop instead. The interactive TUI takes no positional
+// prompt, so a non-id token after --continue is a loud error at validation,
+// never a silent prompt. Bare --continue resumes the workspace's latest
+// session; bare --resume opens the session picker.
 func splitLeadingResumeFlags(args []string) (rootFlags, []string, error) {
 	var flags rootFlags
+	consumeID := func() (string, []string, error) {
+		if len(args) == 0 || strings.HasPrefix(args[0], "-") || isRootSubcommand(args[0]) {
+			return "", args, nil
+		}
+		trimmed := strings.TrimSpace(args[0])
+		if !sessions.ValidSessionID(trimmed) {
+			return "", args, fmt.Errorf("id de sessão inválido %q: use qg --continue <id> com o id mostrado em \"Para continuar\"", trimmed)
+		}
+		return trimmed, args[1:], nil
+	}
 	for len(args) > 0 {
 		var wantContinue bool
 		isResume := false
@@ -1738,31 +1780,53 @@ func splitLeadingResumeFlags(args []string) (rootFlags, []string, error) {
 		default:
 			return flags, args, nil
 		}
-		var id string
 		if hasInline {
 			if inlineID == "" {
 				if wantContinue {
-					return rootFlags{}, nil, errors.New("--continue requires a session id after = when = is used (omit = for the latest session)")
+					return rootFlags{}, nil, errors.New("--continue com = exige um id (sem = usa a mais recente)")
 				}
-				return rootFlags{}, nil, errors.New("--resume requires a session id after = when = is used (omit = to pick a session)")
+				return rootFlags{}, nil, errors.New("--resume com = exige um id (sem = abre a lista)")
 			}
-			id = inlineID
-		} else if len(args) > 0 && !strings.HasPrefix(args[0], "-") && !isRootSubcommand(args[0]) {
-			id = strings.TrimSpace(args[0])
-			args = args[1:]
+			if !sessions.ValidSessionID(inlineID) {
+				return rootFlags{}, nil, fmt.Errorf("id de sessão inválido %q: use qg --continue <id> com o id mostrado em \"Para continuar\"", inlineID)
+			}
+			if wantContinue {
+				if flags.resumeSet {
+					return rootFlags{}, nil, errors.New("use --continue ou --resume, não ambos")
+				}
+				flags.continueSet = true
+				flags.continueID = inlineID
+			} else {
+				if flags.continueSet {
+					return rootFlags{}, nil, errors.New("use --continue ou --resume, não ambos")
+				}
+				flags.resumeSet = true
+				flags.resumeID = inlineID
+			}
+			continue
+		}
+		id, rest, err := consumeID()
+		if err != nil {
+			return rootFlags{}, nil, err
 		}
 		if wantContinue {
-			if flags.continueSet || flags.resumeSet {
-				return rootFlags{}, nil, errors.New("Use either --continue or --resume, not both")
+			if flags.resumeSet {
+				return rootFlags{}, nil, errors.New("use --continue ou --resume, não ambos")
 			}
 			flags.continueSet = true
-			flags.continueID = id
+			if id != "" {
+				flags.continueID = id
+				args = rest
+			}
 		} else if isResume {
-			if flags.continueSet || flags.resumeSet {
-				return rootFlags{}, nil, errors.New("Use either --continue or --resume, not both")
+			if flags.continueSet {
+				return rootFlags{}, nil, errors.New("use --continue ou --resume, não ambos")
 			}
 			flags.resumeSet = true
-			flags.resumeID = id
+			if id != "" {
+				flags.resumeID = id
+				args = rest
+			}
 		} else {
 			return rootFlags{}, nil, errors.New("internal error: resume flag not recognized")
 		}
@@ -1772,22 +1836,23 @@ func splitLeadingResumeFlags(args []string) (rootFlags, []string, error) {
 
 // isRootSubcommand reports whether token is a qg subcommand or a root-level
 // flag that takes over dispatch, so --continue/--resume never swallow it as a
-// session id.
+// session id. The subcommand set is derived from the completion tree (the
+// same source completions are generated from) so a new subcommand cannot
+// silently become an id.
 func isRootSubcommand(token string) bool {
 	switch token {
-	case "-h", "--help", "help", "-v", "--version", "version", "-p", "--prompt",
-		"--dangerously-skip-permissions", "--skip-permissions-unsafe",
-		"exec", "completions", "daemon", "config", "models", "balance", "key", "whoami",
-		"providers", "doctor", "setup", "login", "context", "repo-map", "repomap",
-		"search", "find", "sessions", "session", "spec", "init", "specialists", "specialist",
-		"plugins", "plugin", "backends", "backend", "skills", "skill", "tools", "tool",
-		"hooks", "mcp", "auth", "sandbox", "update", "upgrade", "worktrees", "worktree",
-		"verify", "trust", "eval", "changes", "change", "usage", "cron", "repo-info", "repoinfo",
-		"logout", "serve", "acp":
+	case "-h", "--help", "-v", "--version", "-p", "--prompt",
+		"--dangerously-skip-permissions", "--skip-permissions-unsafe":
 		return true
-	default:
-		return false
 	}
+	for _, child := range completionRoot.children {
+		for _, name := range child.names {
+			if token == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // splitLeadingAllowEscalationFlag strips a leading --allow-escalation from the

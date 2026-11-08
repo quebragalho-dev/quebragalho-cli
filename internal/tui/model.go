@@ -99,8 +99,13 @@ type model struct {
 	// other language servers) stay warm — a fresh manager per run would cold-start
 	// the server on the first edit of every turn. Nil when cwd is unknown; runs then
 	// fall back to a per-run manager. Torn down in quit().
-	lspManager           *lsp.Manager
-	sessionStore         *sessions.Store
+	lspManager   *lsp.Manager
+	sessionStore *sessions.Store
+	// sessionLock is the held presence lease for the active session: while
+	// this qg has a session open, a second `qg --continue`/`/resume` of the
+	// same session is refused instead of corrupting the log. Released on
+	// session switch, /new and quit; a killed process loses it automatically.
+	sessionLock          *sessions.SessionLock
 	peerService          *peermsg.Service
 	peerInbox            []peermsg.InboundMessage
 	peerApprovalQueue    []peermsg.InboundMessage
@@ -348,6 +353,10 @@ type model struct {
 	// reconstructedResume warns once when the snapshot was missing or stale
 	// and the resume fell back to event reconstruction.
 	reconstructedResume bool
+	// reconstructNotice carries the specific one-line reason shown with the
+	// reconstructed transcript (old session, invalid snapshot file, or a
+	// log that moved on since the snapshot).
+	reconstructNotice string
 	// swarmSessionMap maps a swarm task id to its member's durable child session
 	// id (carried up by swarm_collect's Meta), so the AGENTS sidebar rows can drill
 	// into a member's conversation. Persists across turns; only completed members
@@ -673,21 +682,22 @@ type agentResponseMsg struct {
 	runID       int
 	rows        []transcriptRow
 	usageEvents []qgruntime.Usage
-	// continuation carries the just-finished run's messages for the next turn.
-	// Set only on the normal success path of an eligible run; nil on error,
-	// cancellation, spec drafts, peer/goal/loop runs, and side sessions. The
-	// handler stores it only when its session still matches the active one, so
-	// a late response can never leak into a new session.
+	// continuation carries the just-finished run's messages for the next
+	// turn. Set on every run that shares the session's history (success,
+	// error and cancellation alike; peer/goal/loop/spec runs and side
+	// sessions keep their own context out of it). The repaired wire is what
+	// makes the next turn exact even after Esc or a provider error. The
+	// handler stores it only when its session still matches the active one,
+	// so a late response can never leak into a new session.
 	continuation *turnContinuation
-	// snapshotMessages carries the run's wire for exact-resume persistence even
-	// when the run failed or was cancelled (loop sets Messages on every exit).
-	// The handler repairs orphans and queues it when the session matches.
-	snapshotMessages []qgruntime.Message
-	snapshotLoaded   []string
-	snapshotEligible bool
-	snapshotSession  string
-	snapshotGoalKey  string
-	snapshotTurnBase int
+	// persistErr carries a session-log write failure detected during the run
+	// (write-through appends); the handler surfaces it as an error row.
+	persistErr error
+	// flushedEvents carries the write-through events (with store sequences)
+	// already persisted during the run. The end-of-turn flush appends only
+	// the remainder, and m.sessionEvents is rebuilt from both, so nothing
+	// lands twice and the in-memory log matches the store.
+	flushedEvents []sessions.Event
 	// usageModelID is the model in force when the run ended. usageModelIDs is
 	// the model in force when each usageEvents entry fired: a mid-run
 	// escalation changes it partway through the run, and billing the events
@@ -929,18 +939,21 @@ type tuiAgentRunOptions struct {
 	goalContinuation bool
 }
 
-// turnContinuation is the real history one successful turn hands to the next:
-// the session and model it was recorded under, the goal it ran with, the run's
-// messages plus the deferred tools the model had loaded, and the index of the
-// turn's user message (so a resume can backfill events the killed turn never
-// flushed).
+// turnContinuation is the real history one run hands to the next: the
+// session and model it was recorded under, the goal it ran with, the run's
+// messages plus the deferred tools the model had loaded, and the producing
+// run's id (so the snapshot writer can drop late writes from superseded
+// runs).
 type turnContinuation struct {
 	sessionID   string
 	modelID     string
 	goalKey     string
 	messages    []qgruntime.Message
 	loadedTools []string
-	turnBase    int
+	// runID is the agent run that produced these messages; the snapshot
+	// writer only accepts newer runs, so a cancelled run that drains late
+	// can never overwrite a newer turn.
+	runID int64
 }
 
 // goalKeyForSession derives the continuation identity of a session's goal: it
@@ -953,16 +966,29 @@ func goalKeyForSession(session sessions.Metadata) string {
 	return session.Goal.Objective + "\x00" + string(session.Goal.Status)
 }
 
-// realHistoryEnabled reports whether the TUI may send real history between
-// turns. QG_TUI_REAL_HISTORY=0 (or false) drops back to the textual summary;
-// anything else (including unset) keeps it on. Read at submit time.
-func realHistoryEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("QG_TUI_REAL_HISTORY"))) {
-	case "0", "false":
-		return false
-	default:
-		return true
+// rebuiltContinuation reconstructs the stored wire from the session log when
+// the in-memory history lapsed (e.g. a goal change invalidated the key).
+// Structured messages, never the textual summary.
+func (m model) rebuiltContinuation() (model, turnContinuation, bool) {
+	if m.sessionStore == nil || m.activeSession.SessionID == "" {
+		return m, turnContinuation{}, false
 	}
+	events, err := m.resumeEvents(m.activeSession.SessionID)
+	if err != nil || len(events) == 0 {
+		return m, turnContinuation{}, false
+	}
+	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(events))
+	if len(msgs) == 0 {
+		return m, turnContinuation{}, false
+	}
+	m.continuation = turnContinuation{
+		sessionID: m.activeSession.SessionID,
+		modelID:   m.modelName,
+		goalKey:   goalKeyForSession(m.activeSession),
+		messages:  msgs,
+	}
+	c, ok := m.validContinuation()
+	return m, c, ok
 }
 
 // validContinuation reports whether the stored continuation may seed this
@@ -1318,6 +1344,7 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 	m.stopPRWatcher()
 	m.stopAllBackgroundTerminalSessions()
 	m.shutdownLSPManager()
+	m.releaseSessionLock()
 	return m, tea.Quit
 }
 
@@ -2631,8 +2658,14 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// checkpoint/tool flush (which would silently degrade /rewind) is
 				// visible rather than swallowed.
 				var flushRows []transcriptRow
-				events := flushableSessionEvents(msg.sessionEvents)
+				// Only the tail past what write-through already persisted.
+				// (A cancelled run's goroutine may still be mid-turn here;
+				// its OnStep snapshots keep flowing, but the runID gate on
+				// the writer drops anything older than a newer turn.)
+				events := flushableSessionEvents(tailSessionEvents(msg))
 				if flushSessionID == m.activeSession.SessionID {
+					m.sessionEvents = append(m.sessionEvents, msg.flushedEvents...)
+					m.foldFlushedSessionMetadata(msg.flushedEvents)
 					m, flushRows = m.appendSessionEvents(events)
 				} else {
 					flushRows = m.appendSessionEventsTo(flushSessionID, events)
@@ -2640,17 +2673,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for _, row := range flushRows {
 					m.transcript = appendTranscriptRow(m.transcript, row)
 				}
-				// Synchronous final snapshot right after the flush: the file
-				// then always matches the flushed log head, closing the
-				// kill-between-flush-and-save window a background command
-				// would leave open. One small write per run, off the stream.
-				if m.snapshotWriter != nil && m.sessionStore != nil && msg.snapshotEligible && msg.snapshotSession == flushSessionID && len(msg.snapshotMessages) > 0 {
-					seq := 0
-					if meta, getErr := m.sessionStore.Get(flushSessionID); getErr == nil && meta != nil {
-						seq = meta.EventCount
-					}
-					m.snapshotWriter.Queue(buildContinuationSnapshot(flushSessionID, msg.usageModelID, m.providerName, string(m.reasoningEffort), msg.snapshotGoalKey, seq, msg.snapshotTurnBase, msg.snapshotMessages, msg.snapshotLoaded))
-				}
+				// No snapshot write here: the run's own OnStep emits already
+				// persisted its wire progressively, and the writer's run gate
+				// would drop a late write past a newer turn anyway.
 				// A Ctrl+C during an in-flight run defers its quit until the run's
 				// checkpoint session events have been flushed (above). Now that the
 				// last pending flush is drained, fire the deferred quit.
@@ -2717,7 +2742,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		delete(m.liveUsageCounts, msg.runID)
 		var sessionRows []transcriptRow
-		m, sessionRows = m.appendSessionEvents(msg.sessionEvents)
+		m.sessionEvents = append(m.sessionEvents, msg.flushedEvents...)
+		m.foldFlushedSessionMetadata(msg.flushedEvents)
+		m, sessionRows = m.appendSessionEvents(tailSessionEvents(msg))
 		for _, row := range sessionRows {
 			m.transcript = appendTranscriptRow(m.transcript, row)
 		}
@@ -2727,6 +2754,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.streamingReasoningExpanded = false
 			}
 			m.transcript = appendTranscriptRow(m.transcript, row)
+		}
+		// Surface a mid-turn log write failure, if any: the in-memory wire is
+		// intact, but the on-disk session log may be missing steps.
+		if msg.persistErr != nil {
+			m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "erro ao gravar a sessão: " + msg.persistErr.Error()})
 		}
 		if msg.err != nil {
 			// A failed turn has no final answer row to supersede the streamed
@@ -2750,20 +2782,19 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				turnTools:   msg.turnTools,
 				turnElapsed: msg.turnElapsed,
 			})
-		} else if msg.continuation != nil && msg.continuation.sessionID != "" && msg.continuation.sessionID == m.activeSession.SessionID {
-			// A successful eligible run hands its real messages to the next
-			// turn. The session check keeps a late response from leaking into
-			// a session started after the run began.
-			m.continuation = *msg.continuation
 		}
-		// Synchronous final snapshot right after the event flush above: the
-		// file then always matches the flushed log head, so a kill can never
-		// land between the two. One small write per turn, off the stream.
-		if m.snapshotWriter != nil && m.sessionStore != nil {
-			if msg.continuation != nil && msg.continuation.sessionID != "" && msg.continuation.sessionID == m.activeSession.SessionID {
-				m.snapshotWriter.Queue(buildContinuationSnapshot(m.activeSession.SessionID, msg.continuation.modelID, m.providerName, string(m.reasoningEffort), msg.continuation.goalKey, m.activeSession.EventCount, msg.continuation.turnBase, msg.continuation.messages, msg.continuation.loadedTools))
-			} else if msg.snapshotEligible && msg.snapshotSession != "" && msg.snapshotSession == m.activeSession.SessionID && len(msg.snapshotMessages) > 0 {
-				m.snapshotWriter.Queue(buildContinuationSnapshot(m.activeSession.SessionID, msg.usageModelID, m.providerName, string(m.reasoningEffort), msg.snapshotGoalKey, m.activeSession.EventCount, msg.snapshotTurnBase, msg.snapshotMessages, msg.snapshotLoaded))
+		if msg.continuation != nil && msg.continuation.sessionID != "" && msg.continuation.sessionID == m.activeSession.SessionID && len(msg.continuation.messages) > 0 {
+			// A finished eligible run hands its real messages to the next
+			// turn — on success and on failure alike, so Esc and provider
+			// errors resume exactly instead of falling back to the textual
+			// summary. The session check keeps a late response from leaking
+			// into a session started after the run began.
+			m.continuation = *msg.continuation
+			// Queue the final snapshot off the UI goroutine: with write-through
+			// events the log already holds the turn, so this only persists the
+			// wire. The writer accepts only the newest run per session.
+			if m.snapshotWriter != nil {
+				m.snapshotWriter.Queue(buildContinuationSnapshot(msg.continuation.sessionID, msg.continuation.modelID, m.providerName, string(m.reasoningEffort), msg.continuation.goalKey, m.activeSession.EventCount, msg.continuation.messages, msg.continuation.loadedTools), msg.continuation.runID)
 			}
 		}
 		if m.runCompletionWarning != nil {
@@ -2870,17 +2901,21 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sessionEvents = append([]sessions.Event{}, msg.sessionEvents...)
 			m.transcript = append([]transcriptRow{}, msg.transcript...)
 			m.resetFlushFrontier("· compactado ·")
+			// The snapshot is rewritten from the post-compact log (not
+			// deleted): a resume right after still continues exact.
+			m = m.rewriteSnapshotFromEvents()
+		} else {
+			// The external session-compactor path rewrites the store
+			// without returning the snapshot: drop the stale wire so the
+			// next turn rebuilds from the log instead of replaying it.
+			m.continuation = turnContinuation{}
+			if m.sessionStore != nil && m.activeSession.SessionID != "" {
+				_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
+			}
 		}
-		// Compaction rewrote the session log, so stored real history no longer
-		// matches it. Cleared here (not inside compactActiveSession, whose
-		// rebuilt model the run closure discards) to cover both the local and
-		// the session-compactor paths. The pre-compaction usage figure is stale
-		// now: the meter restarts, and the next call's receipt sets the new
-		// value. The /usage panel keeps its own last-call report.
-		m.continuation = turnContinuation{}
-		if m.sessionStore != nil && m.activeSession.SessionID != "" {
-			_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
-		}
+		// The pre-compaction usage figure is stale now: the meter restarts,
+		// and the next call's receipt sets the new value. The /usage panel
+		// keeps its own last-call report.
 		m.meterLive = false
 		m.lastCompactResult = &msg.result
 		m = m.setCompactStatusRow(m.compactText(true))
@@ -5180,18 +5215,25 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 				m.activeSession = updated
 			}
 		}
-		agentPrompt := m.sessionPrompt(prompt)
-		// With a valid stored continuation the model gets the previous turn's
-		// real messages instead of the textual summary, and the prompt goes
-		// clean (already specialist-expanded with the document preamble, as
-		// above). A model change filters provider-native ids but keeps the
-		// real conversation. Anything else keeps the sessionPrompt path byte-for-byte.
-		if peer == nil && m.activeLoopID == "" && sessions.IsResumableKind(m.activeSession.SessionKind) && realHistoryEnabled() {
+		agentPrompt := prompt
+		// The next turn always replays real messages, never the textual
+		// summary: a stored continuation seeds it directly, and when the
+		// stored history lapsed (goal change or any other invalidation) it
+		// is rebuilt from the session log first. Peer inbound turns and
+		// transient side/spec sessions keep their legacy textual context.
+		if peer == nil && sessions.IsResumableKind(m.activeSession.SessionKind) {
 			if c, ok := m.validContinuation(); ok {
 				agentPrompt = prompt
 				runContinuation = sessions.FilterContinuationForModel(c.messages, c.modelID, m.modelName)
 				runLoadedTools = c.loadedTools
+			} else if rebuilt, c, ok := m.rebuiltContinuation(); ok {
+				m = rebuilt
+				agentPrompt = prompt
+				runContinuation = sessions.FilterContinuationForModel(c.messages, c.modelID, m.modelName)
+				runLoadedTools = c.loadedTools
 			}
+		} else {
+			agentPrompt = m.sessionPrompt(prompt)
 		}
 		messagePayload := map[string]any{
 			"role":    "user",
@@ -5298,12 +5340,11 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.workingWordSeed = workingWordStartIndex(m.turnStartedAt, m.runID)
 	m.lastStreamActivity = m.turnStartedAt
 	m.spinnerTicking = true
-	// Every run starts by consuming the stored continuation: the submit path
-	// reads it before beginRun and passes it into the run explicitly, so an
-	// error, cancellation, peer turn, goal turn, loop iteration, or spec run
-	// discards it with no extra code — only a successful eligible run stores
-	// a new one.
-	m.continuation = turnContinuation{}
+	// The stored continuation is NOT consumed here: the submit path reads it
+	// and passes it into eligible runs explicitly, while peer turns, goal
+	// cadence, loop iterations and spec runs leave it untouched so the next
+	// normal turn still resumes the exact history. Session-lifecycle points
+	// (new/clear/resume/rewind/compact) reset it directly.
 	return m
 }
 
@@ -5554,18 +5595,51 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// mid-run escalation). Only an eligible normal run stores one.
 		runSessionID := m.activeSession.SessionID
 		runGoalKey := goalKeyForSession(m.activeSession)
-		// runBase is the index of this turn's user message in the wire:
-		// len(previous history), or 1 on a history-less first turn
-		// ([system, user]). Snapshots record it so a resume can backfill the
-		// events a killed turn never flushed.
-		runBase := len(runOptions.continuation)
-		if runBase == 0 {
-			runBase = 1
-		}
 		continuationEligible := !runOptions.specDraft && runOptions.registry == nil &&
 			runOptions.systemPrompt == "" && runOptions.transientSystemPrompt == "" &&
 			runOptions.permissionMode == "" && !runOptions.goalContinuation &&
 			m.activeLoopID == "" && sessions.IsResumableKind(m.activeSession.SessionKind) && !peerAwareRun
+		// turnHead tracks the event-log head as this run appends: the start
+		// value covers everything flushed before the turn (including the user
+		// message appended at submit). Snapshots taken mid-turn carry the
+		// current head, so a kill loses at most the in-flight step.
+		turnHead := m.activeSession.EventCount
+		flushedLive := []sessions.Event{}
+		var liveAppendErr error
+		liveBroken := false
+		// queueLiveEvents records turn events for the end-of-turn flush and
+		// also appends them to the session log right away (write-through,
+		// agent goroutine): a kill -9 loses at most the in-flight step, and
+		// /rewind sees checkpoints immediately. The end flush re-appends
+		// only what is still queued past flushedCount, so nothing lands
+		// twice: after the first write error all later events stay queued
+		// for the final flush. The first error is kept for the end-of-turn
+		// warning.
+		queueLiveEvents := func(inputs []pendingSessionEvent) {
+			if len(inputs) == 0 {
+				return
+			}
+			sessionEvents = append(sessionEvents, inputs...)
+			if liveBroken || m.sessionStore == nil || m.activeSession.SessionID == "" {
+				return
+			}
+			storeInputs := make([]sessions.AppendEventInput, 0, len(inputs))
+			for _, event := range inputs {
+				storeInputs = append(storeInputs, sessions.AppendEventInput{Type: event.Type, Payload: event.Payload})
+			}
+			appended, err := m.sessionStore.AppendEvents(m.activeSession.SessionID, storeInputs)
+			if err != nil {
+				if liveAppendErr == nil {
+					liveAppendErr = err
+				}
+				liveBroken = true
+				return
+			}
+			flushedLive = append(flushedLive, appended...)
+			if len(appended) > 0 {
+				turnHead = appended[len(appended)-1].Sequence
+			}
+		}
 		options.SessionID = m.activeSession.SessionID
 		options.ProviderName = m.providerName
 		options.Model = m.modelName
@@ -5576,16 +5650,15 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		options.Images = images
 		options.Continuation = runOptions.continuation
 		options.LoadedDeferredTools = runOptions.loadedTools
-		if continuationEligible && m.snapshotWriter != nil && m.sessionStore != nil {
+		if m.snapshotWriter != nil && m.sessionStore != nil {
 			writer := m.snapshotWriter
 			snapSessionID := runSessionID
 			snapProvider := m.providerName
 			snapEffort := string(m.reasoningEffort)
 			snapGoalKey := runGoalKey
-			snapEventSeq := m.activeSession.EventCount
-			snapTurnBase := runBase
+			snapRunID := int64(m.runID)
 			options.OnStepMessages = func(messages []qgruntime.Message, loaded []string) {
-				writer.Queue(buildContinuationSnapshot(snapSessionID, usageModelID, snapProvider, snapEffort, snapGoalKey, snapEventSeq, snapTurnBase, messages, loaded))
+				writer.Queue(buildContinuationSnapshot(snapSessionID, usageModelID, snapProvider, snapEffort, snapGoalKey, turnHead, messages, loaded), snapRunID)
 			}
 		}
 		if m.newTurnSessionProvider != nil && m.provider != nil {
@@ -5742,10 +5815,10 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				default:
 				}
 			})
-			sessionEvents = append(sessionEvents, pendingSessionEvent{
+			queueLiveEvents([]pendingSessionEvent{{
 				Type:    sessions.EventPermissionRequest,
 				Payload: request,
-			})
+			}})
 			select {
 			case decision := <-decisionCh:
 				if strings.TrimSpace(decision.Reason) == "" {
@@ -5778,22 +5851,22 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				default:
 				}
 			})
-			sessionEvents = append(sessionEvents, pendingSessionEvent{
+			queueLiveEvents([]pendingSessionEvent{{
 				Type:    sessions.EventMessage,
 				Payload: askUserSessionPayload(request),
-			})
+			}})
 			select {
 			case answers := <-answerCh:
 				// Persist the answers next to the question event so the exchange
 				// is complete on /resume; rehydration renders them as a system note.
-				sessionEvents = append(sessionEvents, pendingSessionEvent{
+				queueLiveEvents([]pendingSessionEvent{{
 					Type: sessions.EventMessage,
 					Payload: map[string]any{
 						"role":       "ask_user_answers",
 						"toolCallId": request.ToolCallID,
 						"answers":    answers,
 					},
-				})
+				}})
 				return agent.AskUserResponse{Answers: answers}, nil
 			case <-ctx.Done():
 				return agent.AskUserResponse{}, ctx.Err()
@@ -5868,21 +5941,19 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 					})
 				}
 			}
-			sessionEvents = append(sessionEvents, pendingSessionEvent{
+			queueLiveEvents([]pendingSessionEvent{{
 				Type: sessions.EventToolCall,
 				Payload: map[string]any{
 					"id":        call.ID,
 					"name":      call.Name,
 					"arguments": call.Arguments,
 				},
-			})
+			}})
 			// Snapshot before-state of files this call will mutate, NOW (before the
-			// mutation runs), then batch the checkpoint event IN ORDER with the other
-			// session events so the recorded sequence matches execution (recording it
-			// out-of-band would reorder it ahead of the batched tool_call/result).
-			// SnapshotForCheckpoint writes the blobs; the batched event referencing
-			// them is flushed at end-of-run AND on cancel (flushRunIDs), so the blobs
-			// never stay orphaned — see its contract in internal/sessions.
+			// mutation runs), and log the checkpoint event right away: the log
+			// then always holds a restorable checkpoint for the mutation, even
+			// if the process dies mid-tool. The blobs are written first by
+			// SnapshotForCheckpoint; the referencing event follows in order.
 			if m.sessionStore != nil && m.activeSession.SessionID != "" {
 				var args map[string]any
 				if call.Arguments != "" {
@@ -5890,10 +5961,10 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				}
 				if targets := tools.MutationTargets(m.cwd, call.Name, args); len(targets) > 0 {
 					if payload, ok := m.sessionStore.SnapshotForCheckpoint(m.activeSession.SessionID, m.cwd, call.Name, targets); ok {
-						sessionEvents = append(sessionEvents, pendingSessionEvent{
+						queueLiveEvents([]pendingSessionEvent{{
 							Type:    sessions.EventSessionCheckpoint,
 							Payload: payload,
-						})
+						}})
 					}
 				}
 			}
@@ -5949,10 +6020,10 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 					}
 				}
 			}
-			sessionEvents = append(sessionEvents, pendingSessionEvent{
+			queueLiveEvents([]pendingSessionEvent{{
 				Type:    sessions.EventToolResult,
 				Payload: toolResultSessionPayload(result),
-			})
+			}})
 			// Complete specialist tracking when the Task tool returns.
 			if result.Name == "Task" {
 				status := specialistCompleted
@@ -5996,10 +6067,10 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				rows = append(rows, row)
 				m.sendAgentRow(runID, row)
 			}
-			sessionEvents = append(sessionEvents, pendingSessionEvent{
+			queueLiveEvents([]pendingSessionEvent{{
 				Type:    tuiPermissionEventType(event),
 				Payload: event,
-			})
+			}})
 			if onPermission != nil {
 				onPermission(event)
 			}
@@ -6033,10 +6104,10 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			payload["cost_exact"] = receipt.meta["amount"]
 			payload["cost_currency"] = receipt.meta["currency"]
 			payload["call_elapsed_ns"] = event.Elapsed.Nanoseconds()
-			sessionEvents = append(sessionEvents, pendingSessionEvent{
+			queueLiveEvents([]pendingSessionEvent{{
 				Type:    sessions.EventUsage,
 				Payload: payload,
-			})
+			}})
 			m.sendAgentUsage(runID, callModelID, event, receipt)
 			if onUsage != nil {
 				onUsage(event)
@@ -6046,18 +6117,29 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		result, err := agent.Run(runCtx, prompt, m.provider, options)
 		if err != nil {
 			flushReasoning(m.now())
-			sessionEvents = append(sessionEvents, pendingSessionEvent{
-				Type:    sessions.EventError,
-				Payload: map[string]any{"message": err.Error()},
-			})
-			msg := agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, err: err, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: m.activeTurnElapsed(started)}
-			if continuationEligible {
-				msg.snapshotMessages = append([]qgruntime.Message(nil), result.Messages...)
-				msg.snapshotLoaded = append([]string(nil), result.LoadedDeferredTools...)
-				msg.snapshotEligible = true
-				msg.snapshotSession = runSessionID
-				msg.snapshotGoalKey = runGoalKey
-				msg.snapshotTurnBase = runBase
+			// A cancelled run's error is not written live: the cancel path
+			// already recorded its "Run cancelled." marker, and the end
+			// flush drops this trailing error to avoid a duplicate. Any
+			// other failure is persisted immediately.
+			if runCtx.Err() == nil {
+				queueLiveEvents([]pendingSessionEvent{{
+					Type:    sessions.EventError,
+					Payload: map[string]any{"message": err.Error()},
+				}})
+			}
+			msg := agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, err: err, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: m.activeTurnElapsed(started), persistErr: liveAppendErr, flushedEvents: flushedLive}
+			// A failed or cancelled turn still hands its (repaired) history to
+			// the next turn: Esc and provider errors resume exactly instead of
+			// falling back to the textual summary.
+			if continuationEligible && runSessionID != "" && len(result.Messages) > 0 {
+				msg.continuation = &turnContinuation{
+					sessionID:   runSessionID,
+					modelID:     usageModelID,
+					goalKey:     runGoalKey,
+					messages:    append([]qgruntime.Message(nil), result.Messages...),
+					loadedTools: append([]string(nil), result.LoadedDeferredTools...),
+					runID:       int64(runID),
+				}
 			}
 			return msg
 		}
@@ -6065,14 +6147,14 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			if result.StopReason != agent.StopReasonSpecReviewRequired || specReview == nil || specReview.SpecID == "" || specReview.SpecFilePath == "" {
 				err := fmt.Errorf("spec draft ended without submit_spec")
 				flushReasoning(m.now())
-				sessionEvents = append(sessionEvents, pendingSessionEvent{
+				queueLiveEvents([]pendingSessionEvent{{
 					Type:    sessions.EventError,
 					Payload: map[string]any{"message": err.Error()},
-				})
-				return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, err: err, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: m.activeTurnElapsed(started)}
+				}})
+				return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, err: err, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: m.activeTurnElapsed(started), persistErr: liveAppendErr, flushedEvents: flushedLive}
 			}
 			flushReasoning(m.now())
-			return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, specReview: specReview, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: m.activeTurnElapsed(started)}
+			return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, specReview: specReview, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: m.activeTurnElapsed(started), persistErr: liveAppendErr, flushedEvents: flushedLive}
 		}
 		flushReasoning(m.now())
 		elapsed := m.activeTurnElapsed(started)
@@ -6086,28 +6168,28 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		if notice := result.TruncationNotice(); notice != "" {
 			rows = append(rows, transcriptRow{kind: rowSystem, text: notice})
 		}
-		sessionEvents = append(sessionEvents, pendingSessionEvent{
+		queueLiveEvents([]pendingSessionEvent{{
 			Type: sessions.EventMessage,
 			Payload: map[string]any{
 				"role":    "assistant",
 				"content": result.FinalAnswer,
 			},
-		})
+		}})
 		// Only a successful eligible run hands real history to the next turn.
 		// The message slice is a fresh copy; the agent already deep-clones
 		// image bytes when seeding, so no backing array is shared in place.
 		var continuation *turnContinuation
-		if continuationEligible {
+		if continuationEligible && runSessionID != "" && len(result.Messages) > 0 {
 			continuation = &turnContinuation{
 				sessionID:   runSessionID,
 				modelID:     usageModelID,
 				goalKey:     runGoalKey,
 				messages:    append([]qgruntime.Message(nil), result.Messages...),
 				loadedTools: append([]string(nil), result.LoadedDeferredTools...),
-				turnBase:    runBase,
+				runID:       int64(runID),
 			}
 		}
-		return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: elapsed, ttft: firstTokenElapsed, continuation: continuation}
+		return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: elapsed, ttft: firstTokenElapsed, continuation: continuation, persistErr: liveAppendErr, flushedEvents: flushedLive}
 	}
 }
 

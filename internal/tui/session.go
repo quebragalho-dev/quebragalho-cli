@@ -7,12 +7,15 @@ import (
 	"math"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -49,6 +52,14 @@ func (m model) ensureActiveSession(prompt string) (model, error) {
 	m.activeSession = session
 	m.pendingSessionTitle = ""
 	m.sessionEvents = []sessions.Event{}
+	// Fresh ids are uncontended, but the lease must still be held so a
+	// second terminal cannot take over this session mid-conversation.
+	if m.sessionStore != nil {
+		if lock, err := m.sessionStore.TryAcquireSessionLock(session.SessionID); err == nil {
+			m.releaseSessionLock()
+			m.sessionLock = lock
+		}
+	}
 	if manuallyNamed {
 		if m.titledSessions == nil {
 			m.titledSessions = map[string]bool{}
@@ -57,6 +68,15 @@ func (m model) ensureActiveSession(prompt string) (model, error) {
 	}
 	m = m.syncPeerIdentity()
 	return m, nil
+}
+
+// releaseSessionLock drops the held presence lease, if any. Idempotent.
+// Callers clear m.sessionLock themselves when the field must not dangle.
+func (m *model) releaseSessionLock() {
+	if m.sessionLock == nil {
+		return
+	}
+	m.sessionLock.Release()
 }
 
 // startNewSession abandons the visible conversation and the agent's in-context
@@ -69,6 +89,8 @@ func (m model) ensureActiveSession(prompt string) (model, error) {
 // clean conversation, not a clean configuration.
 func (m model) startNewSession() model {
 	previousID := m.activeSession.SessionID
+	m.releaseSessionLock()
+	m.sessionLock = nil
 
 	m.activeSession = sessions.Metadata{}
 	// The new session has no shared history with the previous one.
@@ -197,6 +219,41 @@ func (m model) appendSessionEventsTo(sessionID string, events []pendingSessionEv
 	return rows
 }
 
+// tailSessionEvents returns the run's session events past what write-through
+// already persisted, so the end-of-turn flush never writes twice. The flushed
+// prefix aligns by count: queueLiveEvents appends and writes each batch in
+// order, and stops writing after the first error.
+func tailSessionEvents(msg agentResponseMsg) []pendingSessionEvent {
+	events := msg.sessionEvents
+	flushed := len(msg.flushedEvents)
+	if flushed < 0 {
+		return events
+	}
+	if flushed > len(events) {
+		return nil
+	}
+	return events[flushed:]
+}
+
+// foldFlushedSessionMetadata advances the active session's log-head metadata
+// from write-through events: they reached the store during the run, bypassing
+// appendSessionEvents, so without this the in-memory head (and the next
+// snapshot's EventSeq) would lag the log and every resume would reconstruct.
+func (m *model) foldFlushedSessionMetadata(flushed []sessions.Event) {
+	if len(flushed) == 0 {
+		return
+	}
+	last := flushed[len(flushed)-1]
+	// Monotonic: a late flush from a cancelled run must never move a newer
+	// head backwards.
+	if last.Sequence < m.activeSession.EventCount {
+		return
+	}
+	m.activeSession.UpdatedAt = last.CreatedAt
+	m.activeSession.EventCount = last.Sequence
+	m.activeSession.LastEventType = last.Type
+}
+
 // flushableSessionEvents selects the events worth persisting from a run that was
 // cancelled mid-flight. The cancel path already records a single "Run cancelled."
 // error, so the goroutine's trailing EventError (the ctx-cancellation error) is
@@ -229,10 +286,29 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	if args == "" {
 		return m, m.resumeText()
 	}
+	if m.sessionStore == nil {
+		return m, "Sessões\narmazenamento indisponível"
+	}
 
 	session, err := m.resolveResumeSession(args)
 	if err != nil {
 		return m, "Sessões\n" + err.Error()
+	}
+	// A session held open by another live qg process is refused instead of
+	// resumed: two writers would interleave events and snapshots. A re-resume
+	// of the already-held session keeps the lock. A dead holder's lock is
+	// released by the kernel, so its stale PID never blocks a new owner.
+	if m.sessionLock == nil || m.sessionLock.SessionID() != session.SessionID {
+		lock, err := m.sessionStore.TryAcquireSessionLock(session.SessionID)
+		if err != nil {
+			var locked *sessions.SessionLockedError
+			if errors.As(err, &locked) {
+				return m, "Sessões\n" + locked.Error()
+			}
+			return m, "Sessões\nerro: " + err.Error()
+		}
+		m.releaseSessionLock()
+		m.sessionLock = lock
 	}
 	events, err := m.resumeEvents(session.SessionID)
 	if err != nil {
@@ -249,9 +325,8 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	// the already-active session, whose loops belong to it, not a "previous" one.
 	previousID := m.activeSession.SessionID
 	m.activeSession = *session
-	// Exact resume: try the persisted wire before falling back to event
-	// reconstruction. In-memory history is cleared either way; a fresh
-	// snapshot below replaces it when the log head still matches.
+	// In-memory history always restarts from disk here; a snapshot below
+	// replaces it when the log head still matches.
 	m.continuation = turnContinuation{}
 	m.resumedExact = false
 	m.reconstructedResume = false
@@ -273,46 +348,54 @@ func (m model) handleResumeCommand(args string) (model, string) {
 		m.modelName = session.ModelID
 	}
 	resumeWarnings := []string{}
-	if m.sessionStore != nil {
-		snap, snapErr := m.sessionStore.ReadContinuation(session.SessionID)
-		if snapErr != nil || snap == nil {
-			// No snapshot (old session): rebuild a structured history from
-			// events instead of the textual summary — the next turn still
-			// sends messages as messages.
-			m = m.setReconstructedContinuation(events)
+	// Drain any queued snapshot write first so the resume reads the latest
+	// file, not a stale one still sitting in the writer.
+	if m.snapshotWriter != nil {
+		m.snapshotWriter.Flush(2 * time.Second)
+	}
+	snap, snapErr := m.sessionStore.ReadContinuation(session.SessionID)
+	switch {
+	case snapErr != nil:
+		// Unreadable snapshot file: structured fallback with its own warning.
+		m = m.setReconstructedContinuation(events, "Histórico salvo inválido; retomada com o histórico salvo.")
+	case snap == nil:
+		// No snapshot (old session): structured history instead of the
+		// textual summary — the next turn still sends messages as messages.
+		fork := session.SessionKind == sessions.SessionKindFork
+		if fork {
+			m = m.setReconstructedContinuation(events, "Sessão bifurcada: retomada com o histórico salvo; imagens e raciocínio anteriores não voltam.")
 		} else {
-			fresh, delta, _ := m.sessionStore.CheckContinuationFresh(session.SessionID, snap)
-			if fresh && snap.GoalKey == goalKeyForSession(*session) && len(snap.Messages) > 0 {
-				m = m.loadExactSnapshot(session, snap, &resumeWarnings)
-			} else if !fresh && len(delta) > 0 && sessions.DeltaCoveredBySnapshot(delta, snap) && snap.GoalKey == goalKeyForSession(*session) && len(snap.Messages) > 0 {
-				// The turn flushed right before the process died and the
-				// final snapshot never rewrote the file: the log already
-				// holds the steps, so the snapshot is still exact.
-				snap.EventSeq = delta[len(delta)-1].Sequence
-				if err := m.sessionStore.WriteContinuation(*snap); err == nil {
-					m = m.loadExactSnapshot(session, snap, &resumeWarnings)
-				} else {
-					m = m.setReconstructedContinuation(events)
-				}
-			} else {
-				m = m.setReconstructedContinuation(events)
-			}
+			m = m.setReconstructedContinuation(events, "Sessão antiga: retomada com o histórico salvo; imagens e raciocínio anteriores não voltam.")
 		}
-		if m.resumedExact {
-			// A kill mid-turn never flushes the turn's events: rewrite the
-			// missing ones from the snapshot so log, screen and model agree.
-			// Clean shutdowns find nothing missing (idempotent no-op).
-			var recovered int
-			var newEvents []sessions.Event
-			m, recovered, newEvents = m.backfillResumeTurn(session.SessionID)
-			if recovered > 0 {
-				events = newEvents
-				resumeWarnings = append(resumeWarnings, formatRecoveredTurnNotice(recovered))
-			}
+	default:
+		fresh, _, _ := m.sessionStore.CheckContinuationFresh(session.SessionID, snap)
+		if fresh && snap.GoalKey == goalKeyForSession(*session) && len(snap.Messages) > 0 {
+			m = m.loadExactSnapshot(session, snap, &resumeWarnings)
+		} else {
+			m = m.setReconstructedContinuation(events, "A conversa mudou desde o último salvamento; retomada com o histórico salvo.")
 		}
-		m.sessionEvents = append([]sessions.Event{}, events...)
-	} else {
-		m.setReconstructedContinuation(events)
+	}
+	if m.resumedExact {
+		// Crash-proof the resumed turn: a kill mid-turn never logged the
+		// pending tool results, and a cancelled turn's late flush may have
+		// landed after the snapshot. Append synthetic interrupted results
+		// for any logged call missing one, so log, screen and model agree.
+		if recovered, err := m.sessionStore.BackfillOrphanResults(session.SessionID, snapForBackfill(m.continuation)); err == nil && recovered > 0 {
+			if refreshed, err := m.sessionStore.Get(session.SessionID); err == nil && refreshed != nil {
+				m.activeSession = *refreshed
+			}
+			if reloaded, err := m.resumeEvents(session.SessionID); err == nil {
+				events = reloaded
+				m.sessionEvents = append([]sessions.Event{}, events...)
+			}
+			// Keep the snapshot head aligned with the log so the next resume
+			// does not reconstruct over these appended events.
+			if file, err := m.sessionStore.ReadContinuation(session.SessionID); err == nil && file != nil {
+				file.EventSeq = m.activeSession.EventCount
+				_ = m.sessionStore.WriteContinuation(*file)
+			}
+			resumeWarnings = append(resumeWarnings, formatRecoveredTurnNotice(recovered))
+		}
 	}
 	loopsCleared := 0
 	if session.SessionID != previousID {
@@ -322,7 +405,7 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	rows := initialTranscript()
 	rows = appendRow(rows, rowSystem, m.formatResumeSummary(m.activeSession, len(events)))
 	if m.reconstructedResume {
-		rows = appendRow(rows, rowSystem, "Sessão antiga: retomada com o histórico salvo; imagens e raciocínio anteriores não voltam.")
+		rows = appendRow(rows, rowSystem, m.reconstructNotice)
 	}
 	for _, warning := range resumeWarnings {
 		rows = appendRow(rows, rowSystem, warning)
@@ -340,33 +423,52 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	return m, ""
 }
 
+// snapForBackfill converts loaded in-memory history to the snapshot shape the
+// orphan backfill expects.
+func snapForBackfill(c turnContinuation) *sessions.ContinuationSnapshot {
+	return &sessions.ContinuationSnapshot{
+		SessionID: c.sessionID,
+		ModelID:   c.modelID,
+		Messages:  c.messages,
+	}
+}
+
 // loadExactSnapshot restores model, effort and the real wire from a fresh
-// snapshot. The effort is restored even when the model is unchanged; the
-// provider follows only a model change that still exists in the catalog.
+// snapshot. The model switch goes through the same core path as /model, so
+// the provider is really rebuilt; an unknown model keeps the current one
+// with a warning. The effort is restored even when the model is unchanged.
 func (m model) loadExactSnapshot(session *sessions.Metadata, snap *sessions.ContinuationSnapshot, resumeWarnings *[]string) model {
 	m.continuation = turnContinuation{}
 	m.resumedExact = false
-	targetModel := strings.TrimSpace(snap.ModelID)
 	effectiveModel := m.modelName
-	if targetModel != "" && !strings.EqualFold(targetModel, m.modelName) {
-		if _, ok := m.modelCatalog.Get(targetModel); ok {
-			effectiveModel = targetModel
-			m.modelName = targetModel
-			if strings.TrimSpace(snap.Provider) != "" {
-				m.providerName = snap.Provider
-			}
-			m.activeSession.ModelID = targetModel
-			m.activeSession.Provider = m.providerName
+	if target := strings.TrimSpace(snap.ModelID); target != "" && !strings.EqualFold(target, m.modelName) {
+		restored, warn, ok := m.restoreSnapshotModel(target)
+		if !ok {
+			*resumeWarnings = append(*resumeWarnings, warn)
 		} else {
-			*resumeWarnings = append(*resumeWarnings, "modelo "+targetModel+" indisponível, mantido "+displayValue(m.modelName, "atual"))
+			m = restored
+			effectiveModel = m.modelName
 		}
 	}
 	if strings.TrimSpace(snap.ReasoningEffort) != "" {
 		m.reasoningEffort = modelregistry.ReasoningEffort(snap.ReasoningEffort)
+		// The stored effort may predate the model or come from another
+		// family: validate it like a manual /model switch instead of
+		// sending an unsupported level to the provider.
+		if registry, err := modelregistry.DefaultRegistry(); err == nil {
+			if target, ok := m.resolveModelSwitchTarget(registry, effectiveModel); ok {
+				var dropped bool
+				m, dropped = m.reconcileEffortForModelSwitch(target.reasoningEfforts, target.entry != nil)
+				if dropped {
+					*resumeWarnings = append(*resumeWarnings, "nível de raciocínio "+strings.TrimSpace(snap.ReasoningEffort)+" indisponível no modelo "+effectiveModel+", redefinido para automático")
+				}
+			}
+		}
 	}
-	base := snap.TurnBase
-	if base <= 0 || base >= len(snap.Messages) {
-		base = len(snap.Messages)
+	// If the restored model’s window is already nearly full, say so now:
+	// the next turn still runs, but the operator knows a /compact is due.
+	if window := modelregistry.AgentContextWindow(m.modelContextWindow(effectiveModel)); window > 0 && m.lastUsage.TotalTokens > 0 && m.lastUsage.TotalTokens*10 >= window*7 {
+		*resumeWarnings = append(*resumeWarnings, fmt.Sprintf("contexto atual (%d tokens) ocupa a maior parte da janela do modelo %s; rode /compact para liberar espaço", m.lastUsage.TotalTokens, effectiveModel))
 	}
 	filtered := sessions.FilterContinuationForModel(sessions.RepairOrphanToolCalls(snap.Messages), snap.ModelID, effectiveModel)
 	m.continuation = turnContinuation{
@@ -375,16 +477,92 @@ func (m model) loadExactSnapshot(session *sessions.Metadata, snap *sessions.Cont
 		goalKey:     goalKeyForSession(*session),
 		messages:    filtered,
 		loadedTools: append([]string(nil), snap.LoadedTools...),
-		turnBase:    base,
+		runID:       snap.RunID,
 	}
 	m.resumedExact = true
+	return m
+}
+
+// restoreSnapshotModel switches to the snapshot's model through the same
+// core path as /model (rebuilding provider and profile), then reconciles the
+// effort like a manual switch. Returns the updated model, or a pt-BR reason
+// when the model cannot be restored.
+func (m model) restoreSnapshotModel(targetModelID string) (model, string, bool) {
+	registry, err := modelregistry.DefaultRegistry()
+	if err != nil {
+		return m, "modelo " + targetModelID + " indisponível (" + err.Error() + "), mantido " + displayValue(m.modelName, "atual"), false
+	}
+	target, ok := m.resolveModelSwitchTarget(registry, targetModelID)
+	if !ok {
+		return m, "modelo QG desconhecido " + strconv.Quote(targetModelID) + ", mantido " + displayValue(m.modelName, "atual"), false
+	}
+	if !config.HasProviderProfile(m.providerProfile) {
+		return m, "nenhum perfil de provedor disponível para trocar de modelo, mantido " + displayValue(m.modelName, "atual"), false
+	}
+	if m.newProvider == nil {
+		return m, "provedor não pode ser reconstruído nesta sessão, mantido " + displayValue(m.modelName, "atual"), false
+	}
+	nextProfile := m.providerProfile
+	if provider, ok := m.activeProviderDescriptor(); ok {
+		nextProfile = m.normalizeProfileForProvider(provider)
+	}
+	nextProfile.Model = target.modelID
+	nextProfile = m.profileWithCredential(nextProfile)
+	metadata, err := providers.ResolveRuntimeMetadata(nextProfile, providers.Options{})
+	if err != nil {
+		return m, "modelo " + target.modelID + " indisponível (" + err.Error() + "), mantido " + displayValue(m.modelName, "atual"), false
+	}
+	nextProvider, err := m.newProvider(nextProfile)
+	if err != nil {
+		return m, "modelo " + target.modelID + " indisponível (" + err.Error() + "), mantido " + displayValue(m.modelName, "atual"), false
+	}
+	m, err = m.applySwitchedProvider(nextProfile, metadata, nextProvider, target.modelID)
+	if err != nil {
+		return m, "modelo " + target.modelID + " indisponível (" + err.Error() + "), mantido " + displayValue(m.modelName, "atual"), false
+	}
+	m.activeSession.ModelID = target.modelID
+	m.activeSession.Provider = m.providerName
+	var dropped bool
+	m, dropped = m.reconcileEffortForModelSwitch(target.reasoningEfforts, target.entry != nil)
+	_ = dropped
+	return m, "", true
+}
+
+// rewriteSnapshotFromEvents rebuilds the exact-resume snapshot from the
+// current event log and persists it synchronously, so quitting right after a
+// /rewind or /compact still resumes exact on the next launch. The rebuilt
+// wire carries no frozen system (the next turn's submit rebuilds it from the
+// current model, per I4); when the log holds no conversation the snapshot is
+// dropped instead — there is nothing exact to resume.
+func (m model) rewriteSnapshotFromEvents() model {
+	if m.sessionStore == nil || m.activeSession.SessionID == "" {
+		return m
+	}
+	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(m.sessionEvents))
+	if len(msgs) == 0 {
+		m.continuation = turnContinuation{}
+		_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
+		return m
+	}
+	m.continuation = turnContinuation{
+		sessionID: m.activeSession.SessionID,
+		modelID:   m.modelName,
+		goalKey:   goalKeyForSession(m.activeSession),
+		messages:  msgs,
+	}
+	_ = m.sessionStore.WriteContinuation(sessions.ContinuationSnapshot{
+		SessionID: m.activeSession.SessionID, ModelID: m.modelName,
+		Provider: m.providerName, ReasoningEffort: string(m.reasoningEffort),
+		GoalKey: goalKeyForSession(m.activeSession), EventSeq: m.activeSession.EventCount,
+		Messages: msgs,
+	})
 	return m
 }
 
 // setReconstructedContinuation rebuilds a structured history from events for
 // sessions without a usable snapshot. Unlike the textual summary, messages
 // stay messages — the next turn replays them instead of a 48 KB digest.
-func (m model) setReconstructedContinuation(events []sessions.Event) model {
+func (m model) setReconstructedContinuation(events []sessions.Event, notice string) model {
 	m.continuation = turnContinuation{}
 	m.resumedExact = false
 	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(events))
@@ -394,72 +572,11 @@ func (m model) setReconstructedContinuation(events []sessions.Event) model {
 			modelID:   m.modelName,
 			goalKey:   goalKeyForSession(m.activeSession),
 			messages:  msgs,
-			turnBase:  len(msgs),
 		}
 	}
 	m.reconstructedResume = true
+	m.reconstructNotice = notice
 	return m
-}
-
-// backfillResumeTurn rewrites the in-progress turn's events from the exact
-// snapshot when a kill landed before the end-of-turn flush. Returns the
-// updated model, the number of rewritten events and the reloaded history.
-// Clean shutdowns (or already-flushed cancels) find nothing missing and
-// return the log untouched.
-func (m model) backfillResumeTurn(sessionID string) (model, int, []sessions.Event) {
-	snap, err := m.sessionStore.ReadContinuation(sessionID)
-	if err != nil || snap == nil || len(snap.Messages) == 0 {
-		return m, 0, nil
-	}
-	base := snap.TurnBase
-	if base <= 0 {
-		base = sessions.InferTurnBase(snap.Messages, lastLoggedUserPrompt(m.sessionStore, sessionID))
-		if base <= 0 {
-			return m, 0, nil
-		}
-		snap.TurnBase = base
-	}
-	preHead := snap.EventSeq
-	newHead, err := m.sessionStore.BackfillTurnEvents(sessionID, snap)
-	if err != nil || newHead <= preHead {
-		return m, 0, nil
-	}
-	snap.EventSeq = newHead
-	if err := m.sessionStore.WriteContinuation(*snap); err != nil {
-		return m, 0, nil
-	}
-	if meta, err := m.sessionStore.Get(sessionID); err == nil && meta != nil {
-		m.activeSession = *meta
-	}
-	events, err := m.resumeEvents(sessionID)
-	if err != nil {
-		return m, 0, nil
-	}
-	return m, newHead - preHead, events
-}
-
-// lastLoggedUserPrompt returns the latest user prompt in the event log,
-// used to anchor snapshot inference for snapshots saved without TurnBase.
-func lastLoggedUserPrompt(store *sessions.Store, sessionID string) string {
-	events, err := store.ReadEvents(sessionID)
-	if err != nil {
-		return ""
-	}
-	for index := len(events) - 1; index >= 0; index-- {
-		if events[index].Type != sessions.EventMessage {
-			continue
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(events[index].Payload, &payload); err != nil {
-			continue
-		}
-		role, _ := payload["role"].(string)
-		content, _ := payload["content"].(string)
-		if strings.ToLower(strings.TrimSpace(role)) == "user" && strings.TrimSpace(content) != "" {
-			return content
-		}
-	}
-	return ""
 }
 
 func formatRecoveredTurnNotice(recovered int) string {

@@ -11,6 +11,29 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
 
+func TestSplitLeadingRootFlagsAbsorbsResumeID(t *testing.T) {
+	flags, rest, err := splitLeadingRootFlags([]string{"--continue", "--theme", "auto", "sess_1"})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if !flags.continueSet || flags.continueID != "sess_1" {
+		t.Fatalf("continue = %v/%q", flags.continueSet, flags.continueID)
+	}
+	if len(rest) != 0 {
+		t.Fatalf("rest = %v, want []", rest)
+	}
+	if _, _, err := splitLeadingRootFlags([]string{"--continue", "--theme", "auto", "bogus!!!"}); err == nil {
+		t.Fatal("expected an invalid-id error")
+	}
+	// A subcommand is never swallowed as an id.
+	flags, rest, err = splitLeadingRootFlags([]string{"--continue", "exec"})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if !flags.continueSet || flags.continueID != "" || len(rest) != 1 || rest[0] != "exec" {
+		t.Fatalf("continue = %v/%q rest = %v", flags.continueSet, flags.continueID, rest)
+	}
+}
 func TestSplitLeadingResumeFlags(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -30,10 +53,11 @@ func TestSplitLeadingResumeFlags(t *testing.T) {
 		{name: "resume bare", args: []string{"--resume"}, wantRes: true},
 		{name: "resume id", args: []string{"--resume", "abc123"}, wantRes: true, wantRID: "abc123"},
 		{name: "resume eq", args: []string{"--resume=abc123"}, wantRes: true, wantRID: "abc123"},
-		{name: "both rejected", args: []string{"--continue", "--resume"}, wantErr: "Use either --continue or --resume"},
+		{name: "both rejected", args: []string{"--continue", "--resume"}, wantErr: "não ambos"},
 		{name: "subcommand not id", args: []string{"--continue", "exec"}, wantCont: true, wantRest: []string{"exec"}},
 		{name: "flag not id", args: []string{"--continue", "--theme", "auto"}, wantCont: true, wantRest: []string{"--theme", "auto"}},
-		{name: "continue eq empty", args: []string{"--continue="}, wantErr: "requires a session id"},
+		{name: "id after other flag stays for outer loop", args: []string{"--continue", "--theme", "auto", "sess_1"}, wantCont: true, wantRest: []string{"--theme", "auto", "sess_1"}},
+		{name: "continue eq empty", args: []string{"--continue="}, wantErr: "exige um id"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -139,6 +163,44 @@ func TestRunContinueLaunchesTUIWithSession(t *testing.T) {
 				t.Fatalf("ResumeSessionID = %q", launched.ResumeSessionID)
 			}
 		})
+	}
+}
+
+func TestRunContinueUnsafeTakesTrailingID(t *testing.T) {
+	cwd := t.TempDir()
+	store := resumeTestStore(t, cwd)
+	stub := func(t *testing.T, args []string) (tui.Options, int, string) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		var launched tui.Options
+		launchedAny := false
+		code := runWithDeps(args, &stdout, &stderr, appDeps{
+			getwd: func() (string, error) { return cwd, nil },
+			resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
+				return usableResolvedConfig(3), nil
+			},
+			newSessionStore: func() *sessions.Store { return store },
+			runTUI: func(_ context.Context, options tui.Options) int {
+				launched = options
+				launchedAny = true
+				return 0
+			},
+		})
+		_ = launchedAny
+		return launched, code, stderr.String()
+	}
+	// id after --dangerously-skip-permissions belongs to --continue.
+	launched, code, _ := stub(t, []string{"--continue", "--dangerously-skip-permissions", "sess_ok_1"})
+	if code != 0 {
+		t.Fatalf("exit = %d", code)
+	}
+	if launched.ResumeSessionID != "sess_ok_1" {
+		t.Fatalf("ResumeSessionID = %q", launched.ResumeSessionID)
+	}
+	// A non-id trailing token keeps the loud stray-arg error.
+	_, code, errText := stub(t, []string{"--continue", "--dangerously-skip-permissions", "fix bug"})
+	if code == 0 || !strings.Contains(errText, "takes no prompt or subcommand") {
+		t.Fatalf("exit = %d, stderr = %q", code, errText)
 	}
 }
 

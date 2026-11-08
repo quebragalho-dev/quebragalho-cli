@@ -36,6 +36,10 @@ type Options struct {
 	// ShowResumePicker opens the /resume session picker on startup
 	// (qg --resume without an id).
 	ShowResumePicker bool
+	// ResumeSessionLock is a presence lease the CLI already acquired for
+	// ResumeSessionID (same process, so the TUI must adopt it instead of
+	// acquiring again — a second open of the same lock file conflicts).
+	ResumeSessionLock *sessions.SessionLock
 
 	Cwd                  string
 	Version              string // CLI build version, shown on the home screen; empty hides it

@@ -127,8 +127,6 @@ func TestExactWireSurvivesSnapshotRoundTrip(t *testing.T) {
 	}
 }
 
-// TestInterruptedHistoryRepairedBeforeSend proves an orphaned tool_call is
-// closed with an interrupted result so the provider still accepts the replay.
 // TestReconstructedWireSkipsTextSummary proves an old session (events but no
 // snapshot) still resumes with messages as messages: the reconstructed
 // continuation replays history instead of the textual summary.
@@ -208,6 +206,8 @@ func TestReconstructedWireSkipsTextSummary(t *testing.T) {
 }
 
 func TestInterruptedHistoryRepairedBeforeSend(t *testing.T) {
+	// An orphaned tool_call is closed with an interrupted result so the
+	// provider still accepts the replay.
 	var mu sync.Mutex
 	var bodies []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

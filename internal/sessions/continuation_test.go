@@ -89,56 +89,6 @@ func TestContinuationInvalidateDeletes(t *testing.T) {
 	}
 }
 
-func TestRepairOrphanToolCallsAppendsInterrupted(t *testing.T) {
-	msgs := []qgruntime.Message{
-		{Role: qgruntime.MessageRoleAssistant, Content: "", ToolCalls: []qgruntime.ToolCall{{ID: "c1", Name: "write_file", Arguments: "{}"}, {ID: "c2", Name: "read_it", Arguments: "{}"}}},
-		{Role: qgruntime.MessageRoleTool, Content: "ok", ToolCallID: "c1"},
-	}
-	fixed := RepairOrphanToolCalls(msgs)
-	count := 0
-	for _, m := range fixed {
-		if m.Role == qgruntime.MessageRoleTool && m.ToolCallID == "c2" {
-			count++
-			if !m.IsError {
-				t.Fatal("synthetic result must be IsError")
-			}
-		}
-	}
-	if count != 1 {
-		t.Fatalf("expected 1 synthetic tool_result for c2, got %d in %#v", count, fixed)
-	}
-	// Valid conversation stays untouched.
-	valid := []qgruntime.Message{
-		{Role: qgruntime.MessageRoleAssistant, Content: "x", ToolCalls: []qgruntime.ToolCall{{ID: "c1", Name: "read_it", Arguments: "{}"}}},
-		{Role: qgruntime.MessageRoleTool, Content: "ok", ToolCallID: "c1"},
-	}
-	if out := RepairOrphanToolCalls(valid); len(out) != len(valid) {
-		t.Fatalf("valid conversation must not grow: %#v", out)
-	}
-}
-
-func TestFilterContinuationForModelClearsProviderIDsOnSwitch(t *testing.T) {
-	msgs := []qgruntime.Message{
-		{Role: qgruntime.MessageRoleAssistant, Content: "", ToolCalls: []qgruntime.ToolCall{{ID: "c1", ProviderCallID: "call_abc", Name: "read_it", Arguments: "{}", Signature: "sig1"}}, Reasoning: []qgruntime.ReasoningBlock{{Provider: "anthropic", Type: "thinking", Text: "hmm", Signature: "s"}}},
-		{Role: qgruntime.MessageRoleTool, Content: "ok", ToolCallID: "c1", ToolCallProviderID: "call_abc"},
-	}
-	same := FilterContinuationForModel(msgs, "m1", "m1")
-	if same[0].ToolCalls[0].ProviderCallID != "call_abc" || same[0].ToolCalls[0].Signature != "sig1" {
-		t.Fatalf("same model must keep provider ids: %#v", same)
-	}
-	switched := FilterContinuationForModel(msgs, "m1", "m2")
-	if switched[0].ToolCalls[0].ProviderCallID != "" || switched[0].ToolCalls[0].Signature != "" {
-		t.Fatalf("model switch must clear provider ids: %#v", switched)
-	}
-	if switched[1].ToolCallProviderID != "" {
-		t.Fatalf("model switch must clear result provider id: %#v", switched)
-	}
-	// Original must not be mutated.
-	if msgs[0].ToolCalls[0].ProviderCallID != "call_abc" {
-		t.Fatal("filter mutated input")
-	}
-}
-
 func TestContinuationFreshness(t *testing.T) {
 	store := NewStore(StoreOptions{RootDir: t.TempDir()})
 	session, err := store.Create(CreateInput{SessionID: "cont_fresh"})
