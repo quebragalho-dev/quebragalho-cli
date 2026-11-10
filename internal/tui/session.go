@@ -390,10 +390,11 @@ func (m model) handleResumeCommand(args string) (model, string) {
 				m.sessionEvents = append([]sessions.Event{}, events...)
 			}
 			// Keep the snapshot head aligned with the log so the next resume
-			// does not reconstruct over these appended events.
+			// does not reconstruct over these appended events. The write goes
+			// to the writer's queue, never onto the UI goroutine.
 			if file, err := m.sessionStore.ReadContinuation(session.SessionID); err == nil && file != nil {
 				file.EventSeq = m.activeSession.EventCount
-				_ = m.sessionStore.WriteContinuation(*file)
+				m.persistSnapshot(*file)
 			}
 			resumeWarnings = append(resumeWarnings, formatRecoveredTurnNotice(recovered))
 		}
@@ -654,13 +655,25 @@ func (m model) rewriteSnapshotFromEvents() model {
 		messages:    msgs,
 		loadedTools: loaded,
 	}
-	_ = m.sessionStore.WriteContinuation(sessions.ContinuationSnapshot{
+	snap := sessions.ContinuationSnapshot{
 		SessionID: m.activeSession.SessionID, ModelID: m.modelName,
 		Provider: m.providerName, ReasoningEffort: string(m.reasoningEffort),
 		GoalKey: goalKeyForSession(m.activeSession), EventSeq: m.activeSession.EventCount,
 		Messages: msgs, LoadedTools: loaded,
-	})
+	}
+	m.persistSnapshot(snap)
 	return m
+}
+
+// persistSnapshot routes a snapshot to the per-session writer so the UI
+// goroutine never blocks on marshal+fsync+rename. A model without a writer
+// (test literals) falls back to the synchronous store write.
+func (m model) persistSnapshot(snap sessions.ContinuationSnapshot) {
+	if m.snapshotWriter != nil {
+		m.snapshotWriter.QueueRewrite(snap)
+		return
+	}
+	_ = m.sessionStore.WriteContinuation(snap)
 }
 
 // setReconstructedContinuation rebuilds a structured history from events for

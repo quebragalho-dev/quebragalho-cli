@@ -85,10 +85,38 @@ func (w *continuationWriter) Queue(snap sessions.ContinuationSnapshot, runID int
 	}
 	w.lastRun[snap.SessionID] = runID
 	w.lastSeq[snap.SessionID] = snap.EventSeq
+	return w.persistLocked(snap, runID)
+}
+
+// QueueRewrite persists a snapshot rebuilt from the log after a /rewind or
+// /compact. Unlike Queue it carries no run gate and always wins the pending
+// slot: the rewrite is built from the current log, which no agent run can be
+// racing (rewind and compact refuse to run while a turn is in flight).
+// Snapshot writes stay serialized through the same background loop; quit
+// waits for them with Flush like any other write. The head is aligned with
+// what the log holds after the rewrite, so the next resume reads a
+// consistent pair.
+func (w *continuationWriter) QueueRewrite(snap sessions.ContinuationSnapshot) bool {
+	if w == nil || w.store == nil {
+		return false
+	}
+	if strings.TrimSpace(snap.SessionID) == "" || len(snap.Messages) == 0 {
+		return false
+	}
+	if !syncSnapshotWrites {
+		w.once.Do(func() { go w.loop() })
+	}
+	w.mu.Lock()
+	w.lastSeq[snap.SessionID] = snap.EventSeq
+	return w.persistLocked(snap, 0)
+}
+
+// persistLocked queues snap (or writes it inline in the test-only sync
+// mode). Callers hold w.mu and have applied the gate/bookkeeping they
+// want; this is the shared tail of Queue and QueueRewrite.
+func (w *continuationWriter) persistLocked(snap sessions.ContinuationSnapshot, runID int64) bool {
 	if syncSnapshotWrites {
 		w.mu.Unlock()
-		// Test-only synchronous path: same gate as above, but the write
-		// lands inline so nothing outlives the test.
 		if err := w.store.WriteContinuation(snap); err != nil {
 			w.mu.Lock()
 			w.failures[snap.SessionID]++
