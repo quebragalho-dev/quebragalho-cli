@@ -987,6 +987,10 @@ func (m model) rebuiltContinuation() (model, turnContinuation, bool) {
 		goalKey:   goalKeyForSession(m.activeSession),
 		messages:  msgs,
 	}
+	// The rebuild lost the wire's ephemeral artifacts (reasoning, images,
+	// signatures): say so instead of degrading silently.
+	m.reconstructedResume = true
+	m.reconstructNotice = "Turno interrompido: contexto reconstruído do histórico salvo; raciocínio e imagens não voltam."
 	c, ok := m.validContinuation()
 	return m, c, ok
 }
@@ -5245,6 +5249,11 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 				agentPrompt = prompt
 				runContinuation = sessions.FilterContinuationForModel(c.messages, c.modelID, m.modelName)
 				runLoadedTools = c.loadedTools
+				// The rebuild dropped the wire's ephemeral artifacts; say so once
+				// instead of degrading silently.
+				if strings.TrimSpace(m.reconstructNotice) != "" {
+					m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: m.reconstructNotice})
+				}
 			}
 		} else {
 			agentPrompt = m.sessionPrompt(prompt)

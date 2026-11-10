@@ -121,6 +121,33 @@ func requestContains(req qgruntime.CompletionRequest, substr string) bool {
 	return false
 }
 
+// TestRebuiltContinuationSurfacesInterruptedNotice (B3): when the submit
+// gate cannot reuse the stored wire and rebuilds from the event log instead,
+// the rebuild must not be silent: the model is told once, in pt-BR, that the
+// history came from the saved log and lost the immediate wire's artifacts.
+func TestRebuiltContinuationSurfacesInterruptedNotice(t *testing.T) {
+	store := testSessionStore(t)
+	provider := &scriptedProvider{scripts: textScripts("first answer", "after lapse")}
+	m := continuationHarness(t, store, provider, nil)
+	m = runTextTurn(t, m, "first question")
+
+	// The in-memory wire lapses (cancel with nothing stored, a goal change…),
+	// so the next submit rebuilds from the session log.
+	m.continuation = turnContinuation{}
+	m = runTextTurn(t, m, "after lapse")
+
+	want := "Turno interrompido: contexto reconstruído do histórico salvo; raciocínio e imagens não voltam."
+	if !m.reconstructedResume {
+		t.Fatal("rebuilt-from-events continuation must set reconstructedResume")
+	}
+	if m.reconstructNotice != want {
+		t.Fatalf("reconstructNotice = %q, want %q", m.reconstructNotice, want)
+	}
+	if !transcriptContains(m.transcript, want) {
+		t.Fatal("the rebuilt notice must reach the transcript")
+	}
+}
+
 func TestTUISecondTurnSendsRealHistory(t *testing.T) {
 	store := testSessionStore(t)
 	registry := tools.NewRegistry()
