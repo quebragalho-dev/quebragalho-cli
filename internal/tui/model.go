@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"runtime"
 	"strings"
@@ -727,6 +728,13 @@ func (msg agentResponseMsg) usageModelIDAt(index int) string {
 	return msg.usageModelID
 }
 
+// snapshotWriteFailedMsg is delivered through the RuntimeMessageSink when the
+// snapshot writer fails three times in a row for a session, so the screen and
+// the log both say exact-resume persistence is degraded (never silently).
+type snapshotWriteFailedMsg struct {
+	sessionID string
+}
+
 type peerMessageMsg struct {
 	message peermsg.InboundMessage
 	admit   chan<- bool
@@ -1096,6 +1104,16 @@ func newModel(ctx context.Context, options Options) model {
 
 	resolvedKeyBindings, keyBindingWarnings := sanitizeKeyBindings(resolveKeyBindings(options.KeyBindings))
 
+	// Surface repeated snapshot persistence failures through the same channel
+	// other background goroutines use, so a failing disk degrades exact-resume
+	// loudly instead of silently.
+	snapshotWriter := newContinuationWriter(sessionStore)
+	if sink := options.RuntimeMessageSink; sink != nil {
+		snapshotWriter.onRepeatedFailure = func(sessionID string) {
+			log.Printf("qg: could not save the session snapshot for %s; exact resume is degraded", sessionID)
+			sink(snapshotWriteFailedMsg{sessionID: sessionID})
+		}
+	}
 	m := model{
 		ctx:                         ctx,
 		cwd:                         cwd,
@@ -1167,7 +1185,7 @@ func newModel(ctx context.Context, options Options) model {
 		setupSave:                   options.Setup.Save,
 		logout:                      options.Logout,
 		dictation:                   newDictationController(options),
-		snapshotWriter:              newContinuationWriter(sessionStore),
+		snapshotWriter:              snapshotWriter,
 	}
 	if m.reasoningEffort == "" {
 		m = m.loadPanelEffort()
@@ -2895,6 +2913,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			next, goalCmd = next.launchGoalContinuationIfReady()
 		}
 		return next, tea.Batch(pendingClearCmd, titleCmd, recapCmd, sweepCmd, queuedCmd, peerCmd, peerApprovalCmd, loopTickCmd, goalCmd)
+	case snapshotWriteFailedMsg:
+		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Não consegui salvar o histórico exato desta conversa; ao retomar, o qg reconstruirá a partir do histórico salvo."})
+		return m, nil
 	case sessionTitleGeneratedMsg:
 		return m.handleSessionTitleGenerated(msg)
 	case recapIdleMsg:

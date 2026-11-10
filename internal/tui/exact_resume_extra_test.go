@@ -648,3 +648,61 @@ func waitForSnapshotCall(t *testing.T, path, callID string) {
 	}
 	t.Fatalf("snapshot %s never recorded call %s", path, callID)
 }
+
+// TestNewModelWarnsAndLogsOnRepeatedSnapshotFailure (I2): a snapshot writer
+// that fails three times in a row surfaces one notice through the runtime
+// sink (rendered by the TUI as a system row) instead of degrading silently.
+func TestNewModelWarnsAndLogsOnRepeatedSnapshotFailure(t *testing.T) {
+	store := testSessionStore(t)
+	session, err := store.Create(sessions.CreateInput{SessionID: "snapshot_fail_session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A directory where continuation.json goes makes every write fail
+	// deterministically.
+	snapPath := filepath.Join(store.RootDir, session.SessionID, sessions.ContinuationFile)
+	if err := os.MkdirAll(snapPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	var sinkMsgs []tea.Msg
+	sink := func(msg tea.Msg) { sinkMsgs = append(sinkMsgs, msg) }
+	provider := &scriptedProvider{scripts: textScripts("hi")}
+	m := newModel(context.Background(), Options{
+		Cwd:                t.TempDir(),
+		ProviderName:       "test",
+		ModelName:          "test-model",
+		Provider:           provider,
+		Registry:           tools.NewRegistry(),
+		SessionStore:       store,
+		RuntimeMessageSink: sink,
+	})
+	for index := 0; index < 3; index++ {
+		snap := sessions.ContinuationSnapshot{
+			SessionID: session.SessionID,
+			ModelID:   "test-model",
+			EventSeq:  index + 1,
+			Messages: []qgruntime.Message{
+				{Role: qgruntime.MessageRoleUser, Content: "hi"},
+			},
+		}
+		m.snapshotWriter.Queue(snap, int64(index+1))
+	}
+
+	if len(sinkMsgs) != 1 {
+		t.Fatalf("sink messages = %d, want 1 (the third consecutive failure fires the notice)", len(sinkMsgs))
+	}
+	msg, ok := sinkMsgs[0].(snapshotWriteFailedMsg)
+	if !ok {
+		t.Fatalf("sink message = %T, want snapshotWriteFailedMsg", sinkMsgs[0])
+	}
+	if msg.sessionID != session.SessionID {
+		t.Fatalf("sessionID = %q, want %q", msg.sessionID, session.SessionID)
+	}
+
+	updated, _ := m.Update(msg)
+	next := updated.(model)
+	if !transcriptContains(next.transcript, "histórico exato") {
+		t.Fatal("the failure notice must reach the transcript")
+	}
+}
