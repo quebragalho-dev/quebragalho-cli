@@ -544,17 +544,27 @@ func (m model) rewriteSnapshotFromEvents() model {
 		_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
 		return m
 	}
+	// The rebuild does not know which deferred tools the model had loaded —
+	// only the in-memory (or on-disk) state does. Carry them over, or a
+	// tool the model loaded via tool_search silently disappears.
+	loaded := append([]string(nil), m.continuation.loadedTools...)
+	if len(loaded) == 0 {
+		if snap, err := m.sessionStore.ReadContinuation(m.activeSession.SessionID); err == nil && snap != nil && len(snap.LoadedTools) > 0 {
+			loaded = append([]string(nil), snap.LoadedTools...)
+		}
+	}
 	m.continuation = turnContinuation{
-		sessionID: m.activeSession.SessionID,
-		modelID:   m.modelName,
-		goalKey:   goalKeyForSession(m.activeSession),
-		messages:  msgs,
+		sessionID:   m.activeSession.SessionID,
+		modelID:     m.modelName,
+		goalKey:     goalKeyForSession(m.activeSession),
+		messages:    msgs,
+		loadedTools: loaded,
 	}
 	_ = m.sessionStore.WriteContinuation(sessions.ContinuationSnapshot{
 		SessionID: m.activeSession.SessionID, ModelID: m.modelName,
 		Provider: m.providerName, ReasoningEffort: string(m.reasoningEffort),
 		GoalKey: goalKeyForSession(m.activeSession), EventSeq: m.activeSession.EventCount,
-		Messages: msgs,
+		Messages: msgs, LoadedTools: loaded,
 	})
 	return m
 }

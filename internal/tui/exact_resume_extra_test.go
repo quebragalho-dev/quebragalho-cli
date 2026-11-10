@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -704,5 +705,105 @@ func TestNewModelWarnsAndLogsOnRepeatedSnapshotFailure(t *testing.T) {
 	next := updated.(model)
 	if !transcriptContains(next.transcript, "histórico exato") {
 		t.Fatal("the failure notice must reach the transcript")
+	}
+}
+
+// deferredSlowDeployTool is deferred-eligible like an MCP tool wrapper, so
+// partitionTools hides it until tool_search loads it.
+type deferredSlowDeployTool struct{}
+
+func (deferredSlowDeployTool) Name() string { return "slow_deploy" }
+func (deferredSlowDeployTool) Description() string {
+	return "slow deploy full description"
+}
+func (deferredSlowDeployTool) Parameters() tools.Schema {
+	return tools.Schema{Type: "object", AdditionalProperties: false}
+}
+func (deferredSlowDeployTool) Safety() tools.Safety {
+	return tools.Safety{SideEffect: tools.SideEffectRead, Permission: tools.PermissionAllow}
+}
+func (deferredSlowDeployTool) Run(_ context.Context, _ map[string]any) tools.Result {
+	return tools.Result{Status: tools.StatusOK, Output: "deployed"}
+}
+func (deferredSlowDeployTool) Deferred() bool { return true }
+
+func toolSearchLoadScript(callID, query string) []qgruntime.StreamEvent {
+	args, _ := json.Marshal(map[string]string{"query": query})
+	return []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: callID, ToolName: tools.ToolSearchToolName},
+		{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: callID, ArgumentsFragment: string(args)},
+		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: callID},
+		{Type: qgruntime.StreamEventDone},
+	}
+}
+
+// TestCompactPreservesLoadedDeferredTools (I3): /compact rewrites the exact
+// snapshot; tools the model loaded via tool_search must stay loaded across the
+// rewrite, or the next turn silently loses them.
+func TestCompactPreservesLoadedDeferredTools(t *testing.T) {
+	store := testSessionStore(t)
+	registry := tools.NewRegistry()
+	registry.Register(deferredSlowDeployTool{})
+	registry.Register(tools.NewToolSearchTool(registry))
+	provider := &scriptedProvider{scripts: append([][]qgruntime.StreamEvent{
+		toolSearchLoadScript("call-load", "select:slow_deploy"),
+	}, textScripts("loaded deferred", "compact summary", "after compact", "after compact")...)}
+	m := newModel(context.Background(), Options{
+		Cwd:          t.TempDir(),
+		ProviderName: "test",
+		ModelName:    "test-model",
+		Provider:     provider,
+		Registry:     registry,
+		SessionStore: store,
+		AgentOptions: agent.Options{DeferThreshold: 1},
+	})
+	m = runTextTurn(t, m, "load it")
+	if len(m.continuation.loadedTools) != 1 || m.continuation.loadedTools[0] != "slow_deploy" {
+		t.Fatalf("setup: loadedTools = %#v, want [slow_deploy]", m.continuation.loadedTools)
+	}
+
+	m.input.SetValue("/compact now")
+	updated, cmd := m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("expected a compaction command")
+	}
+	if msg := execCmd(cmd); msg != nil {
+		if _, ok := msg.(compactResultMsg); !ok {
+			t.Fatalf("expected compactResultMsg, got %T", msg)
+		}
+		updated, _ = m.Update(msg)
+		m = updated.(model)
+	}
+	if len(m.continuation.loadedTools) == 0 {
+		t.Fatal("/compact dropped the loaded deferred tools from the continuation")
+	}
+
+	data, err := os.ReadFile(filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap sessions.ContinuationSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.LoadedTools) != 1 || snap.LoadedTools[0] != "slow_deploy" {
+		t.Fatalf("rewritten snapshot LoadedTools = %#v, want [slow_deploy]", snap.LoadedTools)
+	}
+
+	m = runTextTurn(t, m, "after compact")
+	req := provider.requests[len(provider.requests)-1]
+	var def *qgruntime.ToolDefinition
+	for index := range req.Tools {
+		if req.Tools[index].Name == "slow_deploy" {
+			def = &req.Tools[index]
+			break
+		}
+	}
+	if def == nil {
+		t.Fatalf("next turn must advertise slow_deploy, tools = %#v", req.Tools)
+	}
+	if def.Description != "slow deploy full description" {
+		t.Fatalf("next turn must advertise slow_deploy's full schema, got %q", def.Description)
 	}
 }
