@@ -479,15 +479,31 @@ func TestTUIContinuationSurvivesTriggers(t *testing.T) {
 		if cmd == nil {
 			t.Fatal("expected an agent command")
 		}
-		if m.runCancel != nil {
-			m.runCancel()
+		m.cancelRun()
+		if msg, ok := execCmd(cmd).(agentResponseMsg); ok {
+			updated, _ = m.Update(msg)
+			m = updated.(model)
+		} else {
+			t.Fatalf("expected agentResponseMsg, got %T", execCmd(cmd))
 		}
-		updated, _ = m.Update(agentResponseMsg{runID: m.activeRunID, err: context.Canceled})
-		m = updated.(model)
 
 		m = runTextTurn(t, m, "after cancel")
-		// A cancelled turn keeps the previous turn\u2019s history.
-		assertRealHistoryTurn(t, provider, 2, "after cancel", "second answer")
+		req := provider.requests[len(provider.requests)-1]
+		if last := lastUserMessage(req); !strings.HasSuffix(last.Content, "after cancel") {
+			t.Fatalf("turn must end with the clean prompt, got %q", last.Content)
+		}
+		// The cancelled turn must keep the previous turn's history…
+		if !requestContains(req, "second answer") {
+			t.Fatal("cancelled turn must keep the previous turn's history")
+		}
+		// …and the cancelled turn's own wire (its prompt, its steps) must reach
+		// the model too, instead of being dropped with the stale response.
+		if !requestContains(req, "cancelled turn") {
+			t.Fatal("the cancelled turn's own messages must reach the model on the next turn")
+		}
+		if requestContains(req, "Previous session context") {
+			t.Fatal("cancelled turn must not fall back to the textual summary")
+		}
 		assertSnapshotFileClean(t, testSessionStoreOf(m), m.activeSession.SessionID)
 	})
 

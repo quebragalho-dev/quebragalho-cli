@@ -2673,9 +2673,23 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for _, row := range flushRows {
 					m.transcript = appendTranscriptRow(m.transcript, row)
 				}
-				// No snapshot write here: the run's own OnStep emits already
-				// persisted its wire progressively, and the writer's run gate
-				// would drop a late write past a newer turn anyway.
+				// A cancelled run's final messages seed the next turn exactly like
+				// a normal finish does — but only when the run was still recording
+				// the session that is active now, and only when that history is
+				// strictly newer than the stored continuation (a turn that started
+				// after the cancel may have already completed). The writer gate
+				// drops anything older than a newer turn too, so this can never
+				// overwrite a newer snapshot on disk either.
+				if msg.continuation != nil &&
+					msg.continuation.sessionID == m.activeSession.SessionID &&
+					flushSessionID == m.activeSession.SessionID &&
+					len(msg.continuation.messages) > 0 &&
+					msg.continuation.runID > m.continuation.runID {
+					m.continuation = *msg.continuation
+					if m.snapshotWriter != nil {
+						m.snapshotWriter.Queue(buildContinuationSnapshot(msg.continuation.sessionID, msg.continuation.modelID, m.providerName, string(m.reasoningEffort), msg.continuation.goalKey, m.activeSession.EventCount, msg.continuation.messages, msg.continuation.loadedTools), msg.continuation.runID)
+					}
+				}
 				// A Ctrl+C during an in-flight run defers its quit until the run's
 				// checkpoint session events have been flushed (above). Now that the
 				// last pending flush is drained, fire the deferred quit.
