@@ -965,3 +965,33 @@ func TestResumeKeepsCurrentProviderWithWarning(t *testing.T) {
 		t.Fatal("the warning must list the recorded provider and the current one")
 	}
 }
+
+// TestQuitHoldsPresenceLockUntilFarewell (B2): the farewell flush happens
+// after the tea program exits; the presence lease must still be held then —
+// releasing it in quit() lets a new qg process take the session and write its
+// own snapshot before the farewell write lands, stamping this process's stale
+// wire onto the shared log head.
+func TestQuitHoldsPresenceLockUntilFarewell(t *testing.T) {
+	store := testSessionStore(t)
+	provider := &scriptedProvider{scripts: textScripts("first answer")}
+	m := continuationHarness(t, store, provider, nil)
+	m = runTextTurn(t, m, "first question")
+	if m.sessionLock == nil {
+		t.Fatal("expected the session presence lease held after a turn")
+	}
+
+	final, _ := m.quit()
+	finalModel, ok := final.(model)
+	if !ok {
+		t.Fatalf("quit() returned %T, want tui model", final)
+	}
+	if finalModel.sessionLock == nil || finalModel.sessionLock.IsClosed() {
+		t.Fatal("quit() must not release the presence lease before the farewell flush")
+	}
+
+	var farewell bytes.Buffer
+	writeFarewell(&farewell, final)
+	if finalModel.sessionLock == nil || !finalModel.sessionLock.IsClosed() {
+		t.Fatal("writeFarewell must release the presence lease after flushing the final snapshot")
+	}
+}

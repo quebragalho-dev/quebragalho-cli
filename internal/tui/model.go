@@ -1366,7 +1366,10 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 	m.stopPRWatcher()
 	m.stopAllBackgroundTerminalSessions()
 	m.shutdownLSPManager()
-	m.releaseSessionLock()
+	// The presence lease is released in writeFarewell (after the program
+	// exits and the final snapshot has been flushed), not here: the
+	// farewell write happens after tea.Quit returns, and a new qg process
+	// must not grab the session until it lands.
 	return m, tea.Quit
 }
 

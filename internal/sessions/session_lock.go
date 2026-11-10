@@ -62,6 +62,16 @@ func (lock *SessionLock) SessionID() string {
 	return lock.sessionID
 }
 
+// IsClosed reports whether Release has been called on this lease. A nil lease
+// is trivially closed. Used by lifecycle callers and tests to confirm the
+// lease was dropped exactly where the contract says it must be.
+func (lock *SessionLock) IsClosed() bool {
+	if lock == nil {
+		return true
+	}
+	return lock.closed
+}
+
 // Release drops the lease. Idempotent; safe to call on a nil lock.
 // With process-wide sharing, each holder releases its own reference and
 // only the last one out unlocks the file.

@@ -163,7 +163,9 @@ func startPeerService(service *peermsg.Service, forward func(tea.Msg)) bool {
 // On a normal quit with a live conversation it also shows how to resume,
 // without touching non-interactive output (only the interactive Run calls it).
 // A final snapshot lands first (flushed with a cap) so the printed id
-// resumes exact.
+// resumes exact. The presence lease is held until that flush completes — a
+// farewell write that landed after a new qg process took the session could
+// stamp this process's stale wire onto the shared log head.
 func writeFarewell(w io.Writer, final tea.Model) {
 	m, ok := final.(model)
 	if !ok {
@@ -178,6 +180,9 @@ func writeFarewell(w io.Writer, final tea.Model) {
 			m.snapshotWriter.Flush(2 * time.Second)
 		}
 	}
+	// Now that every write of this process is on disk, drop the lease so a
+	// new qg process can take the session.
+	m.releaseSessionLock()
 	if m.farewell != "" {
 		fmt.Fprintln(w, m.farewell)
 	}
