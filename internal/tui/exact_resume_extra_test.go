@@ -995,3 +995,43 @@ func TestQuitHoldsPresenceLockUntilFarewell(t *testing.T) {
 		t.Fatal("writeFarewell must release the presence lease after flushing the final snapshot")
 	}
 }
+
+// TestHandlerFinalWriteKeepsResumeExact (M09): after a completed turn the
+// snapshot must cover the post-flush log head, or the next resume sees a
+// stale delta (the assistant answer event lands after the last per-step
+// snapshot) and falls back to reconstruct. The agentResponseMsg handler
+// queues one final snapshot for exactly this — removing it defeats exact
+// resume even though every step already persists one.
+func TestHandlerFinalWriteKeepsResumeExact(t *testing.T) {
+	store := testSessionStore(t)
+	provider := &scriptedProvider{scripts: textScripts("resposta final")}
+	m := continuationHarness(t, store, provider, nil)
+	startHead := m.activeSession.EventCount
+
+	m = runTextTurn(t, m, "pergunta")
+	flushSnapshot(t, m)
+	if m.activeSession.EventCount == startHead {
+		t.Fatal("setup: the turn must have advanced the event log head")
+	}
+
+	snap, err := store.ReadContinuation(m.activeSession.SessionID)
+	if err != nil || snap == nil {
+		t.Fatalf("snapshot missing after the turn: %v", err)
+	}
+	if snap.EventSeq != m.activeSession.EventCount {
+		t.Fatalf("snapshot head = %d, want the post-flush log head %d", snap.EventSeq, m.activeSession.EventCount)
+	}
+	if len(snap.Messages) == 0 {
+		t.Fatal("snapshot carries no messages")
+	}
+	last := snap.Messages[len(snap.Messages)-1]
+	if last.Role != qgruntime.MessageRoleAssistant || !strings.Contains(last.Content, "resposta final") {
+		t.Fatalf("snapshot must end with the final answer, got %#v", last)
+	}
+
+	fresh := continuationHarness(t, store, &scriptedProvider{scripts: textScripts("x")}, nil)
+	fresh, _ = fresh.handleResumeCommand(m.activeSession.SessionID)
+	if !fresh.resumedExact || fresh.reconstructedResume {
+		t.Fatal("a resume right after a completed turn must be exact (M09)")
+	}
+}
