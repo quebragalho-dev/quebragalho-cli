@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -441,7 +442,20 @@ func (m model) loadExactSnapshot(session *sessions.Metadata, snap *sessions.Cont
 	m.continuation = turnContinuation{}
 	m.resumedExact = false
 	effectiveModel := m.modelName
-	if target := strings.TrimSpace(snap.ModelID); target != "" && !strings.EqualFold(target, m.modelName) {
+	// Restore the recorded PROVIDER first: a model from another family only
+	// resolves against the profile that recorded it. A recorded provider
+	// that is not saved in the user config keeps the session on the current
+	// provider, with a pt-BR warning listing recorded × current.
+	if recorded := strings.TrimSpace(snap.Provider); recorded != "" && !strings.EqualFold(recorded, strings.TrimSpace(m.providerName)) {
+		restored, warn, ok := m.restoreSnapshotProvider(recorded)
+		if !ok {
+			*resumeWarnings = append(*resumeWarnings, warn)
+		} else {
+			m = restored
+			effectiveModel = m.modelName
+		}
+	}
+	if target := strings.TrimSpace(snap.ModelID); target != "" && !strings.EqualFold(target, effectiveModel) {
 		restored, warn, ok := m.restoreSnapshotModel(target)
 		if !ok {
 			*resumeWarnings = append(*resumeWarnings, warn)
@@ -525,6 +539,86 @@ func (m model) restoreSnapshotModel(targetModelID string) (model, string, bool) 
 	var dropped bool
 	m, dropped = m.reconcileEffortForModelSwitch(target.reasoningEfforts, target.entry != nil)
 	_ = dropped
+	return m, "", true
+}
+
+// restoreSnapshotProvider switches the live provider to the one the snapshot
+// was recorded under, when a saved profile for it exists in the user config:
+// the stored profile is completed against its catalog descriptor, its
+// credential reloaded, and the provider rebuilt through the same core path a
+// manual provider switch uses. Returns the updated model, or a pt-BR reason
+// (listing recorded × current) when the provider cannot be restored — in
+// which case the session keeps the provider it is on.
+func (m model) restoreSnapshotProvider(recorded string) (model, string, bool) {
+	recorded = strings.TrimSpace(recorded)
+	current := strings.TrimSpace(m.providerName)
+	if current == "" {
+		current = strings.TrimSpace(m.providerProfile.Name)
+	}
+	fail := func(reason string) (model, string, bool) {
+		return m, fmt.Sprintf("o snapshot foi gravado no provedor %s; a sessão atual usa %s — %s", recorded, current, reason), false
+	}
+	configPath := strings.TrimSpace(m.userConfigPath)
+	if configPath == "" {
+		if path, err := config.DefaultUserConfigPath(); err == nil {
+			configPath = strings.TrimSpace(path)
+		}
+	}
+	if configPath == "" {
+		return fail("não encontrei o caminho do config.json do qg")
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fail("não consegui ler o config.json do qg: " + err.Error())
+	}
+	var cfg config.FileConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fail("o config.json do qg não pôde ser interpretado: " + err.Error())
+	}
+	var stored *config.ProviderProfile
+	for index := range cfg.Providers {
+		if strings.EqualFold(strings.TrimSpace(cfg.Providers[index].Name), recorded) {
+			stored = &cfg.Providers[index]
+			break
+		}
+	}
+	if stored == nil {
+		return fail("o perfil do provedor não está salvo no config.json")
+	}
+	profile := *stored
+	if descriptor, ok := m.descriptorForProfile(profile); ok {
+		// Complete the stored profile the same way the startup resolver and a
+		// manual switch do: catalog defaults only for empty fields.
+		if strings.TrimSpace(profile.BaseURL) == "" {
+			profile.BaseURL = descriptor.DefaultBaseURL
+		}
+		if strings.TrimSpace(string(profile.ProviderKind)) == "" {
+			profile.ProviderKind = providerWizardProviderKind(descriptor)
+		}
+		if strings.TrimSpace(profile.APIFormat) == "" {
+			profile.APIFormat = providerWizardAPIFormat(descriptor)
+		}
+		if len(descriptor.AuthEnvVars) > 0 && strings.TrimSpace(profile.APIKeyEnv) == "" {
+			profile.APIKeyEnv = descriptor.AuthEnvVars[0]
+		}
+	}
+	profile = m.profileWithCredential(profile)
+	if m.newProvider == nil {
+		return fail("o provedor não pode ser reconstruído nesta sessão")
+	}
+	metadata, err := providers.ResolveRuntimeMetadata(profile, providers.Options{})
+	if err != nil {
+		return fail("o provedor não está disponível: " + err.Error())
+	}
+	nextProvider, err := m.newProvider(profile)
+	if err != nil {
+		return fail("não consegui reconstruir o provedor: " + err.Error())
+	}
+	m, err = m.applySwitchedProvider(profile, metadata, nextProvider, m.modelName)
+	if err != nil {
+		return fail("não consegui reconstruir o provedor: " + err.Error())
+	}
+	m.activeSession.Provider = m.providerName
 	return m, "", true
 }
 

@@ -807,3 +807,161 @@ func TestCompactPreservesLoadedDeferredTools(t *testing.T) {
 		t.Fatalf("next turn must advertise slow_deploy's full schema, got %q", def.Description)
 	}
 }
+
+// TestResumeRestoresRecordedProvider (B4): a snapshot recorded under another
+// saved provider switches the live provider — through the same core path as a
+// manual switch — instead of only renaming the model.
+func TestResumeRestoresRecordedProvider(t *testing.T) {
+	store := testSessionStore(t)
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	configJSON := `{"activeProvider":"test","providers":[` +
+		`{"name":"test","catalogID":"qg","model":"muse-spark-1.3-contributor","apiKeyEnv":"TEST_API_KEY"},` +
+		`{"name":"backup-provider","catalogID":"qg","model":"muse-spark-1.3-contributor","apiKeyEnv":"BACKUP_API_KEY"}` +
+		`]}`
+	if err := os.WriteFile(configPath, []byte(configJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_API_KEY", "test-key")
+	t.Setenv("BACKUP_API_KEY", "backup-key")
+
+	oldProvider := &scriptedProvider{scripts: textScripts("answer on test")}
+	backupProvider := &scriptedProvider{scripts: textScripts("after restore")}
+	var built []config.ProviderProfile
+	newProviderStub := func(p config.ProviderProfile) (qgruntime.Provider, error) {
+		built = append(built, p)
+		if strings.EqualFold(p.Name, "backup-provider") {
+			return backupProvider, nil
+		}
+		return oldProvider, nil
+	}
+	mkModel := func() model {
+		return newModel(context.Background(), Options{
+			Cwd:             t.TempDir(),
+			ProviderName:    "test",
+			ModelName:       "muse-spark-1.3-contributor",
+			Provider:        oldProvider,
+			Registry:        tools.NewRegistry(),
+			SessionStore:    store,
+			ProviderProfile: config.ProviderProfile{Name: "test", CatalogID: "qg", Model: "muse-spark-1.3-contributor", APIKeyEnv: "TEST_API_KEY"},
+			NewProvider:     newProviderStub,
+			UserConfigPath:  configPath,
+		})
+	}
+	m := mkModel()
+	m = runTextTurn(t, m, "hi")
+	sessionID := m.activeSession.SessionID
+	if len(oldProvider.requests) != 1 {
+		t.Fatalf("setup requests = %d, want 1", len(oldProvider.requests))
+	}
+
+	// Rewrite the snapshot as recorded under the backup provider.
+	raw, err := os.ReadFile(filepath.Join(store.RootDir, sessionID, sessions.ContinuationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap sessions.ContinuationSnapshot
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatal(err)
+	}
+	snap.Provider = "backup-provider"
+	if err := store.WriteContinuation(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := mkModel()
+	fresh, _ = fresh.handleResumeCommand(sessionID)
+	if got := fresh.providerName; got != "backup-provider" {
+		t.Fatalf("providerName = %q, want backup-provider", got)
+	}
+	if !fresh.resumedExact {
+		t.Fatal("provider restore must keep the resume exact")
+	}
+	for _, row := range fresh.transcript {
+		if strings.Contains(row.text, "não consegui restaurar o provedor") {
+			t.Fatalf("a successful provider restore must not warn, got %q", row.text)
+		}
+	}
+	fresh = runTextTurn(t, fresh, "after restore")
+	if len(backupProvider.requests) != 1 {
+		t.Fatalf("backup provider must see the next turn, got %d requests", len(backupProvider.requests))
+	}
+	if len(oldProvider.requests) != 1 {
+		t.Fatalf("the previous provider must not see new requests, got %d", len(oldProvider.requests))
+	}
+	foundBuilt := false
+	for _, profile := range built {
+		if strings.EqualFold(profile.Name, "backup-provider") {
+			foundBuilt = true
+		}
+	}
+	if !foundBuilt {
+		t.Fatal("the backup provider profile must be rebuilt through the provider core path")
+	}
+}
+
+// TestResumeKeepsCurrentProviderWithWarning (B4): when the recorded provider
+// is not saved in the user config, the session keeps the current provider and
+// a pt-BR warning lists recorded × current.
+func TestResumeKeepsCurrentProviderWithWarning(t *testing.T) {
+	store := testSessionStore(t)
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	configJSON := `{"activeProvider":"test","providers":[` +
+		`{"name":"test","catalogID":"qg","model":"muse-spark-1.3-contributor","apiKeyEnv":"TEST_API_KEY"}` +
+		`]}`
+	if err := os.WriteFile(configPath, []byte(configJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_API_KEY", "test-key")
+
+	oldProvider := &scriptedProvider{scripts: textScripts("answer on test")}
+	newProviderStub := func(p config.ProviderProfile) (qgruntime.Provider, error) {
+		return oldProvider, nil
+	}
+	mkModel := func() model {
+		return newModel(context.Background(), Options{
+			Cwd:             t.TempDir(),
+			ProviderName:    "test",
+			ModelName:       "muse-spark-1.3-contributor",
+			Provider:        oldProvider,
+			Registry:        tools.NewRegistry(),
+			SessionStore:    store,
+			ProviderProfile: config.ProviderProfile{Name: "test", CatalogID: "qg", Model: "muse-spark-1.3-contributor", APIKeyEnv: "TEST_API_KEY"},
+			NewProvider:     newProviderStub,
+			UserConfigPath:  configPath,
+		})
+	}
+	m := mkModel()
+	m = runTextTurn(t, m, "hi")
+	sessionID := m.activeSession.SessionID
+
+	raw, err := os.ReadFile(filepath.Join(store.RootDir, sessionID, sessions.ContinuationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap sessions.ContinuationSnapshot
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatal(err)
+	}
+	snap.Provider = "ghost-provider"
+	if err := store.WriteContinuation(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := mkModel()
+	fresh, _ = fresh.handleResumeCommand(sessionID)
+	if got := fresh.providerName; got != "test" {
+		t.Fatalf("providerName = %q, want the current provider test", got)
+	}
+	if !fresh.resumedExact {
+		t.Fatal("same-model restore keeps the resume exact even with a warning")
+	}
+	found := false
+	for _, row := range fresh.transcript {
+		if strings.Contains(row.text, "ghost-provider") && strings.Contains(row.text, "test") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the warning must list the recorded provider and the current one")
+	}
+}
