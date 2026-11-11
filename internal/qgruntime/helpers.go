@@ -9,10 +9,14 @@ import (
 
 // CollectedStream is the non-streaming summary of provider events.
 type CollectedStream struct {
-	Text             string
-	ToolCalls        []ToolCall
-	Usage            Usage
-	Error            string
+	Text      string
+	ToolCalls []ToolCall
+	Usage     Usage
+	Error     string
+	// Err carries the provider's typed failure for the collected error, when
+	// the provider attached one (see StreamEvent.Err). Nil when the failure
+	// arrived as text only.
+	Err              error
 	DroppedToolCalls int // malformed tool calls the provider could not dispatch
 	// FinishReason is the provider's normalized terminal stop reason when the
 	// response did not end normally (FinishReasonLength / FinishReasonContentFilter).
@@ -183,6 +187,7 @@ func CollectStreamWithOptions(ctx context.Context, events <-chan StreamEvent, op
 				progress()
 			case StreamEventError:
 				collected.Error = event.Error
+				collected.Err = event.Err
 				return finish()
 			case StreamEventDone:
 				return finish()

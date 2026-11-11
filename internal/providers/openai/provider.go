@@ -408,12 +408,22 @@ func (provider *Provider) emitHTTPError(ctx context.Context, response *http.Resp
 	// localhost but returns a gateway error when it cannot reach its own backend.
 	// Surface that as a clear connectivity message instead of the raw proxied body.
 	if humanized, ok := providerio.UpstreamUnreachable(message); ok {
-		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact(humanized)})
+		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact(humanized), Err: &providerio.StatusError{
+			StatusCode: response.StatusCode,
+			RetryAfter: providerio.RetryAfter(response),
+			Message:    provider.redact(humanized),
+		}})
 		return
+	}
+	statusErr := &providerio.StatusError{
+		StatusCode: response.StatusCode,
+		RetryAfter: providerio.RetryAfter(response),
+		Message:    provider.classifiedError(response.StatusCode, message),
 	}
 	sendEvent(ctx, events, qgruntime.StreamEvent{
 		Type:  qgruntime.StreamEventError,
-		Error: provider.classifiedError(response.StatusCode, message),
+		Error: statusErr.Message,
+		Err:   statusErr,
 	})
 }
 
