@@ -518,9 +518,10 @@ func (m model) buildTranscriptBodyItems(width int, emptyOverlay string, detailed
 		items = append(items, transcriptBlankBodyItem())
 		items = append(items, transcriptBlockBodyItem(transcriptBodyItemSpecReview, -1, renderFocusedSpecReviewPrompt(*m.pendingSpecReview, width)))
 	}
-	// Sussurro: the first queued follow-up rides the very next turn. Render it
-	// as a virtual row in the transcript — a dimmed user message with the queue
-	// shortcut hint below — so it reads as the next thing the model will see.
+	// Sussurro: the pending interleaves and the queued follow-ups ride the
+	// current and the next turns. Render them as virtual rows in the transcript
+	// — dimmed user messages with a subtle notice below each kind — so they
+	// read as the next things the model will see.
 	if queued := m.renderQueuedTranscriptBlock(contentWidth); queued != "" {
 		items = append(items, transcriptBlankBodyItem())
 		items = append(items, transcriptBlockBodyItem(transcriptBodyItemRow, -1, queued))

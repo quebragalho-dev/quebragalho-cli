@@ -42,6 +42,67 @@ func TestEnterWhilePendingQueuesPromptWithoutStartingRun(t *testing.T) {
 	}
 }
 
+func TestPendingInterleaveRendersDimmedWithNotice(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.interleave.push("MARKINTER pending interleave")
+
+	view := plainRender(t, viewString(m.View()))
+	if !strings.Contains(view, "❯ MARKINTER pending interleave") {
+		t.Fatalf("expected the pending interleave as a dimmed Sussurro row, got:\n%s", view)
+	}
+	if !strings.Contains(view, "enviando após a ação atual…") {
+		t.Fatalf("expected the interleave notice below the row, got:\n%s", view)
+	}
+}
+
+func TestPendingInterleaveAndQueueRenderTogether(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.interleave.push("MARKINTER pending interleave")
+	m.queuedMessages = []string{"MARKONE queued"}
+
+	view := plainRender(t, viewString(m.View()))
+	if !strings.Contains(view, "MARKINTER pending interleave") {
+		t.Fatalf("expected the pending interleave to stay visible, got:\n%s", view)
+	}
+	if !strings.Contains(view, "MARKONE queued") {
+		t.Fatalf("expected the queued message to stay visible, got:\n%s", view)
+	}
+	if !strings.Contains(view, "enviando após a ação atual…") {
+		t.Fatalf("expected the interleave notice, got:\n%s", view)
+	}
+	if !strings.Contains(view, "na fila (1)") {
+		t.Fatalf("expected the queue notice with the count, got:\n%s", view)
+	}
+}
+
+func TestComposerPlaceholderEditsLastQueuedMessage(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.input.SetValue("queued followup")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	view := viewString(next.View())
+	if !strings.Contains(view, "Pressione ↑ para editar a última da fila") {
+		t.Fatalf("expected the placeholder to point at the last queued message, got:\n%s", view)
+	}
+	if strings.Contains(view, "Pressione ↑ para editar as mensagens na fila") {
+		t.Fatalf("the ambiguous placeholder must be gone, got:\n%s", view)
+	}
+}
+
 func TestQueuedPromptRendersInTranscript(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
@@ -59,7 +120,7 @@ func TestQueuedPromptRendersInTranscript(t *testing.T) {
 	if !strings.Contains(view, "❯ summarize the failing test output") {
 		t.Fatalf("expected the queued message in the transcript with a plain glyph, got:\n%s", view)
 	}
-	if !strings.Contains(view, "na fila — ") {
+	if !strings.Contains(view, "na fila (1) — ") {
 		t.Fatalf("expected the Sussurro hint below the queued message, got:\n%s", view)
 	}
 	if !strings.Contains(view, "envia agora") {
@@ -67,26 +128,29 @@ func TestQueuedPromptRendersInTranscript(t *testing.T) {
 	}
 }
 
-func TestQueuedMessageShowsOnlyTheHeadInTranscript(t *testing.T) {
+func TestQueuedMessagesRenderAllSeparatedInOrder(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
 	m.activeRunID = 1
 	m.runID = 1
 	m.width = 96
-	m.input.SetValue("MARKONE head message")
+	m.queuedMessages = []string{"MARKONE head message", "MARKTWO second queued", "MARKTHREE tail queued"}
 
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-	next.input.SetValue("MARKTWO second queued")
-	updated, _ = next.Update(testKey(tea.KeyEnter))
-	next = updated.(model)
-
-	view := plainRender(t, viewString(next.View()))
-	if !strings.Contains(view, "MARKONE") {
-		t.Fatalf("expected the head of the queue to render, got:\n%s", view)
+	view := plainRender(t, viewString(m.View()))
+	first := strings.Index(view, "MARKONE")
+	second := strings.Index(view, "MARKTWO")
+	third := strings.Index(view, "MARKTHREE")
+	if first == -1 || second == -1 || third == -1 {
+		t.Fatalf("expected every queued message to render, got:\n%s", view)
 	}
-	if strings.Contains(view, "MARKTWO") {
-		t.Fatalf("expected only the head of the queue to render, got:\n%s", view)
+	if !(first < second && second < third) {
+		t.Fatalf("expected the queue in FIFO order (MARKONE < MARKTWO < MARKTHREE), got:\n%s", view)
+	}
+	if !strings.Contains(view, "na fila (3)") {
+		t.Fatalf("expected the notice to count all queued messages, got:\n%s", view)
+	}
+	if !strings.Contains(view, "↑ edita a última") {
+		t.Fatalf("expected the notice to say ↑ edits the last queued message, got:\n%s", view)
 	}
 }
 

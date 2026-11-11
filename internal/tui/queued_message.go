@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -9,7 +10,7 @@ import (
 
 // queuedEditHint replaces the composer placeholder while a message is queued
 // and informs the user they can press up to edit the last queued message.
-const queuedEditHint = "Pressione ↑ para editar as mensagens na fila"
+const queuedEditHint = "Pressione ↑ para editar a última da fila"
 
 // interleaveBuffer holds operator messages the run should absorb at the next
 // step boundary — Cmd+Enter / Ctrl+Enter during a running turn. Lives outside
@@ -27,6 +28,19 @@ func (b *interleaveBuffer) push(text string) {
 	b.mu.Lock()
 	b.texts = append(b.texts, trimmed)
 	b.mu.Unlock()
+}
+
+// snapshot returns a copy of the pending interleave texts, in FIFO order,
+// without draining them. The transcript renders them as dimmed rows while
+// they wait for the loop to consume the buffer, so they do not vanish from
+// the screen between the push and the drain.
+func (b *interleaveBuffer) snapshot() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.texts) == 0 {
+		return nil
+	}
+	return append([]string(nil), b.texts...)
 }
 
 // drain returns and clears the pending interleaves. Emitting rows and events
@@ -90,17 +104,6 @@ func (m model) hasQueuedMessage() bool {
 	return len(m.queuedMessages) > 0
 }
 
-// queuedMessageHead reports the first queued message (the one the next turn
-// would send), flattened onto one line for display.
-func (m model) queuedMessageHead() string {
-	for _, queued := range m.queuedMessages {
-		if flattened := strings.Join(strings.Fields(queued), " "); flattened != "" {
-			return flattened
-		}
-	}
-	return ""
-}
-
 // requeueStrandedInterleaves moves any operator interleaves the running turn
 // never consumed back to the head of the queue, so a cancel (or a final
 // text-only answer) does not strand them.
@@ -133,18 +136,17 @@ func (m model) queuedSendHint() string {
 	return "/agora envia agora"
 }
 
-// renderQueuedTranscriptBlock renders the Sussurro row in the transcript for
-// the head of the queue: the queued message with dimmed ink and a plain `❯`
-// glyph, plus a subtle hint below naming the send and edit shortcuts.
-func (m model) renderQueuedTranscriptBlock(width int) string {
-	head := m.queuedMessageHead()
-	if head == "" || width <= 0 {
-		return ""
-	}
-	wrapWidth := maxInt(1, width-4)
-	wrapped := wrapPlainText(head, wrapWidth)
-	lines := make([]string, 0, len(wrapped)+1)
+func flattenQueueText(text string) string {
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// renderSussurroRows renders one dimmed `❯ <text>` block: a plain glyph on the
+// first line and an indented continuation, with the text flattened onto one
+// wrapped paragraph.
+func renderSussurroRows(text string, wrapWidth int) []string {
 	glyph := qgTheme.ink.Render("❯")
+	wrapped := wrapPlainText(text, maxInt(1, wrapWidth))
+	lines := make([]string, 0, len(wrapped))
 	for index, line := range wrapped {
 		if index == 0 {
 			lines = append(lines, " "+glyph+" "+qgTheme.muted.Render(line))
@@ -152,6 +154,45 @@ func (m model) renderQueuedTranscriptBlock(width int) string {
 		}
 		lines = append(lines, "   "+qgTheme.muted.Render(line))
 	}
-	lines = append(lines, "   "+qgTheme.faint.Render("na fila — "+m.queuedSendHint()+" · ↑ edita"))
-	return strings.Join(lines, "\n")
+	return lines
+}
+
+// renderQueuedTranscriptBlock renders the Sussurro rows in the transcript:
+// every interleave already pushed but not yet consumed by the agent, then
+// every queued follow-up, each as a dimmed `❯ <text>` row in order. A notice
+// below the last row of each kind names what happens next; the queue notice
+// carries the full count and points at the last queued message for ↑.
+func (m model) renderQueuedTranscriptBlock(width int) string {
+	if width <= 0 {
+		return ""
+	}
+	wrapWidth := maxInt(1, width-4)
+	blocks := []string{}
+	if m.interleave != nil {
+		lines := []string{}
+		for _, text := range m.interleave.snapshot() {
+			if flattened := flattenQueueText(text); flattened != "" {
+				lines = append(lines, renderSussurroRows(flattened, wrapWidth)...)
+			}
+		}
+		if len(lines) > 0 {
+			lines = append(lines, "   "+qgTheme.faint.Render("enviando após a ação atual…"))
+			blocks = append(blocks, strings.Join(lines, "\n"))
+		}
+	}
+	queued := []string{}
+	for _, text := range m.queuedMessages {
+		if flattened := flattenQueueText(text); flattened != "" {
+			queued = append(queued, flattened)
+		}
+	}
+	if len(queued) > 0 {
+		lines := make([]string, 0, len(queued)*2+1)
+		for _, text := range queued {
+			lines = append(lines, renderSussurroRows(text, wrapWidth)...)
+		}
+		lines = append(lines, "   "+qgTheme.faint.Render(fmt.Sprintf("na fila (%d) — %s · ↑ edita a última", len(queued), m.queuedSendHint())))
+		blocks = append(blocks, strings.Join(lines, "\n"))
+	}
+	return strings.Join(blocks, "\n")
 }
