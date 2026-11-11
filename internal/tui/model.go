@@ -5593,6 +5593,12 @@ func (m *model) cancelRun() {
 	m.runCancel = nil
 	m.activeRunID = 0
 	m.terminalAutoAttach = nil
+	// The run is no longer active: its unconsumed interleaves belong back at
+	// the head of the queue, never silently dropped. Done here so every
+	// cancelRun caller is covered at once — Ctrl+C, Esc, /goal pause/clear —
+	// including paths that never reach launchQueuedMessageIfReady. Draining
+	// is destructive, so a later launch-time requeue is a harmless no-op.
+	*m = m.requeueStrandedInterleaves()
 	m.cancelConfirmActive = false // whatever path got here, there's nothing left to confirm cancelling
 	m.plan.frozenAt = m.now()     // freeze the plan clock while idle (no run in flight)
 	m.pendingPermission = nil
