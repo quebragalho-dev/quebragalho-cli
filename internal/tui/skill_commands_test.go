@@ -318,11 +318,11 @@ func TestSkillInvocationQueuedWhileRunPending(t *testing.T) {
 	if !handled {
 		t.Fatal("skill must be handled even while a run is pending")
 	}
-	if next.queuedMessage == "" || !strings.Contains(next.queuedMessage, "Review the diff.") {
-		t.Fatalf("expanded prompt should be queued, got %q", next.queuedMessage)
+	if len(next.queuedMessages) == 0 || !strings.Contains(strings.Join(next.queuedMessages, "\n"), "Review the diff.") {
+		t.Fatalf("expanded prompt should be queued, got %v", next.queuedMessages)
 	}
-	if !strings.Contains(next.queuedMessage, "focus on tests") {
-		t.Fatalf("queued prompt should carry the args, got %q", next.queuedMessage)
+	if !strings.Contains(strings.Join(next.queuedMessages, "\n"), "focus on tests") {
+		t.Fatalf("queued prompt should carry the args, got %v", next.queuedMessages)
 	}
 }
 
@@ -331,8 +331,8 @@ func TestSkillInvocationDroppedWhileExiting(t *testing.T) {
 	m.exiting = true
 
 	next, cmd, handled := m.handleSkillCommand("/reviewer")
-	if !handled || cmd != nil || next.queuedMessage != "" {
-		t.Fatalf("exiting must swallow the invocation: handled=%v cmd=%v queued=%q", handled, cmd, next.queuedMessage)
+	if !handled || cmd != nil || len(next.queuedMessages) > 0 {
+		t.Fatalf("exiting must swallow the invocation: handled=%v cmd=%v queued=%v", handled, cmd, next.queuedMessages)
 	}
 }
 
@@ -366,8 +366,8 @@ func TestUserCommandQueuedWhileRunPending(t *testing.T) {
 	if !handled {
 		t.Fatal("user command must be handled while pending")
 	}
-	if !strings.Contains(next.queuedMessage, "Say hello to world.") {
-		t.Fatalf("expanded user-command prompt should be queued, got %q", next.queuedMessage)
+	if len(next.queuedMessages) == 0 || !strings.Contains(strings.Join(next.queuedMessages, "\n"), "Say hello to world.") {
+		t.Fatalf("expanded user-command prompt should be queued, got %v", next.queuedMessages)
 	}
 }
 

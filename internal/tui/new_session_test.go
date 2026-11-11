@@ -19,7 +19,7 @@ func TestStartNewSessionResetsState(t *testing.T) {
 	m.pendingImages = make([]qgruntime.ImageBlock, 1)
 	m.pendingImageLabels = []string{"pic.png"}
 	m.pendingDocuments = []pendingDocument{{label: "doc.pdf"}}
-	m.queuedMessage = "queued"
+	m.queuedMessages = []string{"queued"}
 	// The /retry attachment snapshot is prior-session state too and must not survive.
 	m.lastImages = make([]qgruntime.ImageBlock, 1)
 	m.lastImageLabels = []string{"pic.png"}
@@ -41,9 +41,9 @@ func TestStartNewSessionResetsState(t *testing.T) {
 		t.Fatalf("expected note to reference previous session id, got %#v", next.transcript)
 	}
 	// Staged attachments and the queued message must not leak into the new session.
-	if len(next.pendingImages) != 0 || len(next.pendingImageLabels) != 0 || len(next.pendingDocuments) != 0 || next.queuedMessage != "" {
-		t.Fatalf("startNewSession must clear staged input, got images=%d labels=%d docs=%d queued=%q",
-			len(next.pendingImages), len(next.pendingImageLabels), len(next.pendingDocuments), next.queuedMessage)
+	if len(next.pendingImages) != 0 || len(next.pendingImageLabels) != 0 || len(next.pendingDocuments) != 0 || len(next.queuedMessages) > 0 {
+		t.Fatalf("startNewSession must clear staged input, got images=%d labels=%d docs=%d queued=%v",
+			len(next.pendingImages), len(next.pendingImageLabels), len(next.pendingDocuments), next.queuedMessages)
 	}
 	// The /retry snapshot must not leak the previous session's attachments.
 	if len(next.lastImages) != 0 || len(next.lastImageLabels) != 0 || len(next.lastDocuments) != 0 {

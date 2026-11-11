@@ -844,6 +844,21 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// placeholders, so the images can follow without splitting them.
 		messages = append(messages, toolImageMessages...)
 		toolImageMessages = nil
+		// Cmd+Enter / Ctrl+Enter interleave: inject operator messages the UI
+		// took mid-turn as user messages — the model sees them on the very
+		// next request, right after this step's tool results, without the
+		// turn being interrupted.
+		if options.InterleaveMessages != nil {
+			for _, message := range options.InterleaveMessages() {
+				if message.Role != qgruntime.MessageRoleUser {
+					continue
+				}
+				if strings.TrimSpace(message.Content) == "" {
+					continue
+				}
+				messages = append(messages, message)
+			}
+		}
 
 		// Run post-edit self-correction once over the union of files this turn
 		// changed, then append any feedback after every tool_result is recorded so

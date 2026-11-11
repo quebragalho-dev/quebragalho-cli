@@ -303,7 +303,14 @@ type model struct {
 	// never send focus events at all, and defaulting to "unfocused" would wrongly
 	// hide the cursor for those users.
 	terminalFocused bool
-	queuedMessage   string
+	// queuedMessages holds the FIFO of follow-up prompts the user typed while a
+	// run was active: the head renders in the transcript (Sussurro), ↑ edits
+	// only the tail, Cmd/Ctrl+Enter injects the head into the running turn.
+	queuedMessages []string
+	// interleave carries operator interleaves into the running turn (drained
+	// by the agent goroutine after each tool batch; leftovers requeue at the
+	// end of the turn).
+	interleave *interleaveBuffer
 	// loops holds the session's active /loop definitions (see loop.go). activeLoopID
 	// tags the in-flight run when it is a loop iteration (empty = a user turn), so the
 	// completion seam knows whether to advance a loop. loopSeq invalidates a stale
@@ -1115,6 +1122,7 @@ func newModel(ctx context.Context, options Options) model {
 		}
 	}
 	m := model{
+		interleave:                  &interleaveBuffer{},
 		ctx:                         ctx,
 		cwd:                         cwd,
 		appVersion:                  strings.TrimSpace(options.Version),
@@ -1941,14 +1949,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setSelectedFile("")
 				return m, nil
 			}
-			if m.hasQueuedMessage() {
-				return m.clearQueuedMessage(), nil
-			}
 			m.clearSuggestions()
 			if m.pending {
 				if wasConfirmingCancel {
 					m.clearComposer()
 					m.cancelRun()
+					// Esc cancels the run and drains the queue: the next
+					// queued message rides the next turn immediately.
+					if next, cmd := m.launchQueuedMessageIfReady(); cmd != nil {
+						return next, cmd
+					}
 					return m, nil
 				}
 				// First Esc only arms the confirmation — preserve whatever
@@ -1963,6 +1973,13 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.clearComposer()
 			return m, nil
+		case keyIs(msg, tea.KeyEnter) && (keySuper(msg, tea.KeyEnter) || keyCtrl(msg, tea.KeyEnter)):
+			// Cmd+Enter (macOS) / Ctrl+Enter (other platforms): interleave
+			// the message into the running turn — it rides the very next
+			// provider request after this step's tool results, without the
+			// turn being interrupted. With no turn in flight (or a modal
+			// owning the keyboard), it is exactly Enter — submit the prompt.
+			return m.handleInterleaveEnter()
 		case keyIs(msg, tea.KeyEnter):
 			if m.transcriptDetailed {
 				if command := parseCommand(m.input.Value()); command.kind == commandTranscript {
@@ -2901,7 +2918,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// other loops remain.
 			m, loopTickCmd = m.ensureLoopTick()
 		}
-		hadQueuedMessage := strings.TrimSpace(m.queuedMessage) != ""
+		hadQueuedMessage := len(m.queuedMessages) > 0
 		next, queuedCmd := m.launchQueuedMessageIfReady()
 		var peerCmd tea.Cmd
 		if queuedCmd == nil {
@@ -3386,13 +3403,9 @@ func (m model) footerView(width int) string {
 		footer.WriteString(fitStyledLine(joinHeaderLine("  "+left, right, width), width))
 	}
 	footer.WriteString("\n")
-	// A message typed while a run is active is queued for the next turn; show its
-	// preview directly ABOVE the input box (not below), so it reads as "waiting to
-	// send" sitting on top of what you're currently typing.
-	if queued := renderQueuedMessagePreview(m.queuedMessage, width); queued != "" {
-		footer.WriteString(queued)
-		footer.WriteString("\n")
-	}
+	// A message typed while a run is active is queued for the next turn; the
+	// queue renders as Sussurro in the transcript (transcriptBodyItems), so
+	// it does not repeat here.
 	footer.WriteString(m.composerBox(width))
 	footer.WriteString("\n")
 	footer.WriteString(m.statusLine(width))
@@ -4736,6 +4749,39 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 	return m.dispatchCommand(command)
 }
 
+// handleInterleaveEnter implements Cmd+Enter / Ctrl+Enter: interleave the
+// operator's message into the running turn so it rides the very next
+// provider request (injected after the current step's tool results, without
+// canceling anything). Text staged in the composer wins; otherwise the head
+// of the FIFO queue is injected. With no turn in flight, or a modal surface
+// owning the keyboard, it behaves exactly like Enter — submit the prompt.
+func (m model) handleInterleaveEnter() (tea.Model, tea.Cmd) {
+	m.burstCount = 0
+	if !m.pending || !m.noBlockingModal() {
+		return m.handleSubmit()
+	}
+	if m.transcriptDetailed {
+		return m, nil
+	}
+	text := strings.TrimSpace(m.composerValue())
+	if text == "" {
+		if len(m.queuedMessages) == 0 {
+			return m, nil
+		}
+		text = m.queuedMessages[0]
+		m.queuedMessages = m.queuedMessages[1:]
+	} else {
+		m.rememberInput(text)
+		m.clearComposer()
+		m.clearSuggestions()
+	}
+	if m.interleave == nil {
+		m.interleave = &interleaveBuffer{}
+	}
+	m.interleave.push(text)
+	return m, nil
+}
+
 // dispatchCommand runs a parsed slash/prompt command after submit/leader
 // preamble (history, composer clear, leave-prompt disarm) has already run.
 func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
@@ -5412,11 +5458,15 @@ func (m *model) ensureSpinnerTick() tea.Cmd {
 }
 
 func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
+	// A turn that ended before the agent consumed the operator's interleaves
+	// (final text-only answer, Esc cancel) would strand them; put them back
+	// at the head of the queue so they lead the next turn.
+	m = m.requeueStrandedInterleaves()
 	if !m.hasQueuedMessage() || m.pending || m.exiting || m.pendingPermission != nil || m.pendingAskUser != nil || m.pendingSpecReview != nil {
 		return m, nil
 	}
-	prompt := m.queuedMessage
-	m.queuedMessage = ""
+	prompt := m.queuedMessages[0]
+	m.queuedMessages = m.queuedMessages[1:]
 	return m.launchPrompt(prompt)
 }
 
@@ -5685,6 +5735,26 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			flushedLive = append(flushedLive, appended...)
 			if len(appended) > 0 {
 				turnHead = appended[len(appended)-1].Sequence
+			}
+		}
+		// Cmd+Enter / Ctrl+Enter interleaves: drain the operator's mid-turn
+		// messages after each tool batch, record them in the log and the
+		// transcript, and hand them to the loop to append to the ongoing
+		// wire. The turn is never interrupted.
+		if interleave := m.interleave; interleave != nil {
+			options.InterleaveMessages = func() []qgruntime.Message {
+				messages := interleave.drain()
+				for _, message := range messages {
+					queueLiveEvents([]pendingSessionEvent{{
+						Type:    sessions.EventMessage,
+						Payload: map[string]any{"role": "user", "content": message.Content},
+					}})
+					row := transcriptRow{kind: rowUser, text: message.Content}
+					row.runID = runID
+					rows = append(rows, row)
+					m.sendAgentRow(runID, row)
+				}
+				return messages
 			}
 		}
 		options.SessionID = m.activeSession.SessionID

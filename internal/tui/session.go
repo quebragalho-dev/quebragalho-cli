@@ -131,7 +131,7 @@ func (m model) startNewSession() model {
 	m.pendingImageLabels = nil
 	m.pendingImageThumbnails = nil
 	m.pendingDocuments = nil
-	m.queuedMessage = ""
+	m.queuedMessages = nil
 	// The remembered /retry attachment snapshot belongs to the previous session
 	// too — dropping it keeps a post-/new /retry from re-staging old images or
 	// documents. lastPrompt is composer history (like inputHistory) and stays.
