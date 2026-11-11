@@ -29,6 +29,7 @@ func TestPrServiceDetectsGitHubPRAndDiffStats(t *testing.T) {
 	}}
 	service := NewPrService("/workspace/qg")
 	service.run = runner.Run
+	service.lastBranch = "feat/duo"
 
 	state := service.detect(context.Background())
 
@@ -69,6 +70,7 @@ func TestPrServiceFallsBackToGitLabMR(t *testing.T) {
 	}}
 	service := NewPrService("/workspace/qg")
 	service.run = runner.Run
+	service.lastBranch = "feat/duo"
 
 	state := service.detect(context.Background())
 
@@ -214,6 +216,7 @@ func TestPrServicePicksNewestOpenPrForBranch(t *testing.T) {
 	}}
 	service := NewPrService("/workspace/qg")
 	service.run = runner.Run
+	service.lastBranch = "dev"
 
 	state := service.detect(context.Background())
 
@@ -244,6 +247,7 @@ func TestPrServiceHidesWhenBranchHasNoOpenPr(t *testing.T) {
 	}}
 	service := NewPrService("/workspace/qg")
 	service.run = runner.Run
+	service.lastBranch = "feat/lonely"
 
 	state := service.detect(context.Background())
 
@@ -415,5 +419,72 @@ func TestPrServiceRefreshIfNeededFiresOnBranchChange(t *testing.T) {
 	}
 	if got := service.GetState(); got.PrNumber != "101" || got.Additions != 1 {
 		t.Fatalf("refreshed state = %#v, want PR 101 with +1 -1", got)
+	}
+}
+
+// A background refresh (ticker or trigger, no turn running) delivers the
+// current branch too: an external branch switch shows up at the next refresh
+// without any turn, file read, or subprocess on the UI path.
+func TestBackgroundRefreshDeliversBranchWithoutTurn(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/switched-elsewhere\n",
+		},
+		"git rev-parse HEAD": {
+			output: "def456\n",
+		},
+		"gh pr list --head feat/switched-elsewhere --state open --json number,url,baseRefName": {
+			output: `[{"url":"https://github.com/org/repo/pull/101","number":101,"baseRefName":"dev"}]`,
+		},
+		"git merge-base origin/dev HEAD": {
+			output: "def456\n",
+		},
+		"git diff --numstat def456": {
+			output: "3\t1\tnew.go\n",
+		},
+	}}
+	service := NewPrService(t.TempDir())
+	service.run = runner.Run
+	service.lastBranch = "feat/old"
+	service.lastHead = "abc123"
+	service.lastRefresh = time.Now().Add(-time.Hour)
+
+	service.RefreshIfNeeded()
+	deadline := time.Now().Add(3 * time.Second)
+	for service.Branch() != "feat/switched-elsewhere" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := service.Branch(); got != "feat/switched-elsewhere" {
+		t.Fatalf("background refresh must deliver the switched branch, got %q", got)
+	}
+	for service.GetState().PrNumber != "101" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := service.GetState(); got.PrNumber != "101" {
+		t.Fatalf("background refresh must deliver the new branch PR, got %#v", got)
+	}
+}
+
+// The model takes the branch from the incoming message — never a file read
+// or subprocess on the Update path.
+func TestPrStateMessageCarriesBranch(t *testing.T) {
+	m := limeTestModel()
+	m.cwd = t.TempDir()
+	m.gitBranch = "feat/old"
+	state := PrState{Status: PrFound, PrNumber: "101", Additions: 3, Deletions: 1}
+
+	updated, _ := m.Update(prStateMsg{state: state, branch: "feat/switched-elsewhere"})
+	next := updated.(model)
+	if next.gitBranch != "feat/switched-elsewhere" {
+		t.Fatalf("gitBranch = %q, want the branch delivered by the message", next.gitBranch)
+	}
+	if next.prState.PrNumber != "101" {
+		t.Fatalf("prState = %#v, want the delivered PR state", next.prState)
+	}
+
+	// An empty branch (service not yet observed) keeps the current segment.
+	updated, _ = next.Update(prStateMsg{state: state})
+	if got := updated.(model).gitBranch; got != "feat/switched-elsewhere" {
+		t.Fatalf("empty branch must keep the segment, got %q", got)
 	}
 }
