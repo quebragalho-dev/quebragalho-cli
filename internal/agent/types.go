@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
@@ -554,6 +555,16 @@ type Options struct {
 	// add no model call. Default false leaves the loop byte-identical, so the
 	// interactive TUI is unaffected.
 	RequireCompletionSignal bool
+
+	// RetrySleep waits before a model-call auto-retry. Nil uses a context-aware
+	// wall-clock sleep; tests inject an instant stub so no test ever waits out
+	// the real backoff schedule.
+	RetrySleep func(ctx context.Context, d time.Duration) error
+	// OnRetryWait, when set, receives every scheduled model-call retry (and a
+	// settling report when the wait ends). The TUI renders the live countdown
+	// from it; headless surfaces already warn through OnReasoning. Nil disables
+	// it with no behavior change.
+	OnRetryWait func(RetryWaitInfo)
 
 	runPermissions *permissionRunState
 }
