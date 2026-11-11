@@ -235,10 +235,13 @@ func transcriptRowKey(row transcriptRow) string {
 		}
 	case rowUser:
 		// Only interleaved operator rows carry an id (runID + the run's own
-		// sequence); plain user rows stay unkeyed so identical prompts in
-		// different turns never collapse into one.
+		// sequence), so the id alone is already globally unique; plain user
+		// rows stay unkeyed so identical prompts in different turns never
+		// collapse into one. Key by id alone: a cancelled run's late flush
+		// and a send-now relaunch both emit the same row id, and a row
+		// relaunched under a fresh run id must dedupe against it.
 		if row.id != "" {
-			return fmt.Sprintf("%d:%d:%s", row.kind, row.runID, row.id)
+			return fmt.Sprintf("%d:%s", row.kind, row.id)
 		}
 	case rowPermission:
 		if row.permission != nil && row.permission.ToolCallID != "" {

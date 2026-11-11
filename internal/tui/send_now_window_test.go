@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 // The window between an interrupting send-now and the dead run's drain must
@@ -168,8 +170,21 @@ func TestParkedSendNowLaunchesAfterDrainTimeout(t *testing.T) {
 	m.yieldNow = &fakeSendNowSignal{result: false}
 
 	// The loop drained a message into the dying run's wire; the goroutine
-	// then died without handing over anything.
-	m.interleave.noteDelivered([]string{"DRAINED-before-death"})
+	// then died without handing over anything. The drain already logged
+	// the EventMessage and emitted the live row (the session log writer
+	// persists it synchronously) — simulated the same way.
+	m, err := m.ensureActiveSession("seed")
+	if err != nil {
+		t.Fatalf("ensure session: %v", err)
+	}
+	m, err = m.appendSessionEvent(sessions.EventMessage, map[string]any{
+		"role":    "user",
+		"content": "DRAINED-before-death",
+	})
+	if err != nil {
+		t.Fatalf("seed session event: %v", err)
+	}
+	m.interleave.noteDelivered([]deliveredInterleave{{id: "interleave-7-1", text: "DRAINED-before-death"}})
 
 	m.input.SetValue("QF-DRAFT")
 	updated, _ := m.Update(testInterleaveEnter(t, true))
@@ -200,6 +215,209 @@ func TestParkedSendNowLaunchesAfterDrainTimeout(t *testing.T) {
 	}
 	if count["QF-DRAFT"] != 1 {
 		t.Fatalf("the draft must ride the relaunched batch exactly once, got %d: %#v", count["QF-DRAFT"], provider.requests[0].Messages)
+	}
+}
+
+// P1: when the dead run never hands over its continuation (the goroutine is
+// stuck or the run is ineligible), the timeout path replays the delivered
+// message via the tracker. Its row carries the ORIGINAL id, so the dead
+// run's late flush (rows with interleave-<runID>-<seq>) dedupes against it:
+// exactly once on the transcript, exactly once on the wire, exactly once in
+// the session log.
+func TestTimeoutThenLateFlushShowsDeliveredMessageOnce(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("ANSWER")}
+	store := testSessionStore(t)
+	m := continuationHarness(t, store, provider, nil)
+	m.pending = true
+	m.activeRunID = 7
+	m.runID = 7
+	m.width = 96
+	m.runCancel = func() {}
+	m.yieldNow = &fakeSendNowSignal{result: false}
+
+	m.input.SetValue("QF-DRAFT")
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+
+	// The loop drained a message into the dying run's wire; the goroutine
+	// then died without handing over anything. The drain already logged
+	// the EventMessage and emitted the live row (the session log writer
+	// persists it synchronously) — simulated the same way.
+	m, err := m.ensureActiveSession("seed")
+	if err != nil {
+		t.Fatalf("ensure session: %v", err)
+	}
+	m, err = m.appendSessionEvent(sessions.EventMessage, map[string]any{
+		"role":    "user",
+		"content": "DRAINED-x",
+	})
+	if err != nil {
+		t.Fatalf("seed session event: %v", err)
+	}
+	m.interleave.noteDelivered([]deliveredInterleave{{id: "interleave-7-1", text: "DRAINED-x"}})
+
+	// The drain timeout fires with no continuation available: the batch
+	// launches, replaying the delivered message with its tracked id.
+	updated, cmd := m.Update(sendNowDrainTimeoutMsg{seq: m.pendingSendNowSeq})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("expected the timeout to launch the parked batch")
+	}
+	_ = execCmd(cmd)
+
+	// The dead run's late flush lands: rows carry interleave-7-1 too; the
+	// transcript must show the message exactly once.
+	updated, _ = m.Update(agentResponseMsg{
+		runID: 7,
+		rows:  []transcriptRow{{kind: rowUser, text: "DRAINED-x", runID: 7, id: "interleave-7-1"}},
+	})
+	m = updated.(model)
+	count := 0
+	for _, row := range m.transcript {
+		count += strings.Count(row.text, "DRAINED-x")
+	}
+	if count != 1 {
+		t.Fatalf("the delivered message appears %d times in the transcript, want exactly 1", count)
+	}
+	// The wire carries it exactly once (the prepend, the only place it can).
+	count = 0
+	for _, message := range provider.requests[len(provider.requests)-1].Messages {
+		count += strings.Count(message.Content, "DRAINED-x")
+	}
+	if count != 1 {
+		t.Fatalf("the delivered message appears %d times on the wire, want exactly 1", count)
+	}
+	// The session log holds it exactly once: the drain-time event I
+	// seeded, and no second user EventMessage for the relaunch's tracked
+	// message.
+	userEvents := 0
+	for _, event := range m.sessionEvents {
+		if event.Type != sessions.EventMessage {
+			continue
+		}
+		if strings.Contains(string(event.Payload), "DRAINED-x") {
+			userEvents++
+		}
+	}
+	if userEvents != 1 {
+		t.Fatalf("the delivered message appears %d times in the session events, want exactly 1", userEvents)
+	}
+}
+
+// P2: compaction in flight blocks the parked batch from launching — the
+// same run/c compactResultMsg rewrites transcript/sessionEvents wholesale;
+// the batch stays parked, visible and pending, and launches when the
+// compact finishes, on both the flush path and the timeout path.
+func TestParkedBatchDefersDuringCompaction_OnFlushPath(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("ANSWER", "ANSWER2")}
+	m := newQueuedMessageTestModel(t)
+	m.provider = provider
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.runCancel = func() {}
+	m.yieldNow = &fakeSendNowSignal{result: false}
+
+	m.input.SetValue("QF-DRAFT")
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+	m.compactInFlight = true
+
+	updated, cmd := m.Update(agentResponseMsg{runID: 1})
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatal("the parked batch must not launch during compaction")
+	}
+	if got := len(provider.requests); got != 0 {
+		t.Fatalf("no request may fire while compaction is in flight, got %d", got)
+	}
+	if got := len(m.pendingSendNow); got != 1 || m.pendingSendNow[0] != "QF-DRAFT" {
+		t.Fatalf("the batch stays parked during compaction, got %v", m.pendingSendNow)
+	}
+	if !m.pending {
+		t.Fatal("the parked window must stay pending during compaction")
+	}
+
+	// Compaction finishes (error branch): the batch launches then.
+	updated, cmd = m.Update(compactResultMsg{err: errors.New("boom")})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("the parked batch must launch when compaction ends")
+	}
+	_ = execCmd(cmd)
+	if got := len(provider.requests); got != 1 {
+		t.Fatalf("expected the deferred batch to launch after compaction, got %d request(s)", got)
+	}
+	if len(m.pendingSendNow) != 0 {
+		t.Fatal("the batch must be consumed when it launches")
+	}
+}
+
+func TestParkedBatchDefersDuringCompaction_OnTimeoutPath(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("ANSWER", "ANSWER2")}
+	m := newQueuedMessageTestModel(t)
+	m.provider = provider
+	m.pending = true
+	m.activeRunID = 7
+	m.runID = 7
+	m.width = 96
+	m.runCancel = func() {}
+	m.yieldNow = &fakeSendNowSignal{result: false}
+	m.compactInFlight = true
+
+	m.interleave.noteDelivered([]deliveredInterleave{{id: "interleave-7-1", text: "DRAINED-x"}})
+	// The session must exist and the drain must have logged the EventMessage
+	// (the real drain writes through synchronously) for the rebuilt wire to
+	// carry the delivered message.
+	var err error
+	m, err = m.ensureActiveSession("seed")
+	if err != nil {
+		t.Fatalf("ensure session: %v", err)
+	}
+	m, err = m.appendSessionEvent(sessions.EventMessage, map[string]any{
+		"role":    "user",
+		"content": "DRAINED-x",
+	})
+	if err != nil {
+		t.Fatalf("seed session event: %v", err)
+	}
+	m.input.SetValue("QF-DRAFT")
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+
+	updated, cmd := m.Update(sendNowDrainTimeoutMsg{seq: m.pendingSendNowSeq})
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatal("the timeout must not launch during compaction either")
+	}
+	if got := len(provider.requests); got != 0 {
+		t.Fatalf("no request may fire while compaction is in flight, got %d", got)
+	}
+	if len(m.pendingSendNow) == 0 {
+		t.Fatal("the batch must remain parked during compaction")
+	}
+	if !m.pending {
+		t.Fatal("the parked window must stay pending during compaction")
+	}
+
+	// Compaction finishes (success branch): the batch launches, replaying
+	// the delivered message exactly once.
+	updated, cmd = m.Update(compactResultMsg{})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("the parked batch must launch when compaction ends")
+	}
+	_ = execCmd(cmd)
+	if got := len(provider.requests); got != 1 {
+		t.Fatalf("expected the deferred batch to launch after compaction, got %d request(s)", got)
+	}
+	count := 0
+	for _, message := range provider.requests[0].Messages {
+		count += strings.Count(message.Content, "DRAINED-x")
+	}
+	if count != 1 {
+		t.Fatalf("the delivered message rides the deferred launch exactly once, got %d", count)
 	}
 }
 

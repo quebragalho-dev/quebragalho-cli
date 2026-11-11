@@ -26,13 +26,19 @@ type sendNowSignal interface {
 // step boundary — Ctrl+Enter during a running turn (Cmd+Enter is still
 // accepted when a terminal sends it). Lives outside the model value so the
 // agent goroutine drains the same buffer the UI fills.
+type deliveredInterleave struct {
+	id   string
+	text string
+}
+
 type interleaveBuffer struct {
 	mu    sync.Mutex
 	texts []string
 	// delivered records the texts the loop already drained into the run's
-	// wire, so a batch parked after an interrupt can be relaunched losslessly
-	// even when the dead run never hands over its continuation.
-	delivered []string
+	// wire (and the rows they produced), so a batch parked after an interrupt
+	// can be relaunched losslessly even when the dead run never hands over
+	// its continuation.
+	delivered []deliveredInterleave
 }
 
 func (b *interleaveBuffer) push(text string) {
@@ -68,22 +74,23 @@ func (b *interleaveBuffer) pendingCount() int {
 }
 
 // noteDelivered records texts the loop drained into the wire — called by
-// the agent goroutine after InterleaveMessages hands messages over.
-func (b *interleaveBuffer) noteDelivered(texts []string) {
+// the agent goroutine after InterleaveMessages hands messages over. ids
+// match the rows emitted live.
+func (b *interleaveBuffer) noteDelivered(items []deliveredInterleave) {
 	b.mu.Lock()
-	b.delivered = append(b.delivered, texts...)
+	b.delivered = append(b.delivered, items...)
 	b.mu.Unlock()
 }
 
-// takeDelivered drains the recorded deliveries: each tracked text may ride
+// takeDelivered drains the recorded deliveries: each tracked item may ride
 // a relaunch at most once.
-func (b *interleaveBuffer) takeDelivered() []string {
+func (b *interleaveBuffer) takeDelivered() []deliveredInterleave {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if len(b.delivered) == 0 {
 		return nil
 	}
-	out := append([]string(nil), b.delivered...)
+	out := append([]deliveredInterleave(nil), b.delivered...)
 	b.delivered = nil
 	return out
 }

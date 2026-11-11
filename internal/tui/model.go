@@ -326,6 +326,11 @@ type model struct {
 	// pendingSendNowSeq versions the parked batch: the drain-timeout tick
 	// carries the seq so a stale tick never launches a batch parked later.
 	pendingSendNowSeq int
+	// parkedSendNowContinuationStored remembers, for a batch deferred by
+	// compactInFlight, whether the dead run handed over its wire (a flush
+	// stored its continuation). The compact pass launches at its end and
+	// passes the flag through to launchPendingSendNow.
+	parkedSendNowContinuationStored bool
 	// interleave carries operator interleaves into the running turn (drained
 	// by the agent goroutine after each tool batch; leftovers launch together
 	// as the next turn).
@@ -2973,7 +2978,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.lastCompactError = msg.err.Error()
 			m = m.setCompactStatusRow(m.compactText(true))
-			return m, nil
+			return m.launchParkedSendNowAfterCompaction()
 		}
 		if msg.hasSessionSnapshot {
 			m.activeSession = msg.activeSession
@@ -2998,7 +3003,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.meterLive = false
 		m.lastCompactResult = &msg.result
 		m = m.setCompactStatusRow(m.compactText(true))
-		return m, nil
+		return m.launchParkedSendNowAfterCompaction()
 	case planUpdateMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
@@ -5564,14 +5569,22 @@ func (m model) launchPrompt(prompt string) (model, tea.Cmd) {
 // in order. End-of-turn leftovers and the send-now interrupt path launch here
 // so the model sees exactly what the user queued — never one merged text.
 func (m model) launchPrompts(prompts []string) (model, tea.Cmd) {
-	return m.launchPromptsInternal(prompts, nil)
+	return m.launchPromptsInternal(prompts, nil, nil)
+}
+
+// launchPromptsTagged is launchPrompts with per-message row ids: a delivered
+// interleave relaunched from the send-now batch keeps the id its live row
+// carried, so a late flush of the cancelled run dedupes against it. Entries
+// with an empty id behave exactly like launchPrompts.
+func (m model) launchPromptsTagged(prompts []string, rowIDs []string) (model, tea.Cmd) {
+	return m.launchPromptsInternal(prompts, nil, rowIDs)
 }
 
 func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage) (model, tea.Cmd) {
-	return m.launchPromptsInternal([]string{prompt}, peer)
+	return m.launchPromptsInternal([]string{prompt}, peer, nil)
 }
 
-func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMessage) (model, tea.Cmd) {
+func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMessage, rowIDs []string) (model, tea.Cmd) {
 	prompt := prompts[0]
 	// Remember the verbatim prompt (before specialist/document expansion) so /retry
 	// and /edit can act on exactly what the user submitted. Snapshot the staged
@@ -5596,11 +5609,16 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 			attachments.images = 0
 		}
 		for index, text := range prompts {
+			row := transcriptRow{kind: rowUser, text: text}
 			rowAttachments := transcriptAttachmentSummary{}
 			if index == 0 {
 				rowAttachments = attachments
 			}
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendUser, text: text, attachments: rowAttachments})
+			row.attachments = rowAttachments
+			if index < len(rowIDs) && rowIDs[index] != "" {
+				row.id = rowIDs[index]
+			}
+			m.transcript = appendTranscriptRow(m.transcript, row)
 		}
 	} else {
 		m.transcript = appendTranscriptRow(m.transcript, peerTranscriptRow(peerDisplayName(peer.From), peer.Body))
@@ -5679,6 +5697,11 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 			agentPrompt = m.sessionPrompt(prompt)
 		}
 		for index, text := range prompts {
+			if index < len(rowIDs) && rowIDs[index] != "" {
+				// Already in the session log: the drain path logged the
+				// EventMessage when the loop took the message.
+				continue
+			}
 			content := text
 			if index == 0 {
 				content = prompt // carries the specialist expansion and document preamble
@@ -5855,20 +5878,62 @@ func (m model) drainSendNowTimeout(seq int) bool {
 // does nothing when none is parked. Called once the cancelled run's
 // continuation is stored — the new turn replays through it, so anything the
 // loop drained into that run's wire rides exactly once. continuationStored
-// says the dead run handed over its wire: without it the batch prepends
-// whatever the loop delivered (tracked in the buffer) — never lost.
+// says the dead run handed over its wire. For a resumable session the
+// relaunched turn rebuilds its wire from the session log (the drain logged
+// EventMessages write-through), so the tracked text rides the rebuilt wire
+// exactly once and the tracker's rows only tag transcript rows. Ineligible
+// sessions (child, side, spec) rebuild nothing, so the batch prepends the
+// tracked texts with their original row ids.
 func (m model) launchPendingSendNow(continuationStored bool) (model, tea.Cmd) {
 	if len(m.pendingSendNow) == 0 {
 		return m, nil
 	}
+	if m.compactInFlight {
+		// The compaction owns the transcript and the session events right
+		// now; the batch stays parked (visible, pending) and launches
+		// when the compact finishes.
+		m.parkedSendNowContinuationStored = continuationStored
+		return m, nil
+	}
 	batch := m.pendingSendNow
 	m.pendingSendNow = nil
-	if !continuationStored && m.interleave != nil {
+	var rowIDs []string
+	resumable := sessions.IsResumableKind(m.activeSession.SessionKind)
+	if !continuationStored && !resumable && m.interleave != nil {
 		if delivered := m.interleave.takeDelivered(); len(delivered) > 0 {
-			batch = append(append([]string(nil), delivered...), batch...)
+			prepended := make([]string, 0, len(delivered))
+			rowIDs = make([]string, 0, len(delivered)+len(batch))
+			for _, item := range delivered {
+				prepended = append(prepended, item.text)
+				rowIDs = append(rowIDs, item.id)
+			}
+			batch = append(prepended, batch...)
 		}
+	} else if !continuationStored && resumable && m.interleave != nil {
+		// The wire replays the log; the tracked text is in it. Drop the
+		// tracker entries — their rows already went out with the drain.
+		_ = m.interleave.takeDelivered()
+	}
+	if len(rowIDs) > 0 {
+		rowIDs = append(rowIDs, make([]string, len(batch)-len(rowIDs))...)
+		return m.launchPromptsTagged(batch, rowIDs)
 	}
 	return m.launchPrompts(batch)
+}
+
+// launchParkedSendNowAfterCompaction launches the batch that compaction
+// deferred (see launchPendingSendNow). On quit the batch returns to the
+// composer instead — same rule as Esc.
+func (m model) launchParkedSendNowAfterCompaction() (model, tea.Cmd) {
+	if len(m.pendingSendNow) == 0 {
+		return m, nil
+	}
+	if m.exiting {
+		return m.returnQueuedMessagesToComposer(), nil
+	}
+	stored := m.parkedSendNowContinuationStored
+	m.parkedSendNowContinuationStored = false
+	return m.launchPendingSendNow(stored)
 }
 
 func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
@@ -6197,6 +6262,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			interleaveSeq := 0
 			options.InterleaveMessages = func() []qgruntime.Message {
 				messages := interleave.drain()
+				tracked := make([]deliveredInterleave, 0, len(messages))
 				for _, message := range messages {
 					queueLiveEvents([]pendingSessionEvent{{
 						Type:    sessions.EventMessage,
@@ -6208,16 +6274,14 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 					row.id = fmt.Sprintf("interleave-%d-%d", runID, interleaveSeq)
 					rows = append(rows, row)
 					m.sendAgentRow(runID, row)
+					tracked = append(tracked, deliveredInterleave{id: row.id, text: message.Content})
 				}
-				if len(messages) > 0 {
+				if len(tracked) > 0 {
 					// Track what the loop took so a batch parked after an
 					// interrupt can be relaunched without the dead run's
-					// wire: exactly once.
-					texts := make([]string, 0, len(messages))
-					for _, message := range messages {
-						texts = append(texts, message.Content)
-					}
-					interleave.noteDelivered(texts)
+					// wire: exactly once. The ids match the live rows so a
+					// late flush dedupes against them.
+					interleave.noteDelivered(tracked)
 				}
 				return messages
 			}
