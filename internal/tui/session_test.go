@@ -1469,3 +1469,20 @@ func TestGenericPickerMouseSelectsItemFromDetailLine(t *testing.T) {
 		t.Fatalf("detail-line click selected %q, want s2", target.Value)
 	}
 }
+
+// /new starts a session with no shared history: the interleave buffer is
+// per-run state, so the fresh session gets its own. Otherwise a mid-turn
+// push stranded in the old buffer would ride the new session's next
+// provider request.
+func TestNewSessionStartsWithEmptyInterleaveBuffer(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.interleave.push("SECRET FROM OLD SESSION")
+
+	fresh := m.startNewSession()
+	if fresh.interleave == nil {
+		t.Fatal("fresh session has no interleave buffer")
+	}
+	if got := fresh.interleave.drain(); len(got) != 0 {
+		t.Fatalf("fresh session inherited %d interleaved message(s) from the old session: %#v (want 0)", len(got), got)
+	}
+}

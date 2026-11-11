@@ -91,3 +91,51 @@ func TestRunInjectsInterleavedMessagesBeforeNextRequest(t *testing.T) {
 		t.Fatalf("interleaved message must land after this step's tool result, got messages %#v", result.Messages)
 	}
 }
+
+// The loop only injects real operator messages: anything the interleave
+// source hands over with a non-user role, or with blank content, is
+// discarded before the next provider request instead of polluting the wire.
+func TestRunDropsNonUserAndBlankInterleavedMessages(t *testing.T) {
+	for _, interleaved := range []qgruntime.Message{
+		{Role: qgruntime.MessageRoleAssistant, Content: "not an operator message"},
+		{Role: qgruntime.MessageRoleUser, Content: "   "},
+	} {
+		registry := tools.NewRegistry()
+		registry.Register(stepEchoTool{})
+		provider := &mockProvider{turns: [][]qgruntime.StreamEvent{
+			{
+				{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "c1", ToolName: "step_echo"},
+				{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "c1"},
+				{Type: qgruntime.StreamEventDone},
+			},
+			{
+				{Type: qgruntime.StreamEventText, Content: "done"},
+				{Type: qgruntime.StreamEventDone},
+			},
+		}}
+		result, err := Run(context.Background(), "start", provider, Options{
+			Registry: registry,
+			Cwd:      t.TempDir(),
+			InterleaveMessages: func() []qgruntime.Message {
+				return []qgruntime.Message{interleaved}
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, message := range result.Messages {
+			if message.Role == interleaved.Role && message.Content == interleaved.Content {
+				t.Fatalf("loop must discard interleave with role %q content %q, wire: %#v",
+					interleaved.Role, interleaved.Content, result.Messages)
+			}
+		}
+		for _, req := range provider.requests {
+			for _, message := range req.Messages {
+				if message.Role == interleaved.Role && message.Content == interleaved.Content {
+					t.Fatalf("loop must not send interleave with role %q content %q to the provider",
+						interleaved.Role, interleaved.Content)
+				}
+			}
+		}
+	}
+}

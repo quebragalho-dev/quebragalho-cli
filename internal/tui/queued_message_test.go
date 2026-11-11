@@ -5,7 +5,9 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -564,5 +566,148 @@ func TestUpArrowEditsOnlyTheLastQueuedMessage(t *testing.T) {
 	}
 	if got := next.composerValue(); got != "tail" {
 		t.Fatalf("expected the tail in the composer, got %q", got)
+	}
+}
+
+// With the production sink wired (run.go), an interleaved operator message
+// reaches the transcript live during the turn AND again in the end-of-turn
+// rows: both rows carry one run-scoped dedup identity, so exactly one copy
+// stays. The same text submitted in two different turns keeps both copies.
+func TestInterleavedMessageAppearsOnceWithLiveSink(t *testing.T) {
+	store := testSessionStore(t)
+	release := make(chan struct{})
+	registry := tools.NewRegistry()
+	registry.Register(deafEchoTool{release: release})
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-slow", ToolName: "slow_echo"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-slow", ArgumentsFragment: `{}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-slow"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		{
+			{Type: qgruntime.StreamEventText, Content: "interleaved answer"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+
+	var mu sync.Mutex
+	var liveRows []agentRowMsg
+	sink := func(msg tea.Msg) {
+		if row, ok := msg.(agentRowMsg); ok {
+			mu.Lock()
+			liveRows = append(liveRows, row)
+			mu.Unlock()
+		}
+	}
+	m := newModel(context.Background(), Options{
+		Cwd:                t.TempDir(),
+		ProviderName:       "test",
+		ModelName:          "test-model",
+		Provider:           provider,
+		Registry:           registry,
+		SessionStore:       store,
+		RuntimeMessageSink: sink,
+	})
+	if writer := m.snapshotWriter; writer != nil {
+		t.Cleanup(func() { writer.Flush(10 * time.Second) })
+	}
+	m.width = 96
+
+	m.input.SetValue("run A")
+	updated, cmdA := m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	if cmdA == nil {
+		t.Fatal("expected an agent command for turn A")
+	}
+	doneA := make(chan tea.Msg, 1)
+	go func() { doneA <- execCmd(cmdA) }()
+	snapPath := filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile)
+	waitForSnapshotCall(t, snapPath, "call-slow")
+
+	m.input.SetValue("operator interleaves now")
+	updated, _ = m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+
+	close(release)
+	late := <-doneA
+
+	// Bubble Tea delivers the sink's messages to Update BEFORE the Cmd's own
+	// return value (the agentResponseMsg). Replicate that order.
+	mu.Lock()
+	rows := append([]agentRowMsg(nil), liveRows...)
+	mu.Unlock()
+	for _, row := range rows {
+		updated, _ = m.Update(row)
+		m = updated.(model)
+	}
+	updated, _ = m.Update(late)
+	m = updated.(model)
+
+	count := 0
+	for _, row := range m.transcript {
+		if row.kind == rowUser && strings.Contains(row.text, "operator interleaves now") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("interleave rowUser appears %d times, want exactly 1 (live row + end-of-turn row must dedupe)", count)
+	}
+}
+
+// A turn in flight owns its interleaves: polling the launcher while the run
+// is active must not drain the buffer and demote the message to the FIFO.
+func TestLaunchWhileRunActiveKeepsInterleaveBuffer(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.interleave.push("BELONGS TO THE ACTIVE TURN")
+
+	next, cmd := m.launchQueuedMessageIfReady()
+	if cmd != nil {
+		t.Fatal("no queued message was staged, so no new run must launch")
+	}
+	if got := next.interleave.drain(); len(got) != 1 {
+		t.Fatalf("launcher drained the active turn's interleave (remaining %d, want 1); queuedMessages=%#v",
+			len(got), next.queuedMessages)
+	}
+	if len(next.queuedMessages) != 0 {
+		t.Fatalf("active turn interleave was moved into the FIFO: %#v (want empty)", next.queuedMessages)
+	}
+}
+
+// A cancelled run's goroutine can outlive the next launch and finish a tool
+// step late: its drain touches only its own buffer, never the next run's.
+// Each beginRun mints a fresh buffer for exactly this reason.
+func TestCancelledRunDrainCannotStealNextRunInterleaves(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+
+	first := m.beginRun(nil)
+	bufA := first.interleave
+	if bufA == nil {
+		t.Fatal("run A has no interleave buffer")
+	}
+	bufA.push("pushed while run A is active")
+
+	// Esc: run A cancels; the next run starts while A's goroutine may
+	// still be alive finishing a tool.
+	second := first.beginRun(nil)
+	if second.interleave == nil {
+		t.Fatal("run B has no interleave buffer")
+	}
+	if second.interleave == bufA {
+		t.Fatal("run B shares run A's interleave buffer: run A's late drain would steal run B's interleaves")
+	}
+	second.interleave.push("for run B")
+
+	// The cancelled run's late drain (its InterleaveMessages closure holds
+	// only bufA) fires after the next launch.
+	if got := bufA.drain(); len(got) != 1 {
+		t.Fatalf("run A's late drain must take only its own message, got %#v", got)
+	}
+	got := second.interleave.drain()
+	if len(got) != 1 || got[0].Content != "for run B" {
+		t.Fatalf("run B's interleave was stolen by run A's late drain: %#v", got)
 	}
 }

@@ -473,3 +473,22 @@ func TestBTWCtrlCDuringRunDoesNotClearDraft(t *testing.T) {
 		t.Fatalf("missing in-flight return guidance: %#v", got.transcript)
 	}
 }
+
+// A /btw side conversation is isolated from the main session: it gets its
+// own interleave buffer, so a pending instruction of the parent never leaks
+// into the side conversation's provider requests. The parent keeps hers.
+func TestBTWSideConversationStartsWithEmptyInterleaveBuffer(t *testing.T) {
+	m := newBTWTestModel(t)
+	m.interleave.push("MAIN SESSION INSTRUCTION")
+
+	side, _ := m.handleBTWCommand("")
+	if side.interleave == nil {
+		t.Fatal("side conversation has no interleave buffer")
+	}
+	if got := side.interleave.drain(); len(got) != 0 {
+		t.Fatalf("isolated BTW conversation inherited %d parent interleave(s): %#v (want 0)", len(got), got)
+	}
+	if m.interleave == nil || m.interleave == side.interleave {
+		t.Fatal("parent session must keep its own interleave buffer")
+	}
+}
