@@ -1335,3 +1335,127 @@ func TestEnterWhilePendingAndCompactingQueuesPrompt(t *testing.T) {
 		t.Fatalf("expected the composer consumed by the queue, got %q", got)
 	}
 }
+
+// Full Ctrl+C sequence with a real slow-tool run: an active turn plus one
+// queued message, first Ctrl+C cancels (queue returns to the composer), the
+// cancelled run's late agentResponseMsg lands, second Ctrl+C clears the
+// composer, and a further stale duplicate changes nothing. A late run must
+// never resurrect text the operator already dismissed.
+func TestSecondCtrlCClearsComposerDespiteLateCancelledRun(t *testing.T) {
+	store := testSessionStore(t)
+	release := make(chan struct{})
+	registry := tools.NewRegistry()
+	registry.Register(deafEchoTool{release: release})
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-slow", ToolName: "slow_echo"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-slow", ArgumentsFragment: `{}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-slow"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		{
+			{Type: qgruntime.StreamEventText, Content: "late answer"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	m := continuationHarness(t, store, provider, registry)
+	if writer := m.snapshotWriter; writer != nil {
+		t.Cleanup(func() { writer.Flush(10 * time.Second) })
+	}
+	m.width = 96
+
+	m.input.SetValue("run A")
+	updated, cmdA := m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	if cmdA == nil {
+		t.Fatal("expected an agent command for turn A")
+	}
+	doneA := make(chan tea.Msg, 1)
+	go func() { doneA <- execCmd(cmdA) }()
+	snapPath := filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile)
+	waitForSnapshotCall(t, snapPath, "call-slow")
+
+	m.input.SetValue("queued while running")
+	updated, _ = m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	if len(m.queuedMessages) != 1 {
+		t.Fatalf("expected the prompt queued behind the running turn, got %#v", m.queuedMessages)
+	}
+
+	// First Ctrl+C cancels; the queue returns to the composer.
+	updated, _ = m.Update(testKeyCtrl('c'))
+	m = updated.(model)
+	if m.pending {
+		t.Fatal("expected the first Ctrl+C to cancel the running turn")
+	}
+	if got := m.composerValue(); got != "queued while running" {
+		t.Fatalf("expected the queue back in the composer, got %q", got)
+	}
+
+	// The cancelled run finishes late; its message lands between the presses.
+	close(release)
+	late := <-doneA
+	updated, _ = m.Update(late)
+	m = updated.(model)
+	if got := m.composerValue(); got != "queued while running" {
+		t.Fatalf("late cancelled-run message must not touch the composer, got %q", got)
+	}
+
+	// Second Ctrl+C clears the composer — first with the exit confirmation
+	// still armed (fast harness), then again after it expired (slow E2E:
+	// the 3s ctrlCExitConfirmDuration lapsed before the second press).
+	// Either way the composer ends empty and stays empty.
+	updated, _ = m.Update(testKeyCtrl('c'))
+	m = updated.(model)
+	if got := m.composerValue(); got != "" {
+		t.Fatalf("expected the second Ctrl+C to clear the composer, got %q", got)
+	}
+
+	// A further stale duplicate of the same late message changes nothing.
+	updated, _ = m.Update(late)
+	m = updated.(model)
+	if got := m.composerValue(); got != "" {
+		t.Fatalf("stale duplicate must leave the cleared composer alone, got %q", got)
+	}
+	if m.pending {
+		t.Fatal("no run may start on its own after the clears")
+	}
+}
+
+// Same sequence, but the exit confirmation lapses before the second press
+// (the E2E harness was slower than the 3s confirm window): the composer
+// must still clear instead of re-arming a quit.
+func TestSecondCtrlCClearsComposerAfterConfirmExpired(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.queuedMessages = []string{"queued while running"}
+	cancelled := false
+	m.runCancel = func() { cancelled = true }
+
+	updated, _ := m.Update(testKeyCtrl('c'))
+	m = updated.(model)
+	if !cancelled || m.pending {
+		t.Fatal("expected the first Ctrl+C to cancel the running turn")
+	}
+	if got := m.composerValue(); got != "queued while running" {
+		t.Fatalf("expected the queue back in the composer, got %q", got)
+	}
+
+	updated, _ = m.Update(exitConfirmExpiredMsg{seq: m.exitConfirmSeq})
+	m = updated.(model)
+	if m.exitConfirmActive {
+		t.Fatal("expected the expired confirm to disarm")
+	}
+
+	updated, _ = m.Update(testKeyCtrl('c'))
+	m = updated.(model)
+	if got := m.composerValue(); got != "" {
+		t.Fatalf("expected Ctrl+C after the lapsed confirm to clear the composer, got %q", got)
+	}
+	if m.exiting {
+		t.Fatal("clearing the composer must not quit the app")
+	}
+}
