@@ -254,6 +254,7 @@ func (m model) transcriptBodyItems(width int, emptyOverlay string, detailed bool
 	// the settled list directly. Keeping this fast path outside the closure-heavy
 	// builder also prevents the large model receiver from escaping to the heap.
 	if m.altScreen && !m.fileView.active && !m.pending && m.pendingSpecReview == nil &&
+		len(m.queuedMessages) == 0 &&
 		m.flushedAny && m.flushed == len(m.transcript) &&
 		m.altScreenSettledWidth == width && m.altScreenSettledFrontier == m.flushed {
 		if !detailed {
@@ -516,6 +517,13 @@ func (m model) buildTranscriptBodyItems(width int, emptyOverlay string, detailed
 	if m.pendingSpecReview != nil {
 		items = append(items, transcriptBlankBodyItem())
 		items = append(items, transcriptBlockBodyItem(transcriptBodyItemSpecReview, -1, renderFocusedSpecReviewPrompt(*m.pendingSpecReview, width)))
+	}
+	// Sussurro: the first queued follow-up rides the very next turn. Render it
+	// as a virtual row in the transcript — a dimmed user message with the queue
+	// shortcut hint below — so it reads as the next thing the model will see.
+	if queued := m.renderQueuedTranscriptBlock(contentWidth); queued != "" {
+		items = append(items, transcriptBlankBodyItem())
+		items = append(items, transcriptBlockBodyItem(transcriptBodyItemRow, -1, queued))
 	}
 
 	return items

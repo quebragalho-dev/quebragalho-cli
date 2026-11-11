@@ -128,7 +128,7 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 	side.pendingPermission = nil
 	side.pendingAskUser = nil
 	side.pendingSpecReview = nil
-	side.queuedMessage = ""
+	side.queuedMessages = nil
 	side.lastPrompt = ""
 	side.lastImages = nil
 	side.lastImageLabels = nil

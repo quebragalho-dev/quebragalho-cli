@@ -404,6 +404,14 @@ type Options struct {
 	// with its full schema on this run's first request. Only honored with a
 	// non-empty Continuation; the TUI passes both together.
 	LoadedDeferredTools []string
+	// InterleaveMessages, when non-nil, is called by the loop after every
+	// tool batch completes (all tool results recorded, before the next
+	// provider request is built). Each call drains the operator's pending
+	// interleaves — messages the UI took with Cmd+Enter / Ctrl+Enter mid-turn —
+	// and returns user messages to append to the ongoing run's wire as-is,
+	// so they reach the model on the very next request without the turn
+	// being interrupted. nil disables interleaving.
+	InterleaveMessages func() []Message
 	// ContextWindow is the model's maximum input token budget. When > 0 the agent
 	// loop compacts long conversations once the estimated size crosses a fraction
 	// of this window. 0 DISABLES compaction entirely (every existing caller/test

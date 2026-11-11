@@ -122,7 +122,7 @@ func TestSpecReviewCancelLaunchesQueuedPrompt(t *testing.T) {
 	}}}
 	m := newSpecModeTestModel(t.TempDir(), provider, testSessionStore(t))
 	m.pendingSpecReview = &pendingSpecReviewPrompt{SpecID: "spec", SpecFilePath: ".qg/specs/spec.md"}
-	m.queuedMessage = "continue after cancel"
+	m.queuedMessages = []string{"continue after cancel"}
 
 	updated, cmd := m.Update(testKey(tea.KeyEsc))
 	next := updated.(model)
@@ -134,7 +134,7 @@ func TestSpecReviewCancelLaunchesQueuedPrompt(t *testing.T) {
 		t.Fatal("expected spec review to clear")
 	}
 	if next.hasQueuedMessage() {
-		t.Fatalf("expected queued prompt to be consumed, got %q", next.queuedMessage)
+		t.Fatalf("expected queued prompt to be consumed, got %q", strings.Join(next.queuedMessages, "\n"))
 	}
 	if !next.pending {
 		t.Fatal("expected queued prompt launch to mark model pending")
@@ -165,7 +165,7 @@ func TestSpecReviewRejectLaunchesQueuedPrompt(t *testing.T) {
 	if next.pendingSpecReview == nil {
 		t.Fatal("expected pending review before rejection")
 	}
-	next.queuedMessage = "continue after reject"
+	next.queuedMessages = []string{"continue after reject"}
 
 	updated, cmd = next.Update(testKeyText("r"))
 	next = updated.(model)
@@ -177,7 +177,7 @@ func TestSpecReviewRejectLaunchesQueuedPrompt(t *testing.T) {
 		t.Fatal("expected spec review to clear")
 	}
 	if next.hasQueuedMessage() {
-		t.Fatalf("expected queued prompt to be consumed, got %q", next.queuedMessage)
+		t.Fatalf("expected queued prompt to be consumed, got %q", strings.Join(next.queuedMessages, "\n"))
 	}
 	if !next.pending {
 		t.Fatal("expected queued prompt launch to mark model pending")
