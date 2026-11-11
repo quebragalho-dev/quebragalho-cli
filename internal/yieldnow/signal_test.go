@@ -140,3 +140,16 @@ func TestContextCarriesSignal(t *testing.T) {
 		t.Fatal("a nil Signal must not attach to the context")
 	}
 }
+
+// Release is idempotent: a double release must not drive the waiter count
+// negative, so a later Request still reports nothing to wake.
+func TestDoubleReleaseKeepsRequestFalse(t *testing.T) {
+	s := New()
+	wake, release := s.Park()
+	_ = wake
+	release()
+	release()
+	if s.Request() {
+		t.Fatal("Request after a double release must return false, the waiter is gone")
+	}
+}
