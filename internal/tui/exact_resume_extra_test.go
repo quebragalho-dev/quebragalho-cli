@@ -1035,3 +1035,69 @@ func TestHandlerFinalWriteKeepsResumeExact(t *testing.T) {
 		t.Fatal("a resume right after a completed turn must be exact (M09)")
 	}
 }
+
+// TestCancelledRunLateDrainKeepsResumeExact (stale branch final write): a
+// turn cancelled mid-step, drained late with NO newer turn afterwards,
+// must leave the on-disk snapshot aligned with the post-drain log head, and
+// a fresh resume must be exact. This pins the stale-branch snapshot Queue in
+// the agentResponseMsg handler: without it, whatever the per-step writes left
+// behind decides the resume's fidelity.
+func TestCancelledRunLateDrainKeepsResumeExact(t *testing.T) {
+	store := testSessionStore(t)
+	release := make(chan struct{})
+	registry := tools.NewRegistry()
+	registry.Register(deafEchoTool{release: release})
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-slow", ToolName: "slow_echo"},
+		{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-slow", ArgumentsFragment: `{}`},
+		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-slow"},
+		{Type: qgruntime.StreamEventDone},
+	}}}
+	m := continuationHarness(t, store, provider, registry)
+	sessionID := m.activeSession.SessionID
+	if sessionID != "" {
+		t.Fatal("session must not exist before the first turn")
+	}
+
+	// Turn A starts; the deaf tool blocks inside the run.
+	m.input.SetValue("run A")
+	updated, cmdA := m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	if cmdA == nil {
+		t.Fatal("expected an agent command for turn A")
+	}
+	doneA := make(chan tea.Msg, 1)
+	go func() { doneA <- execCmd(cmdA) }()
+	snapPath := filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile)
+	waitForSnapshotCall(t, snapPath, "call-slow")
+
+	// Esc cancels A (context and all); the deaf tool keeps the goroutine alive.
+	m.cancelRun()
+	// NO turn B.
+
+	// A's tool returns late; A's goroutine drains with the old run id.
+	close(release)
+	late := <-doneA
+	updated, _ = m.Update(late)
+	m = updated.(model)
+
+	flushSnapshot(t, m)
+
+	snap, err := store.ReadContinuation(m.activeSession.SessionID)
+	if err != nil || snap == nil {
+		t.Fatalf("snapshot missing after the cancel drain: %v", err)
+	}
+	if snap.EventSeq != m.activeSession.EventCount {
+		t.Fatalf("snapshot head = %d, want the post-drain log head %d", snap.EventSeq, m.activeSession.EventCount)
+	}
+	last := snap.Messages[len(snap.Messages)-1]
+	if last.Role != qgruntime.MessageRoleTool || !strings.Contains(last.Content, "slow ok") {
+		t.Fatalf("snapshot must carry A's final wire (tool result), got %#v", last)
+	}
+
+	fresh := continuationHarness(t, store, &scriptedProvider{scripts: textScripts("x")}, nil)
+	fresh, _ = fresh.handleResumeCommand(m.activeSession.SessionID)
+	if !fresh.resumedExact || fresh.reconstructedResume {
+		t.Fatal("a resume right after a cancelled-drained turn must be exact")
+	}
+}
