@@ -233,6 +233,13 @@ func transcriptRowKey(row transcriptRow) string {
 		if row.id != "" {
 			return fmt.Sprintf("%d:%d:%s", row.kind, row.runID, row.id)
 		}
+	case rowUser:
+		// Only interleaved operator rows carry an id (runID + the run's own
+		// sequence); plain user rows stay unkeyed so identical prompts in
+		// different turns never collapse into one.
+		if row.id != "" {
+			return fmt.Sprintf("%d:%d:%s", row.kind, row.runID, row.id)
+		}
 	case rowPermission:
 		if row.permission != nil && row.permission.ToolCallID != "" {
 			return fmt.Sprintf("%d:%d:%s:%s", row.kind, row.runID, row.permission.ToolCallID, row.permission.Action)

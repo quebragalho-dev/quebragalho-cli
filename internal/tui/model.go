@@ -5416,6 +5416,11 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.terminalAutoAttach = nil
 	m.runCancel = cancel
 	m.pending = true
+	// The interleave buffer belongs to the RUN, not the session: a fresh
+	// buffer per launch means a cancelled run whose goroutine outlives the
+	// next launch can only drain its own leftovers, never the next run's
+	// interleaves. The closure in runAgentWithOptions binds this buffer.
+	m.interleave = &interleaveBuffer{}
 	// Clear per-run tracking state so stale specialists and plans from the
 	// previous turn don't bleed into the new one.
 	m.specialists.clear()
@@ -5458,11 +5463,16 @@ func (m *model) ensureSpinnerTick() tea.Cmd {
 }
 
 func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
+	if m.pending || m.exiting || m.pendingPermission != nil || m.pendingAskUser != nil || m.pendingSpecReview != nil {
+		return m, nil
+	}
 	// A turn that ended before the agent consumed the operator's interleaves
 	// (final text-only answer, Esc cancel) would strand them; put them back
-	// at the head of the queue so they lead the next turn.
+	// at the head of the queue so they lead the next turn. Only when no run
+	// is active: draining here with a run in flight would steal the active
+	// turn's interleaves into the FIFO.
 	m = m.requeueStrandedInterleaves()
-	if !m.hasQueuedMessage() || m.pending || m.exiting || m.pendingPermission != nil || m.pendingAskUser != nil || m.pendingSpecReview != nil {
+	if !m.hasQueuedMessage() {
 		return m, nil
 	}
 	prompt := m.queuedMessages[0]
@@ -5742,6 +5752,12 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// transcript, and hand them to the loop to append to the ongoing
 		// wire. The turn is never interrupted.
 		if interleave := m.interleave; interleave != nil {
+			// One run-scoped sequence for every row this run emits: the live
+			// row (via the sink) and the end-of-turn row share the same
+			// identity, so the transcript keeps exactly one copy. The runID
+			// keeps turns apart — the same text in two turns stays visible
+			// twice, as do two distinct interleaves in one run.
+			interleaveSeq := 0
 			options.InterleaveMessages = func() []qgruntime.Message {
 				messages := interleave.drain()
 				for _, message := range messages {
@@ -5751,6 +5767,8 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 					}})
 					row := transcriptRow{kind: rowUser, text: message.Content}
 					row.runID = runID
+					interleaveSeq++
+					row.id = fmt.Sprintf("interleave-%d-%d", runID, interleaveSeq)
 					rows = append(rows, row)
 					m.sendAgentRow(runID, row)
 				}
