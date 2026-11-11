@@ -112,6 +112,24 @@ func (s *PrService) GetState() PrState {
 	return s.state
 }
 
+// Branch reports the branch the last background refresh observed: the
+// checked-out branch, or the short head sha when detached (mirroring the
+// header's git segment). Empty only before the first observation.
+func (s *PrService) Branch() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if strings.TrimSpace(s.lastBranch) != "" {
+		return strings.TrimSpace(s.lastBranch)
+	}
+	if len(s.lastHead) >= 7 {
+		return s.lastHead[:7]
+	}
+	return strings.TrimSpace(s.lastHead)
+}
+
 func (s *PrService) Subscribe(fn func(PrState)) func() {
 	if s == nil || fn == nil {
 		return func() {}
@@ -272,9 +290,14 @@ type gitlabMRView struct {
 // (every release-please PR here shares head `dev`). Listing the open PRs for
 // the exact head and showing the newest is deterministic: the header never
 // shows another branch's PR, and never an older duplicate.
+// The header segment always matches the PR state it was delivered with:
+// both come from one background refresh cycle, keyed by the same observed
+// branch — the render path never re-reads files or shells out to stay
+// coherent with the diff numbers beside it.
 func (s *PrService) detectGitHubPR(ctx context.Context, cwd string, run prCommandRunner) (PrState, bool) {
-	branch, _ := currentBranchHead(ctx, cwd, run)
-	branch = strings.TrimSpace(branch)
+	s.mu.RLock()
+	branch := strings.TrimSpace(s.lastBranch)
+	s.mu.RUnlock()
 	if branch == "" {
 		return PrState{}, false
 	}

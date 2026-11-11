@@ -907,6 +907,10 @@ type sandboxSetupCommandResultMsg struct {
 
 type prStateMsg struct {
 	state PrState
+	// branch is the checked-out branch (or short head sha when detached)
+	// the background refresh observed. Empty only before the first
+	// observation; the handler then keeps the current segment.
+	branch string
 }
 
 type prWatcherStartedMsg struct {
@@ -1393,7 +1397,7 @@ func (m model) Init() tea.Cmd {
 		}
 		cmds = append(cmds, func() tea.Msg {
 			stop := WatchPRStateContext(ctx, service, func(state PrState) {
-				sink(prStateMsg{state: state})
+				sink(prStateMsg{state: state, branch: service.Branch()})
 			})
 			return prWatcherStartedMsg{stop: stop}
 		})
@@ -3213,7 +3217,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case prStateMsg:
 		m.prState = msg.state
-		m.gitBranch = gitBranch(m.cwd)
+		// The branch rides the same message as the PR state it was observed
+		// with: no file read or subprocess on the Update path, and the two
+		// header segments can never disagree.
+		if strings.TrimSpace(msg.branch) != "" {
+			m.gitBranch = strings.TrimSpace(msg.branch)
+		}
 		return m, nil
 	case gitSweepMsg:
 		return m.handleGitSweepMsg(msg), nil
