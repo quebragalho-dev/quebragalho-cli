@@ -203,4 +203,20 @@ func TestCollectedTypedErrorClassifiesByStatus(t *testing.T) {
 	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 402, Message: "payment required"}) {
 		t.Error("typed 402 must not retry")
 	}
+	// A typed code outranks the body text: gateways forward upstream
+	// failures whose bodies cite the origin error, and those must retry.
+	if !isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 502, Message: "bad gateway: upstream returned 401"}) {
+		t.Error("typed 502 citing a 401 in the body must retry")
+	}
+	if !isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 502, Message: "bad gateway: forbidden by upstream"}) {
+		t.Error("typed 502 citing forbidden in the body must retry")
+	}
+	if !isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 503, Message: "model not found in pool, retry later"}) {
+		t.Error("typed 503 citing model not found must retry")
+	}
+	for _, code := range []int{401, 403, 404} {
+		if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: code, Message: "request failed"}) {
+			t.Errorf("typed %d must not retry", code)
+		}
+	}
 }

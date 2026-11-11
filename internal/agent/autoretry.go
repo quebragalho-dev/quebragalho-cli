@@ -77,7 +77,34 @@ func isRetryableModelError(ctx context.Context, err error) bool {
 	if isContextLimitError(msg) || isImageRejectionError(err) {
 		return false
 	}
-	// Permanent request errors: retrying cannot help and may loop or rebill.
+	// Billing never retries, typed or not — the single content check that
+	// outranks a typed code, so an insufficient-credits body fails fast even
+	// when the provider mapped it onto a 429.
+	if strings.Contains(msg, "insufficient") ||
+		strings.Contains(msg, "saldo insuficiente") ||
+		strings.Contains(msg, "payment required") {
+		return false
+	}
+	// A typed provider failure decides by status code and returns: the code
+	// is exact, so it outranks every substring below. A gateway 502/503
+	// whose body cites the origin error ("upstream returned 401",
+	// "model not found in pool") still retries on its own code.
+	var statusErr *providerio.StatusError
+	if errors.As(err, &statusErr) {
+		if statusErr.StatusCode == 402 {
+			return false
+		}
+		if statusErr.StatusCode != 0 {
+			switch statusErr.StatusCode {
+			case 408, 425, 429, 500, 502, 503, 504, 529:
+				return true
+			default:
+				return false
+			}
+		}
+	}
+	// Untyped path only below. Permanent request errors: retrying cannot
+	// help and may loop or rebill.
 	if errhint.HasStatusCode(msg, "400", "401", "402", "403", "404") {
 		return false
 	}
@@ -88,23 +115,8 @@ func isRetryableModelError(ctx context.Context, err error) bool {
 		"model_not_allowed",
 		"model not allowed",
 		"model not found",
-		"insufficient",
-		"payment required",
-		"saldo insuficiente",
 	} {
 		if strings.Contains(msg, needle) {
-			return false
-		}
-	}
-	// A typed provider failure decides by status code: the code is exact, so
-	// it outranks substring needles. Billing exhaustion stays excluded above
-	// ("insufficient") even when the provider maps it onto a 429.
-	var statusErr *providerio.StatusError
-	if errors.As(err, &statusErr) && statusErr.StatusCode != 0 {
-		switch statusErr.StatusCode {
-		case 408, 425, 429, 500, 502, 503, 504, 529:
-			return true
-		default:
 			return false
 		}
 	}
