@@ -23,6 +23,12 @@ type toolState struct {
 	// FinishReason*) when the response ended abnormally (length/content_filter),
 	// so the provider can attach it to the done event. Empty for a normal finish.
 	finishReason string
+	// terminated is set once any finish_reason arrives. [DONE] needs no flag:
+	// the shared scan ends the stream silently on it, so a nil scan error
+	// with terminated unset still means a clean, terminated end. A scan
+	// error of io.ErrUnexpectedEOF with terminated unset means the stream
+	// was cut before either marker: truncated, not complete.
+	terminated bool
 	// done is set once a terminal event (error) has been emitted so the post-scan
 	// path does not emit a second done after the stream already ended.
 	done bool
