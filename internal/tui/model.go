@@ -4778,6 +4778,11 @@ func (m model) handleEnterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // takes the exact Enter path — handleEnterKey — so the two keys can never
 // diverge. Pending attachments keep the composer intact and post a short
 // notice instead: interleaving does not carry images or documents.
+//
+// One deliberate exception to "exactly Enter": an open suggestion overlay
+// does not claim Ctrl+Enter. The key is an explicit send-now gesture, so it
+// intercalates the literal composer text and the suggestion is left for
+// Enter/Tab to accept. A stale overlay never hijacks the message.
 func (m model) handleInterleaveEnter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.burstCount = 0
 	if m.pending && m.noBlockingModal() && !m.transcriptDetailed {

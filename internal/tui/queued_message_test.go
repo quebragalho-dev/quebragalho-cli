@@ -1143,3 +1143,69 @@ func TestInterleaveEnterWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing
 		t.Fatal("the staged image must stay pending")
 	}
 }
+
+// An open suggestion overlay does not claim Ctrl+Enter: the key is an
+// explicit send-now gesture, so the literal composer text interleaves into
+// the running turn and the suggestion is left for Enter/Tab.
+func TestInterleaveEnterIntercalatesLiteralTextWithSuggestionOverlayOpen(t *testing.T) {
+	store := testSessionStore(t)
+	release := make(chan struct{})
+	registry := tools.NewRegistry()
+	registry.Register(deafEchoTool{release: release})
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-slow", ToolName: "slow_echo"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-slow", ArgumentsFragment: `{}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-slow"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		{
+			{Type: qgruntime.StreamEventText, Content: "interleaved answer"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	m := continuationHarness(t, store, provider, registry)
+	m.width = 96
+
+	m.input.SetValue("run A")
+	updated, cmdA := m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	doneA := make(chan tea.Msg, 1)
+	go func() { doneA <- execCmd(cmdA) }()
+	snapPath := filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile)
+	waitForSnapshotCall(t, snapPath, "call-slow")
+
+	m.input.SetValue("abra @arq MARKLITERAL texto")
+	m.suggestions = []commandSuggestion{{Name: "@README.md", Desc: "arquivo"}}
+	m.suggestionsAreFiles = true
+	if !m.suggestionsActive() {
+		t.Fatal("precondition: the file suggestion overlay must be open")
+	}
+
+	updated, _ = m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+	if got := m.composerValue(); got != "" {
+		t.Fatalf("Ctrl+Enter must consume the composer literally, got %q", got)
+	}
+	if m.suggestionsActive() {
+		t.Fatal("Ctrl+Enter must dismiss the overlay instead of accepting the suggestion")
+	}
+
+	close(release)
+	late := <-doneA
+	updated, _ = m.Update(late)
+	m = updated.(model)
+
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2 (turn + interleaved)", len(provider.requests))
+	}
+	found := false
+	for _, message := range provider.requests[1].Messages {
+		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "abra @arq MARKLITERAL texto") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the literal composer text must reach the provider, got %#v", provider.requests[1].Messages)
+	}
+}
