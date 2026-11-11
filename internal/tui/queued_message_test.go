@@ -19,7 +19,43 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-func TestEnterWhilePendingQueuesPromptWithoutStartingRun(t *testing.T) {
+// fakeSendNowSignal stands in for the run's yieldnow.Signal: result=true
+// wakes the (backgroundable) wait so messages deliver inside the running
+// turn; result=false (or a nil signal on the model) interrupts the turn and
+// relaunches everything as one new turn.
+type fakeSendNowSignal struct {
+	result bool
+	calls  int
+}
+
+func (f *fakeSendNowSignal) Request() bool {
+	f.calls++
+	return f.result
+}
+
+func TestInterleaveBufferPopLastRemovesOnlyTheLastPending(t *testing.T) {
+	buffer := &interleaveBuffer{}
+	if _, ok := buffer.popLast(); ok {
+		t.Fatal("popLast on an empty buffer must report false")
+	}
+	buffer.push("first")
+	buffer.push("second")
+	buffer.push("third")
+	if text, ok := buffer.popLast(); !ok || text != "third" {
+		t.Fatalf("popLast = %q, %v — want third, true", text, ok)
+	}
+	if got := buffer.pendingCount(); got != 2 {
+		t.Fatalf("pendingCount = %d, want 2", got)
+	}
+	if messages := buffer.drain(); len(messages) != 2 || messages[0].Content != "first" || messages[1].Content != "second" {
+		t.Fatalf("drain after popLast = %#v, want [first second] in order", messages)
+	}
+	if _, ok := buffer.popLast(); ok {
+		t.Fatal("popLast after a drain must report false")
+	}
+}
+
+func TestEnterDuringTurnStagesInterleaveWithoutStartingRun(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
 	m.activeRunID = 1
@@ -41,6 +77,12 @@ func TestEnterWhilePendingQueuesPromptWithoutStartingRun(t *testing.T) {
 	if transcriptContains(next.transcript, "second prompt") {
 		t.Fatalf("queued prompt should not append to transcript before it runs, got %#v", next.transcript)
 	}
+	if len(next.queuedMessages) != 0 {
+		t.Fatalf("a plain prompt during a run must not enter the FIFO, queue = %v", next.queuedMessages)
+	}
+	if next.interleave == nil || next.interleave.pendingCount() != 1 {
+		t.Fatalf("expected the plain prompt interleaved into the running turn, got %+v", next.interleave)
+	}
 }
 
 func TestPendingInterleaveRendersDimmedWithNotice(t *testing.T) {
@@ -55,8 +97,8 @@ func TestPendingInterleaveRendersDimmedWithNotice(t *testing.T) {
 	if !strings.Contains(view, "❯ MARKINTER pending interleave") {
 		t.Fatalf("expected the pending interleave as a dimmed Sussurro row, got:\n%s", view)
 	}
-	if !strings.Contains(view, "enviando após a ação atual…") {
-		t.Fatalf("expected the interleave notice below the row, got:\n%s", view)
+	if strings.Contains(view, "enviando após a ação atual…") {
+		t.Fatalf("the interleave notice must be gone, got:\n%s", view)
 	}
 }
 
@@ -76,8 +118,8 @@ func TestPendingInterleaveAndQueueRenderTogether(t *testing.T) {
 	if !strings.Contains(view, "MARKONE queued") {
 		t.Fatalf("expected the queued message to stay visible, got:\n%s", view)
 	}
-	if !strings.Contains(view, "enviando após a ação atual…") {
-		t.Fatalf("expected the interleave notice, got:\n%s", view)
+	if strings.Contains(view, "enviando após a ação atual…") {
+		t.Fatalf("the interleave notice must be gone, got:\n%s", view)
 	}
 	if !strings.Contains(view, "na fila (1)") {
 		t.Fatalf("expected the queue notice with the count, got:\n%s", view)
@@ -90,12 +132,9 @@ func TestComposerPlaceholderEditsLastQueuedMessage(t *testing.T) {
 	m.activeRunID = 1
 	m.runID = 1
 	m.width = 96
-	m.input.SetValue("queued followup")
+	m.queuedMessages = []string{"queued followup"}
 
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-
-	view := viewString(next.View())
+	view := viewString(m.View())
 	if !strings.Contains(view, "Pressione ↑ para editar a última da fila") {
 		t.Fatalf("expected the placeholder to point at the last queued message, got:\n%s", view)
 	}
@@ -110,12 +149,9 @@ func TestQueuedPromptRendersInTranscript(t *testing.T) {
 	m.activeRunID = 1
 	m.runID = 1
 	m.width = 96
-	m.input.SetValue("summarize the failing test output")
+	m.queuedMessages = []string{"summarize the failing test output"}
 
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-
-	view := plainRender(t, viewString(next.View()))
+	view := plainRender(t, viewString(m.View()))
 	// Sussurro: a dimmed `❯ <text>` row in the transcript, with a faint
 	// hint naming the send/edit shortcuts below it.
 	if !strings.Contains(view, "❯ summarize the failing test output") {
@@ -192,7 +228,7 @@ func TestAgentResponseLaunchesQueuedPrompt(t *testing.T) {
 	}
 }
 
-func TestEscCancelsAndReturnsQueueToComposerWithoutLaunching(t *testing.T) {
+func TestEscCancelsAndReturnsPendingInterleaveToComposerWithoutLaunching(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.provider = &scriptedProvider{scripts: textScripts("answer one", "answer two")}
 	cancelled := false
@@ -205,16 +241,19 @@ func TestEscCancelsAndReturnsQueueToComposerWithoutLaunching(t *testing.T) {
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
+	if next.interleave == nil || next.interleave.pendingCount() != 1 {
+		t.Fatalf("expected the plain prompt interleaved while the run is active, got %+v", next.interleave)
+	}
 
-	// First Esc only arms the cancel confirmation; the queue stays untouched.
+	// First Esc only arms the cancel confirmation; the pending message stays.
 	updated, _ = next.Update(testKey(tea.KeyEsc))
 	next = updated.(model)
 
 	if cancelled {
 		t.Fatal("first Esc must only arm the cancel confirmation")
 	}
-	if !next.hasQueuedMessage() {
-		t.Fatal("first Esc must not drop the queued message")
+	if next.interleave == nil || next.interleave.pendingCount() != 1 {
+		t.Fatal("first Esc must not drop the pending message")
 	}
 	if !next.pending {
 		t.Fatal("expected the active run to remain pending after the confirm arm")
@@ -235,10 +274,10 @@ func TestEscCancelsAndReturnsQueueToComposerWithoutLaunching(t *testing.T) {
 		t.Fatalf("double Esc must not hit the provider, got %d request(s)", len(provider.requests))
 	}
 	if next.hasQueuedMessage() {
-		t.Fatalf("expected the queue back in the composer, still queued: %v", next.queuedMessages)
+		t.Fatalf("expected no FIFO entry left behind, still queued: %v", next.queuedMessages)
 	}
 	if got := next.composerValue(); got != "queued followup\nin-progress draft" {
-		t.Fatalf("expected the queued message above the draft, got %q", got)
+		t.Fatalf("expected the pending interleave above the draft, got %q", got)
 	}
 }
 
@@ -290,13 +329,13 @@ func TestAgentResponseLaunchesQueuedPromptAfterError(t *testing.T) {
 	}
 }
 
-func TestUpArrowPopsQueuedMessageIntoComposer(t *testing.T) {
+func TestUpArrowPopsPendingInterleaveIntoComposer(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
 	m.activeRunID = 1
 	m.runID = 1
 	m.width = 96
-	m.input.SetValue("queued followup")
+	m.input.SetValue("interleaved followup")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -304,21 +343,21 @@ func TestUpArrowPopsQueuedMessageIntoComposer(t *testing.T) {
 	updated, _ = next.Update(testKey(tea.KeyUp))
 	next = updated.(model)
 
-	if next.hasQueuedMessage() {
-		t.Fatalf("expected ↑ to pop the queued message, still queued: %v", next.queuedMessages)
+	if next.interleave != nil && next.interleave.pendingCount() != 0 {
+		t.Fatalf("expected ↑ to pop the pending interleave, still pending: %v", next.interleave.snapshot())
 	}
-	if got := next.composerValue(); got != "queued followup" {
-		t.Fatalf("expected queued message back in the composer, got %q", got)
+	if got := next.composerValue(); got != "interleaved followup" {
+		t.Fatalf("expected the interleaved message back in the composer, got %q", got)
 	}
 }
 
-func TestUpArrowPutsQueuedMessageAboveDraft(t *testing.T) {
+func TestUpArrowPutsInterleaveAboveDraft(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
 	m.activeRunID = 1
 	m.runID = 1
 	m.width = 96
-	m.input.SetValue("first queued")
+	m.input.SetValue("first message")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
@@ -327,15 +366,46 @@ func TestUpArrowPutsQueuedMessageAboveDraft(t *testing.T) {
 	updated, _ = next.Update(testKey(tea.KeyUp))
 	next = updated.(model)
 
-	if next.hasQueuedMessage() {
-		t.Fatalf("expected ↑ to pop the queued message, still queued: %v", next.queuedMessages)
+	if next.interleave != nil && next.interleave.pendingCount() != 0 {
+		t.Fatalf("expected ↑ to pop the pending interleave, still pending: %v", next.interleave.snapshot())
 	}
-	if got := next.composerValue(); got != "first queued\nin-progress draft" {
-		t.Fatalf("expected queued text above the draft, got %q", got)
+	if got := next.composerValue(); got != "first message\nin-progress draft" {
+		t.Fatalf("expected the interleaved text above the draft, got %q", got)
 	}
 }
 
-func TestQueuedMessageShowsUpEditHint(t *testing.T) {
+// With both an interleave and a FIFO pending, ↑ pops the most recently
+// pushed one first (the interleave), then the FIFO tail.
+func TestUpArrowPrefersInterleaveOverQueueTail(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.queuedMessages = []string{"fifo tail"}
+	m.interleave = &interleaveBuffer{}
+	m.interleave.push("interleaved newer")
+
+	updated, _ := m.Update(testKey(tea.KeyUp))
+	next := updated.(model)
+	if got := next.composerValue(); got != "interleaved newer" {
+		t.Fatalf("expected ↑ to pop the interleave first, got %q", got)
+	}
+	if got := next.queuedMessages; len(got) != 1 || got[0] != "fifo tail" {
+		t.Fatalf("the FIFO must stay untouched while the interleave is pending, got %v", got)
+	}
+
+	updated, _ = next.Update(testKey(tea.KeyUp))
+	next = updated.(model)
+	if got := next.queuedMessages; len(got) != 0 {
+		t.Fatalf("expected the FIFO tail popped next, queue = %v", got)
+	}
+	if got := next.composerValue(); got != "fifo tail\ninterleaved newer" {
+		t.Fatalf("expected the FIFO tail above the earlier pop, got %q", got)
+	}
+}
+
+func TestComposerHintShowsAndClearsWithPendingMessage(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
 	m.activeRunID = 1
@@ -359,21 +429,53 @@ func TestQueuedMessageShowsUpEditHint(t *testing.T) {
 	}
 }
 
+// Plain prompts entered during a run interleave in order: the loop drains
+// them in the same turn they were typed.
+func TestSecondInterleaveStacksBehindFirstInBuffer(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.input.SetValue("first prompt")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+	next.input.SetValue("second prompt")
+
+	updated, _ = next.Update(testKey(tea.KeyEnter))
+	next = updated.(model)
+
+	if next.interleave == nil {
+		t.Fatal("expected both plain prompts interleaved into the running turn")
+	}
+	got := next.interleave.snapshot()
+	if len(got) != 2 || got[0] != "first prompt" || got[1] != "second prompt" {
+		t.Fatalf("expected the interleave buffer [first prompt second prompt], got %v", got)
+	}
+	if len(next.queuedMessages) != 0 {
+		t.Fatalf("plain prompts must not enter the FIFO, got %v", next.queuedMessages)
+	}
+}
+
+// The FIFO keeps its own order: messages enqueued through the queue path
+// (here @specialist mentions, which never interleave unexpanded) stack in
+// order of arrival.
 func TestSecondQueuedMessageStacksUnderFirst(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
 	m.activeRunID = 1
 	m.runID = 1
-	m.input.SetValue("first queued")
+	m.agentOptions.Specialists = []agent.SpecialistInfo{{Name: "reviewer"}}
+	m.input.SetValue("@reviewer first queued")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
-	next.input.SetValue("second queued")
+	next.input.SetValue("@reviewer second queued")
 
 	updated, _ = next.Update(testKey(tea.KeyEnter))
 	next = updated.(model)
 
-	if got := next.queuedMessages; len(got) != 2 || got[0] != "first queued" || got[1] != "second queued" {
+	if got := next.queuedMessages; len(got) != 2 || got[0] != "@reviewer first queued" || got[1] != "@reviewer second queued" {
 		t.Fatalf("expected a FIFO of two queued prompts, got %v", got)
 	}
 }
@@ -436,10 +538,18 @@ func TestInterleaveEnterInjectsIntoRunningTurn(t *testing.T) {
 	waitForSnapshotCall(t, snapPath, "call-slow")
 
 	m.input.SetValue("operator interleaves now")
+	// beginRun resets the run's signal slot, so install the fake after the
+	// turn is live — same as the wiring when it lands: beginRun creates
+	// the run's Signal and the agent side wakes it.
+	signal := &fakeSendNowSignal{result: true}
+	m.yieldNow = signal
 	updated, _ = m.Update(testInterleaveEnter(t, true))
 	m = updated.(model)
 	if got := m.composerValue(); got != "" {
-		t.Fatalf("expected interleave to consume the composer, got %q", got)
+		t.Fatalf("expected the send-now to consume the composer, got %q", got)
+	}
+	if signal.calls != 1 {
+		t.Fatalf("expected Request() called exactly once, got %d", signal.calls)
 	}
 
 	close(release)
@@ -499,18 +609,13 @@ func TestInterleaveEnterSendsQueueHead(t *testing.T) {
 	go func() { doneA <- execCmd(cmdA) }()
 	snapPath := filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile)
 	waitForSnapshotCall(t, snapPath, "call-slow")
+	m.yieldNow = &fakeSendNowSignal{result: true}
 
-	m.input.SetValue("MARKHEAD queued followup")
-	updated, _ = m.Update(testKey(tea.KeyEnter))
-	m = updated.(model)
-	if !m.hasQueuedMessage() {
-		t.Fatal("expected the follow-up queued while the turn runs")
-	}
-
+	m.queuedMessages = []string{"MARKHEAD queued followup"}
 	updated, _ = m.Update(testInterleaveEnter(t, true))
 	m = updated.(model)
 	if m.hasQueuedMessage() {
-		t.Fatal("expected Ctrl+Enter to pop the queue head into the interleave")
+		t.Fatal("expected send-now to drain the queue into the running turn")
 	}
 
 	close(release)
@@ -573,46 +678,64 @@ func TestInterleaveEnterWithNoWorkIsIdle(t *testing.T) {
 	}
 }
 
-// A mid-turn interleave that never sees a tool batch (text-only answer)
-// would strand in the buffer; it requeues to the head of the FIFO at the
-// end of the turn instead of vanishing.
-func TestInterleaveStrandedAfterTextOnlyTurnIsRequeued(t *testing.T) {
-	provider := &scriptedProvider{scripts: textScripts("answer", "second")}
+// A mid-turn plain prompt that never sees a tool batch (text-only answer)
+// would strand in the buffer; at the end of the turn the leftovers launch
+// TOGETHER as separate user messages, in order — never concatenated, never
+// requeued silently.
+func TestInterleaveStrandedAfterTextOnlyTurnLaunchesSobrasTogetherInOrder(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("answer one", "answer two")}
 	m := continuationHarness(t, testSessionStore(t), provider, nil)
 	m.width = 96
 	m.pending = true
 	m.activeRunID = 1
 	m.runID = 1
+	m.interleave = &interleaveBuffer{}
 
-	m.input.SetValue("interleaved for later")
-	updated, _ := m.Update(testInterleaveEnter(t, true))
-	m = updated.(model)
-	if m.interleave == nil || len(m.interleave.texts) != 1 {
-		t.Fatalf("expected the interleave staged for the running turn, got %+v", m.interleave)
+	for _, text := range []string{"first leftover", "second leftover"} {
+		m.input.SetValue(text)
+		updated, _ := m.Update(testKey(tea.KeyEnter))
+		m = updated.(model)
+	}
+	if got := m.interleave.pendingCount(); got != 2 {
+		t.Fatalf("expected both plain prompts interleaved, got %d", got)
 	}
 
 	// The turn ends with a text-only answer; no tool batch ever drains the
-	// interleave. The stranded message requeues and launches as the next
-	// turn instead of vanishing.
+	// interleave. The stranded messages launch as ONE new turn, as separate
+	// user messages, in order.
 	updated, cmd := m.Update(agentResponseMsg{runID: 1})
 	m = updated.(model)
 	if cmd == nil {
-		t.Fatal("expected the stranded interleave to launch as the next turn")
+		t.Fatal("expected the stranded sobras to launch as the next turn")
 	}
 	if !m.pending {
-		t.Fatal("expected the stranded interleave to start a new turn")
+		t.Fatal("expected the stranded sobras to start a new turn")
+	}
+	if m.interleave != nil && m.interleave.pendingCount() != 0 {
+		t.Fatal("expected the interleave buffer drained")
 	}
 	if len(m.queuedMessages) != 0 {
-		t.Fatalf("expected the drained interleave consumed, queue = %v", m.queuedMessages)
-	}
-	if m.interleave != nil && len(m.interleave.texts) != 0 {
-		t.Fatal("expected the interleave buffer drained")
+		t.Fatalf("sobras must not ride the FIFO, got %v", m.queuedMessages)
 	}
 	_ = execCmd(cmd)
 	req := provider.requests[len(provider.requests)-1]
-	last := req.Messages[len(req.Messages)-1]
-	if !strings.Contains(last.Content, "interleaved for later") {
-		t.Fatalf("expected the drained interleave as the provider's last message, got %#v", last)
+	var userMessages []string
+	for _, message := range req.Messages {
+		if message.Role == qgruntime.MessageRoleUser {
+			userMessages = append(userMessages, message.Content)
+		}
+	}
+	want := []string{"first leftover", "second leftover"}
+	if len(userMessages) != len(want) {
+		t.Fatalf("user messages = %#v, want %#v", userMessages, want)
+	}
+	for i := range want {
+		if userMessages[i] != want[i] {
+			t.Fatalf("user message %d = %q, want %q (order); all: %#v", i, userMessages[i], want[i], userMessages)
+		}
+	}
+	if strings.Contains(strings.Join(userMessages, "|"), "first leftover\nsecond leftover") {
+		t.Fatal("sobras must not be concatenated into one message")
 	}
 }
 
@@ -829,9 +952,9 @@ func TestCancelRunRequeuesStrandedInterleaveForNextTurn(t *testing.T) {
 	m.runID = 1
 
 	m.input.SetValue("stranded by cancel")
-	updated, _ := m.Update(testInterleaveEnter(t, true))
+	updated, _ := m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
-	if m.interleave == nil || len(m.interleave.texts) != 1 {
+	if m.interleave == nil || m.interleave.pendingCount() != 1 {
 		t.Fatalf("expected the interleave staged for the running turn, got %+v", m.interleave)
 	}
 
@@ -859,20 +982,17 @@ func TestCancelRunRequeuesStrandedInterleaveForNextTurn(t *testing.T) {
 	}
 }
 
-func TestQueuedHintDegradesToAgoraUntilTerminalConfirmsDisambiguation(t *testing.T) {
+func TestQueuedHintFallsBackToLeaderChordUntilTerminalConfirmsDisambiguation(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
 	m.activeRunID = 1
 	m.runID = 1
 	m.width = 96
-	m.input.SetValue("queued followup")
+	m.queuedMessages = []string{"queued followup"}
 
-	updated, _ := m.Update(testKey(tea.KeyEnter))
-	next := updated.(model)
-
-	view := plainRender(t, viewString(next.View()))
-	if !strings.Contains(view, "/agora envia agora") {
-		t.Fatalf("expected the hint to offer /agora before the terminal confirms kitty disambiguation, got:\n%s", view)
+	view := plainRender(t, viewString(m.View()))
+	if !strings.Contains(view, "Ctrl+X Ctrl+S envia agora") {
+		t.Fatalf("expected the hint to offer Ctrl+X Ctrl+S before the terminal confirms kitty disambiguation, got:\n%s", view)
 	}
 	if strings.Contains(view, "Ctrl+Enter envia agora") {
 		t.Fatalf("hint must not advertise Ctrl+Enter before the terminal confirms it, got:\n%s", view)
@@ -888,19 +1008,16 @@ func TestQueuedHintAdvertisesCtrlEnterAfterTerminalConfirmsDisambiguation(t *tes
 	m.activeRunID = 1
 	m.runID = 1
 	m.width = 96
-	m.input.SetValue("queued followup")
-
-	updated, _ := m.Update(testKey(tea.KeyEnter))
+	m.queuedMessages = []string{"queued followup"}
+	updated, _ := m.Update(tea.KeyboardEnhancementsMsg{Flags: ansi.KittyDisambiguateEscapeCodes})
 	next := updated.(model)
-	updated, _ = next.Update(tea.KeyboardEnhancementsMsg{Flags: ansi.KittyDisambiguateEscapeCodes})
-	next = updated.(model)
 
 	view := plainRender(t, viewString(next.View()))
 	if !strings.Contains(view, "Ctrl+Enter envia agora") {
 		t.Fatalf("expected the hint to advertise Ctrl+Enter once the terminal confirms kitty disambiguation, got:\n%s", view)
 	}
-	if strings.Contains(view, "/agora envia agora") {
-		t.Fatalf("hint must not fall back to /agora after the terminal confirms, got:\n%s", view)
+	if strings.Contains(view, "Ctrl+X Ctrl+S envia agora") {
+		t.Fatalf("hint must not fall back to the leader chord after the terminal confirms, got:\n%s", view)
 	}
 	if strings.Contains(view, "⌘") {
 		t.Fatalf("hint must never speak of ⌘, got:\n%s", view)
@@ -1124,6 +1241,7 @@ func TestInterleaveEnterWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing
 	m.runID = 1
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.yieldNow = &fakeSendNowSignal{result: true}
 
 	updated, _ := m.Update(testInterleaveEnter(t, true))
 	next := updated.(model)
@@ -1134,8 +1252,153 @@ func TestInterleaveEnterWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing
 	if len(next.queuedMessages) != 0 {
 		t.Fatalf("expected the queue head interleaved, queue = %v", next.queuedMessages)
 	}
+	if next.interleave == nil || len(next.interleave.snapshot()) != 1 {
+		t.Fatalf("expected the queue head sent with the running turn, buffer = %+v", next.interleave)
+	}
 	if len(next.pendingImages) != 1 {
 		t.Fatal("the staged image must stay pending")
+	}
+}
+
+// Send-now with a confirming signal: everything pending — undelivered
+// interleaves (oldest), FIFO in order, then the draft behind the queue —
+// is pushed into the buffer for the running turn to absorb. Nothing cancels,
+// nothing relaunches, the composer is consumed.
+func TestSendNowWithConfirmingSignalPushesEverythingIntoBufferInOrder(t *testing.T) {
+	m := continuationHarness(t, testSessionStore(t), &scriptedProvider{scripts: textScripts("answer")}, nil)
+	m.width = 96
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	cancelled := false
+	m.runCancel = func() { cancelled = true }
+	m.yieldNow = &fakeSendNowSignal{result: true}
+	m.interleave = &interleaveBuffer{}
+	m.interleave.push("OLDEST leftover")
+	m.queuedMessages = []string{"QF-UM", "QF-DOIS"}
+	m.input.SetValue("QF-DRAFT")
+
+	updated, cmd := m.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+
+	if cmd != nil {
+		t.Fatal("a confirming signal must not interrupt the turn")
+	}
+	if cancelled {
+		t.Fatal("a confirming signal must not cancel the running turn")
+	}
+	if !next.pending {
+		t.Fatal("the running turn must stay pending")
+	}
+	if got := next.queuedMessages; len(got) != 0 {
+		t.Fatalf("the queue must be drained into the send, got %v", got)
+	}
+	got := next.interleave.snapshot()
+	want := []string{"OLDEST leftover", "QF-UM", "QF-DOIS", "QF-DRAFT"}
+	if len(got) != len(want) {
+		t.Fatalf("interleave = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("interleave[%d] = %q, want %q; all: %v", i, got[i], want[i], got)
+		}
+	}
+	if got := next.composerValue(); got != "" {
+		t.Fatalf("the draft must be consumed, got %q", got)
+	}
+}
+
+// Send-now with nothing to wake the wait (nil signal, the interim default):
+// the turn is interrupted and EVERYTHING — queue plus draft, in order —
+// relaunches as separate user messages in one new turn. Nothing returns to
+// the composer.
+func TestSendNowWithoutSignalInterruptsAndLaunchesAllSeparatelyInOrder(t *testing.T) {
+	m := newModel(context.Background(), Options{
+		ProviderName: "openai",
+		ModelName:    "gpt-4.1",
+		Provider: &fakeProvider{events: []qgruntime.StreamEvent{
+			{Type: qgruntime.StreamEventText, Content: "fresh answer"},
+			{Type: qgruntime.StreamEventDone},
+		}},
+		Registry:     tools.NewRegistry(),
+		SessionStore: testSessionStore(t),
+	})
+	provider := m.provider.(*fakeProvider)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	cancelled := false
+	m.runCancel = func() { cancelled = true }
+	m.queuedMessages = []string{"QF-UM", "QF-DOIS"}
+	m.input.SetValue("QF-DRAFT")
+
+	updated, cmd := m.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+
+	if !cancelled {
+		t.Fatal("with nothing to wake, send-now must interrupt the running turn")
+	}
+	if !next.pending {
+		t.Fatal("send-now must start the new turn")
+	}
+	if got := next.composerValue(); got != "" {
+		t.Fatalf("nothing may return to the composer, got %q", got)
+	}
+	if len(next.queuedMessages) != 0 {
+		t.Fatalf("the queue must be drained into the new turn, got %v", next.queuedMessages)
+	}
+	if cmd == nil {
+		t.Fatal("expected the new turn to launch")
+	}
+	_ = execCmd(cmd)
+	if len(provider.requests) == 0 {
+		t.Fatal("expected a provider request from the new turn")
+	}
+	var userMessages []string
+	for _, message := range provider.requests[0].Messages {
+		if message.Role == qgruntime.MessageRoleUser {
+			userMessages = append(userMessages, message.Content)
+		}
+	}
+	want := []string{"QF-UM", "QF-DOIS", "QF-DRAFT"}
+	if len(userMessages) != len(want) {
+		t.Fatalf("user messages = %#v, want exactly %#v", userMessages, want)
+	}
+	for i := range want {
+		if userMessages[i] != want[i] {
+			t.Fatalf("user message %d = %q, want %q; all: %#v", i, userMessages[i], want[i], userMessages)
+		}
+	}
+}
+
+// /agora with arguments while pending IS the send-now path: the queue goes
+// out now, the argument rides behind it.
+func TestAgoraWithArgumentRidesBehindTheQueue(t *testing.T) {
+	m := continuationHarness(t, testSessionStore(t), &scriptedProvider{scripts: textScripts("answer")}, nil)
+	m.width = 96
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.yieldNow = &fakeSendNowSignal{result: true}
+	m.queuedMessages = []string{"QF-UM"}
+	m.input.SetValue("/agora QF-AGORA")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	if got := next.composerValue(); got != "" {
+		t.Fatalf("the /agora argument must consume the composer, got %q", got)
+	}
+	got := next.interleave.snapshot()
+	want := []string{"QF-UM", "QF-AGORA"}
+	if len(got) != len(want) {
+		t.Fatalf("interleave = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("interleave[%d] = %q, want %q; all: %v", i, got[i], want[i], got)
+		}
 	}
 }
 
@@ -1169,6 +1432,7 @@ func TestInterleaveEnterIntercalatesLiteralTextWithSuggestionOverlayOpen(t *test
 	go func() { doneA <- execCmd(cmdA) }()
 	snapPath := filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile)
 	waitForSnapshotCall(t, snapPath, "call-slow")
+	m.yieldNow = &fakeSendNowSignal{result: true}
 
 	m.input.SetValue("abra @arq MARKLITERAL texto")
 	m.suggestions = []commandSuggestion{{Name: "@README.md", Desc: "arquivo"}}
@@ -1306,15 +1570,15 @@ func TestAltScreenRendersSussurroBlockOnce(t *testing.T) {
 	if count := strings.Count(view, "MARKSECOND second queued"); count != 1 {
 		t.Fatalf("expected MARKSECOND rendered exactly once, got %d:\n%s", count, view)
 	}
-	if count := strings.Count(view, "enviando após a ação atual…"); count != 1 {
-		t.Fatalf("expected the interleave notice exactly once in the alt-screen frame, got %d:\n%s", count, view)
+	if strings.Contains(view, "enviando após a ação atual…") {
+		t.Fatalf("the interleave notice must be gone from the alt-screen frame, got:\n%s", view)
 	}
 	if count := strings.Count(view, "MARKINTER pending interleave"); count != 1 {
 		t.Fatalf("expected the pending interleave exactly once, got %d:\n%s", count, view)
 	}
 }
 
-func TestEnterWhilePendingAndCompactingQueuesPrompt(t *testing.T) {
+func TestEnterWhilePendingAndCompactingInterleavesPrompt(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
 	m.activeRunID = 1
@@ -1325,14 +1589,20 @@ func TestEnterWhilePendingAndCompactingQueuesPrompt(t *testing.T) {
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if len(next.queuedMessages) != 1 || next.queuedMessages[0] != "MARKCOMPACTING prompt" {
-		t.Fatalf("expected the prompt queued while compacting, got %v", next.queuedMessages)
+	// A plain prompt during a turn interleaves into the running turn even
+	// while a compaction is in flight: the same-turn path never starts a
+	// second run, so it does not race the compact rewrite.
+	if len(next.queuedMessages) != 0 {
+		t.Fatalf("a plain prompt must not enter the FIFO, got %v", next.queuedMessages)
+	}
+	if next.interleave == nil || next.interleave.pendingCount() != 1 {
+		t.Fatalf("expected the prompt interleaved while compacting, got %+v", next.interleave)
 	}
 	if transcriptContains(next.transcript, "Compactação em andamento") {
 		t.Fatalf("expected no compaction warning, got transcript %#v", next.transcript)
 	}
 	if got := next.composerValue(); got != "" {
-		t.Fatalf("expected the composer consumed by the queue, got %q", got)
+		t.Fatalf("expected the composer consumed by the interleave, got %q", got)
 	}
 }
 
@@ -1378,8 +1648,10 @@ func TestSecondCtrlCClearsComposerDespiteLateCancelledRun(t *testing.T) {
 	m.input.SetValue("queued while running")
 	updated, _ = m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
-	if len(m.queuedMessages) != 1 {
-		t.Fatalf("expected the prompt queued behind the running turn, got %#v", m.queuedMessages)
+	// A plain prompt now interleaves into the running turn; the Ctrl+C
+	// sequence below returns that pending interleave to the composer.
+	if m.interleave == nil || m.interleave.pendingCount() != 1 {
+		t.Fatalf("expected the prompt interleaved behind the running turn, got %+v", m.interleave)
 	}
 
 	// First Ctrl+C cancels; the queue returns to the composer.
@@ -1460,10 +1732,116 @@ func TestSecondCtrlCClearsComposerAfterConfirmExpired(t *testing.T) {
 	}
 }
 
-// The FIFO chain: three prompts queued behind an active turn drain one per
-// turn, head first. Each turn's end launches only the head; the provider
-// request carries that head and none of the later messages; the notice
-// counts down until the queue is empty and silent.
+// End of turn with leftovers: everything the turn never delivered launches
+// TOGETHER as separate user messages in ONE new turn, in order — then the
+// FIFO drains one per turn afterwards, head first. Each provider request
+// carries only its own messages; the notice counts the FIFO down.
+func TestEndOfTurnSobrasLaunchTogetherSeparatelyAndInOrder(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("answer UM", "answer DOIS", "answer TRES", "answer CAUDA")}
+	m := newQueuedMessageTestModel(t)
+	m.provider = provider
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.queuedMessages = []string{"QF-TAIL"}
+
+	for _, leftover := range []string{"QF-UM", "QF-DOIS", "QF-TRES"} {
+		m.input.SetValue(leftover)
+		updated, cmd := m.Update(testKey(tea.KeyEnter))
+		m = updated.(model)
+		if cmd != nil {
+			t.Fatalf("leftover prompt %q must not launch while the turn is active", leftover)
+		}
+	}
+	if got := m.interleave.pendingCount(); got != 3 {
+		t.Fatalf("expected the three leftovers interleaved, got %d", got)
+	}
+	if got := m.queuedMessages; len(got) != 1 || got[0] != "QF-TAIL" {
+		t.Fatalf("the FIFO must stay untouched while sobras are pending, got %#v", got)
+	}
+
+	// Turn A ends: the three sobras launch as ONE new turn, as separate
+	// user messages, in order; the FIFO head waits for the turn after.
+	before := len(provider.requests)
+	updated, cmd := m.Update(agentResponseMsg{runID: m.activeRunID})
+	m = updated.(model)
+	if m.titledSessions == nil {
+		m.titledSessions = map[string]bool{}
+	}
+	m.titledSessions[m.activeSession.SessionID] = true
+	if cmd == nil {
+		t.Fatal("expected the end-of-turn sobras to launch as the next turn")
+	}
+	if !m.pending {
+		t.Fatal("expected the end-of-turn sobras turn to start")
+	}
+	if got := m.queuedMessages; len(got) != 1 || got[0] != "QF-TAIL" {
+		t.Fatalf("the FIFO drains after the sobras turn, got %#v", got)
+	}
+	if got := m.interleave.pendingCount(); got != 0 {
+		t.Fatalf("expected the interleave buffer drained, got %d", got)
+	}
+	_ = execCmd(cmd)
+	if got := len(provider.requests) - before; got != 1 {
+		t.Fatalf("expected the sobras to make exactly one provider request, got %d", got)
+	}
+	req := provider.requests[len(provider.requests)-1]
+	var userMessages []string
+	for _, message := range req.Messages {
+		if message.Role == qgruntime.MessageRoleUser {
+			userMessages = append(userMessages, message.Content)
+		}
+	}
+	want := []string{"QF-UM", "QF-DOIS", "QF-TRES"}
+	if len(userMessages) != len(want) {
+		t.Fatalf("user messages = %#v, want exactly %#v", userMessages, want)
+	}
+	for i := range want {
+		if userMessages[i] != want[i] {
+			t.Fatalf("user message %d = %q, want %q (order); all: %#v", i, userMessages[i], want[i], userMessages)
+		}
+	}
+
+	// The sobras turn ends: now the FIFO head launches, one per turn.
+	updated, cmd = m.Update(agentResponseMsg{runID: m.activeRunID})
+	m = updated.(model)
+	m.titledSessions[m.activeSession.SessionID] = true
+	if cmd == nil {
+		t.Fatal("expected the FIFO head to launch after the sobras turn")
+	}
+	_ = execCmd(cmd)
+	req = provider.requests[len(provider.requests)-1]
+	last := req.Messages[len(req.Messages)-1]
+	if !strings.Contains(last.Content, "QF-TAIL") {
+		t.Fatalf("expected the provider's last message to be QF-TAIL, got %#v", last)
+	}
+	// The sobras ride the history replay exactly once (they are real
+	// user turns), never re-seeded as fresh messages behind QF-TAIL.
+	counts := map[string]int{}
+	for _, message := range req.Messages {
+		for _, leftover := range []string{"QF-UM", "QF-DOIS", "QF-TRES"} {
+			if strings.Contains(message.Content, leftover) {
+				counts[leftover]++
+			}
+		}
+	}
+	for _, leftover := range []string{"QF-UM", "QF-DOIS", "QF-TRES"} {
+		if counts[leftover] != 1 {
+			t.Fatalf("sobras %q appears %d times in the FIFO turn's request, want exactly 1 (history replay): %#v", leftover, counts[leftover], req.Messages)
+		}
+	}
+	if len(m.queuedMessages) != 0 {
+		t.Fatalf("expected an empty FIFO, got %#v", m.queuedMessages)
+	}
+}
+
+// The FIFO drain chain: three prompts enqueued while a turn is active
+// drain one per turn, head first. Each turn's end launches only the head;
+// the provider request carries that head and none of the later messages;
+// the notice counts down until the queue is empty and silent. (The FIFO
+// cannot be filled by plain prompts anymore — those interleave into the
+// running turn — so the test seeds it through the queue path directly.)
 func TestQueuedMessagesDrainOnePerTurnHeadFirst(t *testing.T) {
 	provider := &scriptedProvider{scripts: textScripts("answer UM", "answer DOIS", "answer TRES")}
 	m := newQueuedMessageTestModel(t)
@@ -1474,12 +1852,7 @@ func TestQueuedMessagesDrainOnePerTurnHeadFirst(t *testing.T) {
 	m.width = 96
 
 	for _, queued := range []string{"QF-UM", "QF-DOIS", "QF-TRES"} {
-		m.input.SetValue(queued)
-		updated, cmd := m.Update(testKey(tea.KeyEnter))
-		m = updated.(model)
-		if cmd != nil {
-			t.Fatalf("queued prompt %q must not launch while the turn is active", queued)
-		}
+		m.queuedMessages = append(m.queuedMessages, queued)
 	}
 	if got := m.queuedMessages; len(got) != 3 || got[0] != "QF-UM" || got[1] != "QF-DOIS" || got[2] != "QF-TRES" {
 		t.Fatalf("expected the FIFO [QF-UM QF-DOIS QF-TRES], got %#v", got)

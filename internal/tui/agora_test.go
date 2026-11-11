@@ -47,6 +47,7 @@ func TestAgoraDuringTurnIntercalatesTextNow(t *testing.T) {
 	doneA := make(chan tea.Msg, 1)
 	go func() { doneA <- execCmd(cmdA) }()
 	waitForSnapshotCall(t, sessionSnapshotPath(store, m), "call-slow")
+	m.yieldNow = &fakeSendNowSignal{result: true}
 
 	m.input.SetValue("/agora MARKAGORA interleaved by the command")
 	updated, _ = m.Update(testKey(tea.KeyEnter))
@@ -107,19 +108,14 @@ func TestAgoraDuringTurnWithoutArgIntercalatesQueueHead(t *testing.T) {
 	doneA := make(chan tea.Msg, 1)
 	go func() { doneA <- execCmd(cmdA) }()
 	waitForSnapshotCall(t, sessionSnapshotPath(store, m), "call-slow")
-
-	m.input.SetValue("MARKHEAD queued followup")
-	updated, _ = m.Update(testKey(tea.KeyEnter))
-	m = updated.(model)
-	if !m.hasQueuedMessage() {
-		t.Fatal("expected the follow-up queued while the turn runs")
-	}
+	m.yieldNow = &fakeSendNowSignal{result: true}
+	m.queuedMessages = []string{"MARKHEAD queued followup"}
 
 	m.input.SetValue("/agora")
 	updated, _ = m.Update(testKey(tea.KeyEnter))
 	m = updated.(model)
 	if m.hasQueuedMessage() {
-		t.Fatal("expected /agora to pop the queue head into the interleave")
+		t.Fatal("expected /agora to send the queued message now")
 	}
 
 	close(release)
@@ -296,6 +292,7 @@ func TestAgoraWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing.T) {
 	m.runID = 1
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.yieldNow = &fakeSendNowSignal{result: true}
 	m.input.SetValue("/agora")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
@@ -305,7 +302,10 @@ func TestAgoraWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing.T) {
 		t.Fatal("popping the queue head carries no attachments; the notice must not fire")
 	}
 	if len(next.queuedMessages) != 0 {
-		t.Fatalf("expected the queue head interleaved, queue = %v", next.queuedMessages)
+		t.Fatalf("expected the queue head sent now, queue = %v", next.queuedMessages)
+	}
+	if next.interleave == nil || len(next.interleave.snapshot()) != 1 {
+		t.Fatalf("expected the queue head sent with the running turn, buffer = %+v", next.interleave)
 	}
 	if len(next.pendingImages) != 1 {
 		t.Fatal("the staged image must stay pending")

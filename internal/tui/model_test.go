@@ -1306,7 +1306,7 @@ func TestPromptSubmitAppendsUserAndAssistantRows(t *testing.T) {
 	}
 }
 
-func TestPromptSubmitDoesNotStartAnotherRunWhilePending(t *testing.T) {
+func TestEnterDuringTurnDoesNotStartAnotherRunWhilePending(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		Provider: &fakeProvider{},
 		Registry: tools.NewRegistry(),
@@ -1325,6 +1325,9 @@ func TestPromptSubmitDoesNotStartAnotherRunWhilePending(t *testing.T) {
 	}
 	if !next.pending {
 		t.Fatal("expected existing pending run to remain pending")
+	}
+	if next.interleave == nil || next.interleave.pendingCount() != 1 {
+		t.Fatalf("expected the prompt interleaved into the running turn, got %+v", next.interleave)
 	}
 }
 

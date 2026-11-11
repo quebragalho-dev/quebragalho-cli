@@ -414,9 +414,10 @@ func TestLeaveConfirmDisarmedByQueuedPrompt(t *testing.T) {
 		t.Fatal("first /exit should arm the confirm")
 	}
 
-	// A prompt submitted while a run streams is queued via an early return in
-	// handleSubmit; it must still disarm the confirm (the disarm runs before those
-	// returns). Otherwise a later /clear would be treated as the second press.
+	// A plain prompt submitted while a run streams interleaves into that run
+	// via an early return in handleSubmit; it must still disarm the confirm
+	// (the disarm runs before those returns). Otherwise a later /clear would
+	// be treated as the second press.
 	n1.pending = true
 	n1.input.SetValue("a follow-up question")
 	u2, _ := n1.Update(testKey(tea.KeyEnter))

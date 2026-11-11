@@ -44,6 +44,7 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 			title: "Chat",
 			bindings: []keybinding{
 				{"Enter", "envia a mensagem"},
+				{"Ctrl+Enter, Ctrl+X Ctrl+S", "envia a fila e o rascunho agora"},
 				{"Shift+Enter / Alt+Enter", "insere uma quebra de linha (multilinha)"},
 				{"Esc (\u00d72)", "cancela a execução / fecha o pop-up / limpa a entrada"},
 				{"Ctrl+C", ctrlCDescription},

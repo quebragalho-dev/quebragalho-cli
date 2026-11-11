@@ -211,7 +211,7 @@ var commandDefinitions = []commandDefinition{
 		name:        "/agora",
 		usage:       "/agora [texto]",
 		group:       commandGroupRuntime,
-		description: "Intercala no turno atual.",
+		description: "Envia a fila e o rascunho já.",
 		kind:        commandAgora,
 	},
 	{

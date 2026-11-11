@@ -308,15 +308,24 @@ type model struct {
 	// never send focus events at all, and defaulting to "unfocused" would wrongly
 	// hide the cursor for those users.
 	terminalFocused bool
-	// queuedMessages holds the FIFO of follow-up prompts the user typed while a
-	// run was active: every message renders as a dimmed Sussurro row in the
-	// transcript, ↑ edits only the last one, Ctrl+Enter (or /agora) injects
-	// the head into the running turn.
+	// queuedMessages holds the FIFO of follow-up messages that wait for the
+	// end of the turn: slash commands, prompts with attachments and
+	// @specialist mentions typed while a run is active. Every message renders
+	// as a dimmed Sussurro row in the transcript, ↑ edits only the last one,
+	// Ctrl+Enter (or /agora) sends the queue plus the draft now. Plain
+	// prompts typed during a run go to the interleave buffer instead.
 	queuedMessages []string
 	// interleave carries operator interleaves into the running turn (drained
-	// by the agent goroutine after each tool batch; leftovers requeue at the
-	// end of the turn).
+	// by the agent goroutine after each tool batch; leftovers launch together
+	// as the next turn).
 	interleave *interleaveBuffer
+	// yieldNow wakes the run's backgroundable wait (a yield wait or a polling
+	// tool) so send-now can be delivered inside the running turn. Owned by the
+	// agent side (yieldnow.Signal, wired in beginRun/runAgentWithOptions by
+	// the rebase onto the tools work); nil means nothing to wake, and
+	// Request() is treated as false — the caller interrupts the turn and
+	// relaunches the messages instead.
+	yieldNow sendNowSignal
 	// keyboardDisambiguation records whether the terminal confirmed kitty key
 	// disambiguation (KeyboardEnhancementsMsg, Flags > 0). Until it does,
 	// hints must not advertise shortcuts only such a terminal can deliver
@@ -964,6 +973,10 @@ type tuiAgentRunOptions struct {
 	// never store a continuation: the next user turn goes back to the textual
 	// summary even when the goal did not change.
 	goalContinuation bool
+	// extraUserMessages carries the trailing prompts of a multi-message turn
+	// (end-of-turn leftovers, send-now interrupt); the loop seeds them as
+	// separate consecutive user messages after the first prompt.
+	extraUserMessages []qgruntime.Message
 }
 
 // turnContinuation is the real history one run hands to the next: the
@@ -1984,10 +1997,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case keyIs(msg, tea.KeyEnter) && (keySuper(msg, tea.KeyEnter) || keyCtrl(msg, tea.KeyEnter)):
 			// Ctrl+Enter on every system (Cmd+Enter is still accepted silently
-			// when a terminal sends it): interleave the message into the
-			// running turn — it rides the very next provider request after
-			// this step's tool results, without the turn being interrupted.
-			// Where interleaving is not possible, exactly Enter.
+			// when a terminal sends it): send the queue plus the draft NOW.
+			// Where send-now is not possible, exactly Enter.
 			return m.handleInterleaveEnter(msg)
 		case keyIs(msg, tea.KeyEnter):
 			return m.handleEnterKey(msg)
@@ -2190,10 +2201,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if next, ok := m.moveComposerVisualCursor(-1); ok {
 				return next, nil
 			}
-			// A queued message takes ↑ priority over history recall: pop it back
-			// into the composer for editing before it sends on the next turn.
-			if m.hasQueuedMessage() && m.pendingSpecReview == nil {
-				return m.popQueuedMessageForEdit(), nil
+			// A pending message takes ↑ priority over history recall: the
+			// last interleave (most recent) first, then the FIFO tail —
+			// each pop back into the composer for editing before it sends.
+			if m.pendingSpecReview == nil {
+				if next, ok := m.popInterleaveForEdit(); ok {
+					return next, nil
+				}
+				if m.hasQueuedMessage() {
+					return m.popQueuedMessageForEdit(), nil
+				}
 			}
 			if m.historyRecallActive() {
 				return m.recallHistory(-1), nil
@@ -2884,7 +2901,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// other loops remain.
 			m, loopTickCmd = m.ensureLoopTick()
 		}
-		hadQueuedMessage := len(m.queuedMessages) > 0
+		hadQueuedMessage := len(m.queuedMessages) > 0 ||
+			(m.interleave != nil && m.interleave.pendingCount() > 0)
 		next, queuedCmd := m.launchQueuedMessageIfReady()
 		var peerCmd tea.Cmd
 		if queuedCmd == nil {
@@ -4091,7 +4109,7 @@ func (m model) appendStreamingCursor(lines []string, width int) []string {
 // composerLine renders the borderless composer.
 func (m model) composerLine(width int) string {
 	input := m.input
-	if m.hasQueuedMessage() {
+	if m.hasQueuedMessage() || (m.interleave != nil && m.interleave.pendingCount() > 0) {
 		input.Placeholder = queuedEditHint
 	}
 	hideInputForSuggestions := m.suggestionsActive() && (!m.suggestionsAreFiles || fileSuggestionOnlyInput(m.input.Value()))
@@ -4715,6 +4733,22 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if command.kind == commandPrompt && m.pending {
+		// A plain prompt interleaves into the running turn: the model sees it
+		// right after the current tool batch, in the same turn. Slash
+		// commands, attachments and @specialist mentions keep waiting for
+		// the end of the turn in the FIFO, one per turn.
+		if len(m.pendingImages) == 0 && len(m.pendingDocuments) == 0 {
+			if _, specialistMention := expandSpecialistMention(command.text, m.agentOptions.Specialists); !specialistMention {
+				if m.interleave == nil {
+					m.interleave = &interleaveBuffer{}
+				}
+				m.rememberInput(command.text)
+				m.interleave.push(command.text)
+				m.clearComposer()
+				m.clearSuggestions()
+				return m, nil
+			}
+		}
 		return m.queueMessage(command.text), nil
 	}
 	if command.kind == commandPrompt {
@@ -4738,8 +4772,8 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 // handleEnterKey implements the plain Enter key: every surface that owns
 // the keyboard first (detailed transcript, the permission/ask_user/spec-review
 // modals, pickers, suggestions, paste protection), then the normal submit.
-// Ctrl+Enter falls through to this same path whenever it cannot interleave,
-// so the two keys can never diverge.
+// Ctrl+Enter falls through to this same path whenever send-now is not
+// possible, so the two keys can never diverge.
 func (m model) handleEnterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.transcriptDetailed {
 		if command := parseCommand(m.input.Value()); command.kind == commandTranscript {
@@ -4815,67 +4849,111 @@ func (m model) handleEnterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleSubmit()
 }
 
+// sendNow delivers everything pending right now — undelivered interleaves
+// (oldest), then the FIFO in order, then the draft behind the queue — as
+// separate user messages. If the run's signal wakes a backgroundable wait,
+// the loop drains the buffer and delivers everything inside the running
+// turn. Otherwise the turn is interrupted and the collected messages launch
+// as one new turn. Nothing returns to the composer on that path. ok is
+// false when nothing is pending (callers fall back to Enter or a notice).
+func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
+	var all []string
+	if m.interleave != nil {
+		for _, message := range m.interleave.drain() {
+			if text := strings.TrimSpace(message.Content); text != "" {
+				all = append(all, text)
+			}
+		}
+	}
+	all = append(all, m.queuedMessages...)
+	draft = strings.TrimSpace(draft)
+	if draft != "" {
+		all = append(all, draft)
+	}
+	if len(all) == 0 {
+		return m, nil, false
+	}
+	if draft != "" {
+		m.rememberInput(draft)
+		m.clearComposer()
+		m.clearSuggestions()
+	}
+	m.queuedMessages = nil
+	if m.yieldNow != nil && m.yieldNow.Request() {
+		// The wait was woken: the loop drains the buffer after the closing
+		// tool batch and delivers every message inside the running turn.
+		if m.interleave == nil {
+			m.interleave = &interleaveBuffer{}
+		}
+		for _, text := range all {
+			m.interleave.push(text)
+		}
+		return m, nil, true
+	}
+	// Nothing to wake: cancelRun keeps the Esc semantics (session events,
+	// goal pause, late-run drain) without handing anything back to the
+	// composer — everything collected above goes into the new turn.
+	m.cancelRun()
+	next, cmd := m.launchPrompts(all)
+	return next, cmd, true
+}
+
 // handleInterleaveEnter implements Cmd+Enter / Ctrl+Enter (Ctrl+Enter on
 // every system; Cmd+Enter is still accepted silently when a terminal sends
-// it). The message interleaves into the running turn so it rides the very
-// next provider request, injected after the current step's tool results,
-// without canceling anything. Text staged in the composer wins; otherwise
-// the head of the FIFO queue is injected.
+// it): send the queue plus the composer draft NOW, the draft riding behind
+// the queue. If the run's signal wakes a backgroundable wait, the messages
+// interpolate into the running turn right after the closing tool batch.
+// Otherwise the turn is interrupted and the messages launch as one new turn
+// — nothing returns to the composer. With no turn in flight, exactly Enter.
 //
-// Interleaving only happens when a turn is in flight, no modal surface owns
-// the keyboard, the detailed transcript is not open, no attachment is staged,
+// Send-now only happens when a turn is in flight, no modal surface owns the
+// keyboard, the detailed transcript is not open, no attachment is staged,
 // and the text is a plain prompt (a leading @specialist mention needs the
 // expansion launchPrompt applies, so it also falls back). Every other case
 // takes the exact Enter path — handleEnterKey — so the two keys can never
 // diverge. Pending attachments keep the composer intact and post a short
-// notice instead: interleaving does not carry images or documents.
+// notice instead: send-now does not carry images or documents, and the
+// queue keeps whatever it held.
 //
 // One deliberate exception to "exactly Enter": an open suggestion overlay
 // does not claim Ctrl+Enter. The key is an explicit send-now gesture, so it
-// intercalates the literal composer text and the suggestion is left for
-// Enter/Tab to accept. A stale overlay never hijacks the message.
+// sends the literal composer text and the suggestion is left for Enter/Tab
+// to accept. A stale overlay never hijacks the message.
 func (m model) handleInterleaveEnter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.burstCount = 0
 	if m.pending && m.noBlockingModal() && !m.transcriptDetailed {
 		text := strings.TrimSpace(m.composerValue())
-		// The queue-head pop carries no attachments: the guard only applies
-		// to interleaving the composer's own text.
+		// The queue-only send carries no attachments: the guard only applies
+		// to the composer's own text.
 		if text != "" && (len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0) {
 			return m.appendSystemNotice("Anexos não vão com Ctrl+Enter — use Enter para enfileirar"), nil
 		}
-		if text == "" {
-			if len(m.queuedMessages) == 0 {
+		if text != "" {
+			if parseCommand(text).kind != commandPrompt {
 				return m.handleEnterKey(msg)
 			}
-			text = m.queuedMessages[0]
-			m.queuedMessages = m.queuedMessages[1:]
-		} else {
-			_, specialistMention := expandSpecialistMention(text, m.agentOptions.Specialists)
-			if parseCommand(text).kind != commandPrompt || specialistMention {
+			if _, specialistMention := expandSpecialistMention(text, m.agentOptions.Specialists); specialistMention {
 				return m.handleEnterKey(msg)
 			}
-			m.rememberInput(text)
-			m.clearComposer()
-			m.clearSuggestions()
 		}
-		if m.interleave == nil {
-			m.interleave = &interleaveBuffer{}
+		next, cmd, ok := m.sendNow(text)
+		if !ok {
+			// Nothing pending: fall back to Enter, which submits or no-ops.
+			return m.handleEnterKey(msg)
 		}
-		m.interleave.push(text)
-		return m, nil
+		return next, cmd
 	}
 	return m.handleEnterKey(msg)
 }
 
-// handleAgoraCommand implements /agora. During a turn, the remainder is
-// interleaved into the running turn — exactly what Ctrl+Enter does with the
-// composer text — or, with no remainder, the first queued message is
-// intercalated (an empty queue gets a short notice). With no turn in flight
-// the text goes out as a normal prompt through the full submit path. Slash
-// command arguments are refused (they never ride the interleave as raw
-// text); a leading @specialist mention is queued instead of interleaved,
-// because only launchPrompt applies its delegation expansion. /agora itself
-// is never queued as text — it dispatches immediately, mid-turn.
+// handleAgoraCommand implements /agora [texto]. During a turn it sends the
+// queue plus the argument (riding behind it) NOW — exactly what Ctrl+Enter
+// does — falling back to the same notices. With no turn in flight the
+// remainder goes out as a normal prompt through the full submit path. Slash
+// command arguments are refused (they never ride the send as raw text); a
+// leading @specialist mention is queued instead, because only launchPrompt
+// applies its delegation expansion. /agora itself is never queued as text —
+// it dispatches immediately, mid-turn.
 func (m model) handleAgoraCommand(text string) (tea.Model, tea.Cmd) {
 	text = strings.TrimSpace(text)
 	if !m.pending {
@@ -4900,34 +4978,29 @@ func (m model) handleAgoraCommand(text string) (tea.Model, tea.Cmd) {
 	if !m.noBlockingModal() || m.transcriptDetailed {
 		return m, nil
 	}
-	// The queue-head pop carries no attachments: the guard only applies
-	// to interleaving the command's argument.
+	// The queue-head send carries no attachments: the guard only applies
+	// to the command's argument.
 	if text != "" && (len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0) {
 		return m.appendSystemNotice("Anexos não vão com /agora — use Enter para enfileirar"), nil
 	}
-	if text == "" {
-		if len(m.queuedMessages) == 0 {
-			return m.appendSystemNotice("Nada na fila para intercalar."), nil
-		}
-		text = m.queuedMessages[0]
-		m.queuedMessages = m.queuedMessages[1:]
-	} else {
+	if text != "" {
 		if parseCommand(text).kind != commandPrompt {
 			return m.appendSystemNotice("Só prompts comuns vão com /agora — rode o comando direto."), nil
 		}
-		_, specialistMention := expandSpecialistMention(text, m.agentOptions.Specialists)
-		if specialistMention {
+		// A leading @specialist mention rides the queue (never the send
+		// unexpanded), because only launchPrompt applies its delegation
+		// expansion. The queue and draft stay put behind it.
+		if _, specialistMention := expandSpecialistMention(text, m.agentOptions.Specialists); specialistMention {
 			m.rememberInput(text)
 			m.queuedMessages = append(m.queuedMessages, text)
 			return m, nil
 		}
-		m.rememberInput(text)
 	}
-	if m.interleave == nil {
-		m.interleave = &interleaveBuffer{}
+	next, cmd, ok := m.sendNow(text)
+	if !ok {
+		return m.appendSystemNotice("Nada na fila para intercalar."), nil
 	}
-	m.interleave.push(text)
-	return m, nil
+	return next, cmd
 }
 
 // dispatchCommand runs a parsed slash/prompt command after submit/leader
@@ -5380,10 +5453,24 @@ func (m model) executeSlash(input string) (tea.Model, tea.Cmd) {
 // composer. Queued prompts use this path too, so session and image behavior
 // stays identical to immediate submissions.
 func (m model) launchPrompt(prompt string) (model, tea.Cmd) {
-	return m.launchPromptInternal(prompt, nil)
+	return m.launchPrompts([]string{prompt})
+}
+
+// launchPrompts starts one agent turn from texts already accepted by the
+// composer: the first rides the seeded user message, the rest ride as
+// separate consecutive user messages after it (agent.Options.ExtraUserMessages),
+// in order. End-of-turn leftovers and the send-now interrupt path launch here
+// so the model sees exactly what the user queued — never one merged text.
+func (m model) launchPrompts(prompts []string) (model, tea.Cmd) {
+	return m.launchPromptsInternal(prompts, nil)
 }
 
 func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage) (model, tea.Cmd) {
+	return m.launchPromptsInternal([]string{prompt}, peer)
+}
+
+func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMessage) (model, tea.Cmd) {
+	prompt := prompts[0]
 	// Remember the verbatim prompt (before specialist/document expansion) so /retry
 	// and /edit can act on exactly what the user submitted. Snapshot the staged
 	// attachments too: launchPrompt clears the pending queues below, so /retry
@@ -5391,7 +5478,7 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 	// a degraded text-only one.
 	var attachments transcriptAttachmentSummary
 	if peer == nil {
-		m.lastPrompt = prompt
+		m.lastPrompt = strings.Join(prompts, "\n")
 		m.lastImages = m.pendingImages
 		m.lastImageLabels = m.pendingImageLabels
 		m.lastDocuments = m.pendingDocuments
@@ -5405,7 +5492,13 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		if attachments.images > 0 && !m.modelSupportsVisionTUI() {
 			attachments.images = 0
 		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendUser, text: prompt, attachments: attachments})
+		for index, text := range prompts {
+			rowAttachments := transcriptAttachmentSummary{}
+			if index == 0 {
+				rowAttachments = attachments
+			}
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendUser, text: text, attachments: rowAttachments})
+		}
 	} else {
 		m.transcript = appendTranscriptRow(m.transcript, peerTranscriptRow(peerDisplayName(peer.From), peer.Body))
 	}
@@ -5478,30 +5571,35 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		} else {
 			agentPrompt = m.sessionPrompt(prompt)
 		}
-		messagePayload := map[string]any{
-			"role":    "user",
-			"content": prompt,
-		}
-		if peer == nil {
-			if !attachments.empty() {
+		for index, text := range prompts {
+			content := text
+			if index == 0 {
+				content = prompt // carries the specialist expansion and document preamble
+			}
+			messagePayload := map[string]any{
+				"role":    "user",
+				"content": content,
+			}
+			if index == 0 && peer == nil && !attachments.empty() {
 				messagePayload["attachments"] = map[string]int{
 					"images":    attachments.images,
 					"documents": attachments.documents,
 				}
 			}
-		}
-		if peer != nil {
-			messagePayload["origin"] = "cross_session"
-			messagePayload["from"] = peerDisplayName(peer.From)
-			messagePayload["messageId"] = peer.ID
-			messagePayload["displayContent"] = peer.Body
-		}
-		m, err = m.appendSessionEvent(sessions.EventMessage, messagePayload)
-		if err != nil {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{
-				kind: actionAppendError,
-				text: "erro ao gravar a sessão: " + err.Error(),
-			})
+			if peer != nil {
+				messagePayload["origin"] = "cross_session"
+				messagePayload["from"] = peerDisplayName(peer.From)
+				messagePayload["messageId"] = peer.ID
+				messagePayload["displayContent"] = peer.Body
+			}
+			if next, appendErr := m.appendSessionEvent(sessions.EventMessage, messagePayload); appendErr != nil {
+				m.transcript = reduceTranscript(m.transcript, transcriptAction{
+					kind: actionAppendError,
+					text: "erro ao gravar a sessão: " + appendErr.Error(),
+				})
+			} else {
+				m = next
+			}
 		}
 		prompt = agentPrompt
 	}
@@ -5536,6 +5634,10 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		runCtx = peermsg.WithInboundMessage(runCtx, *peer)
 	}
 	m = m.beginRun(cancel)
+	extraUserMessages := make([]qgruntime.Message, 0, len(prompts)-1)
+	for _, text := range prompts[1:] {
+		extraUserMessages = append(extraUserMessages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: text})
+	}
 	var agentCmd tea.Cmd
 	if peer != nil {
 		agentCmd = m.runAgentWithOptions(m.activeRunID, runCtx, prompt, turnImages, tuiAgentRunOptions{
@@ -5543,8 +5645,9 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		})
 	} else {
 		agentCmd = m.runAgentWithOptions(m.activeRunID, runCtx, prompt, turnImages, tuiAgentRunOptions{
-			continuation: runContinuation,
-			loadedTools:  runLoadedTools,
+			continuation:      runContinuation,
+			loadedTools:       runLoadedTools,
+			extraUserMessages: extraUserMessages,
 		})
 	}
 	return m, tea.Batch(agentCmd, m.spinner.Tick)
@@ -5620,11 +5723,22 @@ func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
 		return m, nil
 	}
 	// A turn that ended before the agent consumed the operator's interleaves
-	// (final text-only answer, Esc cancel) would strand them; put them back
-	// at the head of the queue so they lead the next turn. Only when no run
-	// is active: draining here with a run in flight would steal the active
-	// turn's interleaves into the FIFO.
-	m = m.requeueStrandedInterleaves()
+	// (final text-only answer, Esc cancel) would strand them; they launch
+	// TOGETHER as separate user messages in one new turn, in order. The FIFO
+	// keeps waiting for the following turns, one per turn as before. Only
+	// safe when no run is active: draining here with a run in flight would
+	// steal the active turn's interleaves.
+	if m.interleave != nil {
+		var stranded []string
+		for _, message := range m.interleave.drain() {
+			if text := strings.TrimSpace(message.Content); text != "" {
+				stranded = append(stranded, text)
+			}
+		}
+		if len(stranded) > 0 {
+			return m.launchPrompts(stranded)
+		}
+	}
 	if !m.hasQueuedMessage() {
 		return m, nil
 	}
@@ -5948,6 +6062,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		options.Images = images
 		options.Continuation = runOptions.continuation
 		options.LoadedDeferredTools = runOptions.loadedTools
+		options.ExtraUserMessages = runOptions.extraUserMessages
 		if m.snapshotWriter != nil && m.sessionStore != nil {
 			writer := m.snapshotWriter
 			snapSessionID := runSessionID
