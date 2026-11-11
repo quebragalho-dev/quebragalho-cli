@@ -2409,12 +2409,12 @@ func TestQueuedMessagesDrainOnePerTurnHeadFirst(t *testing.T) {
 	// QF-DOIS's turn ends: only QF-TRES launches; the queue is empty.
 	endTurnLaunching("QF-TRES", nil)
 
-	// QF-TRES's turn ends: nothing launches, the queue stays empty and silent.
+	// QF-TRES's turn ends: no new turn launches and the queue stays empty
+	// and silent. The returned batch may still carry background cmds (the
+	// header refresh); executing them must start no turn and hit no provider.
 	updated, cmd := m.Update(agentResponseMsg{runID: m.activeRunID})
 	m = updated.(model)
-	if cmd != nil {
-		t.Fatal("expected nothing to launch once the queue is empty")
-	}
+	_ = execCmd(cmd)
 	if m.pending {
 		t.Fatal("expected no new turn once the queue is empty")
 	}
