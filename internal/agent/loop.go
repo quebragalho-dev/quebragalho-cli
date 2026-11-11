@@ -19,6 +19,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/yieldnow"
 )
 
 const maxTurnsAnswer = "Agent reached maximum number of turns without a final answer."
@@ -1219,6 +1220,11 @@ func decodeToolArguments(arguments string, v any) error {
 }
 
 func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCall, permissionMode PermissionMode, options Options) (ToolResult, error) {
+	// The run's send-now Signal travels with the tool context so
+	// backgroundable waits (exec_command's yield, write_stdin polling) wake
+	// at once when the TUI requests it. Nil-safe: without a Signal the
+	// tools wait exactly as before.
+	ctx = yieldnow.WithSignal(ctx, options.YieldNow)
 	tool, toolFound := registry.Get(call.Name)
 	args := map[string]any{}
 	if call.Freeform {
