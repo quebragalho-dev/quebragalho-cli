@@ -96,6 +96,40 @@ func TestContinuationWriterCoalescesPerSession(t *testing.T) {
 	})
 }
 
+// TestContinuationWriterRewriteCoalescesLastWins proves the QueueRewrite slot
+// coalesces last-wins: several rewrites queued before the loop drains persist
+// only the final one, and a rewrite queued between run writes always wins the
+// pending slot (it carries no run gate — rewind/compact already refuse to run
+// while a turn is in flight).
+func TestContinuationWriterRewriteCoalescesLastWins(t *testing.T) {
+	withAsyncWriter(t, func() {
+		store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+		w := newContinuationWriter(store)
+		// Interleave a run write with two rewrites for the same session before
+		// the loop drains. The rewrite must win the pending slot over the run
+		// write, and the second rewrite must supersede the first.
+		runSnap := buildContinuationSnapshot("sess_rw", "m", "p", "", "", 10, writerTestMessages("run-wire"), nil)
+		if !w.Queue(runSnap, 3) {
+			t.Fatal("run write must queue")
+		}
+		rewrite1 := buildContinuationSnapshot("sess_rw", "m", "p", "", "", 8, writerTestMessages("rewrite-old"), nil)
+		if !w.QueueRewrite(rewrite1) {
+			t.Fatal("first rewrite must queue")
+		}
+		rewrite2 := buildContinuationSnapshot("sess_rw", "m", "p", "", "", 9, writerTestMessages("rewrite-new"), nil)
+		if !w.QueueRewrite(rewrite2) {
+			t.Fatal("second rewrite must queue")
+		}
+		if !w.Flush(10 * time.Second) {
+			t.Fatal("flush timed out")
+		}
+		got := readWriterSnapshot(t, store, "sess_rw")
+		if got.Messages[1].Content != "rewrite-new" || got.EventSeq != 9 {
+			t.Fatalf("last rewrite must win the slot, got seq=%d content=%q", got.EventSeq, got.Messages[1].Content)
+		}
+	})
+}
+
 // TestContinuationWriterConcurrentQueue hammers the writer from several
 // goroutines (run with -race): no torn state, and the file always holds a
 // complete snapshot from one of the queued runs.
