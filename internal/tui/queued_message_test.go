@@ -1313,3 +1313,25 @@ func TestAltScreenRendersSussurroBlockOnce(t *testing.T) {
 		t.Fatalf("expected the pending interleave exactly once, got %d:\n%s", count, view)
 	}
 }
+
+func TestEnterWhilePendingAndCompactingQueuesPrompt(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.compactInFlight = true
+	m.input.SetValue("MARKCOMPACTING prompt")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	if len(next.queuedMessages) != 1 || next.queuedMessages[0] != "MARKCOMPACTING prompt" {
+		t.Fatalf("expected the prompt queued while compacting, got %v", next.queuedMessages)
+	}
+	if transcriptContains(next.transcript, "Compactação em andamento") {
+		t.Fatalf("expected no compaction warning, got transcript %#v", next.transcript)
+	}
+	if got := next.composerValue(); got != "" {
+		t.Fatalf("expected the composer consumed by the queue, got %q", got)
+	}
+}

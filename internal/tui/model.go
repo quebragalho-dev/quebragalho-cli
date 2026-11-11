@@ -4670,16 +4670,19 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 	if m.loopLeavePrompt != commandEmpty && command.kind != m.loopLeavePrompt {
 		m.loopLeavePrompt = commandEmpty
 	}
-	// Both prompt paths share promptGuard (exiting, then compaction); a
-	// pending prompt queues for the next turn. exiting is always set with
-	// pending already false (every path runs cancelRun first), so the
-	// exiting check can precede the queue without stranding it.
+	// exiting first (a run must not start — the deferred quit waits on the
+	// checkpoint flush), then a pending prompt queues for the next turn,
+	// then the compaction guard refuses. The /agora no-turn path applies
+	// promptGuard as-is (exiting then compaction), with no queue in between.
+	if command.kind == commandPrompt && m.exiting {
+		return m, nil
+	}
+	if command.kind == commandPrompt && m.pending {
+		return m.queueMessage(command.text), nil
+	}
 	if command.kind == commandPrompt {
 		if blocked, ok := m.promptGuard(); !ok {
 			return blocked, nil
-		}
-		if m.pending {
-			return m.queueMessage(command.text), nil
 		}
 	}
 	m.rememberInput(input)
