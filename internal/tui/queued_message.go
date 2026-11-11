@@ -168,11 +168,12 @@ func (m model) popQueuedMessageForEdit() model {
 	return m.returnTextsToComposer(text)
 }
 
-// popInterleaveForEdit moves the LAST still-pending interleave back into
-// the composer, above whatever draft is already there. The parked send-now
-// batch is the newest undelivered work, so its tail pops first; then the
-// run's interleave buffer; then the FIFO tail. The loop may already have
-// drained everything — then popLast reports false and ↑ falls through.
+// popInterleaveForEdit moves the parked send-now batch's tail (the newest
+// undelivered work) back into the composer, above whatever draft is already
+// there; as a fallback it moves the LAST still-pending interleave. The FIFO
+// tail pops before this helper, so by the time it runs only the parked batch
+// and the interleave buffer remain. The loop may already have drained both —
+// then the batch is empty and popLast reports false, so ↑ falls through.
 func (m model) popInterleaveForEdit() (model, bool) {
 	if n := len(m.pendingSendNow); n > 0 {
 		text := m.pendingSendNow[n-1]
@@ -327,6 +328,5 @@ func (m model) renderQueuedTranscriptBlock(width int) string {
 		lines = append(lines, renderSussurroRows(text, wrapWidth)...)
 	}
 	lines = append(lines, "   "+qgTheme.faint.Render(fmt.Sprintf("na fila (%d) — %s · ↑ edita a última", len(queued), m.queuedSendHint())))
-	blocks := []string{strings.Join(lines, "\n")}
-	return strings.Join(blocks, "\n")
+	return strings.Join(lines, "\n")
 }
