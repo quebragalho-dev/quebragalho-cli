@@ -13,8 +13,9 @@ import (
 const queuedEditHint = "Pressione ↑ para editar a última da fila"
 
 // interleaveBuffer holds operator messages the run should absorb at the next
-// step boundary — Cmd+Enter / Ctrl+Enter during a running turn. Lives outside
-// the model value so the agent goroutine drains the same buffer the UI fills.
+// step boundary — Ctrl+Enter during a running turn (Cmd+Enter is still
+// accepted when a terminal sends it). Lives outside the model value so the
+// agent goroutine drains the same buffer the UI fills.
 type interleaveBuffer struct {
 	mu    sync.Mutex
 	texts []string
@@ -61,9 +62,10 @@ func (b *interleaveBuffer) drain() []qgruntime.Message {
 }
 
 // queueMessage appends text to the FIFO queue of pending follow-up messages.
-// The head renders in the transcript; ↑ edits only the tail; Cmd+Enter sends
-// the head interleaved into the running turn; at the end of the turn the head
-// rides the next turn.
+// Every queued message renders as a dimmed Sussurro row in the transcript; ↑
+// edits only the last one; Ctrl+Enter (or /agora, when the terminal cannot
+// tell Ctrl+Enter from Enter) intercalates the head into the running turn;
+// at the end of the turn the head rides the next turn.
 func (m model) queueMessage(text string) model {
 	text = strings.TrimSpace(text)
 	if text == "" {

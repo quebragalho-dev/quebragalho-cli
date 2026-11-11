@@ -304,8 +304,9 @@ type model struct {
 	// hide the cursor for those users.
 	terminalFocused bool
 	// queuedMessages holds the FIFO of follow-up prompts the user typed while a
-	// run was active: the head renders in the transcript (Sussurro), ↑ edits
-	// only the tail, Cmd/Ctrl+Enter injects the head into the running turn.
+	// run was active: every message renders as a dimmed Sussurro row in the
+	// transcript, ↑ edits only the last one, Ctrl+Enter (or /agora) injects
+	// the head into the running turn.
 	queuedMessages []string
 	// interleave carries operator interleaves into the running turn (drained
 	// by the agent goroutine after each tool batch; leftovers requeue at the
