@@ -86,12 +86,21 @@ const prLocalDiffMinInterval = 2 * time.Second
 // header never costs a network round trip per turn or per frame.
 const prIdentityTTL = 5 * time.Minute
 
+// prNoPrTTL bounds the negative cache: how long a branch with no open PR
+// skips the gh lookup. A PR closed (or opened) right now can linger on — or
+// stay off — the header until this lapses; 2 minutes keeps the staleness
+// window short while sparing every refresh a network round trip.
+const prNoPrTTL = 2 * time.Minute
+
 type cachedPRIdentity struct {
 	branch string
 	number string
 	url    string
 	base   string
 	at     time.Time
+	// none marks a cached negative: gh worked but no open PR wears the
+	// branch. Kept apart from "never cached" by the at timestamp.
+	none bool
 }
 
 func NewPrService(cwdValues ...string) *PrService {
@@ -413,8 +422,17 @@ func (s *PrService) openPRForBranch(ctx context.Context, cwd, branch string, run
 	s.mu.RLock()
 	cached := s.cachedIdentity
 	s.mu.RUnlock()
-	if cached.branch == branch && cached.number != "" && now.Sub(cached.at) < prIdentityTTL {
-		return cached.number, cached.url, cached.base, true
+	if cached.branch == branch && !cached.at.IsZero() {
+		ttl := prIdentityTTL
+		if cached.none {
+			ttl = prNoPrTTL
+		}
+		if now.Sub(cached.at) < ttl {
+			if cached.none {
+				return "", "", "", true
+			}
+			return cached.number, cached.url, cached.base, true
+		}
 	}
 	output, err := run(ctx, cwd, "gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number,url,baseRefName")
 	if err != nil {
@@ -438,8 +456,12 @@ func (s *PrService) openPRForBranch(ctx context.Context, cwd, branch string, run
 		}
 	}
 	if best < 0 {
-		// gh worked but no open PR wears this head. repoOK stays true so
-		// the caller shows the local diff without a number.
+		// gh worked but no open PR wears this head. Cache the negative
+		// briefly and keep repoOK true so the caller shows the local diff
+		// without a number.
+		s.mu.Lock()
+		s.cachedIdentity = cachedPRIdentity{branch: branch, at: now, none: true}
+		s.mu.Unlock()
 		return "", "", "", true
 	}
 	number = strings.TrimSpace(jsonScalarString(views[best].Number))

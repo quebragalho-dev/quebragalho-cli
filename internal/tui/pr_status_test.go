@@ -661,3 +661,45 @@ func TestPrStateWithoutOpenPrFallsBackToOriginMain(t *testing.T) {
 		t.Fatalf("diff stats = +%d -%d, want +1 -1", state.Additions, state.Deletions)
 	}
 }
+
+// Negative cache: without an open PR, repeated refreshes must not hit the
+// network every time. A freshly closed PR can linger on the header until the
+// short TTL lapses — documented on prNoPrTTL.
+func TestPrServiceCachesMissingPrBriefly(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "dev\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+		"gh pr list --head dev --state open --json number,url,baseRefName": {
+			output: `[]`,
+		},
+		"git symbolic-ref --quiet refs/remotes/origin/HEAD": {
+			err: errors.New("unknown revision"),
+		},
+		"git merge-base origin/main HEAD": {
+			err: errors.New("unknown revision"),
+		},
+		"git merge-base origin/master HEAD": {
+			err: errors.New("unknown revision"),
+		},
+	}}
+	service := NewPrService("/workspace/qg")
+	service.run = runner.Run
+	service.lastBranch = "dev"
+
+	_ = service.detect(context.Background())
+	_ = service.detect(context.Background())
+
+	ghCalls := 0
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, "gh pr list") {
+			ghCalls++
+		}
+	}
+	if ghCalls != 1 {
+		t.Fatalf("missing-PR branch must hit gh once per TTL, hit %d times: %v", ghCalls, runner.calls)
+	}
+}
