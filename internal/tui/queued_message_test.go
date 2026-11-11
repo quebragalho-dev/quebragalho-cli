@@ -11,6 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -757,5 +759,53 @@ func TestCancelRunRequeuesStrandedInterleaveForNextTurn(t *testing.T) {
 	last := req.Messages[len(req.Messages)-1]
 	if !strings.Contains(last.Content, "stranded by cancel") {
 		t.Fatalf("expected the stranded interleave as the provider's last message, got %#v", last)
+	}
+}
+
+func TestQueuedHintDegradesToAgoraUntilTerminalConfirmsDisambiguation(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.input.SetValue("queued followup")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	view := plainRender(t, viewString(next.View()))
+	if !strings.Contains(view, "/agora envia agora") {
+		t.Fatalf("expected the hint to offer /agora before the terminal confirms kitty disambiguation, got:\n%s", view)
+	}
+	if strings.Contains(view, "Ctrl+Enter envia agora") {
+		t.Fatalf("hint must not advertise Ctrl+Enter before the terminal confirms it, got:\n%s", view)
+	}
+	if strings.Contains(view, "⌘") {
+		t.Fatalf("hint must never speak of ⌘, got:\n%s", view)
+	}
+}
+
+func TestQueuedHintAdvertisesCtrlEnterAfterTerminalConfirmsDisambiguation(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.input.SetValue("queued followup")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+	updated, _ = next.Update(tea.KeyboardEnhancementsMsg{Flags: ansi.KittyDisambiguateEscapeCodes})
+	next = updated.(model)
+
+	view := plainRender(t, viewString(next.View()))
+	if !strings.Contains(view, "Ctrl+Enter envia agora") {
+		t.Fatalf("expected the hint to advertise Ctrl+Enter once the terminal confirms kitty disambiguation, got:\n%s", view)
+	}
+	if strings.Contains(view, "/agora envia agora") {
+		t.Fatalf("hint must not fall back to /agora after the terminal confirms, got:\n%s", view)
+	}
+	if strings.Contains(view, "⌘") {
+		t.Fatalf("hint must never speak of ⌘, got:\n%s", view)
 	}
 }

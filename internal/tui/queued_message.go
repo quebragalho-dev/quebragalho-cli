@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"runtime"
 	"strings"
 	"sync"
 
@@ -122,13 +121,16 @@ func (m model) requeueStrandedInterleaves() model {
 	return m
 }
 
-func queuedEditHintForPlatform() string {
-	// Go's stdlib does not expose the terminal's own key naming; the
-	// conventional hint is ⌘⏎ on macOS and Ctrl+Enter everywhere else.
-	if runtime.GOOS == "darwin" {
-		return "na fila — ⌘⏎ envia agora · ↑ edita"
+// queuedSendHint names the send-now shortcut in the Sussurro notice, which
+// must never outpromise the terminal: Ctrl+Enter is only offered once the
+// terminal confirmed kitty key disambiguation; until then the hint points at
+// /agora, which works everywhere. The hint never speaks of ⌘ (on macOS the
+// Command key does not reach the kitty negotiation at all).
+func (m model) queuedSendHint() string {
+	if m.keyboardDisambiguation {
+		return "Ctrl+Enter envia agora"
 	}
-	return "na fila — Ctrl+Enter envia agora · ↑ edita"
+	return "/agora envia agora"
 }
 
 // renderQueuedTranscriptBlock renders the Sussurro row in the transcript for
@@ -150,6 +152,6 @@ func (m model) renderQueuedTranscriptBlock(width int) string {
 		}
 		lines = append(lines, "   "+qgTheme.muted.Render(line))
 	}
-	lines = append(lines, "   "+qgTheme.faint.Render(queuedEditHintForPlatform()))
+	lines = append(lines, "   "+qgTheme.faint.Render("na fila — "+m.queuedSendHint()+" · ↑ edita"))
 	return strings.Join(lines, "\n")
 }

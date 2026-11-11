@@ -311,6 +311,12 @@ type model struct {
 	// by the agent goroutine after each tool batch; leftovers requeue at the
 	// end of the turn).
 	interleave *interleaveBuffer
+	// keyboardDisambiguation records whether the terminal confirmed kitty key
+	// disambiguation (KeyboardEnhancementsMsg, Flags > 0). Until it does,
+	// hints must not advertise shortcuts only such a terminal can deliver
+	// (Ctrl+Enter arrives identical to Enter elsewhere) and fall back to
+	// /agora instead.
+	keyboardDisambiguation bool
 	// loops holds the session's active /loop definitions (see loop.go). activeLoopID
 	// tags the in-flight run when it is a loop iteration (empty = a user turn), so the
 	// completion seam knows whether to advance a loop. loopSeq invalidates a stale
