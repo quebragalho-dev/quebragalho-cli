@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -871,5 +872,215 @@ func TestQueuedHintAdvertisesCtrlEnterAfterTerminalConfirmsDisambiguation(t *tes
 	}
 	if strings.Contains(view, "⌘") {
 		t.Fatalf("hint must never speak of ⌘, got:\n%s", view)
+	}
+}
+
+func TestInterleaveCtrlEnterInterleavesCommonPrompt(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.input.SetValue("MARKCTRL plain prompt")
+
+	updated, _ := m.Update(testInterleaveEnter(t, false))
+	next := updated.(model)
+
+	if got := next.composerValue(); got != "" {
+		t.Fatalf("expected the interleave to consume the composer, got %q", got)
+	}
+	if next.hasQueuedMessage() {
+		t.Fatalf("a plain prompt must not be enqueued, queue = %v", next.queuedMessages)
+	}
+}
+
+func TestInterleaveEnterWithPermissionModalActsAsEnter(t *testing.T) {
+	setup := func() model {
+		m := newQueuedMessageTestModel(t)
+		m.pending = true
+		m.activeRunID = 1
+		m.runID = 1
+		m.pendingPermission = &pendingPermissionPrompt{}
+		m.input.SetValue("/model gpt-4o")
+		return m
+	}
+
+	plainUpdated, _ := setup().Update(testKey(tea.KeyEnter))
+	plain := plainUpdated.(model)
+
+	modUpdated, _ := setup().Update(testInterleaveEnter(t, true))
+	mod := modUpdated.(model)
+
+	if plain.pendingPermission != nil {
+		t.Fatal("plain Enter must confirm the permission modal")
+	}
+	if mod.pendingPermission != nil {
+		t.Fatal("Ctrl+Enter with a permission modal open must confirm the modal exactly like Enter")
+	}
+	if mod.composerValue() != plain.composerValue() {
+		t.Fatalf("Ctrl+Enter kept composer %q, Enter kept %q — they must be identical", mod.composerValue(), plain.composerValue())
+	}
+	if len(mod.queuedMessages) != len(plain.queuedMessages) {
+		t.Fatalf("Ctrl+Enter queued %d message(s), Enter queued %d — they must be identical: %#v vs %#v",
+			len(mod.queuedMessages), len(plain.queuedMessages), mod.queuedMessages, plain.queuedMessages)
+	}
+}
+
+func TestInterleaveEnterWithSpecReviewModalActsAsEnter(t *testing.T) {
+	setup := func() model {
+		m := newQueuedMessageTestModel(t)
+		m.pending = true
+		m.activeRunID = 1
+		m.runID = 1
+		m.pendingSpecReview = &pendingSpecReviewPrompt{SpecID: "spec-audit"}
+		m.input.SetValue("should not be queued")
+		return m
+	}
+
+	plainUpdated, _ := setup().Update(testKey(tea.KeyEnter))
+	plain := plainUpdated.(model)
+
+	modUpdated, _ := setup().Update(testInterleaveEnter(t, true))
+	mod := modUpdated.(model)
+
+	if len(mod.queuedMessages) != len(plain.queuedMessages) {
+		t.Fatalf("Ctrl+Enter with a spec-review modal queued %d message(s), Enter queued %d — they must be identical: %#v vs %#v",
+			len(mod.queuedMessages), len(plain.queuedMessages), mod.queuedMessages, plain.queuedMessages)
+	}
+	if mod.composerValue() != plain.composerValue() {
+		t.Fatalf("Ctrl+Enter with a spec-review modal changed composer to %q, Enter kept %q", mod.composerValue(), plain.composerValue())
+	}
+	if mod.pendingSpecReview == nil {
+		t.Fatal("Ctrl+Enter with a spec-review modal must not dismiss the modal")
+	}
+}
+
+func TestInterleaveEnterInDetailedTranscriptActsAsEnter(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.transcriptDetailed = true
+	m.input.SetValue("/transcript")
+
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+	if next.transcriptDetailed {
+		t.Fatal("Ctrl+Enter on /transcript in the detailed transcript must toggle it off, exactly like Enter")
+	}
+
+	m = newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.transcriptDetailed = true
+	m.input.SetValue("keep this draft")
+
+	updated, _ = m.Update(testInterleaveEnter(t, true))
+	next = updated.(model)
+	if !next.transcriptDetailed {
+		t.Fatal("Ctrl+Enter with free text in the detailed transcript must not leave detailed mode")
+	}
+	if got := next.composerValue(); got != "keep this draft" {
+		t.Fatalf("Ctrl+Enter in the detailed transcript must leave the composer intact, got %q", got)
+	}
+}
+
+func TestInterleaveEnterWithSlashCommandExecutesCommand(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.input.SetValue("/help")
+
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+
+	if !transcriptContains(next.transcript, "Comandos") {
+		t.Fatalf("expected Ctrl+Enter with a slash command to execute the command like Enter, got transcript %#v", next.transcript)
+	}
+	if got := next.composerValue(); got != "" {
+		t.Fatalf("expected the command submission to consume the composer, got %q", got)
+	}
+	if next.interleave != nil && len(next.interleave.snapshot()) != 0 {
+		t.Fatal("a slash command must never be staged as a raw interleave")
+	}
+}
+
+func TestInterleaveEnterWithSpecialistMentionActsAsEnter(t *testing.T) {
+	setup := func() model {
+		m := newQueuedMessageTestModel(t)
+		m.pending = true
+		m.activeRunID = 1
+		m.runID = 1
+		m.agentOptions.Specialists = []agent.SpecialistInfo{{Name: "reviewer"}}
+		m.input.SetValue("@reviewer fix this")
+		return m
+	}
+
+	plainUpdated, _ := setup().Update(testKey(tea.KeyEnter))
+	plain := plainUpdated.(model)
+
+	modUpdated, _ := setup().Update(testInterleaveEnter(t, true))
+	mod := modUpdated.(model)
+
+	if len(mod.queuedMessages) != 1 || mod.queuedMessages[0] != "@reviewer fix this" {
+		t.Fatalf("expected the specialist mention to ride the queue like Enter, got %#v", mod.queuedMessages)
+	}
+	if len(plain.queuedMessages) != 1 {
+		t.Fatalf("plain Enter queued %#v, Ctrl+Enter must match", plain.queuedMessages)
+	}
+	if mod.interleave != nil && len(mod.interleave.snapshot()) != 0 {
+		t.Fatal("a leading @specialist mention must not be interleaved unexpanded")
+	}
+}
+
+func TestInterleaveEnterWithPendingAttachmentsKeepsComposer(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
+	m.input.SetValue("analyze this")
+
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+
+	if !transcriptContains(next.transcript, "Anexos não vão com Ctrl+Enter") {
+		t.Fatalf("expected the short attachments notice, got transcript %#v", next.transcript)
+	}
+	if got := next.composerValue(); got != "analyze this" {
+		t.Fatalf("expected the composer to stay intact, got %q", got)
+	}
+	if next.hasQueuedMessage() {
+		t.Fatalf("attachments must not ride the queue either, got %#v", next.queuedMessages)
+	}
+	if next.interleave != nil && len(next.interleave.snapshot()) != 0 {
+		t.Fatal("attachments must not interleave")
+	}
+	if len(next.pendingImages) != 1 {
+		t.Fatal("the staged image must stay pending")
+	}
+}
+
+func TestInterleaveEnterWithPendingDocumentKeepsComposer(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.pendingDocuments = []pendingDocument{{label: "report.pdf", text: "document text"}}
+	m.input.SetValue("summarize this")
+
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+
+	if !transcriptContains(next.transcript, "Anexos não vão com Ctrl+Enter") {
+		t.Fatalf("expected the short attachments notice, got transcript %#v", next.transcript)
+	}
+	if got := next.composerValue(); got != "summarize this" {
+		t.Fatalf("expected the composer to stay intact, got %q", got)
+	}
+	if len(next.pendingDocuments) != 1 {
+		t.Fatal("the staged document must stay pending")
 	}
 }

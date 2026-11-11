@@ -1980,85 +1980,14 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearComposer()
 			return m, nil
 		case keyIs(msg, tea.KeyEnter) && (keySuper(msg, tea.KeyEnter) || keyCtrl(msg, tea.KeyEnter)):
-			// Cmd+Enter (macOS) / Ctrl+Enter (other platforms): interleave
-			// the message into the running turn — it rides the very next
-			// provider request after this step's tool results, without the
-			// turn being interrupted. With no turn in flight (or a modal
-			// owning the keyboard), it is exactly Enter — submit the prompt.
-			return m.handleInterleaveEnter()
+			// Ctrl+Enter on every system (Cmd+Enter is still accepted silently
+			// when a terminal sends it): interleave the message into the
+			// running turn — it rides the very next provider request after
+			// this step's tool results, without the turn being interrupted.
+			// Where interleaving is not possible, exactly Enter.
+			return m.handleInterleaveEnter(msg)
 		case keyIs(msg, tea.KeyEnter):
-			if m.transcriptDetailed {
-				if command := parseCommand(m.input.Value()); command.kind == commandTranscript {
-					m.input.SetValue("")
-					return m.toggleDetailedTranscript(), nil
-				}
-				return m, nil
-			}
-			if m.pendingPermission != nil {
-				// Enter confirms the highlighted option (default: allow once); the
-				// a/y/d hotkeys and a click still resolve directly.
-				m.burstCount = 0
-				return m.confirmPermissionCursor()
-			}
-			if m.pendingAskUser != nil {
-				m.burstCount = 0
-				return m.confirmAskUser()
-			}
-			if m.pendingSpecReview != nil {
-				m.burstCount = 0
-				return m, nil
-			}
-			if m.mcpAddWizard != nil {
-				m.burstCount = 0
-				return m.handleMCPAddWizardKey(msg)
-			}
-			if m.mcpManager != nil {
-				m.burstCount = 0
-				return m.handleMCPManagerKey(msg)
-			}
-			if m.picker != nil {
-				m.burstCount = 0
-				return m.choosePicker()
-			}
-			if keyAlt(msg) || keyShift(msg) {
-				if next, ok := m.applyComposerKey(msg); ok {
-					return next, nil
-				}
-			}
-			// Enter on file suggestions inserts the @file token for continued
-			// composing. Command suggestions execute only when the selected command
-			// is self-contained; commands that require a value are inserted so the
-			// user can finish the argument first.
-			if m.suggestionsActive() {
-				return m.chooseSuggestion()
-			}
-			// Timing-based paste protection: under Termux, context-menu paste
-			// injects characters one at a time (including newlines as raw
-			// KeyEnter events). A sustained burst of 3+ keys within 100ms
-			// means we are inside a char-by-char paste — insert newline
-			// instead of submitting. Gated to Termux so fast desktop typing
-			// (which can reach similar inter-key intervals) is never affected.
-			if os.Getenv("TERMUX_VERSION") != "" && m.burstCount > 2 {
-				state := m.currentComposerState()
-				m = m.insertComposerTextWithPastePreview(state, "\n", "")
-				m.clearSuggestions()
-				return m, nil
-			}
-
-			// Composer-based paste protection: when the composer already has
-			// multiline text (e.g. pasted via bracketed paste / Ctrl+Shift+V),
-			// plain Enter inserts a newline instead of submitting so each
-			// pasted \n does not trigger a premature submit. Uses the same
-			// burstCount > 2 threshold as the Termux path so a single fast
-			// key + Enter on a multiline prompt still submits.
-			if m.composerActive && m.burstCount > 2 && strings.Contains(m.composer.text, "\n") {
-				state := m.currentComposerState()
-				m = m.insertComposerTextWithPastePreview(state, "\n", "")
-				m.clearSuggestions()
-				return m, nil
-			}
-			m.burstCount = 0
-			return m.handleSubmit()
+			return m.handleEnterKey(msg)
 		case keyIs(msg, tea.KeyTab) && keyShift(msg):
 			if m.transcriptDetailed {
 				return m, nil
@@ -4755,37 +4684,129 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 	return m.dispatchCommand(command)
 }
 
-// handleInterleaveEnter implements Cmd+Enter / Ctrl+Enter: interleave the
-// operator's message into the running turn so it rides the very next
-// provider request (injected after the current step's tool results, without
-// canceling anything). Text staged in the composer wins; otherwise the head
-// of the FIFO queue is injected. With no turn in flight, or a modal surface
-// owning the keyboard, it behaves exactly like Enter — submit the prompt.
-func (m model) handleInterleaveEnter() (tea.Model, tea.Cmd) {
-	m.burstCount = 0
-	if !m.pending || !m.noBlockingModal() {
-		return m.handleSubmit()
-	}
+// handleEnterKey implements the plain Enter key: every surface that owns
+// the keyboard first (detailed transcript, the permission/ask_user/spec-review
+// modals, pickers, suggestions, paste protection), then the normal submit.
+// Ctrl+Enter falls through to this same path whenever it cannot interleave,
+// so the two keys can never diverge.
+func (m model) handleEnterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.transcriptDetailed {
+		if command := parseCommand(m.input.Value()); command.kind == commandTranscript {
+			m.input.SetValue("")
+			return m.toggleDetailedTranscript(), nil
+		}
 		return m, nil
 	}
-	text := strings.TrimSpace(m.composerValue())
-	if text == "" {
-		if len(m.queuedMessages) == 0 {
-			return m, nil
+	if m.pendingPermission != nil {
+		// Enter confirms the highlighted option (default: allow once); the
+		// a/y/d hotkeys and a click still resolve directly.
+		m.burstCount = 0
+		return m.confirmPermissionCursor()
+	}
+	if m.pendingAskUser != nil {
+		m.burstCount = 0
+		return m.confirmAskUser()
+	}
+	if m.pendingSpecReview != nil {
+		m.burstCount = 0
+		return m, nil
+	}
+	if m.mcpAddWizard != nil {
+		m.burstCount = 0
+		return m.handleMCPAddWizardKey(msg)
+	}
+	if m.mcpManager != nil {
+		m.burstCount = 0
+		return m.handleMCPManagerKey(msg)
+	}
+	if m.picker != nil {
+		m.burstCount = 0
+		return m.choosePicker()
+	}
+	if keyAlt(msg) || keyShift(msg) {
+		if next, ok := m.applyComposerKey(msg); ok {
+			return next, nil
 		}
-		text = m.queuedMessages[0]
-		m.queuedMessages = m.queuedMessages[1:]
-	} else {
-		m.rememberInput(text)
-		m.clearComposer()
+	}
+	// Enter on file suggestions inserts the @file token for continued
+	// composing. Command suggestions execute only when the selected command
+	// is self-contained; commands that require a value are inserted so the
+	// user can finish the argument first.
+	if m.suggestionsActive() {
+		return m.chooseSuggestion()
+	}
+	// Timing-based paste protection: under Termux, context-menu paste
+	// injects characters one at a time (including newlines as raw
+	// KeyEnter events). A sustained burst of 3+ keys within 100ms
+	// means we are inside a char-by-char paste — insert newline
+	// instead of submitting. Gated to Termux so fast desktop typing
+	// (which can reach similar inter-key intervals) is never affected.
+	if os.Getenv("TERMUX_VERSION") != "" && m.burstCount > 2 {
+		state := m.currentComposerState()
+		m = m.insertComposerTextWithPastePreview(state, "\n", "")
 		m.clearSuggestions()
+		return m, nil
 	}
-	if m.interleave == nil {
-		m.interleave = &interleaveBuffer{}
+
+	// Composer-based paste protection: when the composer already has
+	// multiline text (e.g. pasted via bracketed paste / Ctrl+Shift+V),
+	// plain Enter inserts a newline instead of submitting so each
+	// pasted \n does not trigger a premature submit. Uses the same
+	// burstCount > 2 threshold as the Termux path so a single fast
+	// key + Enter on a multiline prompt still submits.
+	if m.composerActive && m.burstCount > 2 && strings.Contains(m.composer.text, "\n") {
+		state := m.currentComposerState()
+		m = m.insertComposerTextWithPastePreview(state, "\n", "")
+		m.clearSuggestions()
+		return m, nil
 	}
-	m.interleave.push(text)
-	return m, nil
+	m.burstCount = 0
+	return m.handleSubmit()
+}
+
+// handleInterleaveEnter implements Cmd+Enter / Ctrl+Enter (Ctrl+Enter on
+// every system; Cmd+Enter is still accepted silently when a terminal sends
+// it). The message interleaves into the running turn so it rides the very
+// next provider request, injected after the current step's tool results,
+// without canceling anything. Text staged in the composer wins; otherwise
+// the head of the FIFO queue is injected.
+//
+// Interleaving only happens when a turn is in flight, no modal surface owns
+// the keyboard, the detailed transcript is not open, no attachment is staged,
+// and the text is a plain prompt (a leading @specialist mention needs the
+// expansion launchPrompt applies, so it also falls back). Every other case
+// takes the exact Enter path — handleEnterKey — so the two keys can never
+// diverge. Pending attachments keep the composer intact and post a short
+// notice instead: interleaving does not carry images or documents.
+func (m model) handleInterleaveEnter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.burstCount = 0
+	if m.pending && m.noBlockingModal() && !m.transcriptDetailed {
+		if len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0 {
+			return m.appendSystemNotice("Anexos não vão com Ctrl+Enter — use Enter para enfileirar"), nil
+		}
+		text := strings.TrimSpace(m.composerValue())
+		if text == "" {
+			if len(m.queuedMessages) == 0 {
+				return m.handleEnterKey(msg)
+			}
+			text = m.queuedMessages[0]
+			m.queuedMessages = m.queuedMessages[1:]
+		} else {
+			_, specialistMention := expandSpecialistMention(text, m.agentOptions.Specialists)
+			if parseCommand(text).kind != commandPrompt || specialistMention {
+				return m.handleEnterKey(msg)
+			}
+			m.rememberInput(text)
+			m.clearComposer()
+			m.clearSuggestions()
+		}
+		if m.interleave == nil {
+			m.interleave = &interleaveBuffer{}
+		}
+		m.interleave.push(text)
+		return m, nil
+	}
+	return m.handleEnterKey(msg)
 }
 
 // dispatchCommand runs a parsed slash/prompt command after submit/leader
