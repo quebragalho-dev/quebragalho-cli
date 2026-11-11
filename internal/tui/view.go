@@ -456,14 +456,10 @@ func (m model) suggestionOverlay(width int) string {
 }
 
 func commandSuggestionQuery(value string) string {
-	trimmed := strings.TrimLeft(value, " ")
-	if trimmed == "" {
-		return ""
+	if query := trailingSlashToken(value); query != "" {
+		return strings.TrimPrefix(query, "/")
 	}
-	if fields := strings.Fields(trimmed); len(fields) > 0 {
-		return strings.TrimPrefix(fields[0], "/")
-	}
-	return strings.TrimPrefix(strings.TrimSpace(trimmed), "/")
+	return ""
 }
 
 func fileSuggestionQuery(value string) string {

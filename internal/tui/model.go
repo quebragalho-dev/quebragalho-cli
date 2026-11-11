@@ -4715,6 +4715,7 @@ func (m model) chooseSuggestion() (tea.Model, tea.Cmd) {
 	wasFiles := m.suggestionsAreFiles
 	wasDirectory := m.selectedSuggestionIsDirectory()
 	requiresInput := m.selectedCommandSuggestionRequiresInput()
+	selectedIsSkill := m.selectedSuggestionIsSkill()
 	next := m.completeSuggestion()
 	if !wasFiles {
 		next.resetComposerFromInput()
@@ -4724,7 +4725,7 @@ func (m model) chooseSuggestion() (tea.Model, tea.Cmd) {
 		return next, nil
 	}
 	if !wasFiles {
-		if requiresInput {
+		if requiresInput || selectedIsSkill {
 			return next, nil
 		}
 		return next.handleSubmit()
