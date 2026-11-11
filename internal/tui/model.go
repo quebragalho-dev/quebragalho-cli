@@ -1958,13 +1958,13 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearSuggestions()
 			if m.pending {
 				if wasConfirmingCancel {
-					m.clearComposer()
 					m.cancelRun()
-					// Esc cancels the run and drains the queue: the next
-					// queued message rides the next turn immediately.
-					if next, cmd := m.launchQueuedMessageIfReady(); cmd != nil {
-						return next, cmd
-					}
+					// Esc cancels and hands the queue back: the FIFO and any
+					// interleaves the cancelled turn never consumed return to
+					// the composer, in order, above the draft. Nothing
+					// launches on its own.
+					m = m.requeueStrandedInterleaves()
+					m = m.returnQueuedMessagesToComposer()
 					return m, nil
 				}
 				// First Esc only arms the confirmation — preserve whatever

@@ -95,6 +95,25 @@ func (m model) popQueuedMessageForEdit() model {
 	return m
 }
 
+// returnQueuedMessagesToComposer moves the whole FIFO back into the
+// composer, in order, above whatever draft is already there (the queued
+// text lands above the draft). Used when Esc cancels the turn, so nothing
+// fires on its own after the cancel — the user reviews, edits or clears the
+// returned text themselves.
+func (m model) returnQueuedMessagesToComposer() model {
+	if !m.hasQueuedMessage() {
+		return m
+	}
+	combined := strings.Join(m.queuedMessages, "\n")
+	m.queuedMessages = nil
+	if draft := m.composerValue(); strings.TrimSpace(draft) != "" {
+		combined += "\n" + draft
+	}
+	m.setComposerState(composerState{text: combined, cursor: len([]rune(combined))})
+	m.recomputeSuggestions()
+	return m
+}
+
 func (m model) clearQueuedMessages() model {
 	m.queuedMessages = nil
 	return m

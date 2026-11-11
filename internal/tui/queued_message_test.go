@@ -192,11 +192,9 @@ func TestAgentResponseLaunchesQueuedPrompt(t *testing.T) {
 	}
 }
 
-func TestEscCancelsAndDrainsQueuedPrompt(t *testing.T) {
+func TestEscCancelsAndReturnsQueueToComposerWithoutLaunching(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
-	// A talkative scripted provider so the drained turn produces a real
-	// answer instead of hitting the empty-turn guard.
-	m.provider = &scriptedProvider{scripts: textScripts("drained answer")}
+	m.provider = &scriptedProvider{scripts: textScripts("answer one", "answer two")}
 	cancelled := false
 	m.pending = true
 	m.activeRunID = 1
@@ -208,8 +206,7 @@ func TestEscCancelsAndDrainsQueuedPrompt(t *testing.T) {
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	// First Esc only arms the cancel confirmation; the queue is untouched
-	// and the run stays pending.
+	// First Esc only arms the cancel confirmation; the queue stays untouched.
 	updated, _ = next.Update(testKey(tea.KeyEsc))
 	next = updated.(model)
 
@@ -223,31 +220,25 @@ func TestEscCancelsAndDrainsQueuedPrompt(t *testing.T) {
 		t.Fatal("expected the active run to remain pending after the confirm arm")
 	}
 
-	// Second Esc cancels the run AND drains the queue: the queued prompt
-	// launches as the next turn.
-	updated, cmd := next.Update(testKey(tea.KeyEsc))
+	// The user keeps typing; the second Esc cancels and returns the queue.
+	next.input.SetValue("in-progress draft")
+	updated, _ = next.Update(testKey(tea.KeyEsc))
 	next = updated.(model)
 
 	if !cancelled {
 		t.Fatal("second Esc must cancel the active run")
 	}
-	if cmd == nil {
-		t.Fatal("expected the queued prompt to launch as the drained next turn")
+	if next.pending {
+		t.Fatal("double Esc must not start a new turn on its own")
 	}
-	if !next.pending {
-		t.Fatal("expected the drained queue to start a new turn")
+	if provider, ok := next.provider.(*fakeProvider); ok && len(provider.requests) != 0 {
+		t.Fatalf("double Esc must not hit the provider, got %d request(s)", len(provider.requests))
 	}
 	if next.hasQueuedMessage() {
-		t.Fatal("expected the drained queue to be empty")
+		t.Fatalf("expected the queue back in the composer, still queued: %v", next.queuedMessages)
 	}
-	_ = execCmd(cmd)
-	provider := m.provider.(*scriptedProvider)
-	if len(provider.requests) == 0 {
-		t.Fatal("expected the drained prompt to reach the provider")
-	}
-	messages := provider.requests[len(provider.requests)-1].Messages
-	if len(messages) == 0 || !strings.Contains(messages[len(messages)-1].Content, "queued followup") {
-		t.Fatalf("expected the drained prompt to be the provider's last message, got %#v", messages)
+	if got := next.composerValue(); got != "queued followup\nin-progress draft" {
+		t.Fatalf("expected the queued message above the draft, got %q", got)
 	}
 }
 
@@ -578,42 +569,41 @@ func TestInterleaveStrandedAfterTextOnlyTurnIsRequeued(t *testing.T) {
 	}
 }
 
-func TestEscCancelLaunchesDrainedFirstQueuedMessage(t *testing.T) {
-	provider := &scriptedProvider{scripts: textScripts("first answer", "second answer")}
-	m := continuationHarness(t, testSessionStore(t), provider, nil)
+func TestDoubleEscReturnsStrandedInterleavesThenQueueToComposer(t *testing.T) {
+	m := continuationHarness(t, testSessionStore(t), &scriptedProvider{scripts: textScripts("answer one", "answer two")}, nil)
 	m.width = 96
 	m.pending = true
 	m.activeRunID = 5
 	m.runID = 5
-	m.queuedMessages = []string{"first queued", "second queued"}
+	cancelled := false
+	m.runCancel = func() { cancelled = true }
+	m.interleave.push("MARKSTRANDED interleave")
+	m.queuedMessages = []string{"MARKQUEUED one", "MARKQUEUED two"}
+	draft := "in-progress draft"
+	m.input.SetValue(draft)
 
 	updated, _ := m.Update(testKey(tea.KeyEsc))
 	m = updated.(model)
-	if m.pending != true || !m.hasQueuedMessage() {
-		t.Fatal("first Esc must only arm the confirm and keep the queue")
-	}
-
-	updated, cmd := m.Update(testKey(tea.KeyEsc))
+	updated, _ = m.Update(testKey(tea.KeyEsc))
 	m = updated.(model)
 
-	if cmd == nil {
-		t.Fatal("expected the drained queued message to launch")
+	if !cancelled {
+		t.Fatal("second Esc must cancel the active run")
 	}
-	if !m.pending {
-		t.Fatal("expected the drained queue to start a turn")
+	if m.pending {
+		t.Fatal("double Esc must not start a new turn on its own")
 	}
-	if len(m.queuedMessages) != 1 || m.queuedMessages[0] != "second queued" {
-		t.Fatalf("expected only the head consumed by the drain, queue = %v", m.queuedMessages)
+	if provider := m.provider.(*scriptedProvider); len(provider.requests) != 0 {
+		t.Fatalf("double Esc must not hit the provider, got %d request(s)", len(provider.requests))
 	}
-	updated, _ = m.Update(execCmd(cmd))
-	m = updated.(model)
-	_ = m
-	if len(provider.requests) != 1 {
-		t.Fatalf("expected the drain to hit the provider, got %d requests", len(provider.requests))
+	if got := m.composerValue(); got != "MARKSTRANDED interleave\nMARKQUEUED one\nMARKQUEUED two\n"+draft {
+		t.Fatalf("expected stranded interleaves first, then the queue, then the draft, got %q", got)
 	}
-	messages := provider.requests[0].Messages
-	if len(messages) == 0 || !strings.Contains(messages[len(messages)-1].Content, "first queued") {
-		t.Fatalf("expected the drained head to be the provider's last message, got %#v", messages)
+	if len(m.queuedMessages) != 0 {
+		t.Fatalf("expected the queue back in the composer, still queued: %v", m.queuedMessages)
+	}
+	if got := m.interleave.drain(); len(got) != 0 {
+		t.Fatalf("expected the stranded interleaves returned to the composer, still pending: %v", got)
 	}
 }
 
