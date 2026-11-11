@@ -50,10 +50,15 @@ type PrService struct {
 	// the branch or head moved, at most every prLocalDiffMinInterval, with
 	// one trailing refresh coalescing any triggers inside the window.
 	// trailing is the armed trailing-edge timer, if any.
+	// gen/appliedGen order concurrent refreshes: every Refresh takes the
+	// next generation and setState drops results older than the last one
+	// applied, so a slow detect can never overwrite a newer header.
 	lastBranch  string
 	lastHead    string
 	lastRefresh time.Time
 	trailing    *time.Timer
+	gen         uint64
+	appliedGen  uint64
 	// cachedIdentity reuses one branch's PR number/url/base without
 	// hitting the network on every refresh (TTL). Diff stats are always
 	// recomputed locally.
@@ -173,10 +178,23 @@ func (s *PrService) Refresh() {
 	if s.GetState().Status == PrIdle {
 		s.setState(PrState{Status: PrLoading})
 	}
+	s.mu.Lock()
+	s.gen++
+	gen := s.gen
+	s.mu.Unlock()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), prCommandTimeout)
 		defer cancel()
-		s.setState(s.detect(ctx))
+		state := s.detect(ctx)
+		s.mu.Lock()
+		if gen < s.appliedGen {
+			// A newer refresh already landed: drop this stale result.
+			s.mu.Unlock()
+			return
+		}
+		s.appliedGen = gen
+		s.mu.Unlock()
+		s.setState(state)
 	}()
 }
 
