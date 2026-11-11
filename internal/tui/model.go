@@ -2227,15 +2227,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if next, ok := m.moveComposerVisualCursor(-1); ok {
 				return next, nil
 			}
-			// A pending message takes ↑ priority over history recall: the
-			// last interleave (most recent) first, then the FIFO tail —
-			// each pop back into the composer for editing before it sends.
+			// A pending message takes ↑ priority over history recall. Rows
+			// draw interleave → parked batch → FIFO, so ↑ pops bottom-most
+			// first: the FIFO tail, then the parked batch tail, then the
+			// interleave tail (same order the user reads them).
 			if m.pendingSpecReview == nil {
-				if next, ok := m.popInterleaveForEdit(); ok {
-					return next, nil
-				}
 				if m.hasQueuedMessage() {
 					return m.popQueuedMessageForEdit(), nil
+				}
+				if next, ok := m.popInterleaveForEdit(); ok {
+					return next, nil
 				}
 			}
 			if m.historyRecallActive() {

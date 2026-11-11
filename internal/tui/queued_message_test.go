@@ -295,8 +295,9 @@ func TestPendingInterleaveAndQueueRenderTogether(t *testing.T) {
 	if strings.Contains(view, "enviando após a ação atual…") {
 		t.Fatalf("the interleave notice must be gone, got:\n%s", view)
 	}
-	if !strings.Contains(view, "na fila (1)") {
-		t.Fatalf("expected the queue notice with the count, got:\n%s", view)
+	// One notice for the whole pending block: interleaves + pendingSendNow + FIFO.
+	if !strings.Contains(view, "na fila (2)") {
+		t.Fatalf("expected the queue notice with the full count (interleave + FIFO = 2), got:\n%s", view)
 	}
 }
 
@@ -548,8 +549,9 @@ func TestUpArrowPutsInterleaveAboveDraft(t *testing.T) {
 	}
 }
 
-// With both an interleave and a FIFO pending, ↑ pops the most recently
-// pushed one first (the interleave), then the FIFO tail.
+// With both an interleave and a FIFO pending, ↑ pops the bottom-most drawn
+// row first: the FIFO tail, then the interleave. The drawing draws interleave
+// rows above the FIFO rows, so the FIFO tail is what the user reads last.
 func TestUpArrowPrefersInterleaveOverQueueTail(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
@@ -562,20 +564,20 @@ func TestUpArrowPrefersInterleaveOverQueueTail(t *testing.T) {
 
 	updated, _ := m.Update(testKey(tea.KeyUp))
 	next := updated.(model)
-	if got := next.composerValue(); got != "interleaved newer" {
-		t.Fatalf("expected ↑ to pop the interleave first, got %q", got)
+	if got := next.composerValue(); got != "fifo tail" {
+		t.Fatalf("expected ↑ to pop the FIFO tail first (bottom-most drawn row), got %q", got)
 	}
-	if got := next.queuedMessages; len(got) != 1 || got[0] != "fifo tail" {
-		t.Fatalf("the FIFO must stay untouched while the interleave is pending, got %v", got)
+	if got := next.interleave.snapshot(); len(got) != 1 || got[0] != "interleaved newer" {
+		t.Fatalf("the interleave must stay untouched while the FIFO is pending, got %v", next.interleave.snapshot())
 	}
 
 	updated, _ = next.Update(testKey(tea.KeyUp))
 	next = updated.(model)
-	if got := next.queuedMessages; len(got) != 0 {
-		t.Fatalf("expected the FIFO tail popped next, queue = %v", got)
+	if got := next.interleave.snapshot(); len(got) != 0 {
+		t.Fatalf("expected the interleave popped next, still pending: %v", next.interleave.snapshot())
 	}
-	if got := next.composerValue(); got != "fifo tail\ninterleaved newer" {
-		t.Fatalf("expected the FIFO tail above the earlier pop, got %q", got)
+	if got := next.composerValue(); got != "interleaved newer\nfifo tail" {
+		t.Fatalf("expected the interleave above the FIFO tail, got %q", got)
 	}
 }
 
@@ -2048,7 +2050,7 @@ func TestAltScreenRendersSussurroBlockOnce(t *testing.T) {
 	m = next
 
 	view := plainRender(t, viewString(m.View()))
-	if count := strings.Count(view, "na fila (2)"); count != 1 {
+	if count := strings.Count(view, "na fila (3)"); count != 1 {
 		t.Fatalf("expected the queue notice exactly once in the alt-screen frame, got %d:\n%s", count, view)
 	}
 	if count := strings.Count(view, "MARKONE first queued"); count != 1 {

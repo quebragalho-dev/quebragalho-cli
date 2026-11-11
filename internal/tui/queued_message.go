@@ -292,29 +292,23 @@ func renderSussurroRows(text string, wrapWidth int) []string {
 
 // renderQueuedTranscriptBlock renders the Sussurro rows in the transcript:
 // every interleave already pushed but not yet consumed by the agent, then
-// every queued follow-up, each as a dimmed `❯ <text>` row in order. A notice
-// below the last queued row carries the full count and points at the last
-// queued message for ↑. The interleave rows carry no notice of their own:
-// everything pending rides the same send path, so a separate "enviando após a
-// ação atual…" hint would say the same thing twice.
+// the parked send-now batch, then every queued follow-up, each as a dimmed
+// `❯ <text>` row in order. One notice below the last row carries the FULL
+// count (interleave + parked batch + FIFO) and points at the last message
+// for ↑, which pops the same row.
 func (m model) renderQueuedTranscriptBlock(width int) string {
 	if width <= 0 {
 		return ""
 	}
 	wrapWidth := maxInt(1, width-4)
-	blocks := []string{}
+	queued := []string{}
 	if m.interleave != nil {
-		lines := []string{}
 		for _, text := range m.interleave.snapshot() {
 			if flattened := flattenQueueText(text); flattened != "" {
-				lines = append(lines, renderSussurroRows(flattened, wrapWidth)...)
+				queued = append(queued, flattened)
 			}
 		}
-		if len(lines) > 0 {
-			blocks = append(blocks, strings.Join(lines, "\n"))
-		}
 	}
-	queued := []string{}
 	for _, text := range m.pendingSendNow {
 		if flattened := flattenQueueText(text); flattened != "" {
 			queued = append(queued, flattened)
@@ -325,13 +319,14 @@ func (m model) renderQueuedTranscriptBlock(width int) string {
 			queued = append(queued, flattened)
 		}
 	}
-	if len(queued) > 0 {
-		lines := make([]string, 0, len(queued)*2+1)
-		for _, text := range queued {
-			lines = append(lines, renderSussurroRows(text, wrapWidth)...)
-		}
-		lines = append(lines, "   "+qgTheme.faint.Render(fmt.Sprintf("na fila (%d) — %s · ↑ edita a última", len(queued), m.queuedSendHint())))
-		blocks = append(blocks, strings.Join(lines, "\n"))
+	if len(queued) == 0 {
+		return ""
 	}
+	lines := make([]string, 0, len(queued)*2+1)
+	for _, text := range queued {
+		lines = append(lines, renderSussurroRows(text, wrapWidth)...)
+	}
+	lines = append(lines, "   "+qgTheme.faint.Render(fmt.Sprintf("na fila (%d) — %s · ↑ edita a última", len(queued), m.queuedSendHint())))
+	blocks := []string{strings.Join(lines, "\n")}
 	return strings.Join(blocks, "\n")
 }
