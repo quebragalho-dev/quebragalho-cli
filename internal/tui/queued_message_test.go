@@ -578,65 +578,31 @@ func TestInterleaveEnterInjectsIntoRunningTurn(t *testing.T) {
 	}
 }
 
-// With the composer empty and a queue pending, interleave sends the head of
-// the queue now instead of waiting for the turn to end. The effect must be
-// observable on the wire: the queued message rides the very next provider
-// request, mid-turn.
-func TestInterleaveEnterSendsQueueHead(t *testing.T) {
-	store := testSessionStore(t)
-	release := make(chan struct{})
-	registry := tools.NewRegistry()
-	registry.Register(deafEchoTool{release: release})
-	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
-		{
-			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-slow", ToolName: "slow_echo"},
-			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-slow", ArgumentsFragment: `{}`},
-			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-slow"},
-			{Type: qgruntime.StreamEventDone},
-		},
-		{
-			{Type: qgruntime.StreamEventText, Content: "interleaved answer"},
-			{Type: qgruntime.StreamEventDone},
-		},
-	}}
-	m := continuationHarness(t, store, provider, registry)
+// Send-now carries only common messages: with an empty composer and a queue
+// pending, Ctrl+Enter leaves the FIFO in place — it drains one per turn
+// after the running turn, as always.
+func TestInterleaveEnterWithEmptyComposerKeepsQueue(t *testing.T) {
+	m := continuationHarness(t, testSessionStore(t), &scriptedProvider{scripts: textScripts("answer")}, nil)
 	m.width = 96
-
-	m.input.SetValue("run A")
-	updated, cmdA := m.Update(testKey(tea.KeyEnter))
-	m = updated.(model)
-	doneA := make(chan tea.Msg, 1)
-	go func() { doneA <- execCmd(cmdA) }()
-	snapPath := filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile)
-	waitForSnapshotCall(t, snapPath, "call-slow")
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
 	m.yieldNow = &fakeSendNowSignal{result: true}
-
 	m.queuedMessages = []string{"MARKHEAD queued followup"}
-	updated, _ = m.Update(testInterleaveEnter(t, true))
-	m = updated.(model)
-	if m.hasQueuedMessage() {
-		t.Fatal("expected send-now to drain the queue into the running turn")
-	}
 
-	close(release)
-	late := <-doneA
-	updated, _ = m.Update(late)
-	m = updated.(model)
-
-	if len(provider.requests) != 2 {
-		t.Fatalf("provider requests = %d, want 2 (turn + interleaved)", len(provider.requests))
+	updated, cmd := m.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+	if cmd != nil {
+		t.Fatal("send-now with no common work must not launch or interrupt anything")
 	}
-	found := false
-	for _, message := range provider.requests[1].Messages {
-		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "MARKHEAD queued followup") {
-			found = true
-		}
+	if got := next.queuedMessages; len(got) != 1 || got[0] != "MARKHEAD queued followup" {
+		t.Fatalf("the FIFO must stay untouched, got %v", got)
 	}
-	if !found {
-		t.Fatalf("the queue head must ride the next provider request, got %#v", provider.requests[1].Messages)
+	if next.interleave != nil && next.interleave.pendingCount() != 0 {
+		t.Fatalf("nothing may be staged for the running turn, got %v", next.interleave.snapshot())
 	}
-	if !transcriptContains(m.transcript, "MARKHEAD queued followup") {
-		t.Fatal("expected the interleaved head as a transcript row")
+	if !next.pending {
+		t.Fatal("the running turn must stay pending")
 	}
 }
 
@@ -1243,28 +1209,318 @@ func TestInterleaveEnterWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing
 	m.queuedMessages = []string{"MARKHEAD queued followup"}
 	m.yieldNow = &fakeSendNowSignal{result: true}
 
-	updated, _ := m.Update(testInterleaveEnter(t, true))
+	updated, cmd := m.Update(testInterleaveEnter(t, true))
 	next := updated.(model)
 
 	if transcriptContains(next.transcript, "Anexos não vão com Ctrl+Enter") {
-		t.Fatal("popping the queue head carries no attachments; the notice must not fire")
+		t.Fatal("an empty composer carries no attachments; the notice must not fire")
 	}
-	if len(next.queuedMessages) != 0 {
-		t.Fatalf("expected the queue head interleaved, queue = %v", next.queuedMessages)
+	if cmd != nil {
+		t.Fatal("send-now with no common work must not launch or interrupt anything")
 	}
-	if next.interleave == nil || len(next.interleave.snapshot()) != 1 {
-		t.Fatalf("expected the queue head sent with the running turn, buffer = %+v", next.interleave)
+	if len(next.queuedMessages) != 1 {
+		t.Fatalf("the FIFO must stay untouched, queue = %v", next.queuedMessages)
 	}
 	if len(next.pendingImages) != 1 {
 		t.Fatal("the staged image must stay pending")
 	}
 }
 
-// Send-now with a confirming signal: everything pending — undelivered
-// interleaves (oldest), FIFO in order, then the draft behind the queue —
-// is pushed into the buffer for the running turn to absorb. Nothing cancels,
-// nothing relaunches, the composer is consumed.
-func TestSendNowWithConfirmingSignalPushesEverythingIntoBufferInOrder(t *testing.T) {
+// Send-now must never carry FIFO items: the FIFO only holds what WAITS for
+// the end of the turn (slash commands, @specialist mentions, messages with
+// attachments). Sending them now would hit the model as raw text — "/model x"
+// as a user message instead of a command, a mention without expansion. The
+// FIFO stays untouched and drains one per turn afterwards, as always.
+func TestSendNowKeepsSpecialistQueueUntilTurnEnds(t *testing.T) {
+	setup := func(signal *fakeSendNowSignal) (model, *scriptedProvider) {
+		m := continuationHarness(t, testSessionStore(t), &scriptedProvider{scripts: textScripts("FRESH answer", "ANSWER ONE", "ANSWER TWO")}, nil)
+		m.width = 96
+		m.pending = true
+		m.activeRunID = 1
+		m.runID = 1
+		cancelled := false
+		m.runCancel = func() { cancelled = true }
+		m.yieldNow = signal
+		m.queuedMessages = []string{"/model glm-5.3", "@reviewer check this"}
+		m.input.SetValue("QF-DRAFT")
+		_ = cancelled
+		return m, m.provider.(*scriptedProvider)
+	}
+
+	for _, testCase := range []struct {
+		name   string
+		signal *fakeSendNowSignal
+	}{
+		{"true (wake the same turn)", &fakeSendNowSignal{result: true}},
+		{"false (interrupt and relaunch)", &fakeSendNowSignal{result: false}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			m, provider := setup(testCase.signal)
+			updated, _ := m.Update(testInterleaveEnter(t, true))
+			next := updated.(model)
+
+			if got := next.queuedMessages; len(got) != 2 || got[0] != "/model glm-5.3" || got[1] != "@reviewer check this" {
+				t.Fatalf("the FIFO must stay untouched by send-now, got %v", got)
+			}
+			if got := next.composerValue(); got != "" {
+				t.Fatalf("the draft must be consumed, got %q", got)
+			}
+
+			if testCase.signal.result {
+				// Same-turn delivery: the draft rides the running turn; the
+				// FIFO waits.
+				if got := next.interleave.snapshot(); len(got) != 1 || got[0] != "QF-DRAFT" {
+					t.Fatalf("expected only the draft in the buffer, got %v", got)
+				}
+				return
+			}
+
+			// Interrupt path: the batch parks until the cancelled run
+			// drains, then launches as the new turn.
+			flushed, flushCmd := next.Update(agentResponseMsg{runID: 1})
+			next = flushed.(model)
+			if flushCmd == nil {
+				t.Fatal("expected the parked batch to launch when the cancelled run drains")
+			}
+			_ = execCmd(flushCmd)
+			for i, req := range provider.requests {
+				for _, message := range req.Messages {
+					if message.Role != qgruntime.MessageRoleUser {
+						continue
+					}
+					if strings.Contains(message.Content, "/model glm-5.3") {
+						t.Fatalf("request %d carries the slash command as a user message: %#v", i, message.Content)
+					}
+					if strings.Contains(message.Content, "@reviewer check this") {
+						t.Fatalf("request %d carries the unexpanded mention: %#v", i, message.Content)
+					}
+				}
+			}
+			// The FIFO drains afterwards, one per turn, in order.
+			if len(next.queuedMessages) != 2 {
+				t.Fatalf("the FIFO must survive the interrupt, got %v", next.queuedMessages)
+			}
+		})
+	}
+}
+
+// FIFO items launch after the send-now turn, one per turn, in order — the
+// pre-existing one-per-turn drain, unchanged.
+func TestSendNowKeepsSlashCommandsInQueueUntilTheyRunInOrder(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("FRESH answer", "ANSWER ONE", "ANSWER TWO")}
+	m := newQueuedMessageTestModel(t)
+	m.provider = provider
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.yieldNow = &fakeSendNowSignal{result: false}
+	m.queuedMessages = []string{"/model glm-5.3", "@reviewer check this"}
+	m.input.SetValue("QF-DRAFT")
+
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+	if got := m.queuedMessages; len(got) != 2 {
+		t.Fatalf("the FIFO must survive the interrupt, got %v", got)
+	}
+	// The dying goroutine drains; the parked batch launches as a new turn.
+	updated, cmd := m.Update(agentResponseMsg{runID: 1})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("expected the parked batch to launch when the cancelled run drains")
+	}
+	_ = execCmd(cmd)
+	if got := m.queuedMessages; len(got) != 2 {
+		t.Fatalf("the FIFO must survive the interrupt untouched, got %v", got)
+	}
+	for i, req := range provider.requests {
+		for _, message := range req.Messages {
+			if message.Role != qgruntime.MessageRoleUser {
+				continue
+			}
+			if strings.Contains(message.Content, "/model glm-5.3") {
+				t.Fatalf("request %d carries the slash command as a user message: %#v", i, message.Content)
+			}
+			if strings.Contains(message.Content, "@reviewer check this") {
+				t.Fatalf("request %d carries the unexpanded mention: %#v", i, message.Content)
+			}
+		}
+	}
+
+	// Turn ends: the first FIFO item launches alone.
+	updated, cmd = m.Update(agentResponseMsg{runID: m.activeRunID})
+	m = updated.(model)
+	m.titledSessions = map[string]bool{m.activeSession.SessionID: true}
+	if cmd == nil {
+		t.Fatal("expected the first FIFO item to launch after the send-now turn")
+	}
+	if got := m.queuedMessages; len(got) != 1 || got[0] != "@reviewer check this" {
+		t.Fatalf("expected the head consumed in order, queue = %v", got)
+	}
+	_ = execCmd(cmd)
+
+	// The second item launches next.
+	updated, cmd = m.Update(agentResponseMsg{runID: m.activeRunID})
+	m = updated.(model)
+	m.titledSessions[m.activeSession.SessionID] = true
+	if cmd == nil {
+		t.Fatal("expected the second FIFO item to launch")
+	}
+	if len(m.queuedMessages) != 0 {
+		t.Fatalf("expected the FIFO drained, got %v", m.queuedMessages)
+	}
+	_ = execCmd(cmd)
+}
+
+// The loop drained a mid-turn message and the turn was cancelled right
+// after: the drained message reaches the new turn's wire exactly once (via
+// the cancelled run's continuation) and the transcript exactly once.
+func TestSendNowInterruptKeepsDrainedMessageExactlyOnce(t *testing.T) {
+	store := testSessionStore(t)
+	// The session must exist for the cancelled run's continuation to gate
+	// in — a turn through the real submit path creates it.
+	m := runTextTurn(t, continuationHarness(t, store, &scriptedProvider{scripts: textScripts("first answer")}, nil), "run A")
+	sessID := m.activeSession.SessionID
+	m.width = 96
+	m.pending = true
+	m.activeRunID = 7
+	m.runID = 7
+	cancelled := false
+	m.runCancel = func() { cancelled = true }
+	m.yieldNow = &fakeSendNowSignal{result: false}
+
+	// The user sends a mid-turn message; Ctrl+Enter interrupts with a draft.
+	m.input.SetValue("QF-DRAFT")
+	updated, cmd := m.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+	if !cancelled {
+		t.Fatal("expected the interrupt path to cancel the running turn")
+	}
+	// The key dispatch itself always yields a batch cmd (focus, blink,
+	// transcript settle); what must NOT happen is an inline launch. The
+	// batch is parked until the cancelled run drains.
+	_ = cmd
+	if next.pending {
+		t.Fatal("the cancelled turn must not keep running inline")
+	}
+	if len(next.pendingSendNow) != 1 || next.pendingSendNow[0] != "QF-DRAFT" {
+		t.Fatalf("expected the send-now batch parked for the flush drain, got %v", next.pendingSendNow)
+	}
+
+	// The dying goroutine returns its accumulated message with the drained
+	// interleave already on its wire — as a real run would.
+	deadRunMessages := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "sys"},
+		{Role: qgruntime.MessageRoleUser, Content: "run A"},
+		{Role: qgruntime.MessageRoleUser, Content: "DRAINED-mid-turn"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "partial answer"},
+	}
+	deadRow := transcriptRow{kind: rowUser, text: "DRAINED-mid-turn", runID: 7, id: "interleave-7-1"}
+	updated, flushCmd := next.Update(agentResponseMsg{
+		runID: 7,
+		rows:  []transcriptRow{deadRow},
+		continuation: &turnContinuation{
+			sessionID: sessID,
+			modelID:   "test-model",
+			runID:     7,
+			messages:  deadRunMessages,
+		},
+	})
+	done := updated.(model)
+	if flushCmd == nil {
+		t.Fatal("expected the parked send-now batch to launch when the cancelled run drains")
+	}
+	if !done.pending {
+		t.Fatal("expected the new turn to start after the drain")
+	}
+	_ = execCmd(flushCmd)
+
+	// The drained message appears EXACTLY ONCE in the new turn's wire,
+	// replayed from the cancelled run's continuation. provider.requests[0]
+	// belongs to the first turn this test ran to create the session; the new
+	// turn's request is the last one.
+	provider := done.provider.(*scriptedProvider)
+	if len(provider.requests) < 2 {
+		t.Fatalf("provider requests = %d, want at least 2 (first turn + relaunch)", len(provider.requests))
+	}
+	count := 0
+	for _, message := range provider.requests[len(provider.requests)-1].Messages {
+		if strings.Contains(message.Content, "DRAINED-mid-turn") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("drained message appears %d times in the new turn's request, want exactly 1: %#v", count, provider.requests[0].Messages)
+	}
+
+	// And exactly once in the transcript.
+	transcriptCount := 0
+	for _, row := range done.transcript {
+		if strings.Contains(row.text, "DRAINED-mid-turn") {
+			transcriptCount++
+		}
+	}
+	if transcriptCount != 1 {
+		t.Fatalf("drained message appears %d times in the transcript, want exactly 1", transcriptCount)
+	}
+}
+
+// /retry after a multi-message turn resends the SAME messages, separate and
+// in order — never one concatenated text.
+func TestRetryResendsMultiMessageTurnAsSeparateMessages(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	provider := &scriptedProvider{scripts: textScripts("first", "second", "retried")}
+	m.provider = provider
+
+	m, cmd := m.launchPrompts([]string{"RETRY-ONE", "RETRY-TWO", "RETRY-THREE"})
+	_ = execCmd(cmd)
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(provider.requests))
+	}
+	m.pending = false
+
+	m.input.SetValue("/retry")
+	updated, retryCmd := m.Update(testKey(tea.KeyEnter))
+	_ = updated
+	if retryCmd == nil {
+		t.Fatal("expected /retry to relaunch the turn")
+	}
+	_ = execCmd(retryCmd)
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2 (original + retry)", len(provider.requests))
+	}
+	var userMessages []string
+	for _, message := range provider.requests[1].Messages {
+		if message.Role == qgruntime.MessageRoleUser {
+			userMessages = append(userMessages, message.Content)
+		}
+	}
+	for _, want := range []string{"RETRY-ONE", "RETRY-TWO", "RETRY-THREE"} {
+		found := false
+		for _, content := range userMessages {
+			if content == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("retry request lost %q; user messages = %#v", want, userMessages)
+		}
+	}
+	if strings.Join(userMessages, "|") == "" {
+		t.Fatal("retry produced no user messages")
+	}
+	for _, content := range userMessages {
+		if strings.Contains(content, "RETRY-ONE\nRETRY-TWO") {
+			t.Fatalf("retry concatenated the messages into one text: %q", content)
+		}
+	}
+}
+
+// Send-now with a confirming signal: the undelivered interleaves (oldest)
+// and the draft go into the buffer for the running turn to absorb; the
+// FIFO waits untouched. Nothing cancels, nothing relaunches, the composer
+// is consumed.
+func TestSendNowWithConfirmingSignalPushesCommonMessagesIntoBufferInOrder(t *testing.T) {
 	m := continuationHarness(t, testSessionStore(t), &scriptedProvider{scripts: textScripts("answer")}, nil)
 	m.width = 96
 	m.pending = true
@@ -1290,11 +1546,11 @@ func TestSendNowWithConfirmingSignalPushesEverythingIntoBufferInOrder(t *testing
 	if !next.pending {
 		t.Fatal("the running turn must stay pending")
 	}
-	if got := next.queuedMessages; len(got) != 0 {
-		t.Fatalf("the queue must be drained into the send, got %v", got)
+	if got := next.queuedMessages; len(got) != 2 || got[0] != "QF-UM" || got[1] != "QF-DOIS" {
+		t.Fatalf("the FIFO must stay untouched, got %v", got)
 	}
 	got := next.interleave.snapshot()
-	want := []string{"OLDEST leftover", "QF-UM", "QF-DOIS", "QF-DRAFT"}
+	want := []string{"OLDEST leftover", "QF-DRAFT"}
 	if len(got) != len(want) {
 		t.Fatalf("interleave = %v, want %v", got, want)
 	}
@@ -1309,10 +1565,10 @@ func TestSendNowWithConfirmingSignalPushesEverythingIntoBufferInOrder(t *testing
 }
 
 // Send-now with nothing to wake the wait (nil signal, the interim default):
-// the turn is interrupted and EVERYTHING — queue plus draft, in order —
-// relaunches as separate user messages in one new turn. Nothing returns to
-// the composer.
-func TestSendNowWithoutSignalInterruptsAndLaunchesAllSeparatelyInOrder(t *testing.T) {
+// the turn is interrupted and the draft relaunches as a message in one new
+// turn — nothing returns to the composer, and the FIFO stays queued for
+// the turns after it.
+func TestSendNowWithoutSignalInterruptsAndLaunchesDraftSeparately(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		ProviderName: "openai",
 		ModelName:    "gpt-4.1",
@@ -1333,23 +1589,32 @@ func TestSendNowWithoutSignalInterruptsAndLaunchesAllSeparatelyInOrder(t *testin
 	m.queuedMessages = []string{"QF-UM", "QF-DOIS"}
 	m.input.SetValue("QF-DRAFT")
 
-	updated, cmd := m.Update(testInterleaveEnter(t, true))
+	updated, _ := m.Update(testInterleaveEnter(t, true))
 	next := updated.(model)
 
 	if !cancelled {
 		t.Fatal("with nothing to wake, send-now must interrupt the running turn")
 	}
-	if !next.pending {
-		t.Fatal("send-now must start the new turn")
+	if next.pending {
+		t.Fatal("the cancelled turn must stop; the new turn launches when it drains")
 	}
 	if got := next.composerValue(); got != "" {
 		t.Fatalf("nothing may return to the composer, got %q", got)
 	}
-	if len(next.queuedMessages) != 0 {
-		t.Fatalf("the queue must be drained into the new turn, got %v", next.queuedMessages)
+	if got := next.queuedMessages; len(got) != 2 || got[0] != "QF-UM" || got[1] != "QF-DOIS" {
+		t.Fatalf("the FIFO must survive the interrupt untouched, got %v", got)
 	}
+	if len(next.pendingSendNow) != 1 || next.pendingSendNow[0] != "QF-DRAFT" {
+		t.Fatalf("the batch parks until the cancelled run drains, got %v", next.pendingSendNow)
+	}
+	// The dying goroutine returns; the parked batch launches as a new turn.
+	updated, cmd := next.Update(agentResponseMsg{runID: 1})
+	next = updated.(model)
 	if cmd == nil {
-		t.Fatal("expected the new turn to launch")
+		t.Fatal("expected the parked batch to launch when the cancelled run drains")
+	}
+	if !next.pending {
+		t.Fatal("send-now must start the new turn")
 	}
 	_ = execCmd(cmd)
 	if len(provider.requests) == 0 {
@@ -1361,7 +1626,7 @@ func TestSendNowWithoutSignalInterruptsAndLaunchesAllSeparatelyInOrder(t *testin
 			userMessages = append(userMessages, message.Content)
 		}
 	}
-	want := []string{"QF-UM", "QF-DOIS", "QF-DRAFT"}
+	want := []string{"QF-DRAFT"}
 	if len(userMessages) != len(want) {
 		t.Fatalf("user messages = %#v, want exactly %#v", userMessages, want)
 	}
@@ -1372,9 +1637,9 @@ func TestSendNowWithoutSignalInterruptsAndLaunchesAllSeparatelyInOrder(t *testin
 	}
 }
 
-// /agora with arguments while pending IS the send-now path: the queue goes
-// out now, the argument rides behind it.
-func TestAgoraWithArgumentRidesBehindTheQueue(t *testing.T) {
+// /agora with an argument while pending IS the send-now path: the argument
+// goes out now as a common message. The FIFO waits for the turn to end.
+func TestAgoraWithArgumentRidesBehindTheCommonMessages(t *testing.T) {
 	m := continuationHarness(t, testSessionStore(t), &scriptedProvider{scripts: textScripts("answer")}, nil)
 	m.width = 96
 	m.pending = true
@@ -1391,7 +1656,7 @@ func TestAgoraWithArgumentRidesBehindTheQueue(t *testing.T) {
 		t.Fatalf("the /agora argument must consume the composer, got %q", got)
 	}
 	got := next.interleave.snapshot()
-	want := []string{"QF-UM", "QF-AGORA"}
+	want := []string{"QF-AGORA"}
 	if len(got) != len(want) {
 		t.Fatalf("interleave = %v, want %v", got, want)
 	}
@@ -1399,6 +1664,9 @@ func TestAgoraWithArgumentRidesBehindTheQueue(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("interleave[%d] = %q, want %q; all: %v", i, got[i], want[i], got)
 		}
+	}
+	if got := next.queuedMessages; len(got) != 1 || got[0] != "QF-UM" {
+		t.Fatalf("the FIFO must stay untouched, got %v", got)
 	}
 }
 

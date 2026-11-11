@@ -82,58 +82,28 @@ func TestAgoraDuringTurnIntercalatesTextNow(t *testing.T) {
 	}
 }
 
-func TestAgoraDuringTurnWithoutArgIntercalatesQueueHead(t *testing.T) {
-	store := testSessionStore(t)
-	release := make(chan struct{})
-	registry := tools.NewRegistry()
-	registry.Register(deafEchoTool{release: release})
-	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
-		{
-			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-slow", ToolName: "slow_echo"},
-			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-slow", ArgumentsFragment: `{}`},
-			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-slow"},
-			{Type: qgruntime.StreamEventDone},
-		},
-		{
-			{Type: qgruntime.StreamEventText, Content: "interleaved answer"},
-			{Type: qgruntime.StreamEventDone},
-		},
-	}}
-	m := continuationHarness(t, store, provider, registry)
+func TestAgoraDuringTurnWithoutArgKeepsQueue(t *testing.T) {
+	m := continuationHarness(t, testSessionStore(t), &scriptedProvider{scripts: textScripts("answer")}, nil)
 	m.width = 96
-
-	m.input.SetValue("run A")
-	updated, cmdA := m.Update(testKey(tea.KeyEnter))
-	m = updated.(model)
-	doneA := make(chan tea.Msg, 1)
-	go func() { doneA <- execCmd(cmdA) }()
-	waitForSnapshotCall(t, sessionSnapshotPath(store, m), "call-slow")
-	m.yieldNow = &fakeSendNowSignal{result: true}
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
 	m.queuedMessages = []string{"MARKHEAD queued followup"}
 
 	m.input.SetValue("/agora")
-	updated, _ = m.Update(testKey(tea.KeyEnter))
-	m = updated.(model)
-	if m.hasQueuedMessage() {
-		t.Fatal("expected /agora to send the queued message now")
-	}
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
 
-	close(release)
-	late := <-doneA
-	updated, _ = m.Update(late)
-	m = updated.(model)
-
-	if len(provider.requests) != 2 {
-		t.Fatalf("provider requests = %d, want 2 (turn + interleaved)", len(provider.requests))
+	// Send-now leads only common messages; with none pending, /agora has
+	// nothing to send and says so. The FIFO waits for the turn to end.
+	if !transcriptContains(next.transcript, "Nada na fila para intercalar.") {
+		t.Fatalf("expected the short notice, got transcript %#v", next.transcript)
 	}
-	found := false
-	for _, message := range provider.requests[1].Messages {
-		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "MARKHEAD queued followup") {
-			found = true
-		}
+	if got := next.queuedMessages; len(got) != 1 {
+		t.Fatalf("the FIFO must stay untouched, got %v", got)
 	}
-	if !found {
-		t.Fatalf("/agora must intercalate the queue head mid-turn, got %#v", provider.requests[1].Messages)
+	if next.interleave != nil && next.interleave.pendingCount() != 0 {
+		t.Fatalf("nothing may be staged for the running turn, got %v", next.interleave.snapshot())
 	}
 }
 
@@ -299,13 +269,13 @@ func TestAgoraWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing.T) {
 	next := updated.(model)
 
 	if transcriptContains(next.transcript, "Anexos não vão com /agora") {
-		t.Fatal("popping the queue head carries no attachments; the notice must not fire")
+		t.Fatal("an empty composer carries no attachments; the notice must not fire")
 	}
-	if len(next.queuedMessages) != 0 {
-		t.Fatalf("expected the queue head sent now, queue = %v", next.queuedMessages)
+	if len(next.queuedMessages) != 1 {
+		t.Fatalf("the FIFO must stay untouched, queue = %v", next.queuedMessages)
 	}
-	if next.interleave == nil || len(next.interleave.snapshot()) != 1 {
-		t.Fatalf("expected the queue head sent with the running turn, buffer = %+v", next.interleave)
+	if next.interleave != nil && next.interleave.pendingCount() != 0 {
+		t.Fatalf("nothing may be staged for the running turn, got %v", next.interleave.snapshot())
 	}
 	if len(next.pendingImages) != 1 {
 		t.Fatal("the staged image must stay pending")

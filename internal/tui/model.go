@@ -315,6 +315,13 @@ type model struct {
 	// Ctrl+Enter (or /agora) sends the queue plus the draft now. Plain
 	// prompts typed during a run go to the interleave buffer instead.
 	queuedMessages []string
+	// pendingSendNow parks the send-now batch (draft plus any common sobras)
+	// after an interrupt cancel: the dead run's continuation only lands in the
+	// flush path, and the relaunch must replay through it so a mid-turn
+	// message the loop drained right before the cancel reaches the new turn
+	// exactly once. Launched and cleared by launchPendingSendNow in the
+	// flush/completion paths; a session boundary drops it.
+	pendingSendNow []string
 	// interleave carries operator interleaves into the running turn (drained
 	// by the agent goroutine after each tool batch; leftovers launch together
 	// as the next turn).
@@ -454,6 +461,11 @@ type model struct {
 	// lastPrompt is the verbatim text of the most recent submitted prompt, so
 	// /retry can resend it and /edit can recall it into the composer.
 	lastPrompt string
+	// lastPrompts holds the batch as submitted, one entry per message — the
+	// /retry path replays these as separate messages instead of the joined
+	// lastPrompt. Set on every launchPromptsInternal; cleared nowhere (it
+	// follows lastPrompt, which is composer history).
+	lastPrompts []string
 	// lastImages/lastImageLabels/lastDocuments remember the attachments consumed
 	// by the most recent submitted prompt. launchPrompt clears the pending queues
 	// once a turn is sent, so /retry re-stages these to reproduce the exact same
@@ -2697,6 +2709,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for _, row := range flushRows {
 					m.transcript = appendTranscriptRow(m.transcript, row)
 				}
+				// The cancelled run's rows: a live sink may have delivered
+				// some while the run was still the active one (appendTranscriptRow
+				// dedupes those); the rest were dropped as stale and are
+				// appended here once — a drained interleave never vanishes
+				// from the transcript just because its turn was cancelled.
+				m.transcript = appendTranscriptRowsDedup(m.transcript, msg.rows)
 				// A cancelled run's final messages seed the next turn exactly like
 				// a normal finish does — but only when the run was still recording
 				// the session that is active now, and only when that history is
@@ -2718,8 +2736,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// checkpoint session events have been flushed (above). Now that the
 				// last pending flush is drained, fire the deferred quit.
 				if m.exiting && len(m.flushRunIDs) == 0 {
+					m.pendingSendNow = nil
 					return m.quit()
 				}
+				// The parked send-now batch launches here, once the dead run's
+				// continuation is stored above — the new turn replays through it.
+				if next, sendNowCmd := m.launchPendingSendNow(); sendNowCmd != nil {
+					return next, sendNowCmd
+				}
+				return m, nil
 			}
 			return m, nil
 		}
@@ -4849,13 +4874,16 @@ func (m model) handleEnterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleSubmit()
 }
 
-// sendNow delivers everything pending right now — undelivered interleaves
-// (oldest), then the FIFO in order, then the draft behind the queue — as
-// separate user messages. If the run's signal wakes a backgroundable wait,
-// the loop drains the buffer and delivers everything inside the running
-// turn. Otherwise the turn is interrupted and the collected messages launch
-// as one new turn. Nothing returns to the composer on that path. ok is
-// false when nothing is pending (callers fall back to Enter or a notice).
+// sendNow delivers everything common pending right now — undelivered
+// interleaves (oldest), then the composer draft behind them — as separate
+// user messages. The FIFO never rides the send; slash commands,
+// @specialist mentions and attachment-backed messages wait for the end of
+// the turn and drain one per turn afterwards, as always. If the run's
+// signal wakes a backgroundable wait, the loop drains the buffer and
+// delivers everything inside the running turn. Otherwise the turn is
+// interrupted and the collected messages launch as one new turn. Nothing
+// returns to the composer on that path. ok is false when nothing common is
+// pending (callers fall back to Enter or a notice).
 func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 	var all []string
 	if m.interleave != nil {
@@ -4865,7 +4893,9 @@ func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 			}
 		}
 	}
-	all = append(all, m.queuedMessages...)
+	// The FIFO never rides the send: slash commands, @specialist mentions
+	// and attachment-backed messages go off one per turn after this one,
+	// exactly as if the user had queued them on their own.
 	draft = strings.TrimSpace(draft)
 	if draft != "" {
 		all = append(all, draft)
@@ -4878,7 +4908,6 @@ func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 		m.clearComposer()
 		m.clearSuggestions()
 	}
-	m.queuedMessages = nil
 	if m.yieldNow != nil && m.yieldNow.Request() {
 		// The wait was woken: the loop drains the buffer after the closing
 		// tool batch and delivers every message inside the running turn.
@@ -4890,12 +4919,20 @@ func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	}
-	// Nothing to wake: cancelRun keeps the Esc semantics (session events,
-	// goal pause, late-run drain) without handing anything back to the
-	// composer — everything collected above goes into the new turn.
-	m.cancelRun()
-	next, cmd := m.launchPrompts(all)
-	return next, cmd, true
+	// Nothing to wake: cut the turn short (Esc semantics for its bookkeeping,
+	// but the FIFO stays queued for the turns after this one — its items
+	// were never part of this send) and park the batch until the dead
+	// run drains through the flush path, where its continuation is stored.
+	// The new turn launches there so anything the loop drained into the
+	// dying run's wire is replayed into the new turn exactly once.
+	deferUntilDrain := m.pending && m.activeRunID != 0
+	m.cancelRun(true)
+	if !deferUntilDrain {
+		next, cmd := m.launchPrompts(all)
+		return next, cmd, true
+	}
+	m.pendingSendNow = append(m.pendingSendNow, all...)
+	return m, nil, true
 }
 
 // handleInterleaveEnter implements Cmd+Enter / Ctrl+Enter (Ctrl+Enter on
@@ -5395,6 +5432,11 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		m.pendingImageLabels = m.lastImageLabels
 		m.pendingDocuments = m.lastDocuments
 		m.refreshPendingImageThumbnail()
+		// Resend a multi-message turn as the SAME separate messages, in
+		// order — never as one concatenated text.
+		if len(m.lastPrompts) > 1 {
+			return m.launchPrompts(m.lastPrompts)
+		}
 		return m.launchPrompt(m.lastPrompt)
 	case commandEdit:
 		if strings.TrimSpace(m.lastPrompt) == "" {
@@ -5479,6 +5521,7 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 	var attachments transcriptAttachmentSummary
 	if peer == nil {
 		m.lastPrompt = strings.Join(prompts, "\n")
+		m.lastPrompts = append([]string(nil), prompts...)
 		m.lastImages = m.pendingImages
 		m.lastImageLabels = m.pendingImageLabels
 		m.lastDocuments = m.pendingDocuments
@@ -5718,6 +5761,19 @@ func (m *model) ensureSpinnerTick() tea.Cmd {
 	return m.spinner.Tick
 }
 
+// launchPendingSendNow launches a parked send-now batch (see sendNow), or
+// does nothing when none is parked. Called once the cancelled run's
+// continuation is stored — the new turn replays through it, so anything the
+// loop drained into that run's wire rides exactly once.
+func (m model) launchPendingSendNow() (model, tea.Cmd) {
+	if len(m.pendingSendNow) == 0 {
+		return m, nil
+	}
+	batch := m.pendingSendNow
+	m.pendingSendNow = nil
+	return m.launchPrompts(batch)
+}
+
 func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
 	if m.pending || m.exiting || m.pendingPermission != nil || m.pendingAskUser != nil || m.pendingSpecReview != nil {
 		return m, nil
@@ -5791,7 +5847,8 @@ func (m *model) rememberInput(value string) {
 	m.historyDraft = ""
 }
 
-func (m *model) cancelRun() {
+func (m *model) cancelRun(keepQueuedMessages ...bool) {
+	keepQueue := len(keepQueuedMessages) > 0 && keepQueuedMessages[0]
 	goalWasActive := m.pending && m.activeSession.Goal != nil &&
 		m.activeSession.Goal.Status == sessions.GoalStatusActive
 	if m.runCancel != nil {
@@ -5869,7 +5926,12 @@ func (m *model) cancelRun() {
 	// Every cancel returns the pending queue to the composer as well, not
 	// just the double-Esc path: the interleaves land above the queue, and
 	// both land above the draft. Nothing fires on its own after a cancel.
-	*m = m.returnQueuedMessagesToComposer()
+	// The send-now interrupt path is the one exception: it passes
+	// keepQueuedMessages so the FIFO stays queued for the turn after —
+	// those items were never the ones being sent.
+	if !keepQueue {
+		*m = m.returnQueuedMessagesToComposer()
+	}
 	m.cancelConfirmActive = false // whatever path got here, there's nothing left to confirm cancelling
 	m.plan.frozenAt = m.now()     // freeze the plan clock while idle (no run in flight)
 	m.pendingPermission = nil

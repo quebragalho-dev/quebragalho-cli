@@ -138,6 +138,7 @@ func TestLeaderCtrlXCtrlSSendsQueueNow(t *testing.T) {
 	m.runID = 1
 	m.yieldNow = &fakeSendNowSignal{result: true}
 	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.input.SetValue("MARKLEADER draft")
 
 	updated, _ := m.Update(testKeyCtrl('x'))
 	m = updated.(model)
@@ -147,11 +148,14 @@ func TestLeaderCtrlXCtrlSSendsQueueNow(t *testing.T) {
 	if next.leaderPending {
 		t.Fatal("Ctrl+X Ctrl+S should clear leader-pending")
 	}
-	if len(next.queuedMessages) != 0 {
-		t.Fatalf("Ctrl+X Ctrl+S must send the queue now, got %v", next.queuedMessages)
+	if got := next.composerValue(); got != "" {
+		t.Fatalf("Ctrl+X Ctrl+S must consume the draft, got %q", got)
 	}
 	if next.interleave == nil || next.interleave.pendingCount() != 1 {
-		t.Fatalf("expected the queue head sent with the running turn, got %+v", next.interleave)
+		t.Fatalf("expected the draft sent with the running turn, got %+v", next.interleave)
+	}
+	if got := next.queuedMessages; len(got) != 1 || got[0] != "MARKHEAD queued followup" {
+		t.Fatalf("the FIFO must stay untouched, got %v", got)
 	}
 }
 

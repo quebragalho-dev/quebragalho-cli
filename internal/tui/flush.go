@@ -186,6 +186,7 @@ func (m *model) rebuildAltScreenSettledItems(width int) {
 	// tail renders it. The settled prefix never may, or the same block
 	// appears twice in one alt-screen frame.
 	snapshot.queuedMessages = nil
+	snapshot.pendingSendNow = nil
 	snapshot.interleave = nil
 	snapshot.flushed = 0
 	snapshot.flushedAny = false
