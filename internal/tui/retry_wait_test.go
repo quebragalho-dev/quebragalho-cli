@@ -63,3 +63,55 @@ func TestFormatRetryCountdown(t *testing.T) {
 		}
 	}
 }
+
+// A discarded attempt's partial text vanishes from the live response: the
+// retry streams the answer whole, so keeping the partial would show it twice.
+func TestDiscardedPartialVanishesFromLiveText(t *testing.T) {
+	base := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	m := model{now: func() time.Time { return base }}
+	m.width = 100
+	m.pending = true
+	m.activeRunID = 3
+
+	updated, _ := m.Update(agentTextMsg{runID: 3, delta: "parte A"})
+	m = updated.(model)
+	if got := m.streamingTextString(); got != "parte A" {
+		t.Fatalf("live text = %q, want the streamed partial", got)
+	}
+
+	updated, _ = m.Update(agentRetryWaitMsg{
+		runID: 3, attempt: 2, max: 10,
+		wait:      5 * time.Second,
+		summary:   "upstream 502",
+		discarded: true,
+	})
+	m = updated.(model)
+	if got := m.streamingTextString(); got != "" {
+		t.Fatalf("discarded partial must vanish from the live text, got %q", got)
+	}
+	if line := plainRender(t, m.interimBlock(96)); strings.Contains(line, "parte A") {
+		t.Fatalf("interim block must not show the discarded partial:\n%s", line)
+	}
+
+	updated, _ = m.Update(agentTextMsg{runID: 3, delta: "resposta completa"})
+	m = updated.(model)
+	updated, _ = m.Update(agentResponseMsg{runID: 3, rows: []transcriptRow{
+		{kind: rowAssistant, text: "resposta completa", final: true},
+	}})
+	m = updated.(model)
+
+	complete, partial := 0, 0
+	for _, row := range m.transcript {
+		complete += strings.Count(row.text, "resposta completa")
+		partial += strings.Count(row.text, "parte A")
+	}
+	if complete != 1 {
+		t.Fatalf("transcript must show the final answer once, got %d", complete)
+	}
+	if partial != 0 {
+		t.Fatalf("transcript must not contain the discarded partial, got %d", partial)
+	}
+	if strings.Contains(m.streamingTextString(), "parte A") {
+		t.Fatalf("live text must not retain the discarded partial after settle")
+	}
+}

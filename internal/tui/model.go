@@ -2432,6 +2432,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			summary:  msg.summary,
 			deadline: m.now().Add(msg.wait),
 		}
+		if msg.discarded {
+			// The failed attempt's live text vanishes: the retry re-sends
+			// clean context and streams the answer whole, so keeping the
+			// partial would show it twice. Committed transcript rows are
+			// untouched; the retry notice (reasoning) and the countdown
+			// segment mark what happened.
+			m.streamingText = nil
+			m.clearStreamingToolCall()
+			m.resetStreamingFade()
+		}
 		return m, nil
 	case agentRetryClearMsg:
 		if msg.runID != m.activeRunID {
@@ -6194,11 +6204,12 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				return
 			}
 			m.runtimeMessageSink(agentRetryWaitMsg{
-				runID:   runID,
-				attempt: info.Attempt,
-				max:     info.MaxAttempts,
-				wait:    info.Wait,
-				summary: info.Summary,
+				runID:     runID,
+				attempt:   info.Attempt,
+				max:       info.MaxAttempts,
+				wait:      info.Wait,
+				summary:   info.Summary,
+				discarded: info.DiscardedOutput,
 			})
 		}
 
