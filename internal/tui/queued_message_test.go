@@ -1276,3 +1276,40 @@ func TestGoalPauseCancelReturnsQueueToComposerWithoutLaunching(t *testing.T) {
 		t.Fatalf("nothing may launch on its own after the cancel, got %d request(s)", len(provider.requests))
 	}
 }
+
+func TestAltScreenRendersSussurroBlockOnce(t *testing.T) {
+	m := newModel(context.Background(), Options{AltScreen: true,
+		ProviderName: "openai",
+		ModelName:    "gpt-4.1",
+		Provider:     &fakeProvider{events: []qgruntime.StreamEvent{{Type: qgruntime.StreamEventDone}}},
+		Registry:     tools.NewRegistry(),
+		SessionStore: testSessionStore(t),
+	})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 30})
+	m = updated.(model)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.queuedMessages = []string{"MARKONE first queued", "MARKSECOND second queued"}
+	m.interleave.push("MARKINTER pending interleave")
+	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowUser, text: "run the thing"})
+	next, _ := m.settleTranscript()
+	m = next
+
+	view := plainRender(t, viewString(m.View()))
+	if count := strings.Count(view, "na fila (2)"); count != 1 {
+		t.Fatalf("expected the queue notice exactly once in the alt-screen frame, got %d:\n%s", count, view)
+	}
+	if count := strings.Count(view, "MARKONE first queued"); count != 1 {
+		t.Fatalf("expected MARKONE rendered exactly once, got %d:\n%s", count, view)
+	}
+	if count := strings.Count(view, "MARKSECOND second queued"); count != 1 {
+		t.Fatalf("expected MARKSECOND rendered exactly once, got %d:\n%s", count, view)
+	}
+	if count := strings.Count(view, "enviando após a ação atual…"); count != 1 {
+		t.Fatalf("expected the interleave notice exactly once in the alt-screen frame, got %d:\n%s", count, view)
+	}
+	if count := strings.Count(view, "MARKINTER pending interleave"); count != 1 {
+		t.Fatalf("expected the pending interleave exactly once, got %d:\n%s", count, view)
+	}
+}
