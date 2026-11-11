@@ -55,6 +55,7 @@ const (
 	commandSkills
 	commandLoop
 	commandGoal
+	commandAgora
 	commandVoice
 	commandSTTModel
 	commandUnknown
@@ -205,6 +206,13 @@ var commandDefinitions = []commandDefinition{
 		group:       commandGroupSession,
 		description: "Abre uma conversa paralela isolada; rode /btw de novo para voltar.",
 		kind:        commandBTW,
+	},
+	{
+		name:        "/agora",
+		usage:       "/agora [texto]",
+		group:       commandGroupRuntime,
+		description: "Intercala o texto no turno em andamento; sem turno, envia como prompt normal. Sem argumento, intercala o primeiro da fila.",
+		kind:        commandAgora,
 	},
 	{
 		name:        "/search",

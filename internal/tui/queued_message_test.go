@@ -400,7 +400,7 @@ func testInterleaveEnter(t *testing.T, super bool) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl}
 }
 
-// A mid-turn ⌘⏎/Ctrl+Enter injects the composer message into the running
+// A mid-turn Ctrl+Enter injects the composer message into the running
 // turn: it rides the very next provider request (after this step's tool
 // result), withoutcanceling anything and without leaving the composer's
 // history behind.
@@ -469,22 +469,69 @@ func TestInterleaveEnterInjectsIntoRunningTurn(t *testing.T) {
 }
 
 // With the composer empty and a queue pending, interleave sends the head of
-// the queue now instead of waiting for the turn to end.
+// the queue now instead of waiting for the turn to end. The effect must be
+// observable on the wire: the queued message rides the very next provider
+// request, mid-turn.
 func TestInterleaveEnterSendsQueueHead(t *testing.T) {
-	m := newQueuedMessageTestModel(t)
-	m.pending = true
-	m.activeRunID = 1
-	m.runID = 1
-	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	store := testSessionStore(t)
+	release := make(chan struct{})
+	registry := tools.NewRegistry()
+	registry.Register(deafEchoTool{release: release})
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-slow", ToolName: "slow_echo"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-slow", ArgumentsFragment: `{}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-slow"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		{
+			{Type: qgruntime.StreamEventText, Content: "interleaved answer"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	m := continuationHarness(t, store, provider, registry)
+	m.width = 96
 
-	updated, _ := m.Update(testInterleaveEnter(t, true))
-	next := updated.(model)
+	m.input.SetValue("run A")
+	updated, cmdA := m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	doneA := make(chan tea.Msg, 1)
+	go func() { doneA <- execCmd(cmdA) }()
+	snapPath := filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile)
+	waitForSnapshotCall(t, snapPath, "call-slow")
 
-	if len(next.queuedMessages) != 0 {
-		t.Fatalf("expected the interleave to pop the head, queue = %v", next.queuedMessages)
+	m.input.SetValue("MARKHEAD queued followup")
+	updated, _ = m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	if !m.hasQueuedMessage() {
+		t.Fatal("expected the follow-up queued while the turn runs")
 	}
-	if got := next.interleave; got == nil || len(got.texts) != 1 || got.texts[0] != "MARKHEAD queued followup" {
-		t.Fatalf("expected the head to be staged for the running turn, got %+v", got)
+
+	updated, _ = m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+	if m.hasQueuedMessage() {
+		t.Fatal("expected Ctrl+Enter to pop the queue head into the interleave")
+	}
+
+	close(release)
+	late := <-doneA
+	updated, _ = m.Update(late)
+	m = updated.(model)
+
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2 (turn + interleaved)", len(provider.requests))
+	}
+	found := false
+	for _, message := range provider.requests[1].Messages {
+		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "MARKHEAD queued followup") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the queue head must ride the next provider request, got %#v", provider.requests[1].Messages)
+	}
+	if !transcriptContains(m.transcript, "MARKHEAD queued followup") {
+		t.Fatal("expected the interleaved head as a transcript row")
 	}
 }
 
@@ -496,7 +543,7 @@ func TestInterleaveEnterIdleActsAsSubmit(t *testing.T) {
 	next := updated.(model)
 
 	if cmd == nil {
-		t.Fatal("expected ⌘⏎ with an idle composer to submit the prompt")
+		t.Fatal("expected Ctrl+Enter with an idle composer to submit the prompt")
 	}
 	if !next.pending {
 		t.Fatal("expected the submitted prompt to start a run")
@@ -516,7 +563,7 @@ func TestInterleaveEnterWithNoWorkIsIdle(t *testing.T) {
 	next := updated.(model)
 
 	if cmd != nil {
-		t.Fatal("expected ⌘⏎ with nothing pending to stay idle")
+		t.Fatal("expected Ctrl+Enter with nothing pending to stay idle")
 	}
 	if !next.pending {
 		t.Fatal("expected the run to remain pending")

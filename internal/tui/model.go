@@ -4809,6 +4809,57 @@ func (m model) handleInterleaveEnter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleEnterKey(msg)
 }
 
+// handleAgoraCommand implements /agora. During a turn, the remainder is
+// interleaved into the running turn — exactly what Ctrl+Enter does with the
+// composer text — or, with no remainder, the first queued message is
+// intercalated (an empty queue gets a short notice). With no turn in flight
+// the text goes out as a normal prompt through the full submit path. Slash
+// command arguments are refused (they never ride the interleave as raw
+// text); a leading @specialist mention is queued instead of interleaved,
+// because only launchPrompt applies its delegation expansion. /agora itself
+// is never queued as text — it dispatches immediately, mid-turn.
+func (m model) handleAgoraCommand(text string) (tea.Model, tea.Cmd) {
+	text = strings.TrimSpace(text)
+	if !m.pending {
+		if text == "" {
+			return m.appendSystemNotice("Nenhum turno em andamento — /agora só intercala durante um turno."), nil
+		}
+		m.setComposerState(composerState{text: text, cursor: len([]rune(text))})
+		return m.handleSubmit()
+	}
+	// Unreachable through the keyboard (a modal or the detailed transcript
+	// owns Enter), but never interleave behind an open surface via another path.
+	if !m.noBlockingModal() || m.transcriptDetailed {
+		return m, nil
+	}
+	if len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0 {
+		return m.appendSystemNotice("Anexos não vão com /agora — use Enter para enfileirar"), nil
+	}
+	if text == "" {
+		if len(m.queuedMessages) == 0 {
+			return m.appendSystemNotice("Nada na fila para intercalar."), nil
+		}
+		text = m.queuedMessages[0]
+		m.queuedMessages = m.queuedMessages[1:]
+	} else {
+		if parseCommand(text).kind != commandPrompt {
+			return m.appendSystemNotice("Só prompts comuns vão com /agora — rode o comando direto."), nil
+		}
+		_, specialistMention := expandSpecialistMention(text, m.agentOptions.Specialists)
+		if specialistMention {
+			m.rememberInput(text)
+			m.queuedMessages = append(m.queuedMessages, text)
+			return m, nil
+		}
+		m.rememberInput(text)
+	}
+	if m.interleave == nil {
+		m.interleave = &interleaveBuffer{}
+	}
+	m.interleave.push(text)
+	return m, nil
+}
+
 // dispatchCommand runs a parsed slash/prompt command after submit/leader
 // preamble (history, composer clear, leave-prompt disarm) has already run.
 func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
@@ -4856,6 +4907,8 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		return m.startNewSession(), nil
 	case commandBTW:
 		return m.handleBTWCommand(command.text)
+	case commandAgora:
+		return m.handleAgoraCommand(command.text)
 	case commandLoop:
 		return m.handleLoopCommand(command.text)
 	case commandGoal:
