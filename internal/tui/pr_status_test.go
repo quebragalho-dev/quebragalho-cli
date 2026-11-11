@@ -579,3 +579,85 @@ func TestRefreshIfNeededCoalescesTrailingEdge(t *testing.T) {
 		t.Fatalf("trailing trigger must refresh, got %#v", got)
 	}
 }
+
+// Without an open PR for the branch the header still shows the working diff,
+// against the repo default base — only the # segment disappears.
+func TestPrStateWithoutOpenPrShowsDiffAgainstDefaultBase(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "dev\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+		"gh pr list --head dev --state open --json number,url,baseRefName": {
+			output: `[]`,
+		},
+		"git symbolic-ref --quiet refs/remotes/origin/HEAD": {
+			output: "refs/remotes/origin/main\n",
+		},
+		"git merge-base origin/main HEAD": {
+			output: "abc123\n",
+		},
+		"git diff --numstat abc123": {
+			output: "8\t3\twork.go\n",
+		},
+	}}
+	service := NewPrService("/workspace/qg")
+	service.run = runner.Run
+	service.lastBranch = "dev"
+
+	state := service.detect(context.Background())
+
+	if state.Status != PrFound || state.PrNumber != "" {
+		t.Fatalf("must show the diff without a PR number, got %#v", state)
+	}
+	if state.Additions != 8 || state.Deletions != 3 {
+		t.Fatalf("diff stats = +%d -%d, want +8 -3", state.Additions, state.Deletions)
+	}
+	segments := BuildPRSegments(state, false)
+	text := ""
+	for _, segment := range segments {
+		text += segment.Text
+	}
+	if text != "+8 -3" {
+		t.Fatalf("segments = %q, want diff without a # segment", text)
+	}
+}
+
+// Default-base fallback chain: origin/HEAD missing resolves through
+// origin/main before origin/master.
+func TestPrStateWithoutOpenPrFallsBackToOriginMain(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "dev\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+		"gh pr list --head dev --state open --json number,url,baseRefName": {
+			output: `[]`,
+		},
+		"git symbolic-ref --quiet refs/remotes/origin/HEAD": {
+			err: errors.New("unknown revision"),
+		},
+		"git merge-base origin/main HEAD": {
+			output: "abc123\n",
+		},
+		"git diff --numstat abc123": {
+			output: "1\t1\tfix.go\n",
+		},
+	}}
+	service := NewPrService("/workspace/qg")
+	service.run = runner.Run
+	service.lastBranch = "dev"
+
+	state := service.detect(context.Background())
+
+	if state.Status != PrFound || state.PrNumber != "" {
+		t.Fatalf("must show the diff without a PR number, got %#v", state)
+	}
+	if state.Additions != 1 || state.Deletions != 1 {
+		t.Fatalf("diff stats = +%d -%d, want +1 -1", state.Additions, state.Deletions)
+	}
+}

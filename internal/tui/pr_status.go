@@ -273,7 +273,7 @@ func (s *PrService) detect(ctx context.Context) PrState {
 		}
 	}
 
-	if state, ok := s.detectGitHubPR(ctx, cwd, run); ok {
+	if state, done := s.detectGitHubPR(ctx, cwd, run); done {
 		return state
 	}
 	if state, ok := detectGitLabMR(ctx, cwd, run); ok {
@@ -322,12 +322,14 @@ type gitlabMRView struct {
 	TargetBranch string          `json:"target_branch"`
 }
 
-// detectGitHubPR resolves the open PR for the currently checked-out branch.
-// `gh pr view` without arguments picks one PR per branch by its own rule,
-// which misfires on repos that reuse a head branch name across many PRs
-// (every release-please PR here shares head `dev`). Listing the open PRs for
-// the exact head and showing the newest is deterministic: the header never
-// shows another branch's PR, and never an older duplicate.
+// detectGitHubPR resolves the header for a GitHub repo. done reports whether
+// gh itself worked: when true the verdict is final (found, diff-without-PR,
+// or definitively nothing) and the caller must not try the next provider.
+// A false done means gh failed, so the repo might belong to another forge.
+// Open PRs come from `gh pr list --head` with the newest picked
+// deterministically: plain `gh pr view` resolves one PR per branch by its own
+// rule, which misfires on repos that reuse a head name across many PRs
+// (every release-please PR here shares head `dev`).
 // The header segment always matches the PR state it was delivered with:
 // both come from one background refresh cycle, keyed by the same observed
 // branch — the render path never re-reads files or shells out to stay
@@ -339,9 +341,31 @@ func (s *PrService) detectGitHubPR(ctx context.Context, cwd string, run prComman
 	if branch == "" {
 		return PrState{}, false
 	}
-	number, url, base, ok := s.openPRForBranch(ctx, cwd, branch, run)
-	if !ok {
+	number, url, base, repoOK := s.openPRForBranch(ctx, cwd, branch, run)
+	if !repoOK {
+		// gh itself failed: not necessarily a GitHub repo. Let the caller
+		// try the next provider instead of hiding the segment outright.
 		return PrState{}, false
+	}
+	gctx, cancel := context.WithTimeout(ctx, prGitTimeout)
+	defer cancel()
+	if number == "" {
+		// GitHub repo, but no open PR for this branch: still show the
+		// working diff against the repo default base — only the # segment
+		// disappears.
+		for _, candidate := range defaultBaseCandidates(gctx, cwd, run) {
+			additions, deletions, err := getLocalDiffStats(gctx, cwd, candidate, run)
+			if err != nil {
+				continue
+			}
+			return PrState{
+				Status:    PrFound,
+				Provider:  ProviderGitHub,
+				Additions: additions,
+				Deletions: deletions,
+			}, true
+		}
+		return PrState{Status: PrNotFound}, true
 	}
 	state := PrState{
 		Status:   PrFound,
@@ -349,15 +373,42 @@ func (s *PrService) detectGitHubPR(ctx context.Context, cwd string, run prComman
 		PrURL:    url,
 		PrNumber: number,
 	}
-	gctx, cancel := context.WithTimeout(ctx, prGitTimeout)
-	defer cancel()
 	state.Additions, state.Deletions, _ = getLocalDiffStats(gctx, cwd, base, run)
 	return state, true
 }
 
+// defaultBaseCandidates resolves the diff base for a branch without an open
+// PR: the repo default (origin/HEAD) first, then origin/main, then
+// origin/master. Names are bare (getLocalDiffStats adds the origin/ prefix);
+// the caller tries each until one diffs cleanly.
+func defaultBaseCandidates(ctx context.Context, cwd string, run prCommandRunner) []string {
+	seen := map[string]bool{}
+	candidates := []string{}
+	if out, err := run(ctx, cwd, "git", "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil {
+		if ref := strings.TrimSpace(out); strings.HasPrefix(ref, "refs/remotes/origin/") {
+			candidates = append(candidates, strings.TrimPrefix(ref, "refs/remotes/origin/"))
+		}
+	}
+	candidates = append(candidates, "main", "master")
+	unique := candidates[:0]
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		unique = append(unique, candidate)
+	}
+	return unique
+}
+
 // openPRForBranch returns the newest open PR for one head branch, reusing the
 // cached identity while its TTL holds so refreshes cost no network call.
-func (s *PrService) openPRForBranch(ctx context.Context, cwd, branch string, run prCommandRunner) (number, url, base string, ok bool) {
+// repoOK reports whether gh itself worked (even with no open PR); found is
+// implied by a non-empty number. A nil/empty result with repoOK true means
+// "GitHub repo, no open PR for this branch" — the caller then shows the
+// local diff without a PR number instead of hiding the segment.
+func (s *PrService) openPRForBranch(ctx context.Context, cwd, branch string, run prCommandRunner) (number, url, base string, repoOK bool) {
 	now := time.Now()
 	s.mu.RLock()
 	cached := s.cachedIdentity
@@ -387,7 +438,9 @@ func (s *PrService) openPRForBranch(ctx context.Context, cwd, branch string, run
 		}
 	}
 	if best < 0 {
-		return "", "", "", false
+		// gh worked but no open PR wears this head. repoOK stays true so
+		// the caller shows the local diff without a number.
+		return "", "", "", true
 	}
 	number = strings.TrimSpace(jsonScalarString(views[best].Number))
 	url = strings.TrimSpace(views[best].URL)
@@ -512,7 +565,7 @@ type PrSegment struct {
 }
 
 func BuildPRSegments(state PrState, useNerdFont bool) []PrSegment {
-	if state.Status != PrFound || strings.TrimSpace(state.PrNumber) == "" {
+	if state.Status != PrFound {
 		return nil
 	}
 	url := strings.TrimSpace(state.PrURL)
@@ -524,6 +577,12 @@ func BuildPRSegments(state PrState, useNerdFont bool) []PrSegment {
 		PrSegment{Text: "+" + strconv.Itoa(maxInt(0, state.Additions)), Color: ColorGreen, Bold: true, URL: url},
 		PrSegment{Text: " ", Color: ColorDefault, URL: url},
 		PrSegment{Text: "-" + strconv.Itoa(maxInt(0, state.Deletions)), Color: ColorRed, Bold: true, URL: url},
+	)
+	// Without an open PR there is no number to show — only the diff.
+	if strings.TrimSpace(state.PrNumber) == "" {
+		return segments
+	}
+	segments = append(segments,
 		PrSegment{Text: " ", Color: ColorDefault, URL: url},
 		PrSegment{Text: "#" + strings.TrimSpace(state.PrNumber), Color: ColorAccent, Bold: true, URL: url},
 	)
