@@ -711,3 +711,51 @@ func TestCancelledRunDrainCannotStealNextRunInterleaves(t *testing.T) {
 		t.Fatalf("run B's interleave was stolen by run A's late drain: %#v", got)
 	}
 }
+
+// A run cancelled outside the end-of-turn seam (Ctrl+C first press, /goal
+// pause/clear) must not silently drop the operator's unconsumed interleaves:
+// cancelRun returns them to the head of the queue, and the next launch sends
+// the stranded text first — it must never vanish in the per-run buffer swap.
+func TestCancelRunRequeuesStrandedInterleaveForNextTurn(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("answer", "second")}
+	m := continuationHarness(t, testSessionStore(t), provider, nil)
+	m.width = 96
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+
+	m.input.SetValue("stranded by cancel")
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+	if m.interleave == nil || len(m.interleave.texts) != 1 {
+		t.Fatalf("expected the interleave staged for the running turn, got %+v", m.interleave)
+	}
+
+	// Ctrl+C first press: cancels the run without reaching
+	// launchQueuedMessageIfReady.
+	updated, _ = m.Update(testKeyCtrl('c'))
+	m = updated.(model)
+	if m.pending {
+		t.Fatal("expected Ctrl+C to cancel the running turn")
+	}
+	if len(m.queuedMessages) == 0 || m.queuedMessages[0] != "stranded by cancel" {
+		t.Fatalf("cancelled run's interleave must return to the queue head, got %#v", m.queuedMessages)
+	}
+
+	// The next send recovers it: the stranded text leads the next turn
+	// instead of vanishing when beginRun swaps in a fresh buffer.
+	updated, cmd := m.launchQueuedMessageIfReady()
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("expected the requeued interleave to launch the next turn")
+	}
+	if !m.pending {
+		t.Fatal("expected the requeued interleave to start a new turn")
+	}
+	_ = execCmd(cmd)
+	req := provider.requests[len(provider.requests)-1]
+	last := req.Messages[len(req.Messages)-1]
+	if !strings.Contains(last.Content, "stranded by cancel") {
+		t.Fatalf("expected the stranded interleave as the provider's last message, got %#v", last)
+	}
+}
