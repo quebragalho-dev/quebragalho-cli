@@ -13,8 +13,9 @@ import (
 )
 
 // presenceHeldExecChild holds the session presence lease from a separate
-// process until it is killed. Returns a cancel function for defer.
-func presenceHeldExecChild(t *testing.T, root, sessionID string) (cancel func()) {
+// process until it is killed. Returns a cancel function for defer and the
+// child's pid (read from the readiness file the child writes).
+func presenceHeldExecChild(t *testing.T, root, sessionID string) (cancel func(), pid int) {
 	t.Helper()
 	ready := filepath.Join(t.TempDir(), "child-ready")
 	cmd := exec.Command(os.Args[0], "-test.run=TestExecResumePresenceChildHelper")
@@ -39,10 +40,16 @@ func presenceHeldExecChild(t *testing.T, root, sessionID string) (cancel func())
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	pid = cmd.Process.Pid
+	if data, err := os.ReadFile(ready); err == nil {
+		if parsed, convErr := strconv.Atoi(strings.TrimSpace(string(data))); convErr == nil && parsed > 0 {
+			pid = parsed
+		}
+	}
 	return func() {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
-	}
+	}, pid
 }
 
 // TestExecResumePresenceChildHelper is the child half of the presence tests:
@@ -80,7 +87,8 @@ func TestExecResumePresenceHeldRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer presenceHeldExecChild(t, store.RootDir, session.SessionID)()
+	cancel, _ := presenceHeldExecChild(t, store.RootDir, session.SessionID)
+	defer cancel()
 
 	for _, tc := range []struct {
 		name string

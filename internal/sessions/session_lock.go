@@ -16,6 +16,18 @@ import (
 // would deadlock against it.
 const presenceLockName = "presence.lock"
 
+// presenceSidecarName carries the pid hint for a refusal message. On
+// Windows a byte-range lock makes ANY read of presence.lock fail with
+// ERROR_LOCK_VIOLATION (the locked byte is unreadable by any other
+// handle), so the refusing side could not recover the holder's pid from
+// the lock file exactly when it needs it. The sidecar is never locked, is
+// written once by each new holder after it acquires, and is only consulted
+// when a refusal happens — i.e. when a holder acquired first and kept it.
+// A stale sidecar from a dead holder is never surfaced: the kernel
+// releases the dead holder's lock, the next acquire succeeds, and the
+// error path is then out of reach.
+const presenceSidecarName = "presence.pid"
+
 // SessionLockedError reports a refusal to open a session that another live
 // qg process holds. The PID is best-effort: the OS lock is authoritative
 // (a dead holder's lock is released by the kernel), so a stale PID file
@@ -128,6 +140,10 @@ func (store *Store) presenceLockPath(sessionID string) string {
 	return filepath.Join(store.sessionPath(sessionID), presenceLockName)
 }
 
+func (store *Store) presenceSidecarPath(sessionID string) string {
+	return filepath.Join(store.sessionPath(sessionID), presenceSidecarName)
+}
+
 // TryAcquireSessionLock takes the session presence lease without blocking.
 // A second holder — another terminal, or the same process through another
 // open description — gets a *SessionLockedError naming the recorded PID.
@@ -149,10 +165,16 @@ func (store *Store) TryAcquireSessionLock(sessionID string) (*SessionLock, error
 		return &SessionLock{store: store, sessionID: sessionID, path: path, file: holder.file, release: holder.release}, nil
 	}
 	presenceRegistry.Unlock()
+	sidecarPath := store.presenceSidecarPath(sessionID)
 	release, file, err := tryAcquireFileLock(path)
 	if err != nil {
+		// Read the pid hint from the sidecar, never the locked file: on
+		// Windows every read of presence.lock fails with
+		// ERROR_LOCK_VIOLATION, so the lock file would carry the holder's
+		// pid uselessly — and worse, any other bytes in it must never
+		// surface either way.
 		holder := 0
-		if data, readErr := os.ReadFile(path); readErr == nil {
+		if data, readErr := os.ReadFile(sidecarPath); readErr == nil {
 			if pid, convErr := strconv.Atoi(strings.TrimSpace(string(data))); convErr == nil && pid > 0 {
 				holder = pid
 			}
@@ -162,13 +184,11 @@ func (store *Store) TryAcquireSessionLock(sessionID string) (*SessionLock, error
 		}
 		return nil, err
 	}
+	// The pid hint is only consumed by a refusing peer, so write it once
+	// the lease is ours. Best-effort: if it fails, a refusal this process
+	// causes elsewhere still happens — just without a pid (fail closed).
 	pidText := strconv.Itoa(os.Getpid())
-	if _, err := file.WriteAt([]byte(pidText), 0); err != nil {
-		release()
-		_ = file.Close()
-		return nil, fmt.Errorf("write qg session presence: %w", err)
-	}
-	_ = file.Truncate(int64(len(pidText)))
+	_ = os.WriteFile(sidecarPath, []byte(pidText), 0o600)
 	presenceRegistry.Lock()
 	presenceRegistry.held[path] = &presenceHolder{file: file, release: release, refs: 1}
 	presenceRegistry.Unlock()

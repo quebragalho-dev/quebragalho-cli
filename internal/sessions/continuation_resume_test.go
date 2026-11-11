@@ -493,3 +493,134 @@ func TestSessionLockRefusesOtherProcess(t *testing.T) {
 	}
 	acquired.Release()
 }
+
+// TestSessionLockChildSidecarHelper is the presence-lease child for the
+// sidecar tests: it takes the lease and prints the holder pid. Never run
+// directly; invoked with -test.run and QG_TEST_PRESENCE_CHILD=1.
+func TestSessionLockChildSidecarHelper(t *testing.T) {
+	if os.Getenv("QG_TEST_PRESENCE_CHILD") != "1" {
+		t.Skip("child helper")
+	}
+	root := os.Getenv("QG_TEST_PRESENCE_ROOT")
+	sessionID := os.Getenv("QG_TEST_PRESENCE_SESSION")
+	ready := os.Getenv("QG_TEST_PRESENCE_READY")
+	store := NewStore(StoreOptions{RootDir: root})
+	lock, err := store.TryAcquireSessionLock(sessionID)
+	if err != nil {
+		t.Fatalf("child acquire: %v", err)
+	}
+	defer lock.Release()
+	if err := os.WriteFile(ready, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatalf("child ready: %v", err)
+	}
+	time.Sleep(60 * time.Second)
+}
+
+func spawnLockSidecarChild(t *testing.T, root, sessionID string) (*exec.Cmd, int) {
+	t.Helper()
+	ready := filepath.Join(t.TempDir(), "child-ready")
+	cmd := exec.Command(os.Args[0], "-test.run=TestSessionLockChildSidecarHelper")
+	cmd.Env = append(os.Environ(),
+		"QG_TEST_PRESENCE_CHILD=1",
+		"QG_TEST_PRESENCE_ROOT="+root,
+		"QG_TEST_PRESENCE_SESSION="+sessionID,
+		"QG_TEST_PRESENCE_READY="+ready,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+			t.Fatal("child never signalled readiness")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return cmd, cmd.Process.Pid
+}
+
+// TestSessionLockRefusalReadsHolderPIDFromSidecar proves the presence PID
+// comes from the sidecar file — on Windows a byte-range lock makes ANY read
+// of the lock file fail with ERROR_LOCK_VIOLATION, so a refusal would drop
+// the holder's PID exactly when it is needed. The lock file is corrupted to
+// a string Atoi rejects, which also proves the refusal never consults it.
+func TestSessionLockRefusalReadsHolderPIDFromSidecar(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(StoreOptions{RootDir: root})
+	session, err := store.Create(CreateInput{SessionID: "lock_sidecar"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, childPID := spawnLockSidecarChild(t, root, session.SessionID)
+	defer func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}()
+	lockPath := filepath.Join(root, session.SessionID, presenceLockName)
+	if err := os.WriteFile(lockPath, []byte("corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = store.TryAcquireSessionLock(session.SessionID)
+	if err == nil {
+		t.Fatal("acquire must fail while another process holds the lease")
+	}
+	var locked *SessionLockedError
+	if !errors.As(err, &locked) {
+		t.Fatalf("want *SessionLockedError, got %#v", err)
+	}
+	if locked.PID != childPID {
+		t.Fatalf("locked PID = %d, want the child's pid %d", locked.PID, childPID)
+	}
+	if !strings.Contains(locked.Error(), "outro terminal") {
+		t.Fatalf("refusal must be in pt-BR, got %q", locked.Error())
+	}
+}
+
+// TestSessionLockRefusalFailsClosedWithoutSidecar proves the fail-closed
+// contract: with no usable sidecar the refusal still happens in pt-BR and
+// omits the PID — even when the lock file carries a valid-looking, foreign
+// "12345" the refusal must not surface.
+func TestSessionLockRefusalFailsClosedWithoutSidecar(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(StoreOptions{RootDir: root})
+	session, err := store.Create(CreateInput{SessionID: "lock_sidecar_missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, _ := spawnLockSidecarChild(t, root, session.SessionID)
+	defer func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}()
+	lockPath := filepath.Join(root, session.SessionID, presenceLockName)
+	if err := os.WriteFile(lockPath, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, session.SessionID, presenceSidecarName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+
+	_, err = store.TryAcquireSessionLock(session.SessionID)
+	if err == nil {
+		t.Fatal("acquire must fail while another process holds the lease")
+	}
+	var locked *SessionLockedError
+	if !errors.As(err, &locked) {
+		t.Fatalf("want *SessionLockedError, got %#v", err)
+	}
+	if locked.PID != 0 {
+		t.Fatalf("PID = %d, want 0 (fail-closed without a sidecar)", locked.PID)
+	}
+	if strings.Contains(locked.Error(), "12345") {
+		t.Fatal("the lock file must not be consulted; its pid must never surface")
+	}
+	if !strings.Contains(locked.Error(), "outro terminal") {
+		t.Fatalf("refusal must stay in pt-BR, got %q", locked.Error())
+	}
+}
