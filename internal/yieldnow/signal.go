@@ -42,9 +42,10 @@ func (s *Signal) Request() bool {
 
 // Park registers the caller as a backgroundable waiter and returns the
 // channel that closes when Request fires plus the release func the waiter
-// must call when it stops waiting. The channel stays valid across later
-// Requests: a waiter always observes the Request that overlapped its park.
-// Nil-safe: a nil Signal parks on a channel that never fires.
+// must call when it stops waiting. The release is idempotent, so a double
+// release can never drive the waiter count negative. The channel stays valid
+// across later Requests: a waiter always observes the Request that overlapped
+// its park. Nil-safe: a nil Signal parks on a channel that never fires.
 func (s *Signal) Park() (<-chan struct{}, func()) {
 	if s == nil {
 		return nil, func() {}
@@ -53,10 +54,13 @@ func (s *Signal) Park() (<-chan struct{}, func()) {
 	s.waiting++
 	wake := s.wake
 	s.mu.Unlock()
+	var once sync.Once
 	return wake, func() {
-		s.mu.Lock()
-		s.waiting--
-		s.mu.Unlock()
+		once.Do(func() {
+			s.mu.Lock()
+			s.waiting--
+			s.mu.Unlock()
+		})
 	}
 }
 
