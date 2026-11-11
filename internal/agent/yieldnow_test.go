@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -259,5 +260,218 @@ func TestRealExecCommandChainWaitsOutYieldWithoutRequest(t *testing.T) {
 	defer manager.Stop(id)
 	if _, ok := manager.Snapshot(id); !ok {
 		t.Fatal("process must keep running after the normal yield")
+	}
+}
+
+// A second Request fired right after the first — plausibly before the woken
+// tool releases — must not lose anything: both operator messages armed
+// around the two Requests reach the provider in the SAME turn, in order,
+// through the real exec_command chain.
+func TestYieldNowTwoRequestsDeliverBothMessagesSameTurn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	dir := t.TempDir()
+	manager := execution.NewProcessManager(execution.ProcessManagerOptions{})
+	defer manager.StopAll()
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewExecCommandTool(dir, manager))
+	signal := yieldnow.New()
+	options := Options{Cwd: dir, YieldNow: signal, PermissionMode: PermissionModeUnsafe}
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "c1", ToolName: "exec_command"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "c1", ArgumentsFragment: `{"cmd":"sleep 30","yield_time_ms":30000}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "c1"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		{
+			{Type: qgruntime.StreamEventText, Content: "done"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+
+	var mu sync.Mutex
+	var armed []qgruntime.Message
+	drained := false
+	type runOut struct {
+		result Result
+		err    error
+	}
+	done := make(chan runOut, 1)
+	go func() {
+		result, err := Run(context.Background(), "start", provider, Options{
+			Registry:       registry,
+			Cwd:            dir,
+			YieldNow:       signal,
+			PermissionMode: PermissionModeUnsafe,
+			InterleaveMessages: func() []qgruntime.Message {
+				mu.Lock()
+				defer mu.Unlock()
+				if drained {
+					return nil
+				}
+				drained = true
+				return armed
+			},
+		})
+		done <- runOut{result: result, err: err}
+	}()
+	arm := func(text string) {
+		mu.Lock()
+		defer mu.Unlock()
+		armed = append(armed, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: text})
+	}
+	waitParked := func(t *testing.T) {
+		t.Helper()
+		for i := 0; i < 500; i++ {
+			time.Sleep(10 * time.Millisecond)
+			if signal.Request() {
+				return
+			}
+		}
+		t.Fatal("send-now Request never found the parked exec wait")
+	}
+	_ = options
+
+	waitParked(t) // Request #1 wakes the sleep wait
+	arm("operator message one")
+	_ = signal.Request() // Request #2, plausibly before the woken tool releases
+	arm("operator message two")
+
+	var out runOut
+	select {
+	case out = <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("run did not finish after the double send-now")
+	}
+	if out.err != nil {
+		t.Fatal(out.err)
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("expected 2 provider requests in one turn, got %d", len(provider.requests))
+	}
+	last := provider.requests[1].Messages
+	one, two := -1, -1
+	for i, message := range last {
+		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "operator message one") {
+			one = i
+		}
+		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "operator message two") {
+			two = i
+		}
+	}
+	if one < 0 || two < 0 {
+		t.Fatalf("both messages must reach the provider in the same turn: %#v", last)
+	}
+	if one > two {
+		t.Fatalf("messages must arrive in order (one=%d, two=%d): %#v", one, two, last)
+	}
+}
+
+// Same observable guarantee with two sequential exec waits in one batch: a
+// Request per wait, one message armed after each, both delivered in the same
+// turn, in order.
+func TestYieldNowTwoExecWaitsDeliverBothMessagesSameTurn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	dir := t.TempDir()
+	manager := execution.NewProcessManager(execution.ProcessManagerOptions{})
+	defer manager.StopAll()
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewExecCommandTool(dir, manager))
+	signal := yieldnow.New()
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "c1", ToolName: "exec_command"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "c1", ArgumentsFragment: `{"cmd":"sleep 30","yield_time_ms":30000}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "c1"},
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "c2", ToolName: "exec_command"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "c2", ArgumentsFragment: `{"cmd":"sleep 30","yield_time_ms":30000}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "c2"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		{
+			{Type: qgruntime.StreamEventText, Content: "done"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+
+	var mu sync.Mutex
+	var armed []qgruntime.Message
+	drained := false
+	type runOut struct {
+		result Result
+		err    error
+	}
+	done := make(chan runOut, 1)
+	go func() {
+		result, err := Run(context.Background(), "start", provider, Options{
+			Registry:       registry,
+			Cwd:            dir,
+			YieldNow:       signal,
+			PermissionMode: PermissionModeUnsafe,
+			InterleaveMessages: func() []qgruntime.Message {
+				mu.Lock()
+				defer mu.Unlock()
+				if drained {
+					return nil
+				}
+				drained = true
+				return armed
+			},
+		})
+		done <- runOut{result: result, err: err}
+	}()
+	arm := func(text string) {
+		mu.Lock()
+		defer mu.Unlock()
+		armed = append(armed, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: text})
+	}
+	waitParked := func(t *testing.T) {
+		t.Helper()
+		for i := 0; i < 500; i++ {
+			time.Sleep(10 * time.Millisecond)
+			if signal.Request() {
+				return
+			}
+		}
+		t.Fatal("send-now Request never found a parked exec wait")
+	}
+
+	waitParked(t) // wakes the sleep wait
+	arm("operator message one")
+	_ = signal.Request() // plausibly stale: the woken sleep may not have released yet
+	arm("operator message two")
+	waitParked(t) // wakes the second exec wait once it parks
+
+	var out runOut
+	select {
+	case out = <-done:
+	case <-time.After(25 * time.Second):
+		t.Fatal("run did not finish after the send-nows")
+	}
+	if out.err != nil {
+		t.Fatal(out.err)
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("expected 2 provider requests in one turn, got %d", len(provider.requests))
+	}
+	last := provider.requests[1].Messages
+	one, two := -1, -1
+	for i, message := range last {
+		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "operator message one") {
+			one = i
+		}
+		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "operator message two") {
+			two = i
+		}
+	}
+	if one < 0 || two < 0 {
+		t.Fatalf("both messages must reach the provider in the same turn: %#v", last)
+	}
+	if one > two {
+		t.Fatalf("messages must arrive in order (one=%d, two=%d): %#v", one, two, last)
 	}
 }
