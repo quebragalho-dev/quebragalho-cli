@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -40,6 +41,8 @@ func TestIsRetryableModelErrorClassification(t *testing.T) {
 		"provider stream error: upstream 502",
 		"provider request error: 503 Service Unavailable",
 		"upstream unreachable: the model server could not connect to host (connection refused)",
+		"429 Too Many Requests, request denied",
+		"502 Bad Gateway: upstream cancelled the request",
 	}
 	for _, msg := range retryable {
 		if !isRetryableModelError(ctx, errors.New(msg)) {
@@ -58,6 +61,10 @@ func TestIsRetryableModelErrorClassification(t *testing.T) {
 		"model_not_allowed for this key",
 		"context length exceeded",
 		"HTTP 400: image content is not supported by this model",
+		// Stops never retry — but only by type/sentinel now (see
+		// TestIsRetryableModelErrorSentinels): these plain strings fail
+		// closed through the default, never through a broad needle that
+		// would also catch "upstream cancelled the request".
 		"permission approval cancelled",
 		"run cancelled",
 		"cancelled in TUI",
@@ -76,6 +83,27 @@ func TestIsRetryableModelErrorClassification(t *testing.T) {
 	cancel()
 	if isRetryableModelError(cancelled, errors.New("connection reset by peer")) {
 		t.Error("cancelled context must not retry, even for transport errors")
+	}
+}
+
+// Stops retry only by type/sentinel — never by a broad substring that would
+// also catch a retryable "upstream cancelled the request" or a 429 "request
+// denied" (those are covered by the classification table above and must
+// retry).
+func TestIsRetryableModelErrorSentinels(t *testing.T) {
+	ctx := context.Background()
+	stops := []error{
+		fmt.Errorf("stream: %w", context.Canceled),
+		fmt.Errorf("stream: %w", context.DeadlineExceeded),
+		fmt.Errorf("ask_user: %w", ErrPermissionApprovalCanceled),
+		context.Canceled,
+		context.DeadlineExceeded,
+		ErrPermissionApprovalCanceled,
+	}
+	for _, err := range stops {
+		if isRetryableModelError(ctx, err) {
+			t.Errorf("stop signal must not retry: %v", err)
+		}
 	}
 }
 

@@ -13,7 +13,9 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/openai"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 func testOpenAIProvider(t *testing.T, server *httptest.Server) *openai.Provider {
@@ -134,6 +136,51 @@ func TestWaitAfterErrorFallsBackToTextHint(t *testing.T) {
 	}
 }
 
+// Every model-call attempt stamps model_requests and every scheduled retry
+// stamps reconnect_count, so traces and the turn bench keep reporting them.
+func TestAutoRetryStampsTraceCounters(t *testing.T) {
+	exhausted := &countingFailProvider{err: errors.New("503 Service Unavailable")}
+	rec := trace.NewRecorder("s", "r", "t")
+	var waits []time.Duration
+	_, _ = Run(context.Background(), "go", exhausted, Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits),
+		Trace:      rec,
+	})
+	exhaustedTrace := rec.Finish()
+	if got := exhaustedTrace.Counter(trace.CounterModelRequests); got != 10 {
+		t.Fatalf("model_requests = %d, want 10 attempts", got)
+	}
+	if got := exhaustedTrace.Counter(trace.CounterReconnectCount); got != 9 {
+		t.Fatalf("reconnect_count = %d, want 9 scheduled retries", got)
+	}
+
+	recovered := &mockProvider{turns: [][]qgruntime.StreamEvent{
+		{{Type: qgruntime.StreamEventError, Error: "500 Internal Server Error"}},
+		{{Type: qgruntime.StreamEventError, Error: "500 Internal Server Error"}},
+		{
+			{Type: qgruntime.StreamEventText, Content: "done"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	rec2 := trace.NewRecorder("s", "r", "t")
+	var waits2 []time.Duration
+	if _, err := Run(context.Background(), "go", recovered, Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits2),
+		Trace:      rec2,
+	}); err != nil {
+		t.Fatalf("recovery run: %v", err)
+	}
+	recoveredTrace := rec2.Finish()
+	if got := recoveredTrace.Counter(trace.CounterModelRequests); got != 3 {
+		t.Fatalf("model_requests = %d, want 3 attempts", got)
+	}
+	if got := recoveredTrace.Counter(trace.CounterReconnectCount); got != 2 {
+		t.Fatalf("reconnect_count = %d, want 2 scheduled retries", got)
+	}
+}
+
 // collected.Err carries the provider's typed error: classification and the
 // wait both key off the status code, not re-parsed text.
 func TestCollectedTypedErrorClassifiesByStatus(t *testing.T) {
@@ -146,5 +193,14 @@ func TestCollectedTypedErrorClassifiesByStatus(t *testing.T) {
 	}
 	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 429, Message: "rate limit error: ...insufficient_quota..."}) {
 		t.Error("billing exhaustion mapped to 429 must not retry")
+	}
+	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 429, Message: "insufficient credits, top up"}) {
+		t.Error("typed 429 with insufficient credits must not retry")
+	}
+	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 429, Message: "saldo insuficiente para continuar"}) {
+		t.Error("typed 429 with saldo insuficiente must not retry")
+	}
+	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 402, Message: "payment required"}) {
+		t.Error("typed 402 must not retry")
 	}
 }

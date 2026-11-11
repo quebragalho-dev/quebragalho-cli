@@ -11,6 +11,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/errhint"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
 // Unified auto-retry: one policy per model call. Every StreamCompletion
@@ -51,10 +52,22 @@ type RetryWaitInfo struct {
 // failed attempt — accepted deliberately, it is what the user would do by
 // hand. Everything else fails fast: auth/billing/model errors, context-limit
 // (the compactor owns those), image rejections (retrying loops forever on a
-// text-only model), and cancellations/permission stops. A cancelled context
-// never retries, so Esc/Ctrl+C always wins immediately.
+// text-only model), and stops — context cancellation/expiry and the
+// permission-approval cancel, matched by type/sentinel only, never by
+// substring (a broad "cancel" needle would also catch a retryable "upstream
+// cancelled the request"). A cancelled run context never retries, so Esc/Ctrl+C
+// always wins immediately.
 func isRetryableModelError(ctx context.Context, err error) bool {
 	if err == nil || ctx.Err() != nil {
+		return false
+	}
+	// Stops retry only by type/sentinel, never by substring: a broad
+	// "cancel"/"denied" needle would also catch a retryable 502 whose
+	// upstream "cancelled the request", or a 429 "request denied".
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if errors.Is(err, ErrPermissionApprovalCanceled) {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
@@ -78,11 +91,6 @@ func isRetryableModelError(ctx context.Context, err error) bool {
 		"insufficient",
 		"payment required",
 		"saldo insuficiente",
-		"cancel",
-		"permission",
-		"denied",
-		"not approved",
-		"approval",
 	} {
 		if strings.Contains(msg, needle) {
 			return false
@@ -292,9 +300,11 @@ func (r *modelCallRetrier) settle() {
 
 // singleStream issues one model request, spending one budget attempt. The
 // context carries the caller-retry marker so the provider's HTTP layer makes
-// exactly one attempt: this budget is the only budget.
+// exactly one attempt: this budget is the only budget. Every attempt stamps
+// model_requests so traces and the turn bench keep reporting it.
 func (r *modelCallRetrier) singleStream(ctx context.Context, provider Provider, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	r.used++
+	trace.FromContext(ctx).Counter(trace.CounterModelRequests, 1)
 	stream, err := provider.StreamCompletion(providerio.WithCallerRetry(ctx), request)
 	if err == nil {
 		r.settle()
@@ -370,6 +380,10 @@ func (r *modelCallRetrier) waitAfterError(ctx context.Context, err error, discar
 		})
 	}
 	r.waiting = true
+	// Every scheduled retry stamps reconnect_count — the metric keeps its
+	// name for trace/bench compatibility, though it now counts unified
+	// auto-retry waits rather than mid-stream reconnects.
+	trace.FromContext(ctx).Counter(trace.CounterReconnectCount, 1)
 	if sleepErr := r.sleep(ctx, wait); sleepErr != nil {
 		r.settle()
 		if ctxErr := ctx.Err(); ctxErr != nil {
