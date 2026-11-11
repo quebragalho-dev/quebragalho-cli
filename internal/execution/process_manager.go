@@ -487,6 +487,16 @@ func (process *managedProcess) collect(ctx context.Context, wait time.Duration) 
 			output, chunkTruncated = appendBoundedProcessOutput(output, chunk)
 			truncated = truncated || chunkTruncated
 			truncated = truncated || process.output.consumeTruncated()
+			// A send-now or cancellation landing mid-burst must not wait for
+			// the drain to empty: check before looping, so a sustained flood
+			// can never delay the wake past one drain iteration.
+			select {
+			case <-wake:
+				return finish()
+			case <-ctx.Done():
+				return finish()
+			default:
+			}
 			if time.Now().After(deadline) {
 				return finish()
 			}
