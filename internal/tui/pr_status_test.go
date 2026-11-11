@@ -255,12 +255,18 @@ func TestPrServiceHidesWhenBranchHasNoOpenPr(t *testing.T) {
 	}
 }
 
-// Finishing a turn re-checks the header: file changes from the run's tools
-// must surface without waiting for the minute ticker.
+// Finishing a turn re-checks the header state without ever blocking the UI:
+// file changes from the run's tools must surface without waiting for the
+// minute ticker, and even if every git/gh call hangs, Update returns at once
+// while the refresh lands afterwards through the service goroutine.
 func TestTurnEndRefreshesPrState(t *testing.T) {
-	runner := &fakePRRunner{results: map[string]fakePRResult{
+	release := make(chan struct{})
+	runner := &blockingPRRunner{release: release, results: map[string]fakePRResult{
 		"git symbolic-ref --quiet --short HEAD": {
 			output: "feat/duo\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
 		},
 		"gh pr list --head feat/duo --state open --json number,url,baseRefName": {
 			output: `[{"url":"https://github.com/org/repo/pull/97","number":97,"baseRefName":"dev"}]`,
@@ -282,16 +288,48 @@ func TestTurnEndRefreshesPrState(t *testing.T) {
 	m.runID = 7
 	m.width = 96
 
-	updated, _ := m.Update(agentResponseMsg{runID: 7})
-	_ = updated.(model)
+	start := time.Now()
+	updated, cmd := m.Update(agentResponseMsg{runID: 7})
+	m = updated.(model)
+	if took := time.Since(start); took >= 500*time.Millisecond {
+		t.Fatalf("turn-end Update blocked %v waiting on the PR refresh", took)
+	}
+	close(release)
+	_ = execCmd(cmd)
 
-	deadline := time.Now().Add(3 * time.Second)
-	for !runner.called("gh pr list --head feat/duo --state open --json number,url,baseRefName") && time.Now().Before(deadline) {
+	deadline := time.Now().Add(5 * time.Second)
+	for service.GetState().PrNumber != "97" && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if !runner.called("gh pr list --head feat/duo --state open --json number,url,baseRefName") {
-		t.Fatal("finishing a turn must re-check the PR header state")
+	if got := service.GetState(); got.PrNumber != "97" || got.Additions != 10 {
+		t.Fatalf("refreshed state = %#v, want PR 97 with +10 -2", got)
 	}
+}
+
+// blockingPRRunner records every command like fakePRRunner but holds each
+// call until released, proving callers never wait on it synchronously.
+type blockingPRRunner struct {
+	mu      sync.Mutex
+	calls   []string
+	results map[string]fakePRResult
+	release chan struct{}
+}
+
+func (runner *blockingPRRunner) Run(ctx context.Context, cwd string, name string, args ...string) (string, error) {
+	call := strings.TrimSpace(name + " " + strings.Join(args, " "))
+	runner.mu.Lock()
+	runner.calls = append(runner.calls, call)
+	runner.mu.Unlock()
+	select {
+	case <-runner.release:
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+	}
+	result, ok := runner.results[call]
+	if !ok {
+		return "", errors.New("unexpected command: " + call)
+	}
+	return result.output, result.err
 }
 
 // Rendering the title bar never shells out: all git/gh work happens in the
@@ -337,9 +375,8 @@ func TestPrServiceRefreshIfNeededSkipsFreshState(t *testing.T) {
 	service.lastHead = "abc123"
 	service.lastRefresh = time.Now()
 
-	if service.RefreshIfNeeded() {
-		t.Fatal("fresh branch state must not trigger a refresh")
-	}
+	service.RefreshIfNeeded()
+	time.Sleep(200 * time.Millisecond)
 	for _, call := range runner.calls {
 		if strings.HasPrefix(call, "gh ") || strings.HasPrefix(call, "git merge-base") || strings.HasPrefix(call, "git diff") {
 			t.Fatalf("fresh gate must not shell out to git/gh, ran: %v", runner.calls)
@@ -371,9 +408,7 @@ func TestPrServiceRefreshIfNeededFiresOnBranchChange(t *testing.T) {
 	service.lastHead = "abc123"
 	service.lastRefresh = time.Now()
 
-	if !service.RefreshIfNeeded() {
-		t.Fatal("changed branch must trigger a refresh")
-	}
+	service.RefreshIfNeeded()
 	deadline := time.Now().Add(3 * time.Second)
 	for service.GetState().PrNumber != "101" && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
