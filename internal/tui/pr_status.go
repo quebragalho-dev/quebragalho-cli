@@ -147,28 +147,29 @@ func (s *PrService) Refresh() {
 
 // RefreshIfNeeded re-checks the header state when something observable may
 // have changed: a different branch or head since the last refresh, or a
-// debounce interval elapsed with no refresh. Pure file reads and two fast
-// local git calls decide; the heavy work still runs in Refresh's goroutine.
-// Reports whether a refresh was launched. Never blocks the UI.
-func (s *PrService) RefreshIfNeeded() bool {
+// debounce interval elapsed with no refresh. The whole gate — including its
+// git calls — runs in a service goroutine; results flow back as prStateMsg.
+// Never blocks the UI; the render path never shells out.
+func (s *PrService) RefreshIfNeeded() {
 	if s == nil {
-		return false
+		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), prGitTimeout)
-	defer cancel()
-	branch, head := currentBranchHead(ctx, s.cwd, s.run)
-	now := time.Now()
-	s.mu.Lock()
-	changed := branch != s.lastBranch || head != s.lastHead
-	due := now.Sub(s.lastRefresh) >= prRefreshDebounce
-	if !changed && !due {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), prGitTimeout)
+		defer cancel()
+		branch, head := currentBranchHead(ctx, s.cwd, s.run)
+		now := time.Now()
+		s.mu.Lock()
+		changed := branch != s.lastBranch || head != s.lastHead
+		due := now.Sub(s.lastRefresh) >= prRefreshDebounce
+		if !changed && !due {
+			s.mu.Unlock()
+			return
+		}
+		s.lastBranch, s.lastHead, s.lastRefresh = branch, head, now
 		s.mu.Unlock()
-		return false
-	}
-	s.lastBranch, s.lastHead, s.lastRefresh = branch, head, now
-	s.mu.Unlock()
-	s.Refresh()
-	return true
+		s.Refresh()
+	}()
 }
 
 // currentBranchHead resolves the checked-out branch ("" when detached or on

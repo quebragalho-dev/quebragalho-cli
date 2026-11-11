@@ -1409,6 +1409,20 @@ func (m *model) stopPRWatcher() {
 	m.prWatcherStop = nil
 }
 
+// prRefreshCmd re-checks the header state off the UI goroutine: the gate and
+// the refresh both run in the service, results flow back as prStateMsg. The
+// Update path only dispatches; the render path never shells out.
+func (m model) prRefreshCmd() tea.Cmd {
+	service := m.prService
+	if service == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		service.RefreshIfNeeded()
+		return nil
+	}
+}
+
 // noBlockingModal reports that no modal surface (permission prompt, ask_user,
 // spec review, provider/MCP wizard, MCP manager, or picker) is up, so a global
 // shortcut may act instead of falling through to a modal's own handler. Shared
@@ -2963,12 +2977,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			next, goalCmd = next.launchGoalContinuationIfReady()
 		}
 		// A finished turn may have rewritten files, switched branches, or
-		// landed on a new head: refresh the cheap branch segment inline and
-		// let the PR service re-check in the background (debounced). Neither
-		// blocks the UI; the render path never shells out.
-		next.gitBranch = gitBranch(next.cwd)
-		next.prService.RefreshIfNeeded()
-		return next, tea.Batch(pendingClearCmd, titleCmd, recapCmd, sweepCmd, queuedCmd, peerCmd, peerApprovalCmd, loopTickCmd, goalCmd)
+		// landed on a new head: re-check the header off the UI goroutine.
+		// The branch segment refreshes with the incoming prStateMsg; the
+		// render path itself never shells out.
+		prRefreshCmd := next.prRefreshCmd()
+		return next, tea.Batch(pendingClearCmd, titleCmd, recapCmd, sweepCmd, queuedCmd, peerCmd, peerApprovalCmd, loopTickCmd, goalCmd, prRefreshCmd)
 	case snapshotWriteFailedMsg:
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Não consegui salvar o histórico exato desta conversa; ao retomar, o qg reconstruirá a partir do histórico salvo."})
 		return m, nil
@@ -3200,6 +3213,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case prStateMsg:
 		m.prState = msg.state
+		m.gitBranch = gitBranch(m.cwd)
 		return m, nil
 	case gitSweepMsg:
 		return m.handleGitSweepMsg(msg), nil
