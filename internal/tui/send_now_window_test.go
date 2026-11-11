@@ -304,6 +304,64 @@ func TestTimeoutThenLateFlushShowsDeliveredMessageOnce(t *testing.T) {
 	}
 }
 
+// P3, child/side/spec sessions: the wire cannot rebuild from the log
+// (ineligible kind), so the tracker prepend is the only carrier. The
+// relaunch tags the rows with the tracked ids — the late flush dedupes by
+// kind+id instead of scope-id — and the message appears exactly once on the
+// transcript, once on the wire.
+func TestTimeoutThenLateFlush_InIneligibleSessionShowsMessageOnce(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("ANSWER", "ANSWER2")}
+	m := newQueuedMessageTestModel(t)
+	m.provider = provider
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.runCancel = func() {}
+	m.yieldNow = &fakeSendNowSignal{result: false}
+	// Ineligible kind: the wire will not rebuild from the log, so the
+	// transfer rides the tracker alone.
+	m.activeSession.SessionKind = sessions.SessionKindChild
+	m.interleave.noteDelivered([]deliveredInterleave{{id: "interleave-1-1", text: "DRAINED-x"}})
+
+	m.input.SetValue("QF-DRAFT")
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+	updated, cmd := m.Update(sendNowDrainTimeoutMsg{seq: m.pendingSendNowSeq})
+	m = updated.(model)
+	_ = execCmd(cmd)
+
+	foundID := false
+	for _, row := range m.transcript {
+		if strings.Contains(row.text, "DRAINED-x") && row.id == "interleave-1-1" {
+			foundID = true
+		}
+	}
+	if !foundID {
+		t.Error("the relaunched rows must carry the tracked id")
+	}
+
+	updated, _ = m.Update(agentResponseMsg{
+		runID: 1,
+		rows:  []transcriptRow{{kind: rowUser, text: "DRAINED-x", runID: 1, id: "interleave-1-1"}},
+	})
+	m = updated.(model)
+	count := 0
+	for _, row := range m.transcript {
+		count += strings.Count(row.text, "DRAINED-x")
+	}
+	if count != 1 {
+		t.Fatalf("the delivered message appears %d times in the transcript, want exactly 1", count)
+	}
+	count = 0
+	for _, message := range provider.requests[len(provider.requests)-1].Messages {
+		count += strings.Count(message.Content, "DRAINED-x")
+	}
+	if count != 1 {
+		t.Fatalf("the delivered message appears %d times on the wire, want exactly 1", count)
+	}
+}
+
 // P2: compaction in flight blocks the parked batch from launching — the
 // same run/c compactResultMsg rewrites transcript/sessionEvents wholesale;
 // the batch stays parked, visible and pending, and launches when the
