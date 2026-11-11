@@ -205,6 +205,19 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: prompt, Images: qgruntime.CloneImageBlocks(options.Images)})
 		}
 	}
+	// Leftover queue messages ride the wire as separate consecutive user
+	// messages after the seeded prompt, in order — the same shape an
+	// interleave produces mid-turn, so the model sees exactly what the user
+	// queued. OpenAI-compatible providers accept consecutive user messages.
+	for _, message := range options.ExtraUserMessages {
+		if message.Role != qgruntime.MessageRoleUser {
+			continue
+		}
+		if strings.TrimSpace(message.Content) == "" {
+			continue
+		}
+		messages = append(messages, message)
+	}
 
 	guards := newGuardState()
 	task := newTaskState(prompt, options.Trace)

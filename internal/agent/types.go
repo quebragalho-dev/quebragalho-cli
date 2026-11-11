@@ -406,6 +406,13 @@ type Options struct {
 	// with its full schema on this run's first request. Only honored with a
 	// non-empty Continuation; the TUI passes both together.
 	LoadedDeferredTools []string
+	// ExtraUserMessages seeds additional user messages right after the seeded
+	// prompt (and after any Continuation replay + bare prompt), as separate
+	// consecutive user messages, in order. Used to launch a turn that carries
+	// the leftover queue as individual messages rather than one concatenated
+	// text. Entries that are not user-role or whose content trims to empty are
+	// dropped. nil preserves the current behavior byte-for-byte.
+	ExtraUserMessages []Message
 	// InterleaveMessages, when non-nil, is called by the loop after every
 	// tool batch completes (all tool results recorded, before the next
 	// provider request is built). Each call drains the operator's pending
