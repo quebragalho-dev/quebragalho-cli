@@ -311,3 +311,31 @@ func TestAgoraWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing.T) {
 		t.Fatal("the staged image must stay pending")
 	}
 }
+
+func TestAgoraWithoutTurnDoesNotDuplicateHistory(t *testing.T) {
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "hello back"},
+		{Type: qgruntime.StreamEventDone},
+	}}
+	m := newModel(context.Background(), Options{
+		ProviderName: "openai",
+		ModelName:    "gpt-4.1",
+		Provider:     provider,
+		Registry:     tools.NewRegistry(),
+		SessionStore: testSessionStore(t),
+	})
+	m.input.SetValue("/agora MARKSIDE plain prompt")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	count := 0
+	for _, entry := range next.inputHistory {
+		if strings.Contains(entry, "MARKSIDE plain prompt") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one history entry containing the prompt, got %d: %v", count, next.inputHistory)
+	}
+}

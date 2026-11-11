@@ -4828,8 +4828,20 @@ func (m model) handleAgoraCommand(text string) (tea.Model, tea.Cmd) {
 		if text == "" {
 			return m.appendSystemNotice("Nenhum turno em andamento — /agora só intercala durante um turno."), nil
 		}
-		m.setComposerState(composerState{text: text, cursor: len([]rune(text))})
-		return m.handleSubmit()
+		// The outer submit already remembered the /agora line and cleared the
+		// composer; dispatch the remainder as a plain prompt — same
+		// launchPrompt path, one history entry.
+		if m.exiting {
+			return m, nil
+		}
+		if m.compactInFlight {
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{
+				kind: actionAppendSystem,
+				text: "Compact\nstatus: warning\nCompactação em andamento. Sua próxima mensagem vai usar o contexto compactado quando ela terminar.",
+			})
+			return m, nil
+		}
+		return m.dispatchCommand(parsedCommand{kind: commandPrompt, text: text})
 	}
 	// Unreachable through the keyboard (a modal or the detailed transcript
 	// owns Enter), but never interleave behind an open surface via another path.
