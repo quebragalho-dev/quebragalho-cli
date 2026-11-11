@@ -339,3 +339,31 @@ func TestAgoraWithoutTurnDoesNotDuplicateHistory(t *testing.T) {
 		t.Fatalf("expected exactly one history entry containing the prompt, got %d: %v", count, next.inputHistory)
 	}
 }
+
+func TestAgoraWithoutTurnRejectsSlashCommandArgument(t *testing.T) {
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "hello back"},
+		{Type: qgruntime.StreamEventDone},
+	}}
+	m := newModel(context.Background(), Options{
+		ProviderName: "openai",
+		ModelName:    "gpt-4.1",
+		Provider:     provider,
+		Registry:     tools.NewRegistry(),
+		SessionStore: testSessionStore(t),
+	})
+	m.input.SetValue("/agora /model gpt-4o")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	if !transcriptContains(next.transcript, "Só prompts comuns") {
+		t.Fatalf("expected the refusal notice, got transcript %#v", next.transcript)
+	}
+	if len(provider.requests) != 0 {
+		t.Fatalf("the slash command must never reach the provider as raw prompt text, got %d request(s)", len(provider.requests))
+	}
+	if next.pending {
+		t.Fatal("a refused /agora must not start a run")
+	}
+}

@@ -4635,6 +4635,23 @@ func (m model) chooseSuggestion() (tea.Model, tea.Cmd) {
 	return next, nil
 }
 
+// promptGuard refuses to start a prompt while the session can't run one:
+// while exiting (Ctrl+C waiting on the cancelled run's checkpoint flush) a
+// new run would orphan its blobs, and while a compaction is in flight a turn
+// would race the compact rewrite of transcript and session events. When
+// blocked, ok is false and the returned model carries the outcome to show —
+// the model untouched while exiting, the compaction warning otherwise.
+// Shared by handleSubmit and /agora so the two can never drift.
+func (m model) promptGuard() (model, bool) {
+	if m.exiting {
+		return m, false
+	}
+	if m.compactInFlight {
+		return m.appendSystemNotice("Compact\nstatus: warning\nCompactação em andamento. Sua próxima mensagem vai usar o contexto compactado quando ela terminar."), false
+	}
+	return m, true
+}
+
 func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 	input := m.composerValue()
 	// A drag-dropped image/PDF path that reached the composer (e.g. inserted as
@@ -4653,21 +4670,17 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 	if m.loopLeavePrompt != commandEmpty && command.kind != m.loopLeavePrompt {
 		m.loopLeavePrompt = commandEmpty
 	}
-	// While exiting (Ctrl+C waiting on the cancelled run's checkpoint flush) a
-	// new run must not start: the deferred tea.Quit would abort it mid-flight
-	// and orphan its checkpoint blobs — the exact loss flushRunIDs prevents.
-	if command.kind == commandPrompt && m.exiting {
-		return m, nil
-	}
-	if command.kind == commandPrompt && m.pending {
-		return m.queueMessage(command.text), nil
-	}
-	if command.kind == commandPrompt && m.compactInFlight {
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{
-			kind: actionAppendSystem,
-			text: "Compact\nstatus: warning\nCompactação em andamento. Sua próxima mensagem vai usar o contexto compactado quando ela terminar.",
-		})
-		return m, nil
+	// Both prompt paths share promptGuard (exiting, then compaction); a
+	// pending prompt queues for the next turn. exiting is always set with
+	// pending already false (every path runs cancelRun first), so the
+	// exiting check can precede the queue without stranding it.
+	if command.kind == commandPrompt {
+		if blocked, ok := m.promptGuard(); !ok {
+			return blocked, nil
+		}
+		if m.pending {
+			return m.queueMessage(command.text), nil
+		}
 	}
 	m.rememberInput(input)
 	m.clearComposer()
@@ -4830,19 +4843,17 @@ func (m model) handleAgoraCommand(text string) (tea.Model, tea.Cmd) {
 			return m.appendSystemNotice("Nenhum turno em andamento — /agora só intercala durante um turno."), nil
 		}
 		// The outer submit already remembered the /agora line and cleared the
-		// composer; dispatch the remainder as a plain prompt — same
-		// launchPrompt path, one history entry.
-		if m.exiting {
-			return m, nil
+		// composer; the remainder is reparsed — a slash command is refused
+		// with the same notice the with-turn path uses, never sent as raw
+		// text. One history entry.
+		command := parseCommand(text)
+		if command.kind != commandPrompt {
+			return m.appendSystemNotice("Só prompts comuns vão com /agora — rode o comando direto."), nil
 		}
-		if m.compactInFlight {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{
-				kind: actionAppendSystem,
-				text: "Compact\nstatus: warning\nCompactação em andamento. Sua próxima mensagem vai usar o contexto compactado quando ela terminar.",
-			})
-			return m, nil
+		if blocked, ok := m.promptGuard(); !ok {
+			return blocked, nil
 		}
-		return m.dispatchCommand(parsedCommand{kind: commandPrompt, text: text})
+		return m.dispatchCommand(command)
 	}
 	// Unreachable through the keyboard (a modal or the detailed transcript
 	// owns Enter), but never interleave behind an open surface via another path.
