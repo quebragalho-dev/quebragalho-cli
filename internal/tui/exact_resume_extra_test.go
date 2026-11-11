@@ -205,6 +205,11 @@ func TestCancelledRunLateWriteKeepsNewerTurn(t *testing.T) {
 	sessionID := m.activeSession.SessionID
 	snapPath := filepath.Join(store.RootDir, sessionID, sessions.ContinuationFile)
 	waitForSnapshotCall(t, snapPath, "call-slow")
+	// Barrier: the opening snapshot can exist while the agent goroutine still
+	// has A's tool_call event write in flight. Wait until the log records it
+	// before touching the session, so everything B persists afterwards agrees
+	// with the log head deterministically.
+	waitForLogToolCall(t, store, sessionID, "call-slow")
 	runA := m.activeRunID
 
 	// Esc cancels A (context and all); the deaf tool keeps the goroutine alive.
@@ -635,6 +640,29 @@ func TestKillMidTurnResumesExactWithBackfill(t *testing.T) {
 	close(release)
 	<-done
 	settleModel(t, m)
+}
+
+// waitForLogToolCall polls the session log until the tool_call event for
+// callID is durable. The update-loop goroutine can observe the opening
+// snapshot while the agent goroutine still has the tool_call event write in
+// flight; events written after that point move the log head past whatever a
+// turn persisted, so ordering guarantees have to start from the durable log,
+// not from the snapshot file.
+func waitForLogToolCall(t *testing.T, store *sessions.Store, sessionID, callID string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		events, err := store.ReadEvents(sessionID)
+		if err == nil {
+			for _, event := range events {
+				if event.Type == sessions.EventToolCall && strings.Contains(string(event.Payload), callID) {
+					return
+				}
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("tool_call %q never landed in the session log", callID)
 }
 
 func waitForSnapshotCall(t *testing.T, path, callID string) {
