@@ -4,13 +4,21 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestPrServiceDetectsGitHubPRAndDiffStats(t *testing.T) {
 	runner := &fakePRRunner{results: map[string]fakePRResult{
-		"gh pr view --json url,number,baseRefName": {
-			output: `{"url":"https://github.com/org/repo/pull/1337","number":1337,"baseRefName":"main"}`,
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/duo\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+		"gh pr list --head feat/duo --state open --json number,url,baseRefName": {
+			output: `[{"url":"https://github.com/org/repo/pull/1337","number":1337,"baseRefName":"main"}]`,
 		},
 		"git merge-base origin/main HEAD": {
 			output: "abc123\n",
@@ -40,7 +48,13 @@ func TestPrServiceDetectsGitHubPRAndDiffStats(t *testing.T) {
 
 func TestPrServiceFallsBackToGitLabMR(t *testing.T) {
 	runner := &fakePRRunner{results: map[string]fakePRResult{
-		"gh pr view --json url,number,baseRefName": {
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/duo\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+		"gh pr list --head feat/duo --state open --json number,url,baseRefName": {
 			err: errors.New("no pull request found"),
 		},
 		"glab mr view --json web_url,iid,target_branch": {
@@ -151,13 +165,16 @@ type fakePRResult struct {
 }
 
 type fakePRRunner struct {
+	mu      sync.Mutex
 	results map[string]fakePRResult
 	calls   []string
 }
 
 func (runner *fakePRRunner) Run(ctx context.Context, cwd string, name string, args ...string) (string, error) {
 	call := strings.TrimSpace(name + " " + strings.Join(args, " "))
+	runner.mu.Lock()
 	runner.calls = append(runner.calls, call)
+	runner.mu.Unlock()
 	result, ok := runner.results[call]
 	if !ok {
 		return "", errors.New("unexpected command: " + call)
@@ -166,10 +183,202 @@ func (runner *fakePRRunner) Run(ctx context.Context, cwd string, name string, ar
 }
 
 func (runner *fakePRRunner) called(call string) bool {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
 	for _, actual := range runner.calls {
 		if actual == call {
 			return true
 		}
 	}
 	return false
+}
+
+// The repo reuses head `dev` for every release PR (#13-#100): `gh pr view`
+// resolves one PR per branch by its own rule, so the header can show a stale
+// number. The service must list the open PRs for the exact head and show the
+// newest deterministically.
+func TestPrServicePicksNewestOpenPrForBranch(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "dev\n",
+		},
+		"gh pr list --head dev --state open --json number,url,baseRefName": {
+			output: `[{"url":"https://github.com/org/repo/pull/36","number":36,"baseRefName":"main"},{"url":"https://github.com/org/repo/pull/100","number":100,"baseRefName":"main"}]`,
+		},
+		"git merge-base origin/main HEAD": {
+			output: "abc123\n",
+		},
+		"git diff --numstat abc123": {
+			output: "42\t7\tinternal/tui/view.go\n",
+		},
+	}}
+	service := NewPrService("/workspace/qg")
+	service.run = runner.Run
+
+	state := service.detect(context.Background())
+
+	if state.Status != PrFound || state.PrNumber != "100" {
+		t.Fatalf("must show the newest open PR for the branch, got %#v", state)
+	}
+	if state.PrURL != "https://github.com/org/repo/pull/100" {
+		t.Fatalf("PrURL = %q, want the newest PR", state.PrURL)
+	}
+	if state.Additions != 42 || state.Deletions != 7 {
+		t.Fatalf("diff stats = +%d -%d, want +42 -7", state.Additions, state.Deletions)
+	}
+}
+
+// No open PR for the branch: the header shows nothing, it never falls back
+// to another branch's PR.
+func TestPrServiceHidesWhenBranchHasNoOpenPr(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/lonely\n",
+		},
+		"gh pr list --head feat/lonely --state open --json number,url,baseRefName": {
+			output: `[]`,
+		},
+		"glab mr view --json web_url,iid,target_branch": {
+			err: errors.New("no mr found"),
+		},
+	}}
+	service := NewPrService("/workspace/qg")
+	service.run = runner.Run
+
+	state := service.detect(context.Background())
+
+	if state.Status != PrNotFound {
+		t.Fatalf("must hide the PR segment without an open PR, got %#v", state)
+	}
+	if runner.called("git diff --numstat") {
+		t.Fatal("no diff stats should run without a PR")
+	}
+}
+
+// Finishing a turn re-checks the header: file changes from the run's tools
+// must surface without waiting for the minute ticker.
+func TestTurnEndRefreshesPrState(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/duo\n",
+		},
+		"gh pr list --head feat/duo --state open --json number,url,baseRefName": {
+			output: `[{"url":"https://github.com/org/repo/pull/97","number":97,"baseRefName":"dev"}]`,
+		},
+		"git merge-base origin/dev HEAD": {
+			output: "abc123\n",
+		},
+		"git diff --numstat abc123": {
+			output: "10\t2\tchanged.go\n",
+		},
+	}}
+	service := NewPrService(t.TempDir())
+	service.run = runner.Run
+
+	m := newQueuedMessageTestModel(t)
+	m.prService = service
+	m.pending = true
+	m.activeRunID = 7
+	m.runID = 7
+	m.width = 96
+
+	updated, _ := m.Update(agentResponseMsg{runID: 7})
+	_ = updated.(model)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for !runner.called("gh pr list --head feat/duo --state open --json number,url,baseRefName") && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !runner.called("gh pr list --head feat/duo --state open --json number,url,baseRefName") {
+		t.Fatal("finishing a turn must re-check the PR header state")
+	}
+}
+
+// Rendering the title bar never shells out: all git/gh work happens in the
+// background service, never in the render path.
+func TestTitleBarRendersWithoutSubprocess(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{}}
+	service := NewPrService(t.TempDir())
+	service.run = runner.Run
+
+	m := limeTestModel()
+	m.cwd = "/workspace/qg"
+	m.gitBranch = "feat/title-polish"
+	m.prService = service
+	m.prState = PrState{
+		Status:    PrFound,
+		PrURL:     "https://github.com/org/repo/pull/219",
+		PrNumber:  "219",
+		Additions: 144,
+		Deletions: 32,
+	}
+
+	_ = plainRender(t, m.titleBar(120))
+	_ = plainRender(t, m.titleBar(120))
+	if len(runner.calls) != 0 {
+		t.Fatalf("title bar render must not shell out, ran: %v", runner.calls)
+	}
+}
+
+// The refresh gate: a fresh branch state performs no subprocess at all; a
+// changed branch (or head) triggers a background refresh.
+func TestPrServiceRefreshIfNeededSkipsFreshState(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/duo\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+	}}
+	service := NewPrService(t.TempDir())
+	service.run = runner.Run
+	service.lastBranch = "feat/duo"
+	service.lastHead = "abc123"
+	service.lastRefresh = time.Now()
+
+	if service.RefreshIfNeeded() {
+		t.Fatal("fresh branch state must not trigger a refresh")
+	}
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, "gh ") || strings.HasPrefix(call, "git merge-base") || strings.HasPrefix(call, "git diff") {
+			t.Fatalf("fresh gate must not shell out to git/gh, ran: %v", runner.calls)
+		}
+	}
+}
+
+func TestPrServiceRefreshIfNeededFiresOnBranchChange(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/new\n",
+		},
+		"git rev-parse HEAD": {
+			output: "def456\n",
+		},
+		"gh pr list --head feat/new --state open --json number,url,baseRefName": {
+			output: `[{"url":"https://github.com/org/repo/pull/101","number":101,"baseRefName":"dev"}]`,
+		},
+		"git merge-base origin/dev HEAD": {
+			output: "def456\n",
+		},
+		"git diff --numstat def456": {
+			output: "1\t1\tnew.go\n",
+		},
+	}}
+	service := NewPrService(t.TempDir())
+	service.run = runner.Run
+	service.lastBranch = "feat/old"
+	service.lastHead = "abc123"
+	service.lastRefresh = time.Now()
+
+	if !service.RefreshIfNeeded() {
+		t.Fatal("changed branch must trigger a refresh")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for service.GetState().PrNumber != "101" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := service.GetState(); got.PrNumber != "101" || got.Additions != 1 {
+		t.Fatalf("refreshed state = %#v, want PR 101 with +1 -1", got)
+	}
 }
