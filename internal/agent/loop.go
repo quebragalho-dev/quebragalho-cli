@@ -503,7 +503,11 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// notice, so it is never silently duplicated.
 		for collected.Error != "" {
 			discarded := strings.TrimSpace(collected.Text) != ""
-			proceed, retryErr := callRetry.waitAfterError(ctx, errors.New(collected.Error), discarded)
+			collectedErr := collected.Err
+			if collectedErr == nil {
+				collectedErr = errors.New(collected.Error)
+			}
+			proceed, retryErr := callRetry.waitAfterError(ctx, collectedErr, discarded)
 			if retryErr != nil {
 				result.Messages = copyMessages(messages)
 				return result, retryErr

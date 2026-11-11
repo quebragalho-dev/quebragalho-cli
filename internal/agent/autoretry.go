@@ -2,22 +2,26 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/errhint"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // Unified auto-retry: one policy per model call. Every StreamCompletion
 // invocation inside a turn draws from the same budget of maxModelCallAttempts
-// attempts (the first try plus retries) — the HTTP transport retries inside
-// providerio, the old connect reconnects and the old content-stall retries no
-// longer have budgets of their own, so layers can never multiply (10 x 4 x 3).
-// The budget resets on every new model call: a turn that succeeds spends
-// nothing of the next turn's attempts.
+// attempts (the first try plus retries) — the loop marks the call context
+// (providerio.WithCallerRetry) so the provider's HTTP layer issues exactly
+// one attempt per call, and status/pre-send retries are the loop's job now,
+// which is what makes the 10 visible attempts the 10 requests in total.
+// Calls made outside the loop (titles, compaction summaries) keep the
+// provider's internal retries. The budget resets on every new model call: a
+// turn that succeeds spends nothing of the next turn's attempts.
 const maxModelCallAttempts = 10
 
 // autoRetryBaseDelay is the first wait before a retry, doubled per subsequent
@@ -81,6 +85,18 @@ func isRetryableModelError(ctx context.Context, err error) bool {
 		"approval",
 	} {
 		if strings.Contains(msg, needle) {
+			return false
+		}
+	}
+	// A typed provider failure decides by status code: the code is exact, so
+	// it outranks substring needles. Billing exhaustion stays excluded above
+	// ("insufficient") even when the provider maps it onto a 429.
+	var statusErr *providerio.StatusError
+	if errors.As(err, &statusErr) && statusErr.StatusCode != 0 {
+		switch statusErr.StatusCode {
+		case 408, 425, 429, 500, 502, 503, 504, 529:
+			return true
+		default:
 			return false
 		}
 	}
@@ -274,10 +290,12 @@ func (r *modelCallRetrier) settle() {
 	}
 }
 
-// singleStream issues one model request, spending one budget attempt.
+// singleStream issues one model request, spending one budget attempt. The
+// context carries the caller-retry marker so the provider's HTTP layer makes
+// exactly one attempt: this budget is the only budget.
 func (r *modelCallRetrier) singleStream(ctx context.Context, provider Provider, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	r.used++
-	stream, err := provider.StreamCompletion(ctx, request)
+	stream, err := provider.StreamCompletion(providerio.WithCallerRetry(ctx), request)
 	if err == nil {
 		r.settle()
 		return stream, nil
@@ -310,6 +328,9 @@ func (r *modelCallRetrier) openStream(ctx context.Context, provider Provider, re
 // existing error path); a non-nil error ends the call now — the exhausted
 // budget (original message plus the attempt count) or the context error.
 func (r *modelCallRetrier) waitAfterError(ctx context.Context, err error, discarded bool) (bool, error) {
+	if err == nil {
+		return false, nil
+	}
 	if ctx.Err() != nil {
 		r.settle()
 		return false, ctx.Err()
@@ -319,13 +340,20 @@ func (r *modelCallRetrier) waitAfterError(ctx context.Context, err error, discar
 	}
 	if r.exhausted() {
 		r.settle()
-		msg := ""
-		if err != nil {
-			msg = err.Error()
-		}
+		msg := err.Error()
 		return false, fmt.Errorf("%s (%d/%d tentativas)", msg, maxModelCallAttempts, maxModelCallAttempts)
 	}
-	wait := r.jitter(autoRetryDelay(r.used, parseRetryAfterHint(strings.ToLower(err.Error()))))
+	// The server's delay travels structured on the provider's typed error;
+	// text parsing is only the fallback for untyped failures.
+	retryAfter := time.Duration(0)
+	var statusErr *providerio.StatusError
+	if errors.As(err, &statusErr) {
+		retryAfter = statusErr.RetryAfter
+	}
+	if retryAfter <= 0 {
+		retryAfter = parseRetryAfterHint(strings.ToLower(err.Error()))
+	}
+	wait := r.jitter(autoRetryDelay(r.used, retryAfter))
 	attempt := r.used + 1
 	summary := shortRetrySummary(err.Error())
 	if r.notify != nil {
