@@ -70,8 +70,8 @@ func ShrinkBackoffForTest() func() {
 const preSendMaxAttempts = 3
 
 // preSendBackoffBase is the first wait before replaying a pre-send transport
-// failure. Modeled on the mid-stream reconnect base (internal/agent/reconnect.go),
-// it is sub-second so a transient dial blip recovers quickly and a permanent one
+// failure. Modeled on the old mid-stream reconnect base, it is sub-second so a
+// transient dial blip recovers quickly and a permanent one
 // fails fast. A var so tests can shrink it.
 var preSendBackoffBase = 500 * time.Millisecond
 

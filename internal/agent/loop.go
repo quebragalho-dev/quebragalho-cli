@@ -25,17 +25,6 @@ import (
 const maxTurnsAnswer = "Agent reached maximum number of turns without a final answer."
 const maxTurnsFinalAnswerPrompt = "You have reached the tool-turn limit. Do not call tools. Give a concise final answer now: summarize what you completed, what you found, and any remaining blockers."
 
-// maxStreamStallRetries bounds how many times a turn that timed out (idle/stall)
-// WITH NO OUTPUT yet is re-issued on a fresh connection before giving up. Only
-// the no-output case is retried (a partial turn would duplicate), so this is a
-// safe recovery for a stalled/dead pooled connection.
-//
-// Set to 1 (not 2): each attempt can itself idle for the full stream timeout
-// (~5min) before the stall is even detected, so 2 retries left an interactive
-// session frozen for ~15min. One retry keeps the common single-hiccup recovery
-// while bounding the worst case to ~2× the idle timeout.
-const maxStreamStallRetries = 1
-
 const (
 	toolResultMetaControl       = "control"
 	toolResultControlSpecReview = "spec_review_required"
@@ -127,7 +116,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	}
 
 	// Tracing is opt-in. When a recorder is wired, thread it into ctx so the
-	// providerio seam and reconnect helper can reach it via trace.FromContext,
+	// providerio seam can reach it via trace.FromContext,
 	// mark the run's start, and wrap OnUsage so token counters accumulate for
 	// free alongside the existing per-request plumbing. nil recorder leaves the
 	// loop byte-identical: FromContext returns nil, the no-op stamps cost
@@ -363,11 +352,16 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		request := plan.Request
 		recordContextPlan(options, plan)
 
-		// A transient upstream disconnect on the initial connect is retried with
-		// backoff (before any content is forwarded, so no OnText is duplicated);
-		// a context-limit / image-rejection / cancellation is NOT retried here —
-		// those fall through to their own handlers below.
-		stream, err := streamWithReconnect(ctx, provider, request, reconnectNoticeFor(options))
+		// One retry budget per model call: every StreamCompletion in this turn —
+		// the initial connect, a post-compaction reissue, a stall recovery —
+		// draws from the same attempts, so layers never multiply. The budget
+		// resets on the next turn: a call that succeeds spends nothing of the
+		// next call's attempts.
+		callRetry := newModelCallRetrier(options)
+		// A failed model call is retried with backoff; a context-limit /
+		// image-rejection / cancellation is NOT retried here — those fall
+		// through to their own handlers below.
+		stream, err := callRetry.openStream(ctx, provider, request)
 		if err != nil {
 			if isImageRejectionError(err) {
 				result.Messages = copyMessages(messages)
@@ -389,10 +383,10 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				retryPlan := planner.Plan(messages, exposed, options.ReasoningEffort)
 				request = retryPlan.Request
 				recordContextPlan(options, retryPlan)
-				// Pre-content connect after a context-limit compaction: route through the
-				// reconnect helper so a transient upstream hiccup here doesn't fail the
-				// whole run and re-burn every token (AUDIT-L1).
-				stream, err = streamWithReconnect(ctx, provider, request, reconnectNoticeFor(options))
+				// Pre-content connect after a context-limit compaction: draw from the
+				// same turn budget so a transient upstream hiccup here doesn't fail
+				// the whole run and re-burn every token (AUDIT-L1).
+				stream, err = callRetry.openStream(ctx, provider, request)
 			}
 			if err != nil {
 				result.Messages = copyMessages(messages)
@@ -400,17 +394,11 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			}
 		}
 
-		// forwardedVisibleText flags forwarded final PROSE (OnText) specifically —
-		// the only output whose re-stream on a stall retry would visibly DUPLICATE
-		// answer text the user already read. Transient working indicators
-		// (reasoning previews, tool-call "writing…" previews) are deliberately NOT
-		// counted: a turn that streamed only those then stalled — the common
-		// gpt-5.x / ollama "froze mid-write_file" case — is safe to re-issue, since
-		// the TUI resets the tool-call preview on the next tool-call-start and a
-		// stalled turn is never appended to `messages` (it returns on the error
-		// before the append), so the retry re-sends clean context with no
-		// conversation-state duplication.
-		forwardedVisibleText := false
+		// Text/reasoning/tool-call previews stream live while the retry policy
+		// decides from the collected error alone: a failed attempt never reaches
+		// the history append or tool dispatch below, so re-issuing re-sends
+		// clean context. The retry notice marks any already-streamed prose as
+		// discarded, so the screen never shows it twice unmarked.
 		forwardingOpts := qgruntime.CollectOptions{OnUsage: options.OnUsage, OnUsageProgress: options.OnUsageProgress}
 		// Install text/reasoning forwarding handlers whenever EITHER a user
 		// callback OR a trace recorder is set. A headless traced run (e.g. `qg
@@ -418,9 +406,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// handlers the stream is still collected, but FirstTokenAt would never
 		// stamp and the trace would lose its TTFT signal. The trace recorder's
 		// stamp methods are nil-safe, but we guard on `trace != nil` so a run with
-		// a user callback but no recorder still works. forwardedVisibleText stays
-		// tied to the USER callback only, preserving the stall-retry semantics
-		// (a trace-only handler forwards nothing the user would see duplicated).
+		// a user callback but no recorder still works.
 		rec := options.Trace
 		onText := options.OnText
 		if onText != nil || rec != nil {
@@ -430,7 +416,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					rec.StampFirstToken()
 				}
 				if onText != nil {
-					forwardedVisibleText = true
 					onText(s)
 				}
 			}
@@ -475,7 +460,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				retryPlan := planner.Plan(messages, exposed, options.ReasoningEffort)
 				retryRequest := retryPlan.Request
 				recordContextPlan(options, retryPlan)
-				retryStream, retryStreamErr := streamWithReconnect(ctx, provider, retryRequest, reconnectNoticeFor(options))
+				retryStream, retryStreamErr := callRetry.openStream(ctx, provider, retryRequest)
 				if retryStreamErr != nil {
 					return collected, retryStreamErr
 				}
@@ -507,43 +492,48 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			result.Messages = copyMessages(messages)
 			return result, ctx.Err()
 		}
-		// A stream idle/stall timeout is safely re-issued when the turn committed NO
-		// answer text — no forwarded visible prose (forwardedVisibleText) and no
-		// collected final text (collected.Text). This covers two cases:
-		//   1. Nothing streamed at all before the connection died (the original
-		//      macOS stale-pooled-connection hang past the response-header timeout).
-		//   2. The model streamed transient reasoning and began a tool call (e.g. a
-		//      large write_file) then froze mid-arguments — the common gpt-5.x /
-		//      ollama heartbeat-pause stall. That partial tool call is NEVER executed
-		//      (a turn with collected.Error returns before dispatch below) and NEVER
-		//      appended to `messages`, so a retry re-issues clean context; the only
-		//      re-render is transient previews, not duplicated answer text. This is
-		//      why the gate no longer excludes collected.ToolCalls: an incomplete
-		//      tool call from a timed-out stream is discard-and-retry, not output.
-		// A turn that forwarded real prose is NOT retried (it would duplicate visible
-		// answer text) and falls through to the error return below. Capped +
-		// exponential backoff, with a user-visible notice per attempt.
-		for attempt := 1; attempt <= maxStreamStallRetries &&
-			isStreamTimeoutError(collected.Error) && !forwardedVisibleText &&
-			collected.Text == ""; attempt++ {
-			if notify := stallRetryNoticeFor(options); notify != nil {
-				notify(attempt, maxStreamStallRetries)
-			}
-			if err := sleepWithContext(ctx, backoffFor(attempt)); err != nil {
-				result.Messages = copyMessages(messages)
-				return result, err
-			}
-			retryPlan := planner.Plan(messages, exposed, options.ReasoningEffort)
-			retryRequest := retryPlan.Request
-			recordContextPlan(options, retryPlan)
-			retryStream, retryErr := streamWithReconnect(ctx, provider, retryRequest, reconnectNoticeFor(options))
+		// Unified per-call retry for a failed stream: a retryable error (a
+		// stalled/idle connection, an upstream 5xx, a rate limit, a transport
+		// failure) re-issues the same turn on a fresh stream inside the call's
+		// budget. The failed attempt's partial output is never appended to
+		// `messages` (it returns on the error before the append), so the retry
+		// re-sends clean context, and its tool calls — always incomplete, since
+		// a failed turn returns before dispatch below — never execute. The
+		// already-streamed text stays on screen, marked discarded by the retry
+		// notice, so it is never silently duplicated.
+		for collected.Error != "" {
+			discarded := strings.TrimSpace(collected.Text) != ""
+			proceed, retryErr := callRetry.waitAfterError(ctx, errors.New(collected.Error), discarded)
 			if retryErr != nil {
 				result.Messages = copyMessages(messages)
 				return result, retryErr
 			}
-			stallGenSpan := options.Trace.Span(trace.SpanGeneration)
+			if !proceed {
+				break
+			}
+			retryPlan := planner.Plan(messages, exposed, options.ReasoningEffort)
+			retryRequest := retryPlan.Request
+			recordContextPlan(options, retryPlan)
+			retryStream, retryErr := callRetry.openStream(ctx, provider, retryRequest)
+			if retryErr != nil {
+				result.Messages = copyMessages(messages)
+				return result, retryErr
+			}
+			retryGenSpan := options.Trace.Span(trace.SpanGeneration)
 			collected = qgruntime.CollectStreamWithOptions(ctx, retryStream, forwardingOpts)
-			stallGenSpan.End()
+			retryGenSpan.End()
+			if collected.Error != "" {
+				updated, stop := recoverStreamError(collected)
+				collected = updated
+				if stop != nil {
+					result.Messages = copyMessages(messages)
+					return result, stop
+				}
+			}
+			if ctx.Err() != nil {
+				result.Messages = copyMessages(messages)
+				return result, ctx.Err()
+			}
 		}
 		if collected.Error != "" {
 			// Route a reissued stream's non-stall error through the SAME recovery as
@@ -1099,11 +1089,11 @@ func finalAnswerAfterMaxTurns(ctx context.Context, provider Provider, planner *c
 		Content: maxTurnsFinalAnswerPrompt,
 	})
 	// The max-turns final-answer call is a pre-content connect, often after a long
-	// autonomous/cron run — route it through the reconnect helper so a single
-	// transient hiccup doesn't drop the final summary (AUDIT-L1).
+	// autonomous/cron run — it gets its own retry budget so a single transient
+	// hiccup doesn't drop the final summary (AUDIT-L1).
 	plan := planner.Plan(finalMessages, toolDefs, options.ReasoningEffort)
 	recordContextPlan(options, plan)
-	stream, err := streamWithReconnect(ctx, provider, plan.Request, reconnectNoticeFor(options))
+	stream, err := newModelCallRetrier(options).openStream(ctx, provider, plan.Request)
 	if err != nil {
 		return "", messages, ""
 	}

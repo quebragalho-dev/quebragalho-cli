@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -60,7 +62,10 @@ func (p *stallProvider) StreamCompletion(_ context.Context, _ qgruntime.Completi
 // macOS stale-pooled-connection hang turned into an automatic recovery.
 func TestRunRetriesStreamStallWithNoOutput(t *testing.T) {
 	p := &stallProvider{stallBefore: 1}
-	result, err := Run(context.Background(), "go", p, Options{Registry: tools.NewRegistry()})
+	result, err := Run(context.Background(), "go", p, Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&[]time.Duration{}),
+	})
 	if err != nil {
 		t.Fatalf("a no-output stall should retry to success, got %v", err)
 	}
@@ -72,16 +77,29 @@ func TestRunRetriesStreamStallWithNoOutput(t *testing.T) {
 	}
 }
 
-// A stall AFTER partial output must NOT be retried — re-issuing would duplicate
-// the already-streamed text. It surfaces the error instead.
-func TestRunDoesNotRetryStallAfterPartialOutput(t *testing.T) {
+// A stall AFTER partial output IS retried under the unified auto-retry policy:
+// the attempt is re-issued and the partial text is discarded — it never reaches
+// the history sent to the model.
+func TestRunRetriesStallAfterPartialOutputDiscardingIt(t *testing.T) {
 	p := &stallProvider{stallBefore: 1, partialText: "partial"}
-	_, err := Run(context.Background(), "go", p, Options{Registry: tools.NewRegistry()})
-	if err == nil {
-		t.Fatal("a stall after partial output must NOT be retried; want an error")
+	var waits []time.Duration
+	result, err := Run(context.Background(), "go", p, Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits),
+	})
+	if err != nil {
+		t.Fatalf("a stall after partial output must retry to success, got %v", err)
 	}
-	if got := atomic.LoadInt32(&p.calls); got != 1 {
-		t.Fatalf("partial-then-stall must not retry, got %d calls", got)
+	if result.FinalAnswer != "done" {
+		t.Fatalf("final answer = %q, want %q", result.FinalAnswer, "done")
+	}
+	if got := atomic.LoadInt32(&p.calls); got != 2 {
+		t.Fatalf("partial-then-stall must retry, got %d calls", got)
+	}
+	for _, message := range result.Messages {
+		if strings.Contains(message.Content, "partial-upstream-text") {
+			t.Fatalf("partial text must not reach the model history: %#v", message)
+		}
 	}
 }
 
@@ -93,9 +111,11 @@ func TestRunDoesNotRetryStallAfterPartialOutput(t *testing.T) {
 // here, so this exercises the transient-vs-prose gate specifically).
 func TestRunRetriesStallAfterOnlyReasoning(t *testing.T) {
 	p := &stallProvider{stallBefore: 1, reasoningText: "thinking hard"}
+	var waits []time.Duration
 	result, err := Run(context.Background(), "go", p, Options{
 		Registry:    tools.NewRegistry(),
 		OnReasoning: func(string) {},
+		RetrySleep:  instantRetrySleep(&waits),
 	})
 	if err != nil {
 		t.Fatalf("a stall after only reasoning should retry to success, got %v", err)
@@ -116,11 +136,13 @@ func TestRunRetriesStallAfterOnlyReasoning(t *testing.T) {
 func TestRunRetriesStallAfterIncompleteToolCall(t *testing.T) {
 	starts := 0
 	p := &stallProvider{stallBefore: 1, reasoningText: "planning", partialToolCall: "write_file"}
+	var waits []time.Duration
 	result, err := Run(context.Background(), "go", p, Options{
 		Registry:        tools.NewRegistry(),
 		OnReasoning:     func(string) {},
 		OnToolCallStart: func(string, string) { starts++ },
 		OnToolCallDelta: func(string, string) {},
+		RetrySleep:      instantRetrySleep(&waits),
 	})
 	if err != nil {
 		t.Fatalf("a stall mid-incomplete-tool-call should retry to success, got %v", err)
@@ -136,15 +158,19 @@ func TestRunRetriesStallAfterIncompleteToolCall(t *testing.T) {
 	}
 }
 
-// A persistent stall surfaces an error after exhausting the capped retries.
+// A persistent stall surfaces an error after exhausting the single retry budget.
 func TestRunGivesUpAfterMaxStallRetries(t *testing.T) {
 	p := &stallProvider{stallBefore: 99}
-	_, err := Run(context.Background(), "go", p, Options{Registry: tools.NewRegistry()})
+	var waits []time.Duration
+	_, err := Run(context.Background(), "go", p, Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits),
+	})
 	if err == nil {
 		t.Fatal("a persistent stall must surface an error after exhausting retries")
 	}
-	if got := atomic.LoadInt32(&p.calls); got != int32(1+maxStreamStallRetries) {
-		t.Fatalf("want %d calls (1 + %d retries), got %d", 1+maxStreamStallRetries, maxStreamStallRetries, got)
+	if got := atomic.LoadInt32(&p.calls); got != int32(maxModelCallAttempts) {
+		t.Fatalf("want %d calls (one budget), got %d", maxModelCallAttempts, got)
 	}
 }
 
