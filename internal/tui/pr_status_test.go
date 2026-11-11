@@ -364,9 +364,10 @@ func TestTitleBarRendersWithoutSubprocess(t *testing.T) {
 	}
 }
 
-// The refresh gate: a fresh branch state performs no subprocess at all; a
-// changed branch (or head) triggers a background refresh.
-func TestPrServiceRefreshIfNeededSkipsFreshState(t *testing.T) {
+// The refresh gate: a fresh branch state performs no subprocess at once; a
+// changed branch (or head) triggers a background refresh. Triggers inside
+// the local interval defer to one trailing refresh (tested separately).
+func TestPrServiceRefreshIfNeededDefersFreshState(t *testing.T) {
 	runner := &fakePRRunner{results: map[string]fakePRResult{
 		"git symbolic-ref --quiet --short HEAD": {
 			output: "feat/duo\n",
@@ -538,5 +539,43 @@ func TestToolResultRefreshesPrState(t *testing.T) {
 	}
 	if !runner.called("gh pr list --head feat/duo --state open --json number,url,baseRefName") {
 		t.Fatal("a finished tool result must re-check the PR header state")
+	}
+}
+
+// Triggers inside the minimum local interval must not be dropped: the last
+// one always produces a refresh at the window end (trailing edge).
+func TestRefreshIfNeededCoalescesTrailingEdge(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/duo\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+		"gh pr list --head feat/duo --state open --json number,url,baseRefName": {
+			output: `[{"url":"https://github.com/org/repo/pull/97","number":97,"baseRefName":"dev"}]`,
+		},
+		"git merge-base origin/dev HEAD": {
+			output: "abc123\n",
+		},
+		"git diff --numstat abc123": {
+			output: "10\t2\tchanged.go\n",
+		},
+	}}
+	service := NewPrService(t.TempDir())
+	service.run = runner.Run
+	service.lastBranch = "feat/duo"
+	service.lastHead = "abc123"
+	service.lastRefresh = time.Now()
+
+	service.RefreshIfNeeded()
+	service.RefreshIfNeeded()
+
+	deadline := time.Now().Add(6 * time.Second)
+	for service.GetState().PrNumber != "97" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := service.GetState(); got.PrNumber != "97" || got.Additions != 10 {
+		t.Fatalf("trailing trigger must refresh, got %#v", got)
 	}
 }
