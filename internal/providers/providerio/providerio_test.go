@@ -283,7 +283,9 @@ func TestScanSSEDataWithContextAbortsOnContentStall(t *testing.T) {
 }
 
 // Real data lines reset the content watchdog, so a slow-but-producing stream that
-// runs longer than the content window is never aborted.
+// runs longer than the content window is never aborted: every payload is still
+// delivered. But a clean close without [DONE] is a truncated stream, so the
+// terminal status is a wrapped io.ErrUnexpectedEOF rather than nil.
 func TestScanSSEDataWithContextContentResetsOnData(t *testing.T) {
 	pr, pw := io.Pipe()
 
@@ -308,8 +310,8 @@ func TestScanSSEDataWithContextContentResetsOnData(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("err = %v, want nil (data kept the stream alive)", err)
+		if !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("err = %v, want wrapped io.ErrUnexpectedEOF (clean close without [DONE])", err)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("ScanSSEDataWithContext hung on a producing stream")
