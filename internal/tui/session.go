@@ -132,6 +132,10 @@ func (m model) startNewSession() model {
 	m.pendingImageThumbnails = nil
 	m.pendingDocuments = nil
 	m.queuedMessages = nil
+	// The interleave buffer belongs to the run, never the session: the fresh
+	// session gets its own so a stranded push from the old turn cannot ride
+	// the new session's next provider request.
+	m.interleave = &interleaveBuffer{}
 	// The remembered /retry attachment snapshot belongs to the previous session
 	// too — dropping it keeps a post-/new /retry from re-staging old images or
 	// documents. lastPrompt is composer history (like inputHistory) and stays.

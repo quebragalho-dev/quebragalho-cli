@@ -129,6 +129,10 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 	side.pendingAskUser = nil
 	side.pendingSpecReview = nil
 	side.queuedMessages = nil
+	// The side conversation is isolated from the parent: its own interleave
+	// buffer, so a pending parent instruction never leaks into the side's
+	// provider requests. The parent keeps hers.
+	side.interleave = &interleaveBuffer{}
 	side.lastPrompt = ""
 	side.lastImages = nil
 	side.lastImageLabels = nil
