@@ -46,11 +46,14 @@ type PrService struct {
 	listeners []func(PrState)
 	cwd       string
 	run       prCommandRunner
-	// lastBranch/lastHead/lastRefresh drive RefreshIfNeeded: refresh only
-	// when the branch or head moved, or the debounce elapsed.
+	// lastBranch/lastHead/lastRefresh drive RefreshIfNeeded: refresh when
+	// the branch or head moved, at most every prLocalDiffMinInterval, with
+	// one trailing refresh coalescing any triggers inside the window.
+	// trailing is the armed trailing-edge timer, if any.
 	lastBranch  string
 	lastHead    string
 	lastRefresh time.Time
+	trailing    *time.Timer
 	// cachedIdentity reuses one branch's PR number/url/base without
 	// hitting the network on every refresh (TTL). Diff stats are always
 	// recomputed locally.
@@ -70,7 +73,12 @@ const prGitTimeout = 2 * time.Second
 // prRefreshDebounce is the minimum gap between two triggered refreshes. A
 // changed branch or head bypasses it; otherwise turn-end triggers coalesce
 // here instead of shelling out on every turn.
-const prRefreshDebounce = 30 * time.Second
+// prLocalDiffMinInterval is the minimum gap between two local refreshes.
+// The diff comes from local git and is cheap; triggers inside the window do
+// not refresh immediately but arm one trailing refresh at the window end, so
+// the last trigger always lands. The network half (gh/glab identity) has its
+// own longer TTL and is untouched by this gate.
+const prLocalDiffMinInterval = 2 * time.Second
 
 // prIdentityTTL bounds how long the PR identity (number/url/base for one
 // branch) is reused without asking the network again. Diff stats are always
@@ -164,10 +172,11 @@ func (s *PrService) Refresh() {
 }
 
 // RefreshIfNeeded re-checks the header state when something observable may
-// have changed: a different branch or head since the last refresh, or a
-// debounce interval elapsed with no refresh. The whole gate — including its
-// git calls — runs in a service goroutine; results flow back as prStateMsg.
-// Never blocks the UI; the render path never shells out.
+// have changed: a different branch or head refreshes at once; otherwise the
+// local diff refreshes at most every prLocalDiffMinInterval, and triggers
+// inside the window coalesce into one trailing refresh at the window end —
+// the last trigger always lands. The whole gate runs in a service goroutine;
+// results flow back as prStateMsg. Never blocks the UI.
 func (s *PrService) RefreshIfNeeded() {
 	if s == nil {
 		return
@@ -178,16 +187,45 @@ func (s *PrService) RefreshIfNeeded() {
 		branch, head := currentBranchHead(ctx, s.cwd, s.run)
 		now := time.Now()
 		s.mu.Lock()
-		changed := branch != s.lastBranch || head != s.lastHead
-		due := now.Sub(s.lastRefresh) >= prRefreshDebounce
-		if !changed && !due {
+		if branch != s.lastBranch || head != s.lastHead {
+			s.stopTrailingLocked()
+			s.lastBranch, s.lastHead, s.lastRefresh = branch, head, now
 			s.mu.Unlock()
+			s.Refresh()
 			return
 		}
-		s.lastBranch, s.lastHead, s.lastRefresh = branch, head, now
+		if now.Sub(s.lastRefresh) >= prLocalDiffMinInterval {
+			s.stopTrailingLocked()
+			s.lastRefresh = now
+			s.mu.Unlock()
+			s.Refresh()
+			return
+		}
+		if s.trailing == nil {
+			wait := s.lastRefresh.Add(prLocalDiffMinInterval).Sub(now)
+			if wait < 0 {
+				wait = 0
+			}
+			s.trailing = time.AfterFunc(wait, func() {
+				s.mu.Lock()
+				s.trailing = nil
+				s.lastRefresh = time.Now()
+				s.mu.Unlock()
+				s.Refresh()
+			})
+		}
 		s.mu.Unlock()
-		s.Refresh()
 	}()
+}
+
+// stopTrailingLocked cancels a pending trailing refresh. The caller must hold
+// s.mu. Best effort: a timer already firing still refreshes once, which is
+// harmless (detect is idempotent, last writer wins with identical values).
+func (s *PrService) stopTrailingLocked() {
+	if s.trailing != nil {
+		s.trailing.Stop()
+		s.trailing = nil
+	}
 }
 
 // currentBranchHead resolves the checked-out branch ("" when detached or on
