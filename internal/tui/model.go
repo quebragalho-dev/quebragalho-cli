@@ -3186,7 +3186,13 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.row.kind == rowToolResult && isPlanCommandTool(msg.row.tool) {
 			var sweep tea.Cmd
 			m, sweep = m.maybeGitSweep()
-			return m, sweep
+			return m, tea.Batch(sweep, m.prRefreshCmd())
+		}
+		// A finished tool may have rewritten files the header diff counts —
+		// re-check off the UI goroutine, coalesced by the service gate, so a
+		// long turn with many edits still refreshes while tools land.
+		if msg.row.kind == rowToolResult {
+			return m, m.prRefreshCmd()
 		}
 		return m, nil
 	case swarmSessionsMsg:
