@@ -153,3 +153,24 @@ func TestDoubleReleaseKeepsRequestFalse(t *testing.T) {
 		t.Fatal("Request after a double release must return false, the waiter is gone")
 	}
 }
+
+// A second Request landing after the wake but before the waiter releases
+// reports stale true: the waiter already observed the wake and simply has
+// not left yet. Benign — the release lands before the tool returns, so the
+// batch still closes and the loop still drains. Pinned here so any future
+// change of this contract is conscious; the same-turn delivery it protects
+// is proven by the batch tests in internal/agent.
+func TestSecondRequestBeforeReleaseIsStaleTrue(t *testing.T) {
+	s := New()
+	_, release := s.Park()
+	if !s.Request() {
+		t.Fatal("first Request must report the parked waiter")
+	}
+	if !s.Request() {
+		t.Fatal("second Request before release reports stale true")
+	}
+	release()
+	if s.Request() {
+		t.Fatal("Request after release must return false")
+	}
+}
