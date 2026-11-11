@@ -1459,3 +1459,110 @@ func TestSecondCtrlCClearsComposerAfterConfirmExpired(t *testing.T) {
 		t.Fatal("clearing the composer must not quit the app")
 	}
 }
+
+// The FIFO chain: three prompts queued behind an active turn drain one per
+// turn, head first. Each turn's end launches only the head; the provider
+// request carries that head and none of the later messages; the notice
+// counts down until the queue is empty and silent.
+func TestQueuedMessagesDrainOnePerTurnHeadFirst(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("answer UM", "answer DOIS", "answer TRES")}
+	m := newQueuedMessageTestModel(t)
+	m.provider = provider
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+
+	for _, queued := range []string{"QF-UM", "QF-DOIS", "QF-TRES"} {
+		m.input.SetValue(queued)
+		updated, cmd := m.Update(testKey(tea.KeyEnter))
+		m = updated.(model)
+		if cmd != nil {
+			t.Fatalf("queued prompt %q must not launch while the turn is active", queued)
+		}
+	}
+	if got := m.queuedMessages; len(got) != 3 || got[0] != "QF-UM" || got[1] != "QF-DOIS" || got[2] != "QF-TRES" {
+		t.Fatalf("expected the FIFO [QF-UM QF-DOIS QF-TRES], got %#v", got)
+	}
+
+	// End the active turn: only the head launches, and its provider request
+	// carries the head but none of the messages still queued behind it.
+	endTurnLaunching := func(head string, rest []string) {
+		t.Helper()
+		before := len(provider.requests)
+		updated, cmd := m.Update(agentResponseMsg{runID: m.activeRunID})
+		m = updated.(model)
+		// Auto-title would spend a provider request of its own on later
+		// turns; shut its one-shot gate with the real session id so every
+		// request in the window below belongs to the queue chain.
+		if m.titledSessions == nil {
+			m.titledSessions = map[string]bool{}
+		}
+		m.titledSessions[m.activeSession.SessionID] = true
+		if cmd == nil {
+			t.Fatalf("expected the head %q to launch, got no command", head)
+		}
+		if !m.pending {
+			t.Fatalf("expected the head %q to start a new turn", head)
+		}
+		if got := m.queuedMessages; len(got) != len(rest) {
+			t.Fatalf("after launching %q, expected queue %#v, got %#v", head, rest, got)
+		} else {
+			for i := range rest {
+				if got[i] != rest[i] {
+					t.Fatalf("after launching %q, expected queue %#v, got %#v", head, rest, got)
+				}
+			}
+		}
+		_ = execCmd(cmd) // run the launched turn against the provider
+		if got := len(provider.requests) - before; got != 1 {
+			t.Fatalf("expected the head %q to make exactly one provider request, got %d", head, got)
+		}
+		req := provider.requests[len(provider.requests)-1]
+		last := req.Messages[len(req.Messages)-1]
+		if !strings.Contains(last.Content, head) {
+			t.Fatalf("expected the provider's last message to be %q, got %#v", head, last)
+		}
+		for _, message := range req.Messages {
+			for _, later := range rest {
+				if strings.Contains(message.Content, later) {
+					t.Fatalf("request for %q must not contain %q yet: %#v", head, later, req.Messages)
+				}
+			}
+		}
+	}
+
+	// Turn A ends: only QF-UM launches; the notice counts the two remaining.
+	endTurnLaunching("QF-UM", []string{"QF-DOIS", "QF-TRES"})
+	if view := plainRender(t, viewString(m.View())); !strings.Contains(view, "na fila (2)") {
+		t.Fatalf("expected the notice to count the two remaining, got:\n%s", view)
+	}
+
+	// QF-UM's turn ends: only QF-DOIS launches; one remains.
+	endTurnLaunching("QF-DOIS", []string{"QF-TRES"})
+	if view := plainRender(t, viewString(m.View())); !strings.Contains(view, "na fila (1)") {
+		t.Fatalf("expected the notice to count the last remaining, got:\n%s", view)
+	}
+
+	// QF-DOIS's turn ends: only QF-TRES launches; the queue is empty.
+	endTurnLaunching("QF-TRES", nil)
+
+	// QF-TRES's turn ends: nothing launches, the queue stays empty and silent.
+	updated, cmd := m.Update(agentResponseMsg{runID: m.activeRunID})
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatal("expected nothing to launch once the queue is empty")
+	}
+	if m.pending {
+		t.Fatal("expected no new turn once the queue is empty")
+	}
+	if len(m.queuedMessages) != 0 {
+		t.Fatalf("expected an empty queue, got %#v", m.queuedMessages)
+	}
+	if view := plainRender(t, viewString(m.View())); strings.Contains(view, "na fila") {
+		t.Fatalf("expected no queue notice once the queue is empty, got:\n%s", view)
+	}
+	if len(provider.requests) != 3 {
+		t.Fatalf("expected exactly 3 provider requests, got %d", len(provider.requests))
+	}
+}
