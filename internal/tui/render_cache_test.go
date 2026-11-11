@@ -7,15 +7,19 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 )
 
+func testRenderKey(id string) renderRowKey {
+	return renderRowKey{version: renderRowCacheVersion, id: id, text: id}
+}
+
 func TestStaticRenderCacheHitMiss(t *testing.T) {
 	cache := newStaticRenderCache(4, 100)
 	renders := 0
 
-	first := cache.render("row:1", true, func() string {
+	first := cache.render(testRenderKey("row:1"), true, func() string {
 		renders++
 		return "rendered"
 	})
-	second := cache.render("row:1", true, func() string {
+	second := cache.render(testRenderKey("row:1"), true, func() string {
 		renders++
 		return "changed"
 	})
@@ -35,13 +39,13 @@ func TestStaticRenderCacheHitMiss(t *testing.T) {
 func TestStaticRenderCacheEvictsLeastRecentlyUsedEntry(t *testing.T) {
 	cache := newStaticRenderCache(2, 100)
 
-	cache.render("a", true, func() string { return "A" })
-	cache.render("b", true, func() string { return "B" })
-	cache.render("a", true, func() string { return "A2" })
-	cache.render("c", true, func() string { return "C" })
+	cache.render(testRenderKey("a"), true, func() string { return "A" })
+	cache.render(testRenderKey("b"), true, func() string { return "B" })
+	cache.render(testRenderKey("a"), true, func() string { return "A2" })
+	cache.render(testRenderKey("c"), true, func() string { return "C" })
 
 	renders := 0
-	got := cache.render("b", true, func() string {
+	got := cache.render(testRenderKey("b"), true, func() string {
 		renders++
 		return "B2"
 	})
@@ -58,17 +62,17 @@ func TestStaticRenderCacheEvictsLeastRecentlyUsedEntry(t *testing.T) {
 func TestStaticRenderCacheEvictsToRetainedCharacterLimit(t *testing.T) {
 	cache := newStaticRenderCache(10, 6)
 
-	cache.render("a", true, func() string { return "aaa" })
-	cache.render("b", true, func() string { return "bbb" })
-	cache.render("a", true, func() string { return "aaa" })
-	cache.render("c", true, func() string { return "cc" })
+	cache.render(testRenderKey("a"), true, func() string { return "aaa" })
+	cache.render(testRenderKey("b"), true, func() string { return "bbb" })
+	cache.render(testRenderKey("a"), true, func() string { return "aaa" })
+	cache.render(testRenderKey("c"), true, func() string { return "cc" })
 
 	if got := cache.retainedCharacters(); got != 5 {
 		t.Fatalf("retained characters = %d, want 5", got)
 	}
 
 	renders := 0
-	got := cache.render("b", true, func() string {
+	got := cache.render(testRenderKey("b"), true, func() string {
 		renders++
 		return "bbb"
 	})
@@ -85,7 +89,7 @@ func TestStaticRenderCacheSkipsOversizedOutputs(t *testing.T) {
 	renders := 0
 
 	for range 2 {
-		got := cache.render("huge", true, func() string {
+		got := cache.render(testRenderKey("huge"), true, func() string {
 			renders++
 			return "123456"
 		})
@@ -108,7 +112,7 @@ func TestStaticRenderCacheSkipsUnstableRequests(t *testing.T) {
 	renders := 0
 
 	for range 2 {
-		cache.render("spinner", false, func() string {
+		cache.render(testRenderKey("spinner"), false, func() string {
 			renders++
 			return "tick"
 		})

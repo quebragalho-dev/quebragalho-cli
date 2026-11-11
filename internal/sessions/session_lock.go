@@ -1,0 +1,196 @@
+package sessions
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+)
+
+// presenceLockName is a separate lock file from session.lock: the per-op
+// session.lock is taken and released around every mutation, so a
+// session-long lease must live on its own file or same-process appends
+// would deadlock against it.
+const presenceLockName = "presence.lock"
+
+// presenceSidecarName carries the pid hint for a refusal message. On
+// Windows a byte-range lock makes ANY read of presence.lock fail with
+// ERROR_LOCK_VIOLATION (the locked byte is unreadable by any other
+// handle), so the refusing side could not recover the holder's pid from
+// the lock file exactly when it needs it. The sidecar is never locked, is
+// written once by each new holder after it acquires, and is only consulted
+// when a refusal happens — i.e. when a holder acquired first and kept it.
+// A stale sidecar from a dead holder is never surfaced: the kernel
+// releases the dead holder's lock, the next acquire succeeds, and the
+// error path is then out of reach.
+const presenceSidecarName = "presence.pid"
+
+// SessionLockedError reports a refusal to open a session that another live
+// qg process holds. The PID is best-effort: the OS lock is authoritative
+// (a dead holder's lock is released by the kernel), so a stale PID file
+// never blocks a new owner.
+type SessionLockedError struct {
+	SessionID string
+	PID       int
+}
+
+func (err *SessionLockedError) Error() string {
+	if err == nil {
+		return ""
+	}
+	if err.PID > 0 {
+		return fmt.Sprintf("Esta sessão está aberta em outro terminal (PID %d). Feche lá ou use /fork.", err.PID)
+	}
+	return "Esta sessão está aberta em outro terminal. Feche lá ou use /fork."
+}
+
+// SessionLock is a held session presence lease. Close it (idempotent) when
+// the session is switched away from or the process exits; the OS releases a
+// leaked lock automatically on process death.
+//
+// The lease is process-wide: a second acquire of the same lock file in the
+// same process (another model instance in tests, the CLI-to-TUI handoff)
+// shares the single OS lock via reference counting instead of conflicting
+// with itself. A second *process* still gets a *SessionLockedError: the OS
+// flock is authoritative, and a dead holder's kernel-released lock never
+// blocks a new owner.
+type SessionLock struct {
+	store     *Store
+	sessionID string
+	path      string
+	file      *os.File
+	release   func()
+	closed    bool
+}
+
+// SessionID reports the session this lock holds.
+func (lock *SessionLock) SessionID() string {
+	if lock == nil {
+		return ""
+	}
+	return lock.sessionID
+}
+
+// IsClosed reports whether Release has been called on this lease. A nil lease
+// is trivially closed. Used by lifecycle callers and tests to confirm the
+// lease was dropped exactly where the contract says it must be.
+func (lock *SessionLock) IsClosed() bool {
+	if lock == nil {
+		return true
+	}
+	return lock.closed
+}
+
+// Release drops the lease. Idempotent; safe to call on a nil lock.
+// With process-wide sharing, each holder releases its own reference and
+// only the last one out unlocks the file.
+func (lock *SessionLock) Release() {
+	if lock == nil || lock.closed {
+		return
+	}
+	lock.closed = true
+	presenceRegistry.Lock()
+	holder, ok := presenceRegistry.held[lock.path]
+	switch {
+	case !ok || holder.file != lock.file:
+		// Not the shared holder (defensive): release directly.
+		presenceRegistry.Unlock()
+		if lock.release != nil {
+			lock.release()
+		}
+		if lock.file != nil {
+			_ = lock.file.Close()
+		}
+		return
+	case holder.refs <= 1:
+		delete(presenceRegistry.held, lock.path)
+		presenceRegistry.Unlock()
+		if lock.release != nil {
+			lock.release()
+		}
+		if lock.file != nil {
+			_ = lock.file.Close()
+		}
+		return
+	default:
+		holder.refs--
+		presenceRegistry.Unlock()
+		return
+	}
+}
+
+// presenceRegistry tracks the presence locks held by this process, keyed by
+// lock-file path. Same-path acquires share one OS lock (ref-counted); the
+// kernel still serializes against other processes.
+var presenceRegistry = struct {
+	sync.Mutex
+	held map[string]*presenceHolder
+}{held: map[string]*presenceHolder{}}
+
+type presenceHolder struct {
+	file    *os.File
+	release func()
+	refs    int
+}
+
+func (store *Store) presenceLockPath(sessionID string) string {
+	return filepath.Join(store.sessionPath(sessionID), presenceLockName)
+}
+
+func (store *Store) presenceSidecarPath(sessionID string) string {
+	return filepath.Join(store.sessionPath(sessionID), presenceSidecarName)
+}
+
+// TryAcquireSessionLock takes the session presence lease without blocking.
+// A second holder — another terminal, or the same process through another
+// open description — gets a *SessionLockedError naming the recorded PID.
+func (store *Store) TryAcquireSessionLock(sessionID string) (*SessionLock, error) {
+	if !ValidSessionID(sessionID) {
+		return nil, fmt.Errorf("invalid qg session id %q", sessionID)
+	}
+	if err := os.MkdirAll(store.sessionPath(sessionID), 0o700); err != nil {
+		return nil, fmt.Errorf("create qg session directory: %w", err)
+	}
+	path := store.presenceLockPath(sessionID)
+	// Same-process re-acquire: share the already-held OS lock instead of
+	// conflicting with ourselves (tests open several models on one store;
+	// the CLI-to-TUI handoff adopts the CLI's lease the same way).
+	presenceRegistry.Lock()
+	if holder, ok := presenceRegistry.held[path]; ok {
+		holder.refs++
+		presenceRegistry.Unlock()
+		return &SessionLock{store: store, sessionID: sessionID, path: path, file: holder.file, release: holder.release}, nil
+	}
+	presenceRegistry.Unlock()
+	sidecarPath := store.presenceSidecarPath(sessionID)
+	release, file, err := tryAcquireFileLock(path)
+	if err != nil {
+		// Read the pid hint from the sidecar, never the locked file: on
+		// Windows every read of presence.lock fails with
+		// ERROR_LOCK_VIOLATION, so the lock file would carry the holder's
+		// pid uselessly — and worse, any other bytes in it must never
+		// surface either way.
+		holder := 0
+		if data, readErr := os.ReadFile(sidecarPath); readErr == nil {
+			if pid, convErr := strconv.Atoi(strings.TrimSpace(string(data))); convErr == nil && pid > 0 {
+				holder = pid
+			}
+		}
+		if errors.Is(err, errSessionLockHeld) {
+			return nil, &SessionLockedError{SessionID: sessionID, PID: holder}
+		}
+		return nil, err
+	}
+	// The pid hint is only consumed by a refusing peer, so write it once
+	// the lease is ours. Best-effort: if it fails, a refusal this process
+	// causes elsewhere still happens — just without a pid (fail closed).
+	pidText := strconv.Itoa(os.Getpid())
+	_ = os.WriteFile(sidecarPath, []byte(pidText), 0o600)
+	presenceRegistry.Lock()
+	presenceRegistry.held[path] = &presenceHolder{file: file, release: release, refs: 1}
+	presenceRegistry.Unlock()
+	return &SessionLock{store: store, sessionID: sessionID, path: path, file: file, release: release}, nil
+}

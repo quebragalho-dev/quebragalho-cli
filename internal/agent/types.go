@@ -404,6 +404,14 @@ type Options struct {
 	// with its full schema on this run's first request. Only honored with a
 	// non-empty Continuation; the TUI passes both together.
 	LoadedDeferredTools []string
+	// InterleaveMessages, when non-nil, is called by the loop after every
+	// tool batch completes (all tool results recorded, before the next
+	// provider request is built). Each call drains the operator's pending
+	// interleaves — messages the UI took with Cmd+Enter / Ctrl+Enter mid-turn —
+	// and returns user messages to append to the ongoing run's wire as-is,
+	// so they reach the model on the very next request without the turn
+	// being interrupted. nil disables interleaving.
+	InterleaveMessages func() []Message
 	// ContextWindow is the model's maximum input token budget. When > 0 the agent
 	// loop compacts long conversations once the estimated size crosses a fraction
 	// of this window. 0 DISABLES compaction entirely (every existing caller/test
@@ -458,6 +466,12 @@ type Options struct {
 	OnToolResult        func(ToolResult)
 	OnUsage             func(Usage)
 	OnUsageProgress     func(Usage)
+	// OnStepMessages, when set, receives a copy of the full message wire
+	// after each completed step (after the model's reply plus that step's
+	// tool results and image messages, before the next request) and on the
+	// final answer. The TUI persists it as the exact-resume snapshot off
+	// the UI goroutine. Nil disables it; the loop is byte-identical otherwise.
+	OnStepMessages func(messages []qgruntime.Message, loaded []string)
 	// OnToolProgress, when set, is called with each stream-json event a
 	// specialist child process emits while running. The toolCallID identifies
 	// which Task tool call the progress belongs to. nil is a no-op.

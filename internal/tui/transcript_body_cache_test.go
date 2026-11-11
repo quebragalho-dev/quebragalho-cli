@@ -24,8 +24,8 @@ func TestTranscriptHeightCacheReserveKeepsWholeWalk(t *testing.T) {
 	}
 	disabled := newTranscriptBodyHeightCache(0)
 	disabled.reserve(100)
-	disabled.set("row", 1)
-	if _, ok := disabled.get("row"); ok {
+	disabled.set(transcriptBlockBodyHeightCacheKey(transcriptBodyItemRow, "row"), 1)
+	if _, ok := disabled.get(transcriptBlockBodyHeightCacheKey(transcriptBodyItemRow, "row")); ok {
 		t.Fatalf("reserve enabled a cache that was built disabled")
 	}
 }

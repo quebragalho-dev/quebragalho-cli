@@ -2,14 +2,17 @@ package tui
 
 import (
 	"container/list"
-	"fmt"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
+
+const renderRowCacheVersion = "render-row-v1"
 
 const (
 	defaultRenderCacheMaxEntries    = 256
@@ -30,22 +33,59 @@ type staticRenderCache struct {
 	maxEntries    int
 	maxCharacters int
 	retained      int
-	items         map[string]*list.Element
+	items         map[renderRowKey]*list.Element
 	lru           *list.List
 	statsData     renderCacheStats
 }
 
 type staticRenderCacheEntry struct {
-	key   string
+	key   renderRowKey
 	value string
 	chars int
+}
+
+// renderRowKey is the exact cache identity of one rendered transcript row. Every
+// field that the old concatenated string key carried lives here as its own
+// typed field, so building the key copies only string headers and small values
+// instead of the whole row text on every frame. String comparison never
+// allocates, and struct equality is exact: two rows share a key only when every
+// field matches, so the cache can never return another row's drawing.
+type renderRowKey struct {
+	version      string
+	width        int
+	flush        bool
+	bodyCap      int
+	optsExpanded bool
+	cwd          string
+	kind         rowKind
+	id           string
+	text         string
+	metaAmount   string
+	metaCurrency string
+	tool         string
+	status       tools.Status
+	detail       string
+	arg          string
+	runID        int
+	expanded     bool
+	final        bool
+	turnTools    int
+	turnElapsed  time.Duration
+	attachImages int
+	attachDocs   int
+	fileSelected bool
+	rcHint       string
+	rcArg        string
+	rcAuto       bool
+	permFP       string
+	askFP        string
 }
 
 func newStaticRenderCache(maxEntries int, maxCharacters int) *staticRenderCache {
 	return &staticRenderCache{
 		maxEntries:    maxEntries,
 		maxCharacters: maxCharacters,
-		items:         map[string]*list.Element{},
+		items:         map[renderRowKey]*list.Element{},
 		lru:           list.New(),
 	}
 }
@@ -55,17 +95,17 @@ func newStaticRenderCache(maxEntries int, maxCharacters int) *staticRenderCache 
 func (c *staticRenderCache) clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.items = map[string]*list.Element{}
+	c.items = map[renderRowKey]*list.Element{}
 	c.lru.Init()
 	c.retained = 0
 	resetStreamingMarkdownCache()
 }
 
-func (c *staticRenderCache) render(key string, stable bool, render func() string) string {
+func (c *staticRenderCache) render(key renderRowKey, stable bool, render func() string) string {
 	if render == nil {
 		return ""
 	}
-	if c == nil || !stable || key == "" {
+	if c == nil || !stable {
 		return render()
 	}
 	c.mu.Lock()
@@ -106,62 +146,72 @@ func (c *staticRenderCache) evictOverflow() {
 	}
 }
 
-func (m model) renderRowCacheKey(row transcriptRow, width int, rc rowContext, opts cardRenderOptions, flush bool) (string, bool) {
-	stable := true
+func (m model) renderRowCacheKey(row transcriptRow, width int, rc rowContext, opts cardRenderOptions, flush bool) (renderRowKey, bool) {
 	switch row.kind {
 	case rowWelcome:
-		return "", false
+		return renderRowKey{}, false
 	case rowToolCall:
 		if m.pending && row.runID != 0 && row.runID == m.activeRunID {
-			stable = false
+			return renderRowKey{}, false
 		}
 	case rowPermission:
 		event := row.permission
 		if event != nil && event.ToolCallID != "" && event.Action == agent.PermissionActionPrompt &&
-			!rc.decided[rcKey(row.runID, event.ToolCallID)] &&
 			m.pending && row.runID != 0 && row.runID == m.activeRunID {
-			stable = false
+			decided := false
+			if len(rc.decided) > 0 {
+				decided = rc.decided[rcKey(row.runID, event.ToolCallID)]
+			}
+			if !decided {
+				return renderRowKey{}, false
+			}
 		}
 	case rowSpecialist:
 		if row.specialistInfo != nil && row.specialistInfo.status == specialistRunning {
-			stable = false
+			return renderRowKey{}, false
 		}
 	}
 
-	var b strings.Builder
-	appendRenderCacheField(&b, "render-row-v1")
-	appendRenderCacheField(&b, strconv.Itoa(width))
-	appendRenderCacheField(&b, strconv.FormatBool(flush))
-	appendRenderCacheField(&b, strconv.Itoa(opts.bodyCap))
-	appendRenderCacheField(&b, strconv.FormatBool(opts.expanded))
-	appendRenderCacheField(&b, opts.cwd)
-	appendRenderCacheField(&b, strconv.Itoa(int(row.kind)))
-	appendRenderCacheField(&b, row.id)
-	appendRenderCacheField(&b, row.text)
-	appendRenderCacheField(&b, row.meta["amount"])
-	appendRenderCacheField(&b, row.meta["currency"])
-	appendRenderCacheField(&b, row.tool)
-	appendRenderCacheField(&b, fmt.Sprint(row.status))
-	appendRenderCacheField(&b, row.detail)
-	appendRenderCacheField(&b, row.arg)
-	appendRenderCacheField(&b, strconv.Itoa(row.runID))
-	appendRenderCacheField(&b, strconv.FormatBool(row.expanded))
-	appendRenderCacheField(&b, strconv.FormatBool(row.final))
-	appendRenderCacheField(&b, strconv.Itoa(row.turnTools))
-	appendRenderCacheField(&b, strconv.FormatInt(int64(row.turnElapsed), 10))
-	appendRenderCacheField(&b, strconv.Itoa(row.attachments.images))
-	appendRenderCacheField(&b, strconv.Itoa(row.attachments.documents))
-	// The FILES selection tints this row's card border, so selecting/deselecting
-	// a file must miss the cache entry rendered under the other state.
-	appendRenderCacheField(&b, strconv.FormatBool(m.rowTouchesSelectedFile(row)))
-
-	key := rcKey(row.runID, row.id)
-	appendRenderCacheField(&b, rc.hints[key])
-	appendRenderCacheField(&b, rc.args[key])
-	appendRenderCacheField(&b, strconv.FormatBool(rc.auto[key]))
-	appendRenderCacheField(&b, permissionCacheFingerprint(row.permission))
-	appendRenderCacheField(&b, askUserCacheFingerprint(row.askUser))
-	return b.String(), stable
+	var rcHint, rcArg string
+	var rcAuto bool
+	if row.id != "" && len(rc.hints)+len(rc.args)+len(rc.auto) > 0 {
+		key := rcKey(row.runID, row.id)
+		rcHint = rc.hints[key]
+		rcArg = rc.args[key]
+		rcAuto = rc.auto[key]
+	}
+	return renderRowKey{
+		version:      renderRowCacheVersion,
+		width:        width,
+		flush:        flush,
+		bodyCap:      opts.bodyCap,
+		optsExpanded: opts.expanded,
+		cwd:          opts.cwd,
+		kind:         row.kind,
+		id:           row.id,
+		text:         row.text,
+		metaAmount:   row.meta["amount"],
+		metaCurrency: row.meta["currency"],
+		tool:         row.tool,
+		status:       row.status,
+		detail:       row.detail,
+		arg:          row.arg,
+		runID:        row.runID,
+		expanded:     row.expanded,
+		final:        row.final,
+		turnTools:    row.turnTools,
+		turnElapsed:  row.turnElapsed,
+		attachImages: row.attachments.images,
+		attachDocs:   row.attachments.documents,
+		// The FILES selection tints this row's card border, so selecting/deselecting
+		// a file must miss the cache entry rendered under the other state.
+		fileSelected: m.rowTouchesSelectedFile(row),
+		rcHint:       rcHint,
+		rcArg:        rcArg,
+		rcAuto:       rcAuto,
+		permFP:       permissionCacheFingerprint(row.permission),
+		askFP:        askUserCacheFingerprint(row.askUser),
+	}, true
 }
 
 func appendRenderCacheField(b *strings.Builder, value string) {

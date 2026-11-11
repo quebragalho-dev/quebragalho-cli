@@ -69,6 +69,27 @@ func Run(ctx context.Context, options Options) int {
 		programOpts = append(programOpts, tea.WithColorProfile(colorprofile.Ascii))
 	}
 	initialModel := newModel(ctx, options)
+	// Adopt a CLI-pre-acquired presence lease for the resumed session (same
+	// process, so re-acquiring would self-conflict).
+	if options.ResumeSessionLock != nil && options.ResumeSessionLock.SessionID() != "" {
+		initialModel.sessionLock = options.ResumeSessionLock
+	}
+	// Startup resume (qg --continue/--resume): hydrate before the first frame
+	// so the screen opens with the full conversation and no model call.
+	// IDs were validated by the CLI; a race (deleted between check and load)
+	// fails closed here instead of opening an empty session.
+	if strings.TrimSpace(options.ResumeSessionID) != "" {
+		var notice string
+		initialModel, notice = initialModel.handleResumeCommand(strings.TrimSpace(options.ResumeSessionID))
+		if strings.TrimSpace(notice) != "" {
+			fmt.Fprintln(os.Stderr, notice)
+			return 1
+		}
+	} else if options.ShowResumePicker {
+		if picker := initialModel.newSessionPicker(); picker != nil {
+			initialModel.picker = picker
+		}
+	}
 	// Apply the terminal-native system default at the real interactive entry point.
 	// Constructing a model alone is also useful to tests and non-TUI helpers, and
 	// should not mutate the package-level render palette for those callers.
@@ -139,9 +160,34 @@ func startPeerService(service *peermsg.Service, forward func(tea.Msg)) bool {
 }
 
 // writeFarewell prints the exit message the alt screen would otherwise swallow.
+// On a normal quit with a live conversation it also shows how to resume,
+// without touching non-interactive output (only the interactive Run calls it).
+// A final snapshot lands first (flushed with a cap) so the printed id
+// resumes exact. The presence lease is held until that flush completes — a
+// farewell write that landed after a new qg process took the session could
+// stamp this process's stale wire onto the shared log head.
 func writeFarewell(w io.Writer, final tea.Model) {
-	if m, ok := final.(model); ok && m.farewell != "" {
+	m, ok := final.(model)
+	if !ok {
+		return
+	}
+	if m.snapshotWriter != nil && m.sessionStore != nil && m.activeSession.SessionID != "" && len(m.continuation.messages) > 0 && m.continuation.sessionID == m.activeSession.SessionID {
+		seq := m.activeSession.EventCount
+		if meta, err := m.sessionStore.Get(m.activeSession.SessionID); err == nil && meta != nil {
+			seq = meta.EventCount
+		}
+		if m.snapshotWriter.Queue(buildContinuationSnapshot(m.activeSession.SessionID, m.continuation.modelID, m.providerName, string(m.reasoningEffort), m.continuation.goalKey, seq, m.continuation.messages, m.continuation.loadedTools), m.continuation.runID) {
+			m.snapshotWriter.Flush(2 * time.Second)
+		}
+	}
+	// Now that every write of this process is on disk, drop the lease so a
+	// new qg process can take the session.
+	m.releaseSessionLock()
+	if m.farewell != "" {
 		fmt.Fprintln(w, m.farewell)
+	}
+	if strings.TrimSpace(m.activeSession.SessionID) != "" && len(m.sessionEvents) > 0 {
+		fmt.Fprintln(w, "Para continuar: qg --continue "+strings.TrimSpace(m.activeSession.SessionID))
 	}
 }
 

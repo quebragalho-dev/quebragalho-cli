@@ -122,7 +122,9 @@ func TestBatchThreeReceiptPersistsProviderModelAndExactUSD(t *testing.T) {
 	if len(response.usageEvents) != 1 {
 		t.Fatalf("usage snapshots duplicated call: %d", len(response.usageEvents))
 	}
-	m, failures := m.appendSessionEvents(response.sessionEvents)
+	// Mirror the production handler: only the tail past write-through
+	// appends is flushed; the rest already reached the log during the run.
+	m, failures := m.appendSessionEvents(tailSessionEvents(response))
 	if len(failures) != 0 {
 		t.Fatalf("persist: %+v", failures)
 	}

@@ -3,7 +3,6 @@ package tui
 import (
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -110,7 +109,7 @@ const (
 type transcriptBodyItem struct {
 	kind              transcriptBodyItemKind
 	rowIndex          int
-	heightCacheKey    string
+	heightCacheKey    transcriptHeightKey
 	heightCacheStable bool
 	render            func(startBodyY int) transcriptBodyRenderedItem
 	// settled is set on the items of the settled alt-screen snapshot and points
@@ -255,6 +254,7 @@ func (m model) transcriptBodyItems(width int, emptyOverlay string, detailed bool
 	// the settled list directly. Keeping this fast path outside the closure-heavy
 	// builder also prevents the large model receiver from escaping to the heap.
 	if m.altScreen && !m.fileView.active && !m.pending && m.pendingSpecReview == nil &&
+		len(m.queuedMessages) == 0 &&
 		m.flushedAny && m.flushed == len(m.transcript) &&
 		m.altScreenSettledWidth == width && m.altScreenSettledFrontier == m.flushed {
 		if !detailed {
@@ -518,6 +518,13 @@ func (m model) buildTranscriptBodyItems(width int, emptyOverlay string, detailed
 		items = append(items, transcriptBlankBodyItem())
 		items = append(items, transcriptBlockBodyItem(transcriptBodyItemSpecReview, -1, renderFocusedSpecReviewPrompt(*m.pendingSpecReview, width)))
 	}
+	// Sussurro: the first queued follow-up rides the very next turn. Render it
+	// as a virtual row in the transcript — a dimmed user message with the queue
+	// shortcut hint below — so it reads as the next thing the model will see.
+	if queued := m.renderQueuedTranscriptBlock(contentWidth); queued != "" {
+		items = append(items, transcriptBlankBodyItem())
+		items = append(items, transcriptBlockBodyItem(transcriptBodyItemRow, -1, queued))
+	}
 
 	return items
 }
@@ -538,7 +545,7 @@ func transcriptBlankBodyItem() transcriptBodyItem {
 	return transcriptBodyItem{
 		kind:              transcriptBodyItemSeparator,
 		rowIndex:          -1,
-		heightCacheKey:    "transcript-body-height:v1:separator",
+		heightCacheKey:    transcriptHeightKey{version: "transcript-body-height:v1:separator", kind: transcriptBodyItemSeparator},
 		heightCacheStable: true,
 		render: func(int) transcriptBodyRenderedItem {
 			return transcriptBodyRenderedItem{lines: []string{""}}
@@ -553,7 +560,7 @@ func transcriptRuleBodyItem(width int, gutter int) transcriptBodyItem {
 	return transcriptBodyItem{
 		kind:              transcriptBodyItemRule,
 		rowIndex:          -1,
-		heightCacheKey:    "transcript-body-height:v1:rule:" + strconv.Itoa(width) + ":" + strconv.Itoa(gutter),
+		heightCacheKey:    transcriptHeightKey{version: "transcript-body-height:v1:rule", kind: transcriptBodyItemRule, width: width, gutter: gutter},
 		heightCacheStable: true,
 		render: func(int) transcriptBodyRenderedItem {
 			rule := qgTheme.line.Render(strings.Repeat("─", width))
@@ -754,12 +761,8 @@ func renderTranscriptBodyItem(item transcriptBodyItem, startBodyY int) transcrip
 	return item.render(startBodyY)
 }
 
-func transcriptBlockBodyHeightCacheKey(kind transcriptBodyItemKind, block string) string {
-	var b strings.Builder
-	appendRenderCacheField(&b, "transcript-body-block-height-v1")
-	appendRenderCacheField(&b, strconv.Itoa(int(kind)))
-	appendRenderCacheField(&b, block)
-	return b.String()
+func transcriptBlockBodyHeightCacheKey(kind transcriptBodyItemKind, block string) transcriptHeightKey {
+	return transcriptHeightKey{version: "transcript-body-block-height-v1", kind: kind, block: block}
 }
 
 // rowRenderFn abstracts row rendering for normal vs detailed mode:
@@ -771,16 +774,13 @@ type rowRenderFn func(transcriptRow, int, rowContext) string
 // pipeline, producing rendered text and selectable-line geometry.
 type transcriptRowDispatchFn func(int, transcriptRow, int, rowContext, int) (string, []transcriptSelectableLine)
 
-func (m model) transcriptRowBodyHeightCacheKeyOpts(row transcriptRow, width int, rc rowContext, bodyCap int) (string, bool) {
+func (m model) transcriptRowBodyHeightCacheKeyOpts(row transcriptRow, width int, rc rowContext, bodyCap int) (transcriptHeightKey, bool) {
 	opts := cardRenderOptions{bodyCap: bodyCap, cwd: m.cwd}
 	rowKey, stable := m.renderRowCacheKey(row, width, rc, opts, false)
-	if rowKey == "" {
-		return "", false
+	if !stable {
+		return transcriptHeightKey{}, false
 	}
-	var b strings.Builder
-	appendRenderCacheField(&b, "transcript-body-row-height-v1")
-	appendRenderCacheField(&b, rowKey)
-	return b.String(), stable
+	return transcriptHeightKey{version: "transcript-body-row-height-v1", kind: transcriptBodyItemRow, row: rowKey}, stable
 }
 
 func (m model) renderTranscriptRow(rowIndex int, row transcriptRow, width int, rc rowContext, startBodyY int) (string, []transcriptSelectableLine) {

@@ -312,7 +312,7 @@ func TestInterimBlockShowsWorkingLineWithStreamedText(t *testing.T) {
 	if !strings.Contains(got, "12s") {
 		t.Fatalf("interim block should show live elapsed (12s) below the text:\n%s", got)
 	}
-	if !strings.Contains(got, "Trabalhando") {
+	if !containsWorkingWord(got) {
 		t.Fatalf("interim block should show the liveness label:\n%s", got)
 	}
 }

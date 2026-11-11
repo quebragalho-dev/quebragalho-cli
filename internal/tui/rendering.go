@@ -198,7 +198,7 @@ func (m model) renderRow(row transcriptRow, width int, rc rowContext) string {
 func (m model) renderRowDetailed(row transcriptRow, width int, rc rowContext) string {
 	opts := cardRenderOptions{bodyCap: 0, cwd: m.cwd}
 	if defaultRenderCache != nil {
-		if key, stable := m.renderRowCacheKey(row, width, rc, opts, false); key != "" {
+		if key, stable := m.renderRowCacheKey(row, width, rc, opts, false); stable {
 			return defaultRenderCache.render(key, stable, func() string {
 				return m.renderRowModeUncached(row, width, rc, opts)
 			})
@@ -216,7 +216,7 @@ func (m model) renderRowMode(row transcriptRow, width int, rc rowContext, flush 
 		opts.bodyCap = flushCardBodyMaxLines
 	}
 	if defaultRenderCache != nil {
-		if key, stable := m.renderRowCacheKey(row, width, rc, opts, flush); key != "" {
+		if key, stable := m.renderRowCacheKey(row, width, rc, opts, flush); stable {
 			return defaultRenderCache.render(key, stable, func() string {
 				return m.renderRowModeUncached(row, width, rc, opts)
 			})

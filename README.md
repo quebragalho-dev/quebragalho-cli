@@ -111,6 +111,19 @@ chave de API, use Tab nessa tela. Nas próximas vezes, `qg` abre direto no chat.
 | `/permissions` | Conferir as permissões da sessão. |
 | `/help` | Ver os outros comandos. |
 
+Para voltar a uma conversa depois de fechar o terminal, anote o id mostrado
+na saída (`Para continuar: qg --continue <id>`):
+
+```bash
+qg --continue            # sessão mais recente desta pasta
+qg --continue <id>       # aquela sessão (-c é o atalho)
+qg --resume              # escolhe numa lista (igual a /resume sem id)
+qg --resume <id>         # aquela sessão
+```
+
+O retorno volta exatamente aonde estava: a conversa, o modelo e o esforço
+são restaurados e o turno seguinte continua do histórico real, sem resumo.
+
 Nos painéis de modelo e esforço, Enter salva a escolha como padrão, `s` aplica
 só na sessão e Esc cancela. Use Shift+Tab para alternar o modo de permissão.
 

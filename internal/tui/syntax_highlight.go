@@ -3,6 +3,7 @@ package tui
 import (
 	"image/color"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -14,6 +15,21 @@ import (
 var (
 	lexerCacheMu sync.RWMutex
 	lexerCache   = map[string]chroma.Lexer{}
+
+	// extWinners maps an extension to the lexer lexers.Match returns for
+	// every basename with that extension unless a competitor pattern
+	// matches. It is built once from the registry's "*.<ext>" globs, which
+	// is a single pass over a few hundred entries.
+	extWinnersOnce sync.Once
+	extWinners     map[string]chroma.Lexer
+	// extPatterns holds every registry pattern once for competitor checks.
+	extPatterns []string
+
+	// extCompetitors memoizes, per extension, the non-"*.<ext>" patterns
+	// that could match a basename with that extension. It is filled lazily
+	// so a process only pays for the extensions it actually sees.
+	extCompetitorsMu sync.RWMutex
+	extCompetitors   = map[string][]string{}
 )
 
 // cachedLexer resolves a language name to a chroma lexer once, memoizing the
@@ -44,7 +60,11 @@ func cachedLexerForPath(path string) chroma.Lexer {
 	if path == "" {
 		return nil
 	}
-	key := "path:" + strings.ToLower(filepath.Base(path))
+	base := filepath.Base(path)
+	if entry, ok := extLexerForBase(base); ok {
+		return entry
+	}
+	key := "path:" + base
 	lexerCacheMu.RLock()
 	lexer, ok := lexerCache[key]
 	lexerCacheMu.RUnlock()
@@ -56,6 +76,206 @@ func cachedLexerForPath(path string) chroma.Lexer {
 	lexerCache[key] = lexer
 	lexerCacheMu.Unlock()
 	return lexer
+}
+
+// extLexerForBase resolves a basename through the extension index. ok is false
+// when the extension is not indexed or a competitor pattern matches, and the
+// caller must fall back to lexers.Match.
+func extLexerForBase(base string) (chroma.Lexer, bool) {
+	extWinnersOnce.Do(buildExtWinners)
+	ext, ok := baseExtension(base)
+	if !ok {
+		return nil, false
+	}
+	winner, ok := extWinners[ext]
+	if !ok || winner == nil {
+		return nil, false
+	}
+	extCompetitorsMu.RLock()
+	competitors, ok := extCompetitors[ext]
+	extCompetitorsMu.RUnlock()
+	if !ok {
+		competitors = extCompetitorPatterns(ext)
+		extCompetitorsMu.Lock()
+		extCompetitors[ext] = competitors
+		extCompetitorsMu.Unlock()
+	}
+	for _, glob := range competitors {
+		matched, err := filepath.Match(glob, base)
+		if err != nil || matched {
+			return nil, false
+		}
+	}
+	return winner, true
+}
+
+// baseExtension returns the text after the last dot of a basename. A leading
+// dot is not an extension (".bashrc"), and the match is case-sensitive like
+// filepath.Match itself: "foo.C" (C++) and "foo.c" (C) differ.
+func baseExtension(base string) (string, bool) {
+	dot := strings.LastIndexByte(base, '.')
+	if dot <= 0 || dot == len(base)-1 {
+		return "", false
+	}
+	return base[dot+1:], true
+}
+
+// chromaIgnoredSuffixes mirrors chroma's LexerRegistry.Match: a glob that
+// fails directly is retried with each of these suffixes appended.
+var chromaIgnoredSuffixes = []string{
+	"~", ".bak", ".old", ".orig",
+	".dpkg-dist", ".dpkg-old", ".ucf-dist", ".ucf-new", ".ucf-old",
+	".rpmnew", ".rpmorig", ".rpmsave",
+	".in",
+}
+
+func buildExtWinners() {
+	registry := lexers.GlobalLexerRegistry
+	claimants := map[string][]chroma.Lexer{}
+	for _, lexer := range registry.Lexers {
+		for _, glob := range lexer.Config().Filenames {
+			rest, ok := simpleExtensionGlob(glob)
+			if !ok {
+				continue
+			}
+			claimants[rest] = append(claimants[rest], lexer)
+		}
+	}
+	// Every primary pattern, alias pattern, and ignored-suffix expansion that
+	// could match a basename with an indexed extension. The per-file check is
+	// exact, so over-approximating here only costs a few extra failed matches.
+	var patterns []string
+	for _, lexer := range registry.Lexers {
+		config := lexer.Config()
+		patterns = append(patterns, config.Filenames...)
+		patterns = append(patterns, config.AliasFilenames...)
+		for _, glob := range config.Filenames {
+			for _, suffix := range chromaIgnoredSuffixes {
+				patterns = append(patterns, glob+suffix)
+			}
+		}
+	}
+	extPatterns = patterns
+	winners := make(map[string]chroma.Lexer, len(claimants))
+	for ext, lexers := range claimants {
+		sorted := append([]chroma.Lexer(nil), lexers...)
+		sort.Sort(chroma.PrioritisedLexers(sorted))
+		winners[ext] = sorted[0]
+	}
+	extWinners = winners
+}
+
+// extCompetitorPatterns returns the deduplicated non-"*.<ext>" registry
+// patterns that could match a basename with the given extension. When none of
+// them matches a basename, lexers.Match sees exactly the "*.<ext>" claimants,
+// so the precomputed winner is what Match would return.
+func extCompetitorPatterns(ext string) []string {
+	seen := map[string]bool{}
+	var competitors []string
+	for _, pattern := range extPatterns {
+		if pattern == "*."+ext || seen[pattern] {
+			continue
+		}
+		seen[pattern] = true
+		if globCanMatchExtension(pattern, ext) {
+			competitors = append(competitors, pattern)
+		}
+	}
+	sort.Strings(competitors)
+	return competitors
+}
+
+// simpleExtensionGlob reports whether glob has the exact form "*.<ext>" where
+// ext carries no wildcard and no separator: "*.go" qualifies, and so does
+// "*.go.tmpl" (under "go.tmpl"); "*.php[345]", "Dockerfile.*", and exact names
+// like "Makefile" do not.
+func simpleExtensionGlob(glob string) (string, bool) {
+	if !strings.HasPrefix(glob, "*.") {
+		return "", false
+	}
+	rest := glob[2:]
+	if rest == "" || strings.ContainsRune(rest, '/') || globHasWildcard(rest) {
+		return "", false
+	}
+	return rest, true
+}
+
+// globHasWildcard reports whether s contains an unescaped wildcard construct.
+// On any parse doubt it returns true: callers treat that as "could match".
+func globHasWildcard(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case '*', '?':
+			return true
+		case '[':
+			return true
+		}
+	}
+	return false
+}
+
+// globCanMatchExtension is a sound over-approximation of "glob can match some
+// basename whose extension is ext". False means impossible, so the glob is
+// skipped; true only adds an exact per-file check.
+func globCanMatchExtension(glob, ext string) bool {
+	if strings.ContainsRune(glob, '/') {
+		return false
+	}
+	if strings.ContainsRune(glob, '\\') {
+		return true
+	}
+	end, found, ok := lastWildcardEnd(glob)
+	if !ok {
+		return true
+	}
+	if !found {
+		dot := strings.LastIndexByte(glob, '.')
+		if dot <= 0 {
+			return false
+		}
+		return glob[dot+1:] == ext
+	}
+	tail := glob[end:]
+	if dot := strings.LastIndexByte(tail, '.'); dot >= 0 {
+		return tail[dot+1:] == ext
+	}
+	// The literal tail has no dot, so every match ends with it; it must be
+	// suffix-compatible with ".<ext>".
+	tail, dotted := tail, "."+ext
+	return strings.HasSuffix(tail, dotted) || strings.HasSuffix(dotted, tail)
+}
+
+// lastWildcardEnd returns the offset just past the last wildcard construct in
+// glob. found is false when glob has no wildcard; ok is false on parse doubt
+// (unterminated class), which callers treat as "could match".
+func lastWildcardEnd(glob string) (end int, found, ok bool) {
+	for i := 0; i < len(glob); i++ {
+		switch glob[i] {
+		case '\\':
+			i++
+		case '*', '?':
+			end, found = i+1, true
+		case '[':
+			j := i + 1
+			if j < len(glob) && glob[j] == ']' {
+				j++
+			}
+			for j < len(glob) && glob[j] != ']' {
+				if glob[j] == '\\' {
+					j++
+				}
+				j++
+			}
+			if j >= len(glob) {
+				return 0, true, false
+			}
+			end, found = j+1, true
+			i = j
+		}
+	}
+	return end, found, true
 }
 
 // tokenStyle maps a chroma token type onto QG's existing, contrast-audited
