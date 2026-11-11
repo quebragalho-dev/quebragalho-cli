@@ -204,55 +204,54 @@ func (s *PrService) Refresh() {
 // inside the window coalesce into one trailing refresh at the window end —
 // the last trigger always lands. The whole gate runs in a service goroutine;
 // results flow back as prStateMsg. Never blocks the UI.
+// RefreshIfNeeded re-checks the header state when something observable may
+// have changed. The decision itself is synchronous and in-memory — no
+// subprocess, no goroutine: a burst of N triggers costs no git at all. A
+// trigger inside the minimum window either joins an already scheduled
+// trailing re-check or arms one; otherwise one background refresh is
+// dispatched. Results flow back as prStateMsg. Never blocks the UI.
 func (s *PrService) RefreshIfNeeded() {
 	if s == nil {
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), prGitTimeout)
-		defer cancel()
-		branch, head := currentBranchHead(ctx, s.cwd, s.run)
-		now := time.Now()
-		s.mu.Lock()
-		if branch != s.lastBranch || head != s.lastHead {
-			s.stopTrailingLocked()
-			s.lastBranch, s.lastHead, s.lastRefresh = branch, head, now
-			s.mu.Unlock()
-			s.Refresh()
-			return
-		}
-		if now.Sub(s.lastRefresh) >= prLocalDiffMinInterval {
-			s.stopTrailingLocked()
-			s.lastRefresh = now
-			s.mu.Unlock()
-			s.Refresh()
-			return
-		}
-		if s.trailing == nil {
-			wait := s.lastRefresh.Add(prLocalDiffMinInterval).Sub(now)
-			if wait < 0 {
-				wait = 0
-			}
-			s.trailing = time.AfterFunc(wait, func() {
-				s.mu.Lock()
-				s.trailing = nil
-				s.lastRefresh = time.Now()
-				s.mu.Unlock()
-				s.Refresh()
-			})
-		}
+	s.mu.Lock()
+	if s.trailing != nil {
+		// A re-check is already scheduled; it covers this trigger.
 		s.mu.Unlock()
-	}()
+		return
+	}
+	if time.Since(s.lastRefresh) < prLocalDiffMinInterval {
+		wait := s.lastRefresh.Add(prLocalDiffMinInterval).Sub(time.Now())
+		if wait < 0 {
+			wait = 0
+		}
+		s.trailing = time.AfterFunc(wait, func() {
+			s.mu.Lock()
+			s.trailing = nil
+			s.mu.Unlock()
+			s.RefreshIfNeeded()
+		})
+		s.mu.Unlock()
+		return
+	}
+	s.lastRefresh = time.Now()
+	s.mu.Unlock()
+	go s.refreshNow()
 }
 
-// stopTrailingLocked cancels a pending trailing refresh. The caller must hold
-// s.mu. Best effort: a timer already firing still refreshes once, which is
-// harmless (detect is idempotent, last writer wins with identical values).
-func (s *PrService) stopTrailingLocked() {
-	if s.trailing != nil {
-		s.trailing.Stop()
-		s.trailing = nil
-	}
+// refreshNow runs one refresh cycle: read branch and head, stamp them, and
+// hand the network-bounded detect to Refresh's goroutine. Runs off the UI
+// goroutine; at most one dispatch happens per minimum interval, so tool
+// batches cannot multiply git subprocesses.
+func (s *PrService) refreshNow() {
+	ctx, cancel := context.WithTimeout(context.Background(), prGitTimeout)
+	defer cancel()
+	branch, head := currentBranchHead(ctx, s.cwd, s.run)
+	now := time.Now()
+	s.mu.Lock()
+	s.lastBranch, s.lastHead, s.lastRefresh = branch, head, now
+	s.mu.Unlock()
+	s.Refresh()
 }
 
 // currentBranchHead resolves the checked-out branch ("" when detached or on
