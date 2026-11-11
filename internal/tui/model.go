@@ -292,6 +292,11 @@ type model struct {
 	// turnTimer is shared with the agent command so both the live status and the
 	// settled "worked for" duration exclude time blocked on a user permission.
 	turnTimer *activeTurnTimer
+	// retryWait tracks an in-flight model-call auto-retry wait (error summary,
+	// countdown deadline, attempt counter) reported by the agent goroutine so
+	// the working status line shows it live. Cleared when the attempt settles
+	// or the run ends.
+	retryWait *retryWaitState
 	// lastCharTime tracks when the last non-Enter key was received, for paste detection.
 	lastCharTime time.Time
 	// lastKeyTime tracks every keypress timestamp for burst calculation.
@@ -2417,6 +2422,23 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastStreamActivity = m.now()
 		}
 		return m, nil
+	case agentRetryWaitMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		m.retryWait = &retryWaitState{
+			attempt:  msg.attempt,
+			max:      msg.max,
+			summary:  msg.summary,
+			deadline: m.now().Add(msg.wait),
+		}
+		return m, nil
+	case agentRetryClearMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		m.retryWait = nil
+		return m, nil
 	case spinner.TickMsg:
 		// Record when swarm members first finish so the sidebar can linger them
 		// with a fading ✓ before removal. Cheap (the tick only fires while a run is
@@ -2676,6 +2698,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.clearStreamingToolCall() // active run finished — drop any lingering "writing" block
 		m.pending = false
+		m.retryWait = nil                // the run settled — no retry countdown can be in flight
 		m = m.disarmCancelConfirmation() // the run finished on its own — nothing left to confirm cancelling
 		// A newline-triggered redraw deferred by the stream-clear throttle
 		// (see agentTextMsg) may never get a later newline or fade tick to
@@ -3931,9 +3954,13 @@ func (m model) workingStatusLine() string {
 	// If the model has gone quiet (no streamed text, reasoning, OR tool-call output
 	// for a while — common when a provider buffers a large tool call instead of
 	// streaming it), say so plainly with an advancing timer, so a long silent
-	// generation never reads as a frozen screen.
-	if hint := m.quietGenerationHint(); hint != "" {
+	// generation never reads as a frozen screen. Suppressed while a retry wait
+	// is showing — its countdown already names what is happening and when.
+	if hint := m.quietGenerationHint(); hint != "" && m.retryWait == nil {
 		line += qgTheme.amber.Render("  ·  " + hint)
+	}
+	if segment := m.retryWaitSegment(); segment != "" {
+		line += qgTheme.amber.Render("  ·  " + segment)
 	}
 	return line
 }
@@ -5534,6 +5561,9 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	// next launch can only drain its own leftovers, never the next run's
 	// interleaves. The closure in runAgentWithOptions binds this buffer.
 	m.interleave = &interleaveBuffer{}
+	// A new run means a new retry budget: never carry a previous turn's
+	// countdown into this one.
+	m.retryWait = nil
 	// Clear per-run tracking state so stale specialists and plans from the
 	// previous turn don't bleed into the new one.
 	m.specialists.clear()
@@ -6148,6 +6178,28 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			if onReasoning != nil {
 				onReasoning(delta)
 			}
+		}
+
+		// Model-call auto-retry waits surface as countdown state: the working
+		// status line renders the error summary, the live countdown and the
+		// attempt counter from these messages. The agent goroutine stays
+		// responsive to cancel (runCtx) while it waits, so the queue keeps
+		// working during the wait.
+		options.OnRetryWait = func(info agent.RetryWaitInfo) {
+			if m.runtimeMessageSink == nil {
+				return
+			}
+			if !info.Active {
+				m.runtimeMessageSink(agentRetryClearMsg{runID: runID})
+				return
+			}
+			m.runtimeMessageSink(agentRetryWaitMsg{
+				runID:   runID,
+				attempt: info.Attempt,
+				max:     info.MaxAttempts,
+				wait:    info.Wait,
+				summary: info.Summary,
+			})
 		}
 
 		onToolCall := options.OnToolCall
