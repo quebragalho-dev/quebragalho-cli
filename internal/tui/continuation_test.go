@@ -3,8 +3,11 @@ package tui
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -52,7 +55,7 @@ func continuationHarness(t *testing.T, store *sessions.Store, provider *scripted
 	if registry == nil {
 		registry = tools.NewRegistry()
 	}
-	return newModel(context.Background(), Options{
+	m := newModel(context.Background(), Options{
 		Cwd:          t.TempDir(),
 		ProviderName: "test",
 		ModelName:    "test-model",
@@ -60,10 +63,21 @@ func continuationHarness(t *testing.T, store *sessions.Store, provider *scripted
 		Registry:     registry,
 		SessionStore: store,
 	})
+	// The async snapshot writer outlives any single turn: drain it before the
+	// test's TempDirs are removed, or a background write races RemoveAll.
+	writer := m.snapshotWriter
+	t.Cleanup(func() {
+		if writer != nil {
+			writer.Flush(10 * time.Second)
+		}
+	})
+	return m
 }
 
 // runTextTurn submits prompt through the composer, runs the agent command to
 // completion, and feeds the response back, returning the settled model.
+// It drains the async snapshot writer first so no background write can race
+// the test's TempDir cleanup.
 func runTextTurn(t *testing.T, m model, prompt string) model {
 	t.Helper()
 	m.input.SetValue(prompt)
@@ -77,7 +91,21 @@ func runTextTurn(t *testing.T, m model, prompt string) model {
 		t.Fatalf("expected agentResponseMsg, got %T", execCmd(cmd))
 	}
 	updated, _ = m.Update(msg)
-	return updated.(model)
+	m = updated.(model)
+	if m.snapshotWriter != nil {
+		m.snapshotWriter.Flush(10 * time.Second)
+	}
+	return m
+}
+
+// settleModel drains the async snapshot writer so no background write can
+// race the test's TempDir cleanup. Call before the test ends whenever the
+// test ran an agent command outside runTextTurn (which settles itself).
+func settleModel(t *testing.T, m model) {
+	t.Helper()
+	if m.snapshotWriter != nil {
+		m.snapshotWriter.Flush(10 * time.Second)
+	}
 }
 
 func lastUserMessage(req qgruntime.CompletionRequest) qgruntime.Message {
@@ -91,6 +119,33 @@ func requestContains(req qgruntime.CompletionRequest, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestRebuiltContinuationSurfacesInterruptedNotice (B3): when the submit
+// gate cannot reuse the stored wire and rebuilds from the event log instead,
+// the rebuild must not be silent: the model is told once, in pt-BR, that the
+// history came from the saved log and lost the immediate wire's artifacts.
+func TestRebuiltContinuationSurfacesInterruptedNotice(t *testing.T) {
+	store := testSessionStore(t)
+	provider := &scriptedProvider{scripts: textScripts("first answer", "after lapse")}
+	m := continuationHarness(t, store, provider, nil)
+	m = runTextTurn(t, m, "first question")
+
+	// The in-memory wire lapses (cancel with nothing stored, a goal change…),
+	// so the next submit rebuilds from the session log.
+	m.continuation = turnContinuation{}
+	m = runTextTurn(t, m, "after lapse")
+
+	want := "Turno interrompido: contexto reconstruído do histórico salvo; raciocínio e imagens não voltam."
+	if !m.reconstructedResume {
+		t.Fatal("rebuilt-from-events continuation must set reconstructedResume")
+	}
+	if m.reconstructNotice != want {
+		t.Fatalf("reconstructNotice = %q, want %q", m.reconstructNotice, want)
+	}
+	if !transcriptContains(m.transcript, want) {
+		t.Fatal("the rebuilt notice must reach the transcript")
+	}
 }
 
 func TestTUISecondTurnSendsRealHistory(t *testing.T) {
@@ -173,25 +228,106 @@ func assertSecondTurnUsedHistory(t *testing.T, provider *scriptedProvider) {
 	}
 }
 
-func assertTextualSummaryTurn(t *testing.T, provider *scriptedProvider, index int, prompt string) {
+func assertRealHistoryTurn(t *testing.T, provider *scriptedProvider, index int, prompt, mustContain string) {
 	t.Helper()
 	if len(provider.requests) != index+1 {
 		t.Fatalf("provider requests = %d, want %d", len(provider.requests), index+1)
 	}
 	req := provider.requests[index]
-	if last := lastUserMessage(req); !strings.Contains(last.Content, "Previous session context") {
-		t.Fatalf("turn must fall back to the textual summary, got %q", last.Content)
+	last := lastUserMessage(req)
+	if !strings.HasSuffix(last.Content, prompt) {
+		t.Fatalf("turn must end with the clean prompt, got %q", last.Content)
 	}
-	// Note: the textual summary legitimately quotes prior events (truncated),
-	// so their content may appear here. The contract is the SHAPE: a
-	// FormatExecPrompt wrapper ending with the prompt, not the clean prompt
-	// of a real-history turn.
-	if got := lastUserMessage(req).Content; !strings.HasSuffix(got, prompt) {
-		t.Fatalf("summary turn must end with the prompt, got %q", got)
+	if requestContains(req, "Previous session context") {
+		t.Fatalf("turn must send real history, not the textual summary, got %q", last.Content)
+	}
+	if mustContain != "" && !requestContains(req, mustContain) {
+		t.Fatalf("turn must carry prior context %q, got %#v", mustContain, req.Messages)
 	}
 }
 
-func TestTUIContinuationDroppedOn(t *testing.T) {
+// assertSnapshotFileClean proves the B3 file contract: the persisted wire
+// never bakes in the textual summary, so no future turn or resume can
+// resurrect "Previous session context" from disk.
+func assertSnapshotFileClean(t *testing.T, store *sessions.Store, sessionID string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(store.RootDir, sessionID, sessions.ContinuationFile))
+	if err != nil {
+		t.Fatalf("snapshot missing: %v", err)
+	}
+	if strings.Contains(string(data), "Previous session context") {
+		t.Fatal("snapshot file must never contain the textual summary")
+	}
+}
+
+// TestModelSwitchDropsForeignReasoning (I4): a turn recorded with reasoning
+// blocks, followed by a model switch, sends no foreign Reasoning to the new
+// provider — while the conversation itself survives.
+func TestModelSwitchDropsForeignReasoning(t *testing.T) {
+	store := testSessionStore(t)
+	provider := &scriptedProvider{scripts: append([][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventText, Content: "first answer"},
+		{Type: qgruntime.StreamEventDone, ReasoningBlocks: []qgruntime.ReasoningBlock{
+			{Provider: "anthropic", Type: "thinking", Text: "family A thinks", Signature: "sig-a"},
+		}},
+	}}, textScripts("second answer")...)}
+	m := newModel(context.Background(), Options{
+		Cwd:             t.TempDir(),
+		ProviderName:    "test",
+		ModelName:       "test-model",
+		Provider:        provider,
+		Registry:        tools.NewRegistry(),
+		SessionStore:    store,
+		ProviderProfile: config.ProviderProfile{Name: "test", APIKey: "test-key"},
+		NewProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
+			return provider, nil
+		},
+	})
+	m = runTextTurn(t, m, "first")
+	assertSnapshotFileClean(t, store, m.activeSession.SessionID)
+	// Control: the old wire really carried the reasoning block.
+	raw, err := os.ReadFile(filepath.Join(store.RootDir, m.activeSession.SessionID, sessions.ContinuationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "family A thinks") {
+		t.Fatal("setup: snapshot must carry the recorded reasoning")
+	}
+
+	switched, text, ok, err := m.handleModelCommandScope("muse-spark-1.3-contributor", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatalf("model switch refused: %s", text)
+	}
+	m = switched
+
+	m = runTextTurn(t, m, "after switch")
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2", len(provider.requests))
+	}
+	req := provider.requests[1]
+	for _, message := range req.Messages {
+		if len(message.Reasoning) != 0 {
+			t.Fatalf("foreign reasoning must not reach the new provider: %#v", message)
+		}
+	}
+	if requestContains(req, "Previous session context") {
+		t.Fatal("switched turn must keep real history, not the textual summary")
+	}
+	if !requestContains(req, "first answer") {
+		t.Fatal("switched turn must carry the prior turn's answer")
+	}
+	assertSnapshotFileClean(t, store, m.activeSession.SessionID)
+}
+
+// testSessionStoreOf reaches the store behind a settled test model.
+func testSessionStoreOf(m model) *sessions.Store {
+	return m.sessionStore
+}
+
+func TestTUIContinuationSurvivesTriggers(t *testing.T) {
 	newTextHarness := func(t *testing.T) (model, *scriptedProvider) {
 		provider := &scriptedProvider{scripts: textScripts("first answer", "second answer", "third answer", "fourth answer")}
 		return continuationHarness(t, testSessionStore(t), provider, nil), provider
@@ -232,7 +368,21 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		m = updated.(model)
 
 		m = runTextTurn(t, m, "after resume")
-		assertTextualSummaryTurn(t, provider, 2, "after resume")
+		// /resume reloads the exact wire: the next turn replays history,
+		// never the textual summary.
+		if len(provider.requests) != 3 {
+			t.Fatalf("provider requests = %d, want 3", len(provider.requests))
+		}
+		req := provider.requests[2]
+		if requestContains(req, "Previous session context") {
+			t.Fatal("resumed turn must keep the real history, not the textual summary")
+		}
+		if !requestContains(req, "second answer") {
+			t.Fatal("resumed turn must carry the prior turn's answer")
+		}
+		if got := lastUserMessage(req).Content; !strings.HasSuffix(got, "after resume") {
+			t.Fatalf("resumed turn must end with the prompt, got %q", got)
+		}
 	})
 
 	t.Run("rewind", func(t *testing.T) {
@@ -245,7 +395,9 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		m = updated.(model)
 
 		m = runTextTurn(t, m, "after rewind")
-		assertTextualSummaryTurn(t, provider, 2, "after rewind")
+		// Post-rewind the log is rebuilt from the surviving events and the
+		// snapshot rewritten: the next turn still sends real messages.
+		assertRealHistoryTurn(t, provider, 2, "after rewind", "")
 	})
 
 	t.Run("compact", func(t *testing.T) {
@@ -268,7 +420,8 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		}
 
 		m = runTextTurn(t, m, "after compact")
-		assertTextualSummaryTurn(t, provider, 2, "after compact")
+		// Post-compact same as rewind: real history, never the summary.
+		assertRealHistoryTurn(t, provider, 2, "after compact", "second answer")
 	})
 
 	t.Run("model", func(t *testing.T) {
@@ -302,7 +455,24 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		}
 
 		m = runTextTurn(t, m, "after switch")
-		assertTextualSummaryTurn(t, provider, 2, "after switch")
+		// A model switch keeps the real conversation (provider-native ids
+		// filtered) instead of falling back to the textual summary. The
+		// prompt may carry a [context update] drift note for the new model,
+		// so assert the shape: prior answer present, no summary wrapper,
+		// prompt at the end.
+		if len(provider.requests) != 3 {
+			t.Fatalf("provider requests = %d, want 3", len(provider.requests))
+		}
+		req := provider.requests[2]
+		if requestContains(req, "Previous session context") {
+			t.Fatal("model switch must keep the real history, not the textual summary")
+		}
+		if !requestContains(req, "second answer") {
+			t.Fatal("model switch must carry the prior turn's answer")
+		}
+		if got := lastUserMessage(req).Content; !strings.HasSuffix(got, "after switch") {
+			t.Fatalf("switched turn must end with the prompt, got %q", got)
+		}
 	})
 
 	t.Run("error", func(t *testing.T) {
@@ -320,7 +490,9 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 
 		m.provider = inner
 		m = runTextTurn(t, m, "after error")
-		assertTextualSummaryTurn(t, inner, 2, "after error")
+		// A failed turn hands its (repaired) history to the next turn.
+		assertRealHistoryTurn(t, inner, 2, "after error", "second answer")
+		assertSnapshotFileClean(t, testSessionStoreOf(m), m.activeSession.SessionID)
 	})
 
 	t.Run("cancelled", func(t *testing.T) {
@@ -334,14 +506,32 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		if cmd == nil {
 			t.Fatal("expected an agent command")
 		}
-		if m.runCancel != nil {
-			m.runCancel()
+		m.cancelRun()
+		if msg, ok := execCmd(cmd).(agentResponseMsg); ok {
+			updated, _ = m.Update(msg)
+			m = updated.(model)
+		} else {
+			t.Fatalf("expected agentResponseMsg, got %T", execCmd(cmd))
 		}
-		updated, _ = m.Update(agentResponseMsg{runID: m.activeRunID, err: context.Canceled})
-		m = updated.(model)
 
 		m = runTextTurn(t, m, "after cancel")
-		assertTextualSummaryTurn(t, provider, 2, "after cancel")
+		req := provider.requests[len(provider.requests)-1]
+		if last := lastUserMessage(req); !strings.HasSuffix(last.Content, "after cancel") {
+			t.Fatalf("turn must end with the clean prompt, got %q", last.Content)
+		}
+		// The cancelled turn must keep the previous turn's history…
+		if !requestContains(req, "second answer") {
+			t.Fatal("cancelled turn must keep the previous turn's history")
+		}
+		// …and the cancelled turn's own wire (its prompt, its steps) must reach
+		// the model too, instead of being dropped with the stale response.
+		if !requestContains(req, "cancelled turn") {
+			t.Fatal("the cancelled turn's own messages must reach the model on the next turn")
+		}
+		if requestContains(req, "Previous session context") {
+			t.Fatal("cancelled turn must not fall back to the textual summary")
+		}
+		assertSnapshotFileClean(t, testSessionStoreOf(m), m.activeSession.SessionID)
 	})
 
 	t.Run("peer", func(t *testing.T) {
@@ -360,7 +550,9 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		}
 
 		m = runTextTurn(t, m, "after peer")
-		assertTextualSummaryTurn(t, provider, 3, "after peer")
+		// Peer turns keep their own context: the next normal turn still
+		// replays the pre-peer history.
+		assertRealHistoryTurn(t, provider, 3, "after peer", "second answer")
 	})
 
 	t.Run("goal", func(t *testing.T) {
@@ -397,7 +589,8 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		}
 
 		m = runTextTurn(t, m, "after goal")
-		assertTextualSummaryTurn(t, provider, 3, "after goal")
+		// Goal cadence runs keep their own context like peer turns.
+		assertRealHistoryTurn(t, provider, 3, "after goal", "second answer")
 	})
 
 	t.Run("goal change", func(t *testing.T) {
@@ -428,7 +621,9 @@ func TestTUIContinuationDroppedOn(t *testing.T) {
 		m.activeSession = updatedGoal
 
 		m = runTextTurn(t, m, "after change")
-		assertTextualSummaryTurn(t, provider, 2, "after change")
+		// A goal change invalidates the stored key, so the history is
+		// rebuilt from the session log — still messages, never the summary.
+		assertRealHistoryTurn(t, provider, 2, "after change", "second answer")
 	})
 }
 
@@ -579,7 +774,7 @@ func TestTUILateResponseForeignSessionDropped(t *testing.T) {
 	}
 }
 
-func TestTUIRealHistoryKillSwitch(t *testing.T) {
+func TestTUIRealHistoryEnvIgnored(t *testing.T) {
 	provider := &scriptedProvider{scripts: textScripts("first answer", "second answer", "third answer")}
 	m := continuationHarness(t, testSessionStore(t), provider, nil)
 
@@ -587,9 +782,23 @@ func TestTUIRealHistoryKillSwitch(t *testing.T) {
 	m = runTextTurn(t, m, "again")
 	assertSecondTurnUsedHistory(t, provider)
 
+	// The kill switch is gone: even with the legacy env var set, turns
+	// still send the real conversation instead of the textual summary.
 	t.Setenv("QG_TUI_REAL_HISTORY", "0")
-	m = runTextTurn(t, m, "third")
-	assertTextualSummaryTurn(t, provider, 2, "third")
+	_ = runTextTurn(t, m, "third")
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider requests = %d, want 3", len(provider.requests))
+	}
+	req := provider.requests[2]
+	if last := lastUserMessage(req); !strings.HasSuffix(last.Content, "third") {
+		t.Fatalf("last user message = %q, want it ending with the prompt", last.Content)
+	}
+	if requestContains(req, "Previous session context") {
+		t.Fatal("env var must not bring back the textual summary")
+	}
+	if !requestContains(req, "second answer") {
+		t.Fatal("third turn must carry the prior answer as a message")
+	}
 }
 
 func TestTUISystemPromptStableAcrossTurns(t *testing.T) {

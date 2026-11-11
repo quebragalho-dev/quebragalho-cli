@@ -170,6 +170,43 @@ func (err execUsageError) Error() string {
 	return err.message
 }
 
+// acquireExecPresenceLock takes the session presence lease for an exec
+// --resume (or bare --resume resolving to the workspace's latest resumable
+// session) and refuses it when another live qg process holds the lease — the
+// same presence.lock contract the TUI enforces, pt-BR message with the holder
+// PID. Two writers on one session interleave their turns in its log and its
+// snapshot: the second process never learns its resume was incoherent.
+//
+// --fork is deliberately excluded: forking only reads the parent (it copies
+// the log and checkpoints into a new session), so it never mutates the held
+// session. The lease is returned for release with defer by the caller, after
+// the run's writes have finished.
+func acquireExecPresenceLock(options execOptions) (*sessions.SessionLock, string, error) {
+	store := sessions.NewStore(sessions.StoreOptions{})
+	var sessionID string
+	switch {
+	case options.resume != "":
+		sessionID = strings.TrimSpace(options.resume)
+	case options.resumeLatest:
+		latest, err := store.LatestResumable()
+		if err != nil {
+			return nil, "", err
+		}
+		if latest == nil {
+			// The preflight already reported this; nothing to lock.
+			return nil, "", nil
+		}
+		sessionID = latest.SessionID
+	default:
+		return nil, "", nil
+	}
+	if sessionID == "" {
+		return nil, "", nil
+	}
+	lock, err := store.TryAcquireSessionLock(sessionID)
+	return lock, sessionID, err
+}
+
 func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
 	options, help, err := parseExecArgs(args)
 	if err != nil {
@@ -384,6 +421,22 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	}
 	if err := preflightExecSession(options); err != nil {
 		return writeExecFormatUsageError(stdout, stderr, options.outputFormat, err.Error())
+	}
+	presenceLock, lockedSessionID, presenceErr := acquireExecPresenceLock(options)
+	if presenceErr != nil {
+		return writeExecFormatUsageError(stdout, stderr, options.outputFormat, presenceErr.Error())
+	}
+	if presenceLock != nil {
+		// Released when this function returns, after the run's events have
+		// been flushed — never before the writes finish.
+		defer presenceLock.Release()
+		// Pin the exact session that was locked: a bare --resume (latest)
+		// would re-resolve to a newer session mid-flight and resume it
+		// unguarded.
+		if options.resumeLatest && lockedSessionID != "" {
+			options.resume = lockedSessionID
+			options.resumeLatest = false
+		}
 	}
 
 	prompt, streamImages, err := resolveExecPrompt(options, workspaceRoot, deps.stdin)

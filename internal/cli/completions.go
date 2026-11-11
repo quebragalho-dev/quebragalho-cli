@@ -20,7 +20,7 @@ type completionContext struct {
 }
 
 var completionRoot = completionNode{
-	flags: []string{"-h", "--help", "-v", "--version", "-p", "--prompt", "--add-dir", "--allow-escalation", "--no-browser", "--theme", "--dangerously-skip-permissions", "--skip-permissions-unsafe"},
+	flags: []string{"-h", "--help", "-v", "--version", "-p", "--prompt", "-c", "--continue", "--resume", "--add-dir", "--allow-escalation", "--no-browser", "--theme", "--dangerously-skip-permissions", "--skip-permissions-unsafe"},
 	children: []completionNode{
 		{names: []string{"exec"}, flags: []string{
 			"-h", "--help", "-f", "--file", "--image", "--add-dir", "--mode", "-m", "--model",

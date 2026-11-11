@@ -776,6 +776,9 @@ func (m model) handleRewindCommand(args string) (model, string) {
 	// the reload, so even a reload failure cannot leave the stale continuation
 	// behind.
 	m.continuation = turnContinuation{}
+	if m.sessionStore != nil && m.activeSession.SessionID != "" {
+		_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
+	}
 
 	// ApplyRewind truncated the persisted event log, restored files, and appended a
 	// rewind marker — so reload the in-memory session state. Otherwise the dropped
@@ -793,6 +796,12 @@ func (m model) handleRewindCommand(args string) (model, string) {
 		return m, fmt.Sprintf("Rewind\nrewound to sequence %d, but reloading the session failed (in-memory context cleared): %s", target, readErr.Error())
 	}
 	m.sessionEvents = append([]sessions.Event{}, events...)
+	// The snapshot is rewritten from the post-rewind log (not deleted): a
+	// resume right after still continues exact. Recovered checkpoints stay
+	// valid — ApplyRewind prunes only blobs unreferenced by the surviving
+	// events, and the rewrite covers the truncated head, so a later /rewind
+	// to an earlier checkpoint still finds its blobs.
+	m = m.rewriteSnapshotFromEvents()
 	rows := initialTranscript()
 	rows = appendTranscriptRowsDedup(rows, transcriptRowsFromSessionEvents(events))
 	m.transcript = rows

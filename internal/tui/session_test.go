@@ -611,7 +611,9 @@ func submitAndDrivePermissionRun(t *testing.T, m model, prompt string, key strin
 
 	finalMsg := receiveFinalMessage(t, finalCh)
 	updated, _ = next.Update(finalMsg)
-	return updated.(model)
+	next = updated.(model)
+	settleModel(t, next)
+	return next
 }
 
 func newPermissionTestModel(root string, provider qgruntime.Provider, registry *tools.Registry, store *sessions.Store, grantStore *sandbox.GrantStore, runtimeMessages chan<- tea.Msg) model {
@@ -1144,11 +1146,31 @@ func TestResumedPromptIncludesSessionContext(t *testing.T) {
 	if len(messages) == 0 {
 		t.Fatal("expected provider request to include messages")
 	}
-	prompt := messages[len(messages)-1].Content
-	for _, want := range []string{"Continuing QG session", session.SessionID, "previous request", "previous answer", "Current user request:", "continue"} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("expected resumed prompt to contain %q, got %q", want, prompt)
+	// The resumed turn replays history as messages, never the textual
+	// summary: the last message is the clean prompt and prior turns ride
+	// along as structured history.
+	last := messages[len(messages)-1]
+	if last.Content != "continue" {
+		t.Fatalf("expected clean resumed prompt %q, got %q", "continue", last.Content)
+	}
+	for _, banned := range []string{"Continuing QG session", "Previous session context"} {
+		for _, message := range messages {
+			if strings.Contains(message.Content, banned) {
+				t.Fatalf("reconstructed turn must not use the textual summary, found %q", banned)
+			}
 		}
+	}
+	foundRequest, foundAnswer := false, false
+	for _, message := range messages {
+		if strings.Contains(message.Content, "previous request") {
+			foundRequest = true
+		}
+		if strings.Contains(message.Content, "previous answer") {
+			foundAnswer = true
+		}
+	}
+	if !foundRequest || !foundAnswer {
+		t.Fatalf("reconstructed turn must carry prior messages, got %#v", messages)
 	}
 }
 

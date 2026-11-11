@@ -458,6 +458,12 @@ type Options struct {
 	OnToolResult        func(ToolResult)
 	OnUsage             func(Usage)
 	OnUsageProgress     func(Usage)
+	// OnStepMessages, when set, receives a copy of the full message wire
+	// after each completed step (after the model's reply plus that step's
+	// tool results and image messages, before the next request) and on the
+	// final answer. The TUI persists it as the exact-resume snapshot off
+	// the UI goroutine. Nil disables it; the loop is byte-identical otherwise.
+	OnStepMessages func(messages []qgruntime.Message, loaded []string)
 	// OnToolProgress, when set, is called with each stream-json event a
 	// specialist child process emits while running. The toolCallID identifies
 	// which Task tool call the progress belongs to. nil is a no-op.

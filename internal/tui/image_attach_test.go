@@ -460,7 +460,7 @@ func TestSubmitPrependsDocumentTextThenClears(t *testing.T) {
 	}
 
 	updated, _ = next.Update(execCmd(cmd))
-	_ = updated.(model)
+	settleModel(t, updated.(model))
 
 	if len(provider.requests) != 1 {
 		t.Fatalf("expected one provider request, got %d", len(provider.requests))
@@ -549,7 +549,7 @@ func TestRetryResendsAttachments(t *testing.T) {
 	}
 
 	updated, _ = next.Update(execCmd(cmd))
-	_ = updated.(model)
+	settleModel(t, updated.(model))
 
 	select {
 	case imgs := <-captured:

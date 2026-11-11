@@ -183,7 +183,7 @@ func TestEscalatedRunPricesPersistedUsageAtEachModel(t *testing.T) {
 	}
 
 	// Persist through the same path a real run uses, then read the events back.
-	m, rows := m.appendSessionEvents(response.sessionEvents)
+	m, rows := m.appendSessionEvents(tailSessionEvents(response))
 	for _, row := range rows {
 		if row.kind == rowError {
 			t.Fatalf("session record error: %s", row.text)

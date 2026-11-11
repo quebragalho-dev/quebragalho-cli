@@ -467,28 +467,15 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	if err != nil {
 		return m, "Modelo\n" + err.Error(), false, nil
 	}
+	m, switchErr := m.applySwitchedProvider(nextProfile, metadata, nextProvider, target.modelID)
+	if switchErr != nil {
+		return m, "Modelo\n" + switchErr.Error(), false, nil
+	}
 	var persisted bool
 	var persistErr error
 	if persist {
 		persisted, persistErr = m.persistSelectedModel(nextProfile)
 	}
-
-	m.providerProfile = nextProfile
-	m.provider = nextProvider
-	m.providerName = displayValue(nextProfile.Name, string(metadata.ProviderKind))
-	// A model switch changes the context window and the model addendum, so the
-	// stored real history no longer matches the prefix the next turn builds.
-	m.continuation = turnContinuation{}
-	// Keep sub-agent child processes on the same provider we just switched to.
-	config.SetActiveProviderEnv(nextProfile.Name)
-	m.modelName = target.modelID
-	m.streamUsage = qgruntime.Usage{}
-	m.lastCompletedRate = ""
-	// The usage belongs to the session, not to the model: the meter keeps
-	// showing the last figure against the new model's window, and the next
-	// completed call corrects it. (A compaction before the switch already
-	// zeroed the meter, which stays zero until that next call.)
-	m.serviceTier = ""
 	// Record the outgoing pair too, not just the destination: otherwise the
 	// model a session started on (never itself the target of a recordRecentModel
 	// call) would silently drop out of "Recent" the moment you switch away from
@@ -552,6 +539,30 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 		lines = append(lines, warn)
 	}
 	return m, strings.Join(lines, "\n"), true, persistErr
+}
+
+// applySwitchedProvider swaps the live provider/profile/model triple to an
+// already-resolved, already-built target. Shared by the interactive /model
+// command and by resume-from-snapshot restores, so both paths reach the
+// network through the exact same provider construction.
+func (m model) applySwitchedProvider(nextProfile config.ProviderProfile, metadata providers.RuntimeMetadata, nextProvider qgruntime.Provider, modelID string) (model, error) {
+	if nextProvider == nil {
+		return m, errors.New("provedor não pode ser reconstruído nesta sessão")
+	}
+	m.providerProfile = nextProfile
+	m.provider = nextProvider
+	m.providerName = displayValue(nextProfile.Name, string(metadata.ProviderKind))
+	// Keep sub-agent child processes on the same provider just switched to.
+	config.SetActiveProviderEnv(nextProfile.Name)
+	m.modelName = modelID
+	m.streamUsage = qgruntime.Usage{}
+	m.lastCompletedRate = ""
+	// The usage belongs to the session, not to the model: the meter keeps
+	// showing the last figure against the new model's window, and the next
+	// completed call corrects it. (A compaction before the switch already
+	// zeroed the meter, which stays zero until that next call.)
+	m.serviceTier = ""
+	return m, nil
 }
 
 // profileWithCredential fills a profile's APIKey for provider construction the same
