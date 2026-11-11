@@ -32,6 +32,47 @@ func testOpenAIProvider(t *testing.T, server *httptest.Server) *openai.Provider 
 	return provider
 }
 
+// A clean EOF after partial text is a truncated transport, not an answer:
+// the call retries on a fresh stream and the partial never reaches the
+// history or the store.
+func TestRunCleanEOFPartialRetriesAndDiscards(t *testing.T) {
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if n == 1 {
+			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"PARCIAL-SUMIR"}}]}`)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			return // close without [DONE]: truncated
+		}
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"resposta completa"}}]}`)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	result, err := Run(context.Background(), "go", testOpenAIProvider(t, server), Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits),
+	})
+	if err != nil {
+		t.Fatalf("truncated first attempt must retry to success, got %v", err)
+	}
+	if result.FinalAnswer != "resposta completa" {
+		t.Fatalf("final answer = %q, want %q", result.FinalAnswer, "resposta completa")
+	}
+	if got := atomic.LoadInt32(&hits); got != 2 {
+		t.Fatalf("want 2 requests (1 truncated + 1 retry), got %d", got)
+	}
+	for _, message := range result.Messages {
+		if strings.Contains(message.Content, "PARCIAL-SUMIR") {
+			t.Fatalf("partial text must not reach the history: %#v", message)
+		}
+	}
+}
+
 // A persistent 503 through a real provider and real HTTP: the loop budget is
 // the ONLY budget — exactly 10 requests in total, never 10 x hidden retries.
 func TestRunPersistent503MakesExactlyTenHTTPRequests(t *testing.T) {
