@@ -11,6 +11,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/yieldnow"
 )
 
 type Message = qgruntime.Message
@@ -412,6 +413,11 @@ type Options struct {
 	// so they reach the model on the very next request without the turn
 	// being interrupted. nil disables interleaving.
 	InterleaveMessages func() []Message
+	// YieldNow carries the TUI's per-run send-now Signal: while a
+	// backgroundable tool wait (exec_command's yield wait, write_stdin
+	// polling) is parked, Request wakes it at once. nil runs every wait out
+	// exactly as before.
+	YieldNow *yieldnow.Signal
 	// ContextWindow is the model's maximum input token budget. When > 0 the agent
 	// loop compacts long conversations once the estimated size crosses a fraction
 	// of this window. 0 DISABLES compaction entirely (every existing caller/test
