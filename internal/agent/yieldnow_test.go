@@ -2,10 +2,13 @@ package agent
 
 import (
 	"context"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/yieldnow"
@@ -115,5 +118,146 @@ func TestYieldNowWakesToolWaitAndInterleavesSameTurn(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("interleaved message must reach the provider in the same turn: %#v", last)
+	}
+}
+
+// The real chain, end to end: executeToolCall -> exec_command.run ->
+// manager.Start -> collect with the run's Signal in the context. A send-now
+// Request during the yield wakes the real `sleep` wait in well under a
+// second with the normal still-running partial result, and the process keeps
+// running as a background session (proven by its session id). The same holds
+// for write_stdin polling a live session. Without a Request the full yield
+// runs out.
+func TestYieldNowWakesRealExecCommandChain(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	dir := t.TempDir()
+	manager := execution.NewProcessManager(execution.ProcessManagerOptions{})
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewExecCommandTool(dir, manager))
+	registry.Register(tools.NewWriteStdinTool(manager))
+	signal := yieldnow.New()
+	options := Options{Cwd: dir, YieldNow: signal}
+
+	callTool := func(name, args string) (ToolResult, error) {
+		return executeToolCall(context.Background(), registry, ToolCall{ID: "c1", Name: name, Arguments: args}, PermissionModeUnsafe, options)
+	}
+	waitParked := func(t *testing.T) {
+		t.Helper()
+		fired := false
+		for i := 0; i < 500 && !fired; i++ {
+			time.Sleep(10 * time.Millisecond)
+			fired = signal.Request()
+		}
+		if !fired {
+			t.Fatal("send-now Request never found the parked exec wait")
+		}
+	}
+	sessionAlive := func(t *testing.T, res ToolResult) int {
+		t.Helper()
+		raw, ok := res.Meta["session_id"]
+		if !ok || raw == "" {
+			t.Fatalf("woken wait must return the still-running partial result with a session_id, got meta %#v output %.120q", res.Meta, res.Output)
+		}
+		id, err := strconv.Atoi(raw)
+		if err != nil || id <= 0 {
+			t.Fatalf("invalid session_id %q", raw)
+		}
+		if _, ok := manager.Snapshot(id); !ok {
+			t.Fatalf("session %d is gone, the process must keep running in background", id)
+		}
+		return id
+	}
+
+	// exec_command yield wait wakes early; the sleep keeps running.
+	type callOut struct {
+		res  ToolResult
+		err  error
+		took time.Duration
+	}
+	done := make(chan callOut, 1)
+	go func() {
+		start := time.Now()
+		res, err := callTool("exec_command", `{"cmd":"sleep 30","yield_time_ms":30000}`)
+		done <- callOut{res: res, err: err, took: time.Since(start)}
+	}()
+	waitParked(t)
+	var out callOut
+	select {
+	case out = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("exec_command did not wake on send-now")
+	}
+	if out.err != nil {
+		t.Fatal(out.err)
+	}
+	if out.took >= 10*time.Second {
+		t.Fatalf("woken exec_command took %v, want an early return well before the 30s yield", out.took)
+	}
+	if !strings.Contains(out.res.Output, "still running") {
+		t.Fatalf("woken exec_command must report the still-running partial result, got %.200q", out.res.Output)
+	}
+	sessionID := sessionAlive(t, out.res)
+	t.Cleanup(func() { manager.Stop(sessionID) })
+
+	// write_stdin polling the live session wakes early too.
+	donePoll := make(chan callOut, 1)
+	go func() {
+		start := time.Now()
+		res, err := callTool("write_stdin", `{"session_id":`+strconv.Itoa(sessionID)+`,"chars":"","yield_time_ms":30000}`)
+		donePoll <- callOut{res: res, err: err, took: time.Since(start)}
+	}()
+	waitParked(t)
+	var poll callOut
+	select {
+	case poll = <-donePoll:
+	case <-time.After(10 * time.Second):
+		t.Fatal("write_stdin poll did not wake on send-now")
+	}
+	if poll.err != nil {
+		t.Fatal(poll.err)
+	}
+	if poll.took >= 10*time.Second {
+		t.Fatalf("woken write_stdin poll took %v, want an early return", poll.took)
+	}
+	if poll.res.Status != tools.StatusOK {
+		t.Fatalf("woken write_stdin poll must stay OK, got %#v", poll.res)
+	}
+	sessionAlive(t, poll.res)
+}
+
+// The same real chain without a Request runs the full yield out: attaching
+// the Signal alone changes nothing.
+func TestRealExecCommandChainWaitsOutYieldWithoutRequest(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	dir := t.TempDir()
+	manager := execution.NewProcessManager(execution.ProcessManagerOptions{})
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewExecCommandTool(dir, manager))
+	signal := yieldnow.New()
+	options := Options{Cwd: dir, YieldNow: signal}
+
+	start := time.Now()
+	res, err := executeToolCall(context.Background(), registry,
+		ToolCall{ID: "c1", Name: "exec_command", Arguments: `{"cmd":"sleep 30","yield_time_ms":2000}`},
+		PermissionModeUnsafe, options)
+	took := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took < 1500*time.Millisecond {
+		t.Fatalf("without a Request the full yield must run out, took only %v", took)
+	}
+	raw := res.Meta["session_id"]
+	id, convErr := strconv.Atoi(raw)
+	if convErr != nil || id <= 0 {
+		t.Fatalf("yield expiry must return the still-running partial result with a session_id, got %#v", res.Meta)
+	}
+	defer manager.Stop(id)
+	if _, ok := manager.Snapshot(id); !ok {
+		t.Fatal("process must keep running after the normal yield")
 	}
 }
