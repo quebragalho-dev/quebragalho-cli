@@ -321,6 +321,24 @@ func TestScanSSEDataWithContextContentResetsOnData(t *testing.T) {
 	}
 }
 
+// A [DONE] glued as the continuation line of a data block (instead of its own
+// data: [DONE] event) still terminates the stream: the pending payload is
+// delivered first and the scan ends clean, not truncated.
+func TestScanSSEDataWithContextDoneGluedToDataBlock(t *testing.T) {
+	body := "data: {\"a\":1}\ndata: [DONE]\n"
+	var got []string
+	err := ScanSSEDataWithContext(context.Background(), func() {}, strings.NewReader(body), 0, func(data string) bool {
+		got = append(got, data)
+		return true
+	})
+	if err != nil {
+		t.Fatalf("err = %v, want nil (glued [DONE] terminates)", err)
+	}
+	if len(got) != 1 || got[0] != `{"a":1}` {
+		t.Fatalf("got %#v, want the pending payload delivered without [DONE]", got)
+	}
+}
+
 // StreamTimeoutMessage must give a stalled stream a distinct, accurate detail —
 // it reports the content window (ContentStallTimeout) and must NOT claim the
 // upstream "stopped sending data" (keep-alives were still arriving).

@@ -286,7 +286,13 @@ func scanSSEPayloads(scanner *bufio.Scanner, handle func(data string) bool, onCo
 		}
 		if strings.HasPrefix(line, "data:") {
 			fragment := strings.TrimLeft(strings.TrimPrefix(line, "data:"), " \t")
-			if len(dataLines) == 0 && strings.TrimSpace(fragment) == "[DONE]" {
+			if strings.TrimSpace(fragment) == "[DONE]" {
+				// A [DONE] glued as the continuation line of a data block
+				// (instead of its own event) still terminates the stream:
+				// deliver the pending payload first, then end clean.
+				if len(dataLines) > 0 && !flush() {
+					return nil
+				}
 				sawDone = true
 				return nil
 			}

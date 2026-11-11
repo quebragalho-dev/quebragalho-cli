@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -70,6 +71,101 @@ func TestRunCleanEOFPartialRetriesAndDiscards(t *testing.T) {
 		if strings.Contains(message.Content, "PARCIAL-SUMIR") {
 			t.Fatalf("partial text must not reach the history: %#v", message)
 		}
+	}
+}
+
+// A tool_call whose arguments are cut mid-stream by a clean EOF (no
+// finish_reason, no [DONE]) must NEVER execute the half-written call and must
+// NEVER double-execute: the turn retries wholesale and the tool runs exactly
+// once, from the complete retried stream.
+func TestRunToolCallTruncatedByCleanEOFExecutesOnce(t *testing.T) {
+	tool := &countingPingTool{}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if n == 1 {
+			// Truncated: tool call opens, arguments cut mid-JSON, clean close
+			// with no finish_reason and no [DONE].
+			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"ping","arguments":"{\"arg"}}]}}]}`)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			return
+		}
+		// Distinguish the retried turn (no tool result yet) from the follow-up
+		// request carrying the tool result, which must get the final answer.
+		body, _ := io.ReadAll(r.Body)
+		isFollowUp := strings.Contains(string(body), `"role":"tool"`)
+		if !isFollowUp {
+			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"ping","arguments":"{}"}}]}}]}`)
+			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`)
+			fmt.Fprintf(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"done after tool"}}]}`)
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{},"finish_reason":"stop"}]}`)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	result, err := Run(context.Background(), "go", testOpenAIProvider(t, server), Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeAuto,
+		RetrySleep:     instantRetrySleep(&waits),
+	})
+	if err != nil {
+		t.Fatalf("truncated tool call must retry to success, got %v", err)
+	}
+	if got := atomic.LoadInt32(&tool.calls); got != 1 {
+		t.Fatalf("tool must execute exactly once (never the truncated call, never twice), got %d", got)
+	}
+	if result.FinalAnswer != "done after tool" {
+		t.Fatalf("final answer = %q, want %q", result.FinalAnswer, "done after tool")
+	}
+	// 1 truncated + 1 retried tool call + 1 follow-up with the tool result.
+	if got := atomic.LoadInt32(&hits); got != 3 {
+		t.Fatalf("want 3 requests (truncated + retried call + final answer), got %d", got)
+	}
+	for _, message := range result.Messages {
+		if strings.Contains(message.Content, "{\"arg") {
+			t.Fatalf("truncated arguments must never reach the history: %#v", message)
+		}
+	}
+}
+
+// A persistent clean-EOF truncation is bounded by the SAME single retry
+// policy as every other failure: 10 requests total, then the error surfaces.
+func TestRunPersistentCleanEOFMakesExactlyTenRequests(t *testing.T) {
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"PARCIAL"}}]}`)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// clean close, no [DONE], no finish_reason — always truncated
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	_, err := Run(context.Background(), "go", testOpenAIProvider(t, server), Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits),
+	})
+	if err == nil {
+		t.Fatal("persistent truncation must fail after the budget")
+	}
+	if got := atomic.LoadInt32(&hits); got != 10 {
+		t.Fatalf("single retry policy = 10 requests total, got %d", got)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "eof") && !strings.Contains(strings.ToLower(err.Error()), "terminator") {
+		t.Fatalf("surfaced error must read as truncation, got %v", err)
 	}
 }
 
