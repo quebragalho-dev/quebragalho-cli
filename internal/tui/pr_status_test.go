@@ -714,3 +714,69 @@ func TestPrServiceCachesMissingPrBriefly(t *testing.T) {
 		t.Fatalf("missing-PR branch must hit gh once per TTL, hit %d times: %v", ghCalls, runner.calls)
 	}
 }
+
+// A slow refresh must not overwrite a newer one: each Refresh takes a
+// generation and setState drops results older than the last applied one.
+func TestStaleRefreshResultIsDropped(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	var mu sync.Mutex
+	ghCalls := 0
+	run := func(ctx context.Context, cwd string, name string, args ...string) (string, error) {
+		call := strings.TrimSpace(name + " " + strings.Join(args, " "))
+		if strings.HasPrefix(call, "gh ") {
+			mu.Lock()
+			ghCalls++
+			n := ghCalls
+			mu.Unlock()
+			if n == 1 {
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				select {
+				case <-release:
+				case <-ctx.Done():
+				case <-time.After(5 * time.Second):
+				}
+				return `[{"url":"https://github.com/org/repo/pull/100","number":100,"baseRefName":"dev"}]`, nil
+			}
+			return `[{"url":"https://github.com/org/repo/pull/101","number":101,"baseRefName":"dev"}]`, nil
+		}
+		switch call {
+		case "git symbolic-ref --quiet --short HEAD":
+			return "dev\n", nil
+		case "git rev-parse HEAD":
+			return "abc123\n", nil
+		case "git merge-base origin/dev HEAD":
+			return "abc123\n", nil
+		case "git diff --numstat abc123":
+			return "1\t1\ta.go\n", nil
+		}
+		return "", errors.New("unexpected command: " + call)
+	}
+	service := NewPrService(t.TempDir())
+	service.run = run
+	service.lastBranch = "dev"
+
+	service.Refresh() // gen1: gh blocks until released
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("first refresh never reached gh")
+	}
+	service.Refresh() // gen2: completes fast with PR 101
+
+	deadline := time.Now().Add(3 * time.Second)
+	for service.GetState().PrNumber != "101" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := service.GetState(); got.PrNumber != "101" {
+		t.Fatalf("newer refresh must win, got %#v", got)
+	}
+	close(release) // gen1 finishes late with PR 100
+	time.Sleep(300 * time.Millisecond)
+	if got := service.GetState(); got.PrNumber != "101" {
+		t.Fatalf("stale refresh must not overwrite newer state, got %#v", got)
+	}
+}
