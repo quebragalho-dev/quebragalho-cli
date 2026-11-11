@@ -818,8 +818,8 @@ func TestCancelledRunDrainCannotStealNextRunInterleaves(t *testing.T) {
 
 // A run cancelled outside the end-of-turn seam (Ctrl+C first press, /goal
 // pause/clear) must not silently drop the operator's unconsumed interleaves:
-// cancelRun returns them to the head of the queue, and the next launch sends
-// the stranded text first — it must never vanish in the per-run buffer swap.
+// cancelRun returns them to the composer with the queue — nothing vanishes
+// in the per-run buffer swap and nothing launches on its own.
 func TestCancelRunRequeuesStrandedInterleaveForNextTurn(t *testing.T) {
 	provider := &scriptedProvider{scripts: textScripts("answer", "second")}
 	m := continuationHarness(t, testSessionStore(t), provider, nil)
@@ -836,31 +836,26 @@ func TestCancelRunRequeuesStrandedInterleaveForNextTurn(t *testing.T) {
 	}
 
 	// Ctrl+C first press: cancels the run without reaching
-	// launchQueuedMessageIfReady.
+	// launchQueuedMessageIfReady. Every cancel returns the pending queue
+	// to the composer — the stranded interleave included.
 	updated, _ = m.Update(testKeyCtrl('c'))
 	m = updated.(model)
 	if m.pending {
 		t.Fatal("expected Ctrl+C to cancel the running turn")
 	}
-	if len(m.queuedMessages) == 0 || m.queuedMessages[0] != "stranded by cancel" {
-		t.Fatalf("cancelled run's interleave must return to the queue head, got %#v", m.queuedMessages)
+	if len(m.queuedMessages) != 0 {
+		t.Fatalf("expected the stranded interleave back in the composer, still queued: %#v", m.queuedMessages)
 	}
-
-	// The next send recovers it: the stranded text leads the next turn
-	// instead of vanishing when beginRun swaps in a fresh buffer.
+	if got := m.composerValue(); !strings.Contains(got, "stranded by cancel") {
+		t.Fatalf("expected the stranded interleave in the composer, got %q", got)
+	}
 	updated, cmd := m.launchQueuedMessageIfReady()
 	m = updated.(model)
-	if cmd == nil {
-		t.Fatal("expected the requeued interleave to launch the next turn")
+	if cmd != nil {
+		t.Fatal("nothing must launch on its own after a cancel")
 	}
-	if !m.pending {
-		t.Fatal("expected the requeued interleave to start a new turn")
-	}
-	_ = execCmd(cmd)
-	req := provider.requests[len(provider.requests)-1]
-	last := req.Messages[len(req.Messages)-1]
-	if !strings.Contains(last.Content, "stranded by cancel") {
-		t.Fatalf("expected the stranded interleave as the provider's last message, got %#v", last)
+	if len(provider.requests) != 0 {
+		t.Fatalf("expected no provider request after the cancel, got %d", len(provider.requests))
 	}
 }
 
@@ -1207,5 +1202,77 @@ func TestInterleaveEnterIntercalatesLiteralTextWithSuggestionOverlayOpen(t *test
 	}
 	if !found {
 		t.Fatalf("the literal composer text must reach the provider, got %#v", provider.requests[1].Messages)
+	}
+}
+
+func TestCtrlCCancelReturnsQueueToComposerAboveDraftWithoutLaunching(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "hello"},
+		{Type: qgruntime.StreamEventDone},
+	}}
+	m.provider = provider
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.width = 96
+	m.queuedMessages = []string{"MARKFIRST queued", "MARKSECOND queued"}
+	m.input.SetValue("in-progress draft")
+	cancelled := false
+	m.runCancel = func() { cancelled = true }
+
+	updated, _ := m.Update(testKeyCtrl('c'))
+	next := updated.(model)
+
+	if !cancelled {
+		t.Fatal("Ctrl+C must cancel the run")
+	}
+	if next.pending {
+		t.Fatal("expected the run cancelled")
+	}
+	if next.hasQueuedMessage() {
+		t.Fatalf("expected the queue returned to the composer, still queued: %v", next.queuedMessages)
+	}
+	if got := next.composerValue(); got != "MARKFIRST queued\nMARKSECOND queued\nin-progress draft" {
+		t.Fatalf("expected the queue above the draft, got %q", got)
+	}
+	if provider := m.provider.(*fakeProvider); len(provider.requests) != 0 {
+		t.Fatalf("nothing may launch on its own after the cancel, got %d request(s)", len(provider.requests))
+	}
+}
+
+func TestGoalPauseCancelReturnsQueueToComposerWithoutLaunching(t *testing.T) {
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "hello"},
+		{Type: qgruntime.StreamEventDone},
+	}}
+	m := newModel(context.Background(), Options{
+		ProviderName: "openai",
+		ModelName:    "gpt-4.1",
+		Provider:     provider,
+		Registry:     tools.NewRegistry(),
+		SessionStore: testSessionStore(t),
+	})
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.activeSession.Goal = &sessions.Goal{Objective: "Ship", Status: sessions.GoalStatusActive}
+	m.queuedMessages = []string{"MARKFIRST queued", "MARKSECOND queued"}
+	m.input.SetValue("/goal pause")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	if next.pending {
+		t.Fatal("expected /goal pause to cancel the running turn")
+	}
+	if next.hasQueuedMessage() {
+		t.Fatalf("expected the queue returned to the composer, still queued: %v", next.queuedMessages)
+	}
+	if got := next.composerValue(); got != "MARKFIRST queued\nMARKSECOND queued" {
+		t.Fatalf("expected the queue in the composer, got %q", got)
+	}
+	if len(provider.requests) != 0 {
+		t.Fatalf("nothing may launch on its own after the cancel, got %d request(s)", len(provider.requests))
 	}
 }

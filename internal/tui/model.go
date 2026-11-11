@@ -1959,12 +1959,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pending {
 				if wasConfirmingCancel {
 					m.cancelRun()
-					// Esc cancels and hands the queue back: the FIFO and any
-					// interleaves the cancelled turn never consumed return to
-					// the composer, in order, above the draft. Nothing
-					// launches on its own.
-					m = m.requeueStrandedInterleaves()
-					m = m.returnQueuedMessagesToComposer()
+					// Esc cancels and hands the queue back: cancelRun returns
+					// the interleaves and the FIFO to the composer, in order,
+					// above the draft. Nothing launches on its own.
 					return m, nil
 				}
 				// First Esc only arms the confirmation — preserve whatever
@@ -5688,6 +5685,10 @@ func (m *model) cancelRun() {
 	// including paths that never reach launchQueuedMessageIfReady. Draining
 	// is destructive, so a later launch-time requeue is a harmless no-op.
 	*m = m.requeueStrandedInterleaves()
+	// Every cancel returns the pending queue to the composer as well, not
+	// just the double-Esc path: the interleaves land above the queue, and
+	// both land above the draft. Nothing fires on its own after a cancel.
+	*m = m.returnQueuedMessagesToComposer()
 	m.cancelConfirmActive = false // whatever path got here, there's nothing left to confirm cancelling
 	m.plan.frozenAt = m.now()     // freeze the plan clock while idle (no run in flight)
 	m.pendingPermission = nil
