@@ -208,6 +208,12 @@ func (runner *fakePRRunner) anyCallWithPrefix(prefix string) bool {
 	return false
 }
 
+func (runner *fakePRRunner) callsSnapshot() []string {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	return append([]string{}, runner.calls...)
+}
+
 // The repo reuses head `dev` for every release PR (#13-#100): `gh pr view`
 // resolves one PR per branch by its own rule, so the header can show a stale
 // number. The service must list the open PRs for the exact head and show the
@@ -778,5 +784,59 @@ func TestStaleRefreshResultIsDropped(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if got := service.GetState(); got.PrNumber != "101" {
 		t.Fatalf("stale refresh must not overwrite newer state, got %#v", got)
+	}
+}
+
+// A burst of triggers coalesces: gate git probing runs at most once and a
+// single trailing refresh lands — a 30-tool batch must not shell out 60
+// times.
+func TestRefreshBurstRunsOneGateProbe(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/duo\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+		"gh pr list --head feat/duo --state open --json number,url,baseRefName": {
+			output: `[{"url":"https://github.com/org/repo/pull/101","number":101,"baseRefName":"dev"}]`,
+		},
+		"git merge-base origin/dev HEAD": {
+			output: "abc123\n",
+		},
+		"git diff --numstat abc123": {
+			output: "10\t2\tchanged.go\n",
+		},
+	}}
+	service := NewPrService(t.TempDir())
+	service.run = runner.Run
+	service.lastBranch = "feat/duo"
+	service.lastHead = "abc123"
+	service.lastRefresh = time.Now()
+
+	for i := 0; i < 10; i++ {
+		service.RefreshIfNeeded()
+	}
+	deadline := time.Now().Add(6 * time.Second)
+	for service.GetState().PrNumber != "101" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := service.GetState(); got.PrNumber != "101" {
+		t.Fatalf("burst must land one refresh, got %#v", got)
+	}
+	symrefs, revparses := 0, 0
+	runner.mu.Lock()
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, "git symbolic-ref") {
+			symrefs++
+		}
+		if strings.HasPrefix(call, "git rev-parse") {
+			revparses++
+		}
+	}
+	runner.mu.Unlock()
+	if symrefs > 1 || revparses > 1 {
+		snapshot := append([]string{}, runner.callsSnapshot()...)
+		t.Fatalf("burst must probe the gate at most once, got %d symbolic-ref and %d rev-parse calls: %v", symrefs, revparses, snapshot)
 	}
 }
