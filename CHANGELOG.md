@@ -3,6 +3,19 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.18 — 2026-11-11
+
+### Novidades
+
+- Retomada exata de sessão: `qg --continue`, `qg --resume`, `-c` e `/resume` voltam exatamente para onde a conversa parou, sem resumo, sem compactar e sem chamar o modelo. Ao sair, o qg mostra `Para continuar: qg --continue <id>`; sem id, o `--continue` pega a sessão mais recente da pasta e o `--resume` abre a lista. Vale depois de fechar o terminal, de um kill, de cancelar com Esc e de trocar de modelo: o modelo, o esforço e o provedor voltam como estavam, e o turno seguinte continua do histórico real. Se a conversa mudou desde o último salvamento, o qg avisa em português o que recuperou (por exemplo `Turno interrompido recuperado: 3 passos restaurados`).
+- Proteção contra dois terminais na mesma sessão: se a sessão já está aberta em outro terminal, o segundo qg recusa em português dizendo o PID (`Esta sessão está aberta em outro terminal (PID 123). Feche lá ou use /fork.`) em vez de misturar as duas conversas. Vale para o TUI e para o `qg exec --resume`; o `--fork` continua liberado, porque só lê a sessão original. No Windows, a recusa agora também mostra o PID do terminal que segura a sessão (antes só mostrava no Linux e no macOS).
+- Animação de trabalho com palavras que mudam: enquanto o modelo trabalha, a palavra troca a cada 3 segundos entre Quebrando o Galho, Lapidando, Cozinhando 🔥, Trabalhando, Pensando, Dando um jeito, No capricho, Fuçando e Caprichando (sorteada a cada resposta). Com movimento reduzido, fica `Trabalhando` fixo.
+
+### Desempenho
+
+- `/resume` mais rápido em sessões com muitos arquivos: a escolha da cor do código agora usa um índice por extensão em vez de varrer todos os padrões a cada arquivo. Numa sessão de 82 turnos, a primeira tela cai de 0,40 s para 0,25 s, com ~20% menos CPU. Nenhuma cor muda.
+- Desenho da conversa com menos alocações: a chave do cache de linhas e de alturas não copia mais o texto inteiro de cada linha (acerto no cache passa de 10 alocações para 0) e a animação de trabalho foi memorizada (130 para 29 alocações por quadro). Na tela, nada muda.
+
 ## 0.0.17 — 2026-11-06
 
 ### Mudanças
