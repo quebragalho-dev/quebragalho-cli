@@ -1608,10 +1608,14 @@ func TestSendNowInterruptKeepsDrainedMessageExactlyOnce(t *testing.T) {
 	}
 	// The key dispatch itself always yields a batch cmd (focus, blink,
 	// transcript settle); what must NOT happen is an inline launch. The
-	// batch is parked until the cancelled run drains.
+	// batch is parked until the cancelled run drains — the window looks
+	// like a running turn so no second run can start around it.
 	_ = cmd
-	if next.pending {
-		t.Fatal("the cancelled turn must not keep running inline")
+	if !next.pending {
+		t.Fatal("the parked window must look like a running turn")
+	}
+	if next.activeRunID != 0 {
+		t.Fatalf("the cancelled turn must stop, activeRunID = %d", next.activeRunID)
 	}
 	if len(next.pendingSendNow) != 1 || next.pendingSendNow[0] != "QF-DRAFT" {
 		t.Fatalf("expected the send-now batch parked for the flush drain, got %v", next.pendingSendNow)
@@ -1807,8 +1811,11 @@ func TestSendNowWithoutSignalInterruptsAndLaunchesDraftSeparately(t *testing.T) 
 	if !cancelled {
 		t.Fatal("with nothing to wake, send-now must interrupt the running turn")
 	}
-	if next.pending {
-		t.Fatal("the cancelled turn must stop; the new turn launches when it drains")
+	if !next.pending {
+		t.Fatal("the parked window must look like a running turn")
+	}
+	if next.activeRunID != 0 {
+		t.Fatalf("the cancelled turn must stop, activeRunID = %d", next.activeRunID)
 	}
 	if got := next.composerValue(); got != "" {
 		t.Fatalf("nothing may return to the composer, got %q", got)

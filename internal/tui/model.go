@@ -323,6 +323,9 @@ type model struct {
 	// exactly once. Launched and cleared by launchPendingSendNow in the
 	// flush/completion paths; a session boundary drops it.
 	pendingSendNow []string
+	// pendingSendNowSeq versions the parked batch: the drain-timeout tick
+	// carries the seq so a stale tick never launches a batch parked later.
+	pendingSendNowSeq int
 	// interleave carries operator interleaves into the running turn (drained
 	// by the agent goroutine after each tool batch; leftovers launch together
 	// as the next turn).
@@ -1666,6 +1669,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancelConfirmActive = false
 		}
 		return m, nil
+	case sendNowDrainTimeoutMsg:
+		if !m.drainSendNowTimeout(msg.seq) {
+			return m, nil
+		}
+		next, cmd := m.launchPendingSendNow(false)
+		return next, cmd
 	case leaderExpiredMsg:
 		if msg.seq == m.leaderSeq {
 			m.leaderPending = false
@@ -2722,12 +2731,14 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// after the cancel may have already completed). The writer gate
 				// drops anything older than a newer turn too, so this can never
 				// overwrite a newer snapshot on disk either.
+				continuationStored := false
 				if msg.continuation != nil &&
 					msg.continuation.sessionID == m.activeSession.SessionID &&
 					flushSessionID == m.activeSession.SessionID &&
 					len(msg.continuation.messages) > 0 &&
 					msg.continuation.runID > m.continuation.runID {
 					m.continuation = *msg.continuation
+					continuationStored = true
 					if m.snapshotWriter != nil {
 						m.snapshotWriter.Queue(buildContinuationSnapshot(msg.continuation.sessionID, msg.continuation.modelID, m.providerName, string(m.reasoningEffort), msg.continuation.goalKey, m.activeSession.EventCount, msg.continuation.messages, msg.continuation.loadedTools), msg.continuation.runID)
 					}
@@ -2741,7 +2752,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// The parked send-now batch launches here, once the dead run's
 				// continuation is stored above — the new turn replays through it.
-				if next, sendNowCmd := m.launchPendingSendNow(); sendNowCmd != nil {
+				if next, sendNowCmd := m.launchPendingSendNow(continuationStored); sendNowCmd != nil {
 					return next, sendNowCmd
 				}
 				return m, nil
@@ -4134,7 +4145,7 @@ func (m model) appendStreamingCursor(lines []string, width int) []string {
 // composerLine renders the borderless composer.
 func (m model) composerLine(width int) string {
 	input := m.input
-	if m.hasQueuedMessage() || (m.interleave != nil && m.interleave.pendingCount() > 0) {
+	if m.hasQueuedMessage() || (m.interleave != nil && m.interleave.pendingCount() > 0) || m.hasParkedSendNow() {
 		input.Placeholder = queuedEditHint
 	}
 	hideInputForSuggestions := m.suggestionsActive() && (!m.suggestionsAreFiles || fileSuggestionOnlyInput(m.input.Value()))
@@ -4758,11 +4769,10 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if command.kind == commandPrompt && m.pending {
-		// A plain prompt interleaves into the running turn: the model sees it
-		// right after the current tool batch, in the same turn. Slash
-		// commands, attachments and @specialist mentions keep waiting for
-		// the end of the turn in the FIFO, one per turn.
-		if len(m.pendingImages) == 0 && len(m.pendingDocuments) == 0 {
+		// A plain prompt interleaves into the running turn — unless a
+		// send-now batch is parked: then there is no running turn, and the
+		// prompt rides the FIFO behind the parked batch.
+		if !m.hasParkedSendNow() && len(m.pendingImages) == 0 && len(m.pendingDocuments) == 0 {
 			if isCommonPrompt(command.text, m.agentOptions.Specialists) {
 				if m.interleave == nil {
 					m.interleave = &interleaveBuffer{}
@@ -4896,12 +4906,28 @@ func isCommonPrompt(text string, specialists []agent.SpecialistInfo) bool {
 // draft last — as separate user messages. The FIFO keeps what waits for
 // the end of the turn: slash commands, @specialist mentions and
 // attachment-backed messages drain one per turn afterwards, as always.
-// If the run's signal wakes a backgroundable wait, the loop drains the
-// buffer and delivers everything inside the running turn. Otherwise the
-// turn is interrupted and the collected messages launch as one new turn.
-// Nothing returns to the composer on that path. ok is false when nothing
-// common is pending (callers fall back to Enter or a notice).
+// While a send-now batch is parked (the window between an interrupting
+// send-now and the dead run's drain), the FIFO is off-limits: everything
+// typed rides the FIFO behind the batch — the batch launches first,
+// exactly once. If the run's signal wakes a backgroundable wait, the loop
+// drains the buffer and delivers everything inside the running turn.
+// Otherwise the turn is interrupted and the collected messages launch as
+// one new turn. Nothing returns to the composer on that path. ok is false
+// when nothing common is pending (callers fall back to Enter or a notice).
 func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
+	draft = strings.TrimSpace(draft)
+	if m.hasParkedSendNow() {
+		// The window: the parked batch launches first — only the draft
+		// joins it; the FIFO is untouched and drains behind it afterwards.
+		if draft == "" {
+			return m, nil, false
+		}
+		m.rememberInput(draft)
+		m.clearComposer()
+		m.clearSuggestions()
+		m.pendingSendNow = append(m.pendingSendNow, draft)
+		return m, nil, true
+	}
 	var all []string
 	if m.interleave != nil {
 		for _, message := range m.interleave.drain() {
@@ -4921,14 +4947,15 @@ func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 		}
 		remaining = append(remaining, text)
 	}
-	m.queuedMessages = remaining
-	draft = strings.TrimSpace(draft)
 	if draft != "" {
 		all = append(all, draft)
 	}
 	if len(all) == 0 {
+		// Nothing common collected: the non-common remainder stays queued,
+		// untouched.
 		return m, nil, false
 	}
+	m.queuedMessages = remaining
 	if draft != "" {
 		m.rememberInput(draft)
 		m.clearComposer()
@@ -4958,7 +4985,14 @@ func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 		return next, cmd, true
 	}
 	m.pendingSendNow = append(m.pendingSendNow, all...)
-	return m, nil, true
+	m.pendingSendNowSeq++
+	// The window between the cancel and the dead run's drain behaves like a
+	// still-active turn: nothing may start around the batch — it goes first,
+	// and anything typed now rides the FIFO behind it.
+	m.pending = true
+	return m, tea.Tick(sendNowDrainTimeout, func(time.Time) tea.Msg {
+		return sendNowDrainTimeoutMsg{seq: m.pendingSendNowSeq}
+	}), true
 }
 
 // handleInterleaveEnter implements Cmd+Enter / Ctrl+Enter (Ctrl+Enter on
@@ -5795,16 +5829,45 @@ func (m *model) ensureSpinnerTick() tea.Cmd {
 	return m.spinner.Tick
 }
 
+func (m model) hasParkedSendNow() bool {
+	return len(m.pendingSendNow) > 0
+}
+
+// sendNowDrainTimeout bounds the wait for a cancelled run's goroutine to
+// return its wire after an interrupting send-now. Before it fires the batch
+// launches through the flush path (replaying the cancelled run's
+// continuation); after it, the batch launches anyway, replaying whatever
+// the loop delivered (tracked in the buffer) — never silently dropped.
+const sendNowDrainTimeout = 3 * time.Second
+
+// sendNowDrainTimeoutMsg fires when a parked batch has waited too long for
+// its dead run to drain: the batch launches anyway, losslessly, by
+// replaying whatever the loop delivered (best effort on exact-once).
+type sendNowDrainTimeoutMsg struct {
+	seq int
+}
+
+func (m model) drainSendNowTimeout(seq int) bool {
+	return m.pendingSendNowSeq == seq && len(m.pendingSendNow) > 0
+}
+
 // launchPendingSendNow launches a parked send-now batch (see sendNow), or
 // does nothing when none is parked. Called once the cancelled run's
 // continuation is stored — the new turn replays through it, so anything the
-// loop drained into that run's wire rides exactly once.
-func (m model) launchPendingSendNow() (model, tea.Cmd) {
+// loop drained into that run's wire rides exactly once. continuationStored
+// says the dead run handed over its wire: without it the batch prepends
+// whatever the loop delivered (tracked in the buffer) — never lost.
+func (m model) launchPendingSendNow(continuationStored bool) (model, tea.Cmd) {
 	if len(m.pendingSendNow) == 0 {
 		return m, nil
 	}
 	batch := m.pendingSendNow
 	m.pendingSendNow = nil
+	if !continuationStored && m.interleave != nil {
+		if delivered := m.interleave.takeDelivered(); len(delivered) > 0 {
+			batch = append(append([]string(nil), delivered...), batch...)
+		}
+	}
 	return m.launchPrompts(batch)
 }
 
@@ -5916,10 +5979,11 @@ func (m *model) cancelRun(keepQueuedMessages ...bool) {
 		}
 		m.flushRunIDs[m.activeRunID] = m.activeSession.SessionID
 	}
-	if m.pending {
+	if m.pending && m.activeRunID != 0 {
 		// A cancelled run must terminate visibly in the transcript: first the
 		// partial streamed answer (if any), then the cancellation marker — the
-		// session log gets the same marker below.
+		// session log gets the same marker below. A window with a parked
+		// send-now batch (activeRunID already 0) has no run to mark.
 		if row, ok := reasoningTranscriptRow("", m.activeRunID, m.streamingReasoning); ok {
 			m.transcript = appendTranscriptRow(m.transcript, row)
 		}
@@ -5928,7 +5992,7 @@ func (m *model) cancelRun(keepQueuedMessages ...bool) {
 		}
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Run cancelled."})
 	}
-	if m.pending && m.activeSession.SessionID != "" {
+	if m.pending && m.activeRunID != 0 && m.activeSession.SessionID != "" {
 		if next, err := (*m).appendSessionEvent(sessions.EventError, map[string]any{
 			"message": "Run cancelled.",
 		}); err == nil {
@@ -6144,6 +6208,16 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 					row.id = fmt.Sprintf("interleave-%d-%d", runID, interleaveSeq)
 					rows = append(rows, row)
 					m.sendAgentRow(runID, row)
+				}
+				if len(messages) > 0 {
+					// Track what the loop took so a batch parked after an
+					// interrupt can be relaunched without the dead run's
+					// wire: exactly once.
+					texts := make([]string, 0, len(messages))
+					for _, message := range messages {
+						texts = append(texts, message.Content)
+					}
+					interleave.noteDelivered(texts)
 				}
 				return messages
 			}

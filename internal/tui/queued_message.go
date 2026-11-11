@@ -29,6 +29,10 @@ type sendNowSignal interface {
 type interleaveBuffer struct {
 	mu    sync.Mutex
 	texts []string
+	// delivered records the texts the loop already drained into the run's
+	// wire, so a batch parked after an interrupt can be relaunched losslessly
+	// even when the dead run never hands over its continuation.
+	delivered []string
 }
 
 func (b *interleaveBuffer) push(text string) {
@@ -61,6 +65,27 @@ func (b *interleaveBuffer) pendingCount() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return len(b.texts)
+}
+
+// noteDelivered records texts the loop drained into the wire — called by
+// the agent goroutine after InterleaveMessages hands messages over.
+func (b *interleaveBuffer) noteDelivered(texts []string) {
+	b.mu.Lock()
+	b.delivered = append(b.delivered, texts...)
+	b.mu.Unlock()
+}
+
+// takeDelivered drains the recorded deliveries: each tracked text may ride
+// a relaunch at most once.
+func (b *interleaveBuffer) takeDelivered() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.delivered) == 0 {
+		return nil
+	}
+	out := append([]string(nil), b.delivered...)
+	b.delivered = nil
+	return out
 }
 
 // snapshot returns a copy of the pending interleave texts, in FIFO order,
@@ -136,10 +161,21 @@ func (m model) popQueuedMessageForEdit() model {
 	return m.returnTextsToComposer(text)
 }
 
-// popInterleaveForEdit moves the LAST still-pending interleave back into the
-// composer, above whatever draft is already there. The loop may already have
-// drained it — then popLast reports false and ↑ falls through to the FIFO.
+// popInterleaveForEdit moves the LAST still-pending interleave back into
+// the composer, above whatever draft is already there. The parked send-now
+// batch is the newest undelivered work, so its tail pops first; then the
+// run's interleave buffer; then the FIFO tail. The loop may already have
+// drained everything — then popLast reports false and ↑ falls through.
 func (m model) popInterleaveForEdit() (model, bool) {
+	if n := len(m.pendingSendNow); n > 0 {
+		text := m.pendingSendNow[n-1]
+		m.pendingSendNow = m.pendingSendNow[:n-1]
+		// A window that just emptied its batch is no longer a turn.
+		if len(m.pendingSendNow) == 0 && m.activeRunID == 0 {
+			m.pending = false
+		}
+		return m.returnTextsToComposer(text), true
+	}
 	if m.interleave == nil {
 		return m, false
 	}
@@ -150,17 +186,20 @@ func (m model) popInterleaveForEdit() (model, bool) {
 	return m.returnTextsToComposer(text), true
 }
 
-// returnQueuedMessagesToComposer moves the whole FIFO back into the
-// composer, in order, above whatever draft is already there (the queued
-// text lands above the draft). Used when Esc cancels the turn, so nothing
-// fires on its own after the cancel — the user reviews, edits or clears the
-// returned text themselves.
+// returnQueuedMessagesToComposer moves the undelivered work back into the
+// composer, in order: the parked send-now batch first, then the FIFO
+// (with any stranded interleaves merged at its head by the caller), all
+// landing above whatever draft is already there. Used when Esc cancels the
+// turn, so nothing fires on its own after the cancel — the user reviews,
+// edits or clears the returned text themselves.
 func (m model) returnQueuedMessagesToComposer() model {
-	if !m.hasQueuedMessage() {
+	combinedAll := append(append([]string(nil), m.pendingSendNow...), m.queuedMessages...)
+	if len(combinedAll) == 0 {
 		return m
 	}
-	combined := strings.Join(m.queuedMessages, "\n")
+	m.pendingSendNow = nil
 	m.queuedMessages = nil
+	combined := strings.Join(combinedAll, "\n")
 	if draft := m.composerValue(); strings.TrimSpace(draft) != "" {
 		combined += "\n" + draft
 	}
@@ -269,6 +308,11 @@ func (m model) renderQueuedTranscriptBlock(width int) string {
 		}
 	}
 	queued := []string{}
+	for _, text := range m.pendingSendNow {
+		if flattened := flattenQueueText(text); flattened != "" {
+			queued = append(queued, flattened)
+		}
+	}
 	for _, text := range m.queuedMessages {
 		if flattened := flattenQueueText(text); flattened != "" {
 			queued = append(queued, flattened)

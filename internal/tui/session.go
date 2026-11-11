@@ -126,7 +126,11 @@ func (m model) startNewSession() model {
 	// Staged input belongs to the previous conversation. Attachments and a queued
 	// message are only consumed at prompt-submit, so without clearing them here the
 	// fresh session's first prompt would silently inherit the old session's images,
-	// documents, or queued text.
+	// documents, or queued text. A parked send-now batch goes back to the composer
+	// with everything else (same rule as a cancel) — never dropped silently.
+	m = m.returnQueuedMessagesToComposer()
+	// The parked batch rides ABOVE the FIFO — matching the cancel order
+	// (undelivered batch first, then the queue, above the draft).
 	m.pendingImages = nil
 	m.pendingImageLabels = nil
 	m.pendingImageThumbnails = nil
