@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -31,6 +33,178 @@ type fakeSendNowSignal struct {
 func (f *fakeSendNowSignal) Request() bool {
 	f.calls++
 	return f.result
+}
+
+// Text-streaming provider that gates mid-stream: the first request streams
+// one delta and then parks until released; the second request returns at
+// once. It never parks a backgroundable wait, so a send-now during the
+// stream wakes nothing — the interrupt path.
+type streamingGateProvider struct {
+	started  chan struct{}
+	release  chan struct{}
+	requests []qgruntime.CompletionRequest
+}
+
+func (provider *streamingGateProvider) StreamCompletion(
+	ctx context.Context,
+	request qgruntime.CompletionRequest,
+) (<-chan qgruntime.StreamEvent, error) {
+	provider.requests = append(provider.requests, request)
+	ch := make(chan qgruntime.StreamEvent, 4)
+	if len(provider.requests) == 1 {
+		ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventText, Content: "chunk "}
+		close(provider.started)
+		<-provider.release
+	}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventText, Content: "streamed answer"}
+	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
+	close(ch)
+	return ch, nil
+}
+
+// Ctrl+Enter during a text stream — nothing backgroundable is parked, so
+// send-now interrupts and the batch launches in one new turn once the dead
+// run drains.
+func TestCtrlEnterDuringTextStreamingInterruptsAndLaunchesNewTurn(t *testing.T) {
+	provider := &streamingGateProvider{started: make(chan struct{}), release: make(chan struct{})}
+	m := newModel(context.Background(), Options{
+		ProviderName: "openai",
+		ModelName:    "gpt-4.1",
+		Provider:     provider,
+		Registry:     tools.NewRegistry(),
+		SessionStore: testSessionStore(t),
+	})
+	m.input.SetValue("run A")
+	updated, cmdA := m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	doneA := make(chan tea.Msg, 1)
+	go func() { doneA <- execCmd(cmdA) }()
+
+	// The run is mid-stream; nothing is parked on the run's Signal.
+	select {
+	case <-provider.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the provider stream never started")
+	}
+
+	m.input.SetValue("MARKSTREAM interrupt and relaunch")
+	updated, _ = m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+	if len(m.pendingSendNow) != 1 {
+		t.Fatalf("the batch parks until the dead run drains, got %v", m.pendingSendNow)
+	}
+
+	// The stream completes; the dead run drains and the batch launches.
+	close(provider.release)
+	late := <-doneA
+	updated, flushCmd := m.Update(late)
+	m = updated.(model)
+	if !m.pending {
+		t.Fatal("expected the send-now batch to launch the new turn")
+	}
+	if m.pendingSendNow != nil {
+		t.Fatal("expected the parked batch consumed by the launch")
+	}
+	if flushCmd == nil {
+		t.Fatal("expected the new turn's agent command")
+	}
+	_ = execCmd(flushCmd)
+	providersLen := len(provider.requests)
+	if providersLen < 2 {
+		t.Fatalf("provider requests = %d, want at least 2 (original stream + relaunched turn)", providersLen)
+	}
+	last := provider.requests[len(provider.requests)-1]
+	found := false
+	for _, message := range last.Messages {
+		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "MARKSTREAM") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the new turn's wire must carry MARKSTREAM, got %#v", last.Messages)
+	}
+}
+
+// Ctrl+Enter DURING a real exec_command yield wait wakes it at once; the
+// operator message rides the SAME turn; the process keeps running as a
+// background session.
+func TestCtrlEnterDuringRealExecYieldDeliversInSameTurn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	dir := t.TempDir()
+	manager := execution.NewProcessManager(execution.ProcessManagerOptions{})
+	t.Cleanup(func() { manager.StopAll() })
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewExecCommandTool(dir, manager))
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-exec", ToolName: "exec_command"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-exec", ArgumentsFragment: `{"cmd":"sleep 30","yield_time_ms":30000}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-exec"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		{
+			{Type: qgruntime.StreamEventText, Content: "done"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	m := continuationHarness(t, testSessionStore(t), provider, registry)
+	m.width = 96
+	m.permissionMode = agent.PermissionModeUnsafe
+
+	m.input.SetValue("run the sleeper")
+	updated, cmdA := m.Update(testKey(tea.KeyEnter))
+	m = updated.(model)
+	if cmdA == nil {
+		t.Fatal("expected an agent command for turn A")
+	}
+	doneA := make(chan tea.Msg, 1)
+	go func() { doneA <- execCmd(cmdA) }()
+
+	// The real process must exist with its yield wait parked on the run's
+	// Signal before the send-now fires.
+	for i := 0; ; i++ {
+		if manager.Len() == 1 {
+			break
+		}
+		if i > 1000 {
+			t.Fatal("the exec_command never started its sleep")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	m.input.SetValue("MARKSAMETURN operator sends now")
+	updated, _ = m.Update(testInterleaveEnter(t, true))
+	m = updated.(model)
+	if got := m.composerValue(); got != "" {
+		t.Fatalf("the send-now must consume the composer, got %q", got)
+	}
+
+	late := <-doneA
+	updated, _ = m.Update(late)
+	m = updated.(model)
+
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2 (same-turn delivery)", len(provider.requests))
+	}
+	found := false
+	for _, message := range provider.requests[1].Messages {
+		if message.Role == qgruntime.MessageRoleUser && strings.Contains(message.Content, "MARKSAMETURN") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the send-now message must reach the provider in the same turn, got %#v", provider.requests[1].Messages)
+	}
+	if m.pending {
+		t.Fatal("the turn must have completed")
+	}
+	// The process kept running as a background session — the yield woke
+	// early, the sleep was not killed.
+	if got := manager.Len(); got != 1 {
+		t.Fatalf("manager holds %d processes, want 1 (the still-running sleep)", got)
+	}
 }
 
 func TestInterleaveBufferPopLastRemovesOnlyTheLastPending(t *testing.T) {
@@ -1161,7 +1335,7 @@ func TestInterleaveEnterWithPendingAttachmentsKeepsComposer(t *testing.T) {
 	updated, _ := m.Update(testInterleaveEnter(t, true))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "Anexos não vão com Ctrl+Enter") {
+	if !transcriptContains(next.transcript, "Anexos não vão com Ctrl+X Ctrl+S") {
 		t.Fatalf("expected the short attachments notice, got transcript %#v", next.transcript)
 	}
 	if got := next.composerValue(); got != "analyze this" {
@@ -1178,6 +1352,39 @@ func TestInterleaveEnterWithPendingAttachmentsKeepsComposer(t *testing.T) {
 	}
 }
 
+// The attachments refusal names the send chord the user can ACTUALLY
+// press: Ctrl+X Ctrl+S before the terminal confirms kitty disambiguation,
+// Ctrl+Enter after.
+func TestAttachmentsNoticeNamesTheTerminalSafeSendChord(t *testing.T) {
+	newModelWithAttachments := func(disambiguation bool) model {
+		m := newQueuedMessageTestModel(t)
+		m.pending = true
+		m.activeRunID = 1
+		m.runID = 1
+		m.keyboardDisambiguation = disambiguation
+		m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
+		m.input.SetValue("analyze this")
+		return m
+	}
+
+	plain := newModelWithAttachments(false)
+	updated, _ := plain.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+	if !transcriptContains(next.transcript, "Anexos não vão com Ctrl+X Ctrl+S") {
+		t.Fatalf("expected the notice to name Ctrl+X Ctrl+S, got transcript %#v", next.transcript)
+	}
+	if transcriptContains(next.transcript, "Anexos não vão com Ctrl+Enter") {
+		t.Fatalf("the notice must not name an unsendable chord, got transcript %#v", next.transcript)
+	}
+
+	dup := newModelWithAttachments(true)
+	updated, _ = dup.Update(testInterleaveEnter(t, true))
+	next = updated.(model)
+	if !transcriptContains(next.transcript, "Anexos não vão com Ctrl+Enter") {
+		t.Fatalf("expected the notice to name Ctrl+Enter once disambiguation is confirmed, got transcript %#v", next.transcript)
+	}
+}
+
 func TestInterleaveEnterWithPendingDocumentKeepsComposer(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
@@ -1189,7 +1396,7 @@ func TestInterleaveEnterWithPendingDocumentKeepsComposer(t *testing.T) {
 	updated, _ := m.Update(testInterleaveEnter(t, true))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "Anexos não vão com Ctrl+Enter") {
+	if !transcriptContains(next.transcript, "Anexos não vão com Ctrl+X Ctrl+S") {
 		t.Fatalf("expected the short attachments notice, got transcript %#v", next.transcript)
 	}
 	if got := next.composerValue(); got != "summarize this" {
@@ -1212,7 +1419,7 @@ func TestInterleaveEnterWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing
 	updated, cmd := m.Update(testInterleaveEnter(t, true))
 	next := updated.(model)
 
-	if transcriptContains(next.transcript, "Anexos não vão com Ctrl+Enter") {
+	if transcriptContains(next.transcript, "Anexos não vão com Ctrl+X Ctrl+S") {
 		t.Fatal("an empty composer carries no attachments; the notice must not fire")
 	}
 	if cmd != nil {

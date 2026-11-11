@@ -43,6 +43,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/updatenotice"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usercommands"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/yieldnow"
 )
 
 const tuiToolOutputLimit = 240
@@ -328,10 +329,9 @@ type model struct {
 	interleave *interleaveBuffer
 	// yieldNow wakes the run's backgroundable wait (a yield wait or a polling
 	// tool) so send-now can be delivered inside the running turn. Owned by the
-	// agent side (yieldnow.Signal, wired in beginRun/runAgentWithOptions by
-	// the rebase onto the tools work); nil means nothing to wake, and
-	// Request() is treated as false — the caller interrupts the turn and
-	// relaunches the messages instead.
+	// agent side (yieldnow.Signal); minted fresh per run in beginRun and read
+	// by runAgentWithOptions. Tests may override the concrete Signal with a
+	// recording fake — beginRun replaces it on the next run.
 	yieldNow sendNowSignal
 	// keyboardDisambiguation records whether the terminal confirmed kitty key
 	// disambiguation (KeyboardEnhancementsMsg, Flags > 0). Until it does,
@@ -4963,7 +4963,7 @@ func (m model) handleInterleaveEnter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// The queue-only send carries no attachments: the guard only applies
 		// to the composer's own text.
 		if text != "" && (len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0) {
-			return m.appendSystemNotice("Anexos não vão com Ctrl+Enter — use Enter para enfileirar"), nil
+			return m.appendSystemNotice(fmt.Sprintf("Anexos não vão com %s — use Enter para enfileirar", m.sendNowShortcut())), nil
 		}
 		if text != "" {
 			if parseCommand(text).kind != commandPrompt {
@@ -5720,6 +5720,10 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	// A new run means a new retry budget: never carry a previous turn's
 	// countdown into this one.
 	m.retryWait = nil
+	// Fresh signal per run: a run's wakeups never leak into the next run —
+	// the same rule as the interleave buffer. The concrete Signal rides into
+	// the agent via options.YieldNow (see runAgentWithOptions).
+	m.yieldNow = yieldnow.New()
 	// Clear per-run tracking state so stale specialists and plans from the
 	// previous turn don't bleed into the new one.
 	m.specialists.clear()
@@ -6125,6 +6129,12 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		options.Continuation = runOptions.continuation
 		options.LoadedDeferredTools = runOptions.loadedTools
 		options.ExtraUserMessages = runOptions.extraUserMessages
+		// The run's Signal wakes its backgroundable waits on send-now. nil
+		// when the model carries something other than the concrete Signal (a
+		// test fake) — the tools then wait exactly as without one.
+		if signal, ok := m.yieldNow.(*yieldnow.Signal); ok {
+			options.YieldNow = signal
+		}
 		if m.snapshotWriter != nil && m.sessionStore != nil {
 			writer := m.snapshotWriter
 			snapSessionID := runSessionID

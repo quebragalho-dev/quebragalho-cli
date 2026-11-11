@@ -200,6 +200,19 @@ func (m model) requeueStrandedInterleaves() model {
 	return m
 }
 
+// sendNowShortcut names the chord a user can actually press to send now,
+// mirroring queuedSendHint's rule: Ctrl+Enter is only offered once the
+// terminal confirmed kitty key disambiguation; until then the leader chord
+// Ctrl+X Ctrl+S, which works everywhere. The notice texts share this so a
+// user without a disambiguated terminal is never told to press a chord
+// their terminal cannot send.
+func (m model) sendNowShortcut() string {
+	if m.keyboardDisambiguation {
+		return "Ctrl+Enter"
+	}
+	return "Ctrl+X Ctrl+S"
+}
+
 // queuedSendHint names the send-now shortcut in the Sussurro notice, which
 // must never outpromise the terminal: Ctrl+Enter is only offered once the
 // terminal confirmed kitty key disambiguation; until then the hint points at
@@ -207,10 +220,7 @@ func (m model) requeueStrandedInterleaves() model {
 // speaks of ⌘ (on macOS the Command key does not reach the kitty negotiation
 // at all).
 func (m model) queuedSendHint() string {
-	if m.keyboardDisambiguation {
-		return "Ctrl+Enter envia agora"
-	}
-	return "Ctrl+X Ctrl+S envia agora"
+	return m.sendNowShortcut() + " envia agora"
 }
 
 func flattenQueueText(text string) string {
