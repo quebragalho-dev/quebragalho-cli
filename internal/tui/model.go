@@ -4781,10 +4781,12 @@ func (m model) handleEnterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) handleInterleaveEnter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.burstCount = 0
 	if m.pending && m.noBlockingModal() && !m.transcriptDetailed {
-		if len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0 {
+		text := strings.TrimSpace(m.composerValue())
+		// The queue-head pop carries no attachments: the guard only applies
+		// to interleaving the composer's own text.
+		if text != "" && (len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0) {
 			return m.appendSystemNotice("Anexos não vão com Ctrl+Enter — use Enter para enfileirar"), nil
 		}
-		text := strings.TrimSpace(m.composerValue())
 		if text == "" {
 			if len(m.queuedMessages) == 0 {
 				return m.handleEnterKey(msg)
@@ -4832,7 +4834,9 @@ func (m model) handleAgoraCommand(text string) (tea.Model, tea.Cmd) {
 	if !m.noBlockingModal() || m.transcriptDetailed {
 		return m, nil
 	}
-	if len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0 {
+	// The queue-head pop carries no attachments: the guard only applies
+	// to interleaving the command's argument.
+	if text != "" && (len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0) {
 		return m.appendSystemNotice("Anexos não vão com /agora — use Enter para enfileirar"), nil
 	}
 	if text == "" {

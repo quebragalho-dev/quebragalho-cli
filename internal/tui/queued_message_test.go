@@ -1121,3 +1121,25 @@ func TestInterleaveEnterWithPendingDocumentKeepsComposer(t *testing.T) {
 		t.Fatal("the staged document must stay pending")
 	}
 }
+
+func TestInterleaveEnterWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
+	m.queuedMessages = []string{"MARKHEAD queued followup"}
+
+	updated, _ := m.Update(testInterleaveEnter(t, true))
+	next := updated.(model)
+
+	if transcriptContains(next.transcript, "Anexos não vão com Ctrl+Enter") {
+		t.Fatal("popping the queue head carries no attachments; the notice must not fire")
+	}
+	if len(next.queuedMessages) != 0 {
+		t.Fatalf("expected the queue head interleaved, queue = %v", next.queuedMessages)
+	}
+	if len(next.pendingImages) != 1 {
+		t.Fatal("the staged image must stay pending")
+	}
+}

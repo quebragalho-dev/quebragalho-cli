@@ -288,3 +288,26 @@ func TestAgoraRegisteredInHelpAndCommands(t *testing.T) {
 		t.Fatal("/agora must appear in the grouped command help")
 	}
 }
+
+func TestAgoraWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
+	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.input.SetValue("/agora")
+
+	updated, _ := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	if transcriptContains(next.transcript, "Anexos não vão com /agora") {
+		t.Fatal("popping the queue head carries no attachments; the notice must not fire")
+	}
+	if len(next.queuedMessages) != 0 {
+		t.Fatalf("expected the queue head interleaved, queue = %v", next.queuedMessages)
+	}
+	if len(next.pendingImages) != 1 {
+		t.Fatal("the staged image must stay pending")
+	}
+}
