@@ -4763,7 +4763,7 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 		// commands, attachments and @specialist mentions keep waiting for
 		// the end of the turn in the FIFO, one per turn.
 		if len(m.pendingImages) == 0 && len(m.pendingDocuments) == 0 {
-			if _, specialistMention := expandSpecialistMention(command.text, m.agentOptions.Specialists); !specialistMention {
+			if isCommonPrompt(command.text, m.agentOptions.Specialists) {
 				if m.interleave == nil {
 					m.interleave = &interleaveBuffer{}
 				}
@@ -4874,16 +4874,33 @@ func (m model) handleEnterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleSubmit()
 }
 
+// isCommonPrompt reports whether text is a plain prompt: not a slash
+// command, not a leading @specialist mention. The same predicate the
+// to-interleave path applies at submit time — the send-now uses it to
+// tell common messages from the queue's wait-for-turn-end residents.
+func isCommonPrompt(text string, specialists []agent.SpecialistInfo) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	if parseCommand(trimmed).kind != commandPrompt {
+		return false
+	}
+	_, specialistMention := expandSpecialistMention(trimmed, specialists)
+	return !specialistMention
+}
+
 // sendNow delivers everything common pending right now — undelivered
-// interleaves (oldest), then the composer draft behind them — as separate
-// user messages. The FIFO never rides the send; slash commands,
-// @specialist mentions and attachment-backed messages wait for the end of
-// the turn and drain one per turn afterwards, as always. If the run's
-// signal wakes a backgroundable wait, the loop drains the buffer and
-// delivers everything inside the running turn. Otherwise the turn is
-// interrupted and the collected messages launch as one new turn. Nothing
-// returns to the composer on that path. ok is false when nothing common is
-// pending (callers fall back to Enter or a notice).
+// interleaves (oldest), then the common FIFO items (plain prompts, which
+// only reach the queue when a cancel stranded them), then the composer
+// draft last — as separate user messages. The FIFO keeps what waits for
+// the end of the turn: slash commands, @specialist mentions and
+// attachment-backed messages drain one per turn afterwards, as always.
+// If the run's signal wakes a backgroundable wait, the loop drains the
+// buffer and delivers everything inside the running turn. Otherwise the
+// turn is interrupted and the collected messages launch as one new turn.
+// Nothing returns to the composer on that path. ok is false when nothing
+// common is pending (callers fall back to Enter or a notice).
 func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 	var all []string
 	if m.interleave != nil {
@@ -4893,9 +4910,18 @@ func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 			}
 		}
 	}
-	// The FIFO never rides the send: slash commands, @specialist mentions
-	// and attachment-backed messages go off one per turn after this one,
-	// exactly as if the user had queued them on their own.
+	// Plain prompts in the FIFO ride the send too (a cancel parked them
+	// there); commands and mentions belong to the end-of-turn queue and
+	// never reach the wire from here.
+	remaining := make([]string, 0, len(m.queuedMessages))
+	for _, text := range m.queuedMessages {
+		if isCommonPrompt(text, m.agentOptions.Specialists) {
+			all = append(all, text)
+			continue
+		}
+		remaining = append(remaining, text)
+	}
+	m.queuedMessages = remaining
 	draft = strings.TrimSpace(draft)
 	if draft != "" {
 		all = append(all, draft)
@@ -5555,10 +5581,14 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 	// A leading "@specialist <task>" is expanded into an explicit Task-delegation
 	// directive for the agent only; the transcript above keeps the user's verbatim
 	// "@mention". Non-mentions and mid-message "@file" references are unchanged.
+	// Every message in the batch expands the same way.
 	if peer == nil {
-		if expanded, ok := expandSpecialistMention(prompt, m.agentOptions.Specialists); ok {
-			prompt = expanded
+		for index := range prompts {
+			if expanded, ok := expandSpecialistMention(prompts[index], m.agentOptions.Specialists); ok {
+				prompts[index] = expanded
+			}
 		}
+		prompt = prompts[0]
 	}
 	// Prepend any staged PDF document text as a model-facing preamble. The
 	// visible transcript above keeps the user's clean prompt; the agent (and the

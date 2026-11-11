@@ -137,7 +137,7 @@ func TestLeaderCtrlXCtrlSSendsQueueNow(t *testing.T) {
 	m.activeRunID = 1
 	m.runID = 1
 	m.yieldNow = &fakeSendNowSignal{result: true}
-	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.queuedMessages = []string{"/tools"}
 	m.input.SetValue("MARKLEADER draft")
 
 	updated, _ := m.Update(testKeyCtrl('x'))
@@ -154,7 +154,7 @@ func TestLeaderCtrlXCtrlSSendsQueueNow(t *testing.T) {
 	if next.interleave == nil || next.interleave.pendingCount() != 1 {
 		t.Fatalf("expected the draft sent with the running turn, got %+v", next.interleave)
 	}
-	if got := next.queuedMessages; len(got) != 1 || got[0] != "MARKHEAD queued followup" {
+	if got := next.queuedMessages; len(got) != 1 || got[0] != "/tools" {
 		t.Fatalf("the FIFO must stay untouched, got %v", got)
 	}
 }
@@ -167,7 +167,7 @@ func TestLeaderBareSStillRunsStop(t *testing.T) {
 	m.activeRunID = 1
 	m.runID = 1
 	m.yieldNow = &fakeSendNowSignal{result: true}
-	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.queuedMessages = []string{"/tools"}
 	before := len(m.transcript)
 
 	updated, _ := m.Update(testKeyCtrl('x'))

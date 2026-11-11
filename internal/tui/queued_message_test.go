@@ -762,14 +762,14 @@ func TestInterleaveEnterWithEmptyComposerKeepsQueue(t *testing.T) {
 	m.activeRunID = 1
 	m.runID = 1
 	m.yieldNow = &fakeSendNowSignal{result: true}
-	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.queuedMessages = []string{"/tools"}
 
 	updated, cmd := m.Update(testInterleaveEnter(t, true))
 	next := updated.(model)
 	if cmd != nil {
 		t.Fatal("send-now with no common work must not launch or interrupt anything")
 	}
-	if got := next.queuedMessages; len(got) != 1 || got[0] != "MARKHEAD queued followup" {
+	if got := next.queuedMessages; len(got) != 1 || got[0] != "/tools" {
 		t.Fatalf("the FIFO must stay untouched, got %v", got)
 	}
 	if next.interleave != nil && next.interleave.pendingCount() != 0 {
@@ -1407,13 +1407,13 @@ func TestInterleaveEnterWithPendingDocumentKeepsComposer(t *testing.T) {
 	}
 }
 
-func TestInterleaveEnterWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing.T) {
+func TestInterleaveEnterWithAttachmentsAndEmptyComposerKeepsQueue(t *testing.T) {
 	m := newQueuedMessageTestModel(t)
 	m.pending = true
 	m.activeRunID = 1
 	m.runID = 1
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
-	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.queuedMessages = []string{"/tools"}
 	m.yieldNow = &fakeSendNowSignal{result: true}
 
 	updated, cmd := m.Update(testInterleaveEnter(t, true))
@@ -1433,11 +1433,12 @@ func TestInterleaveEnterWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing
 	}
 }
 
-// Send-now must never carry FIFO items: the FIFO only holds what WAITS for
-// the end of the turn (slash commands, @specialist mentions, messages with
-// attachments). Sending them now would hit the model as raw text — "/model x"
-// as a user message instead of a command, a mention without expansion. The
-// FIFO stays untouched and drains one per turn afterwards, as always.
+// Send-now must never carry non-common FIFO items: slash commands and
+// @specialist mentions enqueued mid-turn wait for the end of the turn and
+// drain one per turn afterwards — sending them now would hit the model as
+// raw text — "/model x" as a user message instead of a command, a mention
+// without expansion. Plain prompts (which only reach the queue when a
+// cancel stranded them) ride the send, in order, ahead of the draft.
 func TestSendNowKeepsSpecialistQueueUntilTurnEnds(t *testing.T) {
 	setup := func(signal *fakeSendNowSignal) (model, *scriptedProvider) {
 		m := continuationHarness(t, testSessionStore(t), &scriptedProvider{scripts: textScripts("FRESH answer", "ANSWER ONE", "ANSWER TWO")}, nil)
@@ -1448,6 +1449,7 @@ func TestSendNowKeepsSpecialistQueueUntilTurnEnds(t *testing.T) {
 		cancelled := false
 		m.runCancel = func() { cancelled = true }
 		m.yieldNow = signal
+		m.agentOptions.Specialists = []agent.SpecialistInfo{{Name: "reviewer"}}
 		m.queuedMessages = []string{"/model glm-5.3", "@reviewer check this"}
 		m.input.SetValue("QF-DRAFT")
 		_ = cancelled
@@ -1522,6 +1524,7 @@ func TestSendNowKeepsSlashCommandsInQueueUntilTheyRunInOrder(t *testing.T) {
 	m.runID = 1
 	m.width = 96
 	m.yieldNow = &fakeSendNowSignal{result: false}
+	m.agentOptions.Specialists = []agent.SpecialistInfo{{Name: "reviewer"}}
 	m.queuedMessages = []string{"/model glm-5.3", "@reviewer check this"}
 	m.input.SetValue("QF-DRAFT")
 
@@ -1738,7 +1741,8 @@ func TestSendNowWithConfirmingSignalPushesCommonMessagesIntoBufferInOrder(t *tes
 	m.yieldNow = &fakeSendNowSignal{result: true}
 	m.interleave = &interleaveBuffer{}
 	m.interleave.push("OLDEST leftover")
-	m.queuedMessages = []string{"QF-UM", "QF-DOIS"}
+	m.agentOptions.Specialists = []agent.SpecialistInfo{{Name: "reviewer"}}
+	m.queuedMessages = []string{"/tools", "@reviewer hold"}
 	m.input.SetValue("QF-DRAFT")
 
 	updated, cmd := m.Update(testInterleaveEnter(t, true))
@@ -1753,7 +1757,7 @@ func TestSendNowWithConfirmingSignalPushesCommonMessagesIntoBufferInOrder(t *tes
 	if !next.pending {
 		t.Fatal("the running turn must stay pending")
 	}
-	if got := next.queuedMessages; len(got) != 2 || got[0] != "QF-UM" || got[1] != "QF-DOIS" {
+	if got := next.queuedMessages; len(got) != 2 || got[0] != "/tools" || got[1] != "@reviewer hold" {
 		t.Fatalf("the FIFO must stay untouched, got %v", got)
 	}
 	got := next.interleave.snapshot()
@@ -1793,7 +1797,8 @@ func TestSendNowWithoutSignalInterruptsAndLaunchesDraftSeparately(t *testing.T) 
 	m.width = 96
 	cancelled := false
 	m.runCancel = func() { cancelled = true }
-	m.queuedMessages = []string{"QF-UM", "QF-DOIS"}
+	m.agentOptions.Specialists = []agent.SpecialistInfo{{Name: "reviewer"}}
+	m.queuedMessages = []string{"/tools", "@reviewer hold"}
 	m.input.SetValue("QF-DRAFT")
 
 	updated, _ := m.Update(testInterleaveEnter(t, true))
@@ -1808,7 +1813,7 @@ func TestSendNowWithoutSignalInterruptsAndLaunchesDraftSeparately(t *testing.T) 
 	if got := next.composerValue(); got != "" {
 		t.Fatalf("nothing may return to the composer, got %q", got)
 	}
-	if got := next.queuedMessages; len(got) != 2 || got[0] != "QF-UM" || got[1] != "QF-DOIS" {
+	if got := next.queuedMessages; len(got) != 2 || got[0] != "/tools" || got[1] != "@reviewer hold" {
 		t.Fatalf("the FIFO must survive the interrupt untouched, got %v", got)
 	}
 	if len(next.pendingSendNow) != 1 || next.pendingSendNow[0] != "QF-DRAFT" {
@@ -1853,7 +1858,7 @@ func TestAgoraWithArgumentRidesBehindTheCommonMessages(t *testing.T) {
 	m.activeRunID = 1
 	m.runID = 1
 	m.yieldNow = &fakeSendNowSignal{result: true}
-	m.queuedMessages = []string{"QF-UM"}
+	m.queuedMessages = []string{"/tools"}
 	m.input.SetValue("/agora QF-AGORA")
 
 	updated, _ := m.Update(testKey(tea.KeyEnter))
@@ -1872,7 +1877,7 @@ func TestAgoraWithArgumentRidesBehindTheCommonMessages(t *testing.T) {
 			t.Fatalf("interleave[%d] = %q, want %q; all: %v", i, got[i], want[i], got)
 		}
 	}
-	if got := next.queuedMessages; len(got) != 1 || got[0] != "QF-UM" {
+	if got := next.queuedMessages; len(got) != 1 || got[0] != "/tools" {
 		t.Fatalf("the FIFO must stay untouched, got %v", got)
 	}
 }

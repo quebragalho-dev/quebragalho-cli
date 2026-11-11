@@ -88,7 +88,7 @@ func TestAgoraDuringTurnWithoutArgKeepsQueue(t *testing.T) {
 	m.pending = true
 	m.activeRunID = 1
 	m.runID = 1
-	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.queuedMessages = []string{"/tools"}
 
 	m.input.SetValue("/agora")
 	updated, _ := m.Update(testKey(tea.KeyEnter))
@@ -261,7 +261,7 @@ func TestAgoraWithAttachmentsAndEmptyComposerSendsQueueHead(t *testing.T) {
 	m.activeRunID = 1
 	m.runID = 1
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
-	m.queuedMessages = []string{"MARKHEAD queued followup"}
+	m.queuedMessages = []string{"/tools"}
 	m.yieldNow = &fakeSendNowSignal{result: true}
 	m.input.SetValue("/agora")
 
