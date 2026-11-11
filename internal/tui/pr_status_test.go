@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestPrServiceDetectsGitHubPRAndDiffStats(t *testing.T) {
@@ -486,5 +488,55 @@ func TestPrStateMessageCarriesBranch(t *testing.T) {
 	updated, _ = next.Update(prStateMsg{state: state})
 	if got := updated.(model).gitBranch; got != "feat/switched-elsewhere" {
 		t.Fatalf("empty branch must keep the segment, got %q", got)
+	}
+}
+
+// A finished tool may have rewritten files the diff counts: the result
+// landing in the transcript re-checks the header without waiting for the
+// turn to end. Coalesced by the service gate — rapid tools share one refresh.
+func TestToolResultRefreshesPrState(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "feat/duo\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+		"gh pr list --head feat/duo --state open --json number,url,baseRefName": {
+			output: `[{"url":"https://github.com/org/repo/pull/97","number":97,"baseRefName":"dev"}]`,
+		},
+		"git merge-base origin/dev HEAD": {
+			output: "abc123\n",
+		},
+		"git diff --numstat abc123": {
+			output: "10\t2\tchanged.go\n",
+		},
+	}}
+	service := NewPrService(t.TempDir())
+	service.run = runner.Run
+	service.lastBranch = "feat/old"
+	service.lastHead = "abc000"
+	service.lastRefresh = time.Now()
+
+	m := newQueuedMessageTestModel(t)
+	m.prService = service
+	m.pending = true
+	m.activeRunID = 7
+	m.runID = 7
+	m.width = 96
+
+	updated, cmd := m.Update(agentRowMsg{
+		runID: 7,
+		row:   transcriptRow{kind: rowToolResult, id: "c1", tool: "exec_command", status: tools.StatusOK, runID: 7},
+	})
+	_ = updated.(model)
+	_ = execCmd(cmd)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for !runner.called("gh pr list --head feat/duo --state open --json number,url,baseRefName") && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !runner.called("gh pr list --head feat/duo --state open --json number,url,baseRefName") {
+		t.Fatal("a finished tool result must re-check the PR header state")
 	}
 }
