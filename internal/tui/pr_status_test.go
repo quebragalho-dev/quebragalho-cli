@@ -197,6 +197,17 @@ func (runner *fakePRRunner) called(call string) bool {
 	return false
 }
 
+func (runner *fakePRRunner) anyCallWithPrefix(prefix string) bool {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	for _, actual := range runner.calls {
+		if strings.HasPrefix(actual, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // The repo reuses head `dev` for every release PR (#13-#100): `gh pr view`
 // resolves one PR per branch by its own rule, so the header can show a stale
 // number. The service must list the open PRs for the exact head and show the
@@ -384,9 +395,9 @@ func TestPrServiceRefreshIfNeededDefersFreshState(t *testing.T) {
 
 	service.RefreshIfNeeded()
 	time.Sleep(200 * time.Millisecond)
-	for _, call := range runner.calls {
-		if strings.HasPrefix(call, "gh ") || strings.HasPrefix(call, "git merge-base") || strings.HasPrefix(call, "git diff") {
-			t.Fatalf("fresh gate must not shell out to git/gh, ran: %v", runner.calls)
+	for _, prefix := range []string{"gh ", "git merge-base", "git diff"} {
+		if runner.anyCallWithPrefix(prefix) {
+			t.Fatalf("fresh gate must not shell out to git/gh (prefix %q)", prefix)
 		}
 	}
 }
