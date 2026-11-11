@@ -2962,6 +2962,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.goalAware && !hadQueuedMessage && peerCmd == nil && next.pendingPermission == nil && msg.specReview == nil {
 			next, goalCmd = next.launchGoalContinuationIfReady()
 		}
+		// A finished turn may have rewritten files, switched branches, or
+		// landed on a new head: refresh the cheap branch segment inline and
+		// let the PR service re-check in the background (debounced). Neither
+		// blocks the UI; the render path never shells out.
+		next.gitBranch = gitBranch(next.cwd)
+		next.prService.RefreshIfNeeded()
 		return next, tea.Batch(pendingClearCmd, titleCmd, recapCmd, sweepCmd, queuedCmd, peerCmd, peerApprovalCmd, loopTickCmd, goalCmd)
 	case snapshotWriteFailedMsg:
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Não consegui salvar o histórico exato desta conversa; ao retomar, o qg reconstruirá a partir do histórico salvo."})

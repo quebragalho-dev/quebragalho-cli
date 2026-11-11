@@ -46,12 +46,45 @@ type PrService struct {
 	listeners []func(PrState)
 	cwd       string
 	run       prCommandRunner
+	// lastBranch/lastHead/lastRefresh drive RefreshIfNeeded: refresh only
+	// when the branch or head moved, or the debounce elapsed.
+	lastBranch  string
+	lastHead    string
+	lastRefresh time.Time
+	// cachedIdentity reuses one branch's PR number/url/base without
+	// hitting the network on every refresh (TTL). Diff stats are always
+	// recomputed locally.
+	cachedIdentity cachedPRIdentity
 }
 
 type prCommandRunner func(context.Context, string, string, ...string) (string, error)
 
 const prRefreshInterval = 60 * time.Second
 const prCommandTimeout = 8 * time.Second
+
+// prGitTimeout bounds the local git half of a refresh separately from the
+// network half: branch, head and diff stats come from the local repo and must
+// never hold the background refresh hostage.
+const prGitTimeout = 2 * time.Second
+
+// prRefreshDebounce is the minimum gap between two triggered refreshes. A
+// changed branch or head bypasses it; otherwise turn-end triggers coalesce
+// here instead of shelling out on every turn.
+const prRefreshDebounce = 30 * time.Second
+
+// prIdentityTTL bounds how long the PR identity (number/url/base for one
+// branch) is reused without asking the network again. Diff stats are always
+// recomputed from the local repo; only the gh/glab lookup is cached, so the
+// header never costs a network round trip per turn or per frame.
+const prIdentityTTL = 5 * time.Minute
+
+type cachedPRIdentity struct {
+	branch string
+	number string
+	url    string
+	base   string
+	at     time.Time
+}
 
 func NewPrService(cwdValues ...string) *PrService {
 	cwd := ""
@@ -112,6 +145,49 @@ func (s *PrService) Refresh() {
 	}()
 }
 
+// RefreshIfNeeded re-checks the header state when something observable may
+// have changed: a different branch or head since the last refresh, or a
+// debounce interval elapsed with no refresh. Pure file reads and two fast
+// local git calls decide; the heavy work still runs in Refresh's goroutine.
+// Reports whether a refresh was launched. Never blocks the UI.
+func (s *PrService) RefreshIfNeeded() bool {
+	if s == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), prGitTimeout)
+	defer cancel()
+	branch, head := currentBranchHead(ctx, s.cwd, s.run)
+	now := time.Now()
+	s.mu.Lock()
+	changed := branch != s.lastBranch || head != s.lastHead
+	due := now.Sub(s.lastRefresh) >= prRefreshDebounce
+	if !changed && !due {
+		s.mu.Unlock()
+		return false
+	}
+	s.lastBranch, s.lastHead, s.lastRefresh = branch, head, now
+	s.mu.Unlock()
+	s.Refresh()
+	return true
+}
+
+// currentBranchHead resolves the checked-out branch ("" when detached or on
+// any error) and the current head SHA with two fast local-only git calls.
+func currentBranchHead(ctx context.Context, cwd string, run prCommandRunner) (string, string) {
+	if run == nil {
+		run = defaultPRCommandRunner
+	}
+	branch := ""
+	if output, err := run(ctx, cwd, "git", "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
+		branch = strings.TrimSpace(output)
+	}
+	head := ""
+	if output, err := run(ctx, cwd, "git", "rev-parse", "HEAD"); err == nil {
+		head = strings.TrimSpace(output)
+	}
+	return branch, head
+}
+
 func (s *PrService) setState(state PrState) {
 	s.mu.Lock()
 	s.state = state
@@ -140,7 +216,7 @@ func (s *PrService) detect(ctx context.Context) PrState {
 		}
 	}
 
-	if state, ok := detectGitHubPR(ctx, cwd, run); ok {
+	if state, ok := s.detectGitHubPR(ctx, cwd, run); ok {
 		return state
 	}
 	if state, ok := detectGitLabMR(ctx, cwd, run); ok {
@@ -156,7 +232,7 @@ func WatchPRStateContext(ctx context.Context, service *PrService, onChange func(
 	ctx, cancel := context.WithCancel(ctx)
 	onChange(service.GetState())
 	unsubscribe := service.Subscribe(onChange)
-	service.Refresh()
+	service.RefreshIfNeeded()
 
 	go func() {
 		ticker := time.NewTicker(prRefreshInterval)
@@ -166,7 +242,7 @@ func WatchPRStateContext(ctx context.Context, service *PrService, onChange func(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				service.Refresh()
+				service.RefreshIfNeeded()
 			}
 		}
 	}()
@@ -189,26 +265,75 @@ type gitlabMRView struct {
 	TargetBranch string          `json:"target_branch"`
 }
 
-func detectGitHubPR(ctx context.Context, cwd string, run prCommandRunner) (PrState, bool) {
-	output, err := run(ctx, cwd, "gh", "pr", "view", "--json", "url,number,baseRefName")
-	if err != nil {
+// detectGitHubPR resolves the open PR for the currently checked-out branch.
+// `gh pr view` without arguments picks one PR per branch by its own rule,
+// which misfires on repos that reuse a head branch name across many PRs
+// (every release-please PR here shares head `dev`). Listing the open PRs for
+// the exact head and showing the newest is deterministic: the header never
+// shows another branch's PR, and never an older duplicate.
+func (s *PrService) detectGitHubPR(ctx context.Context, cwd string, run prCommandRunner) (PrState, bool) {
+	branch, _ := currentBranchHead(ctx, cwd, run)
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
 		return PrState{}, false
 	}
-	var view githubPRView
-	if err := json.Unmarshal([]byte(output), &view); err != nil {
+	number, url, base, ok := s.openPRForBranch(ctx, cwd, branch, run)
+	if !ok {
 		return PrState{}, false
 	}
 	state := PrState{
 		Status:   PrFound,
 		Provider: ProviderGitHub,
-		PrURL:    strings.TrimSpace(view.URL),
-		PrNumber: jsonScalarString(view.Number),
+		PrURL:    url,
+		PrNumber: number,
 	}
-	if state.PrNumber == "" {
-		return PrState{}, false
-	}
-	state.Additions, state.Deletions, _ = getLocalDiffStats(ctx, cwd, view.BaseRefName, run)
+	gctx, cancel := context.WithTimeout(ctx, prGitTimeout)
+	defer cancel()
+	state.Additions, state.Deletions, _ = getLocalDiffStats(gctx, cwd, base, run)
 	return state, true
+}
+
+// openPRForBranch returns the newest open PR for one head branch, reusing the
+// cached identity while its TTL holds so refreshes cost no network call.
+func (s *PrService) openPRForBranch(ctx context.Context, cwd, branch string, run prCommandRunner) (number, url, base string, ok bool) {
+	now := time.Now()
+	s.mu.RLock()
+	cached := s.cachedIdentity
+	s.mu.RUnlock()
+	if cached.branch == branch && cached.number != "" && now.Sub(cached.at) < prIdentityTTL {
+		return cached.number, cached.url, cached.base, true
+	}
+	output, err := run(ctx, cwd, "gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number,url,baseRefName")
+	if err != nil {
+		return "", "", "", false
+	}
+	var views []githubPRView
+	if err := json.Unmarshal([]byte(output), &views); err != nil {
+		return "", "", "", false
+	}
+	best := -1
+	bestNum := -1
+	for i, view := range views {
+		// Numeric compare: PR numbers are decimal ids, and "100" sorts before
+		// "36" lexicographically. The newest open PR wins deterministically.
+		n, err := strconv.Atoi(strings.TrimSpace(jsonScalarString(view.Number)))
+		if err != nil {
+			continue
+		}
+		if n > bestNum {
+			bestNum, best = n, i
+		}
+	}
+	if best < 0 {
+		return "", "", "", false
+	}
+	number = strings.TrimSpace(jsonScalarString(views[best].Number))
+	url = strings.TrimSpace(views[best].URL)
+	base = strings.TrimSpace(views[best].BaseRefName)
+	s.mu.Lock()
+	s.cachedIdentity = cachedPRIdentity{branch: branch, number: number, url: url, base: base, at: now}
+	s.mu.Unlock()
+	return number, url, base, true
 }
 
 func detectGitLabMR(ctx context.Context, cwd string, run prCommandRunner) (PrState, bool) {
