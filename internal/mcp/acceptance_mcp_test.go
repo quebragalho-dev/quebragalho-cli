@@ -192,6 +192,8 @@ func TestAcceptanceMCPRemoteReconnectsWithExponentialBackoff(t *testing.T) {
 	}
 }
 
+// The reconnect may start in the call that saw the drop or at the next use,
+// since a call the server may have received is not sent again.
 func TestAcceptanceMCPRemoteReconnectGivesUpAfterFiveAttempts(t *testing.T) {
 	if testing.Short() {
 		t.Skip("backoff 1+2+4+8s")
@@ -213,18 +215,32 @@ func TestAcceptanceMCPRemoteReconnectGivesUpAfterFiveAttempts(t *testing.T) {
 	if result, ok := acceptanceRun(t, registry, "mcp_gone_lookup", acceptanceTimeoutBound); !ok || result.Status != tools.StatusOK {
 		t.Fatalf("baseline call failed before the drop: %#v", result)
 	}
+	reached := func(want int32, within time.Duration) bool {
+		deadline := time.Now().Add(within)
+		for attempts.Load() < want {
+			if time.Now().After(deadline) {
+				return false
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return true
+	}
 
 	down.Store(true)
-	go registry.RunWithOptions(context.Background(), "mcp_gone_lookup", map[string]any{}, tools.RunOptions{PermissionGranted: true})
-	time.Sleep(6 * time.Second)
-	if attempts.Load() == 0 {
-		t.Fatal("no reconnect attempt (initialize) within 6s of the connection drop")
+	if _, ok := acceptanceRun(t, registry, "mcp_gone_lookup", 40*time.Second); !ok {
+		t.Fatal("the call that saw the drop never returned")
 	}
-	time.Sleep(26 * time.Second)
-	settled := attempts.Load()
-	time.Sleep(3 * time.Second)
-	if got := attempts.Load(); got != 5 || settled != 5 {
-		t.Fatalf("reconnect attempts = %d (then %d), want exactly 5 and then stop", settled, got)
+	if !reached(1, 3*time.Second) {
+		go registry.RunWithOptions(context.Background(), "mcp_gone_lookup", map[string]any{}, tools.RunOptions{PermissionGranted: true})
+		if !reached(1, 6*time.Second) {
+			t.Fatal("no reconnect attempt (initialize) within 6s of the next use after the drop")
+		}
+	}
+	reached(5, 40*time.Second)
+	// A sixth attempt would follow the fifth by at least 16s.
+	time.Sleep(20 * time.Second)
+	if got := attempts.Load(); got != 5 {
+		t.Fatalf("reconnect attempts = %d, want exactly 5 and then stop", got)
 	}
 }
 
