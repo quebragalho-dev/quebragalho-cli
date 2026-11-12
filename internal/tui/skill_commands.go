@@ -46,12 +46,12 @@ func (m model) handleSkillCommand(raw string) (model, tea.Cmd, bool) {
 // spelling (a non-typable skill's body from the picker). The run-state
 // guards match the slash paths; the FIFO keeps the wire under a marker so
 // the drain and /retry send it without a second expansion pass.
-func (m model) launchPinnedOrDefer(wire string) (model, tea.Cmd, bool) {
+func (m model) launchPinnedOrDefer(name, wire string) (model, tea.Cmd, bool) {
 	if m.exiting {
 		return m, nil, true
 	}
 	if m.pending {
-		return m.queueMessage(literalPinnedPrefix + wire), nil, true
+		return m.queueMessage(pinnedLiteralSkill(name, wire)), nil, true
 	}
 	if m.compactInFlight {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
@@ -60,9 +60,17 @@ func (m model) launchPinnedOrDefer(wire string) (model, tea.Cmd, bool) {
 		})
 		return m, nil, true
 	}
+	next, teaCmd := m.launchPinnedWire(wire)
+	return next, teaCmd, true
+}
+
+// launchPinnedWire launches a pre-expanded wire and keeps the literal flag
+// set on the model: immediate picker launches, FIFO drains and /retry all
+// resend the wire verbatim, never re-expanding skill citations inside it.
+func (m model) launchPinnedWire(wire string) (model, tea.Cmd) {
 	next, teaCmd := m.launchPromptSilent(wire)
 	next.lastPromptLiteral = true
-	return next, teaCmd, true
+	return next, teaCmd
 }
 
 // bareSkillInvocationNote is appended when a skill is invoked with no request.
@@ -164,7 +172,7 @@ func (m model) invokeSkillByName(name string) (model, tea.Cmd) {
 			// no raw spelling for the wire, so the pinned literal path
 			// delivers it (guards included).
 			wire := composeSkillPrompt(body, "")
-			next, teaCmd, _ := m.launchPinnedOrDefer(wire)
+			next, teaCmd, _ := m.launchPinnedOrDefer(name, wire)
 			return next, teaCmd
 		}
 		next, teaCmd, _ := m.launchOrDeferExpandedPrompt("/" + name)

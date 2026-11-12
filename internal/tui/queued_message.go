@@ -126,10 +126,46 @@ func (b *interleaveBuffer) drain() []qgruntime.Message {
 }
 
 // literalPinnedPrefix marks FIFO entries that are already the agent-facing
-// wire (a non-typable skill's body from the picker). Consumers strip it and
-// send the remainder WITHOUT slash/skill expansion — the marker never rides
-// the wire, the transcript or the composer.
+// wire (a non-typable skill's body from the picker). The entry carries the
+// skill name for the queue row and the notices: literalPinnedPrefix + name
+// + "\n" + wire. Consumers strip the marker; it never reaches the wire, the
+// transcript or the composer.
 const literalPinnedPrefix = "\x00"
+
+// pinnedLiteralSkill encodes a pinned FIFO entry. A newline or NUL in the
+// name is flattened for the display line; the wire keeps its own text.
+func pinnedLiteralSkill(name, wire string) string {
+	flat := strings.ReplaceAll(strings.ReplaceAll(name, "\x00", " "), "\n", " ")
+	return literalPinnedPrefix + flat + "\n" + wire
+}
+
+// parsePinnedLiteral decodes a pinned FIFO entry. ok is false for anything
+// else (a plain raw line never matches).
+func parsePinnedLiteral(text string) (name, wire string, ok bool) {
+	if !strings.HasPrefix(text, literalPinnedPrefix) {
+		return "", "", false
+	}
+	body := text[len(literalPinnedPrefix):]
+	name, rest, found := strings.Cut(body, "\n")
+	if !found {
+		return "", body, true
+	}
+	return name, rest, true
+}
+
+// pinnedLiteralName reports the skill name of a pinned entry (for the queue
+// row and the notices); ok is false for plain entries.
+func pinnedLiteralName(text string) (string, bool) {
+	name, _, ok := parsePinnedLiteral(text)
+	return name, ok
+}
+
+// pinnedSkillExitedNotice is the short line shown when a pinned entry leaves
+// the queue without launching (↑ or Esc): the body can never go back to the
+// composer, so the notice says where it went.
+func pinnedSkillExitedNotice(name string) string {
+	return fmt.Sprintf("skill «%s» saiu da fila — escolha de novo pela lista para reenviar", name)
+}
 
 // queueMessage appends text to the FIFO queue of pending follow-up messages.
 // Every queued message renders as a dimmed Sussurro row in the transcript; ↑
@@ -175,7 +211,12 @@ func (m model) popQueuedMessageForEdit() model {
 	}
 	text := m.queuedMessages[len(m.queuedMessages)-1]
 	m.queuedMessages = m.queuedMessages[:len(m.queuedMessages)-1]
-	return m.returnTextsToComposer(strings.TrimPrefix(text, literalPinnedPrefix))
+	if name, pinned := pinnedLiteralName(text); pinned {
+		// The body can never be reconstructed from the queue alone, so the
+		// pinned entry leaves with a short notice instead of "editing".
+		return m.appendSystemNotice(pinnedSkillExitedNotice(name))
+	}
+	return m.returnTextsToComposer(text)
 }
 
 // popInterleaveForEdit moves the parked send-now batch's tail (the newest
@@ -217,10 +258,19 @@ func (m model) returnQueuedMessagesToComposer() model {
 	}
 	m.pendingSendNow = nil
 	m.queuedMessages = nil
-	for i, text := range combinedAll {
-		combinedAll[i] = strings.TrimPrefix(text, literalPinnedPrefix)
+	rest := make([]string, 0, len(combinedAll))
+	notices := []string{}
+	for _, text := range combinedAll {
+		if name, pinned := pinnedLiteralName(text); pinned {
+			notices = append(notices, name)
+			continue
+		}
+		rest = append(rest, text)
 	}
-	combined := strings.Join(combinedAll, "\n")
+	for _, name := range notices {
+		m = m.appendSystemNotice(pinnedSkillExitedNotice(name))
+	}
+	combined := strings.Join(rest, "\n")
 	if draft := m.composerValue(); strings.TrimSpace(draft) != "" {
 		combined += "\n" + draft
 	}
@@ -283,8 +333,10 @@ func (m model) queuedSendHint() string {
 	return m.sendNowShortcut() + " envia agora"
 }
 
-func flattenQueueText(text string) string {
-	text = strings.TrimPrefix(text, literalPinnedPrefix)
+func flattenQueueText(text string, width int) string {
+	if name, pinned := pinnedLiteralName(text); pinned {
+		return truncateRunes("skill: "+name, width)
+	}
 	return strings.Join(strings.Fields(text), " ")
 }
 
@@ -319,18 +371,18 @@ func (m model) renderQueuedTranscriptBlock(width int) string {
 	queued := []string{}
 	if m.interleave != nil {
 		for _, text := range m.interleave.snapshot() {
-			if flattened := flattenQueueText(text); flattened != "" {
+			if flattened := flattenQueueText(text, wrapWidth); flattened != "" {
 				queued = append(queued, flattened)
 			}
 		}
 	}
 	for _, text := range m.pendingSendNow {
-		if flattened := flattenQueueText(text); flattened != "" {
+		if flattened := flattenQueueText(text, wrapWidth); flattened != "" {
 			queued = append(queued, flattened)
 		}
 	}
 	for _, text := range m.queuedMessages {
-		if flattened := flattenQueueText(text); flattened != "" {
+		if flattened := flattenQueueText(text, wrapWidth); flattened != "" {
 			queued = append(queued, flattened)
 		}
 	}

@@ -5000,7 +5000,7 @@ func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 	// never reach the wire from here.
 	remaining := make([]string, 0, len(m.queuedMessages))
 	for _, text := range m.queuedMessages {
-		if _, pinned := strings.CutPrefix(text, literalPinnedPrefix); pinned {
+		if _, _, pinned := parsePinnedLiteral(text); pinned {
 			remaining = append(remaining, text)
 			continue
 		}
@@ -5558,7 +5558,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// The last-prompt slot may hold a pre-expanded wire (a non-typable
 		// skill's body from the picker), not a command line: resend it as-is.
 		if m.lastPromptLiteral {
-			return m.launchPromptSilent(m.lastPrompt)
+			return m.launchPinnedWire(m.lastPrompt)
 		}
 		// Resend the last submitted message — running the full dispatch again
 		// so skill tokens re-expand from the raw text and user commands
@@ -6071,8 +6071,8 @@ func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
 	m.queuedMessages = m.queuedMessages[1:]
 	// A pinned entry is already the agent-facing wire (a non-typable
 	// skill's body from the picker): launch it literally, never re-expand.
-	if wire, pinned := strings.CutPrefix(prompt, literalPinnedPrefix); pinned {
-		return m.launchPromptSilent(wire)
+	if _, wire, pinned := parsePinnedLiteral(prompt); pinned {
+		return m.launchPinnedWire(wire)
 	}
 	// Re-dispatch the queued line so skill tokens re-expand, user commands
 	// re-resolve and builtins still execute — the FIFO is raw text; the wire
