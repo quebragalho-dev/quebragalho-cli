@@ -24,10 +24,17 @@ func TestRedactExpandedSecrets(t *testing.T) {
 }
 
 func TestRedactPrefersLongestValue(t *testing.T) {
-	server := Server{Name: "s", Secrets: map[string]string{"A": "abc", "B": "abcdef"}}
-	got := server.Redact("x abcdef y")
+	server := Server{Name: "s", Secrets: map[string]string{"A": "ambient-abc", "B": "ambient-abcdef"}}
+	got := server.Redact("x ambient-abcdef y")
 	if strings.Contains(got, "abcdef") || !strings.Contains(got, "${B}") {
 		t.Fatalf("Redact() = %q, want the longest value traded first", got)
+	}
+}
+
+func TestRedactIgnoresShortValues(t *testing.T) {
+	server := Server{Name: "s", Secrets: map[string]string{"MODE": "ok"}}
+	if got := server.Redact("ok"); got != "ok" {
+		t.Fatalf("Redact() = %q, short values must never rewrite text", got)
 	}
 }
 

@@ -253,7 +253,7 @@ qg mcp oauth login github
 qg mcp approve docs   # one-time approval of a project-layer server
 ```
 
-Servers are merged from user and project configs (project wins on conflicts). Token-bearing values in `config.json` are sent verbatim — there is no `${env:...}` expansion — so prefer one of:
+Servers are merged from user and project configs (project wins on conflicts). For secrets, prefer one of:
 
 - A wrapper script that sources the secret and execs the real command.
 - A `--header` value produced by command substitution (`"Authorization=Bearer $(print-token)"`) in a private shell config that you keep out of git.
@@ -264,15 +264,17 @@ Servers are merged from user and project configs (project wins on conflicts). To
 config values, never for OAuth material). Prefer passing secrets via `env`
 over `args`: `args` are visible in process listings while `env` values stay
 redacted in `mcp list`, errors, and logs. A `${VAR}` with no value and no
-default expands to `""`; `qg mcp check` warns about the missing name.
+default expands to `""`; connecting with an emptied target fails and
+`qg mcp check` refuses upfront naming the missing variable.
 
 Project MCP config remains supported for shared team servers, but a project
 layer that changes an existing server's target (`url`, `command`, or `args`)
 does not inherit user credentials, and every project server needs a one-time
-user approval before qg runs it (`qg mcp approve <server>`, remembered per
-project). Approval binds the exact approved target: changing it asks again.
-OAuth tokens are bound to the resolved server identity, so changing a server
-target can require `qg mcp oauth login <server>` again.
+user approval before qg runs it. Approve explicitly (`qg mcp approve <server>`,
+confirmed interactively, or pass `--yes` to skip the prompt); approval is
+remembered per project and binds the exact approved target — changing it
+asks again. OAuth tokens are bound to the resolved server identity, so
+changing a server target can require `qg mcp oauth login <server>` again.
 OAuth server names ending in `.<32 hex chars>` are reserved for token storage.
 
 Timeouts: each tool call is bounded by the per-server `timeout` in

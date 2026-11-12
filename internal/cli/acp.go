@@ -112,6 +112,7 @@ func buildACPWorkspace(ctx context.Context, workspaceRoot string, resolved confi
 		}
 		workspace.Cleanup = runtime.Close
 		workspace.Notices = acpMCPSetupNotices(trustSkip, runtime)
+		workspace.RefreshMCP = mcpBetweenTurns(runtime)
 	}
 	registerLocalControlTools(registry, workspaceRoot, resolved.LocalControl)
 	// MCP tools are deferred-eligible. Register their loader only after every

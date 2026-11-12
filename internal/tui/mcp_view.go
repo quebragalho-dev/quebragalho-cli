@@ -28,7 +28,7 @@ type MCPServerView struct {
 	Origin string
 	// NeedsAuth is true when the server requires OAuth and no token is stored.
 	NeedsAuth bool
-	// Glyph, StateLabel and CountLabel render the Claude Code panel style when
+	// Glyph, StateLabel and CountLabel render the states panel style when
 	// the view state carries explicit per-server statuses. Empty means the
 	// legacy rendering (State verbatim, pluralized "ferramentas").
 	Glyph      string
@@ -159,7 +159,7 @@ func mcpManagerServerLines(servers []MCPServerView) []string {
 
 		var header string
 		if server.Glyph != "" {
-			header = prefix + mcpManagerServerCCLine(name, server, transport)
+			header = prefix + mcpManagerServerPanelLine(name, server, transport)
 		} else {
 			state := displayValue(strings.TrimSpace(server.State), "configurado")
 			parts := []string{name, state}
@@ -193,9 +193,9 @@ func mcpManagerServerLines(servers []MCPServerView) []string {
 	return lines
 }
 
-// mcpManagerServerCCLine renders one server in the Claude Code panel style:
+// mcpManagerServerPanelLine renders one server in the states panel style:
 // glyph, Portuguese state, inline reason, tool count, origin, transport.
-func mcpManagerServerCCLine(name string, server MCPServerView, transport string) string {
+func mcpManagerServerPanelLine(name string, server MCPServerView, transport string) string {
 	parts := []string{name + " " + server.Glyph + " " + server.StateLabel}
 	if detail := strings.TrimSpace(server.Detail); detail != "" && server.Status == "failed" {
 		parts = append(parts, detail)

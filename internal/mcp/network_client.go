@@ -59,7 +59,7 @@ func connectNetwork(ctx context.Context, server Server) (ToolClient, error) {
 		return client, nil
 	}
 	// An inferred transport that does not speak Streamable HTTP may still
-	// speak legacy SSE (Claude Code tries HTTP first and switches). Only the
+	// speak legacy SSE (other clients try HTTP first and switch). Only the
 	// implicit default falls back; an explicit http stays strict.
 	if server.Type == ServerTypeHTTP && server.TypeImplicit && isSSEFallbackError(err) {
 		return connectRemoteSSE(ctx, server)
@@ -600,7 +600,7 @@ func (client *remoteSSEClient) readStream(reader io.Reader, ready chan<- error) 
 		client.failPending(err)
 		return
 	}
-	client.failPending(fmt.Errorf("MCP SSE stream closed for server %s", client.server.Name))
+	client.failPending(fmt.Errorf("MCP SSE stream closed for server %s: %w", client.server.Name, errMCPStreamClosed))
 }
 
 func (client *remoteSSEClient) setEndpoint(value string) error {
@@ -675,6 +675,12 @@ func (client *remoteSSEClient) removePending(key string) {
 		close(channel)
 	}
 }
+
+// errMCPStreamClosed marks a clean server-side end of a legacy SSE stream
+// (a restart, an idle proxy cutting it). Unlike errMCPClientClosed — our own
+// Close — a closed stream is a dead transport: the next call redials it.
+// It always travels wrapped in the server-specific message.
+var errMCPStreamClosed = errors.New("MCP SSE stream closed")
 
 func (client *remoteSSEClient) failPending(err error) {
 	client.mu.Lock()

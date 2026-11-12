@@ -170,9 +170,9 @@ func TestRefreshIfStaleUpdatesCatalogBetweenTurns(t *testing.T) {
 	}
 }
 
-// P1-4: a Run never refreshes. A pending list_changed notification stays
-// pending across tool calls; only the turn driver (RefreshPendingTools)
-// applies it between turns.
+// A Run never refreshes the catalog itself. A pending list_changed
+// notification stays pending across tool calls; only the turn driver
+// (RefreshPendingTools) applies it between turns.
 func TestRunDoesNotConsumeStaleSignal(t *testing.T) {
 	fake := &evolvingFakeClient{
 		listed: []RemoteTool{{Name: "echo"}},

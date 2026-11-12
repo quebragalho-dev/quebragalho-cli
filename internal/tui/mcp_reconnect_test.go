@@ -11,8 +11,8 @@ import (
 	internalmcp "github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
 )
 
-// P2-2: the /mcp manager's reconnect action calls Runtime.Reconnect on the
-// live session (not a separate `qg mcp check` process), and the panel shows
+// The /mcp manager's reconnect action calls Runtime.Reconnect on the live
+// session (not a separate `qg mcp check` process), and the panel shows
 // the session's live Status.
 func TestMCPManagerReconnectUsesSessionRuntime(t *testing.T) {
 	var reconnected []string

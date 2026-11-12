@@ -52,8 +52,8 @@ func resolveOutputCeilingTokens() int {
 }
 
 // defaultMCPOutputCeilingTokens is the per-call ceiling for MCP server tools
-// in estimated tokens (bytes/4): 25k, matching the Claude Code cap. MCP
-// servers answer with full documents, so they get a wider lane than the 16k
+// in estimated tokens (bytes/4): 25k. MCP servers
+// answer with full documents, so they get a wider lane than the 16k
 // universal ceiling; past the cap the full text still spills to disk.
 const defaultMCPOutputCeilingTokens = 25_000
 

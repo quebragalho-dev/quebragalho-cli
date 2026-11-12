@@ -24,11 +24,19 @@ func sanitizeMCPErrorText(text string) string {
 	return mcpURLPattern.ReplaceAllStringFunc(text, redactURLForError)
 }
 
-// Redact trades every non-empty ${VAR} value this server substituted back
-// for its ${VAR} reference, longest values first. Use it on any text that
-// leaves the package toward the user, the transcript, or the model.
+// minRedactableSecretLen is the shortest substituted value worth trading
+// back for its ${VAR} reference. Short values (a mode, a port, a boolean)
+// occur naturally in text and must never rewrite tool data; only real
+// secrets travel this path.
+const minRedactableSecretLen = 8
+
+// Redact trades every ${VAR} value this server substituted back for its
+// ${VAR} reference, longest values first, including the URL-escaped forms
+// net/http errors carry. Only error, status, and list/check text goes
+// through here — never a successful tool result, whose content belongs to
+// the model verbatim.
 func (server Server) Redact(text string) string {
-	if len(server.Secrets) == 0 {
+	if len(server.Secrets) == 0 || text == "" {
 		return text
 	}
 	names := make([]string, 0, len(server.Secrets))
@@ -40,10 +48,15 @@ func (server Server) Redact(text string) string {
 	})
 	for _, name := range names {
 		value := server.Secrets[name]
-		if value == "" {
+		if len(value) < minRedactableSecretLen {
 			continue
 		}
-		text = strings.ReplaceAll(text, value, "${"+name+"}")
+		for _, form := range []string{value, url.PathEscape(value), url.QueryEscape(value)} {
+			if form == "" {
+				continue
+			}
+			text = strings.ReplaceAll(text, form, "${"+name+"}")
+		}
 	}
 	return text
 }

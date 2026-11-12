@@ -415,7 +415,13 @@ func (runtime *Runtime) relistServer(ctx context.Context, server Server, conn *m
 	remote, err := conn.ListTools(listCtx)
 	cancel()
 	if err != nil {
-		fresh, freshErr := runtime.factory(runtime.lifeCtx, server)
+		// A live server that answers slowly (or not at all) is not a dead
+		// transport: leave its process alone and retry on the next
+		// notification instead of restarting it on every refresh.
+		if conn.reconnect == nil || !redialable(ctx, err) {
+			return false, err
+		}
+		fresh, freshErr := conn.reconnect(context.Background())
 		if freshErr != nil {
 			return false, freshErr
 		}
@@ -521,10 +527,16 @@ type registryTool struct {
 // by delegating to the current client, so registries and runtimes hold the
 // holder, never a bare client that a redial could leave behind.
 type mcpServerConn struct {
-	mu        sync.Mutex
-	server    Server
-	client    ToolClient
+	mu     sync.Mutex
+	server Server
+	client ToolClient
+	// reconnect dials a fresh transport. It must use the runtime lifetime
+	// context (captured at wiring time), never a turn context, so a revived
+	// process outlives the turn that revived it.
 	reconnect func(context.Context) (ToolClient, error)
+	// redialMu serializes redials: a single redial runs per server at a time,
+	// so two calls failing together cannot start two processes.
+	redialMu sync.Mutex
 }
 
 func newMCPServerConn(server Server, client ToolClient) *mcpServerConn {
@@ -552,6 +564,49 @@ func (conn *mcpServerConn) swap(client ToolClient) {
 	conn.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
+	}
+}
+
+// redialIfCurrent swaps in a fresh transport only if the current one is
+// still the client that failed: a concurrent redial (another call, or the
+// /mcp panel) already healed the server, so this caller must NOT redial
+// again — and must not re-send a call another generation may be serving.
+// At most one redial runs per server at a time. A caller that gave up
+// (ctx done) never waits on a spawn; a spawn that finishes late is closed
+// at once so no process leaks. It reports whether this call performed the
+// swap.
+func (conn *mcpServerConn) redialIfCurrent(ctx context.Context, failed ToolClient) (bool, error) {
+	conn.redialMu.Lock()
+	defer conn.redialMu.Unlock()
+	if cur := conn.current(); cur != failed {
+		return false, nil
+	}
+	type outcome struct {
+		client ToolClient
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		fresh, err := conn.reconnect(context.Background())
+		done <- outcome{fresh, err}
+	}()
+	select {
+	case out := <-done:
+		if out.err != nil {
+			return false, out.err
+		}
+		if out.client == nil {
+			return false, fmt.Errorf("MCP server %s reconnect returned no client", conn.server.Name)
+		}
+		conn.swap(out.client)
+		return true, nil
+	case <-ctx.Done():
+		go func() {
+			if out := <-done; out.err == nil && out.client != nil {
+				_ = out.client.Close()
+			}
+		}()
+		return false, ctx.Err()
 	}
 }
 
@@ -665,26 +720,30 @@ func (tool registryTool) MCPServerName() string {
 
 func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Result {
 	// Refreshes never run here: the turn driver calls RefreshPendingTools
-	// between turns. A run only heals its own dead transport (P1-2/3).
+	// between turns. A run only heals its own dead transport, and only if
+	// that transport is still the one that failed: a concurrent redial (or a
+	// /mcp reconnect) already healed the server, so this call must not
+	// redial again — and must never re-send a call another generation may
+	// already be serving.
+	if tool.conn == nil {
+		return tools.Result{
+			Status: tools.StatusError,
+			Output: "Error: MCP tool " + tool.server.Name + "/" + tool.remote.Name + " failed: no live connection",
+			Meta:   tool.meta(),
+		}
+	}
+	before := tool.conn.current()
 	result, err := tool.callRemote(ctx, args)
-	// A dead transport restarts on next use (a fresh initialize) and the call
-	// is retried: once immediately for a stdio process, with exponential
-	// backoff up to 5 times for a remote server. Timeouts, caller
-	// cancellation, and JSON-RPC error answers (the server is alive and said
-	// no) never reconnect — retrying a hung or refusing server would only
-	// burn the turn.
 	maxReconnects := 1
 	if tool.server.Type != ServerTypeStdio {
 		maxReconnects = maxConnectAttempts
 	}
-	for attempt := 1; err != nil && tool.conn != nil && tool.conn.reconnect != nil && redialable(ctx, err) && attempt <= maxReconnects; attempt++ {
-		if tool.server.Type != ServerTypeStdio {
-			if attempt > 1 && !sleepForReconnect(ctx, attempt-1) {
-				err = ctx.Err()
-				break
-			}
+	for attempt := 1; err != nil && tool.conn.reconnect != nil && redialable(ctx, err) && attempt <= maxReconnects; attempt++ {
+		if tool.server.Type != ServerTypeStdio && attempt > 1 && !sleepForReconnect(ctx, attempt-1) {
+			err = ctx.Err()
+			break
 		}
-		revived, reconnectErr := tool.conn.reconnect(ctx)
+		swapped, reconnectErr := tool.conn.redialIfCurrent(ctx, before)
 		if reconnectErr != nil {
 			err = reconnectErr
 			if !isTransientConnectError(ctx, reconnectErr) {
@@ -692,7 +751,10 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 			}
 			continue
 		}
-		tool.conn.swap(revived)
+		if !swapped {
+			break
+		}
+		before = tool.conn.current()
 		result, err = tool.callRemote(ctx, args)
 	}
 	if err != nil {
@@ -731,7 +793,7 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 	}
 	return tools.Result{
 		Status: status,
-		Output: tool.server.Redact(output),
+		Output: output,
 		Meta:   tool.meta(),
 	}
 }

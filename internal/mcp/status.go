@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// ServerState is the lifecycle state of one configured MCP server, in the
-// Claude Code panel style.
+// ServerState is the lifecycle state of one configured MCP server, in
+// the style the /mcp manager renders.
 type ServerState string
 
 const (

@@ -34,7 +34,10 @@ type execSpecDraftRun struct {
 	// mcpSkip is the trust verdict from the workspace MCP registration in runExec
 	// (which runs before this spec-draft path), so the spec-draft notice can report a
 	// dropped project MCP layer instead of leaving it silent.
-	mcpSkip            trustSkip
+	mcpSkip trustSkip
+	// mcpRuntime is the workspace MCP registration from runExec, so the
+	// spec-draft run refreshes the same catalog between turns.
+	mcpRuntime         mcpToolRuntime
 	registry           *tools.Registry
 	modelRegistry      modelregistry.Registry
 	resolved           config.ResolvedConfig
@@ -119,6 +122,7 @@ func runExecSpecDraft(run execSpecDraftRun) int {
 	emitTrustNotice(run.stderr, hookSkip, run.mcpSkip)
 	result, err := agent.Run(runCtx, run.prompt, run.provider, agent.Options{
 		MaxTurns:        run.resolved.MaxTurns,
+		BetweenTurns:    mcpBetweenTurns(run.mcpRuntime),
 		ContextWindow:   resolveAgentContextWindow(runCtx, run.modelRegistry, run.resolved.Provider),
 		SessionID:       draftSession.SessionID,
 		SessionTitle:    run.sessionTitle,

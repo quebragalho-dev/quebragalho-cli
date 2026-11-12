@@ -23,9 +23,9 @@ type MCPStateOptions struct {
 	// Skipped maps server name to the startup failure reason, so the manager
 	// shows why a configured server has no tools instead of looking healthy.
 	Skipped map[string]string
-	// Status carries explicit per-server connection states (Claude Code
-	// style). When present it drives the panel rendering; otherwise the
-	// legacy skipped/store-based states apply.
+	// Status carries explicit per-server connection states (glyph, state
+	// word, inline reason). When present it drives the panel rendering;
+	// otherwise the legacy skipped/store-based states apply.
 	Status []mcp.ServerStatus
 }
 
@@ -132,7 +132,7 @@ func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int, skippe
 }
 
 // explicitServerView renders one server from an explicit connection status
-// (Claude Code panel style) instead of the legacy config-derived states.
+// instead of the legacy config-derived states.
 func explicitServerView(name string, raw config.MCPServerConfig, status mcp.ServerStatus) MCPServerView {
 	count := status.ToolCount
 	if count < 0 {

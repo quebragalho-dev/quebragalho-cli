@@ -428,8 +428,8 @@ type Options struct {
 	// turn iteration, before the per-turn tool partition is computed. It is
 	// the integration point for turn-boundary maintenance the loop itself
 	// must not know about — e.g. applying pending MCP tools/list_changed
-	// catalog refreshes so the new catalog is visible on the next request
-	// but never mid-request. nil runs every turn exactly as before.
+	// catalog refreshes so the new catalog is visible on the next turn,
+	// never mid-request. nil runs every turn exactly as before.
 	BetweenTurns func(ctx context.Context)
 	// YieldNow carries the TUI's per-run send-now Signal: while a
 	// backgroundable tool wait (exec_command's yield wait, write_stdin

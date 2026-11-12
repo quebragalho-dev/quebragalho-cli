@@ -105,10 +105,9 @@ func TestRegisterSkipsUnapprovedProjectServer(t *testing.T) {
 	}
 }
 
-// Without --yes and without an interactive terminal, approval proceeds with
-// an explicit non-interactive warning instead of hanging on a prompt nobody
-// can answer. (--yes suppresses the warning.)
-func TestRunMCPApproveWarnsWithoutTTY(t *testing.T) {
+// Without --yes and without an interactive terminal, approval is refused:
+// nobody confirmed the exact target being approved.
+func TestRunMCPApproveRequiresConfirmation(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	cwd := t.TempDir()
 	var spawned bool
@@ -116,8 +115,8 @@ func TestRunMCPApproveWarnsWithoutTTY(t *testing.T) {
 		"proj": {Type: "stdio", Command: "mini", ProjectConfigured: true},
 	}, &spawned)
 	var stdout, stderr bytes.Buffer
-	if exitCode := runWithDeps([]string{"mcp", "approve", "proj"}, &stdout, &stderr, deps); exitCode != exitSuccess {
-		t.Fatalf("exitCode = %d, want success with a warning: %s", exitCode, stderr.String())
+	if exitCode := runWithDeps([]string{"mcp", "approve", "proj"}, &stdout, &stderr, deps); exitCode != exitCrash {
+		t.Fatalf("exitCode = %d, want refusal without TTY or --yes", exitCode)
 	}
 	if !strings.Contains(stderr.String(), "--yes") {
 		t.Fatalf("stderr = %q, want the --yes hint", stderr.String())

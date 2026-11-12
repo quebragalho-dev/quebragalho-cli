@@ -561,6 +561,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 			workspaceRoot:      workspaceRoot,
 			trustRoot:          trustRoot,
 			mcpSkip:            mcpSkip,
+			mcpRuntime:         mcpRuntime,
 			registry:           registry,
 			modelRegistry:      modelRegistry,
 			resolved:           resolved,
