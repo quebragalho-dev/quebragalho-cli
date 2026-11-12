@@ -57,10 +57,11 @@ func cacheHitBand(hit float64) string {
 	}
 }
 
-// cacheOrange renders the below-80 band. qgTheme has no orange equivalent,
-// so the spec's hex rides here; lipgloss degrades it under NO_COLOR/Ascii
-// like every other styled segment.
-var cacheOrange = lipgloss.NewStyle().Foreground(lipgloss.Color("#F29B4B"))
+// cacheOrange renders the below-80 band. #F29B4E has no theme equivalent,
+// so the spec's hex rides here verbatim (Muta's acceptance pins the exact
+// triple "242;155;78"); lipgloss degrades it under NO_COLOR/Ascii like every
+// other styled segment.
+var cacheOrange = lipgloss.NewStyle().Foreground(lipgloss.Color("#F29B4E"))
 
 // statusBranchFull renders the branch segment at its full capped width for
 // width-independent layout budgets. The on-screen branch may still truncate

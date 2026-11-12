@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
+
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
@@ -290,5 +293,15 @@ func TestCacheCompactionFlagMotive(t *testing.T) {
 	data := m.cacheStatusData()
 	if !data.showDrop || data.reason != "conversa compactada" {
 		t.Fatalf("flag de compactacao deve motivar a queda; show=%v motivo=%q", data.showDrop, data.reason)
+	}
+}
+
+func TestCacheOrangeIsSpecHex(t *testing.T) {
+	old := lipgloss.Writer.Profile
+	lipgloss.Writer.Profile = colorprofile.TrueColor
+	t.Cleanup(func() { lipgloss.Writer.Profile = old })
+	rendered := cacheOrange.Render("cache 79%")
+	if !strings.Contains(rendered, "38;2;242;155;78") {
+		t.Fatalf("laranja do cache deve ser exatamente #F29B4E (38;2;242;155;78); veio %q", rendered)
 	}
 }
