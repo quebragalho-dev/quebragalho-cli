@@ -422,22 +422,37 @@ func (m model) pollStatuslineCommand(msg tea.Msg) (model, tea.Cmd) {
 	if !m.statuslineCommandActive() {
 		return m, nil
 	}
-	if inner, ok := msg.(agentResponseMsg); ok && inner.runID == m.activeRunID {
-		return m.maybeStartStatuslineRun()
+	if inner, ok := msg.(agentResponseMsg); ok && inner.runID == m.runID {
+		// A finished turn refreshes the command right away, skipping the
+		// refresh window: the model just changed the context/cost numbers.
+		// updateModel already zeroed activeRunID, so match the last-started
+		// run instead. At most one run stays in flight.
+		return m.maybeStartStatuslineRunForced()
 	}
 	return m, nil
 }
 
+// maybeStartStatuslineRunForced launches one run now, skipping the refresh
+// window (a finished turn just changed the numbers). Still never overlaps.
+func (m model) maybeStartStatuslineRunForced() (model, tea.Cmd) {
+	return m.startStatuslineRun(true)
+}
+
 // maybeStartStatuslineRun launches one run when the cache window elapsed and
-// no run is in flight. At most one run is ever in flight: a second trigger
-// while one runs is a no-op (no overlap, no queue).
+// no run is in flight. At most one run is ever in flight: a trigger while
+// one runs is a no-op (no overlap, no queue).
 func (m model) maybeStartStatuslineRun() (model, tea.Cmd) {
+	return m.startStatuslineRun(false)
+}
+
+func (m model) startStatuslineRun(force bool) (model, tea.Cmd) {
 	if m.statuslineCmdInFlight {
 		return m, nil
 	}
-	// The first run starts immediately; later runs wait out the refresh window.
+	// The first run starts immediately; later runs wait out the refresh window
+	// unless a finished turn forces one now.
 	refresh := time.Duration(m.statuslineCfg.EffectiveRefreshMs()) * time.Millisecond
-	if !m.statuslineCmdStartedAt.IsZero() && m.now().Sub(m.statuslineCmdStartedAt) < refresh {
+	if !force && !m.statuslineCmdStartedAt.IsZero() && m.now().Sub(m.statuslineCmdStartedAt) < refresh {
 		return m, nil
 	}
 	m.statuslineCmdInFlight = true
