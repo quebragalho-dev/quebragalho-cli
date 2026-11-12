@@ -58,17 +58,38 @@ func DetectOrchestrators(skills []SkillInfo, env map[string]string) []DetectedOr
 	if env == nil {
 		env = snapshotEnv()
 	}
+	// Windows compares variable names case-insensitively, so the snapshot is
+	// canonicalized once here and every lookup below uses folded keys.
+	foldCase := foldCaseForOS(runtime.GOOS)
+	env = canonicalEnvKeys(env, foldCase)
 	var out []DetectedOrchestrator
 	for _, skill := range skills {
 		name := strings.TrimSpace(skill.Name)
 		if name == "" {
 			continue
 		}
-		signal, ok := matchOrchestrator(skill, name, env)
+		signal, ok := matchOrchestrator(skill, name, env, foldCase)
 		if !ok {
 			continue
 		}
 		out = append(out, DetectedOrchestrator{Name: name, Signal: signal})
+	}
+	return out
+}
+
+// canonicalEnvKeys uppercases variable names when foldCase is set, so the
+// exact map lookups in matchOrchestrator ignore letter case exactly where
+// the OS does (Windows). With foldCase false the map is returned untouched.
+func canonicalEnvKeys(env map[string]string, foldCase bool) map[string]string {
+	if !foldCase {
+		return env
+	}
+	out := make(map[string]string, len(env))
+	for key, value := range env {
+		upper := strings.ToUpper(key)
+		if _, taken := out[upper]; !taken {
+			out[upper] = value
+		}
 	}
 	return out
 }
@@ -81,10 +102,7 @@ func foldCaseForOS(goos string) bool {
 	return goos == "windows"
 }
 
-func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (string, bool) {
-	// Case-insensitivity is decided here, once, from the OS: variable names
-	// are case-insensitive on Windows and case-sensitive elsewhere.
-	foldCase := foldCaseForOS(runtime.GOOS)
+func matchOrchestrator(skill SkillInfo, name string, env map[string]string, foldCase bool) (string, bool) {
 	// A declared `environment:` list replaces the heuristic: a skill that
 	// declares its markers never matches by name pattern. Each declared name
 	// must belong to the skill — end in a session suffix or start with the
@@ -100,7 +118,11 @@ func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (str
 			if !declarationBelongsToSkill(declared, normalized, foldCase) {
 				continue
 			}
-			if strings.TrimSpace(env[declared]) != "" {
+			key := declared
+			if foldCase {
+				key = strings.ToUpper(key)
+			}
+			if strings.TrimSpace(env[key]) != "" {
 				return "env:" + declared, true
 			}
 		}

@@ -238,3 +238,27 @@ func TestFoldCaseForOS(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalEnvKeys(t *testing.T) {
+	in := map[string]string{"kestrel_hub_mark": "v", "OTHER": "w"}
+	folded := canonicalEnvKeys(in, true)
+	if folded["KESTREL_HUB_MARK"] != "v" || folded["OTHER"] != "w" {
+		t.Fatalf("fold mode must uppercase keys, got %+v", folded)
+	}
+	kept := canonicalEnvKeys(in, false)
+	if kept["kestrel_hub_mark"] != "v" || kept["OTHER"] != "w" {
+		t.Fatalf("exact mode must keep key spelling, got %+v", kept)
+	}
+}
+
+func TestMatchOrchestratorFoldCaseLookup(t *testing.T) {
+	skill := SkillInfo{Name: "kestrel-hub", Environments: []string{"kestrel_hub_mark"}}
+	env := map[string]string{"KESTREL_HUB_MARK": "v"}
+	if _, ok := matchOrchestrator(skill, "kestrel-hub", canonicalEnvKeys(env, false), false); ok {
+		t.Fatalf("exact lookup must miss the differently-cased variable")
+	}
+	got, ok := matchOrchestrator(skill, "kestrel-hub", canonicalEnvKeys(env, true), true)
+	if !ok || got != "env:kestrel_hub_mark" {
+		t.Fatalf("folded lookup must match, got %q %v", got, ok)
+	}
+}
