@@ -136,9 +136,25 @@ description: Run the project's benchmark suite and summarize the deltas.
 3. Report any regression > 5% with the function name and the previous value.
 ```
 
-Only `name` and `description` are recognized in the frontmatter today. The `name` defaults to the directory name. Within a single skills root, duplicate names are resolved by lexicographic directory order. Across roots, QG loads the primary directory first, then `~/.agents/skills`, then plugin skill roots; earlier roots win name collisions. Plugin-declared skills (section 6) are merged into the active agent run at plugin activation time, so bundled skills appear in the available skills list and can be loaded with the `skill` tool.
+`name`, `description`, and `environment` are recognized in the frontmatter today (`environment:` lists variable names proving the skill is ambient; see below). The `name` defaults to the directory name. Within a single skills root, duplicate names are resolved by lexicographic directory order. Across roots, QG loads the primary directory first, then `~/.agents/skills`, then plugin skill roots; earlier roots win name collisions. Plugin-declared skills (section 6) are merged into the active agent run at plugin activation time, so bundled skills appear in the available skills list and can be loaded with the `skill` tool.
 
 The `skill` tool lets the agent load any discovered skill by name (primary, agents, or plugin).
+
+### Ambient orchestrator skills
+
+An orchestrator (a canvas app, a team runner, CI with sibling agents) can make QG recognize it — with no per-app code in QG — by publishing a skill that declares its marker variables:
+
+```markdown
+---
+description: Talk to the other agents on the canvas.
+environment: [FOO_SOCKET, FOO_CLI]
+---
+
+# Foo orchestration
+...
+```
+
+When any listed variable exists in the run's environment, QG treats that skill as ambient: the system prompt gains a short `<environment_orchestrator>` block naming the skill and its detection signal (names only, never values), and the skill is pinned at the top of the skill list with its full description. Without a declaration, QG still matches heuristically: skill `foo` with `FOO_SOCKET`, `FOO_SESSION`, `FOO_SESSION_ID`, `FOO_TERMINAL_ID`, `FOO_WORKSPACE`, `FOO_WORKSPACE_ID`, or `FOO_CLI` set — or `TERM_PROGRAM` equal to the skill name — elects it. A bare prefix alone never matches (`GIT_EDITOR` does not elect a skill named `git`). `qg doctor` reports the detected environment and signal. Project guidelines (`AGENTS.md`/`QG.md`) override the orchestrator block on conflict.
 
 ## 4. Hooks
 
