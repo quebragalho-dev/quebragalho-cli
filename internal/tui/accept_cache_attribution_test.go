@@ -226,7 +226,7 @@ var acceptShownPercent = regexp.MustCompile(`cache (\d+)%`)
 // "cache 80%" vê âmbar, seja qual for a casa decimal escondida.
 func TestAcceptCacheColorMatchesShownPercent(t *testing.T) {
 	acceptCacheTrueColor(t)
-	for _, cached := range []int{9_496, 7_996} {
+	for _, cached := range []int{9_496, 9_450, 7_996, 5_000} {
 		m := acceptCacheTUIModel(t, "0.16995")
 		m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 10_000, cached, 10)
 		raw := m.statusLine(180)
@@ -260,54 +260,177 @@ func TestAcceptCacheZeroInputIsNotADrop(t *testing.T) {
 	}
 }
 
+// acceptStatusLevels lê quanto de cada elemento a statusline mostra: 0 é
+// ausente e o maior nível é a forma inteira.
+func acceptStatusLevels(status string) map[string]int {
+	levels := map[string]int{"cache": 0, "branch": 0, "cwd": 0, "contexto": 0, "aviso": 0}
+	if strings.Contains(status, "cache ") {
+		levels["cache"] = 1
+	}
+	switch {
+	case strings.Contains(status, "\ue0a0 "+acceptCacheBranch):
+		levels["branch"] = 2
+	case strings.Contains(status, "\ue0a0 "):
+		levels["branch"] = 1
+	}
+	switch {
+	case strings.Contains(status, "/workspace/qg"):
+		levels["cwd"] = 2
+	case strings.Contains(status, "/wo"):
+		levels["cwd"] = 1
+	}
+	switch {
+	case strings.Contains(status, "34% · 340k/1m"):
+		levels["contexto"] = 2
+	case strings.Contains(status, "34%"):
+		levels["contexto"] = 1
+	}
+	switch {
+	case strings.Contains(status, "nova versão 0.0.11 · reinicie para instalar"):
+		levels["aviso"] = 3
+	case strings.Contains(status, "nova 0.0.11 · reinicie"):
+		levels["aviso"] = 2
+	case strings.Contains(status, "nova 0.0.11"):
+		levels["aviso"] = 1
+	}
+	return levels
+}
+
 // Decisão: o cache é o primeiro a ceder. Enquanto ele aparece, nada mais
 // perdeu forma (aviso de versão, cwd, branch, contexto), e estreitar nunca
-// faz algo reaparecer. A checagem de reaparecimento para no corte do branch:
-// abaixo dele o layout troca de forma e o espaço do branch já devolvia cwd e
-// aviso antes desta mudança.
+// faz algo voltar ou crescer, em toda a faixa de larguras, com e sem aviso de
+// versão e com e sem motivo de queda.
 func TestAcceptCacheYieldsFirstAndNothingReappears(t *testing.T) {
-	for _, withNotice := range []bool{true, false} {
-		m := acceptCacheTUIModel(t, "0.16995")
-		m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 340_000, 329_800, 10)
-		parts := map[string]string{
-			"cache":             "cache ",
-			"cwd inteiro":       "/workspace/qg",
-			"branch":            acceptCacheBranch,
-			"contexto completo": "34% · 340k/1m",
-		}
-		if withNotice {
-			m.updateAvailable = "0.0.11"
-			parts["aviso de versão"] = "nova"
-			parts["aviso completo"] = "nova versão 0.0.11 · reinicie para instalar"
-		}
-		gone := map[string]int{}
-		for width := 220; width >= 20; width-- {
-			status := plainRender(t, m.statusLine(width))
-			has := map[string]bool{}
-			for name, token := range parts {
-				has[name] = strings.Contains(status, token)
-				if width == 220 && !has[name] {
-					t.Fatalf("pré-condição: na largura 220 tudo cabe, faltou %s: %q", name, status)
+	for _, tc := range []struct {
+		name         string
+		notice, drop bool
+	}{
+		{"sem aviso", false, false},
+		{"com aviso", true, false},
+		{"sem aviso, com queda", false, true},
+		{"com aviso e queda", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := acceptCacheTUIModel(t, "0.16995")
+			m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 340_000, 329_800, 10)
+			if tc.drop {
+				m = acceptCacheCall(m, acceptT0.Add(time.Minute), acceptCacheModelID, 340_000, 1_000, 10)
+			}
+			if tc.notice {
+				m.updateAvailable = "0.0.11"
+			}
+			prevStatus := plainRender(t, m.statusLine(260))
+			full := acceptStatusLevels(prevStatus)
+			for name, level := range full {
+				if level == 0 && (name != "aviso" || tc.notice) {
+					t.Fatalf("pré-condição: na largura 260 tudo cabe, faltou %s: %q", name, prevStatus)
 				}
 			}
-			if has["cache"] {
-				for name := range parts {
-					if !has[name] {
-						t.Fatalf("na largura %d o cache ficou e %s cedeu: %q", width, name, status)
+			prev := full
+			for width := 259; width >= 20; width-- {
+				status := plainRender(t, m.statusLine(width))
+				levels := acceptStatusLevels(status)
+				if levels["cache"] == 1 {
+					for name, level := range levels {
+						if level < full[name] {
+							t.Fatalf("na largura %d o cache ficou e %s encurtou: %q", width, name, status)
+						}
 					}
 				}
-			}
-			if !has["branch"] {
-				break
-			}
-			for name := range parts {
-				if has[name] && gone[name] > 0 {
-					t.Fatalf("%s sumiu na largura %d e reapareceu na %d: %q", name, gone[name], width, status)
+				for name, level := range levels {
+					if level > prev[name] {
+						t.Fatalf("ao estreitar para %d, %s voltou ou cresceu (nível %d para %d):\nantes:  %q\ndepois: %q", width, name, prev[name], level, prevStatus, status)
+					}
 				}
-				if !has[name] && gone[name] == 0 {
-					gone[name] = width
-				}
+				prev, prevStatus = levels, status
+			}
+		})
+	}
+}
+
+// O cache oculto não guarda espaço: fora da linha, o que ele diria
+// (porcentagem e motivo de queda) não muda nada no resto da statusline.
+func TestAcceptCacheHiddenCacheHoldsNoSpace(t *testing.T) {
+	for _, notice := range []bool{false, true} {
+		quiet := acceptCacheTUIModel(t, "0.16995")
+		quiet = acceptCacheCall(quiet, acceptT0, acceptCacheModelID, 340_000, 329_800, 10)
+		quiet = acceptCacheCall(quiet, acceptT0.Add(time.Minute), acceptCacheModelID, 340_000, 329_800, 10)
+		noisy := acceptCacheTUIModel(t, "0.16995")
+		noisy = acceptCacheCall(noisy, acceptT0, acceptCacheModelID, 340_000, 329_800, 10)
+		noisy = acceptCacheCall(noisy, acceptT0.Add(time.Minute), acceptCacheModelID, 340_000, 1_000, 10)
+		if notice {
+			quiet.updateAvailable = "0.0.11"
+			noisy.updateAvailable = "0.0.11"
+		}
+		compared := 0
+		for width := 220; width >= 20; width-- {
+			withoutDrop := plainRender(t, quiet.statusLine(width))
+			withDrop := plainRender(t, noisy.statusLine(width))
+			if strings.Contains(withoutDrop, "cache ") || strings.Contains(withDrop, "cache ") {
+				continue
+			}
+			compared++
+			if withoutDrop != withDrop {
+				t.Fatalf("na largura %d o cache está fora das duas linhas, mas o motivo de queda escondido mudou o resto:\nsem queda: %q\ncom queda: %q", width, withoutDrop, withDrop)
 			}
 		}
+		if compared == 0 {
+			t.Fatal("pré-condição: deveria haver larguras com o cache oculto nas duas linhas")
+		}
+	}
+}
+
+// Branch curto ("dev", "main") aparece inteiro quando o layout cabe com o
+// cache, como qualquer outro branch.
+func TestAcceptCacheKeepsShortBranch(t *testing.T) {
+	for _, branch := range []string{"dev", "main"} {
+		m := acceptCacheTUIModel(t, "0.16995")
+		m.gitBranch = branch
+		m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 340_000, 329_800, 10)
+		status := plainRender(t, m.statusLine(220))
+		if !strings.Contains(status, "cache 97%") || !strings.Contains(status, "\ue0a0 "+branch) {
+			t.Fatalf("com o cache visível, o branch %q deveria aparecer inteiro: %q", branch, status)
+		}
+	}
+}
+
+// Decisão: a chamada do sumarizador fica fora das estatísticas de cache
+// também depois do /resume. A sessão retomada mostra o mesmo hit e o mesmo
+// total de entrada que mostrava ao vivo.
+func TestAcceptCacheResumeKeepsSummarizerOutsideStats(t *testing.T) {
+	for _, tc := range []struct{ name, summaryModel string }{
+		{"sumarizador no modelo principal", ""},
+		{"compactionModel dedicado", "accept-attr-summary"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := tools.NewRegistry()
+			registry.Register(continuationEchoTool{})
+			big := strings.Repeat("x", 120_000)
+			first := append([]qgruntime.StreamEvent{{Type: qgruntime.StreamEventText, Content: big}},
+				acceptAttrToolCall("read_it", acceptAttrUsage("", 40_000, 39_000, 100))...)
+			p := &acceptRoutingProvider{
+				main:    [][]qgruntime.StreamEvent{first, acceptAttrText("feito", acceptAttrUsage("", 9_000, 300, 20))},
+				summary: acceptAttrText("RESUMO", acceptAttrUsage(tc.summaryModel, 30_000, 0, 300)),
+			}
+			live := acceptAttrLiveModel(t, p, registry, 24_000, agent.Options{CompactionPreserveLast: 2}, tc.summaryModel)
+			live = runTextTurn(t, live, strings.Repeat("y", 40_000))
+			if status := acceptAttrStatus(t, live); p.summarizeCalls != 1 || !strings.Contains(status, "cache 80%") {
+				t.Fatalf("pré-condição: ao vivo, 1 chamada do sumarizador e hit de 80%%; statusline = %q", status)
+			}
+			idle := &acceptRoutingProvider{main: [][]qgruntime.StreamEvent{acceptAttrText("ok", acceptAttrUsage("", 1, 1, 1))}}
+			fresh := acceptAttrLiveModel(t, idle, registry, 24_000, agent.Options{}, tc.summaryModel)
+			fresh.sessionStore = live.sessionStore
+			resumed, notice := fresh.handleResumeCommand(live.activeSession.SessionID)
+			if notice != "" {
+				t.Fatal(notice)
+			}
+			if status := acceptAttrStatus(t, resumed); !strings.Contains(status, "cache 80%") {
+				t.Fatalf("a sessão retomada deveria mostrar o hit de antes (80%%), sem a chamada do sumarizador; statusline = %q", status)
+			}
+			panel := acceptSGR.ReplaceAllString(acceptOpenUsage(t, resumed), "")
+			if !strings.Contains(panel, "39,3k de 49k tokens de entrada vieram do cache") {
+				t.Fatalf("o bloco de cache retomado deveria contar só as chamadas principais:\n%s", panel)
+			}
+		})
 	}
 }

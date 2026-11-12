@@ -87,11 +87,47 @@ func TestAcceptCacheDriftNoteReportsRemovedGuideline(t *testing.T) {
 	}
 	note := acceptDriftLastUser(second)
 	lower := strings.ToLower(note)
-	if !strings.Contains(note, "sub/QG.md") || !(strings.Contains(lower, "remov") || strings.Contains(lower, "no longer")) {
+	if !strings.Contains(note, "sub/QG.md") || (!strings.Contains(lower, "remov") && !strings.Contains(lower, "no longer")) {
 		t.Fatalf("a nota do sufixo não avisa que a diretriz de sub/QG.md foi removida:\n%s", note)
 	}
 	if !strings.HasSuffix(note, "segunda pergunta") {
 		t.Fatalf("a nota perdeu o prompt do turno:\n%s", note)
+	}
+}
+
+// Uma diretriz num diretório com parênteses (como os route groups do
+// Next.js) que não mudou não pode ser anunciada como removida. Se o arquivo
+// some, a nota cita o caminho inteiro.
+func TestAcceptCacheDriftNoteParenthesizedGuideline(t *testing.T) {
+	for _, removed := range []bool{false, true} {
+		acceptCacheHermetic(t)
+		root := t.TempDir()
+		dir := filepath.Join(root, "app", "(auth)")
+		for _, path := range []string{filepath.Join(root, ".git"), dir} {
+			if err := os.MkdirAll(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		acceptWrite(t, root, ".git/HEAD", "ref: refs/heads/main\n")
+		acceptWrite(t, root, "app/(auth)/QG.md", "# Regras do grupo\n\nRode make lint.\n")
+		acceptWrite(t, root, "app/(auth)/page.go", "package page\n")
+		opts := acceptCacheOptions(dir)
+		first := acceptDriftTurn(t, opts, "primeira pergunta", nil)
+		if !strings.Contains(first.Messages[0].Content, "## Project guidelines (app/(auth)/QG.md)") {
+			t.Fatal("pré-condição: o system do 1º turno deveria trazer a diretriz de app/(auth)/QG.md")
+		}
+		if removed {
+			if err := os.Remove(filepath.Join(dir, "QG.md")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		note := acceptDriftLastUser(acceptDriftTurn(t, opts, "segunda pergunta", first.Messages))
+		if !removed && note != "segunda pergunta" {
+			t.Fatalf("nada mudou no workspace, mas o turno ganhou nota:\n%s", note)
+		}
+		if removed && !strings.Contains(note, "app/(auth)/QG.md") {
+			t.Fatalf("a nota não cita a diretriz removida pelo caminho inteiro:\n%s", note)
+		}
 	}
 }
 
