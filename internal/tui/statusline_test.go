@@ -43,8 +43,30 @@ func TestStatusLineCustomLayout(t *testing.T) {
 	}
 }
 
-// Up to three custom lines render; validation rejects more at the config
-// layer, and the renderer caps defensively.
+// The external command's cached output appends as its own footer lines after
+// the field lines, three lines total. A failure mark shows only when there is
+// no cached output to keep.
+func TestStatusLineCustomAppendsCommandOutput(t *testing.T) {
+	m := limeTestModel()
+	m.statuslineCfg = config.StatusLineConfig{
+		Lines:   []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command: &config.StatusLineCommand{Command: "echo hi"},
+	}
+	m.statuslineCmdOutput = "custom one\ncustom two"
+	lines := strings.Split(plainRender(t, m.statusLine(200)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want 3 (1 field + 2 command):\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(lines[1], "custom one") || !strings.Contains(lines[2], "custom two") {
+		t.Fatalf("command lines missing:\n%s", strings.Join(lines, "\n"))
+	}
+	m.statuslineCmdOutput = ""
+	m.statuslineCmdErr = "statusline: comando falhou (saída 1)"
+	got := plainRender(t, m.statusLine(200))
+	if !strings.Contains(got, "falhou") {
+		t.Fatalf("failure mark missing:\n%s", got)
+	}
+}
 func TestStatusLineCustomMultiline(t *testing.T) {
 	m := limeTestModel()
 	m.statuslineCfg = config.StatusLineConfig{
@@ -64,10 +86,13 @@ func TestStatusLineCustomMultiline(t *testing.T) {
 // Only registered ids validate; the reporter names every unknown id so
 // /statusline can show one actionable warning.
 func TestStatusLineFieldValidation(t *testing.T) {
-	for _, id := range []string{"mode", "effort", "fast", "voice", "background", "goal", "context", "branch", "update", "cwd", "cache", "model", "speed", "cost", "time", "command"} {
+	for _, id := range []string{"mode", "effort", "fast", "voice", "background", "goal", "context", "branch", "update", "cwd", "cache", "model", "speed", "cost", "time"} {
 		if !statuslineFieldKnown(id) {
 			t.Fatalf("catalog id %q unknown", id)
 		}
+	}
+	if statuslineFieldKnown("command") {
+		t.Fatal("command is not a field id: the external command appends its own footer lines")
 	}
 	if statuslineFieldKnown("bogus") {
 		t.Fatal("bogus validates, want unknown")

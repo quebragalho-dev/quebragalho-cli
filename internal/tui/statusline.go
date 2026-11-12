@@ -13,12 +13,12 @@ import (
 
 // Statusline field ids a custom layout may reference. Stable and English;
 // the display stays Portuguese. "cache" is reserved for the Cofre item and
-// renders empty until it plugs in; "command" renders the external command's
-// cached output (empty until a command run lands).
+// renders empty until it plugs in. The external command is not a field: its
+// output appends as its own footer lines (see statusLineCustom).
 var statuslineFieldIDs = []string{
 	"mode", "effort", "fast", "voice", "background", "goal",
 	"context", "branch", "update", "cwd", "cache",
-	"model", "speed", "cost", "time", "command",
+	"model", "speed", "cost", "time",
 }
 
 // statuslineFieldKnown reports whether id names a registered field.
@@ -55,8 +55,10 @@ func (m model) statuslineSeparator() string {
 }
 
 // statusLineCustom renders a user/project-configured layout: up to three
-// lines, each with left ids and right ids joined by the separator. It never
-// runs on the default path, so the built-in line stays byte-identical.
+// lines, each with left ids and right ids joined by the separator, followed
+// by the external command's cached output filling the remaining footer rows.
+// Fields first, command fills the rest, three lines total. It never runs on
+// the default path, so the built-in line stays byte-identical.
 func (m model) statusLineCustom(width int) string {
 	cfg := m.statuslineCfg
 	lines := cfg.Lines
@@ -66,9 +68,24 @@ func (m model) statusLineCustom(width int) string {
 	sep := m.statuslineSeparator()
 	var out []string
 	for _, line := range lines {
+		if len(out) >= maxStatusLineRenderLines {
+			break
+		}
 		left := "  " + joinStatuslineSegments(m, line.Left, sep, width)
 		right := joinStatuslineSegments(m, line.Right, sep, width)
 		out = append(out, fitStyledLine(joinHeaderLine(left, right, width), width))
+	}
+	for _, cmdLine := range strings.Split(m.statuslineCmdOutput, "\n") {
+		if len(out) >= maxStatusLineRenderLines {
+			break
+		}
+		if strings.TrimSpace(cmdLine) == "" {
+			continue
+		}
+		out = append(out, fitStyledLine("  "+cmdLine, width))
+	}
+	if m.statuslineCmdErr != "" && strings.TrimSpace(m.statuslineCmdOutput) == "" && len(out) < maxStatusLineRenderLines {
+		out = append(out, fitStyledLine("  "+qgTheme.faint.Render(m.statuslineCmdErr), width))
 	}
 	return strings.Join(out, "\n")
 }

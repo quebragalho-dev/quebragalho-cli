@@ -641,7 +641,17 @@ type model struct {
 	// statuslineCmdOutput is the cached stdout of the external statusline
 	// command (the "command" field). Empty until a run lands; the runner in
 	// the command commit owns refresh, never the View.
-	statuslineCmdOutput          string
+	statuslineCmdOutput string
+	// statuslineCmdErr is the discreet failure mark shown while the cached
+	// output is stale. Cleared by the next successful run.
+	statuslineCmdErr string
+	// statuslineCmdInFlight guarantees at most one command run in flight: a
+	// trigger while one runs is a no-op, never a queue.
+	statuslineCmdInFlight bool
+	// statuslineCmdStartedAt gates re-runs to the refresh window; seq matches
+	// runs to their results so late losers are dropped.
+	statuslineCmdStartedAt       time.Time
+	statuslineCmdSeq             int
 	recapSeq                     int
 	recapRunning                 bool
 	recapCancel                  context.CancelFunc
@@ -1400,6 +1410,11 @@ func (m model) Init() tea.Cmd {
 	if cmd := m.updateCheckInitCmd(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	// First external statusline run fires immediately (the tick handler then
+	// keeps the idle refresh chain alive). Async like everything above.
+	if m.statuslineCommandActive() {
+		cmds = append(cmds, statuslineInitCmd())
+	}
 	// Read the terminal background only to keep a selected palette legible. This
 	// query never changes the terminal canvas; View deliberately leaves both
 	// terminal-wide color fields unset.
@@ -1576,7 +1591,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	nm, noticeCmd := nm.ensureTransientNoticeTimer()
-	return nm, batchCommands(cmd, mouseCmd, flushCmd, recapActivityCmd, composerCmd, noticeCmd)
+	// The statusline command poll piggybacks the Update pass: a due run
+	// starts async (at most one in flight) and the idle tick chain stays
+	// armed. It never runs on the default path.
+	nm, statuslineCmd := nm.pollStatuslineCommand(msg)
+	return nm, batchCommands(cmd, mouseCmd, flushCmd, recapActivityCmd, composerCmd, noticeCmd, statuslineCmd)
 }
 
 func batchCommands(cmds ...tea.Cmd) tea.Cmd {
@@ -3286,6 +3305,19 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bashResultMsg:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: msg.output})
 		return m, nil
+	case statuslineCmdMsg:
+		// One external statusline run finished: fold its output (or its
+		// discreet failure mark) without touching anything else. The View
+		// reads only the cache, so a run can never block rendering.
+		return m.applyStatuslineCmdMsg(msg), nil
+	case statuslineTickMsg:
+		// Idle refresh: start a due run and re-arm the chain. A deactivated
+		// command ends the chain by scheduling nothing.
+		if !m.statuslineCommandActive() {
+			return m, nil
+		}
+		m, cmd := m.maybeStartStatuslineRun()
+		return m, batchCommands(cmd, statuslineTickCmd(m.statuslineCfg.EffectiveRefreshMs()))
 	case setupKeyCheckMsg:
 		return m.applySetupKeyCheck(msg), nil
 	case setupDeviceStartedMsg:
