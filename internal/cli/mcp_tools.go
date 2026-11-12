@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -67,6 +68,21 @@ func registerMCPToolsForWorkspaceWithOptions(ctx context.Context, workspaceRoot 
 	return runtime, skip, err
 }
 
+// mcpBetweenTurns adapts an MCP registration runtime to the agent loop's
+// turn-boundary hook: pending list_changed catalogs apply between turns. A
+// runtime that cannot refresh (test doubles) is skipped silently.
+func mcpBetweenTurns(runtime mcpToolRuntime) func(context.Context) {
+	return func(ctx context.Context) {
+		refresher, ok := runtime.(interface {
+			RefreshPendingTools(context.Context) (bool, error)
+		})
+		if !ok || refresher == nil {
+			return
+		}
+		_, _ = refresher.RefreshPendingTools(ctx)
+	}
+}
+
 func execMCPAutonomy(options execOptions) mcp.PermissionAutonomy {
 	if options.skipPermissionsUnsafe || strings.EqualFold(strings.TrimSpace(options.autonomy), "high") {
 		return mcp.AutonomyHigh
@@ -75,6 +91,53 @@ func execMCPAutonomy(options execOptions) mcp.PermissionAutonomy {
 		return mcp.AutonomyMedium
 	}
 	return mcp.AutonomyLow
+}
+
+// mcpSkippedIncludingOptional merges the critical runtime's skipped reasons
+// with the optional runtime's settled ones, so /mcp shows every failure
+// with its reason — including optional defaults like keyless Exa.
+func mcpSkippedIncludingOptional(critical mcpToolRuntime, optional *optionalMCPStartup) map[string]string {
+	merged := mcpSkippedReasons(critical)
+	for _, skipped := range optional.Skipped() {
+		if skipped.Err == nil {
+			continue
+		}
+		merged[skipped.Name] = redaction.ErrorMessage(skipped.Err, redaction.Options{})
+	}
+	return merged
+}
+
+// mcpStatusFunc reports the live states of the critical runtime plus the
+// optional one once it settled. Nil runtimes contribute nothing.
+func mcpStatusFunc(critical mcpToolRuntime, optional *optionalMCPStartup) func() []mcp.ServerStatus {
+	return func() []mcp.ServerStatus {
+		var status []mcp.ServerStatus
+		if runtime, ok := critical.(*mcp.Runtime); ok && runtime != nil {
+			status = append(status, runtime.Status()...)
+		}
+		status = append(status, optional.Status()...)
+		return status
+	}
+}
+
+// mcpReconnectFunc reconnects one server on whichever runtime owns the name.
+func mcpReconnectFunc(critical mcpToolRuntime, optional *optionalMCPStartup) func(context.Context, string) error {
+	return func(ctx context.Context, serverName string) error {
+		if runtime, ok := critical.(*mcp.Runtime); ok && runtime != nil {
+			if err := runtime.Reconnect(ctx, serverName); err != nil {
+				var unknown *mcp.UnknownServerError
+				if !errors.As(err, &unknown) {
+					return err
+				}
+			} else {
+				return nil
+			}
+		}
+		if optional != nil {
+			return optional.ReconnectServer(ctx, serverName)
+		}
+		return &mcp.UnknownServerError{Name: serverName}
+	}
 }
 
 // mcpSkippedReasons maps each skipped server to its redacted startup failure
@@ -187,6 +250,12 @@ func redactMCPURL(raw string, marker string) string {
 	if raw == "" {
 		return ""
 	}
+	// A literal ${VAR} must stay literal: url.Parse would percent-encode it
+	// to %7B...%7D, hiding which variable the user must set. Redact textually
+	// instead, without touching the ${} references.
+	if strings.Contains(raw, "${") {
+		return redactMCPURLTextual(raw, marker)
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return raw
@@ -205,6 +274,82 @@ func redactMCPURL(raw string, marker string) string {
 		return raw
 	}
 	return out
+}
+
+// redactMCPURLTextual redacts a URL that carries literal ${VAR} references
+// without parsing it (parsing would escape the references). userinfo is
+// dropped, sensitive query/fragment values become the marker — except values
+// that are themselves ${VAR} references, which are display-safe by
+// construction and must stay literal so the user knows what to set.
+// Everything else stays byte-for-byte.
+func redactMCPURLTextual(raw string, marker string) string {
+	rest := raw
+	out := ""
+	if index := strings.Index(rest, "?"); index < 0 {
+		if hash := strings.Index(rest, "#"); hash >= 0 {
+			return rest[:hash] + "#" + redactMCPEnvAwareQuery(rest[hash+1:], marker)
+		}
+		return redactMCPUserinfoPrefix(rest)
+	} else {
+		out = redactMCPUserinfoPrefix(rest[:index])
+		rest = rest[index+1:]
+	}
+	if hash := strings.Index(rest, "#"); hash >= 0 {
+		return out + "?" + redactMCPEnvAwareQuery(rest[:hash], marker) + "#" + redactMCPEnvAwareQuery(rest[hash+1:], marker)
+	}
+	return out + "?" + redactMCPEnvAwareQuery(rest, marker)
+}
+
+// redactMCPUserinfoPrefix drops a userinfo@ prefix from the authority part of
+// a URL string without parsing it.
+func redactMCPUserinfoPrefix(raw string) string {
+	schemeSplit := strings.Index(raw, "://")
+	authority := raw
+	prefix := ""
+	if schemeSplit >= 0 {
+		prefix = raw[:schemeSplit+3]
+		authority = raw[schemeSplit+3:]
+	}
+	slash := strings.Index(authority, "/")
+	host := authority
+	suffix := ""
+	if slash >= 0 {
+		host = authority[:slash]
+		suffix = authority[slash:]
+	}
+	if at := strings.LastIndex(host, "@"); at >= 0 {
+		host = host[at+1:]
+	}
+	return prefix + host + suffix
+}
+
+// redactMCPEnvAwareQuery redacts sensitive query values like
+// redactMCPRawQuery, but leaves any pair containing a ${VAR} reference
+// untouched: the reference is display-safe and must stay literal.
+func redactMCPEnvAwareQuery(rawQuery string, marker string) string {
+	parts := strings.Split(rawQuery, "&")
+	for index, part := range parts {
+		if part == "" {
+			continue
+		}
+		key, _, hasValue := strings.Cut(part, "=")
+		if strings.Contains(part, "${") {
+			continue
+		}
+		decodedKey, err := url.QueryUnescape(key)
+		if err != nil {
+			decodedKey = key
+		}
+		if !isSensitiveMCPDisplayKey(decodedKey) {
+			continue
+		}
+		if hasValue {
+			parts[index] = key + "=" + marker
+		} else {
+			parts[index] = key
+		}
+	}
+	return strings.Join(parts, "&")
 }
 
 func redactMCPRawQuery(rawQuery string, marker string) string {

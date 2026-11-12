@@ -116,6 +116,8 @@ type model struct {
 	sandboxStore         *sandbox.GrantStore
 	mcpConfig            config.MCPConfig
 	mcpSkipped           map[string]string
+	mcpStatus            func() []internalmcp.ServerStatus
+	mcpReconnect         func(context.Context, string) error
 	mcpPermissionStore   *internalmcp.PermissionStore
 	mcpTokenStore        *internalmcp.TokenStore
 	mcpCommand           func(context.Context, []string) MCPCommandResult
@@ -1042,6 +1044,14 @@ type mcpCommandResultMsg struct {
 	result  MCPCommandResult
 }
 
+// mcpReconnectResultMsg reports a session-runtime MCP reconnect (the /mcp
+// manager's reconnect action), which runs against the live runtime instead
+// of spawning a separate `qg mcp check` process.
+type mcpReconnectResultMsg struct {
+	server string
+	err    error
+}
+
 type doctorCommandResultMsg struct {
 	id   int
 	text string
@@ -1359,6 +1369,8 @@ func newModel(ctx context.Context, options Options) model {
 		sandboxStore:                sandboxStore,
 		mcpConfig:                   options.MCPConfig,
 		mcpSkipped:                  options.MCPSkipped,
+		mcpStatus:                   options.MCPStatus,
+		mcpReconnect:                options.MCPReconnect,
 		mcpPermissionStore:          options.MCPPermissionStore,
 		mcpTokenStore:               options.MCPTokenStore,
 		mcpCommand:                  options.MCPCommand,
@@ -3642,6 +3654,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyModelPickerModelsDiscovered(msg), nil
 	case mcpCommandResultMsg:
 		return m.applyMCPCommandResultMessage(msg), nil
+	case mcpReconnectResultMsg:
+		return m.applyMCPReconnectResult(msg), nil
 	}
 
 	var cmd tea.Cmd

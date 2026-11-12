@@ -1117,7 +1117,9 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		PeerService:        peerService,
 		SandboxStore:       sandboxStore,
 		MCPConfig:          mcpConfig,
-		MCPSkipped:         mcpSkippedReasons(mcpRuntime),
+		MCPSkipped:         mcpSkippedIncludingOptional(mcpRuntime, optionalMCPRuntime),
+		MCPStatus:          mcpStatusFunc(mcpRuntime, optionalMCPRuntime),
+		MCPReconnect:       mcpReconnectFunc(mcpRuntime, optionalMCPRuntime),
 		MCPPermissionStore: mcpPermissionStore,
 		MCPTokenStore:      mcpTokenStore,
 		MCPCommand: func(ctx context.Context, args []string) tui.MCPCommandResult {
@@ -1144,6 +1146,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 			Registry:       registry,
 			PermissionMode: permissionMode,
 			Autonomy:       "low",
+			BetweenTurns:   mcpBetweenTurns(mcpRuntime),
 			Sandbox:        sandboxEngine,
 			FileTracker:    fileTracker,
 			Hooks:          hookDispatcher,

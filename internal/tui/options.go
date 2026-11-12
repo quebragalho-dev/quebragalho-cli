@@ -84,7 +84,15 @@ type Options struct {
 	MCPTokenStore      *mcp.TokenStore
 	// MCPSkipped maps server name to the startup failure reason, so the MCP
 	// manager shows why a configured server has no tools.
-	MCPSkipped          map[string]string
+	MCPSkipped map[string]string
+	// MCPStatus, when set, reports the live MCP server states for /mcp,
+	// including servers the startup snapshot missed (e.g. optional defaults
+	// that settled later). It is consulted every time the MCP view refreshes.
+	MCPStatus func() []mcp.ServerStatus
+	// MCPReconnect reconnects one MCP server on the live session runtime,
+	// backing the /mcp manager's reconnect action. Nil keeps the check
+	// command as the reconnect path.
+	MCPReconnect        func(ctx context.Context, server string) error
 	MCPCommand          func(context.Context, []string) MCPCommandResult
 	SandboxSetupCommand func(context.Context) SandboxSetupCommandResult
 	UsageTracker        *usage.Tracker

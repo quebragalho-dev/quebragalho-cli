@@ -358,6 +358,14 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	for turn := 0; turn < maxTurns; turn++ {
 		result.Turns = turn + 1
 
+		// Turn-boundary maintenance (MCP catalog refreshes and the like) runs
+		// here: the previous turn's tool results are fully recorded and the
+		// next turn's tool partition is not computed yet, so catalog changes
+		// land between turns, never mid-request.
+		if options.BetweenTurns != nil {
+			options.BetweenTurns(ctx)
+		}
+
 		// Deliver background post-edit diagnostics from the previous turn's edits
 		// BEFORE compaction so the nudge is part of the request being budgeted.
 		// A brief wait at most (asyncDiagnosticsDrainTimeout); an unfinished check

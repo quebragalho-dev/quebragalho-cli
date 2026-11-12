@@ -424,6 +424,13 @@ type Options struct {
 	// so they reach the model on the very next request without the turn
 	// being interrupted. nil disables interleaving.
 	InterleaveMessages func() []Message
+	// BetweenTurns, when non-nil, is called by the loop at the top of every
+	// turn iteration, before the per-turn tool partition is computed. It is
+	// the integration point for turn-boundary maintenance the loop itself
+	// must not know about — e.g. applying pending MCP tools/list_changed
+	// catalog refreshes so the new catalog is visible on the next request
+	// but never mid-request. nil runs every turn exactly as before.
+	BetweenTurns func(ctx context.Context)
 	// YieldNow carries the TUI's per-run send-now Signal: while a
 	// backgroundable tool wait (exec_command's yield wait, write_stdin
 	// polling) is parked, Request wakes it at once. nil runs every wait out

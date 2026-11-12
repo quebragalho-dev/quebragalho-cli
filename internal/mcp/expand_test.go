@@ -18,7 +18,7 @@ func TestExpandServerEnvBasic(t *testing.T) {
 		Args:    []string{"--a=${QG_TEST_EXPAND_TOKEN}", "plain"},
 		Env:     map[string]string{"K": "${QG_TEST_EXPAND_TOKEN}!"},
 	}
-	expanded, missing := ExpandServerEnv(raw)
+	expanded, missing, _ := ExpandServerEnv(raw)
 	if len(missing) != 0 {
 		t.Fatalf("missing = %v, want none", missing)
 	}
@@ -39,7 +39,7 @@ func TestExpandServerEnvBasic(t *testing.T) {
 func TestExpandServerEnvDefault(t *testing.T) {
 	os.Unsetenv("QG_TEST_EXPAND_DEFINITELY_MISSING")
 	raw := config.MCPServerConfig{Type: "http", URL: "https://${QG_TEST_EXPAND_DEFINITELY_MISSING:-fallback.example}/mcp"}
-	expanded, missing := ExpandServerEnv(raw)
+	expanded, missing, _ := ExpandServerEnv(raw)
 	if len(missing) != 0 {
 		t.Fatalf("missing = %v, want none (default applies)", missing)
 	}
@@ -51,7 +51,7 @@ func TestExpandServerEnvDefault(t *testing.T) {
 func TestExpandServerEnvMissingRecordedOnce(t *testing.T) {
 	os.Unsetenv("QG_TEST_EXPAND_DEFINITELY_MISSING")
 	raw := config.MCPServerConfig{Type: "http", URL: "https://${QG_TEST_EXPAND_DEFINITELY_MISSING}/x/${QG_TEST_EXPAND_DEFINITELY_MISSING}"}
-	expanded, missing := ExpandServerEnv(raw)
+	expanded, missing, _ := ExpandServerEnv(raw)
 	if !reflect.DeepEqual(missing, []string{"QG_TEST_EXPAND_DEFINITELY_MISSING"}) {
 		t.Fatalf("missing = %v", missing)
 	}
@@ -63,7 +63,7 @@ func TestExpandServerEnvMissingRecordedOnce(t *testing.T) {
 func TestExpandServerEnvLeavesBareAndMalformed(t *testing.T) {
 	t.Setenv("QG_TEST_EXPAND_TOKEN", "abc")
 	raw := config.MCPServerConfig{URL: "https://h/$QG_TEST_EXPAND_TOKEN/${}/${1}/${UN_CLOSED"}
-	expanded, missing := ExpandServerEnv(raw)
+	expanded, missing, _ := ExpandServerEnv(raw)
 	if len(missing) != 0 {
 		t.Fatalf("missing = %v, want none", missing)
 	}

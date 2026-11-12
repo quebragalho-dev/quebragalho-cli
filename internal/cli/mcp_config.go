@@ -364,7 +364,7 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	}
 	// The approval gate lives in RegisterTools below: an unapproved project
 	// server is refused there with the approve command as the reason.
-	if _, missing := mcp.ExpandServerEnv(raw); len(missing) > 0 {
+	if _, missing, _ := mcp.ExpandServerEnv(raw); len(missing) > 0 {
 		message := fmt.Sprintf("Servidor MCP %s não está acessível: %s", serverName, mcp.MissingEnvError(serverName, missing))
 		if options.json {
 			payload := struct {

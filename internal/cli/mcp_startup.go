@@ -143,5 +143,45 @@ func (startup *optionalMCPStartup) closeRuntime() {
 }
 
 func (startup *optionalMCPStartup) Skipped() []mcp.SkippedServer {
-	return nil
+	if startup == nil {
+		return nil
+	}
+	startup.mu.Lock()
+	defer startup.mu.Unlock()
+	if startup.runtime == nil {
+		return nil
+	}
+	return startup.runtime.Skipped()
+}
+
+// Status reports the optional runtime's server states once it settled, or
+// nil while it is still connecting. It lets /mcp show optional defaults
+// (like keyless Exa) with their failure reasons instead of hiding them.
+func (startup *optionalMCPStartup) Status() []mcp.ServerStatus {
+	if startup == nil {
+		return nil
+	}
+	startup.mu.Lock()
+	defer startup.mu.Unlock()
+	runtime, ok := startup.runtime.(*mcp.Runtime)
+	if !ok || runtime == nil {
+		return nil
+	}
+	return runtime.Status()
+}
+
+// ReconnectServer reconnects one server of the optional runtime, if it owns
+// the name. An unknown name returns *mcp.UnknownServerError so the caller
+// can try the next runtime.
+func (startup *optionalMCPStartup) ReconnectServer(ctx context.Context, serverName string) error {
+	if startup == nil {
+		return &mcp.UnknownServerError{Name: serverName}
+	}
+	startup.mu.Lock()
+	runtime, _ := startup.runtime.(*mcp.Runtime)
+	startup.mu.Unlock()
+	if runtime == nil {
+		return &mcp.UnknownServerError{Name: serverName}
+	}
+	return runtime.Reconnect(ctx, serverName)
 }

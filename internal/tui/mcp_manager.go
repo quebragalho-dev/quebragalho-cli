@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"unicode"
 
@@ -137,7 +138,7 @@ func (m model) handleMCPManagerKey(msg tea.KeyMsg) (model, tea.Cmd) {
 			return m.runMCPManagerCommand([]string{"list"})
 		case "c":
 			if item, ok := m.currentMCPManagerItem(); ok && item.Kind == mcpManagerItemServer {
-				return m.runMCPManagerCommand([]string{"check", item.Name})
+				return m.runMCPReconnect(item.Name)
 			}
 		case "d":
 			if item, ok := m.currentMCPManagerItem(); ok && item.Kind == mcpManagerItemServer {
@@ -201,7 +202,7 @@ func (m model) chooseMCPManagerItem() (model, tea.Cmd) {
 	}
 	switch item.Kind {
 	case mcpManagerItemServer:
-		return m.runMCPManagerCommand([]string{"check", item.Name})
+		return m.runMCPReconnect(item.Name)
 	case mcpManagerItemMarketplace:
 		return m.prefillMCPManagerCommand(item.InstallCommand), nil
 	case mcpManagerItemAddRemote:
@@ -231,6 +232,23 @@ func (m model) runMCPManagerCommand(args []string) (model, tea.Cmd) {
 		request.managerQuery = m.mcpManager.query
 	}
 	return m.startMCPCommand(request)
+}
+
+// runMCPReconnect reconnects one server on the live session runtime and
+// refreshes the manager. When no session runtime is wired it falls back to
+// the `mcp check` command, which connects a throwaway client instead.
+func (m model) runMCPReconnect(name string) (model, tea.Cmd) {
+	reconnect := m.mcpReconnect
+	if reconnect == nil {
+		return m.runMCPManagerCommand([]string{"check", name})
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return m, func() tea.Msg {
+		return mcpReconnectResultMsg{server: name, err: reconnect(ctx, name)}
+	}
 }
 
 func (m model) currentMCPManagerItem() (mcpManagerItem, bool) {
@@ -473,7 +491,7 @@ func (m model) mcpManagerSelectionDetail(width int) []string {
 		if strings.EqualFold(strings.TrimSpace(server.State), "disabled") {
 			action = "Alt+e ativar"
 		}
-		actions := "Enter verificar/reconectar   Alt+c verificar   " + action + "   Alt+r remover"
+		actions := "Enter reconectar   Alt+c reconectar   " + action + "   Alt+r remover"
 		if server.NeedsAuth {
 			actions += "   Alt+o autenticar"
 		}

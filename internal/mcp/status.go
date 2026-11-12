@@ -31,6 +31,16 @@ type ServerStatus struct {
 	ToolCount int
 }
 
+// UnknownServerError reports a Reconnect for a server the runtime never
+// registered. The caller can try another runtime (critical vs optional).
+type UnknownServerError struct {
+	Name string
+}
+
+func (err *UnknownServerError) Error() string {
+	return fmt.Sprintf("unknown MCP server %q", err.Name)
+}
+
 // Status reports every known server: connected with its tool count, failed
 // with its reason, needs-auth for OAuth servers without a usable token, and
 // disabled servers still listed so they can be re-enabled.
@@ -117,7 +127,7 @@ func (runtime *Runtime) Reconnect(ctx context.Context, serverName string) error 
 		}
 	}
 	if server == nil {
-		return fmt.Errorf("unknown MCP server %q", serverName)
+		return &UnknownServerError{Name: serverName}
 	}
 	fresh, remote, err := connectWithRetry(ctx, runtime.factory, *server, connectTimeout())
 	if err != nil {

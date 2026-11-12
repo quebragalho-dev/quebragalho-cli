@@ -141,3 +141,22 @@ func TestRunMCPListProbesLiveServer(t *testing.T) {
 		t.Fatalf("status[live] = %+v, want ok with 1 tool", entry)
 	}
 }
+
+func TestFormatMCPServerListKeepsLiteralEnvRefs(t *testing.T) {
+	servers := map[string]config.MCPServerConfig{
+		"srv": {Type: "http", URL: "https://h.example/mcp?token=realsecret&tok=${QG_TOKEN}&other=1"},
+	}
+	output := formatMCPServerList(servers, nil, nil, nil, true)
+	if !strings.Contains(output, "${QG_TOKEN}") {
+		t.Fatalf("list escaped the variable reference:\n%s", output)
+	}
+	if strings.Contains(output, "%7B") || strings.Contains(output, "%24") {
+		t.Fatalf("list percent-encoded ${VAR}:\n%s", output)
+	}
+	if !strings.Contains(output, "token=[REDACTED]") {
+		t.Fatalf("literal sensitive query value was not redacted:\n%s", output)
+	}
+	if strings.Contains(output, "realsecret") {
+		t.Fatalf("literal secret leaked:\n%s", output)
+	}
+}
