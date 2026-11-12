@@ -337,7 +337,7 @@ func TestRegistryToolIsDeferredEligible(t *testing.T) {
 
 	// The exported helper in the tools package must agree via the optional
 	// interface, since the agent loop partitions tools through tools.IsDeferred.
-	if !tools.IsDeferred(tool) {
+	if !tools.IsDeferred(&tool) {
 		t.Fatal("tools.IsDeferred(registryTool) = false, want true")
 	}
 }
@@ -374,7 +374,7 @@ func TestRegistryToolReportsMCPServerName(t *testing.T) {
 	}
 
 	// DeferredSource must prefer the reported server name over the name-derived token.
-	if source := tools.DeferredSource(tool); source != "git hub" {
+	if source := tools.DeferredSource(&tool); source != "git hub" {
 		t.Fatalf("DeferredSource = %q, want %q via MCPServerName()", source, "git hub")
 	}
 }

@@ -121,7 +121,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 			serverCtx, cancel := context.WithCancel(ctx)
 			done := make(chan connectResult, 1)
 			go func() {
-				client, remote, err := connectAndList(serverCtx, factory, server)
+				client, remote, err := connectWithRetry(serverCtx, factory, server)
 				done <- connectResult{client: client, remote: remote, err: err}
 			}()
 			select {
@@ -153,7 +153,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 	// or conflicts with an already-committed tool is SKIPPED (recorded, not fatal),
 	// and still contributes its tools all-or-none. The conflict check spans the
 	// registry plus every tool committed by an earlier server.
-	staged := make([]registryTool, 0)
+	staged := make([]*registryTool, 0)
 	stagedNames := make(map[string]struct{})
 	for index, server := range servers {
 		res := results[index]
@@ -161,7 +161,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 			runtime.skipped = append(runtime.skipped, SkippedServer{Name: server.Name, Err: res.err, UnconfiguredDefault: server.UnconfiguredDefault})
 			continue
 		}
-		serverTools, validateErr := buildServerTools(registry, server, res.remote, res.client, options, stagedNames)
+		serverTools, validateErr := buildServerTools(registry, server, res.remote, res.client, options, factory, stagedNames)
 		if validateErr != nil {
 			if res.cancel != nil {
 				res.cancel()
@@ -208,14 +208,20 @@ func connectAndList(ctx context.Context, factory func(context.Context, Server) (
 // when every one is named and conflict-free. It runs in the serial commit phase
 // (single goroutine), so its registry and permission-store reads are race-free.
 // On error the caller closes the client (it owns the result), so this never does.
-func buildServerTools(registry *tools.Registry, server Server, remoteTools []RemoteTool, client ToolClient, options RegisterOptions, stagedNames map[string]struct{}) ([]registryTool, error) {
-	serverTools := make([]registryTool, 0, len(remoteTools))
+func buildServerTools(registry *tools.Registry, server Server, remoteTools []RemoteTool, client ToolClient, options RegisterOptions, factory func(context.Context, Server) (ToolClient, error), stagedNames map[string]struct{}) ([]*registryTool, error) {
+	serverTools := make([]*registryTool, 0, len(remoteTools))
 	localNames := make(map[string]struct{})
 	for _, remote := range remoteTools {
 		if strings.TrimSpace(remote.Name) == "" {
 			return nil, fmt.Errorf("MCP server %s returned a tool without a name", server.Name)
 		}
-		tool := newRegistryTool(server, remote, client, options)
+		built := newRegistryTool(server, remote, client, options)
+		if server.Type == ServerTypeStdio && factory != nil {
+			built.redial = func(ctx context.Context) (ToolClient, error) {
+				return factory(ctx, server)
+			}
+		}
+		tool := &built
 		if existing, ok := registry.Get(tool.Name()); ok {
 			return nil, fmt.Errorf("MCP tool %s from %s conflicts with existing tool %s", remote.Name, server.Name, existing.Name())
 		}
@@ -256,6 +262,8 @@ type registryTool struct {
 	server     Server
 	remote     RemoteTool
 	client     ToolClient
+	clientMu   *sync.Mutex
+	redial     func(context.Context) (ToolClient, error)
 	parameters tools.Schema
 	safety     tools.Safety
 }
@@ -267,11 +275,12 @@ func newRegistryTool(server Server, remote RemoteTool, client ToolClient, option
 	if isPersistentlyApproved(options.PermissionStore, server, remote.Name, defaultAutonomy(options.Autonomy)) {
 		permission = tools.PermissionAllow
 	}
-	return registryTool{
+	tool := registryTool{
 		name:       name,
 		server:     server,
 		remote:     remote,
 		client:     client,
+		clientMu:   &sync.Mutex{},
 		parameters: SchemaFromMCP(remote.InputSchema),
 		safety: tools.Safety{
 			SideEffect:      tools.SideEffectNetwork,
@@ -279,6 +288,29 @@ func newRegistryTool(server Server, remote RemoteTool, client ToolClient, option
 			Reason:          fmt.Sprintf("MCP tool %s/%s runs through the configured %s server.", server.Name, remote.Name, server.Type),
 			AdvertiseInAuto: options.AdvertiseInAuto,
 		},
+	}
+	return tool
+}
+
+// callRemote runs one tool call against the current client.
+func (tool *registryTool) callRemote(ctx context.Context, args map[string]any) (CallToolResult, error) {
+	if tool.clientMu != nil {
+		tool.clientMu.Lock()
+		defer tool.clientMu.Unlock()
+	}
+	return tool.client.CallTool(ctx, tool.remote.Name, args)
+}
+
+// swapClient replaces the transport after a redial, closing the dead one.
+func (tool *registryTool) swapClient(client ToolClient) {
+	if tool.clientMu != nil {
+		tool.clientMu.Lock()
+		defer tool.clientMu.Unlock()
+	}
+	old := tool.client
+	tool.client = client
+	if old != nil {
+		_ = old.Close()
 	}
 }
 
@@ -317,8 +349,16 @@ func (tool registryTool) MCPServerName() string {
 	return tool.server.Name
 }
 
-func (tool registryTool) Run(ctx context.Context, args map[string]any) tools.Result {
-	result, err := tool.client.CallTool(ctx, tool.remote.Name, args)
+func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Result {
+	result, err := tool.callRemote(ctx, args)
+	if err != nil && tool.server.Type == ServerTypeStdio && tool.redial != nil && redialable(ctx, err) {
+		// The stdio subprocess may have died mid-session. Restart it once and
+		// retry the call so the next use recovers instead of failing.
+		if revived, redialErr := tool.redial(ctx); redialErr == nil {
+			tool.swapClient(revived)
+			result, err = tool.callRemote(ctx, args)
+		}
+	}
 	if err != nil {
 		return tools.Result{
 			Status: tools.StatusError,

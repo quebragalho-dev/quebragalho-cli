@@ -612,11 +612,12 @@ func (client *remoteSSEClient) failPending(err error) {
 
 func httpStatusError(server Server, response *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
-	detail := strings.TrimSpace(string(body))
-	if detail == "" {
-		return fmt.Errorf("MCP %s server %s returned HTTP %d", server.Type, server.Name, response.StatusCode)
+	return &MCPHTTPStatusError{
+		Server:    server.Name,
+		Transport: server.Type,
+		Status:    response.StatusCode,
+		Detail:    strings.TrimSpace(string(body)),
 	}
-	return fmt.Errorf("MCP %s server %s returned HTTP %d: %s", server.Type, server.Name, response.StatusCode, detail)
 }
 
 func decodeSSERPCMessage(reader io.Reader) (rpcMessage, error) {
