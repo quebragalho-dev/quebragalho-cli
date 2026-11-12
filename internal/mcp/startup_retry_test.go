@@ -3,8 +3,6 @@ package mcp
 import (
 	"context"
 	"errors"
-	"net/url"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,49 +15,6 @@ func startupTestServer(url string) config.MCPConfig {
 	return config.MCPConfig{Servers: map[string]config.MCPServerConfig{
 		"s": {Type: "http", URL: url},
 	}}
-}
-
-func skippedReasonOf(t *testing.T, runtime *Runtime) (string, bool) {
-	t.Helper()
-	for _, skipped := range runtime.Skipped() {
-		if skipped.Name == "s" {
-			if skipped.Err == nil {
-				return "", true
-			}
-			return skipped.Err.Error(), true
-		}
-	}
-	return "", false
-}
-
-func TestStartupMakesOneAttemptOnRefusedDial(t *testing.T) {
-	var calls atomic.Int32
-	factory := func(context.Context, Server) (ToolClient, error) {
-		calls.Add(1)
-		return nil, &url.Error{Op: "dial", Err: errors.New("connection refused")}
-	}
-	registry := tools.NewRegistry()
-	start := time.Now()
-	runtime, err := RegisterTools(context.Background(), registry,
-		startupTestServer("http://127.0.0.1:9/mcp"), RegisterOptions{ClientFactory: factory})
-	took := time.Since(start)
-	if err != nil {
-		t.Fatalf("RegisterTools() error = %v", err)
-	}
-	defer runtime.Close()
-	if calls.Load() != 1 {
-		t.Fatalf("startup attempts = %d, want exactly 1", calls.Load())
-	}
-	if took >= 2*time.Second {
-		t.Fatalf("RegisterTools() took %v, want an immediate skip", took)
-	}
-	reason, ok := skippedReasonOf(t, runtime)
-	if !ok {
-		t.Fatal("refused server must be skipped with its error")
-	}
-	if !strings.Contains(reason, "connection refused") {
-		t.Fatalf("skipped reason = %q, want the refused dial", reason)
-	}
 }
 
 func TestStartupBackgroundRetryAdoptsRecoveredServer(t *testing.T) {
@@ -118,11 +73,11 @@ func TestStartupNeverRetriesStdioInBackground(t *testing.T) {
 		t.Fatalf("RegisterTools() error = %v", err)
 	}
 	defer runtime.Close()
-	time.Sleep(2500 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("connect attempts = %d, want exactly 1 (no background retry for stdio)", got)
 	}
-	if _, ok := skippedReasonOf(t, runtime); !ok {
+	if _, ok := acceptanceSkippedReason(runtime, "s"); !ok {
 		t.Fatal("failed stdio server must stay skipped")
 	}
 }

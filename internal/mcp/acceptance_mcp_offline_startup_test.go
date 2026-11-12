@@ -98,6 +98,7 @@ func TestAcceptanceMCPLiveServerRedialWaitsSecondsForTheServerToComeBack(t *test
 		}
 		return false
 	})
+	server.Config.SetKeepAlivesEnabled(false)
 	registry, _ := acceptanceRegister(t, acceptanceConfig(t, `{"s":{"type":"http","url":"`+server.URL+`"}}`))
 	if result, ok := acceptanceRun(t, registry, "mcp_s_lookup", 30*time.Second); !ok || result.Status != tools.StatusOK {
 		t.Fatalf("first call = %s %q (returned=%v)", result.Status, result.Output, ok)
