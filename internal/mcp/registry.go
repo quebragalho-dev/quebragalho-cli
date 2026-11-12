@@ -175,10 +175,11 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 	// deterministic serial phase below, so the result is identical regardless of
 	// completion order.
 	type connectResult struct {
-		client ToolClient
-		remote []RemoteTool
-		cancel context.CancelFunc
-		err    error
+		client   ToolClient
+		remote   []RemoteTool
+		cancel   context.CancelFunc
+		err      error
+		timedOut bool
 	}
 	results := make([]connectResult, len(servers))
 	var wg sync.WaitGroup
@@ -214,7 +215,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 						_ = res.client.Close()
 					}
 				}()
-				results[index] = connectResult{err: fmt.Errorf("connect timed out after %s", timeout)}
+				results[index] = connectResult{err: fmt.Errorf("connect timed out after %s", timeout), timedOut: true}
 			}
 		}(index)
 	}
@@ -237,7 +238,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 			// connectWithRetry: a stdio server must not gain a new
 			// subprocess spawn at startup. The failed attempt's context
 			// is already cancelled, so classification uses a live one.
-			if (server.Type == ServerTypeHTTP || server.Type == ServerTypeSSE) && isTransientConnectError(context.Background(), res.err) {
+			if (server.Type == ServerTypeHTTP || server.Type == ServerTypeSSE) && (res.timedOut || isTransientConnectError(context.Background(), res.err)) {
 				retryLater = append(retryLater, server)
 			}
 			continue
@@ -308,8 +309,10 @@ func (runtime *Runtime) retryServerInBackground(server Server) {
 		bound := time.AfterFunc(connectTimeout(), cancel)
 		client, remote, err := connectAndList(attemptCtx, runtime.factory, server)
 		timedOut := !bound.Stop()
-		if timedOut && err == nil {
-			_ = client.Close()
+		if timedOut {
+			if err == nil {
+				_ = client.Close()
+			}
 			err = fmt.Errorf("connect timed out after %s", connectTimeout())
 		}
 		if err == nil {
@@ -346,7 +349,10 @@ func (runtime *Runtime) backgroundDone(name string) bool {
 func (runtime *Runtime) noteBackgroundFailure(server Server, err error) {
 	runtime.refreshMu.Lock()
 	defer runtime.refreshMu.Unlock()
-	if runtime.closed {
+	// A manual reconnect may have brought this server live while the
+	// background attempt was in flight: never rewrite the skip of a live
+	// server with the stale failure of the superseded attempt.
+	if runtime.closed || runtime.liveClients[server.Name] != nil {
 		return
 	}
 	runtime.replaceSkippedLocked(SkippedServer{Name: server.Name, Err: redactError(server, err), UnconfiguredDefault: server.UnconfiguredDefault})
