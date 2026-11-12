@@ -895,3 +895,50 @@ func TestPrMutatingToolResultInvalidatesNegativeCache(t *testing.T) {
 		t.Fatalf("mutating tool result must drop the negative cache, got %#v", got)
 	}
 }
+
+// The negative cache is short: a 31s-old miss consults gh again, a 29s-old
+// miss does not.
+func TestNegativeCacheExpiresAfterThirtySeconds(t *testing.T) {
+	newServiceWithNegativeCache := func(t *testing.T, age time.Duration) (*PrService, *fakePRRunner) {
+		t.Helper()
+		runner := &fakePRRunner{results: map[string]fakePRResult{
+			"gh pr list --head dev --state open --json number,url,baseRefName": {
+				output: `[]`,
+			},
+			"git symbolic-ref --quiet refs/remotes/origin/HEAD": {
+				err: errors.New("unknown revision"),
+			},
+			"git merge-base origin/main HEAD": {
+				err: errors.New("unknown revision"),
+			},
+			"git merge-base origin/master HEAD": {
+				err: errors.New("unknown revision"),
+			},
+		}}
+		service := NewPrService(t.TempDir())
+		service.run = runner.Run
+		service.lastBranch = "dev"
+		service.cachedIdentity = cachedPRIdentity{branch: "dev", at: time.Now().Add(-age), none: true}
+		return service, runner
+	}
+
+	stale, staleRunner := newServiceWithNegativeCache(t, 31*time.Second)
+	_ = stale.detect(context.Background())
+	staleGh := 0
+	for _, call := range staleRunner.callsSnapshot() {
+		if strings.HasPrefix(call, "gh pr list") {
+			staleGh++
+		}
+	}
+	if staleGh != 1 {
+		t.Fatalf("31s-old negative entry must consult gh again, got %d gh calls", staleGh)
+	}
+
+	fresh, freshRunner := newServiceWithNegativeCache(t, 29*time.Second)
+	_ = fresh.detect(context.Background())
+	for _, call := range freshRunner.callsSnapshot() {
+		if strings.HasPrefix(call, "gh pr list") {
+			t.Fatalf("29s-old negative entry must not consult gh, calls: %v", freshRunner.callsSnapshot())
+		}
+	}
+}

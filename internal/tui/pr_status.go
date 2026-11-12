@@ -93,9 +93,12 @@ const prIdentityTTL = 5 * time.Minute
 
 // prNoPrTTL bounds the negative cache: how long a branch with no open PR
 // skips the gh lookup. A PR closed (or opened) right now can linger on — or
-// stay off — the header until this lapses; 2 minutes keeps the staleness
-// window short while sparing every refresh a network round trip.
-const prNoPrTTL = 2 * time.Minute
+// stay off — the header until this lapses; 30 seconds keeps that window short
+// while sparing every refresh a network round trip. A tool result from a
+// PR/MR-mutating command (gh pr create, git push, ...) bypasses this cache
+// entirely via InvalidatePRIdentity, so the normal case — opening the PR
+// from inside qg — shows up on the very next refresh.
+const prNoPrTTL = 30 * time.Second
 
 type cachedPRIdentity struct {
 	branch string
