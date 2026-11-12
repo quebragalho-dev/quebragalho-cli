@@ -34,6 +34,11 @@ type Server struct {
 	// 60s default apply when zero). It is connection policy, not target
 	// identity, so it stays out of the identity hash.
 	Timeout int
+	// Secrets maps variable names to the non-empty process values substituted
+	// for ${VAR} when connecting. It never leaves the package boundary except
+	// through Redact, which trades values back for their ${VAR} reference in
+	// any user-, transcript-, or model-visible text.
+	Secrets map[string]string
 	// EnabledTools allow-lists remote tool names (empty means all);
 	// DisabledTools deny-lists and wins. View policy, not target identity.
 	EnabledTools  []string

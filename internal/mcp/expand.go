@@ -17,9 +17,12 @@ var mcpEnvRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}
 // ExpandServerEnv expands ${VAR} and ${VAR:-default} in the command, args,
 // env values, URL, and header values from the process environment. OAuth
 // material is intentionally left alone. Names with no value and no default
-// expand to "" and are reported once in missing.
-func ExpandServerEnv(raw config.MCPServerConfig) (config.MCPServerConfig, []string) {
+// expand to "" and are reported once in missing. Non-empty substituted values
+// are returned in secrets so callers can redact them back out of user-,
+// transcript-, and model-visible text.
+func ExpandServerEnv(raw config.MCPServerConfig) (config.MCPServerConfig, []string, map[string]string) {
 	var missing []string
+	secrets := make(map[string]string)
 	seen := make(map[string]bool)
 	expand := func(value string) string {
 		if !strings.Contains(value, "${") {
@@ -29,6 +32,9 @@ func ExpandServerEnv(raw config.MCPServerConfig) (config.MCPServerConfig, []stri
 			inner := match[2 : len(match)-1]
 			name, def, hasDefault := strings.Cut(inner, ":-")
 			if value, ok := os.LookupEnv(name); ok {
+				if value != "" {
+					secrets[name] = value
+				}
 				return value
 			}
 			if hasDefault {
@@ -62,15 +68,15 @@ func ExpandServerEnv(raw config.MCPServerConfig) (config.MCPServerConfig, []stri
 			expanded.Headers[key] = expand(value)
 		}
 	}
-	return expanded, missing
+	return expanded, missing, secrets
 }
 
-// withExpandedEnv returns a copy of the server with ${VAR}/${VAR:-default}
+// WithExpandedEnv returns a copy of the server with ${VAR}/${VAR:-default}
 // expanded from the process environment (command, args, env values, URL,
 // header values), plus the names that had no value and no default. The
 // identity is untouched: approval and permission grants anchor the configured
 // target, not the ambient environment.
-func (server Server) withExpandedEnv() (Server, []string) {
+func (server Server) WithExpandedEnv() (Server, []string) {
 	raw := config.MCPServerConfig{
 		Command: server.Command,
 		Args:    server.Args,
@@ -78,12 +84,13 @@ func (server Server) withExpandedEnv() (Server, []string) {
 		URL:     server.URL,
 		Headers: server.Headers,
 	}
-	expanded, missing := ExpandServerEnv(raw)
+	expanded, missing, secrets := ExpandServerEnv(raw)
 	server.Command = expanded.Command
 	server.Args = expanded.Args
 	server.Env = expanded.Env
 	server.URL = expanded.URL
 	server.Headers = expanded.Headers
+	server.Secrets = secrets
 	return server, missing
 }
 
@@ -96,7 +103,7 @@ func ExpandMCPConfigEnv(cfg config.MCPConfig) (config.MCPConfig, map[string][]st
 	expanded := config.MCPConfig{Servers: make(map[string]config.MCPServerConfig, len(cfg.Servers))}
 	missing := make(map[string][]string)
 	for name, raw := range cfg.Servers {
-		server, names := ExpandServerEnv(raw)
+		server, names, _ := ExpandServerEnv(raw)
 		expanded.Servers[name] = server
 		if len(names) > 0 {
 			missing[name] = names

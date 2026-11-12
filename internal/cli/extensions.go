@@ -226,7 +226,7 @@ func runMCPLegacyList(args []string, stdout io.Writer, stderr io.Writer, deps ap
 	// with a recorded approval; elsewhere they are reported as unverified or
 	// pending approval, never connected.
 	excludeProject, _ := resolveTrust(cwd)
-	probe, missing, pending := probeEligibleMCPServers(cfg, cwd, !excludeProject)
+	probe, missing, pending := probeEligibleMCPServers(cfg, cwd, !excludeProject, deps.probeMCPServers)
 	if options.json {
 		// Env and header VALUES are credentials by construction (API keys,
 		// bearer tokens) and must never reach stdout: pattern-based redaction
@@ -271,14 +271,15 @@ type mcpServerProbeStatus struct {
 
 // probeEligibleMCPServers probes every configured server the trust and
 // approval gates allow (user/default servers always; project servers only
-// when trusted and approved). ${VAR}/${VAR:-default} expands first for the
-// dial; servers with undefined variables are returned in missing, unapproved
-// project servers in pending, instead of probed with emptied targets.
-func probeEligibleMCPServers(cfg config.MCPConfig, projectRoot string, trusted bool) (map[string]mcp.ProbeResult, map[string][]string, map[string]bool) {
-	expanded, missing := mcp.ExpandMCPConfigEnv(cfg)
-	servers, err := mcp.NormalizeConfig(expanded)
+// when trusted and approved). Like RegisterTools, it normalizes the literal
+// config — so the approval gate compares literal identities — and expands
+// ${VAR}/${VAR:-default} per server only for dialing. Servers with undefined
+// variables are returned in missing, unapproved project servers in pending,
+// instead of probed with emptied targets. probe dials; tests inject a fake.
+func probeEligibleMCPServers(cfg config.MCPConfig, projectRoot string, trusted bool, probe func(context.Context, []mcp.Server) map[string]mcp.ProbeResult) (map[string]mcp.ProbeResult, map[string][]string, map[string]bool) {
+	servers, err := mcp.NormalizeConfig(cfg)
 	if err != nil {
-		return nil, missing, nil
+		return nil, nil, nil
 	}
 	approvals, _ := mcp.OpenProjectApprovals()
 	kept, approvalSkips := mcp.FilterUnapproved(servers, projectRoot, approvals)
@@ -286,14 +287,25 @@ func probeEligibleMCPServers(cfg config.MCPConfig, projectRoot string, trusted b
 	for _, skipped := range approvalSkips {
 		pending[skipped.Name] = true
 	}
+	missing := make(map[string][]string)
 	eligible := make([]mcp.Server, 0, len(kept))
 	for _, server := range kept {
 		if !trusted && server.ProjectConfigured {
 			continue
 		}
-		eligible = append(eligible, server)
+		expanded, names := server.WithExpandedEnv()
+		if len(names) > 0 {
+			missing[server.Name] = names
+			continue
+		}
+		eligible = append(eligible, expanded)
 	}
-	return mcp.ProbeServers(context.Background(), eligible, nil), missing, pending
+	if probe == nil {
+		probe = func(ctx context.Context, servers []mcp.Server) map[string]mcp.ProbeResult {
+			return mcp.ProbeServers(ctx, servers, nil)
+		}
+	}
+	return probe(context.Background(), eligible), missing, pending
 }
 
 func mcpProbeStatusMap(servers map[string]config.MCPServerConfig, probe map[string]mcp.ProbeResult, missing map[string][]string, pending map[string]bool, trusted bool) map[string]mcpServerProbeStatus {

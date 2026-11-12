@@ -39,7 +39,7 @@ func ProbeServers(ctx context.Context, servers []Server, factory func(context.Co
 				_ = client.Close()
 			}
 			mu.Lock()
-			results[server.Name] = ProbeResult{ToolCount: len(remote), Err: err}
+			results[server.Name] = ProbeResult{ToolCount: len(remote), Err: redactError(server, err)}
 			mu.Unlock()
 		}(server)
 	}

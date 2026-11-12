@@ -135,7 +135,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 	// permissions, or OAuth tokens. Missing names expand to "": the target is
 	// validated by the connection itself and skipped with the reason.
 	for index := range servers {
-		expanded, _ := servers[index].withExpandedEnv()
+		expanded, _ := servers[index].WithExpandedEnv()
 		servers[index] = expanded
 	}
 	if len(servers) == 0 {
@@ -219,7 +219,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 	for index, server := range servers {
 		res := results[index]
 		if res.err != nil {
-			runtime.skipped = append(runtime.skipped, SkippedServer{Name: server.Name, Err: res.err, UnconfiguredDefault: server.UnconfiguredDefault})
+			runtime.skipped = append(runtime.skipped, SkippedServer{Name: server.Name, Err: redactError(server, res.err), UnconfiguredDefault: server.UnconfiguredDefault})
 			continue
 		}
 		conn := newMCPServerConn(server, res.client)
@@ -671,10 +671,12 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 	if tool.server.Type != ServerTypeStdio {
 		maxReconnects = maxConnectAttempts
 	}
-	for attempt := 1; err != nil && tool.conn != nil && redialable(ctx, err) && attempt <= maxReconnects; attempt++ {
-		if tool.server.Type != ServerTypeStdio && !sleepForReconnect(ctx, attempt) {
-			err = ctx.Err()
-			break
+	for attempt := 1; err != nil && tool.conn != nil && tool.conn.reconnect != nil && redialable(ctx, err) && attempt <= maxReconnects; attempt++ {
+		if tool.server.Type != ServerTypeStdio {
+			if attempt > 1 && !sleepForReconnect(ctx, attempt-1) {
+				err = ctx.Err()
+				break
+			}
 		}
 		revived, reconnectErr := tool.conn.reconnect(ctx)
 		if reconnectErr != nil {
@@ -688,9 +690,10 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 		result, err = tool.callRemote(ctx, args)
 	}
 	if err != nil {
+		output := "Error: MCP tool " + tool.server.Name + "/" + tool.remote.Name + " failed: " + err.Error()
 		return tools.Result{
 			Status: tools.StatusError,
-			Output: "Error: MCP tool " + tool.server.Name + "/" + tool.remote.Name + " failed: " + err.Error(),
+			Output: tool.server.Redact(output),
 			Meta:   tool.meta(),
 		}
 	}
@@ -722,7 +725,7 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 	}
 	return tools.Result{
 		Status: status,
-		Output: output,
+		Output: tool.server.Redact(output),
 		Meta:   tool.meta(),
 	}
 }

@@ -77,20 +77,23 @@ type appDeps struct {
 	newQGDeviceClient func() (qgDeviceAPI, error)
 	// openBrowser opens the device-flow approval link (production:
 	// browser.Open); tests inject a fake so no real browser launches.
-	openBrowser                  func(ctx context.Context, url string) error
-	detectLocalRuntimes          func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
-	newSessionStore              func() *sessions.Store
-	loadPlugins                  func(plugins.LoadOptions) (plugins.LoadResult, error)
-	loadHooks                    func(hooks.LoadOptions) (hooks.LoadResult, error)
-	skillsDir                    func() string
-	pluginsDir                   func() string
-	toolsDir                     func() string
-	newMCPStore                  func() (*mcp.PermissionStore, error)
-	newMCPTokenStore             func() (*mcp.TokenStore, error)
-	newSandboxStore              func() (*sandbox.GrantStore, error)
-	selectSandboxBackend         func(sandbox.BackendOptions) sandbox.Backend
-	runSandboxSetupHelper        func(path string, args []string, stdout io.Writer, stderr io.Writer) error
-	registerMCPTools             func(context.Context, *tools.Registry, config.MCPConfig, mcp.RegisterOptions) (mcpToolRuntime, error)
+	openBrowser           func(ctx context.Context, url string) error
+	detectLocalRuntimes   func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
+	newSessionStore       func() *sessions.Store
+	loadPlugins           func(plugins.LoadOptions) (plugins.LoadResult, error)
+	loadHooks             func(hooks.LoadOptions) (hooks.LoadResult, error)
+	skillsDir             func() string
+	pluginsDir            func() string
+	toolsDir              func() string
+	newMCPStore           func() (*mcp.PermissionStore, error)
+	newMCPTokenStore      func() (*mcp.TokenStore, error)
+	newSandboxStore       func() (*sandbox.GrantStore, error)
+	selectSandboxBackend  func(sandbox.BackendOptions) sandbox.Backend
+	runSandboxSetupHelper func(path string, args []string, stdout io.Writer, stderr io.Writer) error
+	registerMCPTools      func(context.Context, *tools.Registry, config.MCPConfig, mcp.RegisterOptions) (mcpToolRuntime, error)
+	// probeMCPServers dials MCP servers for `mcp list` status. It is a field
+	// so tests inject a fake instead of opening real connections.
+	probeMCPServers              func(context.Context, []mcp.Server) map[string]mcp.ProbeResult
 	prepareWorktree              func(context.Context, worktrees.Options) (worktrees.Result, error)
 	releaseWorktree              func(context.Context, worktrees.Options, string) error
 	detectVerifyPlan             func(string) (verify.Plan, error)
@@ -635,6 +638,11 @@ func fillAppDeps(deps appDeps) appDeps {
 	}
 	if deps.registerMCPTools == nil {
 		deps.registerMCPTools = defaults.registerMCPTools
+	}
+	if deps.probeMCPServers == nil {
+		deps.probeMCPServers = func(ctx context.Context, servers []mcp.Server) map[string]mcp.ProbeResult {
+			return mcp.ProbeServers(ctx, servers, nil)
+		}
 	}
 	if deps.prepareWorktree == nil {
 		deps.prepareWorktree = defaults.prepareWorktree

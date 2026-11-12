@@ -221,7 +221,10 @@ func connectStdio(ctx context.Context, server Server, options ConnectOptions) (*
 	cleanupTransferred = true
 	if err := client.initialize(ctx); err != nil {
 		_ = client.Close()
-		message := strings.TrimSpace(stderr.String())
+		// The server's own stderr travels in this error (a crashing server
+		// often echoes its argv there), so trade expanded secrets back for
+		// their ${VAR} references before it reaches skipped reasons.
+		message := server.Redact(strings.TrimSpace(stderr.String()))
 		if message != "" {
 			return nil, fmt.Errorf("initialize MCP server %s: %w: %s", server.Name, err, message)
 		}

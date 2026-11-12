@@ -53,7 +53,7 @@ func (runtime *Runtime) Status() []ServerStatus {
 		if skipped, ok := skippedByName[server.Name]; ok {
 			reason := ""
 			if skipped.Err != nil {
-				reason = sanitizeMCPErrorText(skipped.Err.Error())
+				reason = sanitizeMCPErrorText(server.Redact(skipped.Err.Error()))
 			}
 			state := ServerStateFailed
 			if serverRequiresOAuth(server) {
@@ -124,7 +124,7 @@ func (runtime *Runtime) Reconnect(ctx context.Context, serverName string) error 
 		runtime.replaceSkippedLocked(SkippedServer{Name: serverName, Err: err})
 		return err
 	}
-	if err := runtime.adoptRelistLocked(ctx, *server, fresh, remote); err != nil {
+	if err := runtime.adoptRelistLocked(*server, fresh, remote); err != nil {
 		runtime.replaceSkippedLocked(SkippedServer{Name: serverName, Err: err})
 		return err
 	}
