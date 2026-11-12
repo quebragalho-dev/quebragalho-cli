@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// R5: stopping a foreground row must actually terminate its process. Starts
+// stopping a foreground row must actually terminate its process. Starts
 // a real sleeper in its own process group, points the pid lookup at it,
 // drives the stop command built in Update, and requires the process to be
 // gone. Cleanup kills and reaps the sleeper, so a failing test never leaves
@@ -18,7 +18,7 @@ func TestSubagentsStopKillsForegroundProcess(t *testing.T) {
 	cmd := exec.Command("sleep", "60")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("R5: start sleeper: %v", err)
+		t.Fatalf("start sleeper: %v", err)
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- cmd.Wait() }()
@@ -44,18 +44,18 @@ func TestSubagentsStopKillsForegroundProcess(t *testing.T) {
 	})
 	stop := m.buildStopCmd(sessionID)
 	if stop == nil {
-		t.Fatal("R5: a running foreground row must produce a stop command")
+		t.Fatal("a running foreground row must produce a stop command")
 	}
 	if msg, ok := stop().(subagentStopDoneMsg); !ok || msg.err != nil {
-		t.Fatalf("R5: the stop command must succeed, got %#v", stop())
+		t.Fatalf("the stop command must succeed, got %#v", stop())
 	}
 	select {
 	case err := <-waited:
 		reaped = true
 		if err == nil {
-			t.Fatal("R5: a killed sleeper must not exit cleanly")
+			t.Fatal("a killed sleeper must not exit cleanly")
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("R5: the foreground process did not die after the panel stop")
+		t.Fatal("the foreground process did not die after the panel stop")
 	}
 }

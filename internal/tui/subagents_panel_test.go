@@ -503,7 +503,7 @@ func (fake *subagentBgReconcileFake) BackgroundTask(taskID string) (background.T
 	return fake.task, fake.ok
 }
 
-// R9: a background row must settle once the manager reports it finished, and
+// a background row must settle once the manager reports it finished, and
 // the 2s throttle must persist between polls.
 func TestSubagentsBackgroundRowReconcilesWithManager(t *testing.T) {
 	base := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
@@ -527,14 +527,14 @@ func TestSubagentsBackgroundRowReconcilesWithManager(t *testing.T) {
 	m.housekeepSubagents(base.Add(3 * time.Second))
 	row, _ := m.subagents.rowByKey("task-1")
 	if row.state != subagentDone {
-		t.Fatalf("R9: a completed manager task must settle the row: %+v", row)
+		t.Fatalf("a completed manager task must settle the row: %+v", row)
 	}
 	if !row.finishedAt.Equal(base.Add(time.Second)) {
-		t.Fatalf("R9: the row must settle at the manager completion time: %+v", row)
+		t.Fatalf("the row must settle at the manager completion time: %+v", row)
 	}
 }
 
-// R10: ending the run fails leftover foreground rows but keeps background ones.
+// ending the run fails leftover foreground rows but keeps background ones.
 func TestSubagentsSettleRunFailsForegroundOnly(t *testing.T) {
 	base := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	m := panelTestModel(base)
@@ -544,15 +544,15 @@ func TestSubagentsSettleRunFailsForegroundOnly(t *testing.T) {
 	m.subagents.settleRun(base)
 	fg, _ := m.subagents.rowByKey("fg")
 	if fg.state != subagentFailed || fg.detail != "turno encerrado" || fg.finishedAt.IsZero() {
-		t.Fatalf("R10: settleRun must fail the foreground row: %+v", fg)
+		t.Fatalf("settleRun must fail the foreground row: %+v", fg)
 	}
 	bg, _ := m.subagents.rowByKey("bg")
 	if bg.state != subagentRunning {
-		t.Fatalf("R10: settleRun must keep the background row: %+v", bg)
+		t.Fatalf("settleRun must keep the background row: %+v", bg)
 	}
 }
 
-// R11: cancelling stops leftover foreground rows but keeps background ones.
+// cancelling stops leftover foreground rows but keeps background ones.
 func TestSubagentsCancelAllStopsForegroundOnly(t *testing.T) {
 	base := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	m := panelTestModel(base)
@@ -562,15 +562,15 @@ func TestSubagentsCancelAllStopsForegroundOnly(t *testing.T) {
 	m.subagents.cancelAll(base)
 	fg, _ := m.subagents.rowByKey("fg")
 	if fg.state != subagentStopped || fg.detail != "execução cancelada" || fg.finishedAt.IsZero() {
-		t.Fatalf("R11: cancelAll must stop the foreground row: %+v", fg)
+		t.Fatalf("cancelAll must stop the foreground row: %+v", fg)
 	}
 	bg, _ := m.subagents.rowByKey("bg")
 	if bg.state != subagentRunning {
-		t.Fatalf("R11: cancelAll must keep the background row: %+v", bg)
+		t.Fatalf("cancelAll must keep the background row: %+v", bg)
 	}
 }
 
-// R12: completion must read the usage rollup from the store through Update.
+// completion must read the usage rollup from the store through Update.
 func TestSubagentsCompletionReadsStoreRollup(t *testing.T) {
 	base := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	m := panelTestModel(base)
@@ -594,10 +594,10 @@ func TestSubagentsCompletionReadsStoreRollup(t *testing.T) {
 	m = updated.(model)
 	row, ok := m.subagents.rowByKey("child-1")
 	if !ok || !row.hasUsage || row.promptTokens+row.completionTokens != 8100 {
-		t.Fatalf("R12: completion must read the store rollup: %+v", row)
+		t.Fatalf("completion must read the store rollup: %+v", row)
 	}
 	if !row.hasCost || row.costBRL <= 0 {
-		t.Fatalf("R12: completion must price the rollup: %+v", row)
+		t.Fatalf("completion must price the rollup: %+v", row)
 	}
 }
 
@@ -633,20 +633,20 @@ func TestTaskUsageTotalsSumsDeltasAndKeepsRunStartModel(t *testing.T) {
 	prompt, completion = 2000, 300
 	totals.add(streamjson.Event{Type: streamjson.EventUsage, PromptTokens: &prompt, CompletionTokens: &completion})
 	if totals.prompt != 3000 || totals.completion != 500 {
-		t.Fatalf("N4: producer must sum per-call deltas: %+v", totals)
+		t.Fatalf("producer must sum per-call deltas: %+v", totals)
 	}
 	if totals.modelID != "modelo-teste" {
-		t.Fatalf("N5: producer must keep the run_start model: %+v", totals)
+		t.Fatalf("producer must keep the run_start model: %+v", totals)
 	}
 
 	fallback := &taskUsageTotals{}
 	fallback.add(streamjson.Event{Type: streamjson.EventRunStart, APIModel: "api-modelo"})
 	if fallback.modelID != "api-modelo" {
-		t.Fatalf("N5: producer must fall back to the API model id: %+v", fallback)
+		t.Fatalf("producer must fall back to the API model id: %+v", fallback)
 	}
 }
 
-// N8: cancelling the run through Update must stop the foreground rows.
+// cancelling the run through Update must stop the foreground rows.
 func TestSubagentsCancelRunStopsForegroundRows(t *testing.T) {
 	base := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	m := panelTestModel(base)
@@ -658,14 +658,14 @@ func TestSubagentsCancelRunStopsForegroundRows(t *testing.T) {
 	m = updated.(model)
 	fg, _ := m.subagents.rowByKey("fg")
 	if fg.state != subagentStopped || fg.detail != "execução cancelada" {
-		t.Fatalf("N8: cancelling the run must stop the foreground row: %+v", fg)
+		t.Fatalf("cancelling the run must stop the foreground row: %+v", fg)
 	}
 	if bg, _ := m.subagents.rowByKey("bg"); bg.state != subagentRunning {
-		t.Fatalf("N8: cancelling the run must keep the background row: %+v", bg)
+		t.Fatalf("cancelling the run must keep the background row: %+v", bg)
 	}
 }
 
-// N7: a finished run through Update must fail the leftover foreground rows.
+// a finished run through Update must fail the leftover foreground rows.
 func TestSubagentsRunFinishSettlesForegroundRows(t *testing.T) {
 	base := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	m := panelTestModel(base)
@@ -675,6 +675,6 @@ func TestSubagentsRunFinishSettlesForegroundRows(t *testing.T) {
 	updated, _ := m.Update(agentResponseMsg{runID: 7})
 	m = updated.(model)
 	if fg, _ := m.subagents.rowByKey("fg"); fg.state != subagentFailed {
-		t.Fatalf("N7: finishing the run must settle the foreground row: %+v", fg)
+		t.Fatalf("finishing the run must settle the foreground row: %+v", fg)
 	}
 }
