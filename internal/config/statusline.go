@@ -3,6 +3,9 @@ package config
 import (
 	"fmt"
 	"strings"
+	"unicode"
+
+	"charm.land/lipgloss/v2"
 )
 
 // Statusline defaults: the external command gets 2s per run and re-runs at
@@ -98,23 +101,31 @@ func (c StatusLineConfig) normalize() StatusLineConfig {
 	return out
 }
 
-// sanitizeStatusLineSeparator drops control bytes (C0 including ESC and line
-// breaks, DEL, C1) and caps the result at 8 runes, so an untrusted config
-// can neither inject footer lines nor smuggle escape sequences through the
-// join. Runes approximate cells here; separators are plain ASCII in practice.
+// sanitizeStatuslineSeparator drops invisible and line-breaking runes (C0
+// controls, DEL, C1, Unicode format characters such as the bidi overrides
+// U+202E and isolates U+2066–U+2069, U+200B, and the U+2028/U+2029 line and
+// paragraph separators) and caps the result at 8 cells of render width, so
+// an untrusted config can neither inject footer lines nor smuggle escape
+// sequences or bidi reordering through the join. Cells follow the render
+// width: a double-width rune counts two.
 func sanitizeStatuslineSeparator(sep string) (string, bool) {
 	var b strings.Builder
+	cells := 0
 	for _, r := range sep {
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
 			continue
 		}
+		if unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			continue
+		}
+		if w := lipgloss.Width(string(r)); cells+w > 8 {
+			break
+		} else {
+			cells += w
+		}
 		b.WriteRune(r)
 	}
 	out := b.String()
-	runes := []rune(out)
-	if len(runes) > 8 {
-		out = string(runes[:8])
-	}
 	return out, out != sep
 }
 

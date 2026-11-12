@@ -99,10 +99,11 @@ func (m model) statuslineStdin(width int) []byte {
 		asFloat, _ := new(big.Rat).Quo(total, big.NewRat(1, 1)).Float64()
 		payload.CostBRL = &asFloat
 	}
-	// The session prompt-cache hit on the 0-100 scale of context.pct; null
-	// until the first call lands in the journal (never a fake zero).
+	// The session prompt-cache hit on the 0-100 scale of context.pct,
+	// rendered as the same integer the footer shows; null until the first
+	// call lands in the journal (never a fake zero).
 	if data := m.cacheStatusData(); data.hasData {
-		hitPct := data.hit * 100
+		hitPct := float64(cacheHitPercent(data.hit))
 		payload.Cache.HitPct = &hitPct
 	}
 	encoded, err := json.Marshal(payload)

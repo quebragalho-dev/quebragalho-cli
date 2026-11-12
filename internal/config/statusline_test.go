@@ -148,7 +148,24 @@ func TestStatusLineSeparatorSanitized(t *testing.T) {
 	}
 }
 
-// O ajuste acontece no Resolve: refresh abaixo de 1s vira 1000 e o QG abre.
+// Format, line and paragraph separators (bidi overrides and isolates,
+// U+200B, U+2028/U+2029) never survive the separator, and the 8-cell cap
+// counts render width: four double-width runes fill the budget.
+func TestStatusLineSeparatorStripsInvisibleAndCapsCells(t *testing.T) {
+	cfg := StatusLineConfig{Separator: "a‮b\u200bc\u2028d\u2029e\u2066f"}
+	adjusted, warnings := cfg.Adjusted()
+	if len(warnings) == 0 {
+		t.Fatal("invisible runes produced no warning")
+	}
+	if adjusted.Separator != "abcdef" {
+		t.Fatalf("separator = %q, want the visible runes only", adjusted.Separator)
+	}
+	wide := StatusLineConfig{Separator: strings.Repeat("ｍ", 5)}
+	adjustedWide, _ := wide.Adjusted()
+	if got := []rune(adjustedWide.Separator); len(got) != 4 {
+		t.Fatalf("wide separator keeps %d runes, want 4 for the 8-cell cap: %q", len(got), adjustedWide.Separator)
+	}
+}
 func TestStatusLineResolveClampsRefresh(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

@@ -359,7 +359,6 @@ func (m model) resetStatusline() model {
 	m.statuslineCmdInFlight = false
 	m.statuslineCmdStartedAt = time.Time{}
 	m.statuslineCmdSeq++
-	m.statuslineTickArmed = false
 	return m.appendStatuslineNotice("Statusline\nvoltou ao padrão.")
 }
 
@@ -483,7 +482,9 @@ func readStatuslineProposal(stagingDir string, since time.Time) (statuslinePropo
 
 // openStagingFileChecked verifies path is a regular file without following
 // symlinks, then opens it the same way. The Lstat refusal names the problem;
-// O_NOFOLLOW enforces containment against a swap in between.
+// O_NOFOLLOW enforces containment against a swap in between. A kernel
+// symlink refusal (ELOOP/EMLINK, see isSymlinkRefusal) maps to the same
+// plain refusal.
 func openStagingFileChecked(path string) (*os.File, os.FileInfo, error) {
 	if info, err := os.Lstat(path); err != nil {
 		return nil, nil, err
@@ -530,12 +531,6 @@ func statuslineNotRegularError(path string) error {
 		return fmt.Errorf("link simbólico recusado: %s", filepath.Base(path))
 	}
 	return fmt.Errorf("%s não é um arquivo regular", filepath.Base(path))
-}
-
-// isSymlinkRefusal reports an open failure caused by O_NOFOLLOW meeting a
-// symlink (ELOOP/EOPNOTSUPP depending on platform and filesystem).
-func isSymlinkRefusal(err error) bool {
-	return err != nil && (strings.Contains(err.Error(), "too many links") || strings.Contains(err.Error(), "not supported"))
 }
 
 // verifyStatuslineStaging re-checks that stagingDir is the same real

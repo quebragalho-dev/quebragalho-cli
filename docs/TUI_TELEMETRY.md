@@ -73,7 +73,7 @@ credencial). As chaves estão SEMPRE presentes; valor desconhecido é null:
   "session_id": "abc123", "cwd": "/repo", "model": "muse-spark-1.3",
   "provider": "qg", "effort": "high",
   "context": { "used": 161000, "window": 1000000, "pct": 16 },
-  "cache": { "hit_pct": 75.0 },
+  "cache": { "hit_pct": 75 },
   "cost_brl": 0.12, "branch": "main", "version": "0.9.0", "width": 120
 }
 ```

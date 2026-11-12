@@ -9,8 +9,8 @@ import (
 )
 
 // Statusline field ids a custom layout may reference. Stable and English;
-// the display stays Portuguese. "cache" renders the prompt-cache hit rate
-// once its data source lands; until then it renders empty. The external
+// the display stays Portuguese. "cache" reuses the default statusline cache
+// segment ("cache —" before the first call, "cache 75%" after). The external
 // command is not a field: its output appends as its own footer lines (see
 // statusLineCustom).
 var statuslineFieldIDs = []string{
