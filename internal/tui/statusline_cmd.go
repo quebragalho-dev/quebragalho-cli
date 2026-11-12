@@ -140,12 +140,19 @@ func (m model) sessionCostBRLRat() (*big.Rat, bool) {
 // display basics in, every credential-like variable out. QG_* is dropped
 // wholesale so a statusline script can never observe keys through the env.
 func statuslineChildEnv(columns, lines int) []string {
+	return statuslineChildEnvFor(runtime.GOOS, os.Environ(), columns, lines)
+}
+
+// statuslineChildEnvFor is the pure, testable core: the allowlist match is
+// exact on Unix and case-insensitive on Windows (where "Path" carries the
+// canonical casing). environ is KEY=VALUE lines, as from os.Environ.
+func statuslineChildEnvFor(goos string, environ []string, columns, lines int) []string {
 	keep := map[string]bool{
 		"PATH": true, "HOME": true, "USER": true, "LOGNAME": true,
 		"TERM": true, "LANG": true, "LC_ALL": true, "LC_CTYPE": true,
 		"TZ": true, "NO_COLOR": true, "CLICOLOR": true,
 	}
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		keep["SystemRoot"] = true
 		keep["TEMP"] = true
 		keep["TMP"] = true
@@ -154,7 +161,7 @@ func statuslineChildEnv(columns, lines int) []string {
 		keep["SHELL"] = true
 	}
 	var env []string
-	for _, kv := range os.Environ() {
+	for _, kv := range environ {
 		name := kv
 		if i := strings.IndexByte(kv, '='); i >= 0 {
 			name = kv[:i]
@@ -169,7 +176,21 @@ func statuslineChildEnv(columns, lines int) []string {
 				break
 			}
 		}
-		if name == "" || !keep[name] {
+		if name == "" {
+			continue
+		}
+		if goos == "windows" {
+			matched := false
+			for allowed := range keep {
+				if strings.EqualFold(name, allowed) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		} else if !keep[name] {
 			continue
 		}
 		env = append(env, kv)

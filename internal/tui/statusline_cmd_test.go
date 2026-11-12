@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -128,6 +129,36 @@ func TestSanitizeStatuslineOutput(t *testing.T) {
 	huge := sanitizeStatuslineOutput(strings.Repeat("x", 2000))
 	if got := ansiPattern.ReplaceAllString(huge[0], ""); len([]rune(got)) > statuslineSanitizeWidth {
 		t.Fatalf("cached line exceeds memory cap: %d runes", len([]rune(got)))
+	}
+}
+
+// The allowlist matches exactly on Unix and case-insensitively on Windows,
+// where "Path" and "SystemRoot" carry the canonical casing.
+func TestStatuslineChildEnvMatchesHostCaseRules(t *testing.T) {
+	environ := []string{"PATH=/bin", "Path=C:\\Windows", "SystemRoot=C:\\Windows", "FOO=1", "TMPDIR=/tmp", "LANG=en_US.UTF-8", "QG_API_KEY=x"}
+	unix := statuslineChildEnvFor("linux", environ, 0, 0)
+	for _, want := range []string{"PATH=/bin", "TMPDIR=/tmp", "LANG=en_US.UTF-8"} {
+		if !slices.Contains(unix, want) {
+			t.Fatalf("unix env lacks %q: %q", want, unix)
+		}
+	}
+	for _, banned := range []string{"Path=", "SystemRoot=", "FOO=", "QG_API_KEY="} {
+		for _, kv := range unix {
+			if strings.HasPrefix(kv, banned) {
+				t.Fatalf("unix env keeps %q: %q", kv, unix)
+			}
+		}
+	}
+	windows := statuslineChildEnvFor("windows", environ, 0, 0)
+	for _, want := range []string{"Path=C:\\Windows", "SystemRoot=C:\\Windows"} {
+		if !slices.Contains(windows, want) {
+			t.Fatalf("windows env lacks %q (case-insensitive): %q", want, windows)
+		}
+	}
+	for _, kv := range windows {
+		if strings.HasPrefix(kv, "TMPDIR=") || strings.HasPrefix(kv, "FOO=") {
+			t.Fatalf("windows env keeps unix-only or unknown %q: %q", kv, windows)
+		}
 	}
 }
 
