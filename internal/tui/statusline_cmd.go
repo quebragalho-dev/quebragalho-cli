@@ -305,11 +305,11 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 	text := strings.TrimRight(string(out), "\n")
 	switch {
 	case runCtx.Err() == context.DeadlineExceeded:
-		timeoutSecs := timeout.Truncate(time.Second)
-		if timeoutSecs <= 0 {
-			timeoutSecs = timeout
+		timeoutLabel := timeout.Truncate(time.Second)
+		if timeoutLabel <= 0 {
+			timeoutLabel = timeout
 		}
-		return statuslineCmdMsg{errNote: "statusline: comando estourou o tempo (" + timeoutSecs.String() + ")"}
+		return statuslineCmdMsg{errNote: "statusline: comando estourou o tempo (" + timeoutLabel.String() + ")"}
 	case err != nil:
 		return statuslineCmdMsg{errNote: "statusline: comando falhou (" + shortCmdError(err) + ")"}
 	default:

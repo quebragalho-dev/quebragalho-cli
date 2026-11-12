@@ -153,7 +153,9 @@ func (m model) statuslineSegment(id string, width int) string {
 		}
 		return ""
 	case "cache":
-		// Reserved for the Cofre item; plugs in when it lands on dev.
+		// Reserved for the Cofre item (not on dev yet): plug
+		// cacheStatusSegment(m.cacheStatusData()) from internal/tui/cache_status.go
+		// when it lands, plus cache.hit_pct in statuslineStdin from the same data.
 		return ""
 	case "model":
 		if name := strings.TrimSpace(m.modelName); name != "" {
