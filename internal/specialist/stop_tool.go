@@ -58,11 +58,7 @@ func (tool *StopTool) Run(ctx context.Context, args map[string]any) tools.Result
 	if err != nil {
 		return taskError(err)
 	}
-	manager, err := tool.backgroundManager()
-	if err != nil {
-		return taskError(err)
-	}
-	if err := manager.Kill(params.TaskID); err != nil {
+	if err := tool.KillTask(params.TaskID); err != nil {
 		return taskError(err)
 	}
 	return tools.Result{
@@ -73,6 +69,27 @@ func (tool *StopTool) Run(ctx context.Context, args map[string]any) tools.Result
 			"status":  string(background.StatusKilled),
 		},
 	}
+}
+
+// KillTask stops a running background specialist task through the same manager
+// the TaskStop tool uses, so the TUI panel can stop a task without
+// round-tripping a tool call.
+func (tool *StopTool) KillTask(taskID string) error {
+	manager, err := tool.backgroundManager()
+	if err != nil {
+		return err
+	}
+	return manager.Kill(taskID)
+}
+
+// BackgroundTask reports a background task's latest known state, so surfaces
+// outside the agent loop can follow a running task without polling the tool.
+func (tool *StopTool) BackgroundTask(taskID string) (background.Task, bool) {
+	manager, err := tool.backgroundManager()
+	if err != nil {
+		return background.Task{}, false
+	}
+	return manager.Get(taskID)
 }
 
 func (tool *StopTool) backgroundManager() (*background.Manager, error) {

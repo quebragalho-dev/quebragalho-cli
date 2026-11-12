@@ -57,3 +57,32 @@ func TestStopToolIsAdvertisedInAutoMode(t *testing.T) {
 		t.Fatal("TaskStop should be visible in auto mode so the TUI can request permission")
 	}
 }
+
+// KillTask exposes the same manager kill the TaskStop tool uses, so the TUI
+// can stop a background task from the panel without round-tripping a tool.
+func TestStopToolKillTaskKillsBackgroundTask(t *testing.T) {
+	killed := []int{}
+	manager, err := background.NewManagerWithOptions(background.ManagerOptions{
+		RootDir: t.TempDir(),
+		KillProcess: func(pid int) error {
+			killed = append(killed, pid)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewManagerWithOptions returned error: %v", err)
+	}
+	if _, err := manager.Register(background.RegisterInput{TaskID: "child_task", Type: "specialist", PID: 4321}); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+	tool := NewStopTool(manager)
+	if err := tool.KillTask("child_task"); err != nil {
+		t.Fatalf("KillTask returned error: %v", err)
+	}
+	if len(killed) != 1 || killed[0] != 4321 {
+		t.Fatalf("killed pids = %#v, want [4321]", killed)
+	}
+	if err := tool.KillTask("missing"); err == nil {
+		t.Fatal("KillTask on an unknown task must fail")
+	}
+}

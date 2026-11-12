@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -35,6 +36,7 @@ type specialistAccountingInput struct {
 
 func (executor Executor) recordSpecialistStart(input specialistAccountingInput) {
 	payload := baseSpecialistPayload(input)
+	payload["startedAt"] = time.Now().UTC().Format(time.RFC3339Nano)
 	_, _ = appendSpecialistSessionEvent(executor.SessionStore, input.ParentSessionID, sessions.EventSpecialistStart, payload)
 }
 
