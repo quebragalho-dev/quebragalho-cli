@@ -1061,3 +1061,25 @@ func TestAcceptSubagents_HeadlessTasksCommandStaysOutOfScope(t *testing.T) {
 		}
 	}
 }
+
+func TestAcceptSubagents_TickThrottlesReloadToOnePerSecond(t *testing.T) {
+	m, clock := sub8Model(t)
+	for _, child := range sub8Children {
+		m = sub8Start(t, m, clock, child, false)
+	}
+	m = sub8Open(t, m, sub8Explorer)
+	m.pending = true
+	m = sub8Update(t, m, spinner.TickMsg{})
+	const fresh = "linha nova sem progresso no tick"
+	sub8Append(t, m.sessionStore, sub8Explorer.session, sessions.EventMessage, map[string]any{"role": "assistant", "content": fresh})
+	clock.advance(500 * time.Millisecond)
+	m = sub8Update(t, m, spinner.TickMsg{})
+	if strings.Contains(sub8View(m), fresh) {
+		t.Fatalf("tick a +0,5s deve esconder a linha nova (limite de 1x/s); View=%q", sub8View(m))
+	}
+	clock.advance(600 * time.Millisecond)
+	m = sub8Update(t, m, spinner.TickMsg{})
+	if !strings.Contains(sub8View(m), fresh) {
+		t.Fatalf("tick a +1,1s deve mostrar a linha nova; View=%q", sub8View(m))
+	}
+}
