@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"os"
 	"runtime"
 
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
@@ -164,6 +166,63 @@ func TestStatuslineSetupGuards(t *testing.T) {
 	armed.statuslineSetup = &statuslineSetupState{runID: 1}
 	if _, cmd := armed.dispatchCommand(parseCommand("/statusline outra coisa")); cmd != nil {
 		t.Fatal("second setup launched while one is armed")
+	}
+}
+
+// A validação da config roda ANTES da prévia: proposta com refreshMs 500 é
+// ajustada para 1000 com aviso, e o Enter aplica o ajustado — nunca exibe
+// "Enter aplica" para depois falhar no Enter.
+func TestStatuslinePreviewValidatesBeforeAsking(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	seed := `{"activeProvider": "p", "providers": [{"name": "p", "provider_kind": "openai-compatible", "model": "m", "baseURL": "https://a.example.com/v1"}]}`
+	if err := os.WriteFile(userPath, []byte(seed), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	staging := filepath.Join(dir, "staging")
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	proposal := `{"lines": [{"left": ["mode"]}], "refreshMs": 500}`
+	if err := os.WriteFile(filepath.Join(staging, "proposal.json"), []byte(proposal), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	m.statuslineSetup = &statuslineSetupState{runID: 9, startedAt: time.Now().Add(-time.Minute), stagingDir: staging}
+	updated, cmd := m.maybeFinalizeStatuslineSetup(agentResponseMsg{runID: 9})
+	if cmd != nil {
+		t.Fatal("fields-only proposal must preview synchronously")
+	}
+	nm := updated
+	if nm.statuslinePending == nil {
+		t.Fatal("no preview pending")
+	}
+	preview := nm.statuslinePending.preview
+	for _, want := range []string{"1000", "Enter aplica"} {
+		if !strings.Contains(preview, want) {
+			t.Fatalf("preview lacks %q:\n%s", want, preview)
+		}
+	}
+	applied, _ := nm.Update(testKey(tea.KeyEnter))
+	if applied.(model).statuslinePending != nil {
+		t.Fatal("pending not cleared after Enter")
+	}
+	raw, err := os.ReadFile(userPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		StatusLine struct {
+			RefreshMs int `json:"refreshMs"`
+		} `json:"statusline"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.StatusLine.RefreshMs != 1000 {
+		t.Fatalf("applied refreshMs = %d, want the adjusted 1000", doc.StatusLine.RefreshMs)
 	}
 }
 
