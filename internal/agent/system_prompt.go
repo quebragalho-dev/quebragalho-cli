@@ -192,19 +192,72 @@ func contextUpdateNote(sections []string, frozen string) string {
 			}
 		}
 	}
+	missing = append(missing, removedGuidelineNotes(sections, frozen)...)
 	if len(missing) == 0 {
 		return ""
 	}
 	return "[context update]\n" + strings.Join(missing, "\n\n")
 }
 
+// guidelineHeaderPrefix marks a per-file project guideline section, whose
+// label is the path in parentheses that follows it.
+const guidelineHeaderPrefix = "## Project guidelines ("
+
+// guidelineLabelOf extracts the label of a guideline section, if it is one.
+func guidelineLabelOf(section string) (string, bool) {
+	if !strings.HasPrefix(section, guidelineHeaderPrefix) {
+		return "", false
+	}
+	rest := section[len(guidelineHeaderPrefix):]
+	end := strings.Index(rest, ")")
+	if end < 0 {
+		return "", false
+	}
+	return rest[:end], true
+}
+
+// removedGuidelineNotes reports guideline files that the frozen system still
+// cites but the current workspace no longer has: a deleted or moved guideline
+// must not keep steering the model silently. One short line per label.
+func removedGuidelineNotes(sections []string, frozen string) []string {
+	fresh := make(map[string]bool)
+	for _, section := range sections {
+		if label, ok := guidelineLabelOf(section); ok {
+			fresh[label] = true
+		}
+	}
+	var notes []string
+	seen := make(map[string]bool)
+	for _, line := range strings.Split(frozen, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, guidelineHeaderPrefix) || !strings.HasSuffix(trimmed, ")") {
+			continue
+		}
+		label := trimmed[len(guidelineHeaderPrefix) : len(trimmed)-1]
+		if label == "" || fresh[label] || seen[label] {
+			continue
+		}
+		seen[label] = true
+		notes = append(notes, "Project guidelines removed: "+label+" (no longer applies)")
+	}
+	return notes
+}
+
 // approvedPrefixDelta returns a short note with only the approval grant lines
-// absent from frozen. "" when the section is not the approvals block or no
+// absent from frozen. Membership is exact per "- " line: a fresh grant that is
+// a substring of a frozen line (a broader prefix granted after a narrower one)
+// still counts as new. "" when the section is not the approvals block or no
 // line-level delta exists (the caller then falls back to the whole section).
 func approvedPrefixDelta(section, frozen string) string {
 	const header = "## Approved Command Prefixes"
 	if !strings.HasPrefix(section, header) {
 		return ""
+	}
+	frozenLines := make(map[string]bool)
+	for _, line := range strings.Split(frozen, "\n") {
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "- ") {
+			frozenLines[trimmed] = true
+		}
 	}
 	var fresh []string
 	for _, line := range strings.Split(section, "\n") {
@@ -212,7 +265,7 @@ func approvedPrefixDelta(section, frozen string) string {
 		if !strings.HasPrefix(line, "- ") {
 			continue
 		}
-		if !strings.Contains(frozen, line) {
+		if !frozenLines[line] {
 			fresh = append(fresh, line)
 		}
 	}

@@ -226,3 +226,90 @@ func TestCachePrefixContraryCases(t *testing.T) {
 		t.Fatalf("run fresco nao menciona o branch novo: %q", after[len(after)-500:])
 	}
 }
+
+// A1: uma diretriz apagada no meio da conversa gera nota de remoção com o
+// rótulo, para o modelo não seguir regra revogada que ainda está no system
+// congelado.
+func TestCachePrefixRemovedGuidelineAnnounced(t *testing.T) {
+	dir := cacheGoldenFixture(t, "main", "NORMAS-v1.\n")
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "QG.md"), []byte("SEMPRE rode make lint.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := Options{Cwd: sub}
+	frozen := buildSystemPromptParts(base).prompt
+	if !strings.Contains(frozen, "## Project guidelines (sub/QG.md)") {
+		t.Fatalf("fixture deve congelar o bloco sub/QG.md")
+	}
+	first := textAnswerProvider("ok um")
+	result, err := Run(context.Background(), "tarefa um", first, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(sub, "QG.md")); err != nil {
+		t.Fatal(err)
+	}
+	second := textAnswerProvider("ok dois")
+	if _, err := Run(context.Background(), "tarefa dois", second, Options{
+		Cwd:          sub,
+		Continuation: result.Messages,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(second.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(second.requests))
+	}
+	got := second.requests[0]
+	if got.Messages[0].Content != frozen {
+		t.Fatal("system deve continuar congelado quando a guideline some")
+	}
+	last := got.Messages[len(got.Messages)-1].Content
+	if !strings.Contains(last, "Project guidelines removed: sub/QG.md (no longer applies)") {
+		t.Fatalf("nota deve anunciar a remocao da guideline: %q", last)
+	}
+}
+
+// A2: aprovação nova mais estreita que uma linha congelada não some: a
+// comparação é por pertença exata ao conjunto de linhas "- " do congelado,
+// nunca por substring.
+func TestCachePrefixNarrowerApprovalNotSwallowed(t *testing.T) {
+	dir := cacheGoldenFixture(t, "main", "NORMAS-v1.\n")
+	store, err := sandbox.NewGrantStore(sandbox.StoreOptions{FilePath: filepath.Join(t.TempDir(), "grants.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := sandbox.NewEngine(sandbox.EngineOptions{WorkspaceRoot: dir, Store: store})
+	if _, err := store.GrantCommandPrefix(sandbox.CommandPrefixInput{ToolName: "bash", Prefix: []string{"go", "test", "-race"}}); err != nil {
+		t.Fatal(err)
+	}
+	base := Options{Cwd: dir, Sandbox: engine}
+	first := textAnswerProvider("ok um")
+	result, err := Run(context.Background(), "tarefa um", first, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GrantCommandPrefix(sandbox.CommandPrefixInput{ToolName: "bash", Prefix: []string{"go", "test"}}); err != nil {
+		t.Fatal(err)
+	}
+	second := textAnswerProvider("ok dois")
+	if _, err := Run(context.Background(), "tarefa dois", second, Options{
+		Cwd:          dir,
+		Sandbox:      engine,
+		Continuation: result.Messages,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	last := second.requests[0].Messages[len(second.requests[0].Messages)-1].Content
+	if !strings.Contains(last, "New approved command prefixes") {
+		t.Fatalf("nota deve ser o delta curto de aprovacoes: %q", last)
+	}
+	if !strings.Contains(last, "- bash: go test\n") && !strings.HasSuffix(strings.TrimSpace(last), "- bash: go test") {
+		t.Fatalf("nota deve trazer a aprovacao nova exata: %q", last)
+	}
+	if strings.Contains(last, "The following command prefixes have already been approved") {
+		t.Fatalf("delta exato nao re-despeja a secao inteira: %q", last)
+	}
+}
