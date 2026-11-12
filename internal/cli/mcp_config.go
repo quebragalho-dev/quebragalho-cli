@@ -362,6 +362,21 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	if raw.Disabled {
 		return writeAppError(stderr, fmt.Sprintf("Servidor MCP %q está desativado", serverName), exitCrash)
 	}
+	if _, missing := mcp.ExpandServerEnv(raw); len(missing) > 0 {
+		message := fmt.Sprintf("Servidor MCP %s não está acessível: %s", serverName, mcp.MissingEnvError(serverName, missing))
+		if options.json {
+			payload := struct {
+				ServerName string `json:"serverName"`
+				Status     string `json:"status"`
+				Error      string `json:"error,omitempty"`
+			}{ServerName: serverName, Status: "unreachable", Error: message}
+			if err := writePrettyJSON(stdout, redaction.RedactValue(payload, redaction.Options{})); err != nil {
+				return exitCrash
+			}
+			return exitCrash
+		}
+		return writeAppError(stderr, message, exitCrash)
+	}
 	scoped := config.MCPConfig{Servers: map[string]config.MCPServerConfig{serverName: raw}}
 	if _, err := mcp.NormalizeConfig(scoped); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
@@ -415,7 +430,7 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	}
 
 	items := mcpToolList(registry)
-	for _, warning := range mcpRuntime.Warnings() {
+	for _, warning := range mcpRuntimeWarnings(mcpRuntime) {
 		fmt.Fprintf(stderr, "aviso: MCP %s\n", warning)
 	}
 	if options.json {
@@ -425,7 +440,7 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 			ToolCount  int               `json:"toolCount"`
 			Tools      []mcpToolListItem `json:"tools"`
 			Warnings   []string          `json:"warnings,omitempty"`
-		}{ServerName: serverName, Status: "ok", ToolCount: len(items), Tools: items, Warnings: mcpRuntime.Warnings()}
+		}{ServerName: serverName, Status: "ok", ToolCount: len(items), Tools: items, Warnings: mcpRuntimeWarnings(mcpRuntime)}
 		if err := writePrettyJSON(stdout, redaction.RedactValue(payload, redaction.Options{})); err != nil {
 			return exitCrash
 		}

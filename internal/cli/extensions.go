@@ -221,7 +221,7 @@ func runMCPLegacyList(args []string, stdout io.Writer, stderr io.Writer, deps ap
 	// Probing spawns stdio servers, so project-layer servers are only probed
 	// in a trusted workspace; elsewhere they are reported as unverified.
 	excludeProject, _ := resolveTrust(cwd)
-	probe := probeEligibleMCPServers(cfg, !excludeProject)
+	probe, missing := probeEligibleMCPServers(cfg, !excludeProject)
 	if options.json {
 		// Env and header VALUES are credentials by construction (API keys,
 		// bearer tokens) and must never reach stdout: pattern-based redaction
@@ -230,13 +230,13 @@ func runMCPLegacyList(args []string, stdout io.Writer, stderr io.Writer, deps ap
 		payload := struct {
 			Servers map[string]config.MCPServerConfig `json:"servers"`
 			Status  map[string]mcpServerProbeStatus   `json:"status"`
-		}{Servers: redactMCPServerConfigs(cfg.Servers), Status: mcpProbeStatusMap(cfg.Servers, probe, !excludeProject)}
+		}{Servers: redactMCPServerConfigs(cfg.Servers), Status: mcpProbeStatusMap(cfg.Servers, probe, missing, !excludeProject)}
 		if err := writePrettyJSON(stdout, redaction.RedactValue(payload, redaction.Options{})); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintln(stdout, redaction.RedactString(formatMCPServerList(cfg.Servers, probe, !excludeProject), redaction.Options{})); err != nil {
+	if _, err := fmt.Fprintln(stdout, redaction.RedactString(formatMCPServerList(cfg.Servers, probe, missing, !excludeProject), redaction.Options{})); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -251,10 +251,13 @@ type mcpServerProbeStatus struct {
 
 // probeEligibleMCPServers probes every configured server the trust gate
 // allows (user/default servers always; project servers only when trusted).
-func probeEligibleMCPServers(cfg config.MCPConfig, trusted bool) map[string]mcp.ProbeResult {
+// ${VAR}/${VAR:-default} expands first; servers with undefined variables are
+// returned in missing instead of probed with emptied targets.
+func probeEligibleMCPServers(cfg config.MCPConfig, trusted bool) (map[string]mcp.ProbeResult, map[string][]string) {
+	cfg, missing := mcp.ExpandMCPConfigEnv(cfg)
 	servers, err := mcp.NormalizeConfig(cfg)
 	if err != nil {
-		return nil
+		return nil, missing
 	}
 	eligible := make([]mcp.Server, 0, len(servers))
 	for _, server := range servers {
@@ -263,10 +266,10 @@ func probeEligibleMCPServers(cfg config.MCPConfig, trusted bool) map[string]mcp.
 		}
 		eligible = append(eligible, server)
 	}
-	return mcp.ProbeServers(context.Background(), eligible, nil)
+	return mcp.ProbeServers(context.Background(), eligible, nil), missing
 }
 
-func mcpProbeStatusMap(servers map[string]config.MCPServerConfig, probe map[string]mcp.ProbeResult, trusted bool) map[string]mcpServerProbeStatus {
+func mcpProbeStatusMap(servers map[string]config.MCPServerConfig, probe map[string]mcp.ProbeResult, missing map[string][]string, trusted bool) map[string]mcpServerProbeStatus {
 	status := make(map[string]mcpServerProbeStatus, len(servers))
 	for name, server := range servers {
 		switch {
@@ -274,6 +277,8 @@ func mcpProbeStatusMap(servers map[string]config.MCPServerConfig, probe map[stri
 			status[name] = mcpServerProbeStatus{State: "disabled"}
 		case !trusted && server.ProjectConfigured:
 			status[name] = mcpServerProbeStatus{State: "unverified", Error: "projeto não confiável"}
+		case len(missing[name]) > 0:
+			status[name] = mcpServerProbeStatus{State: "unreachable", Error: mcp.MissingEnvError(name, missing[name])}
 		default:
 			entry := mcpServerProbeStatus{State: "unreachable"}
 			if result, ok := probe[name]; ok && result.Err == nil {
