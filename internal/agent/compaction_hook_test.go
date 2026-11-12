@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // OnCompaction fires only when the compactor actually rewrote the history, so
@@ -38,5 +41,31 @@ func TestOnCompactionSilentOnNoop(t *testing.T) {
 	}
 	if fired != 0 {
 		t.Fatalf("OnCompaction fired %d times on a no-op, want 0", fired)
+	}
+}
+
+type failingSummarizerProvider struct{}
+
+func (failingSummarizerProvider) StreamCompletion(context.Context, qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
+	return nil, errSummarizerDown
+}
+
+var errSummarizerDown = errors.New("summarizer down")
+
+// A9: o hook dispara sempre que o histórico devolvido difere do recebido,
+// mesmo quando o sumarizador pago falha depois de uma poda gratuita.
+func TestOnCompactionFiresWhenSummarizerFailsAfterPrune(t *testing.T) {
+	fired := 0
+	state := newCompactionState(Options{
+		ContextWindow:          50_000,
+		CompactionPreserveLast: 2,
+		OnCompaction:           func() { fired++ },
+	}, nil)
+	pruned := state.maybeCompact(context.Background(), failingSummarizerProvider{}, bigToolHistory(5), nil)
+	if fired != 1 {
+		t.Fatalf("OnCompaction fired %d times, want exactly 1 (prune rewrote the history)", fired)
+	}
+	if estimateTokens(pruned) >= estimateTokens(bigToolHistory(5)) {
+		t.Fatal("expected the prune stage to shrink the history even without a summarizer")
 	}
 }

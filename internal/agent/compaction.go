@@ -595,8 +595,10 @@ func (state *compactionState) maybeCompact(
 	// the bodies of old, large tool results (the model has already acted on
 	// them). If that brings us back under threshold, skip the paid summarizer
 	// entirely and preserve recent turns verbatim.
+	rewrote := false
 	if pruned, reclaimed := pruneSupersededReadResults(messages); reclaimed > 0 {
 		messages = pruned
+		rewrote = true
 		size = state.calibratedTokens(estimateTokens(messages) + toolTokens)
 		if size <= state.threshold {
 			state.lowWaterMark = size
@@ -606,6 +608,7 @@ func (state *compactionState) maybeCompact(
 	}
 	if pruned, reclaimed := pruneStaleToolOutput(messages, state.preserveLast); reclaimed > 0 {
 		messages = pruned
+		rewrote = true
 		size = state.calibratedTokens(estimateTokens(messages) + toolTokens)
 		if size <= state.threshold {
 			state.lowWaterMark = size
@@ -620,14 +623,22 @@ func (state *compactionState) maybeCompact(
 		taskState:    state.task.snapshotForCompaction(messages),
 	})
 	if err != nil {
-		// Summarizer failed: keep the original history. The reactive path (or a
-		// later turn) can try again; we never drop messages on failure here.
+		// Summarizer failed: keep whatever the prune stage already reclaimed
+		// (the reactive path or a later turn can try again); the hook still
+		// fires when the history differs from what came in.
+		if rewrote {
+			state.notifyCompacted()
+		}
 		return messages
 	}
 	newSize := state.calibratedTokens(estimateTokens(compacted) + toolTokens)
 	if newSize >= size {
 		// Compaction did not actually shrink anything (e.g. nothing to
 		// summarize). Leave the history untouched and don't churn next turn.
+		// A prune-only rewrite above still counts as a rewrite.
+		if rewrote {
+			state.notifyCompacted()
+		}
 		state.lowWaterMark = size
 		return messages
 	}
@@ -699,6 +710,11 @@ func (state *compactionState) recover(
 	if compactErr != nil {
 		// A genuine compaction attempt was made (and failed): the budget is spent
 		// so the loop gives up rather than retrying a failing summarizer forever.
+		// A prune-only rewrite above still counts: the history differs from
+		// what came in.
+		if prunedAny {
+			state.notifyCompacted()
+		}
 		state.reactiveAttempted = true
 		return messages, true, compactErr
 	}
@@ -707,6 +723,10 @@ func (state *compactionState) recover(
 		// retried" so the caller surfaces the original context-limit error. Do NOT
 		// consume the one-shot budget here: a no-op recover (history too small to
 		// shrink) must not disable a later recovery once the history has grown.
+		// A prune-only rewrite above still counts as a rewrite.
+		if prunedAny {
+			state.notifyCompacted()
+		}
 		return messages, false, nil
 	}
 	// Success: a real compaction shrank the history and we will retry. Consume the
