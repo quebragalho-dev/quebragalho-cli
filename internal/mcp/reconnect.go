@@ -178,14 +178,10 @@ func retryAfterDelay(raw string, now time.Time) (time.Duration, bool) {
 	return 0, false
 }
 
-// sleepForStatusRetry waits out a 429 Retry-After (or the attempt backoff
-// when the server sent none) before re-sending a call the server said it did
-// not process. Aborting early on cancellation keeps Esc responsive.
-func sleepForStatusRetry(ctx context.Context, status *MCPHTTPStatusError, attempt int) bool {
-	delay := connectBackoffFor(attempt)
-	if retry, ok := retryAfterDelay(status.RetryAfter, time.Now()); ok {
-		delay = retry
-	}
+// sleepForStatusRetry waits out a 429 delay before re-sending a call the
+// server said it did not process. Aborting early on cancellation keeps Esc
+// responsive.
+func sleepForStatusRetry(ctx context.Context, delay time.Duration) bool {
 	if delay <= 0 {
 		return ctx.Err() == nil
 	}

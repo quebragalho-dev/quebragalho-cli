@@ -777,12 +777,15 @@ func (tool *registryTool) heal(ctx context.Context) error {
 	if tool.server.Type != ServerTypeStdio {
 		maxAttempts = maxConnectAttempts
 	}
+	// Pin the dead client up front: re-reading current() every lap would
+	// redial a server another call already healed.
+	dead := tool.conn.current()
 	var err error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if tool.server.Type != ServerTypeStdio && attempt > 1 && !sleepForReconnect(ctx, attempt-1) {
 			return ctx.Err()
 		}
-		_, err = tool.conn.redialIfCurrent(ctx, tool.conn.current())
+		_, err = tool.conn.redialIfCurrent(ctx, dead)
 		if err != nil {
 			if !isTransientConnectError(ctx, err) {
 				return err
@@ -836,8 +839,18 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 		if errors.As(err, &httpStatus) && httpStatus.Status == http.StatusTooManyRequests {
 			// The server explicitly did not process the call: wait out
 			// Retry-After (or the attempt backoff) and re-send on the same
-			// client. The transport is alive, so no redial.
-			if !sleepForStatusRetry(ctx, httpStatus, attempt) {
+			// client. The transport is alive, so no redial. A Retry-After
+			// past the call's own budget is returned at once instead: the
+			// model gets the 429 now rather than after a wait that would
+			// outlast the timeout anyway.
+			delay := connectBackoffFor(attempt)
+			if retry, ok := retryAfterDelay(httpStatus.RetryAfter, time.Now()); ok {
+				delay = retry
+			}
+			if delay > toolTimeoutFor(tool.server) {
+				break
+			}
+			if !sleepForStatusRetry(ctx, delay) {
 				err = ctx.Err()
 				break
 			}
@@ -859,7 +872,7 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 			err = ctx.Err()
 			break
 		}
-		swapped, reconnectErr := tool.conn.redialIfCurrent(ctx, before)
+		_, reconnectErr := tool.conn.redialIfCurrent(ctx, before)
 		if reconnectErr != nil {
 			err = reconnectErr
 			if !isTransientConnectError(ctx, reconnectErr) {
@@ -867,9 +880,8 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 			}
 			continue
 		}
-		if !swapped {
-			break
-		}
+		// Swapped here or by a concurrent caller: either way the call never
+		// reached the dead client, so it goes to whichever client is current.
 		before = tool.conn.current()
 		result, err = tool.callRemote(ctx, args)
 	}
