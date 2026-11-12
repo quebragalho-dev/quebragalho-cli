@@ -433,8 +433,8 @@ func workspaceContextParts(cwd string) (env string, guides []string, repoMap str
 	return env, guides, repoMap
 }
 
-// joinWorkspaceParts reproduces the legacy workspaceContext rendering from
-// parts so the frozen system bytes never change with the split.
+// joinWorkspaceParts renders the workspace block from parts: the environment
+// header, one section per project guideline file, and the repo map.
 func joinWorkspaceParts(env string, guides []string, repoMap string) string {
 	if env == "" && len(guides) == 0 && repoMap == "" {
 		return ""
@@ -454,15 +454,6 @@ func joinWorkspaceParts(env string, guides []string, repoMap string) string {
 		b.WriteString(repoMap)
 	}
 	return b.String()
-}
-
-// workspaceContext returns an <environment> block describing the working
-// directory, git branch, and any project guideline doc, so the model grounds its
-// work in the actual repo. Returns "" when cwd is unset (keeps headless/test
-// runs deterministic).
-func workspaceContext(cwd string) string {
-	env, guides, repoMap := workspaceContextParts(cwd)
-	return joinWorkspaceParts(env, guides, repoMap)
 }
 
 // projectGuidelineBlocks returns one section per matched project guideline
@@ -505,25 +496,6 @@ func projectGuidelineBlocks(cwd, gitRoot string) []string {
 		totalUsed += len(content)
 	}
 	return blocks
-}
-
-// projectGuidelines walks the directory chain from the git root to cwd
-// (inclusive), finds the first matching project context file at each level
-// (case-insensitive basename match), reads it, and returns the joined
-// content in general-to-specific order — the most general file (at the git
-// root) appears first, the most specific (at cwd) last. Each file is capped
-// at maxProjectContextBytes; the total across all files is capped at
-// maxProjectContextTotalBytes. Returns "" when no file matches.
-func projectGuidelines(cwd, gitRoot string) string {
-	blocks := projectGuidelineBlocks(cwd, gitRoot)
-	if len(blocks) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, block := range blocks {
-		b.WriteString("\n\n" + block)
-	}
-	return b.String()
 }
 
 // userGuidelines returns the per-user QG.md instructions block, if present.
