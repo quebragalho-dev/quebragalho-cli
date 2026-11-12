@@ -258,9 +258,14 @@ func connectAndList(ctx context.Context, factory func(context.Context, Server) (
 func buildServerTools(registry *tools.Registry, server Server, remoteTools []RemoteTool, client ToolClient, options RegisterOptions, factory func(context.Context, Server) (ToolClient, error), stagedNames map[string]struct{}, keep map[string]bool) ([]*registryTool, error) {
 	serverTools := make([]*registryTool, 0, len(remoteTools))
 	localNames := make(map[string]struct{})
+	filtered := false
 	for _, remote := range remoteTools {
 		if strings.TrimSpace(remote.Name) == "" {
 			return nil, fmt.Errorf("MCP server %s returned a tool without a name", server.Name)
+		}
+		if !serverToolAllowed(server, remote.Name) {
+			filtered = true
+			continue
 		}
 		built := newRegistryTool(server, remote, client, options)
 		if server.Type == ServerTypeStdio && factory != nil {
@@ -281,7 +286,30 @@ func buildServerTools(registry *tools.Registry, server Server, remoteTools []Rem
 		localNames[tool.Name()] = struct{}{}
 		serverTools = append(serverTools, tool)
 	}
+	if len(serverTools) == 0 && filtered {
+		return nil, fmt.Errorf("MCP server %s has no tools left after enabled_tools/disabled_tools filtering", server.Name)
+	}
 	return serverTools, nil
+}
+
+// serverToolAllowed reports whether a remote tool passes the server's
+// enabled_tools allow-list (empty means all) and disabled_tools deny-list
+// (deny wins).
+func serverToolAllowed(server Server, remoteName string) bool {
+	for _, denied := range server.DisabledTools {
+		if denied == remoteName {
+			return false
+		}
+	}
+	if len(server.EnabledTools) == 0 {
+		return true
+	}
+	for _, allowed := range server.EnabledTools {
+		if allowed == remoteName {
+			return true
+		}
+	}
+	return false
 }
 
 func (runtime *Runtime) Close() error {

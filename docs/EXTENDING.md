@@ -230,7 +230,10 @@ QG is both an **MCP client** (it can call external MCP servers) and an **MCP ser
       "github": {
         "type": "http",
         "url": "https://api.example.com/mcp",
-        "headers": { "Authorization": "Bearer YOUR_TOKEN_HERE" }
+        "headers": { "Authorization": "Bearer YOUR_TOKEN_HERE" },
+        "timeout": 60000,
+        "enabledTools": ["search", "fetch"],
+        "disabledTools": ["delete"]
       }
     }
   }

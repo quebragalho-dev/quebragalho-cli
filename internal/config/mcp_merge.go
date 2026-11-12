@@ -73,6 +73,12 @@ func mergeMCPServer(base MCPServerConfig, next MCPServerConfig, canReenable bool
 	if next.Timeout != 0 {
 		base.Timeout = next.Timeout
 	}
+	if next.EnabledTools != nil {
+		base.EnabledTools = append([]string{}, next.EnabledTools...)
+	}
+	if next.DisabledTools != nil {
+		base.DisabledTools = append([]string{}, next.DisabledTools...)
+	}
 	// Capture the higher-trust scope's prior decision before folding in
 	// next.disabledSet. The trust boundary must be evaluated against the state
 	// the higher-trust layer actually left behind, not against next's own flag.

@@ -34,6 +34,10 @@ type Server struct {
 	// 60s default apply when zero). It is connection policy, not target
 	// identity, so it stays out of the identity hash.
 	Timeout int
+	// EnabledTools allow-lists remote tool names (empty means all);
+	// DisabledTools deny-lists and wins. View policy, not target identity.
+	EnabledTools  []string
+	DisabledTools []string
 	// TypeImplicit is true when the transport was inferred (a URL without an
 	// explicit type defaults to HTTP). Implicit servers may fall back from
 	// Streamable HTTP to legacy SSE; explicit ones stay strict. It is
@@ -102,6 +106,8 @@ func normalizeServer(name string, raw config.MCPServerConfig) (Server, error) {
 		Auth:                auth,
 		OAuth:               normalizeOAuthConfig(raw.OAuth),
 		Timeout:             raw.Timeout,
+		EnabledTools:        append([]string(nil), raw.EnabledTools...),
+		DisabledTools:       append([]string(nil), raw.DisabledTools...),
 		TypeImplicit:        typeImplicit,
 		ProjectConfigured:   raw.ProjectConfigured,
 		UnconfiguredDefault: config.IsUnconfiguredDefault(name, raw),

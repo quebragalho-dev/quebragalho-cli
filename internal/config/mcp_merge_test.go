@@ -199,3 +199,23 @@ func TestResolveMCPProjectArgsTargetCompareUsesNormalizedArgs(t *testing.T) {
 		t.Fatalf("docs = %#v, want project marker", resolved.MCP.Servers["docs"])
 	}
 }
+
+func TestMCPServerToolFiltersUnmarshalBothSpellings(t *testing.T) {
+	var camel MCPServerConfig
+	if err := camel.UnmarshalJSON([]byte(`{"type":"http","url":"http://127.0.0.1:1/mcp","enabledTools":["a"],"disabledTools":["b"]}`)); err != nil {
+		t.Fatalf("UnmarshalJSON() error = %v", err)
+	}
+	if len(camel.EnabledTools) != 1 || camel.EnabledTools[0] != "a" {
+		t.Fatalf("EnabledTools = %+v", camel.EnabledTools)
+	}
+	var snake MCPServerConfig
+	if err := snake.UnmarshalJSON([]byte(`{"type":"http","url":"http://127.0.0.1:1/mcp","enabled_tools":["a"],"disabled_tools":["b"]}`)); err != nil {
+		t.Fatalf("UnmarshalJSON() error = %v", err)
+	}
+	if len(snake.EnabledTools) != 1 || snake.EnabledTools[0] != "a" || len(snake.DisabledTools) != 1 {
+		t.Fatalf("snake EnabledTools = %+v DisabledTools = %+v", snake.EnabledTools, snake.DisabledTools)
+	}
+	if got := mergeMCPServer(MCPServerConfig{}, snake, false); len(got.EnabledTools) != 1 {
+		t.Fatalf("merged EnabledTools = %+v", got.EnabledTools)
+	}
+}

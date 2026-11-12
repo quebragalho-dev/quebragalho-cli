@@ -519,9 +519,14 @@ type MCPServerConfig struct {
 	Auth    string            `json:"auth,omitempty"`
 	// Timeout bounds one tool call in milliseconds. Zero means the
 	// MCP_TOOL_TIMEOUT environment (milliseconds) or the 60s default.
-	Timeout  int             `json:"timeout,omitempty"`
-	OAuth    *MCPOAuthConfig `json:"oauth,omitempty"`
-	Disabled bool            `json:"disabled,omitempty"`
+	Timeout int `json:"timeout,omitempty"`
+	// EnabledTools allow-lists remote tool names; empty means all. DisabledTools
+	// deny-lists names and wins over the allow-list. Both spellings are
+	// accepted in JSON (enabledTools/enabled_tools); the camelCase key wins.
+	EnabledTools  []string        `json:"enabledTools,omitempty"`
+	DisabledTools []string        `json:"disabledTools,omitempty"`
+	OAuth         *MCPOAuthConfig `json:"oauth,omitempty"`
+	Disabled      bool            `json:"disabled,omitempty"`
 	// ProjectConfigured marks servers touched by project config. It is runtime
 	// metadata, not persisted config.
 	ProjectConfigured bool `json:"-"`
@@ -717,16 +722,20 @@ func (cfg LocalControlDriverConfig) MarshalJSON() ([]byte, error) {
 
 func (server *MCPServerConfig) UnmarshalJSON(data []byte) error {
 	type rawServer struct {
-		Type     string            `json:"type"`
-		Command  string            `json:"command"`
-		Args     []string          `json:"args"`
-		Env      map[string]string `json:"env"`
-		URL      string            `json:"url"`
-		Headers  map[string]string `json:"headers"`
-		Auth     string            `json:"auth"`
-		Timeout  int               `json:"timeout"`
-		OAuth    *MCPOAuthConfig   `json:"oauth"`
-		Disabled *bool             `json:"disabled"`
+		Type          string            `json:"type"`
+		Command       string            `json:"command"`
+		Args          []string          `json:"args"`
+		Env           map[string]string `json:"env"`
+		URL           string            `json:"url"`
+		Headers       map[string]string `json:"headers"`
+		Auth          string            `json:"auth"`
+		Timeout       int               `json:"timeout"`
+		EnabledTools  []string          `json:"enabledTools"`
+		EnabledSnake  []string          `json:"enabled_tools"`
+		DisabledTools []string          `json:"disabledTools"`
+		DisabledSnake []string          `json:"disabled_tools"`
+		OAuth         *MCPOAuthConfig   `json:"oauth"`
+		Disabled      *bool             `json:"disabled"`
 	}
 
 	var raw rawServer
@@ -741,6 +750,14 @@ func (server *MCPServerConfig) UnmarshalJSON(data []byte) error {
 	server.Headers = raw.Headers
 	server.Auth = raw.Auth
 	server.Timeout = raw.Timeout
+	server.EnabledTools = raw.EnabledTools
+	if server.EnabledTools == nil {
+		server.EnabledTools = raw.EnabledSnake
+	}
+	server.DisabledTools = raw.DisabledTools
+	if server.DisabledTools == nil {
+		server.DisabledTools = raw.DisabledSnake
+	}
 	server.OAuth = raw.OAuth
 	server.Disabled = false
 	server.disabledSet = false
