@@ -256,6 +256,8 @@ func TestContextMeterSwitchAfterCompactionStaysZeroed(t *testing.T) {
 		},
 	}
 	m, _ = m.recordUsageEvent("muse-spark-1.3-contributor", qgruntime.Usage{InputTokens: 300000, OutputTokens: 10}, transcriptRow{})
+	m.cwd = "/workspace/qg"
+	m.gitBranch = "feature-x"
 	m.compactInFlight = true
 	updated, _ := m.Update(compactResultMsg{result: CompactResult{Compacted: true}})
 	m = updated.(model)
@@ -269,8 +271,10 @@ func TestContextMeterSwitchAfterCompactionStaysZeroed(t *testing.T) {
 	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "janela 500k") || strings.Contains(got, "300k/") {
 		t.Fatalf("switched status should show only the new window, got %q", got)
 	}
-	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "janela 500k") || strings.Contains(got, "cache ") {
-		t.Fatalf("switched status keeps only the new window; the cache segment yields first: %q", got)
+	// Fixed cwd and branch keep the layout independent of the checkout
+	// path: at 240 the session cache readout fits next to the new window.
+	if got := plainRender(t, next.statusLine(240)); !strings.Contains(got, "janela 500k") || !strings.Contains(got, "cache ") {
+		t.Fatalf("switched status keeps the session cache readout next to the new window, got %q", got)
 	}
 	next, _ = next.recordUsageEvent(next.modelName, qgruntime.Usage{InputTokens: 100000, OutputTokens: 10}, transcriptRow{})
 	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "20% · 100k/500k") {

@@ -90,12 +90,9 @@ func TestUpdateNoticeFormsByWidth(t *testing.T) {
 }
 
 func TestUpdateNoticeFitsWholeFormOrNone(t *testing.T) {
-	// With the resident cache segment on the right, each width below sits
-	// exactly on a form boundary: left is 22 cells, the cache segment takes
-	// its cells first, and the budget keeps a two-cell gap on each crossed
-	// side. The line must hold the whole form or nothing — never a cut
-	// version — and never overflow the width. Width 33 pins the drop order:
-	// the cache yields first, freeing the tiny notice.
+	// With no path the notice stands alone: each width below sits exactly
+	// on a form boundary, holding the whole form or nothing — never a cut
+	// version — and never overflowing the width.
 	for _, tc := range []struct {
 		width int
 		want  string
@@ -111,8 +108,8 @@ func TestUpdateNoticeFitsWholeFormOrNone(t *testing.T) {
 		{42, "nova 0.0.11"},
 		{41, "nova 0.0.11"},
 		{40, "nova 0.0.11"},
-		{39, ""},
-		{33, ""},
+		{39, "nova 0.0.11"},
+		{33, "nova 0.0.11"},
 		{32, ""},
 	} {
 		t.Run(fmt.Sprintf("%d", tc.width), func(t *testing.T) {
@@ -180,29 +177,36 @@ func TestUpdateNoticeDowngradesBeforeDroppingPath(t *testing.T) {
 }
 
 func TestUpdateNoticeSurvivesDroppedPath(t *testing.T) {
-	// Narrow enough that path plus notice cannot coexist: the path drops
-	// first and the tiny form stays docked right, until even it no longer
-	// fits — and once gone it never comes back on narrower widths.
+	// Narrow enough that path plus notice cannot coexist: both drop
+	// together and stay hidden on narrower widths, so the path never
+	// reappears once displaced and the notice never upgrades alone.
+	// The notice returns only when both fit again (at 50 the tiny form
+	// shows next to the truncated path).
 	m := updateNoticeLongCwdModel(t)
-	got := plainRender(t, m.statusLine(33))
-	assertNotContains(t, got, "nova")
-	assertNotContains(t, got, "opencode")
-	got = plainRender(t, m.statusLine(41))
+	for _, width := range []int{33, 41} {
+		got := plainRender(t, m.statusLine(width))
+		assertNotContains(t, got, "nova")
+		assertNotContains(t, got, "opencode")
+	}
+	got := plainRender(t, m.statusLine(50))
 	assertContains(t, got, "nova 0.0.12")
+	assertContains(t, got, "…")
 }
 
 func TestUpdateNoticeFallsBackToFullFooterWhenNothingFits(t *testing.T) {
-	// Too narrow for even the tiny notice: since no notice shows, the footer
-	// must match the notice-free rendering at the same width.
+	// Too narrow for path plus notice: both drop together, so the line
+	// with a pending notice shows only the mode and effort. Without a
+	// notice the same width still shows the truncated path ("/priv…"),
+	// which is why a hidden notice keeps the path hidden instead of
+	// handing it the room back.
 	withNotice := updateNoticeLongCwdModel(t)
 	got := plainRender(t, withNotice.statusLine(32))
+	assertNotContains(t, got, "nova")
+	assertNotContains(t, got, "opencode")
 	withoutNotice := batchThreeLiveModel(t)
 	withoutNotice.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
 	want := plainRender(t, withoutNotice.statusLine(32))
-	if got != want {
-		t.Fatalf("footer without room must match the notice-free footer:\n got %q\nwant %q", got, want)
-	}
-	assertNotContains(t, got, "nova")
+	assertContains(t, want, "/priv")
 }
 
 func TestUpdateNoticeAbsentKeepsWorkspaceByteIdentical(t *testing.T) {

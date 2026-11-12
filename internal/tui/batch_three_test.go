@@ -19,9 +19,9 @@ import (
 // welcome card shows it.
 func TestBatchThreeWorkspaceOnlyInStatusAndCard(t *testing.T) {
 	m := model{cwd: "/workspace/qg", gitBranch: "feature/user-branch"}
-	// The reserve budget keeps the full cwd while it fits; below the
-	// branch/cwd cutoffs the segment yields instead of shrinking back.
-	for _, width := range []int{79, 80, 99, 100, 120} {
+	// Widths below the branch gate hide the branch (40, 57 stay out);
+	// at 58 the branch shows and the truncated path shows with it.
+	for _, width := range []int{58, 79, 80, 99, 100, 120} {
 		assertNotContains(t, plainRender(t, m.titleBar(width)), m.cwd)
 		if m.emptyStateTier(width) != brandTierCard {
 			assertNotContains(t, plainRender(t, m.emptyState(width)), m.cwd)
