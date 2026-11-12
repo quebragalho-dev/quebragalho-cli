@@ -203,17 +203,30 @@ func contextUpdateNote(sections []string, frozen string) string {
 // label is the path in parentheses that follows it.
 const guidelineHeaderPrefix = "## Project guidelines ("
 
-// guidelineLabelOf extracts the label of a guideline section, if it is one.
-func guidelineLabelOf(section string) (string, bool) {
-	if !strings.HasPrefix(section, guidelineHeaderPrefix) {
+// guidelineLabelOf extracts the label of a guideline section header line
+// like "## Project guidelines (sub/QG.md)". The label runs to the last ")",
+// so paths containing parentheses survive intact. Both sides of a drift
+// comparison go through this one function, so fresh sections and frozen
+// text can never disagree on where a label ends.
+func guidelineLabelOf(header string) (string, bool) {
+	trimmed := strings.TrimSpace(header)
+	if !strings.HasPrefix(trimmed, guidelineHeaderPrefix) || !strings.HasSuffix(trimmed, ")") {
 		return "", false
 	}
-	rest := section[len(guidelineHeaderPrefix):]
-	end := strings.Index(rest, ")")
-	if end < 0 {
-		return "", false
+	if label := strings.TrimSpace(trimmed[len(guidelineHeaderPrefix) : len(trimmed)-1]); label != "" {
+		return label, true
 	}
-	return rest[:end], true
+	return "", false
+}
+
+// guidelineSectionLabel extracts the label of a full guideline section,
+// reading only its header line.
+func guidelineSectionLabel(section string) (string, bool) {
+	header := section
+	if i := strings.IndexByte(header, '\n'); i >= 0 {
+		header = header[:i]
+	}
+	return guidelineLabelOf(header)
 }
 
 // removedGuidelineNotes reports guideline files that the frozen system still
@@ -222,19 +235,15 @@ func guidelineLabelOf(section string) (string, bool) {
 func removedGuidelineNotes(sections []string, frozen string) []string {
 	fresh := make(map[string]bool)
 	for _, section := range sections {
-		if label, ok := guidelineLabelOf(section); ok {
+		if label, ok := guidelineSectionLabel(section); ok {
 			fresh[label] = true
 		}
 	}
 	var notes []string
 	seen := make(map[string]bool)
 	for _, line := range strings.Split(frozen, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, guidelineHeaderPrefix) || !strings.HasSuffix(trimmed, ")") {
-			continue
-		}
-		label := trimmed[len(guidelineHeaderPrefix) : len(trimmed)-1]
-		if label == "" || fresh[label] || seen[label] {
+		label, ok := guidelineLabelOf(line)
+		if !ok || fresh[label] || seen[label] {
 			continue
 		}
 		seen[label] = true

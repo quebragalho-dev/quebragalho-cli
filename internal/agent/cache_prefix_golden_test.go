@@ -70,7 +70,7 @@ func TestCachePrefixStableAcrossWorkspaceDrift(t *testing.T) {
 	firstSystem := first.requests[0].Messages[0].Content
 	firstTools := marshalTools(t, first.requests[0].Tools)
 
-	// Mid-conversation drift, fase A: so a branch muda. A guideline (8 KiB),
+	// Mid-conversation drift, first only the branch changes. A guideline (8 KiB),
 	// o repomap e as aprovals ficam iguais.
 	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/feature-y\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestCachePrefixStableAcrossWorkspaceDrift(t *testing.T) {
 	if marshalTools(t, got.Tools) != firstTools {
 		t.Fatal("turno 2: tools bytes mudaram apos drift no meio da conversa")
 	}
-	// Fase A: so a branch mudou. A nota tem so o assunto alterado (env),
+	// First only the branch changed. A nota tem so o assunto alterado (env),
 	// nunca o despejo das guidelines de 8 KiB.
 	last := got.Messages[len(got.Messages)-1]
 	if last.Role != qgruntime.MessageRoleUser {
@@ -119,7 +119,7 @@ func TestCachePrefixStableAcrossWorkspaceDrift(t *testing.T) {
 		t.Fatalf("troca de branch nao pode re-despejar as guidelines: %q", last.Content)
 	}
 
-	// Fase B: approval + edicao do AGENTS.md + arquivo novo. A nota carrega o
+	// Then approval + edicao do AGENTS.md + arquivo novo. A nota carrega o
 	// conteudo novo de cada assunto, sem repetir o conteudo antigo.
 	if _, err := store.GrantCommandPrefix(sandbox.CommandPrefixInput{ToolName: "bash", Prefix: []string{"go", "test"}}); err != nil {
 		t.Fatal(err)
@@ -227,7 +227,7 @@ func TestCachePrefixContraryCases(t *testing.T) {
 	}
 }
 
-// A1: uma diretriz apagada no meio da conversa gera nota de remoção com o
+// Uma diretriz apagada no meio da conversa gera nota de remoção com o
 // rótulo, para o modelo não seguir regra revogada que ainda está no system
 // congelado.
 func TestCachePrefixRemovedGuidelineAnnounced(t *testing.T) {
@@ -272,7 +272,7 @@ func TestCachePrefixRemovedGuidelineAnnounced(t *testing.T) {
 	}
 }
 
-// A2: aprovação nova mais estreita que uma linha congelada não some: a
+// Aprovação nova mais estreita que uma linha congelada não some: a
 // comparação é por pertença exata ao conjunto de linhas "- " do congelado,
 // nunca por substring.
 func TestCachePrefixNarrowerApprovalNotSwallowed(t *testing.T) {

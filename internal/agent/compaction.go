@@ -723,10 +723,9 @@ func (state *compactionState) recover(
 		// retried" so the caller surfaces the original context-limit error. Do NOT
 		// consume the one-shot budget here: a no-op recover (history too small to
 		// shrink) must not disable a later recovery once the history has grown.
-		// A prune-only rewrite above still counts as a rewrite.
-		if prunedAny {
-			state.notifyCompacted()
-		}
+		// The caller keeps its original history when retried is false, so a
+		// prune-only rewrite above is discarded with it: stay silent instead
+		// of reporting a rewrite no listener ever sees.
 		return messages, false, nil
 	}
 	// Success: a real compaction shrank the history and we will retry. Consume the
