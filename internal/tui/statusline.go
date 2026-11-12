@@ -182,8 +182,6 @@ func (m model) statuslineSegment(id string, width int) string {
 			return qgTheme.muted.Render(elapsed)
 		}
 		return ""
-	case "command":
-		return m.statuslineCmdOutput
 	default:
 		return ""
 	}
