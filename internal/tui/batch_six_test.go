@@ -300,7 +300,7 @@ func TestBatchSixContextBarOnlyUsesSameModelAPIWindow(t *testing.T) {
 	got = plainRender(t, m.pickerOverlay(120))
 	assertContains(t, got, "50%")
 	m.lastUsageReceipt.meta["model"] = "previous-model"
-	assertNotContains(t, plainRender(t, m.pickerOverlay(120)), "%")
+	assertNotContains(t, plainRender(t, m.pickerOverlay(120)), "Uso da janela")
 }
 
 func batchSixUsageText(m model) string {

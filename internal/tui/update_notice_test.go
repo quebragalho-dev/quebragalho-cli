@@ -90,19 +90,23 @@ func TestUpdateNoticeFormsByWidth(t *testing.T) {
 }
 
 func TestUpdateNoticeFitsWholeFormOrNone(t *testing.T) {
-	// With no right side each width below sits exactly on a form boundary:
-	// left is 22 cells, and the budget keeps a two-cell gap on each crossed
+	// With the resident cache segment on the right, each width below sits
+	// exactly on a form boundary: left is 22 cells, the cache segment takes
+	// its cells first, and the budget keeps a two-cell gap on each crossed
 	// side. The line must hold the whole form or nothing — never a cut
-	// version — and never overflow the width.
+	// version — and never overflow the width. Width 33 pins the drop order:
+	// the cache yields first, freeing the tiny notice.
 	for _, tc := range []struct {
 		width int
 		want  string
 	}{
-		{68, "nova versão 0.0.11 · reinicie para instalar"},
-		{65, "nova versão 0.0.11 · reinicie para instalar"},
-		{64, "nova 0.0.11 · reinicie"},
-		{44, "nova 0.0.11 · reinicie"},
-		{43, "nova 0.0.11"},
+		{77, "nova versão 0.0.11 · reinicie para instalar"},
+		{74, "nova versão 0.0.11 · reinicie para instalar"},
+		{73, "nova 0.0.11 · reinicie"},
+		{53, "nova 0.0.11 · reinicie"},
+		{52, "nova 0.0.11"},
+		{42, "nova 0.0.11"},
+		{41, ""},
 		{33, "nova 0.0.11"},
 		{32, ""},
 	} {
@@ -156,10 +160,11 @@ func TestUpdateNoticeSharesSpaceWithWorkspace(t *testing.T) {
 }
 
 func TestUpdateNoticeDowngradesBeforeDroppingPath(t *testing.T) {
-	// At 66 the full form no longer fits next to the path: the path shrinks
-	// to its floor and the notice steps down, instead of vanishing.
+	// At 70 the full form no longer fits next to the path: the path shrinks
+	// to its floor and the notice steps down, instead of vanishing. (The
+	// resident cache segment takes 10 cells the notice must now share with.)
 	m := updateNoticeLongCwdModel(t)
-	got := plainRender(t, m.statusLine(66))
+	got := plainRender(t, m.statusLine(70))
 	assertContains(t, got, "nova 0.0.12 · reinicie")
 	assertNotContains(t, got, "nova versão")
 	assertContains(t, got, "…")
@@ -197,12 +202,12 @@ func TestUpdateNoticeFallsBackToFullFooterWhenNothingFits(t *testing.T) {
 }
 
 func TestUpdateNoticeAbsentKeepsWorkspaceByteIdentical(t *testing.T) {
-	// No new version: the footer renders exactly as before, with the
-	// workspace taking every free cell.
+	// No new version: the footer renders exactly as pinned, with the
+	// workspace taking every free cell and the cache segment docked right.
 	m := batchThreeLiveModel(t)
 	m.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
 	got := plainRender(t, m.statusLine(120))
-	want := "  ● automático · n/d │ /private/var/folders/dt/xyz/T/opencode/t5/ws-D"
+	want := "  ● automático · n/d │ /private/var/folders/dt/xyz/T/opencode/t5/ws-D                                            cache —"
 	if got != want {
 		t.Fatalf("footer changed without a notice:\n got %q\nwant %q", got, want)
 	}

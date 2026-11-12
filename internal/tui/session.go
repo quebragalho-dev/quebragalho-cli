@@ -104,6 +104,11 @@ func (m model) startNewSession() model {
 	if m.usageTracker != nil {
 		m.usageTracker.Reset()
 	}
+	m.cacheDrops = nil
+	m.lastCachePrefix = ""
+	m.lastCacheAt = time.Time{}
+	m.lastCacheModel = ""
+	m.cacheFreshCalls = cacheFreshCallBudget
 	m.lastUsage = usage.Normalized{}
 	m.lastUsageSeen = false
 	m.streamUsage = qgruntime.Usage{}
@@ -342,6 +347,11 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	m.pendingSessionTitle = ""
 	m.sessionEvents = append([]sessions.Event{}, events...)
 	m.lastUsage, m.lastUsageSeen, m.lastUsageReceipt = lastUsageFromSessionEvents(rawUsageEvents)
+	// Recompose the session cache totals from the saved usage events so the
+	// statusline hit and the /usage panel survive a resume; without saved
+	// events the counters start from zero. The drop journal itself is not
+	// rebuilt (motives need live prefix data), only the totals.
+	m = m.seedUsageFromSessionEvents(rawUsageEvents)
 	// The reloaded receipt IS the resumed session's live context: the meter
 	// follows it (and stays dead when the session has no usage), so no value
 	// from the previous session can ever leak through.

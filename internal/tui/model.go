@@ -144,9 +144,22 @@ type model struct {
 	// failure releases the gate above so a later turn can retry, but retries
 	// stop after two attempts so a persistently failing provider cannot burn
 	// tokens on every turn.
-	titleAttempts               map[string]int
-	renamePrompt                *sessionRenamePrompt
-	usageTracker                *usage.Tracker
+	titleAttempts map[string]int
+	renamePrompt  *sessionRenamePrompt
+	usageTracker  *usage.Tracker
+	// cacheDrops journals recent sub-80% session-cache calls (oldest first,
+	// capped) for the statusline reason and the /usage drops list. The other
+	// lastCache* fields remember the previous call so the next one can name
+	// its cause; lastCachePrefix empty means unknown (e.g. after a resume),
+	// which reports "motivo desconhecido" instead of crying bug.
+	cacheDrops      []cacheDrop
+	lastCachePrefix string
+	lastCacheAt     time.Time
+	lastCacheModel  string
+	// cacheFreshCalls counts down session-start usage events while a
+	// just-cleared session is still the likely cause of a miss ("conversa
+	// limpa"). Set on /new, consumed by the first calls.
+	cacheFreshCalls             int
 	sessionCompactor            SessionCompactor
 	prService                   *PrService
 	prState                     PrState
@@ -6473,6 +6486,33 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				writer.Queue(buildContinuationSnapshot(snapSessionID, usageModelID, snapProvider, snapEffort, snapGoalKey, turnHead, messages, loaded), snapRunID)
 			}
 		}
+		// Cache attribution for the statusline and /usage: the agent reports
+		// each request's prefix fingerprint through OnContext and every real
+		// history rewrite through OnCompaction. The background goroutine only
+		// stages them in run-scoped vars; the next usage event carries them
+		// to the main goroutine in its receipt meta, where recordUsageEvent
+		// turns them into a drop motive. The attribution is armed by OnContext
+		// and consumed by the next OnUsage, so the compaction summarizer's own
+		// usage (which never fires OnContext) rides unattributed instead of
+		// stealing the next main call's explanation.
+		runPrefixHash := ""
+		runArmed := false
+		runCompacted := false
+		prevOnContext := options.OnContext
+		options.OnContext = func(breakdown agent.ContextBreakdown) {
+			runPrefixHash = breakdown.CompletePrefixHash
+			runArmed = true
+			if prevOnContext != nil {
+				prevOnContext(breakdown)
+			}
+		}
+		prevOnCompaction := options.OnCompaction
+		options.OnCompaction = func() {
+			runCompacted = true
+			if prevOnCompaction != nil {
+				prevOnCompaction()
+			}
+		}
 		if m.newTurnSessionProvider != nil && m.provider != nil {
 			options.TurnSessionProvider = m.newTurnSessionProvider(m.providerProfile, m.provider)
 		}
@@ -6927,6 +6967,20 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				callModelID = event.ModelID
 			}
 			receipt := callUsageRow(runID, len(usageEvents)+1, callModelID, event, callCatalog[strings.ToLower(callModelID)])
+			// Stage this request's cache attribution on the receipt: the main
+			// goroutine reads it in recordUsageEvent. The compaction flag is
+			// consumed here so it blames exactly the next call.
+			if receipt.meta == nil {
+				receipt.meta = map[string]string{}
+			}
+			if runArmed {
+				receipt.meta["cache_prefix_hash"] = runPrefixHash
+				if runCompacted {
+					receipt.meta["cache_compacted"] = "1"
+				}
+				runArmed = false
+				runCompacted = false
+			}
 			rows = append(rows, receipt)
 			m.sendAgentRow(runID, receipt)
 			usageEvents = append(usageEvents, event)

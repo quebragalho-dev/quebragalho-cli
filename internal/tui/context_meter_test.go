@@ -266,8 +266,11 @@ func TestContextMeterSwitchAfterCompactionStaysZeroed(t *testing.T) {
 	if next.meterLive {
 		t.Fatal("a compaction before the switch must keep the meter zeroed")
 	}
-	if got := plainRender(t, next.statusLine(120)); strings.Contains(got, "%") || !strings.Contains(got, "janela 500k") {
+	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "janela 500k") || strings.Contains(got, "300k/") {
 		t.Fatalf("switched status should show only the new window, got %q", got)
+	}
+	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "cache 0%") {
+		t.Fatalf("switched status keeps the session cache readout, got %q", got)
 	}
 	next, _ = next.recordUsageEvent(next.modelName, qgruntime.Usage{InputTokens: 100000, OutputTokens: 10}, transcriptRow{})
 	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "20% · 100k/500k") {
@@ -455,10 +458,13 @@ func TestContextMeterUnknownWindow(t *testing.T) {
 	if !strings.Contains(got, "483.9k") {
 		t.Fatalf("status should show the bare figure, got %q", got)
 	}
-	for _, unwanted := range []string{"%", "483.9k/", "janela", "ctx"} {
+	for _, unwanted := range []string{"483.9k/", "janela", "ctx"} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("status must not show a fill without a window, got %q", got)
 		}
+	}
+	if !strings.Contains(got, "cache 0%") {
+		t.Fatalf("status keeps the session cache readout without a window, got %q", got)
 	}
 	divider := plainRender(t, m.composerDividerLine(80))
 	if strings.Contains(divider, "━") {

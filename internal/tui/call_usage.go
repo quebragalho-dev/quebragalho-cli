@@ -123,6 +123,19 @@ func (m model) statusReadout(left string, width int) string {
 	// only the context readout.
 	context := m.contextStatusText(width)
 	right := context
+	// The cache segment rides right after the context readout and before the
+	// cwd. When space runs out it drops first, before the branch.
+	if seg, _ := cacheStatusSegment(m.cacheStatusData()); seg != "" {
+		joined := seg
+		separator := ""
+		if right != "" {
+			separator = qgTheme.line.Render(" │ ")
+			joined = right + separator + seg
+		}
+		if lipgloss.Width(left)+lipgloss.Width(joined)+9 <= width {
+			right = joined
+		}
+	}
 	if lipgloss.Width(left)+lipgloss.Width(right)+9 > width {
 		right = ""
 	}
@@ -150,22 +163,18 @@ func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool
 		if event.Type != sessions.EventUsage {
 			continue
 		}
-		var call struct {
-			Input      *int   `json:"promptTokens"`
-			Output     *int   `json:"completionTokens"`
-			Cached     int    `json:"cachedInputTokens"`
-			CacheWrite int    `json:"cacheWriteTokens"`
-			Reasoning  int    `json:"reasoningTokens"`
-			Model      string `json:"model"`
-			Amount     string `json:"cost_exact"`
-			Currency   string `json:"cost_currency"`
-		}
-		if json.Unmarshal(event.Payload, &call) != nil || call.Input == nil || call.Output == nil {
+		modelID, eventUsage, ok := parseUsageEventUsage(event.Payload)
+		if !ok {
 			continue
 		}
-		normalized, _, err := usage.Normalize(qgruntime.Usage{InputTokens: *call.Input, OutputTokens: *call.Output, CachedInputTokens: call.Cached, CacheWriteTokens: call.CacheWrite, ReasoningTokens: call.Reasoning})
+		var cost struct {
+			Amount   string `json:"cost_exact"`
+			Currency string `json:"cost_currency"`
+		}
+		_ = json.Unmarshal(event.Payload, &cost)
+		normalized, _, err := usage.Normalize(eventUsage)
 		if err == nil {
-			return normalized, true, transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": call.Model, "amount": call.Amount, "currency": call.Currency}}
+			return normalized, true, transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID, "amount": cost.Amount, "currency": cost.Currency}}
 		}
 	}
 	return usage.Normalized{}, false, transcriptRow{}
