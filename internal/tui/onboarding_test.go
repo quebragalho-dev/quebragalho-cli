@@ -87,6 +87,9 @@ func TestSetupTakeoverRendersAndCompletes(t *testing.T) {
 	}
 }
 func TestSetupCompletionResetsChatSurfaceInsideAltScreen(t *testing.T) {
+	// completeSetup exports QG_PROVIDER through the real process env: pin it
+	// here so the export cannot leak into later tests' Resolve (env fallback).
+	t.Setenv(config.ActiveProviderEnv, "")
 	m := newModel(context.Background(), Options{
 		DiscoverProviderModels: func(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
 			return nil, errors.New("offline")
@@ -968,6 +971,8 @@ func TestPasteOnBrowserScreenSwitchesToKeyMode(t *testing.T) {
 }
 
 func TestSetupCompletionWarmsModelDiscoveryForCallCost(t *testing.T) {
+	// Same process-env export as the other setup completion path: isolate it.
+	t.Setenv(config.ActiveProviderEnv, "")
 	discovered := make(chan struct{}, 1)
 	m := newModel(context.Background(), Options{
 		DiscoverProviderModels: func(ctx context.Context, profile config.ProviderProfile) ([]providermodeldiscovery.Model, error) {
