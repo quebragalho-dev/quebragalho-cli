@@ -67,7 +67,7 @@ func (c StatusLineConfig) EffectiveRefreshMs() int {
 	return c.RefreshMs
 }
 
-// Normalized returns the trimmed canonical form. Prefer adjusted(), which
+// Normalized returns the trimmed canonical form. Prefer Adjusted, which
 // also clamps cosmetic values with warnings.
 func (c StatusLineConfig) Normalized() StatusLineConfig {
 	return c.normalize()
@@ -118,7 +118,7 @@ func sanitizeStatuslineSeparator(sep string) (string, bool) {
 	return out, out != sep
 }
 
-// adjusted normalizes and clamps cosmetic values so they never prevent QG
+// Adjusted normalizes and clamps cosmetic values so they never prevent QG
 // from opening: negative timeoutMs falls back to the default, refreshMs
 // below the 1s floor rises to it, and layouts longer than three lines keep
 // the head. Every touch is reported in pt-BR for the startup/status notice.

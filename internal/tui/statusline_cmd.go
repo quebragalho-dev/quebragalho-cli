@@ -47,8 +47,8 @@ type statuslineCmdContext struct {
 // statuslineCmdPayload is the session snapshot piped to the external
 // statusline command on stdin. Every key is always present — unknown values
 // are null, never absent — and it carries display facts only: never keys,
-// tokens, or any credential. Cache stays null until the prompt-cache data
-// plugs in.
+// tokens, or any credential. hit_pct stays null until prompt-cache data
+// exists (no fake zero).
 type statuslineCmdPayload struct {
 	SessionID string               `json:"session_id"`
 	Cwd       string               `json:"cwd"`
@@ -63,9 +63,8 @@ type statuslineCmdPayload struct {
 	Width     int                  `json:"width"`
 }
 
-// statuslineCmdCache is reserved for the prompt-cache hit rate: the object is
-// always present, but hit_pct stays null until the prompt-cache data exists
-// (no fake zero).
+// statuslineCmdCache carries the prompt-cache hit rate for the stdin JSON:
+// the object is always present, hit_pct stays null until measured.
 type statuslineCmdCache struct {
 	HitPct *float64 `json:"hit_pct"`
 }
