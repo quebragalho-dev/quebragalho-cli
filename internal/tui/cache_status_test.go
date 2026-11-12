@@ -2,11 +2,14 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
 
@@ -120,13 +123,13 @@ func TestDecideCacheDropReason(t *testing.T) {
 	}
 }
 
-func recordCacheTestUsage(m model, input, cached int, modelID, _ string) model {
+func recordCacheTestUsage(m model, input, cached int, modelID string) model {
 	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID}}
 	updated, _ := m.recordUsageEvent(modelID, qgruntime.Usage{InputTokens: input, CachedInputTokens: cached, OutputTokens: 10}, receipt)
 	return updated
 }
 
-func recordCacheTestUsageParts(m model, input, cached int, modelID, _, tools, system string) model {
+func recordCacheTestUsageParts(m model, input, cached int, modelID, tools, system string) model {
 	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID, "cache_prefix_tools": tools, "cache_prefix_system": system}}
 	updated, _ := m.recordUsageEvent(modelID, qgruntime.Usage{InputTokens: input, CachedInputTokens: cached, OutputTokens: 10}, receipt)
 	return updated
@@ -134,8 +137,8 @@ func recordCacheTestUsageParts(m model, input, cached int, modelID, _, tools, sy
 
 func TestCacheStatusDataFromTracker(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsageParts(m, 1000, 970, "kimi-k3.1-pro", "h1", "t1", "s1")
-	m = recordCacheTestUsageParts(m, 1000, 200, "kimi-k3.1-pro", "h2", "t1", "s2")
+	m = recordCacheTestUsageParts(m, 1000, 970, "kimi-k3.1-pro", "t1", "s1")
+	m = recordCacheTestUsageParts(m, 1000, 200, "kimi-k3.1-pro", "t1", "s2")
 	data := m.cacheStatusData()
 	if !data.hasData {
 		t.Fatal("com registros o segmento tem dados")
@@ -150,9 +153,9 @@ func TestCacheStatusDataFromTracker(t *testing.T) {
 
 func TestCacheQuedasCapFive(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsage(m, 1000, 970, "kimi-k3.1-pro", "h1")
+	m = recordCacheTestUsage(m, 1000, 970, "kimi-k3.1-pro")
 	for i := 0; i < 10; i++ {
-		m = recordCacheTestUsage(m, 1000, 100, "kimi-k3.1-pro", "h1")
+		m = recordCacheTestUsage(m, 1000, 100, "kimi-k3.1-pro")
 	}
 	if len(m.cacheDrops) != 5 {
 		t.Fatalf("quedas guardadas = %d, want 5", len(m.cacheDrops))
@@ -195,8 +198,8 @@ func TestFormatCacheLastCall(t *testing.T) {
 
 func TestCacheSessionLines(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsage(m, 1000, 1000, "kimi-k3.1-pro", "h1")
-	m = recordCacheTestUsage(m, 1000, 940, "kimi-k3.1-pro", "h1")
+	m = recordCacheTestUsage(m, 1000, 1000, "kimi-k3.1-pro")
+	m = recordCacheTestUsage(m, 1000, 940, "kimi-k3.1-pro")
 	lines := m.cacheSessionLines()
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{"Cache desta sessão", "97%", "meta 95%", "1,9k de 2k tokens de entrada vieram do cache"} {
@@ -214,8 +217,8 @@ func TestCacheSessionLines(t *testing.T) {
 
 func TestCacheSessionLinesDrops(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsageParts(m, 1000, 1000, "kimi-k3.1-pro", "h1", "t1", "s1")
-	m = recordCacheTestUsageParts(m, 1000, 100, "kimi-k3.1-pro", "h2", "t1", "s2")
+	m = recordCacheTestUsageParts(m, 1000, 1000, "kimi-k3.1-pro", "t1", "s1")
+	m = recordCacheTestUsageParts(m, 1000, 100, "kimi-k3.1-pro", "t1", "s2")
 	joined := strings.Join(m.cacheSessionLines(), "\n")
 	for _, want := range []string{"Quedas nesta sessão", "10%", "prefixo mudou"} {
 		if !strings.Contains(joined, want) {
@@ -237,8 +240,8 @@ func cacheNormalizedForTest(input, cached, output int) usage.Normalized {
 
 func TestCacheToolsChangedMotive(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsageParts(m, 1000, 990, "kimi-k3.1-pro", "h1", "t1", "s1")
-	m = recordCacheTestUsageParts(m, 1000, 100, "kimi-k3.1-pro", "h2", "t2", "s1")
+	m = recordCacheTestUsageParts(m, 1000, 990, "kimi-k3.1-pro", "t1", "s1")
+	m = recordCacheTestUsageParts(m, 1000, 100, "kimi-k3.1-pro", "t2", "s1")
 	data := m.cacheStatusData()
 	if !data.showDrop || data.reason != "ferramentas mudaram" {
 		t.Fatalf("carga de tool deve dizer `ferramentas mudaram`; show=%v motivo=%q", data.showDrop, data.reason)
@@ -247,8 +250,8 @@ func TestCacheToolsChangedMotive(t *testing.T) {
 
 func TestCacheZeroInputNeverDrops(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsageParts(m, 1000, 990, "kimi-k3.1-pro", "h1", "t1", "s1")
-	m = recordCacheTestUsage(m, 0, 0, "kimi-k3.1-pro", "h1")
+	m = recordCacheTestUsageParts(m, 1000, 990, "kimi-k3.1-pro", "t1", "s1")
+	m = recordCacheTestUsage(m, 0, 0, "kimi-k3.1-pro")
 	data := m.cacheStatusData()
 	if data.showDrop {
 		t.Fatalf("chamada com entrada zero nao vira queda; veio %q", data.reason)
@@ -260,12 +263,12 @@ func TestCacheZeroInputNeverDrops(t *testing.T) {
 
 func TestCacheSummarizerUsageStaysOutOfStats(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsageParts(m, 40000, 39000, "kimi-k3.1-pro", "h1", "t1", "s1")
+	m = recordCacheTestUsageParts(m, 40000, 39000, "kimi-k3.1-pro", "t1", "s1")
 	summarizer := qgruntime.Usage{ModelID: "zz-summary", InputTokens: 30000, OutputTokens: 500, Summarizer: true}
 	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": "zz-summary"}}
 	updated, _ := m.recordUsageEvent("zz-summary", summarizer, receipt)
 	m = updated
-	m = recordCacheTestUsageParts(m, 9000, 300, "kimi-k3.1-pro", "h2", "t1", "s1")
+	m = recordCacheTestUsageParts(m, 9000, 300, "kimi-k3.1-pro", "t1", "s1")
 	if len(m.cacheCalls) != 2 {
 		t.Fatalf("chamadas do sumarizador nao entram no hit; calls = %d, want 2", len(m.cacheCalls))
 	}
@@ -283,12 +286,64 @@ func TestCacheSummarizerUsageStaysOutOfStats(t *testing.T) {
 
 func TestCacheCompactionFlagMotive(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsageParts(m, 40000, 39000, "kimi-k3.1-pro", "h1", "t1", "s1")
+	m = recordCacheTestUsageParts(m, 40000, 39000, "kimi-k3.1-pro", "t1", "s1")
 	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": "kimi-k3.1-pro", "cache_prefix_tools": "t1", "cache_prefix_system": "s1", "cache_compacted": "1"}}
 	updated, _ := m.recordUsageEvent("kimi-k3.1-pro", qgruntime.Usage{InputTokens: 9000, CachedInputTokens: 300, OutputTokens: 10}, receipt)
 	m = updated
 	data := m.cacheStatusData()
 	if !data.showDrop || data.reason != "conversa compactada" {
 		t.Fatalf("flag de compactacao deve motivar a queda; show=%v motivo=%q", data.showDrop, data.reason)
+	}
+}
+
+// A resumed session whose last saved event is the summarizer's keeps the
+// main model as the previous call: the next drop must never blame a model
+// switch on a summarizer that never served the conversation.
+func TestCacheResumeTrailingSummarizerKeepsMainModel(t *testing.T) {
+	m := acceptCacheTUIModel(t, "0.16995")
+	mainAt := acceptT0
+	events := []sessions.Event{
+		{Type: sessions.EventUsage, CreatedAt: mainAt.Format(time.RFC3339), Payload: json.RawMessage(`{"promptTokens":40000,"completionTokens":100,"cachedInputTokens":39000,"model":"kimi-k3.1-pro"}`)},
+		{Type: sessions.EventUsage, CreatedAt: mainAt.Add(time.Minute).Format(time.RFC3339), Payload: json.RawMessage(`{"promptTokens":30000,"completionTokens":300,"model":"kimi-k3","summarizer":true}`)},
+	}
+	m = m.seedUsageFromSessionEvents(events)
+	if len(m.cacheCalls) != 1 {
+		t.Fatalf("o sumarizador retomado nao entra no hit; calls = %d, want 1", len(m.cacheCalls))
+	}
+	if m.lastCacheModel != "kimi-k3.1-pro" {
+		t.Fatalf("o sumarizador retomado nao pode trocar o ultimo modelo; veio %q", m.lastCacheModel)
+	}
+	if !m.lastCacheAt.Equal(mainAt) {
+		t.Fatalf("o ultimo instante deve ser o da chamada principal; veio %v", m.lastCacheAt)
+	}
+	panel := acceptSGR.ReplaceAllString(acceptOpenUsage(t, m), "")
+	if !strings.Contains(panel, "39k de 40k") {
+		t.Fatalf("o bloco retomado deve contar so a chamada principal:\n%s", panel)
+	}
+}
+
+// The /usage panel rounds half up like the statusline: a 94.5% session
+// reads 95%, never 94% in green.
+func TestCachePanelRoundsHalfUp(t *testing.T) {
+	m := acceptCacheTUIModel(t, "0.16995")
+	m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 10_000, 9_450, 10)
+	panel := acceptSGR.ReplaceAllString(acceptOpenUsage(t, m), "")
+	if !strings.Contains(panel, "95% · meta 95%") {
+		t.Fatalf("o painel deve arredondar 94,5%% para 95%%:\n%s", panel)
+	}
+}
+
+// The drop list rounds half up like the statusline: a 78.5% drop reads
+// 79% in both places.
+func TestCacheDropListRoundsHalfUp(t *testing.T) {
+	m := acceptCacheTUIModel(t, "0.16995")
+	m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 1000, 1000, 10)
+	m = acceptCacheCall(m, acceptT0.Add(time.Minute), acceptCacheModelID, 200, 157, 10)
+	panel := acceptSGR.ReplaceAllString(acceptOpenUsage(t, m), "")
+	if !strings.Contains(panel, "79%") {
+		t.Fatalf("a queda de 78,5%% deve aparecer como 79%%:\n%s", panel)
+	}
+	if strings.Contains(panel, "78%") {
+		t.Fatalf("a queda de 78,5%% nao pode truncar para 78%%:\n%s", panel)
 	}
 }
