@@ -564,9 +564,9 @@ Sem --yes, pede confirmação no terminal.
 // mcpApprovePromptDetails renders the exact target being approved: command
 // and args, URL, env with names and values, header names, and the timeout and
 // tool filters the project sets. Only values that look like secrets are
-// masked: env names carrying KEY, TOKEN, SECRET, PASSWORD, AUTH or CREDENTIAL,
-// and --flag=value args whose flag carries key or token. Everything else
-// shows literally, so the approver sees what they are binding.
+// masked: names carrying KEY, TOKEN, SECRET, PASSWORD, AUTH or CREDENTIAL,
+// for env vars and --flag=value args alike. Everything else shows literally,
+// so the approver sees what they are binding.
 func mcpApprovePromptDetails(server config.MCPServerConfig) string {
 	var lines []string
 	if strings.TrimSpace(server.Command) != "" {
@@ -631,37 +631,22 @@ func looksLikeMCPSecretName(name string) bool {
 	return false
 }
 
-// maskMCPApproveArg masks the value of --flag=value args whose flag carries
-// key or token, keeping the flag name visible.
+// maskMCPApproveArg masks the value of --flag=value args whose flag looks
+// like a secret, keeping the flag name visible. The markers match env names.
 func maskMCPApproveArg(arg string) string {
 	name, _, ok := strings.Cut(arg, "=")
 	if !ok || !strings.HasPrefix(name, "--") {
 		return arg
 	}
-	flag := strings.ToUpper(strings.TrimPrefix(name, "--"))
-	if strings.Contains(flag, "KEY") || strings.Contains(flag, "TOKEN") {
+	if looksLikeMCPSecretName(strings.TrimPrefix(name, "--")) {
 		return name + "=***"
 	}
 	return arg
 }
 
-// formatApproveTimeout renders milliseconds as the largest round unit the
-// test and the user both read at a glance (600000ms → 10m).
+// formatApproveTimeout renders a millisecond timeout for the approval prompt.
 func formatApproveTimeout(millis int) string {
-	if millis <= 0 {
-		return "0s"
-	}
-	seconds := millis / 1000
-	if millis%1000 != 0 {
-		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%dms", millis), "0"), ".")
-	}
-	if seconds%3600 == 0 {
-		return fmt.Sprintf("%dh", seconds/3600)
-	}
-	if seconds%60 == 0 {
-		return fmt.Sprintf("%dm", seconds/60)
-	}
-	return fmt.Sprintf("%ds", seconds)
+	return fmt.Sprintf("%dms", millis)
 }
 
 // stdinIsTTY reports whether input reads from an interactive terminal.

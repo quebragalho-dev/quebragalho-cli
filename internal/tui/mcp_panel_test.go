@@ -43,7 +43,7 @@ func TestBuildMCPViewStateMarksOriginStatusAndAuthNeed(t *testing.T) {
 	}
 }
 
-// The manager meta line carries the CC-style glyph, tool count and origin.
+// The manager meta line carries the state glyph, tool count and origin.
 func TestMCPManagerServerMetaShowsGlyphs(t *testing.T) {
 	meta := mcpManagerServerMeta(MCPServerView{Name: "a", State: "enabled", Transport: "http", ToolCount: 3, Status: "ok", Origin: "usuário"})
 	for _, want := range []string{"✔", "3 ferramentas", "usuário"} {

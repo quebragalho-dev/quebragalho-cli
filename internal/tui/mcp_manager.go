@@ -353,7 +353,7 @@ func mcpManagerServerMeta(server MCPServerView) string {
 	return strings.Join(parts, " · ")
 }
 
-// mcpManagerServerGlyph renders the CC-style panel state: connected, needs
+// mcpManagerServerGlyph renders the panel state glyph: connected, needs
 // auth, failed with reason, or disabled.
 func mcpManagerServerGlyph(server MCPServerView) string {
 	if strings.EqualFold(strings.TrimSpace(server.State), "disabled") || server.Status == "disabled" {

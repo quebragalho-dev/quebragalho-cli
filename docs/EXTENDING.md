@@ -262,8 +262,9 @@ Servers are merged from user and project configs (project wins on conflicts). Fo
 `${VAR}` and `${VAR:-default}` expand from the qg process environment in
 `command`, `args`, `env` values, `url`, and header values (never from sibling
 config values, never for OAuth material). Prefer passing secrets via `env`
-over `args`: `args` are visible in process listings while `env` values stay
-redacted in `mcp list`, errors, and logs. A `${VAR}` with no value and no
+over `args`: `args` are visible in process listings while `env` values of 8
+or more characters stay redacted in `mcp list`, errors, and logs (shorter
+values are left alone, so tool output is never rewritten). A `${VAR}` with no value and no
 default expands to `""`; connecting with an emptied target fails and
 `qg mcp check` refuses upfront naming the missing variable.
 
