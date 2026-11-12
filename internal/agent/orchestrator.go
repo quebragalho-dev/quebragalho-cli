@@ -20,8 +20,9 @@ import (
 // or its normalized name matches a marker variable in the environment.
 
 // DetectedOrchestrator is one installed skill recognized as ambient: the
-// skill Name plus the Signal that proved it (env:NAME or term:VALUE). Signal
-// never carries a variable VALUE — only names — so the block is safe to log.
+// skill Name plus the Signal that proved it (env:NAME or TERM_PROGRAM).
+// Signals carry variable NAMES only, never values, so the block is safe to
+// log and to send to the model.
 type DetectedOrchestrator struct {
 	Name   string
 	Signal string
