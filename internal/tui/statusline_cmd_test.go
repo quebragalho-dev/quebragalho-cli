@@ -44,6 +44,46 @@ func TestStatuslineStdinHasNoSecrets(t *testing.T) {
 	}
 }
 
+// Unknown values ride as null, never absent: keys are always present.
+func TestStatuslineStdinNullsWhenUnknown(t *testing.T) {
+	m := limeTestModel()
+	m.gitBranch = "" // unknown branch reads as null, not as the test runner's branch
+	payload := m.statuslineStdin(100)
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("payload is not JSON: %v", err)
+	}
+	for _, key := range []string{"context", "cache", "cost_brl", "branch"} {
+		value, ok := decoded[key]
+		if !ok {
+			t.Fatalf("payload lacks %q: %s", key, payload)
+		}
+		if value != nil && key != "context" && key != "cache" {
+			t.Fatalf("%s = %v, want null when unknown", key, value)
+		}
+	}
+	context, ok := decoded["context"].(map[string]any)
+	if !ok {
+		t.Fatalf("context must stay an object: %s", payload)
+	}
+	for _, key := range []string{"used", "window", "pct"} {
+		value, present := context[key]
+		if !present {
+			t.Fatalf("context lacks %q: %s", key, payload)
+		}
+		if value != nil {
+			t.Fatalf("context.%s = %v, want null when unknown", key, value)
+		}
+	}
+	cache, ok := decoded["cache"].(map[string]any)
+	if !ok {
+		t.Fatalf("cache must stay an object: %s", payload)
+	}
+	if value, present := cache["hit_pct"]; !present || value != nil {
+		t.Fatalf("cache.hit_pct = %v, want present null: %s", value, payload)
+	}
+}
+
 // Context numbers and BRL cost ride the payload when known.
 func TestStatuslineStdinContextAndCost(t *testing.T) {
 	m := batchThreeLiveModel(t)

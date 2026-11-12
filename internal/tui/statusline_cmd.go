@@ -57,15 +57,15 @@ type statuslineCmdPayload struct {
 	Context   statuslineCmdContext `json:"context"`
 	Cache     statuslineCmdCache   `json:"cache"`
 	CostBRL   *float64             `json:"cost_brl"`
-	Branch    string               `json:"branch,omitempty"`
+	Branch    *string              `json:"branch"`
 	Version   string               `json:"version"`
 	Width     int                  `json:"width"`
 }
 
-// statuslineCmdCache is reserved for the Cofre item (prompt-cache hit rate);
-// nil until it lands, so scripts see no fake zero.
+// statuslineCmdCache is reserved for the prompt-cache hit rate: the object is
+// always present, but hit_pct stays null until the cache data exists.
 type statuslineCmdCache struct {
-	HitPct float64 `json:"hit_pct"`
+	HitPct *float64 `json:"hit_pct"`
 }
 
 // statuslineStdin builds the JSON snapshot for one command run.
@@ -80,9 +80,11 @@ func (m model) statuslineStdin(width int) []byte {
 		Model:     strings.TrimSpace(m.modelName),
 		Provider:  strings.TrimSpace(m.providerName),
 		Effort:    effort,
-		Branch:    strings.TrimSpace(m.gitBranch),
 		Version:   strings.TrimSpace(m.appVersion),
 		Width:     width,
+	}
+	if branch := strings.TrimSpace(m.gitBranch); branch != "" {
+		payload.Branch = &branch
 	}
 	if used, ok := m.contextMeterUse(); ok {
 		payload.Context.Used = &used
