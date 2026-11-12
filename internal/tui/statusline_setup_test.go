@@ -349,8 +349,8 @@ func TestStatuslineFieldsOnlyProposalKeepsCommand(t *testing.T) {
 	}
 }
 
-// A proposal with removeCommand drops the command; the preview says so and
-// never shows the stale command output.
+// A proposal with an explicit "command": null drops the command; the preview
+// announces the removal and never shows the stale command output.
 func TestStatuslineRemoveCommandProposal(t *testing.T) {
 	dir := t.TempDir()
 	m := limeTestModel()
@@ -365,7 +365,7 @@ func TestStatuslineRemoveCommandProposal(t *testing.T) {
 	if err := os.MkdirAll(staging, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	proposal := `{"lines": [{"left": ["branch"]}], "removeCommand": true}`
+	proposal := `{"lines": [{"left": ["branch"]}], "command": null}`
 	if err := os.WriteFile(filepath.Join(staging, "proposal.json"), []byte(proposal), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func TestStatuslineRemoveCommandProposal(t *testing.T) {
 	if strings.Contains(nm.statuslinePending.preview, "STALE OUTPUT") {
 		t.Fatalf("preview reuses the stale command output:\n%s", nm.statuslinePending.preview)
 	}
-	if !strings.Contains(nm.statuslinePending.preview, "branch") {
+	if !strings.Contains(nm.statuslinePending.preview, "feat/rodape-x") {
 		t.Fatalf("preview does not render the real field lines:\n%s", nm.statuslinePending.preview)
 	}
 }
