@@ -920,49 +920,104 @@ func TestOrchestratorEmptyValueIsNotASignal(t *testing.T) {
 	h.assertNoValueLeak("orq-secret-tern-6a", "orq-secret-plover-7b")
 }
 
-// qg doctor reports the ambient skills exec detects, no more. Exec loads no
-// skill from a disabled plugin, nor from a project plugin while the workspace is
-// untrusted, so doctor must not report those; an enabled user plugin counts in
-// both.
+// qg doctor reports the ambient skills exec detects, no more and no fewer. Exec
+// loads no skill from a disabled plugin, and loads a project plugin only once
+// the workspace is trusted; an enabled user plugin counts either way.
 func TestDoctorReportsTheSameOrchestratorsAsExec(t *testing.T) {
-	h := newOrqHarness(t, orqFillers(3))
-	userPlugins := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "qg", "plugins")
-	writeOrqPlugin(t, filepath.Join(userPlugins, "pack-live"), "pack-live", "liveorq", true)
-	writeOrqPlugin(t, filepath.Join(userPlugins, "pack-off"), "pack-off", "offorq", false)
-	writeOrqPlugin(t, filepath.Join(h.workdir, ".qg", "plugins", "pack-proj"), "pack-proj", "projorq", true)
-	values := []string{"orq-secret-live-1d", "orq-secret-off-2d", "orq-secret-proj-3d"}
-	t.Setenv("LIVEORQ_SOCKET", values[0])
-	t.Setenv("OFFORQ_SOCKET", values[1])
-	t.Setenv("PROJORQ_SOCKET", values[2])
-	skipped := []string{"offorq", "projorq"}
+	for _, tc := range []struct {
+		name     string
+		trust    bool
+		detected []string
+		skipped  []string
+	}{
+		{name: "untrusted workspace", detected: []string{"liveorq"}, skipped: []string{"offorq", "projorq"}},
+		{name: "trusted workspace", trust: true, detected: []string{"liveorq", "projorq"}, skipped: []string{"offorq"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newOrqHarness(t, orqFillers(3))
+			userPlugins := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "qg", "plugins")
+			writeOrqPlugin(t, filepath.Join(userPlugins, "pack-live"), "pack-live", "liveorq", true)
+			writeOrqPlugin(t, filepath.Join(userPlugins, "pack-off"), "pack-off", "offorq", false)
+			writeOrqPlugin(t, filepath.Join(h.workdir, ".qg", "plugins", "pack-proj"), "pack-proj", "projorq", true)
+			values := []string{"orq-secret-live-1d", "orq-secret-off-2d", "orq-secret-proj-3d"}
+			t.Setenv("LIVEORQ_SOCKET", values[0])
+			t.Setenv("OFFORQ_SOCKET", values[1])
+			t.Setenv("PROJORQ_SOCKET", values[2])
+			t.Chdir(h.workdir)
+			if tc.trust {
+				var stderr bytes.Buffer
+				if code := Run([]string{"trust"}, io.Discard, &stderr); code != 0 {
+					t.Fatalf("qg trust exit=%d stderr=%s", code, stderr.String())
+				}
+			}
 
+			system := h.exec()
+			for _, name := range tc.detected {
+				assertOrqDetected(t, system, name, strings.ToUpper(name)+"_SOCKET")
+			}
+			outside := orqOutsideSkillList(system)
+			for _, name := range tc.skipped {
+				if strings.Contains(outside, name) {
+					t.Fatalf("exec detected %s, which it must not load (disabled plugin or project plugin in an untrusted workspace)", name)
+				}
+			}
+
+			var stdout bytes.Buffer
+			Run([]string{"doctor"}, &stdout, io.Discard)
+			report := stdout.String()
+			for _, name := range tc.detected {
+				if signal := strings.ToUpper(name) + "_SOCKET"; !strings.Contains(report, name) || !strings.Contains(report, signal) {
+					t.Errorf("doctor must report %s through %s, as exec does:\n%s", name, signal, report)
+				}
+			}
+			for _, name := range tc.skipped {
+				if strings.Contains(report, name) {
+					t.Errorf("doctor reports %s, which exec never loads (disabled plugin or project plugin in an untrusted workspace):\n%s", name, report)
+				}
+			}
+			for _, value := range values {
+				if strings.Contains(report, value) {
+					t.Errorf("doctor prints the variable value %q; only names may be shown:\n%s", value, report)
+				}
+			}
+			h.assertNoValueLeak(values...)
+		})
+	}
+}
+
+// Outside Windows variable names are case-sensitive. A variable that differs
+// from a declared or heuristic name only in letter case is another variable,
+// and a declaration that matches the skill name only when case is ignored does
+// not belong to the skill. The Windows mode, which ignores letter case, is
+// decided and proven where the comparison lives, not through the CLI.
+func TestOrchestratorLetterCaseCountsOutsideWindows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows variable names ignore letter case")
+	}
+	h := newOrqHarness(t, append(orqFillers(3),
+		orqSkill{name: "kestrel-hub", description: "Declares its own marker.", environment: []string{"KESTREL_HUB_MARK"}},
+		orqSkill{name: "lower-hub", description: "Declares its own marker in lowercase.", environment: []string{"lower_hub_mark"}},
+		orqSkill{name: "plover", description: "Plover helpers."},
+	))
+	baseline := h.exec()
+
+	values := []string{"orq-secret-case-kestrel-1g", "orq-secret-case-plover-2g", "orq-secret-case-lower-3g"}
+	t.Setenv("kestrel_hub_mark", values[0])
+	t.Setenv("Plover_Socket", values[1])
+	t.Setenv("lower_hub_mark", values[2])
+	if got := h.exec(); got != baseline {
+		t.Errorf("variables that match a declared or heuristic name only when letter case is ignored changed the system prompt; want byte-identical to the run without them.\n%s", orqDiff(baseline, got))
+	}
+
+	t.Setenv("KESTREL_HUB_MARK", "orq-secret-case-kestrel-4g")
+	t.Setenv("PLOVER_SOCKET", "orq-secret-case-plover-5g")
 	system := h.exec()
-	assertOrqDetected(t, system, "liveorq", "LIVEORQ_SOCKET")
-	outside := orqOutsideSkillList(system)
-	for _, name := range skipped {
-		if strings.Contains(outside, name) {
-			t.Fatalf("exec detected %s, which it must not load (disabled plugin or project plugin in an untrusted workspace)", name)
-		}
+	assertOrqDetected(t, system, "kestrel-hub", "KESTREL_HUB_MARK")
+	assertOrqDetected(t, system, "plover", "PLOVER_SOCKET")
+	if strings.Contains(orqOutsideSkillList(system), "lower-hub") {
+		t.Errorf("lower-hub matched through lower_hub_mark; outside Windows a declaration belongs to the skill only with the exact letter case")
 	}
-
-	t.Chdir(h.workdir)
-	var stdout bytes.Buffer
-	Run([]string{"doctor"}, &stdout, io.Discard)
-	report := stdout.String()
-	if !strings.Contains(report, "liveorq") || !strings.Contains(report, "LIVEORQ_SOCKET") {
-		t.Errorf("doctor must report liveorq through LIVEORQ_SOCKET, as exec does:\n%s", report)
-	}
-	for _, name := range skipped {
-		if strings.Contains(report, name) {
-			t.Errorf("doctor reports %s, which exec never loads (disabled plugin or project plugin in an untrusted workspace):\n%s", name, report)
-		}
-	}
-	for _, value := range values {
-		if strings.Contains(report, value) {
-			t.Errorf("doctor prints the variable value %q; only names may be shown:\n%s", value, report)
-		}
-	}
-	h.assertNoValueLeak(values...)
+	h.assertNoValueLeak(append(values, "orq-secret-case-kestrel-4g", "orq-secret-case-plover-5g")...)
 }
 
 // The detection must come from installed skills, never from a table of app
