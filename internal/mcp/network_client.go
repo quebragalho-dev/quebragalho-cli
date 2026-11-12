@@ -140,23 +140,27 @@ func (client *remoteSSEClient) ListTools(ctx context.Context) ([]RemoteTool, err
 }
 
 func (client *networkClient) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+	callCtx, cancel := withToolTimeout(ctx, client.server)
+	defer cancel()
 	var result CallToolResult
-	if err := client.request(ctx, "tools/call", map[string]any{
+	if err := client.request(callCtx, "tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	}, &result); err != nil {
-		return CallToolResult{}, err
+		return CallToolResult{}, mapTimeoutError(ctx, callCtx, client.server, name, err)
 	}
 	return result, nil
 }
 
 func (client *remoteSSEClient) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+	callCtx, cancel := withToolTimeout(ctx, client.server)
+	defer cancel()
 	var result CallToolResult
-	if err := client.request(ctx, "tools/call", map[string]any{
+	if err := client.request(callCtx, "tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	}, &result); err != nil {
-		return CallToolResult{}, err
+		return CallToolResult{}, mapTimeoutError(ctx, callCtx, client.server, name, err)
 	}
 	return result, nil
 }

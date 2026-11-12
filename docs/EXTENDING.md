@@ -262,6 +262,12 @@ or use a new server name. OAuth tokens are bound to the resolved server identity
 so changing a server target can require `qg mcp oauth login <server>` again.
 OAuth server names ending in `.<32 hex chars>` are reserved for token storage.
 
+Timeouts: each tool call is bounded by `MCP_TOOL_TIMEOUT` (milliseconds,
+default 60000) or the per-server `timeout` (milliseconds) in `config.json`.
+When a call exceeds its budget, the turn continues with a clear error naming
+the tool and the server. `MCP_TIMEOUT` (milliseconds) overrides the handshake
+(30s) and per-server connect (8s) budgets.
+
 ### As a server — expose QG's tools to another agent
 
 ```bash

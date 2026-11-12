@@ -510,15 +510,18 @@ type MCPConfig struct {
 }
 
 type MCPServerConfig struct {
-	Type     string            `json:"type,omitempty"`
-	Command  string            `json:"command,omitempty"`
-	Args     []string          `json:"args,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
-	URL      string            `json:"url,omitempty"`
-	Headers  map[string]string `json:"headers,omitempty"`
-	Auth     string            `json:"auth,omitempty"`
-	OAuth    *MCPOAuthConfig   `json:"oauth,omitempty"`
-	Disabled bool              `json:"disabled,omitempty"`
+	Type    string            `json:"type,omitempty"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Auth    string            `json:"auth,omitempty"`
+	// Timeout bounds one tool call in milliseconds. Zero means the
+	// MCP_TOOL_TIMEOUT environment (milliseconds) or the 60s default.
+	Timeout  int             `json:"timeout,omitempty"`
+	OAuth    *MCPOAuthConfig `json:"oauth,omitempty"`
+	Disabled bool            `json:"disabled,omitempty"`
 	// ProjectConfigured marks servers touched by project config. It is runtime
 	// metadata, not persisted config.
 	ProjectConfigured bool `json:"-"`
@@ -721,6 +724,7 @@ func (server *MCPServerConfig) UnmarshalJSON(data []byte) error {
 		URL      string            `json:"url"`
 		Headers  map[string]string `json:"headers"`
 		Auth     string            `json:"auth"`
+		Timeout  int               `json:"timeout"`
 		OAuth    *MCPOAuthConfig   `json:"oauth"`
 		Disabled *bool             `json:"disabled"`
 	}
@@ -736,6 +740,7 @@ func (server *MCPServerConfig) UnmarshalJSON(data []byte) error {
 	server.URL = raw.URL
 	server.Headers = raw.Headers
 	server.Auth = raw.Auth
+	server.Timeout = raw.Timeout
 	server.OAuth = raw.OAuth
 	server.Disabled = false
 	server.disabledSet = false

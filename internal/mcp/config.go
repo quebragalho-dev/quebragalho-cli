@@ -21,15 +21,19 @@ const (
 )
 
 type Server struct {
-	Name     string
-	Type     ServerType
-	Command  string
-	Args     []string
-	Env      map[string]string
-	URL      string
-	Headers  map[string]string
-	Auth     string
-	OAuth    *OAuthConfig
+	Name    string
+	Type    ServerType
+	Command string
+	Args    []string
+	Env     map[string]string
+	URL     string
+	Headers map[string]string
+	Auth    string
+	OAuth   *OAuthConfig
+	// Timeout bounds one tool call in milliseconds (MCP_TOOL_TIMEOUT and the
+	// 60s default apply when zero). It is connection policy, not target
+	// identity, so it stays out of the identity hash.
+	Timeout  int
 	Identity string
 	// ProjectConfigured is true when project config touched this server. Runtime
 	// credential lookup uses it to avoid reusing legacy user tokens by name.
@@ -91,6 +95,7 @@ func normalizeServer(name string, raw config.MCPServerConfig) (Server, error) {
 		Headers:             copyStringMap(raw.Headers),
 		Auth:                auth,
 		OAuth:               normalizeOAuthConfig(raw.OAuth),
+		Timeout:             raw.Timeout,
 		ProjectConfigured:   raw.ProjectConfigured,
 		UnconfiguredDefault: config.IsUnconfiguredDefault(name, raw),
 	}

@@ -226,7 +226,7 @@ func connectStdio(ctx context.Context, server Server, options ConnectOptions) (*
 // initialize performs the MCP handshake under a bounded timeout so a
 // non-responsive peer fails fast instead of hanging startup.
 func (client *Client) initialize(ctx context.Context) error {
-	initCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
+	initCtx, cancel := context.WithTimeout(ctx, initializeTimeoutValue())
 	defer cancel()
 
 	var result struct {
@@ -256,12 +256,14 @@ func (client *Client) ListTools(ctx context.Context) ([]RemoteTool, error) {
 }
 
 func (client *Client) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+	callCtx, cancel := withToolTimeout(ctx, client.server)
+	defer cancel()
 	var result CallToolResult
-	if err := client.request(ctx, "tools/call", map[string]any{
+	if err := client.request(callCtx, "tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	}, &result); err != nil {
-		return CallToolResult{}, err
+		return CallToolResult{}, mapTimeoutError(ctx, callCtx, client.server, name, err)
 	}
 	return result, nil
 }

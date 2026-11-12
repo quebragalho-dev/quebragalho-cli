@@ -92,7 +92,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 
 	timeout := options.ConnectTimeout
 	if timeout <= 0 {
-		timeout = defaultConnectTimeout
+		timeout = connectTimeout()
 	}
 
 	// Connect every server CONCURRENTLY: connect + list-tools is network/process
