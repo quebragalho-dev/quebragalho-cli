@@ -604,22 +604,30 @@ func TestSubagentsCompletionReadsStoreRollup(t *testing.T) {
 func TestSubchatPollReloadThrottlesAndFollowsChanges(t *testing.T) {
 	base := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	m := subchatPanelTestModel(t, base)
-	if errText := m.subchat.enter(m.sessionStore, "sess-1", "sleeper", 0); errText != "" {
-		t.Fatalf("enter: %s", errText)
-	}
-	m.subchat.pollReload(m.sessionStore, base)
-	if len(m.subchat.childRows) != 0 {
-		t.Fatalf("nothing changed: poll must not load rows: %+v", m.subchat.childRows)
-	}
 	msg := map[string]any{"role": "assistant", "content": "hello"}
 	if _, err := m.sessionStore.AppendEvent("sess-1", sessions.AppendEventInput{Type: sessions.EventMessage, Payload: msg}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
-	m.subchat.pollReload(m.sessionStore, base)
+	if errText := m.subchat.enter(m.sessionStore, "sess-1", "sleeper", 0); errText != "" {
+		t.Fatalf("enter: %s", errText)
+	}
+	if len(m.subchat.childRows) == 0 {
+		t.Fatal("enter with a non-empty log must load rows")
+	}
+	m.subchat.childRows = nil
+	m.subchat.pollReload(m.sessionStore, base.Add(2*time.Second))
+	if len(m.subchat.childRows) != 0 {
+		t.Fatalf("stopped log: poll must not re-read rows: %+v", m.subchat.childRows)
+	}
+	msg2 := map[string]any{"role": "assistant", "content": "world"}
+	if _, err := m.sessionStore.AppendEvent("sess-1", sessions.AppendEventInput{Type: sessions.EventMessage, Payload: msg2}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	m.subchat.pollReload(m.sessionStore, base.Add(2*time.Second))
 	if len(m.subchat.childRows) != 0 {
 		t.Fatalf("same second: poll must throttle the re-read")
 	}
-	m.subchat.pollReload(m.sessionStore, base.Add(2*time.Second))
+	m.subchat.pollReload(m.sessionStore, base.Add(4*time.Second))
 	if len(m.subchat.childRows) == 0 {
 		t.Fatal("after 1s with a changed log the poll must reload")
 	}
