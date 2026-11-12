@@ -1317,7 +1317,7 @@ func TestStatusLineAcceptance_ProposalPreviewThenEnterApplies(t *testing.T) {
 	seen := filepath.Join(env.root, "preview-stdin.json")
 	script := slScript{name: "proposta.sh", body: `cat > '` + seen + `'; printf 'SL-PREVIEW-OK\n'`}
 	var staged string
-	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, script: script, refreshMS: 1000}, &staged)
+	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, script: script, refreshMS: 1000, timeoutMS: 8000}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline quero uma linha minha")
 	frame, ok := p.waitFor(8*time.Second, containsPlain("SL-PREVIEW-OK"))
