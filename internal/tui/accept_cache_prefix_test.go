@@ -45,9 +45,8 @@ func acceptCacheOutsideSystem(req qgruntime.CompletionRequest, token string) boo
 	return false
 }
 
-// SPEC 1.6, teste-ouro obrigatório, pelo caminho real do TUI (composer ->
-// agente -> provider), com a decisão (b): dentro da conversa os bytes do
-// system nunca mudam. A aprovação de comando chega no meio do 1º run, como no
+// Teste-ouro do prefixo pelo caminho real do TUI (composer -> agente ->
+// provider). Dentro da conversa os bytes do system nunca mudam. A aprovação de comando chega no meio do 1º run, como no
 // fluxo real de permissão; depois vêm troca de branch, edição do AGENTS.md e
 // arquivo novo no repomap. system+tools ficam idênticos e cada informação nova
 // chega fora do system e fica no histórico. Depois o contrário: /clear
@@ -122,17 +121,17 @@ func TestAcceptCacheGoldenPrefixTUI(t *testing.T) {
 	}
 	for i, req := range reqs[1:] {
 		if req.Messages[0].Content != first.Messages[0].Content {
-			t.Fatalf("SPEC 1.1/1.6 + decisão (b): o system do request %d mudou dentro da conversa", i+2)
+			t.Fatalf("o system do request %d mudou dentro da conversa", i+2)
 		}
 		if got, _ := json.Marshal(req.Tools); string(got) != string(firstTools) {
-			t.Fatalf("SPEC 1.1/1.4: as definições de tools do request %d mudaram", i+2)
+			t.Fatalf("as definições de tools do request %d mudaram", i+2)
 		}
 	}
 	// A aprovação obtida no 1º run chega fora do system até o turno seguinte e
 	// continua no histórico.
 	for _, req := range []int{3, 6} {
 		if !acceptCacheOutsideSystem(reqs[req-1], acceptCacheApprovedPrefix) {
-			t.Fatalf("SPEC 1.3 + decisão (b): a aprovação obtida no meio do 1º run não está no sufixo/histórico do request %d", req)
+			t.Fatalf("a aprovação obtida no meio do 1º run não está no sufixo/histórico do request %d", req)
 		}
 	}
 	for _, c := range []struct {
@@ -146,7 +145,7 @@ func TestAcceptCacheGoldenPrefixTUI(t *testing.T) {
 	} {
 		last := lastUserMessage(reqs[c.req-1]).Content
 		if !strings.Contains(last, c.want) {
-			t.Fatalf("SPEC 1.2/1.6: a informação nova %q não está no sufixo do request %d: %q", c.want, c.req, last)
+			t.Fatalf("a informação nova %q não está no sufixo do request %d: %q", c.want, c.req, last)
 		}
 		if !strings.HasSuffix(last, c.prompt) {
 			t.Fatalf("o sufixo do request %d perdeu o prompt do turno: %q", c.req, last)
@@ -162,6 +161,6 @@ func TestAcceptCacheGoldenPrefixTUI(t *testing.T) {
 	}
 	fresh := provider.requests[6].Messages[0].Content
 	if !strings.Contains(fresh, "Guidelines v2") || strings.Contains(fresh, "Guidelines v1") || !strings.Contains(fresh, "feature-cache") {
-		t.Fatal("SPEC 1.6 (contrário): depois do /clear o prefixo deve ser reconstruído com o AGENTS.md e o branch atuais")
+		t.Fatal("depois do /clear o prefixo deve ser reconstruído com o AGENTS.md e o branch atuais")
 	}
 }

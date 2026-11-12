@@ -20,10 +20,9 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
-// Testes de aceitação do item 2, Parte 2 (visibilidade), escritos a partir de
-// spec-cache.md e do visual aprovado. O uso chega pelo mesmo caminho da
-// execução real (agentUsageMsg em Update); a hora de cada chamada vem do
-// relógio do model (m.now).
+// Testes de aceitação da visibilidade do cache (statusline e /usage). O uso
+// chega pelo mesmo caminho da execução real (agentUsageMsg em Update); a hora
+// de cada chamada vem do relógio do model (m.now).
 
 const (
 	acceptCacheModelID = "accept-cache-model"
@@ -106,8 +105,8 @@ func acceptRGB(c color.Color) string {
 	return fmt.Sprintf("%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
-// Cores da spec, aceitando o equivalente do tema quando existe (spec: "usar as
-// cores do tema/qgTheme existentes se houver equivalentes").
+// Cores esperadas, aceitando o equivalente do tema quando existe (o qgTheme
+// vence quando tem cor equivalente).
 func acceptGreen() []string { return []string{"123;216;143", acceptRGB(qgTheme.green.GetForeground())} }
 func acceptAmber() []string { return []string{"242;193;78", acceptRGB(qgTheme.amber.GetForeground())} }
 func acceptGray() []string {
@@ -136,21 +135,21 @@ func acceptAnyReason(status string) string {
 
 var acceptT0 = time.Date(2026, 11, 11, 14, 0, 0, 0, time.Local)
 
-// SPEC statusline: antes da 1ª chamada com uso, `cache —` em cinza.
+// Statusline: antes da 1ª chamada com uso, `cache —` em cinza.
 func TestAcceptCacheStatusDashBeforeFirstUsage(t *testing.T) {
 	m := acceptCacheTUIModel(t, "0.16995")
 	acceptCacheTrueColor(t)
 	raw := m.statusLine(160)
 	if !strings.Contains(plainRender(t, raw), "cache —") {
-		t.Fatalf("SPEC: antes da 1ª chamada a statusline deve mostrar `cache —`; veio %q", plainRender(t, raw))
+		t.Fatalf("antes da 1ª chamada a statusline deve mostrar `cache —`; veio %q", plainRender(t, raw))
 	}
 	if fg := acceptFG(raw, "—"); !acceptIn(fg, acceptGray()) {
-		t.Fatalf("SPEC: `cache —` deve ser cinza (#8B8E95 ou cinza do tema); cor = %q", fg)
+		t.Fatalf("`cache —` deve ser cinza (#8B8E95 ou cinza do tema); cor = %q", fg)
 	}
 }
 
-// SPEC: "Hit da sessão = soma(cache lido) / soma(entrada), ponderado por
-// tokens, desde o início da sessão". 97.000/100.000 = 97%. A última chamada
+// Hit da sessão = soma(cache lido) / soma(entrada), ponderado por
+// tokens, desde o início da sessão. 97.000/100.000 = 97%. A última chamada
 // sozinha daria 99% e a média simples por chamada, 49%.
 func TestAcceptCacheStatusSessionHitIsTokenWeighted(t *testing.T) {
 	m := acceptCacheTUIModel(t, "0.16995")
@@ -158,11 +157,11 @@ func TestAcceptCacheStatusSessionHitIsTokenWeighted(t *testing.T) {
 	m = acceptCacheCall(m, acceptT0.Add(30*time.Second), acceptCacheModelID, 98_000, 97_000, 10)
 	status := plainRender(t, m.statusLine(160))
 	if !strings.Contains(status, "cache 97%") {
-		t.Fatalf("SPEC: hit da sessão ponderado por tokens = 97%%; statusline = %q", status)
+		t.Fatalf("hit da sessão ponderado por tokens = 97%%; statusline = %q", status)
 	}
 }
 
-// SPEC faixas: ≥95% verde (#7BD88F), 80–94% amarelo (#F2C14E), <80% laranja
+// Faixas: ≥95% verde (#7BD88F), 80–94% amarelo (#F2C14E), <80% laranja
 // (#F29B4E). Uma única chamada: é a 1ª da conversa, então nem a de 79% ganha
 // motivo.
 func TestAcceptCacheStatusBands(t *testing.T) {
@@ -186,31 +185,31 @@ func TestAcceptCacheStatusBands(t *testing.T) {
 			raw := m.statusLine(160)
 			status := plainRender(t, raw)
 			if !strings.Contains(status, "cache "+c.label) {
-				t.Fatalf("SPEC: statusline deve mostrar `cache %s`; veio %q", c.label, status)
+				t.Fatalf("statusline deve mostrar `cache %s`; veio %q", c.label, status)
 			}
 			fg := acceptFG(raw, c.label)
 			switch c.band {
 			case "verde":
 				if !acceptIn(fg, acceptGreen()) {
-					t.Fatalf("SPEC: %s deve ser verde; cor = %q", c.label, fg)
+					t.Fatalf("%s deve ser verde; cor = %q", c.label, fg)
 				}
 			case "amarelo":
 				if !acceptIn(fg, acceptAmber()) {
-					t.Fatalf("SPEC: %s deve ser amarelo; cor = %q", c.label, fg)
+					t.Fatalf("%s deve ser amarelo; cor = %q", c.label, fg)
 				}
 			case "laranja":
 				if fg == "" || acceptIn(fg, acceptGreen()) || acceptIn(fg, acceptAmber()) || acceptIn(fg, acceptGray()) {
-					t.Fatalf("SPEC: %s deve ser laranja (#F29B4E); cor = %q", c.label, fg)
+					t.Fatalf("%s deve ser laranja (#F29B4E); cor = %q", c.label, fg)
 				}
 			}
 			if reason := acceptAnyReason(status); reason != "" {
-				t.Fatalf("SPEC: a 1ª chamada da conversa não ganha motivo; veio %q", reason)
+				t.Fatalf("a 1ª chamada da conversa não ganha motivo; veio %q", reason)
 			}
 		})
 	}
 }
 
-// SPEC: "lado direito, depois do contexto"; visual aprovado:
+// Lado direito, depois do contexto e do branch, como em
 // `● automático · alto │ dev │ 34% · 340k/1M │ cache 97%`.
 func TestAcceptCacheStatusSitsAfterContext(t *testing.T) {
 	m := acceptCacheTUIModel(t, "0.16995")
@@ -218,18 +217,18 @@ func TestAcceptCacheStatusSitsAfterContext(t *testing.T) {
 	status := plainRender(t, m.statusLine(180))
 	cacheAt := strings.Index(status, "cache 97%")
 	if cacheAt < 0 {
-		t.Fatalf("SPEC: statusline deve mostrar `cache 97%%`; veio %q", status)
+		t.Fatalf("statusline deve mostrar `cache 97%%`; veio %q", status)
 	}
 	contextAt := strings.Index(status, "34%")
 	if contextAt < 0 || contextAt > cacheAt {
-		t.Fatalf("SPEC: o cache vem depois do contexto (34%%); statusline = %q", status)
+		t.Fatalf("o cache vem depois do contexto (34%%); statusline = %q", status)
 	}
 	if branchAt := strings.Index(status, acceptCacheBranch); branchAt < 0 || branchAt > cacheAt {
-		t.Fatalf("SPEC: o cache fica no lado direito, depois do branch; statusline = %q", status)
+		t.Fatalf("o cache fica no lado direito, depois do branch; statusline = %q", status)
 	}
 }
 
-// SPEC: "some primeiro quando estreito, antes do branch". Estreitando a
+// O cache some primeiro quando estreito, antes do branch. Estreitando a
 // largura, o cache nunca sobrevive ao branch nem ao contexto, e existe uma
 // largura em que o branch ainda aparece e o cache já sumiu.
 func TestAcceptCacheStatusDropsFirstWhenNarrow(t *testing.T) {
@@ -237,7 +236,7 @@ func TestAcceptCacheStatusDropsFirstWhenNarrow(t *testing.T) {
 	m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 340_000, 329_800, 10)
 	wide := plainRender(t, m.statusLine(220))
 	if !strings.Contains(wide, "cache 97%") || !strings.Contains(wide, acceptCacheBranch) || !strings.Contains(wide, "34%") {
-		t.Fatalf("SPEC: na largura 220 cabem contexto, branch e cache; veio %q", wide)
+		t.Fatalf("na largura 220 cabem contexto, branch e cache; veio %q", wide)
 	}
 	branchWithoutCache := false
 	for width := 220; width >= 20; width-- {
@@ -246,18 +245,18 @@ func TestAcceptCacheStatusDropsFirstWhenNarrow(t *testing.T) {
 		hasBranch := strings.Contains(status, acceptCacheBranch)
 		hasContext := strings.Contains(status, "34%")
 		if hasCache && (!hasBranch || !hasContext) {
-			t.Fatalf("SPEC: na largura %d o cache sobreviveu ao branch/contexto: %q", width, status)
+			t.Fatalf("na largura %d o cache sobreviveu ao branch/contexto: %q", width, status)
 		}
 		if hasBranch && !hasCache {
 			branchWithoutCache = true
 		}
 	}
 	if !branchWithoutCache {
-		t.Fatal("SPEC: deveria existir uma largura com branch visível e cache já escondido")
+		t.Fatal("deveria existir uma largura com branch visível e cache já escondido")
 	}
 }
 
-// SPEC: queda (<80%, não é a 1ª chamada) acrescenta ` · <motivo>` em laranja
+// Queda (<80%, não é a 1ª chamada) acrescenta ` · <motivo>` em laranja
 // até uma chamada voltar a ≥80%. Cada causa é produzida pela superfície real.
 func TestAcceptCacheDropReasons(t *testing.T) {
 	type cause func(t *testing.T, m model) (model, time.Time, string)
@@ -302,25 +301,25 @@ func TestAcceptCacheDropReasons(t *testing.T) {
 			status := plainRender(t, raw)
 			match := regexp.MustCompile(`cache (\d+%) · ` + regexp.QuoteMeta(c.reason)).FindStringSubmatch(status)
 			if match == nil {
-				t.Fatalf("SPEC: esperava `cache NN%% · %s`; statusline = %q", c.reason, status)
+				t.Fatalf("esperava `cache NN%% · %s`; statusline = %q", c.reason, status)
 			}
 			if other := acceptAnyReason(strings.Replace(status, c.reason, "", 1)); other != "" {
-				t.Fatalf("SPEC: um motivo só; veio também %q em %q", other, status)
+				t.Fatalf("um motivo só; veio também %q em %q", other, status)
 			}
 			reasonFG := acceptFG(raw, c.reason)
 			if reasonFG == "" || acceptIn(reasonFG, acceptGreen()) || acceptIn(reasonFG, acceptAmber()) || acceptIn(reasonFG, acceptGray()) {
-				t.Fatalf("SPEC: o motivo deve ser laranja; cor = %q", reasonFG)
+				t.Fatalf("o motivo deve ser laranja; cor = %q", reasonFG)
 			}
 
 			m = acceptCacheCall(m, at.Add(30*time.Second), modelID, 100_000, 99_000, 10)
 			if reason := acceptAnyReason(plainRender(t, m.statusLine(200))); reason != "" {
-				t.Fatalf("SPEC: o motivo some quando uma chamada volta a ≥80%%; ainda mostra %q", reason)
+				t.Fatalf("o motivo some quando uma chamada volta a ≥80%%; ainda mostra %q", reason)
 			}
 		})
 	}
 }
 
-// Decisão (a): /clear abre conversa nova. A 1ª chamada depois dele não ganha
+// /clear abre conversa nova. A 1ª chamada depois dele não ganha
 // motivo de queda e o hit da sessão segue acumulando:
 // (0 + 99.000 + 40.000) / (10.000 + 100.000 + 100.000) = 66%.
 func TestAcceptCacheClearKeepsSessionHitWithoutReason(t *testing.T) {
@@ -333,10 +332,10 @@ func TestAcceptCacheClearKeepsSessionHitWithoutReason(t *testing.T) {
 	m = acceptCacheCall(m, acceptT0.Add(time.Minute), acceptCacheModelID, 100_000, 40_000, 10)
 	status := plainRender(t, m.statusLine(200))
 	if !strings.Contains(status, "cache 66%") {
-		t.Fatalf("decisão (a): depois do /clear o hit da sessão segue acumulando (66%%); statusline = %q", status)
+		t.Fatalf("depois do /clear o hit da sessão segue acumulando (66%%); statusline = %q", status)
 	}
 	if reason := acceptAnyReason(status); reason != "" {
-		t.Fatalf("decisão (a): a 1ª chamada depois do /clear não ganha motivo; veio %q", reason)
+		t.Fatalf("a 1ª chamada depois do /clear não ganha motivo; veio %q", reason)
 	}
 }
 
@@ -367,7 +366,7 @@ func acceptLineWith(panel string, parts ...string) bool {
 	return false
 }
 
-// SPEC /usage, aba Sessão: bloco "Cache desta sessão" com % + `meta 95%`,
+// /usage, aba Sessão: bloco "Cache desta sessão" com % + `meta 95%`,
 // tokens em pt-BR e economia pelo preço de entrada vs cache lido do catálogo.
 // 83,52M de 87M = 96%. Economia = 83,52M × (1,648 − 0,16995)/1M = R$ 123,45.
 // Sem cache = 87M × 1,648/1M = R$ 143,38 (saída zero: as duas leituras de
@@ -383,32 +382,32 @@ func TestAcceptCacheUsageSessionBlock(t *testing.T) {
 		"Economia estimada: ~R$ 123,45 (sem cache seria ~R$ 143,38)",
 	} {
 		if !strings.Contains(panel, want) {
-			t.Fatalf("SPEC /usage: faltou %q no painel:\n%s", want, panel)
+			t.Fatalf("faltou %q no painel:\n%s", want, panel)
 		}
 	}
 	if !acceptLineWith(panel, "96%", "meta 95%") {
-		t.Fatalf("SPEC /usage: a linha do bloco deve trazer `96%%` e `meta 95%%`:\n%s", panel)
+		t.Fatalf("a linha do bloco deve trazer `96%%` e `meta 95%%`:\n%s", panel)
 	}
 }
 
-// SPEC: "se o catálogo não tiver preço de cache para o modelo, omitir a linha
-// (nunca inventar)". O % não depende de preço e continua.
+// Se o catálogo não tiver preço de cache para o modelo, a linha de economia
+// some (nunca inventar preço). O % não depende de preço e continua.
 func TestAcceptCacheUsageOmitsSavingsWithoutCachePrice(t *testing.T) {
 	m := acceptCacheTUIModel(t, "")
 	m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 1_000_000, 0, 0)
 	m = acceptCacheCall(m, acceptT0.Add(time.Minute), acceptCacheModelID, 86_000_000, 83_520_000, 0)
 	panel := acceptOpenUsage(t, m)
 	if !strings.Contains(panel, "Cache desta sessão") || !acceptLineWith(panel, "96%", "meta 95%") {
-		t.Fatalf("SPEC /usage: o bloco de cache deve aparecer mesmo sem preço de cache:\n%s", panel)
+		t.Fatalf("o bloco de cache deve aparecer mesmo sem preço de cache:\n%s", panel)
 	}
 	if strings.Contains(panel, "Economia") || strings.Contains(panel, "sem cache seria") {
-		t.Fatalf("SPEC /usage: sem preço de cache no catálogo a linha de economia deve sumir:\n%s", panel)
+		t.Fatalf("sem preço de cache no catálogo a linha de economia deve sumir:\n%s", panel)
 	}
 }
 
-// SPEC: "Quedas nesta sessão": HH:MM local, % daquela chamada, motivo; só
-// chamadas <80% que não são a 1ª; no máximo as 5 mais recentes. Decisão (c):
-// a spec vence o visual, então a chamada de 82% (14:08) não entra.
+// "Quedas nesta sessão": HH:MM local, % daquela chamada, motivo; só
+// chamadas <80% que não são a 1ª; no máximo as 5 mais recentes. A chamada de
+// 82% (14:08) não entra.
 func TestAcceptCacheUsageDropsListFiveMostRecent(t *testing.T) {
 	m := acceptCacheTUIModel(t, "0.16995")
 	m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 100_000, 0, 10)
@@ -418,46 +417,46 @@ func TestAcceptCacheUsageDropsListFiveMostRecent(t *testing.T) {
 	m = acceptCacheCall(m, acceptT0.Add(8*time.Minute), acceptCacheModelID, 100_000, 82_000, 10)
 	panel := acceptOpenUsage(t, m)
 	if !strings.Contains(panel, "Quedas nesta sessão") {
-		t.Fatalf("SPEC /usage: faltou a seção `Quedas nesta sessão`:\n%s", panel)
+		t.Fatalf("faltou a seção `Quedas nesta sessão`:\n%s", panel)
 	}
 	for i := 3; i <= 7; i++ {
 		clock := acceptT0.Add(time.Duration(i) * time.Minute).Format("15:04")
 		if !acceptLineWith(panel, clock, fmt.Sprintf("%d%%", 40+i), "motivo desconhecido") {
-			t.Fatalf("SPEC /usage: faltou a queda `%s %d%% motivo desconhecido`:\n%s", clock, 40+i, panel)
+			t.Fatalf("faltou a queda `%s %d%% motivo desconhecido`:\n%s", clock, 40+i, panel)
 		}
 	}
 	for _, gone := range []time.Time{acceptT0, acceptT0.Add(time.Minute), acceptT0.Add(2 * time.Minute), acceptT0.Add(8 * time.Minute)} {
 		if strings.Contains(panel, gone.Format("15:04")) {
-			t.Fatalf("SPEC /usage: %s não deveria estar nas quedas (1ª chamada, além das 5 mais recentes ou ≥80%%):\n%s", gone.Format("15:04"), panel)
+			t.Fatalf("%s não deveria estar nas quedas (1ª chamada, além das 5 mais recentes ou ≥80%%):\n%s", gone.Format("15:04"), panel)
 		}
 	}
 }
 
-// SPEC "Última chamada": `Entrada: 181k · cache lido: 176k (97%) · saída: 2,1k`
+// "Última chamada": `Entrada: 181k · cache lido: 176k (97%) · saída: 2,1k`
 // (o custo só se já existir hoje, então não é travado aqui).
 func TestAcceptCacheUsageLastCallLine(t *testing.T) {
 	m := acceptCacheTUIModel(t, "0.16995")
 	m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 181_000, 176_000, 2_100)
 	panel := acceptOpenUsage(t, m)
 	if !strings.Contains(panel, "Entrada: 181k · cache lido: 176k (97%) · saída: 2,1k") {
-		t.Fatalf("SPEC /usage: linha da última chamada fora do formato:\n%s", panel)
+		t.Fatalf("linha da última chamada fora do formato:\n%s", panel)
 	}
 }
 
-// SPEC: "Manter o que o painel já mostra hoje". Guarda: verde no dev.
+// O painel mantém o que já mostrava antes. Guarda: verde no dev.
 func TestAcceptCacheUsageKeepsTodaysPanel(t *testing.T) {
 	m := acceptCacheTUIModel(t, "0.16995")
 	m = acceptCacheCall(m, acceptT0, acceptCacheModelID, 181_000, 176_000, 2_100)
 	panel := acceptOpenUsage(t, m)
 	for _, want := range []string{"[Sessão]", "Conta", "Última chamada", "Modelo ativo: " + acceptCacheModelID, "Janela: 1.000.000 tokens", "Uso da janela:", "Esc fechar"} {
 		if !strings.Contains(panel, want) {
-			t.Fatalf("SPEC /usage: o painel perdeu %q:\n%s", want, panel)
+			t.Fatalf("o painel perdeu %q:\n%s", want, panel)
 		}
 	}
 }
 
-// SPEC: "resume recompõe a partir dos eventos salvos, se existirem; senão
-// começa do zero". Eventos no formato que o TUI grava (EventUsage).
+// O resume recompõe o hit a partir dos eventos salvos, se existirem; senão
+// começa do zero. Eventos no formato que o TUI grava (EventUsage).
 func TestAcceptCacheResumeRecomposesSessionHit(t *testing.T) {
 	m := acceptCacheTUIModel(t, "0.16995")
 	store := testSessionStore(t)
@@ -478,7 +477,7 @@ func TestAcceptCacheResumeRecomposesSessionHit(t *testing.T) {
 		t.Fatal(notice)
 	}
 	if status := plainRender(t, resumed.statusLine(200)); !strings.Contains(status, "cache 97%") {
-		t.Fatalf("SPEC: o resume recompõe o hit da sessão a partir dos eventos salvos (97%%); statusline = %q", status)
+		t.Fatalf("o resume recompõe o hit da sessão a partir dos eventos salvos (97%%); statusline = %q", status)
 	}
 
 	fresh, notice := resumed.handleResumeCommand(empty.SessionID)
@@ -486,6 +485,6 @@ func TestAcceptCacheResumeRecomposesSessionHit(t *testing.T) {
 		t.Fatal(notice)
 	}
 	if status := plainRender(t, fresh.statusLine(200)); !strings.Contains(status, "cache —") {
-		t.Fatalf("SPEC: sessão retomada sem eventos de uso começa do zero (`cache —`); statusline = %q", status)
+		t.Fatalf("sessão retomada sem eventos de uso começa do zero (`cache —`); statusline = %q", status)
 	}
 }

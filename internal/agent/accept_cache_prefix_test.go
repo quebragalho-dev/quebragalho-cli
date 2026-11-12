@@ -1,5 +1,5 @@
-// Testes de aceitação do item 2 (cache acima de 95% sem perder qualidade),
-// escritos a partir de spec-cache.md e não da implementação.
+// Testes de aceitação do cache de prefixo (cache alto sem perder qualidade),
+// escritos a partir do comportamento esperado e não da implementação.
 //
 // Superfície: agent.Run com provider dublê que captura o CompletionRequest
 // real. Nenhum símbolo novo. Os dois são guardas de qualidade (verdes no dev);
@@ -78,10 +78,9 @@ func acceptCacheOptions(dir string) Options {
 	}
 }
 
-// SPEC 1.3 com a decisão (b): aprovações que já existiam antes de a conversa
-// começar podem ficar no system, congeladas, e nada do que o modelo recebe é
-// removido. Guarda: falha se a entrega tirar a aprovação do system sem levá-la
-// ao sufixo.
+// Aprovações que já existiam antes de a conversa começar podem ficar no
+// system, congeladas, e nada do que o modelo recebe é removido. Guarda: falha
+// se a aprovação sair do system sem chegar ao sufixo.
 func TestAcceptApprovalFromBeforeConversationReachesModel(t *testing.T) {
 	dir, engine := acceptCacheWorkspace(t)
 	acceptGrantProbe(t, engine)
@@ -118,9 +117,9 @@ func (tool acceptBulkTool) Run(context.Context, map[string]any) tools.Result {
 	return tools.Result{Status: tools.StatusOK, Output: tool.output}
 }
 
-// Invariante de qualidade (inegociável): "PROIBIDO cortar/encurtar saída de
-// ferramenta, baixar effort". Guarda de regressão: verde no dev por
-// construção; falha se a entrega baixar o teto de saída ou mexer no effort.
+// Invariante de qualidade: o cache nunca pode cortar ou encurtar saída de
+// ferramenta nem baixar o effort. Guarda de regressão: falha se o teto de
+// saída cair ou o effort mudar.
 func TestAcceptQualityToolOutputUncutAndEffortKept(t *testing.T) {
 	acceptCacheHermetic(t)
 	var b strings.Builder
