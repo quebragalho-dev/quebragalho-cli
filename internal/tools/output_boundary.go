@@ -114,6 +114,15 @@ func (registry *Registry) RebudgetAfterHook(toolName string, args map[string]any
 }
 
 func registryOutputBudget(toolName string) outputBudget {
+	// MCP tools share the wider MCP lane (25k default, MAX_MCP_OUTPUT_TOKENS)
+	// so the semantic budget agrees with the hard ceiling below.
+	if strings.HasPrefix(toolName, mcpToolNamePrefix) {
+		ceilingTokens := resolveMCPOutputCeilingTokens()
+		if ceilingTokens <= 0 {
+			return outputBudget{}
+		}
+		return outputBudget{maxEstimatedTokens: ceilingTokens, hardMaxBytes: ceilingTokens * 4}
+	}
 	switch toolName {
 	case "read_file", "read_minified_file":
 		return outputBudget{maxEstimatedTokens: readOutputBudgetBytes / 4, hardMaxBytes: readOutputBudgetBytes}
