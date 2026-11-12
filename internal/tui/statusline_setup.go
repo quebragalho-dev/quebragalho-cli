@@ -93,24 +93,38 @@ func (p statuslineProposal) validatedConfig(current config.StatusLineConfig) (co
 }
 
 // statuslineSetupState tracks an in-flight /statusline setup turn: the run to
-// finalize when it lands, and the staging dir that is fresh from startedAt on.
+// finalize when it lands, the staging dir that is fresh from startedAt on,
+// and the dir's identity at turn start. Every later touch must resolve to
+// that same directory: a mid-turn swap for a link (or another dir) refuses
+// before anything is read, chmodded, executed, or discarded.
 type statuslineSetupState struct {
-	runID      int
-	startedAt  time.Time
-	stagingDir string
+	runID       int
+	startedAt   time.Time
+	stagingDir  string
+	stagingInfo os.FileInfo
 }
 
 // statuslinePendingApply waits for Enter (apply) or Esc (cancel) after the
 // preview rendered with real data. While validating is set the preview is
 // still being dry-run; Enter waits instead of applying a guess.
 type statuslinePendingApply struct {
-	proposal     statuslineProposal
-	cfg          config.StatusLineConfig
-	preview      string
-	stagingDir   string
+	proposal   statuslineProposal
+	cfg        config.StatusLineConfig
+	preview    string
+	stagingDir string
+	// stagingGuard is the staging dir identity from turn start: every
+	// discard re-verifies it before touching a file.
+	stagingGuard os.FileInfo
 	scriptStaged string
-	warnings     []string
-	validating   bool
+	// scriptBody holds the verified bytes the dry run executed. Apply
+	// installs exactly these, never re-reading the staging dir, so a
+	// swap between the dry run and Enter cannot substitute content.
+	scriptBody []byte
+	// scriptCopy is the private dry-run file (outside staging, removed
+	// with the staging on every discard path).
+	scriptCopy string
+	warnings   []string
+	validating bool
 }
 
 // statuslineSetupValidatedMsg carries the staged-script dry run back: lines
@@ -209,13 +223,16 @@ func (m model) handleStatuslineCommand(arg string) (model, tea.Cmd) {
 		}
 		// Never stage through a link: the scripts dir must be a real
 		// directory, or proposals could land outside the user config.
-		if info, err := os.Lstat(staging); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		// The dir identity is guarded: every later touch in this turn
+		// must resolve to this same directory.
+		stagingInfo, err := os.Lstat(staging)
+		if err != nil || !stagingInfo.IsDir() || stagingInfo.Mode()&os.ModeSymlink != 0 {
 			return m.appendStatuslineNotice("Statusline\nstaging inválido: não é um diretório"), nil
 		}
-		m.statuslineSetup = &statuslineSetupState{startedAt: m.now(), stagingDir: staging}
+		m.statuslineSetup = &statuslineSetupState{startedAt: m.now(), stagingDir: staging, stagingInfo: stagingInfo}
 		prompt := m.statuslineSetupPrompt(staging) + arg
 		next, cmd := m.launchPrompt(prompt)
-		next.statuslineSetup = &statuslineSetupState{runID: next.activeRunID, startedAt: m.statuslineSetup.startedAt, stagingDir: staging}
+		next.statuslineSetup = &statuslineSetupState{runID: next.activeRunID, startedAt: m.statuslineSetup.startedAt, stagingDir: staging, stagingInfo: stagingInfo}
 		return next, cmd
 	}
 }
@@ -324,11 +341,11 @@ func (m model) statuslineStatusText() string {
 // and its staging is discarded.
 func (m model) resetStatusline() model {
 	if m.statuslineSetup != nil {
-		discardStatuslineStaging(m.statuslineSetup.stagingDir, "")
+		discardStatuslineStaging(m.statuslineSetup.stagingDir, m.statuslineSetup.stagingInfo, "", "")
 		m.statuslineSetup = nil
 	}
 	if m.statuslinePending != nil {
-		discardStatuslineStaging(m.statuslinePending.stagingDir, m.statuslinePending.scriptStaged)
+		discardStatuslineStaging(m.statuslinePending.stagingDir, m.statuslinePending.stagingGuard, m.statuslinePending.scriptStaged, m.statuslinePending.scriptCopy)
 		m.statuslinePending = nil
 	}
 	if strings.TrimSpace(m.userConfigPath) != "" {
@@ -365,42 +382,54 @@ func (m model) maybeFinalizeStatuslineSetup(msg tea.Msg) (model, tea.Cmd) {
 	}
 	setup := m.statuslineSetup
 	m.statuslineSetup = nil
+	// The staging dir may have been swapped mid-turn: re-verify its
+	// identity before reading anything through it. A planted link is
+	// removed here (the link itself); nothing outside is touched.
+	if err := verifyStatuslineStaging(setup.stagingDir, setup.stagingInfo); err != nil {
+		return m.appendStatuslineNotice("Statusline\n" + err.Error()), nil
+	}
 	proposal, err := readStatuslineProposal(setup.stagingDir, setup.startedAt)
 	if err != nil {
-		discardStatuslineStaging(setup.stagingDir, "")
+		discardStatuslineStaging(setup.stagingDir, setup.stagingInfo, "", "")
 		return m.appendStatuslineNotice("Statusline\no modelo não gerou proposta (" + err.Error() + "); staging descartado."), nil
 	}
 	cfg, warnings := proposal.validatedConfig(m.statuslineCfg)
 	if proposal.Script != "" {
 		scriptPath, err := confinedStagingPath(setup.stagingDir, proposal.Script)
 		if err != nil {
-			discardStatuslineStaging(setup.stagingDir, "")
+			discardStatuslineStaging(setup.stagingDir, setup.stagingInfo, "", "")
 			return m.appendStatuslineNotice("Statusline\nscript rejeitado (" + err.Error() + "); staging descartado."), nil
 		}
 		scriptFile, info, err := openStagingFileChecked(scriptPath)
 		if err != nil {
-			discardStatuslineStaging(setup.stagingDir, "")
+			discardStatuslineStaging(setup.stagingDir, setup.stagingInfo, "", "")
 			return m.appendStatuslineNotice("Statusline\nscript rejeitado (" + err.Error() + "); staging descartado."), nil
 		}
-		// Chmod through the no-follow descriptor: a swapped path can never
-		// receive the executable bit here.
-		if err := scriptFile.Chmod(0o700); err != nil {
-			scriptFile.Close()
-			discardStatuslineStaging(setup.stagingDir, "")
-			return m.appendStatuslineNotice("Statusline\nnão foi possível preparar o script: " + err.Error()), nil
-		}
+		body, err := io.ReadAll(scriptFile)
 		scriptFile.Close()
+		if err != nil {
+			discardStatuslineStaging(setup.stagingDir, setup.stagingInfo, "", "")
+			return m.appendStatuslineNotice("Statusline\nscript rejeitado (ilegível); staging descartado."), nil
+		}
 		if info.ModTime().Before(setup.startedAt) {
-			discardStatuslineStaging(setup.stagingDir, "")
+			discardStatuslineStaging(setup.stagingDir, setup.stagingInfo, "", "")
 			return m.appendStatuslineNotice("Statusline\no script da proposta não está no staging; staging descartado."), nil
+		}
+		// The dry run executes a private copy of the verified bytes, and
+		// apply installs those same bytes from memory: neither chmods,
+		// executes, nor re-reads anything through the staging dir.
+		copyPath, err := writeStatuslineDryRunCopy(m.userConfigPath, body)
+		if err != nil {
+			discardStatuslineStaging(setup.stagingDir, setup.stagingInfo, "", "")
+			return m.appendStatuslineNotice("Statusline\n" + err.Error()), nil
 		}
 		timeout := time.Duration(maxInt(cfg.EffectiveTimeoutMs(), 1)) * time.Millisecond
 		stdin := string(m.statuslineStdin(maxInt(m.width, 80)))
 		env := statuslineChildEnv(maxInt(m.width, 80), m.height)
-		pending := &statuslinePendingApply{proposal: proposal, cfg: cfg, stagingDir: setup.stagingDir, scriptStaged: scriptPath, warnings: warnings, validating: true}
+		pending := &statuslinePendingApply{proposal: proposal, cfg: cfg, stagingDir: setup.stagingDir, stagingGuard: setup.stagingInfo, scriptStaged: scriptPath, scriptBody: body, scriptCopy: copyPath, warnings: warnings, validating: true}
 		m.statuslinePending = pending
 		return m, func() tea.Msg {
-			valid := execStatuslineRun(context.Background(), statuslineInvokeScript(scriptPath), stdin, env, timeout)
+			valid := execStatuslineRun(context.Background(), statuslineInvokeScript(copyPath), stdin, env, timeout)
 			if valid.errNote != "" {
 				return statuslineSetupValidatedMsg{err: valid.errNote}
 			}
@@ -509,16 +538,107 @@ func isSymlinkRefusal(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "too many links") || strings.Contains(err.Error(), "not supported"))
 }
 
+// verifyStatuslineStaging re-checks that stagingDir is the same real
+// directory guarded at turn start: a symlink, a non-directory, or a
+// different directory all refuse. A planted link is removed (the link
+// itself, never its target); anything else is left for the user to inspect.
+func verifyStatuslineStaging(stagingDir string, guard os.FileInfo) error {
+	info, err := os.Lstat(stagingDir)
+	if err != nil {
+		return fmt.Errorf("staging ilegível: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		os.Remove(stagingDir)
+		return fmt.Errorf("staging trocado por link: link removido, proposta recusada")
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("staging inválido: não é um diretório")
+	}
+	if guard != nil && !os.SameFile(guard, info) {
+		return fmt.Errorf("staging trocado no meio do turno: proposta recusada")
+	}
+	return nil
+}
+
+// removeStatuslineStagingFile removes one known staging entry only when it
+// is a plain file: a link (or anything else) is never followed or removed,
+// so discarding through a swapped tree cannot touch outside files.
+func removeStatuslineStagingFile(stagingDir, name string) {
+	if strings.ContainsAny(name, `/\`) || name == "" || name == "." || name == ".." {
+		return
+	}
+	path := filepath.Join(stagingDir, name)
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return
+	}
+	os.Remove(path)
+}
+
 // discardStatuslineStaging removes this setup's staging files: the proposal
-// plus the staged script when named. Only known names inside staging — never
-// a directory sweep.
-func discardStatuslineStaging(stagingDir, scriptStaged string) {
-	os.Remove(filepath.Join(stagingDir, "proposal.json"))
+// plus the staged script when named, plus the private dry-run copy. Only
+// regular files inside the verified directory — never a sweep, never
+// through a link.
+func discardStatuslineStaging(stagingDir string, guard os.FileInfo, scriptStaged, scriptCopy string) {
+	if err := verifyStatuslineStaging(stagingDir, guard); err != nil {
+		return
+	}
+	removeStatuslineStagingFile(stagingDir, "proposal.json")
 	if scriptStaged != "" {
 		if clean, err := confinedStagingPath(stagingDir, filepath.Base(scriptStaged)); err == nil && clean == scriptStaged {
-			os.Remove(clean)
+			removeStatuslineStagingFile(stagingDir, filepath.Base(scriptStaged))
 		}
 	}
+	if scriptCopy != "" && strings.HasPrefix(filepath.Base(scriptCopy), "dryrun-") {
+		if info, err := os.Lstat(scriptCopy); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+			os.Remove(scriptCopy)
+		}
+	}
+}
+
+// writeStatuslineDryRunCopy stages the verified script bytes as a private
+// executable outside the (swappable) staging tree: <scriptsDir>/dryrun-*,
+// dir 0700, file chmodded through its own descriptor. The dry run executes
+// this copy, and apply installs the same bytes from memory.
+func writeStatuslineDryRunCopy(userConfigPath string, body []byte) (string, error) {
+	finalDir, err := statuslineFinalDir(userConfigPath)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(finalDir, 0o700); err != nil {
+		return "", fmt.Errorf("não foi possível preparar a pasta de scripts: %v", err)
+	}
+	// Crash leftovers from an interrupted dry run are ours by name; drop
+	// them before minting a fresh copy.
+	if stale, _ := filepath.Glob(filepath.Join(finalDir, "dryrun-*.sh")); stale != nil {
+		for _, old := range stale {
+			if info, err := os.Lstat(old); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+				os.Remove(old)
+			}
+		}
+	}
+	copy, err := os.CreateTemp(finalDir, "dryrun-*.sh")
+	if err != nil {
+		return "", fmt.Errorf("não foi possível preparar o script: %v", err)
+	}
+	copyPath := copy.Name()
+	if _, err := copy.Write(body); err != nil {
+		copy.Close()
+		os.Remove(copyPath)
+		return "", fmt.Errorf("não foi possível preparar o script: %v", err)
+	}
+	// Chmod through the open descriptor: the path can never resolve to
+	// anything but this file.
+	if err := copy.Chmod(0o700); err != nil {
+		copy.Close()
+		os.Remove(copyPath)
+		return "", fmt.Errorf("não foi possível preparar o script: %v", err)
+	}
+	if err := copy.Close(); err != nil {
+		os.Remove(copyPath)
+		return "", fmt.Errorf("não foi possível preparar o script: %v", err)
+	}
+	return copyPath, nil
 }
 
 // statuslineInvokeScript quotes a staged script path for the platform shell,
@@ -540,7 +660,7 @@ func (m model) applyStatuslineSetupValidated(msg statuslineSetupValidatedMsg) mo
 	}
 	pending.validating = false
 	if msg.err != "" {
-		discardStatuslineStaging(pending.stagingDir, pending.scriptStaged)
+		discardStatuslineStaging(pending.stagingDir, pending.stagingGuard, pending.scriptStaged, pending.scriptCopy)
 		m.statuslinePending = nil
 		return m.appendStatuslineNotice("Statusline\nscript rejeitado (" + msg.err + "); staging descartado.")
 	}
@@ -598,7 +718,7 @@ func (m model) handleStatuslinePendingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.applyStatuslinePending()
 	case keyIs(msg, tea.KeyEsc) || keyCtrl(msg, 'c'):
-		discardStatuslineStaging(pending.stagingDir, pending.scriptStaged)
+		discardStatuslineStaging(pending.stagingDir, pending.stagingGuard, pending.scriptStaged, pending.scriptCopy)
 		m.statuslinePending = nil
 		if keyCtrl(msg, 'c') {
 			// Esc discards quietly; Ctrl+C discards and keeps its normal
@@ -624,6 +744,13 @@ func (m model) applyStatuslinePending() (model, tea.Cmd) {
 	}
 	cfg := pending.cfg
 	if pending.scriptStaged != "" {
+		// Install the verified bytes from memory: the staging dir is never
+		// re-read here, so a swap between the dry run and Enter cannot
+		// substitute content. Without verified bytes there is nothing safe
+		// to install.
+		if len(pending.scriptBody) == 0 {
+			return m.appendStatuslineNotice("Statusline\nscript sem bytes verificados: turno descartado"), nil
+		}
 		finalDir, err := statuslineFinalDir(m.userConfigPath)
 		if err != nil {
 			return m.appendStatuslineNotice("Statusline\n" + err.Error()), nil
@@ -631,23 +758,11 @@ func (m model) applyStatuslinePending() (model, tea.Cmd) {
 		if err := os.MkdirAll(finalDir, 0o700); err != nil {
 			return m.appendStatuslineNotice("Statusline\nnão foi possível preparar a pasta de scripts: " + err.Error()), nil
 		}
-		// Copy the verified bytes into a fresh regular file instead of
-		// renaming: rename would install a symlink as-is, and a link at the
-		// destination would redirect the write elsewhere.
-		src, _, err := openStagingFileChecked(pending.scriptStaged)
-		if err != nil {
-			return m.appendStatuslineNotice("Statusline\nscript rejeitado (" + err.Error() + ")"), nil
-		}
-		body, err := io.ReadAll(src)
-		src.Close()
-		if err != nil {
-			return m.appendStatuslineNotice("Statusline\nnão foi possível ler o script: " + err.Error()), nil
-		}
 		finalPath := filepath.Join(finalDir, filepath.Base(pending.scriptStaged))
 		if info, err := os.Lstat(finalPath); err == nil && !info.Mode().IsRegular() {
 			return m.appendStatuslineNotice("Statusline\nnão foi possível instalar o script: destino não é arquivo regular"), nil
 		}
-		if err := installStatuslineScript(finalPath, body); err != nil {
+		if err := installStatuslineScript(finalPath, pending.scriptBody); err != nil {
 			return m.appendStatuslineNotice("Statusline\nnão foi possível instalar o script: " + err.Error()), nil
 		}
 		cfg.Command = &config.StatusLineCommand{Command: statuslineInvokeScript(finalPath)}
@@ -657,7 +772,7 @@ func (m model) applyStatuslinePending() (model, tea.Cmd) {
 			return m.appendStatuslineNotice("Statusline\nnão foi possível salvar: " + err.Error()), nil
 		}
 	}
-	discardStatuslineStaging(pending.stagingDir, "")
+	discardStatuslineStaging(pending.stagingDir, pending.stagingGuard, pending.scriptStaged, pending.scriptCopy)
 	m.statuslinePending = nil
 	m.statuslineCfg = cfg
 	// Drop anything the old config had in flight and restart the cadence, so
