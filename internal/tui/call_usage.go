@@ -185,8 +185,13 @@ func (m model) statusReadout(left string, width int) string {
 			return fitStyledLine(line, width)
 		}
 		// A notice that fits nowhere hides the path with it, so narrowing
-		// never hands the path the room the notice just left.
-		return fitStyledLine(left, width)
+		// never hands the path the room the notice just left. The right
+		// side (context, cache) keeps its normal rules: it never belonged
+		// to the notice, so it stays whenever it fits on its own.
+		if right == "" {
+			return fitStyledLine(left, width)
+		}
+		return fitStyledLine(joinHeaderLine(left, right, width), width)
 	}
 	left = m.appendStatusWorkspace(left, right, reserveAvail)
 	if right == "" {
