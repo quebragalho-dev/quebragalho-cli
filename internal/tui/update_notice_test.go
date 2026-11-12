@@ -102,12 +102,17 @@ func TestUpdateNoticeFitsWholeFormOrNone(t *testing.T) {
 	}{
 		{77, "nova versão 0.0.11 · reinicie para instalar"},
 		{74, "nova versão 0.0.11 · reinicie para instalar"},
-		{73, "nova 0.0.11 · reinicie"},
+		{73, "nova versão 0.0.11 · reinicie para instalar"},
+		{72, "nova versão 0.0.11 · reinicie para instalar"},
 		{53, "nova 0.0.11 · reinicie"},
-		{52, "nova 0.0.11"},
+		{52, "nova 0.0.11 · reinicie"},
+		{51, "nova 0.0.11 · reinicie"},
+		{50, "nova 0.0.11"},
 		{42, "nova 0.0.11"},
-		{41, ""},
-		{33, "nova 0.0.11"},
+		{41, "nova 0.0.11"},
+		{40, "nova 0.0.11"},
+		{39, ""},
+		{33, ""},
 		{32, ""},
 	} {
 		t.Run(fmt.Sprintf("%d", tc.width), func(t *testing.T) {
@@ -175,20 +180,20 @@ func TestUpdateNoticeDowngradesBeforeDroppingPath(t *testing.T) {
 }
 
 func TestUpdateNoticeSurvivesDroppedPath(t *testing.T) {
-	// Narrow enough that path plus notice cannot coexist: the path and its
-	// separator drop, and the tiny form stays docked right.
+	// Narrow enough that path plus notice cannot coexist: the path drops
+	// first and the tiny form stays docked right, until even it no longer
+	// fits — and once gone it never comes back on narrower widths.
 	m := updateNoticeLongCwdModel(t)
 	got := plainRender(t, m.statusLine(33))
-	assertContains(t, got, "nova 0.0.12")
+	assertNotContains(t, got, "nova")
 	assertNotContains(t, got, "opencode")
-	assertNotContains(t, got, " │ ")
-	assertNotContains(t, got, "…")
+	got = plainRender(t, m.statusLine(41))
+	assertContains(t, got, "nova 0.0.12")
 }
 
 func TestUpdateNoticeFallsBackToFullFooterWhenNothingFits(t *testing.T) {
-	// Too narrow for even the tiny form without the path: since no notice
-	// shows, the footer must equal the notice-free rendering at the same
-	// width, path included.
+	// Too narrow for even the tiny notice: since no notice shows, the footer
+	// must match the notice-free rendering at the same width.
 	withNotice := updateNoticeLongCwdModel(t)
 	got := plainRender(t, withNotice.statusLine(32))
 	withoutNotice := batchThreeLiveModel(t)
@@ -198,7 +203,6 @@ func TestUpdateNoticeFallsBackToFullFooterWhenNothingFits(t *testing.T) {
 		t.Fatalf("footer without room must match the notice-free footer:\n got %q\nwant %q", got, want)
 	}
 	assertNotContains(t, got, "nova")
-	assertContains(t, got, "/priv")
 }
 
 func TestUpdateNoticeAbsentKeepsWorkspaceByteIdentical(t *testing.T) {

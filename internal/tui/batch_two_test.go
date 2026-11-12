@@ -99,7 +99,9 @@ func TestWorkspaceIsInTheStatusAndOnlyTheCard(t *testing.T) {
 
 func TestStatusWorkspaceUsesLastAvailableCell(t *testing.T) {
 	m := model{permissionMode: agent.PermissionModeAsk, cwd: "/" + strings.Repeat("a", 47)}
-	status := plainRender(t, m.appendStatusWorkspace("  ● ask", "", 58))
+	// No reservation here: the caller passes the full width as budget, so
+	// the path takes every available cell instead of truncating.
+	status := plainRender(t, m.appendStatusWorkspace("  ● ask", "", 58, 58))
 	assertContains(t, status, m.cwd)
 	assertNotContains(t, status, "…")
 	assertRenderedLineWidths(t, status, 58)

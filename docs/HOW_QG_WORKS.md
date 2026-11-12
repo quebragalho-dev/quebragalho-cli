@@ -712,6 +712,13 @@ This is why sessions can be resumed, forked, rewound, and inspected without a
 remote service. QG stores the local event history; providers only receive the
 messages needed for the current completion request.
 
+Usage totals (tokens and cache hits) resume from the saved `provider_usage`
+events, so the session hit rate survives a resume. Costs are always
+recomputed with the current price catalog at display time — a resumed
+session never carries stale prices, and models missing from the catalog
+count their tokens with cost reported as unavailable instead of a
+fabricated $0.00.
+
 ## Stream-JSON Protocol
 
 `qg exec --output-format stream-json` emits newline-delimited JSON events for
