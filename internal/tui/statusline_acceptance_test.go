@@ -73,6 +73,9 @@ func newSLEnv(t *testing.T) slEnv {
 	t.Setenv("QG_CRED_STORAGE", "file")
 	t.Setenv("QG_THEME", "")
 	t.Setenv("NO_COLOR", "")
+	// An exported provider (a shell spawned by qg, or a test that switched
+	// profiles) would re-point Resolve at a profile this sandbox lacks.
+	t.Setenv(config.ActiveProviderEnv, "")
 
 	base, err := config.UserConfigDir()
 	if err != nil {
@@ -112,6 +115,9 @@ type slLayout struct {
 	refreshMS int
 	// script is what a /statusline proposal stages next to proposal.json.
 	script slScript
+	// dropCommand writes "command": null into a proposal: the explicit
+	// removal of the current command (an absent key keeps it).
+	dropCommand bool
 }
 
 type slScript struct {
@@ -192,6 +198,9 @@ func slProposalJSON(layout slLayout) map[string]any {
 	}
 	if layout.script.name != "" {
 		body["script"] = layout.script.name
+	}
+	if layout.dropCommand {
+		body["command"] = nil
 	}
 	if layout.timeoutMS > 0 {
 		body["timeoutMs"] = layout.timeoutMS
@@ -279,18 +288,24 @@ type slProvider struct {
 	mu        sync.Mutex
 	requests  []qgruntime.CompletionRequest
 	onRequest func(request qgruntime.CompletionRequest)
+	// usage, when set, is reported on every call before the stream ends.
+	usage *qgruntime.Usage
 }
 
 func (p *slProvider) StreamCompletion(_ context.Context, request qgruntime.CompletionRequest) (<-chan qgruntime.StreamEvent, error) {
 	p.mu.Lock()
 	p.requests = append(p.requests, request)
 	hook := p.onRequest
+	reported := p.usage
 	p.mu.Unlock()
 	if hook != nil {
 		hook(request)
 	}
-	ch := make(chan qgruntime.StreamEvent, 2)
+	ch := make(chan qgruntime.StreamEvent, 3)
 	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventText, Content: "Proposta gravada no staging."}
+	if reported != nil {
+		ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventUsage, Usage: *reported}
+	}
 	ch <- qgruntime.StreamEvent{Type: qgruntime.StreamEventDone}
 	close(ch)
 	return ch, nil
@@ -335,12 +350,15 @@ func newSLModel(t *testing.T, env slEnv, provider *slProvider) model {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The CLI turns ProjectStatusLineCommandIgnored into this warning; the
-	// CLI side is pinned in internal/cli/statusline_acceptance_test.go.
-	warning := ""
+	// Same join as the CLI launch: the ignored project command note, then the
+	// adjustments Resolve reported. The CLI side is pinned in
+	// internal/cli/statusline_acceptance_test.go.
+	var notes []string
 	if resolved.ProjectStatusLineCommandIgnored {
-		warning = slProjectWarning
+		notes = append(notes, slProjectWarning)
 	}
+	notes = append(notes, resolved.StatusLineWarnings...)
+	warning := strings.Join(notes, "\n")
 	return newModel(context.Background(), Options{
 		Cwd:               env.workspace,
 		Version:           "9.9.9-accept",
@@ -578,7 +596,7 @@ func lastLine(frame string) string {
 	return lines[len(lines)-1]
 }
 
-// Captured on e391161e: alt screen (as tui.Run always uses), TrueColor
+// Captured on 172d6231: alt screen (as tui.Run always uses), TrueColor
 // profile, workspace ~/workspace on branch feat/rodape-x, effort high, no
 // statusline config.
 var slGoldenDefault = []struct {
@@ -586,20 +604,20 @@ var slGoldenDefault = []struct {
 	width int
 	want  string
 }{
-	{false, 40, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
+	{false, 40, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m"},
 	{false, 58, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{false, 70, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{false, 80, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{false, 96, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{false, 100, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{false, 120, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{true, 40, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
+	{false, 70, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m          \x1b[38;2;163;163;163mcache —\x1b[m"},
+	{false, 80, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m                    \x1b[38;2;163;163;163mcache —\x1b[m"},
+	{false, 96, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m                                    \x1b[38;2;163;163;163mcache —\x1b[m"},
+	{false, 100, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m                                        \x1b[38;2;163;163;163mcache —\x1b[m"},
+	{false, 120, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[1;38;2;52;211;153mautomático\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m                                                            \x1b[38;2;163;163;163mcache —\x1b[m"},
+	{true, 40, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m"},
 	{true, 58, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{true, 70, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{true, 80, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{true, 96, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{true, 100, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
-	{true, 120, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m"},
+	{true, 70, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m           \x1b[38;2;163;163;163mcache —\x1b[m"},
+	{true, 80, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m                     \x1b[38;2;163;163;163mcache —\x1b[m"},
+	{true, 96, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m                                     \x1b[38;2;163;163;163mcache —\x1b[m"},
+	{true, 100, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m                                         \x1b[38;2;163;163;163mcache —\x1b[m"},
+	{true, 120, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m                                                             \x1b[38;2;163;163;163mcache —\x1b[m"},
 }
 
 // 1. Sem config, a statusline é a de hoje, byte a byte.
@@ -775,6 +793,37 @@ func TestStatusLineAcceptance_StdinJSONHasSchemaAndNoCredentials(t *testing.T) {
 		if got, ok := doc[key]; ok && got != want {
 			t.Errorf("stdin %s = %v, want the live session value %v", key, got, want)
 		}
+	}
+}
+
+// 5b. Valor desconhecido é null: nem chave ausente (fora do git) nem zero falso
+// (nenhuma chamada mediu o cache ainda).
+func TestStatusLineAcceptance_StdinUnknownsAreNull(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	if err := os.RemoveAll(filepath.Join(env.workspace, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	captured := filepath.Join(env.root, "stdin.json")
+	command := writeScript(t, env, "stdin.sh", `cat > '`+captured+`'; printf 'SL-STDIN-OK\n'`)
+	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, refreshMS: 1000})
+	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
+	if frame, ok := p.waitFor(4*time.Second, containsPlain("SL-STDIN-OK")); !ok {
+		t.Fatalf("statusline command never ran:\n%s", plainFrame(frame))
+	}
+	raw, err := os.ReadFile(captured)
+	if err != nil {
+		t.Fatalf("command stdin not captured: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("stdin is not JSON: %v\n%s", err, raw)
+	}
+	if value, present := doc["branch"]; !present || value != nil {
+		t.Errorf("outside git the branch is unknown: want \"branch\": null, got present=%v value=%v: %s", present, value, raw)
+	}
+	if cache, ok := doc["cache"].(map[string]any); ok && cache["hit_pct"] != nil {
+		t.Errorf("no call measured the cache yet: want cache.hit_pct null, got %v: %s", cache["hit_pct"], raw)
 	}
 }
 
@@ -1356,7 +1405,7 @@ func TestStatusLineAcceptance_SlowScriptProposalRejected(t *testing.T) {
 	env := newSLEnv(t)
 	writeJSONFile(t, env.userConfig, slUserConfigBase())
 	before, _ := os.ReadFile(env.userConfig)
-	script := slScript{name: "lento.sh", body: `sleep 5; printf 'SL-TOO-SLOW\n'`}
+	script := slScript{name: "lento.sh", body: `sleep 2; printf 'SL-TOO-SLOW\n'`}
 	var staged string
 	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, script: script, timeoutMS: 300}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
@@ -1364,7 +1413,12 @@ func TestStatusLineAcceptance_SlowScriptProposalRejected(t *testing.T) {
 	if _, ok := p.waitFor(5*time.Second, func(string) bool { return provider.requestCount() > 0 }); !ok {
 		t.Fatal("/statusline <pedido> must start a model turn")
 	}
-	p.runFor(2 * time.Second)
+	// Past the script's own 2s: a dry run that ignored the 300ms bound would
+	// have finished by now and be waiting for Enter, so Enter would apply it.
+	frame := p.runFor(3 * time.Second)
+	if strings.Contains(plainFrame(frame), "SL-TOO-SLOW") {
+		t.Errorf("the slow script's output reached the preview:\n%s", plainFrame(frame))
+	}
 	p.key(tea.KeyEnter)
 	p.runFor(time.Second)
 	if now, _ := os.ReadFile(env.userConfig); string(now) != string(before) {
@@ -1459,5 +1513,409 @@ printf 'SL-GC-RUN-%s\n' "$n"`)
 				t.Errorf("a grandchild outside the process group still blocks the runner 4s after a 300ms timeout; the next run never started:\n%s", plainFrame(frame))
 			}
 		})
+	}
+}
+
+// 27. Comando aplicado pelo /statusline roda na hora e segue o refreshMs, sem
+// esperar um turno nem reiniciar o qg.
+func TestStatusLineAcceptance_AppliedCommandRunsOnItsCadence(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	writeJSONFile(t, env.userConfig, slUserConfigBase())
+	runs := filepath.Join(env.root, "runs.log")
+	script := slScript{name: "cadencia.sh", body: `echo run >> '` + runs + `'; printf 'SL-CADENCE\n'`}
+	var staged string
+	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, script: script, refreshMS: 1000}, &staged)
+	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
+	p.submit("/statusline quero uma linha que se atualiza")
+	if frame, ok := p.waitFor(8*time.Second, containsPlain("Enter aplica")); !ok {
+		t.Fatalf("no preview to apply (staging=%q):\n%s", staged, plainFrame(frame))
+	}
+	turns := provider.requestCount()
+	afterPreview := len(fileLines(runs))
+	p.key(tea.KeyEnter)
+	frame, ok := p.waitFor(2*time.Second, func(frame string) bool {
+		return strings.Contains(slFooter(plainFrame(frame)), "SL-CADENCE")
+	})
+	if !ok {
+		t.Errorf("the applied command must render right away, not at the next turn:\n%s", slFooter(plainFrame(frame)))
+	}
+	p.runFor(3500 * time.Millisecond)
+	if provider.requestCount() != turns {
+		t.Fatalf("precondition: no model turn may run in the idle window")
+	}
+	if n := len(fileLines(runs)) - afterPreview; n < 3 {
+		t.Errorf("refreshMs=1000 after apply: %d run(s) in ~5s with no turn; the cadence must start without a restart", n)
+	}
+}
+
+// 28. Filho em background que herda o stdout: a saída vale e o filho morre com
+// o grupo. Senão cada refresh deixa um órfão.
+func TestStatusLineAcceptance_BackgroundChildKeepsOutputAndDies(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	pids := filepath.Join(env.root, "bg.pids")
+	command := writeScript(t, env, "fundo.sh", `sleep 30 & echo $! >> '`+pids+`'; printf 'SL-BG-OK\n'`)
+	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, timeoutMS: 2000, refreshMS: 600000})
+	t.Cleanup(func() {
+		for _, line := range fileLines(pids) {
+			if pid, err := strconv.Atoi(line); err == nil {
+				if process, err := os.FindProcess(pid); err == nil {
+					_ = process.Kill()
+				}
+			}
+		}
+	})
+	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
+	frame, ok := p.waitFor(3*time.Second, func(frame string) bool {
+		return strings.Contains(slFooter(plainFrame(frame)), "SL-BG-OK")
+	})
+	if !ok {
+		t.Errorf("a script that exits 0 with output must render it, even with a background child still holding stdout:\n%s", slFooter(plainFrame(frame)))
+	}
+	p.runFor(1500 * time.Millisecond)
+	started := fileLines(pids)
+	if len(started) == 0 {
+		t.Fatal("precondition: the script never started its background child")
+	}
+	for _, line := range started {
+		if pid, err := strconv.Atoi(line); err == nil && processAlive(pid) {
+			t.Errorf("background child %d outlived its run; every refresh would leak one", pid)
+		}
+	}
+}
+
+// 29. Proposta sem script mexe só nos campos: o comando e os tempos atuais
+// ficam.
+func TestStatusLineAcceptance_FieldsOnlyProposalKeepsCommand(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	command := writeScript(t, env, "atual.sh", `printf 'SL-CURRENT\n'`)
+	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, timeoutMS: 1500, refreshMS: 3000})
+	var staged string
+	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"mode", "branch"}}}}, &staged)
+	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
+	p.submit("/statusline põe o branch do lado do modo")
+	if frame, ok := p.waitFor(8*time.Second, containsPlain("Enter aplica")); !ok {
+		t.Fatalf("no preview to apply (staging=%q):\n%s", staged, plainFrame(frame))
+	}
+	p.key(tea.KeyEnter)
+	p.runFor(time.Second)
+	data, _ := os.ReadFile(env.userConfig)
+	block, ok := slStatusLineFrom(t, data)
+	if !ok {
+		t.Fatalf("Enter must write the proposal to the user config:\n%s", data)
+	}
+	var got struct {
+		Lines []struct {
+			Left []string `json:"left"`
+		} `json:"lines"`
+		Command *struct {
+			Command string `json:"command"`
+		} `json:"command"`
+		TimeoutMs int `json:"timeoutMs"`
+		RefreshMs int `json:"refreshMs"`
+	}
+	if err := json.Unmarshal(block, &got); err != nil {
+		t.Fatalf("statusline block is not an object: %v\n%s", err, block)
+	}
+	if len(got.Lines) != 1 || strings.Join(got.Lines[0].Left, ",") != "mode,branch" {
+		t.Errorf("the proposed layout must apply; got %s", block)
+	}
+	if got.Command == nil || got.Command.Command != command {
+		t.Errorf("a proposal without a script must keep the current command %q; got %s", command, block)
+	}
+	if got.TimeoutMs != 1500 || got.RefreshMs != 3000 {
+		t.Errorf("a proposal without a script must keep timeoutMs 1500 and refreshMs 3000; got %s", block)
+	}
+	slAssertUserConfigPreserved(t, data)
+}
+
+// 30. Separador vindo do projeto não quebra a tela: sem controles (C0 com ESC,
+// C1, quebras de linha), até 8 células, e um aviso no startup.
+func TestStatusLineAcceptance_ProjectSeparatorIsSanitized(t *testing.T) {
+	env := newSLEnv(t)
+	writeJSONFile(t, env.userConfig, slUserConfigBase())
+	writeJSONFile(t, env.projectConfig, map[string]any{slConfigKey: map[string]any{
+		"lines":     []map[string]any{{"left": []string{"mode", "effort"}}},
+		"separator": strings.Repeat("\n", 40) + "\x1b]8;;https://evil.example\x07\u0085XYZXYZXYZXYZ\x1b]8;;\x07",
+	}})
+	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
+	frame := p.runFor(300 * time.Millisecond)
+	plain := plainFrame(frame)
+	if lines := strings.Split(frame, "\n"); len(lines) > 30 {
+		t.Errorf("the frame grew to %d lines in a 30-line terminal", len(lines))
+	}
+	if !strings.Contains(plain, "descreva uma tarefa") {
+		t.Errorf("the composer must stay on screen:\n%s", plain)
+	}
+	sameRow := false
+	for _, row := range strings.Split(slFooter(plain), "\n") {
+		if strings.Contains(row, "automático") && strings.Contains(row, "alto") {
+			sameRow = true
+		}
+	}
+	if !sameRow {
+		t.Errorf("mode and effort share one configured line, so they must share one row:\n%s", slFooter(plain))
+	}
+	if strings.Contains(frame, "\x1b]8;;https://evil") || strings.Contains(plain, "evil.example") {
+		t.Errorf("a hyperlink smuggled in the project separator reached the frame")
+	}
+	if strings.Contains(plain, "XYZXYZXYZ") {
+		t.Errorf("the separator renders wider than 8 cells:\n%s", slFooter(plain))
+	}
+	if !strings.Contains(strings.ToLower(plain), "separ") {
+		t.Errorf("cleaning the separator must warn at startup (naming the separator):\n%s", plain)
+	}
+}
+
+// 31. Script do staging que é symlink é recusado, e o alvo fica intocado: não
+// roda, não ganha chmod, não vira o comando do usuário.
+func TestStatusLineAcceptance_SymlinkedStagedScriptRefused(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	writeJSONFile(t, env.userConfig, slUserConfigBase())
+	before, _ := os.ReadFile(env.userConfig)
+	outside := filepath.Join(env.root, "fora", "alvo.sh")
+	ran := filepath.Join(env.root, "OUTSIDE_RAN")
+	body := []byte("#!/bin/sh\ntouch '" + ran + "'\nprintf 'SL-OUTSIDE\\n'\n")
+	if err := os.MkdirAll(filepath.Dir(outside), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	done := false
+	provider := &slProvider{onRequest: func(request qgruntime.CompletionRequest) {
+		mu.Lock()
+		defer mu.Unlock()
+		if done {
+			return
+		}
+		var all strings.Builder
+		for _, message := range request.Messages {
+			all.WriteString(message.Content)
+			all.WriteString("\n")
+		}
+		path := slStagingPath(env, all.String())
+		if path == "" || os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+			return
+		}
+		// The target is written during the turn, like any file the model
+		// writes in the workspace, so it is as fresh as a staged script.
+		if os.WriteFile(outside, body, 0o644) != nil || os.Chmod(outside, 0o644) != nil {
+			return
+		}
+		if os.Symlink(outside, filepath.Join(filepath.Dir(path), "link.sh")) != nil {
+			return
+		}
+		data, err := json.Marshal(slProposalJSON(slLayout{lines: []slLine{{left: []string{"mode"}}}, script: slScript{name: "link.sh"}, refreshMS: 1000}))
+		if err == nil && os.WriteFile(path, data, 0o600) == nil {
+			done = true
+		}
+	}}
+	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
+	p.submit("/statusline quero uma linha minha")
+	if _, ok := p.waitFor(5*time.Second, func(string) bool { return provider.requestCount() > 0 }); !ok {
+		t.Fatal("/statusline <pedido> must start a model turn")
+	}
+	p.runFor(3 * time.Second)
+	p.key(tea.KeyEnter)
+	frame := p.runFor(time.Second)
+	mu.Lock()
+	staged := done
+	mu.Unlock()
+	if !staged {
+		t.Fatal("precondition: the model never staged the symlinked proposal")
+	}
+	if _, err := os.Stat(ran); err == nil || strings.Contains(plainFrame(frame), "SL-OUTSIDE") {
+		t.Errorf("a staged symlink made QG run a file outside the staging dir")
+	}
+	if info, err := os.Stat(outside); err != nil || info.Mode().Perm() != 0o644 {
+		t.Errorf("the symlink target must keep mode 0644; got %v (%v)", info.Mode().Perm(), err)
+	}
+	if now, _ := os.ReadFile(outside); string(now) != string(body) {
+		t.Errorf("the symlink target changed:\n%s", now)
+	}
+	if now, _ := os.ReadFile(env.userConfig); string(now) != string(before) {
+		t.Errorf("a symlinked staged script reached the user config:\n%s", now)
+	}
+	if _, err := os.Lstat(filepath.Join(env.scriptsDir, "link.sh")); !os.IsNotExist(err) {
+		t.Errorf("the staged symlink was installed in the scripts dir (lstat err=%v)", err)
+	}
+}
+
+// 32. Id desconhecido na config avisa já no startup, inclusive "command", que
+// não é campo: a saída do comando sai uma vez só, depois dos campos.
+func TestStatusLineAcceptance_UnknownConfigIdWarnsAtStartup(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	command := writeScript(t, env, "uma-vez.sh", `printf 'SL-ONCE\n'`)
+	doc := slUserConfigBase()
+	doc[slConfigKey] = map[string]any{
+		"lines":     []map[string]any{{"left": []string{"mode", "nao_existe", "command"}}},
+		"command":   map[string]any{"command": command},
+		"refreshMs": 1000,
+	}
+	writeJSONFile(t, env.userConfig, doc)
+	p := startSLPump(t, newSLModel(t, env, nil), 120, 40)
+	frame, ok := p.waitFor(4*time.Second, func(frame string) bool {
+		return strings.Contains(slFooter(plainFrame(frame)), "SL-ONCE")
+	})
+	if !ok {
+		t.Fatalf("statusline command never rendered:\n%s", plainFrame(frame))
+	}
+	plain := plainFrame(frame)
+	footer := slFooter(plain)
+	if n := strings.Count(footer, "SL-ONCE"); n != 1 {
+		t.Errorf("the command output must render once, after the fields; it rendered %d times:\n%s", n, footer)
+	}
+	modeRow, outputRow := -1, -1
+	for i, row := range strings.Split(footer, "\n") {
+		if modeRow < 0 && strings.Contains(row, "automático") {
+			modeRow = i
+		}
+		if outputRow < 0 && strings.Contains(row, "SL-ONCE") {
+			outputRow = i
+		}
+	}
+	if modeRow < 0 || outputRow <= modeRow {
+		t.Errorf("the command output goes on its own row after the field line (mode row %d, output row %d):\n%s", modeRow, outputRow, footer)
+	}
+	above := strings.TrimSuffix(plain, footer)
+	for _, id := range []string{"nao_existe", "command"} {
+		if !strings.Contains(above, id) {
+			t.Errorf("unknown field id %q in the config must be named in a startup warning:\n%s", id, above)
+		}
+	}
+}
+
+// 33. "command": null na proposta remove o comando: a instrução ensina isso, o
+// card diz "comando: removido", a prévia não usa a saída antiga e, aplicado, o
+// comando sai da config, do rodapé e para de rodar. Chave ausente mantém (29).
+func TestStatusLineAcceptance_NullCommandProposalRemovesCommand(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	runs := filepath.Join(env.root, "old-runs")
+	command := writeScript(t, env, "antigo.sh", `echo run >> '`+runs+`'; printf 'SL-OLD\n'`)
+	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, refreshMS: 1000})
+	var staged string
+	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"mode", "branch"}}}, dropCommand: true}, &staged)
+	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
+	if frame, ok := p.waitFor(4*time.Second, func(frame string) bool {
+		return strings.Contains(slFooter(plainFrame(frame)), "SL-OLD")
+	}); !ok {
+		t.Fatalf("precondition: the current command output never rendered:\n%s", plainFrame(frame))
+	}
+	p.submit("/statusline tira o comando e põe o branch")
+	frame, ok := p.waitFor(8*time.Second, containsPlain("Enter aplica"))
+	if !ok {
+		t.Fatalf("no preview to apply (staging=%q):\n%s", staged, plainFrame(frame))
+	}
+	if instruction := provider.requestText(0); !regexp.MustCompile(`"command"\s*:\s*null`).MatchString(instruction) {
+		t.Errorf("the setup instruction must teach that \"command\": null removes the command; its proposal.json lines:\n%s", strings.Join(frameLinesContaining(instruction, "proposal.json"), "\n"))
+	}
+	plain := plainFrame(frame)
+	above := strings.TrimSuffix(plain, slFooter(plain))
+	if !strings.Contains(above, "comando: removido") {
+		t.Errorf("a proposal with \"command\": null must say \"comando: removido\" in its preview:\n%s", above)
+	}
+	if strings.Contains(above, "SL-OLD") {
+		t.Errorf("the preview of a proposal that removes the command must not show the old output:\n%s", above)
+	}
+	p.key(tea.KeyEnter)
+	p.waitFor(3*time.Second, func(string) bool {
+		data, _ := os.ReadFile(env.userConfig)
+		block, ok := slStatusLineFrom(t, data)
+		return ok && strings.Contains(string(block), "branch")
+	})
+	data, _ := os.ReadFile(env.userConfig)
+	block, ok := slStatusLineFrom(t, data)
+	if !ok {
+		t.Fatalf("Enter must write the proposal to the user config:\n%s", data)
+	}
+	var got struct {
+		Lines []struct {
+			Left []string `json:"left"`
+		} `json:"lines"`
+		Command json.RawMessage `json:"command"`
+	}
+	if err := json.Unmarshal(block, &got); err != nil {
+		t.Fatalf("statusline block is not an object: %v\n%s", err, block)
+	}
+	if len(got.Lines) != 1 || strings.Join(got.Lines[0].Left, ",") != "mode,branch" {
+		t.Errorf("the proposed layout must apply; got %s", block)
+	}
+	if command := strings.TrimSpace(string(got.Command)); command != "" && command != "null" {
+		t.Errorf("\"command\": null must remove the command from the config; got %s", block)
+	}
+	slAssertUserConfigPreserved(t, data)
+	p.runFor(500 * time.Millisecond)
+	before := len(fileLines(runs))
+	frame = p.runFor(2500 * time.Millisecond)
+	if footer := slFooter(plainFrame(frame)); strings.Contains(footer, "SL-OLD") {
+		t.Errorf("the removed command's output must leave the statusline:\n%s", footer)
+	}
+	if after := len(fileLines(runs)); after != before {
+		t.Errorf("the removed command kept running on its old cadence: %d runs in 2.5s after Enter", after-before)
+	}
+}
+
+// 34. Id "cache" reusa o segmento do cache da sessão: "cache —" antes da 1ª
+// chamada, "cache 75%" depois de uma chamada com 3000 de 4000 tokens de
+// entrada em cache. No stdin, cache.hit_pct é null antes e 75 depois, na
+// escala 0–100 de context.pct.
+func TestStatusLineAcceptance_CacheFieldAndStdinHitPct(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	captured := filepath.Join(env.root, "stdin.json")
+	command := writeScript(t, env, "cache.sh", `cat > '`+captured+`.tmp' && mv '`+captured+`.tmp' '`+captured+`'; printf 'SL-CACHE-RUN\n'`)
+	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode", "cache"}}}, command: command, refreshMS: 1000})
+	provider := &slProvider{usage: &qgruntime.Usage{InputTokens: 4000, CachedInputTokens: 3000, OutputTokens: 10}}
+	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
+	fieldRow := func(frame string) string {
+		for _, row := range strings.Split(slFooter(plainFrame(frame)), "\n") {
+			if strings.Contains(row, "automático") {
+				return row
+			}
+		}
+		return ""
+	}
+	// hitPct reads cache.hit_pct from the last stdin the command saw; a null
+	// cache object reads as a null rate, like test 5 allows.
+	hitPct := func() (any, bool) {
+		raw, err := os.ReadFile(captured)
+		if err != nil {
+			return nil, false
+		}
+		var doc map[string]any
+		if json.Unmarshal(raw, &doc) != nil {
+			return nil, false
+		}
+		cache, _ := doc["cache"].(map[string]any)
+		return cache["hit_pct"], true
+	}
+	frame, ok := p.waitFor(4*time.Second, func(frame string) bool {
+		_, ran := hitPct()
+		return ran && strings.Contains(plainFrame(frame), "SL-CACHE-RUN")
+	})
+	if !ok {
+		t.Fatalf("statusline command never ran:\n%s", plainFrame(frame))
+	}
+	if row := fieldRow(frame); !strings.Contains(row, "cache —") {
+		t.Errorf("before any call the \"cache\" field must render \"cache —\" on its row; got %q", row)
+	}
+	if value, _ := hitPct(); value != nil {
+		t.Errorf("before any call cache.hit_pct must be null, got %v", value)
+	}
+	p.submit("oi")
+	frame, ok = p.waitFor(6*time.Second, func(frame string) bool {
+		value, _ := hitPct()
+		return value != nil && strings.Contains(fieldRow(frame), "cache 75%")
+	})
+	if !ok {
+		raw, _ := os.ReadFile(captured)
+		t.Fatalf("after a call with 3000 of 4000 input tokens cached the field row must read \"cache 75%%\" and stdin cache.hit_pct must be set; row %q, stdin %s", fieldRow(frame), raw)
+	}
+	if value, _ := hitPct(); value != float64(75) {
+		t.Errorf("cache.hit_pct must be the session hit on the 0-100 scale of context.pct: want 75, got %v", value)
 	}
 }
