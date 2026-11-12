@@ -45,6 +45,7 @@ func TestBuildMCPViewStateSummarizesConfiguredServers(t *testing.T) {
 		State:     "enabled",
 		Target:    "docs-mcp --workspace . env QG_DOCS_TOKEN=[REDACTED]",
 		Status:    "ok",
+		Origin:    "usuário",
 	})
 	assertServerView(t, state.Servers[1], MCPServerView{
 		Name:      "linear",
@@ -53,6 +54,8 @@ func TestBuildMCPViewStateSummarizesConfiguredServers(t *testing.T) {
 		Target:    "https://linear.example/mcp headers Authorization=[REDACTED]",
 		Auth:      "oauth",
 		Status:    "disabled",
+		Origin:    "usuário",
+		NeedsAuth: true,
 	})
 	assertServerView(t, state.Servers[2], MCPServerView{
 		Name:      "updates",
@@ -60,6 +63,7 @@ func TestBuildMCPViewStateSummarizesConfiguredServers(t *testing.T) {
 		State:     "enabled",
 		Target:    "https://events.example/sse headers X-Api-Key=[REDACTED]",
 		Status:    "ok",
+		Origin:    "usuário",
 	})
 
 	rendered := renderMCPView(state, 160)
@@ -331,6 +335,7 @@ func TestBuildMCPViewStateMarksSkippedServersFailed(t *testing.T) {
 		Target:    "http://127.0.0.1:1/mcp",
 		Status:    "failed",
 		Detail:    "connection refused",
+		Origin:    "usuário",
 	})
 
 	lines := mcpManagerServerLines(state.Servers)

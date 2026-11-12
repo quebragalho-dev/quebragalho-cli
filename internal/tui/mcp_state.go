@@ -41,14 +41,50 @@ func BuildMCPViewState(options MCPStateOptions) MCPViewState {
 	}
 
 	return MCPViewState{
-		Servers:     buildMCPServerViews(options.Config, toolCounts, options.Skipped),
+		Servers:     buildMCPServerViews(options.Config, toolCounts, options.Skipped, mcpNeedsAuthSet(options.Config, options.TokenStore)),
 		Tools:       toolViews,
 		Permissions: buildMCPPermissionSummary(options),
 		OAuth:       buildMCPOAuthSummary(options.Config, options.TokenStore),
 	}
 }
 
-func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int, skipped map[string]string) []MCPServerView {
+// mcpNeedsAuthSet reports which OAuth servers have no stored token, so the
+// panel can flag "precisa autenticar" instead of a bare failure.
+func mcpNeedsAuthSet(cfg config.MCPConfig, tokenStore *mcp.TokenStore) map[string]bool {
+	needs := make(map[string]bool)
+	statuses := make(map[string]mcp.TokenStatus)
+	if tokenStore != nil {
+		if stored, err := tokenStore.Status(); err == nil {
+			for _, status := range stored {
+				statuses[status.ServerName] = status
+			}
+		}
+	}
+	for name, server := range cfg.Servers {
+		if !strings.EqualFold(strings.TrimSpace(server.Auth), mcp.ServerAuthOAuth) && server.OAuth == nil {
+			continue
+		}
+		if status, ok := statuses[name]; ok && status.HasToken {
+			continue
+		}
+		needs[name] = true
+	}
+	return needs
+}
+
+// mcpServerOrigin names where a server is configured: the built-in default,
+// the project layer, or the user's own config.
+func mcpServerOrigin(name string, server config.MCPServerConfig) string {
+	if config.IsUnconfiguredDefault(name, server) {
+		return "padrão"
+	}
+	if server.ProjectConfigured {
+		return "projeto"
+	}
+	return "usuário"
+}
+
+func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int, skipped map[string]string, needsAuth map[string]bool) []MCPServerView {
 	names := sortedMCPServerNames(cfg)
 	servers := make([]MCPServerView, 0, len(names))
 	for _, name := range names {
@@ -75,6 +111,8 @@ func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int, skippe
 			ToolCount: toolCounts[name],
 			Status:    status,
 			Detail:    detail,
+			Origin:    mcpServerOrigin(name, raw),
+			NeedsAuth: needsAuth[name],
 		})
 	}
 	return servers

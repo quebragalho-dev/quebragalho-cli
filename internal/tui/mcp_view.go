@@ -24,6 +24,10 @@ type MCPServerView struct {
 	// Detail carries the failure reason when Status is "failed".
 	Status string
 	Detail string
+	// Origin is where the server is configured: "usuário", "projeto" ou "padrão".
+	Origin string
+	// NeedsAuth is true when the server requires OAuth and no token is stored.
+	NeedsAuth bool
 }
 
 type MCPToolView struct {
