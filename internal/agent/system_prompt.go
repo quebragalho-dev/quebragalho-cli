@@ -118,9 +118,14 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 	if user := userGuidelines(); user != "" {
 		sections = append(sections, user)
 	}
-	project := workspaceContext(options.Cwd)
-	if project != "" {
-		sections = append(sections, project)
+	projectEnv, projectGuides, projectRepoMap := workspaceContextParts(options.Cwd)
+	project := joinWorkspaceParts(projectEnv, projectGuides, projectRepoMap)
+	if projectEnv != "" {
+		sections = append(sections, projectEnv)
+	}
+	sections = append(sections, projectGuides...)
+	if projectRepoMap != "" {
+		sections = append(sections, projectRepoMap)
 	}
 	if modeCtx := permissionModeContext(options); modeCtx != "" {
 		sections = append(sections, modeCtx)
@@ -172,18 +177,49 @@ func continuationUserMessage(promptParts systemPromptParts, options Options, pro
 }
 
 // contextUpdateNote lists the sections missing from frozen, separated by a
-// blank line. Empty when nothing changed.
+// blank line. Empty when nothing changed. The approvals section is reported
+// as a grant delta (only the new lines) instead of the whole accumulated
+// list, so a fresh approval stays a short note while the frozen prefix keeps
+// the older grants.
 func contextUpdateNote(sections []string, frozen string) string {
 	var missing []string
 	for _, section := range sections {
 		if !strings.Contains(frozen, section) {
-			missing = append(missing, section)
+			if delta := approvedPrefixDelta(section, frozen); delta != "" {
+				missing = append(missing, delta)
+			} else {
+				missing = append(missing, section)
+			}
 		}
 	}
 	if len(missing) == 0 {
 		return ""
 	}
 	return "[context update]\n" + strings.Join(missing, "\n\n")
+}
+
+// approvedPrefixDelta returns a short note with only the approval grant lines
+// absent from frozen. "" when the section is not the approvals block or no
+// line-level delta exists (the caller then falls back to the whole section).
+func approvedPrefixDelta(section, frozen string) string {
+	const header = "## Approved Command Prefixes"
+	if !strings.HasPrefix(section, header) {
+		return ""
+	}
+	var fresh []string
+	for _, line := range strings.Split(section, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- ") {
+			continue
+		}
+		if !strings.Contains(frozen, line) {
+			fresh = append(fresh, line)
+		}
+	}
+	if len(fresh) == 0 {
+		return ""
+	}
+	return "New approved command prefixes (already approved, no prompt needed):\n" + strings.Join(fresh, "\n")
 }
 
 // responseStyleContext renders the operator-selected reply style (TUI /style) as
@@ -368,14 +404,17 @@ func sessionRuntimeContext(options Options) string {
 	return b.String()
 }
 
-// workspaceContext returns an <environment> block describing the working
-// directory, git branch, and any project guideline doc, so the model grounds its
-// work in the actual repo. Returns "" when cwd is unset (keeps headless/test
-// runs deterministic).
-func workspaceContext(cwd string) string {
+// workspaceContextParts splits the workspace block into drift-independent
+// subjects: the <environment> header (cwd, OS, branch), one section per
+// project guideline file, and the repo map. The loop freezes the whole system
+// message and reports mid-conversation changes as short suffix notes, so each
+// subject must be detectable on its own: a branch switch must not re-dump
+// kilobytes of unchanged guidelines. Joined with "\n\n" the pieces reproduce
+// workspaceContext byte-for-byte.
+func workspaceContextParts(cwd string) (env string, guides []string, repoMap string) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
-		return ""
+		return "", nil, ""
 	}
 	var b strings.Builder
 	b.WriteString("<environment>\n")
@@ -386,27 +425,56 @@ func workspaceContext(cwd string) string {
 		b.WriteString("Git branch: " + branch + "\n")
 	}
 	b.WriteString("</environment>")
+	env = b.String()
+	guides = projectGuidelineBlocks(cwd, FindProjectGitRoot(cwd))
+	if snapshot := repoMapContext(cwd); snapshot != "" {
+		repoMap = "## Repo map\n\n" + snapshot
+	}
+	return env, guides, repoMap
+}
 
-	b.WriteString(projectGuidelines(cwd, FindProjectGitRoot(cwd)))
-	if repoMap := repoMapContext(cwd); repoMap != "" {
-		b.WriteString("\n\n## Repo map\n\n" + repoMap)
+// joinWorkspaceParts reproduces the legacy workspaceContext rendering from
+// parts so the frozen system bytes never change with the split.
+func joinWorkspaceParts(env string, guides []string, repoMap string) string {
+	if env == "" && len(guides) == 0 && repoMap == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(env)
+	for _, guide := range guides {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(guide)
+	}
+	if repoMap != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(repoMap)
 	}
 	return b.String()
 }
 
-// projectGuidelines walks the directory chain from the git root to cwd
-// (inclusive), finds the first matching project context file at each level
-// (case-insensitive basename match), reads it, and returns the joined
-// content in general-to-specific order — the most general file (at the git
-// root) appears first, the most specific (at cwd) last. Each file is capped
-// at maxProjectContextBytes; the total across all files is capped at
-// maxProjectContextTotalBytes. Returns "" when no file matches.
-func projectGuidelines(cwd, gitRoot string) string {
+// workspaceContext returns an <environment> block describing the working
+// directory, git branch, and any project guideline doc, so the model grounds its
+// work in the actual repo. Returns "" when cwd is unset (keeps headless/test
+// runs deterministic).
+func workspaceContext(cwd string) string {
+	env, guides, repoMap := workspaceContextParts(cwd)
+	return joinWorkspaceParts(env, guides, repoMap)
+}
+
+// projectGuidelineBlocks returns one section per matched project guideline
+// file, in general-to-specific order, without the leading blank lines the
+// legacy join adds. Splitting per file keeps drift notes short: editing one
+// file resends only that file's block.
+func projectGuidelineBlocks(cwd, gitRoot string) []string {
 	dirs := projectGuidelineDirs(cwd, gitRoot)
 	if len(dirs) == 0 {
-		return ""
+		return nil
 	}
-	var b strings.Builder
+	var blocks []string
 	totalUsed := 0
 	for _, dir := range dirs {
 		if totalUsed >= maxProjectContextTotalBytes {
@@ -433,8 +501,27 @@ func projectGuidelines(cwd, gitRoot string) string {
 		}
 		content = truncateGuidelineContent(content, limit)
 		label := projectGuidelineLabel(match, gitRoot)
-		b.WriteString("\n\n## Project guidelines (" + label + ")\n\n" + content)
+		blocks = append(blocks, "## Project guidelines ("+label+")\n\n"+content)
 		totalUsed += len(content)
+	}
+	return blocks
+}
+
+// projectGuidelines walks the directory chain from the git root to cwd
+// (inclusive), finds the first matching project context file at each level
+// (case-insensitive basename match), reads it, and returns the joined
+// content in general-to-specific order — the most general file (at the git
+// root) appears first, the most specific (at cwd) last. Each file is capped
+// at maxProjectContextBytes; the total across all files is capped at
+// maxProjectContextTotalBytes. Returns "" when no file matches.
+func projectGuidelines(cwd, gitRoot string) string {
+	blocks := projectGuidelineBlocks(cwd, gitRoot)
+	if len(blocks) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, block := range blocks {
+		b.WriteString("\n\n" + block)
 	}
 	return b.String()
 }

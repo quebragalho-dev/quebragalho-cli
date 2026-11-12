@@ -229,6 +229,28 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		}
 	}
 	compactor := newCompactionState(options, task)
+	// suffixFused tracks whether the trailing message is a fused loop-generated
+	// note that may absorb the next one. Loop notes from the same turn (a
+	// diagnostic drain plus a dropped-call notice, say) ride as ONE suffix user
+	// message so the cached prefix holds longer. Only loop notes merge:
+	// assistant turns, tool results, images, operator interleaves, and any
+	// compaction rewrite reset it, so user content and replay-critical
+	// adjacency are never folded into a note.
+	suffixFused := false
+	appendSuffixNote := func(content string) {
+		if strings.TrimSpace(content) == "" {
+			return
+		}
+		if suffixFused && len(messages) > 0 && messages[len(messages)-1].Role == qgruntime.MessageRoleUser {
+			messages[len(messages)-1].Content += "\n\n" + content
+			return
+		}
+		messages = append(messages, qgruntime.Message{
+			Role:    qgruntime.MessageRoleUser,
+			Content: content,
+		})
+		suffixFused = true
+	}
 	defer func() {
 		// A final transcript comparison is observational. It records drift but
 		// never rewrites the result or changes execution after the fact.
@@ -341,10 +363,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// A brief wait at most (asyncDiagnosticsDrainTimeout); an unfinished check
 		// simply delivers on a later turn.
 		if nudge := postEditDiagnostics.drain(ctx); nudge != "" {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: nudge,
-			})
+			appendSuffixNote(nudge)
 		}
 
 		// Build the per-turn tool list first so proactive compaction can include
@@ -360,6 +379,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// request. A no-op when ContextWindow == 0 (compaction disabled).
 		compactionSpan := options.Trace.Span(trace.SpanCompaction)
 		messages = compactor.maybeCompact(ctx, provider, messages, exposed)
+		suffixFused = false
 		compactionSpan.End()
 		plan := planner.Plan(messages, exposed, options.ReasoningEffort)
 		request := plan.Request
@@ -384,6 +404,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// can be recovered by compacting once and retrying the same turn.
 			if compacted, retried, retryErr := compactor.recover(ctx, provider, messages, request.Tools, err.Error()); retried {
 				messages = compacted
+				suffixFused = false
 				if retryErr != nil {
 					result.Messages = copyMessages(messages)
 					return result, retryErr
@@ -464,6 +485,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// (some providers surface it mid-stream). Compact and retry once.
 			if compacted, retried, retryErr := compactor.recover(ctx, provider, messages, request.Tools, collected.Error); retried {
 				messages = compacted
+				suffixFused = false
 				if retryErr != nil {
 					return collected, retryErr
 				}
@@ -591,6 +613,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// that use extended thinking reject tool conversations that drop them.
 			Reasoning: collected.ReasoningBlocks,
 		})
+		suffixFused = false
 		// Persist right after the assistant message lands, before tools run: a
 		// kill mid-execution leaves the advertised call on disk, and the resume
 		// repair closes it with an "interrupted" result.
@@ -602,10 +625,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// This path is handled before the no-output guard so a dropped-call
 			// turn is never counted as a runaway empty turn.
 			if collected.DroppedToolCalls > 0 {
-				messages = append(messages, qgruntime.Message{
-					Role:    qgruntime.MessageRoleUser,
-					Content: droppedToolCallNotice,
-				})
+				appendSuffixNote(droppedToolCallNotice)
 				continue
 			}
 			// No-output guard: a turn with visible text is a real final answer.
@@ -620,11 +640,8 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			if strings.TrimSpace(collected.Text) == "" {
 				// Empty-but-under-cap turn: nudge the model to make progress
 				// rather than treating the empty response as a final answer.
-				messages = append(messages, qgruntime.Message{
-					Role: qgruntime.MessageRoleUser,
-					Content: "Your previous response had no visible output and no tool calls. " +
-						"Continue the task by using a tool or reply with your final answer.",
-				})
+				appendSuffixNote("Your previous response had no visible output and no tool calls. " +
+					"Continue the task by using a tool or reply with your final answer.")
 				continue
 			}
 			// Completion gate (headless): a turn with text but no tool call is the
@@ -651,16 +668,10 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					switch evaluation.Action {
 					case completionActionContinue:
 						options.Trace.Counter(trace.CounterCompletionNudges, 1)
-						messages = append(messages, qgruntime.Message{
-							Role:    qgruntime.MessageRoleUser,
-							Content: continueNudge(evaluation.Reason),
-						})
+						appendSuffixNote(continueNudge(evaluation.Reason))
 					case completionActionSemanticCheck:
 						options.Trace.Counter(trace.CounterAcceptanceChecks, 1)
-						messages = append(messages, qgruntime.Message{
-							Role:    qgruntime.MessageRoleUser,
-							Content: acceptanceVerificationNudge(completionContext.Objective),
-						})
+						appendSuffixNote(acceptanceVerificationNudge(completionContext.Objective))
 					}
 					continue
 				case CompletionComplete:
@@ -676,10 +687,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// the model one more turn to see (and fix) it instead of being lost.
 			// Free for runs that never edited: an idle collector returns "".
 			if nudge := postEditDiagnostics.drainFinal(ctx); nudge != "" {
-				messages = append(messages, qgruntime.Message{
-					Role:    qgruntime.MessageRoleUser,
-					Content: nudge,
-				})
+				appendSuffixNote(nudge)
 				continue
 			}
 			result.FinalAnswer = collected.Text
@@ -776,6 +784,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				IsError:            toolResult.Status == tools.StatusError,
 				ChangedFiles:       append([]string(nil), toolResult.ChangedFiles...),
 			})
+			suffixFused = false
 			// Images ride a following USER message rather than the tool result
 			// above. Every provider drops images on a tool-role message —
 			// Anthropic's tool_result content is a string, Gemini's is a
@@ -852,6 +861,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// placeholders, so the images can follow without splitting them.
 		messages = append(messages, toolImageMessages...)
 		toolImageMessages = nil
+		suffixFused = false
 		// Cmd+Enter / Ctrl+Enter interleave: inject operator messages the UI
 		// took mid-turn as user messages — the model sees them on the very
 		// next request, right after this step's tool results, without the
@@ -866,6 +876,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				}
 				messages = append(messages, message)
 			}
+			suffixFused = false
 		}
 
 		// Run post-edit self-correction once over the union of files this turn
@@ -877,10 +888,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			posture.observeSelfCorrect(selfCorrectOutcome)
 			task.observe(taskStateEvent{kind: taskStateEventVerification, verification: selfCorrectOutcome})
 			if feedback != "" {
-				messages = append(messages, qgruntime.Message{
-					Role:    qgruntime.MessageRoleUser,
-					Content: feedback,
-				})
+				appendSuffixNote(feedback)
 			}
 		}
 
@@ -907,10 +915,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				}
 			}
 			if switchErr != nil {
-				messages = append(messages, qgruntime.Message{
-					Role:    qgruntime.MessageRoleUser,
-					Content: escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + switchErr.Error() + ". Continuing on " + options.Model + ".",
-				})
+				appendSuffixNote(escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + switchErr.Error() + ". Continuing on " + options.Model + ".")
 			} else if newSessions != nil {
 				// Open the new session and close the old one, so the next turn's
 				// streams and compaction use the new model. For the default adapter
@@ -919,10 +924,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				// and prewarm matter once a session holds real state.
 				newSession, openErr := newSessions.OpenTurnSession(ctx)
 				if openErr != nil {
-					messages = append(messages, qgruntime.Message{
-						Role:    qgruntime.MessageRoleUser,
-						Content: escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + openErr.Error() + ". Continuing on " + options.Model + ".",
-					})
+					appendSuffixNote(escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + openErr.Error() + ". Continuing on " + options.Model + ".")
 				} else {
 					_ = session.Close()
 					session = newSession
@@ -959,30 +961,18 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// silently ignored just because the turn also did real work. This is
 		// independent of (and additive to) the failure-hint / plan-reminder nudges.
 		if collected.DroppedToolCalls > 0 {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: droppedToolCallNotice,
-			})
+			appendSuffixNote(droppedToolCallNotice)
 		}
 
 		// A repeated-failure hint (schema + exact error) takes priority over the
 		// planning reminders — fixing the failing call matters more than plan
 		// hygiene. Both are light, one-shot, user-role nudges.
 		if failureHint != "" {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: failureHint,
-			})
+			appendSuffixNote(failureHint)
 		} else if reminder := guards.progressReminder(); reminder != "" {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: reminder,
-			})
+			appendSuffixNote(reminder)
 		} else if reminder := guards.planReminder(result.Turns); reminder != "" {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: reminder,
-			})
+			appendSuffixNote(reminder)
 		}
 
 		// One-shot posture escalation: when an armed profile trigger fired this
@@ -1008,10 +998,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	// there is no later turn to defer to — otherwise an error introduced by
 	// the final edit would go unreported in the summary.
 	if nudge := postEditDiagnostics.drainFinal(ctx); nudge != "" {
-		messages = append(messages, qgruntime.Message{
-			Role:    qgruntime.MessageRoleUser,
-			Content: nudge,
-		})
+		appendSuffixNote(nudge)
 	}
 	finalExposed, _ := partitionToolsCached(registry, permissionMode, options, loaded, toolDefCache)
 	if answer, finalMessages, finishReason := finalAnswerAfterMaxTurns(ctx, provider, planner, messages, finalExposed, options); strings.TrimSpace(answer) != "" {

@@ -70,22 +70,14 @@ func TestCachePrefixStableAcrossWorkspaceDrift(t *testing.T) {
 	firstSystem := first.requests[0].Messages[0].Content
 	firstTools := marshalTools(t, first.requests[0].Tools)
 
-	// Mid-conversation drift: approval, branch switch, guideline edit, new file.
-	if _, err := store.GrantCommandPrefix(sandbox.CommandPrefixInput{ToolName: "bash", Prefix: []string{"go", "test"}}); err != nil {
-		t.Fatal(err)
-	}
+	// Mid-conversation drift, fase A: so a branch muda. A guideline (8 KiB),
+	// o repomap e as aprovals ficam iguais.
 	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/feature-y\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("NORMAS-v2: responda em portugues e cite arquivos.\n"+bigPadding), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("beta\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	second := textAnswerProvider("segundo turno ok")
-	_, err = Run(context.Background(), "segunda tarefa", second, Options{
+	secondResult, err := Run(context.Background(), "segunda tarefa", second, Options{
 		Cwd:          dir,
 		Sandbox:      engine,
 		Continuation: result.Messages,
@@ -109,21 +101,62 @@ func TestCachePrefixStableAcrossWorkspaceDrift(t *testing.T) {
 	if marshalTools(t, got.Tools) != firstTools {
 		t.Fatal("turno 2: tools bytes mudaram apos drift no meio da conversa")
 	}
+	// Fase A: so a branch mudou. A nota tem so o assunto alterado (env),
+	// nunca o despejo das guidelines de 8 KiB.
 	last := got.Messages[len(got.Messages)-1]
 	if last.Role != qgruntime.MessageRoleUser {
 		t.Fatalf("ultima mensagem = %q, want user", last.Role)
 	}
-	for _, want := range []string{"[context update]", "feature-y", "NORMAS-v2", "go test", "segunda tarefa"} {
+	for _, want := range []string{"[context update]", "feature-y", "segunda tarefa"} {
 		if !strings.Contains(last.Content, want) {
 			t.Fatalf("nota de sufixo nao contem %q: %q", want, last.Content)
 		}
 	}
-	// A nota e curta: so o conteudo novo, nunca o despejo integral das secoes.
-	if len(last.Content) > 2048 {
-		t.Fatalf("nota de sufixo tem %d bytes, want <= 2048 (curta, so o delta)", len(last.Content))
+	if len(last.Content) > 1024 {
+		t.Fatalf("nota de sufixo tem %d bytes, want <= 1024 (so o env)", len(last.Content))
 	}
-	if strings.Contains(last.Content, "NORMAS-v1") {
-		t.Fatalf("nota de sufixo repete o conteudo antigo das guidelines: %q", last.Content)
+	if strings.Contains(last.Content, "diretriz operacional") {
+		t.Fatalf("troca de branch nao pode re-despejar as guidelines: %q", last.Content)
+	}
+
+	// Fase B: approval + edicao do AGENTS.md + arquivo novo. A nota carrega o
+	// conteudo novo de cada assunto, sem repetir o conteudo antigo.
+	if _, err := store.GrantCommandPrefix(sandbox.CommandPrefixInput{ToolName: "bash", Prefix: []string{"go", "test"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("NORMAS-v2: responda em portugues e cite arquivos.\n"+bigPadding), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("beta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	third := textAnswerProvider("terceiro turno ok")
+	_, err = Run(context.Background(), "terceira tarefa", third, Options{
+		Cwd:          dir,
+		Sandbox:      engine,
+		Continuation: secondResult.Messages,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(third.requests) != 1 {
+		t.Fatalf("turno 3: requests = %d, want 1", len(third.requests))
+	}
+	got3 := third.requests[0]
+	if got3.Messages[0].Content != frozen {
+		t.Fatal("turno 3: system bytes mudaram apos drift no meio da conversa")
+	}
+	if marshalTools(t, got3.Tools) != firstTools {
+		t.Fatal("turno 3: tools bytes mudaram apos drift no meio da conversa")
+	}
+	last3 := got3.Messages[len(got3.Messages)-1]
+	for _, want := range []string{"[context update]", "NORMAS-v2", "go test", "terceira tarefa"} {
+		if !strings.Contains(last3.Content, want) {
+			t.Fatalf("nota de sufixo nao contem %q: %q", want, last3.Content)
+		}
+	}
+	if strings.Contains(last3.Content, "NORMAS-v1") {
+		t.Fatalf("nota de sufixo repete o conteudo antigo das guidelines: %q", last3.Content[:500])
 	}
 }
 
