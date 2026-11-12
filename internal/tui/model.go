@@ -657,7 +657,11 @@ type model struct {
 	statuslineSetup *statuslineSetupState
 	// statuslinePending waits for Enter (apply) or Esc (cancel) on a rendered
 	// preview. While set it owns the keyboard (see handleStatuslinePendingKey).
-	statuslinePending            *statuslinePendingApply
+	statuslinePending *statuslinePendingApply
+	// statuslineTickArmed tracks the idle refresh chain: set when a tick is
+	// scheduled, cleared when the chain stops (command deactivated). It keeps
+	// /statusline apply from arming a second chain over a running one.
+	statuslineTickArmed          bool
 	recapSeq                     int
 	recapRunning                 bool
 	recapCancel                  context.CancelFunc
@@ -1419,6 +1423,7 @@ func (m model) Init() tea.Cmd {
 	// First external statusline run fires immediately (the tick handler then
 	// keeps the idle refresh chain alive). Async like everything above.
 	if m.statuslineCommandActive() {
+		m.statuslineTickArmed = true
 		cmds = append(cmds, statuslineInitCmd())
 	}
 	// Read the terminal background only to keep a selected palette legible. This
@@ -3332,8 +3337,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Idle refresh: start a due run and re-arm the chain. A deactivated
 		// command ends the chain by scheduling nothing.
 		if !m.statuslineCommandActive() {
+			m.statuslineTickArmed = false
 			return m, nil
 		}
+		m.statuslineTickArmed = true
 		m, cmd := m.maybeStartStatuslineRun()
 		return m, batchCommands(cmd, statuslineTickCmd(m.statuslineCfg.EffectiveRefreshMs()))
 	case setupKeyCheckMsg:

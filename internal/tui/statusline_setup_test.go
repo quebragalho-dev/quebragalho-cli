@@ -73,6 +73,59 @@ func TestStatuslineCardAbbreviatesAndMiddleTruncates(t *testing.T) {
 	}
 }
 
+// Applying a proposal with an active command and a stopped chain starts a
+// run immediately and arms the tick chain; a running chain is never doubled.
+func TestStatuslineApplyArmsTickChainWhenStopped(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}}
+	cfg, _ := proposal.validatedConfig()
+	cfg.Command = &config.StatusLineCommand{Command: "echo hi"}
+	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
+	if m.statuslineTickArmed {
+		t.Fatal("fresh model must not report an armed chain")
+	}
+	applied, cmd := m.applyStatuslinePending()
+	if cmd == nil {
+		t.Fatal("apply with an active command and a stopped chain must arm the chain")
+	}
+	nm := applied
+	if !nm.statuslineTickArmed {
+		t.Fatal("apply did not mark the chain armed")
+	}
+	ticked, tickCmd := nm.Update(execCmd(cmd))
+	if tickCmd == nil {
+		t.Fatal("armed tick must keep the chain alive")
+	}
+	if !ticked.(model).statuslineCmdInFlight {
+		t.Fatal("first tick after apply must start the command run")
+	}
+}
+
+// An already armed chain is left alone on apply: no second chain.
+func TestStatuslineApplyKeepsRunningChain(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	m.statuslineTickArmed = true
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}}
+	cfg, _ := proposal.validatedConfig()
+	cfg.Command = &config.StatusLineCommand{Command: "echo hi"}
+	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
+	applied, cmd := m.applyStatuslinePending()
+	if cmd != nil {
+		t.Fatalf("apply over a running chain must not arm another one, got %T", cmd)
+	}
+	if !applied.statuslineTickArmed {
+		t.Fatal("apply must not disarm the running chain")
+	}
+}
+
 // /statusline reset clears the user config and the runtime state.
 func TestStatuslineReset(t *testing.T) {
 	dir := t.TempDir()

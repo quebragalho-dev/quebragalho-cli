@@ -305,6 +305,7 @@ func (m model) resetStatusline() model {
 	m.statuslineCmdInFlight = false
 	m.statuslineCmdStartedAt = time.Time{}
 	m.statuslineCmdSeq++
+	m.statuslineTickArmed = false
 	return m.appendStatuslineNotice("Statusline\nvoltou ao padrão.")
 }
 
@@ -471,7 +472,7 @@ func (m model) handleStatuslinePendingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if pending.validating {
 			return m.showTransientNoticeInline("Statusline: validando o script…", transientNoticeInfo), nil
 		}
-		return m.applyStatuslinePending(), nil
+		return m.applyStatuslinePending()
 	case keyIs(msg, tea.KeyEsc) || keyCtrl(msg, 'c'):
 		discardStatuslineStaging(pending.stagingDir, pending.scriptStaged)
 		m.statuslinePending = nil
@@ -490,29 +491,31 @@ func (m model) handleStatuslinePendingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // applyStatuslinePending moves the staged script to its final home, persists
 // the proposal to the user config, and switches the live statusline over. A
 // persist failure keeps the pending state so Enter retries; nothing is lost.
-func (m model) applyStatuslinePending() model {
+// When the applied config runs a command but no refresh chain is alive, the
+// chain is armed (a run starts right away); a running chain is left alone.
+func (m model) applyStatuslinePending() (model, tea.Cmd) {
 	pending := m.statuslinePending
 	if pending == nil {
-		return m
+		return m, nil
 	}
 	cfg := pending.cfg
 	if pending.scriptStaged != "" {
 		finalDir, err := statuslineFinalDir(m.userConfigPath)
 		if err != nil {
-			return m.appendStatuslineNotice("Statusline\n" + err.Error())
+			return m.appendStatuslineNotice("Statusline\n" + err.Error()), nil
 		}
 		if err := os.MkdirAll(finalDir, 0o700); err != nil {
-			return m.appendStatuslineNotice("Statusline\nnão foi possível preparar a pasta de scripts: " + err.Error())
+			return m.appendStatuslineNotice("Statusline\nnão foi possível preparar a pasta de scripts: " + err.Error()), nil
 		}
 		finalPath := filepath.Join(finalDir, filepath.Base(pending.scriptStaged))
 		if err := os.Rename(pending.scriptStaged, finalPath); err != nil {
-			return m.appendStatuslineNotice("Statusline\nnão foi possível instalar o script: " + err.Error())
+			return m.appendStatuslineNotice("Statusline\nnão foi possível instalar o script: " + err.Error()), nil
 		}
 		cfg.Command = &config.StatusLineCommand{Command: statuslineInvokeScript(finalPath)}
 	}
 	if strings.TrimSpace(m.userConfigPath) != "" {
 		if _, err := config.SetStatusLine(m.userConfigPath, cfg); err != nil {
-			return m.appendStatuslineNotice("Statusline\nnão foi possível salvar: " + err.Error())
+			return m.appendStatuslineNotice("Statusline\nnão foi possível salvar: " + err.Error()), nil
 		}
 	}
 	discardStatuslineStaging(pending.stagingDir, "")
@@ -526,5 +529,10 @@ func (m model) applyStatuslinePending() model {
 	m.statuslineCmdInFlight = false
 	m.statuslineCmdStartedAt = time.Time{}
 	m.statuslineCmdSeq++
-	return m.appendStatuslineNotice("Statusline\natualizada.")
+	m = m.appendStatuslineNotice("Statusline\natualizada.")
+	if m.statuslineCommandActive() && !m.statuslineTickArmed {
+		m.statuslineTickArmed = true
+		return m, statuslineInitCmd()
+	}
+	return m, nil
 }
