@@ -6,9 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/colorprofile"
-
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 )
@@ -100,19 +97,19 @@ func TestFormatCacheBRL(t *testing.T) {
 }
 
 func TestDecideCacheDropReason(t *testing.T) {
-	full := cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h1", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}
+	full := cacheDropInputs{prevModel: "a", curModel: "a", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}
 	for _, tc := range []struct {
 		name string
 		in   cacheDropInputs
 		want string
 	}{
-		{"troca de modelo", cacheDropInputs{prevModel: "a", curModel: "b", prevPrefix: "h1", curPrefix: "h2", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}, "troca de modelo"},
-		{"compactacao antes da pausa", cacheDropInputs{prevModel: "a", curModel: "a", compacted: true, gapLong: true, prevPrefix: "h1", curPrefix: "h1", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}, "conversa compactada"},
-		{"ferramentas mudaram", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h2", prevTools: "t1", curTools: "t2", prevSystem: "s1", curSystem: "s1"}, "ferramentas mudaram"},
-		{"ferramentas e system mudaram vira prefixo", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h2", prevTools: "t1", curTools: "t2", prevSystem: "s1", curSystem: "s2"}, "prefixo mudou"},
-		{"pausa longa", cacheDropInputs{prevModel: "a", curModel: "a", gapLong: true, prevPrefix: "h1", curPrefix: "h1", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}, "pausa longa"},
-		{"prefixo mudou", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h2", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s2"}, "prefixo mudou"},
-		{"prefixo desconhecido nao acusa bug", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "", curPrefix: "h2", prevTools: "", curTools: "t2", prevSystem: "", curSystem: "s2"}, "motivo desconhecido"},
+		{"troca de modelo", cacheDropInputs{prevModel: "a", curModel: "b", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}, "troca de modelo"},
+		{"compactacao antes da pausa", cacheDropInputs{prevModel: "a", curModel: "a", compacted: true, gapLong: true, prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}, "conversa compactada"},
+		{"ferramentas mudaram", cacheDropInputs{prevModel: "a", curModel: "a", prevTools: "t1", curTools: "t2", prevSystem: "s1", curSystem: "s1"}, "ferramentas mudaram"},
+		{"ferramentas e system mudaram vira prefixo", cacheDropInputs{prevModel: "a", curModel: "a", prevTools: "t1", curTools: "t2", prevSystem: "s1", curSystem: "s2"}, "prefixo mudou"},
+		{"pausa longa", cacheDropInputs{prevModel: "a", curModel: "a", gapLong: true, prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}, "pausa longa"},
+		{"prefixo mudou", cacheDropInputs{prevModel: "a", curModel: "a", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s2"}, "prefixo mudou"},
+		{"prefixo desconhecido nao acusa bug", cacheDropInputs{prevModel: "a", curModel: "a", prevTools: "", curTools: "t2", prevSystem: "", curSystem: "s2"}, "motivo desconhecido"},
 		{"sem causa conhecida", full, "motivo desconhecido"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,14 +120,14 @@ func TestDecideCacheDropReason(t *testing.T) {
 	}
 }
 
-func recordCacheTestUsage(m model, input, cached int, modelID, prefix string) model {
-	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID, "cache_prefix_hash": prefix}}
+func recordCacheTestUsage(m model, input, cached int, modelID, _ string) model {
+	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID}}
 	updated, _ := m.recordUsageEvent(modelID, qgruntime.Usage{InputTokens: input, CachedInputTokens: cached, OutputTokens: 10}, receipt)
 	return updated
 }
 
-func recordCacheTestUsageParts(m model, input, cached int, modelID, prefix, tools, system string) model {
-	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID, "cache_prefix_hash": prefix, "cache_prefix_tools": tools, "cache_prefix_system": system}}
+func recordCacheTestUsageParts(m model, input, cached int, modelID, _, tools, system string) model {
+	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID, "cache_prefix_tools": tools, "cache_prefix_system": system}}
 	updated, _ := m.recordUsageEvent(modelID, qgruntime.Usage{InputTokens: input, CachedInputTokens: cached, OutputTokens: 10}, receipt)
 	return updated
 }
@@ -287,21 +284,11 @@ func TestCacheSummarizerUsageStaysOutOfStats(t *testing.T) {
 func TestCacheCompactionFlagMotive(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m = recordCacheTestUsageParts(m, 40000, 39000, "kimi-k3.1-pro", "h1", "t1", "s1")
-	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": "kimi-k3.1-pro", "cache_prefix_hash": "h2", "cache_prefix_tools": "t1", "cache_prefix_system": "s1", "cache_compacted": "1"}}
+	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": "kimi-k3.1-pro", "cache_prefix_tools": "t1", "cache_prefix_system": "s1", "cache_compacted": "1"}}
 	updated, _ := m.recordUsageEvent("kimi-k3.1-pro", qgruntime.Usage{InputTokens: 9000, CachedInputTokens: 300, OutputTokens: 10}, receipt)
 	m = updated
 	data := m.cacheStatusData()
 	if !data.showDrop || data.reason != "conversa compactada" {
 		t.Fatalf("flag de compactacao deve motivar a queda; show=%v motivo=%q", data.showDrop, data.reason)
-	}
-}
-
-func TestCacheOrangeIsSpecHex(t *testing.T) {
-	old := lipgloss.Writer.Profile
-	lipgloss.Writer.Profile = colorprofile.TrueColor
-	t.Cleanup(func() { lipgloss.Writer.Profile = old })
-	rendered := cacheOrange.Render("cache 79%")
-	if !strings.Contains(rendered, "38;2;242;155;78") {
-		t.Fatalf("laranja do cache deve ser exatamente #F29B4E (38;2;242;155;78); veio %q", rendered)
 	}
 }

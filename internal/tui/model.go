@@ -150,11 +150,10 @@ type model struct {
 	// cacheDrops journals recent sub-80% session-cache calls (oldest first,
 	// capped) for the statusline reason and the /usage drops list. The other
 	// lastCache* fields remember the previous call so the next one can name
-	// its cause; lastCachePrefix empty means unknown (e.g. after a resume),
+	// its cause; an empty previous hash means unknown (e.g. after a resume),
 	// which reports "motivo desconhecido" instead of crying bug.
 	cacheDrops      []cacheDrop
 	cacheCalls      []cacheCall
-	lastCachePrefix string
 	lastCacheTools  string
 	lastCacheSystem string
 	lastCacheAt     time.Time
@@ -6506,14 +6505,12 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// and consumed by the next OnUsage, so the compaction summarizer's own
 		// usage (which never fires OnContext) rides unattributed instead of
 		// stealing the next main call's explanation.
-		runPrefixHash := ""
 		runPrefixTools := ""
 		runPrefixSystem := ""
 		runArmed := false
 		runCompacted := false
 		prevOnContext := options.OnContext
 		options.OnContext = func(breakdown agent.ContextBreakdown) {
-			runPrefixHash = breakdown.CompletePrefixHash
 			runPrefixTools = breakdown.PrefixToolsHash
 			runPrefixSystem = breakdown.PrefixSystemHash
 			runArmed = true
@@ -6982,23 +6979,20 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				callModelID = event.ModelID
 			}
 			receipt := callUsageRow(runID, len(usageEvents)+1, callModelID, event, callCatalog[strings.ToLower(callModelID)])
-			// A compaction summary call rides the same OnUsage for cost
-			// accounting but stays out of cache-prefix attribution: it has
-			// its own prefix and must never explain the next main call.
-			if !event.Summarizer {
+			// Cache attribution rides the next usage event after OnContext
+			// arms it. The summarizer's own call never fires OnContext, so
+			// it arrives unarmed and takes nothing.
+			if runArmed {
 				if receipt.meta == nil {
 					receipt.meta = map[string]string{}
 				}
-				if runArmed {
-					receipt.meta["cache_prefix_hash"] = runPrefixHash
-					receipt.meta["cache_prefix_tools"] = runPrefixTools
-					receipt.meta["cache_prefix_system"] = runPrefixSystem
-					if runCompacted {
-						receipt.meta["cache_compacted"] = "1"
-					}
-					runArmed = false
-					runCompacted = false
+				receipt.meta["cache_prefix_tools"] = runPrefixTools
+				receipt.meta["cache_prefix_system"] = runPrefixSystem
+				if runCompacted {
+					receipt.meta["cache_compacted"] = "1"
 				}
+				runArmed = false
+				runCompacted = false
 			}
 			rows = append(rows, receipt)
 			m.sendAgentRow(runID, receipt)
@@ -7006,6 +7000,12 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			usageModelIDs = append(usageModelIDs, callModelID)
 			payload := usage.EventUsagePayload(event)
 			payload["model"] = callModelID
+			if event.Summarizer {
+				// The compaction summarizer's own call rides the usage stream
+				// for cost accounting but is marked so resume skips it in the
+				// session-cache stats, exactly like the live surface does.
+				payload["summarizer"] = true
+			}
 			payload["call_id"] = receipt.id
 			payload["call_label"] = receipt.text
 			payload["call_tokens"] = receipt.meta["tokens"]

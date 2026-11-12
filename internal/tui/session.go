@@ -105,7 +105,6 @@ func (m model) startNewSession() model {
 		m.usageTracker.Reset()
 	}
 	m.cacheDrops = nil
-	m.lastCachePrefix = ""
 	m.lastCacheTools = ""
 	m.lastCacheSystem = ""
 	m.lastCacheAt = time.Time{}

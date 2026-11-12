@@ -35,7 +35,7 @@ const cacheMissThreshold = 0.8
 const cacheStaleGap = 5 * time.Minute
 
 // cacheStatusData is the isolated input of the statusline cache segment, so
-// the Prisma catalog (item 3) can plug its own gathering behind it.
+// an alternate catalog can plug its own gathering behind it.
 type cacheStatusData struct {
 	hasData  bool
 	hit      float64
@@ -43,11 +43,17 @@ type cacheStatusData struct {
 	reason   string
 }
 
-// cacheHitBand names the statusline color band for a session hit. The band
-// follows the DISPLAYED integer percent (round half up), so a 94.96% session
-// reads "cache 95%" in green, not amber for a fraction nobody sees.
+// cacheHitPercent renders a session hit as the single displayed integer,
+// rounding half up. Text and color band always derive from this one value
+// so "cache 95%" is never amber and "cache 80%" never orange.
+func cacheHitPercent(hit float64) int {
+	return int(hit*100 + 0.5)
+}
+
+// cacheHitBand names the statusline color band for a session hit, from the
+// same displayed integer the text shows.
 func cacheHitBand(hit float64) string {
-	switch pct := int(hit*100 + 0.5); {
+	switch pct := cacheHitPercent(hit); {
 	case pct >= 95:
 		return "green"
 	case pct >= 80:
@@ -58,8 +64,8 @@ func cacheHitBand(hit float64) string {
 }
 
 // cacheOrange renders the below-80 band. #F29B4E has no theme equivalent,
-// so the spec's hex rides here verbatim (Muta's acceptance pins the exact
-// triple "242;155;78"); lipgloss degrades it under NO_COLOR/Ascii like every
+// so the spec's hex rides here verbatim (the suite pins the exact triple
+// "242;155;78"); lipgloss degrades it under NO_COLOR/Ascii like every
 // other styled segment.
 var cacheOrange = lipgloss.NewStyle().Foreground(lipgloss.Color("#F29B4E"))
 
@@ -95,7 +101,7 @@ func cacheStatusSegment(data cacheStatusData) (string, int) {
 		return seg, lipgloss.Width(seg)
 	}
 	var seg string
-	pct := fmt.Sprintf("cache %.0f%%", data.hit*100)
+	pct := fmt.Sprintf("cache %d%%", cacheHitPercent(data.hit))
 	switch cacheHitBand(data.hit) {
 	case "green":
 		seg = qgTheme.green.Render(pct)
@@ -145,14 +151,13 @@ func (m model) cacheStatusData() cacheStatusData {
 	return data
 }
 
-// cacheDropInputs names everything a drop explanation may depend on. Prefix
-// hashes come from the agent's per-request fingerprint; empty means unknown
-// (never a mismatch).
+// cacheDropInputs names everything a drop explanation may depend on. Tool
+// and system hashes come from the agent's per-request fingerprint; empty
+// means unknown (never a mismatch).
 type cacheDropInputs struct {
 	prevModel, curModel   string
 	compacted             bool
 	gapLong               bool
-	prevPrefix, curPrefix string
 	prevTools, curTools   string
 	prevSystem, curSystem string
 }
@@ -184,7 +189,7 @@ func decideCacheDropReason(in cacheDropInputs) string {
 // callsBefore is the journal length before this event; boundary reports the
 // first call of a cleared conversation, which never gains a drop motive.
 // receipt carries the agent's per-request cache attribution in its meta
-// ("cache_prefix_hash", "cache_compacted").
+// ("cache_prefix_tools", "cache_prefix_system", "cache_compacted").
 func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRow, callsBefore int, boundary bool) model {
 	modelID := strings.TrimSpace(receipt.meta["model"])
 	m.cacheCalls = append(m.cacheCalls, cacheCall{
@@ -193,7 +198,6 @@ func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRo
 		cached:  normalized.CachedInputTokens,
 		output:  normalized.OutputTokens,
 	})
-	prefix := strings.TrimSpace(receipt.meta["cache_prefix_hash"])
 	toolsHash := strings.TrimSpace(receipt.meta["cache_prefix_tools"])
 	systemHash := strings.TrimSpace(receipt.meta["cache_prefix_system"])
 	compacted := strings.TrimSpace(receipt.meta["cache_compacted"]) == "1" || m.cacheCompactedPending
@@ -209,8 +213,6 @@ func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRo
 			curModel:   modelID,
 			compacted:  compacted,
 			gapLong:    !m.lastCacheAt.IsZero() && now.Sub(m.lastCacheAt) > cacheStaleGap,
-			prevPrefix: m.lastCachePrefix,
-			curPrefix:  prefix,
 			prevTools:  m.lastCacheTools,
 			curTools:   toolsHash,
 			prevSystem: m.lastCacheSystem,
@@ -220,9 +222,6 @@ func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRo
 		if len(m.cacheDrops) > maxCacheDropsShown {
 			m.cacheDrops = append([]cacheDrop(nil), m.cacheDrops[len(m.cacheDrops)-maxCacheDropsShown:]...)
 		}
-	}
-	if prefix != "" {
-		m.lastCachePrefix = prefix
 	}
 	if toolsHash != "" {
 		m.lastCacheTools = toolsHash
@@ -245,10 +244,9 @@ func (m model) seedUsageFromSessionEvents(events []sessions.Event) model {
 	m.unpricedRequests = 0
 	m.unpricedTokens = 0
 	// Only totals are recomposed: the drop journal needs live prefix data,
-	// and an unknown pre-resume prefix must never read as a mismatch.
+	// and unknown pre-resume hashes must never read as a mismatch.
 	m.cacheDrops = nil
 	m.cacheCalls = nil
-	m.lastCachePrefix = ""
 	m.lastCacheTools = ""
 	m.lastCacheSystem = ""
 	m.lastCacheModel = ""
@@ -258,7 +256,7 @@ func (m model) seedUsageFromSessionEvents(events []sessions.Event) model {
 		if event.Type != sessions.EventUsage {
 			continue
 		}
-		modelID, eventUsage, ok := parseUsageEventUsage(event.Payload)
+		modelID, eventUsage, summarizer, ok := parseUsageEventUsage(event.Payload)
 		if !ok {
 			continue
 		}
@@ -266,15 +264,18 @@ func (m model) seedUsageFromSessionEvents(events []sessions.Event) model {
 		if err != nil {
 			continue
 		}
-		m.cacheCalls = append(m.cacheCalls, cacheCall{
-			modelID: modelID,
-			input:   normalized.InputTokens,
-			cached:  normalized.CachedInputTokens,
-			output:  normalized.OutputTokens,
-		})
+		if !summarizer {
+			m.cacheCalls = append(m.cacheCalls, cacheCall{
+				modelID: modelID,
+				input:   normalized.InputTokens,
+				cached:  normalized.CachedInputTokens,
+				output:  normalized.OutputTokens,
+			})
+		}
 		// Recompute cost with the current catalog, like the live path: a
 		// resumed session keeps its token totals; unknown models ride the
-		// unpriced counters instead of a fabricated $0.00.
+		// unpriced counters instead of a fabricated $0.00. The summarizer's
+		// cost stays in the total, but it never enters the cache stats.
 		record, err := m.usageTracker.Record(usage.RecordInput{
 			ModelID: modelID,
 			Usage:   runtimeUsage,
@@ -283,6 +284,9 @@ func (m model) seedUsageFromSessionEvents(events []sessions.Event) model {
 		if err != nil || record.Cost.Currency == "" {
 			m.unpricedRequests++
 			m.unpricedTokens += normalized.TotalTokens
+			continue
+		}
+		if summarizer {
 			continue
 		}
 		m.lastCacheModel = modelID
@@ -294,7 +298,9 @@ func (m model) seedUsageFromSessionEvents(events []sessions.Event) model {
 }
 
 // parseUsageEventUsage reads the token fields of a saved provider_usage event.
-func parseUsageEventUsage(payload json.RawMessage) (string, qgruntime.Usage, bool) {
+// The returned flag marks compaction-summarizer calls, which ride the usage
+// stream for cost accounting but stay out of the session-cache stats.
+func parseUsageEventUsage(payload json.RawMessage) (string, qgruntime.Usage, bool, bool) {
 	var call struct {
 		Input      *int   `json:"promptTokens"`
 		Output     *int   `json:"completionTokens"`
@@ -302,9 +308,10 @@ func parseUsageEventUsage(payload json.RawMessage) (string, qgruntime.Usage, boo
 		CacheWrite int    `json:"cacheWriteTokens"`
 		Reasoning  int    `json:"reasoningTokens"`
 		Model      string `json:"model"`
+		Summarizer bool   `json:"summarizer"`
 	}
 	if json.Unmarshal(payload, &call) != nil || call.Input == nil || call.Output == nil {
-		return "", qgruntime.Usage{}, false
+		return "", qgruntime.Usage{}, false, false
 	}
 	return call.Model, qgruntime.Usage{
 		InputTokens:       *call.Input,
@@ -312,7 +319,7 @@ func parseUsageEventUsage(payload json.RawMessage) (string, qgruntime.Usage, boo
 		CachedInputTokens: call.Cached,
 		CacheWriteTokens:  call.CacheWrite,
 		ReasoningTokens:   call.Reasoning,
-	}, true
+	}, call.Summarizer, true
 }
 
 // cacheSessionLines builds the "Cache desta sessão" panel block: a banded bar
@@ -332,6 +339,7 @@ func (m model) cacheSessionLines() []string {
 		return nil
 	}
 	hit := float64(cached) / float64(input)
+	shown := cacheHitPercent(hit)
 	var band lipgloss.Style
 	switch cacheHitBand(hit) {
 	case "green":
@@ -351,7 +359,7 @@ func (m model) cacheSessionLines() []string {
 	lines := []string{
 		"Cache desta sessão",
 		band.Render(strings.Repeat("█", filled)+strings.Repeat("░", 20-filled)) +
-			" " + band.Render(fmt.Sprintf("%.0f%%", hit*100)) +
+			" " + band.Render(fmt.Sprintf("%d%%", shown)) +
 			" " + qgTheme.faint.Render("· meta 95%"),
 		formatCacheCount(cached) + " de " + formatCacheCount(input) + " tokens de entrada vieram do cache",
 	}
@@ -362,7 +370,7 @@ func (m model) cacheSessionLines() []string {
 		lines = append(lines, "Quedas nesta sessão")
 		for i := len(m.cacheDrops) - 1; i >= 0; i-- {
 			drop := m.cacheDrops[i]
-			lines = append(lines, drop.at.Local().Format("15:04")+" · "+fmt.Sprintf("%.0f%%", drop.hit*100)+" · "+drop.reason)
+			lines = append(lines, drop.at.Local().Format("15:04")+" · "+fmt.Sprintf("%d%%", cacheHitPercent(drop.hit))+" · "+drop.reason)
 		}
 	}
 	return lines
@@ -423,7 +431,7 @@ func formatCacheLastCall(u usage.Normalized, amount, currency string) string {
 	line := "Entrada: " + formatCacheCount(u.InputTokens) +
 		" · cache lido: " + formatCacheCount(u.CachedInputTokens)
 	if u.InputTokens > 0 {
-		line += fmt.Sprintf(" (%d%%)", int(float64(u.CachedInputTokens)*100/float64(u.InputTokens)+0.5))
+		line += fmt.Sprintf(" (%d%%)", cacheHitPercent(float64(u.CachedInputTokens)/float64(u.InputTokens)))
 	}
 	line += " · saída: " + formatCacheCount(u.OutputTokens)
 	if cost := cacheLastCallCost(amount, currency); cost != "" {
