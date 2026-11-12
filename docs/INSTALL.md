@@ -161,13 +161,13 @@ quiser:
 ln -s "$(command -v qg)" ~/.local/bin/quebragalho
 ```
 
-Requer Go 1.26.10+.
+Requer Go 1.26.11+.
 
 ## A partir do código-fonte
 
 O clone usa o repositório privado (requer acesso).
 
-Requer Go 1.26.10+.
+Requer Go 1.26.11+.
 
 ```bash
 git clone https://github.com/quebragalho-dev/quebragalho-cli.git
