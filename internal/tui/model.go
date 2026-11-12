@@ -970,6 +970,54 @@ func (totals *taskUsageTotals) add(event streamjson.Event) {
 	}
 }
 
+// taskUsageTracker routes child stream-json progress to one accumulator per
+// tool call and emits one usage message per usage event with nonzero totals.
+// One tracker lives per run; the loop drives it from OnToolProgress. A nil
+// tracker or a nil send func drops everything (headless runs).
+type taskUsageTracker struct {
+	runID  int
+	totals map[string]*taskUsageTotals
+	send   func(tea.Msg)
+}
+
+func newTaskUsageTracker(runID int, send func(tea.Msg)) *taskUsageTracker {
+	return &taskUsageTracker{runID: runID, totals: map[string]*taskUsageTotals{}, send: send}
+}
+
+// progress folds one child event into its call's totals, forwarding live
+// progress rows and emitting usage only for that call.
+func (tracker *taskUsageTracker) progress(toolCallID string, event streamjson.Event) {
+	if tracker == nil {
+		return
+	}
+	if event.Type == streamjson.EventToolCall && tracker.send != nil {
+		tracker.send(specialistProgressMsg{
+			runID:      tracker.runID,
+			toolCallID: toolCallID,
+			toolName:   event.Name,
+			detail:     toolCallSummary(event),
+		})
+	}
+	if event.Type != streamjson.EventRunStart && event.Type != streamjson.EventUsage {
+		return
+	}
+	totals, ok := tracker.totals[toolCallID]
+	if !ok {
+		totals = &taskUsageTotals{}
+		tracker.totals[toolCallID] = totals
+	}
+	totals.add(event)
+	if event.Type == streamjson.EventUsage && tracker.send != nil && totals.prompt+totals.completion > 0 {
+		tracker.send(specialistUsageMsg{
+			runID:            tracker.runID,
+			toolCallID:       toolCallID,
+			promptTokens:     totals.prompt,
+			completionTokens: totals.completion,
+			modelID:          totals.modelID,
+		})
+	}
+}
+
 type mcpCommandOrigin int
 
 const (
@@ -7214,34 +7262,9 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// child emits per-call deltas and the producer sums them into the
 		// running totals each specialistUsageMsg carries, with the child
 		// model seen on its run_start event.
-		usageTotals := map[string]*taskUsageTotals{}
+		usageTracker := newTaskUsageTracker(runID, m.runtimeMessageSink)
 		options.OnToolProgress = func(toolCallID string, event streamjson.Event) {
-			if event.Type == streamjson.EventToolCall && m.runtimeMessageSink != nil {
-				m.runtimeMessageSink(specialistProgressMsg{
-					runID:      runID,
-					toolCallID: toolCallID,
-					toolName:   event.Name,
-					detail:     toolCallSummary(event),
-				})
-			}
-			if event.Type != streamjson.EventRunStart && event.Type != streamjson.EventUsage {
-				return
-			}
-			totals, ok := usageTotals[toolCallID]
-			if !ok {
-				totals = &taskUsageTotals{}
-				usageTotals[toolCallID] = totals
-			}
-			totals.add(event)
-			if event.Type == streamjson.EventUsage && m.runtimeMessageSink != nil && totals.prompt+totals.completion > 0 {
-				m.runtimeMessageSink(specialistUsageMsg{
-					runID:            runID,
-					toolCallID:       toolCallID,
-					promptTokens:     totals.prompt,
-					completionTokens: totals.completion,
-					modelID:          totals.modelID,
-				})
-			}
+			usageTracker.progress(toolCallID, event)
 		}
 
 		onToolResult := options.OnToolResult
