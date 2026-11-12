@@ -247,7 +247,7 @@ func (m model) statusLine(width int) string {
 	return fitStyledLine(left, width)
 }
 
-func (m model) appendStatusWorkspace(left, right string, width, reserveAvail int) string {
+func (m model) appendStatusWorkspace(left, right string, reserveAvail int) string {
 	cwd := strings.TrimSpace(m.cwd)
 	if cwd == "" {
 		return left

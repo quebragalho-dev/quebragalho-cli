@@ -157,6 +157,13 @@ func (m model) statusReadout(left string, width int) string {
 			showCache = true
 		}
 	}
+	if !showCache {
+		// A hidden cache holds no room: release its reservation so the rest
+		// stops yielding to a segment that is not on screen. Showing the
+		// cache still requires the full layout, so this release can never
+		// resurrect anything the full layout already ruled out.
+		reserveAvail = width - 2 - reserveLeft - lipgloss.Width(m.statusReserveRight(""))
+	}
 	if lipgloss.Width(left)+lipgloss.Width(right)+9 > width {
 		right = ""
 	}
@@ -167,7 +174,9 @@ func (m model) statusReadout(left string, width int) string {
 			// The fit above already reserved a whole branch: render it whole.
 			take = minInt(24, len([]rune(strings.TrimSpace(m.gitBranch))))
 		}
-		if take >= 5 {
+		// Short branch names ("dev", "main") render whole with whatever the
+		// budget reserved once the cache vouched for the full layout.
+		if take >= 5 || (showCache && take > 0) {
 			left += qgTheme.line.Render(" │ ") + qgTheme.muted.Render(" "+truncateDisplayWidth(strings.TrimSpace(m.gitBranch), take))
 		}
 	}
@@ -175,8 +184,11 @@ func (m model) statusReadout(left string, width int) string {
 		if line, ok := m.joinStatusWithNotice(left, right, forms, width, reserveAvail, showCache); ok {
 			return fitStyledLine(line, width)
 		}
+		// A notice that fits nowhere hides the path with it, so narrowing
+		// never hands the path the room the notice just left.
+		return fitStyledLine(left, width)
 	}
-	left = m.appendStatusWorkspace(left, right, width, reserveAvail)
+	left = m.appendStatusWorkspace(left, right, reserveAvail)
 	if right == "" {
 		return fitStyledLine(left, width)
 	}
@@ -198,7 +210,7 @@ func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool
 		if event.Type != sessions.EventUsage {
 			continue
 		}
-		modelID, eventUsage, ok := parseUsageEventUsage(event.Payload)
+		modelID, eventUsage, _, ok := parseUsageEventUsage(event.Payload)
 		if !ok {
 			continue
 		}

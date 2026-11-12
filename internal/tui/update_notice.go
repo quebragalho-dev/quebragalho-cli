@@ -151,12 +151,17 @@ func (m model) joinStatusWithNotice(left, right string, forms []string, width, r
 		}
 	}
 	// Then the path drops and the notice takes the space alone, longest
-	// form first — but only when that actually fits a notice.
-	if form := m.updateNoticeSegment(avail - sepWidth); form != "" {
-		if styledRight != "" {
-			styledRight += sep
+	// form first — but only when there is no path to protect. With a
+	// path, a failed step-down stays failed so narrowing never upgrades
+	// the notice while the path drops, and never hands the path the room
+	// the notice just left.
+	if strings.TrimSpace(m.cwd) == "" {
+		if form := m.updateNoticeSegment(avail - sepWidth); form != "" {
+			if styledRight != "" {
+				styledRight += sep
+			}
+			return joinHeaderLine(left, styledRight+form, width), true
 		}
-		return joinHeaderLine(left, styledRight+form, width), true
 	}
 	return "", false
 }
