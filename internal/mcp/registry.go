@@ -190,7 +190,11 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 			serverCtx, cancel := context.WithCancel(ctx)
 			done := make(chan connectResult, 1)
 			go func() {
-				client, remote, err := connectWithRetry(serverCtx, factory, server, timeout)
+				// One synchronous attempt: startup never waits out connect
+				// backoff. A transient failure is retried in the background
+				// (retryServerInBackground) so the first model response and
+				// the first frame never wait on a dead server.
+				client, remote, err := connectAndList(serverCtx, factory, server)
 				done <- connectResult{client: client, remote: remote, err: err}
 			}()
 			select {
@@ -224,10 +228,18 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 	// registry plus every tool committed by an earlier server.
 	staged := make([]*registryTool, 0)
 	stagedNames := make(map[string]struct{})
+	var retryLater []Server
 	for index, server := range servers {
 		res := results[index]
 		if res.err != nil {
 			runtime.skipped = append(runtime.skipped, SkippedServer{Name: server.Name, Err: redactError(server, res.err), UnconfiguredDefault: server.UnconfiguredDefault})
+			// Only remote servers retry in the background, mirroring
+			// connectWithRetry: a stdio server must not gain a new
+			// subprocess spawn at startup. The failed attempt's context
+			// is already cancelled, so classification uses a live one.
+			if (server.Type == ServerTypeHTTP || server.Type == ServerTypeSSE) && isTransientConnectError(context.Background(), res.err) {
+				retryLater = append(retryLater, server)
+			}
 			continue
 		}
 		conn := newMCPServerConn(server, res.client)
@@ -259,7 +271,96 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 		registered = append(registered, staged[index])
 	}
 	registry.RegisterBatch(registered)
+	// Servers that failed transiently keep retrying in the background (same
+	// attempts and backoff as a manual reconnect) and join the registry when
+	// they answer, so a server that comes up after startup still lands in a
+	// following turn. Permanent failures stay skipped with their real error.
+	for _, server := range retryLater {
+		go runtime.retryServerInBackground(server)
+	}
 	return runtime, nil
+}
+
+// retryServerInBackground keeps connecting a remote server whose initial
+// connect failed transiently: attempts 2..maxConnectAttempts with the redial
+// schedule (1s, 2s, 4s, 8s), then gives up. Each attempt runs on a child
+// context bounded by connectTimeout, so a server that accepts TCP and never
+// answers stalls only that attempt, never the loop. A connect that succeeds
+// adopts its tools into the live registry (visible to the next turn) and
+// clears the skip; a permanent failure or a closed runtime stops the loop.
+// Stdio never reaches here: only HTTP/SSE retry, mirroring connectWithRetry,
+// so startup never spawns a new subprocess in the background.
+func (runtime *Runtime) retryServerInBackground(server Server) {
+	if server.Type != ServerTypeHTTP && server.Type != ServerTypeSSE {
+		return
+	}
+	for attempt := 2; attempt <= maxConnectAttempts; attempt++ {
+		if !sleepForReconnect(runtime.lifeCtx, attempt-1) {
+			return
+		}
+		if runtime.isClosed() {
+			return
+		}
+		attemptCtx, cancel := context.WithTimeout(runtime.lifeCtx, connectTimeout())
+		client, remote, err := connectAndList(attemptCtx, runtime.factory, server)
+		if err == nil {
+			runtime.adoptBackgroundServer(server, client, remote, cancel)
+			return
+		}
+		// Classify before releasing the attempt: the failure outlives its
+		// context, and a cancelled context must not mask the real error.
+		// lifeCtx is live here (Close aborts the sleep above), so a
+		// cancellation verdict only reflects a genuine shutdown.
+		transient := isTransientConnectError(runtime.lifeCtx, err)
+		cancel()
+		if !transient {
+			runtime.noteBackgroundFailure(server, err)
+			return
+		}
+		runtime.noteBackgroundFailure(server, err)
+	}
+}
+
+// isClosed reports whether Close latched: background work must stop.
+func (runtime *Runtime) isClosed() bool {
+	runtime.refreshMu.Lock()
+	defer runtime.refreshMu.Unlock()
+	return runtime.closed
+}
+
+// noteBackgroundFailure refreshes a skipped entry with the latest background
+// error so /mcp keeps naming the server's answer while it retries.
+func (runtime *Runtime) noteBackgroundFailure(server Server, err error) {
+	runtime.refreshMu.Lock()
+	defer runtime.refreshMu.Unlock()
+	if runtime.closed {
+		return
+	}
+	runtime.replaceSkippedLocked(SkippedServer{Name: server.Name, Err: redactError(server, err), UnconfiguredDefault: server.UnconfiguredDefault})
+}
+
+// adoptBackgroundServer commits a background-connected server to the live
+// registry and clears its skip, mirroring a manual reconnect. The attempt
+// context stays alive for the adopted client — an SSE stream derives from
+// the connect context, so cancelling it would kill the fresh stream — and
+// is released at Close like every kept server context. A closed runtime
+// closes the fresh client instead of adopting it.
+func (runtime *Runtime) adoptBackgroundServer(server Server, client ToolClient, remote []RemoteTool, cancel context.CancelFunc) {
+	runtime.refreshMu.Lock()
+	defer runtime.refreshMu.Unlock()
+	if runtime.closed {
+		cancel()
+		_ = client.Close()
+		return
+	}
+	if err := runtime.adoptRelistLocked(server, client, remote); err != nil {
+		runtime.replaceSkippedLocked(SkippedServer{Name: server.Name, Err: redactError(server, err), UnconfiguredDefault: server.UnconfiguredDefault})
+		cancel()
+		_ = client.Close()
+		return
+	}
+	runtime.cancels = append(runtime.cancels, cancel)
+	runtime.dropSkippedLocked(server.Name)
 }
 
 // connectAndList connects to one server and lists its tools. It does ONLY I/O
