@@ -499,6 +499,11 @@ type Options struct {
 	// surfaces keep showing the active conversation budget. Opt-in like the other
 	// callbacks; nil is a no-op.
 	OnContext func(ContextBreakdown)
+	// OnCompaction, when set, fires after the compactor actually rewrote the
+	// history (paid summarization or a free prune stage that shrank it), on
+	// either the proactive or the reactive path. Surfaces use it to explain a
+	// cache miss on the next call. Nil is a no-op.
+	OnCompaction func()
 	// ModelSwitcher, when set, lets a tool escalate the run to a stronger model
 	// mid-run: the loop calls it with the requested model id and, on success,
 	// swaps the active provider and updates Options.Model for the rest of the

@@ -391,6 +391,10 @@ type compactionState struct {
 	task    *taskState
 	planner *contextPlanner
 	trace   *trace.Recorder
+	// onCompacted fires after the history was actually rewritten (paid
+	// summarization or a free prune stage that shrank it). Surfaces use it to
+	// explain a cache miss on the next call. Nil disables it.
+	onCompacted func()
 
 	// calibrationRatio scales the raw byte/4 token estimate toward the provider's
 	// real prompt-token count. ApproxTextTokens over-counts code-heavy content by
@@ -463,8 +467,19 @@ func newCompactionState(options Options, task *taskState) *compactionState {
 		planner:           newContextPlanner(contextPlannerConfig{contextWindow: options.ContextWindow, serviceTier: options.ServiceTier}),
 		trace:             options.Trace,
 		summarizerFactory: options.Summarizer,
+		onCompacted:       options.OnCompaction,
 	}
 	return state
+}
+
+// notifyCompacted reports a history rewrite to whoever is listening. Only a
+// real rewrite fires: no-op compactions leave the wire — and the next call's
+// cache explanation — untouched.
+func (state *compactionState) notifyCompacted() {
+	if state == nil || state.onCompacted == nil {
+		return
+	}
+	state.onCompacted()
 }
 
 // updateWindow re-derives the compaction threshold after a mid-run model
@@ -572,6 +587,7 @@ func (state *compactionState) maybeCompact(
 		size = state.calibratedTokens(estimateTokens(messages) + toolTokens)
 		if size <= state.threshold {
 			state.lowWaterMark = size
+			state.notifyCompacted()
 			return messages
 		}
 	}
@@ -580,6 +596,7 @@ func (state *compactionState) maybeCompact(
 		size = state.calibratedTokens(estimateTokens(messages) + toolTokens)
 		if size <= state.threshold {
 			state.lowWaterMark = size
+			state.notifyCompacted()
 			return messages
 		}
 	}
@@ -608,6 +625,7 @@ func (state *compactionState) maybeCompact(
 		r.Counter(trace.CounterCompactionCount, 1)
 	}
 	state.lowWaterMark = newSize
+	state.notifyCompacted()
 	return compacted
 }
 
@@ -651,6 +669,7 @@ func (state *compactionState) recover(
 		size := state.calibratedTokens(estimateTokens(messages) + toolTokens)
 		if state.fitsWindow(size) {
 			state.lowWaterMark = size
+			state.notifyCompacted()
 			return messages, true, nil
 		}
 	}
@@ -688,6 +707,7 @@ func (state *compactionState) recover(
 	}
 	state.reactiveAttempted = true
 	state.lowWaterMark = state.calibratedTokens(estimateTokens(result) + estimateToolDefTokens(tools))
+	state.notifyCompacted()
 	return result, true, nil
 }
 
