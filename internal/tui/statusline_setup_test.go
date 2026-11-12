@@ -5,6 +5,7 @@ import (
 	"runtime"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,6 +35,38 @@ func TestStatuslineBareShowsStatus(t *testing.T) {
 	for _, want := range []string{"Statusline", "/statusline reset", "command"} {
 		if !strings.Contains(last, want) {
 			t.Fatalf("status card = %q, missing %q", last, want)
+		}
+	}
+}
+
+// The status card abbreviates $HOME with ~ and truncates long commands in
+// the middle, so the script filename survives even narrow cards.
+func TestStatuslineCardAbbreviatesAndMiddleTruncates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	deep := filepath.Join(home, "a", "very", "deep", "tree")
+	script := filepath.Join(deep, "meu-rodape.sh")
+	for _, width := range []int{50, 80, 140} {
+		m := limeTestModel()
+		m.width = width
+		m.statuslineCfg = config.StatusLineConfig{
+			Lines:   []config.StatusLineLine{{Left: []string{"mode"}}},
+			Command: &config.StatusLineCommand{Command: "sh '" + script + "'"},
+		}
+		card := plainRender(t, m.statuslineStatusText())
+		if !strings.Contains(card, "~") {
+			t.Fatalf("width %d: card does not abbreviate home:\n%s", width, card)
+		}
+		if !strings.Contains(card, "meu-rodape.sh") {
+			t.Fatalf("width %d: card lost the script filename:\n%s", width, card)
+		}
+		for _, line := range strings.Split(card, "\n") {
+			if !strings.HasPrefix(line, "comando: ") {
+				continue
+			}
+			if lipgloss.Width(line) > width {
+				t.Fatalf("width %d: comando line overflows: %q", width, line)
+			}
 		}
 	}
 }

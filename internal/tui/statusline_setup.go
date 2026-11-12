@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
@@ -181,6 +183,62 @@ func (m model) handleStatuslineCommand(arg string) (model, tea.Cmd) {
 	}
 }
 
+// abbreviateStatuslinePath replaces a home dir with ~ so cards stay short
+// and portable across machines. It applies anywhere in the string on a
+// separator boundary, since a command line embeds the path (sh '~/x.sh').
+func abbreviateStatuslinePath(text string) string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		text = strings.ReplaceAll(text, home+string(os.PathSeparator), "~"+string(os.PathSeparator))
+		if text == home {
+			return "~"
+		}
+	}
+	return text
+}
+
+// fitMiddleStatusline truncates line to max cells keeping the head and the
+// tail (a script filename at the end survives a narrow card). Plain-text
+// widths; the card styles afterwards.
+func fitMiddleStatusline(line string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if lipgloss.Width(line) <= max {
+		return line
+	}
+	tailLen := max / 3
+	if minTail := 20; tailLen < minTail {
+		tailLen = minTail
+	}
+	if tailLen > max-2 {
+		tailLen = max - 2
+	}
+	headLen := max - tailLen - 1
+	if headLen < 1 {
+		return "…" + tailCells(line, max-1)
+	}
+	return truncateDisplayWidth(line, headLen) + "…" + tailCells(line, tailLen)
+}
+
+// tailCells keeps the last max cells of s, rune-safe.
+func tailCells(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	width, cut := 0, len(s)
+	for cut > 0 {
+		r, size := utf8.DecodeLastRuneInString(s[:cut])
+		if size == 0 {
+			break
+		}
+		if width += lipgloss.Width(string(r)); width > max {
+			break
+		}
+		cut -= size
+	}
+	return s[cut:]
+}
+
 // statuslineStatusText renders the /statusline status card: resolved layout,
 // command, cadences, and any unknown ids in the current config.
 func (m model) statuslineStatusText() string {
@@ -198,7 +256,10 @@ func (m model) statuslineStatusText() string {
 		}
 	}
 	if cfg.Command != nil {
-		lines = append(lines, "comando: "+cfg.Command.Command)
+		// Long commands end-truncate in the card and lose the script name,
+		// so shorten from the middle (keeping the tail) after ~/abbreviation.
+		budget := maxInt(m.width, 80) - len("  comando: ") - 4
+		lines = append(lines, "comando: "+fitMiddleStatusline(abbreviateStatuslinePath(cfg.Command.Command), budget))
 		lines = append(lines, fmt.Sprintf("timeout: %dms · refresh: %dms",
 			cfg.EffectiveTimeoutMs(), cfg.EffectiveRefreshMs()))
 	}
