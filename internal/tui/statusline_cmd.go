@@ -341,17 +341,16 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 		}
 		return statuslineCmdMsg{errNote: "statusline: comando estourou o tempo (" + timeoutLabel.String() + ")"}
 	case waitErr != nil:
-		// An orphaned grandchild can hold the pipes open after the shell
-		// itself exited: Wait then only unblocks via WaitDelay. The output
-		// already received is still good, so keep it; best-effort kill the
-		// group so no orphan survives per refresh.
-		if errors.Is(waitErr, exec.ErrWaitDelay) {
-			if cmd.Process != nil {
-				_ = execution.KillProcessGroup(cmd.Process.Pid)
-			}
-			if text != "" {
-				return statuslineCmdMsg{lines: sanitizeStatuslineOutput(text)}
-			}
+		// A failed Wait can leave backgrounded children behind: a nonzero
+		// exit returns an *ExitError with the group still alive, and an
+		// orphaned grandchild only unblocks Wait via WaitDelay. Kill the
+		// group on every error return so no orphan survives per refresh;
+		// the output already received is still good, so keep it.
+		if cmd.Process != nil {
+			_ = execution.KillProcessGroup(cmd.Process.Pid)
+		}
+		if errors.Is(waitErr, exec.ErrWaitDelay) && text != "" {
+			return statuslineCmdMsg{lines: sanitizeStatuslineOutput(text)}
 		}
 		return statuslineCmdMsg{errNote: "statusline: comando falhou (" + shortCmdError(waitErr) + ")"}
 	default:
