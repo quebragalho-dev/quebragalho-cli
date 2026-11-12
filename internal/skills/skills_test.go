@@ -582,3 +582,28 @@ func TestInfoFromRootsPrimaryLockMetadata(t *testing.T) {
 		t.Fatalf("lock metadata missing: %#v", info)
 	}
 }
+
+func TestLoadParsesEnvironmentFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	writeSkill(t, dir, "foo", "---\nname: foo\ndescription: test orchestrator\nEnvironment: [FOO_SOCKET, FOO_CLI]\n---\nbody")
+	writeSkill(t, dir, "single", "---\nname: single\nenvironment: BAR_X\n---\nbody")
+	writeSkill(t, dir, "plain", "---\nname: plain\ndescription: no env here\n---\nbody")
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	byName := map[string]Skill{}
+	for _, s := range loaded {
+		byName[s.Name] = s
+	}
+	if got := byName["foo"].Environments; len(got) != 2 || got[0] != "FOO_SOCKET" || got[1] != "FOO_CLI" {
+		t.Fatalf("bracket list not parsed, got %q", got)
+	}
+	if got := byName["single"].Environments; len(got) != 1 || got[0] != "BAR_X" {
+		t.Fatalf("single value not parsed, got %q", got)
+	}
+	if got := byName["plain"].Environments; len(got) != 0 {
+		t.Fatalf("missing environment must yield empty, got %q", got)
+	}
+}
