@@ -108,15 +108,17 @@ func (client *deadThenAliveClient) ListTools(context.Context) ([]RemoteTool, err
 func (client *deadThenAliveClient) CallTool(context.Context, string, map[string]any) (CallToolResult, error) {
 	client.calls++
 	if client.calls == 1 {
-		return CallToolResult{}, errors.New("write: broken pipe")
+		// The write itself failed: nothing reached the server, so the
+		// call may be re-sent after the redial.
+		return CallToolResult{}, markNotDelivered(errors.New("write: broken pipe"))
 	}
 	return CallToolResult{Content: []Content{{Type: "text", Text: "alive"}}}, nil
 }
 
 func (client *deadThenAliveClient) Close() error { return nil }
 
-// A dead stdio subprocess restarts on next use: the first failed call
-// redials once and the retry succeeds.
+// A write that never left the dead stdio subprocess restarts it on next use:
+// the first failed call redials once and the re-sent retry succeeds.
 func TestStdioRedialOnTransportFailure(t *testing.T) {
 	server := Server{Name: "local", Type: ServerTypeStdio, Command: "mini"}
 	dead := &deadThenAliveClient{}
@@ -135,5 +137,110 @@ func TestStdioRedialOnTransportFailure(t *testing.T) {
 	}
 	if !strings.Contains(result.Output, "alive") {
 		t.Fatalf("Run() output = %q, want retried result", result.Output)
+	}
+}
+
+// A failure after the request was written is never re-sent: the first call
+// reports the error and latches the transport for dead, and the next use
+// heals (redials) before sending.
+func TestRunNeverResendsAfterWrite(t *testing.T) {
+	server := Server{Name: "s", Type: ServerTypeStdio, Command: "mini"}
+	first := &scriptedCallClient{script: []error{errors.New("read: connection reset by peer")}}
+	conn := newMCPServerConn(server, first)
+	conn.reconnect = func(context.Context) (ToolClient, error) {
+		return &scriptedCallClient{}, nil
+	}
+	tool := newRegistryTool(server, RemoteTool{Name: "echo"}, conn, RegisterOptions{})
+
+	result := tool.Run(context.Background(), map[string]any{})
+	if result.Status != tools.StatusError {
+		t.Fatalf("Run() status = %v, want the post-write error", result.Status)
+	}
+	if first.calls != 1 {
+		t.Fatalf("post-write failure re-sent the call %d times, want exactly 1", first.calls)
+	}
+	if !conn.isDead() {
+		t.Fatal("post-write transport failure did not latch the conn for dead")
+	}
+	if result := tool.Run(context.Background(), map[string]any{}); result.Status != tools.StatusOK {
+		t.Fatalf("next use after the latched failure = %v, want OK on a healed transport", result.Status)
+	}
+}
+
+// HTTP 429 says the server did NOT process the call: it is re-sent on the
+// same client after Retry-After, without a redial.
+func TestRunResendsAfter429(t *testing.T) {
+	server := Server{Name: "s", Type: ServerTypeHTTP, URL: "http://127.0.0.1:1/mcp"}
+	client := &scriptedCallClient{script: []error{&MCPHTTPStatusError{Server: "s", Transport: ServerTypeHTTP, Status: 429, RetryAfter: "0"}}}
+	conn := newMCPServerConn(server, client)
+	redialed := false
+	conn.reconnect = func(context.Context) (ToolClient, error) {
+		redialed = true
+		return &scriptedCallClient{}, nil
+	}
+	tool := newRegistryTool(server, RemoteTool{Name: "lookup"}, conn, RegisterOptions{})
+
+	if result := tool.Run(context.Background(), map[string]any{}); result.Status != tools.StatusOK {
+		t.Fatalf("Run() after a 429 = %v, want OK on the retry", result.Status)
+	}
+	if client.calls != 2 {
+		t.Fatalf("a 429 reached the server %d times, want 2 (original + one retry)", client.calls)
+	}
+	if redialed {
+		t.Fatal("a 429 redialed the alive transport")
+	}
+}
+
+// An HTTP 500 answer is the server speaking: no resend, and the transport
+// stays unlatched for the next use.
+func TestRunDoesNotResendHTTPStatus(t *testing.T) {
+	server := Server{Name: "s", Type: ServerTypeHTTP, URL: "http://127.0.0.1:1/mcp"}
+	client := &scriptedCallClient{script: []error{&MCPHTTPStatusError{Server: "s", Transport: ServerTypeHTTP, Status: 500}}}
+	conn := newMCPServerConn(server, client)
+	tool := newRegistryTool(server, RemoteTool{Name: "lookup"}, conn, RegisterOptions{})
+
+	if result := tool.Run(context.Background(), map[string]any{}); result.Status != tools.StatusError {
+		t.Fatalf("Run() on HTTP 500 = %v, want the error without a resend", result.Status)
+	}
+	if client.calls != 1 {
+		t.Fatalf("HTTP 500 re-sent the call %d times, want exactly 1", client.calls)
+	}
+}
+
+type scriptedCallClient struct {
+	script []error
+	calls  int
+}
+
+func (client *scriptedCallClient) ListTools(context.Context) ([]RemoteTool, error) {
+	return []RemoteTool{{Name: "echo"}}, nil
+}
+
+func (client *scriptedCallClient) CallTool(context.Context, string, map[string]any) (CallToolResult, error) {
+	client.calls++
+	if client.calls <= len(client.script) {
+		if err := client.script[client.calls-1]; err != nil {
+			return CallToolResult{}, err
+		}
+	}
+	return CallToolResult{Content: []Content{{Type: "text", Text: "ok"}}}, nil
+}
+
+func (client *scriptedCallClient) Close() error { return nil }
+
+func TestRetryAfterDelay(t *testing.T) {
+	now := time.Now()
+	if delay, ok := retryAfterDelay("2", now); !ok || delay != 2*time.Second {
+		t.Fatalf("retryAfterDelay(2s) = %v, %v", delay, ok)
+	}
+	if _, ok := retryAfterDelay("", now); ok {
+		t.Fatal("empty Retry-After parsed")
+	}
+	if _, ok := retryAfterDelay("garbage", now); ok {
+		t.Fatal("garbage Retry-After parsed")
+	}
+	future := now.Add(30 * time.Second).UTC().Format(time.RFC1123)
+	if delay, ok := retryAfterDelay(future, now); !ok || delay < 25*time.Second || delay > 35*time.Second {
+		t.Fatalf("retryAfterDelay(date) = %v, %v", delay, ok)
 	}
 }

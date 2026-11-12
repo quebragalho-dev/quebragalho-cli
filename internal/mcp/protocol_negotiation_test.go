@@ -30,6 +30,15 @@ func TestNegotiateProtocolVersion(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "2099-01-01") {
 		t.Fatalf("refusal error = %q, want the demanded version named", err.Error())
 	}
+	// A server that will not say which revision it speaks is refused too:
+	// connecting without a protocolVersion would leave the wire undefined.
+	for _, missing := range []string{"", "   "} {
+		if _, err := negotiateMCPProtocolVersion(missing); err == nil {
+			t.Fatalf("negotiate(%q) error = nil, want refusal of a missing version", missing)
+		} else if !strings.Contains(err.Error(), "protocolVersion") {
+			t.Fatalf("refusal error = %q, want the missing protocolVersion named", err.Error())
+		}
+	}
 	for _, garbage := range []string{"1999-01-01", "not-a-version"} {
 		if _, err := negotiateMCPProtocolVersion(garbage); err == nil {
 			t.Fatalf("negotiate(%q) error = nil, want refusal of unknown versions", garbage)

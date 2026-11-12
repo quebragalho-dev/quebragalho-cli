@@ -111,28 +111,53 @@ func hasUsableOAuthToken(server Server) bool {
 
 // Reconnect forces one server to reconnect now (new initialize) and rebuilds
 // its tools, so the /mcp "reconectar" action recovers a failed server without
-// restarting qg. On failure the previous state is kept and the error — with
-// the fresh reason — is returned.
+// restarting qg. Only the snapshot and the commit take the catalog lock; the
+// connect itself runs unlocked so a slow dial never freezes the panel.
+// On failure the previous state is kept and the error — with the fresh
+// reason — is returned.
 func (runtime *Runtime) Reconnect(ctx context.Context, serverName string) error {
 	if runtime == nil {
 		return nil
 	}
 	runtime.refreshMu.Lock()
-	defer runtime.refreshMu.Unlock()
 	if runtime.closed {
+		runtime.refreshMu.Unlock()
 		return fmt.Errorf("MCP runtime is closed")
 	}
 	var server *Server
 	for index := range runtime.servers {
 		if runtime.servers[index].Name == serverName {
-			server = &runtime.servers[index]
+			snapshot := runtime.servers[index]
+			server = &snapshot
 			break
 		}
 	}
+	runtime.refreshMu.Unlock()
 	if server == nil {
 		return &UnknownServerError{Name: serverName}
 	}
 	fresh, remote, err := connectWithRetry(ctx, runtime.factory, *server, connectTimeout())
+	runtime.refreshMu.Lock()
+	defer runtime.refreshMu.Unlock()
+	if runtime.closed {
+		if fresh != nil {
+			_ = fresh.Close()
+		}
+		return fmt.Errorf("MCP runtime is closed")
+	}
+	present := false
+	for index := range runtime.servers {
+		if runtime.servers[index].Name == serverName {
+			present = true
+			break
+		}
+	}
+	if !present {
+		if fresh != nil {
+			_ = fresh.Close()
+		}
+		return &UnknownServerError{Name: serverName}
+	}
 	if err != nil {
 		err = redactError(*server, err)
 		runtime.replaceSkippedLocked(SkippedServer{Name: serverName, Err: err})

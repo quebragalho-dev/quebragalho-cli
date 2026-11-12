@@ -73,3 +73,14 @@ func TestRunOutputRedactsExpandedSecret(t *testing.T) {
 		t.Fatalf("Run() output = %q, want the ${VAR} reference kept", result.Output)
 	}
 }
+
+func TestSanitizeKeepsVarReferenceReadable(t *testing.T) {
+	text := `Post "http://127.0.0.1:1/${QG_ACCEPT_KEY}/mcp": dial tcp 127.0.0.1:1: connect: connection refused`
+	got := sanitizeMCPErrorText(text)
+	if strings.Contains(got, "%7B") || strings.Contains(got, "%7D") {
+		t.Fatalf("sanitizeMCPErrorText() = %q, shows the ${VAR} reference percent-encoded", got)
+	}
+	if !strings.Contains(got, "${QG_ACCEPT_KEY}") {
+		t.Fatalf("sanitizeMCPErrorText() = %q, want the readable ${VAR} reference", got)
+	}
+}

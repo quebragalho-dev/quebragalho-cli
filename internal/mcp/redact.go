@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -85,9 +86,25 @@ func redactError(server Server, err error) error {
 	return &redactedError{text: redacted, err: err}
 }
 
+// mcpVarRefPattern finds the ${NAME} references Redact trades expanded
+// secrets back for, so the URL sanitizer can shelter them from encoding.
+var mcpVarRefPattern = regexp.MustCompile(`\$\{[A-Za-z_][A-Za-z0-9_]*\}`)
+
 func redactURLForError(raw string) string {
-	parsed, err := url.Parse(strings.TrimRight(raw, ".,;!)"))
-	trail := raw[len(strings.TrimRight(raw, ".,;!)")):]
+	// A ${VAR} reference traded back by Redact must survive the
+	// parse/serialize round-trip below: url.String percent-encodes braces,
+	// which would turn the readable reference into $%7B...%7D. Shelter the
+	// references behind URL-safe placeholders and restore them after.
+	sheltered := raw
+	var refs []string
+	if !strings.Contains(raw, "__QGREF__") {
+		sheltered = mcpVarRefPattern.ReplaceAllStringFunc(raw, func(match string) string {
+			refs = append(refs, match)
+			return "__QGREF__" + strconv.Itoa(len(refs)-1) + "__"
+		})
+	}
+	parsed, err := url.Parse(strings.TrimRight(sheltered, ".,;!)"))
+	trail := sheltered[len(strings.TrimRight(sheltered, ".,;!)")):]
 	if err != nil || parsed.Host == "" {
 		return "[URL redactada]" + trail
 	}
@@ -96,10 +113,14 @@ func redactURLForError(raw string) string {
 	parsed.ForceQuery = false
 	parsed.Fragment = ""
 	parsed.RawFragment = ""
-	if out := parsed.String(); out != "" {
-		return out + trail
+	out := parsed.String()
+	if strings.TrimSpace(out) == "" {
+		return "[URL redactada]" + trail
 	}
-	return "[URL redactada]" + trail
+	for index, ref := range refs {
+		out = strings.ReplaceAll(out, "__QGREF__"+strconv.Itoa(index)+"__", ref)
+	}
+	return out + trail
 }
 
 // sanitizedMCPRequestError rewrites a request failure so the echoed URL

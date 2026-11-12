@@ -118,16 +118,23 @@ func (store *ProjectApprovals) Approve(approval ProjectApproval) error {
 }
 
 // reload re-reads the approvals file, so an Approve that waited on the lock
-// does not overwrite a concurrent grant.
+// does not overwrite a concurrent grant. Whatever is on disk wins: a deleted
+// or emptied file revokes everything, even while this session holds the
+// store open — a deleted approval never comes back through a later Approve.
 func (store *ProjectApprovals) reload() error {
+	reset := func() {
+		store.projects = make(map[string]map[string]string)
+	}
 	data, err := os.ReadFile(store.path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			reset()
 			return nil
 		}
 		return err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
+		reset()
 		return nil
 	}
 	var raw struct {
@@ -136,6 +143,7 @@ func (store *ProjectApprovals) reload() error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	reset()
 	if raw.Projects != nil {
 		store.projects = raw.Projects
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -28,6 +29,10 @@ type MCPHTTPStatusError struct {
 	Transport ServerType
 	Status    int
 	Detail    string
+	// RetryAfter is the raw Retry-After response header, when the server sent
+	// one with a 429. The run loop honors it before re-sending the call the
+	// server explicitly said it did not process.
+	RetryAfter string
 }
 
 func (err *MCPHTTPStatusError) Error() string {
@@ -149,6 +154,51 @@ func sleepForReconnect(ctx context.Context, attempt int) bool {
 	}
 }
 
+// retryAfterDelay parses a Retry-After header value — delay seconds or an
+// HTTP date — into the wait before re-sending. ok=false means the server
+// sent nothing usable, and the caller falls back to the attempt backoff.
+func retryAfterDelay(raw string, now time.Time) (time.Duration, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	if secs, err := strconv.Atoi(raw); err == nil {
+		if secs < 0 {
+			secs = 0
+		}
+		return time.Duration(secs) * time.Second, true
+	}
+	if date, err := time.Parse(time.RFC1123, raw); err == nil {
+		delay := date.Sub(now)
+		if delay < 0 {
+			delay = 0
+		}
+		return delay, true
+	}
+	return 0, false
+}
+
+// sleepForStatusRetry waits out a 429 Retry-After (or the attempt backoff
+// when the server sent none) before re-sending a call the server said it did
+// not process. Aborting early on cancellation keeps Esc responsive.
+func sleepForStatusRetry(ctx context.Context, status *MCPHTTPStatusError, attempt int) bool {
+	delay := connectBackoffFor(attempt)
+	if retry, ok := retryAfterDelay(status.RetryAfter, time.Now()); ok {
+		delay = retry
+	}
+	if delay <= 0 {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 // MCPRequestError is a JSON-RPC error answer from the server (e.g.
 // -32602 invalid params). The transport is alive — the server answered — so
 // it must never trigger a reconnect or a connect retry. Its message matches
@@ -161,6 +211,48 @@ type MCPRequestError struct {
 
 func (err *MCPRequestError) Error() string {
 	return fmt.Sprintf("MCP %s failed: %s", err.Method, err.Message)
+}
+
+// errMCPNotDelivered marks a call failure where none of this call's request
+// reached the server: the dial was refused, or the process was already dead
+// before the write. Only these failures may be re-sent after a redial —
+// everything after the write (an answer, a status, a cut stream, a timeout)
+// goes to the model, and the next use heals the transport instead.
+var errMCPNotDelivered = errors.New("MCP request was not delivered")
+
+// notDeliveredError carries a pre-write failure, preserving the transport
+// error (and its message) for errors.As/Is matching.
+type notDeliveredError struct {
+	err error
+}
+
+func (err *notDeliveredError) Error() string { return err.err.Error() }
+func (err *notDeliveredError) Unwrap() error { return err.err }
+func (err *notDeliveredError) Is(target error) bool {
+	return target == errMCPNotDelivered
+}
+
+// markNotDelivered tags a failure that happened before the request reached
+// the server, so the run loop may re-send it after a redial.
+func markNotDelivered(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &notDeliveredError{err: err}
+}
+
+// isDialPhaseError reports whether an HTTP round-trip failure happened before
+// anything could have reached the server: the name did not resolve or the
+// dial was refused. Resets and EOFs mid-stream stay unmarked — the request
+// may already be in the server's hands.
+func isDialPhaseError(err error) bool {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "connection refused") ||
+		strings.Contains(message, "no such host")
 }
 
 // redialable reports whether a failed tool call means the transport died and

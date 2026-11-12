@@ -362,9 +362,10 @@ func (client *Client) request(ctx context.Context, method string, params any, ta
 		readErr := client.readErr
 		client.dispatchMu.Unlock()
 		if readErr != nil {
-			return readErr
+			// The reader already drained: nothing of this call was written.
+			return markNotDelivered(readErr)
 		}
-		return fmt.Errorf("MCP %s failed: connection closed", method)
+		return markNotDelivered(fmt.Errorf("MCP %s failed: connection closed", method))
 	}
 	client.pending[id] = responses
 	client.dispatchMu.Unlock()
@@ -375,7 +376,8 @@ func (client *Client) request(ctx context.Context, method string, params any, ta
 		Params: rawParams,
 	}); err != nil {
 		client.removePending(id)
-		return err
+		// The write never completed: the server cannot have the request.
+		return markNotDelivered(err)
 	}
 
 	select {

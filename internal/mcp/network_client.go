@@ -312,7 +312,7 @@ func (client *remoteSSEClient) request(ctx context.Context, method string, param
 
 	client.mu.Lock()
 	if client.streamErr != nil {
-		err := client.streamErr
+		err := markNotDelivered(client.streamErr)
 		client.mu.Unlock()
 		return err
 	}
@@ -408,7 +408,12 @@ func (client *networkClient) post(ctx context.Context, message rpcMessage, expec
 
 	response, err := client.client.Do(request)
 	if err != nil {
-		return rpcMessage{}, fmt.Errorf("call MCP %s server %s: %w", client.server.Type, client.server.Name, sanitizedMCPRequestError(err))
+		err = sanitizedMCPRequestError(err)
+		if isDialPhaseError(err) {
+			// The dial never left: the server cannot have the request.
+			err = markNotDelivered(err)
+		}
+		return rpcMessage{}, fmt.Errorf("call MCP %s server %s: %w", client.server.Type, client.server.Name, err)
 	}
 	defer closeResponseBody(&err, client.server, response.Body)
 
@@ -476,7 +481,12 @@ func (client *remoteSSEClient) post(ctx context.Context, message rpcMessage) (er
 
 	response, err := client.client.Do(request)
 	if err != nil {
-		return fmt.Errorf("post MCP SSE message to %s: %w", client.server.Name, sanitizedMCPRequestError(err))
+		err = sanitizedMCPRequestError(err)
+		if isDialPhaseError(err) {
+			// The dial never left: the server cannot have the request.
+			err = markNotDelivered(err)
+		}
+		return fmt.Errorf("post MCP SSE message to %s: %w", client.server.Name, err)
 	}
 	defer closeResponseBody(&err, client.server, response.Body)
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
@@ -701,10 +711,11 @@ func (client *remoteSSEClient) failPending(err error) {
 func httpStatusError(server Server, response *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
 	return &MCPHTTPStatusError{
-		Server:    server.Name,
-		Transport: server.Type,
-		Status:    response.StatusCode,
-		Detail:    strings.TrimSpace(string(body)),
+		Server:     server.Name,
+		Transport:  server.Type,
+		Status:     response.StatusCode,
+		Detail:     strings.TrimSpace(string(body)),
+		RetryAfter: response.Header.Get("Retry-After"),
 	}
 }
 

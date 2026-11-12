@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
@@ -526,7 +527,7 @@ func runMCPApprove(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
 	if !confirmYes {
-		fmt.Fprintf(stderr, "Aprovar o servidor MCP %s do projeto %s?\n  alvo: %s\n", serverName, cwd, mcpApproveTargetLine(raw))
+		fmt.Fprintf(stderr, "Aprovar o servidor MCP %s do projeto %s?%s\n", serverName, cwd, mcpApprovePromptDetails(raw))
 		if !stdinIsTTY(deps.stdin) {
 			return writeAppError(stderr, "sem terminal interativo: use --yes para aprovar", exitCrash)
 		}
@@ -560,14 +561,107 @@ Sem --yes, pede confirmação no terminal.
 	return exitSuccess
 }
 
-// mcpApproveTargetLine describes the exact target being approved, with
-// secrets redacted: URLs keep scheme+host+path, headers and env are not
-// shown (only their key names travel in the approval flow elsewhere).
-func mcpApproveTargetLine(server config.MCPServerConfig) string {
+// mcpApprovePromptDetails renders the exact target being approved: command
+// and args, URL, env with names and values, header names, and the timeout and
+// tool filters the project sets. Only values that look like secrets are
+// masked: env names carrying KEY, TOKEN, SECRET, PASSWORD, AUTH or CREDENTIAL,
+// and --flag=value args whose flag carries key or token. Everything else
+// shows literally, so the approver sees what they are binding.
+func mcpApprovePromptDetails(server config.MCPServerConfig) string {
+	var lines []string
 	if strings.TrimSpace(server.Command) != "" {
-		return "stdio " + strings.TrimSpace(server.Command) + " " + strings.Join(server.Args, " ")
+		args := make([]string, 0, len(server.Args))
+		for _, arg := range server.Args {
+			args = append(args, maskMCPApproveArg(arg))
+		}
+		target := strings.TrimSpace(server.Command)
+		if len(args) > 0 {
+			target += " " + strings.Join(args, " ")
+		}
+		lines = append(lines, "  comando: "+target)
+	} else {
+		lines = append(lines, "  url: "+redactMCPURL(server.URL, "***"))
 	}
-	return strings.TrimSpace(server.Type) + " " + redactMCPURL(server.URL, "[REDACTED]")
+	if len(server.Env) > 0 {
+		names := make([]string, 0, len(server.Env))
+		for name := range server.Env {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			value := server.Env[name]
+			if looksLikeMCPSecretName(name) {
+				value = "***"
+			}
+			lines = append(lines, "  env "+name+"="+value)
+		}
+	}
+	if len(server.Headers) > 0 {
+		names := make([]string, 0, len(server.Headers))
+		for name := range server.Headers {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		lines = append(lines, "  headers: "+strings.Join(names, ", "))
+	}
+	if server.Timeout > 0 {
+		lines = append(lines, fmt.Sprintf("  timeout: %dms (%s)", server.Timeout, formatApproveTimeout(server.Timeout)))
+	}
+	if len(server.EnabledTools) > 0 {
+		lines = append(lines, "  ferramentas permitidas: "+strings.Join(server.EnabledTools, ", "))
+	}
+	if len(server.DisabledTools) > 0 {
+		lines = append(lines, "  ferramentas bloqueadas: "+strings.Join(server.DisabledTools, ", "))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n" + strings.Join(lines, "\n")
+}
+
+// looksLikeMCPSecretName reports whether an env var name carries a secret by
+// naming: KEY, TOKEN, SECRET, PASSWORD, AUTH or CREDENTIAL.
+func looksLikeMCPSecretName(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, marker := range []string{"KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL"} {
+		if strings.Contains(upper, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// maskMCPApproveArg masks the value of --flag=value args whose flag carries
+// key or token, keeping the flag name visible.
+func maskMCPApproveArg(arg string) string {
+	name, _, ok := strings.Cut(arg, "=")
+	if !ok || !strings.HasPrefix(name, "--") {
+		return arg
+	}
+	flag := strings.ToUpper(strings.TrimPrefix(name, "--"))
+	if strings.Contains(flag, "KEY") || strings.Contains(flag, "TOKEN") {
+		return name + "=***"
+	}
+	return arg
+}
+
+// formatApproveTimeout renders milliseconds as the largest round unit the
+// test and the user both read at a glance (600000ms → 10m).
+func formatApproveTimeout(millis int) string {
+	if millis <= 0 {
+		return "0s"
+	}
+	seconds := millis / 1000
+	if millis%1000 != 0 {
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%dms", millis), "0"), ".")
+	}
+	if seconds%3600 == 0 {
+		return fmt.Sprintf("%dh", seconds/3600)
+	}
+	if seconds%60 == 0 {
+		return fmt.Sprintf("%dm", seconds/60)
+	}
+	return fmt.Sprintf("%ds", seconds)
 }
 
 // stdinIsTTY reports whether input reads from an interactive terminal.

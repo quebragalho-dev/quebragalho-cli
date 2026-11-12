@@ -31,13 +31,15 @@ func knownMCPProtocolVersion(version string) bool {
 }
 
 // negotiateMCPProtocolVersion resolves the revision to speak after the
-// server answers initialize. Known answers are used as-is; an answer newer
-// than everything qg implements is refused with an error naming it, so qg
-// never pretends to speak a revision it does not know.
+// server answers initialize. Known answers are used as-is; anything else
+// (newer, older, garbage, or missing) is refused with an error naming what
+// the server asked for, so qg never pretends to speak a revision it does not
+// know — or runs against a server that would not say which one it speaks.
 func negotiateMCPProtocolVersion(serverVersion string) (string, error) {
 	serverVersion = strings.TrimSpace(serverVersion)
 	if serverVersion == "" {
-		return latestMCPProtocolVersion(), nil
+		return "", fmt.Errorf("servidor MCP não informou protocolVersion na resposta do initialize (implementadas: %s)",
+			strings.Join(mcpKnownProtocolVersions, ", "))
 	}
 	if knownMCPProtocolVersion(serverVersion) {
 		return serverVersion, nil
