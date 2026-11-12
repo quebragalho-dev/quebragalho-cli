@@ -686,3 +686,42 @@ func TestSubagentsRunFinishSettlesForegroundRows(t *testing.T) {
 		t.Fatalf("finishing the run must settle the foreground row: %+v", fg)
 	}
 }
+
+func TestTaskUsageTrackerRoutesByToolCallAndEmitsPerCall(t *testing.T) {
+	var usages []specialistUsageMsg
+	var progresses []specialistProgressMsg
+	tracker := newTaskUsageTracker(7, func(msg tea.Msg) {
+		switch m := msg.(type) {
+		case specialistUsageMsg:
+			usages = append(usages, m)
+		case specialistProgressMsg:
+			progresses = append(progresses, m)
+		}
+	})
+
+	tracker.progress("call-A", streamjson.Event{Type: streamjson.EventRunStart, Model: "model-a"})
+	tracker.progress("call-B", streamjson.Event{Type: streamjson.EventRunStart, Model: "model-b"})
+	tracker.progress("call-A", streamjson.Event{Type: streamjson.EventToolCall, Name: "read_file"})
+	prompt, completion := 100, 50
+	tracker.progress("call-A", streamjson.Event{Type: streamjson.EventUsage, PromptTokens: &prompt, CompletionTokens: &completion})
+	prompt, completion = 1000, 500
+	tracker.progress("call-B", streamjson.Event{Type: streamjson.EventUsage, PromptTokens: &prompt, CompletionTokens: &completion})
+	zero := 0
+	tracker.progress("call-C", streamjson.Event{Type: streamjson.EventUsage, PromptTokens: &zero, CompletionTokens: &zero})
+
+	if len(progresses) != 1 || progresses[0].toolCallID != "call-A" {
+		t.Fatalf("one progress row for call-A, got %+v", progresses)
+	}
+	want := []specialistUsageMsg{
+		{runID: 7, toolCallID: "call-A", promptTokens: 100, completionTokens: 50, modelID: "model-a"},
+		{runID: 7, toolCallID: "call-B", promptTokens: 1000, completionTokens: 500, modelID: "model-b"},
+	}
+	if len(usages) != len(want) {
+		t.Fatalf("two per-call usage emissions, got %+v", usages)
+	}
+	for i := range want {
+		if usages[i] != want[i] {
+			t.Fatalf("usage %d = %+v, want %+v (calls must not mix)", i, usages[i], want[i])
+		}
+	}
+}
