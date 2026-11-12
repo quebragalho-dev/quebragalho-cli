@@ -298,11 +298,20 @@ func (runtime *Runtime) retryServerInBackground(server Server) {
 		if !sleepForReconnect(runtime.lifeCtx, attempt-1) {
 			return
 		}
-		if runtime.isClosed() {
+		if runtime.backgroundDone(server.Name) {
 			return
 		}
-		attemptCtx, cancel := context.WithTimeout(runtime.lifeCtx, connectTimeout())
+		// The attempt context outlives a successful connect (an SSE stream
+		// derives from it), so the connect bound is a timer, not a deadline:
+		// a deadline would kill an adopted stream when it fires.
+		attemptCtx, cancel := context.WithCancel(runtime.lifeCtx)
+		bound := time.AfterFunc(connectTimeout(), cancel)
 		client, remote, err := connectAndList(attemptCtx, runtime.factory, server)
+		timedOut := !bound.Stop()
+		if timedOut && err == nil {
+			_ = client.Close()
+			err = fmt.Errorf("connect timed out after %s", connectTimeout())
+		}
 		if err == nil {
 			runtime.adoptBackgroundServer(server, client, remote, cancel)
 			return
@@ -310,8 +319,10 @@ func (runtime *Runtime) retryServerInBackground(server Server) {
 		// Classify before releasing the attempt: the failure outlives its
 		// context, and a cancelled context must not mask the real error.
 		// lifeCtx is live here (Close aborts the sleep above), so a
-		// cancellation verdict only reflects a genuine shutdown.
-		transient := isTransientConnectError(runtime.lifeCtx, err)
+		// cancellation verdict only reflects a genuine shutdown. A bound
+		// that fired is transient even though DeadlineExceeded alone is
+		// not: the server may simply be slow, so later attempts continue.
+		transient := timedOut || isTransientConnectError(runtime.lifeCtx, err)
 		cancel()
 		if !transient {
 			runtime.noteBackgroundFailure(server, err)
@@ -321,11 +332,13 @@ func (runtime *Runtime) retryServerInBackground(server Server) {
 	}
 }
 
-// isClosed reports whether Close latched: background work must stop.
-func (runtime *Runtime) isClosed() bool {
+// backgroundDone reports whether the background retry must stop: the
+// runtime closed, or the server is already live (a manual reconnect won
+// the race, and swapping its client would drop an in-flight call).
+func (runtime *Runtime) backgroundDone(name string) bool {
 	runtime.refreshMu.Lock()
 	defer runtime.refreshMu.Unlock()
-	return runtime.closed
+	return runtime.closed || runtime.liveClients[name] != nil
 }
 
 // noteBackgroundFailure refreshes a skipped entry with the latest background
@@ -341,14 +354,19 @@ func (runtime *Runtime) noteBackgroundFailure(server Server, err error) {
 
 // adoptBackgroundServer commits a background-connected server to the live
 // registry and clears its skip, mirroring a manual reconnect. The attempt
-// context stays alive for the adopted client — an SSE stream derives from
-// the connect context, so cancelling it would kill the fresh stream — and
-// is released at Close like every kept server context. A closed runtime
-// closes the fresh client instead of adopting it.
+// context stays alive for the adopted client: the connect bound was a timer
+// (stopped before adopting), not a deadline, and an SSE stream derives from
+// this context, so cancelling it would kill the fresh stream. Released at
+// Close like every kept server context. A closed runtime — or a server a
+// manual reconnect already brought live — closes the fresh client instead
+// of adopting it.
 func (runtime *Runtime) adoptBackgroundServer(server Server, client ToolClient, remote []RemoteTool, cancel context.CancelFunc) {
 	runtime.refreshMu.Lock()
 	defer runtime.refreshMu.Unlock()
-	if runtime.closed {
+	// A manual reconnect (the /mcp panel) may have brought this server live
+	// while the background loop was backing off: keep its client and drop
+	// the fresh one instead of swapping a live transport underneath a call.
+	if runtime.closed || runtime.liveClients[server.Name] != nil {
 		cancel()
 		_ = client.Close()
 		return
