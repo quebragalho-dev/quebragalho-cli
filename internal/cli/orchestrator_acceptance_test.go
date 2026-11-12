@@ -147,6 +147,31 @@ func clearOrchestratorSignals(t *testing.T) {
 	}
 }
 
+// writeOrqPlugin installs a plugin whose only extension is one skill that
+// declares <SKILL>_SOCKET. The plugin id differs from the skill name, so the
+// skill name can only reach doctor output through skill detection.
+func writeOrqPlugin(t *testing.T, pluginDir, id, skill string, enabled bool) {
+	t.Helper()
+	manifest, err := json.Marshal(map[string]any{
+		"schemaVersion": 1, "id": id, "name": id, "version": "1.0.0", "enabled": enabled,
+		"skills": []any{map[string]any{"name": skill, "path": "skills/" + skill + "/SKILL.md"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pluginDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeOrqSkills(t, filepath.Join(pluginDir, "skills"), []orqSkill{{
+		name:        skill,
+		description: "Plugin skill " + skill + ".",
+		environment: []string{strings.ToUpper(skill) + "_SOCKET"},
+	}})
+}
+
 func writeOrqSkills(t *testing.T, dir string, skills []orqSkill) {
 	t.Helper()
 	for _, skill := range skills {
@@ -410,6 +435,38 @@ func TestOrchestratorDetectedByTermProgram(t *testing.T) {
 	assertOrqDetected(t, system, "vortexterm", "TERM_PROGRAM")
 }
 
+// TERM_PROGRAM names the terminal or multiplexer far more often than an
+// orchestrator. A common terminal value never elects the skill of the same
+// name. Any other value still elects its skill, declared or not.
+func TestOrchestratorCommonTerminalProgramIsNotASignal(t *testing.T) {
+	terminals := []string{
+		"tmux", "screen", "Apple_Terminal", "iTerm.app", "vscode", "WezTerm", "ghostty",
+		"alacritty", "kitty", "Hyper", "Tabby", "WarpTerminal", "konsole", "rio",
+	}
+	skills := orqFillers(3)
+	for _, program := range terminals {
+		skills = append(skills, orqSkill{name: strings.ToLower(program), description: "Helpers for " + program + "."})
+	}
+	skills = append(skills,
+		orqSkill{name: "maestri", description: "Coordinates agents and terminals."},
+		orqSkill{name: "orqdesk", description: "Declares a marker that is absent.", environment: []string{"ORQDESK_ABSENT_MARK"}},
+	)
+	h := newOrqHarness(t, skills)
+	baseline := h.exec()
+
+	for _, program := range terminals {
+		t.Setenv("TERM_PROGRAM", program)
+		if got := h.exec(); got != baseline {
+			t.Errorf("TERM_PROGRAM=%s changed the system prompt; a common terminal must not elect a skill.\n%s", program, orqDiff(baseline, got))
+		}
+	}
+
+	t.Setenv("TERM_PROGRAM", "maestri")
+	assertOrqDetected(t, h.exec(), "maestri", "TERM_PROGRAM")
+	t.Setenv("TERM_PROGRAM", "orqdesk")
+	assertOrqDetected(t, h.exec(), "orqdesk", "TERM_PROGRAM")
+}
+
 // Each case pairs a near-miss that must leave the prompt byte-identical to a
 // run without the variable with the signal that does match the same skill, so
 // the case fails both when nothing is detected and when the guard is loose.
@@ -468,6 +525,25 @@ func TestOrchestratorNearMissesDetectNothing(t *testing.T) {
 			hitSkill:  "term",
 			hitSignal: "TERM_SOCKET",
 		},
+		{
+			name: "CI, desktop and terminal-app markers never feed the heuristic",
+			skills: []orqSkill{
+				{name: "github", description: "GitHub helpers."},
+				{name: "bitbucket", description: "Bitbucket helpers."},
+				{name: "gitpod", description: "Gitpod helpers."},
+				{name: "desktop", description: "Desktop helpers."},
+				{name: "alacritty", description: "Alacritty helpers."},
+			},
+			nearMiss: map[string]string{
+				"GITHUB_WORKSPACE":    "/home/runner/work/orq/orq",
+				"BITBUCKET_WORKSPACE": "orq-team",
+				"GITPOD_WORKSPACE_ID": "orq-ws-1",
+				"DESKTOP_SESSION":     "orq",
+				"ALACRITTY_SOCKET":    "/tmp/orq-alacritty.sock",
+			},
+			hitSkill:  "desktop",
+			hitSignal: "DESKTOP_SOCKET",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -488,8 +564,8 @@ func TestOrchestratorNearMissesDetectNothing(t *testing.T) {
 	}
 }
 
-// A declaration naming a variable every shell or terminal sets would match
-// everywhere and let any installed skill pin itself. Each skill here is named
+// A declaration naming a variable that a shell, terminal, editor, desktop or CI
+// sets would match everywhere and let any installed skill pin itself. Each skill here is named
 // after the variable it declares, so the name rule accepts it and only the
 // ubiquitous filter can reject it. The prompt must stay byte-identical to a run
 // where the same skills declare only an absent variable of their own, which
@@ -504,6 +580,10 @@ func TestOrchestratorDeclarationIgnoresUbiquitousVariables(t *testing.T) {
 		"TERM_SESSION_ID", "ITERM_SESSION_ID", "WT_SESSION", "WEZTERM_UNIX_SOCKET", "WEZTERM_PANE",
 		"KONSOLE_DBUS_SESSION", "KITTY_WINDOW_ID", "TMUX", "TMUX_PANE", "STY", "VTE_VERSION",
 		"DBUS_SESSION_BUS_ADDRESS", "SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY",
+		"GITHUB_RUN_ID", "GITLAB_CI", "BITBUCKET_BUILD_NUMBER", "GITPOD_WORKSPACE_URL", "CODESPACES",
+		"BUILDKITE_BUILD_ID", "CIRCLECI", "TRAVIS", "JENKINS_URL", "CI", "BUILD_NUMBER",
+		"DESKTOP_SESSION", "GNOME_TERMINAL_SCREEN", "KDE_FULL_SESSION", "SESSION_MANAGER",
+		"ALACRITTY_WINDOW_ID", "VSCODE_GIT_IPC_HANDLE", "TERMINAL_EMULATOR",
 	}
 	declaring := orqFillers(3)
 	absent := orqFillers(3)
@@ -526,6 +606,11 @@ func TestOrchestratorDeclarationIgnoresUbiquitousVariables(t *testing.T) {
 		"KONSOLE_DBUS_SESSION": "/Sessions/1", "KITTY_WINDOW_ID": "1", "TMUX": "/tmp/orq-tmux/default,1,0",
 		"TMUX_PANE": "%0", "STY": "1.orq", "VTE_VERSION": "7600", "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/orq-dbus",
 		"SSH_CONNECTION": "127.0.0.1 50000 127.0.0.1 22", "SSH_CLIENT": "127.0.0.1 50000 22", "SSH_TTY": "/dev/ttys000",
+		"GITHUB_RUN_ID": "1", "GITLAB_CI": "true", "BITBUCKET_BUILD_NUMBER": "1", "GITPOD_WORKSPACE_URL": "https://orq.gitpod.invalid",
+		"CODESPACES": "true", "BUILDKITE_BUILD_ID": "orq-build", "CIRCLECI": "true", "TRAVIS": "true", "JENKINS_URL": "http://orq.invalid/",
+		"CI": "true", "BUILD_NUMBER": "1", "DESKTOP_SESSION": "orq", "GNOME_TERMINAL_SCREEN": "/org/gnome/Terminal/screen/orq",
+		"KDE_FULL_SESSION": "true", "SESSION_MANAGER": "local/orq:@/tmp/.ICE-unix/1", "ALACRITTY_WINDOW_ID": "1",
+		"VSCODE_GIT_IPC_HANDLE": "/tmp/orq-vscode-git.sock", "TERMINAL_EMULATOR": "JetBrains-JediTerm",
 	}
 	for _, variable := range ubiquitous {
 		if _, ok := os.LookupEnv(variable); !ok {
@@ -554,12 +639,14 @@ func TestOrchestratorDeclarationMustBelongToTheSkill(t *testing.T) {
 		{name: "underscore-desk", description: "Declares _.", environment: []string{"_"}},
 		{name: "sock-agent-desk", description: "Declares SSH_AUTH_SOCK.", environment: []string{"SSH_AUTH_SOCK"}},
 		{name: "plain-desk", description: "Declares an unrelated name.", environment: []string{"BAR_X"}},
+		{name: "wsbare-desk", description: "Declares a bare suffix, which CI servers set.", environment: []string{"WORKSPACE"}},
 	}
 	env := map[string]string{
 		"SHLVL":         "2",
 		"_":             "/usr/bin/env",
 		"SSH_AUTH_SOCK": "/tmp/orq-agent.sock",
 		"BAR_X":         "orq-secret-bare-0c",
+		"WORKSPACE":     "/var/ci/orq-workspace",
 	}
 	if runtime.GOOS != "windows" {
 		rejected = append(rejected, orqSkill{name: "lowpath-desk", description: "Declares lowercase path.", environment: []string{"path"}})
@@ -808,6 +895,74 @@ func TestDoctorReportsDetectedOrchestrator(t *testing.T) {
 	if strings.Contains(report, value) {
 		t.Errorf("doctor prints the value of QUOKKA_ORQ_CLI; only the variable name may be shown:\n%s", report)
 	}
+}
+
+// A variable that is set but empty or blank is not a signal, by declaration or
+// by heuristic; the same names with a value are.
+func TestOrchestratorEmptyValueIsNotASignal(t *testing.T) {
+	h := newOrqHarness(t, append(orqFillers(3),
+		orqSkill{name: "tern-desk", description: "Declares its own marker.", environment: []string{"TERN_DESK_MARK"}},
+		orqSkill{name: "plover", description: "Plover helpers."},
+	))
+	baseline := h.exec()
+
+	t.Setenv("TERN_DESK_MARK", "")
+	t.Setenv("PLOVER_SOCKET", "   ")
+	if got := h.exec(); got != baseline {
+		t.Errorf("empty or blank values changed the system prompt; want byte-identical to the run without them.\n%s", orqDiff(baseline, got))
+	}
+
+	t.Setenv("TERN_DESK_MARK", "orq-secret-tern-6a")
+	t.Setenv("PLOVER_SOCKET", "orq-secret-plover-7b")
+	system := h.exec()
+	assertOrqDetected(t, system, "tern-desk", "TERN_DESK_MARK")
+	assertOrqDetected(t, system, "plover", "PLOVER_SOCKET")
+	h.assertNoValueLeak("orq-secret-tern-6a", "orq-secret-plover-7b")
+}
+
+// qg doctor reports the ambient skills exec detects, no more. Exec loads no
+// skill from a disabled plugin, nor from a project plugin while the workspace is
+// untrusted, so doctor must not report those; an enabled user plugin counts in
+// both.
+func TestDoctorReportsTheSameOrchestratorsAsExec(t *testing.T) {
+	h := newOrqHarness(t, orqFillers(3))
+	userPlugins := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "qg", "plugins")
+	writeOrqPlugin(t, filepath.Join(userPlugins, "pack-live"), "pack-live", "liveorq", true)
+	writeOrqPlugin(t, filepath.Join(userPlugins, "pack-off"), "pack-off", "offorq", false)
+	writeOrqPlugin(t, filepath.Join(h.workdir, ".qg", "plugins", "pack-proj"), "pack-proj", "projorq", true)
+	values := []string{"orq-secret-live-1d", "orq-secret-off-2d", "orq-secret-proj-3d"}
+	t.Setenv("LIVEORQ_SOCKET", values[0])
+	t.Setenv("OFFORQ_SOCKET", values[1])
+	t.Setenv("PROJORQ_SOCKET", values[2])
+	skipped := []string{"offorq", "projorq"}
+
+	system := h.exec()
+	assertOrqDetected(t, system, "liveorq", "LIVEORQ_SOCKET")
+	outside := orqOutsideSkillList(system)
+	for _, name := range skipped {
+		if strings.Contains(outside, name) {
+			t.Fatalf("exec detected %s, which it must not load (disabled plugin or project plugin in an untrusted workspace)", name)
+		}
+	}
+
+	t.Chdir(h.workdir)
+	var stdout bytes.Buffer
+	Run([]string{"doctor"}, &stdout, io.Discard)
+	report := stdout.String()
+	if !strings.Contains(report, "liveorq") || !strings.Contains(report, "LIVEORQ_SOCKET") {
+		t.Errorf("doctor must report liveorq through LIVEORQ_SOCKET, as exec does:\n%s", report)
+	}
+	for _, name := range skipped {
+		if strings.Contains(report, name) {
+			t.Errorf("doctor reports %s, which exec never loads (disabled plugin or project plugin in an untrusted workspace):\n%s", name, report)
+		}
+	}
+	for _, value := range values {
+		if strings.Contains(report, value) {
+			t.Errorf("doctor prints the variable value %q; only names may be shown:\n%s", value, report)
+		}
+	}
+	h.assertNoValueLeak(values...)
 }
 
 // The detection must come from installed skills, never from a table of app
