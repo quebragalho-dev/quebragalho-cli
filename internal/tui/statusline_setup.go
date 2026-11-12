@@ -20,10 +20,13 @@ import (
 
 // statuslineProposal is what the /statusline setup turn writes to the staging
 // proposal.json: a field layout and/or a staged script. It mirrors the config
-// shape so validation maps one to one onto StatusLineConfig.
+// shape so validation maps one to one onto StatusLineConfig. A proposal
+// without a script keeps the current command and cadences; removeCommand
+// drops them instead.
 type statuslineProposal struct {
-	Lines     []config.StatusLineLine `json:"lines"`
-	Separator string                  `json:"separator"`
+	Lines         []config.StatusLineLine `json:"lines"`
+	Separator     string                  `json:"separator"`
+	RemoveCommand bool                    `json:"removeCommand"`
 	// Script names a file inside the staging dir (e.g. "ctx.sh"), never a
 	// path: confinedStagingPath keeps it inside staging.
 	Script    string `json:"script"`
@@ -32,10 +35,11 @@ type statuslineProposal struct {
 }
 
 // validatedConfig drops unknown ids (reported), adjusts cosmetic values
-// (reported), and builds the config the preview renders. A proposal with
-// nothing valid left previews empty, which the preview marks instead of
-// applying a blank line.
-func (p statuslineProposal) validatedConfig() (config.StatusLineConfig, []string) {
+// (reported), and builds the config the preview renders. Fields-only
+// proposals keep the current command and cadences; removeCommand drops the
+// command. A proposal with nothing valid left previews empty, which the
+// preview marks instead of applying a blank line.
+func (p statuslineProposal) validatedConfig(current config.StatusLineConfig) (config.StatusLineConfig, []string) {
 	cfg := config.StatusLineConfig{Separator: p.Separator, TimeoutMs: p.TimeoutMs, RefreshMs: p.RefreshMs}
 	var warnings []string
 	for _, line := range p.Lines {
@@ -55,6 +59,15 @@ func (p statuslineProposal) validatedConfig() (config.StatusLineConfig, []string
 			}
 		}
 		cfg.Lines = append(cfg.Lines, kept)
+	}
+	if p.Script == "" && !p.RemoveCommand {
+		cfg.Command = current.Command
+		if cfg.TimeoutMs == 0 {
+			cfg.TimeoutMs = current.TimeoutMs
+		}
+		if cfg.RefreshMs == 0 {
+			cfg.RefreshMs = current.RefreshMs
+		}
 	}
 	adjusted, adjustWarnings := cfg.Adjusted()
 	return adjusted, append(warnings, adjustWarnings...)
@@ -136,7 +149,7 @@ func (m model) statuslineSetupPrompt(stagingDir string) string {
 	b.WriteString("Você vai montar a statusline do QG (a linha de rodapé do TUI). REGRAS DURAS:\n")
 	b.WriteString("1. NUNCA escreva na config viva. Proposta vai em " + filepath.Join(stagingDir, "proposal.json") + " e script SÓ dentro de " + stagingDir + ".\n")
 	b.WriteString("2. Campos válidos (stable, inglês): " + strings.Join(statuslineFieldIDs, ", ") + ". Qualquer outro id é ignorado com aviso.\n")
-	b.WriteString("3. proposal.json espelha a config: {\"lines\": [{\"left\": [...], \"right\": [...]}], \"separator\": \" | \", \"script\": \"nome.sh\", \"timeoutMs\": 2000, \"refreshMs\": 5000}. Até 3 linhas. Sem script = só campos.\n")
+	b.WriteString("3. proposal.json espelha a config: {\"lines\": [{\"left\": [...], \"right\": [...]}], \"separator\": \" | \", \"script\": \"nome.sh\", \"removeCommand\": false, \"timeoutMs\": 2000, \"refreshMs\": 5000}. Até 3 linhas. Sem script, a proposta MANTÉM o comando e os tempos atuais; com \"removeCommand\": true o comando sai.\n")
 	b.WriteString("4. Script: saída até 3 linhas, rápido (< 2s), sem rede, sem segredos. Recebe no stdin o JSON abaixo.")
 	b.WriteString(" Escreva na sintaxe do SO de destino — sh (linux/macOS) ou cmd (windows); o QG executa via `sh -c` no linux/macOS e via `cmd /C` no windows.")
 	b.WriteString(" SO desta sessão: " + runtime.GOOS + ".\n")
@@ -333,7 +346,7 @@ func (m model) maybeFinalizeStatuslineSetup(msg tea.Msg) (model, tea.Cmd) {
 		discardStatuslineStaging(setup.stagingDir, "")
 		return m.appendStatuslineNotice("Statusline\no modelo não gerou proposta (" + err.Error() + "); staging descartado."), nil
 	}
-	cfg, warnings := proposal.validatedConfig()
+	cfg, warnings := proposal.validatedConfig(m.statuslineCfg)
 	if proposal.Script != "" {
 		scriptPath, err := confinedStagingPath(setup.stagingDir, proposal.Script)
 		if err != nil {
@@ -385,7 +398,7 @@ func readStatuslineProposal(stagingDir string, since time.Time) (statuslinePropo
 	if info, err := os.Stat(filepath.Join(stagingDir, "proposal.json")); err != nil || info.ModTime().Before(since) {
 		return statuslineProposal{}, fmt.Errorf("proposal.json é anterior ao turno")
 	}
-	cfg, _ := proposal.validatedConfig()
+	cfg, _ := proposal.validatedConfig(config.StatusLineConfig{})
 	if !cfg.IsCustom() && strings.TrimSpace(proposal.Script) == "" {
 		return statuslineProposal{}, fmt.Errorf("proposta vazia")
 	}
@@ -436,6 +449,10 @@ func (m model) applyStatuslineSetupValidated(msg statuslineSetupValidatedMsg) mo
 func (m model) previewStatuslineProposal(pending *statuslinePendingApply, scriptLines []string) string {
 	render := m
 	render.statuslineCfg = pending.cfg
+	// Never reuse the live command output: the preview shows the staged
+	// dry-run output, or nothing when the proposal drops the command.
+	render.statuslineCmdOutput = ""
+	render.statuslineCmdErr = ""
 	if len(scriptLines) > 0 {
 		render.statuslineCmdOutput = strings.Join(scriptLines, "\n")
 	}
@@ -444,6 +461,9 @@ func (m model) previewStatuslineProposal(pending *statuslinePendingApply, script
 	lines = append(lines, "Prévia com os dados desta sessão:")
 	lines = append(lines, render.statusLine(width))
 	lines = append(lines, "")
+	if pending.cfg.Command == nil && m.statuslineCfg.Command != nil {
+		lines = append(lines, "comando: removido")
+	}
 	for _, warning := range pending.warnings {
 		lines = append(lines, "aviso: "+warning)
 	}

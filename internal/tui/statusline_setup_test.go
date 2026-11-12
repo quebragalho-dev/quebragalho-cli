@@ -82,7 +82,7 @@ func TestStatuslineApplyArmsTickChainWhenStopped(t *testing.T) {
 	m.width = 100
 	m.userConfigPath = userPath
 	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}}
-	cfg, _ := proposal.validatedConfig()
+	cfg, _ := proposal.validatedConfig(config.StatusLineConfig{})
 	cfg.Command = &config.StatusLineCommand{Command: "echo hi"}
 	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
 	if m.statuslineTickArmed {
@@ -114,7 +114,7 @@ func TestStatuslineApplyKeepsRunningChain(t *testing.T) {
 	m.userConfigPath = userPath
 	m.statuslineTickArmed = true
 	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}}
-	cfg, _ := proposal.validatedConfig()
+	cfg, _ := proposal.validatedConfig(config.StatusLineConfig{})
 	cfg.Command = &config.StatusLineCommand{Command: "echo hi"}
 	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
 	applied, cmd := m.applyStatuslinePending()
@@ -178,14 +178,14 @@ func TestStatuslineProposalValidation(t *testing.T) {
 	proposal := statuslineProposal{
 		Lines: []config.StatusLineLine{{Left: []string{"mode", "nope"}, Right: []string{"nah"}}},
 	}
-	cfg, warnings := proposal.validatedConfig()
+	cfg, warnings := proposal.validatedConfig(config.StatusLineConfig{})
 	if len(warnings) != 2 {
 		t.Fatalf("warnings = %#v, want both unknown ids", warnings)
 	}
 	if len(cfg.Lines) != 1 || len(cfg.Lines[0].Left) != 1 || cfg.Lines[0].Left[0] != "mode" {
 		t.Fatalf("cfg = %+v, want only mode", cfg)
 	}
-	if _, warnings := (statuslineProposal{}).validatedConfig(); len(warnings) != 0 {
+	if _, warnings := (statuslineProposal{}).validatedConfig(config.StatusLineConfig{}); len(warnings) != 0 {
 		t.Fatalf("empty proposal warns: %#v", warnings)
 	}
 }
@@ -324,6 +324,74 @@ func TestStatuslineSetupTurnEndToEnd(t *testing.T) {
 	}
 }
 
+// A fields-only proposal keeps the current command and cadences instead of
+// wiping them; the preview renders the real field lines.
+func TestStatuslineFieldsOnlyProposalKeepsCommand(t *testing.T) {
+	current := config.StatusLineConfig{
+		Lines:     []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command:   &config.StatusLineCommand{Command: "sh custom.sh"},
+		TimeoutMs: 1500,
+		RefreshMs: 3000,
+	}
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"branch"}}}}
+	cfg, warnings := proposal.validatedConfig(current)
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+	if cfg.Command == nil || cfg.Command.Command != "sh custom.sh" {
+		t.Fatalf("command not kept: %+v", cfg.Command)
+	}
+	if cfg.TimeoutMs != 1500 || cfg.RefreshMs != 3000 {
+		t.Fatalf("cadences not kept: %+v", cfg)
+	}
+	if len(cfg.Lines) != 1 || len(cfg.Lines[0].Left) != 1 || cfg.Lines[0].Left[0] != "branch" {
+		t.Fatalf("layout not applied: %+v", cfg.Lines)
+	}
+}
+
+// A proposal with removeCommand drops the command; the preview says so and
+// never shows the stale command output.
+func TestStatuslineRemoveCommandProposal(t *testing.T) {
+	dir := t.TempDir()
+	m := limeTestModel()
+	m.width = 100
+	m.gitBranch = "feat/rodape-x"
+	m.statuslineCfg = config.StatusLineConfig{
+		Lines:   []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command: &config.StatusLineCommand{Command: "sh old.sh"},
+	}
+	m.statuslineCmdOutput = "STALE OUTPUT"
+	staging := filepath.Join(dir, "staging")
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	proposal := `{"lines": [{"left": ["branch"]}], "removeCommand": true}`
+	if err := os.WriteFile(filepath.Join(staging, "proposal.json"), []byte(proposal), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.statuslineSetup = &statuslineSetupState{runID: 3, startedAt: time.Now().Add(-time.Minute), stagingDir: staging}
+	updated, cmd := m.maybeFinalizeStatuslineSetup(agentResponseMsg{runID: 3})
+	if cmd != nil {
+		t.Fatal("fields-only removal must preview synchronously")
+	}
+	nm := updated
+	if nm.statuslinePending == nil {
+		t.Fatal("no preview pending")
+	}
+	if nm.statuslinePending.cfg.Command != nil {
+		t.Fatalf("command not removed: %+v", nm.statuslinePending.cfg.Command)
+	}
+	if !strings.Contains(nm.statuslinePending.preview, "comando: removido") {
+		t.Fatalf("preview does not announce the removal:\n%s", nm.statuslinePending.preview)
+	}
+	if strings.Contains(nm.statuslinePending.preview, "STALE OUTPUT") {
+		t.Fatalf("preview reuses the stale command output:\n%s", nm.statuslinePending.preview)
+	}
+	if !strings.Contains(nm.statuslinePending.preview, "branch") {
+		t.Fatalf("preview does not render the real field lines:\n%s", nm.statuslinePending.preview)
+	}
+}
+
 // Finalizing with no staging files tells the user and clears the setup.
 func TestStatuslineFinalizeWithoutStaging(t *testing.T) {
 	m := limeTestModel()
@@ -354,7 +422,7 @@ func TestStatuslinePendingApplyAndCancel(t *testing.T) {
 	m := limeTestModel()
 	m.userConfigPath = userPath
 	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}}
-	cfg, _ := proposal.validatedConfig()
+	cfg, _ := proposal.validatedConfig(config.StatusLineConfig{})
 	preview := m.previewStatuslineProposal(&statuslinePendingApply{proposal: proposal, cfg: cfg}, nil)
 	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: preview, stagingDir: dir}
 	if !strings.Contains(preview, "automático") {
