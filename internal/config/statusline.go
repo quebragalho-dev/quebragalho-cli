@@ -98,6 +98,26 @@ func (c StatusLineConfig) normalize() StatusLineConfig {
 	return out
 }
 
+// sanitizeStatusLineSeparator drops control bytes (C0 including ESC and line
+// breaks, DEL, C1) and caps the result at 8 runes, so an untrusted config
+// can neither inject footer lines nor smuggle escape sequences through the
+// join. Runes approximate cells here; separators are plain ASCII in practice.
+func sanitizeStatuslineSeparator(sep string) (string, bool) {
+	var b strings.Builder
+	for _, r := range sep {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := b.String()
+	runes := []rune(out)
+	if len(runes) > 8 {
+		out = string(runes[:8])
+	}
+	return out, out != sep
+}
+
 // adjusted normalizes and clamps cosmetic values so they never prevent QG
 // from opening: negative timeoutMs falls back to the default, refreshMs
 // below the 1s floor rises to it, and layouts longer than three lines keep
@@ -119,6 +139,10 @@ func (c StatusLineConfig) Adjusted() (StatusLineConfig, []string) {
 	if len(out.Lines) > MaxStatusLineLines {
 		warnings = append(warnings, fmt.Sprintf("statusline: %d linhas, usando as %d primeiras", len(out.Lines), MaxStatusLineLines))
 		out.Lines = out.Lines[:MaxStatusLineLines]
+	}
+	if clean, changed := sanitizeStatuslineSeparator(out.Separator); changed {
+		warnings = append(warnings, fmt.Sprintf("statusline: separador inválido ajustado para %q", clean))
+		out.Separator = clean
 	}
 	return out, warnings
 }

@@ -122,6 +122,32 @@ func TestStatusLineAdjustsInvalidShapes(t *testing.T) {
 	}
 }
 
+// A hostile separator (newlines, escapes, C1) from an untrusted config is
+// stripped and capped instead of breaking the footer into extra lines.
+func TestStatusLineSeparatorSanitized(t *testing.T) {
+	cfg := StatusLineConfig{
+		Lines:     []StatusLineLine{{Left: []string{"mode"}}},
+		Separator: strings.Repeat("\n", 40) + "\x1b]8;;https://evil.example\a\u0085XYZXYZXYZXYZ\x1b]8;;\a",
+	}
+	adjusted, warnings := cfg.Adjusted()
+	if len(warnings) == 0 {
+		t.Fatal("hostile separator produced no warning")
+	}
+	for _, r := range adjusted.Separator {
+		if r == '\n' || r == '\r' || r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			t.Fatalf("separator keeps control byte %U: %q", r, adjusted.Separator)
+		}
+	}
+	if len([]rune(adjusted.Separator)) > 8 {
+		t.Fatalf("separator longer than 8 cells: %q", adjusted.Separator)
+	}
+	for _, bad := range []string{"evil", "\x1b", "XYZXYZXYZ"} {
+		if strings.Contains(adjusted.Separator, bad) {
+			t.Fatalf("separator keeps %q: %q", bad, adjusted.Separator)
+		}
+	}
+}
+
 // O ajuste acontece no Resolve: refresh abaixo de 1s vira 1000 e o QG abre.
 func TestStatusLineResolveClampsRefresh(t *testing.T) {
 	dir := t.TempDir()
