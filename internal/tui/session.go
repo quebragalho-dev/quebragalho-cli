@@ -108,7 +108,7 @@ func (m model) startNewSession() model {
 	m.lastCachePrefix = ""
 	m.lastCacheAt = time.Time{}
 	m.lastCacheModel = ""
-	m.cacheFreshCalls = cacheFreshCallBudget
+	m.cacheClearBoundary = true
 	m.lastUsage = usage.Normalized{}
 	m.lastUsageSeen = false
 	m.streamUsage = qgruntime.Usage{}

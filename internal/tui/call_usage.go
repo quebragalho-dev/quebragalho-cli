@@ -122,17 +122,21 @@ func (m model) statusReadout(left string, width int) string {
 	// Speed now lives on the composer's top border; the status line keeps
 	// only the context readout.
 	context := m.contextStatusText(width)
-	right := context
 	// The cache segment rides right after the context readout and before the
-	// cwd. When space runs out it drops first, before the branch.
-	if seg, _ := cacheStatusSegment(m.cacheStatusData()); seg != "" {
+	// cwd. It drops first when narrow: whenever it shows, the full branch
+	// must fit too (a truncated branch with a live cache would claim room
+	// the cache did not leave), and below the branch gate it never shows.
+	branchFull := ""
+	if branch := strings.TrimSpace(m.gitBranch); branch != "" && width >= 58 {
+		branchFull = qgTheme.line.Render(" │ ") + qgTheme.muted.Render(" "+truncateDisplayWidth(branch, 24))
+	}
+	right := context
+	if seg, _ := cacheStatusSegment(m.cacheStatusData()); seg != "" && (branchFull != "" || strings.TrimSpace(m.gitBranch) == "") {
 		joined := seg
-		separator := ""
 		if right != "" {
-			separator = qgTheme.line.Render(" │ ")
-			joined = right + separator + seg
+			joined = right + qgTheme.line.Render(" │ ") + seg
 		}
-		if lipgloss.Width(left)+lipgloss.Width(joined)+9 <= width {
+		if lipgloss.Width(left)+lipgloss.Width(branchFull)+lipgloss.Width(joined)+9 <= width {
 			right = joined
 		}
 	}

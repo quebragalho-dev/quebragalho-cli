@@ -153,13 +153,17 @@ type model struct {
 	// its cause; lastCachePrefix empty means unknown (e.g. after a resume),
 	// which reports "motivo desconhecido" instead of crying bug.
 	cacheDrops      []cacheDrop
+	cacheCalls      []cacheCall
 	lastCachePrefix string
 	lastCacheAt     time.Time
 	lastCacheModel  string
-	// cacheFreshCalls counts down session-start usage events while a
-	// just-cleared session is still the likely cause of a miss ("conversa
-	// limpa"). Set on /new, consumed by the first calls.
-	cacheFreshCalls             int
+	// cacheCompactedPending marks a TUI-side compaction (compactResultMsg)
+	// the agent loop never saw, consumed as the next call's drop motive.
+	cacheCompactedPending bool
+	// cacheClearBoundary marks the first usage event after /clear or /new: the
+	// new conversation's session hit keeps accumulating, but that call never
+	// gains a drop motive.
+	cacheClearBoundary          bool
 	sessionCompactor            SessionCompactor
 	prService                   *PrService
 	prState                     PrState
@@ -3042,6 +3046,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// and the next call's receipt sets the new value. The /usage panel
 		// keeps its own last-call report.
 		m.meterLive = false
+		if msg.result.Compacted {
+			// A TUI-side compaction rewrote the history the next request
+			// replays, so a cache miss right after blames it.
+			m.cacheCompactedPending = true
+		}
 		m.lastCompactResult = &msg.result
 		m = m.setCompactStatusRow(m.compactText(true))
 		return m.launchParkedSendNowAfterCompaction()

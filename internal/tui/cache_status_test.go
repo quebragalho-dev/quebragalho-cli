@@ -101,10 +101,8 @@ func TestDecideCacheDropReason(t *testing.T) {
 		in   cacheDropInputs
 		want string
 	}{
-		{"primeira chamada nunca explica", cacheDropInputs{firstCall: true}, ""},
 		{"troca de modelo", cacheDropInputs{prevModel: "a", curModel: "b", prevPrefix: "h1", curPrefix: "h2"}, "troca de modelo"},
 		{"compactacao antes da pausa", cacheDropInputs{prevModel: "a", curModel: "a", compacted: true, gapLong: true, prevPrefix: "h1", curPrefix: "h1"}, "conversa compactada"},
-		{"limpeza antes da pausa", cacheDropInputs{prevModel: "a", curModel: "a", cleared: true, gapLong: true, prevPrefix: "h1", curPrefix: "h1"}, "conversa limpa"},
 		{"pausa longa", cacheDropInputs{prevModel: "a", curModel: "a", gapLong: true, prevPrefix: "h1", curPrefix: "h1"}, "pausa longa"},
 		{"prefixo mudou", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h2"}, "prefixo mudou"},
 		{"prefixo desconhecido nao acusa bug", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "", curPrefix: "h2"}, "motivo desconhecido"},

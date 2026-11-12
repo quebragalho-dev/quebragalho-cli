@@ -1179,11 +1179,10 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 	m.lastUsageReceipt = receipt
 	m.lastUsageSeen = true
 	m.meterLive = true
-	callsBefore := m.usageTracker.Summary().RecordCount
-	cleared := m.cacheFreshCalls > 0
-	if cleared {
-		m.cacheFreshCalls--
-	}
+	callsBefore := len(m.cacheCalls)
+	boundary := m.cacheClearBoundary
+	m.cacheClearBoundary = false
+	m = m.trackCacheUsage(normalized, receipt, callsBefore, boundary)
 	if record, err := m.usageTracker.Record(usage.RecordInput{
 		ModelID: modelID,
 		Usage:   runtimeUsage,
@@ -1204,7 +1203,6 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 		m.unpricedTokens += normalized.TotalTokens
 		return m, nil
 	}
-	m = m.trackCacheUsage(normalized, receipt, callsBefore, cleared)
 	return m, nil
 }
 

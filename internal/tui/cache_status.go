@@ -31,10 +31,6 @@ const maxCacheDropsShown = 5
 // cacheMissThreshold is the per-call hit below which a call counts as a drop.
 const cacheMissThreshold = 0.8
 
-// cacheFreshCallBudget is how many usage events after a session clear may
-// still blame the clear ("conversa limpa").
-const cacheFreshCallBudget = 2
-
 // cacheStaleGap is the silence after which a miss blames a cold server cache.
 const cacheStaleGap = 5 * time.Minute
 
@@ -88,19 +84,31 @@ func cacheStatusSegment(data cacheStatusData) (string, int) {
 	return seg, lipgloss.Width(seg)
 }
 
-// cacheStatusData gathers the segment input from the session usage tracker
-// and the drop journal.
+// cacheCall is one session-cache observation: token counts plus the model
+// that served it, priced or not. The hit math never depends on pricing.
+type cacheCall struct {
+	modelID string
+	input   int
+	cached  int
+	output  int
+}
+
+// cacheStatusData gathers the segment input from the session call journal.
 func (m model) cacheStatusData() cacheStatusData {
-	if m.usageTracker == nil {
+	if len(m.cacheCalls) == 0 {
 		return cacheStatusData{}
 	}
-	summary := m.usageTracker.Summary()
-	if summary.InputTokens <= 0 {
+	var input, cached int
+	for _, call := range m.cacheCalls {
+		input += call.input
+		cached += call.cached
+	}
+	if input <= 0 {
 		return cacheStatusData{}
 	}
-	data := cacheStatusData{hasData: true, hit: summary.CacheHitRate()}
-	if last := summary.LastRecord; last != nil && last.Usage.InputTokens > 0 &&
-		float64(last.Usage.CachedInputTokens)/float64(last.Usage.InputTokens) < cacheMissThreshold &&
+	data := cacheStatusData{hasData: true, hit: float64(cached) / float64(input)}
+	if last := m.cacheCalls[len(m.cacheCalls)-1]; last.input > 0 &&
+		float64(last.cached)/float64(last.input) < cacheMissThreshold &&
 		len(m.cacheDrops) > 0 {
 		// The journal's tail belongs to this same last call: drops are only
 		// appended for non-first sub-80 calls, in order.
@@ -115,10 +123,8 @@ func (m model) cacheStatusData() cacheStatusData {
 // hashes come from the agent's per-request fingerprint; empty means unknown
 // (never a mismatch).
 type cacheDropInputs struct {
-	firstCall             bool
 	prevModel, curModel   string
 	compacted             bool
-	cleared               bool
 	gapLong               bool
 	prevPrefix, curPrefix string
 }
@@ -127,16 +133,11 @@ type cacheDropInputs struct {
 // order. Unknown state reports "motivo desconhecido", never "prefixo mudou":
 // that one stays reserved for a proven fingerprint mismatch (a bug).
 func decideCacheDropReason(in cacheDropInputs) string {
-	if in.firstCall {
-		return ""
-	}
 	switch {
 	case in.prevModel != "" && in.curModel != "" && in.prevModel != in.curModel:
 		return "troca de modelo"
 	case in.compacted:
 		return "conversa compactada"
-	case in.cleared:
-		return "conversa limpa"
 	case in.gapLong:
 		return "pausa longa"
 	case in.prevPrefix != "" && in.curPrefix != "" && in.prevPrefix != in.curPrefix:
@@ -146,26 +147,33 @@ func decideCacheDropReason(in cacheDropInputs) string {
 	}
 }
 
-// trackCacheUsage updates the drop journal and the previous-call memory after
-// one priced usage event. callsBefore is the priced-call count before this
-// event; cleared reports a session clear since the previous call; receipt
-// carries the agent's per-request cache attribution in its meta
+// trackCacheUsage records one priced or unpriced usage event in the session
+// call journal and updates the drop journal and the previous-call memory.
+// callsBefore is the journal length before this event; boundary reports the
+// first call of a cleared conversation, which never gains a drop motive.
+// receipt carries the agent's per-request cache attribution in its meta
 // ("cache_prefix_hash", "cache_compacted").
-func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRow, callsBefore int, cleared bool) model {
+func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRow, callsBefore int, boundary bool) model {
+	modelID := strings.TrimSpace(receipt.meta["model"])
+	m.cacheCalls = append(m.cacheCalls, cacheCall{
+		modelID: modelID,
+		input:   normalized.InputTokens,
+		cached:  normalized.CachedInputTokens,
+		output:  normalized.OutputTokens,
+	})
 	prefix := strings.TrimSpace(receipt.meta["cache_prefix_hash"])
-	compacted := strings.TrimSpace(receipt.meta["cache_compacted"]) == "1"
+	compacted := strings.TrimSpace(receipt.meta["cache_compacted"]) == "1" || m.cacheCompactedPending
+	m.cacheCompactedPending = false
 	hit := 0.0
 	if normalized.InputTokens > 0 {
 		hit = float64(normalized.CachedInputTokens) / float64(normalized.InputTokens)
 	}
 	now := m.now()
-	isFirst := callsBefore <= 0 && m.unpricedRequests <= 0
-	if !isFirst && hit < cacheMissThreshold {
+	if !boundary && callsBefore > 0 && hit < cacheMissThreshold {
 		reason := decideCacheDropReason(cacheDropInputs{
 			prevModel:  m.lastCacheModel,
-			curModel:   strings.TrimSpace(receipt.meta["model"]),
+			curModel:   modelID,
 			compacted:  compacted,
-			cleared:    cleared,
 			gapLong:    !m.lastCacheAt.IsZero() && now.Sub(m.lastCacheAt) > cacheStaleGap,
 			prevPrefix: m.lastCachePrefix,
 			curPrefix:  prefix,
@@ -178,7 +186,7 @@ func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRo
 	if prefix != "" {
 		m.lastCachePrefix = prefix
 	}
-	if modelID := strings.TrimSpace(receipt.meta["model"]); modelID != "" {
+	if modelID != "" {
 		m.lastCacheModel = modelID
 	}
 	m.lastCacheAt = now
@@ -195,10 +203,11 @@ func (m model) seedUsageFromSessionEvents(events []sessions.Event) model {
 	// Only totals are recomposed: the drop journal needs live prefix data,
 	// and an unknown pre-resume prefix must never read as a mismatch.
 	m.cacheDrops = nil
+	m.cacheCalls = nil
 	m.lastCachePrefix = ""
 	m.lastCacheModel = ""
 	m.lastCacheAt = time.Time{}
-	m.cacheFreshCalls = 0
+	m.cacheClearBoundary = false
 	for _, event := range events {
 		if event.Type != sessions.EventUsage {
 			continue
@@ -211,6 +220,12 @@ func (m model) seedUsageFromSessionEvents(events []sessions.Event) model {
 		if err != nil {
 			continue
 		}
+		m.cacheCalls = append(m.cacheCalls, cacheCall{
+			modelID: modelID,
+			input:   normalized.InputTokens,
+			cached:  normalized.CachedInputTokens,
+			output:  normalized.OutputTokens,
+		})
 		// Recompute cost with the current catalog, like the live path: a
 		// resumed session keeps its token totals; unknown models ride the
 		// unpriced counters instead of a fabricated $0.00.
@@ -256,17 +271,21 @@ func parseUsageEventUsage(payload json.RawMessage) (string, qgruntime.Usage, boo
 
 // cacheSessionLines builds the "Cache desta sessão" panel block: a banded bar
 // with the session hit and the 95% goal, the cached input totals, the
-// estimated savings (only when every priced record has a cached BRL rate),
+// estimated savings (only when every served model has a cached BRL rate),
 // and the most recent drops. Nil when there is nothing to show yet.
 func (m model) cacheSessionLines() []string {
-	if m.usageTracker == nil {
+	if len(m.cacheCalls) == 0 {
 		return nil
 	}
-	summary := m.usageTracker.Summary()
-	if summary.RecordCount == 0 || summary.InputTokens <= 0 {
+	var input, cached int
+	for _, call := range m.cacheCalls {
+		input += call.input
+		cached += call.cached
+	}
+	if input <= 0 {
 		return nil
 	}
-	hit := summary.CacheHitRate()
+	hit := float64(cached) / float64(input)
 	var band lipgloss.Style
 	switch cacheHitBand(hit) {
 	case "green":
@@ -288,7 +307,7 @@ func (m model) cacheSessionLines() []string {
 		band.Render(strings.Repeat("█", filled)+strings.Repeat("░", 20-filled)) +
 			" " + band.Render(fmt.Sprintf("%.0f%%", hit*100)) +
 			" " + qgTheme.faint.Render("· meta 95%"),
-		formatCacheCount(summary.CachedInputTokens) + " de " + formatCacheCount(summary.InputTokens) + " tokens de entrada vieram do cache",
+		formatCacheCount(cached) + " de " + formatCacheCount(input) + " tokens de entrada vieram do cache",
 	}
 	if economy, ok := m.cacheEconomy(); ok {
 		lines = append(lines, economy)
@@ -304,33 +323,29 @@ func (m model) cacheSessionLines() []string {
 }
 
 // cacheEconomy renders the estimated savings line from live BRL pricing, or
-// reports false when any record lacks a cached-input BRL rate (the spec
-// forbids inventing prices) or unpriced calls make the totals incomplete.
+// reports false when any served model lacks a cached-input BRL rate (the spec
+// forbids inventing prices).
 func (m model) cacheEconomy() (string, bool) {
-	if m.usageTracker == nil || m.unpricedRequests > 0 {
-		return "", false
-	}
-	records := m.usageTracker.Records()
-	if len(records) == 0 {
+	if len(m.cacheCalls) == 0 {
 		return "", false
 	}
 	actual, without := new(big.Rat), new(big.Rat)
-	for _, record := range records {
-		pricing, ok := m.brlPricingForModel(record.ModelID)
+	for _, call := range m.cacheCalls {
+		pricing, ok := m.brlPricingForModel(call.modelID)
 		if !ok {
 			return "", false
 		}
 		billed, err := pricing.Cost(qgruntime.Usage{
-			InputTokens:       record.Usage.InputTokens,
-			OutputTokens:      record.Usage.OutputTokens,
-			CachedInputTokens: record.Usage.CachedInputTokens,
+			InputTokens:       call.input,
+			OutputTokens:      call.output,
+			CachedInputTokens: call.cached,
 		})
 		if err != nil {
 			return "", false
 		}
 		full, err := pricing.Cost(qgruntime.Usage{
-			InputTokens:  record.Usage.InputTokens,
-			OutputTokens: record.Usage.OutputTokens,
+			InputTokens:  call.input,
+			OutputTokens: call.output,
 		})
 		if err != nil {
 			return "", false
