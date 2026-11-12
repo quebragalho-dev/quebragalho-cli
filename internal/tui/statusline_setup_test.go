@@ -190,14 +190,32 @@ func TestStatuslineProposalValidation(t *testing.T) {
 	}
 }
 
-// Script names stay inside staging: traversal is rejected.
+// Script names stay inside staging: traversal is rejected, and a symlink
+// never opens even where it points inside.
 func TestStatuslineStagedScriptContainment(t *testing.T) {
 	staging := t.TempDir()
-	if _, err := confinedStagingPath(staging, "../evil.sh"); err == nil {
-		t.Fatal("traversal accepted")
+	if _, err := confinedStagingPath(staging, "ctx.sh"); err != nil {
+		t.Fatalf("plain name rejected: %v", err)
 	}
-	if _, err := confinedStagingPath(staging, "ok.sh"); err != nil {
-		t.Fatalf("valid name rejected: %v", err)
+	for _, bad := range []string{"../x.sh", "sub/x.sh", "..", ".", ""} {
+		if _, err := confinedStagingPath(staging, bad); err == nil {
+			t.Fatalf("traversal accepted: %q", bad)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("no O_NOFOLLOW on windows")
+	}
+	target := filepath.Join(t.TempDir(), "outside.sh")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\necho hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(staging, "link.sh")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := openStatuslineFileNoFollow(link, false); err == nil {
+		file.Close()
+		t.Fatal("symlinked staging opened without refusal")
 	}
 }
 
