@@ -48,19 +48,6 @@ func scanSkillTokens(text string, installed []skills.Skill) []skillTokenSpan {
 	return out
 }
 
-// skillExactToken reports whether token is a fully-typed "/name" that resolves
-// to a known skill with no args. The palette stays closed in that case: the
-// token is already complete, and Enter executes it (bare invocation), the
-// same way a complete builtin does — the user never picks a row.
-func skillExactToken(installed []skills.Skill, token string) bool {
-	name, ok := strings.CutPrefix(strings.ToLower(token), "/")
-	if !ok {
-		return false
-	}
-	name = strings.TrimSpace(name)
-	return name != "" && !strings.ContainsAny(name, " \t\n") && skillRegistered(installed, name)
-}
-
 func skillRegistered(installed []skills.Skill, name string) bool {
 	for _, skill := range installed {
 		if skillSlashName(skill.Name) == name {

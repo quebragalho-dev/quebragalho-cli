@@ -122,9 +122,7 @@ func (m *model) recomputeSuggestions() {
 		return
 	}
 	matchToken := trailingSlashToken(value)
-	if matchToken == "" || skillExactToken(m.installedSkills(), matchToken) {
-		// A fully-typed skill token is complete: nothing left to complete.
-		// Enter executes it (bare invocation), matching a complete builtin.
+	if matchToken == "" {
 		m.suggestions = nil
 		m.suggestionIdx = 0
 		m.commandPaletteOpen = false
