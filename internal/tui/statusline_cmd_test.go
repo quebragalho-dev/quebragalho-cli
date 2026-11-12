@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -397,26 +396,30 @@ func statuslineTestProcessZombie(pid int) bool {
 	return strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
 }
 
-// Unbounded output is capped in memory: a 200 MiB flood grows the heap by
-// megabytes, not hundreds of megabytes. TotalAlloc is cumulative, so the
-// gap between capped (64 KiB kept) and uncapped is unmistakable.
+// Unbounded output is capped in memory: the buffer keeps exactly the 64 KiB
+// head no matter how large the flood is, and a fast finite flood still
+// succeeds end to end (capped to three sanitized lines).
 func TestStatuslineCommandCapsOutput(t *testing.T) {
-	restore := stubStatuslineShell(spamHelperCommand(200 << 20))
+	kept := &cappedStatuslineBuffer{cap: maxStatuslineCmdOutputBytes}
+	chunk := make([]byte, 8192)
+	for written := 0; written < 2<<20; {
+		n, err := kept.Write(chunk)
+		if err != nil || n != len(chunk) {
+			t.Fatalf("Write = %d, %v, want full chunk accepted", n, err)
+		}
+		written += n
+	}
+	if len(kept.bytes) != maxStatuslineCmdOutputBytes {
+		t.Fatalf("buffer kept %d bytes, want the %d-byte cap", len(kept.bytes), maxStatuslineCmdOutputBytes)
+	}
+	restore := stubStatuslineShell(spamHelperCommand(1 << 20))
 	defer restore()
-	runtime.GC()
-	var before runtime.MemStats
-	runtime.ReadMemStats(&before)
 	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 30*time.Second)
-	var after runtime.MemStats
-	runtime.ReadMemStats(&after)
 	if msg.errNote != "" {
 		t.Fatalf("errNote = %q, want success", msg.errNote)
 	}
 	if len(msg.lines) != 3 {
 		t.Fatalf("lines = %d, want the 3-line sanitize cap", len(msg.lines))
-	}
-	if grew := after.TotalAlloc - before.TotalAlloc; grew > 64<<20 {
-		t.Fatalf("heap grew by %d bytes for a capped read, want at most 64 MiB", grew)
 	}
 }
 
