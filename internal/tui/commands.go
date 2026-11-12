@@ -39,6 +39,7 @@ const (
 	commandFast
 	commandStyle
 	commandTheme
+	commandStatusline
 	commandTranscript
 	commandBash
 	commandImage
@@ -409,6 +410,13 @@ var commandDefinitions = []commandDefinition{
 		group:       commandGroupSession,
 		description: "Escolhe o tema de cor (sem argumento abre o seletor; auto detecta o fundo do terminal).",
 		kind:        commandTheme,
+	},
+	{
+		name:        "/statusline",
+		usage:       "/statusline [texto|reset]",
+		group:       commandGroupSession,
+		description: "Mostra, monta com o modelo ou reseta a statusline.",
+		kind:        commandStatusline,
 	},
 	{
 		name:        "/exit",

@@ -67,7 +67,12 @@ func (c StatusLineConfig) EffectiveRefreshMs() int {
 	return c.RefreshMs
 }
 
-// normalize trims incidental whitespace so " context " and "context" agree.
+// Normalized returns the trimmed canonical form (see normalize). The TUI
+// proposal path normalizes before persisting so " context " and "context"
+// agree; Resolve and SetStatusLine normalize stored values the same way.
+func (c StatusLineConfig) Normalized() StatusLineConfig {
+	return c.normalize()
+}
 func (c StatusLineConfig) normalize() StatusLineConfig {
 	out := StatusLineConfig{
 		Separator: c.Separator,

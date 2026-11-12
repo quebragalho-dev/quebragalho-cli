@@ -227,6 +227,10 @@ func btwCommandUnavailable(command parsedCommand) bool {
 		return arg != "list"
 	case commandConfig:
 		return arg != ""
+	case commandStatusline:
+		// Bare /statusline is a read-only status card; reset/setup mutate
+		// config and spawn turns, so they stay on the main session.
+		return arg != ""
 	default:
 		return false
 	}

@@ -1176,7 +1176,7 @@ func slashHelpRenderedRow(c commandDefinition) string {
 // already truncates with "…" in the real /help card. The current cut set must
 // stay within these sets: any newly cut command fails the test.
 var slashHelpBaseCuts = map[int][]string{
-	50:  {"/model", "/stt-model", "/voice", "/plan", "/permissions", "/stop", "/attach", "/sandbox-setup", "/skills", "/usage", "/context", "/image", "/add-dir", "/new", "/btw", "/search", "/resume", "/rename", "/spec", "/init", "/compact", "/transcript", "/rewind", "/effort", "/fast", "/style", "/selfcorrect", "/turns", "/profile", "/edit", "/export", "/loop", "/goal", "/doctor", "/logout", "/config", "/theme"},
-	80:  {"/voice", "/plan", "/attach", "/skills", "/image", "/add-dir", "/btw", "/search", "/compact", "/rewind", "/effort", "/style", "/selfcorrect", "/turns", "/profile", "/loop", "/goal", "/doctor", "/config", "/theme"},
-	120: {"/image", "/add-dir", "/selfcorrect", "/profile", "/loop", "/goal"},
+	50:  {"/model", "/stt-model", "/voice", "/plan", "/permissions", "/stop", "/attach", "/sandbox-setup", "/skills", "/usage", "/context", "/image", "/add-dir", "/new", "/btw", "/search", "/resume", "/rename", "/spec", "/init", "/compact", "/transcript", "/rewind", "/effort", "/fast", "/style", "/selfcorrect", "/turns", "/profile", "/edit", "/export", "/loop", "/goal", "/doctor", "/logout", "/config", "/theme", "/statusline"},
+	80:  {"/voice", "/plan", "/attach", "/skills", "/image", "/add-dir", "/btw", "/search", "/compact", "/rewind", "/effort", "/style", "/selfcorrect", "/turns", "/profile", "/loop", "/goal", "/doctor", "/config", "/theme", "/statusline"},
+	120: {"/image", "/add-dir", "/selfcorrect", "/profile", "/loop", "/goal", "/statusline"},
 }

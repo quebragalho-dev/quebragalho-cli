@@ -650,8 +650,14 @@ type model struct {
 	statuslineCmdInFlight bool
 	// statuslineCmdStartedAt gates re-runs to the refresh window; seq matches
 	// runs to their results so late losers are dropped.
-	statuslineCmdStartedAt       time.Time
-	statuslineCmdSeq             int
+	statuslineCmdStartedAt time.Time
+	statuslineCmdSeq       int
+	// statuslineSetup tracks an in-flight /statusline setup turn; cleared
+	// when its final message finalizes (or when no proposal validates).
+	statuslineSetup *statuslineSetupState
+	// statuslinePending waits for Enter (apply) or Esc (cancel) on a rendered
+	// preview. While set it owns the keyboard (see handleStatuslinePendingKey).
+	statuslinePending            *statuslinePendingApply
 	recapSeq                     int
 	recapRunning                 bool
 	recapCancel                  context.CancelFunc
@@ -1595,7 +1601,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// starts async (at most one in flight) and the idle tick chain stays
 	// armed. It never runs on the default path.
 	nm, statuslineCmd := nm.pollStatuslineCommand(msg)
-	return nm, batchCommands(cmd, mouseCmd, flushCmd, recapActivityCmd, composerCmd, noticeCmd, statuslineCmd)
+	// A finished setup turn finalizes here (both normal and cancelled
+	// landings flow through Update): validate the staging, preview, wait.
+	nm, statuslineSetupCmd := nm.maybeFinalizeStatuslineSetup(msg)
+	return nm, batchCommands(cmd, mouseCmd, flushCmd, recapActivityCmd, composerCmd, noticeCmd, statuslineCmd, statuslineSetupCmd)
 }
 
 func batchCommands(cmds ...tea.Cmd) tea.Cmd {
@@ -1880,6 +1889,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.renamePrompt != nil {
 			return m.handleSessionRenameKey(msg)
+		}
+		// A statusline proposal preview owns the keyboard until Enter applies
+		// or Esc discards it; anything else is swallowed, never typed.
+		if m.statuslinePending != nil {
+			return m.handleStatuslinePendingKey(msg)
 		}
 		m.transcriptSelection = transcriptSelectionState{}
 		m.composerSelection = composerSelectionState{}
@@ -3310,6 +3324,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// discreet failure mark) without touching anything else. The View
 		// reads only the cache, so a run can never block rendering.
 		return m.applyStatuslineCmdMsg(msg), nil
+	case statuslineSetupValidatedMsg:
+		// The staged-script dry run finished: failure discards the staging,
+		// success renders the preview and waits for Enter/Esc.
+		return m.applyStatuslineSetupValidated(msg), nil
 	case statuslineTickMsg:
 		// Idle refresh: start a due run and re-arm the chain. A deactivated
 		// command ends the chain by scheduling nothing.
@@ -5591,6 +5609,10 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
+	case commandStatusline:
+		// /statusline never launches through the picker: bare shows the
+		// status card, "reset" clears, anything else starts a setup turn.
+		return m.handleStatuslineCommand(command.text)
 	case commandImage:
 		m = m.handleImageCommand(command.text)
 		return m, nil
