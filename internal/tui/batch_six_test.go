@@ -170,6 +170,8 @@ func TestBatchSixPanelsWidthsAndLiveRefresh(t *testing.T) {
 }
 
 func TestBatchSixModelScopeAndEffortRestart(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
 	for _, session := range []bool{true, false} {
 		t.Run(strconv.FormatBool(session), func(t *testing.T) {
 			m := batchThreeLiveModel(t)

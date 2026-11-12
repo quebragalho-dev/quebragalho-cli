@@ -186,6 +186,8 @@ func batchMeterModelName(t *testing.T) string {
 // Switching models keeps the session usage and renders it against the new
 // window; the next completed call corrects the figure.
 func TestContextMeterFollowsUsageAcrossModelSwitch(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
 	baseProfile := config.ProviderProfile{
 		Name:         "qg",
 		CatalogID:    "qg",
@@ -230,6 +232,8 @@ func TestContextMeterFollowsUsageAcrossModelSwitch(t *testing.T) {
 // A compaction before the switch still zeroes the meter: the switch must
 // not resurrect the old fill, and the next call sets the new value.
 func TestContextMeterSwitchAfterCompactionStaysZeroed(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
 	baseProfile := config.ProviderProfile{
 		Name:         "qg",
 		CatalogID:    "qg",

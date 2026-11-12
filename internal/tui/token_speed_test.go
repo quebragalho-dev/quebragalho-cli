@@ -175,6 +175,8 @@ func TestApprovalWaitShowsFaintRate(t *testing.T) {
 }
 
 func TestRateClearedOnModelSwitch(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
 	m := batchThreeLiveModel(t)
 	m.providerProfile.Name = "qg"
 	m.providerProfile.ProviderKind = config.ProviderKindOpenAICompatible

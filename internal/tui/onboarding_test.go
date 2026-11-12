@@ -18,6 +18,8 @@ import (
 )
 
 func TestSetupTakeoverRendersAndCompletes(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
 	var saved SetupSelection
 	m := newModel(context.Background(), Options{
 		Setup: SetupOptions{
@@ -252,6 +254,8 @@ func TestSetupEnterDoesNotAdvanceSpaceOnlyStages(t *testing.T) {
 }
 
 func TestSetupCredentialsAcceptsPastedAPIKeyWithoutRenderingSecret(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
 	const secret = "sk-pasted-secret"
 	var saved SetupSelection
 	m := newModel(context.Background(), Options{
@@ -792,6 +796,8 @@ func TestBrowserLoginShowsURLAndCodeAndOpensBrowser(t *testing.T) {
 }
 
 func TestDeviceApprovedValidatesKeyThenAdvancesToModel(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
 	const key = "sk-device-approved"
 	f := &fakeDeviceLogin{waitKey: key}
 	r := newSetupRuntime(t, newDeviceSetupModel(f))

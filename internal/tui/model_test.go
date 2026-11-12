@@ -620,6 +620,8 @@ func TestModelCommandShowsActiveModelWithoutRunningAgent(t *testing.T) {
 }
 
 func TestModelCommandSwitchesSessionModel(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
 	var rebuilt config.ProviderProfile
 	nextProvider := &fakeProvider{}
 	m := newModel(context.Background(), Options{
@@ -3401,6 +3403,8 @@ func TestMissingProviderNoticeCitesQGSetupAndAPIKey(t *testing.T) {
 }
 
 func TestHandleModelCommandScopeEffortLevels(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
 	baseProfile := config.ProviderProfile{
 		Name:         "qg",
 		CatalogID:    "qg",
