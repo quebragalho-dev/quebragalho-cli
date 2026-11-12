@@ -454,6 +454,12 @@ func (m model) pollStatuslineCommand(msg tea.Msg) (model, tea.Cmd) {
 // maybeStartStatuslineRunForced launches one run now, skipping the refresh
 // window (a finished turn just changed the numbers). Still never overlaps.
 func (m model) maybeStartStatuslineRunForced() (model, tea.Cmd) {
+	if m.statuslineCmdInFlight {
+		// No overlap, no queue: remember the refresh and run it when the
+		// in-flight run completes (consumed in applyStatuslineCmdMsg).
+		m.statuslineRefreshDue = true
+		return m, nil
+	}
 	return m.startStatuslineRun(true)
 }
 
@@ -491,17 +497,22 @@ func (m model) startStatuslineRun(force bool) (model, tea.Cmd) {
 
 // applyStatuslineCmdMsg folds a finished run: output replaces the cache and
 // clears the error mark; a failure keeps the last good value and marks
-// discreetly. Stale runs (a newer one started) are dropped.
-func (m model) applyStatuslineCmdMsg(msg statuslineCmdMsg) model {
+// discreetly. Stale runs (a newer one started) are dropped. A turn-end
+// refresh queued during the flight runs now.
+func (m model) applyStatuslineCmdMsg(msg statuslineCmdMsg) (model, tea.Cmd) {
 	if msg.seq != m.statuslineCmdSeq {
-		return m
+		return m, nil
 	}
 	m.statuslineCmdInFlight = false
 	if msg.errNote != "" {
 		m.statuslineCmdErr = msg.errNote
-		return m
+	} else {
+		m.statuslineCmdOutput = strings.Join(msg.lines, "\n")
+		m.statuslineCmdErr = ""
 	}
-	m.statuslineCmdOutput = strings.Join(msg.lines, "\n")
-	m.statuslineCmdErr = ""
-	return m
+	if m.statuslineRefreshDue && m.statuslineCommandActive() {
+		m.statuslineRefreshDue = false
+		return m.startStatuslineRun(true)
+	}
+	return m, nil
 }

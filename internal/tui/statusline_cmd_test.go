@@ -244,6 +244,32 @@ func TestStatuslinePollFailureKeepsLastGood(t *testing.T) {
 	}
 }
 
+// A forced refresh that lands while a run is in flight is not lost: it is
+// queued and consumed when the in-flight run completes.
+func TestStatuslineForcedRefreshQueuedDuringFlight(t *testing.T) {
+	m := limeTestModel()
+	m.statuslineCfg = config.StatusLineConfig{Command: &config.StatusLineCommand{Command: "echo hi"}}
+	m, _ = m.maybeStartStatuslineRun()
+	if !m.statuslineCmdInFlight {
+		t.Fatal("precondition: no run in flight")
+	}
+	m, cmd := m.maybeStartStatuslineRunForced()
+	if cmd != nil {
+		t.Fatalf("overlapping run started: %T", cmd)
+	}
+	m, cmd = m.applyStatuslineCmdMsg(statuslineCmdMsg{seq: m.statuslineCmdSeq})
+	if cmd == nil {
+		t.Fatal("queued refresh was dropped on completion")
+	}
+	msg, ok := execCmd(cmd).(statuslineCmdMsg)
+	if !ok {
+		t.Fatalf("queued refresh returned %T, want statuslineCmdMsg", execCmd(cmd))
+	}
+	if msg.seq != m.statuslineCmdSeq {
+		t.Fatalf("queued refresh seq = %d, want %d", msg.seq, m.statuslineCmdSeq)
+	}
+}
+
 // A grandchild that outlives the shell holding stdout open must not wedge
 // the runner: the timeout kills the tree and the next cycle runs.
 func TestStatuslineCommandKillsTreeOnTimeout(t *testing.T) {

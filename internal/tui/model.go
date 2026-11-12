@@ -652,6 +652,10 @@ type model struct {
 	// runs to their results so late losers are dropped.
 	statuslineCmdStartedAt time.Time
 	statuslineCmdSeq       int
+	// statuslineRefreshDue remembers a turn-end refresh that arrived while a
+	// run was in flight; applyStatuslineCmdMsg consumes it by starting the
+	// next run instead of dropping the refresh.
+	statuslineRefreshDue bool
 	// statuslineSetup tracks an in-flight /statusline setup turn; cleared
 	// when its final message finalizes (or when no proposal validates).
 	statuslineSetup *statuslineSetupState
@@ -3326,9 +3330,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case statuslineCmdMsg:
 		// One external statusline run finished: fold its output (or its
-		// discreet failure mark) without touching anything else. The View
-		// reads only the cache, so a run can never block rendering.
-		return m.applyStatuslineCmdMsg(msg), nil
+		// discreet failure mark) without touching anything else, and run a
+		// turn-end refresh queued during the flight. The View reads only
+		// the cache, so a run can never block rendering.
+		return m.applyStatuslineCmdMsg(msg)
 	case statuslineSetupValidatedMsg:
 		// The staged-script dry run finished: failure discards the staging,
 		// success renders the preview and waits for Enter/Esc.
