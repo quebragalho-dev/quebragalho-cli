@@ -291,3 +291,22 @@ func TestNewHookDispatcherWithExtraFoldsPluginHooks(t *testing.T) {
 		t.Fatalf("expected the plugin beforeTool hook to run, Ran=%d", outcome.Ran)
 	}
 }
+
+func TestSkillInfosCarriesEnvironments(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := dir + "/foo"
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: foo\ndescription: foo orchestrator\nenvironment: [FOO_SOCKET]\n---\nbar"
+	if err := os.WriteFile(skillDir+"/SKILL.md", []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	infos := pluginActivation{}.skillInfos(dir)
+	if len(infos) != 1 {
+		t.Fatalf("expected one skill, got %+v", infos)
+	}
+	if len(infos[0].Environments) != 1 || infos[0].Environments[0] != "FOO_SOCKET" {
+		t.Fatalf("environments not mapped, got %+v", infos[0])
+	}
+}

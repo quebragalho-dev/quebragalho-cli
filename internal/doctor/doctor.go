@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
@@ -55,6 +56,11 @@ type Options struct {
 	// GOOS overrides the platform used to resolve the sandbox backend. Empty
 	// means runtime.GOOS. Tests set it to assert platform-specific remedies.
 	GOOS string
+	// Orchestrators lists installed skills detected as ambient (see
+	// agent.DetectOrchestrators), computed by the caller from the run's skills
+	// and environment. Reported as informational only: names and detection
+	// signals, never variable values.
+	Orchestrators []agent.DetectedOrchestrator
 	// LookupExecutable resolves a binary on PATH for the sandbox-backend and
 	// LSP-server checks. Nil means exec.LookPath; tests inject a stub so the
 	// checks are deterministic regardless of the host's installed tooling.
@@ -78,6 +84,7 @@ func Run(options Options) Report {
 	checks = append(checks, connectivityCheck(options.Provider, options.Connectivity, modelCheck.Status, options.ProviderHealth))
 	checks = append(checks, sandboxBackendCheck(options.GOOS, options.LookupExecutable, options.WorkspaceRoot, options.Sandbox))
 	checks = append(checks, lspServersCheck(options.LookupExecutable))
+	checks = append(checks, orchestratorCheck(options.Orchestrators))
 
 	report := Report{
 		GeneratedAt: now().UTC().Format(time.RFC3339),
@@ -114,6 +121,26 @@ func Format(report Report) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func orchestratorCheck(detected []agent.DetectedOrchestrator) Check {
+	names := make([]string, 0, len(detected))
+	for _, d := range detected {
+		name := strings.TrimSpace(d.Name)
+		signal := strings.TrimSpace(d.Signal)
+		if name == "" {
+			continue
+		}
+		if signal != "" {
+			names = append(names, name+" ("+signal+")")
+		} else {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return check("orchestrator.env", "Ambient orchestrator", StatusPass, "No ambient orchestrator detected.", nil)
+	}
+	return check("orchestrator.env", "Ambient orchestrator", StatusPass, "Ambient orchestrator detected: "+strings.Join(names, ", ")+".", nil)
 }
 
 func runtimeCheck(runtime string) Check {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
@@ -464,5 +465,27 @@ func TestDoctorFailsRemoteProviderWithoutCredential(t *testing.T) {
 	})
 	if c := local.Check("provider.config"); c == nil || c.Status != StatusPass {
 		t.Fatalf("keyless local provider should pass provider.config, got %#v", c)
+	}
+}
+
+func TestRunReportsDetectedOrchestrator(t *testing.T) {
+	report := Run(Options{
+		Runtime: "go",
+		Orchestrators: []agent.DetectedOrchestrator{
+			{Name: "foo", Signal: "env:FOO_SOCKET"},
+		},
+	})
+	found := report.Check("orchestrator.env")
+	if found == nil {
+		t.Fatalf("orchestrator.env check missing: %+v", report.Checks)
+	}
+	out := Format(report)
+	for _, want := range []string{"foo", "env:FOO_SOCKET"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor output must show %q, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "sock-") {
+		t.Fatalf("doctor must never print env values, got:\n%s", out)
 	}
 }
