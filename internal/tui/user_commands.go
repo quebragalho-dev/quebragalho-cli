@@ -50,6 +50,11 @@ func (m model) handleUserCommand(raw string) (model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	next, teaCmd := m.launchPromptSilent(prompt)
+	// /retry and /edit act on what the user typed, not the expanded template
+	// (raw is what the FIFO keeps for the pending path too). Re-dispatch
+	// re-resolves the command at /retry time.
+	next.lastPrompt = raw
+	next.lastPrompts = []string{raw}
 	return next, teaCmd, true
 }
 

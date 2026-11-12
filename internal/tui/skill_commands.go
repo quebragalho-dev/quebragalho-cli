@@ -42,6 +42,29 @@ func (m model) handleSkillCommand(raw string) (model, tea.Cmd, bool) {
 	return m.launchOrDeferExpandedPrompt(raw)
 }
 
+// launchPinnedOrDefer delivers an agent-facing wire that has no raw
+// spelling (a non-typable skill's body from the picker). The run-state
+// guards match the slash paths; the FIFO keeps the wire under a marker so
+// the drain and /retry send it without a second expansion pass.
+func (m model) launchPinnedOrDefer(wire string) (model, tea.Cmd, bool) {
+	if m.exiting {
+		return m, nil, true
+	}
+	if m.pending {
+		return m.queueMessage(literalPinnedPrefix + wire), nil, true
+	}
+	if m.compactInFlight {
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{
+			kind: actionAppendSystem,
+			text: "Compact\nstatus: warning\nCompaction is running. Re-pick the skill when it finishes.",
+		})
+		return m, nil, true
+	}
+	next, teaCmd := m.launchPromptSilent(wire)
+	next.lastPromptLiteral = true
+	return next, teaCmd, true
+}
+
 // bareSkillInvocationNote is appended when a skill is invoked with no request.
 // The body alone is instructions with no target ("review the PR" — which PR?),
 // and without this note the model improvises one instead of asking. The wording
@@ -133,6 +156,16 @@ func (m model) invokeSkillByName(name string) (model, tea.Cmd) {
 				text: "skill " + name + " has an empty SKILL.md body (" + skill.Path + ")",
 			})
 			return m, nil
+		}
+		if skillSlashName(name) == "" {
+			// Non-typable name (e.g. a space in it): the picker is the ONLY
+			// path to this skill, so it must expand the body here — a
+			// "/has space" line reaches no skill at dispatch time. There is
+			// no raw spelling for the wire, so the pinned literal path
+			// delivers it (guards included).
+			wire := composeSkillPrompt(body, "")
+			next, teaCmd, _ := m.launchPinnedOrDefer(wire)
+			return next, teaCmd
 		}
 		next, teaCmd, _ := m.launchOrDeferExpandedPrompt("/" + name)
 		return next, teaCmd

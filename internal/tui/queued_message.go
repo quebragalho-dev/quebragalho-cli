@@ -125,18 +125,28 @@ func (b *interleaveBuffer) drain() []qgruntime.Message {
 	return out
 }
 
+// literalPinnedPrefix marks FIFO entries that are already the agent-facing
+// wire (a non-typable skill's body from the picker). Consumers strip it and
+// send the remainder WITHOUT slash/skill expansion — the marker never rides
+// the wire, the transcript or the composer.
+const literalPinnedPrefix = "\x00"
+
 // queueMessage appends text to the FIFO queue of pending follow-up messages.
 // Every queued message renders as a dimmed Sussurro row in the transcript; ↑
 // edits only the last one; Ctrl+Enter (or /agora, when the terminal cannot
 // tell Ctrl+Enter from Enter) sends the queue plus the draft now; at the end
-// of the turn the head rides the next turn.
+// of the turn the head rides the next turn. Pinned entries are recalled from
+// the visible text (never the raw marker) and never enter the input history.
 func (m model) queueMessage(text string) model {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return m
 	}
+	pinned := strings.HasPrefix(text, literalPinnedPrefix)
 	m.queuedMessages = append(m.queuedMessages, text)
-	m.rememberInput(text)
+	if !pinned {
+		m.rememberInput(text)
+	}
 	m.clearComposer()
 	m.clearSuggestions()
 	return m
@@ -165,7 +175,7 @@ func (m model) popQueuedMessageForEdit() model {
 	}
 	text := m.queuedMessages[len(m.queuedMessages)-1]
 	m.queuedMessages = m.queuedMessages[:len(m.queuedMessages)-1]
-	return m.returnTextsToComposer(text)
+	return m.returnTextsToComposer(strings.TrimPrefix(text, literalPinnedPrefix))
 }
 
 // popInterleaveForEdit moves the parked send-now batch's tail (the newest
@@ -207,6 +217,9 @@ func (m model) returnQueuedMessagesToComposer() model {
 	}
 	m.pendingSendNow = nil
 	m.queuedMessages = nil
+	for i, text := range combinedAll {
+		combinedAll[i] = strings.TrimPrefix(text, literalPinnedPrefix)
+	}
 	combined := strings.Join(combinedAll, "\n")
 	if draft := m.composerValue(); strings.TrimSpace(draft) != "" {
 		combined += "\n" + draft
@@ -271,6 +284,7 @@ func (m model) queuedSendHint() string {
 }
 
 func flattenQueueText(text string) string {
+	text = strings.TrimPrefix(text, literalPinnedPrefix)
 	return strings.Join(strings.Fields(text), " ")
 }
 

@@ -474,6 +474,10 @@ type model struct {
 	// lastPrompt. Set on every launchPromptsInternal; cleared nowhere (it
 	// follows lastPrompt, which is composer history).
 	lastPrompts []string
+	// lastPromptLiteral is true when the last-prompt slot holds a
+	// pre-expanded wire (a non-typable skill's body from the picker), not a
+	// command line: /retry resends it as-is instead of re-dispatching.
+	lastPromptLiteral bool
 	// lastImages/lastImageLabels/lastDocuments remember the attachments consumed
 	// by the most recent submitted prompt. launchPrompt clears the pending queues
 	// once a turn is sent, so /retry re-stages these to reproduce the exact same
@@ -4996,6 +5000,10 @@ func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 	// never reach the wire from here.
 	remaining := make([]string, 0, len(m.queuedMessages))
 	for _, text := range m.queuedMessages {
+		if _, pinned := strings.CutPrefix(text, literalPinnedPrefix); pinned {
+			remaining = append(remaining, text)
+			continue
+		}
 		if isCommonPrompt(text, m.agentOptions.Specialists, m.installedSkills()) {
 			all = append(all, text)
 			continue
@@ -5547,6 +5555,11 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		m.pendingImageLabels = m.lastImageLabels
 		m.pendingDocuments = m.lastDocuments
 		m.refreshPendingImageThumbnail()
+		// The last-prompt slot may hold a pre-expanded wire (a non-typable
+		// skill's body from the picker), not a command line: resend it as-is.
+		if m.lastPromptLiteral {
+			return m.launchPromptSilent(m.lastPrompt)
+		}
 		// Resend the last submitted message — running the full dispatch again
 		// so skill tokens re-expand from the raw text and user commands
 		// re-resolve, same as if the user had pressed Enter anew.
@@ -5657,6 +5670,7 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 	if peer == nil {
 		m.lastPrompt = strings.Join(prompts, "\n")
 		m.lastPrompts = append([]string(nil), prompts...)
+		m.lastPromptLiteral = false
 		m.lastImages = m.pendingImages
 		m.lastImageLabels = m.pendingImageLabels
 		m.lastDocuments = m.pendingDocuments
@@ -6055,6 +6069,11 @@ func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
 	}
 	prompt := m.queuedMessages[0]
 	m.queuedMessages = m.queuedMessages[1:]
+	// A pinned entry is already the agent-facing wire (a non-typable
+	// skill's body from the picker): launch it literally, never re-expand.
+	if wire, pinned := strings.CutPrefix(prompt, literalPinnedPrefix); pinned {
+		return m.launchPromptSilent(wire)
+	}
 	// Re-dispatch the queued line so skill tokens re-expand, user commands
 	// re-resolve and builtins still execute — the FIFO is raw text; the wire
 	// is built here.
