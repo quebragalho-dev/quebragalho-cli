@@ -20,6 +20,10 @@ type MCPServerView struct {
 	Target    string
 	Auth      string
 	ToolCount int
+	// Status is the startup probe outcome: "ok", "failed", or "disabled".
+	// Detail carries the failure reason when Status is "failed".
+	Status string
+	Detail string
 }
 
 type MCPToolView struct {
@@ -155,6 +159,13 @@ func mcpManagerServerLines(servers []MCPServerView) []string {
 		lines = append(lines, prefix+strings.Join(parts, " · "))
 		if target := strings.TrimSpace(server.Target); target != "" {
 			lines = append(lines, "  "+target)
+		}
+		if server.Status == "failed" {
+			if detail := strings.TrimSpace(server.Detail); detail != "" {
+				lines = append(lines, "  ✘ "+detail)
+			} else {
+				lines = append(lines, "  ✘ falhou ao conectar")
+			}
 		}
 		if actions := strings.TrimSpace(mcpServerActionLine(server)); actions != "" {
 			lines = append(lines, "  "+actions)

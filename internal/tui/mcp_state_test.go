@@ -44,6 +44,7 @@ func TestBuildMCPViewStateSummarizesConfiguredServers(t *testing.T) {
 		Transport: "stdio",
 		State:     "enabled",
 		Target:    "docs-mcp --workspace . env QG_DOCS_TOKEN=[REDACTED]",
+		Status:    "ok",
 	})
 	assertServerView(t, state.Servers[1], MCPServerView{
 		Name:      "linear",
@@ -51,12 +52,14 @@ func TestBuildMCPViewStateSummarizesConfiguredServers(t *testing.T) {
 		State:     "disabled",
 		Target:    "https://linear.example/mcp headers Authorization=[REDACTED]",
 		Auth:      "oauth",
+		Status:    "disabled",
 	})
 	assertServerView(t, state.Servers[2], MCPServerView{
 		Name:      "updates",
 		Transport: "sse",
 		State:     "enabled",
 		Target:    "https://events.example/sse headers X-Api-Key=[REDACTED]",
+		Status:    "ok",
 	})
 
 	rendered := renderMCPView(state, 160)
@@ -306,4 +309,33 @@ func (client *tuiFakeMCPClient) CallTool(context.Context, string, map[string]any
 
 func (client *tuiFakeMCPClient) Close() error {
 	return nil
+}
+
+func TestBuildMCPViewStateMarksSkippedServersFailed(t *testing.T) {
+	cfg := config.MCPConfig{Servers: map[string]config.MCPServerConfig{
+		"down": {Type: "http", URL: "http://127.0.0.1:1/mcp"},
+	}}
+
+	state := BuildMCPViewState(MCPStateOptions{
+		Config:  cfg,
+		Skipped: map[string]string{"down": "connection refused"},
+	})
+
+	if len(state.Servers) != 1 {
+		t.Fatalf("servers = %#v, want 1", state.Servers)
+	}
+	assertServerView(t, state.Servers[0], MCPServerView{
+		Name:      "down",
+		Transport: "http",
+		State:     "enabled",
+		Target:    "http://127.0.0.1:1/mcp",
+		Status:    "failed",
+		Detail:    "connection refused",
+	})
+
+	lines := mcpManagerServerLines(state.Servers)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "✘ connection refused") {
+		t.Fatalf("manager lines hide the failure reason:\n%s", joined)
+	}
 }

@@ -19,6 +19,9 @@ type MCPStateOptions struct {
 	PermissionMode  string
 	PromptCount     int
 	DeniedCount     int
+	// Skipped maps server name to the startup failure reason, so the manager
+	// shows why a configured server has no tools instead of looking healthy.
+	Skipped map[string]string
 }
 
 type mcpServerNamedTool interface {
@@ -38,21 +41,30 @@ func BuildMCPViewState(options MCPStateOptions) MCPViewState {
 	}
 
 	return MCPViewState{
-		Servers:     buildMCPServerViews(options.Config, toolCounts),
+		Servers:     buildMCPServerViews(options.Config, toolCounts, options.Skipped),
 		Tools:       toolViews,
 		Permissions: buildMCPPermissionSummary(options),
 		OAuth:       buildMCPOAuthSummary(options.Config, options.TokenStore),
 	}
 }
 
-func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int) []MCPServerView {
+func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int, skipped map[string]string) []MCPServerView {
 	names := sortedMCPServerNames(cfg)
 	servers := make([]MCPServerView, 0, len(names))
 	for _, name := range names {
 		raw := cfg.Servers[name]
 		state := "enabled"
+		status := "ok"
 		if raw.Disabled {
 			state = "disabled"
+			status = "disabled"
+		}
+		detail := ""
+		if status != "disabled" {
+			if reason, ok := skipped[name]; ok {
+				status = "failed"
+				detail = reason
+			}
 		}
 		servers = append(servers, MCPServerView{
 			Name:      name,
@@ -61,6 +73,8 @@ func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int) []MCPS
 			Target:    mcpServerTarget(raw),
 			Auth:      strings.TrimSpace(raw.Auth),
 			ToolCount: toolCounts[name],
+			Status:    status,
+			Detail:    detail,
 		})
 	}
 	return servers

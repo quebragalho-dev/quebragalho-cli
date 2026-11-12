@@ -10,6 +10,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
@@ -72,6 +73,22 @@ func execMCPAutonomy(options execOptions) mcp.PermissionAutonomy {
 	return mcp.AutonomyLow
 }
 
+// mcpSkippedReasons maps each skipped server to its redacted startup failure
+// reason, so the TUI manager shows why a configured server has no tools.
+func mcpSkippedReasons(runtime mcpToolRuntime) map[string]string {
+	reasons := make(map[string]string)
+	if runtime == nil {
+		return reasons
+	}
+	for _, skipped := range runtime.Skipped() {
+		if skipped.Err == nil {
+			continue
+		}
+		reasons[skipped.Name] = redaction.ErrorMessage(skipped.Err, redaction.Options{})
+	}
+	return reasons
+}
+
 func mcpToolList(registry *tools.Registry) []mcpToolListItem {
 	registered := registry.All()
 	items := make([]mcpToolListItem, 0, len(registered))
@@ -104,7 +121,7 @@ func formatMCPToolList(items []mcpToolListItem) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatMCPServerList(servers map[string]config.MCPServerConfig) string {
+func formatMCPServerList(servers map[string]config.MCPServerConfig, probe map[string]mcp.ProbeResult, trusted bool) string {
 	if len(servers) == 0 {
 		return "Nenhum servidor MCP configurado."
 	}
@@ -124,9 +141,37 @@ func formatMCPServerList(servers map[string]config.MCPServerConfig) string {
 		if identity == "" {
 			identity = redactMCPURL(server.URL, "[REDACTED]")
 		}
-		lines = append(lines, fmt.Sprintf("  %s [%s] %s %s", name, server.Type, state, identity))
+		suffix := ""
+		if !server.Disabled {
+			if !trusted && server.ProjectConfigured {
+				suffix = " · ? não verificado (projeto não confiável)"
+			} else if result, ok := probe[name]; ok {
+				if result.Err != nil {
+					suffix = " · ✘ " + shortMCPProbeReason(result.Err)
+				} else if result.ToolCount == 1 {
+					suffix = " · ✔ 1 tool"
+				} else {
+					suffix = fmt.Sprintf(" · ✔ %d tools", result.ToolCount)
+				}
+			}
+		}
+		lines = append(lines, fmt.Sprintf("  %s [%s] %s %s%s", name, server.Type, state, identity, suffix))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// shortMCPProbeReason condenses a probe failure to its first line so one dead
+// server cannot flood the server list.
+func shortMCPProbeReason(err error) string {
+	reason := strings.TrimSpace(err.Error())
+	if index := strings.Index(reason, "\n"); index >= 0 {
+		reason = strings.TrimSpace(reason[:index])
+	}
+	const maxProbeReason = 160
+	if len(reason) > maxProbeReason {
+		reason = strings.TrimSpace(reason[:maxProbeReason]) + "…"
+	}
+	return reason
 }
 
 func redactMCPURL(raw string, marker string) string {
