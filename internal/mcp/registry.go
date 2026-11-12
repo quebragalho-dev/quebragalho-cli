@@ -825,6 +825,9 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 			return tool.errorResult(err)
 		}
 	}
+	// The call's own budget bounds every 429 wait below: a wait that no
+	// longer fits in the time left returns the 429 at once instead.
+	deadline := time.Now().Add(toolTimeoutFor(tool.server))
 	before := tool.conn.current()
 	result, err := tool.callRemote(ctx, args)
 	if ctx.Err() != nil && err != nil {
@@ -839,15 +842,15 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 		if errors.As(err, &httpStatus) && httpStatus.Status == http.StatusTooManyRequests {
 			// The server explicitly did not process the call: wait out
 			// Retry-After (or the attempt backoff) and re-send on the same
-			// client. The transport is alive, so no redial. A Retry-After
-			// past the call's own budget is returned at once instead: the
-			// model gets the 429 now rather than after a wait that would
-			// outlast the timeout anyway.
+			// client. The transport is alive, so no redial. A wait past the
+			// time left on the call's own budget returns the 429 at once:
+			// the model gets it now instead of after accumulated waits that
+			// would outlast the timeout anyway.
 			delay := connectBackoffFor(attempt)
 			if retry, ok := retryAfterDelay(httpStatus.RetryAfter, time.Now()); ok {
 				delay = retry
 			}
-			if delay > toolTimeoutFor(tool.server) {
+			if delay > time.Until(deadline) {
 				break
 			}
 			if !sleepForStatusRetry(ctx, delay) {
