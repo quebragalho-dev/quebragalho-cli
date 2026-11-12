@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -129,6 +128,12 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 	if delegation := specialistDelegationContext(options); delegation != "" {
 		sections = append(sections, delegation)
 	}
+	// Ambient orchestrator block: computed once per run start (see
+	// Options.Orchestrators), rebuilt with the system prompt so it survives
+	// compaction. Kept beside the skill list it advertises.
+	if orc := OrchestratorsContext(options.Orchestrators); orc != "" {
+		sections = append(sections, orc)
+	}
 	skillsBlock := skillsContext(options)
 	if skillsBlock != "" {
 		sections = append(sections, skillsBlock)
@@ -250,51 +255,75 @@ func specialistDelegationContext(options Options) string {
 // names + one-line descriptions only (never skill bodies), and it renders nothing
 // when no skills are installed, so a skill-less run reproduces the previous prompt
 // byte-for-byte.
-// skillsContextListBudget bounds the bytes spent listing individual skills so a
-// workspace with an extreme number of them can't bloat every turn's prompt.
-// Skills past the budget are summarized as a count rather than dropped — the
-// model can still load any of them by name (an unknown name returns the full
-// list from the skill tool).
 //
-// The budget is deliberately generous — roughly 18 skills with maximally long
-// (200-rune, ASCII) descriptions, or 40+ with typical terser ones; non-ASCII
-// descriptions consume it faster since the budget counts bytes. This list is
-// the model's ONLY discovery surface, so a skill squeezed out of it effectively
-// never triggers. The previous 640-byte cap silently broke invocation for
-// anyone with more than ~6 skills — the model cannot match a request against a
-// skill it cannot see.
+// Every installed skill NAME always appears: names are the model's only
+// discovery surface, so a skill squeezed out of the list effectively never
+// triggers (the previous behavior hid skills past the budget behind a count,
+// which is why ambient skills went unused). Descriptions fill the
+// skillsContextListBudget in list order; detected orchestrator skills are
+// pinned first with their full description outside the budget. Order follows
+// the input slice, which upstream keeps sorted by name, so repeated builds
+// are byte-stable (and cache-friendly alongside item 2).
+// skillsContextListBudget bounds the bytes spent on skill DESCRIPTIONS so a
+// workspace with an extreme number of them can't bloat every turn's prompt.
+// Names always appear regardless of budget; only descriptions stop once the
+// budget is spent. Pinned orchestrator skills carry their full description
+// outside this budget. The budget stays deliberately generous — roughly 18
+// skills with maximally long (200-rune, ASCII) descriptions, or 40+ with
+// typical terser ones; non-ASCII descriptions consume it faster since the
+// budget counts bytes.
 const skillsContextListBudget = 4096
 
 func skillsContext(options Options) string {
 	if len(options.Skills) == 0 {
 		return ""
 	}
+	pins := orchestratorPinNames(options.Skills, options.Orchestrators)
+	pinned := make(map[string]bool, len(pins))
+	for _, name := range pins {
+		pinned[name] = true
+	}
+	seen := make(map[string]bool, len(options.Skills))
+	ordered := make([]SkillInfo, 0, len(options.Skills))
+	for _, info := range options.Skills {
+		name := strings.TrimSpace(info.Name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		ordered = append(ordered, SkillInfo{Name: name, Description: strings.TrimSpace(info.Description)})
+	}
+	if len(ordered) == 0 {
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("<available_skills>\n")
 	b.WriteString("Reusable, on-demand instruction sets you can load with the skill tool. Before acting on a request, scan this list; when the request matches a skill's name or description, call skill with its exact name FIRST and follow the loaded guidance — do not guess names, do not skip a matching skill, and do not substitute your own approach for its instructions.\n")
-	listed, spent, omitted := 0, 0, 0
-	for _, info := range options.Skills {
-		name := strings.TrimSpace(info.Name)
-		if name == "" {
+	for _, name := range pins {
+		for _, info := range ordered {
+			if info.Name != name {
+				continue
+			}
+			line := "- " + name + " (orchestrator: prefer this skill for coordination tasks)"
+			if info.Description != "" {
+				line += ": " + info.Description
+			}
+			b.WriteString(line + "\n")
+			break
+		}
+	}
+	spent := 0
+	for _, info := range ordered {
+		if pinned[info.Name] {
 			continue
 		}
-		line := "- " + name
-		if desc := strings.TrimSpace(info.Description); desc != "" {
-			line += ": " + truncateForSkillLine(desc)
+		line := "- " + info.Name
+		if info.Description != "" && spent < skillsContextListBudget {
+			line += ": " + truncateForSkillLine(info.Description)
+			spent += len(line)
 		}
 		line += "\n"
-		// Always list at least one skill; past the budget, summarize the remainder
-		// as a count instead of silently dropping it.
-		if listed > 0 && spent+len(line) > skillsContextListBudget {
-			omitted++
-			continue
-		}
 		b.WriteString(line)
-		spent += len(line)
-		listed++
-	}
-	if omitted > 0 {
-		b.WriteString("- …and " + strconv.Itoa(omitted) + " more (call skill with a name; an unknown name lists them all)\n")
 	}
 	b.WriteString("</available_skills>")
 	return b.String()

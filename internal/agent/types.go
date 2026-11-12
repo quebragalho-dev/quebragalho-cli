@@ -342,10 +342,13 @@ type SpecialistInfo struct {
 // frontmatter description) surfaced to the system prompt so the model can invoke
 // the right skill with the skill tool on the first try instead of guessing a name
 // and reading the failure. Like SpecialistInfo it is plain data, so the agent
-// package needs no dependency on internal/skills.
+// package needs no dependency on internal/skills. Environments carries the
+// skill's declared ambient markers (frontmatter `environment:`) for
+// orchestrator detection.
 type SkillInfo struct {
-	Name        string
-	Description string
+	Name         string
+	Description  string
+	Environments []string
 }
 
 type Options struct {
@@ -369,6 +372,13 @@ type Options struct {
 	// via the skill tool on the first try. Empty (the default) reproduces the
 	// previous prompt byte-for-byte.
 	Skills []SkillInfo
+	// Orchestrators lists installed skills detected as ambient (see
+	// DetectOrchestrators): computed once per run start from the run's skills
+	// and environment, never per turn. When non-empty the system prompt gains
+	// a fixed <environment_orchestrator> block and pins those skills at the
+	// top of the skill list. Empty (the default, e.g. outside any
+	// orchestrator) changes nothing except the full-name skill listing.
+	Orchestrators []DetectedOrchestrator
 	// Specialist/sub-agent metadata is carried through exec now and consumed by
 	// the specialist runtime in later slices.
 	SessionID        string
