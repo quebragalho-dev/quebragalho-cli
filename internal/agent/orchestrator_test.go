@@ -210,8 +210,14 @@ func TestDeclarationBelongsToSkillFoldCase(t *testing.T) {
 	if declarationBelongsToSkill("kestrel_hub_MARK", "KESTREL_HUB", false) {
 		t.Fatalf("exact mode must not ignore letter case")
 	}
-	if declarationBelongsToSkill("sandbox contemporary", "contemporary", false) {
-		t.Fatalf("substring without the underscore boundary must not belong")
+	// The underscore boundary: KITE_RELAYSOCKET belongs by prefix, while a
+	// bare RELAYSOCKET belongs to nothing — without the "_" guard the second
+	// case would match as a suffix.
+	if !declarationBelongsToSkill("KITE_RELAYSOCKET", "KITE", false) {
+		t.Fatalf("skill-name prefix must belong")
+	}
+	if declarationBelongsToSkill("RELAYSOCKET", "X", false) {
+		t.Fatalf("bare suffix without the underscore must not belong")
 	}
 }
 
