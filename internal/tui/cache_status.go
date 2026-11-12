@@ -127,20 +127,26 @@ type cacheDropInputs struct {
 	compacted             bool
 	gapLong               bool
 	prevPrefix, curPrefix string
+	prevTools, curTools   string
+	prevSystem, curSystem string
 }
 
 // decideCacheDropReason names a sub-80 non-first call's cause in spec priority
 // order. Unknown state reports "motivo desconhecido", never "prefixo mudou":
 // that one stays reserved for a proven fingerprint mismatch (a bug).
 func decideCacheDropReason(in cacheDropInputs) string {
+	toolsChanged := in.prevTools != "" && in.curTools != "" && in.prevTools != in.curTools
+	systemChanged := in.prevSystem != "" && in.curSystem != "" && in.prevSystem != in.curSystem
 	switch {
 	case in.prevModel != "" && in.curModel != "" && in.prevModel != in.curModel:
 		return "troca de modelo"
 	case in.compacted:
 		return "conversa compactada"
+	case toolsChanged && !systemChanged:
+		return "ferramentas mudaram"
 	case in.gapLong:
 		return "pausa longa"
-	case in.prevPrefix != "" && in.curPrefix != "" && in.prevPrefix != in.curPrefix:
+	case systemChanged:
 		return "prefixo mudou"
 	default:
 		return "motivo desconhecido"
@@ -162,6 +168,8 @@ func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRo
 		output:  normalized.OutputTokens,
 	})
 	prefix := strings.TrimSpace(receipt.meta["cache_prefix_hash"])
+	toolsHash := strings.TrimSpace(receipt.meta["cache_prefix_tools"])
+	systemHash := strings.TrimSpace(receipt.meta["cache_prefix_system"])
 	compacted := strings.TrimSpace(receipt.meta["cache_compacted"]) == "1" || m.cacheCompactedPending
 	m.cacheCompactedPending = false
 	hit := 0.0
@@ -169,7 +177,7 @@ func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRo
 		hit = float64(normalized.CachedInputTokens) / float64(normalized.InputTokens)
 	}
 	now := m.now()
-	if !boundary && callsBefore > 0 && hit < cacheMissThreshold {
+	if !boundary && callsBefore > 0 && normalized.InputTokens > 0 && hit < cacheMissThreshold {
 		reason := decideCacheDropReason(cacheDropInputs{
 			prevModel:  m.lastCacheModel,
 			curModel:   modelID,
@@ -177,6 +185,10 @@ func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRo
 			gapLong:    !m.lastCacheAt.IsZero() && now.Sub(m.lastCacheAt) > cacheStaleGap,
 			prevPrefix: m.lastCachePrefix,
 			curPrefix:  prefix,
+			prevTools:  m.lastCacheTools,
+			curTools:   toolsHash,
+			prevSystem: m.lastCacheSystem,
+			curSystem:  systemHash,
 		})
 		m.cacheDrops = append(m.cacheDrops, cacheDrop{at: now, hit: hit, reason: reason})
 		if len(m.cacheDrops) > maxCacheDropsShown {
@@ -185,6 +197,12 @@ func (m model) trackCacheUsage(normalized usage.Normalized, receipt transcriptRo
 	}
 	if prefix != "" {
 		m.lastCachePrefix = prefix
+	}
+	if toolsHash != "" {
+		m.lastCacheTools = toolsHash
+	}
+	if systemHash != "" {
+		m.lastCacheSystem = systemHash
 	}
 	if modelID != "" {
 		m.lastCacheModel = modelID
@@ -205,6 +223,8 @@ func (m model) seedUsageFromSessionEvents(events []sessions.Event) model {
 	m.cacheDrops = nil
 	m.cacheCalls = nil
 	m.lastCachePrefix = ""
+	m.lastCacheTools = ""
+	m.lastCacheSystem = ""
 	m.lastCacheModel = ""
 	m.lastCacheAt = time.Time{}
 	m.cacheClearBoundary = false

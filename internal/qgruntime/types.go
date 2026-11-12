@@ -166,6 +166,11 @@ type Usage struct {
 	CachedInputTokens int
 	CacheWriteTokens  int
 	ReasoningTokens   int
+	// Summarizer marks usage from the compaction summarizer's own provider
+	// calls. It rides the normal OnUsage accounting (its cost still counts)
+	// but surfaces skip it for cache-prefix attribution: a summary request
+	// has its own prefix and must never explain the next main call's hit.
+	Summarizer bool
 }
 
 // TotalTokens returns prompt plus completion tokens.

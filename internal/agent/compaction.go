@@ -462,7 +462,7 @@ func newCompactionState(options Options, task *taskState) *compactionState {
 		window:            options.ContextWindow,
 		mainModel:         options.Model,
 		preserveLast:      options.CompactionPreserveLast,
-		onUsage:           options.OnUsage,
+		onUsage:           tagSummarizerUsage(options.OnUsage),
 		task:              task,
 		planner:           newContextPlanner(contextPlannerConfig{contextWindow: options.ContextWindow, serviceTier: options.ServiceTier}),
 		trace:             options.Trace,
@@ -470,6 +470,19 @@ func newCompactionState(options Options, task *taskState) *compactionState {
 		onCompacted:       options.OnCompaction,
 	}
 	return state
+}
+
+// tagSummarizerUsage marks usage flowing out of the compaction summarizer so
+// surfaces can keep its cost accounting while skipping it for cache-prefix
+// attribution. Nil onUsage stays nil.
+func tagSummarizerUsage(onUsage func(Usage)) func(Usage) {
+	if onUsage == nil {
+		return nil
+	}
+	return func(usage Usage) {
+		usage.Summarizer = true
+		onUsage(usage)
+	}
 }
 
 // notifyCompacted reports a history rewrite to whoever is listening. Only a

@@ -95,17 +95,19 @@ func TestFormatCacheBRL(t *testing.T) {
 }
 
 func TestDecideCacheDropReason(t *testing.T) {
-	full := cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h1"}
+	full := cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h1", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}
 	for _, tc := range []struct {
 		name string
 		in   cacheDropInputs
 		want string
 	}{
-		{"troca de modelo", cacheDropInputs{prevModel: "a", curModel: "b", prevPrefix: "h1", curPrefix: "h2"}, "troca de modelo"},
-		{"compactacao antes da pausa", cacheDropInputs{prevModel: "a", curModel: "a", compacted: true, gapLong: true, prevPrefix: "h1", curPrefix: "h1"}, "conversa compactada"},
-		{"pausa longa", cacheDropInputs{prevModel: "a", curModel: "a", gapLong: true, prevPrefix: "h1", curPrefix: "h1"}, "pausa longa"},
-		{"prefixo mudou", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h2"}, "prefixo mudou"},
-		{"prefixo desconhecido nao acusa bug", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "", curPrefix: "h2"}, "motivo desconhecido"},
+		{"troca de modelo", cacheDropInputs{prevModel: "a", curModel: "b", prevPrefix: "h1", curPrefix: "h2", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}, "troca de modelo"},
+		{"compactacao antes da pausa", cacheDropInputs{prevModel: "a", curModel: "a", compacted: true, gapLong: true, prevPrefix: "h1", curPrefix: "h1", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}, "conversa compactada"},
+		{"ferramentas mudaram", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h2", prevTools: "t1", curTools: "t2", prevSystem: "s1", curSystem: "s1"}, "ferramentas mudaram"},
+		{"ferramentas e system mudaram vira prefixo", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h2", prevTools: "t1", curTools: "t2", prevSystem: "s1", curSystem: "s2"}, "prefixo mudou"},
+		{"pausa longa", cacheDropInputs{prevModel: "a", curModel: "a", gapLong: true, prevPrefix: "h1", curPrefix: "h1", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s1"}, "pausa longa"},
+		{"prefixo mudou", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "h1", curPrefix: "h2", prevTools: "t1", curTools: "t1", prevSystem: "s1", curSystem: "s2"}, "prefixo mudou"},
+		{"prefixo desconhecido nao acusa bug", cacheDropInputs{prevModel: "a", curModel: "a", prevPrefix: "", curPrefix: "h2", prevTools: "", curTools: "t2", prevSystem: "", curSystem: "s2"}, "motivo desconhecido"},
 		{"sem causa conhecida", full, "motivo desconhecido"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,10 +124,16 @@ func recordCacheTestUsage(m model, input, cached int, modelID, prefix string) mo
 	return updated
 }
 
+func recordCacheTestUsageParts(m model, input, cached int, modelID, prefix, tools, system string) model {
+	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID, "cache_prefix_hash": prefix, "cache_prefix_tools": tools, "cache_prefix_system": system}}
+	updated, _ := m.recordUsageEvent(modelID, qgruntime.Usage{InputTokens: input, CachedInputTokens: cached, OutputTokens: 10}, receipt)
+	return updated
+}
+
 func TestCacheStatusDataFromTracker(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsage(m, 1000, 970, "kimi-k3.1-pro", "h1")
-	m = recordCacheTestUsage(m, 1000, 200, "kimi-k3.1-pro", "h2")
+	m = recordCacheTestUsageParts(m, 1000, 970, "kimi-k3.1-pro", "h1", "t1", "s1")
+	m = recordCacheTestUsageParts(m, 1000, 200, "kimi-k3.1-pro", "h2", "t1", "s2")
 	data := m.cacheStatusData()
 	if !data.hasData {
 		t.Fatal("com registros o segmento tem dados")
@@ -223,4 +231,62 @@ func TestCacheSessionLinesEmpty(t *testing.T) {
 
 func cacheNormalizedForTest(input, cached, output int) usage.Normalized {
 	return usage.Normalized{InputTokens: input, CachedInputTokens: cached, OutputTokens: output}
+}
+
+func TestCacheToolsChangedMotive(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	m = recordCacheTestUsageParts(m, 1000, 990, "kimi-k3.1-pro", "h1", "t1", "s1")
+	m = recordCacheTestUsageParts(m, 1000, 100, "kimi-k3.1-pro", "h2", "t2", "s1")
+	data := m.cacheStatusData()
+	if !data.showDrop || data.reason != "ferramentas mudaram" {
+		t.Fatalf("carga de tool deve dizer `ferramentas mudaram`; show=%v motivo=%q", data.showDrop, data.reason)
+	}
+}
+
+func TestCacheZeroInputNeverDrops(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	m = recordCacheTestUsageParts(m, 1000, 990, "kimi-k3.1-pro", "h1", "t1", "s1")
+	m = recordCacheTestUsage(m, 0, 0, "kimi-k3.1-pro", "h1")
+	data := m.cacheStatusData()
+	if data.showDrop {
+		t.Fatalf("chamada com entrada zero nao vira queda; veio %q", data.reason)
+	}
+	if len(m.cacheDrops) != 0 {
+		t.Fatalf("quedas com entrada zero = %d, want 0", len(m.cacheDrops))
+	}
+}
+
+func TestCacheSummarizerUsageStaysOutOfStats(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	m = recordCacheTestUsageParts(m, 40000, 39000, "kimi-k3.1-pro", "h1", "t1", "s1")
+	summarizer := qgruntime.Usage{ModelID: "zz-summary", InputTokens: 30000, OutputTokens: 500, Summarizer: true}
+	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": "zz-summary"}}
+	updated, _ := m.recordUsageEvent("zz-summary", summarizer, receipt)
+	m = updated
+	m = recordCacheTestUsageParts(m, 9000, 300, "kimi-k3.1-pro", "h2", "t1", "s1")
+	if len(m.cacheCalls) != 2 {
+		t.Fatalf("chamadas do sumarizador nao entram no hit; calls = %d, want 2", len(m.cacheCalls))
+	}
+	data := m.cacheStatusData()
+	if !data.hasData || data.hit < 0.78 || data.hit > 0.82 {
+		t.Fatalf("hit deve ignorar o sumarizador (~80%%); veio %.3f", data.hit)
+	}
+	if m.lastCacheModel != "kimi-k3.1-pro" {
+		t.Fatalf("sumarizador nao pode trocar o ultimo modelo; veio %q", m.lastCacheModel)
+	}
+	if len(m.cacheDrops) != 1 || m.cacheDrops[0].reason != "motivo desconhecido" {
+		t.Fatalf("queda esperada: 1x desconhecido (sem causa); veio %+v", m.cacheDrops)
+	}
+}
+
+func TestCacheCompactionFlagMotive(t *testing.T) {
+	m := newModel(context.Background(), Options{})
+	m = recordCacheTestUsageParts(m, 40000, 39000, "kimi-k3.1-pro", "h1", "t1", "s1")
+	receipt := transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": "kimi-k3.1-pro", "cache_prefix_hash": "h2", "cache_prefix_tools": "t1", "cache_prefix_system": "s1", "cache_compacted": "1"}}
+	updated, _ := m.recordUsageEvent("kimi-k3.1-pro", qgruntime.Usage{InputTokens: 9000, CachedInputTokens: 300, OutputTokens: 10}, receipt)
+	m = updated
+	data := m.cacheStatusData()
+	if !data.showDrop || data.reason != "conversa compactada" {
+		t.Fatalf("flag de compactacao deve motivar a queda; show=%v motivo=%q", data.showDrop, data.reason)
+	}
 }

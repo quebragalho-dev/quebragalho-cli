@@ -68,6 +68,8 @@ func (planner *contextPlanner) plan(messages []qgruntime.Message, toolDefs []qgr
 	}
 	breakdown := MeasureContext(request.Messages, request.Tools, planner.config.contextWindow)
 	breakdown.CompletePrefixHash = fingerprint.CompletePrefixHash
+	breakdown.PrefixSystemHash = fingerprint.SystemPromptHash
+	breakdown.PrefixToolsHash = fingerprint.ToolsHash + "\x00" + fingerprint.SchemaHash
 	var previous *prefixFingerprint
 	if planner.hasPrevious {
 		previous = &planner.previousPrefix

@@ -31,6 +31,12 @@ type ContextBreakdown struct {
 	// PrefixInvalidationReason is "initial", "unchanged", or a stable comma-
 	// separated list of changed prefix categories.
 	PrefixInvalidationReason string
+	// PrefixSystemHash fingerprints the system-message half of the prefix and
+	// PrefixToolsHash the tool-definition half (names and schemas). Surfaces
+	// compare them across requests to tell a tool-set change ("ferramentas
+	// mudaram") apart from an otherwise unexplained system drift.
+	PrefixSystemHash string
+	PrefixToolsHash  string
 }
 
 // ContextBlock is content-free evidence for one model-visible context category.

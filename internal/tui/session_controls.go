@@ -1182,7 +1182,11 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 	callsBefore := len(m.cacheCalls)
 	boundary := m.cacheClearBoundary
 	m.cacheClearBoundary = false
-	m = m.trackCacheUsage(normalized, receipt, callsBefore, boundary)
+	// Summarizer calls keep their cost accounting below but never enter the
+	// cache statistics: no drop, no hit/economy share, no last-call memory.
+	if !event.Summarizer {
+		m = m.trackCacheUsage(normalized, receipt, callsBefore, boundary)
+	}
 	if record, err := m.usageTracker.Record(usage.RecordInput{
 		ModelID: modelID,
 		Usage:   runtimeUsage,

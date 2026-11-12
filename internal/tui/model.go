@@ -155,6 +155,8 @@ type model struct {
 	cacheDrops      []cacheDrop
 	cacheCalls      []cacheCall
 	lastCachePrefix string
+	lastCacheTools  string
+	lastCacheSystem string
 	lastCacheAt     time.Time
 	lastCacheModel  string
 	// cacheCompactedPending marks a TUI-side compaction (compactResultMsg)
@@ -6505,11 +6507,15 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// usage (which never fires OnContext) rides unattributed instead of
 		// stealing the next main call's explanation.
 		runPrefixHash := ""
+		runPrefixTools := ""
+		runPrefixSystem := ""
 		runArmed := false
 		runCompacted := false
 		prevOnContext := options.OnContext
 		options.OnContext = func(breakdown agent.ContextBreakdown) {
 			runPrefixHash = breakdown.CompletePrefixHash
+			runPrefixTools = breakdown.PrefixToolsHash
+			runPrefixSystem = breakdown.PrefixSystemHash
 			runArmed = true
 			if prevOnContext != nil {
 				prevOnContext(breakdown)
@@ -6976,19 +6982,23 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				callModelID = event.ModelID
 			}
 			receipt := callUsageRow(runID, len(usageEvents)+1, callModelID, event, callCatalog[strings.ToLower(callModelID)])
-			// Stage this request's cache attribution on the receipt: the main
-			// goroutine reads it in recordUsageEvent. The compaction flag is
-			// consumed here so it blames exactly the next call.
-			if receipt.meta == nil {
-				receipt.meta = map[string]string{}
-			}
-			if runArmed {
-				receipt.meta["cache_prefix_hash"] = runPrefixHash
-				if runCompacted {
-					receipt.meta["cache_compacted"] = "1"
+			// A compaction summary call rides the same OnUsage for cost
+			// accounting but stays out of cache-prefix attribution: it has
+			// its own prefix and must never explain the next main call.
+			if !event.Summarizer {
+				if receipt.meta == nil {
+					receipt.meta = map[string]string{}
 				}
-				runArmed = false
-				runCompacted = false
+				if runArmed {
+					receipt.meta["cache_prefix_hash"] = runPrefixHash
+					receipt.meta["cache_prefix_tools"] = runPrefixTools
+					receipt.meta["cache_prefix_system"] = runPrefixSystem
+					if runCompacted {
+						receipt.meta["cache_compacted"] = "1"
+					}
+					runArmed = false
+					runCompacted = false
+				}
 			}
 			rows = append(rows, receipt)
 			m.sendAgentRow(runID, receipt)
