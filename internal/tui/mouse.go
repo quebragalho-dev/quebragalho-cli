@@ -192,6 +192,11 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if next, cmd, ok := m.handleComposerSelectionMouse(msg); ok {
 		return next, cmd
 	}
+	// A left press on the compact subagents line expands the panel.
+	if mouseLeftPress(msg) && m.subagentsCompactHit(msg) {
+		m.subagents.expanded = true
+		return m, nil
+	}
 	if next, cmd, ok := m.handleTranscriptSelectionMouse(msg); ok {
 		return next, cmd
 	}

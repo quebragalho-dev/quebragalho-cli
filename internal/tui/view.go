@@ -1100,6 +1100,22 @@ func argHintSecondary(raw string) string {
 	return secondary
 }
 
+// argFlagTrue reports whether the named JSON argument is boolean true.
+// Unlike firstArgValue it reads a real bool, for flags such as
+// run_in_background that are never strings.
+func argFlagTrue(raw string, key string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" {
+		return false
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return false
+	}
+	enabled, _ := args[key].(bool)
+	return enabled
+}
+
 func firstArgValue(raw string, keys []string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "{}" {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"runtime"
 	"strings"
@@ -272,8 +273,13 @@ type model struct {
 	terminalAttachSeen     map[int]bool
 	// plan holds the sticky plan panel state (steps, expansion, timings)
 	// synced from the update_plan tool. See plan_panel.go.
-	plan            planPanelState
-	specialists     specialistTracker
+	plan        planPanelState
+	specialists specialistTracker
+	// subagents is the visible-subagents panel state (compact line + expanded
+	// view): Task specialists (foreground and background) and individual
+	// swarm members, fed by the same message flow as the tracker. Never
+	// cleared on beginRun — finished rows linger 30s, then prune by time.
+	subagents       subagentsPanel
 	stepWork        map[string][]planStepWork // file mutations + commands captured per in_progress plan step, for the clickable step detail
 	stepNarration   map[string][]string       // the agent's own prose narration captured per in_progress plan step, for the step detail's explanation
 	planDetailOpen  bool                      // a plan-step detail card is currently shown (click-to-toggle)
@@ -893,6 +899,7 @@ type specialistStartMsg struct {
 	name           string
 	description    string
 	childSessionID string
+	background     bool
 }
 
 // specialistCompleteMsg carries specialist completion info from the
@@ -920,6 +927,47 @@ type specialistProgressMsg struct {
 	toolCallID string
 	toolName   string
 	detail     string
+}
+
+// specialistUsageMsg carries the running usage totals of one Task call from
+// the specialist child process, sent via OnToolProgress → runtimeMessageSink
+// (one per stream-json usage event; the child emits per-call deltas and the
+// producer sums them). Update prices the totals with the catalog and calls
+// setUsage, which replaces the row's usage; completion overwrites with the
+// authoritative store rollup.
+type specialistUsageMsg struct {
+	runID            int
+	toolCallID       string
+	promptTokens     int64  // cumulative for this Task call
+	completionTokens int64  // cumulative for this Task call
+	modelID          string // child model, from its run_start event
+}
+
+// taskUsageTotals sums one Task call's live stream-json usage deltas plus
+// the child model seen on its run_start event. The OnToolProgress producer
+// keeps one per in-flight Task call and sinks running totals in
+// specialistUsageMsg.
+type taskUsageTotals struct {
+	prompt     int64
+	completion int64
+	modelID    string
+}
+
+// add folds one child stream-json event into the running totals.
+func (totals *taskUsageTotals) add(event streamjson.Event) {
+	switch event.Type {
+	case streamjson.EventRunStart:
+		if modelID := firstNonEmptyString(event.Model, event.APIModel); modelID != "" {
+			totals.modelID = modelID
+		}
+	case streamjson.EventUsage:
+		if event.PromptTokens != nil {
+			totals.prompt += int64(*event.PromptTokens)
+		}
+		if event.CompletionTokens != nil {
+			totals.completion += int64(*event.CompletionTokens)
+		}
+	}
 }
 
 type mcpCommandOrigin int
@@ -2064,6 +2112,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcriptDetailed = false
 				return m, nil
 			}
+			// A stop confirmation or an expanded panel collapses first; the
+			// run keeps going — Esc cancels it only with no panel state.
+			if m.subagents.confirmStop {
+				m.subagents.confirmStop = false
+				return m, nil
+			}
+			if m.subagents.expanded && m.subagentsPanelVisible() {
+				m.subagents.expanded = false
+				return m, nil
+			}
 			// Esc on an ask-user prompt: from the "type my own" free-text it steps
 			// back to the selector for that question; otherwise it cancels the
 			// questionnaire (not the run), delivering whatever answers were collected
@@ -2092,6 +2150,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.mcpManager != nil {
 				m.mcpManager = nil
+				return m, nil
+			}
+			// An expanded subagents panel collapses (or drops a pending stop
+			// confirmation) before Esc can touch the run: collapsing is
+			// non-destructive, cancelling is not. All modals above win first.
+			if m.subagents.confirmStop {
+				m.subagents.confirmStop = false
+				return m, nil
+			}
+			if m.subagents.expanded && m.subagentsPanelVisible() {
+				m.subagents.expanded = false
 				return m, nil
 			}
 			// An open picker cancels first; then an active suggestion overlay is
@@ -2140,6 +2209,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Where send-now is not possible, exactly Enter.
 			return m.handleInterleaveEnter(msg)
 		case keyIs(msg, tea.KeyEnter):
+			if m.subagentsEnterOpens() {
+				return m.openSelectedSubagent()
+			}
 			return m.handleEnterKey(msg)
 		case keyIs(msg, tea.KeyTab) && keyShift(msg):
 			if m.transcriptDetailed {
@@ -2182,6 +2254,24 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.runDetailsOpen = !m.runDetailsOpen
 				return m, nil
 			}
+		case keyCtrl(msg, 'g'):
+			// Ctrl+G opens the subagents panel (expanded view) or folds it back.
+			// Hardcoded like the other single-purpose Ctrl chords: no modal may
+			// be up, and an expanded panel collapses first — including inside
+			// subchat, which exits back to the main view with the panel open.
+			if m.noBlockingModal() && !m.transcriptDetailed {
+				if m.subchat.active {
+					m.chatScrollOffset = m.subchat.exit()
+					m = m.clearHover()
+					m.subagents.expanded = true
+					return m, nil
+				}
+				if m.subagentsPanelVisible() {
+					m.subagents.expanded = !m.subagents.expanded
+					m.subagents.confirmStop = false
+					return m, nil
+				}
+			}
 		case keyCtrl(msg, 'v'), keySuper(msg, 'v'):
 			// Ctrl+V probes the clipboard for an IMAGE only. Text pasting stays
 			// exclusively on the terminal's bracketed-paste path (Bubble's own
@@ -2217,6 +2307,26 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// when the composer is non-empty or a popup is active.
 			if m.composerValue() == "" && m.noBlockingModal() && !m.transcriptDetailed && !m.subchat.active && !m.suggestionsActive() {
 				m.helpOverlay = true
+				return m, nil
+			}
+		case keyText(msg) == "x" && !keyAlt(msg) && !keyHasMod(msg, tea.ModCtrl):
+			// `x` asks to stop the selected subagent, but ONLY on an empty
+			// composer with the expanded panel open — otherwise it must type a
+			// literal "x" into the prompt.
+			if m.subagents.expanded && m.subagentsPanelVisible() && m.composerValue() == "" && m.noBlockingModal() && !m.transcriptDetailed && !m.subchat.active && !m.suggestionsActive() {
+				rows := m.subagents.visibleRows(m.now())
+				if m.subagents.selected >= 0 && m.subagents.selected < len(rows) {
+					m.subagents.confirmStop = true
+					m.subagents.confirmKey = rows[m.subagents.selected].key
+					return m, nil
+				}
+			}
+			// Inside a panel drill-in, `x` asks to stop the open subagent,
+			// keyed by its stable panel row key (running rows are keyed by
+			// tool call id, not by child session).
+			if m.subchat.active && len(m.subchatPanelOrder()) > 0 && m.composerValue() == "" && m.noBlockingModal() && !m.transcriptDetailed && !m.suggestionsActive() {
+				m.subagents.confirmStop = true
+				m.subagents.confirmKey = m.subchatOpenRowKey()
 				return m, nil
 			}
 		case keyBackspace(msg):
@@ -2317,6 +2427,18 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if next, cmd, ok := m.moveModalSelection(1); ok {
 				return next, cmd
 			}
+			// ↓ on the composer's last visual line (empty counts) opens or
+			// steps through the subagents panel instead of moving the cursor:
+			// suggestions and modals already consumed their ↓ above, and an
+			// active history recall keeps its own navigation below.
+			if !m.subchat.active && !m.historyRecallActive() && m.subagentsPanelVisible() && m.composerCursorOnLastVisualLine() {
+				if m.subagents.expanded {
+					m.subagents.selectNext()
+				} else {
+					m.subagents.expanded = true
+				}
+				return m, nil
+			}
 			if next, ok := m.moveComposerVisualCursor(1); ok {
 				return next, nil
 			}
@@ -2352,8 +2474,27 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return next, nil
 				}
 			}
+			// With the expanded subagents panel open, ↑ steps through its rows
+			// instead of the history. Queued/interleave edits above win so ↑
+			// keeps editing the last queued message first.
+			if m.subagents.expanded && m.subagentsPanelVisible() {
+				m.subagents.selectPrev()
+				return m, nil
+			}
 			if m.historyRecallActive() {
 				return m.recallHistory(-1), nil
+			}
+		case keyIs(msg, tea.KeyLeft), keyIs(msg, tea.KeyRight):
+			// Inside a panel drill-in, ←/→ steps through the panel's subagents
+			// without leaving the subchat view — but only on an empty composer,
+			// so typing keeps the cursor keys.
+			if m.subchat.active && len(m.subchatPanelOrder()) > 1 && m.composerValue() == "" {
+				delta := 1
+				if keyIs(msg, tea.KeyLeft) {
+					delta = -1
+				}
+				next, cmd := m.stepSubchatPanel(delta)
+				return next, cmd
 			}
 		case keyCtrl(msg, 'u'):
 			// Ctrl+U scrolls up half a page, or moves the cursor up in
@@ -2454,6 +2595,18 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyPrintable(msg) {
 				m.picker.appendQuery(keyRunes(msg))
 			}
+			return m, nil
+		}
+		// A pending subagent stop confirmation is modal over the composer: s/n
+		// resolve it, Esc backs out. It runs before the composer key branch so
+		// printable answers are never typed into the prompt.
+		if next, cmd, ok := m.subagentsConfirmKey(msg); ok {
+			return next, cmd
+		}
+		// A panel drill-in is read-only while its subagent runs: swallow
+		// anything that would reach the shared composer. Navigation, confirm
+		// and Ctrl+G are handled above and keep working.
+		if m.subchatReadOnly() {
 			return m, nil
 		}
 		if next, ok := m.applyComposerKey(msg); ok {
@@ -2611,6 +2764,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// with a fading ✓ before removal. Cheap (the tick only fires while a run is
 		// in flight or the sidebar holds agents — exactly when this can change).
 		m.stampSwarmDone()
+		m.housekeepSubagents(m.now())
+		// A live drill-in follows its child on the tick too, at most once
+		// per second and only when the child log changed — a full re-read
+		// every frame would burn CPU proportional to the child size.
+		if m.subchat.active {
+			if row, ok := m.subchatPanelRow(); ok && row.state == subagentRunning {
+				m.subchat.pollReload(m.sessionStore, m.now())
+			}
+		}
 		// Not forwarding the tick while idle stops the spinner's self-scheduling,
 		// so no timer fires between runs. The one exception is active agent state:
 		// its short lifecycle fade needs the phase to keep advancing until the
@@ -2627,6 +2789,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.spinnerPhase++
 				m.spinnerTicking = true
 				return m, cmd
+			}
+			// Visible subagents need their own 1s cadence after the turn ends:
+			// the live clock keeps moving, finished rows age out of the 30s
+			// retention, and background rows reconcile with the manager. The
+			// spinner glyph stays frozen under reduced motion; only the tick
+			// reschedules.
+			if m.subagentsPanelVisible() {
+				m.spinnerTicking = true
+				return m, subagentTickCmd()
 			}
 			m.spinnerTicking = false
 			return m, nil
@@ -2880,6 +3051,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.clearStreamingToolCall() // active run finished — drop any lingering "writing" block
 		m.pending = false
+		m.subagents.settleRun(m.now())
 		m.retryWait = nil                // the run settled — no retry countdown can be in flight
 		m = m.disarmCancelConfirmation() // the run finished on its own — nothing left to confirm cancelling
 		// A newline-triggered redraw deferred by the stream-clear throttle
@@ -3199,6 +3371,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.specialists.start(msg.name, msg.description, msg.childSessionID, m.now())
+		m.subagents.upsertStart(msg.childSessionID, msg.name, msg.description, false, msg.background, msg.runID, m.now())
 		return m, nil
 	case specialistCompleteMsg:
 		if msg.runID != m.activeRunID {
@@ -3209,7 +3382,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Reconcile: complete by the tool call ID, then rewrite the tracker
 		// entry's childSessionID to the real session ID so subchat.enter can
 		// find the child session's events in the store.
+		followsOpen := m.subchatFollowsToolCall(msg.toolCallID)
 		m.specialists.complete(msg.toolCallID, msg.status, 0, msg.errorMsg, m.now())
+		m.subagents.completeToolCall(msg.toolCallID, msg.childSessionID, msg.status == specialistCompleted, msg.errorMsg, m.now())
+		if index := m.subagents.indexBySession(msg.childSessionID, msg.toolCallID); index >= 0 {
+			m.refreshSubagentUsage(&m.subagents.rows[index])
+		}
 		if msg.childSessionID != "" && msg.childSessionID != msg.toolCallID {
 			m.specialists.reconcileSessionID(msg.toolCallID, msg.childSessionID)
 		}
@@ -3224,6 +3402,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.transcript = appendTranscriptRow(m.transcript, cardRow)
 		}
+		if followsOpen {
+			m.subchat.reload(m.sessionStore)
+		}
+		return m, nil
+	case subagentStopDoneMsg:
+		if msg.err != nil {
+			// A failed stop is not a stop: forget the request so a child
+			// that later finishes normally reads "pronto", not "parado".
+			delete(m.subagents.pendingStop, msg.key)
+			m = m.showTransientNoticeInline("parar subagente: "+strings.TrimSpace(msg.err.Error()), transientNoticeWarning)
+		}
 		return m, nil
 	case specialistProgressMsg:
 		if msg.runID != m.activeRunID {
@@ -3235,11 +3424,36 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// id at this point (reconciled to the session id only on completion).
 		m.specialists.incrementToolCount(msg.toolCallID)
 		m.specialists.setCurrentTool(msg.toolCallID, msg.toolName, msg.detail)
+		detail := msg.toolName
+		if strings.TrimSpace(msg.detail) != "" {
+			detail = "↳ " + strings.TrimSpace(msg.detail)
+		}
+		m.subagents.setActivity(msg.toolCallID, detail)
+		m.reloadOpenSubchat(msg.toolCallID)
+		return m, nil
+	case specialistUsageMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		// Live running totals replace the row's usage, so it shows tok and
+		// ~R$ while it works priced like the completion path; the store
+		// rollup replaces them again at completion.
+		var cost float64
+		hasCost := false
+		if info := m.apiModel(msg.modelID); info != nil {
+			if amount, err := info.PricingBRL.Cost(qgruntime.Usage{InputTokens: int(msg.promptTokens), OutputTokens: int(msg.completionTokens)}); err == nil {
+				cost, _ = new(big.Rat).Set(amount).Float64()
+				hasCost = true
+			}
+		}
+		m.subagents.setUsage(msg.toolCallID, msg.promptTokens, msg.completionTokens, msg.modelID, cost, hasCost)
+		m.reloadOpenSubchat(msg.toolCallID)
 		return m, nil
 	case agentRowMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
 		}
+		m.subagents.observeSwarmRow(msg.row, msg.runID, m.now())
 		if msg.row.kind == rowReasoning {
 			m.streamingReasoning = ""
 			m.streamingReasoningExpanded = false
@@ -3308,6 +3522,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.swarmSessionMap[taskID] = sessionID
 			}
 		}
+		m.subagents.setSwarmSessions(msg.sessions)
 		return m, nil
 	case doctorCommandResultMsg:
 		if msg.id == 0 || msg.id == m.doctorCommandSeq {
@@ -3445,9 +3660,13 @@ func (m model) transcriptView() string {
 	width := chatWidth(m.width)
 
 	// Subchat drill-in: when active, show the child session's transcript with
-	// a nav bar instead of the main chat.
+	// a nav bar instead of the main chat. A panel drill-in gets the subagent
+	// header; otherwise the generic back bar.
 	if m.subchat.active {
 		navBar := renderSubchatNavBar(m.subchat.childSessionTitle, width)
+		if panelNav, ok := m.renderSubchatPanelNavBar(width); ok {
+			navBar = panelNav
+		}
 		childBodyItems := m.transcriptBodyItemsFromRows(m.subchat.childRows, width)
 		footer := m.footerView(width)
 		if m.altScreen && m.height > 0 {
@@ -3495,16 +3714,24 @@ func (m model) transcriptView() string {
 	case suggestionOverlay != "":
 		viewportOverlay = suggestionOverlay
 	}
+	// Tall centered modals (keyboard help) composite over the viewport even on
+	// an empty transcript: inlining them makes the bottom-anchored viewport
+	// drop their title when they exceed the body height (#419 keeps the title
+	// visible). The palette-style overlays keep replacing the wordmark.
+	inlineOverlay := viewportOverlay
+	if helpOverlayContent != "" || leaderHelpOverlayContent != "" {
+		inlineOverlay = ""
+	}
 	emptyOverlay := ""
-	if m.transcriptEmpty() && !m.pending && viewportOverlay != "" {
-		emptyOverlay = viewportOverlay
+	if m.transcriptEmpty() && !m.pending && inlineOverlay != "" {
+		emptyOverlay = inlineOverlay
 	}
 	bodyItems := m.transcriptBodyItems(width, emptyOverlay, false)
 
 	footer := m.footerView(width)
 
 	overlayForViewport := viewportOverlay
-	if m.transcriptEmpty() && !m.pending && viewportOverlay != "" {
+	if m.transcriptEmpty() && !m.pending && inlineOverlay != "" {
 		overlayForViewport = ""
 	}
 
@@ -3575,6 +3802,20 @@ func (m model) footerView(width int) string {
 		footer.WriteString(m.statusLine(width))
 		return footer.String()
 	}
+	// A panel drill-in replaces the composer with a read-only box and the
+	// status line with the subchat footer (back/stop hints + position).
+	if m.subchat.active && len(m.subchatPanelOrder()) > 0 {
+		if notice := strings.TrimSpace(m.transientNoticeLine(width)); notice != "" {
+			footer.WriteString(notice)
+			footer.WriteString("\n")
+		}
+		footer.WriteString(subchatReadonlyBox(width))
+		footer.WriteString("\n")
+		if subFooter, ok := m.renderSubchatPanelFooter(width); ok {
+			footer.WriteString(subFooter)
+			return footer.String()
+		}
+	}
 	// The row above the composer: transient copy feedback takes priority; otherwise
 	// a faint idle affordance — discoverable key hints on the left, a jump-to-bottom
 	// cue on the right when scrolled up. Always one line (blank when nothing shows),
@@ -3594,6 +3835,16 @@ func (m model) footerView(width int) string {
 	// it does not repeat here.
 	footer.WriteString(m.composerBox(width))
 	footer.WriteString("\n")
+	// The subagents line lives between the composer and the status line, only
+	// while subagents are visible (running or within retention): the compact
+	// one-liner, or the expanded box when the panel is open.
+	if expanded := m.renderSubagentsExpandedBox(width); expanded != "" {
+		footer.WriteString(expanded)
+		footer.WriteString("\n")
+	} else if compact := m.subagentsCompactLine(width); compact != "" {
+		footer.WriteString(compact)
+		footer.WriteString("\n")
+	}
 	footer.WriteString(m.statusLine(width))
 	return footer.String()
 }
@@ -6296,6 +6547,7 @@ func (m *model) cancelRun(keepQueuedMessages ...bool) {
 		m.runCancel()
 	}
 	m.clearStreamingToolCall() // a cancelled file-write must not linger into the next run
+	m.subagents.cancelAll(m.now())
 	// A cancelled loop iteration bypasses the agentResponseMsg completion seam (its
 	// late message is drained through flushRunIDs, not advanceLoop), so clear the
 	// loop tag here and re-arm the interrupted loop for its next cadence. Otherwise
@@ -6922,6 +7174,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 						name:           name,
 						description:    desc,
 						childSessionID: call.ID,
+						background:     argFlagTrue(call.Arguments, "run_in_background"),
 					})
 				}
 			}
@@ -6957,6 +7210,11 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 		}
 
+		// Live child usage flows through the same progress callback: the
+		// child emits per-call deltas and the producer sums them into the
+		// running totals each specialistUsageMsg carries, with the child
+		// model seen on its run_start event.
+		usageTotals := map[string]*taskUsageTotals{}
 		options.OnToolProgress = func(toolCallID string, event streamjson.Event) {
 			if event.Type == streamjson.EventToolCall && m.runtimeMessageSink != nil {
 				m.runtimeMessageSink(specialistProgressMsg{
@@ -6964,6 +7222,24 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 					toolCallID: toolCallID,
 					toolName:   event.Name,
 					detail:     toolCallSummary(event),
+				})
+			}
+			if event.Type != streamjson.EventRunStart && event.Type != streamjson.EventUsage {
+				return
+			}
+			totals, ok := usageTotals[toolCallID]
+			if !ok {
+				totals = &taskUsageTotals{}
+				usageTotals[toolCallID] = totals
+			}
+			totals.add(event)
+			if event.Type == streamjson.EventUsage && m.runtimeMessageSink != nil && totals.prompt+totals.completion > 0 {
+				m.runtimeMessageSink(specialistUsageMsg{
+					runID:            runID,
+					toolCallID:       toolCallID,
+					promptTokens:     totals.prompt,
+					completionTokens: totals.completion,
+					modelID:          totals.modelID,
 				})
 			}
 		}
@@ -7030,7 +7306,8 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 			// swarm_collect carries task_id -> session_id for completed members, so
 			// the AGENTS sidebar rows can drill into a member's session like a
-			// specialist card.
+			// specialist card. The subagents panel links the same mapping for
+			// drill-in and usage lookup.
 			if result.Name == "swarm_collect" && len(result.Meta) > 0 && m.runtimeMessageSink != nil {
 				m.runtimeMessageSink(swarmSessionsMsg{runID: runID, sessions: result.Meta})
 			}

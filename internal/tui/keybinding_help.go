@@ -47,10 +47,10 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 				{"Ctrl+Enter, Ctrl+X Ctrl+S", "envia a fila e o rascunho agora"},
 				{"Shift+Enter / Alt+Enter", "insere uma quebra de linha (multilinha)"},
 				{"Esc (\u00d72)", "cancela a execução / fecha o pop-up / limpa a entrada"},
+				{"?", "mostra esta ajuda (com a entrada vazia)"},
 				{"Ctrl+C", ctrlCDescription},
 				{"Ctrl+X e letra", "comandos com / comuns (m=/model, r=/resume, \u2026)"},
 				{"Ctrl+X ?", "lista todos os atalhos Ctrl+X com /"},
-				{"?", "mostra esta ajuda (com a entrada vazia)"},
 			},
 		},
 		{
@@ -63,12 +63,11 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 		{
 			title: "Navegação e rolagem",
 			bindings: []keybinding{
-				{"PgUp / PgDn", "rola o histórico por página"},
-				{"\u2191 / \u2193", "rola ou move dentro do pop-up / entrada multilinha"},
+				{"PgUp / PgDn / ↑↓", "rola o histórico por página · move no pop-up / entrada multilinha"},
 				{"Ctrl+P / Ctrl+N", "item anterior / próximo nos menus (estilo emacs)"},
 				{labelOr(m.keyBindings.toggleDetailed, "Ctrl+O"), "alterna o histórico detalhado (tela cheia)"},
 				{labelOr(m.keyBindings.toggleSidebar, "Ctrl+B"), "mostra / oculta os detalhes da execução"},
-				{labelOr(m.keyBindings.toggleMouse, "Ctrl+E"), "libera o mouse para selecionar texto com arrasto e copiar"},
+				{labelOr(m.keyBindings.toggleMouse, "Ctrl+E"), "libera o mouse para selecionar e copiar"},
 				{"Tab", "confirma seleção do autocompletar / seletor"},
 			},
 		},
@@ -80,6 +79,14 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 				{"Ctrl+F (no /model)", "alterna o modelo destacado como favorito"},
 				{"Clicar na ferramenta", "expande / recolhe a saída dela"},
 				{"Botão direito", "cola a área de transferência"},
+			},
+		},
+		{
+			title: "Subagentes",
+			bindings: []keybinding{
+				{"Ctrl+G / ↓", "abre / recolhe o painel (↓ no fim da entrada)"},
+				{"↑↓ · Enter · x", "escolhe · abre a conversa · para (pede s/n)"},
+				{"← → · Esc", "troca de subagente · recolhe o painel"},
 			},
 		},
 	}
@@ -96,10 +103,9 @@ func (m model) renderKeybindingHelpLines(innerWidth int) []string {
 	groups := m.buildKeybindingGroups()
 	keyColumn := keybindingKeyColumnWidth(groups)
 	lines := make([]string, 0, 64)
-	for index, group := range groups {
-		if index > 0 {
-			lines = append(lines, "")
-		}
+	// No blank lines between groups: the overlay must fit a 40-line terminal
+	// with the dismiss footer always visible, so every row counts.
+	for _, group := range groups {
 		lines = append(lines, qgTheme.accent.Render(group.title))
 		for _, binding := range group.bindings {
 			lines = append(lines, formatKeybindingLine(binding, keyColumn, innerWidth))
