@@ -392,6 +392,80 @@ func TestStatuslineRemoveCommandProposal(t *testing.T) {
 	}
 }
 
+// A staged entry that is a symlink is refused at every touchpoint: the
+// proposal never validates, the outside target keeps mode and content, the
+// user config is untouched, and nothing is installed in the scripts dir.
+func TestStatuslineSymlinkedStagingRefused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	seed := `{"activeProvider": "p", "providers": [{"name": "p", "provider_kind": "openai-compatible", "model": "m", "baseURL": "https://a.example.com/v1"}]}`
+	if err := os.WriteFile(userPath, []byte(seed), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	staging := filepath.Join(dir, "staging")
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "outside.sh")
+	body := []byte("#!/bin/sh\necho PWNED\n")
+	if err := os.WriteFile(target, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(staging, "link.sh")); err != nil {
+		t.Fatal(err)
+	}
+	proposal := `{"lines": [{"left": ["mode"]}], "script": "link.sh"}`
+	if err := os.WriteFile(filepath.Join(staging, "proposal.json"), []byte(proposal), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeInfo, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	m.statuslineSetup = &statuslineSetupState{runID: 3, startedAt: time.Now().Add(-time.Minute), stagingDir: staging}
+	updated, cmd := m.maybeFinalizeStatuslineSetup(agentResponseMsg{runID: 3})
+	if cmd != nil {
+		t.Fatal("symlinked staging must be refused, not dry-run")
+	}
+	nm := updated
+	if nm.statuslineSetup != nil || nm.statuslinePending != nil {
+		t.Fatal("setup not cleared after refusal")
+	}
+	last := nm.transcript[len(nm.transcript)-1].text
+	if !strings.Contains(last, "recusado") && !strings.Contains(last, "link simbólico") {
+		t.Fatalf("refusal must say so:\n%s", last)
+	}
+	after, err := os.ReadFile(target)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("symlink target changed: %q", after)
+	}
+	afterInfo, err := os.Stat(target)
+	if err != nil || afterInfo.Mode().Perm() != beforeInfo.Mode().Perm() {
+		t.Fatalf("symlink target mode changed: %v", afterInfo.Mode())
+	}
+	resolved, err := config.Resolve(config.ResolveOptions{UserConfigPath: userPath, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved.StatusLine.IsCustom() {
+		t.Fatalf("refused proposal reached the user config: %+v", resolved.StatusLine)
+	}
+	finalScript := filepath.Join(filepath.Dir(userPath), "statusline", "link.sh")
+	if _, err := os.Lstat(finalScript); !os.IsNotExist(err) {
+		t.Fatalf("staged symlink was installed at %s", finalScript)
+	}
+}
+
 // Finalizing with no staging files tells the user and clears the setup.
 func TestStatuslineFinalizeWithoutStaging(t *testing.T) {
 	m := limeTestModel()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -206,6 +207,11 @@ func (m model) handleStatuslineCommand(arg string) (model, tea.Cmd) {
 		if err := os.MkdirAll(staging, 0o700); err != nil {
 			return m.appendStatuslineNotice("Statusline\nnão foi possível preparar o staging: " + err.Error()), nil
 		}
+		// Never stage through a link: the scripts dir must be a real
+		// directory, or proposals could land outside the user config.
+		if info, err := os.Lstat(staging); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return m.appendStatuslineNotice("Statusline\nstaging inválido: não é um diretório"), nil
+		}
 		m.statuslineSetup = &statuslineSetupState{startedAt: m.now(), stagingDir: staging}
 		prompt := m.statuslineSetupPrompt(staging) + arg
 		next, cmd := m.launchPrompt(prompt)
@@ -371,13 +377,22 @@ func (m model) maybeFinalizeStatuslineSetup(msg tea.Msg) (model, tea.Cmd) {
 			discardStatuslineStaging(setup.stagingDir, "")
 			return m.appendStatuslineNotice("Statusline\nscript rejeitado (" + err.Error() + "); staging descartado."), nil
 		}
-		if info, err := os.Stat(scriptPath); err != nil || info.IsDir() || info.ModTime().Before(setup.startedAt) {
+		scriptFile, info, err := openStagingFileChecked(scriptPath)
+		if err != nil {
 			discardStatuslineStaging(setup.stagingDir, "")
-			return m.appendStatuslineNotice("Statusline\no script da proposta não está no staging; staging descartado."), nil
+			return m.appendStatuslineNotice("Statusline\nscript rejeitado (" + err.Error() + "); staging descartado."), nil
 		}
-		if err := os.Chmod(scriptPath, 0o700); err != nil {
+		// Chmod through the no-follow descriptor: a swapped path can never
+		// receive the executable bit here.
+		if err := scriptFile.Chmod(0o700); err != nil {
+			scriptFile.Close()
 			discardStatuslineStaging(setup.stagingDir, "")
 			return m.appendStatuslineNotice("Statusline\nnão foi possível preparar o script: " + err.Error()), nil
+		}
+		scriptFile.Close()
+		if info.ModTime().Before(setup.startedAt) {
+			discardStatuslineStaging(setup.stagingDir, "")
+			return m.appendStatuslineNotice("Statusline\no script da proposta não está no staging; staging descartado."), nil
 		}
 		timeout := time.Duration(maxInt(cfg.EffectiveTimeoutMs(), 1)) * time.Millisecond
 		stdin := string(m.statuslineStdin(maxInt(m.width, 80)))
@@ -403,17 +418,31 @@ func (m model) maybeFinalizeStatuslineSetup(msg tea.Msg) (model, tea.Cmd) {
 }
 
 // readStatuslineProposal loads a fresh proposal.json: missing, stale (older
-// than the setup turn), or invalid JSON all report an error.
+// than the setup turn), or invalid JSON all report an error. Every touch
+// avoids symlinks: Lstat gates regular files, the open itself uses
+// O_NOFOLLOW, and the modtime comes from the open file.
 func readStatuslineProposal(stagingDir string, since time.Time) (statuslineProposal, error) {
-	raw, err := os.ReadFile(filepath.Join(stagingDir, "proposal.json"))
+	file, _, err := openStagingFileChecked(filepath.Join(stagingDir, "proposal.json"))
 	if err != nil {
-		return statuslineProposal{}, fmt.Errorf("sem proposal.json no staging")
+		if os.IsNotExist(err) {
+			return statuslineProposal{}, fmt.Errorf("sem proposal.json no staging")
+		}
+		return statuslineProposal{}, err
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(file)
+	if err != nil {
+		return statuslineProposal{}, fmt.Errorf("proposal.json ilegível: %v", err)
 	}
 	var proposal statuslineProposal
 	if err := json.Unmarshal(raw, &proposal); err != nil {
 		return statuslineProposal{}, fmt.Errorf("proposal.json inválido: %v", err)
 	}
-	if info, err := os.Stat(filepath.Join(stagingDir, "proposal.json")); err != nil || info.ModTime().Before(since) {
+	info, err := file.Stat()
+	if err != nil {
+		return statuslineProposal{}, fmt.Errorf("proposal.json ilegível: %v", err)
+	}
+	if info.ModTime().Before(since) {
 		return statuslineProposal{}, fmt.Errorf("proposal.json é anterior ao turno")
 	}
 	cfg, _ := proposal.validatedConfig(config.StatusLineConfig{})
@@ -421,6 +450,63 @@ func readStatuslineProposal(stagingDir string, since time.Time) (statuslinePropo
 		return statuslineProposal{}, fmt.Errorf("proposta vazia")
 	}
 	return proposal, nil
+}
+
+// openStagingFileChecked verifies path is a regular file without following
+// symlinks, then opens it the same way. The Lstat refusal names the problem;
+// O_NOFOLLOW enforces containment against a swap in between.
+func openStagingFileChecked(path string) (*os.File, os.FileInfo, error) {
+	if info, err := os.Lstat(path); err != nil {
+		return nil, nil, err
+	} else if !info.Mode().IsRegular() {
+		return nil, nil, statuslineNotRegularError(path)
+	}
+	file, err := openStatuslineFileNoFollow(path, false)
+	if err != nil {
+		if isSymlinkRefusal(err) {
+			return nil, nil, statuslineNotRegularError(path)
+		}
+		return nil, nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		file.Close()
+		return nil, nil, statuslineNotRegularError(path)
+	}
+	return file, info, nil
+}
+
+// installStatuslineScript writes body to a fresh regular file and makes it
+// executable. The open uses O_NOFOLLOW so a planted link at the destination
+// can never redirect the install.
+func installStatuslineScript(path string, body []byte) error {
+	out, err := openStatuslineFileNoFollow(path, true)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := out.Write(body); err != nil {
+		return err
+	}
+	return out.Chmod(0o700)
+}
+
+// statuslineNotRegularError reports a staging entry that is not a plain file.
+func statuslineNotRegularError(path string) error {
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("link simbólico recusado: %s", filepath.Base(path))
+	}
+	return fmt.Errorf("%s não é um arquivo regular", filepath.Base(path))
+}
+
+// isSymlinkRefusal reports an open failure caused by O_NOFOLLOW meeting a
+// symlink (ELOOP/EOPNOTSUPP depending on platform and filesystem).
+func isSymlinkRefusal(err error) bool {
+	return err != nil && (strings.Contains(err.Error(), "too many links") || strings.Contains(err.Error(), "not supported"))
 }
 
 // discardStatuslineStaging removes this setup's staging files: the proposal
@@ -545,8 +631,23 @@ func (m model) applyStatuslinePending() (model, tea.Cmd) {
 		if err := os.MkdirAll(finalDir, 0o700); err != nil {
 			return m.appendStatuslineNotice("Statusline\nnão foi possível preparar a pasta de scripts: " + err.Error()), nil
 		}
+		// Copy the verified bytes into a fresh regular file instead of
+		// renaming: rename would install a symlink as-is, and a link at the
+		// destination would redirect the write elsewhere.
+		src, _, err := openStagingFileChecked(pending.scriptStaged)
+		if err != nil {
+			return m.appendStatuslineNotice("Statusline\nscript rejeitado (" + err.Error() + ")"), nil
+		}
+		body, err := io.ReadAll(src)
+		src.Close()
+		if err != nil {
+			return m.appendStatuslineNotice("Statusline\nnão foi possível ler o script: " + err.Error()), nil
+		}
 		finalPath := filepath.Join(finalDir, filepath.Base(pending.scriptStaged))
-		if err := os.Rename(pending.scriptStaged, finalPath); err != nil {
+		if info, err := os.Lstat(finalPath); err == nil && !info.Mode().IsRegular() {
+			return m.appendStatuslineNotice("Statusline\nnão foi possível instalar o script: destino não é arquivo regular"), nil
+		}
+		if err := installStatuslineScript(finalPath, body); err != nil {
 			return m.appendStatuslineNotice("Statusline\nnão foi possível instalar o script: " + err.Error()), nil
 		}
 		cfg.Command = &config.StatusLineCommand{Command: statuslineInvokeScript(finalPath)}
