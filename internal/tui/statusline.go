@@ -12,9 +12,10 @@ import (
 )
 
 // Statusline field ids a custom layout may reference. Stable and English;
-// the display stays Portuguese. "cache" is reserved for the Cofre item and
-// renders empty until it plugs in. The external command is not a field: its
-// output appends as its own footer lines (see statusLineCustom).
+// the display stays Portuguese. "cache" renders the prompt-cache hit rate
+// once its data source lands; until then it renders empty. The external
+// command is not a field: its output appends as its own footer lines (see
+// statusLineCustom).
 var statuslineFieldIDs = []string{
 	"mode", "effort", "fast", "voice", "background", "goal",
 	"context", "branch", "update", "cwd", "cache",
@@ -153,9 +154,9 @@ func (m model) statuslineSegment(id string, width int) string {
 		}
 		return ""
 	case "cache":
-		// Reserved for the Cofre item (not on dev yet): plug
-		// cacheStatusSegment(m.cacheStatusData()) from internal/tui/cache_status.go
-		// when it lands, plus cache.hit_pct in statuslineStdin from the same data.
+		// Reserved for the prompt-cache hit rate: plugs in with the
+		// prompt-cache telemetry (cacheStatusSegment/m.cacheStatusData from
+		// internal/tui/cache_status.go) when it lands; empty until then.
 		return ""
 	case "model":
 		if name := strings.TrimSpace(m.modelName); name != "" {

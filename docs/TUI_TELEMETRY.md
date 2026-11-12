@@ -54,7 +54,7 @@ montar uma nova (sempre com prévia: Enter aplica, Esc cancela),
 
 Campos (ids estáveis, em inglês): `mode`, `effort`, `fast`, `voice`,
 `background`, `goal`, `context`, `branch`, `update`, `cwd`, `cache`
-(reservado, acende quando o item 2 chegar), `model`, `speed`, `cost` (total da
+(reservado; ainda sem dado), `model`, `speed`, `cost` (total da
 sessão em R$, só chamadas precificadas em BRL), `time` (duração da sessão).
 Ids desconhecidos são ignorados com aviso.
 
