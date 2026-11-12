@@ -136,9 +136,9 @@ func (m model) sessionCostBRLRat() (*big.Rat, bool) {
 	return total, true
 }
 
-// statuslineChildEnv builds the child's allowlist environment: locale and
-// display basics in, every credential-like variable out. QG_* is dropped
-// wholesale so a statusline script can never observe keys through the env.
+// statuslineChildEnv builds the child's allowlist environment. The allowlist
+// is the whole policy: only these names pass, everything else (including any
+// credential-like variable) stays out.
 func statuslineChildEnv(columns, lines int) []string {
 	return statuslineChildEnvFor(runtime.GOOS, os.Environ(), columns, lines)
 }
@@ -166,31 +166,16 @@ func statuslineChildEnvFor(goos string, environ []string, columns, lines int) []
 		if i := strings.IndexByte(kv, '='); i >= 0 {
 			name = kv[:i]
 		}
-		upper := strings.ToUpper(name)
-		if strings.HasPrefix(upper, "QG_") {
-			continue
-		}
-		for _, banned := range []string{"KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH"} {
-			if strings.Contains(upper, banned) {
-				name = ""
-				break
-			}
-		}
-		if name == "" {
-			continue
-		}
-		if goos == "windows" {
-			matched := false
+		matched := keep[name]
+		if !matched && goos == "windows" {
 			for allowed := range keep {
 				if strings.EqualFold(name, allowed) {
 					matched = true
 					break
 				}
 			}
-			if !matched {
-				continue
-			}
-		} else if !keep[name] {
+		}
+		if !matched {
 			continue
 		}
 		env = append(env, kv)
@@ -204,10 +189,6 @@ func statuslineChildEnvFor(goos string, environ []string, columns, lines int) []
 	return env
 }
 
-// maxStatuslineCmdLines caps external command output: the footer stays a
-// status line, not a transcript.
-const maxStatuslineCmdLines = 3
-
 // sanitizeStatuslineOutput keeps displayable text: SGR colors survive, every
 // other escape (OSC links, cursor moves, charset shifts) and C0 control byte
 // is removed. Returns at most three lines capped in memory; the render path
@@ -218,7 +199,7 @@ func sanitizeStatuslineOutput(output string) []string {
 	raw := strings.Split(strings.TrimRight(normalized, "\n"), "\n")
 	var lines []string
 	for _, line := range raw {
-		if len(lines) >= maxStatuslineCmdLines {
+		if len(lines) >= maxStatusLineRenderLines {
 			break
 		}
 		lines = append(lines, fitStyledLine(stripNonSGREscapes(line), statuslineSanitizeWidth))
