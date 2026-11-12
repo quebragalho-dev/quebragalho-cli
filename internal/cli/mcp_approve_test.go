@@ -133,8 +133,8 @@ func TestRunMCPApproveRequiresConfirmation(t *testing.T) {
 	}
 }
 
-// Every secret-looking flag value stays out of the approve prompt: going
-// back to only KEY/TOKEN would leak the rest while every test stays green.
+// Every secret-looking flag value stays out of the approve prompt: the flag
+// name is shown, the value is masked.
 func TestMaskMCPApproveArgMasksAllSecretMarkers(t *testing.T) {
 	for _, arg := range []string{
 		"--api-key=k3y-val-123",
