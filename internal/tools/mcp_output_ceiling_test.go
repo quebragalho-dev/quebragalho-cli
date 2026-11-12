@@ -22,6 +22,9 @@ func TestMCPOutputWarnsAbove10kTokens(t *testing.T) {
 	if !strings.Contains(result.Output, "aviso") || !strings.Contains(result.Output, "12000") {
 		t.Fatalf("12k-token MCP output has no token warning:\n%.200s", result.Output)
 	}
+	if !strings.Contains(result.Meta["mcp.output_warning"], "12000") {
+		t.Fatalf("Meta[mcp.output_warning] = %q, want the token count", result.Meta["mcp.output_warning"])
+	}
 }
 
 // Past 25k tokens the output is capped head+tail, the full text spills to

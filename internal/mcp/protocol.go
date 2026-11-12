@@ -12,9 +12,9 @@ import (
 )
 
 // mcpKnownProtocolVersions lists the MCP protocol revisions QG implements,
-// oldest first. The client announces the newest and accepts the revision the
-// server answers with when it is one of these; a newer answer keeps working
-// on the newest known revision with a warning.
+// oldest first. The client announces the newest; a server answering with a
+// known revision is accepted on that revision, anything else (newer, older,
+// or garbage) is refused with a reason naming what the server asked for.
 var mcpKnownProtocolVersions = []string{"2024-11-05", "2025-03-26", "2025-06-18"}
 
 func latestMCPProtocolVersion() string {
@@ -42,11 +42,8 @@ func negotiateMCPProtocolVersion(serverVersion string) (string, error) {
 	if knownMCPProtocolVersion(serverVersion) {
 		return serverVersion, nil
 	}
-	if serverVersion > latestMCPProtocolVersion() {
-		return "", fmt.Errorf("servidor MCP exige protocolVersion %s, posterior à mais recente implementada (%s)",
-			serverVersion, latestMCPProtocolVersion())
-	}
-	return serverVersion, nil
+	return "", fmt.Errorf("servidor MCP exige protocolVersion %q, que não é suportada (implementadas: %s)",
+		serverVersion, strings.Join(mcpKnownProtocolVersions, ", "))
 }
 
 // maxMessageBytes caps a single framed MCP message so a hostile or buggy peer

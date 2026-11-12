@@ -30,6 +30,11 @@ func TestNegotiateProtocolVersion(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "2099-01-01") {
 		t.Fatalf("refusal error = %q, want the demanded version named", err.Error())
 	}
+	for _, garbage := range []string{"1999-01-01", "not-a-version"} {
+		if _, err := negotiateMCPProtocolVersion(garbage); err == nil {
+			t.Fatalf("negotiate(%q) error = nil, want refusal of unknown versions", garbage)
+		}
+	}
 }
 
 // A server demanding a newer revision than qg implements is not connected:

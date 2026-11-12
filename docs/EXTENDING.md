@@ -275,11 +275,27 @@ OAuth tokens are bound to the resolved server identity, so changing a server
 target can require `qg mcp oauth login <server>` again.
 OAuth server names ending in `.<32 hex chars>` are reserved for token storage.
 
-Timeouts: each tool call is bounded by `MCP_TOOL_TIMEOUT` (milliseconds,
-default 60000) or the per-server `timeout` (milliseconds) in `config.json`.
-When a call exceeds its budget, the turn continues with a clear error naming
-the tool and the server. `MCP_TIMEOUT` (milliseconds) overrides the handshake
-(30s) and per-server connect (8s) budgets.
+Timeouts: each tool call is bounded by the per-server `timeout` in
+`config.json` (milliseconds) when set, else `MCP_TOOL_TIMEOUT` (milliseconds,
+default 60000). When a call exceeds its budget, the turn continues with a
+clear error naming the tool and the server. `MCP_TIMEOUT` (milliseconds)
+overrides both the handshake budget (default 30s) and the per-server connect
+budget (default 8s). Budgets are clamped to one hour; unparseable or
+non-positive values fall back to the defaults.
+
+Large outputs: an MCP tool result above ~10k tokens (~40 KiB) carries a
+`[qg] aviso` line so the model knows how heavy the turn got; past
+`MAX_MCP_OUTPUT_TOKENS` (default 25000 tokens) the output is capped head+tail
+and the full text spills to a file whose path the model receives — nothing is
+lost. In JSON tool listings the warning is also available as
+`meta.mcp.output_warning`.
+
+Tool allow/deny lists: `enabled_tools` (allow-list, empty means all) and
+`disabled_tools` (deny-list, wins over the allow-list) are matched against the
+server's real tool names. A filter that would remove every tool skips the
+server with the reason instead of registering an empty server. Project layers
+can only narrow: `disabled_tools` merges by union and `enabled_tools` by
+intersection, so a repo cannot lift a deny the user set.
 
 ### As a server — expose QG's tools to another agent
 

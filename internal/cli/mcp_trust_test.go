@@ -164,7 +164,7 @@ func TestMCPGateTrustedSpawnsProjectServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registerMCPToolsForWorkspace: %v", err)
 	}
-	func() { _ = runtime.Close() }()
+	_ = runtime.Close()
 
 	if gotExclude {
 		t.Fatalf("trusted workspace must resolve MCP config with excludeProject=false")

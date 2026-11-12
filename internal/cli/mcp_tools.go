@@ -239,8 +239,9 @@ func shortMCPProbeReason(err error) string {
 		reason = strings.TrimSpace(reason[:index])
 	}
 	const maxProbeReason = 160
-	if len(reason) > maxProbeReason {
-		reason = strings.TrimSpace(reason[:maxProbeReason]) + "…"
+	runes := []rune(reason)
+	if len(runes) > maxProbeReason {
+		reason = strings.TrimSpace(string(runes[:maxProbeReason])) + "…"
 	}
 	return reason
 }

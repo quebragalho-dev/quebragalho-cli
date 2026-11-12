@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
 // ProjectApproval is one remembered user approval of a project-layer MCP
@@ -89,10 +91,19 @@ func userStateDir() (string, error) {
 }
 
 // Approve records the approval of one server target in one project and
-// persists the store atomically with owner-only permissions.
+// persists the store atomically with owner-only permissions. The file is
+// locked across load+save so two concurrent approves cannot lose one.
 func (store *ProjectApprovals) Approve(approval ProjectApproval) error {
 	if store == nil {
 		return fmt.Errorf("mcp project approvals store is required")
+	}
+	unlock, err := config.LockFile(store.path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unlock() }()
+	if err := store.reload(); err != nil {
+		return err
 	}
 	if store.projects == nil {
 		store.projects = make(map[string]map[string]string)
@@ -104,6 +115,31 @@ func (store *ProjectApprovals) Approve(approval ProjectApproval) error {
 	}
 	servers[approval.ServerName] = approval.Identity
 	return store.save()
+}
+
+// reload re-reads the approvals file, so an Approve that waited on the lock
+// does not overwrite a concurrent grant.
+func (store *ProjectApprovals) reload() error {
+	data, err := os.ReadFile(store.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+	var raw struct {
+		Projects map[string]map[string]string `json:"projects"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Projects != nil {
+		store.projects = raw.Projects
+	}
+	return nil
 }
 
 // IsApproved reports whether this exact server target was approved in this

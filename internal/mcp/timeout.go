@@ -34,11 +34,26 @@ func formatTimeoutDuration(duration time.Duration) string {
 	return duration.Round(time.Millisecond).String()
 }
 
+// maxMCPTimeoutMillis caps every MCP timeout (a runaway value would overflow
+// time.Duration or pin a turn for hours). One hour is generous: the point is
+// a bound, not a schedule.
+const maxMCPTimeoutMillis = 3600000
+
+func clampMCPTimeoutMillis(millis int) int {
+	if millis <= 0 {
+		return 0
+	}
+	if millis > maxMCPTimeoutMillis {
+		return maxMCPTimeoutMillis
+	}
+	return millis
+}
+
 // toolTimeoutFor resolves the wall-clock budget for one tool call: the
 // per-server config wins, then MCP_TOOL_TIMEOUT (milliseconds), then 60s.
 func toolTimeoutFor(server Server) time.Duration {
 	if server.Timeout > 0 {
-		return time.Duration(server.Timeout) * time.Millisecond
+		return time.Duration(clampMCPTimeoutMillis(server.Timeout)) * time.Millisecond
 	}
 	if env := toolTimeoutFromEnv("MCP_TOOL_TIMEOUT"); env > 0 {
 		return env
@@ -55,7 +70,7 @@ func toolTimeoutFromEnv(key string) time.Duration {
 	if err != nil || millis <= 0 {
 		return 0
 	}
-	return time.Duration(millis) * time.Millisecond
+	return time.Duration(clampMCPTimeoutMillis(millis)) * time.Millisecond
 }
 
 // withToolTimeout bounds the call clock. The caller must cancel.

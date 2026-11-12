@@ -61,7 +61,7 @@ const defaultMCPOutputCeilingTokens = 25_000
 // keeps the full output but is told how heavy it is.
 const mcpOutputWarnTokens = 10_000
 
-// mcpOutputCeilingEnv overrides the MCP ceiling (in tokens). QG or negative
+// mcpOutputCeilingEnv overrides the MCP ceiling (in tokens). Zero or negative
 // disables the ceiling entirely; unset or unparsable keeps the default.
 const mcpOutputCeilingEnv = "MAX_MCP_OUTPUT_TOKENS"
 
@@ -90,6 +90,10 @@ func enforceMCPOutputCeiling(toolName string, result Result) Result {
 		if tokens > mcpOutputWarnTokens && !result.Truncated {
 			result.Output += "\n\n[qg] aviso: saída da ferramenta MCP com ~" +
 				strconv.Itoa(tokens) + " tokens (o teto é " + strconv.Itoa(ceiling) + ")."
+			if result.Meta == nil {
+				result.Meta = make(map[string]string)
+			}
+			result.Meta["mcp.output_warning"] = strconv.Itoa(tokens) + " tokens (limite " + strconv.Itoa(ceiling) + ")"
 		}
 		return result
 	}

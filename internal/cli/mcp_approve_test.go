@@ -56,7 +56,7 @@ func TestRunMCPApproveGrantsProjectServer(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if exitCode := runWithDeps([]string{"mcp", "approve", "proj"}, &stdout, &stderr, approveTestDeps(cwd, servers, new(bool))); exitCode != exitSuccess {
+	if exitCode := runWithDeps([]string{"mcp", "approve", "--yes", "proj"}, &stdout, &stderr, approveTestDeps(cwd, servers, new(bool))); exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stderr=%s", exitCode, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "aprovado") {
@@ -102,5 +102,23 @@ func TestRegisterSkipsUnapprovedProjectServer(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("Skipped() = %+v, want proj pending approval", runtime.Skipped())
+	}
+}
+
+// Without --yes and without an interactive terminal, approval refuses
+// instead of hanging on a prompt nobody can answer.
+func TestRunMCPApproveRequiresConfirmation(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	cwd := t.TempDir()
+	var spawned bool
+	deps := approveTestDeps(cwd, map[string]config.MCPServerConfig{
+		"proj": {Type: "stdio", Command: "mini", ProjectConfigured: true},
+	}, &spawned)
+	var stdout, stderr bytes.Buffer
+	if exitCode := runWithDeps([]string{"mcp", "approve", "proj"}, &stdout, &stderr, deps); exitCode != exitCrash {
+		t.Fatalf("exitCode = %d, want refusal without --yes on a pipe", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "--yes") {
+		t.Fatalf("stderr = %q, want the --yes hint", stderr.String())
 	}
 }

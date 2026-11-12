@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"golang.org/x/term"
 )
 
 type mcpAddOptions struct {
@@ -461,15 +463,27 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 // trust gate still excludes the project layer until the workspace is trusted,
 // approval is necessary but not sufficient.
 func runMCPApprove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
-	_, positional, help, err := parseMCPConfigPositionalCommand(args, "approve")
-	if err != nil {
-		return writeExecUsageError(stderr, err.Error())
+	confirmYes := false
+	positional := []string{}
+	help := false
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help", "help":
+			help = true
+		case "--yes", "-y":
+			confirmYes = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return writeExecUsageError(stderr, "usage: qg mcp approve [--yes] <server>")
+			}
+			positional = append(positional, arg)
+		}
 	}
 	if help {
 		return writeMCPApproveHelp(stdout)
 	}
 	if len(positional) != 1 {
-		return writeExecUsageError(stderr, "usage: qg mcp approve <server>")
+		return writeExecUsageError(stderr, "usage: qg mcp approve [--yes] <server>")
 	}
 	serverName := positional[0]
 	if err := mcp.ValidateServerName(serverName); err != nil {
@@ -511,6 +525,17 @@ func runMCPApprove(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
+	if !confirmYes {
+		fmt.Fprintf(stderr, "Aprovar o servidor MCP %s do projeto %s?\n  alvo: %s\n", serverName, cwd, mcpApproveTargetLine(raw))
+		if !stdinIsTTY(deps.stdin) {
+			return writeAppError(stderr, "aproveitamento requer confirmação: rode com --yes ou em um terminal interativo", exitCrash)
+		}
+		fmt.Fprintf(stderr, "Confirmar [s/N]: ")
+		answer, err := readMCPApproveAnswer(deps.stdin)
+		if err != nil || !isMCPApproveYes(answer) {
+			return writeAppError(stderr, "aprovação cancelada", exitCrash)
+		}
+	}
 	if err := approvals.Approve(mcp.ProjectApproval{ProjectRoot: cwd, ServerName: serverName, Identity: servers[0].Identity}); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
@@ -522,16 +547,59 @@ func runMCPApprove(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 
 func writeMCPApproveHelp(w io.Writer) int {
 	_, err := fmt.Fprint(w, `Uso:
-  qg mcp approve <server>
+  qg mcp approve [--yes] <server>
 
 Aprova um servidor MCP da camada de projeto para o projeto atual. A
 aprovação é lembrada por projeto e vale para o alvo exato aprovado:
 trocar command, args, url ou credencial exige aprovar de novo.
+Sem --yes, pede confirmação no terminal.
 `)
 	if err != nil {
 		return exitCrash
 	}
 	return exitSuccess
+}
+
+// mcpApproveTargetLine describes the exact target being approved, with
+// secrets redacted: URLs keep scheme+host+path, headers and env are not
+// shown (only their key names travel in the approval flow elsewhere).
+func mcpApproveTargetLine(server config.MCPServerConfig) string {
+	if strings.TrimSpace(server.Command) != "" {
+		return "stdio " + strings.TrimSpace(server.Command) + " " + strings.Join(server.Args, " ")
+	}
+	return strings.TrimSpace(server.Type) + " " + redactMCPURL(server.URL, "[REDACTED]")
+}
+
+// stdinIsTTY reports whether input reads from an interactive terminal.
+// Anything else (pipes, test buffers, closed stdin) is not confirmable.
+func stdinIsTTY(stdin io.Reader) bool {
+	file, ok := stdin.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(file.Fd()))
+}
+
+// readMCPApproveAnswer reads one confirmation line, tolerating a closed or
+// failing stdin as a refusal.
+func readMCPApproveAnswer(stdin io.Reader) (string, error) {
+	if stdin == nil {
+		return "", fmt.Errorf("no stdin")
+	}
+	reader := bufio.NewReader(stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && len(line) == 0 {
+		return "", err
+	}
+	return line, nil
+}
+
+func isMCPApproveYes(answer string) bool {
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "s", "sim", "y", "yes":
+		return true
+	}
+	return false
 }
 
 func parseMCPAddArgs(args []string) (mcpAddOptions, bool, error) {
