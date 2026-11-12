@@ -437,9 +437,15 @@ func (runtime *Runtime) relistServer(ctx context.Context, server Server, conn *m
 func (runtime *Runtime) adoptRelistLocked(server Server, fresh ToolClient, remote []RemoteTool) error {
 	conn, ok := runtime.liveClients[server.Name]
 	if !ok || conn == nil {
-		return fmt.Errorf("MCP server %s has no live connection", server.Name)
+		conn = newMCPServerConn(server, fresh)
+		conn.reconnect = func(context.Context) (ToolClient, error) {
+			return runtime.factory(runtime.lifeCtx, server)
+		}
+		runtime.liveClients[server.Name] = conn
+		runtime.clients = append(runtime.clients, conn)
+	} else {
+		conn.swap(fresh)
 	}
-	conn.swap(fresh)
 	_, err := runtime.applyRelistLocked(server, remote, conn)
 	return err
 }

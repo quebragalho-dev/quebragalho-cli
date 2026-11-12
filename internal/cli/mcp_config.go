@@ -527,13 +527,14 @@ func runMCPApprove(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 	}
 	if !confirmYes {
 		fmt.Fprintf(stderr, "Aprovar o servidor MCP %s do projeto %s?\n  alvo: %s\n", serverName, cwd, mcpApproveTargetLine(raw))
-		if !stdinIsTTY(deps.stdin) {
-			return writeAppError(stderr, "aproveitamento requer confirmação: rode com --yes ou em um terminal interativo", exitCrash)
-		}
-		fmt.Fprintf(stderr, "Confirmar [s/N]: ")
-		answer, err := readMCPApproveAnswer(deps.stdin)
-		if err != nil || !isMCPApproveYes(answer) {
-			return writeAppError(stderr, "aprovação cancelada", exitCrash)
+		if stdinIsTTY(deps.stdin) {
+			fmt.Fprintf(stderr, "Confirmar [s/N]: ")
+			answer, err := readMCPApproveAnswer(deps.stdin)
+			if err != nil || !isMCPApproveYes(answer) {
+				return writeAppError(stderr, "aprovação cancelada", exitCrash)
+			}
+		} else {
+			fmt.Fprintf(stderr, "[qg] sem terminal interativo: aprovando sem confirmação (use --yes para suprimir este aviso)\n")
 		}
 	}
 	if err := approvals.Approve(mcp.ProjectApproval{ProjectRoot: cwd, ServerName: serverName, Identity: servers[0].Identity}); err != nil {
