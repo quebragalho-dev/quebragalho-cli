@@ -73,12 +73,22 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 		if err != nil {
 			return ResolvedConfig{}, err
 		}
+		if err := fileConfig.StatusLine.validate(); err != nil {
+			return ResolvedConfig{}, err
+		}
 		mergeConfig(&cfg, fileConfig)
 	}
+	projectStatusLineCommandIgnored := false
 	if options.ProjectConfigPath != "" {
 		fileConfig, err := loadConfigFile(options.ProjectConfigPath)
 		if err != nil {
 			return ResolvedConfig{}, err
+		}
+		if err := fileConfig.StatusLine.validate(); err != nil {
+			return ResolvedConfig{}, err
+		}
+		if fileConfig.StatusLine.Command != nil && strings.TrimSpace(fileConfig.StatusLine.Command.Command) != "" {
+			projectStatusLineCommandIgnored = true
 		}
 		if err := mergeProjectConfig(&cfg, fileConfig); err != nil {
 			return ResolvedConfig{}, err
@@ -150,6 +160,9 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 	if err := validateSTTConfig(cfg.STT); err != nil {
 		return ResolvedConfig{}, err
 	}
+	if err := cfg.StatusLine.validate(); err != nil {
+		return ResolvedConfig{}, err
+	}
 
 	providers, active, err := normalizeProviders(cfg.Providers, cfg.ActiveProvider, options.Env)
 	if err != nil {
@@ -161,21 +174,23 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 	}
 
 	return ResolvedConfig{
-		ActiveProvider:      active.Name,
-		Providers:           providers,
-		Provider:            active,
-		MaxTurns:            cfg.MaxTurns,
-		MaxTurnsSet:         cfg.maxTurnsSet,
-		MCP:                 cfg.MCP,
-		Sandbox:             cfg.Sandbox,
-		Notify:              cfg.Notify,
-		Tools:               cfg.Tools,
-		Swarm:               cfg.Swarm,
-		Preferences:         cfg.Preferences,
-		KeyBindings:         cfg.KeyBindings,
-		LocalControl:        cfg.LocalControl,
-		STT:                 cfg.STT,
-		CrossSessionInbound: cfg.CrossSessionInbound,
+		ActiveProvider:                  active.Name,
+		Providers:                       providers,
+		Provider:                        active,
+		MaxTurns:                        cfg.MaxTurns,
+		MaxTurnsSet:                     cfg.maxTurnsSet,
+		MCP:                             cfg.MCP,
+		Sandbox:                         cfg.Sandbox,
+		Notify:                          cfg.Notify,
+		Tools:                           cfg.Tools,
+		Swarm:                           cfg.Swarm,
+		Preferences:                     cfg.Preferences,
+		KeyBindings:                     cfg.KeyBindings,
+		LocalControl:                    cfg.LocalControl,
+		STT:                             cfg.STT,
+		CrossSessionInbound:             cfg.CrossSessionInbound,
+		StatusLine:                      cfg.StatusLine.normalize(),
+		ProjectStatusLineCommandIgnored: projectStatusLineCommandIgnored,
 	}, nil
 }
 
@@ -284,6 +299,9 @@ func mergeConfig(dst *FileConfig, src FileConfig) {
 	if inbound := strings.TrimSpace(src.CrossSessionInbound); inbound != "" {
 		dst.CrossSessionInbound = inbound
 	}
+	if src.StatusLine.IsCustom() {
+		dst.StatusLine = src.StatusLine.normalize()
+	}
 }
 
 func mergeProjectConfig(dst *FileConfig, src FileConfig) error {
@@ -349,6 +367,17 @@ func mergeProjectConfig(dst *FileConfig, src FileConfig) error {
 	}
 	if inbound := strings.TrimSpace(src.CrossSessionInbound); inboundPolicyRank(inbound) > inboundPolicyRank(dst.CrossSessionInbound) {
 		dst.CrossSessionInbound = inbound
+	}
+	// Statusline layout (lines/separator) is inoffensive, so project config
+	// may set it — it composes under the user's command, which project config
+	// must never provide (fail-closed like MCP/sandbox: a cloned repo must not
+	// get code execution). Resolve reports the dropped command via
+	// ResolvedConfig.ProjectStatusLineCommandIgnored.
+	if src.StatusLine.Separator != "" {
+		dst.StatusLine.Separator = src.StatusLine.Separator
+	}
+	if len(src.StatusLine.Lines) > 0 {
+		dst.StatusLine.Lines = src.StatusLine.normalize().Lines
 	}
 	mergeKeyBindings(&dst.KeyBindings, src.KeyBindings)
 	// Local control is intentionally user-config/override only. A cloned project

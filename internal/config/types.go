@@ -366,6 +366,10 @@ type FileConfig struct {
 	LocalControl        LocalControlConfig `json:"localControl,omitempty"`
 	STT                 STTConfig          `json:"stt,omitempty"`
 	CrossSessionInbound string             `json:"crossSessionInbound,omitempty"`
+	// StatusLine customizes the TUI status line layout and optional external
+	// command. The zero value renders the built-in layout. Layout fields may
+	// come from project config; Command is user-config only (see Resolve).
+	StatusLine StatusLineConfig `json:"statusline,omitempty"`
 	// maxTurnsSet records that some merge source supplied a positive maxTurns —
 	// i.e. the value is configured, not the built-in default. Unexported like
 	// Tools.deferThresholdSet: merge bookkeeping, not a config key.
@@ -389,6 +393,7 @@ func (cfg FileConfig) MarshalJSON() ([]byte, error) {
 		KeyBindings         KeyBindingsConfig   `json:"keybindings,omitempty"`
 		LocalControl        *LocalControlConfig `json:"localControl,omitempty"`
 		STT                 *STTConfig          `json:"stt,omitempty"`
+		StatusLine          *StatusLineConfig   `json:"statusline,omitempty"`
 		CrossSessionInbound string              `json:"crossSessionInbound,omitempty"`
 	}
 	raw := rawConfig{
@@ -409,6 +414,9 @@ func (cfg FileConfig) MarshalJSON() ([]byte, error) {
 	}
 	if !cfg.STT.Empty() {
 		raw.STT = &cfg.STT
+	}
+	if cfg.StatusLine.IsCustom() {
+		raw.StatusLine = &cfg.StatusLine
 	}
 	known, err := json.Marshal(raw)
 	if err != nil || len(cfg.Extra) == 0 {
@@ -486,6 +494,12 @@ type ResolvedConfig struct {
 	LocalControl        LocalControlConfig
 	STT                 STTConfig
 	CrossSessionInbound string
+	// StatusLine is the resolved statusline customization (user layout plus
+	// command, optionally with project layout underneath). Zero means default.
+	StatusLine StatusLineConfig
+	// ProjectStatusLineCommandIgnored reports that the project config carried
+	// a statusline command, which was dropped (user-config only).
+	ProjectStatusLineCommandIgnored bool
 }
 
 type MCPConfig struct {
@@ -548,6 +562,7 @@ func (cfg *FileConfig) UnmarshalJSON(data []byte) error {
 		LocalControl        LocalControlConfig         `json:"localControl"`
 		STT                 STTConfig                  `json:"stt"`
 		CrossSessionInbound string                     `json:"crossSessionInbound"`
+		StatusLine          StatusLineConfig           `json:"statusline"`
 		MCPServers          map[string]MCPServerConfig `json:"mcpServers"`
 		MCPServersSnake     map[string]MCPServerConfig `json:"mcp_servers"`
 	}
@@ -589,6 +604,7 @@ func (cfg *FileConfig) UnmarshalJSON(data []byte) error {
 	cfg.LocalControl = raw.LocalControl
 	cfg.STT = raw.STT
 	cfg.CrossSessionInbound = raw.CrossSessionInbound
+	cfg.StatusLine = raw.StatusLine
 	cfg.Extra = extra
 	if cfg.MCP.Servers == nil && (len(raw.MCPServers) > 0 || len(raw.MCPServersSnake) > 0) {
 		cfg.MCP.Servers = map[string]MCPServerConfig{}
