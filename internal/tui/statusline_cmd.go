@@ -268,8 +268,9 @@ func isSGREscape(seq string) bool {
 	return true
 }
 
-// stripControls drops C0 controls; tabs survive when keepTab. Newlines never
-// reach here (lines are split first).
+// stripControls drops C0 controls, DEL, and the C1 block (U+0080–U+009F:
+// single-byte CSI and friends must not survive as live escapes); tabs
+// survive when keepTab. Newlines never reach here (lines are split first).
 func stripControls(s string, keepTab bool) string {
 	var out strings.Builder
 	for _, r := range s {
@@ -280,7 +281,7 @@ func stripControls(s string, keepTab bool) string {
 			out.WriteRune(r)
 			continue
 		}
-		if r < 0x20 || r == 0x7f {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
 			continue
 		}
 		out.WriteRune(r)
@@ -304,21 +305,18 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 	defer cancel()
 	cmd := statuslineShellCommand(runCtx, command, stdin, env)
 	statuslineHardenCmd(cmd)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return statuslineCmdMsg{errNote: "statusline: comando falhou (erro de execução)"}
-	}
+	// The pipe and its copier belong to os/exec: on Cancel it closes the
+	// parent ends after WaitDelay even when an escaped grandchild (own group)
+	// still holds them open. A self-owned io.Copy here would never reach
+	// Wait and would stall past the timeout instead.
+	kept := &cappedStatuslineBuffer{cap: maxStatuslineCmdOutputBytes}
+	cmd.Stdout = kept
 	// Stderr carries no statusline content; dropping it (instead of the
 	// default capture buffer) keeps a chatty script from growing memory.
 	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
 		return statuslineCmdMsg{errNote: "statusline: comando falhou (erro de execução)"}
 	}
-	// Drain fully but keep only the head: a flooding script (`yes`) must not
-	// grow this buffer past the cap, yet a fast finite flood still succeeds
-	// instead of stalling on a full pipe until the timeout.
-	kept := &cappedStatuslineBuffer{cap: maxStatuslineCmdOutputBytes}
-	_, _ = io.Copy(kept, stdout)
 	waitErr := cmd.Wait()
 	text := strings.TrimRight(string(kept.bytes), "\n")
 	switch {
@@ -361,9 +359,10 @@ func (w *cappedStatuslineBuffer) Write(p []byte) (int, error) {
 // statuslineHardenCmd makes one statusline run killable as a single unit, so
 // a timeout cannot leak backgrounded children: the child leads its own
 // process group (Unix) and Cancel signals the whole tree (taskkill /T on
-// Windows), mirroring tools.hardenProcessLifetime. WaitDelay is the backstop:
-// a grandchild still holding the stdout pipe can only stall past the timeout
-// by the grace period.
+// Windows), mirroring tools.hardenProcessLifetime. WaitDelay is the backstop
+// because the pipe and its copier belong to os/exec (cmd.Stdout above): after
+// Cancel it closes the parent ends after the grace period even when an
+// escaped grandchild in its own group still holds them open.
 func statuslineHardenCmd(cmd *exec.Cmd) {
 	execution.ConfigureProcessGroup(cmd)
 	cmd.WaitDelay = statuslineTreeKillGrace
