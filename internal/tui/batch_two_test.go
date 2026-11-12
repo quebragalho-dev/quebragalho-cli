@@ -97,16 +97,14 @@ func TestWorkspaceIsInTheStatusAndOnlyTheCard(t *testing.T) {
 	assertNotContains(t, status, "/workspace")
 }
 
-func TestStatusWorkspaceUsesLastAvailableCell(t *testing.T) {
+func TestStatusWorkspaceTruncatesToReserveBudget(t *testing.T) {
 	m := model{permissionMode: agent.PermissionModeAsk, cwd: "/" + strings.Repeat("a", 47)}
 	// Through the production line at 58 the path takes the reserve budget
-	// the caller computes, truncating with an ellipsis instead of
-	// overflowing the width.
+	// the caller computes: it truncates with an ellipsis instead of
+	// overflowing, two cells short of the width for the join padding.
 	status := plainRender(t, m.statusLine(58))
 	assertContains(t, status, "/aaa")
 	assertContains(t, status, "…")
 	assertNotContains(t, status, m.cwd)
-	if w := lipgloss.Width(status); w > 58 {
-		t.Fatalf("status overflows 58: width %d for %q", w, status)
-	}
+	assertRenderedLineWidths(t, status, 56)
 }
