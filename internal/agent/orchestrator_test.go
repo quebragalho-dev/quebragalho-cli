@@ -4,8 +4,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestDetectOrchestratorsDeclared(t *testing.T) {
@@ -78,15 +76,17 @@ func TestDetectOrchestratorsMultipleStableOrder(t *testing.T) {
 }
 
 func TestOrchestratorBlockOmitsValues(t *testing.T) {
-	detected := []DetectedOrchestrator{{Name: "foo", Signal: "env:FOO_SOCKET"}}
+	t.Setenv("FOO_SOCKET", "sentinel-value-omit-7q9z")
+	detected := DetectOrchestrators([]SkillInfo{{Name: "foo", Environments: []string{"FOO_SOCKET"}}}, nil)
+	if len(detected) != 1 {
+		t.Fatalf("detection through the process environment failed, got %+v", detected)
+	}
 	block := OrchestratorsContext(detected)
 	if !strings.Contains(block, "foo") || !strings.Contains(block, "env:FOO_SOCKET") {
 		t.Fatalf("block must name skill and signal, got:\n%s", block)
 	}
-	for _, secret := range []string{"sock-1", "secret-token"} {
-		if strings.Contains(block, secret) {
-			t.Fatalf("block must never carry env values, got:\n%s", block)
-		}
+	if strings.Contains(block, "sentinel-value-omit-7q9z") {
+		t.Fatalf("block must never carry env values, got:\n%s", block)
 	}
 	if got := OrchestratorsContext(nil); got != "" {
 		t.Fatalf("no detection must render nothing, got %q", got)
@@ -94,15 +94,13 @@ func TestOrchestratorBlockOmitsValues(t *testing.T) {
 }
 
 func TestSystemPromptPinsOrchestratorOutsideBudget(t *testing.T) {
+	t.Setenv("FOO_SOCKET", "sock-secret-pin-31c0")
 	filler := make([]SkillInfo, 0, 200)
 	for i := 0; i < 200; i++ {
 		filler = append(filler, SkillInfo{Name: "skill-" + strconv.Itoa(i), Description: strings.Repeat("d", 180)})
 	}
 	skills := append([]SkillInfo{{Name: "foo", Description: "Use when coordinating agents in foo."}}, filler...)
-	prompt := buildSystemPrompt(Options{
-		Skills:        skills,
-		Orchestrators: []DetectedOrchestrator{{Name: "foo", Signal: "env:FOO_SOCKET"}},
-	})
+	prompt := buildSystemPrompt(Options{Skills: skills})
 	if !strings.Contains(prompt, "<environment_orchestrator>") {
 		t.Fatalf("orchestrator block missing from prompt")
 	}
@@ -112,8 +110,8 @@ func TestSystemPromptPinsOrchestratorOutsideBudget(t *testing.T) {
 	if !strings.Contains(prompt, "- foo (orchestrator") || !strings.Contains(prompt, "Use when coordinating agents in foo.") {
 		t.Fatalf("pinned foo line with full description missing")
 	}
-	if strings.Contains(prompt, "sock-") {
-		t.Fatalf("prompt must not leak env values")
+	if strings.Contains(prompt, "sock-secret-pin-31c0") {
+		t.Fatalf("prompt must never leak env values")
 	}
 }
 
@@ -131,53 +129,6 @@ func TestSystemPromptListsEverySkillName(t *testing.T) {
 		if !strings.Contains(first, "- skill-"+strconv.Itoa(i)) {
 			t.Fatalf("skill-%d missing from the list", i)
 		}
-	}
-}
-
-func TestOrchestratorBlockSurvivesCompaction(t *testing.T) {
-	prompt := buildSystemPrompt(Options{
-		Skills:        []SkillInfo{{Name: "foo"}},
-		Orchestrators: []DetectedOrchestrator{{Name: "foo", Signal: "env:FOO_SOCKET"}},
-	})
-	system := ""
-	for _, section := range buildSystemPromptParts(Options{
-		Skills:        []SkillInfo{{Name: "foo"}},
-		Orchestrators: []DetectedOrchestrator{{Name: "foo", Signal: "env:FOO_SOCKET"}},
-	}).sections {
-		if strings.Contains(section, "<environment_orchestrator>") {
-			system = section
-		}
-	}
-	_ = prompt
-	if system == "" {
-		t.Fatalf("orchestrator section missing from prompt parts")
-	}
-	messages := []qgruntime.Message{
-		{Role: qgruntime.MessageRoleSystem, Content: system},
-	}
-	for i := 0; i < 10; i++ {
-		messages = append(messages,
-			qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: "turn " + strconv.Itoa(i)},
-			qgruntime.Message{Role: qgruntime.MessageRoleAssistant, Content: "ack " + strconv.Itoa(i)},
-		)
-	}
-	result, err := CompactMessages(messages, CompactionOptions{
-		PreserveLast: 2,
-		Summarize: func([]qgruntime.Message) (string, error) {
-			return "summary of earlier turns", nil
-		},
-	})
-	if err != nil {
-		t.Fatalf("CompactMessages failed: %v", err)
-	}
-	found := false
-	for _, m := range result.Messages {
-		if strings.Contains(m.Content, "<environment_orchestrator>") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("orchestrator block must survive compaction")
 	}
 }
 

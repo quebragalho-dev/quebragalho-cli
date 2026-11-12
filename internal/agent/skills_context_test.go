@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestSkillsContextCapsLongList(t *testing.T) {
+func TestSkillsContextListsEveryName(t *testing.T) {
 	// 60 skills with realistic trigger-rich descriptions (~180 chars each, under
 	// the 200-rune truncation) total well past the 4096-byte list budget — every
 	// NAME must still appear (names are the discovery surface), while
@@ -18,7 +18,7 @@ func TestSkillsContextCapsLongList(t *testing.T) {
 		n := strconv.Itoa(i)
 		skills = append(skills, SkillInfo{Name: "skill-" + n, Description: longDesc + n})
 	}
-	got := skillsContext(Options{Skills: skills})
+	got := skillsContext(skills, nil)
 	if len(got) > skillsContextListBudget+2000 {
 		t.Fatalf("skills block should stay bounded near the %d-byte budget, got %d bytes:\n%s", skillsContextListBudget, len(got), got)
 	}
@@ -42,7 +42,7 @@ func TestSkillsContextListsRealisticSetInFull(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		skills = append(skills, SkillInfo{Name: "skill-" + strconv.Itoa(i), Description: desc})
 	}
-	got := skillsContext(Options{Skills: skills})
+	got := skillsContext(skills, nil)
 	if strings.Contains(got, "more (call skill") {
 		t.Fatalf("20 described skills must all be listed without overflow, got:\n%s", got)
 	}
@@ -54,14 +54,14 @@ func TestSkillsContextListsRealisticSetInFull(t *testing.T) {
 }
 
 func TestSkillsContext(t *testing.T) {
-	if got := skillsContext(Options{}); got != "" {
+	if got := skillsContext(nil, nil); got != "" {
 		t.Fatalf("no skills should yield an empty section, got %q", got)
 	}
-	got := skillsContext(Options{Skills: []SkillInfo{
+	got := skillsContext([]SkillInfo{
 		{Name: "commit-writer", Description: "Write a conventional-commit message."},
 		{Name: "  ", Description: "nameless, should be skipped"},
 		{Name: "reviewer"},
-	}})
+	}, nil)
 	if !strings.Contains(got, "<available_skills>") || !strings.Contains(got, "</available_skills>") {
 		t.Fatalf("missing available_skills block: %q", got)
 	}

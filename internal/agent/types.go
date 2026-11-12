@@ -372,14 +372,6 @@ type Options struct {
 	// via the skill tool on the first try. Empty (the default) reproduces the
 	// previous prompt byte-for-byte.
 	Skills []SkillInfo
-	// Orchestrators lists installed skills detected as ambient (see
-	// DetectOrchestrators). Nil auto-detects from Skills and the process
-	// environment once per prompt build (the prompt is frozen per run, so
-	// never per turn); a non-nil value — including an empty one — wins as-is.
-	// When non-empty the system prompt gains a fixed
-	// <environment_orchestrator> block and pins those skills at the top of
-	// the skill list.
-	Orchestrators []DetectedOrchestrator
 	// Specialist/sub-agent metadata is carried through exec now and consumed by
 	// the specialist runtime in later slices.
 	SessionID        string

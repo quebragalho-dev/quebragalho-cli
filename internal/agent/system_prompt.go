@@ -129,22 +129,16 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 		sections = append(sections, delegation)
 	}
 	// Ambient orchestrator detection runs here — once per prompt build, and the
-	// prompt is frozen for the whole run (never per turn). An explicit
-	// Options.Orchestrators wins (lets callers and tests force a result,
-	// including an empty one); nil auto-detects from the run's skills and the
-	// process environment.
-	orchestrators := options.Orchestrators
-	if orchestrators == nil {
-		orchestrators = DetectOrchestrators(options.Skills, nil)
-	}
+	// prompt is frozen for the whole run (never per turn). Detection always
+	// reads the run's skills and the live process environment, so every entry
+	// point (exec, TUI, resume) behaves identically with no bypass.
+	detected := DetectOrchestrators(options.Skills, nil)
 	// Ambient orchestrator block: rebuilt with the system prompt so it survives
 	// compaction. Kept beside the skill list it advertises.
-	if orc := OrchestratorsContext(orchestrators); orc != "" {
+	if orc := OrchestratorsContext(detected); orc != "" {
 		sections = append(sections, orc)
 	}
-	pinnedOptions := options
-	pinnedOptions.Orchestrators = orchestrators
-	skillsBlock := skillsContext(pinnedOptions)
+	skillsBlock := skillsContext(options.Skills, detected)
 	if skillsBlock != "" {
 		sections = append(sections, skillsBlock)
 	}
@@ -273,7 +267,7 @@ func specialistDelegationContext(options Options) string {
 // skillsContextListBudget in list order; detected orchestrator skills are
 // pinned first with their full description outside the budget. Order follows
 // the input slice, which upstream keeps sorted by name, so repeated builds
-// are byte-stable (and cache-friendly alongside item 2).
+// are byte-stable.
 // skillsContextListBudget bounds the bytes spent on skill DESCRIPTIONS so a
 // workspace with an extreme number of them can't bloat every turn's prompt.
 // Names always appear regardless of budget; only descriptions stop once the
@@ -284,18 +278,18 @@ func specialistDelegationContext(options Options) string {
 // budget counts bytes.
 const skillsContextListBudget = 4096
 
-func skillsContext(options Options) string {
-	if len(options.Skills) == 0 {
+func skillsContext(skills []SkillInfo, detected []DetectedOrchestrator) string {
+	if len(skills) == 0 {
 		return ""
 	}
-	pins := orchestratorPinNames(options.Skills, options.Orchestrators)
+	pins := orchestratorPinNames(skills, detected)
 	pinned := make(map[string]bool, len(pins))
 	for _, name := range pins {
 		pinned[name] = true
 	}
-	seen := make(map[string]bool, len(options.Skills))
-	ordered := make([]SkillInfo, 0, len(options.Skills))
-	for _, info := range options.Skills {
+	seen := make(map[string]bool, len(skills))
+	ordered := make([]SkillInfo, 0, len(skills))
+	for _, info := range skills {
 		name := strings.TrimSpace(info.Name)
 		if name == "" || seen[name] {
 			continue
