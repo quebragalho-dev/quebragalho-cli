@@ -138,6 +138,7 @@ func (m model) statuslineSetupPrompt(stagingDir string) string {
 	b.WriteString(" SO desta sessão: " + runtime.GOOS + ".\n")
 	b.WriteString("5. Não mostre a proposta no chat; o QG valida, renderiza a prévia com dados reais e pergunta ao usuário (Enter aplica, Esc cancela).\n\n")
 	b.WriteString("Config atual: " + string(current) + "\n")
+	b.WriteString("O stdin do comando tem SEMPRE estas chaves (null quando desconhecido): session_id, cwd, model, provider, effort, context{used, window, pct}, cache{hit_pct}, cost_brl, branch, version, width.\n")
 	b.WriteString("Exemplo real do stdin (desta sessão): " + example + "\n")
 	b.WriteString("Largura do terminal: " + strconv.Itoa(maxInt(m.width, 80)) + ". SO: " + runtime.GOOS + ".\n\n")
 	b.WriteString("Pedido do usuário: ")

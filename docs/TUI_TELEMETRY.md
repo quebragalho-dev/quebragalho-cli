@@ -65,13 +65,14 @@ intervalo, o comando re-roda ao fim de cada chamada.
 
 O comando recebe no stdin um JSON só com fatos de exibição (nunca chaves ou
 credenciais) e roda com ambiente reduzido (sem `QG_*`, sem variáveis de
-credencial). Exemplo:
+credencial). As chaves estão SEMPRE presentes; valor desconhecido é null:
 
 ```json
 {
   "session_id": "abc123", "cwd": "/repo", "model": "muse-spark-1.3",
   "provider": "qg", "effort": "high",
   "context": { "used": 161000, "window": 1000000, "pct": 16 },
+  "cache": { "hit_pct": null },
   "cost_brl": 0.12, "branch": "main", "version": "0.9.0", "width": 120
 }
 ```

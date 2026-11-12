@@ -36,27 +36,29 @@ var statuslineShellCommand = func(ctx context.Context, command, stdin string, en
 }
 
 // statuslineCmdContext carries the context-window numbers for the stdin JSON.
+// The object is always present; unknown numbers are null.
 type statuslineCmdContext struct {
-	Used   int `json:"used"`
-	Window int `json:"window,omitempty"`
-	Pct    int `json:"pct,omitempty"`
+	Used   *int `json:"used"`
+	Window *int `json:"window"`
+	Pct    *int `json:"pct"`
 }
 
 // statuslineCmdPayload is the session snapshot piped to the external
-// statusline command on stdin. It carries display facts only — never keys,
-// tokens, or any credential. Cache stays nil until the Cofre item plugs in.
+// statusline command on stdin. Every key is always present — unknown values
+// are null, never absent — and it carries display facts only: never keys,
+// tokens, or any credential. Cache stays null until the Cofre item plugs in.
 type statuslineCmdPayload struct {
-	SessionID string                `json:"session_id"`
-	Cwd       string                `json:"cwd"`
-	Model     string                `json:"model"`
-	Provider  string                `json:"provider"`
-	Effort    string                `json:"effort"`
-	Context   *statuslineCmdContext `json:"context,omitempty"`
-	Cache     *statuslineCmdCache   `json:"cache,omitempty"`
-	CostBRL   *float64              `json:"cost_brl,omitempty"`
-	Branch    string                `json:"branch,omitempty"`
-	Version   string                `json:"version"`
-	Width     int                   `json:"width"`
+	SessionID string               `json:"session_id"`
+	Cwd       string               `json:"cwd"`
+	Model     string               `json:"model"`
+	Provider  string               `json:"provider"`
+	Effort    string               `json:"effort"`
+	Context   statuslineCmdContext `json:"context"`
+	Cache     statuslineCmdCache   `json:"cache"`
+	CostBRL   *float64             `json:"cost_brl"`
+	Branch    string               `json:"branch,omitempty"`
+	Version   string               `json:"version"`
+	Width     int                  `json:"width"`
 }
 
 // statuslineCmdCache is reserved for the Cofre item (prompt-cache hit rate);
@@ -82,12 +84,12 @@ func (m model) statuslineStdin(width int) []byte {
 		Width:     width,
 	}
 	if used, ok := m.contextMeterUse(); ok {
-		ctx := &statuslineCmdContext{Used: used}
+		payload.Context.Used = &used
 		if window := m.apiContextWindow(); window > 0 {
-			ctx.Window = window
-			ctx.Pct = contextMeterFill(used, window)
+			payload.Context.Window = &window
+			pct := contextMeterFill(used, window)
+			payload.Context.Pct = &pct
 		}
-		payload.Context = ctx
 	}
 	if total, ok := m.sessionCostBRLRat(); ok {
 		asFloat, _ := new(big.Rat).Quo(total, big.NewRat(1, 1)).Float64()
