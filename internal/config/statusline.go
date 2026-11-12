@@ -67,9 +67,8 @@ func (c StatusLineConfig) EffectiveRefreshMs() int {
 	return c.RefreshMs
 }
 
-// Normalized returns the trimmed canonical form (see normalize). The TUI
-// proposal path normalizes before persisting so " context " and "context"
-// agree; Resolve and SetStatusLine normalize stored values the same way.
+// Normalized returns the trimmed canonical form. Prefer adjusted(), which
+// also clamps cosmetic values with warnings.
 func (c StatusLineConfig) Normalized() StatusLineConfig {
 	return c.normalize()
 }
@@ -99,17 +98,27 @@ func (c StatusLineConfig) normalize() StatusLineConfig {
 	return out
 }
 
-// validate rejects shapes that would silently misbehave. It runs at Resolve
-// time so a bad value fails loudly with a statusline-prefixed error.
-func (c StatusLineConfig) validate() error {
-	if c.TimeoutMs < 0 {
-		return fmt.Errorf("invalid statusline.timeoutMs %d: must be >= 0 (0 uses the default %d)", c.TimeoutMs, DefaultStatusLineTimeoutMs)
+// adjusted normalizes and clamps cosmetic values so they never prevent QG
+// from opening: negative timeoutMs falls back to the default, refreshMs
+// below the 1s floor rises to it, and layouts longer than three lines keep
+// the head. Every touch is reported in pt-BR for the startup/status notice.
+func (c StatusLineConfig) Adjusted() (StatusLineConfig, []string) {
+	out := c.normalize()
+	var warnings []string
+	if out.TimeoutMs < 0 {
+		warnings = append(warnings, fmt.Sprintf("statusline: timeoutMs %d inválido, usando o padrão %d", c.TimeoutMs, DefaultStatusLineTimeoutMs))
+		out.TimeoutMs = 0
 	}
-	if c.RefreshMs < 0 || (c.RefreshMs > 0 && c.RefreshMs < MinStatusLineRefreshMs) {
-		return fmt.Errorf("invalid statusline.refreshMs %d: must be 0 or >= %d", c.RefreshMs, MinStatusLineRefreshMs)
+	if out.RefreshMs < 0 {
+		warnings = append(warnings, fmt.Sprintf("statusline: refreshMs %d inválido, usando o padrão %d", c.RefreshMs, DefaultStatusLineRefreshMs))
+		out.RefreshMs = 0
+	} else if out.RefreshMs > 0 && out.RefreshMs < MinStatusLineRefreshMs {
+		warnings = append(warnings, fmt.Sprintf("statusline: refreshMs %d ajustado para o mínimo %d", c.RefreshMs, MinStatusLineRefreshMs))
+		out.RefreshMs = MinStatusLineRefreshMs
 	}
-	if len(c.Lines) > MaxStatusLineLines {
-		return fmt.Errorf("invalid statusline.lines: got %d lines, want at most %d", len(c.Lines), MaxStatusLineLines)
+	if len(out.Lines) > MaxStatusLineLines {
+		warnings = append(warnings, fmt.Sprintf("statusline: %d linhas, usando as %d primeiras", len(out.Lines), MaxStatusLineLines))
+		out.Lines = out.Lines[:MaxStatusLineLines]
 	}
-	return nil
+	return out, warnings
 }

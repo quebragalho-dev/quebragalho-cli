@@ -497,6 +497,9 @@ type ResolvedConfig struct {
 	// StatusLine is the resolved statusline customization (user layout plus
 	// command, optionally with project layout underneath). Zero means default.
 	StatusLine StatusLineConfig
+	// StatusLineWarnings reports cosmetic adjustments applied at Resolve
+	// (clamped cadences, trimmed layouts), surfaced once at startup.
+	StatusLineWarnings []string
 	// ProjectStatusLineCommandIgnored reports that the project config carried
 	// a statusline command, which was dropped (user-config only).
 	ProjectStatusLineCommandIgnored bool

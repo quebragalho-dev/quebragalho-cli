@@ -29,9 +29,10 @@ type statuslineProposal struct {
 	RefreshMs int    `json:"refreshMs"`
 }
 
-// validatedConfig drops unknown ids (reported) and builds the config the
-// preview renders. A proposal with nothing valid left previews empty, which
-// the preview marks instead of applying a blank line.
+// validatedConfig drops unknown ids (reported), adjusts cosmetic values
+// (reported), and builds the config the preview renders. A proposal with
+// nothing valid left previews empty, which the preview marks instead of
+// applying a blank line.
 func (p statuslineProposal) validatedConfig() (config.StatusLineConfig, []string) {
 	cfg := config.StatusLineConfig{Separator: p.Separator, TimeoutMs: p.TimeoutMs, RefreshMs: p.RefreshMs}
 	var warnings []string
@@ -53,7 +54,8 @@ func (p statuslineProposal) validatedConfig() (config.StatusLineConfig, []string
 		}
 		cfg.Lines = append(cfg.Lines, kept)
 	}
-	return cfg.Normalized(), warnings
+	adjusted, adjustWarnings := cfg.Adjusted()
+	return adjusted, append(warnings, adjustWarnings...)
 }
 
 // statuslineSetupState tracks an in-flight /statusline setup turn: the run to

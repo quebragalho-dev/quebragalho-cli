@@ -90,24 +90,55 @@ func TestStatusLineMergeProjectDropsCommand(t *testing.T) {
 	}
 }
 
-// Reject invalid shapes loudly instead of silently clamping them.
-func TestStatusLineValidation(t *testing.T) {
-	cases := map[string]string{
-		"negative timeout":  `{"statusline": {"timeoutMs": -1}}`,
-		"refresh below 1s":  `{"statusline": {"refreshMs": 500}}`,
-		"more than 3 lines": `{"statusline": {"lines": [{}, {}, {}, {}]}}`,
+// Valores cosmeticos invalidos nunca impedem o QG de abrir: sao ajustados
+// com aviso, em pt-BR. So a forma (nao o conteudo) e tocada.
+func TestStatusLineAdjustsInvalidShapes(t *testing.T) {
+	cfg := StatusLineConfig{
+		Lines:     []StatusLineLine{{}, {}, {}, {}},
+		TimeoutMs: -5,
+		RefreshMs: 500,
 	}
-	for name, raw := range cases {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "config.json")
-		doc := `{"activeProvider": "p", "providers": [{"name": "p", "provider_kind": "openai-compatible", "model": "m", "baseURL": "https://a.example.com/v1"}],` + strings.TrimPrefix(strings.TrimSpace(raw), "{")
-		if err := os.WriteFile(path, []byte(doc), 0600); err != nil {
-			t.Fatalf("%s: write: %v", name, err)
+	adjusted, warnings := cfg.Adjusted()
+	if len(adjusted.Lines) != 3 {
+		t.Fatalf("lines = %d, want clamped to 3", len(adjusted.Lines))
+	}
+	if adjusted.TimeoutMs != 0 {
+		t.Fatalf("timeoutMs = %d, want default (0)", adjusted.TimeoutMs)
+	}
+	if adjusted.RefreshMs != 1000 {
+		t.Fatalf("refreshMs = %d, want the 1000 floor", adjusted.RefreshMs)
+	}
+	if len(warnings) != 3 {
+		t.Fatalf("warnings = %#v, want one per adjustment", warnings)
+	}
+	for _, warning := range warnings {
+		if !strings.HasPrefix(warning, "statusline: ") {
+			t.Fatalf("warning %q must name the block in pt-BR", warning)
 		}
-		_, err := Resolve(ResolveOptions{UserConfigPath: path})
-		if err == nil || !strings.Contains(err.Error(), "statusline") {
-			t.Fatalf("%s: err = %v, want a statusline error", name, err)
-		}
+	}
+	valid := StatusLineConfig{TimeoutMs: 1500, RefreshMs: 3000}
+	if _, warnings := valid.Adjusted(); len(warnings) != 0 {
+		t.Fatalf("valid config warns: %#v", warnings)
+	}
+}
+
+// O ajuste acontece no Resolve: refresh abaixo de 1s vira 1000 e o QG abre.
+func TestStatusLineResolveClampsRefresh(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	seed := `{"activeProvider": "p", "providers": [{"name": "p", "provider_kind": "openai-compatible", "model": "m", "baseURL": "https://a.example.com/v1"}], "statusline": {"lines": [{"left": ["mode"]}], "refreshMs": 100}}`
+	if err := os.WriteFile(path, []byte(seed), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	resolved, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("Resolve must not fail on cosmetic values: %v", err)
+	}
+	if resolved.StatusLine.EffectiveRefreshMs() != 1000 {
+		t.Fatalf("refresh = %d, want clamped 1000", resolved.StatusLine.EffectiveRefreshMs())
+	}
+	if len(resolved.StatusLineWarnings) == 0 {
+		t.Fatal("clamp without a warning")
 	}
 }
 

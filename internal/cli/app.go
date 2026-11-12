@@ -1074,10 +1074,12 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		CompactionModel:       resolved.Preferences.CompactionModel,
 		StatusLine:            resolved.StatusLine,
 		StatusLineWarning: func() string {
+			var notes []string
 			if resolved.ProjectStatusLineCommandIgnored {
-				return "Statusline: o comando de statusline do projeto (.qg/config.json) foi ignorado — comandos externos só valem na config do usuário."
+				notes = append(notes, "Statusline: o comando de statusline do projeto (.qg/config.json) foi ignorado — comandos externos só valem na config do usuário.")
 			}
-			return ""
+			notes = append(notes, resolved.StatusLineWarnings...)
+			return strings.Join(notes, "\n")
 		}(),
 		Provider:    provider,
 		NewProvider: deps.newProvider,

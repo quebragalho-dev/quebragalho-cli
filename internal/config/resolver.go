@@ -73,18 +73,12 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 		if err != nil {
 			return ResolvedConfig{}, err
 		}
-		if err := fileConfig.StatusLine.validate(); err != nil {
-			return ResolvedConfig{}, err
-		}
 		mergeConfig(&cfg, fileConfig)
 	}
 	projectStatusLineCommandIgnored := false
 	if options.ProjectConfigPath != "" {
 		fileConfig, err := loadConfigFile(options.ProjectConfigPath)
 		if err != nil {
-			return ResolvedConfig{}, err
-		}
-		if err := fileConfig.StatusLine.validate(); err != nil {
 			return ResolvedConfig{}, err
 		}
 		if fileConfig.StatusLine.Command != nil && strings.TrimSpace(fileConfig.StatusLine.Command.Command) != "" {
@@ -160,9 +154,9 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 	if err := validateSTTConfig(cfg.STT); err != nil {
 		return ResolvedConfig{}, err
 	}
-	if err := cfg.StatusLine.validate(); err != nil {
-		return ResolvedConfig{}, err
-	}
+	// Cosmetic statusline values never block startup: clamp with warnings.
+	statusLine, statusLineWarnings := cfg.StatusLine.Adjusted()
+	cfg.StatusLine = statusLine
 
 	providers, active, err := normalizeProviders(cfg.Providers, cfg.ActiveProvider, options.Env)
 	if err != nil {
@@ -174,22 +168,25 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 	}
 
 	return ResolvedConfig{
-		ActiveProvider:                  active.Name,
-		Providers:                       providers,
-		Provider:                        active,
-		MaxTurns:                        cfg.MaxTurns,
-		MaxTurnsSet:                     cfg.maxTurnsSet,
-		MCP:                             cfg.MCP,
-		Sandbox:                         cfg.Sandbox,
-		Notify:                          cfg.Notify,
-		Tools:                           cfg.Tools,
-		Swarm:                           cfg.Swarm,
-		Preferences:                     cfg.Preferences,
-		KeyBindings:                     cfg.KeyBindings,
-		LocalControl:                    cfg.LocalControl,
-		STT:                             cfg.STT,
-		CrossSessionInbound:             cfg.CrossSessionInbound,
-		StatusLine:                      cfg.StatusLine.normalize(),
+		ActiveProvider:      active.Name,
+		Providers:           providers,
+		Provider:            active,
+		MaxTurns:            cfg.MaxTurns,
+		MaxTurnsSet:         cfg.maxTurnsSet,
+		MCP:                 cfg.MCP,
+		Sandbox:             cfg.Sandbox,
+		Notify:              cfg.Notify,
+		Tools:               cfg.Tools,
+		Swarm:               cfg.Swarm,
+		Preferences:         cfg.Preferences,
+		KeyBindings:         cfg.KeyBindings,
+		LocalControl:        cfg.LocalControl,
+		STT:                 cfg.STT,
+		CrossSessionInbound: cfg.CrossSessionInbound,
+		StatusLine:          statusLine,
+		// StatusLineWarnings reports cosmetic adjustments (clamped cadences,
+		// trimmed layouts) surfaced once at startup.
+		StatusLineWarnings:              statusLineWarnings,
 		ProjectStatusLineCommandIgnored: projectStatusLineCommandIgnored,
 	}, nil
 }

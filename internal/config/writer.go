@@ -528,18 +528,15 @@ func SetTheme(path string, theme string) (result FileConfig, err error) {
 }
 
 // SetStatusLine persists the TUI statusline customization, mirroring SetTheme
-// (read-modify-atomic-write with the config lock). It validates the shape
-// before writing so a bad value fails here, not at the next Resolve. The zero
-// value clears the customization (MarshalJSON drops the key) for reset.
+// (read-modify-atomic-write with the config lock). Cosmetic values are
+// adjusted the same way Resolve adjusts them, so what the preview accepts
+// the file also accepts.
 func SetStatusLine(path string, statusline StatusLineConfig) (result FileConfig, err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return FileConfig{}, fmt.Errorf("config path is required")
 	}
-	statusline = statusline.normalize()
-	if err := statusline.validate(); err != nil {
-		return FileConfig{}, err
-	}
+	statusline, _ = statusline.Adjusted()
 	unlock, err := lockConfigFileFn(path)
 	if err != nil {
 		return FileConfig{}, err
