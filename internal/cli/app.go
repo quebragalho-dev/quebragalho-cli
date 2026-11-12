@@ -1072,8 +1072,15 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		RecentModels:          resolved.Preferences.RecentModels,
 		RecapsEnabled:         resolved.Preferences.RecapsEnabled(),
 		CompactionModel:       resolved.Preferences.CompactionModel,
-		Provider:              provider,
-		NewProvider:           deps.newProvider,
+		StatusLine:            resolved.StatusLine,
+		StatusLineWarning: func() string {
+			if resolved.ProjectStatusLineCommandIgnored {
+				return "Statusline: o comando de statusline do projeto (.qg/config.json) foi ignorado — comandos externos só valem na config do usuário."
+			}
+			return ""
+		}(),
+		Provider:    provider,
+		NewProvider: deps.newProvider,
 		NewTurnSessionProvider: func(profile config.ProviderProfile, provider qgruntime.Provider) qgruntime.TurnSessionProvider {
 			if provider == nil {
 				return nil

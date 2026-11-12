@@ -56,7 +56,14 @@ type Options struct {
 	// CompactionModel is the resolved preferences.compactionModel value; see
 	// providers.CompactionModelID for how it combines with the env override
 	// (no curated default: empty means the main model).
-	CompactionModel             string
+	CompactionModel string
+	// StatusLine carries resolved.Preferences-independent TUI customization:
+	// user layout plus command, optionally with project layout underneath.
+	// Zero renders the built-in line byte for byte.
+	StatusLine config.StatusLineConfig
+	// StatusLineWarning surfaces a non-fatal statusline config notice (e.g. a
+	// project command that was ignored) once at startup. "" shows nothing.
+	StatusLineWarning           string
 	Provider                    qgruntime.Provider
 	NewProvider                 func(config.ProviderProfile) (qgruntime.Provider, error)
 	NewTurnSessionProvider      func(config.ProviderProfile, qgruntime.Provider) qgruntime.TurnSessionProvider

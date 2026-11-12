@@ -1,0 +1,245 @@
+package tui
+
+import (
+	"encoding/json"
+	"math/big"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+)
+
+// Statusline field ids a custom layout may reference. Stable and English;
+// the display stays Portuguese. "cache" is reserved for the Cofre item and
+// renders empty until it plugs in; "command" renders the external command's
+// cached output (empty until a command run lands).
+var statuslineFieldIDs = []string{
+	"mode", "effort", "fast", "voice", "background", "goal",
+	"context", "branch", "update", "cwd", "cache",
+	"model", "speed", "cost", "time", "command",
+}
+
+// statuslineFieldKnown reports whether id names a registered field.
+func statuslineFieldKnown(id string) bool {
+	for _, known := range statuslineFieldIDs {
+		if id == known {
+			return true
+		}
+	}
+	return false
+}
+
+// unknownStatusLineFields lists every unregistered id in a custom layout, in
+// order, so /statusline surfaces one actionable warning.
+func unknownStatusLineFields(cfg config.StatusLineConfig) []string {
+	var unknown []string
+	for _, line := range cfg.Lines {
+		for _, id := range append(append([]string{}, line.Left...), line.Right...) {
+			if !statuslineFieldKnown(id) {
+				unknown = append(unknown, id)
+			}
+		}
+	}
+	return unknown
+}
+
+// statuslineSeparator is the default join between segments, matching the
+// built-in line's separator ink.
+func (m model) statuslineSeparator() string {
+	if sep := m.statuslineCfg.Separator; sep != "" {
+		return qgTheme.line.Render(sep)
+	}
+	return qgTheme.line.Render(" │ ")
+}
+
+// statusLineCustom renders a user/project-configured layout: up to three
+// lines, each with left ids and right ids joined by the separator. It never
+// runs on the default path, so the built-in line stays byte-identical.
+func (m model) statusLineCustom(width int) string {
+	cfg := m.statuslineCfg
+	lines := cfg.Lines
+	if len(lines) > maxStatusLineRenderLines {
+		lines = lines[:maxStatusLineRenderLines]
+	}
+	sep := m.statuslineSeparator()
+	var out []string
+	for _, line := range lines {
+		left := "  " + joinStatuslineSegments(m, line.Left, sep, width)
+		right := joinStatuslineSegments(m, line.Right, sep, width)
+		out = append(out, fitStyledLine(joinHeaderLine(left, right, width), width))
+	}
+	return strings.Join(out, "\n")
+}
+
+// maxStatusLineRenderLines caps the custom render defensively; config
+// validation already rejects more.
+const maxStatusLineRenderLines = 3
+
+// joinStatuslineSegments renders the known ids and joins the non-empty ones.
+func joinStatuslineSegments(m model, ids []string, sep string, width int) string {
+	var parts []string
+	for _, id := range ids {
+		if segment := m.statuslineSegment(id, width); strings.TrimSpace(segment) != "" {
+			parts = append(parts, segment)
+		}
+	}
+	return strings.Join(parts, sep)
+}
+
+// statuslineSegment renders one registered field, "" when it has nothing to
+// show at this width. Each case reuses the built-in builders so custom and
+// default agree on content.
+func (m model) statuslineSegment(id string, width int) string {
+	switch id {
+	case "mode":
+		modeText, modeStyle := m.modeLabel()
+		chip := qgTheme.accent.Render("●") + " " + modeStyle.Render(modeText)
+		if m.btw.active {
+			chip = qgTheme.amber.Render("BTW") + qgTheme.muted.Render(" · ") + chip
+		}
+		return chip
+	case "effort":
+		return qgTheme.accent.Render(m.statusEffort())
+	case "fast":
+		if m.activeServiceTier() == "priority" {
+			return qgTheme.accent.Render("rápido")
+		}
+		return ""
+	case "voice":
+		// An active recording takes over, like the built-in line: the mic is
+		// the most time-sensitive thing on screen.
+		if chip := m.dictationStatusChip(); chip != "" && m.dictation.active() {
+			return chip
+		}
+		return m.voiceModeIndicator()
+	case "background":
+		return m.backgroundTerminalSummary()
+	case "goal":
+		if summary := m.goalFooterSummary(); summary != "" {
+			return qgTheme.accent.Render("◎ ") + qgTheme.muted.Render(summary)
+		}
+		return ""
+	case "context":
+		return m.contextStatusText(width)
+	case "branch":
+		if branch := strings.TrimSpace(m.gitBranch); branch != "" {
+			return qgTheme.muted.Render(truncateDisplayWidth(branch, 24))
+		}
+		return ""
+	case "update":
+		return m.updateNoticeSegment(width)
+	case "cwd":
+		if cwd := strings.TrimSpace(m.cwd); cwd != "" {
+			return qgTheme.faint.Render(truncateDisplayWidth(shortenPath(cwd), maxInt(8, width/3)))
+		}
+		return ""
+	case "cache":
+		// Reserved for the Cofre item; plugs in when it lands on dev.
+		return ""
+	case "model":
+		if name := strings.TrimSpace(m.modelName); name != "" {
+			return qgTheme.accent.Render(truncateDisplayWidth(name, 48))
+		}
+		return ""
+	case "speed":
+		if rate, live := m.rateText(); rate != "" {
+			if live {
+				number, _, _ := strings.Cut(rate, " ")
+				return qgTheme.accent.Render("●") + " " + qgTheme.accent.Render(number) + qgTheme.faint.Render(" tok/s")
+			}
+			return qgTheme.faint.Render(rate)
+		}
+		return ""
+	case "cost":
+		if cost := m.sessionCostBRL(); cost != "" {
+			return qgTheme.muted.Render(cost)
+		}
+		return ""
+	case "time":
+		if elapsed := m.sessionElapsed(); elapsed != "" {
+			return qgTheme.muted.Render(elapsed)
+		}
+		return ""
+	case "command":
+		return m.statuslineCmdOutput
+	default:
+		return ""
+	}
+}
+
+// rateText is the shared core behind the composer speed readout and the
+// custom "speed" field: the exact provider rate while emitting, the live
+// estimate, else the last completed rate. "" before the first response.
+func (m model) rateText() (string, bool) {
+	if m.pending && m.streamLive && m.pendingPermission == nil {
+		if exact := usageRate(m.streamUsage); exact != "" {
+			return exact, true
+		}
+		if est := m.liveEstimateRate(); est != "" {
+			return est, true
+		}
+		return "", true
+	}
+	return strings.TrimSpace(m.lastCompletedRate), false
+}
+
+// sessionCostBRL sums priced BRL call costs across the session events, so the
+// total survives resume. USD and malformed amounts never inflate it; "" when
+// nothing priced in BRL exists yet.
+func (m model) sessionCostBRL() string {
+	total := new(big.Rat)
+	found := false
+	for _, event := range m.sessionEvents {
+		if event.Type != sessions.EventUsage {
+			continue
+		}
+		var call struct {
+			Amount   string `json:"cost_exact"`
+			Currency string `json:"cost_currency"`
+		}
+		if json.Unmarshal(event.Payload, &call) != nil || call.Currency != "BRL" {
+			continue
+		}
+		amount, ok := new(big.Rat).SetString(strings.TrimSpace(call.Amount))
+		if !ok || amount.Sign() < 0 {
+			continue
+		}
+		total.Add(total, amount)
+		found = true
+	}
+	if !found {
+		return ""
+	}
+	return formatBRLRat(total)
+}
+
+// sessionElapsed renders the session wall time ("45s", "3m 4s", "2h 5m") from
+// the session creation stamp. "" when the stamp is missing or unparsable.
+func (m model) sessionElapsed() string {
+	created := strings.TrimSpace(m.activeSession.CreatedAt)
+	if created == "" {
+		return ""
+	}
+	start, err := time.Parse(time.RFC3339, created)
+	if err != nil {
+		return ""
+	}
+	elapsed := m.now().Sub(start)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	seconds := int(elapsed.Seconds())
+	hours := seconds / 3600
+	minutes := (seconds % 3600) / 60
+	secs := seconds % 60
+	switch {
+	case hours > 0:
+		return strconv.Itoa(hours) + "h " + strconv.Itoa(minutes) + "m"
+	case minutes > 0:
+		return strconv.Itoa(minutes) + "m " + strconv.Itoa(secs) + "s"
+	default:
+		return strconv.Itoa(secs) + "s"
+	}
+}

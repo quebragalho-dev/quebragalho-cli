@@ -632,8 +632,16 @@ type model struct {
 	// first, capped to config.MaxRecentModels. Unlike favoriteModels (manual
 	// pins), this is maintained by recordRecentModel on every successful
 	// switch and persisted via config.SetRecentModels.
-	recentModels                 []config.RecentModelEntry
-	recapsEnabled                bool // idle orientation note (config: recaps on|off)
+	recentModels  []config.RecentModelEntry
+	recapsEnabled bool // idle orientation note (config: recaps on|off)
+	// statuslineCfg is the resolved statusline customization (user layout
+	// plus command, optionally with project layout underneath). Zero value
+	// renders the built-in line byte for byte.
+	statuslineCfg config.StatusLineConfig
+	// statuslineCmdOutput is the cached stdout of the external statusline
+	// command (the "command" field). Empty until a run lands; the runner in
+	// the command commit owns refresh, never the View.
+	statuslineCmdOutput          string
 	recapSeq                     int
 	recapRunning                 bool
 	recapCancel                  context.CancelFunc
@@ -1216,6 +1224,7 @@ func newModel(ctx context.Context, options Options) model {
 		favoriteModels:              favoriteModelSet(options.FavoriteModels),
 		recentModels:                normalizeRecentModelEntries(options.RecentModels),
 		compactionModel:             options.CompactionModel,
+		statuslineCfg:               options.StatusLine,
 		recapsEnabled:               options.RecapsEnabled,
 		provider:                    options.Provider,
 		newProvider:                 options.NewProvider,
@@ -1268,6 +1277,11 @@ func newModel(ctx context.Context, options Options) model {
 	}
 	if m.reasoningEffort == "" {
 		m = m.loadPanelEffort()
+	}
+	// Surface a non-fatal statusline config notice (e.g. an ignored project
+	// command) once at startup, above the fold with the welcome row.
+	if warning := strings.TrimSpace(options.StatusLineWarning); warning != "" {
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: warning})
 	}
 	// Apply an explicit palette immediately. System is applied by Run immediately
 	// before Bubble Tea starts, which keeps package-level helper rendering

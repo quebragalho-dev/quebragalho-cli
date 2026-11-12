@@ -93,16 +93,24 @@ func callCostText(row transcriptRow) string {
 	if amount, ok := new(big.Rat).SetString(row.meta["amount"]); ok && amount.Sign() >= 0 {
 		switch row.meta["currency"] {
 		case "BRL":
-			cost = "R$ " + strings.ReplaceAll(amount.FloatString(2), ".", ",")
-			if amount.Sign() > 0 && amount.Cmp(big.NewRat(1, 100)) < 0 {
-				cost = "< R$ 0,01"
-			}
+			cost = formatBRLRat(amount)
 		case "USD":
 			cost = "US$ " + amount.FloatString(2)
 			if amount.Sign() > 0 && amount.Cmp(big.NewRat(1, 100)) < 0 {
 				cost = "< US$ 0.01"
 			}
 		}
+	}
+	return cost
+}
+
+// formatBRLRat renders a non-negative rational as "R$ 0,12", with the same
+// sub-centavo floor the call receipt uses. Shared by the receipt and the
+// custom statusline cost segment so the two agree.
+func formatBRLRat(amount *big.Rat) string {
+	cost := "R$ " + strings.ReplaceAll(amount.FloatString(2), ".", ",")
+	if amount.Sign() > 0 && amount.Cmp(big.NewRat(1, 100)) < 0 {
+		cost = "< R$ 0,01"
 	}
 	return cost
 }

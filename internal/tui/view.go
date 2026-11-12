@@ -143,18 +143,7 @@ func (m model) composerTopBorder(width int) string {
 // output estimate); after the run, the last exact rate faint; nothing before
 // the first response. Returns the styled segment and its cell width.
 func (m model) composerRateSegment() (string, int) {
-	rate, live := "", false
-	// The dot only shows while the current call is emitting output and its
-	// usage has not arrived yet. Otherwise the last exact rate shows faint.
-	if m.pending && m.streamLive && m.pendingPermission == nil {
-		if exact := usageRate(m.streamUsage); exact != "" {
-			rate, live = exact, true
-		} else if est := m.liveEstimateRate(); est != "" {
-			rate, live = est, true
-		}
-	} else {
-		rate = strings.TrimSpace(m.lastCompletedRate)
-	}
+	rate, live := m.rateText()
 	if rate == "" {
 		return "", 0
 	}
@@ -175,6 +164,11 @@ func (m model) composerDividerLine(width int) string {
 }
 
 func (m model) statusLine(width int) string {
+	// A configured layout renders instead of the built-in line; the zero
+	// config keeps the built-in path byte-identical.
+	if m.statuslineCfg.IsCustom() {
+		return m.statusLineCustom(width)
+	}
 	tier := widthTier(width)
 	separator := qgTheme.line.Render(" │ ")
 	prefix := "  "
