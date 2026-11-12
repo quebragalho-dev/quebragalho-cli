@@ -114,11 +114,13 @@ func TestSessionCostBRL(t *testing.T) {
 		{Type: sessions.EventUsage, Payload: json.RawMessage(`{"cost_exact": "junk", "cost_currency": "BRL"}`)},
 		{Type: sessions.EventMessage, Payload: json.RawMessage(`{"content": "hi"}`)},
 	}
-	if got := m.sessionCostBRL(); got != "R$ 0,12" {
-		t.Fatalf("sessionCostBRL = %q, want %q", got, "R$ 0,12")
+	if total, ok := m.sessionCostBRLRat(); !ok {
+		t.Fatal("expected priced BRL usage")
+	} else if got := formatBRLRat(total); got != "R$ 0,12" {
+		t.Fatalf("sessionCostBRLRat = %q, want %q", got, "R$ 0,12")
 	}
 	empty := limeTestModel()
-	if got := empty.sessionCostBRL(); got != "" {
-		t.Fatalf("empty sessionCostBRL = %q, want empty", got)
+	if _, ok := empty.sessionCostBRLRat(); ok {
+		t.Fatal("empty sessionCostBRLRat reported costs")
 	}
 }

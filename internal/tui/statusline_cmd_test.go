@@ -227,7 +227,7 @@ func TestStatuslinePollRunLifecycle(t *testing.T) {
 		t.Fatal("in-flight flag not set after starting a run")
 	}
 	// A second trigger while the run is in flight starts nothing.
-	if _, second := nm.maybeStartStatuslineRun(); second != nil {
+	if _, second := nm.startStatuslineRun(false); second != nil {
 		t.Fatal("second trigger started an overlapping run")
 	}
 	msg, ok := execCmd(cmd).(statuslineCmdMsg)
@@ -280,11 +280,11 @@ func TestStatuslinePollFailureKeepsLastGood(t *testing.T) {
 func TestStatuslineForcedRefreshQueuedDuringFlight(t *testing.T) {
 	m := limeTestModel()
 	m.statuslineCfg = config.StatusLineConfig{Command: &config.StatusLineCommand{Command: "echo hi"}}
-	m, _ = m.maybeStartStatuslineRun()
+	m, _ = m.startStatuslineRun(false)
 	if !m.statuslineCmdInFlight {
 		t.Fatal("precondition: no run in flight")
 	}
-	m, cmd := m.maybeStartStatuslineRunForced()
+	m, cmd := m.startStatuslineRun(true)
 	if cmd != nil {
 		t.Fatalf("overlapping run started: %T", cmd)
 	}

@@ -1,14 +1,11 @@
 package tui
 
 import (
-	"encoding/json"
-	"math/big"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 // Statusline field ids a custom layout may reference. Stable and English;
@@ -173,8 +170,8 @@ func (m model) statuslineSegment(id string, width int) string {
 		}
 		return ""
 	case "cost":
-		if cost := m.sessionCostBRL(); cost != "" {
-			return qgTheme.muted.Render(cost)
+		if total, ok := m.sessionCostBRLRat(); ok {
+			return qgTheme.muted.Render(formatBRLRat(total))
 		}
 		return ""
 	case "time":
@@ -201,36 +198,6 @@ func (m model) rateText() (string, bool) {
 		return "", true
 	}
 	return strings.TrimSpace(m.lastCompletedRate), false
-}
-
-// sessionCostBRL sums priced BRL call costs across the session events, so the
-// total survives resume. USD and malformed amounts never inflate it; "" when
-// nothing priced in BRL exists yet.
-func (m model) sessionCostBRL() string {
-	total := new(big.Rat)
-	found := false
-	for _, event := range m.sessionEvents {
-		if event.Type != sessions.EventUsage {
-			continue
-		}
-		var call struct {
-			Amount   string `json:"cost_exact"`
-			Currency string `json:"cost_currency"`
-		}
-		if json.Unmarshal(event.Payload, &call) != nil || call.Currency != "BRL" {
-			continue
-		}
-		amount, ok := new(big.Rat).SetString(strings.TrimSpace(call.Amount))
-		if !ok || amount.Sign() < 0 {
-			continue
-		}
-		total.Add(total, amount)
-		found = true
-	}
-	if !found {
-		return ""
-	}
-	return formatBRLRat(total)
 }
 
 // sessionElapsed renders the session wall time ("45s", "3m 4s", "2h 5m") from

@@ -3346,7 +3346,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statuslineTickArmed = true
-		m, cmd := m.maybeStartStatuslineRun()
+		m, cmd := m.startStatuslineRun(false)
 		return m, batchCommands(cmd, statuslineTickCmd(m.statuslineCfg.EffectiveRefreshMs()))
 	case setupKeyCheckMsg:
 		return m.applySetupKeyCheck(msg), nil
