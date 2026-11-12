@@ -49,6 +49,7 @@ func TestPTBRPermissionEscalationReasonCard(t *testing.T) {
 func TestPTBRModelAndProfileCards(t *testing.T) {
 	// Switching provider exports QG_PROVIDER through the real process env:
 	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	m := newModel(context.Background(), Options{ModelName: "gpt-test", ProviderName: "qg"})
 	pmRestore := model{}
 	pmRestore.agentOptions.Profile = &agent.ProfilePolicy{Escalate: &agent.PostureEscalation{MaxTurns: 80}}

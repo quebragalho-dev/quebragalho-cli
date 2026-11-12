@@ -440,6 +440,7 @@ func TestFormatPalettePriceBRL(t *testing.T) {
 func TestTabLadderSessionAndDefaultApply(t *testing.T) {
 	// Switching provider exports QG_PROVIDER through the real process env:
 	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	for _, session := range []bool{true, false} {
 		t.Run(map[bool]string{true: "session", false: "default"}[session], func(t *testing.T) {
 			m := batchThreeLiveModel(t)

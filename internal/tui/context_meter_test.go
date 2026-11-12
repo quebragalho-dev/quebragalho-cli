@@ -188,6 +188,7 @@ func batchMeterModelName(t *testing.T) string {
 func TestContextMeterFollowsUsageAcrossModelSwitch(t *testing.T) {
 	// Switching provider exports QG_PROVIDER through the real process env:
 	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	baseProfile := config.ProviderProfile{
 		Name:         "qg",
 		CatalogID:    "qg",
@@ -234,6 +235,7 @@ func TestContextMeterFollowsUsageAcrossModelSwitch(t *testing.T) {
 func TestContextMeterSwitchAfterCompactionStaysZeroed(t *testing.T) {
 	// Switching provider exports QG_PROVIDER through the real process env:
 	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	baseProfile := config.ProviderProfile{
 		Name:         "qg",
 		CatalogID:    "qg",
