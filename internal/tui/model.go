@@ -1307,6 +1307,23 @@ func newModel(ctx context.Context, options Options) model {
 	if warning := strings.TrimSpace(options.StatusLineWarning); warning != "" {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: warning})
 	}
+	// Name unknown statusline field ids once at startup, so a typo in a
+	// hand-written config does not fail silently (the setup card repeats
+	// them at preview time; this covers everything else).
+	if unknown := unknownStatusLineFields(m.statuslineCfg); len(unknown) > 0 {
+		quoted := make([]string, 0, len(unknown))
+		for _, id := range unknown {
+			quoted = append(quoted, fmt.Sprintf("%q", id))
+		}
+		noun := "campo desconhecido"
+		if len(unknown) > 1 {
+			noun = "campos desconhecidos"
+		}
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{
+			kind: actionAppendSystem,
+			text: fmt.Sprintf("statusline: %s %s ignorado", noun, strings.Join(quoted, ", ")),
+		})
+	}
 	// Apply an explicit palette immediately. System is applied by Run immediately
 	// before Bubble Tea starts, which keeps package-level helper rendering
 	// deterministic while models are being constructed in tests.

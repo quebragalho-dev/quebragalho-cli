@@ -1,13 +1,14 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +124,27 @@ func TestStatuslineApplyKeepsRunningChain(t *testing.T) {
 	}
 	if !applied.statuslineTickArmed {
 		t.Fatal("apply must not disarm the running chain")
+	}
+}
+
+// Unknown field ids warn once at startup, like the config clamp warnings
+// above, so a typo does not fail silently (the card repeats them).
+func TestStatuslineUnknownIdsWarnAtStartup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(context.Background(), Options{
+		Cwd:            dir,
+		UserConfigPath: path,
+		StatusLine: config.StatusLineConfig{
+			Lines: []config.StatusLineLine{{Left: []string{"mode", "nao_existe"}}},
+		},
+	})
+	transcript := plainRender(t, m.transcript)
+	if !strings.Contains(transcript, "nao_existe") {
+		t.Fatalf("startup must name the unknown field id:\n%s", transcript)
 	}
 }
 
