@@ -350,7 +350,7 @@ func parseSkill(dirName string, path string, raw string) Skill {
 			name = parsedName
 		}
 		description = frontmatterValue(frontmatter, "description")
-		environments = parseEnvironmentList(frontmatterValue(frontmatter, "environment"))
+		environments = parseEnvironmentList(frontmatterTopLevelValue(frontmatter, "environment"))
 	}
 
 	return Skill{
@@ -401,6 +401,28 @@ func parseEnvironmentList(value string) []string {
 		}
 	}
 	return out
+}
+
+// frontmatterTopLevelValue reads a `key: value` pair that starts at column 0
+// of the frontmatter block. Nested keys (indented lines, e.g. under a
+// `metadata:` map) and lines folded into a `>-`/`|` block are ignored, so a
+// stray `environment:` inside a description never becomes a declaration.
+func frontmatterTopLevelValue(frontmatter string, key string) string {
+	prefix := strings.ToLower(key) + ":"
+	for line := range strings.SplitSeq(frontmatter, "\n") {
+		if line == "" {
+			continue
+		}
+		if line[0] == ' ' || line[0] == '\t' {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(trimmed), prefix) {
+			value := strings.TrimSpace(trimmed[len(prefix):])
+			return strings.Trim(value, `"'`)
+		}
+	}
+	return ""
 }
 
 // frontmatterValue reads a single `key: value` pair from the frontmatter block.
