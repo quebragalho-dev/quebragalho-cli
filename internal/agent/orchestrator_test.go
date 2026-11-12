@@ -156,3 +156,44 @@ func TestDetectOrchestratorsIgnoresUbiquitousDeclared(t *testing.T) {
 		t.Fatalf("only the non-ubiquitous declaration must match, got %+v", got)
 	}
 }
+
+func TestDetectOrchestratorsDeclaredMustBelongToSkill(t *testing.T) {
+	skills := []SkillInfo{
+		{Name: "kestrel-hub", Environments: []string{"KESTREL_HUB_MARK"}},
+		{Name: "osprey-desk", Environments: []string{"RELAY_SESSION"}},
+		{Name: "plain-desk", Environments: []string{"BAR_X"}},
+		{Name: "shlvl-desk", Environments: []string{"SHLVL"}},
+	}
+	env := map[string]string{
+		"KESTREL_HUB_MARK": "a", "RELAY_SESSION": "b", "BAR_X": "c", "SHLVL": "2",
+	}
+	got := DetectOrchestrators(skills, env)
+	names := map[string]string{}
+	for _, d := range got {
+		names[d.Name] = d.Signal
+	}
+	if names["kestrel-hub"] != "env:KESTREL_HUB_MARK" {
+		t.Fatalf("prefix declaration must match, got %+v", got)
+	}
+	if names["osprey-desk"] != "env:RELAY_SESSION" {
+		t.Fatalf("suffix declaration must match, got %+v", got)
+	}
+	if _, ok := names["plain-desk"]; ok {
+		t.Fatalf("unrelated declaration must not match, got %+v", got)
+	}
+	if _, ok := names["shlvl-desk"]; ok {
+		t.Fatalf("ubiquitous declaration must not match, got %+v", got)
+	}
+}
+
+func TestDetectOrchestratorsHeuristicSkipsUbiquitousKeys(t *testing.T) {
+	// WT_SESSION is ubiquitous: a skill named "wt" must not match it.
+	got := DetectOrchestrators([]SkillInfo{{Name: "wt"}}, map[string]string{"WT_SESSION": "x"})
+	if len(got) != 0 {
+		t.Fatalf("ubiquitous heuristic key must not match, got %+v", got)
+	}
+	got = DetectOrchestrators([]SkillInfo{{Name: "tmux"}}, map[string]string{"TMUX_PANE": "1"})
+	if len(got) != 0 {
+		t.Fatalf("ubiquitous heuristic key must not match, got %+v", got)
+	}
+}

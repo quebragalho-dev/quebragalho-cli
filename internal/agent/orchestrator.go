@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -74,13 +75,18 @@ func DetectOrchestrators(skills []SkillInfo, env map[string]string) []DetectedOr
 
 func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (string, bool) {
 	// A declared `environment:` list replaces the heuristic: a skill that
-	// declares its markers never matches by name pattern. Ubiquitous
-	// variables are ignored in declarations — a skill cannot pin itself into
-	// every prompt by declaring PATH, HOME, or any XDG_* / LC_* variable.
+	// declares its markers never matches by name pattern. Each declared name
+	// must belong to the skill — end in a session suffix or start with the
+	// normalized skill name — and ubiquitous variables never count, so no
+	// skill can pin itself into every prompt by declaring PATH or HOME.
 	if len(skill.Environments) > 0 {
+		normalized := normalizeOrchestratorName(name)
 		for _, declared := range skill.Environments {
 			declared = strings.TrimSpace(declared)
 			if declared == "" || isUbiquitousEnvironment(declared) {
+				continue
+			}
+			if !declarationBelongsToSkill(declared, normalized) {
 				continue
 			}
 			if strings.TrimSpace(env[declared]) != "" {
@@ -91,6 +97,9 @@ func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (str
 		normalized := normalizeOrchestratorName(name)
 		for _, suffix := range orchestratorEnvSuffixes {
 			key := normalized + "_" + suffix
+			if isUbiquitousEnvironment(key) {
+				continue
+			}
 			if strings.TrimSpace(env[key]) != "" {
 				return "env:" + key, true
 			}
@@ -102,16 +111,44 @@ func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (str
 	return "", false
 }
 
+// declarationBelongsToSkill reports whether a declared marker belongs to the
+// skill: it ends in a session suffix or starts with the normalized skill
+// name. Comparison is case-insensitive on Windows, where variable names are.
+func declarationBelongsToSkill(declared, normalizedSkill string) bool {
+	d, n := declared, normalizedSkill
+	if runtime.GOOS == "windows" {
+		d, n = strings.ToUpper(d), strings.ToUpper(n)
+	}
+	for _, suffix := range orchestratorEnvSuffixes {
+		if d == suffix || strings.HasSuffix(d, "_"+suffix) {
+			return true
+		}
+	}
+	return strings.HasPrefix(d, n)
+}
+
 // isUbiquitousEnvironment reports variables present in essentially every
-// process, which must never elect an ambient skill on their own.
+// process, which must never elect an ambient skill on their own — neither by
+// declaration nor by heuristic. Besides the usual shell variables this covers
+// terminal multiplexers and emulators (their session markers exist in every
+// terminal of that kind) and the Windows variable set; comparison is
+// case-insensitive because the Windows environment is.
 func isUbiquitousEnvironment(name string) bool {
-	switch name {
+	upper := strings.ToUpper(strings.TrimSpace(name))
+	switch upper {
 	case "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "TERM_PROGRAM",
 		"COLORTERM", "PWD", "OLDPWD", "LANG", "TMPDIR", "TZ", "EDITOR",
-		"VISUAL", "PAGER", "DISPLAY":
+		"VISUAL", "PAGER", "DISPLAY", "SHLVL", "_", "HOSTNAME", "SSH_AUTH_SOCK",
+		"MAIL", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP",
+		"SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "OS", "COMPUTERNAME",
+		"USERNAME", "HOMEDRIVE", "HOMEPATH", "TERM_SESSION_ID",
+		"ITERM_SESSION_ID", "WT_SESSION", "WEZTERM_UNIX_SOCKET", "WEZTERM_PANE",
+		"KONSOLE_DBUS_SESSION", "KITTY_WINDOW_ID", "TMUX", "TMUX_PANE", "STY",
+		"VTE_VERSION", "DBUS_SESSION_BUS_ADDRESS", "SSH_CONNECTION",
+		"SSH_CLIENT", "SSH_TTY":
 		return true
 	}
-	return strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "XDG_")
+	return strings.HasPrefix(upper, "LC_") || strings.HasPrefix(upper, "XDG_")
 }
 
 func snapshotEnv() map[string]string {

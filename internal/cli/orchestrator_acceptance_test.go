@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ import (
 	"testing"
 )
 
-// Acceptance tests for "QG reconhece o ambiente/orquestrador sozinho". They
+// Acceptance tests for QG recognizing, on its own, the orchestrator it runs in. They
 // drive the real `qg exec` / `qg doctor` entry points against a loopback stub
 // provider and assert on the exact bytes QG would send to a model. Skill
 // fixtures and environment signals use invented names so no real orchestrator
@@ -35,6 +36,8 @@ type orqSkill struct {
 	name        string
 	description string
 	environment []string
+	// extra is raw frontmatter appended after the description line.
+	extra string
 }
 
 type orqMessage struct {
@@ -154,6 +157,7 @@ func writeOrqSkills(t *testing.T, dir string, skills []orqSkill) {
 		if skill.environment != nil {
 			b.WriteString("environment: [" + strings.Join(skill.environment, ", ") + "]\n")
 		}
+		b.WriteString(skill.extra)
 		b.WriteString("---\n\n# " + skill.name + "\n\nFixture body for " + skill.name + ".\n")
 		skillDir := filepath.Join(dir, skill.name)
 		if err := os.MkdirAll(skillDir, 0o700); err != nil {
@@ -243,7 +247,7 @@ func (h *orqHarness) exec(extraArgs ...string) string {
 	h.t.Helper()
 	before := len(h.snapshot())
 	args := append([]string{"exec", "--cwd", h.workdir}, extraArgs...)
-	args = append(args, "Responda apenas PRONTO.")
+	args = append(args, "Reply with READY only.")
 	var stdout, stderr bytes.Buffer
 	if code := Run(args, &stdout, &stderr); code != 0 {
 		h.t.Fatalf("qg exec exit=%d\nstdout=%s\nstderr=%s", code, stdout.String(), stderr.String())
@@ -374,13 +378,13 @@ func TestOrchestratorDetectedByDeclaredEnvironment(t *testing.T) {
 	h := newOrqHarness(t, append(orqFillers(3), orqSkill{
 		name:        "atlas-desk",
 		description: "Coordinates atlas desks.",
-		environment: []string{"ATLAS_ABSENT_SIGNAL", "BAR_X"},
+		environment: []string{"ATLAS_ABSENT_SIGNAL", "BAR_SOCKET"},
 	}))
-	t.Setenv("BAR_X", "orq-secret-declared-77ab")
+	t.Setenv("BAR_SOCKET", "orq-secret-declared-77ab")
 
 	system := h.exec()
 
-	assertOrqDetected(t, system, "atlas-desk", "BAR_X")
+	assertOrqDetected(t, system, "atlas-desk", "BAR_SOCKET")
 	h.assertNoValueLeak("orq-secret-declared-77ab")
 }
 
@@ -405,28 +409,28 @@ func TestOrchestratorNearMissesDetectNothing(t *testing.T) {
 		hitSignal string
 	}{
 		{
-			name:      "prefixo git sem sufixo de sessao",
+			name:      "git prefix without a session suffix",
 			skills:    []orqSkill{{name: "git", description: "Git helpers."}},
 			nearMiss:  map[string]string{"GIT_EDITOR": "vim", "GIT_PAGER": "cat"},
 			hitSkill:  "git",
 			hitSignal: "GIT_SOCKET",
 		},
 		{
-			name:      "prefixo go sem separador nem sufixo",
+			name:      "go prefix without separator or suffix",
 			skills:    []orqSkill{{name: "go", description: "Go helpers."}},
 			nearMiss:  map[string]string{"GOPATH": "/tmp/orq-gopath", "GOFLAGS": "-count=1"},
 			hitSkill:  "go",
 			hitSignal: "GO_SESSION",
 		},
 		{
-			name:      "variavel de sessao sem skill instalada",
+			name:      "session variable without an installed skill",
 			skills:    []orqSkill{{name: "heron", description: "Heron helpers."}},
 			nearMiss:  map[string]string{"FOO_SOCKET": "/tmp/orq-foo.sock", "FOO_SESSION_ID": "orq-foo-session"},
 			hitSkill:  "heron",
 			hitSignal: "HERON_TERMINAL_ID",
 		},
 		{
-			name:      "skill declarada sem a variavel declarada ignora a heuristica",
+			name:      "declared skill skips the heuristic when its variable is absent",
 			skills:    []orqSkill{{name: "harbor", description: "Harbor helpers.", environment: []string{"HARBOR_DECLARED"}}},
 			nearMiss:  map[string]string{"HARBOR_SOCKET": "/tmp/orq-harbor.sock"},
 			hitSkill:  "harbor",
@@ -453,29 +457,33 @@ func TestOrchestratorNearMissesDetectNothing(t *testing.T) {
 }
 
 // A declaration naming a variable every shell has would match everywhere and
-// let any installed skill pin itself. Those names are ignored; a skill that
-// also declares its own variable still matches through it.
+// let any installed skill pin itself. Each skill here is named after the
+// variable it declares, so the name rule accepts it and only the ubiquitous
+// filter can reject it: the prompt must stay byte-identical to a run where the
+// same skills declare nothing. A skill that also declares its own variable
+// still matches through it.
 func TestOrchestratorDeclarationIgnoresUbiquitousVariables(t *testing.T) {
 	ubiquitous := []string{
 		"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "TERM_PROGRAM", "COLORTERM",
 		"PWD", "OLDPWD", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TZ", "EDITOR", "VISUAL",
 		"PAGER", "DISPLAY", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR",
+		"SHLVL", "HOSTNAME", "SSH_AUTH_SOCK", "MAIL", "USERPROFILE",
 	}
-	skills := orqFillers(3)
+	declaring := orqFillers(3)
+	silent := orqFillers(3)
 	for _, variable := range ubiquitous {
-		skills = append(skills, orqSkill{
-			name:        "ubiq-" + strings.ToLower(strings.ReplaceAll(variable, "_", "-")),
-			description: "Declares only " + variable + ".",
-			environment: []string{variable},
-		})
+		name := strings.ToLower(strings.ReplaceAll(variable, "_", "-"))
+		declaring = append(declaring, orqSkill{name: name, description: "Declares only " + variable + ".", environment: []string{variable}})
+		silent = append(silent, orqSkill{name: name, description: "Declares only " + variable + "."})
 	}
-	skills = append(skills, orqSkill{name: "zebra-hub", description: "Coordinates zebra hubs.", environment: []string{"HOME", "ZEBRA_SOCKET"}})
-	h := newOrqHarness(t, skills)
+	zebra := orqSkill{name: "zebra-hub", description: "Coordinates zebra hubs.", environment: []string{"HOME", "ZEBRA_SOCKET"}}
+	h := newOrqHarness(t, append(declaring, zebra))
 	harmless := map[string]string{
 		"USER": "orq", "LOGNAME": "orq", "SHELL": "/bin/sh", "TERM": "xterm-256color", "TERM_PROGRAM": "OrqTerminal",
 		"COLORTERM": "truecolor", "PWD": h.workdir, "OLDPWD": h.workdir, "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
 		"LC_CTYPE": "C.UTF-8", "TMPDIR": os.TempDir(), "TZ": "UTC", "EDITOR": "vi", "VISUAL": "vi", "PAGER": "cat",
-		"DISPLAY": ":0", "XDG_RUNTIME_DIR": os.TempDir(),
+		"DISPLAY": ":0", "XDG_RUNTIME_DIR": os.TempDir(), "SHLVL": "2", "HOSTNAME": "orq-host",
+		"SSH_AUTH_SOCK": "/tmp/orq-agent.sock", "MAIL": "/var/mail/orq",
 	}
 	for _, variable := range ubiquitous {
 		if _, ok := os.LookupEnv(variable); !ok {
@@ -485,23 +493,89 @@ func TestOrchestratorDeclarationIgnoresUbiquitousVariables(t *testing.T) {
 	t.Setenv("ZEBRA_SOCKET", "/tmp/orq-secret-zebra-8e")
 
 	system := h.exec()
-
 	assertOrqDetected(t, system, "zebra-hub", "ZEBRA_SOCKET")
+
+	writeOrqSkills(t, os.Getenv("QG_SKILLS_DIR"), append(silent, zebra))
+	if got := h.exec(); got != system {
+		t.Errorf("declaring only ubiquitous variables changed the system prompt; want byte-identical to the same skills declaring nothing.\ndeclared:\n%s\nsilent:\n%s", orqTail(system), orqTail(got))
+	}
+	h.assertNoValueLeak("/tmp/orq-secret-zebra-8e")
+}
+
+// A declared name counts only when it ends in a session suffix or starts with
+// the skill's normalized name. Otherwise any skill could pin itself into every
+// prompt. Rejected names sort after "filler-skill-", so listing one above the
+// fillers means a pin.
+func TestOrchestratorDeclarationMustBelongToTheSkill(t *testing.T) {
+	rejected := []orqSkill{
+		{name: "lvl-desk", description: "Declares SHLVL.", environment: []string{"SHLVL"}},
+		{name: "underscore-desk", description: "Declares _.", environment: []string{"_"}},
+		{name: "sock-agent-desk", description: "Declares SSH_AUTH_SOCK.", environment: []string{"SSH_AUTH_SOCK"}},
+		{name: "plain-desk", description: "Declares an unrelated name.", environment: []string{"BAR_X"}},
+	}
+	env := map[string]string{
+		"SHLVL":         "2",
+		"_":             "/usr/bin/env",
+		"SSH_AUTH_SOCK": "/tmp/orq-agent.sock",
+		"BAR_X":         "orq-secret-bare-0c",
+	}
+	if runtime.GOOS != "windows" {
+		rejected = append(rejected, orqSkill{name: "lowpath-desk", description: "Declares lowercase path.", environment: []string{"path"}})
+		env["path"] = "/tmp/orq-lowercase-path"
+	}
+	elected := []struct {
+		skill  orqSkill
+		signal string
+	}{
+		{orqSkill{name: "kestrel-hub", description: "Declares a name with its own prefix.", environment: []string{"KESTREL_HUB_MARK"}}, "KESTREL_HUB_MARK"},
+		{orqSkill{name: "osprey-desk", description: "Declares a session-suffixed name.", environment: []string{"RELAY_SESSION"}}, "RELAY_SESSION"},
+	}
+	skills := append(orqFillers(3), rejected...)
+	for _, e := range elected {
+		skills = append(skills, e.skill)
+	}
+	h := newOrqHarness(t, skills)
+	for key, value := range env {
+		t.Setenv(key, value)
+	}
+	t.Setenv("KESTREL_HUB_MARK", "orq-secret-kestrel-1f")
+	t.Setenv("RELAY_SESSION", "orq-secret-relay-2e")
+
+	system := h.exec()
+
+	for _, e := range elected {
+		assertOrqDetected(t, system, e.skill.name, e.signal)
+	}
 	outside := orqOutsideSkillList(system)
 	list := orqSkillList(system)
 	firstFiller := strings.Index(list, "filler-skill-")
-	for _, skill := range skills {
-		if !strings.HasPrefix(skill.name, "ubiq-") {
-			continue
-		}
+	for _, skill := range rejected {
 		if strings.Contains(outside, skill.name) {
-			t.Errorf("skill %s matched through ubiquitous %v; such declarations must be ignored", skill.name, skill.environment)
+			t.Errorf("skill %s matched through %v; a declaration must end in a session suffix or start with the skill name", skill.name, skill.environment)
 		}
 		if at := strings.Index(list, skill.name); at >= 0 && firstFiller >= 0 && at < firstFiller {
-			t.Errorf("skill %s is pinned through ubiquitous %v; such declarations must be ignored", skill.name, skill.environment)
+			t.Errorf("skill %s is pinned through %v", skill.name, skill.environment)
 		}
 	}
-	h.assertNoValueLeak("/tmp/orq-secret-zebra-8e")
+	h.assertNoValueLeak("orq-secret-bare-0c", "orq-secret-kestrel-1f", "orq-secret-relay-2e")
+}
+
+// Only top-level frontmatter keys declare markers. An `environment:` nested in
+// another mapping or inside a folded description is not a declaration, so the
+// name heuristic still applies to these skills.
+func TestOrchestratorNestedEnvironmentKeyIsNotADeclaration(t *testing.T) {
+	h := newOrqHarness(t, append(orqFillers(3),
+		orqSkill{name: "nestorq", description: "Nested metadata.", extra: "metadata:\n  environment: production\n"},
+		orqSkill{name: "foldorq", description: ">-\n  Talks to agents.\n  environment: staging"},
+	))
+	t.Setenv("NESTORQ_SOCKET", "/tmp/orq-nested.sock")
+	t.Setenv("FOLDORQ_CLI", "/tmp/orq-folded-cli")
+
+	system := h.exec()
+
+	assertOrqDetected(t, system, "nestorq", "NESTORQ_SOCKET")
+	assertOrqDetected(t, system, "foldorq", "FOLDORQ_CLI")
+	h.assertNoValueLeak("/tmp/orq-nested.sock", "/tmp/orq-folded-cli")
 }
 
 // KITE_RELAY_SOCKET is "KITE_RELAY_" + SOCKET, so it belongs to kite-relay. For
@@ -583,8 +657,8 @@ func TestOrchestratorPromptStableAcrossAssemblies(t *testing.T) {
 	}{
 		{orqSkill{name: "quokka-orq", description: "Coordinates quokka terminals."}, "QUOKKA_ORQ_SESSION_ID", "orq-secret-stable-a1"},
 		{orqSkill{name: "heron-hub", description: "Coordinates heron hubs."}, "HERON_HUB_CLI", "orq-secret-stable-c3"},
-		{orqSkill{name: "atlas-desk", description: "Coordinates atlas desks.", environment: []string{"BAR_X"}}, "BAR_X", "orq-secret-stable-b2"},
-		{orqSkill{name: "cobalt-desk", description: "Coordinates cobalt desks.", environment: []string{"COBALT_X"}}, "COBALT_X", "orq-secret-stable-d4"},
+		{orqSkill{name: "atlas-desk", description: "Coordinates atlas desks.", environment: []string{"ATLAS_DESK_X"}}, "ATLAS_DESK_X", "orq-secret-stable-b2"},
+		{orqSkill{name: "cobalt-desk", description: "Coordinates cobalt desks.", environment: []string{"BLUE_SESSION"}}, "BLUE_SESSION", "orq-secret-stable-d4"},
 		{orqSkill{name: "vortexterm", description: "Drives vortex panes."}, "TERM_PROGRAM", "vortexterm"},
 	}
 	skills := orqFillers(249)
@@ -639,7 +713,7 @@ func TestOrchestratorBlockSurvivesCompaction(t *testing.T) {
 		case mainIndex == historyTurns+1:
 			return orqReply{status: http.StatusBadRequest, body: `{"error":{"message":"This model's maximum context length is 8192 tokens (context_length_exceeded).","type":"invalid_request_error","code":"context_length_exceeded"}}`}
 		default:
-			return orqReply{status: http.StatusOK, body: orqSSEText("PRONTO")}
+			return orqReply{status: http.StatusOK, body: orqSSEText("READY")}
 		}
 	}
 
