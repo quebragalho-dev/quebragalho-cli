@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -227,6 +229,29 @@ func TestStatuslineCommandKillsTreeOnTimeout(t *testing.T) {
 	}
 }
 
+// Unbounded output is capped in memory: a 200 MiB flood grows the heap by
+// megabytes, not hundreds of megabytes. TotalAlloc is cumulative, so the
+// gap between capped (64 KiB kept) and uncapped is unmistakable.
+func TestStatuslineCommandCapsOutput(t *testing.T) {
+	restore := stubStatuslineShell(spamHelperCommand(200 << 20))
+	defer restore()
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 30*time.Second)
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	if msg.errNote != "" {
+		t.Fatalf("errNote = %q, want success", msg.errNote)
+	}
+	if len(msg.lines) != 3 {
+		t.Fatalf("lines = %d, want the 3-line sanitize cap", len(msg.lines))
+	}
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 64<<20 {
+		t.Fatalf("heap grew by %d bytes for a capped read, want at most 64 MiB", grew)
+	}
+}
+
 // stubStatuslineShell swaps the shell constructor for a helper-process
 // re-exec, so runner tests never depend on a platform shell or sleep binary.
 func stubStatuslineShell(args []string) func() {
@@ -249,6 +274,8 @@ func echoHelperCommand(text string) []string { return []string{"echo", text} }
 // run below would block until the grandchild's hold expires (30s, far past
 // the test bound).
 func leakHelperCommand() []string { return []string{"leak", "hold", "30s"} }
+
+func spamHelperCommand(bytes int) []string { return []string{"spam", strconv.Itoa(bytes)} }
 
 // TestStatuslineSleepHelper is not a real test: the stubbed shell re-execs
 // the test binary into this function, which sleeps or echoes.
@@ -293,6 +320,19 @@ func TestStatuslineSleepHelper(t *testing.T) {
 			os.Exit(2)
 		}
 		time.Sleep(duration)
+	case "spam":
+		remaining, err := strconv.Atoi(args[1])
+		if err != nil {
+			os.Exit(2)
+		}
+		chunk := []byte(strings.Repeat("x", 4096) + "\n")
+		for remaining > 0 {
+			n := min(remaining, len(chunk))
+			if _, err := os.Stdout.Write(chunk[:n]); err != nil {
+				break
+			}
+			remaining -= n
+		}
 	}
 	os.Exit(0)
 }

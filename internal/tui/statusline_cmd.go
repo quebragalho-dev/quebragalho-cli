@@ -308,12 +308,19 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 	if err != nil {
 		return statuslineCmdMsg{errNote: "statusline: comando falhou (erro de execução)"}
 	}
+	// Stderr carries no statusline content; dropping it (instead of the
+	// default capture buffer) keeps a chatty script from growing memory.
+	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
 		return statuslineCmdMsg{errNote: "statusline: comando falhou (erro de execução)"}
 	}
-	out, _ := io.ReadAll(stdout)
+	// Drain fully but keep only the head: a flooding script (`yes`) must not
+	// grow this buffer past the cap, yet a fast finite flood still succeeds
+	// instead of stalling on a full pipe until the timeout.
+	kept := &cappedStatuslineBuffer{cap: maxStatuslineCmdOutputBytes}
+	_, _ = io.Copy(kept, stdout)
 	waitErr := cmd.Wait()
-	text := strings.TrimRight(string(out), "\n")
+	text := strings.TrimRight(string(kept.bytes), "\n")
 	switch {
 	case runCtx.Err() == context.DeadlineExceeded:
 		timeoutLabel := timeout.Truncate(time.Second)
@@ -331,6 +338,25 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 // statuslineTreeKillGrace bounds how long Wait blocks for the I/O pipes to
 // drain after the tree kill. Var (not const) so tests can shorten it.
 var statuslineTreeKillGrace = 500 * time.Millisecond
+
+// maxStatuslineCmdOutputBytes caps one command's stdout in memory; the excess
+// is discarded, never rendered.
+const maxStatuslineCmdOutputBytes = 64 * 1024
+
+// cappedStatuslineBuffer keeps the head of a stream up to cap, discarding the
+// rest while still draining (so a finite flood exits instead of blocking on a
+// full pipe).
+type cappedStatuslineBuffer struct {
+	bytes []byte
+	cap   int
+}
+
+func (w *cappedStatuslineBuffer) Write(p []byte) (int, error) {
+	if len(w.bytes) < w.cap {
+		w.bytes = append(w.bytes, p[:min(len(p), w.cap-len(w.bytes))]...)
+	}
+	return len(p), nil
+}
 
 // statuslineHardenCmd makes one statusline run killable as a single unit, so
 // a timeout cannot leak backgrounded children: the child leads its own
