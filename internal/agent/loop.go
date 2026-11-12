@@ -1627,6 +1627,18 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 	// Secret scrubbing happens at the registry boundary (the single point both
 	// the agent loop and the MCP server pass through), so result.Output is
 	// already redacted here and result.Redacted reflects whether it changed.
+	// A shell command that may have changed the PR/MR graph stamps the loop
+	// result Meta the TUI reads: denied results returned earlier never reach
+	// here, so the flag only marks commands that actually ran.
+	resultMeta := result.Meta
+	if prMutatingShellCommand(call.Name, args) {
+		stamped := make(map[string]string, len(resultMeta)+1)
+		for key, value := range resultMeta {
+			stamped[key] = value
+		}
+		stamped[PrIdentityStaleMeta] = "1"
+		resultMeta = stamped
+	}
 	return ToolResult{
 		Risk:            executedRisk,
 		ToolCallID:      call.ID,
@@ -1634,7 +1646,7 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 		Status:          result.Status,
 		Output:          result.ModelOutput(),
 		Truncated:       result.Truncated,
-		Meta:            result.Meta,
+		Meta:            resultMeta,
 		Images:          result.Images,
 		Redacted:        result.Redacted,
 		ChangedFiles:    result.ChangedFiles,

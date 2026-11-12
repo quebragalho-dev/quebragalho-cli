@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
@@ -838,5 +839,59 @@ func TestRefreshBurstRunsOneGateProbe(t *testing.T) {
 	if symrefs > 1 || revparses > 1 {
 		snapshot := append([]string{}, runner.callsSnapshot()...)
 		t.Fatalf("burst must probe the gate at most once, got %d symbolic-ref and %d rev-parse calls: %v", symrefs, revparses, snapshot)
+	}
+}
+
+// E2E case D: the branch sat without an open PR (negative cache), then PRs
+// appear. A tool result from a PR-mutating command (gh pr create) invalidates
+// the cache, so the next refresh consults gh again and shows the newest #.
+func TestPrMutatingToolResultInvalidatesNegativeCache(t *testing.T) {
+	runner := &fakePRRunner{results: map[string]fakePRResult{
+		"git symbolic-ref --quiet --short HEAD": {
+			output: "dev\n",
+		},
+		"git rev-parse HEAD": {
+			output: "abc123\n",
+		},
+		"gh pr list --head dev --state open --json number,url,baseRefName": {
+			output: `[{"url":"https://github.com/org/repo/pull/120","number":120,"baseRefName":"main"},{"url":"https://github.com/org/repo/pull/121","number":121,"baseRefName":"main"}]`,
+		},
+		"git merge-base origin/main HEAD": {
+			output: "abc123\n",
+		},
+		"git diff --numstat abc123": {
+			output: "4\t0\twork.go\n",
+		},
+	}}
+	service := NewPrService(t.TempDir())
+	service.run = runner.Run
+	service.lastBranch = "dev"
+	service.lastHead = "abc123"
+	service.cachedIdentity = cachedPRIdentity{branch: "dev", at: time.Now(), none: true}
+
+	m := newQueuedMessageTestModel(t)
+	m.prService = service
+	m.pending = true
+	m.activeRunID = 7
+	m.runID = 7
+	m.width = 96
+
+	updated, cmd := m.Update(agentRowMsg{
+		runID: 7,
+		row: transcriptRow{
+			kind: rowToolResult, id: "c1", tool: "exec_command",
+			status: tools.StatusOK, runID: 7,
+			meta: map[string]string{agent.PrIdentityStaleMeta: "1"},
+		},
+	})
+	_ = updated.(model)
+	_ = execCmd(cmd)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for service.GetState().PrNumber != "121" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := service.GetState(); got.PrNumber != "121" || got.Additions != 4 {
+		t.Fatalf("mutating tool result must drop the negative cache, got %#v", got)
 	}
 }

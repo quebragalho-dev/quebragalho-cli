@@ -348,6 +348,20 @@ type gitlabMRView struct {
 	TargetBranch string          `json:"target_branch"`
 }
 
+// InvalidatePRIdentity drops the cached PR identity (positive or negative),
+// forcing the next refresh to consult the network again even inside the TTL.
+// Called when a tool result came from a PR/MR-mutating command (gh pr create,
+// git push, ...), so a PR the operator just opened shows up on the next
+// refresh instead of lingering behind the cache.
+func (s *PrService) InvalidatePRIdentity() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.cachedIdentity = cachedPRIdentity{}
+	s.mu.Unlock()
+}
+
 // detectGitHubPR resolves the header for a GitHub repo. done reports whether
 // gh itself worked: when true the verdict is final (found, diff-without-PR,
 // or definitively nothing) and the caller must not try the next provider.

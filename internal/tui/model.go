@@ -3182,16 +3182,21 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.captureStepWork(msg.row)
 		// A finished command tool may have mutated files git can see but no
 		// changedFiles reports (npm create, heredoc writes, subagent edits) —
-		// re-sweep so the FILES sidebar picks them up mid-turn.
-		if msg.row.kind == rowToolResult && isPlanCommandTool(msg.row.tool) {
-			var sweep tea.Cmd
-			m, sweep = m.maybeGitSweep()
-			return m, tea.Batch(sweep, m.prRefreshCmd())
-		}
-		// A finished tool may have rewritten files the header diff counts —
-		// re-check off the UI goroutine, coalesced by the service gate, so a
-		// long turn with many edits still refreshes while tools land.
+		// re-sweep so the FILES sidebar picks them up mid-turn. Any finished
+		// tool may also have rewritten files the header diff counts — re-check
+		// off the UI goroutine, coalesced by the service gate, so a long turn
+		// with many edits still refreshes while tools land. When the tool ran
+		// a PR/MR-mutating command, drop the cached identity first so a
+		// freshly opened PR shows up instead of lingering behind the TTL.
 		if msg.row.kind == rowToolResult {
+			if msg.row.meta[agent.PrIdentityStaleMeta] != "" {
+				m.prService.InvalidatePRIdentity()
+			}
+			if isPlanCommandTool(msg.row.tool) {
+				var sweep tea.Cmd
+				m, sweep = m.maybeGitSweep()
+				return m, tea.Batch(sweep, m.prRefreshCmd())
+			}
 			return m, m.prRefreshCmd()
 		}
 		return m, nil
