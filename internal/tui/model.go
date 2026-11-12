@@ -4185,7 +4185,8 @@ func (m model) composerLine(width int) string {
 			cursor: composerDisplayCursorForPastePreviews(end, previews),
 		}
 	}
-	return renderComposerInput(input, displayState, width, m.composerCursorVisible, displaySelection)
+	spans := scanSkillTokens(displayState.text, m.installedSkills())
+	return renderComposerInput(input, displayState, width, m.composerCursorVisible, displaySelection, spans)
 }
 
 type composerVisualLine struct {
@@ -4194,7 +4195,7 @@ type composerVisualLine struct {
 	end   int
 }
 
-func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool, selection composerSelectionState) string {
+func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan) string {
 	state = normalizeComposerState(state)
 	if width <= 0 {
 		return ""
@@ -4213,7 +4214,7 @@ func renderComposerInput(input textinput.Model, state composerState, width int, 
 	segments, cursorLine := composerVisibleVisualLines(input, state, width)
 	lines := make([]string, 0, len(segments))
 	for index, segment := range segments {
-		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible, selection), width))
+		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible, selection, skillSpans), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -4295,10 +4296,17 @@ func composerCursorVisualLine(segments []composerVisualLine, cursor int) int {
 	return len(segments) - 1
 }
 
-func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState) string {
+func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan) string {
 	runes := []rune(state.text)
 	prefix := composerVisualLinePrefix(input, segment.first)
 	textStyle := qgTheme.ink.Inline(true)
+	skillStyle := qgTheme.accent.Inline(true)
+	skillCell := map[int]bool{}
+	for _, span := range skillSpans {
+		for index := span.start; index < span.end; index++ {
+			skillCell[index] = true
+		}
+	}
 	selectionStart, selectionEnd, hasSelection := selection.rangeFor(state)
 	cursorIndex := -1
 	if hasCursor && !hasSelection {
@@ -4307,16 +4315,52 @@ func renderComposerVisualLine(input textinput.Model, state composerState, segmen
 
 	var line strings.Builder
 	line.WriteString(prefix)
-	for index := segment.start; index < segment.end; index++ {
-		cell := string(runes[index])
+	// Cells render in runs of one style: the token must appear contiguously
+	// (the highlight is observable), and the terminal repaints with fewer
+	// escapes. Precedence: cursor > selection > skill token > plain ink.
+	classOf := func(index int) int {
 		switch {
 		case index == cursorIndex && cursorVisible:
-			line.WriteString(composerCursor(cell))
+			return 0
 		case hasSelection && index >= selectionStart && index < selectionEnd:
-			line.WriteString(qgTheme.selection.Render(cell))
+			return 1
+		case skillCell[index]:
+			return 2
 		default:
-			line.WriteString(textStyle.Render(cell))
+			return 3
 		}
+	}
+	flush := func(class int, cells *strings.Builder) {
+		switch class {
+		case 0:
+			cell := cells.String()
+			for _, char := range cell {
+				line.WriteString(composerCursor(string(char)))
+			}
+		case 1:
+			line.WriteString(qgTheme.selection.Render(cells.String()))
+		case 2:
+			// Known skill tokens render in the command color.
+			line.WriteString(skillStyle.Render(cells.String()))
+		default:
+			line.WriteString(textStyle.Render(cells.String()))
+		}
+		cells.Reset()
+	}
+	current := -1
+	var run strings.Builder
+	for index := segment.start; index < segment.end; index++ {
+		class := classOf(index)
+		if class != current {
+			if run.Len() > 0 {
+				flush(current, &run)
+			}
+			current = class
+		}
+		run.WriteString(string(runes[index]))
+	}
+	if run.Len() > 0 {
+		flush(current, &run)
 	}
 	if cursorIndex == segment.end && cursorVisible {
 		line.WriteString(composerCursor(" "))
@@ -4780,7 +4824,7 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 		// send-now batch is parked: then there is no running turn, and the
 		// prompt rides the FIFO behind the parked batch.
 		if !m.hasParkedSendNow() && len(m.pendingImages) == 0 && len(m.pendingDocuments) == 0 {
-			if isCommonPrompt(command.text, m.agentOptions.Specialists) {
+			if isCommonPrompt(command.text, m.agentOptions.Specialists, m.installedSkills()) {
 				if m.interleave == nil {
 					m.interleave = &interleaveBuffer{}
 				}
@@ -4892,15 +4936,19 @@ func (m model) handleEnterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // isCommonPrompt reports whether text is a plain prompt: not a slash
-// command, not a leading @specialist mention. The same predicate the
-// to-interleave path applies at submit time — the send-now uses it to
-// tell common messages from the queue's wait-for-turn-end residents.
-func isCommonPrompt(text string, specialists []agent.SpecialistInfo) bool {
+// command, not a leading @specialist mention, and citing no known skill. The
+// same predicate the to-interleave path applies at submit time — the
+// send-now uses it to tell common messages from the queue's wait-for-turn-end
+// residents (slash commands, @specialist mentions, skill messages included).
+func isCommonPrompt(text string, specialists []agent.SpecialistInfo, installed []skills.Skill) bool {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		return false
 	}
 	if parseCommand(trimmed).kind != commandPrompt {
+		return false
+	}
+	if containsSkillToken(trimmed, installed) {
 		return false
 	}
 	_, specialistMention := expandSpecialistMention(trimmed, specialists)
@@ -4948,7 +4996,7 @@ func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 	// never reach the wire from here.
 	remaining := make([]string, 0, len(m.queuedMessages))
 	for _, text := range m.queuedMessages {
-		if isCommonPrompt(text, m.agentOptions.Specialists) {
+		if isCommonPrompt(text, m.agentOptions.Specialists, m.installedSkills()) {
 			all = append(all, text)
 			continue
 		}
@@ -5499,12 +5547,17 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		m.pendingImageLabels = m.lastImageLabels
 		m.pendingDocuments = m.lastDocuments
 		m.refreshPendingImageThumbnail()
-		// Resend a multi-message turn as the SAME separate messages, in
-		// order — never as one concatenated text.
+		// Resend the last submitted message — running the full dispatch again
+		// so skill tokens re-expand from the raw text and user commands
+		// re-resolve, same as if the user had pressed Enter anew.
 		if len(m.lastPrompts) > 1 {
 			return m.launchPrompts(m.lastPrompts)
 		}
-		return m.launchPrompt(m.lastPrompt)
+		next, cmd := m.dispatchCommand(parseCommand(m.lastPrompt))
+		if nm, ok := next.(model); ok {
+			return nm, cmd
+		}
+		return m, cmd
 	case commandEdit:
 		if strings.TrimSpace(m.lastPrompt) == "" {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Edit\nno previous prompt to recall."})
@@ -5571,7 +5624,7 @@ func (m model) launchPrompt(prompt string) (model, tea.Cmd) {
 // in order. End-of-turn leftovers and the send-now interrupt path launch here
 // so the model sees exactly what the user queued — never one merged text.
 func (m model) launchPrompts(prompts []string) (model, tea.Cmd) {
-	return m.launchPromptsInternal(prompts, nil, nil)
+	return m.launchPromptsInternal(prompts, nil, nil, false)
 }
 
 // launchPromptsTagged is launchPrompts with per-message row ids: a delivered
@@ -5579,20 +5632,27 @@ func (m model) launchPrompts(prompts []string) (model, tea.Cmd) {
 // carried, so a late flush of the cancelled run dedupes against it. Entries
 // with an empty id behave exactly like launchPrompts.
 func (m model) launchPromptsTagged(prompts []string, rowIDs []string) (model, tea.Cmd) {
-	return m.launchPromptsInternal(prompts, nil, rowIDs)
+	return m.launchPromptsInternal(prompts, nil, rowIDs, false)
 }
 
 func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage) (model, tea.Cmd) {
-	return m.launchPromptsInternal([]string{prompt}, peer, nil)
+	return m.launchPromptsInternal([]string{prompt}, peer, nil, false)
 }
 
-func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMessage, rowIDs []string) (model, tea.Cmd) {
+// launchPromptSilent launches a user-command prompt without skill expansion.
+// Skill tokens inside a user command's args are its own — the command owns
+// them — and must remain literal (spec bullet 5).
+func (m model) launchPromptSilent(prompt string) (model, tea.Cmd) {
+	return m.launchPromptsInternal([]string{prompt}, nil, nil, true)
+}
+
+func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMessage, rowIDs []string, skipSkillExpansion bool) (model, tea.Cmd) {
 	prompt := prompts[0]
-	// Remember the verbatim prompt (before specialist/document expansion) so /retry
-	// and /edit can act on exactly what the user submitted. Snapshot the staged
-	// attachments too: launchPrompt clears the pending queues below, so /retry
-	// re-stages these to resend an identical vision/PDF-backed request rather than
-	// a degraded text-only one.
+	// Remember the verbatim prompt (before ANY expansion) so /retry and /edit can
+	// act on exactly what the user typed, not the expanded bodies. Snapshot the
+	// staged attachments too: launchPrompt clears the pending queues below, so
+	// /retry re-stages these to resend an identical vision/PDF-backed request
+	// rather than a degraded text-only one.
 	var attachments transcriptAttachmentSummary
 	if peer == nil {
 		m.lastPrompt = strings.Join(prompts, "\n")
@@ -5610,6 +5670,34 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 		if attachments.images > 0 && !m.modelSupportsVisionTUI() {
 			attachments.images = 0
 		}
+	} else {
+		m.transcript = appendTranscriptRow(m.transcript, peerTranscriptRow(peerDisplayName(peer.From), peer.Body))
+	}
+	// Skill tokens expand before @specialist mentions, so a skill message
+	// that also names a specialist resolves both against the same user text
+	// — skills first (they carry instructions), then the specialist directive
+	// wraps the remainder. The transcript echoes the expanded text, exactly
+	// as skill invocations have always shown the expanded body.
+	specialistMentions := make([]bool, len(prompts))
+	if peer == nil && !skipSkillExpansion {
+		for index := range prompts {
+			bodies, rest, ok := expandSkillTokensParts(prompts[index], m.installedSkills())
+			if !ok {
+				continue
+			}
+			// @specialist expands over the post-skill text (spec bullet 6).
+			// A bare "@" remainder is not a mention — expandSpecialistMention
+			// requires a known specialist and a task — so this is safe for the
+			// common case where the remainder starts with "@explorer ...".
+			if expanded, mentioned := expandSpecialistMention(rest, m.agentOptions.Specialists); mentioned {
+				rest = expanded
+				specialistMentions[index] = true
+			}
+			prompts[index] = composeSkillPrompt(bodies, rest)
+		}
+		prompt = prompts[0]
+	}
+	if peer == nil {
 		for index, text := range prompts {
 			row := transcriptRow{kind: rowUser, text: text}
 			rowAttachments := transcriptAttachmentSummary{}
@@ -5622,8 +5710,6 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 			}
 			m.transcript = appendTranscriptRow(m.transcript, row)
 		}
-	} else {
-		m.transcript = appendTranscriptRow(m.transcript, peerTranscriptRow(peerDisplayName(peer.From), peer.Body))
 	}
 	if m.provider == nil {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
@@ -5635,9 +5721,14 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 	// A leading "@specialist <task>" is expanded into an explicit Task-delegation
 	// directive for the agent only; the transcript above keeps the user's verbatim
 	// "@mention". Non-mentions and mid-message "@file" references are unchanged.
-	// Every message in the batch expands the same way.
+	// Every message in the batch expands the same way. Skill-expanded messages
+	// already ran this expansion over their remainder above, so they skip it
+	// here (running it twice would double-wrap the directive).
 	if peer == nil {
 		for index := range prompts {
+			if specialistMentions[index] {
+				continue
+			}
 			if expanded, ok := expandSpecialistMention(prompts[index], m.agentOptions.Specialists); ok {
 				prompts[index] = expanded
 			}
@@ -5964,7 +6055,14 @@ func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
 	}
 	prompt := m.queuedMessages[0]
 	m.queuedMessages = m.queuedMessages[1:]
-	return m.launchPrompt(prompt)
+	// Re-dispatch the queued line so skill tokens re-expand, user commands
+	// re-resolve and builtins still execute — the FIFO is raw text; the wire
+	// is built here.
+	next, cmd := m.dispatchCommand(parseCommand(prompt))
+	if nm, ok := next.(model); ok {
+		return nm, cmd
+	}
+	return m, cmd
 }
 
 // historyRecallActive reports whether ↑/↓ should navigate previously submitted

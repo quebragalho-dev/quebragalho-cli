@@ -17,8 +17,8 @@ import (
 // commandSuggestion is one row in the slash-command autocomplete overlay: the
 // canonical command name and its short description.
 type commandSuggestion struct {
-	Name   string
-	Desc   string
+	Name    string
+	Desc    string
 	IsSkill bool // true for skill rows (Enter inserts, never submits)
 }
 
@@ -122,7 +122,9 @@ func (m *model) recomputeSuggestions() {
 		return
 	}
 	matchToken := trailingSlashToken(value)
-	if matchToken == "" {
+	if matchToken == "" || skillExactToken(m.installedSkills(), matchToken) {
+		// A fully-typed skill token is complete: nothing left to complete.
+		// Enter executes it (bare invocation), matching a complete builtin.
 		m.suggestions = nil
 		m.suggestionIdx = 0
 		m.commandPaletteOpen = false
@@ -150,11 +152,11 @@ func commandSuggestionsOpen(value string) bool {
 // therefore offer skills/commands at any position — the palette keys off the
 // trailing token, not off a leading position.
 func trailingSlashToken(value string) string {
-	fields := strings.Fields(value)
-	if len(fields) == 0 {
+	if value == "" || strings.HasSuffix(value, " ") || strings.HasSuffix(value, "\t") || strings.HasSuffix(value, "\n") {
+		// An argument has started: the palette closes, like a complete one.
 		return ""
 	}
-	last := fields[len(fields)-1]
+	last := value[strings.LastIndexAny(value, " \t\n")+1:]
 	if !strings.HasPrefix(last, "/") {
 		return ""
 	}

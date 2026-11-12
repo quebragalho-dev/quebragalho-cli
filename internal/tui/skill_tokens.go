@@ -48,6 +48,19 @@ func scanSkillTokens(text string, installed []skills.Skill) []skillTokenSpan {
 	return out
 }
 
+// skillExactToken reports whether token is a fully-typed "/name" that resolves
+// to a known skill with no args. The palette stays closed in that case: the
+// token is already complete, and Enter executes it (bare invocation), the
+// same way a complete builtin does — the user never picks a row.
+func skillExactToken(installed []skills.Skill, token string) bool {
+	name, ok := strings.CutPrefix(strings.ToLower(token), "/")
+	if !ok {
+		return false
+	}
+	name = strings.TrimSpace(name)
+	return name != "" && !strings.ContainsAny(name, " \t\n") && skillRegistered(installed, name)
+}
+
 func skillRegistered(installed []skills.Skill, name string) bool {
 	for _, skill := range installed {
 		if skillSlashName(skill.Name) == name {
@@ -67,16 +80,17 @@ func containsSkillToken(text string, installed []skills.Skill) bool {
 	return len(scanSkillTokens(text, installed)) > 0
 }
 
-// expandSkillTokens builds the wire prompt: the skill bodies (in order of
-// first appearance, each once), then the remaining text with every resolved
-// skill token removed. Empty remainder carries bareSkillInvocationNote.
-func expandSkillTokens(text string, installed []skills.Skill) (string, bool) {
+// expandSkillTokensParts splits text into the resolved skill bodies and the
+// remaining user text with every resolved skill token stripped. ok is false
+// when no known skill was cited. Duplicates expand once (first occurrence);
+// duplicates are stripped from rest either way.
+func expandSkillTokensParts(text string, installed []skills.Skill) (bodies string, rest string, ok bool) {
 	spans := scanSkillTokens(text, installed)
 	if len(spans) == 0 {
-		return text, false
+		return "", text, false
 	}
 	seen := map[string]bool{}
-	var bodies []string
+	var bodyParts []string
 	for _, span := range spans {
 		if seen[span.name] {
 			continue
@@ -84,7 +98,7 @@ func expandSkillTokens(text string, installed []skills.Skill) (string, bool) {
 		seen[span.name] = true
 		for _, skill := range installed {
 			if skillSlashName(skill.Name) == span.name {
-				bodies = append(bodies, strings.TrimSpace(skill.Content))
+				bodyParts = append(bodyParts, strings.TrimSpace(skill.Content))
 				break
 			}
 		}
@@ -97,18 +111,25 @@ func expandSkillTokens(text string, installed []skills.Skill) (string, bool) {
 		cursor = span.end
 	}
 	kept = append(kept, runes[cursor:]...)
-	rest := strings.TrimSpace(string(kept))
-	body := strings.TrimSpace(strings.Join(bodies, "\n\n"))
-	if body == "" {
-		// An installed skill with an empty body still expands: the user sees the
-		// bare-invocation note, never a silent no-op.
-		if rest == "" {
-			return bareSkillInvocationNote, true
-		}
-		return rest + "\n\n" + bareSkillInvocationNote, true
+	body := strings.TrimSpace(strings.Join(bodyParts, "\n\n"))
+	return body, strings.TrimSpace(string(kept)), true
+}
+
+// composeSkillPrompt joins the expanded bodies and the remaining text.
+// An empty rest (text was only skill tokens) carries the bare-invocation note.
+func composeSkillPrompt(bodies, rest string) string {
+	switch {
+	case bodies == "" && rest == "":
+		// Every cited skill had an empty body and there is no user text:
+		// the bare-invocation note is all that is left to say.
+		return bareSkillInvocationNote
+	case bodies == "":
+		return rest + "\n\n" + bareSkillInvocationNote
+	case rest == "":
+		// Text was only skill tokens: the instructions alone have no target,
+		// so the note asks for one.
+		return bodies + "\n\n" + bareSkillInvocationNote
+	default:
+		return bodies + "\n\n" + rest
 	}
-	if rest == "" {
-		return body + "\n\n" + bareSkillInvocationNote, true
-	}
-	return body + "\n\n" + rest, true
 }
