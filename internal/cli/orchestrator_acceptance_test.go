@@ -310,6 +310,19 @@ func orqTail(text string) string {
 	return "…" + text[len(text)-max:]
 }
 
+// orqDiff shows both prompts around their first differing byte. Their tails
+// are usually identical, so a tail alone hides why byte identity failed.
+func orqDiff(want, got string) string {
+	at := 0
+	for at < len(want) && at < len(got) && want[at] == got[at] {
+		at++
+	}
+	window := func(text string) string {
+		return "…" + text[max(at-300, 0):min(at+600, len(text))] + "…"
+	}
+	return fmt.Sprintf("first difference at byte %d\nwant:\n%s\ngot:\n%s", at, window(want), window(got))
+}
+
 func orqFillers(count int) []orqSkill {
 	fillers := make([]orqSkill, 0, count)
 	for index := 1; index <= count; index++ {
@@ -436,6 +449,25 @@ func TestOrchestratorNearMissesDetectNothing(t *testing.T) {
 			hitSkill:  "harbor",
 			hitSignal: "HARBOR_DECLARED",
 		},
+		{
+			name: "terminal session variables never feed the heuristic",
+			skills: []orqSkill{
+				{name: "term", description: "Term helpers."},
+				{name: "iterm", description: "iTerm helpers."},
+				{name: "wt", description: "Windows Terminal helpers."},
+				{name: "wezterm-unix", description: "WezTerm helpers."},
+				{name: "konsole-dbus", description: "Konsole helpers."},
+			},
+			nearMiss: map[string]string{
+				"TERM_SESSION_ID":      "w0t0p0:orq-term-session",
+				"ITERM_SESSION_ID":     "w0t0p0:orq-iterm-session",
+				"WT_SESSION":           "orq-wt-session",
+				"WEZTERM_UNIX_SOCKET":  "/tmp/orq-wezterm.sock",
+				"KONSOLE_DBUS_SESSION": "/Sessions/1",
+			},
+			hitSkill:  "term",
+			hitSignal: "TERM_SOCKET",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -446,7 +478,7 @@ func TestOrchestratorNearMissesDetectNothing(t *testing.T) {
 				t.Setenv(key, value)
 			}
 			if got := h.exec(); got != baseline {
-				t.Errorf("near-miss env %v changed the system prompt; want byte-identical to the run without it.\nwithout:\n%s\nwith:\n%s", tc.nearMiss, orqTail(baseline), orqTail(got))
+				t.Errorf("near-miss env %v changed the system prompt; want byte-identical to the run without it.\n%s", tc.nearMiss, orqDiff(baseline, got))
 			}
 
 			t.Setenv(tc.hitSignal, "orq-secret-hit-5d1e")
@@ -456,25 +488,30 @@ func TestOrchestratorNearMissesDetectNothing(t *testing.T) {
 	}
 }
 
-// A declaration naming a variable every shell has would match everywhere and
-// let any installed skill pin itself. Each skill here is named after the
-// variable it declares, so the name rule accepts it and only the ubiquitous
-// filter can reject it: the prompt must stay byte-identical to a run where the
-// same skills declare nothing. A skill that also declares its own variable
-// still matches through it.
+// A declaration naming a variable every shell or terminal sets would match
+// everywhere and let any installed skill pin itself. Each skill here is named
+// after the variable it declares, so the name rule accepts it and only the
+// ubiquitous filter can reject it. The prompt must stay byte-identical to a run
+// where the same skills declare only an absent variable of their own, which
+// keeps the name heuristic out of the comparison. A skill that also declares
+// its own variable still matches through it.
 func TestOrchestratorDeclarationIgnoresUbiquitousVariables(t *testing.T) {
 	ubiquitous := []string{
 		"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "TERM_PROGRAM", "COLORTERM",
 		"PWD", "OLDPWD", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TZ", "EDITOR", "VISUAL",
 		"PAGER", "DISPLAY", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR",
 		"SHLVL", "HOSTNAME", "SSH_AUTH_SOCK", "MAIL", "USERPROFILE",
+		"TERM_SESSION_ID", "ITERM_SESSION_ID", "WT_SESSION", "WEZTERM_UNIX_SOCKET", "WEZTERM_PANE",
+		"KONSOLE_DBUS_SESSION", "KITTY_WINDOW_ID", "TMUX", "TMUX_PANE", "STY", "VTE_VERSION",
+		"DBUS_SESSION_BUS_ADDRESS", "SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY",
 	}
 	declaring := orqFillers(3)
-	silent := orqFillers(3)
+	absent := orqFillers(3)
 	for _, variable := range ubiquitous {
 		name := strings.ToLower(strings.ReplaceAll(variable, "_", "-"))
-		declaring = append(declaring, orqSkill{name: name, description: "Declares only " + variable + ".", environment: []string{variable}})
-		silent = append(silent, orqSkill{name: name, description: "Declares only " + variable + "."})
+		description := "Declares only " + variable + "."
+		declaring = append(declaring, orqSkill{name: name, description: description, environment: []string{variable}})
+		absent = append(absent, orqSkill{name: name, description: description, environment: []string{variable + "_ORQ_ABSENT"}})
 	}
 	zebra := orqSkill{name: "zebra-hub", description: "Coordinates zebra hubs.", environment: []string{"HOME", "ZEBRA_SOCKET"}}
 	h := newOrqHarness(t, append(declaring, zebra))
@@ -484,6 +521,11 @@ func TestOrchestratorDeclarationIgnoresUbiquitousVariables(t *testing.T) {
 		"LC_CTYPE": "C.UTF-8", "TMPDIR": os.TempDir(), "TZ": "UTC", "EDITOR": "vi", "VISUAL": "vi", "PAGER": "cat",
 		"DISPLAY": ":0", "XDG_RUNTIME_DIR": os.TempDir(), "SHLVL": "2", "HOSTNAME": "orq-host",
 		"SSH_AUTH_SOCK": "/tmp/orq-agent.sock", "MAIL": "/var/mail/orq",
+		"TERM_SESSION_ID": "w0t0p0:orq-term-session", "ITERM_SESSION_ID": "w0t0p0:orq-iterm-session",
+		"WT_SESSION": "orq-wt-session", "WEZTERM_UNIX_SOCKET": "/tmp/orq-wezterm.sock", "WEZTERM_PANE": "0",
+		"KONSOLE_DBUS_SESSION": "/Sessions/1", "KITTY_WINDOW_ID": "1", "TMUX": "/tmp/orq-tmux/default,1,0",
+		"TMUX_PANE": "%0", "STY": "1.orq", "VTE_VERSION": "7600", "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/orq-dbus",
+		"SSH_CONNECTION": "127.0.0.1 50000 127.0.0.1 22", "SSH_CLIENT": "127.0.0.1 50000 22", "SSH_TTY": "/dev/ttys000",
 	}
 	for _, variable := range ubiquitous {
 		if _, ok := os.LookupEnv(variable); !ok {
@@ -495,9 +537,9 @@ func TestOrchestratorDeclarationIgnoresUbiquitousVariables(t *testing.T) {
 	system := h.exec()
 	assertOrqDetected(t, system, "zebra-hub", "ZEBRA_SOCKET")
 
-	writeOrqSkills(t, os.Getenv("QG_SKILLS_DIR"), append(silent, zebra))
-	if got := h.exec(); got != system {
-		t.Errorf("declaring only ubiquitous variables changed the system prompt; want byte-identical to the same skills declaring nothing.\ndeclared:\n%s\nsilent:\n%s", orqTail(system), orqTail(got))
+	writeOrqSkills(t, os.Getenv("QG_SKILLS_DIR"), append(absent, zebra))
+	if absentSystem := h.exec(); absentSystem != system {
+		t.Errorf("declaring only ubiquitous variables changed the system prompt; want byte-identical to the same skills declaring an absent variable of their own.\n%s", orqDiff(absentSystem, system))
 	}
 	h.assertNoValueLeak("/tmp/orq-secret-zebra-8e")
 }
@@ -673,7 +715,7 @@ func TestOrchestratorPromptStableAcrossAssemblies(t *testing.T) {
 	first := h.exec()
 	for run := 2; run <= 12; run++ {
 		if got := h.exec(); got != first {
-			t.Fatalf("assembly %d differs from assembly 1; the system prompt must be byte-stable.\nfirst:\n%s\nrun %d:\n%s", run, orqTail(first), run, orqTail(got))
+			t.Fatalf("assembly %d differs from assembly 1; the system prompt must be byte-stable.\n%s", run, orqDiff(first, got))
 		}
 	}
 
