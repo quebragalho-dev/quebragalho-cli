@@ -25,6 +25,7 @@ type networkClient struct {
 
 	protocolVersion string
 	protocolWarning string
+	staleSignal
 }
 
 type remoteSSEClient struct {
@@ -41,6 +42,7 @@ type remoteSSEClient struct {
 
 	protocolVersion string
 	protocolWarning string
+	staleSignal
 }
 
 type ssePendingResponse struct {
@@ -475,7 +477,11 @@ func closeResponseBody(errp *error, server Server, body io.Closer) {
 func (client *networkClient) decodeResponse(response *http.Response) (rpcMessage, error) {
 	contentType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if contentType == "text/event-stream" {
-		return decodeSSERPCMessage(response.Body)
+		return decodeSSERPCMessageWithNotify(response.Body, func(message rpcMessage) {
+			if message.Method == toolsListChangedMethod {
+				client.markToolsStale()
+			}
+		})
 	}
 
 	var message rpcMessage
@@ -565,6 +571,9 @@ func (client *remoteSSEClient) deliverEventMessage(value string) error {
 		return fmt.Errorf("decode MCP SSE stream message: %w", err)
 	}
 	if message.isRequestOrNotification() {
+		if message.Method == toolsListChangedMethod {
+			client.markToolsStale()
+		}
 		return nil
 	}
 	key := rpcResponseKey(message.ID)
@@ -639,6 +648,10 @@ func httpStatusError(server Server, response *http.Response) error {
 }
 
 func decodeSSERPCMessage(reader io.Reader) (rpcMessage, error) {
+	return decodeSSERPCMessageWithNotify(reader, nil)
+}
+
+func decodeSSERPCMessageWithNotify(reader io.Reader, notify func(rpcMessage)) (rpcMessage, error) {
 	var decoded rpcMessage
 	var decodeErr error
 	found := false
@@ -663,6 +676,9 @@ func decodeSSERPCMessage(reader io.Reader) (rpcMessage, error) {
 		// first message event was returned unconditionally, so a leading
 		// notification surfaced to the caller as an id mismatch and failed the call.
 		if candidate.isRequestOrNotification() {
+			if notify != nil {
+				notify(candidate)
+			}
 			return true
 		}
 		decoded = candidate

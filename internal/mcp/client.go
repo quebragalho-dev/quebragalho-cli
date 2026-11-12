@@ -77,6 +77,8 @@ type Client struct {
 	// does not implement yet.
 	protocolVersion string
 	protocolWarning string
+	// stale collapses tools/list_changed notifications into one refresh.
+	staleSignal
 }
 
 type writeOp struct {
@@ -605,6 +607,9 @@ func (client *Client) readLoop() {
 		// A message with a Method is a server-initiated request or notification.
 		// It must never be routed as a response to a pending client request.
 		if message.isRequestOrNotification() {
+			if message.Method == toolsListChangedMethod {
+				client.markToolsStale()
+			}
 			if message.ID != nil && jsonRPCIDEchoable(message.ID) {
 				client.enqueueCourtesy(rpcMessage{
 					ID: message.ID,

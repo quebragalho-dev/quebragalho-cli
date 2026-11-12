@@ -138,6 +138,20 @@ func (registry *Registry) RegisterBatch(batch []Tool) {
 	registry.generation++
 }
 
+// Unregister removes one tool by name, bumping the generation only when
+// something was actually removed. It exists for list_changed refreshes that
+// drop tools the server no longer offers.
+func (registry *Registry) Unregister(name string) bool {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	if _, ok := registry.tools[name]; !ok {
+		return false
+	}
+	delete(registry.tools, name)
+	registry.generation++
+	return true
+}
+
 func (registry *Registry) Get(name string) (Tool, bool) {
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
