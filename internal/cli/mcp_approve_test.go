@@ -132,3 +132,30 @@ func TestRunMCPApproveRequiresConfirmation(t *testing.T) {
 		t.Fatalf("refused approval touched the approvals file: %v", err)
 	}
 }
+
+// Every secret-looking flag value stays out of the approve prompt: going
+// back to only KEY/TOKEN would leak the rest while every test stays green.
+func TestMaskMCPApproveArgMasksAllSecretMarkers(t *testing.T) {
+	for _, arg := range []string{
+		"--api-key=k3y-val-123",
+		"--token=t0k-val-123",
+		"--password=hunter2222",
+		"--secret=s3cr3t-val",
+		"--auth=bearer-val-1",
+		"--client-credential=cred-val-1",
+	} {
+		masked := maskMCPApproveArg(arg)
+		name, value, _ := strings.Cut(arg, "=")
+		if !strings.HasPrefix(masked, name+"=") {
+			t.Errorf("maskMCPApproveArg(%q) = %q, want the flag name kept", arg, masked)
+		}
+		if strings.Contains(masked, value) {
+			t.Errorf("maskMCPApproveArg(%q) = %q, leaks the secret value", arg, masked)
+		}
+	}
+	for _, arg := range []string{"--verbose", "server.js", "--require=./x.js"} {
+		if got := maskMCPApproveArg(arg); got != arg {
+			t.Errorf("maskMCPApproveArg(%q) = %q, want it untouched", arg, got)
+		}
+	}
+}
