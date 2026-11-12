@@ -37,6 +37,21 @@ func KillProcessTree(pid int) error {
 	return nil
 }
 
+// KillProcessGroup immediately kills the process group led by pid, using the
+// launch-time invariant (ConfigureProcessGroup) instead of rediscovering the
+// group: the leader may already have exited while descendants hold pipes
+// open, and on Darwin the rediscovery then falls back to the dead leader.
+// ESRCH (group already gone) is success.
+func KillProcessGroup(pid int) error {
+	if pid <= 1 {
+		return fmt.Errorf("refusing to signal invalid pid %d", pid)
+	}
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
+}
+
 // TerminateProcessTree requests graceful termination, then force-kills the
 // process tree after grace. Callers retain their distinct persistence models;
 // this function owns only the OS lifecycle primitive.

@@ -200,6 +200,33 @@ func TestStatuslinePollFailureKeepsLastGood(t *testing.T) {
 	}
 }
 
+// A grandchild that outlives the shell holding stdout open must not wedge
+// the runner: the timeout kills the tree and the next cycle runs.
+func TestStatuslineCommandKillsTreeOnTimeout(t *testing.T) {
+	restore := stubStatuslineShell(leakHelperCommand())
+	defer restore()
+	start := time.Now()
+	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 200*time.Millisecond)
+	elapsed := time.Since(start)
+	if msg.errNote == "" || !strings.Contains(msg.errNote, "tempo") {
+		t.Fatalf("errNote = %q, want a timeout note", msg.errNote)
+	}
+	if bound := 200*time.Millisecond + statuslineTreeKillGrace + 10*time.Second; elapsed > bound {
+		t.Fatalf("leaked grandchild stalled the run for %v (bound %v)", elapsed, bound)
+	}
+	// The next cycle still runs: nothing wedged.
+	restore()
+	restore = stubStatuslineShell(echoHelperCommand("again"))
+	defer restore()
+	again := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 5*time.Second)
+	if again.errNote != "" {
+		t.Fatalf("follow-up run failed: %q", again.errNote)
+	}
+	if len(again.lines) != 1 || !strings.Contains(again.lines[0], "again") {
+		t.Fatalf("follow-up lines = %#v", again.lines)
+	}
+}
+
 // stubStatuslineShell swaps the shell constructor for a helper-process
 // re-exec, so runner tests never depend on a platform shell or sleep binary.
 func stubStatuslineShell(args []string) func() {
@@ -216,6 +243,12 @@ func stubStatuslineShell(args []string) func() {
 func sleepHelperCommand(duration string) []string { return []string{"sleep", duration} }
 
 func echoHelperCommand(text string) []string { return []string{"echo", text} }
+
+// leakHelperCommand spawns a helper that orphans a grandchild holding the
+// stdout pipe open, then exits at once: without tree kill + WaitDelay, the
+// run below would block until the grandchild's hold expires (30s, far past
+// the test bound).
+func leakHelperCommand() []string { return []string{"leak", "hold", "30s"} }
 
 // TestStatuslineSleepHelper is not a real test: the stubbed shell re-execs
 // the test binary into this function, which sleeps or echoes.
@@ -242,6 +275,24 @@ func TestStatuslineSleepHelper(t *testing.T) {
 		time.Sleep(duration)
 	case "echo":
 		os.Stdout.WriteString(args[1] + "\n")
+	case "leak":
+		// Orphan a grandchild that holds the stdout pipe: the direct child
+		// exits at once, so only a tree kill (or WaitDelay) unblocks the
+		// reader. Stdout is inherited explicitly — exec does not inherit it
+		// by default.
+		grandchild := exec.Command(os.Args[0], append([]string{"-test.run=TestStatuslineSleepHelper", "--"}, args[1:]...)...)
+		grandchild.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		grandchild.Stdout = os.Stdout
+		if err := grandchild.Start(); err != nil {
+			os.Exit(2)
+		}
+		os.Exit(0)
+	case "hold":
+		duration, err := time.ParseDuration(args[1])
+		if err != nil {
+			os.Exit(2)
+		}
+		time.Sleep(duration)
 	}
 	os.Exit(0)
 }

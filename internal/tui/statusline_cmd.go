@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"math/big"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
@@ -301,7 +303,16 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := statuslineShellCommand(runCtx, command, stdin, env)
-	out, err := cmd.Output()
+	statuslineHardenCmd(cmd)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return statuslineCmdMsg{errNote: "statusline: comando falhou (erro de execução)"}
+	}
+	if err := cmd.Start(); err != nil {
+		return statuslineCmdMsg{errNote: "statusline: comando falhou (erro de execução)"}
+	}
+	out, _ := io.ReadAll(stdout)
+	waitErr := cmd.Wait()
 	text := strings.TrimRight(string(out), "\n")
 	switch {
 	case runCtx.Err() == context.DeadlineExceeded:
@@ -310,10 +321,35 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 			timeoutLabel = timeout
 		}
 		return statuslineCmdMsg{errNote: "statusline: comando estourou o tempo (" + timeoutLabel.String() + ")"}
-	case err != nil:
-		return statuslineCmdMsg{errNote: "statusline: comando falhou (" + shortCmdError(err) + ")"}
+	case waitErr != nil:
+		return statuslineCmdMsg{errNote: "statusline: comando falhou (" + shortCmdError(waitErr) + ")"}
 	default:
 		return statuslineCmdMsg{lines: sanitizeStatuslineOutput(text)}
+	}
+}
+
+// statuslineTreeKillGrace bounds how long Wait blocks for the I/O pipes to
+// drain after the tree kill. Var (not const) so tests can shorten it.
+var statuslineTreeKillGrace = 500 * time.Millisecond
+
+// statuslineHardenCmd makes one statusline run killable as a single unit, so
+// a timeout cannot leak backgrounded children: the child leads its own
+// process group (Unix) and Cancel signals the whole tree (taskkill /T on
+// Windows), mirroring tools.hardenProcessLifetime. WaitDelay is the backstop:
+// a grandchild still holding the stdout pipe can only stall past the timeout
+// by the grace period.
+func statuslineHardenCmd(cmd *exec.Cmd) {
+	execution.ConfigureProcessGroup(cmd)
+	cmd.WaitDelay = statuslineTreeKillGrace
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		// Launch-time invariant (ConfigureProcessGroup above), not
+		// rediscovery: the leader may already have exited while a
+		// grandchild holds the pipes, and rediscovery then misses the
+		// group it configured.
+		return execution.KillProcessGroup(cmd.Process.Pid)
 	}
 }
 

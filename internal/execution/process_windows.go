@@ -22,6 +22,14 @@ func KillProcessTree(pid int) error {
 	return killProcessTree(pid, runTaskkill, killRootProcess)
 }
 
+// KillProcessGroup kills the tree rooted at pid. On Windows there are no
+// launch-time process groups, so this is KillProcessTree: it works while the
+// root is alive, and an already-exited root leaves orphans to the caller's
+// WaitDelay backstop.
+func KillProcessGroup(pid int) error {
+	return KillProcessTree(pid)
+}
+
 func killProcessTree(pid int, killTree, killRoot func(int) error) error {
 	treeErr := killTree(pid)
 	if treeErr == nil {
