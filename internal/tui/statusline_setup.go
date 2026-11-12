@@ -27,9 +27,11 @@ import (
 type statuslineProposal struct {
 	Lines     []config.StatusLineLine `json:"lines"`
 	Separator string                  `json:"separator"`
-	// Command carries a literal command object, or explicit null to drop the
-	// current command. Absent keeps the current command and cadences (see
-	// validatedConfig). A staged script (Script, below) always wins.
+	// Command carries explicit null to drop the current command. Absent
+	// keeps the current command and cadences (see validatedConfig). A
+	// literal command object is never honored: a new command only enters
+	// through a staged script, which passes the dry run and installs
+	// inside the scripts dir. A staged script (Script, below) always wins.
 	Command json.RawMessage `json:"command,omitempty"`
 	// Script names a file inside the staging dir (e.g. "ctx.sh"), never a
 	// path: confinedStagingPath keeps it inside staging.
@@ -79,13 +81,11 @@ func (p statuslineProposal) validatedConfig(current config.StatusLineConfig) (co
 		if trimmed := strings.TrimSpace(string(p.Command)); trimmed == "null" {
 			warnings = append(warnings, "comando removido a pedido da proposta")
 		} else {
-			var literal config.StatusLineCommand
-			if err := json.Unmarshal(p.Command, &literal); err != nil || strings.TrimSpace(literal.Command) == "" {
-				warnings = append(warnings, "comando inválido na proposta, ignorado")
-			} else {
-				literal.Command = strings.TrimSpace(literal.Command)
-				cfg.Command = &literal
-			}
+			// A literal command object is never honored and never dry-run:
+			// a new command only enters through a staged script. Keep the
+			// current command and say so.
+			warnings = append(warnings, "comando literal na proposta ignorado: comando novo só entra por script no staging")
+			cfg.Command = current.Command
 		}
 	}
 	adjusted, adjustWarnings := cfg.Adjusted()
