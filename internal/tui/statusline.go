@@ -151,10 +151,10 @@ func (m model) statuslineSegment(id string, width int) string {
 		}
 		return ""
 	case "cache":
-		// Reserved for the prompt-cache hit rate: plugs in with the
-		// prompt-cache telemetry (cacheStatusSegment/m.cacheStatusData from
-		// internal/tui/cache_status.go) when it lands; empty until then.
-		return ""
+		// The session prompt-cache hit rate, reusing item 2's segment:
+		// "cache —" before the first call, "cache 75%" after.
+		seg, _ := cacheStatusSegment(m.cacheStatusData())
+		return seg
 	case "model":
 		if name := strings.TrimSpace(m.modelName); name != "" {
 			return qgTheme.accent.Render(truncateDisplayWidth(name, 48))

@@ -53,8 +53,9 @@ montar uma nova (sempre com prévia: Enter aplica, Esc cancela),
 ```
 
 Campos (ids estáveis, em inglês): `mode`, `effort`, `fast`, `voice`,
-`background`, `goal`, `context`, `branch`, `update`, `cwd`, `cache`
-(reservado; ainda sem dado), `model`, `speed`, `cost` (total da
+`background`, `goal`, `context`, `branch`, `update`, `cwd`, `cache` (taxa de
+acerto do prompt-cache da sessão: `cache —` antes da 1ª chamada), `model`,
+`speed`, `cost` (total da
 sessão em R$, só chamadas precificadas em BRL), `time` (duração da sessão).
 Ids desconhecidos são ignorados com aviso.
 
@@ -72,10 +73,13 @@ credencial). As chaves estão SEMPRE presentes; valor desconhecido é null:
   "session_id": "abc123", "cwd": "/repo", "model": "muse-spark-1.3",
   "provider": "qg", "effort": "high",
   "context": { "used": 161000, "window": 1000000, "pct": 16 },
-  "cache": { "hit_pct": null },
+  "cache": { "hit_pct": 75.0 },
   "cost_brl": 0.12, "branch": "main", "version": "0.9.0", "width": 120
 }
 ```
+
+`cache.hit_pct` usa a escala 0–100 de `context.pct` e é null antes da 1ª
+chamada (nunca um zero falso).
 
 A saída (stdout, até 3 linhas) aceita cores ANSI SGR; o resto dos escapes é
 removido. A execução é assíncrona (nunca bloqueia o View), com no máximo uma
