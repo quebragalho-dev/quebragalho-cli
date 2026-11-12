@@ -128,13 +128,23 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 	if delegation := specialistDelegationContext(options); delegation != "" {
 		sections = append(sections, delegation)
 	}
-	// Ambient orchestrator block: computed once per run start (see
-	// Options.Orchestrators), rebuilt with the system prompt so it survives
+	// Ambient orchestrator detection runs here — once per prompt build, and the
+	// prompt is frozen for the whole run (never per turn). An explicit
+	// Options.Orchestrators wins (lets callers and tests force a result,
+	// including an empty one); nil auto-detects from the run's skills and the
+	// process environment.
+	orchestrators := options.Orchestrators
+	if orchestrators == nil {
+		orchestrators = DetectOrchestrators(options.Skills, nil)
+	}
+	// Ambient orchestrator block: rebuilt with the system prompt so it survives
 	// compaction. Kept beside the skill list it advertises.
-	if orc := OrchestratorsContext(options.Orchestrators); orc != "" {
+	if orc := OrchestratorsContext(orchestrators); orc != "" {
 		sections = append(sections, orc)
 	}
-	skillsBlock := skillsContext(options)
+	pinnedOptions := options
+	pinnedOptions.Orchestrators = orchestrators
+	skillsBlock := skillsContext(pinnedOptions)
 	if skillsBlock != "" {
 		sections = append(sections, skillsBlock)
 	}
@@ -318,9 +328,12 @@ func skillsContext(options Options) string {
 			continue
 		}
 		line := "- " + info.Name
-		if info.Description != "" && spent < skillsContextListBudget {
-			line += ": " + truncateForSkillLine(info.Description)
-			spent += len(line)
+		if info.Description != "" {
+			desc := truncateForSkillLine(info.Description)
+			if spent+len(desc) <= skillsContextListBudget {
+				line += ": " + desc
+				spent += len(desc)
+			}
 		}
 		line += "\n"
 		b.WriteString(line)

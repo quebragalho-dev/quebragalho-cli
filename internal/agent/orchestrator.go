@@ -41,7 +41,7 @@ var orchestratorEnvSuffixes = []string{
 }
 
 // normalizeOrchestratorName uppercases a skill name and turns dashes into
-// underscores so `maestri-chat` matches MAESTRI_CHAT_SOCKET and friends.
+// underscores so `my-chat` matches MY_CHAT_SOCKET and friends.
 func normalizeOrchestratorName(name string) string {
 	return strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(name)), "-", "_")
 }
@@ -72,26 +72,45 @@ func DetectOrchestrators(skills []SkillInfo, env map[string]string) []DetectedOr
 }
 
 func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (string, bool) {
-	for _, declared := range skill.Environments {
-		declared = strings.TrimSpace(declared)
-		if declared == "" {
-			continue
+	// A declared `environment:` list replaces the heuristic: a skill that
+	// declares its markers never matches by name pattern. Ubiquitous
+	// variables are ignored in declarations — a skill cannot pin itself into
+	// every prompt by declaring PATH, HOME, or any XDG_* / LC_* variable.
+	if len(skill.Environments) > 0 {
+		for _, declared := range skill.Environments {
+			declared = strings.TrimSpace(declared)
+			if declared == "" || isUbiquitousEnvironment(declared) {
+				continue
+			}
+			if strings.TrimSpace(env[declared]) != "" {
+				return "env:" + declared, true
+			}
 		}
-		if strings.TrimSpace(env[declared]) != "" {
-			return "env:" + declared, true
-		}
-	}
-	normalized := normalizeOrchestratorName(name)
-	for _, suffix := range orchestratorEnvSuffixes {
-		key := normalized + "_" + suffix
-		if strings.TrimSpace(env[key]) != "" {
-			return "env:" + key, true
+	} else {
+		normalized := normalizeOrchestratorName(name)
+		for _, suffix := range orchestratorEnvSuffixes {
+			key := normalized + "_" + suffix
+			if strings.TrimSpace(env[key]) != "" {
+				return "env:" + key, true
+			}
 		}
 	}
 	if term := strings.TrimSpace(env["TERM_PROGRAM"]); term != "" && strings.EqualFold(term, name) {
-		return "term:" + term, true
+		return "TERM_PROGRAM", true
 	}
 	return "", false
+}
+
+// isUbiquitousEnvironment reports variables present in essentially every
+// process, which must never elect an ambient skill on their own.
+func isUbiquitousEnvironment(name string) bool {
+	switch name {
+	case "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "TERM_PROGRAM",
+		"COLORTERM", "PWD", "OLDPWD", "LANG", "TMPDIR", "TZ", "EDITOR",
+		"VISUAL", "PAGER", "DISPLAY":
+		return true
+	}
+	return strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "XDG_")
 }
 
 func snapshotEnv() map[string]string {

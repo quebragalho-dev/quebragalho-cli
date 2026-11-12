@@ -180,3 +180,28 @@ func TestOrchestratorBlockSurvivesCompaction(t *testing.T) {
 		t.Fatalf("orchestrator block must survive compaction")
 	}
 }
+
+func TestDetectOrchestratorsDeclaredSkipsHeuristic(t *testing.T) {
+	skills := []SkillInfo{{Name: "harbor", Environments: []string{"HARBOR_DECLARED"}}}
+	if got := DetectOrchestrators(skills, map[string]string{"HARBOR_SOCKET": "v"}); len(got) != 0 {
+		t.Fatalf("declared skill must not match by heuristic, got %+v", got)
+	}
+	got := DetectOrchestrators(skills, map[string]string{"HARBOR_DECLARED": "v"})
+	if len(got) != 1 || got[0].Signal != "env:HARBOR_DECLARED" {
+		t.Fatalf("declared match expected, got %+v", got)
+	}
+}
+
+func TestDetectOrchestratorsIgnoresUbiquitousDeclared(t *testing.T) {
+	skills := []SkillInfo{
+		{Name: "ubiq-path", Environments: []string{"PATH"}},
+		{Name: "ubiq-xdg", Environments: []string{"XDG_CONFIG_HOME"}},
+		{Name: "ubiq-lc", Environments: []string{"LC_ALL"}},
+		{Name: "zebra", Environments: []string{"HOME", "ZEBRA_SOCKET"}},
+	}
+	env := map[string]string{"PATH": "/bin", "XDG_CONFIG_HOME": "/c", "LC_ALL": "C", "ZEBRA_SOCKET": "v"}
+	got := DetectOrchestrators(skills, env)
+	if len(got) != 1 || got[0].Name != "zebra" || got[0].Signal != "env:ZEBRA_SOCKET" {
+		t.Fatalf("only the non-ubiquitous declaration must match, got %+v", got)
+	}
+}
