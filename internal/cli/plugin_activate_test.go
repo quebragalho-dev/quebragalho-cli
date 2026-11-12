@@ -293,6 +293,10 @@ func TestNewHookDispatcherWithExtraFoldsPluginHooks(t *testing.T) {
 }
 
 func TestSkillInfosCarriesEnvironments(t *testing.T) {
+	// Isolate from the developer's real skills: skillInfos merges the primary
+	// dir with ~/.agents/skills resolved from HOME/USERPROFILE.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	dir := t.TempDir()
 	skillDir := dir + "/foo"
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
