@@ -397,7 +397,16 @@ type slPump struct {
 func startSLPump(t *testing.T, m model, width, height int) *slPump {
 	t.Helper()
 	p := &slPump{t: t, m: m, msgs: make(chan tea.Msg, 1<<14), done: make(chan struct{}), width: width}
-	t.Cleanup(func() { close(p.done) })
+	t.Cleanup(func() {
+		// A turn still in flight keeps writing session files under the test
+		// dirs; let it land before t.TempDir removes them (cleanups run in
+		// reverse order, so this one runs first).
+		p.waitFor(5*time.Second, func(string) bool {
+			current, ok := p.m.(model)
+			return !ok || !current.pending
+		})
+		close(p.done)
+	})
 	p.dispatch(p.m.Init())
 	p.deliver(tea.WindowSizeMsg{Width: width, Height: height})
 	return p
@@ -1917,5 +1926,174 @@ func TestStatusLineAcceptance_CacheFieldAndStdinHitPct(t *testing.T) {
 	}
 	if value, _ := hitPct(); value != float64(75) {
 		t.Errorf("cache.hit_pct must be the session hit on the 0-100 scale of context.pct: want 75, got %v", value)
+	}
+}
+
+// 35. Staging trocado por link durante o turno: a proposta é recusada e nada
+// fora do staging é executado, alterado ou apagado.
+func TestStatusLineAcceptance_SwappedStagingDirRefused(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	writeJSONFile(t, env.userConfig, slUserConfigBase())
+	before, _ := os.ReadFile(env.userConfig)
+	outside := filepath.Join(env.root, "fora")
+	marker := filepath.Join(env.root, "outside-ran")
+	script := filepath.Join(outside, "x.sh")
+	body := "#!/bin/sh\ntouch '" + marker + "'\nprintf 'SL-SWAP\\n'\n"
+	var mu sync.Mutex
+	swapped := false
+	provider := &slProvider{onRequest: func(request qgruntime.CompletionRequest) {
+		mu.Lock()
+		defer mu.Unlock()
+		if swapped {
+			return
+		}
+		var all strings.Builder
+		for _, message := range request.Messages {
+			all.WriteString(message.Content)
+			all.WriteString("\n")
+		}
+		path := slStagingPath(env, all.String())
+		if path == "" {
+			return
+		}
+		if os.MkdirAll(outside, 0o700) != nil || os.WriteFile(script, []byte(body), 0o644) != nil {
+			return
+		}
+		if os.WriteFile(filepath.Join(outside, "proposal.json"), []byte(`{"lines":[{"left":["mode"]}],"script":"x.sh"}`), 0o600) != nil {
+			return
+		}
+		staging := filepath.Dir(path)
+		if os.RemoveAll(staging) == nil && os.Symlink(outside, staging) == nil {
+			swapped = true
+		}
+	}}
+	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
+	p.submit("/statusline quero uma linha minha")
+	frame := p.runFor(4 * time.Second)
+	mu.Lock()
+	ok := swapped
+	mu.Unlock()
+	if !ok {
+		t.Fatal("precondition: the staging dir was never swapped for a link")
+	}
+	if strings.Contains(plainFrame(frame), "Enter aplica") {
+		p.key(tea.KeyEscape)
+		p.runFor(time.Second)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Errorf("QG ran a script outside the staging dir through the swapped link")
+	}
+	info, err := os.Stat(script)
+	if err != nil {
+		t.Fatalf("QG deleted a file outside the staging dir through the swapped link: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("QG changed the mode of a file outside the staging dir to %v", info.Mode().Perm())
+	}
+	if data, _ := os.ReadFile(script); string(data) != body {
+		t.Errorf("QG changed a file outside the staging dir:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "proposal.json")); err != nil {
+		t.Errorf("QG deleted proposal.json outside the staging dir: %v", err)
+	}
+	if now, _ := os.ReadFile(env.userConfig); string(now) != string(before) {
+		t.Errorf("a proposal read through a swapped staging dir reached the user config:\n%s", now)
+	}
+}
+
+// 36. Script que sai com erro deixando um filho em background: nenhum
+// processo do grupo sobrevive à execução (o 28 cobre a saída 0).
+func TestStatusLineAcceptance_FailingRunBackgroundChildDies(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	pids := filepath.Join(env.root, "bg.pids")
+	command := writeScript(t, env, "fundo-falha.sh", `sleep 30 & echo $! >> '`+pids+`'; printf 'SL-BG-FAIL\n'; exit 3`)
+	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, timeoutMS: 2000, refreshMS: 600000})
+	t.Cleanup(func() {
+		for _, line := range fileLines(pids) {
+			if pid, err := strconv.Atoi(line); err == nil {
+				if process, err := os.FindProcess(pid); err == nil {
+					_ = process.Kill()
+				}
+			}
+		}
+	})
+	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
+	if !waitForFile(p, pids, 3*time.Second) {
+		t.Fatal("precondition: the script never started its background child")
+	}
+	p.runFor(2 * time.Second)
+	for _, line := range fileLines(pids) {
+		if pid, err := strconv.Atoi(line); err == nil && processAlive(pid) {
+			t.Errorf("background child %d outlived a failed run; every refresh would leak one", pid)
+		}
+	}
+}
+
+// 37. "command" literal (objeto) na proposta nunca chega à config nem roda:
+// comando novo só entra por script no staging, que passa pelo dry run e
+// fica dentro da pasta de scripts.
+func TestStatusLineAcceptance_LiteralCommandProposalNeverApplies(t *testing.T) {
+	requireSh(t)
+	env := newSLEnv(t)
+	writeJSONFile(t, env.userConfig, slUserConfigBase())
+	outside := filepath.Join(env.root, "fora")
+	runs := filepath.Join(env.root, "literal-runs")
+	target := filepath.Join(outside, "literal.sh")
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("#!/bin/sh\necho run >> '"+runs+"'\nprintf 'SL-LITERAL\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	staged := false
+	provider := &slProvider{onRequest: func(request qgruntime.CompletionRequest) {
+		mu.Lock()
+		defer mu.Unlock()
+		if staged {
+			return
+		}
+		var all strings.Builder
+		for _, message := range request.Messages {
+			all.WriteString(message.Content)
+			all.WriteString("\n")
+		}
+		path := slStagingPath(env, all.String())
+		if path == "" || os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+			return
+		}
+		proposal := map[string]any{
+			"lines":     []map[string]any{{"left": []string{"mode", "branch"}}},
+			"command":   map[string]any{"command": "sh '" + target + "'"},
+			"refreshMs": 1000,
+		}
+		data, err := json.Marshal(proposal)
+		if err == nil && os.WriteFile(path, data, 0o600) == nil {
+			staged = true
+		}
+	}}
+	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
+	p.submit("/statusline põe o branch do lado do modo")
+	frame, _ := p.waitFor(6*time.Second, containsPlain("Enter aplica"))
+	mu.Lock()
+	ok := staged
+	mu.Unlock()
+	if !ok {
+		t.Fatal("precondition: the proposal was never staged")
+	}
+	if strings.Contains(plainFrame(frame), "Enter aplica") {
+		p.key(tea.KeyEnter)
+	}
+	frame = p.runFor(2500 * time.Millisecond)
+	if data, _ := os.ReadFile(env.userConfig); strings.Contains(string(data), "literal.sh") {
+		t.Errorf("a literal command from the proposal reached the user config:\n%s", data)
+	}
+	if n := len(fileLines(runs)); n > 0 {
+		t.Errorf("a literal command from the proposal ran %d time(s)", n)
+	}
+	if footer := slFooter(plainFrame(frame)); strings.Contains(footer, "SL-LITERAL") {
+		t.Errorf("a literal command from the proposal reached the statusline:\n%s", footer)
 	}
 }
