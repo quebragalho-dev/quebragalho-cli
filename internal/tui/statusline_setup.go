@@ -441,7 +441,7 @@ func (m model) maybeFinalizeStatuslineSetup(msg tea.Msg) (model, tea.Cmd) {
 			return statuslineSetupValidatedMsg{lines: valid.lines}
 		}
 	}
-	pending := &statuslinePendingApply{proposal: proposal, cfg: cfg, stagingDir: setup.stagingDir, warnings: warnings}
+	pending := &statuslinePendingApply{proposal: proposal, cfg: cfg, stagingDir: setup.stagingDir, stagingGuard: setup.stagingInfo, warnings: warnings}
 	pending.preview = m.previewStatuslineProposal(pending, nil)
 	m.statuslinePending = pending
 	m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: pending.preview})
@@ -626,48 +626,85 @@ func removeStatuslineDryRunCopy(scriptCopy string) {
 // writeStatuslineDryRunCopy stages the verified script bytes as a private
 // executable outside the (swappable) staging tree: statusline/.dryrun/,
 // dir 0700, file chmodded through its own descriptor. The dry run executes
-// this copy, and apply installs the same bytes from memory.
+// this copy, and apply installs the same bytes from memory. The reserved
+// dir follows the staging recipe: a planted link is removed and replaced
+// with a real dir, anything else that is not a real dir refuses, and the
+// opened root must be the same file the Lstat saw. Sweep and create go
+// only through the root, so neither can be led outside it.
 func writeStatuslineDryRunCopy(userConfigPath string, body []byte) (string, error) {
 	finalDir, err := statuslineFinalDir(userConfigPath)
 	if err != nil {
 		return "", err
 	}
 	dryDir := filepath.Join(finalDir, statuslineDryRunDirName)
+	if info, err := os.Lstat(dryDir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			os.Remove(dryDir)
+		} else if !info.IsDir() {
+			return "", fmt.Errorf("não foi possível preparar a pasta de scripts: pasta de dry run inválida")
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("não foi possível preparar a pasta de scripts: %v", err)
+	}
 	if err := os.MkdirAll(dryDir, 0o700); err != nil {
 		return "", fmt.Errorf("não foi possível preparar a pasta de scripts: %v", err)
 	}
+	info, err := os.Lstat(dryDir)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", fmt.Errorf("não foi possível preparar a pasta de scripts: pasta de dry run inválida")
+	}
+	root, err := os.OpenRoot(dryDir)
+	if err != nil {
+		return "", fmt.Errorf("não foi possível preparar a pasta de scripts: %v", err)
+	}
+	defer root.Close()
+	if dot, err := root.Stat("."); err != nil || !os.SameFile(info, dot) {
+		return "", fmt.Errorf("não foi possível preparar a pasta de scripts: pasta de dry run trocada")
+	}
 	// Crash leftovers from an interrupted dry run live only in the
-	// reserved dir; drop them before minting a fresh copy.
-	if entries, _ := os.ReadDir(dryDir); entries != nil {
-		for _, entry := range entries {
-			name := entry.Name()
-			if !strings.HasPrefix(name, "dryrun-") {
-				continue
-			}
-			if info, err := entry.Info(); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
-				os.Remove(filepath.Join(dryDir, name))
+	// reserved dir; drop them through the root before minting a fresh copy.
+	if dir, err := root.Open("."); err == nil {
+		if entries, err := dir.ReadDir(-1); err == nil {
+			for _, entry := range entries {
+				name := entry.Name()
+				if !strings.HasPrefix(name, "dryrun-") {
+					continue
+				}
+				if fi, err := root.Lstat(name); err == nil && fi.Mode().IsRegular() && fi.Mode()&os.ModeSymlink == 0 {
+					root.Remove(name)
+				}
 			}
 		}
+		dir.Close()
 	}
-	copy, err := os.CreateTemp(dryDir, "dryrun-*.sh")
-	if err != nil {
-		return "", fmt.Errorf("não foi possível preparar o script: %v", err)
+	// O_EXCL mints the copy atomically: no follow, no truncation race.
+	var copyFile *os.File
+	var copyName string
+	for i := 0; i < 10; i++ {
+		copyName = fmt.Sprintf("dryrun-%d-%d.sh", os.Getpid(), time.Now().UnixNano()+int64(i))
+		if f, err := root.OpenFile(copyName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600); err == nil {
+			copyFile = f
+			break
+		}
 	}
-	copyPath := copy.Name()
-	if _, err := copy.Write(body); err != nil {
-		copy.Close()
-		os.Remove(copyPath)
+	if copyFile == nil {
+		return "", fmt.Errorf("não foi possível preparar o script: nome reservado em uso")
+	}
+	copyPath := filepath.Join(dryDir, copyName)
+	if _, err := copyFile.Write(body); err != nil {
+		copyFile.Close()
+		root.Remove(copyName)
 		return "", fmt.Errorf("não foi possível preparar o script: %v", err)
 	}
 	// Chmod through the open descriptor: the path can never resolve to
 	// anything but this file.
-	if err := copy.Chmod(0o700); err != nil {
-		copy.Close()
-		os.Remove(copyPath)
+	if err := copyFile.Chmod(0o700); err != nil {
+		copyFile.Close()
+		root.Remove(copyName)
 		return "", fmt.Errorf("não foi possível preparar o script: %v", err)
 	}
-	if err := copy.Close(); err != nil {
-		os.Remove(copyPath)
+	if err := copyFile.Close(); err != nil {
+		root.Remove(copyName)
 		return "", fmt.Errorf("não foi possível preparar o script: %v", err)
 	}
 	return copyPath, nil
