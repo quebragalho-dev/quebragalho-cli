@@ -10,6 +10,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/doctor"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 	zsearch "github.com/quebragalho-dev/quebragalho-cli/internal/search"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -74,7 +75,7 @@ func runDoctor(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 		Sandbox:        sandboxConfig,
 		Connectivity:   options.connectivity,
 		ProviderHealth: health,
-		Orchestrators:  detectAmbientSkills(deps),
+		Orchestrators:  detectAmbientSkills(deps, workspaceRoot),
 	})
 	if options.json {
 		if err := writePrettyJSON(stdout, report); err != nil {
@@ -96,14 +97,18 @@ func runDoctor(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 
 // detectAmbientSkills resolves installed skills and reports which ones the
 // current environment elects as ambient orchestrators (see
-// agent.DetectOrchestrators). Plugin skill roots are unavailable to doctor,
-// so only the default dir and ~/.agents/skills participate — documented
-// where plugin skills matter.
-func detectAmbientSkills(deps appDeps) []agent.DetectedOrchestrator {
+// agent.DetectOrchestrators), covering plugin skill roots exactly like exec.
+func detectAmbientSkills(deps appDeps, workspaceRoot string) []agent.DetectedOrchestrator {
 	if deps.skillsDir == nil {
 		return nil
 	}
-	return agent.DetectOrchestrators(pluginActivation{}.skillInfos(deps.skillsDir()), nil)
+	var roots []string
+	if deps.loadPlugins != nil {
+		if loaded, err := deps.loadPlugins(plugins.LoadOptions{Cwd: workspaceRoot}); err == nil {
+			roots = plugins.SkillRoots(loaded.Plugins)
+		}
+	}
+	return agent.DetectOrchestrators(pluginActivation{skillRoots: roots}.skillInfos(deps.skillsDir()), nil)
 }
 
 type searchOptions struct {

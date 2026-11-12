@@ -261,6 +261,18 @@ func activateSkills(plugin LoadedPlugin, seenRoot map[string]bool, result *Activ
 	}
 }
 
+// SkillRoots returns the skill search roots for already-loaded plugins without
+// activating anything (no tools, hooks, or execution). Doctor uses it so its
+// ambient-orchestrator report covers plugin skills exactly like exec does.
+func SkillRoots(loaded []LoadedPlugin) []string {
+	result := &ActivationResult{}
+	seen := map[string]bool{}
+	for _, plugin := range loaded {
+		activateSkills(plugin, seen, result)
+	}
+	return result.SkillRoots
+}
+
 // skillSearchRoot maps a plugin skill's SKILL.md path to the directory
 // internal/skills.Load scans for `*/SKILL.md`: the parent of the per-skill
 // directory (i.e. the grandparent of the SKILL.md file). A path that already

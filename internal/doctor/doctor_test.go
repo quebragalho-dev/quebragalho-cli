@@ -469,11 +469,15 @@ func TestDoctorFailsRemoteProviderWithoutCredential(t *testing.T) {
 }
 
 func TestRunReportsDetectedOrchestrator(t *testing.T) {
+	const sentinel = "sentinel-doctor-8k2"
+	t.Setenv("FOO_SOCKET", sentinel)
+	detected := agent.DetectOrchestrators([]agent.SkillInfo{{Name: "foo"}}, nil)
+	if len(detected) != 1 {
+		t.Fatalf("detection through the process environment failed, got %+v", detected)
+	}
 	report := Run(Options{
-		Runtime: "go",
-		Orchestrators: []agent.DetectedOrchestrator{
-			{Name: "foo", Signal: "env:FOO_SOCKET"},
-		},
+		Runtime:       "go",
+		Orchestrators: detected,
 	})
 	found := report.Check("orchestrator.env")
 	if found == nil {
@@ -484,6 +488,9 @@ func TestRunReportsDetectedOrchestrator(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output must show %q, got:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, sentinel) {
+		t.Fatalf("doctor prints the value of FOO_SOCKET; only the variable name may be shown:\n%s", out)
 	}
 	if strings.Contains(out, "sock-") {
 		t.Fatalf("doctor must never print env values, got:\n%s", out)
