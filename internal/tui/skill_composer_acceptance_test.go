@@ -264,14 +264,28 @@ func TestAcceptSkill_SkillTokensSeparatedByNewline(t *testing.T) {
 
 // RED(cb16edce) for shape, REGRESSION for content: a message that is ONLY
 // skill tokens leaves empty user text → the bare-invocation note ("ask for
-// them first") rides along, exactly like today's bare /skill.
+// them first") rides along, exactly like today's bare /skill. Spec bullet 1
+// (decided 2026-11-11): Enter on an exact skill match in the menu ALWAYS
+// inserts "/skill " and never sends — sending takes a SECOND Enter with the
+// menu closed.
 func TestAcceptSkill_OnlySkillTokensCarryBareInvocationNote(t *testing.T) {
 	m := acceptSkillModel(t, skills.Skill{Name: "reviewer", Content: "REVIEW-BODY."})
 
-	next := acceptTypeEnter(t, m, "/reviewer")
+	// 1st Enter: the menu is open on the exact match — insert, do NOT send.
+	mid := acceptTypeEnter(t, m, "/reviewer")
+	if transcriptContains(mid.transcript, "REVIEW-BODY.") {
+		t.Fatalf("Enter on an exact skill match must insert, not send (spec bullet 1), got %#v", mid.transcript)
+	}
+	if got := mid.composerValue(); got != "/reviewer " {
+		t.Fatalf("1st Enter must leave \"/reviewer \" in the composer, got %q", got)
+	}
+
+	// 2nd Enter: menu closed, line ends in space — sends body + bare note.
+	updated, _ := mid.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
 
 	if !transcriptContains(next.transcript, "REVIEW-BODY.") {
-		t.Fatalf("skill body must be sent, got %#v", next.transcript)
+		t.Fatalf("skill body must be sent on the 2nd Enter, got %#v", next.transcript)
 	}
 	if !transcriptContains(next.transcript, "ask for them first") {
 		t.Fatalf("empty text after stripping tokens must carry the bare-invocation note, got %#v", next.transcript)
@@ -341,11 +355,18 @@ func TestAcceptSkill_PathLikeSlashIsNotAToken(t *testing.T) {
 //  no 1º token: os args são dele; skills NÃO expandem dentro."
 
 // REGRESSION LOCK: "/clear /reviewer" runs /clear; the skill never expands.
+// With the menu open on the trailing skill token, the 1st Enter only inserts
+// "/reviewer " (spec bullet 1, 2026-11-11); the 2nd Enter submits.
 func TestAcceptSkill_BuiltinFirstTokenWins(t *testing.T) {
 	m := acceptSkillModel(t, skills.Skill{Name: "reviewer", Content: "REVIEW-BODY."})
 	m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "SEED-ROW"})
 
-	next := acceptTypeEnter(t, m, "/clear /reviewer")
+	mid := acceptTypeEnter(t, m, "/clear /reviewer")
+	if transcriptContains(mid.transcript, "REVIEW-BODY.") {
+		t.Fatalf("builtin first token must win; skill must not expand, got %#v", mid.transcript)
+	}
+	updated, _ := mid.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
 
 	if transcriptContains(next.transcript, "REVIEW-BODY.") {
 		t.Fatalf("builtin first token must win; skill must not expand, got %#v", next.transcript)
@@ -369,7 +390,15 @@ func TestAcceptSkill_UserCommandArgsDoNotExpandSkills(t *testing.T) {
 		LoadSkills: func() []skills.Skill { return []skills.Skill{{Name: "reviewer", Content: "REVIEW-BODY."}} },
 	})
 
-	next := acceptTypeEnter(t, m, "/greet /reviewer")
+	// 1st Enter inserts the trailing skill token (menu open, spec bullet 1);
+	// 2nd Enter submits. The user-command expansion must see the RAW args,
+	// with no skill expansion inside them.
+	mid := acceptTypeEnter(t, m, "/greet /reviewer")
+	if transcriptContains(mid.transcript, "REVIEW-BODY.") {
+		t.Fatalf("skill tokens inside user-command args must NOT expand, got %#v", mid.transcript)
+	}
+	updated, _ := mid.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
 
 	if transcriptContains(next.transcript, "REVIEW-BODY.") {
 		t.Fatalf("skill tokens inside user-command args must NOT expand, got %#v", next.transcript)
