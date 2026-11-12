@@ -98,7 +98,7 @@ func probeProtectedResourceMetadataURL(ctx context.Context, client *http.Client,
 		return "", false, errors.New("mcp oauth: invalid MCP resource URL")
 	}
 	request.Header.Set("Accept", "application/json, text/event-stream")
-	request.Header.Set("MCP-Protocol-Version", defaultProtocolVersion)
+	request.Header.Set("MCP-Protocol-Version", latestMCPProtocolVersion())
 	response, err := client.Do(request)
 	if err != nil {
 		// A resource that cannot be probed may still support the legacy direct

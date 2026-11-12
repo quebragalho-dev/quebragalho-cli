@@ -58,7 +58,7 @@ func TestServeListsAndCallsRegistryTools(t *testing.T) {
 		} `json:"serverInfo"`
 	}
 	decodeServerTestResult(t, initialize, &initResult)
-	if initResult.ProtocolVersion != defaultProtocolVersion || initResult.ServerInfo.Name != "qg-test" || initResult.ServerInfo.Version != "1.2.3" {
+	if initResult.ProtocolVersion != latestMCPProtocolVersion() || initResult.ServerInfo.Name != "qg-test" || initResult.ServerInfo.Version != "1.2.3" {
 		t.Fatalf("initialize result = %#v", initResult)
 	}
 	if _, ok := initResult.Capabilities["tools"]; !ok {

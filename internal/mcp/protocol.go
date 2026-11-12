@@ -11,6 +11,44 @@ import (
 	"strings"
 )
 
+// mcpKnownProtocolVersions lists the MCP protocol revisions QG implements,
+// oldest first. The client announces the newest and accepts the revision the
+// server answers with when it is one of these; a newer answer keeps working
+// on the newest known revision with a warning.
+var mcpKnownProtocolVersions = []string{"2024-11-05", "2025-03-26", "2025-06-18"}
+
+func latestMCPProtocolVersion() string {
+	return mcpKnownProtocolVersions[len(mcpKnownProtocolVersions)-1]
+}
+
+func knownMCPProtocolVersion(version string) bool {
+	for _, known := range mcpKnownProtocolVersions {
+		if version == known {
+			return true
+		}
+	}
+	return false
+}
+
+// negotiateMCPProtocolVersion resolves the revision to speak after the
+// server answers initialize. Known answers are used as-is; a newer answer
+// keeps the newest known revision and warns, naming the demanded revision.
+func negotiateMCPProtocolVersion(serverVersion string) (used string, warning string) {
+	serverVersion = strings.TrimSpace(serverVersion)
+	if serverVersion == "" {
+		return latestMCPProtocolVersion(), ""
+	}
+	if knownMCPProtocolVersion(serverVersion) {
+		return serverVersion, ""
+	}
+	if serverVersion > latestMCPProtocolVersion() {
+		return latestMCPProtocolVersion(), fmt.Sprintf(
+			"servidor MCP exige protocolVersion %s, posterior à mais recente implementada (%s); usando %s",
+			serverVersion, latestMCPProtocolVersion(), latestMCPProtocolVersion())
+	}
+	return serverVersion, ""
+}
+
 // maxMessageBytes caps a single framed MCP message so a hostile or buggy peer
 // cannot drive an unbounded allocation with an enormous Content-Length header
 // (Atoi accepts values up to ~9.2e18). 64 MiB is far above any legitimate

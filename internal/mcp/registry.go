@@ -53,10 +53,11 @@ type Runtime struct {
 	// A stdio server's subprocess is tied to its context, so the context must
 	// stay live for the session and be cancelled only at Close (after the client
 	// is closed). Same length/order as clients is not required.
-	cancels []context.CancelFunc
-	skipped []SkippedServer
-	once    sync.Once
-	err     error
+	cancels  []context.CancelFunc
+	skipped  []SkippedServer
+	warnings []string
+	once     sync.Once
+	err      error
 }
 
 // Skipped returns the servers that were skipped during registration (unreachable
@@ -66,6 +67,22 @@ func (runtime *Runtime) Skipped() []SkippedServer {
 		return nil
 	}
 	return runtime.skipped
+}
+
+// Warnings returns non-fatal registration notes, such as a server demanding a
+// newer protocol revision than QG implements. Tools still work; the caller
+// surfaces these where the user diagnoses server behavior.
+func (runtime *Runtime) Warnings() []string {
+	if runtime == nil {
+		return nil
+	}
+	return runtime.warnings
+}
+
+// protocolVersioner is implemented by MCP clients that negotiated the protocol
+// revision during initialize.
+type protocolVersioner interface {
+	NegotiatedProtocolVersion() (version string, warning string)
 }
 
 var unsafeToolNameChars = regexp.MustCompile(`[^A-Za-z0-9_]+`)
@@ -160,6 +177,11 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 		if res.err != nil {
 			runtime.skipped = append(runtime.skipped, SkippedServer{Name: server.Name, Err: res.err, UnconfiguredDefault: server.UnconfiguredDefault})
 			continue
+		}
+		if versioned, ok := res.client.(protocolVersioner); ok {
+			if _, warning := versioned.NegotiatedProtocolVersion(); warning != "" {
+				runtime.warnings = append(runtime.warnings, server.Name+": "+warning)
+			}
 		}
 		serverTools, validateErr := buildServerTools(registry, server, res.remote, res.client, options, factory, stagedNames)
 		if validateErr != nil {

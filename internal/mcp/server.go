@@ -13,8 +13,6 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-const defaultProtocolVersion = "2024-11-05"
-
 const (
 	jsonRPCMethodNotFound = -32601
 	jsonRPCInvalidParams  = -32602
@@ -128,7 +126,7 @@ func (server toolServer) handle(ctx context.Context, message rpcMessage) error {
 	switch message.Method {
 	case "initialize":
 		return server.writeResult(message.ID, map[string]any{
-			"protocolVersion": defaultProtocolVersion,
+			"protocolVersion": latestMCPProtocolVersion(),
 			"capabilities": map[string]any{
 				"tools":     map[string]any{},
 				"resources": map[string]any{},

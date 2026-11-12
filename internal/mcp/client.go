@@ -71,6 +71,12 @@ type Client struct {
 	pending    map[int]chan dispatchResult
 	readErr    error
 	readDone   bool
+
+	// protocolVersion is the revision negotiated during initialize, and
+	// protocolWarning names a newer revision the server demanded that QG
+	// does not implement yet.
+	protocolVersion string
+	protocolWarning string
 }
 
 type writeOp struct {
@@ -233,7 +239,7 @@ func (client *Client) initialize(ctx context.Context) error {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
 	if err := client.request(initCtx, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": latestMCPProtocolVersion(),
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
 			"name":    "qg",
@@ -242,6 +248,7 @@ func (client *Client) initialize(ctx context.Context) error {
 	}, &result); err != nil {
 		return err
 	}
+	client.protocolVersion, client.protocolWarning = negotiateMCPProtocolVersion(result.ProtocolVersion)
 	return client.notify("notifications/initialized", map[string]any{})
 }
 
@@ -253,6 +260,10 @@ func (client *Client) ListTools(ctx context.Context) ([]RemoteTool, error) {
 		return nil, err
 	}
 	return result.Tools, nil
+}
+
+func (client *Client) NegotiatedProtocolVersion() (string, string) {
+	return client.protocolVersion, client.protocolWarning
 }
 
 func (client *Client) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {

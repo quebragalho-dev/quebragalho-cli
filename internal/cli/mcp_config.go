@@ -415,13 +415,17 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	}
 
 	items := mcpToolList(registry)
+	for _, warning := range mcpRuntime.Warnings() {
+		fmt.Fprintf(stderr, "aviso: MCP %s\n", warning)
+	}
 	if options.json {
 		payload := struct {
 			ServerName string            `json:"serverName"`
 			Status     string            `json:"status"`
 			ToolCount  int               `json:"toolCount"`
 			Tools      []mcpToolListItem `json:"tools"`
-		}{ServerName: serverName, Status: "ok", ToolCount: len(items), Tools: items}
+			Warnings   []string          `json:"warnings,omitempty"`
+		}{ServerName: serverName, Status: "ok", ToolCount: len(items), Tools: items, Warnings: mcpRuntime.Warnings()}
 		if err := writePrettyJSON(stdout, redaction.RedactValue(payload, redaction.Options{})); err != nil {
 			return exitCrash
 		}

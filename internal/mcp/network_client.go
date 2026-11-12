@@ -22,6 +22,9 @@ type networkClient struct {
 	mu        sync.Mutex
 	nextID    int
 	sessionID string
+
+	protocolVersion string
+	protocolWarning string
 }
 
 type remoteSSEClient struct {
@@ -35,6 +38,9 @@ type remoteSSEClient struct {
 	pending      map[string]chan ssePendingResponse
 	streamErr    error
 	closed       bool
+
+	protocolVersion string
+	protocolWarning string
 }
 
 type ssePendingResponse struct {
@@ -90,7 +96,7 @@ func (client *networkClient) initialize(ctx context.Context) error {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
 	if err := client.request(ctx, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": latestMCPProtocolVersion(),
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
 			"name":    "qg",
@@ -99,6 +105,7 @@ func (client *networkClient) initialize(ctx context.Context) error {
 	}, &result); err != nil {
 		return err
 	}
+	client.protocolVersion, client.protocolWarning = negotiateMCPProtocolVersion(result.ProtocolVersion)
 	return client.notify(ctx, "notifications/initialized", map[string]any{})
 }
 
@@ -107,7 +114,7 @@ func (client *remoteSSEClient) initialize(ctx context.Context) error {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
 	if err := client.request(ctx, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": latestMCPProtocolVersion(),
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
 			"name":    "qg",
@@ -116,6 +123,7 @@ func (client *remoteSSEClient) initialize(ctx context.Context) error {
 	}, &result); err != nil {
 		return err
 	}
+	client.protocolVersion, client.protocolWarning = negotiateMCPProtocolVersion(result.ProtocolVersion)
 	return client.notify(ctx, "notifications/initialized", map[string]any{})
 }
 
@@ -137,6 +145,16 @@ func (client *remoteSSEClient) ListTools(ctx context.Context) ([]RemoteTool, err
 		return nil, err
 	}
 	return result.Tools, nil
+}
+
+func (client *networkClient) NegotiatedProtocolVersion() (string, string) {
+	return client.protocolVersion, client.protocolWarning
+}
+
+func (client *remoteSSEClient) NegotiatedProtocolVersion() (string, string) {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return client.protocolVersion, client.protocolWarning
 }
 
 func (client *networkClient) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
