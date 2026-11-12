@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,9 +108,11 @@ func TestRegisterSkipsUnapprovedProjectServer(t *testing.T) {
 }
 
 // Without --yes and without an interactive terminal, approval is refused:
-// nobody confirmed the exact target being approved.
+// nobody confirmed the exact target being approved. Nothing is dialed and
+// the approvals file is left intact.
 func TestRunMCPApproveRequiresConfirmation(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	cwd := t.TempDir()
 	var spawned bool
 	deps := approveTestDeps(cwd, map[string]config.MCPServerConfig{
@@ -121,5 +125,10 @@ func TestRunMCPApproveRequiresConfirmation(t *testing.T) {
 	if !strings.Contains(stderr.String(), "--yes") {
 		t.Fatalf("stderr = %q, want the --yes hint", stderr.String())
 	}
-	_ = spawned
+	if spawned {
+		t.Fatal("refused approval dialed the server")
+	}
+	if _, err := os.Stat(filepath.Join(state, "qg", "mcp_approvals.json")); !os.IsNotExist(err) {
+		t.Fatalf("refused approval touched the approvals file: %v", err)
+	}
 }

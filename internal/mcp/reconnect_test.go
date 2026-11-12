@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"strings"
@@ -145,9 +146,11 @@ func TestStdioRedialOnTransportFailure(t *testing.T) {
 // heals (redials) before sending.
 func TestRunNeverResendsAfterWrite(t *testing.T) {
 	server := Server{Name: "s", Type: ServerTypeStdio, Command: "mini"}
-	first := &scriptedCallClient{script: []error{errors.New("read: connection reset by peer")}}
+	first := &alwaysFailClient{err: errors.New("read: connection reset by peer")}
 	conn := newMCPServerConn(server, first)
+	var redials int
 	conn.reconnect = func(context.Context) (ToolClient, error) {
+		redials++
 		return &scriptedCallClient{}, nil
 	}
 	tool := newRegistryTool(server, RemoteTool{Name: "echo"}, conn, RegisterOptions{})
@@ -159,11 +162,20 @@ func TestRunNeverResendsAfterWrite(t *testing.T) {
 	if first.calls != 1 {
 		t.Fatalf("post-write failure re-sent the call %d times, want exactly 1", first.calls)
 	}
+	if redials != 0 {
+		t.Fatalf("post-write failure redialed %d times, want 0: the error goes to the model", redials)
+	}
 	if !conn.isDead() {
 		t.Fatal("post-write transport failure did not latch the conn for dead")
 	}
 	if result := tool.Run(context.Background(), map[string]any{}); result.Status != tools.StatusOK {
 		t.Fatalf("next use after the latched failure = %v, want OK on a healed transport", result.Status)
+	}
+	if redials != 1 {
+		t.Fatalf("healing redialed %d times, want exactly 1", redials)
+	}
+	if first.calls != 1 {
+		t.Fatalf("the dead client served %d calls, want exactly 1: nothing is ever re-sent to it", first.calls)
 	}
 }
 
@@ -205,6 +217,9 @@ func TestRunDoesNotResendHTTPStatus(t *testing.T) {
 	if client.calls != 1 {
 		t.Fatalf("HTTP 500 re-sent the call %d times, want exactly 1", client.calls)
 	}
+	if conn.isDead() {
+		t.Fatal("an answered HTTP status latched the transport dead; the next use must not redial a live server")
+	}
 }
 
 type scriptedCallClient struct {
@@ -228,6 +243,24 @@ func (client *scriptedCallClient) CallTool(context.Context, string, map[string]a
 
 func (client *scriptedCallClient) Close() error { return nil }
 
+// alwaysFailClient fails every call with a post-write transport error: the
+// dead client never answers, however often it is (not) asked.
+type alwaysFailClient struct {
+	calls int
+	err   error
+}
+
+func (client *alwaysFailClient) ListTools(context.Context) ([]RemoteTool, error) {
+	return []RemoteTool{{Name: "echo"}}, nil
+}
+
+func (client *alwaysFailClient) CallTool(context.Context, string, map[string]any) (CallToolResult, error) {
+	client.calls++
+	return CallToolResult{}, client.err
+}
+
+func (client *alwaysFailClient) Close() error { return nil }
+
 func TestRetryAfterDelay(t *testing.T) {
 	now := time.Now()
 	if delay, ok := retryAfterDelay("2", now); !ok || delay != 2*time.Second {
@@ -242,5 +275,15 @@ func TestRetryAfterDelay(t *testing.T) {
 	future := now.Add(30 * time.Second).UTC().Format(time.RFC1123)
 	if delay, ok := retryAfterDelay(future, now); !ok || delay < 25*time.Second || delay > 35*time.Second {
 		t.Fatalf("retryAfterDelay(date) = %v, %v", delay, ok)
+	}
+}
+
+func TestStreamClosedIsRedialable(t *testing.T) {
+	err := fmt.Errorf("MCP SSE stream closed for server r: %w", errMCPStreamClosed)
+	if !redialable(context.Background(), err) {
+		t.Fatal("a cleanly ended legacy stream must redial")
+	}
+	if isDeadTransportError(err) {
+		t.Fatal("a cleanly ended legacy stream is not a dead peer by message alone; it redials through its own branch")
 	}
 }
