@@ -1083,7 +1083,7 @@ func TestSlashHelpPTDescriptionsFit80Cells(t *testing.T) {
 	if got := byName["/loop"]; got != "Repete uma mensagem ou comando em intervalo (ex.: /loop 5m /babysit-prs); sem intervalo roda no próprio ritmo." {
 		t.Fatalf("/loop description = %q", got)
 	}
-	// Maestro decision: /copy is short enough to survive the 50-column card,
+	// /copy is short enough to survive the 50-column card,
 	// where the base never cut it.
 	if got := byName["/copy"]; got != "Copia a última resposta." {
 		t.Fatalf("/copy description = %q", got)
