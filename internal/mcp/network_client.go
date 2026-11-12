@@ -56,6 +56,33 @@ type sseEvent struct {
 }
 
 func connectNetwork(ctx context.Context, server Server) (ToolClient, error) {
+	client, err := connectStreamableHTTP(ctx, server)
+	if err == nil {
+		return client, nil
+	}
+	// An inferred transport that does not speak Streamable HTTP may still
+	// speak legacy SSE (Claude Code tries HTTP first and switches). Only the
+	// implicit default falls back; an explicit http stays strict.
+	if server.Type == ServerTypeHTTP && server.TypeImplicit && isSSEFallbackError(err) {
+		return connectRemoteSSE(ctx, server)
+	}
+	return nil, err
+}
+
+// isSSEFallbackError reports whether a failed Streamable-HTTP initialize
+// looks like a server that only speaks the legacy SSE dialect (unknown
+// endpoint or method), rather than an auth or server failure.
+func isSSEFallbackError(err error) bool {
+	var status *MCPHTTPStatusError
+	if !errors.As(err, &status) {
+		return false
+	}
+	return status.Status == http.StatusNotFound ||
+		status.Status == http.StatusMethodNotAllowed ||
+		status.Status == http.StatusNotAcceptable
+}
+
+func connectStreamableHTTP(ctx context.Context, server Server) (ToolClient, error) {
 	httpClient, err := oauthHTTPClient(server)
 	if err != nil {
 		return nil, err

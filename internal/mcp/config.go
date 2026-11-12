@@ -33,8 +33,13 @@ type Server struct {
 	// Timeout bounds one tool call in milliseconds (MCP_TOOL_TIMEOUT and the
 	// 60s default apply when zero). It is connection policy, not target
 	// identity, so it stays out of the identity hash.
-	Timeout  int
-	Identity string
+	Timeout int
+	// TypeImplicit is true when the transport was inferred (a URL without an
+	// explicit type defaults to HTTP). Implicit servers may fall back from
+	// Streamable HTTP to legacy SSE; explicit ones stay strict. It is
+	// connection policy, not target identity.
+	TypeImplicit bool
+	Identity     string
 	// ProjectConfigured is true when project config touched this server. Runtime
 	// credential lookup uses it to avoid reusing legacy user tokens by name.
 	ProjectConfigured bool
@@ -85,6 +90,7 @@ func normalizeServer(name string, raw config.MCPServerConfig) (Server, error) {
 	}
 
 	auth := strings.ToLower(strings.TrimSpace(raw.Auth))
+	typeImplicit := strings.TrimSpace(raw.Type) == ""
 	server := Server{
 		Name:                name,
 		Type:                serverType,
@@ -96,6 +102,7 @@ func normalizeServer(name string, raw config.MCPServerConfig) (Server, error) {
 		Auth:                auth,
 		OAuth:               normalizeOAuthConfig(raw.OAuth),
 		Timeout:             raw.Timeout,
+		TypeImplicit:        typeImplicit,
 		ProjectConfigured:   raw.ProjectConfigured,
 		UnconfiguredDefault: config.IsUnconfiguredDefault(name, raw),
 	}
