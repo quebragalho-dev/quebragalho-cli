@@ -689,6 +689,9 @@ func TestProviderModelSwitchCandidatesPreserveGatewayModelIDs(t *testing.T) {
 }
 
 func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests' Resolve fallback.
+	t.Setenv(config.ActiveProviderEnv, "")
 	configPath := filepath.Join(t.TempDir(), "qg.json")
 	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{
 		Name:         "openai",
