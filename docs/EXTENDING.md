@@ -250,6 +250,7 @@ qg mcp list
 qg mcp check docs
 qg mcp remove github
 qg mcp oauth login github
+qg mcp approve docs   # one-time approval of a project-layer server
 ```
 
 Servers are merged from user and project configs (project wins on conflicts). Token-bearing values in `config.json` are sent verbatim — there is no `${env:...}` expansion — so prefer one of:
@@ -258,11 +259,20 @@ Servers are merged from user and project configs (project wins on conflicts). To
 - A `--header` value produced by command substitution (`"Authorization=Bearer $(print-token)"`) in a private shell config that you keep out of git.
 - A secret manager that injects the env var your MCP server reads on its own (the `command` and `args` then run inside that environment).
 
-Project MCP config remains supported for shared team servers, but a project layer
-that changes an existing server's target (`url`, `command`, or `args`) does not
-inherit user credentials. Clear or replace `headers`, `env`, or `oauth` explicitly,
-or use a new server name. OAuth tokens are bound to the resolved server identity,
-so changing a server target can require `qg mcp oauth login <server>` again.
+`${VAR}` and `${VAR:-default}` expand from the qg process environment in
+`command`, `args`, `env` values, `url`, and header values (never from sibling
+config values, never for OAuth material). Prefer passing secrets via `env`
+over `args`: `args` are visible in process listings while `env` values stay
+redacted in `mcp list`, errors, and logs. A `${VAR}` with no value and no
+default expands to `""`; `qg mcp check` warns about the missing name.
+
+Project MCP config remains supported for shared team servers, but a project
+layer that changes an existing server's target (`url`, `command`, or `args`)
+does not inherit user credentials, and every project server needs a one-time
+user approval before qg runs it (`qg mcp approve <server>`, remembered per
+project). Approval binds the exact approved target: changing it asks again.
+OAuth tokens are bound to the resolved server identity, so changing a server
+target can require `qg mcp oauth login <server>` again.
 OAuth server names ending in `.<32 hex chars>` are reserved for token storage.
 
 Timeouts: each tool call is bounded by `MCP_TOOL_TIMEOUT` (milliseconds,

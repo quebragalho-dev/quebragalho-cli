@@ -30,8 +30,15 @@ type RegisterOptions struct {
 	// ConnectTimeout bounds the per-server connect+list at startup. QG uses
 	// defaultConnectTimeout.
 	ConnectTimeout time.Duration
-	Execution      *execution.Runner
-	WorkspaceRoot  string
+	// ProjectRoot is the workspace whose .qg/config.json was read. Project-layer
+	// servers need a one-time user approval recorded for this root before they
+	// run. Empty means no project layer is in play.
+	ProjectRoot string
+	// ProjectApprovals carries the user's approvals. Nil loads the default
+	// user store when ProjectRoot is set, and approves nothing otherwise.
+	ProjectApprovals *ProjectApprovals
+	Execution        *execution.Runner
+	WorkspaceRoot    string
 }
 
 // SkippedServer records an MCP server that was not registered because it could
@@ -53,9 +60,8 @@ type Runtime struct {
 	// A stdio server's subprocess is tied to its context, so the context must
 	// stay live for the session and be cancelled only at Close (after the client
 	// is closed). Same length/order as clients is not required.
-	cancels  []context.CancelFunc
-	skipped  []SkippedServer
-	warnings []string
+	cancels []context.CancelFunc
+	skipped []SkippedServer
 	// Refresh state for tools/list_changed: the registry and factory needed to
 	// re-list a stale server, the tool names each server currently owns, the
 	// live client per server, and the ledger of applied catalog changes.
@@ -63,6 +69,7 @@ type Runtime struct {
 	options     RegisterOptions
 	servers     []Server
 	factory     func(context.Context, Server) (ToolClient, error)
+	disabled    map[string]bool
 	serverTools map[string][]string
 	serverIDs   map[string][]*registryTool
 	liveClients map[string]ToolClient
@@ -81,22 +88,6 @@ func (runtime *Runtime) Skipped() []SkippedServer {
 	return runtime.skipped
 }
 
-// Warnings returns non-fatal registration notes, such as a server demanding a
-// newer protocol revision than QG implements. Tools still work; the caller
-// surfaces these where the user diagnoses server behavior.
-func (runtime *Runtime) Warnings() []string {
-	if runtime == nil {
-		return nil
-	}
-	return runtime.warnings
-}
-
-// protocolVersioner is implemented by MCP clients that negotiated the protocol
-// revision during initialize.
-type protocolVersioner interface {
-	NegotiatedProtocolVersion() (version string, warning string)
-}
-
 var unsafeToolNameChars = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 
 func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCPConfig, options RegisterOptions) (*Runtime, error) {
@@ -107,7 +98,40 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 	if err != nil {
 		return nil, err
 	}
-	runtime := &Runtime{}
+	runtime := &Runtime{
+		registry:    registry,
+		options:     options,
+		factory:     nil,
+		serverTools: make(map[string][]string),
+		serverIDs:   make(map[string][]*registryTool),
+		liveClients: make(map[string]ToolClient),
+		disabled:    make(map[string]bool),
+	}
+	for name, raw := range cfg.Servers {
+		if raw.Disabled {
+			runtime.disabled[name] = true
+		}
+	}
+	approvals := options.ProjectApprovals
+	if approvals == nil && strings.TrimSpace(options.ProjectRoot) != "" {
+		loaded, err := OpenProjectApprovals()
+		if err == nil {
+			approvals = loaded
+		}
+	}
+	// Project-layer servers need a one-time user approval for this root before
+	// they run. A nil store approves nothing: with a project root in play,
+	// unapproved servers are skipped fail-closed.
+	servers, approvalSkips := FilterUnapproved(servers, options.ProjectRoot, approvals)
+	runtime.skipped = append(runtime.skipped, approvalSkips...)
+	// Expand ${VAR}/${VAR:-default} for the connection. The identity stays
+	// literal (computed above), so env rotation never invalidates approvals,
+	// permissions, or OAuth tokens. Missing names expand to "": the target is
+	// validated by the connection itself and skipped with the reason.
+	for index := range servers {
+		expanded, _ := servers[index].withExpandedEnv()
+		servers[index] = expanded
+	}
 	if len(servers) == 0 {
 		return runtime, nil
 	}
@@ -118,6 +142,8 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 			return ConnectWithOptions(ctx, server, ConnectOptions{Execution: options.Execution, WorkspaceRoot: options.WorkspaceRoot})
 		}
 	}
+	runtime.factory = factory
+	runtime.servers = servers
 
 	timeout := options.ConnectTimeout
 	if timeout <= 0 {
@@ -150,7 +176,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 			serverCtx, cancel := context.WithCancel(ctx)
 			done := make(chan connectResult, 1)
 			go func() {
-				client, remote, err := connectWithRetry(serverCtx, factory, server)
+				client, remote, err := connectWithRetry(serverCtx, factory, server, timeout)
 				done <- connectResult{client: client, remote: remote, err: err}
 			}()
 			select {
@@ -184,23 +210,11 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 	// registry plus every tool committed by an earlier server.
 	staged := make([]*registryTool, 0)
 	stagedNames := make(map[string]struct{})
-	runtime.registry = registry
-	runtime.options = options
-	runtime.servers = servers
-	runtime.factory = factory
-	runtime.serverTools = make(map[string][]string)
-	runtime.serverIDs = make(map[string][]*registryTool)
-	runtime.liveClients = make(map[string]ToolClient)
 	for index, server := range servers {
 		res := results[index]
 		if res.err != nil {
 			runtime.skipped = append(runtime.skipped, SkippedServer{Name: server.Name, Err: res.err, UnconfiguredDefault: server.UnconfiguredDefault})
 			continue
-		}
-		if versioned, ok := res.client.(protocolVersioner); ok {
-			if _, warning := versioned.NegotiatedProtocolVersion(); warning != "" {
-				runtime.warnings = append(runtime.warnings, server.Name+": "+warning)
-			}
 		}
 		serverTools, validateErr := buildServerTools(registry, server, res.remote, res.client, options, factory, stagedNames, nil)
 		if validateErr != nil {
@@ -217,7 +231,7 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 		}
 		runtime.liveClients[server.Name] = res.client
 		for _, tool := range serverTools {
-			tool.refreshCheck = runtime.RefreshIfStale
+			tool.refreshCheck = runtime.refreshIfStale
 			stagedNames[tool.Name()] = struct{}{}
 			staged = append(staged, tool)
 			runtime.serverIDs[server.Name] = append(runtime.serverIDs[server.Name], tool)
@@ -268,8 +282,8 @@ func buildServerTools(registry *tools.Registry, server Server, remoteTools []Rem
 			continue
 		}
 		built := newRegistryTool(server, remote, client, options)
-		if server.Type == ServerTypeStdio && factory != nil {
-			built.redial = func(ctx context.Context) (ToolClient, error) {
+		if factory != nil {
+			built.reconnect = func(ctx context.Context) (ToolClient, error) {
 				return factory(ctx, server)
 			}
 		}
@@ -343,17 +357,19 @@ func (runtime *Runtime) CatalogChanges() []CatalogChange {
 	return append([]CatalogChange{}, runtime.changes...)
 }
 
-// RefreshIfStale re-lists every server whose client observed a
-// tools/list_changed notification and applies the new catalog. It runs from
-// the tool Run preamble — during turn dispatch, after the current turn's
-// partition was computed — so the catalog only ever changes between turns.
-// A failed re-list re-arms the signal instead of mutating anything.
-func (runtime *Runtime) RefreshIfStale(ctx context.Context) {
+// RefreshPendingTools re-lists every server whose client observed a
+// tools/list_changed notification and applies the new catalog. It runs between
+// turns — from the tool Run preamble, during turn dispatch after the current
+// turn's partition was computed — so the catalog only ever changes between
+// turns, never mid-request. It reports whether anything changed. A failed
+// re-list re-arms the signal instead of mutating anything.
+func (runtime *Runtime) RefreshPendingTools(ctx context.Context) (bool, error) {
 	if runtime == nil || runtime.registry == nil {
-		return
+		return false, nil
 	}
 	runtime.refreshMu.Lock()
 	defer runtime.refreshMu.Unlock()
+	changed := false
 	for _, server := range runtime.servers {
 		client, ok := runtime.liveClients[server.Name]
 		if !ok {
@@ -368,35 +384,77 @@ func (runtime *Runtime) RefreshIfStale(ctx context.Context) {
 		default:
 			continue
 		}
-		runtime.refreshServer(ctx, server, notifier)
+		updated, err := runtime.relistServerLocked(ctx, server, notifier)
+		if err != nil {
+			notifier.markToolsStale()
+			continue
+		}
+		changed = changed || updated
 	}
+	return changed, ctx.Err()
 }
 
-func (runtime *Runtime) refreshServer(ctx context.Context, server Server, notifier staleNotifier) {
+// refreshIfStale is the Run-preamble hook: apply pending list_changed
+// refreshes so the next turn sees the new catalog.
+func (runtime *Runtime) refreshIfStale(ctx context.Context) {
+	_, _ = runtime.RefreshPendingTools(ctx)
+}
+
+// relistServerLocked re-lists one server against its live client, reconnecting
+// once when the client is dead, and applies the new catalog. It reports
+// whether the catalog changed. Callers hold refreshMu.
+func (runtime *Runtime) relistServerLocked(ctx context.Context, server Server, notifier staleNotifier) (bool, error) {
+	return runtime.applyRelistLocked(ctx, server, nil, notifier)
+}
+
+// adoptRelistLocked swaps in a freshly connected client and applies its tool
+// list. Callers hold refreshMu.
+func (runtime *Runtime) adoptRelistLocked(ctx context.Context, server Server, fresh ToolClient, remote []RemoteTool) error {
 	client, ok := runtime.liveClients[server.Name]
-	if !ok {
-		return
-	}
-	listCtx, cancel := context.WithTimeout(ctx, connectTimeout())
-	remote, err := client.ListTools(listCtx)
-	cancel()
-	if err != nil && runtime.factory != nil {
-		fresh, _, freshErr := connectWithRetry(ctx, runtime.factory, server)
-		if freshErr != nil {
-			notifier.markToolsStale()
-			return
-		}
+	if ok && client != nil {
 		_ = client.Close()
-		client = fresh
-		runtime.liveClients[server.Name] = fresh
-		runtime.clients = append(runtime.clients, fresh)
-		listCtx, cancel = context.WithTimeout(ctx, connectTimeout())
-		remote, err = client.ListTools(listCtx)
-		cancel()
 	}
-	if err != nil {
-		notifier.markToolsStale()
-		return
+	client = fresh
+	runtime.liveClients[server.Name] = fresh
+	runtime.clients = append(runtime.clients, fresh)
+	notifier, _ := fresh.(staleNotifier)
+	_, err := runtime.applyRelistLocked(ctx, server, remote, notifier)
+	return err
+}
+
+// applyRelistLocked applies a tool list to the registry: new tools register,
+// vanished tools unregister, conflicts keep the old catalog. A nil remote
+// re-lists from the live client first. It returns whether the catalog changed.
+// Callers hold refreshMu.
+func (runtime *Runtime) applyRelistLocked(ctx context.Context, server Server, remote []RemoteTool, notifier staleNotifier) (bool, error) {
+	if remote == nil {
+		client, ok := runtime.liveClients[server.Name]
+		if !ok {
+			return false, fmt.Errorf("MCP server %s has no live client", server.Name)
+		}
+		listCtx, cancel := context.WithTimeout(ctx, connectTimeout())
+		listed, err := client.ListTools(listCtx)
+		cancel()
+		if err != nil && runtime.factory != nil {
+			fresh, _, freshErr := connectWithRetry(ctx, runtime.factory, server, connectTimeout())
+			if freshErr != nil {
+				return false, freshErr
+			}
+			_ = client.Close()
+			client = fresh
+			runtime.liveClients[server.Name] = fresh
+			runtime.clients = append(runtime.clients, fresh)
+			if freshNotifier, ok := fresh.(staleNotifier); ok {
+				notifier = freshNotifier
+			}
+			listCtx, cancel = context.WithTimeout(ctx, connectTimeout())
+			listed, err = client.ListTools(listCtx)
+			cancel()
+		}
+		if err != nil {
+			return false, err
+		}
+		remote = listed
 	}
 	keep := make(map[string]bool, len(runtime.serverTools[server.Name]))
 	for _, name := range runtime.serverTools[server.Name] {
@@ -408,10 +466,10 @@ func (runtime *Runtime) refreshServer(ctx context.Context, server Server, notifi
 			current[tool.Name()] = struct{}{}
 		}
 	}
+	client := runtime.liveClients[server.Name]
 	rebuilt, err := buildServerTools(runtime.registry, server, remote, client, runtime.options, runtime.factory, current, keep)
 	if err != nil {
-		notifier.markToolsStale()
-		return
+		return false, err
 	}
 	old := make(map[string]bool, len(runtime.serverTools[server.Name]))
 	for _, name := range runtime.serverTools[server.Name] {
@@ -419,7 +477,7 @@ func (runtime *Runtime) refreshServer(ctx context.Context, server Server, notifi
 	}
 	next := make([]string, 0, len(rebuilt))
 	for _, tool := range rebuilt {
-		tool.refreshCheck = runtime.RefreshIfStale
+		tool.refreshCheck = runtime.refreshIfStale
 		next = append(next, tool.Name())
 		delete(old, tool.Name())
 	}
@@ -439,7 +497,8 @@ func (runtime *Runtime) refreshServer(ctx context.Context, server Server, notifi
 	runtime.registry.RegisterBatch(registered)
 	runtime.serverTools[server.Name] = next
 	runtime.serverIDs[server.Name] = rebuilt
-	if len(added) > 0 || len(removed) > 0 {
+	changed := len(added) > 0 || len(removed) > 0
+	if changed {
 		runtime.changes = append(runtime.changes, CatalogChange{
 			Server:  server.Name,
 			At:      time.Now(),
@@ -448,15 +507,16 @@ func (runtime *Runtime) refreshServer(ctx context.Context, server Server, notifi
 			Reason:  catalogChangedReason,
 		})
 	}
+	return changed, nil
 }
 
 type registryTool struct {
-	name     string
-	server   Server
-	remote   RemoteTool
-	client   ToolClient
-	clientMu *sync.Mutex
-	redial   func(context.Context) (ToolClient, error)
+	name      string
+	server    Server
+	remote    RemoteTool
+	client    ToolClient
+	clientMu  *sync.Mutex
+	reconnect func(context.Context) (ToolClient, error)
 	// refreshCheck re-lists stale servers. It runs at the start of every Run —
 	// during turn dispatch, after the current turn's partition was computed —
 	// so any catalog change lands in the NEXT turn, never mid-request.
@@ -551,13 +611,25 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 		tool.refreshCheck(ctx)
 	}
 	result, err := tool.callRemote(ctx, args)
-	if err != nil && tool.server.Type == ServerTypeStdio && tool.redial != nil && redialable(ctx, err) {
-		// The stdio subprocess may have died mid-session. Restart it once and
-		// retry the call so the next use recovers instead of failing.
-		if revived, redialErr := tool.redial(ctx); redialErr == nil {
-			tool.swapClient(revived)
-			result, err = tool.callRemote(ctx, args)
+	// A dead transport restarts on next use: reconnect (a fresh initialize)
+	// with exponential backoff and retry the call, up to maxConnectAttempts
+	// times. Timeouts and caller cancellation never reconnect — retrying a
+	// hung server would only burn the turn, and a cancelled turn must stop.
+	for attempt := 1; err != nil && tool.reconnect != nil && redialable(ctx, err) && attempt <= maxConnectAttempts; attempt++ {
+		if !sleepForReconnect(ctx, attempt) {
+			err = ctx.Err()
+			break
 		}
+		revived, reconnectErr := tool.reconnect(ctx)
+		if reconnectErr != nil {
+			err = reconnectErr
+			if !isTransientConnectError(ctx, reconnectErr) {
+				break
+			}
+			continue
+		}
+		tool.swapClient(revived)
+		result, err = tool.callRemote(ctx, args)
 	}
 	if err != nil {
 		return tools.Result{

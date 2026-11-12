@@ -31,22 +31,22 @@ func knownMCPProtocolVersion(version string) bool {
 }
 
 // negotiateMCPProtocolVersion resolves the revision to speak after the
-// server answers initialize. Known answers are used as-is; a newer answer
-// keeps the newest known revision and warns, naming the demanded revision.
-func negotiateMCPProtocolVersion(serverVersion string) (used string, warning string) {
+// server answers initialize. Known answers are used as-is; an answer newer
+// than everything qg implements is refused with an error naming it, so qg
+// never pretends to speak a revision it does not know.
+func negotiateMCPProtocolVersion(serverVersion string) (string, error) {
 	serverVersion = strings.TrimSpace(serverVersion)
 	if serverVersion == "" {
-		return latestMCPProtocolVersion(), ""
+		return latestMCPProtocolVersion(), nil
 	}
 	if knownMCPProtocolVersion(serverVersion) {
-		return serverVersion, ""
+		return serverVersion, nil
 	}
 	if serverVersion > latestMCPProtocolVersion() {
-		return latestMCPProtocolVersion(), fmt.Sprintf(
-			"servidor MCP exige protocolVersion %s, posterior à mais recente implementada (%s); usando %s",
-			serverVersion, latestMCPProtocolVersion(), latestMCPProtocolVersion())
+		return "", fmt.Errorf("servidor MCP exige protocolVersion %s, posterior à mais recente implementada (%s)",
+			serverVersion, latestMCPProtocolVersion())
 	}
-	return serverVersion, ""
+	return serverVersion, nil
 }
 
 // maxMessageBytes caps a single framed MCP message so a hostile or buggy peer

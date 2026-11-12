@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"net/url"
 	"regexp"
 	"sort"
@@ -22,6 +23,10 @@ type MCPStateOptions struct {
 	// Skipped maps server name to the startup failure reason, so the manager
 	// shows why a configured server has no tools instead of looking healthy.
 	Skipped map[string]string
+	// Status carries explicit per-server connection states (Claude Code
+	// style). When present it drives the panel rendering; otherwise the
+	// legacy skipped/store-based states apply.
+	Status []mcp.ServerStatus
 }
 
 type mcpServerNamedTool interface {
@@ -41,7 +46,7 @@ func BuildMCPViewState(options MCPStateOptions) MCPViewState {
 	}
 
 	return MCPViewState{
-		Servers:     buildMCPServerViews(options.Config, toolCounts, options.Skipped, mcpNeedsAuthSet(options.Config, options.TokenStore)),
+		Servers:     buildMCPServerViews(options.Config, toolCounts, options.Skipped, mcpNeedsAuthSet(options.Config, options.TokenStore), options.Status),
 		Tools:       toolViews,
 		Permissions: buildMCPPermissionSummary(options),
 		OAuth:       buildMCPOAuthSummary(options.Config, options.TokenStore),
@@ -84,11 +89,19 @@ func mcpServerOrigin(name string, server config.MCPServerConfig) string {
 	return "usuário"
 }
 
-func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int, skipped map[string]string, needsAuth map[string]bool) []MCPServerView {
+func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int, skipped map[string]string, needsAuth map[string]bool, statuses []mcp.ServerStatus) []MCPServerView {
 	names := sortedMCPServerNames(cfg)
 	servers := make([]MCPServerView, 0, len(names))
+	explicit := make(map[string]mcp.ServerStatus, len(statuses))
+	for _, status := range statuses {
+		explicit[status.Name] = status
+	}
 	for _, name := range names {
 		raw := cfg.Servers[name]
+		if explicitStatus, ok := explicit[name]; ok {
+			servers = append(servers, explicitServerView(name, raw, explicitStatus))
+			continue
+		}
 		state := "enabled"
 		status := "ok"
 		if raw.Disabled {
@@ -116,6 +129,54 @@ func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int, skippe
 		})
 	}
 	return servers
+}
+
+// explicitServerView renders one server from an explicit connection status
+// (Claude Code panel style) instead of the legacy config-derived states.
+func explicitServerView(name string, raw config.MCPServerConfig, status mcp.ServerStatus) MCPServerView {
+	count := status.ToolCount
+	if count < 0 {
+		count = 0
+	}
+	view := MCPServerView{
+		Name:      name,
+		Transport: mcpServerTransport(raw),
+		State:     string(status.State),
+		Target:    mcpServerTarget(raw),
+		Auth:      strings.TrimSpace(raw.Auth),
+		ToolCount: count,
+		Origin:    mcpServerOrigin(name, raw),
+	}
+	switch status.State {
+	case mcp.ServerStateConnected:
+		view.Status = "ok"
+		view.Glyph = "✔"
+		view.StateLabel = "conectado"
+		if count == 1 {
+			view.CountLabel = "1 tool"
+		} else if count > 1 {
+			view.CountLabel = fmt.Sprintf("%d tools", count)
+		}
+	case mcp.ServerStateNeedsAuth:
+		view.Status = "ok"
+		view.NeedsAuth = true
+		view.Glyph = "⚠"
+		view.StateLabel = "precisa autenticar"
+	case mcp.ServerStateFailed:
+		view.Status = "failed"
+		view.Detail = status.Reason
+		view.Glyph = "✘"
+		view.StateLabel = "falhou"
+	case mcp.ServerStateDisabled:
+		view.Status = "disabled"
+		view.State = "disabled"
+		view.Glyph = "○"
+		view.StateLabel = "desativado"
+	default:
+		view.Status = "ok"
+		view.StateLabel = view.State
+	}
+	return view
 }
 
 func buildMCPToolViews(cfg config.MCPConfig, registry *tools.Registry) []MCPToolView {

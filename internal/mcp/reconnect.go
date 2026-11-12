@@ -52,6 +52,10 @@ func isTransientConnectError(ctx context.Context, err error) bool {
 	if errors.As(err, &timeout) {
 		return false
 	}
+	var budget *connectBudgetError
+	if errors.As(err, &budget) {
+		return false
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
@@ -88,8 +92,15 @@ func isTransientConnectError(ctx context.Context, err error) bool {
 // connectWithRetry connects to one remote server and lists its tools, retrying
 // transient failures with exponential backoff (1s, 2s, 4s, 8s). The context
 // still bounds the total: a cancelled or expired context stops the loop. It
-// does ONLY I/O, so it stays safe to run concurrently per server.
-func connectWithRetry(ctx context.Context, factory func(context.Context, Server) (ToolClient, error), server Server) (ToolClient, []RemoteTool, error) {
+// does ONLY I/O, so it stays safe to run concurrently per server. When
+// timeout > 0, no new attempt starts past the budget; the last connect error
+// is returned — never a generic timeout — so the skipped reason names the
+// server's answer (a 503, a refused dial).
+func connectWithRetry(ctx context.Context, factory func(context.Context, Server) (ToolClient, error), server Server, timeout time.Duration) (ToolClient, []RemoteTool, error) {
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
 	var err error
 	for attempt := 1; ; attempt++ {
 		var client ToolClient
@@ -105,17 +116,36 @@ func connectWithRetry(ctx context.Context, factory func(context.Context, Server)
 			return nil, nil, err
 		}
 		backoff := connectBackoffFor(attempt)
+		if !deadline.IsZero() && time.Now().Add(backoff).After(deadline) {
+			return nil, nil, err
+		}
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, nil, ctx.Err()
+			// Report the last connect failure, not the budget: the caller
+			// (and the user reading the skipped reason) needs the server's
+			// answer (a 503, a refused dial), not our own timeout.
+			return nil, nil, err
 		case <-timer.C:
 		}
 	}
 }
 
-// redialable reports whether a failed stdio tool call is worth one redial:
+// sleepForReconnect waits out the backoff before reconnect attempt number
+// (1-based: 1s, 2s, 4s, 8s...), aborting early when the caller goes away.
+func sleepForReconnect(ctx context.Context, attempt int) bool {
+	timer := time.NewTimer(connectBackoffFor(attempt))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// redialable reports whether a failed tool call is worth a reconnect: the
 // the process may have died, but a timeout or a caller cancellation must not
 // restart anything.
 func redialable(ctx context.Context, err error) bool {
@@ -124,6 +154,10 @@ func redialable(ctx context.Context, err error) bool {
 	}
 	var timeout *ToolTimeoutError
 	if errors.As(err, &timeout) {
+		return false
+	}
+	var budget *connectBudgetError
+	if errors.As(err, &budget) {
 		return false
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

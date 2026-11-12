@@ -157,7 +157,7 @@ func TestRefreshIfStaleUpdatesCatalogBetweenTurns(t *testing.T) {
 	fake.mu.Unlock()
 	fake.stale <- struct{}{}
 
-	runtime.RefreshIfStale(ctx)
+	runtime.RefreshPendingTools(ctx)
 	if _, ok := registry.Get("mcp_changing_v2"); !ok {
 		t.Fatal("v2 tool was not registered after list_changed")
 	}

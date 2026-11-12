@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -50,19 +49,8 @@ func registerMCPToolsForWorkspaceWithOptions(ctx context.Context, workspaceRoot 
 	if err != nil {
 		return nil, skip, err
 	}
-	// Expand ${VAR}/${VAR:-default} from the process environment before
-	// validation: an unexpanded reference would fail URL validation with a
-	// misleading error. Servers with undefined variables and no default are
-	// dropped and reported as skipped with the reason, mirroring unreachable
-	// servers, instead of aborting the session on one bad entry. The project
-	// layer was already excluded above when untrusted, so expansion only ever
-	// sees user and default servers there.
-	cfg, envSkips := dropServersWithMissingEnv(cfg)
 	if len(cfg.Servers) == 0 {
-		if len(envSkips) == 0 {
-			return noopMCPRuntime{}, skip, nil
-		}
-		return mcpRuntimeWithSkips{inner: noopMCPRuntime{}}, skip, nil
+		return noopMCPRuntime{}, skip, nil
 	}
 	store, err := deps.newMCPStore()
 	if err != nil {
@@ -71,51 +59,12 @@ func registerMCPToolsForWorkspaceWithOptions(ctx context.Context, workspaceRoot 
 	options.PermissionStore = store
 	options.Autonomy = autonomy
 	options.WorkspaceRoot = workspaceRoot
+	// The project root keys the one-time project approval gate inside
+	// RegisterTools: unapproved project servers are skipped with the approve
+	// command as the reason.
+	options.ProjectRoot = workspaceRoot
 	runtime, err := deps.registerMCPTools(ctx, registry, cfg, options)
-	if len(envSkips) > 0 {
-		runtime = mcpRuntimeWithSkips{inner: runtime, extra: envSkips}
-	}
 	return runtime, skip, err
-}
-
-// mcpRuntimeWithSkips appends extra skipped-server reasons (undefined
-// environment variables) to a registration runtime.
-type mcpRuntimeWithSkips struct {
-	inner mcpToolRuntime
-	extra []mcp.SkippedServer
-}
-
-func (runtime mcpRuntimeWithSkips) Close() error {
-	if runtime.inner == nil {
-		return nil
-	}
-	return runtime.inner.Close()
-}
-
-func (runtime mcpRuntimeWithSkips) Skipped() []mcp.SkippedServer {
-	skipped := []mcp.SkippedServer{}
-	if runtime.inner != nil {
-		skipped = append(skipped, runtime.inner.Skipped()...)
-	}
-	return append(skipped, runtime.extra...)
-}
-
-// dropServersWithMissingEnv expands ${VAR}/${VAR:-default} and drops enabled
-// servers whose targets reference undefined variables, reporting each as a
-// skipped entry with the reason. Disabled servers are left alone.
-func dropServersWithMissingEnv(cfg config.MCPConfig) (config.MCPConfig, []mcp.SkippedServer) {
-	expanded, missing := mcp.ExpandMCPConfigEnv(cfg)
-	var skipped []mcp.SkippedServer
-	for name, names := range missing {
-		raw, ok := cfg.Servers[name]
-		if !ok || raw.Disabled {
-			continue
-		}
-		delete(expanded.Servers, name)
-		skipped = append(skipped, mcp.SkippedServer{Name: name, Err: errors.New(mcp.MissingEnvError(name, names))})
-	}
-	sort.Slice(skipped, func(left, right int) bool { return skipped[left].Name < skipped[right].Name })
-	return expanded, skipped
 }
 
 func execMCPAutonomy(options execOptions) mcp.PermissionAutonomy {
@@ -126,18 +75,6 @@ func execMCPAutonomy(options execOptions) mcp.PermissionAutonomy {
 		return mcp.AutonomyMedium
 	}
 	return mcp.AutonomyLow
-}
-
-// mcpRuntimeWarnings reads non-fatal registration notes when the runtime
-// exposes them (the real MCP runtime does; test doubles may not).
-func mcpRuntimeWarnings(runtime mcpToolRuntime) []string {
-	if runtime == nil {
-		return nil
-	}
-	if w, ok := runtime.(interface{ Warnings() []string }); ok {
-		return w.Warnings()
-	}
-	return nil
 }
 
 // mcpSkippedReasons maps each skipped server to its redacted startup failure
@@ -188,7 +125,7 @@ func formatMCPToolList(items []mcpToolListItem) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatMCPServerList(servers map[string]config.MCPServerConfig, probe map[string]mcp.ProbeResult, missing map[string][]string, trusted bool) string {
+func formatMCPServerList(servers map[string]config.MCPServerConfig, probe map[string]mcp.ProbeResult, missing map[string][]string, pending map[string]bool, trusted bool) string {
 	if len(servers) == 0 {
 		return "Nenhum servidor MCP configurado."
 	}
@@ -212,6 +149,8 @@ func formatMCPServerList(servers map[string]config.MCPServerConfig, probe map[st
 		if !server.Disabled {
 			if !trusted && server.ProjectConfigured {
 				suffix = " · ? não verificado (projeto não confiável)"
+			} else if pending[name] {
+				suffix = " · ? aguarda aprovação (qg mcp approve " + name + ")"
 			} else if names, ok := missing[name]; ok {
 				suffix = " · ✘ " + mcp.MissingEnvError(name, names)
 			} else if result, ok := probe[name]; ok {

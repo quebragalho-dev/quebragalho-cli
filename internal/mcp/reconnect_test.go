@@ -47,7 +47,7 @@ func TestConnectWithRetrySucceedsAfterTransient(t *testing.T) {
 		return &fakeToolClient{listed: []RemoteTool{{Name: "ok"}}}, nil
 	}
 	client, remote, err := connectWithRetry(context.Background(), factory,
-		Server{Name: "s", Type: ServerTypeHTTP})
+		Server{Name: "s", Type: ServerTypeHTTP}, 0)
 	if err != nil {
 		t.Fatalf("connectWithRetry() error = %v", err)
 	}
@@ -67,7 +67,7 @@ func TestConnectWithRetryNoRetryOnAuth(t *testing.T) {
 		return nil, &MCPHTTPStatusError{Server: "s", Status: 401}
 	}
 	_, _, err := connectWithRetry(context.Background(), factory,
-		Server{Name: "s", Type: ServerTypeHTTP})
+		Server{Name: "s", Type: ServerTypeHTTP}, 0)
 	if err == nil {
 		t.Fatal("connectWithRetry() error = nil, want auth error")
 	}
@@ -85,7 +85,7 @@ func TestConnectWithRetryBoundedByContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, _, err := connectWithRetry(ctx, factory, Server{Name: "s", Type: ServerTypeHTTP})
+	_, _, err := connectWithRetry(ctx, factory, Server{Name: "s", Type: ServerTypeHTTP}, 0)
 	if err == nil {
 		t.Fatal("connectWithRetry() error = nil, want error")
 	}
@@ -122,7 +122,7 @@ func TestStdioRedialOnTransportFailure(t *testing.T) {
 	dead := &deadThenAliveClient{}
 	redialed := false
 	tool := newRegistryTool(server, RemoteTool{Name: "echo"}, dead, RegisterOptions{})
-	tool.redial = func(context.Context) (ToolClient, error) {
+	tool.reconnect = func(context.Context) (ToolClient, error) {
 		redialed = true
 		return dead, nil
 	}

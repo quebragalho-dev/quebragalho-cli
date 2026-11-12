@@ -72,11 +72,10 @@ type Client struct {
 	readErr    error
 	readDone   bool
 
-	// protocolVersion is the revision negotiated during initialize, and
-	// protocolWarning names a newer revision the server demanded that QG
-	// does not implement yet.
+	// protocolVersion is the revision negotiated during initialize. It is sent
+	// back as MCP-Protocol-Version on Streamable HTTP requests when the
+	// negotiated revision requires it (2025-06-18+).
 	protocolVersion string
-	protocolWarning string
 	// stale collapses tools/list_changed notifications into one refresh.
 	staleSignal
 }
@@ -250,7 +249,11 @@ func (client *Client) initialize(ctx context.Context) error {
 	}, &result); err != nil {
 		return err
 	}
-	client.protocolVersion, client.protocolWarning = negotiateMCPProtocolVersion(result.ProtocolVersion)
+	version, err := negotiateMCPProtocolVersion(result.ProtocolVersion)
+	if err != nil {
+		return err
+	}
+	client.protocolVersion = version
 	return client.notify("notifications/initialized", map[string]any{})
 }
 
@@ -262,10 +265,6 @@ func (client *Client) ListTools(ctx context.Context) ([]RemoteTool, error) {
 		return nil, err
 	}
 	return result.Tools, nil
-}
-
-func (client *Client) NegotiatedProtocolVersion() (string, string) {
-	return client.protocolVersion, client.protocolWarning
 }
 
 func (client *Client) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {

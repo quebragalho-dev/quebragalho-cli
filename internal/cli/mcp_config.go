@@ -362,6 +362,8 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	if raw.Disabled {
 		return writeAppError(stderr, fmt.Sprintf("Servidor MCP %q está desativado", serverName), exitCrash)
 	}
+	// The approval gate lives in RegisterTools below: an unapproved project
+	// server is refused there with the approve command as the reason.
 	if _, missing := mcp.ExpandServerEnv(raw); len(missing) > 0 {
 		message := fmt.Sprintf("Servidor MCP %s não está acessível: %s", serverName, mcp.MissingEnvError(serverName, missing))
 		if options.json {
@@ -390,6 +392,10 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	mcpRuntime, err := deps.registerMCPTools(ctx, registry, scoped, mcp.RegisterOptions{
 		PermissionStore: store,
 		Autonomy:        mcp.AutonomyLow,
+		// The check spawns the named server, so it goes through the same
+		// trust + project-approval gate as every other spawn site: an
+		// unapproved project server is refused here, not connected.
+		ProjectRoot: cwd,
 	})
 	if err != nil {
 		closeMCPRuntime(stderr, mcpRuntime)
@@ -430,23 +436,99 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	}
 
 	items := mcpToolList(registry)
-	for _, warning := range mcpRuntimeWarnings(mcpRuntime) {
-		fmt.Fprintf(stderr, "aviso: MCP %s\n", warning)
-	}
 	if options.json {
 		payload := struct {
 			ServerName string            `json:"serverName"`
 			Status     string            `json:"status"`
 			ToolCount  int               `json:"toolCount"`
 			Tools      []mcpToolListItem `json:"tools"`
-			Warnings   []string          `json:"warnings,omitempty"`
-		}{ServerName: serverName, Status: "ok", ToolCount: len(items), Tools: items, Warnings: mcpRuntimeWarnings(mcpRuntime)}
+		}{ServerName: serverName, Status: "ok", ToolCount: len(items), Tools: items}
 		if err := writePrettyJSON(stdout, redaction.RedactValue(payload, redaction.Options{})); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
 	}
 	if _, err := fmt.Fprintf(stdout, "Servidor MCP %s acessível. Ferramentas disponíveis: %d.\n", serverName, len(items)); err != nil {
+		return exitCrash
+	}
+	return exitSuccess
+}
+
+// runMCPApprove records the one-time user approval of a project-layer MCP
+// server for the current project. The approval binds the approved server
+// target (identity): editing the target requires approving again. Approving
+// is an explicit user gesture, so it works in untrusted workspaces too — the
+// trust gate still excludes the project layer until the workspace is trusted,
+// approval is necessary but not sufficient.
+func runMCPApprove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
+	_, positional, help, err := parseMCPConfigPositionalCommand(args, "approve")
+	if err != nil {
+		return writeExecUsageError(stderr, err.Error())
+	}
+	if help {
+		return writeMCPApproveHelp(stdout)
+	}
+	if len(positional) != 1 {
+		return writeExecUsageError(stderr, "usage: qg mcp approve <server>")
+	}
+	serverName := positional[0]
+	if err := mcp.ValidateServerName(serverName); err != nil {
+		return writeExecUsageError(stderr, err.Error())
+	}
+
+	cwd, err := deps.getwd()
+	if err != nil {
+		return writeAppError(stderr, "Não foi possível resolver a pasta de trabalho. Detalhe: "+err.Error(), exitCrash)
+	}
+	// Include the project layer: approval is about a project server, and the
+	// workspace may be untrusted (the trust gate still applies at use time).
+	cfg, err := deps.resolveMCPConfig(cwd, false)
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	raw, ok := cfg.Servers[serverName]
+	if !ok {
+		return writeAppError(stderr, fmt.Sprintf("Servidor MCP %q não está configurado", serverName), exitCrash)
+	}
+	if raw.Disabled {
+		return writeAppError(stderr, fmt.Sprintf("Servidor MCP %q está desativado", serverName), exitCrash)
+	}
+	if !raw.ProjectConfigured {
+		if _, err := fmt.Fprintf(stdout, "Servidor MCP %s não é de projeto: dispensa aprovação.\n", serverName); err != nil {
+			return exitCrash
+		}
+		return exitSuccess
+	}
+	// The gate approves the configured target, so approve the same literal
+	// values: identities are computed on the unexpanded config, keeping
+	// approvals stable across environment rotation.
+	scoped := config.MCPConfig{Servers: map[string]config.MCPServerConfig{serverName: raw}}
+	servers, err := mcp.NormalizeConfig(scoped)
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	approvals, err := mcp.OpenProjectApprovals()
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	if err := approvals.Approve(mcp.ProjectApproval{ProjectRoot: cwd, ServerName: serverName, Identity: servers[0].Identity}); err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	if _, err := fmt.Fprintf(stdout, "Servidor MCP %s aprovado para o projeto %s.\n", serverName, cwd); err != nil {
+		return exitCrash
+	}
+	return exitSuccess
+}
+
+func writeMCPApproveHelp(w io.Writer) int {
+	_, err := fmt.Fprint(w, `Uso:
+  qg mcp approve <server>
+
+Aprova um servidor MCP da camada de projeto para o projeto atual. A
+aprovação é lembrada por projeto e vale para o alvo exato aprovado:
+trocar command, args, url ou credencial exige aprovar de novo.
+`)
+	if err != nil {
 		return exitCrash
 	}
 	return exitSuccess

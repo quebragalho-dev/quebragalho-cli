@@ -28,6 +28,12 @@ type MCPServerView struct {
 	Origin string
 	// NeedsAuth is true when the server requires OAuth and no token is stored.
 	NeedsAuth bool
+	// Glyph, StateLabel and CountLabel render the Claude Code panel style when
+	// the view state carries explicit per-server statuses. Empty means the
+	// legacy rendering (State verbatim, pluralized "ferramentas").
+	Glyph      string
+	StateLabel string
+	CountLabel string
 }
 
 type MCPToolView struct {
@@ -146,21 +152,30 @@ func mcpManagerServerLines(servers []MCPServerView) []string {
 	for index, server := range servers {
 		name := displayValue(strings.TrimSpace(server.Name), "sem nome")
 		transport := displayValue(strings.TrimSpace(server.Transport), "desconhecido")
-		state := displayValue(strings.TrimSpace(server.State), "configurado")
 		prefix := "  "
 		if index == 0 {
 			prefix = "› "
 		}
 
-		parts := []string{name, state}
-		if auth := strings.TrimSpace(server.Auth); auth != "" {
-			parts = append(parts, auth)
+		var header string
+		if server.Glyph != "" {
+			header = prefix + mcpManagerServerCCLine(name, server, transport)
+		} else {
+			state := displayValue(strings.TrimSpace(server.State), "configurado")
+			parts := []string{name, state}
+			if auth := strings.TrimSpace(server.Auth); auth != "" {
+				parts = append(parts, auth)
+			}
+			if server.ToolCount > 0 {
+				parts = append(parts, pluralCount(server.ToolCount, "tool"))
+			}
+			parts = append(parts, transport)
+			if origin := strings.TrimSpace(server.Origin); origin != "" {
+				parts = append(parts, "origem: "+origin)
+			}
+			header = prefix + strings.Join(parts, " · ")
 		}
-		if server.ToolCount > 0 {
-			parts = append(parts, pluralCount(server.ToolCount, "tool"))
-		}
-		parts = append(parts, transport)
-		lines = append(lines, prefix+strings.Join(parts, " · "))
+		lines = append(lines, header)
 		if target := strings.TrimSpace(server.Target); target != "" {
 			lines = append(lines, "  "+target)
 		}
@@ -176,6 +191,23 @@ func mcpManagerServerLines(servers []MCPServerView) []string {
 		}
 	}
 	return lines
+}
+
+// mcpManagerServerCCLine renders one server in the Claude Code panel style:
+// glyph, Portuguese state, inline reason, tool count, origin, transport.
+func mcpManagerServerCCLine(name string, server MCPServerView, transport string) string {
+	parts := []string{name + " " + server.Glyph + " " + server.StateLabel}
+	if detail := strings.TrimSpace(server.Detail); detail != "" && server.Status == "failed" {
+		parts = append(parts, detail)
+	}
+	if server.CountLabel != "" {
+		parts = append(parts, server.CountLabel)
+	}
+	if origin := strings.TrimSpace(server.Origin); origin != "" {
+		parts = append(parts, "origem: "+origin)
+	}
+	parts = append(parts, transport)
+	return strings.Join(parts, " · ")
 }
 
 func mcpToolLines(tools []MCPToolView) []string {

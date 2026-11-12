@@ -65,10 +65,33 @@ func ExpandServerEnv(raw config.MCPServerConfig) (config.MCPServerConfig, []stri
 	return expanded, missing
 }
 
-// ExpandMCPConfigEnv expands every server in cfg. It returns the expanded
-// config and, per server, the environment names that had no value and no
-// default. Callers skip or report those servers instead of connecting with
-// silently emptied targets.
+// withExpandedEnv returns a copy of the server with ${VAR}/${VAR:-default}
+// expanded from the process environment (command, args, env values, URL,
+// header values), plus the names that had no value and no default. The
+// identity is untouched: approval and permission grants anchor the configured
+// target, not the ambient environment.
+func (server Server) withExpandedEnv() (Server, []string) {
+	raw := config.MCPServerConfig{
+		Command: server.Command,
+		Args:    server.Args,
+		Env:     server.Env,
+		URL:     server.URL,
+		Headers: server.Headers,
+	}
+	expanded, missing := ExpandServerEnv(raw)
+	server.Command = expanded.Command
+	server.Args = expanded.Args
+	server.Env = expanded.Env
+	server.URL = expanded.URL
+	server.Headers = expanded.Headers
+	return server, missing
+}
+
+// ExpandMCPConfigEnv expands ${VAR}/${VAR:-default} in every server of cfg
+// from the process environment. It returns the expanded config and, per
+// server, the names that had no value and no default. Callers that connect
+// (probes, checks) skip or report those servers instead of dialing emptied
+// targets.
 func ExpandMCPConfigEnv(cfg config.MCPConfig) (config.MCPConfig, map[string][]string) {
 	expanded := config.MCPConfig{Servers: make(map[string]config.MCPServerConfig, len(cfg.Servers))}
 	missing := make(map[string][]string)

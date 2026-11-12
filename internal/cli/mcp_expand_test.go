@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -34,20 +35,20 @@ func TestRunMCPCheckWarnsMissingEnv(t *testing.T) {
 	}
 }
 
-// Servers with undefined variables are dropped before registration and
-// reported as skipped with the reason; healthy servers still register.
-func TestRegisterDropsServersWithMissingEnv(t *testing.T) {
+// Servers render ${VAR}/${VAR:-default} from the process env before
+// registration; sibling config values never leak into the environment.
+// (Explicit commands like `qg mcp check` warn about the missing names.)
+func TestRegisterExpandsMissingEnvToEmpty(t *testing.T) {
 	os.Unsetenv("QG_TEST_EXPAND_DEFINITELY_MISSING")
 	cwd := t.TempDir()
 	registered := config.MCPConfig{}
-	var stdout, stderr bytes.Buffer
-	_ = stdout
-	_ = stderr
 	runtime, _, err := registerMCPToolsForWorkspace(context.Background(), t.TempDir(), tools.NewRegistry(), appDeps{
+		userConfigPath: func() (string, error) {
+			return filepath.Join(t.TempDir(), "qg", "config.json"), nil
+		},
 		resolveMCPConfig: func(workspaceRoot string, _ bool) (config.MCPConfig, error) {
 			return config.MCPConfig{Servers: map[string]config.MCPServerConfig{
-				"bad": {Type: "http", URL: "https://${QG_TEST_EXPAND_DEFINITELY_MISSING}/mcp"},
-				"ok":  {Type: "http", URL: "http://127.0.0.1:1/mcp"},
+				"r": {Type: "http", URL: "http://127.0.0.1:1/mcp", Headers: map[string]string{"X-K": "${QG_TEST_EXPAND_DEFINITELY_MISSING:-dflt}"}},
 			}}, nil
 		},
 		newMCPStore: func() (*mcp.PermissionStore, error) { return nil, nil },
@@ -59,20 +60,11 @@ func TestRegisterDropsServersWithMissingEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registerMCPToolsForWorkspace() error = %v", err)
 	}
-	if _, ok := registered.Servers["bad"]; ok {
-		t.Fatal("server with missing env was passed to registration")
+	if _, ok := registered.Servers["r"]; !ok {
+		t.Fatal("server with missing env (and default) was dropped from registration")
 	}
-	if _, ok := registered.Servers["ok"]; !ok {
-		t.Fatal("healthy server was dropped from registration")
-	}
-	found := false
-	for _, skipped := range runtime.Skipped() {
-		if skipped.Name == "bad" && strings.Contains(skipped.Err.Error(), "QG_TEST_EXPAND_DEFINITELY_MISSING") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("skipped = %+v, want bad with missing-var reason", runtime.Skipped())
+	if len(runtime.Skipped()) != 0 {
+		t.Fatalf("Skipped() = %+v, want none", runtime.Skipped())
 	}
 	if err := runtime.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)

@@ -942,6 +942,9 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 			Autonomy:        mcp.AutonomyLow,
 			Execution:       executionRunner,
 			WorkspaceRoot:   workspaceRoot,
+			// The interactive start spawns project servers, so it goes
+			// through the same approval gate as every other spawn site.
+			ProjectRoot: workspaceRoot,
 		})
 		if registerErr != nil {
 			closeMCPRuntime(stderr, runtime)

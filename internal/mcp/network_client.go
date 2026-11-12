@@ -24,7 +24,6 @@ type networkClient struct {
 	sessionID string
 
 	protocolVersion string
-	protocolWarning string
 	staleSignal
 }
 
@@ -41,7 +40,6 @@ type remoteSSEClient struct {
 	closed       bool
 
 	protocolVersion string
-	protocolWarning string
 	staleSignal
 }
 
@@ -121,10 +119,12 @@ func connectRemoteSSE(ctx context.Context, server Server) (ToolClient, error) {
 }
 
 func (client *networkClient) initialize(ctx context.Context) error {
+	initCtx, cancel := context.WithTimeout(ctx, initializeTimeoutValue())
+	defer cancel()
 	var result struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
-	if err := client.request(ctx, "initialize", map[string]any{
+	if err := client.request(initCtx, "initialize", map[string]any{
 		"protocolVersion": latestMCPProtocolVersion(),
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
@@ -132,17 +132,23 @@ func (client *networkClient) initialize(ctx context.Context) error {
 			"version": "dev",
 		},
 	}, &result); err != nil {
+		return markConnectBudgetError(ctx, initCtx, err)
+	}
+	version, err := negotiateMCPProtocolVersion(result.ProtocolVersion)
+	if err != nil {
 		return err
 	}
-	client.protocolVersion, client.protocolWarning = negotiateMCPProtocolVersion(result.ProtocolVersion)
+	client.protocolVersion = version
 	return client.notify(ctx, "notifications/initialized", map[string]any{})
 }
 
 func (client *remoteSSEClient) initialize(ctx context.Context) error {
+	initCtx, cancel := context.WithTimeout(ctx, initializeTimeoutValue())
+	defer cancel()
 	var result struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
-	if err := client.request(ctx, "initialize", map[string]any{
+	if err := client.request(initCtx, "initialize", map[string]any{
 		"protocolVersion": latestMCPProtocolVersion(),
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
@@ -150,11 +156,32 @@ func (client *remoteSSEClient) initialize(ctx context.Context) error {
 			"version": "dev",
 		},
 	}, &result); err != nil {
+		return markConnectBudgetError(ctx, initCtx, err)
+	}
+	version, err := negotiateMCPProtocolVersion(result.ProtocolVersion)
+	if err != nil {
 		return err
 	}
-	client.protocolVersion, client.protocolWarning = negotiateMCPProtocolVersion(result.ProtocolVersion)
+	client.protocolVersion = version
 	return client.notify(ctx, "notifications/initialized", map[string]any{})
 }
+
+// markConnectBudgetError tags a handshake failure caused by qg's own connect
+// budget (not the server hanging up) so the reconnect loop treats it as
+// terminal instead of flapping against a peer that never answered.
+func markConnectBudgetError(ctx, initCtx context.Context, err error) error {
+	if err != nil && initCtx.Err() != nil && ctx.Err() == nil {
+		return &connectBudgetError{err: err}
+	}
+	return err
+}
+
+// connectBudgetError is a handshake failure produced by qg's own timeout. It
+// unwraps to the transport error for messages but never retries.
+type connectBudgetError struct{ err error }
+
+func (err *connectBudgetError) Error() string { return err.err.Error() }
+func (err *connectBudgetError) Unwrap() error { return err.err }
 
 func (client *networkClient) ListTools(ctx context.Context) ([]RemoteTool, error) {
 	var result struct {
@@ -174,16 +201,6 @@ func (client *remoteSSEClient) ListTools(ctx context.Context) ([]RemoteTool, err
 		return nil, err
 	}
 	return result.Tools, nil
-}
-
-func (client *networkClient) NegotiatedProtocolVersion() (string, string) {
-	return client.protocolVersion, client.protocolWarning
-}
-
-func (client *remoteSSEClient) NegotiatedProtocolVersion() (string, string) {
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	return client.protocolVersion, client.protocolWarning
 }
 
 func (client *networkClient) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
@@ -391,7 +408,7 @@ func (client *networkClient) post(ctx context.Context, message rpcMessage, expec
 
 	response, err := client.client.Do(request)
 	if err != nil {
-		return rpcMessage{}, fmt.Errorf("call MCP %s server %s: %w", client.server.Type, client.server.Name, err)
+		return rpcMessage{}, fmt.Errorf("call MCP %s server %s: %w", client.server.Type, client.server.Name, sanitizedMCPRequestError(err))
 	}
 	defer closeResponseBody(&err, client.server, response.Body)
 
@@ -423,7 +440,7 @@ func (client *remoteSSEClient) openStream(ctx context.Context) error {
 
 	response, err := client.client.Do(request)
 	if err != nil {
-		return fmt.Errorf("open MCP SSE stream for %s: %w", client.server.Name, err)
+		return fmt.Errorf("open MCP SSE stream for %s: %w", client.server.Name, sanitizedMCPRequestError(err))
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		err = httpStatusError(client.server, response)
@@ -459,7 +476,7 @@ func (client *remoteSSEClient) post(ctx context.Context, message rpcMessage) (er
 
 	response, err := client.client.Do(request)
 	if err != nil {
-		return fmt.Errorf("post MCP SSE message to %s: %w", client.server.Name, err)
+		return fmt.Errorf("post MCP SSE message to %s: %w", client.server.Name, sanitizedMCPRequestError(err))
 	}
 	defer closeResponseBody(&err, client.server, response.Body)
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
@@ -478,6 +495,11 @@ func (client *networkClient) applyHeaders(request *http.Request) {
 	if client.sessionID != "" {
 		request.Header.Set("Mcp-Session-Id", client.sessionID)
 	}
+	// MCP Streamable HTTP (2025-06-18+): every request after initialize
+	// carries the negotiated protocol version. Called with client.mu held.
+	if client.protocolVersion >= "2025-06-18" {
+		request.Header.Set("MCP-Protocol-Version", client.protocolVersion)
+	}
 }
 
 func (client *remoteSSEClient) applyStreamHeaders(request *http.Request) {
@@ -493,6 +515,12 @@ func (client *remoteSSEClient) applyPostHeaders(request *http.Request) {
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
+	client.mu.Lock()
+	version := client.protocolVersion
+	client.mu.Unlock()
+	if version >= "2025-06-18" {
+		request.Header.Set("MCP-Protocol-Version", version)
+	}
 }
 
 func closeResponseBody(errp *error, server Server, body io.Closer) {

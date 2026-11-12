@@ -17,22 +17,24 @@ func TestNegotiateProtocolVersion(t *testing.T) {
 	if got := latestMCPProtocolVersion(); got != "2025-06-18" {
 		t.Fatalf("latestMCPProtocolVersion() = %q", got)
 	}
-	used, warning := negotiateMCPProtocolVersion("2025-03-26")
-	if used != "2025-03-26" || warning != "" {
-		t.Fatalf("negotiate(2025-03-26) = %q, %q; want version without warning", used, warning)
+	used, err := negotiateMCPProtocolVersion("2025-03-26")
+	if err != nil || used != "2025-03-26" {
+		t.Fatalf("negotiate(2025-03-26) = %q, %v; want the known version", used, err)
 	}
-	used, warning = negotiateMCPProtocolVersion("2099-01-01")
-	if used != "2025-06-18" {
-		t.Fatalf("negotiate(2099-01-01) used = %q, want latest", used)
+	used, err = negotiateMCPProtocolVersion("2024-11-05")
+	if err != nil || used != "2024-11-05" {
+		t.Fatalf("negotiate(2024-11-05) = %q, %v; older known versions stay accepted", used, err)
 	}
-	if !strings.Contains(warning, "2099-01-01") {
-		t.Fatalf("negotiate(2099-01-01) warning = %q, want the demanded version", warning)
+	if _, err := negotiateMCPProtocolVersion("2099-01-01"); err == nil {
+		t.Fatal("negotiate(2099-01-01) error = nil, want refusal")
+	} else if !strings.Contains(err.Error(), "2099-01-01") {
+		t.Fatalf("refusal error = %q, want the demanded version named", err.Error())
 	}
 }
 
-// A server speaking a newer revision still connects, and the mismatch is
-// recorded so `mcp check` can warn instead of failing the tools.
-func TestNewerProtocolVersionWarnsButConnects(t *testing.T) {
+// A server demanding a newer revision than qg implements is not connected:
+// its skipped reason names the version instead of pretending to speak it.
+func TestNewerProtocolVersionRefusesWithReason(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		message := readHTTPRPCMessage(t, request)
 		switch message.Method {
@@ -40,8 +42,6 @@ func TestNewerProtocolVersionWarnsButConnects(t *testing.T) {
 			writeHTTPRPCResponse(t, writer, message.ID, map[string]any{"protocolVersion": "2099-01-01"})
 		case "notifications/initialized":
 			writer.WriteHeader(http.StatusAccepted)
-		case "tools/list":
-			writeHTTPRPCResponse(t, writer, message.ID, map[string]any{"tools": []RemoteTool{{Name: "future"}}})
 		default:
 			writeHTTPRPCResponse(t, writer, message.ID, map[string]any{})
 		}
@@ -60,13 +60,20 @@ func TestNewerProtocolVersionWarnsButConnects(t *testing.T) {
 		t.Fatalf("RegisterTools() error = %v", err)
 	}
 	defer runtime.Close()
-	if len(runtime.Warnings()) != 1 {
-		t.Fatalf("Warnings() = %v, want one protocol warning", runtime.Warnings())
+	found := false
+	for _, skipped := range runtime.Skipped() {
+		if skipped.Name != "future" {
+			continue
+		}
+		found = true
+		if skipped.Err == nil || !strings.Contains(skipped.Err.Error(), "2099-01-01") {
+			t.Fatalf("skipped reason = %v, want the demanded version named", skipped.Err)
+		}
 	}
-	if !strings.Contains(runtime.Warnings()[0], "2099-01-01") {
-		t.Fatalf("Warnings() = %v, want the demanded version", runtime.Warnings())
+	if !found {
+		t.Fatal("future server was connected despite demanding protocol 2099-01-01")
 	}
-	if _, ok := registry.Get("mcp_future_future"); !ok {
-		t.Fatal("future server tools were not registered")
+	if _, ok := registry.Get("mcp_future_future"); ok {
+		t.Fatal("future server tools were registered despite the refused version")
 	}
 }

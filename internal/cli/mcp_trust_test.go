@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,35 @@ import (
 // returns a project stdio server only when excludeProject is false, mirroring the
 // real ResolveMCP gate. It records the excludeProject value it was called with and
 // whether registerMCPTools (which spawns servers) actually fired.
+func mcpTrustDepsProject(gotExclude *bool, spawned *bool) appDeps {
+	deps := mcpTrustDeps(gotExclude, spawned)
+	next := deps.resolveMCPConfig
+	deps.resolveMCPConfig = func(root string, excludeProject bool) (config.MCPConfig, error) {
+		cfg, err := next(root, excludeProject)
+		if err != nil {
+			return cfg, err
+		}
+		for name, server := range cfg.Servers {
+			server.ProjectConfigured = true
+			cfg.Servers[name] = server
+		}
+		return cfg, nil
+	}
+	return deps
+}
+
+type mcpTrustFakeClient struct{}
+
+func (mcpTrustFakeClient) ListTools(context.Context) ([]mcp.RemoteTool, error) {
+	return []mcp.RemoteTool{{Name: "lookup"}}, nil
+}
+
+func (mcpTrustFakeClient) CallTool(context.Context, string, map[string]any) (mcp.CallToolResult, error) {
+	return mcp.CallToolResult{}, nil
+}
+
+func (mcpTrustFakeClient) Close() error { return nil }
+
 func mcpTrustDeps(gotExclude *bool, spawned *bool) appDeps {
 	return appDeps{
 		resolveMCPConfig: func(_ string, excludeProject bool) (config.MCPConfig, error) {
@@ -29,9 +59,16 @@ func mcpTrustDeps(gotExclude *bool, spawned *bool) appDeps {
 			return config.MCPConfig{Servers: servers}, nil
 		},
 		newMCPStore: func() (*mcp.PermissionStore, error) { return nil, nil },
-		registerMCPTools: func(_ context.Context, _ *tools.Registry, _ config.MCPConfig, _ mcp.RegisterOptions) (mcpToolRuntime, error) {
-			*spawned = true
-			return closeFunc(func() error { return nil }), nil
+		// Route through the real RegisterTools with a fake transport: the
+		// factory only fires when a server is actually connected, so `spawned`
+		// still means "a spawn was attempted", while the trust + approval
+		// gates inside RegisterTools run for real. No subprocess ever starts.
+		registerMCPTools: func(_ context.Context, registry *tools.Registry, cfg config.MCPConfig, options mcp.RegisterOptions) (mcpToolRuntime, error) {
+			options.ClientFactory = func(context.Context, mcp.Server) (mcp.ToolClient, error) {
+				*spawned = true
+				return mcpTrustFakeClient{}, nil
+			}
+			return mcp.RegisterTools(context.Background(), registry, cfg, options)
 		},
 	}
 }
@@ -107,33 +144,70 @@ func TestMCPGateEmptyTrustRootFailsClosed(t *testing.T) {
 	}
 }
 
-// TestMCPGateTrustedSpawnsProjectServer proves R3 for MCP: after Trust(repo) the
-// project layer is included (excludeProject=false) and the project server spawns.
+// TestMCPGateTrustedSpawnsProjectServer proves the new rule (trust +
+// one-time project approval): a trusted workspace still does not spawn a
+// project MCP server nobody approved — the server is skipped with the approve
+// command as the reason. After `qg mcp approve`, the same workspace spawns it.
 func TestMCPGateTrustedSpawnsProjectServer(t *testing.T) {
 	setTrustConfigRoot(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := t.TempDir()
 	if err := workspacetrust.Trust(repo); err != nil {
 		t.Fatalf("Trust(repo): %v", err)
 	}
 
 	var gotExclude, spawned bool
-	deps := mcpTrustDeps(&gotExclude, &spawned)
+	deps := mcpTrustDepsProject(&gotExclude, &spawned)
 	registry := tools.NewRegistry()
 
 	runtime, skip, err := registerMCPToolsForWorkspace(context.Background(), repo, registry, deps, mcp.AutonomyLow, repo)
 	if err != nil {
 		t.Fatalf("registerMCPToolsForWorkspace: %v", err)
 	}
-	defer func() { _ = runtime.Close() }()
+	func() { _ = runtime.Close() }()
 
 	if gotExclude {
 		t.Fatalf("trusted workspace must resolve MCP config with excludeProject=false")
 	}
-	if !spawned {
-		t.Fatalf("trusted workspace must spawn the project MCP server")
+	if spawned {
+		t.Fatalf("trusted workspace must not spawn a project server nobody approved")
+	}
+	pending := false
+	for _, skipped := range runtime.Skipped() {
+		var approvalErr *mcp.ApprovalPendingError
+		if skipped.Name == "proj-srv" && errors.As(skipped.Err, &approvalErr) {
+			pending = true
+		}
+	}
+	if !pending {
+		t.Fatalf("unapproved project server must be skipped with the approval reason, got %+v", runtime.Skipped())
 	}
 	if skip.excludedProjectConfig {
 		t.Fatalf("trusted workspace must not report the project MCP layer excluded")
+	}
+
+	// Approve the exact target and register again: now it spawns.
+	store, err := mcp.OpenProjectApprovals()
+	if err != nil {
+		t.Fatalf("OpenProjectApprovals(): %v", err)
+	}
+	servers, err := mcp.NormalizeConfig(config.MCPConfig{Servers: map[string]config.MCPServerConfig{
+		"proj-srv": {Type: "stdio", Command: "proj-cmd", ProjectConfigured: true},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeConfig(): %v", err)
+	}
+	if err := store.Approve(mcp.ProjectApproval{ProjectRoot: repo, ServerName: "proj-srv", Identity: servers[0].Identity}); err != nil {
+		t.Fatalf("Approve(): %v", err)
+	}
+	spawned = false
+	runtime, _, err = registerMCPToolsForWorkspace(context.Background(), repo, tools.NewRegistry(), deps, mcp.AutonomyLow, repo)
+	if err != nil {
+		t.Fatalf("registerMCPToolsForWorkspace: %v", err)
+	}
+	defer func() { _ = runtime.Close() }()
+	if !spawned {
+		t.Fatalf("approved project server in a trusted workspace must spawn")
 	}
 }
 

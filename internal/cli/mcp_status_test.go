@@ -26,7 +26,7 @@ func TestFormatMCPServerListShowsProbeStatus(t *testing.T) {
 		"down": {Err: context.DeadlineExceeded},
 		"off":  {Err: context.DeadlineExceeded},
 	}
-	output := formatMCPServerList(servers, probe, nil, false)
+	output := formatMCPServerList(servers, probe, nil, nil, false)
 	for _, want := range []string{"up", "✔ 2 tools", "down", "✘", "off", "desativado", "não verificado (projeto não confiável)"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("formatMCPServerList() missing %q:\n%s", want, output)
@@ -48,7 +48,7 @@ func TestMCPProbeStatusMapStates(t *testing.T) {
 		"ok":  {ToolCount: 3},
 		"bad": {Err: context.DeadlineExceeded},
 	}
-	status := mcpProbeStatusMap(servers, probe, nil, false)
+	status := mcpProbeStatusMap(servers, probe, nil, nil, false)
 	if status["ok"].State != "ok" || status["ok"].Tools != 3 {
 		t.Fatalf("ok = %+v", status["ok"])
 	}

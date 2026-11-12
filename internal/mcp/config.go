@@ -137,14 +137,16 @@ func normalizeServer(name string, raw config.MCPServerConfig) (Server, error) {
 		if len(server.Env) > 0 {
 			return Server{}, fmt.Errorf("MCP server %s env is only supported for stdio transport", server.Name)
 		}
-		if err := validateHTTPURL(server.Name, server.URL); err != nil {
-			return Server{}, err
+		if !containsEnvRef(server.URL) {
+			if err := validateHTTPURL(server.Name, server.URL); err != nil {
+				return Server{}, err
+			}
 		}
 	default:
 		return Server{}, fmt.Errorf("MCP server %s has unsupported type %q", server.Name, raw.Type)
 	}
 
-	if server.Auth != "" && server.Auth != ServerAuthOAuth {
+	if server.Auth != "" && server.Auth != ServerAuthOAuth && !containsEnvRef(raw.Auth) {
 		return Server{}, fmt.Errorf("MCP server %s has unsupported auth %q", server.Name, raw.Auth)
 	}
 
@@ -208,6 +210,15 @@ func computeServerIdentity(server Server) string {
 	// The first 32 hex characters give a stable 128-bit identity while keeping
 	// permission records compact.
 	return hex.EncodeToString(sum[:])[:32]
+}
+
+// containsEnvRef reports whether a raw config value holds a ${VAR} reference.
+// References expand from the process environment after validation, so fields
+// carrying one skip format validation here: the expanded value is validated
+// by the connection itself, and a bad expansion surfaces as a skipped server
+// with the reason instead of a config error.
+func containsEnvRef(value string) bool {
+	return strings.Contains(value, "${")
 }
 
 func trimStringSlice(values []string) []string {
