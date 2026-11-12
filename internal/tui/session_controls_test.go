@@ -979,6 +979,9 @@ func TestStaleAgentUsageResponseIsIgnored(t *testing.T) {
 }
 
 func TestModelSwitchClearsUnsupportedEffortPreference(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests' Resolve fallback.
+	t.Setenv(config.ActiveProviderEnv, "")
 	nextProvider := &fakeProvider{}
 	m := newModel(context.Background(), Options{
 		ProviderName:    "openai",
