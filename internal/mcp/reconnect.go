@@ -183,6 +183,9 @@ func redialable(ctx context.Context, err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	if errors.Is(err, errMCPStreamClosed) {
+		return true
+	}
 	return isDeadTransportError(err)
 }
 
