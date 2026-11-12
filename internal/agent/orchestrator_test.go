@@ -268,3 +268,35 @@ func TestMatchOrchestratorFoldCaseLookup(t *testing.T) {
 		t.Fatalf("folded lookup must match, got %q %v", got, ok)
 	}
 }
+
+// Windows mode ignores letter case in belonging and lookup; exact mode does
+// not. Ubiquitous variables stay blocked in both modes.
+func TestMatchOrchestratorWindowsMode(t *testing.T) {
+	cases := []struct {
+		skill   SkillInfo
+		env     map[string]string
+		Windows bool
+	}{
+		{SkillInfo{Name: "kestrel-hub", Environments: []string{"KESTREL_HUB_MARK"}}, map[string]string{"kestrel_hub_mark": "v"}, true},
+		{SkillInfo{Name: "plover"}, map[string]string{"Plover_Socket": "v"}, true},
+		{SkillInfo{Name: "lower-hub", Environments: []string{"lower_hub_mark"}}, map[string]string{"LOWER_HUB_MARK": "v"}, true},
+	}
+	for _, tc := range cases {
+		env := canonicalEnvKeys(tc.env, true)
+		if _, ok := matchOrchestrator(tc.skill, tc.skill.Name, env, true); !ok {
+			t.Errorf("windows mode must elect %s, env=%v", tc.skill.Name, tc.env)
+		}
+		env = canonicalEnvKeys(tc.env, false)
+		if _, ok := matchOrchestrator(tc.skill, tc.skill.Name, env, false); ok {
+			t.Errorf("exact mode must not elect %s, env=%v", tc.skill.Name, tc.env)
+		}
+	}
+	ubiq := []SkillInfo{{Name: "home", Environments: []string{"HOME"}}}
+	ubiqEnv := map[string]string{"HOME": "/home/orq"}
+	if _, ok := matchOrchestrator(ubiq[0], "home", canonicalEnvKeys(ubiqEnv, true), true); ok {
+		t.Errorf("ubiquitous declaration must stay blocked in windows mode")
+	}
+	if _, ok := matchOrchestrator(ubiq[0], "home", canonicalEnvKeys(ubiqEnv, false), false); ok {
+		t.Errorf("ubiquitous declaration must stay blocked in exact mode")
+	}
+}
