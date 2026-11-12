@@ -6980,8 +6980,10 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 			receipt := callUsageRow(runID, len(usageEvents)+1, callModelID, event, callCatalog[strings.ToLower(callModelID)])
 			// Cache attribution rides the next usage event after OnContext
-			// arms it. The summarizer's own call never fires OnContext, so
-			// it arrives unarmed and takes nothing.
+			// arms it. A reactive recover may run the summarizer while still
+			// armed; consuming the arm there is harmless: recordUsageEvent
+			// keeps summarizer calls out of the cache stats, and the retry
+			// re-arms before its own usage arrives.
 			if runArmed {
 				if receipt.meta == nil {
 					receipt.meta = map[string]string{}

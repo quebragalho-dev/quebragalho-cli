@@ -114,7 +114,8 @@ func statusPathSegment(shown string, take int) string {
 // then the notice drops. Blocks stay two cells apart, and the join below
 // always has room for its own padding, so the version is never cut. It
 // reports false when no notice fits even without the path: the caller then
-// renders the notice-free footer, which keeps the path.
+// hides the path with the notice, while the right side (context, cache)
+// keeps its normal rules and stays whenever it fits on its own.
 // reserveAvail is the width-independent budget (full right side assumed): all
 // take/form decisions use it so narrowing never resurrects content the full
 // layout already ruled out. Rendering still uses the actual (possibly
