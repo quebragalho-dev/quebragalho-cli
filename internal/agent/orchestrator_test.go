@@ -227,3 +227,14 @@ func TestDetectOrchestratorsIgnoresCommonTerminalPrograms(t *testing.T) {
 		t.Fatalf("uncommon TERM_PROGRAM must still match by name, got %+v", got)
 	}
 }
+
+func TestFoldCaseForOS(t *testing.T) {
+	if !foldCaseForOS("windows") {
+		t.Fatalf("windows must compare variable names case-insensitively")
+	}
+	for _, goos := range []string{"darwin", "linux", "freebsd", "plan9"} {
+		if foldCaseForOS(goos) {
+			t.Fatalf("%s must compare variable names case-sensitively", goos)
+		}
+	}
+}

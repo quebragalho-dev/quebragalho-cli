@@ -73,10 +73,18 @@ func DetectOrchestrators(skills []SkillInfo, env map[string]string) []DetectedOr
 	return out
 }
 
+// foldCaseForOS reports whether environment variable names compare
+// case-insensitively on the given OS (Windows only). A tiny pure function so
+// the mode decision is unit-testable without Windows; callers pass
+// runtime.GOOS.
+func foldCaseForOS(goos string) bool {
+	return goos == "windows"
+}
+
 func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (string, bool) {
 	// Case-insensitivity is decided here, once, from the OS: variable names
 	// are case-insensitive on Windows and case-sensitive elsewhere.
-	foldCase := runtime.GOOS == "windows"
+	foldCase := foldCaseForOS(runtime.GOOS)
 	// A declared `environment:` list replaces the heuristic: a skill that
 	// declares its markers never matches by name pattern. Each declared name
 	// must belong to the skill — end in a session suffix or start with the
