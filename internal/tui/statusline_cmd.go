@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"os"
@@ -329,6 +330,18 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 		}
 		return statuslineCmdMsg{errNote: "statusline: comando estourou o tempo (" + timeoutLabel.String() + ")"}
 	case waitErr != nil:
+		// An orphaned grandchild can hold the pipes open after the shell
+		// itself exited: Wait then only unblocks via WaitDelay. The output
+		// already received is still good, so keep it; best-effort kill the
+		// group so no orphan survives per refresh.
+		if errors.Is(waitErr, exec.ErrWaitDelay) {
+			if cmd.Process != nil {
+				_ = execution.KillProcessGroup(cmd.Process.Pid)
+			}
+			if text != "" {
+				return statuslineCmdMsg{lines: sanitizeStatuslineOutput(text)}
+			}
+		}
 		return statuslineCmdMsg{errNote: "statusline: comando falhou (" + shortCmdError(waitErr) + ")"}
 	default:
 		return statuslineCmdMsg{lines: sanitizeStatuslineOutput(text)}

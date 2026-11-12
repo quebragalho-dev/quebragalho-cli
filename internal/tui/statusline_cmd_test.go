@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -229,6 +231,75 @@ func TestStatuslineCommandKillsTreeOnTimeout(t *testing.T) {
 	}
 }
 
+// When only a grandchild holds stdout open (the shell itself already exited),
+// Wait can only unblock via WaitDelay: the output already received is kept
+// and the process group is killed, so no orphan survives per refresh.
+func TestStatuslineCommandKeepsOutputOnWaitDelay(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "grandchild.pid")
+	restore := stubStatuslineShell(leakPrintHelperCommand(pidFile, "SL-PARTIAL-OK"))
+	defer restore()
+	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 30*time.Second)
+	if msg.errNote != "" {
+		t.Fatalf("errNote = %q, want the kept output instead of a failure", msg.errNote)
+	}
+	if len(msg.lines) != 1 || !strings.Contains(msg.lines[0], "SL-PARTIAL-OK") {
+		t.Fatalf("lines = %#v, want the output received before WaitDelay", msg.lines)
+	}
+	grandchild := statuslineTestWaitPID(t, pidFile)
+	if grandchild == 0 {
+		t.Fatal("grandchild never recorded its pid")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for statuslineTestProcessAlive(grandchild) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if statuslineTestProcessAlive(grandchild) {
+		t.Fatalf("grandchild pid %d still alive: the group kill did not run", grandchild)
+	}
+}
+
+// statuslineTestWaitPID polls a pid file written by a helper grandchild.
+func statuslineTestWaitPID(t *testing.T, path string) int {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if raw, err := os.ReadFile(path); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 1 {
+				return pid
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return 0
+}
+
+// statuslineTestProcessAlive reports whether pid still runs (zombies count
+// as gone: the group kill reaps through init).
+func statuslineTestProcessAlive(pid int) bool {
+	if pid <= 1 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		return false
+	}
+	return !statuslineTestProcessZombie(pid)
+}
+
+// statuslineTestProcessZombie reports a zombie state via ps, mirroring the
+// execution package's reap-aware check without importing test-only helpers.
+func statuslineTestProcessZombie(pid int) bool {
+	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return true
+	}
+	return strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
+}
+
 // Unbounded output is capped in memory: a 200 MiB flood grows the heap by
 // megabytes, not hundreds of megabytes. TotalAlloc is cumulative, so the
 // gap between capped (64 KiB kept) and uncapped is unmistakable.
@@ -275,6 +346,13 @@ func echoHelperCommand(text string) []string { return []string{"echo", text} }
 // the test bound).
 func leakHelperCommand() []string { return []string{"leak", "hold", "30s"} }
 
+// leakPrintHelperCommand orphans a grandchild holding stdout open (recorded
+// in a pid file), then prints text and exits at once: Wait can only unblock
+// via WaitDelay, but the output already received must be kept.
+func leakPrintHelperCommand(pidFile, text string) []string {
+	return []string{"leakprint", pidFile, text}
+}
+
 func spamHelperCommand(bytes int) []string { return []string{"spam", strconv.Itoa(bytes)} }
 
 // TestStatuslineSleepHelper is not a real test: the stubbed shell re-execs
@@ -320,6 +398,33 @@ func TestStatuslineSleepHelper(t *testing.T) {
 			os.Exit(2)
 		}
 		time.Sleep(duration)
+	case "holdpid":
+		if len(args) < 3 {
+			os.Exit(2)
+		}
+		if err := os.WriteFile(args[1], []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+			os.Exit(2)
+		}
+		duration, err := time.ParseDuration(args[2])
+		if err != nil {
+			os.Exit(2)
+		}
+		time.Sleep(duration)
+	case "leakprint":
+		if len(args) < 3 {
+			os.Exit(2)
+		}
+		// Same orphaned-grandchild setup as "leak", but the parent prints
+		// before exiting so there is output to keep.
+		grandchild := exec.Command(os.Args[0],
+			"-test.run=TestStatuslineSleepHelper", "--", "holdpid", args[1], "30s")
+		grandchild.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		grandchild.Stdout = os.Stdout
+		if err := grandchild.Start(); err != nil {
+			os.Exit(2)
+		}
+		os.Stdout.WriteString(args[2] + "\n")
+		os.Exit(0)
 	case "spam":
 		remaining, err := strconv.Atoi(args[1])
 		if err != nil {
