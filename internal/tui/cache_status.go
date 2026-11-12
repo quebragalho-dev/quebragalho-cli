@@ -43,12 +43,14 @@ type cacheStatusData struct {
 	reason   string
 }
 
-// cacheHitBand names the statusline color band for a session hit.
+// cacheHitBand names the statusline color band for a session hit. The band
+// follows the DISPLAYED integer percent (round half up), so a 94.96% session
+// reads "cache 95%" in green, not amber for a fraction nobody sees.
 func cacheHitBand(hit float64) string {
-	switch {
-	case hit >= 0.95:
+	switch pct := int(hit*100 + 0.5); {
+	case pct >= 95:
 		return "green"
-	case hit >= 0.80:
+	case pct >= 80:
 		return "amber"
 	default:
 		return "orange"
@@ -59,6 +61,29 @@ func cacheHitBand(hit float64) string {
 // so the spec's hex rides here; lipgloss degrades it under NO_COLOR/Ascii
 // like every other styled segment.
 var cacheOrange = lipgloss.NewStyle().Foreground(lipgloss.Color("#F29B4B"))
+
+// statusBranchFull renders the branch segment at its full capped width for
+// width-independent layout budgets. The on-screen branch may still truncate
+// when space runs out; the budget always assumes the whole segment.
+func (m model) statusBranchFull() string {
+	if branch := strings.TrimSpace(m.gitBranch); branch != "" {
+		return qgTheme.line.Render(" │ ") + qgTheme.muted.Render(" "+truncateDisplayWidth(branch, 24))
+	}
+	return ""
+}
+
+// statusReserveRight renders the full right side (context plus cache) for
+// width-independent layout budgets.
+func (m model) statusReserveRight(cacheSeg string) string {
+	reserveRight := m.contextStatusFull()
+	if cacheSeg != "" {
+		if reserveRight != "" {
+			reserveRight += qgTheme.line.Render(" │ ")
+		}
+		reserveRight += cacheSeg
+	}
+	return reserveRight
+}
 
 // cacheStatusSegment renders the statusline cache segment: "cache —" before
 // the first priced call, else "cache 97%" in the band color, plus " · <motivo>"

@@ -126,39 +126,70 @@ func (m model) statusReadout(left string, width int) string {
 	// cwd. It drops first when narrow: whenever it shows, the full branch
 	// must fit too (a truncated branch with a live cache would claim room
 	// the cache did not leave), and below the branch gate it never shows.
-	branchFull := ""
-	if branch := strings.TrimSpace(m.gitBranch); branch != "" && width >= 58 {
-		branchFull = qgTheme.line.Render(" │ ") + qgTheme.muted.Render(" "+truncateDisplayWidth(branch, 24))
-	}
+	branchFull := m.statusBranchFull()
+	// Reserve widths are content-only and width-independent, so every budget
+	// below is monotonic in width: narrowing only ever removes content, never
+	// resurrects it. The rendered right side may be shorter (dropped cache,
+	// short context); budgets always assume the full rendering.
+	cacheSeg, _ := cacheStatusSegment(m.cacheStatusData())
+	reserveRight := m.statusReserveRight(cacheSeg)
+	reserveLeft := lipgloss.Width(left) + lipgloss.Width(branchFull)
+	reserveAvail := width - 2 - reserveLeft - lipgloss.Width(reserveRight)
+	// The branch gate still hides the branch below 58 cells; the reserve
+	// keeps counting it so crossing the gate never frees notice/path room.
+	showBranch := branchFull != "" && width >= 58
 	right := context
-	if seg, _ := cacheStatusSegment(m.cacheStatusData()); seg != "" && (branchFull != "" || strings.TrimSpace(m.gitBranch) == "") {
-		joined := seg
-		if right != "" {
-			joined = right + qgTheme.line.Render(" │ ") + seg
+	showCache := false
+	if cacheSeg != "" && width >= 58 {
+		// The cache yields first: it only shows when the full layout fits
+		// alongside it — full branch, full cwd, full context and, when a
+		// notice is pending, the full notice. Whatever shows with the cache
+		// therefore shows whole, and narrowing only ever removes content.
+		need := lipgloss.Width(left) + lipgloss.Width(branchFull) + lipgloss.Width(reserveRight)
+		if path := strings.TrimSpace(m.cwd); path != "" {
+			need += lipgloss.Width(qgTheme.line.Render(" │ ")) + lipgloss.Width(shortenPath(path))
 		}
-		if lipgloss.Width(left)+lipgloss.Width(branchFull)+lipgloss.Width(joined)+9 <= width {
-			right = joined
+		if forms := m.updateNoticeForms(); len(forms) > 0 {
+			need += lipgloss.Width("  ") + lipgloss.Width(forms[0])
+		}
+		if need+9 <= width {
+			right = segJoin(context, cacheSeg)
+			showCache = true
 		}
 	}
 	if lipgloss.Width(left)+lipgloss.Width(right)+9 > width {
 		right = ""
 	}
-	if branch := strings.TrimSpace(m.gitBranch); branch != "" && width >= 58 {
+	if showBranch {
 		budget := width - lipgloss.Width(left) - lipgloss.Width(right) - 12
-		if budget >= 5 {
-			left += qgTheme.line.Render(" │ ") + qgTheme.muted.Render(" "+truncateDisplayWidth(branch, minInt(24, budget-2)))
+		take := minInt(24, budget-2)
+		if showCache {
+			// The fit above already reserved a whole branch: render it whole.
+			take = minInt(24, len([]rune(strings.TrimSpace(m.gitBranch))))
+		}
+		if take >= 5 {
+			left += qgTheme.line.Render(" │ ") + qgTheme.muted.Render(" "+truncateDisplayWidth(strings.TrimSpace(m.gitBranch), take))
 		}
 	}
 	if forms := m.updateNoticeForms(); forms != nil {
-		if line, ok := m.joinStatusWithNotice(left, right, forms, width); ok {
+		if line, ok := m.joinStatusWithNotice(left, right, forms, width, reserveAvail, showCache); ok {
 			return fitStyledLine(line, width)
 		}
 	}
-	left = m.appendStatusWorkspace(left, right, width)
+	left = m.appendStatusWorkspace(left, right, width, reserveAvail)
 	if right == "" {
 		return fitStyledLine(left, width)
 	}
 	return fitStyledLine(joinHeaderLine(left, right, width), width)
+}
+
+// segJoin renders two right-side segments with the status line separator,
+// omitting it when the first side is empty.
+func segJoin(first, second string) string {
+	if first == "" {
+		return second
+	}
+	return first + qgTheme.line.Render(" │ ") + second
 }
 
 func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool, transcriptRow) {

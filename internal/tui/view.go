@@ -247,19 +247,22 @@ func (m model) statusLine(width int) string {
 	return fitStyledLine(left, width)
 }
 
-func (m model) appendStatusWorkspace(left, right string, width int) string {
+func (m model) appendStatusWorkspace(left, right string, width, reserveAvail int) string {
 	cwd := strings.TrimSpace(m.cwd)
 	if cwd == "" {
 		return left
 	}
-	budget := width - lipgloss.Width(left) - 3
+	sepWidth := 0
 	if right != "" {
-		budget -= lipgloss.Width(right) + 2
+		sepWidth = lipgloss.Width(qgTheme.line.Render(" │ "))
 	}
-	if budget < 4 {
+	// The take follows the same width-independent budget as the notice
+	// cascade: narrowing only ever shortens it, never resurrects it.
+	take := minInt(len([]rune(shortenPath(cwd))), reserveAvail-3-sepWidth)
+	if take < 4 {
 		return left
 	}
-	return left + qgTheme.line.Render(" │ ") + qgTheme.faint.Render(truncateDisplayWidth(shortenPath(cwd), budget))
+	return left + qgTheme.line.Render(" │ ") + qgTheme.faint.Render(truncateDisplayWidth(shortenPath(cwd), take))
 }
 
 // nextPermissionMode toggles between the two prompt-respecting modes:

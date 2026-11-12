@@ -115,8 +115,12 @@ func statusPathSegment(shown string, take int) string {
 // always has room for its own padding, so the version is never cut. It
 // reports false when no notice fits even without the path: the caller then
 // renders the notice-free footer, which keeps the path.
-func (m model) joinStatusWithNotice(left, right string, forms []string, width int) (string, bool) {
-	avail := width - 2 - lipgloss.Width(left) - lipgloss.Width(right)
+// reserveAvail is the width-independent budget (full right side assumed): all
+// take/form decisions use it so narrowing never resurrects content the full
+// layout already ruled out. Rendering still uses the actual (possibly
+// dropped) right side.
+func (m model) joinStatusWithNotice(left, right string, forms []string, width, reserveAvail int, forceFull bool) (string, bool) {
+	avail := reserveAvail
 	styledRight := ""
 	sep := ""
 	if right != "" {
@@ -130,6 +134,11 @@ func (m model) joinStatusWithNotice(left, right string, forms []string, width in
 		shown := shortenPath(path)
 		natural := lipgloss.Width(shown)
 		floor := minInt(natural, updateNoticeMinPath)
+		if forceFull {
+			// The cache fit already proved the whole layout fits: render
+			// everything whole instead of re-budgeting it.
+			return joinHeaderLine(left+statusPathSegment(shown, natural), styledRight+sep+forms[0], width), true
+		}
 		// The path yields first while the notice stays whole.
 		if take := minInt(natural, avail-3-sepWidth-lipgloss.Width(forms[0])); take >= floor {
 			return joinHeaderLine(left+statusPathSegment(shown, take), styledRight+sep+forms[0], width), true

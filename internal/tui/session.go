@@ -106,6 +106,8 @@ func (m model) startNewSession() model {
 	}
 	m.cacheDrops = nil
 	m.lastCachePrefix = ""
+	m.lastCacheTools = ""
+	m.lastCacheSystem = ""
 	m.lastCacheAt = time.Time{}
 	m.lastCacheModel = ""
 	m.cacheClearBoundary = true

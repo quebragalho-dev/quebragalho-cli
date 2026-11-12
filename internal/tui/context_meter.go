@@ -128,12 +128,23 @@ func (m model) composerMeterLine(width int) string {
 // fill percent plus used/window, the window alone before the first response,
 // or just the used figure when the window is unknown.
 func (m model) contextStatusText(width int) string {
+	return m.contextStatusTextFull(width < 58)
+}
+
+// contextStatusFull renders the meter without the narrow-width shortening,
+// for width-independent layout budgets: every budget below must be monotonic
+// in width, so it can only use renderings that never change with width.
+func (m model) contextStatusFull() string {
+	return m.contextStatusTextFull(false)
+}
+
+func (m model) contextStatusTextFull(short bool) string {
 	used, ok := m.contextMeterUse()
 	window := m.apiContextWindow()
 	if ok && window > 0 {
 		pct := contextMeterFill(used, window)
 		styled := contextFillLevel(pct).style().Bold(true)
-		if width < 58 {
+		if short {
 			return styled.Render(strconv.Itoa(pct) + "%")
 		}
 		label := strconv.Itoa(pct) + "% · " + formatContextTokens(used) + "/" + formatContextTokens(window)

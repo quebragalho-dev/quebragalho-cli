@@ -28,8 +28,10 @@ func TestCacheStatusSegmentBands(t *testing.T) {
 	}{
 		{0.97, "cache 97%", "green"},
 		{0.95, "cache 95%", "green"},
+		{0.9496, "cache 95%", "green"},
 		{0.94, "cache 94%", "amber"},
 		{0.80, "cache 80%", "amber"},
+		{0.7996, "cache 80%", "amber"},
 		{0.79, "cache 79%", "orange"},
 		{0.00, "cache 0%", "orange"},
 	} {
@@ -212,8 +214,8 @@ func TestCacheSessionLines(t *testing.T) {
 
 func TestCacheSessionLinesDrops(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m = recordCacheTestUsage(m, 1000, 1000, "kimi-k3.1-pro", "h1")
-	m = recordCacheTestUsage(m, 1000, 100, "kimi-k3.1-pro", "h2")
+	m = recordCacheTestUsageParts(m, 1000, 1000, "kimi-k3.1-pro", "h1", "t1", "s1")
+	m = recordCacheTestUsageParts(m, 1000, 100, "kimi-k3.1-pro", "h2", "t1", "s2")
 	joined := strings.Join(m.cacheSessionLines(), "\n")
 	for _, want := range []string{"Quedas nesta sessão", "10%", "prefixo mudou"} {
 		if !strings.Contains(joined, want) {
