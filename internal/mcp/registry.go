@@ -79,17 +79,23 @@ type Runtime struct {
 	liveClients map[string]*mcpServerConn
 	changes     []CatalogChange
 	refreshMu   sync.Mutex
-	once        sync.Once
-	err         error
+	// closed latches at Close: later Reconnect calls fail instead of
+	// redialing, and pending refreshes stay pending.
+	closed bool
+	once   sync.Once
+	err    error
 }
 
-// Skipped returns the servers that were skipped during registration (unreachable
-// or invalid), so the caller can warn the user without failing the launch.
+// Skipped returns the servers that were skipped during registration (unreachable,
+// unapproved, or invalid), so the caller can warn the user without failing the
+// launch. Safe for concurrent use with Reconnect and RefreshPendingTools.
 func (runtime *Runtime) Skipped() []SkippedServer {
 	if runtime == nil {
 		return nil
 	}
-	return runtime.skipped
+	runtime.refreshMu.Lock()
+	defer runtime.refreshMu.Unlock()
+	return append([]SkippedServer{}, runtime.skipped...)
 }
 
 var unsafeToolNameChars = regexp.MustCompile(`[^A-Za-z0-9_]+`)
@@ -334,6 +340,9 @@ func (runtime *Runtime) Close() error {
 		return nil
 	}
 	runtime.once.Do(func() {
+		runtime.refreshMu.Lock()
+		runtime.closed = true
+		runtime.refreshMu.Unlock()
 		for _, client := range runtime.clients {
 			if err := client.Close(); err != nil && runtime.err == nil {
 				runtime.err = err
@@ -383,6 +392,10 @@ func (runtime *Runtime) RefreshPendingTools(ctx context.Context) (bool, error) {
 	}
 	var pending []pendingRelist
 	runtime.refreshMu.Lock()
+	if runtime.closed {
+		runtime.refreshMu.Unlock()
+		return false, nil
+	}
 	for _, server := range runtime.servers {
 		conn, ok := runtime.liveClients[server.Name]
 		if !ok || conn == nil {

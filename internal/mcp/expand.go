@@ -94,24 +94,6 @@ func (server Server) WithExpandedEnv() (Server, []string) {
 	return server, missing
 }
 
-// ExpandMCPConfigEnv expands ${VAR}/${VAR:-default} in every server of cfg
-// from the process environment. It returns the expanded config and, per
-// server, the names that had no value and no default. Callers that connect
-// (probes, checks) skip or report those servers instead of dialing emptied
-// targets.
-func ExpandMCPConfigEnv(cfg config.MCPConfig) (config.MCPConfig, map[string][]string) {
-	expanded := config.MCPConfig{Servers: make(map[string]config.MCPServerConfig, len(cfg.Servers))}
-	missing := make(map[string][]string)
-	for name, raw := range cfg.Servers {
-		server, names, _ := ExpandServerEnv(raw)
-		expanded.Servers[name] = server
-		if len(names) > 0 {
-			missing[name] = names
-		}
-	}
-	return expanded, missing
-}
-
 // MissingEnvError formats the skipped-server reason for a server whose
 // targets referenced undefined environment variables.
 func MissingEnvError(serverName string, names []string) string {

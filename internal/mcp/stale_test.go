@@ -192,3 +192,30 @@ func TestRunDoesNotConsumeStaleSignal(t *testing.T) {
 		t.Fatal("Run() consumed the list_changed signal; refresh belongs between turns")
 	}
 }
+
+func TestReconnectAfterCloseDoesNotDial(t *testing.T) {
+	dialed := false
+	registry := tools.NewRegistry()
+	runtime, err := RegisterTools(context.Background(), registry, config.MCPConfig{Servers: map[string]config.MCPServerConfig{
+		"s": {Type: "http", URL: "http://127.0.0.1:1/mcp"},
+	}}, RegisterOptions{ClientFactory: func(context.Context, Server) (ToolClient, error) {
+		dialed = true
+		return &fakeToolClient{listed: []RemoteTool{{Name: "a"}}}, nil
+	}})
+	if err != nil {
+		t.Fatalf("RegisterTools() error = %v", err)
+	}
+	dialed = false
+	if err := runtime.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if err := runtime.Reconnect(context.Background(), "s"); err == nil {
+		t.Fatal("Reconnect() after Close() = nil, want refusal without dialing")
+	}
+	if dialed {
+		t.Fatal("Reconnect() after Close() dialed")
+	}
+	if changed, err := runtime.RefreshPendingTools(context.Background()); err != nil || changed {
+		t.Fatalf("RefreshPendingTools() after Close() = %v, %v; want no work", changed, err)
+	}
+}

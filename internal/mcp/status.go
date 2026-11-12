@@ -119,6 +119,9 @@ func (runtime *Runtime) Reconnect(ctx context.Context, serverName string) error 
 	}
 	runtime.refreshMu.Lock()
 	defer runtime.refreshMu.Unlock()
+	if runtime.closed {
+		return fmt.Errorf("MCP runtime is closed")
+	}
 	var server *Server
 	for index := range runtime.servers {
 		if runtime.servers[index].Name == serverName {
@@ -131,10 +134,12 @@ func (runtime *Runtime) Reconnect(ctx context.Context, serverName string) error 
 	}
 	fresh, remote, err := connectWithRetry(ctx, runtime.factory, *server, connectTimeout())
 	if err != nil {
+		err = redactError(*server, err)
 		runtime.replaceSkippedLocked(SkippedServer{Name: serverName, Err: err})
 		return err
 	}
 	if err := runtime.adoptRelistLocked(*server, fresh, remote); err != nil {
+		err = redactError(*server, err)
 		runtime.replaceSkippedLocked(SkippedServer{Name: serverName, Err: err})
 		return err
 	}
