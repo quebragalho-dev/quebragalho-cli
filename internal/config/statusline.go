@@ -104,13 +104,14 @@ func (c StatusLineConfig) normalize() StatusLineConfig {
 // sanitizeStatuslineSeparator drops invisible and line-breaking runes (C0
 // controls, DEL, C1, Unicode format characters such as the bidi overrides
 // U+202E and isolates U+2066–U+2069, U+200B, and the U+2028/U+2029 line and
-// paragraph separators) and caps the result at 8 cells of render width, so
-// an untrusted config can neither inject footer lines nor smuggle escape
-// sequences or bidi reordering through the join. Cells follow the render
-// width: a double-width rune counts two.
+// paragraph separators) and caps the result at 8 cells of render width and
+// 16 runes, so an untrusted config can neither inject footer lines nor
+// smuggle escape sequences or bidi reordering through the join. The rune
+// cap bounds zero-width combining marks the cell cap cannot see; cells
+// follow the render width: a double-width rune counts two.
 func sanitizeStatuslineSeparator(sep string) (string, bool) {
 	var b strings.Builder
-	cells := 0
+	cells, runes := 0, 0
 	for _, r := range sep {
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
 			continue
@@ -118,11 +119,12 @@ func sanitizeStatuslineSeparator(sep string) (string, bool) {
 		if unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
 			continue
 		}
-		if w := lipgloss.Width(string(r)); cells+w > 8 {
+		if w := lipgloss.Width(string(r)); cells+w > 8 || runes >= 16 {
 			break
 		} else {
 			cells += w
 		}
+		runes++
 		b.WriteRune(r)
 	}
 	out := b.String()

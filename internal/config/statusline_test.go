@@ -152,7 +152,7 @@ func TestStatusLineSeparatorSanitized(t *testing.T) {
 // U+200B, U+2028/U+2029) never survive the separator, and the 8-cell cap
 // counts render width: four double-width runes fill the budget.
 func TestStatusLineSeparatorStripsInvisibleAndCapsCells(t *testing.T) {
-	cfg := StatusLineConfig{Separator: "a‮b\u200bc\u2028d\u2029e\u2066f"}
+	cfg := StatusLineConfig{Separator: "a\u202eb\u200bc\u2028d\u2029e\u2066f"}
 	adjusted, warnings := cfg.Adjusted()
 	if len(warnings) == 0 {
 		t.Fatal("invisible runes produced no warning")
@@ -160,10 +160,17 @@ func TestStatusLineSeparatorStripsInvisibleAndCapsCells(t *testing.T) {
 	if adjusted.Separator != "abcdef" {
 		t.Fatalf("separator = %q, want the visible runes only", adjusted.Separator)
 	}
-	wide := StatusLineConfig{Separator: strings.Repeat("ｍ", 5)}
+	wide := StatusLineConfig{Separator: strings.Repeat("\uff4d", 5)}
 	adjustedWide, _ := wide.Adjusted()
 	if got := []rune(adjustedWide.Separator); len(got) != 4 {
 		t.Fatalf("wide separator keeps %d runes, want 4 for the 8-cell cap: %q", len(got), adjustedWide.Separator)
+	}
+	// Combining marks are zero-width, so the 8-cell cap cannot see them:
+	// the 16-rune cap bounds them instead.
+	marks := StatusLineConfig{Separator: "ab" + strings.Repeat("\u0301", 20)}
+	adjustedMarks, _ := marks.Adjusted()
+	if got := []rune(adjustedMarks.Separator); len(got) != 16 {
+		t.Fatalf("combining-mark separator keeps %d runes, want the 16-rune cap: %q", len(got), adjustedMarks.Separator)
 	}
 }
 func TestStatusLineResolveClampsRefresh(t *testing.T) {

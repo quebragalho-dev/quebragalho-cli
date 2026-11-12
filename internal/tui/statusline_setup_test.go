@@ -389,6 +389,29 @@ func TestStatuslineFieldsOnlyProposalKeepsCommand(t *testing.T) {
 	}
 }
 
+// A proposal with a literal "command" object is ignored with a warning:
+// the current command is kept and nothing runs without a dry run.
+func TestStatuslineLiteralCommandProposalIgnored(t *testing.T) {
+	current := config.StatusLineConfig{
+		Lines:   []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command: &config.StatusLineCommand{Command: "sh keep.sh"},
+	}
+	proposal := statuslineProposal{
+		Lines:   []config.StatusLineLine{{Left: []string{"mode", "branch"}}},
+		Command: json.RawMessage(`{"command": "sh evil.sh"}`),
+	}
+	cfg, warnings := proposal.validatedConfig(current)
+	if cfg.Command == nil || cfg.Command.Command != "sh keep.sh" {
+		t.Fatalf("literal command replaced the current one: %+v", cfg.Command)
+	}
+	for _, w := range warnings {
+		if strings.Contains(w, "literal") {
+			return
+		}
+	}
+	t.Fatalf("literal command produced no warning: %#v", warnings)
+}
+
 // A proposal with an explicit "command": null drops the command; the preview
 // announces the removal and never shows the stale command output.
 func TestStatuslineRemoveCommandProposal(t *testing.T) {

@@ -381,13 +381,16 @@ func (m model) maybeFinalizeStatuslineSetup(msg tea.Msg) (model, tea.Cmd) {
 	}
 	setup := m.statuslineSetup
 	m.statuslineSetup = nil
-	// The staging dir may have been swapped mid-turn: re-verify its
-	// identity before reading anything through it. A planted link is
-	// removed here (the link itself); nothing outside is touched.
-	if err := verifyStatuslineStaging(setup.stagingDir, setup.stagingInfo); err != nil {
+	// The staging dir may have been swapped mid-turn: open it
+	// handle-anchored and re-verify its identity before reading anything
+	// through it. A planted link is removed here (the link itself);
+	// nothing outside is touched.
+	root, err := openVerifiedStagingRoot(setup.stagingDir, setup.stagingInfo)
+	if err != nil {
 		return m.appendStatuslineNotice("Statusline\n" + err.Error()), nil
 	}
-	proposal, err := readStatuslineProposal(setup.stagingDir, setup.startedAt)
+	defer root.Close()
+	proposal, err := readStatuslineProposal(root, setup.startedAt)
 	if err != nil {
 		discardStatuslineStaging(setup.stagingDir, setup.stagingInfo, "", "")
 		return m.appendStatuslineNotice("Statusline\no modelo não gerou proposta (" + err.Error() + "); staging descartado."), nil
@@ -399,7 +402,7 @@ func (m model) maybeFinalizeStatuslineSetup(msg tea.Msg) (model, tea.Cmd) {
 			discardStatuslineStaging(setup.stagingDir, setup.stagingInfo, "", "")
 			return m.appendStatuslineNotice("Statusline\nscript rejeitado (" + err.Error() + "); staging descartado."), nil
 		}
-		scriptFile, info, err := openStagingFileChecked(scriptPath)
+		scriptFile, info, err := openRootFileChecked(root, filepath.Base(scriptPath))
 		if err != nil {
 			discardStatuslineStaging(setup.stagingDir, setup.stagingInfo, "", "")
 			return m.appendStatuslineNotice("Statusline\nscript rejeitado (" + err.Error() + "); staging descartado."), nil
@@ -445,12 +448,13 @@ func (m model) maybeFinalizeStatuslineSetup(msg tea.Msg) (model, tea.Cmd) {
 	return m, nil
 }
 
-// readStatuslineProposal loads a fresh proposal.json: missing, stale (older
-// than the setup turn), or invalid JSON all report an error. Every touch
-// avoids symlinks: Lstat gates regular files, the open itself uses
-// O_NOFOLLOW, and the modtime comes from the open file.
-func readStatuslineProposal(stagingDir string, since time.Time) (statuslineProposal, error) {
-	file, _, err := openStagingFileChecked(filepath.Join(stagingDir, "proposal.json"))
+// readStatuslineProposal loads a fresh proposal.json through the verified
+// staging root: missing, stale (older than the setup turn), or invalid JSON
+// all report an error. Every touch stays anchored: Lstat gates regular
+// files, the open never leaves the root, and the modtime comes from the
+// open file.
+func readStatuslineProposal(root *os.Root, since time.Time) (statuslineProposal, error) {
+	file, _, err := openRootFileChecked(root, "proposal.json")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return statuslineProposal{}, fmt.Errorf("sem proposal.json no staging")
@@ -480,34 +484,34 @@ func readStatuslineProposal(stagingDir string, since time.Time) (statuslinePropo
 	return proposal, nil
 }
 
-// openStagingFileChecked verifies path is a regular file without following
-// symlinks, then opens it the same way. The Lstat refusal names the problem;
-// O_NOFOLLOW enforces containment against a swap in between. A kernel
-// symlink refusal (ELOOP/EMLINK, see isSymlinkRefusal) maps to the same
-// plain refusal.
-func openStagingFileChecked(path string) (*os.File, os.FileInfo, error) {
-	if info, err := os.Lstat(path); err != nil {
+// openRootFileChecked opens one known staging entry through the verified
+// root: Lstat refuses links and non-regular files, Open stays anchored to
+// the guarded directory, and fstat confirms the opened file is regular.
+// A kernel symlink refusal (see isSymlinkRefusal) maps to the same refusal.
+func openRootFileChecked(root *os.Root, name string) (*os.File, os.FileInfo, error) {
+	if info, err := root.Lstat(name); err != nil {
 		return nil, nil, err
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, statuslineRefusalError(name, true)
 	} else if !info.Mode().IsRegular() {
-		return nil, nil, statuslineNotRegularError(path)
+		return nil, nil, statuslineRefusalError(name, false)
 	}
-	file, err := openStatuslineFileNoFollow(path, false)
+	file, err := root.Open(name)
 	if err != nil {
 		if isSymlinkRefusal(err) {
-			return nil, nil, statuslineNotRegularError(path)
+			return nil, nil, statuslineRefusalError(name, true)
 		}
 		return nil, nil, err
 	}
-	info, err := file.Stat()
-	if err != nil {
+	if info, err := file.Stat(); err != nil {
 		file.Close()
 		return nil, nil, err
-	}
-	if !info.Mode().IsRegular() {
+	} else if !info.Mode().IsRegular() {
 		file.Close()
-		return nil, nil, statuslineNotRegularError(path)
+		return nil, nil, statuslineRefusalError(name, false)
+	} else {
+		return file, info, nil
 	}
-	return file, info, nil
 }
 
 // installStatuslineScript writes body to a fresh regular file and makes it
@@ -525,74 +529,102 @@ func installStatuslineScript(path string, body []byte) error {
 	return out.Chmod(0o700)
 }
 
-// statuslineNotRegularError reports a staging entry that is not a plain file.
-func statuslineNotRegularError(path string) error {
-	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("link simbólico recusado: %s", filepath.Base(path))
+// statuslineRefusalError reports a refused staging entry by name, never by
+// path: "link simbólico recusado: x" for a link, else "não é um arquivo
+// regular".
+func statuslineRefusalError(name string, symlink bool) error {
+	if symlink {
+		return fmt.Errorf("link simbólico recusado: %s", filepath.Base(name))
 	}
-	return fmt.Errorf("%s não é um arquivo regular", filepath.Base(path))
+	return fmt.Errorf("%s não é um arquivo regular", filepath.Base(name))
 }
 
-// verifyStatuslineStaging re-checks that stagingDir is the same real
-// directory guarded at turn start: a symlink, a non-directory, or a
-// different directory all refuse. A planted link is removed (the link
-// itself, never its target); anything else is left for the user to inspect.
-func verifyStatuslineStaging(stagingDir string, guard os.FileInfo) error {
-	info, err := os.Lstat(stagingDir)
-	if err != nil {
-		return fmt.Errorf("staging ilegível: %v", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
+// openVerifiedStagingRoot opens the staging dir handle-anchored and
+// confirms it is the same real directory guarded at turn start: a symlink,
+// a non-directory, or a different directory all refuse. A planted link is
+// removed (the link itself, never its target); anything else is left for
+// the user to inspect. Every later read and removal goes through the
+// returned root, never through a re-resolved path.
+func openVerifiedStagingRoot(stagingDir string, guard os.FileInfo) (*os.Root, error) {
+	if info, err := os.Lstat(stagingDir); err != nil {
+		return nil, fmt.Errorf("staging ilegível: %v", err)
+	} else if info.Mode()&os.ModeSymlink != 0 {
 		os.Remove(stagingDir)
-		return fmt.Errorf("staging trocado por link: link removido, proposta recusada")
+		return nil, fmt.Errorf("staging trocado por link: link removido, proposta recusada")
+	} else if !info.IsDir() {
+		return nil, fmt.Errorf("staging inválido: não é um diretório")
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("staging inválido: não é um diretório")
+	root, err := os.OpenRoot(stagingDir)
+	if err != nil {
+		return nil, fmt.Errorf("staging ilegível: %v", err)
 	}
-	if guard != nil && !os.SameFile(guard, info) {
-		return fmt.Errorf("staging trocado no meio do turno: proposta recusada")
+	dot, err := root.Stat(".")
+	if err != nil {
+		root.Close()
+		return nil, fmt.Errorf("staging ilegível: %v", err)
 	}
-	return nil
+	if guard != nil && !os.SameFile(guard, dot) {
+		root.Close()
+		return nil, fmt.Errorf("staging trocado no meio do turno: proposta recusada")
+	}
+	return root, nil
 }
 
-// removeStatuslineStagingFile removes one known staging entry only when it
-// is a plain file: a link (or anything else) is never followed or removed,
-// so discarding through a swapped tree cannot touch outside files.
-func removeStatuslineStagingFile(stagingDir, name string) {
+// removeRootStagingFile removes one known staging entry through the
+// verified root, only when it is a plain file: a link (or anything else)
+// is never followed, and the anchored remove can never escape the dir.
+func removeRootStagingFile(root *os.Root, name string) {
 	if strings.ContainsAny(name, `/\`) || name == "" || name == "." || name == ".." {
 		return
 	}
-	path := filepath.Join(stagingDir, name)
-	info, err := os.Lstat(path)
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+	if info, err := root.Lstat(name); err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return
 	}
-	os.Remove(path)
+	root.Remove(name)
 }
 
 // discardStatuslineStaging removes this setup's staging files: the proposal
-// plus the staged script when named, plus the private dry-run copy. Only
-// regular files inside the verified directory — never a sweep, never
-// through a link.
+// plus the staged script when named, plus the private dry-run copy. The
+// copy lives outside staging and goes first, without depending on the
+// staging state; staging files go through a freshly verified root — never
+// a sweep, never through a link.
 func discardStatuslineStaging(stagingDir string, guard os.FileInfo, scriptStaged, scriptCopy string) {
-	if err := verifyStatuslineStaging(stagingDir, guard); err != nil {
+	removeStatuslineDryRunCopy(scriptCopy)
+	root, err := openVerifiedStagingRoot(stagingDir, guard)
+	if err != nil {
 		return
 	}
-	removeStatuslineStagingFile(stagingDir, "proposal.json")
+	defer root.Close()
+	removeRootStagingFile(root, "proposal.json")
 	if scriptStaged != "" {
 		if clean, err := confinedStagingPath(stagingDir, filepath.Base(scriptStaged)); err == nil && clean == scriptStaged {
-			removeStatuslineStagingFile(stagingDir, filepath.Base(scriptStaged))
-		}
-	}
-	if scriptCopy != "" && strings.HasPrefix(filepath.Base(scriptCopy), "dryrun-") {
-		if info, err := os.Lstat(scriptCopy); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
-			os.Remove(scriptCopy)
+			removeRootStagingFile(root, filepath.Base(scriptStaged))
 		}
 	}
 }
 
+// statuslineDryRunDirName is the reserved subdir of the scripts dir holding
+// private dry-run copies. Only this dir is ever swept for stale copies, so
+// an installed script can never share the swept name space.
+const statuslineDryRunDirName = ".dryrun"
+
+// removeStatuslineDryRunCopy removes a private dry-run copy by its exact
+// reserved path: inside statusline/.dryrun, dryrun-* name. Anything else is
+// left alone. The reserved dir itself is dropped while empty, so no trace
+// of the copy survives the turn.
+func removeStatuslineDryRunCopy(scriptCopy string) {
+	if scriptCopy == "" || filepath.Base(filepath.Dir(scriptCopy)) != statuslineDryRunDirName ||
+		!strings.HasPrefix(filepath.Base(scriptCopy), "dryrun-") {
+		return
+	}
+	if info, err := os.Lstat(scriptCopy); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+		os.Remove(scriptCopy)
+	}
+	os.Remove(filepath.Dir(scriptCopy))
+}
+
 // writeStatuslineDryRunCopy stages the verified script bytes as a private
-// executable outside the (swappable) staging tree: <scriptsDir>/dryrun-*,
+// executable outside the (swappable) staging tree: statusline/.dryrun/,
 // dir 0700, file chmodded through its own descriptor. The dry run executes
 // this copy, and apply installs the same bytes from memory.
 func writeStatuslineDryRunCopy(userConfigPath string, body []byte) (string, error) {
@@ -600,19 +632,24 @@ func writeStatuslineDryRunCopy(userConfigPath string, body []byte) (string, erro
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(finalDir, 0o700); err != nil {
+	dryDir := filepath.Join(finalDir, statuslineDryRunDirName)
+	if err := os.MkdirAll(dryDir, 0o700); err != nil {
 		return "", fmt.Errorf("não foi possível preparar a pasta de scripts: %v", err)
 	}
-	// Crash leftovers from an interrupted dry run are ours by name; drop
-	// them before minting a fresh copy.
-	if stale, _ := filepath.Glob(filepath.Join(finalDir, "dryrun-*.sh")); stale != nil {
-		for _, old := range stale {
-			if info, err := os.Lstat(old); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
-				os.Remove(old)
+	// Crash leftovers from an interrupted dry run live only in the
+	// reserved dir; drop them before minting a fresh copy.
+	if entries, _ := os.ReadDir(dryDir); entries != nil {
+		for _, entry := range entries {
+			name := entry.Name()
+			if !strings.HasPrefix(name, "dryrun-") {
+				continue
+			}
+			if info, err := entry.Info(); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+				os.Remove(filepath.Join(dryDir, name))
 			}
 		}
 	}
-	copy, err := os.CreateTemp(finalDir, "dryrun-*.sh")
+	copy, err := os.CreateTemp(dryDir, "dryrun-*.sh")
 	if err != nil {
 		return "", fmt.Errorf("não foi possível preparar o script: %v", err)
 	}

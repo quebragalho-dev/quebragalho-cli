@@ -151,8 +151,8 @@ func (m model) statuslineSegment(id string, width int) string {
 		}
 		return ""
 	case "cache":
-		// The session prompt-cache hit rate, reusing item 2's segment:
-		// "cache —" before the first call, "cache 75%" after.
+		// The session prompt-cache hit rate, reusing the default statusline
+		// cache segment: "cache —" before the first call, "cache 75%" after.
 		seg, _ := cacheStatusSegment(m.cacheStatusData())
 		return seg
 	case "model":
