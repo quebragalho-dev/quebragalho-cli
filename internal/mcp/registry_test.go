@@ -317,11 +317,10 @@ func TestRegisterToolsSkipsServerThatExceedsConnectTimeout(t *testing.T) {
 }
 
 func TestRegistryToolIsDeferredEligible(t *testing.T) {
-	client := &fakeToolClient{}
 	tool := newRegistryTool(
 		Server{Name: "docs", Type: "stdio"},
 		RemoteTool{Name: "lookup", Description: "Lookup documentation"},
-		client,
+		newMCPServerConn(Server{Name: "docs"}, &fakeToolClient{}),
 		RegisterOptions{},
 	)
 
@@ -346,7 +345,7 @@ func TestRegistryToolCanAdvertiseInAutoWithoutPreapproval(t *testing.T) {
 	tool := newRegistryTool(
 		Server{Name: "docs", Type: "stdio"},
 		RemoteTool{Name: "search"},
-		&fakeToolClient{},
+		newMCPServerConn(Server{Name: "docs"}, &fakeToolClient{}),
 		RegisterOptions{Autonomy: AutonomyLow, AdvertiseInAuto: true},
 	)
 	safety := tool.Safety()
@@ -359,13 +358,12 @@ func TestRegistryToolCanAdvertiseInAutoWithoutPreapproval(t *testing.T) {
 // configured server name (not the sanitized tool-name token) so the deferred-tools
 // discovery label names a multi-token server correctly via tools.DeferredSource.
 func TestRegistryToolReportsMCPServerName(t *testing.T) {
-	client := &fakeToolClient{}
 	// A server name that sanitizes to a token containing an underscore ("git_hub"):
 	// the name-only parser would truncate the label to "git".
 	tool := newRegistryTool(
 		Server{Name: "git hub", Type: "stdio"},
 		RemoteTool{Name: "create_issue", Description: "Create a GitHub issue."},
-		client,
+		newMCPServerConn(Server{Name: "git hub"}, &fakeToolClient{}),
 		RegisterOptions{},
 	)
 

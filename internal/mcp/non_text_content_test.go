@@ -18,9 +18,9 @@ import (
 // drives registryTool.Run rather than the helper alone.
 func TestAnImageOnlyResultSaysWhatItReturned(t *testing.T) {
 	tool := registryTool{
-		client: &nonTextClient{content: []Content{
+		conn: newMCPServerConn(Server{}, &nonTextClient{content: []Content{
 			{Type: "image", MimeType: "image/png"},
-		}},
+		}}),
 		server: Server{Name: "shots"},
 		remote: RemoteTool{Name: "screenshot"},
 	}
@@ -54,10 +54,10 @@ func TestAnImageOnlyResultSaysWhatItReturned(t *testing.T) {
 // the text arrives and the image vanishes with no mention at all.
 func TestTextAlongsideAnImageStillReportsTheImage(t *testing.T) {
 	tool := registryTool{
-		client: &nonTextClient{content: []Content{
+		conn: newMCPServerConn(Server{}, &nonTextClient{content: []Content{
 			{Type: "text", Text: "captured the page"},
 			{Type: "image", MimeType: "image/png"},
-		}},
+		}}),
 		server: Server{Name: "shots"},
 		remote: RemoteTool{Name: "screenshot"},
 	}
@@ -76,7 +76,7 @@ func TestTextAlongsideAnImageStillReportsTheImage(t *testing.T) {
 // a line only when something was actually dropped.
 func TestATextOnlyResultIsUnchanged(t *testing.T) {
 	tool := registryTool{
-		client: &nonTextClient{content: []Content{{Type: "text", Text: "plain answer"}}},
+		conn:   newMCPServerConn(Server{}, &nonTextClient{content: []Content{{Type: "text", Text: "plain answer"}}}),
 		server: Server{Name: "shots"},
 		remote: RemoteTool{Name: "lookup"},
 	}

@@ -31,8 +31,8 @@ func (client *rpcErrorFakeClient) Close() error { return nil }
 // backoff that pin the turn for half a minute.
 func TestRPCErrorNeverReconnects(t *testing.T) {
 	dead := &rpcErrorFakeClient{}
-	tool := newRegistryTool(Server{Name: "s", Type: ServerTypeStdio}, RemoteTool{Name: "lookup"}, dead, RegisterOptions{})
-	tool.reconnect = func(context.Context) (ToolClient, error) {
+	tool := newRegistryTool(Server{Name: "s", Type: ServerTypeStdio}, RemoteTool{Name: "lookup"}, newMCPServerConn(Server{Name: "s"}, dead), RegisterOptions{})
+	tool.conn.reconnect = func(context.Context) (ToolClient, error) {
 		dead.redials++
 		return dead, nil
 	}

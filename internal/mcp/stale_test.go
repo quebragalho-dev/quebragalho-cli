@@ -170,23 +170,25 @@ func TestRefreshIfStaleUpdatesCatalogBetweenTurns(t *testing.T) {
 	}
 }
 
-// The refresh runs from the tool Run preamble, so the current turn keeps its
-// already-computed partition and only the next turn sees the new catalog.
-func TestRunInvokesRefreshCheck(t *testing.T) {
-	checked := make(chan struct{}, 1)
+// P1-4: a Run never refreshes. A pending list_changed notification stays
+// pending across tool calls; only the turn driver (RefreshPendingTools)
+// applies it between turns.
+func TestRunDoesNotConsumeStaleSignal(t *testing.T) {
+	fake := &evolvingFakeClient{
+		listed: []RemoteTool{{Name: "echo"}},
+		stale:  make(chan struct{}, 1),
+	}
 	tool := newRegistryTool(
 		Server{Name: "s", Type: ServerTypeHTTP},
 		RemoteTool{Name: "echo"},
-		&fakeToolClient{listed: []RemoteTool{{Name: "echo"}}},
+		newMCPServerConn(Server{Name: "s"}, fake),
 		RegisterOptions{},
 	)
-	tool.refreshCheck = func(context.Context) {
-		checked <- struct{}{}
-	}
+	fake.stale <- struct{}{}
 	tool.Run(context.Background(), map[string]any{"query": "hi"})
 	select {
-	case <-checked:
+	case <-fake.stale:
 	default:
-		t.Fatal("Run() did not invoke the refresh check")
+		t.Fatal("Run() consumed the list_changed signal; refresh belongs between turns")
 	}
 }

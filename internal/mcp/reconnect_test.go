@@ -121,8 +121,8 @@ func TestStdioRedialOnTransportFailure(t *testing.T) {
 	server := Server{Name: "local", Type: ServerTypeStdio, Command: "mini"}
 	dead := &deadThenAliveClient{}
 	redialed := false
-	tool := newRegistryTool(server, RemoteTool{Name: "echo"}, dead, RegisterOptions{})
-	tool.reconnect = func(context.Context) (ToolClient, error) {
+	tool := newRegistryTool(server, RemoteTool{Name: "echo"}, newMCPServerConn(server, dead), RegisterOptions{})
+	tool.conn.reconnect = func(context.Context) (ToolClient, error) {
 		redialed = true
 		return dead, nil
 	}

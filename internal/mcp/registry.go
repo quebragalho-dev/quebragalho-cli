@@ -65,14 +65,18 @@ type Runtime struct {
 	// Refresh state for tools/list_changed: the registry and factory needed to
 	// re-list a stale server, the tool names each server currently owns, the
 	// live client per server, and the ledger of applied catalog changes.
-	registry    *tools.Registry
-	options     RegisterOptions
-	servers     []Server
-	factory     func(context.Context, Server) (ToolClient, error)
+	registry *tools.Registry
+	options  RegisterOptions
+	servers  []Server
+	factory  func(context.Context, Server) (ToolClient, error)
+	// lifeCtx outlives turns: reconnects spawn subprocesses bound to it so a
+	// revived stdio server survives the turn that revived it. Cancelled at
+	// Close, after the clients are closed.
+	lifeCtx     context.Context
+	lifeCancel  context.CancelFunc
 	disabled    map[string]bool
 	serverTools map[string][]string
-	serverIDs   map[string][]*registryTool
-	liveClients map[string]ToolClient
+	liveClients map[string]*mcpServerConn
 	changes     []CatalogChange
 	refreshMu   sync.Mutex
 	once        sync.Once
@@ -103,10 +107,12 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 		options:     options,
 		factory:     nil,
 		serverTools: make(map[string][]string),
-		serverIDs:   make(map[string][]*registryTool),
-		liveClients: make(map[string]ToolClient),
+		liveClients: make(map[string]*mcpServerConn),
 		disabled:    make(map[string]bool),
 	}
+	lifeCtx, lifeCancel := context.WithCancel(ctx)
+	runtime.lifeCtx = lifeCtx
+	runtime.lifeCancel = lifeCancel
 	for name, raw := range cfg.Servers {
 		if raw.Disabled {
 			runtime.disabled[name] = true
@@ -216,7 +222,11 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 			runtime.skipped = append(runtime.skipped, SkippedServer{Name: server.Name, Err: res.err, UnconfiguredDefault: server.UnconfiguredDefault})
 			continue
 		}
-		serverTools, validateErr := buildServerTools(registry, server, res.remote, res.client, options, factory, stagedNames, nil)
+		conn := newMCPServerConn(server, res.client)
+		conn.reconnect = func(context.Context) (ToolClient, error) {
+			return factory(runtime.lifeCtx, server)
+		}
+		serverTools, validateErr := buildServerTools(registry, server, res.remote, conn, options, stagedNames, nil)
 		if validateErr != nil {
 			if res.cancel != nil {
 				res.cancel()
@@ -225,16 +235,14 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 			runtime.skipped = append(runtime.skipped, SkippedServer{Name: server.Name, Err: validateErr, UnconfiguredDefault: server.UnconfiguredDefault})
 			continue
 		}
-		runtime.clients = append(runtime.clients, res.client)
+		runtime.clients = append(runtime.clients, conn)
 		if res.cancel != nil {
 			runtime.cancels = append(runtime.cancels, res.cancel)
 		}
-		runtime.liveClients[server.Name] = res.client
+		runtime.liveClients[server.Name] = conn
 		for _, tool := range serverTools {
-			tool.refreshCheck = runtime.refreshIfStale
 			stagedNames[tool.Name()] = struct{}{}
 			staged = append(staged, tool)
-			runtime.serverIDs[server.Name] = append(runtime.serverIDs[server.Name], tool)
 			runtime.serverTools[server.Name] = append(runtime.serverTools[server.Name], tool.Name())
 		}
 	}
@@ -269,7 +277,7 @@ func connectAndList(ctx context.Context, factory func(context.Context, Server) (
 // Names in keep (a refresh replacing this server's own tools) do not conflict
 // with the registry copies they are about to overwrite.
 // On error the caller closes the client (it owns the result), so this never does.
-func buildServerTools(registry *tools.Registry, server Server, remoteTools []RemoteTool, client ToolClient, options RegisterOptions, factory func(context.Context, Server) (ToolClient, error), stagedNames map[string]struct{}, keep map[string]bool) ([]*registryTool, error) {
+func buildServerTools(registry *tools.Registry, server Server, remoteTools []RemoteTool, conn *mcpServerConn, options RegisterOptions, stagedNames map[string]struct{}, keep map[string]bool) ([]*registryTool, error) {
 	serverTools := make([]*registryTool, 0, len(remoteTools))
 	localNames := make(map[string]struct{})
 	filtered := false
@@ -281,12 +289,7 @@ func buildServerTools(registry *tools.Registry, server Server, remoteTools []Rem
 			filtered = true
 			continue
 		}
-		built := newRegistryTool(server, remote, client, options)
-		if factory != nil {
-			built.reconnect = func(ctx context.Context) (ToolClient, error) {
-				return factory(ctx, server)
-			}
-		}
+		built := newRegistryTool(server, remote, conn, options)
 		tool := &built
 		if existing, ok := registry.Get(tool.Name()); ok && !keep[tool.Name()] {
 			return nil, fmt.Errorf("MCP tool %s from %s conflicts with existing tool %s", remote.Name, server.Name, existing.Name())
@@ -342,6 +345,11 @@ func (runtime *Runtime) Close() error {
 		for _, cancel := range runtime.cancels {
 			cancel()
 		}
+		// Release the runtime lifetime last: any reconnect spawned from it is
+		// already closed above, so this only frees the context itself.
+		if runtime.lifeCancel != nil {
+			runtime.lifeCancel()
+		}
 	})
 	return runtime.err
 }
@@ -358,104 +366,89 @@ func (runtime *Runtime) CatalogChanges() []CatalogChange {
 }
 
 // RefreshPendingTools re-lists every server whose client observed a
-// tools/list_changed notification and applies the new catalog. It runs between
-// turns — from the tool Run preamble, during turn dispatch after the current
-// turn's partition was computed — so the catalog only ever changes between
-// turns, never mid-request. It reports whether anything changed. A failed
-// re-list re-arms the signal instead of mutating anything.
+// tools/list_changed notification and applies the new catalog. It is called
+// by the turn driver BETWEEN turns — never from a tool Run — so the catalog
+// only ever changes between turns, never mid-request. It reports whether
+// anything changed. Listing happens without holding the catalog lock, bounded
+// per server by the connect timeout, so one hung server cannot freeze the
+// others; only the catalog swap takes the lock. A failed re-list re-arms the
+// signal instead of mutating anything.
 func (runtime *Runtime) RefreshPendingTools(ctx context.Context) (bool, error) {
 	if runtime == nil || runtime.registry == nil {
 		return false, nil
 	}
+	type pendingRelist struct {
+		server Server
+		conn   *mcpServerConn
+	}
+	var pending []pendingRelist
 	runtime.refreshMu.Lock()
-	defer runtime.refreshMu.Unlock()
-	changed := false
 	for _, server := range runtime.servers {
-		client, ok := runtime.liveClients[server.Name]
-		if !ok {
-			continue
-		}
-		notifier, ok := client.(staleNotifier)
-		if !ok {
+		conn, ok := runtime.liveClients[server.Name]
+		if !ok || conn == nil {
 			continue
 		}
 		select {
-		case <-notifier.ToolsStale():
+		case <-conn.ToolsStale():
+			pending = append(pending, pendingRelist{server: server, conn: conn})
 		default:
-			continue
 		}
-		updated, err := runtime.relistServerLocked(ctx, server, notifier)
+	}
+	runtime.refreshMu.Unlock()
+	changed := false
+	for _, item := range pending {
+		updated, err := runtime.relistServer(ctx, item.server, item.conn)
 		if err != nil {
-			notifier.markToolsStale()
+			item.conn.markToolsStale()
 			continue
 		}
 		changed = changed || updated
 	}
-	return changed, ctx.Err()
+	return changed, nil
 }
 
-// refreshIfStale is the Run-preamble hook: apply pending list_changed
-// refreshes so the next turn sees the new catalog.
-func (runtime *Runtime) refreshIfStale(ctx context.Context) {
-	_, _ = runtime.RefreshPendingTools(ctx)
-}
-
-// relistServerLocked re-lists one server against its live client, reconnecting
-// once when the client is dead, and applies the new catalog. It reports
-// whether the catalog changed. Callers hold refreshMu.
-func (runtime *Runtime) relistServerLocked(ctx context.Context, server Server, notifier staleNotifier) (bool, error) {
-	return runtime.applyRelistLocked(ctx, server, nil, notifier)
-}
-
-// adoptRelistLocked swaps in a freshly connected client and applies its tool
-// list. Callers hold refreshMu.
-func (runtime *Runtime) adoptRelistLocked(ctx context.Context, server Server, fresh ToolClient, remote []RemoteTool) error {
-	client, ok := runtime.liveClients[server.Name]
-	if ok && client != nil {
-		_ = client.Close()
+// relistServer re-lists one server against its shared connection, reconnecting
+// once when the client is dead, and applies the new catalog under the lock.
+// I/O runs without holding refreshMu; only the catalog swap takes it.
+func (runtime *Runtime) relistServer(ctx context.Context, server Server, conn *mcpServerConn) (bool, error) {
+	listCtx, cancel := context.WithTimeout(ctx, connectTimeout())
+	remote, err := conn.ListTools(listCtx)
+	cancel()
+	if err != nil {
+		fresh, freshErr := runtime.factory(runtime.lifeCtx, server)
+		if freshErr != nil {
+			return false, freshErr
+		}
+		conn.swap(fresh)
+		listCtx, cancel = context.WithTimeout(ctx, connectTimeout())
+		remote, err = conn.ListTools(listCtx)
+		cancel()
+		if err != nil {
+			return false, err
+		}
 	}
-	client = fresh
-	runtime.liveClients[server.Name] = fresh
-	runtime.clients = append(runtime.clients, fresh)
-	notifier, _ := fresh.(staleNotifier)
-	_, err := runtime.applyRelistLocked(ctx, server, remote, notifier)
+	runtime.refreshMu.Lock()
+	defer runtime.refreshMu.Unlock()
+	return runtime.applyRelistLocked(server, remote, conn)
+}
+
+// adoptRelistLocked swaps in a freshly connected client (Reconnect) and
+// applies its tool list. Callers hold refreshMu.
+func (runtime *Runtime) adoptRelistLocked(server Server, fresh ToolClient, remote []RemoteTool) error {
+	conn, ok := runtime.liveClients[server.Name]
+	if !ok || conn == nil {
+		return fmt.Errorf("MCP server %s has no live connection", server.Name)
+	}
+	conn.swap(fresh)
+	_, err := runtime.applyRelistLocked(server, remote, conn)
 	return err
 }
 
 // applyRelistLocked applies a tool list to the registry: new tools register,
-// vanished tools unregister, conflicts keep the old catalog. A nil remote
-// re-lists from the live client first. It returns whether the catalog changed.
-// Callers hold refreshMu.
-func (runtime *Runtime) applyRelistLocked(ctx context.Context, server Server, remote []RemoteTool, notifier staleNotifier) (bool, error) {
-	if remote == nil {
-		client, ok := runtime.liveClients[server.Name]
-		if !ok {
-			return false, fmt.Errorf("MCP server %s has no live client", server.Name)
-		}
-		listCtx, cancel := context.WithTimeout(ctx, connectTimeout())
-		listed, err := client.ListTools(listCtx)
-		cancel()
-		if err != nil && runtime.factory != nil {
-			fresh, _, freshErr := connectWithRetry(ctx, runtime.factory, server, connectTimeout())
-			if freshErr != nil {
-				return false, freshErr
-			}
-			_ = client.Close()
-			client = fresh
-			runtime.liveClients[server.Name] = fresh
-			runtime.clients = append(runtime.clients, fresh)
-			if freshNotifier, ok := fresh.(staleNotifier); ok {
-				notifier = freshNotifier
-			}
-			listCtx, cancel = context.WithTimeout(ctx, connectTimeout())
-			listed, err = client.ListTools(listCtx)
-			cancel()
-		}
-		if err != nil {
-			return false, err
-		}
-		remote = listed
-	}
+// vanished tools unregister, conflicts keep the old catalog. It returns
+// whether the catalog changed. Callers hold refreshMu; callers perform all
+// I/O before taking it.
+func (runtime *Runtime) applyRelistLocked(server Server, remote []RemoteTool, conn *mcpServerConn) (bool, error) {
 	keep := make(map[string]bool, len(runtime.serverTools[server.Name]))
 	for _, name := range runtime.serverTools[server.Name] {
 		keep[name] = true
@@ -466,8 +459,7 @@ func (runtime *Runtime) applyRelistLocked(ctx context.Context, server Server, re
 			current[tool.Name()] = struct{}{}
 		}
 	}
-	client := runtime.liveClients[server.Name]
-	rebuilt, err := buildServerTools(runtime.registry, server, remote, client, runtime.options, runtime.factory, current, keep)
+	rebuilt, err := buildServerTools(runtime.registry, server, remote, conn, runtime.options, current, keep)
 	if err != nil {
 		return false, err
 	}
@@ -477,7 +469,6 @@ func (runtime *Runtime) applyRelistLocked(ctx context.Context, server Server, re
 	}
 	next := make([]string, 0, len(rebuilt))
 	for _, tool := range rebuilt {
-		tool.refreshCheck = runtime.refreshIfStale
 		next = append(next, tool.Name())
 		delete(old, tool.Name())
 	}
@@ -496,7 +487,6 @@ func (runtime *Runtime) applyRelistLocked(ctx context.Context, server Server, re
 	}
 	runtime.registry.RegisterBatch(registered)
 	runtime.serverTools[server.Name] = next
-	runtime.serverIDs[server.Name] = rebuilt
 	changed := len(added) > 0 || len(removed) > 0
 	if changed {
 		runtime.changes = append(runtime.changes, CatalogChange{
@@ -511,21 +501,97 @@ func (runtime *Runtime) applyRelistLocked(ctx context.Context, server Server, re
 }
 
 type registryTool struct {
-	name      string
-	server    Server
-	remote    RemoteTool
-	client    ToolClient
-	clientMu  *sync.Mutex
-	reconnect func(context.Context) (ToolClient, error)
-	// refreshCheck re-lists stale servers. It runs at the start of every Run —
-	// during turn dispatch, after the current turn's partition was computed —
-	// so any catalog change lands in the NEXT turn, never mid-request.
-	refreshCheck func(context.Context)
-	parameters   tools.Schema
-	safety       tools.Safety
+	name       string
+	server     Server
+	remote     RemoteTool
+	conn       *mcpServerConn
+	parameters tools.Schema
+	safety     tools.Safety
 }
 
-func newRegistryTool(server Server, remote RemoteTool, client ToolClient, options RegisterOptions) registryTool {
+// mcpServerConn is the single live connection of one MCP server, shared by
+// all its tools. A reconnect swaps the client once and every tool — and the
+// runtime bookkeeping — observes the same transport. It implements ToolClient
+// by delegating to the current client, so registries and runtimes hold the
+// holder, never a bare client that a redial could leave behind.
+type mcpServerConn struct {
+	mu        sync.Mutex
+	server    Server
+	client    ToolClient
+	reconnect func(context.Context) (ToolClient, error)
+}
+
+func newMCPServerConn(server Server, client ToolClient) *mcpServerConn {
+	return &mcpServerConn{server: server, client: client}
+}
+
+// call runs one tool call against the current client.
+func (conn *mcpServerConn) call(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+	conn.mu.Lock()
+	client := conn.client
+	conn.mu.Unlock()
+	if client == nil {
+		return CallToolResult{}, fmt.Errorf("MCP server %s has no live connection", conn.server.Name)
+	}
+	return client.CallTool(ctx, name, args)
+}
+
+// swap replaces the transport, closing the dead one. The holder keeps its
+// identity, so every tool and the runtime bookkeeping observe the revived
+// client without further updates.
+func (conn *mcpServerConn) swap(client ToolClient) {
+	conn.mu.Lock()
+	old := conn.client
+	conn.client = client
+	conn.mu.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+}
+
+func (conn *mcpServerConn) current() ToolClient {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	return conn.client
+}
+
+func (conn *mcpServerConn) ListTools(ctx context.Context) ([]RemoteTool, error) {
+	client := conn.current()
+	if client == nil {
+		return nil, fmt.Errorf("MCP server %s has no live connection", conn.server.Name)
+	}
+	return client.ListTools(ctx)
+}
+
+func (conn *mcpServerConn) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+	return conn.call(ctx, name, args)
+}
+
+func (conn *mcpServerConn) Close() error {
+	client := conn.current()
+	if client == nil {
+		return nil
+	}
+	return client.Close()
+}
+
+// ToolsStale returns the current client's list-changed signal.
+func (conn *mcpServerConn) ToolsStale() <-chan struct{} {
+	client := conn.current()
+	if notifier, ok := client.(staleNotifier); ok {
+		return notifier.ToolsStale()
+	}
+	return nil
+}
+
+func (conn *mcpServerConn) markToolsStale() {
+	client := conn.current()
+	if notifier, ok := client.(staleNotifier); ok {
+		notifier.markToolsStale()
+	}
+}
+
+func newRegistryTool(server Server, remote RemoteTool, conn *mcpServerConn, options RegisterOptions) registryTool {
 	remote.Name = strings.TrimSpace(remote.Name)
 	name := registryToolName(server.Name, remote.Name)
 	permission := tools.PermissionPrompt
@@ -536,8 +602,7 @@ func newRegistryTool(server Server, remote RemoteTool, client ToolClient, option
 		name:       name,
 		server:     server,
 		remote:     remote,
-		client:     client,
-		clientMu:   &sync.Mutex{},
+		conn:       conn,
 		parameters: SchemaFromMCP(remote.InputSchema),
 		safety: tools.Safety{
 			SideEffect:      tools.SideEffectNetwork,
@@ -549,26 +614,12 @@ func newRegistryTool(server Server, remote RemoteTool, client ToolClient, option
 	return tool
 }
 
-// callRemote runs one tool call against the current client.
+// callRemote runs one tool call against the shared connection.
 func (tool *registryTool) callRemote(ctx context.Context, args map[string]any) (CallToolResult, error) {
-	if tool.clientMu != nil {
-		tool.clientMu.Lock()
-		defer tool.clientMu.Unlock()
+	if tool.conn == nil {
+		return CallToolResult{}, fmt.Errorf("MCP server %s has no live connection", tool.server.Name)
 	}
-	return tool.client.CallTool(ctx, tool.remote.Name, args)
-}
-
-// swapClient replaces the transport after a redial, closing the dead one.
-func (tool *registryTool) swapClient(client ToolClient) {
-	if tool.clientMu != nil {
-		tool.clientMu.Lock()
-		defer tool.clientMu.Unlock()
-	}
-	old := tool.client
-	tool.client = client
-	if old != nil {
-		_ = old.Close()
-	}
+	return tool.conn.call(ctx, tool.remote.Name, args)
 }
 
 func (tool registryTool) Name() string {
@@ -607,9 +658,8 @@ func (tool registryTool) MCPServerName() string {
 }
 
 func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Result {
-	if tool.refreshCheck != nil {
-		tool.refreshCheck(ctx)
-	}
+	// Refreshes never run here: the turn driver calls RefreshPendingTools
+	// between turns. A run only heals its own dead transport (P1-2/3).
 	result, err := tool.callRemote(ctx, args)
 	// A dead transport restarts on next use (a fresh initialize) and the call
 	// is retried: once immediately for a stdio process, with exponential
@@ -621,12 +671,12 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 	if tool.server.Type != ServerTypeStdio {
 		maxReconnects = maxConnectAttempts
 	}
-	for attempt := 1; err != nil && tool.reconnect != nil && redialable(ctx, err) && attempt <= maxReconnects; attempt++ {
+	for attempt := 1; err != nil && tool.conn != nil && redialable(ctx, err) && attempt <= maxReconnects; attempt++ {
 		if tool.server.Type != ServerTypeStdio && !sleepForReconnect(ctx, attempt) {
 			err = ctx.Err()
 			break
 		}
-		revived, reconnectErr := tool.reconnect(ctx)
+		revived, reconnectErr := tool.conn.reconnect(ctx)
 		if reconnectErr != nil {
 			err = reconnectErr
 			if !isTransientConnectError(ctx, reconnectErr) {
@@ -634,7 +684,7 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 			}
 			continue
 		}
-		tool.swapClient(revived)
+		tool.conn.swap(revived)
 		result, err = tool.callRemote(ctx, args)
 	}
 	if err != nil {
