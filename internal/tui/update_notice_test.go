@@ -162,11 +162,10 @@ func TestUpdateNoticeSharesSpaceWithWorkspace(t *testing.T) {
 }
 
 func TestUpdateNoticeDowngradesBeforeDroppingPath(t *testing.T) {
-	// At 70 the full form no longer fits next to the path: the path shrinks
-	// to its floor and the notice steps down, instead of vanishing. (The
-	// resident cache segment takes 10 cells the notice must now share with.)
+	// At 66 the full form no longer fits next to the path: the path shrinks
+	// to its floor and the notice steps down, instead of vanishing.
 	m := updateNoticeLongCwdModel(t)
-	got := plainRender(t, m.statusLine(70))
+	got := plainRender(t, m.statusLine(66))
 	assertContains(t, got, "nova 0.0.12 · reinicie")
 	assertNotContains(t, got, "nova versão")
 	assertContains(t, got, "…")
@@ -176,7 +175,7 @@ func TestUpdateNoticeDowngradesBeforeDroppingPath(t *testing.T) {
 	assertNotContains(t, got, "/private/var/folders/dt/xyz/T/opencode/t5/ws-D")
 }
 
-func TestUpdateNoticeSurvivesDroppedPath(t *testing.T) {
+func TestUpdateNoticeDropsPathAndNoticeTogether(t *testing.T) {
 	// Narrow enough that path plus notice cannot coexist: both drop
 	// together and stay hidden on narrower widths, so the path never
 	// reappears once displaced and the notice never upgrades alone.
@@ -187,13 +186,14 @@ func TestUpdateNoticeSurvivesDroppedPath(t *testing.T) {
 		got := plainRender(t, m.statusLine(width))
 		assertNotContains(t, got, "nova")
 		assertNotContains(t, got, "opencode")
+		assertNotContains(t, got, "/priv")
 	}
 	got := plainRender(t, m.statusLine(50))
 	assertContains(t, got, "nova 0.0.12")
 	assertContains(t, got, "…")
 }
 
-func TestUpdateNoticeFallsBackToFullFooterWhenNothingFits(t *testing.T) {
+func TestUpdateNoticeKeepsPathHiddenWhenNothingFits(t *testing.T) {
 	// Too narrow for path plus notice: both drop together, so the line
 	// with a pending notice shows only the mode and effort. Without a
 	// notice the same width still shows the truncated path ("/priv…"),
@@ -203,6 +203,7 @@ func TestUpdateNoticeFallsBackToFullFooterWhenNothingFits(t *testing.T) {
 	got := plainRender(t, withNotice.statusLine(32))
 	assertNotContains(t, got, "nova")
 	assertNotContains(t, got, "opencode")
+	assertNotContains(t, got, "/priv")
 	withoutNotice := batchThreeLiveModel(t)
 	withoutNotice.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
 	want := plainRender(t, withoutNotice.statusLine(32))
