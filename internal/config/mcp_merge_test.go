@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -261,5 +262,19 @@ func TestMCPMergeProjectCannotLiftUserDeny(t *testing.T) {
 		MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", EnabledTools: []string{"only"}, ProjectConfigured: true}, false)
 	if len(merged.EnabledTools) != 1 || merged.EnabledTools[0] != "only" {
 		t.Fatalf("project allow-list did not apply: %v", merged.EnabledTools)
+	}
+}
+
+func TestMCPMergeDisjointAllowListsDenyAll(t *testing.T) {
+	user := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", EnabledTools: []string{"other"}}
+	project := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", EnabledTools: []string{"lookup"}, ProjectConfigured: true}
+	merged := mergeMCPServer(user, project, false)
+	if len(merged.EnabledTools) == 0 {
+		t.Fatalf("disjoint allow-lists collapsed to empty (allow all): %v", merged.EnabledTools)
+	}
+	for _, name := range []string{"lookup", "other"} {
+		if slices.Contains(merged.EnabledTools, name) {
+			t.Fatalf("disjoint allow-lists exposed %q: %v", name, merged.EnabledTools)
+		}
 	}
 }

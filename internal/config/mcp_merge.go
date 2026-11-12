@@ -127,6 +127,9 @@ func unionMCPToolNames(base, next []string) []string {
 
 // intersectMCPToolNames narrows an allow-list to the names both layers allow.
 // An empty base means "no restriction yet", so the next layer applies as-is.
+// A disjoint intersection is an explicit deny-all marker (a NUL name no real
+// tool can carry), never an empty "allow all": without the marker the empty
+// list would read as unrestricted downstream and leak every tool.
 func intersectMCPToolNames(base, next []string) []string {
 	if len(base) == 0 {
 		return append([]string{}, next...)
@@ -136,6 +139,9 @@ func intersectMCPToolNames(base, next []string) []string {
 		if slices.Contains(next, name) {
 			narrowed = append(narrowed, name)
 		}
+	}
+	if len(narrowed) == 0 {
+		return []string{"\x00"}
 	}
 	return narrowed
 }
