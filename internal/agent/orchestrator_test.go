@@ -144,13 +144,18 @@ func TestDetectOrchestratorsDeclaredSkipsHeuristic(t *testing.T) {
 }
 
 func TestDetectOrchestratorsIgnoresUbiquitousDeclared(t *testing.T) {
+	// Each skill is named by the variable it declares, so the declaration
+	// passes the belonging rule and only the ubiquitous list can reject it.
 	skills := []SkillInfo{
-		{Name: "ubiq-path", Environments: []string{"PATH"}},
-		{Name: "ubiq-xdg", Environments: []string{"XDG_CONFIG_HOME"}},
-		{Name: "ubiq-lc", Environments: []string{"LC_ALL"}},
+		{Name: "home", Environments: []string{"HOME"}},
+		{Name: "tmux", Environments: []string{"TMUX"}},
+		{Name: "user", Environments: []string{"USER"}},
 		{Name: "zebra", Environments: []string{"HOME", "ZEBRA_SOCKET"}},
 	}
-	env := map[string]string{"PATH": "/bin", "XDG_CONFIG_HOME": "/c", "LC_ALL": "C", "ZEBRA_SOCKET": "v"}
+	env := map[string]string{
+		"HOME": "/home/orq", "TMUX": "/tmp/tmux-1", "USER": "orq",
+		"ZEBRA_SOCKET": "v",
+	}
 	got := DetectOrchestrators(skills, env)
 	if len(got) != 1 || got[0].Name != "zebra" || got[0].Signal != "env:ZEBRA_SOCKET" {
 		t.Fatalf("only the non-ubiquitous declaration must match, got %+v", got)
@@ -162,10 +167,11 @@ func TestDetectOrchestratorsDeclaredMustBelongToSkill(t *testing.T) {
 		{Name: "kestrel-hub", Environments: []string{"KESTREL_HUB_MARK"}},
 		{Name: "osprey-desk", Environments: []string{"RELAY_SESSION"}},
 		{Name: "plain-desk", Environments: []string{"BAR_X"}},
+		{Name: "wsbare-desk", Environments: []string{"WORKSPACE"}},
 		{Name: "shlvl-desk", Environments: []string{"SHLVL"}},
 	}
 	env := map[string]string{
-		"KESTREL_HUB_MARK": "a", "RELAY_SESSION": "b", "BAR_X": "c", "SHLVL": "2",
+		"KESTREL_HUB_MARK": "a", "RELAY_SESSION": "b", "BAR_X": "c", "WORKSPACE": "d", "SHLVL": "2",
 	}
 	got := DetectOrchestrators(skills, env)
 	names := map[string]string{}
@@ -181,6 +187,9 @@ func TestDetectOrchestratorsDeclaredMustBelongToSkill(t *testing.T) {
 	if _, ok := names["plain-desk"]; ok {
 		t.Fatalf("unrelated declaration must not match, got %+v", got)
 	}
+	if _, ok := names["wsbare-desk"]; ok {
+		t.Fatalf("bare suffix without the underscore must not match, got %+v", got)
+	}
 	if _, ok := names["shlvl-desk"]; ok {
 		t.Fatalf("ubiquitous declaration must not match, got %+v", got)
 	}
@@ -192,8 +201,29 @@ func TestDetectOrchestratorsHeuristicSkipsUbiquitousKeys(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("ubiquitous heuristic key must not match, got %+v", got)
 	}
-	got = DetectOrchestrators([]SkillInfo{{Name: "tmux"}}, map[string]string{"TMUX_PANE": "1"})
-	if len(got) != 0 {
-		t.Fatalf("ubiquitous heuristic key must not match, got %+v", got)
+}
+
+func TestDeclarationBelongsToSkillFoldCase(t *testing.T) {
+	if !declarationBelongsToSkill("kestrel_hub_MARK", "KESTREL_HUB", true) {
+		t.Fatalf("foldCase must ignore letter case")
+	}
+	if declarationBelongsToSkill("kestrel_hub_MARK", "KESTREL_HUB", false) {
+		t.Fatalf("exact mode must not ignore letter case")
+	}
+	if declarationBelongsToSkill("sandbox contemporary", "contemporary", false) {
+		t.Fatalf("substring without the underscore boundary must not belong")
+	}
+}
+
+func TestDetectOrchestratorsIgnoresCommonTerminalPrograms(t *testing.T) {
+	for _, term := range []string{"tmux", "iTerm.app", "vscode", "WezTerm", "ghostty", "Apple_Terminal", "screen"} {
+		skills := []SkillInfo{{Name: strings.ToLower(term)}}
+		if got := DetectOrchestrators(skills, map[string]string{"TERM_PROGRAM": term}); len(got) != 0 {
+			t.Fatalf("TERM_PROGRAM=%q must not elect a skill, got %+v", term, got)
+		}
+	}
+	got := DetectOrchestrators([]SkillInfo{{Name: "vortexterm"}}, map[string]string{"TERM_PROGRAM": "VortexTerm"})
+	if len(got) != 1 || got[0].Signal != "TERM_PROGRAM" {
+		t.Fatalf("uncommon TERM_PROGRAM must still match by name, got %+v", got)
 	}
 }

@@ -159,17 +159,10 @@ func Activate(registry *tools.Registry, loaded []LoadedPlugin, options ActivateO
 
 	// Process plugins in a deterministic order so the registry/hook/skill
 	// registrations are stable regardless of discovery order.
-	ordered := append([]LoadedPlugin{}, loaded...)
-	sort.Slice(ordered, func(left int, right int) bool {
-		return ordered[left].ID < ordered[right].ID
-	})
+	ordered := orderedEnabledPlugins(loaded)
 
 	seenSkillRoot := map[string]bool{}
 	for _, plugin := range ordered {
-		if !plugin.Enabled {
-			continue
-		}
-
 		if registry != nil {
 			activateTools(registry, plugin, options, runTool, &result)
 		}
@@ -261,13 +254,31 @@ func activateSkills(plugin LoadedPlugin, seenRoot map[string]bool, result *Activ
 	}
 }
 
+// orderedEnabledPlugins returns the loaded plugins sorted by ID with disabled
+// ones dropped. It is the single definition of "which plugins are live",
+// shared by Activate (exec/TUI) and SkillRoots (doctor), so the two can never
+// diverge on Enabled filtering or ordering again.
+func orderedEnabledPlugins(loaded []LoadedPlugin) []LoadedPlugin {
+	ordered := append([]LoadedPlugin{}, loaded...)
+	sort.Slice(ordered, func(left int, right int) bool {
+		return ordered[left].ID < ordered[right].ID
+	})
+	enabled := ordered[:0]
+	for _, plugin := range ordered {
+		if plugin.Enabled {
+			enabled = append(enabled, plugin)
+		}
+	}
+	return enabled
+}
+
 // SkillRoots returns the skill search roots for already-loaded plugins without
 // activating anything (no tools, hooks, or execution). Doctor uses it so its
-// ambient-orchestrator report covers plugin skills exactly like exec does.
+// ambient-orchestrator report covers exactly the plugin skills exec would load.
 func SkillRoots(loaded []LoadedPlugin) []string {
 	result := &ActivationResult{}
 	seen := map[string]bool{}
-	for _, plugin := range loaded {
+	for _, plugin := range orderedEnabledPlugins(loaded) {
 		activateSkills(plugin, seen, result)
 	}
 	return result.SkillRoots

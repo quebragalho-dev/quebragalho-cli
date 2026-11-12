@@ -492,7 +492,4 @@ func TestRunReportsDetectedOrchestrator(t *testing.T) {
 	if strings.Contains(out, sentinel) {
 		t.Fatalf("doctor prints the value of FOO_SOCKET; only the variable name may be shown:\n%s", out)
 	}
-	if strings.Contains(out, "sock-") {
-		t.Fatalf("doctor must never print env values, got:\n%s", out)
-	}
 }

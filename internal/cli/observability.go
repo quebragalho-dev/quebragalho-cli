@@ -104,7 +104,11 @@ func detectAmbientSkills(deps appDeps, workspaceRoot string) []agent.DetectedOrc
 	}
 	var roots []string
 	if deps.loadPlugins != nil {
-		if loaded, err := deps.loadPlugins(plugins.LoadOptions{Cwd: workspaceRoot}); err == nil {
+		// Load with the same trust gate as exec: in an untrusted workspace
+		// project plugins are excluded here too, so doctor can never report
+		// skills exec would refuse to load.
+		excludeProject, _ := resolveTrust(workspaceRoot)
+		if loaded, err := deps.loadPlugins(plugins.LoadOptions{Cwd: workspaceRoot, ExcludeProject: excludeProject}); err == nil {
 			roots = plugins.SkillRoots(loaded.Plugins)
 		}
 	}

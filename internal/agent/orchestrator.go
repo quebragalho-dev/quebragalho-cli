@@ -74,6 +74,9 @@ func DetectOrchestrators(skills []SkillInfo, env map[string]string) []DetectedOr
 }
 
 func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (string, bool) {
+	// Case-insensitivity is decided here, once, from the OS: variable names
+	// are case-insensitive on Windows and case-sensitive elsewhere.
+	foldCase := runtime.GOOS == "windows"
 	// A declared `environment:` list replaces the heuristic: a skill that
 	// declares its markers never matches by name pattern. Each declared name
 	// must belong to the skill — end in a session suffix or start with the
@@ -86,7 +89,7 @@ func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (str
 			if declared == "" || isUbiquitousEnvironment(declared) {
 				continue
 			}
-			if !declarationBelongsToSkill(declared, normalized) {
+			if !declarationBelongsToSkill(declared, normalized, foldCase) {
 				continue
 			}
 			if strings.TrimSpace(env[declared]) != "" {
@@ -105,34 +108,41 @@ func matchOrchestrator(skill SkillInfo, name string, env map[string]string) (str
 			}
 		}
 	}
-	if term := strings.TrimSpace(env["TERM_PROGRAM"]); term != "" && strings.EqualFold(term, name) {
+	// TERM_PROGRAM matches the skill name — unless it is a common terminal or
+	// multiplexer, which exists because of the terminal, not an orchestrator.
+	term := strings.TrimSpace(env["TERM_PROGRAM"])
+	if term == "" || isCommonTerminalProgram(term) {
+		return "", false
+	}
+	if strings.EqualFold(term, name) {
 		return "TERM_PROGRAM", true
 	}
 	return "", false
 }
 
 // declarationBelongsToSkill reports whether a declared marker belongs to the
-// skill: it ends in a session suffix or starts with the normalized skill
-// name. Comparison is case-insensitive on Windows, where variable names are.
-func declarationBelongsToSkill(declared, normalizedSkill string) bool {
+// skill: it ends in `_` + session suffix or starts with the normalized skill
+// name. A bare suffix alone ("WORKSPACE") never belongs to anyone — Jenkins
+// defines it in every job. foldCase ignores letter case (Windows, where
+// variable names are case-insensitive); otherwise the comparison is exact.
+func declarationBelongsToSkill(declared, normalizedSkill string, foldCase bool) bool {
 	d, n := declared, normalizedSkill
-	if runtime.GOOS == "windows" {
+	if foldCase {
 		d, n = strings.ToUpper(d), strings.ToUpper(n)
 	}
 	for _, suffix := range orchestratorEnvSuffixes {
-		if d == suffix || strings.HasSuffix(d, "_"+suffix) {
+		if strings.HasSuffix(d, "_"+suffix) {
 			return true
 		}
 	}
 	return strings.HasPrefix(d, n)
 }
 
-// isUbiquitousEnvironment reports variables present in essentially every
-// process, which must never elect an ambient skill on their own — neither by
-// declaration nor by heuristic. Besides the usual shell variables this covers
-// terminal multiplexers and emulators (their session markers exist in every
-// terminal of that kind) and the Windows variable set; comparison is
-// case-insensitive because the Windows environment is.
+// isUbiquitousEnvironment reports variables present for reasons other than
+// an orchestrator — the shell, the terminal, the editor, the desktop, or CI —
+// which must never elect an ambient skill on their own, neither by
+// declaration nor by heuristic. Comparison is case-insensitive because the
+// Windows environment is.
 func isUbiquitousEnvironment(name string) bool {
 	upper := strings.ToUpper(strings.TrimSpace(name))
 	switch upper {
@@ -145,10 +155,34 @@ func isUbiquitousEnvironment(name string) bool {
 		"ITERM_SESSION_ID", "WT_SESSION", "WEZTERM_UNIX_SOCKET", "WEZTERM_PANE",
 		"KONSOLE_DBUS_SESSION", "KITTY_WINDOW_ID", "TMUX", "TMUX_PANE", "STY",
 		"VTE_VERSION", "DBUS_SESSION_BUS_ADDRESS", "SSH_CONNECTION",
-		"SSH_CLIENT", "SSH_TTY":
+		"SSH_CLIENT", "SSH_TTY", "CI", "DESKTOP_SESSION", "SESSION_MANAGER",
+		"TERMINAL_EMULATOR":
 		return true
 	}
-	return strings.HasPrefix(upper, "LC_") || strings.HasPrefix(upper, "XDG_")
+	for _, prefix := range []string{"LC_", "XDG_", "GITHUB_", "GITLAB_",
+		"BITBUCKET_", "GITPOD_", "CODESPACE", "BUILDKITE_", "CIRCLE", "TRAVIS",
+		"JENKINS_", "BUILD_", "GNOME_", "KDE_", "ALACRITTY_", "VSCODE_"} {
+		if strings.HasPrefix(upper, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// commonTerminalPrograms are TERM_PROGRAM values set by plain terminals and
+// multiplexers, which exist because of the terminal — never an orchestrator.
+// Matched case-insensitively.
+var commonTerminalPrograms = map[string]bool{
+	"tmux": true, "screen": true, "apple_terminal": true, "iterm.app": true,
+	"vscode": true, "wezterm": true, "ghostty": true, "alacritty": true,
+	"kitty": true, "hyper": true, "tabby": true, "warpterminal": true,
+	"konsole": true, "rio": true,
+}
+
+// isCommonTerminalProgram reports whether a TERM_PROGRAM value names a common
+// terminal or multiplexer rather than an orchestrator.
+func isCommonTerminalProgram(term string) bool {
+	return commonTerminalPrograms[strings.ToLower(strings.TrimSpace(term))]
 }
 
 func snapshotEnv() map[string]string {
