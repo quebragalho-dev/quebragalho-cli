@@ -73,11 +73,16 @@ func mergeMCPServer(base MCPServerConfig, next MCPServerConfig, canReenable bool
 	if next.Timeout != 0 {
 		base.Timeout = next.Timeout
 	}
-	if next.EnabledTools != nil {
-		base.EnabledTools = append([]string{}, next.EnabledTools...)
+	// Tool allow/deny lists merge monotonically so a lower-trust layer (project
+	// config) can never widen what the user allowed: disabled_tools is the
+	// union (a project deny sticks even if the project later clears its own
+	// list), and enabled_tools only narrows (intersection). An empty list
+	// means "no restriction here", never "lift the other layer".
+	if len(next.DisabledTools) > 0 {
+		base.DisabledTools = unionMCPToolNames(base.DisabledTools, next.DisabledTools)
 	}
-	if next.DisabledTools != nil {
-		base.DisabledTools = append([]string{}, next.DisabledTools...)
+	if len(next.EnabledTools) > 0 {
+		base.EnabledTools = intersectMCPToolNames(base.EnabledTools, next.EnabledTools)
 	}
 	// Capture the higher-trust scope's prior decision before folding in
 	// next.disabledSet. The trust boundary must be evaluated against the state
@@ -107,6 +112,32 @@ func mergeMCPServer(base MCPServerConfig, next MCPServerConfig, canReenable bool
 		base.ProjectConfigured = true
 	}
 	return base
+}
+
+// unionMCPToolNames merges deny lists keeping the base order first.
+func unionMCPToolNames(base, next []string) []string {
+	merged := append([]string{}, base...)
+	for _, name := range next {
+		if !slices.Contains(merged, name) {
+			merged = append(merged, name)
+		}
+	}
+	return merged
+}
+
+// intersectMCPToolNames narrows an allow-list to the names both layers allow.
+// An empty base means "no restriction yet", so the next layer applies as-is.
+func intersectMCPToolNames(base, next []string) []string {
+	if len(base) == 0 {
+		return append([]string{}, next...)
+	}
+	narrowed := make([]string, 0, len(base))
+	for _, name := range base {
+		if slices.Contains(next, name) {
+			narrowed = append(narrowed, name)
+		}
+	}
+	return narrowed
 }
 
 func projectMCPServerTargetChanges(base MCPServerConfig, next MCPServerConfig) bool {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -217,5 +218,48 @@ func TestMCPServerToolFiltersUnmarshalBothSpellings(t *testing.T) {
 	}
 	if got := mergeMCPServer(MCPServerConfig{}, snake, false); len(got.EnabledTools) != 1 {
 		t.Fatalf("merged EnabledTools = %+v", got.EnabledTools)
+	}
+}
+
+func TestMCPMergeToolFiltersBothDirections(t *testing.T) {
+	user := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", DisabledTools: []string{"drop"}, EnabledTools: []string{"a", "b"}}
+	project := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", DisabledTools: []string{"extra"}, EnabledTools: []string{"b", "c"}, ProjectConfigured: true}
+
+	merged := mergeMCPServer(user, project, false)
+	if got, want := merged.DisabledTools, []string{"drop", "extra"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("disabled union = %v, want %v (project can only add denies)", got, want)
+	}
+	if got, want := merged.EnabledTools, []string{"b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("enabled intersect = %v, want %v (project only narrows)", got, want)
+	}
+
+	// The reverse order carries the same sets: union/intersection commute.
+	mergedBack := mergeMCPServer(MCPServerConfig{DisabledTools: []string{"extra"}, EnabledTools: []string{"b", "c"}},
+		MCPServerConfig{DisabledTools: []string{"drop"}, EnabledTools: []string{"a", "b"}}, false)
+	if got, want := mergedBack.DisabledTools, []string{"extra", "drop"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reverse disabled union = %v, want %v", got, want)
+	}
+	if got, want := mergedBack.EnabledTools, []string{"b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reverse enabled intersect = %v, want %v", got, want)
+	}
+}
+
+func TestMCPMergeProjectCannotLiftUserDeny(t *testing.T) {
+	user := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", DisabledTools: []string{"drop"}}
+	// A project that clears or omits disabled_tools must not lift the deny.
+	for _, project := range []MCPServerConfig{
+		{Type: "http", URL: "http://127.0.0.1:1/mcp", ProjectConfigured: true},
+		{Type: "http", URL: "http://127.0.0.1:1/mcp", DisabledTools: []string{}, ProjectConfigured: true},
+	} {
+		merged := mergeMCPServer(user, project, false)
+		if len(merged.DisabledTools) != 1 || merged.DisabledTools[0] != "drop" {
+			t.Fatalf("user deny lifted: %v", merged.DisabledTools)
+		}
+	}
+	// A project allow-list alone applies when the user set none.
+	merged := mergeMCPServer(MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp"},
+		MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", EnabledTools: []string{"only"}, ProjectConfigured: true}, false)
+	if len(merged.EnabledTools) != 1 || merged.EnabledTools[0] != "only" {
+		t.Fatalf("project allow-list did not apply: %v", merged.EnabledTools)
 	}
 }
