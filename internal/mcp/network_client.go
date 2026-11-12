@@ -291,7 +291,7 @@ func (client *networkClient) request(ctx context.Context, method string, params 
 		return fmt.Errorf("MCP %s response id mismatch for server %s", method, client.server.Name)
 	}
 	if message.Error != nil {
-		return fmt.Errorf("MCP %s failed: %s", method, message.Error.Message)
+		return &MCPRequestError{Method: method, Code: message.Error.Code, Message: message.Error.Message}
 	}
 	if target != nil && len(message.Result) > 0 {
 		if err := json.Unmarshal(message.Result, target); err != nil {
@@ -346,7 +346,7 @@ func (client *remoteSSEClient) request(ctx context.Context, method string, param
 			return fmt.Errorf("MCP %s response id mismatch for server %s", method, client.server.Name)
 		}
 		if response.message.Error != nil {
-			return fmt.Errorf("MCP %s failed: %s", method, response.message.Error.Message)
+			return &MCPRequestError{Method: method, Code: response.message.Error.Code, Message: response.message.Error.Message}
 		}
 		if target != nil && len(response.message.Result) > 0 {
 			if err := json.Unmarshal(response.message.Result, target); err != nil {

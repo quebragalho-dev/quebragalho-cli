@@ -611,12 +611,18 @@ func (tool *registryTool) Run(ctx context.Context, args map[string]any) tools.Re
 		tool.refreshCheck(ctx)
 	}
 	result, err := tool.callRemote(ctx, args)
-	// A dead transport restarts on next use: reconnect (a fresh initialize)
-	// with exponential backoff and retry the call, up to maxConnectAttempts
-	// times. Timeouts and caller cancellation never reconnect — retrying a
-	// hung server would only burn the turn, and a cancelled turn must stop.
-	for attempt := 1; err != nil && tool.reconnect != nil && redialable(ctx, err) && attempt <= maxConnectAttempts; attempt++ {
-		if !sleepForReconnect(ctx, attempt) {
+	// A dead transport restarts on next use (a fresh initialize) and the call
+	// is retried: once immediately for a stdio process, with exponential
+	// backoff up to 5 times for a remote server. Timeouts, caller
+	// cancellation, and JSON-RPC error answers (the server is alive and said
+	// no) never reconnect — retrying a hung or refusing server would only
+	// burn the turn.
+	maxReconnects := 1
+	if tool.server.Type != ServerTypeStdio {
+		maxReconnects = maxConnectAttempts
+	}
+	for attempt := 1; err != nil && tool.reconnect != nil && redialable(ctx, err) && attempt <= maxReconnects; attempt++ {
+		if tool.server.Type != ServerTypeStdio && !sleepForReconnect(ctx, attempt) {
 			err = ctx.Err()
 			break
 		}

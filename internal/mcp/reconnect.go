@@ -63,6 +63,10 @@ func isTransientConnectError(ctx context.Context, err error) bool {
 	if errors.As(err, &status) {
 		return status.Status == 408 || status.Status == 425 || status.Status == 429 || status.Status >= 500
 	}
+	var rpcErr *MCPRequestError
+	if errors.As(err, &rpcErr) {
+		return false
+	}
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		var dnsErr *net.DNSError
@@ -145,9 +149,25 @@ func sleepForReconnect(ctx context.Context, attempt int) bool {
 	}
 }
 
-// redialable reports whether a failed tool call is worth a reconnect: the
-// the process may have died, but a timeout or a caller cancellation must not
-// restart anything.
+// MCPRequestError is a JSON-RPC error answer from the server (e.g.
+// -32602 invalid params). The transport is alive — the server answered — so
+// it must never trigger a reconnect or a connect retry. Its message matches
+// the historical plain error text.
+type MCPRequestError struct {
+	Method  string
+	Code    int
+	Message string
+}
+
+func (err *MCPRequestError) Error() string {
+	return fmt.Sprintf("MCP %s failed: %s", err.Method, err.Message)
+}
+
+// redialable reports whether a failed tool call means the transport died and
+// is worth a reconnect: the process may have exited, the pipe may be broken,
+// or the remote end may have dropped. A timeout, a caller cancellation, or a
+// JSON-RPC error answer (the server is alive and said no) must never restart
+// anything.
 func redialable(ctx context.Context, err error) bool {
 	if err == nil || ctx.Err() != nil {
 		return false
@@ -163,5 +183,30 @@ func redialable(ctx context.Context, err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
-	return true
+	return isDeadTransportError(err)
+}
+
+// isDeadTransportError reports whether err proves the peer is gone: EOF or a
+// broken/closed pipe for stdio, and refused/reset connections or 408/425/429
+// and 5xx for remote servers. Anything the server answered — including a
+// JSON-RPC error — is not dead.
+func isDeadTransportError(err error) bool {
+	var rpcErr *MCPRequestError
+	if errors.As(err, &rpcErr) {
+		return false
+	}
+	if errors.Is(err, errMCPClientClosed) {
+		return true
+	}
+	var status *MCPHTTPStatusError
+	if errors.As(err, &status) {
+		return status.Status == 408 || status.Status == 425 || status.Status == 429 || status.Status >= 500
+	}
+	message := strings.ToLower(err.Error())
+	for _, token := range []string{"eof", "broken pipe", "connection refused", "connection reset", "connection closed", "use of closed"} {
+		if strings.Contains(message, token) {
+			return true
+		}
+	}
+	return false
 }

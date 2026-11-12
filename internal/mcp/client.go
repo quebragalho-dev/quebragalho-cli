@@ -385,7 +385,7 @@ func (client *Client) request(ctx context.Context, method string, params any, ta
 		}
 		message := result.message
 		if message.Error != nil {
-			return fmt.Errorf("MCP %s failed: %s", method, message.Error.Message)
+			return &MCPRequestError{Method: method, Code: message.Error.Code, Message: message.Error.Message}
 		}
 		if target != nil && len(message.Result) > 0 {
 			if err := json.Unmarshal(message.Result, target); err != nil {
