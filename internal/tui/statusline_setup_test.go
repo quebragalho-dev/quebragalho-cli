@@ -144,6 +144,51 @@ func TestStatuslineApplyRearmsRunningChainWithNewGeneration(t *testing.T) {
 	}
 }
 
+// A refresh queued during a flight dies with the apply: the new cadence
+// runs once right away instead of firing one stale extra run.
+func TestStatuslineApplyDropsQueuedRefresh(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	m.statuslineCfg = config.StatusLineConfig{
+		Lines:     []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command:   &config.StatusLineCommand{Command: "echo hi"},
+		RefreshMs: 60000,
+	}
+	m, _ = m.startStatuslineRun(false)
+	if !m.statuslineCmdInFlight {
+		t.Fatal("precondition: no run in flight")
+	}
+	m, _ = m.startStatuslineRun(true)
+	if !m.statuslineRefreshDue {
+		t.Fatal("precondition: forced trigger during the flight queued no refresh")
+	}
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}, RefreshMs: 1000}
+	cfg, _ := proposal.validatedConfig(m.statuslineCfg)
+	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
+	applied, cmd := m.applyStatuslinePending()
+	if cmd == nil {
+		t.Fatal("apply must re-arm the chain at once, got no command")
+	}
+	runs := applied.statuslineCmdSeq
+	ticked, _ := applied.Update(execCmd(cmd))
+	if !ticked.(model).statuslineCmdInFlight {
+		t.Fatal("fresh tick must start the command run")
+	}
+	if ticked.(model).statuslineCmdSeq != runs+1 {
+		t.Fatalf("apply started %d runs, want exactly one", ticked.(model).statuslineCmdSeq-runs)
+	}
+	folded, _ := ticked.Update(statuslineCmdMsg{seq: ticked.(model).statuslineCmdSeq})
+	if folded.(model).statuslineCmdInFlight {
+		t.Fatal("folding the new run fired the stale queued refresh")
+	}
+	if folded.(model).statuslineCmdSeq != runs+1 {
+		t.Fatalf("apply ran %d commands, want exactly one", folded.(model).statuslineCmdSeq-runs)
+	}
+}
+
 // Unknown field ids warn once at startup, like the config clamp warnings
 // above, so a typo does not fail silently (the card repeats them).
 func TestStatuslineUnknownIdsWarnAtStartup(t *testing.T) {
@@ -609,5 +654,33 @@ func TestStatuslinePendingApplyAndCancel(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(staging, "proposal.json")); !os.IsNotExist(err) {
 		t.Fatal("staging not discarded after Esc")
+	}
+}
+
+// A fields-only proposal that keeps a live command which has not printed
+// yet warns that the last field line gives way; with cached output the
+// preview already shows the script line, so no warning is needed.
+func TestStatuslinePreviewWarnsUntilLiveScriptPrints(t *testing.T) {
+	three := []config.StatusLineLine{{Left: []string{"mode"}}, {Left: []string{"branch"}}, {Left: []string{"cwd"}}}
+	quiet := limeTestModel()
+	quiet.width = 120
+	quiet.statuslineCfg = config.StatusLineConfig{
+		Lines:   []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command: &config.StatusLineCommand{Command: "echo hi"},
+	}
+	proposal := statuslineProposal{Lines: three}
+	cfg, _ := proposal.validatedConfig(quiet.statuslineCfg)
+	preview := quiet.previewStatuslineProposal(&statuslinePendingApply{proposal: proposal, cfg: cfg}, nil)
+	if !strings.Contains(preview, "a última linha de campos cede quando o script imprimir") {
+		t.Fatalf("preview without cached output must warn that the last field line gives way:\n%s", preview)
+	}
+	live := quiet
+	live.statuslineCmdOutput = "SL-VIVO"
+	preview = live.previewStatuslineProposal(&statuslinePendingApply{proposal: proposal, cfg: cfg}, nil)
+	if strings.Contains(preview, "cede quando o script imprimir") {
+		t.Fatalf("preview with cached output already shows the script line; no warning needed:\n%s", preview)
+	}
+	if !strings.Contains(preview, "SL-VIVO") {
+		t.Fatalf("preview with cached output must show the script line:\n%s", preview)
 	}
 }
