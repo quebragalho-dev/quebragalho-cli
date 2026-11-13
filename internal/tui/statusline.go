@@ -61,9 +61,6 @@ func (m model) statuslineSeparator() string {
 func (m model) statusLineCustom(width int) string {
 	cfg := m.statuslineCfg
 	lines := cfg.Lines
-	if len(lines) > maxStatusLineRenderLines {
-		lines = lines[:maxStatusLineRenderLines]
-	}
 	hasScript := m.statuslineCommandActive() &&
 		(strings.TrimSpace(m.statuslineCmdOutput) != "" || strings.TrimSpace(m.statuslineCmdErr) != "")
 	maxFields := maxStatusLineRenderLines
