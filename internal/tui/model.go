@@ -657,6 +657,11 @@ type model struct {
 	// statuslineCmdInFlight guarantees at most one command run in flight: a
 	// trigger while one runs is a no-op, never a queue.
 	statuslineCmdInFlight bool
+	// statuslineCmdCancel kills the in-flight run: apply/reset call it so the
+	// old config's process never overlaps the new cadence's. The cancel fires
+	// the same tree kill the timeout relies on, and the late result is
+	// dropped by the sequence check.
+	statuslineCmdCancel context.CancelFunc
 	// statuslineCmdStartedAt gates re-runs to the refresh window; seq matches
 	// runs to their results so late losers are dropped.
 	statuslineCmdStartedAt time.Time
@@ -674,7 +679,7 @@ type model struct {
 	// statuslineTickArmed tracks the idle refresh chain: set when a tick is
 	// scheduled, cleared when the chain stops (command deactivated).
 	// statuslineTickGen versions the chain: apply/reset bumps it and re-arms,
-	// so a tick armed under the old cadence is discarded on arrival.
+	// so a tick armed under the old generation is discarded on arrival.
 	statuslineTickArmed          bool
 	statuslineTickGen            int
 	recapSeq                     int

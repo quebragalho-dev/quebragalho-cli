@@ -488,11 +488,28 @@ func (m model) startStatuslineRun(force bool) (model, tea.Cmd) {
 	stdin := string(m.statuslineStdin(m.width))
 	env := statuslineChildEnv(m.width, m.height)
 	timeout := time.Duration(cfg.EffectiveTimeoutMs()) * time.Millisecond
+	// Cancellable by apply/reset: the cancel fires the same tree kill the
+	// timeout relies on, so the old process never overlaps the new cadence.
+	runCtx, cancel := context.WithCancel(context.Background())
+	m.statuslineCmdCancel = cancel
 	return m, func() tea.Msg {
-		msg := execStatuslineRun(context.Background(), cfg.Command.Command, stdin, env, timeout)
+		msg := execStatuslineRun(runCtx, cfg.Command.Command, stdin, env, timeout)
 		msg.seq = seq
 		return msg
 	}
+}
+
+// cancelStatuslineRun kills a run still in flight (apply/reset switch the
+// cadence underneath it): the context cancel fires the same tree kill the
+// timeout relies on, so no orphan survives, and the late result is dropped
+// by the sequence check. At most one script process ever runs.
+func (m model) cancelStatuslineRun() model {
+	if m.statuslineCmdCancel != nil {
+		m.statuslineCmdCancel()
+		m.statuslineCmdCancel = nil
+	}
+	m.statuslineCmdInFlight = false
+	return m
 }
 
 // applyStatuslineCmdMsg folds a finished run: output replaces the cache and
@@ -504,6 +521,7 @@ func (m model) applyStatuslineCmdMsg(msg statuslineCmdMsg) (model, tea.Cmd) {
 		return m, nil
 	}
 	m.statuslineCmdInFlight = false
+	m.statuslineCmdCancel = nil
 	if msg.errNote != "" {
 		m.statuslineCmdErr = msg.errNote
 	} else {

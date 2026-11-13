@@ -356,7 +356,7 @@ func (m model) resetStatusline() model {
 	m.statuslineCfg = config.StatusLineConfig{}
 	m.statuslineCmdOutput = ""
 	m.statuslineCmdErr = ""
-	m.statuslineCmdInFlight = false
+	m = m.cancelStatuslineRun()
 	m.statuslineCmdStartedAt = time.Time{}
 	m.statuslineCmdSeq++
 	// The old cadence dies here: any tick armed before the reset carries the
@@ -859,7 +859,7 @@ func (m model) applyStatuslinePending() (model, tea.Cmd) {
 	// the old window happened to elapse.
 	m.statuslineCmdOutput = ""
 	m.statuslineCmdErr = ""
-	m.statuslineCmdInFlight = false
+	m = m.cancelStatuslineRun()
 	m.statuslineCmdStartedAt = time.Time{}
 	m.statuslineCmdSeq++
 	m.statuslineTickGen++
