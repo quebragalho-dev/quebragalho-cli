@@ -1642,9 +1642,10 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 	m.stopPRWatcher()
 	m.stopAllBackgroundTerminalSessions()
 	m.shutdownLSPManager()
-	// A statusline run still in flight would outlive the program: its tree
-	// kill (same as the timeout's) fires here, since the timeout dies with us.
-	m = m.cancelStatuslineRun()
+	// A statusline run still in flight would outlive the program: cancel it
+	// and wait (bounded) for the runner, so the exit below cannot slip
+	// ahead of the tree kill. Same helper as the post-Run cleanup.
+	m.killStatuslineSync()
 	// The presence lease is released in writeFarewell (after the program
 	// exits and the final snapshot has been flushed), not here: the
 	// farewell write happens after tea.Quit returns, and a new qg process

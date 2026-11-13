@@ -101,7 +101,21 @@ func Run(ctx context.Context, options Options) int {
 	program = tea.NewProgram(initialModel, programOpts...)
 	peerStarted := startPeerService(options.PeerService, forward)
 
+	// A closed tab sends SIGHUP, which bubbletea does not handle: route it
+	// through the same orderly shutdown as SIGTERM so the cleanup below
+	// still kills the script.
+	hupStop := make(chan struct{})
+	go watchStatuslineHangup(program, hupStop)
+
 	finalModel, runErr := program.Run()
+	close(hupStop)
+	// A statusline run still in flight must die with the program: SIGTERM,
+	// the context cancel and InterruptMsg all skip quit(), and the async
+	// cancel there could still lose to os.Exit, so the synchronous tree
+	// kill lives here, on every exit path.
+	if m, ok := finalModel.(model); ok {
+		m.killStatuslineSync()
+	}
 	clearErr := imageOutput.clearImage()
 	writeFarewell(os.Stdout, finalModel)
 	var closeErr error
