@@ -106,24 +106,49 @@ func TestStatuslineApplyArmsTickChainWhenStopped(t *testing.T) {
 	}
 }
 
-// An already armed chain is left alone on apply: no second chain.
-func TestStatuslineApplyKeepsRunningChain(t *testing.T) {
+// Applying over a running chain re-arms it with a fresh generation: the new
+// refresh takes effect at once instead of waiting out the old tick, and the
+// old tick is discarded on arrival (never a second chain).
+func TestStatuslineApplyRearmsRunningChainWithNewGeneration(t *testing.T) {
 	dir := t.TempDir()
 	userPath := filepath.Join(dir, "config.json")
 	m := limeTestModel()
 	m.width = 100
 	m.userConfigPath = userPath
+	m.statuslineCfg = config.StatusLineConfig{
+		Lines:     []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command:   &config.StatusLineCommand{Command: "echo hi"},
+		RefreshMs: 60000,
+	}
 	m.statuslineTickArmed = true
-	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}}
-	cfg, _ := proposal.validatedConfig(config.StatusLineConfig{})
-	cfg.Command = &config.StatusLineCommand{Command: "echo hi"}
+	before := m.statuslineTickGen
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}, RefreshMs: 1000}
+	cfg, _ := proposal.validatedConfig(m.statuslineCfg)
 	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
 	applied, cmd := m.applyStatuslinePending()
-	if cmd != nil {
-		t.Fatalf("apply over a running chain must not arm another one, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("apply over a running chain must re-arm it at once for the new refresh, got no command")
 	}
-	if !applied.statuslineTickArmed {
-		t.Fatal("apply must not disarm the running chain")
+	if applied.statuslineTickGen != before+1 {
+		t.Fatalf("apply did not bump the tick generation: %d, want %d", applied.statuslineTickGen, before+1)
+	}
+	if msg, ok := execCmd(cmd).(statuslineTickMsg); !ok || msg.gen != before+1 {
+		t.Fatalf("re-armed tick = %#v, want generation %d", msg, before+1)
+	}
+	// The tick armed under the old cadence arrives late and must die quiet:
+	// it starts no run under the old cadence. (The Update pass may still
+	// return unrelated cmds, like the apply notice timer.)
+	staled, _ := applied.Update(statuslineTickMsg{gen: before})
+	if staled.(model).statuslineCmdInFlight {
+		t.Fatal("stale tick started a run under the old cadence")
+	}
+	// The fresh tick starts the run and keeps the chain alive.
+	ticked, tickCmd := applied.Update(statuslineTickMsg{gen: before + 1})
+	if tickCmd == nil {
+		t.Fatal("fresh tick must keep the chain alive")
+	}
+	if !ticked.(model).statuslineCmdInFlight {
+		t.Fatal("fresh tick must start the command run")
 	}
 }
 
