@@ -182,7 +182,7 @@ func (m model) statuslineSetupPrompt(stagingDir string) string {
 	b.WriteString("Você vai montar a statusline do QG (a linha de rodapé do TUI). REGRAS DURAS:\n")
 	b.WriteString("1. NUNCA escreva na config viva. Proposta vai em " + filepath.Join(stagingDir, "proposal.json") + " e script SÓ dentro de " + stagingDir + ".\n")
 	b.WriteString("2. Campos válidos (stable, inglês): " + strings.Join(statuslineFieldIDs, ", ") + ". Qualquer outro id é ignorado com aviso.\n")
-	b.WriteString("3. proposal.json espelha a config: {\"lines\": [{\"left\": [...], \"right\": [...]}], \"separator\": \" | \", \"script\": \"nome.sh\", \"command\": null, \"timeoutMs\": 2000, \"refreshMs\": 5000}. Até 3 linhas. Sem script e sem \"command\", a proposta MANTÉM o comando e os tempos atuais; com \"command\": null explícito o comando sai.\n")
+	b.WriteString("3. proposal.json espelha a config: {\"lines\": [{\"left\": [...], \"right\": [...]}], \"separator\": \" | \", \"script\": \"nome.sh\", \"command\": null, \"timeoutMs\": 2000, \"refreshMs\": 5000}. Campos e saída do script dividem o total de 3 linhas: com script ativo, a última linha de campos cede o lugar. Sem script e sem \"command\", a proposta MANTÉM o comando e os tempos atuais; com \"command\": null explícito o comando sai.\n")
 	b.WriteString("4. Script: saída até 3 linhas, rápido (< 2s), sem rede, sem segredos. Recebe no stdin o JSON abaixo.")
 	b.WriteString(" Escreva na sintaxe do SO de destino — sh (linux/macOS) ou cmd (windows); o QG executa via `sh -c` no linux/macOS e via `cmd /C` no windows.")
 	b.WriteString(" SO desta sessão: " + runtime.GOOS + ".\n")
