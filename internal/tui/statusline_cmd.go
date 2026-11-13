@@ -315,7 +315,10 @@ type statuslineCmdMsg struct {
 
 // execStatuslineRun runs one external statusline command synchronously with a
 // timeout kill: the caller must already be off the UI goroutine (tea.Cmd).
-func execStatuslineRun(ctx context.Context, command, stdin string, env []string, timeout time.Duration) statuslineCmdMsg {
+// reportPID, when non-nil, receives the child pid right after Start so the
+// caller can kill the tree synchronously on exit instead of relying on the
+// context watcher, which may never run before os.Exit.
+func execStatuslineRun(ctx context.Context, command, stdin string, env []string, timeout time.Duration, reportPID func(int)) statuslineCmdMsg {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := statuslineShellCommand(runCtx, command, stdin, env)
@@ -331,6 +334,9 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
 		return statuslineCmdMsg{errNote: "statusline: comando falhou (erro de execução)"}
+	}
+	if reportPID != nil && cmd.Process != nil {
+		reportPID(cmd.Process.Pid)
 	}
 	waitErr := cmd.Wait()
 	text := strings.TrimRight(string(kept.bytes), "\n")
@@ -488,12 +494,24 @@ func (m model) startStatuslineRun(force bool) (model, tea.Cmd) {
 	stdin := string(m.statuslineStdin(m.width))
 	env := statuslineChildEnv(m.width, m.height)
 	timeout := time.Duration(cfg.EffectiveTimeoutMs()) * time.Millisecond
-	// Cancellable by apply/reset: the cancel fires the same tree kill the
-	// timeout relies on, so the old process never overlaps the new cadence.
+	// Cancellable by apply/reset/quit: the cancel fires the same tree kill
+	// the timeout relies on, so the old process never overlaps the new
+	// cadence. The exit path also waits for the runner (bounded) so os.Exit
+	// right after Run cannot slip ahead of the kill.
 	runCtx, cancel := context.WithCancel(context.Background())
 	m.statuslineCmdCancel = cancel
+	done := make(chan struct{})
+	m.statuslineCmdDone = done
+	pidCh := make(chan int, 1)
+	m.statuslineCmdPID = pidCh
 	return m, func() tea.Msg {
-		msg := execStatuslineRun(runCtx, cfg.Command.Command, stdin, env, timeout)
+		defer close(done)
+		msg := execStatuslineRun(runCtx, cfg.Command.Command, stdin, env, timeout, func(pid int) {
+			select {
+			case pidCh <- pid:
+			default:
+			}
+		})
 		msg.seq = seq
 		return msg
 	}
@@ -509,9 +527,43 @@ func (m model) cancelStatuslineRun() model {
 		m.statuslineCmdCancel()
 		m.statuslineCmdCancel = nil
 	}
+	// Synchronous tree kill: the context cancel above only asks os/exec's
+	// watcher to kill, which may never run before os.Exit leaves. Killing
+	// the known pid here leaves no orphan on any exit path.
+	if ch := m.statuslineCmdPID; ch != nil {
+		select {
+		case pid := <-ch:
+			if pid > 1 {
+				_ = execution.KillProcessGroup(pid)
+			}
+		default:
+		}
+		m.statuslineCmdPID = nil
+	}
 	m.statuslineCmdInFlight = false
 	m.statuslineRefreshDue = false
 	return m
+}
+
+// statuslineExitWait caps the synchronous kill on process exit. The runner
+// usually returns in milliseconds once cancelled; the cap only backstops a
+// stuck pipe drain so the exit never hangs.
+const statuslineExitWait = 2 * time.Second
+
+// killStatuslineSync cancels an in-flight run and waits (bounded) for the
+// runner to return, so a process exit right after Run cannot orphan the
+// script: the tree kill is issued before Wait unblocks, and its SIGKILL
+// cannot be caught. No-op when nothing ever ran.
+func (m model) killStatuslineSync() {
+	m = m.cancelStatuslineRun()
+	done := m.statuslineCmdDone
+	if done == nil {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(statuslineExitWait):
+	}
 }
 
 // applyStatuslineCmdMsg folds a finished run: output replaces the cache and
@@ -524,6 +576,9 @@ func (m model) applyStatuslineCmdMsg(msg statuslineCmdMsg) (model, tea.Cmd) {
 	}
 	m.statuslineCmdInFlight = false
 	m.statuslineCmdCancel = nil
+	// The run reaped its own process: drop the pid so a later exit never
+	// kills a recycled one.
+	m.statuslineCmdPID = nil
 	if msg.errNote != "" {
 		m.statuslineCmdErr = msg.errNote
 	} else {

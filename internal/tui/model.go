@@ -657,11 +657,19 @@ type model struct {
 	// statuslineCmdInFlight guarantees at most one command run in flight: a
 	// trigger while one runs is a no-op, never a queue.
 	statuslineCmdInFlight bool
-	// statuslineCmdCancel kills the in-flight run: apply/reset call it so the
-	// old config's process never overlaps the new cadence's. The cancel fires
-	// the same tree kill the timeout relies on, and the late result is
-	// dropped by the sequence check.
+	// statuslineCmdCancel kills the in-flight run: apply/reset/quit call it
+	// so the old config's process never overlaps the new cadence and no
+	// orphan survives the exit. The cancel fires the same tree kill the
+	// timeout relies on, and the late result is dropped by the sequence check.
 	statuslineCmdCancel context.CancelFunc
+	// statuslineCmdDone closes when the in-flight run's runner returns. The
+	// exit path waits on it (bounded) so os.Exit right after Run cannot
+	// orphan the script: the tree kill is issued before Wait unblocks.
+	statuslineCmdDone chan struct{}
+	// statuslineCmdPID carries the running script's pid from the runner to
+	// the model (buffered, single send). The exit path kills that group
+	// synchronously; completion drops it so a recycled pid is never killed.
+	statuslineCmdPID chan int
 	// statuslineCmdStartedAt gates re-runs to the refresh window; seq matches
 	// runs to their results so late losers are dropped.
 	statuslineCmdStartedAt time.Time
