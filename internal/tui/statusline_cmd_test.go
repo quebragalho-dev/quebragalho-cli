@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
@@ -297,6 +298,45 @@ func TestStatuslineForcedRefreshQueuedDuringFlight(t *testing.T) {
 	}
 	if msg.seq != m.statuslineCmdSeq {
 		t.Fatalf("queued refresh seq = %d, want %d", msg.seq, m.statuslineCmdSeq)
+	}
+}
+
+// Quitting with a run in flight kills the script process: no orphan
+// survives the exit (the timeout dies with the program, so only the tree
+// kill saves a stuck script).
+func TestStatuslineQuitKillsInFlightRun(t *testing.T) {
+	requireSh(t)
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "script.pid")
+	m := limeTestModel()
+	m.statuslineCfg = config.StatusLineConfig{
+		Command:   &config.StatusLineCommand{Command: `echo $$ > "` + pidFile + `"; sleep 30`},
+		TimeoutMs: 60000,
+	}
+	m, cmd := m.startStatuslineRun(false)
+	if cmd == nil {
+		t.Fatal("no run started")
+	}
+	done := make(chan tea.Msg, 1)
+	go func() { done <- execCmd(cmd) }()
+	pid := statuslineTestWaitPID(t, pidFile)
+	if !statuslineTestProcessAlive(pid) {
+		t.Fatal("precondition: script is not running")
+	}
+	_, quitCmd := m.quit()
+	if _, ok := execCmd(quitCmd).(tea.QuitMsg); !ok {
+		t.Fatal("quit must return tea.Quit")
+	}
+	select {
+	case msg := <-done:
+		if _, ok := msg.(statuslineCmdMsg); !ok {
+			t.Fatalf("run returned %T, want statuslineCmdMsg", msg)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("cancelled run did not return, want a fast tree kill")
+	}
+	if statuslineTestProcessAlive(pid) {
+		t.Fatalf("script pid %d still alive after quit", pid)
 	}
 }
 
