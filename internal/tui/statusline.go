@@ -55,13 +55,23 @@ func (m model) statuslineSeparator() string {
 // statusLineCustom renders a user/project-configured layout: up to three
 // lines, each with left ids and right ids joined by the separator, followed
 // by the external command's cached output filling the remaining footer rows.
-// Fields first, command fills the rest, three lines total. It never runs on
-// the default path, so the built-in line stays byte-identical.
+// With a command holding output or an error, the script keeps one guaranteed
+// line and the fields keep the rest, dropping the last field lines first.
+// It never runs on the default path, so the built-in line stays byte-identical.
 func (m model) statusLineCustom(width int) string {
 	cfg := m.statuslineCfg
 	lines := cfg.Lines
 	if len(lines) > maxStatusLineRenderLines {
 		lines = lines[:maxStatusLineRenderLines]
+	}
+	hasScript := m.statuslineCommandActive() &&
+		(strings.TrimSpace(m.statuslineCmdOutput) != "" || strings.TrimSpace(m.statuslineCmdErr) != "")
+	maxFields := maxStatusLineRenderLines
+	if hasScript {
+		maxFields = maxStatusLineRenderLines - 1
+	}
+	if len(lines) > maxFields {
+		lines = lines[:maxFields]
 	}
 	sep := m.statuslineSeparator()
 	var out []string
