@@ -431,7 +431,14 @@ type statuslineTickMsg struct{}
 
 // statuslineTickCmd schedules one idle refresh tick.
 func statuslineTickCmd(refreshMs int) tea.Cmd {
-	return tea.Tick(time.Duration(refreshMs)*time.Millisecond,
+	return statuslineTickCmdAfter(time.Duration(refreshMs) * time.Millisecond)
+}
+
+// statuslineTickCmdAfter schedules one idle refresh tick after d, so the
+// chain can re-arm with the time left since the last run started instead of
+// its own phase.
+func statuslineTickCmdAfter(d time.Duration) tea.Cmd {
+	return tea.Tick(d,
 		func(time.Time) tea.Msg { return statuslineTickMsg{} })
 }
 

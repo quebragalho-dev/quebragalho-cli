@@ -3634,14 +3634,27 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyStatuslineSetupValidated(msg), nil
 	case statuslineTickMsg:
 		// Idle refresh: start a due run and re-arm the chain. A deactivated
-		// command ends the chain by scheduling nothing.
+		// command ends the chain by scheduling nothing. The chain counts
+		// refreshMs from the start of the last run, whatever caused it, so a
+		// turn-forced run resets the idle phase instead of stacking on it.
 		if !m.statuslineCommandActive() {
 			m.statuslineTickArmed = false
 			return m, nil
 		}
 		m.statuslineTickArmed = true
+		refresh := time.Duration(m.statuslineCfg.EffectiveRefreshMs()) * time.Millisecond
 		m, cmd := m.startStatuslineRun(false)
-		return m, batchCommands(cmd, statuslineTickCmd(m.statuslineCfg.EffectiveRefreshMs()))
+		delay := refresh
+		if !m.statuslineCmdStartedAt.IsZero() {
+			if remaining := refresh - m.now().Sub(m.statuslineCmdStartedAt); remaining > 0 && remaining < delay {
+				delay = remaining
+			}
+		}
+		next := statuslineTickCmd(m.statuslineCfg.EffectiveRefreshMs())
+		if delay != refresh {
+			next = statuslineTickCmdAfter(delay)
+		}
+		return m, batchCommands(cmd, next)
 	case setupKeyCheckMsg:
 		return m.applySetupKeyCheck(msg), nil
 	case setupDeviceStartedMsg:
