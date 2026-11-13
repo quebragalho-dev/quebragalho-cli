@@ -765,6 +765,14 @@ func (m model) previewStatuslineProposal(pending *statuslinePendingApply, script
 	if pending.cfg.Command == nil && m.statuslineCfg.Command != nil {
 		lines = append(lines, "comando: removido")
 	}
+	// The live command has printed nothing yet, so the preview still shows
+	// all three field lines; warn that the last one gives way as soon as
+	// the script prints.
+	if len(scriptLines) == 0 && pending.cfg.Command != nil &&
+		strings.TrimSpace(m.statuslineCmdOutput) == "" && strings.TrimSpace(m.statuslineCmdErr) == "" &&
+		len(pending.cfg.Lines) >= maxStatusLineRenderLines {
+		lines = append(lines, "aviso: a última linha de campos cede quando o script imprimir")
+	}
 	for _, warning := range pending.warnings {
 		lines = append(lines, "aviso: "+warning)
 	}
