@@ -136,6 +136,7 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case keyCtrl(msg, 'c'):
+		m = m.cancelStatuslineRun()
 		return m, tea.Quit
 	case keyIs(msg, tea.KeyEsc), keyIs(msg, tea.KeyLeft):
 		if m.setup.stage > setupStageWelcome {
@@ -144,6 +145,7 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.setup.required {
+			m = m.cancelStatuslineRun()
 			return m, tea.Quit
 		}
 		return m.exitSetupToChat()
@@ -179,6 +181,7 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if keyText(msg) == "q" && m.setup.stage == setupStageWelcome {
+			m = m.cancelStatuslineRun()
 			return m, tea.Quit
 		}
 		return m, nil
@@ -678,6 +681,7 @@ func (m model) handleSetupCredentialKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case keyCtrl(msg, 'c'):
 		m.cancelDeviceLogin()
+		m = m.cancelStatuslineRun()
 		return m, tea.Quit
 	case m.setup.keyCheck:
 		// The gateway check owns the screen until its result lands.
