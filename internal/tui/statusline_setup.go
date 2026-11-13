@@ -742,12 +742,17 @@ func (m model) applyStatuslineSetupValidated(msg statuslineSetupValidatedMsg) mo
 func (m model) previewStatuslineProposal(pending *statuslinePendingApply, scriptLines []string) string {
 	render := m
 	render.statuslineCfg = pending.cfg
-	// Never reuse the live command output: the preview shows the staged
-	// dry-run output, or nothing when the proposal drops the command.
+	// The preview shows the staged dry-run output; a fields-only proposal
+	// keeps the live command, so it previews through the same
+	// statusLineCustom with the cached output instead of promising field
+	// lines the footer will hide for the script.
 	render.statuslineCmdOutput = ""
 	render.statuslineCmdErr = ""
 	if len(scriptLines) > 0 {
 		render.statuslineCmdOutput = strings.Join(scriptLines, "\n")
+	} else if pending.cfg.Command != nil {
+		render.statuslineCmdOutput = m.statuslineCmdOutput
+		render.statuslineCmdErr = m.statuslineCmdErr
 	}
 	width := maxInt(m.width, 80)
 	var lines []string
