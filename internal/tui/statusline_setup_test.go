@@ -75,7 +75,7 @@ func TestStatuslineCardAbbreviatesAndMiddleTruncates(t *testing.T) {
 }
 
 // Applying a proposal with an active command and a stopped chain starts a
-// run immediately and arms the tick chain; a running chain is never doubled.
+// run immediately and arms the tick chain.
 func TestStatuslineApplyArmsTickChainWhenStopped(t *testing.T) {
 	dir := t.TempDir()
 	userPath := filepath.Join(dir, "config.json")
@@ -86,18 +86,11 @@ func TestStatuslineApplyArmsTickChainWhenStopped(t *testing.T) {
 	cfg, _ := proposal.validatedConfig(config.StatusLineConfig{})
 	cfg.Command = &config.StatusLineCommand{Command: "echo hi"}
 	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
-	if m.statuslineTickArmed {
-		t.Fatal("fresh model must not report an armed chain")
-	}
 	applied, cmd := m.applyStatuslinePending()
 	if cmd == nil {
 		t.Fatal("apply with an active command and a stopped chain must arm the chain")
 	}
-	nm := applied
-	if !nm.statuslineTickArmed {
-		t.Fatal("apply did not mark the chain armed")
-	}
-	ticked, tickCmd := nm.Update(execCmd(cmd))
+	ticked, tickCmd := applied.Update(execCmd(cmd))
 	if tickCmd == nil {
 		t.Fatal("armed tick must keep the chain alive")
 	}
@@ -120,7 +113,6 @@ func TestStatuslineApplyRearmsRunningChainWithNewGeneration(t *testing.T) {
 		Command:   &config.StatusLineCommand{Command: "echo hi"},
 		RefreshMs: 60000,
 	}
-	m.statuslineTickArmed = true
 	before := m.statuslineTickGen
 	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}, RefreshMs: 1000}
 	cfg, _ := proposal.validatedConfig(m.statuslineCfg)

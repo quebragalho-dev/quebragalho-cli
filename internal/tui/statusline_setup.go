@@ -362,7 +362,6 @@ func (m model) resetStatusline() model {
 	// The old cadence dies here: any tick armed before the reset carries the
 	// previous generation and is discarded on arrival.
 	m.statuslineTickGen++
-	m.statuslineTickArmed = false
 	return m.appendStatuslineNotice("Statusline\nvoltou ao padrão.")
 }
 
@@ -865,9 +864,7 @@ func (m model) applyStatuslinePending() (model, tea.Cmd) {
 	m.statuslineTickGen++
 	m = m.appendStatuslineNotice("Statusline\natualizada.")
 	if m.statuslineCommandActive() {
-		m.statuslineTickArmed = true
 		return m, statuslineInitCmd(m.statuslineTickGen)
 	}
-	m.statuslineTickArmed = false
 	return m, nil
 }
