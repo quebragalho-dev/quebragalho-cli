@@ -426,25 +426,22 @@ func (m model) statuslineCommandActive() bool {
 }
 
 // statuslineTickMsg re-arms the idle refresh chain and opportunistically
-// starts a stale run.
-type statuslineTickMsg struct{}
-
-// statuslineTickCmd schedules one idle refresh tick.
-func statuslineTickCmd(refreshMs int) tea.Cmd {
-	return statuslineTickCmdAfter(time.Duration(refreshMs) * time.Millisecond)
-}
+// starts a stale run. gen is the chain generation: apply/reset bumps it, so
+// a tick armed under the old cadence is discarded instead of delaying the
+// new one.
+type statuslineTickMsg struct{ gen int }
 
 // statuslineTickCmdAfter schedules one idle refresh tick after d, so the
 // chain can re-arm with the time left since the last run started instead of
 // its own phase.
-func statuslineTickCmdAfter(d time.Duration) tea.Cmd {
+func statuslineTickCmdAfter(d time.Duration, gen int) tea.Cmd {
 	return tea.Tick(d,
-		func(time.Time) tea.Msg { return statuslineTickMsg{} })
+		func(time.Time) tea.Msg { return statuslineTickMsg{gen: gen} })
 }
 
 // statuslineInitCmd kicks the first refresh tick immediately at startup.
-func statuslineInitCmd() tea.Cmd {
-	return func() tea.Msg { return statuslineTickMsg{} }
+func statuslineInitCmd(gen int) tea.Cmd {
+	return func() tea.Msg { return statuslineTickMsg{gen: gen} }
 }
 
 // pollStatuslineCommand starts a command run when one is due after a state

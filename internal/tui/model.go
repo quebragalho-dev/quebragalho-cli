@@ -672,9 +672,11 @@ type model struct {
 	// preview. While set it owns the keyboard (see handleStatuslinePendingKey).
 	statuslinePending *statuslinePendingApply
 	// statuslineTickArmed tracks the idle refresh chain: set when a tick is
-	// scheduled, cleared when the chain stops (command deactivated). It keeps
-	// /statusline apply from arming a second chain over a running one.
+	// scheduled, cleared when the chain stops (command deactivated).
+	// statuslineTickGen versions the chain: apply/reset bumps it and re-arms,
+	// so a tick armed under the old cadence is discarded on arrival.
 	statuslineTickArmed          bool
+	statuslineTickGen            int
 	recapSeq                     int
 	recapRunning                 bool
 	recapCancel                  context.CancelFunc
@@ -1555,7 +1557,7 @@ func (m model) Init() tea.Cmd {
 	// keeps the idle refresh chain alive). Async like everything above.
 	if m.statuslineCommandActive() {
 		m.statuslineTickArmed = true
-		cmds = append(cmds, statuslineInitCmd())
+		cmds = append(cmds, statuslineInitCmd(m.statuslineTickGen))
 	}
 	// Read the terminal background only to keep a selected palette legible. This
 	// query never changes the terminal canvas; View deliberately leaves both
@@ -3637,6 +3639,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// command ends the chain by scheduling nothing. The chain counts
 		// refreshMs from the start of the last run, whatever caused it, so a
 		// turn-forced run resets the idle phase instead of stacking on it.
+		// A tick from a superseded generation (apply/reset re-armed since)
+		// is discarded: the new cadence already has its own tick pending.
+		if msg.gen != m.statuslineTickGen {
+			return m, nil
+		}
 		if !m.statuslineCommandActive() {
 			m.statuslineTickArmed = false
 			return m, nil
@@ -3650,11 +3657,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delay = remaining
 			}
 		}
-		next := statuslineTickCmd(m.statuslineCfg.EffectiveRefreshMs())
-		if delay != refresh {
-			next = statuslineTickCmdAfter(delay)
-		}
-		return m, batchCommands(cmd, next)
+		return m, batchCommands(cmd, statuslineTickCmdAfter(delay, m.statuslineTickGen))
 	case setupKeyCheckMsg:
 		return m.applySetupKeyCheck(msg), nil
 	case setupDeviceStartedMsg:

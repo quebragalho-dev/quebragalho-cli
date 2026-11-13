@@ -359,6 +359,10 @@ func (m model) resetStatusline() model {
 	m.statuslineCmdInFlight = false
 	m.statuslineCmdStartedAt = time.Time{}
 	m.statuslineCmdSeq++
+	// The old cadence dies here: any tick armed before the reset carries the
+	// previous generation and is discarded on arrival.
+	m.statuslineTickGen++
+	m.statuslineTickArmed = false
 	return m.appendStatuslineNotice("Statusline\nvoltou ao padrão.")
 }
 
@@ -809,8 +813,9 @@ func (m model) handleStatuslinePendingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // applyStatuslinePending moves the staged script to its final home, persists
 // the proposal to the user config, and switches the live statusline over. A
 // persist failure keeps the pending state so Enter retries; nothing is lost.
-// When the applied config runs a command but no refresh chain is alive, the
-// chain is armed (a run starts right away); a running chain is left alone.
+// The cadence always restarts here with a fresh generation: the new
+// layout/refresh takes effect on the next Update instead of waiting out the
+// old tick, and the old tick is discarded on arrival.
 func (m model) applyStatuslinePending() (model, tea.Cmd) {
 	pending := m.statuslinePending
 	if pending == nil {
@@ -857,10 +862,12 @@ func (m model) applyStatuslinePending() (model, tea.Cmd) {
 	m.statuslineCmdInFlight = false
 	m.statuslineCmdStartedAt = time.Time{}
 	m.statuslineCmdSeq++
+	m.statuslineTickGen++
 	m = m.appendStatuslineNotice("Statusline\natualizada.")
-	if m.statuslineCommandActive() && !m.statuslineTickArmed {
+	if m.statuslineCommandActive() {
 		m.statuslineTickArmed = true
-		return m, statuslineInitCmd()
+		return m, statuslineInitCmd(m.statuslineTickGen)
 	}
+	m.statuslineTickArmed = false
 	return m, nil
 }
