@@ -501,14 +501,16 @@ func (m model) startStatuslineRun(force bool) (model, tea.Cmd) {
 
 // cancelStatuslineRun kills a run still in flight (apply/reset switch the
 // cadence underneath it): the context cancel fires the same tree kill the
-// timeout relies on, so no orphan survives, and the late result is dropped
-// by the sequence check. At most one script process ever runs.
+// timeout relies on, so no orphan survives. The late result is dropped by
+// the sequence check, and a refresh queued during the flight is dropped too,
+// so the new cadence starts clean instead of firing one stale extra run.
 func (m model) cancelStatuslineRun() model {
 	if m.statuslineCmdCancel != nil {
 		m.statuslineCmdCancel()
 		m.statuslineCmdCancel = nil
 	}
 	m.statuslineCmdInFlight = false
+	m.statuslineRefreshDue = false
 	return m
 }
 
