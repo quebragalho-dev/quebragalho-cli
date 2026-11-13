@@ -185,7 +185,7 @@ func TestStatuslineChildEnvScrubbed(t *testing.T) {
 func TestStatuslineCommandTimeout(t *testing.T) {
 	restore := stubStatuslineShell(sleepHelperCommand("5s"))
 	defer restore()
-	msg := execStatuslineRun(context.Background(), "whatever", string(`{}`), statuslineChildEnv(80, 24), 50*time.Millisecond)
+	msg := execStatuslineRun(context.Background(), "whatever", string(`{}`), statuslineChildEnv(80, 24), 50*time.Millisecond, nil)
 	if len(msg.lines) != 0 {
 		t.Fatalf("timed-out run returned output: %#v", msg.lines)
 	}
@@ -198,7 +198,7 @@ func TestStatuslineCommandTimeout(t *testing.T) {
 func TestStatuslineCommandRun(t *testing.T) {
 	restore := stubStatuslineShell(echoHelperCommand("a\nb\nc\nd"))
 	defer restore()
-	msg := execStatuslineRun(context.Background(), "whatever", string(`{}`), statuslineChildEnv(80, 24), 2*time.Second)
+	msg := execStatuslineRun(context.Background(), "whatever", string(`{}`), statuslineChildEnv(80, 24), 2*time.Second, nil)
 	if len(msg.lines) != 3 {
 		t.Fatalf("lines = %#v, want 3", msg.lines)
 	}
@@ -323,6 +323,14 @@ func TestStatuslineQuitKillsInFlightRun(t *testing.T) {
 	if !statuslineTestProcessAlive(pid) {
 		t.Fatal("precondition: script is not running")
 	}
+	// A red run must not leak the parked sleep into the suite.
+	t.Cleanup(func() {
+		if statuslineTestProcessAlive(pid) {
+			if proc, err := os.FindProcess(pid); err == nil {
+				_ = proc.Kill()
+			}
+		}
+	})
 	_, quitCmd := m.quit()
 	if _, ok := execCmd(quitCmd).(tea.QuitMsg); !ok {
 		t.Fatal("quit must return tea.Quit")
@@ -340,13 +348,52 @@ func TestStatuslineQuitKillsInFlightRun(t *testing.T) {
 	}
 }
 
+// The synchronous exit kill waits for the runner to return: no live script
+// process is left behind when the program exits right after Run.
+func TestStatuslineKillSyncWaitsForRunner(t *testing.T) {
+	requireSh(t)
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "script.pid")
+	m := limeTestModel()
+	m.statuslineCfg = config.StatusLineConfig{
+		Command:   &config.StatusLineCommand{Command: `echo $$ > "` + pidFile + `"; sleep 30`},
+		TimeoutMs: 60000,
+	}
+	m, cmd := m.startStatuslineRun(false)
+	if cmd == nil {
+		t.Fatal("no run started")
+	}
+	done := make(chan tea.Msg, 1)
+	go func() { done <- execCmd(cmd) }()
+	pid := statuslineTestWaitPID(t, pidFile)
+	if !statuslineTestProcessAlive(pid) {
+		t.Fatal("precondition: script is not running")
+	}
+	t.Cleanup(func() {
+		if statuslineTestProcessAlive(pid) {
+			if proc, err := os.FindProcess(pid); err == nil {
+				_ = proc.Kill()
+			}
+		}
+	})
+	m.killStatuslineSync()
+	if statuslineTestProcessAlive(pid) {
+		t.Fatalf("script pid %d still alive after synchronous exit kill", pid)
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("runner did not return, the exit wait observed a timeout instead")
+	}
+}
+
 // A grandchild that outlives the shell holding stdout open must not wedge
 // the runner: the timeout kills the tree and the next cycle runs.
 func TestStatuslineCommandKillsTreeOnTimeout(t *testing.T) {
 	restore := stubStatuslineShell(leakHelperCommand())
 	defer restore()
 	start := time.Now()
-	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 200*time.Millisecond)
+	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 200*time.Millisecond, nil)
 	elapsed := time.Since(start)
 	if msg.errNote == "" || !strings.Contains(msg.errNote, "tempo") {
 		t.Fatalf("errNote = %q, want a timeout note", msg.errNote)
@@ -358,7 +405,7 @@ func TestStatuslineCommandKillsTreeOnTimeout(t *testing.T) {
 	restore()
 	restore = stubStatuslineShell(echoHelperCommand("again"))
 	defer restore()
-	again := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 5*time.Second)
+	again := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 5*time.Second, nil)
 	if again.errNote != "" {
 		t.Fatalf("follow-up run failed: %q", again.errNote)
 	}
@@ -375,7 +422,7 @@ func TestStatuslineCommandKeepsOutputOnWaitDelay(t *testing.T) {
 	pidFile := filepath.Join(dir, "grandchild.pid")
 	restore := stubStatuslineShell(leakPrintHelperCommand(pidFile, "SL-PARTIAL-OK"))
 	defer restore()
-	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 30*time.Second)
+	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 30*time.Second, nil)
 	if msg.errNote != "" {
 		t.Fatalf("errNote = %q, want the kept output instead of a failure", msg.errNote)
 	}
@@ -454,7 +501,7 @@ func TestStatuslineCommandCapsOutput(t *testing.T) {
 	}
 	restore := stubStatuslineShell(spamHelperCommand(1 << 20))
 	defer restore()
-	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 30*time.Second)
+	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 30*time.Second, nil)
 	if msg.errNote != "" {
 		t.Fatalf("errNote = %q, want success", msg.errNote)
 	}
