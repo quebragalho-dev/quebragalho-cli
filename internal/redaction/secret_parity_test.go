@@ -16,6 +16,13 @@ import (
 // internal/streamjson/redact_audit_test.go. If a list gains a format the
 // other lacks, extend this corpus (and the matching list) instead of
 // narrowing the test.
+//
+// NOTE: the openai floor deliberately differs by layer — secrets/redaction
+// use 20 chars, config/streamjson use 16 so 16-19-char keys with digits keep
+// being redacted — so this corpus only uses openai shapes every floor
+// catches (>= 20-char bodies) and prose every floor leaves alone
+// (task-list, digit-free kebab). The 16-19-char floor is pinned by the
+// per-package audit tests in config and streamjson instead.
 func TestAuditSecretsRedactionParity(t *testing.T) {
 	mustCatch := []string{
 		"glpat-abcdefghijklmnop1234",
@@ -36,7 +43,6 @@ func TestAuditSecretsRedactionParity(t *testing.T) {
 	mustKeep := []string{
 		"updated the task-list yesterday",
 		"sk-learn-machine-learning-model",
-		"sk-abcdefghijklmnop",
 	}
 	for _, clean := range mustKeep {
 		if findings := secrets.Scan(clean); len(findings) != 0 {

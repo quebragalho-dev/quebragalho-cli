@@ -6,12 +6,13 @@ import (
 )
 
 var secretPatterns = []*regexp.Regexp{
-	// Same shape as secrets.Scan/redaction openai keys: a word boundary (so
-	// "task-list" never matches), a 20-char minimum body, and no "." in the
-	// body class. Digit-free kebab-case matches (sk-learn-…) are dropped by
-	// the filter in redactSecrets unless they carry a known OpenAI-issued
-	// prefix (sk-proj-/sk-svcacct-/sk-admin-).
-	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`),
+	// Same openai shape as the other lists except the floor: a word boundary
+	// (so "task-list" never matches) and no "." in the body class. The floor
+	// stays at 16 chars so 16-19-char keys with digits keep being redacted;
+	// digit-free kebab-case matches (sk-learn-…) are dropped by the filter in
+	// redactSecrets unless they carry a known OpenAI-issued prefix
+	// (sk-proj-/sk-svcacct-/sk-admin-).
+	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{16,}`),
 	regexp.MustCompile(`(?i)(api[_-]?key["'=:\s]+)[^"',\s)]+`),
 	regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9._-]+`),
 }

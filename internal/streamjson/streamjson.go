@@ -303,13 +303,12 @@ func isValidID(value string) bool {
 }
 
 var secretPatterns = []*regexp.Regexp{
-	// OpenAI-style keys: anchor on a word boundary and require a 20-char body
-	// (same floor as secrets.Scan/redaction) so "sk-" inside ordinary words
-	// (e.g. "task-list") or short fragments is never redacted while real
-	// keys ("sk-proj-…", "sk-…") still are. Digit-free kebab-case matches
-	// (sk-learn-…) are dropped by the filter in redactString unless they
-	// carry a known OpenAI-issued prefix.
-	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`),
+	// OpenAI-style keys: anchor on a word boundary and require a 16-char body
+	// so "sk-" inside ordinary words (e.g. "task-list") or short fragments is
+	// never redacted while real keys ("sk-proj-…", "sk-…") still are.
+	// Digit-free kebab-case matches (sk-learn-…) are dropped by the filter in
+	// redactString unless they carry a known OpenAI-issued prefix.
+	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{16,}`),
 	// api_key=/api-key:/apiKey "…": require a real assignment delimiter (= or :) and
 	// a credential-length body so ordinary prose ("the api_key: setting", "apiKey
 	// value spans…") is not mangled — a bare space after the marker no longer counts
