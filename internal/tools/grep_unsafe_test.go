@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 // Unsafe runs do not prompt for out-of-workspace reads, so grep must not
@@ -15,7 +16,7 @@ import (
 // DenyRead exclusions keep applying per file.
 func TestGrepUnsafeFindsOutsideWorkspaceMatches(t *testing.T) {
 	root := t.TempDir()
-	outside := tempDirOutsideDefaultTemp(t)
+	outside := testutil.TempDirOutsideDefaultTemp(t)
 	target := filepath.Join(outside, "notes.txt")
 	if err := os.WriteFile(target, []byte("needle in the haystack\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -40,7 +41,7 @@ func TestGrepUnsafeFindsOutsideWorkspaceMatches(t *testing.T) {
 // Outside the unsafe mode the boundary still holds.
 func TestGrepOutsideWorkspaceStaysDeniedWithoutUnsafe(t *testing.T) {
 	root := t.TempDir()
-	outside := tempDirOutsideDefaultTemp(t)
+	outside := testutil.TempDirOutsideDefaultTemp(t)
 	target := filepath.Join(outside, "notes.txt")
 	if err := os.WriteFile(target, []byte("needle in the haystack\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -58,7 +59,7 @@ func TestGrepOutsideWorkspaceStaysDeniedWithoutUnsafe(t *testing.T) {
 // Even in unsafe mode a DenyRead path must not surface.
 func TestGrepUnsafeStillHonorsDenyRead(t *testing.T) {
 	root := t.TempDir()
-	outside := tempDirOutsideDefaultTemp(t)
+	outside := testutil.TempDirOutsideDefaultTemp(t)
 	allowed := filepath.Join(outside, "allowed.txt")
 	secretDir := filepath.Join(outside, "secret")
 	if err := os.MkdirAll(secretDir, 0o755); err != nil {

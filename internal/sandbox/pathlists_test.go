@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 // resolvedTempDir returns a symlink-resolved temp dir so paths built under it
@@ -84,7 +86,7 @@ func TestWritePrecedenceMatrix(t *testing.T) {
 	ws := resolvedTempDir(t)
 	mkdir(t, filepath.Join(ws, "src"))
 	wsSecret := mkdir(t, filepath.Join(ws, "secret"))
-	ext := tempDirOutsideDefaultTemp(t)
+	ext := testutil.TempDirOutsideDefaultTemp(t)
 	mkdir(t, filepath.Join(ext, "build"))
 	extProtected := mkdir(t, filepath.Join(ext, "build", "protected"))
 	outside := outsideDefaultTempPath(ws, "outside")
@@ -348,7 +350,7 @@ func TestEvaluateAppliesReadDeny(t *testing.T) {
 // but permitted once the path is on AllowWrite.
 func TestEvaluateAppliesWriteAllow(t *testing.T) {
 	ws := resolvedTempDir(t)
-	ext := tempDirOutsideDefaultTemp(t)
+	ext := testutil.TempDirOutsideDefaultTemp(t)
 	build := mkdir(t, filepath.Join(ext, "build"))
 
 	base := Policy{Mode: ModeEnforce, EnforceWorkspace: true}
@@ -381,7 +383,7 @@ func TestEvaluateAppliesWriteAllow(t *testing.T) {
 // backend write binds (so a sandboxed shell can write there).
 func TestWriteRootsReflectAllowWrite(t *testing.T) {
 	ws := resolvedTempDir(t)
-	ext := tempDirOutsideDefaultTemp(t)
+	ext := testutil.TempDirOutsideDefaultTemp(t)
 	build := mkdir(t, filepath.Join(ext, "build"))
 
 	engine := NewEngine(EngineOptions{

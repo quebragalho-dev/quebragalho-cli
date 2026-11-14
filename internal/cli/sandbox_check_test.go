@@ -9,6 +9,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 func sandboxCheckDeps(t *testing.T) (appDeps, string) {
@@ -32,7 +33,7 @@ func TestRunSandboxCheckJSONDeniesOutOfWorkspaceWrite(t *testing.T) {
 	// An absolute path outside the workspace, portable across OSes: a Unix literal
 	// like /etc/passwd is not absolute on Windows (it would be joined into the
 	// workspace and allowed), so build one under a non-temp test dir instead.
-	outside := filepath.Join(tempDirOutsideDefaultTemp(t), "outside.txt")
+	outside := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "outside.txt")
 	var stdout, stderr bytes.Buffer
 	exitCode := runWithDeps([]string{"sandbox", "check", "write_file", "--side-effect", "write", "--path", outside, "--json"}, &stdout, &stderr, deps)
 	if exitCode != exitSuccess {

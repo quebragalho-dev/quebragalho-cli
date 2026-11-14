@@ -5,11 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 func TestGrantRequestPermissionsReadDoesNotGrantWrite(t *testing.T) {
 	workspace := t.TempDir()
-	outside := tempDirOutsideDefaultTemp(t)
+	outside := testutil.TempDirOutsideDefaultTemp(t)
 	target := filepath.Join(outside, "notes.txt")
 	scope, err := NewScope(workspace, nil)
 	if err != nil {
@@ -116,7 +118,7 @@ func TestGrantRequestPermissionsNetworkOverlaysPolicyForTurn(t *testing.T) {
 
 func TestGrantRequestPermissionsSessionPersists(t *testing.T) {
 	workspace := t.TempDir()
-	outside := tempDirOutsideDefaultTemp(t)
+	outside := testutil.TempDirOutsideDefaultTemp(t)
 	target := filepath.Join(outside, "notes.txt")
 	engine := NewEngine(EngineOptions{WorkspaceRoot: workspace, Policy: DefaultPolicy()})
 
@@ -176,7 +178,7 @@ func TestCoversRequestPermissionsDoesNotOutliveTurnGrant(t *testing.T) {
 
 func TestPermissionProfileIncludesReadOnlyGrantAsReadRootOnly(t *testing.T) {
 	workspace := t.TempDir()
-	outside := tempDirOutsideDefaultTemp(t)
+	outside := testutil.TempDirOutsideDefaultTemp(t)
 	scope, err := NewScope(workspace, nil)
 	if err != nil {
 		t.Fatalf("NewScope: %v", err)

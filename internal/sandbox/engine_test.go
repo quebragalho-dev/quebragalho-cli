@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 // TestEvaluatePromptsForNetworkToolsButExemptsThemFromShellNetworkPolicy verifies
@@ -771,7 +773,7 @@ func TestEngineReportsContextCancellation(t *testing.T) {
 
 func TestEvaluateOverrideRootDoesNotInheritEngineScope(t *testing.T) {
 	workspace := t.TempDir()
-	extra := tempDirOutsideDefaultTemp(t)
+	extra := testutil.TempDirOutsideDefaultTemp(t)
 	scope, err := NewScope(workspace, []string{extra})
 	if err != nil {
 		t.Fatalf("NewScope: %v", err)
@@ -831,7 +833,7 @@ func promptWorkspaceWritePolicy() Policy {
 
 func TestEvaluateAllowsWritesInsideExtraScopeRoot(t *testing.T) {
 	workspace := t.TempDir()
-	extra := tempDirOutsideDefaultTemp(t)
+	extra := testutil.TempDirOutsideDefaultTemp(t)
 	scope, err := NewScope(workspace, []string{extra})
 	if err != nil {
 		t.Fatalf("NewScope: %v", err)
@@ -876,7 +878,7 @@ func TestEvaluateAllowsWritesInsideExtraScopeRoot(t *testing.T) {
 // skip, turning the engine into an escape hatch.
 func TestNewEngineDerivesWorkspaceRootFromScope(t *testing.T) {
 	workspace := t.TempDir()
-	extra := tempDirOutsideDefaultTemp(t)
+	extra := testutil.TempDirOutsideDefaultTemp(t)
 	scope, err := NewScope(workspace, []string{extra})
 	if err != nil {
 		t.Fatalf("NewScope: %v", err)

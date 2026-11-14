@@ -18,6 +18,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/specmode"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
@@ -2828,7 +2829,7 @@ func TestRunEmitsPermissionEventForPersistentSandboxGrant(t *testing.T) {
 
 func TestRunPromptsAndAllowsOutsideWorkspaceWrite(t *testing.T) {
 	root := t.TempDir()
-	outside := filepath.Join(tempDirOutsideDefaultTemp(t), "escape.txt")
+	outside := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "escape.txt")
 	engine := sandbox.NewEngine(sandbox.EngineOptions{
 		WorkspaceRoot: root,
 		Policy:        sandbox.DefaultPolicy(),
@@ -2890,7 +2891,7 @@ func TestRunPromptsAndAllowsOutsideWorkspaceWrite(t *testing.T) {
 
 func TestRunSessionAllowsLaterOutsideWorkspaceWrite(t *testing.T) {
 	root := t.TempDir()
-	outside := filepath.Join(tempDirOutsideDefaultTemp(t), "escape.txt")
+	outside := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "escape.txt")
 	engine := sandbox.NewEngine(sandbox.EngineOptions{
 		WorkspaceRoot: root,
 		Policy:        sandbox.DefaultPolicy(),
@@ -2960,7 +2961,7 @@ func TestRunSessionAllowsLaterOutsideWorkspaceWrite(t *testing.T) {
 
 func TestRunAllowsOutsideWorkspaceWriteInUnsafeMode(t *testing.T) {
 	root := t.TempDir()
-	outside := filepath.Join(tempDirOutsideDefaultTemp(t), "escape.txt")
+	outside := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "escape.txt")
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewScopedWriteFileTool(root, nil))
 	provider := providerCallingWritePathThenAnswer(outside, "write done")
@@ -3000,7 +3001,7 @@ func TestRunAllowsOutsideWorkspaceWriteInUnsafeMode(t *testing.T) {
 
 func TestUnsafeAllowsOutsideWorkspaceRead(t *testing.T) {
 	root := t.TempDir()
-	outside := filepath.Join(tempDirOutsideDefaultTemp(t), "secret.txt")
+	outside := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "secret.txt")
 	if err := os.WriteFile(outside, []byte("top secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

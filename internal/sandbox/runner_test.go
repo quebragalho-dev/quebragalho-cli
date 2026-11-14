@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 func TestBuildCommandPlanWrapsLinuxHelper(t *testing.T) {
@@ -171,7 +173,7 @@ func TestBuildCommandPlanRejectsOutsideDirectory(t *testing.T) {
 		Backend:       Backend{Name: BackendUnavailable},
 	})
 
-	_, err := engine.BuildCommandPlan(CommandSpec{Name: "/bin/sh", Dir: tempDirOutsideDefaultTemp(t)})
+	_, err := engine.BuildCommandPlan(CommandSpec{Name: "/bin/sh", Dir: testutil.TempDirOutsideDefaultTemp(t)})
 	if err == nil || !strings.Contains(err.Error(), "outside_workspace") {
 		t.Fatalf("error = %v, want outside workspace block", err)
 	}
@@ -771,7 +773,7 @@ func TestSandboxExecProfileGrantsSignalAndMachLookup(t *testing.T) {
 
 func TestLinuxHelperPlanCarriesExtraWriteRoots(t *testing.T) {
 	workspace := t.TempDir()
-	extra := tempDirOutsideDefaultTemp(t)
+	extra := testutil.TempDirOutsideDefaultTemp(t)
 	scope, err := NewScope(workspace, []string{extra})
 	if err != nil {
 		t.Fatalf("NewScope: %v", err)
@@ -798,7 +800,7 @@ func TestLinuxHelperPlanCarriesExtraWriteRoots(t *testing.T) {
 
 func TestResolveCommandDirAllowsExtraRootCwd(t *testing.T) {
 	workspace := t.TempDir()
-	extra := tempDirOutsideDefaultTemp(t)
+	extra := testutil.TempDirOutsideDefaultTemp(t)
 	scope, err := NewScope(workspace, []string{extra})
 	if err != nil {
 		t.Fatalf("NewScope: %v", err)
@@ -807,14 +809,14 @@ func TestResolveCommandDirAllowsExtraRootCwd(t *testing.T) {
 	if _, _, err := engine.resolveCommandDir(extra, engine.policy); err != nil {
 		t.Fatalf("resolveCommandDir(extra root) = %v, want nil", err)
 	}
-	if _, _, err := engine.resolveCommandDir(tempDirOutsideDefaultTemp(t), engine.policy); err == nil {
+	if _, _, err := engine.resolveCommandDir(testutil.TempDirOutsideDefaultTemp(t), engine.policy); err == nil {
 		t.Fatal("resolveCommandDir(outside all roots) = nil error, want block")
 	}
 }
 
 func TestLinuxHelperPlanPreservesRealExtraRootCwd(t *testing.T) {
 	workspace := t.TempDir()
-	extra := tempDirOutsideDefaultTemp(t)
+	extra := testutil.TempDirOutsideDefaultTemp(t)
 	credentialHome := filepath.Join(workspace, "credential-home")
 	configHome := filepath.Join(credentialHome, "config")
 	if err := os.MkdirAll(filepath.Join(configHome, "qg"), 0o700); err != nil {
