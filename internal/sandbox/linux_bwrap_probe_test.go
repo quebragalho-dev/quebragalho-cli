@@ -80,6 +80,9 @@ func TestLinuxBwrapProbeRejectsBrokenBubblewrap(t *testing.T) {
 		"apparmor_restrict_unprivileged_userns",
 		"sysctl",
 		"loopback",
+		// Full GitHub link: installed copies (npm, installer) do not ship
+		// the repo, so a relative docs/ path would point nowhere.
+		"https://github.com/quebragalho-dev/quebragalho-cli/blob/main/docs/INSTALL.md#linux--ubuntu-2404-ambiente-isolado",
 	} {
 		if !strings.Contains(backend.Message, want) {
 			t.Fatalf("backend message = %q, want it to contain %q", backend.Message, want)

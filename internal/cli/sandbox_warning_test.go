@@ -42,9 +42,14 @@ func TestSandboxUnavailableSessionWarning(t *testing.T) {
 				t.Fatalf("expected silence, got %q", got)
 			}
 			if tc.want {
-				for _, want := range []string{"Ambiente isolado", "isolamento nativo", "qg doctor", "docs/INSTALL.md"} {
+				for _, want := range []string{"Ambiente isolado", "isolamento nativo", "Rode `qg doctor`"} {
 					if !strings.Contains(got, want) {
 						t.Fatalf("warning = %q, want it to contain %q", got, want)
+					}
+				}
+				for _, unwanted := range []string{"docs/INSTALL.md", "Ubuntu", "AppArmor", "sysctl"} {
+					if strings.Contains(got, unwanted) {
+						t.Fatalf("warning = %q, must stay platform-neutral (no %q)", got, unwanted)
 					}
 				}
 			}

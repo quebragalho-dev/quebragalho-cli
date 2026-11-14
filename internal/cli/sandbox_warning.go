@@ -9,9 +9,11 @@ import (
 
 // sandboxUnavailableSessionWarningText is the one-time session warning shown
 // when the sandbox is enabled but the native backend is unavailable: commands
-// still run, without native isolation. Short Portuguese, pointing at the
-// diagnostics (`qg doctor`) and the documented fix.
-const sandboxUnavailableSessionWarningText = "Ambiente isolado indisponível: os comandos rodam sem isolamento nativo. Veja `qg doctor` e docs/INSTALL.md (seção Linux / Ubuntu 24.04+)."
+// still run, without native isolation. Short Portuguese, deliberately neutral
+// about the fix: the same warning fires on Linux (broken or missing bwrap),
+// on Windows before `qg sandbox setup`, and on WSL, and only `qg doctor`
+// knows each platform's remediation.
+const sandboxUnavailableSessionWarningText = "Ambiente isolado indisponível: os comandos rodam sem isolamento nativo. Rode `qg doctor` para ver como resolver."
 
 // sandboxUnavailableSessionWarning returns the session warning when the
 // sandbox is enabled but no native backend is available (broken or missing
