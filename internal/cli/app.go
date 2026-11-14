@@ -1092,6 +1092,13 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 			notes = append(notes, resolved.StatusLineWarnings...)
 			return strings.Join(notes, "\n")
 		}(),
+		// One-time system warning, shown once at startup when the sandbox is
+		// enabled but the native backend is unavailable. The TUI owns the
+		// screen, so a stderr line would scroll away unseen.
+		SandboxWarning: sandboxUnavailableSessionWarning(
+			resolved.Sandbox.Enabled == nil || *resolved.Sandbox.Enabled,
+			sandboxBackend,
+		),
 		Provider:    provider,
 		NewProvider: deps.newProvider,
 		NewTurnSessionProvider: func(profile config.ProviderProfile, provider qgruntime.Provider) qgruntime.TurnSessionProvider {

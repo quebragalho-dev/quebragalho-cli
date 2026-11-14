@@ -63,7 +63,12 @@ type Options struct {
 	StatusLine config.StatusLineConfig
 	// StatusLineWarning surfaces a non-fatal statusline config notice (e.g. a
 	// project command that was ignored) once at startup. "" shows nothing.
-	StatusLineWarning           string
+	StatusLineWarning string
+	// SandboxWarning surfaces the one-time session warning shown when the
+	// sandbox is enabled but the native backend is unavailable (commands run
+	// without native isolation). "" shows nothing. Rendered once at startup
+	// as a system message, above the fold with the welcome row.
+	SandboxWarning              string
 	Provider                    qgruntime.Provider
 	NewProvider                 func(config.ProviderProfile) (qgruntime.Provider, error)
 	NewTurnSessionProvider      func(config.ProviderProfile, qgruntime.Provider) qgruntime.TurnSessionProvider

@@ -43,6 +43,7 @@ func bubblewrapUnusableMessage(detail string) string {
 		" (kernel.apparmor_restrict_unprivileged_userns=1): libere o bwrap com um perfil do AppArmor" +
 		" que permita user namespaces ou ajuste o sysctl" +
 		" (por exemplo, `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`)." +
+		" Passo a passo: docs/INSTALL.md (seção Linux / Ubuntu 24.04+)." +
 		" Enquanto isso, os comandos rodam sem o isolamento nativo do Linux."
 	return message
 }

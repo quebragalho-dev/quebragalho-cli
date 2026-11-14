@@ -386,6 +386,10 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	if err != nil {
 		return writeExecProviderError(stdout, stderr, options.outputFormat, "sandbox_error", err.Error())
 	}
+	// One session warning on stderr (never stdout) when the sandbox is enabled
+	// but the native backend is unavailable: commands run without native
+	// isolation and the operator must hear it once, not discover it in `qg doctor`.
+	emitSandboxUnavailableWarning(stderr, resolved.Sandbox.Enabled == nil || *resolved.Sandbox.Enabled, sandboxEngine.Backend())
 	if notice, err := sandboxEngine.ConsumeGrantMigrationNotice(); err != nil {
 		return writeExecProviderError(stdout, stderr, options.outputFormat, "sandbox_error", "migrate sandbox grants: "+err.Error())
 	} else if notice != "" {

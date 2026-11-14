@@ -1426,6 +1426,13 @@ func newModel(ctx context.Context, options Options) model {
 	if warning := strings.TrimSpace(options.StatusLineWarning); warning != "" {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: warning})
 	}
+	// Surface the sandbox-unavailable session warning the same way, exactly
+	// once: the TUI owns the screen, so a stderr line would scroll away
+	// unseen. Empty (backend works, sandbox disabled, or already isolated)
+	// shows nothing.
+	if warning := strings.TrimSpace(options.SandboxWarning); warning != "" {
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: warning})
+	}
 	// Name unknown statusline field ids once at startup, so a typo in a
 	// hand-written config does not fail silently (the setup card repeats
 	// them at preview time; this covers everything else).

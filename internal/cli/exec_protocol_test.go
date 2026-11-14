@@ -65,6 +65,7 @@ func TestRunExecListsFilteredToolsWithoutPromptOrProvider(t *testing.T) {
 			providerBuilt = true
 			return nil, errors.New("provider should not be constructed for --list-tools")
 		},
+		selectSandboxBackend: availableSandboxBackendStub,
 	})
 
 	if exitCode != exitSuccess {
@@ -103,6 +104,7 @@ func TestRunExecListsToolsAsStreamJSONWhenRequested(t *testing.T) {
 			providerBuilt = true
 			return nil, errors.New("provider should not be constructed for --list-tools")
 		},
+		selectSandboxBackend: availableSandboxBackendStub,
 	})
 
 	if exitCode != exitSuccess {
@@ -150,6 +152,7 @@ func TestRunExecListsMCPToolsWithoutProviderConstruction(t *testing.T) {
 			providerBuilt = true
 			return nil, errors.New("provider should not be constructed for --list-tools")
 		},
+		selectSandboxBackend: availableSandboxBackendStub,
 		resolveMCPConfig: func(workspaceRoot string, _ bool) (config.MCPConfig, error) {
 			if workspaceRoot != cwd {
 				t.Fatalf("workspaceRoot = %q, want %q", workspaceRoot, cwd)
@@ -320,6 +323,7 @@ func TestRunExecStreamJSONOutputsRunEndAndRecordsSession(t *testing.T) {
 		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return echoExecProvider{}, nil
 		},
+		selectSandboxBackend: availableSandboxBackendStub,
 	})
 
 	if exitCode != exitSuccess {
@@ -385,6 +389,7 @@ func TestRunExecStreamJSONEmitsAndRecordsPermissionEvents(t *testing.T) {
 		newSandboxStore: func() (*sandbox.GrantStore, error) {
 			return sandbox.NewGrantStore(sandbox.StoreOptions{FilePath: filepath.Join(t.TempDir(), "sandbox-grants.json")})
 		},
+		selectSandboxBackend: availableSandboxBackendStub,
 	})
 
 	if exitCode != exitSuccess {
@@ -457,6 +462,7 @@ func TestRunExecStreamJSONEmitsAndRecordsPermissionEvents(t *testing.T) {
 		newSandboxStore: func() (*sandbox.GrantStore, error) {
 			return sandbox.NewGrantStore(sandbox.StoreOptions{FilePath: filepath.Join(t.TempDir(), "sandbox-grants.json")})
 		},
+		selectSandboxBackend: availableSandboxBackendStub,
 	})
 
 	if exitCode != exitSuccess {
