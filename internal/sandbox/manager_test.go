@@ -369,6 +369,9 @@ func TestSandboxManagerSelectsPlatformBackend(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			if test.goos == "linux" {
+				stubLinuxBwrapProbe(t, nil)
+			}
 			manager := NewSandboxManager(SandboxManagerOptions{
 				GOOS: test.goos,
 				LookupExecutable: func(name string) (string, error) {
@@ -419,6 +422,7 @@ func TestSandboxManagerInfersPlatformFromExplicitBackend(t *testing.T) {
 }
 
 func TestSelectBackendDelegatesToSandboxManagerSelection(t *testing.T) {
+	stubLinuxBwrapProbe(t, nil)
 	backend := SelectBackend(BackendOptions{
 		GOOS: "linux",
 		LookupExecutable: func(name string) (string, error) {

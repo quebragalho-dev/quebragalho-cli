@@ -1,11 +1,15 @@
 package sandbox
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // Linux backend diagnostics, exported so the doctor can name the missing piece
@@ -16,7 +20,74 @@ const (
 	LinuxSandboxHelperMissingMessage = "Linux sandbox helper is not available"
 	// BubblewrapMissingMessage reports that bwrap was not found on PATH.
 	BubblewrapMissingMessage = "bubblewrap is not installed"
+	// BubblewrapUnusableMessagePrefix starts the Portuguese message reporting
+	// that bwrap exists but a live probe failed: the binary is installed yet
+	// cannot build a sandbox on this machine (e.g. Ubuntu 24.04+ where
+	// AppArmor blocks unprivileged user namespaces by default). The probe's
+	// own stderr is appended after this prefix, so match it with a prefix
+	// comparison, never with equality.
+	BubblewrapUnusableMessagePrefix = "bubblewrap (bwrap) está instalado, mas não consegue criar o ambiente isolado"
 )
+
+// bubblewrapUnusableMessage explains in Portuguese why the installed bwrap
+// cannot be used here and how to fix it, keeping the probe's own diagnostic
+// for support. The message is user-facing (it surfaces as the backend message,
+// the downgrade reason, and the doctor warning), so it names both approved
+// remediations: an AppArmor profile for bwrap or the sysctl knob.
+func bubblewrapUnusableMessage(detail string) string {
+	message := BubblewrapUnusableMessagePrefix + " neste sistema."
+	if trimmed := strings.TrimSpace(detail); trimmed != "" {
+		message += " Diagnóstico do bwrap: " + trimmed + "."
+	}
+	message += " No Ubuntu 24.04 ou superior, o AppArmor bloqueia user namespaces sem privilégios por padrão" +
+		" (kernel.apparmor_restrict_unprivileged_userns=1): libere o bwrap com um perfil do AppArmor" +
+		" que permita user namespaces ou ajuste o sysctl" +
+		" (por exemplo, `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`)." +
+		" Enquanto isso, os comandos rodam sem o isolamento nativo do Linux."
+	return message
+}
+
+// linuxBwrapProbe checks that bwrap can actually build a sandbox on this
+// machine. Indirected through a variable so tests can stub the probe without
+// touching the real binary.
+var linuxBwrapProbe = runLinuxBwrapProbe
+
+// runLinuxBwrapProbe executes bwrap once with the same user/pid/network
+// namespace flags the helper always applies, so backend selection reflects
+// whether bwrap really works here instead of only whether the binary exists.
+// An existence check is not enough: on Ubuntu 24.04+ with the default AppArmor
+// restriction (kernel.apparmor_restrict_unprivileged_userns=1),
+// /usr/bin/bwrap is installed but fails with "bwrap: loopback: Failed
+// RTM_NEWADDR: Operation not permitted", and every wrapped command would fail
+// with it. A failing probe returns the probe's stderr so the caller can name
+// the cause.
+func runLinuxBwrapProbe(bwrapPath string) error {
+	path := strings.TrimSpace(bwrapPath)
+	if path == "" {
+		return errors.New("empty bwrap path")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, path,
+		"--unshare-user",
+		"--unshare-pid",
+		"--unshare-net",
+		"--proc", "/proc",
+		"--ro-bind", "/", "/",
+		"--chdir", "/",
+		"--", "true",
+	)
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			return errors.New(detail)
+		}
+		return err
+	}
+	return nil
+}
 
 // errWindowsSandboxNotInitialized is returned only to a caller that explicitly
 // REQUIRED the sandbox (--sandbox require) on Windows before `qg sandbox setup`
@@ -189,8 +260,17 @@ func selectPlatformBackend(goos string, lookup func(string) (string, error), det
 	switch goos {
 	case "linux":
 		if helper, err := ResolveLinuxSandboxHelperCommand(lookup); err == nil && helper.Name != "" {
-			if _, bwrapErr := lookup("bwrap"); bwrapErr != nil {
+			bwrapPath, bwrapErr := lookup("bwrap")
+			if bwrapErr != nil {
 				return unavailableBackend(goos, BubblewrapMissingMessage)
+			}
+			// Probe the real binary: existing does not mean working. A bwrap that
+			// cannot build namespaces (Ubuntu 24.04+ AppArmor default) must
+			// select the honest unavailable backend with a remediation
+			// message, never the native backend that would fail every
+			// wrapped command.
+			if probeErr := linuxBwrapProbe(bwrapPath); probeErr != nil {
+				return unavailableBackend(goos, bubblewrapUnusableMessage(probeErr.Error()))
 			}
 			return nativeBackend(goos, BackendLinuxBwrap, helper.Name, "Linux sandbox helper available")
 		}

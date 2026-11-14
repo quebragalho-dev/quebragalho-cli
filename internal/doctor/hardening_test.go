@@ -2,6 +2,8 @@ package doctor
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -41,7 +43,7 @@ func TestSandboxCheckPassesWhenBackendPresent(t *testing.T) {
 		Now:              fixedDoctorClock("2026-06-12T10:00:00Z"),
 		Runtime:          "go",
 		GOOS:             "linux",
-		LookupExecutable: stubLookup(sandbox.LinuxSandboxHelperName, "bwrap"),
+		LookupExecutable: stubLookupWithWorkingBwrap(t),
 	})
 
 	check := report.Check("sandbox.backend")
@@ -74,6 +76,58 @@ func TestSandboxCheckWarnsWithRemedyWhenBackendMissing(t *testing.T) {
 	// permission checks still run, so the overall report must not fail on it alone.
 	if !report.OK {
 		t.Fatalf("missing sandbox backend should warn, not fail the report: %#v", report.Checks)
+	}
+}
+
+// stubLookupWithWorkingBwrap resolves the Linux helper and a fake bwrap that
+// passes the live usability probe (it execs its arguments, so the probe's
+// `true` succeeds). Backend selection runs the real probe binary, so pointing
+// the lookup at /usr/bin/bwrap would make this test depend on the machine's
+// AppArmor/userns state; the fake keeps it hermetic.
+func stubLookupWithWorkingBwrap(t *testing.T) func(string) (string, error) {
+	t.Helper()
+	dir := t.TempDir()
+	helper := filepath.Join(dir, sandbox.LinuxSandboxHelperName)
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake helper: %v", err)
+	}
+	bwrap := filepath.Join(dir, "bwrap")
+	if err := os.WriteFile(bwrap, []byte("#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = \"--\" ]; then shift; break; fi; shift; done\nexec \"$@\"\n"), 0o755); err != nil {
+		t.Fatalf("write fake bwrap: %v", err)
+	}
+	return func(name string) (string, error) {
+		switch name {
+		case sandbox.LinuxSandboxHelperName:
+			return helper, nil
+		case "bwrap":
+			return bwrap, nil
+		}
+		return "", errors.New("executable file not found in $PATH")
+	}
+}
+
+// stubLookupWithBrokenBwrap resolves the Linux helper and a fake bwrap that
+// replays the Ubuntu 24.04 AppArmor failure, so the probe (run for real)
+// reports the backend as broken.
+func stubLookupWithBrokenBwrap(t *testing.T) func(string) (string, error) {
+	t.Helper()
+	dir := t.TempDir()
+	helper := filepath.Join(dir, sandbox.LinuxSandboxHelperName)
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake helper: %v", err)
+	}
+	bwrap := filepath.Join(dir, "bwrap")
+	if err := os.WriteFile(bwrap, []byte("#!/bin/sh\necho 'bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write fake bwrap: %v", err)
+	}
+	return func(name string) (string, error) {
+		switch name {
+		case sandbox.LinuxSandboxHelperName:
+			return helper, nil
+		case "bwrap":
+			return bwrap, nil
+		}
+		return "", errors.New("executable file not found in $PATH")
 	}
 }
 
@@ -250,6 +304,34 @@ func TestSandboxCheckLinuxWarningNamesMissingPiece(t *testing.T) {
 				t.Fatalf("remedy = %q, want the unchanged English machine remedy", remedy)
 			}
 		})
+	}
+}
+
+// TestSandboxCheckLinuxWarningNamesBrokenBwrap proves the human warning for a
+// bwrap that exists but fails the live probe stays actionable and in
+// Portuguese: it must name AppArmor/userns and both remediations (an AppArmor
+// profile for bwrap or the sysctl knob), while the JSON detail names stay
+// unchanged.
+func TestSandboxCheckLinuxWarningNamesBrokenBwrap(t *testing.T) {
+	check := Run(Options{
+		Now:              fixedDoctorClock("2026-06-12T10:11:30Z"),
+		Runtime:          "go",
+		GOOS:             "linux",
+		Provider:         validProvider(),
+		LookupExecutable: stubLookupWithBrokenBwrap(t),
+	}).Check("sandbox.backend")
+	if check == nil || check.Status != StatusWarn {
+		t.Fatalf("expected sandbox.backend warn, got %#v", check)
+	}
+	for _, want := range []string{"bwrap", "AppArmor", "apparmor_restrict_unprivileged_userns", "sysctl"} {
+		if !strings.Contains(check.Message, want) {
+			t.Fatalf("message = %q, want it to contain %q", check.Message, want)
+		}
+	}
+	for _, key := range []string{"backend", "platform", "supportLevel", "downgradeReason", "remedy"} {
+		if _, ok := check.Details[key]; !ok {
+			t.Fatalf("details = %#v, want key %q to keep its name", check.Details, key)
+		}
 	}
 }
 

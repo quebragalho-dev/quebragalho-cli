@@ -9,6 +9,7 @@ import (
 
 func TestSelectBackendChoosesPlatformAdapterWithFallback(t *testing.T) {
 	t.Run("linux helper available", func(t *testing.T) {
+		stubLinuxBwrapProbe(t, nil)
 		backend := SelectBackend(BackendOptions{
 			GOOS: "linux",
 			LookupExecutable: func(name string) (string, error) {
@@ -193,6 +194,7 @@ func TestSelectBackendChoosesPlatformAdapterWithFallback(t *testing.T) {
 
 func TestLegacySandboxEntrypointsAreExplicitAndExist(t *testing.T) {
 	t.Run("linux still requires bubblewrap behind helper", func(t *testing.T) {
+		stubLinuxBwrapProbe(t, nil)
 		lookups := map[string]string{
 			LinuxSandboxHelperName: "/usr/bin/" + LinuxSandboxHelperName,
 			"bwrap":                "/usr/bin/bwrap",
