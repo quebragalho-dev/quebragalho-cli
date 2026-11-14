@@ -48,10 +48,17 @@ func TempDirOutsideDefaultTemp(t *testing.T) string {
 }
 
 // enclosingTempRoot reports the default temporary write root path lies under,
-// or "" when it is outside them all.
+// or "" when it is outside them all. The input is symlink-resolved first,
+// mirroring TempDirOutsideDefaultTemp: t.TempDir() hands out the unresolved
+// spelling (macOS /var/folders/...) while the roots are stored resolved
+// (/private/var/folders/...), and comparing them raw never matches.
 func enclosingTempRoot(path string) (string, bool) {
+	resolved := path
+	if eval, err := filepath.EvalSymlinks(path); err == nil {
+		resolved = eval
+	}
 	for _, root := range defaultTempWriteRoots() {
-		if pathWithinRoot(root, path) {
+		if pathWithinRoot(root, resolved) {
 			return root, true
 		}
 	}

@@ -61,7 +61,11 @@ func TestEnclosingTempRootDetectsCheckoutUnderTemp(t *testing.T) {
 		t.Setenv("TMPDIR", base)
 	}
 	root, ok := enclosingTempRoot(sub)
-	if !ok || !pathWithinRoot(root, sub) {
+	resolvedSub := sub
+	if eval, err := filepath.EvalSymlinks(sub); err == nil {
+		resolvedSub = eval
+	}
+	if !ok || !pathWithinRoot(root, resolvedSub) {
 		t.Fatalf("enclosingTempRoot(%q) = %q,%v, want an enclosing temp root", sub, root, ok)
 	}
 }
