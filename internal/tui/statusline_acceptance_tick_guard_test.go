@@ -93,6 +93,76 @@ func TestStatuslineTickRearmUsesInjectedClock(t *testing.T) {
 	}
 }
 
+// A tick armed before a turn-forced run is not discarded and starts no
+// extra run: the forced run already refreshed, so the stale tick only
+// re-arms the chain for the time left in refreshMs since the forced run
+// started — and the next tick then runs on that phase.
+func TestStatuslineStaleTickRearmsFromForcedRun(t *testing.T) {
+	m := limeTestModel()
+	m.width, m.height = 100, 30
+	m.statuslineCfg = config.StatusLineConfig{
+		Lines:     []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command:   &config.StatusLineCommand{Command: "echo hi"},
+		RefreshMs: 1000,
+	}
+	fake := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return fake }
+	gen := m.statuslineTickGen
+
+	// Startup tick starts run 1.
+	started, _ := m.Update(statuslineTickMsg{gen: gen})
+	m = started.(model)
+	if !m.statuslineCmdInFlight || m.statuslineCmdSeq != 1 {
+		t.Fatalf("startup tick started no run: inFlight=%v seq=%d", m.statuslineCmdInFlight, m.statuslineCmdSeq)
+	}
+	// Turn lands 250ms later and forces run 2 right away.
+	m.now = func() time.Time { return fake.Add(250 * time.Millisecond) }
+	completed, _ := m.applyStatuslineCmdMsg(statuslineCmdMsg{seq: 1})
+	m = completed
+	if m.statuslineCmdInFlight {
+		t.Fatal("run 1 never completed")
+	}
+	forced, _ := m.startStatuslineRun(true)
+	m = forced
+	if !m.statuslineCmdInFlight || m.statuslineCmdSeq != 2 {
+		t.Fatalf("turn forced no run: inFlight=%v seq=%d", m.statuslineCmdInFlight, m.statuslineCmdSeq)
+	}
+	done, _ := m.applyStatuslineCmdMsg(statuslineCmdMsg{seq: 2})
+	m = done
+
+	// The tick armed before the forced run arrives at t0+1000. It must start
+	// no run (750ms < refreshMs since the forced start) and re-arm for the
+	// remaining 250ms — not a full refreshMs, never an early run.
+	m.now = func() time.Time { return fake.Add(1000 * time.Millisecond) }
+	staled, staleCmd := m.Update(statuslineTickMsg{gen: gen})
+	m = staled.(model)
+	if m.statuslineCmdInFlight || m.statuslineCmdSeq != 2 {
+		t.Fatalf("stale tick started an early run: inFlight=%v seq=%d", m.statuslineCmdInFlight, m.statuslineCmdSeq)
+	}
+	if staleCmd == nil {
+		t.Fatal("stale tick ended the idle chain instead of re-arming it")
+	}
+	start := time.Now()
+	msg, ok := execCmd(staleCmd).(statuslineTickMsg)
+	took := time.Since(start)
+	if !ok {
+		t.Fatalf("stale tick re-armed nothing: got %T", msg)
+	}
+	if msg.gen != gen {
+		t.Fatalf("re-armed tick gen = %d, want the live generation %d", msg.gen, gen)
+	}
+	if took < 150*time.Millisecond || took > 800*time.Millisecond {
+		t.Errorf("stale tick re-armed after %v, want the ~250ms left in refreshMs since the forced run", took.Round(10*time.Millisecond))
+	}
+
+	// The re-armed tick fires on the forced phase and runs.
+	m.now = func() time.Time { return fake.Add(1250 * time.Millisecond) }
+	ticked, _ := m.Update(msg)
+	if !ticked.(model).statuslineCmdInFlight {
+		t.Fatal("re-armed tick started no run on the forced phase")
+	}
+}
+
 // A1 in /statusline: a three-line fields-only proposal keeps the live
 // command, so the footer after Enter gives the last field line to the
 // script. The preview must not promise that line silently: it either shows
