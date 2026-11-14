@@ -904,6 +904,15 @@ func TestScrubSensitiveEnv(t *testing.T) {
 }
 
 func TestEngineScrubsConfiguredSensitiveEnvKeys(t *testing.T) {
+	// HOME and XDG_CONFIG_HOME travel together: the command-side credential
+	// baseline falls back to $HOME/.config when the command env carries no
+	// XDG override, so pin both to the default relationship. A split layout
+	// (e.g. XDG elsewhere) derives a $HOME/.config/qg that exists in neither
+	// world and trips the bubblewrap fail-closed, which is not what this
+	// test verifies.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	workspace := t.TempDir()
 	engine := NewEngine(EngineOptions{
 		WorkspaceRoot:    workspace,
