@@ -434,7 +434,7 @@ func (m model) maybeFinalizeStatuslineSetup(msg tea.Msg) (model, tea.Cmd) {
 		pending := &statuslinePendingApply{proposal: proposal, cfg: cfg, stagingDir: setup.stagingDir, stagingGuard: setup.stagingInfo, scriptStaged: scriptPath, scriptBody: body, scriptCopy: copyPath, warnings: warnings, validating: true}
 		m.statuslinePending = pending
 		return m, func() tea.Msg {
-			valid := execStatuslineRun(context.Background(), statuslineInvokeScript(copyPath), stdin, env, timeout, nil)
+			valid := execStatuslineRun(context.Background(), statuslineInvokeScript(copyPath), stdin, env, timeout)
 			if valid.errNote != "" {
 				return statuslineSetupValidatedMsg{err: valid.errNote}
 			}

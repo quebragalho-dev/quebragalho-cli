@@ -315,10 +315,7 @@ type statuslineCmdMsg struct {
 
 // execStatuslineRun runs one external statusline command synchronously with a
 // timeout kill: the caller must already be off the UI goroutine (tea.Cmd).
-// reportPID, when non-nil, receives the child pid right after Start so the
-// caller can kill the tree synchronously on exit instead of relying on the
-// context watcher, which may never run before os.Exit.
-func execStatuslineRun(ctx context.Context, command, stdin string, env []string, timeout time.Duration, reportPID func(int)) statuslineCmdMsg {
+func execStatuslineRun(ctx context.Context, command, stdin string, env []string, timeout time.Duration) statuslineCmdMsg {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := statuslineShellCommand(runCtx, command, stdin, env)
@@ -334,9 +331,6 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
 		return statuslineCmdMsg{errNote: "statusline: comando falhou (erro de execução)"}
-	}
-	if reportPID != nil && cmd.Process != nil {
-		reportPID(cmd.Process.Pid)
 	}
 	waitErr := cmd.Wait()
 	text := strings.TrimRight(string(kept.bytes), "\n")
@@ -502,16 +496,9 @@ func (m model) startStatuslineRun(force bool) (model, tea.Cmd) {
 	m.statuslineCmdCancel = cancel
 	done := make(chan struct{})
 	m.statuslineCmdDone = done
-	pidCh := make(chan int, 1)
-	m.statuslineCmdPID = pidCh
 	return m, func() tea.Msg {
 		defer close(done)
-		msg := execStatuslineRun(runCtx, cfg.Command.Command, stdin, env, timeout, func(pid int) {
-			select {
-			case pidCh <- pid:
-			default:
-			}
-		})
+		msg := execStatuslineRun(runCtx, cfg.Command.Command, stdin, env, timeout)
 		msg.seq = seq
 		return msg
 	}
@@ -526,19 +513,6 @@ func (m model) cancelStatuslineRun() model {
 	if m.statuslineCmdCancel != nil {
 		m.statuslineCmdCancel()
 		m.statuslineCmdCancel = nil
-	}
-	// Synchronous tree kill: the context cancel above only asks os/exec's
-	// watcher to kill, which may never run before os.Exit leaves. Killing
-	// the known pid here leaves no orphan on any exit path.
-	if ch := m.statuslineCmdPID; ch != nil {
-		select {
-		case pid := <-ch:
-			if pid > 1 {
-				_ = execution.KillProcessGroup(pid)
-			}
-		default:
-		}
-		m.statuslineCmdPID = nil
 	}
 	m.statuslineCmdInFlight = false
 	m.statuslineRefreshDue = false
@@ -576,9 +550,6 @@ func (m model) applyStatuslineCmdMsg(msg statuslineCmdMsg) (model, tea.Cmd) {
 	}
 	m.statuslineCmdInFlight = false
 	m.statuslineCmdCancel = nil
-	// The run reaped its own process: drop the pid so a later exit never
-	// kills a recycled one.
-	m.statuslineCmdPID = nil
 	if msg.errNote != "" {
 		m.statuslineCmdErr = msg.errNote
 	} else {

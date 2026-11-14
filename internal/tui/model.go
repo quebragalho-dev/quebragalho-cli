@@ -666,10 +666,6 @@ type model struct {
 	// exit path waits on it (bounded) so os.Exit right after Run cannot
 	// orphan the script: the tree kill is issued before Wait unblocks.
 	statuslineCmdDone chan struct{}
-	// statuslineCmdPID carries the running script's pid from the runner to
-	// the model (buffered, single send). The exit path kills that group
-	// synchronously; completion drops it so a recycled pid is never killed.
-	statuslineCmdPID chan int
 	// statuslineCmdStartedAt gates re-runs to the refresh window; seq matches
 	// runs to their results so late losers are dropped.
 	statuslineCmdStartedAt time.Time
