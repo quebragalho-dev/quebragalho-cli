@@ -105,6 +105,28 @@ jobs:
           path: coverage.out
           if-no-files-found: warn
 
+  test-macos:
+    name: Unit Tests (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test (macOS, no race)
+        run: go test -count=1 ./...
+
   smoke:
     name: Smoke + cross-compile
     runs-on: ubuntu-latest
@@ -134,9 +156,9 @@ jobs:
       - name: Smoke binary
         run: go run ./cmd/qg-release smoke
 
-      # The only runner is macOS ARM64, so linux/windows coverage is a
-      # cross-compile check: a broken GOOS/GOARCH build fails CI here instead
-      # of the release. darwin-amd64 is included for the Intel package.
+      # All CI jobs run on Linux: darwin/windows coverage here is a
+      # cross-compile check, and native macOS tests live in test-macos.
+      # darwin-amd64 is included for the Intel package.
       - name: Cross-compile release targets
         shell: bash
         run: |
