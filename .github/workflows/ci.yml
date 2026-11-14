@@ -198,10 +198,10 @@ jobs:
           cache: true
 
       # Invoke the Makefile target rather than repeating its flags. `make test`
-      # is already `go test ./... -race -count=1`, so running it here is what
-      # stops the project's declared test command and what CI actually runs
-      # from drifting apart again. The race detector needs cgo, which the
-      # GitHub-hosted Ubuntu runner supplies without an extra
+      # is already `go test ./... -race -count=1 -timeout 25m`, so running it
+      # here is what stops the project's declared test command and what CI
+      # actually runs from drifting apart again. The race detector needs cgo,
+      # which the GitHub-hosted Ubuntu runner supplies without an extra
       # setup step.
       - name: Test with the race detector
         run: make test
