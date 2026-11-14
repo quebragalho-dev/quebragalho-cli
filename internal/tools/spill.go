@@ -96,6 +96,17 @@ func spillDir() (string, error) {
 // before that formatter, so without the scan here a spilled file would hold
 // pattern-matched credentials in cleartext that the transcript hides.
 func spillTruncatedOutput(toolName, output string) string {
+	return spillRedactedOutput(toolName, redaction.RedactString(output, redaction.Options{}))
+}
+
+// spillRedactedOutput is spillTruncatedOutput for text the registry boundary
+// already scrubbed (scrubResultSecrets). It skips the configured-key
+// redaction pass — re-running it over the same bytes is pure cost on large
+// outputs — but still runs the pattern-based secret scanner
+// (secrets.Redact), which the boundary scrub does not run. Callers must only
+// pass text that reached them through the post-redaction registry boundary;
+// raw tool output must go through spillTruncatedOutput instead.
+func spillRedactedOutput(toolName, output string) string {
 	dir, err := spillDir()
 	if err != nil {
 		return ""
@@ -112,8 +123,7 @@ func spillTruncatedOutput(toolName, output string) string {
 		return ""
 	}
 	defer file.Close()
-	scrubbed := redaction.RedactString(output, redaction.Options{})
-	scrubbed, _ = secrets.Redact(scrubbed)
+	scrubbed, _ := secrets.Redact(output)
 	if _, err := file.WriteString(scrubbed); err != nil {
 		_ = os.Remove(file.Name())
 		return ""

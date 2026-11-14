@@ -203,10 +203,14 @@ func shellOutputCategory(command string) outputCategory {
 }
 
 // attachExistingSpill reuses QG's hardened per-user spill directory. output
-// is the already-redacted text received by this layer; it may itself be a
-// capture-bounded view produced by a subprocess tool.
+// is the already-redacted text received by this layer (every caller runs
+// after the registry boundary scrub, scrubResultSecrets); it may itself be a
+// capture-bounded view produced by a subprocess tool. The spill therefore
+// uses the redacted-input variant: the boundary's configured-key redaction
+// already ran on these exact bytes, and only the pattern-based secret
+// scanner (which the boundary does not run) still applies.
 func attachExistingSpill(toolName, output string, budget outputBudget, current budgetedOutput) budgetedOutput {
-	path := spillTruncatedOutput(toolName, output)
+	path := spillRedactedOutput(toolName, output)
 	if path == "" {
 		return current
 	}

@@ -22,6 +22,13 @@ type Finding struct {
 type pattern struct {
 	typ string
 	re  *regexp.Regexp
+	// marker is a substring every match must contain. Scan probes it with
+	// strings.Contains before running the regexp: on large secret-free
+	// output the full scan is pure cost (notably under -race on slow
+	// machines), while the probe is memchr-fast. The marker is a NECESSARY
+	// condition of the pattern, not a heuristic — when absent the pattern
+	// cannot match, so skipping is output-identical.
+	marker []string
 }
 
 // patterns are intentionally specific (fixed prefixes / structural shapes) so
@@ -40,24 +47,36 @@ type pattern struct {
 // boundary once the input runs out of allowed characters, so the anchor is
 // unnecessary; the leading \b already keeps these from firing mid-word.
 var patterns = []pattern{
-	{"aws_access_key_id", regexp.MustCompile(`\bAKIA[0-9A-Z]{16}`)},
-	{"github_token", regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}`)},
-	{"github_pat", regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{22,}`)},
-	{"slack_token", regexp.MustCompile(`\bxox[baprs]-[A-Za-z0-9-]{10,}`)},
-	{"google_api_key", regexp.MustCompile(`\bAIza[0-9A-Za-z\-_]{35,}`)},
-	{"anthropic_key", regexp.MustCompile(`\bsk-ant-(?:api\d{2}-)?[A-Za-z0-9_-]{20,}`)},
+	{"aws_access_key_id", regexp.MustCompile(`\bAKIA[0-9A-Z]{16}`), []string{"AKIA"}},
+	{"github_token", regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}`), []string{"gh"}},
+	{"github_pat", regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{22,}`), []string{"github_pat_"}},
+	{"slack_token", regexp.MustCompile(`\bxox[baprs]-[A-Za-z0-9-]{10,}`), []string{"xox"}},
+	{"google_api_key", regexp.MustCompile(`\bAIza[0-9A-Za-z\-_]{35,}`), []string{"AIza"}},
+	{"anthropic_key", regexp.MustCompile(`\bsk-ant-(?:api\d{2}-)?[A-Za-z0-9_-]{20,}`), []string{"sk-ant-"}},
 	// Broad body (allows - and _) so sk-proj-…, sk-or-v1-…, sk-fw-…, and
 	// legacy sk-<alnum> all match. Scan drops digit-free matches only when
 	// the body contains an interior hyphen, which preserves kebab-case false
 	// positives without excluding digit-free legacy credentials.
-	{"openai_key", regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`)},
+	{"openai_key", regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`), []string{"sk-"}},
 	// Match the ENTIRE PEM/OpenSSH block (header THROUGH the END marker, body
 	// included) so redaction removes the key material, not just the header.
-	{"private_key_block", regexp.MustCompile(`(?s)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----.*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----`)},
+	{"private_key_block", regexp.MustCompile(`(?s)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----.*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----`), []string{"-----BEGIN"}},
 	// Compact JWS (three segments) or compact JWE (five segments). The optional
 	// fourth and fifth segments capture JWE ciphertext and authentication tag so
 	// they are not left behind after redacting the first three.
-	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})?`)},
+	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})?`), []string{"eyJ"}},
+}
+
+// containsAnyMarker reports whether text holds at least one of the marker
+// substrings. Every marker is a substring of every match of its pattern, so
+// an absent marker proves the pattern cannot match and the scan is skipped.
+func containsAnyMarker(text string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // Scan returns the distinct secrets found in text (deduplicated by match,
@@ -68,6 +87,9 @@ func Scan(text string) []Finding {
 	}
 	seen := map[string]Finding{}
 	for _, p := range patterns {
+		if !containsAnyMarker(text, p.marker) {
+			continue
+		}
 		for _, m := range p.re.FindAllString(text, -1) {
 			// Drop pure kebab FPs (sk-learn-…) unless the match is a known
 			// OpenAI-issued prefix form (sk-proj-/sk-svcacct-/sk-admin-), which
