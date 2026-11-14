@@ -33,18 +33,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Check formatting
-        run: make fmt-check
-
-      - name: Vet
-        run: go vet ./...
+      - name: Lint
+        run: make lint
 
       - name: deadcode (advisory)
         continue-on-error: true
         run: make deadcode
 
-      - name: golangci-lint (advisory)
-        continue-on-error: true
+      - name: golangci-lint
         run: make lint-static
 
   test:
@@ -130,7 +126,7 @@ jobs:
   smoke:
     name: Smoke + cross-compile
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     permissions:
       contents: read
@@ -146,9 +142,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Test (Fast Non-Race)
-        run: go test ./...
 
       - name: Build binary
         run: go run ./cmd/qg-release build

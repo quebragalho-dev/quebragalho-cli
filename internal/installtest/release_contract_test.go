@@ -21,6 +21,8 @@ var hostedRunnersByWorkflow = map[string][]string{
 	"release-artifacts.yml": {"ubuntu-latest"},
 	"pr-auto-review.yml":    {"ubuntu-latest"},
 	"qg-action-smoke.yml":   {"ubuntu-latest"},
+	"sdk.yml":               {"ubuntu-latest"},
+	"sdk-publish.yml":       {"ubuntu-latest"},
 }
 
 type runsOnWorkflow struct {
