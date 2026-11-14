@@ -283,7 +283,9 @@ func TestScanSSEDataWithContextAbortsOnContentStall(t *testing.T) {
 }
 
 // Real data lines reset the content watchdog, so a slow-but-producing stream that
-// runs longer than the content window is never aborted.
+// runs longer than the content window is never aborted: every payload is still
+// delivered. But a clean close without [DONE] is a truncated stream, so the
+// terminal status is a wrapped io.ErrUnexpectedEOF rather than nil.
 func TestScanSSEDataWithContextContentResetsOnData(t *testing.T) {
 	pr, pw := io.Pipe()
 
@@ -308,14 +310,32 @@ func TestScanSSEDataWithContextContentResetsOnData(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("err = %v, want nil (data kept the stream alive)", err)
+		if !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("err = %v, want wrapped io.ErrUnexpectedEOF (clean close without [DONE])", err)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("ScanSSEDataWithContext hung on a producing stream")
 	}
 	if n != 10 {
 		t.Fatalf("handled %d data lines, want 10", n)
+	}
+}
+
+// A [DONE] glued as the continuation line of a data block (instead of its own
+// data: [DONE] event) still terminates the stream: the pending payload is
+// delivered first and the scan ends clean, not truncated.
+func TestScanSSEDataWithContextDoneGluedToDataBlock(t *testing.T) {
+	body := "data: {\"a\":1}\ndata: [DONE]\n"
+	var got []string
+	err := ScanSSEDataWithContext(context.Background(), func() {}, strings.NewReader(body), 0, func(data string) bool {
+		got = append(got, data)
+		return true
+	})
+	if err != nil {
+		t.Fatalf("err = %v, want nil (glued [DONE] terminates)", err)
+	}
+	if len(got) != 1 || got[0] != `{"a":1}` {
+		t.Fatalf("got %#v, want the pending payload delivered without [DONE]", got)
 	}
 }
 

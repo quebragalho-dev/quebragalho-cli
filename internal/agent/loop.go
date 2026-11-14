@@ -19,21 +19,11 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/yieldnow"
 )
 
 const maxTurnsAnswer = "Agent reached maximum number of turns without a final answer."
 const maxTurnsFinalAnswerPrompt = "You have reached the tool-turn limit. Do not call tools. Give a concise final answer now: summarize what you completed, what you found, and any remaining blockers."
-
-// maxStreamStallRetries bounds how many times a turn that timed out (idle/stall)
-// WITH NO OUTPUT yet is re-issued on a fresh connection before giving up. Only
-// the no-output case is retried (a partial turn would duplicate), so this is a
-// safe recovery for a stalled/dead pooled connection.
-//
-// Set to 1 (not 2): each attempt can itself idle for the full stream timeout
-// (~5min) before the stall is even detected, so 2 retries left an interactive
-// session frozen for ~15min. One retry keeps the common single-hiccup recovery
-// while bounding the worst case to ~2× the idle timeout.
-const maxStreamStallRetries = 1
 
 const (
 	toolResultMetaControl       = "control"
@@ -126,7 +116,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	}
 
 	// Tracing is opt-in. When a recorder is wired, thread it into ctx so the
-	// providerio seam and reconnect helper can reach it via trace.FromContext,
+	// providerio seam can reach it via trace.FromContext,
 	// mark the run's start, and wrap OnUsage so token counters accumulate for
 	// free alongside the existing per-request plumbing. nil recorder leaves the
 	// loop byte-identical: FromContext returns nil, the no-op stamps cost
@@ -215,6 +205,19 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: prompt, Images: qgruntime.CloneImageBlocks(options.Images)})
 		}
 	}
+	// Leftover queue messages ride the wire as separate consecutive user
+	// messages after the seeded prompt, in order — the same shape an
+	// interleave produces mid-turn, so the model sees exactly what the user
+	// queued. OpenAI-compatible providers accept consecutive user messages.
+	for _, message := range options.ExtraUserMessages {
+		if message.Role != qgruntime.MessageRoleUser {
+			continue
+		}
+		if strings.TrimSpace(message.Content) == "" {
+			continue
+		}
+		messages = append(messages, message)
+	}
 
 	guards := newGuardState()
 	task := newTaskState(prompt, options.Trace)
@@ -226,6 +229,28 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		}
 	}
 	compactor := newCompactionState(options, task)
+	// suffixFused tracks whether the trailing message is a fused loop-generated
+	// note that may absorb the next one. Loop notes from the same turn (a
+	// diagnostic drain plus a dropped-call notice, say) ride as ONE suffix user
+	// message so the cached prefix holds longer. Only loop notes merge:
+	// assistant turns, tool results, images, operator interleaves, and any
+	// compaction rewrite reset it, so user content and replay-critical
+	// adjacency are never folded into a note.
+	suffixFused := false
+	appendSuffixNote := func(content string) {
+		if strings.TrimSpace(content) == "" {
+			return
+		}
+		if suffixFused && len(messages) > 0 && messages[len(messages)-1].Role == qgruntime.MessageRoleUser {
+			messages[len(messages)-1].Content += "\n\n" + content
+			return
+		}
+		messages = append(messages, qgruntime.Message{
+			Role:    qgruntime.MessageRoleUser,
+			Content: content,
+		})
+		suffixFused = true
+	}
 	defer func() {
 		// A final transcript comparison is observational. It records drift but
 		// never rewrites the result or changes execution after the fact.
@@ -333,15 +358,20 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	for turn := 0; turn < maxTurns; turn++ {
 		result.Turns = turn + 1
 
+		// Turn-boundary maintenance (MCP catalog refreshes and the like) runs
+		// here: the previous turn's tool results are fully recorded and the
+		// next turn's tool partition is not computed yet, so catalog changes
+		// land between turns, never mid-request.
+		if options.BetweenTurns != nil {
+			options.BetweenTurns(ctx)
+		}
+
 		// Deliver background post-edit diagnostics from the previous turn's edits
 		// BEFORE compaction so the nudge is part of the request being budgeted.
 		// A brief wait at most (asyncDiagnosticsDrainTimeout); an unfinished check
 		// simply delivers on a later turn.
 		if nudge := postEditDiagnostics.drain(ctx); nudge != "" {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: nudge,
-			})
+			appendSuffixNote(nudge)
 		}
 
 		// Build the per-turn tool list first so proactive compaction can include
@@ -357,16 +387,22 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// request. A no-op when ContextWindow == 0 (compaction disabled).
 		compactionSpan := options.Trace.Span(trace.SpanCompaction)
 		messages = compactor.maybeCompact(ctx, provider, messages, exposed)
+		suffixFused = false
 		compactionSpan.End()
 		plan := planner.Plan(messages, exposed, options.ReasoningEffort)
 		request := plan.Request
 		recordContextPlan(options, plan)
 
-		// A transient upstream disconnect on the initial connect is retried with
-		// backoff (before any content is forwarded, so no OnText is duplicated);
-		// a context-limit / image-rejection / cancellation is NOT retried here —
-		// those fall through to their own handlers below.
-		stream, err := streamWithReconnect(ctx, provider, request, reconnectNoticeFor(options))
+		// One retry budget per model call: every StreamCompletion in this turn —
+		// the initial connect, a post-compaction reissue, a stall recovery —
+		// draws from the same attempts, so layers never multiply. The budget
+		// resets on the next turn: a call that succeeds spends nothing of the
+		// next call's attempts.
+		callRetry := newModelCallRetrier(options)
+		// A failed model call is retried with backoff; a context-limit /
+		// image-rejection / cancellation is NOT retried here — those fall
+		// through to their own handlers below.
+		stream, err := callRetry.openStream(ctx, provider, request)
 		if err != nil {
 			if isImageRejectionError(err) {
 				result.Messages = copyMessages(messages)
@@ -376,6 +412,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// can be recovered by compacting once and retrying the same turn.
 			if compacted, retried, retryErr := compactor.recover(ctx, provider, messages, request.Tools, err.Error()); retried {
 				messages = compacted
+				suffixFused = false
 				if retryErr != nil {
 					result.Messages = copyMessages(messages)
 					return result, retryErr
@@ -388,10 +425,10 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				retryPlan := planner.Plan(messages, exposed, options.ReasoningEffort)
 				request = retryPlan.Request
 				recordContextPlan(options, retryPlan)
-				// Pre-content connect after a context-limit compaction: route through the
-				// reconnect helper so a transient upstream hiccup here doesn't fail the
-				// whole run and re-burn every token (AUDIT-L1).
-				stream, err = streamWithReconnect(ctx, provider, request, reconnectNoticeFor(options))
+				// Pre-content connect after a context-limit compaction: draw from the
+				// same turn budget so a transient upstream hiccup here doesn't fail
+				// the whole run and re-burn every token (AUDIT-L1).
+				stream, err = callRetry.openStream(ctx, provider, request)
 			}
 			if err != nil {
 				result.Messages = copyMessages(messages)
@@ -399,17 +436,11 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			}
 		}
 
-		// forwardedVisibleText flags forwarded final PROSE (OnText) specifically —
-		// the only output whose re-stream on a stall retry would visibly DUPLICATE
-		// answer text the user already read. Transient working indicators
-		// (reasoning previews, tool-call "writing…" previews) are deliberately NOT
-		// counted: a turn that streamed only those then stalled — the common
-		// gpt-5.x / ollama "froze mid-write_file" case — is safe to re-issue, since
-		// the TUI resets the tool-call preview on the next tool-call-start and a
-		// stalled turn is never appended to `messages` (it returns on the error
-		// before the append), so the retry re-sends clean context with no
-		// conversation-state duplication.
-		forwardedVisibleText := false
+		// Text/reasoning/tool-call previews stream live while the retry policy
+		// decides from the collected error alone: a failed attempt never reaches
+		// the history append or tool dispatch below, so re-issuing re-sends
+		// clean context. The retry notice marks any already-streamed prose as
+		// discarded, so the screen never shows it twice unmarked.
 		forwardingOpts := qgruntime.CollectOptions{OnUsage: options.OnUsage, OnUsageProgress: options.OnUsageProgress}
 		// Install text/reasoning forwarding handlers whenever EITHER a user
 		// callback OR a trace recorder is set. A headless traced run (e.g. `qg
@@ -417,9 +448,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// handlers the stream is still collected, but FirstTokenAt would never
 		// stamp and the trace would lose its TTFT signal. The trace recorder's
 		// stamp methods are nil-safe, but we guard on `trace != nil` so a run with
-		// a user callback but no recorder still works. forwardedVisibleText stays
-		// tied to the USER callback only, preserving the stall-retry semantics
-		// (a trace-only handler forwards nothing the user would see duplicated).
+		// a user callback but no recorder still works.
 		rec := options.Trace
 		onText := options.OnText
 		if onText != nil || rec != nil {
@@ -429,7 +458,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					rec.StampFirstToken()
 				}
 				if onText != nil {
-					forwardedVisibleText = true
 					onText(s)
 				}
 			}
@@ -465,6 +493,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// (some providers surface it mid-stream). Compact and retry once.
 			if compacted, retried, retryErr := compactor.recover(ctx, provider, messages, request.Tools, collected.Error); retried {
 				messages = compacted
+				suffixFused = false
 				if retryErr != nil {
 					return collected, retryErr
 				}
@@ -474,7 +503,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				retryPlan := planner.Plan(messages, exposed, options.ReasoningEffort)
 				retryRequest := retryPlan.Request
 				recordContextPlan(options, retryPlan)
-				retryStream, retryStreamErr := streamWithReconnect(ctx, provider, retryRequest, reconnectNoticeFor(options))
+				retryStream, retryStreamErr := callRetry.openStream(ctx, provider, retryRequest)
 				if retryStreamErr != nil {
 					return collected, retryStreamErr
 				}
@@ -506,43 +535,52 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			result.Messages = copyMessages(messages)
 			return result, ctx.Err()
 		}
-		// A stream idle/stall timeout is safely re-issued when the turn committed NO
-		// answer text — no forwarded visible prose (forwardedVisibleText) and no
-		// collected final text (collected.Text). This covers two cases:
-		//   1. Nothing streamed at all before the connection died (the original
-		//      macOS stale-pooled-connection hang past the response-header timeout).
-		//   2. The model streamed transient reasoning and began a tool call (e.g. a
-		//      large write_file) then froze mid-arguments — the common gpt-5.x /
-		//      ollama heartbeat-pause stall. That partial tool call is NEVER executed
-		//      (a turn with collected.Error returns before dispatch below) and NEVER
-		//      appended to `messages`, so a retry re-issues clean context; the only
-		//      re-render is transient previews, not duplicated answer text. This is
-		//      why the gate no longer excludes collected.ToolCalls: an incomplete
-		//      tool call from a timed-out stream is discard-and-retry, not output.
-		// A turn that forwarded real prose is NOT retried (it would duplicate visible
-		// answer text) and falls through to the error return below. Capped +
-		// exponential backoff, with a user-visible notice per attempt.
-		for attempt := 1; attempt <= maxStreamStallRetries &&
-			isStreamTimeoutError(collected.Error) && !forwardedVisibleText &&
-			collected.Text == ""; attempt++ {
-			if notify := stallRetryNoticeFor(options); notify != nil {
-				notify(attempt, maxStreamStallRetries)
+		// Unified per-call retry for a failed stream: a retryable error (a
+		// stalled/idle connection, an upstream 5xx, a rate limit, a transport
+		// failure) re-issues the same turn on a fresh stream inside the call's
+		// budget. The failed attempt's partial output is never appended to
+		// `messages` (it returns on the error before the append), so the retry
+		// re-sends clean context, and its tool calls — always incomplete, since
+		// a failed turn returns before dispatch below — never execute. The
+		// already-streamed text stays on screen, marked discarded by the retry
+		// notice, so it is never silently duplicated.
+		for collected.Error != "" {
+			discarded := strings.TrimSpace(collected.Text) != ""
+			collectedErr := collected.Err
+			if collectedErr == nil {
+				collectedErr = errors.New(collected.Error)
 			}
-			if err := sleepWithContext(ctx, backoffFor(attempt)); err != nil {
-				result.Messages = copyMessages(messages)
-				return result, err
-			}
-			retryPlan := planner.Plan(messages, exposed, options.ReasoningEffort)
-			retryRequest := retryPlan.Request
-			recordContextPlan(options, retryPlan)
-			retryStream, retryErr := streamWithReconnect(ctx, provider, retryRequest, reconnectNoticeFor(options))
+			proceed, retryErr := callRetry.waitAfterError(ctx, collectedErr, discarded)
 			if retryErr != nil {
 				result.Messages = copyMessages(messages)
 				return result, retryErr
 			}
-			stallGenSpan := options.Trace.Span(trace.SpanGeneration)
+			if !proceed {
+				break
+			}
+			retryPlan := planner.Plan(messages, exposed, options.ReasoningEffort)
+			retryRequest := retryPlan.Request
+			recordContextPlan(options, retryPlan)
+			retryStream, retryErr := callRetry.openStream(ctx, provider, retryRequest)
+			if retryErr != nil {
+				result.Messages = copyMessages(messages)
+				return result, retryErr
+			}
+			retryGenSpan := options.Trace.Span(trace.SpanGeneration)
 			collected = qgruntime.CollectStreamWithOptions(ctx, retryStream, forwardingOpts)
-			stallGenSpan.End()
+			retryGenSpan.End()
+			if collected.Error != "" {
+				updated, stop := recoverStreamError(collected)
+				collected = updated
+				if stop != nil {
+					result.Messages = copyMessages(messages)
+					return result, stop
+				}
+			}
+			if ctx.Err() != nil {
+				result.Messages = copyMessages(messages)
+				return result, ctx.Err()
+			}
 		}
 		if collected.Error != "" {
 			// Route a reissued stream's non-stall error through the SAME recovery as
@@ -583,6 +621,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// that use extended thinking reject tool conversations that drop them.
 			Reasoning: collected.ReasoningBlocks,
 		})
+		suffixFused = false
 		// Persist right after the assistant message lands, before tools run: a
 		// kill mid-execution leaves the advertised call on disk, and the resume
 		// repair closes it with an "interrupted" result.
@@ -594,10 +633,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// This path is handled before the no-output guard so a dropped-call
 			// turn is never counted as a runaway empty turn.
 			if collected.DroppedToolCalls > 0 {
-				messages = append(messages, qgruntime.Message{
-					Role:    qgruntime.MessageRoleUser,
-					Content: droppedToolCallNotice,
-				})
+				appendSuffixNote(droppedToolCallNotice)
 				continue
 			}
 			// No-output guard: a turn with visible text is a real final answer.
@@ -612,11 +648,8 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			if strings.TrimSpace(collected.Text) == "" {
 				// Empty-but-under-cap turn: nudge the model to make progress
 				// rather than treating the empty response as a final answer.
-				messages = append(messages, qgruntime.Message{
-					Role: qgruntime.MessageRoleUser,
-					Content: "Your previous response had no visible output and no tool calls. " +
-						"Continue the task by using a tool or reply with your final answer.",
-				})
+				appendSuffixNote("Your previous response had no visible output and no tool calls. " +
+					"Continue the task by using a tool or reply with your final answer.")
 				continue
 			}
 			// Completion gate (headless): a turn with text but no tool call is the
@@ -643,16 +676,10 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					switch evaluation.Action {
 					case completionActionContinue:
 						options.Trace.Counter(trace.CounterCompletionNudges, 1)
-						messages = append(messages, qgruntime.Message{
-							Role:    qgruntime.MessageRoleUser,
-							Content: continueNudge(evaluation.Reason),
-						})
+						appendSuffixNote(continueNudge(evaluation.Reason))
 					case completionActionSemanticCheck:
 						options.Trace.Counter(trace.CounterAcceptanceChecks, 1)
-						messages = append(messages, qgruntime.Message{
-							Role:    qgruntime.MessageRoleUser,
-							Content: acceptanceVerificationNudge(completionContext.Objective),
-						})
+						appendSuffixNote(acceptanceVerificationNudge(completionContext.Objective))
 					}
 					continue
 				case CompletionComplete:
@@ -668,10 +695,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// the model one more turn to see (and fix) it instead of being lost.
 			// Free for runs that never edited: an idle collector returns "".
 			if nudge := postEditDiagnostics.drainFinal(ctx); nudge != "" {
-				messages = append(messages, qgruntime.Message{
-					Role:    qgruntime.MessageRoleUser,
-					Content: nudge,
-				})
+				appendSuffixNote(nudge)
 				continue
 			}
 			result.FinalAnswer = collected.Text
@@ -768,6 +792,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				IsError:            toolResult.Status == tools.StatusError,
 				ChangedFiles:       append([]string(nil), toolResult.ChangedFiles...),
 			})
+			suffixFused = false
 			// Images ride a following USER message rather than the tool result
 			// above. Every provider drops images on a tool-role message —
 			// Anthropic's tool_result content is a string, Gemini's is a
@@ -844,6 +869,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// placeholders, so the images can follow without splitting them.
 		messages = append(messages, toolImageMessages...)
 		toolImageMessages = nil
+		suffixFused = false
 		// Cmd+Enter / Ctrl+Enter interleave: inject operator messages the UI
 		// took mid-turn as user messages — the model sees them on the very
 		// next request, right after this step's tool results, without the
@@ -858,6 +884,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				}
 				messages = append(messages, message)
 			}
+			suffixFused = false
 		}
 
 		// Run post-edit self-correction once over the union of files this turn
@@ -869,10 +896,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			posture.observeSelfCorrect(selfCorrectOutcome)
 			task.observe(taskStateEvent{kind: taskStateEventVerification, verification: selfCorrectOutcome})
 			if feedback != "" {
-				messages = append(messages, qgruntime.Message{
-					Role:    qgruntime.MessageRoleUser,
-					Content: feedback,
-				})
+				appendSuffixNote(feedback)
 			}
 		}
 
@@ -899,10 +923,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				}
 			}
 			if switchErr != nil {
-				messages = append(messages, qgruntime.Message{
-					Role:    qgruntime.MessageRoleUser,
-					Content: escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + switchErr.Error() + ". Continuing on " + options.Model + ".",
-				})
+				appendSuffixNote(escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + switchErr.Error() + ". Continuing on " + options.Model + ".")
 			} else if newSessions != nil {
 				// Open the new session and close the old one, so the next turn's
 				// streams and compaction use the new model. For the default adapter
@@ -911,10 +932,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 				// and prewarm matter once a session holds real state.
 				newSession, openErr := newSessions.OpenTurnSession(ctx)
 				if openErr != nil {
-					messages = append(messages, qgruntime.Message{
-						Role:    qgruntime.MessageRoleUser,
-						Content: escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + openErr.Error() + ". Continuing on " + options.Model + ".",
-					})
+					appendSuffixNote(escalationFailedNoticePrefix + " (" + turnRequestedModel + "): " + openErr.Error() + ". Continuing on " + options.Model + ".")
 				} else {
 					_ = session.Close()
 					session = newSession
@@ -951,30 +969,18 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// silently ignored just because the turn also did real work. This is
 		// independent of (and additive to) the failure-hint / plan-reminder nudges.
 		if collected.DroppedToolCalls > 0 {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: droppedToolCallNotice,
-			})
+			appendSuffixNote(droppedToolCallNotice)
 		}
 
 		// A repeated-failure hint (schema + exact error) takes priority over the
 		// planning reminders — fixing the failing call matters more than plan
 		// hygiene. Both are light, one-shot, user-role nudges.
 		if failureHint != "" {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: failureHint,
-			})
+			appendSuffixNote(failureHint)
 		} else if reminder := guards.progressReminder(); reminder != "" {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: reminder,
-			})
+			appendSuffixNote(reminder)
 		} else if reminder := guards.planReminder(result.Turns); reminder != "" {
-			messages = append(messages, qgruntime.Message{
-				Role:    qgruntime.MessageRoleUser,
-				Content: reminder,
-			})
+			appendSuffixNote(reminder)
 		}
 
 		// One-shot posture escalation: when an armed profile trigger fired this
@@ -1000,10 +1006,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	// there is no later turn to defer to — otherwise an error introduced by
 	// the final edit would go unreported in the summary.
 	if nudge := postEditDiagnostics.drainFinal(ctx); nudge != "" {
-		messages = append(messages, qgruntime.Message{
-			Role:    qgruntime.MessageRoleUser,
-			Content: nudge,
-		})
+		appendSuffixNote(nudge)
 	}
 	finalExposed, _ := partitionToolsCached(registry, permissionMode, options, loaded, toolDefCache)
 	if answer, finalMessages, finishReason := finalAnswerAfterMaxTurns(ctx, provider, planner, messages, finalExposed, options); strings.TrimSpace(answer) != "" {
@@ -1098,11 +1101,11 @@ func finalAnswerAfterMaxTurns(ctx context.Context, provider Provider, planner *c
 		Content: maxTurnsFinalAnswerPrompt,
 	})
 	// The max-turns final-answer call is a pre-content connect, often after a long
-	// autonomous/cron run — route it through the reconnect helper so a single
-	// transient hiccup doesn't drop the final summary (AUDIT-L1).
+	// autonomous/cron run — it gets its own retry budget so a single transient
+	// hiccup doesn't drop the final summary (AUDIT-L1).
 	plan := planner.Plan(finalMessages, toolDefs, options.ReasoningEffort)
 	recordContextPlan(options, plan)
-	stream, err := streamWithReconnect(ctx, provider, plan.Request, reconnectNoticeFor(options))
+	stream, err := newModelCallRetrier(options).openStream(ctx, provider, plan.Request)
 	if err != nil {
 		return "", messages, ""
 	}
@@ -1219,6 +1222,11 @@ func decodeToolArguments(arguments string, v any) error {
 }
 
 func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCall, permissionMode PermissionMode, options Options) (ToolResult, error) {
+	// The run's send-now Signal travels with the tool context so
+	// backgroundable waits (exec_command's yield, write_stdin polling) wake
+	// at once when the TUI requests it. Nil-safe: without a Signal the
+	// tools wait exactly as before.
+	ctx = yieldnow.WithSignal(ctx, options.YieldNow)
 	tool, toolFound := registry.Get(call.Name)
 	args := map[string]any{}
 	if call.Freeform {
@@ -1614,6 +1622,18 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 	// Secret scrubbing happens at the registry boundary (the single point both
 	// the agent loop and the MCP server pass through), so result.Output is
 	// already redacted here and result.Redacted reflects whether it changed.
+	// A shell command that may have changed the PR/MR graph stamps the loop
+	// result Meta the TUI reads: denied results returned earlier never reach
+	// here, so the flag only marks commands that actually ran.
+	resultMeta := result.Meta
+	if prMutatingShellCommand(call.Name, args) {
+		stamped := make(map[string]string, len(resultMeta)+1)
+		for key, value := range resultMeta {
+			stamped[key] = value
+		}
+		stamped[PrIdentityStaleMeta] = "1"
+		resultMeta = stamped
+	}
 	return ToolResult{
 		Risk:            executedRisk,
 		ToolCallID:      call.ID,
@@ -1621,7 +1641,7 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 		Status:          result.Status,
 		Output:          result.ModelOutput(),
 		Truncated:       result.Truncated,
-		Meta:            result.Meta,
+		Meta:            resultMeta,
 		Images:          result.Images,
 		Redacted:        result.Redacted,
 		ChangedFiles:    result.ChangedFiles,

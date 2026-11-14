@@ -66,6 +66,15 @@ func NewEngine(options EngineOptions) *Engine {
 	}
 }
 
+// Backend returns the engine's platform backend, so callers can report its
+// availability (e.g. the one-time session warning) without rebuilding it.
+func (engine *Engine) Backend() Backend {
+	if engine == nil {
+		return Backend{}
+	}
+	return engine.backend
+}
+
 // Scope returns the engine's shared write scope (nil when the engine was
 // built without a workspace root and no explicit Scope option). The TUI uses
 // it for /add-dir.

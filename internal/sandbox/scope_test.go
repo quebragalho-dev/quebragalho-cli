@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 // TestScopeValidateMultiRootSymlinkTraversalPreferred pins Fix 1: when a
@@ -48,7 +50,7 @@ func TestScopeValidateMultiRootSymlinkTraversalPreferred(t *testing.T) {
 // in-root symlink escaping outside is still caught as BlockSymlinkTraversal.
 func TestValidateResolvesAliasedPathPrefixes(t *testing.T) {
 	real := t.TempDir()
-	aliasParent := tempDirOutsideDefaultTemp(t)
+	aliasParent := testutil.TempDirOutsideDefaultTemp(t)
 	alias := filepath.Join(aliasParent, "alias")
 	if err := os.Symlink(real, alias); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
@@ -73,8 +75,8 @@ func TestValidateResolvesAliasedPathPrefixes(t *testing.T) {
 // TestScopeAddNormalizesSymlinkedRoot verifies that Add resolves symlinks so
 // the stored root is the real path.
 func TestScopeAddNormalizesSymlinkedRoot(t *testing.T) {
-	real := tempDirOutsideDefaultTemp(t)
-	linkParent := tempDirOutsideDefaultTemp(t)
+	real := testutil.TempDirOutsideDefaultTemp(t)
+	linkParent := testutil.TempDirOutsideDefaultTemp(t)
 	link := filepath.Join(linkParent, "link")
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
@@ -230,23 +232,6 @@ func outsideDefaultTempPath(workspaceRoot string, elems ...string) string {
 	root := volume + string(filepath.Separator)
 	parts := append([]string{root, "qg-sandbox-outside-test"}, elems...)
 	return filepath.Join(parts...)
-}
-
-func tempDirOutsideDefaultTemp(t *testing.T) string {
-	t.Helper()
-	dir, err := os.MkdirTemp(".", ".qg-sandbox-outside-")
-	if err != nil {
-		t.Fatalf("MkdirTemp outside default temp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatalf("Abs(%q): %v", dir, err)
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved
-	}
-	return filepath.Clean(abs)
 }
 
 func TestScopeValidateAllowsAnyRootButRelativeOnlyWorkspace(t *testing.T) {

@@ -21,16 +21,34 @@ const (
 )
 
 type Server struct {
-	Name     string
-	Type     ServerType
-	Command  string
-	Args     []string
-	Env      map[string]string
-	URL      string
-	Headers  map[string]string
-	Auth     string
-	OAuth    *OAuthConfig
-	Identity string
+	Name    string
+	Type    ServerType
+	Command string
+	Args    []string
+	Env     map[string]string
+	URL     string
+	Headers map[string]string
+	Auth    string
+	OAuth   *OAuthConfig
+	// Timeout bounds one tool call in milliseconds (MCP_TOOL_TIMEOUT and the
+	// 60s default apply when zero). It is connection policy, not target
+	// identity, so it stays out of the identity hash.
+	Timeout int
+	// Secrets maps variable names to the non-empty process values substituted
+	// for ${VAR} when connecting. It never leaves the package boundary except
+	// through Redact, which trades values back for their ${VAR} reference in
+	// any user-, transcript-, or model-visible text.
+	Secrets map[string]string
+	// EnabledTools allow-lists remote tool names (empty means all);
+	// DisabledTools deny-lists and wins. View policy, not target identity.
+	EnabledTools  []string
+	DisabledTools []string
+	// TypeImplicit is true when the transport was inferred (a URL without an
+	// explicit type defaults to HTTP). Implicit servers may fall back from
+	// Streamable HTTP to legacy SSE; explicit ones stay strict. It is
+	// connection policy, not target identity.
+	TypeImplicit bool
+	Identity     string
 	// ProjectConfigured is true when project config touched this server. Runtime
 	// credential lookup uses it to avoid reusing legacy user tokens by name.
 	ProjectConfigured bool
@@ -81,6 +99,7 @@ func normalizeServer(name string, raw config.MCPServerConfig) (Server, error) {
 	}
 
 	auth := strings.ToLower(strings.TrimSpace(raw.Auth))
+	typeImplicit := strings.TrimSpace(raw.Type) == ""
 	server := Server{
 		Name:                name,
 		Type:                serverType,
@@ -91,6 +110,10 @@ func normalizeServer(name string, raw config.MCPServerConfig) (Server, error) {
 		Headers:             copyStringMap(raw.Headers),
 		Auth:                auth,
 		OAuth:               normalizeOAuthConfig(raw.OAuth),
+		Timeout:             raw.Timeout,
+		EnabledTools:        append([]string(nil), raw.EnabledTools...),
+		DisabledTools:       append([]string(nil), raw.DisabledTools...),
+		TypeImplicit:        typeImplicit,
 		ProjectConfigured:   raw.ProjectConfigured,
 		UnconfiguredDefault: config.IsUnconfiguredDefault(name, raw),
 	}
@@ -119,14 +142,16 @@ func normalizeServer(name string, raw config.MCPServerConfig) (Server, error) {
 		if len(server.Env) > 0 {
 			return Server{}, fmt.Errorf("MCP server %s env is only supported for stdio transport", server.Name)
 		}
-		if err := validateHTTPURL(server.Name, server.URL); err != nil {
-			return Server{}, err
+		if !containsEnvRef(server.URL) {
+			if err := validateHTTPURL(server.Name, server.URL); err != nil {
+				return Server{}, err
+			}
 		}
 	default:
 		return Server{}, fmt.Errorf("MCP server %s has unsupported type %q", server.Name, raw.Type)
 	}
 
-	if server.Auth != "" && server.Auth != ServerAuthOAuth {
+	if server.Auth != "" && server.Auth != ServerAuthOAuth && !containsEnvRef(raw.Auth) {
 		return Server{}, fmt.Errorf("MCP server %s has unsupported auth %q", server.Name, raw.Auth)
 	}
 
@@ -190,6 +215,15 @@ func computeServerIdentity(server Server) string {
 	// The first 32 hex characters give a stable 128-bit identity while keeping
 	// permission records compact.
 	return hex.EncodeToString(sum[:])[:32]
+}
+
+// containsEnvRef reports whether a raw config value holds a ${VAR} reference.
+// References expand from the process environment after validation, so fields
+// carrying one skip format validation here: the expanded value is validated
+// by the connection itself, and a bad expansion surfaces as a skipped server
+// with the reason instead of a config error.
+func containsEnvRef(value string) bool {
+	return strings.Contains(value, "${")
 }
 
 func trimStringSlice(values []string) []string {

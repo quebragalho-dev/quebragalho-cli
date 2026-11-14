@@ -18,12 +18,17 @@ import (
 
 // Skill is a single discovered skill. Name and Description come from the
 // SKILL.md frontmatter (Name falls back to the directory name); Content is the
-// markdown body; Path is the absolute path to the SKILL.md file.
+// markdown body; Path is the absolute path to the SKILL.md file. Environments
+// lists environment variable names the skill declares (frontmatter
+// `environment:`) as proof it belongs to the current environment —
+// orchestrators publish their marker variables there so the agent can detect
+// them without any per-app table in the binary.
 type Skill struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Content     string `json:"content,omitempty"`
-	Path        string `json:"path"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	Content      string   `json:"content,omitempty"`
+	Path         string   `json:"path"`
+	Environments []string `json:"environments,omitempty"`
 }
 
 const skillFileName = "SKILL.md"
@@ -336,6 +341,7 @@ func parseSkill(dirName string, path string, raw string) Skill {
 	body := raw
 	name := dirName
 	description := ""
+	var environments []string
 
 	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
 	if frontmatter, remainder, ok := splitFrontmatter(normalized); ok {
@@ -344,13 +350,15 @@ func parseSkill(dirName string, path string, raw string) Skill {
 			name = parsedName
 		}
 		description = frontmatterValue(frontmatter, "description")
+		environments = parseEnvironmentList(frontmatterTopLevelValue(frontmatter, "environment"))
 	}
 
 	return Skill{
-		Name:        name,
-		Description: description,
-		Content:     strings.TrimSpace(body),
-		Path:        path,
+		Name:         name,
+		Description:  description,
+		Environments: environments,
+		Content:      strings.TrimSpace(body),
+		Path:         path,
 	}
 }
 
@@ -375,6 +383,46 @@ func splitFrontmatter(normalized string) (string, string, bool) {
 	}
 	// No closing delimiter — not valid frontmatter; treat the whole file as body.
 	return "", "", false
+}
+
+// parseEnvironmentList reads the frontmatter `environment:` value: a bracketed
+// list (`[A, B]`), a bare comma-separated list (`A, B`), or a single name.
+// Empty entries are dropped; names keep the author's exact spelling because
+// environment variable lookup is case-sensitive.
+func parseEnvironmentList(value string) []string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "[")
+	value = strings.TrimSuffix(value, "]")
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		name := strings.Trim(strings.TrimSpace(part), `"'`)
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// frontmatterTopLevelValue reads a `key: value` pair that starts at column 0
+// of the frontmatter block. Nested keys (indented lines, e.g. under a
+// `metadata:` map) and lines folded into a `>-`/`|` block are ignored, so a
+// stray `environment:` inside a description never becomes a declaration.
+func frontmatterTopLevelValue(frontmatter string, key string) string {
+	prefix := strings.ToLower(key) + ":"
+	for line := range strings.SplitSeq(frontmatter, "\n") {
+		if line == "" {
+			continue
+		}
+		if line[0] == ' ' || line[0] == '\t' {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(trimmed), prefix) {
+			value := strings.TrimSpace(trimmed[len(prefix):])
+			return strings.Trim(value, `"'`)
+		}
+	}
+	return ""
 }
 
 // frontmatterValue reads a single `key: value` pair from the frontmatter block.

@@ -7,7 +7,7 @@ import (
 )
 
 // sessionProvider adapts a TurnSession back to the Provider interface so the
-// loop's existing Provider-shaped call sites (streamWithReconnect, the
+// loop's existing Provider-shaped call sites (the auto-retry opener, the
 // compaction summarizer, finalAnswerAfterMaxTurns) route their stream I/O
 // through the session without any signature change. For the default adapter
 // this reduces to the wrapped provider's StreamCompletion, so behavior is

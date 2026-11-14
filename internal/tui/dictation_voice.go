@@ -22,10 +22,12 @@ const voiceCaptureUsage = "segure Ctrl+Space para gravar; se não funcionar, pre
 // KeyPressMsg and is untouched.
 
 // handleKeyboardEnhancements records the terminal's confirmed keyboard
-// capabilities, so voice mode knows whether hold-to-record is available.
+// capabilities, so voice mode knows whether hold-to-record is available and
+// hints know whether Ctrl+Enter is distinguishable from Enter at all.
 func (m model) handleKeyboardEnhancements(msg tea.KeyboardEnhancementsMsg) model {
 	m.dictation.eventTypesKnown = true
 	m.dictation.eventTypesSupported = msg.SupportsEventTypes()
+	m.keyboardDisambiguation = msg.SupportsKeyDisambiguation()
 	return m
 }
 

@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -119,9 +118,14 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 	if user := userGuidelines(); user != "" {
 		sections = append(sections, user)
 	}
-	project := workspaceContext(options.Cwd)
-	if project != "" {
-		sections = append(sections, project)
+	projectEnv, projectGuides, projectRepoMap := workspaceContextParts(options.Cwd)
+	project := joinWorkspaceParts(projectEnv, projectGuides, projectRepoMap)
+	if projectEnv != "" {
+		sections = append(sections, projectEnv)
+	}
+	sections = append(sections, projectGuides...)
+	if projectRepoMap != "" {
+		sections = append(sections, projectRepoMap)
 	}
 	if modeCtx := permissionModeContext(options); modeCtx != "" {
 		sections = append(sections, modeCtx)
@@ -129,7 +133,17 @@ func buildSystemPromptParts(options Options) systemPromptParts {
 	if delegation := specialistDelegationContext(options); delegation != "" {
 		sections = append(sections, delegation)
 	}
-	skillsBlock := skillsContext(options)
+	// Ambient orchestrator detection runs here — once per prompt build, and the
+	// prompt is frozen for the whole run (never per turn). Detection always
+	// reads the run's skills and the live process environment, so every entry
+	// point (exec, TUI, resume) behaves identically with no bypass.
+	detected := DetectOrchestrators(options.Skills, nil)
+	// Ambient orchestrator block: rebuilt with the system prompt so it survives
+	// compaction. Kept beside the skill list it advertises.
+	if orc := OrchestratorsContext(detected); orc != "" {
+		sections = append(sections, orc)
+	}
+	skillsBlock := skillsContext(options.Skills, detected)
 	if skillsBlock != "" {
 		sections = append(sections, skillsBlock)
 	}
@@ -163,18 +177,111 @@ func continuationUserMessage(promptParts systemPromptParts, options Options, pro
 }
 
 // contextUpdateNote lists the sections missing from frozen, separated by a
-// blank line. Empty when nothing changed.
+// blank line. Empty when nothing changed. The approvals section is reported
+// as a grant delta (only the new lines) instead of the whole accumulated
+// list, so a fresh approval stays a short note while the frozen prefix keeps
+// the older grants.
 func contextUpdateNote(sections []string, frozen string) string {
 	var missing []string
 	for _, section := range sections {
 		if !strings.Contains(frozen, section) {
-			missing = append(missing, section)
+			if delta := approvedPrefixDelta(section, frozen); delta != "" {
+				missing = append(missing, delta)
+			} else {
+				missing = append(missing, section)
+			}
 		}
 	}
+	missing = append(missing, removedGuidelineNotes(sections, frozen)...)
 	if len(missing) == 0 {
 		return ""
 	}
 	return "[context update]\n" + strings.Join(missing, "\n\n")
+}
+
+// guidelineHeaderPrefix marks a per-file project guideline section, whose
+// label is the path in parentheses that follows it.
+const guidelineHeaderPrefix = "## Project guidelines ("
+
+// guidelineLabelOf extracts the label of a guideline section header line
+// like "## Project guidelines (sub/QG.md)". The label runs to the last ")",
+// so paths containing parentheses survive intact. Both sides of a drift
+// comparison go through this one function, so fresh sections and frozen
+// text can never disagree on where a label ends.
+func guidelineLabelOf(header string) (string, bool) {
+	trimmed := strings.TrimSpace(header)
+	if !strings.HasPrefix(trimmed, guidelineHeaderPrefix) || !strings.HasSuffix(trimmed, ")") {
+		return "", false
+	}
+	if label := strings.TrimSpace(trimmed[len(guidelineHeaderPrefix) : len(trimmed)-1]); label != "" {
+		return label, true
+	}
+	return "", false
+}
+
+// guidelineSectionLabel extracts the label of a full guideline section,
+// reading only its header line.
+func guidelineSectionLabel(section string) (string, bool) {
+	header := section
+	if i := strings.IndexByte(header, '\n'); i >= 0 {
+		header = header[:i]
+	}
+	return guidelineLabelOf(header)
+}
+
+// removedGuidelineNotes reports guideline files that the frozen system still
+// cites but the current workspace no longer has: a deleted or moved guideline
+// must not keep steering the model silently. One short line per label.
+func removedGuidelineNotes(sections []string, frozen string) []string {
+	fresh := make(map[string]bool)
+	for _, section := range sections {
+		if label, ok := guidelineSectionLabel(section); ok {
+			fresh[label] = true
+		}
+	}
+	var notes []string
+	seen := make(map[string]bool)
+	for _, line := range strings.Split(frozen, "\n") {
+		label, ok := guidelineLabelOf(line)
+		if !ok || fresh[label] || seen[label] {
+			continue
+		}
+		seen[label] = true
+		notes = append(notes, "Project guidelines removed: "+label+" (no longer applies)")
+	}
+	return notes
+}
+
+// approvedPrefixDelta returns a short note with only the approval grant lines
+// absent from frozen. Membership is exact per "- " line: a fresh grant that is
+// a substring of a frozen line (a broader prefix granted after a narrower one)
+// still counts as new. "" when the section is not the approvals block or no
+// line-level delta exists (the caller then falls back to the whole section).
+func approvedPrefixDelta(section, frozen string) string {
+	const header = "## Approved Command Prefixes"
+	if !strings.HasPrefix(section, header) {
+		return ""
+	}
+	frozenLines := make(map[string]bool)
+	for _, line := range strings.Split(frozen, "\n") {
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "- ") {
+			frozenLines[trimmed] = true
+		}
+	}
+	var fresh []string
+	for _, line := range strings.Split(section, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- ") {
+			continue
+		}
+		if !frozenLines[line] {
+			fresh = append(fresh, line)
+		}
+	}
+	if len(fresh) == 0 {
+		return ""
+	}
+	return "New approved command prefixes (already approved, no prompt needed):\n" + strings.Join(fresh, "\n")
 }
 
 // responseStyleContext renders the operator-selected reply style (TUI /style) as
@@ -250,51 +357,78 @@ func specialistDelegationContext(options Options) string {
 // names + one-line descriptions only (never skill bodies), and it renders nothing
 // when no skills are installed, so a skill-less run reproduces the previous prompt
 // byte-for-byte.
-// skillsContextListBudget bounds the bytes spent listing individual skills so a
-// workspace with an extreme number of them can't bloat every turn's prompt.
-// Skills past the budget are summarized as a count rather than dropped — the
-// model can still load any of them by name (an unknown name returns the full
-// list from the skill tool).
 //
-// The budget is deliberately generous — roughly 18 skills with maximally long
-// (200-rune, ASCII) descriptions, or 40+ with typical terser ones; non-ASCII
-// descriptions consume it faster since the budget counts bytes. This list is
-// the model's ONLY discovery surface, so a skill squeezed out of it effectively
-// never triggers. The previous 640-byte cap silently broke invocation for
-// anyone with more than ~6 skills — the model cannot match a request against a
-// skill it cannot see.
+// Every installed skill NAME always appears: names are the model's only
+// discovery surface, so a skill squeezed out of the list effectively never
+// triggers (the previous behavior hid skills past the budget behind a count,
+// which is why ambient skills went unused). Descriptions fill the
+// skillsContextListBudget in list order; detected orchestrator skills are
+// pinned first with their full description outside the budget. Order follows
+// the input slice, which upstream keeps sorted by name, so repeated builds
+// are byte-stable.
+// skillsContextListBudget bounds the bytes spent on skill DESCRIPTIONS so a
+// workspace with an extreme number of them can't bloat every turn's prompt.
+// Names always appear regardless of budget; only descriptions stop once the
+// budget is spent. Pinned orchestrator skills carry their full description
+// outside this budget. The budget stays deliberately generous — roughly 18
+// skills with maximally long (200-rune, ASCII) descriptions, or 40+ with
+// typical terser ones; non-ASCII descriptions consume it faster since the
+// budget counts bytes.
 const skillsContextListBudget = 4096
 
-func skillsContext(options Options) string {
-	if len(options.Skills) == 0 {
+func skillsContext(skills []SkillInfo, detected []DetectedOrchestrator) string {
+	if len(skills) == 0 {
+		return ""
+	}
+	pins := orchestratorPinNames(skills, detected)
+	pinned := make(map[string]bool, len(pins))
+	for _, name := range pins {
+		pinned[name] = true
+	}
+	seen := make(map[string]bool, len(skills))
+	ordered := make([]SkillInfo, 0, len(skills))
+	for _, info := range skills {
+		name := strings.TrimSpace(info.Name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		ordered = append(ordered, SkillInfo{Name: name, Description: strings.TrimSpace(info.Description)})
+	}
+	if len(ordered) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("<available_skills>\n")
 	b.WriteString("Reusable, on-demand instruction sets you can load with the skill tool. Before acting on a request, scan this list; when the request matches a skill's name or description, call skill with its exact name FIRST and follow the loaded guidance — do not guess names, do not skip a matching skill, and do not substitute your own approach for its instructions.\n")
-	listed, spent, omitted := 0, 0, 0
-	for _, info := range options.Skills {
-		name := strings.TrimSpace(info.Name)
-		if name == "" {
+	for _, name := range pins {
+		for _, info := range ordered {
+			if info.Name != name {
+				continue
+			}
+			line := "- " + name + " (orchestrator: prefer this skill for coordination tasks)"
+			if info.Description != "" {
+				line += ": " + info.Description
+			}
+			b.WriteString(line + "\n")
+			break
+		}
+	}
+	spent := 0
+	for _, info := range ordered {
+		if pinned[info.Name] {
 			continue
 		}
-		line := "- " + name
-		if desc := strings.TrimSpace(info.Description); desc != "" {
-			line += ": " + truncateForSkillLine(desc)
+		line := "- " + info.Name
+		if info.Description != "" {
+			desc := truncateForSkillLine(info.Description)
+			if spent+len(desc) <= skillsContextListBudget {
+				line += ": " + desc
+				spent += len(desc)
+			}
 		}
 		line += "\n"
-		// Always list at least one skill; past the budget, summarize the remainder
-		// as a count instead of silently dropping it.
-		if listed > 0 && spent+len(line) > skillsContextListBudget {
-			omitted++
-			continue
-		}
 		b.WriteString(line)
-		spent += len(line)
-		listed++
-	}
-	if omitted > 0 {
-		b.WriteString("- …and " + strconv.Itoa(omitted) + " more (call skill with a name; an unknown name lists them all)\n")
 	}
 	b.WriteString("</available_skills>")
 	return b.String()
@@ -332,14 +466,17 @@ func sessionRuntimeContext(options Options) string {
 	return b.String()
 }
 
-// workspaceContext returns an <environment> block describing the working
-// directory, git branch, and any project guideline doc, so the model grounds its
-// work in the actual repo. Returns "" when cwd is unset (keeps headless/test
-// runs deterministic).
-func workspaceContext(cwd string) string {
+// workspaceContextParts splits the workspace block into drift-independent
+// subjects: the <environment> header (cwd, OS, branch), one section per
+// project guideline file, and the repo map. The loop freezes the whole system
+// message and reports mid-conversation changes as short suffix notes, so each
+// subject must be detectable on its own: a branch switch must not re-dump
+// kilobytes of unchanged guidelines. Joined with "\n\n" the pieces reproduce
+// workspaceContext byte-for-byte.
+func workspaceContextParts(cwd string) (env string, guides []string, repoMap string) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
-		return ""
+		return "", nil, ""
 	}
 	var b strings.Builder
 	b.WriteString("<environment>\n")
@@ -350,27 +487,47 @@ func workspaceContext(cwd string) string {
 		b.WriteString("Git branch: " + branch + "\n")
 	}
 	b.WriteString("</environment>")
+	env = b.String()
+	guides = projectGuidelineBlocks(cwd, FindProjectGitRoot(cwd))
+	if snapshot := repoMapContext(cwd); snapshot != "" {
+		repoMap = "## Repo map\n\n" + snapshot
+	}
+	return env, guides, repoMap
+}
 
-	b.WriteString(projectGuidelines(cwd, FindProjectGitRoot(cwd)))
-	if repoMap := repoMapContext(cwd); repoMap != "" {
-		b.WriteString("\n\n## Repo map\n\n" + repoMap)
+// joinWorkspaceParts renders the workspace block from parts: the environment
+// header, one section per project guideline file, and the repo map.
+func joinWorkspaceParts(env string, guides []string, repoMap string) string {
+	if env == "" && len(guides) == 0 && repoMap == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(env)
+	for _, guide := range guides {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(guide)
+	}
+	if repoMap != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(repoMap)
 	}
 	return b.String()
 }
 
-// projectGuidelines walks the directory chain from the git root to cwd
-// (inclusive), finds the first matching project context file at each level
-// (case-insensitive basename match), reads it, and returns the joined
-// content in general-to-specific order — the most general file (at the git
-// root) appears first, the most specific (at cwd) last. Each file is capped
-// at maxProjectContextBytes; the total across all files is capped at
-// maxProjectContextTotalBytes. Returns "" when no file matches.
-func projectGuidelines(cwd, gitRoot string) string {
+// projectGuidelineBlocks returns one section per matched project guideline
+// file, in general-to-specific order, without the leading blank lines the
+// legacy join adds. Splitting per file keeps drift notes short: editing one
+// file resends only that file's block.
+func projectGuidelineBlocks(cwd, gitRoot string) []string {
 	dirs := projectGuidelineDirs(cwd, gitRoot)
 	if len(dirs) == 0 {
-		return ""
+		return nil
 	}
-	var b strings.Builder
+	var blocks []string
 	totalUsed := 0
 	for _, dir := range dirs {
 		if totalUsed >= maxProjectContextTotalBytes {
@@ -397,10 +554,10 @@ func projectGuidelines(cwd, gitRoot string) string {
 		}
 		content = truncateGuidelineContent(content, limit)
 		label := projectGuidelineLabel(match, gitRoot)
-		b.WriteString("\n\n## Project guidelines (" + label + ")\n\n" + content)
+		blocks = append(blocks, "## Project guidelines ("+label+")\n\n"+content)
 		totalUsed += len(content)
 	}
-	return b.String()
+	return blocks
 }
 
 // userGuidelines returns the per-user QG.md instructions block, if present.

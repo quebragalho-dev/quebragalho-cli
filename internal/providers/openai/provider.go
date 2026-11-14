@@ -243,10 +243,22 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 		return
 	}
 	if err != nil {
-		state.flushBufferedContent(events)
-		state.closeBufferedOpen(events)
-		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + err.Error())})
-		return
+		// A clean EOF without [DONE] ends legitimately only when the model
+		// already finished generating (finish_reason seen): anything else is
+		// a truncated transport and re-enters the retry policy, with the
+		// partial output discarded.
+		if errors.Is(err, io.ErrUnexpectedEOF) && state.terminated {
+			err = nil
+		} else {
+			state.flushBufferedContent(events)
+			state.closeBufferedOpen(events)
+			message := err.Error()
+			if errors.Is(err, io.ErrUnexpectedEOF) {
+				message = "upstream closed the stream without a terminator ([DONE]): " + message
+			}
+			sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + message)})
+			return
+		}
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		state.flushBufferedContent(events)
@@ -351,6 +363,12 @@ func (provider *Provider) emitChunk(
 		if reason := mapFinishReason(choice.FinishReason); reason != "" {
 			state.finishReason = reason
 		}
+		// Any finish_reason (stop, length, tool_calls, content_filter, …) means
+		// the model finished generating: the stream may end legitimately even
+		// when no [DONE] payload follows.
+		if choice.FinishReason != "" {
+			state.terminated = true
+		}
 	}
 
 	if chunk.Usage != nil {
@@ -408,12 +426,22 @@ func (provider *Provider) emitHTTPError(ctx context.Context, response *http.Resp
 	// localhost but returns a gateway error when it cannot reach its own backend.
 	// Surface that as a clear connectivity message instead of the raw proxied body.
 	if humanized, ok := providerio.UpstreamUnreachable(message); ok {
-		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact(humanized)})
+		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact(humanized), Err: &providerio.StatusError{
+			StatusCode: response.StatusCode,
+			RetryAfter: providerio.RetryAfter(response),
+			Message:    provider.redact(humanized),
+		}})
 		return
+	}
+	statusErr := &providerio.StatusError{
+		StatusCode: response.StatusCode,
+		RetryAfter: providerio.RetryAfter(response),
+		Message:    provider.classifiedError(response.StatusCode, message),
 	}
 	sendEvent(ctx, events, qgruntime.StreamEvent{
 		Type:  qgruntime.StreamEventError,
-		Error: provider.classifiedError(response.StatusCode, message),
+		Error: statusErr.Message,
+		Err:   statusErr,
 	})
 }
 

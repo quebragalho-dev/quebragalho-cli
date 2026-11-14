@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"net/url"
 	"regexp"
 	"sort"
@@ -19,6 +20,13 @@ type MCPStateOptions struct {
 	PermissionMode  string
 	PromptCount     int
 	DeniedCount     int
+	// Skipped maps server name to the startup failure reason, so the manager
+	// shows why a configured server has no tools instead of looking healthy.
+	Skipped map[string]string
+	// Status carries explicit per-server connection states (glyph, state
+	// word, inline reason). When present it drives the panel rendering;
+	// otherwise the legacy skipped/store-based states apply.
+	Status []mcp.ServerStatus
 }
 
 type mcpServerNamedTool interface {
@@ -38,21 +46,74 @@ func BuildMCPViewState(options MCPStateOptions) MCPViewState {
 	}
 
 	return MCPViewState{
-		Servers:     buildMCPServerViews(options.Config, toolCounts),
+		Servers:     buildMCPServerViews(options.Config, toolCounts, options.Skipped, mcpNeedsAuthSet(options.Config, options.TokenStore), options.Status),
 		Tools:       toolViews,
 		Permissions: buildMCPPermissionSummary(options),
 		OAuth:       buildMCPOAuthSummary(options.Config, options.TokenStore),
 	}
 }
 
-func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int) []MCPServerView {
+// mcpNeedsAuthSet reports which OAuth servers have no stored token, so the
+// panel can flag "precisa autenticar" instead of a bare failure.
+func mcpNeedsAuthSet(cfg config.MCPConfig, tokenStore *mcp.TokenStore) map[string]bool {
+	needs := make(map[string]bool)
+	statuses := make(map[string]mcp.TokenStatus)
+	if tokenStore != nil {
+		if stored, err := tokenStore.Status(); err == nil {
+			for _, status := range stored {
+				statuses[status.ServerName] = status
+			}
+		}
+	}
+	for name, server := range cfg.Servers {
+		if !strings.EqualFold(strings.TrimSpace(server.Auth), mcp.ServerAuthOAuth) && server.OAuth == nil {
+			continue
+		}
+		if status, ok := statuses[name]; ok && status.HasToken {
+			continue
+		}
+		needs[name] = true
+	}
+	return needs
+}
+
+// mcpServerOrigin names where a server is configured: the built-in default,
+// the project layer, or the user's own config.
+func mcpServerOrigin(name string, server config.MCPServerConfig) string {
+	if config.IsUnconfiguredDefault(name, server) {
+		return "padrão"
+	}
+	if server.ProjectConfigured {
+		return "projeto"
+	}
+	return "usuário"
+}
+
+func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int, skipped map[string]string, needsAuth map[string]bool, statuses []mcp.ServerStatus) []MCPServerView {
 	names := sortedMCPServerNames(cfg)
 	servers := make([]MCPServerView, 0, len(names))
+	explicit := make(map[string]mcp.ServerStatus, len(statuses))
+	for _, status := range statuses {
+		explicit[status.Name] = status
+	}
 	for _, name := range names {
 		raw := cfg.Servers[name]
+		if explicitStatus, ok := explicit[name]; ok {
+			servers = append(servers, explicitServerView(name, raw, explicitStatus))
+			continue
+		}
 		state := "enabled"
+		status := "ok"
 		if raw.Disabled {
 			state = "disabled"
+			status = "disabled"
+		}
+		detail := ""
+		if status != "disabled" {
+			if reason, ok := skipped[name]; ok {
+				status = "failed"
+				detail = reason
+			}
 		}
 		servers = append(servers, MCPServerView{
 			Name:      name,
@@ -61,9 +122,61 @@ func buildMCPServerViews(cfg config.MCPConfig, toolCounts map[string]int) []MCPS
 			Target:    mcpServerTarget(raw),
 			Auth:      strings.TrimSpace(raw.Auth),
 			ToolCount: toolCounts[name],
+			Status:    status,
+			Detail:    detail,
+			Origin:    mcpServerOrigin(name, raw),
+			NeedsAuth: needsAuth[name],
 		})
 	}
 	return servers
+}
+
+// explicitServerView renders one server from an explicit connection status
+// instead of the legacy config-derived states.
+func explicitServerView(name string, raw config.MCPServerConfig, status mcp.ServerStatus) MCPServerView {
+	count := status.ToolCount
+	if count < 0 {
+		count = 0
+	}
+	view := MCPServerView{
+		Name:      name,
+		Transport: mcpServerTransport(raw),
+		State:     string(status.State),
+		Target:    mcpServerTarget(raw),
+		Auth:      strings.TrimSpace(raw.Auth),
+		ToolCount: count,
+		Origin:    mcpServerOrigin(name, raw),
+	}
+	switch status.State {
+	case mcp.ServerStateConnected:
+		view.Status = "ok"
+		view.Glyph = "✔"
+		view.StateLabel = "conectado"
+		if count == 1 {
+			view.CountLabel = "1 tool"
+		} else if count > 1 {
+			view.CountLabel = fmt.Sprintf("%d tools", count)
+		}
+	case mcp.ServerStateNeedsAuth:
+		view.Status = "ok"
+		view.NeedsAuth = true
+		view.Glyph = "⚠"
+		view.StateLabel = "precisa autenticar"
+	case mcp.ServerStateFailed:
+		view.Status = "failed"
+		view.Detail = status.Reason
+		view.Glyph = "✘"
+		view.StateLabel = "falhou"
+	case mcp.ServerStateDisabled:
+		view.Status = "disabled"
+		view.State = "disabled"
+		view.Glyph = "○"
+		view.StateLabel = "desativado"
+	default:
+		view.Status = "ok"
+		view.StateLabel = view.State
+	}
+	return view
 }
 
 func buildMCPToolViews(cfg config.MCPConfig, registry *tools.Registry) []MCPToolView {

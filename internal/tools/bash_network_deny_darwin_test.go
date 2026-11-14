@@ -201,6 +201,12 @@ func TestBashNetworkDenialSystemPython(t *testing.T) {
 // blocks must still surface the structured denial for the agent loop. It is
 // the only owner of the tag path: its output carries no network signature,
 // so the fallback stays silent here, while the other tests also exercise it.
+//
+// The shell exits zero, so bash.go skips AwaitTag: the tagged-log wait runs
+// only for failed commands, and a zero-exit tag arrival is best-effort in the
+// product. The trailing sleep holds the process open so the already-emitted
+// seatbelt lines arrive before monitor.Stop(); without it the assertion
+// flakes when the machine is loaded.
 func TestBashNetworkDenialShellNc(t *testing.T) {
 	if _, err := exec.LookPath("sandbox-exec"); err != nil {
 		t.Skipf("sandbox-exec unavailable: %v", err)
@@ -224,7 +230,7 @@ func TestBashNetworkDenialShellNc(t *testing.T) {
 		RunWithSandbox(context.Context, map[string]any, *sandbox.Engine) Result
 	})
 	result := tool.RunWithSandbox(ctx, map[string]any{
-		"command": "sh -c '/usr/bin/nc -z -w2 93.184.215.14 80; echo nc=$?'",
+		"command": "sh -c '/usr/bin/nc -z -w2 93.184.215.14 80; echo nc=$?; sleep 1'",
 	}, engine)
 	outcome := result.ExecutionOutcome
 	if outcome == nil || outcome.Denial == nil {

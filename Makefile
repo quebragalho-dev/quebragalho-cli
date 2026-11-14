@@ -33,8 +33,15 @@ release:
 	go run ./cmd/qg-release verify
 
 # Run the full test suite with the race detector (matches CI expectations).
+# The tui package is wall-clock-bound: hundreds of acceptance scenarios drive
+# real subprocesses through real-time waits, and -race slows rendering
+# further. Measured 411s on a 4-core EPYC; the 10m default go test timeout
+# would panic on ~2.6x slower runners (Contabo-class dev boxes, and the
+# ubuntu-latest CI runner is slower than fast dev machines too). 25m is ~3.5x
+# the reference measurement: finite enough to fail a true hang, with margin
+# for slow machines. Keep it below the CI race job's 30m ceiling.
 test:
-	go test ./... -race -count=1
+	go test ./... -race -count=1 -timeout 25m
 
 # Faster, no race detector.
 test-quick:

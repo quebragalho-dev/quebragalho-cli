@@ -90,19 +90,25 @@ func TestUpdateNoticeFormsByWidth(t *testing.T) {
 }
 
 func TestUpdateNoticeFitsWholeFormOrNone(t *testing.T) {
-	// With no right side each width below sits exactly on a form boundary:
-	// left is 22 cells, and the budget keeps a two-cell gap on each crossed
-	// side. The line must hold the whole form or nothing — never a cut
-	// version — and never overflow the width.
+	// With no path the notice stands alone: each width below sits exactly
+	// on a form boundary, holding the whole form or nothing — never a cut
+	// version — and never overflowing the width.
 	for _, tc := range []struct {
 		width int
 		want  string
 	}{
-		{68, "nova versão 0.0.11 · reinicie para instalar"},
-		{65, "nova versão 0.0.11 · reinicie para instalar"},
-		{64, "nova 0.0.11 · reinicie"},
-		{44, "nova 0.0.11 · reinicie"},
-		{43, "nova 0.0.11"},
+		{77, "nova versão 0.0.11 · reinicie para instalar"},
+		{74, "nova versão 0.0.11 · reinicie para instalar"},
+		{73, "nova versão 0.0.11 · reinicie para instalar"},
+		{72, "nova versão 0.0.11 · reinicie para instalar"},
+		{53, "nova 0.0.11 · reinicie"},
+		{52, "nova 0.0.11 · reinicie"},
+		{51, "nova 0.0.11 · reinicie"},
+		{50, "nova 0.0.11"},
+		{42, "nova 0.0.11"},
+		{41, "nova 0.0.11"},
+		{40, "nova 0.0.11"},
+		{39, "nova 0.0.11"},
 		{33, "nova 0.0.11"},
 		{32, ""},
 	} {
@@ -169,40 +175,48 @@ func TestUpdateNoticeDowngradesBeforeDroppingPath(t *testing.T) {
 	assertNotContains(t, got, "/private/var/folders/dt/xyz/T/opencode/t5/ws-D")
 }
 
-func TestUpdateNoticeSurvivesDroppedPath(t *testing.T) {
-	// Narrow enough that path plus notice cannot coexist: the path and its
-	// separator drop, and the tiny form stays docked right.
+func TestUpdateNoticeDropsPathAndNoticeTogether(t *testing.T) {
+	// Narrow enough that path plus notice cannot coexist: both drop
+	// together and stay hidden on narrower widths, so the path never
+	// reappears once displaced and the notice never upgrades alone.
+	// The notice returns only when both fit again (at 50 the tiny form
+	// shows next to the truncated path).
 	m := updateNoticeLongCwdModel(t)
-	got := plainRender(t, m.statusLine(33))
+	for _, width := range []int{33, 41} {
+		got := plainRender(t, m.statusLine(width))
+		assertNotContains(t, got, "nova")
+		assertNotContains(t, got, "opencode")
+		assertNotContains(t, got, "/priv")
+	}
+	got := plainRender(t, m.statusLine(50))
 	assertContains(t, got, "nova 0.0.12")
-	assertNotContains(t, got, "opencode")
-	assertNotContains(t, got, " │ ")
-	assertNotContains(t, got, "…")
+	assertContains(t, got, "…")
 }
 
-func TestUpdateNoticeFallsBackToFullFooterWhenNothingFits(t *testing.T) {
-	// Too narrow for even the tiny form without the path: since no notice
-	// shows, the footer must equal the notice-free rendering at the same
-	// width, path included.
+func TestUpdateNoticeKeepsPathHiddenWhenNothingFits(t *testing.T) {
+	// Too narrow for path plus notice: both drop together, so the line
+	// with a pending notice shows only the mode and effort. Without a
+	// notice the same width still shows the truncated path ("/priv…"),
+	// which is why a hidden notice keeps the path hidden instead of
+	// handing it the room back.
 	withNotice := updateNoticeLongCwdModel(t)
 	got := plainRender(t, withNotice.statusLine(32))
+	assertNotContains(t, got, "nova")
+	assertNotContains(t, got, "opencode")
+	assertNotContains(t, got, "/priv")
 	withoutNotice := batchThreeLiveModel(t)
 	withoutNotice.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
 	want := plainRender(t, withoutNotice.statusLine(32))
-	if got != want {
-		t.Fatalf("footer without room must match the notice-free footer:\n got %q\nwant %q", got, want)
-	}
-	assertNotContains(t, got, "nova")
-	assertContains(t, got, "/priv")
+	assertContains(t, want, "/priv")
 }
 
 func TestUpdateNoticeAbsentKeepsWorkspaceByteIdentical(t *testing.T) {
-	// No new version: the footer renders exactly as before, with the
-	// workspace taking every free cell.
+	// No new version: the footer renders exactly as pinned, with the
+	// workspace taking every free cell and the cache segment docked right.
 	m := batchThreeLiveModel(t)
 	m.cwd = "/private/var/folders/dt/xyz/T/opencode/t5/ws-D"
 	got := plainRender(t, m.statusLine(120))
-	want := "  ● automático · n/d │ /private/var/folders/dt/xyz/T/opencode/t5/ws-D"
+	want := "  ● automático · n/d │ /private/var/folders/dt/xyz/T/opencode/t5/ws-D                                            cache —"
 	if got != want {
 		t.Fatalf("footer changed without a notice:\n got %q\nwant %q", got, want)
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -171,6 +172,8 @@ func runMCPWithContext(ctx context.Context, args []string, stdout io.Writer, std
 		return runMCPToggle(args[1:], stdout, stderr, deps, true)
 	case "check":
 		return runMCPCheck(ctx, args[1:], stdout, stderr, deps)
+	case "approve":
+		return runMCPApprove(args[1:], stdout, stderr, deps)
 	case "permissions":
 		return runMCPPermissions(args[1:], stdout, stderr, deps)
 	case "tools":
@@ -216,6 +219,14 @@ func runMCPLegacyList(args []string, stdout io.Writer, stderr io.Writer, deps ap
 	if cfg.Servers == nil {
 		cfg.Servers = map[string]config.MCPServerConfig{}
 	}
+	// Status probe: connect each configured server once and list its tools so
+	// the list shows live state with the failure reason, not just config.
+	// Probing spawns stdio servers and needs the same gates as every other
+	// spawn site: project-layer servers are only probed in a trusted workspace
+	// with a recorded approval; elsewhere they are reported as unverified or
+	// pending approval, never connected.
+	excludeProject, _ := resolveTrust(cwd)
+	probe, missing, pending := probeEligibleMCPServers(cfg, cwd, !excludeProject, deps.probeMCPServers)
 	if options.json {
 		// Env and header VALUES are credentials by construction (API keys,
 		// bearer tokens) and must never reach stdout: pattern-based redaction
@@ -223,16 +234,103 @@ func runMCPLegacyList(args []string, stdout io.Writer, stderr io.Writer, deps ap
 		// structurally — keys stay visible for triage.
 		payload := struct {
 			Servers map[string]config.MCPServerConfig `json:"servers"`
-		}{Servers: redactMCPServerConfigs(cfg.Servers)}
+			Status  map[string]mcpServerProbeStatus   `json:"status"`
+		}{Servers: redactMCPServerConfigs(cfg.Servers), Status: mcpProbeStatusMap(cfg.Servers, probe, missing, pending, !excludeProject)}
 		if err := writePrettyJSON(stdout, redaction.RedactValue(payload, redaction.Options{})); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintln(stdout, redaction.RedactString(formatMCPServerList(cfg.Servers), redaction.Options{})); err != nil {
+	if _, err := fmt.Fprintln(stdout, redaction.RedactString(formatMCPServerList(cfg.Servers, probe, missing, pending, !excludeProject), redaction.Options{})); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
+}
+
+// emitMCPApprovalNotice lists project servers skipped for missing one-time
+// approval, so `mcp tools list` explains the gap instead of hiding it.
+func emitMCPApprovalNotice(stderr io.Writer, runtime mcpToolRuntime) {
+	if stderr == nil || runtime == nil {
+		return
+	}
+	for _, skipped := range runtime.Skipped() {
+		var pending *mcp.ApprovalPendingError
+		if !errors.As(skipped.Err, &pending) {
+			continue
+		}
+		fmt.Fprintln(stderr, "[qg] "+pending.Error())
+	}
+}
+
+// mcpServerProbeStatus is the JSON status entry for one server.
+type mcpServerProbeStatus struct {
+	State string `json:"state"`
+	Tools int    `json:"tools,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// probeEligibleMCPServers probes every configured server the trust and
+// approval gates allow (user/default servers always; project servers only
+// when trusted and approved). Like RegisterTools, it normalizes the literal
+// config — so the approval gate compares literal identities — and expands
+// ${VAR}/${VAR:-default} per server only for dialing. Servers with undefined
+// variables are returned in missing, unapproved project servers in pending,
+// instead of probed with emptied targets. probe dials; tests inject a fake.
+func probeEligibleMCPServers(cfg config.MCPConfig, projectRoot string, trusted bool, probe func(context.Context, []mcp.Server) map[string]mcp.ProbeResult) (map[string]mcp.ProbeResult, map[string][]string, map[string]bool) {
+	servers, err := mcp.NormalizeConfig(cfg)
+	if err != nil {
+		return nil, nil, nil
+	}
+	approvals, _ := mcp.OpenProjectApprovals()
+	kept, approvalSkips := mcp.FilterUnapproved(servers, projectRoot, approvals)
+	pending := make(map[string]bool, len(approvalSkips))
+	for _, skipped := range approvalSkips {
+		pending[skipped.Name] = true
+	}
+	missing := make(map[string][]string)
+	eligible := make([]mcp.Server, 0, len(kept))
+	for _, server := range kept {
+		if !trusted && server.ProjectConfigured {
+			continue
+		}
+		expanded, names := server.WithExpandedEnv()
+		if len(names) > 0 {
+			missing[server.Name] = names
+			continue
+		}
+		eligible = append(eligible, expanded)
+	}
+	if probe == nil {
+		probe = func(ctx context.Context, servers []mcp.Server) map[string]mcp.ProbeResult {
+			return mcp.ProbeServers(ctx, servers, nil)
+		}
+	}
+	return probe(context.Background(), eligible), missing, pending
+}
+
+func mcpProbeStatusMap(servers map[string]config.MCPServerConfig, probe map[string]mcp.ProbeResult, missing map[string][]string, pending map[string]bool, trusted bool) map[string]mcpServerProbeStatus {
+	status := make(map[string]mcpServerProbeStatus, len(servers))
+	for name, server := range servers {
+		switch {
+		case server.Disabled:
+			status[name] = mcpServerProbeStatus{State: "disabled"}
+		case !trusted && server.ProjectConfigured:
+			status[name] = mcpServerProbeStatus{State: "unverified", Error: "projeto não confiável"}
+		case pending[name]:
+			status[name] = mcpServerProbeStatus{State: "pending_approval", Error: (&mcp.ApprovalPendingError{Server: name}).Error()}
+		case len(missing[name]) > 0:
+			status[name] = mcpServerProbeStatus{State: "unreachable", Error: mcp.MissingEnvError(name, missing[name])}
+		default:
+			entry := mcpServerProbeStatus{State: "unreachable"}
+			if result, ok := probe[name]; ok && result.Err == nil {
+				entry = mcpServerProbeStatus{State: "ok", Tools: result.ToolCount}
+			} else if ok {
+				entry.Error = shortMCPProbeReason(result.Err)
+			}
+			status[name] = entry
+		}
+	}
+	return status
 }
 
 // redactMCPServerConfigs deep-copies the server map with every env and header
@@ -302,6 +400,7 @@ func runMCPTools(ctx context.Context, args []string, stdout io.Writer, stderr io
 		// workspace is explained rather than read as "nothing configured". The notice
 		// goes to stderr, leaving the list (text or --json) on stdout intact.
 		emitTrustNotice(stderr, mcpSkip)
+		emitMCPApprovalNotice(stderr, mcpRuntime)
 		// Surface the trust skip on stderr so an empty (or short) list in an untrusted
 		// workspace is explained rather than read as "nothing configured". The notice
 		// goes to stderr, leaving the list (text or --json) on stdout intact.
@@ -617,6 +716,7 @@ Comandos:
   enable <server>   Ativa um servidor MCP da config do usuário
   disable <server>  Desativa um servidor MCP da config do usuário
   check <server>    Conecta a um servidor MCP e lista suas ferramentas
+  approve <server>  Aprova um servidor MCP de projeto para este projeto
   list              Lista servidores MCP configurados ou ferramentas (--tools)
   oauth             Gerencia credenciais OAuth de servidores MCP remotos
   permissions       Gerencia permissões persistentes de ferramentas MCP

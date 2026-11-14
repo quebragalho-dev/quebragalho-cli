@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgcommands"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -68,12 +69,18 @@ func (m *model) mcpText() string {
 }
 
 func (m *model) refreshMCPViewState() {
+	var status []mcp.ServerStatus
+	if m.mcpStatus != nil {
+		status = m.mcpStatus()
+	}
 	m.mcpViewStateCache = BuildMCPViewState(MCPStateOptions{
 		Config:          m.mcpConfig,
 		Registry:        m.registry,
 		PermissionStore: m.mcpPermissionStore,
 		PermissionMode:  string(m.permissionMode),
 		TokenStore:      m.mcpTokenStore,
+		Skipped:         m.mcpSkipped,
+		Status:          status,
 	})
 	m.mcpViewStateReady = true
 }
@@ -142,6 +149,20 @@ func (m *model) cancelMCPCommand() {
 		m.mcpCommandCancel = nil
 		m.mcpCommandSeq++
 	}
+}
+
+// applyMCPReconnectResult refreshes the /mcp view after a session-runtime
+// reconnect and reports the outcome in the transcript.
+func (m model) applyMCPReconnectResult(msg mcpReconnectResultMsg) model {
+	m.refreshMCPViewState()
+	if msg.err != nil {
+		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, tool: "mcp", text: "Reconectar " + msg.server + " falhou: " + strings.TrimSpace(msg.err.Error())})
+	} else {
+		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, tool: "mcp", text: "Servidor MCP " + msg.server + " reconectado."})
+	}
+	m.mcpManager = &mcpManagerState{}
+	m.clearSuggestions()
+	return m
 }
 
 func (m model) applyMCPCommandResultMessage(msg mcpCommandResultMsg) model {

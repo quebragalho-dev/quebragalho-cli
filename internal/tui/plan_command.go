@@ -62,6 +62,10 @@ func planModeCommandUnavailable(command parsedCommand) bool {
 	case commandMCP:
 		// Bare /mcp only opens the read-only manager view; subcommands mutate config.
 		return strings.TrimSpace(command.text) != ""
+	case commandStatusline:
+		// Bare /statusline is a read-only status card; reset/setup write
+		// config or spawn file-writing turns outside the read-only gate.
+		return strings.TrimSpace(command.text) != ""
 	default:
 		return false
 	}

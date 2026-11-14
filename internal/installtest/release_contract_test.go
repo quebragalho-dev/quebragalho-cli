@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,13 +12,15 @@ import (
 )
 
 // The repo is public, so pull_request workflows must never reach a self-hosted
-// runner: every job runs on a GitHub-hosted Ubuntu runner. Cross-platform
-// binaries come from Go cross-compilation, not from per-OS runners.
-var hostedWorkflows = []string{
-	"ci.yml",
-	"release-artifacts.yml",
-	"pr-auto-review.yml",
-	"qg-action-smoke.yml",
+// runner: every job runs on a GitHub-hosted runner. Cross-platform binaries
+// come from Go cross-compilation, not from per-OS runners; the only exception
+// is the native macOS unit-test job, which needs a GitHub-hosted macOS
+// runner (free for public repos).
+var hostedRunnersByWorkflow = map[string][]string{
+	"ci.yml":                {"ubuntu-latest", "macos-latest"},
+	"release-artifacts.yml": {"ubuntu-latest"},
+	"pr-auto-review.yml":    {"ubuntu-latest"},
+	"qg-action-smoke.yml":   {"ubuntu-latest"},
 }
 
 type runsOnWorkflow struct {
@@ -27,7 +30,7 @@ type runsOnWorkflow struct {
 }
 
 func TestWorkflowsNeverRunOnSelfHostedRunners(t *testing.T) {
-	for _, name := range hostedWorkflows {
+	for name, allowed := range hostedRunnersByWorkflow {
 		rel := filepath.Join(".github", "workflows", name)
 		var doc runsOnWorkflow
 		if err := yaml.Unmarshal([]byte(readRepoText(t, rel)), &doc); err != nil {
@@ -37,8 +40,9 @@ func TestWorkflowsNeverRunOnSelfHostedRunners(t *testing.T) {
 			t.Fatalf("%s: no jobs parsed", rel)
 		}
 		for jobName, job := range doc.Jobs {
-			if label, ok := job.RunsOn.(string); !ok || label != "ubuntu-latest" {
-				t.Errorf("%s job %q: runs-on = %v, want ubuntu-latest (the repo is public, so no self-hosted runners)", rel, jobName, job.RunsOn)
+			label, ok := job.RunsOn.(string)
+			if !ok || !slices.Contains(allowed, label) {
+				t.Errorf("%s job %q: runs-on = %v, want one of %v (the repo is public, so no self-hosted runners)", rel, jobName, job.RunsOn, allowed)
 			}
 		}
 	}

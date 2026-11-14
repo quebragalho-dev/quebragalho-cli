@@ -13,8 +13,6 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-const defaultProtocolVersion = "2024-11-05"
-
 const (
 	jsonRPCMethodNotFound = -32601
 	jsonRPCInvalidParams  = -32602
@@ -109,6 +107,19 @@ func (options ServeOptions) withDefaults() ServeOptions {
 	return options
 }
 
+// negotiatedProtocolVersion echoes the protocol revision the client asked
+// for when qg implements it, and falls back to the newest implemented
+// revision otherwise.
+func (server toolServer) negotiatedProtocolVersion(rawParams json.RawMessage) string {
+	var params struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if err := json.Unmarshal(rawParams, &params); err == nil && knownMCPProtocolVersion(params.ProtocolVersion) {
+		return params.ProtocolVersion
+	}
+	return latestMCPProtocolVersion()
+}
+
 type toolServer struct {
 	registry      *tools.Registry
 	options       ServeOptions
@@ -128,7 +139,7 @@ func (server toolServer) handle(ctx context.Context, message rpcMessage) error {
 	switch message.Method {
 	case "initialize":
 		return server.writeResult(message.ID, map[string]any{
-			"protocolVersion": defaultProtocolVersion,
+			"protocolVersion": server.negotiatedProtocolVersion(message.Params),
 			"capabilities": map[string]any{
 				"tools":     map[string]any{},
 				"resources": map[string]any{},

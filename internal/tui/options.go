@@ -56,7 +56,19 @@ type Options struct {
 	// CompactionModel is the resolved preferences.compactionModel value; see
 	// providers.CompactionModelID for how it combines with the env override
 	// (no curated default: empty means the main model).
-	CompactionModel             string
+	CompactionModel string
+	// StatusLine carries resolved.Preferences-independent TUI customization:
+	// user layout plus command, optionally with project layout underneath.
+	// Zero renders the built-in line byte for byte.
+	StatusLine config.StatusLineConfig
+	// StatusLineWarning surfaces a non-fatal statusline config notice (e.g. a
+	// project command that was ignored) once at startup. "" shows nothing.
+	StatusLineWarning string
+	// SandboxWarning surfaces the one-time session warning shown when the
+	// sandbox is enabled but the native backend is unavailable (commands run
+	// without native isolation). "" shows nothing. Rendered once at startup
+	// as a system message, above the fold with the welcome row.
+	SandboxWarning              string
 	Provider                    qgruntime.Provider
 	NewProvider                 func(config.ProviderProfile) (qgruntime.Provider, error)
 	NewTurnSessionProvider      func(config.ProviderProfile, qgruntime.Provider) qgruntime.TurnSessionProvider
@@ -69,12 +81,23 @@ type Options struct {
 	// AwaitToolReadiness gives prompt-critical integration startup a bounded
 	// chance to publish its tools before this turn snapshots the registry. The
 	// wait runs inside the asynchronous agent command, so the TUI stays usable.
-	AwaitToolReadiness  func(context.Context)
-	SessionStore        *sessions.Store
-	SandboxStore        *sandbox.GrantStore
-	MCPConfig           config.MCPConfig
-	MCPPermissionStore  *mcp.PermissionStore
-	MCPTokenStore       *mcp.TokenStore
+	AwaitToolReadiness func(context.Context)
+	SessionStore       *sessions.Store
+	SandboxStore       *sandbox.GrantStore
+	MCPConfig          config.MCPConfig
+	MCPPermissionStore *mcp.PermissionStore
+	MCPTokenStore      *mcp.TokenStore
+	// MCPSkipped maps server name to the startup failure reason, so the MCP
+	// manager shows why a configured server has no tools.
+	MCPSkipped map[string]string
+	// MCPStatus, when set, reports the live MCP server states for /mcp,
+	// including servers the startup snapshot missed (e.g. optional defaults
+	// that settled later). It is consulted every time the MCP view refreshes.
+	MCPStatus func() []mcp.ServerStatus
+	// MCPReconnect reconnects one MCP server on the live session runtime,
+	// backing the /mcp manager's reconnect action. Nil keeps the check
+	// command as the reconnect path.
+	MCPReconnect        func(ctx context.Context, server string) error
 	MCPCommand          func(context.Context, []string) MCPCommandResult
 	SandboxSetupCommand func(context.Context) SandboxSetupCommandResult
 	UsageTracker        *usage.Tracker

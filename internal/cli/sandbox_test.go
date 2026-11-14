@@ -16,6 +16,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 func TestRunSandboxGrantsAllowListDenyRevokeAndClear(t *testing.T) {
@@ -850,7 +851,7 @@ func TestEffectiveSandboxPolicyShowsWriteRootsError(t *testing.T) {
 
 func TestRunSandboxPolicyEffectiveListsConfiguredWriteRoots(t *testing.T) {
 	store := newSandboxTestStore(t)
-	extra := tempDirOutsideDefaultTemp(t)
+	extra := testutil.TempDirOutsideDefaultTemp(t)
 	resolvedExtra, err := filepath.EvalSymlinks(extra)
 	if err != nil {
 		t.Fatalf("EvalSymlinks(%q) returned error: %v", extra, err)

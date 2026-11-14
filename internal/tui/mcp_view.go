@@ -20,6 +20,20 @@ type MCPServerView struct {
 	Target    string
 	Auth      string
 	ToolCount int
+	// Status is the startup probe outcome: "ok", "failed", or "disabled".
+	// Detail carries the failure reason when Status is "failed".
+	Status string
+	Detail string
+	// Origin is where the server is configured: "usuário", "projeto" ou "padrão".
+	Origin string
+	// NeedsAuth is true when the server requires OAuth and no token is stored.
+	NeedsAuth bool
+	// Glyph, StateLabel and CountLabel render the states panel style when
+	// the view state carries explicit per-server statuses. Empty means the
+	// legacy rendering (State verbatim, pluralized "ferramentas").
+	Glyph      string
+	StateLabel string
+	CountLabel string
 }
 
 type MCPToolView struct {
@@ -138,29 +152,62 @@ func mcpManagerServerLines(servers []MCPServerView) []string {
 	for index, server := range servers {
 		name := displayValue(strings.TrimSpace(server.Name), "sem nome")
 		transport := displayValue(strings.TrimSpace(server.Transport), "desconhecido")
-		state := displayValue(strings.TrimSpace(server.State), "configurado")
 		prefix := "  "
 		if index == 0 {
 			prefix = "› "
 		}
 
-		parts := []string{name, state}
-		if auth := strings.TrimSpace(server.Auth); auth != "" {
-			parts = append(parts, auth)
+		var header string
+		if server.Glyph != "" {
+			header = prefix + mcpManagerServerPanelLine(name, server, transport)
+		} else {
+			state := displayValue(strings.TrimSpace(server.State), "configurado")
+			parts := []string{name, state}
+			if auth := strings.TrimSpace(server.Auth); auth != "" {
+				parts = append(parts, auth)
+			}
+			if server.ToolCount > 0 {
+				parts = append(parts, pluralCount(server.ToolCount, "tool"))
+			}
+			parts = append(parts, transport)
+			if origin := strings.TrimSpace(server.Origin); origin != "" {
+				parts = append(parts, "origem: "+origin)
+			}
+			header = prefix + strings.Join(parts, " · ")
 		}
-		if server.ToolCount > 0 {
-			parts = append(parts, pluralCount(server.ToolCount, "tool"))
-		}
-		parts = append(parts, transport)
-		lines = append(lines, prefix+strings.Join(parts, " · "))
+		lines = append(lines, header)
 		if target := strings.TrimSpace(server.Target); target != "" {
 			lines = append(lines, "  "+target)
+		}
+		if server.Status == "failed" {
+			if detail := strings.TrimSpace(server.Detail); detail != "" {
+				lines = append(lines, "  ✘ "+detail)
+			} else {
+				lines = append(lines, "  ✘ falhou ao conectar")
+			}
 		}
 		if actions := strings.TrimSpace(mcpServerActionLine(server)); actions != "" {
 			lines = append(lines, "  "+actions)
 		}
 	}
 	return lines
+}
+
+// mcpManagerServerPanelLine renders one server in the states panel style:
+// glyph, Portuguese state, inline reason, tool count, origin, transport.
+func mcpManagerServerPanelLine(name string, server MCPServerView, transport string) string {
+	parts := []string{name + " " + server.Glyph + " " + server.StateLabel}
+	if detail := strings.TrimSpace(server.Detail); detail != "" && server.Status == "failed" {
+		parts = append(parts, detail)
+	}
+	if server.CountLabel != "" {
+		parts = append(parts, server.CountLabel)
+	}
+	if origin := strings.TrimSpace(server.Origin); origin != "" {
+		parts = append(parts, "origem: "+origin)
+	}
+	parts = append(parts, transport)
+	return strings.Join(parts, " · ")
 }
 
 func mcpToolLines(tools []MCPToolView) []string {

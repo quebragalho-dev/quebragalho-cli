@@ -381,8 +381,14 @@ func TestBTWStatusAndHelpStayVisible(t *testing.T) {
 		t.Fatalf("status line has no persistent BTW indicator: %q", status)
 	}
 	groups := side.buildKeybindingGroups()
-	if got := groups[0].bindings[3].desc; !strings.Contains(got, "volta à sessão principal") {
-		t.Fatalf("BTW Ctrl+C help = %q", got)
+	found := ""
+	for _, binding := range groups[0].bindings {
+		if binding.keys == "Ctrl+C" {
+			found = binding.desc
+		}
+	}
+	if !strings.Contains(found, "volta à sessão principal") {
+		t.Fatalf("BTW Ctrl+C help = %q", found)
 	}
 }
 
@@ -471,5 +477,24 @@ func TestBTWCtrlCDuringRunDoesNotClearDraft(t *testing.T) {
 	}
 	if !transcriptContains(got.transcript, "BTW response is still running") {
 		t.Fatalf("missing in-flight return guidance: %#v", got.transcript)
+	}
+}
+
+// A /btw side conversation is isolated from the main session: it gets its
+// own interleave buffer, so a pending instruction of the parent never leaks
+// into the side conversation's provider requests. The parent keeps hers.
+func TestBTWSideConversationStartsWithEmptyInterleaveBuffer(t *testing.T) {
+	m := newBTWTestModel(t)
+	m.interleave.push("MAIN SESSION INSTRUCTION")
+
+	side, _ := m.handleBTWCommand("")
+	if side.interleave == nil {
+		t.Fatal("side conversation has no interleave buffer")
+	}
+	if got := side.interleave.drain(); len(got) != 0 {
+		t.Fatalf("isolated BTW conversation inherited %d parent interleave(s): %#v (want 0)", len(got), got)
+	}
+	if m.interleave == nil || m.interleave == side.interleave {
+		t.Fatal("parent session must keep its own interleave buffer")
 	}
 }

@@ -31,8 +31,31 @@ func (m model) handleUserCommand(raw string) (model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	// Same run-state guards as a plain prompt: a user command invoked mid-run is
-	// queued (as its expanded prompt), not raced into a second concurrent turn.
-	return m.launchOrDeferExpandedPrompt(raw, prompt)
+	// queued RAW. The FIFO re-dispatches on drain (see launchQueuedMessageIfReady),
+	// so the command resolves again then — and skill tokens inside the args
+	// can never expand.
+	if m.exiting {
+		return m, nil, true
+	}
+	if m.pending {
+		return m.queueMessage(raw), nil, true
+	}
+	if m.compactInFlight {
+		m.input.SetValue(raw)
+		m.input.CursorEnd()
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{
+			kind: actionAppendSystem,
+			text: "Compact\nstatus: warning\nCompaction is running. Re-run the command when it finishes.",
+		})
+		return m, nil, true
+	}
+	next, teaCmd := m.launchPromptSilent(prompt)
+	// /retry and /edit act on what the user typed, not the expanded template
+	// (raw is what the FIFO keeps for the pending path too). Re-dispatch
+	// re-resolves the command at /retry time.
+	next.lastPrompt = raw
+	next.lastPrompts = []string{raw}
+	return next, teaCmd, true
 }
 
 // lookupUserCommand returns the loaded user command with the given (lowercased)

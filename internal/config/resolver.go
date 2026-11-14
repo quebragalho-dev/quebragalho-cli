@@ -75,10 +75,14 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 		}
 		mergeConfig(&cfg, fileConfig)
 	}
+	projectStatusLineCommandIgnored := false
 	if options.ProjectConfigPath != "" {
 		fileConfig, err := loadConfigFile(options.ProjectConfigPath)
 		if err != nil {
 			return ResolvedConfig{}, err
+		}
+		if fileConfig.StatusLine.Command != nil && strings.TrimSpace(fileConfig.StatusLine.Command.Command) != "" {
+			projectStatusLineCommandIgnored = true
 		}
 		if err := mergeProjectConfig(&cfg, fileConfig); err != nil {
 			return ResolvedConfig{}, err
@@ -150,6 +154,9 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 	if err := validateSTTConfig(cfg.STT); err != nil {
 		return ResolvedConfig{}, err
 	}
+	// Cosmetic statusline values never block startup: clamp with warnings.
+	statusLine, statusLineWarnings := cfg.StatusLine.Adjusted()
+	cfg.StatusLine = statusLine
 
 	providers, active, err := normalizeProviders(cfg.Providers, cfg.ActiveProvider, options.Env)
 	if err != nil {
@@ -176,6 +183,11 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 		LocalControl:        cfg.LocalControl,
 		STT:                 cfg.STT,
 		CrossSessionInbound: cfg.CrossSessionInbound,
+		StatusLine:          statusLine,
+		// StatusLineWarnings reports cosmetic adjustments (clamped cadences,
+		// trimmed layouts) surfaced once at startup.
+		StatusLineWarnings:              statusLineWarnings,
+		ProjectStatusLineCommandIgnored: projectStatusLineCommandIgnored,
 	}, nil
 }
 
@@ -284,6 +296,9 @@ func mergeConfig(dst *FileConfig, src FileConfig) {
 	if inbound := strings.TrimSpace(src.CrossSessionInbound); inbound != "" {
 		dst.CrossSessionInbound = inbound
 	}
+	if src.StatusLine.IsCustom() {
+		dst.StatusLine = src.StatusLine.normalize()
+	}
 }
 
 func mergeProjectConfig(dst *FileConfig, src FileConfig) error {
@@ -349,6 +364,17 @@ func mergeProjectConfig(dst *FileConfig, src FileConfig) error {
 	}
 	if inbound := strings.TrimSpace(src.CrossSessionInbound); inboundPolicyRank(inbound) > inboundPolicyRank(dst.CrossSessionInbound) {
 		dst.CrossSessionInbound = inbound
+	}
+	// Statusline layout (lines/separator) is inoffensive, so project config
+	// may set it — it composes under the user's command, which project config
+	// must never provide (fail-closed like MCP/sandbox: a cloned repo must not
+	// get code execution). Resolve reports the dropped command via
+	// ResolvedConfig.ProjectStatusLineCommandIgnored.
+	if src.StatusLine.Separator != "" {
+		dst.StatusLine.Separator = src.StatusLine.Separator
+	}
+	if len(src.StatusLine.Lines) > 0 {
+		dst.StatusLine.Lines = src.StatusLine.normalize().Lines
 	}
 	mergeKeyBindings(&dst.KeyBindings, src.KeyBindings)
 	// Local control is intentionally user-config/override only. A cloned project

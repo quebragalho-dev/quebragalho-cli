@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -131,6 +132,116 @@ func TestExecutorRecordsStartedChildErrorExitCode(t *testing.T) {
 	stopPayload := eventPayload(t, stopEvents[0])
 	requirePayloadString(t, stopPayload, "status", "error")
 	requirePayloadInt(t, stopPayload, "exitCode", 7)
+}
+
+// The start event carries the spawn wall-clock so surfaces can show a live
+// elapsed time without polling.
+func TestRecordSpecialistStartPublishesStartedAt(t *testing.T) {
+	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+	parent, err := store.Create(sessions.CreateInput{SessionID: "parent_session"})
+	if err != nil {
+		t.Fatalf("Create parent returned error: %v", err)
+	}
+	before := time.Now().UTC().Add(-time.Minute)
+	executor := Executor{SessionStore: store}
+	executor.recordSpecialistStart(specialistAccountingInput{
+		ParentSessionID: parent.SessionID,
+		ChildSessionID:  "child_task",
+		SpecialistName:  "worker",
+	})
+	events, err := store.ReadEvents(parent.SessionID)
+	if err != nil {
+		t.Fatalf("ReadEvents returned error: %v", err)
+	}
+	starts := eventsOfType(events, sessions.EventSpecialistStart)
+	if len(starts) != 1 {
+		t.Fatalf("start events = %#v", events)
+	}
+	payload := eventPayload(t, starts[0])
+	raw, ok := payload["startedAt"].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		t.Fatalf("start payload lacks startedAt: %#v", payload)
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		t.Fatalf("startedAt = %q, want RFC3339Nano: %v", raw, err)
+	}
+	if startedAt.Before(before) || startedAt.After(time.Now().UTC().Add(time.Minute)) {
+		t.Fatalf("startedAt = %v, want near now", startedAt)
+	}
+}
+
+// A foreground child's PID is recorded on the stop payload (and published
+// live while it runs) so the TUI can stop it via process-group kill.
+func TestRunChildPIDRecordedInStopPayload(t *testing.T) {
+	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+	parent, err := store.Create(sessions.CreateInput{SessionID: "parent_session"})
+	if err != nil {
+		t.Fatalf("Create parent returned error: %v", err)
+	}
+	qg := 0
+	executor := Executor{
+		BinaryPath:   "/usr/local/bin/qg",
+		SessionStore: store,
+		NewSessionID: func() (string, error) { return "child_task", nil },
+		Load: func(LoadOptions) (LoadResult, error) {
+			return LoadResult{Specialists: []Manifest{{
+				Metadata:      Metadata{Name: "worker", Description: "Does focused work"},
+				SystemPrompt:  "Work carefully.",
+				ResolvedTools: []string{"read_file"},
+			}}}, nil
+		},
+		RunChild: func(context.Context, string, []string, func(streamjson.Event)) (ChildRunResult, error) {
+			return ChildRunResult{
+				Events: []streamjson.Event{
+					{Type: streamjson.EventRunStart, RunID: "run_1", SessionID: "child_task"},
+					{Type: streamjson.EventFinal, RunID: "run_1", Text: "done"},
+					{Type: streamjson.EventRunEnd, RunID: "run_1", Status: "success", ExitCode: &qg},
+				},
+				ExitCode: 0,
+				PID:      4321,
+			}, nil
+		},
+	}
+
+	_, err = executor.Run(context.Background(), TaskParameters{
+		Name:   "worker",
+		Prompt: "inspect auth",
+	}, TaskRunOptions{ParentSessionID: parent.SessionID})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	events, err := store.ReadEvents(parent.SessionID)
+	if err != nil {
+		t.Fatalf("ReadEvents returned error: %v", err)
+	}
+	stops := eventsOfType(events, sessions.EventSpecialistStop)
+	if len(stops) != 1 {
+		t.Fatalf("stop events = %#v", events)
+	}
+	requirePayloadInt(t, eventPayload(t, stops[0]), "pid", 4321)
+}
+
+// The live-PID registry is process-local run state: note publishes, forget
+// removes, unknown ids miss.
+func TestLiveChildPIDRegistry(t *testing.T) {
+	if _, ok := LiveChildPID("nope-missing"); ok {
+		t.Fatal("unknown session must miss")
+	}
+	noteLiveChild("child-live", 4321)
+	noteLiveChild("", 1)
+	noteLiveChild("child-zero", 0)
+	pid, ok := LiveChildPID("child-live")
+	if !ok || pid != 4321 {
+		t.Fatalf("LiveChildPID = %d, %v, want 4321, true", pid, ok)
+	}
+	if _, ok := LiveChildPID("child-zero"); ok {
+		t.Fatal("zero pid must miss")
+	}
+	forgetLiveChild("child-live")
+	if _, ok := LiveChildPID("child-live"); ok {
+		t.Fatal("forgotten session must miss")
+	}
 }
 
 func TestOutputToolRollsUpCompletedBackgroundUsageOnce(t *testing.T) {

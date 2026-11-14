@@ -93,16 +93,24 @@ func callCostText(row transcriptRow) string {
 	if amount, ok := new(big.Rat).SetString(row.meta["amount"]); ok && amount.Sign() >= 0 {
 		switch row.meta["currency"] {
 		case "BRL":
-			cost = "R$ " + strings.ReplaceAll(amount.FloatString(2), ".", ",")
-			if amount.Sign() > 0 && amount.Cmp(big.NewRat(1, 100)) < 0 {
-				cost = "< R$ 0,01"
-			}
+			cost = formatBRLRat(amount)
 		case "USD":
 			cost = "US$ " + amount.FloatString(2)
 			if amount.Sign() > 0 && amount.Cmp(big.NewRat(1, 100)) < 0 {
 				cost = "< US$ 0.01"
 			}
 		}
+	}
+	return cost
+}
+
+// formatBRLRat renders a non-negative rational as "R$ 0,12", with the same
+// sub-centavo floor the call receipt uses. Shared by the receipt and the
+// custom statusline cost segment so the two agree.
+func formatBRLRat(amount *big.Rat) string {
+	cost := "R$ " + strings.ReplaceAll(amount.FloatString(2), ".", ",")
+	if amount.Sign() > 0 && amount.Cmp(big.NewRat(1, 100)) < 0 {
+		cost = "< R$ 0,01"
 	}
 	return cost
 }
@@ -122,26 +130,91 @@ func (m model) statusReadout(left string, width int) string {
 	// Speed now lives on the composer's top border; the status line keeps
 	// only the context readout.
 	context := m.contextStatusText(width)
+	// The cache segment rides right after the context readout and before the
+	// cwd. It drops first when narrow: whenever it shows, the full branch
+	// must fit too (a truncated branch with a live cache would claim room
+	// the cache did not leave), and below the branch gate it never shows.
+	branchFull := m.statusBranchFull()
+	// Reserve widths are content-only and width-independent, so every budget
+	// below is monotonic in width: narrowing only ever removes content, never
+	// resurrects it. The rendered right side may be shorter (dropped cache,
+	// short context); budgets always assume the full rendering.
+	cacheSeg, _ := cacheStatusSegment(m.cacheStatusData())
+	reserveRight := m.statusReserveRight(cacheSeg)
+	reserveLeft := lipgloss.Width(left) + lipgloss.Width(branchFull)
+	reserveAvail := width - 2 - reserveLeft - lipgloss.Width(reserveRight)
+	// The branch gate still hides the branch below 58 cells; the reserve
+	// keeps counting it so crossing the gate never frees notice/path room.
+	showBranch := branchFull != "" && width >= 58
 	right := context
+	showCache := false
+	if cacheSeg != "" && width >= 58 {
+		// The cache yields first: it only shows when the full layout fits
+		// alongside it — full branch, full cwd, full context and, when a
+		// notice is pending, the full notice. Whatever shows with the cache
+		// therefore shows whole, and narrowing only ever removes content.
+		need := lipgloss.Width(left) + lipgloss.Width(branchFull) + lipgloss.Width(reserveRight)
+		if path := strings.TrimSpace(m.cwd); path != "" {
+			need += lipgloss.Width(qgTheme.line.Render(" │ ")) + lipgloss.Width(shortenPath(path))
+		}
+		if forms := m.updateNoticeForms(); len(forms) > 0 {
+			need += lipgloss.Width("  ") + lipgloss.Width(forms[0])
+		}
+		if need+9 <= width {
+			right = segJoin(context, cacheSeg)
+			showCache = true
+		}
+	}
+	if !showCache {
+		// A hidden cache holds no room: release its reservation so the rest
+		// stops yielding to a segment that is not on screen. Showing the
+		// cache still requires the full layout, so this release can never
+		// resurrect anything the full layout already ruled out.
+		reserveAvail = width - 2 - reserveLeft - lipgloss.Width(m.statusReserveRight(""))
+	}
 	if lipgloss.Width(left)+lipgloss.Width(right)+9 > width {
 		right = ""
 	}
-	if branch := strings.TrimSpace(m.gitBranch); branch != "" && width >= 58 {
+	if showBranch {
 		budget := width - lipgloss.Width(left) - lipgloss.Width(right) - 12
-		if budget >= 5 {
-			left += qgTheme.line.Render(" │ ") + qgTheme.muted.Render(" "+truncateDisplayWidth(branch, minInt(24, budget-2)))
+		take := minInt(24, budget-2)
+		if showCache {
+			// The fit above already reserved a whole branch: render it whole.
+			take = minInt(24, len([]rune(strings.TrimSpace(m.gitBranch))))
+		}
+		// Short branch names ("dev", "main") render whole with whatever the
+		// budget reserved once the cache vouched for the full layout.
+		if take >= 5 || (showCache && take > 0) {
+			left += qgTheme.line.Render(" │ ") + qgTheme.muted.Render(" "+truncateDisplayWidth(strings.TrimSpace(m.gitBranch), take))
 		}
 	}
 	if forms := m.updateNoticeForms(); forms != nil {
-		if line, ok := m.joinStatusWithNotice(left, right, forms, width); ok {
+		if line, ok := m.joinStatusWithNotice(left, right, forms, width, reserveAvail, showCache); ok {
 			return fitStyledLine(line, width)
 		}
+		// A notice that fits nowhere hides the path with it, so narrowing
+		// never hands the path the room the notice just left. The right
+		// side (context, cache) keeps its normal rules: it never belonged
+		// to the notice, so it stays whenever it fits on its own.
+		if right == "" {
+			return fitStyledLine(left, width)
+		}
+		return fitStyledLine(joinHeaderLine(left, right, width), width)
 	}
-	left = m.appendStatusWorkspace(left, right, width)
+	left = m.appendStatusWorkspace(left, right, reserveAvail)
 	if right == "" {
 		return fitStyledLine(left, width)
 	}
 	return fitStyledLine(joinHeaderLine(left, right, width), width)
+}
+
+// segJoin renders two right-side segments with the status line separator,
+// omitting it when the first side is empty.
+func segJoin(first, second string) string {
+	if first == "" {
+		return second
+	}
+	return first + qgTheme.line.Render(" │ ") + second
 }
 
 func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool, transcriptRow) {
@@ -150,22 +223,18 @@ func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool
 		if event.Type != sessions.EventUsage {
 			continue
 		}
-		var call struct {
-			Input      *int   `json:"promptTokens"`
-			Output     *int   `json:"completionTokens"`
-			Cached     int    `json:"cachedInputTokens"`
-			CacheWrite int    `json:"cacheWriteTokens"`
-			Reasoning  int    `json:"reasoningTokens"`
-			Model      string `json:"model"`
-			Amount     string `json:"cost_exact"`
-			Currency   string `json:"cost_currency"`
-		}
-		if json.Unmarshal(event.Payload, &call) != nil || call.Input == nil || call.Output == nil {
+		modelID, eventUsage, _, ok := parseUsageEventUsage(event.Payload)
+		if !ok {
 			continue
 		}
-		normalized, _, err := usage.Normalize(qgruntime.Usage{InputTokens: *call.Input, OutputTokens: *call.Output, CachedInputTokens: call.Cached, CacheWriteTokens: call.CacheWrite, ReasoningTokens: call.Reasoning})
+		var cost struct {
+			Amount   string `json:"cost_exact"`
+			Currency string `json:"cost_currency"`
+		}
+		_ = json.Unmarshal(event.Payload, &cost)
+		normalized, _, err := usage.Normalize(eventUsage)
 		if err == nil {
-			return normalized, true, transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": call.Model, "amount": call.Amount, "currency": call.Currency}}
+			return normalized, true, transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID, "amount": cost.Amount, "currency": cost.Currency}}
 		}
 	}
 	return usage.Normalized{}, false, transcriptRow{}

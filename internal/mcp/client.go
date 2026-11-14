@@ -71,6 +71,13 @@ type Client struct {
 	pending    map[int]chan dispatchResult
 	readErr    error
 	readDone   bool
+
+	// protocolVersion is the revision negotiated during initialize. It is sent
+	// back as MCP-Protocol-Version on Streamable HTTP requests when the
+	// negotiated revision requires it (2025-06-18+).
+	protocolVersion string
+	// stale collapses tools/list_changed notifications into one refresh.
+	staleSignal
 }
 
 type writeOp struct {
@@ -214,7 +221,10 @@ func connectStdio(ctx context.Context, server Server, options ConnectOptions) (*
 	cleanupTransferred = true
 	if err := client.initialize(ctx); err != nil {
 		_ = client.Close()
-		message := strings.TrimSpace(stderr.String())
+		// The server's own stderr travels in this error (a crashing server
+		// often echoes its argv there), so trade expanded secrets back for
+		// their ${VAR} references before it reaches skipped reasons.
+		message := server.Redact(strings.TrimSpace(stderr.String()))
 		if message != "" {
 			return nil, fmt.Errorf("initialize MCP server %s: %w: %s", server.Name, err, message)
 		}
@@ -226,14 +236,14 @@ func connectStdio(ctx context.Context, server Server, options ConnectOptions) (*
 // initialize performs the MCP handshake under a bounded timeout so a
 // non-responsive peer fails fast instead of hanging startup.
 func (client *Client) initialize(ctx context.Context) error {
-	initCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
+	initCtx, cancel := context.WithTimeout(ctx, initializeTimeoutValue())
 	defer cancel()
 
 	var result struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
 	if err := client.request(initCtx, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": latestMCPProtocolVersion(),
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
 			"name":    "qg",
@@ -242,6 +252,11 @@ func (client *Client) initialize(ctx context.Context) error {
 	}, &result); err != nil {
 		return err
 	}
+	version, err := negotiateMCPProtocolVersion(result.ProtocolVersion)
+	if err != nil {
+		return err
+	}
+	client.protocolVersion = version
 	return client.notify("notifications/initialized", map[string]any{})
 }
 
@@ -256,12 +271,14 @@ func (client *Client) ListTools(ctx context.Context) ([]RemoteTool, error) {
 }
 
 func (client *Client) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+	callCtx, cancel := withToolTimeout(ctx, client.server)
+	defer cancel()
 	var result CallToolResult
-	if err := client.request(ctx, "tools/call", map[string]any{
+	if err := client.request(callCtx, "tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	}, &result); err != nil {
-		return CallToolResult{}, err
+		return CallToolResult{}, mapTimeoutError(ctx, callCtx, client.server, name, err)
 	}
 	return result, nil
 }
@@ -345,9 +362,10 @@ func (client *Client) request(ctx context.Context, method string, params any, ta
 		readErr := client.readErr
 		client.dispatchMu.Unlock()
 		if readErr != nil {
-			return readErr
+			// The reader already drained: nothing of this call was written.
+			return markNotDelivered(readErr)
 		}
-		return fmt.Errorf("MCP %s failed: connection closed", method)
+		return markNotDelivered(fmt.Errorf("MCP %s failed: connection closed", method))
 	}
 	client.pending[id] = responses
 	client.dispatchMu.Unlock()
@@ -358,7 +376,8 @@ func (client *Client) request(ctx context.Context, method string, params any, ta
 		Params: rawParams,
 	}); err != nil {
 		client.removePending(id)
-		return err
+		// The write never completed: the server cannot have the request.
+		return markNotDelivered(err)
 	}
 
 	select {
@@ -371,7 +390,7 @@ func (client *Client) request(ctx context.Context, method string, params any, ta
 		}
 		message := result.message
 		if message.Error != nil {
-			return fmt.Errorf("MCP %s failed: %s", method, message.Error.Message)
+			return &MCPRequestError{Method: method, Code: message.Error.Code, Message: message.Error.Message}
 		}
 		if target != nil && len(message.Result) > 0 {
 			if err := json.Unmarshal(message.Result, target); err != nil {
@@ -592,6 +611,9 @@ func (client *Client) readLoop() {
 		// A message with a Method is a server-initiated request or notification.
 		// It must never be routed as a response to a pending client request.
 		if message.isRequestOrNotification() {
+			if message.Method == toolsListChangedMethod {
+				client.markToolsStale()
+			}
 			if message.ID != nil && jsonRPCIDEchoable(message.ID) {
 				client.enqueueCourtesy(rpcMessage{
 					ID: message.ID,

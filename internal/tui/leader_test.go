@@ -131,6 +131,64 @@ func TestLeaderUnknownKeyClearsWithoutCommand(t *testing.T) {
 	}
 }
 
+func TestLeaderCtrlXCtrlSSendsQueueNow(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.yieldNow = &fakeSendNowSignal{result: true}
+	m.queuedMessages = []string{"/tools"}
+	m.input.SetValue("MARKLEADER draft")
+
+	updated, _ := m.Update(testKeyCtrl('x'))
+	m = updated.(model)
+	updated, _ = m.Update(testKeyCtrl('s'))
+	next := updated.(model)
+
+	if next.leaderPending {
+		t.Fatal("Ctrl+X Ctrl+S should clear leader-pending")
+	}
+	if got := next.composerValue(); got != "" {
+		t.Fatalf("Ctrl+X Ctrl+S must consume the draft, got %q", got)
+	}
+	if next.interleave == nil || next.interleave.pendingCount() != 1 {
+		t.Fatalf("expected the draft sent with the running turn, got %+v", next.interleave)
+	}
+	if got := next.queuedMessages; len(got) != 1 || got[0] != "/tools" {
+		t.Fatalf("the FIFO must stay untouched, got %v", got)
+	}
+}
+
+// Bare Ctrl+X s must keep running /stop — the Ctrl+S chord is a different
+// key and may not disturb it.
+func TestLeaderBareSStillRunsStop(t *testing.T) {
+	m := newQueuedMessageTestModel(t)
+	m.pending = true
+	m.activeRunID = 1
+	m.runID = 1
+	m.yieldNow = &fakeSendNowSignal{result: true}
+	m.queuedMessages = []string{"/tools"}
+	before := len(m.transcript)
+
+	updated, _ := m.Update(testKeyCtrl('x'))
+	m = updated.(model)
+	updated, _ = m.Update(testKeyText("s"))
+	next := updated.(model)
+
+	if next.leaderPending {
+		t.Fatal("bare Ctrl+X s should clear leader-pending like any chord")
+	}
+	if len(next.queuedMessages) != 1 {
+		t.Fatalf("bare Ctrl+X s must not send the queue, got %v", next.queuedMessages)
+	}
+	if next.interleave != nil && next.interleave.pendingCount() != 0 {
+		t.Fatal("bare Ctrl+X s must not interleave anything")
+	}
+	if len(next.transcript) == before {
+		t.Fatal("bare Ctrl+X s should run /stop and append its output row")
+	}
+}
+
 func TestLeaderDoesNotInsertText(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "gpt-4o"})
 	updated, _ := m.Update(testKeyCtrl('x'))
@@ -306,7 +364,9 @@ func TestLeaderHelpBindingsCoverEveryMapEntry(t *testing.T) {
 		}
 		runes := []rune(letter)
 		if len(runes) != 1 {
-			t.Fatalf("unexpected key label %q", b.keys)
+			// Multi-key chords (e.g. "Ctrl+X Ctrl+S") act, they do not
+			// run a leaderCommandByKey command; nothing to cross-check.
+			continue
 		}
 		listed[string(runes[0])] = true
 		if _, ok := leaderCommandByKey[runes[0]]; !ok {

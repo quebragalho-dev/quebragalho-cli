@@ -3,6 +3,31 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.19 — 2026-11-14
+
+### Novidades
+
+- Mensagens na fila: o que você envia enquanto o modelo trabalha entra logo depois da ação atual, sem esperar a resposta terminar. Cada mensagem aparece no histórico, esmaecida, até ser lida, e ↑ edita a última. `Ctrl+Enter` ou `/agora` manda na hora; Esc duas vezes devolve a fila para a caixa de texto.
+- `/statusline`: você descreve a barra de status que quer e o modelo monta, com prévia antes de salvar. Dá para escolher os campos (modelo, contexto, cache, custo, branch e outros) ou usar um script seu, que recebe os dados da sessão e roda com tempo limite, sem deixar processo sobrando.
+- Subagentes visíveis: cada subagente ganha uma linha com tempo, tokens e custo, atualizada ao vivo. Enter abre a conversa dele, e dá para pará-lo dali.
+- `/mcp`: mostra o estado de cada servidor MCP, o motivo de uma falha e as ferramentas de cada um. Na configuração, cada servidor aceita `enabled_tools`, `disabled_tools`, tempo limite próprio e variáveis de ambiente. Servidores declarados no projeto pedem sua aprovação uma vez antes de rodar.
+- Skills na caixa de texto: Enter numa skill do menu coloca a skill no texto, sem enviar, e dá para juntar várias na mesma mensagem.
+- Skills do ambiente: o qg reconhece sozinho onde está rodando e deixa a skill desse ambiente sempre à vista do modelo. O `qg doctor` mostra o que encontrou.
+- Cache à vista: a barra de status e a aba de uso mostram quanto da conversa veio do cache do provedor.
+
+### Mudanças
+
+- Conversas mais baratas: quando o projeto muda no meio da conversa, o qg manda só o que mudou e mantém igual o começo das mensagens, para o provedor aproveitar o cache. Numa conversa real de 7 turnos, cada chamada saiu pela metade do preço e a conversa terminou 30% menor.
+- Erros do provedor: o qg tenta de novo sozinho até 10 vezes, com contagem regressiva na tela, e Esc cancela. Uma resposta cortada no meio é descartada e refeita, em vez de ficar pela metade.
+- MCP mais estável: um servidor que cai reconecta sozinho, uma chamada nunca roda duas vezes, e um servidor fora do ar não trava mais a abertura do qg; ele segue tentando em segundo plano.
+- Diff no topo: os números do diff e do PR atualizam logo depois de cada ferramenta, e sem PR aberto o diff é contra a branch principal do repositório.
+- Saídas muito grandes de ferramentas são conferidas bem mais rápido na hora de esconder segredos, sem deixar nenhum passar.
+- Go atualizado, com as falhas de segurança conhecidas corrigidas.
+
+### Correções
+
+- No Ubuntu 24.04 e em outros Linux que bloqueiam o ambiente isolado, o qg percebe isso ao abrir e avisa uma vez na tela que os comandos rodam sem isolamento; o `qg doctor` explica como resolver. Antes, os comandos falhavam com erro de rede ou de permissão sem dizer o motivo.
+
 ## 0.0.18 — 2026-11-11
 
 ### Novidades

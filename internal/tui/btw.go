@@ -129,6 +129,10 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 	side.pendingAskUser = nil
 	side.pendingSpecReview = nil
 	side.queuedMessages = nil
+	// The side conversation is isolated from the parent: its own interleave
+	// buffer, so a pending parent instruction never leaks into the side's
+	// provider requests. The parent keeps hers.
+	side.interleave = &interleaveBuffer{}
 	side.lastPrompt = ""
 	side.lastImages = nil
 	side.lastImageLabels = nil
@@ -222,6 +226,10 @@ func btwCommandUnavailable(command parsedCommand) bool {
 	case commandTheme:
 		return arg != "list"
 	case commandConfig:
+		return arg != ""
+	case commandStatusline:
+		// Bare /statusline is a read-only status card; reset/setup mutate
+		// config and spawn turns, so they stay on the main session.
 		return arg != ""
 	default:
 		return false

@@ -51,11 +51,73 @@ func resolveOutputCeilingTokens() int {
 	return parsed
 }
 
+// defaultMCPOutputCeilingTokens is the per-call ceiling for MCP server tools
+// in estimated tokens (bytes/4): 25k. MCP servers
+// answer with full documents, so they get a wider lane than the 16k
+// universal ceiling; past the cap the full text still spills to disk.
+const defaultMCPOutputCeilingTokens = 25_000
+
+// mcpOutputWarnTokens is the MCP warn threshold: past 10k tokens the model
+// keeps the full output but is told how heavy it is.
+const mcpOutputWarnTokens = 10_000
+
+// mcpOutputCeilingEnv overrides the MCP ceiling (in tokens). Zero or negative
+// disables the ceiling entirely; unset or unparsable keeps the default.
+const mcpOutputCeilingEnv = "MAX_MCP_OUTPUT_TOKENS"
+
+func resolveMCPOutputCeilingTokens() int {
+	raw := strings.TrimSpace(os.Getenv(mcpOutputCeilingEnv))
+	if raw == "" {
+		return defaultMCPOutputCeilingTokens
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return defaultMCPOutputCeilingTokens
+	}
+	return parsed
+}
+
+// enforceMCPOutputCeiling caps one MCP tool result at the MCP ceiling with
+// spill, and warns (without truncating) in the 10k–cap band. QG/negative env
+// disables the ceiling entirely, mirroring the universal one.
+func enforceMCPOutputCeiling(toolName string, result Result) Result {
+	ceiling := resolveMCPOutputCeilingTokens()
+	if ceiling <= 0 {
+		return result
+	}
+	tokens := estimatedTokensFromBytes(len(result.Output))
+	if tokens <= ceiling {
+		if tokens > mcpOutputWarnTokens && !result.Truncated {
+			result.Output += "\n\n[qg] aviso: saída da ferramenta MCP com ~" +
+				strconv.Itoa(tokens) + " tokens (o teto é " + strconv.Itoa(ceiling) + ")."
+			if result.Meta == nil {
+				result.Meta = make(map[string]string)
+			}
+			result.Meta["mcp.output_warning"] = strconv.Itoa(tokens) + " tokens (limite " + strconv.Itoa(ceiling) + ")"
+		}
+		return result
+	}
+	rawBytes := len(result.Output)
+	truncated, _ := truncateExecOutputSpill(result.Output, ceiling, toolName)
+	result.Output = truncated
+	result.Truncated = true
+	if result.Meta == nil {
+		result.Meta = map[string]string{}
+	}
+	result.Meta["raw_bytes"] = strconv.Itoa(rawBytes)
+	result.Meta["emitted_bytes"] = strconv.Itoa(len(result.Output))
+	result.Meta["estimated_tokens"] = strconv.Itoa(estimatedTokensFromBytes(len(result.Output)))
+	return result
+}
+
 // enforceOutputCeiling truncates an over-ceiling result to head+tail within
 // the token budget, spilling the full (already redaction-scrubbed) output to
 // disk with a recovery hint. Runs after scrubResultSecrets so the transcript
 // and the spill file agree on what was hidden.
 func enforceOutputCeiling(toolName string, result Result) Result {
+	if strings.HasPrefix(toolName, mcpToolNamePrefix) {
+		return enforceMCPOutputCeiling(toolName, result)
+	}
 	ceiling := resolveOutputCeilingTokens()
 	switch toolName {
 	case "read_file", "read_minified_file":

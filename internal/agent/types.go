@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
@@ -11,6 +12,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/streamjson"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/yieldnow"
 )
 
 type Message = qgruntime.Message
@@ -340,10 +342,13 @@ type SpecialistInfo struct {
 // frontmatter description) surfaced to the system prompt so the model can invoke
 // the right skill with the skill tool on the first try instead of guessing a name
 // and reading the failure. Like SpecialistInfo it is plain data, so the agent
-// package needs no dependency on internal/skills.
+// package needs no dependency on internal/skills. Environments carries the
+// skill's declared ambient markers (frontmatter `environment:`) for
+// orchestrator detection.
 type SkillInfo struct {
-	Name        string
-	Description string
+	Name         string
+	Description  string
+	Environments []string
 }
 
 type Options struct {
@@ -404,6 +409,13 @@ type Options struct {
 	// with its full schema on this run's first request. Only honored with a
 	// non-empty Continuation; the TUI passes both together.
 	LoadedDeferredTools []string
+	// ExtraUserMessages seeds additional user messages right after the seeded
+	// prompt (and after any Continuation replay + bare prompt), as separate
+	// consecutive user messages, in order. Used to launch a turn that carries
+	// the leftover queue as individual messages rather than one concatenated
+	// text. Entries that are not user-role or whose content trims to empty are
+	// dropped. nil preserves the current behavior byte-for-byte.
+	ExtraUserMessages []Message
 	// InterleaveMessages, when non-nil, is called by the loop after every
 	// tool batch completes (all tool results recorded, before the next
 	// provider request is built). Each call drains the operator's pending
@@ -412,6 +424,18 @@ type Options struct {
 	// so they reach the model on the very next request without the turn
 	// being interrupted. nil disables interleaving.
 	InterleaveMessages func() []Message
+	// BetweenTurns, when non-nil, is called by the loop at the top of every
+	// turn iteration, before the per-turn tool partition is computed. It is
+	// the integration point for turn-boundary maintenance the loop itself
+	// must not know about — e.g. applying pending MCP tools/list_changed
+	// catalog refreshes so the new catalog is visible on the next turn,
+	// never mid-request. nil runs every turn exactly as before.
+	BetweenTurns func(ctx context.Context)
+	// YieldNow carries the TUI's per-run send-now Signal: while a
+	// backgroundable tool wait (exec_command's yield wait, write_stdin
+	// polling) is parked, Request wakes it at once. nil runs every wait out
+	// exactly as before.
+	YieldNow *yieldnow.Signal
 	// ContextWindow is the model's maximum input token budget. When > 0 the agent
 	// loop compacts long conversations once the estimated size crosses a fraction
 	// of this window. 0 DISABLES compaction entirely (every existing caller/test
@@ -482,6 +506,11 @@ type Options struct {
 	// surfaces keep showing the active conversation budget. Opt-in like the other
 	// callbacks; nil is a no-op.
 	OnContext func(ContextBreakdown)
+	// OnCompaction, when set, fires after the compactor actually rewrote the
+	// history (paid summarization or a free prune stage that shrank it), on
+	// either the proactive or the reactive path. Surfaces use it to explain a
+	// cache miss on the next call. Nil is a no-op.
+	OnCompaction func()
 	// ModelSwitcher, when set, lets a tool escalate the run to a stronger model
 	// mid-run: the loop calls it with the requested model id and, on success,
 	// swaps the active provider and updates Options.Model for the rest of the
@@ -548,6 +577,16 @@ type Options struct {
 	// add no model call. Default false leaves the loop byte-identical, so the
 	// interactive TUI is unaffected.
 	RequireCompletionSignal bool
+
+	// RetrySleep waits before a model-call auto-retry. Nil uses a context-aware
+	// wall-clock sleep; tests inject an instant stub so no test ever waits out
+	// the real backoff schedule.
+	RetrySleep func(ctx context.Context, d time.Duration) error
+	// OnRetryWait, when set, receives every scheduled model-call retry (and a
+	// settling report when the wait ends). The TUI renders the live countdown
+	// from it; headless surfaces already warn through OnReasoning. Nil disables
+	// it with no behavior change.
+	OnRetryWait func(RetryWaitInfo)
 
 	runPermissions *permissionRunState
 }

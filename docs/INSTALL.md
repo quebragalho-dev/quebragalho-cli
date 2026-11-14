@@ -79,6 +79,46 @@ equivalente. Instalações em `~/.local/bin` também precisam dessa exportação
 
 O próprio script avisa quando o diretório instalado não está no `PATH`.
 
+## Linux / Ubuntu 24.04+: ambiente isolado
+
+Os comandos do `qg` (bash, servidores MCP, hooks) rodam dentro do
+bubblewrap (`bwrap`) quando ele funciona. No Ubuntu 24.04 ou superior, o
+AppArmor bloqueia user namespaces sem privilégios por padrão
+(`kernel.apparmor_restrict_unprivileged_userns=1`): o `bwrap` está instalado,
+mas falha com `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`.
+Sem correção, o `qg` avisa uma vez por sessão ("Ambiente isolado
+indisponível…") e os comandos rodam sem o isolamento nativo. `qg doctor`
+mostra o diagnóstico.
+
+O caminho recomendado é um perfil do AppArmor só para o `bwrap` (libera
+apenas ele, sem mexer na proteção do resto do sistema):
+
+```bash
+sudo tee /etc/apparmor.d/bwrap > /dev/null <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}
+EOF
+sudo apparmor_parser -r /etc/apparmor.d/bwrap
+```
+
+Confira com `qg doctor`: a checagem `sandbox.backend` deve voltar a `pass`
+e `qg sandbox policy` a `backend: linux-bwrap`.
+
+A alternativa é liberar user namespaces sem privilégios no sistema todo:
+
+```bash
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
+
+Ela resolve, mas **reduz a proteção do sistema inteiro**, não só a do
+`bwrap` — prefira o perfil do AppArmor acima. Para persistir entre
+reinicializações, grave `kernel.apparmor_restrict_unprivileged_userns=0` em
+`/etc/sysctl.d/`.
+
 ## Desinstalar
 
 Remova o binário e o alias do diretório de instalação:
@@ -161,13 +201,13 @@ quiser:
 ln -s "$(command -v qg)" ~/.local/bin/quebragalho
 ```
 
-Requer Go 1.26.10+.
+Requer Go 1.26.11+.
 
 ## A partir do código-fonte
 
 O clone usa o repositório privado (requer acesso).
 
-Requer Go 1.26.10+.
+Requer Go 1.26.11+.
 
 ```bash
 git clone https://github.com/quebragalho-dev/quebragalho-cli.git

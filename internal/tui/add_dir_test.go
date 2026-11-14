@@ -1,13 +1,13 @@
 package tui
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 func TestParseCommandRecognizesAddDir(t *testing.T) {
@@ -34,7 +34,7 @@ func newAddDirTestModel(t *testing.T) (model, *sandbox.Scope) {
 
 func TestHandleAddDirCommand(t *testing.T) {
 	m, scope := newAddDirTestModel(t)
-	extra := tempDirOutsideDefaultTemp(t)
+	extra := testutil.TempDirOutsideDefaultTemp(t)
 	initialRootCount := len(scope.Roots())
 
 	// Granting a directory widens the shared scope and confirms inline.
@@ -58,21 +58,4 @@ func TestHandleAddDirCommand(t *testing.T) {
 	if notice := lastTranscriptText(bad); !strings.Contains(notice, "add-dir:") {
 		t.Fatalf("bad-path notice = %q, want an add-dir: error", notice)
 	}
-}
-
-func tempDirOutsideDefaultTemp(t *testing.T) string {
-	t.Helper()
-	dir, err := os.MkdirTemp(".", ".qg-sandbox-outside-")
-	if err != nil {
-		t.Fatalf("MkdirTemp outside default temp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatalf("Abs(%q): %v", dir, err)
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved
-	}
-	return filepath.Clean(abs)
 }

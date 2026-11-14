@@ -15,6 +15,7 @@ import (
 func TestSelectLinuxBackendResolvesHelper(t *testing.T) {
 	restore := osExecutable
 	defer func() { osExecutable = restore }()
+	stubLinuxBwrapProbe(t, nil)
 	missing := func(string) (string, error) { return "", errors.New("missing") }
 	pathLookup := func(name string) (string, error) {
 		if name == LinuxSandboxHelperName || name == "bwrap" {

@@ -11,6 +11,43 @@ import (
 	"strings"
 )
 
+// mcpKnownProtocolVersions lists the MCP protocol revisions QG implements,
+// oldest first. The client announces the newest; a server answering with a
+// known revision is accepted on that revision, anything else (newer, older,
+// or garbage) is refused with a reason naming what the server asked for.
+var mcpKnownProtocolVersions = []string{"2024-11-05", "2025-03-26", "2025-06-18"}
+
+func latestMCPProtocolVersion() string {
+	return mcpKnownProtocolVersions[len(mcpKnownProtocolVersions)-1]
+}
+
+func knownMCPProtocolVersion(version string) bool {
+	for _, known := range mcpKnownProtocolVersions {
+		if version == known {
+			return true
+		}
+	}
+	return false
+}
+
+// negotiateMCPProtocolVersion resolves the revision to speak after the
+// server answers initialize. Known answers are used as-is; anything else
+// (newer, older, garbage, or missing) is refused with an error naming what
+// the server asked for, so qg never pretends to speak a revision it does not
+// know — or runs against a server that would not say which one it speaks.
+func negotiateMCPProtocolVersion(serverVersion string) (string, error) {
+	serverVersion = strings.TrimSpace(serverVersion)
+	if serverVersion == "" {
+		return "", fmt.Errorf("servidor MCP não informou protocolVersion na resposta do initialize (implementadas: %s)",
+			strings.Join(mcpKnownProtocolVersions, ", "))
+	}
+	if knownMCPProtocolVersion(serverVersion) {
+		return serverVersion, nil
+	}
+	return "", fmt.Errorf("servidor MCP exige protocolVersion %q, que não é suportada (implementadas: %s)",
+		serverVersion, strings.Join(mcpKnownProtocolVersions, ", "))
+}
+
 // maxMessageBytes caps a single framed MCP message so a hostile or buggy peer
 // cannot drive an unbounded allocation with an enormous Content-Length header
 // (Atoi accepts values up to ~9.2e18). 64 MiB is far above any legitimate

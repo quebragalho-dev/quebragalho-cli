@@ -111,7 +111,7 @@ func (a pluginActivation) skillInfos(defaultDir string) []agent.SkillInfo {
 		if name == "" {
 			continue
 		}
-		infos = append(infos, agent.SkillInfo{Name: name, Description: strings.TrimSpace(skill.Description)})
+		infos = append(infos, agent.SkillInfo{Name: name, Description: strings.TrimSpace(skill.Description), Environments: skill.Environments})
 	}
 	return infos
 }

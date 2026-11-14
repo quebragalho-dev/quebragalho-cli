@@ -38,6 +38,39 @@ func TestRegistryBudgetRunsAfterRedactionAndSpillsRedactedOutput(t *testing.T) {
 	}
 }
 
+// The budget-layer spill takes text the registry boundary already scrubbed,
+// so it skips the configured-key redaction pass — but the boundary scrub must
+// still have run first. An assignment-shaped secret (caught only by the
+// boundary's RedactString, not by the spill's pattern scanner) must be absent
+// from the spill while the surrounding output is preserved byte-for-byte.
+func TestRegistryBudgetSpillKeepsBoundaryRedaction(t *testing.T) {
+	setTestTempDir(t)
+	secret := "db_password = hunter2-obscure-value"
+	big := "HEAD\n" + secret + "\n" + strings.Repeat("n", 70_000) + "\nTAIL"
+	registry := NewRegistry()
+	registry.Register(newCeilingFakeTool("redacted_assign", big))
+
+	result := registry.Run(context.Background(), "redacted_assign", map[string]any{})
+	if !result.Truncated || result.Meta[outputBudgetSpillCreatedMeta] != "true" {
+		t.Fatalf("unexpected budget result: truncated=%t meta=%#v", result.Truncated, result.Meta)
+	}
+	if strings.Contains(result.Output, "hunter2-obscure-value") {
+		t.Fatal("model-visible output leaked the assignment secret")
+	}
+	content, err := os.ReadFile(result.Meta["spill_path"])
+	if err != nil {
+		t.Fatalf("read spill: %v", err)
+	}
+	if strings.Contains(string(content), "hunter2-obscure-value") {
+		t.Fatal("spill contains the assignment secret: the boundary scrub must run before the redacted-input spill")
+	}
+	for _, want := range []string{"HEAD", "TAIL", "[REDACTED]"} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("spill lost boundary-scrubbed content, missing %q", want)
+		}
+	}
+}
+
 func TestRegistryBudgetSpillFailureFallsBackToBoundedOutput(t *testing.T) {
 	temp := t.TempDir()
 	blockedTemp := filepath.Join(temp, "not-a-directory")

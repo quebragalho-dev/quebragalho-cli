@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"runtime"
 	"strings"
@@ -43,6 +44,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/updatenotice"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usercommands"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/yieldnow"
 )
 
 const tuiToolOutputLimit = 240
@@ -113,6 +115,9 @@ type model struct {
 	peerPendingApproval  *peermsg.InboundMessage
 	sandboxStore         *sandbox.GrantStore
 	mcpConfig            config.MCPConfig
+	mcpSkipped           map[string]string
+	mcpStatus            func() []internalmcp.ServerStatus
+	mcpReconnect         func(context.Context, string) error
 	mcpPermissionStore   *internalmcp.PermissionStore
 	mcpTokenStore        *internalmcp.TokenStore
 	mcpCommand           func(context.Context, []string) MCPCommandResult
@@ -143,9 +148,27 @@ type model struct {
 	// failure releases the gate above so a later turn can retry, but retries
 	// stop after two attempts so a persistently failing provider cannot burn
 	// tokens on every turn.
-	titleAttempts               map[string]int
-	renamePrompt                *sessionRenamePrompt
-	usageTracker                *usage.Tracker
+	titleAttempts map[string]int
+	renamePrompt  *sessionRenamePrompt
+	usageTracker  *usage.Tracker
+	// cacheDrops journals recent sub-80% session-cache calls (oldest first,
+	// capped) for the statusline reason and the /usage drops list. The other
+	// lastCache* fields remember the previous call so the next one can name
+	// its cause; an empty previous hash means unknown (e.g. after a resume),
+	// which reports "motivo desconhecido" instead of crying bug.
+	cacheDrops      []cacheDrop
+	cacheCalls      []cacheCall
+	lastCacheTools  string
+	lastCacheSystem string
+	lastCacheAt     time.Time
+	lastCacheModel  string
+	// cacheCompactedPending marks a TUI-side compaction (compactResultMsg)
+	// the agent loop never saw, consumed as the next call's drop motive.
+	cacheCompactedPending bool
+	// cacheClearBoundary marks the first usage event after /clear or /new: the
+	// new conversation's session hit keeps accumulating, but that call never
+	// gains a drop motive.
+	cacheClearBoundary          bool
 	sessionCompactor            SessionCompactor
 	prService                   *PrService
 	prState                     PrState
@@ -253,8 +276,13 @@ type model struct {
 	terminalAttachSeen     map[int]bool
 	// plan holds the sticky plan panel state (steps, expansion, timings)
 	// synced from the update_plan tool. See plan_panel.go.
-	plan            planPanelState
-	specialists     specialistTracker
+	plan        planPanelState
+	specialists specialistTracker
+	// subagents is the visible-subagents panel state (compact line + expanded
+	// view): Task specialists (foreground and background) and individual
+	// swarm members, fed by the same message flow as the tracker. Never
+	// cleared on beginRun — finished rows linger 30s, then prune by time.
+	subagents       subagentsPanel
 	stepWork        map[string][]planStepWork // file mutations + commands captured per in_progress plan step, for the clickable step detail
 	stepNarration   map[string][]string       // the agent's own prose narration captured per in_progress plan step, for the step detail's explanation
 	planDetailOpen  bool                      // a plan-step detail card is currently shown (click-to-toggle)
@@ -292,6 +320,11 @@ type model struct {
 	// turnTimer is shared with the agent command so both the live status and the
 	// settled "worked for" duration exclude time blocked on a user permission.
 	turnTimer *activeTurnTimer
+	// retryWait tracks an in-flight model-call auto-retry wait (error summary,
+	// countdown deadline, attempt counter) reported by the agent goroutine so
+	// the working status line shows it live. Cleared when the attempt settles
+	// or the run ends.
+	retryWait *retryWaitState
 	// lastCharTime tracks when the last non-Enter key was received, for paste detection.
 	lastCharTime time.Time
 	// lastKeyTime tracks every keypress timestamp for burst calculation.
@@ -303,14 +336,44 @@ type model struct {
 	// never send focus events at all, and defaulting to "unfocused" would wrongly
 	// hide the cursor for those users.
 	terminalFocused bool
-	// queuedMessages holds the FIFO of follow-up prompts the user typed while a
-	// run was active: the head renders in the transcript (Sussurro), ↑ edits
-	// only the tail, Cmd/Ctrl+Enter injects the head into the running turn.
+	// queuedMessages holds the FIFO of follow-up messages that wait for the
+	// end of the turn: slash commands, prompts with attachments and
+	// @specialist mentions typed while a run is active. Every message renders
+	// as a dimmed Sussurro row in the transcript, ↑ edits only the last one,
+	// Ctrl+Enter (or /agora) sends the queue plus the draft now. Plain
+	// prompts typed during a run go to the interleave buffer instead.
 	queuedMessages []string
+	// pendingSendNow parks the send-now batch (draft plus any common sobras)
+	// after an interrupt cancel: the dead run's continuation only lands in the
+	// flush path, and the relaunch must replay through it so a mid-turn
+	// message the loop drained right before the cancel reaches the new turn
+	// exactly once. Launched and cleared by launchPendingSendNow in the
+	// flush/completion paths; a session boundary drops it.
+	pendingSendNow []string
+	// pendingSendNowSeq versions the parked batch: the drain-timeout tick
+	// carries the seq so a stale tick never launches a batch parked later.
+	pendingSendNowSeq int
+	// parkedSendNowContinuationStored remembers, for a batch deferred by
+	// compactInFlight, whether the dead run handed over its wire (a flush
+	// stored its continuation). The compact pass launches at its end and
+	// passes the flag through to launchPendingSendNow.
+	parkedSendNowContinuationStored bool
 	// interleave carries operator interleaves into the running turn (drained
-	// by the agent goroutine after each tool batch; leftovers requeue at the
-	// end of the turn).
+	// by the agent goroutine after each tool batch; leftovers launch together
+	// as the next turn).
 	interleave *interleaveBuffer
+	// yieldNow wakes the run's backgroundable wait (a yield wait or a polling
+	// tool) so send-now can be delivered inside the running turn. Owned by the
+	// agent side (yieldnow.Signal); minted fresh per run in beginRun and read
+	// by runAgentWithOptions. Tests may override the concrete Signal with a
+	// recording fake — beginRun replaces it on the next run.
+	yieldNow sendNowSignal
+	// keyboardDisambiguation records whether the terminal confirmed kitty key
+	// disambiguation (KeyboardEnhancementsMsg, Flags > 0). Until it does,
+	// hints must not advertise shortcuts only such a terminal can deliver
+	// (Ctrl+Enter arrives identical to Enter elsewhere) and fall back to
+	// /agora instead.
+	keyboardDisambiguation bool
 	// loops holds the session's active /loop definitions (see loop.go). activeLoopID
 	// tags the in-flight run when it is a loop iteration (empty = a user turn), so the
 	// completion seam knows whether to advance a loop. loopSeq invalidates a stale
@@ -433,6 +496,15 @@ type model struct {
 	// lastPrompt is the verbatim text of the most recent submitted prompt, so
 	// /retry can resend it and /edit can recall it into the composer.
 	lastPrompt string
+	// lastPrompts holds the batch as submitted, one entry per message — the
+	// /retry path replays these as separate messages instead of the joined
+	// lastPrompt. Set on every launchPromptsInternal; cleared nowhere (it
+	// follows lastPrompt, which is composer history).
+	lastPrompts []string
+	// lastPromptLiteral is true when the last-prompt slot holds a
+	// pre-expanded wire (a non-typable skill's body from the picker), not a
+	// command line: /retry resends it as-is instead of re-dispatching.
+	lastPromptLiteral bool
 	// lastImages/lastImageLabels/lastDocuments remember the attachments consumed
 	// by the most recent submitted prompt. launchPrompt clears the pending queues
 	// once a turn is sent, so /retry re-stages these to reproduce the exact same
@@ -569,8 +641,49 @@ type model struct {
 	// first, capped to config.MaxRecentModels. Unlike favoriteModels (manual
 	// pins), this is maintained by recordRecentModel on every successful
 	// switch and persisted via config.SetRecentModels.
-	recentModels                 []config.RecentModelEntry
-	recapsEnabled                bool // idle orientation note (config: recaps on|off)
+	recentModels  []config.RecentModelEntry
+	recapsEnabled bool // idle orientation note (config: recaps on|off)
+	// statuslineCfg is the resolved statusline customization (user layout
+	// plus command, optionally with project layout underneath). Zero value
+	// renders the built-in line byte for byte.
+	statuslineCfg config.StatusLineConfig
+	// statuslineCmdOutput is the cached stdout of the external statusline
+	// command (the "command" field). Empty until a run lands; the runner in
+	// the command commit owns refresh, never the View.
+	statuslineCmdOutput string
+	// statuslineCmdErr is the discreet failure mark shown while the cached
+	// output is stale. Cleared by the next successful run.
+	statuslineCmdErr string
+	// statuslineCmdInFlight guarantees at most one command run in flight: a
+	// trigger while one runs is a no-op, never a queue.
+	statuslineCmdInFlight bool
+	// statuslineCmdCancel kills the in-flight run: apply/reset/quit call it
+	// so the old config's process never overlaps the new cadence and no
+	// orphan survives the exit. The cancel fires the same tree kill the
+	// timeout relies on, and the late result is dropped by the sequence check.
+	statuslineCmdCancel context.CancelFunc
+	// statuslineCmdDone closes when the in-flight run's runner returns. The
+	// exit path waits on it (bounded) so os.Exit right after Run cannot
+	// orphan the script: the tree kill is issued before Wait unblocks.
+	statuslineCmdDone chan struct{}
+	// statuslineCmdStartedAt gates re-runs to the refresh window; seq matches
+	// runs to their results so late losers are dropped.
+	statuslineCmdStartedAt time.Time
+	statuslineCmdSeq       int
+	// statuslineRefreshDue remembers a turn-end refresh that arrived while a
+	// run was in flight; applyStatuslineCmdMsg consumes it by starting the
+	// next run instead of dropping the refresh.
+	statuslineRefreshDue bool
+	// statuslineSetup tracks an in-flight /statusline setup turn; cleared
+	// when its final message finalizes (or when no proposal validates).
+	statuslineSetup *statuslineSetupState
+	// statuslinePending waits for Enter (apply) or Esc (cancel) on a rendered
+	// preview. While set it owns the keyboard (see handleStatuslinePendingKey).
+	statuslinePending *statuslinePendingApply
+	// statuslineTickGen versions the idle refresh chain: apply bumps it and
+	// re-arms at once, so a tick armed under the old cadence is discarded on
+	// arrival; reset bumps it to kill the old chain without re-arming.
+	statuslineTickGen            int
 	recapSeq                     int
 	recapRunning                 bool
 	recapCancel                  context.CancelFunc
@@ -798,6 +911,7 @@ type specialistStartMsg struct {
 	name           string
 	description    string
 	childSessionID string
+	background     bool
 }
 
 // specialistCompleteMsg carries specialist completion info from the
@@ -827,6 +941,95 @@ type specialistProgressMsg struct {
 	detail     string
 }
 
+// specialistUsageMsg carries the running usage totals of one Task call from
+// the specialist child process, sent via OnToolProgress → runtimeMessageSink
+// (one per stream-json usage event; the child emits per-call deltas and the
+// producer sums them). Update prices the totals with the catalog and calls
+// setUsage, which replaces the row's usage; completion overwrites with the
+// authoritative store rollup.
+type specialistUsageMsg struct {
+	runID            int
+	toolCallID       string
+	promptTokens     int64  // cumulative for this Task call
+	completionTokens int64  // cumulative for this Task call
+	modelID          string // child model, from its run_start event
+}
+
+// taskUsageTotals sums one Task call's live stream-json usage deltas plus
+// the child model seen on its run_start event. The OnToolProgress producer
+// keeps one per in-flight Task call and sinks running totals in
+// specialistUsageMsg.
+type taskUsageTotals struct {
+	prompt     int64
+	completion int64
+	modelID    string
+}
+
+// add folds one child stream-json event into the running totals.
+func (totals *taskUsageTotals) add(event streamjson.Event) {
+	switch event.Type {
+	case streamjson.EventRunStart:
+		if modelID := firstNonEmptyString(event.Model, event.APIModel); modelID != "" {
+			totals.modelID = modelID
+		}
+	case streamjson.EventUsage:
+		if event.PromptTokens != nil {
+			totals.prompt += int64(*event.PromptTokens)
+		}
+		if event.CompletionTokens != nil {
+			totals.completion += int64(*event.CompletionTokens)
+		}
+	}
+}
+
+// taskUsageTracker routes child stream-json progress to one accumulator per
+// tool call and emits one usage message per usage event with nonzero totals.
+// One tracker lives per run; the loop drives it from OnToolProgress. A nil
+// tracker or a nil send func drops everything (headless runs).
+type taskUsageTracker struct {
+	runID  int
+	totals map[string]*taskUsageTotals
+	send   func(tea.Msg)
+}
+
+func newTaskUsageTracker(runID int, send func(tea.Msg)) *taskUsageTracker {
+	return &taskUsageTracker{runID: runID, totals: map[string]*taskUsageTotals{}, send: send}
+}
+
+// progress folds one child event into its call's totals, forwarding live
+// progress rows and emitting usage only for that call.
+func (tracker *taskUsageTracker) progress(toolCallID string, event streamjson.Event) {
+	if tracker == nil {
+		return
+	}
+	if event.Type == streamjson.EventToolCall && tracker.send != nil {
+		tracker.send(specialistProgressMsg{
+			runID:      tracker.runID,
+			toolCallID: toolCallID,
+			toolName:   event.Name,
+			detail:     toolCallSummary(event),
+		})
+	}
+	if event.Type != streamjson.EventRunStart && event.Type != streamjson.EventUsage {
+		return
+	}
+	totals, ok := tracker.totals[toolCallID]
+	if !ok {
+		totals = &taskUsageTotals{}
+		tracker.totals[toolCallID] = totals
+	}
+	totals.add(event)
+	if event.Type == streamjson.EventUsage && tracker.send != nil && totals.prompt+totals.completion > 0 {
+		tracker.send(specialistUsageMsg{
+			runID:            tracker.runID,
+			toolCallID:       toolCallID,
+			promptTokens:     totals.prompt,
+			completionTokens: totals.completion,
+			modelID:          totals.modelID,
+		})
+	}
+}
+
 type mcpCommandOrigin int
 
 const (
@@ -850,6 +1053,14 @@ type mcpCommandResultMsg struct {
 	result  MCPCommandResult
 }
 
+// mcpReconnectResultMsg reports a session-runtime MCP reconnect (the /mcp
+// manager's reconnect action), which runs against the live runtime instead
+// of spawning a separate `qg mcp check` process.
+type mcpReconnectResultMsg struct {
+	server string
+	err    error
+}
+
 type doctorCommandResultMsg struct {
 	id   int
 	text string
@@ -862,6 +1073,10 @@ type sandboxSetupCommandResultMsg struct {
 
 type prStateMsg struct {
 	state PrState
+	// branch is the checked-out branch (or short head sha when detached)
+	// the background refresh observed. Empty only before the first
+	// observation; the handler then keeps the current segment.
+	branch string
 }
 
 type prWatcherStartedMsg struct {
@@ -952,6 +1167,10 @@ type tuiAgentRunOptions struct {
 	// never store a continuation: the next user turn goes back to the textual
 	// summary even when the goal did not change.
 	goalContinuation bool
+	// extraUserMessages carries the trailing prompts of a multi-message turn
+	// (end-of-turn leftovers, send-now interrupt); the loop seeds them as
+	// separate consecutive user messages after the first prompt.
+	extraUserMessages []qgruntime.Message
 }
 
 // turnContinuation is the real history one run hands to the next: the
@@ -1145,6 +1364,7 @@ func newModel(ctx context.Context, options Options) model {
 		favoriteModels:              favoriteModelSet(options.FavoriteModels),
 		recentModels:                normalizeRecentModelEntries(options.RecentModels),
 		compactionModel:             options.CompactionModel,
+		statuslineCfg:               options.StatusLine,
 		recapsEnabled:               options.RecapsEnabled,
 		provider:                    options.Provider,
 		newProvider:                 options.NewProvider,
@@ -1157,6 +1377,9 @@ func newModel(ctx context.Context, options Options) model {
 		peerService:                 options.PeerService,
 		sandboxStore:                sandboxStore,
 		mcpConfig:                   options.MCPConfig,
+		mcpSkipped:                  options.MCPSkipped,
+		mcpStatus:                   options.MCPStatus,
+		mcpReconnect:                options.MCPReconnect,
 		mcpPermissionStore:          options.MCPPermissionStore,
 		mcpTokenStore:               options.MCPTokenStore,
 		mcpCommand:                  options.MCPCommand,
@@ -1197,6 +1420,35 @@ func newModel(ctx context.Context, options Options) model {
 	}
 	if m.reasoningEffort == "" {
 		m = m.loadPanelEffort()
+	}
+	// Surface a non-fatal statusline config notice (e.g. an ignored project
+	// command) once at startup, above the fold with the welcome row.
+	if warning := strings.TrimSpace(options.StatusLineWarning); warning != "" {
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: warning})
+	}
+	// Surface the sandbox-unavailable session warning the same way, exactly
+	// once: the TUI owns the screen, so a stderr line would scroll away
+	// unseen. Empty (backend works, sandbox disabled, or already isolated)
+	// shows nothing.
+	if warning := strings.TrimSpace(options.SandboxWarning); warning != "" {
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: warning})
+	}
+	// Name unknown statusline field ids once at startup, so a typo in a
+	// hand-written config does not fail silently (the setup card repeats
+	// them at preview time; this covers everything else).
+	if unknown := unknownStatusLineFields(m.statuslineCfg); len(unknown) > 0 {
+		quoted := make([]string, 0, len(unknown))
+		for _, id := range unknown {
+			quoted = append(quoted, fmt.Sprintf("%q", id))
+		}
+		noun := "campo desconhecido"
+		if len(unknown) > 1 {
+			noun = "campos desconhecidos"
+		}
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{
+			kind: actionAppendSystem,
+			text: fmt.Sprintf("statusline: %s %s ignorado", noun, strings.Join(quoted, ", ")),
+		})
 	}
 	// Apply an explicit palette immediately. System is applied by Run immediately
 	// before Bubble Tea starts, which keeps package-level helper rendering
@@ -1315,6 +1567,11 @@ func (m model) Init() tea.Cmd {
 	if cmd := m.updateCheckInitCmd(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	// First external statusline run fires immediately (the tick handler then
+	// keeps the idle refresh chain alive). Async like everything above.
+	if m.statuslineCommandActive() {
+		cmds = append(cmds, statuslineInitCmd(m.statuslineTickGen))
+	}
 	// Read the terminal background only to keep a selected palette legible. This
 	// query never changes the terminal canvas; View deliberately leaves both
 	// terminal-wide color fields unset.
@@ -1344,7 +1601,7 @@ func (m model) Init() tea.Cmd {
 		}
 		cmds = append(cmds, func() tea.Msg {
 			stop := WatchPRStateContext(ctx, service, func(state PrState) {
-				sink(prStateMsg{state: state})
+				sink(prStateMsg{state: state, branch: service.Branch()})
 			})
 			return prWatcherStartedMsg{stop: stop}
 		})
@@ -1358,6 +1615,20 @@ func (m *model) stopPRWatcher() {
 	}
 	m.prWatcherStop()
 	m.prWatcherStop = nil
+}
+
+// prRefreshCmd re-checks the header state off the UI goroutine: the gate and
+// the refresh both run in the service, results flow back as prStateMsg. The
+// Update path only dispatches; the render path never shells out.
+func (m model) prRefreshCmd() tea.Cmd {
+	service := m.prService
+	if service == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		service.RefreshIfNeeded()
+		return nil
+	}
 }
 
 // noBlockingModal reports that no modal surface (permission prompt, ask_user,
@@ -1374,6 +1645,10 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 	m.stopPRWatcher()
 	m.stopAllBackgroundTerminalSessions()
 	m.shutdownLSPManager()
+	// A statusline run still in flight would outlive the program: cancel it
+	// and wait (bounded) for the runner, so the exit below cannot slip
+	// ahead of the tree kill. Same helper as the post-Run cleanup.
+	m.killStatuslineSync()
 	// The presence lease is released in writeFarewell (after the program
 	// exits and the final snapshot has been flushed), not here: the
 	// farewell write happens after tea.Quit returns, and a new qg process
@@ -1477,7 +1752,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	nm, noticeCmd := nm.ensureTransientNoticeTimer()
-	return nm, batchCommands(cmd, mouseCmd, flushCmd, recapActivityCmd, composerCmd, noticeCmd)
+	// The statusline command poll piggybacks the Update pass: a due run
+	// starts async (at most one in flight) and the idle tick chain stays
+	// armed. It never runs on the default path.
+	nm, statuslineCmd := nm.pollStatuslineCommand(msg)
+	// A finished setup turn finalizes here (both normal and cancelled
+	// landings flow through Update): validate the staging, preview, wait.
+	nm, statuslineSetupCmd := nm.maybeFinalizeStatuslineSetup(msg)
+	return nm, batchCommands(cmd, mouseCmd, flushCmd, recapActivityCmd, composerCmd, noticeCmd, statuslineCmd, statuslineSetupCmd)
 }
 
 func batchCommands(cmds ...tea.Cmd) tea.Cmd {
@@ -1629,6 +1911,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancelConfirmActive = false
 		}
 		return m, nil
+	case sendNowDrainTimeoutMsg:
+		if !m.drainSendNowTimeout(msg.seq) {
+			return m, nil
+		}
+		next, cmd := m.launchPendingSendNow(false)
+		return next, cmd
 	case leaderExpiredMsg:
 		if msg.seq == m.leaderSeq {
 			m.leaderPending = false
@@ -1756,6 +2044,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.renamePrompt != nil {
 			return m.handleSessionRenameKey(msg)
+		}
+		// A statusline proposal preview owns the keyboard until Enter applies
+		// or Esc discards it; anything else is swallowed, never typed.
+		if m.statuslinePending != nil {
+			return m.handleStatuslinePendingKey(msg)
 		}
 		m.transcriptSelection = transcriptSelectionState{}
 		m.composerSelection = composerSelectionState{}
@@ -1900,6 +2193,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcriptDetailed = false
 				return m, nil
 			}
+			// A stop confirmation or an expanded panel collapses first; the
+			// run keeps going — Esc cancels it only with no panel state.
+			if m.subagents.confirmStop {
+				m.subagents.confirmStop = false
+				return m, nil
+			}
+			if m.subagents.expanded && m.subagentsPanelVisible() {
+				m.subagents.expanded = false
+				return m, nil
+			}
 			// Esc on an ask-user prompt: from the "type my own" free-text it steps
 			// back to the selector for that question; otherwise it cancels the
 			// questionnaire (not the run), delivering whatever answers were collected
@@ -1930,6 +2233,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mcpManager = nil
 				return m, nil
 			}
+			// An expanded subagents panel collapses (or drops a pending stop
+			// confirmation) before Esc can touch the run: collapsing is
+			// non-destructive, cancelling is not. All modals above win first.
+			if m.subagents.confirmStop {
+				m.subagents.confirmStop = false
+				return m, nil
+			}
+			if m.subagents.expanded && m.subagentsPanelVisible() {
+				m.subagents.expanded = false
+				return m, nil
+			}
 			// An open picker cancels first; then an active suggestion overlay is
 			// dismissed. Neither cancels the run or clears the input.
 			if m.picker != nil {
@@ -1952,13 +2266,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearSuggestions()
 			if m.pending {
 				if wasConfirmingCancel {
-					m.clearComposer()
 					m.cancelRun()
-					// Esc cancels the run and drains the queue: the next
-					// queued message rides the next turn immediately.
-					if next, cmd := m.launchQueuedMessageIfReady(); cmd != nil {
-						return next, cmd
-					}
+					// Esc cancels and hands the queue back: cancelRun returns
+					// the interleaves and the FIFO to the composer, in order,
+					// above the draft. Nothing launches on its own.
 					return m, nil
 				}
 				// First Esc only arms the confirmation — preserve whatever
@@ -1974,85 +2285,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearComposer()
 			return m, nil
 		case keyIs(msg, tea.KeyEnter) && (keySuper(msg, tea.KeyEnter) || keyCtrl(msg, tea.KeyEnter)):
-			// Cmd+Enter (macOS) / Ctrl+Enter (other platforms): interleave
-			// the message into the running turn — it rides the very next
-			// provider request after this step's tool results, without the
-			// turn being interrupted. With no turn in flight (or a modal
-			// owning the keyboard), it is exactly Enter — submit the prompt.
-			return m.handleInterleaveEnter()
+			// Ctrl+Enter on every system (Cmd+Enter is still accepted silently
+			// when a terminal sends it): send the queue plus the draft NOW.
+			// Where send-now is not possible, exactly Enter.
+			return m.handleInterleaveEnter(msg)
 		case keyIs(msg, tea.KeyEnter):
-			if m.transcriptDetailed {
-				if command := parseCommand(m.input.Value()); command.kind == commandTranscript {
-					m.input.SetValue("")
-					return m.toggleDetailedTranscript(), nil
-				}
-				return m, nil
+			if m.subagentsEnterOpens() {
+				return m.openSelectedSubagent()
 			}
-			if m.pendingPermission != nil {
-				// Enter confirms the highlighted option (default: allow once); the
-				// a/y/d hotkeys and a click still resolve directly.
-				m.burstCount = 0
-				return m.confirmPermissionCursor()
-			}
-			if m.pendingAskUser != nil {
-				m.burstCount = 0
-				return m.confirmAskUser()
-			}
-			if m.pendingSpecReview != nil {
-				m.burstCount = 0
-				return m, nil
-			}
-			if m.mcpAddWizard != nil {
-				m.burstCount = 0
-				return m.handleMCPAddWizardKey(msg)
-			}
-			if m.mcpManager != nil {
-				m.burstCount = 0
-				return m.handleMCPManagerKey(msg)
-			}
-			if m.picker != nil {
-				m.burstCount = 0
-				return m.choosePicker()
-			}
-			if keyAlt(msg) || keyShift(msg) {
-				if next, ok := m.applyComposerKey(msg); ok {
-					return next, nil
-				}
-			}
-			// Enter on file suggestions inserts the @file token for continued
-			// composing. Command suggestions execute only when the selected command
-			// is self-contained; commands that require a value are inserted so the
-			// user can finish the argument first.
-			if m.suggestionsActive() {
-				return m.chooseSuggestion()
-			}
-			// Timing-based paste protection: under Termux, context-menu paste
-			// injects characters one at a time (including newlines as raw
-			// KeyEnter events). A sustained burst of 3+ keys within 100ms
-			// means we are inside a char-by-char paste — insert newline
-			// instead of submitting. Gated to Termux so fast desktop typing
-			// (which can reach similar inter-key intervals) is never affected.
-			if os.Getenv("TERMUX_VERSION") != "" && m.burstCount > 2 {
-				state := m.currentComposerState()
-				m = m.insertComposerTextWithPastePreview(state, "\n", "")
-				m.clearSuggestions()
-				return m, nil
-			}
-
-			// Composer-based paste protection: when the composer already has
-			// multiline text (e.g. pasted via bracketed paste / Ctrl+Shift+V),
-			// plain Enter inserts a newline instead of submitting so each
-			// pasted \n does not trigger a premature submit. Uses the same
-			// burstCount > 2 threshold as the Termux path so a single fast
-			// key + Enter on a multiline prompt still submits.
-			if m.composerActive && m.burstCount > 2 && strings.Contains(m.composer.text, "\n") {
-				state := m.currentComposerState()
-				m = m.insertComposerTextWithPastePreview(state, "\n", "")
-				m.clearSuggestions()
-				return m, nil
-			}
-			m.burstCount = 0
-			return m.handleSubmit()
+			return m.handleEnterKey(msg)
 		case keyIs(msg, tea.KeyTab) && keyShift(msg):
 			if m.transcriptDetailed {
 				return m, nil
@@ -2094,6 +2335,24 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.runDetailsOpen = !m.runDetailsOpen
 				return m, nil
 			}
+		case keyCtrl(msg, 'g'):
+			// Ctrl+G opens the subagents panel (expanded view) or folds it back.
+			// Hardcoded like the other single-purpose Ctrl chords: no modal may
+			// be up, and an expanded panel collapses first — including inside
+			// subchat, which exits back to the main view with the panel open.
+			if m.noBlockingModal() && !m.transcriptDetailed {
+				if m.subchat.active {
+					m.chatScrollOffset = m.subchat.exit()
+					m = m.clearHover()
+					m.subagents.expanded = true
+					return m, nil
+				}
+				if m.subagentsPanelVisible() {
+					m.subagents.expanded = !m.subagents.expanded
+					m.subagents.confirmStop = false
+					return m, nil
+				}
+			}
 		case keyCtrl(msg, 'v'), keySuper(msg, 'v'):
 			// Ctrl+V probes the clipboard for an IMAGE only. Text pasting stays
 			// exclusively on the terminal's bracketed-paste path (Bubble's own
@@ -2129,6 +2388,26 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// when the composer is non-empty or a popup is active.
 			if m.composerValue() == "" && m.noBlockingModal() && !m.transcriptDetailed && !m.subchat.active && !m.suggestionsActive() {
 				m.helpOverlay = true
+				return m, nil
+			}
+		case keyText(msg) == "x" && !keyAlt(msg) && !keyHasMod(msg, tea.ModCtrl):
+			// `x` asks to stop the selected subagent, but ONLY on an empty
+			// composer with the expanded panel open — otherwise it must type a
+			// literal "x" into the prompt.
+			if m.subagents.expanded && m.subagentsPanelVisible() && m.composerValue() == "" && m.noBlockingModal() && !m.transcriptDetailed && !m.subchat.active && !m.suggestionsActive() {
+				rows := m.subagents.visibleRows(m.now())
+				if m.subagents.selected >= 0 && m.subagents.selected < len(rows) {
+					m.subagents.confirmStop = true
+					m.subagents.confirmKey = rows[m.subagents.selected].key
+					return m, nil
+				}
+			}
+			// Inside a panel drill-in, `x` asks to stop the open subagent,
+			// keyed by its stable panel row key (running rows are keyed by
+			// tool call id, not by child session).
+			if m.subchat.active && len(m.subchatPanelOrder()) > 0 && m.composerValue() == "" && m.noBlockingModal() && !m.transcriptDetailed && !m.suggestionsActive() {
+				m.subagents.confirmStop = true
+				m.subagents.confirmKey = m.subchatOpenRowKey()
 				return m, nil
 			}
 		case keyBackspace(msg):
@@ -2229,6 +2508,18 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if next, cmd, ok := m.moveModalSelection(1); ok {
 				return next, cmd
 			}
+			// ↓ on the composer's last visual line (empty counts) opens or
+			// steps through the subagents panel instead of moving the cursor:
+			// suggestions and modals already consumed their ↓ above, and an
+			// active history recall keeps its own navigation below.
+			if !m.subchat.active && !m.historyRecallActive() && m.subagentsPanelVisible() && m.composerCursorOnLastVisualLine() {
+				if m.subagents.expanded {
+					m.subagents.selectNext()
+				} else {
+					m.subagents.expanded = true
+				}
+				return m, nil
+			}
 			if next, ok := m.moveComposerVisualCursor(1); ok {
 				return next, nil
 			}
@@ -2252,13 +2543,39 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if next, ok := m.moveComposerVisualCursor(-1); ok {
 				return next, nil
 			}
-			// A queued message takes ↑ priority over history recall: pop it back
-			// into the composer for editing before it sends on the next turn.
-			if m.hasQueuedMessage() && m.pendingSpecReview == nil {
-				return m.popQueuedMessageForEdit(), nil
+			// A pending message takes ↑ priority over history recall. Rows
+			// draw interleave → parked batch → FIFO, so ↑ pops bottom-most
+			// first: the FIFO tail, then the parked batch tail, then the
+			// interleave tail (same order the user reads them).
+			if m.pendingSpecReview == nil {
+				if m.hasQueuedMessage() {
+					return m.popQueuedMessageForEdit(), nil
+				}
+				if next, ok := m.popInterleaveForEdit(); ok {
+					return next, nil
+				}
+			}
+			// With the expanded subagents panel open, ↑ steps through its rows
+			// instead of the history. Queued/interleave edits above win so ↑
+			// keeps editing the last queued message first.
+			if m.subagents.expanded && m.subagentsPanelVisible() {
+				m.subagents.selectPrev()
+				return m, nil
 			}
 			if m.historyRecallActive() {
 				return m.recallHistory(-1), nil
+			}
+		case keyIs(msg, tea.KeyLeft), keyIs(msg, tea.KeyRight):
+			// Inside a panel drill-in, ←/→ steps through the panel's subagents
+			// without leaving the subchat view — but only on an empty composer,
+			// so typing keeps the cursor keys.
+			if m.subchat.active && len(m.subchatPanelOrder()) > 1 && m.composerValue() == "" {
+				delta := 1
+				if keyIs(msg, tea.KeyLeft) {
+					delta = -1
+				}
+				next, cmd := m.stepSubchatPanel(delta)
+				return next, cmd
 			}
 		case keyCtrl(msg, 'u'):
 			// Ctrl+U scrolls up half a page, or moves the cursor up in
@@ -2359,6 +2676,18 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyPrintable(msg) {
 				m.picker.appendQuery(keyRunes(msg))
 			}
+			return m, nil
+		}
+		// A pending subagent stop confirmation is modal over the composer: s/n
+		// resolve it, Esc backs out. It runs before the composer key branch so
+		// printable answers are never typed into the prompt.
+		if next, cmd, ok := m.subagentsConfirmKey(msg); ok {
+			return next, cmd
+		}
+		// A panel drill-in is read-only while its subagent runs: swallow
+		// anything that would reach the shared composer. Navigation, confirm
+		// and Ctrl+G are handled above and keep working.
+		if m.subchatReadOnly() {
 			return m, nil
 		}
 		if next, ok := m.applyComposerKey(msg); ok {
@@ -2484,11 +2813,47 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastStreamActivity = m.now()
 		}
 		return m, nil
+	case agentRetryWaitMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		m.retryWait = &retryWaitState{
+			attempt:  msg.attempt,
+			max:      msg.max,
+			summary:  msg.summary,
+			deadline: m.now().Add(msg.wait),
+		}
+		if msg.discarded {
+			// The failed attempt's live text vanishes: the retry re-sends
+			// clean context and streams the answer whole, so keeping the
+			// partial would show it twice. Committed transcript rows are
+			// untouched; the retry notice (reasoning) and the countdown
+			// segment mark what happened.
+			m.streamingText = nil
+			m.clearStreamingToolCall()
+			m.resetStreamingFade()
+		}
+		return m, nil
+	case agentRetryClearMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		m.retryWait = nil
+		return m, nil
 	case spinner.TickMsg:
 		// Record when swarm members first finish so the sidebar can linger them
 		// with a fading ✓ before removal. Cheap (the tick only fires while a run is
 		// in flight or the sidebar holds agents — exactly when this can change).
 		m.stampSwarmDone()
+		m.housekeepSubagents(m.now())
+		// A live drill-in follows its child on the tick too, at most once
+		// per second and only when the child log changed — a full re-read
+		// every frame would burn CPU proportional to the child size.
+		if m.subchat.active {
+			if row, ok := m.subchatPanelRow(); ok && row.state == subagentRunning {
+				m.subchat.pollReload(m.sessionStore, m.now())
+			}
+		}
 		// Not forwarding the tick while idle stops the spinner's self-scheduling,
 		// so no timer fires between runs. The one exception is active agent state:
 		// its short lifecycle fade needs the phase to keep advancing until the
@@ -2505,6 +2870,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.spinnerPhase++
 				m.spinnerTicking = true
 				return m, cmd
+			}
+			// Visible subagents need their own 1s cadence after the turn ends:
+			// the live clock keeps moving, finished rows age out of the 30s
+			// retention, and background rows reconcile with the manager. The
+			// spinner glyph stays frozen under reduced motion; only the tick
+			// reschedules.
+			if m.subagentsPanelVisible() {
+				m.spinnerTicking = true
+				return m, subagentTickCmd()
 			}
 			m.spinnerTicking = false
 			return m, nil
@@ -2715,6 +3089,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for _, row := range flushRows {
 					m.transcript = appendTranscriptRow(m.transcript, row)
 				}
+				// The cancelled run's rows: a live sink may have delivered
+				// some while the run was still the active one (appendTranscriptRow
+				// dedupes those); the rest were dropped as stale and are
+				// appended here once — a drained interleave never vanishes
+				// from the transcript just because its turn was cancelled.
+				m.transcript = appendTranscriptRowsDedup(m.transcript, msg.rows)
 				// A cancelled run's final messages seed the next turn exactly like
 				// a normal finish does — but only when the run was still recording
 				// the session that is active now, and only when that history is
@@ -2722,12 +3102,14 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// after the cancel may have already completed). The writer gate
 				// drops anything older than a newer turn too, so this can never
 				// overwrite a newer snapshot on disk either.
+				continuationStored := false
 				if msg.continuation != nil &&
 					msg.continuation.sessionID == m.activeSession.SessionID &&
 					flushSessionID == m.activeSession.SessionID &&
 					len(msg.continuation.messages) > 0 &&
 					msg.continuation.runID > m.continuation.runID {
 					m.continuation = *msg.continuation
+					continuationStored = true
 					if m.snapshotWriter != nil {
 						m.snapshotWriter.Queue(buildContinuationSnapshot(msg.continuation.sessionID, msg.continuation.modelID, m.providerName, string(m.reasoningEffort), msg.continuation.goalKey, m.activeSession.EventCount, msg.continuation.messages, msg.continuation.loadedTools), msg.continuation.runID)
 					}
@@ -2736,13 +3118,22 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// checkpoint session events have been flushed (above). Now that the
 				// last pending flush is drained, fire the deferred quit.
 				if m.exiting && len(m.flushRunIDs) == 0 {
+					m.pendingSendNow = nil
 					return m.quit()
 				}
+				// The parked send-now batch launches here, once the dead run's
+				// continuation is stored above — the new turn replays through it.
+				if next, sendNowCmd := m.launchPendingSendNow(continuationStored); sendNowCmd != nil {
+					return next, sendNowCmd
+				}
+				return m, nil
 			}
 			return m, nil
 		}
 		m.clearStreamingToolCall() // active run finished — drop any lingering "writing" block
 		m.pending = false
+		m.subagents.settleRun(m.now())
+		m.retryWait = nil                // the run settled — no retry countdown can be in flight
 		m = m.disarmCancelConfirmation() // the run finished on its own — nothing left to confirm cancelling
 		// A newline-triggered redraw deferred by the stream-clear throttle
 		// (see agentTextMsg) may never get a later newline or fade tick to
@@ -2918,7 +3309,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// other loops remain.
 			m, loopTickCmd = m.ensureLoopTick()
 		}
-		hadQueuedMessage := len(m.queuedMessages) > 0
+		hadQueuedMessage := len(m.queuedMessages) > 0 ||
+			(m.interleave != nil && m.interleave.pendingCount() > 0)
 		next, queuedCmd := m.launchQueuedMessageIfReady()
 		var peerCmd tea.Cmd
 		if queuedCmd == nil {
@@ -2932,7 +3324,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.goalAware && !hadQueuedMessage && peerCmd == nil && next.pendingPermission == nil && msg.specReview == nil {
 			next, goalCmd = next.launchGoalContinuationIfReady()
 		}
-		return next, tea.Batch(pendingClearCmd, titleCmd, recapCmd, sweepCmd, queuedCmd, peerCmd, peerApprovalCmd, loopTickCmd, goalCmd)
+		// A finished turn may have rewritten files, switched branches, or
+		// landed on a new head: re-check the header off the UI goroutine.
+		// The branch segment refreshes with the incoming prStateMsg; the
+		// render path itself never shells out.
+		prRefreshCmd := next.prRefreshCmd()
+		return next, tea.Batch(pendingClearCmd, titleCmd, recapCmd, sweepCmd, queuedCmd, peerCmd, peerApprovalCmd, loopTickCmd, goalCmd, prRefreshCmd)
 	case snapshotWriteFailedMsg:
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Não consegui salvar o histórico exato desta conversa; ao retomar, o qg reconstruirá a partir do histórico salvo."})
 		return m, nil
@@ -2953,7 +3350,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.lastCompactError = msg.err.Error()
 			m = m.setCompactStatusRow(m.compactText(true))
-			return m, nil
+			return m.launchParkedSendNowAfterCompaction()
 		}
 		if msg.hasSessionSnapshot {
 			m.activeSession = msg.activeSession
@@ -2976,9 +3373,14 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// and the next call's receipt sets the new value. The /usage panel
 		// keeps its own last-call report.
 		m.meterLive = false
+		if msg.result.Compacted {
+			// A TUI-side compaction rewrote the history the next request
+			// replays, so a cache miss right after blames it.
+			m.cacheCompactedPending = true
+		}
 		m.lastCompactResult = &msg.result
 		m = m.setCompactStatusRow(m.compactText(true))
-		return m, nil
+		return m.launchParkedSendNowAfterCompaction()
 	case planUpdateMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
@@ -3050,6 +3452,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.specialists.start(msg.name, msg.description, msg.childSessionID, m.now())
+		m.subagents.upsertStart(msg.childSessionID, msg.name, msg.description, false, msg.background, msg.runID, m.now())
 		return m, nil
 	case specialistCompleteMsg:
 		if msg.runID != m.activeRunID {
@@ -3060,7 +3463,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Reconcile: complete by the tool call ID, then rewrite the tracker
 		// entry's childSessionID to the real session ID so subchat.enter can
 		// find the child session's events in the store.
+		followsOpen := m.subchatFollowsToolCall(msg.toolCallID)
 		m.specialists.complete(msg.toolCallID, msg.status, 0, msg.errorMsg, m.now())
+		m.subagents.completeToolCall(msg.toolCallID, msg.childSessionID, msg.status == specialistCompleted, msg.errorMsg, m.now())
+		if index := m.subagents.indexBySession(msg.childSessionID, msg.toolCallID); index >= 0 {
+			m.refreshSubagentUsage(&m.subagents.rows[index])
+		}
 		if msg.childSessionID != "" && msg.childSessionID != msg.toolCallID {
 			m.specialists.reconcileSessionID(msg.toolCallID, msg.childSessionID)
 		}
@@ -3075,6 +3483,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.transcript = appendTranscriptRow(m.transcript, cardRow)
 		}
+		if followsOpen {
+			m.subchat.reload(m.sessionStore)
+		}
+		return m, nil
+	case subagentStopDoneMsg:
+		if msg.err != nil {
+			// A failed stop is not a stop: forget the request so a child
+			// that later finishes normally reads "pronto", not "parado".
+			delete(m.subagents.pendingStop, msg.key)
+			m = m.showTransientNoticeInline("parar subagente: "+strings.TrimSpace(msg.err.Error()), transientNoticeWarning)
+		}
 		return m, nil
 	case specialistProgressMsg:
 		if msg.runID != m.activeRunID {
@@ -3086,11 +3505,36 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// id at this point (reconciled to the session id only on completion).
 		m.specialists.incrementToolCount(msg.toolCallID)
 		m.specialists.setCurrentTool(msg.toolCallID, msg.toolName, msg.detail)
+		detail := msg.toolName
+		if strings.TrimSpace(msg.detail) != "" {
+			detail = "↳ " + strings.TrimSpace(msg.detail)
+		}
+		m.subagents.setActivity(msg.toolCallID, detail)
+		m.reloadOpenSubchat(msg.toolCallID)
+		return m, nil
+	case specialistUsageMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		// Live running totals replace the row's usage, so it shows tok and
+		// ~R$ while it works priced like the completion path; the store
+		// rollup replaces them again at completion.
+		var cost float64
+		hasCost := false
+		if info := m.apiModel(msg.modelID); info != nil {
+			if amount, err := info.PricingBRL.Cost(qgruntime.Usage{InputTokens: int(msg.promptTokens), OutputTokens: int(msg.completionTokens)}); err == nil {
+				cost, _ = new(big.Rat).Set(amount).Float64()
+				hasCost = true
+			}
+		}
+		m.subagents.setUsage(msg.toolCallID, msg.promptTokens, msg.completionTokens, msg.modelID, cost, hasCost)
+		m.reloadOpenSubchat(msg.toolCallID)
 		return m, nil
 	case agentRowMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
 		}
+		m.subagents.observeSwarmRow(msg.row, msg.runID, m.now())
 		if msg.row.kind == rowReasoning {
 			m.streamingReasoning = ""
 			m.streamingReasoningExpanded = false
@@ -3129,11 +3573,22 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.captureStepWork(msg.row)
 		// A finished command tool may have mutated files git can see but no
 		// changedFiles reports (npm create, heredoc writes, subagent edits) —
-		// re-sweep so the FILES sidebar picks them up mid-turn.
-		if msg.row.kind == rowToolResult && isPlanCommandTool(msg.row.tool) {
-			var sweep tea.Cmd
-			m, sweep = m.maybeGitSweep()
-			return m, sweep
+		// re-sweep so the FILES sidebar picks them up mid-turn. Any finished
+		// tool may also have rewritten files the header diff counts — re-check
+		// off the UI goroutine, coalesced by the service gate, so a long turn
+		// with many edits still refreshes while tools land. When the tool ran
+		// a PR/MR-mutating command, drop the cached identity first so a
+		// freshly opened PR shows up instead of lingering behind the TTL.
+		if msg.row.kind == rowToolResult {
+			if msg.row.meta[agent.PrIdentityStaleMeta] != "" {
+				m.prService.InvalidatePRIdentity()
+			}
+			if isPlanCommandTool(msg.row.tool) {
+				var sweep tea.Cmd
+				m, sweep = m.maybeGitSweep()
+				return m, tea.Batch(sweep, m.prRefreshCmd())
+			}
+			return m, m.prRefreshCmd()
 		}
 		return m, nil
 	case swarmSessionsMsg:
@@ -3148,6 +3603,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.swarmSessionMap[taskID] = sessionID
 			}
 		}
+		m.subagents.setSwarmSessions(msg.sessions)
 		return m, nil
 	case doctorCommandResultMsg:
 		if msg.id == 0 || msg.id == m.doctorCommandSeq {
@@ -3164,6 +3620,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case prStateMsg:
 		m.prState = msg.state
+		// The branch rides the same message as the PR state it was observed
+		// with: no file read or subprocess on the Update path, and the two
+		// header segments can never disagree.
+		if strings.TrimSpace(msg.branch) != "" {
+			m.gitBranch = strings.TrimSpace(msg.branch)
+		}
 		return m, nil
 	case gitSweepMsg:
 		return m.handleGitSweepMsg(msg), nil
@@ -3179,6 +3641,38 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bashResultMsg:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: msg.output})
 		return m, nil
+	case statuslineCmdMsg:
+		// One external statusline run finished: fold its output (or its
+		// discreet failure mark) without touching anything else, and run a
+		// turn-end refresh queued during the flight. The View reads only
+		// the cache, so a run can never block rendering.
+		return m.applyStatuslineCmdMsg(msg)
+	case statuslineSetupValidatedMsg:
+		// The staged-script dry run finished: failure discards the staging,
+		// success renders the preview and waits for Enter/Esc.
+		return m.applyStatuslineSetupValidated(msg), nil
+	case statuslineTickMsg:
+		// Idle refresh: start a due run and re-arm the chain. A deactivated
+		// command ends the chain by scheduling nothing. The chain counts
+		// refreshMs from the start of the last run, whatever caused it, so a
+		// turn-forced run resets the idle phase instead of stacking on it.
+		// A tick from a superseded generation (apply/reset re-armed since)
+		// is discarded: the new cadence already has its own tick pending.
+		if msg.gen != m.statuslineTickGen {
+			return m, nil
+		}
+		if !m.statuslineCommandActive() {
+			return m, nil
+		}
+		refresh := time.Duration(m.statuslineCfg.EffectiveRefreshMs()) * time.Millisecond
+		m, cmd := m.startStatuslineRun(false)
+		delay := refresh
+		if !m.statuslineCmdStartedAt.IsZero() {
+			if remaining := refresh - m.now().Sub(m.statuslineCmdStartedAt); remaining > 0 && remaining < delay {
+				delay = remaining
+			}
+		}
+		return m, batchCommands(cmd, statuslineTickCmdAfter(delay, m.statuslineTickGen))
 	case setupKeyCheckMsg:
 		return m.applySetupKeyCheck(msg), nil
 	case setupDeviceStartedMsg:
@@ -3191,6 +3685,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyModelPickerModelsDiscovered(msg), nil
 	case mcpCommandResultMsg:
 		return m.applyMCPCommandResultMessage(msg), nil
+	case mcpReconnectResultMsg:
+		return m.applyMCPReconnectResult(msg), nil
 	}
 
 	var cmd tea.Cmd
@@ -3259,9 +3755,13 @@ func (m model) transcriptView() string {
 	width := chatWidth(m.width)
 
 	// Subchat drill-in: when active, show the child session's transcript with
-	// a nav bar instead of the main chat.
+	// a nav bar instead of the main chat. A panel drill-in gets the subagent
+	// header; otherwise the generic back bar.
 	if m.subchat.active {
 		navBar := renderSubchatNavBar(m.subchat.childSessionTitle, width)
+		if panelNav, ok := m.renderSubchatPanelNavBar(width); ok {
+			navBar = panelNav
+		}
 		childBodyItems := m.transcriptBodyItemsFromRows(m.subchat.childRows, width)
 		footer := m.footerView(width)
 		if m.altScreen && m.height > 0 {
@@ -3309,16 +3809,24 @@ func (m model) transcriptView() string {
 	case suggestionOverlay != "":
 		viewportOverlay = suggestionOverlay
 	}
+	// Tall centered modals (keyboard help) composite over the viewport even on
+	// an empty transcript: inlining them makes the bottom-anchored viewport
+	// drop their title when they exceed the body height (#419 keeps the title
+	// visible). The palette-style overlays keep replacing the wordmark.
+	inlineOverlay := viewportOverlay
+	if helpOverlayContent != "" || leaderHelpOverlayContent != "" {
+		inlineOverlay = ""
+	}
 	emptyOverlay := ""
-	if m.transcriptEmpty() && !m.pending && viewportOverlay != "" {
-		emptyOverlay = viewportOverlay
+	if m.transcriptEmpty() && !m.pending && inlineOverlay != "" {
+		emptyOverlay = inlineOverlay
 	}
 	bodyItems := m.transcriptBodyItems(width, emptyOverlay, false)
 
 	footer := m.footerView(width)
 
 	overlayForViewport := viewportOverlay
-	if m.transcriptEmpty() && !m.pending && viewportOverlay != "" {
+	if m.transcriptEmpty() && !m.pending && inlineOverlay != "" {
 		overlayForViewport = ""
 	}
 
@@ -3389,6 +3897,20 @@ func (m model) footerView(width int) string {
 		footer.WriteString(m.statusLine(width))
 		return footer.String()
 	}
+	// A panel drill-in replaces the composer with a read-only box and the
+	// status line with the subchat footer (back/stop hints + position).
+	if m.subchat.active && len(m.subchatPanelOrder()) > 0 {
+		if notice := strings.TrimSpace(m.transientNoticeLine(width)); notice != "" {
+			footer.WriteString(notice)
+			footer.WriteString("\n")
+		}
+		footer.WriteString(subchatReadonlyBox(width))
+		footer.WriteString("\n")
+		if subFooter, ok := m.renderSubchatPanelFooter(width); ok {
+			footer.WriteString(subFooter)
+			return footer.String()
+		}
+	}
 	// The row above the composer: transient copy feedback takes priority; otherwise
 	// a faint idle affordance — discoverable key hints on the left, a jump-to-bottom
 	// cue on the right when scrolled up. Always one line (blank when nothing shows),
@@ -3408,6 +3930,16 @@ func (m model) footerView(width int) string {
 	// it does not repeat here.
 	footer.WriteString(m.composerBox(width))
 	footer.WriteString("\n")
+	// The subagents line lives between the composer and the status line, only
+	// while subagents are visible (running or within retention): the compact
+	// one-liner, or the expanded box when the panel is open.
+	if expanded := m.renderSubagentsExpandedBox(width); expanded != "" {
+		footer.WriteString(expanded)
+		footer.WriteString("\n")
+	} else if compact := m.subagentsCompactLine(width); compact != "" {
+		footer.WriteString(compact)
+		footer.WriteString("\n")
+	}
 	footer.WriteString(m.statusLine(width))
 	return footer.String()
 }
@@ -3998,9 +4530,13 @@ func (m model) workingStatusLine() string {
 	// If the model has gone quiet (no streamed text, reasoning, OR tool-call output
 	// for a while — common when a provider buffers a large tool call instead of
 	// streaming it), say so plainly with an advancing timer, so a long silent
-	// generation never reads as a frozen screen.
-	if hint := m.quietGenerationHint(); hint != "" {
+	// generation never reads as a frozen screen. Suppressed while a retry wait
+	// is showing — its countdown already names what is happening and when.
+	if hint := m.quietGenerationHint(); hint != "" && m.retryWait == nil {
 		line += qgTheme.amber.Render("  ·  " + hint)
+	}
+	if segment := m.retryWaitSegment(); segment != "" {
+		line += qgTheme.amber.Render("  ·  " + segment)
 	}
 	return line
 }
@@ -4121,7 +4657,7 @@ func (m model) appendStreamingCursor(lines []string, width int) []string {
 // composerLine renders the borderless composer.
 func (m model) composerLine(width int) string {
 	input := m.input
-	if m.hasQueuedMessage() {
+	if m.hasQueuedMessage() || (m.interleave != nil && m.interleave.pendingCount() > 0) || m.hasParkedSendNow() {
 		input.Placeholder = queuedEditHint
 	}
 	hideInputForSuggestions := m.suggestionsActive() && (!m.suggestionsAreFiles || fileSuggestionOnlyInput(m.input.Value()))
@@ -4155,7 +4691,8 @@ func (m model) composerLine(width int) string {
 			cursor: composerDisplayCursorForPastePreviews(end, previews),
 		}
 	}
-	return renderComposerInput(input, displayState, width, m.composerCursorVisible, displaySelection)
+	spans := scanSkillTokens(displayState.text, m.installedSkills())
+	return renderComposerInput(input, displayState, width, m.composerCursorVisible, displaySelection, spans)
 }
 
 type composerVisualLine struct {
@@ -4164,7 +4701,7 @@ type composerVisualLine struct {
 	end   int
 }
 
-func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool, selection composerSelectionState) string {
+func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan) string {
 	state = normalizeComposerState(state)
 	if width <= 0 {
 		return ""
@@ -4183,7 +4720,7 @@ func renderComposerInput(input textinput.Model, state composerState, width int, 
 	segments, cursorLine := composerVisibleVisualLines(input, state, width)
 	lines := make([]string, 0, len(segments))
 	for index, segment := range segments {
-		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible, selection), width))
+		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible, selection, skillSpans), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -4265,10 +4802,17 @@ func composerCursorVisualLine(segments []composerVisualLine, cursor int) int {
 	return len(segments) - 1
 }
 
-func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState) string {
+func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan) string {
 	runes := []rune(state.text)
 	prefix := composerVisualLinePrefix(input, segment.first)
 	textStyle := qgTheme.ink.Inline(true)
+	skillStyle := qgTheme.accent.Inline(true)
+	skillCell := map[int]bool{}
+	for _, span := range skillSpans {
+		for index := span.start; index < span.end; index++ {
+			skillCell[index] = true
+		}
+	}
 	selectionStart, selectionEnd, hasSelection := selection.rangeFor(state)
 	cursorIndex := -1
 	if hasCursor && !hasSelection {
@@ -4277,16 +4821,52 @@ func renderComposerVisualLine(input textinput.Model, state composerState, segmen
 
 	var line strings.Builder
 	line.WriteString(prefix)
-	for index := segment.start; index < segment.end; index++ {
-		cell := string(runes[index])
+	// Cells render in runs of one style: the token must appear contiguously
+	// (the highlight is observable), and the terminal repaints with fewer
+	// escapes. Precedence: cursor > selection > skill token > plain ink.
+	classOf := func(index int) int {
 		switch {
 		case index == cursorIndex && cursorVisible:
-			line.WriteString(composerCursor(cell))
+			return 0
 		case hasSelection && index >= selectionStart && index < selectionEnd:
-			line.WriteString(qgTheme.selection.Render(cell))
+			return 1
+		case skillCell[index]:
+			return 2
 		default:
-			line.WriteString(textStyle.Render(cell))
+			return 3
 		}
+	}
+	flush := func(class int, cells *strings.Builder) {
+		switch class {
+		case 0:
+			cell := cells.String()
+			for _, char := range cell {
+				line.WriteString(composerCursor(string(char)))
+			}
+		case 1:
+			line.WriteString(qgTheme.selection.Render(cells.String()))
+		case 2:
+			// Known skill tokens render in the command color.
+			line.WriteString(skillStyle.Render(cells.String()))
+		default:
+			line.WriteString(textStyle.Render(cells.String()))
+		}
+		cells.Reset()
+	}
+	current := -1
+	var run strings.Builder
+	for index := segment.start; index < segment.end; index++ {
+		class := classOf(index)
+		if class != current {
+			if run.Len() > 0 {
+				flush(current, &run)
+			}
+			current = class
+		}
+		run.WriteString(string(runes[index]))
+	}
+	if run.Len() > 0 {
+		flush(current, &run)
 	}
 	if cursorIndex == segment.end && cursorVisible {
 		line.WriteString(composerCursor(" "))
@@ -4685,6 +5265,7 @@ func (m model) chooseSuggestion() (tea.Model, tea.Cmd) {
 	wasFiles := m.suggestionsAreFiles
 	wasDirectory := m.selectedSuggestionIsDirectory()
 	requiresInput := m.selectedCommandSuggestionRequiresInput()
+	selectedIsSkill := m.selectedSuggestionIsSkill()
 	next := m.completeSuggestion()
 	if !wasFiles {
 		next.resetComposerFromInput()
@@ -4694,12 +5275,29 @@ func (m model) chooseSuggestion() (tea.Model, tea.Cmd) {
 		return next, nil
 	}
 	if !wasFiles {
-		if requiresInput {
+		if requiresInput || selectedIsSkill {
 			return next, nil
 		}
 		return next.handleSubmit()
 	}
 	return next, nil
+}
+
+// promptGuard refuses to start a prompt while the session can't run one:
+// while exiting (Ctrl+C waiting on the cancelled run's checkpoint flush) a
+// new run would orphan its blobs, and while a compaction is in flight a turn
+// would race the compact rewrite of transcript and session events. When
+// blocked, ok is false and the returned model carries the outcome to show —
+// the model untouched while exiting, the compaction warning otherwise.
+// Shared by handleSubmit and /agora so the two can never drift.
+func (m model) promptGuard() (model, bool) {
+	if m.exiting {
+		return m, false
+	}
+	if m.compactInFlight {
+		return m.appendSystemNotice("Compact\nstatus: warning\nCompactação em andamento. Sua próxima mensagem vai usar o contexto compactado quando ela terminar."), false
+	}
+	return m, true
 }
 
 func (m model) handleSubmit() (tea.Model, tea.Cmd) {
@@ -4720,21 +5318,35 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 	if m.loopLeavePrompt != commandEmpty && command.kind != m.loopLeavePrompt {
 		m.loopLeavePrompt = commandEmpty
 	}
-	// While exiting (Ctrl+C waiting on the cancelled run's checkpoint flush) a
-	// new run must not start: the deferred tea.Quit would abort it mid-flight
-	// and orphan its checkpoint blobs — the exact loss flushRunIDs prevents.
+	// exiting first (a run must not start — the deferred quit waits on the
+	// checkpoint flush), then a pending prompt queues for the next turn,
+	// then the compaction guard refuses. The /agora no-turn path applies
+	// promptGuard as-is (exiting then compaction), with no queue in between.
 	if command.kind == commandPrompt && m.exiting {
 		return m, nil
 	}
 	if command.kind == commandPrompt && m.pending {
+		// A plain prompt interleaves into the running turn — unless a
+		// send-now batch is parked: then there is no running turn, and the
+		// prompt rides the FIFO behind the parked batch.
+		if !m.hasParkedSendNow() && len(m.pendingImages) == 0 && len(m.pendingDocuments) == 0 {
+			if isCommonPrompt(command.text, m.agentOptions.Specialists, m.installedSkills()) {
+				if m.interleave == nil {
+					m.interleave = &interleaveBuffer{}
+				}
+				m.rememberInput(command.text)
+				m.interleave.push(command.text)
+				m.clearComposer()
+				m.clearSuggestions()
+				return m, nil
+			}
+		}
 		return m.queueMessage(command.text), nil
 	}
-	if command.kind == commandPrompt && m.compactInFlight {
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{
-			kind: actionAppendSystem,
-			text: "Compact\nstatus: warning\nCompactação em andamento. Sua próxima mensagem vai usar o contexto compactado quando ela terminar.",
-		})
-		return m, nil
+	if command.kind == commandPrompt {
+		if blocked, ok := m.promptGuard(); !ok {
+			return blocked, nil
+		}
 	}
 	m.rememberInput(input)
 	m.clearComposer()
@@ -4749,37 +5361,308 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 	return m.dispatchCommand(command)
 }
 
-// handleInterleaveEnter implements Cmd+Enter / Ctrl+Enter: interleave the
-// operator's message into the running turn so it rides the very next
-// provider request (injected after the current step's tool results, without
-// canceling anything). Text staged in the composer wins; otherwise the head
-// of the FIFO queue is injected. With no turn in flight, or a modal surface
-// owning the keyboard, it behaves exactly like Enter — submit the prompt.
-func (m model) handleInterleaveEnter() (tea.Model, tea.Cmd) {
-	m.burstCount = 0
-	if !m.pending || !m.noBlockingModal() {
-		return m.handleSubmit()
-	}
+// handleEnterKey implements the plain Enter key: every surface that owns
+// the keyboard first (detailed transcript, the permission/ask_user/spec-review
+// modals, pickers, suggestions, paste protection), then the normal submit.
+// Ctrl+Enter falls through to this same path whenever send-now is not
+// possible, so the two keys can never diverge.
+func (m model) handleEnterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.transcriptDetailed {
+		if command := parseCommand(m.input.Value()); command.kind == commandTranscript {
+			m.input.SetValue("")
+			return m.toggleDetailedTranscript(), nil
+		}
 		return m, nil
 	}
-	text := strings.TrimSpace(m.composerValue())
-	if text == "" {
-		if len(m.queuedMessages) == 0 {
-			return m, nil
+	if m.pendingPermission != nil {
+		// Enter confirms the highlighted option (default: allow once); the
+		// a/y/d hotkeys and a click still resolve directly.
+		m.burstCount = 0
+		return m.confirmPermissionCursor()
+	}
+	if m.pendingAskUser != nil {
+		m.burstCount = 0
+		return m.confirmAskUser()
+	}
+	if m.pendingSpecReview != nil {
+		m.burstCount = 0
+		return m, nil
+	}
+	if m.mcpAddWizard != nil {
+		m.burstCount = 0
+		return m.handleMCPAddWizardKey(msg)
+	}
+	if m.mcpManager != nil {
+		m.burstCount = 0
+		return m.handleMCPManagerKey(msg)
+	}
+	if m.picker != nil {
+		m.burstCount = 0
+		return m.choosePicker()
+	}
+	if keyAlt(msg) || keyShift(msg) {
+		if next, ok := m.applyComposerKey(msg); ok {
+			return next, nil
 		}
-		text = m.queuedMessages[0]
-		m.queuedMessages = m.queuedMessages[1:]
-	} else {
-		m.rememberInput(text)
+	}
+	// Enter on file suggestions inserts the @file token for continued
+	// composing. Command suggestions execute only when the selected command
+	// is self-contained; commands that require a value are inserted so the
+	// user can finish the argument first.
+	if m.suggestionsActive() {
+		return m.chooseSuggestion()
+	}
+	// Timing-based paste protection: under Termux, context-menu paste
+	// injects characters one at a time (including newlines as raw
+	// KeyEnter events). A sustained burst of 3+ keys within 100ms
+	// means we are inside a char-by-char paste — insert newline
+	// instead of submitting. Gated to Termux so fast desktop typing
+	// (which can reach similar inter-key intervals) is never affected.
+	if os.Getenv("TERMUX_VERSION") != "" && m.burstCount > 2 {
+		state := m.currentComposerState()
+		m = m.insertComposerTextWithPastePreview(state, "\n", "")
+		m.clearSuggestions()
+		return m, nil
+	}
+
+	// Composer-based paste protection: when the composer already has
+	// multiline text (e.g. pasted via bracketed paste / Ctrl+Shift+V),
+	// plain Enter inserts a newline instead of submitting so each
+	// pasted \n does not trigger a premature submit. Uses the same
+	// burstCount > 2 threshold as the Termux path so a single fast
+	// key + Enter on a multiline prompt still submits.
+	if m.composerActive && m.burstCount > 2 && strings.Contains(m.composer.text, "\n") {
+		state := m.currentComposerState()
+		m = m.insertComposerTextWithPastePreview(state, "\n", "")
+		m.clearSuggestions()
+		return m, nil
+	}
+	m.burstCount = 0
+	return m.handleSubmit()
+}
+
+// isCommonPrompt reports whether text is a plain prompt: not a slash
+// command, not a leading @specialist mention, and citing no known skill. The
+// same predicate the to-interleave path applies at submit time — the
+// send-now uses it to tell common messages from the queue's wait-for-turn-end
+// residents (slash commands, @specialist mentions, skill messages included).
+func isCommonPrompt(text string, specialists []agent.SpecialistInfo, installed []skills.Skill) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	if parseCommand(trimmed).kind != commandPrompt {
+		return false
+	}
+	if containsSkillToken(trimmed, installed) {
+		return false
+	}
+	_, specialistMention := expandSpecialistMention(trimmed, specialists)
+	return !specialistMention
+}
+
+// sendNow delivers everything common pending right now — undelivered
+// interleaves (oldest), then the common FIFO items (plain prompts, which
+// only reach the queue when a cancel stranded them), then the composer
+// draft last — as separate user messages. The FIFO keeps what waits for
+// the end of the turn: slash commands, @specialist mentions and
+// attachment-backed messages drain one per turn afterwards, as always.
+// While a send-now batch is parked (the window between an interrupting
+// send-now and the dead run's drain), the FIFO is off-limits: everything
+// typed rides the FIFO behind the batch — the batch launches first,
+// exactly once. If the run's signal wakes a backgroundable wait, the loop
+// drains the buffer and delivers everything inside the running turn.
+// Otherwise the turn is interrupted and the collected messages launch as
+// one new turn. Nothing returns to the composer on that path. ok is false
+// when nothing common is pending (callers fall back to Enter or a notice).
+func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
+	draft = strings.TrimSpace(draft)
+	if m.hasParkedSendNow() {
+		// The window: the parked batch launches first — only the draft
+		// joins it; the FIFO is untouched and drains behind it afterwards.
+		if draft == "" {
+			return m, nil, false
+		}
+		m.rememberInput(draft)
+		m.clearComposer()
+		m.clearSuggestions()
+		m.pendingSendNow = append(m.pendingSendNow, draft)
+		return m, nil, true
+	}
+	var all []string
+	if m.interleave != nil {
+		for _, message := range m.interleave.drain() {
+			if text := strings.TrimSpace(message.Content); text != "" {
+				all = append(all, text)
+			}
+		}
+	}
+	// Plain prompts in the FIFO ride the send too (a cancel parked them
+	// there); commands and mentions belong to the end-of-turn queue and
+	// never reach the wire from here.
+	remaining := make([]string, 0, len(m.queuedMessages))
+	for _, text := range m.queuedMessages {
+		if _, _, pinned := parsePinnedLiteral(text); pinned {
+			remaining = append(remaining, text)
+			continue
+		}
+		if isCommonPrompt(text, m.agentOptions.Specialists, m.installedSkills()) {
+			all = append(all, text)
+			continue
+		}
+		remaining = append(remaining, text)
+	}
+	if draft != "" {
+		all = append(all, draft)
+	}
+	if len(all) == 0 {
+		// Nothing common collected: the non-common remainder stays queued,
+		// untouched.
+		return m, nil, false
+	}
+	m.queuedMessages = remaining
+	if draft != "" {
+		m.rememberInput(draft)
 		m.clearComposer()
 		m.clearSuggestions()
 	}
-	if m.interleave == nil {
-		m.interleave = &interleaveBuffer{}
+	if m.yieldNow != nil && m.yieldNow.Request() {
+		// The wait was woken: the loop drains the buffer after the closing
+		// tool batch and delivers every message inside the running turn.
+		if m.interleave == nil {
+			m.interleave = &interleaveBuffer{}
+		}
+		for _, text := range all {
+			m.interleave.push(text)
+		}
+		return m, nil, true
 	}
-	m.interleave.push(text)
-	return m, nil
+	// Nothing to wake: cut the turn short (Esc semantics for its bookkeeping,
+	// but the FIFO stays queued for the turns after this one — its items
+	// were never part of this send) and park the batch until the dead
+	// run drains through the flush path, where its continuation is stored.
+	// The new turn launches there so anything the loop drained into the
+	// dying run's wire is replayed into the new turn exactly once.
+	deferUntilDrain := m.pending && m.activeRunID != 0
+	m.cancelRun(true)
+	if !deferUntilDrain {
+		next, cmd := m.launchPrompts(all)
+		return next, cmd, true
+	}
+	m.pendingSendNow = append(m.pendingSendNow, all...)
+	m.pendingSendNowSeq++
+	// The window between the cancel and the dead run's drain behaves like a
+	// still-active turn: nothing may start around the batch — it goes first,
+	// and anything typed now rides the FIFO behind it.
+	m.pending = true
+	return m, tea.Tick(sendNowDrainTimeout, func(time.Time) tea.Msg {
+		return sendNowDrainTimeoutMsg{seq: m.pendingSendNowSeq}
+	}), true
+}
+
+// handleInterleaveEnter implements Cmd+Enter / Ctrl+Enter (Ctrl+Enter on
+// every system; Cmd+Enter is still accepted silently when a terminal sends
+// it): send the queue plus the composer draft NOW, the draft riding behind
+// the queue. If the run's signal wakes a backgroundable wait, the messages
+// interpolate into the running turn right after the closing tool batch.
+// Otherwise the turn is interrupted and the messages launch as one new turn
+// — nothing returns to the composer. With no turn in flight, exactly Enter.
+//
+// Send-now only happens when a turn is in flight, no modal surface owns the
+// keyboard, the detailed transcript is not open, no attachment is staged,
+// and the text is a plain prompt (a leading @specialist mention needs the
+// expansion launchPrompt applies, so it also falls back). Every other case
+// takes the exact Enter path — handleEnterKey — so the two keys can never
+// diverge. Pending attachments keep the composer intact and post a short
+// notice instead: send-now does not carry images or documents, and the
+// queue keeps whatever it held.
+//
+// One deliberate exception to "exactly Enter": an open suggestion overlay
+// does not claim Ctrl+Enter. The key is an explicit send-now gesture, so it
+// sends the literal composer text and the suggestion is left for Enter/Tab
+// to accept. A stale overlay never hijacks the message.
+func (m model) handleInterleaveEnter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.burstCount = 0
+	if m.pending && m.noBlockingModal() && !m.transcriptDetailed {
+		text := strings.TrimSpace(m.composerValue())
+		// The queue-only send carries no attachments: the guard only applies
+		// to the composer's own text.
+		if text != "" && (len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0) {
+			return m.appendSystemNotice(fmt.Sprintf("Anexos não vão com %s — use Enter para enfileirar", m.sendNowShortcut())), nil
+		}
+		if text != "" {
+			if parseCommand(text).kind != commandPrompt {
+				return m.handleEnterKey(msg)
+			}
+			if _, specialistMention := expandSpecialistMention(text, m.agentOptions.Specialists); specialistMention {
+				return m.handleEnterKey(msg)
+			}
+		}
+		next, cmd, ok := m.sendNow(text)
+		if !ok {
+			// Nothing pending: fall back to Enter, which submits or no-ops.
+			return m.handleEnterKey(msg)
+		}
+		return next, cmd
+	}
+	return m.handleEnterKey(msg)
+}
+
+// handleAgoraCommand implements /agora [texto]. During a turn it sends the
+// queue plus the argument (riding behind it) NOW — exactly what Ctrl+Enter
+// does — falling back to the same notices. With no turn in flight the
+// remainder goes out as a normal prompt through the full submit path. Slash
+// command arguments are refused (they never ride the send as raw text); a
+// leading @specialist mention is queued instead, because only launchPrompt
+// applies its delegation expansion. /agora itself is never queued as text —
+// it dispatches immediately, mid-turn.
+func (m model) handleAgoraCommand(text string) (tea.Model, tea.Cmd) {
+	text = strings.TrimSpace(text)
+	if !m.pending {
+		if text == "" {
+			return m.appendSystemNotice("Nenhum turno em andamento — /agora só intercala durante um turno."), nil
+		}
+		// The outer submit already remembered the /agora line and cleared the
+		// composer; the remainder is reparsed — a slash command is refused
+		// with the same notice the with-turn path uses, never sent as raw
+		// text. One history entry.
+		command := parseCommand(text)
+		if command.kind != commandPrompt {
+			return m.appendSystemNotice("Só prompts comuns vão com /agora — rode o comando direto."), nil
+		}
+		if blocked, ok := m.promptGuard(); !ok {
+			return blocked, nil
+		}
+		return m.dispatchCommand(command)
+	}
+	// Unreachable through the keyboard (a modal or the detailed transcript
+	// owns Enter), but never interleave behind an open surface via another path.
+	if !m.noBlockingModal() || m.transcriptDetailed {
+		return m, nil
+	}
+	// The queue-head send carries no attachments: the guard only applies
+	// to the command's argument.
+	if text != "" && (len(m.pendingImages) > 0 || len(m.pendingDocuments) > 0) {
+		return m.appendSystemNotice("Anexos não vão com /agora — use Enter para enfileirar"), nil
+	}
+	if text != "" {
+		if parseCommand(text).kind != commandPrompt {
+			return m.appendSystemNotice("Só prompts comuns vão com /agora — rode o comando direto."), nil
+		}
+		// A leading @specialist mention rides the queue (never the send
+		// unexpanded), because only launchPrompt applies its delegation
+		// expansion. The queue and draft stay put behind it.
+		if _, specialistMention := expandSpecialistMention(text, m.agentOptions.Specialists); specialistMention {
+			m.rememberInput(text)
+			m.queuedMessages = append(m.queuedMessages, text)
+			return m, nil
+		}
+	}
+	next, cmd, ok := m.sendNow(text)
+	if !ok {
+		return m.appendSystemNotice("Nada na fila para intercalar."), nil
+	}
+	return next, cmd
 }
 
 // dispatchCommand runs a parsed slash/prompt command after submit/leader
@@ -4829,6 +5712,8 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		return m.startNewSession(), nil
 	case commandBTW:
 		return m.handleBTWCommand(command.text)
+	case commandAgora:
+		return m.handleAgoraCommand(command.text)
 	case commandLoop:
 		return m.handleLoopCommand(command.text)
 	case commandGoal:
@@ -5099,6 +5984,10 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
+	case commandStatusline:
+		// /statusline never launches through the picker: bare shows the
+		// status card, "reset" clears, anything else starts a setup turn.
+		return m.handleStatuslineCommand(command.text)
 	case commandImage:
 		m = m.handleImageCommand(command.text)
 		return m, nil
@@ -5172,7 +6061,22 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		m.pendingImageLabels = m.lastImageLabels
 		m.pendingDocuments = m.lastDocuments
 		m.refreshPendingImageThumbnail()
-		return m.launchPrompt(m.lastPrompt)
+		// The last-prompt slot may hold a pre-expanded wire (a non-typable
+		// skill's body from the picker), not a command line: resend it as-is.
+		if m.lastPromptLiteral {
+			return m.launchPinnedWire(m.lastPrompt)
+		}
+		// Resend the last submitted message — running the full dispatch again
+		// so skill tokens re-expand from the raw text and user commands
+		// re-resolve, same as if the user had pressed Enter anew.
+		if len(m.lastPrompts) > 1 {
+			return m.launchPrompts(m.lastPrompts)
+		}
+		next, cmd := m.dispatchCommand(parseCommand(m.lastPrompt))
+		if nm, ok := next.(model); ok {
+			return nm, cmd
+		}
+		return m, cmd
 	case commandEdit:
 		if strings.TrimSpace(m.lastPrompt) == "" {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Edit\nno previous prompt to recall."})
@@ -5230,18 +6134,49 @@ func (m model) executeSlash(input string) (tea.Model, tea.Cmd) {
 // composer. Queued prompts use this path too, so session and image behavior
 // stays identical to immediate submissions.
 func (m model) launchPrompt(prompt string) (model, tea.Cmd) {
-	return m.launchPromptInternal(prompt, nil)
+	return m.launchPrompts([]string{prompt})
+}
+
+// launchPrompts starts one agent turn from texts already accepted by the
+// composer: the first rides the seeded user message, the rest ride as
+// separate consecutive user messages after it (agent.Options.ExtraUserMessages),
+// in order. End-of-turn leftovers and the send-now interrupt path launch here
+// so the model sees exactly what the user queued — never one merged text.
+func (m model) launchPrompts(prompts []string) (model, tea.Cmd) {
+	return m.launchPromptsInternal(prompts, nil, nil, false)
+}
+
+// launchPromptsTagged is launchPrompts with per-message row ids: a delivered
+// interleave relaunched from the send-now batch keeps the id its live row
+// carried, so a late flush of the cancelled run dedupes against it. Entries
+// with an empty id behave exactly like launchPrompts.
+func (m model) launchPromptsTagged(prompts []string, rowIDs []string) (model, tea.Cmd) {
+	return m.launchPromptsInternal(prompts, nil, rowIDs, false)
 }
 
 func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage) (model, tea.Cmd) {
-	// Remember the verbatim prompt (before specialist/document expansion) so /retry
-	// and /edit can act on exactly what the user submitted. Snapshot the staged
-	// attachments too: launchPrompt clears the pending queues below, so /retry
-	// re-stages these to resend an identical vision/PDF-backed request rather than
-	// a degraded text-only one.
+	return m.launchPromptsInternal([]string{prompt}, peer, nil, false)
+}
+
+// launchPromptSilent launches a user-command prompt without skill expansion.
+// Skill tokens inside a user command's args are its own — the command owns
+// them — and must remain literal (spec bullet 5).
+func (m model) launchPromptSilent(prompt string) (model, tea.Cmd) {
+	return m.launchPromptsInternal([]string{prompt}, nil, nil, true)
+}
+
+func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMessage, rowIDs []string, skipSkillExpansion bool) (model, tea.Cmd) {
+	prompt := prompts[0]
+	// Remember the verbatim prompt (before ANY expansion) so /retry and /edit can
+	// act on exactly what the user typed, not the expanded bodies. Snapshot the
+	// staged attachments too: launchPrompt clears the pending queues below, so
+	// /retry re-stages these to resend an identical vision/PDF-backed request
+	// rather than a degraded text-only one.
 	var attachments transcriptAttachmentSummary
 	if peer == nil {
-		m.lastPrompt = prompt
+		m.lastPrompt = strings.Join(prompts, "\n")
+		m.lastPrompts = append([]string(nil), prompts...)
+		m.lastPromptLiteral = false
 		m.lastImages = m.pendingImages
 		m.lastImageLabels = m.pendingImageLabels
 		m.lastDocuments = m.pendingDocuments
@@ -5255,9 +6190,46 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		if attachments.images > 0 && !m.modelSupportsVisionTUI() {
 			attachments.images = 0
 		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendUser, text: prompt, attachments: attachments})
 	} else {
 		m.transcript = appendTranscriptRow(m.transcript, peerTranscriptRow(peerDisplayName(peer.From), peer.Body))
+	}
+	// Skill tokens expand before @specialist mentions, so a skill message
+	// that also names a specialist resolves both against the same user text
+	// — skills first (they carry instructions), then the specialist directive
+	// wraps the remainder. The transcript echoes the expanded text, exactly
+	// as skill invocations have always shown the expanded body.
+	specialistMentions := make([]bool, len(prompts))
+	if peer == nil && !skipSkillExpansion {
+		for index := range prompts {
+			bodies, rest, ok := expandSkillTokensParts(prompts[index], m.installedSkills())
+			if !ok {
+				continue
+			}
+			// @specialist expands over the post-skill text (spec bullet 6).
+			// A bare "@" remainder is not a mention — expandSpecialistMention
+			// requires a known specialist and a task — so this is safe for the
+			// common case where the remainder starts with "@explorer ...".
+			if expanded, mentioned := expandSpecialistMention(rest, m.agentOptions.Specialists); mentioned {
+				rest = expanded
+				specialistMentions[index] = true
+			}
+			prompts[index] = composeSkillPrompt(bodies, rest)
+		}
+		prompt = prompts[0]
+	}
+	if peer == nil {
+		for index, text := range prompts {
+			row := transcriptRow{kind: rowUser, text: text}
+			rowAttachments := transcriptAttachmentSummary{}
+			if index == 0 {
+				rowAttachments = attachments
+			}
+			row.attachments = rowAttachments
+			if index < len(rowIDs) && rowIDs[index] != "" {
+				row.id = rowIDs[index]
+			}
+			m.transcript = appendTranscriptRow(m.transcript, row)
+		}
 	}
 	if m.provider == nil {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
@@ -5269,10 +6241,19 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 	// A leading "@specialist <task>" is expanded into an explicit Task-delegation
 	// directive for the agent only; the transcript above keeps the user's verbatim
 	// "@mention". Non-mentions and mid-message "@file" references are unchanged.
+	// Every message in the batch expands the same way. Skill-expanded messages
+	// already ran this expansion over their remainder above, so they skip it
+	// here (running it twice would double-wrap the directive).
 	if peer == nil {
-		if expanded, ok := expandSpecialistMention(prompt, m.agentOptions.Specialists); ok {
-			prompt = expanded
+		for index := range prompts {
+			if specialistMentions[index] {
+				continue
+			}
+			if expanded, ok := expandSpecialistMention(prompts[index], m.agentOptions.Specialists); ok {
+				prompts[index] = expanded
+			}
 		}
+		prompt = prompts[0]
 	}
 	// Prepend any staged PDF document text as a model-facing preamble. The
 	// visible transcript above keeps the user's clean prompt; the agent (and the
@@ -5328,30 +6309,40 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		} else {
 			agentPrompt = m.sessionPrompt(prompt)
 		}
-		messagePayload := map[string]any{
-			"role":    "user",
-			"content": prompt,
-		}
-		if peer == nil {
-			if !attachments.empty() {
+		for index, text := range prompts {
+			if index < len(rowIDs) && rowIDs[index] != "" {
+				// Already in the session log: the drain path logged the
+				// EventMessage when the loop took the message.
+				continue
+			}
+			content := text
+			if index == 0 {
+				content = prompt // carries the specialist expansion and document preamble
+			}
+			messagePayload := map[string]any{
+				"role":    "user",
+				"content": content,
+			}
+			if index == 0 && peer == nil && !attachments.empty() {
 				messagePayload["attachments"] = map[string]int{
 					"images":    attachments.images,
 					"documents": attachments.documents,
 				}
 			}
-		}
-		if peer != nil {
-			messagePayload["origin"] = "cross_session"
-			messagePayload["from"] = peerDisplayName(peer.From)
-			messagePayload["messageId"] = peer.ID
-			messagePayload["displayContent"] = peer.Body
-		}
-		m, err = m.appendSessionEvent(sessions.EventMessage, messagePayload)
-		if err != nil {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{
-				kind: actionAppendError,
-				text: "erro ao gravar a sessão: " + err.Error(),
-			})
+			if peer != nil {
+				messagePayload["origin"] = "cross_session"
+				messagePayload["from"] = peerDisplayName(peer.From)
+				messagePayload["messageId"] = peer.ID
+				messagePayload["displayContent"] = peer.Body
+			}
+			if next, appendErr := m.appendSessionEvent(sessions.EventMessage, messagePayload); appendErr != nil {
+				m.transcript = reduceTranscript(m.transcript, transcriptAction{
+					kind: actionAppendError,
+					text: "erro ao gravar a sessão: " + appendErr.Error(),
+				})
+			} else {
+				m = next
+			}
 		}
 		prompt = agentPrompt
 	}
@@ -5386,6 +6377,10 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		runCtx = peermsg.WithInboundMessage(runCtx, *peer)
 	}
 	m = m.beginRun(cancel)
+	extraUserMessages := make([]qgruntime.Message, 0, len(prompts)-1)
+	for _, text := range prompts[1:] {
+		extraUserMessages = append(extraUserMessages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: text})
+	}
 	var agentCmd tea.Cmd
 	if peer != nil {
 		agentCmd = m.runAgentWithOptions(m.activeRunID, runCtx, prompt, turnImages, tuiAgentRunOptions{
@@ -5393,8 +6388,9 @@ func (m model) launchPromptInternal(prompt string, peer *peermsg.InboundMessage)
 		})
 	} else {
 		agentCmd = m.runAgentWithOptions(m.activeRunID, runCtx, prompt, turnImages, tuiAgentRunOptions{
-			continuation: runContinuation,
-			loadedTools:  runLoadedTools,
+			continuation:      runContinuation,
+			loadedTools:       runLoadedTools,
+			extraUserMessages: extraUserMessages,
 		})
 	}
 	return m, tea.Batch(agentCmd, m.spinner.Tick)
@@ -5416,6 +6412,18 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	m.terminalAutoAttach = nil
 	m.runCancel = cancel
 	m.pending = true
+	// The interleave buffer belongs to the RUN, not the session: a fresh
+	// buffer per launch means a cancelled run whose goroutine outlives the
+	// next launch can only drain its own leftovers, never the next run's
+	// interleaves. The closure in runAgentWithOptions binds this buffer.
+	m.interleave = &interleaveBuffer{}
+	// A new run means a new retry budget: never carry a previous turn's
+	// countdown into this one.
+	m.retryWait = nil
+	// Fresh signal per run: a run's wakeups never leak into the next run —
+	// the same rule as the interleave buffer. The concrete Signal rides into
+	// the agent via options.YieldNow (see runAgentWithOptions).
+	m.yieldNow = yieldnow.New()
 	// Clear per-run tracking state so stale specialists and plans from the
 	// previous turn don't bleed into the new one.
 	m.specialists.clear()
@@ -5457,17 +6465,129 @@ func (m *model) ensureSpinnerTick() tea.Cmd {
 	return m.spinner.Tick
 }
 
+func (m model) hasParkedSendNow() bool {
+	return len(m.pendingSendNow) > 0
+}
+
+// sendNowDrainTimeout bounds the wait for a cancelled run's goroutine to
+// return its wire after an interrupting send-now. Before it fires the batch
+// launches through the flush path (replaying the cancelled run's
+// continuation); after it, the batch launches anyway, replaying whatever
+// the loop delivered (tracked in the buffer) — never silently dropped.
+const sendNowDrainTimeout = 3 * time.Second
+
+// sendNowDrainTimeoutMsg fires when a parked batch has waited too long for
+// its dead run to drain: the batch launches anyway, losslessly, by
+// replaying whatever the loop delivered (best effort on exact-once).
+type sendNowDrainTimeoutMsg struct {
+	seq int
+}
+
+func (m model) drainSendNowTimeout(seq int) bool {
+	return m.pendingSendNowSeq == seq && len(m.pendingSendNow) > 0
+}
+
+// launchPendingSendNow launches a parked send-now batch (see sendNow), or
+// does nothing when none is parked. Called once the cancelled run's
+// continuation is stored — the new turn replays through it, so anything the
+// loop drained into that run's wire rides exactly once. continuationStored
+// says the dead run handed over its wire. For a resumable session the
+// relaunched turn rebuilds its wire from the session log (the drain logged
+// EventMessages write-through), so the tracked text rides the rebuilt wire
+// exactly once and the tracker's rows only tag transcript rows. Ineligible
+// sessions (child, side, spec) rebuild nothing, so the batch prepends the
+// tracked texts with their original row ids.
+func (m model) launchPendingSendNow(continuationStored bool) (model, tea.Cmd) {
+	if len(m.pendingSendNow) == 0 {
+		return m, nil
+	}
+	if m.compactInFlight {
+		// The compaction owns the transcript and the session events right
+		// now; the batch stays parked (visible, pending) and launches
+		// when the compact finishes.
+		m.parkedSendNowContinuationStored = continuationStored
+		return m, nil
+	}
+	batch := m.pendingSendNow
+	m.pendingSendNow = nil
+	var rowIDs []string
+	resumable := sessions.IsResumableKind(m.activeSession.SessionKind)
+	if !continuationStored && !resumable && m.interleave != nil {
+		if delivered := m.interleave.takeDelivered(); len(delivered) > 0 {
+			prepended := make([]string, 0, len(delivered))
+			rowIDs = make([]string, 0, len(delivered)+len(batch))
+			for _, item := range delivered {
+				prepended = append(prepended, item.text)
+				rowIDs = append(rowIDs, item.id)
+			}
+			batch = append(prepended, batch...)
+		}
+	} else if !continuationStored && resumable && m.interleave != nil {
+		// The wire replays the log; the tracked text is in it. Drop the
+		// tracker entries — their rows already went out with the drain.
+		_ = m.interleave.takeDelivered()
+	}
+	if len(rowIDs) > 0 {
+		rowIDs = append(rowIDs, make([]string, len(batch)-len(rowIDs))...)
+		return m.launchPromptsTagged(batch, rowIDs)
+	}
+	return m.launchPrompts(batch)
+}
+
+// launchParkedSendNowAfterCompaction launches the batch that compaction
+// deferred (see launchPendingSendNow). On quit the batch returns to the
+// composer instead — same rule as Esc.
+func (m model) launchParkedSendNowAfterCompaction() (model, tea.Cmd) {
+	if len(m.pendingSendNow) == 0 {
+		return m, nil
+	}
+	if m.exiting {
+		return m.returnQueuedMessagesToComposer(), nil
+	}
+	stored := m.parkedSendNowContinuationStored
+	m.parkedSendNowContinuationStored = false
+	return m.launchPendingSendNow(stored)
+}
+
 func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
+	if m.pending || m.exiting || m.pendingPermission != nil || m.pendingAskUser != nil || m.pendingSpecReview != nil {
+		return m, nil
+	}
 	// A turn that ended before the agent consumed the operator's interleaves
-	// (final text-only answer, Esc cancel) would strand them; put them back
-	// at the head of the queue so they lead the next turn.
-	m = m.requeueStrandedInterleaves()
-	if !m.hasQueuedMessage() || m.pending || m.exiting || m.pendingPermission != nil || m.pendingAskUser != nil || m.pendingSpecReview != nil {
+	// (final text-only answer, Esc cancel) would strand them; they launch
+	// TOGETHER as separate user messages in one new turn, in order. The FIFO
+	// keeps waiting for the following turns, one per turn as before. Only
+	// safe when no run is active: draining here with a run in flight would
+	// steal the active turn's interleaves.
+	if m.interleave != nil {
+		var stranded []string
+		for _, message := range m.interleave.drain() {
+			if text := strings.TrimSpace(message.Content); text != "" {
+				stranded = append(stranded, text)
+			}
+		}
+		if len(stranded) > 0 {
+			return m.launchPrompts(stranded)
+		}
+	}
+	if !m.hasQueuedMessage() {
 		return m, nil
 	}
 	prompt := m.queuedMessages[0]
 	m.queuedMessages = m.queuedMessages[1:]
-	return m.launchPrompt(prompt)
+	// A pinned entry is already the agent-facing wire (a non-typable
+	// skill's body from the picker): launch it literally, never re-expand.
+	if _, wire, pinned := parsePinnedLiteral(prompt); pinned {
+		return m.launchPinnedWire(wire)
+	}
+	// Re-dispatch the queued line so skill tokens re-expand, user commands
+	// re-resolve and builtins still execute — the FIFO is raw text; the wire
+	// is built here.
+	next, cmd := m.dispatchCommand(parseCommand(prompt))
+	if nm, ok := next.(model); ok {
+		return nm, cmd
+	}
+	return m, cmd
 }
 
 // historyRecallActive reports whether ↑/↓ should navigate previously submitted
@@ -5514,13 +6634,15 @@ func (m *model) rememberInput(value string) {
 	m.historyDraft = ""
 }
 
-func (m *model) cancelRun() {
+func (m *model) cancelRun(keepQueuedMessages ...bool) {
+	keepQueue := len(keepQueuedMessages) > 0 && keepQueuedMessages[0]
 	goalWasActive := m.pending && m.activeSession.Goal != nil &&
 		m.activeSession.Goal.Status == sessions.GoalStatusActive
 	if m.runCancel != nil {
 		m.runCancel()
 	}
 	m.clearStreamingToolCall() // a cancelled file-write must not linger into the next run
+	m.subagents.cancelAll(m.now())
 	// A cancelled loop iteration bypasses the agentResponseMsg completion seam (its
 	// late message is drained through flushRunIDs, not advanceLoop), so clear the
 	// loop tag here and re-arm the interrupted loop for its next cadence. Otherwise
@@ -5548,10 +6670,11 @@ func (m *model) cancelRun() {
 		}
 		m.flushRunIDs[m.activeRunID] = m.activeSession.SessionID
 	}
-	if m.pending {
+	if m.pending && m.activeRunID != 0 {
 		// A cancelled run must terminate visibly in the transcript: first the
 		// partial streamed answer (if any), then the cancellation marker — the
-		// session log gets the same marker below.
+		// session log gets the same marker below. A window with a parked
+		// send-now batch (activeRunID already 0) has no run to mark.
 		if row, ok := reasoningTranscriptRow("", m.activeRunID, m.streamingReasoning); ok {
 			m.transcript = appendTranscriptRow(m.transcript, row)
 		}
@@ -5560,7 +6683,7 @@ func (m *model) cancelRun() {
 		}
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: "Run cancelled."})
 	}
-	if m.pending && m.activeSession.SessionID != "" {
+	if m.pending && m.activeRunID != 0 && m.activeSession.SessionID != "" {
 		if next, err := (*m).appendSessionEvent(sessions.EventError, map[string]any{
 			"message": "Run cancelled.",
 		}); err == nil {
@@ -5583,6 +6706,21 @@ func (m *model) cancelRun() {
 	m.runCancel = nil
 	m.activeRunID = 0
 	m.terminalAutoAttach = nil
+	// The run is no longer active: its unconsumed interleaves belong back at
+	// the head of the queue, never silently dropped. Done here so every
+	// cancelRun caller is covered at once — Ctrl+C, Esc, /goal pause/clear —
+	// including paths that never reach launchQueuedMessageIfReady. Draining
+	// is destructive, so a later launch-time requeue is a harmless no-op.
+	*m = m.requeueStrandedInterleaves()
+	// Every cancel returns the pending queue to the composer as well, not
+	// just the double-Esc path: the interleaves land above the queue, and
+	// both land above the draft. Nothing fires on its own after a cancel.
+	// The send-now interrupt path is the one exception: it passes
+	// keepQueuedMessages so the FIFO stays queued for the turn after —
+	// those items were never the ones being sent.
+	if !keepQueue {
+		*m = m.returnQueuedMessagesToComposer()
+	}
 	m.cancelConfirmActive = false // whatever path got here, there's nothing left to confirm cancelling
 	m.plan.frozenAt = m.now()     // freeze the plan clock while idle (no run in flight)
 	m.pendingPermission = nil
@@ -5742,8 +6880,15 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// transcript, and hand them to the loop to append to the ongoing
 		// wire. The turn is never interrupted.
 		if interleave := m.interleave; interleave != nil {
+			// One run-scoped sequence for every row this run emits: the live
+			// row (via the sink) and the end-of-turn row share the same
+			// identity, so the transcript keeps exactly one copy. The runID
+			// keeps turns apart — the same text in two turns stays visible
+			// twice, as do two distinct interleaves in one run.
+			interleaveSeq := 0
 			options.InterleaveMessages = func() []qgruntime.Message {
 				messages := interleave.drain()
+				tracked := make([]deliveredInterleave, 0, len(messages))
 				for _, message := range messages {
 					queueLiveEvents([]pendingSessionEvent{{
 						Type:    sessions.EventMessage,
@@ -5751,8 +6896,18 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 					}})
 					row := transcriptRow{kind: rowUser, text: message.Content}
 					row.runID = runID
+					interleaveSeq++
+					row.id = fmt.Sprintf("interleave-%d-%d", runID, interleaveSeq)
 					rows = append(rows, row)
 					m.sendAgentRow(runID, row)
+					tracked = append(tracked, deliveredInterleave{id: row.id, text: message.Content})
+				}
+				if len(tracked) > 0 {
+					// Track what the loop took so a batch parked after an
+					// interrupt can be relaunched without the dead run's
+					// wire: exactly once. The ids match the live rows so a
+					// late flush dedupes against them.
+					interleave.noteDelivered(tracked)
 				}
 				return messages
 			}
@@ -5767,6 +6922,13 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		options.Images = images
 		options.Continuation = runOptions.continuation
 		options.LoadedDeferredTools = runOptions.loadedTools
+		options.ExtraUserMessages = runOptions.extraUserMessages
+		// The run's Signal wakes its backgroundable waits on send-now. nil
+		// when the model carries something other than the concrete Signal (a
+		// test fake) — the tools then wait exactly as without one.
+		if signal, ok := m.yieldNow.(*yieldnow.Signal); ok {
+			options.YieldNow = signal
+		}
 		if m.snapshotWriter != nil && m.sessionStore != nil {
 			writer := m.snapshotWriter
 			snapSessionID := runSessionID
@@ -5776,6 +6938,35 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			snapRunID := int64(m.runID)
 			options.OnStepMessages = func(messages []qgruntime.Message, loaded []string) {
 				writer.Queue(buildContinuationSnapshot(snapSessionID, usageModelID, snapProvider, snapEffort, snapGoalKey, turnHead, messages, loaded), snapRunID)
+			}
+		}
+		// Cache attribution for the statusline and /usage: the agent reports
+		// each request's prefix fingerprint through OnContext and every real
+		// history rewrite through OnCompaction. The background goroutine only
+		// stages them in run-scoped vars; the next usage event carries them
+		// to the main goroutine in its receipt meta, where recordUsageEvent
+		// turns them into a drop motive. The attribution is armed by OnContext
+		// and consumed by the next OnUsage, so the compaction summarizer's own
+		// usage (which never fires OnContext) rides unattributed instead of
+		// stealing the next main call's explanation.
+		runPrefixTools := ""
+		runPrefixSystem := ""
+		runArmed := false
+		runCompacted := false
+		prevOnContext := options.OnContext
+		options.OnContext = func(breakdown agent.ContextBreakdown) {
+			runPrefixTools = breakdown.PrefixToolsHash
+			runPrefixSystem = breakdown.PrefixSystemHash
+			runArmed = true
+			if prevOnContext != nil {
+				prevOnContext(breakdown)
+			}
+		}
+		prevOnCompaction := options.OnCompaction
+		options.OnCompaction = func() {
+			runCompacted = true
+			if prevOnCompaction != nil {
+				prevOnCompaction()
 			}
 		}
 		if m.newTurnSessionProvider != nil && m.provider != nil {
@@ -6009,6 +7200,29 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 		}
 
+		// Model-call auto-retry waits surface as countdown state: the working
+		// status line renders the error summary, the live countdown and the
+		// attempt counter from these messages. The agent goroutine stays
+		// responsive to cancel (runCtx) while it waits, so the queue keeps
+		// working during the wait.
+		options.OnRetryWait = func(info agent.RetryWaitInfo) {
+			if m.runtimeMessageSink == nil {
+				return
+			}
+			if !info.Active {
+				m.runtimeMessageSink(agentRetryClearMsg{runID: runID})
+				return
+			}
+			m.runtimeMessageSink(agentRetryWaitMsg{
+				runID:     runID,
+				attempt:   info.Attempt,
+				max:       info.MaxAttempts,
+				wait:      info.Wait,
+				summary:   info.Summary,
+				discarded: info.DiscardedOutput,
+			})
+		}
+
 		onToolCall := options.OnToolCall
 		options.OnToolCall = func(call agent.ToolCall) {
 			flushReasoning(m.now())
@@ -6055,6 +7269,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 						name:           name,
 						description:    desc,
 						childSessionID: call.ID,
+						background:     argFlagTrue(call.Arguments, "run_in_background"),
 					})
 				}
 			}
@@ -6090,15 +7305,13 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 		}
 
+		// Live child usage flows through the same progress callback: the
+		// child emits per-call deltas and the producer sums them into the
+		// running totals each specialistUsageMsg carries, with the child
+		// model seen on its run_start event.
+		usageTracker := newTaskUsageTracker(runID, m.runtimeMessageSink)
 		options.OnToolProgress = func(toolCallID string, event streamjson.Event) {
-			if event.Type == streamjson.EventToolCall && m.runtimeMessageSink != nil {
-				m.runtimeMessageSink(specialistProgressMsg{
-					runID:      runID,
-					toolCallID: toolCallID,
-					toolName:   event.Name,
-					detail:     toolCallSummary(event),
-				})
-			}
+			usageTracker.progress(toolCallID, event)
 		}
 
 		onToolResult := options.OnToolResult
@@ -6163,7 +7376,8 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 			// swarm_collect carries task_id -> session_id for completed members, so
 			// the AGENTS sidebar rows can drill into a member's session like a
-			// specialist card.
+			// specialist card. The subagents panel links the same mapping for
+			// drill-in and usage lookup.
 			if result.Name == "swarm_collect" && len(result.Meta) > 0 && m.runtimeMessageSink != nil {
 				m.runtimeMessageSink(swarmSessionsMsg{runID: runID, sessions: result.Meta})
 			}
@@ -6209,12 +7423,35 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				callModelID = event.ModelID
 			}
 			receipt := callUsageRow(runID, len(usageEvents)+1, callModelID, event, callCatalog[strings.ToLower(callModelID)])
+			// Cache attribution rides the next usage event after OnContext
+			// arms it. A reactive recover may run the summarizer while still
+			// armed; consuming the arm there is harmless: recordUsageEvent
+			// keeps summarizer calls out of the cache stats, and the retry
+			// re-arms before its own usage arrives.
+			if runArmed {
+				if receipt.meta == nil {
+					receipt.meta = map[string]string{}
+				}
+				receipt.meta["cache_prefix_tools"] = runPrefixTools
+				receipt.meta["cache_prefix_system"] = runPrefixSystem
+				if runCompacted {
+					receipt.meta["cache_compacted"] = "1"
+				}
+				runArmed = false
+				runCompacted = false
+			}
 			rows = append(rows, receipt)
 			m.sendAgentRow(runID, receipt)
 			usageEvents = append(usageEvents, event)
 			usageModelIDs = append(usageModelIDs, callModelID)
 			payload := usage.EventUsagePayload(event)
 			payload["model"] = callModelID
+			if event.Summarizer {
+				// The compaction summarizer's own call rides the usage stream
+				// for cost accounting but is marked so resume skips it in the
+				// session-cache stats, exactly like the live surface does.
+				payload["summarizer"] = true
+			}
 			payload["call_id"] = receipt.id
 			payload["call_label"] = receipt.text
 			payload["call_tokens"] = receipt.meta["tokens"]

@@ -1,0 +1,686 @@
+package tui
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+)
+
+// /statusline parses to its own command kind.
+func TestParseStatuslineCommand(t *testing.T) {
+	if got := parseCommand("/statusline"); got.kind != commandStatusline {
+		t.Fatalf("kind = %v, want commandStatusline", got.kind)
+	}
+	if got := parseCommand("/statusline reset"); got.kind != commandStatusline || strings.TrimSpace(got.text) != "reset" {
+		t.Fatalf("got = %+v, want statusline/reset", got)
+	}
+}
+
+// Bare /statusline shows the current config plus help, never launching a turn.
+func TestStatuslineBareShowsStatus(t *testing.T) {
+	m := limeTestModel()
+	updated, cmd := m.dispatchCommand(parseCommand("/statusline"))
+	if cmd != nil {
+		t.Fatal("bare /statusline returned a command, want none")
+	}
+	transcript := updated.(model).transcript
+	last := transcript[len(transcript)-1].text
+	for _, want := range []string{"Statusline", "/statusline reset", "command"} {
+		if !strings.Contains(last, want) {
+			t.Fatalf("status card = %q, missing %q", last, want)
+		}
+	}
+}
+
+// The status card abbreviates $HOME with ~ and truncates long commands in
+// the middle, so the script filename survives even narrow cards.
+func TestStatuslineCardAbbreviatesAndMiddleTruncates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	deep := filepath.Join(home, "a", "very", "deep", "tree")
+	script := filepath.Join(deep, "meu-rodape.sh")
+	for _, width := range []int{50, 80, 140} {
+		m := limeTestModel()
+		m.width = width
+		m.statuslineCfg = config.StatusLineConfig{
+			Lines:   []config.StatusLineLine{{Left: []string{"mode"}}},
+			Command: &config.StatusLineCommand{Command: "sh '" + script + "'"},
+		}
+		card := plainRender(t, m.statuslineStatusText())
+		if !strings.Contains(card, "~") {
+			t.Fatalf("width %d: card does not abbreviate home:\n%s", width, card)
+		}
+		if !strings.Contains(card, "meu-rodape.sh") {
+			t.Fatalf("width %d: card lost the script filename:\n%s", width, card)
+		}
+		for _, line := range strings.Split(card, "\n") {
+			if !strings.HasPrefix(line, "comando: ") {
+				continue
+			}
+			if lipgloss.Width(line) > width {
+				t.Fatalf("width %d: comando line overflows: %q", width, line)
+			}
+		}
+	}
+}
+
+// Applying a proposal with an active command and a stopped chain starts a
+// run immediately and arms the tick chain.
+func TestStatuslineApplyArmsTickChainWhenStopped(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}}
+	cfg, _ := proposal.validatedConfig(config.StatusLineConfig{})
+	cfg.Command = &config.StatusLineCommand{Command: "echo hi"}
+	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
+	applied, cmd := m.applyStatuslinePending()
+	if cmd == nil {
+		t.Fatal("apply with an active command and a stopped chain must arm the chain")
+	}
+	ticked, tickCmd := applied.Update(execCmd(cmd))
+	if tickCmd == nil {
+		t.Fatal("armed tick must keep the chain alive")
+	}
+	if !ticked.(model).statuslineCmdInFlight {
+		t.Fatal("first tick after apply must start the command run")
+	}
+}
+
+// Applying over a running chain re-arms it with a fresh generation: the new
+// refresh takes effect at once instead of waiting out the old tick, and the
+// old tick is discarded on arrival (never a second chain).
+func TestStatuslineApplyRearmsRunningChainWithNewGeneration(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	m.statuslineCfg = config.StatusLineConfig{
+		Lines:     []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command:   &config.StatusLineCommand{Command: "echo hi"},
+		RefreshMs: 60000,
+	}
+	before := m.statuslineTickGen
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}, RefreshMs: 1000}
+	cfg, _ := proposal.validatedConfig(m.statuslineCfg)
+	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
+	applied, cmd := m.applyStatuslinePending()
+	if cmd == nil {
+		t.Fatal("apply over a running chain must re-arm it at once for the new refresh, got no command")
+	}
+	if applied.statuslineTickGen != before+1 {
+		t.Fatalf("apply did not bump the tick generation: %d, want %d", applied.statuslineTickGen, before+1)
+	}
+	if msg, ok := execCmd(cmd).(statuslineTickMsg); !ok || msg.gen != before+1 {
+		t.Fatalf("re-armed tick = %#v, want generation %d", msg, before+1)
+	}
+	// The tick armed under the old cadence arrives late and must die quiet:
+	// it starts no run under the old cadence. (The Update pass may still
+	// return unrelated cmds, like the apply notice timer.)
+	staled, _ := applied.Update(statuslineTickMsg{gen: before})
+	if staled.(model).statuslineCmdInFlight {
+		t.Fatal("stale tick started a run under the old cadence")
+	}
+	// The fresh tick starts the run and keeps the chain alive.
+	ticked, tickCmd := applied.Update(statuslineTickMsg{gen: before + 1})
+	if tickCmd == nil {
+		t.Fatal("fresh tick must keep the chain alive")
+	}
+	if !ticked.(model).statuslineCmdInFlight {
+		t.Fatal("fresh tick must start the command run")
+	}
+}
+
+// A refresh queued during a flight dies with the apply: the new cadence
+// runs once right away instead of firing one stale extra run.
+func TestStatuslineApplyDropsQueuedRefresh(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	m.statuslineCfg = config.StatusLineConfig{
+		Lines:     []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command:   &config.StatusLineCommand{Command: "echo hi"},
+		RefreshMs: 60000,
+	}
+	m, _ = m.startStatuslineRun(false)
+	if !m.statuslineCmdInFlight {
+		t.Fatal("precondition: no run in flight")
+	}
+	m, _ = m.startStatuslineRun(true)
+	if !m.statuslineRefreshDue {
+		t.Fatal("precondition: forced trigger during the flight queued no refresh")
+	}
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}, RefreshMs: 1000}
+	cfg, _ := proposal.validatedConfig(m.statuslineCfg)
+	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: "preview", stagingDir: dir}
+	applied, cmd := m.applyStatuslinePending()
+	if cmd == nil {
+		t.Fatal("apply must re-arm the chain at once, got no command")
+	}
+	runs := applied.statuslineCmdSeq
+	ticked, _ := applied.Update(execCmd(cmd))
+	if !ticked.(model).statuslineCmdInFlight {
+		t.Fatal("fresh tick must start the command run")
+	}
+	if ticked.(model).statuslineCmdSeq != runs+1 {
+		t.Fatalf("apply started %d runs, want exactly one", ticked.(model).statuslineCmdSeq-runs)
+	}
+	folded, _ := ticked.Update(statuslineCmdMsg{seq: ticked.(model).statuslineCmdSeq})
+	if folded.(model).statuslineCmdInFlight {
+		t.Fatal("folding the new run fired the stale queued refresh")
+	}
+	if folded.(model).statuslineCmdSeq != runs+1 {
+		t.Fatalf("apply ran %d commands, want exactly one", folded.(model).statuslineCmdSeq-runs)
+	}
+}
+
+// Unknown field ids warn once at startup, like the config clamp warnings
+// above, so a typo does not fail silently (the card repeats them).
+func TestStatuslineUnknownIdsWarnAtStartup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(context.Background(), Options{
+		Cwd:            dir,
+		UserConfigPath: path,
+		StatusLine: config.StatusLineConfig{
+			Lines: []config.StatusLineLine{{Left: []string{"mode", "nao_existe"}}},
+		},
+	})
+	transcript := plainRender(t, m.transcript)
+	if !strings.Contains(transcript, "nao_existe") {
+		t.Fatalf("startup must name the unknown field id:\n%s", transcript)
+	}
+}
+
+// /statusline reset clears the user config and the runtime state.
+func TestStatuslineReset(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	seed := `{"activeProvider": "p", "providers": [{"name": "p", "provider_kind": "openai-compatible", "model": "m", "baseURL": "https://a.example.com/v1"}]}`
+	if err := os.WriteFile(path, []byte(seed), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := config.SetStatusLine(path, config.StatusLineConfig{
+		Lines: []config.StatusLineLine{{Left: []string{"mode"}}},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	m := limeTestModel()
+	m.userConfigPath = path
+	m.statuslineCfg = config.StatusLineConfig{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}}
+	m.statuslineCmdOutput = "stale"
+	updated, _ := m.dispatchCommand(parseCommand("/statusline reset"))
+	nm := updated.(model)
+	if nm.statuslineCfg.IsCustom() {
+		t.Fatalf("config not cleared: %+v", nm.statuslineCfg)
+	}
+	if nm.statuslineCmdOutput != "" || nm.statuslineCmdErr != "" || nm.statuslineCmdInFlight {
+		t.Fatal("runner state not cleared")
+	}
+	resolved, err := config.Resolve(config.ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved.StatusLine.IsCustom() {
+		t.Fatalf("file not cleared: %+v", resolved.StatusLine)
+	}
+}
+
+// The setup prompt carries everything the model needs: catalog, current
+// config, a real stdin example, width, and OS.
+func TestStatuslineSetupPrompt(t *testing.T) {
+	m := batchThreeLiveModel(t)
+	m.modelName = "model-x"
+	prompt := m.statuslineSetupPrompt("/tmp/staging")
+	for _, want := range []string{"mode", "effort", "context", "session_id", "staging", "linux", "windows", "proposal.json", runtime.GOOS} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("setup prompt missing %q", want)
+		}
+	}
+}
+
+// Unknown ids are dropped with a warning; known ones survive.
+func TestStatuslineProposalValidation(t *testing.T) {
+	proposal := statuslineProposal{
+		Lines: []config.StatusLineLine{{Left: []string{"mode", "nope"}, Right: []string{"nah"}}},
+	}
+	cfg, warnings := proposal.validatedConfig(config.StatusLineConfig{})
+	if len(warnings) != 2 {
+		t.Fatalf("warnings = %#v, want both unknown ids", warnings)
+	}
+	if len(cfg.Lines) != 1 || len(cfg.Lines[0].Left) != 1 || cfg.Lines[0].Left[0] != "mode" {
+		t.Fatalf("cfg = %+v, want only mode", cfg)
+	}
+	if _, warnings := (statuslineProposal{}).validatedConfig(config.StatusLineConfig{}); len(warnings) != 0 {
+		t.Fatalf("empty proposal warns: %#v", warnings)
+	}
+}
+
+// Script names stay inside staging: traversal is rejected, and a symlink
+// never opens even where it points inside.
+func TestStatuslineStagedScriptContainment(t *testing.T) {
+	staging := t.TempDir()
+	if _, err := confinedStagingPath(staging, "ctx.sh"); err != nil {
+		t.Fatalf("plain name rejected: %v", err)
+	}
+	for _, bad := range []string{"../x.sh", "sub/x.sh", "..", ".", ""} {
+		if _, err := confinedStagingPath(staging, bad); err == nil {
+			t.Fatalf("traversal accepted: %q", bad)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("no O_NOFOLLOW on windows")
+	}
+	target := filepath.Join(t.TempDir(), "outside.sh")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\necho hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(staging, "link.sh")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := openStatuslineFileNoFollow(link, false); err == nil {
+		file.Close()
+		t.Fatal("symlinked staging opened without refusal")
+	}
+}
+
+// A setup turn never starts while quitting, mid-run, or twice.
+func TestStatuslineSetupGuards(t *testing.T) {
+	exiting := limeTestModel()
+	exiting.exiting = true
+	exiting.userConfigPath = filepath.Join(t.TempDir(), "config.json")
+	if _, cmd := exiting.dispatchCommand(parseCommand("/statusline faça algo")); cmd != nil {
+		t.Fatal("setup launched while exiting")
+	}
+	busy := limeTestModel()
+	busy.pending = true
+	if _, cmd := busy.dispatchCommand(parseCommand("/statusline faça algo")); cmd != nil {
+		t.Fatal("setup launched mid-run")
+	}
+	armed := limeTestModel()
+	armed.userConfigPath = filepath.Join(t.TempDir(), "config.json")
+	armed.statuslineSetup = &statuslineSetupState{runID: 1}
+	if _, cmd := armed.dispatchCommand(parseCommand("/statusline outra coisa")); cmd != nil {
+		t.Fatal("second setup launched while one is armed")
+	}
+}
+
+// A validação da config roda ANTES da prévia: proposta com refreshMs 500 é
+// ajustada para 1000 com aviso, e o Enter aplica o ajustado — nunca exibe
+// "Enter aplica" para depois falhar no Enter.
+func TestStatuslinePreviewValidatesBeforeAsking(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	seed := `{"activeProvider": "p", "providers": [{"name": "p", "provider_kind": "openai-compatible", "model": "m", "baseURL": "https://a.example.com/v1"}]}`
+	if err := os.WriteFile(userPath, []byte(seed), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	staging := filepath.Join(dir, "staging")
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	proposal := `{"lines": [{"left": ["mode"]}], "refreshMs": 500}`
+	if err := os.WriteFile(filepath.Join(staging, "proposal.json"), []byte(proposal), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	m.statuslineSetup = &statuslineSetupState{runID: 9, startedAt: time.Now().Add(-time.Minute), stagingDir: staging}
+	updated, cmd := m.maybeFinalizeStatuslineSetup(agentResponseMsg{runID: 9})
+	if cmd != nil {
+		t.Fatal("fields-only proposal must preview synchronously")
+	}
+	nm := updated
+	if nm.statuslinePending == nil {
+		t.Fatal("no preview pending")
+	}
+	preview := nm.statuslinePending.preview
+	for _, want := range []string{"1000", "Enter aplica"} {
+		if !strings.Contains(preview, want) {
+			t.Fatalf("preview lacks %q:\n%s", want, preview)
+		}
+	}
+	applied, _ := nm.Update(testKey(tea.KeyEnter))
+	if applied.(model).statuslinePending != nil {
+		t.Fatal("pending not cleared after Enter")
+	}
+	raw, err := os.ReadFile(userPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		StatusLine struct {
+			RefreshMs int `json:"refreshMs"`
+		} `json:"statusline"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.StatusLine.RefreshMs != 1000 {
+		t.Fatalf("applied refreshMs = %d, want the adjusted 1000", doc.StatusLine.RefreshMs)
+	}
+}
+
+// End to end: dispatching /statusline <texto> launches a real setup turn with
+// the dedicated instruction, and its final message finalizes (here: no
+// staging files, so a no-proposal notice and a cleared setup).
+func TestStatuslineSetupTurnEndToEnd(t *testing.T) {
+	provider := &scriptedProvider{scripts: textScripts("entendido")}
+	m := continuationHarness(t, testSessionStore(t), provider, nil)
+	m.userConfigPath = filepath.Join(t.TempDir(), "config.json")
+	updated, cmd := m.dispatchCommand(parseCommand("/statusline deixe azul"))
+	nm := updated.(model)
+	if nm.statuslineSetup == nil {
+		t.Fatal("setup turn not armed")
+	}
+	if cmd == nil {
+		t.Fatal("setup turn launched no command")
+	}
+	if len(provider.requests) != 0 {
+		t.Fatal("provider hit before the turn ran")
+	}
+	msg, ok := execCmd(cmd).(agentResponseMsg)
+	if !ok {
+		t.Fatalf("turn returned %T, want agentResponseMsg", execCmd(cmd))
+	}
+	final, _ := nm.Update(msg)
+	fm := final.(model)
+	if fm.statuslineSetup != nil || fm.statuslinePending != nil {
+		t.Fatal("setup not finalized after the turn")
+	}
+	last := fm.transcript[len(fm.transcript)-1].text
+	if !strings.Contains(last, "não gerou") {
+		t.Fatalf("notice = %q, want the no-proposal explanation", last)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 setup turn", len(provider.requests))
+	}
+	seen := false
+	for _, message := range provider.requests[0].Messages {
+		if strings.Contains(message.Content, "proposal.json") && strings.Contains(message.Content, "deixe azul") {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatal("setup instruction (staging rules + user pedido) never reached the provider")
+	}
+}
+
+// A fields-only proposal keeps the current command and cadences instead of
+// wiping them; the preview renders the real field lines.
+func TestStatuslineFieldsOnlyProposalKeepsCommand(t *testing.T) {
+	current := config.StatusLineConfig{
+		Lines:     []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command:   &config.StatusLineCommand{Command: "sh custom.sh"},
+		TimeoutMs: 1500,
+		RefreshMs: 3000,
+	}
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"branch"}}}}
+	cfg, warnings := proposal.validatedConfig(current)
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+	if cfg.Command == nil || cfg.Command.Command != "sh custom.sh" {
+		t.Fatalf("command not kept: %+v", cfg.Command)
+	}
+	if cfg.TimeoutMs != 1500 || cfg.RefreshMs != 3000 {
+		t.Fatalf("cadences not kept: %+v", cfg)
+	}
+	if len(cfg.Lines) != 1 || len(cfg.Lines[0].Left) != 1 || cfg.Lines[0].Left[0] != "branch" {
+		t.Fatalf("layout not applied: %+v", cfg.Lines)
+	}
+}
+
+// A proposal with a literal "command" object is ignored with a warning:
+// the current command is kept and nothing runs without a dry run.
+func TestStatuslineLiteralCommandProposalIgnored(t *testing.T) {
+	current := config.StatusLineConfig{
+		Lines:   []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command: &config.StatusLineCommand{Command: "sh keep.sh"},
+	}
+	proposal := statuslineProposal{
+		Lines:   []config.StatusLineLine{{Left: []string{"mode", "branch"}}},
+		Command: json.RawMessage(`{"command": "sh evil.sh"}`),
+	}
+	cfg, warnings := proposal.validatedConfig(current)
+	if cfg.Command == nil || cfg.Command.Command != "sh keep.sh" {
+		t.Fatalf("literal command replaced the current one: %+v", cfg.Command)
+	}
+	for _, w := range warnings {
+		if strings.Contains(w, "literal") {
+			return
+		}
+	}
+	t.Fatalf("literal command produced no warning: %#v", warnings)
+}
+
+// A proposal with an explicit "command": null drops the command; the preview
+// announces the removal and never shows the stale command output.
+func TestStatuslineRemoveCommandProposal(t *testing.T) {
+	dir := t.TempDir()
+	m := limeTestModel()
+	m.width = 100
+	m.gitBranch = "feat/rodape-x"
+	m.statuslineCfg = config.StatusLineConfig{
+		Lines:   []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command: &config.StatusLineCommand{Command: "sh old.sh"},
+	}
+	m.statuslineCmdOutput = "STALE OUTPUT"
+	staging := filepath.Join(dir, "staging")
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	proposal := `{"lines": [{"left": ["branch"]}], "command": null}`
+	if err := os.WriteFile(filepath.Join(staging, "proposal.json"), []byte(proposal), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.statuslineSetup = &statuslineSetupState{runID: 3, startedAt: time.Now().Add(-time.Minute), stagingDir: staging}
+	updated, cmd := m.maybeFinalizeStatuslineSetup(agentResponseMsg{runID: 3})
+	if cmd != nil {
+		t.Fatal("fields-only removal must preview synchronously")
+	}
+	nm := updated
+	if nm.statuslinePending == nil {
+		t.Fatal("no preview pending")
+	}
+	if nm.statuslinePending.cfg.Command != nil {
+		t.Fatalf("command not removed: %+v", nm.statuslinePending.cfg.Command)
+	}
+	if !strings.Contains(nm.statuslinePending.preview, "comando: removido") {
+		t.Fatalf("preview does not announce the removal:\n%s", nm.statuslinePending.preview)
+	}
+	if strings.Contains(nm.statuslinePending.preview, "STALE OUTPUT") {
+		t.Fatalf("preview reuses the stale command output:\n%s", nm.statuslinePending.preview)
+	}
+	if !strings.Contains(nm.statuslinePending.preview, "feat/rodape-x") {
+		t.Fatalf("preview does not render the real field lines:\n%s", nm.statuslinePending.preview)
+	}
+}
+
+// A staged entry that is a symlink is refused at every touchpoint: the
+// proposal never validates, the outside target keeps mode and content, the
+// user config is untouched, and nothing is installed in the scripts dir.
+func TestStatuslineSymlinkedStagingRefused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	seed := `{"activeProvider": "p", "providers": [{"name": "p", "provider_kind": "openai-compatible", "model": "m", "baseURL": "https://a.example.com/v1"}]}`
+	if err := os.WriteFile(userPath, []byte(seed), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	staging := filepath.Join(dir, "staging")
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "outside.sh")
+	body := []byte("#!/bin/sh\necho PWNED\n")
+	if err := os.WriteFile(target, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(staging, "link.sh")); err != nil {
+		t.Fatal(err)
+	}
+	proposal := `{"lines": [{"left": ["mode"]}], "script": "link.sh"}`
+	if err := os.WriteFile(filepath.Join(staging, "proposal.json"), []byte(proposal), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeInfo, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := limeTestModel()
+	m.width = 100
+	m.userConfigPath = userPath
+	m.statuslineSetup = &statuslineSetupState{runID: 3, startedAt: time.Now().Add(-time.Minute), stagingDir: staging}
+	updated, cmd := m.maybeFinalizeStatuslineSetup(agentResponseMsg{runID: 3})
+	if cmd != nil {
+		t.Fatal("symlinked staging must be refused, not dry-run")
+	}
+	nm := updated
+	if nm.statuslineSetup != nil || nm.statuslinePending != nil {
+		t.Fatal("setup not cleared after refusal")
+	}
+	last := nm.transcript[len(nm.transcript)-1].text
+	if !strings.Contains(last, "recusado") && !strings.Contains(last, "link simbólico") {
+		t.Fatalf("refusal must say so:\n%s", last)
+	}
+	after, err := os.ReadFile(target)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("symlink target changed: %q", after)
+	}
+	afterInfo, err := os.Stat(target)
+	if err != nil || afterInfo.Mode().Perm() != beforeInfo.Mode().Perm() {
+		t.Fatalf("symlink target mode changed: %v", afterInfo.Mode())
+	}
+	resolved, err := config.Resolve(config.ResolveOptions{UserConfigPath: userPath, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved.StatusLine.IsCustom() {
+		t.Fatalf("refused proposal reached the user config: %+v", resolved.StatusLine)
+	}
+	finalScript := filepath.Join(filepath.Dir(userPath), "statusline", "link.sh")
+	if _, err := os.Lstat(finalScript); !os.IsNotExist(err) {
+		t.Fatalf("staged symlink was installed at %s", finalScript)
+	}
+}
+
+// Finalizing with no staging files tells the user and clears the setup.
+func TestStatuslineFinalizeWithoutStaging(t *testing.T) {
+	m := limeTestModel()
+	m.statuslineSetup = &statuslineSetupState{runID: 7, stagingDir: t.TempDir()}
+	updated, cmd := m.maybeFinalizeStatuslineSetup(agentResponseMsg{runID: 7})
+	if cmd != nil {
+		t.Fatal("finalize returned a command, want none")
+	}
+	nm := updated
+	if nm.statuslineSetup != nil || nm.statuslinePending != nil {
+		t.Fatal("setup not cleared")
+	}
+	last := nm.transcript[len(nm.transcript)-1].text
+	if !strings.Contains(last, "não gerou") {
+		t.Fatalf("notice = %q, want a no-proposal explanation", last)
+	}
+}
+
+// Fields-only proposals preview synchronously with real data and wait for
+// Enter; Enter applies to the user config, Esc discards the staging.
+func TestStatuslinePendingApplyAndCancel(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.json")
+	seed := `{"activeProvider": "p", "providers": [{"name": "p", "provider_kind": "openai-compatible", "model": "m", "baseURL": "https://a.example.com/v1"}]}`
+	if err := os.WriteFile(userPath, []byte(seed), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	m := limeTestModel()
+	m.userConfigPath = userPath
+	proposal := statuslineProposal{Lines: []config.StatusLineLine{{Left: []string{"mode"}}}}
+	cfg, _ := proposal.validatedConfig(config.StatusLineConfig{})
+	preview := m.previewStatuslineProposal(&statuslinePendingApply{proposal: proposal, cfg: cfg}, nil)
+	m.statuslinePending = &statuslinePendingApply{proposal: proposal, cfg: cfg, preview: preview, stagingDir: dir}
+	if !strings.Contains(preview, "automático") {
+		t.Fatalf("preview lacks real data:\n%s", preview)
+	}
+	applied, _ := m.Update(testKey(tea.KeyEnter))
+	am := applied.(model)
+	if am.statuslinePending != nil {
+		t.Fatal("pending not cleared after Enter")
+	}
+	resolved, err := config.Resolve(config.ResolveOptions{UserConfigPath: userPath, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if len(resolved.StatusLine.Lines) != 1 {
+		t.Fatalf("applied config = %+v", resolved.StatusLine)
+	}
+
+	m2 := limeTestModel()
+	m2.userConfigPath = userPath
+	staging := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staging, "proposal.json"), []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m2.statuslinePending = &statuslinePendingApply{proposal: proposal, preview: preview, stagingDir: staging}
+	cancelled, _ := m2.Update(testKey(tea.KeyEsc))
+	cm := cancelled.(model)
+	if cm.statuslinePending != nil {
+		t.Fatal("pending not cleared after Esc")
+	}
+	if _, err := os.Stat(filepath.Join(staging, "proposal.json")); !os.IsNotExist(err) {
+		t.Fatal("staging not discarded after Esc")
+	}
+}
+
+// A fields-only proposal that keeps a live command which has not printed
+// yet warns that the last field line gives way; with cached output the
+// preview already shows the script line, so no warning is needed.
+func TestStatuslinePreviewWarnsUntilLiveScriptPrints(t *testing.T) {
+	three := []config.StatusLineLine{{Left: []string{"mode"}}, {Left: []string{"branch"}}, {Left: []string{"cwd"}}}
+	quiet := limeTestModel()
+	quiet.width = 120
+	quiet.statuslineCfg = config.StatusLineConfig{
+		Lines:   []config.StatusLineLine{{Left: []string{"mode"}}},
+		Command: &config.StatusLineCommand{Command: "echo hi"},
+	}
+	proposal := statuslineProposal{Lines: three}
+	cfg, _ := proposal.validatedConfig(quiet.statuslineCfg)
+	preview := quiet.previewStatuslineProposal(&statuslinePendingApply{proposal: proposal, cfg: cfg}, nil)
+	if !strings.Contains(preview, "a última linha de campos cede quando o script imprimir") {
+		t.Fatalf("preview without cached output must warn that the last field line gives way:\n%s", preview)
+	}
+	live := quiet
+	live.statuslineCmdOutput = "SL-VIVO"
+	preview = live.previewStatuslineProposal(&statuslinePendingApply{proposal: proposal, cfg: cfg}, nil)
+	if strings.Contains(preview, "cede quando o script imprimir") {
+		t.Fatalf("preview with cached output already shows the script line; no warning needed:\n%s", preview)
+	}
+	if !strings.Contains(preview, "SL-VIVO") {
+		t.Fatalf("preview with cached output must show the script line:\n%s", preview)
+	}
+}

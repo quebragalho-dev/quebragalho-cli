@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
@@ -464,5 +465,31 @@ func TestDoctorFailsRemoteProviderWithoutCredential(t *testing.T) {
 	})
 	if c := local.Check("provider.config"); c == nil || c.Status != StatusPass {
 		t.Fatalf("keyless local provider should pass provider.config, got %#v", c)
+	}
+}
+
+func TestRunReportsDetectedOrchestrator(t *testing.T) {
+	const sentinel = "sentinel-doctor-8k2"
+	t.Setenv("FOO_SOCKET", sentinel)
+	detected := agent.DetectOrchestrators([]agent.SkillInfo{{Name: "foo"}}, nil)
+	if len(detected) != 1 {
+		t.Fatalf("detection through the process environment failed, got %+v", detected)
+	}
+	report := Run(Options{
+		Runtime:       "go",
+		Orchestrators: detected,
+	})
+	found := report.Check("orchestrator.env")
+	if found == nil {
+		t.Fatalf("orchestrator.env check missing: %+v", report.Checks)
+	}
+	out := Format(report)
+	for _, want := range []string{"foo", "env:FOO_SOCKET"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor output must show %q, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, sentinel) {
+		t.Fatalf("doctor prints the value of FOO_SOCKET; only the variable name may be shown:\n%s", out)
 	}
 }

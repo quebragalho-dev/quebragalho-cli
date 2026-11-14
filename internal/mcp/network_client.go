@@ -22,6 +22,9 @@ type networkClient struct {
 	mu        sync.Mutex
 	nextID    int
 	sessionID string
+
+	protocolVersion string
+	staleSignal
 }
 
 type remoteSSEClient struct {
@@ -35,6 +38,9 @@ type remoteSSEClient struct {
 	pending      map[string]chan ssePendingResponse
 	streamErr    error
 	closed       bool
+
+	protocolVersion string
+	staleSignal
 }
 
 type ssePendingResponse struct {
@@ -48,6 +54,33 @@ type sseEvent struct {
 }
 
 func connectNetwork(ctx context.Context, server Server) (ToolClient, error) {
+	client, err := connectStreamableHTTP(ctx, server)
+	if err == nil {
+		return client, nil
+	}
+	// An inferred transport that does not speak Streamable HTTP may still
+	// speak legacy SSE (other clients try HTTP first and switch). Only the
+	// implicit default falls back; an explicit http stays strict.
+	if server.Type == ServerTypeHTTP && server.TypeImplicit && isSSEFallbackError(err) {
+		return connectRemoteSSE(ctx, server)
+	}
+	return nil, err
+}
+
+// isSSEFallbackError reports whether a failed Streamable-HTTP initialize
+// looks like a server that only speaks the legacy SSE dialect (unknown
+// endpoint or method), rather than an auth or server failure.
+func isSSEFallbackError(err error) bool {
+	var status *MCPHTTPStatusError
+	if !errors.As(err, &status) {
+		return false
+	}
+	return status.Status == http.StatusNotFound ||
+		status.Status == http.StatusMethodNotAllowed ||
+		status.Status == http.StatusNotAcceptable
+}
+
+func connectStreamableHTTP(ctx context.Context, server Server) (ToolClient, error) {
 	httpClient, err := oauthHTTPClient(server)
 	if err != nil {
 		return nil, err
@@ -86,38 +119,69 @@ func connectRemoteSSE(ctx context.Context, server Server) (ToolClient, error) {
 }
 
 func (client *networkClient) initialize(ctx context.Context) error {
+	initCtx, cancel := context.WithTimeout(ctx, initializeTimeoutValue())
+	defer cancel()
 	var result struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
-	if err := client.request(ctx, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
+	if err := client.request(initCtx, "initialize", map[string]any{
+		"protocolVersion": latestMCPProtocolVersion(),
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
 			"name":    "qg",
 			"version": "dev",
 		},
 	}, &result); err != nil {
+		return markConnectBudgetError(ctx, initCtx, err)
+	}
+	version, err := negotiateMCPProtocolVersion(result.ProtocolVersion)
+	if err != nil {
 		return err
 	}
+	client.protocolVersion = version
 	return client.notify(ctx, "notifications/initialized", map[string]any{})
 }
 
 func (client *remoteSSEClient) initialize(ctx context.Context) error {
+	initCtx, cancel := context.WithTimeout(ctx, initializeTimeoutValue())
+	defer cancel()
 	var result struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
-	if err := client.request(ctx, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
+	if err := client.request(initCtx, "initialize", map[string]any{
+		"protocolVersion": latestMCPProtocolVersion(),
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
 			"name":    "qg",
 			"version": "dev",
 		},
 	}, &result); err != nil {
+		return markConnectBudgetError(ctx, initCtx, err)
+	}
+	version, err := negotiateMCPProtocolVersion(result.ProtocolVersion)
+	if err != nil {
 		return err
 	}
+	client.protocolVersion = version
 	return client.notify(ctx, "notifications/initialized", map[string]any{})
 }
+
+// markConnectBudgetError tags a handshake failure caused by qg's own connect
+// budget (not the server hanging up) so the reconnect loop treats it as
+// terminal instead of flapping against a peer that never answered.
+func markConnectBudgetError(ctx, initCtx context.Context, err error) error {
+	if err != nil && initCtx.Err() != nil && ctx.Err() == nil {
+		return &connectBudgetError{err: err}
+	}
+	return err
+}
+
+// connectBudgetError is a handshake failure produced by qg's own timeout. It
+// unwraps to the transport error for messages but never retries.
+type connectBudgetError struct{ err error }
+
+func (err *connectBudgetError) Error() string { return err.err.Error() }
+func (err *connectBudgetError) Unwrap() error { return err.err }
 
 func (client *networkClient) ListTools(ctx context.Context) ([]RemoteTool, error) {
 	var result struct {
@@ -140,23 +204,27 @@ func (client *remoteSSEClient) ListTools(ctx context.Context) ([]RemoteTool, err
 }
 
 func (client *networkClient) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+	callCtx, cancel := withToolTimeout(ctx, client.server)
+	defer cancel()
 	var result CallToolResult
-	if err := client.request(ctx, "tools/call", map[string]any{
+	if err := client.request(callCtx, "tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	}, &result); err != nil {
-		return CallToolResult{}, err
+		return CallToolResult{}, mapTimeoutError(ctx, callCtx, client.server, name, err)
 	}
 	return result, nil
 }
 
 func (client *remoteSSEClient) CallTool(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+	callCtx, cancel := withToolTimeout(ctx, client.server)
+	defer cancel()
 	var result CallToolResult
-	if err := client.request(ctx, "tools/call", map[string]any{
+	if err := client.request(callCtx, "tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	}, &result); err != nil {
-		return CallToolResult{}, err
+		return CallToolResult{}, mapTimeoutError(ctx, callCtx, client.server, name, err)
 	}
 	return result, nil
 }
@@ -223,7 +291,7 @@ func (client *networkClient) request(ctx context.Context, method string, params 
 		return fmt.Errorf("MCP %s response id mismatch for server %s", method, client.server.Name)
 	}
 	if message.Error != nil {
-		return fmt.Errorf("MCP %s failed: %s", method, message.Error.Message)
+		return &MCPRequestError{Method: method, Code: message.Error.Code, Message: message.Error.Message}
 	}
 	if target != nil && len(message.Result) > 0 {
 		if err := json.Unmarshal(message.Result, target); err != nil {
@@ -244,7 +312,7 @@ func (client *remoteSSEClient) request(ctx context.Context, method string, param
 
 	client.mu.Lock()
 	if client.streamErr != nil {
-		err := client.streamErr
+		err := markNotDelivered(client.streamErr)
 		client.mu.Unlock()
 		return err
 	}
@@ -278,7 +346,7 @@ func (client *remoteSSEClient) request(ctx context.Context, method string, param
 			return fmt.Errorf("MCP %s response id mismatch for server %s", method, client.server.Name)
 		}
 		if response.message.Error != nil {
-			return fmt.Errorf("MCP %s failed: %s", method, response.message.Error.Message)
+			return &MCPRequestError{Method: method, Code: response.message.Error.Code, Message: response.message.Error.Message}
 		}
 		if target != nil && len(response.message.Result) > 0 {
 			if err := json.Unmarshal(response.message.Result, target); err != nil {
@@ -340,6 +408,11 @@ func (client *networkClient) post(ctx context.Context, message rpcMessage, expec
 
 	response, err := client.client.Do(request)
 	if err != nil {
+		err = sanitizedMCPRequestError(err)
+		if isDialPhaseError(err) {
+			// The dial never left: the server cannot have the request.
+			err = markNotDelivered(err)
+		}
 		return rpcMessage{}, fmt.Errorf("call MCP %s server %s: %w", client.server.Type, client.server.Name, err)
 	}
 	defer closeResponseBody(&err, client.server, response.Body)
@@ -372,7 +445,7 @@ func (client *remoteSSEClient) openStream(ctx context.Context) error {
 
 	response, err := client.client.Do(request)
 	if err != nil {
-		return fmt.Errorf("open MCP SSE stream for %s: %w", client.server.Name, err)
+		return fmt.Errorf("open MCP SSE stream for %s: %w", client.server.Name, sanitizedMCPRequestError(err))
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		err = httpStatusError(client.server, response)
@@ -408,6 +481,11 @@ func (client *remoteSSEClient) post(ctx context.Context, message rpcMessage) (er
 
 	response, err := client.client.Do(request)
 	if err != nil {
+		err = sanitizedMCPRequestError(err)
+		if isDialPhaseError(err) {
+			// The dial never left: the server cannot have the request.
+			err = markNotDelivered(err)
+		}
 		return fmt.Errorf("post MCP SSE message to %s: %w", client.server.Name, err)
 	}
 	defer closeResponseBody(&err, client.server, response.Body)
@@ -427,6 +505,11 @@ func (client *networkClient) applyHeaders(request *http.Request) {
 	if client.sessionID != "" {
 		request.Header.Set("Mcp-Session-Id", client.sessionID)
 	}
+	// MCP Streamable HTTP (2025-06-18+): every request after initialize
+	// carries the negotiated protocol version. Called with client.mu held.
+	if client.protocolVersion >= "2025-06-18" {
+		request.Header.Set("MCP-Protocol-Version", client.protocolVersion)
+	}
 }
 
 func (client *remoteSSEClient) applyStreamHeaders(request *http.Request) {
@@ -442,6 +525,12 @@ func (client *remoteSSEClient) applyPostHeaders(request *http.Request) {
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
+	client.mu.Lock()
+	version := client.protocolVersion
+	client.mu.Unlock()
+	if version >= "2025-06-18" {
+		request.Header.Set("MCP-Protocol-Version", version)
+	}
 }
 
 func closeResponseBody(errp *error, server Server, body io.Closer) {
@@ -453,7 +542,11 @@ func closeResponseBody(errp *error, server Server, body io.Closer) {
 func (client *networkClient) decodeResponse(response *http.Response) (rpcMessage, error) {
 	contentType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if contentType == "text/event-stream" {
-		return decodeSSERPCMessage(response.Body)
+		return decodeSSERPCMessageWithNotify(response.Body, func(message rpcMessage) {
+			if message.Method == toolsListChangedMethod {
+				client.markToolsStale()
+			}
+		})
 	}
 
 	var message rpcMessage
@@ -517,7 +610,7 @@ func (client *remoteSSEClient) readStream(reader io.Reader, ready chan<- error) 
 		client.failPending(err)
 		return
 	}
-	client.failPending(fmt.Errorf("MCP SSE stream closed for server %s", client.server.Name))
+	client.failPending(fmt.Errorf("MCP SSE stream closed for server %s: %w", client.server.Name, errMCPStreamClosed))
 }
 
 func (client *remoteSSEClient) setEndpoint(value string) error {
@@ -543,6 +636,9 @@ func (client *remoteSSEClient) deliverEventMessage(value string) error {
 		return fmt.Errorf("decode MCP SSE stream message: %w", err)
 	}
 	if message.isRequestOrNotification() {
+		if message.Method == toolsListChangedMethod {
+			client.markToolsStale()
+		}
 		return nil
 	}
 	key := rpcResponseKey(message.ID)
@@ -590,6 +686,12 @@ func (client *remoteSSEClient) removePending(key string) {
 	}
 }
 
+// errMCPStreamClosed marks a clean server-side end of a legacy SSE stream
+// (a restart, an idle proxy cutting it). Unlike errMCPClientClosed — our own
+// Close — a closed stream is a dead transport: the next call redials it.
+// It always travels wrapped in the server-specific message.
+var errMCPStreamClosed = errors.New("MCP SSE stream closed")
+
 func (client *remoteSSEClient) failPending(err error) {
 	client.mu.Lock()
 	if client.closed {
@@ -608,14 +710,20 @@ func (client *remoteSSEClient) failPending(err error) {
 
 func httpStatusError(server Server, response *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
-	detail := strings.TrimSpace(string(body))
-	if detail == "" {
-		return fmt.Errorf("MCP %s server %s returned HTTP %d", server.Type, server.Name, response.StatusCode)
+	return &MCPHTTPStatusError{
+		Server:     server.Name,
+		Transport:  server.Type,
+		Status:     response.StatusCode,
+		Detail:     strings.TrimSpace(string(body)),
+		RetryAfter: response.Header.Get("Retry-After"),
 	}
-	return fmt.Errorf("MCP %s server %s returned HTTP %d: %s", server.Type, server.Name, response.StatusCode, detail)
 }
 
 func decodeSSERPCMessage(reader io.Reader) (rpcMessage, error) {
+	return decodeSSERPCMessageWithNotify(reader, nil)
+}
+
+func decodeSSERPCMessageWithNotify(reader io.Reader, notify func(rpcMessage)) (rpcMessage, error) {
 	var decoded rpcMessage
 	var decodeErr error
 	found := false
@@ -640,6 +748,9 @@ func decodeSSERPCMessage(reader io.Reader) (rpcMessage, error) {
 		// first message event was returned unconditionally, so a leading
 		// notification surfaced to the caller as an id mismatch and failed the call.
 		if candidate.isRequestOrNotification() {
+			if notify != nil {
+				notify(candidate)
+			}
 			return true
 		}
 		decoded = candidate

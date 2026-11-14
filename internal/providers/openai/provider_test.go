@@ -810,8 +810,15 @@ func TestStreamCompletionDoesNotHangOnEOFWithOpenToolCall(t *testing.T) {
 				if len(eventsOfType(events, qgruntime.StreamEventToolCallEnd)) != 1 {
 					t.Fatalf("events = %#v, want one tool-call-end on EOF", events)
 				}
-				if len(eventsOfType(events, qgruntime.StreamEventDone)) != 1 {
-					t.Fatalf("events = %#v, want done on EOF", events)
+				// An open tool call cut off by a clean EOF without any
+				// terminator is a truncated transport, not a complete turn:
+				// the incomplete call is closed, an error (not Done) ends
+				// the stream, and the agent retries the turn.
+				if len(eventsOfType(events, qgruntime.StreamEventError)) != 1 {
+					t.Fatalf("events = %#v, want one transport error on unterminated EOF", events)
+				}
+				if len(eventsOfType(events, qgruntime.StreamEventDone)) != 0 {
+					t.Fatalf("events = %#v, want no done on unterminated EOF", events)
 				}
 				return
 			}
@@ -838,8 +845,13 @@ func TestStreamCompletionSkipsNamelessToolCallOnEOF(t *testing.T) {
 	if len(eventsOfType(events, qgruntime.StreamEventToolCallEnd)) != 0 {
 		t.Fatalf("events = %#v, want no end for nameless tool call", events)
 	}
-	if len(eventsOfType(events, qgruntime.StreamEventDone)) != 1 {
-		t.Fatalf("events = %#v, want done event", events)
+	// The nameless call is dropped, and the clean EOF without any terminator
+	// ends the stream with a transport error, never with Done.
+	if len(eventsOfType(events, qgruntime.StreamEventDone)) != 0 {
+		t.Fatalf("events = %#v, want no done event on unterminated EOF", events)
+	}
+	if len(eventsOfType(events, qgruntime.StreamEventError)) != 1 {
+		t.Fatalf("events = %#v, want one transport error on unterminated EOF", events)
 	}
 }
 

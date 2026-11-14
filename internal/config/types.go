@@ -366,6 +366,10 @@ type FileConfig struct {
 	LocalControl        LocalControlConfig `json:"localControl,omitempty"`
 	STT                 STTConfig          `json:"stt,omitempty"`
 	CrossSessionInbound string             `json:"crossSessionInbound,omitempty"`
+	// StatusLine customizes the TUI status line layout and optional external
+	// command. The zero value renders the built-in layout. Layout fields may
+	// come from project config; Command is user-config only (see Resolve).
+	StatusLine StatusLineConfig `json:"statusline,omitempty"`
 	// maxTurnsSet records that some merge source supplied a positive maxTurns —
 	// i.e. the value is configured, not the built-in default. Unexported like
 	// Tools.deferThresholdSet: merge bookkeeping, not a config key.
@@ -389,6 +393,7 @@ func (cfg FileConfig) MarshalJSON() ([]byte, error) {
 		KeyBindings         KeyBindingsConfig   `json:"keybindings,omitempty"`
 		LocalControl        *LocalControlConfig `json:"localControl,omitempty"`
 		STT                 *STTConfig          `json:"stt,omitempty"`
+		StatusLine          *StatusLineConfig   `json:"statusline,omitempty"`
 		CrossSessionInbound string              `json:"crossSessionInbound,omitempty"`
 	}
 	raw := rawConfig{
@@ -409,6 +414,9 @@ func (cfg FileConfig) MarshalJSON() ([]byte, error) {
 	}
 	if !cfg.STT.Empty() {
 		raw.STT = &cfg.STT
+	}
+	if cfg.StatusLine.IsCustom() {
+		raw.StatusLine = &cfg.StatusLine
 	}
 	known, err := json.Marshal(raw)
 	if err != nil || len(cfg.Extra) == 0 {
@@ -486,6 +494,15 @@ type ResolvedConfig struct {
 	LocalControl        LocalControlConfig
 	STT                 STTConfig
 	CrossSessionInbound string
+	// StatusLine is the resolved statusline customization (user layout plus
+	// command, optionally with project layout underneath). Zero means default.
+	StatusLine StatusLineConfig
+	// StatusLineWarnings reports cosmetic adjustments applied at Resolve
+	// (clamped cadences, trimmed layouts), surfaced once at startup.
+	StatusLineWarnings []string
+	// ProjectStatusLineCommandIgnored reports that the project config carried
+	// a statusline command, which was dropped (user-config only).
+	ProjectStatusLineCommandIgnored bool
 }
 
 type MCPConfig struct {
@@ -493,15 +510,23 @@ type MCPConfig struct {
 }
 
 type MCPServerConfig struct {
-	Type     string            `json:"type,omitempty"`
-	Command  string            `json:"command,omitempty"`
-	Args     []string          `json:"args,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
-	URL      string            `json:"url,omitempty"`
-	Headers  map[string]string `json:"headers,omitempty"`
-	Auth     string            `json:"auth,omitempty"`
-	OAuth    *MCPOAuthConfig   `json:"oauth,omitempty"`
-	Disabled bool              `json:"disabled,omitempty"`
+	Type    string            `json:"type,omitempty"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Auth    string            `json:"auth,omitempty"`
+	// Timeout bounds one tool call in milliseconds. Zero means the
+	// MCP_TOOL_TIMEOUT environment (milliseconds) or the 60s default.
+	Timeout int `json:"timeout,omitempty"`
+	// EnabledTools allow-lists remote tool names; empty means all. DisabledTools
+	// deny-lists names and wins over the allow-list. Both spellings are
+	// accepted in JSON (enabledTools/enabled_tools); the camelCase key wins.
+	EnabledTools  []string        `json:"enabledTools,omitempty"`
+	DisabledTools []string        `json:"disabledTools,omitempty"`
+	OAuth         *MCPOAuthConfig `json:"oauth,omitempty"`
+	Disabled      bool            `json:"disabled,omitempty"`
 	// ProjectConfigured marks servers touched by project config. It is runtime
 	// metadata, not persisted config.
 	ProjectConfigured bool `json:"-"`
@@ -548,6 +573,7 @@ func (cfg *FileConfig) UnmarshalJSON(data []byte) error {
 		LocalControl        LocalControlConfig         `json:"localControl"`
 		STT                 STTConfig                  `json:"stt"`
 		CrossSessionInbound string                     `json:"crossSessionInbound"`
+		StatusLine          StatusLineConfig           `json:"statusline"`
 		MCPServers          map[string]MCPServerConfig `json:"mcpServers"`
 		MCPServersSnake     map[string]MCPServerConfig `json:"mcp_servers"`
 	}
@@ -589,6 +615,7 @@ func (cfg *FileConfig) UnmarshalJSON(data []byte) error {
 	cfg.LocalControl = raw.LocalControl
 	cfg.STT = raw.STT
 	cfg.CrossSessionInbound = raw.CrossSessionInbound
+	cfg.StatusLine = raw.StatusLine
 	cfg.Extra = extra
 	if cfg.MCP.Servers == nil && (len(raw.MCPServers) > 0 || len(raw.MCPServersSnake) > 0) {
 		cfg.MCP.Servers = map[string]MCPServerConfig{}
@@ -695,15 +722,20 @@ func (cfg LocalControlDriverConfig) MarshalJSON() ([]byte, error) {
 
 func (server *MCPServerConfig) UnmarshalJSON(data []byte) error {
 	type rawServer struct {
-		Type     string            `json:"type"`
-		Command  string            `json:"command"`
-		Args     []string          `json:"args"`
-		Env      map[string]string `json:"env"`
-		URL      string            `json:"url"`
-		Headers  map[string]string `json:"headers"`
-		Auth     string            `json:"auth"`
-		OAuth    *MCPOAuthConfig   `json:"oauth"`
-		Disabled *bool             `json:"disabled"`
+		Type          string            `json:"type"`
+		Command       string            `json:"command"`
+		Args          []string          `json:"args"`
+		Env           map[string]string `json:"env"`
+		URL           string            `json:"url"`
+		Headers       map[string]string `json:"headers"`
+		Auth          string            `json:"auth"`
+		Timeout       int               `json:"timeout"`
+		EnabledTools  []string          `json:"enabledTools"`
+		EnabledSnake  []string          `json:"enabled_tools"`
+		DisabledTools []string          `json:"disabledTools"`
+		DisabledSnake []string          `json:"disabled_tools"`
+		OAuth         *MCPOAuthConfig   `json:"oauth"`
+		Disabled      *bool             `json:"disabled"`
 	}
 
 	var raw rawServer
@@ -717,6 +749,15 @@ func (server *MCPServerConfig) UnmarshalJSON(data []byte) error {
 	server.URL = raw.URL
 	server.Headers = raw.Headers
 	server.Auth = raw.Auth
+	server.Timeout = raw.Timeout
+	server.EnabledTools = raw.EnabledTools
+	if server.EnabledTools == nil {
+		server.EnabledTools = raw.EnabledSnake
+	}
+	server.DisabledTools = raw.DisabledTools
+	if server.DisabledTools == nil {
+		server.DisabledTools = raw.DisabledSnake
+	}
 	server.OAuth = raw.OAuth
 	server.Disabled = false
 	server.disabledSet = false

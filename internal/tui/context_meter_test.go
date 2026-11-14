@@ -186,6 +186,9 @@ func batchMeterModelName(t *testing.T) string {
 // Switching models keeps the session usage and renders it against the new
 // window; the next completed call corrects the figure.
 func TestContextMeterFollowsUsageAcrossModelSwitch(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	baseProfile := config.ProviderProfile{
 		Name:         "qg",
 		CatalogID:    "qg",
@@ -230,6 +233,9 @@ func TestContextMeterFollowsUsageAcrossModelSwitch(t *testing.T) {
 // A compaction before the switch still zeroes the meter: the switch must
 // not resurrect the old fill, and the next call sets the new value.
 func TestContextMeterSwitchAfterCompactionStaysZeroed(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	baseProfile := config.ProviderProfile{
 		Name:         "qg",
 		CatalogID:    "qg",
@@ -256,6 +262,8 @@ func TestContextMeterSwitchAfterCompactionStaysZeroed(t *testing.T) {
 		},
 	}
 	m, _ = m.recordUsageEvent("muse-spark-1.3-contributor", qgruntime.Usage{InputTokens: 300000, OutputTokens: 10}, transcriptRow{})
+	m.cwd = "/workspace/qg"
+	m.gitBranch = "feature-x"
 	m.compactInFlight = true
 	updated, _ := m.Update(compactResultMsg{result: CompactResult{Compacted: true}})
 	m = updated.(model)
@@ -266,8 +274,13 @@ func TestContextMeterSwitchAfterCompactionStaysZeroed(t *testing.T) {
 	if next.meterLive {
 		t.Fatal("a compaction before the switch must keep the meter zeroed")
 	}
-	if got := plainRender(t, next.statusLine(120)); strings.Contains(got, "%") || !strings.Contains(got, "janela 500k") {
+	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "janela 500k") || strings.Contains(got, "300k/") {
 		t.Fatalf("switched status should show only the new window, got %q", got)
+	}
+	// Fixed cwd and branch keep the layout independent of the checkout
+	// path: at 240 the session cache readout fits next to the new window.
+	if got := plainRender(t, next.statusLine(240)); !strings.Contains(got, "janela 500k") || !strings.Contains(got, "cache ") {
+		t.Fatalf("switched status keeps the session cache readout next to the new window, got %q", got)
 	}
 	next, _ = next.recordUsageEvent(next.modelName, qgruntime.Usage{InputTokens: 100000, OutputTokens: 10}, transcriptRow{})
 	if got := plainRender(t, next.statusLine(120)); !strings.Contains(got, "20% · 100k/500k") {
@@ -455,10 +468,13 @@ func TestContextMeterUnknownWindow(t *testing.T) {
 	if !strings.Contains(got, "483.9k") {
 		t.Fatalf("status should show the bare figure, got %q", got)
 	}
-	for _, unwanted := range []string{"%", "483.9k/", "janela", "ctx"} {
+	for _, unwanted := range []string{"483.9k/", "janela", "ctx"} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("status must not show a fill without a window, got %q", got)
 		}
+	}
+	if !strings.Contains(got, "cache 0%") {
+		t.Fatalf("status keeps the session cache readout without a window, got %q", got)
 	}
 	divider := plainRender(t, m.composerDividerLine(80))
 	if strings.Contains(divider, "━") {

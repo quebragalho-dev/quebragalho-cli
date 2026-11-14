@@ -62,6 +62,9 @@ type Workspace struct {
 	DeferThreshold int
 	Notices        []string
 	Cleanup        func() error
+	// RefreshMCP applies pending MCP catalog changes between turns of the run
+	// using this workspace. Nil when the workspace has no MCP runtime.
+	RefreshMCP func(ctx context.Context)
 }
 
 // Close releases resources created with the workspace. A nil cleanup is valid
@@ -511,6 +514,7 @@ func (a *Agent) runTurn(ctx context.Context, sess *acpSession, userText string, 
 	opts := agent.Options{
 		Cwd:            sess.cwd,
 		SessionID:      sess.id,
+		BetweenTurns:   workspace.RefreshMCP,
 		ProviderName:   resolved.Provider.Name,
 		Model:          resolved.Provider.Model,
 		Registry:       registry,

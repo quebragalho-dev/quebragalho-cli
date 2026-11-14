@@ -166,6 +166,11 @@ type Usage struct {
 	CachedInputTokens int
 	CacheWriteTokens  int
 	ReasoningTokens   int
+	// Summarizer marks usage from the compaction summarizer's own provider
+	// calls. It rides the normal OnUsage accounting (its cost still counts)
+	// but surfaces skip it for cache-prefix attribution: a summary request
+	// has its own prefix and must never explain the next main call's hit.
+	Summarizer bool
 }
 
 // TotalTokens returns prompt plus completion tokens.
@@ -211,6 +216,11 @@ type StreamEvent struct {
 	ArgumentsFragment  string
 	Usage              Usage
 	Error              string
+	// Err carries the provider's typed failure (see providerio.StatusError)
+	// alongside the human-readable Error string. The agent recovers it with
+	// errors.As so the retry wait honors the server's Retry-After instead of
+	// re-parsing text. Nil for transport failures and successes.
+	Err error
 	// ResponseID is the provider's completed response identifier when one is
 	// available. Stateful turn sessions use it to chain a later compatible
 	// request; ordinary providers and consumers leave it empty.

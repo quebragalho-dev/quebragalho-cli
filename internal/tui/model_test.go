@@ -620,6 +620,9 @@ func TestModelCommandShowsActiveModelWithoutRunningAgent(t *testing.T) {
 }
 
 func TestModelCommandSwitchesSessionModel(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	var rebuilt config.ProviderProfile
 	nextProvider := &fakeProvider{}
 	m := newModel(context.Background(), Options{
@@ -689,6 +692,9 @@ func TestProviderModelSwitchCandidatesPreserveGatewayModelIDs(t *testing.T) {
 }
 
 func TestModelCommandPersistsSelectedModelToUserConfig(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests' Resolve fallback.
+	t.Setenv(config.ActiveProviderEnv, "")
 	configPath := filepath.Join(t.TempDir(), "qg.json")
 	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{
 		Name:         "openai",
@@ -1306,7 +1312,7 @@ func TestPromptSubmitAppendsUserAndAssistantRows(t *testing.T) {
 	}
 }
 
-func TestPromptSubmitDoesNotStartAnotherRunWhilePending(t *testing.T) {
+func TestEnterDuringTurnDoesNotStartAnotherRunWhilePending(t *testing.T) {
 	m := newModel(context.Background(), Options{
 		Provider: &fakeProvider{},
 		Registry: tools.NewRegistry(),
@@ -1325,6 +1331,9 @@ func TestPromptSubmitDoesNotStartAnotherRunWhilePending(t *testing.T) {
 	}
 	if !next.pending {
 		t.Fatal("expected existing pending run to remain pending")
+	}
+	if next.interleave == nil || next.interleave.pendingCount() != 1 {
+		t.Fatalf("expected the prompt interleaved into the running turn, got %+v", next.interleave)
 	}
 }
 
@@ -1374,8 +1383,9 @@ func TestEscRequiresSecondPressToCancelPendingRun(t *testing.T) {
 
 // TestEscArmingCancelConfirmationPreservesComposerDraft: the first Esc only
 // arms the confirmation — nothing has actually been cancelled yet, so it
-// must not destroy a draft the user is still typing. Only the confirming
-// second Esc (the one that actually cancels the run) clears the composer.
+// must not destroy a draft the user is still typing. The confirming second
+// Esc keeps the draft too: the run is cancelled, and the queue (if any)
+// returns to the composer above the draft — nothing is deleted.
 func TestEscArmingCancelConfirmationPreservesComposerDraft(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	m.pending = true
@@ -1399,8 +1409,8 @@ func TestEscArmingCancelConfirmationPreservesComposerDraft(t *testing.T) {
 	if next.pending {
 		t.Fatal("second Esc should cancel the pending run")
 	}
-	if next.composerValue() != "" {
-		t.Fatalf("the confirming second Esc should clear the draft, got %q", next.composerValue())
+	if next.composerValue() != "draft prompt" {
+		t.Fatalf("the confirming second Esc should preserve the draft, got %q", next.composerValue())
 	}
 }
 
@@ -3394,6 +3404,9 @@ func TestMissingProviderNoticeCitesQGSetupAndAPIKey(t *testing.T) {
 }
 
 func TestHandleModelCommandScopeEffortLevels(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	baseProfile := config.ProviderProfile{
 		Name:         "qg",
 		CatalogID:    "qg",

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 // TestCredentialPublicationDirSuffixMatchesStore keeps the duplicated suffix in
@@ -369,6 +370,9 @@ func TestSandboxManagerSelectsPlatformBackend(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			if test.goos == "linux" {
+				stubLinuxBwrapProbe(t, nil)
+			}
 			manager := NewSandboxManager(SandboxManagerOptions{
 				GOOS: test.goos,
 				LookupExecutable: func(name string) (string, error) {
@@ -419,6 +423,7 @@ func TestSandboxManagerInfersPlatformFromExplicitBackend(t *testing.T) {
 }
 
 func TestSelectBackendDelegatesToSandboxManagerSelection(t *testing.T) {
+	stubLinuxBwrapProbe(t, nil)
 	backend := SelectBackend(BackendOptions{
 		GOOS: "linux",
 		LookupExecutable: func(name string) (string, error) {
@@ -998,7 +1003,7 @@ func TestCommandSuppliedTokenOverrideFailsClosedOnBubblewrap(t *testing.T) {
 		t.Fatalf("baseline bwrap planning must succeed, got %v", err)
 	}
 
-	commandToken := filepath.Join(tempDirOutsideDefaultTemp(t), "command-store", "tokens.json")
+	commandToken := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "command-store", "tokens.json")
 	profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace,
 		[]string{"QG_OAUTH_TOKENS_PATH=" + commandToken})
 	fs := profile.FileSystem
@@ -1041,7 +1046,7 @@ func TestKeyringOAuthOverrideDoesNotFailClosedOnBubblewrap(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", config)
 	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 	workspace := t.TempDir()
-	tokenPath := filepath.Join(tempDirOutsideDefaultTemp(t), "tokens.json")
+	tokenPath := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "tokens.json")
 
 	t.Run("process environment", func(t *testing.T) {
 		t.Setenv("QG_OAUTH_TOKENS_PATH", tokenPath)
@@ -1106,7 +1111,7 @@ func TestCommandCredentialDirectoriesFailClosedWithoutHostMutation(t *testing.T)
 	t.Setenv("QG_OAUTH_TOKENS_PATH", "")
 	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 	workspace := t.TempDir()
-	commandConfig := filepath.Join(tempDirOutsideDefaultTemp(t), "missing-command-config")
+	commandConfig := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "missing-command-config")
 	commandZero := filepath.Join(commandConfig, "qg")
 	profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, []string{
 		"HOME=" + filepath.Dir(commandConfig),
@@ -1123,7 +1128,7 @@ func TestCommandCredentialDirectoriesFailClosedWithoutHostMutation(t *testing.T)
 		t.Fatalf("planning created command-controlled directory %q: %v", commandConfig, err)
 	}
 
-	fileRoot := filepath.Join(tempDirOutsideDefaultTemp(t), "not-a-directory")
+	fileRoot := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "not-a-directory")
 	if err := os.WriteFile(fileRoot, []byte("not a credential directory\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1132,7 +1137,7 @@ func TestCommandCredentialDirectoriesFailClosedWithoutHostMutation(t *testing.T)
 		t.Fatalf("regular-file command credential root error = %v, want fail closed", err)
 	}
 
-	existingRoot := tempDirOutsideDefaultTemp(t)
+	existingRoot := testutil.TempDirOutsideDefaultTemp(t)
 	profile.FileSystem.CommandDenyReadDirs = []string{existingRoot}
 	profile.FileSystem.DenyReadIfExists = append(profile.FileSystem.DenyReadIfExists, existingRoot)
 	if err := validateLinuxBwrapPermissionProfile(profile); err != nil {
@@ -1156,7 +1161,7 @@ func TestCommandCredentialSettingsDoNotMaskAllowedRoots(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	workspace := t.TempDir()
-	externalCloud := tempDirOutsideDefaultTemp(t)
+	externalCloud := testutil.TempDirOutsideDefaultTemp(t)
 	profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, []string{
 		"CLOUDSDK_CONFIG=" + workspace,
 		"GOOGLE_APPLICATION_CREDENTIALS=" + filepath.Join(externalCloud, "service-account.json"),
@@ -1216,7 +1221,7 @@ func TestKeyringExceptionKeepsFileBackedTokenStoresFailClosed(t *testing.T) {
 			},
 			commandEnv: []string{
 				"QG_OAUTH_STORAGE=encrypted-file",
-				"QG_OAUTH_TOKENS_PATH=" + filepath.Join(tempDirOutsideDefaultTemp(t), "command-oauth.json"),
+				"QG_OAUTH_TOKENS_PATH=" + filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "command-oauth.json"),
 			},
 			commandMarker: true,
 		},
@@ -1263,7 +1268,7 @@ func TestLegacyMCPOverrideDoesNotFailClosedOnBubblewrap(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("QG_OAUTH_TOKENS_PATH", "")
-	legacy := filepath.Join(tempDirOutsideDefaultTemp(t), "mcp-tokens.json")
+	legacy := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "mcp-tokens.json")
 	if err := os.WriteFile(legacy, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}

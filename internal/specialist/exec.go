@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/background"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -231,6 +232,10 @@ type ChildRunResult struct {
 	Events   []streamjson.Event
 	Stderr   string
 	ExitCode int
+	// PID is the child process id when the child was started (0 when the run
+	// never started or the runner does not report one). Surfaces in the start
+	// payload so a surface can stop the run via process-group kill.
+	PID int
 	// Signal is a human-readable description (e.g. "signal: killed") when the child
 	// was terminated by a signal rather than exiting normally; empty otherwise. It
 	// turns an opaque exit -1 into an actionable reason (SIGKILL ~ out of memory).
@@ -627,7 +632,10 @@ func (executor Executor) runBuiltArgs(ctx context.Context, built BuildArgsResult
 		Background:      false,
 	}
 	executor.recordSpecialistStart(accounting)
-	run, err := executor.runChild(ctx, binaryPath, built.Args, progress)
+	run, err := executor.runChild(ctx, built.SessionID, binaryPath, built.Args, progress)
+	if run.PID > 0 {
+		accounting.PID = run.PID
+	}
 	if err != nil {
 		exitCode := run.exitCodeOr(-1)
 		summary := SummarizeStream(run.Events, exitCode)
@@ -697,11 +705,11 @@ func (executor Executor) binaryPath() (string, error) {
 	return path, nil
 }
 
-func (executor Executor) runChild(ctx context.Context, binaryPath string, args []string, progress func(streamjson.Event)) (ChildRunResult, error) {
+func (executor Executor) runChild(ctx context.Context, sessionID, binaryPath string, args []string, progress func(streamjson.Event)) (ChildRunResult, error) {
 	if executor.RunChild != nil {
 		return executor.RunChild(ctx, binaryPath, append([]string(nil), args...), progress)
 	}
-	return runChildProcess(ctx, binaryPath, args, progress)
+	return runChildProcess(ctx, sessionID, binaryPath, args, progress)
 }
 
 func (executor Executor) launchBackground(binaryPath string, args []string, outputFile string, onExit func(exitCode int)) (int, error) {
@@ -830,7 +838,7 @@ func cleanupPromptFile(promptFile string) {
 	_ = os.Remove(promptFile)
 }
 
-func runChildProcess(ctx context.Context, binaryPath string, args []string, progress func(streamjson.Event)) (ChildRunResult, error) {
+func runChildProcess(ctx context.Context, sessionID, binaryPath string, args []string, progress func(streamjson.Event)) (ChildRunResult, error) {
 	var stderr bytes.Buffer
 	command := osexec.CommandContext(ctx, binaryPath, args...)
 	// Put the child in its own process group and group-kill on cancel/timeout, so a
@@ -843,6 +851,14 @@ func runChildProcess(ctx context.Context, binaryPath string, args []string, prog
 	}
 	if err := command.Start(); err != nil {
 		return ChildRunResult{Stderr: stderr.String()}, fmt.Errorf("start specialist child: %w", err)
+	}
+	pid := 0
+	if command.Process != nil {
+		pid = command.Process.Pid
+		// Publish the live PID keyed by child session so a surface in this
+		// process (the TUI panel) can stop the run via process-group kill.
+		// Forgotten below when the child exits.
+		noteLiveChild(sessionID, pid)
 	}
 	events := []streamjson.Event{}
 	reader := bufio.NewReader(stdout)
@@ -884,10 +900,46 @@ func runChildProcess(ctx context.Context, binaryPath string, args []string, prog
 				signalDesc = exitErr.String()
 			}
 		} else {
-			return ChildRunResult{Events: events, Stderr: stderr.String(), ExitCode: -1, Started: started}, fmt.Errorf("run specialist child: %w", err)
+			forgetLiveChild(sessionID)
+			return ChildRunResult{Events: events, Stderr: stderr.String(), ExitCode: -1, Started: started, PID: pid}, fmt.Errorf("run specialist child: %w", err)
 		}
 	}
-	return ChildRunResult{Events: events, Stderr: stderr.String(), ExitCode: exitCode, Signal: signalDesc, Started: started}, nil
+	forgetLiveChild(sessionID)
+	return ChildRunResult{Events: events, Stderr: stderr.String(), ExitCode: exitCode, Signal: signalDesc, Started: started, PID: pid}, nil
+}
+
+// liveChildren tracks running foreground children by child session id so a
+// surface in this process (the TUI subagents panel) can stop one via
+// process-group kill. Same-process only: a headless exec run shares the map
+// between its agent goroutine and its own surfaces.
+var liveChildren sync.Map // string -> int pid
+
+func noteLiveChild(sessionID string, pid int) {
+	if strings.TrimSpace(sessionID) == "" || pid <= 0 {
+		return
+	}
+	liveChildren.Store(sessionID, pid)
+}
+
+func forgetLiveChild(sessionID string) {
+	if strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	liveChildren.Delete(sessionID)
+}
+
+// LiveChildPID reports the pid of a running foreground child, if this process
+// launched one under sessionID and it has not exited yet.
+func LiveChildPID(sessionID string) (int, bool) {
+	value, ok := liveChildren.Load(strings.TrimSpace(sessionID))
+	if !ok {
+		return 0, false
+	}
+	pid, ok := value.(int)
+	if !ok || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
 }
 
 func (run ChildRunResult) exitCodeOr(defaultExitCode int) int {

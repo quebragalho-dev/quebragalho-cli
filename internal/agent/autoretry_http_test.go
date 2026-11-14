@@ -1,0 +1,359 @@
+package agent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/openai"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
+)
+
+func testOpenAIProvider(t *testing.T, server *httptest.Server) *openai.Provider {
+	t.Helper()
+	provider, err := openai.New(openai.Options{
+		APIKey:     "test-key",
+		BaseURL:    server.URL,
+		Model:      "test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatalf("openai.New: %v", err)
+	}
+	return provider
+}
+
+// A clean EOF after partial text is a truncated transport, not an answer:
+// the call retries on a fresh stream and the partial never reaches the
+// history or the store.
+func TestRunCleanEOFPartialRetriesAndDiscards(t *testing.T) {
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if n == 1 {
+			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"PARCIAL-SUMIR"}}]}`)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			return // close without [DONE]: truncated
+		}
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"resposta completa"}}]}`)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	result, err := Run(context.Background(), "go", testOpenAIProvider(t, server), Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits),
+	})
+	if err != nil {
+		t.Fatalf("truncated first attempt must retry to success, got %v", err)
+	}
+	if result.FinalAnswer != "resposta completa" {
+		t.Fatalf("final answer = %q, want %q", result.FinalAnswer, "resposta completa")
+	}
+	if got := atomic.LoadInt32(&hits); got != 2 {
+		t.Fatalf("want 2 requests (1 truncated + 1 retry), got %d", got)
+	}
+	for _, message := range result.Messages {
+		if strings.Contains(message.Content, "PARCIAL-SUMIR") {
+			t.Fatalf("partial text must not reach the history: %#v", message)
+		}
+	}
+}
+
+// A tool_call whose arguments are cut mid-stream by a clean EOF (no
+// finish_reason, no [DONE]) must NEVER execute the half-written call and must
+// NEVER double-execute: the turn retries wholesale and the tool runs exactly
+// once, from the complete retried stream.
+func TestRunToolCallTruncatedByCleanEOFExecutesOnce(t *testing.T) {
+	tool := &countingPingTool{}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if n == 1 {
+			// Truncated: tool call opens, arguments cut mid-JSON, clean close
+			// with no finish_reason and no [DONE].
+			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"ping","arguments":"{\"arg"}}]}}]}`)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			return
+		}
+		// Distinguish the retried turn (no tool result yet) from the follow-up
+		// request carrying the tool result, which must get the final answer.
+		body, _ := io.ReadAll(r.Body)
+		isFollowUp := strings.Contains(string(body), `"role":"tool"`)
+		if !isFollowUp {
+			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"ping","arguments":"{}"}}]}}]}`)
+			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`)
+			fmt.Fprintf(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"done after tool"}}]}`)
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{},"finish_reason":"stop"}]}`)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	result, err := Run(context.Background(), "go", testOpenAIProvider(t, server), Options{
+		Registry:       registry,
+		PermissionMode: PermissionModeAuto,
+		RetrySleep:     instantRetrySleep(&waits),
+	})
+	if err != nil {
+		t.Fatalf("truncated tool call must retry to success, got %v", err)
+	}
+	if got := atomic.LoadInt32(&tool.calls); got != 1 {
+		t.Fatalf("tool must execute exactly once (never the truncated call, never twice), got %d", got)
+	}
+	if result.FinalAnswer != "done after tool" {
+		t.Fatalf("final answer = %q, want %q", result.FinalAnswer, "done after tool")
+	}
+	// 1 truncated + 1 retried tool call + 1 follow-up with the tool result.
+	if got := atomic.LoadInt32(&hits); got != 3 {
+		t.Fatalf("want 3 requests (truncated + retried call + final answer), got %d", got)
+	}
+	for _, message := range result.Messages {
+		if strings.Contains(message.Content, "{\"arg") {
+			t.Fatalf("truncated arguments must never reach the history: %#v", message)
+		}
+	}
+}
+
+// A persistent clean-EOF truncation is bounded by the SAME single retry
+// policy as every other failure: 10 requests total, then the error surfaces.
+func TestRunPersistentCleanEOFMakesExactlyTenRequests(t *testing.T) {
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"PARCIAL"}}]}`)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// clean close, no [DONE], no finish_reason — always truncated
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	_, err := Run(context.Background(), "go", testOpenAIProvider(t, server), Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits),
+	})
+	if err == nil {
+		t.Fatal("persistent truncation must fail after the budget")
+	}
+	if got := atomic.LoadInt32(&hits); got != 10 {
+		t.Fatalf("single retry policy = 10 requests total, got %d", got)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "eof") && !strings.Contains(strings.ToLower(err.Error()), "terminator") {
+		t.Fatalf("surfaced error must read as truncation, got %v", err)
+	}
+}
+
+// A persistent 503 through a real provider and real HTTP: the loop budget is
+// the ONLY budget — exactly 10 requests in total, never 10 x hidden retries.
+func TestRunPersistent503MakesExactlyTenHTTPRequests(t *testing.T) {
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	var notices []string
+	_, err := Run(context.Background(), "go", testOpenAIProvider(t, server), Options{
+		Registry:    tools.NewRegistry(),
+		RetrySleep:  instantRetrySleep(&waits),
+		OnReasoning: func(s string) { notices = append(notices, s) },
+	})
+	if err == nil {
+		t.Fatal("persistent 503 must surface an error")
+	}
+	if got := atomic.LoadInt32(&hits); got != 10 {
+		t.Fatalf("want exactly 10 HTTP requests in total (one budget, no hidden layer), got %d", got)
+	}
+	if len(waits) != 9 {
+		t.Fatalf("want 9 waits, got %d", len(waits))
+	}
+	if !strings.Contains(err.Error(), "10/10 tentativas") {
+		t.Fatalf("exhausted error must carry the attempt count, got %q", err.Error())
+	}
+	if !strings.Contains(strings.Join(notices, ""), "503") {
+		t.Fatalf("retry notices must name the failure, got %q", notices)
+	}
+}
+
+// A 429 with Retry-After: 12 travels structured from the response header to
+// the wait — 12s, not the 7.5s schedule.
+func TestRun429RetryAfterHeaderDrivesWait(t *testing.T) {
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Retry-After", "12")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	var waits []time.Duration
+	_, err := Run(context.Background(), "go", testOpenAIProvider(t, server), Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits),
+	})
+	if err == nil {
+		t.Fatal("persistent 429 must surface an error")
+	}
+	if got := atomic.LoadInt32(&hits); got != 10 {
+		t.Fatalf("want exactly 10 HTTP requests, got %d", got)
+	}
+	if len(waits) != 9 {
+		t.Fatalf("want 9 waits, got %d", len(waits))
+	}
+	for i, wait := range waits {
+		// Structured 12s base with the production ±10% jitter: every wait
+		// must sit in [10.8s, 13.2s]. The 7.5s schedule (max 8.25s with
+		// jitter) can never land here, so the band proves the structured
+		// Retry-After drove the wait.
+		if wait < 10800*time.Millisecond || wait > 13200*time.Millisecond {
+			t.Fatalf("wait %d = %v, want the structured Retry-After 12s ±10%%", i, wait)
+		}
+	}
+}
+
+// The structured Retry-After wins over any text hint; errors.As recovers it
+// through the wrap chain.
+func TestWaitAfterErrorPrefersStructuredRetryAfter(t *testing.T) {
+	var waits []time.Duration
+	retrier := newModelCallRetrier(Options{RetrySleep: instantRetrySleep(&waits)})
+	retrier.jitter = func(d time.Duration) time.Duration { return d }
+	wrapped := fmt.Errorf("collect: %w", &providerio.StatusError{
+		StatusCode: 429,
+		RetryAfter: 45 * time.Second,
+		Message:    "rate limit error: slow down, retry after 5",
+	})
+	proceed, err := retrier.waitAfterError(context.Background(), wrapped, false)
+	if err != nil || !proceed {
+		t.Fatalf("structured retryable must proceed, got proceed=%v err=%v", proceed, err)
+	}
+	if len(waits) != 1 || waits[0] != 45*time.Second {
+		t.Fatalf("waits = %v, want [45s] from the structured field, not the text hint", waits)
+	}
+}
+
+// Without a structured value the text hint still applies (fallback).
+func TestWaitAfterErrorFallsBackToTextHint(t *testing.T) {
+	var waits []time.Duration
+	retrier := newModelCallRetrier(Options{RetrySleep: instantRetrySleep(&waits)})
+	retrier.jitter = func(d time.Duration) time.Duration { return d }
+	proceed, err := retrier.waitAfterError(context.Background(), errors.New("503 Service Unavailable, retry after 30"), false)
+	if err != nil || !proceed {
+		t.Fatalf("hinted retryable must proceed, got proceed=%v err=%v", proceed, err)
+	}
+	if len(waits) != 1 || waits[0] != 30*time.Second {
+		t.Fatalf("waits = %v, want [30s] from the text fallback", waits)
+	}
+}
+
+// Every model-call attempt stamps model_requests and every scheduled retry
+// stamps reconnect_count, so traces and the turn bench keep reporting them.
+func TestAutoRetryStampsTraceCounters(t *testing.T) {
+	exhausted := &countingFailProvider{err: errors.New("503 Service Unavailable")}
+	rec := trace.NewRecorder("s", "r", "t")
+	var waits []time.Duration
+	_, _ = Run(context.Background(), "go", exhausted, Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits),
+		Trace:      rec,
+	})
+	exhaustedTrace := rec.Finish()
+	if got := exhaustedTrace.Counter(trace.CounterModelRequests); got != 10 {
+		t.Fatalf("model_requests = %d, want 10 attempts", got)
+	}
+	if got := exhaustedTrace.Counter(trace.CounterReconnectCount); got != 9 {
+		t.Fatalf("reconnect_count = %d, want 9 scheduled retries", got)
+	}
+
+	recovered := &mockProvider{turns: [][]qgruntime.StreamEvent{
+		{{Type: qgruntime.StreamEventError, Error: "500 Internal Server Error"}},
+		{{Type: qgruntime.StreamEventError, Error: "500 Internal Server Error"}},
+		{
+			{Type: qgruntime.StreamEventText, Content: "done"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	rec2 := trace.NewRecorder("s", "r", "t")
+	var waits2 []time.Duration
+	if _, err := Run(context.Background(), "go", recovered, Options{
+		Registry:   tools.NewRegistry(),
+		RetrySleep: instantRetrySleep(&waits2),
+		Trace:      rec2,
+	}); err != nil {
+		t.Fatalf("recovery run: %v", err)
+	}
+	recoveredTrace := rec2.Finish()
+	if got := recoveredTrace.Counter(trace.CounterModelRequests); got != 3 {
+		t.Fatalf("model_requests = %d, want 3 attempts", got)
+	}
+	if got := recoveredTrace.Counter(trace.CounterReconnectCount); got != 2 {
+		t.Fatalf("reconnect_count = %d, want 2 scheduled retries", got)
+	}
+}
+
+// collected.Err carries the provider's typed error: classification and the
+// wait both key off the status code, not re-parsed text.
+func TestCollectedTypedErrorClassifiesByStatus(t *testing.T) {
+	ctx := context.Background()
+	if !isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 503, Message: "Service Unavailable"}) {
+		t.Error("typed 503 must retry")
+	}
+	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 400, Message: "Bad Request"}) {
+		t.Error("typed 400 must not retry")
+	}
+	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 429, Message: "rate limit error: ...insufficient_quota..."}) {
+		t.Error("billing exhaustion mapped to 429 must not retry")
+	}
+	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 429, Message: "insufficient credits, top up"}) {
+		t.Error("typed 429 with insufficient credits must not retry")
+	}
+	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 429, Message: "saldo insuficiente para continuar"}) {
+		t.Error("typed 429 with saldo insuficiente must not retry")
+	}
+	if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 402, Message: "payment required"}) {
+		t.Error("typed 402 must not retry")
+	}
+	// A typed code outranks the body text: gateways forward upstream
+	// failures whose bodies cite the origin error, and those must retry.
+	if !isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 502, Message: "bad gateway: upstream returned 401"}) {
+		t.Error("typed 502 citing a 401 in the body must retry")
+	}
+	if !isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 502, Message: "bad gateway: forbidden by upstream"}) {
+		t.Error("typed 502 citing forbidden in the body must retry")
+	}
+	if !isRetryableModelError(ctx, &providerio.StatusError{StatusCode: 503, Message: "model not found in pool, retry later"}) {
+		t.Error("typed 503 citing model not found must retry")
+	}
+	for _, code := range []int{401, 403, 404} {
+		if isRetryableModelError(ctx, &providerio.StatusError{StatusCode: code, Message: "request failed"}) {
+			t.Errorf("typed %d must not retry", code)
+		}
+	}
+}

@@ -30,3 +30,65 @@ A opção local `auto` omite `reasoning_effort` na requisição. O booleano `cap
 ## Permissões
 
 `--dangerously-skip-permissions` é o nome oficial para iniciar a TUI ou `exec` em modo unsafe. `--skip-permissions-unsafe` permanece como alias compatível. Ambos mantêm as mesmas restrições, incluindo incompatibilidade com `--plan`.
+
+## Statusline customizável
+
+Sem config, a statusline é a embutida (modo, effort, contexto, branch, pasta).
+Com `statusline` na config, o usuário escolhe os campos, a ordem e o lado (até
+3 linhas), e pode apontar um comando externo cuja saída vira linhas do rodapé.
+Com saída ou erro do comando, o script tem 1 linha garantida: com 3 linhas
+de campos, a última cede o lugar.
+`/statusline` mostra o estado, `/statusline <pedido>` pede ao modelo para
+montar uma nova (sempre com prévia: Enter aplica, Esc cancela),
+`/statusline reset` volta ao padrão.
+
+```json
+{
+  "statusline": {
+    "lines": [{ "left": ["mode", "effort"], "right": ["context", "branch"] }],
+    "separator": " │ ",
+    "command": { "command": "meu-statusline" },
+    "timeoutMs": 2000,
+    "refreshMs": 5000
+  }
+}
+```
+
+Campos (ids estáveis, em inglês): `mode`, `effort`, `fast`, `voice`,
+`background`, `goal`, `context`, `branch`, `update`, `cwd`, `cache` (taxa de
+acerto do prompt-cache da sessão: `cache —` antes da 1ª chamada), `model`,
+`speed`, `cost` (total da
+sessão em R$, só chamadas precificadas em BRL), `time` (duração da sessão).
+Ids desconhecidos são ignorados com aviso.
+
+O layout (`lines`, `separator`) pode vir do projeto (`.qg/config.json`); o
+`command` vale SÓ na config do usuário — projeto com comando é ignorado com
+aviso. `timeoutMs` padrão 2000, `refreshMs` padrão 5000 (mínimo 1000); além do
+intervalo, o comando re-roda ao fim de cada chamada. O intervalo conta a
+partir do início da última execução, qualquer que tenha sido a causa.
+Aplicar pelo `/statusline` reinicia a cadência na hora.
+
+O comando recebe no stdin um JSON só com fatos de exibição (nunca chaves ou
+credenciais) e roda com ambiente reduzido (sem `QG_*`, sem variáveis de
+credencial). As chaves estão SEMPRE presentes; valor desconhecido é null:
+
+```json
+{
+  "session_id": "abc123", "cwd": "/repo", "model": "muse-spark-1.3",
+  "provider": "qg", "effort": "high",
+  "context": { "used": 161000, "window": 1000000, "pct": 16 },
+  "cache": { "hit_pct": 75 },
+  "cost_brl": 0.12, "branch": "main", "version": "0.9.0", "width": 120
+}
+```
+
+`cache.hit_pct` usa a escala 0–100 de `context.pct` e é null antes da 1ª
+chamada (nunca um zero falso).
+
+A saída (stdout, até 3 linhas) aceita cores ANSI SGR; o resto dos escapes é
+removido. Com saída ou erro, o script ocupa 1 linha garantida: com 3 linhas
+de campos, a última cede o lugar. A execução é assíncrona (nunca bloqueia o
+View), com no máximo uma em voo; timeout mata e mantém o último valor bom
+com marca discreta. Scripts
+aprovados pelo `/statusline` moram em `<config>/qg/statusline/`; o staging
+(`<config>/qg/statusline/staging/`) é descartado ao cancelar.

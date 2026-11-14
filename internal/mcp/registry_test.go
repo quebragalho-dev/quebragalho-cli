@@ -317,11 +317,10 @@ func TestRegisterToolsSkipsServerThatExceedsConnectTimeout(t *testing.T) {
 }
 
 func TestRegistryToolIsDeferredEligible(t *testing.T) {
-	client := &fakeToolClient{}
 	tool := newRegistryTool(
 		Server{Name: "docs", Type: "stdio"},
 		RemoteTool{Name: "lookup", Description: "Lookup documentation"},
-		client,
+		newMCPServerConn(Server{Name: "docs"}, &fakeToolClient{}),
 		RegisterOptions{},
 	)
 
@@ -337,7 +336,7 @@ func TestRegistryToolIsDeferredEligible(t *testing.T) {
 
 	// The exported helper in the tools package must agree via the optional
 	// interface, since the agent loop partitions tools through tools.IsDeferred.
-	if !tools.IsDeferred(tool) {
+	if !tools.IsDeferred(&tool) {
 		t.Fatal("tools.IsDeferred(registryTool) = false, want true")
 	}
 }
@@ -346,7 +345,7 @@ func TestRegistryToolCanAdvertiseInAutoWithoutPreapproval(t *testing.T) {
 	tool := newRegistryTool(
 		Server{Name: "docs", Type: "stdio"},
 		RemoteTool{Name: "search"},
-		&fakeToolClient{},
+		newMCPServerConn(Server{Name: "docs"}, &fakeToolClient{}),
 		RegisterOptions{Autonomy: AutonomyLow, AdvertiseInAuto: true},
 	)
 	safety := tool.Safety()
@@ -359,13 +358,12 @@ func TestRegistryToolCanAdvertiseInAutoWithoutPreapproval(t *testing.T) {
 // configured server name (not the sanitized tool-name token) so the deferred-tools
 // discovery label names a multi-token server correctly via tools.DeferredSource.
 func TestRegistryToolReportsMCPServerName(t *testing.T) {
-	client := &fakeToolClient{}
 	// A server name that sanitizes to a token containing an underscore ("git_hub"):
 	// the name-only parser would truncate the label to "git".
 	tool := newRegistryTool(
 		Server{Name: "git hub", Type: "stdio"},
 		RemoteTool{Name: "create_issue", Description: "Create a GitHub issue."},
-		client,
+		newMCPServerConn(Server{Name: "git hub"}, &fakeToolClient{}),
 		RegisterOptions{},
 	)
 
@@ -374,7 +372,7 @@ func TestRegistryToolReportsMCPServerName(t *testing.T) {
 	}
 
 	// DeferredSource must prefer the reported server name over the name-derived token.
-	if source := tools.DeferredSource(tool); source != "git hub" {
+	if source := tools.DeferredSource(&tool); source != "git hub" {
 		t.Fatalf("DeferredSource = %q, want %q via MCPServerName()", source, "git hub")
 	}
 }

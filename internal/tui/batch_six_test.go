@@ -170,6 +170,9 @@ func TestBatchSixPanelsWidthsAndLiveRefresh(t *testing.T) {
 }
 
 func TestBatchSixModelScopeAndEffortRestart(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	for _, session := range []bool{true, false} {
 		t.Run(strconv.FormatBool(session), func(t *testing.T) {
 			m := batchThreeLiveModel(t)
@@ -300,7 +303,7 @@ func TestBatchSixContextBarOnlyUsesSameModelAPIWindow(t *testing.T) {
 	got = plainRender(t, m.pickerOverlay(120))
 	assertContains(t, got, "50%")
 	m.lastUsageReceipt.meta["model"] = "previous-model"
-	assertNotContains(t, plainRender(t, m.pickerOverlay(120)), "%")
+	assertNotContains(t, plainRender(t, m.pickerOverlay(120)), "Uso da janela")
 }
 
 func batchSixUsageText(m model) string {

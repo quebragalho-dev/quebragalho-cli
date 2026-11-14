@@ -1,6 +1,8 @@
 package config
 
 import (
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -197,5 +199,82 @@ func TestResolveMCPProjectArgsTargetCompareUsesNormalizedArgs(t *testing.T) {
 	}
 	if !resolved.MCP.Servers["docs"].ProjectConfigured {
 		t.Fatalf("docs = %#v, want project marker", resolved.MCP.Servers["docs"])
+	}
+}
+
+func TestMCPServerToolFiltersUnmarshalBothSpellings(t *testing.T) {
+	var camel MCPServerConfig
+	if err := camel.UnmarshalJSON([]byte(`{"type":"http","url":"http://127.0.0.1:1/mcp","enabledTools":["a"],"disabledTools":["b"]}`)); err != nil {
+		t.Fatalf("UnmarshalJSON() error = %v", err)
+	}
+	if len(camel.EnabledTools) != 1 || camel.EnabledTools[0] != "a" {
+		t.Fatalf("EnabledTools = %+v", camel.EnabledTools)
+	}
+	var snake MCPServerConfig
+	if err := snake.UnmarshalJSON([]byte(`{"type":"http","url":"http://127.0.0.1:1/mcp","enabled_tools":["a"],"disabled_tools":["b"]}`)); err != nil {
+		t.Fatalf("UnmarshalJSON() error = %v", err)
+	}
+	if len(snake.EnabledTools) != 1 || snake.EnabledTools[0] != "a" || len(snake.DisabledTools) != 1 {
+		t.Fatalf("snake EnabledTools = %+v DisabledTools = %+v", snake.EnabledTools, snake.DisabledTools)
+	}
+	if got := mergeMCPServer(MCPServerConfig{}, snake, false); len(got.EnabledTools) != 1 {
+		t.Fatalf("merged EnabledTools = %+v", got.EnabledTools)
+	}
+}
+
+func TestMCPMergeToolFiltersBothDirections(t *testing.T) {
+	user := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", DisabledTools: []string{"drop"}, EnabledTools: []string{"a", "b"}}
+	project := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", DisabledTools: []string{"extra"}, EnabledTools: []string{"b", "c"}, ProjectConfigured: true}
+
+	merged := mergeMCPServer(user, project, false)
+	if got, want := merged.DisabledTools, []string{"drop", "extra"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("disabled union = %v, want %v (project can only add denies)", got, want)
+	}
+	if got, want := merged.EnabledTools, []string{"b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("enabled intersect = %v, want %v (project only narrows)", got, want)
+	}
+
+	// The reverse order carries the same sets: union/intersection commute.
+	mergedBack := mergeMCPServer(MCPServerConfig{DisabledTools: []string{"extra"}, EnabledTools: []string{"b", "c"}},
+		MCPServerConfig{DisabledTools: []string{"drop"}, EnabledTools: []string{"a", "b"}}, false)
+	if got, want := mergedBack.DisabledTools, []string{"extra", "drop"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reverse disabled union = %v, want %v", got, want)
+	}
+	if got, want := mergedBack.EnabledTools, []string{"b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reverse enabled intersect = %v, want %v", got, want)
+	}
+}
+
+func TestMCPMergeProjectCannotLiftUserDeny(t *testing.T) {
+	user := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", DisabledTools: []string{"drop"}}
+	// A project that clears or omits disabled_tools must not lift the deny.
+	for _, project := range []MCPServerConfig{
+		{Type: "http", URL: "http://127.0.0.1:1/mcp", ProjectConfigured: true},
+		{Type: "http", URL: "http://127.0.0.1:1/mcp", DisabledTools: []string{}, ProjectConfigured: true},
+	} {
+		merged := mergeMCPServer(user, project, false)
+		if len(merged.DisabledTools) != 1 || merged.DisabledTools[0] != "drop" {
+			t.Fatalf("user deny lifted: %v", merged.DisabledTools)
+		}
+	}
+	// A project allow-list alone applies when the user set none.
+	merged := mergeMCPServer(MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp"},
+		MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", EnabledTools: []string{"only"}, ProjectConfigured: true}, false)
+	if len(merged.EnabledTools) != 1 || merged.EnabledTools[0] != "only" {
+		t.Fatalf("project allow-list did not apply: %v", merged.EnabledTools)
+	}
+}
+
+func TestMCPMergeDisjointAllowListsDenyAll(t *testing.T) {
+	user := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", EnabledTools: []string{"other"}}
+	project := MCPServerConfig{Type: "http", URL: "http://127.0.0.1:1/mcp", EnabledTools: []string{"lookup"}, ProjectConfigured: true}
+	merged := mergeMCPServer(user, project, false)
+	if len(merged.EnabledTools) == 0 {
+		t.Fatalf("disjoint allow-lists collapsed to empty (allow all): %v", merged.EnabledTools)
+	}
+	for _, name := range []string{"lookup", "other"} {
+		if slices.Contains(merged.EnabledTools, name) {
+			t.Fatalf("disjoint allow-lists exposed %q: %v", name, merged.EnabledTools)
+		}
 	}
 }

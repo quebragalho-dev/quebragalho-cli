@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,12 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
+	"golang.org/x/term"
 )
 
 type mcpAddOptions struct {
@@ -362,6 +365,23 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	if raw.Disabled {
 		return writeAppError(stderr, fmt.Sprintf("Servidor MCP %q está desativado", serverName), exitCrash)
 	}
+	// The approval gate lives in RegisterTools below: an unapproved project
+	// server is refused there with the approve command as the reason.
+	if _, missing, _ := mcp.ExpandServerEnv(raw); len(missing) > 0 {
+		message := fmt.Sprintf("Servidor MCP %s não está acessível: %s", serverName, mcp.MissingEnvError(serverName, missing))
+		if options.json {
+			payload := struct {
+				ServerName string `json:"serverName"`
+				Status     string `json:"status"`
+				Error      string `json:"error,omitempty"`
+			}{ServerName: serverName, Status: "unreachable", Error: message}
+			if err := writePrettyJSON(stdout, redaction.RedactValue(payload, redaction.Options{})); err != nil {
+				return exitCrash
+			}
+			return exitCrash
+		}
+		return writeAppError(stderr, message, exitCrash)
+	}
 	scoped := config.MCPConfig{Servers: map[string]config.MCPServerConfig{serverName: raw}}
 	if _, err := mcp.NormalizeConfig(scoped); err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
@@ -375,6 +395,10 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 	mcpRuntime, err := deps.registerMCPTools(ctx, registry, scoped, mcp.RegisterOptions{
 		PermissionStore: store,
 		Autonomy:        mcp.AutonomyLow,
+		// The check spawns the named server, so it goes through the same
+		// trust + project-approval gate as every other spawn site: an
+		// unapproved project server is refused here, not connected.
+		ProjectRoot: cwd,
 	})
 	if err != nil {
 		closeMCPRuntime(stderr, mcpRuntime)
@@ -431,6 +455,230 @@ func runMCPCheck(ctx context.Context, args []string, stdout io.Writer, stderr io
 		return exitCrash
 	}
 	return exitSuccess
+}
+
+// runMCPApprove records the one-time user approval of a project-layer MCP
+// server for the current project. The approval binds the approved server
+// target (identity): editing the target requires approving again. Approving
+// is an explicit user gesture, so it works in untrusted workspaces too — the
+// trust gate still excludes the project layer until the workspace is trusted,
+// approval is necessary but not sufficient.
+func runMCPApprove(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) int {
+	confirmYes := false
+	positional := []string{}
+	help := false
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help", "help":
+			help = true
+		case "--yes", "-y":
+			confirmYes = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return writeExecUsageError(stderr, "usage: qg mcp approve [--yes] <server>")
+			}
+			positional = append(positional, arg)
+		}
+	}
+	if help {
+		return writeMCPApproveHelp(stdout)
+	}
+	if len(positional) != 1 {
+		return writeExecUsageError(stderr, "usage: qg mcp approve [--yes] <server>")
+	}
+	serverName := positional[0]
+	if err := mcp.ValidateServerName(serverName); err != nil {
+		return writeExecUsageError(stderr, err.Error())
+	}
+
+	cwd, err := deps.getwd()
+	if err != nil {
+		return writeAppError(stderr, "Não foi possível resolver a pasta de trabalho. Detalhe: "+err.Error(), exitCrash)
+	}
+	// Include the project layer: approval is about a project server, and the
+	// workspace may be untrusted (the trust gate still applies at use time).
+	cfg, err := deps.resolveMCPConfig(cwd, false)
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	raw, ok := cfg.Servers[serverName]
+	if !ok {
+		return writeAppError(stderr, fmt.Sprintf("Servidor MCP %q não está configurado", serverName), exitCrash)
+	}
+	if raw.Disabled {
+		return writeAppError(stderr, fmt.Sprintf("Servidor MCP %q está desativado", serverName), exitCrash)
+	}
+	if !raw.ProjectConfigured {
+		if _, err := fmt.Fprintf(stdout, "Servidor MCP %s não é de projeto: dispensa aprovação.\n", serverName); err != nil {
+			return exitCrash
+		}
+		return exitSuccess
+	}
+	// The gate approves the configured target, so approve the same literal
+	// values: identities are computed on the unexpanded config, keeping
+	// approvals stable across environment rotation.
+	scoped := config.MCPConfig{Servers: map[string]config.MCPServerConfig{serverName: raw}}
+	servers, err := mcp.NormalizeConfig(scoped)
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	approvals, err := mcp.OpenProjectApprovals()
+	if err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	if !confirmYes {
+		fmt.Fprintf(stderr, "Aprovar o servidor MCP %s do projeto %s?%s\n", serverName, cwd, mcpApprovePromptDetails(raw))
+		if !stdinIsTTY(deps.stdin) {
+			return writeAppError(stderr, "sem terminal interativo: use --yes para aprovar", exitCrash)
+		}
+		fmt.Fprintf(stderr, "Confirmar [s/N]: ")
+		answer, err := readMCPApproveAnswer(deps.stdin)
+		if err != nil || !isMCPApproveYes(answer) {
+			return writeAppError(stderr, "aprovação cancelada", exitCrash)
+		}
+	}
+	if err := approvals.Approve(mcp.ProjectApproval{ProjectRoot: cwd, ServerName: serverName, Identity: servers[0].Identity}); err != nil {
+		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
+	}
+	if _, err := fmt.Fprintf(stdout, "Servidor MCP %s aprovado para o projeto %s.\n", serverName, cwd); err != nil {
+		return exitCrash
+	}
+	return exitSuccess
+}
+
+func writeMCPApproveHelp(w io.Writer) int {
+	_, err := fmt.Fprint(w, `Uso:
+  qg mcp approve [--yes] <server>
+
+Aprova um servidor MCP da camada de projeto para o projeto atual. A
+aprovação é lembrada por projeto e vale para o alvo exato aprovado:
+trocar command, args, url ou credencial exige aprovar de novo.
+Sem --yes, pede confirmação no terminal.
+`)
+	if err != nil {
+		return exitCrash
+	}
+	return exitSuccess
+}
+
+// mcpApprovePromptDetails renders the exact target being approved: command
+// and args, URL, env with names and values, header names, and the timeout and
+// tool filters the project sets. Only values that look like secrets are
+// masked: names carrying KEY, TOKEN, SECRET, PASSWORD, AUTH or CREDENTIAL,
+// for env vars and --flag=value args alike. Everything else shows literally,
+// so the approver sees what they are binding.
+func mcpApprovePromptDetails(server config.MCPServerConfig) string {
+	var lines []string
+	if strings.TrimSpace(server.Command) != "" {
+		args := make([]string, 0, len(server.Args))
+		for _, arg := range server.Args {
+			args = append(args, maskMCPApproveArg(arg))
+		}
+		target := strings.TrimSpace(server.Command)
+		if len(args) > 0 {
+			target += " " + strings.Join(args, " ")
+		}
+		lines = append(lines, "  comando: "+target)
+	} else {
+		lines = append(lines, "  url: "+redactMCPURL(server.URL, "***"))
+	}
+	if len(server.Env) > 0 {
+		names := make([]string, 0, len(server.Env))
+		for name := range server.Env {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			value := server.Env[name]
+			if looksLikeMCPSecretName(name) {
+				value = "***"
+			}
+			lines = append(lines, "  env "+name+"="+value)
+		}
+	}
+	if len(server.Headers) > 0 {
+		names := make([]string, 0, len(server.Headers))
+		for name := range server.Headers {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		lines = append(lines, "  headers: "+strings.Join(names, ", "))
+	}
+	if server.Timeout > 0 {
+		lines = append(lines, fmt.Sprintf("  timeout: %dms (%s)", server.Timeout, formatApproveTimeout(server.Timeout)))
+	}
+	if len(server.EnabledTools) > 0 {
+		lines = append(lines, "  ferramentas permitidas: "+strings.Join(server.EnabledTools, ", "))
+	}
+	if len(server.DisabledTools) > 0 {
+		lines = append(lines, "  ferramentas bloqueadas: "+strings.Join(server.DisabledTools, ", "))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n" + strings.Join(lines, "\n")
+}
+
+// looksLikeMCPSecretName reports whether an env var name carries a secret by
+// naming: KEY, TOKEN, SECRET, PASSWORD, AUTH or CREDENTIAL.
+func looksLikeMCPSecretName(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, marker := range []string{"KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL"} {
+		if strings.Contains(upper, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// maskMCPApproveArg masks the value of --flag=value args whose flag looks
+// like a secret, keeping the flag name visible. The markers match env names.
+func maskMCPApproveArg(arg string) string {
+	name, _, ok := strings.Cut(arg, "=")
+	if !ok || !strings.HasPrefix(name, "--") {
+		return arg
+	}
+	if looksLikeMCPSecretName(strings.TrimPrefix(name, "--")) {
+		return name + "=***"
+	}
+	return arg
+}
+
+// formatApproveTimeout renders a millisecond timeout for the approval prompt.
+func formatApproveTimeout(millis int) string {
+	return fmt.Sprintf("%dms", millis)
+}
+
+// stdinIsTTY reports whether input reads from an interactive terminal.
+// Anything else (pipes, test buffers, closed stdin) is not confirmable.
+func stdinIsTTY(stdin io.Reader) bool {
+	file, ok := stdin.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(file.Fd()))
+}
+
+// readMCPApproveAnswer reads one confirmation line, tolerating a closed or
+// failing stdin as a refusal.
+func readMCPApproveAnswer(stdin io.Reader) (string, error) {
+	if stdin == nil {
+		return "", fmt.Errorf("no stdin")
+	}
+	reader := bufio.NewReader(stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && len(line) == 0 {
+		return "", err
+	}
+	return line, nil
+}
+
+func isMCPApproveYes(answer string) bool {
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "s", "sim", "y", "yes":
+		return true
+	}
+	return false
 }
 
 func parseMCPAddArgs(args []string) (mcpAddOptions, bool, error) {

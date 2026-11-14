@@ -97,10 +97,14 @@ func TestWorkspaceIsInTheStatusAndOnlyTheCard(t *testing.T) {
 	assertNotContains(t, status, "/workspace")
 }
 
-func TestStatusWorkspaceUsesLastAvailableCell(t *testing.T) {
+func TestStatusWorkspaceTruncatesToReserveBudget(t *testing.T) {
 	m := model{permissionMode: agent.PermissionModeAsk, cwd: "/" + strings.Repeat("a", 47)}
-	status := plainRender(t, m.appendStatusWorkspace("  ● ask", "", 58))
-	assertContains(t, status, m.cwd)
-	assertNotContains(t, status, "…")
-	assertRenderedLineWidths(t, status, 58)
+	// Through the production line at 58 the path takes the reserve budget
+	// the caller computes: it truncates with an ellipsis instead of
+	// overflowing, two cells short of the width for the join padding.
+	status := plainRender(t, m.statusLine(58))
+	assertContains(t, status, "/aaa")
+	assertContains(t, status, "…")
+	assertNotContains(t, status, m.cwd)
+	assertRenderedLineWidths(t, status, 56)
 }

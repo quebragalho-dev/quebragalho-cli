@@ -16,12 +16,13 @@ import (
 // commandUnknown fallback tries user commands before skills.
 
 // handleSkillCommand resolves a "/name args" that wasn't a builtin or a user
-// command against the installed skills. On a match it launches a normal agent
-// turn whose prompt inlines the skill body (its instructions) followed by the
-// typed args, returning handled=true. handled=false means no skill matched, so
+// command against the installed skills. On a match, the raw line rides the
+// same launch path as a plain message — every skill token it carries expands
+// in order (see launchPromptInternal), and the verbatim line is what the
+// queue, retry and history keep. handled=false means no skill matched, so
 // the caller falls through to "unknown command".
 func (m model) handleSkillCommand(raw string) (model, tea.Cmd, bool) {
-	name, args := splitUserCommand(raw)
+	name, _ := splitUserCommand(raw)
 	if name == "" {
 		return m, nil, false
 	}
@@ -29,8 +30,7 @@ func (m model) handleSkillCommand(raw string) (model, tea.Cmd, bool) {
 	if !ok {
 		return m, nil, false
 	}
-	body := strings.TrimSpace(skill.Content)
-	if body == "" {
+	if strings.TrimSpace(skill.Content) == "" {
 		// The name matched a real skill, so falling through to "unknown command"
 		// would mislead; surface the actual problem instead.
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
@@ -39,7 +39,38 @@ func (m model) handleSkillCommand(raw string) (model, tea.Cmd, bool) {
 		})
 		return m, nil, true
 	}
-	return m.launchOrDeferExpandedPrompt(raw, skillInvocationPrompt(body, args))
+	return m.launchOrDeferExpandedPrompt(raw)
+}
+
+// launchPinnedOrDefer delivers an agent-facing wire that has no raw
+// spelling (a non-typable skill's body from the picker). The run-state
+// guards match the slash paths; the FIFO keeps the wire under a marker so
+// the drain and /retry send it without a second expansion pass.
+func (m model) launchPinnedOrDefer(name, wire string) (model, tea.Cmd, bool) {
+	if m.exiting {
+		return m, nil, true
+	}
+	if m.pending {
+		return m.queueMessage(pinnedLiteralSkill(name, wire)), nil, true
+	}
+	if m.compactInFlight {
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{
+			kind: actionAppendSystem,
+			text: "Compact\nstatus: warning\nCompaction is running. Re-pick the skill when it finishes.",
+		})
+		return m, nil, true
+	}
+	next, teaCmd := m.launchPinnedWire(wire)
+	return next, teaCmd, true
+}
+
+// launchPinnedWire launches a pre-expanded wire and keeps the literal flag
+// set on the model: immediate picker launches, FIFO drains and /retry all
+// resend the wire verbatim, never re-expanding skill citations inside it.
+func (m model) launchPinnedWire(wire string) (model, tea.Cmd) {
+	next, teaCmd := m.launchPromptSilent(wire)
+	next.lastPromptLiteral = true
+	return next, teaCmd
 }
 
 // bareSkillInvocationNote is appended when a skill is invoked with no request.
@@ -51,34 +82,23 @@ const bareSkillInvocationNote = "The user invoked this skill directly without pr
 	"(which pull request, file, branch, topic, …), ask for them first — do not guess or pick one yourself. " +
 	"If the instructions are self-contained, proceed."
 
-// skillInvocationPrompt builds the agent prompt for a skill invocation: the
-// skill body (its instructions), then either the user's request or — for a bare
-// invocation — the ask-first note above. Mirrors usercommands.Expand's
-// no-placeholder behavior for the args case.
-func skillInvocationPrompt(body, args string) string {
-	if args != "" {
-		return body + "\n\n" + args
-	}
-	return body + "\n\n" + bareSkillInvocationNote
-}
-
 // launchOrDeferExpandedPrompt applies the same run-state guards the plain
-// commandPrompt path has to an expanded (user command / skill) prompt: while
-// exiting nothing may start, a prompt submitted mid-run is queued for the next
-// turn, and compaction-in-flight warns instead of racing the compactor. The
-// EXPANDED prompt is what gets queued — the queue flush path resubmits text as
-// a literal prompt, so queuing the raw "/name args" would send it to the model
-// as prose instead of re-dispatching it. raw is the typed invocation; on the
-// compaction warning it is restored into the composer for an easy re-submit
-// (the commandUnknown dispatch cleared the composer before we got here, unlike
-// the plain-prompt path whose guard fires before the clear). Empty raw (the
-// picker path has no typed form) restores nothing.
-func (m model) launchOrDeferExpandedPrompt(raw, prompt string) (model, tea.Cmd, bool) {
+// commandPrompt path has to a skill or user command invocation: while
+// exiting nothing may start, a prompt submitted mid-run is queued for the
+// next turn, and compaction-in-flight warns instead of racing the
+// compactor. raw is the typed line — it is what the FIFO holds and what
+// /retry re-dispatches; skill tokens it carries expand at launch or drain
+// inside launchPromptInternal, never before. On the compaction warning it is
+// restored into the composer for an easy re-submit (the dispatch path
+// cleared the composer before we got here, unlike the plain-prompt path
+// whose guard fires before the clear). Empty raw (the picker path has no
+// typed form) restores nothing.
+func (m model) launchOrDeferExpandedPrompt(raw string) (model, tea.Cmd, bool) {
 	if m.exiting {
 		return m, nil, true
 	}
 	if m.pending {
-		return m.queueMessage(prompt), nil, true
+		return m.queueMessage(raw), nil, true
 	}
 	if m.compactInFlight {
 		if strings.TrimSpace(raw) != "" {
@@ -91,7 +111,7 @@ func (m model) launchOrDeferExpandedPrompt(raw, prompt string) (model, tea.Cmd, 
 		})
 		return m, nil, true
 	}
-	next, teaCmd := m.launchPrompt(prompt)
+	next, teaCmd := m.launchPrompt(raw)
 	return next, teaCmd, true
 }
 
@@ -145,7 +165,17 @@ func (m model) invokeSkillByName(name string) (model, tea.Cmd) {
 			})
 			return m, nil
 		}
-		next, teaCmd, _ := m.launchOrDeferExpandedPrompt("", skillInvocationPrompt(body, ""))
+		if skillSlashName(name) == "" {
+			// Non-typable name (e.g. a space in it): the picker is the ONLY
+			// path to this skill, so it must expand the body here — a
+			// "/has space" line reaches no skill at dispatch time. There is
+			// no raw spelling for the wire, so the pinned literal path
+			// delivers it (guards included).
+			wire := composeSkillPrompt(body, "")
+			next, teaCmd, _ := m.launchPinnedOrDefer(name, wire)
+			return next, teaCmd
+		}
+		next, teaCmd, _ := m.launchOrDeferExpandedPrompt("/" + name)
 		return next, teaCmd
 	}
 	// The picker row came from a slightly older load (TTL cache) and the skill

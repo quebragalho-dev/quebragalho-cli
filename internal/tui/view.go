@@ -143,18 +143,7 @@ func (m model) composerTopBorder(width int) string {
 // output estimate); after the run, the last exact rate faint; nothing before
 // the first response. Returns the styled segment and its cell width.
 func (m model) composerRateSegment() (string, int) {
-	rate, live := "", false
-	// The dot only shows while the current call is emitting output and its
-	// usage has not arrived yet. Otherwise the last exact rate shows faint.
-	if m.pending && m.streamLive && m.pendingPermission == nil {
-		if exact := usageRate(m.streamUsage); exact != "" {
-			rate, live = exact, true
-		} else if est := m.liveEstimateRate(); est != "" {
-			rate, live = est, true
-		}
-	} else {
-		rate = strings.TrimSpace(m.lastCompletedRate)
-	}
+	rate, live := m.rateText()
 	if rate == "" {
 		return "", 0
 	}
@@ -175,6 +164,11 @@ func (m model) composerDividerLine(width int) string {
 }
 
 func (m model) statusLine(width int) string {
+	// A configured layout renders instead of the built-in line; the zero
+	// config keeps the built-in path byte-identical.
+	if m.statuslineCfg.IsCustom() {
+		return m.statusLineCustom(width)
+	}
 	tier := widthTier(width)
 	separator := qgTheme.line.Render(" │ ")
 	prefix := "  "
@@ -247,19 +241,22 @@ func (m model) statusLine(width int) string {
 	return fitStyledLine(left, width)
 }
 
-func (m model) appendStatusWorkspace(left, right string, width int) string {
+func (m model) appendStatusWorkspace(left, right string, reserveAvail int) string {
 	cwd := strings.TrimSpace(m.cwd)
 	if cwd == "" {
 		return left
 	}
-	budget := width - lipgloss.Width(left) - 3
+	sepWidth := 0
 	if right != "" {
-		budget -= lipgloss.Width(right) + 2
+		sepWidth = lipgloss.Width(qgTheme.line.Render(" │ "))
 	}
-	if budget < 4 {
+	// The take follows the same width-independent budget as the notice
+	// cascade: narrowing only ever shortens it, never resurrects it.
+	take := minInt(len([]rune(shortenPath(cwd))), reserveAvail-3-sepWidth)
+	if take < 4 {
 		return left
 	}
-	return left + qgTheme.line.Render(" │ ") + qgTheme.faint.Render(truncateDisplayWidth(shortenPath(cwd), budget))
+	return left + qgTheme.line.Render(" │ ") + qgTheme.faint.Render(truncateDisplayWidth(shortenPath(cwd), take))
 }
 
 // nextPermissionMode toggles between the two prompt-respecting modes:
@@ -456,14 +453,10 @@ func (m model) suggestionOverlay(width int) string {
 }
 
 func commandSuggestionQuery(value string) string {
-	trimmed := strings.TrimLeft(value, " ")
-	if trimmed == "" {
-		return ""
+	if query := trailingSlashToken(value); query != "" {
+		return strings.TrimPrefix(query, "/")
 	}
-	if fields := strings.Fields(trimmed); len(fields) > 0 {
-		return strings.TrimPrefix(fields[0], "/")
-	}
-	return strings.TrimPrefix(strings.TrimSpace(trimmed), "/")
+	return ""
 }
 
 func fileSuggestionQuery(value string) string {
@@ -1105,6 +1098,22 @@ func argHintSecondary(raw string) string {
 		return ""
 	}
 	return secondary
+}
+
+// argFlagTrue reports whether the named JSON argument is boolean true.
+// Unlike firstArgValue it reads a real bool, for flags such as
+// run_in_background that are never strings.
+func argFlagTrue(raw string, key string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" {
+		return false
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return false
+	}
+	enabled, _ := args[key].(bool)
+	return enabled
 }
 
 func firstArgValue(raw string, keys []string) string {

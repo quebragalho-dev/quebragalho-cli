@@ -70,10 +70,68 @@ func ShrinkBackoffForTest() func() {
 const preSendMaxAttempts = 3
 
 // preSendBackoffBase is the first wait before replaying a pre-send transport
-// failure. Modeled on the mid-stream reconnect base (internal/agent/reconnect.go),
-// it is sub-second so a transient dial blip recovers quickly and a permanent one
+// failure. Modeled on the old mid-stream reconnect base, it is sub-second so a
+// transient dial blip recovers quickly and a permanent one
 // fails fast. A var so tests can shrink it.
 var preSendBackoffBase = 500 * time.Millisecond
+
+// callerRetryKey marks a context whose caller owns the retry policy and
+// budget (the agent model-call loop). SendWithRetry, seeing it, issues
+// exactly one attempt and hands the outcome back instead of retrying
+// internally, so retries never stack across layers.
+type callerRetryKey struct{}
+
+// WithCallerRetry marks ctx so SendWithRetry issues a single attempt. The
+// agent model-call loop sets it around every provider StreamCompletion: its
+// own 10-attempt budget is then the only budget in play.
+func WithCallerRetry(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, callerRetryKey{}, true)
+}
+
+// CallerOwnsRetry reports whether ctx carries the caller-retry marker.
+func CallerOwnsRetry(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	owned, _ := ctx.Value(callerRetryKey{}).(bool)
+	return owned
+}
+
+// StatusError is a provider HTTP failure that preserves the machine-readable
+// parts: the status code and the server's Retry-After delay. Providers attach
+// it to the stream error event; the agent recovers it with errors.As so the
+// wait honors the server's delay instead of re-parsing text.
+type StatusError struct {
+	StatusCode int
+	RetryAfter time.Duration
+	Message    string
+}
+
+// Error returns the human-readable failure.
+func (e *StatusError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
+}
+
+// doOnce builds and issues one HTTP request, returning the raw outcome.
+func doOnce(ctx context.Context, client *http.Client, method string, url string, body []byte, setHeader func(*http.Request)) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	if setHeader != nil {
+		setHeader(request)
+	}
+	connectSpan := trace.FromContext(ctx).Span(trace.SpanProviderConnect)
+	response, err := client.Do(request)
+	connectSpan.End()
+	return response, err
+}
 
 // SendWithRetry issues an HTTP request, retrying ONLY the safe-to-replay server
 // responses (429 and 503, see ShouldRetryStatus) up to maxAttempts — backing off
@@ -129,6 +187,25 @@ func SendWithRetry(
 			return errors.New("stopped after 10 redirects")
 		}
 		return nil
+	}
+	if CallerOwnsRetry(ctx) {
+		// The caller (the agent model-call loop) owns the retry policy and
+		// budget: issue exactly one attempt and hand the outcome back. No
+		// status retries, no pre-send retries, no waits — retries must never
+		// stack across layers. Callers without the marker keep the internal
+		// policy below.
+		response, err := doOnce(ctx, &redirectAwareClient, method, url, body, setHeader)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, err
+		}
+		if ctx.Err() != nil {
+			_ = response.Body.Close()
+			return nil, ctx.Err()
+		}
+		return response, nil
 	}
 	// The two retry budgets are fully independent, each with its own counter and
 	// its own backoff ordinal, because they answer different questions: a

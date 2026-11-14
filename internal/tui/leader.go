@@ -69,6 +69,13 @@ func (m model) handleLeaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if keyIs(msg, tea.KeyEsc) {
 		return m.clearLeader(), nil
 	}
+	// Ctrl+X Ctrl+S sends the queue plus the composer draft NOW — the same
+	// action as Ctrl+Enter. Different chord from Ctrl+X s (/stop); the
+	// control-with-control chord is deliberate.
+	if keyCtrl(msg, 's') {
+		m = m.clearLeader()
+		return m.handleInterleaveEnter(msg)
+	}
 	// Ctrl+X ? opens the full leader-chord map (discoverability for every wired
 	// slash shortcut). Not a letter binding, so handle before leaderSecondKey.
 	if keyText(msg) == "?" && !keyAlt(msg) && !keyHasMod(msg, tea.ModCtrl) {
@@ -99,6 +106,7 @@ func leaderHelpBindings() []keybinding {
 		{"Ctrl+X c", "run /clear"},
 		{"Ctrl+X C", "run /context"},
 		{"Ctrl+X s", "run /stop"},
+		{"Ctrl+X Ctrl+S", "send the queue and the draft now"},
 		{"Ctrl+X i", "run /image"},
 		{"Ctrl+X r", "open /resume"},
 		{"Ctrl+X u", "run /rewind"},

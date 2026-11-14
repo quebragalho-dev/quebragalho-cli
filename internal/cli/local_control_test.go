@@ -65,6 +65,7 @@ func TestRunExecListToolsHonorsDisabledLocalControlConfig(t *testing.T) {
 		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
 			return cfg, nil
 		},
+		selectSandboxBackend: availableSandboxBackendStub,
 	})
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())

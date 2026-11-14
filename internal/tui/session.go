@@ -104,6 +104,12 @@ func (m model) startNewSession() model {
 	if m.usageTracker != nil {
 		m.usageTracker.Reset()
 	}
+	m.cacheDrops = nil
+	m.lastCacheTools = ""
+	m.lastCacheSystem = ""
+	m.lastCacheAt = time.Time{}
+	m.lastCacheModel = ""
+	m.cacheClearBoundary = true
 	m.lastUsage = usage.Normalized{}
 	m.lastUsageSeen = false
 	m.streamUsage = qgruntime.Usage{}
@@ -126,12 +132,20 @@ func (m model) startNewSession() model {
 	// Staged input belongs to the previous conversation. Attachments and a queued
 	// message are only consumed at prompt-submit, so without clearing them here the
 	// fresh session's first prompt would silently inherit the old session's images,
-	// documents, or queued text.
+	// documents, or queued text. A parked send-now batch goes back to the composer
+	// with everything else (same rule as a cancel) — never dropped silently.
+	m = m.returnQueuedMessagesToComposer()
+	// The parked batch rides ABOVE the FIFO — matching the cancel order
+	// (undelivered batch first, then the queue, above the draft).
 	m.pendingImages = nil
 	m.pendingImageLabels = nil
 	m.pendingImageThumbnails = nil
 	m.pendingDocuments = nil
 	m.queuedMessages = nil
+	// The interleave buffer belongs to the run, never the session: the fresh
+	// session gets its own so a stranded push from the old turn cannot ride
+	// the new session's next provider request.
+	m.interleave = &interleaveBuffer{}
 	// The remembered /retry attachment snapshot belongs to the previous session
 	// too — dropping it keeps a post-/new /retry from re-staging old images or
 	// documents. lastPrompt is composer history (like inputHistory) and stays.
@@ -334,6 +348,11 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	m.pendingSessionTitle = ""
 	m.sessionEvents = append([]sessions.Event{}, events...)
 	m.lastUsage, m.lastUsageSeen, m.lastUsageReceipt = lastUsageFromSessionEvents(rawUsageEvents)
+	// Recompose the session cache totals from the saved usage events so the
+	// statusline hit and the /usage panel survive a resume; without saved
+	// events the counters start from zero. The drop journal itself is not
+	// rebuilt (motives need live prefix data), only the totals.
+	m = m.seedUsageFromSessionEvents(rawUsageEvents)
 	// The reloaded receipt IS the resumed session's live context: the meter
 	// follows it (and stays dead when the session has no usage), so no value
 	// from the previous session can ever leak through.

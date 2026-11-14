@@ -114,9 +114,14 @@ func statusPathSegment(shown string, take int) string {
 // then the notice drops. Blocks stay two cells apart, and the join below
 // always has room for its own padding, so the version is never cut. It
 // reports false when no notice fits even without the path: the caller then
-// renders the notice-free footer, which keeps the path.
-func (m model) joinStatusWithNotice(left, right string, forms []string, width int) (string, bool) {
-	avail := width - 2 - lipgloss.Width(left) - lipgloss.Width(right)
+// hides the path with the notice, while the right side (context, cache)
+// keeps its normal rules and stays whenever it fits on its own.
+// reserveAvail is the width-independent budget (full right side assumed): all
+// take/form decisions use it so narrowing never resurrects content the full
+// layout already ruled out. Rendering still uses the actual (possibly
+// dropped) right side.
+func (m model) joinStatusWithNotice(left, right string, forms []string, width, reserveAvail int, forceFull bool) (string, bool) {
+	avail := reserveAvail
 	styledRight := ""
 	sep := ""
 	if right != "" {
@@ -130,6 +135,11 @@ func (m model) joinStatusWithNotice(left, right string, forms []string, width in
 		shown := shortenPath(path)
 		natural := lipgloss.Width(shown)
 		floor := minInt(natural, updateNoticeMinPath)
+		if forceFull {
+			// The cache fit already proved the whole layout fits: render
+			// everything whole instead of re-budgeting it.
+			return joinHeaderLine(left+statusPathSegment(shown, natural), styledRight+sep+forms[0], width), true
+		}
 		// The path yields first while the notice stays whole.
 		if take := minInt(natural, avail-3-sepWidth-lipgloss.Width(forms[0])); take >= floor {
 			return joinHeaderLine(left+statusPathSegment(shown, take), styledRight+sep+forms[0], width), true
@@ -142,12 +152,17 @@ func (m model) joinStatusWithNotice(left, right string, forms []string, width in
 		}
 	}
 	// Then the path drops and the notice takes the space alone, longest
-	// form first — but only when that actually fits a notice.
-	if form := m.updateNoticeSegment(avail - sepWidth); form != "" {
-		if styledRight != "" {
-			styledRight += sep
+	// form first — but only when there is no path to protect. With a
+	// path, a failed step-down stays failed so narrowing never upgrades
+	// the notice while the path drops, and never hands the path the room
+	// the notice just left.
+	if strings.TrimSpace(m.cwd) == "" {
+		if form := m.updateNoticeSegment(avail - sepWidth); form != "" {
+			if styledRight != "" {
+				styledRight += sep
+			}
+			return joinHeaderLine(left, styledRight+form, width), true
 		}
-		return joinHeaderLine(left, styledRight+form, width), true
 	}
 	return "", false
 }

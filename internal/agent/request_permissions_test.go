@@ -10,12 +10,13 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func TestUnsafeAutoGrantsRequestPermissions(t *testing.T) {
 	workspace := t.TempDir()
-	outside := tempDirOutsideDefaultTemp(t)
+	outside := testutil.TempDirOutsideDefaultTemp(t)
 	target := filepath.Join(outside, "carrot.txt")
 	engine := sandbox.NewEngine(sandbox.EngineOptions{
 		WorkspaceRoot: workspace,
@@ -94,7 +95,7 @@ func TestUnsafeAutoGrantsRequestPermissions(t *testing.T) {
 
 func TestUnsafeRequestPermissionsGrantsWithoutPrompt(t *testing.T) {
 	workspace := t.TempDir()
-	outside := tempDirOutsideDefaultTemp(t)
+	outside := testutil.TempDirOutsideDefaultTemp(t)
 	target := filepath.Join(outside, "vegetables.txt")
 	scope, err := sandbox.NewScope(workspace, nil)
 	if err != nil {
@@ -214,7 +215,7 @@ func TestRequestPermissionsStillDeniedInPlanAndSpecDraft(t *testing.T) {
 
 func TestRequestPermissionsTurnGrantAllowsLaterToolAndCleansUp(t *testing.T) {
 	workspace := t.TempDir()
-	outside := tempDirOutsideDefaultTemp(t)
+	outside := testutil.TempDirOutsideDefaultTemp(t)
 	target := filepath.Join(outside, "vegetables.txt")
 	scope, err := sandbox.NewScope(workspace, nil)
 	if err != nil {
@@ -317,23 +318,6 @@ func TestRequestPermissionsTurnGrantAllowsLaterToolAndCleansUp(t *testing.T) {
 	if decision.Action != sandbox.ActionPrompt {
 		t.Fatalf("turn grant should be cleaned up after Run, got decision %#v", decision)
 	}
-}
-
-func tempDirOutsideDefaultTemp(t *testing.T) string {
-	t.Helper()
-	dir, err := os.MkdirTemp(".", ".qg-sandbox-outside-")
-	if err != nil {
-		t.Fatalf("MkdirTemp outside default temp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatalf("Abs(%q): %v", dir, err)
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved
-	}
-	return filepath.Clean(abs)
 }
 
 func TestInlineAdditionalPermissionsGrantAllowsNetworkCommand(t *testing.T) {

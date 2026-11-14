@@ -30,7 +30,7 @@ func TestServeListsAndCallsRegistryTools(t *testing.T) {
 	})
 
 	var input bytes.Buffer
-	writeServerTestMessage(t, &input, rpcMessage{ID: 1, Method: "initialize"})
+	writeServerTestMessage(t, &input, rpcMessage{ID: 1, Method: "initialize", Params: mustRaw(map[string]any{"protocolVersion": "2025-03-26"})})
 	writeServerTestMessage(t, &input, rpcMessage{Method: "notifications/initialized"})
 	writeServerTestMessage(t, &input, rpcMessage{ID: 2, Method: "tools/list"})
 	writeServerTestMessage(t, &input, rpcMessage{
@@ -58,8 +58,8 @@ func TestServeListsAndCallsRegistryTools(t *testing.T) {
 		} `json:"serverInfo"`
 	}
 	decodeServerTestResult(t, initialize, &initResult)
-	if initResult.ProtocolVersion != defaultProtocolVersion || initResult.ServerInfo.Name != "qg-test" || initResult.ServerInfo.Version != "1.2.3" {
-		t.Fatalf("initialize result = %#v", initResult)
+	if initResult.ProtocolVersion != "2025-03-26" || initResult.ServerInfo.Name != "qg-test" || initResult.ServerInfo.Version != "1.2.3" {
+		t.Fatalf("initialize result = %#v, want the requested supported version echoed", initResult)
 	}
 	if _, ok := initResult.Capabilities["tools"]; !ok {
 		t.Fatalf("initialize capabilities = %#v, want tools", initResult.Capabilities)
@@ -243,5 +243,25 @@ func decodeServerTestResult(t *testing.T, message rpcMessage, target any) {
 	}
 	if err := json.Unmarshal(message.Result, target); err != nil {
 		t.Fatalf("decode result: %v\n%s", err, string(message.Result))
+	}
+}
+
+func TestServeFallsBackToNewestForUnknownVersion(t *testing.T) {
+	registry := tools.NewRegistry()
+	var input bytes.Buffer
+	writeServerTestMessage(t, &input, rpcMessage{ID: 1, Method: "initialize", Params: mustRaw(map[string]any{"protocolVersion": "2099-01-01"})})
+
+	var output bytes.Buffer
+	if err := Serve(context.Background(), &input, &output, registry, ServeOptions{Name: "qg-test", Version: "1.2.3"}); err != nil {
+		t.Fatalf("Serve() error = %v", err)
+	}
+	reader := newMessageReader(&output)
+	initialize := readServerTestMessage(t, reader)
+	var initResult struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	decodeServerTestResult(t, initialize, &initResult)
+	if initResult.ProtocolVersion != latestMCPProtocolVersion() {
+		t.Fatalf("initialize result = %#v, want newest for an unknown version", initResult)
 	}
 }

@@ -13,23 +13,6 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
-func tempDirOutsideDefaultTemp(t *testing.T) string {
-	t.Helper()
-	dir, err := os.MkdirTemp(".", ".qg-sandbox-outside-")
-	if err != nil {
-		t.Fatalf("MkdirTemp outside default temp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatalf("Abs(%q): %v", dir, err)
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved
-	}
-	return filepath.Clean(abs)
-}
-
 func TestCoreReadOnlyToolsExposeSafeMetadata(t *testing.T) {
 	toolset := CoreReadOnlyToolsScoped(t.TempDir(), nil)
 	if len(toolset) != 10 {

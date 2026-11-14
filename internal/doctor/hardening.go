@@ -58,14 +58,16 @@ func sandboxBackendWarning(goos string, backend sandbox.Backend) string {
 }
 
 // linuxSandboxPieceMessage maps the backend's machine diagnostic to the
-// Portuguese human warning naming which Linux sandbox piece is missing and
-// what to do: a missing helper means reinstalling qg (the installer and npm
-// layouts ship qg-linux-sandbox beside the qg binary), a missing bwrap means
-// installing the system package. It switches on the backend message the
-// selection already produced — the doctor never resolves the helper a second
-// time. Empty means the backend failed for another reason, so the generic
-// warning applies. The JSON details (including remedy) stay in canonical
-// English; only this human message is Portuguese.
+// Portuguese human warning naming which Linux sandbox piece is missing (or
+// broken) and what to do: a missing helper means reinstalling qg (the
+// installer and npm layouts ship qg-linux-sandbox beside the qg binary), a
+// missing bwrap means installing the system package, and a broken bwrap is
+// already a full Portuguese remediation (matched by prefix because it carries
+// the probe's stderr), so it is returned as is. It switches on the backend
+// message the selection already produced — the doctor never resolves the
+// helper a second time. Empty means the backend failed for another reason, so
+// the generic warning applies. The JSON details (including remedy) stay in
+// canonical English; only this human message is Portuguese.
 func linuxSandboxPieceMessage(backendMessage string) string {
 	switch backendMessage {
 	case sandbox.LinuxSandboxHelperMissingMessage:
@@ -73,6 +75,9 @@ func linuxSandboxPieceMessage(backendMessage string) string {
 	case sandbox.BubblewrapMissingMessage:
 		return "bubblewrap (bwrap) não encontrado no PATH; instale com `sudo apt install bubblewrap` (ou o equivalente da sua distribuição) para ativar o ambiente isolado."
 	default:
+		if strings.HasPrefix(backendMessage, sandbox.BubblewrapUnusableMessagePrefix) {
+			return backendMessage
+		}
 		return ""
 	}
 }

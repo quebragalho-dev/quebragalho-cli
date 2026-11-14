@@ -504,13 +504,16 @@ func (m model) usagePanelOverlay(width int) string {
 	}
 	lines := []string{tabs, ""}
 	if m.picker.usageTab == 0 {
+		if cache := m.cacheSessionLines(); len(cache) > 0 {
+			lines = append(lines, cache...)
+			lines = append(lines, "")
+		}
 		lines = append(lines, "Última chamada")
 		if m.lastUsageSeen {
 			u := m.lastUsage
 			lines = append(lines, "Modelo: "+displayValue(m.lastUsageReceipt.meta["model"], "não informado"),
-				"Entrada: "+formatUsageTokens(u.InputTokens)+" · saída: "+formatUsageTokens(u.OutputTokens),
-				"Cache lido (incluído): "+formatUsageTokens(u.CachedInputTokens),
-				"Total: "+formatUsageTokens(u.TotalTokens), "Custo: "+callCostText(m.lastUsageReceipt))
+				formatCacheLastCall(u, m.lastUsageReceipt.meta["amount"], m.lastUsageReceipt.meta["currency"]),
+				"Total: "+formatUsageTokens(u.TotalTokens))
 		} else {
 			lines = append(lines, "Uso não informado")
 		}

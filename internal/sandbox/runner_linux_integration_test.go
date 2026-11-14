@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/testutil"
 )
 
 func TestLinuxHelperRealSandboxSmoke(t *testing.T) {
@@ -106,7 +107,7 @@ func TestLinuxHelperRealSandboxSmoke(t *testing.T) {
 	})
 
 	t.Run("missing command credential root fails closed without host mutation", func(t *testing.T) {
-		commandRoot := filepath.Join(tempDirOutsideDefaultTemp(t), "missing-command-home")
+		commandRoot := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "missing-command-home")
 		commandConfig := filepath.Join(commandRoot, "config")
 		launched := filepath.Join(root, "command-credential-root-launched")
 		engine := NewEngine(EngineOptions{WorkspaceRoot: root, Policy: DefaultPolicy(), Backend: backend})

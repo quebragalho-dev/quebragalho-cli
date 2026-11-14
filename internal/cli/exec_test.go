@@ -971,7 +971,9 @@ func TestRunExecUsesProjectConfigAndOpenAICompatibleProvider(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exitCode := Run([]string{"exec", "--cwd", root, "hello provider"}, &stdout, &stderr)
+	deps := defaultAppDeps()
+	deps.selectSandboxBackend = availableSandboxBackendStub
+	exitCode := runWithDeps([]string{"exec", "--cwd", root, "hello provider"}, &stdout, &stderr, deps)
 
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr.String())
@@ -1036,6 +1038,7 @@ func runExecWithEcho(t *testing.T, args []string) (int, string, string) {
 		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
 			return echoExecProvider{}, nil
 		},
+		selectSandboxBackend: availableSandboxBackendStub,
 	})
 	return exitCode, stdout.String(), stderr.String()
 }

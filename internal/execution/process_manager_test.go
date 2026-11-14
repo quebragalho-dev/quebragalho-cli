@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/yieldnow"
 )
 
 func processManagerRequest(root string, command *exec.Cmd) Request {
@@ -393,4 +395,247 @@ func TestProcessPruningDoesNotRaceTouch(t *testing.T) {
 	}
 	close(stop)
 	writer.Wait()
+}
+
+// A send-now Request wakes the exec_command yield wait at once: the Start
+// returns the normal still-running partial result long before the yield
+// expires, while the process keeps running as a background session.
+func TestProcessManagerStartWakesOnYieldNow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	root := t.TempDir()
+	manager := NewProcessManager(ProcessManagerOptions{})
+	command := exec.Command("/bin/sh", "-c", "sleep 30")
+	signal := yieldnow.New()
+	ctx := yieldnow.WithSignal(context.Background(), signal)
+	type startOut struct {
+		result ProcessResult
+		err    error
+		took   time.Duration
+	}
+	done := make(chan startOut, 1)
+	go func() {
+		start := time.Now()
+		result, err := manager.Start(ctx, ProcessStart{
+			Prepared: PreparedCommand{Command: command}, Request: processManagerRequest(root, command),
+		}, 30*time.Second)
+		done <- startOut{result: result, err: err, took: time.Since(start)}
+	}()
+	// Wait for the wait to park (registered synchronously in collect), then
+	// fire exactly one send-now.
+	fired := false
+	for i := 0; i < 500 && !fired; i++ {
+		time.Sleep(10 * time.Millisecond)
+		fired = signal.Request()
+	}
+	if !fired {
+		t.Fatal("send-now Request never found the parked yield wait")
+	}
+	var out startOut
+	select {
+	case out = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Start did not wake on send-now")
+	}
+	if out.err != nil {
+		t.Fatalf("Start: %v", out.err)
+	}
+	if out.result.Exited {
+		t.Fatalf("woken Start must report the process still running, got %#v", out.result)
+	}
+	if out.took >= 10*time.Second {
+		t.Fatalf("woken Start took %v, want an early return well before the 30s yield", out.took)
+	}
+	// The process survives as a background session: still retained, not done.
+	snapshot, ok := manager.Snapshot(out.result.ProcessID)
+	_ = snapshot
+	if !ok {
+		t.Fatal("woken process must stay alive as a background session")
+	}
+	if got := manager.Len(); got != 1 {
+		t.Fatalf("manager holds %d processes, want the 1 still-running session", got)
+	}
+	manager.Stop(out.result.ProcessID)
+}
+
+// The same long poll through Continue wakes on send-now too, with the
+// process still alive afterwards.
+func TestProcessManagerContinueWakesOnYieldNow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	root := t.TempDir()
+	manager := NewProcessManager(ProcessManagerOptions{})
+	command := exec.Command("/bin/sh", "-c", "sleep 30")
+	started, err := manager.Start(context.Background(), ProcessStart{
+		Prepared: PreparedCommand{Command: command}, Request: processManagerRequest(root, command),
+	}, time.Millisecond)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer manager.Stop(started.ProcessID)
+	if started.Exited {
+		t.Fatalf("sleep must still run after a 1ms yield, got %#v", started)
+	}
+	signal := yieldnow.New()
+	ctx := yieldnow.WithSignal(context.Background(), signal)
+	type continueOut struct {
+		result ProcessResult
+		err    error
+		took   time.Duration
+	}
+	done := make(chan continueOut, 1)
+	go func() {
+		start := time.Now()
+		result, err := manager.Continue(ctx, ProcessContinue{ProcessID: started.ProcessID, Wait: 30 * time.Second})
+		done <- continueOut{result: result, err: err, took: time.Since(start)}
+	}()
+	fired := false
+	for i := 0; i < 500 && !fired; i++ {
+		time.Sleep(10 * time.Millisecond)
+		fired = signal.Request()
+	}
+	if !fired {
+		t.Fatal("send-now Request never found the parked poll")
+	}
+	var out continueOut
+	select {
+	case out = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Continue did not wake on send-now")
+	}
+	if out.err != nil {
+		t.Fatalf("Continue: %v", out.err)
+	}
+	if out.result.Exited {
+		t.Fatalf("woken Continue must report the process still running, got %#v", out.result)
+	}
+	if out.took >= 10*time.Second {
+		t.Fatalf("woken Continue took %v, want an early return well before the 30s wait", out.took)
+	}
+	if _, ok := manager.Snapshot(started.ProcessID); !ok {
+		t.Fatal("polled process must stay alive after the wake")
+	}
+}
+
+// Without a Signal the waits behave exactly as before: the full yield runs out.
+func TestProcessManagerStartWithoutSignalWaitsOutYield(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	root := t.TempDir()
+	manager := NewProcessManager(ProcessManagerOptions{})
+	command := exec.Command("/bin/sh", "-c", "sleep 30")
+	start := time.Now()
+	result, err := manager.Start(context.Background(), ProcessStart{
+		Prepared: PreparedCommand{Command: command}, Request: processManagerRequest(root, command),
+	}, 300*time.Millisecond)
+	took := time.Since(start)
+	defer manager.Stop(result.ProcessID)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if result.Exited {
+		t.Fatalf("short yield must report the process still running, got %#v", result)
+	}
+	if took < 250*time.Millisecond {
+		t.Fatalf("without a Signal the full yield must run out, took only %v", took)
+	}
+}
+
+// Behavior lock: with continuous output the drain branch must still honor
+// a send-now at once, returning the still-running partial result and leaving
+// the process alive. Measured on this machine the loop already reaches the
+// select within milliseconds even under a `yes` flood (the drain outruns any
+// single producer), so this pins the latency bound rather than proving a
+// past starvation; the in-drain check above bounds the worst case by
+// construction.
+func TestProcessManagerStartWakesOnYieldNowWithContinuousOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	root := t.TempDir()
+	manager := NewProcessManager(ProcessManagerOptions{})
+	command := exec.Command("/bin/sh", "-c", "while :; do echo x; done")
+	signal := yieldnow.New()
+	ctx := yieldnow.WithSignal(context.Background(), signal)
+	type startOut struct {
+		result ProcessResult
+		err    error
+		took   time.Duration
+	}
+	done := make(chan startOut, 1)
+	go func() {
+		start := time.Now()
+		result, err := manager.Start(ctx, ProcessStart{
+			Prepared: PreparedCommand{Command: command}, Request: processManagerRequest(root, command),
+		}, 30*time.Second)
+		done <- startOut{result: result, err: err, took: time.Since(start)}
+	}()
+	fired := false
+	for i := 0; i < 500 && !fired; i++ {
+		time.Sleep(10 * time.Millisecond)
+		fired = signal.Request()
+	}
+	if !fired {
+		t.Fatal("send-now Request never found the parked yield wait")
+	}
+	var out startOut
+	select {
+	case out = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("continuous-output wait did not wake on send-now")
+	}
+	if out.err != nil {
+		t.Fatalf("Start: %v", out.err)
+	}
+	if out.result.Exited {
+		t.Fatalf("woken wait must report the process still running, got %#v", out.result)
+	}
+	if out.took >= 10*time.Second {
+		t.Fatalf("woken continuous-output wait took %v, want an early return well before the 30s yield", out.took)
+	}
+	if _, ok := manager.Snapshot(out.result.ProcessID); !ok {
+		t.Fatal("streaming process must stay alive as a background session")
+	}
+	manager.Stop(out.result.ProcessID)
+}
+
+// Behavior lock: continuous output must not starve the ctx.Done() branch
+// either — a cancelled wait returns promptly instead of draining to the
+// deadline.
+func TestProcessManagerContinuousOutputHonorsContextCancel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test command uses a POSIX shell")
+	}
+	root := t.TempDir()
+	manager := NewProcessManager(ProcessManagerOptions{})
+	command := exec.Command("/bin/sh", "-c", "while :; do echo x; done")
+	ctx, cancel := context.WithCancel(context.Background())
+	type startOut struct {
+		result ProcessResult
+		err    error
+		took   time.Duration
+	}
+	done := make(chan startOut, 1)
+	go func() {
+		start := time.Now()
+		result, err := manager.Start(ctx, ProcessStart{
+			Prepared: PreparedCommand{Command: command}, Request: processManagerRequest(root, command),
+		}, 30*time.Second)
+		done <- startOut{result: result, err: err, took: time.Since(start)}
+	}()
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	var out startOut
+	select {
+	case out = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("continuous-output wait ignored context cancellation")
+	}
+	_ = out
+	if out.took >= 10*time.Second {
+		t.Fatalf("cancelled continuous-output wait took %v, want an early return", out.took)
+	}
 }

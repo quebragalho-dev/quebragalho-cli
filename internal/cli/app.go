@@ -77,20 +77,23 @@ type appDeps struct {
 	newQGDeviceClient func() (qgDeviceAPI, error)
 	// openBrowser opens the device-flow approval link (production:
 	// browser.Open); tests inject a fake so no real browser launches.
-	openBrowser                  func(ctx context.Context, url string) error
-	detectLocalRuntimes          func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
-	newSessionStore              func() *sessions.Store
-	loadPlugins                  func(plugins.LoadOptions) (plugins.LoadResult, error)
-	loadHooks                    func(hooks.LoadOptions) (hooks.LoadResult, error)
-	skillsDir                    func() string
-	pluginsDir                   func() string
-	toolsDir                     func() string
-	newMCPStore                  func() (*mcp.PermissionStore, error)
-	newMCPTokenStore             func() (*mcp.TokenStore, error)
-	newSandboxStore              func() (*sandbox.GrantStore, error)
-	selectSandboxBackend         func(sandbox.BackendOptions) sandbox.Backend
-	runSandboxSetupHelper        func(path string, args []string, stdout io.Writer, stderr io.Writer) error
-	registerMCPTools             func(context.Context, *tools.Registry, config.MCPConfig, mcp.RegisterOptions) (mcpToolRuntime, error)
+	openBrowser           func(ctx context.Context, url string) error
+	detectLocalRuntimes   func(context.Context, provideronboarding.LocalDetectOptions) []provideronboarding.DetectedLocalRuntime
+	newSessionStore       func() *sessions.Store
+	loadPlugins           func(plugins.LoadOptions) (plugins.LoadResult, error)
+	loadHooks             func(hooks.LoadOptions) (hooks.LoadResult, error)
+	skillsDir             func() string
+	pluginsDir            func() string
+	toolsDir              func() string
+	newMCPStore           func() (*mcp.PermissionStore, error)
+	newMCPTokenStore      func() (*mcp.TokenStore, error)
+	newSandboxStore       func() (*sandbox.GrantStore, error)
+	selectSandboxBackend  func(sandbox.BackendOptions) sandbox.Backend
+	runSandboxSetupHelper func(path string, args []string, stdout io.Writer, stderr io.Writer) error
+	registerMCPTools      func(context.Context, *tools.Registry, config.MCPConfig, mcp.RegisterOptions) (mcpToolRuntime, error)
+	// probeMCPServers dials MCP servers for `mcp list` status. It is a field
+	// so tests inject a fake instead of opening real connections.
+	probeMCPServers              func(context.Context, []mcp.Server) map[string]mcp.ProbeResult
 	prepareWorktree              func(context.Context, worktrees.Options) (worktrees.Result, error)
 	releaseWorktree              func(context.Context, worktrees.Options, string) error
 	detectVerifyPlan             func(string) (verify.Plan, error)
@@ -636,6 +639,11 @@ func fillAppDeps(deps appDeps) appDeps {
 	if deps.registerMCPTools == nil {
 		deps.registerMCPTools = defaults.registerMCPTools
 	}
+	if deps.probeMCPServers == nil {
+		deps.probeMCPServers = func(ctx context.Context, servers []mcp.Server) map[string]mcp.ProbeResult {
+			return mcp.ProbeServers(ctx, servers, nil)
+		}
+	}
 	if deps.prepareWorktree == nil {
 		deps.prepareWorktree = defaults.prepareWorktree
 	}
@@ -942,6 +950,9 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 			Autonomy:        mcp.AutonomyLow,
 			Execution:       executionRunner,
 			WorkspaceRoot:   workspaceRoot,
+			// The interactive start spawns project servers, so it goes
+			// through the same approval gate as every other spawn site.
+			ProjectRoot: workspaceRoot,
 		})
 		if registerErr != nil {
 			closeMCPRuntime(stderr, runtime)
@@ -1072,8 +1083,24 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		RecentModels:          resolved.Preferences.RecentModels,
 		RecapsEnabled:         resolved.Preferences.RecapsEnabled(),
 		CompactionModel:       resolved.Preferences.CompactionModel,
-		Provider:              provider,
-		NewProvider:           deps.newProvider,
+		StatusLine:            resolved.StatusLine,
+		StatusLineWarning: func() string {
+			var notes []string
+			if resolved.ProjectStatusLineCommandIgnored {
+				notes = append(notes, "Statusline: o comando de statusline do projeto (.qg/config.json) foi ignorado — comandos externos só valem na config do usuário.")
+			}
+			notes = append(notes, resolved.StatusLineWarnings...)
+			return strings.Join(notes, "\n")
+		}(),
+		// One-time system warning, shown once at startup when the sandbox is
+		// enabled but the native backend is unavailable. The TUI owns the
+		// screen, so a stderr line would scroll away unseen.
+		SandboxWarning: sandboxUnavailableSessionWarning(
+			resolved.Sandbox.Enabled == nil || *resolved.Sandbox.Enabled,
+			sandboxBackend,
+		),
+		Provider:    provider,
+		NewProvider: deps.newProvider,
 		NewTurnSessionProvider: func(profile config.ProviderProfile, provider qgruntime.Provider) qgruntime.TurnSessionProvider {
 			if provider == nil {
 				return nil
@@ -1097,6 +1124,9 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		PeerService:        peerService,
 		SandboxStore:       sandboxStore,
 		MCPConfig:          mcpConfig,
+		MCPSkipped:         mcpSkippedIncludingOptional(mcpRuntime, optionalMCPRuntime),
+		MCPStatus:          mcpStatusFunc(mcpRuntime, optionalMCPRuntime),
+		MCPReconnect:       mcpReconnectFunc(mcpRuntime, optionalMCPRuntime),
 		MCPPermissionStore: mcpPermissionStore,
 		MCPTokenStore:      mcpTokenStore,
 		MCPCommand: func(ctx context.Context, args []string) tui.MCPCommandResult {
@@ -1123,6 +1153,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 			Registry:       registry,
 			PermissionMode: permissionMode,
 			Autonomy:       "low",
+			BetweenTurns:   mcpBetweenTurns(mcpRuntime),
 			Sandbox:        sandboxEngine,
 			FileTracker:    fileTracker,
 			Hooks:          hookDispatcher,

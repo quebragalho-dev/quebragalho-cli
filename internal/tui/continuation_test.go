@@ -264,6 +264,9 @@ func assertSnapshotFileClean(t *testing.T, store *sessions.Store, sessionID stri
 // blocks, followed by a model switch, sends no foreign Reasoning to the new
 // provider — while the conversation itself survives.
 func TestModelSwitchDropsForeignReasoning(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	store := testSessionStore(t)
 	provider := &scriptedProvider{scripts: append([][]qgruntime.StreamEvent{{
 		{Type: qgruntime.StreamEventText, Content: "first answer"},
@@ -328,6 +331,9 @@ func testSessionStoreOf(m model) *sessions.Store {
 }
 
 func TestTUIContinuationSurvivesTriggers(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	newTextHarness := func(t *testing.T) (model, *scriptedProvider) {
 		provider := &scriptedProvider{scripts: textScripts("first answer", "second answer", "third answer", "fourth answer")}
 		return continuationHarness(t, testSessionStore(t), provider, nil), provider

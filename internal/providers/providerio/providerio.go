@@ -246,15 +246,25 @@ func SendEvent(ctx context.Context, events chan<- qgruntime.StreamEvent, event q
 // onComment (optional) fires for ":"-prefixed comment lines — SSE keep-alive
 // heartbeats (e.g. OpenRouter's ": OPENROUTER PROCESSING") that carry no data
 // but prove the upstream is alive; returning false stops the scan.
+//
+// A clean EOF that arrives without any "[DONE]" is reported as a wrapped
+// io.ErrUnexpectedEOF: the upstream closed the stream without its terminator,
+// so the response is truncated, not complete. Callers that saw an equivalent
+// terminal marker (e.g. finish_reason) treat it as a legitimate end anyway.
 func scanSSEPayloads(scanner *bufio.Scanner, handle func(data string) bool, onComment func() bool) error {
 	dataLines := []string{}
+	sawDone := false
 	flush := func() bool {
 		if len(dataLines) == 0 {
 			return true
 		}
 		data := strings.TrimSpace(strings.Join(dataLines, "\n"))
 		dataLines = dataLines[:0]
-		if data == "" || data == "[DONE]" {
+		if data == "" {
+			return true
+		}
+		if data == "[DONE]" {
+			sawDone = true
 			return true
 		}
 		return handle(data)
@@ -276,7 +286,14 @@ func scanSSEPayloads(scanner *bufio.Scanner, handle func(data string) bool, onCo
 		}
 		if strings.HasPrefix(line, "data:") {
 			fragment := strings.TrimLeft(strings.TrimPrefix(line, "data:"), " \t")
-			if len(dataLines) == 0 && strings.TrimSpace(fragment) == "[DONE]" {
+			if strings.TrimSpace(fragment) == "[DONE]" {
+				// A [DONE] glued as the continuation line of a data block
+				// (instead of its own event) still terminates the stream:
+				// deliver the pending payload first, then end clean.
+				if len(dataLines) > 0 && !flush() {
+					return nil
+				}
+				sawDone = true
 				return nil
 			}
 			dataLines = append(dataLines, fragment)
@@ -286,6 +303,9 @@ func scanSSEPayloads(scanner *bufio.Scanner, handle func(data string) bool, onCo
 		return err
 	}
 	flush()
+	if !sawDone {
+		return fmt.Errorf("sse stream ended without [DONE] terminator: %w", io.ErrUnexpectedEOF)
+	}
 	return nil
 }
 

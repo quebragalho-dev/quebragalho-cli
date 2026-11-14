@@ -308,8 +308,9 @@ func TestSkillsCommandEmptyState(t *testing.T) {
 	}
 }
 
-// Run-state guards: an expanded skill prompt must not race an active run — it
-// queues (as the EXPANDED prompt, since the queue flush submits literal text).
+// Run-state guards: a skill message must not race an active run — it queues
+// RAW. The FIFO re-expands on drain (spec bullet 7/8), so the body is not on
+// the queue; /retry and ↑ both see the typed line.
 func TestSkillInvocationQueuedWhileRunPending(t *testing.T) {
 	m := newSkillTestModel(t, skills.Skill{Name: "reviewer", Content: "Review the diff."})
 	m.pending = true
@@ -318,11 +319,15 @@ func TestSkillInvocationQueuedWhileRunPending(t *testing.T) {
 	if !handled {
 		t.Fatal("skill must be handled even while a run is pending")
 	}
-	if len(next.queuedMessages) == 0 || !strings.Contains(strings.Join(next.queuedMessages, "\n"), "Review the diff.") {
-		t.Fatalf("expanded prompt should be queued, got %v", next.queuedMessages)
+	if len(next.queuedMessages) != 1 {
+		t.Fatalf("skill message should queue exactly once, got %v", next.queuedMessages)
 	}
-	if !strings.Contains(strings.Join(next.queuedMessages, "\n"), "focus on tests") {
-		t.Fatalf("queued prompt should carry the args, got %v", next.queuedMessages)
+	queued := next.queuedMessages[0]
+	if !strings.Contains(queued, "/reviewer") || !strings.Contains(queued, "focus on tests") {
+		t.Fatalf("queued prompt should carry the raw line, got %q", queued)
+	}
+	if strings.Contains(queued, "Review the diff.") {
+		t.Fatalf("queued prompt must not hold the pre-expanded body, got %q", queued)
 	}
 }
 
@@ -366,8 +371,40 @@ func TestUserCommandQueuedWhileRunPending(t *testing.T) {
 	if !handled {
 		t.Fatal("user command must be handled while pending")
 	}
-	if len(next.queuedMessages) == 0 || !strings.Contains(strings.Join(next.queuedMessages, "\n"), "Say hello to world.") {
-		t.Fatalf("expanded user-command prompt should be queued, got %v", next.queuedMessages)
+	if len(next.queuedMessages) != 1 || next.queuedMessages[0] != "/greet world" {
+		t.Fatalf("user command should queue raw, got %v", next.queuedMessages)
+	}
+}
+
+// A user command queued mid-turn with skill tokens inside its args must not
+// expand them when the FIFO drains: the args belong to the command (spec
+// bullet 5). Raw queuing makes the drain re-resolve the command exactly like
+// the immediate path.
+func TestUserCommandQueuedArgsNeverExpandSkillsOnDrain(t *testing.T) {
+	root := t.TempDir()
+	writeUserCommand(t, root, "greet.md", "Say hello to $1.")
+	m := newModel(context.Background(), Options{
+		Cwd:          root,
+		LoadSkills:   func() []skills.Skill { return []skills.Skill{{Name: "reviewer", Content: "REVIEW-BODY."}} },
+		AgentOptions: agent.Options{Skills: []agent.SkillInfo{{Name: "reviewer", Description: "d"}}},
+	})
+	m.pending = true
+
+	next, _, handled := m.handleUserCommand("/greet /reviewer")
+	if !handled {
+		t.Fatal("user command must be handled while pending")
+	}
+	if len(next.queuedMessages) != 1 || next.queuedMessages[0] != "/greet /reviewer" {
+		t.Fatalf("user command should queue raw, got %v", next.queuedMessages)
+	}
+	drained := next
+	drained.pending = false
+	drained, _ = drained.launchQueuedMessageIfReady()
+	if transcriptContains(drained.transcript, "REVIEW-BODY.") {
+		t.Fatalf("skill tokens inside user-command args must NOT expand on drain, got %#v", drained.transcript)
+	}
+	if !transcriptContains(drained.transcript, "Say hello to /reviewer.") {
+		t.Fatalf("user command should re-resolve on drain, got %#v", drained.transcript)
 	}
 }
 

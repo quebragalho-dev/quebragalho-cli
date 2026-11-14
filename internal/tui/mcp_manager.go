@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"unicode"
 
@@ -137,7 +138,7 @@ func (m model) handleMCPManagerKey(msg tea.KeyMsg) (model, tea.Cmd) {
 			return m.runMCPManagerCommand([]string{"list"})
 		case "c":
 			if item, ok := m.currentMCPManagerItem(); ok && item.Kind == mcpManagerItemServer {
-				return m.runMCPManagerCommand([]string{"check", item.Name})
+				return m.runMCPReconnect(item.Name)
 			}
 		case "d":
 			if item, ok := m.currentMCPManagerItem(); ok && item.Kind == mcpManagerItemServer {
@@ -150,6 +151,10 @@ func (m model) handleMCPManagerKey(msg tea.KeyMsg) (model, tea.Cmd) {
 		case "r":
 			if item, ok := m.currentMCPManagerItem(); ok && item.Kind == mcpManagerItemServer {
 				return m.runMCPManagerCommand([]string{"remove", item.Name})
+			}
+		case "o":
+			if item, ok := m.currentMCPManagerItem(); ok && item.Kind == mcpManagerItemServer {
+				return m.runMCPManagerCommand([]string{"oauth", "login", item.Name})
 			}
 		}
 	}
@@ -197,7 +202,7 @@ func (m model) chooseMCPManagerItem() (model, tea.Cmd) {
 	}
 	switch item.Kind {
 	case mcpManagerItemServer:
-		return m.runMCPManagerCommand([]string{"check", item.Name})
+		return m.runMCPReconnect(item.Name)
 	case mcpManagerItemMarketplace:
 		return m.prefillMCPManagerCommand(item.InstallCommand), nil
 	case mcpManagerItemAddRemote:
@@ -227,6 +232,23 @@ func (m model) runMCPManagerCommand(args []string) (model, tea.Cmd) {
 		request.managerQuery = m.mcpManager.query
 	}
 	return m.startMCPCommand(request)
+}
+
+// runMCPReconnect reconnects one server on the live session runtime and
+// refreshes the manager. When no session runtime is wired it falls back to
+// the `mcp check` command, which connects a throwaway client instead.
+func (m model) runMCPReconnect(name string) (model, tea.Cmd) {
+	reconnect := m.mcpReconnect
+	if reconnect == nil {
+		return m.runMCPManagerCommand([]string{"check", name})
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return m, func() tea.Msg {
+		return mcpReconnectResultMsg{server: name, err: reconnect(ctx, name)}
+	}
 }
 
 func (m model) currentMCPManagerItem() (mcpManagerItem, bool) {
@@ -313,17 +335,37 @@ func mcpManagerItemMatches(item mcpManagerItem, query string) bool {
 }
 
 func mcpManagerServerMeta(server MCPServerView) string {
-	parts := []string{
-		displayValue(strings.TrimSpace(server.State), "configurado"),
-	}
+	state := displayValue(strings.TrimSpace(server.State), "configurado")
+	parts := []string{mcpManagerServerGlyph(server) + " " + state}
 	if auth := strings.TrimSpace(server.Auth); auth != "" {
 		parts = append(parts, auth)
+	}
+	if server.NeedsAuth {
+		parts = append(parts, "precisa autenticar")
 	}
 	if server.ToolCount > 0 {
 		parts = append(parts, pluralCount(server.ToolCount, "tool"))
 	}
 	parts = append(parts, displayValue(strings.TrimSpace(server.Transport), "desconhecido"))
+	if origin := strings.TrimSpace(server.Origin); origin != "" {
+		parts = append(parts, "origem: "+origin)
+	}
 	return strings.Join(parts, " · ")
+}
+
+// mcpManagerServerGlyph renders the panel state glyph: connected, needs
+// auth, failed with reason, or disabled.
+func mcpManagerServerGlyph(server MCPServerView) string {
+	if strings.EqualFold(strings.TrimSpace(server.State), "disabled") || server.Status == "disabled" {
+		return "○"
+	}
+	if server.NeedsAuth {
+		return "⚠"
+	}
+	if server.Status == "failed" {
+		return "✘"
+	}
+	return "✔"
 }
 
 func (m model) mcpManagerOverlay(width int) string {
@@ -430,17 +472,30 @@ func (m model) mcpManagerSelectionDetail(width int) []string {
 		if !ok {
 			return nil
 		}
+		state := m.mcpViewState()
+		header := qgTheme.ink.Bold(true).Render(server.Name) + " " +
+			qgTheme.faint.Render(server.Transport+" · "+server.State+" · origem: "+displayValue(server.Origin, "usuário"))
 		lines := []string{
-			fillPaletteLine(qgTheme.ink.Bold(true).Render(server.Name)+" "+qgTheme.faint.Render(server.Transport+" · "+server.State), width, transparentSurface),
+			fillPaletteLine(header, width, transparentSurface),
+		}
+		if server.NeedsAuth {
+			lines = append(lines, fitStyledLine(qgTheme.faint.Render("⚠ precisa autenticar: Alt+o roda qg mcp oauth login "+server.Name), width))
 		}
 		if target := strings.TrimSpace(server.Target); target != "" {
 			lines = append(lines, fitStyledLine(qgTheme.faint.Render(target), width))
+		}
+		if toolNames := mcpManagerServerToolNames(state.Tools, server.Name, 6); len(toolNames) > 0 {
+			lines = append(lines, fitStyledLine(qgTheme.faint.Render("tools: "+strings.Join(toolNames, ", ")), width))
 		}
 		action := "Alt+d desativar"
 		if strings.EqualFold(strings.TrimSpace(server.State), "disabled") {
 			action = "Alt+e ativar"
 		}
-		lines = append(lines, fillPaletteLine(qgTheme.faint.Render("Enter verificar   Alt+c verificar   "+action+"   Alt+r remover"), width, transparentSurface))
+		actions := "Enter reconectar   Alt+c reconectar   " + action + "   Alt+r remover"
+		if server.NeedsAuth {
+			actions += "   Alt+o autenticar"
+		}
+		lines = append(lines, fillPaletteLine(qgTheme.faint.Render(actions), width, transparentSurface))
 		return lines
 	case mcpManagerItemMarketplace:
 		lines := []string{
@@ -460,6 +515,24 @@ func (m model) mcpManagerSelectionDetail(width int) []string {
 	default:
 		return nil
 	}
+}
+
+// mcpManagerServerToolNames lists up to max short tool names registered for
+// one server, so the panel shows what the server provides inline.
+func mcpManagerServerToolNames(views []MCPToolView, serverName string, max int) []string {
+	names := []string{}
+	for _, view := range views {
+		if view.ServerName != serverName {
+			continue
+		}
+		if name := strings.TrimSpace(view.Name); name != "" {
+			names = append(names, name)
+		}
+		if len(names) >= max {
+			break
+		}
+	}
+	return names
 }
 
 func firstMCPMarketplaceDetailLine(item mcpManagerItem) string {

@@ -7,8 +7,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/doctor"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 	zsearch "github.com/quebragalho-dev/quebragalho-cli/internal/search"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -73,6 +75,7 @@ func runDoctor(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 		Sandbox:        sandboxConfig,
 		Connectivity:   options.connectivity,
 		ProviderHealth: health,
+		Orchestrators:  detectAmbientSkills(deps, workspaceRoot),
 	})
 	if options.json {
 		if err := writePrettyJSON(stdout, report); err != nil {
@@ -90,6 +93,26 @@ func runDoctor(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 		return exitProvider
 	}
 	return exitSuccess
+}
+
+// detectAmbientSkills resolves installed skills and reports which ones the
+// current environment elects as ambient orchestrators (see
+// agent.DetectOrchestrators), covering plugin skill roots exactly like exec.
+func detectAmbientSkills(deps appDeps, workspaceRoot string) []agent.DetectedOrchestrator {
+	if deps.skillsDir == nil {
+		return nil
+	}
+	var roots []string
+	if deps.loadPlugins != nil {
+		// Load with the same trust gate as exec: in an untrusted workspace
+		// project plugins are excluded here too, so doctor can never report
+		// skills exec would refuse to load.
+		excludeProject, _ := resolveTrust(workspaceRoot)
+		if loaded, err := deps.loadPlugins(plugins.LoadOptions{Cwd: workspaceRoot, ExcludeProject: excludeProject}); err == nil {
+			roots = plugins.SkillRoots(loaded.Plugins)
+		}
+	}
+	return agent.DetectOrchestrators(pluginActivation{skillRoots: roots}.skillInfos(deps.skillsDir()), nil)
 }
 
 type searchOptions struct {

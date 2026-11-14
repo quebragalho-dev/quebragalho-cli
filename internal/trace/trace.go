@@ -42,9 +42,12 @@ const (
 
 // Counter names. Emitted as {"type":"counter","name":"tool_calls","value":7}.
 const (
-	CounterModelRequests     = "model_requests"
-	CounterToolCalls         = "tool_calls"
-	CounterRetryCount        = "retry_count"
+	CounterModelRequests = "model_requests"
+	CounterToolCalls     = "tool_calls"
+	CounterRetryCount    = "retry_count"
+	// CounterReconnectCount counts unified auto-retry waits (one per
+	// scheduled model-call retry). It keeps the historical name so saved
+	// traces and bench aggregations keep reading it.
 	CounterReconnectCount    = "reconnect_count"
 	CounterCompactionCount   = "compaction_count"
 	CounterCompletionNudges  = "completion_nudges"

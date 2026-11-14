@@ -9,6 +9,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/yieldnow"
 )
 
 const (
@@ -466,6 +468,12 @@ func (process *managedProcess) collect(ctx context.Context, wait time.Duration) 
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// A send-now Request from the TUI wakes a backgroundable wait at once:
+	// the tool returns the normal still-running partial result and the
+	// process keeps running as a background session. Nil-safe: without a
+	// Signal the wake channel never fires and the wait runs out as before.
+	wake, release := yieldnow.FromContext(ctx).Park()
+	defer release()
 	deadline := time.Now().Add(wait)
 	var output []byte
 	truncated := false
@@ -479,6 +487,16 @@ func (process *managedProcess) collect(ctx context.Context, wait time.Duration) 
 			output, chunkTruncated = appendBoundedProcessOutput(output, chunk)
 			truncated = truncated || chunkTruncated
 			truncated = truncated || process.output.consumeTruncated()
+			// A send-now or cancellation landing mid-burst must not wait for
+			// the drain to empty: check before looping, so a sustained flood
+			// can never delay the wake past one drain iteration.
+			select {
+			case <-wake:
+				return finish()
+			case <-ctx.Done():
+				return finish()
+			default:
+			}
 			if time.Now().After(deadline) {
 				return finish()
 			}
@@ -507,6 +525,14 @@ func (process *managedProcess) collect(ctx context.Context, wait time.Duration) 
 			}
 			return finish()
 		case <-timer.C:
+			return finish()
+		case <-wake:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			return finish()
 		}
 		if !timer.Stop() {

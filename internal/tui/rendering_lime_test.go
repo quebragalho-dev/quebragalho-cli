@@ -1542,7 +1542,13 @@ func TestStatusLineShowsEffortWhenSet(t *testing.T) {
 
 func TestStatusLineOmitsEffortWhenAuto(t *testing.T) {
 	m := limeTestModel()
+	m.cwd = "/workspace/qg"
+	m.gitBranch = "main"
 	// reasoningEffort == "" (auto) by default — the effort segment is omitted.
+	// The cwd and branch are pinned to neutral values: the status line
+	// renders both, and the check below scans the whole line for effort
+	// words, so any environment text (a branch or path containing "slow",
+	// "allow", "flow", ...) would read as a false effort segment.
 	status := plainRender(t, m.statusLine(110))
 	for _, effort := range []string{"low", "medium", "high", "minimal", "xhigh", "none", "baixo", "médio", "alto", "muito alto", "máximo"} {
 		if strings.Contains(status, effort) {

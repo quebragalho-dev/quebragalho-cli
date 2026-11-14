@@ -29,6 +29,7 @@ func TestTargetBackendForPlatformBaseline(t *testing.T) {
 }
 
 func TestBackendPlanCarriesPhase0ManagerFields(t *testing.T) {
+	stubLinuxBwrapProbe(t, nil)
 	linux := SelectBackend(BackendOptions{
 		GOOS: "linux",
 		LookupExecutable: func(name string) (string, error) {

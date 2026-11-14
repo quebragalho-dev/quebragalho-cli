@@ -180,6 +180,9 @@ func TestModelPickerKeepsUnknownWhenDiscoveryFails(t *testing.T) {
 }
 
 func TestModelPickerAppliesLiveDiscoveredModelID(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	var captured config.ProviderProfile
 	m := newModel(context.Background(), Options{
 		ProviderName: "qg",
@@ -367,6 +370,9 @@ func TestModelPickerShowsRecentThenActiveProviderCatalog(t *testing.T) {
 }
 
 func TestModelPickerAppliesActiveProviderCatalogModelID(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	var captured config.ProviderProfile
 	m := newModel(context.Background(), Options{
 		ProviderName: "qg",
@@ -606,6 +612,9 @@ func TestModelPickerRecentSectionShowsHistoryPastTheActiveModel(t *testing.T) {
 // Typed /model switches must record + persist recent history, moving a
 // re-selected pair back to the front rather than leaving a stale duplicate.
 func TestModelCommandRecordsAndPersistsRecentHistory(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	m := newModel(context.Background(), Options{
 		UserConfigPath: configPath,
@@ -696,6 +705,9 @@ func TestModelCommandRecordsAndPersistsRecentHistory(t *testing.T) {
 // to persist it after the selection write failed would pay TWO full lock
 // timeouts for one keystroke.
 func TestActiveProviderPickerShowsPersistenceFailure(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	configPath := filepath.Join(t.TempDir(), "qg", "config.json")
 	if _, err := config.UpsertProvider(configPath, config.ProviderProfile{
 		Name: "qg", CatalogID: "qg", Model: "muse-spark-1.3-contributor",
@@ -772,6 +784,9 @@ func TestActiveProviderPickerShowsPersistenceFailure(t *testing.T) {
 // too. An unwritable config path fails the persistence attempt immediately,
 // which keeps this case off the ten-second lock timeout the picker test needs.
 func TestTypedModelCommandShowsPersistenceFailure(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	root := t.TempDir()
 	blockedParent := filepath.Join(root, "not-a-directory")
 	if err := os.WriteFile(blockedParent, []byte("block config directory creation"), 0o600); err != nil {
@@ -831,6 +846,9 @@ func TestModelPickerOpensAndCancels(t *testing.T) {
 }
 
 func TestModelPickerNavigatesAndChoosesAppliesHandler(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	next := &fakeProvider{}
 	m := newModel(context.Background(), Options{
 		ProviderName: "qg",

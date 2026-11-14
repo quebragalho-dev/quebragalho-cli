@@ -314,6 +314,9 @@ func TestKillBeforeFirstStepResumesExact(t *testing.T) {
 // core path as /model, so the next request really goes out on the restored
 // model — and a stored effort the new model does not support is dropped.
 func TestResumeRestoresModelThroughProviderRebuild(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	const restored = "muse-spark-1.3-contributor"
 	store := testSessionStore(t)
 	oldProvider := &scriptedProvider{scripts: textScripts("answer on old")}
@@ -840,6 +843,9 @@ func TestCompactPreservesLoadedDeferredTools(t *testing.T) {
 // saved provider switches the live provider — through the same core path as a
 // manual switch — instead of only renaming the model.
 func TestResumeRestoresRecordedProvider(t *testing.T) {
+	// Switching provider exports QG_PROVIDER through the real process env:
+	// pin it so the export cannot leak into later tests (hermetic suite).
+	t.Setenv(config.ActiveProviderEnv, "")
 	store := testSessionStore(t)
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	configJSON := `{"activeProvider":"test","providers":[` +

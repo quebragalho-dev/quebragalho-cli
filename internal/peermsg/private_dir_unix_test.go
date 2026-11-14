@@ -44,11 +44,21 @@ func TestEnsurePrivateDirRejectsSymlinkedParent(t *testing.T) {
 
 func countOpenFDs(t *testing.T) int {
 	t.Helper()
-	entries, err := os.ReadDir("/dev/fd")
+	// NB: os.ReadDir("/dev/fd") stats every entry, so an fd that closes
+	// between the listing and the stat (including ReadDir's own directory
+	// fd) fails with EBADF on macOS. Readdirnames issues no per-entry
+	// stat, so the snapshot cannot hit that race; subtract one for the
+	// directory fd opened to take the snapshot itself.
+	f, err := os.Open("/dev/fd")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return len(entries)
+	defer f.Close()
+	names, err := f.Readdirnames(-1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(names) - 1
 }
 
 func TestEnsurePrivateDirDoesNotLeakFDs(t *testing.T) {

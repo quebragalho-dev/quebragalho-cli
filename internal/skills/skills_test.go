@@ -582,3 +582,53 @@ func TestInfoFromRootsPrimaryLockMetadata(t *testing.T) {
 		t.Fatalf("lock metadata missing: %#v", info)
 	}
 }
+
+func TestLoadParsesEnvironmentFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	writeSkill(t, dir, "foo", "---\nname: foo\ndescription: test orchestrator\nEnvironment: [FOO_SOCKET, FOO_CLI]\n---\nbody")
+	writeSkill(t, dir, "single", "---\nname: single\nenvironment: BAR_X\n---\nbody")
+	writeSkill(t, dir, "plain", "---\nname: plain\ndescription: no env here\n---\nbody")
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	byName := map[string]Skill{}
+	for _, s := range loaded {
+		byName[s.Name] = s
+	}
+	if got := byName["foo"].Environments; len(got) != 2 || got[0] != "FOO_SOCKET" || got[1] != "FOO_CLI" {
+		t.Fatalf("bracket list not parsed, got %q", got)
+	}
+	if got := byName["single"].Environments; len(got) != 1 || got[0] != "BAR_X" {
+		t.Fatalf("single value not parsed, got %q", got)
+	}
+	if got := byName["plain"].Environments; len(got) != 0 {
+		t.Fatalf("missing environment must yield empty, got %q", got)
+	}
+}
+
+func TestLoadIgnoresNestedAndFoldedEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	writeSkill(t, dir, "nestorq", "---\nname: nestorq\ndescription: nested decl\nmetadata:\n  environment: production\n---\nbody")
+	writeSkill(t, dir, "foldorq", "---\nname: foldorq\ndescription: >-\n  environment: folded\n---\nbody")
+	writeSkill(t, dir, "toporq", "---\nname: toporq\ndescription: top decl\nenvironment: [TOPORQ_SOCKET]\n---\nbody")
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	byName := map[string]Skill{}
+	for _, s := range loaded {
+		byName[s.Name] = s
+	}
+	if got := byName["nestorq"].Environments; len(got) != 0 {
+		t.Fatalf("nested environment must be ignored, got %q", got)
+	}
+	if got := byName["foldorq"].Environments; len(got) != 0 {
+		t.Fatalf("folded-block environment must be ignored, got %q", got)
+	}
+	if got := byName["toporq"].Environments; len(got) != 1 || got[0] != "TOPORQ_SOCKET" {
+		t.Fatalf("top-level environment must parse, got %q", got)
+	}
+}

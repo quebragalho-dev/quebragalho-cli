@@ -17,8 +17,9 @@ import (
 // commandSuggestion is one row in the slash-command autocomplete overlay: the
 // canonical command name and its short description.
 type commandSuggestion struct {
-	Name string
-	Desc string
+	Name    string
+	Desc    string
+	IsSkill bool // true for skill rows (Enter inserts, never submits)
 }
 
 const (
@@ -120,11 +121,17 @@ func (m *model) recomputeSuggestions() {
 		m.filePaletteOpen = false
 		return
 	}
-	trimmed := strings.TrimLeft(value, " ")
-	token := strings.TrimSpace(trimmed)
+	matchToken := trailingSlashToken(value)
+	if matchToken == "" {
+		m.suggestions = nil
+		m.suggestionIdx = 0
+		m.commandPaletteOpen = false
+		m.filePaletteOpen = false
+		return
+	}
 
 	m.commandPaletteOpen = true
-	matches := m.matchCommandSuggestions(token)
+	matches := m.matchCommandSuggestions(matchToken)
 	m.suggestions = matches
 	if m.suggestionIdx >= len(matches) {
 		m.suggestionIdx = 0
@@ -135,8 +142,32 @@ func (m *model) recomputeSuggestions() {
 }
 
 func commandSuggestionsOpen(value string) bool {
-	trimmed := strings.TrimLeft(value, " ")
-	return strings.HasPrefix(trimmed, "/") && strings.TrimSpace(trimmed) != "" && !strings.ContainsAny(trimmed, " \t")
+	return trailingSlashToken(value) != ""
+}
+
+// trailingSlashToken returns the trailing whitespace-delimited token when it
+// is a slash command fragment ("/rev" in "check this /rev"). A message can
+// therefore offer skills/commands at any position — the palette keys off the
+// trailing token, not off a leading position.
+func trailingSlashToken(value string) string {
+	if value == "" || strings.HasSuffix(value, " ") || strings.HasSuffix(value, "\t") || strings.HasSuffix(value, "\n") {
+		// An argument has started: the palette closes, like a complete one.
+		return ""
+	}
+	last := value[strings.LastIndexAny(value, " \t\n")+1:]
+	if !strings.HasPrefix(last, "/") {
+		return ""
+	}
+	return last
+}
+
+// replaceTrailingSlashToken swaps the trailing "/token" word in value for
+// replacement (expected to include a trailing space).
+func replaceTrailingSlashToken(value, replacement string) string {
+	if i := strings.LastIndexAny(value, " \t\n"); i >= 0 {
+		return value[:i+1] + replacement
+	}
+	return replacement
 }
 
 func fileSuggestionOnlyInput(value string) bool {
@@ -230,7 +261,7 @@ func (m model) matchSkillSuggestions(token string) []commandSuggestion {
 		} else {
 			desc += " (skill)"
 		}
-		out = append(out, commandSuggestion{Name: "/" + name, Desc: desc})
+		out = append(out, commandSuggestion{Name: "/" + name, Desc: desc, IsSkill: true})
 		if len(out) >= maxCommandSuggestions {
 			break
 		}
@@ -321,6 +352,13 @@ func (m model) completeSuggestion() model {
 		isDir := fileSuggestionIsDirectory(m.suggestions[idx])
 		m = m.completeFileSuggestion(chosen, !isDir)
 	default:
+		if m.suggestions[idx].IsSkill {
+			// Skills insert, never submit: keep the prior text and put the
+			// chosen "/skill " at the caret.
+			m.input.SetValue(replaceTrailingSlashToken(m.input.Value(), chosen+" "))
+			m.input.CursorEnd()
+			break
+		}
 		if commandSelectionRequiresInput(chosen) {
 			m.input.SetValue(chosen)
 		} else {
@@ -361,6 +399,14 @@ func (m model) fileSuggestionComposerState() composerState {
 		return inputState
 	}
 	return state
+}
+
+func (m model) selectedSuggestionIsSkill() bool {
+	if m.suggestionsAreFiles || len(m.suggestions) == 0 {
+		return false
+	}
+	idx := clampInt(m.suggestionIdx, 0, len(m.suggestions)-1)
+	return m.suggestions[idx].IsSkill
 }
 
 func (m model) selectedSuggestionIsDirectory() bool {

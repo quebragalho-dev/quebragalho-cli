@@ -136,9 +136,25 @@ description: Run the project's benchmark suite and summarize the deltas.
 3. Report any regression > 5% with the function name and the previous value.
 ```
 
-Only `name` and `description` are recognized in the frontmatter today. The `name` defaults to the directory name. Within a single skills root, duplicate names are resolved by lexicographic directory order. Across roots, QG loads the primary directory first, then `~/.agents/skills`, then plugin skill roots; earlier roots win name collisions. Plugin-declared skills (section 6) are merged into the active agent run at plugin activation time, so bundled skills appear in the available skills list and can be loaded with the `skill` tool.
+`name`, `description`, and `environment` are recognized in the frontmatter today (`environment:` lists variable names proving the skill is ambient; see below). The `name` defaults to the directory name. Within a single skills root, duplicate names are resolved by lexicographic directory order. Across roots, QG loads the primary directory first, then `~/.agents/skills`, then plugin skill roots; earlier roots win name collisions. Plugin-declared skills (section 6) are merged into the active agent run at plugin activation time, so bundled skills appear in the available skills list and can be loaded with the `skill` tool.
 
 The `skill` tool lets the agent load any discovered skill by name (primary, agents, or plugin).
+
+### Ambient orchestrator skills
+
+An orchestrator (a canvas app, a team runner, CI with sibling agents) can make QG recognize it — with no per-app code in QG — by publishing a skill that declares its marker variables:
+
+```markdown
+---
+description: Talk to the other agents on the canvas.
+environment: [FOO_SOCKET, FOO_CLI]
+---
+
+# Foo orchestration
+...
+```
+
+Principle: whatever exists because of the terminal, the editor, the desktop, or CI is never an orchestrator signal. When a listed variable exists with a non-empty value in the run's environment, QG treats that skill as ambient: the system prompt gains a short `<environment_orchestrator>` block naming the skill and its detection signal (names only, never values), and the skill is pinned at the top of the skill list with its full description. A variable that is set but empty does not count. A declared name only counts when it belongs to the skill: it ends in `_` + session suffix (`_SOCKET`, `_SESSION`, `_SESSION_ID`, `_TERMINAL_ID`, `_WORKSPACE`, `_WORKSPACE_ID`, `_CLI`) or starts with the normalized skill name (uppercase, `-`→`_`); on Windows the comparison ignores letter case. The following are always ignored, by declaration or by heuristic — shell: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `TERM_PROGRAM`, `COLORTERM`, `PWD`, `OLDPWD`, `LANG`, `LC_*`, `TMPDIR`, `TZ`, `EDITOR`, `VISUAL`, `PAGER`, `DISPLAY`, `SHLVL`, `_`, `HOSTNAME`, `SSH_AUTH_SOCK`, `MAIL`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`, `SYSTEMROOT`, `WINDIR`, `COMSPEC`, `PATHEXT`, `OS`, `COMPUTERNAME`, `USERNAME`, `HOMEDRIVE`, `HOMEPATH`; terminal sessions: `TERM_SESSION_ID`, `ITERM_SESSION_ID`, `WT_SESSION`, `WEZTERM_UNIX_SOCKET`, `WEZTERM_PANE`, `KONSOLE_DBUS_SESSION`, `KITTY_WINDOW_ID`, `TMUX`, `TMUX_PANE`, `STY`, `VTE_VERSION`, `DBUS_SESSION_BUS_ADDRESS`, `SSH_CONNECTION`, `SSH_CLIENT`, `SSH_TTY`; desktop: `DESKTOP_SESSION`, `SESSION_MANAGER`, `GNOME_*`, `KDE_*`; CI and hosts: `CI`, `BUILD_*`, `GITHUB_*`, `GITLAB_*`, `BITBUCKET_*`, `GITPOD_*`, `CODESPACE*`, `BUILDKITE_*`, `CIRCLE*`, `TRAVIS*`, `JENKINS_*`; editors and terminals: `ALACRITTY_*`, `VSCODE_*`, `TERMINAL_EMULATOR`. A `TERM_PROGRAM` naming a common terminal or multiplexer (`tmux`, `screen`, `Apple_Terminal`, `iTerm.app`, `vscode`, `WezTerm`, `ghostty`, `alacritty`, `kitty`, `Hyper`, `Tabby`, `WarpTerminal`, `konsole`, `rio`) never elects a skill either. Workaround for an orchestrator whose natural name falls in these families: declare your own marker outside them, e.g. `environment: [ORQ_TRAVIS_HUB_SOCKET]` on skill `travis-hub`. Only the inline list form is read (`environment: [A, B]`); a block list (`environment:` followed by `- A` lines) is ignored. Without a valid declaration, QG still matches heuristically: skill `foo` with `FOO_SOCKET`, `FOO_SESSION`, `FOO_SESSION_ID`, `FOO_TERMINAL_ID`, `FOO_WORKSPACE`, `FOO_WORKSPACE_ID`, or `FOO_CLI` set — or `TERM_PROGRAM` equal to the skill name — elects it, unless the variable is ubiquitous. A bare prefix alone never matches (`GIT_EDITOR` does not elect a skill named `git`). A skill that declares `environment:` is matched only by that list, never by the heuristic — except for `TERM_PROGRAM`, which still matches the skill name as its own rule. `qg doctor` reports the detected environment and signal, covering plugin skills exactly like `exec` does. Project guidelines (`AGENTS.md`/`QG.md`) override the orchestrator block on conflict.
 
 ## 4. Hooks
 
@@ -214,7 +230,10 @@ QG is both an **MCP client** (it can call external MCP servers) and an **MCP ser
       "github": {
         "type": "http",
         "url": "https://api.example.com/mcp",
-        "headers": { "Authorization": "Bearer YOUR_TOKEN_HERE" }
+        "headers": { "Authorization": "Bearer YOUR_TOKEN_HERE" },
+        "timeout": 60000,
+        "enabledTools": ["search", "fetch"],
+        "disabledTools": ["delete"]
       }
     }
   }
@@ -231,20 +250,55 @@ qg mcp list
 qg mcp check docs
 qg mcp remove github
 qg mcp oauth login github
+qg mcp approve docs   # one-time approval of a project-layer server
 ```
 
-Servers are merged from user and project configs (project wins on conflicts). Token-bearing values in `config.json` are sent verbatim — there is no `${env:...}` expansion — so prefer one of:
+Servers are merged from user and project configs (project wins on conflicts). For secrets, prefer one of:
 
 - A wrapper script that sources the secret and execs the real command.
 - A `--header` value produced by command substitution (`"Authorization=Bearer $(print-token)"`) in a private shell config that you keep out of git.
 - A secret manager that injects the env var your MCP server reads on its own (the `command` and `args` then run inside that environment).
 
-Project MCP config remains supported for shared team servers, but a project layer
-that changes an existing server's target (`url`, `command`, or `args`) does not
-inherit user credentials. Clear or replace `headers`, `env`, or `oauth` explicitly,
-or use a new server name. OAuth tokens are bound to the resolved server identity,
-so changing a server target can require `qg mcp oauth login <server>` again.
+`${VAR}` and `${VAR:-default}` expand from the qg process environment in
+`command`, `args`, `env` values, `url`, and header values (never from sibling
+config values, never for OAuth material). Prefer passing secrets via `env`
+over `args`: `args` are visible in process listings while `env` values of 8
+or more characters stay redacted in `mcp list`, errors, and logs (shorter
+values are left alone, so tool output is never rewritten). A `${VAR}` with no value and no
+default expands to `""`; connecting with an emptied target fails and
+`qg mcp check` refuses upfront naming the missing variable.
+
+Project MCP config remains supported for shared team servers, but a project
+layer that changes an existing server's target (`url`, `command`, or `args`)
+does not inherit user credentials, and every project server needs a one-time
+user approval before qg runs it. Approve explicitly (`qg mcp approve <server>`,
+confirmed interactively, or pass `--yes` to skip the prompt); approval is
+remembered per project and binds the exact approved target — changing it
+asks again. OAuth tokens are bound to the resolved server identity, so
+changing a server target can require `qg mcp oauth login <server>` again.
 OAuth server names ending in `.<32 hex chars>` are reserved for token storage.
+
+Timeouts: each tool call is bounded by the per-server `timeout` in
+`config.json` (milliseconds) when set, else `MCP_TOOL_TIMEOUT` (milliseconds,
+default 60000). When a call exceeds its budget, the turn continues with a
+clear error naming the tool and the server. `MCP_TIMEOUT` (milliseconds)
+overrides both the handshake budget (default 30s) and the per-server connect
+budget (default 8s). Budgets are clamped to one hour; unparseable or
+non-positive values fall back to the defaults.
+
+Large outputs: an MCP tool result above ~10k tokens (~40 KiB) carries a
+`[qg] aviso` line so the model knows how heavy the turn got; past
+`MAX_MCP_OUTPUT_TOKENS` (default 25000 tokens) the output is capped head+tail
+and the full text spills to a file whose path the model receives — nothing is
+lost. In JSON tool listings the warning is also available as
+`meta.mcp.output_warning`.
+
+Tool allow/deny lists: `enabled_tools` (allow-list, empty means all) and
+`disabled_tools` (deny-list, wins over the allow-list) are matched against the
+server's real tool names. A filter that would remove every tool skips the
+server with the reason instead of registering an empty server. Project layers
+can only narrow: `disabled_tools` merges by union and `enabled_tools` by
+intersection, so a repo cannot lift a deny the user set.
 
 ### As a server — expose QG's tools to another agent
 
