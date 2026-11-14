@@ -92,8 +92,8 @@ type textSecret struct {
 // mid-word; a trailing \b is omitted so a secret followed by more word
 // characters outside its body class (e.g. AKIA…EXAMPLEEXTRA) still matches,
 // and a secret that ends in "-" (allowed by some body classes) is fully
-// redacted rather than leaving the hyphen behind. glpat is redaction-only
-// (not in secrets.Scan); ASIA temporary access keys are kept alongside AKIA.
+// redacted rather than leaving the hyphen behind. ASIA temporary access keys
+// are kept alongside AKIA.
 // openai keys are handled separately (digit filter). JWT has a strict form
 // (both segments start with eyJ) and a looser three-segment form.
 var textSecretPatterns = []textSecret{

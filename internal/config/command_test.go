@@ -53,7 +53,7 @@ func TestLoadProviderCommandDoesNotResolveAPIKeyEnvFromProcess(t *testing.T) {
 
 func TestLoadProviderCommandFailureIncludesExitAndRedactsOutput(t *testing.T) {
 	command := writeCommand(t, commandScript{
-		Stderr:   "failed with sk-command-secret",
+		Stderr:   "failed with sk-proj-abcdefghijklmnopqrstuvwx",
 		ExitCode: 7,
 	})
 
@@ -64,7 +64,7 @@ func TestLoadProviderCommandFailureIncludesExitAndRedactsOutput(t *testing.T) {
 	if !strings.Contains(err.Error(), "provider command failed") || !strings.Contains(err.Error(), "exit status") {
 		t.Fatalf("error = %q, want command failure with exit status", err.Error())
 	}
-	if strings.Contains(err.Error(), "sk-command-secret") {
+	if strings.Contains(err.Error(), "sk-proj-abcdefghijklmnopqrstuvwx") {
 		t.Fatalf("error leaked command secret: %q", err.Error())
 	}
 }

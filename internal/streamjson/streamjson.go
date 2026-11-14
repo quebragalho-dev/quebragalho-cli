@@ -303,10 +303,13 @@ func isValidID(value string) bool {
 }
 
 var secretPatterns = []*regexp.Regexp{
-	// OpenAI-style keys: anchor on a word boundary and require a long key body so
-	// "sk-" inside ordinary words (e.g. "task-list") is never redacted while real
-	// keys ("sk-proj-…", "sk-…") still are.
-	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{16,}`),
+	// OpenAI-style keys: anchor on a word boundary and require a 20-char body
+	// (same floor as secrets.Scan/redaction) so "sk-" inside ordinary words
+	// (e.g. "task-list") or short fragments is never redacted while real
+	// keys ("sk-proj-…", "sk-…") still are. Digit-free kebab-case matches
+	// (sk-learn-…) are dropped by the filter in redactString unless they
+	// carry a known OpenAI-issued prefix.
+	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`),
 	// api_key=/api-key:/apiKey "…": require a real assignment delimiter (= or :) and
 	// a credential-length body so ordinary prose ("the api_key: setting", "apiKey
 	// value spans…") is not mangled — a bare space after the marker no longer counts
@@ -392,8 +395,33 @@ func redactString(value string) string {
 					return match[:len(prefix)] + "[REDACTED]"
 				}
 			}
+			// Drop digit-free kebab-case false positives (sk-learn-…),
+			// mirroring secrets.Scan: known OpenAI-issued prefixes are
+			// always credentials even without a digit.
+			if strings.HasPrefix(match, "sk-") && !knownOpenAIKeyPrefix(match) &&
+				!secretMatchHasDigit(match) && strings.Contains(strings.TrimPrefix(match, "sk-"), "-") {
+				return match
+			}
 			return "[REDACTED]"
 		})
 	}
 	return redacted
+}
+
+// knownOpenAIKeyPrefix mirrors secrets.knownOpenAIKeyPrefix: known
+// OpenAI-issued forms redact even with an alphabet-only body.
+func knownOpenAIKeyPrefix(match string) bool {
+	return strings.HasPrefix(match, "sk-proj-") ||
+		strings.HasPrefix(match, "sk-svcacct-") ||
+		strings.HasPrefix(match, "sk-admin-")
+}
+
+// secretMatchHasDigit mirrors secrets.containsDigit.
+func secretMatchHasDigit(s string) bool {
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			return true
+		}
+	}
+	return false
 }
