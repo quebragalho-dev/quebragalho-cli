@@ -12,7 +12,7 @@ o CLI. A versão mais nova está no topo.
 - Subagentes visíveis: cada subagente ganha uma linha com tempo, tokens e custo, atualizada ao vivo. Enter abre a conversa dele, e dá para pará-lo dali.
 - `/mcp`: mostra o estado de cada servidor MCP, o motivo de uma falha e as ferramentas de cada um. Na configuração, cada servidor aceita `enabled_tools`, `disabled_tools`, tempo limite próprio e variáveis de ambiente. Servidores declarados no projeto pedem sua aprovação uma vez antes de rodar.
 - Skills na caixa de texto: Enter numa skill do menu coloca a skill no texto, sem enviar, e dá para juntar várias na mesma mensagem.
-- Skills do ambiente: o qg reconhece sozinho onde está rodando (por exemplo, dentro do Maestri) e deixa a skill desse ambiente sempre à vista do modelo. O `qg doctor` mostra o que encontrou.
+- Skills do ambiente: o qg reconhece sozinho onde está rodando e deixa a skill desse ambiente sempre à vista do modelo. O `qg doctor` mostra o que encontrou.
 - Cache à vista: a barra de status e a aba de uso mostram quanto da conversa veio do cache do provedor.
 
 ### Mudanças
