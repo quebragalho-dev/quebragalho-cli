@@ -142,10 +142,10 @@ rm -rf ~/.config/qg         # config, tema e plugins (some com as chaves salvas)
 rm -rf ~/.local/share/qg    # sessões, skills, cron e tarefas (XDG_DATA_HOME)
 rm -rf ~/.local/state/qg    # worktrees locais (XDG_STATE_HOME)
 rm -rf ~/Library/Caches/qg  # cache (Linux: ~/.cache/qg)
+```
 
 Quem usou o pet pode apagar à mão o que ele deixou: `pets/` dentro da pasta
-de config do qg e `pets/frame-cache` na pasta de cache.
-```
+de config do qg e `images/frame-cache` na mesma pasta de config.
 
 Instalações via npm, mise ou `go install` devem ser removidas pelo próprio
 gerenciador (`npm uninstall -g @quebragalho/cli`, `mise uninstall …`).
@@ -158,7 +158,7 @@ qg
 ```
 
 O pacote instala **os dois nomes de comando**: `qg` e o alias `quebragalho`.
-Suporta Linux e macOS em x64 e arm64 (e Windows em x64). Não há scripts de
+Suporta Linux e macOS em x64 e arm64 (e Windows em x64 e arm64). Não há scripts de
 instalação nem downloads fora do registro npm. Se as dependências opcionais
 forem puladas (`--omit=optional`), o wrapper baixa o binário da release
 compatível com a sua plataforma, com verificação de checksum.

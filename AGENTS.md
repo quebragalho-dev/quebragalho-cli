@@ -30,7 +30,6 @@ guide to extending QG with specialists, hooks, plugins, MCP, and skills, see
 - Keep tests beside their source files (`foo_test.go` next to `foo.go`). Add a
   regression test for behavior changes and run affected concurrent code under
   the race detector.
-- Never edit files under `third_party/`; they are vendored.
 - Prefer one cross-platform function with small conditional checks over
   duplicated platform-specific helpers when the behavior can remain unified.
 - Do not commit generated benchmark reports from

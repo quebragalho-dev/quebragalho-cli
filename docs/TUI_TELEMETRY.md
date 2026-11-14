@@ -36,8 +36,6 @@ A opção local `auto` omite `reasoning_effort` na requisição. O booleano `cap
 Sem config, a statusline é a embutida (modo, effort, contexto, branch, pasta).
 Com `statusline` na config, o usuário escolhe os campos, a ordem e o lado (até
 3 linhas), e pode apontar um comando externo cuja saída vira linhas do rodapé.
-Com saída ou erro do comando, o script tem 1 linha garantida: com 3 linhas
-de campos, a última cede o lugar.
 `/statusline` mostra o estado, `/statusline <pedido>` pede ao modelo para
 montar uma nova (sempre com prévia: Enter aplica, Esc cancela),
 `/statusline reset` volta ao padrão.

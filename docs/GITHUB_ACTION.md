@@ -58,7 +58,7 @@ jobs:
 | `api-key` | no | `""` | The provider API key. Pass from a secret; exported only for the QG step and never logged. |
 | `api-key-env` | no | `""` | Env var name the provider reads its key from (e.g. `QUEBRAGALHO_API_KEY`). Exported only for the QG step when used with `api-key`. |
 | `model` | no | `""` | Model id. Defaults to the resolved provider's default. |
-| `mode` | no | `""` | Run mode (`qg exec --mode`), e.g. `smart`, `deep`, `fast`. |
+| `mode` | no | `""` | Run mode (`qg exec --mode`), e.g. `smart`. |
 | `auto` | no | `low` | Autonomy ceiling (`qg exec --auto`): `low`, `medium`, or `high`. Conservative by default. |
 | `self-correct` | no | `false` | Allow mid-run model escalation (`qg exec --allow-escalation`). |
 | `add-dir` | no | `""` | Newline-/comma-separated extra write roots (`qg exec --add-dir`). |
@@ -193,8 +193,8 @@ webhook after the run. QG also has a built-in webhook notifier sink
 "finished / needs input / verify failed after N retries" to Slack or any generic
 webhook:
 
-- Configure the destination with the `QG_SLACK_WEBHOOK_URL` environment variable
-  (or settings). A blank URL disables the sink.
+- Configure the destination with the `QG_NOTIFY_WEBHOOK_URL` environment variable.
+  A blank URL disables the sink.
 - The sink POSTs a JSON body `{ "text", "type", "message", "summary?", "links?" }`.
   The `text` field is what Slack renders; the structured fields carry the
   machine-readable detail.

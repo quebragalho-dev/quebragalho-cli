@@ -7,17 +7,22 @@ QG.
 
 - [Install](INSTALL.md)
 - [Update flow](UPDATE.md)
+- [TUI themes](THEMES.md)
+- [TUI telemetry and statusline](TUI_TELEMETRY.md)
 
 ## Automation And Integrations
 
 - [Stream-JSON protocol](STREAM_JSON_PROTOCOL.md)
 - [GitHub Action](GITHUB_ACTION.md)
 - [Specialists](SPECIALISTS.md)
+- [Extending QG](EXTENDING.md)
 
 ## Maintainer Docs
 
 - [How QG Works](HOW_QG_WORKS.md)
 - [npm wrapper smoke checklist](NPM_WRAPPER_SMOKE.md)
+- [npm packaging](NPM_PACKAGING.md)
+- [Releasing](RELEASING.md)
 - [Benchmarks](BENCHMARK.md)
 - [Performance benchmarks](PERFORMANCE.md)
 - [Offline agent evals](AGENT_EVALS.md)

@@ -30,7 +30,6 @@ Both files use the same format. YAML frontmatter is optional; the markdown body 
 - Build with `make`, not `go build` directly.
 - Tests live next to the source file (`foo_test.go` next to `foo.go`).
 - Run `make lint` before opening a PR.
-- Never edit files under `third_party/` — those are vendored.
 ```
 
 Tips:
@@ -64,7 +63,9 @@ A specialist is a markdown manifest with frontmatter and a system prompt:
 ```markdown
 ---
 description: Reviews API changes for breaking-change risk and missing tests.
-tools: read-only,plan
+tools:
+  - read-only
+  - plan
 ---
 
 You review API changes. For every changed hunk in `internal/api/` or any file

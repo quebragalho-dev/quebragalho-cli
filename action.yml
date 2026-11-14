@@ -42,7 +42,7 @@ inputs:
     required: false
     default: ""
   mode:
-    description: Run mode passed to `qg exec --mode` (for example smart, deep, or fast).
+    description: Run mode passed to `qg exec --mode` (for example smart).
     required: false
     default: ""
   auto:

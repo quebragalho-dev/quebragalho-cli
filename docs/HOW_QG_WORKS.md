@@ -364,7 +364,7 @@ The trigger is intentionally approximate:
 
 - QG estimates request size using message text, images, tool-call arguments, and
   the tool definitions advertised on that turn.
-- The proactive threshold is roughly **two-thirds of the context window**.
+- The proactive threshold is roughly **70% of the context window**.
 - Provider usage from completed turns is used to calibrate the rough estimate over
   time, so the budget gauge and compaction decision track the provider more
   closely after a few turns.
@@ -543,7 +543,7 @@ flowchart TD
 Most interactive features are variations of that same bridge rather than separate
 architectures:
 
-- **Slash commands** either mutate TUI state directly (`/model`, `/permission`,
+- **Slash commands** either mutate TUI state directly (`/model`, `/permissions`,
   `/help`) or start short `tea.Cmd` jobs that later return a message to `Update`
   (`/doctor`, `/search`, `/compact`, session commands).
 - **Permissions** sit between a model-requested tool call and actual execution:
@@ -632,8 +632,7 @@ Core tool groups include:
   validates the URL before the permission prompt, refuses loopback/private/
   special-use addresses, and dials the address it resolved. With
   `HTTP_PROXY`/`HTTPS_PROXY` set, the proxy is dialed instead and resolves the
-  target itself, so destination enforcement ends at the proxy; see the note in
-  the README.
+  target itself, so destination enforcement ends at the proxy.
 - **Local-control tools**: config-gated wrappers for browser, terminal, desktop,
   and artifact helpers backed by packages such as `internal/localcontrol` and
   `internal/browser`.
