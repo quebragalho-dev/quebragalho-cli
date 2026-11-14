@@ -15,6 +15,9 @@ func TestAuditRedactStringOpenAIParity(t *testing.T) {
 	for _, clean := range []string{
 		"updated the task-list yesterday",
 		"sk-learn-machine-learning-model",
+		// Mid-word sk- with a long digit-bearing body: without the \b
+		// anchor this would match and be redacted.
+		"mask-abcdef1234567890xyz",
 	} {
 		if got := redactString(clean); got != clean {
 			t.Errorf("redactString(%q) = %q, want unchanged", clean, got)
@@ -24,6 +27,10 @@ func TestAuditRedactStringOpenAIParity(t *testing.T) {
 		"sk-abcdef1234567890",    // 16-char body with digits
 		"sk-abcdef12345678901",   // 17-char body with digits
 		"sk-abcdef1234567890123", // 19-char body with digits
+		// Interior-hyphen keys WITH digits and unknown prefixes are real
+		// credentials, not kebab prose: the digit check must not be dropped.
+		"sk-ant-api03-AbCd1234EfGh5678",
+		"sk-or-v1-0123abcd4567efgh",
 		"sk-proj-abcdefghijklmnopqrstuvwx",
 		"sk-abcdefghijklmnopqrstuvwxyz012345",
 		"leaked sk-svcacct-abcdefghijklmnopqrstuvwx today",
