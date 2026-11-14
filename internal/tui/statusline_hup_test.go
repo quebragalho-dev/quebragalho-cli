@@ -6,18 +6,29 @@ import (
 	"os/signal"
 	"syscall"
 	"testing"
+	"time"
 )
 
-// The hangup watcher stays out when qg starts with SIGHUP ignored (nohup):
-// installing a Quit there would newly kill a session the user detached on
-// purpose.
+// The hangup watcher must not touch an ignored SIGHUP (nohup): installing
+// signal.Notify would undo the ignore, so the ignore surviving the watch
+// proves the guard. Repeatable under any starting disposition: ignore,
+// watch, require the ignore intact, then reset so later tests' children
+// inherit the default.
 func TestSighupWatcherStaysOutWhenIgnored(t *testing.T) {
-	if !sighupShouldWatch() {
-		t.Fatal("SIGHUP is already ignored in this test process")
-	}
 	signal.Ignore(syscall.SIGHUP)
-	defer signal.Reset(syscall.SIGHUP)
-	if sighupShouldWatch() {
-		t.Fatal("watcher must stay out when SIGHUP starts ignored")
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		watchStatuslineHangup(nil, stop)
+	}()
+	defer func() {
+		close(stop)
+		<-done
+		signal.Reset(syscall.SIGHUP)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if !signal.Ignored(syscall.SIGHUP) {
+		t.Fatal("watcher installed a SIGHUP handler over an ignored SIGHUP")
 	}
 }
