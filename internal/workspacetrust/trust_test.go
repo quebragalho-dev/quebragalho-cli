@@ -14,15 +14,42 @@ import (
 // env var is not portable.
 func setUserConfigRoot(t *testing.T) {
 	t.Helper()
+	setUserConfigRootForGOOS(t, runtime.GOOS, t.TempDir())
+}
 
-	root := t.TempDir()
-	switch runtime.GOOS {
+// setUserConfigRootForGOOS redirects the user-config root for goos to a fresh
+// temp dir. Split out from setUserConfigRoot so the darwin mapping is
+// unit-testable on any platform (runtime.GOOS is fixed per build).
+func setUserConfigRootForGOOS(t *testing.T, goos string, root string) {
+	t.Helper()
+	switch goos {
 	case "windows":
 		t.Setenv("APPDATA", root)
 	case "darwin":
+		// config.UserConfigDir is XDG-first on macOS too (it returns
+		// $XDG_CONFIG_HOME when set, else $HOME/.config), so a HOME-only
+		// redirect leaks to an ambient XDG_CONFIG_HOME and every test in
+		// the package shares one store. Redirect both to stay hermetic.
 		t.Setenv("HOME", root)
+		t.Setenv("XDG_CONFIG_HOME", root)
 	default:
 		t.Setenv("XDG_CONFIG_HOME", root)
+	}
+}
+
+// TestSetUserConfigRootForGOOSIsHermeticOnDarwin pins the darwin mapping: an
+// ambient XDG_CONFIG_HOME (XDG-style dotfiles on a dev Mac) must not survive
+// the redirect, or the trust store escapes the per-test root and tests share
+// state. Runs on every platform since the mapping takes goos as a parameter.
+func TestSetUserConfigRootForGOOSIsHermeticOnDarwin(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "ambient"))
+	root := t.TempDir()
+	setUserConfigRootForGOOS(t, "darwin", root)
+	if got := os.Getenv("XDG_CONFIG_HOME"); got != root {
+		t.Fatalf("XDG_CONFIG_HOME = %q, want the fresh root %q (ambient value leaked)", got, root)
+	}
+	if got := os.Getenv("HOME"); got != root {
+		t.Fatalf("HOME = %q, want the fresh root %q", got, root)
 	}
 }
 
