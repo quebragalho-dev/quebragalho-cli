@@ -67,7 +67,7 @@ func TestMixedInterleaveAndFIFOSingleNoticeBelowBothBlocks(t *testing.T) {
 	if idxInterleave == -1 || idxQueued == -1 || idxNotice == -1 {
 		t.Fatalf("all three rows must render, got:\n%s", view)
 	}
-	if !(idxInterleave < idxQueued && idxQueued < idxNotice) {
+	if idxInterleave >= idxQueued || idxQueued >= idxNotice {
 		t.Fatalf("notice must sit below the FIFO rows (which sit below the interleave rows): interleave=%d fifo=%d notice=%d\n%s", idxInterleave, idxQueued, idxNotice, view)
 	}
 }

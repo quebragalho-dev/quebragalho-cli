@@ -239,9 +239,9 @@ func TestRenderRowCacheKeyVersionPinsEntries(t *testing.T) {
 // is key building plus the map lookup. The old string key copied the whole row
 // text on every frame; the struct key only copies headers.
 func BenchmarkStreamRowDrawHits(b *testing.B) {
-	m, row, rc, opts, width, flush := baseRenderKeyInputs()
+	m, row, _, opts, width, flush := baseRenderKeyInputs()
 	row.detail = baseRenderKeyInputsDetail()
-	rc = rowContext{}
+	rc := rowContext{}
 	cache := newStaticRenderCache(64, 1<<20)
 	previous := defaultRenderCache
 	defaultRenderCache = cache

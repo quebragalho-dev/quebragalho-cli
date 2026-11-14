@@ -224,7 +224,7 @@ func (s *PrService) RefreshIfNeeded() {
 		return
 	}
 	if time.Since(s.lastRefresh) < prLocalDiffMinInterval {
-		wait := s.lastRefresh.Add(prLocalDiffMinInterval).Sub(time.Now())
+		wait := time.Until(s.lastRefresh.Add(prLocalDiffMinInterval))
 		if wait < 0 {
 			wait = 0
 		}

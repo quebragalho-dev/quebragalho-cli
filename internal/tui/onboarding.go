@@ -32,7 +32,6 @@ type setupState struct {
 	configPath   string
 	providers    []SetupProviderOption // QG-only choice set (kept for the save path)
 	allProviders []SetupProviderOption // full catalog
-	selected     int
 	stage        setupStage
 	err          string
 	apiKey       textinput.Model
@@ -293,19 +292,6 @@ func setupContentTop(height int, contentLines int, hasError bool) int {
 
 func (m model) setupStages() []setupStage {
 	return []setupStage{setupStageWelcome, setupStageCredentials, setupStageModel}
-}
-
-func (m model) nextSetupStage() setupStage {
-	stages := m.setupStages()
-	for index, stage := range stages {
-		if stage == m.setup.stage {
-			if index+1 < len(stages) {
-				return stages[index+1]
-			}
-			return stage
-		}
-	}
-	return m.setup.stage
 }
 
 func (m model) previousSetupStage() setupStage {
@@ -833,17 +819,6 @@ func (m model) setupModelLines(width int, height int) []string {
 		padSetupLine("  "+qgTheme.faint.Render(detail), rowWidth),
 	)
 	return lines
-}
-
-func setupTextInputBlockWidth(terminalWidth int, values ...string) int {
-	available := maxInt(34, minInt(terminalWidth-8, 72))
-	target := 42
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			target = maxInt(target, lipgloss.Width("  "+value)+8)
-		}
-	}
-	return minInt(target, available)
 }
 
 func setupModelMaxVisible(height int, total int) int {

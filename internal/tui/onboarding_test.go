@@ -479,10 +479,6 @@ func TestSetupProgressRendersAboveFooter(t *testing.T) {
 	}
 }
 
-func pressSetupContinue(m model) model {
-	return pressSetupContinueOnce(m)
-}
-
 func pressSetupContinueOnce(m model) model {
 	var updated tea.Model
 	var cmd tea.Cmd
@@ -497,26 +493,6 @@ func pressSetupContinueOnce(m model) model {
 		m = updated.(model)
 	}
 	return m
-}
-
-func displayColumnForVisibleLine(t *testing.T, view any, marker string) int {
-	t.Helper()
-	rendered := plainRender(t, view)
-	for _, line := range strings.Split(rendered, "\n") {
-		if strings.Contains(line, marker) {
-			return displayColumn(line, marker)
-		}
-	}
-	t.Fatalf("marker %q missing from view:\n%s", marker, rendered)
-	return -1
-}
-
-func displayColumn(line string, marker string) int {
-	index := strings.Index(line, marker)
-	if index < 0 {
-		return -1
-	}
-	return lipgloss.Width(line[:index])
 }
 
 func assertSetupLineCentered(t *testing.T, view any, marker string, width int) {

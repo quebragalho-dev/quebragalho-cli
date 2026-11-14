@@ -1046,16 +1046,6 @@ func openAITestProfile(modelID string) config.ProviderProfile {
 	}
 }
 
-func anthropicTestProfile(modelID string) config.ProviderProfile {
-	return config.ProviderProfile{
-		Name:         "anthropic",
-		ProviderKind: config.ProviderKindAnthropic,
-		BaseURL:      config.AnthropicBaseURL,
-		APIKey:       "sk-test",
-		Model:        modelID,
-	}
-}
-
 // TestEffortCommandUnsupportedShowsCurrentLevel pins the unsupported card:
 // the requested level is named translated in the message, but the active
 // level shown stays the current one, never the rejected request.

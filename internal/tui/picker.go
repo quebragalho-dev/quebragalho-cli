@@ -745,10 +745,6 @@ func normalizeProviderBaseURL(baseURL string) string {
 	return strings.TrimRight(strings.ToLower(strings.TrimSpace(baseURL)), "/")
 }
 
-func sameNormalizedProviderBaseURL(left string, right string) bool {
-	return normalizeProviderBaseURL(left) == normalizeProviderBaseURL(right)
-}
-
 func genericProviderCatalogID(id string) bool {
 	return strings.HasPrefix(strings.TrimSpace(id), "custom-")
 }

@@ -283,18 +283,6 @@ func TestSessionSnapshotsExposeSpecFields(t *testing.T) {
 	}
 }
 
-func findCatalogSnapshot(t *testing.T, snapshots []ProviderCatalogSnapshot, id string) ProviderCatalogSnapshot {
-	t.Helper()
-
-	for _, snapshot := range snapshots {
-		if snapshot.ID == id {
-			return snapshot
-		}
-	}
-	t.Fatalf("catalog descriptor %q not found in %#v", id, snapshots)
-	return ProviderCatalogSnapshot{}
-}
-
 func TestSessionTreeSnapshotConvertsChildren(t *testing.T) {
 	tree := sessions.TreeNode{
 		Session: sessions.Metadata{SessionID: "root", Title: "Root", EventCount: 1},

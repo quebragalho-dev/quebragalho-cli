@@ -356,27 +356,6 @@ func setupUnavailableMessage() string {
 	return "interactive setup is not available: configure the provider with `qg setup qg` (see `qg setup --help`)"
 }
 
-// missingProviderKeyMessage is the launch-time error replacing the removed
-// onboarding wizard (Etapa 4). It names the credential env var the profile
-// expects and, when no profile exists yet, the command that creates one.
-func missingProviderKeyMessage(profile config.ProviderProfile) string {
-	envVar := providercatalog.DisplayKeyEnv(mustMissingCredentialEnv(profile))
-	if strings.TrimSpace(envVar) == "" {
-		envVar = providercatalog.KeyEnvHint
-	}
-	if !config.HasProviderProfile(profile) {
-		return "no provider configured: set " + envVar + " in your environment or run `qg login`, then run `qg setup qg`"
-	}
-	return "no API key configured: set " + envVar + " in your environment or run `qg login`"
-}
-
-// mustMissingCredentialEnv ignores the missing-flag: this helper only wants
-// the env-var name the profile expects, present or not.
-func mustMissingCredentialEnv(profile config.ProviderProfile) string {
-	envVar, _ := profile.MissingCredentialEnv()
-	return envVar
-}
-
 // isQGProfile is the one definition of "a Quebra Galho profile", shared by the
 // login gate and logout so they always agree on which profiles count.
 func isQGProfile(p config.ProviderProfile) bool {

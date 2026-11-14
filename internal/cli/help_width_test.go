@@ -82,7 +82,7 @@ func helpSubcommands(out string) []string {
 			name := fields[0]
 			ok := name != ""
 			for _, r := range name {
-				if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+				if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
 					ok = false
 					break
 				}

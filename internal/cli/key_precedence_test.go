@@ -17,7 +17,7 @@ func TestKeyHelpDocumentsPrecedence(t *testing.T) {
 	}
 	out := stdout.String()
 	inline, env, saved := strings.Index(out, "direta"), strings.Index(out, "QG_API_KEY"), strings.LastIndex(out, "salva")
-	if inline < 0 || env < 0 || saved < 0 || !(inline < env && env < saved) {
+	if inline < 0 || env < 0 || saved < 0 || inline >= env || env >= saved {
 		t.Fatalf("key help must order inline > env > saved key (idx %d, %d, %d):\n%s", inline, env, saved, out)
 	}
 }

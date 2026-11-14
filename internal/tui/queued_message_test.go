@@ -355,7 +355,7 @@ func TestQueuedMessagesRenderAllSeparatedInOrder(t *testing.T) {
 	if first == -1 || second == -1 || third == -1 {
 		t.Fatalf("expected every queued message to render, got:\n%s", view)
 	}
-	if !(first < second && second < third) {
+	if first >= second || second >= third {
 		t.Fatalf("expected the queue in FIFO order (MARKONE < MARKTWO < MARKTHREE), got:\n%s", view)
 	}
 	if !strings.Contains(view, "na fila (3)") {
@@ -2340,9 +2340,7 @@ func TestQueuedMessagesDrainOnePerTurnHeadFirst(t *testing.T) {
 	m.runID = 1
 	m.width = 96
 
-	for _, queued := range []string{"QF-UM", "QF-DOIS", "QF-TRES"} {
-		m.queuedMessages = append(m.queuedMessages, queued)
-	}
+	m.queuedMessages = append(m.queuedMessages, "QF-UM", "QF-DOIS", "QF-TRES")
 	if got := m.queuedMessages; len(got) != 3 || got[0] != "QF-UM" || got[1] != "QF-DOIS" || got[2] != "QF-TRES" {
 		t.Fatalf("expected the FIFO [QF-UM QF-DOIS QF-TRES], got %#v", got)
 	}

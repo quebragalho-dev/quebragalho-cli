@@ -71,10 +71,6 @@ func TestRunInjectsInterleavedMessagesBeforeNextRequest(t *testing.T) {
 	}
 	// The wire shape stays valid: the interleaved message lands after the
 	// tool result and before the final answer.
-	roles := make([]qgruntime.MessageRole, 0, len(result.Messages))
-	for _, message := range result.Messages {
-		roles = append(roles, message.Role)
-	}
 	lastTool := -1
 	interleaveIndex := -1
 	for index, message := range result.Messages {

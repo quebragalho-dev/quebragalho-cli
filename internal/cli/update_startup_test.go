@@ -34,12 +34,6 @@ func newSleepingUpdateServer(t *testing.T, release <-chan struct{}) *httptest.Se
 
 var errUpdateStartupTest = errors.New("browser unavailable in test")
 
-type updatePromptCall struct {
-	current      string
-	latest       string
-	changelogURL string
-}
-
 func writeUpdateState(t *testing.T, state updatenotice.State) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "qg", "update.json")

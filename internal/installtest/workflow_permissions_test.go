@@ -17,7 +17,7 @@ func TestPullRequestWorkflowsDeclareContentsRead(t *testing.T) {
 	}
 	var missing []string
 	for _, e := range entries {
-		if e.IsDir() || !(strings.HasSuffix(e.Name(), ".yml") || strings.HasSuffix(e.Name(), ".yaml")) {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yml") && !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}
 		rel := filepath.Join(".github", "workflows", e.Name())

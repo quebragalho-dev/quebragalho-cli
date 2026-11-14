@@ -355,21 +355,6 @@ func (m updatePromptModel) View() tea.View {
 	return tea.NewView(m.renderUpdatePrompt())
 }
 
-func (m updatePromptModel) cardInnerWidth() int {
-	width := m.width
-	if width <= 0 {
-		width = 80
-	}
-	cardWidth := minInt(84, width-4)
-	if cardWidth < 4 {
-		cardWidth = 4
-	}
-	if cardWidth < 60 {
-		return maxInt(1, width-4)
-	}
-	return cardWidth - 4
-}
-
 func (m updatePromptModel) renderUpdatePrompt() string {
 	runes := updatePromptRunes(m.ascii)
 	width := m.width

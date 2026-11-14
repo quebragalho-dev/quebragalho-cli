@@ -279,11 +279,6 @@ func (m model) returnQueuedMessagesToComposer() model {
 	return m
 }
 
-func (m model) clearQueuedMessages() model {
-	m.queuedMessages = nil
-	return m
-}
-
 func (m model) hasQueuedMessage() bool {
 	return len(m.queuedMessages) > 0
 }

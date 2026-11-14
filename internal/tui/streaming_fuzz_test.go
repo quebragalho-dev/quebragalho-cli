@@ -71,7 +71,7 @@ func fuzzBlock(r *rand.Rand) string {
 	case 3:
 		rows := []string{"| a | b | c |", "|---|---|:---:|"}
 		for i, n := 0, r.Intn(4); i < n; i++ {
-			rows = append(rows, "| "+fuzzLine(r, 1+r.Intn(1))+" | "+fuzzLine(r, 1)+" | 中 |")
+			rows = append(rows, "| "+fuzzLine(r, 1)+" | "+fuzzLine(r, 1)+" | 中 |")
 		}
 		return strings.Join(rows, "\n")
 	case 4:

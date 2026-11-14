@@ -17,8 +17,6 @@ import (
 // The escalated-shell reason stays canonical up to the approval; the card
 // renders Portuguese through the shared agent mapping.
 func TestPTBRPermissionEscalationReasonCard(t *testing.T) {
-	const wantPT = "Este comando precisa rodar fora do ambiente isolado."
-
 	for _, tc := range []struct{ reason, wantPT string }{
 		{agent.ReasonShellNeedsUnsandboxed, "Este comando precisa rodar fora do ambiente isolado."},
 		{"destructive shell command requires approval", "Comando destrutivo precisa de aprovação."},
