@@ -5,13 +5,13 @@ Run QG headlessly inside a GitHub workflow. The action is a thin wrapper around
 repository, surfaces QG's exit code as the step status, captures the output as a
 file, and can optionally post a summary to the triggering pull request or to Slack.
 
-QG is model- and provider-agnostic, and so is this action: **you** choose the
-provider and supply the API key. Nothing is hardcoded to any single provider.
+QG talks to its single OpenAI-compatible provider, and so does this action:
+**you** supply the API key. Nothing is hardcoded to any other provider.
 
 ## Quick start
 
-A action `quebragalho-dev/quebragalho-cli@v1` está no repositório privado
-(requer acesso). Os exemplos `uses:` abaixo mantêm esse destino.
+A action `quebragalho-dev/quebragalho-cli@v1` está no repositório público.
+Os exemplos `uses:` abaixo mantêm esse destino.
 
 ```yaml
 # .github/workflows/qg.yml
@@ -40,8 +40,8 @@ jobs:
           model: muse-spark-1.3-contributor
 ```
 
-> The `provider`, `api-key-env`, and `api-key` trio is how you stay
-> provider-neutral: `api-key-env` is the environment variable name the chosen
+> The `provider`, `api-key-env`, and `api-key` trio is how the key reaches QG
+> without being logged: `api-key-env` is the environment variable name the
 > provider reads its key from (for example `QUEBRAGALHO_API_KEY`), and
 > `api-key` is the secret value. The action exports
 > that variable only for the QG step and never prints it. If your repository

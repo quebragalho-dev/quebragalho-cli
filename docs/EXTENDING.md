@@ -211,7 +211,10 @@ Events the agent emits (in dispatch order):
 
 A hook's exit code decides what happens next: `0` continues, non-zero blocks the tool call (`beforeTool`) or surfaces an error (`afterTool`). Hook execution is recorded in the audit log; the audit is reachable from the agent's view of past actions, not from a dedicated `qg doctor` check.
 
-> **Roadmap.** An in-UI hooks manager is on the backlog. Today you edit the JSON directly.
+> **Hooks CLI.** Manage hooks with `qg hooks add`, `qg hooks remove`,
+> `qg hooks enable`, and `qg hooks disable` (`--user` targets the user scope
+> instead of `<cwd>/.qg/hooks.json`, `--json` for scripting). Editing the JSON
+> file directly remains equivalent.
 
 ## 5. MCP — Model Context Protocol
 

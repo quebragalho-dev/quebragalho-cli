@@ -71,9 +71,9 @@ Known categories:
 
 | Category | Tools |
 | --- | --- |
-| `read-only` | `read_file`, `list_directory`, `grep`, `glob` |
+| `read-only` | `read_file`, `read_minified_file`, `view_image`, `list_directory`, `grep`, `glob` |
 | `edit` | read-only tools plus `write_file`, `edit_file`, `apply_patch` |
-| `execute` | read-only tools plus `bash` |
+| `execute` | read-only tools plus `exec_command`, `write_stdin`, `bash` |
 | `plan` | `update_plan` |
 
 Specialist manifests cannot enable `Task`, `TaskOutput`, `TaskStop`, or

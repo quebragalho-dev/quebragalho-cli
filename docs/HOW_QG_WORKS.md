@@ -32,7 +32,7 @@ flowchart TD
     ACP --> Agent
 
     Agent --> Provider[Provider runtime<br/>internal/qgruntime.Provider]
-    Provider --> APIs[OpenAI / Anthropic / Gemini / compatible APIs]
+    Provider --> APIs[QG gateway<br/>OpenAI-compatible API]
 
     Agent --> Registry[Tool registry<br/>internal/tools.Registry]
     Registry --> CoreTools[Core tools<br/>read/edit/shell/search/plan]
@@ -122,7 +122,7 @@ reading the deeper flows below.
 | `internal/tui` | Bubble Tea model/update/view code, transcript rendering, composer, prompts, slash commands, setup wizard. |
 | `internal/agent` | Core loop that sends messages to the model, streams output, executes tools, handles permissions, compaction, retries, and final answers. |
 | `internal/qgruntime` | Provider-neutral message, tool-call, stream, usage, and image types. Providers implement `Provider.StreamCompletion`. |
-| `internal/providers` | Factory that turns a resolved provider profile into an OpenAI, Anthropic, Gemini, Codex, or compatible provider adapter. |
+| `internal/providers` | Factory that builds the single QG runtime provider (OpenAI-compatible, `https://api.quebragalho.dev/v1`) from the resolved provider profile. |
 | `internal/tools` | Tool interface, registry, core read/write/shell/network tools, local-control wrappers, tool safety metadata, redaction, output ceilings. |
 | `internal/sandbox` | Permission policy, path/network checks, grant store, command-prefix approvals, and platform sandbox backends. |
 | `internal/sessions` | Local append-only session storage: `metadata.json` + `events.jsonl`. |
@@ -579,17 +579,16 @@ type Provider interface {
 ```
 
 The agent loop only knows about provider-neutral messages, tool definitions,
-stream events, reasoning blocks, images, and token usage. Provider adapters in
-`internal/providers/*` translate those neutral types to provider-specific APIs:
+stream events, reasoning blocks, images, and token usage. The provider adapter in
+`internal/providers` translates those neutral types to the single QG provider
+API (OpenAI-compatible):
 
-- OpenAI and OpenAI-compatible APIs;
-- Anthropic and Anthropic-compatible APIs;
-- Gemini;
-- Codex / ChatGPT OAuth-backed runtime.
+- QG gateway at `https://api.quebragalho.dev/v1` (compatible endpoints
+  reachable via explicit base-URL configuration).
 
 `internal/providers.New` resolves the configured model through the model
-registry/catalog, normalizes API model IDs and base URLs, attaches API keys or
-OAuth resolvers, and returns the concrete adapter.
+registry/catalog, normalizes API model IDs and base URLs, attaches the API key,
+and returns the single provider adapter.
 
 ## Tools and Capabilities
 

@@ -1,7 +1,7 @@
 name: QG
 description: >-
-  Run the QG coding agent headlessly in a GitHub workflow. QG is
-  model- and provider-agnostic: you supply the provider and API key as inputs.
+  Run the QG coding agent headlessly in a GitHub workflow. QG talks to its
+  single OpenAI-compatible provider: you supply the API key as input.
 author: Quebra Galho
 
 branding:
@@ -19,9 +19,9 @@ inputs:
     default: ""
   provider:
     description: >-
-      Provider id to activate (for example openai, anthropic, gemini, ollama, or
-      any configured OpenAI-/Anthropic-compatible endpoint). Optional when the
-      repository already carries a .qg/config.json with an active provider.
+      Provider id to activate (QG ships a single OpenAI-compatible provider;
+      `qg` is the built-in id). Optional when the repository already carries
+      a .qg/config.json with an active provider.
     required: false
     default: ""
   api-key:

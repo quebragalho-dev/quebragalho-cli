@@ -9,7 +9,7 @@ already open, a quiet footer notice. Both read the same stored check result;
 see "Interactive startup check" below.
 
 Os exemplos com `--repo quebragalho-dev/quebragalho-cli` usam o repositório
-privado (requer acesso), inclusive com `--check`.
+público, inclusive com `--check`.
 
 ```bash
 qg update --check
@@ -87,7 +87,7 @@ Endpoint resolution order:
 1. `--endpoint`
 2. `QG_UPDATE_RELEASE_URL`
 3. `--repo`
-4. `https://api.github.com/repos/quebragalho-dev/quebragalho-cli/releases/latest` (requer acesso)
+4. `https://api.github.com/repos/quebragalho-dev/quebragalho-cli/releases/latest` (public repository)
 
 Installer scripts download the matching release asset for the local platform and
 verify its `.sha256` file. If QG is already installed, run `qg upgrade`

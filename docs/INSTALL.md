@@ -63,7 +63,16 @@ curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/mai
 
 Flags úteis: `--version <versão>` fixa a release (padrão: `latest`),
 `--repo <owner/repo>` muda o repositório, `--install-dir <caminho>` é o mesmo
-que `QG_INSTALL_DIR`.
+que `QG_INSTALL_DIR`. As mesmas opções existem como variáveis de ambiente:
+`QG_VERSION` (padrão: `latest`), `QG_REPO` (padrão:
+`quebragalho-dev/quebragalho-cli`) e `QG_INSTALL_DIR` (padrão:
+`/usr/local/bin`).
+
+Sem `--install-dir`/`QG_INSTALL_DIR`, o padrão `/usr/local/bin` exige escrita
+de administrador. Se ele não tiver escrita, o script cai sozinho para um
+diretório do usuário com escrita, preferindo quem já está no `PATH`, nesta
+ordem: `$HOME/.local/bin`, `/opt/homebrew/bin`, `$HOME/.bin`. O script avisa
+qual diretório escolheu e se ele não está no `PATH`.
 
 ## PATH
 
@@ -187,7 +196,7 @@ novo.
 
 ## go install
 
-O módulo está no repositório privado (requer acesso).
+O módulo é público; não é preciso acesso especial.
 
 ```bash
 go install github.com/quebragalho-dev/quebragalho-cli/cmd/qg@latest
@@ -205,7 +214,7 @@ Requer Go 1.26.11+.
 
 ## A partir do código-fonte
 
-O clone usa o repositório privado (requer acesso).
+O repositório é público; o clone não exige acesso especial.
 
 Requer Go 1.26.11+.
 
@@ -237,6 +246,10 @@ Coloque `qg` e `qg-linux-sandbox` no mesmo diretório do `PATH`. No macOS não
 irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 | iex
 ```
 
+Por padrão instala em `%LOCALAPPDATA%\qg\bin` (ou em `$env:QG_INSTALL_DIR`,
+se definido) e acrescenta esse diretório ao `PATH` do usuário; reabra o
+terminal para usar `qg` de qualquer lugar.
+
 Se o PowerShell bloquear o `qg.ps1` ("não pode ser carregado porque a
 execução de scripts foi desabilitada neste sistema"), use `qg.cmd`
 (ou rode pelo `cmd`), ou libere scripts locais com:
@@ -247,7 +260,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## mise
 
-Este método usa o repositório privado (requer acesso).
+O repositório é público; este método não exige acesso especial.
 
 ```bash
 mise use -g ubi:quebragalho-dev/quebragalho-cli
