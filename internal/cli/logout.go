@@ -87,7 +87,7 @@ func logoutQG(deps appDeps, stdout io.Writer) (LogoutResult, error) {
 		result.InlineCleared = result.InlineCleared || inlineCleared
 	}
 	result.Removed = result.KeyRemoved || result.InlineCleared || result.OAuthRemoved
-	for _, name := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY"} {
+	for _, name := range providercatalog.QGCredentialEnvVars() {
 		if strings.TrimSpace(os.Getenv(name)) != "" {
 			result.EnvStillActive = name
 			break

@@ -27,10 +27,10 @@ const (
 	CategoryFree              = "free"
 )
 
-var defaultProjectContextFiles = []string{"AGENTS.md", "QG.md", ".qg/AGENTS.md"}
-
-const maxProjectContextBytes = 8 << 10
-const maxWorkspaceMapContextBytes = 4 << 10
+// Project-guideline and workspace-map budgets intentionally reference the
+// agent's single definitions (agent.ProjectContextFiles,
+// agent.MaxProjectContextBytes, agent.MaxRepoMapContextBytes) so this report
+// mirrors the prompt-construction caps instead of copying their values.
 
 // toolDefinitionOverheadTokens approximates per-tool JSON/message framing.
 const toolDefinitionOverheadTokens = 4
@@ -146,7 +146,7 @@ func workspaceMapFootprint(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return repomap.RenderPrompt(snapshot, maxWorkspaceMapContextBytes), nil
+	return repomap.RenderPrompt(snapshot, agent.MaxRepoMapContextBytes), nil
 }
 
 func systemPromptFootprint(root string, modelID string) string {
@@ -314,7 +314,7 @@ func estimateRegistryTools(registry *tools.Registry, deferThreshold int) (int, i
 
 func readProjectGuidelines(root string, names []string) (string, string) {
 	if len(names) == 0 {
-		names = defaultProjectContextFiles
+		names = agent.ProjectContextFiles
 	}
 	for _, name := range names {
 		name = strings.TrimSpace(name)
@@ -329,8 +329,8 @@ func readProjectGuidelines(root string, names []string) (string, string) {
 		if content == "" {
 			continue
 		}
-		if len(content) > maxProjectContextBytes {
-			content = content[:maxProjectContextBytes]
+		if len(content) > agent.MaxProjectContextBytes {
+			content = content[:agent.MaxProjectContextBytes]
 		}
 		return content, filepath.ToSlash(name)
 	}

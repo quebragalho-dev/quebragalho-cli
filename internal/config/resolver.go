@@ -46,11 +46,20 @@ func (e *setupFixableError) Unwrap() []error { return []error{e.err, e.sentinel}
 // later steps); 50 was still too low for larger tasks spanning several files (agents
 // hit the ceiling and stopped with a "remaining work" summary instead of finishing).
 // Raise per-session with /turns.
+//
+// This is the INTERACTIVE default: the TUI resolves it straight into the session
+// budget. Headless exec replaces it with MaxTurnsCeiling when unset (see
+// cli.execTurnBudget), and a bare agent.Run without any resolved config falls
+// back further to agent.FallbackMaxTurns. Explicit sources (--max-turns, mode
+// presets, QG_MAX_TURNS, config files) always win over this default.
 const defaultMaxTurns = 80
 
 // MaxTurnsCeiling caps the per-run tool-turn budget so a stray env value or typo
 // can't set an absurd ceiling. Shared between applyEnv (read site) and the /turns
 // command (write site) so the bound holds even if the env is set by a raw shell.
+// It doubles as the headless exec default (cli.defaultExecMaxTurns): an exec run
+// has nobody to unstick it, so an unconfigured budget starts at the ceiling
+// instead of truncating mid-task at the interactive default.
 const MaxTurnsCeiling = 500
 
 // defaultDeferThreshold is the number of deferred-eligible (MCP) tools at which

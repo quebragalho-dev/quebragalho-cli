@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
@@ -205,8 +206,12 @@ func ResolvePrompt(events []InputEvent) (string, error) {
 	return strings.Join(parts, "\n\n"), nil
 }
 
-// maxStreamImageBytes caps a single decoded image at 10 MiB to bound request bodies.
-const maxStreamImageBytes = 10 << 20
+// maxStreamImageBytes is the single-image cap for stream-json input, shared
+// with imageinput.MaxImageBytes (the same per-image decoded-size limit the
+// CLI --image path and the TUI attachment path enforce) so every input
+// surface rejects oversized images at the same bound. Kept as a local alias
+// so the protocol error text keeps naming the stream-json surface.
+const maxStreamImageBytes = imageinput.MaxImageBytes
 
 // ResolveImages decodes every base64 image attached to the input events into
 // raw-byte ImageBlocks. Each image's media type is normalized and validated

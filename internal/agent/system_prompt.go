@@ -33,12 +33,16 @@ var confirmationPolicy string
 // (it never should be) so a run always has a non-empty system turn.
 const fallbackSystemPrompt = "You are QG, a terminal coding agent. Help with the current workspace and use tools when needed."
 
-// projectContextFiles are workspace docs injected into the system prompt so the
+// ProjectContextFiles are workspace docs injected into the system prompt so the
 // agent honors project-specific conventions (mirrors AGENTS.md / CLAUDE.md).
 // The first match at each directory level wins; the loader walks the chain
 // from the git root down to the cwd and injects the matches in
 // general-to-specific order.
-var projectContextFiles = []string{"AGENTS.md", "QG.md", ".qg/AGENTS.md"}
+//
+// Shared with internal/contextreport, which renders the same guideline file
+// into its project_guidelines section — one list so the report and the prompt
+// can never disagree about which files count. Treat as read-only.
+var ProjectContextFiles = []string{"AGENTS.md", "QG.md", ".qg/AGENTS.md"}
 
 // userContextFile is the per-user instruction file, resolved under
 // config.UserConfigDir()/qg/ alongside the rest of QG's per-user config
@@ -48,18 +52,26 @@ const userContextFile = "QG.md"
 
 var userConfigDirForPrompt = config.UserConfigDir
 
-// maxProjectContextBytes caps how much of a single project doc is injected so
-// a large guidelines file can't blow the context budget.
-const maxProjectContextBytes = 8 << 10 // 8 KiB per file
+// MaxProjectContextBytes caps how much of a single project doc is injected so
+// a large guidelines file can't blow the context budget. Shared with
+// internal/contextreport, which truncates its project_guidelines section to
+// the same per-file cap — one value so the report mirrors the prompt.
+const MaxProjectContextBytes = 8 << 10 // 8 KiB per file
+
+// maxProjectContextBytes is the in-package alias of MaxProjectContextBytes,
+// kept so existing references keep compiling without churn.
+const maxProjectContextBytes = MaxProjectContextBytes
 
 // maxProjectContextTotalBytes caps the total bytes across all matched
 // project guideline files. With path-walking, multiple files can match (root
 // + sub-tree), so a per-file cap alone is not enough.
 const maxProjectContextTotalBytes = 32 << 10 // 32 KiB total
 
-// maxRepoMapContextBytes keeps the repository map useful but compact enough to
-// remain stable across normal agent turns.
-const maxRepoMapContextBytes = 4 << 10 // 4 KiB
+// MaxRepoMapContextBytes keeps the repository map useful but compact enough to
+// remain stable across normal agent turns. Shared with internal/contextreport,
+// which renders its workspace_map section to the same budget — one value so
+// the report mirrors the prompt.
+const MaxRepoMapContextBytes = 4 << 10 // 4 KiB
 
 const (
 	workspaceSeedMaxLines = 12
@@ -697,7 +709,7 @@ func projectGuidelineLabel(match, gitRoot string) string {
 // should appear in the project guidelines label.
 // Returns "" when nothing matches.
 func findProjectContextFile(dir string) string {
-	for _, name := range projectContextFiles {
+	for _, name := range ProjectContextFiles {
 		// Walk to the file's parent through dir with case-insensitive segment
 		// matching, then find a regular file with the same basename. This works
 		// on both case-sensitive and case-insensitive filesystems and always
@@ -817,7 +829,7 @@ func workspaceSeedContext(cwd string) string {
 func repoMapContext(cwd string) string {
 	// repomap.Scan is best-effort supplemental context for the prompt. If it
 	// fails, omit the repo map instead of failing the agent run; successful scans
-	// are still capped by repomap.RenderPrompt and maxRepoMapContextBytes.
+	// are still capped by repomap.RenderPrompt and MaxRepoMapContextBytes.
 	snapshot, err := repomap.Scan(cwd, repomap.Options{
 		MaxFiles: 300,
 		MaxDepth: 5,
@@ -825,7 +837,7 @@ func repoMapContext(cwd string) string {
 	if err != nil {
 		return ""
 	}
-	return repomap.RenderPrompt(snapshot, maxRepoMapContextBytes)
+	return repomap.RenderPrompt(snapshot, MaxRepoMapContextBytes)
 }
 
 // gitBranchForPrompt reads the current branch (or short SHA when detached) for
