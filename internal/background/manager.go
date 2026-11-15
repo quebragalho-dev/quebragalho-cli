@@ -471,13 +471,17 @@ func (manager *Manager) markKilledIfStillRunning(taskID string, pid int) (bool, 
 // restoreRunningAfterFailedKill reverts a task that was optimistically marked
 // killed back to running when the terminate failed (the process is presumed
 // still alive). It only touches a task still killed with the same pid, so a real
-// exit recorded meanwhile is left untouched. It returns the persistence error so
-// the caller can surface a failed rollback rather than leaving the task wrongly
-// marked killed.
+// exit recorded meanwhile is left untouched. Restoring from any other state is
+// a silent no-op (nil), preserving the historical contract: the table still
+// calls those transitions illegal, but this internal caller does not turn
+// them into a new error. Only a persistence failure is surfaced so the caller
+// can report a failed rollback rather than leaving the task wrongly marked
+// killed.
 func (manager *Manager) restoreRunningAfterFailedKill(taskID string, pid int) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	if _, ok := manager.tasks[taskID]; !ok {
+	task, ok := manager.tasks[taskID]
+	if !ok || task.Status != StatusKilled || task.PID != pid {
 		return nil
 	}
 	_, err := manager.transitionLocked(taskID, taskEventRestore, StatusRunning, 0, pid)

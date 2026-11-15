@@ -155,6 +155,108 @@ func TestTaskFailedKillRestoresRunningTwins(t *testing.T) {
 	}
 }
 
+// Restoring from any state other than killed-with-the-same-pid is a silent
+// no-op (nil): the historical contract, kept after the state machine landed.
+func TestTaskRestoreOffKilledIsSilentNoOp(t *testing.T) {
+	manager, err := NewManagerWithOptions(ManagerOptions{RootDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewManagerWithOptions error = %v", err)
+	}
+	for _, terminal := range []Status{StatusCompleted, StatusError, StatusKilled} {
+		id := "t-" + string(terminal)
+		if _, err := manager.Register(RegisterInput{TaskID: id, Type: "specialist", PID: 7}); err != nil {
+			t.Fatalf("Register error = %v", err)
+		}
+		switch terminal {
+		case StatusCompleted:
+			if err := manager.UpdateStatus(id, StatusCompleted, 0); err != nil {
+				t.Fatalf("UpdateStatus error = %v", err)
+			}
+		case StatusError:
+			if err := manager.UpdateStatus(id, StatusError, -1); err != nil {
+				t.Fatalf("UpdateStatus error = %v", err)
+			}
+		case StatusKilled:
+			manager.mu.Lock()
+			_, err := manager.transitionLocked(id, taskEventKill, StatusKilled, -1, 7)
+			manager.mu.Unlock()
+			if err != nil {
+				t.Fatalf("kill transition error = %v", err)
+			}
+		}
+		before, _ := manager.Get(id)
+		err := manager.restoreRunningAfterFailedKill(id, 8)
+		if err != nil {
+			t.Fatalf("restore from %s: got error %v, want silent nil", terminal, err)
+		}
+		after, _ := manager.Get(id)
+		if after != before {
+			t.Fatalf("restore from %s mutated state: before=%#v after=%#v", terminal, before, after)
+		}
+	}
+}
+
+// Kill with a failing terminate while the task is still killed restores
+// running and reports only the denial; if the pid moved meanwhile the task
+// is left untouched and the restore stays silent.
+func TestTaskKillFailedRestoreParity(t *testing.T) {
+	newDeniedManager := func(t *testing.T, mutate func(*Manager)) *Manager {
+		t.Helper()
+		var manager *Manager
+		var err error
+		manager, err = NewManagerWithOptions(ManagerOptions{
+			RootDir: t.TempDir(),
+			KillProcess: func(pid int) error {
+				if mutate != nil {
+					mutate(manager)
+				}
+				return errTestKillDenied
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewManagerWithOptions error = %v", err)
+		}
+		if _, err := manager.Register(RegisterInput{TaskID: "t", Type: "specialist", PID: 7}); err != nil {
+			t.Fatalf("Register error = %v", err)
+		}
+		return manager
+	}
+
+	t.Run("still-killed-restores-running", func(t *testing.T) {
+		manager := newDeniedManager(t, nil)
+		err := manager.Kill("t")
+		if err == nil || !strings.Contains(err.Error(), "test kill denied") {
+			t.Fatalf("Kill error = %v, want the denial", err)
+		}
+		if strings.Contains(err.Error(), "restore running state") {
+			t.Fatalf("Kill joined a spurious restore error: %v", err)
+		}
+		if task, _ := manager.Get("t"); task.Status != StatusRunning {
+			t.Fatalf("failed kill did not restore running: %#v", task)
+		}
+	})
+
+	t.Run("moved-pid-left-untouched", func(t *testing.T) {
+		manager := newDeniedManager(t, func(manager *Manager) {
+			manager.mu.Lock()
+			task := manager.tasks["t"]
+			task.PID = 999
+			manager.tasks["t"] = task
+			manager.mu.Unlock()
+		})
+		err := manager.Kill("t")
+		if err == nil || !strings.Contains(err.Error(), "test kill denied") {
+			t.Fatalf("Kill error = %v, want only the denial", err)
+		}
+		if strings.Contains(err.Error(), "restore running state") {
+			t.Fatalf("Kill joined a spurious restore error: %v", err)
+		}
+		if task, _ := manager.Get("t"); task.Status != StatusKilled || task.PID != 999 {
+			t.Fatalf("moved pid was not left untouched: %#v", task)
+		}
+	})
+}
+
 // Same-terminal UpdateStatus is an idempotent no-op: it keeps the first
 func TestTaskUpdateStatusSameTerminalIsIdempotent(t *testing.T) {
 	root := t.TempDir()
