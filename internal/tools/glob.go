@@ -20,10 +20,6 @@ type globTool struct {
 
 func (globTool) outputCategory(map[string]any) outputCategory { return outputCategorySearch }
 
-func NewGlobTool(workspaceRoot string) Tool {
-	return NewScopedGlobTool(workspaceRoot, nil)
-}
-
 func NewScopedGlobTool(workspaceRoot string, scope PathScope) Tool {
 	return globTool{
 		baseTool: baseTool{

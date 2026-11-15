@@ -134,17 +134,6 @@ var runFormatOnWriteCommand = func(ctx context.Context, binaryPath string, argum
 
 var readFormattedFile = readRootedFile
 
-// maybeFormatWrittenFile is the unscoped test-facing wrapper. Production
-// callers use maybeFormatWrittenFileScoped so a formatter cannot redirect the
-// final read or recovery write outside the configured write roots.
-func maybeFormatWrittenFile(ctx context.Context, absolutePath string, writtenContent string) formatOnWriteResult {
-	restoreMode := os.FileMode(0o644)
-	if info, err := os.Stat(absolutePath); err == nil {
-		restoreMode = info.Mode().Perm()
-	}
-	return maybeFormatWrittenFileScoped(ctx, filepath.Dir(absolutePath), nil, absolutePath, writtenContent, restoreMode)
-}
-
 // maybeFormatWrittenFileScoped runs the configured formatter and returns only
 // content verified through a descriptor-bound root. Formatter failures restore
 // writtenContent through that same root; if restoration or the final read

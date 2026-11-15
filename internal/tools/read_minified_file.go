@@ -20,10 +20,6 @@ func (readMinifiedFileTool) outputCategory(map[string]any) outputCategory {
 	return outputCategoryFile
 }
 
-func NewReadMinifiedFileTool(workspaceRoot string) Tool {
-	return NewScopedReadMinifiedFileTool(workspaceRoot, nil)
-}
-
 func NewScopedReadMinifiedFileTool(workspaceRoot string, scope PathScope) Tool {
 	return readMinifiedFileTool{
 		baseTool: baseTool{
