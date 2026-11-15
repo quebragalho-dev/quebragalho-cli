@@ -41,8 +41,6 @@ func TestHelpTreeFits80Cells(t *testing.T) {
 		}
 	}
 	walk(nil, "")
-	// Helpers not reachable from the top-level command list.
-	walk([]string{"trust"}, "")
 	// `qg cron` without arguments prints usage to stderr and exits non-zero.
 	var cronOut, cronErr bytes.Buffer
 	if code := runWithDeps([]string{"cron"}, &cronOut, &cronErr, appDeps{}); code == exitSuccess {

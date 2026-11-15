@@ -1557,6 +1557,7 @@ Comandos:
   find        Alias de search
   sessions    Inspeciona a linhagem das sessões locais do QG
   spec        Revisa e aprova rascunhos salvos do modo spec
+  init        Investiga o repositório e gera um AGENTS.md
   specialist  Gerencia perfis de especialista locais do QG
   plugins     Inspeciona, instala e remove plugins locais do QG
   backends    Inspeciona o ciclo de vida dos backends de MCP, hook e plugin
@@ -1570,6 +1571,7 @@ Comandos:
   upgrade     Baixa, verifica e instala atualizações disponíveis da CLI QG
   worktrees   Prepara worktrees git isoladas
   verify      Detecta e executa verificações locais
+  trust       Confia na pasta de trabalho para hooks e MCP do projeto
   eval        Valida suítes offline de eval de agentes
   changes     Inspeciona mudanças git locais e faz commit
   usage       Consulta tokens do gateway (relatório de uso = resumo local)

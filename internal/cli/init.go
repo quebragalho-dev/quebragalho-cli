@@ -65,7 +65,8 @@ const initHelp = `qg init — investiga o repositório e gera um AGENTS.md.
 
 Roda um turno do agente com uma varredura local do repo (linguagens, ferramentas
 de build/teste, CI, layout da pasta de trabalho), investiga as lacunas e escreve
-um AGENTS.md conciso na raiz do repo para as próximas execuções começarem com contexto.
+um AGENTS.md conciso na raiz do repo para as próximas execuções começarem
+com contexto.
 
 Uso:
   qg init [exec flags]
