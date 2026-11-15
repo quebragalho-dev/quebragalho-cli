@@ -19,12 +19,12 @@ func (m model) toolsText() string {
 	count := len(registered)
 	if len(registered) == 0 {
 		return renderCommandCardTranscript(commandCard{
-			Title:   "Tools",
-			Summary: []string{"0 registered", "no tools available"},
+			Title:   "Ferramentas",
+			Summary: []string{"0 registradas", "nenhuma ferramenta disponível"},
 			Sections: []commandCardSection{{
-				Title: "Registry",
+				Title: "Registro",
 				Fields: []commandField{
-					{Key: "registered", Value: "0"},
+					{Key: "registradas", Value: "0"},
 				},
 			}},
 			Actions: []string{"/mcp manage servers", "/permissions manage access"},
@@ -41,18 +41,23 @@ func (m model) toolsText() string {
 		available = append(available, commandBullet(name))
 	}
 
+	registeredSummary := fmt.Sprintf("%d registradas", count)
+	if count == 1 {
+		registeredSummary = "1 registrada"
+	}
+
 	return renderCommandCardTranscript(commandCard{
-		Title:   "Tools",
-		Summary: []string{fmt.Sprintf("%d registered", count), "registered catalog"},
+		Title:   "Ferramentas",
+		Summary: []string{registeredSummary, "catálogo registrado"},
 		Sections: []commandCardSection{
 			{
-				Title: "Registry",
+				Title: "Registro",
 				Fields: []commandField{
-					{Key: "registered", Value: fmt.Sprint(count)},
+					{Key: "registradas", Value: fmt.Sprint(count)},
 				},
 			},
 			{
-				Title: "Available",
+				Title: "Disponíveis",
 				Lines: available,
 			},
 		},

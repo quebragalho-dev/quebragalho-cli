@@ -124,10 +124,10 @@ func TestToolsCommandRendersCommandCard(t *testing.T) {
 	}
 	emptyText := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Tools",
-		"0 registered | no tools available",
-		"Registry",
-		"registered  0",
+		"Ferramentas",
+		"0 registradas | nenhuma ferramenta disponível",
+		"Registro",
+		"registradas  0",
 		"ações: /mcp manage servers | /permissions manage access",
 	} {
 		assertContains(t, emptyText, want)
@@ -150,11 +150,11 @@ func TestToolsCommandRendersCommandCard(t *testing.T) {
 	}
 	toolsText := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Tools",
-		"1 registered | registered catalog",
-		"Registry",
-		"registered  1",
-		"Available",
+		"Ferramentas",
+		"1 registrada | catálogo registrado",
+		"Registro",
+		"registradas  1",
+		"Disponíveis",
 		"- read_file",
 		"ações: /mcp manage servers | /permissions manage access",
 	} {
@@ -168,9 +168,9 @@ func TestToolsCommandCardHandlesNilRegistry(t *testing.T) {
 	text := model{}.toolsText()
 
 	for _, want := range []string{
-		"Tools",
-		"0 registered | no tools available",
-		"registered  0",
+		"Ferramentas",
+		"0 registradas | nenhuma ferramenta disponível",
+		"registradas  0",
 	} {
 		assertContains(t, text, want)
 	}
@@ -205,7 +205,7 @@ func TestToolsCommandShowsFullSortedCatalog(t *testing.T) {
 	}
 	text := transcriptText(next.transcript)
 	for _, want := range []string{
-		"9 registered | registered catalog",
+		"9 registradas | catálogo registrado",
 		"- apply_patch",
 		"- bash",
 		"- edit_file",
