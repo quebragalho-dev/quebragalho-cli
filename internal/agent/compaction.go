@@ -370,10 +370,17 @@ func isStreamTimeoutError(message string) bool {
 // compactionState carries the per-run state the agent loop needs to compact a
 // conversation safely. It is created once per Run and is a no-op whenever
 // options.ContextWindow <= 0.
+//
+// The run's compaction lifecycle is an explicit phase machine (compactPhase +
+// compactTransitionTable below): lowWaterMark, reactiveAttempted and enabled
+// are written ONLY by transition, so the one-shot budget and the watermark
+// can never drift apart in one path and not another.
 type compactionState struct {
 	enabled      bool
 	threshold    int
 	preserveLast int
+	// phase is the explicit lifecycle phase; written only by transition.
+	phase compactPhase
 	// lowWaterMark is the estimated token size at (or below) which we will NOT
 	// proactively compact again. It is the size right after the last compaction;
 	// the loop only compacts when the history has grown past it AND is over the
@@ -425,6 +432,230 @@ type compactionState struct {
 	mainModel string
 }
 
+// compactPhase is the explicit phase of a run's compaction lifecycle.
+// Twin fields lowWaterMark/reactiveAttempted/enabled move only via
+// transition, keyed by this phase, so every path updates them together.
+//
+//	disabled --windowUpdate--> below (run born opt-out CAN be enabled here;
+//	                            kept as characterization: product decision pending)
+//	below --pruneFits/paidShrink--> pruned / paid
+//	below --reactivePruneFits--> recovered (budget intact)
+//	below --reactivePaidShrink/Fail--> spent (budget consumed, sticky)
+//	spent --reactivePaid*--> REFUSED (free prune still allowed)
+type compactPhase int
+
+const (
+	phaseDisabled compactPhase = iota
+	phaseBelow
+	phasePruned
+	phasePaid
+	phaseRecovered
+	phaseSpent
+)
+
+// String names the compaction phase for reports and debugging.
+func (p compactPhase) String() string {
+	switch p {
+	case phaseBelow:
+		return "below"
+	case phasePruned:
+		return "pruned"
+	case phasePaid:
+		return "paid"
+	case phaseRecovered:
+		return "recovered"
+	case phaseSpent:
+		return "spent"
+	default:
+		return "disabled"
+	}
+}
+
+// compactEventKind is the set of compaction decisions the loop can report.
+type compactEventKind int
+
+const (
+	evBelowThreshold compactEventKind = iota
+	evPruneFits
+	evPaidShrink
+	evPaidNoShrink
+	evPaidError
+	evReactivePruneFits
+	evReactivePaidShrink
+	evReactivePaidFail
+	evReactiveNoop
+	evWindowUpdate
+)
+
+// String names the compaction event for reports and debugging.
+func (k compactEventKind) String() string {
+	switch k {
+	case evBelowThreshold:
+		return "below-threshold"
+	case evPruneFits:
+		return "prune-fits"
+	case evPaidShrink:
+		return "paid-shrink"
+	case evPaidNoShrink:
+		return "paid-no-shrink"
+	case evPaidError:
+		return "paid-error"
+	case evReactivePruneFits:
+		return "reactive-prune-fits"
+	case evReactivePaidShrink:
+		return "reactive-paid-shrink"
+	case evReactivePaidFail:
+		return "reactive-paid-fail"
+	case evReactiveNoop:
+		return "reactive-noop"
+	case evWindowUpdate:
+		return "window-update"
+	default:
+		return "unknown"
+	}
+}
+
+// compactEvent describes one compaction decision: its kind, the measured size
+// to store as watermark (when the row says so), whether a free prune already
+// rewrote the history (drives conditional notify), and the window carried by
+// evWindowUpdate.
+type compactEvent struct {
+	kind    compactEventKind
+	size    int
+	rewrote bool
+	window  int
+}
+
+// compactTransitionKey is one legal (phase, event) cell of the machine.
+type compactTransitionKey struct {
+	phase compactPhase
+	event compactEventKind
+}
+
+// compactTransition is the effect of one legal cell: the next phase and which
+// of the twin fields move. notify fires the compaction hook; notifyIfRewrote
+// fires it only when the event already rewrote the history.
+type compactTransition struct {
+	next            compactPhase
+	setWatermark    bool
+	clearWatermark  bool
+	consumeBudget   bool
+	enable          bool
+	notify          bool
+	notifyIfRewrote bool
+}
+
+// compactTransitionTable is the ONLY legal phase x event mapping. A cell
+// missing here is an illegal transition: transition refuses it with no field
+// changes and no notify — never a panic in production.
+var compactTransitionTable = map[compactTransitionKey]compactTransition{
+	{phaseBelow, evBelowThreshold}:     {next: phaseBelow},
+	{phasePruned, evBelowThreshold}:    {next: phasePruned},
+	{phasePaid, evBelowThreshold}:      {next: phasePaid},
+	{phaseRecovered, evBelowThreshold}: {next: phaseRecovered},
+	{phaseSpent, evBelowThreshold}:     {next: phaseSpent},
+
+	{phaseBelow, evPruneFits}:     {next: phasePruned, setWatermark: true, notify: true},
+	{phasePruned, evPruneFits}:    {next: phasePruned, setWatermark: true, notify: true},
+	{phasePaid, evPruneFits}:      {next: phasePruned, setWatermark: true, notify: true},
+	{phaseRecovered, evPruneFits}: {next: phasePruned, setWatermark: true, notify: true},
+	{phaseSpent, evPruneFits}:     {next: phasePruned, setWatermark: true, notify: true},
+
+	{phaseBelow, evPaidShrink}:     {next: phasePaid, setWatermark: true, notify: true},
+	{phasePruned, evPaidShrink}:    {next: phasePaid, setWatermark: true, notify: true},
+	{phasePaid, evPaidShrink}:      {next: phasePaid, setWatermark: true, notify: true},
+	{phaseRecovered, evPaidShrink}: {next: phasePaid, setWatermark: true, notify: true},
+	{phaseSpent, evPaidShrink}:     {next: phasePaid, setWatermark: true, notify: true},
+
+	{phaseBelow, evPaidNoShrink}:     {next: phasePaid, setWatermark: true, notifyIfRewrote: true},
+	{phasePruned, evPaidNoShrink}:    {next: phasePaid, setWatermark: true, notifyIfRewrote: true},
+	{phasePaid, evPaidNoShrink}:      {next: phasePaid, setWatermark: true, notifyIfRewrote: true},
+	{phaseRecovered, evPaidNoShrink}: {next: phasePaid, setWatermark: true, notifyIfRewrote: true},
+	{phaseSpent, evPaidNoShrink}:     {next: phasePaid, setWatermark: true, notifyIfRewrote: true},
+
+	{phaseBelow, evPaidError}:     {next: phaseBelow, notifyIfRewrote: true},
+	{phasePruned, evPaidError}:    {next: phasePruned, notifyIfRewrote: true},
+	{phasePaid, evPaidError}:      {next: phasePaid, notifyIfRewrote: true},
+	{phaseRecovered, evPaidError}: {next: phaseRecovered, notifyIfRewrote: true},
+	{phaseSpent, evPaidError}:     {next: phaseSpent, notifyIfRewrote: true},
+
+	{phaseBelow, evReactivePruneFits}:     {next: phaseRecovered, setWatermark: true, notify: true},
+	{phasePruned, evReactivePruneFits}:    {next: phaseRecovered, setWatermark: true, notify: true},
+	{phasePaid, evReactivePruneFits}:      {next: phaseRecovered, setWatermark: true, notify: true},
+	{phaseRecovered, evReactivePruneFits}: {next: phaseRecovered, setWatermark: true, notify: true},
+	{phaseSpent, evReactivePruneFits}:     {next: phaseRecovered, setWatermark: true, notify: true},
+
+	{phaseBelow, evReactivePaidShrink}:     {next: phaseSpent, setWatermark: true, consumeBudget: true, notify: true},
+	{phasePruned, evReactivePaidShrink}:    {next: phaseSpent, setWatermark: true, consumeBudget: true, notify: true},
+	{phasePaid, evReactivePaidShrink}:      {next: phaseSpent, setWatermark: true, consumeBudget: true, notify: true},
+	{phaseRecovered, evReactivePaidShrink}: {next: phaseSpent, setWatermark: true, consumeBudget: true, notify: true},
+
+	{phaseBelow, evReactivePaidFail}:     {next: phaseSpent, consumeBudget: true, notifyIfRewrote: true},
+	{phasePruned, evReactivePaidFail}:    {next: phaseSpent, consumeBudget: true, notifyIfRewrote: true},
+	{phasePaid, evReactivePaidFail}:      {next: phaseSpent, consumeBudget: true, notifyIfRewrote: true},
+	{phaseRecovered, evReactivePaidFail}: {next: phaseSpent, consumeBudget: true, notifyIfRewrote: true},
+
+	{phaseBelow, evReactiveNoop}:     {next: phaseBelow},
+	{phasePruned, evReactiveNoop}:    {next: phasePruned},
+	{phasePaid, evReactiveNoop}:      {next: phasePaid},
+	{phaseRecovered, evReactiveNoop}: {next: phaseRecovered},
+	{phaseSpent, evReactiveNoop}:     {next: phaseSpent},
+
+	{phaseDisabled, evWindowUpdate}:  {next: phaseBelow, enable: true, clearWatermark: true},
+	{phaseBelow, evWindowUpdate}:     {next: phaseBelow, enable: true, clearWatermark: true},
+	{phasePruned, evWindowUpdate}:    {next: phaseBelow, enable: true, clearWatermark: true},
+	{phasePaid, evWindowUpdate}:      {next: phaseBelow, enable: true, clearWatermark: true},
+	{phaseRecovered, evWindowUpdate}: {next: phaseBelow, enable: true, clearWatermark: true},
+	{phaseSpent, evWindowUpdate}:     {next: phaseBelow, enable: true, clearWatermark: true},
+}
+
+// compactLegal reports whether (phase, event) is a legal cell of the machine.
+func compactLegal(phase compactPhase, event compactEventKind) bool {
+	_, ok := compactTransitionTable[compactTransitionKey{phase: phase, event: event}]
+	return ok
+}
+
+// transition is the SOLE writer of lowWaterMark, reactiveAttempted and
+// enabled (plus the window/threshold twins set alongside them). Callers
+// describe what happened as a compactEvent; the table decides the next phase
+// and the field updates, and the return value tells the caller whether to
+// fire the compaction hook. Illegal cells are refused with no field changes
+// and no notify.
+func (state *compactionState) transition(ev compactEvent) (notify bool) {
+	key := compactTransitionKey{phase: state.phase, event: ev.kind}
+	if !compactLegal(state.phase, ev.kind) {
+		return false
+	}
+	row := compactTransitionTable[key]
+	if row.enable {
+		state.enabled = true
+		state.window = ev.window
+		state.threshold = compactionThreshold(ev.window)
+	}
+	if row.clearWatermark {
+		state.lowWaterMark = 0
+	}
+	if row.setWatermark {
+		state.lowWaterMark = ev.size
+	}
+	if row.consumeBudget {
+		state.reactiveAttempted = true
+	}
+	state.phase = row.next
+	if row.notify || (row.notifyIfRewrote && ev.rewrote) {
+		return true
+	}
+	return false
+}
+
+// measuredSize is the single token measure every compaction decision uses:
+// the raw message estimate plus the tool definitions every request carries,
+// scaled by the learned calibration. Proactive and reactive paths compare
+// measuredSize values, so the same history always gets the same verdict.
+func (state *compactionState) measuredSize(messages []qgruntime.Message, tools []qgruntime.ToolDefinition) int {
+	return state.calibratedTokens(estimateTokens(messages) + estimateToolDefTokens(tools))
+}
+
 // calibrate folds one turn's (rawEstimate, actualPromptTokens) sample into the
 // running calibration ratio. A single sample is clamped to a sane band so an
 // outlier (a huge cache-read turn, a provider-overhead spike) can't skew the
@@ -456,12 +687,17 @@ func (state *compactionState) calibratedTokens(raw int) int {
 }
 
 func newCompactionState(options Options, task *taskState) *compactionState {
+	phase := phaseBelow
+	if options.ContextWindow <= 0 {
+		phase = phaseDisabled
+	}
 	state := &compactionState{
 		enabled:           options.ContextWindow > 0,
 		threshold:         compactionThreshold(options.ContextWindow),
 		window:            options.ContextWindow,
 		mainModel:         options.Model,
 		preserveLast:      options.CompactionPreserveLast,
+		phase:             phase,
 		onUsage:           tagSummarizerUsage(options.OnUsage),
 		task:              task,
 		planner:           newContextPlanner(contextPlannerConfig{contextWindow: options.ContextWindow, serviceTier: options.ServiceTier}),
@@ -499,14 +735,13 @@ func (state *compactionState) notifyCompacted() {
 // switch. The low-water mark is reset: it was measured against the old
 // threshold, and keeping it could suppress a compaction the smaller window
 // now requires. <= 0 (unknown model) leaves everything unchanged.
+// NOTE: on a run born with ContextWindow==0 this enables compaction;
+// characterization pins that behavior and the product decision is pending.
 func (state *compactionState) updateWindow(window int) {
 	if window <= 0 {
 		return
 	}
-	state.enabled = true
-	state.window = window
-	state.threshold = compactionThreshold(window)
-	state.lowWaterMark = 0
+	state.transition(compactEvent{kind: evWindowUpdate, window: window})
 	if state.planner != nil {
 		state.planner.config.contextWindow = window
 	}
@@ -576,18 +811,20 @@ func (state *compactionState) maybeCompact(
 	if !state.enabled {
 		return messages
 	}
-	// Tool definitions are part of every request's input, so count them alongside
-	// the messages; both the threshold check and the shrink check below use the
-	// same term so they stay consistent.
-	toolTokens := estimateToolDefTokens(tools)
-	size := state.calibratedTokens(estimateTokens(messages) + toolTokens)
+	// Tool definitions are part of every request's input, so every size below
+	// is a measuredSize (messages + tool defs, calibrated): the threshold
+	// check, the watermark guard and the shrink checks all judge the same
+	// domain.
+	size := state.measuredSize(messages, tools)
 	if size <= state.threshold {
+		state.transition(compactEvent{kind: evBelowThreshold})
 		return messages
 	}
 	// Only compact when the history has grown past where we last left it. This
 	// stops the loop from re-summarizing an already-compacted history every turn
 	// when it sits just over the threshold.
 	if state.lowWaterMark > 0 && size <= state.lowWaterMark {
+		state.transition(compactEvent{kind: evBelowThreshold})
 		return messages
 	}
 
@@ -599,20 +836,22 @@ func (state *compactionState) maybeCompact(
 	if pruned, reclaimed := pruneSupersededReadResults(messages); reclaimed > 0 {
 		messages = pruned
 		rewrote = true
-		size = state.calibratedTokens(estimateTokens(messages) + toolTokens)
+		size = state.measuredSize(messages, tools)
 		if size <= state.threshold {
-			state.lowWaterMark = size
-			state.notifyCompacted()
+			if state.transition(compactEvent{kind: evPruneFits, size: size}) {
+				state.notifyCompacted()
+			}
 			return messages
 		}
 	}
 	if pruned, reclaimed := pruneStaleToolOutput(messages, state.preserveLast); reclaimed > 0 {
 		messages = pruned
 		rewrote = true
-		size = state.calibratedTokens(estimateTokens(messages) + toolTokens)
+		size = state.measuredSize(messages, tools)
 		if size <= state.threshold {
-			state.lowWaterMark = size
-			state.notifyCompacted()
+			if state.transition(compactEvent{kind: evPruneFits, size: size}) {
+				state.notifyCompacted()
+			}
 			return messages
 		}
 	}
@@ -626,20 +865,19 @@ func (state *compactionState) maybeCompact(
 		// Summarizer failed: keep whatever the prune stage already reclaimed
 		// (the reactive path or a later turn can try again); the hook still
 		// fires when the history differs from what came in.
-		if rewrote {
+		if state.transition(compactEvent{kind: evPaidError, rewrote: rewrote}) {
 			state.notifyCompacted()
 		}
 		return messages
 	}
-	newSize := state.calibratedTokens(estimateTokens(compacted) + toolTokens)
+	newSize := state.measuredSize(compacted, tools)
 	if newSize >= size {
 		// Compaction did not actually shrink anything (e.g. nothing to
 		// summarize). Leave the history untouched and don't churn next turn.
 		// A prune-only rewrite above still counts as a rewrite.
-		if rewrote {
+		if state.transition(compactEvent{kind: evPaidNoShrink, size: size, rewrote: rewrote}) {
 			state.notifyCompacted()
 		}
-		state.lowWaterMark = size
 		return messages
 	}
 	// Only count a compaction when it actually shrank the history, so the
@@ -648,8 +886,9 @@ func (state *compactionState) maybeCompact(
 	if r := trace.FromContext(ctx); r != nil {
 		r.Counter(trace.CounterCompactionCount, 1)
 	}
-	state.lowWaterMark = newSize
-	state.notifyCompacted()
+	if state.transition(compactEvent{kind: evPaidShrink, size: newSize}) {
+		state.notifyCompacted()
+	}
 	return compacted
 }
 
@@ -681,7 +920,6 @@ func (state *compactionState) recover(
 	// prune). The free retry is taken only when the pruned history fits the
 	// window the provider enforces — otherwise a retry would fail the same
 	// way, so fall through to the paid summarizer in this same call.
-	toolTokens := estimateToolDefTokens(tools)
 	prunedAny := false
 	if pruned, reclaimed := pruneSupersededReadResults(messages); reclaimed > 0 {
 		messages, prunedAny = pruned, true
@@ -690,10 +928,11 @@ func (state *compactionState) recover(
 		messages, prunedAny = pruned, true
 	}
 	if prunedAny {
-		size := state.calibratedTokens(estimateTokens(messages) + toolTokens)
+		size := state.measuredSize(messages, tools)
 		if state.fitsWindow(size) {
-			state.lowWaterMark = size
-			state.notifyCompacted()
+			if state.transition(compactEvent{kind: evReactivePruneFits, size: size}) {
+				state.notifyCompacted()
+			}
 			return messages, true, nil
 		}
 	}
@@ -712,13 +951,12 @@ func (state *compactionState) recover(
 		// so the loop gives up rather than retrying a failing summarizer forever.
 		// A prune-only rewrite above still counts: the history differs from
 		// what came in.
-		if prunedAny {
+		if state.transition(compactEvent{kind: evReactivePaidFail, rewrote: prunedAny}) {
 			state.notifyCompacted()
 		}
-		state.reactiveAttempted = true
 		return messages, true, compactErr
 	}
-	if estimateTokens(result) >= estimateTokens(messages) {
+	if state.measuredSize(result, tools) >= state.measuredSize(messages, tools) {
 		// Nothing to compact; the retry would just fail again. Signal "not
 		// retried" so the caller surfaces the original context-limit error. Do NOT
 		// consume the one-shot budget here: a no-op recover (history too small to
@@ -726,20 +964,21 @@ func (state *compactionState) recover(
 		// The caller keeps its original history when retried is false, so a
 		// prune-only rewrite above is discarded with it: stay silent instead
 		// of reporting a rewrite no listener ever sees.
+		state.transition(compactEvent{kind: evReactiveNoop})
 		return messages, false, nil
 	}
 	// Success: a real compaction shrank the history and we will retry. Consume the
 	// one-shot budget now so a provider that keeps returning context-limit errors
 	// after a successful compaction can't loop forever. Store the low-water mark in
-	// the SAME combined (messages + tool-defs) domain maybeCompact uses, so the
-	// proactive shrink-guard compares like with like. Count it now that the shrink
-	// is confirmed, so the counter mirrors maybeCompact's real-reduction policy.
+	// the SAME measured domain maybeCompact uses, so the proactive shrink-guard
+	// compares like with like. Count it now that the shrink is confirmed, so the
+	// counter mirrors maybeCompact's real-reduction policy.
 	if r := trace.FromContext(ctx); r != nil {
 		r.Counter(trace.CounterCompactionCount, 1)
 	}
-	state.reactiveAttempted = true
-	state.lowWaterMark = state.calibratedTokens(estimateTokens(result) + estimateToolDefTokens(tools))
-	state.notifyCompacted()
+	if state.transition(compactEvent{kind: evReactivePaidShrink, size: state.measuredSize(result, tools)}) {
+		state.notifyCompacted()
+	}
 	return result, true, nil
 }
 

@@ -427,6 +427,7 @@ func TestMaybeCompactStopsAfterSupersededReadsReachThreshold(t *testing.T) {
 		enabled:      true,
 		threshold:    prunedSize,
 		preserveLast: 2,
+		phase:        phaseBelow,
 	}
 	got := state.maybeCompact(context.Background(), provider, messages, nil)
 
