@@ -1644,7 +1644,7 @@ func (m model) prRefreshCmd() tea.Cmd {
 // shortcut may act instead of falling through to a modal's own handler. Shared
 // by every shortcut that should defer to whichever modal is focused.
 func (m model) noBlockingModal() bool {
-	return m.pendingPermission == nil && m.pendingAskUser == nil && m.pendingSpecReview == nil &&
+	return m.promptPhase() == PromptNone &&
 		m.mcpAddWizard == nil && m.mcpManager == nil && m.picker == nil &&
 		m.sttKeyPrompt == nil && m.renamePrompt == nil && m.terminalAttach == nil
 }
@@ -3007,10 +3007,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		promptRow.runID = msg.runID
 		m.transcript = appendTranscriptRow(m.transcript, promptRow)
-		m.pendingPermission = &pendingPermissionPrompt{
-			request: msg.request,
-			decide:  msg.decide,
+		if m.promptPhase() != PromptNone {
+			// A second prompt while one is live would overwrite the stored
+			// decide and park the first run forever: refuse it and unblock
+			// the newcomer immediately (mirrors the stale-run path above).
+			if msg.decide != nil {
+				msg.decide(agent.PermissionDecision{Action: agent.PermissionDecisionCancel, Reason: "run superseded"})
+			}
+			return m, nil
 		}
+		_ = m.promptTransition(PromptEvOpenPermission, promptArgs{permReq: &msg.request, permDecide: msg.decide})
 		return m, nil
 	case askUserRequestMsg:
 		if msg.runID != m.activeRunID {
@@ -3031,11 +3037,13 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.transcript = appendTranscriptRow(m.transcript, askUserTranscriptRow(msg.request))
-		m.pendingAskUser = &pendingAskUserPrompt{
-			request: msg.request,
-			answer:  msg.answer,
-			states:  newAskUserStates(msg.request.Questions),
+		if m.promptPhase() != PromptNone {
+			if msg.answer != nil {
+				msg.answer(nil)
+			}
+			return m, nil
 		}
+		_ = m.promptTransition(PromptEvOpenAskUser, promptArgs{askReq: &msg.request, askAnswer: msg.answer, askStates: newAskUserStates(msg.request.Questions)})
 		m.clearComposer()
 		m.clearSuggestions()
 		return m, nil
@@ -3179,11 +3187,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingAskUser == nil && m.pendingPermission == nil {
 			m.plan.completeRemaining(m.now())
 		}
-		m.pendingPermission = nil
-		if m.pendingAskUser != nil && m.pendingAskUser.answer != nil {
-			m.pendingAskUser.answer(nil)
-		}
-		m.pendingAskUser = nil
+		_ = m.promptTransition(PromptEvCancelAll, promptArgs{})
 		liveUsageCount := m.liveUsageCounts[msg.runID]
 		for index, event := range msg.usageEvents {
 			if index < liveUsageCount {
@@ -5137,19 +5141,13 @@ func (m model) resolvePermissionWithReason(decision permissionDecision, reason s
 	if pending == nil {
 		return m, nil
 	}
-
-	if pending.decide != nil {
-		pending.decide(agent.PermissionDecision{
-			Action: decision,
-			Reason: reason,
-		})
-	}
-	m.pendingPermission = nil
+	isPeer := pending.request.ToolName == peerPermissionToolName
+	_ = m.promptTransition(PromptEvResolvePermission, promptArgs{decision: decision, reason: reason})
 	// Time spent at the prompt is user wait, not provider silence. Restart the
 	// quiet-generation clock so resuming a long-blocked run does not immediately
 	// claim the model has been inactive for the entire approval interval.
 	m.lastStreamActivity = m.now()
-	if pending.request.ToolName == peerPermissionToolName {
+	if isPeer {
 		// Receipt delivery completes asynchronously. That completion advances
 		// the peer queue after this prompt is fully settled.
 		return m, nil
@@ -6731,8 +6729,7 @@ func (m *model) cancelRun(keepQueuedMessages ...bool) {
 	}
 	m.cancelConfirmActive = false // whatever path got here, there's nothing left to confirm cancelling
 	m.plan.frozenAt = m.now()     // freeze the plan clock while idle (no run in flight)
-	m.pendingPermission = nil
-	m.pendingAskUser = nil
+	_ = m.promptTransition(PromptEvCancelAll, promptArgs{})
 	// The interim block renders streamingText live; a cancelled run's partial
 	// answer must not leak into (and concatenate with) the next turn's stream.
 	m.streamingText = nil

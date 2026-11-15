@@ -126,7 +126,7 @@ func (m model) activateSpecReview(review pendingSpecReviewPrompt) model {
 		m.activeSession = updated
 		m.sessionEvents = append(m.sessionEvents, event)
 	}
-	m.pendingSpecReview = &review
+	_ = m.promptTransition(PromptEvOpenSpecReview, promptArgs{spec: &review})
 	m.clearSuggestions()
 	m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: specReviewSummary(review)})
 	return m
@@ -198,7 +198,7 @@ func (m model) approveSpecReview() (tea.Model, tea.Cmd) {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "spec approve error: " + err.Error()})
 		return m, nil
 	}
-	m.pendingSpecReview = nil
+	_ = m.promptTransition(PromptEvResolveSpecReview, promptArgs{})
 	m.activeSession = impl
 	m.sessionEvents = append([]sessions.Event{}, events...)
 	m = m.syncPeerIdentity()
@@ -235,13 +235,13 @@ func (m model) rejectSpecReview(reason string) (tea.Model, tea.Cmd) {
 		m.activeSession = updated
 		m.sessionEvents = append(m.sessionEvents, event)
 	}
-	m.pendingSpecReview = nil
+	_ = m.promptTransition(PromptEvResolveSpecReview, promptArgs{})
 	m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Spec rejected. Use /spec <task> to draft again."})
 	return m.launchQueuedMessageIfReady()
 }
 
 func (m model) cancelSpecReview() (tea.Model, tea.Cmd) {
-	m.pendingSpecReview = nil
+	_ = m.promptTransition(PromptEvResolveSpecReview, promptArgs{})
 	m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Spec review canceled. The draft remains saved."})
 	return m.launchQueuedMessageIfReady()
 }

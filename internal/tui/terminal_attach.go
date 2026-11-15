@@ -220,7 +220,7 @@ func (m model) terminalAttachCanOpen() bool {
 // own term, for the auto-attach watcher deciding whether another modal owns
 // the viewport.
 func (m model) noBlockingModalExceptAttach() bool {
-	return m.pendingPermission == nil && m.pendingAskUser == nil && m.pendingSpecReview == nil &&
+	return m.promptPhase() == PromptNone &&
 		m.mcpAddWizard == nil && m.mcpManager == nil && m.picker == nil &&
 		m.sttKeyPrompt == nil && m.renamePrompt == nil
 }
