@@ -257,7 +257,7 @@ func TestCharOverlayPairsEarlyWins(t *testing.T) {
 // the neutral probe: no overlay binds it (permission hotkeys are a/r/s/p/y/d/n,
 // spec review uses a/r/e/c), the leader finds no slash for it, and it is not
 // a help/leader-help dismiss key. Cases mounted only by writing fields carry
-// "sintetico" in the name; the rest use production openers (keys, agent
+// "synthetic" in the name; the rest use production openers (keys, agent
 // messages, typing, the leader slash). Expectations were written by hand from
 // the behavior observed on the untouched dev branch; the prompt-cancellation
 // fix touches none of these paths, so this test passes before and after
@@ -276,7 +276,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 	noopAnswer := func([]string) {}
 	cases := []singleCase{
 		{
-			name:       "setup_sintetico",
+			name:       "setup_synthetic",
 			mount:      func(t *testing.T) model { m := charTestModel(t, time.Now()); m.setup.visible = true; return m },
 			present:    func(m model) bool { return m.setup.visible },
 			escGone:    true,
@@ -284,7 +284,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "",
 		},
 		{
-			name: "stt_key_sintetico",
+			name: "stt_key_synthetic",
 			mount: func(t *testing.T) model {
 				m := charTestModel(t, time.Now())
 				m.sttKeyPrompt = &sttKeyPromptState{}
@@ -296,7 +296,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "",
 		},
 		{
-			name: "terminal_attach_sintetico",
+			name: "terminal_attach_synthetic",
 			mount: func(t *testing.T) model {
 				m := charTestModel(t, time.Now())
 				m.terminalAttach = &terminalAttachState{}
@@ -308,7 +308,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "",
 		},
 		{
-			name: "rename_sintetico",
+			name: "rename_synthetic",
 			mount: func(t *testing.T) model {
 				m := charTestModel(t, time.Now())
 				m.renamePrompt = &sessionRenamePrompt{}
@@ -320,7 +320,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "z",
 		},
 		{
-			name: "statusline_preview_sintetico",
+			name: "statusline_preview_synthetic",
 			mount: func(t *testing.T) model {
 				m := charTestModel(t, time.Now())
 				m.statuslinePending = &statuslinePendingApply{}
@@ -389,7 +389,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "",
 		},
 		{
-			name: "permission_typing_sintetico",
+			name: "permission_typing_synthetic",
 			mount: func(t *testing.T) model {
 				m := charTestModel(t, time.Now())
 				m.pendingPermission = &pendingPermissionPrompt{request: agent.PermissionRequest{ToolCallID: "tc1", ToolName: "bash"}, typing: true, savedDraft: "draft"}
@@ -415,7 +415,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "z", // printable flips the picker question into free text
 		},
 		{
-			name: "spec_review_sintetico",
+			name: "spec_review_synthetic",
 			mount: func(t *testing.T) model {
 				m := charTestModel(t, time.Now())
 				review := pendingSpecReviewPrompt{SpecID: "s1", SpecTitle: "t", SpecFilePath: "p", RelativePath: "r", DraftSessionID: "d"}
@@ -430,7 +430,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "",
 		},
 		{
-			name: "mcp_add_wizard_sintetico",
+			name: "mcp_add_wizard_synthetic",
 			mount: func(t *testing.T) model {
 				m := charTestModel(t, time.Now())
 				m.mcpAddWizard = &mcpAddWizardState{}
@@ -442,7 +442,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "",
 		},
 		{
-			name: "mcp_manager_sintetico",
+			name: "mcp_manager_synthetic",
 			mount: func(t *testing.T) model {
 				m := charTestModel(t, time.Now())
 				m.mcpManager = &mcpManagerState{}
@@ -506,7 +506,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "",
 		},
 		{
-			name:       "detail_transcript_sintetico",
+			name:       "detail_transcript_synthetic",
 			mount:      func(t *testing.T) model { m := charTestModel(t, time.Now()); m.transcriptDetailed = true; return m },
 			present:    func(m model) bool { return m.transcriptDetailed },
 			escGone:    true,
@@ -514,7 +514,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "",
 		},
 		{
-			name:       "detail_run_sintetico",
+			name:       "detail_run_synthetic",
 			mount:      func(t *testing.T) model { m := charTestModel(t, time.Now()); m.runDetailsOpen = true; return m },
 			present:    func(m model) bool { return m.runDetailsOpen },
 			escGone:    true,
@@ -522,7 +522,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "",
 		},
 		{
-			name:       "detail_file_sintetico",
+			name:       "detail_file_synthetic",
 			mount:      func(t *testing.T) model { m := charTestModel(t, time.Now()); m.fileView.active = true; return m },
 			present:    func(m model) bool { return m.fileView.active },
 			escGone:    true,
@@ -530,7 +530,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 			wantZInput: "z", // plain runes fall through to the composer
 		},
 		{
-			name:       "detail_subchat_sintetico",
+			name:       "detail_subchat_synthetic",
 			mount:      func(t *testing.T) model { m := charTestModel(t, time.Now()); m.subchat.active = true; return m },
 			present:    func(m model) bool { return m.subchat.active },
 			escGone:    true,
@@ -553,7 +553,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 				t.Fatalf("Esc must leave the surface intact")
 			}
 		})
-		t.Run(tc.name+"/letra", func(t *testing.T) {
+		t.Run(tc.name+"/letter", func(t *testing.T) {
 			m := tc.mount(t)
 			updated, _ := m.Update(testKeyText("z"))
 			after := updated.(model)
@@ -570,7 +570,7 @@ func TestOverlayKeyPrioritySingles(t *testing.T) {
 // Key-dispatch priority for overlay pairs, through the real Update. Each
 // subtest mounts two surfaces, sends Esc and separately the letter "z", and
 // asserts which surface acted while the other stayed intact. Mounting only by
-// writing fields is marked "sintetico" in the subtest name; the other mounts
+// writing fields is marked "synthetic" in the subtest name; the other mounts
 // use production openers (keys, agent messages, typing, the leader slash).
 // Expectations were written by hand from the behavior observed on the
 // untouched dev branch; the prompt-cancellation fix touches none of these
@@ -631,7 +631,7 @@ func TestOverlayKeyPriorityPairs(t *testing.T) {
 		}
 	})
 
-	t.Run("leader_over_detail_sintetico", func(t *testing.T) {
+	t.Run("leader_over_detail_synthetic", func(t *testing.T) {
 		mount := func(t *testing.T) model {
 			m := charTestModel(t, time.Now())
 			m = armLeader(t, m)
@@ -661,7 +661,7 @@ func TestOverlayKeyPriorityPairs(t *testing.T) {
 		}
 	})
 
-	t.Run("help_over_picker_sintetico", func(t *testing.T) {
+	t.Run("help_over_picker_synthetic", func(t *testing.T) {
 		mount := func(t *testing.T) model {
 			m := charTestModel(t, time.Now())
 			updated, _ := m.Update(testKeyText("?"))
@@ -692,7 +692,7 @@ func TestOverlayKeyPriorityPairs(t *testing.T) {
 		}
 	})
 
-	t.Run("picker_over_palette_sintetico", func(t *testing.T) {
+	t.Run("picker_over_palette_synthetic", func(t *testing.T) {
 		mount := func(t *testing.T) model {
 			m := charTestModel(t, time.Now())
 			m.picker = mkPicker()
@@ -726,7 +726,7 @@ func TestOverlayKeyPriorityPairs(t *testing.T) {
 		}
 	})
 
-	t.Run("tool_permission_with_picker_sintetico", func(t *testing.T) {
+	t.Run("tool_permission_with_picker_synthetic", func(t *testing.T) {
 		// Observed z-order: Esc reaches the viewport picker before the
 		// footer permission card (a tool prompt ignores Esc), while a
 		// printable letter is swallowed by the card.
@@ -758,7 +758,7 @@ func TestOverlayKeyPriorityPairs(t *testing.T) {
 		}
 	})
 
-	t.Run("mcp_manager_over_picker_sintetico", func(t *testing.T) {
+	t.Run("mcp_manager_over_picker_synthetic", func(t *testing.T) {
 		mount := func(t *testing.T) model {
 			m := charTestModel(t, time.Now())
 			m.mcpManager = &mcpManagerState{}
@@ -785,7 +785,7 @@ func TestOverlayKeyPriorityPairs(t *testing.T) {
 		}
 	})
 
-	t.Run("statusline_preview_over_permission_sintetico", func(t *testing.T) {
+	t.Run("statusline_preview_over_permission_synthetic", func(t *testing.T) {
 		mount := func(t *testing.T) model {
 			m := charTestModel(t, time.Now())
 			m.statuslinePending = &statuslinePendingApply{}
@@ -814,7 +814,7 @@ func TestOverlayKeyPriorityPairs(t *testing.T) {
 		}
 	})
 
-	t.Run("terminal_attach_over_permission_sintetico", func(t *testing.T) {
+	t.Run("terminal_attach_over_permission_synthetic", func(t *testing.T) {
 		mount := func(t *testing.T) model {
 			m := charTestModel(t, time.Now())
 			m.terminalAttach = &terminalAttachState{}
