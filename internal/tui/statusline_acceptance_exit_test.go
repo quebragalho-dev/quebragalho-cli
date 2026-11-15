@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -58,6 +59,18 @@ func slExitWaitPID(dir, name string, timeout time.Duration) int {
 		time.Sleep(25 * time.Millisecond)
 	}
 	return 0
+}
+
+// slExitWaitFile polls for a handshake file written by the helper.
+func slExitWaitFile(dir, name string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return true
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return false
 }
 
 // slExitOptions resolves the hermetic config the way the CLI launch does
@@ -122,6 +135,21 @@ func TestStatusLineAcceptance_ExitHelper(t *testing.T) {
 	}
 	options := slExitOptions(t, env, setup)
 	if mode == "tty" {
+		// Hermetic SIGHUP: the helper must not inherit an ignored SIGHUP
+		// (nohup, a parent that traps "" HUP, a VPS runner). An ignored
+		// SIGHUP survives exec, sighupShouldWatch stays out by design, and
+		// the SIGHUP below would be ignored instead of ending qg — a
+		// 10s timeout that says nothing about the product. A dummy
+		// Notify+Stop clears the inherited ignore (signal.Reset does not:
+		// it only undoes prior Go Notify/Ignore calls), so SIGHUP is
+		// delivered; then the ready file tells the test the handler path
+		// is armed before it signals.
+		hupCh := make(chan os.Signal, 1)
+		signal.Notify(hupCh, syscall.SIGHUP)
+		signal.Stop(hupCh)
+		if err := os.WriteFile(filepath.Join(dir, "hup-ready"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(dir, "qg"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -206,6 +234,32 @@ func slExitHelper(t *testing.T, mode, dir string) (*exec.Cmd, *bytes.Buffer) {
 	return cmd, out
 }
 
+// slExitTimeoutDump asks a stuck qg for its goroutine dump (SIGQUIT) before
+// killing it, so a 10s-exit timeout shows WHERE qg was parked instead of just
+// that it was slow. It returns the helper output after the dump (stable: only
+// read after Wait unblocked). SIGQUIT itself ends the Go process after dumping,
+// so this doubles as the kill; the caller Fatalfs right after.
+func slExitTimeoutDump(t *testing.T, cmd *exec.Cmd, exited chan struct{}, qg int, out *bytes.Buffer) string {
+	t.Helper()
+	if proc, err := os.FindProcess(qg); err == nil {
+		_ = proc.Signal(syscall.SIGQUIT)
+	}
+	// The runtime writes the dump to stderr (through the pty into out);
+	// give it time to flush before the kill below.
+	time.Sleep(2 * time.Second)
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	if proc, err := os.FindProcess(qg); err == nil {
+		_ = proc.Kill()
+	}
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+	}
+	return out.String()
+}
+
 // slExitRequireDead fails when the script or its sleep is still alive two
 // seconds after qg exited: nothing kills them later.
 func slExitRequireDead(t *testing.T, dir, what string) {
@@ -270,6 +324,14 @@ func TestStatusLineAcceptance_SignalsKillInFlightScript(t *testing.T) {
 			if qg <= 1 || slExitWaitPID(dir, "child", 15*time.Second) <= 1 {
 				t.Fatalf("precondition: qg (pid %d) never had a statusline run in flight:\n%s", qg, out)
 			}
+			// Handshake: the helper resets an inherited ignored SIGHUP and
+			// reports hup-ready before Run, so the signal below is delivered
+			// instead of ignored. Without this a parent that ignores SIGHUP
+			// (nohup, a wrapping suite) makes SIGHUP a no-op and the 10s
+			// wait below times out for a product that behaved correctly.
+			if !slExitWaitFile(dir, "hup-ready", 15*time.Second) {
+				t.Fatalf("precondition: qg (pid %d) never armed its SIGHUP path:\n%s", qg, out)
+			}
 			proc, err := os.FindProcess(qg)
 			if err != nil {
 				t.Fatal(err)
@@ -280,7 +342,8 @@ func TestStatusLineAcceptance_SignalsKillInFlightScript(t *testing.T) {
 			select {
 			case <-exited:
 			case <-time.After(10 * time.Second):
-				t.Fatalf("qg did not exit within 10s of %s", tc.name)
+				t.Fatalf("qg did not exit within 10s of %s (qg pid %d):\n--- helper output + SIGQUIT dump ---\n%s",
+					tc.name, qg, slExitTimeoutDump(t, cmd, exited, qg, out))
 			}
 			slExitRequireDead(t, dir, tc.name)
 		})
