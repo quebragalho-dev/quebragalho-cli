@@ -12,7 +12,7 @@ import (
 )
 
 func TestRefreshSchedulerNoRefreshTokenIsNoop(t *testing.T) {
-	m := managerFor(t, map[string]string{"QG_OAUTH_DEMO_CLIENT_ID": "c"}, nil)
+	m := managerFor(t, map[string]string{"QG_OAUTH_DEMO_CLIENT_ID": "c"})
 	// Token without a refresh token => scheduler must exit promptly (no-op).
 	if err := m.store.Save(ProviderKey("demo"), Token{AccessToken: "a", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatalf("seed Save: %v", err)
@@ -25,7 +25,7 @@ func TestRefreshSchedulerNoRefreshTokenIsNoop(t *testing.T) {
 }
 
 func TestRefreshSchedulerRestartsAfterStop(t *testing.T) {
-	m := managerFor(t, map[string]string{"QG_OAUTH_DEMO_CLIENT_ID": "c"}, nil)
+	m := managerFor(t, map[string]string{"QG_OAUTH_DEMO_CLIENT_ID": "c"})
 	if err := m.store.Save(ProviderKey("demo"), Token{AccessToken: "a", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatalf("seed Save: %v", err)
 	}

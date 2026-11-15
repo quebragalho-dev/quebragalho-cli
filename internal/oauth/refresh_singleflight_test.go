@@ -15,7 +15,7 @@ func TestRefreshSingleflightsConcurrentCallers(t *testing.T) {
 		"QG_OAUTH_DEMO_CLIENT_ID": "client",
 		"QG_OAUTH_DEMO_TOKEN_URL": fp.server.URL + "/token",
 	}
-	m := managerFor(t, env, nil)
+	m := managerFor(t, env)
 	if err := m.store.Save(ProviderKey("demo"), Token{AccessToken: "stale", RefreshToken: "rt", ExpiresAt: time.Now().Add(-time.Hour)}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

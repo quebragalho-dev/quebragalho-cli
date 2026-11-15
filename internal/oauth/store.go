@@ -46,7 +46,7 @@ func ValidateKey(key string) error {
 }
 
 // ProviderKey builds the store key for a provider login, normalizing the name
-// to lower case. Every write (Manager.Login, the ChatGPT flow) and every
+// to lower case. Every write and every
 // lookup (FirstStored, GetFresh, logout, status filters) funnels through here,
 // so normalizing at this one choke point keeps them symmetric: without it,
 // `qg auth login xAI` stored "provider:xAI" while the profile scaffolded for

@@ -58,7 +58,7 @@ func logoutQG(deps appDeps, stdout io.Writer) (LogoutResult, error) {
 			return result, fmt.Errorf("invalid config JSON %s: %w", configPath, err)
 		}
 	}
-	manager, err := newAuthManager(deps, stdout)
+	manager, err := newAuthManager(deps)
 	if err != nil {
 		return result, err
 	}
