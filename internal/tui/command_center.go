@@ -736,7 +736,7 @@ func (m model) requestCompactionBeforeModelSwitch(request modelSwitchCompactionR
 
 func apiKeyState(set bool) string {
 	if set {
-		return "set"
+		return "definida"
 	}
-	return "not set"
+	return "não definida"
 }

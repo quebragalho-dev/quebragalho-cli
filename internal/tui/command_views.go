@@ -554,34 +554,34 @@ func contextCompactionStatus(status string) string {
 	}
 }
 
-// onOff renders a boolean preference as "on"/"off" for config display.
+// onOff renders a boolean preference as "ativado"/"desativado" for config display.
 func onOff(v bool) string {
 	if v {
-		return "on"
+		return "ativado"
 	}
-	return "off"
+	return "desativado"
 }
 
 func (m model) configText() string {
 	return renderCommandOutput(commandOutput{
-		Title:  "Config",
+		Title:  "Configuração",
 		Status: commandStatusOK,
 		Sections: []commandSection{
 			{
-				Title: "Runtime",
+				Title: "Execução",
 				Lines: []string{
 					"runtime: go",
-					fmt.Sprintf("max turns: %d", m.agentOptions.MaxTurns),
-					"permission mode: " + string(m.permissionMode),
+					fmt.Sprintf("turnos máximos: %d", m.agentOptions.MaxTurns),
+					"modo de permissão: " + string(m.permissionMode),
 					"recaps: " + onOff(m.recapsEnabled),
 				},
 			},
 			{
-				Title: "Provider",
+				Title: "Provedor",
 				Lines: []string{
-					"provider: " + displayValue(m.providerName, "none"),
-					"model: " + displayValue(m.modelName, "none"),
-					"api key: " + apiKeyState(strings.TrimSpace(m.providerProfile.APIKey) != "" || m.providerProfile.APIKeyStored),
+					"provedor: " + displayValue(m.providerName, "nenhum"),
+					"modelo: " + displayValue(m.modelName, "nenhum"),
+					"chave de API: " + apiKeyState(strings.TrimSpace(m.providerProfile.APIKey) != "" || m.providerProfile.APIKeyStored),
 				},
 			},
 		},

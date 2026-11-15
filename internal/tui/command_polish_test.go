@@ -77,7 +77,7 @@ func TestProviderAndConfigCommandsUseStableStatusOutput(t *testing.T) {
 		t.Fatal("expected /config to be handled without starting an agent run")
 	}
 	configText := transcriptText(next.transcript)
-	for _, want := range []string{"Config", "status: ok", "runtime: go", "max turns: 42", "permission mode:", "recaps: on"} {
+	for _, want := range []string{"Configuração", "status: ok", "runtime: go", "turnos máximos: 42", "modo de permissão:", "recaps: ativado"} {
 		assertContains(t, configText, want)
 	}
 	assertNotContains(t, configText, "sk-sensitive")
