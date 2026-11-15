@@ -96,8 +96,8 @@ func TestConnCloseClosesCurrentAndRetired(t *testing.T) {
 			return
 		}
 		close(pinned)
-		defer conn.release(client)
 		<-releaseCall
+		conn.release(client)
 		close(callDone)
 	}()
 	// Handshake: the goroutine signals right after the acquire, no polling.
@@ -179,8 +179,8 @@ func TestConnCloseWithInflightRetiredClosesOnce(t *testing.T) {
 			return
 		}
 		close(pinned)
-		defer conn.release(client)
 		<-releaseCall
+		conn.release(client)
 		close(callDone)
 	}()
 	<-pinned
