@@ -93,6 +93,25 @@ func TestStreamFinishRecordsReason(t *testing.T) {
 	}
 }
 
+// A mapped-empty finish (stop/tool_calls) must not erase a previous
+// length/content_filter: exact dev semantics (old provider.go only wrote when
+// mapFinishReason returned non-empty).
+func TestStreamFinishEmptyKeepsReason(t *testing.T) {
+	s := newToolState(false)
+	if _, ok := s.transition(streamEvFinish, "length"); !ok {
+		t.Fatal("first finish must be legal")
+	}
+	if _, ok := s.transition(streamEvFinish, ""); !ok {
+		t.Fatal("second finish (stop) must be legal")
+	}
+	if s.finishReason != "length" {
+		t.Fatalf("finishReason = %q, want length kept after stop", s.finishReason)
+	}
+	if !s.isTerminated() || s.isDone() {
+		t.Fatalf("after stop: terminated=%v done=%v, want true/false", s.isTerminated(), s.isDone())
+	}
+}
+
 func TestStreamTerminalRefusesSecond(t *testing.T) {
 	s := newToolState(false)
 	if emit, _ := s.transition(streamEvError, ""); !emit {

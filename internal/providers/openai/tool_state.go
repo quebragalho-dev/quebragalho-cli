@@ -127,16 +127,19 @@ func (s *toolState) isDone() bool {
 // transition is the only writer of phase/finishReason. It moves to the next
 // phase when legal and reports whether the caller should emit the terminal
 // event (Done for cleanEnd, Error for error/truncated). Finish only records
-// the reason and never emits. Illegal transitions keep the state and report
-// ok=false, never panicking in production, guaranteeing at most one terminal
-// event per stream.
+// a non-empty reason (exact dev semantics: stop/tool_calls map to "" and must
+// not erase a previous length/content_filter) and never emits. Illegal
+// transitions keep the state and report ok=false, never panicking in
+// production, guaranteeing at most one terminal event per stream.
 func (s *toolState) transition(ev streamEvent, reason string) (emit bool, ok bool) {
 	next, legal := streamTransitions[s.phase][ev]
 	if !legal {
 		return false, false
 	}
 	if ev == streamEvFinish {
-		s.finishReason = reason
+		if reason != "" {
+			s.finishReason = reason
+		}
 		s.phase = next
 		return false, true
 	}

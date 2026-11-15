@@ -88,6 +88,54 @@ func TestStreamWellFormedSequencesUnchanged(t *testing.T) {
 		}
 	})
 
+	t.Run("length followed by stop keeps length", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeSSE(w, `{"choices":[{"delta":{"content":"cut"}}]}`)
+			writeSSE(w, `{"choices":[{"delta":{},"finish_reason":"length"}]}`)
+			writeSSE(w, `{"choices":[{"delta":{},"finish_reason":"stop"}]}`)
+			writeSSE(w, `[DONE]`)
+		}))
+		t.Cleanup(server.Close)
+		events := readAll(mustStream(t, server))
+		want := []qgruntime.StreamEventType{qgruntime.StreamEventText, qgruntime.StreamEventDone}
+		if got := eventTypes(events); !equalTypes(got, want) {
+			t.Fatalf("length-then-stop sequence = %v, want %v (%#v)", got, want, events)
+		}
+		var reason string
+		for _, e := range events {
+			if e.Type == qgruntime.StreamEventDone {
+				reason = e.FinishReason
+			}
+		}
+		if reason != qgruntime.FinishReasonLength {
+			t.Fatalf("length-then-stop Done FinishReason = %q, want %q", reason, qgruntime.FinishReasonLength)
+		}
+	})
+
+	t.Run("content_filter followed by stop keeps filter", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeSSE(w, `{"choices":[{"delta":{"content":"partial"}}]}`)
+			writeSSE(w, `{"choices":[{"delta":{},"finish_reason":"content_filter"}]}`)
+			writeSSE(w, `{"choices":[{"delta":{},"finish_reason":"stop"}]}`)
+			writeSSE(w, `[DONE]`)
+		}))
+		t.Cleanup(server.Close)
+		events := readAll(mustStream(t, server))
+		want := []qgruntime.StreamEventType{qgruntime.StreamEventText, qgruntime.StreamEventDone}
+		if got := eventTypes(events); !equalTypes(got, want) {
+			t.Fatalf("filter-then-stop sequence = %v, want %v (%#v)", got, want, events)
+		}
+		var reason string
+		for _, e := range events {
+			if e.Type == qgruntime.StreamEventDone {
+				reason = e.FinishReason
+			}
+		}
+		if reason != qgruntime.FinishReasonContentFilter {
+			t.Fatalf("filter-then-stop Done FinishReason = %q, want %q", reason, qgruntime.FinishReasonContentFilter)
+		}
+	})
+
 	t.Run("eof after finish without done", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeSSE(w, `{"choices":[{"delta":{"content":"complete"}}]}`)
