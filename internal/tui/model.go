@@ -3668,14 +3668,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// turn-forced run resets the idle phase instead of stacking on it.
 		// A tick from a superseded generation (apply/reset re-armed since)
 		// is discarded: the new cadence already has its own tick pending.
-		if msg.gen != m.statuslineTickGen {
+		// The start itself is written by statusTransition (gen guard + due
+		// check); the re-arm below only schedules, never writes fields.
+		cmd, err := m.statusTransition(StatusEvTick, statusArgs{gen: msg.gen})
+		if err != nil {
 			return m, nil
 		}
 		if !m.statuslineCommandActive() {
 			return m, nil
 		}
 		refresh := time.Duration(m.statuslineCfg.EffectiveRefreshMs()) * time.Millisecond
-		m, cmd := m.startStatuslineRun(false)
 		delay := refresh
 		if !m.statuslineCmdStartedAt.IsZero() {
 			if remaining := refresh - m.now().Sub(m.statuslineCmdStartedAt); remaining > 0 && remaining < delay {

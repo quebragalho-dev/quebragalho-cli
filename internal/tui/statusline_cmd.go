@@ -467,41 +467,14 @@ func (m model) pollStatuslineCommand(msg tea.Msg) (model, tea.Cmd) {
 // elapsed since the last start. At most one run is ever in flight: a forced
 // trigger during a flight only sets statuslineRefreshDue, consumed when the
 // in-flight run completes; anything else stays a no-op.
+// State is written by statusTransition (the single writer); this stays as the
+// stable entry point used by poll/tick/apply paths.
 func (m model) startStatuslineRun(force bool) (model, tea.Cmd) {
-	if m.statuslineCmdInFlight {
-		if force {
-			m.statuslineRefreshDue = true
-		}
+	cmd, err := m.statusTransition(StatusEvStart, statusArgs{force: force})
+	if err != nil {
 		return m, nil
 	}
-	// The first run starts immediately; later runs wait out the refresh window
-	// unless a finished turn forces one now.
-	refresh := time.Duration(m.statuslineCfg.EffectiveRefreshMs()) * time.Millisecond
-	if !force && !m.statuslineCmdStartedAt.IsZero() && m.now().Sub(m.statuslineCmdStartedAt) < refresh {
-		return m, nil
-	}
-	m.statuslineCmdInFlight = true
-	m.statuslineCmdStartedAt = m.now()
-	m.statuslineCmdSeq++
-	seq := m.statuslineCmdSeq
-	cfg := m.statuslineCfg
-	stdin := string(m.statuslineStdin(m.width))
-	env := statuslineChildEnv(m.width, m.height)
-	timeout := time.Duration(cfg.EffectiveTimeoutMs()) * time.Millisecond
-	// Cancellable by apply/reset/quit: the cancel fires the same tree kill
-	// the timeout relies on, so the old process never overlaps the new
-	// cadence. The exit path also waits for the runner (bounded) so os.Exit
-	// right after Run cannot slip ahead of the kill.
-	runCtx, cancel := context.WithCancel(context.Background())
-	m.statuslineCmdCancel = cancel
-	done := make(chan struct{})
-	m.statuslineCmdDone = done
-	return m, func() tea.Msg {
-		defer close(done)
-		msg := execStatuslineRun(runCtx, cfg.Command.Command, stdin, env, timeout)
-		msg.seq = seq
-		return msg
-	}
+	return m, cmd
 }
 
 // cancelStatuslineRun kills a run still in flight (apply/reset switch the
@@ -510,12 +483,7 @@ func (m model) startStatuslineRun(force bool) (model, tea.Cmd) {
 // the sequence check, and a refresh queued during the flight is dropped too,
 // so the new cadence starts clean instead of firing one stale extra run.
 func (m model) cancelStatuslineRun() model {
-	if m.statuslineCmdCancel != nil {
-		m.statuslineCmdCancel()
-		m.statuslineCmdCancel = nil
-	}
-	m.statuslineCmdInFlight = false
-	m.statuslineRefreshDue = false
+	_, _ = m.statusTransition(StatusEvCancel, statusArgs{})
 	return m
 }
 
@@ -544,21 +512,12 @@ func (m model) killStatuslineSync() {
 // clears the error mark; a failure keeps the last good value and marks
 // discreetly. Stale runs (a newer one started) are dropped. A turn-end
 // refresh queued during the flight runs now.
+// State is written by statusTransition (the single writer, stale seq dropped
+// by construction).
 func (m model) applyStatuslineCmdMsg(msg statuslineCmdMsg) (model, tea.Cmd) {
-	if msg.seq != m.statuslineCmdSeq {
+	cmd, err := m.statusTransition(StatusEvApply, statusArgs{seq: msg.seq, lines: msg.lines, errNote: msg.errNote})
+	if err != nil {
 		return m, nil
 	}
-	m.statuslineCmdInFlight = false
-	m.statuslineCmdCancel = nil
-	if msg.errNote != "" {
-		m.statuslineCmdErr = msg.errNote
-	} else {
-		m.statuslineCmdOutput = strings.Join(msg.lines, "\n")
-		m.statuslineCmdErr = ""
-	}
-	if m.statuslineRefreshDue && m.statuslineCommandActive() {
-		m.statuslineRefreshDue = false
-		return m.startStatuslineRun(true)
-	}
-	return m, nil
+	return m, cmd
 }
