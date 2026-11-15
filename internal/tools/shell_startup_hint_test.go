@@ -108,6 +108,16 @@ func TestStartupHintHRESULTRequiresCLR(t *testing.T) {
 			t.Fatalf("generic 80070005 without CLR must not hint, got %#v", issue)
 		}
 	})
+	t.Run("clr without hresult never hints", func(t *testing.T) {
+		for _, output := range []string{"error: clr.dll version mismatch", "CLR: unhandled exception in app"} {
+			if issue := detectShellOutputIssueForRuntime(output, windowsPowerShellShell(), 1, true); issue != nil {
+				t.Fatalf("CLR without 80070005 must not hint, got %#v", issue)
+			}
+			if issue := detectShellOutputIssueForRuntime(output, windowsCmdShell(), 1, true); issue != nil {
+				t.Fatalf("CLR without 80070005 must not hint, got %#v", issue)
+			}
+		}
+	})
 }
 
 func TestWrappedFromSandboxMeta(t *testing.T) {
