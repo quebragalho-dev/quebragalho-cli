@@ -10,9 +10,9 @@ import (
 // failed by Close (failAll): once Close runs, the blocked call observes it
 // and returns errMCPClientClosed instead of the server answer.
 type blockingCallClient struct {
-	entered chan struct{}
-	release chan struct{}
-	closed  atomic.Int32
+	entered  chan struct{}
+	release  chan struct{}
+	closed   atomic.Int32
 	enteredN atomic.Int32
 }
 

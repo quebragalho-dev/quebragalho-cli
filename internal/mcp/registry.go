@@ -693,38 +693,162 @@ type mcpServerConn struct {
 	// redialMu serializes redials: a single redial runs per server at a time,
 	// so two calls failing together cannot start two processes.
 	redialMu sync.Mutex
-	// dead latches when a call fails on a broken transport after its request
-	// may already have reached the server: that error goes to the model
-	// without a resend, and the next use heals (redials) before sending.
-	dead bool
+	// state is the liveness of the current generation. transition is the only
+	// writer of state, client, inflight and retired: every change goes
+	// through the legalConnTransition table so the twins stay fixed together.
+	state connState
+	// inflight counts the users of each generation (current plus retired).
+	// A generation is closed only when its count drops to zero.
+	inflight map[ToolClient]int
+	// retired holds superseded generations until their in-flight calls drain.
+	retired []ToolClient
 }
 
 func newMCPServerConn(server Server, client ToolClient) *mcpServerConn {
-	return &mcpServerConn{server: server, client: client}
+	return &mcpServerConn{server: server, client: client, state: connAlive, inflight: map[ToolClient]int{}}
 }
 
-// call runs one tool call against the current client.
-func (conn *mcpServerConn) call(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+// transition is the single writer of the liveness fields. It holds mu,
+// consults legalConnTransition, mutates state/client/inflight/retired
+// together, and returns the snapshot to use (acquire) and the generations to
+// close outside mu (never close under mu: Close may wait out the package's
+// own stdio shutdown bound). ok=false refuses without mutating.
+func (conn *mcpServerConn) transition(event connEvent, arg ToolClient) (snapshot ToolClient, toClose []ToolClient, ok bool) {
 	conn.mu.Lock()
-	client := conn.client
-	conn.mu.Unlock()
-	if client == nil {
+	defer conn.mu.Unlock()
+	next, legal := legalConnTransition(conn.state, event)
+	if !legal {
+		return nil, nil, false
+	}
+	switch event {
+	case connEventAcquire:
+		if conn.client == nil {
+			return nil, nil, false
+		}
+		if conn.inflight == nil {
+			conn.inflight = map[ToolClient]int{}
+		}
+		conn.inflight[conn.client]++
+		return conn.client, nil, true
+	case connEventRelease:
+		if conn.inflight != nil && conn.inflight[arg] > 0 {
+			conn.inflight[arg]--
+			if conn.inflight[arg] == 0 {
+				delete(conn.inflight, arg)
+				if arg != nil && arg != conn.client {
+					for i, old := range conn.retired {
+						if old == arg {
+							conn.retired = append(conn.retired[:i], conn.retired[i+1:]...)
+							toClose = append(toClose, arg)
+							break
+						}
+					}
+				}
+			}
+		}
+		return nil, toClose, true
+	case connEventMarkDead:
+		if conn.client != arg {
+			return nil, nil, false
+		}
+		conn.state = next
+		return nil, nil, true
+	case connEventSwap:
+		fresh := arg
+		if fresh == nil {
+			return nil, nil, false
+		}
+		old := conn.client
+		if old != nil {
+			conn.retired = append(conn.retired, old)
+		}
+		conn.client = fresh
+		conn.state = next
+		if conn.inflight == nil {
+			conn.inflight = map[ToolClient]int{}
+		}
+		if _, seen := conn.inflight[fresh]; !seen {
+			conn.inflight[fresh] = 0
+		}
+		if old != nil && conn.inflight[old] == 0 {
+			for i, entry := range conn.retired {
+				if entry == old {
+					conn.retired = append(conn.retired[:i], conn.retired[i+1:]...)
+					toClose = append(toClose, old)
+					break
+				}
+			}
+		}
+		return nil, toClose, true
+	case connEventClose:
+		if conn.state == connClosed {
+			return nil, nil, false
+		}
+		conn.state = next
+		if conn.client != nil {
+			toClose = append(toClose, conn.client)
+			conn.client = nil
+		}
+		toClose = append(toClose, conn.retired...)
+		conn.retired = nil
+		return nil, toClose, true
+	}
+	return nil, nil, false
+}
+
+// acquire pins the current generation for one call. The caller must release
+// it; the generation stays alive until the last user releases it.
+func (conn *mcpServerConn) acquire() (ToolClient, bool) {
+	snapshot, toClose, ok := conn.transition(connEventAcquire, nil)
+	for _, stale := range toClose {
+		_ = stale.Close()
+	}
+	if !ok || snapshot == nil {
+		return nil, false
+	}
+	return snapshot, true
+}
+
+// release drops one acquire reference, closing the generation when its last
+// user is done and it is no longer current.
+func (conn *mcpServerConn) release(client ToolClient) {
+	_, toClose, ok := conn.transition(connEventRelease, client)
+	if !ok {
+		return
+	}
+	for _, stale := range toClose {
+		_ = stale.Close()
+	}
+}
+
+// call runs one tool call against the current client. The generation is
+// pinned for the whole call, so a concurrent swap retires it instead of
+// closing it underneath the request: the server answer still lands.
+func (conn *mcpServerConn) call(ctx context.Context, name string, args map[string]any) (CallToolResult, error) {
+	client, ok := conn.acquire()
+	if !ok || client == nil {
 		return CallToolResult{}, fmt.Errorf("MCP server %s has no live connection", conn.server.Name)
 	}
+	defer conn.release(client)
 	return client.CallTool(ctx, name, args)
 }
 
-// swap replaces the transport, closing the dead one. The holder keeps its
-// identity, so every tool and the runtime bookkeeping observe the revived
-// client without further updates. A fresh transport is alive by definition.
+// swap replaces the transport without dropping in-flight calls. The holder
+// keeps its identity, so every tool and the runtime bookkeeping observe the
+// revived client without further updates. A fresh transport is alive by
+// definition. The retired generation closes when its last user releases it;
+// a swap on a closed holder refuses and closes the fresh client it already
+// dialed so no process leaks.
 func (conn *mcpServerConn) swap(client ToolClient) {
-	conn.mu.Lock()
-	old := conn.client
-	conn.client = client
-	conn.dead = false
-	conn.mu.Unlock()
-	if old != nil {
-		_ = old.Close()
+	_, toClose, ok := conn.transition(connEventSwap, client)
+	if !ok {
+		if client != nil {
+			_ = client.Close()
+		}
+		return
+	}
+	for _, stale := range toClose {
+		_ = stale.Close()
 	}
 }
 
@@ -733,18 +857,14 @@ func (conn *mcpServerConn) swap(client ToolClient) {
 func (conn *mcpServerConn) isDead() bool {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-	return conn.dead
+	return conn.state == connDead
 }
 
 // markDeadIfCurrent latches the transport for dead only if it is still the
 // client that failed: a concurrent redial (or the /mcp panel) already healed
 // the server, so the fresh client must not be poisoned by a stale failure.
 func (conn *mcpServerConn) markDeadIfCurrent(failed ToolClient) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-	if conn.client == failed {
-		conn.dead = true
-	}
+	_, _, _ = conn.transition(connEventMarkDead, failed)
 }
 
 // redialIfCurrent swaps in a fresh transport only if the current one is
@@ -797,10 +917,11 @@ func (conn *mcpServerConn) current() ToolClient {
 }
 
 func (conn *mcpServerConn) ListTools(ctx context.Context) ([]RemoteTool, error) {
-	client := conn.current()
-	if client == nil {
+	client, ok := conn.acquire()
+	if !ok || client == nil {
 		return nil, fmt.Errorf("MCP server %s has no live connection", conn.server.Name)
 	}
+	defer conn.release(client)
 	return client.ListTools(ctx)
 }
 
@@ -809,11 +930,17 @@ func (conn *mcpServerConn) CallTool(ctx context.Context, name string, args map[s
 }
 
 func (conn *mcpServerConn) Close() error {
-	client := conn.current()
-	if client == nil {
+	_, toClose, ok := conn.transition(connEventClose, nil)
+	if !ok {
 		return nil
 	}
-	return client.Close()
+	var err error
+	for _, client := range toClose {
+		if cerr := client.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}
+	return err
 }
 
 // ToolsStale returns the current client's list-changed signal.
