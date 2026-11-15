@@ -5,12 +5,10 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
-
-	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 // lastCardText returns the text of the most recently appended transcript row —
-// the plan-step detail card built by openPlanStepDetail.
+// the plan-step detail card built by appendPlanStepCard.
 func lastCardText(m model) string {
 	if len(m.transcript) == 0 {
 		return ""
@@ -38,10 +36,7 @@ func TestPlanStepDetailByStatus(t *testing.T) {
 	}
 
 	// Completed step -> "what we did" (local fallback, no provider).
-	m, cmd := m.openPlanStepDetail(0)
-	if cmd != nil {
-		t.Error("no provider: openPlanStepDetail should not dispatch a model call")
-	}
+	m.transcript = m.appendPlanStepCard(0, "", false)
 	done := lastCardText(m)
 	for _, want := range []string{"Concluído em 1m 20s.", "Concluído: 1 arquivo alterado, 1 comando.", "O que foi feito", "wired the click handler", "Arquivos alterados (1)", "Comandos executados (1)", "o que foi feito neste passo"} {
 		if !strings.Contains(done, want) {
@@ -50,7 +45,8 @@ func TestPlanStepDetailByStatus(t *testing.T) {
 	}
 
 	// Pending step -> "what we will do".
-	m, _ = m.openPlanStepDetail(1)
+	m.transcript = dropTranscriptRowsByID(m.transcript, planStepDetailRowID)
+	m.transcript = m.appendPlanStepCard(1, "", false)
 	pending := lastCardText(m)
 	for _, want := range []string{"O que será feito", "o que este passo fará", "cover the new flag", "aparecem aqui"} {
 		if !strings.Contains(pending, want) {
@@ -62,96 +58,55 @@ func TestPlanStepDetailByStatus(t *testing.T) {
 	}
 }
 
-// TestPlanStepDetailAIExplanation: clicking a step with a provider shows the
-// "Writing explanation…" loading line and dispatches a one-shot model call; the
-// returned message updates the card in place with the model's text and caches
-// it, so re-clicking the same step is instant with no second call.
+// TestPlanStepDetailAIExplanation: the loading card shows the "Writing
+// explanation…" line and the model's write-up delivered through Update replaces
+// the card in place and is cached, so re-rendering the step is instant.
 func TestPlanStepDetailAIExplanation(t *testing.T) {
-	provider := &fakeProvider{events: []qgruntime.StreamEvent{
-		{Type: qgruntime.StreamEventText, Content: "We added the new button and wired up its click."},
-		{Type: qgruntime.StreamEventDone},
-	}}
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	m := model{now: func() time.Time { return t0 }, provider: provider}
+	m := model{now: func() time.Time { return t0 }}
 	m.plan.steps = []planStep{{content: "ship the button", status: "completed", startedAt: t0, completedAt: t0.Add(time.Minute)}}
+	m.planDetailOpen = true
+	m.planDetailStep = 0
+	key := planStepExplanationKey(m.plan.steps[0])
 
-	// Click -> immediate loading card + a dispatched model request.
-	m, cmd := m.openPlanStepDetail(0)
-	if cmd == nil {
-		t.Fatal("with a provider, clicking a step should dispatch a model call")
-	}
+	// Loading card via the production builder.
+	m.transcript = m.appendPlanStepCard(0, "", true)
 	if loading := lastCardText(m); !strings.Contains(loading, "Escrevendo explicação…") {
 		t.Errorf("loading card should show the writing line:\n%s", loading)
 	}
 
-	// Run the cmd and feed its message back through Update.
-	msg := cmd()
-	exp, ok := msg.(planStepExplanationMsg)
-	if !ok {
-		t.Fatalf("expected planStepExplanationMsg, got %T", msg)
-	}
-	if exp.err != nil || exp.text == "" {
-		t.Fatalf("expected a written explanation, got text=%q err=%v", exp.text, exp.err)
-	}
-	updated, _ := m.Update(exp)
+	// The model's write-up arrives through the production Update path.
+	updated, _ := m.Update(planStepExplanationMsg{stepIndex: 0, key: key, gen: m.planDetailGen, text: "We added the new button and wired up its click."})
 	m = updated.(model)
 	if got := lastCardText(m); !strings.Contains(got, "We added the new button") {
 		t.Errorf("card should update in place with the model text:\n%s", got)
 	}
-	if len(provider.requests) != 1 {
-		t.Fatalf("expected exactly one model request, got %d", len(provider.requests))
+	if m.stepExplanation[key] == "" {
+		t.Error("write-up should be cached for instant re-render")
 	}
 
-	// Re-click closes (toggle); click again -> served from cache, no new call.
-	m, _ = m.openPlanStepDetail(0)
-	m, cmd = m.openPlanStepDetail(0)
-	if cmd != nil {
-		t.Error("re-opening a cached step should not dispatch a second model call")
-	}
+	// Re-render from cache: no second request needed.
+	m.transcript = dropTranscriptRowsByID(m.transcript, planStepDetailRowID)
+	m.transcript = m.appendPlanStepCard(0, m.stepExplanation[key], false)
 	if got := lastCardText(m); !strings.Contains(got, "We added the new button") {
-		t.Errorf("cached re-open should show the stored explanation:\n%s", got)
-	}
-	if len(provider.requests) != 1 {
-		t.Errorf("cache should prevent a second model request, got %d", len(provider.requests))
+		t.Errorf("cached re-render should show the stored explanation:\n%s", got)
 	}
 }
 
-// TestPlanStepDetailSecondClickHides: the second click on a step removes the
-// detail card — even when the model write-up is still in flight, a late response
-// must NOT pop the card back open after the user closed it.
-func TestPlanStepDetailSecondClickHides(t *testing.T) {
-	provider := &fakeProvider{events: []qgruntime.StreamEvent{
-		{Type: qgruntime.StreamEventText, Content: "late explanation"},
-		{Type: qgruntime.StreamEventDone},
-	}}
-	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	m := model{now: func() time.Time { return t0 }, provider: provider}
-	m.plan.steps = []planStep{{content: "do the thing", status: "completed", startedAt: t0, completedAt: t0.Add(time.Minute)}}
-	base := len(m.transcript)
+// TestPlanStepDetailLateResponseStaysClosed: a write-up that lands after the
+// card was closed is cached but must not re-add the card.
+func TestPlanStepDetailLateResponseStaysClosed(t *testing.T) {
+	m := model{now: time.Now}
+	m.plan.steps = []planStep{{content: "do the thing", status: "completed"}}
+	key := planStepExplanationKey(m.plan.steps[0])
 
-	// First click opens the card (and dispatches the write-up request).
-	m, cmd := m.openPlanStepDetail(0)
-	if !m.planDetailOpen || len(m.transcript) != base+1 {
-		t.Fatalf("first click should open one card: open=%v rows=%d", m.planDetailOpen, len(m.transcript)-base)
-	}
-
-	// Second click — before the response lands — must hide it.
-	m, _ = m.openPlanStepDetail(0)
-	if m.planDetailOpen {
-		t.Error("second click should close the card")
-	}
-	if len(m.transcript) != base {
-		t.Errorf("second click should remove the card: rows=%d", len(m.transcript)-base)
-	}
-
-	// The in-flight response now arrives — it must not reopen the closed card.
-	updated, _ := m.Update(cmd())
+	updated, _ := m.Update(planStepExplanationMsg{stepIndex: 0, key: key, gen: m.planDetailGen, text: "late explanation"})
 	m = updated.(model)
-	if m.planDetailOpen {
-		t.Error("a late model response must not reopen a closed card")
+	if len(m.transcript) != 0 {
+		t.Errorf("a response with no open card must not add one: rows=%d", len(m.transcript))
 	}
-	if len(m.transcript) != base {
-		t.Errorf("late response should not re-add the card: rows=%d", len(m.transcript)-base)
+	if m.stepExplanation[key] != "late explanation" {
+		t.Errorf("late response should still be cached, got %q", m.stepExplanation[key])
 	}
 }
 
@@ -201,44 +156,6 @@ func TestCaptureStepWork(t *testing.T) {
 
 // TestPlanStepDetailToggle: re-clicking the open step hides the card (no
 // stacking); clicking a different step switches; at most one card at a time.
-func TestPlanStepDetailToggle(t *testing.T) {
-	m := model{now: time.Now}
-	m.plan.steps = []planStep{
-		{content: "a", status: "completed"},
-		{content: "b", status: "in_progress"},
-	}
-	base := len(m.transcript)
-
-	m, _ = m.openPlanStepDetail(0)
-	if !m.planDetailOpen || m.planDetailStep != 0 {
-		t.Fatalf("first click should open step 0: open=%v step=%d", m.planDetailOpen, m.planDetailStep)
-	}
-	if len(m.transcript) != base+1 {
-		t.Fatalf("first click should add one card: got %d, base %d", len(m.transcript), base)
-	}
-
-	m, _ = m.openPlanStepDetail(0)
-	if m.planDetailOpen {
-		t.Error("re-clicking the same step should close it")
-	}
-	if len(m.transcript) != base {
-		t.Errorf("re-click should net qg growth: got %d, base %d", len(m.transcript), base)
-	}
-
-	m, _ = m.openPlanStepDetail(0)
-	m, _ = m.openPlanStepDetail(1)
-	if !m.planDetailOpen || m.planDetailStep != 1 {
-		t.Errorf("clicking a different step should switch: open=%v step=%d", m.planDetailOpen, m.planDetailStep)
-	}
-	if len(m.transcript) != base+1 {
-		t.Errorf("switching steps should keep exactly one card: got %d, base %d", len(m.transcript), base)
-	}
-}
-
-// TestPlanStepExplanationLinesStayShort: the local fallback summaries must wrap
-// to rows that a 50-column card cuts no more than the base English text does
-// (one row each). The pending fallback regressed to two cut rows and dropped
-// its closing "aqui.", so it is pinned to a single short row here.
 func TestPlanStepExplanationLinesStayShort(t *testing.T) {
 	m := model{}
 	cases := []struct {
