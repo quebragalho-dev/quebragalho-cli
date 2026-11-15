@@ -379,16 +379,12 @@ func TestManagerDoesNotMarkKilledWhenKillFails(t *testing.T) {
 }
 
 func TestManagerKillDoesNotClobberCompletedTask(t *testing.T) {
-	now := sequenceClock(
-		time.Date(2026, 6, 7, 9, 0, 0, 0, time.UTC),
-		time.Date(2026, 6, 7, 9, 0, 1, 0, time.UTC),
-	)
-	var manager *Manager
+	killed := []int{}
 	manager, err := NewManagerWithOptions(ManagerOptions{
 		RootDir: t.TempDir(),
-		Now:     now,
 		KillProcess: func(pid int) error {
-			return manager.UpdateStatus("task", StatusCompleted, 0)
+			killed = append(killed, pid)
+			return nil
 		},
 	})
 	if err != nil {
@@ -397,12 +393,20 @@ func TestManagerKillDoesNotClobberCompletedTask(t *testing.T) {
 	if _, err := manager.Register(RegisterInput{TaskID: "task", Type: "specialist", PID: 42}); err != nil {
 		t.Fatalf("Register returned error: %v", err)
 	}
-	if err := manager.Kill("task"); err != nil {
-		t.Fatalf("Kill returned error: %v", err)
+	// The task completes BEFORE Kill runs: Kill must refuse the terminal
+	// task and never signal its (possibly recycled) pid.
+	if err := manager.UpdateStatus("task", StatusCompleted, 0); err != nil {
+		t.Fatalf("UpdateStatus returned error: %v", err)
+	}
+	if err := manager.Kill("task"); err == nil || !strings.Contains(err.Error(), "is completed") {
+		t.Fatalf("Kill completed task error = %v, want refusal", err)
 	}
 	task, ok := manager.Get("task")
 	if !ok || task.Status != StatusCompleted || task.ExitCode != 0 {
 		t.Fatalf("Kill clobbered completed task: %#v", task)
+	}
+	if len(killed) != 0 {
+		t.Fatalf("Kill signaled a completed task pid: %#v", killed)
 	}
 }
 
