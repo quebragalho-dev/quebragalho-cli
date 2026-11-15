@@ -162,7 +162,9 @@ or any non-interactive use.
   carrying on with the current version. A failed install records nothing,
   so the screen asks again on the next launch.
 - `QG_NO_UPDATE_CHECK=1` (or `true`) disables the check, the screen, and the
-  notice. Dev builds (version `dev`) and Homebrew installs never check.
+  notice. Dev builds (version `dev`) never check, and neither do binaries
+  detected inside a Homebrew keg (there is no published formula; the
+  detection is defensive).
 - Endpoint overrides for mirrors and tests: `QG_UPDATE_RELEASE_URL` (GitHub
   releases, already honored by `qg update`) and `QG_UPDATE_NPM_ENDPOINT`
   (npm registry base URL, used for npm installs).

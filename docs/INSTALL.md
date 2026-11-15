@@ -12,11 +12,12 @@ Escolha o método que já faz parte da sua rotina. Nenhum deles é o "oficial".
 | `go install` (requer acesso) | `go install github.com/quebragalho-dev/quebragalho-cli/cmd/qg@latest` | rode de novo |
 | Fonte (requer acesso) | `make build` | recompile |
 
-`qg upgrade` segue quem é dono do binário, com uma única exceção que ele não
-consegue detectar: delega ao npm quando a instalação é npm, recusa e manda no
-`brew upgrade qg` para keg do Homebrew, e substitui o binário no lugar para
-todo o resto — inclusive instalação gerenciada pelo mise (a exceção: use
-`mise upgrade`).
+`qg upgrade` segue quem é dono do binário: delega ao npm quando a instalação
+é npm e substitui o binário no lugar para todo o resto — inclusive
+instalação gerenciada pelo mise (a exceção: use `mise upgrade`). Se o
+binário estiver dentro de um keg do Homebrew (detecção defensiva; não há
+fórmula publicada), o `qg upgrade` recusa substituir para não brigar com os
+registros do brew — a mensagem de erro manda rodar `brew upgrade qg`.
 
 Os arquivos de release são a base da maioria dos métodos acima: o script de
 instalação baixa o arquivo da plataforma publicada no GitHub Release e verifica
@@ -304,7 +305,8 @@ plataforma.
 O `qg upgrade` comporta-se diferente conforme o dono do binário:
 
 - **npm**: roda `npm install -g @quebragalho/cli@latest` para você.
-- **Homebrew**: recusa e manda no `brew upgrade qg` (substituir o binário do
-  keg seria revertido no próximo `brew upgrade`).
+- **Keg do Homebrew (sem fórmula publicada; só detecção defensiva)**: recusa
+  e manda rodar `brew upgrade qg` (substituir o binário do keg seria
+  revertido no próximo `brew upgrade`).
 - **todo o resto** (inclusive `/usr/local/bin` do script curl): baixa o
   arquivo de release verificado e substitui o binário no lugar.
