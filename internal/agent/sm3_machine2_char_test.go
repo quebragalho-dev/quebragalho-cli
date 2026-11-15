@@ -298,11 +298,97 @@ func TestSm3CharMeasureParity(t *testing.T) {
 
 	// The sole edge: int truncation can equate sizes 1 token apart, so a
 	// 1-token raw shrink reads as unified no-op. Harmless (a retry of a
-	// ~identical history) and out of realistic-compaction range.
+	// ~identical history) and out of realistic-compaction range. The RECOVER
+	// verdict at this edge is the RAW comparison (it retries); see
+	// TestRecoverOneTokenEdgeUsesRawVerdict, which fails if the no-op check is
+	// ever switched to measuredSize.
 	edge := newCharState(1000, nil)
 	edge.calibrationRatio = 0.5
 	if edge.calibratedTokens(100) != edge.calibratedTokens(101) {
 		t.Fatalf("precondition: truncation edge must equate 100 and 101 at ratio 0.5")
+	}
+}
+
+// TestRecoverOneTokenEdgeUsesRawVerdict pins the real behavior at the
+// 1-token truncation edge: the input below shrinks by exactly 1 raw token
+// (odd input size, ratio 0.5, no tools), so the calibrated+tools measure
+// reads no-op while the raw comparison reads shrink. recover must follow the
+// RAW verdict and retry. If the no-op check is switched back to measuredSize,
+// this test fails (retried=false).
+func TestRecoverOneTokenEdgeUsesRawVerdict(t *testing.T) {
+	ctx := context.Background()
+	const ctxErr = "This model's maximum context length is 1000 tokens. Please reduce the length of the messages."
+	base := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "sys"},
+		{Role: qgruntime.MessageRoleUser, Content: "seed"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "a"},
+		{Role: qgruntime.MessageRoleUser, Content: "u2"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "a2"},
+		{Role: qgruntime.MessageRoleUser, Content: "u3"},
+	}
+	if estimateTokens(base)%2 == 0 {
+		base[1].Content += "xxxx" // +1 token: the edge needs an odd input size
+	}
+	// Grow the summary until Compact shrinks the input by exactly 1 token.
+	// +4 summary chars grow the output by exactly 1 token, so D hits 1.
+	// Compact is pure and independent of the recover verdict under test.
+	summaryLen := -1
+	for l := 4; l < 4000; l += 4 {
+		out, err := Compact(base, CompactionOptions{
+			PreserveLast: 2,
+			Summarize: func([]qgruntime.Message) (string, error) {
+				return strings.Repeat("S", l), nil
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if estimateTokens(base)-estimateTokens(out) == 1 {
+			summaryLen = l
+			break
+		}
+	}
+	if summaryLen < 0 {
+		t.Fatal("setup must land Compact exactly 1 raw token below the input")
+	}
+	// The edge itself: 1-token raw shrink that the calibrated+tools measure
+	// reads as no-op (odd input, ratio 0.5, no tools).
+	edgeOut, err := Compact(base, CompactionOptions{
+		PreserveLast: 2,
+		Summarize: func([]qgruntime.Message) (string, error) {
+			return strings.Repeat("S", summaryLen), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	estIn, estWant := estimateTokens(base), estimateTokens(edgeOut)
+	if estIn-estWant != 1 {
+		t.Fatalf("setup off the edge: in=%d out=%d", estIn, estWant)
+	}
+	edgeProbe := newCharState(1000, nil)
+	edgeProbe.calibrationRatio = 0.5
+	if unifiedNoop := edgeProbe.calibratedTokens(estWant) >= edgeProbe.calibratedTokens(estIn); !unifiedNoop {
+		t.Fatalf("setup must read unified no-op at the edge: in=%d out=%d", estIn, estWant)
+	}
+	// Fresh run on the edge history: raw says shrink, unified says no-op.
+	// The edge itself is established on the pure Compact output above, so a
+	// verdict change in recover fails at the retried assertion below.
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventText, Content: strings.Repeat("S", summaryLen)},
+		{Type: qgruntime.StreamEventDone},
+	}}}
+	state := newCharState(1000, nil)
+	state.calibrationRatio = 0.5
+	_, retried, err := state.recover(ctx, provider, base, nil, ctxErr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("summarizer must be attempted once, got %d requests", len(provider.requests))
+	}
+	if !retried {
+		t.Fatal("at the 1-token edge recover must follow the RAW verdict and retry (fails under measuredSize)")
 	}
 }
 

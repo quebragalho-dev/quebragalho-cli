@@ -648,10 +648,14 @@ func (state *compactionState) transition(ev compactEvent) (notify bool) {
 	return false
 }
 
-// measuredSize is the single token measure every compaction decision uses:
-// the raw message estimate plus the tool definitions every request carries,
-// scaled by the learned calibration. Proactive and reactive paths compare
-// measuredSize values, so the same history always gets the same verdict.
+// measuredSize is the single token measure used where the code already
+// compared calibrated(estimate + tool-defs): the proactive threshold,
+// watermark and shrink checks, and the reactive prune-fit size and
+// low-water mark. The reactive no-op shrink check below deliberately stays
+// on the RAW estimateTokens comparison: it agrees with measuredSize at every
+// realistic margin and differs only by int() truncation at a 1-token edge,
+// so the raw form is kept for exact parity (see
+// TestRecoverOneTokenEdgeUsesRawVerdict).
 func (state *compactionState) measuredSize(messages []qgruntime.Message, tools []qgruntime.ToolDefinition) int {
 	return state.calibratedTokens(estimateTokens(messages) + estimateToolDefTokens(tools))
 }
@@ -956,7 +960,11 @@ func (state *compactionState) recover(
 		}
 		return messages, true, compactErr
 	}
-	if state.measuredSize(result, tools) >= state.measuredSize(messages, tools) {
+	if estimateTokens(result) >= estimateTokens(messages) {
+		// Kept RAW on purpose (exact parity): this agrees with the
+		// calibrated+tools measure at every realistic margin and differs
+		// only by int() truncation at a 1-token edge, where the raw verdict
+		// (retry a real shrink) is the behavior every characterization pins.
 		// Nothing to compact; the retry would just fail again. Signal "not
 		// retried" so the caller surfaces the original context-limit error. Do NOT
 		// consume the one-shot budget here: a no-op recover (history too small to
