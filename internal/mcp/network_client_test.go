@@ -369,9 +369,9 @@ func TestDecodeSSERPCMessageSkipsNotifications(t *testing.T) {
 		"event: message\n" +
 		`data: {"jsonrpc":"2.0","id":7,"result":{"ok":true}}` + "\n\n"
 
-	msg, err := decodeSSERPCMessage(strings.NewReader(stream))
+	msg, err := decodeSSERPCMessageWithNotify(strings.NewReader(stream), nil)
 	if err != nil {
-		t.Fatalf("decodeSSERPCMessage: %v", err)
+		t.Fatalf("decodeSSERPCMessageWithNotify: %v", err)
 	}
 	if msg.Method != "" {
 		t.Fatalf("returned a server message (method %q), want the response", msg.Method)
@@ -392,9 +392,9 @@ func TestDecodeSSERPCMessageSkipsEmptyAndNullMethod(t *testing.T) {
 		"event: message\n" +
 		`data: {"jsonrpc":"2.0","id":7,"result":{"ok":true}}` + "\n\n"
 
-	msg, err := decodeSSERPCMessage(strings.NewReader(stream))
+	msg, err := decodeSSERPCMessageWithNotify(strings.NewReader(stream), nil)
 	if err != nil {
-		t.Fatalf("decodeSSERPCMessage: %v", err)
+		t.Fatalf("decodeSSERPCMessageWithNotify: %v", err)
 	}
 	if msg.isRequestOrNotification() {
 		t.Fatalf("empty/null method must not be treated as the response, got method %q present=%v", msg.Method, msg.methodPresent)

@@ -719,10 +719,6 @@ func httpStatusError(server Server, response *http.Response) error {
 	}
 }
 
-func decodeSSERPCMessage(reader io.Reader) (rpcMessage, error) {
-	return decodeSSERPCMessageWithNotify(reader, nil)
-}
-
 func decodeSSERPCMessageWithNotify(reader io.Reader, notify func(rpcMessage)) (rpcMessage, error) {
 	var decoded rpcMessage
 	var decodeErr error
