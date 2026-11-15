@@ -459,6 +459,11 @@ func execToolResult(input execToolResultInput) Result {
 }
 
 func execToolResultWithBudget(input execToolResultInput, directBudget bool) Result {
+	return execToolResultWithBudgetForGOOS(input, directBudget, runtimeGOOS())
+}
+
+func execToolResultWithBudgetForGOOS(input execToolResultInput, directBudget bool, goos string) Result {
+	input.output = normalizeWindowsProcessOutputForGOOS(input.output, goos)
 	output := input.output
 	truncated := false
 	if directBudget {
@@ -491,9 +496,9 @@ func execToolResultWithBudget(input execToolResultInput, directBudget bool) Resu
 	if input.exited && input.exitCode != 0 && !input.interrupted {
 		status = StatusError
 	}
-	body := formatExecCommandOutput(output, input.sessionID, input.exited, input.exitCode, input.interrupted, input.tty)
+	body := formatExecCommandOutputForGOOS(output, input.sessionID, input.exited, input.exitCode, input.interrupted, input.tty, goos)
 	if status == StatusError && input.exited && !input.interrupted {
-		if issue := detectShellOutputIssueForRuntime(output, detectShellRuntime(runtimeGOOS())); issue != nil {
+		if issue := detectShellOutputIssueForRuntime(output, detectShellRuntime(goos)); issue != nil {
 			meta["shell_issue"] = issue.Kind
 			body = appendShellIssueHint(body, *issue)
 		}
@@ -614,6 +619,11 @@ func executionChangeSummaries(changes []execution.Change) []execution.Change {
 }
 
 func formatExecCommandOutput(output string, sessionID int, exited bool, exitCode int, interrupted bool, tty bool) string {
+	return formatExecCommandOutputForGOOS(output, sessionID, exited, exitCode, interrupted, tty, runtimeGOOS())
+}
+
+func formatExecCommandOutputForGOOS(output string, sessionID int, exited bool, exitCode int, interrupted bool, tty bool, goos string) string {
+	output = normalizeWindowsProcessOutputForGOOS(output, goos)
 	output = strings.TrimRight(output, "\r\n")
 	parts := []string{}
 	if output != "" {

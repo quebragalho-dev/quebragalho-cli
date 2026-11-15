@@ -419,6 +419,15 @@ func commandExitCode(err error) int {
 }
 
 func formatBashOutput(stdout string, stderr string, exitCode int) string {
+	return formatBashOutputForGOOS(stdout, stderr, exitCode, runtime.GOOS)
+}
+
+// formatBashOutputForGOOS is formatBashOutput with an explicit GOOS for the
+// Windows UTF-16LE normalization. Production passes runtime.GOOS; tests pass
+// "windows" to simulate the sandbox pipe and "linux"/"darwin" for identity.
+func formatBashOutputForGOOS(stdout string, stderr string, exitCode int, goos string) string {
+	stdout = normalizeWindowsProcessOutputForGOOS(stdout, goos)
+	stderr = normalizeWindowsProcessOutputForGOOS(stderr, goos)
 	parts := []string{}
 	stdout = strings.TrimRight(stdout, "\r\n")
 	stderr = strings.TrimRight(stderr, "\r\n")
@@ -465,6 +474,15 @@ const bashCaptureBudgetBytes = 96 * 1024
 // Registry calls retain the existing bounded capture but leave final semantic
 // reduction and spill creation to the post-redaction registry boundary.
 func prepareBashOutput(out string, outTotal int, errStr string, errTotal int, meta map[string]string, directBudget bool) (string, string, bool) {
+	return prepareBashOutputForGOOS(out, outTotal, errStr, errTotal, meta, directBudget, runtime.GOOS)
+}
+
+// prepareBashOutputForGOOS is prepareBashOutput with an explicit GOOS for the
+// Windows UTF-16LE normalization, applied before budgeting so the budget
+// counts the model-visible UTF-8 bytes.
+func prepareBashOutputForGOOS(out string, outTotal int, errStr string, errTotal int, meta map[string]string, directBudget bool, goos string) (string, string, bool) {
+	out, outTotal = normalizeBashStreamForGOOS(out, outTotal, goos)
+	errStr, errTotal = normalizeBashStreamForGOOS(errStr, errTotal, goos)
 	if directBudget {
 		return budgetBashCapture(out, outTotal, errStr, errTotal, meta)
 	}
@@ -628,8 +646,14 @@ func truncateHeadTailWithTotal(value string, total, maxBytes int) (string, int, 
 }
 
 func formatBashOutputWithShellHint(stdout string, stderr string, exitCode int, meta map[string]string) string {
-	output := formatBashOutput(stdout, stderr, exitCode)
-	if issue := detectShellOutputIssueForRuntime(stdout+"\n"+stderr, detectShellRuntime(runtime.GOOS)); issue != nil {
+	return formatBashOutputWithShellHintForGOOS(stdout, stderr, exitCode, meta, runtime.GOOS)
+}
+
+func formatBashOutputWithShellHintForGOOS(stdout string, stderr string, exitCode int, meta map[string]string, goos string) string {
+	stdout = normalizeWindowsProcessOutputForGOOS(stdout, goos)
+	stderr = normalizeWindowsProcessOutputForGOOS(stderr, goos)
+	output := formatBashOutputForGOOS(stdout, stderr, exitCode, goos)
+	if issue := detectShellOutputIssueForRuntime(stdout+"\n"+stderr, detectShellRuntime(goos)); issue != nil {
 		meta["shell_issue"] = issue.Kind
 		output = appendShellIssueHint(output, *issue)
 	}

@@ -31,7 +31,7 @@ func measuredCLRUTF16() string {
 }
 
 func TestReproBashMeasuredUTF16IsReadable(t *testing.T) {
-	out := formatBashOutput(measuredCLRUTF16(), "", 4294901760)
+	out := formatBashOutputForGOOS(measuredCLRUTF16(), "", 4294901760, "windows")
 	if strings.Contains(out, "\x00") {
 		t.Fatalf("bash output still carries NUL bytes: %q", out)
 	}
@@ -44,7 +44,7 @@ func TestReproBashMeasuredUTF16IsReadable(t *testing.T) {
 
 func TestReproBashUTF16WithBOMIsReadable(t *testing.T) {
 	raw := "\xff\xfe" + measuredCLRUTF16()
-	out := formatBashOutput(raw, "", 4294901760)
+	out := formatBashOutputForGOOS(raw, "", 4294901760, "windows")
 	if strings.Contains(out, "\x00") {
 		t.Fatalf("bash BOM output still carries NUL bytes: %q", out)
 	}
@@ -55,7 +55,7 @@ func TestReproBashUTF16WithBOMIsReadable(t *testing.T) {
 
 func TestReproBashMixedUTF8AndUTF16PreservesBoth(t *testing.T) {
 	raw := "hi\r\n" + measuredCLRUTF16()
-	out := formatBashOutput(raw, "", 4294901760)
+	out := formatBashOutputForGOOS(raw, "", 4294901760, "windows")
 	if !strings.Contains(out, "hi") {
 		t.Fatalf("bash mixed output lost UTF-8 prefix: %q", out)
 	}
@@ -70,7 +70,7 @@ func TestReproBashMixedUTF8AndUTF16PreservesBoth(t *testing.T) {
 func TestReproBashUTF16SecretIsRedacted(t *testing.T) {
 	secret := "AKIAIOSFODNN7EXAMPLE"
 	raw := encodeUTF16LE("leaked key " + secret + " done")
-	out := formatBashOutput(raw, "", 4294901760)
+	out := formatBashOutputForGOOS(raw, "", 4294901760, "windows")
 	if strings.Contains(out, secret) {
 		t.Fatalf("bash output leaked UTF-16 secret: %q", out)
 	}
@@ -80,12 +80,12 @@ func TestReproBashUTF16SecretIsRedacted(t *testing.T) {
 }
 
 func TestReproExecMeasuredUTF16IsReadable(t *testing.T) {
-	result := execToolResult(execToolResultInput{
+	result := execToolResultWithBudgetForGOOS(execToolResultInput{
 		commandText: "powershell.exe",
 		output:      measuredCLRUTF16(),
 		exited:      true,
 		exitCode:    4294901760,
-	})
+	}, true, "windows")
 	if strings.Contains(result.Output, "\x00") {
 		t.Fatalf("exec output still carries NUL bytes: %q", result.Output)
 	}
@@ -96,12 +96,12 @@ func TestReproExecMeasuredUTF16IsReadable(t *testing.T) {
 
 func TestReproExecUTF16SecretIsRedactedThroughRegistry(t *testing.T) {
 	secret := "AKIAIOSFODNN7EXAMPLE"
-	result := execToolResult(execToolResultInput{
+	result := execToolResultWithBudgetForGOOS(execToolResultInput{
 		commandText: "powershell.exe",
 		output:      encodeUTF16LE("leaked key " + secret + " done"),
 		exited:      true,
 		exitCode:    4294901760,
-	})
+	}, true, "windows")
 	scrubbed := scrubResultSecrets(result)
 	if !strings.Contains(scrubbed.Output, "[REDACTED]") {
 		t.Fatalf("exec output missing registry redaction placeholder: %q", scrubbed.Output)
@@ -125,7 +125,7 @@ func TestReproBashStartupHintForMeasuredFailures(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			meta := map[string]string{}
-			out := formatBashOutputWithShellHint("stdout-stub", tc.output, tc.exitCode, meta)
+			out := formatBashOutputWithShellHintForGOOS("stdout-stub", tc.output, tc.exitCode, meta, "windows")
 			if !strings.Contains(out, "[qg] shell issue:") || !strings.Contains(out, "require_escalated") {
 				t.Fatalf("missing startup hint for %s (exit %d): %q meta=%#v", tc.name, tc.exitCode, out, meta)
 			}
@@ -146,12 +146,12 @@ func TestReproExecStartupHintForMeasuredFailures(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := execToolResult(execToolResultInput{
+			result := execToolResultWithBudgetForGOOS(execToolResultInput{
 				commandText: "powershell.exe",
 				output:      tc.output,
 				exited:      true,
 				exitCode:    tc.exitCode,
-			})
+			}, true, "windows")
 			if !strings.Contains(result.Output, "[qg] shell issue:") || !strings.Contains(result.Output, "require_escalated") {
 				t.Fatalf("missing exec startup hint for %s (exit %d): %q", tc.name, tc.exitCode, result.Output)
 			}
