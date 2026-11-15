@@ -144,6 +144,11 @@ func (p *Pool) logf(format string, args ...any) {
 	}
 }
 
+// acquirePreSelectHook is a minimal test seam: when non-nil it runs after the
+// draining check and before the lease select, so a test can force Drain into
+// that window deterministically. Nil in production (no behavior change).
+var acquirePreSelectHook func()
+
 // acquire takes a lease slot, queuing until one frees or ctx is cancelled / the
 // pool drains.
 func (p *Pool) acquire(ctx context.Context) error {
@@ -152,6 +157,9 @@ func (p *Pool) acquire(ctx context.Context) error {
 	p.mu.Unlock()
 	if draining {
 		return ErrPoolDraining
+	}
+	if acquirePreSelectHook != nil {
+		acquirePreSelectHook()
 	}
 	select {
 	case p.slots <- struct{}{}:
