@@ -554,7 +554,13 @@ func providerKindForDescriptor(descriptor providercatalog.Descriptor) config.Pro
 }
 
 func firstAPIFormat(descriptor providercatalog.Descriptor) string {
-	return string(providercatalog.APIFormatOpenAIChatCompletions)
+	if descriptor.Transport == providercatalog.TransportOpenAI || descriptor.Transport == providercatalog.TransportOpenAICompatible {
+		return string(providercatalog.APIFormatOpenAIChatCompletions)
+	}
+	if len(descriptor.SupportedAPIFormats) == 0 {
+		return ""
+	}
+	return string(descriptor.SupportedAPIFormats[0])
 }
 
 func normalizeAuthScheme(value string) string {

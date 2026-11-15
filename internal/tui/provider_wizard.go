@@ -130,5 +130,11 @@ func providerWizardProviderKind(provider providercatalog.Descriptor) config.Prov
 }
 
 func providerWizardAPIFormat(provider providercatalog.Descriptor) string {
-	return string(providercatalog.APIFormatOpenAIChatCompletions)
+	if provider.Transport == providercatalog.TransportOpenAI || provider.Transport == providercatalog.TransportOpenAICompatible {
+		return string(providercatalog.APIFormatOpenAIChatCompletions)
+	}
+	if len(provider.SupportedAPIFormats) == 0 {
+		return ""
+	}
+	return string(provider.SupportedAPIFormats[0])
 }

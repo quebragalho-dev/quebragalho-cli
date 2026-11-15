@@ -147,3 +147,11 @@ func TestLegacyOpenAIKindWithCustomBaseURLPromotesToCompat(t *testing.T) {
 		t.Fatalf("kind = %q, want openai-compatible promotion", cfg.Providers[0].ProviderKind)
 	}
 }
+
+func TestLegacyEmptyTransportKindDefault(t *testing.T) {
+	// Characterization: the default arm maps an empty transport to "" —
+	// ad-hoc descriptors carry Transport "", and the mapping must stay put.
+	if got := providerKindForCatalogTransport(""); got != "" {
+		t.Fatalf("providerKindForCatalogTransport(\"\") = %q, want empty", got)
+	}
+}
