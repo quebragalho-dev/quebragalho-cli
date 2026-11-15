@@ -27,9 +27,11 @@ import (
 const slRefreshSlack = 300 * time.Millisecond
 
 // slTickGapTolerance is how far a measured run-to-run gap may fall short of
-// refreshMs. The runs carry the script's own start stamp, so the remaining
-// shortfall is only scheduling jitter (process start, timer re-arm); 300ms
-// keeps the check meaningful (a stale tick refiring at once reads ~0ms).
+// refreshMs. Both idle-cadence checks use it (R2b forced-to-idle, R2d
+// idle-to-idle): the runs carry the script's own start stamp, so the
+// remaining shortfall is spawn jitter (process start, timer re-arm),
+// measured up to ~200ms under load; 300ms keeps the check meaningful (a
+// stale tick refiring at once reads ~0ms).
 const slTickGapTolerance = 300 * time.Millisecond
 
 // slRunLog reads the lines a statusline script appends, one per run. Each
@@ -406,7 +408,7 @@ func TestStatusLineAcceptance_IdleRefreshCadenceAndTurnRefresh(t *testing.T) {
 	}
 	refresh := time.Second
 	for i := 1; i < len(runs.at); i++ {
-		if gap := runs.at[i].Sub(runs.at[i-1]); gap < refresh-100*time.Millisecond || gap > refresh+slRefreshSlack {
+		if gap := runs.at[i].Sub(runs.at[i-1]); gap < refresh-slTickGapTolerance || gap > refresh+slRefreshSlack {
 			t.Errorf("idle runs %d and %d came %v apart, want refreshMs (%v)", i-1, i, gap.Round(time.Millisecond), refresh)
 		}
 	}
