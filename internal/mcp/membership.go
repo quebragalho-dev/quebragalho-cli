@@ -141,5 +141,5 @@ func (runtime *Runtime) membershipLocked(name string) memberState {
 // disabledServerError is the actionable refusal for reconnecting a disabled
 // server, in the style of the neighboring Portuguese errors (MissingEnvError).
 func disabledServerError(serverName string) error {
-	return fmt.Errorf("Servidor MCP %s está desabilitado (habilite com `qg mcp enable %s`)", serverName, serverName)
+	return fmt.Errorf("servidor MCP %s está desabilitado (habilite com `qg mcp enable %s`)", serverName, serverName)
 }
