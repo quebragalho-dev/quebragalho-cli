@@ -139,6 +139,7 @@ func TestStatusLineAcceptance_ApplyAndResetKillInFlightRun(t *testing.T) {
 			}
 			done := time.Now()
 			log.pumpFor(p, 4*time.Second)
+			log.requireStamps(t)
 
 			runs := slInflightRuns(log)
 			for _, run := range runs {

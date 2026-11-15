@@ -37,32 +37,48 @@ const slTickGapTolerance = 300 * time.Millisecond
 // (`perl -MTime::HiRes=time`, seconds since the epoch with microsecond
 // resolution, portable across macOS and Linux), followed by a space and the
 // payload the test asserts on; poll splits the two, keeping the stamp in at
-// and the payload in vals. A line without a parseable stamp falls back to
-// the observation time so a script that forgot the stamp reads as before
-// instead of failing to parse.
+// and the payload in vals. A line without a parseable stamp is kept in bad
+// and reads as the zero time: interval checks must call requireStamps first,
+// so a script that forgot the stamp fails loudly instead of silently
+// falling back to the observation clock.
 type slRunLog struct {
 	path string
 	at   []time.Time
 	vals []string
+	bad  []string
 }
 
 func (l *slRunLog) poll() {
 	lines := fileLines(l.path)
 	for len(l.at) < len(lines) {
-		l.vals = append(l.vals, slRunValue(lines[len(l.at)]))
-		l.at = append(l.at, slRunTime(lines[len(l.at)]))
+		line := lines[len(l.at)]
+		l.vals = append(l.vals, slRunValue(line))
+		ts, ok := slParseRunTime(line)
+		if !ok {
+			l.bad = append(l.bad, line)
+		}
+		l.at = append(l.at, ts)
 	}
 }
 
-// slRunTime parses the "<epoch> <payload>" stamp the script wrote when the
-// run started.
-func slRunTime(line string) time.Time {
+// requireStamps fails the test when any observed run line lacks the script
+// start stamp, so interval comparisons never run on a mixed clock.
+func (l *slRunLog) requireStamps(t *testing.T) {
+	t.Helper()
+	if len(l.bad) > 0 {
+		t.Fatalf("run line without script timestamp: %q", l.bad[0])
+	}
+}
+
+// slParseRunTime parses the "<epoch> <payload>" stamp the script wrote when
+// the run started, reporting whether the line carried one.
+func slParseRunTime(line string) (time.Time, bool) {
 	head, _, _ := strings.Cut(line, " ")
 	if f, err := strconv.ParseFloat(strings.TrimSpace(head), 64); err == nil && f > 1e9 {
 		sec, frac := math.Modf(f)
-		return time.Unix(int64(sec), int64(frac*1e9))
+		return time.Unix(int64(sec), int64(frac*1e9)), true
 	}
-	return time.Now()
+	return time.Time{}, false
 }
 
 // slRunValue strips the "<epoch> " stamp, leaving the payload the test
@@ -309,7 +325,9 @@ printf 'SL-TICK\n'`)
 			break
 		}
 	}
+	runs.requireStamps(t)
 	runs.pumpUntil(p, forced+2, time.Until(runs.at[forced].Add(3*time.Second)))
+	runs.requireStamps(t)
 	if len(runs.at) < forced+2 {
 		t.Fatalf("no idle run within 3s after the forced run; refreshMs is 1s")
 	}
@@ -382,6 +400,7 @@ func TestStatusLineAcceptance_IdleRefreshCadenceAndTurnRefresh(t *testing.T) {
 		t.Fatal("the startup run never started")
 	}
 	runs.pumpFor(p, 3300*time.Millisecond)
+	runs.requireStamps(t)
 	if len(runs.at) < 4 {
 		t.Fatalf("idle for 3.3s with refreshMs 1s: want at least 4 runs, got %d", len(runs.at))
 	}
@@ -401,6 +420,7 @@ func TestStatusLineAcceptance_IdleRefreshCadenceAndTurnRefresh(t *testing.T) {
 		return time.Time{}, false
 	}
 	p.waitFor(3*time.Second, func(string) bool { runs.poll(); _, ok := refreshed(); return ok })
+	runs.requireStamps(t)
 	at, ok := refreshed()
 	if !ok {
 		t.Fatal("the finished turn refreshed nothing")
