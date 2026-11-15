@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const minimalPDFTextChunkSize = 80
@@ -79,7 +80,7 @@ func minimalPDFTextContent(text string, startY int) string {
 		chunk := text
 		if len(chunk) > minimalPDFTextChunkSize {
 			cut := minimalPDFTextChunkSize
-			for cut > 0 && !utf8RuneStart(chunk[cut]) {
+			for cut > 0 && !utf8.RuneStart(chunk[cut]) {
 				cut--
 			}
 			if cut == 0 {
@@ -360,6 +361,69 @@ func TestCapDocumentTextRespectsCap(t *testing.T) {
 	}
 	if got != under {
 		t.Fatal("at-cap text must be returned unchanged")
+	}
+}
+
+// capDocumentText must back up to a rune boundary when the cut lands inside
+// a multi-byte rune, and must treat invalid bytes exactly like valid ones
+// (any non-continuation byte is a boundary). These expectations are
+// hand-derived from the cut arithmetic, so they pin the byte-exact output
+// across implementation changes (manual bit test vs unicode/utf8).
+func TestCapDocumentTextRuneBoundaries(t *testing.T) {
+	cut := MaxDocumentTextBytes - len(documentTruncatedMarker)
+	cases := []struct {
+		name      string
+		input     string
+		want      string
+		truncated bool
+	}{
+		{
+			name:      "ascii over cap cuts exactly at cut",
+			input:     strings.Repeat("x", MaxDocumentTextBytes+10),
+			want:      strings.Repeat("x", cut) + documentTruncatedMarker,
+			truncated: true,
+		},
+		{
+			name:      "two byte rune straddling cut backs up one",
+			input:     strings.Repeat("a", cut-1) + "é" + strings.Repeat("b", 100),
+			want:      strings.Repeat("a", cut-1) + documentTruncatedMarker,
+			truncated: true,
+		},
+		{
+			name:      "four byte rune straddling cut backs up three",
+			input:     strings.Repeat("a", cut-2) + "😀" + strings.Repeat("b", 100),
+			want:      strings.Repeat("a", cut-2) + documentTruncatedMarker,
+			truncated: true,
+		},
+		{
+			name:      "lone continuation byte at cut is kept verbatim",
+			input:     strings.Repeat("a", cut-1) + "\x80" + strings.Repeat("b", 100),
+			want:      strings.Repeat("a", cut-1) + "\x80" + documentTruncatedMarker,
+			truncated: true,
+		},
+		{
+			name:      "invalid start byte before cut is kept verbatim",
+			input:     strings.Repeat("a", cut-1) + "\xff" + strings.Repeat("b", 100),
+			want:      strings.Repeat("a", cut-1) + "\xff" + documentTruncatedMarker,
+			truncated: true,
+		},
+		{
+			name:      "multibyte under cap is unchanged",
+			input:     "Olá, mundo! 😀",
+			want:      "Olá, mundo! 😀",
+			truncated: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, truncated := capDocumentText(tc.input)
+			if truncated != tc.truncated {
+				t.Fatalf("truncated = %v, want %v", truncated, tc.truncated)
+			}
+			if got != tc.want {
+				t.Fatalf("got %d bytes %q, want %d bytes %q", len(got), got, len(tc.want), tc.want)
+			}
+		})
 	}
 }
 

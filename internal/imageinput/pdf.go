@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ledongthuc/pdf"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
@@ -295,17 +296,10 @@ func capDocumentText(text string) (string, bool) {
 		cut = 0
 	}
 	// Back up to a rune boundary so we never split a multi-byte character.
-	for cut > 0 && !utf8RuneStart(text[cut]) {
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
 		cut--
 	}
 	return text[:cut] + documentTruncatedMarker, true
-}
-
-// utf8RuneStart reports whether b can start a UTF-8 rune (i.e. it is not a
-// continuation byte 0b10xxxxxx). Kept local to avoid pulling in unicode/utf8
-// for a single bit test.
-func utf8RuneStart(b byte) bool {
-	return b&0xC0 != 0x80
 }
 
 func (o DocumentOptions) maxPages() int {
