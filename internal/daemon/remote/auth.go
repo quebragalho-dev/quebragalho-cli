@@ -35,7 +35,7 @@ const (
 )
 
 // ErrUnauthorized is returned when a token does not match.
-var ErrUnauthorized = errors.New("remote: unauthorized")
+var ErrUnauthorized = errors.New("remote: não autorizado")
 
 // Authenticator verifies a bearer token presented by a remote client.
 type Authenticator interface {
@@ -53,7 +53,7 @@ type TokenAuthenticator struct {
 func NewTokenAuthenticator(token string) (*TokenAuthenticator, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return nil, errors.New("remote: a non-empty auth token is required")
+		return nil, errors.New("remote: é necessário um token de autenticação não vazio")
 	}
 	return &TokenAuthenticator{token: token}, nil
 }
@@ -75,15 +75,15 @@ func TokenFromEnv() (string, error) {
 	if file := strings.TrimSpace(os.Getenv(EnvTokenFile)); file != "" {
 		data, err := os.ReadFile(file)
 		if err != nil {
-			return "", fmt.Errorf("remote: read token file: %w", err)
+			return "", fmt.Errorf("remote: ler o arquivo de token: %w", err)
 		}
 		t := strings.TrimSpace(string(data))
 		if t == "" {
-			return "", errors.New("remote: token file is empty")
+			return "", errors.New("remote: o arquivo de token está vazio")
 		}
 		return t, nil
 	}
-	return "", fmt.Errorf("remote: set %s or %s", EnvToken, EnvTokenFile)
+	return "", fmt.Errorf("remote: defina %s ou %s", EnvToken, EnvTokenFile)
 }
 
 // Attestation is an optional post-token hook (e.g. workload attestation). The

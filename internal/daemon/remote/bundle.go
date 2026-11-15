@@ -204,16 +204,16 @@ func UploadRepoBundle(cfg RemoteConfig, repoDir, linkID string) (*SessionLink, e
 	}
 	repoDir = strings.TrimSpace(repoDir)
 	if repoDir == "" {
-		return nil, errors.New("remote: repo dir is required")
+		return nil, errors.New("remote: o diretório do repo é obrigatório")
 	}
 	if !isGitWorktree(repoDir) {
-		return nil, fmt.Errorf("remote: %s is not a git repository", repoDir)
+		return nil, fmt.Errorf("remote: %s não é um repositório git", repoDir)
 	}
 
 	// Reserve a unique temp name, then let git create the bundle fresh at it.
 	tmp, err := os.CreateTemp("", "qg-bundle-*.bundle")
 	if err != nil {
-		return nil, fmt.Errorf("remote: stage bundle: %w", err)
+		return nil, fmt.Errorf("remote: preparar bundle: %w", err)
 	}
 	tmpName := tmp.Name()
 	_ = tmp.Close()
@@ -223,11 +223,11 @@ func UploadRepoBundle(cfg RemoteConfig, repoDir, linkID string) (*SessionLink, e
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	if err := gitBundleCreate(ctx, repoDir, tmpName); err != nil {
-		return nil, fmt.Errorf("remote: create bundle: %w", err)
+		return nil, fmt.Errorf("remote: criar bundle: %w", err)
 	}
 	sum, size, err := hashFile(tmpName)
 	if err != nil {
-		return nil, fmt.Errorf("remote: hash bundle: %w", err)
+		return nil, fmt.Errorf("remote: calcular hash do bundle: %w", err)
 	}
 
 	conn, err := dialAuthenticated(cfg, ModeBundle)
@@ -237,17 +237,17 @@ func UploadRepoBundle(cfg RemoteConfig, repoDir, linkID string) (*SessionLink, e
 	defer func() { _ = conn.Close() }()
 
 	if err := writeBundleHeader(conn, bundleHeader{LinkID: id, Size: size}); err != nil {
-		return nil, fmt.Errorf("remote: send bundle header: %w", err)
+		return nil, fmt.Errorf("remote: enviar cabeçalho do bundle: %w", err)
 	}
 	if err := streamFileFrames(conn, tmpName); err != nil {
-		return nil, fmt.Errorf("remote: send bundle: %w", err)
+		return nil, fmt.Errorf("remote: enviar bundle: %w", err)
 	}
 	res, err := readBundleResult(conn)
 	if err != nil {
-		return nil, fmt.Errorf("remote: bundle result: %w", err)
+		return nil, fmt.Errorf("remote: resultado do bundle: %w", err)
 	}
 	if !res.OK {
-		return nil, fmt.Errorf("remote: bundle rejected: %s", res.Message)
+		return nil, fmt.Errorf("remote: bundle rejeitado: %s", res.Message)
 	}
 
 	return &SessionLink{
@@ -328,13 +328,13 @@ func runGit(ctx context.Context, dir string, args ...string) error {
 func sanitizeLinkID(id string) (string, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return "", errors.New("remote: link id is required")
+		return "", errors.New("remote: o id do link é obrigatório")
 	}
 	if len(id) > 128 {
-		return "", errors.New("remote: link id too long (max 128)")
+		return "", errors.New("remote: id do link longo demais (máx. 128)")
 	}
 	if id == "." || id == ".." {
-		return "", errors.New("remote: invalid link id")
+		return "", errors.New("remote: id do link inválido")
 	}
 	for _, r := range id {
 		switch {

@@ -58,7 +58,7 @@ func (c *Client) handshake() error {
 		return err
 	}
 	if reply.Type != CtrlHelloOK {
-		return fmt.Errorf("daemon: handshake rejected: %s", reply.Message)
+		return fmt.Errorf("daemon: handshake rejeitado: %s", reply.Message)
 	}
 	return nil
 }
@@ -101,7 +101,7 @@ func (c *Client) streamLoop(onLine func(string)) error {
 		case CtrlError:
 			return fmt.Errorf("daemon: %s", msg.Message)
 		default:
-			return fmt.Errorf("daemon: unexpected message %q", msg.Type)
+			return fmt.Errorf("daemon: mensagem inesperada %q", msg.Type)
 		}
 	}
 }
@@ -119,7 +119,7 @@ func (c *Client) Status() (*StatusReport, error) {
 		return nil, fmt.Errorf("daemon: %s", msg.Message)
 	}
 	if msg.Type != CtrlStatusResult || msg.Status == nil {
-		return nil, fmt.Errorf("daemon: unexpected status reply %q", msg.Type)
+		return nil, fmt.Errorf("daemon: resposta de status inesperada %q", msg.Type)
 	}
 	return msg.Status, nil
 }

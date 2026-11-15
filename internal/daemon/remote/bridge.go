@@ -68,10 +68,10 @@ type BridgeOptions struct {
 // NewBridge validates options and builds a Bridge.
 func NewBridge(opts BridgeOptions) (*Bridge, error) {
 	if opts.Server == nil {
-		return nil, errors.New("remote: bridge requires a daemon server")
+		return nil, errors.New("remote: a ponte exige um servidor do daemon")
 	}
 	if opts.Authenticator == nil {
-		return nil, errors.New("remote: bridge requires an authenticator")
+		return nil, errors.New("remote: a ponte exige um autenticador")
 	}
 	minVersion := opts.MinVersion
 	if minVersion <= 0 {
@@ -125,11 +125,11 @@ func (b *Bridge) logf(format string, args ...any) {
 // remote bridge).
 func (b *Bridge) ListenAndServeTLS(addr string, tlsConfig *tls.Config) error {
 	if tlsConfig == nil {
-		return errors.New("remote: TLS config is required; refusing to serve a plaintext remote bridge")
+		return errors.New("remote: a config de TLS é obrigatória; recusando servir uma ponte remota sem criptografia")
 	}
 	listener, err := tls.Listen("tcp", addr, tlsConfig)
 	if err != nil {
-		return fmt.Errorf("remote: listen %s: %w", addr, err)
+		return fmt.Errorf("remote: escutar %s: %w", addr, err)
 	}
 	b.mu.Lock()
 	b.listener = listener
@@ -245,11 +245,11 @@ func ServerTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	certFile = strings.TrimSpace(certFile)
 	keyFile = strings.TrimSpace(keyFile)
 	if certFile == "" || keyFile == "" {
-		return nil, errors.New("remote: a TLS cert and key are required for serve-remote")
+		return nil, errors.New("remote: é necessário um cert e uma chave TLS para serve-remote")
 	}
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return nil, fmt.Errorf("remote: load TLS keypair: %w", err)
+		return nil, fmt.Errorf("remote: carregar par de chaves TLS: %w", err)
 	}
 	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, nil
 }

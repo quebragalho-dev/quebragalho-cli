@@ -30,10 +30,10 @@ const (
 )
 
 // ErrSessionExists is returned when starting a session ID already in use.
-var ErrSessionExists = errors.New("daemon: session already exists")
+var ErrSessionExists = errors.New("daemon: a sessão já existe")
 
 // ErrSessionNotFound is returned by Get/Attach for an unknown session ID.
-var ErrSessionNotFound = errors.New("daemon: session not found")
+var ErrSessionNotFound = errors.New("daemon: sessão não encontrada")
 
 const defaultSessionBuffer = 1024
 
@@ -245,7 +245,7 @@ type SessionManagerOptions struct {
 // NewSessionManager builds a manager over pool.
 func NewSessionManager(opts SessionManagerOptions) (*SessionManager, error) {
 	if opts.Pool == nil {
-		return nil, errors.New("daemon: session manager requires a Pool")
+		return nil, errors.New("daemon: o gerenciador de sessões exige um Pool")
 	}
 	maxSessions := opts.MaxSessions
 	if maxSessions <= 0 {

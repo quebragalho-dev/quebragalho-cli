@@ -46,10 +46,10 @@ const (
 
 // ErrFrameTooLarge is returned when a frame's advertised payload length exceeds
 // MaxFrameSize. The reader rejects it without allocating the buffer.
-var ErrFrameTooLarge = errors.New("daemon: control frame exceeds size cap")
+var ErrFrameTooLarge = errors.New("daemon: o quadro de controle excede o tamanho máximo")
 
 // ErrUnknownFrameKind is returned for a frame whose kind byte is not recognized.
-var ErrUnknownFrameKind = errors.New("daemon: unknown control frame kind")
+var ErrUnknownFrameKind = errors.New("daemon: tipo de quadro de controle desconhecido")
 
 // WriteFrame writes a single framed message: [uint32BE len][uint8 kind][payload].
 // It rejects an over-cap payload before writing anything so a buggy/hostile caller
@@ -165,7 +165,7 @@ func ReadControl(r io.Reader) (Ctrl, error) {
 	}
 	var msg Ctrl
 	if err := json.Unmarshal(payload, &msg); err != nil {
-		return Ctrl{}, fmt.Errorf("daemon: decode control message: %w", err)
+		return Ctrl{}, fmt.Errorf("daemon: decodificar mensagem de controle: %w", err)
 	}
 	return msg, nil
 }
