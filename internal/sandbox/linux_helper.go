@@ -145,14 +145,6 @@ func ParseLinuxSandboxHelperArgs(args []string) (LinuxSandboxHelperConfig, error
 	return config, nil
 }
 
-func BuildLinuxSandboxBwrapArgs(options LinuxSandboxBwrapOptions) ([]string, error) {
-	plan, err := buildLinuxSandboxBwrapPlan(options)
-	if err != nil {
-		return nil, err
-	}
-	return plan.Args, nil
-}
-
 func buildLinuxSandboxBwrapPlan(options LinuxSandboxBwrapOptions) (linuxSandboxBwrapPlan, error) {
 	config := options.Config
 	if config.ApplySeccompThenExec {

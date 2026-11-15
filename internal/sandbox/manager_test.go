@@ -954,8 +954,8 @@ func TestPermissionProfileUnionsProcessAndCommandCredentialRootsWithoutCreatingC
 		PermissionProfile: plan.PermissionProfile,
 		Command:           []string{"true"},
 	}
-	if _, err := BuildLinuxSandboxBwrapArgs(LinuxSandboxBwrapOptions{Config: config, HelperPath: "/usr/bin/qg-linux-sandbox"}); err == nil || !strings.Contains(err.Error(), "atomic replacement") {
-		t.Fatalf("BuildLinuxSandboxBwrapArgs error = %v, want fail-closed atomic replacement error", err)
+	if _, err := buildLinuxSandboxBwrapPlan(LinuxSandboxBwrapOptions{Config: config, HelperPath: "/usr/bin/qg-linux-sandbox"}); err == nil || !strings.Contains(err.Error(), "atomic replacement") {
+		t.Fatalf("buildLinuxSandboxBwrapPlan error = %v, want fail-closed atomic replacement error", err)
 	}
 	for _, unwanted := range append([]string{parentZero, parentToken + credentialPublicationDirSuffix, childZero, childToken + credentialPublicationDirSuffix}, childCredentialPaths...) {
 		if _, err := os.Stat(unwanted); !errors.Is(err, os.ErrNotExist) {
@@ -993,7 +993,7 @@ func TestCommandSuppliedTokenOverrideFailsClosedOnBubblewrap(t *testing.T) {
 	if len(baseline.FileSystem.ProcessTrustedDenyReadFiles) != 0 || len(baseline.FileSystem.CommandDenyReadFinalFiles) != 0 {
 		t.Fatalf("baseline profile should have no replaceable final files: %#v", baseline.FileSystem)
 	}
-	if _, err := BuildLinuxSandboxBwrapArgs(LinuxSandboxBwrapOptions{
+	if _, err := buildLinuxSandboxBwrapPlan(LinuxSandboxBwrapOptions{
 		Config: LinuxSandboxHelperConfig{
 			SandboxPolicyCWD: workspace, CommandCWD: workspace,
 			PermissionProfile: baseline, Command: []string{"true"},
@@ -1017,7 +1017,7 @@ func TestCommandSuppliedTokenOverrideFailsClosedOnBubblewrap(t *testing.T) {
 		t.Fatalf("EnsureDenyReadDirs = %#v, must not include a command-controlled dir", fs.EnsureDenyReadDirs)
 	}
 
-	_, err := BuildLinuxSandboxBwrapArgs(LinuxSandboxBwrapOptions{
+	_, err := buildLinuxSandboxBwrapPlan(LinuxSandboxBwrapOptions{
 		Config: LinuxSandboxHelperConfig{
 			SandboxPolicyCWD: workspace, CommandCWD: workspace,
 			PermissionProfile: profile, Command: []string{"true"},
@@ -1025,7 +1025,7 @@ func TestCommandSuppliedTokenOverrideFailsClosedOnBubblewrap(t *testing.T) {
 		HelperPath: "/usr/bin/qg-linux-sandbox",
 	})
 	if err == nil || !strings.Contains(err.Error(), "atomic replacement") {
-		t.Fatalf("BuildLinuxSandboxBwrapArgs error = %v, want fail-closed atomic replacement error", err)
+		t.Fatalf("buildLinuxSandboxBwrapPlan error = %v, want fail-closed atomic replacement error", err)
 	}
 	// Refusing must not have touched the host on the command's behalf.
 	for _, unwanted := range []string{commandToken, filepath.Dir(commandToken), commandToken + credentialPublicationDirSuffix} {

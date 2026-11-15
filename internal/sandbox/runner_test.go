@@ -845,10 +845,11 @@ func TestLinuxHelperPlanPreservesRealExtraRootCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseLinuxSandboxHelperArgs: %v", err)
 	}
-	bwrapArgs, err := BuildLinuxSandboxBwrapArgs(LinuxSandboxBwrapOptions{Config: config, HelperPath: "/usr/bin/qg-linux-sandbox"})
+	bwrapPlan, err := buildLinuxSandboxBwrapPlan(LinuxSandboxBwrapOptions{Config: config, HelperPath: "/usr/bin/qg-linux-sandbox"})
 	if err != nil {
-		t.Fatalf("BuildLinuxSandboxBwrapArgs: %v", err)
+		t.Fatalf("buildLinuxSandboxBwrapPlan: %v", err)
 	}
+	bwrapArgs := bwrapPlan.Args
 	assertArgsContainSequence(t, bwrapArgs, "--chdir", resolvedExtra)
 }
 

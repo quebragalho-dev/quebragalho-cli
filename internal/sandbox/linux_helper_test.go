@@ -105,13 +105,14 @@ func TestBuildLinuxSandboxBwrapArgsWrapsInnerSeccompStage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseLinuxSandboxHelperArgs: %v", err)
 	}
-	bwrapArgs, err := BuildLinuxSandboxBwrapArgs(LinuxSandboxBwrapOptions{
+	bwrapPlan, err := buildLinuxSandboxBwrapPlan(LinuxSandboxBwrapOptions{
 		Config:     config,
 		HelperPath: helperPath,
 	})
 	if err != nil {
-		t.Fatalf("BuildLinuxSandboxBwrapArgs: %v", err)
+		t.Fatalf("buildLinuxSandboxBwrapPlan: %v", err)
 	}
+	bwrapArgs := bwrapPlan.Args
 	for _, want := range [][]string{
 		{"--new-session"},
 		{"--die-with-parent"},
@@ -165,13 +166,14 @@ func TestBuildLinuxSandboxBwrapArgsKeepsHostNetworkWhenAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseLinuxSandboxHelperArgs: %v", err)
 	}
-	bwrapArgs, err := BuildLinuxSandboxBwrapArgs(LinuxSandboxBwrapOptions{
+	bwrapPlan, err := buildLinuxSandboxBwrapPlan(LinuxSandboxBwrapOptions{
 		Config:     config,
 		HelperPath: helperPath,
 	})
 	if err != nil {
-		t.Fatalf("BuildLinuxSandboxBwrapArgs: %v", err)
+		t.Fatalf("buildLinuxSandboxBwrapPlan: %v", err)
 	}
+	bwrapArgs := bwrapPlan.Args
 	if indexString(bwrapArgs, "--unshare-net") >= 0 {
 		t.Fatalf("network-allowed bwrap args must not isolate loopback: %#v", bwrapArgs)
 	}
