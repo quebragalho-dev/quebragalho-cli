@@ -58,12 +58,15 @@ const (
 	PromptEvOpenAskUser
 	PromptEvOpenSpecReview
 	PromptEvOpenPeer
+	PromptEvReplacePermission
+	PromptEvReplaceAskUser
 	PromptEvEnterTyping
 	PromptEvCancelTyping
 	PromptEvResolvePermission
 	PromptEvResolveAskUser
 	PromptEvResolveSpecReview
-	PromptEvCancelAll
+	PromptEvCancelRun
+	PromptEvSettleEnd
 	PromptEvExpirePeer
 	PromptEvReleasePeer
 )
@@ -78,6 +81,10 @@ func (e PromptEvent) String() string {
 		return "openSpecReview"
 	case PromptEvOpenPeer:
 		return "openPeer"
+	case PromptEvReplacePermission:
+		return "replacePermission"
+	case PromptEvReplaceAskUser:
+		return "replaceAskUser"
 	case PromptEvEnterTyping:
 		return "enterTyping"
 	case PromptEvCancelTyping:
@@ -88,8 +95,10 @@ func (e PromptEvent) String() string {
 		return "resolveAskUser"
 	case PromptEvResolveSpecReview:
 		return "resolveSpecReview"
-	case PromptEvCancelAll:
-		return "cancelAll"
+	case PromptEvCancelRun:
+		return "cancelRun"
+	case PromptEvSettleEnd:
+		return "settleEnd"
 	case PromptEvExpirePeer:
 		return "expirePeer"
 	case PromptEvReleasePeer:
@@ -100,37 +109,65 @@ func (e PromptEvent) String() string {
 }
 
 // promptLegal is the single table of legal (phase x event) transitions.
+// Replace/expire/release/cancelRun/settleEnd are legal in every busy phase to
+// preserve the exact pre-machine effects: a new tool/ask request overwrote the
+// live prompt (leaking the old callback — open item, not fixed here), and a
+// queued peer expire/release removed its queue entry even with a modal open.
 var promptLegal = map[PromptPhase]map[PromptEvent]bool{
 	PromptNone: {
 		PromptEvOpenPermission: true,
 		PromptEvOpenAskUser:    true,
 		PromptEvOpenSpecReview: true,
 		PromptEvOpenPeer:       true,
-		PromptEvCancelAll:      true,
+		PromptEvCancelRun:      true,
+		PromptEvSettleEnd:      true,
 		PromptEvExpirePeer:     true,
 		PromptEvReleasePeer:    true,
 	},
 	PromptPermission: {
+		PromptEvReplacePermission: true,
+		PromptEvReplaceAskUser:    true,
 		PromptEvEnterTyping:       true,
 		PromptEvResolvePermission: true,
-		PromptEvCancelAll:         true,
+		PromptEvCancelRun:         true,
+		PromptEvSettleEnd:         true,
+		PromptEvExpirePeer:        true,
+		PromptEvReleasePeer:       true,
 	},
 	PromptPermissionTyping: {
+		PromptEvReplacePermission: true,
+		PromptEvReplaceAskUser:    true,
 		PromptEvCancelTyping:      true,
 		PromptEvResolvePermission: true,
-		PromptEvCancelAll:         true,
+		PromptEvCancelRun:         true,
+		PromptEvSettleEnd:         true,
+		PromptEvExpirePeer:        true,
+		PromptEvReleasePeer:       true,
 	},
 	PromptAskUser: {
-		PromptEvResolveAskUser: true,
-		PromptEvCancelAll:      true,
+		PromptEvReplacePermission: true,
+		PromptEvReplaceAskUser:    true,
+		PromptEvResolveAskUser:    true,
+		PromptEvCancelRun:         true,
+		PromptEvSettleEnd:         true,
+		PromptEvExpirePeer:        true,
+		PromptEvReleasePeer:       true,
 	},
 	PromptSpecReview: {
+		PromptEvReplacePermission: true,
+		PromptEvReplaceAskUser:    true,
 		PromptEvResolveSpecReview: true,
-		PromptEvCancelAll:         true,
+		PromptEvCancelRun:         true,
+		PromptEvSettleEnd:         true,
+		PromptEvExpirePeer:        true,
+		PromptEvReleasePeer:       true,
 	},
 	PromptPeerApproval: {
+		PromptEvReplacePermission: true,
+		PromptEvReplaceAskUser:    true,
 		PromptEvResolvePermission: true,
-		PromptEvCancelAll:         true,
+		PromptEvCancelRun:         true,
+		PromptEvSettleEnd:         true,
 		PromptEvExpirePeer:        true,
 		PromptEvReleasePeer:       true,
 	},
@@ -180,9 +217,14 @@ type promptArgs struct {
 
 // promptTransition is the single point that writes the prompt fields. It
 // validates (phase x event) against promptLegal, refuses illegal transitions
-// with an error while keeping state, and fixes twin fields together:
-// typing/savedDraft/input are zeroed/restored as a unit, and a peer expire
-// only clears a prompt whose ToolCallID matches the peer message.
+// with an error while keeping state, and fixes twin fields together.
+// Replace events restore the exact pre-machine overwrite (new request drops
+// the live prompt without resolving the old callback — open item, not fixed).
+// CancelRun restores a typing draft (proven fix) and drops tool/ask prompts
+// without answering (pre-machine parity); SettleEnd answers ask with nil
+// (agentResponseMsg parity) without restoring a draft. A peer expire/release
+// only clears a pending prompt whose ToolCallID matches; queue entries are
+// removed in every phase (pre-machine parity).
 func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 	phase := m.promptPhase()
 	if !promptEventLegal(phase, ev) {
@@ -228,6 +270,25 @@ func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 			m.pendingPermission.request = *a.permReq
 			m.pendingPermission.decide = a.permDecide
 		}
+	case PromptEvReplacePermission:
+		// Pre-machine parity: a new tool request overwrote the live prompt
+		// without resolving the old decide (open item, not fixed here).
+		// Other prompt fields are left untouched (split-brain preserved).
+		if a.permReq == nil {
+			return fmt.Errorf("replacePermission without request")
+		}
+		m.pendingPermission = &pendingPermissionPrompt{request: *a.permReq, decide: a.permDecide}
+	case PromptEvReplaceAskUser:
+		// Pre-machine parity: a new ask_user request overwrote pendingAskUser
+		// without answering the old one (open item, not fixed here).
+		if a.askReq == nil {
+			return fmt.Errorf("replaceAskUser without request")
+		}
+		states := a.askStates
+		if states == nil {
+			states = newAskUserStates(a.askReq.Questions)
+		}
+		m.pendingAskUser = &pendingAskUserPrompt{request: *a.askReq, answer: a.askAnswer, states: states}
 	case PromptEvEnterTyping:
 		if m.pendingPermission == nil {
 			return fmt.Errorf("enterTyping without prompt")
@@ -270,22 +331,20 @@ func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 		m.clearSuggestions()
 	case PromptEvResolveSpecReview:
 		m.pendingSpecReview = nil
-	case PromptEvCancelAll:
-		// cancelRun semantics: restore a typing draft, drop tool/ask prompts,
-		// keep spec review and peer approval alive (idle modals, not part of
-		// the run). Peer keeps both its queue entry and its prompt so the
-		// card never orphans its approval.
-		if m.peerPendingApproval != nil {
-			return nil
-		}
+	case PromptEvCancelRun:
+		// Pre-machine cancelRun parity plus the proven draft fix: restore a
+		// typing draft, drop the tool prompt (even a peer card, leaving its
+		// approval orphaned as before) and drop ask WITHOUT answering.
+		// Spec review is preserved (idle modal, proven intentional).
 		if m.pendingPermission != nil && m.pendingPermission.typing {
 			m.input.SetValue(m.pendingPermission.savedDraft)
 		}
 		m.pendingPermission = nil
-		// An ask_user answer must fire exactly once: the run cancel abandons
-		// the questionnaire, so answer with nil (mirrors agentResponseMsg).
-		// The agent side also unblocks via context; the buffered channel
-		// keeps this non-blocking and idempotent.
+		m.pendingAskUser = nil
+	case PromptEvSettleEnd:
+		// Pre-machine agentResponseMsg parity: drop the tool prompt without
+		// restoring a draft, answer a live ask with nil, preserve spec/peer.
+		m.pendingPermission = nil
 		if m.pendingAskUser != nil {
 			if m.pendingAskUser.answer != nil {
 				m.pendingAskUser.answer(nil)

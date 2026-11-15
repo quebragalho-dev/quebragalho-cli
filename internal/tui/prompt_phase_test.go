@@ -14,30 +14,46 @@ func TestPromptPhaseTableAllCombinations(t *testing.T) {
 	allPhases := []PromptPhase{PromptNone, PromptPermission, PromptPermissionTyping, PromptAskUser, PromptSpecReview, PromptPeerApproval}
 	allEvents := []PromptEvent{
 		PromptEvOpenPermission, PromptEvOpenAskUser, PromptEvOpenSpecReview, PromptEvOpenPeer,
+		PromptEvReplacePermission, PromptEvReplaceAskUser,
 		PromptEvEnterTyping, PromptEvCancelTyping, PromptEvResolvePermission,
-		PromptEvResolveAskUser, PromptEvResolveSpecReview, PromptEvCancelAll,
+		PromptEvResolveAskUser, PromptEvResolveSpecReview, PromptEvCancelRun, PromptEvSettleEnd,
 		PromptEvExpirePeer, PromptEvReleasePeer,
 	}
 	expected := map[PromptPhase]map[PromptEvent]bool{
 		PromptNone: {
 			PromptEvOpenPermission: true, PromptEvOpenAskUser: true,
 			PromptEvOpenSpecReview: true, PromptEvOpenPeer: true,
-			PromptEvCancelAll: true, PromptEvExpirePeer: true, PromptEvReleasePeer: true,
+			PromptEvCancelRun: true, PromptEvSettleEnd: true,
+			PromptEvExpirePeer: true, PromptEvReleasePeer: true,
 		},
 		PromptPermission: {
-			PromptEvEnterTyping: true, PromptEvResolvePermission: true, PromptEvCancelAll: true,
+			PromptEvReplacePermission: true, PromptEvReplaceAskUser: true,
+			PromptEvEnterTyping: true, PromptEvResolvePermission: true,
+			PromptEvCancelRun: true, PromptEvSettleEnd: true,
+			PromptEvExpirePeer: true, PromptEvReleasePeer: true,
 		},
 		PromptPermissionTyping: {
-			PromptEvCancelTyping: true, PromptEvResolvePermission: true, PromptEvCancelAll: true,
+			PromptEvReplacePermission: true, PromptEvReplaceAskUser: true,
+			PromptEvCancelTyping: true, PromptEvResolvePermission: true,
+			PromptEvCancelRun: true, PromptEvSettleEnd: true,
+			PromptEvExpirePeer: true, PromptEvReleasePeer: true,
 		},
 		PromptAskUser: {
-			PromptEvResolveAskUser: true, PromptEvCancelAll: true,
+			PromptEvReplacePermission: true, PromptEvReplaceAskUser: true,
+			PromptEvResolveAskUser: true,
+			PromptEvCancelRun:      true, PromptEvSettleEnd: true,
+			PromptEvExpirePeer: true, PromptEvReleasePeer: true,
 		},
 		PromptSpecReview: {
-			PromptEvResolveSpecReview: true, PromptEvCancelAll: true,
+			PromptEvReplacePermission: true, PromptEvReplaceAskUser: true,
+			PromptEvResolveSpecReview: true,
+			PromptEvCancelRun:         true, PromptEvSettleEnd: true,
+			PromptEvExpirePeer: true, PromptEvReleasePeer: true,
 		},
 		PromptPeerApproval: {
-			PromptEvResolvePermission: true, PromptEvCancelAll: true,
+			PromptEvReplacePermission: true, PromptEvReplaceAskUser: true,
+			PromptEvResolvePermission: true,
+			PromptEvCancelRun:         true, PromptEvSettleEnd: true,
 			PromptEvExpirePeer: true, PromptEvReleasePeer: true,
 		},
 	}
@@ -136,17 +152,23 @@ func TestPromptDecideAnswerExactlyOnce(t *testing.T) {
 
 // Spec review survives cancelRun by design: it is an idle modal, not part of
 // the run. This test proves M1 item (3) is intentional, so no fix is applied.
-func TestPromptSpecReviewSurvivesCancelAll(t *testing.T) {
+func TestPromptSpecReviewSurvivesCancelRun(t *testing.T) {
 	m := newModel(context.Background(), Options{})
 	review := pendingSpecReviewPrompt{SpecID: "s1"}
 	if err := m.promptTransition(PromptEvOpenSpecReview, promptArgs{spec: &review}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.promptTransition(PromptEvCancelAll, promptArgs{}); err != nil {
+	if err := m.promptTransition(PromptEvCancelRun, promptArgs{}); err != nil {
 		t.Fatal(err)
 	}
 	if m.promptPhase() != PromptSpecReview || m.pendingSpecReview == nil {
-		t.Fatal("spec review must survive cancelAll")
+		t.Fatal("spec review must survive cancelRun")
+	}
+	if err := m.promptTransition(PromptEvSettleEnd, promptArgs{}); err != nil {
+		t.Fatal(err)
+	}
+	if m.promptPhase() != PromptSpecReview || m.pendingSpecReview == nil {
+		t.Fatal("spec review must survive settleEnd")
 	}
 	// And cancelRun (which routes through CancelAll) keeps it too.
 	m.pending = false

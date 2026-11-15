@@ -166,11 +166,11 @@ func (m model) handlePeerApprovalExpired(messageID string) (model, tea.Cmd) {
 		next, cmd := m.openNextPeerApproval()
 		return next, tea.Batch(m.resolvePeerReceiptCmd(message.ID, peermsg.DeliveryExpired), cmd)
 	}
-	for index, message := range m.peerApprovalQueue {
+	for _, message := range m.peerApprovalQueue {
 		if message.ID != messageID {
 			continue
 		}
-		m.peerApprovalQueue = append(m.peerApprovalQueue[:index], m.peerApprovalQueue[index+1:]...)
+		_ = m.promptTransition(PromptEvExpirePeer, promptArgs{expireID: messageID})
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 			kind: rowSystem,
 			text: "Held peer message from " + peerDisplayName(message.From) + " expired without approval.",
@@ -181,15 +181,9 @@ func (m model) handlePeerApprovalExpired(messageID string) (model, tea.Cmd) {
 }
 
 func (m model) handleReleasedPeerMessage(message peermsg.InboundMessage) (model, tea.Cmd) {
-	if m.peerPendingApproval != nil && m.peerPendingApproval.ID == message.ID {
-		_ = m.promptTransition(PromptEvReleasePeer, promptArgs{released: &message})
-	}
-	for index, queued := range m.peerApprovalQueue {
-		if queued.ID == message.ID {
-			m.peerApprovalQueue = append(m.peerApprovalQueue[:index], m.peerApprovalQueue[index+1:]...)
-			break
-		}
-	}
+	// Pending and queued releases both go through the transition so the
+	// queue/pending writes have a single owner, in every prompt phase.
+	_ = m.promptTransition(PromptEvReleasePeer, promptArgs{released: &message})
 	return m.deliverPeerMessage(message)
 }
 

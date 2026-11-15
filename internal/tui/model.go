@@ -3008,12 +3008,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		promptRow.runID = msg.runID
 		m.transcript = appendTranscriptRow(m.transcript, promptRow)
 		if m.promptPhase() != PromptNone {
-			// A second prompt while one is live would overwrite the stored
-			// decide and park the first run forever: refuse it and unblock
-			// the newcomer immediately (mirrors the stale-run path above).
-			if msg.decide != nil {
-				msg.decide(agent.PermissionDecision{Action: agent.PermissionDecisionCancel, Reason: "run superseded"})
-			}
+			// Pre-machine parity: the new request replaced the live prompt
+			// without resolving the old decide (open item, not fixed here).
+			_ = m.promptTransition(PromptEvReplacePermission, promptArgs{permReq: &msg.request, permDecide: msg.decide})
 			return m, nil
 		}
 		_ = m.promptTransition(PromptEvOpenPermission, promptArgs{permReq: &msg.request, permDecide: msg.decide})
@@ -3038,9 +3035,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = appendTranscriptRow(m.transcript, askUserTranscriptRow(msg.request))
 		if m.promptPhase() != PromptNone {
-			if msg.answer != nil {
-				msg.answer(nil)
-			}
+			// Pre-machine parity: overwrite without answering the old one.
+			_ = m.promptTransition(PromptEvReplaceAskUser, promptArgs{askReq: &msg.request, askAnswer: msg.answer, askStates: newAskUserStates(msg.request.Questions)})
+			m.clearComposer()
+			m.clearSuggestions()
 			return m, nil
 		}
 		_ = m.promptTransition(PromptEvOpenAskUser, promptArgs{askReq: &msg.request, askAnswer: msg.answer, askStates: newAskUserStates(msg.request.Questions)})
@@ -3187,7 +3185,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingAskUser == nil && m.pendingPermission == nil {
 			m.plan.completeRemaining(m.now())
 		}
-		_ = m.promptTransition(PromptEvCancelAll, promptArgs{})
+		_ = m.promptTransition(PromptEvSettleEnd, promptArgs{})
 		liveUsageCount := m.liveUsageCounts[msg.runID]
 		for index, event := range msg.usageEvents {
 			if index < liveUsageCount {
@@ -6730,7 +6728,7 @@ func (m *model) cancelRun(keepQueuedMessages ...bool) {
 	}
 	m.cancelConfirmActive = false // whatever path got here, there's nothing left to confirm cancelling
 	m.plan.frozenAt = m.now()     // freeze the plan clock while idle (no run in flight)
-	_ = m.promptTransition(PromptEvCancelAll, promptArgs{})
+	_ = m.promptTransition(PromptEvCancelRun, promptArgs{})
 	// Cancelled runs must not leak a retry countdown or a deferred
 	// ClearScreen into idle. Single owner: clearTurnTransient (same set as
 	// begin/end); no ClearScreen is emitted here — a cancelled turn never
