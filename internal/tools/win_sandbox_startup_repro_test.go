@@ -125,7 +125,7 @@ func TestReproBashStartupHintForMeasuredFailures(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			meta := map[string]string{}
-			out := formatBashOutputWithShellHintForGOOS("stdout-stub", tc.output, tc.exitCode, true, meta, "windows")
+			out := formatBashOutputWithShellHintForRuntime("stdout-stub", tc.output, tc.exitCode, true, detectShellRuntime("windows"), meta)
 			if !strings.Contains(out, "[qg] shell issue:") || !strings.Contains(out, "require_escalated") {
 				t.Fatalf("missing startup hint for %s (exit %d): %q meta=%#v", tc.name, tc.exitCode, out, meta)
 			}

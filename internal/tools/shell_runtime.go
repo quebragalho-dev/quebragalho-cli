@@ -607,11 +607,11 @@ func detectWindowsSandboxStartupIssue(lower string, shell shellRuntime, exitCode
 		// A generic tool failing at DLL init: never generalize to the shell.
 		return windowsSandboxStartupIssue(false)
 	default:
-		// HRESULT 80070005 is the CLR-init signature; it rides with 0xFFFF0000
-		// but is accepted on its own so a localized message or a nearby exit
-		// still hints instead of looping retries.
-		if strings.Contains(lower, "80070005") {
-			return windowsSandboxStartupIssue(isPowerShellShell && (code == 0xFFFF0000))
+		// 80070005 alone is generic E_ACCESSDENIED: a command that ran but
+		// had a write denied by the jail can print it, and "could not
+		// start" would then be false. Require the CLR marker with it.
+		if strings.Contains(lower, "80070005") && strings.Contains(lower, "clr") {
+			return windowsSandboxStartupIssue(false)
 		}
 		return nil
 	}

@@ -58,8 +58,6 @@ func TestStartupHintPositives(t *testing.T) {
 }
 
 func TestStartupHintNegatives(t *testing.T) {
-	pwshMarkers := "System.DllNotFoundException: Unable to load DLL 'BCrypt.dll' (0x8007045A)"
-	_ = pwshMarkers
 	cases := []struct {
 		name     string
 		output   string
@@ -81,6 +79,52 @@ func TestStartupHintNegatives(t *testing.T) {
 				t.Fatalf("expected no hint for %s, got %#v", tc.name, issue)
 			}
 		})
+	}
+}
+
+func TestStartupHintHRESULTRequiresCLR(t *testing.T) {
+	clrOutput := "Falha na inicialização do CLR com HRESULT 80070005."
+	t.Run("clr hresult with exit 1 hints without shell sentence", func(t *testing.T) {
+		issue := detectShellOutputIssueForRuntime(clrOutput, windowsPowerShellShell(), 1, true)
+		if issue == nil {
+			t.Fatalf("expected startup hint for CLR HRESULT with exit 1")
+		}
+		if issue.Kind != windowsSandboxStartupKind {
+			t.Fatalf("kind = %q, want %q", issue.Kind, windowsSandboxStartupKind)
+		}
+		if strings.Contains(issue.Suggestion, "Other commands through this shell") {
+			t.Fatalf("default HRESULT branch must not add shell sentence: %q", issue.Suggestion)
+		}
+		if !strings.Contains(issue.Suggestion, "require_escalated") {
+			t.Fatalf("suggestion must mention require_escalated: %q", issue.Suggestion)
+		}
+	})
+	t.Run("generic access denied hresult without clr never hints", func(t *testing.T) {
+		output := "Access denied (HRESULT: 0x80070005)"
+		if issue := detectShellOutputIssueForRuntime(output, windowsPowerShellShell(), 1, true); issue != nil {
+			t.Fatalf("generic 80070005 without CLR must not hint, got %#v", issue)
+		}
+		if issue := detectShellOutputIssueForRuntime(output, windowsCmdShell(), 1, true); issue != nil {
+			t.Fatalf("generic 80070005 without CLR must not hint, got %#v", issue)
+		}
+	})
+}
+
+func TestWrappedFromSandboxMeta(t *testing.T) {
+	if !wrappedFromSandboxMeta(map[string]string{"sandbox_wrapped": "true"}) {
+		t.Fatalf("expected true for sandbox_wrapped=true")
+	}
+	if wrappedFromSandboxMeta(map[string]string{"sandbox_wrapped": "false"}) {
+		t.Fatalf("expected false for sandbox_wrapped=false")
+	}
+	if wrappedFromSandboxMeta(map[string]string{}) {
+		t.Fatalf("expected false for missing key")
+	}
+	if wrappedFromSandboxMeta(map[string]string{"sandbox_wrapped": "yes"}) {
+		t.Fatalf("expected false for invalid value")
+	}
+	if wrappedFromSandboxMeta(nil) {
+		t.Fatalf("expected false for nil map")
 	}
 }
 

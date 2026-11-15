@@ -502,7 +502,7 @@ func execToolResultWithBudgetForRuntime(input execToolResultInput, directBudget 
 	if input.exited && input.exitCode != 0 && !input.interrupted {
 		status = StatusError
 	}
-	body := formatExecCommandOutputForGOOS(output, input.sessionID, input.exited, input.exitCode, input.interrupted, input.tty, shell.GOOS)
+	body := formatExecCommandOutput(output, input.sessionID, input.exited, input.exitCode, input.interrupted, input.tty)
 	if status == StatusError && input.exited && !input.interrupted {
 		if issue := detectShellOutputIssueForRuntime(output, shell, input.exitCode, input.wrapped); issue != nil {
 			meta["shell_issue"] = issue.Kind

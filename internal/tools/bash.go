@@ -650,10 +650,6 @@ func formatBashOutputWithShellHint(stdout string, stderr string, exitCode int, w
 	return formatBashOutputWithShellHintForRuntime(stdout, stderr, exitCode, wrapped, shell, meta)
 }
 
-func formatBashOutputWithShellHintForGOOS(stdout string, stderr string, exitCode int, wrapped bool, meta map[string]string, goos string) string {
-	return formatBashOutputWithShellHintForRuntime(stdout, stderr, exitCode, wrapped, detectShellRuntime(goos), meta)
-}
-
 func formatBashOutputWithShellHintForRuntime(stdout string, stderr string, exitCode int, wrapped bool, shell shellRuntime, meta map[string]string) string {
 	stdout = normalizeWindowsProcessOutputForGOOS(stdout, shell.GOOS)
 	stderr = normalizeWindowsProcessOutputForGOOS(stderr, shell.GOOS)
