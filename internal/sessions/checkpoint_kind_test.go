@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-// SM3 Machine 1, commit B: table tests fixing the whole state x event space
+// Table tests fixing the whole state x event space of the checkpoint/rewind machine (commit B).
 // of the checkpoint/rewind machine. kindOf never changes the JSON encoding
 // (asserted structurally: no new fields on CheckpointFile).
 
 // All 8 Blob x Absent x Skipped combinations map to exactly one kind; only
 // the three single-flag shapes are valid.
-func TestSm3CheckpointKindTable(t *testing.T) {
+func TestCheckpointKindTable(t *testing.T) {
 	const hash = "abc123"
 	cases := []struct {
 		file CheckpointFile
@@ -36,7 +36,7 @@ func TestSm3CheckpointKindTable(t *testing.T) {
 
 // Every kind (plus out-of-range values) maps to exactly one action; illegal
 // kinds are refused as report-invalid and never panic.
-func TestSm3CheckpointTransitionTable(t *testing.T) {
+func TestCheckpointTransitionTable(t *testing.T) {
 	cases := []struct {
 		kind checkpointKind
 		want restoreAction
@@ -65,7 +65,7 @@ func TestSm3CheckpointTransitionTable(t *testing.T) {
 }
 
 // Combined-flag entries are invalid: reported, never restored nor deleted.
-func TestSm3RestoreReportsCombinedFlagEntries(t *testing.T) {
+func TestRestoreReportsCombinedFlagEntries(t *testing.T) {
 	store, ws := newCkStore(t)
 	target, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{}})
 	if err != nil {
@@ -106,7 +106,7 @@ func TestSm3RestoreReportsCombinedFlagEntries(t *testing.T) {
 
 // The whole truncate head space: contiguous, gapped, empty and fully-cut
 // logs map to one (EventCount, LastEventType) head.
-func TestSm3DeriveTruncateHeadTable(t *testing.T) {
+func TestDeriveTruncateHeadTable(t *testing.T) {
 	msg := func(seq int) Event { return Event{Sequence: seq, Type: EventMessage} }
 	chk := func(seq int) Event { return Event{Sequence: seq, Type: EventSessionCheckpoint} }
 	res := func(seq int) Event { return Event{Sequence: seq, Type: EventToolResult} }

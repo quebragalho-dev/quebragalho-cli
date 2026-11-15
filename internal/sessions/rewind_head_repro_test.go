@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// SM3 Machine 1, commit A: repro tests for the concrete defects cited in
+// Rewind/truncate repro tests for the concrete checkpoint defects (commit A):
 // M5 (checkpoint + rewind). They run against the untouched dev code and the
 // defect tests MUST FAIL here (see report); the characterization tests MUST
 // PASS before and after the fix without edits.
@@ -16,7 +16,7 @@ import (
 // Defect (a): truncateEventsLocked does not recalculate LastEventType after
 // cutting the log. After truncating back to the first event, metadata must
 // describe the kept head, not the truncated tail.
-func TestSm3TruncateRecalculatesLastEventType(t *testing.T) {
+func TestTruncateRecalculatesLastEventType(t *testing.T) {
 	store, _ := newCkStore(t)
 	first, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"i": 0}})
 	if err != nil {
@@ -50,7 +50,7 @@ func TestSm3TruncateRecalculatesLastEventType(t *testing.T) {
 // from max(metadata+1, logTail+1) and leaves a benign gap. This is the exact
 // scenario blessed by TestAppendWithStaleHighMetadataLeavesGapNotDuplicate
 // ("e.g. an interrupted truncate").
-func TestSm3TruncateEventCountIsLastSequenceWithGap(t *testing.T) {
+func TestTruncateEventCountIsLastSequenceWithGap(t *testing.T) {
 	store, _ := newCkStore(t)
 	if _, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"i": 0}}); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestSm3TruncateEventCountIsLastSequenceWithGap(t *testing.T) {
 
 // Defect (d): a CheckpointFile with no Blob/Absent/Skipped matches no restore
 // branch and is a silent success (neither restored nor reported).
-func TestSm3RestoreReportsInvalidCheckpointFile(t *testing.T) {
+func TestRestoreReportsInvalidCheckpointFile(t *testing.T) {
 	store, ws := newCkStore(t)
 	target, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{}})
 	if err != nil {
@@ -128,15 +128,18 @@ func TestSm3RestoreReportsInvalidCheckpointFile(t *testing.T) {
 	}
 }
 
-// Defect (c) PROOF (passes on untouched dev by design): the rewind marker can
-// receive the ID/Sequence of a truncated event. IDs are deterministic
-// sess:seq (store.go appendPreparedEventsLocked), so after ApplyRewind to N
-// the next append reuses sess:N+1. When the new event shares the old one's
-// Type, the production matching rule (ID + Sequence + Type, cf. tui
+// KNOWN UNDESIRED behavior, pending product decision (NOT a regression
+// test for a fix): the rewind marker can receive the ID/Sequence of a
+// truncated event. IDs are deterministic sess:seq (store.go
+// appendPreparedEventsLocked), so after ApplyRewind to N the next append
+// reuses sess:N+1. When the new event shares the old one's Type, the
+// production matching rule (ID + Sequence + Type, cf. tui
 // sessionEventsForRefs) resolves the STALE ref to the NEW event: same keys,
-// different payload. This test pins the collision; the fix options are
-// described in the report (numbering/format must not change).
-func TestSm3RewindReusesTruncatedSequenceIDCollision(t *testing.T) {
+// different payload. Do NOT "fix" by changing the numbering or adding a
+// field without a product decision; the options are described in the
+// sm3-trilho report. This test pins the collision so any future change to
+// the numbering is a deliberate, reviewed diff.
+func TestRewindKnownSequenceIDReuse(t *testing.T) {
 	store, _ := newCkStore(t)
 	if _, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"v": "one"}}); err != nil {
 		t.Fatal(err)
@@ -200,7 +203,7 @@ func TestSm3RewindReusesTruncatedSequenceIDCollision(t *testing.T) {
 // file differently than today for valid entries. Passes before and after the
 // fix WITHOUT edits: blob restores, absent deletes, skipped leaves alone,
 // outside-workspace is confined, mode 0 preserves the existing mode.
-func TestSm3RestoreValidVariantsCharacterization(t *testing.T) {
+func TestRestoreValidVariantsCharacterization(t *testing.T) {
 	cases := []struct {
 		name        string
 		setup       func(t *testing.T, store *Store, ws string, target Event)

@@ -8,13 +8,13 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
-// SM3 Machine 2, commit A: characterization of the CURRENT compaction
-// behavior. The cited defect (reactive raw no-op vs proactive calibrated+tools
-// no-op giving different verdicts) did NOT reproduce: a proof attempt on a
+// Characterization of the CURRENT compaction behavior (commit A). The cited
+// defect (reactive raw no-op vs proactive calibrated+tools no-op giving
+// different verdicts) did NOT reproduce: a proof attempt on a
 // realistic history with calibration active (ratio 0.51) and tool defs present
 // showed both verdicts agreeing (both shrink -> retry), and a 146,965-combo
 // grid sweep found divergences ONLY at +/-1-token int-truncation edges, never
-// at realistic margins. Machine 2 therefore enters as a PURE REFACTORING:
+// at realistic margins. This machine therefore enters as a PURE REFACTORING:
 // these tests pass on untouched dev and must pass after WITHOUT edits.
 
 // padToExactSize appends 'x' runs to msgs[idx] until estimateTokens hits
@@ -52,7 +52,7 @@ func newCharState(window int, notified *int) *compactionState {
 // Proactive decisions for five histories: below/at threshold (noop), above
 // with fitting prune (pruned, no summarizer), above paid (compacted), paid
 // without shrink (noop, watermark still fixed).
-func TestSm3CharProactiveTable(t *testing.T) {
+func TestCompactionProactiveDecisions(t *testing.T) {
 	t.Run("below threshold noop", func(t *testing.T) {
 		var notified int
 		state := newCharState(1000, &notified)
@@ -182,7 +182,7 @@ func TestSm3CharProactiveTable(t *testing.T) {
 
 // Reactive sequence on ONE state: free-prune retry (budget intact), paid
 // retry (budget consumed), second attempt (refused).
-func TestSm3CharReactiveSequence(t *testing.T) {
+func TestCompactionReactiveSequence(t *testing.T) {
 	ctx := context.Background()
 	var notified int
 	state := newCharState(1000, &notified)
@@ -234,7 +234,7 @@ func TestSm3CharReactiveSequence(t *testing.T) {
 // updateWindow on a run born with ContextWindow==0 enables compaction today.
 // Fixed as characterization: changing it is a pending PRODUCT decision, and
 // the explicit machine must preserve it byte-for-behavior.
-func TestSm3CharUpdateWindowEnablesDisabledRun(t *testing.T) {
+func TestCompactionUpdateWindowEnablesDisabledRun(t *testing.T) {
 	state := newCompactionState(Options{ContextWindow: 0}, nil)
 	if state.enabled {
 		t.Fatal("precondition: zero-window run starts disabled")
@@ -249,7 +249,7 @@ func TestSm3CharUpdateWindowEnablesDisabledRun(t *testing.T) {
 	}
 }
 
-func TestSm3CharSwitchModelKeepsWindowOnUnknown(t *testing.T) {
+func TestCompactionSwitchModelKeepsWindowOnUnknown(t *testing.T) {
 	state := newCompactionState(Options{ContextWindow: 1000, Model: "m1"}, nil)
 	state.switchModel("m2", 0)
 	if state.window != 1000 || state.threshold != compactionThreshold(1000) {
@@ -268,7 +268,7 @@ func TestSm3CharSwitchModelKeepsWindowOnUnknown(t *testing.T) {
 // Raw (estimateTokens only) vs unified (calibrated + tool tokens) no-op
 // verdicts agree at every realistic margin; the sole mathematical divergence
 // is a +/-1-token int-truncation edge with ratio != 1, pinned below.
-func TestSm3CharMeasureParity(t *testing.T) {
+func TestCompactionMeasureParity(t *testing.T) {
 	pairs := [][2][]qgruntime.Message{
 		{compactableHistory(), mustCompactForParity(t, compactableHistory())},
 	}

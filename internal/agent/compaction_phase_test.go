@@ -4,12 +4,12 @@ import (
 	"testing"
 )
 
-// SM3 Machine 2, commit B: table test fixing the whole phase x event space
+// Table test fixing the whole phase x event space of the compaction machine (commit B).
 // of the compaction machine. Every one of the 6 x 10 = 60 cells is either
 // legal (with pinned next phase, field effects and notify) or refused
 // (state byte-identical, no notify, no panic).
 
-func sm3SeedPhase(t *testing.T, phase compactPhase) *compactionState {
+func compactSeedPhase(t *testing.T, phase compactPhase) *compactionState {
 	t.Helper()
 	return &compactionState{
 		enabled:           phase != phaseDisabled,
@@ -22,9 +22,9 @@ func sm3SeedPhase(t *testing.T, phase compactPhase) *compactionState {
 	}
 }
 
-// sm3Snap captures the comparable state fields (the struct also holds func
+// compactSnap captures the comparable state fields (the struct also holds func
 // fields, so whole-struct comparison does not compile).
-type sm3Snap struct {
+type compactSnap struct {
 	enabled           bool
 	threshold         int
 	window            int
@@ -33,8 +33,8 @@ type sm3Snap struct {
 	reactiveAttempted bool
 }
 
-func sm3Snapshot(state *compactionState) sm3Snap {
-	return sm3Snap{
+func compactSnapshot(state *compactionState) compactSnap {
+	return compactSnap{
 		enabled:           state.enabled,
 		threshold:         state.threshold,
 		window:            state.window,
@@ -44,7 +44,7 @@ func sm3Snapshot(state *compactionState) sm3Snap {
 	}
 }
 
-func sm3ExpectLegal(phase compactPhase, kind compactEventKind) bool {
+func compactExpectLegal(phase compactPhase, kind compactEventKind) bool {
 	if kind == evWindowUpdate {
 		return true // legal in every phase (pins the pending product decision)
 	}
@@ -57,7 +57,7 @@ func sm3ExpectLegal(phase compactPhase, kind compactEventKind) bool {
 	return true
 }
 
-func sm3ExpectNext(phase compactPhase, kind compactEventKind) compactPhase {
+func compactExpectNext(phase compactPhase, kind compactEventKind) compactPhase {
 	switch kind {
 	case evPruneFits:
 		return phasePruned
@@ -74,7 +74,7 @@ func sm3ExpectNext(phase compactPhase, kind compactEventKind) compactPhase {
 	}
 }
 
-func TestSm3CompactTransitionTable(t *testing.T) {
+func TestCompactTransitionTable(t *testing.T) {
 	phases := []compactPhase{phaseDisabled, phaseBelow, phasePruned, phasePaid, phaseRecovered, phaseSpent}
 	kinds := []compactEventKind{
 		evBelowThreshold, evPruneFits, evPaidShrink, evPaidNoShrink, evPaidError,
@@ -86,21 +86,21 @@ func TestSm3CompactTransitionTable(t *testing.T) {
 			name := phase.String() + "+" + kind.String()
 			t.Run(name, func(t *testing.T) {
 				for _, rewrote := range []bool{false, true} {
-					state := sm3SeedPhase(t, phase)
-					before := sm3Snapshot(state)
+					state := compactSeedPhase(t, phase)
+					before := compactSnapshot(state)
 					ev := compactEvent{kind: kind, size: 222, rewrote: rewrote, window: 2000}
 					notify := state.transition(ev)
 
-					if !sm3ExpectLegal(phase, kind) {
+					if !compactExpectLegal(phase, kind) {
 						if notify {
 							t.Fatalf("illegal cell must not notify")
 						}
-						if sm3Snapshot(state) != before {
-							t.Fatalf("illegal cell must leave state untouched: %+v -> %+v", before, sm3Snapshot(state))
+						if compactSnapshot(state) != before {
+							t.Fatalf("illegal cell must leave state untouched: %+v -> %+v", before, compactSnapshot(state))
 						}
 						continue
 					}
-					if want := sm3ExpectNext(phase, kind); state.phase != want {
+					if want := compactExpectNext(phase, kind); state.phase != want {
 						t.Fatalf("next phase = %s, want %s", state.phase, want)
 					}
 					// Twin-field effects per event kind.
@@ -168,7 +168,7 @@ func TestSm3CompactTransitionTable(t *testing.T) {
 }
 
 // Phase and event names are distinct and human-readable.
-func TestSm3CompactNames(t *testing.T) {
+func TestCompactPhaseNames(t *testing.T) {
 	seenPhase := map[string]bool{}
 	for _, p := range []compactPhase{phaseDisabled, phaseBelow, phasePruned, phasePaid, phaseRecovered, phaseSpent} {
 		if p.String() == "" || seenPhase[p.String()] {
@@ -189,7 +189,7 @@ func TestSm3CompactNames(t *testing.T) {
 }
 
 // Refusal on a zero-value state (disabled) never panics and changes nothing.
-func TestSm3CompactIllegalNeverPanics(t *testing.T) {
+func TestCompactIllegalNeverPanics(t *testing.T) {
 	state := &compactionState{}
 	for _, kind := range []compactEventKind{
 		evBelowThreshold, evPruneFits, evPaidShrink, evPaidNoShrink, evPaidError,
