@@ -42,11 +42,9 @@ logs
 /qg.exe
 /qg-windows-command-runner.exe
 /qg-windows-sandbox-setup.exe
-/qg-skills
 /.qg-binary-version
 
 # Superpowers skill artifacts (brainstorm mockups, specs, plans) — local only
-.superpowers/
 docs/superpowers/
 
 # Termux/Android build artifacts
