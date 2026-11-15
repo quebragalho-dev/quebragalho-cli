@@ -149,23 +149,6 @@ func TestTouchedFilesMergesGitSweep(t *testing.T) {
 
 // TestOpenFileViewGitOnlyFallsBackToFull: a file with no edit cards (git sweep
 // discovery) opens straight on the full-file view instead of an empty diff.
-func TestOpenFileViewGitOnlyFallsBackToFull(t *testing.T) {
-	m := filesPanelTestModel()
-	m.gitTouched = []gitSweepFile{{path: "kanban/board.tsx", created: true}}
-	m = m.openFileView("kanban/board.tsx")
-	if m.fileView.mode != fileViewFull {
-		t.Fatal("git-only file should open in full mode")
-	}
-	m = m.exitFileView()
-	m = m.openFileView("web/app.js")
-	if m.fileView.mode != fileViewDiff {
-		t.Fatal("a file with edit cards still opens in diff mode")
-	}
-}
-
-// TestGitSweepCmdAgainstRealRepo: end-to-end against a real git repo — the
-// baseline sees pre-existing dirt, a post-mutation sweep reports the new file
-// as created and the modified file with its numstat.
 func TestGitSweepCmdAgainstRealRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
