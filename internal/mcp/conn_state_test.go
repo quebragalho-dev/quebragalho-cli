@@ -42,6 +42,9 @@ type genCloseCountingClient struct {
 	closes  atomic.Int32
 	block   chan struct{}
 	release chan struct{}
+	// entered, when non-nil, is closed on the first CallTool entry so the
+	// test knows the call pinned its generation without polling.
+	entered chan struct{}
 }
 
 func (c *genCloseCountingClient) ListTools(context.Context) ([]RemoteTool, error) {
@@ -49,6 +52,13 @@ func (c *genCloseCountingClient) ListTools(context.Context) ([]RemoteTool, error
 }
 
 func (c *genCloseCountingClient) CallTool(ctx context.Context, _ string, _ map[string]any) (CallToolResult, error) {
+	if c.entered != nil {
+		select {
+		case <-c.entered:
+		default:
+			close(c.entered)
+		}
+	}
 	if c.block != nil {
 		select {
 		case <-c.block:
@@ -78,29 +88,20 @@ func TestConnCloseClosesCurrentAndRetired(t *testing.T) {
 	// Pin one call on the old generation so swap retires instead of closing.
 	releaseCall := make(chan struct{})
 	callDone := make(chan struct{})
+	pinned := make(chan struct{})
 	go func() {
 		client, ok := conn.acquire()
 		if !ok {
 			close(callDone)
 			return
 		}
+		close(pinned)
 		defer conn.release(client)
 		<-releaseCall
 		close(callDone)
 	}()
-	// Wait until the call holds its reference.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		conn.mu.Lock()
-		n := conn.inflight[oldGen]
-		conn.mu.Unlock()
-		if n == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("call did not pin the old generation")
-		}
-	}
+	// Handshake: the goroutine signals right after the acquire, no polling.
+	<-pinned
 	conn.swap(fresh)
 	if got := oldGen.closes.Load(); got != 0 {
 		t.Fatalf("retired generation closed while in use: closes = %d, want 0", got)
@@ -126,7 +127,7 @@ func TestConnCloseClosesCurrentAndRetired(t *testing.T) {
 }
 
 func TestConnCloseTerminatesStuckCall(t *testing.T) {
-	stuck := &genCloseCountingClient{block: make(chan struct{})}
+	stuck := &genCloseCountingClient{block: make(chan struct{}), entered: make(chan struct{})}
 	conn := newMCPServerConn(Server{Name: "s"}, stuck)
 	callDone := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -135,19 +136,8 @@ func TestConnCloseTerminatesStuckCall(t *testing.T) {
 		_, err := conn.call(ctx, "echo", map[string]any{})
 		callDone <- err
 	}()
-	// Wait until the call pins the generation.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		conn.mu.Lock()
-		n := len(conn.inflight)
-		conn.mu.Unlock()
-		if n == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("stuck call did not start")
-		}
-	}
+	// Handshake: CallTool signals entry, which happens after the acquire.
+	<-stuck.entered
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- conn.Close() }()
 	select {
@@ -169,5 +159,56 @@ func TestConnCloseTerminatesStuckCall(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("stuck call did not return after Close/cancel")
+	}
+}
+
+// A Close with a retired generation still in flight must close both the
+// retired and the current generation exactly once, right away; the later
+// release of the pinned call must not close anything again.
+func TestConnCloseWithInflightRetiredClosesOnce(t *testing.T) {
+	oldGen := &genCloseCountingClient{}
+	fresh := &genCloseCountingClient{}
+	conn := newMCPServerConn(Server{Name: "s"}, oldGen)
+	releaseCall := make(chan struct{})
+	callDone := make(chan struct{})
+	pinned := make(chan struct{})
+	go func() {
+		client, ok := conn.acquire()
+		if !ok {
+			close(callDone)
+			return
+		}
+		close(pinned)
+		defer conn.release(client)
+		<-releaseCall
+		close(callDone)
+	}()
+	<-pinned
+	conn.swap(fresh)
+	if got := oldGen.closes.Load(); got != 0 {
+		t.Fatalf("retired generation closed while in use: closes = %d, want 0", got)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if got := oldGen.closes.Load(); got != 1 {
+		t.Fatalf("retired generation closes = %d, want 1 right after Close", got)
+	}
+	if got := fresh.closes.Load(); got != 1 {
+		t.Fatalf("current generation closes = %d, want 1 right after Close", got)
+	}
+	close(releaseCall)
+	<-callDone
+	if got := oldGen.closes.Load(); got != 1 {
+		t.Fatalf("release after Close closed the retired generation again: closes = %d, want 1", got)
+	}
+	if got := fresh.closes.Load(); got != 1 {
+		t.Fatalf("release after Close closed the current generation again: closes = %d, want 1", got)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if _, ok := conn.acquire(); ok {
+		t.Fatal("acquire after Close must refuse")
 	}
 }
