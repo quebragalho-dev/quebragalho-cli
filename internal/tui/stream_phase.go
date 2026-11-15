@@ -16,9 +16,16 @@ package tui
 //	  Any --> Idle : begin (fresh run zeroes every twin)
 //	  Text/Reasoning/Tool/ClearPending --> * : retryDiscard (drop text/tool/fade;
 //	    reasoning and pending survive, pre-machine parity)
-//	Only streamTransition writes the stream twins (live text/reasoning, tool
-//	triple, fade latch/ages/activity, pending clear, live estimate). Stale
-//	runID messages are dropped by the Update guards before reaching it;
+//	streamTransition é o único ponto de begin/text/reasoning/tool/clear/end/cancel/retryDiscard.
+//	Deliberately outside it, one line each:
+//	- agentRowMsg (and flush lines): segment commit into the transcript clears buffers as a side effect.
+//	- WindowSizeMsg / resizeBTWParent: geometry invalidation (drop line ages, restamp activity).
+//	- spec-impl seed: sets the fade latch before the first delta.
+//	- BTW setup/teardown: fresh side buffers, hidden-parent geometry copy.
+//	- session.go /new: zeroes the estimate twins on session reset.
+//	- resolvePermission (and prompt resolve, beginRun): restamps the quiet-generation clock.
+//	- reasoning expand toggle: view-only latch, zeroed with reasoning on settle.
+//	Stale runID messages are dropped by the Update guards before reaching it;
 //	a toolDelta outside Tool is refused with an error, never a panic.
 
 import (
