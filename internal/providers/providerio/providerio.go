@@ -287,7 +287,9 @@ func scanSSEPayloads(scanner *bufio.Scanner, handle func(data string) bool, onCo
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	flush()
+	if !flush() {
+		return nil
+	}
 	if !sawDone {
 		return fmt.Errorf("sse stream ended without [DONE] terminator: %w", io.ErrUnexpectedEOF)
 	}

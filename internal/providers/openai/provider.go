@@ -235,12 +235,14 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 		return provider.emitPayload(ctx, data, state, events)
 	})
 	if errors.Is(err, providerio.ErrStreamIdle) || errors.Is(err, providerio.ErrStreamStalled) {
-		state.flushBufferedContent(events)
-		state.closeBufferedOpen(events)
-		sendEvent(ctx, events, qgruntime.StreamEvent{
-			Type:  qgruntime.StreamEventError,
-			Error: provider.redact("provider stream error: " + providerio.StreamTimeoutMessage(err, provider.streamIdleTimeout)),
-		})
+		if emit, _ := state.transition(streamEvError, ""); emit {
+			state.flushBufferedContent(events)
+			state.closeBufferedOpen(events)
+			sendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:  qgruntime.StreamEventError,
+				Error: provider.redact("provider stream error: " + providerio.StreamTimeoutMessage(err, provider.streamIdleTimeout)),
+			})
+		}
 		return
 	}
 	if err != nil {
@@ -248,26 +250,34 @@ func (provider *Provider) stream(ctx context.Context, body []byte, sessionID str
 		// already finished generating (finish_reason seen): anything else is
 		// a truncated transport and re-enters the retry policy, with the
 		// partial output discarded.
-		if errors.Is(err, io.ErrUnexpectedEOF) && state.terminated {
+		if errors.Is(err, io.ErrUnexpectedEOF) && state.isTerminated() {
 			err = nil
 		} else {
-			state.flushBufferedContent(events)
-			state.closeBufferedOpen(events)
-			message := err.Error()
+			ev := streamEvError
 			if errors.Is(err, io.ErrUnexpectedEOF) {
-				message = "upstream closed the stream without a terminator ([DONE]): " + message
+				ev = streamEvTruncated
 			}
-			sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + message)})
+			if emit, _ := state.transition(ev, ""); emit {
+				state.flushBufferedContent(events)
+				state.closeBufferedOpen(events)
+				message := err.Error()
+				if errors.Is(err, io.ErrUnexpectedEOF) {
+					message = "upstream closed the stream without a terminator ([DONE]): " + message
+				}
+				sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + message)})
+			}
 			return
 		}
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		state.flushBufferedContent(events)
-		state.closeBufferedOpen(events)
-		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + ctxErr.Error())})
+		if emit, _ := state.transition(streamEvError, ""); emit {
+			state.flushBufferedContent(events)
+			state.closeBufferedOpen(events)
+			sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventError, Error: provider.redact("provider stream error: " + ctxErr.Error())})
+		}
 		return
 	}
-	if !state.done {
+	if emit, _ := state.transition(streamEvCleanEnd, ""); emit {
 		state.flushContent(ctx, events)
 		state.closeOpen(ctx, events)
 		sendEvent(ctx, events, qgruntime.StreamEvent{Type: qgruntime.StreamEventDone, FinishReason: state.finishReason})
@@ -298,18 +308,18 @@ var openAIStreamErrorStatusByCode = map[string]int{
 func (provider *Provider) emitPayload(ctx context.Context, data string, state *toolState, events chan<- qgruntime.StreamEvent) bool {
 	var chunk streamChunk
 	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-		state.flushContent(ctx, events)
-		state.closeOpen(ctx, events)
-		sendEvent(ctx, events, qgruntime.StreamEvent{
-			Type:  qgruntime.StreamEventError,
-			Error: provider.redact("provider stream error: malformed JSON: " + err.Error()),
-		})
-		state.done = true
+		if emit, _ := state.transition(streamEvError, ""); emit {
+			state.flushContent(ctx, events)
+			state.closeOpen(ctx, events)
+			sendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:  qgruntime.StreamEventError,
+				Error: provider.redact("provider stream error: malformed JSON: " + err.Error()),
+			})
+		}
 		return false
 	}
 	if chunk.Error != nil {
-		state.flushContent(ctx, events)
-		state.closeOpen(ctx, events)
+		emit, _ := state.transition(streamEvError, "")
 		statusCode := http.StatusInternalServerError
 		if chunk.Error.Code != nil {
 			switch c := chunk.Error.Code.(type) {
@@ -327,11 +337,14 @@ func (provider *Provider) emitPayload(ctx context.Context, data string, state *t
 				}
 			}
 		}
-		sendEvent(ctx, events, qgruntime.StreamEvent{
-			Type:  qgruntime.StreamEventError,
-			Error: provider.classifiedError(statusCode, chunk.Error.Message),
-		})
-		state.done = true
+		if emit {
+			state.flushContent(ctx, events)
+			state.closeOpen(ctx, events)
+			sendEvent(ctx, events, qgruntime.StreamEvent{
+				Type:  qgruntime.StreamEventError,
+				Error: provider.classifiedError(statusCode, chunk.Error.Message),
+			})
+		}
 		return false
 	}
 	provider.emitChunk(ctx, chunk, state, events)
@@ -361,14 +374,11 @@ func (provider *Provider) emitChunk(
 			state.flushContent(ctx, events)
 			state.closeOpen(ctx, events)
 		}
-		if reason := mapFinishReason(choice.FinishReason); reason != "" {
-			state.finishReason = reason
-		}
 		// Any finish_reason (stop, length, tool_calls, content_filter, …) means
 		// the model finished generating: the stream may end legitimately even
 		// when no [DONE] payload follows.
 		if choice.FinishReason != "" {
-			state.terminated = true
+			_, _ = state.transition(streamEvFinish, mapFinishReason(choice.FinishReason))
 		}
 	}
 
