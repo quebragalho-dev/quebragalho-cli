@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 const Marker = "<!-- qg-auto-review -->"
@@ -88,7 +90,7 @@ func IsBlocking(outcome Outcome) bool {
 func BuildSummaryInputFromEnv(env map[string]string) SummaryInput {
 	return SummaryInput{
 		Number:       parsePRNumber(env),
-		HeadSHA:      firstNonEmpty(env["QG_REVIEW_HEAD_SHA"], env["GITHUB_SHA"]),
+		HeadSHA:      envstr.FirstNonEmpty(env["QG_REVIEW_HEAD_SHA"], env["GITHUB_SHA"]),
 		Checks:       BuildChecksFromEnv(env),
 		ChangedFiles: ParseChangedFiles(env["QG_CHANGED_FILES"]),
 	}
@@ -211,19 +213,10 @@ func truncateSHA(value string) string {
 }
 
 func parsePRNumber(env map[string]string) int {
-	value := firstNonEmpty(env["QG_PR_NUMBER"], strings.Split(env["GITHUB_REF_NAME"], "/")[0])
+	value := envstr.FirstNonEmpty(env["QG_PR_NUMBER"], strings.Split(env["GITHUB_REF_NAME"], "/")[0])
 	number, err := strconv.Atoi(value)
 	if err != nil {
 		return 0
 	}
 	return number
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

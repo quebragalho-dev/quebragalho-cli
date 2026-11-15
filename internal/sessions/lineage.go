@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 func (store *Store) CreateChild(parentSessionID string, input ChildInput) (Metadata, error) {
@@ -30,13 +32,13 @@ func (store *Store) CreateChild(parentSessionID string, input ChildInput) (Metad
 		SessionID:           input.SessionID,
 		SessionKind:         SessionKindChild,
 		Title:               childTitle(input.Title, input.AgentName, parent.Title),
-		Cwd:                 firstNonEmpty(input.Cwd, parent.Cwd),
-		ModelID:             firstNonEmpty(input.ModelID, parent.ModelID),
-		Provider:            firstNonEmpty(input.Provider, parent.Provider),
+		Cwd:                 envstr.FirstNonEmpty(input.Cwd, parent.Cwd),
+		ModelID:             envstr.FirstNonEmpty(input.ModelID, parent.ModelID),
+		Provider:            envstr.FirstNonEmpty(input.Provider, parent.Provider),
 		Tag:                 input.Tag,
 		Depth:               input.Depth,
 		ParentSessionID:     parent.SessionID,
-		RootSessionID:       firstNonEmpty(parent.RootSessionID, parent.SessionID),
+		RootSessionID:       envstr.FirstNonEmpty(parent.RootSessionID, parent.SessionID),
 		AgentName:           strings.TrimSpace(input.AgentName),
 		TaskID:              strings.TrimSpace(input.TaskID),
 		SpawnedFromEventID:  lastParentEvent.ID,

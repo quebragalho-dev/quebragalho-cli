@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
@@ -80,16 +81,16 @@ type GrantStore struct {
 var toolGrantNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 func ResolveGrantPath(env map[string]string) (string, error) {
-	override := strings.TrimSpace(envValue(env, "QG_SANDBOX_GRANTS_PATH"))
+	override := strings.TrimSpace(envstr.Value(env, "QG_SANDBOX_GRANTS_PATH"))
 	if override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
 		}
 		return filepath.Abs(override)
 	}
-	configHome := strings.TrimSpace(envValue(env, "XDG_CONFIG_HOME"))
+	configHome := strings.TrimSpace(envstr.Value(env, "XDG_CONFIG_HOME"))
 	if configHome == "" {
-		home := strings.TrimSpace(firstNonEmpty(envValue(env, "HOME"), envValue(env, "USERPROFILE")))
+		home := strings.TrimSpace(envstr.FirstNonEmpty(envstr.Value(env, "HOME"), envstr.Value(env, "USERPROFILE")))
 		var err error
 		if home == "" {
 			home, err = os.UserHomeDir()
@@ -1000,11 +1001,4 @@ func emptyGrantState() grantFile {
 		Grants:          map[string][]Grant{},
 		CommandPrefixes: map[string][]CommandPrefixGrant{},
 	}
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }

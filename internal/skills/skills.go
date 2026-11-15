@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 // Skill is a single discovered skill. Name and Description come from the
@@ -46,11 +48,11 @@ var errNotDirectory = errors.New("not a directory")
 // DefaultDir is the primary write root for install/remove/lock. Runtime discovery
 // also considers AgentsDir and plugin skill roots via LoadFromRoots.
 func DefaultDir(env map[string]string) string {
-	if override := strings.TrimSpace(envValue(env, "QG_SKILLS_DIR")); override != "" {
+	if override := strings.TrimSpace(envstr.Value(env, "QG_SKILLS_DIR")); override != "" {
 		return override
 	}
-	dataHome := strings.TrimSpace(envValue(env, "XDG_DATA_HOME"))
-	home := strings.TrimSpace(envValue(env, "HOME"))
+	dataHome := strings.TrimSpace(envstr.Value(env, "XDG_DATA_HOME"))
+	home := strings.TrimSpace(envstr.Value(env, "HOME"))
 	if home == "" {
 		if userHome, err := os.UserHomeDir(); err == nil {
 			home = userHome
@@ -79,8 +81,8 @@ func DefaultDir(env map[string]string) string {
 // pure convention path, not a QG-specific override.
 func AgentsDir(env map[string]string) string {
 	home := strings.TrimSpace(firstNonEmpty(
-		envValue(env, "HOME"),
-		envValue(env, "USERPROFILE"),
+		envstr.Value(env, "HOME"),
+		envstr.Value(env, "USERPROFILE"),
 	))
 	if home == "" {
 		userHome, err := os.UserHomeDir()
@@ -437,13 +439,6 @@ func frontmatterValue(frontmatter string, key string) string {
 		}
 	}
 	return ""
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func firstNonEmpty(values ...string) string {

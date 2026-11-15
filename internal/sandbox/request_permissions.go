@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 type PermissionGrantScope string
@@ -187,7 +189,7 @@ func normalizeFileSystemPermissions(fs FileSystemPermissions, basePath string) (
 }
 
 func (path FileSystemPath) pathString() (string, bool) {
-	kind := strings.TrimSpace(firstNonEmpty(path.Type, path.Kind))
+	kind := strings.TrimSpace(envstr.FirstNonEmpty(path.Type, path.Kind))
 	if kind == "" || kind == "path" {
 		value := strings.TrimSpace(path.Path)
 		return value, value != ""

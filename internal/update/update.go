@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 const (
@@ -128,7 +130,7 @@ func ResolveTarget(target string) (Target, error) {
 }
 
 func Check(ctx context.Context, options Options) (Result, error) {
-	rawVersion := strings.TrimSpace(firstNonEmpty(options.CurrentVersion, "0.0.0"))
+	rawVersion := strings.TrimSpace(envstr.FirstNonEmpty(options.CurrentVersion, "0.0.0"))
 	currentVersion, err := normalizeVersionTag(rawVersion)
 	if err != nil {
 		// Source/dev builds carry a non-semver version ("dev"); the check is
@@ -136,8 +138,8 @@ func Check(ctx context.Context, options Options) (Result, error) {
 		// reported as available instead of failing before the network call.
 		currentVersion = "0.0.0"
 	}
-	repository := strings.TrimSpace(firstNonEmpty(options.Repository, DefaultRepository))
-	endpoint, err := resolveEndpoint(firstNonEmpty(options.Endpoint, os.Getenv("QG_UPDATE_RELEASE_URL")), repository)
+	repository := strings.TrimSpace(envstr.FirstNonEmpty(options.Repository, DefaultRepository))
+	endpoint, err := resolveEndpoint(envstr.FirstNonEmpty(options.Endpoint, os.Getenv("QG_UPDATE_RELEASE_URL")), repository)
 	if err != nil {
 		return Result{}, err
 	}
@@ -454,11 +456,11 @@ func verifyReleaseAssets(release Release, version string, options Options) (Asse
 }
 
 func expectedAssetCheck(version string, goos string, goarch string) (AssetCheck, error) {
-	platform, err := releasePlatform(firstNonEmpty(goos, runtime.GOOS))
+	platform, err := releasePlatform(envstr.FirstNonEmpty(goos, runtime.GOOS))
 	if err != nil {
 		return AssetCheck{}, err
 	}
-	arch, err := releaseArch(firstNonEmpty(goarch, runtime.GOARCH))
+	arch, err := releaseArch(envstr.FirstNonEmpty(goarch, runtime.GOARCH))
 	if err != nil {
 		return AssetCheck{}, err
 	}
@@ -552,16 +554,6 @@ func compareSemverParts(left semverParts, right semverParts) int {
 		}
 	}
 	return 0
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func parseVersionComponent(version string, component string) (int, error) {

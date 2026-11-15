@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 const OpenAIBaseURL = "https://api.openai.com/v1"
@@ -812,31 +814,21 @@ func (profile *ProviderProfile) UnmarshalJSON(data []byte) error {
 
 	profile.Name = strings.TrimSpace(raw.Name)
 	profile.Provider = strings.TrimSpace(raw.Provider)
-	profile.ProviderKind = ProviderKind(firstNonEmpty(raw.ProviderKind, raw.ProviderKindCamel, raw.Provider))
-	profile.CatalogID = strings.TrimSpace(firstNonEmpty(raw.CatalogID, raw.CatalogIDSnake))
-	profile.BaseURL = strings.TrimSpace(firstNonEmpty(raw.BaseURL, raw.BaseURLSnake))
-	profile.APIKey = firstNonEmpty(raw.APIKey, raw.APIKeySnake)
-	profile.APIKeyEnv = strings.TrimSpace(firstNonEmpty(raw.APIKeyEnv, raw.APIKeyEnvSnake))
+	profile.ProviderKind = ProviderKind(envstr.FirstNonEmpty(raw.ProviderKind, raw.ProviderKindCamel, raw.Provider))
+	profile.CatalogID = strings.TrimSpace(envstr.FirstNonEmpty(raw.CatalogID, raw.CatalogIDSnake))
+	profile.BaseURL = strings.TrimSpace(envstr.FirstNonEmpty(raw.BaseURL, raw.BaseURLSnake))
+	profile.APIKey = envstr.FirstNonEmpty(raw.APIKey, raw.APIKeySnake)
+	profile.APIKeyEnv = strings.TrimSpace(envstr.FirstNonEmpty(raw.APIKeyEnv, raw.APIKeyEnvSnake))
 	profile.APIKeyStored = raw.APIKeyStored || raw.APIKeyStoredSnake
-	profile.APIFormat = strings.TrimSpace(firstNonEmpty(raw.APIFormat, raw.APIFormatSnake))
-	profile.AuthHeader = strings.TrimSpace(firstNonEmpty(raw.AuthHeader, raw.AuthHeaderSnake))
-	profile.AuthScheme = strings.TrimSpace(firstNonEmpty(raw.AuthScheme, raw.AuthSchemeSnake))
-	profile.AuthHeaderValue = firstNonEmpty(raw.AuthHeaderValue, raw.AuthHeaderValueSnake)
+	profile.APIFormat = strings.TrimSpace(envstr.FirstNonEmpty(raw.APIFormat, raw.APIFormatSnake))
+	profile.AuthHeader = strings.TrimSpace(envstr.FirstNonEmpty(raw.AuthHeader, raw.AuthHeaderSnake))
+	profile.AuthScheme = strings.TrimSpace(envstr.FirstNonEmpty(raw.AuthScheme, raw.AuthSchemeSnake))
+	profile.AuthHeaderValue = envstr.FirstNonEmpty(raw.AuthHeaderValue, raw.AuthHeaderValueSnake)
 	profile.CustomHeaders = firstNonNilMap(raw.CustomHeaders, raw.CustomHeadersSnake)
-	profile.Model = strings.TrimSpace(firstNonEmpty(raw.Model, raw.ModelID))
+	profile.Model = strings.TrimSpace(envstr.FirstNonEmpty(raw.Model, raw.ModelID))
 	profile.ParseThinkTags = firstNonNilBool(raw.ParseThinkTags, raw.ParseThinkTagsSnake)
 	profile.Description = strings.TrimSpace(raw.Description)
 	return nil
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func firstNonNilMap(values ...map[string]string) map[string]string {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 type EnsureSpecImplementationInput struct {
@@ -85,7 +87,7 @@ func (store *Store) EnsureSpecImplementation(input EnsureSpecImplementationInput
 			ModelID:             input.ModelID,
 			Provider:            input.Provider,
 			ParentSessionID:     sourceSessionID,
-			RootSessionID:       firstNonEmpty(input.RootSessionID, sourceSessionID),
+			RootSessionID:       envstr.FirstNonEmpty(input.RootSessionID, sourceSessionID),
 			SpecID:              specID,
 			SpecFilePath:        input.SpecFilePath,
 			SpecStatus:          SpecStatusApproved,

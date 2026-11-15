@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
@@ -78,7 +79,7 @@ func PrepareExec(options PrepareExecOptions) (PreparedExec, error) {
 		}
 		session, err := store.Fork(parent.SessionID, ForkInput{
 			SessionID: options.SessionID,
-			Title:     firstNonEmpty(options.Title, forkTitle(parent.Title)),
+			Title:     envstr.FirstNonEmpty(options.Title, forkTitle(parent.Title)),
 			Cwd:       options.Cwd,
 			ModelID:   options.ModelID,
 			Provider:  options.Provider,
@@ -138,9 +139,9 @@ func PrepareExec(options PrepareExecOptions) (PreparedExec, error) {
 		}
 		createInput.SessionKind = SessionKindChild
 		createInput.ParentSessionID = parent.SessionID
-		createInput.RootSessionID = firstNonEmpty(parent.RootSessionID, parent.SessionID)
+		createInput.RootSessionID = envstr.FirstNonEmpty(parent.RootSessionID, parent.SessionID)
 		createInput.AgentName = strings.TrimSpace(options.AgentName)
-		createInput.TaskID = strings.TrimSpace(firstNonEmpty(options.TaskID, options.SessionID))
+		createInput.TaskID = strings.TrimSpace(envstr.FirstNonEmpty(options.TaskID, options.SessionID))
 		createInput.SpawnedFromEventID = strings.TrimSpace(options.CallingToolUseID)
 	}
 	session, err := store.Create(createInput)

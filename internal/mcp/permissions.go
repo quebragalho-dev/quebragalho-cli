@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
@@ -98,7 +99,7 @@ var (
 )
 
 func ResolvePermissionPath(env map[string]string) (string, error) {
-	override := strings.TrimSpace(envValue(env, "QG_MCP_PERMISSIONS_PATH"))
+	override := strings.TrimSpace(envstr.Value(env, "QG_MCP_PERMISSIONS_PATH"))
 	if override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
@@ -106,9 +107,9 @@ func ResolvePermissionPath(env map[string]string) (string, error) {
 		return filepath.Abs(override)
 	}
 
-	configHome := strings.TrimSpace(envValue(env, "XDG_CONFIG_HOME"))
+	configHome := strings.TrimSpace(envstr.Value(env, "XDG_CONFIG_HOME"))
 	if configHome == "" {
-		home := strings.TrimSpace(firstNonEmpty(envValue(env, "HOME"), envValue(env, "USERPROFILE")))
+		home := strings.TrimSpace(firstNonEmpty(envstr.Value(env, "HOME"), envstr.Value(env, "USERPROFILE")))
 		var err error
 		if home == "" {
 			home, err = os.UserHomeDir()
@@ -586,13 +587,6 @@ func countGrants(state permissionFile) int {
 		count += len(serverTools)
 	}
 	return count
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func firstNonEmpty(values ...string) string {

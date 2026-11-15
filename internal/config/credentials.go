@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/credstore"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
@@ -231,7 +232,7 @@ func (profile ProviderProfile) MissingCredentialEnv() (string, bool) {
 		if err != nil {
 			return "", false
 		}
-		defaultEnvVar := firstNonEmptyTrimmed(descriptor.AuthEnvVars...)
+		defaultEnvVar := envstr.FirstNonEmpty(descriptor.AuthEnvVars...)
 		if !descriptor.RequiresAuth {
 			return "", false
 		}
@@ -243,11 +244,11 @@ func (profile ProviderProfile) MissingCredentialEnv() (string, bool) {
 
 	switch profile.normalizedProviderKind() {
 	case ProviderKindOpenAI, ProviderKindOpenAICompatible:
-		return firstNonEmptyTrimmed(profile.APIKeyEnv, "OPENAI_API_KEY"), true
+		return envstr.FirstNonEmpty(profile.APIKeyEnv, "OPENAI_API_KEY"), true
 	case ProviderKindAnthropic, ProviderKindAnthropicCompat:
-		return firstNonEmptyTrimmed(profile.APIKeyEnv, "ANTHROPIC_API_KEY"), true
+		return envstr.FirstNonEmpty(profile.APIKeyEnv, "ANTHROPIC_API_KEY"), true
 	case ProviderKindGoogle:
-		return firstNonEmptyTrimmed(profile.APIKeyEnv, "GEMINI_API_KEY"), true
+		return envstr.FirstNonEmpty(profile.APIKeyEnv, "GEMINI_API_KEY"), true
 	default:
 		if envVar := strings.TrimSpace(profile.APIKeyEnv); envVar != "" {
 			return envVar, true
@@ -265,15 +266,6 @@ func (profile ProviderProfile) normalizedProviderKind() ProviderKind {
 	}
 	if provider := strings.TrimSpace(profile.Provider); provider != "" {
 		return ProviderKind(strings.ToLower(provider))
-	}
-	return ""
-}
-
-func firstNonEmptyTrimmed(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
 	}
 	return ""
 }

@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/provideronboarding"
 )
@@ -282,7 +283,7 @@ func providerSetupAddCommand(options providerSetupOptions, profile config.Provid
 	if strings.TrimSpace(options.baseURL) != "" {
 		parts = append(parts, "--base-url", options.baseURL)
 	}
-	if apiKeyEnv := firstNonEmptyCLI(options.apiKeyEnv, profile.APIKeyEnv); apiKeyEnv != "" {
+	if apiKeyEnv := envstr.FirstNonEmpty(options.apiKeyEnv, profile.APIKeyEnv); apiKeyEnv != "" {
 		parts = append(parts, "--api-key-env", apiKeyEnv)
 	}
 	if options.setActive {

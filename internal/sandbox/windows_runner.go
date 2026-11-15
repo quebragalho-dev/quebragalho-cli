@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 const WindowsSandboxCommandRunnerName = "qg-windows-command-runner.exe"
@@ -451,7 +453,7 @@ type WindowsCapabilitySIDs struct {
 }
 
 func ResolveWindowsSandboxHome(env map[string]string) (string, error) {
-	if override := strings.TrimSpace(envValue(env, "QG_WINDOWS_SANDBOX_HOME")); override != "" {
+	if override := strings.TrimSpace(envstr.Value(env, "QG_WINDOWS_SANDBOX_HOME")); override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
 		}

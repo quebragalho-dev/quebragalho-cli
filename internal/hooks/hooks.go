@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
@@ -191,7 +192,7 @@ func ResolvePaths(options ResolvePathOptions) (Paths, error) {
 		return Paths{}, err
 	}
 
-	home := strings.TrimSpace(firstNonEmpty(envValue(options.Env, "HOME"), envValue(options.Env, "USERPROFILE")))
+	home := strings.TrimSpace(firstNonEmpty(envstr.Value(options.Env, "HOME"), envstr.Value(options.Env, "USERPROFILE")))
 	if home == "" {
 		home, err = os.UserHomeDir()
 		if err != nil {
@@ -994,7 +995,7 @@ func lockForPath(path string) *sync.Mutex {
 }
 
 func resolveEnvDir(env map[string]string, key string, fallback string, cwd string) string {
-	value := strings.TrimSpace(envValue(env, key))
+	value := strings.TrimSpace(envstr.Value(env, key))
 	if value == "" {
 		return fallback
 	}
@@ -1012,13 +1013,6 @@ func resolveCwd(cwd string) (string, error) {
 		return filepath.Clean(cwd), nil
 	}
 	return filepath.Abs(cwd)
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func firstNonEmpty(values ...string) string {

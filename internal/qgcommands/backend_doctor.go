@@ -3,9 +3,9 @@ package qgcommands
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
@@ -151,7 +151,7 @@ func hookDoctorChecks(result hooks.LoadResult) []BackendDoctorCheck {
 		})
 	}
 	for _, diagnostic := range result.Diagnostics {
-		target := firstNonEmpty(diagnostic.HookID, diagnostic.FieldPath, string(diagnostic.Source), "hooks")
+		target := envstr.FirstNonEmpty(diagnostic.HookID, diagnostic.FieldPath, string(diagnostic.Source), "hooks")
 		checks = append(checks, BackendDoctorCheck{
 			ID:      "backend.hooks.diagnostic",
 			Surface: "hooks",
@@ -207,7 +207,7 @@ func pluginDoctorChecks(result plugins.LoadResult) []BackendDoctorCheck {
 		})
 	}
 	for _, diagnostic := range result.Diagnostics {
-		target := firstNonEmpty(diagnostic.PluginID, diagnostic.FieldPath, string(diagnostic.Source), "plugins")
+		target := envstr.FirstNonEmpty(diagnostic.PluginID, diagnostic.FieldPath, string(diagnostic.Source), "plugins")
 		checks = append(checks, BackendDoctorCheck{
 			ID:      "backend.plugins.diagnostic",
 			Surface: "plugins",
@@ -264,13 +264,4 @@ func compactDetails(values map[string]string) map[string]string {
 		return nil
 	}
 	return out
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

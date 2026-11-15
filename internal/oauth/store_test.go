@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 func newTestStore(t *testing.T) (*Store, string) {
@@ -158,11 +160,11 @@ func TestStoreMalformedFailsClosed(t *testing.T) {
 func TestEnvValueHermetic(t *testing.T) {
 	t.Setenv("QG_OAUTH_DEMO_CLIENT_ID", "ambient")
 	// A non-nil map omitting the key must NOT leak the ambient process value.
-	if got := envValue(map[string]string{}, "QG_OAUTH_DEMO_CLIENT_ID"); got != "" {
+	if got := envstr.Value(map[string]string{}, "QG_OAUTH_DEMO_CLIENT_ID"); got != "" {
 		t.Fatalf("non-nil env map must be hermetic, got %q", got)
 	}
 	// A nil map reads the process environment.
-	if got := envValue(nil, "QG_OAUTH_DEMO_CLIENT_ID"); got != "ambient" {
+	if got := envstr.Value(nil, "QG_OAUTH_DEMO_CLIENT_ID"); got != "ambient" {
 		t.Fatalf("nil env map should read os env, got %q", got)
 	}
 }

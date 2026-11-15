@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 type FileSystemPolicyKind string
@@ -414,7 +416,7 @@ func credentialPathOptionsFromEnvironment(baseDirs []string, env []string) crede
 			cloudSDKConfigDirs = append(cloudSDKConfigDirs, filepath.Join(home, ".config", "gcloud"))
 		}
 	}
-	npmUserConfigs := resolveCredentialOverridePaths(firstNonEmpty(
+	npmUserConfigs := resolveCredentialOverridePaths(envstr.FirstNonEmpty(
 		credentialEnvValue(env, "NPM_CONFIG_USERCONFIG"),
 		credentialEnvValue(env, "npm_config_userconfig"),
 	), baseDirs)

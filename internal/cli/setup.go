@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
@@ -285,9 +286,9 @@ type setupSaveOptions struct {
 func saveSetupProvider(deps appDeps, selection tui.SetupSelection, options setupSaveOptions) (tui.SetupResult, error) {
 	profile, err := providerProfileForAdd(providerAddOptions{
 		catalogID: selection.CatalogID,
-		name:      firstNonEmptyCLI(options.name, selection.Name),
-		model:     firstNonEmptyCLI(selection.Model),
-		baseURL:   firstNonEmptyCLI(options.baseURL, selection.BaseURL),
+		name:      envstr.FirstNonEmpty(options.name, selection.Name),
+		model:     envstr.FirstNonEmpty(selection.Model),
+		baseURL:   envstr.FirstNonEmpty(options.baseURL, selection.BaseURL),
 		apiKeyEnv: options.apiKeyEnv,
 		setActive: true,
 	})

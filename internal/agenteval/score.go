@@ -281,7 +281,7 @@ func unknownCommandResults(results []CommandResult, seen map[string]bool, input 
 		result := unknownByID[id]
 		exitCode := result.ExitCode
 		status := StatusError
-		message := firstNonEmpty(result.Error, fmt.Sprintf("unexpected command result %q", result.ID))
+		message := firstNonEmptyExact(result.Error, fmt.Sprintf("unexpected command result %q", result.ID))
 		if input.Blocked {
 			status = StatusBlocked
 			message = blockMessage(input.BlockReason)
@@ -403,7 +403,10 @@ func blockMessage(reason string) string {
 	return "run blocked: " + reason
 }
 
-func firstNonEmpty(values ...string) string {
+// firstNonEmptyExact returns the first value that is not exactly "", without
+// trimming: whitespace-only values count as non-empty. Unlike envstr.FirstNonEmpty,
+// it never trims and never skips blank values.
+func firstNonEmptyExact(values ...string) string {
 	for _, value := range values {
 		if value != "" {
 			return value

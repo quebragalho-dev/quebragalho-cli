@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
@@ -621,11 +622,11 @@ func SetMaxTurnsEnv(n int) {
 }
 
 func applyEnv(cfg *FileConfig, env map[string]string) {
-	activeProvider := strings.TrimSpace(envValue(env, ActiveProviderEnv))
+	activeProvider := strings.TrimSpace(envstr.Value(env, ActiveProviderEnv))
 	if activeProvider != "" {
 		cfg.ActiveProvider = activeProvider
 	}
-	if maxTurns := strings.TrimSpace(envValue(env, MaxTurnsEnv)); maxTurns != "" {
+	if maxTurns := strings.TrimSpace(envstr.Value(env, MaxTurnsEnv)); maxTurns != "" {
 		if n, err := strconv.Atoi(maxTurns); err == nil && n > 0 {
 			if n > MaxTurnsCeiling {
 				n = MaxTurnsCeiling
@@ -637,21 +638,21 @@ func applyEnv(cfg *FileConfig, env map[string]string) {
 
 	applyProviderEnv(cfg, ProviderKindOpenAI, envProfile{
 		Name:    string(ProviderKindOpenAI),
-		APIKey:  envValue(env, "OPENAI_API_KEY"),
-		BaseURL: envValue(env, "OPENAI_BASE_URL"),
-		Model:   envValue(env, "OPENAI_MODEL"),
+		APIKey:  envstr.Value(env, "OPENAI_API_KEY"),
+		BaseURL: envstr.Value(env, "OPENAI_BASE_URL"),
+		Model:   envstr.Value(env, "OPENAI_MODEL"),
 	})
 	applyProviderEnv(cfg, ProviderKindAnthropic, envProfile{
 		Name:    string(ProviderKindAnthropic),
-		APIKey:  envValue(env, "ANTHROPIC_API_KEY"),
-		BaseURL: envValue(env, "ANTHROPIC_BASE_URL"),
-		Model:   envValue(env, "ANTHROPIC_MODEL"),
+		APIKey:  envstr.Value(env, "ANTHROPIC_API_KEY"),
+		BaseURL: envstr.Value(env, "ANTHROPIC_BASE_URL"),
+		Model:   envstr.Value(env, "ANTHROPIC_MODEL"),
 	})
 	applyProviderEnv(cfg, ProviderKindGoogle, envProfile{
 		Name:    string(ProviderKindGoogle),
-		APIKey:  firstNonEmpty(envValue(env, "GEMINI_API_KEY"), envValue(env, "GOOGLE_API_KEY")),
-		BaseURL: firstNonEmpty(envValue(env, "GEMINI_BASE_URL"), envValue(env, "GOOGLE_BASE_URL")),
-		Model:   firstNonEmpty(envValue(env, "GEMINI_MODEL"), envValue(env, "GOOGLE_MODEL")),
+		APIKey:  envstr.FirstNonEmpty(envstr.Value(env, "GEMINI_API_KEY"), envstr.Value(env, "GOOGLE_API_KEY")),
+		BaseURL: envstr.FirstNonEmpty(envstr.Value(env, "GEMINI_BASE_URL"), envstr.Value(env, "GOOGLE_BASE_URL")),
+		Model:   envstr.FirstNonEmpty(envstr.Value(env, "GEMINI_MODEL"), envstr.Value(env, "GOOGLE_MODEL")),
 	})
 }
 
@@ -737,13 +738,6 @@ func normalizedProfileKind(profile ProviderProfile) ProviderKind {
 		kind = strings.TrimSpace(profile.Provider)
 	}
 	return ProviderKind(strings.ToLower(kind))
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func applyOverrides(cfg *FileConfig, overrides Overrides) {
@@ -1060,7 +1054,7 @@ func normalizeProvider(profile ProviderProfile, env map[string]string, options n
 		profile.ProviderKind = ProviderKindOpenAI
 	}
 	if strings.TrimSpace(profile.APIKey) == "" {
-		profile.APIKey = profile.EnvAPIKey(func(key string) string { return envValue(env, key) })
+		profile.APIKey = profile.EnvAPIKey(func(key string) string { return envstr.Value(env, key) })
 	}
 
 	switch profile.ProviderKind {

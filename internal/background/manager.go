@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
@@ -97,8 +98,8 @@ func NewManagerWithOptions(options ManagerOptions) (*Manager, error) {
 }
 
 func DefaultRoot(env map[string]string) string {
-	dataHome := strings.TrimSpace(envValue(env, "XDG_DATA_HOME"))
-	home := strings.TrimSpace(envValue(env, "HOME"))
+	dataHome := strings.TrimSpace(envstr.Value(env, "XDG_DATA_HOME"))
+	home := strings.TrimSpace(envstr.Value(env, "HOME"))
 	if home == "" {
 		if userHome, err := os.UserHomeDir(); err == nil {
 			home = userHome
@@ -602,11 +603,4 @@ func sortTasks(tasks []Task) {
 		}
 		return tasks[left].StartedAt.After(tasks[right].StartedAt)
 	})
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }

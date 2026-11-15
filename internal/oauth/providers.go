@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 // Flow selects how a provider delivers the authorization result.
@@ -70,13 +72,13 @@ func (r *Registry) ResolveConfig(name string, env map[string]string) (Config, Fl
 		preset, _ = lookupOAuthPreset(name)
 	}
 	cfg := Config{
-		ClientID:                    firstNonEmpty(strings.TrimSpace(envValue(env, envKey(name, "CLIENT_ID"))), preset.ClientID),
-		ClientSecret:                firstNonEmpty(strings.TrimSpace(envValue(env, envKey(name, "CLIENT_SECRET"))), preset.ClientSecret),
-		AuthorizationEndpoint:       firstNonEmpty(strings.TrimSpace(envValue(env, envKey(name, "AUTHORIZE_URL"))), preset.AuthorizationEndpoint),
-		TokenEndpoint:               firstNonEmpty(strings.TrimSpace(envValue(env, envKey(name, "TOKEN_URL"))), preset.TokenEndpoint),
-		DeviceAuthorizationEndpoint: firstNonEmpty(strings.TrimSpace(envValue(env, envKey(name, "DEVICE_URL"))), preset.DeviceAuthorizationEndpoint),
-		IssuerURL:                   firstNonEmpty(strings.TrimSpace(envValue(env, envKey(name, "ISSUER_URL"))), preset.IssuerURL),
-		Scopes:                      scopesOrPreset(envValue(env, envKey(name, "SCOPES")), preset.Scopes),
+		ClientID:                    firstNonEmpty(strings.TrimSpace(envstr.Value(env, envKey(name, "CLIENT_ID"))), preset.ClientID),
+		ClientSecret:                firstNonEmpty(strings.TrimSpace(envstr.Value(env, envKey(name, "CLIENT_SECRET"))), preset.ClientSecret),
+		AuthorizationEndpoint:       firstNonEmpty(strings.TrimSpace(envstr.Value(env, envKey(name, "AUTHORIZE_URL"))), preset.AuthorizationEndpoint),
+		TokenEndpoint:               firstNonEmpty(strings.TrimSpace(envstr.Value(env, envKey(name, "TOKEN_URL"))), preset.TokenEndpoint),
+		DeviceAuthorizationEndpoint: firstNonEmpty(strings.TrimSpace(envstr.Value(env, envKey(name, "DEVICE_URL"))), preset.DeviceAuthorizationEndpoint),
+		IssuerURL:                   firstNonEmpty(strings.TrimSpace(envstr.Value(env, envKey(name, "ISSUER_URL"))), preset.IssuerURL),
+		Scopes:                      scopesOrPreset(envstr.Value(env, envKey(name, "SCOPES")), preset.Scopes),
 	}
 	if cfg.ClientID == "" {
 		hint := ""
@@ -86,7 +88,7 @@ func (r *Registry) ResolveConfig(name string, env map[string]string) (Config, Fl
 		return Config{}, "", fmt.Errorf("oauth: provider %q is not configured; set %s (and its endpoints or an issuer)%s", name, envKey(name, "CLIENT_ID"), hint)
 	}
 	var flow Flow
-	switch strings.ToLower(strings.TrimSpace(envValue(env, envKey(name, "FLOW")))) {
+	switch strings.ToLower(strings.TrimSpace(envstr.Value(env, envKey(name, "FLOW")))) {
 	case "":
 		flow = preset.Flow
 		if flow == "" {

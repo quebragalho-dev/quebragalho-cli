@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 type Source string
@@ -176,9 +178,9 @@ func ResolveRoots(options ResolveRootOptions) ([]Root, error) {
 		return nil, err
 	}
 
-	configHome := strings.TrimSpace(envValue(options.Env, "XDG_CONFIG_HOME"))
+	configHome := strings.TrimSpace(envstr.Value(options.Env, "XDG_CONFIG_HOME"))
 	if configHome == "" {
-		home := strings.TrimSpace(firstNonEmpty(envValue(options.Env, "HOME"), envValue(options.Env, "USERPROFILE")))
+		home := strings.TrimSpace(firstNonEmpty(envstr.Value(options.Env, "HOME"), envstr.Value(options.Env, "USERPROFILE")))
 		if home == "" {
 			home, err = os.UserHomeDir()
 			if err != nil {
@@ -948,13 +950,6 @@ func resolveCwd(cwd string) (string, error) {
 		return "", err
 	}
 	return abs, nil
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func firstNonEmpty(values ...string) string {

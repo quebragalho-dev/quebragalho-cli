@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/keyring"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/securefile"
@@ -170,15 +171,15 @@ type storeFile struct {
 // ResolveStorePath determines the on-disk location for provider OAuth tokens,
 // honoring QG_OAUTH_TOKENS_PATH, then XDG_CONFIG_HOME, then the home dir.
 func ResolveStorePath(env map[string]string) (string, error) {
-	if override := strings.TrimSpace(envValue(env, "QG_OAUTH_TOKENS_PATH")); override != "" {
+	if override := strings.TrimSpace(envstr.Value(env, "QG_OAUTH_TOKENS_PATH")); override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
 		}
 		return filepath.Abs(override)
 	}
-	configHome := strings.TrimSpace(envValue(env, "XDG_CONFIG_HOME"))
+	configHome := strings.TrimSpace(envstr.Value(env, "XDG_CONFIG_HOME"))
 	if configHome == "" {
-		home := strings.TrimSpace(firstNonEmpty(envValue(env, "HOME"), envValue(env, "USERPROFILE")))
+		home := strings.TrimSpace(firstNonEmpty(envstr.Value(env, "HOME"), envstr.Value(env, "USERPROFILE")))
 		if home == "" {
 			var err error
 			home, err = os.UserHomeDir()
@@ -203,7 +204,7 @@ func ResolveStorePath(env map[string]string) (string, error) {
 // for that OS user, regardless of file-store overrides such as
 // QG_OAUTH_TOKENS_PATH, FilePath, or XDG_CONFIG_HOME.
 func ResolveKeyringLockPath(env map[string]string) (string, error) {
-	if override := strings.TrimSpace(envValue(env, "QG_OAUTH_KEYRING_LOCK_PATH")); override != "" {
+	if override := strings.TrimSpace(envstr.Value(env, "QG_OAUTH_KEYRING_LOCK_PATH")); override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
 		}
@@ -228,7 +229,7 @@ func NewStore(options StoreOptions) (*Store, error) {
 	}
 	storage := strings.TrimSpace(options.Storage)
 	if storage == "" {
-		storage = strings.TrimSpace(envValue(options.Env, "QG_OAUTH_STORAGE"))
+		storage = strings.TrimSpace(envstr.Value(options.Env, "QG_OAUTH_STORAGE"))
 	}
 	if storage == "" && options.Encrypted {
 		storage = "encrypted-file" // legacy alias
@@ -1026,17 +1027,6 @@ func FormatStatuses(statuses []Status) string {
 		}
 	}
 	return b.String()
-}
-
-// envValue reads a variable. A non-nil env map is authoritative (hermetic): a
-// missing key returns "" rather than falling back to the process environment, so
-// a caller/test that passes a controlled map can never pick up ambient
-// QG_OAUTH_* / HOME / XDG_CONFIG_HOME values. Only a nil map uses os.Getenv.
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func firstNonEmpty(values ...string) string {

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 // envWithPresetsAllowed returns an env map that opts into the baked-in presets
@@ -115,7 +116,7 @@ func lookupOAuthPreset(name string) (providerPreset, bool) {
 // out of the default credential path (a preset client_id is only ever used
 // after explicit opt-in).
 func presetsAllowed(env map[string]string) bool {
-	return envbool.Parse(envValue(env, "QG_OAUTH_ALLOW_PRESETS"), false)
+	return envbool.Parse(envstr.Value(env, "QG_OAUTH_ALLOW_PRESETS"), false)
 }
 
 // scopesOrPreset returns the env scopes (space-separated) when set, else the

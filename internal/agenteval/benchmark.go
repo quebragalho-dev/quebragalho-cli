@@ -136,7 +136,7 @@ func (harness Harness) runTask(ctx context.Context, suitePath string, suite Suit
 	})
 	taskReport.Agent = agentResult
 	if agentResult.Error != "" || agentResult.ExitCode != 0 {
-		reason := firstNonEmpty(agentResult.Error, strings.TrimSpace(agentResult.Stderr), fmt.Sprintf("agent exited with code %d", agentResult.ExitCode))
+		reason := firstNonEmptyExact(agentResult.Error, strings.TrimSpace(agentResult.Stderr), fmt.Sprintf("agent exited with code %d", agentResult.ExitCode))
 		taskReport.Report = Score(suite, ScoreInput{
 			TaskID:      task.ID,
 			Blocked:     true,

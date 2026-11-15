@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
@@ -2515,10 +2516,10 @@ func executeRequestPermissions(ctx context.Context, call ToolCall, args map[stri
 		permissionGranted = true
 	case PermissionDecisionCancel:
 		decision.Action = PermissionDecisionDeny
-		decisionReason = firstNonEmptyString(decisionReason, "continued without granting permissions")
+		decisionReason = envstr.FirstNonEmpty(decisionReason, "continued without granting permissions")
 	default:
 		decision.Action = PermissionDecisionDeny
-		decisionReason = firstNonEmptyString(decisionReason, "continued without granting permissions")
+		decisionReason = envstr.FirstNonEmpty(decisionReason, "continued without granting permissions")
 	}
 
 	if permissionGranted {
@@ -2656,15 +2657,6 @@ func requestPermissionsResult(call ToolCall, response sandbox.RequestPermissions
 		Output:     output,
 		Redacted:   redacted || didRedact,
 	}
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func persistPermissionGrant(toolName string, args map[string]any, reason string, options Options) (sandbox.Grant, error) {

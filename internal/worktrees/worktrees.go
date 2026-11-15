@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 type GitRunner func(context.Context, string, ...string) (CommandResult, error)
@@ -604,18 +606,18 @@ func resolveThroughNearestExistingAncestor(path string) string {
 
 func DefaultBaseDir(env map[string]string) (string, error) {
 	if runtime.GOOS == "windows" {
-		if localAppData := strings.TrimSpace(envValue(env, "LOCALAPPDATA")); localAppData != "" {
+		if localAppData := strings.TrimSpace(envstr.Value(env, "LOCALAPPDATA")); localAppData != "" {
 			return filepath.Join(localAppData, "qg", "worktrees"), nil
 		}
-		if profile := strings.TrimSpace(envValue(env, "USERPROFILE")); profile != "" {
+		if profile := strings.TrimSpace(envstr.Value(env, "USERPROFILE")); profile != "" {
 			return filepath.Join(profile, "AppData", "Local", "qg", "worktrees"), nil
 		}
 	}
 
-	if stateHome := strings.TrimSpace(envValue(env, "XDG_STATE_HOME")); stateHome != "" {
+	if stateHome := strings.TrimSpace(envstr.Value(env, "XDG_STATE_HOME")); stateHome != "" {
 		return filepath.Join(stateHome, "qg", "worktrees"), nil
 	}
-	home := strings.TrimSpace(firstNonEmpty(envValue(env, "HOME"), envValue(env, "USERPROFILE")))
+	home := strings.TrimSpace(firstNonEmpty(envstr.Value(env, "HOME"), envstr.Value(env, "USERPROFILE")))
 	if home == "" {
 		var err error
 		home, err = os.UserHomeDir()
@@ -800,13 +802,6 @@ func repoKey(repoRoot string) string {
 		base = "repo"
 	}
 	return base + "-" + hash
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func firstNonEmpty(values ...string) string {

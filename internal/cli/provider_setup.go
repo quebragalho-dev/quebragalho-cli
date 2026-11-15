@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgcommands"
@@ -462,7 +463,7 @@ func providerProfileForAdd(options providerAddOptions) (config.ProviderProfile, 
 	if apiKeyEnv == "" && len(descriptor.AuthEnvVars) > 0 {
 		apiKeyEnv = descriptor.AuthEnvVars[0]
 	}
-	baseURL := firstNonEmptyCLI(options.baseURL, descriptor.DefaultBaseURL)
+	baseURL := envstr.FirstNonEmpty(options.baseURL, descriptor.DefaultBaseURL)
 	var catalogHeaders map[string]string
 	if sameProviderSetupBaseURL(baseURL, descriptor.DefaultBaseURL) {
 		catalogHeaders = descriptor.CustomHeaders
@@ -480,7 +481,7 @@ func providerProfileForAdd(options providerAddOptions) (config.ProviderProfile, 
 		// Catalog attribution belongs only to the catalog endpoint. Explicit
 		// user headers still apply to an override/staging/proxy endpoint.
 		CustomHeaders: mergeProviderHeaders(catalogHeaders, options.customHeaders),
-		Model:         firstNonEmptyCLI(options.model, descriptor.DefaultModel),
+		Model:         envstr.FirstNonEmpty(options.model, descriptor.DefaultModel),
 	}
 	return profile, nil
 }
@@ -566,16 +567,6 @@ func firstAPIFormat(descriptor providercatalog.Descriptor) string {
 		return ""
 	}
 	return string(descriptor.SupportedAPIFormats[0])
-}
-
-func firstNonEmptyCLI(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func normalizeAuthScheme(value string) string {
