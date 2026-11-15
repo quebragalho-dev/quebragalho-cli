@@ -246,9 +246,10 @@ func NewStore(options StoreOptions) (*Store, error) {
 			return nil, err
 		}
 		// The file blob holds AES-256-GCM ciphertext; the per-user secret lives in
-		// a sibling ".secret" file managed by internal/securefile (which this
-		// backend used to duplicate; see encrypt.go removal).
-		return &Store{blob: fileBlob{path: path}, crypter: securefile.NewCrypter(path + ".secret"), now: now}, nil
+		// a sibling ".secret" file managed by internal/securefile. The secret's
+		// temp file is published through "<secret>.publish", the directory
+		// sandbox profiles deny by name, exactly like the pre-migration backend.
+		return &Store{blob: fileBlob{path: path}, crypter: securefile.NewCrypterWithTempDir(path+".secret", PublicationDir(path+".secret")), now: now}, nil
 	case "keyring":
 		kr := options.Keyring
 		if kr == nil {

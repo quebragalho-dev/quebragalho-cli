@@ -39,6 +39,11 @@ var (
 // persisted (0600) at secretPath.
 type Crypter struct {
 	secretPath string
+	// tempDir, when non-empty, is the directory the secret's random temp file
+	// is created in (same filesystem as secretPath, so the rename stays
+	// atomic). Empty means filepath.Dir(secretPath): the historical behavior
+	// kept by NewCrypter.
+	tempDir string
 }
 
 // NewCrypter returns a Crypter whose key lives at secretPath (created on first
@@ -47,11 +52,28 @@ func NewCrypter(secretPath string) *Crypter {
 	return &Crypter{secretPath: secretPath}
 }
 
+// NewCrypterWithTempDir is NewCrypter with an explicit publication directory
+// for the secret's temp file. Callers whose threat model needs the temp hidden
+// inside a denied directory (the OAuth token key, published through
+// "<secret>.publish" which sandbox profiles deny by name) pass it here;
+// the temp name stays random and the rename stays atomic.
+func NewCrypterWithTempDir(secretPath, tempDir string) *Crypter {
+	return &Crypter{secretPath: secretPath, tempDir: tempDir}
+}
+
+// secretTempDir resolves where the secret's temp file is created.
+func (c *Crypter) secretTempDir() string {
+	if c.tempDir != "" {
+		return c.tempDir
+	}
+	return filepath.Dir(c.secretPath)
+}
+
 // aead loads (or, when create is set, generates) the secret and returns the GCM
 // AEAD. Open passes create=false so a missing secret is a hard error rather than
 // silently minting a new key that could never decrypt the existing file.
 func (c *Crypter) aead(create bool) (cipher.AEAD, error) {
-	secret, err := loadOrCreateSecret(c.secretPath, create)
+	secret, err := loadOrCreateSecret(c.secretPath, create, c.secretTempDir())
 	if err != nil {
 		return nil, err
 	}
@@ -96,8 +118,9 @@ func (c *Crypter) Open(blob []byte) ([]byte, error) {
 
 // loadOrCreateSecret reads the 32-byte secret at path. When create is set and the
 // file is absent, it generates a random secret and creates the file atomically
-// (0600). A wrong-sized existing secret fails closed (corruption).
-func loadOrCreateSecret(path string, create bool) ([]byte, error) {
+// (0600). A wrong-sized existing secret fails closed (corruption). tempDir is
+// where the secret's temp file is published from (see NewCrypterWithTempDir).
+func loadOrCreateSecret(path string, create bool, tempDir string) ([]byte, error) {
 	if data, err := readSecretFileRetry(path); err == nil {
 		return data, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -109,10 +132,10 @@ func loadOrCreateSecret(path string, create bool) ([]byte, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	return createSecretFile(path)
+	return createSecretFile(path, tempDir)
 }
 
-func createSecretFile(path string) ([]byte, error) {
+func createSecretFile(path, tempDir string) ([]byte, error) {
 	lockPath := path + ".lock"
 	token := fmt.Sprintf("%d-%d-%d", os.Getpid(), time.Now().UnixNano(), secureLockSeq.Add(1))
 	var lastErr error
@@ -138,7 +161,7 @@ func createSecretFile(path string) ([]byte, error) {
 			} else if !errors.Is(rerr, os.ErrNotExist) {
 				return nil, rerr
 			}
-			return writeNewSecretFile(path)
+			return writeNewSecretFile(path, tempDir)
 		}
 		// On Windows a concurrent holder's os.Remove leaves the lock file in a
 		// "delete pending" state, so an O_EXCL create races it with
@@ -182,13 +205,18 @@ func reclaimStaleLock(lockPath, token string, staleAfter time.Duration) bool {
 	return true
 }
 
-func writeNewSecretFile(path string) ([]byte, error) {
+func writeNewSecretFile(path, tempDir string) ([]byte, error) {
 	secret := make([]byte, secretBytes)
 	if _, err := io.ReadFull(rand.Reader, secret); err != nil {
 		return nil, fmt.Errorf("securefile: generate secret: %w", err)
 	}
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if tempDir == "" {
+		tempDir = filepath.Dir(path)
+	}
+	if err := os.MkdirAll(tempDir, 0o700); err != nil {
+		return nil, fmt.Errorf("securefile: create secret temp dir: %w", err)
+	}
+	tmp, err := os.CreateTemp(tempDir, filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return nil, fmt.Errorf("securefile: create secret temp file: %w", err)
 	}

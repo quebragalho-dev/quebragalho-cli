@@ -23,7 +23,7 @@ func TestCreateSecretFileRetriesOnPermissionContention(t *testing.T) {
 		openSecretLockFile = origOpen
 	})
 
-	secret, err := createSecretFile(secretPath)
+	secret, err := createSecretFile(secretPath, "")
 	if err != nil {
 		t.Fatalf("createSecretFile should retry on permission contention: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestCreateSecretFileReclaimsStaleLock(t *testing.T) {
 	}
 
 	// Attempt to create the secret file; it should detect the stale lock, reclaim it, and succeed
-	secret, err := createSecretFile(secretPath)
+	secret, err := createSecretFile(secretPath, "")
 	if err != nil {
 		t.Fatalf("createSecretFile failed to reclaim stale lock: %v", err)
 	}
@@ -136,5 +136,45 @@ func TestCreateSecretFileReclaimsStaleLock(t *testing.T) {
 	// The lock file should be removed after completion
 	if _, err := os.Stat(lockPath); err == nil {
 		t.Fatal("expected lock file to be cleaned up after successful acquisition")
+	}
+}
+
+func TestSecretUsesCustomTempDir(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "sub", "k.secret")
+	pubDir := secretPath + ".publish"
+	c := NewCrypterWithTempDir(secretPath, pubDir)
+	if _, err := c.Seal([]byte("data")); err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+	// The secret itself still lands at secretPath.
+	if info, err := os.Stat(secretPath); err != nil || info.Size() != secretBytes {
+		t.Fatalf("secret stat = %v size check err=%v, want 32 bytes", info, err)
+	}
+	// The publication directory exists and holds no leftover temp.
+	pubEntries, err := os.ReadDir(pubDir)
+	if err != nil {
+		t.Fatalf("custom temp dir %s missing: %v", pubDir, err)
+	}
+	if len(pubEntries) != 0 {
+		t.Fatalf("custom temp dir holds leftovers: %v", pubEntries)
+	}
+	// No sibling temp beside the secret: the temp was born in pubDir.
+	hostEntries, err := os.ReadDir(filepath.Dir(secretPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range hostEntries {
+		if name := entry.Name(); name != "k.secret" && name != "k.secret.lock" && name != "k.secret.publish" {
+			t.Fatalf("unexpected sibling %q beside the secret; temp escaped the publication dir", name)
+		}
+	}
+	// The default constructor keeps the historical sibling behavior.
+	legacy := NewCrypter(filepath.Join(dir, "plain.secret"))
+	if _, err := legacy.Seal([]byte("data")); err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plain.secret")); err != nil {
+		t.Fatalf("default temp dir must stay beside the secret: %v", err)
 	}
 }
