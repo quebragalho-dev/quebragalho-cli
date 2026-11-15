@@ -7,6 +7,7 @@ QG.
 
 - [Install](INSTALL.md)
 - [Update flow](UPDATE.md)
+- [Environment variables](ENVIRONMENT.md)
 - [TUI themes](THEMES.md)
 - [TUI telemetry and statusline](TUI_TELEMETRY.md)
 
