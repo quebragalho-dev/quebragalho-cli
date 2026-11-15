@@ -589,19 +589,23 @@ func (m model) configText() string {
 }
 
 func (m model) debugText() string {
-	state := "idle"
+	state := "ociosa"
 	if m.pending {
-		state = "running"
+		state = "em execução"
+	}
+	pending := "não"
+	if m.pendingPermission != nil {
+		pending = "sim"
 	}
 	return renderCommandOutput(commandOutput{
-		Title:  "Debug",
+		Title:  "Depuração",
 		Status: commandStatusInfo,
 		Sections: []commandSection{{
-			Title: "Runtime",
+			Title: "Execução",
 			Lines: []string{
-				"run state: " + state,
-				"active run: " + fmt.Sprint(m.activeRunID),
-				"pending permission: " + boolText(m.pendingPermission != nil),
+				"estado da execução: " + state,
+				"execução ativa: " + fmt.Sprint(m.activeRunID),
+				"permissão pendente: " + pending,
 			},
 		}},
 	})
