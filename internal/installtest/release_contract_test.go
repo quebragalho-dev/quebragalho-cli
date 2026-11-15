@@ -19,7 +19,6 @@ import (
 var hostedRunnersByWorkflow = map[string][]string{
 	"ci.yml":                {"ubuntu-latest", "macos-latest"},
 	"release-artifacts.yml": {"ubuntu-latest"},
-	"pr-auto-review.yml":    {"ubuntu-latest"},
 	"qg-action-smoke.yml":   {"ubuntu-latest"},
 	"sdk.yml":               {"ubuntu-latest"},
 	"sdk-publish.yml":       {"ubuntu-latest"},
