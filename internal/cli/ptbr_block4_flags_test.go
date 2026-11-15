@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tui"
 )
 
@@ -39,5 +40,33 @@ func TestPTBRRootFlagErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Erros de flags do qg search falam português sem perder a flag literal.
+func TestPTBRSearchFlagErrors(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+		bad  []string
+	}{
+		{[]string{"search", "--bogus", "x"}, "flag de busca desconhecida \"--bogus\"", []string{"unknown search flag"}},
+		{[]string{"search", "--limit", "abc", "x"}, "--limit inválido \"abc\". Esperado um inteiro não negativo.", []string{"invalid", "non-negative integer"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps(tc.args, &stdout, &stderr, appDeps{newSessionStore: func() *sessions.Store {
+			return sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+		}})
+		if code != exitUsage {
+			t.Fatalf("%v exit = %d, want exitUsage; stderr=%q", tc.args, code, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v stderr missing %q, got %q", tc.args, tc.want, stderr.String())
+		}
+		for _, unwanted := range tc.bad {
+			if strings.Contains(stderr.String(), unwanted) {
+				t.Fatalf("%v stderr leaked English %q, got %q", tc.args, unwanted, stderr.String())
+			}
+		}
 	}
 }
