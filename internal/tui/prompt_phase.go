@@ -142,7 +142,7 @@ func promptEventLegal(phase PromptPhase, ev PromptEvent) bool {
 
 // promptPhase derives the current blocking-prompt phase from the live fields.
 // More than one pending* non-nil is an impossible split-brain: the first in
-// priority wins here and promptImpossible reports it.
+// priority wins here; the table forbids reaching it (second open is refused).
 func (m model) promptPhase() PromptPhase {
 	if m.peerPendingApproval != nil {
 		return PromptPeerApproval
@@ -160,24 +160,6 @@ func (m model) promptPhase() PromptPhase {
 		return PromptSpecReview
 	}
 	return PromptNone
-}
-
-// promptImpossible reports a split-brain the type allows but the table forbids.
-func (m model) promptImpossible() bool {
-	n := 0
-	if m.pendingPermission != nil {
-		n++
-	}
-	if m.pendingAskUser != nil {
-		n++
-	}
-	if m.pendingSpecReview != nil {
-		n++
-	}
-	if m.peerPendingApproval != nil {
-		n++
-	}
-	return n > 1
 }
 
 // promptArgs carries the optional payload for a transition.

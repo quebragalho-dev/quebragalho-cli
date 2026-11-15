@@ -149,10 +149,10 @@ func (m model) turnPhase() TurnPhase {
 //   - pendingStreamClear set without an active run (fires ClearScreen idle).
 //   - pending/activeRunID/runCancel out of sync.
 func (m model) validTurnState() bool {
-	if m.retryWait != nil && !(m.pending && m.activeRunID != 0) {
+	if m.retryWait != nil && (!m.pending || m.activeRunID == 0) {
 		return false
 	}
-	if m.pendingStreamClear && !(m.pending && m.activeRunID != 0) {
+	if m.pendingStreamClear && (!m.pending || m.activeRunID == 0) {
 		return false
 	}
 	if m.pending != (m.activeRunID != 0) {
