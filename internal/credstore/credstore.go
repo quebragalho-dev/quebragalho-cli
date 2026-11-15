@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/keyring"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/securefile"
 )
@@ -293,7 +294,7 @@ func (s *Store) write(data map[string]string) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("credstore: write: %w", err)
 	}
-	if err := os.Rename(tmpPath, s.file); err != nil {
+	if err := fsutil.RenameWithRetry(tmpPath, s.file, nil); err != nil {
 		return fmt.Errorf("credstore: publish: %w", err)
 	}
 	return nil

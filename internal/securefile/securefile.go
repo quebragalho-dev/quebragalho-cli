@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 const (
@@ -207,7 +209,7 @@ func writeNewSecretFile(path string) ([]byte, error) {
 	if cerr := tmp.Close(); cerr != nil {
 		return nil, fmt.Errorf("securefile: write secret: %w", cerr)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := fsutil.RenameWithRetry(tmpPath, path, nil); err != nil {
 		return nil, fmt.Errorf("securefile: publish secret: %w", err)
 	}
 	return secret, nil

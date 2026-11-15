@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 // RestoreReport summarizes a workspace restore.
@@ -290,7 +292,7 @@ func (store *Store) writeFileAtomic(path string, content []byte, mode uint32) er
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := fsutil.RenameWithRetry(tmp, path, nil); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
