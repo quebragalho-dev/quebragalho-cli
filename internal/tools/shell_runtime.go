@@ -549,7 +549,7 @@ func stripCmdCaretEscapes(command string) string {
 // quoted-text false positives the preflight command-position check exists to
 // avoid, just after execution instead of before it.
 
-func detectShellOutputIssueForRuntime(output string, shell shellRuntime) *shellIssue {
+func detectShellOutputIssueForRuntime(output string, shell shellRuntime, exitCode int, wrapped bool) *shellIssue {
 	if shell.GOOS != "windows" {
 		return nil
 	}
@@ -568,7 +568,65 @@ func detectShellOutputIssueForRuntime(output string, shell shellRuntime) *shellI
 			Suggestion: "Use Windows cmd.exe syntax. Quote args with | using double quotes (e.g. --jq \".a | b\"). Avoid | head; use --jq or PowerShell Select-Object -First N instead. Prefer native tools.",
 		}
 	}
+	if startupIssue := detectWindowsSandboxStartupIssue(lower, shell, exitCode, wrapped); startupIssue != nil {
+		return startupIssue
+	}
 	return nil
+}
+
+const windowsSandboxStartupKind = "windows_sandbox_startup"
+
+const windowsSandboxStartupSuggestion = "This is not a problem with your command; do not retry it unchanged. If the command is safe and necessary, rerun it with sandbox_permissions: \"require_escalated\" and a narrow justification."
+
+const windowsSandboxStartupShellSentence = " Other commands through this shell fail the same way inside the sandbox."
+
+// detectWindowsSandboxStartupIssue matches programs that cannot start inside
+// QG's write-restricted Windows sandbox. The restricted token blocks CLR
+// initialization (powershell 5.1, 0xFFFF0000), .NET/BCrypt startup (pwsh,
+// 0xE0434352 with its DLL marker) and some system tools at DLL init
+// (0xC0000142). It requires the wrapped (sandboxed) run, a non-zero startup
+// exit code and, for the .NET crash that also happens outside the sandbox,
+// its startup marker. MSYS/WSL markers above keep precedence.
+func detectWindowsSandboxStartupIssue(lower string, shell shellRuntime, exitCode int, wrapped bool) *shellIssue {
+	if shell.GOOS != "windows" || !wrapped || exitCode == 0 {
+		return nil
+	}
+	code := uint32(exitCode)
+	isPowerShellShell := shell.Kind == shellKindPowerShell
+	switch code {
+	case 0xFFFF0000:
+		return windowsSandboxStartupIssue(isPowerShellShell)
+	case 0xE0434352:
+		if strings.Contains(lower, "bcrypt.dll") ||
+			strings.Contains(lower, "dllnotfoundexception") ||
+			strings.Contains(lower, "8007045a") {
+			return windowsSandboxStartupIssue(isPowerShellShell)
+		}
+		return nil
+	case 0xC0000142:
+		// A generic tool failing at DLL init: never generalize to the shell.
+		return windowsSandboxStartupIssue(false)
+	default:
+		// HRESULT 80070005 is the CLR-init signature; it rides with 0xFFFF0000
+		// but is accepted on its own so a localized message or a nearby exit
+		// still hints instead of looping retries.
+		if strings.Contains(lower, "80070005") {
+			return windowsSandboxStartupIssue(isPowerShellShell && (code == 0xFFFF0000))
+		}
+		return nil
+	}
+}
+
+func windowsSandboxStartupIssue(powerShellShell bool) *shellIssue {
+	suggestion := windowsSandboxStartupSuggestion
+	if powerShellShell {
+		suggestion += windowsSandboxStartupShellSentence
+	}
+	return &shellIssue{
+		Kind:       windowsSandboxStartupKind,
+		Message:    "The program could not start inside QG's Windows sandbox (restricted-token limitation affecting PowerShell, .NET and some system tools).",
+		Suggestion: suggestion,
+	}
 }
 
 func msysRuntimeFailedInOutput(lower string) bool {

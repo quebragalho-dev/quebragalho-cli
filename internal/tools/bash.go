@@ -222,7 +222,7 @@ func (tool bashTool) run(ctx context.Context, args map[string]any, engine *qgSan
 		outText, errText, truncated := prepareBashOutput(stdoutText, stdout.total, stderrText, stderrTotal, meta, directBudget)
 		result := Result{
 			Status:    StatusError,
-			Output:    formatBashOutputWithShellHint(outText, errText, exitCode, meta),
+			Output:    formatBashOutputWithShellHint(outText, errText, exitCode, plan.Wrapped, meta),
 			Truncated: truncated,
 			Meta:      meta,
 		}
@@ -645,15 +645,20 @@ func truncateHeadTailWithTotal(value string, total, maxBytes int) (string, int, 
 	return utf8Prefix(value, head) + marker + utf8Suffix(value, tail), total, true
 }
 
-func formatBashOutputWithShellHint(stdout string, stderr string, exitCode int, meta map[string]string) string {
-	return formatBashOutputWithShellHintForGOOS(stdout, stderr, exitCode, meta, runtime.GOOS)
+func formatBashOutputWithShellHint(stdout string, stderr string, exitCode int, wrapped bool, meta map[string]string) string {
+	shell := detectShellRuntime(runtime.GOOS)
+	return formatBashOutputWithShellHintForRuntime(stdout, stderr, exitCode, wrapped, shell, meta)
 }
 
-func formatBashOutputWithShellHintForGOOS(stdout string, stderr string, exitCode int, meta map[string]string, goos string) string {
-	stdout = normalizeWindowsProcessOutputForGOOS(stdout, goos)
-	stderr = normalizeWindowsProcessOutputForGOOS(stderr, goos)
-	output := formatBashOutputForGOOS(stdout, stderr, exitCode, goos)
-	if issue := detectShellOutputIssueForRuntime(stdout+"\n"+stderr, detectShellRuntime(goos)); issue != nil {
+func formatBashOutputWithShellHintForGOOS(stdout string, stderr string, exitCode int, wrapped bool, meta map[string]string, goos string) string {
+	return formatBashOutputWithShellHintForRuntime(stdout, stderr, exitCode, wrapped, detectShellRuntime(goos), meta)
+}
+
+func formatBashOutputWithShellHintForRuntime(stdout string, stderr string, exitCode int, wrapped bool, shell shellRuntime, meta map[string]string) string {
+	stdout = normalizeWindowsProcessOutputForGOOS(stdout, shell.GOOS)
+	stderr = normalizeWindowsProcessOutputForGOOS(stderr, shell.GOOS)
+	output := formatBashOutputForGOOS(stdout, stderr, exitCode, shell.GOOS)
+	if issue := detectShellOutputIssueForRuntime(stdout+"\n"+stderr, shell, exitCode, wrapped); issue != nil {
 		meta["shell_issue"] = issue.Kind
 		output = appendShellIssueHint(output, *issue)
 	}

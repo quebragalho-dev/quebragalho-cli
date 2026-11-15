@@ -203,11 +203,11 @@ func TestWslServiceDeniedStillMatchesAfterConversion(t *testing.T) {
 	}
 	converted := normalizeWindowsProcessOutputForGOOS(utf16ish.String(), "windows")
 	shell := shellRuntime{GOOS: "windows", Executable: "cmd.exe", Syntax: "Windows cmd.exe", Kind: shellKindCmd}
-	if issue := detectShellOutputIssueForRuntime(converted, shell); issue == nil || issue.Kind != windowsMsysSandboxKind {
+	if issue := detectShellOutputIssueForRuntime(converted, shell, 1, true); issue == nil || issue.Kind != windowsMsysSandboxKind {
 		t.Fatalf("converted WSL output lost MSYS hint: %#v", issue)
 	}
 	// Unconverted input must keep working too (existing tests cover it, pinned here).
-	if issue := detectShellOutputIssueForRuntime(utf16ish.String(), shell); issue == nil || issue.Kind != windowsMsysSandboxKind {
+	if issue := detectShellOutputIssueForRuntime(utf16ish.String(), shell, 1, true); issue == nil || issue.Kind != windowsMsysSandboxKind {
 		t.Fatalf("raw UTF-16ish WSL output lost MSYS hint: %#v", issue)
 	}
 }

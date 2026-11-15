@@ -207,5 +207,5 @@ func detectShellOutputIssue(output string, goos string) *shellIssue {
 	if goos == "windows" {
 		shell = shellRuntime{GOOS: goos, Executable: "cmd.exe", Syntax: "Windows cmd.exe", Kind: shellKindCmd}
 	}
-	return detectShellOutputIssueForRuntime(output, shell)
+	return detectShellOutputIssueForRuntime(output, shell, 1, true)
 }
