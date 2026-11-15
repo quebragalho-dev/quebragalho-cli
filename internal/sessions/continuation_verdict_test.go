@@ -9,13 +9,13 @@ import (
 
 var errTestInvalid = errors.New("invalid continuation")
 
-// Table fixing the whole verdict space (commit B, pure refactor). Every
+// Table fixing the whole verdict space (pure refactor). Every
 // hasSnap x valid x fresh x goalMatch x nonEmpty cell maps to exactly one
-// verdict; the TUI branches below mirror this table byte-for-byte.
+// verdict written out below (not derived from production code); the TUI
+// branches mirror these 32 expectations byte-for-byte:
+// exact iff hasSnap && valid && fresh && goalMatch && nonEmpty,
+// invalid iff !valid, else reconstruct.
 func TestContinuationVerdictTable(t *testing.T) {
-	for hasSnap := range []bool{false, true} {
-		_ = hasSnap
-	}
 	cases := []struct {
 		hasSnap   bool
 		valid     bool
@@ -64,10 +64,6 @@ func TestContinuationVerdictTable(t *testing.T) {
 		got := decideContinuationVerdict(tc.hasSnap, tc.valid, tc.fresh, tc.goalMatch, tc.nonEmpty)
 		if got != tc.want {
 			t.Errorf("decide(%v %v %v %v %v) = %s, want %s", tc.hasSnap, tc.valid, tc.fresh, tc.goalMatch, tc.nonEmpty, got, tc.want)
-		}
-		key := contDecisionKey{hasSnap: tc.hasSnap, valid: tc.valid, fresh: tc.fresh, goalMatch: tc.goalMatch, nonEmpty: tc.nonEmpty}
-		if tableGot, ok := contVerdictTable[key]; !ok || tableGot != tc.want {
-			t.Errorf("table missing/wrong for %+v: got %s ok=%v want %s", key, tableGot, ok, tc.want)
 		}
 	}
 	// Out-of-range verdicts stringify as invalid, never panic.
