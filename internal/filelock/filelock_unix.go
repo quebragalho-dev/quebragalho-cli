@@ -1,6 +1,6 @@
 //go:build !windows
 
-package mcp
+package filelock
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-func tryLockPermissionFile(file *os.File) (bool, error) {
+func tryLockExclusive(file *os.File) (bool, error) {
 	err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err == nil {
 		return true, nil
@@ -19,6 +19,6 @@ func tryLockPermissionFile(file *os.File) (bool, error) {
 	return false, err
 }
 
-func unlockPermissionFile(file *os.File) error {
+func unlock(file *os.File) error {
 	return syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 }

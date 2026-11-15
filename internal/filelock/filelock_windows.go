@@ -1,6 +1,6 @@
 //go:build windows
 
-package mcp
+package filelock
 
 import (
 	"errors"
@@ -22,7 +22,7 @@ var (
 	procUnlockFileEx = kernel32.NewProc("UnlockFileEx")
 )
 
-func tryLockPermissionFile(file *os.File) (bool, error) {
+func tryLockExclusive(file *os.File) (bool, error) {
 	var overlapped syscall.Overlapped
 	result, _, err := procLockFileEx.Call(
 		file.Fd(),
@@ -44,7 +44,7 @@ func tryLockPermissionFile(file *os.File) (bool, error) {
 	return false, err
 }
 
-func unlockPermissionFile(file *os.File) error {
+func unlock(file *os.File) error {
 	var overlapped syscall.Overlapped
 	result, _, err := procUnlockFileEx.Call(
 		file.Fd(),

@@ -14,6 +14,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/filelock"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
@@ -928,14 +929,14 @@ func (store *GrantStore) lockStateFile() (func(), error) {
 	}
 	deadline := time.Now().Add(grantLockTimeout)
 	for {
-		locked, err := tryLockGrantFile(file)
+		locked, err := filelock.TryLockExclusive(file)
 		if err != nil {
 			_ = file.Close()
 			return nil, err
 		}
 		if locked {
 			return func() {
-				_ = unlockGrantFile(file)
+				_ = filelock.Unlock(file)
 				_ = file.Close()
 			}, nil
 		}

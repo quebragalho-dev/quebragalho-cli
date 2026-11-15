@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/filelock"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
@@ -466,14 +467,14 @@ func (store *PermissionStore) lockStateFile() (func(), error) {
 	}
 	deadline := time.Now().Add(permissionLockTimeout)
 	for {
-		locked, err := tryLockPermissionFile(file)
+		locked, err := filelock.TryLockExclusive(file)
 		if err != nil {
 			_ = file.Close()
 			return nil, err
 		}
 		if locked {
 			return func() {
-				_ = unlockPermissionFile(file)
+				_ = filelock.Unlock(file)
 				_ = file.Close()
 			}, nil
 		}
