@@ -249,6 +249,55 @@ func TestTaskToolRunsBackgroundSpecialist(t *testing.T) {
 	}
 }
 
+// An instant-exit child (the waiter records completed before SetPID runs)
+// still launches successfully: SetPID on the terminal task is a silent
+// no-op that stores nothing, so the launch never takes the kill-pid and
+// fail-launch path. If the terminate path were taken, the result would be
+// an error (the old SetPID-error behavior) instead of StatusOK.
+func TestTaskToolInstantExitChildLaunchesSuccessfully(t *testing.T) {
+	manager, err := background.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	executor := Executor{
+		BinaryPath:        "/usr/local/bin/qg",
+		BackgroundManager: manager,
+		NewSessionID:      func() (string, error) { return "child_task", nil },
+		Load: func(LoadOptions) (LoadResult, error) {
+			return LoadResult{Specialists: []Manifest{{
+				Metadata:      Metadata{Name: "worker", Description: "Does focused work"},
+				SystemPrompt:  "Work carefully.",
+				ResolvedTools: []string{"read_file"},
+			}}}, nil
+		},
+		LaunchBackground: func(binaryPath string, args []string, outputFile string, onExit func(exitCode int)) (int, error) {
+			onExit(0)
+			return 4321, nil
+		},
+	}
+
+	result := NewTaskTool(executor).RunWithOptions(context.Background(), map[string]any{
+		"name":              "worker",
+		"prompt":            "inspect auth",
+		"description":       "Auth check",
+		"run_in_background": true,
+	}, tools.RunOptions{SessionID: "parent_session"})
+
+	if result.Status != tools.StatusOK {
+		t.Fatalf("instant-exit launch result = %#v, want success", result)
+	}
+	task, ok := manager.Get("child_task")
+	if !ok {
+		t.Fatal("background task was not registered")
+	}
+	if task.Status != background.StatusCompleted || task.ExitCode != 0 {
+		t.Fatalf("instant-exit task = %#v, want completed with exit 0", task)
+	}
+	if task.PID != 0 {
+		t.Fatalf("instant-exit task stored pid %d, want nothing stored", task.PID)
+	}
+}
+
 func TestTaskToolRejectsCanceledBackgroundBeforeRegistering(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

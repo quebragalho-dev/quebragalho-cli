@@ -257,6 +257,61 @@ func TestTaskKillFailedRestoreParity(t *testing.T) {
 	})
 }
 
+// SetPID on a terminal task is a silent no-op (nil) that stores nothing:
+// the launch-result parity the instant-exit race depends on, with the
+// invariant (never store a pid on a terminal task) intact. The table still
+// calls it illegal; only the public method maps it to nil.
+func TestTaskSetPIDOnTerminalIsSilentNoOp(t *testing.T) {
+	root := t.TempDir()
+	manager, err := NewManagerWithOptions(ManagerOptions{
+		RootDir:     root,
+		KillProcess: func(pid int) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("NewManagerWithOptions error = %v", err)
+	}
+	for _, terminal := range []Status{StatusCompleted, StatusError, StatusKilled} {
+		id := "t-" + string(terminal)
+		if _, err := manager.Register(RegisterInput{TaskID: id, Type: "specialist"}); err != nil {
+			t.Fatalf("Register error = %v", err)
+		}
+		switch terminal {
+		case StatusCompleted:
+			if err := manager.UpdateStatus(id, StatusCompleted, 0); err != nil {
+				t.Fatalf("UpdateStatus error = %v", err)
+			}
+		case StatusError:
+			if err := manager.UpdateStatus(id, StatusError, -1); err != nil {
+				t.Fatalf("UpdateStatus error = %v", err)
+			}
+		case StatusKilled:
+			manager.mu.Lock()
+			_, err := manager.transitionLocked(id, taskEventKill, StatusKilled, -1, 0)
+			manager.mu.Unlock()
+			if err != nil {
+				t.Fatalf("kill transition error = %v", err)
+			}
+		}
+		rawBefore, err := os.ReadFile(filepath.Join(root, id+".json"))
+		if err != nil {
+			t.Fatalf("read persisted task: %v", err)
+		}
+		if err := manager.SetPID(id, 4321); err != nil {
+			t.Fatalf("SetPID on %s: got error %v, want silent nil", terminal, err)
+		}
+		if task, _ := manager.Get(id); task.PID != 0 {
+			t.Fatalf("SetPID on %s stored pid %d, want record untouched: %#v", terminal, task.PID, task)
+		}
+		rawAfter, err := os.ReadFile(filepath.Join(root, id+".json"))
+		if err != nil {
+			t.Fatalf("read persisted task: %v", err)
+		}
+		if string(rawAfter) != string(rawBefore) {
+			t.Fatalf("SetPID on %s rewrote JSON:\nbefore %s\nafter %s", terminal, rawBefore, rawAfter)
+		}
+	}
+}
+
 // Same-terminal UpdateStatus is an idempotent no-op: it keeps the first
 func TestTaskUpdateStatusSameTerminalIsIdempotent(t *testing.T) {
 	root := t.TempDir()
@@ -319,7 +374,6 @@ func TestTaskRefusedTransitionLeavesPersistedJSONUntouched(t *testing.T) {
 	}{
 		{"update-to-running", func() error { return manager.UpdateStatus("t", StatusRunning, 0) }},
 		{"update-to-error", func() error { return manager.UpdateStatus("t", StatusError, -1) }},
-		{"setpid", func() error { return manager.SetPID("t", 11) }},
 		{"kill", func() error { return manager.Kill("t") }},
 	} {
 		if err := tc.call(); err == nil {

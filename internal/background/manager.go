@@ -271,6 +271,19 @@ func (manager *Manager) SetPID(taskID string, pid int) error {
 
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	task, ok := manager.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("background task not found: %s", taskID)
+	}
+	if task.Status != StatusRunning {
+		// Launch/result parity: an already-terminal task (instant-exit
+		// child whose waiter already recorded the exit) keeps its record
+		// untouched and reports no error, so the launch still succeeds.
+		// The table still calls this transition illegal; this public
+		// method just does not turn it into an error, and never stores
+		// a possibly-recycled pid on a terminal task.
+		return nil
+	}
 	_, err := manager.transitionLocked(taskID, taskEventSetPID, StatusRunning, 0, pid)
 	return err
 }
