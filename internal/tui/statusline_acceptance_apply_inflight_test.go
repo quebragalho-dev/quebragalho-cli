@@ -17,7 +17,8 @@ import (
 // run first lists the other runs still alive (zombies excluded), so a run
 // started on top of another records the overlap itself.
 func slInflightScript(dir string) string {
-	return `cat >/dev/null
+	return `ts=$(perl -MTime::HiRes=time -e 'printf "%.6f\n", time')
+cat >/dev/null
 d='` + dir + `'
 : > "$d/run.$$"
 others=''
@@ -33,10 +34,10 @@ done
 if [ -e "$d/slow" ]; then
 	sleep 30 &
 	echo "$!" > "$d/child.$$"
-	printf 'start %s slow alive:%s\n' "$$" "$others" >> "$d/runs.log"
+	printf '%s start %s slow alive:%s\n' "$ts" "$$" "$others" >> "$d/runs.log"
 	wait
 else
-	printf 'start %s fast alive:%s\n' "$$" "$others" >> "$d/runs.log"
+	printf '%s start %s fast alive:%s\n' "$ts" "$$" "$others" >> "$d/runs.log"
 	sleep 0.3
 fi
 printf 'SL-INFLIGHT\n'`

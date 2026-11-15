@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,22 +18,28 @@ import (
 
 // Run budget of the external statusline command and the footer line it is
 // owed. Runs are observed from outside: the script appends one line per
-// run to a log, and the pump stamps each line when it first appears.
+// run to a log, stamping each line itself with the wall-clock time at run
+// start; the pump parses that stamp instead of stamping when the new line
+// is first noticed, so a slow pump never shrinks a measured gap.
 
 // slRefreshSlack is how far an idle run may trail its refreshMs deadline
 // (pump polling, process start, a loaded machine).
 const slRefreshSlack = 300 * time.Millisecond
 
 // slTickGapTolerance is how far a measured run-to-run gap may fall short of
-// refreshMs. The runs are stamped when the pump first sees their log line,
-// so each stamp lags the true run start by one pump iteration (a View render
-// plus process scheduling). Under -race on slow CI that lag reaches ~150ms
-// per stamp and differs per run, and the observed shortfalls reached 377ms;
-// 300ms keeps the check meaningful (a stale tick refiring at once reads
-// ~0ms) while absorbing the quantization.
+// refreshMs. The runs carry the script's own start stamp, so the remaining
+// shortfall is only scheduling jitter (process start, timer re-arm); 300ms
+// keeps the check meaningful (a stale tick refiring at once reads ~0ms).
 const slTickGapTolerance = 300 * time.Millisecond
 
-// slRunLog stamps each line a statusline script appends, one per run.
+// slRunLog reads the lines a statusline script appends, one per run. Each
+// line starts with the script's own start stamp
+// (`perl -MTime::HiRes=time`, seconds since the epoch with microsecond
+// resolution, portable across macOS and Linux), followed by a space and the
+// payload the test asserts on; poll splits the two, keeping the stamp in at
+// and the payload in vals. A line without a parseable stamp falls back to
+// the observation time so a script that forgot the stamp reads as before
+// instead of failing to parse.
 type slRunLog struct {
 	path string
 	at   []time.Time
@@ -42,9 +49,29 @@ type slRunLog struct {
 func (l *slRunLog) poll() {
 	lines := fileLines(l.path)
 	for len(l.at) < len(lines) {
-		l.vals = append(l.vals, lines[len(l.at)])
-		l.at = append(l.at, time.Now())
+		l.vals = append(l.vals, slRunValue(lines[len(l.at)]))
+		l.at = append(l.at, slRunTime(lines[len(l.at)]))
 	}
+}
+
+// slRunTime parses the "<epoch> <payload>" stamp the script wrote when the
+// run started.
+func slRunTime(line string) time.Time {
+	head, _, _ := strings.Cut(line, " ")
+	if f, err := strconv.ParseFloat(strings.TrimSpace(head), 64); err == nil && f > 1e9 {
+		sec, frac := math.Modf(f)
+		return time.Unix(int64(sec), int64(frac*1e9))
+	}
+	return time.Now()
+}
+
+// slRunValue strips the "<epoch> " stamp, leaving the payload the test
+// asserts on.
+func slRunValue(line string) string {
+	if _, rest, ok := strings.Cut(line, " "); ok {
+		return rest
+	}
+	return line
 }
 
 func (l *slRunLog) pumpFor(p *slPump, d time.Duration) {
@@ -195,11 +222,12 @@ func TestStatusLineAcceptance_TurnCausesOneRunWithEndOfTurnState(t *testing.T) {
 	gate := filepath.Join(env.root, "gate")
 	// Each run logs context.used from its stdin. The first run holds until
 	// the gate opens, so turn 1 lands while it is in flight.
-	command := writeScript(t, env, "uso.sh", `s=$(cat)
+	command := writeScript(t, env, "uso.sh", `ts=$(perl -MTime::HiRes=time -e 'printf "%.6f\n", time')
+s=$(cat)
 u=$(printf '%s' "$s" | sed -n 's/.*"used":\([0-9a-z]*\).*/\1/p')
 first=0
 [ -f '`+log+`' ] || first=1
-printf '%s\n' "$u" >> '`+log+`'
+printf '%s %s\n' "$ts" "$u" >> '`+log+`'
 if [ "$first" = 1 ]; then while [ ! -f '`+gate+`' ]; do sleep 0.05; done; fi
 printf 'SL-USED-%s\n' "$u"`)
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, refreshMS: 60000, timeoutMS: 8000})
@@ -247,9 +275,10 @@ func TestStatusLineAcceptance_IdleTickCountsFromLastRun(t *testing.T) {
 	requireSh(t)
 	env := newSLEnv(t)
 	log := filepath.Join(env.root, "runs.log")
-	command := writeScript(t, env, "tick.sh", `s=$(cat)
+	command := writeScript(t, env, "tick.sh", `ts=$(perl -MTime::HiRes=time -e 'printf "%.6f\n", time')
+s=$(cat)
 u=$(printf '%s' "$s" | sed -n 's/.*"used":\([0-9a-z]*\).*/\1/p')
-printf '%s\n' "$u" >> '`+log+`'
+printf '%s %s\n' "$ts" "$u" >> '`+log+`'
 printf 'SL-TICK\n'`)
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, refreshMS: 1000, timeoutMS: 8000})
 	p := startSLPump(t, newSLChattyModel(t, env, 5), 120, 40)
@@ -345,7 +374,7 @@ func TestStatusLineAcceptance_IdleRefreshCadenceAndTurnRefresh(t *testing.T) {
 	requireSh(t)
 	env := newSLEnv(t)
 	log := filepath.Join(env.root, "runs.log")
-	command := writeScript(t, env, "idle.sh", "cat >/dev/null\nprintf 'run\\n' >> '"+log+"'\nprintf 'SL-IDLE\\n'")
+	command := writeScript(t, env, "idle.sh", "ts=$(perl -MTime::HiRes=time -e 'printf \"%.6f\\n\", time')\ncat >/dev/null\nprintf '%s run\\n' \"$ts\" >> '"+log+"'\nprintf 'SL-IDLE\\n'")
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, refreshMS: 1000, timeoutMS: 8000})
 	p := startSLPump(t, newSLChattyModel(t, env, 5), 120, 40)
 	runs := &slRunLog{path: log}
