@@ -2735,92 +2735,40 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.runID != m.activeRunID {
 			return m, nil
 		}
-		// A new tool call opened — reset the live "writing" block to it.
-		m.streamCallID = msg.id
-		m.streamCallName = msg.name
-		m.streamCallDecoder = newStreamingDecoder()
-		m.muteStreamLive()
-		return m, nil
+		// A new tool call opens the live "writing" block. The transition
+		// owns the tool triple and the estimate mute.
+		cmd, _ := m.streamTransition(StreamEvToolStart, streamArgs{toolID: msg.id, toolName: msg.name})
+		return m, cmd
 	case toolCallStreamDeltaMsg:
-		if msg.runID != m.activeRunID || msg.id != m.streamCallID || m.streamCallDecoder == nil {
+		if msg.runID != m.activeRunID {
 			return m, nil
 		}
-		m.streamCallDecoder.feed(msg.fragment)
-		m.countStreamEstimate(msg.fragment)
-		m.lastStreamActivity = m.now()
-		return m, nil
+		// A fragment for a superseded call (or outside a tool phase) is
+		// dropped by the transition, never fed.
+		cmd, err := m.streamTransition(StreamEvToolDelta, streamArgs{toolID: msg.id, fragment: msg.fragment})
+		if err != nil {
+			return m, nil
+		}
+		return m, cmd
 	case agentTextMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
 		}
-		// Streaming text means any in-progress tool call has finished — clear the
-		// live "writing" block so it doesn't linger over new prose.
-		m.clearStreamingToolCall()
-		m.streamingText = append(m.streamingText, msg.delta...)
-		m.countStreamEstimate(msg.delta)
-		// recordStreamingDelta appends a time.Time to lineAges for every
-		// newline in the delta and bumps lastStreamActivity. It also
-		// re-stamps the in-progress last entry so the line that's still
-		// being filled stays visibly fresh.
-		m.recordStreamingDelta(msg.delta)
-		var cmds []tea.Cmd
-		// The streaming caret (appendStreamingCursor) is appended to whatever
-		// visual line is currently last. Some terminal/renderer combinations
-		// (observed over multipass + Windows Terminal) fail to clear the
-		// caret's old cell when a newline moves it to a new line, leaving
-		// ghost carets behind. A newline is exactly the moment that risk
-		// exists, so force one full-screen redraw right then rather than
-		// leaving it to the incremental diff. Rate-limited: heavy streaming
-		// output (code, logs, diffs) would otherwise turn every coalesced
-		// newline into a full-screen repaint, a real throughput/latency cost
-		// on SSH and slow links. ~10 redraws/second is enough to keep the
-		// caret clean without dominating the write path; terminals that
-		// render scroll regions correctly can opt out entirely with
-		// QG_NO_STREAM_CLEAR=1. A newline that arrives inside the throttle
-		// window still owes a repair — it's marked pending and a one-shot
-		// timer is scheduled to flush it (see streamClearFlushMsg), instead
-		// of being dropped outright. That covers a throttled newline that
-		// turns out to be the turn's last one (agentResponseMsg also flushes
-		// any still-pending clear at stream end, belt-and-suspenders) as
-		// well as one buried in the middle of a long, still-streaming turn.
-		if strings.Contains(msg.delta, "\n") && !m.streamClearDisabled {
-			now := m.now()
-			if elapsed := now.Sub(m.lastStreamClear); elapsed >= streamClearThrottle {
-				m.lastStreamClear = now
-				m.pendingStreamClear = false
-				cmds = append(cmds, tea.ClearScreen)
-			} else if !m.pendingStreamClear {
-				m.pendingStreamClear = true
-				cmds = append(cmds, scheduleStreamClearFlush(streamClearThrottle-elapsed))
-			}
+		// The stream-clear throttle is decided here so the transition table
+		// keeps the two halves (immediate clear vs deferred) as distinct
+		// events; the transition performs the matching half.
+		ev := StreamEvText
+		if strings.Contains(msg.delta, "\n") && !m.streamClearDisabled && m.streamClearThrottled() {
+			ev = StreamEvClearThrottle
 		}
-		// The fade's tick is self-perpetuating (the streamingFadeTickMsg
-		// case schedules the next one). Schedule the FIRST tick only on
-		// the inactive→active transition; subsequent deltas just refresh
-		// state and rely on the existing tick chain.
-		// When the fade is disabled (QG_NO_FADE / SSH / tmux / low-color),
-		// fadeActive stays false so styleStreamingLine renders streaming text
-		// statically at base ink, and no self-perpetuating tick is scheduled.
-		if !m.fadeDisabled {
-			startTick := !m.fadeActive
-			m.fadeActive = true
-			if startTick {
-				cmds = append(cmds, streamingFadeTick())
-			}
-		}
-		return m, tea.Batch(cmds...)
+		cmd, _ := m.streamTransition(ev, streamArgs{delta: msg.delta})
+		return m, cmd
 	case agentReasoningMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
 		}
-		m.streamingReasoning += msg.delta
-		m.countStreamEstimate(msg.delta)
-		// Reasoning IS live provider output, so refresh the activity clock — else the
-		// quiet-generation hint can wrongly read "still generating…" mid-think.
-		if msg.delta != "" {
-			m.lastStreamActivity = m.now()
-		}
-		return m, nil
+		cmd, _ := m.streamTransition(StreamEvReasoning, streamArgs{delta: msg.delta})
+		return m, cmd
 	case agentRetryWaitMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
@@ -2833,13 +2781,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.discarded {
 			// The failed attempt's live text vanishes: the retry re-sends
-			// clean context and streams the answer whole, so keeping the
-			// partial would show it twice. Committed transcript rows are
-			// untouched; the retry notice (reasoning) and the countdown
-			// segment mark what happened.
-			m.streamingText = nil
-			m.clearStreamingToolCall()
-			m.resetStreamingFade()
+			// clean context and streams the answer whole. The transition
+			// drops text/tool/fade; reasoning and a pending clear survive.
+			_, _ = m.streamTransition(StreamEvRetryDiscard, streamArgs{})
 		}
 		return m, nil
 	case agentRetryClearMsg:
@@ -2924,19 +2868,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, streamingFadeTick()
 	case streamClearFlushMsg:
 		// Flush a newline-triggered redraw that the stream-clear throttle
-		// deferred (see agentTextMsg) once its window has elapsed. This runs
-		// independent of the streaming fade (which is unconditionally off —
-		// fadeDisabled is hardcoded true in newModel — so its tick can't be
-		// relied on to drive this), and independent of stream end: a turn
-		// that keeps streaming for a while after the throttled newline would
-		// otherwise leave the ghost caret up for the rest of the turn.
-		now := m.now()
-		if m.pendingStreamClear && now.Sub(m.lastStreamClear) >= streamClearThrottle {
-			m.lastStreamClear = now
-			m.pendingStreamClear = false
-			return m, tea.ClearScreen
-		}
-		return m, nil
+		// deferred (see the agentTextMsg events) once its window has elapsed.
+		// Independent of the streaming fade tick and of stream end; a no-op
+		// when nothing is pending or the window has not elapsed yet.
+		cmd, _ := m.streamTransition(StreamEvClearFlush, streamArgs{})
+		return m, cmd
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -3144,28 +3080,9 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		m.clearStreamingToolCall() // active run finished — drop any lingering "writing" block
 		m.pending = false
 		m.subagents.settleRun(m.now())
-		hadPendingClear := m.pendingStreamClear
-		m.clearTurnTransient()           // same set as begin/cancel: retryWait + pendingStreamClear
 		m = m.disarmCancelConfirmation() // the run finished on its own — nothing left to confirm cancelling
-		// A newline-triggered redraw deferred by the stream-clear throttle
-		// (see agentTextMsg) may never get a later newline or fade tick to
-		// flush it if this was the turn's last delta — flush it here so the
-		// ghost caret isn't left behind at stream end.
-		var pendingClearCmd tea.Cmd
-		if hadPendingClear {
-			pendingClearCmd = tea.ClearScreen
-		}
-		// Fully reset the fade state at stream end. The next render
-		// emits the final row in solid ink (no settling animation), and
-		// the pending streamingFadeTickMsg that lands after this point
-		// short-circuits because fadeActive is false. Clearing lineAges
-		// and lastStreamActivity here too prevents stale age data from
-		// carrying over to the next turn (and stops lineAges from
-		// growing indefinitely across many runs).
-		m.resetStreamingFade()
 		// The run is complete: release its context now instead of waiting for the
 		// parent context — every prompt leaked a CancelFunc (and its timer
 		// resources) until app exit otherwise.
@@ -3259,9 +3176,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowSystem, text: notice})
 			}
 		}
-		m.streamingText = nil
-		m.streamingReasoning = ""
-		m.streamingReasoningExpanded = false
+		// The transition zeroes every stream twin (live text/reasoning, tool
+		// triple, fade latch/ages, deferred clear, live estimate — the same
+		// set as begin/cancel) and flushes a still-pending clear as a
+		// ClearScreen, so a throttled newline that was the turn's last delta
+		// still gets its caret repaired. It runs here, after the failed-turn
+		// partial commit above reads the live buffers, and before the next
+		// turn can launch below. The next render emits the final row in
+		// solid ink, and the pending streamingFadeTickMsg that lands after
+		// this point short-circuits because fadeActive is false.
+		pendingClearCmd, _ := m.streamTransition(StreamEvEnd, streamArgs{})
+		m.clearTurnTransient() // same set as begin/cancel: retryWait + pendingStreamClear
 		if msg.goalAware {
 			m = m.reconcileGoalAfterRun(msg.usageEvents, msg.err)
 		}
@@ -6423,10 +6348,13 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	// next launch can only drain its own leftovers, never the next run's
 	// interleaves. The closure in runAgentWithOptions binds this buffer.
 	m.interleave = &interleaveBuffer{}
-	// A new run means a new retry budget and no inherited stream-clear:
-	// never carry a previous turn's countdown or deferred ClearScreen into
-	// this one. Single owner: clearTurnTransient (same set as cancel/end).
+	// A new run means a new retry budget and no inherited stream state:
+	// never carry a previous turn's countdown, deferred ClearScreen, live
+	// text/tool/fade or live estimate into this one. The turn twins stay
+	// with clearTurnTransient (same set as cancel/end); every stream twin
+	// goes through the stream transition in the same place.
 	m.clearTurnTransient()
+	_, _ = m.streamTransition(StreamEvBegin, streamArgs{})
 	// Fresh signal per run: a run's wakeups never leak into the next run —
 	// the same rule as the interleave buffer. The concrete Signal rides into
 	// the agent via options.YieldNow (see runAgentWithOptions).
@@ -6734,17 +6662,11 @@ func (m *model) cancelRun(keepQueuedMessages ...bool) {
 	// Cancelled runs must not leak a retry countdown or a deferred
 	// ClearScreen into idle. Single owner: clearTurnTransient (same set as
 	// begin/end); no ClearScreen is emitted here — a cancelled turn never
-	// redraws, it just drops the pending clear.
+	// redraws, it just drops the pending clear. The stream transition zeroes
+	// every other stream twin (live text/reasoning, tool triple, fade, live
+	// estimate) in the same place the end path does.
 	m.clearTurnTransient()
-	// The interim block renders streamingText live; a cancelled run's partial
-	// answer must not leak into (and concatenate with) the next turn's stream.
-	m.streamingText = nil
-	m.streamingReasoning = ""
-	m.streamingReasoningExpanded = false
-	// Hard-stop the fade and drop the per-line age map. The next turn's
-	// first agentTextMsg will seed a fresh lineAges slice and restart
-	// the tick.
-	m.resetStreamingFade()
+	_, _ = m.streamTransition(StreamEvCancel, streamArgs{})
 }
 
 func (m model) runAgent(runID int, runCtx context.Context, prompt string, images []qgruntime.ImageBlock) tea.Cmd {
