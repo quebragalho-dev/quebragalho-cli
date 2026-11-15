@@ -3149,15 +3149,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearStreamingToolCall() // active run finished — drop any lingering "writing" block
 		m.pending = false
 		m.subagents.settleRun(m.now())
-		m.retryWait = nil                // the run settled — no retry countdown can be in flight
+		hadPendingClear := m.pendingStreamClear
+		m.clearTurnTransient()           // same set as begin/cancel: retryWait + pendingStreamClear
 		m = m.disarmCancelConfirmation() // the run finished on its own — nothing left to confirm cancelling
 		// A newline-triggered redraw deferred by the stream-clear throttle
 		// (see agentTextMsg) may never get a later newline or fade tick to
 		// flush it if this was the turn's last delta — flush it here so the
 		// ghost caret isn't left behind at stream end.
 		var pendingClearCmd tea.Cmd
-		if m.pendingStreamClear {
-			m.pendingStreamClear = false
+		if hadPendingClear {
 			pendingClearCmd = tea.ClearScreen
 		}
 		// Fully reset the fade state at stream end. The next render
@@ -6423,9 +6423,10 @@ func (m model) beginRun(cancel context.CancelFunc) model {
 	// next launch can only drain its own leftovers, never the next run's
 	// interleaves. The closure in runAgentWithOptions binds this buffer.
 	m.interleave = &interleaveBuffer{}
-	// A new run means a new retry budget: never carry a previous turn's
-	// countdown into this one.
-	m.retryWait = nil
+	// A new run means a new retry budget and no inherited stream-clear:
+	// never carry a previous turn's countdown or deferred ClearScreen into
+	// this one. Single owner: clearTurnTransient (same set as cancel/end).
+	m.clearTurnTransient()
 	// Fresh signal per run: a run's wakeups never leak into the next run —
 	// the same rule as the interleave buffer. The concrete Signal rides into
 	// the agent via options.YieldNow (see runAgentWithOptions).
@@ -6730,6 +6731,11 @@ func (m *model) cancelRun(keepQueuedMessages ...bool) {
 	m.cancelConfirmActive = false // whatever path got here, there's nothing left to confirm cancelling
 	m.plan.frozenAt = m.now()     // freeze the plan clock while idle (no run in flight)
 	_ = m.promptTransition(PromptEvCancelAll, promptArgs{})
+	// Cancelled runs must not leak a retry countdown or a deferred
+	// ClearScreen into idle. Single owner: clearTurnTransient (same set as
+	// begin/end); no ClearScreen is emitted here — a cancelled turn never
+	// redraws, it just drops the pending clear.
+	m.clearTurnTransient()
 	// The interim block renders streamingText live; a cancelled run's partial
 	// answer must not leak into (and concatenate with) the next turn's stream.
 	m.streamingText = nil
