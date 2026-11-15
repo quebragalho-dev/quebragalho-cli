@@ -1506,10 +1506,12 @@ func TestStatusLineAcceptance_EscapedGrandchildDoesNotStallRunner(t *testing.T) 
 			// 300ms group kill (the kill can land before perl runs setpgrp,
 			// leaving a pid file for a dead child). Retrying every run while
 			// the file is missing turns that race into a slow first escape
-			// instead of a precondition failure.
+			// instead of a precondition failure. The pid file appears via an
+			// atomic rename, so existence implies complete content (no
+			// empty-file race between creat and write under load).
 			command := writeScript(t, env, "escape.sh", `n=$(cat '`+counter+`' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '`+counter+`'
 if [ ! -f '`+grandchildPID+`' ]; then
-  perl -e 'setpgrp(0,0); open my $fh, ">", $ARGV[0]; print $fh "$$\n"; close $fh; sleep 30' '`+grandchildPID+`' `+tc.redirect+` &
+  perl -e 'setpgrp(0,0); open my $fh, ">", $ARGV[0].".tmp"; print $fh "$$\n"; close $fh; rename $ARGV[0].".tmp", $ARGV[0]; sleep 30' '`+grandchildPID+`' `+tc.redirect+` &
   sleep 5
 fi
 printf 'SL-GC-RUN-%s\n' "$n"`)
