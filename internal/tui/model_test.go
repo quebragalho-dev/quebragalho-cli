@@ -494,10 +494,10 @@ func TestPermissionsCommandListsPersistentSandboxGrants(t *testing.T) {
 	}
 	text := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Permissions",
-		"ask permissions",
-		"mode  ask",
-		"Grants",
+		"Permissões",
+		"ask permissões",
+		"modo  ask",
+		"Autorizações",
 		"bash [allow]",
 		"write_file [deny]",
 		"[REDACTED]",

@@ -302,12 +302,12 @@ func TestContextAndPermissionsCommandsRenderProductState(t *testing.T) {
 	}
 	permissionText := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Permissions",
-		"ask permissions",
-		"1 persistent grant",
-		"State",
-		"mode  ask",
-		"Grants",
+		"Permissões",
+		"ask permissões",
+		"1 autorização persistente",
+		"Estado",
+		"modo  ask",
+		"Autorizações",
 		"bash [allow]",
 		"[REDACTED]",
 	} {
@@ -332,11 +332,11 @@ func (store *stubGrantStore) List() ([]sandbox.Grant, error) {
 func TestPermissionsCommandCardHandlesNilStoreAndEmptyGrants(t *testing.T) {
 	nilStore := model{permissionMode: agent.PermissionModeAuto}.permissionsText()
 	for _, want := range []string{
-		"Permissions",
-		"auto permissions",
-		"grants unavailable",
-		"mode  auto",
-		"persistent grants: unavailable",
+		"Permissões",
+		"auto permissões",
+		"autorizações indisponíveis",
+		"modo  auto",
+		"autorizações persistentes: indisponíveis",
 	} {
 		assertContains(t, nilStore, want)
 	}
@@ -348,11 +348,11 @@ func TestPermissionsCommandCardHandlesNilStoreAndEmptyGrants(t *testing.T) {
 	}
 	emptyText := model{permissionMode: agent.PermissionModeAsk, sandboxStore: store}.permissionsText()
 	for _, want := range []string{
-		"Permissions",
-		"ask permissions",
-		"no persistent grants",
-		"mode  ask",
-		"none",
+		"Permissões",
+		"ask permissões",
+		"nenhuma autorização persistente",
+		"modo  ask",
+		"nenhuma",
 	} {
 		assertContains(t, emptyText, want)
 	}
@@ -361,11 +361,11 @@ func TestPermissionsCommandCardHandlesNilStoreAndEmptyGrants(t *testing.T) {
 	errStore := &stubGrantStore{listErr: errors.New("storage failure")}
 	errText := model{permissionMode: agent.PermissionModeAsk}.permissionsTextWithStore(errStore)
 	for _, want := range []string{
-		"Permissions",
-		"ask permissions",
-		"grants error",
-		"mode  ask",
-		"error: storage failure",
+		"Permissões",
+		"ask permissões",
+		"erro de autorizações",
+		"modo  ask",
+		"erro: storage failure",
 	} {
 		assertContains(t, errText, want)
 	}

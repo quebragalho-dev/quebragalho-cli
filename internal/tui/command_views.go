@@ -290,18 +290,18 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 	mode := string(m.permissionMode)
 	if store == nil {
 		return renderCommandCardTranscript(commandCard{
-			Title:   "Permissions",
-			Summary: []string{mode + " permissions", "grants unavailable"},
+			Title:   "Permissões",
+			Summary: []string{mode + " permissões", "autorizações indisponíveis"},
 			Sections: []commandCardSection{
 				{
-					Title: "State",
+					Title: "Estado",
 					Fields: []commandField{
-						{Key: "mode", Value: mode},
+						{Key: "modo", Value: mode},
 					},
 				},
 				{
-					Title: "Grants",
-					Lines: []string{"persistent grants: unavailable"},
+					Title: "Autorizações",
+					Lines: []string{"autorizações persistentes: indisponíveis"},
 				},
 			},
 		})
@@ -310,18 +310,18 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 	grants, err := store.List()
 	if err != nil {
 		return renderCommandCardTranscript(commandCard{
-			Title:   "Permissions",
-			Summary: []string{mode + " permissions", "grants error"},
+			Title:   "Permissões",
+			Summary: []string{mode + " permissões", "erro de autorizações"},
 			Sections: []commandCardSection{
 				{
-					Title: "State",
+					Title: "Estado",
 					Fields: []commandField{
-						{Key: "mode", Value: mode},
+						{Key: "modo", Value: mode},
 					},
 				},
 				{
-					Title: "Grants",
-					Lines: []string{"error: " + err.Error()},
+					Title: "Autorizações",
+					Lines: []string{"erro: " + err.Error()},
 				},
 			},
 		})
@@ -332,18 +332,18 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 		prefixes, prefixErr = prefixStore.ListCommandPrefixes()
 		if prefixErr != nil {
 			return renderCommandCardTranscript(commandCard{
-				Title:   "Permissions",
-				Summary: []string{mode + " permissions", "grants error"},
+				Title:   "Permissões",
+				Summary: []string{mode + " permissões", "erro de autorizações"},
 				Sections: []commandCardSection{
 					{
-						Title: "State",
+						Title: "Estado",
 						Fields: []commandField{
-							{Key: "mode", Value: mode},
+							{Key: "modo", Value: mode},
 						},
 					},
 					{
-						Title: "Grants",
-						Lines: []string{"error: " + prefixErr.Error()},
+						Title: "Autorizações",
+						Lines: []string{"erro: " + prefixErr.Error()},
 					},
 				},
 			})
@@ -353,12 +353,12 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 	snapshots := qgcommands.SandboxGrantSnapshots(grants)
 	grantRows := []commandRow{}
 	if len(snapshots) == 0 && len(prefixes) == 0 {
-		grantRows = append(grantRows, commandRow{Text: "none"})
+		grantRows = append(grantRows, commandRow{Text: "nenhuma"})
 	} else {
 		for _, grant := range snapshots {
 			line := fmt.Sprintf("%s [%s]", grant.ToolName, grant.Decision)
 			if grant.ApprovedAt != "" {
-				line += " approved " + grant.ApprovedAt
+				line += " aprovada em " + grant.ApprovedAt
 			}
 			if grant.Reason != "" {
 				line += " - " + grant.Reason
@@ -368,7 +368,7 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 		for _, grant := range prefixes {
 			line := fmt.Sprintf("%s `%s` [command-prefix]", grant.ToolName, strings.Join(grant.Prefix, " "))
 			if grant.ApprovedAt != "" {
-				line += " approved " + grant.ApprovedAt
+				line += " aprovada em " + grant.ApprovedAt
 			}
 			if grant.Reason != "" {
 				line += " - " + grant.Reason
@@ -378,17 +378,17 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 	}
 
 	return renderCommandCardTranscript(commandCard{
-		Title:   "Permissions",
-		Summary: []string{mode + " permissions", formatGrantCount(len(snapshots) + len(prefixes))},
+		Title:   "Permissões",
+		Summary: []string{mode + " permissões", formatGrantCount(len(snapshots) + len(prefixes))},
 		Sections: []commandCardSection{
 			{
-				Title: "State",
+				Title: "Estado",
 				Fields: []commandField{
-					{Key: "mode", Value: mode},
+					{Key: "modo", Value: mode},
 				},
 			},
 			{
-				Title: "Grants",
+				Title: "Autorizações",
 				Rows:  grantRows,
 			},
 		},
@@ -408,12 +408,12 @@ type commandPrefixGrantLister interface {
 
 func formatGrantCount(count int) string {
 	if count == 0 {
-		return "no persistent grants"
+		return "nenhuma autorização persistente"
 	}
 	if count == 1 {
-		return "1 persistent grant"
+		return "1 autorização persistente"
 	}
-	return fmt.Sprintf("%d persistent grants", count)
+	return fmt.Sprintf("%d autorizações persistentes", count)
 }
 
 func firstProviderDisplayValue(values ...string) string {
