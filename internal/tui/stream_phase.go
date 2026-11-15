@@ -16,7 +16,7 @@ package tui
 //	  Any --> Idle : begin (fresh run zeroes every twin)
 //	  Text/Reasoning/Tool/ClearPending --> * : retryDiscard (drop text/tool/fade;
 //	    reasoning and pending survive, pre-machine parity)
-//	streamTransition é o único ponto de begin/text/reasoning/tool/clear/end/cancel/retryDiscard.
+//	streamTransition is the single point for begin/text/reasoning/tool/clear/end/cancel/retryDiscard.
 //	Deliberately outside it, one line each:
 //	- agentRowMsg (and flush lines): segment commit into the transcript clears buffers as a side effect.
 //	- WindowSizeMsg / resizeBTWParent: geometry invalidation (drop line ages, restamp activity).
