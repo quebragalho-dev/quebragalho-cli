@@ -532,12 +532,15 @@ func (store *Store) RecordSpec(sessionID string, input RecordSpecInput) (Metadat
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
-	applySpecRecord(&session, input, status)
+	eventType, err := transitionSpecRecord(&session, input, status)
+	if err != nil {
+		return Metadata{}, Event{}, err
+	}
 	if err := store.writeMetadata(session); err != nil {
 		return Metadata{}, Event{}, err
 	}
 	event, err := store.appendEventLocked(sessionID, AppendEventInput{
-		Type: specEventType(status),
+		Type: eventType,
 		Payload: map[string]any{
 			"specId":              session.SpecID,
 			"specFilePath":        session.SpecFilePath,
@@ -1157,33 +1160,5 @@ func specEventType(status SpecStatus) EventType {
 		return EventSpecRejected
 	default:
 		return EventSpecDraft
-	}
-}
-
-func applySpecRecord(session *Metadata, input RecordSpecInput, status SpecStatus) {
-	if specID := strings.TrimSpace(input.SpecID); specID != "" {
-		session.SpecID = specID
-	}
-	if path := strings.TrimSpace(input.SpecFilePath); path != "" {
-		session.SpecFilePath = path
-	}
-	session.SpecStatus = status
-	if modelID := strings.TrimSpace(input.SpecDraftModelID); modelID != "" {
-		session.SpecDraftModelID = modelID
-	}
-	if reasoning := strings.TrimSpace(input.SpecDraftReasoning); reasoning != "" {
-		session.SpecDraftReasoning = reasoning
-	}
-	if comment := strings.TrimSpace(input.SpecUserComment); comment != "" {
-		session.SpecUserComment = comment
-	}
-	if reason := strings.TrimSpace(input.SpecRejectReason); reason != "" {
-		session.SpecRejectReason = reason
-	}
-	if sourceID := strings.TrimSpace(input.SpecSourceSessionID); sourceID != "" {
-		session.SpecSourceSessionID = sourceID
-	}
-	if implID := strings.TrimSpace(input.SpecImplSessionID); implID != "" {
-		session.SpecImplSessionID = implID
 	}
 }
