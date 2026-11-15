@@ -588,8 +588,13 @@ func (runtime *Runtime) relistServer(ctx context.Context, server Server, conn *m
 }
 
 // adoptRelistLocked swaps in a freshly connected client (Reconnect) and
-// applies its tool list. Callers hold refreshMu.
+// applies its tool list. Callers hold refreshMu. It is the single writer of
+// the live side of the membership machine: a disabled server never adopts,
+// so even a caller that dialed first cannot publish its tools.
 func (runtime *Runtime) adoptRelistLocked(server Server, fresh ToolClient, remote []RemoteTool) error {
+	if runtime.disabled[server.Name] {
+		return disabledServerError(server.Name)
+	}
 	conn, ok := runtime.liveClients[server.Name]
 	if !ok || conn == nil {
 		conn = newMCPServerConn(server, fresh)

@@ -56,13 +56,13 @@ func (runtime *Runtime) Status() []ServerStatus {
 	}
 	status := make([]ServerStatus, 0, len(runtime.servers)+len(runtime.disabled))
 	for _, server := range runtime.servers {
-		if runtime.disabled[server.Name] {
+		switch runtime.membershipLocked(server.Name) {
+		case memberDisabled:
 			status = append(status, ServerStatus{Name: server.Name, State: ServerStateDisabled})
-			continue
-		}
-		if skipped, ok := skippedByName[server.Name]; ok {
+		case memberSkipped:
+			skipped, ok := skippedByName[server.Name]
 			reason := ""
-			if skipped.Err != nil {
+			if ok && skipped.Err != nil {
 				reason = sanitizeMCPErrorText(server.Redact(skipped.Err.Error()))
 			}
 			state := ServerStateFailed
@@ -70,13 +70,11 @@ func (runtime *Runtime) Status() []ServerStatus {
 				state = ServerStateNeedsAuth
 			}
 			status = append(status, ServerStatus{Name: server.Name, State: state, Reason: reason})
-			continue
-		}
-		if serverRequiresOAuth(server) && !hasUsableOAuthToken(server) {
+		case memberNeedsAuth:
 			status = append(status, ServerStatus{Name: server.Name, State: ServerStateNeedsAuth})
-			continue
+		case memberLive, memberClosed:
+			status = append(status, ServerStatus{Name: server.Name, State: ServerStateConnected, ToolCount: len(runtime.serverTools[server.Name])})
 		}
-		status = append(status, ServerStatus{Name: server.Name, State: ServerStateConnected, ToolCount: len(runtime.serverTools[server.Name])})
 	}
 	for name := range runtime.disabled {
 		found := false
@@ -132,10 +130,21 @@ func (runtime *Runtime) Reconnect(ctx context.Context, serverName string) error 
 			break
 		}
 	}
-	runtime.refreshMu.Unlock()
+	disabled := runtime.disabled[serverName]
 	if server == nil {
+		runtime.refreshMu.Unlock()
+		if disabled {
+			return disabledServerError(serverName)
+		}
 		return &UnknownServerError{Name: serverName}
 	}
+	// The membership table owns the reconnect policy: a disabled server
+	// never dials, everything else reachable here may.
+	if _, ok := legalMemberTransition(runtime.membershipLocked(serverName), memberEventReconnect); !ok {
+		runtime.refreshMu.Unlock()
+		return disabledServerError(serverName)
+	}
+	runtime.refreshMu.Unlock()
 	fresh, remote, err := connectWithRetry(ctx, runtime.factory, *server, connectTimeout())
 	runtime.refreshMu.Lock()
 	defer runtime.refreshMu.Unlock()
