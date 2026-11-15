@@ -1,6 +1,7 @@
 package fsutil
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,53 @@ func TestPublishTempFileSyncsBeforeRename(t *testing.T) {
 	}
 	data, err := os.ReadFile(target)
 	if err != nil || !strings.Contains(string(data), "payload") {
+		t.Fatalf("read back = %q err=%v", data, err)
+	}
+}
+
+// TestWriteFileAtomicallyIgnoresParentDirSyncError: a parent-directory fsync
+// failure (EINVAL/ENOTSUP on some network and FUSE filesystems) must not fail
+// a write whose file is already published. The file Sync stays fail-closed
+// (see TestWriteFileAtomicallySyncErrorFailsClosed).
+func TestWriteFileAtomicallyIgnoresParentDirSyncError(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "state.json")
+
+	origDir := atomicSyncDir
+	defer func() { atomicSyncDir = origDir }()
+	atomicSyncDir = func(string) error { return errors.New("ENOTSUP: dir sync not supported") }
+
+	if err := WriteFileAtomically(target, []byte("new-content"), 0o600); err != nil {
+		t.Fatalf("dir-sync failure must be best-effort, got: %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "new-content" {
+		t.Fatalf("read back = %q err=%v, want the published content", data, err)
+	}
+}
+
+// TestPublishTempFileIgnoresParentDirSyncError covers the same best-effort
+// contract for the already-open-temp path.
+func TestPublishTempFileIgnoresParentDirSyncError(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "state.json")
+	tmp, err := os.CreateTemp(dir, "src-*.tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tmp.WriteString("payload"); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir := atomicSyncDir
+	defer func() { atomicSyncDir = origDir }()
+	atomicSyncDir = func(string) error { return errors.New("ENOTSUP: dir sync not supported") }
+
+	if err := PublishTempFile(tmp, target); err != nil {
+		t.Fatalf("dir-sync failure must be best-effort, got: %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "payload" {
 		t.Fatalf("read back = %q err=%v", data, err)
 	}
 }

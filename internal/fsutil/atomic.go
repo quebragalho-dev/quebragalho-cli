@@ -23,6 +23,9 @@ var (
 // parent directory is fsynced afterwards so the rename itself survives a
 // crash. The temp file and the destination carry perm (callers pass 0600).
 // The temporary directory gets 0700 when created, matching every caller.
+// The file Sync is fail-closed; the parent-directory sync is best-effort and
+// its error is ignored (some network/FUSE filesystems reject dir fsync while
+// the published file itself is fine).
 func WriteFileAtomically(path string, data []byte, perm os.FileMode) error {
 	return WriteFileAtomicallyInDir(filepath.Dir(path), path, data, perm)
 }
@@ -65,7 +68,10 @@ func WriteFileAtomicallyInDir(tempDir, path string, data []byte, perm os.FileMod
 	if err := atomicRename(tmpPath, path, nil); err != nil {
 		return err
 	}
-	return atomicSyncDir(filepath.Dir(path))
+	// Best-effort: the file is published; a dir-sync failure must not turn a
+	// successful write into an error.
+	_ = atomicSyncDir(filepath.Dir(path))
+	return nil
 }
 
 // PublishTempFile durably publishes an already-written temporary file at
@@ -73,6 +79,8 @@ func WriteFileAtomicallyInDir(tempDir, path string, data []byte, perm os.FileMod
 // transient Windows sharing violations, and fsyncs the parent directory.
 // Callers keep ownership of temp-file placement, permissions and content;
 // this only enforces the Sync-before-rename + retry + dir-sync sequence.
+// The file Sync is fail-closed; the parent-directory sync is best-effort and
+// its error is ignored.
 func PublishTempFile(tmp *os.File, target string) error {
 	if tmp == nil {
 		return fmt.Errorf("fsutil: publish nil temp file for %s", target)
@@ -89,7 +97,8 @@ func PublishTempFile(tmp *os.File, target string) error {
 	if err := atomicRename(tmpPath, target, nil); err != nil {
 		return err
 	}
-	return atomicSyncDir(filepath.Dir(target))
+	_ = atomicSyncDir(filepath.Dir(target))
+	return nil
 }
 
 // syncParentDir fsyncs dir so a rename inside it is durable across a crash. A
