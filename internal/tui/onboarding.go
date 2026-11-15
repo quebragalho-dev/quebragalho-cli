@@ -566,10 +566,6 @@ func deviceVerificationURL(auth DeviceAuth) string {
 	return auth.VerificationURI
 }
 
-func (m model) setupProviderDescriptor() providercatalog.Descriptor {
-	return setupProviderDescriptor(m.setupProvider())
-}
-
 func setupProviderDescriptor(option SetupProviderOption) providercatalog.Descriptor {
 	if descriptor, ok := providercatalog.Get(option.ID); ok {
 		return descriptor

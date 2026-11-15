@@ -78,13 +78,6 @@ func RunUpdatePrompt(ctx context.Context, current, latest, changelogURL string, 
 	return model.choice, nil
 }
 
-// updatePromptNoColor mirrors run.go: the NO_COLOR env forces the Ascii
-// profile (no color, bold kept) instead of the detected one. It exists so
-// tests can pin the contract without spawning a Bubble Tea program.
-func updatePromptNoColor(getenv func(string) string) bool {
-	return noColorRequested(getenv)
-}
-
 // updatePromptThemeMode is the last mode resolved by ApplyUpdatePromptTheme.
 // The prompt program reads it at construction so it can reapply the same
 // mode when the terminal reports its background color.

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // FIX 3 (safety): "!cmd" runs only in unsafe permission mode; auto/ask gate it.
@@ -44,12 +45,12 @@ func TestBashEscapeGatedByPermissionMode(t *testing.T) {
 
 // The "!" escape must use the same detected host shell as the agent tools.
 func TestEscapeShellWrapsCommandForPlatform(t *testing.T) {
-	name, args := escapeShell("echo hi")
+	name, args := tools.HostShellCommand("echo hi")
 	if name == "" {
-		t.Fatal("escapeShell returned an empty executable")
+		t.Fatal("HostShellCommand returned an empty executable")
 	}
 	if len(args) == 0 || !strings.Contains(args[len(args)-1], "echo hi") {
-		t.Fatalf("escapeShell args = %v, want the command in the final arg", args)
+		t.Fatalf("HostShellCommand args = %v, want the command in the final arg", args)
 	}
 	if runtime.GOOS == "windows" {
 		lowerName := strings.ToLower(filepath.Base(name))

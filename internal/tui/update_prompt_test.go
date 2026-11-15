@@ -407,7 +407,7 @@ func TestUpdatePromptNoColorContract(t *testing.T) {
 		{"1", true},
 		{"yes", true},
 	} {
-		if got := updatePromptNoColor(func(string) string { return tc.value }); got != tc.want {
+		if got := noColorRequested(func(string) string { return tc.value }); got != tc.want {
 			t.Fatalf("NO_COLOR=%q -> %v, want %v", tc.value, got, tc.want)
 		}
 	}

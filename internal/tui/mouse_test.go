@@ -100,7 +100,7 @@ func TestMouseClickSelectsThenContinuesSetupModelRow(t *testing.T) {
 		{ID: "alpha"},
 		{ID: "beta", Meta: "128K ctx"},
 	}
-	m.setup.modelForID = m.setupProviderDescriptor().ID
+	m.setup.modelForID = setupProviderDescriptor(m.setupProvider()).ID
 
 	width := m.chatColumnWidth()
 	height := normalizedStartupHeight(m.height)

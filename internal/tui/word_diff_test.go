@@ -106,7 +106,7 @@ func TestMixedDiffSyntaxHighlightsCodeOnBothSides(t *testing.T) {
 func TestSystemThemeKeepsSyntaxOnAnAddedLineBand(t *testing.T) {
 	previous := qgTheme
 	defer func() { qgTheme = previous }()
-	qgTheme = buildSystemTheme()
+	qgTheme = buildSystemThemeForTerminal(true)
 
 	diff := strings.Join([]string{
 		"--- /dev/null",
@@ -129,7 +129,7 @@ func TestSystemThemeKeepsSyntaxOnAnAddedLineBand(t *testing.T) {
 }
 
 func TestSystemThemeUsesMutedLocalSurfaceColors(t *testing.T) {
-	theme := buildSystemTheme()
+	theme := buildSystemThemeForTerminal(true)
 	for _, test := range []struct {
 		name  string
 		style lipgloss.Style
