@@ -45,13 +45,6 @@ type CollectOptions struct {
 	OnToolCallDelta func(id, fragment string)
 }
 
-// SeedMessages creates the initial system and user turns for a request. It is a
-// text-only convenience that delegates to SeedMessagesWithImages with no images
-// (the user turn's Images stays nil, byte-identical to the prior behavior).
-func SeedMessages(systemPrompt string, userPrompt string) []Message {
-	return SeedMessagesWithImages(systemPrompt, userPrompt, nil)
-}
-
 // SeedMessagesWithImages creates the initial system and user turns and attaches
 // any image attachments to the user turn. images may be nil (text-only). The
 // images are deep-copied so the seeded message never aliases the caller's slice

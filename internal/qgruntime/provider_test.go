@@ -29,7 +29,7 @@ func (provider mockProvider) StreamCompletion(
 }
 
 func TestSeedMessagesProducesSystemAndUserTurns(t *testing.T) {
-	messages := SeedMessages("you are a helper", "inspect this repo")
+	messages := SeedMessagesWithImages("you are a helper", "inspect this repo", nil)
 
 	if len(messages) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(messages))
@@ -430,7 +430,7 @@ func TestProviderContractCanBeImplementedByMock(t *testing.T) {
 	}
 
 	stream, err := provider.StreamCompletion(context.Background(), CompletionRequest{
-		Messages: SeedMessages("system", "user"),
+		Messages: SeedMessagesWithImages("system", "user", nil),
 		Tools: []ToolDefinition{
 			{
 				Name:        "read_file",

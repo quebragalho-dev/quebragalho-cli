@@ -82,10 +82,9 @@ func TestCloneImageBlocksIsIndependent(t *testing.T) {
 	}
 }
 
-func TestSeedMessagesDelegatesWithNilImages(t *testing.T) {
-	// SeedMessages keeps its (system, user) signature and must leave Images nil
-	// so the text-only path is byte-identical to before.
-	messages := SeedMessages("sys", "usr")
+func TestSeedMessagesWithImagesNilLeavesImagesNil(t *testing.T) {
+	// The text-only path passes nil images and must leave Images nil.
+	messages := SeedMessagesWithImages("sys", "usr", nil)
 
 	if len(messages) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(messages))
@@ -94,6 +93,6 @@ func TestSeedMessagesDelegatesWithNilImages(t *testing.T) {
 		t.Fatalf("unexpected user message: %#v", messages[1])
 	}
 	if messages[0].Images != nil || messages[1].Images != nil {
-		t.Fatalf("SeedMessages must leave Images nil, got %#v / %#v", messages[0].Images, messages[1].Images)
+		t.Fatalf("nil images must stay nil, got %#v / %#v", messages[0].Images, messages[1].Images)
 	}
 }
