@@ -26,6 +26,15 @@ import (
 const maxTurnsAnswer = "Agent reached maximum number of turns without a final answer."
 const maxTurnsFinalAnswerPrompt = "You have reached the tool-turn limit. Do not call tools. Give a concise final answer now: summarize what you completed, what you found, and any remaining blockers."
 
+// FallbackMaxTurns is the loop's last-resort tool-turn budget, used only when
+// the caller leaves Options.MaxTurns unset (<= 0) — direct agent.Run users
+// without a resolved config. Resolved CLI/TUI runs always carry an explicit
+// budget (interactive default 80, headless default 500, see config), so this
+// never overrides them; it only keeps bare programmatic runs finite. Pinned
+// budgets (explicit --max-turns, mode presets, QG_MAX_TURNS, config files,
+// exec profiles) always win over this fallback.
+const FallbackMaxTurns = 12
+
 const (
 	toolResultMetaControl       = "control"
 	toolResultControlSpecReview = "spec_review_required"
@@ -166,7 +175,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 
 	maxTurns := options.MaxTurns
 	if maxTurns <= 0 {
-		maxTurns = 12
+		maxTurns = FallbackMaxTurns
 	}
 
 	registry := options.Registry
