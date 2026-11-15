@@ -10,92 +10,9 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
-
-// sidebar geometry. The sidebar takes ~30% of the width, clamped so it never
-// crowds the chat on a narrow terminal nor sprawls on a wide one. A 1-cell
-// divider sits between the two columns.
-const (
-	sidebarMinWidth  = 26
-	sidebarMaxWidth  = 40
-	sidebarMinColumn = 60 // below this total width the sidebar is suppressed
-)
-
-// sidebarWidth returns the sidebar column width for a given total width, or 0
-// when the terminal is too narrow to justify a second column (the caller then
-// renders the single-column chat at full width).
-func sidebarWidth(total int) int {
-	if total < sidebarMinColumn {
-		return 0
-	}
-	return clamp(total*30/100, sidebarMinWidth, sidebarMaxWidth)
-}
-
-// sidebarActive is retained for the compact data helpers and legacy file-detail
-// interactions. The persistent two-column layout is intentionally no longer
-// rendered by transcriptView.
-func (m model) sidebarActive() bool {
-	return !m.sidebarHidden && m.sidebarAvailable()
-}
-
-// sidebarAvailable reports whether the two-column layout CAN render: only in
-// alt-screen managed mode, with a measured height, on a wide-enough terminal,
-// outside subchat/overlays, with real conversation. It ignores the user's Ctrl+B
-// hide preference (sidebarHidden) so the toggle handler can tell whether Ctrl+B
-// would have any visible effect. The subchat drill-in keeps its own single-column
-// view, so the sidebar is suppressed there.
-func (m model) sidebarAvailable() bool {
-	if !m.altScreen || m.height <= 0 || m.subchat.active || m.transcriptDetailed {
-		return false
-	}
-	if sidebarWidth(m.width) <= 0 {
-		return false
-	}
-	// Only split once the chat column survives it: require the medium tier (>=80
-	// cols). Between 60-79 the sidebar would starve the chat to ~30 cells, so the
-	// layout commits to two healthy columns or stays cleanly single-column.
-	if widthTier(m.width) < tierMedium {
-		return false
-	}
-	// Full-screen overlays (setup, wizards, pickers) take over the chat column and
-	// render at full width; suppress the second column while any is active so
-	// their geometry and mouse hit-testing stay full-width as before.
-	//
-	// The `/` command palette is deliberately NOT in this list. It is not a
-	// full-screen overlay: suggestionOverlay draws it via centerRenderedBlock at
-	// minInt(width, suggestionPaletteMaxWidth) — a centred box capped at 76 cells
-	// — floating over the chat column rather than replacing it. Suppressing the
-	// sidebar for it collapsed the whole layout on every keystroke of `/`: the
-	// plan panel dropped out of the sidebar and re-rendered inline at the bottom
-	// and the transcript re-wrapped to full width, which is at its most jarring
-	// mid-run with a live plan on screen. Since the sidebar already requires the
-	// medium tier (>= 80 cells) the palette is always strictly narrower than the
-	// chat column here, so the two never contend for the same cells.
-	//
-	// Mouse hit-testing is unaffected: sidebarLineAtMouse carries its own
-	// suggestionsActive() guard, so clicks still go to the palette and not to the
-	// sidebar rows underneath it.
-	if m.setup.visible || m.helpOverlay || m.leaderHelpOverlay || m.mcpAddWizard != nil ||
-		m.mcpManager != nil || m.picker != nil || m.renamePrompt != nil {
-		return false
-	}
-	// Home/welcome screen: stay single-column until there's real conversation, so
-	// the empty home screen isn't split by an (empty) sidebar.
-	if m.transcriptEmpty() {
-		return false
-	}
-	// Auto-hide when the panel has nothing to show (no sub-agents and no active
-	// plan): a fixed-width column of mostly empty space is wasted, so reclaim it
-	// for the full-width chat. The panel returns the moment an agent spawns or a
-	// plan starts. (Ctrl+B still force-hides it when there IS content.)
-	if !m.sidebarHasContent() {
-		return false
-	}
-	return true
-}
 
 // sidebarHasContent reports whether the context sidebar has anything worth a
 // column: at least one agent (a specialist delegation or a swarm member) or a
@@ -440,19 +357,6 @@ func (m model) sidebarAgentRows(width int) ([]string, []sidebarAgentHit) {
 	return lines, hits
 }
 
-// sidebarAgentSelectables returns the clickable swarm-member lines with their
-// ABSOLUTE index inside the rendered sidebar (the AGENTS header occupies index 0,
-// so agent rows start at index 1). Recomputed on demand by the mouse hit-test —
-// View cannot persist a registry on the value-receiver model — mirroring
-// transcriptLineAtMouse.
-func (m model) sidebarAgentSelectables(width int) []sidebarAgentHit {
-	_, hits := m.sidebarAgentRows(width)
-	for i := range hits {
-		hits[i].lineOffset++ // shift past the AGENTS header at sidebar index 0
-	}
-	return hits
-}
-
 // agentExitFading reports whether a finished agent is in the later half of its
 // linger window (sidebarAgentLinger), so its row dims toward faint just before
 // it's removed. A qg finishedAt (not yet stamped) is not fading.
@@ -545,126 +449,6 @@ var nameFillerWords = map[string]bool{
 	"all": true, "its": true, "this": true, "that": true, "into": true, "from": true,
 }
 
-// renderContextSidebar builds the sidebar block: exactly height lines, each
-// exactly width cells (after fitStyledLine + padding). Sections render top to
-// bottom — FILES, PLAN — with the token readout pinned to the bottom line. Each
-// section header is a faint uppercase label; items use ink/muted. Empty
-// sections render a quiet placeholder rather than vanishing so the layout stays
-// stable.
-func (m model) renderContextSidebar(width, height int) []string {
-	if width <= 0 || height <= 0 {
-		return nil
-	}
-
-	var lines []string
-	add := func(s string) { lines = append(lines, s) }
-
-	// AGENTS section — spawned subagents and their live working detail.
-	add(m.sidebarAgentHeader(width))
-	agentLines := m.sidebarAgentLines(width)
-	if len(agentLines) == 0 {
-		add(sidebarPlaceholder("nenhum agente iniciado", width))
-	} else {
-		lines = append(lines, agentLines...)
-	}
-
-	// PLAN section.
-	add("")
-	add(m.sidebarPlanHeader(width))
-	planLines := m.sidebarPlanLines(width)
-	if len(planLines) == 0 {
-		add(sidebarPlaceholder("no active plan", width))
-	} else {
-		lines = append(lines, planLines...)
-	}
-
-	// FILES section: the files this session has touched (files_panel.go).
-	// Rendered BELOW the plan steps so it never shifts sidebarPlanSelectables'
-	// click offsets; its own hits (sidebarFileSelectables) account for the
-	// sections above it.
-	add("")
-	add(m.sidebarFilesHeader(width))
-	fileLines, _ := m.sidebarFileLines(width)
-	if len(fileLines) == 0 {
-		add(sidebarPlaceholder("nenhum arquivo alterado", width))
-	} else {
-		lines = append(lines, fileLines...)
-	}
-
-	// ACTIVITY section: recent completed work + a live "generating…" pulse. Shown
-	// BELOW the plan steps so it never shifts sidebarPlanSelectables' click offsets,
-	// and budgeted (height-1 minus what's used) so it clips ITSELF from the bottom
-	// rather than letting the end-truncation eat into the plan. Absent when empty.
-	if activityLines := m.sidebarActivityLines(width, maxInt(0, height-1-len(lines))); len(activityLines) > 0 {
-		add("")
-		add(sidebarHeader("ATIVIDADE", width))
-		lines = append(lines, activityLines...)
-	}
-
-	// Token readout pinned to the bottom.
-	tokenLine := m.sidebarTokenLine(width)
-	// Reserve the bottom row for tokens; pad the gap so it sits at the floor.
-	for len(lines) < height-1 {
-		add("")
-	}
-	if len(lines) > height-1 {
-		lines = lines[:height-1]
-	}
-	add(tokenLine)
-
-	// Hover highlight: resolved by STABLE IDENTITY (sessionID / stepIndex), not a
-	// cached line offset — see hoveredSidebarLineOffset. A row whose identity no
-	// longer resolves (it disappeared since the hover was last set from a real
-	// mouse motion) simply doesn't highlight, rather than a coincidentally-matching
-	// unrelated row lighting up.
-	if lineOffset, ok := m.hoveredSidebarLineOffset(width); ok && lineOffset >= 0 && lineOffset < len(lines) {
-		lines[lineOffset] = qgTheme.hover.Render(ansi.Strip(lines[lineOffset]))
-	}
-
-	// Normalize every row to exactly width cells.
-	for i := range lines {
-		lines[i] = padStyledLine(lines[i], width)
-	}
-	for len(lines) < height {
-		lines = append(lines, strings.Repeat(" ", width))
-	}
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	return lines
-}
-
-// hoveredSidebarLineOffset resolves the hovered sidebar row's CURRENT line offset
-// fresh on every call, by re-matching m.hover's stable identity (sessionID for an
-// agent, stepIndex for a plan step) against a freshly computed hit list — never a
-// cached index. Returns false when the hover isn't sidebar-scoped, or when the
-// identity no longer resolves (that row disappeared since the hover was last set
-// by a real mouse motion — a linger window elapsing, a plan step completing —
-// with no intervening motion to re-target it).
-func (m model) hoveredSidebarLineOffset(width int) (int, bool) {
-	switch m.hover.kind {
-	case hoverSidebarAgent:
-		for _, hit := range m.sidebarAgentSelectables(width) {
-			if hit.sessionID == m.hover.sessionID {
-				return hit.lineOffset, true
-			}
-		}
-	case hoverPlanStep:
-		for _, hit := range m.sidebarPlanSelectables(width) {
-			if hit.stepIndex == m.hover.stepIndex {
-				return hit.lineOffset, true
-			}
-		}
-	case hoverFileRow:
-		for _, hit := range m.sidebarFileSelectables(width) {
-			if hit.path == m.hover.filePath {
-				return hit.lineOffset, true
-			}
-		}
-	}
-	return 0, false
-}
-
 // sidebarHeader renders a bold-muted uppercase section label. Bold muted (vs the
 // faint body items and placeholders) gives the header enough weight to read as a
 // section heading rather than more filler. The width arg is unused — kept so it
@@ -686,12 +470,6 @@ func sidebarHeaderWithCount(label, count string, countStyle lipgloss.Style, widt
 	return left + strings.Repeat(" ", gap) + right
 }
 
-// sidebarPlaceholder renders a quiet placeholder line for an empty section.
-func sidebarPlaceholder(text string, width int) string {
-	return " " + qgTheme.faint.Render(truncateRunes(text, maxInt(1, width-1)))
-}
-
-// sidebarPlanHeader renders the PLAN section header with the done/total count.
 func (m model) sidebarPlanHeader(width int) string {
 	state := m.plan
 	if state.isEmpty() {
@@ -839,25 +617,6 @@ func (m model) activityCommandForRow(id string, runID int) string {
 	return ""
 }
 
-// sidebarTokenLine renders the bottom token/context readout. It prefers the
-// live context-fill figure (last request's input tokens) and falls back to the
-// session's cumulative token count.
-func (m model) sidebarTokenLine(width int) string {
-	label := m.sidebarTokenText()
-	if label == "" {
-		label = "0 tokens"
-	}
-	// Append the graded context-fill % — the at-a-glance "how full is the window"
-	// the compaction trigger reasons about. Reserve its width so the token label
-	// truncates around it rather than overflowing.
-	chip := ""
-	if pct, _, _, style, ok := m.contextFillPercent(); ok {
-		chip = qgTheme.faint.Render(" · ") + style.Render(fmt.Sprintf("%d%%", pct))
-	}
-	budget := maxInt(1, width-1-lipgloss.Width(chip))
-	return " " + qgTheme.faint.Render(truncateRunes(label, budget)) + chip
-}
-
 // sidebarTokenText computes the token figure shown at the sidebar floor from
 // the latest provider step's token footprint.
 func (m model) sidebarTokenText() string {
@@ -873,35 +632,4 @@ func (m model) sidebarTokenText() string {
 		return fmt.Sprintf("%s / %s tokens", humanCount(used), humanCount(window))
 	}
 	return humanCount(used) + " tokens"
-}
-
-// joinColumns splices a chat block and a sidebar block side-by-side, one
-// divider cell between them, into total-width rows. Both blocks are normalized
-// to their column widths and to the same row count first, so every joined row
-// is exactly chatWidth + 1 + sidebarWidth cells and the columns stay aligned.
-func joinColumns(chat []string, sidebar []string, chatW, sidebarW int) []string {
-	rows := len(chat)
-	if len(sidebar) > rows {
-		rows = len(sidebar)
-	}
-	// A cell of air on each side of the rule (" │ ") so the columns don't butt
-	// flush against it. The chat side gets its gutter from the leading space; the
-	// sidebar side from the trailing space (plus items' own leading inset, which
-	// nests them under the flush section headers). Budgeted by chatColumnWidth(-3).
-	divider := " " + qgTheme.line.Render("│") + " "
-	out := make([]string, rows)
-	for i := 0; i < rows; i++ {
-		left := ""
-		if i < len(chat) {
-			left = chat[i]
-		}
-		right := ""
-		if i < len(sidebar) {
-			right = sidebar[i]
-		}
-		left = padStyledLine(left, chatW)
-		right = padStyledLine(right, sidebarW)
-		out[i] = left + divider + right
-	}
-	return out
 }

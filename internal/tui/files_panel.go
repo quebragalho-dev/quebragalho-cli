@@ -310,31 +310,6 @@ func (m model) renderFileRow(f touchedFile, room int) string {
 	return line
 }
 
-// sidebarFileSelectables returns the clickable FILES rows with their ABSOLUTE
-// index inside the rendered sidebar. The FILES section renders after PLAN in
-// renderContextSidebar: AGENTS header + body, blank + PLAN header + body, then
-// blank + FILES header, then the file rows. The offset accounting mirrors
-// sidebarPlanSelectables exactly, extended one section down.
-func (m model) sidebarFileSelectables(width int) []fileHit {
-	lines, hits := m.sidebarFileLines(width)
-	if len(lines) == 0 {
-		return nil
-	}
-	agentBody := len(m.sidebarAgentLines(width))
-	if agentBody == 0 {
-		agentBody = 1 // the "no agents spawned" placeholder occupies one line
-	}
-	planBody := len(m.sidebarPlanLines(width))
-	if planBody == 0 {
-		planBody = 1 // the "no active plan" placeholder occupies one line
-	}
-	base := 1 + agentBody + 2 + planBody + 2 // sections above + (blank + FILES header)
-	for i := range hits {
-		hits[i].lineOffset += base
-	}
-	return hits
-}
-
 // rowTouchesSelectedFile reports whether a transcript row's mutation touched
 // the currently selected file, so its card renders with the selection tint.
 func (m model) rowTouchesSelectedFile(row transcriptRow) bool {

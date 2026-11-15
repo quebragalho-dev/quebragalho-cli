@@ -168,9 +168,7 @@ func (l transcriptBodyLayout) totalLines() int {
 
 // padTranscriptBodyLines left-indents transcript body rows when a non-zero
 // gutter is configured. It is horizontal only — it never changes the line count,
-// so the width-keyed height cache stays valid. Two-column mode right-pads the
-// chat block to the column width in joinColumns; single-column leaves any
-// remaining cells blank.
+// so the width-keyed height cache stays valid.
 func padTranscriptBodyLines(lines []string, gutter int) []string {
 	if gutter <= 0 {
 		return lines

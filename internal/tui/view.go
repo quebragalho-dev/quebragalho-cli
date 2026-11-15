@@ -303,31 +303,6 @@ func (m model) modeLabel() (string, lipgloss.Style) {
 	}
 }
 
-// contextFillPercent uses only the API window for the sidebar context gauge.
-func (m model) contextFillPercent() (pct, used, window int, style lipgloss.Style, ok bool) {
-	if m.usageTracker == nil {
-		return 0, 0, 0, lipgloss.Style{}, false
-	}
-	summary := m.usageTracker.Summary()
-	used = m.latestUsageTokens(summary)
-	window = m.apiContextWindow()
-	if used <= 0 || window <= 0 {
-		return 0, 0, 0, lipgloss.Style{}, false
-	}
-	ratio := float64(used) / float64(window)
-	if ratio > 1 {
-		ratio = 1
-	}
-	style = qgTheme.green
-	switch {
-	case ratio >= 0.90:
-		style = qgTheme.red
-	case ratio >= 0.75:
-		style = qgTheme.amber
-	}
-	return int(ratio*100 + 0.5), used, window, style, true
-}
-
 // humanCount renders a token count the way the status line wants it: 999,
 // 12.4K, 200K, 1M, 1.2M.
 func humanCount(n int) string {

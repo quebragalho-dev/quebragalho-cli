@@ -193,12 +193,10 @@ func TestSidebarAgentClickIsIgnoredWithoutRail(t *testing.T) {
 	m.activeRunID = 1
 	m = m.openFileView("web/app.js")
 
-	width := sidebarWidth(m.width)
-	agents := m.sidebarAgentSelectables(width)
-	if len(agents) == 0 {
-		t.Fatal("expected a clickable agent row")
+	if len(m.sidebarAgentLines(40)) == 0 {
+		t.Fatal("expected an agent row for the rail-coordinate regression")
 	}
-	click := testMouseClick(tea.MouseLeft, m.chatColumnWidth()+3, agents[0].lineOffset)
+	click := testMouseClick(tea.MouseLeft, m.chatColumnWidth()+3, 1)
 	updated, _, handled := m.handleTranscriptSelectionMouse(click)
 	if handled {
 		t.Fatal("invisible rail coordinates must not handle clicks")

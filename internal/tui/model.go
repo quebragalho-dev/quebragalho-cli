@@ -442,7 +442,6 @@ type model struct {
 	// runDetailsOpen keeps the optional run summary focused without permanently
 	// shrinking the conversation surface.
 	runDetailsOpen bool
-	sidebarHidden  bool
 	// selectedFile is the touched file selected from a file summary: its edit
 	// cards tint in the chat (rowTouchesSelectedFile) and a second click opens
 	// the drill-in file view. "" when nothing is selected; Esc clears.

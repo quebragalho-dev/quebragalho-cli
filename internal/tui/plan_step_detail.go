@@ -1,8 +1,6 @@
-// plan_step_detail.go makes the context-sidebar plan steps clickable: each step
-// records the file mutations made while it was in_progress ("what was built"),
-// and clicking a step drops a transcript card listing them. The work is captured
-// from tool-result rows as they stream; the click maps a sidebar y-coordinate to
-// a step, mirroring sidebarAgentSelectables' offset accounting.
+// plan_step_detail.go records the file mutations made while a plan step was
+// in_progress ("what was built"). The work is captured from tool-result rows as
+// they stream; the run-details surface renders the per-step summary.
 package tui
 
 import (
@@ -91,33 +89,6 @@ func (m model) captureStepNarration(text string) model {
 	}
 	m.stepNarration[key] = append(prev, text)
 	return m
-}
-
-// planStepHit is a clickable plan-step row in the context sidebar.
-type planStepHit struct {
-	lineOffset int
-	stepIndex  int
-}
-
-// sidebarPlanSelectables returns each plan step's clickable sidebar line. The
-// PLAN section renders after AGENTS in renderContextSidebar: the AGENTS header +
-// its body (the agent lines, or a 1-line placeholder), then a blank line and the
-// PLAN header, then one line per step (sidebarPlanLines is one line per step).
-// The offset accounting mirrors that layout exactly.
-func (m model) sidebarPlanSelectables(width int) []planStepHit {
-	if m.plan.isEmpty() {
-		return nil
-	}
-	agentBody := len(m.sidebarAgentLines(width))
-	if agentBody == 0 {
-		agentBody = 1 // the "no agents spawned" placeholder occupies one line
-	}
-	base := 1 + agentBody + 2 // AGENTS header + body + (blank line + PLAN header)
-	hits := make([]planStepHit, 0, len(m.plan.steps))
-	for i := range m.plan.steps {
-		hits = append(hits, planStepHit{lineOffset: base + i, stepIndex: i})
-	}
-	return hits
 }
 
 // planStepDetailRowID is the stable transcript id for the single plan-step
