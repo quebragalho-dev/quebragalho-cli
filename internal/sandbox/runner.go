@@ -498,10 +498,6 @@ func (plan CommandPlan) WriteNetworkDenialReport(blocks []string) error {
 	return nil
 }
 
-func sandboxEnvironmentForCommand(specEnv []string, policy Policy, backend BackendName, workspaceRoot string) []string {
-	return sandboxEnvironmentForCommandWithSensitiveEnv(specEnv, policy, backend, workspaceRoot, nil)
-}
-
 func sandboxEnvironmentForCommandWithSensitiveEnv(specEnv []string, policy Policy, backend BackendName, workspaceRoot string, sensitiveEnvKeys []string) []string {
 	env := cloneStrings(specEnv)
 	if specEnv == nil {

@@ -52,7 +52,7 @@ func (engine *Engine) writeRoots(workspaceRoot string) []string {
 }
 
 func sandboxEnvironment(policy Policy, backend BackendName, workspaceRoot string) []string {
-	return sandboxEnvironmentForCommand(nil, policy, backend, workspaceRoot)
+	return sandboxEnvironmentForCommandWithSensitiveEnv(nil, policy, backend, workspaceRoot, nil)
 }
 
 func sandboxExecProfile(writeRoots []string, policy Policy, denialTag string) string {
