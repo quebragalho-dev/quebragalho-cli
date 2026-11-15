@@ -389,9 +389,11 @@ func (m model) handleResumeCommand(args string) (model, string) {
 		}
 	default:
 		fresh, _, _ := m.sessionStore.CheckContinuationFresh(session.SessionID, snap)
-		if fresh && snap.GoalKey == goalKeyForSession(*session) && len(snap.Messages) > 0 {
+		goalMatch := snap.GoalKey == goalKeyForSession(*session)
+		switch sessions.DecideResumeVerdict(snap, nil, fresh, goalMatch) {
+		case sessions.ContExact:
 			m = m.loadExactSnapshot(session, snap, &resumeWarnings)
-		} else {
+		default:
 			m = m.setReconstructedContinuation(events, "A conversa mudou desde o último salvamento; retomada com o histórico salvo.")
 		}
 	}
