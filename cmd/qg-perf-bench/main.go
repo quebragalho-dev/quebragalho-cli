@@ -21,7 +21,6 @@ const (
 
 type cliOptions struct {
 	perfbench.Options
-	CI            bool
 	JSON          bool
 	Output        string
 	FailOnWarning bool
@@ -70,9 +69,6 @@ func run(args []string, getenv func(string) string, stdout io.Writer, stderr io.
 	} else {
 		_, _ = fmt.Fprintln(stdout, perfbench.FormatSummary(result))
 	}
-	if options.CI {
-		perfbench.EmitWarnings(stderr, result)
-	}
 	if options.FailOnWarning && len(result.Warnings) > 0 {
 		return 1
 	}
@@ -110,7 +106,6 @@ func parseArgs(args []string, getenv func(string) string) (cliOptions, error) {
 				HarnessEndRssMaxMb: harnessEndRssMaxMb,
 			},
 		},
-		CI: getenv("GITHUB_ACTIONS") == "true",
 	}
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
@@ -178,11 +173,6 @@ func parseArgs(args []string, getenv func(string) string) (cliOptions, error) {
 			}
 			options.Output = value
 			index = next
-		case "--ci":
-			if strings.Contains(arg, "=") {
-				return options, fmt.Errorf("%s does not accept a value", flag)
-			}
-			options.CI = true
 		case "--json":
 			if strings.Contains(arg, "=") {
 				return options, fmt.Errorf("%s does not accept a value", flag)
@@ -220,7 +210,6 @@ func helpText() string {
 		"                               Warn when harness end-state RSS is above n MB",
 		"  --output <path>              Write the JSON report to path",
 		"  --json                       Print only the JSON report",
-		"  --ci                         Emit GitHub Actions warning annotations",
 		"  --fail-on-warning            Exit non-zero when thresholds are exceeded",
 		"  -h, --help                   Show this help",
 		"",

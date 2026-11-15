@@ -199,41 +199,6 @@ jobs:
       - name: Test with the race detector
         run: make test
 
-  performance:
-    name: Performance Smoke
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
-        with:
-          persist-credentials: false
-
-      - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.3.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build binary
-        run: go run ./cmd/qg-release build
-
-      - name: Performance smoke
-        run: |
-          mkdir -p dist/perf
-          go run ./cmd/qg-perf-bench --output dist/perf/perf-bench.json --ci
-
-      - name: Upload performance report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: qg-performance-smoke
-          path: dist/perf/perf-bench.json
-          if-no-files-found: warn
-
   security:
     name: Security & Code Health
     runs-on: ubuntu-latest

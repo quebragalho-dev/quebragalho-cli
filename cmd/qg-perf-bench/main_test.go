@@ -23,7 +23,6 @@ func TestParseArgsUsesCliAndEnvOverrides(t *testing.T) {
 		"0",
 		"--first-output-warn-ms=600",
 		"--output=dist/perf/report.json",
-		"--ci",
 		"--fail-on-warning",
 	}, env)
 	if err != nil {
@@ -36,7 +35,7 @@ func TestParseArgsUsesCliAndEnvOverrides(t *testing.T) {
 	if options.Thresholds.ColdStartP95Ms != 250 || options.Thresholds.FirstOutputP95Ms != 600 || options.Thresholds.HarnessEndRssMaxMb != 384 {
 		t.Fatalf("thresholds = %#v", options.Thresholds)
 	}
-	if options.Output != "dist/perf/report.json" || !options.CI || !options.FailOnWarning {
+	if options.Output != "dist/perf/report.json" || !options.FailOnWarning {
 		t.Fatalf("CLI options = %#v", options)
 	}
 }

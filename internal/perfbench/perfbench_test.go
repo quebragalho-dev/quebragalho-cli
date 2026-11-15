@@ -109,12 +109,6 @@ func TestFormatSummaryIncludesWarnings(t *testing.T) {
 	}
 }
 
-func TestEscapeActionCommand(t *testing.T) {
-	if got := EscapeActionCommand("a%b\r\nc"); got != "a%25b%0D%0Ac" {
-		t.Fatalf("EscapeActionCommand = %q", got)
-	}
-}
-
 func TestPerfBenchHelperProcess(t *testing.T) {
 	if os.Getenv("QG_PERF_HELPER") != "1" {
 		return

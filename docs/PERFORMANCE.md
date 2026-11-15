@@ -66,10 +66,11 @@ Supported environment variables:
 - `QG_PERF_FIRST_OUTPUT_WARN_MS`
 - `QG_PERF_HARNESS_END_RSS_WARN_MB`
 
-## CI Behavior
+## Local gating
 
-The `Performance Smoke` job builds the binary, runs
-`go run ./cmd/qg-perf-bench --output dist/perf/perf-bench.json --ci`, and
-uploads `dist/perf/perf-bench.json`.
+Threshold drift is printed in the summary and included in the JSON report.
+Exit non-zero when thresholds are exceeded:
 
-Threshold drift is emitted as GitHub Actions warnings. The job fails only if the benchmark cannot run, the build fails, or `--fail-on-warning` is passed explicitly.
+```bash
+go run ./cmd/qg-perf-bench --fail-on-warning
+```

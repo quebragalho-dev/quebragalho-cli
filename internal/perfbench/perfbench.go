@@ -248,12 +248,6 @@ func FormatSummary(result Result) string {
 	return strings.Join(lines, "\n")
 }
 
-func EmitWarnings(w io.Writer, result Result) {
-	for _, warning := range result.Warnings {
-		_, _ = fmt.Fprintf(w, "::warning title=QG performance::%s\n", EscapeActionCommand(warning.Message))
-	}
-}
-
 func WriteJSON(w io.Writer, result Result) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
@@ -362,11 +356,6 @@ func FormatCommand(command []string) string {
 		}
 	}
 	return strings.Join(parts, " ")
-}
-
-func EscapeActionCommand(value string) string {
-	replacer := strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A")
-	return replacer.Replace(value)
 }
 
 func resolveQGVersionCommand(rootDir string) ([]string, error) {
