@@ -1501,10 +1501,15 @@ func TestStatusLineAcceptance_EscapedGrandchildDoesNotStallRunner(t *testing.T) 
 			env := newSLEnv(t)
 			counter := filepath.Join(env.root, "count")
 			grandchildPID := filepath.Join(env.root, "grandchild.pid")
+			// The grandchild only counts as escaped once it reports its own
+			// pid AFTER setpgrp: a $!-file written by the shell races the
+			// 300ms group kill (the kill can land before perl runs setpgrp,
+			// leaving a pid file for a dead child). Retrying every run while
+			// the file is missing turns that race into a slow first escape
+			// instead of a precondition failure.
 			command := writeScript(t, env, "escape.sh", `n=$(cat '`+counter+`' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '`+counter+`'
-if [ "$n" -eq 1 ]; then
-  perl -e 'setpgrp(0,0); sleep 30' `+tc.redirect+` &
-  echo $! > '`+grandchildPID+`'
+if [ ! -f '`+grandchildPID+`' ]; then
+  perl -e 'setpgrp(0,0); open my $fh, ">", $ARGV[0]; print $fh "$$\n"; close $fh; sleep 30' '`+grandchildPID+`' `+tc.redirect+` &
   sleep 5
 fi
 printf 'SL-GC-RUN-%s\n' "$n"`)
@@ -1513,8 +1518,11 @@ printf 'SL-GC-RUN-%s\n' "$n"`)
 			if !waitForFile(p, grandchildPID, 4*time.Second) {
 				t.Fatal("statusline command never ran")
 			}
+			base := slReadCounter(t, counter)
 			pid := readPID(t, grandchildPID)
-			frame, ok := p.waitFor(4*time.Second, containsPlain("SL-GC-RUN-2"))
+			frame, ok := p.waitFor(4*time.Second, func(frame string) bool {
+				return slGCRunAfter(plainFrame(frame), base)
+			})
 			if !processAlive(pid) {
 				t.Fatalf("precondition: the grandchild (pid %d) did not outlive the group kill, so nothing escaped", pid)
 			}
@@ -1523,6 +1531,32 @@ printf 'SL-GC-RUN-%s\n' "$n"`)
 			}
 		})
 	}
+}
+
+// slGCRunAfter reports whether the frame shows a statusline run newer than
+// base: SL-GC-RUN-<n> with n > base.
+func slGCRunAfter(plain string, base int) bool {
+	for _, m := range slGCRunPattern.FindAllStringSubmatch(plain, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > base {
+			return true
+		}
+	}
+	return false
+}
+
+var slGCRunPattern = regexp.MustCompile(`SL-GC-RUN-(\d+)`)
+
+func slReadCounter(t *testing.T, path string) int {
+	t.Helper()
+	lines := fileLines(path)
+	if len(lines) == 0 {
+		t.Fatalf("counter file %s is empty", path)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(lines[len(lines)-1]))
+	if err != nil {
+		t.Fatalf("counter file %s: %v", path, err)
+	}
+	return n
 }
 
 // 27. Comando aplicado pelo /statusline roda na hora e segue o refreshMs, sem
