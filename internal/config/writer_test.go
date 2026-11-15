@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -479,6 +480,46 @@ func readConfigFixture(t *testing.T, path string) FileConfig {
 		t.Fatalf("decode config: %v", err)
 	}
 	return cfg
+}
+
+// MarkProviderAPIKeyStored records that path's provider now keeps its key in
+// the credential store. Test-only: no production path calls it.
+func MarkProviderAPIKeyStored(path string, provider string) (err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("config path is required")
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return err
+	}
+	// Joined, not chosen between: a release failure annotates the result
+	// instead of masking the mutation error that actually explains what went
+	// wrong. Reporting success after a failed unlock would claim a state the
+	// next mutation cannot reproduce.
+	defer func() { err = errors.Join(err, unlock()) }()
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return fmt.Errorf("provider name is required")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read config %s: %w", path, err)
+	}
+	var cfg FileConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("invalid config JSON %s: %w", path, err)
+	}
+	for index := range cfg.Providers {
+		if strings.EqualFold(strings.TrimSpace(cfg.Providers[index].Name), provider) {
+			cfg.Providers[index].APIKey = ""
+			cfg.Providers[index].APIKeyEnv = ""
+			cfg.Providers[index].APIKeyStored = true
+			return writeConfigFile(path, cfg)
+		}
+	}
+	return fmt.Errorf("provider %q not found", provider)
 }
 
 func TestMarkProviderAPIKeyStoredClearsInlineAndEnvKey(t *testing.T) {
