@@ -92,7 +92,35 @@ func (m model) statusLineCustom(width int) string {
 	if m.statuslineCmdErr != "" && strings.TrimSpace(m.statuslineCmdOutput) == "" && len(out) < maxStatusLineRenderLines {
 		out = append(out, fitStyledLine("  "+qgTheme.faint.Render(m.statuslineCmdErr), width))
 	}
+	// While an exit/cancel confirmation is armed, the first custom line shows
+	// the same hint the built-in line shows, keeping the footer height stable.
+	// When the confirmation expires the user layout returns untouched.
+	if hint, ok := m.customConfirmHintLine(width); ok {
+		if len(out) == 0 {
+			return hint
+		}
+		out[0] = hint
+	}
 	return strings.Join(out, "\n")
+}
+
+// customConfirmHintLine renders the armed exit/cancel hint with the same
+// text and styling the built-in status line uses, so a custom layout never
+// hides it. False when no confirmation is armed.
+func (m model) customConfirmHintLine(width int) (string, bool) {
+	prefix := "  "
+	btwChip := ""
+	if m.btw.active {
+		btwChip = qgTheme.amber.Render("BTW") + qgTheme.muted.Render(" · ")
+	}
+	switch {
+	case m.exitConfirmActive:
+		return fitStyledLine(prefix+btwChip+qgTheme.amber.Render("●")+" "+qgTheme.amber.Render(ctrlCExitConfirmText), width), true
+	case m.cancelConfirmActive:
+		return fitStyledLine(prefix+btwChip+qgTheme.amber.Render("●")+" "+qgTheme.amber.Render(escCancelConfirmText), width), true
+	default:
+		return "", false
+	}
 }
 
 // maxStatusLineRenderLines caps the custom render defensively; config
