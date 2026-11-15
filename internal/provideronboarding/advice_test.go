@@ -16,10 +16,10 @@ func TestSetupCommandUsesCatalogEnvAndSetActive(t *testing.T) {
 		t.Fatalf("Require(qg) returned error: %v", err)
 	}
 
-	got := SetupCommand(qg, "fast", true)
+	got := SetupCommandWithModel(qg, "fast", "", true)
 	want := "qg providers add qg --name fast --api-key-env QUEBRAGALHO_API_KEY --set-active"
 	if got != want {
-		t.Fatalf("SetupCommand() = %q, want %q", got, want)
+		t.Fatalf("SetupCommandWithModel() = %q, want %q", got, want)
 	}
 }
 
@@ -29,10 +29,10 @@ func TestSetupCommandForQGProvider(t *testing.T) {
 		t.Fatalf("Require(qg) returned error: %v", err)
 	}
 
-	got := SetupCommand(descriptor, "qg", false)
+	got := SetupCommandWithModel(descriptor, "qg", "", false)
 	want := "qg providers add qg --name qg --api-key-env QUEBRAGALHO_API_KEY"
 	if got != want {
-		t.Fatalf("SetupCommand() = %q, want %q", got, want)
+		t.Fatalf("SetupCommandWithModel() = %q, want %q", got, want)
 	}
 }
 

@@ -25,15 +25,12 @@ func (state ProviderState) Actions() []Action {
 	return ProviderActions(state.Profile, state.Active)
 }
 
-func SetupCommand(descriptor providercatalog.Descriptor, name string, setActive bool) string {
-	return setupCommand(descriptor, name, "", setActive)
-}
-
-// SetupCommandWithModel is SetupCommand with an explicit --model. A local
+// SetupCommandWithModel builds the `qg providers add` command with an explicit
+// --model. A local
 // runtime serves whichever model the user loaded, so its catalog DefaultModel is
 // only a placeholder: an adopt command that omits --model persists that
 // placeholder and the first completion fails with an unknown-model response.
-// An empty model falls back to SetupCommand's behaviour. Commands that cannot
+// An empty model omits --model. Commands that cannot
 // be represented safely across supported shells are omitted.
 func SetupCommandWithModel(descriptor providercatalog.Descriptor, name string, model string, setActive bool) string {
 	return setupCommand(descriptor, name, model, setActive)
