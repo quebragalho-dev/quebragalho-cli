@@ -36,7 +36,7 @@ func TestTrackerNormalizesUsageAndComputesModelCost(t *testing.T) {
 	if summary.RecordCount != 1 || summary.TotalTokens != 1_250 || summary.ByModel[0].ModelID != "muse-spark-1.3-contributor" {
 		t.Fatalf("unexpected summary: %#v", summary)
 	}
-	if FormatSummary(summary) != "1 request, 1,250 tokens, "+summary.FormattedTotalCost {
+	if FormatSummary(summary) != "1 chamada, 1,250 tokens, "+summary.FormattedTotalCost {
 		t.Fatalf("unexpected formatted summary: %q", FormatSummary(summary))
 	}
 }

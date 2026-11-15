@@ -238,9 +238,9 @@ func Normalize(usage qgruntime.Usage) (Normalized, qgruntime.Usage, error) {
 }
 
 func FormatSummary(summary Summary) string {
-	requestLabel := "requests"
+	requestLabel := "chamadas"
 	if summary.RecordCount == 1 {
-		requestLabel = "request"
+		requestLabel = "chamada"
 	}
 	return fmt.Sprintf("%s %s, %s tokens, %s", comma(summary.RecordCount), requestLabel, comma(summary.TotalTokens), summary.FormattedTotalCost)
 }
@@ -256,13 +256,14 @@ func (summary Summary) CacheHitRate() float64 {
 }
 
 // FormatCacheEfficiency renders the prompt-cache hit rate for display, e.g.
-// "63% (8,200 cached / 13,100 input)", so a user can see whether cache reads are
-// actually saving work. Returns "n/a" until some input has been recorded.
+// "63% (8,200 em cache / 13,100 de entrada)", so a user can see whether cache
+// reads are actually saving work. Returns "n/a" until some input has been
+// recorded.
 func FormatCacheEfficiency(summary Summary) string {
 	if summary.InputTokens <= 0 {
 		return "n/a"
 	}
-	return fmt.Sprintf("%.0f%% (%s cached / %s input)",
+	return fmt.Sprintf("%.0f%% (%s em cache / %s de entrada)",
 		summary.CacheHitRate()*100,
 		comma(summary.CachedInputTokens),
 		comma(summary.InputTokens))

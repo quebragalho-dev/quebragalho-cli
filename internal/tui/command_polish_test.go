@@ -276,17 +276,17 @@ func TestContextAndPermissionsCommandsRenderProductState(t *testing.T) {
 	}
 	contextText := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Context",
-		"go runtime | ask permissions | 1 tool",
-		"Runtime",
-		"cwd        D:\\codings\\Opensource\\QG",
-		"provider   openai",
-		"model      gpt-4.1",
-		"Session",
-		"active      none",
-		"compaction  idle",
-		"Tools",
-		"registered  1",
+		"Contexto",
+		"runtime go | ask permissões | 1 ferramenta",
+		"Execução",
+		"cwd             D:\\codings\\Opensource\\QG",
+		"provedor        openai",
+		"modelo          gpt-4.1",
+		"Sessão",
+		"ativa        nenhuma",
+		"compactação  ociosa",
+		"Ferramentas",
+		"registradas  1",
 		"ações: /permissions manage access | /tools inspect catalog",
 	} {
 		assertContains(t, contextText, want)
@@ -376,10 +376,10 @@ func TestContextCommandCardHandlesNilRegistryAndStableStyle(t *testing.T) {
 	text := model{}.contextText()
 
 	for _, want := range []string{
-		"Context",
-		"0 tools",
-		"style      concise",
-		"root        unknown",
+		"Contexto",
+		"0 ferramentas",
+		"estilo          concise",
+		"raiz         desconhecida",
 	} {
 		assertContains(t, text, want)
 	}

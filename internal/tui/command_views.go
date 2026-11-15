@@ -454,50 +454,58 @@ func (m model) avgTurnLatencyText() string {
 	if m.turnLatencyCount == 0 {
 		return "n/a"
 	}
+	turns := turnCountText(m.turnLatencyCount)
 	avgSeconds := m.turnLatencySum.Seconds() / float64(m.turnLatencyCount)
 	if m.turnTTFTCount > 0 {
 		ttftSeconds := m.turnTTFTSum.Seconds() / float64(m.turnTTFTCount)
-		return fmt.Sprintf("%.1fs avg (%.1fs to first token, %d turns)", avgSeconds, ttftSeconds, m.turnLatencyCount)
+		return fmt.Sprintf("%.1fs de média (%.1fs até o primeiro token, %s)", avgSeconds, ttftSeconds, turns)
 	}
-	return fmt.Sprintf("%.1fs avg (%d turns)", avgSeconds, m.turnLatencyCount)
+	return fmt.Sprintf("%.1fs de média (%s)", avgSeconds, turns)
+}
+
+func turnCountText(count int) string {
+	if count == 1 {
+		return "1 turno"
+	}
+	return fmt.Sprintf("%d turnos", count)
 }
 
 func (m model) contextText() string {
 	toolCount := len(m.registeredTools())
 	return renderCommandCardTranscript(commandCard{
-		Title: "Context",
+		Title: "Contexto",
 		Summary: []string{
-			"go runtime",
-			string(m.permissionMode) + " permissions",
-			pluralizeCount(toolCount, "tool", "tools"),
+			"runtime go",
+			string(m.permissionMode) + " permissões",
+			pluralizeCount(toolCount, "ferramenta", "ferramentas"),
 		},
 		Sections: []commandCardSection{
 			{
-				Title: "Runtime",
+				Title: "Execução",
 				Fields: []commandField{
-					{Key: "cwd", Value: displayValue(m.cwd, "unknown")},
-					{Key: "provider", Value: displayValue(m.providerName, "none")},
-					{Key: "model", Value: displayValue(m.modelName, "none")},
-					{Key: "effort", Value: m.effortDisplay()},
-					{Key: "style", Value: displayValue(m.responseStyle, defaultResponseStyle)},
-					{Key: "usage", Value: m.usageSummaryText()},
+					{Key: "cwd", Value: displayValue(m.cwd, "desconhecido")},
+					{Key: "provedor", Value: displayValue(m.providerName, "nenhum")},
+					{Key: "modelo", Value: displayValue(m.modelName, "nenhum")},
+					{Key: "nível", Value: m.effortDisplay()},
+					{Key: "estilo", Value: displayValue(m.responseStyle, defaultResponseStyle)},
+					{Key: "uso", Value: m.usageSummaryText()},
 					{Key: "cache", Value: m.cacheEfficiencyText()},
-					{Key: "latency", Value: m.avgTurnLatencyText()},
-					{Key: "max turns", Value: fmt.Sprint(m.agentOptions.MaxTurns)},
+					{Key: "latência", Value: m.avgTurnLatencyText()},
+					{Key: "turnos máximos", Value: fmt.Sprint(m.agentOptions.MaxTurns)},
 				},
 			},
 			{
-				Title: "Session",
+				Title: "Sessão",
 				Fields: []commandField{
-					{Key: "active", Value: displayValue(m.activeSession.SessionID, "none")},
-					{Key: "root", Value: displayValue(m.sessionRootDir(), "unknown")},
-					{Key: "compaction", Value: contextCompactionStatus(m.compactionStatus())},
+					{Key: "ativa", Value: displayValue(m.activeSession.SessionID, "nenhuma")},
+					{Key: "raiz", Value: displayValue(m.sessionRootDir(), "desconhecida")},
+					{Key: "compactação", Value: contextCompactionStatus(m.compactionStatus())},
 				},
 			},
 			{
-				Title: "Tools",
+				Title: "Ferramentas",
 				Fields: []commandField{
-					{Key: "registered", Value: fmt.Sprint(toolCount)},
+					{Key: "registradas", Value: fmt.Sprint(toolCount)},
 				},
 			},
 		},
@@ -528,10 +536,22 @@ func pluralizeCount(count int, singular string, plural string) string {
 }
 
 func contextCompactionStatus(status string) string {
-	if status == "not compacted" {
-		return "idle"
+	switch status {
+	case "not compacted":
+		return "ociosa"
+	case "compacting context":
+		return "compactando contexto"
+	case "compacted manually":
+		return "compactada manualmente"
+	case "manual compactor completed without changes":
+		return "compactação manual concluída sem alterações"
+	case "manual compaction failed":
+		return "falha na compactação manual"
+	case "requested, awaiting manual compactor":
+		return "solicitada, aguardando compactador manual"
+	default:
+		return status
 	}
-	return status
 }
 
 // onOff renders a boolean preference as "on"/"off" for config display.

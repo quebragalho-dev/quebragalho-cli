@@ -579,12 +579,12 @@ func TestContextCommandShowsSessionState(t *testing.T) {
 	}
 	for _, want := range []string{
 		`D:\codings\Opensource\QG`,
-		"go runtime | ask permissions | 1 tool",
-		"provider   openai",
-		"model      gpt-4.1",
-		"max turns  ",
-		"root        ",
-		"registered  1",
+		"runtime go | ask permissões | 1 ferramenta",
+		"provedor        openai",
+		"modelo          gpt-4.1",
+		"turnos máximos  ",
+		"raiz         ",
+		"registradas  1",
 	} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected context transcript to contain %q, got %#v", want, next.transcript)

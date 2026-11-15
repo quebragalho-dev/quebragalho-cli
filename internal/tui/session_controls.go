@@ -1241,11 +1241,11 @@ func isUnpricedUsageError(err error) bool {
 
 func (m model) usageSummaryText() string {
 	if m.usageTracker == nil {
-		return "usage unavailable"
+		return "uso indisponível"
 	}
 	summary := m.usageTracker.Summary()
 	if summary.RecordCount == 0 && m.unpricedRequests == 0 {
-		return "no usage yet"
+		return "ainda sem uso"
 	}
 	if summary.RecordCount == 0 {
 		return formatUnpricedUsage(m.unpricedRequests, m.unpricedTokens)
@@ -1262,7 +1262,7 @@ func (m model) usageSummaryText() string {
 // that shifts mid-session), so it flags that case to make slowness diagnosable.
 func (m model) cacheEfficiencyText() string {
 	if m.usageTracker == nil {
-		return "usage unavailable"
+		return "uso indisponível"
 	}
 	summary := m.usageTracker.Summary()
 	if summary.InputTokens <= 0 {
@@ -1270,15 +1270,15 @@ func (m model) cacheEfficiencyText() string {
 	}
 	text := usage.FormatCacheEfficiency(summary)
 	if summary.RecordCount > 5 && summary.CacheHitRate() < 0.5 {
-		text += " — low; prefix may be unstable"
+		text += " — baixa; o prefixo pode estar instável"
 	}
 	return text
 }
 
 func formatUnpricedUsage(requests int, tokens int) string {
-	requestLabel := "requests"
+	requestLabel := "chamadas"
 	if requests == 1 {
-		requestLabel = "request"
+		requestLabel = "chamada"
 	}
-	return fmt.Sprintf("%d %s, %d tokens, cost unavailable", requests, requestLabel, tokens)
+	return fmt.Sprintf("%d %s, %d tokens, custo indisponível", requests, requestLabel, tokens)
 }

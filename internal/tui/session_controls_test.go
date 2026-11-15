@@ -756,7 +756,7 @@ func TestUsageEventsUpdateFooterAndContext(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /context to be handled without starting an agent run")
 	}
-	for _, want := range []string{"usage      1 request, 120 tokens", "style      concise", "effort     auto", "compaction  idle"} {
+	for _, want := range []string{"uso             1 chamada, 120 tokens", "estilo          concise", "nível           auto", "compactação  ociosa"} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected context transcript to contain %q, got %#v", want, next.transcript)
 		}
@@ -885,7 +885,7 @@ func TestUsageEventsForCustomModelUseTokenOnlyFallback(t *testing.T) {
 	next = updated.(model)
 
 	usageText := next.usageSummaryText()
-	for _, want := range []string{"1 request, 120 tokens", "cost unavailable"} {
+	for _, want := range []string{"1 chamada, 120 tokens", "custo indisponível"} {
 		if !strings.Contains(usageText, want) {
 			t.Fatalf("expected usage summary to contain %q, got %q", want, usageText)
 		}
@@ -958,7 +958,7 @@ func TestInvalidUsageEventsAppendTranscriptError(t *testing.T) {
 	if !transcriptContains(next.transcript, "usage: expected inputTokens to be non-negative") {
 		t.Fatalf("expected invalid usage transcript error, got %#v", next.transcript)
 	}
-	if next.unpricedRequests != 0 || strings.Contains(next.usageSummaryText(), "cost unavailable") {
+	if next.unpricedRequests != 0 || strings.Contains(next.usageSummaryText(), "custo indisponível") {
 		t.Fatalf("invalid usage should not be counted as unpriced, requests=%d usage=%q", next.unpricedRequests, next.usageSummaryText())
 	}
 }

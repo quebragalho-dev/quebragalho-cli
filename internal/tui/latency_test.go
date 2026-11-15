@@ -15,14 +15,14 @@ func TestAvgTurnLatencyText(t *testing.T) {
 	}
 	m.turnLatencySum = 9 * time.Second
 	m.turnLatencyCount = 2
-	if got := m.avgTurnLatencyText(); got != "4.5s avg (2 turns)" {
-		t.Fatalf("avgTurnLatencyText = %q, want \"4.5s avg (2 turns)\"", got)
+	if got := m.avgTurnLatencyText(); got != "4.5s de média (2 turnos)" {
+		t.Fatalf("avgTurnLatencyText = %q, want \"4.5s de média (2 turnos)\"", got)
 	}
 	// With TTFT recorded, the line also reports time-to-first-token.
 	m.turnTTFTSum = 3 * time.Second
 	m.turnTTFTCount = 2
-	if got := m.avgTurnLatencyText(); got != "4.5s avg (1.5s to first token, 2 turns)" {
-		t.Fatalf("avgTurnLatencyText with ttft = %q, want \"4.5s avg (1.5s to first token, 2 turns)\"", got)
+	if got := m.avgTurnLatencyText(); got != "4.5s de média (1.5s até o primeiro token, 2 turnos)" {
+		t.Fatalf("avgTurnLatencyText with ttft = %q, want \"4.5s de média (1.5s até o primeiro token, 2 turnos)\"", got)
 	}
 	// /new must reset the rolling latency + ttft so a fresh session starts from qg.
 	m.activeSession = sessions.Metadata{SessionID: "x"}
