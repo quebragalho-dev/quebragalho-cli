@@ -224,11 +224,21 @@ type promptArgs struct {
 // without answering (pre-machine parity); SettleEnd answers ask with nil
 // (agentResponseMsg parity) without restoring a draft. A peer expire/release
 // only clears a pending prompt whose ToolCallID matches; queue entries are
-// removed in every phase (pre-machine parity).
+// removed in every phase (pre-machine parity). Opening (or replacing) any
+// prompt cancels a pending leader chord: the follow-up key must go to the
+// modal, never to a stale Ctrl+X slash (S2 fix; the chord's tick is
+// invalidated via the seq bump, like clearLeader).
 func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 	phase := m.promptPhase()
 	if !promptEventLegal(phase, ev) {
 		return fmt.Errorf("illegal prompt transition %s in %s", ev, phase)
+	}
+	switch ev {
+	case PromptEvOpenPermission, PromptEvOpenAskUser, PromptEvOpenSpecReview, PromptEvOpenPeer, PromptEvReplacePermission, PromptEvReplaceAskUser:
+		if m.leaderPending {
+			m.leaderPending = false
+			m.leaderSeq++
+		}
 	}
 	switch ev {
 	case PromptEvOpenPermission:

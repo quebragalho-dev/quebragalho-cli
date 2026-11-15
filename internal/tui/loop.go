@@ -550,14 +550,17 @@ func (m model) scheduleLoopTick() tea.Cmd {
 }
 
 // loopBusy reports whether the session is too busy for a loop to fire — a turn,
-// queued user message, compaction, or ANY blocking modal (permission/askUser/spec
-// review, provider or MCP wizard, MCP manager, or an open picker) is in flight.
-// The modal check is load-bearing: a loop must not launch a run behind an open
-// /resume picker, or that run would complete into whatever session the user then
-// switches to. Mirrors launchQueuedMessageIfReady so loops and queued prompts never
-// collide.
+// queued user message, compaction, the setup wizard, or ANY blocking modal
+// (permission/askUser/spec review, provider or MCP wizard, MCP manager, or an
+// open picker) is in flight. The modal check is load-bearing: a loop must not
+// launch a run behind an open /resume picker, or that run would complete into
+// whatever session the user then switches to. The setup wizard covers the
+// viewport fullscreen (View) and owns every key, yet noBlockingModal excludes
+// it, so the loop needs its own setup term — via keyboardOwner (Setup is the
+// top derive priority, hence owner==Setup iff setup.visible). Mirrors
+// launchQueuedMessageIfReady so loops and queued prompts never collide.
 func (m model) loopBusy() bool {
-	return m.pending || m.exiting || m.compactInFlight || m.hasQueuedMessage() || !m.noBlockingModal()
+	return m.pending || m.exiting || m.compactInFlight || m.hasQueuedMessage() || !m.noBlockingModal() || m.keyboardOwner() == KeyboardSetup
 }
 
 func (m model) appendLoopSystem(text string) model {
