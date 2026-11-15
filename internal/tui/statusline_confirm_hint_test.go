@@ -130,6 +130,47 @@ func TestStatusLineCustomShowsCancelConfirmHintWithCommand(t *testing.T) {
 	}
 }
 
+// The custom first line must match the built-in line byte-for-byte (styled):
+// for each armed confirmation, BTW state and width, the custom layout's
+// first line equals the built-in line of the same model with a zeroed config.
+func TestStatusLineCustomMatchesBuiltinConfirmHintParity(t *testing.T) {
+	for _, confirm := range []struct {
+		name string
+		arm  func(*model)
+		hint string
+	}{
+		{"exit", func(m *model) { m.exitConfirmActive = true }, ctrlCExitConfirmText},
+		{"cancel", func(m *model) { m.cancelConfirmActive = true }, escCancelConfirmText},
+	} {
+		for _, btwActive := range []bool{false, true} {
+			for _, width := range []int{100, 30} {
+				m := customConfirmHintTestModel()
+				m.btw.active = btwActive
+				confirm.arm(&m)
+				customFirst := strings.Split(m.statusLine(width), "\n")[0]
+				embedded := m
+				embedded.statuslineCfg = config.StatusLineConfig{}
+				want := embedded.statusLine(width)
+				if strings.Contains(want, "\n") {
+					t.Fatalf("%s btw=%v width=%d: built-in line must be single-line, got:\n%q", confirm.name, btwActive, width, want)
+				}
+				if customFirst != want {
+					t.Fatalf("%s btw=%v width=%d: custom first line differs from built-in:\n got %q\nwant %q", confirm.name, btwActive, width, customFirst, want)
+				}
+				if width == 100 && !strings.Contains(customFirst, confirm.hint) {
+					t.Fatalf("%s btw=%v width=%d: first line must carry %q, got:\n%q", confirm.name, btwActive, width, confirm.hint, customFirst)
+				}
+				if width != 100 && !strings.Contains(customFirst, "Pressione") {
+					t.Fatalf("%s btw=%v width=%d: truncated first line must keep the hint prefix, got:\n%q", confirm.name, btwActive, width, customFirst)
+				}
+				if hasBTW := strings.Contains(customFirst, "BTW"); hasBTW != btwActive {
+					t.Fatalf("%s btw=%v width=%d: BTW chip presence = %v, got:\n%q", confirm.name, btwActive, width, hasBTW, customFirst)
+				}
+			}
+		}
+	}
+}
+
 // Without any armed confirmation the custom layout renders exactly as
 // before: no hint text leaks in and the field plus command lines keep
 // their content.
