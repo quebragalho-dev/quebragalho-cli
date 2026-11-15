@@ -21,6 +21,7 @@ import (
 	"sort"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 // store is the on-disk JSON shape: {"trusted": ["<abs path>", ...]}.
@@ -118,25 +119,9 @@ func saveStore(s store) error {
 		return fmt.Errorf("create trust store directory %s: %w", dir, err)
 	}
 
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("create trust store temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("chmod trust store temp file: %w", err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write trust store: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("write trust store: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	// Durable publish: fsync before the atomic rename (with retry on transient
+	// Windows sharing violations) so a power loss cannot leave an empty file.
+	if err := fsutil.WriteFileAtomically(path, data, 0o600); err != nil {
 		return fmt.Errorf("publish trust store: %w", err)
 	}
 	return nil

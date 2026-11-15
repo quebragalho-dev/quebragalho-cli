@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 func UpsertProvider(path string, profile ProviderProfile, setActive bool) (result FileConfig, err error) {
@@ -752,24 +754,10 @@ func writeConfigData(path string, data []byte) error {
 	}
 	// Write-to-temp + rename: an in-place write interrupted mid-way (crash,
 	// disk full) would leave the user's only config truncated or corrupt.
-	tmp, err := os.CreateTemp(dir, ".qg-config-*.tmp")
-	if err != nil {
-		return fmt.Errorf("write config %s: %w", path, err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("secure config permissions %s: %w", path, err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write config %s: %w", path, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("write config %s: %w", path, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	// The temp file is fsynced before the atomic rename (RenameWithRetry for
+	// transient Windows sharing violations) so a power loss cannot leave an
+	// empty file.
+	if err := fsutil.WriteFileAtomically(path, data, 0o600); err != nil {
 		return fmt.Errorf("write config %s: %w", path, err)
 	}
 	return nil

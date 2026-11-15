@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/keyring"
 )
 
@@ -515,19 +516,14 @@ func (b fileBlob) write(data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(b.path), 0o700); err != nil {
 		return err
 	}
-	temp, tempPath, err := createPublicationFile(b.path)
-	if err != nil {
+	// Durable publish through the dedicated publication directory (same
+	// filesystem, random name): fsync before the atomic rename, retried on
+	// transient Windows sharing violations, so a power loss cannot leave an
+	// empty token file.
+	if err := fsutil.WriteFileAtomicallyInDir(PublicationDir(b.path), b.path, data, 0o600); err != nil {
 		return err
 	}
-	defer os.Remove(tempPath)
-	if _, err := temp.Write(data); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, b.path)
+	return nil
 }
 
 // PublicationDirSuffix names the per-store directory a token store publishes new

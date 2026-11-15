@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 type Status string
@@ -483,22 +485,9 @@ func (manager *Manager) persistTaskLocked(task Task) error {
 		return fmt.Errorf("encode background task metadata: %w", err)
 	}
 	path := manager.metadataFile(task.ID)
-	file, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("create background task metadata temp file: %w", err)
-	}
-	tmp := file.Name()
-	if _, err := file.Write(append(data, '\n')); err != nil {
-		_ = file.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write background task metadata: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("close background task metadata: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	// Durable publish: fsync before the atomic rename (with retry on transient
+	// Windows sharing violations) so a power loss cannot leave an empty file.
+	if err := fsutil.WriteFileAtomically(path, append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("replace background task metadata: %w", err)
 	}
 	return nil

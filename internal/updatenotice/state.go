@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 // State is the persisted update-notice state: when the registry was last
@@ -81,8 +83,9 @@ func Load(path string) State {
 
 // Save writes the state atomically: the parent directory is created with
 // owner-only permissions, the payload goes to a temp file in the same
-// directory with 0600, and a rename publishes it (atomic on POSIX; on Windows
-// os.Rename replaces the destination).
+// directory with 0600, fsynced before the rename publishes it (atomic on
+// POSIX; on Windows the rename retries transient sharing violations), and the
+// parent directory is synced so the rename survives a crash.
 func Save(path string, state State) error {
 	payload, err := json.Marshal(state)
 	if err != nil {
@@ -91,30 +94,8 @@ func Save(path string, state State) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), "update-*.tmp")
-	if err != nil {
+	if err := fsutil.WriteFileAtomically(path, append(payload, '\n'), 0o600); err != nil {
 		return err
 	}
-	temporaryName := temporary.Name()
-	failed := true
-	defer func() {
-		if failed {
-			_ = os.Remove(temporaryName)
-		}
-	}()
-	if _, err := temporary.Write(append(payload, '\n')); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(temporaryName, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(temporaryName, path); err != nil {
-		return err
-	}
-	failed = false
 	return nil
 }

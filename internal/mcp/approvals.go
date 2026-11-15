@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 // ProjectApproval is one remembered user approval of a project-layer MCP
@@ -174,23 +175,12 @@ func (store *ProjectApprovals) save() error {
 	if err := os.MkdirAll(filepath.Dir(store.path), 0o700); err != nil {
 		return err
 	}
-	staging, err := os.CreateTemp(filepath.Dir(store.path), "mcp_approvals-*.json")
-	if err != nil {
+	// Durable publish: fsync before the atomic rename (with retry on transient
+	// Windows sharing violations) so a power loss cannot leave an empty file.
+	if err := fsutil.WriteFileAtomically(store.path, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
-	stagingName := staging.Name()
-	defer func() { _ = os.Remove(stagingName) }()
-	if _, err := staging.Write(append(data, '\n')); err != nil {
-		_ = staging.Close()
-		return err
-	}
-	if err := staging.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(stagingName, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(stagingName, store.path)
+	return nil
 }
 
 // ApprovalPendingError is the skipped-server reason for a project server the

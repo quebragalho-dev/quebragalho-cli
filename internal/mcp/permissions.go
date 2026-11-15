@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 type PermissionScope string
@@ -444,12 +446,9 @@ func (store *PermissionStore) writeState(state permissionFile) error {
 	if err != nil {
 		return err
 	}
-	tempPath := fmt.Sprintf("%s.tmp-%d-%d", store.filePath, os.Getpid(), store.now().UnixNano())
-	if err := os.WriteFile(tempPath, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, store.filePath); err != nil {
-		_ = os.Remove(tempPath)
+	// Durable publish: fsync before the atomic rename (with retry on transient
+	// Windows sharing violations) so a power loss cannot leave an empty file.
+	if err := fsutil.WriteFileAtomically(store.filePath, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
 	return nil

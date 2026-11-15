@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 type Event string
@@ -260,12 +262,9 @@ func WriteConfig(path string, config Config) error {
 	if err != nil {
 		return err
 	}
-	tempPath := fmt.Sprintf("%s.tmp-%d-%d", resolved, os.Getpid(), time.Now().UnixNano())
-	if err := os.WriteFile(tempPath, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, resolved); err != nil {
-		_ = os.Remove(tempPath)
+	// Durable publish: fsync before the atomic rename (with retry on transient
+	// Windows sharing violations) so a power loss cannot leave an empty file.
+	if err := fsutil.WriteFileAtomically(resolved, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
 	return nil
