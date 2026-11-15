@@ -592,7 +592,9 @@ func (runtime *Runtime) relistServer(ctx context.Context, server Server, conn *m
 // the live side of the membership machine: a disabled server never adopts,
 // so even a caller that dialed first cannot publish its tools.
 func (runtime *Runtime) adoptRelistLocked(server Server, fresh ToolClient, remote []RemoteTool) error {
-	if runtime.disabled[server.Name] {
+	// The membership table owns the adopt policy: a disabled server never
+	// adopts, so even a caller that dialed first cannot publish its tools.
+	if _, ok := legalMemberTransition(runtime.membershipLocked(server.Name), memberEventAdopt); !ok {
 		return disabledServerError(server.Name)
 	}
 	conn, ok := runtime.liveClients[server.Name]
