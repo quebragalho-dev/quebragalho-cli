@@ -358,7 +358,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		return writeAppError(stderr, "--allow-escalation is only supported for the interactive TUI and exec", 1)
 	}
 	if root.noBrowser && args[0] != "--dangerously-skip-permissions" && args[0] != "--skip-permissions-unsafe" {
-		return writeAppError(stderr, "--no-browser is only supported for the interactive TUI (see `qg login --help` for the login flag)", 1)
+		return writeAppError(stderr, "--no-browser serve só para o TUI interativo (veja `qg login --help` para a flag de login)", 1)
 	}
 	if (root.continueSet || root.resumeSet) && args[0] != "--dangerously-skip-permissions" && args[0] != "--skip-permissions-unsafe" {
 		return writeAppError(stderr, "--continue e --resume servem só para o TUI interativo (sem subcomando); para execuções únicas use `qg exec --resume`", 1)
@@ -1929,7 +1929,7 @@ func splitLeadingThemeFlag(args []string) (string, []string, error) {
 		switch {
 		case args[0] == "--theme":
 			if len(args) < 2 {
-				return "", nil, errors.New("--theme requires a value (auto or a theme name; try --theme auto)")
+				return "", nil, errors.New("--theme exige um valor (auto ou um nome de tema; tente --theme auto)")
 			}
 			value = strings.TrimSpace(args[1])
 			args = args[2:]
