@@ -2037,6 +2037,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the caret, the typed character would render caret-less for up to a
 		// full tick before the timer catches up.
 		m.composerCursorVisible = true
+		// Keyboard dispatch order (this if/case chain is the priority spec):
+		// setup wizard, STT key prompt, terminal attach, session rename,
+		// statusline proposal preview, help overlay, leader-help overlay,
+		// picker panel keys, Ctrl+C, pending leader chord, Ctrl+X arming,
+		// Ctrl+P/Ctrl+N menu moves, then the switch (run details, detailed
+		// toggle, file-view mode keys, mouse toggle, voice capture, Esc
+		// chain, Enter chain, Tab, scrolling, arrows) and the fallthrough
+		// (detailed transcript, ask-user, spec review, permission prompt,
+		// MCP wizard, MCP manager, picker, subagent confirm, read-only
+		// subchat, composer).
 		if m.setup.visible {
 			return m.handleSetupKey(msg)
 		}

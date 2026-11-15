@@ -1,12 +1,13 @@
 package tui
 
-// Characterization of the current keyboard-owner priority (pre-machine).
+// Characterization of the current keyboard priority.
 // These tests PASS on the untouched dev branch and must keep passing after
-// the overlay machine lands without edits: they pin the observable behaviour
-// for single overlays and for overlay pairs that are NOT the proven defects
-// (S1/S2 have their own failing repro in keyboard_owner_repro_test.go).
+// the fix without edits: they pin the observable behaviour
+// for single overlays and for overlay pairs whose handling the fix does
+// not change (the leader-chord cancellation has its own repro in
+// keyboard_owner_repro_test.go).
 //
-// Method: drive the production Update path (KeyPressMsg, loopTickMsg seam)
+// Method: drive the production Update path (KeyPressMsg)
 // with hermetic models (HOME/XDG fakes are set by the package harness;
 // QG_CRED_STORAGE=file where needed). No time.Sleep.
 
@@ -26,7 +27,7 @@ func charTestModel(t *testing.T, now time.Time) model {
 	return m
 }
 
-// S3 ("/" and "@" together): recomputeSuggestions gives a deterministic,
+// Slash and at-sign together: recomputeSuggestions gives a deterministic,
 // exclusive priority — a path query ("@") wins over the trailing slash token
 // ("/"). Both flags true is representable in the type but unreachable via
 // typing. This pins the current (correct) priority; no defect.
@@ -46,7 +47,7 @@ func TestCharSlashAtPriorityFileWins(t *testing.T) {
 	}
 }
 
-// S4 (picker.resume chain): Tab opens one effort ladder over the model
+// Picker resume chain: Tab opens one effort ladder over the model
 // palette; a second Tab inside the ladder must NOT grow the chain, and Esc
 // restores the palette. Depth stays bounded at 2 (palette + ladder).
 func TestCharPickerResumeDepthBounded(t *testing.T) {
