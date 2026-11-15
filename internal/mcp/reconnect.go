@@ -15,9 +15,11 @@ import (
 // attempt plus up to 4 retries with exponential backoff.
 const maxConnectAttempts = 5
 
-// connectBackoffFor returns the wait before attempt number (1-based): the
-// first retry waits 1s, then 2s, 4s, 8s.
-func connectBackoffFor(attempt int) time.Duration {
+// connectBackoffFor is the wait before attempt number (1-based): the
+// first retry waits 1s, then 2s, 4s, 8s. A variable rather than a function
+// so tests can shrink the schedule instead of paying real backoff seconds;
+// production code never assigns it.
+var connectBackoffFor = func(attempt int) time.Duration {
 	return time.Duration(1<<uint(attempt-1)) * time.Second
 }
 

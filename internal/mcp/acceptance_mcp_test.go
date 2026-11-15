@@ -195,9 +195,15 @@ func TestAcceptanceMCPRemoteReconnectsWithExponentialBackoff(t *testing.T) {
 // The reconnect may start in the call that saw the drop or at the next use,
 // since a call the server may have received is not sent again.
 func TestAcceptanceMCPRemoteReconnectGivesUpAfterFiveAttempts(t *testing.T) {
-	if testing.Short() {
-		t.Skip("backoff 1+2+4+8s")
+	// Shrunk schedule: same doubling shape as production (1,2,4,8,16 units)
+	// at 10ms per unit, so a would-be sixth attempt lands ~160ms after the
+	// fifth instead of 16s after it. Restored for the rest of the package.
+	savedBackoff := connectBackoffFor
+	connectBackoffFor = func(attempt int) time.Duration {
+		return time.Duration(1<<uint(attempt-1)) * 10 * time.Millisecond
 	}
+	defer func() { connectBackoffFor = savedBackoff }()
+
 	acceptanceHermeticEnv(t)
 	var down atomic.Bool
 	var attempts atomic.Int32
@@ -236,9 +242,13 @@ func TestAcceptanceMCPRemoteReconnectGivesUpAfterFiveAttempts(t *testing.T) {
 			t.Fatal("no reconnect attempt (initialize) within 6s of the next use after the drop")
 		}
 	}
-	reached(5, 40*time.Second)
-	// A sixth attempt would follow the fifth by at least 16s.
-	time.Sleep(20 * time.Second)
+	if !reached(5, 10*time.Second) {
+		t.Fatalf("reconnect attempts = %d, want 5 before giving up", attempts.Load())
+	}
+	// A sixth attempt would follow the fifth by one more shrunk backoff
+	// (~160ms). Wait well past that: still exactly 5 means the loop stops
+	// where maxConnectAttempts says it stops.
+	time.Sleep(2 * time.Second)
 	if got := attempts.Load(); got != 5 {
 		t.Fatalf("reconnect attempts = %d, want exactly 5 and then stop", got)
 	}
