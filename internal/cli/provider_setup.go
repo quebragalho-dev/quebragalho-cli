@@ -546,12 +546,6 @@ func providerKindForDescriptor(descriptor providercatalog.Descriptor) config.Pro
 	switch descriptor.Transport {
 	case providercatalog.TransportOpenAI:
 		return config.ProviderKindOpenAI
-	case providercatalog.TransportAnthropic:
-		return config.ProviderKindAnthropic
-	case providercatalog.TransportAnthropicCompatible:
-		return config.ProviderKindAnthropicCompat
-	case providercatalog.TransportGoogle:
-		return config.ProviderKindGoogle
 	case providercatalog.TransportOpenAICompatible:
 		return config.ProviderKindOpenAICompatible
 	default:
@@ -560,13 +554,7 @@ func providerKindForDescriptor(descriptor providercatalog.Descriptor) config.Pro
 }
 
 func firstAPIFormat(descriptor providercatalog.Descriptor) string {
-	if descriptor.Transport == providercatalog.TransportOpenAI || descriptor.Transport == providercatalog.TransportOpenAICompatible {
-		return string(providercatalog.APIFormatOpenAIChatCompletions)
-	}
-	if len(descriptor.SupportedAPIFormats) == 0 {
-		return ""
-	}
-	return string(descriptor.SupportedAPIFormats[0])
+	return string(providercatalog.APIFormatOpenAIChatCompletions)
 }
 
 func normalizeAuthScheme(value string) string {

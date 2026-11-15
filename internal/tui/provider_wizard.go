@@ -122,12 +122,6 @@ func providerWizardProviderKind(provider providercatalog.Descriptor) config.Prov
 	switch provider.Transport {
 	case providercatalog.TransportOpenAI:
 		return config.ProviderKindOpenAI
-	case providercatalog.TransportAnthropic:
-		return config.ProviderKindAnthropic
-	case providercatalog.TransportAnthropicCompatible:
-		return config.ProviderKindAnthropicCompat
-	case providercatalog.TransportGoogle:
-		return config.ProviderKindGoogle
 	case providercatalog.TransportOpenAICompatible:
 		return config.ProviderKindOpenAICompatible
 	default:
@@ -136,11 +130,5 @@ func providerWizardProviderKind(provider providercatalog.Descriptor) config.Prov
 }
 
 func providerWizardAPIFormat(provider providercatalog.Descriptor) string {
-	if provider.Transport == providercatalog.TransportOpenAI || provider.Transport == providercatalog.TransportOpenAICompatible {
-		return string(providercatalog.APIFormatOpenAIChatCompletions)
-	}
-	if len(provider.SupportedAPIFormats) == 0 {
-		return ""
-	}
-	return string(provider.SupportedAPIFormats[0])
+	return string(providercatalog.APIFormatOpenAIChatCompletions)
 }

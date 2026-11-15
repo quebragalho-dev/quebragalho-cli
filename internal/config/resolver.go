@@ -1195,12 +1195,6 @@ func providerKindForCatalogTransport(transport providercatalog.Transport) Provid
 	switch transport {
 	case providercatalog.TransportOpenAI:
 		return ProviderKindOpenAI
-	case providercatalog.TransportAnthropic:
-		return ProviderKindAnthropic
-	case providercatalog.TransportAnthropicCompatible:
-		return ProviderKindAnthropicCompat
-	case providercatalog.TransportGoogle:
-		return ProviderKindGoogle
 	case providercatalog.TransportOpenAICompatible:
 		return ProviderKindOpenAICompatible
 	default:
