@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"testing"
 
@@ -334,15 +335,15 @@ func TestDiffViewerFallsBackForOversizedSourceLine(t *testing.T) {
 
 func TestDiffViewerSyntaxHighlighterKeepsSpans(t *testing.T) {
 	requireDiffViewerTrueColor(t)
-	styled, ok := highlightCodeForPathWithSpans(
+	styled, ok := highlightCodeForPathWithLineBackgrounds(
 		[]string{"func greet(name string) string { return \"new\" }"},
 		"example.go",
 		200,
-		qgTheme.addLine.GetBackground(),
+		[]color.Color{qgTheme.addLine.GetBackground()},
 		[]highlightSpan{{line: 0, start: 39, end: 44, background: qgTheme.addLineWord.GetBackground()}},
 	)
 	if !ok || len(styled) != 1 {
-		t.Fatalf("highlightCodeForPathWithSpans = %#v, %v", styled, ok)
+		t.Fatalf("highlightCodeForPathWithLineBackgrounds = %#v, %v", styled, ok)
 	}
 	if !strings.Contains(styled[0], "46;101;77") {
 		t.Fatalf("highlighted span lost its word-diff background: %q", styled[0])
