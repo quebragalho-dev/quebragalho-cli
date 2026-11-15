@@ -11,14 +11,14 @@ func TestPresetsAllowedUnifiesBooleanParsing(t *testing.T) {
 		value string
 		want  bool
 	}{
-		{"1", true},     // legacy opt-in word
-		{"true", true},  // legacy opt-in word
-		{"yes", true},   // legacy opt-in word
-		{"on", true},    // legacy opt-in word
-		{"YES", true},   // unified: case-insensitive
-		{" on ", true},  // unified: whitespace ignored
-		{"", false},     // legacy: presets off by default
-		{"0", false},    // unified false word
+		{"1", true},    // legacy opt-in word
+		{"true", true}, // legacy opt-in word
+		{"yes", true},  // legacy opt-in word
+		{"on", true},   // legacy opt-in word
+		{"YES", true},  // unified: case-insensitive
+		{" on ", true}, // unified: whitespace ignored
+		{"", false},    // legacy: presets off by default
+		{"0", false},   // unified false word
 		{"false", false},
 		{"no", false},
 		{"off", false},
