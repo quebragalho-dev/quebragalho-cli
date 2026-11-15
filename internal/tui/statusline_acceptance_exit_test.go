@@ -141,12 +141,17 @@ func TestStatusLineAcceptance_ExitHelper(t *testing.T) {
 		// the SIGHUP below would be ignored instead of ending qg — a
 		// 10s timeout that says nothing about the product. A dummy
 		// Notify+Stop clears the inherited ignore (signal.Reset does not:
-		// it only undoes prior Go Notify/Ignore calls), so SIGHUP is
-		// delivered; then the ready file tells the test the handler path
-		// is armed before it signals.
+		// it only undoes prior Go Notify/Ignore calls). Stop hands the OS
+		// disposition back to ignored, but the runtime stops reporting
+		// signal.Ignored(SIGHUP), so sighupShouldWatch installs the
+		// handler again and SIGHUP is delivered; then the ready file tells
+		// the test the handler path is armed before it signals.
 		hupCh := make(chan os.Signal, 1)
 		signal.Notify(hupCh, syscall.SIGHUP)
 		signal.Stop(hupCh)
+		if signal.Ignored(syscall.SIGHUP) {
+			t.Fatal("helper could not clear inherited SIGHUP ignore")
+		}
 		if err := os.WriteFile(filepath.Join(dir, "hup-ready"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 			t.Fatal(err)
 		}
