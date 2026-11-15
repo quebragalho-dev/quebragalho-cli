@@ -32,9 +32,6 @@ guide to extending QG with specialists, hooks, plugins, MCP, and skills, see
   the race detector.
 - Prefer one cross-platform function with small conditional checks over
   duplicated platform-specific helpers when the behavior can remain unified.
-- Do not commit generated benchmark reports from
-  `internal/perfbench/reports/*.json`; reports are configuration-specific
-  evidence, not repository state.
 - Preserve the user's working tree. Do not overwrite, delete, stage, or commit
   unrelated tracked or untracked files.
 

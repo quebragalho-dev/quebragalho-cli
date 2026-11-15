@@ -51,9 +51,6 @@ docs/superpowers/
 /qg-linux-sandbox
 /qg-seccomp
 
-# Generated benchmark reports are evidence for one configuration, never tree state
-internal/perfbench/reports/*.json
-
 # Local disposable caches (lint/build scratch)
 .tmp-*/
 

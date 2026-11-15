@@ -24,6 +24,4 @@ QG.
 - [npm wrapper smoke checklist](NPM_WRAPPER_SMOKE.md)
 - [npm packaging](NPM_PACKAGING.md)
 - [Releasing](RELEASING.md)
-- [Benchmarks](BENCHMARK.md)
-- [Performance benchmarks](PERFORMANCE.md)
 - [Offline agent evals](AGENT_EVALS.md)
