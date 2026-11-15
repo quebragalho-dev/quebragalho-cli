@@ -231,7 +231,19 @@ func (m model) releaseDictationServerCmd() tea.Cmd {
 }
 
 // startDictation builds the recorder + transcriber and kicks off capture.
+// The voice hold path presets spaceHeld/voiceStop before calling; the toggle
+// path relies on the prior full reset leaving them clean. Start preserves the
+// preset twins and only arms the session handles.
 func (m model) startDictation() (model, tea.Cmd) {
+	spaceHeld := m.dictation.spaceHeld
+	voiceStop := m.dictation.voiceStopPending
+	return m.startDictationWithVoice(spaceHeld, voiceStop)
+}
+
+// startDictationWithVoice is the single entry that arms a session: the voice
+// hold press passes spaceHeld=true, every other caller passes the current
+// (post-reset clean) twins. transition() is the only writer.
+func (m model) startDictationWithVoice(spaceHeld, voiceStop bool) (model, tea.Cmd) {
 	transcriber, streaming, err := m.dictation.build(m.dictation.cfg, m.dictation.wantStreaming())
 	if err != nil {
 		// A missing local engine on a platform we can auto-download for → point at
@@ -258,12 +270,18 @@ func (m model) startDictation() (model, tea.Cmd) {
 	}
 	ctx, cancel := context.WithCancel(base)
 
-	m.dictation.recorder = rec
-	m.dictation.transcriber = transcriber
-	m.dictation.ctx = ctx
-	m.dictation.cancel = cancel
-	m.dictation.streaming = streaming
-	m.dictation.phase = dictStarting
+	if err := m.dictation.transition(DictEvStart, dictArgs{
+		recorder:    rec,
+		transcriber: transcriber,
+		ctx:         ctx,
+		cancel:      cancel,
+		streaming:   streaming,
+		spaceHeld:   spaceHeld,
+		voiceStop:   voiceStop,
+	}); err != nil {
+		cancel()
+		return m, nil
+	}
 
 	if streaming {
 		return m.startStreamingDictation()
@@ -275,12 +293,27 @@ func (m model) startDictation() (model, tea.Cmd) {
 // streaming it stops the recorder, which closes the chunk channel and lets the
 // in-flight StreamTranscribe return its final text.
 func (m model) stopDictation() (model, tea.Cmd) {
-	m.dictation.phase = dictTranscribing
+	if err := m.dictation.transition(DictEvStop, dictArgs{}); err != nil {
+		return m, nil
+	}
 	if m.dictation.streaming {
 		if m.dictation.streamStop != nil {
 			_ = m.dictation.streamStop()
 		}
 		return m, nil // final text arrives via the streaming command already running
+	}
+	return m, transcribeBatchCmd(m.dictation.sessionID, m.dictation.ctx, m.dictation.recorder, m.dictation.transcriber, m.dictation.cfg.AutoSubmitEnabled())
+}
+
+// transcribeAfterDeferredStop fires the batch transcribe after a deferred
+// voice stop already moved Starting straight to Transcribing via StartedOK.
+// Phase is already Transcribing, so no further transition is needed.
+func (m model) transcribeAfterDeferredStop() (model, tea.Cmd) {
+	if m.dictation.streaming {
+		if m.dictation.streamStop != nil {
+			_ = m.dictation.streamStop()
+		}
+		return m, nil
 	}
 	return m, transcribeBatchCmd(m.dictation.sessionID, m.dictation.ctx, m.dictation.recorder, m.dictation.transcriber, m.dictation.cfg.AutoSubmitEnabled())
 }
@@ -298,7 +331,7 @@ func (m model) cancelDictation() (model, tea.Cmd) {
 		go func(r Recorder) { _, _ = r.Stop() }(m.dictation.recorder)
 	}
 	m = m.discardDictationRegion()
-	m.dictation.reset()
+	_ = m.dictation.transition(DictEvCancel, dictArgs{})
 	return m.showTransientNoticeInline("Ditado cancelado.", transientNoticeInfo), nil
 }
 
@@ -314,21 +347,6 @@ func (d dictationController) maxDuration() time.Duration {
 		return time.Duration(d.cfg.MaxDurationSeconds) * time.Second
 	}
 	return dictation.DefaultMaxDuration
-}
-
-func (d *dictationController) reset() {
-	d.sessionID++
-	d.phase = dictIdle
-	d.recorder = nil
-	d.transcriber = nil
-	d.ctx = nil
-	d.cancel = nil
-	d.streaming = false
-	d.streamStop = nil
-	d.regionActive = false
-	d.regionPrefix = ""
-	d.waveBars = nil
-	d.waveTick = 0
 }
 
 // startBatchRecordingCmd starts the record-to-file capture off the UI goroutine
@@ -358,27 +376,30 @@ func transcribeBatchCmd(sessionID int64, ctx context.Context, rec Recorder, tran
 
 // handleDictationStarted transitions to recording (or reports a start failure).
 func (m model) handleDictationStarted(msg dictationStartedMsg) (model, tea.Cmd) {
-	if msg.sessionID != m.dictation.sessionID {
-		// Stale startup from a cancelled session must not reset or re-arm a
-		// newer recording that already owns the controller.
-		return m, nil
-	}
 	if msg.err != nil {
+		if err := m.dictation.transition(DictEvStartedErr, dictArgs{sessionID: msg.sessionID}); err != nil {
+			// Stale startup from a cancelled session must not reset or re-arm a
+			// newer recording that already owns the controller.
+			return m, nil
+		}
 		m = m.discardDictationRegion()
-		m.dictation.reset()
 		text := dictationErrorText(msg.err)
 		return m.appendDictationNotice("dicterr:"+text, text), nil
 	}
-	// A stop or cancel may have already advanced the phase; only arm recording if
-	// we are still starting.
-	if m.dictation.phase == dictStarting {
-		m.dictation.phase = dictRecording
+	before := m.dictation.phase
+	if err := m.dictation.transition(DictEvStartedOK, dictArgs{sessionID: msg.sessionID}); err != nil {
+		return m, nil
 	}
-	// A voice-mode Ctrl+Space release that arrived mid-startup asked us to stop as soon
-	// as recording began.
-	if m.dictation.voiceStopPending && m.dictation.phase == dictRecording {
-		m.dictation.voiceStopPending = false
-		return m.stopDictation()
+	// A stop or cancel may have already advanced the phase; the table refuses
+	// the transition and we stay where the newer event left us.
+	if before != dictStarting {
+		return m, nil
+	}
+	// A voice-mode Ctrl+Space release that arrived mid-startup asked us to stop
+	// as soon as recording began: the transition consumed the deferred flag by
+	// landing straight in Transcribing, so fire the transcribe command.
+	if m.dictation.phase == dictTranscribing {
+		return m.transcribeAfterDeferredStop()
 	}
 	// Kick off the recording waveform animation.
 	return m, recTickCmd()
@@ -387,25 +408,29 @@ func (m model) handleDictationStarted(msg dictationStartedMsg) (model, tea.Cmd) 
 // handleDictationTranscribed inserts the final transcript into the composer (or
 // submits it when stt.autoSubmit is on), then returns to idle.
 func (m model) handleDictationTranscribed(msg dictationTranscribedMsg) (tea.Model, tea.Cmd) {
-	if msg.sessionID != m.dictation.sessionID {
+	streaming := m.dictation.streaming || msg.streaming
+	streamStop := m.dictation.streamStop
+	cancel := m.dictation.cancel
+	if err := m.dictation.transition(DictEvTranscribed, dictArgs{sessionID: msg.sessionID}); err != nil {
+		// Stale completion from a cancelled session: the newer session already
+		// owns the controller; keep state, touch nothing.
 		return m, nil
 	}
-	streaming := m.dictation.streaming || msg.streaming
 	m = m.commitDictationRegion()
 	// A streaming session can end via a transcriber error (not just a user stop), so
-	// tear the capture down here BEFORE reset() drops the handles: stop the recorder
-	// (kills the mic subprocess) and cancel the context (unblocks the audio tap).
-	// Without this, an error path leaves the mic running and the next attempt hits
-	// "already recording". Both are idempotent, so this is safe on the happy path.
+	// tear the capture down here AFTER the transition validated the session but
+	// using the saved handles (the transition already dropped them): stop the
+	// recorder (kills the mic subprocess) and cancel the context (unblocks the
+	// audio tap). Without this, an error path leaves the mic running and the
+	// next attempt hits "already recording". Both are idempotent.
 	if streaming {
-		if m.dictation.streamStop != nil {
-			_ = m.dictation.streamStop()
+		if streamStop != nil {
+			_ = streamStop()
 		}
-		if m.dictation.cancel != nil {
-			m.dictation.cancel()
+		if cancel != nil {
+			cancel()
 		}
 	}
-	m.dictation.reset()
 
 	if errors.Is(msg.err, context.Canceled) {
 		// cancelDictation already discarded the live region, reset the

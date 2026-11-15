@@ -71,9 +71,7 @@ func (m model) handleVoiceCapturePress(msg tea.KeyMsg) (model, tea.Cmd) {
 		return m, nil
 	}
 	if m.dictation.phase == dictIdle {
-		m.dictation.spaceHeld = true
-		m.dictation.voiceStopPending = false
-		return m.startDictation()
+		return m.startDictationWithVoice(true, false)
 	}
 	return m, nil // already recording; the release will stop it
 }
@@ -83,13 +81,12 @@ func (m model) handleVoiceCaptureRelease() (model, tea.Cmd) {
 	if !m.dictation.spaceHeld {
 		return m, nil
 	}
-	m.dictation.spaceHeld = false
 	switch m.dictation.phase {
 	case dictRecording:
 		return m.stopDictation()
 	case dictStarting:
 		// Released before the recording finished starting; stop as soon as it does.
-		m.dictation.voiceStopPending = true
+		_ = m.dictation.transition(DictEvVoiceDefer, dictArgs{})
 		return m, nil
 	}
 	return m, nil
