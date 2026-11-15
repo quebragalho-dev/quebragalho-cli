@@ -36,10 +36,6 @@ jobs:
       - name: Lint
         run: make lint
 
-      - name: deadcode (advisory)
-        continue-on-error: true
-        run: make deadcode
-
       - name: golangci-lint
         run: make lint-static
 
