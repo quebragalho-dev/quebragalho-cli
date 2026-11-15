@@ -91,6 +91,7 @@ func slKillInflight(dir string) {
 // refreshMs after apply, none after reset).
 func TestStatusLineAcceptance_ApplyAndResetKillInFlightRun(t *testing.T) {
 	requireSh(t)
+	slWarmupPerl(t)
 	for _, tc := range []struct {
 		name  string
 		input string

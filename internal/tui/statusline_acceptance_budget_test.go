@@ -92,6 +92,18 @@ func slRunValue(line string) string {
 	return line
 }
 
+// slWarmupPerl runs the stamp interpreter once before the pump starts, so
+// the first measured run does not pay the cold-interpreter cost inside its
+// own start stamp: the stamp is taken after perl finishes loading, and a
+// cold load landing only on run 0 would shrink the first gap. Fails loudly
+// when perl is missing instead of letting every stamp come back empty.
+func slWarmupPerl(t *testing.T) {
+	t.Helper()
+	if err := exec.Command("perl", "-MTime::HiRes=time", "-e", "1").Run(); err != nil {
+		t.Fatalf("statusline timing tests need perl with Time::HiRes: %v", err)
+	}
+}
+
 func (l *slRunLog) pumpFor(p *slPump, d time.Duration) {
 	p.waitFor(d, func(string) bool { l.poll(); return false })
 }
@@ -299,6 +311,7 @@ u=$(printf '%s' "$s" | sed -n 's/.*"used":\([0-9a-z]*\).*/\1/p')
 printf '%s %s\n' "$ts" "$u" >> '`+log+`'
 printf 'SL-TICK\n'`)
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, refreshMS: 1000, timeoutMS: 8000})
+	slWarmupPerl(t)
 	p := startSLPump(t, newSLChattyModel(t, env, 5), 120, 40)
 	runs := &slRunLog{path: log}
 	if !runs.pumpUntil(p, 1, 5*time.Second) {
@@ -396,6 +409,7 @@ func TestStatusLineAcceptance_IdleRefreshCadenceAndTurnRefresh(t *testing.T) {
 	log := filepath.Join(env.root, "runs.log")
 	command := writeScript(t, env, "idle.sh", "ts=$(perl -MTime::HiRes=time -e 'printf \"%.6f\\n\", time')\ncat >/dev/null\nprintf '%s run\\n' \"$ts\" >> '"+log+"'\nprintf 'SL-IDLE\\n'")
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, refreshMS: 1000, timeoutMS: 8000})
+	slWarmupPerl(t)
 	p := startSLPump(t, newSLChattyModel(t, env, 5), 120, 40)
 	runs := &slRunLog{path: log}
 	if !runs.pumpUntil(p, 1, 5*time.Second) {
