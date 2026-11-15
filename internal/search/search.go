@@ -199,9 +199,9 @@ func RebuildIndex(store *sessions.Store, session sessions.Metadata, now func() t
 func FormatResult(result Result) string {
 	query := redaction.RedactString(strings.TrimSpace(result.Query), redaction.Options{})
 	if len(result.Hits) == 0 {
-		return fmt.Sprintf("No local session events matched %q. Searched %s.", query, count(result.SearchedSessions, "session"))
+		return fmt.Sprintf("Nenhum evento de sessão local corresponde a %q. %s.", query, searchedSessionsText(result.SearchedSessions))
 	}
-	lines := []string{fmt.Sprintf("Found %s for %q:", count(result.TotalHits, "local session event"), query)}
+	lines := []string{fmt.Sprintf("%s para %q:", foundHitsText(result.TotalHits), query)}
 	for index, hit := range result.Hits {
 		title := ""
 		if hit.Session.Title != "" {
@@ -217,12 +217,12 @@ func FormatResult(result Result) string {
 			details = append(details, "cwd: "+redaction.RedactString(hit.Session.Cwd, redaction.Options{}))
 		}
 		if hit.Session.ModelID != "" {
-			details = append(details, "model: "+redaction.RedactString(hit.Session.ModelID, redaction.Options{}))
+			details = append(details, "modelo: "+redaction.RedactString(hit.Session.ModelID, redaction.Options{}))
 		}
 		if hit.Session.Provider != "" {
-			details = append(details, "provider: "+redaction.RedactString(hit.Session.Provider, redaction.Options{}))
+			details = append(details, "provedor: "+redaction.RedactString(hit.Session.Provider, redaction.Options{}))
 		}
-		details = append(details, "updated: "+redaction.RedactString(hit.Session.UpdatedAt, redaction.Options{}))
+		details = append(details, "atualizada: "+redaction.RedactString(hit.Session.UpdatedAt, redaction.Options{}))
 		lines = append(lines, "   "+strings.Join(details, " | "))
 	}
 	return strings.Join(lines, "\n")
@@ -458,10 +458,16 @@ func indexPath(store *sessions.Store, sessionID string) string {
 	return filepath.Join(store.RootDir, sessionID, IndexFileName)
 }
 
-func count(value int, label string) string {
-	suffix := "s"
+func searchedSessionsText(value int) string {
 	if value == 1 {
-		suffix = ""
+		return "1 sessão pesquisada"
 	}
-	return fmt.Sprintf("%d %s%s", value, label, suffix)
+	return fmt.Sprintf("%d sessões pesquisadas", value)
+}
+
+func foundHitsText(total int) string {
+	if total == 1 {
+		return "Encontrado 1 evento de sessão local"
+	}
+	return fmt.Sprintf("Encontrados %d eventos de sessão local", total)
 }

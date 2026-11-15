@@ -1025,7 +1025,7 @@ func TestSearchCommandUsesSessionStore(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /search to be handled without starting an agent run")
 	}
-	if !transcriptContains(next.transcript, "Found 1 local session event") || !transcriptContains(next.transcript, "needle appears here") {
+	if !transcriptContains(next.transcript, "Encontrado 1 evento de sessão local") || !transcriptContains(next.transcript, "needle appears here") {
 		t.Fatalf("expected search hit in transcript, got %#v", next.transcript)
 	}
 }
@@ -1037,7 +1037,7 @@ func TestSearchCommandRequiresQuery(t *testing.T) {
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "usage: /search <query>") {
+	if !transcriptContains(next.transcript, "uso: /search <termo>") {
 		t.Fatalf("expected search usage, got %#v", next.transcript)
 	}
 }

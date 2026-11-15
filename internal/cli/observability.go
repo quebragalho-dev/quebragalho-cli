@@ -137,7 +137,7 @@ func runSearch(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 		return exitSuccess
 	}
 	if strings.TrimSpace(options.query) == "" {
-		return writeExecUsageError(stderr, "search query required. Use `qg search <query>`.")
+		return writeExecUsageError(stderr, "exige o termo de busca. Use `qg search <termo>`.")
 	}
 
 	result, err := zsearch.Sessions(options.query, zsearch.Options{

@@ -42,7 +42,7 @@ func TestSearchSessionsFindsRedactedEventContextAndCachesIndex(t *testing.T) {
 		t.Fatalf("expected search index to be written: %v", err)
 	}
 	formatted := FormatResult(result)
-	if !strings.Contains(formatted, "Found 1 local session event") || strings.Contains(formatted, "sk-secret") {
+	if !strings.Contains(formatted, "Encontrado 1 evento de sessão local") || strings.Contains(formatted, "sk-secret") {
 		t.Fatalf("unexpected formatted result: %q", formatted)
 	}
 }
