@@ -188,6 +188,21 @@ func TestWebhookSinkEmptyURLIsNoop(t *testing.T) {
 	sink.Emit(Completion, "hi") // no server, no panic, returns.
 }
 
+func TestWebhookSinkPanicIsLoggedNotSwallowed(t *testing.T) {
+	// A panic escaping Emit must reach the same redacted Logf channel as a
+	// delivery failure, carrying the event and the recovered value.
+	logf, get := captureLog()
+	sink := NewWebhookSink(WebhookConfig{URL: "https://example.com/hook", Logf: logf})
+	var _ sinkPanicLogger = sink // the emitToSink seam must cover the production sink.
+	sink.logSinkPanic("sink boom", AwaitingInput)
+	got := get()
+	for _, want := range []string{"panicked", "awaiting_input", "sink boom"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("panic log line %q missing %q", got, want)
+		}
+	}
+}
+
 func TestWebhookSinkRedactsWebhookURLInPayload(t *testing.T) {
 	// If the message or summary echoes the webhook URL (which carries a secret
 	// token), that URL must be redacted before it is sent in the payload.
