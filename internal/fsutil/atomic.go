@@ -1,7 +1,6 @@
 package fsutil
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -71,33 +70,6 @@ func WriteFileAtomicallyInDir(tempDir, path string, data []byte, perm os.FileMod
 	// Best-effort: the file is published; a dir-sync failure must not turn a
 	// successful write into an error.
 	_ = atomicSyncDir(filepath.Dir(path))
-	return nil
-}
-
-// PublishTempFile durably publishes an already-written temporary file at
-// target: it fsyncs the file, closes it, renames it over target with retry on
-// transient Windows sharing violations, and fsyncs the parent directory.
-// Callers keep ownership of temp-file placement, permissions and content;
-// this only enforces the Sync-before-rename + retry + dir-sync sequence.
-// The file Sync is fail-closed; the parent-directory sync is best-effort and
-// its error is ignored.
-func PublishTempFile(tmp *os.File, target string) error {
-	if tmp == nil {
-		return fmt.Errorf("fsutil: publish nil temp file for %s", target)
-	}
-	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }()
-	if err := atomicSyncFile(tmp); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := atomicRename(tmpPath, target, nil); err != nil {
-		return err
-	}
-	_ = atomicSyncDir(filepath.Dir(target))
 	return nil
 }
 

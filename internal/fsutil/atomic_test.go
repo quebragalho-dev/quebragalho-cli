@@ -2,6 +2,7 @@ package fsutil
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,6 +81,30 @@ func TestWriteFileAtomicallyPreservesPerm(t *testing.T) {
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Fatalf("perm = %o, want 600", perm)
 	}
+}
+
+// PublishTempFile durably publishes an already-written temporary file at
+// target: it fsyncs the file, closes it, renames it over target with retry on
+// transient Windows sharing violations, and fsyncs the parent directory.
+// Test-only: no production path publishes a caller-held temp file.
+func PublishTempFile(tmp *os.File, target string) error {
+	if tmp == nil {
+		return fmt.Errorf("fsutil: publish nil temp file for %s", target)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := atomicSyncFile(tmp); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := atomicRename(tmpPath, target, nil); err != nil {
+		return err
+	}
+	_ = atomicSyncDir(filepath.Dir(target))
+	return nil
 }
 
 // TestPublishTempFileSyncsBeforeRename covers the already-open-temp path with
