@@ -42,7 +42,7 @@ func TestLegalSessTransitionTable(t *testing.T) {
 	if _, ok := legalSessTransition(SessionFailed, sessEventStart); ok {
 		t.Fatal("failed --start--> must refuse")
 	}
-	var q SessionState = SessionQueued
+	q := SessionQueued
 	if q.String() != "queued" {
 		t.Fatalf("SessionState String = %q, want queued", q.String())
 	}
