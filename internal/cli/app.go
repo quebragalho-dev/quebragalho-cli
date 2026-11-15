@@ -19,6 +19,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/browser"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
@@ -320,10 +321,10 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	}
 	addDirs, theme, allowEscalation := root.addDirs, root.theme, root.allowEscalation
 
-	// --no-browser (or QG_NO_BROWSER=1) keeps the first-run device login from
+	// --no-browser (or QG_NO_BROWSER=1/true/yes/on) keeps the first-run device login from
 	// opening a browser; the approval link and code still show. Only the
 	// interactive launch consumes it.
-	noBrowser := root.noBrowser || os.Getenv("QG_NO_BROWSER") == "1"
+	noBrowser := root.noBrowser || envbool.Parse(os.Getenv("QG_NO_BROWSER"), false)
 	if len(args) == 0 {
 		if noBrowser {
 			deps.openBrowser = nil

@@ -21,6 +21,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/doctor"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/errhint"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/lsp"
 	internalmcp "github.com/quebragalho-dev/quebragalho-cli/internal/mcp"
@@ -1248,6 +1249,14 @@ func (m model) validContinuation() (turnContinuation, bool) {
 	return c, true
 }
 
+// noStreamClearEnabled reports whether QG_NO_STREAM_CLEAR disables the fast
+// incremental streaming redraw path. Any non-empty value but an explicit
+// false word (0/false/no/off) disables it, so unrecognized values keep the
+// legacy "set means on" behavior.
+func noStreamClearEnabled() bool {
+	return envbool.Loose(os.Getenv("QG_NO_STREAM_CLEAR"))
+}
+
 func newModel(ctx context.Context, options Options) model {
 	if ctx == nil {
 		ctx = context.Background()
@@ -1466,7 +1475,7 @@ func newModel(ctx context.Context, options Options) model {
 	// Terminals that handle scroll regions correctly can opt back into the
 	// fast incremental path; the redraw workaround (see the ClearScreen
 	// scheduling in updateModel) is otherwise on, rate-limited.
-	if v := strings.TrimSpace(os.Getenv("QG_NO_STREAM_CLEAR")); v != "" && v != "0" && !strings.EqualFold(v, "false") {
+	if noStreamClearEnabled() {
 		m.streamClearDisabled = true
 	}
 	// One session-long LSP manager (cheap to build — servers start lazily on the

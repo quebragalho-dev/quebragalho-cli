@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
@@ -547,12 +548,11 @@ func normalizeToolParameters(parameters map[string]any) map[string]any {
 }
 
 // promptCacheKeyDisabled reports whether the QG_DISABLE_PROMPT_CACHE_KEY
-// kill switch is set to a truthy value. "0" and "false" (any case) are
-// no-ops, matching how QG_FORMAT_ON_WRITE parses boolean flags, so an
-// explicitly-disabled toggle never flips the behavior it names.
+// kill switch is set to a truthy value. Explicitly-false words (0, false, no,
+// off) are no-ops; any other non-empty value flips the behavior it names, so
+// unrecognized values keep the legacy "set means on" behavior.
 func promptCacheKeyDisabled() bool {
-	value := strings.TrimSpace(os.Getenv("QG_DISABLE_PROMPT_CACHE_KEY"))
-	return value != "" && value != "0" && !strings.EqualFold(value, "false")
+	return envbool.Loose(os.Getenv("QG_DISABLE_PROMPT_CACHE_KEY"))
 }
 
 // openAIReasoningEffort normalizes a requested effort to a value the OpenAI chat

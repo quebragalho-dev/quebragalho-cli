@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
@@ -117,10 +118,11 @@ var formatterCommands = map[string][]string{
 	".lua":   {"stylua"},
 }
 
-// formatOnWriteEnabled reports whether the opt-in env toggle is set.
+// formatOnWriteEnabled reports whether the opt-in env toggle is set. Any
+// non-empty value but an explicit false word (0/false/no/off) enables it, so
+// unrecognized values keep the legacy "set means on" behavior.
 func formatOnWriteEnabled() bool {
-	value := strings.TrimSpace(os.Getenv("QG_FORMAT_ON_WRITE"))
-	return value != "" && value != "0" && !strings.EqualFold(value, "false")
+	return envbool.Loose(os.Getenv("QG_FORMAT_ON_WRITE"))
 }
 
 var runFormatOnWriteCommand = func(ctx context.Context, binaryPath string, arguments []string, directory string) error {

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 )
 
 // CheckpointsDir is the per-session subdirectory holding content-addressed blobs.
@@ -34,9 +36,9 @@ type CheckpointPayload struct {
 }
 
 // CheckpointsEnabled reports whether checkpoint capture is enabled (default on;
-// disabled with QG_CHECKPOINTS=off).
+// QG_CHECKPOINTS=0/false/no/off disables).
 func CheckpointsEnabled() bool {
-	return os.Getenv("QG_CHECKPOINTS") != "off"
+	return envbool.Parse(os.Getenv("QG_CHECKPOINTS"), true)
 }
 
 func maxCheckpointBytes() int {
