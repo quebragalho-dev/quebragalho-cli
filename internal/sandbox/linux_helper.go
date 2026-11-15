@@ -236,10 +236,6 @@ func validateLinuxBwrapPermissionProfile(profile PermissionProfile) error {
 	return nil
 }
 
-func linuxBwrapFilesystemArgs(profile PermissionProfile) []string {
-	return buildLinuxBwrapFilesystemPlan(profile).Args
-}
-
 func buildLinuxBwrapFilesystemPlan(profile PermissionProfile) linuxBwrapFilesystemPlan {
 	fs := profile.FileSystem
 	if fs.Kind == FileSystemUnrestricted {
