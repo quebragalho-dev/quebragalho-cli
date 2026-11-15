@@ -21,13 +21,13 @@ func TestPoolAcquireNeverAdmitsAfterDrain(t *testing.T) {
 		checkReached := make(chan struct{})
 		drainDone := make(chan struct{})
 		var once bool
-		acquirePreSelectHook = func() {
+		setAcquirePreSelectHook(func() {
 			if !once {
 				once = true
 				close(checkReached)
 				<-drainDone
 			}
-		}
+		})
 		acquired := make(chan error, 1)
 		go func() {
 			acquired <- pool.acquire(context.Background())
@@ -36,7 +36,7 @@ func TestPoolAcquireNeverAdmitsAfterDrain(t *testing.T) {
 		pool.Drain()
 		close(drainDone)
 		err = <-acquired
-		acquirePreSelectHook = nil
+		setAcquirePreSelectHook(nil)
 		if err == nil {
 			admits++
 			pool.release()

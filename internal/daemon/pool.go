@@ -147,7 +147,24 @@ func (p *Pool) logf(format string, args ...any) {
 // acquirePreSelectHook is a minimal test seam: when non-nil it runs after the
 // draining check and before the lease select, so a test can force Drain into
 // that window deterministically. Nil in production (no behavior change).
-var acquirePreSelectHook func()
+// Guarded by acquireHookMu so parallel tests under -race never trip on the
+// global itself.
+var (
+	acquireHookMu        sync.RWMutex
+	acquirePreSelectHook func()
+)
+
+func getAcquirePreSelectHook() func() {
+	acquireHookMu.RLock()
+	defer acquireHookMu.RUnlock()
+	return acquirePreSelectHook
+}
+
+func setAcquirePreSelectHook(fn func()) {
+	acquireHookMu.Lock()
+	defer acquireHookMu.Unlock()
+	acquirePreSelectHook = fn
+}
 
 // acquire takes a lease slot, queuing until one frees or ctx is cancelled / the
 // pool drains.
@@ -158,8 +175,8 @@ func (p *Pool) acquire(ctx context.Context) error {
 	if draining {
 		return ErrPoolDraining
 	}
-	if acquirePreSelectHook != nil {
-		acquirePreSelectHook()
+	if hook := getAcquirePreSelectHook(); hook != nil {
+		hook()
 	}
 	select {
 	case p.slots <- struct{}{}:
