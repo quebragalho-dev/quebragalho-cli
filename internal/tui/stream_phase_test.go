@@ -340,10 +340,19 @@ func TestStreamValidState(t *testing.T) {
 	if half.validStreamState() {
 		t.Fatal("tool ID without decoder must be invalid")
 	}
-	half = m
-	half.streamCallDecoder = newStreamingDecoder()
-	if half.validStreamState() {
-		t.Fatal("decoder without tool ID must be invalid")
+	halfName := m
+	halfName.streamCallName = "write_file"
+	if halfName.validStreamState() {
+		t.Fatal("tool name without decoder must be invalid")
+	}
+	emptyID := m
+	emptyID.streamCallDecoder = newStreamingDecoder()
+	emptyID.streamCallName = "write_file"
+	if !emptyID.validStreamState() {
+		t.Fatal("empty ID with decoder must be valid (id-less providers)")
+	}
+	if emptyID.streamPhase() != StreamTool {
+		t.Fatalf("empty ID with decoder must derive Tool, got %s", emptyID.streamPhase())
 	}
 
 	orphan := m

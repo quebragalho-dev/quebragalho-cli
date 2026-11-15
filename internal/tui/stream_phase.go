@@ -137,10 +137,12 @@ func streamEventLegal(phase StreamPhase, ev StreamEv) bool {
 }
 
 // streamPhase derives the current streaming phase from the live fields. The
-// tool call wins while it is live (its fragments keep feeding the decoder);
-// otherwise a deferred clear outranks settled prose.
+// tool call wins while its decoder is live (fragments keep feeding it);
+// otherwise a deferred clear outranks settled prose. The decoder — not the
+// call ID — marks the live call: providers that omit the ID still feed
+// fragments through the pre-machine runID+ID guard.
 func (m model) streamPhase() StreamPhase {
-	if m.streamCallID != "" {
+	if m.streamCallDecoder != nil {
 		return StreamTool
 	}
 	if m.pendingStreamClear {
@@ -157,8 +159,8 @@ func (m model) streamPhase() StreamPhase {
 
 // validStreamState reports whether the stream fields form a possible
 // combination. Impossible states the type allows but the machine forbids:
-//   - a half-set tool triple (ID without decoder or vice versa; the view and
-//     the delta guard assume atomicity).
+//   - a tool ID or name without a decoder (the delta guard assumes the
+//     triple is dropped atomically).
 //   - a deferred ClearScreen without an active run (would redraw while idle).
 //   - a live estimate without an active run (stale speed readout).
 //
@@ -167,12 +169,15 @@ func (m model) streamPhase() StreamPhase {
 // per-line ages while the latch keeps the tick alive; the renderer falls
 // back to solid ink until the next delta reseeds.
 func (m model) validStreamState() bool {
-	liveTool := m.streamCallID != ""
-	if liveTool != (m.streamCallDecoder != nil) {
-		return false
-	}
-	if liveTool && m.streamCallName == "" {
-		return false
+	// A live tool call is the decoder, not the ID: providers that omit the
+	// call ID still feed fragments through the pre-machine runID+ID guard,
+	// so an empty ID with a decoder is a VALID state. The block view still
+	// requires ID != "" and stays empty, while the live estimate and the
+	// activity clock advance.
+	if m.streamCallDecoder == nil {
+		if m.streamCallID != "" || m.streamCallName != "" {
+			return false
+		}
 	}
 	if m.pendingStreamClear && (!m.pending || m.activeRunID == 0) {
 		return false
