@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
@@ -223,20 +222,6 @@ func HTTPClient(client *http.Client) *http.Client {
 		return client
 	}
 	return sharedHTTPClient
-}
-
-// SendEvent writes a provider event without blocking cancellation cleanup.
-func SendEvent(ctx context.Context, events chan<- qgruntime.StreamEvent, event qgruntime.StreamEvent) {
-	select {
-	case <-ctx.Done():
-		if event.Type == qgruntime.StreamEventError {
-			select {
-			case events <- event:
-			default:
-			}
-		}
-	case events <- event:
-	}
 }
 
 // scanSSEPayloads accumulates SSE "data:" lines into payloads (joined across
@@ -585,15 +570,4 @@ func upstreamHost(message string) string {
 		}
 	}
 	return ""
-}
-
-// PositiveOrDefault validates optional max token settings.
-func PositiveOrDefault(value int, fallback int, label string) (int, error) {
-	if value == 0 {
-		return fallback, nil
-	}
-	if value < 0 {
-		return 0, fmt.Errorf("%s must be a positive integer", label)
-	}
-	return value, nil
 }
