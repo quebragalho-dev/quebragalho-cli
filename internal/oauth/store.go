@@ -20,6 +20,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/keyring"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/securefile"
 )
 
 const (
@@ -156,7 +157,7 @@ const (
 // is AES-256-GCM ciphertext at rest.
 type Store struct {
 	blob    blobStore
-	crypter *aesGCMCrypter // nil => plaintext blob
+	crypter *securefile.Crypter // nil => plaintext blob
 	now     func() time.Time
 	mu      sync.Mutex
 }
@@ -245,8 +246,9 @@ func NewStore(options StoreOptions) (*Store, error) {
 			return nil, err
 		}
 		// The file blob holds AES-256-GCM ciphertext; the per-user secret lives in
-		// a sibling ".secret" file (see encrypt.go).
-		return &Store{blob: fileBlob{path: path}, crypter: newAESGCMCrypter(path + ".secret"), now: now}, nil
+		// a sibling ".secret" file managed by internal/securefile (which this
+		// backend used to duplicate; see encrypt.go removal).
+		return &Store{blob: fileBlob{path: path}, crypter: securefile.NewCrypter(path + ".secret"), now: now}, nil
 	case "keyring":
 		kr := options.Keyring
 		if kr == nil {
@@ -406,7 +408,7 @@ func (s *Store) readState() (storeFile, error) {
 	}
 	if s.crypter != nil {
 		// Encrypted backend: the blob is AES-256-GCM ciphertext, not JSON.
-		data, err = s.crypter.open(data)
+		data, err = s.crypter.Open(data)
 		if err != nil {
 			return storeFile{}, fmt.Errorf("oauth: decrypt token store at %s: %w", s.blob.location(), err)
 		}
@@ -438,7 +440,7 @@ func (s *Store) writeState(state storeFile) error {
 	// writes opaque ciphertext instead.
 	payload := append(data, '\n')
 	if s.crypter != nil {
-		payload, err = s.crypter.seal(data)
+		payload, err = s.crypter.Seal(data)
 		if err != nil {
 			return err
 		}
@@ -537,28 +539,6 @@ const PublicationDirSuffix = ".publish"
 
 // PublicationDir returns the publication directory for a store path.
 func PublicationDir(path string) string { return path + PublicationDirSuffix }
-
-// createPublicationFile creates the randomly-named 0600 file that path's next
-// contents are written to before being renamed into place. It lives in
-// PublicationDir(path) — same filesystem as path, so the rename stays atomic —
-// and the directory is created 0700 if it does not exist yet.
-func createPublicationFile(path string) (*os.File, string, error) {
-	dir := PublicationDir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, "", err
-	}
-	temp, err := os.CreateTemp(dir, "publish-*")
-	if err != nil {
-		return nil, "", err
-	}
-	if err := temp.Chmod(0o600); err != nil {
-		name := temp.Name()
-		_ = temp.Close()
-		_ = os.Remove(name)
-		return nil, "", err
-	}
-	return temp, temp.Name(), nil
-}
 
 func (b fileBlob) withLock(now func() time.Time, fn func() error) error {
 	unlock, err := acquireFileLock(b.path+".lockfile", now)

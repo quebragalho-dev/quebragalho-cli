@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -127,7 +128,29 @@ func TestEncryptedStorePublishesSecretThroughProtectedDirectory(t *testing.T) {
 		t.Fatalf("fixed secret sibling data = %q, err = %v, want the untouched placeholder", data, err)
 	}
 	assertEmptyPublicationDir(t, path)
-	assertEmptyPublicationDir(t, path+".secret")
+	// Since the migration to internal/securefile the key is published from a
+	// random-named 0600 sibling (same pattern the credential store uses), not
+	// through "<secret>.publish": no fixed secret sibling may be used and no
+	// secret temp may be left behind. The sandbox still masks
+	// "<secret>.publish" statically (EnsureDirs), so nothing there changes.
+	if _, err := os.Stat(PublicationDir(path + ".secret")); !os.IsNotExist(err) {
+		t.Fatalf("secret publication dir must not be created by the migrated backend, stat err=%v", err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		// The ".secret.tmp" placeholder above is pre-existing test setup, not a
+		// backend temp; securefile temps look like "<secret>.<rand>.tmp".
+		if name == filepath.Base(path)+".secret.tmp" {
+			continue
+		}
+		if strings.HasSuffix(name, ".tmp") || strings.Contains(name, ".qg-atomic-") {
+			t.Fatalf("leftover secret temp %q beside the store", name)
+		}
+	}
 }
 
 // assertEmptyPublicationDir asserts the store's publication directory exists
