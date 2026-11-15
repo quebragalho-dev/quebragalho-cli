@@ -238,7 +238,13 @@ func RegisterTools(ctx context.Context, registry *tools.Registry, cfg config.MCP
 			// connectWithRetry: a stdio server must not gain a new
 			// subprocess spawn at startup. The failed attempt's context
 			// is already cancelled, so classification uses a live one.
-			if (server.Type == ServerTypeHTTP || server.Type == ServerTypeSSE) && (res.timedOut || isTransientConnectError(context.Background(), res.err)) {
+			// A connect budget (the initialize timeout firing while the
+			// startup bound was also expiring) is a slow server, not a
+			// permanent failure: it retries like any other timeout. Without
+			// this, MCP_TIMEOUT collapsing the connect and initialize
+			// budgets to the same value races the two timers and the retry
+			// is silently never scheduled.
+			if (server.Type == ServerTypeHTTP || server.Type == ServerTypeSSE) && (res.timedOut || isConnectBudgetError(res.err) || isTransientConnectError(context.Background(), res.err)) {
 				retryLater = append(retryLater, server)
 			}
 			continue
@@ -325,7 +331,10 @@ func (runtime *Runtime) retryServerInBackground(server Server) {
 		// cancellation verdict only reflects a genuine shutdown. A bound
 		// that fired is transient even though DeadlineExceeded alone is
 		// not: the server may simply be slow, so later attempts continue.
-		transient := timedOut || isTransientConnectError(runtime.lifeCtx, err)
+		// A connect budget (the initialize timeout winning the race against
+		// the attempt bound when both are MCP_TIMEOUT) is the same slow
+		// server: retry instead of stopping the loop.
+		transient := timedOut || isConnectBudgetError(err) || isTransientConnectError(runtime.lifeCtx, err)
 		cancel()
 		if !transient {
 			runtime.noteBackgroundFailure(server, err)

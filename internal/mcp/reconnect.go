@@ -98,6 +98,17 @@ func isTransientConnectError(ctx context.Context, err error) bool {
 	return false
 }
 
+// isConnectBudgetError reports whether err is qg's own handshake budget firing
+// (the initialize timeout while the outer context was still live). The
+// background retry treats it as a slow server and retries: when MCP_TIMEOUT
+// collapses the connect and initialize budgets to the same value, either
+// timer may win the race, and only the bound path was previously considered
+// transient, so the retry was silently never scheduled.
+func isConnectBudgetError(err error) bool {
+	var budget *connectBudgetError
+	return errors.As(err, &budget)
+}
+
 // connectWithRetry connects to one remote server and lists its tools, retrying
 // transient failures with exponential backoff (1s, 2s, 4s, 8s). The context
 // still bounds the total: a cancelled or expired context stops the loop. It
