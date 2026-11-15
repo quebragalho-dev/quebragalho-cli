@@ -102,16 +102,17 @@ func (store *Store) restoreToSequenceLocked(sessionID, workspaceRoot string, tar
 				report.Skipped = append(report.Skipped, f.Path)
 				continue
 			}
-			switch {
-			case f.Skipped:
+			_, action := transitionCheckpointFile(f)
+			switch action {
+			case actionSkip:
 				report.Skipped = append(report.Skipped, f.Path)
-			case f.Absent:
+			case actionDeleteAbsent:
 				if err := os.Remove(abs); err == nil || os.IsNotExist(err) {
 					report.FilesDeleted++
 				} else {
 					report.Skipped = append(report.Skipped, f.Path)
 				}
-			case f.Blob != "":
+			case actionRestoreBlob:
 				content, rerr := store.readBlob(sessionID, f.Blob)
 				if rerr != nil {
 					report.Skipped = append(report.Skipped, f.Path)
@@ -122,6 +123,8 @@ func (store *Store) restoreToSequenceLocked(sessionID, workspaceRoot string, tar
 					continue
 				}
 				report.FilesRestored++
+			default: // actionReportInvalid: never delete nor restore, just report.
+				report.Skipped = append(report.Skipped, f.Path)
 			}
 		}
 	}
@@ -194,6 +197,34 @@ func (store *Store) TruncateEvents(sessionID string, keepThroughSequence int) er
 	return store.truncateEventsLocked(sessionID, keepThroughSequence)
 }
 
+// truncateHead is the single head derived from the kept log: the last kept
+// Sequence (NOT a count — a crash between the truncate's log rewrite and its
+// metadata rewrite leaves a stale-high EventCount, and the next append then
+// leaves a benign gap, so count and last Sequence can diverge) and the type
+// of that last kept event ("" when nothing is kept).
+type truncateHead struct {
+	eventCount    int
+	lastEventType EventType
+}
+
+// deriveTruncateHead scans the log once and returns the head kept by
+// keepThroughSequence. It is the ONLY place truncate derives metadata from
+// the log, so the twin fields EventCount and LastEventType are always fixed
+// together from one head.
+func deriveTruncateHead(events []Event, keepThroughSequence int) truncateHead {
+	var head truncateHead
+	for _, ev := range events {
+		if ev.Sequence > keepThroughSequence {
+			continue
+		}
+		if ev.Sequence > head.eventCount {
+			head.eventCount = ev.Sequence
+			head.lastEventType = ev.Type
+		}
+	}
+	return head
+}
+
 // truncateEventsLocked is the body of TruncateEvents WITHOUT acquiring the
 // session lock. The caller MUST already hold store.lockSession(sessionID).
 func (store *Store) truncateEventsLocked(sessionID string, keepThroughSequence int) error {
@@ -202,7 +233,7 @@ func (store *Store) truncateEventsLocked(sessionID string, keepThroughSequence i
 		return err
 	}
 	var kept [][]byte
-	keptCount := 0
+	head := deriveTruncateHead(events, keepThroughSequence)
 	for _, ev := range events {
 		if ev.Sequence > keepThroughSequence {
 			continue
@@ -212,7 +243,6 @@ func (store *Store) truncateEventsLocked(sessionID string, keepThroughSequence i
 			return fmt.Errorf("encode kept event: %w", err)
 		}
 		kept = append(kept, data)
-		keptCount++
 	}
 	var encoded []byte
 	if len(kept) > 0 {
@@ -226,7 +256,8 @@ func (store *Store) truncateEventsLocked(sessionID string, keepThroughSequence i
 	if err != nil {
 		return err
 	}
-	session.EventCount = keptCount
+	session.EventCount = head.eventCount
+	session.LastEventType = head.lastEventType
 	session.UpdatedAt = store.timestamp()
 	return store.writeMetadata(session)
 }
