@@ -386,13 +386,7 @@ func (m model) handleDictationStarted(msg dictationStartedMsg) (model, tea.Cmd) 
 		text := dictationErrorText(msg.err)
 		return m.appendDictationNotice("dicterr:"+text, text), nil
 	}
-	before := m.dictation.phase
 	if err := m.dictation.transition(DictEvStartedOK, dictArgs{sessionID: msg.sessionID}); err != nil {
-		return m, nil
-	}
-	// A stop or cancel may have already advanced the phase; the table refuses
-	// the transition and we stay where the newer event left us.
-	if before != dictStarting {
 		return m, nil
 	}
 	// A voice-mode Ctrl+Space release that arrived mid-startup asked us to stop

@@ -104,3 +104,22 @@ func TestDictationPhaseDeferredVoiceStop(t *testing.T) {
 		t.Fatalf("StartedOK must consume deferred stop: %+v", d)
 	}
 }
+
+// Start writes the voice twins from its args: the transition owns
+// spaceHeld/voiceStopPending, so a dirty Idle is overwritten, not inherited.
+func TestDictationPhaseStartWritesVoiceTwins(t *testing.T) {
+	d := dictationController{sessionID: 4, phase: dictIdle, voiceStopPending: true}
+	if err := d.transition(DictEvStart, dictArgs{spaceHeld: true, voiceStop: false}); err != nil {
+		t.Fatal(err)
+	}
+	if d.phase != dictStarting || d.voiceStopPending || !d.spaceHeld {
+		t.Fatalf("Start must write voice twins from args: %+v", d)
+	}
+	d2 := dictationController{sessionID: 4, phase: dictIdle, voiceStopPending: true, spaceHeld: true}
+	if err := d2.transition(DictEvStart, dictArgs{}); err != nil {
+		t.Fatal(err)
+	}
+	if d2.phase != dictStarting || d2.voiceStopPending || d2.spaceHeld {
+		t.Fatalf("Start with zero args must clear dirty voice twins: %+v", d2)
+	}
+}
