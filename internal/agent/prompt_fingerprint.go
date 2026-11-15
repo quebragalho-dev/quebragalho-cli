@@ -24,14 +24,8 @@ type promptSubstrings struct {
 	schema             string
 }
 
-// buildPromptSubstrings builds the prompt and retains both its exact joined
-// form and narrower diagnostic components. Callers that already built the
-// prompt should use buildPromptSubstringsFromParts to avoid repeating workspace
-// reads.
-func buildPromptSubstrings(options Options, exposed []qgruntime.ToolDefinition) promptSubstrings {
-	return buildPromptSubstringsFromParts(buildSystemPromptParts(options), exposed)
-}
-
+// buildPromptSubstringsFromParts builds the prompt substrings from already-built
+// parts, avoiding repeated workspace reads.
 func buildPromptSubstringsFromParts(parts systemPromptParts, exposed []qgruntime.ToolDefinition) promptSubstrings {
 	toolsSubstr, schemaSubstr := toolSubstrings(exposed)
 
@@ -193,14 +187,6 @@ func writeStable(sb *strings.Builder, v any) {
 		// the same bytes (rare, but the type prefix makes it impossible).
 		fmt.Fprintf(sb, "<%T:%v>", x, x)
 	}
-}
-
-// ComputePrefixFingerprint builds and fingerprints a prompt for callers that do
-// not already have one. The agent loop uses computePrefixFingerprint with the
-// prompt parts it built once at run start, ensuring tracing observes the exact
-// request content without repeating workspace I/O.
-func ComputePrefixFingerprint(options Options, exposed []qgruntime.ToolDefinition) prefixFingerprint {
-	return computePrefixFingerprint(buildPromptSubstrings(options, exposed))
 }
 
 func computePrefixFingerprint(subs promptSubstrings) prefixFingerprint {

@@ -39,3 +39,17 @@ func parsePreservedState(summaryContent string) (string, []skillEntry) {
 func partitionTools(registry *tools.Registry, permissionMode PermissionMode, options Options, loaded map[string]bool) ([]qgruntime.ToolDefinition, string) {
 	return partitionToolsCached(registry, permissionMode, options, loaded, nil)
 }
+
+// buildPromptSubstrings builds the prompt and retains both its exact joined
+// form and narrower diagnostic components. Test-only: production builds the
+// parts once and calls buildPromptSubstringsFromParts.
+func buildPromptSubstrings(options Options, exposed []qgruntime.ToolDefinition) promptSubstrings {
+	return buildPromptSubstringsFromParts(buildSystemPromptParts(options), exposed)
+}
+
+// ComputePrefixFingerprint builds and fingerprints a prompt for callers that do
+// not already have one. Test-only: the agent loop uses computePrefixFingerprint
+// with the prompt parts it built once at run start.
+func ComputePrefixFingerprint(options Options, exposed []qgruntime.ToolDefinition) prefixFingerprint {
+	return computePrefixFingerprint(buildPromptSubstrings(options, exposed))
+}
