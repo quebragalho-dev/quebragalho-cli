@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // Table test: every (phase x event) fixes which stream transitions are legal.
@@ -262,6 +264,62 @@ func TestStreamInvariantsAcrossEventSequence(t *testing.T) {
 	}
 	if !m3.validStreamState() {
 		t.Fatal("after cancel state must be valid")
+	}
+}
+
+// execStreamCmd runs a command to completion with a generous failure-only
+// timeout (a deadlock guard, not synchronization: the scheduled flush below
+// is armed for ~1ms of real time).
+func execStreamCmd(t *testing.T, cmd tea.Cmd) tea.Msg {
+	t.Helper()
+	if cmd == nil {
+		return nil
+	}
+	ch := make(chan tea.Msg, 1)
+	go func() { ch <- cmd() }()
+	select {
+	case msg := <-ch:
+		return msg
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out executing scheduled command")
+		return nil
+	}
+}
+
+// Two throttled newlines in a row schedule exactly ONE deferred flush: the
+// first defers and arms the one-shot timer, the second coalesces onto it
+// without arming another. Kills the `if true` mutant on the pending guard.
+func TestStreamClearThrottleCoalescesScheduledFlush(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
+	m := newModel(context.Background(), Options{ModelName: "gpt-4.1"})
+	m = m.beginRun(nil)
+	withFrozenClock(&m, t0)
+	rid := m.activeRunID
+
+	updated, _ := m.Update(agentTextMsg{runID: rid, delta: "one\n"})
+	m = updated.(model)
+
+	// 99ms into the 100ms window: still throttled, but the armed flush fires
+	// after ~1ms of real time instead of the full window.
+	withFrozenClock(&m, t0.Add(99*time.Millisecond))
+	updated, cmd2 := m.Update(agentTextMsg{runID: rid, delta: "two\n"})
+	m = updated.(model)
+	if !m.pendingStreamClear {
+		t.Fatal("throttled newline must mark a clear as pending")
+	}
+	if msg := execStreamCmd(t, cmd2); msg == nil {
+		t.Fatal("first throttled newline must schedule a flush")
+	} else if _, ok := msg.(streamClearFlushMsg); !ok {
+		t.Fatalf("scheduled command must produce streamClearFlushMsg, got %T", msg)
+	}
+
+	updated, cmd3 := m.Update(agentTextMsg{runID: rid, delta: "three\n"})
+	m = updated.(model)
+	if !m.pendingStreamClear {
+		t.Fatal("coalesced newline must keep the pending clear")
+	}
+	if cmd3 != nil {
+		t.Fatalf("second throttled newline must not schedule another flush, got %T", cmd3)
 	}
 }
 
