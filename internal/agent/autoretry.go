@@ -257,16 +257,112 @@ func formatRetryWait(d time.Duration) string {
 	return fmt.Sprintf("%dm %02ds", int(d/time.Minute), int(d.Seconds())%60)
 }
 
+// retryPhase is the explicit retrier state. Diagram:
+//
+//	idle --schedule--> waiting --succeed/nonRetryable/cancel/sleepAbort--> idle (clear)
+//	waiting --schedule--> waiting (re-wait, no clear)
+//	idle/waiting --exhausted--> exhausted (terminal, clear if leaving waiting)
+//	exhausted --any--> exhausted (illegal, refused, state kept)
+type retryPhase int
+
+const (
+	retryIdle retryPhase = iota
+	retryWaiting
+	retryExhausted
+)
+
+func (p retryPhase) String() string {
+	switch p {
+	case retryIdle:
+		return "idle"
+	case retryWaiting:
+		return "waiting"
+	case retryExhausted:
+		return "exhausted"
+	default:
+		return "unknown"
+	}
+}
+
+type retryEvent int
+
+const (
+	retryEvSchedule retryEvent = iota
+	retryEvSucceed
+	retryEvNonRetryable
+	retryEvExhausted
+	retryEvCancel
+	retryEvSleepAbort
+)
+
+func (e retryEvent) String() string {
+	switch e {
+	case retryEvSchedule:
+		return "schedule"
+	case retryEvSucceed:
+		return "succeed"
+	case retryEvNonRetryable:
+		return "nonRetryable"
+	case retryEvExhausted:
+		return "exhausted"
+	case retryEvCancel:
+		return "cancel"
+	case retryEvSleepAbort:
+		return "sleepAbort"
+	default:
+		return "unknown"
+	}
+}
+
+// retryTransitions is the single legal-transition table: state x event ->
+// next state. Absent entries are illegal and refused at runtime without
+// panicking (state kept, no clear emitted).
+var retryTransitions = map[retryPhase]map[retryEvent]retryPhase{
+	retryIdle: {
+		retryEvSchedule:     retryWaiting,
+		retryEvSucceed:      retryIdle,
+		retryEvNonRetryable: retryIdle,
+		retryEvExhausted:    retryExhausted,
+		retryEvCancel:       retryIdle,
+	},
+	retryWaiting: {
+		retryEvSchedule:     retryWaiting,
+		retryEvSucceed:      retryIdle,
+		retryEvNonRetryable: retryIdle,
+		retryEvExhausted:    retryExhausted,
+		retryEvCancel:       retryIdle,
+		retryEvSleepAbort:   retryIdle,
+	},
+	retryExhausted: {},
+}
+
+// transition is the only writer of the retrier phase. It looks up the table,
+// moves to the next phase when legal, and emits the Active:false clear exactly
+// when leaving waiting (twin fields fixed together). Illegal transitions keep
+// the state and report ok=false, never panicking in production.
+func (r *modelCallRetrier) transition(ev retryEvent) (ok bool) {
+	next, legal := retryTransitions[r.phase][ev]
+	if !legal {
+		return false
+	}
+	leavingWaiting := r.phase == retryWaiting && next != retryWaiting
+	r.phase = next
+	if leavingWaiting && r.onWait != nil {
+		r.onWait(RetryWaitInfo{Active: false})
+	}
+	return true
+}
+
 // modelCallRetrier carries one model call's retry budget: every
 // StreamCompletion invocation in the turn draws from it, so connect failures,
 // mid-stream upstream errors and content stalls share the same 10 attempts.
 type modelCallRetrier struct {
-	used    int
-	waiting bool
-	sleep   func(context.Context, time.Duration) error
-	jitter  func(time.Duration) time.Duration
-	notify  func(attempt, max int, wait time.Duration, errMsg string, discarded bool)
-	onWait  func(RetryWaitInfo)
+	used   int
+	phase  retryPhase
+	sleep  func(context.Context, time.Duration) error
+	jitter func(time.Duration) time.Duration
+	notify func(attempt, max int, wait time.Duration, errMsg string, discarded bool)
+	onWait func(RetryWaitInfo)
 }
 
 func newModelCallRetrier(options Options) *modelCallRetrier {
@@ -299,15 +395,10 @@ func (r *modelCallRetrier) exhausted() bool {
 }
 
 // settle clears a previously reported wait once the attempt finally runs or
-// the budget runs out.
+// the budget runs out. Kept for single-success paths; terminal and schedule
+// paths go through transition directly so the table stays the single writer.
 func (r *modelCallRetrier) settle() {
-	if !r.waiting {
-		return
-	}
-	r.waiting = false
-	if r.onWait != nil {
-		r.onWait(RetryWaitInfo{Active: false})
-	}
+	r.transition(retryEvSucceed)
 }
 
 // singleStream issues one model request, spending one budget attempt. The
@@ -354,14 +445,15 @@ func (r *modelCallRetrier) waitAfterError(ctx context.Context, err error, discar
 		return false, nil
 	}
 	if ctx.Err() != nil {
-		r.settle()
+		r.transition(retryEvCancel)
 		return false, ctx.Err()
 	}
 	if !isRetryableModelError(ctx, err) {
+		r.transition(retryEvNonRetryable)
 		return false, nil
 	}
 	if r.exhausted() {
-		r.settle()
+		r.transition(retryEvExhausted)
 		msg := err.Error()
 		return false, fmt.Errorf("%s (%d/%d tentativas)", msg, maxModelCallAttempts, maxModelCallAttempts)
 	}
@@ -381,6 +473,10 @@ func (r *modelCallRetrier) waitAfterError(ctx context.Context, err error, discar
 	if r.notify != nil {
 		r.notify(attempt, maxModelCallAttempts, wait, err.Error(), discarded)
 	}
+	if !r.transition(retryEvSchedule) {
+		msg := err.Error()
+		return false, fmt.Errorf("%s (%d/%d tentativas)", msg, maxModelCallAttempts, maxModelCallAttempts)
+	}
 	if r.onWait != nil {
 		r.onWait(RetryWaitInfo{
 			Attempt:         attempt,
@@ -391,13 +487,12 @@ func (r *modelCallRetrier) waitAfterError(ctx context.Context, err error, discar
 			Active:          true,
 		})
 	}
-	r.waiting = true
 	// Every scheduled retry stamps reconnect_count — the metric keeps its
 	// name for trace/bench compatibility, though it now counts unified
 	// auto-retry waits rather than mid-stream reconnects.
 	trace.FromContext(ctx).Counter(trace.CounterReconnectCount, 1)
 	if sleepErr := r.sleep(ctx, wait); sleepErr != nil {
-		r.settle()
+		r.transition(retryEvSleepAbort)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return false, ctxErr
 		}
