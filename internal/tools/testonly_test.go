@@ -209,22 +209,3 @@ func detectShellOutputIssue(output string, goos string) *shellIssue {
 	}
 	return detectShellOutputIssueForRuntime(output, shell)
 }
-
-// HostExecCommandShellGuidance returns the shell guidance appended to
-// exec_command's description on this host, or "" where none is appended.
-// Test-only: the per-turn token accounting that once consumed it no longer
-// runs in production; tests compare it against the description text.
-func HostExecCommandShellGuidance() string {
-	return hostExecCommandShellGuidance(runtimeGOOS())
-}
-
-// hostExecCommandShellGuidance is the guidance a host running goos appends.
-// Test-only: it is the pair of execCommandDescription, so the two can be
-// checked against each other for every platform rather than only for the
-// running one.
-func hostExecCommandShellGuidance(goos string) string {
-	if goos != "windows" {
-		return ""
-	}
-	return shellGuidanceForGOOS(goos)
-}
