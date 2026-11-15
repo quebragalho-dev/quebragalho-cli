@@ -163,6 +163,16 @@ func (p *Pool) acquire(ctx context.Context) error {
 	}
 	select {
 	case p.slots <- struct{}{}:
+		// The drain may have closed between the pre-check and the select win:
+		// re-check under mu so a post-drain admit never escapes. Releasing the
+		// just-won slot keeps the depth exact.
+		p.mu.Lock()
+		draining = p.draining
+		p.mu.Unlock()
+		if draining {
+			<-p.slots
+			return ErrPoolDraining
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
