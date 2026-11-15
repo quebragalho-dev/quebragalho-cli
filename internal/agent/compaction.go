@@ -766,17 +766,6 @@ func (state *compactionState) summarizeClosure(ctx context.Context, provider Pro
 	}
 }
 
-// summarizeWithFallback summarizes messages in a single provider call. If that
-// call fails with a context-limit error — the slice to summarize is itself too
-// large for the model's input window — it splits the slice in half, summarizes
-// each half recursively, and joins the partial summaries. This keeps compaction
-// working when the elided middle is bigger than the summarizer's own context.
-// Non-context-limit errors (and a single message that still won't fit) surface
-// to the caller unchanged.
-func summarizeWithFallback(ctx context.Context, provider Provider, messages []qgruntime.Message, onUsage func(Usage)) (string, error) {
-	return summarizeWithPlanner(ctx, provider, messages, onUsage, newContextPlanner(contextPlannerConfig{}), nil)
-}
-
 func summarizeWithPlanner(ctx context.Context, provider Provider, messages []qgruntime.Message, onUsage func(Usage), planner *contextPlanner, recorder *trace.Recorder) (string, error) {
 	summary, err := summarizeMessagesOnce(ctx, provider, messages, onUsage, planner, recorder)
 	if err == nil {

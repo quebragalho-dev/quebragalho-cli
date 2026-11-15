@@ -81,9 +81,9 @@ func TestSummarizeWithFallbackReSummarizesPartialsIntoOne(t *testing.T) {
 	}
 	provider := &compressingSummarizer{maxMarkers: 2}
 
-	summary, err := summarizeWithFallback(context.Background(), provider, messages, nil)
+	summary, err := summarizeWithPlanner(context.Background(), provider, messages, nil, newContextPlanner(contextPlannerConfig{}), nil)
 	if err != nil {
-		t.Fatalf("summarizeWithFallback failed: %v", err)
+		t.Fatalf("summarizeWithPlanner failed: %v", err)
 	}
 	// The two chunk summaries ("S" / "S") are re-summarized into ONE unit, not
 	// returned as the joined "S\n\nS" blob — so a later compaction can shrink it.
@@ -105,9 +105,9 @@ func TestSummarizeWithFallbackChunksOnContextLimit(t *testing.T) {
 	// must be split recursively until each chunk fits.
 	provider := &sizeLimitedSummarizer{maxMarkers: 2}
 
-	summary, err := summarizeWithFallback(context.Background(), provider, messages, nil)
+	summary, err := summarizeWithPlanner(context.Background(), provider, messages, nil, newContextPlanner(contextPlannerConfig{}), nil)
 	if err != nil {
-		t.Fatalf("summarizeWithFallback failed: %v", err)
+		t.Fatalf("summarizeWithPlanner failed: %v", err)
 	}
 	for i := 0; i < n; i++ {
 		if !strings.Contains(summary, fmt.Sprintf("msg-%d", i)) {
@@ -121,10 +121,10 @@ func TestSummarizeWithFallbackChunksOnContextLimit(t *testing.T) {
 
 func TestSummarizeWithFallbackPropagatesNonContextErrors(t *testing.T) {
 	provider := &errorSummarizer{message: "auth error: invalid key"}
-	_, err := summarizeWithFallback(context.Background(), provider, []qgruntime.Message{
+	_, err := summarizeWithPlanner(context.Background(), provider, []qgruntime.Message{
 		{Role: qgruntime.MessageRoleUser, Content: "msg-0"},
 		{Role: qgruntime.MessageRoleUser, Content: "msg-1"},
-	}, nil)
+	}, nil, newContextPlanner(contextPlannerConfig{}), nil)
 	if err == nil {
 		t.Fatal("expected a non-context-limit error to propagate")
 	}
@@ -136,9 +136,9 @@ func TestSummarizeWithFallbackPropagatesNonContextErrors(t *testing.T) {
 func TestSummarizeWithFallbackSingleMessageContextLimitSurfaces(t *testing.T) {
 	// A single message that still won't fit can't be split further → error surfaces.
 	provider := &sizeLimitedSummarizer{maxMarkers: 0}
-	_, err := summarizeWithFallback(context.Background(), provider, []qgruntime.Message{
+	_, err := summarizeWithPlanner(context.Background(), provider, []qgruntime.Message{
 		{Role: qgruntime.MessageRoleUser, Content: "msg-0 too big"},
-	}, nil)
+	}, nil, newContextPlanner(contextPlannerConfig{}), nil)
 	if err == nil {
 		t.Fatal("expected the context-limit error to surface for an unsplittable single message")
 	}
@@ -161,9 +161,9 @@ func TestSummarizeForwardsUsageButNotText(t *testing.T) {
 	// MUST be counted, so OnUsage has to fire for the summarizer call.
 	var got qgruntime.Usage
 	var calls int
-	summary, err := summarizeWithFallback(context.Background(), usageReportingSummarizer{}, []qgruntime.Message{
+	summary, err := summarizeWithPlanner(context.Background(), usageReportingSummarizer{}, []qgruntime.Message{
 		{Role: qgruntime.MessageRoleUser, Content: "hello"},
-	}, func(u qgruntime.Usage) { calls++; got = u })
+	}, func(u qgruntime.Usage) { calls++; got = u }, newContextPlanner(contextPlannerConfig{}), nil)
 	if err != nil {
 		t.Fatalf("summarize failed: %v", err)
 	}
