@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestProcNextTabelaEstadoEvento(t *testing.T) {
+func TestProcNextCoversEveryStateEventPair(t *testing.T) {
 	states := []procState{procRunning, procReaped, procDone}
 	events := []procEvent{procEvWaitReturned, procEvPublished}
 	legal := map[procState]map[procEvent]procState{
@@ -42,7 +42,7 @@ func TestProcStateString(t *testing.T) {
 	}
 }
 
-func newSm6Proc() *managedProcess {
+func newTestProc() *managedProcess {
 	return &managedProcess{
 		command: exec.Command("true"),
 		output:  newProcessOutputBuffer(),
@@ -51,8 +51,8 @@ func newSm6Proc() *managedProcess {
 	}
 }
 
-func TestProcTransitionEscreveGemeosJuntos(t *testing.T) {
-	process := newSm6Proc()
+func TestProcTransitionWritesTwinsTogether(t *testing.T) {
+	process := newTestProc()
 	if !process.transition(procEvWaitReturned, nil) {
 		t.Fatalf("running--wait-->reaped recusada")
 	}
@@ -77,16 +77,16 @@ func TestProcTransitionEscreveGemeosJuntos(t *testing.T) {
 	if !res.Exited || res.ExitCode != 3 {
 		t.Fatalf("collectResult done = %#v, want exited 3", res)
 	}
-	// Terminal sem saida e sem panic.
+	// Terminal with no outgoing edges and no panic.
 	if process.transition(procEvWaitReturned, nil) || process.transition(procEvPublished, payload) {
 		t.Fatalf("transicao saindo de done deveria ser ilegal")
 	}
 }
 
-func TestProcTransitionIlegalNaoEscreveNada(t *testing.T) {
-	process := newSm6Proc()
+func TestProcTransitionIllegalWritesNothing(t *testing.T) {
+	process := newTestProc()
 	payload := &procDonePayload{exitCode: 7}
-	// running --publish--> ilegal: nada muda, canais abertos, sem exit.
+	// running --publish--> illegal: nothing changes, channels open, no exit.
 	if process.transition(procEvPublished, payload) {
 		t.Fatalf("running--publish deveria ser ilegal")
 	}
@@ -96,7 +96,7 @@ func TestProcTransitionIlegalNaoEscreveNada(t *testing.T) {
 	if got := process.collectResult(context.TODO(), 0, false); got.Exited {
 		t.Fatalf("transicao ilegal publicou exit")
 	}
-	// Payload nil nunca publica nem da panic.
+	// Nil payload never publishes and never panics.
 	if process.transition(procEvWaitReturned, nil) != true {
 		t.Fatalf("reap legal falhou")
 	}
@@ -106,8 +106,8 @@ func TestProcTransitionIlegalNaoEscreveNada(t *testing.T) {
 	if process.doneClosed() {
 		t.Fatalf("payload nil nao deveria fechar done")
 	}
-	// Reap duplo ilegal e sem panic (segundo retorna false, sem fechar de novo).
-	dup := newSm6Proc()
+	// Double reap is illegal and panic-free (second returns false, no re-close).
+	dup := newTestProc()
 	if !dup.transition(procEvWaitReturned, nil) {
 		t.Fatalf("primeiro reap falhou")
 	}

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func sm6Root(t *testing.T) string {
+func testRoot(t *testing.T) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("caracterizacao usa /bin/sh (POSIX)")
@@ -18,7 +18,7 @@ func sm6Root(t *testing.T) string {
 	return t.TempDir()
 }
 
-func sm6StartSleep(t *testing.T, manager *ProcessManager, root string) ProcessResult {
+func startSleeping(t *testing.T, manager *ProcessManager, root string) ProcessResult {
 	t.Helper()
 	cmd := exec.Command("/bin/sh", "-c", "sleep 30")
 	started, err := manager.Start(context.Background(), ProcessStart{
@@ -34,7 +34,7 @@ func sm6StartSleep(t *testing.T, manager *ProcessManager, root string) ProcessRe
 	return started
 }
 
-func sm6WaitDone(t *testing.T, manager *ProcessManager, id int) *managedProcess {
+func waitForDone(t *testing.T, manager *ProcessManager, id int) *managedProcess {
 	t.Helper()
 	proc, ok := manager.get(id)
 	if !ok {
@@ -48,14 +48,14 @@ func sm6WaitDone(t *testing.T, manager *ProcessManager, id int) *managedProcess 
 	return proc
 }
 
-// Snapshot/List/Len em cada fase, incluindo a janela reaped-sem-done.
-// A divergencia Len x List (Len conta retidos, List filtra) e comportamento atual.
-func TestSm6SnapshotListLenPorFase(t *testing.T) {
-	root := sm6Root(t)
+// Snapshot/List/Len per phase, including the reaped-but-not-done window.
+// The Len x List divergence (Len counts retained, List filters) is current behavior.
+func TestProcessSnapshotListLenPerPhase(t *testing.T) {
+	root := testRoot(t)
 	manager := NewProcessManager(ProcessManagerOptions{CompletedRetention: time.Hour})
 
-	// Fase running.
-	running := sm6StartSleep(t, manager, root)
+	// Running phase.
+	running := startSleeping(t, manager, root)
 	snap, ok := manager.Snapshot(running.ProcessID)
 	if !ok || snap.Status != "running" || snap.ExitCode != nil {
 		t.Fatalf("snapshot running = %#v ok=%v, want running sem exit", snap, ok)
@@ -72,7 +72,7 @@ func TestSm6SnapshotListLenPorFase(t *testing.T) {
 	manager.Stop(running.ProcessID)
 	manager.Remove(running.ProcessID)
 
-	// Janela reaped-sem-done via AfterWait deterministico.
+	// Reaped-but-not-done window via deterministic AfterWait.
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var once int32
@@ -102,7 +102,7 @@ func TestSm6SnapshotListLenPorFase(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatalf("AfterWait nunca entrou (janela reaped nao alcancada)")
 	}
-	// Acha o id retido (so ha um).
+	// Find the retained id (only one).
 	list := manager2.List()
 	if len(list) != 1 {
 		t.Fatalf("List na janela reaped = %d, want 1 (inclui)", len(list))
@@ -131,7 +131,7 @@ func TestSm6SnapshotListLenPorFase(t *testing.T) {
 	if got := manager2.Len(); got != 1 {
 		t.Fatalf("Len na janela reaped = %d, want 1", got)
 	}
-	// Stop na janela nao deve sinalizar (reaped ja fechado) mas retorna true.
+	// Stop in the window must not signal (reaped already closed) but returns true.
 	var kills int32
 	proc.kill = func(int) error { atomic.AddInt32(&kills, 1); return nil }
 	if !manager2.Stop(id) {
@@ -140,8 +140,8 @@ func TestSm6SnapshotListLenPorFase(t *testing.T) {
 	if got := atomic.LoadInt32(&kills); got != 0 {
 		t.Fatalf("Stop na janela reaped sinalizou %d vezes, want 0", got)
 	}
-	// Start ainda esta no collect (50ms) com AfterWait bloqueado: deve
-	// retornar running ANTES do release, senao o markDone contaminaria o resultado.
+	// Start is still inside collect (50ms) with AfterWait blocked: it must
+	// return running BEFORE release, or markDone would taint the result.
 	var out startOut
 	select {
 	case out = <-doneCh:
@@ -155,12 +155,12 @@ func TestSm6SnapshotListLenPorFase(t *testing.T) {
 	if out.result.Exited {
 		t.Fatalf("Start com AfterWait bloqueado deveria retornar running, obteve exited")
 	}
-	sm6WaitDone(t, manager2, id)
+	waitForDone(t, manager2, id)
 	snap, ok = manager2.Snapshot(id)
 	if !ok || snap.Status != "exited" || snap.ExitCode == nil {
 		t.Fatalf("snapshot done = %#v ok=%v, want exited com exit", snap, ok)
 	}
-	// Divergencia documentada: List filtra concluido retido, Len conta.
+	// Documented divergence: List filters retained done, Len counts it.
 	if got := len(manager2.List()); got != 0 {
 		t.Fatalf("List em done retido = %d, want 0 (filtra)", got)
 	}
@@ -170,13 +170,13 @@ func TestSm6SnapshotListLenPorFase(t *testing.T) {
 	manager2.Remove(id)
 }
 
-// Stop em cada fase: 1 kill em running, 0 depois de reaped e em done.
-func TestSm6StopKillsPorFase(t *testing.T) {
-	root := sm6Root(t)
+// Stop per phase: 1 kill while running, 0 after reaped and when done.
+func TestStopSignalsOnlyWhileRunning(t *testing.T) {
+	root := testRoot(t)
 	manager := NewProcessManager(ProcessManagerOptions{CompletedRetention: time.Hour})
 
-	// Running: 1 chamada.
-	running := sm6StartSleep(t, manager, root)
+	// Running: 1 call.
+	running := startSleeping(t, manager, root)
 	proc, _ := manager.get(running.ProcessID)
 	var killsRun int32
 	proc.kill = func(int) error { atomic.AddInt32(&killsRun, 1); return nil }
@@ -188,7 +188,7 @@ func TestSm6StopKillsPorFase(t *testing.T) {
 	}
 	manager.Remove(running.ProcessID)
 
-	// Reaped (AfterWait bloqueado): 0 chamadas.
+	// Reaped (AfterWait blocked): 0 calls.
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var once int32
@@ -229,9 +229,9 @@ func TestSm6StopKillsPorFase(t *testing.T) {
 		t.Fatalf("Start nao retornou com AfterWait bloqueado")
 	}
 	close(release)
-	sm6WaitDone(t, manager, id)
+	waitForDone(t, manager, id)
 
-	// Done retido: 0 chamadas.
+	// Retained done: 0 calls.
 	proc, _ = manager.get(id)
 	var killsDone int32
 	proc.kill = func(int) error { atomic.AddInt32(&killsDone, 1); return nil }
@@ -247,9 +247,9 @@ func TestSm6StopKillsPorFase(t *testing.T) {
 	}
 }
 
-// Continue/WriteInput/ResizeInput em processo concluido (pipe, sem PTY).
-func TestSm6InputOpsEmConcluido(t *testing.T) {
-	root := sm6Root(t)
+// Continue/WriteInput/ResizeInput on a completed process (pipe, no PTY).
+func TestInputOpsOnCompletedProcess(t *testing.T) {
+	root := testRoot(t)
 	manager := NewProcessManager(ProcessManagerOptions{CompletedRetention: time.Hour})
 	cmd := exec.Command("/bin/sh", "-c", "exit 3")
 	started, err := manager.Start(context.Background(), ProcessStart{
@@ -275,12 +275,12 @@ func TestSm6InputOpsEmConcluido(t *testing.T) {
 		}
 		return
 	}
-	sm6WaitDone(t, manager, id)
+	waitForDone(t, manager, id)
 	snap, ok := manager.Snapshot(id)
 	if !ok || snap.Status != "exited" {
 		t.Fatalf("snapshot done = %#v ok=%v, want exited", snap, ok)
 	}
-	// Continue em concluido retorna Exited e remove.
+	// Continue on done returns Exited and removes.
 	cont, err := manager.Continue(context.Background(), ProcessContinue{ProcessID: id, Wait: 10 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Continue em concluido: %v", err)
@@ -291,7 +291,7 @@ func TestSm6InputOpsEmConcluido(t *testing.T) {
 	if _, ok := manager.Snapshot(id); ok {
 		t.Fatalf("processo deveria ter sido removido apos Continue com Exited")
 	}
-	// Reconstroi um segundo concluido retido para Write/Resize (pipe nao-TTY).
+	// Build a second retained done for Write/Resize (non-TTY pipe).
 	cmd2 := exec.Command("/bin/sh", "-c", "sleep 0.05")
 	r2, err := manager.Start(context.Background(), ProcessStart{
 		Prepared: PreparedCommand{Command: cmd2},
@@ -303,7 +303,7 @@ func TestSm6InputOpsEmConcluido(t *testing.T) {
 	if r2.Exited {
 		t.Skip("Start2 colheu exit imediato; comportamento ja coberto acima")
 	}
-	sm6WaitDone(t, manager, r2.ProcessID)
+	waitForDone(t, manager, r2.ProcessID)
 	if err := manager.WriteInput(r2.ProcessID, []byte("x")); !errors.Is(err, ErrProcessStdinDisabled) {
 		t.Fatalf("WriteInput em pipe concluido = %v, want ErrProcessStdinDisabled", err)
 	}
@@ -318,12 +318,12 @@ func TestSm6InputOpsEmConcluido(t *testing.T) {
 	}
 }
 
-// Remove em cada fase.
-func TestSm6RemovePorFase(t *testing.T) {
-	root := sm6Root(t)
+// Remove per phase.
+func TestRemovePerPhase(t *testing.T) {
+	root := testRoot(t)
 	manager := NewProcessManager(ProcessManagerOptions{CompletedRetention: time.Hour})
 
-	running := sm6StartSleep(t, manager, root)
+	running := startSleeping(t, manager, root)
 	manager.Remove(running.ProcessID)
 	if _, ok := manager.Snapshot(running.ProcessID); ok {
 		t.Fatalf("Snapshot apos Remove em running ainda acha")
@@ -331,7 +331,7 @@ func TestSm6RemovePorFase(t *testing.T) {
 	if got := manager.Len(); got != 0 {
 		t.Fatalf("Len apos Remove em running = %d, want 0", got)
 	}
-	manager.Stop(running.ProcessID) // nao deve panic nem sinalizar nada visivel
+	manager.Stop(running.ProcessID) // must neither panic nor signal anything visible
 
 	entered := make(chan struct{})
 	release := make(chan struct{})
@@ -366,7 +366,7 @@ func TestSm6RemovePorFase(t *testing.T) {
 		t.Fatalf("Len apos Remove em reaped = %d, want 0", got)
 	}
 	close(release)
-	<-finished // goroutine termina markDone fora do mapa sem panic
+	<-finished // goroutine finishes markDone off-map without panic
 
 	cmd3 := exec.Command("/bin/sh", "-c", "sleep 0.05")
 	r3, err := manager.Start(context.Background(), ProcessStart{
@@ -377,7 +377,7 @@ func TestSm6RemovePorFase(t *testing.T) {
 		t.Fatalf("Start3: %v", err)
 	}
 	if !r3.Exited {
-		sm6WaitDone(t, manager, r3.ProcessID)
+		waitForDone(t, manager, r3.ProcessID)
 		manager.Remove(r3.ProcessID)
 		if _, ok := manager.Snapshot(r3.ProcessID); ok {
 			t.Fatalf("Snapshot apos Remove em done ainda acha")
@@ -385,9 +385,9 @@ func TestSm6RemovePorFase(t *testing.T) {
 	}
 }
 
-// Capacidade cheia com concluidos retidos: Len conta retidos, prune deleta o mais antigo.
-func TestSm6CapacidadeComRetidos(t *testing.T) {
-	root := sm6Root(t)
+// Full capacity with retained done: Len counts retained, prune drops the oldest.
+func TestCapacityCountsRetainedCompleted(t *testing.T) {
+	root := testRoot(t)
 	manager := NewProcessManager(ProcessManagerOptions{CompletedRetention: time.Hour, MaxProcesses: 2})
 
 	mkDoneRetained := func() int {
@@ -402,7 +402,7 @@ func TestSm6CapacidadeComRetidos(t *testing.T) {
 		if res.Exited {
 			t.Fatalf("Start colheu exit imediato; teste precisa de retido (aumente o sleep ou reduza o wait)")
 		}
-		sm6WaitDone(t, manager, res.ProcessID)
+		waitForDone(t, manager, res.ProcessID)
 		return res.ProcessID
 	}
 
@@ -414,7 +414,7 @@ func TestSm6CapacidadeComRetidos(t *testing.T) {
 	if got := len(manager.List()); got != 0 {
 		t.Fatalf("List com 2 retidos = %d, want 0 (filtra done)", got)
 	}
-	// Terceiro Start deve podar o concluido mais antigo e manter Len == max.
+	// Third Start must prune the oldest done and keep Len == max.
 	cmd := exec.Command("/bin/sh", "-c", "sleep 30")
 	r3, err := manager.Start(context.Background(), ProcessStart{
 		Prepared: PreparedCommand{Command: cmd},
@@ -430,7 +430,7 @@ func TestSm6CapacidadeComRetidos(t *testing.T) {
 		t.Fatalf("id1 (%d) deveria ter sido podado (mais antigo)", id1)
 	}
 	if _, ok := manager.Snapshot(id2); !ok {
-		// id2 e done retido: Snapshot ainda acha (mapa), mesmo filtrado do List.
+		// id2 is retained done: Snapshot still finds it (map), even though List filters it.
 		t.Fatalf("id2 (%d) deveria permanecer retido", id2)
 	}
 	manager.Stop(r3.ProcessID)

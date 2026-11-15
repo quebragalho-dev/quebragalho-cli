@@ -215,7 +215,6 @@ func TestManagedProcessTerminateSkipsReapedProcess(t *testing.T) {
 	process := &managedProcess{
 		command: &exec.Cmd{Process: &os.Process{Pid: 4242}},
 		reaped:  reaped,
-		done:    make(chan struct{}),
 		state:   procReaped,
 		kill:    func(int) error { called = true; return nil },
 	}

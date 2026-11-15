@@ -1,16 +1,16 @@
 package execution
 
-// procState e a maquina explicita do ciclo do processo interativo.
+// procState is the explicit lifecycle of an interactive process.
 //
-// Diagrama (texto):
+// Text diagram:
 //
-//	running --Wait retornou--> reaped --markDone--> done
-//	removido = sair do mapa (sem estado; List filtra done, Len conta tudo)
+//	running --Wait returned--> reaped --markDone--> done
+//	removed = leaving the map (no state; List filters done, Len counts all)
 //
-// running: Wait ainda nao retornou (reaped aberto, done aberto, exitCode nil).
-// reaped:  Wait retornou (reaped fechado, done aberto, exitCode ainda nil).
-// done:    resultado publicado (reaped fechado, done fechado, exitCode fixado).
-// "removido" nao e estado: e delete do mapa (Remove/expiracao).
+// running: Wait has not returned yet (reaped open, done open, exitCode nil).
+// reaped:  Wait returned (reaped closed, done open, exitCode still nil).
+// done:    result published (reaped closed, done closed, exitCode set).
+// "removed" is not a state: it is a map delete (Remove/expiry).
 type procState int
 
 const (
@@ -32,13 +32,13 @@ func (s procState) String() string {
 	}
 }
 
-// procEvent sao os unicos eventos que movem a maquina.
+// procEvent are the only events that move the machine.
 type procEvent int
 
 const (
-	// procEvWaitReturned: Wait() do exec retornou (Start goroutine, apos close antigo).
+	// procEvWaitReturned: exec Wait() returned (Start goroutine, after the old close).
 	procEvWaitReturned procEvent = iota
-	// procEvPublished: resultado pronto para publicar (markDone).
+	// procEvPublished: result ready to publish (markDone).
 	procEvPublished
 )
 
@@ -53,7 +53,7 @@ func (e procEvent) String() string {
 	}
 }
 
-// procNext e a UNICA tabela de transicoes legais (estado x evento).
+// procNext is the SINGLE table of legal transitions (state x event).
 func procNext(cur procState, ev procEvent) (procState, bool) {
 	switch cur {
 	case procRunning:
@@ -70,7 +70,7 @@ func procNext(cur procState, ev procEvent) (procState, bool) {
 	return cur, false
 }
 
-// procDonePayload carrega os gemeos publicados juntos no reaped->done.
+// procDonePayload carries the twins published together on reaped->done.
 type procDonePayload struct {
 	waitErr   error
 	exitCode  int
@@ -79,9 +79,9 @@ type procDonePayload struct {
 	changes   []Change
 }
 
-// transition e o UNICO ponto que escreve o estado (state + gemeos) e o unico
-// que fecha reaped/done. Nunca da panic: transicao ilegal ou payload nil
-// recusa sem escrever nada e retorna false.
+// transition is the SINGLE place that writes state (state + twins) and the only
+// one that closes reaped/done. It never panics: an illegal transition or a nil
+// payload is refused without writing anything and returns false.
 func (process *managedProcess) transition(ev procEvent, payload *procDonePayload) bool {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -95,7 +95,7 @@ func (process *managedProcess) transition(ev procEvent, payload *procDonePayload
 		if process.reaped != nil {
 			select {
 			case <-process.reaped:
-				// Ja fechado (literal manual legado); nao fecha de novo.
+				// Already closed (legacy manual literal); do not close again.
 			default:
 				close(process.reaped)
 			}
