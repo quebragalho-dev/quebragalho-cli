@@ -69,7 +69,7 @@ func resolveWorkspacePath(workspaceRoot string, requestedPath string, unsafe boo
 
 	relative, err := filepath.Rel(root, target)
 	if err != nil {
-		return "", "", outsideWorkspaceError(requestedPath)
+		return crossVolumeTarget(target, requestedPath, unsafe)
 	}
 	// Unsafe runs are unconfined: the workspace boundary does not apply, so a
 	// path outside the root (including a relative one that escapes it) is
@@ -139,7 +139,7 @@ func resolveWorkspaceTargetPath(workspaceRoot string, requestedPath string, unsa
 
 	relative, err := filepath.Rel(root, resolved)
 	if err != nil {
-		return "", "", outsideWorkspaceError(requestedPath)
+		return crossVolumeTarget(resolved, requestedPath, unsafe)
 	}
 	// Unsafe runs are unconfined: the workspace boundary does not apply, so a
 	// path outside the root (including a relative one that escapes it) is
@@ -178,9 +178,18 @@ func recheckWorkspaceWriteTarget(workspaceRoot string, requestedPath string, uns
 		return err
 	}
 
+	walkRoot := root
 	relative, err := filepath.Rel(root, target)
 	if err != nil {
-		return outsideWorkspaceError(requestedPath)
+		if _, _, refusal := crossVolumeTarget(target, requestedPath, unsafe); refusal != nil {
+			return refusal
+		}
+		// Another volume has no path from the workspace root, so the symlink
+		// walk below starts at that volume's own root.
+		walkRoot = filepath.VolumeName(target) + string(filepath.Separator)
+		if relative, err = filepath.Rel(walkRoot, target); err != nil {
+			return outsideWorkspaceError(requestedPath)
+		}
 	}
 	// Unsafe runs are unconfined: the workspace boundary does not apply, so a
 	// path outside the root (including a relative one that escapes it) is
@@ -194,7 +203,7 @@ func recheckWorkspaceWriteTarget(workspaceRoot string, requestedPath string, uns
 		return nil
 	}
 
-	current := root
+	current := walkRoot
 	for _, segment := range strings.Split(filepath.Clean(relative), string(filepath.Separator)) {
 		if segment == "." || segment == "" {
 			continue
@@ -222,6 +231,19 @@ func recheckWorkspaceWriteTarget(workspaceRoot string, requestedPath string, uns
 
 func outsideWorkspaceError(requestedPath string) error {
 	return fmt.Errorf("%s must stay inside the workspace", requestedPath)
+}
+
+// crossVolumeTarget decides a target that has no path relative to the
+// workspace root. Only Windows gets here: filepath.Rel fails between two
+// volumes (workspace on C:, target on D:). Such a target is outside the
+// workspace by definition, so it is refused like any other outside path,
+// except in an unsafe run, where the boundary does not apply; the absolute
+// path, in slash form, then stands in for the relative one.
+func crossVolumeTarget(target string, requestedPath string, unsafe bool) (string, string, error) {
+	if !unsafe {
+		return "", "", outsideWorkspaceError(requestedPath)
+	}
+	return target, filepath.ToSlash(target), nil
 }
 
 func shouldSkipDirectory(name string) bool {
