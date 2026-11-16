@@ -1203,3 +1203,48 @@ func TestRecoverPutsBackARemovalKilledBeforeItsPublish(t *testing.T) {
 		t.Fatalf("the recovered workspace should be cleared, got %v err %v", leftovers, err)
 	}
 }
+
+// A published removal owes no restore, so the marker must be disowned before
+// the retained tree is deleted: a delete that stops partway would otherwise
+// leave a marked backup with nothing at the target, and recovery would publish
+// the half tree as the install.
+func TestRemoveDirDisownsTheBackupBeforeDeletingIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not block removal on windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory permissions this test relies on")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "demo")
+	sealed := filepath.Join(target, "sealed")
+	if err := os.MkdirAll(sealed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "a-first"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sealed, "kept"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealed, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		matches, _ := filepath.Glob(filepath.Join(dir, workspacePrefix+"*", "previous", "sealed"))
+		for _, m := range matches {
+			_ = os.Chmod(m, 0o755)
+		}
+		_ = os.Chmod(sealed, 0o755)
+	})
+
+	if err := RemoveDir(target, func() error { return nil }); err != nil {
+		t.Fatalf("RemoveDir: %v", err)
+	}
+	if err := Recover(dir, nil); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("a published removal was resurrected from a half deleted backup: %v", err)
+	}
+}

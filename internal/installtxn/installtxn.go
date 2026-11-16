@@ -95,7 +95,8 @@ func CommitDir(target string, staged string, publish func() error) error {
 }
 
 // RemoveDir removes target and runs publish while retaining the target until
-// publish succeeds. A publish failure restores the directory.
+// publish succeeds. A publish failure restores the directory. A removal killed
+// before its publish is put back by Recover.
 //
 // The caller must hold the install-root lock returned by Lock.
 func RemoveDir(target string, publish func() error) error {
@@ -105,6 +106,13 @@ func RemoveDir(target string, publish func() error) error {
 	}
 	defer cleanupWorkspace(workspace)
 	backup := filepath.Join(workspace, "previous")
+	marker := filepath.Join(workspace, markerFileName)
+	// Record the target before moving its tree, as CommitDir does. A process
+	// killed between the rename and the publish leaves the only copy in the
+	// backup, and without this recovery could not tell which install it is.
+	if err := os.WriteFile(marker, []byte(markerMagic+"\ntarget "+filepath.Base(target)+"\n"), 0o600); err != nil {
+		return fmt.Errorf("record removal target: %w", err)
+	}
 	if err := os.Rename(target, backup); err != nil {
 		return fmt.Errorf("retain removed install: %w", err)
 	}
@@ -113,6 +121,13 @@ func RemoveDir(target string, publish func() error) error {
 			return errors.Join(err, fmt.Errorf("restore removed install: %w", restoreErr))
 		}
 		return err
+	}
+	// The removal is published, so the backup is no longer owed a restore. The
+	// marker goes before the tree it attributes: with nothing at the target,
+	// recovery puts a marked backup back without asking anyone, and a delete
+	// that stopped partway would hand it half a tree to publish.
+	if err := os.Remove(marker); err != nil {
+		return fmt.Errorf("release removed install: %w", err)
 	}
 	_ = os.RemoveAll(backup)
 	return nil
