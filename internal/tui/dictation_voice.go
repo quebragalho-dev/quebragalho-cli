@@ -15,7 +15,10 @@ const voiceCaptureUsage = "segure Espaço por 2s para ditar; Ctrl+Space também 
 //     event, so the hold and its release are inferred from press timing on
 //     every terminal (see voiceHold). Recording starts once the key has been
 //     down for voiceHoldThreshold and stops when the key is released. A short
-//     press still types a space.
+//     press still types a space. Manual tapping never starts dictation: the
+//     run must look like auto-repeat, and a repeat rate slower than
+//     voiceHoldRapidGap cannot use this gesture (Ctrl+Space covers it). One
+//     physical hold activates at most once.
 //  2. Ctrl+Space, unchanged, with its two terminal tiers: where the terminal
 //     confirms key-release reporting (Ghostty/Kitty/WezTerm, …) a press starts
 //     and the release stops (hold-to-record); where it does not, Ctrl+Space
@@ -135,20 +138,44 @@ const voiceHoldTickInterval = 100 * time.Millisecond
 // voiceHold tracks a run of bare Space presses that may be a held key. A
 // terminal delivers a held Space as ordinary presses (keyboard auto-repeat)
 // with no release event, so the hold and its release are inferred from timing.
+// Manual tapping never starts dictation: the run must look like auto-repeat
+// (see autoRepeat). A keyboard whose repeat rate is slower than
+// voiceHoldRapidGap cannot use the Space hold; Ctrl+Space covers it. One
+// physical hold activates at most once: after an activation the remaining
+// auto-repeats of that hold are swallowed until the key goes up.
 type voiceHold struct {
 	startedAt time.Time     // first Space of the run; zero when there is no run
 	lastAt    time.Time     // latest Space press, of the run or of the recording it started
 	count     int           // presses in the run
 	typed     int           // presses of the run that reached the composer
 	maxGap    time.Duration // widest pause between two auto-repeats of the run
+	rapid     int           // pauses of the run short enough to be auto-repeat
+	spent     bool          // this hold already activated: its remaining auto-repeats are swallowed until the key goes up
 }
 
 // endRun drops the run but keeps lastAt and maxGap: a running hold recording
-// still needs both to detect the release.
+// still needs both to detect the release. It also keeps spent: an activation
+// outlives the run it came from.
 func (h *voiceHold) endRun() {
 	h.startedAt = time.Time{}
 	h.count = 0
 	h.typed = 0
+	h.rapid = 0
+}
+
+// keyUp ends the run and clears the activation latch: the key went up, so the
+// next press starts a new physical hold.
+func (h *voiceHold) keyUp() {
+	h.endRun()
+	h.spent = false
+}
+
+// autoRepeat reports whether the run looks like a held key rather than manual
+// tapping: at least 80% of its pauses, not counting the initial repeat delay,
+// are rapid. Occasional slow pauses (a busy terminal, network jitter) pass.
+func (h voiceHold) autoRepeat() bool {
+	pauses := h.count - 2
+	return pauses > 0 && h.rapid*5 >= pauses*4
 }
 
 // releaseTimeout is how long a hold recording waits without a Space press
@@ -169,6 +196,16 @@ func (m model) handleVoiceHoldSpace(msg tea.KeyMsg, now time.Time) (model, tea.C
 		// Rule 1: a hold recording is running; this press is the key still down.
 		m.dictation.hold.lastAt = now
 		return m, nil, true
+	}
+	if hold.spent {
+		// The hold that already activated is still down (its recording could
+		// not start, or ended on its own): swallow its auto-repeats so they
+		// neither type nor start another recording.
+		if now.Sub(hold.lastAt) <= voiceHoldRepeatGap {
+			m.dictation.hold.lastAt = now
+			return m, nil, true
+		}
+		m.dictation.hold.spent = false
 	}
 	if phase != dictIdle {
 		// Rule 2: transcribing, or a Ctrl+Space toggle recording: the run ends
@@ -198,7 +235,10 @@ func (m model) handleVoiceHoldSpace(msg tea.KeyMsg, now time.Time) (model, tea.C
 		// auto-repeat rate, so only later pauses widen the release timeout.
 		m.dictation.hold.maxGap = pause
 	}
-	if now.Sub(m.dictation.hold.startedAt) >= voiceHoldThreshold {
+	if msg.Key().IsRepeat || pause <= voiceHoldRapidGap {
+		m.dictation.hold.rapid++
+	}
+	if now.Sub(m.dictation.hold.startedAt) >= voiceHoldThreshold && m.dictation.hold.autoRepeat() {
 		return m.activateVoiceHold(m.dictation.hold, now)
 	}
 	if msg.Key().IsRepeat || (m.dictation.hold.count >= 3 && pause <= voiceHoldRapidGap && now.Sub(m.dictation.hold.startedAt) >= voiceHoldPasteGuard) {
@@ -227,9 +267,12 @@ func (m model) activateVoiceHold(hold voiceHold, now time.Time) (model, tea.Cmd,
 		m.composerPastePreviews = nextPreviews
 	}
 	// The run is over; keep lastAt and maxGap so the recording can tell a
-	// slow repeat rate from the key going up.
+	// slow repeat rate from the key going up. Latch spent in every path: this
+	// physical hold already had its activation, and its remaining auto-repeats
+	// are swallowed until the key goes up.
 	m.dictation.hold.endRun()
 	m.dictation.hold.lastAt = now
+	m.dictation.hold.spent = true
 	if m.dictation.downloading {
 		return m.appendDictationNotice("downloading", "Ainda configurando o motor de ditado — um momento."), nil, true
 	}
@@ -255,6 +298,8 @@ func (m model) handleVoiceHoldTick(msg voiceHoldTickMsg) (model, tea.Cmd) {
 		return m, nil
 	}
 	if m.now().Sub(m.dictation.hold.lastAt) > m.dictation.hold.releaseTimeout() {
+		// The key went up: the latch is over, then stop as usual.
+		m.dictation.hold.keyUp()
 		return m.handleVoiceCaptureRelease()
 	}
 	return m, voiceHoldTickCmd(m.dictation.sessionID)

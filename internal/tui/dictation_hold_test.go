@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -271,44 +272,82 @@ func TestVoiceHoldReleaseStopsRecording(t *testing.T) {
 	}
 }
 
-func TestVoiceHoldSlowRepeatRateIsNotARelease(t *testing.T) {
+func TestVoiceHoldSlowRepeatNeverStarts(t *testing.T) {
 	at := time.Unix(1_700_000_000, 0)
 	m := holdTestModel(t, &at)
 	m.setComposerState(composerState{text: "oi", cursor: 2})
 
-	holdSpace(t, m, &at, 0, 500*time.Millisecond)
+	// A repeat rate of 400ms looks like slow manual tapping, not auto-repeat:
+	// nothing may activate no matter how long the key stays down.
+	gaps := []time.Duration{0, 500 * time.Millisecond}
+	for i := 0; i < 8; i++ {
+		gaps = append(gaps, 400*time.Millisecond)
+	}
+	presses := len(gaps)
+	for i, cmd := range holdSpace(t, m, &at, gaps...) {
+		if cmd != nil {
+			t.Fatalf("slow repeat %d returned a command", i)
+		}
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after slow repeats = %v, want idle", m.dictation.phase)
+	}
+	if got, want := m.composerValue(), "oi"+strings.Repeat(" ", presses); got != want {
+		t.Fatalf("composer after slow repeats = %q, want every press typed", got)
+	}
+}
+
+func TestVoiceHoldJitterTolerated(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	t0 := at
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	// Mostly 30ms repeats with every 10th pause at 300ms (jitter): the run
+	// still looks like auto-repeat and activates at 2s.
+	holdSpace(t, m, &at, 0, 400*time.Millisecond)
 	var cmd tea.Cmd
-	for i := 0; i < 20; i++ {
-		if cmds := holdSpace(t, m, &at, 400*time.Millisecond); cmds[0] != nil {
+	pauses := 0
+	for i := 0; i < 100; i++ {
+		pauses++
+		gap := 30 * time.Millisecond
+		if pauses%10 == 0 {
+			gap = 300 * time.Millisecond
+		}
+		if cmds := holdSpace(t, m, &at, gap); cmds[0] != nil {
 			cmd = cmds[0]
 			break
 		}
 	}
 	if cmd == nil {
-		t.Fatal("slow hold never activated dictation")
+		t.Fatal("jittered hold never activated dictation")
+	}
+	if d := at.Sub(t0); d < voiceHoldThreshold {
+		t.Fatalf("activated at %v after t0, want at or past 2s", d)
 	}
 	if m.dictation.phase != dictStarting {
-		t.Fatalf("phase after slow hold = %v, want starting", m.dictation.phase)
+		t.Fatalf("phase after jittered hold = %v, want starting", m.dictation.phase)
 	}
 	if got := m.composerValue(); got != "oi" {
-		t.Fatalf("composer after slow hold = %q, want every typed space removed", got)
+		t.Fatalf("composer after jittered hold = %q, want every typed space removed", got)
 	}
 	updated, _ := m.Update(dictationStartedMsg{sessionID: m.dictation.sessionID})
 	*m = updated.(model)
 	lastPress := at
 
+	// The widest pause was 300ms, so the release timeout is 3 * 300ms.
 	at = lastPress.Add(700 * time.Millisecond)
 	updated, _ = m.Update(voiceHoldTickMsg{sessionID: m.dictation.sessionID})
 	*m = updated.(model)
 	if m.dictation.phase != dictRecording {
-		t.Fatalf("phase 700ms after a 400ms-rate press = %v, want recording", m.dictation.phase)
+		t.Fatalf("phase 700ms after a 300ms pause = %v, want recording", m.dictation.phase)
 	}
 
-	at = lastPress.Add(1300 * time.Millisecond)
+	at = lastPress.Add(901 * time.Millisecond)
 	updated, _ = m.Update(voiceHoldTickMsg{sessionID: m.dictation.sessionID})
 	*m = updated.(model)
 	if m.dictation.phase != dictTranscribing {
-		t.Fatalf("phase 1300ms after a 400ms-rate press = %v, want transcribing", m.dictation.phase)
+		t.Fatalf("phase 901ms after a 300ms pause = %v, want transcribing", m.dictation.phase)
 	}
 }
 
@@ -443,4 +482,166 @@ func TestVoiceHoldWhileDownloadingShowsNotice(t *testing.T) {
 	if !transcriptHasText(*m, "Ainda configurando o motor de ditado") {
 		t.Fatal("missing the downloading notice in the transcript")
 	}
+}
+
+func TestVoiceHoldManualTappingNeverStarts(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	// Tapped by hand every 180ms for 4s: evenly spaced but too slow to be
+	// auto-repeat, so nothing may activate.
+	gaps := []time.Duration{0}
+	for i := 0; i < 22; i++ {
+		gaps = append(gaps, 180*time.Millisecond)
+	}
+	presses := len(gaps)
+	for i, cmd := range holdSpace(t, m, &at, gaps...) {
+		if cmd != nil {
+			t.Fatalf("tap %d returned a command", i)
+		}
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after manual tapping = %v, want idle", m.dictation.phase)
+	}
+	if got, want := m.composerValue(), "oi"+strings.Repeat(" ", presses); got != want {
+		t.Fatalf("composer after manual tapping = %q, want every tap typed", got)
+	}
+}
+
+func TestVoiceHoldSpentSwallowsAfterFailedStart(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	m.dictation.downloading = true
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	holdToActivation(t, m, &at)
+	// 100 more auto-repeats (3s, enough for a second activation): one physical
+	// hold activates once, so all of them are swallowed.
+	for i, cmd := range holdSpace(t, m, &at, repeatGaps(100, 30*time.Millisecond)...) {
+		if cmd != nil {
+			t.Fatalf("swallowed repeat %d returned a command", i)
+		}
+	}
+	if got := m.composerValue(); got != "oi" {
+		t.Fatalf("composer after swallowed repeats = %q, want the original text", got)
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after swallowed repeats = %v, want idle", m.dictation.phase)
+	}
+	if m.dictation.hold.count != 0 {
+		t.Fatalf("hold.count after swallowed repeats = %d, want no new run", m.dictation.hold.count)
+	}
+	found := 0
+	for _, row := range m.transcript {
+		if strings.Contains(row.text, "Ainda configurando o motor de ditado") {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("downloading notice appears %d times, want exactly once", found)
+	}
+}
+
+func TestVoiceHoldEndedRecordingDoesNotRestart(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	holdToActivation(t, m, &at)
+	// The recording fails to start (missing capture tool): back to idle with
+	// the hold still down and latched.
+	updated, cmd := m.Update(dictationStartedMsg{sessionID: m.dictation.sessionID, err: errors.New("mic busy")})
+	*m = updated.(model)
+	if cmd != nil {
+		t.Fatal("a failed start returned a command")
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after failed start = %v, want idle", m.dictation.phase)
+	}
+	for i, cmd := range holdSpace(t, m, &at, repeatGaps(100, 30*time.Millisecond)...) {
+		if cmd != nil {
+			t.Fatalf("repeat %d after failed start returned a command", i)
+		}
+	}
+	if got := m.composerValue(); got != "oi" {
+		t.Fatalf("composer after failed start = %q, want it unchanged", got)
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after failed start repeats = %v, want idle", m.dictation.phase)
+	}
+}
+
+func TestVoiceHoldReleaseEndsLatch(t *testing.T) {
+	// Latch, then a long pause and one more press: the key went up in between,
+	// so the press types and the latch is gone.
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	m.dictation.downloading = true
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+	holdToActivation(t, m, &at)
+	holdSpace(t, m, &at, repeatGaps(100, 30*time.Millisecond)...)
+	at = at.Add(600 * time.Millisecond)
+	if cmd := pressKey(t, m, tea.Key{Code: tea.KeySpace}); cmd != nil {
+		t.Fatal("the press after the pause returned a command")
+	}
+	if got := m.composerValue(); got != "oi " {
+		t.Fatalf("composer after the pause = %q, want one typed space", got)
+	}
+	if m.dictation.hold.spent {
+		t.Error("hold.spent still set after the key went up")
+	}
+
+	// A tick past the release timeout clears the latch too.
+	at = time.Unix(1_700_000_000, 0)
+	m = holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+	holdToActivation(t, m, &at)
+	updated, _ := m.Update(dictationStartedMsg{sessionID: m.dictation.sessionID})
+	*m = updated.(model)
+	at = m.dictation.hold.lastAt.Add(time.Second)
+	updated, _ = m.Update(voiceHoldTickMsg{sessionID: m.dictation.sessionID})
+	*m = updated.(model)
+	if m.dictation.phase != dictTranscribing {
+		t.Fatalf("phase after release tick = %v, want transcribing", m.dictation.phase)
+	}
+	if m.dictation.hold.spent {
+		t.Error("hold.spent still set after the release tick")
+	}
+
+	// A real Space release event clears the latch.
+	m.dictation.hold.spent = true
+	updated, _ = m.Update(tea.KeyReleaseMsg(tea.Key{Code: tea.KeySpace}))
+	*m = updated.(model)
+	if m.dictation.hold.spent {
+		t.Error("hold.spent still set after a Space release event")
+	}
+}
+
+func TestVoiceHoldAutoRepeatBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		hold voiceHold
+		want bool
+	}{
+		{name: "two presses have no pause to judge", hold: voiceHold{count: 2}, want: false},
+		{name: "exactly eighty percent", hold: voiceHold{count: 12, rapid: 8}, want: true},
+		{name: "below eighty percent", hold: voiceHold{count: 12, rapid: 7}, want: false},
+		{name: "single rapid pause", hold: voiceHold{count: 3, rapid: 1}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.hold.autoRepeat(); got != test.want {
+				t.Fatalf("autoRepeat() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+// repeatGaps returns n identical gaps for holdSpace.
+func repeatGaps(n int, gap time.Duration) []time.Duration {
+	gaps := make([]time.Duration, 0, n)
+	for i := 0; i < n; i++ {
+		gaps = append(gaps, gap)
+	}
+	return gaps
 }

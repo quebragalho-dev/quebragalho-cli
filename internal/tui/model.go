@@ -1998,10 +1998,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyboardEnhancementsMsg:
 		return m.handleKeyboardEnhancements(msg), nil
 	case tea.KeyReleaseMsg:
-		// A bare Space release ends the run; a held key's timing gap does the
-		// rest on terminals without release events.
+		// A bare Space release ends the run and clears the activation latch; a
+		// held key's timing gap does the rest on terminals without release events.
 		if voiceHoldKey(msg) {
-			m.dictation.hold.endRun()
+			m.dictation.hold.keyUp()
 		}
 		// Voice mode's hold-to-record ends on Ctrl+Space release; every other
 		// release event is ignored (dispatch elsewhere is press-based).
