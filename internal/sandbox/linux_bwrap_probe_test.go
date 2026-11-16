@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -58,6 +59,11 @@ func linuxProbeLookup(helperPath, bwrapPath string) func(string) (string, error)
 // unavailable with a Portuguese remediation — instead of handing every
 // wrapped command a backend that fails them all.
 func TestLinuxBwrapProbeRejectsBrokenBubblewrap(t *testing.T) {
+	// The fake bwrap is a shell script: it cannot execute on Windows, so the
+	// Linux probe subject does not exist there.
+	if runtime.GOOS == "windows" {
+		t.Skip("fake bwrap is a shell script; the Linux probe cannot run on Windows")
+	}
 	helper := filepath.Join(t.TempDir(), LinuxSandboxHelperName)
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write fake helper: %v", err)
@@ -94,6 +100,10 @@ func TestLinuxBwrapProbeRejectsBrokenBubblewrap(t *testing.T) {
 // that passes the probe keeps selecting the native backend, so the probe does
 // not brick healthy machines.
 func TestLinuxBwrapProbeAcceptsWorkingBubblewrap(t *testing.T) {
+	// Same shell-script fake as above: skip on Windows.
+	if runtime.GOOS == "windows" {
+		t.Skip("fake bwrap is a shell script; the Linux probe cannot run on Windows")
+	}
 	helper := filepath.Join(t.TempDir(), LinuxSandboxHelperName)
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write fake helper: %v", err)
@@ -116,6 +126,10 @@ func TestLinuxBwrapProbeAcceptsWorkingBubblewrap(t *testing.T) {
 // own diagnostic (the loopback line operators will search for) instead of a
 // bare exit status.
 func TestRunLinuxBwrapProbePropagatesStderr(t *testing.T) {
+	// Same shell-script fake as above: skip on Windows.
+	if runtime.GOOS == "windows" {
+		t.Skip("fake bwrap is a shell script; the Linux probe cannot run on Windows")
+	}
 	err := runLinuxBwrapProbe(writeFakeBwrap(t, true))
 	if err == nil || !strings.Contains(err.Error(), "loopback") {
 		t.Fatalf("probe error = %v, want the bwrap loopback diagnostic", err)
