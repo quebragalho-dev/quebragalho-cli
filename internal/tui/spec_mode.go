@@ -30,6 +30,13 @@ func (m model) handleSpecCommand(task string) (tea.Model, tea.Cmd) {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Review the pending spec before drafting another one."})
 		return m, nil
 	}
+	// Same reason /resume is refused: the compaction result replaces
+	// activeSession and the transcript wholesale when it lands, so it would
+	// overwrite the draft session created below.
+	if m.compactInFlight {
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Spec\nCompactação em andamento. Tente de novo quando ela terminar."})
+		return m, nil
+	}
 	if m.provider == nil {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendAssistant, text: "No provider configured."})
 		return m, nil
