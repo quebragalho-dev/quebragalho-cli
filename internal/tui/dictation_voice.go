@@ -192,6 +192,7 @@ type voiceHold struct {
 	repeatFrom time.Time     // second press of the run: where its auto-repeat pauses start
 	flagged    bool          // a press of the run carried IsRepeat: the terminal says the key is held
 	spent      bool          // this hold already activated: its remaining auto-repeats are swallowed until the key goes up
+	warmed     bool          // the run already asked for the microphone to be opened ahead of the recording
 }
 
 // endRun drops the run but keeps lastAt, maxGap and spent: a running hold
@@ -204,6 +205,7 @@ func (h *voiceHold) endRun() {
 	h.typed = 0
 	h.repeatFrom = time.Time{}
 	h.flagged = false
+	h.warmed = false
 }
 
 // keyUp ends the run and clears the activation latch: the key went up (or
@@ -299,6 +301,13 @@ func (m model) handleVoiceHoldSpace(msg tea.KeyMsg, now time.Time) (model, tea.C
 		return m.activateVoiceHold(m.dictation.hold, now)
 	}
 	if msg.Key().IsRepeat || (m.dictation.hold.count >= 3 && pause <= voiceHoldRapidGap && now.Sub(m.dictation.hold.startedAt) >= voiceHoldPasteGuard) {
+		// The key is being held: open the microphone now, so the recording
+		// that starts at voiceHoldThreshold captures from its first instant
+		// (and keeps what was said just before it).
+		if !m.dictation.hold.warmed && m.dictation.warmMic != nil {
+			m.dictation.hold.warmed = true
+			go m.dictation.warmMic()
+		}
 		return m, nil, true
 	}
 	m.dictation.hold.typed++

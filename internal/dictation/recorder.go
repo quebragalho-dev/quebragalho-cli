@@ -137,7 +137,7 @@ func (o RecorderOptions) withDefaults() RecorderOptions {
 		o.now = time.Now
 	}
 	if o.openMic == nil {
-		o.openMic = openNativeMic
+		o.openMic = openMicPreferWarm
 	}
 	if o.lookPath == nil {
 		o.lookPath = exec.LookPath

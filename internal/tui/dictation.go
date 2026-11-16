@@ -99,6 +99,9 @@ type dictationController struct {
 	// micCheck listens to the microphone for a moment; nil skips the
 	// microphone check (tests).
 	micCheck func(ctx context.Context) (dictation.MicCheck, error)
+	// warmMic opens the microphone ahead of a hold recording, off the UI
+	// goroutine; nil skips it (tests).
+	warmMic func()
 	// voiceAfterSetup arms the voice-mode auto-enable: /voice started a model
 	// setup, so voice mode turns on when the model is ready.
 	voiceAfterSetup bool
@@ -161,6 +164,16 @@ func newDictationController(opts Options) dictationController {
 				SampleRate:         dictation.DefaultSampleRate,
 				WindowsAudioDevice: opts.STT.WindowsAudioDevice,
 			}, time.Second)
+		},
+		// The transcriber's sample rate is not known before a recording is
+		// built; the local engines all use the default, and a mismatch just
+		// makes the recording open its own microphone.
+		warmMic: func() {
+			dictation.WarmMicrophone(dictation.RecorderOptions{
+				Platform:           platform,
+				SampleRate:         dictation.DefaultSampleRate,
+				WindowsAudioDevice: opts.STT.WindowsAudioDevice,
+			})
 		},
 		sessionID: 1,
 	}

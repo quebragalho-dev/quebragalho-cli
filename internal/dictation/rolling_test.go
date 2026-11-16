@@ -1111,10 +1111,10 @@ func TestRollingFinalFlagNeverSet(t *testing.T) {
 	}
 }
 
-// TestRollingDefaultMinAudio: the first live run waits for 2.5 s of audio; a
+// TestRollingDefaultMinAudio: the first live run waits for 2 s of audio; a
 // shorter clip makes a multilingual model guess the wrong language.
 func TestRollingDefaultMinAudio(t *testing.T) {
-	if got := (RollingOptions{}).withDefaults().MinAudio; got != 2500*time.Millisecond {
-		t.Errorf("default MinAudio = %v, want 2.5s", got)
+	if got := (RollingOptions{}).withDefaults().MinAudio; got != 2*time.Second {
+		t.Errorf("default MinAudio = %v, want 2s", got)
 	}
 }

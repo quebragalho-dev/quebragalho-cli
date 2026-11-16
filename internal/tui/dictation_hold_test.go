@@ -962,3 +962,33 @@ func TestVoiceHoldNewRunResetsMaxGap(t *testing.T) {
 		t.Fatalf("phase 400ms after the last press = %v, want transcribing", m.dictation.phase)
 	}
 }
+
+// TestVoiceHoldWarmsMicrophoneOnce: a held Space asks for the microphone as
+// soon as the run proves to be auto-repeat, once per hold; two taps never do.
+func TestVoiceHoldWarmsMicrophoneOnce(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	warmed := make(chan struct{}, 8)
+	m.dictation.warmMic = func() { warmed <- struct{}{} }
+
+	holdSpace(t, m, &at, 0, 400*time.Millisecond)
+	select {
+	case <-warmed:
+		t.Fatal("two presses warmed the microphone; they can be two taps")
+	case <-time.After(50 * time.Millisecond):
+	}
+	holdSpace(t, m, &at, repeatGaps(10, 30*time.Millisecond)...)
+	select {
+	case <-warmed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a held Space never warmed the microphone")
+	}
+	select {
+	case <-warmed:
+		t.Fatal("one hold warmed the microphone twice")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase before the threshold = %v, want idle", m.dictation.phase)
+	}
+}
