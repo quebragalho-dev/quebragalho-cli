@@ -2,7 +2,6 @@ package dictation
 
 import (
 	"context"
-	"encoding/binary"
 	"strings"
 	"time"
 )
@@ -197,22 +196,7 @@ func (r *rollingTranscriber) StreamTranscribe(ctx context.Context, chunks <-chan
 // wavFromPCM16 wraps raw PCM16 mono samples in a 44-byte RIFF header so a
 // whole-clip transcriber can decode the snapshot.
 func wavFromPCM16(pcm []byte, sampleRate int) []byte {
-	out := make([]byte, 44+len(pcm))
-	copy(out, "RIFF")
-	binary.LittleEndian.PutUint32(out[4:], uint32(36+len(pcm)))
-	copy(out[8:], "WAVE")
-	copy(out[12:], "fmt ")
-	binary.LittleEndian.PutUint32(out[16:], 16)
-	binary.LittleEndian.PutUint16(out[20:], 1) // PCM
-	binary.LittleEndian.PutUint16(out[22:], 1) // mono
-	binary.LittleEndian.PutUint32(out[24:], uint32(sampleRate))
-	binary.LittleEndian.PutUint32(out[28:], uint32(sampleRate*2)) // byte rate: rate * 1ch * 16bit/8
-	binary.LittleEndian.PutUint16(out[32:], 2)                    // block align: 1ch * 16bit/8
-	binary.LittleEndian.PutUint16(out[34:], 16)                   // bits per sample
-	copy(out[36:], "data")
-	binary.LittleEndian.PutUint32(out[40:], uint32(len(pcm)))
-	copy(out[44:], pcm)
-	return out
+	return encodeWAV(pcm, sampleRate)
 }
 
 // StreamingModelDir reports whether a local model directory holds a true
