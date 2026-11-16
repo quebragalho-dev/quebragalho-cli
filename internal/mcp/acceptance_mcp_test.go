@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"slices"
@@ -545,9 +546,15 @@ func TestAcceptanceMCPExpandsVarsForStdio(t *testing.T) {
 	t.Setenv("QG_ACCEPT_BIN", helper.binary)
 	t.Setenv("QG_ACCEPT_TOKEN", "from-process-env")
 	_ = os.Unsetenv("QG_ACCEPT_MISSING")
+	// The state dir is JSON-encoded: a raw Windows path would form invalid
+	// escapes (C:\... reads as \U...).
+	stateJSON, err := json.Marshal(helper.state)
+	if err != nil {
+		t.Fatal(err)
+	}
 	entry := `{"type":"stdio","command":"${QG_ACCEPT_BIN}",` +
 		`"args":["-test.run=^TestAcceptanceStdioHelperProcess$","--","tok=${QG_ACCEPT_TOKEN}"],` +
-		`"env":{"` + acceptanceHelperModeEnv + `":"basic","` + acceptanceHelperStateEnv + `":"` + helper.state + `",` +
+		`"env":{"` + acceptanceHelperModeEnv + `":"basic","` + acceptanceHelperStateEnv + `":` + string(stateJSON) + `,` +
 		`"ACCEPT_A":"${QG_ACCEPT_TOKEN}","ACCEPT_B":"${QG_ACCEPT_MISSING:-fallback-value}"}}`
 	_, runtime := acceptanceRegister(t, acceptanceConfig(t, `{"expand":`+entry+`}`))
 	if reason, skipped := acceptanceSkippedReason(runtime, "expand"); skipped {
@@ -590,8 +597,18 @@ func TestAcceptanceMCPExpansionIgnoresSiblingConfigValues(t *testing.T) {
 	acceptanceHermeticEnv(t)
 	_ = os.Unsetenv("ACCEPT_A")
 	helper := newAcceptanceStdio(t, "basic")
-	entry := `{"type":"stdio","command":"` + helper.binary + `","args":["-test.run=^TestAcceptanceStdioHelperProcess$"],` +
-		`"env":{"` + acceptanceHelperModeEnv + `":"basic","` + acceptanceHelperStateEnv + `":"` + helper.state + `",` +
+	// Filesystem paths are JSON-encoded: concatenating a Windows path raw
+	// would form invalid escapes (C:\... reads as \U...).
+	binaryJSON, err := json.Marshal(helper.binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateJSON, err := json.Marshal(helper.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := `{"type":"stdio","command":` + string(binaryJSON) + `,"args":["-test.run=^TestAcceptanceStdioHelperProcess$"],` +
+		`"env":{"` + acceptanceHelperModeEnv + `":"basic","` + acceptanceHelperStateEnv + `":` + string(stateJSON) + `,` +
 		`"ACCEPT_A":"sibling-literal","ACCEPT_C":"${ACCEPT_A}"}}`
 	acceptanceRegister(t, acceptanceConfig(t, `{"sibling":`+entry+`}`))
 	_, env := helper.observed(t)

@@ -94,17 +94,27 @@ func acceptanceRunCLI(t *testing.T, cwd string, args ...string) (string, string,
 
 // acceptanceStdioServerJSON is a project/user stdio server entry that runs
 // this test binary as a minimal MCP server and records each start in marker.
+// Filesystem paths are JSON-encoded: concatenating a Windows path raw would
+// form invalid escapes (C:\... reads as \U...).
 func acceptanceStdioServerJSON(t *testing.T, marker string, extraEnv string) string {
 	t.Helper()
 	binary, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := `"QG_ACCEPT_CLI_HELPER":"` + marker + `"`
+	binaryJSON, err := json.Marshal(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerJSON, err := json.Marshal(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := `"QG_ACCEPT_CLI_HELPER":` + string(markerJSON)
 	if extraEnv != "" {
 		env += "," + extraEnv
 	}
-	return `{"type":"stdio","command":"` + binary + `","args":["-test.run=^TestAcceptanceCLIStdioHelperProcess$"],"env":{` + env + `}}`
+	return `{"type":"stdio","command":` + string(binaryJSON) + `,"args":["-test.run=^TestAcceptanceCLIStdioHelperProcess$"],"env":{` + env + `}}`
 }
 
 func acceptanceSpawned(marker string) bool {
