@@ -161,7 +161,8 @@ try {
   Invoke-WebRequest -Uri "$releaseUrl/$archiveName" -OutFile $archivePath -UseBasicParsing -TimeoutSec 300
   Invoke-WebRequest -Uri "$releaseUrl/$checksumName" -OutFile $checksumPath -UseBasicParsing -TimeoutSec 300
 
-  $checksumLine = [string](Get-Content -Path $checksumPath -TotalCount 1)
+  # Entre aspas: um arquivo vazio devolve nada, e a linha tem de ser texto.
+  $checksumLine = "$(Get-Content -Path $checksumPath -TotalCount 1)"
   $checksumMatch = [regex]::Match($checksumLine.Trim(), '^([0-9a-fA-F]{64})(?:\s+\*?(.+))?$')
   if (-not $checksumMatch.Success) {
     throw "Arquivo de checksum invalido para $archiveName"

@@ -548,6 +548,11 @@ func TestPowerShellInstallerBindsTheChecksumToTheArchive(t *testing.T) {
 	if strings.Contains(script, `($checksumLine -split "\s+")[0]`) {
 		t.Fatal("install.ps1 still takes the first token of the checksum file whatever it is")
 	}
+	// An empty checksum file yields nothing from Get-Content, and a cast keeps
+	// it null: only the quoted form gives the parser a string to refuse.
+	if !strings.Contains(script, `$checksumLine = "$(Get-Content -Path $checksumPath -TotalCount 1)"`) {
+		t.Fatal("install.ps1 must read the checksum line as text even when the file is empty")
+	}
 }
 
 // TestPowerShellInstallerStaysASCII pins the BOM-less ANSI readability of install.ps1 on Windows PowerShell 5.1.
