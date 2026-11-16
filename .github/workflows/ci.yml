@@ -119,6 +119,38 @@ jobs:
       - name: Test (macOS, no race)
         run: go test -count=1 ./...
 
+  test-windows:
+    name: Unit Tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    # Not a gate yet. Until this job existed the Windows-only tests ran
+    # nowhere, so its first results are a triage list. Remove this line once
+    # the job is green; from then on a Windows failure must fail the workflow.
+    continue-on-error: true
+    permissions:
+      contents: read
+
+    steps:
+      # The runner's git converts line endings on checkout by default, and
+      # .gitattributes pins LF only for source files. Fixtures and scripts must
+      # reach the tests with the bytes that are in the repository.
+      - name: Keep repository line endings
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test (Windows, no race)
+        run: go test -count=1 -timeout 35m ./...
+
   smoke:
     name: Smoke + cross-compile
     runs-on: ubuntu-latest
@@ -145,8 +177,8 @@ jobs:
       - name: Smoke binary
         run: go run ./cmd/qg-release smoke
 
-      # All CI jobs run on Linux: darwin/windows coverage here is a
-      # cross-compile check, and native macOS tests live in test-macos.
+      # This job runs on Linux: darwin/windows coverage here is a
+      # cross-compile check. Native tests live in test-macos and test-windows.
       # darwin-amd64 is included for the Intel package.
       - name: Cross-compile release targets
         shell: bash

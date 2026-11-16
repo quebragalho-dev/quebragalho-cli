@@ -13,11 +13,11 @@ import (
 
 // The repo is public, so pull_request workflows must never reach a self-hosted
 // runner: every job runs on a GitHub-hosted runner. Cross-platform binaries
-// come from Go cross-compilation, not from per-OS runners; the only exception
-// is the native macOS unit-test job, which needs a GitHub-hosted macOS
-// runner (free for public repos).
+// come from Go cross-compilation, not from per-OS runners; the only exceptions
+// are the native macOS and Windows unit-test jobs, which need GitHub-hosted
+// macOS and Windows runners (free for public repos).
 var hostedRunnersByWorkflow = map[string][]string{
-	"ci.yml":                {"ubuntu-latest", "macos-latest"},
+	"ci.yml":                {"ubuntu-latest", "macos-latest", "windows-latest"},
 	"release-artifacts.yml": {"ubuntu-latest"},
 	"qg-action-smoke.yml":   {"ubuntu-latest"},
 	"sdk.yml":               {"ubuntu-latest"},
