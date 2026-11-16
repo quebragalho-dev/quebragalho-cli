@@ -1565,7 +1565,7 @@ Comandos:
   tools       Gera a estrutura inicial e lista plugin-tools locais do QG
   hooks       Inspeciona a configuração de hooks do QG
   mcp         Gerencia as configurações do backend MCP
-  auth        Faz login nos provedores de modelo via OAuth
+  auth        Gerencia logins OAuth antigos (status, logout, refresh, reset)
   sandbox     Inspeciona a política do ambiente isolado e permissões salvas
   update      Verifica ou aplica atualizações do QG (exige --check ou --apply)
   upgrade     Baixa, verifica e instala atualizações disponíveis da CLI QG
