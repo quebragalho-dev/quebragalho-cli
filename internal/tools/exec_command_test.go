@@ -373,20 +373,34 @@ func TestExecCommandForegroundServerReturnsSessionAndServesHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("foreground server should return session_id, meta=%#v output=%q", start.Meta, start.Output)
 	}
-	addr := parseListeningAddress(start.Output)
-	if addr == "" {
-		t.Fatalf("server output did not include listening address: %q", start.Output)
-	}
+	// Stop the server even when a check below fails: a leaked helper keeps
+	// the test binary open, and Windows cannot delete an open file.
 	t.Cleanup(func() {
 		writeTool.Run(context.Background(), map[string]any{
 			"session_id": sessionID,
 			"chars":      "\u0003",
 		})
 	})
+	// A slow machine can need more than the first yield to start the helper.
+	output := start.Output
+	for deadline := time.Now().Add(30 * time.Second); parseListeningAddress(output) == "" && time.Now().Before(deadline); {
+		poll := writeTool.Run(context.Background(), map[string]any{
+			"session_id":    sessionID,
+			"yield_time_ms": 500,
+		})
+		if poll.Status != StatusOK {
+			t.Fatalf("write_stdin poll status = %s: %s", poll.Status, poll.Output)
+		}
+		output += "\n" + poll.Output
+	}
+	addr := parseListeningAddress(output)
+	if addr == "" {
+		t.Fatalf("server output did not include listening address: %q", output)
+	}
 
 	response, err := http.Get("http://" + addr)
 	if err != nil {
-		t.Fatalf("foreground exec server was not reachable at %s: %v; output=%q", addr, err, start.Output)
+		t.Fatalf("foreground exec server was not reachable at %s: %v; output=%q", addr, err, output)
 	}
 	defer response.Body.Close()
 	bytes, err := io.ReadAll(response.Body)
