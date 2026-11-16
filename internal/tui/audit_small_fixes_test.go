@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
@@ -141,5 +142,39 @@ func TestSubchatScrollUsesChildTranscript(t *testing.T) {
 	shortChild.subchat.childRows = []transcriptRow{{kind: rowAssistant, text: "tiny"}}
 	if _, maxOffset := shortChild.chatScrollMetrics(); maxOffset != 0 {
 		t.Fatalf("short child under a long parent must not scroll: maxOffset=%d", maxOffset)
+	}
+}
+
+func TestSpecCommandRefusedDuringCompaction(t *testing.T) {
+	store := testSessionStore(t)
+	active, err := store.Create(sessions.CreateInput{Title: "Active"})
+	if err != nil {
+		t.Fatalf("Create active returned error: %v", err)
+	}
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		submitSpecScript("call-1", "Review Flow", "# Goal\n\nAdd review flow."),
+	}}
+	m := newSpecModeTestModel(t.TempDir(), provider, store)
+	m.activeSession = active
+	m.compactInFlight = true
+	m.input.SetValue("/spec add review flow")
+
+	updated, cmd := m.Update(testKey(tea.KeyEnter))
+	next := updated.(model)
+
+	if next.activeSession.SessionID != active.SessionID {
+		t.Fatalf("/spec during compaction replaced the active session: got %q want %q", next.activeSession.SessionID, active.SessionID)
+	}
+	if next.pending || cmd != nil {
+		t.Fatalf("/spec during compaction must not start a run: pending=%v cmd=%v", next.pending, cmd != nil)
+	}
+	if !next.compactInFlight {
+		t.Fatal("a refused /spec must leave the compaction in flight")
+	}
+	if !transcriptContains(next.transcript, "Compactação em andamento") {
+		t.Fatalf("expected the compaction warning, got %#v", next.transcript)
+	}
+	if len(provider.requests) != 0 {
+		t.Fatalf("the provider was called %d time(s) for a refused /spec", len(provider.requests))
 	}
 }
