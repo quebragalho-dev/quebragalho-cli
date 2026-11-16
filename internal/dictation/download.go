@@ -80,6 +80,9 @@ type ModelVariant struct {
 	Streaming   bool
 	// Recommended marks a curated, checksum-pinned, validated model (shown first).
 	Recommended bool
+	// Language is the ISO-639-1 code the model understands ("en", "pt"), or ""
+	// for multilingual models (they follow any language).
+	Language string
 }
 
 // ModelVariants returns the curated English models the download picker offers.
@@ -105,6 +108,7 @@ func ModelVariants() []ModelVariant {
 			DirName:     "model-streaming-zipformer-en-kroko-2025-08-06",
 			Streaming:   true,
 			Recommended: true,
+			Language:    "en",
 		},
 		{
 			ID: "streaming-zipformer-20m", Label: "Zipformer 20M",
@@ -113,6 +117,7 @@ func ModelVariants() []ModelVariant {
 			Digest:    "9c559283e8498d3fe95913c79ca1cb454bb26281ac2b102b41306c7d752765d9",
 			DirName:   "model-streaming-zipformer-en-20M-2023-02-17",
 			Streaming: true,
+			Language:  "en",
 		},
 		{
 			ID: "streaming-zipformer", Label: "Zipformer",
@@ -121,6 +126,7 @@ func ModelVariants() []ModelVariant {
 			Digest:    "639e25b578e9e997131402199419c13a941f8e4e198e2da1ce57dbf5cf401282",
 			DirName:   "model-streaming-zipformer-en-2023-06-26",
 			Streaming: true,
+			Language:  "en",
 		},
 		{
 			ID: "nemo-streaming-fast-conformer-transducer-en-80ms-int8", Label: "NeMo streaming (fast)",
@@ -130,6 +136,7 @@ func ModelVariants() []ModelVariant {
 			DirName:     "model-nemo-streaming-fast-conformer-transducer-en-80ms-int8",
 			Streaming:   true,
 			Recommended: true,
+			Language:    "en",
 		},
 		// Batch — transcribes once when you stop.
 		{
@@ -138,6 +145,7 @@ func ModelVariants() []ModelVariant {
 			AssetName: "sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
 			Digest:    pinnedModelDigest,
 			DirName:   "model-moonshine-tiny-en-int8",
+			Language:  "en",
 		},
 		{
 			ID: "moonshine-base", Label: "Moonshine base",
@@ -146,6 +154,7 @@ func ModelVariants() []ModelVariant {
 			Digest:      "21870cecaa2e44e4e2bf63e02d1072bed183ccd10284871353bd9d24dad14e5e",
 			DirName:     "model-moonshine-base-en-int8",
 			Recommended: true,
+			Language:    "en",
 		},
 		{
 			ID: "sense-voice-zh-en-ja-ko-yue-int8-2025-09-09", Label: "SenseVoice",
@@ -276,6 +285,7 @@ func ListModels(ctx context.Context, client *http.Client, apiBase string) ([]Mod
 			DirName:     "model-" + id,
 			Streaming:   strings.Contains(strings.ToLower(a.Name), "streaming-"),
 			Recommended: recommendedModelIDs[a.Name],
+			Language:    curatedLanguages[a.Name],
 		})
 	}
 	return out, nil
@@ -402,6 +412,19 @@ var curatedDescriptions = func() map[string]string {
 	return m
 }()
 
+// curatedLanguages maps a curated model's asset name to the language it
+// understands, so the fetched full list carries the same language as the
+// curated shortlist. Non-curated models keep Language "" (unknown).
+var curatedLanguages = func() map[string]string {
+	m := map[string]string{}
+	for _, v := range ModelVariants() {
+		if v.Language != "" {
+			m[v.AssetName] = v.Language
+		}
+	}
+	return m
+}()
+
 // EngineComponents identifies the resolved local-engine paths.
 type EngineComponents struct {
 	BinaryPath string // extracted sherpa-onnx-offline
@@ -463,7 +486,7 @@ func EnsureLocalEngine(ctx context.Context, opts DownloadOptions) (EngineCompone
 	if !ok {
 		return EngineComponents{}, &SetupError{
 			Tool: "sherpa-onnx auto-download",
-			Hint: fmt.Sprintf("no prebuilt engine is known for %s — install sherpa-onnx manually or use a cloud provider (see docs/dictation.md)", key),
+			Hint: fmt.Sprintf("nenhum motor pronto para %s — instale o sherpa-onnx manualmente ou use um provedor de nuvem (rode /stt-model para ver as opções)", key),
 		}
 	}
 	version := strings.TrimSpace(opts.EngineVersion)
@@ -607,7 +630,7 @@ func resolveAsset(ctx context.Context, client *http.Client, apiBase, tag, namePr
 	}
 	return resolvedAsset{}, &SetupError{
 		Tool: "sherpa-onnx auto-download",
-		Hint: fmt.Sprintf("release %s has no asset matching %s*%s — try a different stt.engineVersion or install manually", tag, namePrefix, nameSuffix),
+		Hint: fmt.Sprintf("a versão %s não tem asset %s*%s — tente outro stt.engineVersion ou instale manualmente", tag, namePrefix, nameSuffix),
 	}
 }
 

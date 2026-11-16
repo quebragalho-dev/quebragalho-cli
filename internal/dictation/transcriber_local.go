@@ -41,7 +41,7 @@ func NewLocalTranscriber(cfg LocalConfig) (Transcriber, error) {
 	if strings.TrimSpace(cfg.ModelPath) == "" {
 		return nil, &SetupError{
 			Tool: "local STT model",
-			Hint: "set stt.localModelPath to a sherpa-onnx model directory (see docs/dictation.md)",
+			Hint: "defina stt.localModelPath para uma pasta de modelo sherpa-onnx (rode /stt-model para escolher e baixar um)",
 		}
 	}
 	if cfg.Binary == "" {
@@ -104,7 +104,7 @@ func (l *localTranscriber) Transcribe(ctx context.Context, audio []byte) (string
 		if errors.Is(err, exec.ErrNotFound) {
 			return "", &SetupError{
 				Tool: l.cfg.Binary,
-				Hint: "install sherpa-onnx and put its offline binary on PATH (see docs/dictation.md)",
+				Hint: "instale o sherpa-onnx e coloque o binário offline no PATH (ou rode /stt-model para baixar o motor)",
 			}
 		}
 		return "", fmt.Errorf("sherpa-onnx transcription failed: %w (%s)", err, lastLines(out, 3))
@@ -125,7 +125,7 @@ func detectModelArgs(dir string) ([]string, error) {
 	if err != nil {
 		return nil, &SetupError{
 			Tool: "local STT model",
-			Hint: fmt.Sprintf("stt.localModelPath %q is not readable: %v", dir, err),
+			Hint: fmt.Sprintf("stt.localModelPath %q não pode ser lido: %v", dir, err),
 		}
 	}
 	files := map[string]string{} // lowercased basename -> absolute path
@@ -140,7 +140,7 @@ func detectModelArgs(dir string) ([]string, error) {
 	if tokens == "" {
 		return nil, &SetupError{
 			Tool: "local STT model",
-			Hint: fmt.Sprintf("no tokens.txt found in stt.localModelPath %q — is it a sherpa-onnx model directory?", dir),
+			Hint: fmt.Sprintf("nenhum tokens.txt em stt.localModelPath %q — é uma pasta de modelo sherpa-onnx?", dir),
 		}
 	}
 
@@ -211,7 +211,7 @@ func detectModelArgs(dir string) ([]string, error) {
 
 	return nil, &SetupError{
 		Tool: "local STT model",
-		Hint: fmt.Sprintf("could not recognize the model family in %q (supported: Moonshine, Whisper, transducer/Zipformer, Paraformer, SenseVoice, and the CTC families FireRedASR/NeMo/TeleSpeech/WeNet/Zipformer-CTC/Dolphin/Omnilingual). See docs/dictation.md", dir),
+		Hint: fmt.Sprintf("não reconheci o modelo em %q (rode /stt-model para baixar um modelo suportado)", dir),
 	}
 }
 

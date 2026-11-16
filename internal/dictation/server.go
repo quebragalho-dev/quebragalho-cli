@@ -97,7 +97,7 @@ func (m *ServerManager) EnsureRunning(ctx context.Context) (string, error) {
 		if errors.Is(err, exec.ErrNotFound) {
 			return "", &SetupError{
 				Tool: m.cfg.Binary,
-				Hint: "install sherpa-onnx and put its online-websocket-server binary on PATH (see docs/dictation.md)",
+				Hint: "instale o sherpa-onnx e coloque o servidor online-websocket-server no PATH (ou rode /stt-model para baixar o motor)",
 			}
 		}
 		return "", fmt.Errorf("starting sherpa-onnx server: %w", err)
@@ -192,7 +192,7 @@ func onlineServerCommand(cfg ServerConfig) (commandSpec, error) {
 	if strings.TrimSpace(cfg.ModelPath) == "" {
 		return commandSpec{}, &SetupError{
 			Tool: "local STT streaming model",
-			Hint: "set stt.localModelPath to a sherpa-onnx streaming model directory (see docs/dictation.md)",
+			Hint: "defina stt.localModelPath para uma pasta de modelo de streaming sherpa-onnx (rode /stt-model para escolher e baixar um)",
 		}
 	}
 	files, err := onnxFilesIn(cfg.ModelPath)
@@ -212,7 +212,7 @@ func onlineServerCommand(cfg ServerConfig) (commandSpec, error) {
 	if tokens == "" || encoder == "" || decoder == "" || joiner == "" {
 		return commandSpec{}, &SetupError{
 			Tool: "local STT streaming model",
-			Hint: fmt.Sprintf("streaming needs a transducer model (encoder/decoder/joiner .onnx + tokens.txt) in %q; see docs/dictation.md", cfg.ModelPath),
+			Hint: fmt.Sprintf("streaming precisa de um modelo transducer (encoder/decoder/joiner .onnx + tokens.txt) em %q (rode /stt-model para baixar um)", cfg.ModelPath),
 		}
 	}
 	args := []string{
@@ -232,7 +232,7 @@ func onlineServerCommand(cfg ServerConfig) (commandSpec, error) {
 func onnxFilesIn(dir string) (map[string]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("stt.localModelPath %q is not readable: %v", dir, err)
+		return nil, fmt.Errorf("stt.localModelPath %q não pode ser lido: %v", dir, err)
 	}
 	files := map[string]string{}
 	for _, e := range entries {

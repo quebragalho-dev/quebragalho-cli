@@ -181,7 +181,7 @@ func (r *recorder) Start() error {
 		// to hold. Stop is a separate `-q` invocation.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		out, err := r.opts.runOutput(ctx, "termux-microphone-record",
+		out, err := r.opts.runOutput(ctx, captureTool(r.opts.Platform),
 			"-l", strconv.Itoa(maxSeconds(r.opts.MaxDuration)), "-f", path)
 		if err != nil {
 			_ = os.Remove(path)
@@ -231,7 +231,7 @@ func (r *recorder) Stop() ([]byte, error) {
 	if r.opts.Platform == PlatformTermux {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if out, err := r.opts.runOutput(ctx, "termux-microphone-record", "-q"); err != nil {
+		if out, err := r.opts.runOutput(ctx, captureTool(r.opts.Platform), "-q"); err != nil {
 			return nil, fmt.Errorf("stopping termux recording: %w (%s)", err, strings.TrimSpace(string(out)))
 		}
 		return readRecordingWithRetry(path, r.opts.now)
@@ -281,7 +281,7 @@ func batchCommand(opts RecorderOptions, path string) (commandSpec, error) {
 	switch opts.Platform {
 	case PlatformLinux:
 		return commandSpec{
-			name: "arecord",
+			name: captureTool(opts.Platform),
 			args: []string{"-q", "-f", "S16_LE", "-r", rate, "-c", "1", "-t", "wav", "-d", maxSec, path},
 		}, nil
 	case PlatformDarwin:
@@ -292,7 +292,7 @@ func batchCommand(opts RecorderOptions, path string) (commandSpec, error) {
 			// manual stop, not VAD — recording still starts on an explicit key.
 			args = append(args, "silence", "1", "0.1", "3%", "1", "2.0", "3%")
 		}
-		return commandSpec{name: "sox", args: args}, nil
+		return commandSpec{name: captureTool(opts.Platform), args: args}, nil
 	case PlatformWindows:
 		device := opts.WindowsAudioDevice
 		if device == "" {
@@ -303,7 +303,7 @@ func batchCommand(opts RecorderOptions, path string) (commandSpec, error) {
 			device = detected
 		}
 		return commandSpec{
-			name: "ffmpeg",
+			name: captureTool(opts.Platform),
 			args: []string{"-hide_banner", "-loglevel", "error", "-f", "dshow", "-i", "audio=" + device,
 				"-ac", "1", "-ar", rate, "-c:a", "pcm_s16le", "-t", maxSec, "-y", path},
 			stopViaStdin: "q",
@@ -320,13 +320,13 @@ func streamCommand(opts RecorderOptions) (commandSpec, error) {
 	switch opts.Platform {
 	case PlatformLinux:
 		return commandSpec{
-			name:       "arecord",
+			name:       captureTool(opts.Platform),
 			args:       []string{"-q", "-t", "raw", "-f", "S16_LE", "-r", rate, "-c", "1", "-"},
 			wantStdout: true,
 		}, nil
 	case PlatformDarwin:
 		return commandSpec{
-			name:       "sox",
+			name:       captureTool(opts.Platform),
 			args:       []string{"-q", "-d", "-t", "raw", "-r", rate, "-e", "signed", "-b", "16", "-c", "1", "-"},
 			wantStdout: true,
 		}, nil
@@ -340,7 +340,7 @@ func streamCommand(opts RecorderOptions) (commandSpec, error) {
 			device = detected
 		}
 		return commandSpec{
-			name: "ffmpeg",
+			name: captureTool(opts.Platform),
 			args: []string{"-hide_banner", "-loglevel", "error", "-f", "dshow", "-i", "audio=" + device,
 				"-ac", "1", "-ar", rate, "-f", "s16le", "-"},
 			wantStdout:   true,
@@ -549,7 +549,7 @@ func detectWindowsAudioDevice(runOutput commandOutputRunner) (string, error) {
 	}
 	return "", &SetupError{
 		Tool: "ffmpeg",
-		Hint: "no dshow audio capture device found — set stt.windowsAudioDevice to your microphone's name (list with: ffmpeg -list_devices true -f dshow -i dummy)",
+		Hint: "nenhum dispositivo de captura dshow — defina stt.windowsAudioDevice com o nome do seu microfone (liste com: ffmpeg -list_devices true -f dshow -i dummy)",
 	}
 }
 
@@ -569,13 +569,45 @@ func startError(tool string, platform Platform, err error, output []byte) error 
 func installHint(platform Platform) string {
 	switch platform {
 	case PlatformLinux:
-		return "install alsa-utils to enable dictation (e.g. sudo dnf install alsa-utils / sudo apt install alsa-utils)"
+		return "instale o alsa-utils para gravar pelo microfone: sudo apt install alsa-utils (ou sudo dnf install alsa-utils)"
 	case PlatformDarwin:
-		return "install sox to enable dictation (brew install sox)"
+		return "instale o SoX para gravar pelo microfone: brew install sox"
 	case PlatformWindows:
-		return "install ffmpeg and ensure it is on PATH to enable dictation"
+		return "instale o FFmpeg para gravar pelo microfone: winget install Gyan.FFmpeg (depois feche e abra o terminal)"
 	case PlatformTermux:
-		return "run `pkg install termux-api` and install the Termux:API companion app to enable dictation"
+		return "instale o Termux:API para gravar pelo microfone: pkg install termux-api (e instale o app Termux:API)"
 	}
-	return "dictation is not supported on this platform"
+	return "ditado não é suportado nesta plataforma"
+}
+
+// captureTool names the executable this platform records with. Batch and
+// streaming share the tool; Termux uses its companion-app command. One table
+// only — batchCommand, streamCommand and CheckCaptureTool all derive from it.
+func captureTool(platform Platform) string {
+	switch platform {
+	case PlatformLinux:
+		return "arecord"
+	case PlatformDarwin:
+		return "sox"
+	case PlatformWindows:
+		return "ffmpeg"
+	case PlatformTermux:
+		return "termux-microphone-record"
+	}
+	return ""
+}
+
+// CheckCaptureTool reports whether this platform's capture program is
+// installed — a preflight the interface runs before the first recording, so a
+// missing tool surfaces as guidance instead of a failed take. A missing tool
+// returns the same *SetupError a failed recording returns today.
+func CheckCaptureTool(platform Platform, lookPath func(string) (string, error)) error {
+	tool := captureTool(platform)
+	if tool == "" {
+		return fmt.Errorf("dictation is not supported on %s", runtime.GOOS)
+	}
+	if _, err := lookPath(tool); err != nil {
+		return &SetupError{Tool: tool, Hint: installHint(platform)}
+	}
+	return nil
 }

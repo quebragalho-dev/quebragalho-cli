@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -497,5 +498,37 @@ func TestChunkLevel(t *testing.T) {
 	}
 	if lvl := ChunkLevel(quiet); lvl <= 0 || lvl > 0.35 {
 		t.Errorf("quiet level = %f, want a small non-zero value", lvl)
+	}
+}
+
+func TestCheckCaptureTool(t *testing.T) {
+	cases := []struct {
+		platform Platform
+		tool     string
+		command  string
+	}{
+		{PlatformLinux, "arecord", "sudo apt install alsa-utils (ou sudo dnf install alsa-utils)"},
+		{PlatformDarwin, "sox", "brew install sox"},
+		{PlatformWindows, "ffmpeg", "winget install Gyan.FFmpeg (depois feche e abra o terminal)"},
+		{PlatformTermux, "termux-microphone-record", "pkg install termux-api"},
+	}
+	for _, tc := range cases {
+		found := func(string) (string, error) { return "/usr/bin/" + tc.tool, nil }
+		if err := CheckCaptureTool(tc.platform, found); err != nil {
+			t.Errorf("%s with the tool installed should be nil, got %v", tc.platform, err)
+		}
+		missing := func(string) (string, error) { return "", exec.ErrNotFound }
+		err := CheckCaptureTool(tc.platform, missing)
+		var setupErr *SetupError
+		if !errors.As(err, &setupErr) {
+			t.Errorf("%s with a missing tool should be a *SetupError, got %v", tc.platform, err)
+			continue
+		}
+		if setupErr.Tool != tc.tool {
+			t.Errorf("%s SetupError.Tool = %q, want %q", tc.platform, setupErr.Tool, tc.tool)
+		}
+		if !strings.Contains(setupErr.Hint, tc.command) {
+			t.Errorf("%s hint = %q, want it to contain the install command %q", tc.platform, setupErr.Hint, tc.command)
+		}
 	}
 }
