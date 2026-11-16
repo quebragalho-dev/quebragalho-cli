@@ -57,7 +57,8 @@ func TestAutoCompactPanelRenders(t *testing.T) {
 			"limite escolhido, mesmo que o modelo aceite mais.",
 			"As mensagens antigas viram um resumo.",
 			"Exemplo: /autocompact 400k",
-			"Atual:",
+			"Atual: automático",
+			"(compacta em 140k tokens neste modelo)",
 			"↑/↓ 50k em 50k · número, off ou auto",
 			"Enter salva · Esc cancela",
 		} {
@@ -184,12 +185,16 @@ func TestAutoCompactPanelRejectsInvalid(t *testing.T) {
 	if m.autoCompactPrompt == nil {
 		t.Fatal("invalid Enter must keep the panel open")
 	}
-	if m.autoCompactPrompt.err != "Valor inválido. Use um número a partir de 20k (ex.: 400k), off ou auto." {
+	if m.autoCompactPrompt.err != "Valor inválido: número a partir de 20k, off ou auto." {
 		t.Fatalf("error line = %q", m.autoCompactPrompt.err)
 	}
-	plain := plainRender(t, m.autoCompactPromptOverlay(100))
-	if !strings.Contains(plain, "Valor inválido") {
-		t.Fatalf("overlay should show the error line:\n%s", plain)
+	// The rejection line must reach the screen in full even at the minimum
+	// overlay width.
+	for _, width := range []int{100, 56} {
+		plain := plainRender(t, m.autoCompactPromptOverlay(width))
+		if !strings.Contains(plain, "Valor inválido: número a partir de 20k, off ou auto.") {
+			t.Fatalf("overlay at width %d should show the whole error line:\n%s", width, plain)
+		}
 	}
 	if m.autoCompactLimit != 400000 {
 		t.Fatalf("invalid input changed the limit to %d", m.autoCompactLimit)
@@ -270,5 +275,51 @@ func TestAutoCompactPanelBlocksModal(t *testing.T) {
 	m, _ := autoCompactPanelModel(t, 0, false)
 	if m.noBlockingModal() {
 		t.Fatal("noBlockingModal must be false while the panel is open")
+	}
+}
+
+// The current setting is never cut: each of its two lines fits the minimum
+// overlay width in every form, including the clamped one.
+func TestAutoCompactPanelShowsSettingInFullAtMinimumWidth(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		limit int
+		want  []string
+	}{
+		{"automatic", 0, []string{"Atual: automático", "(compacta em 140k tokens neste modelo)"}},
+		{"limit the window cannot hold", 400000, []string{"Atual: 400k tokens", "(neste modelo compacta em 140k; a janela é de 200k)"}},
+		{"limit that fits", 100000, []string{"Atual: 100k tokens"}},
+		{"off", config.AutoCompactOff, []string{"Atual: desligado", "(só compacta se o provedor recusar por excesso)"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := charTestModel(t, time.Now())
+			m.autoCompactLimit = tc.limit
+			m = m.openAutoCompactPrompt()
+			plain := plainRender(t, m.autoCompactPromptOverlay(pickerOverlayMinWidth))
+			for _, want := range tc.want {
+				if !strings.Contains(plain, want) {
+					t.Fatalf("overlay at the minimum width misses %q:\n%s", want, plain)
+				}
+			}
+			if strings.Contains(plain, "…") {
+				t.Fatalf("overlay at the minimum width cuts a line:\n%s", plain)
+			}
+		})
+	}
+}
+
+// The panel input is capped: typed and pasted text beyond 12 runes is dropped.
+func TestAutoCompactPanelCapsInputLength(t *testing.T) {
+	m, _ := autoCompactPanelModel(t, 0, false)
+	for range 15 {
+		m = updateAutoCompactPrompt(t, m, testKeyText("9"))
+	}
+	if got := m.autoCompactPrompt.input; got != "999999999999" {
+		t.Fatalf("typed input = %q, want 12 runes", got)
+	}
+	m = updateAutoCompactPrompt(t, m, testKey(tea.KeyBackspace))
+	m = updateAutoCompactPrompt(t, m, testPaste("12345678901234567890"))
+	if got := m.autoCompactPrompt.input; got != "999999999991" {
+		t.Fatalf("pasted input = %q, want the cap to hold", got)
 	}
 }

@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"charm.land/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
@@ -16,9 +16,8 @@ import (
 // status text for that).
 const autoCompactUsageText = "Auto-compact\nUso: /autocompact <n|off|auto>. n é o limite em tokens, a partir de 20k (ex.: /autocompact 400k). off desliga; auto volta ao automático."
 
-// handleAutoCompactCommand runs /autocompact through the production command
-// path: an empty argument shows the current setting (the panel once part 3
-// exists), "status" does the same explicitly, anything else is parsed and
+// handleAutoCompactCommand runs /autocompact: an empty argument opens the
+// panel, "status" shows the current setting, anything else is parsed and
 // applied as the session limit.
 func (m model) handleAutoCompactCommand(arg string) (model, tea.Cmd) {
 	trimmed := strings.TrimSpace(arg)
@@ -61,25 +60,37 @@ func (m model) applyAutoCompactLimit(limit int) (model, string, error) {
 	return m, text, nil
 }
 
-// autoCompactSummary describes the effective setting: the automatic trigger
-// for the active model, the chosen limit, the clamped form when the window
-// cannot hold the limit, or off. Model-derived numbers go through
-// formatContextWindow (lowercased to match the k/m shorthand style) and the
-// user's limit through config.FormatAutoCompactLimit.
-func (m model) autoCompactSummary() string {
+// autoCompactSummaryParts describes the effective setting as a value and an
+// optional note: the automatic trigger for the active model, the chosen
+// limit, the clamped form when the window cannot hold the limit, or off.
+// Model-derived numbers go through formatContextWindow (lowercased to match
+// the k/m shorthand style) and the user's limit through
+// config.FormatAutoCompactLimit. Each part stays short enough for one line
+// of the panel at its minimum width.
+func (m model) autoCompactSummaryParts() (value string, note string) {
 	window := modelregistry.AgentContextWindow(m.modelContextWindow(m.modelName))
 	effective := agent.AutoCompactThreshold(window, m.autoCompactLimit)
 	switch {
 	case m.autoCompactLimit < 0:
-		return "desligado (só compacta se o provedor recusar por excesso de contexto)"
+		return "desligado", "só compacta se o provedor recusar por excesso"
 	case m.autoCompactLimit == 0:
-		return "automático (compacta em " + strings.ToLower(formatContextWindow(effective)) + " tokens neste modelo)"
+		return "automático", "compacta em " + strings.ToLower(formatContextWindow(effective)) + " tokens neste modelo"
 	case effective == m.autoCompactLimit:
-		return config.FormatAutoCompactLimit(m.autoCompactLimit) + " tokens"
+		return config.FormatAutoCompactLimit(m.autoCompactLimit) + " tokens", ""
 	default:
-		return config.FormatAutoCompactLimit(m.autoCompactLimit) + " tokens (neste modelo compacta em " +
-			strings.ToLower(formatContextWindow(effective)) + ", o que cabe na janela de " + strings.ToLower(formatContextWindow(window)) + ")"
+		return config.FormatAutoCompactLimit(m.autoCompactLimit) + " tokens", "neste modelo compacta em " +
+			strings.ToLower(formatContextWindow(effective)) + "; a janela é de " + strings.ToLower(formatContextWindow(window))
 	}
+}
+
+// autoCompactSummary is the one-line form of autoCompactSummaryParts, used
+// by the notices and the status texts.
+func (m model) autoCompactSummary() string {
+	value, note := m.autoCompactSummaryParts()
+	if note == "" {
+		return value
+	}
+	return value + " (" + note + ")"
 }
 
 // autoCompactStatusText is the /autocompact status card: the current setting
@@ -97,6 +108,10 @@ const autoCompactStepMax = 2_000_000
 // autoCompactPromptMaxRunes caps the panel input: 12 runes hold any readable
 // limit ("2000000" is 7, "100000000" is 9) without room for pasted noise.
 const autoCompactPromptMaxRunes = 12
+
+// autoCompactPromptInvalidText is the panel's rejection line. It must fit
+// the minimum overlay width (52 cells of content) so it is never cut.
+const autoCompactPromptInvalidText = "Valor inválido: número a partir de 20k, off ou auto."
 
 // autoCompactPromptState is the panel opened by a bare /autocompact: a short
 // explanation, the current setting and one input line. The input holds what
@@ -185,7 +200,7 @@ func (m model) handleAutoCompactPromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		limit, err := config.ParseAutoCompactLimit(trimmed)
 		if err != nil {
-			p.err = "Valor inválido. Use um número a partir de 20k (ex.: 400k), off ou auto."
+			p.err = autoCompactPromptInvalidText
 			return m, nil
 		}
 		var notice string
@@ -222,9 +237,9 @@ func (m model) handleAutoCompactPromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // autoCompactPromptOverlay renders the /autocompact panel as a centered modal,
-// matching the cloud-STT key prompt's box. Every explanatory line stays at
-// most 52 cells so it survives the minimum overlay width; only the Atual:
-// line may be cut by the block on the clamped form.
+// matching the cloud-STT key prompt's box. Every line stays at most 52 cells
+// so it survives the minimum overlay width; the current setting takes two
+// lines (value, then its note) for that reason.
 func (m model) autoCompactPromptOverlay(width int) string {
 	if m.autoCompactPrompt == nil {
 		return ""
@@ -245,10 +260,13 @@ func (m model) autoCompactPromptOverlay(width int) string {
 		qgTheme.ink.Render("As mensagens antigas viram um resumo."),
 		qgTheme.ink.Render("Exemplo: /autocompact 400k"),
 		"",
-		qgTheme.ink.Render("Atual: " + m.autoCompactSummary()),
-		"",
-		input,
 	}
+	current, note := m.autoCompactSummaryParts()
+	lines = append(lines, qgTheme.ink.Render("Atual: "+current))
+	if note != "" {
+		lines = append(lines, qgTheme.faint.Render("("+note+")"))
+	}
+	lines = append(lines, "", input)
 	if p.err != "" {
 		lines = append(lines, qgTheme.red.Render(p.err), "")
 	} else {

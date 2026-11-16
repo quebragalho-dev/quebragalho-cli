@@ -1976,11 +1976,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sttKeyPrompt.input += strings.TrimSpace(msg.Content)
 			return m, nil
 		}
-		// A paste into the /autocompact panel edits its input, not the composer.
-		if m.autoCompactPrompt != nil {
-			m.autoCompactPrompt.appendInput(strings.TrimSpace(msg.Content))
-			return m, nil
-		}
 		return m.routePaste(msg.Content)
 	case dictationStartedMsg:
 		return m.handleDictationStarted(msg)

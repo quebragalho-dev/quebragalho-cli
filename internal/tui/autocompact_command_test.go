@@ -141,11 +141,11 @@ func TestAutoCompactSummaries(t *testing.T) {
 		t.Fatalf("400k on a 1M window: %q", got)
 	}
 	unknown.autoCompactLimit = 400000
-	if got := unknown.autoCompactSummary(); got != "400k tokens (neste modelo compacta em 140k, o que cabe na janela de 200k)" {
+	if got := unknown.autoCompactSummary(); got != "400k tokens (neste modelo compacta em 140k; a janela é de 200k)" {
 		t.Fatalf("400k on a 200k window: %q", got)
 	}
 	unknown.autoCompactLimit = config.AutoCompactOff
-	if got := unknown.autoCompactSummary(); got != "desligado (só compacta se o provedor recusar por excesso de contexto)" {
+	if got := unknown.autoCompactSummary(); got != "desligado (só compacta se o provedor recusar por excesso)" {
 		t.Fatalf("off: %q", got)
 	}
 }
