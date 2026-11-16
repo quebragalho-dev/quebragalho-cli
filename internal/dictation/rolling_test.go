@@ -237,7 +237,7 @@ func TestRollingPartialsCumulativeAndOrdered(t *testing.T) {
 	clock := newStubClock()
 	texts := map[int]string{1: "one", 2: "one two", 3: "one two three", 4: "one two three final"}
 	fake := newScripted(clock, func(n int, _ context.Context) (string, error) { return texts[n], nil })
-	tr := newTestRolling(fake, RollingOptions{}, clock)
+	tr := newTestRolling(fake, RollingOptions{MinAudio: time.Second}, clock)
 	chunks := make(chan []byte, 64)
 	log := newPartialLog()
 	done := runStream(tr, context.Background(), chunks, log)
@@ -1108,5 +1108,13 @@ func TestRollingFinalFlagNeverSet(t *testing.T) {
 	}
 	if !log.allFinalFalse() {
 		t.Fatalf("partials = %+v, want final=false on all of them", log.calls)
+	}
+}
+
+// TestRollingDefaultMinAudio: the first live run waits for 2.5 s of audio; a
+// shorter clip makes a multilingual model guess the wrong language.
+func TestRollingDefaultMinAudio(t *testing.T) {
+	if got := (RollingOptions{}).withDefaults().MinAudio; got != 2500*time.Millisecond {
+		t.Errorf("default MinAudio = %v, want 2.5s", got)
 	}
 }

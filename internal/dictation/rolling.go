@@ -11,7 +11,7 @@ import (
 type RollingOptions struct {
 	SampleRate int           // of the PCM16 mono chunks; default DefaultSampleRate
 	Interval   time.Duration // minimum time between the starts of two partial runs; default 1s
-	MinAudio   time.Duration // audio needed before the first partial run; default 1s
+	MinAudio   time.Duration // audio needed before the first partial run; default 2.5s (a shorter clip makes a multilingual model guess the language wrong)
 }
 
 func (o RollingOptions) withDefaults() RollingOptions {
@@ -22,7 +22,7 @@ func (o RollingOptions) withDefaults() RollingOptions {
 		o.Interval = time.Second
 	}
 	if o.MinAudio <= 0 {
-		o.MinAudio = time.Second
+		o.MinAudio = 2500 * time.Millisecond
 	}
 	return o
 }
