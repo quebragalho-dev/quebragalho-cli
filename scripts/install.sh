@@ -27,6 +27,8 @@ Ambiente:
   QG_INSTALL_DIR      Pasta do binário qg. Padrão: /usr/local/bin.
   QG_GITHUB_API       URL base da API do GitHub. Padrão: https://api.github.com.
   QG_GITHUB_BASE_URL  URL base web do GitHub. Padrão: https://github.com.
+  QG_ALLOW_INSECURE_DOWNLOAD
+                      Com 1, aceita URLs base que não são https (só para testes locais).
 EOF
 }
 
@@ -67,12 +69,38 @@ need_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 é obrigatório"
 }
 
+# O .sha256 vem da mesma origem do pacote, então o TLS é o único controle real
+# de integridade: só https, a menos que QG_ALLOW_INSECURE_DOWNLOAD=1 libere um
+# espelho local de teste.
+insecure_download_allowed() {
+  [ "${QG_ALLOW_INSECURE_DOWNLOAD:-}" = "1" ]
+}
+
+require_https() {
+  local url="$1"
+
+  case "$url" in
+    https://*) return 0 ;;
+  esac
+  insecure_download_allowed || fail "origem de download insegura recusada para $url: só https:// é permitido (defina QG_ALLOW_INSECURE_DOWNLOAD=1 para liberar em testes locais)"
+}
+
+# Mantém o curl em https também nos redirecionamentos.
+secure_curl() {
+  if insecure_download_allowed; then
+    curl "$@"
+  else
+    curl --proto '=https' --proto-redir '=https' "$@"
+  fi
+}
+
 download() {
   local url="$1"
   local output="$2"
 
+  require_https "$url"
   if command -v curl >/dev/null 2>&1; then
-    curl --fail --location --show-error --progress-bar "$url" --output "$output"
+    secure_curl --fail --location --show-error --progress-bar "$url" --output "$output"
   elif command -v wget >/dev/null 2>&1; then
     wget "$url" --output-document "$output"
   else
@@ -84,8 +112,9 @@ download_json() {
   local url="$1"
   local output="$2"
 
+  require_https "$url"
   if command -v curl >/dev/null 2>&1; then
-    curl --fail --location --show-error --silent --header 'Accept: application/vnd.github+json' "$url" --output "$output"
+    secure_curl --fail --location --show-error --silent --header 'Accept: application/vnd.github+json' "$url" --output "$output"
   elif command -v wget >/dev/null 2>&1; then
     wget --quiet --header='Accept: application/vnd.github+json' "$url" --output-document "$output"
   else
