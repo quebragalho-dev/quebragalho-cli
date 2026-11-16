@@ -191,13 +191,22 @@ func runExecSpecDraft(run execSpecDraftRun) int {
 	if err != nil {
 		if errors.Is(err, context.Canceled) || runCtx.Err() != nil {
 			sessionRecorder.append(sessions.EventError, map[string]any{"message": "interrupted"})
-			if run.options.outputFormat == execOutputStreamJSON {
+			switch run.options.outputFormat {
+			case execOutputStreamJSON:
 				writer.errorEvent("interrupted", "run cancelled by signal", false)
 				writer.runEnd("interrupted", exitInterrupted)
 				if writer.err != nil {
 					return exitCrash
 				}
-			} else {
+			case execOutputJSON:
+				// Same terminal pair the main run emits for -o json, so a
+				// consumer sees a clean end of stream instead of silence.
+				writer.errorEvent("interrupted", "run cancelled by signal", false)
+				writer.writeJSON(map[string]any{"type": "done", "exit_code": exitInterrupted})
+				if writer.err != nil {
+					return exitCrash
+				}
+			default:
 				fmt.Fprintln(run.stderr, "Interrompido.")
 			}
 			return exitInterrupted
