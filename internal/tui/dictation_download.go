@@ -21,9 +21,6 @@ type sttDownloadProgressMsg struct{ status string }
 type dictationDownloadedMsg struct {
 	components dictation.EngineComponents
 	err        error
-	// streaming is the chosen variant's pipeline (a streaming transducer vs a
-	// batch model), applied to the config after a successful download.
-	streaming bool
 }
 
 // canOfferDownload reports whether a failed build should point the user at the
@@ -68,7 +65,7 @@ func (m model) startVariantDownload(v dictation.ModelVariant) (model, tea.Cmd) {
 				}
 			},
 		})
-		return dictationDownloadedMsg{components: comp, err: err, streaming: v.Streaming}
+		return dictationDownloadedMsg{components: comp, err: err}
 	}
 }
 
@@ -89,7 +86,7 @@ func (m model) handleDictationDownloaded(msg dictationDownloadedMsg) (model, tea
 	if msg.err != nil {
 		return m.appendSystemNotice("Falha na configuração do ditado: " + dictationErrorText(msg.err)), nil
 	}
-	m, err := m.applyEngineComponents(msg.components, msg.streaming)
+	m, err := m.applyEngineComponents(msg.components)
 	if err != nil {
 		return m.appendSystemNotice("Motor baixado, mas não foi possível salvar a configuração: " + err.Error()), nil
 	}
@@ -98,9 +95,11 @@ func (m model) handleDictationDownloaded(msg dictationDownloadedMsg) (model, tea
 
 // applyEngineComponents persists and applies resolved engine/model paths to the
 // live config (shared by a fresh download and the already-installed fast path).
-func (m model) applyEngineComponents(comp dictation.EngineComponents, streaming bool) (model, error) {
+// Every installed model gets live text (true streaming or rolling), so the
+// live pipeline is always switched on here.
+func (m model) applyEngineComponents(comp dictation.EngineComponents) (model, error) {
 	if path := m.dictation.userConfigPath; path != "" {
-		if _, err := config.SetSTTLocalEngine(path, comp.BinaryPath, comp.ServerPath, comp.ModelPath, streaming); err != nil {
+		if _, err := config.SetSTTLocalEngine(path, comp.BinaryPath, comp.ServerPath, comp.ModelPath, true); err != nil {
 			return m, err
 		}
 	}
@@ -108,7 +107,7 @@ func (m model) applyEngineComponents(comp dictation.EngineComponents, streaming 
 	m.dictation.cfg.LocalBinary = comp.BinaryPath
 	m.dictation.cfg.LocalServerBinary = comp.ServerPath
 	m.dictation.cfg.LocalModelPath = comp.ModelPath
-	s := streaming
+	s := true
 	m.dictation.cfg.Streaming = &s
 	return m, nil
 }

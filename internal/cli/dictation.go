@@ -93,7 +93,21 @@ func buildStreamingTranscriber(stt config.STTConfig, resolved config.ResolvedCon
 		// connect time), so gate on the model path here — with none set, report
 		// "not applicable" (nil, nil) so the factory falls back to the batch
 		// pipeline instead of committing to a server that can't start.
-		if serverMgr == nil || strings.TrimSpace(stt.LocalModelPath) == "" {
+		if strings.TrimSpace(stt.LocalModelPath) == "" {
+			return nil, nil
+		}
+		// A batch (non-streaming) model directory gets live text through the
+		// rolling transcriber, which re-transcribes the whole clip on top of
+		// the offline binary. It needs no server, so the serverMgr == nil gate
+		// below must not block this path.
+		if !dictation.StreamingModelDir(stt.LocalModelPath) {
+			inner, err := newLocalBatchTranscriber(stt)
+			if err != nil {
+				return nil, err
+			}
+			return dictation.NewRollingTranscriber(inner, dictation.RollingOptions{}), nil
+		}
+		if serverMgr == nil {
 			return nil, nil
 		}
 		return dictation.NewLocalStreamingTranscriber(serverMgr), nil
@@ -143,12 +157,19 @@ func buildBatchTranscriber(stt config.STTConfig, resolved config.ResolvedConfig,
 			Language: stt.Language,
 		})
 	default: // local
-		return dictation.NewLocalTranscriber(dictation.LocalConfig{
-			Binary:     stt.LocalBinary,
-			ModelPath:  stt.LocalModelPath,
-			NumThreads: stt.NumThreads,
-		})
+		return newLocalBatchTranscriber(stt)
 	}
+}
+
+// newLocalBatchTranscriber builds the offline batch transcriber for a local
+// model directory. It is shared by the batch pipeline and the rolling live
+// path so both configure the same binary, model and thread count.
+func newLocalBatchTranscriber(stt config.STTConfig) (dictation.Transcriber, error) {
+	return dictation.NewLocalTranscriber(dictation.LocalConfig{
+		Binary:     stt.LocalBinary,
+		ModelPath:  stt.LocalModelPath,
+		NumThreads: stt.NumThreads,
+	})
 }
 
 // sttEnvVar returns the conventional environment variable a cloud STT provider's

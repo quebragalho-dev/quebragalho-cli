@@ -1,7 +1,11 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -70,15 +74,17 @@ func TestDownloadedBatchModelAppliedToConfig(t *testing.T) {
 		ServerPath: "/x/bin/sherpa-onnx-online-websocket-server",
 		ModelPath:  "/x/model",
 	}
-	got, _ := m.handleDictationDownloaded(dictationDownloadedMsg{components: comp, streaming: false})
+	got, _ := m.handleDictationDownloaded(dictationDownloadedMsg{components: comp})
 	if got.dictation.downloading {
 		t.Error("downloading flag should clear")
 	}
 	if got.dictation.cfg.LocalBinary != comp.BinaryPath || got.dictation.cfg.LocalModelPath != comp.ModelPath {
 		t.Errorf("engine paths not applied: %+v", got.dictation.cfg)
 	}
-	if got.dictation.cfg.StreamingEnabled() {
-		t.Error("a batch variant should set streaming off")
+	// Every installed model gets live text (true streaming or rolling), so a
+	// batch install switches the live pipeline on too.
+	if !got.dictation.cfg.StreamingEnabled() {
+		t.Error("a batch variant should set streaming on (rolling live text)")
 	}
 	if !strings.Contains(got.transientNotice.text, "pronto") {
 		t.Error("expected a ready notice")
@@ -88,9 +94,108 @@ func TestDownloadedBatchModelAppliedToConfig(t *testing.T) {
 func TestDownloadedStreamingModelSetsStreamingOn(t *testing.T) {
 	m := model{dictation: dictationController{cfg: config.STTConfig{Provider: config.STTProviderLocal}}}
 	comp := dictation.EngineComponents{BinaryPath: "/x/bin/sherpa-onnx-offline", ModelPath: "/x/model"}
-	got, _ := m.handleDictationDownloaded(dictationDownloadedMsg{components: comp, streaming: true})
+	got, _ := m.handleDictationDownloaded(dictationDownloadedMsg{components: comp})
 	if !got.dictation.cfg.StreamingEnabled() {
 		t.Error("a streaming variant should set streaming on")
+	}
+}
+
+// firstVariantWithStreaming returns the first curated download variant with
+// the given pipeline flag.
+func firstVariantWithStreaming(t *testing.T, streaming bool) dictation.ModelVariant {
+	t.Helper()
+	for _, v := range dictation.ModelVariants() {
+		if v.Streaming == streaming {
+			return v
+		}
+	}
+	t.Fatalf("no curated variant with streaming=%v", streaming)
+	return dictation.ModelVariant{}
+}
+
+// savedSTTStreaming reads the persisted config back and reports stt.streaming.
+func savedSTTStreaming(t *testing.T, path string) bool {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg config.FileConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	return cfg.STT.Streaming != nil && *cfg.STT.Streaming
+}
+
+// TestInstallEnablesStreamingDownloadPath: installing any variant through the
+// download pipeline switches live text on in memory and persists
+// stt.streaming:true.
+func TestInstallEnablesStreamingDownloadPath(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		variant := firstVariantWithStreaming(t, streaming)
+		cfgPath := filepath.Join(t.TempDir(), "config.json")
+		m := model{dictation: dictationController{
+			cfg:            config.STTConfig{Provider: config.STTProviderLocal},
+			userConfigPath: cfgPath,
+		}}
+		comp := dictation.EngineComponents{
+			BinaryPath: "/x/bin/sherpa-onnx-offline",
+			ServerPath: "/x/bin/sherpa-onnx-online-websocket-server",
+			ModelPath:  "/x/" + variant.DirName,
+		}
+		got, _ := m.handleDictationDownloaded(dictationDownloadedMsg{components: comp})
+		if !got.dictation.cfg.StreamingEnabled() {
+			t.Errorf("streaming=%v download: streaming must be on in memory", streaming)
+		}
+		if !savedSTTStreaming(t, cfgPath) {
+			t.Errorf("streaming=%v download: stt.streaming must persist as true", streaming)
+		}
+	}
+}
+
+// stageInstalledModel fakes an extracted engine + model under root so
+// applyInstalledModel resolves locally without network.
+func stageInstalledModel(t *testing.T, root string, v dictation.ModelVariant) {
+	t.Helper()
+	binDir := filepath.Join(root, "engine-"+dictation.DefaultSherpaVersion+"-"+runtime.GOOS+"-"+runtime.GOARCH, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "sherpa-onnx-offline"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	modelDir := filepath.Join(root, v.DirName)
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokens.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestInstallEnablesStreamingInstalledPath: picking an already-downloaded
+// model switches live text on in memory and persists stt.streaming:true.
+func TestInstallEnablesStreamingInstalledPath(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		variant := firstVariantWithStreaming(t, streaming)
+		root := t.TempDir()
+		stageInstalledModel(t, root, variant)
+		cfgPath := filepath.Join(t.TempDir(), "config.json")
+		m := model{dictation: dictationController{
+			cfg:            config.STTConfig{Provider: config.STTProviderLocal},
+			downloadRoot:   root,
+			userConfigPath: cfgPath,
+		}}
+		got, _ := m.applyInstalledModel(variant)
+		if !got.dictation.cfg.StreamingEnabled() {
+			t.Errorf("streaming=%v installed model: streaming must be on in memory", streaming)
+		}
+		if !savedSTTStreaming(t, cfgPath) {
+			t.Errorf("streaming=%v installed model: stt.streaming must persist as true", streaming)
+		}
+		if got.dictation.cfg.LocalModelPath == "" {
+			t.Errorf("streaming=%v installed model: model path not applied", streaming)
+		}
 	}
 }
 

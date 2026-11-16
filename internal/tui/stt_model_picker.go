@@ -368,7 +368,7 @@ func (m model) applyInstalledModel(v dictation.ModelVariant) (model, tea.Cmd) {
 	if err != nil {
 		return m.startVariantDownload(v) // fell out of cache somehow — download it
 	}
-	m, aerr := m.applyEngineComponents(comp, v.Streaming)
+	m, aerr := m.applyEngineComponents(comp)
 	if aerr != nil {
 		return m.appendSystemNotice("Não foi possível salvar a configuração: " + aerr.Error()), nil
 	}
