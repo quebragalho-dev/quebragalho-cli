@@ -1040,10 +1040,16 @@ func (m model) renderSelectableSpecialistRowFn(rowIndex int, row transcriptRow, 
 func (m model) renderSelectableUserRow(rowIndex int, row transcriptRow, width int, startBodyY int) (string, []transcriptSelectableLine) {
 	contentWidth := userPromptContentWidth(width)
 	wrapped := wrapPlainText(row.text, maxInt(1, contentWidth))
+	// The renderer emits a blank delimiter line and, when the row carries
+	// attachments, one summary line before the text (renderUserRow).
+	firstTextLine := 1
+	if renderUserAttachmentSummary(row.attachments) != "" {
+		firstTextLine = 2
+	}
 	selectable := make([]transcriptSelectableLine, 0, len(wrapped))
 	for index, line := range wrapped {
 		meta := transcriptSelectableLine{
-			bodyY:     startBodyY + index + 1,
+			bodyY:     startBodyY + index + firstTextLine,
 			rowIndex:  rowIndex,
 			textStart: lipgloss.Width(userPromptPrefix),
 			text:      line,
