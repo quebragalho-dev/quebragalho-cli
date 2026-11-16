@@ -1684,6 +1684,12 @@ func (m model) shutdownLSPManager() {
 }
 
 func (m model) handleCtrlC() (tea.Model, tea.Cmd) {
+	// A dictation in progress owns Ctrl+C, like Esc: it stops the microphone
+	// and discards the transcript. The composer, the run and the exit
+	// confirmation are left alone.
+	if m.dictation.active() {
+		return m.cancelDictation()
+	}
 	if m.btw.active {
 		if !m.pending && m.composerValue() != "" && m.noBlockingModal() && !m.transcriptDetailed && !m.subchat.active {
 			m.clearComposer()
