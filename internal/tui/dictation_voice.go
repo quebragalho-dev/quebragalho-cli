@@ -1,22 +1,26 @@
 package tui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 )
 
-const voiceCaptureUsage = "segure Ctrl+Space para gravar; se não funcionar, pressione para alternar"
+const voiceCaptureUsage = "segure Espaço por 2s para ditar; Ctrl+Space também grava"
 
-// Voice mode's Ctrl+Space gesture — the (only) dictation trigger. Two terminal
-// tiers:
+// Voice mode's dictation gestures — two ways to record:
 //
-//  1. The terminal confirms key-release reporting (Ghostty/Kitty/WezTerm, …):
-//     Ctrl+Space press starts recording and release stops it — true
-//     hold-to-record, with ordinary Space left available for typing.
-//  2. The terminal does not confirm release events: Ctrl+Space falls back to
-//     press-to-toggle (press to start, press again to stop) — a deliberately
-//     simpler, robust fallback than inferring release from key-repeat timing
-//     (racy in a terminal). Legacy NUL input is decoded as Ctrl+Space by the
-//     terminal input layer, so the same matcher covers both tiers.
+//  1. Hold bare Space for 2 seconds: the terminal delivers a held Space as a
+//     stream of ordinary Space presses (keyboard auto-repeat) with no release
+//     event, so the hold and its release are inferred from press timing on
+//     every terminal (see voiceHold). Recording starts once the key has been
+//     down for voiceHoldThreshold and stops when the key is released. A short
+//     press still types a space.
+//  2. Ctrl+Space, unchanged, with its two terminal tiers: where the terminal
+//     confirms key-release reporting (Ghostty/Kitty/WezTerm, …) a press starts
+//     and the release stops (hold-to-record); where it does not, Ctrl+Space
+//     falls back to press-to-toggle. Legacy NUL input is decoded as Ctrl+Space
+//     by the terminal input layer, so the same matcher covers both tiers.
 //
 // Only active while voice mode is on; the rest of dispatch is built on
 // KeyPressMsg and is untouched.
@@ -36,6 +40,14 @@ func voiceCaptureKey(msg tea.KeyMsg) bool {
 	return keyIs(msg, tea.KeySpace) && mod == tea.ModCtrl
 }
 
+// voiceHoldKey matches a bare Space press: no modifier other than
+// CapsLock/NumLock. This is the Space hold-to-dictate gesture's key; Ctrl+Space
+// keeps its own matcher above.
+func voiceHoldKey(msg tea.KeyMsg) bool {
+	mod := msg.Key().Mod &^ (tea.ModCapsLock | tea.ModNumLock)
+	return keyIs(msg, tea.KeySpace) && mod == 0
+}
+
 // voiceCaptureReleaseKey matches either half of the held Ctrl+Space chord. A
 // terminal may report Ctrl releasing first, or report the later Space release
 // without ModCtrl because Ctrl is no longer down.
@@ -46,17 +58,17 @@ func voiceCaptureReleaseKey(msg tea.KeyMsg) bool {
 func (m model) voiceCaptureStatus() string {
 	switch m.dictation.phase {
 	case dictStarting, dictRecording:
-		if m.dictation.eventTypesSupported {
-			return "solte Ctrl+Space para parar"
+		if m.dictation.spaceHeld {
+			return "solte para parar"
 		}
 		return "pressione Ctrl+Space para parar"
 	case dictTranscribing:
 		return "transcrevendo…"
 	default:
-		if m.dictation.eventTypesSupported {
-			return "segure Ctrl+Space para gravar"
+		if m.voiceHoldWarming() {
+			return "continue segurando…"
 		}
-		return "pressione Ctrl+Space para gravar"
+		return "segure Espaço para ditar"
 	}
 }
 
@@ -90,4 +102,171 @@ func (m model) handleVoiceCaptureRelease() (model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// voiceHoldThreshold is how long bare Space must stay down before a hold
+// recording starts.
+const voiceHoldThreshold = 2 * time.Second
+
+// voiceHoldFirstGap is the max pause between the 1st and 2nd press of a run
+// (the keyboard's initial repeat delay).
+const voiceHoldFirstGap = 1200 * time.Millisecond
+
+// voiceHoldRepeatGap is the max pause between two later presses of a run.
+const voiceHoldRepeatGap = 500 * time.Millisecond
+
+// voiceHoldRapidGap is the max pause that still counts as auto-repeat: a
+// press this close to the previous one did not come from typing.
+const voiceHoldRapidGap = 120 * time.Millisecond
+
+// voiceHoldPasteGuard is the minimum age of a run before a rapid press counts
+// as auto-repeat; it protects pasted spaces on terminals without bracketed paste.
+const voiceHoldPasteGuard = 200 * time.Millisecond
+
+// voiceHoldReleaseFloor is the minimum silence that counts as releasing the key.
+const voiceHoldReleaseFloor = 300 * time.Millisecond
+
+// voiceHoldReleaseCeiling is the maximum silence that counts as releasing the key.
+const voiceHoldReleaseCeiling = 1500 * time.Millisecond
+
+// voiceHoldTickInterval is how often a hold recording checks for the release.
+const voiceHoldTickInterval = 100 * time.Millisecond
+
+// voiceHold tracks a run of bare Space presses that may be a held key. A
+// terminal delivers a held Space as ordinary presses (keyboard auto-repeat)
+// with no release event, so the hold and its release are inferred from timing.
+type voiceHold struct {
+	startedAt time.Time     // first Space of the run; zero when there is no run
+	lastAt    time.Time     // latest Space press, of the run or of the recording it started
+	count     int           // presses in the run
+	typed     int           // presses of the run that reached the composer
+	maxGap    time.Duration // widest pause between two auto-repeats of the run
+}
+
+// endRun drops the run but keeps lastAt and maxGap: a running hold recording
+// still needs both to detect the release.
+func (h *voiceHold) endRun() {
+	h.startedAt = time.Time{}
+	h.count = 0
+	h.typed = 0
+}
+
+// releaseTimeout is how long a hold recording waits without a Space press
+// before treating the key as released: three times the run's widest
+// auto-repeat pause, so slow repeat rates are not mistaken for a release,
+// clamped to a sane floor and ceiling.
+func (h voiceHold) releaseTimeout() time.Duration {
+	return min(max(3*h.maxGap, voiceHoldReleaseFloor), voiceHoldReleaseCeiling)
+}
+
+// handleVoiceHoldSpace folds one bare Space press into the hold detector. A
+// consumed press (handled=true) must not reach the composer; a press that
+// falls through (handled=false) types as today.
+func (m model) handleVoiceHoldSpace(msg tea.KeyMsg, now time.Time) (model, tea.Cmd, bool) {
+	hold := m.dictation.hold
+	phase := m.dictation.phase
+	if m.dictation.spaceHeld && (phase == dictStarting || phase == dictRecording) {
+		// Rule 1: a hold recording is running; this press is the key still down.
+		m.dictation.hold.lastAt = now
+		return m, nil, true
+	}
+	if phase != dictIdle {
+		// Rule 2: transcribing, or a Ctrl+Space toggle recording: the run ends
+		// and the press types as today.
+		m.dictation.hold.endRun()
+		return m, nil, false
+	}
+	// Rule 3: idle. A run with no presses yet, or one whose pause outgrew the
+	// repeat gap, restarts here; the other key between two runs already ended
+	// the old one.
+	limit := voiceHoldRepeatGap
+	if hold.count == 1 {
+		limit = voiceHoldFirstGap
+	}
+	if hold.count == 0 || now.Sub(hold.lastAt) > limit {
+		m.dictation.hold.startedAt = now
+		m.dictation.hold.lastAt = now
+		m.dictation.hold.count = 1
+		m.dictation.hold.typed = 1
+		return m, nil, false
+	}
+	pause := now.Sub(hold.lastAt)
+	m.dictation.hold.count++
+	m.dictation.hold.lastAt = now
+	if m.dictation.hold.count > 2 && pause > m.dictation.hold.maxGap {
+		// The first pause is the keyboard's initial repeat delay, not the
+		// auto-repeat rate, so only later pauses widen the release timeout.
+		m.dictation.hold.maxGap = pause
+	}
+	if now.Sub(m.dictation.hold.startedAt) >= voiceHoldThreshold {
+		return m.activateVoiceHold(m.dictation.hold, now)
+	}
+	if msg.Key().IsRepeat || (m.dictation.hold.count >= 3 && pause <= voiceHoldRapidGap && now.Sub(m.dictation.hold.startedAt) >= voiceHoldPasteGuard) {
+		return m, nil, true
+	}
+	m.dictation.hold.typed++
+	return m, nil, false
+}
+
+// activateVoiceHold starts the hold recording once bare Space has stayed down
+// for voiceHoldThreshold. The spaces the run typed are pulled back out of the
+// composer first, so dictation starts from the text as it was before the hold.
+func (m model) activateVoiceHold(hold voiceHold, now time.Time) (model, tea.Cmd, bool) {
+	state := m.currentComposerState()
+	runes := []rune(state.text)
+	remove := 0
+	for i := state.cursor - 1; i >= 0 && remove < hold.typed; i-- {
+		if runes[i] != ' ' {
+			break
+		}
+		remove++
+	}
+	if remove > 0 {
+		nextState, nextPreviews := deleteComposerRangeWithPastePreviews(state, m.composerPastePreviews, state.cursor-remove, state.cursor)
+		m.setComposerState(nextState)
+		m.composerPastePreviews = nextPreviews
+	}
+	// The run is over; keep lastAt and maxGap so the recording can tell a
+	// slow repeat rate from the key going up.
+	m.dictation.hold.endRun()
+	m.dictation.hold.lastAt = now
+	if m.dictation.downloading {
+		return m.appendDictationNotice("downloading", "Ainda configurando o motor de ditado — um momento."), nil, true
+	}
+	next, vcmd := m.startDictationWithVoice(true, false)
+	if !next.dictation.active() {
+		return next, vcmd, true
+	}
+	return next, tea.Batch(vcmd, voiceHoldTickCmd(next.dictation.sessionID)), true
+}
+
+// voiceHoldTickMsg re-checks whether the held Space is still down. It carries
+// the session so a tick outliving its recording ends the chain silently.
+type voiceHoldTickMsg struct{ sessionID int64 }
+
+func voiceHoldTickCmd(sessionID int64) tea.Cmd {
+	return tea.Tick(voiceHoldTickInterval, func(time.Time) tea.Msg {
+		return voiceHoldTickMsg{sessionID: sessionID}
+	})
+}
+
+func (m model) handleVoiceHoldTick(msg voiceHoldTickMsg) (model, tea.Cmd) {
+	if msg.sessionID != m.dictation.sessionID || !m.dictation.spaceHeld {
+		return m, nil
+	}
+	if m.now().Sub(m.dictation.hold.lastAt) > m.dictation.hold.releaseTimeout() {
+		return m.handleVoiceCaptureRelease()
+	}
+	return m, voiceHoldTickCmd(m.dictation.sessionID)
+}
+
+// voiceHoldWarming reports a run that looks like a hold in progress: idle with
+// at least three rapid presses and no sign of the key going up yet. The count
+// is checked first so the clock is never read when there is no run (many
+// tests build a model with a nil clock).
+func (m model) voiceHoldWarming() bool {
+	if m.dictation.phase != dictIdle || m.dictation.hold.count < 3 {
+		return false
+	}
+	return m.now().Sub(m.dictation.hold.lastAt) <= m.dictation.hold.releaseTimeout()
 }

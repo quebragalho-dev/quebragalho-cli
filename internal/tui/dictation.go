@@ -99,6 +99,9 @@ type dictationController struct {
 	// remembers a release that arrived before the recording finished starting.
 	spaceHeld        bool
 	voiceStopPending bool
+	// hold is the Space hold-to-dictate detector (see voiceHold). It is gesture
+	// state, not session state: dictFullReset leaves it alone.
+	hold voiceHold
 }
 
 // dictationStartedMsg reports the outcome of Recorder.Start().
@@ -287,7 +290,7 @@ func (m model) startDictationWithVoice(spaceHeld, voiceStop bool) (model, tea.Cm
 		Platform:           m.dictation.platform,
 		SampleRate:         dictation.RequiredSampleRate(transcriber),
 		MaxDuration:        m.dictation.maxDuration(),
-		SilenceAutoStop:    m.dictation.cfg.SilenceAutoStopEnabled(),
+		SilenceAutoStop:    m.dictation.silenceAutoStop(spaceHeld),
 		WindowsAudioDevice: m.dictation.cfg.WindowsAudioDevice,
 	})
 
@@ -374,6 +377,13 @@ func (d dictationController) maxDuration() time.Duration {
 		return time.Duration(d.cfg.MaxDurationSeconds) * time.Second
 	}
 	return dictation.DefaultMaxDuration
+}
+
+// silenceAutoStop reports whether the recorder may end the recording on
+// trailing silence. A hold recording never does: the user ends it by
+// releasing the key and may pause while speaking.
+func (d dictationController) silenceAutoStop(hold bool) bool {
+	return d.cfg.SilenceAutoStopEnabled() && !hold
 }
 
 // startBatchRecordingCmd starts the record-to-file capture off the UI goroutine

@@ -1991,11 +1991,18 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSTTModelsFetched(msg), nil
 	case recTickMsg:
 		return m.handleRecTick()
+	case voiceHoldTickMsg:
+		return m.handleVoiceHoldTick(msg)
 	case sttLevelMsg:
 		return m.handleDictationLevel(msg), nil
 	case tea.KeyboardEnhancementsMsg:
 		return m.handleKeyboardEnhancements(msg), nil
 	case tea.KeyReleaseMsg:
+		// A bare Space release ends the run; a held key's timing gap does the
+		// rest on terminals without release events.
+		if voiceHoldKey(msg) {
+			m.dictation.hold.endRun()
+		}
 		// Voice mode's hold-to-record ends on Ctrl+Space release; every other
 		// release event is ignored (dispatch elsewhere is press-based).
 		if m.dictation.voiceModeEnabled && voiceCaptureReleaseKey(msg) {
@@ -2040,6 +2047,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the caret, the typed character would render caret-less for up to a
 		// full tick before the timer catches up.
 		m.composerCursorVisible = true
+		if !voiceHoldKey(msg) {
+			// Any other key ends a Space run: a hold is one key, uninterrupted.
+			m.dictation.hold.endRun()
+		}
 		// Keyboard dispatch order (this if/case chain is the priority spec):
 		// setup wizard, STT key prompt, auto-compact prompt, terminal attach,
 		// session rename, statusline proposal preview, help overlay, leader-help overlay,
@@ -2137,6 +2148,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyCtrl(msg, 'n') {
 				return m, nil
 			}
+		}
+		// Voice mode: a held Space starts dictation. It runs before the switch
+		// so a consumed auto-repeat never reaches the composer; an ordinary
+		// press falls through and types.
+		if m.dictation.voiceModeEnabled && !m.transcriptDetailed && !m.runDetailsOpen && voiceHoldKey(msg) && m.noBlockingModal() && !m.subchatReadOnly() {
+			next, cmd, handled := m.handleVoiceHoldSpace(msg, now)
+			if handled {
+				return next, cmd
+			}
+			m = next
 		}
 		switch {
 		case m.runDetailsOpen:
@@ -3674,7 +3695,7 @@ func (m model) View() tea.View {
 	// regardless of notification config. A standard, widely supported DEC
 	// private mode (CSI ?1004h) that unsupported terminals silently ignore.
 	view.ReportFocus = true
-	// Voice mode's Space-hold gesture needs key-release events (Kitty protocol).
+	// Voice mode's Ctrl+Space hold needs key-release events (Kitty protocol).
 	// Request them only while voice mode is on — the renderer re-sends the request
 	// only when the value changes, so gating this costs nothing (§10).
 	view.KeyboardEnhancements.ReportEventTypes = m.dictation.voiceModeEnabled
