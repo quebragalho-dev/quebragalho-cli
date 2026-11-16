@@ -54,3 +54,39 @@ func TestModelPickerPopupClickAccountsForGroupHeaders(t *testing.T) {
 		t.Fatal("click on a group header line must not select anything")
 	}
 }
+
+// TestSelectableUserRowSkipsAttachmentSummaryLine guards the selectable-line
+// geometry of a user row with attachments: the renderer emits a blank
+// delimiter line plus one attachment summary line before the text.
+func TestSelectableUserRowSkipsAttachmentSummaryLine(t *testing.T) {
+	m := mouseTestModel()
+
+	row := transcriptRow{kind: rowUser, text: "hello world", attachments: transcriptAttachmentSummary{images: 1}}
+	if got := renderUserAttachmentSummary(row.attachments); got == "" {
+		t.Fatal("test setup is wrong: attachment summary renders empty")
+	}
+	rendered, selectable := m.renderSelectableUserRow(0, row, 80, 10)
+	if len(selectable) == 0 {
+		t.Fatal("expected selectable lines for a text row")
+	}
+	lines := strings.Split(rendered, "\n")
+	index := selectable[0].bodyY - 10
+	if index < 0 || index >= len(lines) {
+		t.Fatalf("first selectable bodyY=%d points outside the rendered row (%d lines)", selectable[0].bodyY, len(lines))
+	}
+	if !strings.Contains(lines[index], "hello world") {
+		t.Fatalf("first text line lands on the wrong row: lines[%d]=%q", index, lines[index])
+	}
+	if strings.Contains(lines[index], "[Image #1]") {
+		t.Fatalf("first text line overlaps the attachment summary: %q", lines[index])
+	}
+
+	plainRendered, plain := m.renderSelectableUserRow(0, transcriptRow{kind: rowUser, text: "hello world"}, 80, 10)
+	_ = plainRendered
+	if len(plain) == 0 {
+		t.Fatal("expected selectable lines for a row without attachments")
+	}
+	if plain[0].bodyY != 10+1 {
+		t.Fatalf("no-attachment bodyY=%d, want %d", plain[0].bodyY, 10+1)
+	}
+}
