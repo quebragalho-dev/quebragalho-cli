@@ -441,6 +441,13 @@ type Options struct {
 	// of this window. 0 DISABLES compaction entirely (every existing caller/test
 	// behaves identically).
 	ContextWindow int
+	// AutoCompactLimit is the user's auto-compact limit in tokens (the
+	// /autocompact setting). 0 = automatic: proactive compaction triggers at
+	// the threshold derived from ContextWindow. > 0 = trigger at that many
+	// tokens, never above the automatic threshold of the current window.
+	// < 0 = proactive compaction off; reactive recovery after a
+	// context-limit error still runs.
+	AutoCompactLimit int
 	// CompactionPreserveLast is how many trailing messages compaction keeps
 	// verbatim. <= 0 falls back to defaultCompactionPreserveLast.
 	CompactionPreserveLast int
