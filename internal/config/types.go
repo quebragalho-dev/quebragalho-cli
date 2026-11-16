@@ -130,6 +130,12 @@ type PreferencesConfig struct {
 	// curated cheap model on official endpoints, the main model elsewhere.
 	// "main" forces the main model. QG_COMPACTION_MODEL overrides.
 	CompactionModel string `json:"compactionModel,omitempty"`
+	// AutoCompactLimit is the /autocompact setting, in tokens. 0 (or absent) =
+	// automatic: the agent compacts at its own threshold for the model's
+	// context window. > 0 = compact when the conversation nears that many
+	// tokens, even on a model with a larger window. AutoCompactOff = never
+	// compact proactively. See NormalizeAutoCompactLimit.
+	AutoCompactLimit int `json:"autoCompactLimit,omitempty"`
 }
 
 // RecentModelEntry is one provider-qualified model selection recorded in
