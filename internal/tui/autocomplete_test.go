@@ -392,6 +392,9 @@ func TestOverlayViewportLinesPreservesTextOutsidePanel(t *testing.T) {
 
 func TestSuggestionOverlayCapsRowsWithoutMoreText(t *testing.T) {
 	m := newModel(context.Background(), Options{})
+	// The header shows the checked-out branch, and this test searches the whole
+	// screen for command names: a branch called "fix/compact-x" must not fail it.
+	m.gitBranch = ""
 	m.width, m.height = 96, 30
 	m = typeRunes(t, m, "/")
 
