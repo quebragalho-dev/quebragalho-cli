@@ -123,10 +123,6 @@ jobs:
     name: Unit Tests (Windows)
     runs-on: windows-latest
     timeout-minutes: 45
-    # Not a gate yet. Until this job existed the Windows-only tests ran
-    # nowhere, so its first results are a triage list. Remove this line once
-    # the job is green; from then on a Windows failure must fail the workflow.
-    continue-on-error: true
     permissions:
       contents: read
 
