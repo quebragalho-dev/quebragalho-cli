@@ -396,10 +396,10 @@ func TestInspectPinsParseableLocaleOnDiffStat(t *testing.T) {
 func TestInspectBaseRefUsesThreeDotDiff(t *testing.T) {
 	root := t.TempDir()
 	runner := &fakeRunner{results: []CommandResult{
-		{Stdout: root + "\n"},            // rev-parse --show-toplevel
-		{Stdout: "feature/m5\n"},         // rev-parse --abbrev-ref HEAD
-		{Stdout: "abc1234\n"},            // rev-parse --short HEAD
-		{Stdout: "M\ta.txt\nA\tb.txt\n"}, // diff --name-status main...HEAD
+		{Stdout: root + "\n"},                    // rev-parse --show-toplevel
+		{Stdout: "feature/m5\n"},                 // rev-parse --abbrev-ref HEAD
+		{Stdout: "abc1234\n"},                    // rev-parse --short HEAD
+		{Stdout: "M\x00a.txt\x00A\x00b.txt\x00"}, // diff --name-status -z main...HEAD
 		{Stdout: " a.txt | 1 +\n b.txt | 1 +\n 2 files changed, 2 insertions(+)\n"},                                                      // diff --stat main...HEAD
 		{Stdout: "diff --git a/internal/changes/changes.go b/internal/changes/changes.go\n+token sk-proj-abcdefghijklmnopqrstuvwxyz0\n"}, // diff main...HEAD
 	}}
@@ -438,7 +438,7 @@ func TestInspectBaseRefUsesThreeDotDiff(t *testing.T) {
 	if !summary.Truncated {
 		t.Fatalf("expected diff to be marked truncated")
 	}
-	if got := runner.commandLine(3); got != "git diff --name-status main...HEAD --" {
+	if got := runner.commandLine(3); got != "git diff --name-status -z main...HEAD --" {
 		t.Fatalf("name-status command = %q", got)
 	}
 	if got := runner.commandLine(4); got != "git diff --stat main...HEAD --" {
@@ -481,19 +481,19 @@ func TestParseNameStatusRenameAndCopy(t *testing.T) {
 	}{
 		{
 			name:       "rename uses new path",
-			line:       "R100\told.txt\tnew.txt",
+			line:       "R100\x00old.txt\x00new.txt\x00",
 			wantPath:   "new.txt",
 			wantStatus: "renamed",
 		},
 		{
 			name:       "copy uses destination path",
-			line:       "C75\tsrc.txt\tdst.txt",
+			line:       "C75\x00src.txt\x00dst.txt\x00",
 			wantPath:   "dst.txt",
 			wantStatus: "copied",
 		},
 		{
 			name:       "modify two-field no regression",
-			line:       "M\ta.txt",
+			line:       "M\x00a.txt\x00",
 			wantPath:   "a.txt",
 			wantStatus: "modified",
 		},
