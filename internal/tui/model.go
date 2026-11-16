@@ -4267,6 +4267,16 @@ func (m model) chatTranscriptViewport() (transcriptViewport, bool) {
 		return transcriptViewport{}, false
 	}
 	width := m.chatColumnWidth()
+	if m.subchat.active {
+		navBar := renderSubchatNavBar(m.subchat.childSessionTitle, width)
+		if panelNav, ok := m.renderSubchatPanelNavBar(width); ok {
+			navBar = panelNav
+		}
+		items := m.transcriptBodyItemsFromRows(m.subchat.childRows, width)
+		body := measureTranscriptBodyItems(items, m.transcriptBodyHeights)
+		frame := m.scrollableTranscriptFrame(navBar, m.footerView(width))
+		return transcriptViewportForLayout(body, frame, m.chatScrollOffset), true
+	}
 	if m.transcriptDetailed {
 		items := m.transcriptBodyItems(width, "", true)
 		body := measureTranscriptBodyItems(items, m.transcriptBodyHeights)
