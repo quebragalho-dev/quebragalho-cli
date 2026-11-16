@@ -1163,3 +1163,43 @@ func TestRecoverRefusesTwoWorkspacesNamingOneTarget(t *testing.T) {
 		t.Errorf("nothing may be published while the claim is ambiguous: %v", statErr)
 	}
 }
+
+// killedRemoval runs RemoveDir with a publish that dies, which leaves on disk
+// what a process killed between the rename and the publish leaves.
+func killedRemoval(t *testing.T, target string) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("the publish was expected to die")
+		}
+	}()
+	_ = RemoveDir(target, func() error { panic("killed mid-removal") })
+}
+
+// A removal killed after its rename holds the only copy in the workspace, so
+// recovery must put it back at the target: without the marker nothing can tell
+// which install the retained tree is.
+func TestRecoverPutsBackARemovalKilledBeforeItsPublish(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "version"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	killedRemoval(t, target)
+
+	if err := Recover(dir, nil); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(target, "version"))
+	if err != nil || string(data) != "old" {
+		t.Fatalf("the removal that never published was not put back: got %q err %v", data, err)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(dir, workspacePrefix+"*"))
+	if err != nil || len(leftovers) != 0 {
+		t.Fatalf("the recovered workspace should be cleared, got %v err %v", leftovers, err)
+	}
+}
