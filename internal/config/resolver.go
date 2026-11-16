@@ -903,6 +903,9 @@ func mergeSTTConfig(dst *STTConfig, src STTConfig) {
 	if src.AutoSubmit != nil {
 		dst.AutoSubmit = src.AutoSubmit
 	}
+	if src.VoiceMode {
+		dst.VoiceMode = true
+	}
 	if src.WindowsAudioDevice != "" {
 		dst.WindowsAudioDevice = src.WindowsAudioDevice
 	}

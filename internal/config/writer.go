@@ -684,6 +684,37 @@ func SetSTTProvider(path string, provider STTProviderKind) (result FileConfig, e
 	return cfg, nil
 }
 
+// SetSTTVoiceMode persists the /voice dictation-mode flag, mirroring
+// SetRecapsEnabled (read-modify-atomic-write). false clears the key.
+func SetSTTVoiceMode(path string, enabled bool) (result FileConfig, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	// Joined, not chosen between: a release failure annotates the result
+	// instead of masking the mutation error that actually explains what went
+	// wrong. Reporting success after a failed unlock would claim a state the
+	// next mutation cannot reproduce.
+	defer func() { err = errors.Join(err, unlock()) }()
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg.STT.VoiceMode = enabled
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
+}
+
 func normalizeFavoriteModels(models []string) []string {
 	seen := map[string]bool{}
 	favorites := make([]string, 0, len(models))

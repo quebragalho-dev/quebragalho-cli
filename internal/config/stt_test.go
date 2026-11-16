@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -135,5 +136,148 @@ func TestSetSTTModelPersists(t *testing.T) {
 	cfg, _ = ValidateFile(path)
 	if cfg.STT.LocalModelPath != "/models/moonshine" {
 		t.Errorf("local model path = %q", cfg.STT.LocalModelPath)
+	}
+}
+
+func TestSetSTTVoiceModeKeepsOtherKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/config.json"
+	if err := os.WriteFile(path, []byte(`{"providers":[{"name":"main","provider_kind":"openai","model":"gpt-4.1"}],"preferences":{"theme":"dark"},"stt":{"provider":"groq"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetSTTVoiceMode(path, true); err != nil {
+		t.Fatalf("SetSTTVoiceMode(true): %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"voiceMode"`) {
+		t.Errorf("enabled config should carry voiceMode:true, got %s", data)
+	}
+	cfg, issues := ValidateFile(path)
+	if len(issues) != 0 {
+		t.Fatalf("issues: %+v", issues)
+	}
+	if !cfg.STT.VoiceMode {
+		t.Error("resolved STT.VoiceMode should be true after enabling")
+	}
+	if cfg.Preferences.Theme != "dark" || cfg.STT.Provider != STTProviderGroq {
+		t.Errorf("other keys must stay intact, got theme=%q provider=%q", cfg.Preferences.Theme, cfg.STT.Provider)
+	}
+	if _, err := SetSTTVoiceMode(path, false); err != nil {
+		t.Fatalf("SetSTTVoiceMode(false): %v", err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "voiceMode") {
+		t.Errorf("disabled config should drop the voiceMode key, got %s", data)
+	}
+	cfg, issues = ValidateFile(path)
+	if len(issues) != 0 {
+		t.Fatalf("issues: %+v", issues)
+	}
+	if cfg.STT.VoiceMode {
+		t.Error("resolved STT.VoiceMode should be false after disabling")
+	}
+	if cfg.Preferences.Theme != "dark" || cfg.STT.Provider != STTProviderGroq {
+		t.Errorf("other keys must stay intact, got theme=%q provider=%q", cfg.Preferences.Theme, cfg.STT.Provider)
+	}
+}
+
+func TestSetSTTVoiceModeFromScratch(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/config.json"
+	if _, err := SetSTTVoiceMode(path, true); err != nil {
+		t.Fatalf("SetSTTVoiceMode(true): %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"voiceMode"`) {
+		t.Errorf("fresh config should carry stt.voiceMode:true, got %s", data)
+	}
+	if _, err := SetSTTVoiceMode(path, false); err != nil {
+		t.Fatalf("SetSTTVoiceMode(false): %v", err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"stt"`) {
+		t.Errorf("clearing the only stt setting should leave no stt object, got %s", data)
+	}
+}
+
+func TestSetSTTVoiceModeRequiresPath(t *testing.T) {
+	if _, err := SetSTTVoiceMode("   ", true); err == nil {
+		t.Error("empty config path should return an error")
+	}
+}
+
+func TestResolveVoiceMode(t *testing.T) {
+	userPath := writeConfig(t, `{"stt":{"voiceMode":true}}`)
+	resolved, err := Resolve(ResolveOptions{UserConfigPath: userPath, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if !resolved.STT.VoiceMode {
+		t.Error("voiceMode:true in user config should resolve to true")
+	}
+	absentPath := writeConfig(t, `{"preferences":{"theme":"dark"}}`)
+	resolved, err = Resolve(ResolveOptions{UserConfigPath: absentPath, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.STT.VoiceMode {
+		t.Error("absent voiceMode should resolve to false")
+	}
+}
+
+func TestSTTVoiceModeEmpty(t *testing.T) {
+	if (STTConfig{VoiceMode: true}).Empty() {
+		t.Error("STTConfig{VoiceMode:true} must not be Empty, or it would never be written")
+	}
+	if !(STTConfig{}).Empty() {
+		t.Error("zero-value STTConfig should still be Empty")
+	}
+}
+
+func TestSTTVoiceModeRoundTrip(t *testing.T) {
+	cfg, issues := ValidateBytes([]byte(`{"stt":{"voiceMode":true}}`))
+	if len(issues) != 0 {
+		t.Fatalf("unexpected issues: %+v", issues)
+	}
+	if !cfg.STT.VoiceMode {
+		t.Fatal("parsed STT.VoiceMode should be true")
+	}
+	data, err := cfg.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"voiceMode":true`) {
+		t.Errorf("marshaled config dropped voiceMode: %s", data)
+	}
+	var reparsed FileConfig
+	if err := json.Unmarshal(data, &reparsed); err != nil {
+		t.Fatal(err)
+	}
+	if !reparsed.STT.VoiceMode {
+		t.Error("round trip lost STT.VoiceMode")
+	}
+}
+
+func TestSTTVoiceModeIsKnownField(t *testing.T) {
+	_, issues := ValidateBytes([]byte(`{"stt":{"provider":"groq","voiceMode":true}}`))
+	if len(issues) != 0 {
+		t.Fatalf("unexpected issues: %+v", issues)
+	}
+	for _, issue := range issues {
+		if strings.Contains(issue.FieldPath, "voiceMode") {
+			t.Errorf("stt.voiceMode flagged as unknown: %+v", issue)
+		}
 	}
 }

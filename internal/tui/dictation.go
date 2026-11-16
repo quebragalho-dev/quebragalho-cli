@@ -130,7 +130,10 @@ func newDictationController(opts Options) dictationController {
 		platform:       dictation.DetectPlatform(),
 		downloadRoot:   opts.STTDownloadRoot,
 		userConfigPath: opts.UserConfigPath,
-		sessionID:      1,
+		// The saved /voice setting; without a transcriber factory there is
+		// nothing to turn on.
+		voiceModeEnabled: opts.STT.VoiceMode && opts.BuildDictationTranscriber != nil,
+		sessionID:        1,
 	}
 }
 
@@ -200,18 +203,42 @@ func (m model) toggleVoiceMode() (model, tea.Cmd) {
 		return m.appendSystemNotice("Ditado não configurado. Veja docs/dictation.md para configurar um motor local ou uma chave Groq/OpenAI."), nil
 	}
 	m.dictation.voiceModeEnabled = !m.dictation.voiceModeEnabled
+	saveErrText := m.persistVoiceMode()
 	if m.dictation.voiceModeEnabled {
-		return m.showTransientNoticeInline("Modo de voz ligado — "+voiceCaptureUsage+". Rode /voice de novo para desligar.", transientNoticeSuccess), nil
+		text := "Modo de voz ligado — " + voiceCaptureUsage + ". Rode /voice de novo para desligar." + saveErrText
+		if saveErrText != "" {
+			return m.appendSystemNotice(text), nil
+		}
+		return m.showTransientNoticeInline(text, transientNoticeSuccess), nil
 	}
 	// Turning voice off is the "done dictating" signal, so release the warm sherpa
 	// streaming server — otherwise a loaded model keeps idling in RAM (and holding
 	// its port) until the app exits. It respawns lazily on the next streaming
 	// recording. Skip while a recording is still in flight so we don't kill it.
-	next := m.showTransientNoticeInline("Modo de voz desligado.", transientNoticeInfo)
+	var next model
+	if saveErrText != "" {
+		next = m.appendSystemNotice("Modo de voz desligado." + saveErrText)
+	} else {
+		next = m.showTransientNoticeInline("Modo de voz desligado.", transientNoticeInfo)
+	}
 	if next.dictation.active() {
 		return next, nil
 	}
 	return next, next.releaseDictationServerCmd()
+}
+
+// persistVoiceMode saves the /voice setting to the user config. It returns the
+// text to append to the notice when saving fails; the session value applies
+// either way.
+func (m model) persistVoiceMode() string {
+	path := strings.TrimSpace(m.dictation.userConfigPath)
+	if path == "" {
+		return ""
+	}
+	if _, err := config.SetSTTVoiceMode(path, m.dictation.voiceModeEnabled); err != nil {
+		return " Não foi possível salvar na configuração: " + err.Error()
+	}
+	return ""
 }
 
 // releaseDictationServerCmd tears down the warm sherpa-onnx streaming server off
