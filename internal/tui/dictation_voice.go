@@ -146,15 +146,16 @@ type voiceHold struct {
 	lastAt     time.Time     // latest Space press, of the run or of the recording it started
 	count      int           // presses in the run
 	typed      int           // presses of the run that reached the composer
-	maxGap     time.Duration // widest pause between two auto-repeats of the run
+	maxGap     time.Duration // widest pause between two auto-repeats of the current run; a recording keeps the value of the run that started it, and a new run starts from zero
 	repeatFrom time.Time     // second press of the run: where its auto-repeat pauses start
 	flagged    bool          // a press of the run carried IsRepeat: the terminal says the key is held
 	spent      bool          // this hold already activated: its remaining auto-repeats are swallowed until the key goes up
 }
 
-// endRun drops the run but keeps lastAt and maxGap: a running hold recording
-// still needs both to detect the release. It also keeps spent: an activation
-// outlives the run it came from.
+// endRun drops the run but keeps lastAt, maxGap and spent: a running hold
+// recording still needs all three to detect the release. A new run resets
+// maxGap when it starts (see the fresh-run branch); endRun must not do it, or
+// a recording would lose the rate of the run that started it.
 func (h *voiceHold) endRun() {
 	h.startedAt = time.Time{}
 	h.count = 0
@@ -231,6 +232,11 @@ func (m model) handleVoiceHoldSpace(msg tea.KeyMsg, now time.Time) (model, tea.C
 		m.dictation.hold.lastAt = now
 		m.dictation.hold.count = 1
 		m.dictation.hold.typed = 1
+		// A new run measures its own repeat rate from zero. maxGap belongs to
+		// the previous run (and to the recording it may have started); without
+		// the reset a single slow pause anywhere in the session would slow
+		// every later release detection.
+		m.dictation.hold.maxGap = 0
 		return m, nil, false
 	}
 	pause := now.Sub(hold.lastAt)

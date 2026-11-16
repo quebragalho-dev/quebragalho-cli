@@ -915,3 +915,50 @@ func TestVoiceHoldFlagClearedWithRun(t *testing.T) {
 		t.Fatalf("phase after taps following a flagged run = %v, want idle", m.dictation.phase)
 	}
 }
+
+func TestVoiceHoldNewRunResetsMaxGap(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	// Three slow taps leave a run with a 400ms maxGap behind.
+	holdSpace(t, m, &at, 0, 400*time.Millisecond, 400*time.Millisecond)
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after slow taps = %v, want idle", m.dictation.phase)
+	}
+	// A long pause, then a normal hold: the new run measures its own fast
+	// rate from zero instead of inheriting the 400ms.
+	at = at.Add(2 * time.Second)
+	holdSpace(t, m, &at, 0, 400*time.Millisecond)
+	var cmd tea.Cmd
+	for i := 0; i < 100 && cmd == nil; i++ {
+		cmds := holdSpace(t, m, &at, 30*time.Millisecond)
+		cmd = cmds[0]
+	}
+	if cmd == nil {
+		t.Fatal("hold after slow taps never activated dictation")
+	}
+	if m.dictation.phase != dictStarting {
+		t.Fatalf("phase after hold = %v, want starting", m.dictation.phase)
+	}
+	if got := m.dictation.hold.releaseTimeout(); got != voiceHoldReleaseFloor {
+		t.Fatalf("release timeout = %v, want the %v floor", got, voiceHoldReleaseFloor)
+	}
+	updated, _ := m.Update(dictationStartedMsg{sessionID: m.dictation.sessionID})
+	*m = updated.(model)
+	lastPress := at
+
+	at = lastPress.Add(250 * time.Millisecond)
+	updated, _ = m.Update(voiceHoldTickMsg{sessionID: m.dictation.sessionID})
+	*m = updated.(model)
+	if m.dictation.phase != dictRecording {
+		t.Fatalf("phase 250ms after the last press = %v, want recording", m.dictation.phase)
+	}
+
+	at = lastPress.Add(400 * time.Millisecond)
+	updated, _ = m.Update(voiceHoldTickMsg{sessionID: m.dictation.sessionID})
+	*m = updated.(model)
+	if m.dictation.phase != dictTranscribing {
+		t.Fatalf("phase 400ms after the last press = %v, want transcribing", m.dictation.phase)
+	}
+}
