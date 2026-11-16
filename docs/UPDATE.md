@@ -89,6 +89,12 @@ Endpoint resolution order:
 3. `--repo`
 4. `https://api.github.com/repos/quebragalho-dev/quebragalho-cli/releases/latest` (public repository)
 
+A custom endpoint, and every URL the release points to, must be `https://`.
+Plain `http://` is accepted only for a loopback address (`localhost`,
+`127.0.0.1`, `[::1]`), and a redirect from https to http is refused: the
+checksum comes from the same origin as the archive, so TLS is what
+authenticates the download.
+
 Installer scripts download the matching release asset for the local platform and
 verify its `.sha256` file. If QG is already installed, run `qg upgrade`
 instead of reinstalling.
