@@ -3,7 +3,9 @@ package update
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -370,13 +372,16 @@ func fetchRelease(ctx context.Context, endpoint string) (release Release, err er
 	if strings.HasPrefix(endpoint, "data:") {
 		return fetchDataRelease(endpoint)
 	}
+	if err := requireSecureURL(endpoint); err != nil {
+		return Release{}, err
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return Release{}, err
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("User-Agent", "qg/update")
-	response, err := http.DefaultClient.Do(request)
+	response, err := updateHTTPClient.Do(request)
 	if err != nil {
 		return Release{}, err
 	}
@@ -422,7 +427,54 @@ func resolveEndpoint(endpointOrRepository string, repository string) (string, er
 	if err != nil || parsed.Scheme == "" {
 		return "", fmt.Errorf("invalid update endpoint %q: use a full URL or an owner/repo slug like %s", value, repository)
 	}
+	if parsed.Scheme != "data" {
+		if err := requireSecureURL(value); err != nil {
+			return "", err
+		}
+	}
 	return value, nil
+}
+
+// requireSecureURL accepts https, and plain http only for a loopback host. The
+// release checksum is served by the same origin as the archive, so TLS is the
+// only thing that authenticates what the updater installs; loopback is exempt
+// because a local mirror or test server is not reachable by a network attacker.
+func requireSecureURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err == nil {
+		switch strings.ToLower(parsed.Scheme) {
+		case "https":
+			return nil
+		case "http":
+			if isLoopbackHost(parsed.Hostname()) {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("insecure update URL refused: %q (only https is accepted; plain http is allowed for loopback addresses only)", raw)
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// updateHTTPClient is the client for release metadata and release downloads.
+// http.DefaultClient follows a redirect from https to http, which would hand
+// the archive and its checksum to whoever sits on that plaintext hop.
+var updateHTTPClient = &http.Client{CheckRedirect: checkUpdateRedirect}
+
+func checkUpdateRedirect(request *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && request.URL.Scheme != "https" {
+		return fmt.Errorf("insecure update redirect refused: %s", request.URL.Redacted())
+	}
+	return requireSecureURL(request.URL.String())
 }
 
 func verifyReleaseAssets(release Release, version string, options Options) (AssetCheck, error) {
