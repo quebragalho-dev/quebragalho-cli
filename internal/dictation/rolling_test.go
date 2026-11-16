@@ -1045,6 +1045,10 @@ func TestStreamingModelDir(t *testing.T) {
 		{"", true},
 		{"/dl/model-nemo-parakeet-tdt-0.6b-v3-int8/", false},
 		{"/dl/model-streaming-zipformer-en-kroko-2025-08-06/", true},
+		// The layout QG really installs: the path points inside "model-<id>".
+		{"/dl/model-nemo-parakeet-tdt-0.6b-v3-int8/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8", false},
+		{`C:\dl\model-whisper-base\sherpa-onnx-whisper-base`, false},
+		{"/dl/model-streaming-zipformer-en-kroko-2025-08-06/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06", true},
 	}
 	for _, tc := range cases {
 		if got := StreamingModelDir(tc.path); got != tc.want {

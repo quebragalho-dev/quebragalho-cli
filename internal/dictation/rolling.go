@@ -200,23 +200,20 @@ func wavFromPCM16(pcm []byte, sampleRate int) []byte {
 }
 
 // StreamingModelDir reports whether a local model directory holds a true
-// streaming model. Directories QG installs are named "model-<id>", and a
-// streaming model's id contains "streaming". Any other directory is a manual
-// setup and keeps the streaming-server path it has today (true).
+// streaming model. QG installs a model as "model-<id>/sherpa-onnx-<id>" and
+// stt.localModelPath points at the inner directory; a streaming model's id
+// contains "streaming". A directory with neither prefix is a manual setup and
+// keeps the streaming-server path (true).
 func StreamingModelDir(path string) bool {
 	trimmed := strings.TrimRight(strings.TrimSpace(path), `/\`)
-	if trimmed == "" {
-		return true
-	}
 	base := trimmed
 	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
 		base = base[i+1:]
 	}
-	if base == "" {
-		return true
+	for _, prefix := range []string{"model-", "sherpa-onnx-"} {
+		if id, ok := strings.CutPrefix(base, prefix); ok {
+			return strings.Contains(id, "streaming")
+		}
 	}
-	if !strings.HasPrefix(base, "model-") {
-		return true
-	}
-	return strings.Contains(strings.TrimPrefix(base, "model-"), "streaming")
+	return true
 }
