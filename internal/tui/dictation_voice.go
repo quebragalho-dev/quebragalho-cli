@@ -6,8 +6,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const voiceCaptureUsage = "segure Espaço por 2s para ditar; Ctrl+Space também grava"
-
 // Voice mode's dictation gestures — two ways to record:
 //
 //  1. Hold bare Space for 2 seconds: the terminal delivers a held Space as a

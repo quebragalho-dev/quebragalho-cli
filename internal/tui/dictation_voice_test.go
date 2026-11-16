@@ -37,7 +37,7 @@ func TestToggleVoiceModeFlips(t *testing.T) {
 	if !next.dictation.voiceModeEnabled {
 		t.Fatal("first /voice should enable voice mode")
 	}
-	if next.transientNotice.text != "Modo de voz ligado — segure Espaço por 2s para ditar; Ctrl+Space também grava. Rode /voice de novo para desligar." {
+	if next.transientNotice.text != "Modo de voz ligado — "+voiceCaptureUsage+". Rode /voice de novo para desligar." {
 		t.Errorf("voice-mode-on notice = %q", next.transientNotice.text)
 	}
 	if transcriptHasText(next, "Modo de voz ligado") {
@@ -253,7 +253,11 @@ func TestDictationStatusChipUsesVoiceCaptureShortcut(t *testing.T) {
 func TestVoiceCommandDescriptionExplainsBothTerminalTiers(t *testing.T) {
 	for _, command := range commandDefinitions {
 		if command.kind == commandVoice {
-			for _, want := range []string{"segure Espaço", "Ctrl+Space"} {
+			wants := []string{"segure Espaço"}
+			if strings.Contains(voiceCaptureUsage, "Ctrl+Space") {
+				wants = append(wants, "Ctrl+Space")
+			}
+			for _, want := range wants {
 				if !strings.Contains(command.description, want) {
 					t.Fatalf("voice command description = %q, want %q", command.description, want)
 				}

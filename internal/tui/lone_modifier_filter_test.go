@@ -45,12 +45,62 @@ func TestProgramEventFilterKeepsRealKeysOnWindows(t *testing.T) {
 	}
 }
 
-func TestProgramEventFilterKeepsCtrlSpaceForVoiceModeOnWindows(t *testing.T) {
+func TestProgramEventFilterDropsLoneModifierNULWithVoiceModeOnWindows(t *testing.T) {
 	m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
 	m.dictation.voiceModeEnabled = true
 
-	if got := programEventFilter("windows")(m, loneModifierNULPress()); got == nil {
-		t.Fatal("voice mode lost its Ctrl+Space capture chord on windows")
+	if got := programEventFilter("windows")(m, loneModifierNULPress()); got != nil {
+		t.Fatalf("lone modifier NUL passed through on windows with voice mode on: %#v", got)
+	}
+	locked := tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Mod: tea.ModCtrl | tea.ModNumLock | tea.ModCapsLock})
+	if got := programEventFilter("windows")(m, locked); got != nil {
+		t.Fatalf("lone modifier NUL with NumLock/CapsLock passed through on windows with voice mode on: %#v", got)
+	}
+}
+
+func TestProgramEventFilterKeepsCtrlSpaceForVoiceModeOffWindows(t *testing.T) {
+	for _, goos := range []string{"linux", "darwin"} {
+		m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
+		m.dictation.voiceModeEnabled = true
+
+		if got := programEventFilter(goos)(m, loneModifierNULPress()); got == nil {
+			t.Errorf("ctrl+space was dropped on %s with voice mode on", goos)
+		}
+	}
+}
+
+// On Windows with voice mode on, the lone-modifier NUL must vanish before
+// Update: typing after it leaves a clean composer and starts no recording.
+func TestWindowsLoneModifierNULWithVoiceModeLeavesComposerAlone(t *testing.T) {
+	m := newModel(context.Background(), Options{ProviderName: "tokenrouter"})
+	m.dictation = batchOnlyController()
+	m.dictation.voiceModeEnabled = true
+	filter := programEventFilter("windows")
+
+	var current tea.Model = m
+	filtered := filter(current, loneModifierNULPress())
+	if filtered != nil {
+		t.Fatalf("lone modifier NUL passed through on windows with voice mode on: %#v", filtered)
+	}
+
+	updated, _ := current.Update(testKeyText("a"))
+	got := updated.(model)
+	if text := got.composerValue(); text != "a" {
+		t.Fatalf("composer = %q, want %q", text, "a")
+	}
+	if got.dictation.phase != dictIdle {
+		t.Fatalf("lone modifier NUL started a recording on windows: phase=%d", got.dictation.phase)
+	}
+}
+
+func TestVoiceCaptureUsageForDescribesGesturesPerSystem(t *testing.T) {
+	if got := voiceCaptureUsageFor("windows"); got != "segure Espaço por 2s para ditar" {
+		t.Errorf("windows usage = %q", got)
+	}
+	for _, goos := range []string{"linux", "darwin"} {
+		if got := voiceCaptureUsageFor(goos); got != "segure Espaço por 2s para ditar; Ctrl+Space também grava" {
+			t.Errorf("%s usage = %q", goos, got)
+		}
 	}
 }
 
