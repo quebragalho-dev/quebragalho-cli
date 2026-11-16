@@ -1248,3 +1248,61 @@ func TestRemoveDirDisownsTheBackupBeforeDeletingIt(t *testing.T) {
 		t.Fatalf("a published removal was resurrected from a half deleted backup: %v", err)
 	}
 }
+
+// The backup is deleted only after the marker that attributes it is gone. With
+// the marker still in place and nothing at the target, recovery puts the backup
+// back without asking anyone, so a tree deleted first would come back emptied.
+// The publish seals the workspace here so the marker cannot be unlinked: the
+// removal must then stop and report, leaving the tree whole for recovery.
+func TestRemoveDirKeepsTheBackupWholeWhileItIsStillAttributed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not block unlinking on windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory permissions this test relies on")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "version"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var workspace string
+	t.Cleanup(func() {
+		if workspace != "" {
+			_ = os.Chmod(workspace, 0o755)
+		}
+	})
+
+	err := RemoveDir(target, func() error {
+		matches, globErr := filepath.Glob(filepath.Join(dir, workspacePrefix+"*"))
+		if globErr != nil || len(matches) != 1 {
+			return fmt.Errorf("expected one removal workspace, got %v err %v", matches, globErr)
+		}
+		workspace = matches[0]
+		return os.Chmod(workspace, 0o555)
+	})
+	if err == nil {
+		t.Fatal("a removal that could not release its marker must be reported")
+	}
+	if workspace == "" {
+		t.Fatalf("the publish never ran: %v", err)
+	}
+	if chmodErr := os.Chmod(workspace, 0o755); chmodErr != nil {
+		t.Fatal(chmodErr)
+	}
+
+	data, readErr := os.ReadFile(filepath.Join(workspace, "previous", "version"))
+	if readErr != nil || string(data) != "old" {
+		t.Fatalf("the backup was deleted while its marker still attributed it: got %q err %v", data, readErr)
+	}
+	if err := Recover(dir, nil); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	data, readErr = os.ReadFile(filepath.Join(target, "version"))
+	if readErr != nil || string(data) != "old" {
+		t.Fatalf("recovery did not put the whole tree back: got %q err %v", data, readErr)
+	}
+}
