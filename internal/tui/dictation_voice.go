@@ -14,9 +14,9 @@ import (
 //     every terminal (see voiceHold). Recording starts once the key has been
 //     down for voiceHoldThreshold and stops when the key is released. A short
 //     press still types a space. Manual tapping never starts dictation: the
-//     run must look like auto-repeat, and a repeat rate slower than
-//     voiceHoldRapidGap cannot use this gesture (Ctrl+Space covers it). One
-//     physical hold activates at most once.
+//     run's average repeat rate past the initial delay must be
+//     voiceHoldRapidGap or faster, and a slower average cannot use this
+//     gesture (Ctrl+Space covers it). One physical hold activates at most once.
 //  2. Ctrl+Space, unchanged, with its two terminal tiers: where the terminal
 //     confirms key-release reporting (Ghostty/Kitty/WezTerm, …) a press starts
 //     and the release stops (hold-to-record); where it does not, Ctrl+Space
@@ -136,19 +136,20 @@ const voiceHoldTickInterval = 100 * time.Millisecond
 // voiceHold tracks a run of bare Space presses that may be a held key. A
 // terminal delivers a held Space as ordinary presses (keyboard auto-repeat)
 // with no release event, so the hold and its release are inferred from timing.
-// Manual tapping never starts dictation: the run must look like auto-repeat
-// (see autoRepeat). A keyboard whose repeat rate is slower than
-// voiceHoldRapidGap cannot use the Space hold; Ctrl+Space covers it. One
-// physical hold activates at most once: after an activation the remaining
-// auto-repeats of that hold are swallowed until the key goes up.
+// Manual tapping never starts dictation: past the initial delay, the run's
+// average repeat rate must be voiceHoldRapidGap or faster (see autoRepeat); an
+// average rate slower than that cannot use the Space hold. Ctrl+Space covers
+// it. One physical hold activates at most once: after an activation the
+// remaining auto-repeats of that hold are swallowed until the key goes up.
 type voiceHold struct {
-	startedAt time.Time     // first Space of the run; zero when there is no run
-	lastAt    time.Time     // latest Space press, of the run or of the recording it started
-	count     int           // presses in the run
-	typed     int           // presses of the run that reached the composer
-	maxGap    time.Duration // widest pause between two auto-repeats of the run
-	rapid     int           // pauses of the run short enough to be auto-repeat
-	spent     bool          // this hold already activated: its remaining auto-repeats are swallowed until the key goes up
+	startedAt  time.Time     // first Space of the run; zero when there is no run
+	lastAt     time.Time     // latest Space press, of the run or of the recording it started
+	count      int           // presses in the run
+	typed      int           // presses of the run that reached the composer
+	maxGap     time.Duration // widest pause between two auto-repeats of the run
+	repeatFrom time.Time     // second press of the run: where its auto-repeat pauses start
+	flagged    bool          // a press of the run carried IsRepeat: the terminal says the key is held
+	spent      bool          // this hold already activated: its remaining auto-repeats are swallowed until the key goes up
 }
 
 // endRun drops the run but keeps lastAt and maxGap: a running hold recording
@@ -158,7 +159,8 @@ func (h *voiceHold) endRun() {
 	h.startedAt = time.Time{}
 	h.count = 0
 	h.typed = 0
-	h.rapid = 0
+	h.repeatFrom = time.Time{}
+	h.flagged = false
 }
 
 // keyUp ends the run and clears the activation latch: the key went up (or
@@ -170,11 +172,16 @@ func (h *voiceHold) keyUp() {
 }
 
 // autoRepeat reports whether the run looks like a held key rather than manual
-// tapping: at least 80% of its pauses, not counting the initial repeat delay,
-// are rapid. Occasional slow pauses (a busy terminal, network jitter) pass.
+// tapping: the terminal flagged a repeat, or the pauses after the initial
+// repeat delay average voiceHoldRapidGap or less. The average, not each pause,
+// is judged: jitter and a busy interface deliver a held key in bursts, which
+// moves the pauses around without changing their sum.
 func (h voiceHold) autoRepeat() bool {
+	if h.flagged {
+		return true
+	}
 	pauses := h.count - 2
-	return pauses > 0 && h.rapid*5 >= pauses*4
+	return pauses > 0 && h.lastAt.Sub(h.repeatFrom) <= time.Duration(pauses)*voiceHoldRapidGap
 }
 
 // releaseTimeout is how long a hold recording waits without a Space press
@@ -229,17 +236,16 @@ func (m model) handleVoiceHoldSpace(msg tea.KeyMsg, now time.Time) (model, tea.C
 	pause := now.Sub(hold.lastAt)
 	m.dictation.hold.count++
 	m.dictation.hold.lastAt = now
-	if m.dictation.hold.count > 2 {
-		if pause > m.dictation.hold.maxGap {
-			// The first pause is the keyboard's initial repeat delay, not the
-			// auto-repeat rate, so only later pauses widen the release timeout.
-			m.dictation.hold.maxGap = pause
-		}
-		// The first pause is the initial repeat delay: autoRepeat() leaves it
-		// out of the denominator, so it stays out of the numerator too.
-		if msg.Key().IsRepeat || pause <= voiceHoldRapidGap {
-			m.dictation.hold.rapid++
-		}
+	if m.dictation.hold.count == 2 {
+		m.dictation.hold.repeatFrom = now
+	}
+	if msg.Key().IsRepeat {
+		m.dictation.hold.flagged = true
+	}
+	if m.dictation.hold.count > 2 && pause > m.dictation.hold.maxGap {
+		// The first pause is the keyboard's initial repeat delay, not the
+		// auto-repeat rate, so only later pauses widen the release timeout.
+		m.dictation.hold.maxGap = pause
 	}
 	if now.Sub(m.dictation.hold.startedAt) >= voiceHoldThreshold && m.dictation.hold.autoRepeat() {
 		return m.activateVoiceHold(m.dictation.hold, now)

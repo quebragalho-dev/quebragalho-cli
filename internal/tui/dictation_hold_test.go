@@ -619,15 +619,18 @@ func TestVoiceHoldReleaseEndsLatch(t *testing.T) {
 }
 
 func TestVoiceHoldAutoRepeatBoundaries(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
 	for _, test := range []struct {
 		name string
 		hold voiceHold
 		want bool
 	}{
-		{name: "two presses have no pause to judge", hold: voiceHold{count: 2}, want: false},
-		{name: "exactly eighty percent", hold: voiceHold{count: 12, rapid: 8}, want: true},
-		{name: "below eighty percent", hold: voiceHold{count: 12, rapid: 7}, want: false},
-		{name: "single rapid pause", hold: voiceHold{count: 3, rapid: 1}, want: true},
+		{name: "two presses have no pause to judge", hold: voiceHold{count: 2, repeatFrom: t0, lastAt: t0}, want: false},
+		{name: "average exactly at the limit", hold: voiceHold{count: 12, repeatFrom: t0, lastAt: t0.Add(1200 * time.Millisecond)}, want: true},
+		{name: "average just over the limit", hold: voiceHold{count: 12, repeatFrom: t0, lastAt: t0.Add(1201 * time.Millisecond)}, want: false},
+		{name: "single fast pause", hold: voiceHold{count: 3, repeatFrom: t0, lastAt: t0.Add(120 * time.Millisecond)}, want: true},
+		{name: "flagged repeat overrides a slow average", hold: voiceHold{count: 3, repeatFrom: t0, lastAt: t0.Add(5 * time.Second), flagged: true}, want: true},
+		{name: "flagged repeat with no pause to judge", hold: voiceHold{count: 2, flagged: true}, want: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := test.hold.autoRepeat(); got != test.want {
@@ -635,6 +638,21 @@ func TestVoiceHoldAutoRepeatBoundaries(t *testing.T) {
 			}
 		})
 	}
+}
+
+// holdRepeatSpace presses bare Space with IsRepeat set once per gap,
+// advancing the fake clock by each gap first. It models a terminal that
+// reports key repeats.
+func holdRepeatSpace(t *testing.T, m *model, at *time.Time, gaps ...time.Duration) []tea.Cmd {
+	t.Helper()
+	cmds := make([]tea.Cmd, 0, len(gaps))
+	for _, gap := range gaps {
+		*at = at.Add(gap)
+		updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, IsRepeat: true}))
+		*m = updated.(model)
+		cmds = append(cmds, cmd)
+	}
+	return cmds
 }
 
 // repeatGaps returns n identical gaps for holdSpace.
@@ -646,25 +664,38 @@ func repeatGaps(n int, gap time.Duration) []time.Duration {
 	return gaps
 }
 
-func TestVoiceHoldMostlySlowPausesNeverStart(t *testing.T) {
+func TestVoiceHoldMostlySlowPausesStillStart(t *testing.T) {
 	at := time.Unix(1_700_000_000, 0)
+	t0 := at
 	m := holdTestModel(t, &at)
 	m.setComposerState(composerState{text: "oi", cursor: 2})
 
-	// 70% rapid pauses: the first pause is the initial repeat delay and does
-	// not count either way, so the run never looks like auto-repeat.
+	// 70% rapid pauses average 111 ms: a held key delivered unevenly, not
+	// manual tapping (nobody taps every 30 ms). It activates at the first
+	// press at or after t0+2s whose average qualifies.
 	gaps := []time.Duration{0, 100 * time.Millisecond}
 	for c := 0; c < 4; c++ {
 		gaps = append(gaps, repeatGaps(7, 30*time.Millisecond)...)
 		gaps = append(gaps, repeatGaps(3, 300*time.Millisecond)...)
 	}
-	for i, cmd := range holdSpace(t, m, &at, gaps...) {
-		if cmd != nil {
-			t.Fatalf("press %d of a mostly-slow run returned a command", i)
+	var cmd tea.Cmd
+	for i := 0; i < len(gaps); i++ {
+		if cmds := holdSpace(t, m, &at, gaps[i]); cmds[0] != nil {
+			cmd = cmds[0]
+			break
 		}
 	}
-	if m.dictation.phase != dictIdle {
-		t.Fatalf("phase after mostly-slow run = %v, want idle", m.dictation.phase)
+	if cmd == nil {
+		t.Fatal("jittered hold never activated dictation")
+	}
+	if d := at.Sub(t0); d < voiceHoldThreshold || d >= voiceHoldThreshold+300*time.Millisecond {
+		t.Fatalf("activated at %v after t0, want the first qualifying press at or past 2s", d)
+	}
+	if m.dictation.phase != dictStarting {
+		t.Fatalf("phase after jittered hold = %v, want starting", m.dictation.phase)
+	}
+	if got := m.composerValue(); got != "oi" {
+		t.Fatalf("composer after jittered hold = %q, want every typed space removed", got)
 	}
 }
 
@@ -691,5 +722,196 @@ func TestVoiceHoldOtherKeyEndsLatch(t *testing.T) {
 	}
 	if m.dictation.hold.spent {
 		t.Error("hold.spent still set after another key ended the hold")
+	}
+}
+
+func TestVoiceHoldBurstyDeliveryStillStarts(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	t0 := at
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	// A busy interface delivers a held key in bursts: only two thirds of the
+	// pauses are rapid, but the average is fast.
+	holdSpace(t, m, &at, 0, 400*time.Millisecond)
+	var cmd tea.Cmd
+	for i := 0; i < 100; i++ {
+		gaps := []time.Duration{250 * time.Millisecond, 5 * time.Millisecond, 5 * time.Millisecond}
+		for _, gap := range gaps {
+			if cmds := holdSpace(t, m, &at, gap); cmds[0] != nil {
+				cmd = cmds[0]
+				break
+			}
+		}
+		if cmd != nil {
+			break
+		}
+	}
+	if cmd == nil {
+		t.Fatal("bursty hold never activated dictation")
+	}
+	if d := at.Sub(t0); d < voiceHoldThreshold {
+		t.Fatalf("activated at %v after t0, want at or past 2s", d)
+	}
+	if m.dictation.phase != dictStarting {
+		t.Fatalf("phase after bursty hold = %v, want starting", m.dictation.phase)
+	}
+	if got := m.composerValue(); got != "oi" {
+		t.Fatalf("composer after bursty hold = %q, want every typed space removed", got)
+	}
+}
+
+func TestVoiceHoldMacOSJitterStillStarts(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	t0 := at
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	// Default macOS timing (375ms delay, 90ms rate) with jitter: a third of
+	// the pauses are over the rapid limit, but the average is 90ms.
+	holdSpace(t, m, &at, 0, 375*time.Millisecond)
+	var cmd tea.Cmd
+	for i := 0; i < 100 && cmd == nil; i++ {
+		for _, gap := range []time.Duration{60, 125, 90, 130, 55, 80} {
+			if cmds := holdSpace(t, m, &at, gap*time.Millisecond); cmds[0] != nil {
+				cmd = cmds[0]
+				break
+			}
+		}
+	}
+	if cmd == nil {
+		t.Fatal("jittered macOS hold never activated dictation")
+	}
+	if d := at.Sub(t0); d < voiceHoldThreshold || d >= voiceHoldThreshold+130*time.Millisecond {
+		t.Fatalf("activated at %v after t0, want the first press at or past 2s", d)
+	}
+	if m.dictation.phase != dictStarting {
+		t.Fatalf("phase after jittered macOS hold = %v, want starting", m.dictation.phase)
+	}
+	if got := m.composerValue(); got != "oi" {
+		t.Fatalf("composer after jittered macOS hold = %q, want every typed space removed", got)
+	}
+}
+
+func TestVoiceHoldAverageAtTheLimit(t *testing.T) {
+	// Exactly 120ms on average: the boundary qualifies.
+	at := time.Unix(1_700_000_000, 0)
+	t0 := at
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+	holdSpace(t, m, &at, 0, 400*time.Millisecond)
+	var cmd tea.Cmd
+	for i := 0; i < 100 && cmd == nil; i++ {
+		cmds := holdSpace(t, m, &at, 120*time.Millisecond)
+		cmd = cmds[0]
+	}
+	if cmd == nil {
+		t.Fatal("120ms-average hold never activated dictation")
+	}
+	if d := at.Sub(t0); d < voiceHoldThreshold {
+		t.Fatalf("activated at %v after t0, want at or past 2s", d)
+	}
+	if m.dictation.phase != dictStarting {
+		t.Fatalf("phase after 120ms-average hold = %v, want starting", m.dictation.phase)
+	}
+
+	// 121ms on average for 6s: just over the limit, never activates.
+	at = time.Unix(1_700_000_000, 0)
+	m = holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+	gaps := []time.Duration{0, 400 * time.Millisecond}
+	gaps = append(gaps, repeatGaps(46, 121*time.Millisecond)...)
+	for i, cmd := range holdSpace(t, m, &at, gaps...) {
+		if cmd != nil {
+			t.Fatalf("press %d of a 121ms-average run returned a command", i)
+		}
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after 121ms-average run = %v, want idle", m.dictation.phase)
+	}
+}
+
+func TestVoiceHoldLongInitialDelayExcluded(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	t0 := at
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	// A 1s initial delay is not part of the average: the 100ms rate activates
+	// at the first press at or after 2s.
+	holdSpace(t, m, &at, 0, 1000*time.Millisecond)
+	var cmd tea.Cmd
+	for i := 0; i < 100 && cmd == nil; i++ {
+		cmds := holdSpace(t, m, &at, 100*time.Millisecond)
+		cmd = cmds[0]
+	}
+	if cmd == nil {
+		t.Fatal("hold after a long initial delay never activated dictation")
+	}
+	if d := at.Sub(t0); d < voiceHoldThreshold || d >= 2200*time.Millisecond {
+		t.Fatalf("activated at %v after t0, want between 2s and 2.2s", d)
+	}
+	if m.dictation.phase != dictStarting {
+		t.Fatalf("phase after delayed hold = %v, want starting", m.dictation.phase)
+	}
+}
+
+func TestVoiceHoldFlaggedRepeatStarts(t *testing.T) {
+	// The terminal flags repeats: a slow 180ms rate still counts as held.
+	at := time.Unix(1_700_000_000, 0)
+	t0 := at
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+	holdRepeatSpace(t, m, &at, 0, 500*time.Millisecond)
+	var cmd tea.Cmd
+	for i := 0; i < 100 && cmd == nil; i++ {
+		cmds := holdRepeatSpace(t, m, &at, 180*time.Millisecond)
+		cmd = cmds[0]
+	}
+	if cmd == nil {
+		t.Fatal("flagged hold never activated dictation")
+	}
+	if d := at.Sub(t0); d < voiceHoldThreshold {
+		t.Fatalf("activated at %v after t0, want at or past 2s", d)
+	}
+	if m.dictation.phase != dictStarting {
+		t.Fatalf("phase after flagged hold = %v, want starting", m.dictation.phase)
+	}
+
+	// The same timing without the flag never activates (manual tapping).
+	at = time.Unix(1_700_000_000, 0)
+	m = holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+	gaps := []time.Duration{0, 500 * time.Millisecond}
+	for i := 0; i < 22; i++ {
+		gaps = append(gaps, 180*time.Millisecond)
+	}
+	for i, cmd := range holdSpace(t, m, &at, gaps...) {
+		if cmd != nil {
+			t.Fatalf("unflagged tap %d returned a command", i)
+		}
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after unflagged taps = %v, want idle", m.dictation.phase)
+	}
+}
+
+func TestVoiceHoldFlagClearedWithRun(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	// A flagged second press, then another key ends the run: the flag must
+	// not outlive it, so later unflagged tapping stays tapping.
+	holdRepeatSpace(t, m, &at, 0, 500*time.Millisecond)
+	pressKey(t, m, tea.Key{Code: 'a', Text: "a"})
+	gaps := repeatGaps(22, 180*time.Millisecond)
+	for i, cmd := range holdSpace(t, m, &at, gaps...) {
+		if cmd != nil {
+			t.Fatalf("tap %d after a flagged run returned a command", i)
+		}
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after taps following a flagged run = %v, want idle", m.dictation.phase)
 	}
 }
