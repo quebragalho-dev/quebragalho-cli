@@ -22,6 +22,9 @@ import (
 //     and the release stops (hold-to-record); where it does not, Ctrl+Space
 //     falls back to press-to-toggle. Legacy NUL input is decoded as Ctrl+Space
 //     by the terminal input layer, so the same matcher covers both tiers.
+//     Not on Windows: a lone Ctrl, Shift or Alt reaches the console as that
+//     same NUL, so the program event filter drops it there (see
+//     loneModifierNUL) and the Space hold is the only gesture.
 //
 // Only active while voice mode is on; the rest of dispatch is built on
 // KeyPressMsg and is untouched.
