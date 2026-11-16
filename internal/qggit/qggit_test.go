@@ -275,6 +275,124 @@ func TestInspectBaseRefRealGitDiffsBranchAgainstBase(t *testing.T) {
 	}
 }
 
+// TestInspectBaseRefKeepsNonASCIIAndSpacedPathsVerbatim reproduces the base-ref
+// path defect: git C-quotes non-ASCII names in line-based --name-status output
+// (e.g. "caf\303\251 novo.txt"), and TrimSpace corrupts padded names, while
+// the -z form reports them verbatim.
+func TestInspectBaseRefKeepsNonASCIIAndSpacedPathsVerbatim(t *testing.T) {
+	root := initGitRepo(t, true)
+	baseRef := runGitCommand(t, root, "rev-parse", "HEAD")
+	runGitCommand(t, root, "checkout", "-q", "-b", "feature")
+	writeTestFile(t, filepath.Join(root, "café novo.txt"), "branch only\n")
+	runGitCommand(t, root, "add", "café novo.txt")
+	runGitCommand(t, root, "-c", "user.name=QG", "-c", "user.email=qg@example.invalid", "commit", "-m", "Add feature")
+	runGitCommand(t, root, "mv", "README.md", "relatório final.md")
+	runGitCommand(t, root, "-c", "user.name=QG", "-c", "user.email=qg@example.invalid", "commit", "-m", "Rename readme")
+
+	summary, err := Inspect(context.Background(), InspectOptions{Cwd: root, BaseRef: strings.TrimSpace(baseRef)})
+	if err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if summary.Clean {
+		t.Fatalf("Clean = true, want false")
+	}
+	got := map[string]string{}
+	for _, file := range summary.Files {
+		if strings.Contains(file.Path, `"`) || strings.Contains(file.Path, `\`) {
+			t.Fatalf("path must arrive verbatim, got quoted/escaped %q", file.Path)
+		}
+		got[file.Path] = file.Status
+	}
+	if got["café novo.txt"] != "added" {
+		t.Fatalf("missing verbatim added path %q in %#v", "café novo.txt", summary.Files)
+	}
+	if got["relatório final.md"] != "renamed" {
+		t.Fatalf("missing verbatim renamed path %q in %#v", "relatório final.md", summary.Files)
+	}
+}
+
+// TestInspectPinsParseableLocaleOnDiffStat reproduces the localized --stat
+// defect: ParseDiffStat reads the English summary line, so both --stat calls
+// must run with LC_ALL=C/LANG=C. Wrappers delegate to the package runners and
+// record which runner served each --stat call and with what env.
+func TestInspectPinsParseableLocaleOnDiffStat(t *testing.T) {
+	root := initGitRepo(t, true)
+	baseRef := strings.TrimSpace(runGitCommand(t, root, "rev-parse", "HEAD"))
+
+	type statCall struct {
+		via string
+		env []string
+	}
+	var calls []statCall
+	hasArg := func(args []string, want string) bool {
+		for _, arg := range args {
+			if arg == want {
+				return true
+			}
+		}
+		return false
+	}
+	hasEnv := func(env []string, want string) bool {
+		for _, entry := range env {
+			if entry == want {
+				return true
+			}
+		}
+		return false
+	}
+	hasEnvPrefix := func(env []string, prefix string) bool {
+		for _, entry := range env {
+			if strings.HasPrefix(entry, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+	runGit := func(ctx context.Context, dir string, args ...string) (CommandResult, error) {
+		if hasArg(args, "--stat") {
+			calls = append(calls, statCall{via: "RunGit"})
+		}
+		return defaultRunGit(ctx, dir, args...)
+	}
+	runGitEnv := func(ctx context.Context, dir string, env []string, args ...string) (CommandResult, error) {
+		if hasArg(args, "--stat") {
+			calls = append(calls, statCall{via: "RunGitEnv", env: append([]string{}, env...)})
+		}
+		return defaultRunGitEnv(ctx, dir, env, args...)
+	}
+
+	calls = nil
+	if _, err := Inspect(context.Background(), InspectOptions{Cwd: root, BaseRef: baseRef, RunGit: runGit, RunGitEnv: runGitEnv}); err != nil {
+		t.Fatalf("base-ref Inspect returned error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("base-ref run: expected 1 --stat call, got %d: %#v", len(calls), calls)
+	}
+	if calls[0].via != "RunGitEnv" {
+		t.Fatalf("base-ref --stat must go through RunGitEnv, got %q", calls[0].via)
+	}
+	if !hasEnv(calls[0].env, "LC_ALL=C") || !hasEnv(calls[0].env, "LANG=C") {
+		t.Fatalf("base-ref --stat env must pin LC_ALL=C and LANG=C, got %#v", calls[0].env)
+	}
+
+	calls = nil
+	if _, err := Inspect(context.Background(), InspectOptions{Cwd: root, RunGit: runGit, RunGitEnv: runGitEnv}); err != nil {
+		t.Fatalf("non-base Inspect returned error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("non-base run: expected 1 --stat call, got %d: %#v", len(calls), calls)
+	}
+	if calls[0].via != "RunGitEnv" {
+		t.Fatalf("non-base --stat must go through RunGitEnv, got %q", calls[0].via)
+	}
+	if !hasEnv(calls[0].env, "LC_ALL=C") || !hasEnv(calls[0].env, "LANG=C") {
+		t.Fatalf("non-base --stat env must pin LC_ALL=C and LANG=C, got %#v", calls[0].env)
+	}
+	if !hasEnvPrefix(calls[0].env, "GIT_INDEX_FILE=") {
+		t.Fatalf("non-base --stat env must keep GIT_INDEX_FILE isolation, got %#v", calls[0].env)
+	}
+}
+
 func TestInspectBaseRefUsesThreeDotDiff(t *testing.T) {
 	root := t.TempDir()
 	runner := &fakeRunner{results: []CommandResult{
