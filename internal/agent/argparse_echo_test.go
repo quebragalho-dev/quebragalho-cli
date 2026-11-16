@@ -104,8 +104,9 @@ func TestRunStillStopsWhenEveryMalformedPayloadDiffers(t *testing.T) {
 // Pins that echoed payload bytes never leak into the repeated-failure signature.
 func TestArgumentParseFailureKeepsOneSignatureAcrossPayloads(t *testing.T) {
 	shortest := errors.New("unexpected end of JSON input")
-	first := errorSignature(argumentParseFailure("x", shortest, `[1,"a"`))
-	second := errorSignature(argumentParseFailure("x", shortest, `{"b":`))
+	firstOutput, _ := argumentParseFailure("x", shortest, `[1,"a"`)
+	secondOutput, _ := argumentParseFailure("x", shortest, `{"b":`)
+	first, second := errorSignature(firstOutput), errorSignature(secondOutput)
 	if first != second {
 		t.Fatalf("the echoed payload leaked into the failure signature: %q vs %q", first, second)
 	}

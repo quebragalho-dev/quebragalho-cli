@@ -1241,10 +1241,16 @@ const toolArgumentsEchoLimit = 600
 // label before the payload is fixed text and longer than what errorSignature
 // compares past the shortest parse error, so two different payloads that fail
 // the same way still count as the same failure for the repeated-failure guard.
-func argumentParseFailure(name string, err error, arguments string) string {
+//
+// The payload is scrubbed like every other string that crosses into the
+// transcript, and before it is clipped: a cut through the middle of a secret
+// would leave a prefix no pattern matches. The bool reports whether scrubbing
+// changed it, for ToolResult.Redacted.
+func argumentParseFailure(name string, err error, arguments string) (string, bool) {
+	scrubbed, redacted := scrubInterceptedOutput(arguments)
 	return "Error: Failed to parse arguments for " + name + ": " + err.Error() +
 		"\n\nArguments as received (invalid JSON, middle omitted when long):\n" +
-		clipHeadTailBytes(arguments, toolArgumentsEchoLimit)
+		clipHeadTailBytes(scrubbed, toolArgumentsEchoLimit), redacted
 }
 
 func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCall, permissionMode PermissionMode, options Options) (ToolResult, error) {
@@ -1276,11 +1282,13 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 		args = prepared
 	} else if call.Arguments != "" {
 		if err := decodeToolArguments(call.Arguments, &args); err != nil {
+			output, redacted := argumentParseFailure(call.Name, err, call.Arguments)
 			return ToolResult{
 				ToolCallID: call.ID,
 				Name:       call.Name,
 				Status:     tools.StatusError,
-				Output:     argumentParseFailure(call.Name, err, call.Arguments),
+				Output:     output,
+				Redacted:   redacted,
 			}, nil
 		}
 	}
