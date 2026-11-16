@@ -4660,7 +4660,15 @@ func (m model) composerLine(width int) string {
 		}
 	}
 	spans := scanSkillTokens(displayState.text, m.installedSkills())
-	return renderComposerInput(input, displayState, width, m.composerCursorVisible, displaySelection, spans)
+	dim := composerDimRange{}
+	if m.dictation.regionActive && !hideInputForSuggestions {
+		dim = composerDimRange{
+			active: true,
+			start:  composerDisplayCursorForPastePreviews(m.dictation.regionStart, previews),
+			end:    composerDisplayCursorForPastePreviews(m.dictation.regionEnd, previews),
+		}
+	}
+	return renderComposerInput(input, displayState, width, m.composerCursorVisible, displaySelection, spans, dim)
 }
 
 type composerVisualLine struct {
@@ -4669,7 +4677,19 @@ type composerVisualLine struct {
 	end   int
 }
 
-func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan) string {
+// composerDimRange marks the display cells of the live dictation transcript,
+// drawn dimmed until the transcript is final.
+type composerDimRange struct {
+	active bool
+	start  int
+	end    int
+}
+
+func (r composerDimRange) contains(index int) bool {
+	return r.active && index >= r.start && index < r.end
+}
+
+func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan, dim composerDimRange) string {
 	state = normalizeComposerState(state)
 	if width <= 0 {
 		return ""
@@ -4688,7 +4708,7 @@ func renderComposerInput(input textinput.Model, state composerState, width int, 
 	segments, cursorLine := composerVisibleVisualLines(input, state, width)
 	lines := make([]string, 0, len(segments))
 	for index, segment := range segments {
-		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible, selection, skillSpans), width))
+		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible, selection, skillSpans, dim), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -4770,10 +4790,11 @@ func composerCursorVisualLine(segments []composerVisualLine, cursor int) int {
 	return len(segments) - 1
 }
 
-func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan) string {
+func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan, dim composerDimRange) string {
 	runes := []rune(state.text)
 	prefix := composerVisualLinePrefix(input, segment.first)
 	textStyle := qgTheme.ink.Inline(true)
+	dimStyle := qgTheme.faint.Inline(true)
 	skillStyle := qgTheme.accent.Inline(true)
 	skillCell := map[int]bool{}
 	for _, span := range skillSpans {
@@ -4791,13 +4812,15 @@ func renderComposerVisualLine(input textinput.Model, state composerState, segmen
 	line.WriteString(prefix)
 	// Cells render in runs of one style: the token must appear contiguously
 	// (the highlight is observable), and the terminal repaints with fewer
-	// escapes. Precedence: cursor > selection > skill token > plain ink.
+	// escapes. Precedence: cursor > selection > live dictation > skill token > plain ink.
 	classOf := func(index int) int {
 		switch {
 		case index == cursorIndex && cursorVisible:
 			return 0
 		case hasSelection && index >= selectionStart && index < selectionEnd:
 			return 1
+		case dim.contains(index):
+			return 4
 		case skillCell[index]:
 			return 2
 		default:
@@ -4816,6 +4839,8 @@ func renderComposerVisualLine(input textinput.Model, state composerState, segmen
 		case 2:
 			// Known skill tokens render in the command color.
 			line.WriteString(skillStyle.Render(cells.String()))
+		case 4:
+			line.WriteString(dimStyle.Render(cells.String()))
 		default:
 			line.WriteString(textStyle.Render(cells.String()))
 		}
