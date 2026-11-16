@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
 // TestModelPickerPopupClickAccountsForGroupHeaders guards the non-panel model
@@ -88,5 +90,20 @@ func TestSelectableUserRowSkipsAttachmentSummaryLine(t *testing.T) {
 	}
 	if plain[0].bodyY != 10+1 {
 		t.Fatalf("no-attachment bodyY=%d, want %d", plain[0].bodyY, 10+1)
+	}
+}
+
+// TestBTWBlocksClearLikeNew proves /clear is refused inside a BTW side
+// conversation, exactly like /new: both run startNewSession.
+func TestBTWBlocksClearLikeNew(t *testing.T) {
+	m := newBTWTestModel(t)
+	side, _ := m.handleBTWCommand("")
+	updated, _ := side.dispatchCommand(parseCommand("/clear"))
+	got := updated.(model)
+	if !got.btw.active || got.activeSession.SessionKind != sessions.SessionKindSide {
+		t.Fatalf("/clear replaced the active BTW session: active=%v metadata=%#v", got.btw.active, got.activeSession)
+	}
+	if !transcriptContains(got.transcript, "unavailable in a BTW conversation") {
+		t.Fatalf("missing blocked-command guidance: %#v", got.transcript)
 	}
 }
