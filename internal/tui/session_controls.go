@@ -756,6 +756,12 @@ func (m model) handleRewindCommand(args string) (model, string) {
 	if m.pending {
 		return m, "Rewind\ncannot rewind while a run is in progress."
 	}
+	// The compaction result rewrites the session log and the in-memory
+	// transcript; a rewind in between would be undone or applied to a log the
+	// compaction is about to replace.
+	if m.compactInFlight {
+		return m, "Rewind\nCompactação em andamento. Tente de novo quando ela terminar."
+	}
 	// A cancelled run's late flush hasn't appended its checkpoint events yet:
 	// ApplyRewind would prune those checkpoint blobs as unreferenced, then the
 	// flush would re-append pre-rewind events after the rewind marker.

@@ -301,6 +301,14 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	if args == "" {
 		return m, m.resumeText()
 	}
+	// A running compaction replaces activeSession, sessionEvents and the
+	// transcript wholesale when its result lands; switching session now would
+	// let that late result overwrite the resumed one. Same reason /retry,
+	// /new and /clear are refused. Guarded here, not in the /resume command
+	// case, so the session picker (which calls this directly) is covered too.
+	if m.compactInFlight {
+		return m, "Sessões\nCompactação em andamento. Retome a sessão quando ela terminar."
+	}
 	if m.sessionStore == nil {
 		return m, "Sessões\narmazenamento indisponível"
 	}
