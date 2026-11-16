@@ -494,11 +494,20 @@ func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
 	// add a second temp root that the golden does not contain (scope collapses
 	// it under /tmp while the profile lists both). Pinning them to empty makes
 	// the baseline identical with real or fake host temp dirs.
+	// The first t.TempDir call pins testing's single per-test parent, reused
+	// by every later call, so it runs BEFORE the temp variables are blanked:
+	// on Windows an empty TMP/TEMP makes os.TempDir return a rooted path
+	// without a drive letter (relative to the current drive), and every later
+	// temp dir would inherit it. The product absolutizes profile roots
+	// (filepath.Abs/EvalSymlinks), prepending the current drive, while
+	// replacePathToken below would only know the driveless form — the golden
+	// would see "D:$WORKSPACE". The product still runs after the blanking, so
+	// it keeps seeing empty temp variables.
+	emptyHome := t.TempDir()
 	t.Setenv("TMPDIR", "")
 	t.Setenv("TEMP", "")
 	t.Setenv("TMP", "")
 	t.Setenv("QG_OAUTH_STORAGE", "")
-	emptyHome := t.TempDir()
 	t.Setenv("HOME", emptyHome)
 	t.Setenv("USERPROFILE", emptyHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(emptyHome, ".config"))
