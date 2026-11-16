@@ -83,6 +83,11 @@ func isTransientConnectError(ctx context.Context, err error) bool {
 		if urlErr.Timeout() {
 			return true
 		}
+		// The errno survives localization; the wording does not. Each
+		// predicate covers only what this branch already claimed.
+		if isRefusedDialErrno(urlErr.Err) || isResetErrno(urlErr.Err) || isClosedPipeErrno(urlErr.Err) {
+			return true
+		}
 		message := strings.ToLower(urlErr.Err.Error())
 		for _, token := range []string{"connection refused", "connection reset", "broken pipe", "unexpected eof", "eof"} {
 			if strings.Contains(message, token) {
@@ -90,6 +95,9 @@ func isTransientConnectError(ctx context.Context, err error) bool {
 			}
 		}
 		return false
+	}
+	if isRefusedDialErrno(err) || isResetErrno(err) || isClosedPipeErrno(err) {
+		return true
 	}
 	message := strings.ToLower(err.Error())
 	for _, token := range []string{"connection refused", "connection reset", "broken pipe", "unexpected eof"} {
@@ -259,6 +267,11 @@ func isDialPhaseError(err error) bool {
 	if errors.As(err, &dnsErr) {
 		return true
 	}
+	// A refused dial carries ECONNREFUSED/WSAECONNREFUSED behind any wording.
+	// Resets stay out by contract: the request may already be in flight.
+	if isRefusedDialErrno(err) {
+		return true
+	}
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "connection refused") ||
 		strings.Contains(message, "no such host")
@@ -305,6 +318,9 @@ func isDeadTransportError(err error) bool {
 	var status *MCPHTTPStatusError
 	if errors.As(err, &status) {
 		return status.Status == 408 || status.Status == 425 || status.Status == 429 || status.Status >= 500
+	}
+	if isRefusedDialErrno(err) || isResetErrno(err) || isClosedPipeErrno(err) {
+		return true
 	}
 	message := strings.ToLower(err.Error())
 	for _, token := range []string{"eof", "broken pipe", "connection refused", "connection reset", "connection closed", "use of closed"} {
