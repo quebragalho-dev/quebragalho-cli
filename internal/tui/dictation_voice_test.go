@@ -37,11 +37,19 @@ func TestToggleVoiceModeFlips(t *testing.T) {
 	if !next.dictation.voiceModeEnabled {
 		t.Fatal("first /voice should enable voice mode")
 	}
-	if next.transientNotice.text != "Modo de voz ligado — "+voiceCaptureUsage+". Rode /voice de novo para desligar." {
-		t.Errorf("voice-mode-on notice = %q", next.transientNotice.text)
+	// The turn-on line carries the usage and the language/model summary as a
+	// durable transcript row (it no longer fits a transient notice).
+	for _, want := range []string{
+		"Modo de voz ligado — " + voiceCaptureUsage + ".",
+		"Modelo: Local (sem modelo).",
+		"Rode /voice de novo para desligar.",
+	} {
+		if !transcriptHasText(next, want) {
+			t.Errorf("voice-mode-on notice missing %q", want)
+		}
 	}
-	if transcriptHasText(next, "Modo de voz ligado") {
-		t.Error("voice-mode-on confirmation should not be persisted in the transcript")
+	if next.transientNotice.text != "" {
+		t.Errorf("voice-mode-on confirmation should not flash a transient notice, got %q", next.transientNotice.text)
 	}
 	off, _ := next.toggleVoiceMode()
 	if off.dictation.voiceModeEnabled {

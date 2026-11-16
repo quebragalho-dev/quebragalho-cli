@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -90,6 +91,21 @@ type dictationController struct {
 
 	// voiceModeEnabled repurposes Ctrl+Space into hold-to-record (§13.9).
 	voiceModeEnabled bool
+	// lang is the ISO-639-1 language the user dictates in ("pt", "en", ""
+	// unknown), resolved from stt.language or the system locale.
+	lang string
+	// lookPath finds the capture program; nil skips the capture check (tests).
+	lookPath func(string) (string, error)
+	// micCheck listens to the microphone for a moment; nil skips the
+	// microphone check (tests).
+	micCheck func(ctx context.Context) (dictation.MicCheck, error)
+	// voiceAfterSetup arms the voice-mode auto-enable: /voice started a model
+	// setup, so voice mode turns on when the model is ready.
+	voiceAfterSetup bool
+	// downloadDone/downloadTotal track the in-flight download's bytes
+	// (0 total: unknown size); downloadLabel names the file being fetched.
+	downloadDone, downloadTotal int64
+	downloadLabel               string
 	// eventTypesSupported records whether the terminal confirmed key-release
 	// reporting (Kitty protocol); eventTypesKnown gates it until the terminal has
 	// answered. Determines hold-to-record vs. press-to-toggle for voice mode.
@@ -124,19 +140,29 @@ type dictationTranscribedMsg struct {
 
 // newDictationController builds the controller from resolved options.
 func newDictationController(opts Options) dictationController {
+	platform := dictation.DetectPlatform()
 	return dictationController{
 		cfg:            opts.STT,
 		build:          opts.BuildDictationTranscriber,
 		shutdownServer: opts.ShutdownDictationServer,
 		keyAvailable:   opts.STTKeyStatus,
 		saveKey:        opts.SaveSTTKey,
-		platform:       dictation.DetectPlatform(),
+		platform:       platform,
 		downloadRoot:   opts.STTDownloadRoot,
 		userConfigPath: opts.UserConfigPath,
 		// The saved /voice setting; without a transcriber factory there is
 		// nothing to turn on.
 		voiceModeEnabled: opts.STT.VoiceMode && opts.BuildDictationTranscriber != nil,
-		sessionID:        1,
+		lang:             dictation.LanguageFromLocale(dictation.DictationLanguage(opts.STT.Language)),
+		lookPath:         exec.LookPath,
+		micCheck: func(ctx context.Context) (dictation.MicCheck, error) {
+			return dictation.CheckMicrophone(ctx, dictation.RecorderOptions{
+				Platform:           platform,
+				SampleRate:         dictation.DefaultSampleRate,
+				WindowsAudioDevice: opts.STT.WindowsAudioDevice,
+			}, time.Second)
+		},
+		sessionID: 1,
 	}
 }
 
@@ -183,7 +209,7 @@ func (d dictationController) active() bool { return d.phase != dictIdle }
 // startup/transcription is ignored (the machine is mid-transition).
 func (m model) toggleDictation() (model, tea.Cmd) {
 	if !m.dictation.available() {
-		return m.appendSystemNotice("Ditado não configurado. Veja docs/dictation.md para configurar um motor local ou uma chave Groq/OpenAI."), nil
+		return m.appendSystemNotice("Ditado não configurado. Rode /stt-model para escolher um motor local ou um provedor de nuvem."), nil
 	}
 	if m.dictation.downloading {
 		return m.appendDictationNotice("downloading", "Ainda configurando o motor de ditado — um momento."), nil
@@ -203,17 +229,13 @@ func (m model) toggleDictation() (model, tea.Cmd) {
 // Ctrl+Space records and ordinary Space continues to type normally.
 func (m model) toggleVoiceMode() (model, tea.Cmd) {
 	if !m.dictation.available() {
-		return m.appendSystemNotice("Ditado não configurado. Veja docs/dictation.md para configurar um motor local ou uma chave Groq/OpenAI."), nil
+		return m.appendSystemNotice("Ditado não configurado. Rode /stt-model para escolher um motor local ou um provedor de nuvem."), nil
 	}
-	m.dictation.voiceModeEnabled = !m.dictation.voiceModeEnabled
+	if !m.dictation.voiceModeEnabled {
+		return m.enableVoiceSetup()
+	}
+	m.dictation.voiceModeEnabled = false
 	saveErrText := m.persistVoiceMode()
-	if m.dictation.voiceModeEnabled {
-		text := "Modo de voz ligado — " + voiceCaptureUsage + ". Rode /voice de novo para desligar." + saveErrText
-		if saveErrText != "" {
-			return m.appendSystemNotice(text), nil
-		}
-		return m.showTransientNoticeInline(text, transientNoticeSuccess), nil
-	}
 	// Turning voice off is the "done dictating" signal, so release the warm sherpa
 	// streaming server — otherwise a loaded model keeps idling in RAM (and holding
 	// its port) until the app exits. It respawns lazily on the next streaming
@@ -228,6 +250,117 @@ func (m model) toggleVoiceMode() (model, tea.Cmd) {
 		return next, nil
 	}
 	return next, next.releaseDictationServerCmd()
+}
+
+// enableVoiceSetup runs the /voice turn-on checks in order: an in-flight
+// download arms the auto-enable, then the capture tool and the transcription
+// backend must work before voice mode turns on. A failing step ends the
+// command with voice mode still off and nothing saved.
+func (m model) enableVoiceSetup() (model, tea.Cmd) {
+	if m.dictation.downloading {
+		m.dictation.voiceAfterSetup = true
+		return m.showTransientNoticeInline("O reconhecimento de fala ainda está baixando. O modo de voz liga sozinho quando terminar.", transientNoticeInfo), nil
+	}
+	if m.dictation.lookPath != nil {
+		if err := dictation.CheckCaptureTool(m.dictation.platform, m.dictation.lookPath); err != nil {
+			var setupErr *dictation.SetupError
+			if errors.As(err, &setupErr) {
+				return m.appendSystemNotice("Para usar o modo de voz, " + setupErr.Hint + ". Depois rode /voice de novo."), nil
+			}
+			return m.appendDictationNotice("setup:"+err.Error(), dictationErrorText(err)), nil
+		}
+	}
+	// The factory only builds objects; it starts nothing.
+	if _, _, err := m.dictation.build(m.dictation.cfg, m.dictation.wantStreaming()); err != nil {
+		// A missing model with a curated default opens the first-use panel.
+		if m.dictation.canOfferDownload(err) {
+			return m.openVoiceFirstUsePanel()
+		}
+		return m.appendDictationNotice("setup:"+err.Error(), dictationErrorText(err)), nil
+	}
+	return m.enableVoiceMode("")
+}
+
+// enableVoiceMode turns voice mode on, saves the setting, announces it with
+// the listening language and model, and (when wired and idle) checks the
+// microphone off the UI goroutine. prefix carries the ready-path lead
+// ("<Label> pronto. ") and is empty for a direct /voice.
+func (m model) enableVoiceMode(prefix string) (model, tea.Cmd) {
+	m.dictation.voiceModeEnabled = true
+	saveErrText := m.persistVoiceMode()
+	text := prefix + "Modo de voz ligado — " + voiceCaptureUsage + ". " + m.dictation.voiceSummary() + " Rode /voice de novo para desligar." + saveErrText + m.dictation.voiceMismatchWarning()
+	// The full turn-on line no longer fits a transient notice (it truncates
+	// past the terminal width), so it goes to the transcript, where it wraps.
+	m = m.appendSystemNotice(text)
+	if m.dictation.micCheck == nil || m.dictation.active() {
+		return m, nil
+	}
+	check := m.dictation.micCheck
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		res, err := check(ctx)
+		return sttMicCheckedMsg{check: res, err: err}
+	}
+}
+
+// voiceSummary describes the listening language and model for the turn-on
+// notice.
+func (d dictationController) voiceSummary() string {
+	if d.lang == "" {
+		return "Modelo: " + d.currentModelLabel() + "."
+	}
+	return "Idioma: " + voiceLanguageName(d.lang) + " · Modelo: " + d.currentModelLabel() + "."
+}
+
+// voiceMismatchWarning names the user's language when the configured local
+// model is curated but does not understand it; empty otherwise.
+func (d dictationController) voiceMismatchWarning() string {
+	if d.cfg.STTProvider() != config.STTProviderLocal || d.lang == "" {
+		return ""
+	}
+	base := filepath.Base(strings.TrimSpace(d.cfg.LocalModelPath))
+	if base == "" {
+		return ""
+	}
+	for _, v := range dictation.ModelVariants() {
+		if v.DirName != "" && v.DirName == base {
+			if dictation.LanguageRank(v, d.lang) == 2 {
+				return " Este modelo não entende " + voiceLanguageName(d.lang) + "; para trocar, rode /stt-model."
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// voiceLanguageName maps ISO-639-1 codes to Portuguese names; any other code
+// is shown as itself.
+func voiceLanguageName(lang string) string {
+	switch lang {
+	case "pt":
+		return "português"
+	case "en":
+		return "inglês"
+	case "es":
+		return "espanhol"
+	case "fr":
+		return "francês"
+	case "de":
+		return "alemão"
+	case "it":
+		return "italiano"
+	case "ja":
+		return "japonês"
+	case "zh":
+		return "chinês"
+	case "ko":
+		return "coreano"
+	case "ru":
+		return "russo"
+	default:
+		return lang
+	}
 }
 
 // persistVoiceMode saves the /voice setting to the user config. It returns the

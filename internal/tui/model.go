@@ -1991,8 +1991,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleDictationPartial(msg), nil
 	case sttDownloadProgressMsg:
 		return m.handleDictationDownloadProgress(msg), nil
+	case sttDownloadProgressBytesMsg:
+		return m.handleDictationDownloadProgressBytes(msg), nil
 	case dictationDownloadedMsg:
 		return m.handleDictationDownloaded(msg)
+	case sttMicCheckedMsg:
+		return m.handleSTTMicChecked(msg), nil
 	case sttModelsFetchedMsg:
 		return m.handleSTTModelsFetched(msg), nil
 	case recTickMsg:
@@ -2127,6 +2131,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if next, cmd, handled := m.handlePanelKey(msg); handled {
 			return next, cmd
+		}
+		// A voice-setup picker (first-use panel, or download chooser with the
+		// auto-enable armed) closes on Ctrl+C without touching the exit
+		// confirmation or any other picker. Gated on a quiet dictation: an
+		// in-flight recording still owns Ctrl+C (plan 032).
+		if keyCtrl(msg, 'c') && !m.dictation.active() && m.voiceSetupPickerOpen() {
+			m.picker = nil
+			m.dictation.voiceAfterSetup = false
+			return m, nil
 		}
 		if keyCtrl(msg, 'c') {
 			if m.leaderPending {
@@ -2304,6 +2317,13 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.picker != nil {
 				if m.picker.kind == pickerModel {
 					m.clearModelPickerLoadState()
+				}
+				if m.picker.kind == pickerSTTDownload {
+					// A dismissed voice-setup picker (first-use panel or
+					// download chooser) cancels the voice-mode auto-enable:
+					// a later manual download stays manual. Clearing an
+					// already-false flag is a no-op for other flows.
+					m.dictation.voiceAfterSetup = false
 				}
 				m.picker = nil
 				return m, nil

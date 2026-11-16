@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/dictation"
 )
 
 // voicePersistFactory is the transcriber factory voice-mode tests run with: it
@@ -71,12 +73,23 @@ func readVoicePersistFile(t *testing.T, path string) (voiceMode *bool, theme str
 	return voiceMode, theme, string(data)
 }
 
+// voiceTestFakes wires the capture-program and microphone fakes a model built
+// through newDictationController needs: CI machines have no microphone and may
+// lack the capture program, and /voice must not depend on either.
+func voiceTestFakes(m model) model {
+	m.dictation.lookPath = func(string) (string, error) { return "/usr/bin/arecord", nil }
+	m.dictation.micCheck = func(context.Context) (dictation.MicCheck, error) {
+		return dictation.MicCheck{}, nil
+	}
+	return m
+}
+
 func TestToggleVoiceModeSavesToUserConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(`{"preferences":{"theme":"dark"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	m := newModel(t.Context(), Options{UserConfigPath: path, BuildDictationTranscriber: voicePersistFactory})
+	m := voiceTestFakes(newModel(t.Context(), Options{UserConfigPath: path, BuildDictationTranscriber: voicePersistFactory}))
 
 	on, _ := m.toggleVoiceMode()
 	if !on.dictation.voiceModeEnabled {
@@ -105,7 +118,7 @@ func TestToggleVoiceModeSavesToUserConfig(t *testing.T) {
 
 func TestToggleVoiceModeSaveFailureStillFlips(t *testing.T) {
 	dir := t.TempDir()
-	m := newModel(t.Context(), Options{UserConfigPath: dir, BuildDictationTranscriber: voicePersistFactory})
+	m := voiceTestFakes(newModel(t.Context(), Options{UserConfigPath: dir, BuildDictationTranscriber: voicePersistFactory}))
 	// A directory is not writable as a config file, so the save must fail.
 	on, _ := m.toggleVoiceMode()
 	if !on.dictation.voiceModeEnabled {
@@ -120,7 +133,7 @@ func TestToggleVoiceModeSaveFailureStillFlips(t *testing.T) {
 }
 
 func TestToggleVoiceModeWithoutConfigPathStaysInMemory(t *testing.T) {
-	m := newModel(t.Context(), Options{BuildDictationTranscriber: voicePersistFactory})
+	m := voiceTestFakes(newModel(t.Context(), Options{BuildDictationTranscriber: voicePersistFactory}))
 	if m.dictation.userConfigPath != "" {
 		t.Fatalf("test setup: expected no config path, got %q", m.dictation.userConfigPath)
 	}

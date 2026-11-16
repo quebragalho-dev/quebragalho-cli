@@ -134,7 +134,7 @@ func (m model) maybeOpenSTTDownloadPicker(value string) (model, tea.Cmd, bool) {
 	m.clearSuggestions()
 	if len(m.dictation.browseVariants) > 0 {
 		// Full list already fetched this session — show it straight away.
-		m.picker = newSTTDownloadPickerFrom(m.dictation.browseVariants, false, m.dictation.downloadRoot, m.engineDownloaded(), m.dictation.cfg.LocalModelPath)
+		m.picker = newSTTDownloadPickerFrom(m.dictation.browseVariants, false, m.dictation.downloadRoot, m.engineDownloaded(), m.dictation.cfg.LocalModelPath, m.dictation.lang)
 		return m, nil, true
 	}
 	// Show a single loading state while the full list is fetched — no curated-then-
@@ -199,7 +199,7 @@ func (m model) handleSTTModelsFetched(msg sttModelsFetchedMsg) model {
 	if item, ok := m.picker.current(); ok {
 		selectedValue = item.Value
 	}
-	m.picker = newSTTDownloadPickerFrom(variants, false, m.dictation.downloadRoot, m.engineDownloaded(), m.dictation.cfg.LocalModelPath)
+	m.picker = newSTTDownloadPickerFrom(variants, false, m.dictation.downloadRoot, m.engineDownloaded(), m.dictation.cfg.LocalModelPath, m.dictation.lang)
 	m.picker.query = query
 	m.picker.applyQuery()
 	m.selectPickerValue(selectedValue)
@@ -223,7 +223,7 @@ func (m model) handleSTTModelSelection(value string) (model, string) {
 		if strings.TrimSpace(m.dictation.cfg.LocalModelPath) == "" {
 			// Auto-download platforms never reach here (the download chooser opens
 			// instead); this is the manual-setup path (e.g. Termux).
-			hint += " Configure stt.localModelPath para uma pasta de modelo (veja docs/dictation.md)."
+			hint += " Configure stt.localModelPath para uma pasta de modelo ou escolha um provedor de nuvem em /stt-model."
 		} else {
 			hint += " Rode /voice; " + voiceCaptureUsage + "."
 		}
@@ -249,6 +249,88 @@ func (m model) handleSTTModelSelection(value string) (model, string) {
 	return m.openSTTKeyPrompt(provider, value, hasKey), ""
 }
 
+// voiceSetupPickerOpen reports whether a voice-setup picker owns the overlay:
+// the first-use panel, or the download chooser while the /voice auto-enable
+// is armed. Other pickers (including a manually opened chooser) are false.
+func (m model) voiceSetupPickerOpen() bool {
+	if m.picker == nil || m.picker.kind != pickerSTTDownload {
+		return false
+	}
+	return m.picker.voiceFirstUse || m.dictation.voiceAfterSetup
+}
+
+// First-use panel values: row 1 carries the default variant's ID (handled by
+// the regular variant path); rows 2 and 3 are panel-only commands.
+const (
+	// voiceFirstUseChoose opens the full download chooser, keeping the
+	// auto-enable armed.
+	voiceFirstUseChoose = "voice:choose-model"
+	// voiceFirstUseLater closes the panel; nothing happens.
+	voiceFirstUseLater = "voice:not-now"
+)
+
+// voiceFirstUseHeader explains the panel above its rows.
+const voiceFirstUseHeader = "Para ditar, o QG baixa uma vez o reconhecimento de fala. Ele roda no seu\ncomputador: sua voz não é enviada a lugar nenhum."
+
+// newVoiceFirstUsePicker builds the /voice first-use panel: download the
+// default model now, pick another model, or skip. It shares the download
+// chooser kind so selection, filtering and dismissal behave the same; the
+// voiceFirstUse flag tells the flows apart.
+func newVoiceFirstUsePicker(v dictation.ModelVariant, downloadRoot string, engineHave bool) *commandPicker {
+	row1Label := fmt.Sprintf("Baixar agora — %s (%d MB)", v.Label, v.Bytes>>20+engineHaveBytes(engineHave))
+	if dictation.ModelDownloaded(downloadRoot, v.DirName) && engineHave {
+		row1Label = fmt.Sprintf("Usar %s (já baixado)", v.Label)
+	}
+	items := []pickerItem{
+		{Label: row1Label, Value: v.ID, Meta: v.Description},
+		{Label: "Escolher outro modelo…", Value: voiceFirstUseChoose},
+		{Label: "Agora não", Value: voiceFirstUseLater},
+	}
+	return &commandPicker{
+		kind:          pickerSTTDownload,
+		title:         "Ditado por voz",
+		header:        voiceFirstUseHeader,
+		voiceFirstUse: true,
+		items:         items,
+		allItems:      append([]pickerItem{}, items...),
+	}
+}
+
+// engineHaveBytes drops the shared engine's size from a per-model total once
+// it is on disk (the same total the chooser shows for that row).
+func engineHaveBytes(engineHave bool) int64 {
+	if engineHave {
+		return 0
+	}
+	return engineDownloadBytes >> 20
+}
+
+// openVoiceFirstUsePanel opens the first-use panel for the default model, or
+// the full chooser when no model covers the user's language. Either way the
+// auto-enable arms: the voice turns on when a model is ready. An unknown
+// language always takes the chooser: DefaultVariantFor("") returns the
+// multilingual default, but coverage of an unknown language is unconfirmed,
+// so the user picks.
+func (m model) openVoiceFirstUsePanel() (model, tea.Cmd) {
+	if lang := strings.TrimSpace(m.dictation.lang); lang != "" {
+		if variant, ok := dictation.DefaultVariantFor(lang); ok {
+			m.dictation.voiceAfterSetup = true
+			m.picker = newVoiceFirstUsePicker(variant, m.dictation.downloadRoot, m.engineDownloaded())
+			m.clearSuggestions()
+			return m, nil
+		}
+	}
+	m.dictation.voiceAfterSetup = true
+	next, cmd, opened := m.maybeOpenSTTDownloadPicker(string(config.STTProviderLocal) + sttValueSep)
+	if !opened {
+		// Unreachable: canOfferDownload (the only caller) already verified the
+		// download root and platform support.
+		return m.appendSystemNotice("Não foi possível abrir a lista de modelos de ditado."), nil
+	}
+	next = next.showTransientNoticeInline("Escolha um modelo de ditado. O modo de voz liga sozinho quando ele estiver pronto.", transientNoticeInfo)
+	return next, cmd
+}
+
 // engineDownloaded reports whether the shared engine is already on disk.
 func (m model) engineDownloaded() bool {
 	return dictation.EngineDownloaded(m.dictation.downloadRoot, m.dictation.cfg.EngineVersion)
@@ -260,8 +342,10 @@ func (m model) engineDownloaded() bool {
 // and could even repeat a header when installed models sorted to the top. loading
 // appends a hint that more models are still being fetched. downloadRoot lets it
 // mark already-installed models; engineHave drops the shared engine's size from
-// the per-model total once it is on disk.
-func newSTTDownloadPickerFrom(variants []dictation.ModelVariant, loading bool, downloadRoot string, engineHave bool, currentPath string) *commandPicker {
+// the per-model total once it is on disk. lang puts the user's language first:
+// recommended first, then LanguageRank ascending, then installed, then smaller
+// first. Row rendering does not change.
+func newSTTDownloadPickerFrom(variants []dictation.ModelVariant, loading bool, downloadRoot string, engineHave bool, currentPath string, lang string) *commandPicker {
 	isCurrent := func(v dictation.ModelVariant) bool {
 		// Substring match false-positives when one variant's DirName is a
 		// substring of another's ("tiny" inside "tiny-en"). Compare the
@@ -276,10 +360,13 @@ func newSTTDownloadPickerFrom(variants []dictation.ModelVariant, loading bool, d
 		a, b := sorted[i], sorted[j]
 		// Rank by quality, pipeline-agnostic: the curated "good" picks — live AND batch
 		// alike — rise together to the top (the Live/Batch tag on each row tells them
-		// apart, so there's no separate live section). Then already-installed, then
-		// smallest/fastest first.
+		// apart, so there's no separate live section). Then the user's language
+		// first, then already-installed, then smallest/fastest first.
 		if a.Recommended != b.Recommended {
 			return a.Recommended
+		}
+		if ra, rb := dictation.LanguageRank(a, lang), dictation.LanguageRank(b, lang); ra != rb {
+			return ra < rb
 		}
 		if ia, ib := installed(a), installed(b); ia != ib {
 			return ia
@@ -340,18 +427,49 @@ const engineDownloadBytes = 23 << 20
 
 // handleSTTDownloadSelection starts downloading the chosen model variant (engine
 // + that model). It resolves the variant from the picker's current items so any
-// browse-listed model (not just the curated shortlist) is downloadable.
+// browse-listed model (not just the curated shortlist) is downloadable. It also
+// serves the first-use panel rows: "choose" opens the full chooser keeping the
+// auto-enable armed, "later" closes the panel and clears it.
 func (m model) handleSTTDownloadSelection(value string) (model, tea.Cmd) {
-	for _, v := range m.sttDownloadVariants() {
-		if v.ID == value {
-			// Already on disk (engine + this model): apply instantly, no download UI.
-			if m.engineDownloaded() && dictation.ModelDownloaded(m.dictation.downloadRoot, v.DirName) {
-				return m.applyInstalledModel(v)
-			}
-			return m.startVariantDownload(v)
+	switch value {
+	case voiceFirstUseLater:
+		m.dictation.voiceAfterSetup = false
+		return m, nil
+	case voiceFirstUseChoose:
+		if next, cmd, opened := m.maybeOpenSTTDownloadPicker(string(config.STTProviderLocal) + sttValueSep); opened {
+			return next, cmd
 		}
+		return m.appendSystemNotice("Não foi possível abrir a lista de modelos de ditado."), nil
+	}
+	if v, ok := sttVariantByID(m.sttDownloadVariants(), value); ok {
+		return m.applyVoiceVariant(v)
+	}
+	// The first-use panel names a curated default the fetched full list may
+	// not include: fall back to the curated shortlist.
+	if v, ok := sttVariantByID(dictation.ModelVariants(), value); ok {
+		return m.applyVoiceVariant(v)
 	}
 	return m, nil
+}
+
+// sttVariantByID finds a variant by ID.
+func sttVariantByID(variants []dictation.ModelVariant, id string) (dictation.ModelVariant, bool) {
+	for _, v := range variants {
+		if v.ID == id {
+			return v, true
+		}
+	}
+	return dictation.ModelVariant{}, false
+}
+
+// applyVoiceVariant applies an already-downloaded model instantly or starts
+// its download, sharing the chooser row's logic for the first-use panel.
+func (m model) applyVoiceVariant(v dictation.ModelVariant) (model, tea.Cmd) {
+	// Already on disk (engine + this model): apply instantly, no download UI.
+	if m.engineDownloaded() && dictation.ModelDownloaded(m.dictation.downloadRoot, v.DirName) {
+		return m.applyInstalledModel(v)
+	}
+	return m.startVariantDownload(v)
 }
 
 // applyInstalledModel resolves the paths of an already-downloaded model (a fast,
@@ -371,6 +489,10 @@ func (m model) applyInstalledModel(v dictation.ModelVariant) (model, tea.Cmd) {
 	m, aerr := m.applyEngineComponents(comp)
 	if aerr != nil {
 		return m.appendSystemNotice("Não foi possível salvar a configuração: " + aerr.Error()), nil
+	}
+	if m.dictation.voiceAfterSetup {
+		m.dictation.voiceAfterSetup = false
+		return m.enableVoiceMode(v.Label + " pronto. ")
 	}
 	return m.showTransientNoticeInline(v.Label+" está pronto. Rode /voice para começar a ditar.", transientNoticeSuccess), nil
 }

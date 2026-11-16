@@ -4,6 +4,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/dictation"
 )
 
 // Voice mode's dictation gestures — two ways to record:
@@ -106,6 +108,43 @@ func (m model) handleVoiceCaptureRelease() (model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// sttMicCheckedMsg carries the outcome of the microphone check enableVoiceMode
+// runs off the UI goroutine.
+type sttMicCheckedMsg struct {
+	check dictation.MicCheck
+	err   error
+}
+
+// handleSTTMicChecked reports the microphone check without ever changing voice
+// mode or touching a recording: a result that arrives after voice mode was
+// turned off, or while a dictation is in progress, is dropped.
+func (m model) handleSTTMicChecked(msg sttMicCheckedMsg) model {
+	if !m.dictation.voiceModeEnabled || m.dictation.active() {
+		return m
+	}
+	if msg.err != nil {
+		return m.appendSystemNotice("Não foi possível testar o microfone: " + dictationErrorText(msg.err))
+	}
+	if msg.check.Silent {
+		return m.appendSystemNotice(m.micSilentText())
+	}
+	return m.showTransientNoticeInline("Microfone funcionando. Segure Espaço e fale.", transientNoticeSuccess)
+}
+
+// micSilentText names the platform's microphone permission path when the
+// system is not delivering audio.
+func (m model) micSilentText() string {
+	const lead = "O microfone não está entregando som. "
+	switch m.dictation.platform {
+	case dictation.PlatformDarwin:
+		return lead + "Em Ajustes do Sistema > Privacidade e Segurança > Microfone, permita o seu terminal e rode /voice de novo. Se o macOS acabou de pedir a permissão, aceite e rode /voice de novo."
+	case dictation.PlatformWindows:
+		return lead + "Em Configurações > Privacidade e segurança > Microfone, ligue \"Permitir que aplicativos da área de trabalho acessem o microfone\" e rode /voice de novo."
+	default:
+		return lead + "Confira o microfone padrão do sistema e rode /voice de novo."
+	}
 }
 
 // voiceHoldThreshold is how long bare Space must stay down before a hold
