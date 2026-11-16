@@ -502,6 +502,8 @@ func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
 	t.Setenv("HOME", emptyHome)
 	t.Setenv("USERPROFILE", emptyHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(emptyHome, ".config"))
+	t.Setenv("APPDATA", emptyHome)
+	t.Setenv("LOCALAPPDATA", emptyHome)
 	t.Setenv("CLOUDSDK_CONFIG", "")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 	t.Setenv("NPM_CONFIG_USERCONFIG", "")

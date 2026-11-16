@@ -297,6 +297,7 @@ func TestRunAuthRefreshWatchStatesStopHint(t *testing.T) {
 	}
 	path := withAuthStore(t)
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	store, err := oauth.NewStore(oauth.StoreOptions{FilePath: path})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)

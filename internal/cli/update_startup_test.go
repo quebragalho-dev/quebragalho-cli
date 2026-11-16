@@ -344,6 +344,10 @@ func TestExecNeverPrompts(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// updatenotice.StatePath resolves under LOCALAPPDATA on Windows, ignoring
+	// XDG_*; keep the state lookup off the real profile too.
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	state := updatenotice.State{LastCheck: updateStartupTestNow, LatestVersion: "0.0.11"}
 	stateFile := writeUpdateState(t, state)
 

@@ -150,7 +150,7 @@ func TestMCPGateEmptyTrustRootFailsClosed(t *testing.T) {
 // command as the reason. After `qg mcp approve`, the same workspace spawns it.
 func TestMCPGateTrustedSpawnsProjectServer(t *testing.T) {
 	setTrustConfigRoot(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	isolateMCPApprovalsState(t)
 	repo := t.TempDir()
 	if err := workspacetrust.Trust(repo); err != nil {
 		t.Fatalf("Trust(repo): %v", err)

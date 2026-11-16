@@ -12,6 +12,18 @@ import (
 	"testing"
 )
 
+// isolateExecUserConfig points every per-user config root at dir. On Windows
+// the user config resolves under APPDATA (os.UserConfigDir), so XDG-only
+// isolation leaves the real profile in play and a foreign config decides the
+// test; on other platforms the extra variables are inert.
+func isolateExecUserConfig(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("APPDATA", dir)
+	t.Setenv("LOCALAPPDATA", dir)
+}
+
 func TestParseExecArgsAPIKey(t *testing.T) {
 	opts, _, err := parseExecArgs([]string{"--api-key", "sk-flag", "hello"})
 	if err != nil {
@@ -92,7 +104,7 @@ func TestRunExecAPIKeyFlagBeatsConfigKey(t *testing.T) {
 // key there); the run stops on the existing no-provider guidance instead.
 func TestRunExecAPIKeyFlagWithoutProfileReportsNoProvider(t *testing.T) {
 	clearProviderEnv(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateExecUserConfig(t, t.TempDir())
 	root := t.TempDir()
 
 	var stdout bytes.Buffer
@@ -120,7 +132,7 @@ func TestRunExecAPIKeyFlagWithoutProfileReportsNoProvider(t *testing.T) {
 // resolved provider profile.
 func TestExecAPIKeyFlagReachesResolvedProvider(t *testing.T) {
 	clearProviderEnv(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateExecUserConfig(t, t.TempDir())
 
 	var jsonBody map[string]any
 	var gotAuth string
@@ -134,7 +146,7 @@ func TestExecAPIKeyFlagReachesResolvedProvider(t *testing.T) {
 
 	// A profile exists via the user config; only the KEY comes from the flag.
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	isolateExecUserConfig(t, configHome)
 	qgDir := filepath.Join(configHome, "qg")
 	if err := os.MkdirAll(qgDir, 0o700); err != nil {
 		t.Fatal(err)
