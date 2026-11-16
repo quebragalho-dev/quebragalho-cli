@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -27,6 +28,7 @@ func TestResolveEndpointRefusesPlainHTTP(t *testing.T) {
 		"http://example.test/releases/latest",
 		"HTTP://example.test/releases/latest",
 		"http://127.0.0.1.example.test/latest",
+		"http://localhost.example.test/latest",
 		"ftp://example.test/latest",
 	} {
 		if got, err := ResolveEndpoint(endpoint, DefaultRepository); err == nil || !strings.Contains(err.Error(), insecureUpdateURLMarker) {
@@ -151,5 +153,26 @@ func TestDownloadFileStillFollowsAnHTTPSRedirect(t *testing.T) {
 	}
 	if data, err := os.ReadFile(dest); err != nil || string(data) != "payload" {
 		t.Fatalf("downloaded %q, %v; want the redirected payload", data, err)
+	}
+}
+
+// Pins that the updater's own redirect policy keeps a redirect limit: a server
+// that redirects forever must fail at once instead of spinning until the
+// context expires.
+func TestDownloadFileStopsARedirectLoop(t *testing.T) {
+	var hits atomic.Int32
+	var local *httptest.Server
+	local = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Redirect(w, r, local.URL+"/again", http.StatusFound)
+	}))
+	defer local.Close()
+
+	err := downloadFile(shortContext(t), local.URL+"/qg.tar.gz", filepath.Join(t.TempDir(), "archive"))
+	if err == nil || !strings.Contains(err.Error(), "stopped after 10 redirects") {
+		t.Fatalf("downloadFile on a redirect loop = %v, want the redirect limit", err)
+	}
+	if got := hits.Load(); got != 10 {
+		t.Fatalf("the looping server was requested %d times, want 10", got)
 	}
 }
