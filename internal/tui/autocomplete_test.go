@@ -392,8 +392,9 @@ func TestOverlayViewportLinesPreservesTextOutsidePanel(t *testing.T) {
 
 func TestSuggestionOverlayCapsRowsWithoutMoreText(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	// The header shows the checked-out branch, and this test searches the whole
-	// screen for command names: a branch called "fix/compact-x" must not fail it.
+	// The header shows the checked-out branch and the working directory, so the
+	// hidden-command check below looks for the palette row, not for the bare
+	// word: a branch or a folder called "fix/compact-x" must not fail it.
 	m.gitBranch = ""
 	m.width, m.height = 96, 30
 	m = typeRunes(t, m, "/")
@@ -405,7 +406,7 @@ func TestSuggestionOverlayCapsRowsWithoutMoreText(t *testing.T) {
 	if !strings.Contains(plain, "│ ❯ model") || !strings.Contains(plain, "│   ps") {
 		t.Fatalf("top of palette should render first visible command window, got %q", plain)
 	}
-	if strings.Contains(plain, "compact") {
+	if strings.Contains(plain, "│   compact") {
 		t.Fatalf("top of palette should cap hidden commands without rendering them, got %q", plain)
 	}
 
