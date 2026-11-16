@@ -146,9 +146,16 @@ func TestBatchSevenRuntimeStreamsBeforeReceipt(t *testing.T) {
 	if !seen || len(response.usageEvents) != 1 {
 		t.Fatalf("stream=%v bills=%d", seen, len(response.usageEvents))
 	}
-	assertContains(t, plainRender(t, renderCallUsage(response.usageReceiptAt(0), 120)), "850 tok/s")
+	// Same zero-interval tolerance as the live rate above.
+	receipt := plainRender(t, renderCallUsage(response.usageReceiptAt(0), 120))
+	if runtime.GOOS != "windows" || strings.Contains(receipt, "tok/s") {
+		assertContains(t, receipt, "850 tok/s")
+	}
 	m.pending = false
-	assertContains(t, plainRender(t, m.composerTopBorder(120)), "850 tok/s")
+	border := plainRender(t, m.composerTopBorder(120))
+	if runtime.GOOS != "windows" || strings.Contains(border, "tok/s") {
+		assertContains(t, border, "850 tok/s")
+	}
 	for _, event := range response.sessionEvents {
 		if event.Type == sessions.EventUsage {
 			payload := event.Payload.(map[string]any)
