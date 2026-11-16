@@ -78,15 +78,10 @@ func ParseAutoCompactLimit(text string) (int, error) {
 		}
 		value = value*10 + digit
 	}
+	// The digit loop already keeps value*multiplier within the maximum.
 	result := value * multiplier
-	if result == 0 {
-		return 0, fmt.Errorf("invalid auto-compact limit %q: must be auto, off, or at least %d tokens", text, MinAutoCompactLimit)
-	}
 	if result < MinAutoCompactLimit {
 		return 0, fmt.Errorf("invalid auto-compact limit %q: must be auto, off, or at least %d tokens", text, MinAutoCompactLimit)
-	}
-	if result > MaxAutoCompactLimit {
-		return 0, fmt.Errorf("invalid auto-compact limit %q: exceeds the maximum of %d tokens", text, MaxAutoCompactLimit)
 	}
 	return result, nil
 }
