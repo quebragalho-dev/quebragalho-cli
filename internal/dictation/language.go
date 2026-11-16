@@ -1,17 +1,27 @@
 package dictation
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // LanguageRank orders a model for a user who dictates in lang: 0 when the
-// model is made for that language, 1 when it is multilingual (or lang is
-// unknown), 2 when it is made for another language. The /stt-model picker
-// sorts by this rank so the user's language comes first.
+// model is made for that language, 1 when it is multilingual and covers lang
+// (or lang is unknown, or the model claims every language), 2 when it is made
+// for another language or is multilingual without covering lang. The
+// /stt-model picker sorts by this rank so the user's language comes first.
 func LanguageRank(v ModelVariant, lang string) int {
-	if lang == "" || v.Language == "" {
+	if lang == "" {
 		return 1
 	}
-	if v.Language == lang {
-		return 0
+	if v.Language != "" {
+		if v.Language == lang {
+			return 0
+		}
+		return 2
+	}
+	if v.Languages == nil || slices.Contains(v.Languages, lang) {
+		return 1
 	}
 	return 2
 }

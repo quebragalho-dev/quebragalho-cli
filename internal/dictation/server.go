@@ -191,13 +191,13 @@ func (m *ServerManager) SetBinary(path string) {
 func onlineServerCommand(cfg ServerConfig) (commandSpec, error) {
 	if strings.TrimSpace(cfg.ModelPath) == "" {
 		return commandSpec{}, &SetupError{
-			Tool: "local STT streaming model",
+			Tool: "modelo de ditado ao vivo",
 			Hint: "defina stt.localModelPath para uma pasta de modelo de streaming sherpa-onnx (rode /stt-model para escolher e baixar um)",
 		}
 	}
 	files, err := onnxFilesIn(cfg.ModelPath)
 	if err != nil {
-		return commandSpec{}, &SetupError{Tool: "local STT streaming model", Hint: err.Error()}
+		return commandSpec{}, &SetupError{Tool: "modelo de ditado ao vivo", Hint: err.Error()}
 	}
 	tokens := findTokensFile(files)
 	// A streaming model ships encoder/decoder/joiner, often BOTH an int8 and an
@@ -211,7 +211,7 @@ func onlineServerCommand(cfg ServerConfig) (commandSpec, error) {
 	}
 	if tokens == "" || encoder == "" || decoder == "" || joiner == "" {
 		return commandSpec{}, &SetupError{
-			Tool: "local STT streaming model",
+			Tool: "modelo de ditado ao vivo",
 			Hint: fmt.Sprintf("streaming precisa de um modelo transducer (encoder/decoder/joiner .onnx + tokens.txt) em %q (rode /stt-model para baixar um)", cfg.ModelPath),
 		}
 	}

@@ -53,9 +53,9 @@ func TestLanguageRank(t *testing.T) {
 		}
 	}
 	// Over the curated list: every English variant ranks first for an English
-	// user, while the multilingual ones (SenseVoice, Whisper) rank next; for a
-	// Portuguese user no curated variant ranks first (today's truth — which
-	// Portuguese-capable model becomes curated is still undecided).
+	// user, while the multilingual ones (Parakeet, SenseVoice, Whisper) rank
+	// next; for a Portuguese user no curated variant ranks first (the
+	// multilingual ones covering Portuguese rank next, none is made for it).
 	for _, v := range ModelVariants() {
 		switch v.Language {
 		case "en":

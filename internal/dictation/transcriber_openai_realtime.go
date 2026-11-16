@@ -37,8 +37,8 @@ type openAIRealtimeTranscriber struct {
 func NewOpenAIRealtimeTranscriber(cfg OpenAIRealtimeConfig) (Transcriber, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return nil, &SetupError{
-			Tool: "OpenAI API key",
-			Hint: "defina uma chave de API OpenAI (OPENAI_API_KEY ou `qg auth`) para usar o ditado com streaming",
+			Tool: "chave de API OpenAI",
+			Hint: "defina OPENAI_API_KEY ou rode `qg auth` para usar o ditado com streaming",
 		}
 	}
 	if cfg.Model == "" {
