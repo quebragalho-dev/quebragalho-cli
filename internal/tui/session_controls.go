@@ -874,7 +874,7 @@ func (m model) compactText(requested bool) string {
 				"requested: " + boolText(m.compactRequests > 0),
 				"model: " + displayValue(request.ModelName, "none"),
 				"context window: " + compactContextWindowText(request.ContextWindow),
-				"auto compaction: model adaptive at ~80% of context window",
+				"auto compaction: " + m.autoCompactSummary() + " (/autocompact)",
 				fmt.Sprintf("estimated transcript: %d tokens", request.EstimatedTokens),
 				fmt.Sprintf("visible transcript rows: %d", request.VisibleTranscriptRows),
 				m.compactabilityText(request),

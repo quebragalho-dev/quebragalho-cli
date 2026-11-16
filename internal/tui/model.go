@@ -5907,6 +5907,10 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
+	case commandAutoCompact:
+		// Unlike /turns, the limit is read when a run starts, so changing it
+		// mid-run is safe: it applies to the next message, never this run.
+		return m.handleAutoCompactCommand(command.text)
 	case commandProfile:
 		// Same idle-session rule as /turns: switching the profile mutates the
 		// turn budget (and its QG_MAX_TURNS propagation), so a change needs
