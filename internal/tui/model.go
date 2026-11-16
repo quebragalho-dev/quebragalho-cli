@@ -2048,8 +2048,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// full tick before the timer catches up.
 		m.composerCursorVisible = true
 		if !voiceHoldKey(msg) {
-			// Any other key ends a Space run: a hold is one key, uninterrupted.
-			m.dictation.hold.endRun()
+			// Any other key ends a Space hold: the system only repeats the
+			// last key pressed, so a latched activation must not swallow the
+			// next Space the user types.
+			m.dictation.hold.keyUp()
 		}
 		// Keyboard dispatch order (this if/case chain is the priority spec):
 		// setup wizard, STT key prompt, auto-compact prompt, terminal attach,

@@ -163,8 +163,9 @@ func (h *voiceHold) endRun() {
 	h.rapid = 0
 }
 
-// keyUp ends the run and clears the activation latch: the key went up, so the
-// next press starts a new physical hold.
+// keyUp ends the run and clears the activation latch: the key went up (or
+// another key ended the hold — the system only repeats the last key pressed),
+// so the next Space starts a new physical hold.
 func (h *voiceHold) keyUp() {
 	h.endRun()
 	h.spent = false
@@ -230,13 +231,17 @@ func (m model) handleVoiceHoldSpace(msg tea.KeyMsg, now time.Time) (model, tea.C
 	pause := now.Sub(hold.lastAt)
 	m.dictation.hold.count++
 	m.dictation.hold.lastAt = now
-	if m.dictation.hold.count > 2 && pause > m.dictation.hold.maxGap {
-		// The first pause is the keyboard's initial repeat delay, not the
-		// auto-repeat rate, so only later pauses widen the release timeout.
-		m.dictation.hold.maxGap = pause
-	}
-	if msg.Key().IsRepeat || pause <= voiceHoldRapidGap {
-		m.dictation.hold.rapid++
+	if m.dictation.hold.count > 2 {
+		if pause > m.dictation.hold.maxGap {
+			// The first pause is the keyboard's initial repeat delay, not the
+			// auto-repeat rate, so only later pauses widen the release timeout.
+			m.dictation.hold.maxGap = pause
+		}
+		// The first pause is the initial repeat delay: autoRepeat() leaves it
+		// out of the denominator, so it stays out of the numerator too.
+		if msg.Key().IsRepeat || pause <= voiceHoldRapidGap {
+			m.dictation.hold.rapid++
+		}
 	}
 	if now.Sub(m.dictation.hold.startedAt) >= voiceHoldThreshold && m.dictation.hold.autoRepeat() {
 		return m.activateVoiceHold(m.dictation.hold, now)

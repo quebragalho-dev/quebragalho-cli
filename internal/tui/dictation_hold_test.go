@@ -645,3 +645,51 @@ func repeatGaps(n int, gap time.Duration) []time.Duration {
 	}
 	return gaps
 }
+
+func TestVoiceHoldMostlySlowPausesNeverStart(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	// 70% rapid pauses: the first pause is the initial repeat delay and does
+	// not count either way, so the run never looks like auto-repeat.
+	gaps := []time.Duration{0, 100 * time.Millisecond}
+	for c := 0; c < 4; c++ {
+		gaps = append(gaps, repeatGaps(7, 30*time.Millisecond)...)
+		gaps = append(gaps, repeatGaps(3, 300*time.Millisecond)...)
+	}
+	for i, cmd := range holdSpace(t, m, &at, gaps...) {
+		if cmd != nil {
+			t.Fatalf("press %d of a mostly-slow run returned a command", i)
+		}
+	}
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after mostly-slow run = %v, want idle", m.dictation.phase)
+	}
+}
+
+func TestVoiceHoldOtherKeyEndsLatch(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	m.dictation.downloading = true
+	m.setComposerState(composerState{text: "oi", cursor: 2})
+
+	holdToActivation(t, m, &at)
+	holdSpace(t, m, &at, repeatGaps(10, 30*time.Millisecond)...)
+	// Another key ends the hold (the system only repeats the last key), so
+	// the latch must not swallow the next Space typed right after.
+	at = at.Add(100 * time.Millisecond)
+	if cmd := pressKey(t, m, tea.Key{Code: 'a', Text: "a"}); cmd != nil {
+		t.Fatal("the other key returned a command")
+	}
+	at = at.Add(100 * time.Millisecond)
+	if cmd := pressKey(t, m, tea.Key{Code: tea.KeySpace}); cmd != nil {
+		t.Fatal("the Space after another key returned a command")
+	}
+	if got := m.composerValue(); got != "oia " {
+		t.Fatalf("composer after another key = %q, want the Space typed", got)
+	}
+	if m.dictation.hold.spent {
+		t.Error("hold.spent still set after another key ended the hold")
+	}
+}
