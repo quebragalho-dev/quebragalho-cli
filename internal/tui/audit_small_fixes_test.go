@@ -58,9 +58,100 @@ func TestModelPickerPopupClickAccountsForGroupHeaders(t *testing.T) {
 	}
 }
 
+// TestModelPickerPopupClickFollowsTheRenderedRows pins the two other things
+// the click walk mirrors from the renderer: the load-error line above the
+// list, and the scrolled window, where the clicked row is not the item index.
+func TestModelPickerPopupClickFollowsTheRenderedRows(t *testing.T) {
+	grouped := func(count int) []pickerItem {
+		items := make([]pickerItem, 0, count)
+		for index := 0; index < count; index++ {
+			group := "Favoritos"
+			if index >= count/2 {
+				group = "Other"
+			}
+			label := "model-" + string(rune('a'+index))
+			items = append(items, pickerItem{Group: group, Label: label, Value: label})
+		}
+		return items
+	}
+	cases := []struct {
+		name      string
+		items     []pickerItem
+		selected  int
+		loadError string
+		click     int
+	}{
+		{name: "load error line above the list", items: grouped(4), loadError: "falha ao carregar", click: 3},
+		{name: "scrolled window", items: grouped(16), selected: 14, click: 12},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := mouseTestModel()
+			m.picker = &commandPicker{kind: pickerModel, items: tc.items, selected: tc.selected}
+			m.modelPickerLoadError = tc.loadError
+			wanted := tc.items[tc.click].Value
+
+			width := chatWidth(m.width)
+			overlay := m.modelPickerOverlay(width)
+			lines := viewLines(overlay)
+			line := -1
+			for index, text := range lines {
+				if strings.Contains(text, wanted) {
+					line = index
+				}
+			}
+			if line < 0 {
+				t.Fatalf("overlay does not render %s:\n%s", wanted, overlay)
+			}
+			if tc.loadError != "" && !strings.Contains(overlay, tc.loadError) {
+				t.Fatalf("overlay does not render the load error:\n%s", overlay)
+			}
+			rect := m.overlayMouseRect(len(lines), width)
+
+			target, ok := m.selectModelPickerAtMouse(testMouseClick(tea.MouseLeft, width/2, rect.y+line))
+			if !ok {
+				t.Fatalf("click on %s selected nothing (line %d)", wanted, line)
+			}
+			if target.Value != wanted || target.Index != tc.click || m.picker.selected != tc.click {
+				t.Fatalf("click on %s (item %d) gave value %q, index %d, selected %d", wanted, tc.click, target.Value, target.Index, m.picker.selected)
+			}
+		})
+	}
+}
+
 // TestSelectableUserRowSkipsAttachmentSummaryLine guards the selectable-line
 // geometry of a user row with attachments: the renderer emits a blank
 // delimiter line plus one attachment summary line before the text.
+// TestSubchatScrollReachesTheFirstChildRow pins the frame the scroll metrics
+// use: the nav bar takes a line from the body, so the largest offset must still
+// bring the first child row into view.
+func TestSubchatScrollReachesTheFirstChildRow(t *testing.T) {
+	m := mouseTestModel()
+	m.width = 80
+	m.height = 24
+	m.subchat.active = true
+	m.subchat.childSessionTitle = "child"
+	m.subchat.childRows = make([]transcriptRow, 60)
+	for index := range m.subchat.childRows {
+		m.subchat.childRows[index] = transcriptRow{kind: rowAssistant, text: "child row " + string(rune('A'+index%26)) + string(rune('a'+index/26))}
+	}
+	_, maxOffset := m.chatScrollMetrics()
+	if maxOffset <= 0 {
+		t.Fatalf("a long child transcript must scroll: maxOffset=%d", maxOffset)
+	}
+
+	m.chatScrollOffset = maxOffset
+	top := plainRender(t, m.View())
+	if !strings.Contains(top, "child row Aa") {
+		t.Fatalf("the largest scroll offset (%d) does not reach the first child row:\n%s", maxOffset, top)
+	}
+	m.chatScrollOffset = 0
+	bottom := plainRender(t, m.View())
+	if strings.Contains(bottom, "child row Aa") || !strings.Contains(bottom, "child row Hc") {
+		t.Fatalf("offset 0 must show the end of the child transcript:\n%s", bottom)
+	}
+}
+
 func TestSelectableUserRowSkipsAttachmentSummaryLine(t *testing.T) {
 	m := mouseTestModel()
 
