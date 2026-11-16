@@ -1231,6 +1231,22 @@ func decodeToolArguments(arguments string, v any) error {
 	return json.Unmarshal([]byte(arguments), v)
 }
 
+// toolArgumentsEchoLimit caps how much of an unparseable arguments payload is
+// echoed back to the model.
+const toolArgumentsEchoLimit = 600
+
+// argumentParseFailure is the tool result for arguments that are not valid
+// JSON. The replayed call is sanitized to "{}" (historySafeToolCalls), so
+// without the echo the model sees a syntax error and none of what it sent. The
+// label before the payload is fixed text and longer than what errorSignature
+// compares past the shortest parse error, so two different payloads that fail
+// the same way still count as the same failure for the repeated-failure guard.
+func argumentParseFailure(name string, err error, arguments string) string {
+	return "Error: Failed to parse arguments for " + name + ": " + err.Error() +
+		"\n\nArguments as received (invalid JSON, middle omitted when long):\n" +
+		clipHeadTailBytes(arguments, toolArgumentsEchoLimit)
+}
+
 func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCall, permissionMode PermissionMode, options Options) (ToolResult, error) {
 	// The run's send-now Signal travels with the tool context so
 	// backgroundable waits (exec_command's yield, write_stdin polling) wake
@@ -1264,7 +1280,7 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 				ToolCallID: call.ID,
 				Name:       call.Name,
 				Status:     tools.StatusError,
-				Output:     "Error: Failed to parse arguments for " + call.Name + ": " + err.Error(),
+				Output:     argumentParseFailure(call.Name, err, call.Arguments),
 			}, nil
 		}
 	}

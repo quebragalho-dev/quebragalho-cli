@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -97,5 +98,15 @@ func TestRunStillStopsWhenEveryMalformedPayloadDiffers(t *testing.T) {
 	}
 	if len(provider.requests) != toolFailureStopAt {
 		t.Fatalf("expected the repeated-failure stop at %d requests, made %d (answer %q)", toolFailureStopAt, len(provider.requests), result.FinalAnswer)
+	}
+}
+
+// Pins that echoed payload bytes never leak into the repeated-failure signature.
+func TestArgumentParseFailureKeepsOneSignatureAcrossPayloads(t *testing.T) {
+	shortest := errors.New("unexpected end of JSON input")
+	first := errorSignature(argumentParseFailure("x", shortest, `[1,"a"`))
+	second := errorSignature(argumentParseFailure("x", shortest, `{"b":`))
+	if first != second {
+		t.Fatalf("the echoed payload leaked into the failure signature: %q vs %q", first, second)
 	}
 }
