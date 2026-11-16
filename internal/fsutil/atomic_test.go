@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -78,8 +79,13 @@ func TestWriteFileAtomicallyPreservesPerm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("perm = %o, want 600", perm)
+	// Unix permission bits do not exist on Windows (Go reports 0666/0444
+	// there), so the 0600 assertion is Unix-only. The atomic write above
+	// still runs everywhere.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("perm = %o, want 600", perm)
+		}
 	}
 }
 

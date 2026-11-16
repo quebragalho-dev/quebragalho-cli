@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -338,6 +339,13 @@ func TestRestoreValidVariantsCharacterization(t *testing.T) {
 				t.Fatalf("content = %q, want %q", got, tc.wantContent)
 			}
 			if tc.name == "mode 0 preserves existing mode" {
+				// Unix permission bits do not exist on Windows (os.Chmod only
+				// maps the owner-write bit to read-only there), so the mode
+				// assertion is Unix-only. Content restoration above still
+				// asserts everywhere.
+				if runtime.GOOS == "windows" {
+					return
+				}
 				info, err := os.Stat(filepath.Join(ws, tc.path))
 				if err != nil {
 					t.Fatal(err)
