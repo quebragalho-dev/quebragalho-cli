@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
@@ -21,7 +22,10 @@ const autoCompactUsageText = "Auto-compact\nUso: /autocompact <n|off|auto>. n é
 // applied as the session limit.
 func (m model) handleAutoCompactCommand(arg string) (model, tea.Cmd) {
 	trimmed := strings.TrimSpace(arg)
-	if trimmed == "" || strings.EqualFold(trimmed, "status") {
+	if trimmed == "" {
+		return m.openAutoCompactPrompt(), nil
+	}
+	if strings.EqualFold(trimmed, "status") {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.autoCompactStatusText()})
 		return m, nil
 	}
@@ -82,4 +86,177 @@ func (m model) autoCompactSummary() string {
 // plus how to change it.
 func (m model) autoCompactStatusText() string {
 	return "Auto-compact\nLimite: " + m.autoCompactSummary() + ".\nMude com /autocompact <n|off|auto> (ex.: /autocompact 400k)."
+}
+
+// autoCompactStep is the arrow-key step of the /autocompact panel; steps stay
+// on exact multiples so typing and stepping compose ("120k" + Up = "150k").
+// autoCompactStepMax bounds the panel: no model window is near it.
+const autoCompactStep = 50_000
+const autoCompactStepMax = 2_000_000
+
+// autoCompactPromptMaxRunes caps the panel input: 12 runes hold any readable
+// limit ("2000000" is 7, "100000000" is 9) without room for pasted noise.
+const autoCompactPromptMaxRunes = 12
+
+// autoCompactPromptState is the panel opened by a bare /autocompact: a short
+// explanation, the current setting and one input line. The input holds what
+// Enter will apply ("400k", "off", "auto"); the arrow keys rewrite it in
+// 50k steps.
+type autoCompactPromptState struct {
+	input string
+	err   string // shown under the input after a rejected Enter; cleared by any edit
+}
+
+// openAutoCompactPrompt opens the /autocompact panel. A positive session limit
+// prefills the input; anything else starts empty. Opening is allowed while a
+// run is in progress: the limit is read when the next run starts.
+func (m model) openAutoCompactPrompt() model {
+	input := ""
+	if m.autoCompactLimit > 0 {
+		input = config.FormatAutoCompactLimit(m.autoCompactLimit)
+	}
+	m.autoCompactPrompt = &autoCompactPromptState{input: input}
+	m.clearSuggestions()
+	return m
+}
+
+// closeAutoCompactPromptDismiss closes the panel without applying anything.
+func (m model) closeAutoCompactPromptDismiss() (model, tea.Cmd) {
+	m.autoCompactPrompt = nil
+	return m.showTransientNoticeInline("Auto-compact: nada alterado.", transientNoticeInfo), nil
+}
+
+// stepAutoCompactLimit moves a panel limit one 50k step: up returns the next
+// multiple of 50k strictly above current (capped at autoCompactStepMax),
+// down the previous multiple strictly below it (never below 50k). A
+// non-positive current (empty, off, auto or invalid input) steps from zero,
+// so both directions first land on 50k.
+func stepAutoCompactLimit(current int, up bool) int {
+	if up {
+		stepped := (current/autoCompactStep + 1) * autoCompactStep
+		if stepped < autoCompactStep {
+			stepped = autoCompactStep
+		}
+		if stepped > autoCompactStepMax {
+			stepped = autoCompactStepMax
+		}
+		return stepped
+	}
+	stepped := ((current - 1) / autoCompactStep) * autoCompactStep
+	if stepped < autoCompactStep {
+		stepped = autoCompactStep
+	}
+	return stepped
+}
+
+// autoCompactPromptCurrent reads the panel input as a step base: the positive
+// number it parses to, or 0 when it is empty, off, auto or invalid.
+func (p *autoCompactPromptState) current() int {
+	limit, err := config.ParseAutoCompactLimit(p.input)
+	if err != nil || limit <= 0 {
+		return 0
+	}
+	return limit
+}
+
+// appendAutoCompactInput appends text to the panel input, truncating to the
+// rune cap. Any edit clears a previous rejection error.
+func (p *autoCompactPromptState) appendInput(text string) {
+	runes := []rune(p.input + text)
+	if len(runes) > autoCompactPromptMaxRunes {
+		runes = runes[:autoCompactPromptMaxRunes]
+	}
+	p.input = string(runes)
+	p.err = ""
+}
+
+// handleAutoCompactPromptKey captures typing for the /autocompact panel. It
+// fully owns the keystroke while the panel is open: typing edits the input,
+// arrows step it, Enter applies, Esc/Ctrl+C dismiss without changing anything.
+func (m model) handleAutoCompactPromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	p := m.autoCompactPrompt
+	switch {
+	case keyIs(msg, tea.KeyEsc), keyCtrl(msg, 'c'):
+		return m.closeAutoCompactPromptDismiss()
+	case keyIs(msg, tea.KeyEnter):
+		trimmed := strings.TrimSpace(p.input)
+		if trimmed == "" {
+			return m.closeAutoCompactPromptDismiss()
+		}
+		limit, err := config.ParseAutoCompactLimit(trimmed)
+		if err != nil {
+			p.err = "Valor inválido. Use um número a partir de 20k (ex.: 400k), off ou auto."
+			return m, nil
+		}
+		var notice string
+		m, notice, err = m.applyAutoCompactLimit(limit)
+		m.autoCompactPrompt = nil
+		if err != nil {
+			return m.appendSystemNotice(notice), nil
+		}
+		return m.showTransientNoticeInline(notice, transientNoticeSuccess), nil
+	case keyIs(msg, tea.KeyUp), keyIs(msg, tea.KeyRight):
+		p.input = config.FormatAutoCompactLimit(stepAutoCompactLimit(p.current(), true))
+		p.err = ""
+		return m, nil
+	case keyIs(msg, tea.KeyDown), keyIs(msg, tea.KeyLeft):
+		p.input = config.FormatAutoCompactLimit(stepAutoCompactLimit(p.current(), false))
+		p.err = ""
+		return m, nil
+	case keyBackspace(msg):
+		if r := []rune(p.input); len(r) > 0 {
+			p.input = string(r[:len(r)-1])
+		}
+		p.err = ""
+		return m, nil
+	case keyCtrl(msg, 'u'):
+		p.input = ""
+		p.err = ""
+		return m, nil
+	default:
+		if keyPrintable(msg) {
+			p.appendInput(keyText(msg))
+		}
+		return m, nil
+	}
+}
+
+// autoCompactPromptOverlay renders the /autocompact panel as a centered modal,
+// matching the cloud-STT key prompt's box. Every explanatory line stays at
+// most 52 cells so it survives the minimum overlay width; only the Atual:
+// line may be cut by the block on the clamped form.
+func (m model) autoCompactPromptOverlay(width int) string {
+	if m.autoCompactPrompt == nil {
+		return ""
+	}
+	p := m.autoCompactPrompt
+	overlayWidth := minInt(width, pickerOverlayMaxWidth)
+	if overlayWidth < pickerOverlayMinWidth {
+		overlayWidth = width
+	}
+	value := qgTheme.accent.Render("▌") + qgTheme.faint.Render("400k")
+	if p.input != "" {
+		value = qgTheme.ink.Render(p.input) + qgTheme.accent.Render("▌")
+	}
+	input := qgTheme.userPrompt.Render("limite > ") + value
+	lines := []string{
+		qgTheme.ink.Render("Compacta a conversa sozinho ao chegar perto do"),
+		qgTheme.ink.Render("limite escolhido, mesmo que o modelo aceite mais."),
+		qgTheme.ink.Render("As mensagens antigas viram um resumo."),
+		qgTheme.ink.Render("Exemplo: /autocompact 400k"),
+		"",
+		qgTheme.ink.Render("Atual: " + m.autoCompactSummary()),
+		"",
+		input,
+	}
+	if p.err != "" {
+		lines = append(lines, qgTheme.red.Render(p.err), "")
+	} else {
+		lines = append(lines, "")
+	}
+	lines = append(lines,
+		qgTheme.faint.Render("↑/↓ 50k em 50k · número, off ou auto"),
+		qgTheme.faint.Render("Enter salva · Esc cancela"),
+	)
+	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, "Auto-compact", lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 }

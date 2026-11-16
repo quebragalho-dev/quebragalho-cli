@@ -222,7 +222,7 @@ func (m model) terminalAttachCanOpen() bool {
 func (m model) noBlockingModalExceptAttach() bool {
 	return m.promptPhase() == PromptNone &&
 		m.mcpAddWizard == nil && m.mcpManager == nil && m.picker == nil &&
-		m.sttKeyPrompt == nil && m.renamePrompt == nil
+		m.sttKeyPrompt == nil && m.autoCompactPrompt == nil && m.renamePrompt == nil
 }
 
 // writeTerminalAttachInput forwards bytes to the session stdin. The bytes are

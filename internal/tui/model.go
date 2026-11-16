@@ -272,6 +272,7 @@ type model struct {
 	composerSelection      composerSelectionState
 	dictation              dictationController
 	sttKeyPrompt           *sttKeyPromptState
+	autoCompactPrompt      *autoCompactPromptState
 	terminalAttach         *terminalAttachState
 	terminalAutoAttach     *terminalAutoAttachState
 	terminalAttachSeen     map[int]bool
@@ -1648,7 +1649,7 @@ func (m model) prRefreshCmd() tea.Cmd {
 func (m model) noBlockingModal() bool {
 	return m.promptPhase() == PromptNone &&
 		m.mcpAddWizard == nil && m.mcpManager == nil && m.picker == nil &&
-		m.sttKeyPrompt == nil && m.renamePrompt == nil && m.terminalAttach == nil
+		m.sttKeyPrompt == nil && m.autoCompactPrompt == nil && m.renamePrompt == nil && m.terminalAttach == nil
 }
 
 func (m model) quit() (tea.Model, tea.Cmd) {
@@ -1975,6 +1976,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sttKeyPrompt.input += strings.TrimSpace(msg.Content)
 			return m, nil
 		}
+		// A paste into the /autocompact panel edits its input, not the composer.
+		if m.autoCompactPrompt != nil {
+			m.autoCompactPrompt.appendInput(strings.TrimSpace(msg.Content))
+			return m, nil
+		}
 		return m.routePaste(msg.Content)
 	case dictationStartedMsg:
 		return m.handleDictationStarted(msg)
@@ -2040,8 +2046,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// full tick before the timer catches up.
 		m.composerCursorVisible = true
 		// Keyboard dispatch order (this if/case chain is the priority spec):
-		// setup wizard, STT key prompt, terminal attach, session rename,
-		// statusline proposal preview, help overlay, leader-help overlay,
+		// setup wizard, STT key prompt, auto-compact prompt, terminal attach,
+		// session rename, statusline proposal preview, help overlay, leader-help overlay,
 		// picker panel keys, Ctrl+C, pending leader chord, Ctrl+X arming,
 		// Ctrl+P/Ctrl+N menu moves, then the switch (run details, detailed
 		// toggle, file-view mode keys, mouse toggle, voice capture, Esc
@@ -2056,6 +2062,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// input) until Enter saves or Esc cancels.
 		if m.sttKeyPrompt != nil {
 			return m.handleSTTKeyPromptKey(msg)
+		}
+		// The /autocompact panel is modal: it owns every keystroke (typing,
+		// stepping, Enter/Esc) until Enter applies or Esc/Ctrl+C dismiss it.
+		if m.autoCompactPrompt != nil {
+			return m.handleAutoCompactPromptKey(msg)
 		}
 		// Attached to a live terminal session: keystrokes (including Ctrl+C,
 		// which maps to 0x03 for the process) go to the PTY until Esc detaches.
@@ -3736,6 +3747,7 @@ func (m model) transcriptView() string {
 	mcpOverlay := m.mcpManagerOverlay(width)
 	pickerOverlay := m.pickerOverlay(width)
 	sttKeyOverlay := m.sttKeyPromptOverlay(width)
+	autoCompactOverlay := m.autoCompactPromptOverlay(width)
 	terminalAttachOverlay := m.terminalAttachOverlay(width)
 	viewportOverlay := ""
 	switch {
@@ -3743,6 +3755,8 @@ func (m model) transcriptView() string {
 		viewportOverlay = terminalAttachOverlay
 	case sttKeyOverlay != "":
 		viewportOverlay = sttKeyOverlay
+	case autoCompactOverlay != "":
+		viewportOverlay = autoCompactOverlay
 	case helpOverlayContent != "":
 		viewportOverlay = helpOverlayContent
 	case leaderHelpOverlayContent != "":
