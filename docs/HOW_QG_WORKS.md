@@ -364,7 +364,11 @@ The trigger is intentionally approximate:
 
 - QG estimates request size using message text, images, tool-call arguments, and
   the tool definitions advertised on that turn.
-- The proactive threshold is roughly **70% of the context window**.
+- The proactive threshold is the `/autocompact` limit
+  (`preferences.autoCompactLimit`): `auto` means roughly **70% of the context
+  window**; a chosen limit triggers at that many tokens but never above the
+  automatic threshold; `off` leaves only the reactive recovery after a
+  context-limit error.
 - Provider usage from completed turns is used to calibrate the rough estimate over
   time, so the budget gauge and compaction decision track the provider more
   closely after a few turns.
