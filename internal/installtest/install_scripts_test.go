@@ -458,6 +458,38 @@ func TestUnixInstallerRefusesAPlainHTTPAPIBase(t *testing.T) {
 	}
 }
 
+// TestUnixInstallerOptInIsExactlyOneAndLoopbackIsNotExempt pins the two edges
+// of the rule: only the literal value 1 opens the opt-in, and a loopback base
+// gets no exemption without it.
+func TestUnixInstallerOptInIsExactlyOneAndLoopbackIsNotExempt(t *testing.T) {
+	cases := map[string][]string{
+		"opt-in set to 0":      {"QG_GITHUB_BASE_URL=http://example.test", "QG_ALLOW_INSECURE_DOWNLOAD=0"},
+		"opt-in set to true":   {"QG_GITHUB_BASE_URL=http://example.test", "QG_ALLOW_INSECURE_DOWNLOAD=true"},
+		"opt-in set to empty":  {"QG_GITHUB_BASE_URL=http://example.test", "QG_ALLOW_INSECURE_DOWNLOAD="},
+		"localhost base":       {"QG_GITHUB_BASE_URL=http://localhost:8080"},
+		"loopback address":     {"QG_GITHUB_BASE_URL=http://127.0.0.1:8080"},
+		"scheme-less base":     {"QG_GITHUB_BASE_URL=example.test"},
+		"https only as a path": {"QG_GITHUB_BASE_URL=http://example.test/https://"},
+	}
+	for name, extraEnv := range cases {
+		t.Run(name, func(t *testing.T) {
+			fixture := newUnixInstallFixture(t)
+			pathPrefix, logPath := loggingCurl(t, fixture)
+
+			stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, pathPrefix, "0.1.0", extraEnv...)
+			if err == nil {
+				t.Fatalf("install.sh installed from an insecure base\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+			}
+			if !strings.Contains(stderr, "QG_ALLOW_INSECURE_DOWNLOAD=1") {
+				t.Fatalf("the refusal must name the opt-in, got:\n%s", stderr)
+			}
+			if _, statErr := os.Stat(logPath); !os.IsNotExist(statErr) {
+				t.Fatalf("curl ran for an insecure base: %s", readFile(t, logPath))
+			}
+		})
+	}
+}
+
 // TestUnixInstallerAllowsPlainHTTPOnlyWithTheExplicitOptIn pins that the insecure opt-in restores local http mirrors.
 func TestUnixInstallerAllowsPlainHTTPOnlyWithTheExplicitOptIn(t *testing.T) {
 	fixture := newUnixInstallFixture(t)
