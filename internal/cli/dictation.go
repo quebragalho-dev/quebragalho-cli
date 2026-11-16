@@ -33,9 +33,11 @@ const (
 func newDictationTranscriberFactory(resolved config.ResolvedConfig, userConfigPath string, serverMgr *dictation.ServerManager) func(config.STTConfig, bool) (tui.Transcriber, bool, error) {
 	return func(stt config.STTConfig, preferStreaming bool) (tui.Transcriber, bool, error) {
 		// stt is passed in (not captured) so a mid-session change — e.g. the F9
-		// auto-download writing localModelPath — takes effect on the next call.
+		// auto-download writing localModelPath and localServerBinary — takes
+		// effect on the next call.
 		if serverMgr != nil {
 			serverMgr.SetModelPath(stt.LocalModelPath)
+			serverMgr.SetBinary(stt.LocalServerBinary)
 		}
 		if preferStreaming {
 			t, err := buildStreamingTranscriber(stt, resolved, userConfigPath, serverMgr)
