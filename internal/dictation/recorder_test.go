@@ -139,8 +139,12 @@ func TestBatchRecordDarwinArgv(t *testing.T) {
 	r := NewRecorder(RecorderOptions{
 		Platform:        PlatformDarwin,
 		SilenceAutoStop: true,
-		starter:         fileWritingStarter(t, cap, wavFixture()),
-		tempDir:         testTempDir(t),
+		// The native microphone would open a real device: force the fallback
+		// so this pins the program argv.
+		openMic:  failingOpenMic(),
+		lookPath: okLookPath,
+		starter:  fileWritingStarter(t, cap, wavFixture()),
+		tempDir:  testTempDir(t),
 	})
 	if err := r.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -161,8 +165,11 @@ func TestBatchRecordWindowsArgv(t *testing.T) {
 	r := NewRecorder(RecorderOptions{
 		Platform:           PlatformWindows,
 		WindowsAudioDevice: "Microphone (Realtek)",
-		starter:            fileWritingStarter(t, cap, wavFixture()),
-		tempDir:            testTempDir(t),
+		// A named device keeps the FFmpeg path even with a working
+		// microphone: openMic must never be consulted.
+		openMic: refuseOpenMic(t),
+		starter: fileWritingStarter(t, cap, wavFixture()),
+		tempDir: testTempDir(t),
 	})
 	if err := r.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -502,22 +509,29 @@ func TestChunkLevel(t *testing.T) {
 }
 
 func TestCheckCaptureTool(t *testing.T) {
+	found := func(string) (string, error) { return "/usr/bin/tool", nil }
+	missing := func(string) (string, error) { return "", exec.ErrNotFound }
+	// macOS and Windows record from inside the binary: nothing to install.
+	for _, platform := range []Platform{PlatformDarwin, PlatformWindows} {
+		if err := CheckCaptureTool(platform, missing); err != nil {
+			t.Errorf("%s with no program should be nil, got %v", platform, err)
+		}
+		if err := CheckCaptureTool(platform, found); err != nil {
+			t.Errorf("%s with the program should be nil, got %v", platform, err)
+		}
+	}
 	cases := []struct {
 		platform Platform
 		tool     string
 		command  string
 	}{
 		{PlatformLinux, "arecord", "sudo apt install alsa-utils (ou sudo dnf install alsa-utils)"},
-		{PlatformDarwin, "sox", "brew install sox"},
-		{PlatformWindows, "ffmpeg", "winget install Gyan.FFmpeg (depois feche e abra o terminal)"},
 		{PlatformTermux, "termux-microphone-record", "pkg install termux-api"},
 	}
 	for _, tc := range cases {
-		found := func(string) (string, error) { return "/usr/bin/" + tc.tool, nil }
 		if err := CheckCaptureTool(tc.platform, found); err != nil {
 			t.Errorf("%s with the tool installed should be nil, got %v", tc.platform, err)
 		}
-		missing := func(string) (string, error) { return "", exec.ErrNotFound }
 		err := CheckCaptureTool(tc.platform, missing)
 		var setupErr *SetupError
 		if !errors.As(err, &setupErr) {

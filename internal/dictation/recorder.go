@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -104,6 +105,13 @@ type RecorderOptions struct {
 	runOutput commandOutputRunner
 	tempDir   func() (string, error)
 	now       func() time.Time
+	// openMic opens the in-process microphone on platforms that have one
+	// (macOS, Windows). forceProgram is the QG_STT_CAPTURE=program escape
+	// hatch, forcing the external-program path everywhere. lookPath probes
+	// for the fallback capture program.
+	openMic      func(sampleRate int) (micStream, error)
+	forceProgram bool
+	lookPath     func(string) (string, error)
 }
 
 func (o RecorderOptions) withDefaults() RecorderOptions {
@@ -128,6 +136,15 @@ func (o RecorderOptions) withDefaults() RecorderOptions {
 	if o.now == nil {
 		o.now = time.Now
 	}
+	if o.openMic == nil {
+		o.openMic = openNativeMic
+	}
+	if o.lookPath == nil {
+		o.lookPath = exec.LookPath
+	}
+	if nativeCaptureEnv() {
+		o.forceProgram = true
+	}
 	return o
 }
 
@@ -145,6 +162,16 @@ type recorder struct {
 	proc      processHandle
 	filePath  string
 	recording bool
+	// native is non-nil while a native-microphone batch recording is open:
+	// the reader goroutine owns nb.pcm until nb.done closes.
+	native *nativeBatch
+}
+
+// nativeBatch is an in-progress native-microphone batch recording.
+type nativeBatch struct {
+	stream micStream
+	done   chan struct{}
+	pcm    []byte
 }
 
 var errAlreadyRecording = errors.New("a recording is already in progress")
@@ -158,6 +185,22 @@ func (r *recorder) Start() error {
 	}
 	if r.opts.Platform == PlatformUnsupported {
 		return fmt.Errorf("dictation is not supported on %s", runtime.GOOS)
+	}
+
+	// macOS and Windows (without a named FFmpeg device) record through the
+	// system audio API from inside the QG binary — no external program. On
+	// failure with the program installed, fall through to today's program
+	// path; with no program, report the microphone itself.
+	if r.opts.useNativeMic() {
+		if stream, err := r.opts.openMic(r.opts.SampleRate); err == nil {
+			nb := &nativeBatch{stream: stream, done: make(chan struct{})}
+			r.native = nb
+			r.recording = true
+			go accumulateNativeBatch(r.opts, stream, nb)
+			return nil
+		} else if _, lookErr := r.opts.lookPath(captureTool(r.opts.Platform)); lookErr != nil {
+			return nativeMicSetupError(err)
+		}
 	}
 
 	dir, err := r.opts.tempDir()
@@ -212,9 +255,21 @@ func (r *recorder) Start() error {
 // the audio bytes.
 func (r *recorder) Stop() ([]byte, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if !r.recording {
+		r.mu.Unlock()
 		return nil, errors.New("no recording in progress")
+	}
+	if nb := r.native; nb != nil {
+		r.native = nil
+		r.proc, r.filePath, r.recording = nil, "", false
+		rate := r.opts.SampleRate
+		r.mu.Unlock()
+		_ = nb.stream.Close()
+		<-nb.done
+		if len(nb.pcm) == 0 {
+			return nil, errors.New("no audio was captured (is the microphone available?)")
+		}
+		return encodeWAV(nb.pcm, rate), nil
 	}
 	proc, path := r.proc, r.filePath
 	// Termux: Start's termux-microphone-record branch leaves r.proc nil because
@@ -223,9 +278,11 @@ func (r *recorder) Stop() ([]byte, error) {
 	// came from StartStreaming (which owns its process via the returned
 	// closure).
 	if proc == nil && r.opts.Platform != PlatformTermux {
+		r.mu.Unlock()
 		return nil, errors.New("recording was started with StartStreaming; call the stop closure returned from StartStreaming instead of Stop()")
 	}
 	r.proc, r.filePath, r.recording = nil, "", false
+	r.mu.Unlock()
 	defer os.Remove(path)
 
 	if r.opts.Platform == PlatformTermux {
@@ -251,6 +308,121 @@ func (r *recorder) Stop() ([]byte, error) {
 		return nil, errors.New("no audio was captured (is the microphone available?)")
 	}
 	return data, nil
+}
+
+// accumulateNativeBatch drains a native microphone stream into memory for a
+// batch recording, bounded by the max duration, ending after the same
+// trailing silence as the streaming path when SilenceAutoStop is set. It owns
+// nb.pcm until it closes nb.done.
+func accumulateNativeBatch(opts RecorderOptions, stream micStream, nb *nativeBatch) {
+	defer close(nb.done)
+	chunkBytes := chunkSizeBytes(opts.SampleRate)
+	maxBytes := opts.SampleRate * 2 * maxSeconds(opts.MaxDuration)
+	threshold := int16(32767 * silenceThresholdPct / 100)
+	silentChunks, speechSeen := 0, false
+	silenceLimit := int(silenceHold / chunkInterval)
+	var pcm []byte
+	for len(pcm) < maxBytes {
+		size := chunkBytes
+		if size > maxBytes-len(pcm) {
+			size = maxBytes - len(pcm)
+		}
+		buf := make([]byte, size)
+		n, err := readFullOrEOF(stream, buf)
+		if n > 0 {
+			chunk := buf[:n]
+			pcm = append(pcm, chunk...)
+			if opts.SilenceAutoStop {
+				if chunkPeak(chunk) >= threshold {
+					speechSeen = true
+					silentChunks = 0
+				} else if speechSeen {
+					silentChunks++
+					if silentChunks >= silenceLimit {
+						break
+					}
+				}
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	nb.pcm = pcm
+}
+
+// pumpPCMToChunks moves fixed-size chunks from any PCM16 source (a capture
+// process's stdout or a native microphone stream) to chunks with the §12
+// safety nets: a hard max-duration cap and Go-side trailing-silence
+// auto-stop. requestStop ends the capture; the caller's stop owns teardown.
+func pumpPCMToChunks(opts RecorderOptions, src io.Reader, chunkBytes int, chunks chan<- []byte, done <-chan struct{}, requestStop func()) {
+	threshold := int16(32767 * silenceThresholdPct / 100)
+	silentChunks, speechSeen := 0, false
+	silenceLimit := int(silenceHold / chunkInterval)
+	for {
+		buf := make([]byte, chunkBytes)
+		n, err := readFullOrEOF(src, buf)
+		if n > 0 {
+			chunk := buf[:n]
+			if opts.SilenceAutoStop {
+				if chunkPeak(chunk) >= threshold {
+					speechSeen = true
+					silentChunks = 0
+				} else if speechSeen {
+					silentChunks++
+					if silentChunks >= silenceLimit {
+						go requestStop()
+					}
+				}
+			}
+			select {
+			case chunks <- chunk:
+			case <-done:
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// serveStream serves StartStreaming from any PCM16 source. The caller holds
+// r.mu; closeSrc releases whatever the source holds (process or device).
+func (r *recorder) serveStream(src io.Reader, closeSrc func()) (<-chan []byte, func() error, error) {
+	r.recording = true
+
+	chunkBytes := chunkSizeBytes(r.opts.SampleRate)
+	chunks := make(chan []byte, 8)
+	done := make(chan struct{})
+	var stopOnce sync.Once
+	stop := func() error {
+		stopOnce.Do(func() {
+			close(done)
+			closeSrc()
+			r.mu.Lock()
+			r.recording = false
+			r.mu.Unlock()
+		})
+		return nil
+	}
+
+	// Max-duration cap: streaming has no tool-side -d/-t equivalent that also
+	// flushes stdout cleanly everywhere, so the cap runs on our side of the pipe.
+	capTimer := time.AfterFunc(r.opts.MaxDuration, func() { _ = stop() })
+
+	go func() {
+		defer close(chunks)
+		defer capTimer.Stop()
+		// Tear down on ANY exit — including the capture source ending on its own
+		// (EOF/crash), which the loop below returns on without going through an
+		// explicit stop(). stop() is idempotent (sync.Once), so this is safe even
+		// when the session was already stopped externally; it clears r.recording and
+		// releases the source so a self-terminating device doesn't wedge the recorder.
+		defer func() { _ = stop() }()
+		pumpPCMToChunks(r.opts, src, chunkBytes, chunks, done, func() { _ = stop() })
+	}()
+	return chunks, stop, nil
 }
 
 // readRecordingWithRetry reads the Termux recording, retrying briefly: the
@@ -359,6 +531,14 @@ func (r *recorder) StartStreaming() (<-chan []byte, func() error, error) {
 	if r.recording {
 		return nil, nil, errAlreadyRecording
 	}
+	if r.opts.useNativeMic() {
+		if stream, err := r.opts.openMic(r.opts.SampleRate); err == nil {
+			return r.serveStream(stream, func() { _ = stream.Close() })
+		} else if _, lookErr := r.opts.lookPath(captureTool(r.opts.Platform)); lookErr != nil {
+			return nil, nil, nativeMicSetupError(err)
+		}
+		// Fall through to the external-program path.
+	}
 	spec, err := streamCommand(r.opts)
 	if err != nil {
 		return nil, nil, err
@@ -371,71 +551,13 @@ func (r *recorder) StartStreaming() (<-chan []byte, func() error, error) {
 		_ = proc.Kill()
 		return nil, nil, errors.New("capture process has no stdout pipe")
 	}
-	r.recording = true
-
-	chunkBytes := chunkSizeBytes(r.opts.SampleRate)
-	chunks := make(chan []byte, 8)
-	done := make(chan struct{})
-	var stopOnce sync.Once
-	stop := func() error {
-		stopOnce.Do(func() {
-			close(done)
-			if err := proc.StopGracefully(); err != nil {
-				_ = proc.Kill()
-			}
-			_ = waitWithTimeout(proc, stopGrace)
-			_ = stdout.Close()
-			r.mu.Lock()
-			r.recording = false
-			r.mu.Unlock()
-		})
-		return nil
-	}
-
-	// Max-duration cap: streaming has no tool-side -d/-t equivalent that also
-	// flushes stdout cleanly everywhere, so the cap runs on our side of the pipe.
-	capTimer := time.AfterFunc(r.opts.MaxDuration, func() { _ = stop() })
-
-	go func() {
-		defer close(chunks)
-		defer capTimer.Stop()
-		// Tear down on ANY exit — including the capture process ending on its own
-		// (EOF/crash), which the loop below returns on without going through an
-		// explicit stop(). stop() is idempotent (sync.Once), so this is safe even
-		// when the session was already stopped externally; it clears r.recording and
-		// closes proc/stdout so a self-terminating device doesn't wedge the recorder.
-		defer func() { _ = stop() }()
-		threshold := int16(32767 * silenceThresholdPct / 100)
-		silentChunks, speechSeen := 0, false
-		silenceLimit := int(silenceHold / chunkInterval)
-		for {
-			buf := make([]byte, chunkBytes)
-			n, err := readFullOrEOF(stdout, buf)
-			if n > 0 {
-				chunk := buf[:n]
-				if r.opts.SilenceAutoStop {
-					if chunkPeak(chunk) >= threshold {
-						speechSeen = true
-						silentChunks = 0
-					} else if speechSeen {
-						silentChunks++
-						if silentChunks >= silenceLimit {
-							go func() { _ = stop() }()
-						}
-					}
-				}
-				select {
-				case chunks <- chunk:
-				case <-done:
-					return
-				}
-			}
-			if err != nil {
-				return
-			}
+	return r.serveStream(stdout, func() {
+		if err := proc.StopGracefully(); err != nil {
+			_ = proc.Kill()
 		}
-	}()
-	return chunks, stop, nil
+		_ = waitWithTimeout(proc, stopGrace)
+		_ = stdout.Close()
+	})
 }
 
 // chunkSizeBytes is 50ms of PCM16 mono at the given rate — small chunks mean
@@ -599,12 +721,19 @@ func captureTool(platform Platform) string {
 
 // CheckCaptureTool reports whether this platform's capture program is
 // installed — a preflight the interface runs before the first recording, so a
-// missing tool surfaces as guidance instead of a failed take. A missing tool
-// returns the same *SetupError a failed recording returns today.
+// missing tool surfaces as guidance instead of a failed take. macOS and
+// Windows record through the system audio API from inside the QG binary, so
+// nothing needs to be installed there; QG_STT_CAPTURE=program restores the
+// program check on every platform. A missing tool returns the same
+// *SetupError a failed recording returns today.
 func CheckCaptureTool(platform Platform, lookPath func(string) (string, error)) error {
+	if os.Getenv("QG_STT_CAPTURE") != "program" &&
+		(platform == PlatformDarwin || platform == PlatformWindows) {
+		return nil
+	}
 	tool := captureTool(platform)
 	if tool == "" {
-		return fmt.Errorf("dictation is not supported on %s", runtime.GOOS)
+		return fmt.Errorf("ditado não é suportado nesta plataforma")
 	}
 	if _, err := lookPath(tool); err != nil {
 		return &SetupError{Tool: tool, Hint: installHint(platform)}
