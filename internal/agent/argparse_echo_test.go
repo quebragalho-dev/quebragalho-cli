@@ -110,3 +110,36 @@ func TestArgumentParseFailureKeepsOneSignatureAcrossPayloads(t *testing.T) {
 		t.Fatalf("the echoed payload leaked into the failure signature: %q vs %q", first, second)
 	}
 }
+
+// Pins that the echoed payload crosses the same secret-scrubbing boundary as
+// every other tool result, including a secret the clip would cut in half, and
+// that the result is flagged as redacted.
+func TestExecuteToolCallScrubsUnparseableArguments(t *testing.T) {
+	secret := "sk-proj-abcdefghijklmnopqrstuvwxyz"
+	cases := map[string]string{
+		"short payload": `{"path":"` + secret,
+		// The echo keeps the first 288 bytes: the secret starts at byte 280, so a
+		// clip taken before scrubbing would echo its first eight characters.
+		"secret across the cut": `{"pad":"` + strings.Repeat("x", 261) + `","token":"` + secret + `","more":"` + strings.Repeat("y", 2000),
+	}
+	for name, payload := range cases {
+		t.Run(name, func(t *testing.T) {
+			registry := tools.NewRegistry()
+			registry.Register(tools.NewScopedReadFileTool(t.TempDir(), nil))
+
+			result, err := executeToolCall(context.Background(), registry, ToolCall{ID: "call-1", Name: "read_file", Arguments: payload}, PermissionModeAuto, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(result.Output, "Failed to parse arguments for read_file") {
+				t.Fatalf("expected the parse failure, got %q", result.Output)
+			}
+			if strings.Contains(result.Output, "sk-proj-") {
+				t.Fatalf("the echo leaked the secret or a prefix of it: %q", result.Output)
+			}
+			if !result.Redacted {
+				t.Fatalf("a scrubbed echo must be flagged as redacted, output = %q", result.Output)
+			}
+		})
+	}
+}
