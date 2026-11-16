@@ -107,3 +107,39 @@ func TestBTWBlocksClearLikeNew(t *testing.T) {
 		t.Fatalf("missing blocked-command guidance: %#v", got.transcript)
 	}
 }
+
+// TestSubchatScrollUsesChildTranscript guards the scroll metrics used while a
+// subchat drill-in is active: they must be measured from the child rows with
+// the same header/footer the renderer uses, not from the parent transcript.
+func TestSubchatScrollUsesChildTranscript(t *testing.T) {
+	newSubchatModel := func() model {
+		m := mouseTestModel()
+		m.width = 80
+		m.height = 24
+		m.subchat.active = true
+		m.subchat.childSessionTitle = "child"
+		return m
+	}
+
+	longChild := make([]transcriptRow, 80)
+	for index := range longChild {
+		longChild[index] = transcriptRow{kind: rowAssistant, text: "child answer line number"}
+	}
+	shortParent := newSubchatModel()
+	shortParent.transcript = []transcriptRow{{kind: rowUser, text: "hi"}}
+	shortParent.subchat.childRows = longChild
+	if _, maxOffset := shortParent.chatScrollMetrics(); maxOffset <= 0 {
+		t.Fatalf("long child under a short parent must scroll: maxOffset=%d", maxOffset)
+	}
+
+	shortChild := newSubchatModel()
+	longParent := make([]transcriptRow, 80)
+	for index := range longParent {
+		longParent[index] = transcriptRow{kind: rowAssistant, text: "parent answer line number"}
+	}
+	shortChild.transcript = longParent
+	shortChild.subchat.childRows = []transcriptRow{{kind: rowAssistant, text: "tiny"}}
+	if _, maxOffset := shortChild.chatScrollMetrics(); maxOffset != 0 {
+		t.Fatalf("short child under a long parent must not scroll: maxOffset=%d", maxOffset)
+	}
+}
