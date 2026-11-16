@@ -287,9 +287,16 @@ func runUnixInstaller(t *testing.T, fixture unixInstallFixture) (string, string,
 
 func runUnixInstallerWithPath(t *testing.T, fixture unixInstallFixture, pathPrefix string) (string, string, error) {
 	t.Helper()
+	return runUnixInstallerWithEnv(t, fixture, pathPrefix, "0.1.0")
+}
+
+// runUnixInstallerWithEnv runs install.sh for version with extraEnv appended
+// after the defaults, so an entry there overrides the default of the same name.
+func runUnixInstallerWithEnv(t *testing.T, fixture unixInstallFixture, pathPrefix string, version string, extraEnv ...string) (string, string, error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, fixture.bash, filepath.Join(repoRoot(t), "scripts/install.sh"), "--version", "0.1.0", "--install-dir", fixture.installDir)
+	command := exec.CommandContext(ctx, fixture.bash, filepath.Join(repoRoot(t), "scripts/install.sh"), "--version", version, "--install-dir", fixture.installDir)
 	command.Dir = repoRoot(t)
 	path := fixture.mockBin + string(os.PathListSeparator) + os.Getenv("PATH")
 	if pathPrefix != "" {
@@ -300,6 +307,7 @@ func runUnixInstallerWithPath(t *testing.T, fixture unixInstallFixture, pathPref
 		"QG_GITHUB_BASE_URL=https://example.test",
 		"QG_REPO=quebragalho-dev/quebragalho-cli",
 	)
+	command.Env = append(command.Env, extraEnv...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
@@ -400,4 +408,121 @@ func requireCommand(t *testing.T, name string) string {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+// loggingCurl puts a curl ahead of the fixture's mock that records every
+// invocation's arguments, one line per call, and then runs the mock.
+func loggingCurl(t *testing.T, fixture unixInstallFixture) (pathPrefix string, logPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	logPath = filepath.Join(dir, "curl.log")
+	script := "#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> " + shellQuote(logPath) + "\nexec " + shellQuote(filepath.Join(fixture.mockBin, "curl")) + " \"$@\"\n"
+	writeFile(t, filepath.Join(dir, "curl"), []byte(script), 0o755)
+	return dir, logPath
+}
+
+// TestUnixInstallerRefusesAPlainHTTPDownloadBase pins that an http download base is refused before curl runs.
+func TestUnixInstallerRefusesAPlainHTTPDownloadBase(t *testing.T) {
+	fixture := newUnixInstallFixture(t)
+	pathPrefix, logPath := loggingCurl(t, fixture)
+
+	stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, pathPrefix, "0.1.0", "QG_GITHUB_BASE_URL=http://example.test")
+	if err == nil {
+		t.Fatalf("install.sh installed from a plain http base\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "https://") || !strings.Contains(stderr, "QG_ALLOW_INSECURE_DOWNLOAD=1") {
+		t.Fatalf("the refusal must name https and the opt-in, got:\n%s", stderr)
+	}
+	if _, statErr := os.Stat(logPath); !os.IsNotExist(statErr) {
+		t.Fatalf("curl ran for a plain http base: %s", readFile(t, logPath))
+	}
+	if _, statErr := os.Stat(filepath.Join(fixture.installDir, "qg")); !os.IsNotExist(statErr) {
+		t.Fatalf("a binary was installed from a plain http base: %v", statErr)
+	}
+}
+
+// TestUnixInstallerRefusesAPlainHTTPAPIBase pins that the latest-release lookup refuses an http API base.
+func TestUnixInstallerRefusesAPlainHTTPAPIBase(t *testing.T) {
+	fixture := newUnixInstallFixture(t)
+	pathPrefix, logPath := loggingCurl(t, fixture)
+
+	_, stderr, err := runUnixInstallerWithEnv(t, fixture, pathPrefix, "latest", "QG_GITHUB_API=http://api.example.test")
+	if err == nil {
+		t.Fatal("install.sh resolved the latest release over plain http")
+	}
+	if !strings.Contains(stderr, "QG_ALLOW_INSECURE_DOWNLOAD=1") {
+		t.Fatalf("the refusal must name the opt-in, got:\n%s", stderr)
+	}
+	if _, statErr := os.Stat(logPath); !os.IsNotExist(statErr) {
+		t.Fatalf("curl ran for a plain http API base: %s", readFile(t, logPath))
+	}
+}
+
+// TestUnixInstallerAllowsPlainHTTPOnlyWithTheExplicitOptIn pins that the insecure opt-in restores local http mirrors.
+func TestUnixInstallerAllowsPlainHTTPOnlyWithTheExplicitOptIn(t *testing.T) {
+	fixture := newUnixInstallFixture(t)
+	pathPrefix, logPath := loggingCurl(t, fixture)
+
+	stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, pathPrefix, "0.1.0", "QG_GITHUB_BASE_URL=http://example.test", "QG_ALLOW_INSECURE_DOWNLOAD=1")
+	if err != nil {
+		t.Fatalf("install.sh refused the explicit opt-in: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if strings.Contains(string(readFile(t, logPath)), "--proto") {
+		t.Fatalf("the opt-in must not pin curl to https:\n%s", readFile(t, logPath))
+	}
+}
+
+// TestUnixInstallerPinsCurlToHTTPSAcrossRedirects pins that curl stays on https even across redirects.
+func TestUnixInstallerPinsCurlToHTTPSAcrossRedirects(t *testing.T) {
+	fixture := newUnixInstallFixture(t)
+	pathPrefix, logPath := loggingCurl(t, fixture)
+
+	stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, pathPrefix, "0.1.0")
+	if err != nil {
+		t.Fatalf("install.sh failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	calls := strings.Split(strings.TrimSpace(string(readFile(t, logPath))), "\n")
+	if len(calls) != 2 {
+		t.Fatalf("expected the archive and checksum downloads, got %d curl calls:\n%s", len(calls), strings.Join(calls, "\n"))
+	}
+	for _, call := range calls {
+		if !strings.Contains(call, "--proto =https") || !strings.Contains(call, "--proto-redir =https") {
+			t.Fatalf("curl was not pinned to https for the request and its redirects: %s", call)
+		}
+	}
+}
+
+// TestPowerShellInstallerRefusesPlainHTTPBases pins that install.ps1 guards both URL bases with the same rule.
+func TestPowerShellInstallerRefusesPlainHTTPBases(t *testing.T) {
+	script := readRepoText(t, "scripts/install.ps1")
+
+	containsAll(t, script, []string{
+		`function Assert-QGSecureUrl {`,
+		`$env:QG_ALLOW_INSECURE_DOWNLOAD -eq "1"`,
+		`$Url.StartsWith("https://", [System.StringComparison]::OrdinalIgnoreCase)`,
+		`Assert-QGSecureUrl -Url $latestUrl`,
+		`Assert-QGSecureUrl -Url $releaseUrl`,
+	})
+}
+
+// TestPowerShellInstallerBindsTheChecksumToTheArchive pins that the checksum line must name the downloaded archive.
+func TestPowerShellInstallerBindsTheChecksumToTheArchive(t *testing.T) {
+	script := readRepoText(t, "scripts/install.ps1")
+
+	containsAll(t, script, []string{
+		`'^([0-9a-fA-F]{64})(?:\s+\*?(.+))?$'`,
+		`-cne $archiveName`,
+	})
+	if strings.Contains(script, `($checksumLine -split "\s+")[0]`) {
+		t.Fatal("install.ps1 still takes the first token of the checksum file whatever it is")
+	}
+}
+
+// TestPowerShellInstallerStaysASCII pins the BOM-less ANSI readability of install.ps1 on Windows PowerShell 5.1.
+func TestPowerShellInstallerStaysASCII(t *testing.T) {
+	for index, b := range readFile(t, filepath.Join(repoRoot(t), "scripts/install.ps1")) {
+		if b > 0x7e || (b < 0x20 && b != '\n' && b != '\r' && b != '\t') {
+			t.Fatalf("install.ps1 has a non-ASCII byte 0x%02x at offset %d: Windows PowerShell 5.1 reads the file as ANSI", b, index)
+		}
+	}
 }
