@@ -97,6 +97,12 @@ func (c *Client) streamLoop(onLine func(string)) error {
 				onLine(msg.Line)
 			}
 		case CtrlEnd:
+			// A normal end carries no message. An end WITH a message is the
+			// daemon cutting the stream short (shutdown mid-run): the output is
+			// incomplete, so it must not be reported as success.
+			if msg.Message != "" {
+				return fmt.Errorf("daemon: execução interrompida: %s", msg.Message)
+			}
 			return nil
 		case CtrlError:
 			return fmt.Errorf("daemon: %s", msg.Message)
