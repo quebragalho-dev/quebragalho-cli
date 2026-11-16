@@ -258,7 +258,7 @@ func TestStateDirRootCoversAllPlatforms(t *testing.T) {
 		want string
 	}{
 		{name: "linux xdg", goos: "linux", env: map[string]string{"XDG_STATE_HOME": "/tmp/xdg"}, want: "/tmp/xdg"},
-		{name: "linux home fallback", goos: "linux", env: map[string]string{"HOME": "/tmp/h"}, want: "/tmp/h/.local/state"},
+		{name: "linux home fallback", goos: "linux", env: map[string]string{"HOME": "/tmp/h"}, want: filepath.FromSlash("/tmp/h/.local/state")},
 		{name: "darwin xdg", goos: "darwin", env: map[string]string{"XDG_STATE_HOME": "/tmp/xdg"}, want: "/tmp/xdg"},
 		{name: "windows localappdata", goos: "windows", env: map[string]string{"LOCALAPPDATA": `C:\A`}, want: filepath.Join(`C:\A`)},
 		{name: "windows userprofile", goos: "windows", env: map[string]string{"USERPROFILE": `C:\U\tester`}, want: filepath.Join(`C:\U\tester`, "AppData", "Local")},
