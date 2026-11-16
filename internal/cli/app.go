@@ -1084,6 +1084,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		RecentModels:          resolved.Preferences.RecentModels,
 		RecapsEnabled:         resolved.Preferences.RecapsEnabled(),
 		CompactionModel:       resolved.Preferences.CompactionModel,
+		AutoCompactLimit:      resolved.Preferences.AutoCompactLimit,
 		StatusLine:            resolved.StatusLine,
 		StatusLineWarning: func() string {
 			var notes []string

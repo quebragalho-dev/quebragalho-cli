@@ -57,6 +57,9 @@ type Options struct {
 	// providers.CompactionModelID for how it combines with the env override
 	// (no curated default: empty means the main model).
 	CompactionModel string
+	// AutoCompactLimit is the resolved preferences.autoCompactLimit value; 0
+	// means automatic, > 0 a limit in tokens, < 0 proactive compaction off.
+	AutoCompactLimit int
 	// StatusLine carries resolved.Preferences-independent TUI customization:
 	// user layout plus command, optionally with project layout underneath.
 	// Zero renders the built-in line byte for byte.

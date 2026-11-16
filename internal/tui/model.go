@@ -692,6 +692,7 @@ type model struct {
 	recapIdleRunID               int
 	idleRecap                    string
 	compactionModel              string // preferences.compactionModel (see providers.CompactionModelID)
+	autoCompactLimit             int    // resolved preferences.autoCompactLimit; 0 automatic, > 0 tokens, < 0 off
 	modelPickerLoading           bool
 	modelPickerLoadingProviderID string
 	modelPickerLoadError         string
@@ -1372,6 +1373,7 @@ func newModel(ctx context.Context, options Options) model {
 		favoriteModels:              favoriteModelSet(options.FavoriteModels),
 		recentModels:                normalizeRecentModelEntries(options.RecentModels),
 		compactionModel:             options.CompactionModel,
+		autoCompactLimit:            options.AutoCompactLimit,
 		statuslineCfg:               options.StatusLine,
 		recapsEnabled:               options.RecapsEnabled,
 		provider:                    options.Provider,
@@ -6933,6 +6935,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// compaction (proactive + reactive) is enabled for every model, not just
 		// catalogued ones.
 		options.ContextWindow = modelregistry.AgentContextWindow(m.modelContextWindow(m.modelName))
+		options.AutoCompactLimit = m.autoCompactLimit
 		// Route compaction summarization to an opted-in model when one applies
 		// (env > config; no curated default). The factory is lazy, re-evaluated
 		// against the model in force when the compactor asks, and the agent falls

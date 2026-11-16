@@ -185,6 +185,16 @@ func autoCompactThreshold(contextWindow int, limit int) int {
 	return automatic
 }
 
+// AutoCompactThreshold reports where proactive compaction triggers for a
+// context window and a user limit (Options.AutoCompactLimit). It returns 0
+// when the limit turns proactive compaction off or the window is unknown.
+func AutoCompactThreshold(contextWindow int, limit int) int {
+	if limit < 0 {
+		return 0
+	}
+	return autoCompactThreshold(contextWindow, limit)
+}
+
 // Compact summarizes the oldest middle of a conversation, keeping the leading
 // system message(s) and the most recent turns verbatim. The result is:
 //
