@@ -462,6 +462,10 @@ func TestCompactCompleteRowRendersAsSuccessCard(t *testing.T) {
 
 func TestCompactCommandRecordsSessionCompactionAndShrinksReplayContext(t *testing.T) {
 	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+	// ensureActiveSession below takes a presence lease that outlives the
+	// test body; drop it before TempDir removal (an open locked
+	// presence.lock cannot be unlinked on Windows).
+	releaseSessionLocksUnder(t, store.RootDir)
 	m := newModel(context.Background(), Options{
 		ModelName:    "gpt-4.1",
 		SessionStore: store,
@@ -534,6 +538,10 @@ func TestCompactCommandRecordsSessionCompactionAndShrinksReplayContext(t *testin
 
 func TestCompactCommandUsesProviderSummaryWhenAvailable(t *testing.T) {
 	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+	// ensureActiveSession below takes a presence lease that outlives the
+	// test body; drop it before TempDir removal (an open locked
+	// presence.lock cannot be unlinked on Windows).
+	releaseSessionLocksUnder(t, store.RootDir)
 	provider := &fakeProvider{events: []qgruntime.StreamEvent{
 		{Type: qgruntime.StreamEventText, Content: "Provider summary keeps the actual old decisions."},
 		{Type: qgruntime.StreamEventDone},
@@ -620,6 +628,10 @@ func TestCompactCommandUsesProviderSummaryWhenAvailable(t *testing.T) {
 
 func TestManualCompactionPersistsStructuralTruncationMetadata(t *testing.T) {
 	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+	// ensureActiveSession below takes a presence lease that outlives the
+	// test body; drop it before TempDir removal (an open locked
+	// presence.lock cannot be unlinked on Windows).
+	releaseSessionLocksUnder(t, store.RootDir)
 	provider := &fakeProvider{events: []qgruntime.StreamEvent{
 		{Type: qgruntime.StreamEventText, Content: "Bounded summary."},
 		{Type: qgruntime.StreamEventDone},

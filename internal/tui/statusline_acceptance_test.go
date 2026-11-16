@@ -22,6 +22,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
@@ -359,7 +360,7 @@ func newSLModel(t *testing.T, env slEnv, provider *slProvider) model {
 	}
 	notes = append(notes, resolved.StatusLineWarnings...)
 	warning := strings.Join(notes, "\n")
-	return newModel(context.Background(), Options{
+	m := newModel(context.Background(), Options{
 		Cwd:               env.workspace,
 		Version:           "9.9.9-accept",
 		UserConfigPath:    userConfigPath,
@@ -379,6 +380,11 @@ func newSLModel(t *testing.T, env slEnv, provider *slProvider) model {
 		ReasoningEffort: "high",
 		AltScreen:       true,
 	})
+	// No SessionStore above, so turns take their presence lease in the
+	// default store under the fake XDG_DATA_HOME; drop it before TempDir
+	// removal (an open locked presence.lock cannot be unlinked on Windows).
+	releaseSessionLocksUnder(t, sessions.DefaultRoot(nil))
+	return m
 }
 
 // slPump drives the model the way tea.Program does: every tea.Cmd runs on its

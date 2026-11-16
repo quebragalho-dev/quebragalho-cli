@@ -63,6 +63,13 @@ func continuationHarness(t *testing.T, store *sessions.Store, provider *scripted
 		Registry:     registry,
 		SessionStore: store,
 	})
+	// Turns take a session presence lease that outlives the test body; drop
+	// it before TempDir removal (an open locked presence.lock cannot be
+	// unlinked on Windows). The store usually comes from testSessionStore,
+	// which registers the same hook: the release is idempotent.
+	if store != nil {
+		releaseSessionLocksUnder(t, store.RootDir)
+	}
 	// The async snapshot writer outlives any single turn: drain it before the
 	// test's TempDirs are removed, or a background write races RemoveAll.
 	writer := m.snapshotWriter

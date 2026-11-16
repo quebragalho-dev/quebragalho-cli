@@ -130,6 +130,37 @@ var presenceRegistry = struct {
 	held map[string]*presenceHolder
 }{held: map[string]*presenceHolder{}}
 
+// ReleaseSessionLocksUnderForTest drops every presence lease whose lock file
+// lives under root, whatever the reference count, closing the underlying
+// files. Test-only: TUI tests acquire presence leases (a session start takes
+// one) that outlive the test body, and on Windows an open, locked
+// presence.lock cannot be unlinked, so t.TempDir() cleanup fails the test. A
+// TUI test helper registers this with t.Cleanup at the choke points where
+// tests create their session store; path scoping keeps parallel tests
+// independent. Production release paths are untouched: outstanding handles
+// keep working through the defensive branch of Release.
+func ReleaseSessionLocksUnderForTest(root string) {
+	base := filepath.Clean(strings.TrimSpace(root))
+	if base == "" || base == "." {
+		return
+	}
+	prefix := base + string(filepath.Separator)
+	presenceRegistry.Lock()
+	defer presenceRegistry.Unlock()
+	for path, holder := range presenceRegistry.held {
+		if path != base && !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		delete(presenceRegistry.held, path)
+		if holder.release != nil {
+			holder.release()
+		}
+		if holder.file != nil {
+			_ = holder.file.Close()
+		}
+	}
+}
+
 type presenceHolder struct {
 	file    *os.File
 	release func()
