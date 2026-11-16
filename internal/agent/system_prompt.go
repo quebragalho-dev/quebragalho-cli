@@ -699,7 +699,9 @@ func projectGuidelineLabel(match, gitRoot string) string {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return filepath.Base(match)
 	}
-	return rel
+	// Slash form on every system: the label is part of the system prompt, and
+	// "sub\QG.md" on Windows would be a different prompt for the same project.
+	return filepath.ToSlash(rel)
 }
 
 // findProjectContextFile returns the first matching project guideline file
