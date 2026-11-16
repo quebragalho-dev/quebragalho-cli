@@ -481,7 +481,14 @@ func TestAcceptanceMCPDeletedApprovalStaysDeleted(t *testing.T) {
 	if err := session.Approve(first); err != nil {
 		t.Fatalf("Approve(a) error = %v", err)
 	}
-	if err := os.Remove(filepath.Join(os.Getenv("XDG_STATE_HOME"), "qg", "mcp_approvals.json")); err != nil {
+	// The path comes from the same product function the store uses, so the
+	// test deletes the live file on every platform (LOCALAPPDATA on Windows,
+	// XDG_STATE_HOME elsewhere) instead of assuming the XDG layout.
+	approvalsPath, err := projectApprovalsPath()
+	if err != nil {
+		t.Fatalf("projectApprovalsPath() error = %v", err)
+	}
+	if err := os.Remove(approvalsPath); err != nil {
 		t.Fatalf("precondition: delete the approvals file: %v", err)
 	}
 	if err := session.Approve(second); err != nil {
