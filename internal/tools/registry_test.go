@@ -717,7 +717,6 @@ func TestOptionalBuiltinsUseDeferredDiscovery(t *testing.T) {
 		"capture_artifact": true,
 		"desktop_action":   true,
 		"desktop_snapshot": true,
-		"desktop_windows":  true,
 		"lsp_navigate":     true,
 		"terminal_session": true,
 		"web_fetch":        true,
