@@ -5281,6 +5281,8 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 		}
 	case pickerSTTDownload:
 		return m.handleSTTDownloadSelection(item.Value)
+	case pickerConfig:
+		return m.chooseConfigRow(item)
 	case pickerTheme:
 		// Selection is applied only after Enter. Moving through the picker renders a
 		// local preview and never changes the active palette.
@@ -5849,7 +5851,8 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 			return m, nil
 		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.configText()})
+		m.picker = m.newConfigPicker()
+		m.clearSuggestions()
 		return m, nil
 	case commandDebug:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.debugText()})
