@@ -436,34 +436,99 @@ func reasoningEffortIndex(efforts []modelregistry.ReasoningEffort, want modelreg
 	return -1
 }
 
+// canonicalResponseStyleInput maps a /style argument to its stored English
+// value, accepting the Portuguese display names as synonyms. Unknown values
+// pass through unchanged so the caller can report them.
+func canonicalResponseStyleInput(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "equilibrado":
+		return "balanced"
+	case "conciso":
+		return "concise"
+	case "explicativo":
+		return "explanatory"
+	case "revisão", "revisao":
+		return "review"
+	default:
+		return strings.ToLower(strings.TrimSpace(raw))
+	}
+}
+
+// responseStyleLabel renders a stored style value with its Portuguese name.
+func responseStyleLabel(value string) string {
+	switch value {
+	case "balanced":
+		return "equilibrado"
+	case "concise":
+		return "conciso"
+	case "explanatory":
+		return "explicativo"
+	case "review":
+		return "revisão"
+	default:
+		return value
+	}
+}
+
 func (m model) handleStyleCommand(args string) (model, string) {
-	args = strings.TrimSpace(strings.ToLower(args))
-	if args == "" || args == "list" {
+	raw := strings.TrimSpace(args)
+	arg := canonicalResponseStyleInput(raw)
+	// Bare `/style` opens the picker at the dispatch layer, so it never
+	// reaches here empty; keep the card as the fallback.
+	if arg == "" || arg == "list" {
 		return m, m.styleText()
 	}
-	if !responseStyleAllowed(args) {
-		return m, "Style\nUnknown response style: " + args
+	if !responseStyleAllowed(arg) {
+		return m, "Estilo\nEstilo desconhecido: " + raw
 	}
-	m.responseStyle = args
-	return m, strings.Join([]string{
-		"Style",
-		"active style: " + m.responseStyle,
-		"Style preference is stored for this TUI session.",
-	}, "\n")
+	m.responseStyle = arg
+	lines := []string{
+		"Estilo",
+		"estilo ativo: " + responseStyleLabel(m.responseStyle),
+	}
+	if note := m.persistResponseStylePreference(); note != "" {
+		lines = append(lines, note)
+	} else {
+		lines = append(lines, "Estilo: "+responseStyleLabel(m.responseStyle)+" · salvo")
+	}
+	return m, strings.Join(lines, "\n")
+}
+
+// styleAppliedNotice returns the compact confirmation used after a successful
+// style switch. The full state card remains available through /style list.
+func (m model) styleAppliedNotice() string {
+	if strings.TrimSpace(m.userConfigPath) == "" {
+		return "Estilo: " + responseStyleLabel(m.responseStyle) + " · só nesta sessão"
+	}
+	return "Estilo: " + responseStyleLabel(m.responseStyle) + " · salvo"
+}
+
+// persistResponseStylePreference writes the committed style to user config so
+// it is applied again at startup (via Options.SavedResponseStyle). Best-
+// effort: returns a short note to surface when nothing was saved (no config
+// path) or the write failed, or "" after a successful save.
+func (m model) persistResponseStylePreference() string {
+	if strings.TrimSpace(m.userConfigPath) == "" {
+		return "Vale só nesta sessão: sem caminho de config, a preferência não foi salva."
+	}
+	if _, err := config.SetResponseStyle(m.userConfigPath, m.responseStyle); err != nil {
+		return "nota: não foi possível salvar a preferência de estilo (" + err.Error() + ")"
+	}
+	return ""
 }
 
 func (m model) styleText() string {
 	return renderCommandOutput(commandOutput{
-		Title:  "Style",
+		Title:  "Estilo",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
-			Title: "State",
+			Title: "Estado",
 			Lines: []string{
-				"active style: " + m.responseStyle,
-				"available: " + strings.Join(responseStyles, ", "),
+				"estilo ativo: " + responseStyleLabel(m.responseStyle),
+				"disponíveis: balanced (equilibrado), concise (conciso), explanatory (explicativo), review (revisão)",
 			},
 		}},
-		Hints: []string{"use /style <value> to update this TUI session"},
+		Hints: []string{"use /style sem argumento para abrir o seletor, ou /style <valor> para trocar direto"},
 	})
 }
 
