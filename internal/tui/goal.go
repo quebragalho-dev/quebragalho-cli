@@ -487,9 +487,9 @@ func (m model) appendGoalTaskListRow() model {
 // task. The snapshot is rewritten with the cut wire (or dropped when nothing
 // post-boundary exists yet) so restarting the session cannot restore the
 // cleared history; resume falls back to the boundary-filtered log either way.
-func (m model) cutGoalWireToBoundary() {
+func (m model) cutGoalWireToBoundary() model {
 	if m.goalResetBoundary() <= 0 {
-		return
+		return m
 	}
 	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(
 		m.goalEraEvents(m.sessionEvents)))
@@ -499,7 +499,7 @@ func (m model) cutGoalWireToBoundary() {
 		if m.sessionStore != nil && m.activeSession.SessionID != "" {
 			_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
 		}
-		return
+		return m
 	}
 	m.continuation = turnContinuation{
 		sessionID:   m.activeSession.SessionID,
@@ -518,6 +518,7 @@ func (m model) cutGoalWireToBoundary() {
 		Messages:        msgs,
 		LoadedTools:     loaded,
 	})
+	return m
 }
 
 // goalTaskSwitched reports whether a finished run moved the goal to another
@@ -686,7 +687,7 @@ func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error
 				loaded = &bounded
 				m.activeSession = bounded
 			}
-			m.cutGoalWireToBoundary()
+			m = m.cutGoalWireToBoundary()
 		}
 		if finished {
 			done, total := sessions.GoalTaskProgress(loaded.Goal)

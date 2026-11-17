@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -277,9 +278,21 @@ func TestGoalKeepModePreservesHistoryBetweenTasks(t *testing.T) {
 	}
 }
 
+func continuationContents(messages []qgruntime.Message) string {
+	var parts []string
+	for _, message := range messages {
+		parts = append(parts, message.Content)
+	}
+	return strings.Join(parts, "\n")
+}
+
 func TestGoalResetModeClearsHistoryBetweenTasks(t *testing.T) {
 	store, session := goalTaskTestSetup(t, "Work\n1. First\n2. Second")
 	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventText, Content: "ok, anotado"},
+			{Type: qgruntime.StreamEventDone},
+		},
 		completeCurrentTaskScript("feito"),
 		goalFillerScript(),
 		{
@@ -287,70 +300,73 @@ func TestGoalResetModeClearsHistoryBetweenTasks(t *testing.T) {
 			{Type: qgruntime.StreamEventDone},
 		},
 		{
-			{Type: qgruntime.StreamEventText, Content: "second task, turn two"},
+			{Type: qgruntime.StreamEventText, Content: "user submit reply"},
 			{Type: qgruntime.StreamEventDone},
 		},
 	}}
 	m := goalTaskTestModel(store, session, provider)
 	m.goalBetweenTasks = "reset"
 
-	next, cmd := m.launchGoalContinuationIfReady()
-	resp := execCmd(cmd)
-	updated, goalCmd := updatedModel(t, next, resp)
-	if goalCmd == nil || !updated.pending {
+	// Task-one history enters through a real user submit: only normal submits
+	// populate the structured wire (goal runs never store one).
+	m.input.SetValue("detalhe da tarefa um: " + goalHistoryMarker)
+	submitted, submitCmd := updatedModel(t, m, testKey(tea.KeyEnter))
+	if submitCmd == nil || !submitted.pending {
+		t.Fatal("user submit did not start a run")
+	}
+	afterSubmit, goalCmd := updatedModel(t, submitted, execCmd(submitCmd))
+	if goalCmd == nil {
+		t.Fatal("submit end did not auto-launch the goal continuation")
+	}
+	if wireContents := continuationContents(afterSubmit.continuation.messages); !strings.Contains(wireContents, goalHistoryMarker) {
+		t.Fatalf("precondition: submit wire missing task-one marker:\n%s", wireContents)
+	}
+	// The auto-launched continuation completes task one: the switch cuts it.
+	switched, taskTwoCmd := updatedModel(t, afterSubmit, execCmd(goalCmd))
+	if taskTwoCmd == nil || !switched.pending {
 		t.Fatal("reset-mode next task did not launch")
 	}
-	if !transcriptContains(updated.transcript, "Contexto limpo entre tarefas") {
-		t.Fatalf("reset notice missing: %#v", updated.transcript)
+	if !transcriptContains(switched.transcript, "Contexto limpo entre tarefas") {
+		t.Fatalf("reset notice missing: %#v", switched.transcript)
 	}
-	// The cut wire backing later user submits must not replay task one.
-	wireContents := ""
-	for _, message := range updated.continuation.messages {
-		wireContents += "\n" + message.Content
+	if cutContents := continuationContents(switched.continuation.messages); strings.Contains(cutContents, goalHistoryMarker) {
+		t.Fatalf("cut wire replays previous task history:\n%s", cutContents)
 	}
-	if strings.Contains(wireContents, goalHistoryMarker) {
-		t.Fatalf("cut wire replays previous task history:\n%s", wireContents)
+	// One task-two continuation still filters the previous task out.
+	taskTwoResp := execCmd(taskTwoCmd)
+	if taskTwoResp == nil {
+		t.Fatal("task-two continuation returned no response")
 	}
-	// Drive two more continuations of the same task: history must stay out.
-	resp2 := execCmd(goalCmd)
-	if resp2 == nil {
-		t.Fatal("second run returned no response")
-	}
-	second, secondCmd := updatedModel(t, updated, resp2)
-	if secondCmd == nil {
-		t.Fatal("third continuation did not launch")
-	}
-	resp3 := execCmd(secondCmd)
-	if resp3 == nil {
-		t.Fatal("third run returned no response")
-	}
-	if len(provider.requests) != 4 {
-		t.Fatalf("provider requests = %d, want 4", len(provider.requests))
-	}
-	for i, request := range provider.requests[1:] {
-		contents := requestContents(request)
-		if strings.Contains(contents, goalHistoryMarker) {
-			t.Fatalf("request %d replays previous task history:\n%s", i+1, contents)
-		}
-	}
+	afterTwo, _ := updatedModel(t, switched, taskTwoResp)
 	latest := requestContents(provider.requests[len(provider.requests)-1])
 	for _, want := range []string{"Objective: Work", "First", "Second", "[done]", "Current task context"} {
 		if !strings.Contains(latest, want) {
 			t.Fatalf("reset request missing %q:\n%s", want, latest)
 		}
 	}
-	// A user message sent after the switch replays the cut wire, not the log.
-	userCmd := second.runAgentWithOptions(999, context.Background(), "user question", nil,
-		tuiAgentRunOptions{continuation: second.continuation.messages})
-	userResp := execCmd(userCmd)
-	if userResp == nil {
+	if strings.Contains(latest, goalHistoryMarker) {
+		t.Fatalf("task-two request replays previous task history:\n%s", latest)
+	}
+	// Park the chained continuation so a real user message can go through.
+	if afterTwo.runCancel != nil {
+		afterTwo.runCancel()
+	}
+	afterTwo.runCancel = nil
+	afterTwo.pending = false
+	afterTwo.activeRunID = 0
+	afterTwo.input.SetValue("e a tarefa dois?")
+	_, idleCmd := updatedModel(t, afterTwo, testKey(tea.KeyEnter))
+	if idleCmd == nil {
+		t.Fatal("idle user submit did not start a run")
+	}
+	if userResp := execCmd(idleCmd); userResp == nil {
 		t.Fatal("user submit returned no response")
 	}
 	userContents := requestContents(provider.requests[len(provider.requests)-1])
 	if strings.Contains(userContents, goalHistoryMarker) {
 		t.Fatalf("user submit replays previous task history:\n%s", userContents)
 	}
-	if !strings.Contains(userContents, "user question") {
+	if !strings.Contains(userContents, "e a tarefa dois?") {
 		t.Fatalf("user submit lost its prompt:\n%s", userContents)
 	}
 }
@@ -433,6 +449,96 @@ func TestGoalResetSurvivesSessionReload(t *testing.T) {
 	}
 	if !strings.Contains(resumeContents, "Current task context") {
 		t.Fatalf("resumed continuation missing task block:\n%s", resumeContents)
+	}
+}
+
+func TestGoalResetResumeWithoutSnapshotFiltersHistory(t *testing.T) {
+	store, session := goalTaskTestSetup(t, "Work\n1. First\n2. Second")
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		completeCurrentTaskScript("feito"),
+		goalFillerScript(),
+	}}
+	m := goalTaskTestModel(store, session, provider)
+	m.goalBetweenTasks = "reset"
+
+	next, cmd := m.launchGoalContinuationIfReady()
+	switched, _ := updatedModel(t, next, execCmd(cmd))
+	if !transcriptContains(switched.transcript, "Contexto limpo entre tarefas") {
+		t.Fatalf("reset notice missing: %#v", switched.transcript)
+	}
+	// Drain the async snapshot writer, then drop the snapshot: /resume takes
+	// the reconstructed path (no usable snapshot) instead of the exact one.
+	switched.snapshotWriter.Flush(2 * time.Second)
+	if err := store.InvalidateContinuation(session.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if snap, err := store.ReadContinuation(session.SessionID); err != nil || snap != nil {
+		t.Fatalf("precondition: snapshot still present: snap=%v err=%v", snap != nil, err)
+	}
+	fresh := newModel(context.Background(), Options{
+		Provider:         &scriptedProvider{},
+		Registry:         tools.NewRegistry(),
+		SessionStore:     store,
+		GoalBetweenTasks: "reset",
+	})
+	resumed, notice := fresh.handleResumeCommand(session.SessionID)
+	if notice != "" {
+		t.Fatalf("resume notice = %q", notice)
+	}
+	if !resumed.reconstructedResume {
+		t.Fatal("expected the reconstructed resume path without a snapshot")
+	}
+	if contents := continuationContents(resumed.continuation.messages); strings.Contains(contents, goalHistoryMarker) {
+		t.Fatalf("resumed wire replays previous task history:\n%s", contents)
+	}
+}
+
+func TestGoalResetRewriteSnapshotFiltersHistory(t *testing.T) {
+	store, session := goalTaskTestSetup(t, "Work\n1. First\n2. Second")
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		completeCurrentTaskScript("feito"),
+		goalFillerScript(),
+	}}
+	m := goalTaskTestModel(store, session, provider)
+	m.goalBetweenTasks = "reset"
+
+	next, cmd := m.launchGoalContinuationIfReady()
+	switched, _ := updatedModel(t, next, execCmd(cmd))
+	if switched.goalResetBoundary() <= 0 {
+		t.Fatal("precondition: reset boundary not set after the switch")
+	}
+	// Task-two activity lands after the boundary.
+	if _, err := store.AppendEvents(session.SessionID, []sessions.AppendEventInput{{
+		Type:    sessions.EventMessage,
+		Payload: map[string]any{"role": "user", "content": "nota da tarefa dois"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Get(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switched.activeSession = *loaded
+	events, err := store.ReadEvents(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switched.sessionEvents = append([]sessions.Event{}, events...)
+	rewritten := switched.rewriteSnapshotFromEvents()
+	rewritten.snapshotWriter.Flush(2 * time.Second)
+	contents := continuationContents(rewritten.continuation.messages)
+	if strings.Contains(contents, goalHistoryMarker) {
+		t.Fatalf("rewritten snapshot replays previous task history:\n%s", contents)
+	}
+	if !strings.Contains(contents, "nota da tarefa dois") {
+		t.Fatalf("rewritten snapshot lost the current task era:\n%s", contents)
+	}
+	snap, err := store.ReadContinuation(session.SessionID)
+	if err != nil || snap == nil {
+		t.Fatalf("rewritten snapshot missing: snap=%v err=%v", snap != nil, err)
+	}
+	if snapContents := continuationContents(snap.Messages); strings.Contains(snapContents, goalHistoryMarker) {
+		t.Fatalf("persisted snapshot replays previous task history:\n%s", snapContents)
 	}
 }
 
