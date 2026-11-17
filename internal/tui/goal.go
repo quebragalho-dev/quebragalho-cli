@@ -150,8 +150,7 @@ func parseGoalObjective(input string) (string, int, error) {
 		}
 		budget = value
 		// Strip only the "--tokens N" prefix, preserving the rest of the
-		// text verbatim (newlines included) so a multi-line goal still
-		// parses into tasks.
+		// text verbatim, so a multi-line goal keeps its line breaks.
 		input = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(input[len("--tokens"):]), fields[1]))
 	}
 	if input == "" {
