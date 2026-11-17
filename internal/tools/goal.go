@@ -23,6 +23,7 @@ func NewGoalTools(store *sessions.Store, sessionID string) []Tool {
 	return []Tool{
 		newGetGoalTool(store, sessionID),
 		newCreateGoalTool(store, sessionID),
+		newSetGoalTasksTool(store, sessionID),
 		newUpdateGoalTool(store, sessionID),
 	}
 }
@@ -86,12 +87,48 @@ func newCreateGoalTool(store *sessions.Store, sessionID string) Tool {
 	}
 }
 
+func newSetGoalTasksTool(store *sessions.Store, sessionID string) Tool {
+	minTasks := sessions.MinGoalTasks
+	return &goalTool{
+		baseTool: baseTool{
+			name: "set_goal_tasks",
+			description: "Split the current single-objective goal into 2-12 concrete tasks before starting work. " +
+				"Call it once, then work through the tasks in order with update_goal task_status. " +
+				"Skip it when the objective is trivially a single step.",
+			parameters: Schema{
+				Type: "object",
+				Properties: map[string]PropertySchema{
+					"tasks": {
+						Type:        "array",
+						Description: "Short task titles, in the order they should be done.",
+						Items:       &PropertySchema{Type: "string"},
+						MinItems:    &minTasks,
+					},
+				},
+				Required:             []string{"tasks"},
+				AdditionalProperties: false,
+			},
+			safety: Safety{
+				SideEffect: SideEffectNone,
+				Permission: PermissionAllow,
+				Reason:     "Defines the task checklist of the current persistent goal.",
+			},
+			capabilities: ToolCapabilities{Effect: EffectInteractive, ThreadSafe: false, ResourceKeys: sessionResourceKeys},
+		},
+		store:     store,
+		sessionID: sessionID,
+		action:    "set",
+	}
+}
+
 func newUpdateGoalTool(store *sessions.Store, sessionID string) Tool {
 	return &goalTool{
 		baseTool: baseTool{
 			name: "update_goal",
 			description: "Finish the current goal or mark it blocked. Use complete only when the objective is achieved and no required work remains. " +
-				"Use blocked only when progress cannot continue without user input or an external state change.",
+				"Use blocked only when progress cannot continue without user input or an external state change. " +
+				"When the goal has tasks, status applies to the whole goal (refused while tasks are pending); " +
+				"use task_status to complete or block the current task instead, with an optional note in reason.",
 			parameters: Schema{
 				Type: "object",
 				Properties: map[string]PropertySchema{
@@ -100,9 +137,14 @@ func newUpdateGoalTool(store *sessions.Store, sessionID string) Tool {
 						Description: "The terminal state to apply.",
 						Enum:        []string{string(sessions.GoalStatusComplete), string(sessions.GoalStatusBlocked)},
 					},
+					"task_status": {
+						Type:        "string",
+						Description: "Complete or block the current task of a goal with tasks.",
+						Enum:        []string{string(sessions.GoalStatusComplete), string(sessions.GoalStatusBlocked)},
+					},
 					"reason": {
 						Type:        "string",
-						Description: "Why the goal is blocked. Optional for completed goals.",
+						Description: "Why the goal or task is blocked. Optional otherwise; stored as the task note.",
 					},
 				},
 				Required:             []string{"status"},
@@ -149,6 +191,16 @@ func (tool *goalTool) Run(_ context.Context, args map[string]any) Result {
 			return errorResult("Error: Create goal: " + err.Error())
 		}
 		return goalResult(session.Goal)
+	case "set":
+		titles, err := goalTaskTitlesArg(args)
+		if err != nil {
+			return errorResult("Error: Invalid arguments for set_goal_tasks: " + err.Error())
+		}
+		session, _, err := tool.store.SetGoalTasks(tool.sessionID, titles)
+		if err != nil {
+			return errorResult("Error: Set goal tasks: " + err.Error())
+		}
+		return goalTasksResult(session.Goal)
 	case "update":
 		statusText, err := stringArg(args, "status", "", true)
 		if err != nil {
@@ -162,6 +214,31 @@ func (tool *goalTool) Run(_ context.Context, args map[string]any) Result {
 		if err != nil {
 			return errorResult("Error: Invalid arguments for update_goal: " + err.Error())
 		}
+		taskStatusText, err := stringArgWithEmpty(args, "task_status", "", false, true)
+		if err != nil {
+			return errorResult("Error: Invalid arguments for update_goal: " + err.Error())
+		}
+		if taskStatusText != "" {
+			taskStatus := sessions.GoalStatus(strings.ToLower(taskStatusText))
+			if taskStatus != sessions.GoalStatusComplete && taskStatus != sessions.GoalStatusBlocked {
+				return errorResult(`Error: Invalid arguments for update_goal: task_status must be "complete" or "blocked"`)
+			}
+			if taskStatus == sessions.GoalStatusBlocked && strings.TrimSpace(reason) == "" {
+				return errorResult("Error: Invalid arguments for update_goal: blocked goals require a reason")
+			}
+			if taskStatus == sessions.GoalStatusComplete {
+				session, _, err := tool.store.CompleteGoalTask(tool.sessionID, reason)
+				if err != nil {
+					return errorResult("Error: Complete goal task: " + err.Error())
+				}
+				return goalTasksResult(session.Goal)
+			}
+			session, _, err := tool.store.BlockGoalTask(tool.sessionID, reason)
+			if err != nil {
+				return errorResult("Error: Block goal task: " + err.Error())
+			}
+			return goalTasksResult(session.Goal)
+		}
 		if status == sessions.GoalStatusBlocked && strings.TrimSpace(reason) == "" {
 			return errorResult("Error: Invalid arguments for update_goal: blocked goals require a reason")
 		}
@@ -173,6 +250,61 @@ func (tool *goalTool) Run(_ context.Context, args map[string]any) Result {
 	default:
 		return errorResult("Error: Unknown goal action.")
 	}
+}
+
+func goalTaskTitlesArg(args map[string]any) ([]string, error) {
+	raw, ok := args["tasks"]
+	if !ok || raw == nil {
+		return nil, fmt.Errorf("tasks is required")
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("tasks must be an array of strings")
+	}
+	titles := make([]string, 0, len(items))
+	for _, item := range items {
+		title, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("tasks must be an array of strings")
+		}
+		titles = append(titles, title)
+	}
+	return titles, nil
+}
+
+func goalTaskStateDisplay(status sessions.GoalTaskStatus) string {
+	switch status {
+	case sessions.GoalTaskActive:
+		return "active"
+	case sessions.GoalTaskDone:
+		return "done"
+	case sessions.GoalTaskBlocked:
+		return "blocked"
+	default:
+		return "pending"
+	}
+}
+
+func goalTasksResult(goal *sessions.Goal) Result {
+	if goal == nil {
+		return okResult("No goal is set for this session.")
+	}
+	var lines []string
+	for i, task := range goal.Tasks {
+		line := fmt.Sprintf("%d. [%s] %s", i+1, goalTaskStateDisplay(task.Status), task.Title)
+		if strings.TrimSpace(task.Note) != "" {
+			line += " — " + strings.TrimSpace(task.Note)
+		}
+		lines = append(lines, line)
+	}
+	done, total := sessions.GoalTaskProgress(goal)
+	header := fmt.Sprintf("Goal tasks set (%d/%d done):", done, total)
+	if current := sessions.CurrentGoalTask(goal); current != nil {
+		header += " current task: " + current.Title
+	} else if total > 0 {
+		header += " all tasks done"
+	}
+	return okResult(header + "\n" + strings.Join(lines, "\n"))
 }
 
 func goalResult(goal *sessions.Goal) Result {
