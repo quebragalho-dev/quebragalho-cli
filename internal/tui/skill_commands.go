@@ -30,6 +30,10 @@ func (m model) handleSkillCommand(raw string) (model, tea.Cmd, bool) {
 	if !ok {
 		return m, nil, false
 	}
+	if skillSlashName(skill.Name) == "computer-use" && !m.desktopControlEnabled {
+		m = m.appendComputerUseDisabledNotice()
+		return m, nil, true
+	}
 	if strings.TrimSpace(skill.Content) == "" {
 		// The name matched a real skill, so falling through to "unknown command"
 		// would mislead; surface the actual problem instead.
@@ -157,6 +161,10 @@ func (m model) invokeSkillByName(name string) (model, tea.Cmd) {
 		if strings.TrimSpace(skill.Name) != name {
 			continue
 		}
+		if skillSlashName(skill.Name) == "computer-use" && !m.desktopControlEnabled {
+			m = m.appendComputerUseDisabledNotice()
+			return m, nil
+		}
 		body := strings.TrimSpace(skill.Content)
 		if body == "" {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{
@@ -202,6 +210,12 @@ func (m model) lookupSkillCommand(name string) (skills.Skill, bool) {
 		}
 	}
 	return skills.Skill{}, false
+}
+
+func (m model) appendComputerUseDisabledNotice() model {
+	return m.appendSystemNotice(
+		"Controle do computador está desligado. Ligue em /config → Controle do computador (ou defina localControl.desktop.enabled=true na configuração) para usar /computer-use.",
+	)
 }
 
 // installedSkills returns the session's installed skills (default dir merged
