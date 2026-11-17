@@ -731,7 +731,9 @@ func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error
 		m.sessionEvents = events
 	}
 	if switched, finished := goalTaskSwitched(before, loaded.Goal); switched {
-		m.goalTaskAdvanced = true
+		// A finished goal has no next task: keep goalTaskAdvanced cleared
+		// so launchGoalNextStepIfReady skips the between-tasks mode.
+		m.goalTaskAdvanced = !finished
 		if !finished && m.goalBetweenTasksMode() == config.GoalBetweenTasksReset {
 			// The new era starts at the next run: everything logged so far
 			// belongs to the old task.
