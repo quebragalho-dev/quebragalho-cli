@@ -29,7 +29,7 @@ const maxTurnsFinalAnswerPrompt = "You have reached the tool-turn limit. Do not 
 // FallbackMaxTurns is the loop's last-resort tool-turn budget, used only when
 // the caller leaves Options.MaxTurns unset (<= 0) — direct agent.Run users
 // without a resolved config. Resolved CLI/TUI runs always carry an explicit
-// budget (interactive default 80, headless default 500, see config), so this
+// budget (interactive default 400, headless default 500, see config), so this
 // never overrides them; it only keeps bare programmatic runs finite. Pinned
 // budgets (explicit --max-turns, mode presets, QG_MAX_TURNS, config files,
 // exec profiles) always win over this fallback.

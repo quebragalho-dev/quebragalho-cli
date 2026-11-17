@@ -52,7 +52,7 @@ const (
 // defaultExecMaxTurns is the headless tool-turn budget when no source sets one.
 // An interactive run can be continued past the shared interactive default by the
 // user; an exec run has nobody to unstick it, so evals and automation would
-// truncate mid-task at 80 turns. The ceiling is the already-justified bound —
+// truncate mid-task at 400 turns. The ceiling is the already-justified bound —
 // still finite against a genuinely runaway loop, which the loop's empty-turn
 // guard also cuts independently of this budget.
 const defaultExecMaxTurns = config.MaxTurnsCeiling

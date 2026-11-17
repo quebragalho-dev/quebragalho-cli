@@ -2015,9 +2015,9 @@ func TestExecTurnBudgetDefaultsToCeilingUnlessSet(t *testing.T) {
 	}{
 		// A headless run has no user to continue past the shared interactive
 		// default, so an unconfigured budget starts at the ceiling.
-		{"unconfigured default", config.ResolvedConfig{MaxTurns: 80, MaxTurnsSet: false}, config.MaxTurnsCeiling},
-		// A user who configured 80 on purpose (e.g. cost control in CI) keeps 80.
-		{"explicit default value", config.ResolvedConfig{MaxTurns: 80, MaxTurnsSet: true}, 80},
+		{"unconfigured default", config.ResolvedConfig{MaxTurns: 400, MaxTurnsSet: false}, config.MaxTurnsCeiling},
+		// A user who configured 400 on purpose (e.g. cost control in CI) keeps 400.
+		{"explicit default value", config.ResolvedConfig{MaxTurns: 400, MaxTurnsSet: true}, 400},
 		{"configured value passes through", config.ResolvedConfig{MaxTurns: 42, MaxTurnsSet: true}, 42},
 	}
 	for _, tc := range cases {
