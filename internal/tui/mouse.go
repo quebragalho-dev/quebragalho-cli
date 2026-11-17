@@ -553,10 +553,14 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 	start := 0
 	visible := []pickerItem{}
 	upMore := 0
+	downMore := 0
 	if m.picker.kind == pickerConfig {
-		// Mirror pickerOverlay: the /config panel windows by display rows
-		// from the frame body height, with a paging line on top when scrolled.
-		start, visible, upMore, _ = configPickerWindow(m.picker.items, selected, m.configPickerViewportBudget(width), details)
+		// Mirror pickerOverlay: full window or compact title frame, same plan.
+		var compact bool
+		compact, start, visible, upMore, downMore = m.configPickerPlan(width, details)
+		if compact {
+			return m.selectCompactConfigPickerAtMouse(hit, visible, start, upMore, downMore)
+		}
 	} else {
 		maxVisible := pickerMaxVisible(m.picker, width)
 		start = selectableListStart(len(m.picker.items), maxVisible, selected)
@@ -593,6 +597,24 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 			return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: item.Value, Index: index}, true
 		}
 		line += rowLines
+	}
+	return mouseSelectionTarget{}, false
+}
+
+// selectCompactConfigPickerAtMouse hit-tests the compact /config frame:
+// titled top border, one optional paging line, the selected row. It mirrors
+// the compact branch of pickerOverlay line for line.
+func (m *model) selectCompactConfigPickerAtMouse(hit mouseOverlayHit, visible []pickerItem, start, upMore, downMore int) (mouseSelectionTarget, bool) {
+	line := 1
+	if upMore > 0 || downMore > 0 {
+		if hit.y == line {
+			return mouseSelectionTarget{}, false
+		}
+		line++
+	}
+	if len(visible) > 0 && hit.y == line {
+		m.picker.selected = start
+		return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: visible[0].Value, Index: start}, true
 	}
 	return mouseSelectionTarget{}, false
 }

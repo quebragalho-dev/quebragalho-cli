@@ -128,6 +128,32 @@ func TestConfigPanelFullViewOnShortTerminal(t *testing.T) {
 	assertConfigRowsNoOverflow(t, 80, got)
 }
 
+// Going down to the last row and back up keeps the title and the selected
+// row on screen at every step, on any height: the window always contains the
+// selection and the overlay always fits the frame body.
+func TestConfigPanelSelectionAlwaysVisibleTinyTerminals(t *testing.T) {
+	for _, height := range []int{16, 12} {
+		var order []int
+		for sel := 0; sel < len(configRowsPanelLabels); sel++ {
+			order = append(order, sel)
+		}
+		for sel := len(configRowsPanelLabels) - 2; sel >= 0; sel-- {
+			order = append(order, sel)
+		}
+		for _, sel := range order {
+			got := renderConfigRowsView(t, 80, height, sel)
+			if !strings.Contains(got, "Configurações") {
+				t.Fatalf("80x%d sel=%d lost the panel title, got:\n%s", height, sel, got)
+			}
+			if want := configRowsPanelLabels[sel]; !strings.Contains(got, want) {
+				t.Fatalf("80x%d sel=%d hides the selection %q, got:\n%s", height, sel, want, got)
+			}
+			assertConfigRowsLineCount(t, height, got)
+			assertConfigRowsNoOverflow(t, 80, got)
+		}
+	}
+}
+
 // A very short terminal still shows the title, the selection and paging.
 func TestConfigPanelFullViewOnTinyTerminal(t *testing.T) {
 	got := renderConfigRowsView(t, 80, 16, 0)
