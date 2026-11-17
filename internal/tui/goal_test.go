@@ -83,7 +83,7 @@ func TestGoalRunRegistryContainsSessionBoundTools(t *testing.T) {
 	m.activeSession = session
 
 	registry := m.goalRegistry()
-	for _, name := range []string{"get_goal", "create_goal", "update_goal"} {
+	for _, name := range []string{"get_goal", "create_goal", "set_goal_tasks", "update_goal"} {
 		if _, ok := registry.Get(name); !ok {
 			t.Fatalf("goal registry missing %q", name)
 		}

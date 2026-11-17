@@ -694,6 +694,11 @@ type model struct {
 	idleRecap                    string
 	compactionModel              string // preferences.compactionModel (see providers.CompactionModelID)
 	autoCompactLimit             int    // resolved preferences.autoCompactLimit; 0 automatic, > 0 tokens, < 0 off
+	goalAutoSplit              *bool  // resolved goal.autoSplit; nil defaults to on
+	goalBetweenTasks           string // resolved goal.betweenTasks; empty defaults to compact
+	goalTaskAdvanced           bool   // a task finished mid-run; the next step applies the between-tasks mode
+	goalContinueAfterCompact   bool   // run the next task continuation once the between-tasks compaction lands
+	goalResetPrompt            bool   // next goal continuation starts with objective+tasks only, no history
 	modelPickerLoading           bool
 	modelPickerLoadingProviderID string
 	modelPickerLoadError         string
@@ -1375,6 +1380,8 @@ func newModel(ctx context.Context, options Options) model {
 		recentModels:                normalizeRecentModelEntries(options.RecentModels),
 		compactionModel:             options.CompactionModel,
 		autoCompactLimit:            options.AutoCompactLimit,
+		goalAutoSplit:               options.GoalAutoSplit,
+		goalBetweenTasks:            options.GoalBetweenTasks,
 		statuslineCfg:               options.StatusLine,
 		recapsEnabled:               options.RecapsEnabled,
 		provider:                    options.Provider,
@@ -3324,7 +3331,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var goalCmd tea.Cmd
 		if msg.goalAware && !hadQueuedMessage && peerCmd == nil && next.pendingPermission == nil && msg.specReview == nil {
-			next, goalCmd = next.launchGoalContinuationIfReady()
+			next, goalCmd = next.launchGoalNextStepIfReady()
 		}
 		// A finished turn may have rewritten files, switched branches, or
 		// landed on a new head: re-check the header off the UI goroutine.
@@ -3382,7 +3389,13 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.lastCompactResult = &msg.result
 		m = m.setCompactStatusRow(m.compactText(true))
-		return m.launchParkedSendNowAfterCompaction()
+		m, parkedCmd := m.launchParkedSendNowAfterCompaction()
+		if m.goalContinueAfterCompact {
+			m.goalContinueAfterCompact = false
+			next, goalCmd := m.launchGoalContinuationIfReady()
+			return next, tea.Batch(parkedCmd, goalCmd)
+		}
+		return m, parkedCmd
 	case planUpdateMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
