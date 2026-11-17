@@ -3341,7 +3341,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.lastCompactError = msg.err.Error()
 			m = m.setCompactStatusRow(m.compactText(true))
-			return m.launchParkedSendNowAfterCompaction()
+			m, parkedCmd := m.launchParkedSendNowAfterCompaction()
+			if m.goalContinueAfterCompact {
+				m.goalContinueAfterCompact = false
+				m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
+					kind: rowSystem,
+					text: "Compactação falhou; seguindo para a próxima tarefa sem compactar.",
+				})
+				next, goalCmd := m.launchGoalContinuationIfReady()
+				return next, tea.Batch(parkedCmd, goalCmd)
+			}
+			return m, parkedCmd
 		}
 		if msg.hasSessionSnapshot {
 			m.activeSession = msg.activeSession

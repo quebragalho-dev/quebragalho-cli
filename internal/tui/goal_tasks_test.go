@@ -365,6 +365,52 @@ func TestGoalCompactModeCompactsBetweenTasks(t *testing.T) {
 	}
 }
 
+type failingGoalCompactor struct {
+	calls int
+}
+
+func (f *failingGoalCompactor) CompactSession(_ context.Context, _ CompactRequest) (CompactResult, error) {
+	f.calls++
+	return CompactResult{}, fmt.Errorf("disco cheio")
+}
+
+func TestGoalCompactErrorContinuesWithoutCompacting(t *testing.T) {
+	store, session := goalTaskTestSetup(t, "Work\n1. First\n2. Second")
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		completeCurrentTaskScript("feito"),
+		goalFillerScript(),
+		{
+			{Type: qgruntime.StreamEventText, Content: "second task"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	compactor := &failingGoalCompactor{}
+	m := goalTaskTestModel(store, session, provider)
+	m.sessionCompactor = compactor
+
+	next, cmd := m.launchGoalContinuationIfReady()
+	resp := execCmd(cmd)
+	updated, goalCmd := updatedModel(t, next, resp)
+	if goalCmd == nil {
+		t.Fatal("compact-mode switch returned no command")
+	}
+	compactMsg := execCmd(goalCmd)
+	if compactor.calls != 1 {
+		t.Fatalf("compactor calls = %d, want 1", compactor.calls)
+	}
+	after, nextCmd := updatedModel(t, updated, compactMsg)
+	_ = nextCmd
+	if !after.pending {
+		t.Fatal("goal stalled after a failed between-tasks compaction")
+	}
+	if !transcriptContains(after.transcript, "Compactação falhou; seguindo para a próxima tarefa sem compactar.") {
+		t.Fatalf("failure notice missing: %#v", after.transcript)
+	}
+	if after.goalContinueAfterCompact {
+		t.Fatal("goalContinueAfterCompact stayed armed after the failure")
+	}
+}
+
 func TestGoalBlockedPausesAndResumeRetriesBlockedTask(t *testing.T) {
 	store, session := goalTaskTestSetup(t, "Work\n1. First\n2. Second")
 	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
