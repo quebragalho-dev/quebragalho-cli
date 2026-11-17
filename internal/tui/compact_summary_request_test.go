@@ -226,9 +226,10 @@ func TestCompactCommandSurvivesToolOnlyHistory(t *testing.T) {
 func TestGoalCompactBetweenTasksUsesRenderedSummaryRequest(t *testing.T) {
 	t.Setenv("QG_CRED_STORAGE", "file")
 	store, session := goalTaskTestSetup(t, "Work\n1. First\n2. Second")
+	// The run ends at the task boundary right after update_goal, so the next
+	// provider request is the between-tasks summarizer.
 	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
 		completeCurrentTaskScript("feito"),
-		goalFillerScript(),
 		{
 			{Type: qgruntime.StreamEventText, Content: "Resumo entre tarefas."},
 			{Type: qgruntime.StreamEventDone},
