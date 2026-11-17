@@ -233,11 +233,11 @@ func resolveOAuthServer(deps appDeps, serverName string) (mcp.Server, trustSkip,
 			continue
 		}
 		if !strings.EqualFold(server.Auth, mcp.ServerAuthOAuth) {
-			return mcp.Server{}, skip, fmt.Errorf("Servidor MCP %q não declara auth: \"oauth\"", serverName)
+			return mcp.Server{}, skip, fmt.Errorf("Servidor MCP %q não declara auth: \"oauth\"", serverName) //nolint:staticcheck // Preserve the user-facing Portuguese message with its initial capital.
 		}
 		return server, skip, nil
 	}
-	return mcp.Server{}, skip, fmt.Errorf("Servidor MCP %q não está configurado", serverName)
+	return mcp.Server{}, skip, fmt.Errorf("Servidor MCP %q não está configurado", serverName) //nolint:staticcheck // Preserve the user-facing Portuguese message with its initial capital.
 }
 
 func oauthConfigForServer(server mcp.Server) mcp.OAuthConfig {

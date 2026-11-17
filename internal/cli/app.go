@@ -19,6 +19,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/browser"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
@@ -320,10 +321,10 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 	}
 	addDirs, theme, allowEscalation := root.addDirs, root.theme, root.allowEscalation
 
-	// --no-browser (or QG_NO_BROWSER=1) keeps the first-run device login from
+	// --no-browser (or QG_NO_BROWSER=1/true/yes/on) keeps the first-run device login from
 	// opening a browser; the approval link and code still show. Only the
 	// interactive launch consumes it.
-	noBrowser := root.noBrowser || os.Getenv("QG_NO_BROWSER") == "1"
+	noBrowser := root.noBrowser || envbool.Parse(os.Getenv("QG_NO_BROWSER"), false)
 	if len(args) == 0 {
 		if noBrowser {
 			deps.openBrowser = nil
@@ -357,7 +358,7 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		return writeAppError(stderr, "--allow-escalation is only supported for the interactive TUI and exec", 1)
 	}
 	if root.noBrowser && args[0] != "--dangerously-skip-permissions" && args[0] != "--skip-permissions-unsafe" {
-		return writeAppError(stderr, "--no-browser is only supported for the interactive TUI (see `qg login --help` for the login flag)", 1)
+		return writeAppError(stderr, "--no-browser serve só para o TUI interativo (veja `qg login --help` para a flag de login)", 1)
 	}
 	if (root.continueSet || root.resumeSet) && args[0] != "--dangerously-skip-permissions" && args[0] != "--skip-permissions-unsafe" {
 		return writeAppError(stderr, "--continue e --resume servem só para o TUI interativo (sem subcomando); para execuções únicas use `qg exec --resume`", 1)
@@ -1083,6 +1084,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		RecentModels:          resolved.Preferences.RecentModels,
 		RecapsEnabled:         resolved.Preferences.RecapsEnabled(),
 		CompactionModel:       resolved.Preferences.CompactionModel,
+		AutoCompactLimit:      resolved.Preferences.AutoCompactLimit,
 		StatusLine:            resolved.StatusLine,
 		StatusLineWarning: func() string {
 			var notes []string
@@ -1556,6 +1558,7 @@ Comandos:
   find        Alias de search
   sessions    Inspeciona a linhagem das sessões locais do QG
   spec        Revisa e aprova rascunhos salvos do modo spec
+  init        Investiga o repositório e gera um AGENTS.md
   specialist  Gerencia perfis de especialista locais do QG
   plugins     Inspeciona, instala e remove plugins locais do QG
   backends    Inspeciona o ciclo de vida dos backends de MCP, hook e plugin
@@ -1563,12 +1566,13 @@ Comandos:
   tools       Gera a estrutura inicial e lista plugin-tools locais do QG
   hooks       Inspeciona a configuração de hooks do QG
   mcp         Gerencia as configurações do backend MCP
-  auth        Faz login nos provedores de modelo via OAuth
+  auth        Gerencia logins OAuth antigos (status, logout, refresh, reset)
   sandbox     Inspeciona a política do ambiente isolado e permissões salvas
   update      Verifica ou aplica atualizações do QG (exige --check ou --apply)
   upgrade     Baixa, verifica e instala atualizações disponíveis da CLI QG
   worktrees   Prepara worktrees git isoladas
   verify      Detecta e executa verificações locais
+  trust       Confia na pasta de trabalho para hooks e MCP do projeto
   eval        Valida suítes offline de eval de agentes
   changes     Inspeciona mudanças git locais e faz commit
   usage       Consulta tokens do gateway (relatório de uso = resumo local)
@@ -1926,7 +1930,7 @@ func splitLeadingThemeFlag(args []string) (string, []string, error) {
 		switch {
 		case args[0] == "--theme":
 			if len(args) < 2 {
-				return "", nil, errors.New("--theme requires a value (auto or a theme name; try --theme auto)")
+				return "", nil, errors.New("--theme exige um valor (auto ou um nome de tema; tente --theme auto)")
 			}
 			value = strings.TrimSpace(args[1])
 			args = args[2:]

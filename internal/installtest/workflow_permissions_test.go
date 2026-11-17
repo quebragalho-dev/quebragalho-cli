@@ -17,7 +17,7 @@ func TestPullRequestWorkflowsDeclareContentsRead(t *testing.T) {
 	}
 	var missing []string
 	for _, e := range entries {
-		if e.IsDir() || !(strings.HasSuffix(e.Name(), ".yml") || strings.HasSuffix(e.Name(), ".yaml")) {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yml") && !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}
 		rel := filepath.Join(".github", "workflows", e.Name())
@@ -181,4 +181,32 @@ func workflowPermissionsContentsRead(perm any) bool {
 	}
 	s, ok := contents.(string)
 	return ok && s == "read"
+}
+
+// Pins that CI runs the Go test suite on a Windows runner, so the
+// *_windows_test.go files execute somewhere.
+func TestCIRunsTheGoTestsOnWindows(t *testing.T) {
+	var doc struct {
+		Jobs map[string]struct {
+			RunsOn string `yaml:"runs-on"`
+			Steps  []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readRepoText(t, ".github/workflows/ci.yml")), &doc); err != nil {
+		t.Fatalf("ci.yml: yaml: %v", err)
+	}
+	for name, job := range doc.Jobs {
+		if !strings.HasPrefix(job.RunsOn, "windows-") {
+			continue
+		}
+		for _, step := range job.Steps {
+			if strings.Contains(step.Run, "go test") && strings.Contains(step.Run, "./...") {
+				return
+			}
+		}
+		t.Fatalf("ci.yml job %q runs on Windows but never runs go test ./...", name)
+	}
+	t.Fatal("ci.yml has no job that runs the Go tests on Windows, so the *_windows_test.go files run nowhere")
 }

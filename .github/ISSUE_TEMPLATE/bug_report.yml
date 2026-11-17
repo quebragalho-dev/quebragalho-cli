@@ -20,7 +20,7 @@ body:
     attributes:
       label: OS and environment
       description: Operating system, terminal, and any relevant environment details.
-      placeholder: "macOS 14 / iTerm2 / Go 1.25.1"
+      placeholder: "macOS 14 / iTerm2 / Go 1.26.11"
     validations:
       required: true
   - type: textarea

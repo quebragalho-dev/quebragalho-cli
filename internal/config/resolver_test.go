@@ -197,6 +197,36 @@ func TestResolveIgnoresLegacyPetPreference(t *testing.T) {
 	}
 }
 
+func TestResolveReadsCompactionModelFromUserConfig(t *testing.T) {
+	userPath := writeConfig(t, `{"preferences":{"compactionModel":"  cheap-model  "}}`)
+	resolved, err := Resolve(ResolveOptions{
+		UserConfigPath: userPath,
+		Env:            map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.Preferences.CompactionModel != "cheap-model" {
+		t.Fatalf("CompactionModel = %q, want cheap-model", resolved.Preferences.CompactionModel)
+	}
+}
+
+func TestResolveIgnoresCompactionModelFromProjectConfig(t *testing.T) {
+	userPath := writeConfig(t, `{}`)
+	projectPath := writeConfig(t, `{"preferences":{"compactionModel":"project-model"}}`)
+	resolved, err := Resolve(ResolveOptions{
+		UserConfigPath:    userPath,
+		ProjectConfigPath: projectPath,
+		Env:               map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.Preferences.CompactionModel != "" {
+		t.Fatalf("CompactionModel = %q, want empty (project config must not set it)", resolved.Preferences.CompactionModel)
+	}
+}
+
 // recentModels must never be merged from project config (same posture as
 // favoriteModels): a project setting it with no corresponding user setting
 // should leave the resolved value empty, not pick up the project's list.

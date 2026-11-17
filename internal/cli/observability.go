@@ -137,7 +137,7 @@ func runSearch(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) 
 		return exitSuccess
 	}
 	if strings.TrimSpace(options.query) == "" {
-		return writeExecUsageError(stderr, "search query required. Use `qg search <query>`.")
+		return writeExecUsageError(stderr, "exige o termo de busca. Use `qg search <termo>`.")
 	}
 
 	result, err := zsearch.Sessions(options.query, zsearch.Options{
@@ -254,7 +254,7 @@ func parseSearchArgs(args []string) (searchOptions, bool, error) {
 		case strings.HasPrefix(arg, "--type="):
 			options.eventType = sessions.EventType(strings.TrimSpace(strings.TrimPrefix(arg, "--type=")))
 		case strings.HasPrefix(arg, "-"):
-			return options, false, execUsageError{fmt.Sprintf("unknown search flag %q", arg)}
+			return options, false, execUsageError{fmt.Sprintf("flag de busca desconhecida %q", arg)}
 		default:
 			queryParts = append(queryParts, arg)
 		}
@@ -270,7 +270,7 @@ func parsePositiveOrZeroInt(value string, label string) (int, error) {
 	}
 	parsed, err := strconv.Atoi(trimmed)
 	if err != nil || parsed < 0 {
-		return 0, execUsageError{fmt.Sprintf("invalid %s %q. Expected a non-negative integer.", label, value)}
+		return 0, execUsageError{fmt.Sprintf("%s inválido %q. Esperado um inteiro não negativo.", label, value)}
 	}
 	return parsed, nil
 }

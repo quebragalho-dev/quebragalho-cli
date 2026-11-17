@@ -10,22 +10,14 @@ import (
 type Transport string
 
 const (
-	TransportOpenAI              Transport = "openai"
-	TransportAnthropic           Transport = "anthropic"
-	TransportGoogle              Transport = "google"
-	TransportBedrock             Transport = "bedrock"
-	TransportVertex              Transport = "vertex"
-	TransportOpenAICompatible    Transport = "openai-compatible"
-	TransportOpenAICompat        Transport = TransportOpenAICompatible
-	TransportAnthropicCompatible Transport = "anthropic-compatible"
+	TransportOpenAI           Transport = "openai"
+	TransportOpenAICompatible Transport = "openai-compatible"
 )
 
 type APIFormat string
 
 const (
 	APIFormatOpenAIChatCompletions APIFormat = "chat-completions"
-	APIFormatBedrockConverse       APIFormat = "bedrock-converse"
-	APIFormatVertexGenerateContent APIFormat = "vertex-generate-content"
 )
 
 var ErrUnknownProvider = errors.New("unknown provider")
@@ -74,7 +66,7 @@ type Descriptor struct {
 
 func RuntimeSupported(descriptor Descriptor) bool {
 	switch descriptor.Transport {
-	case TransportOpenAI, TransportOpenAICompatible, TransportAnthropic, TransportAnthropicCompatible, TransportGoogle:
+	case TransportOpenAI, TransportOpenAICompatible:
 		return true
 	default:
 		return false
@@ -85,12 +77,7 @@ func RuntimeUnsupportedReason(descriptor Descriptor) string {
 	if RuntimeSupported(descriptor) {
 		return ""
 	}
-	switch descriptor.Transport {
-	case TransportBedrock, TransportVertex:
-		return "native adapter not implemented yet"
-	default:
-		return "provider transport not implemented yet"
-	}
+	return "provider transport not implemented yet"
 }
 
 var descriptors = []Descriptor{

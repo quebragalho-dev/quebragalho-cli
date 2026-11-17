@@ -9,6 +9,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 )
 
 // defaultReducedMotion resolves reducedMotionEnabled from the live environment
@@ -25,7 +27,7 @@ func defaultReducedMotion() bool {
 // elapsed timer keeps the "still working" cue. It is one switch for all motion,
 // whereas QG_NO_FADE only governs the streaming-text fade.
 func reducedMotionEnabled(env func(string) string, profile colorprofile.Profile) bool {
-	if v := strings.TrimSpace(env("QG_REDUCED_MOTION")); v != "" && v != "0" && !strings.EqualFold(v, "false") {
+	if envbool.Loose(env("QG_REDUCED_MOTION")) {
 		return true
 	}
 	return profile == colorprofile.NoTTY

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
@@ -24,6 +25,15 @@ import (
 
 const maxTurnsAnswer = "Agent reached maximum number of turns without a final answer."
 const maxTurnsFinalAnswerPrompt = "You have reached the tool-turn limit. Do not call tools. Give a concise final answer now: summarize what you completed, what you found, and any remaining blockers."
+
+// FallbackMaxTurns is the loop's last-resort tool-turn budget, used only when
+// the caller leaves Options.MaxTurns unset (<= 0) — direct agent.Run users
+// without a resolved config. Resolved CLI/TUI runs always carry an explicit
+// budget (interactive default 80, headless default 500, see config), so this
+// never overrides them; it only keeps bare programmatic runs finite. Pinned
+// budgets (explicit --max-turns, mode presets, QG_MAX_TURNS, config files,
+// exec profiles) always win over this fallback.
+const FallbackMaxTurns = 12
 
 const (
 	toolResultMetaControl       = "control"
@@ -165,7 +175,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 
 	maxTurns := options.MaxTurns
 	if maxTurns <= 0 {
-		maxTurns = 12
+		maxTurns = FallbackMaxTurns
 	}
 
 	registry := options.Registry
@@ -1221,6 +1231,28 @@ func decodeToolArguments(arguments string, v any) error {
 	return json.Unmarshal([]byte(arguments), v)
 }
 
+// toolArgumentsEchoLimit caps how much of an unparseable arguments payload is
+// echoed back to the model.
+const toolArgumentsEchoLimit = 600
+
+// argumentParseFailure is the tool result for arguments that are not valid
+// JSON. The replayed call is sanitized to "{}" (historySafeToolCalls), so
+// without the echo the model sees a syntax error and none of what it sent. The
+// label before the payload is fixed text and longer than what errorSignature
+// compares past the shortest parse error, so two different payloads that fail
+// the same way still count as the same failure for the repeated-failure guard.
+//
+// The payload is scrubbed like every other string that crosses into the
+// transcript, and before it is clipped: a cut through the middle of a secret
+// would leave a prefix no pattern matches. The bool reports whether scrubbing
+// changed it, for ToolResult.Redacted.
+func argumentParseFailure(name string, err error, arguments string) (string, bool) {
+	scrubbed, redacted := scrubInterceptedOutput(arguments)
+	return "Error: Failed to parse arguments for " + name + ": " + err.Error() +
+		"\n\nArguments as received (invalid JSON, middle omitted when long):\n" +
+		clipHeadTailBytes(scrubbed, toolArgumentsEchoLimit), redacted
+}
+
 func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCall, permissionMode PermissionMode, options Options) (ToolResult, error) {
 	// The run's send-now Signal travels with the tool context so
 	// backgroundable waits (exec_command's yield, write_stdin polling) wake
@@ -1250,11 +1282,13 @@ func executeToolCall(ctx context.Context, registry *tools.Registry, call ToolCal
 		args = prepared
 	} else if call.Arguments != "" {
 		if err := decodeToolArguments(call.Arguments, &args); err != nil {
+			output, redacted := argumentParseFailure(call.Name, err, call.Arguments)
 			return ToolResult{
 				ToolCallID: call.ID,
 				Name:       call.Name,
 				Status:     tools.StatusError,
-				Output:     "Error: Failed to parse arguments for " + call.Name + ": " + err.Error(),
+				Output:     output,
+				Redacted:   redacted,
 			}, nil
 		}
 	}
@@ -2515,10 +2549,10 @@ func executeRequestPermissions(ctx context.Context, call ToolCall, args map[stri
 		permissionGranted = true
 	case PermissionDecisionCancel:
 		decision.Action = PermissionDecisionDeny
-		decisionReason = firstNonEmptyString(decisionReason, "continued without granting permissions")
+		decisionReason = envstr.FirstNonEmpty(decisionReason, "continued without granting permissions")
 	default:
 		decision.Action = PermissionDecisionDeny
-		decisionReason = firstNonEmptyString(decisionReason, "continued without granting permissions")
+		decisionReason = envstr.FirstNonEmpty(decisionReason, "continued without granting permissions")
 	}
 
 	if permissionGranted {
@@ -2656,15 +2690,6 @@ func requestPermissionsResult(call ToolCall, response sandbox.RequestPermissions
 		Output:     output,
 		Redacted:   redacted || didRedact,
 	}
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func persistPermissionGrant(toolName string, args map[string]any, reason string, options Options) (sandbox.Grant, error) {

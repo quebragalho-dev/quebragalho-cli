@@ -105,18 +105,26 @@ const acceptAttrModel = "accept-attr-model"
 // janela pedida, para a compactação do agente disparar de verdade.
 func acceptAttrLiveModel(t *testing.T, p qgruntime.Provider, registry *tools.Registry, window int, agentOptions agent.Options, compactionModel string) model {
 	t.Helper()
+	return acceptAttrLiveModelWithLimit(t, p, registry, window, agentOptions, compactionModel, 0)
+}
+
+// acceptAttrLiveModelWithLimit é o acceptAttrLiveModel com o
+// preferences.autoCompactLimit da sessão (0 = automático).
+func acceptAttrLiveModelWithLimit(t *testing.T, p qgruntime.Provider, registry *tools.Registry, window int, agentOptions agent.Options, compactionModel string, autoCompactLimit int) model {
+	t.Helper()
 	acceptCacheHermeticTUI(t)
 	m := newModel(context.Background(), Options{
-		Cwd:             t.TempDir(),
-		ProviderName:    "qg",
-		ModelName:       acceptAttrModel,
-		ProviderProfile: config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: acceptAttrModel},
-		Provider:        p,
-		Registry:        registry,
-		SessionStore:    testSessionStore(t),
-		AgentOptions:    agentOptions,
-		CompactionModel: compactionModel,
-		NewProvider:     func(config.ProviderProfile) (qgruntime.Provider, error) { return p, nil },
+		Cwd:              t.TempDir(),
+		ProviderName:     "qg",
+		ModelName:        acceptAttrModel,
+		ProviderProfile:  config.ProviderProfile{Name: "qg", CatalogID: "qg", Model: acceptAttrModel},
+		Provider:         p,
+		Registry:         registry,
+		SessionStore:     testSessionStore(t),
+		AgentOptions:     agentOptions,
+		CompactionModel:  compactionModel,
+		AutoCompactLimit: autoCompactLimit,
+		NewProvider:      func(config.ProviderProfile) (qgruntime.Provider, error) { return p, nil },
 	})
 	contextLength := int64(window)
 	pricing := qgaccount.ModelPricing{Currency: "BRL", Input: "1.648", Output: "4.9955", CachedInput: "0.1648"}

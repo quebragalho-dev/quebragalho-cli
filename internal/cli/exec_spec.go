@@ -121,27 +121,28 @@ func runExecSpecDraft(run execSpecDraftRun) int {
 	hookDispatcher, hookSkip := newHookDispatcher(run.workspaceRoot, run.trustRoot, execution.NewRunner(run.sandboxEngine))
 	emitTrustNotice(run.stderr, hookSkip, run.mcpSkip)
 	result, err := agent.Run(runCtx, run.prompt, run.provider, agent.Options{
-		MaxTurns:        run.resolved.MaxTurns,
-		BetweenTurns:    mcpBetweenTurns(run.mcpRuntime),
-		ContextWindow:   resolveAgentContextWindow(runCtx, run.modelRegistry, run.resolved.Provider),
-		SessionID:       draftSession.SessionID,
-		SessionTitle:    run.sessionTitle,
-		ProviderName:    run.resolved.Provider.Name,
-		Model:           run.resolved.Provider.Model,
-		ReasoningEffort: run.reasoningEffort,
-		Profile:         run.profilePolicy,
-		Cwd:             run.workspaceRoot,
-		SystemPrompt:    specmode.DraftSystemPrompt,
-		Images:          run.images,
-		Registry:        run.registry,
-		PermissionMode:  agent.PermissionModeSpecDraft,
-		Autonomy:        "low",
-		Sandbox:         run.sandboxEngine,
-		FileTracker:     tools.NewFileTracker(),
-		Hooks:           hookDispatcher,
-		EnabledTools:    run.options.enabledTools,
-		DisabledTools:   run.options.disabledTools,
-		OnText:          writer.text,
+		MaxTurns:         run.resolved.MaxTurns,
+		BetweenTurns:     mcpBetweenTurns(run.mcpRuntime),
+		ContextWindow:    resolveAgentContextWindow(runCtx, run.modelRegistry, run.resolved.Provider),
+		AutoCompactLimit: run.resolved.Preferences.AutoCompactLimit,
+		SessionID:        draftSession.SessionID,
+		SessionTitle:     run.sessionTitle,
+		ProviderName:     run.resolved.Provider.Name,
+		Model:            run.resolved.Provider.Model,
+		ReasoningEffort:  run.reasoningEffort,
+		Profile:          run.profilePolicy,
+		Cwd:              run.workspaceRoot,
+		SystemPrompt:     specmode.DraftSystemPrompt,
+		Images:           run.images,
+		Registry:         run.registry,
+		PermissionMode:   agent.PermissionModeSpecDraft,
+		Autonomy:         "low",
+		Sandbox:          run.sandboxEngine,
+		FileTracker:      tools.NewFileTracker(),
+		Hooks:            hookDispatcher,
+		EnabledTools:     run.options.enabledTools,
+		DisabledTools:    run.options.disabledTools,
+		OnText:           writer.text,
 		OnToolCall: func(call agent.ToolCall) {
 			writer.toolCall(call, run.registry)
 			sessionRecorder.append(sessions.EventToolCall, map[string]any{
@@ -191,13 +192,22 @@ func runExecSpecDraft(run execSpecDraftRun) int {
 	if err != nil {
 		if errors.Is(err, context.Canceled) || runCtx.Err() != nil {
 			sessionRecorder.append(sessions.EventError, map[string]any{"message": "interrupted"})
-			if run.options.outputFormat == execOutputStreamJSON {
+			switch run.options.outputFormat {
+			case execOutputStreamJSON:
 				writer.errorEvent("interrupted", "run cancelled by signal", false)
 				writer.runEnd("interrupted", exitInterrupted)
 				if writer.err != nil {
 					return exitCrash
 				}
-			} else {
+			case execOutputJSON:
+				// Same terminal pair the main run emits for -o json, so a
+				// consumer sees a clean end of stream instead of silence.
+				writer.errorEvent("interrupted", "run cancelled by signal", false)
+				writer.writeJSON(map[string]any{"type": "done", "exit_code": exitInterrupted})
+				if writer.err != nil {
+					return exitCrash
+				}
+			default:
 				fmt.Fprintln(run.stderr, "Interrompido.")
 			}
 			return exitInterrupted

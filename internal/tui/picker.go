@@ -89,6 +89,24 @@ type commandPicker struct {
 	// levels for (empty = the active model, i.e. the standalone /effort view).
 	resume      *commandPicker
 	effortModel string
+	// header is an optional explanatory text the overlay renders above the
+	// rows, wrapped to the overlay width (only the voice first-use panel
+	// sets it; empty everywhere else, where rendering is unchanged).
+	header string
+	// voiceFirstUse marks the /voice first-use panel (same pickerSTTDownload
+	// kind as the model chooser, told apart by this flag), so dismissing it
+	// can cancel the voice-mode auto-enable.
+	voiceFirstUse bool
+}
+
+// wrappedHeader returns the picker's header lines wrapped for innerWidth
+// (nil when the picker has no header). view.go and mouse.go share it so the
+// click rows always match the rendered rows.
+func (p *commandPicker) wrappedHeader(innerWidth int) []string {
+	if p == nil || strings.TrimSpace(p.header) == "" {
+		return nil
+	}
+	return wrapPlainText(strings.TrimSpace(p.header), innerWidth)
 }
 
 func (p *commandPicker) move(delta int) {
@@ -743,10 +761,6 @@ func providerDescriptorByBaseURL(baseURL string) (providercatalog.Descriptor, bo
 
 func normalizeProviderBaseURL(baseURL string) string {
 	return strings.TrimRight(strings.ToLower(strings.TrimSpace(baseURL)), "/")
-}
-
-func sameNormalizedProviderBaseURL(left string, right string) bool {
-	return normalizeProviderBaseURL(left) == normalizeProviderBaseURL(right)
 }
 
 func genericProviderCatalogID(id string) bool {

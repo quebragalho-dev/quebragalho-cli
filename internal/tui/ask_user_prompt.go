@@ -236,12 +236,7 @@ func (m model) submitAskUser() (tea.Model, tea.Cmd) {
 	for index, state := range pending.states {
 		answers[index] = state.answer
 	}
-	if pending.answer != nil {
-		pending.answer(answers)
-	}
-	m.pendingAskUser = nil
-	m.clearComposer()
-	m.clearSuggestions()
+	_ = m.promptTransition(PromptEvResolveAskUser, promptArgs{answers: answers})
 	return m, nil
 }
 

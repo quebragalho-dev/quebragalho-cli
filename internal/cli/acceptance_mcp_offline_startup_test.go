@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -226,7 +227,13 @@ func TestAcceptanceInteractiveStartNeverWaitsOnAConfiguredMCPServerThatIsDown(t 
 			if waited := opened.Sub(start); waited > startupSlack {
 				t.Errorf("interactive start with a configured MCP server that is down (%s) opened the TUI after %v, want at most %v: startup must not wait out connect backoff", way, waited.Round(10*time.Millisecond), startupSlack)
 			}
-			if !strings.Contains(reason, downServerError(way)) {
+			matched := strings.Contains(reason, downServerError(way))
+			if !matched && runtime.GOOS == "windows" && way == "refused" {
+				// Windows reports the refusal in the OS wording and the
+				// product shows it verbatim; only this expectation bends.
+				matched = strings.Contains(strings.ToLower(reason), "actively refused")
+			}
+			if !matched {
 				t.Errorf("MCP status for the server at TUI open = %q, want its real error (%q), not a generic one", reason, downServerError(way))
 			}
 		})

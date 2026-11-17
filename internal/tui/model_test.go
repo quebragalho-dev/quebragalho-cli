@@ -69,6 +69,10 @@ func (provider *fakeProvider) StreamCompletion(
 
 func TestPromptSubmitInjectsLiveSessionModelContext(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// Turns below take their presence lease in the default store; drop it
+	// before TempDir removal (an open locked presence.lock cannot be
+	// unlinked on Windows).
+	releaseSessionLocksUnder(t, sessions.DefaultRoot(nil))
 	provider := &fakeProvider{events: []qgruntime.StreamEvent{
 		{Type: qgruntime.StreamEventText, Content: "I am using the active session model."},
 		{Type: qgruntime.StreamEventDone},
@@ -111,6 +115,10 @@ func TestPromptSubmitInjectsLiveSessionModelContext(t *testing.T) {
 
 func TestPromptWaitsForToolReadinessBeforeSnapshot(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// Turns below take their presence lease in the default store; drop it
+	// before TempDir removal (an open locked presence.lock cannot be
+	// unlinked on Windows).
+	releaseSessionLocksUnder(t, sessions.DefaultRoot(nil))
 	registry := tools.NewRegistry()
 	provider := &fakeProvider{events: []qgruntime.StreamEvent{
 		{Type: qgruntime.StreamEventText, Content: "done"},
@@ -153,6 +161,10 @@ func TestPromptWaitsForToolReadinessBeforeSnapshot(t *testing.T) {
 
 func TestPromptBuildsTurnSessionForCurrentProvider(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// Turns below take their presence lease in the default store; drop it
+	// before TempDir removal (an open locked presence.lock cannot be
+	// unlinked on Windows).
+	releaseSessionLocksUnder(t, sessions.DefaultRoot(nil))
 	provider := &fakeProvider{events: []qgruntime.StreamEvent{
 		{Type: qgruntime.StreamEventText, Content: "done"},
 		{Type: qgruntime.StreamEventDone},
@@ -186,6 +198,10 @@ func TestPromptBuildsTurnSessionForCurrentProvider(t *testing.T) {
 
 func TestPromptSubmitStoresReasoningSeparatelyFromAnswer(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// Turns below take their presence lease in the default store; drop it
+	// before TempDir removal (an open locked presence.lock cannot be
+	// unlinked on Windows).
+	releaseSessionLocksUnder(t, sessions.DefaultRoot(nil))
 	provider := &fakeProvider{events: []qgruntime.StreamEvent{
 		{Type: qgruntime.StreamEventReasoning, Content: "private "},
 		{Type: qgruntime.StreamEventReasoning, Content: "thought"},
@@ -494,10 +510,10 @@ func TestPermissionsCommandListsPersistentSandboxGrants(t *testing.T) {
 	}
 	text := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Permissions",
-		"ask permissions",
-		"mode  ask",
-		"Grants",
+		"Permissões",
+		"ask permissões",
+		"modo  ask",
+		"Autorizações",
 		"bash [allow]",
 		"write_file [deny]",
 		"[REDACTED]",
@@ -579,12 +595,12 @@ func TestContextCommandShowsSessionState(t *testing.T) {
 	}
 	for _, want := range []string{
 		`D:\codings\Opensource\QG`,
-		"go runtime | ask permissions | 1 tool",
-		"provider   openai",
-		"model      gpt-4.1",
-		"max turns  ",
-		"root        ",
-		"registered  1",
+		"runtime go | ask permissões | 1 ferramenta",
+		"provedor        openai",
+		"modelo          gpt-4.1",
+		"turnos máximos  ",
+		"raiz         ",
+		"registradas  1",
 	} {
 		if !transcriptContains(next.transcript, want) {
 			t.Fatalf("expected context transcript to contain %q, got %#v", want, next.transcript)
@@ -1025,7 +1041,7 @@ func TestSearchCommandUsesSessionStore(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /search to be handled without starting an agent run")
 	}
-	if !transcriptContains(next.transcript, "Found 1 local session event") || !transcriptContains(next.transcript, "needle appears here") {
+	if !transcriptContains(next.transcript, "Encontrado 1 evento de sessão local") || !transcriptContains(next.transcript, "needle appears here") {
 		t.Fatalf("expected search hit in transcript, got %#v", next.transcript)
 	}
 }
@@ -1037,7 +1053,7 @@ func TestSearchCommandRequiresQuery(t *testing.T) {
 	updated, _ := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
-	if !transcriptContains(next.transcript, "usage: /search <query>") {
+	if !transcriptContains(next.transcript, "uso: /search <termo>") {
 		t.Fatalf("expected search usage, got %#v", next.transcript)
 	}
 }
@@ -2896,13 +2912,18 @@ func testSessionStore(t *testing.T) *sessions.Store {
 	t.Helper()
 
 	now := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
-	return sessions.NewStore(sessions.StoreOptions{
+	store := sessions.NewStore(sessions.StoreOptions{
 		RootDir: t.TempDir(),
 		Now: func() time.Time {
 			now = now.Add(time.Minute)
 			return now
 		},
 	})
+	// Turns take a session presence lease that outlives the test body; drop
+	// it before TempDir removal (an open locked presence.lock cannot be
+	// unlinked on Windows).
+	releaseSessionLocksUnder(t, store.RootDir)
+	return store
 }
 
 func TestNextPermissionModeFoldsUnsafeToAsk(t *testing.T) {
@@ -3251,6 +3272,10 @@ func TestOverlayViewportLinesCompositesAndPreservesBackdropText(t *testing.T) {
 // and empty composer for burst/paste testing. termuxVersion controls the env var.
 func burstTestModel(t *testing.T, termuxVersion string) model {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// Turns below take their presence lease in the default store; drop it
+	// before TempDir removal (an open locked presence.lock cannot be
+	// unlinked on Windows).
+	releaseSessionLocksUnder(t, sessions.DefaultRoot(nil))
 	t.Setenv("TERMUX_VERSION", termuxVersion)
 	provider := &fakeProvider{events: []qgruntime.StreamEvent{
 		{Type: qgruntime.StreamEventText, Content: "ok"},

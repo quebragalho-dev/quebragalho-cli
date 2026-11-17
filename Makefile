@@ -7,17 +7,13 @@ DEADCODE_VERSION := v0.46.0
 GOLANGCI_LINT_VERSION := v2.12.2
 GOVULNCHECK_VERSION := v1.3.0
 
-.PHONY: build build-all release test test-race vet fmt fmt-check lint lint-static deadcode vulncheck vulncheck-windows tidy clean baseline help
+.PHONY: build release test vet fmt fmt-check lint lint-static deadcode vulncheck vulncheck-windows help
 
 # Build the main CLI binary into ./qg plus its real on-disk alias ./quebragalho
 # (same bytes; the CLI is argv0-agnostic, so the alias needs no wrapper).
 build:
 	go build -o qg ./cmd/qg
 	cp qg quebragalho
-
-# Build every command in cmd/.
-build-all:
-	go build ./...
 
 # Package release archives for every supported desktop/server target with
 # SHA-256 checksums, then verify them all. Cross targets skip the executable
@@ -42,10 +38,6 @@ release:
 # for slow machines. Keep it below the CI race job's 30m ceiling.
 test:
 	go test ./... -race -count=1 -timeout 25m
-
-# Faster, no race detector.
-test-quick:
-	go test ./...
 
 vet:
 	go vet ./...
@@ -83,26 +75,5 @@ vulncheck-windows:
 	GOBIN="$(CURDIR)/.cache/gobin" go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	GOOS=windows "$(CURDIR)/.cache/gobin/govulncheck" ./...
 
-tidy:
-	go mod tidy
-
-clean:
-	rm -f qg quebragalho
-	go clean ./...
-
-# Run the per-turn benchmark harness over the checked-in baseline manifest and
-# write the JSON result to internal/perfbench/reports/baseline.json. Requires a
-# built `qg` binary and a model; set QG_BENCH_MODEL (required) and
-# QG_BENCH_BINARY (defaults to ./qg) to configure the run. The report is
-# machine-specific and regenerated, not hand-edited.
-baseline: build
-	@if [ -z "$(QG_BENCH_MODEL)" ]; then echo "Set QG_BENCH_MODEL (and optionally QG_BENCH_BINARY) before running 'make baseline'"; exit 2; fi
-	@QG_BIN="$${QG_BENCH_BINARY:-./qg}"; \
-	go run ./cmd/qg-perf-bench turn \
-		--suite internal/perfbench/manifests/baseline.json \
-		--model $(QG_BENCH_MODEL) \
-		--binary "$$QG_BIN" \
-		--output internal/perfbench/reports/baseline.json
-
 help:
-	@echo "Targets: build (default; qg + quebragalho), build-all, release (cross archives + checksums), test, test-quick, vet, fmt, fmt-check, lint, lint-static, deadcode, vulncheck, vulncheck-windows, tidy, clean, baseline"
+	@echo "Targets: build (default; qg + quebragalho), release (cross archives + checksums), test, vet, fmt, fmt-check, lint, lint-static, deadcode, vulncheck, vulncheck-windows"

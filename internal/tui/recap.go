@@ -252,11 +252,11 @@ func (m model) handleConfigCommand(arg string) (model, string) {
 			m = m.cancelIdleRecap()
 		}
 		if err := m.persistRecapsEnabled(); err != nil {
-			return m, "Config\nFailed to save recaps preference: " + err.Error()
+			return m, "Configuração\nFalha ao salvar a preferência de recaps: " + err.Error()
 		}
-		return m, "Config\nrecaps: " + onOff(m.recapsEnabled)
+		return m, "Configuração\nrecaps: " + onOff(m.recapsEnabled)
 	default:
-		return m, "Config\nUnknown setting: " + arg + " (use: recaps on|off)"
+		return m, "Configuração\nAjuste desconhecido: " + arg + " (uso: recaps on|off)"
 	}
 }
 

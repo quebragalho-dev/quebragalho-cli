@@ -3,6 +3,33 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.20 — 2026-11-16
+
+### Novidades
+
+- `/voice`: ditado por voz segurando Espaço. Rode `/voice` uma vez e o qg oferece baixar o reconhecimento de fala (487 MB, com barra de progresso); depois disso o modo de voz liga sozinho e continua ligado nas próximas vezes. Segure Espaço por 2 segundos, fale e solte: o texto aparece na caixa enquanto você fala e nada é enviado sem Enter. O reconhecimento roda no seu computador, entende português e mais 24 idiomas, e sua voz não é enviada a lugar nenhum.
+- No macOS e no Windows o ditado grava pelo próprio qg, sem instalar outro programa. Ao ligar, o qg testa o microfone e, se ele não entrega som, mostra onde liberar a permissão.
+- `/autocompact`: você escolhe a partir de quantos tokens o qg resume a conversa sozinho, por exemplo `/autocompact 400k`, ou `off` para desligar. Sem argumento, abre um painel para escolher. O valor fica salvo e vale também para o `qg exec`.
+- No Windows, quando o ambiente isolado não consegue iniciar, o qg explica o motivo e o que fazer.
+
+### Mudanças
+
+- Atualização e instaladores só aceitam downloads por HTTPS; um endereço sem HTTPS é recusado.
+- No Windows, a saída de programas que escrevem em UTF-16 aparece legível, em vez de caracteres trocados.
+- Arquivos de sessão e de configuração são gravados de forma mais segura: uma queda de energia ou um arquivo travado por outro programa não deixa mais o arquivo pela metade.
+- Servidores MCP que demoram a responder na abertura continuam sendo tentados em segundo plano.
+
+### Correções
+
+- Ctrl+C durante uma gravação de voz cancela o ditado, em vez de apagar o texto digitado.
+- `/clear`, `/spec`, retomar e voltar no histórico são recusados enquanto a conversa está sendo resumida, e `/clear` é recusado dentro do `/btw`; antes podiam deixar a conversa em estado estranho.
+- Cliques com o mouse acertam a linha certa no seletor de modelos e nas mensagens com anexo, e a rolagem dentro da conversa de um subagente parou de pular.
+- A preferência de modelo usado para resumir a conversa (`preferences.compactionModel`) voltou a ser respeitada.
+- Comandos do git com opções que executam outros programas passam a pedir aprovação.
+- Uma resposta interrompida no `qg exec` e no modo JSON termina com erro claro, em vez de parecer concluída.
+- No Windows: o qg acessa arquivos em outro disco quando você autoriza, e o instalador avisa quando o arquivo de verificação vem vazio.
+- Uma remoção do qg interrompida no meio é desfeita na próxima execução, sem deixar a instalação quebrada.
+
 ## 0.0.19 — 2026-11-14
 
 ### Novidades

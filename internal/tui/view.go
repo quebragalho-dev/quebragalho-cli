@@ -208,9 +208,9 @@ func (m model) statusLine(width int) string {
 		left = prefix + btwChip + qgTheme.amber.Render("●") + " " + qgTheme.amber.Render(ctrlCExitConfirmText)
 	} else if m.cancelConfirmActive {
 		left = prefix + btwChip + qgTheme.amber.Render("●") + " " + qgTheme.amber.Render(escCancelConfirmText)
-	} else if m.dictation.downloading && m.dictation.downloadStatus != "" {
+	} else if m.dictation.downloading && (m.dictation.downloadStatus != "" || m.dictation.downloadLabel != "") {
 		// A model download in progress takes over the left chip with a live percentage.
-		left = prefix + btwChip + qgTheme.accent.Render("⬇ ") + qgTheme.muted.Render(m.dictation.downloadStatus)
+		left = prefix + btwChip + qgTheme.accent.Render("⬇ ") + qgTheme.muted.Render(m.dictationDownloadBarText(width, prefix, btwChip))
 	} else if dictation := m.dictationStatusChip(); dictation != "" && m.dictation.active() {
 		// An active recording/transcription takes over the left chip — it is the
 		// most time-sensitive thing on screen (the mic is live).
@@ -301,31 +301,6 @@ func (m model) modeLabel() (string, lipgloss.Style) {
 		}
 		return mode, qgTheme.muted
 	}
-}
-
-// contextFillPercent uses only the API window for the sidebar context gauge.
-func (m model) contextFillPercent() (pct, used, window int, style lipgloss.Style, ok bool) {
-	if m.usageTracker == nil {
-		return 0, 0, 0, lipgloss.Style{}, false
-	}
-	summary := m.usageTracker.Summary()
-	used = m.latestUsageTokens(summary)
-	window = m.apiContextWindow()
-	if used <= 0 || window <= 0 {
-		return 0, 0, 0, lipgloss.Style{}, false
-	}
-	ratio := float64(used) / float64(window)
-	if ratio > 1 {
-		ratio = 1
-	}
-	style = qgTheme.green
-	switch {
-	case ratio >= 0.90:
-		style = qgTheme.red
-	case ratio >= 0.75:
-		style = qgTheme.amber
-	}
-	return int(ratio*100 + 0.5), used, window, style, true
 }
 
 // humanCount renders a token count the way the status line wants it: 999,
@@ -686,6 +661,11 @@ func (m model) pickerOverlay(width int) string {
 	// matching the /model picker. Followed by a separator, then the rows.
 	lines = append(lines, renderPickerSearchLine(m.picker.query, "digite para filtrar…", innerWidth))
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
+	// The voice first-use panel explains itself above the rows; every other
+	// picker leaves header empty, so this renders nothing for them.
+	for _, headerLine := range m.picker.wrappedHeader(innerWidth) {
+		lines = append(lines, qgTheme.faint.Render(headerLine))
+	}
 	lastGroup := ""
 	for index, item := range visible {
 		absoluteIndex := start + index

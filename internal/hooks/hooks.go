@@ -12,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 type Event string
@@ -189,7 +192,7 @@ func ResolvePaths(options ResolvePathOptions) (Paths, error) {
 		return Paths{}, err
 	}
 
-	home := strings.TrimSpace(firstNonEmpty(envValue(options.Env, "HOME"), envValue(options.Env, "USERPROFILE")))
+	home := strings.TrimSpace(firstNonEmpty(envstr.Value(options.Env, "HOME"), envstr.Value(options.Env, "USERPROFILE")))
 	if home == "" {
 		home, err = os.UserHomeDir()
 		if err != nil {
@@ -260,12 +263,9 @@ func WriteConfig(path string, config Config) error {
 	if err != nil {
 		return err
 	}
-	tempPath := fmt.Sprintf("%s.tmp-%d-%d", resolved, os.Getpid(), time.Now().UnixNano())
-	if err := os.WriteFile(tempPath, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, resolved); err != nil {
-		_ = os.Remove(tempPath)
+	// Durable publish: fsync before the atomic rename (with retry on transient
+	// Windows sharing violations) so a power loss cannot leave an empty file.
+	if err := fsutil.WriteFileAtomically(resolved, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -995,7 +995,7 @@ func lockForPath(path string) *sync.Mutex {
 }
 
 func resolveEnvDir(env map[string]string, key string, fallback string, cwd string) string {
-	value := strings.TrimSpace(envValue(env, key))
+	value := strings.TrimSpace(envstr.Value(env, key))
 	if value == "" {
 		return fallback
 	}
@@ -1013,13 +1013,6 @@ func resolveCwd(cwd string) (string, error) {
 		return filepath.Clean(cwd), nil
 	}
 	return filepath.Abs(cwd)
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func firstNonEmpty(values ...string) string {

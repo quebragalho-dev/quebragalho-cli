@@ -1214,6 +1214,12 @@ func TestRunCommandsDoNotLaunchTUI(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", stateHome)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// Windows ignores HOME/XDG_* for the user config and state
+	// (os.UserConfigDir, updatenotice state dir): keep those off the real
+	// profile too.
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
+	t.Setenv("LOCALAPPDATA", stateHome)
 	cwd := t.TempDir()
 
 	// A `worktrees`/`worktree` bare invocation used to prepare a real locked

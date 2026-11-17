@@ -241,7 +241,7 @@ func TestRunSearchFindsSessionEventsFromInjectedStore(t *testing.T) {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "Found 1 local session event") || !strings.Contains(output, "cli_search") {
+	if !strings.Contains(output, "Encontrado 1 evento de sessão local") || !strings.Contains(output, "cli_search") {
 		t.Fatalf("unexpected search output: %q", output)
 	}
 	if strings.Contains(output, "sk-secret") {
@@ -308,7 +308,7 @@ func TestRunSearchJSONAndValidation(t *testing.T) {
 	if exitCode != exitUsage {
 		t.Fatalf("expected usage exit %d, got %d", exitUsage, exitCode)
 	}
-	if !strings.Contains(stderr.String(), "search query required") {
+	if !strings.Contains(stderr.String(), "termo de busca") {
 		t.Fatalf("expected search validation error, got %q", stderr.String())
 	}
 }

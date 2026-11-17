@@ -99,6 +99,26 @@ func (c *Coordinator) notifyChangeLocked() {
 	c.changed = make(chan struct{})
 }
 
+// transitionLocked is the single writer of the task state twins (Status,
+// handoff). Callers must hold c.mu for writing. It derives the current phase
+// from the twins, consults the single taskLegal table, and on success
+// installs both fields together from the target phase so they can never
+// diverge. Illegal pairs (and twins the writers never produce) return false
+// and write nothing, so the caller can refuse with its legacy error while the
+// task keeps its state; it never panics.
+func (c *Coordinator) transitionLocked(t *Task, ev taskEvent) (taskPhase, bool) {
+	cur, ok := phaseOf(t.Status, t.handoff)
+	if !ok {
+		return phasePending, false
+	}
+	next, ok := taskNext(cur, ev)
+	if !ok {
+		return cur, false
+	}
+	t.Status, t.handoff = next.status(), next.claimed()
+	return next, true
+}
+
 // ErrTaskExists is returned when registering a duplicate task ID.
 var ErrTaskExists = errors.New("swarm: task already registered")
 
@@ -147,13 +167,17 @@ func (c *Coordinator) SetStatus(id string, status TaskStatus) error {
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrUnknownTask, id)
 	}
-	if t.Status.terminal() && t.Status != status {
-		return fmt.Errorf("swarm: task %s is %s (terminal); cannot move to %s", id, t.Status, status)
+	ev, ok := setStatusEvent(status)
+	if !ok {
+		// Unreachable: status.valid() above accepts exactly the mapped set.
+		return fmt.Errorf("swarm: invalid task status %q", status)
 	}
-	if t.handoff {
+	if _, ok := c.transitionLocked(t, ev); !ok {
+		if t.Status.terminal() && t.Status != status {
+			return fmt.Errorf("swarm: task %s is %s (terminal); cannot move to %s", id, t.Status, status)
+		}
 		return fmt.Errorf("swarm: task %s is being handed off; cannot move to %s", id, status)
 	}
-	t.Status = status
 	t.UpdatedAt = c.now()
 	c.notifyChangeLocked()
 	return nil
@@ -170,13 +194,12 @@ func (c *Coordinator) BeginHandoff(id string) (Task, error) {
 	if !ok {
 		return Task{}, fmt.Errorf("%w: %s", ErrUnknownTask, id)
 	}
-	if t.Status.terminal() {
-		return Task{}, fmt.Errorf("swarm: task %s already %s; cannot hand off", id, t.Status)
-	}
-	if t.handoff {
+	if _, ok := c.transitionLocked(t, evBegin); !ok {
+		if t.Status.terminal() {
+			return Task{}, fmt.Errorf("swarm: task %s already %s; cannot hand off", id, t.Status)
+		}
 		return Task{}, fmt.Errorf("swarm: task %s is already being handed off", id)
 	}
-	t.handoff = true
 	return *t, nil
 }
 
@@ -185,8 +208,11 @@ func (c *Coordinator) BeginHandoff(id string) (Task, error) {
 func (c *Coordinator) AbortHandoff(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if t, ok := c.tasks[id]; ok && t.handoff && !t.Status.terminal() {
-		t.handoff = false
+	if t, ok := c.tasks[id]; ok {
+		// evAbort is legal in every phase: it clears the claim while keeping
+		// the origin status (handing-off projects back to pending/running),
+		// and is a no-op elsewhere. Reservations are always swept below.
+		c.transitionLocked(t, evAbort)
 	}
 	for successorID, sourceID := range c.handoffReservations {
 		if sourceID == id {
@@ -209,7 +235,9 @@ func (c *Coordinator) ReserveHandoffSuccessor(sourceID, successorID string) erro
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrUnknownTask, sourceID)
 	}
-	if !source.handoff || source.Status.terminal() {
+	if cur, ok := phaseOf(source.Status, source.handoff); !ok {
+		return fmt.Errorf("swarm: task %s has no active handoff claim", sourceID)
+	} else if _, ok := taskNext(cur, evReserve); !ok {
 		return fmt.Errorf("swarm: task %s has no active handoff claim", sourceID)
 	}
 	if _, exists := c.tasks[successorID]; exists {
@@ -241,10 +269,15 @@ func (c *Coordinator) CommitHandoff(sourceID, successorID, successorAgentID, tea
 	if !ok {
 		return Task{}, fmt.Errorf("%w: %s", ErrUnknownTask, sourceID)
 	}
-	if !source.handoff {
-		return Task{}, fmt.Errorf("swarm: task %s has no handoff in progress", sourceID)
-	}
-	if source.Status.terminal() {
+	if cur, ok := phaseOf(source.Status, source.handoff); !ok {
+		if !source.handoff {
+			return Task{}, fmt.Errorf("swarm: task %s has no handoff in progress", sourceID)
+		}
+		return Task{}, fmt.Errorf("swarm: task %s already %s", sourceID, source.Status)
+	} else if _, ok := taskNext(cur, evCommit); !ok {
+		if !source.handoff {
+			return Task{}, fmt.Errorf("swarm: task %s has no handoff in progress", sourceID)
+		}
 		return Task{}, fmt.Errorf("swarm: task %s already %s", sourceID, source.Status)
 	}
 	if reservedFor, ok := c.handoffReservations[successorID]; !ok || reservedFor != sourceID {
@@ -269,8 +302,11 @@ func (c *Coordinator) CommitHandoff(sourceID, successorID, successorAgentID, tea
 	c.tasks[successorID] = successor
 	delete(c.handoffReservations, successorID)
 	c.assignColorLocked(successorAgentID)
-	source.handoff = false
-	source.Status = StatusHandedOff
+	if _, ok := c.transitionLocked(source, evCommit); !ok {
+		// Unreachable: the claim and reservation checks above accept exactly
+		// the phases evCommit leaves. Fail closed without partial state.
+		return Task{}, fmt.Errorf("swarm: task %s has no handoff in progress", sourceID)
+	}
 	source.UpdatedAt = now
 	c.notifyChangeLocked()
 	return *successor, nil
@@ -299,19 +335,22 @@ func (c *Coordinator) FailWithSession(id, errMsg, sessionID string) error {
 }
 
 func (c *Coordinator) finish(id string, status TaskStatus, result, errMsg, sessionID string) error {
+	ev := evFinishDone
+	if status == StatusFailed {
+		ev = evFinishFailed
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	t, ok := c.tasks[id]
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrUnknownTask, id)
 	}
-	if t.Status.terminal() {
-		return fmt.Errorf("swarm: task %s already %s", id, t.Status)
-	}
-	if t.handoff {
+	if _, ok := c.transitionLocked(t, ev); !ok {
+		if t.Status.terminal() {
+			return fmt.Errorf("swarm: task %s already %s", id, t.Status)
+		}
 		return fmt.Errorf("swarm: task %s is being handed off", id)
 	}
-	t.Status = status
 	t.Result = result
 	t.Err = errMsg
 	if sessionID != "" {
@@ -331,14 +370,13 @@ func (c *Coordinator) Reassign(id, newAgentID string) error {
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrUnknownTask, id)
 	}
-	if t.Status.terminal() {
-		return fmt.Errorf("swarm: task %s already %s; cannot reassign", id, t.Status)
-	}
-	if t.handoff {
+	if _, ok := c.transitionLocked(t, evReassign); !ok {
+		if t.Status.terminal() {
+			return fmt.Errorf("swarm: task %s already %s; cannot reassign", id, t.Status)
+		}
 		return fmt.Errorf("swarm: task %s is being handed off; cannot reassign", id)
 	}
 	t.AgentID = newAgentID
-	t.Status = StatusPending
 	t.UpdatedAt = c.now()
 	c.assignColorLocked(newAgentID)
 	c.notifyChangeLocked()

@@ -63,6 +63,13 @@ func continuationHarness(t *testing.T, store *sessions.Store, provider *scripted
 		Registry:     registry,
 		SessionStore: store,
 	})
+	// Turns take a session presence lease that outlives the test body; drop
+	// it before TempDir removal (an open locked presence.lock cannot be
+	// unlinked on Windows). The store usually comes from testSessionStore,
+	// which registers the same hook: the release is idempotent.
+	if store != nil {
+		releaseSessionLocksUnder(t, store.RootDir)
+	}
 	// The async snapshot writer outlives any single turn: drain it before the
 	// test's TempDirs are removed, or a background write races RemoveAll.
 	writer := m.snapshotWriter
@@ -161,7 +168,7 @@ func TestTUISecondTurnSendsRealHistory(t *testing.T) {
 	m := continuationHarness(t, store, provider, registry)
 
 	m = runTextTurn(t, m, "read it")
-	m = runTextTurn(t, m, "Sim")
+	_ = runTextTurn(t, m, "Sim")
 
 	if len(provider.requests) != 3 {
 		t.Fatalf("provider requests = %d, want 3 (tool turn + answer + second turn)", len(provider.requests))
@@ -555,7 +562,7 @@ func TestTUIContinuationSurvivesTriggers(t *testing.T) {
 			m = updated.(model)
 		}
 
-		m = runTextTurn(t, m, "after peer")
+		_ = runTextTurn(t, m, "after peer")
 		// Peer turns keep their own context: the next normal turn still
 		// replays the pre-peer history.
 		assertRealHistoryTurn(t, provider, 3, "after peer", "second answer")

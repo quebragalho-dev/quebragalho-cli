@@ -47,9 +47,10 @@ type pattern struct {
 // boundary once the input runs out of allowed characters, so the anchor is
 // unnecessary; the leading \b already keeps these from firing mid-word.
 var patterns = []pattern{
-	{"aws_access_key_id", regexp.MustCompile(`\bAKIA[0-9A-Z]{16}`), []string{"AKIA"}},
+	{"aws_access_key_id", regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}`), []string{"AKIA", "ASIA"}},
 	{"github_token", regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}`), []string{"gh"}},
 	{"github_pat", regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{22,}`), []string{"github_pat_"}},
+	{"gitlab_token", regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{12,}`), []string{"glpat-"}},
 	{"slack_token", regexp.MustCompile(`\bxox[baprs]-[A-Za-z0-9-]{10,}`), []string{"xox"}},
 	{"google_api_key", regexp.MustCompile(`\bAIza[0-9A-Za-z\-_]{35,}`), []string{"AIza"}},
 	{"anthropic_key", regexp.MustCompile(`\bsk-ant-(?:api\d{2}-)?[A-Za-z0-9_-]{20,}`), []string{"sk-ant-"}},

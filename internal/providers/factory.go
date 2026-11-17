@@ -74,23 +74,6 @@ func conversationHeader(baseURL string) string {
 	return QGConversationIDHeader
 }
 
-// NewTurnSessionProvider builds the default TurnSessionProvider for a resolved
-// profile: it constructs the provider exactly as New does, then wraps it with a
-// ProviderCapabilities projection computed from the same model-registry entry
-// New already resolves. The default session's Stream is the provider's
-// StreamCompletion, so runtime behavior is identical to using New directly.
-func NewTurnSessionProvider(profile config.ProviderProfile, options Options) (qgruntime.TurnSessionProvider, error) {
-	provider, err := New(profile, options)
-	if err != nil {
-		return nil, err
-	}
-	caps, err := resolveCapabilities(profile, options)
-	if err != nil {
-		return nil, err
-	}
-	return qgruntime.NewProviderTurnSessionProvider(provider, caps), nil
-}
-
 // resolveCapabilities projects the resolved profile's model-registry entry into
 // the flat qgruntime.ProviderCapabilities (qgruntime cannot reference
 // modelregistry types — modelregistry imports qgruntime, so a typed field

@@ -10,34 +10,13 @@ const (
 	// hoverTranscript: a specialist card or collapse/expand toggle header in the
 	// main transcript body (or the subchat child view), identified by bodyY.
 	hoverTranscript
-	// hoverSidebarAgent: a clickable AGENTS sidebar row, identified by sessionID.
-	hoverSidebarAgent
-	// hoverPlanStep: a plan step row in the sidebar's PLAN section, identified by
-	// step index.
-	hoverPlanStep
-	// hoverFileRow: a touched-file row in the sidebar's FILES section, identified
-	// by path.
-	hoverFileRow
 )
 
 // hoverTarget identifies the single clickable row (if any) currently under the
-// mouse cursor with no button pressed. Exactly one of bodyY/sessionID/stepIndex is
-// meaningful, discriminated by kind.
-//
-// The sidebar fields deliberately store a STABLE IDENTITY (sessionID, stepIndex),
-// not a raw line offset: the AGENTS/PLAN section sizes can change between when a
-// hover is detected and when the sidebar next renders (a swarm member's linger
-// window elapsing, a plan step completing) with no mouse motion in between to
-// re-resolve it. A cached raw offset would then silently point at whatever
-// unrelated row now occupies that slot. hoveredSidebarLineOffset (sidebar.go)
-// re-resolves the CURRENT line offset for this identity fresh on every render, so
-// a row that's gone simply doesn't highlight rather than a wrong one lighting up.
+// mouse cursor with no button pressed.
 type hoverTarget struct {
-	kind      hoverKind
-	bodyY     int    // hoverTranscript
-	sessionID string // hoverSidebarAgent
-	stepIndex int    // hoverPlanStep
-	filePath  string // hoverFileRow
+	kind  hoverKind
+	bodyY int // hoverTranscript
 }
 
 // mouseHover reports whether msg is a plain cursor-movement event with NO button

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 func UpsertProvider(path string, profile ProviderProfile, setActive bool) (result FileConfig, err error) {
@@ -76,44 +78,6 @@ func upsertProviderLocked(path string, profile ProviderProfile, setActive bool) 
 		return FileConfig{}, err
 	}
 	return cfg, nil
-}
-
-func MarkProviderAPIKeyStored(path string, provider string) (err error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return fmt.Errorf("config path is required")
-	}
-	unlock, err := lockConfigFileFn(path)
-	if err != nil {
-		return err
-	}
-	// Joined, not chosen between: a release failure annotates the result
-	// instead of masking the mutation error that actually explains what went
-	// wrong. Reporting success after a failed unlock would claim a state the
-	// next mutation cannot reproduce.
-	defer func() { err = errors.Join(err, unlock()) }()
-	provider = strings.TrimSpace(provider)
-	if provider == "" {
-		return fmt.Errorf("provider name is required")
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read config %s: %w", path, err)
-	}
-	var cfg FileConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("invalid config JSON %s: %w", path, err)
-	}
-	for index := range cfg.Providers {
-		if strings.EqualFold(strings.TrimSpace(cfg.Providers[index].Name), provider) {
-			cfg.Providers[index].APIKey = ""
-			cfg.Providers[index].APIKeyEnv = ""
-			cfg.Providers[index].APIKeyStored = true
-			return writeConfigFile(path, cfg)
-		}
-	}
-	return fmt.Errorf("provider %q not found", provider)
 }
 
 func SetActiveProvider(path string, name string) (result FileConfig, err error) {
@@ -496,6 +460,38 @@ func SetRecapsEnabled(path string, enabled bool) (result FileConfig, err error) 
 	return cfg, nil
 }
 
+// SetAutoCompactLimit persists the /autocompact limit preference, mirroring
+// SetFavoriteModels (read-modify-atomic-write). The stored value is
+// normalized (see NormalizeAutoCompactLimit); 0 clears the key.
+func SetAutoCompactLimit(path string, limit int) (result FileConfig, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	// Joined, not chosen between: a release failure annotates the result
+	// instead of masking the mutation error that actually explains what went
+	// wrong. Reporting success after a failed unlock would claim a state the
+	// next mutation cannot reproduce.
+	defer func() { err = errors.Join(err, unlock()) }()
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg.Preferences.AutoCompactLimit = NormalizeAutoCompactLimit(limit)
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
+}
+
 // SetTheme persists the TUI theme preference, mirroring SetFavoriteModels
 // (read-modify-atomic-write). A blank theme clears the stored preference.
 func SetTheme(path string, theme string) (result FileConfig, err error) {
@@ -688,6 +684,37 @@ func SetSTTProvider(path string, provider STTProviderKind) (result FileConfig, e
 	return cfg, nil
 }
 
+// SetSTTVoiceMode persists the /voice dictation-mode flag, mirroring
+// SetRecapsEnabled (read-modify-atomic-write). false clears the key.
+func SetSTTVoiceMode(path string, enabled bool) (result FileConfig, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	// Joined, not chosen between: a release failure annotates the result
+	// instead of masking the mutation error that actually explains what went
+	// wrong. Reporting success after a failed unlock would claim a state the
+	// next mutation cannot reproduce.
+	defer func() { err = errors.Join(err, unlock()) }()
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg.STT.VoiceMode = enabled
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
+}
+
 func normalizeFavoriteModels(models []string) []string {
 	seen := map[string]bool{}
 	favorites := make([]string, 0, len(models))
@@ -752,24 +779,10 @@ func writeConfigData(path string, data []byte) error {
 	}
 	// Write-to-temp + rename: an in-place write interrupted mid-way (crash,
 	// disk full) would leave the user's only config truncated or corrupt.
-	tmp, err := os.CreateTemp(dir, ".qg-config-*.tmp")
-	if err != nil {
-		return fmt.Errorf("write config %s: %w", path, err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("secure config permissions %s: %w", path, err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write config %s: %w", path, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("write config %s: %w", path, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	// The temp file is fsynced before the atomic rename (RenameWithRetry for
+	// transient Windows sharing violations) so a power loss cannot leave an
+	// empty file.
+	if err := fsutil.WriteFileAtomically(path, data, 0o600); err != nil {
 		return fmt.Errorf("write config %s: %w", path, err)
 	}
 	return nil

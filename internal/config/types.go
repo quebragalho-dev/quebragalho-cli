@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 const OpenAIBaseURL = "https://api.openai.com/v1"
@@ -128,6 +130,12 @@ type PreferencesConfig struct {
 	// curated cheap model on official endpoints, the main model elsewhere.
 	// "main" forces the main model. QG_COMPACTION_MODEL overrides.
 	CompactionModel string `json:"compactionModel,omitempty"`
+	// AutoCompactLimit is the /autocompact setting, in tokens. 0 (or absent) =
+	// automatic: the agent compacts at its own threshold for the model's
+	// context window. > 0 = compact when the conversation nears that many
+	// tokens, even on a model with a larger window. AutoCompactOff = never
+	// compact proactively. See NormalizeAutoCompactLimit.
+	AutoCompactLimit int `json:"autoCompactLimit,omitempty"`
 }
 
 // RecentModelEntry is one provider-qualified model selection recorded in
@@ -229,6 +237,9 @@ type STTConfig struct {
 	// review. Defaults OFF — insert-for-review is the safety net for a misheard
 	// prompt (§3).
 	AutoSubmit *bool `json:"autoSubmit,omitempty"`
+	// VoiceMode is the /voice setting: dictation mode is on at startup and
+	// stays on until /voice turns it off. Absent means off.
+	VoiceMode bool `json:"voiceMode,omitempty"`
 	// WindowsAudioDevice names the dshow capture device (auto-detected when empty).
 	WindowsAudioDevice string `json:"windowsAudioDevice,omitempty"`
 }
@@ -273,7 +284,7 @@ func (c STTConfig) Empty() bool {
 		c.LocalBinary == "" && c.LocalServerBinary == "" && c.LocalServerPort == 0 &&
 		c.EngineVersion == "" && c.NumThreads == 0 && c.Language == "" &&
 		c.MaxDurationSeconds == 0 && c.SilenceAutoStop == nil && c.AutoSubmit == nil &&
-		c.WindowsAudioDevice == ""
+		!c.VoiceMode && c.WindowsAudioDevice == ""
 }
 
 // LocalControlConfig controls local browser/desktop/terminal automation helpers.
@@ -812,31 +823,21 @@ func (profile *ProviderProfile) UnmarshalJSON(data []byte) error {
 
 	profile.Name = strings.TrimSpace(raw.Name)
 	profile.Provider = strings.TrimSpace(raw.Provider)
-	profile.ProviderKind = ProviderKind(firstNonEmpty(raw.ProviderKind, raw.ProviderKindCamel, raw.Provider))
-	profile.CatalogID = strings.TrimSpace(firstNonEmpty(raw.CatalogID, raw.CatalogIDSnake))
-	profile.BaseURL = strings.TrimSpace(firstNonEmpty(raw.BaseURL, raw.BaseURLSnake))
-	profile.APIKey = firstNonEmpty(raw.APIKey, raw.APIKeySnake)
-	profile.APIKeyEnv = strings.TrimSpace(firstNonEmpty(raw.APIKeyEnv, raw.APIKeyEnvSnake))
+	profile.ProviderKind = ProviderKind(envstr.FirstNonEmpty(raw.ProviderKind, raw.ProviderKindCamel, raw.Provider))
+	profile.CatalogID = strings.TrimSpace(envstr.FirstNonEmpty(raw.CatalogID, raw.CatalogIDSnake))
+	profile.BaseURL = strings.TrimSpace(envstr.FirstNonEmpty(raw.BaseURL, raw.BaseURLSnake))
+	profile.APIKey = envstr.FirstNonEmpty(raw.APIKey, raw.APIKeySnake)
+	profile.APIKeyEnv = strings.TrimSpace(envstr.FirstNonEmpty(raw.APIKeyEnv, raw.APIKeyEnvSnake))
 	profile.APIKeyStored = raw.APIKeyStored || raw.APIKeyStoredSnake
-	profile.APIFormat = strings.TrimSpace(firstNonEmpty(raw.APIFormat, raw.APIFormatSnake))
-	profile.AuthHeader = strings.TrimSpace(firstNonEmpty(raw.AuthHeader, raw.AuthHeaderSnake))
-	profile.AuthScheme = strings.TrimSpace(firstNonEmpty(raw.AuthScheme, raw.AuthSchemeSnake))
-	profile.AuthHeaderValue = firstNonEmpty(raw.AuthHeaderValue, raw.AuthHeaderValueSnake)
+	profile.APIFormat = strings.TrimSpace(envstr.FirstNonEmpty(raw.APIFormat, raw.APIFormatSnake))
+	profile.AuthHeader = strings.TrimSpace(envstr.FirstNonEmpty(raw.AuthHeader, raw.AuthHeaderSnake))
+	profile.AuthScheme = strings.TrimSpace(envstr.FirstNonEmpty(raw.AuthScheme, raw.AuthSchemeSnake))
+	profile.AuthHeaderValue = envstr.FirstNonEmpty(raw.AuthHeaderValue, raw.AuthHeaderValueSnake)
 	profile.CustomHeaders = firstNonNilMap(raw.CustomHeaders, raw.CustomHeadersSnake)
-	profile.Model = strings.TrimSpace(firstNonEmpty(raw.Model, raw.ModelID))
+	profile.Model = strings.TrimSpace(envstr.FirstNonEmpty(raw.Model, raw.ModelID))
 	profile.ParseThinkTags = firstNonNilBool(raw.ParseThinkTags, raw.ParseThinkTagsSnake)
 	profile.Description = strings.TrimSpace(raw.Description)
 	return nil
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func firstNonNilMap(values ...map[string]string) map[string]string {

@@ -144,9 +144,7 @@ list. The PowerShell installer supports the published `windows-x64` and
 emulated (via `PROCESSOR_ARCHITEW6432`).
 
 Android/Termux is also supported even though it has no distinct release
-artifact. The npm wrapper maps Android to the Linux artifact, and
-`docs/INSTALL.md` documents the native `android/arm64` source build needed on
-devices whose seccomp policy blocks the Linux build's syscall path.
+artifact. The npm wrapper maps Android to the Linux artifact.
 
 Other `GOOS`/`GOARCH` values, including Plan 9, are unsupported. They are not a
 review criterion. Do not block a pull request for failing to compile on an

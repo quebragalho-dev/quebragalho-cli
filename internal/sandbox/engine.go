@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 type EngineOptions struct {
@@ -319,7 +321,7 @@ func (engine *Engine) Evaluate(ctx context.Context, request Request) Decision {
 	if policy.Mode == "" {
 		policy = DefaultPolicy()
 	}
-	request.WorkspaceRoot = firstNonEmpty(request.WorkspaceRoot, engine.workspaceRoot)
+	request.WorkspaceRoot = envstr.FirstNonEmpty(request.WorkspaceRoot, engine.workspaceRoot)
 	request.Permission = NormalizePermission(request.Permission)
 	request.PermissionMode = NormalizePermissionMode(request.PermissionMode)
 	request.SideEffect = NormalizeSideEffect(request.SideEffect)
@@ -672,13 +674,4 @@ func permissionReason(request Request) string {
 	default:
 		return "tool requires approval before execution"
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }

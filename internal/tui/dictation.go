@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -90,6 +91,24 @@ type dictationController struct {
 
 	// voiceModeEnabled repurposes Ctrl+Space into hold-to-record (§13.9).
 	voiceModeEnabled bool
+	// lang is the ISO-639-1 language the user dictates in ("pt", "en", ""
+	// unknown), resolved from stt.language or the system locale.
+	lang string
+	// lookPath finds the capture program; nil skips the capture check (tests).
+	lookPath func(string) (string, error)
+	// micCheck listens to the microphone for a moment; nil skips the
+	// microphone check (tests).
+	micCheck func(ctx context.Context) (dictation.MicCheck, error)
+	// warmMic opens the microphone ahead of a hold recording, off the UI
+	// goroutine; nil skips it (tests).
+	warmMic func()
+	// voiceAfterSetup arms the voice-mode auto-enable: /voice started a model
+	// setup, so voice mode turns on when the model is ready.
+	voiceAfterSetup bool
+	// downloadDone/downloadTotal track the in-flight download's bytes
+	// (0 total: unknown size); downloadLabel names the file being fetched.
+	downloadDone, downloadTotal int64
+	downloadLabel               string
 	// eventTypesSupported records whether the terminal confirmed key-release
 	// reporting (Kitty protocol); eventTypesKnown gates it until the terminal has
 	// answered. Determines hold-to-record vs. press-to-toggle for voice mode.
@@ -99,6 +118,9 @@ type dictationController struct {
 	// remembers a release that arrived before the recording finished starting.
 	spaceHeld        bool
 	voiceStopPending bool
+	// hold is the Space hold-to-dictate detector (see voiceHold). It is gesture
+	// state, not session state: dictFullReset leaves it alone.
+	hold voiceHold
 }
 
 // dictationStartedMsg reports the outcome of Recorder.Start().
@@ -121,16 +143,39 @@ type dictationTranscribedMsg struct {
 
 // newDictationController builds the controller from resolved options.
 func newDictationController(opts Options) dictationController {
+	platform := dictation.DetectPlatform()
 	return dictationController{
 		cfg:            opts.STT,
 		build:          opts.BuildDictationTranscriber,
 		shutdownServer: opts.ShutdownDictationServer,
 		keyAvailable:   opts.STTKeyStatus,
 		saveKey:        opts.SaveSTTKey,
-		platform:       dictation.DetectPlatform(),
+		platform:       platform,
 		downloadRoot:   opts.STTDownloadRoot,
 		userConfigPath: opts.UserConfigPath,
-		sessionID:      1,
+		// The saved /voice setting; without a transcriber factory there is
+		// nothing to turn on.
+		voiceModeEnabled: opts.STT.VoiceMode && opts.BuildDictationTranscriber != nil,
+		lang:             dictation.LanguageFromLocale(dictation.DictationLanguage(opts.STT.Language)),
+		lookPath:         exec.LookPath,
+		micCheck: func(ctx context.Context) (dictation.MicCheck, error) {
+			return dictation.CheckMicrophone(ctx, dictation.RecorderOptions{
+				Platform:           platform,
+				SampleRate:         dictation.DefaultSampleRate,
+				WindowsAudioDevice: opts.STT.WindowsAudioDevice,
+			}, time.Second)
+		},
+		// The transcriber's sample rate is not known before a recording is
+		// built; the local engines all use the default, and a mismatch just
+		// makes the recording open its own microphone.
+		warmMic: func() {
+			dictation.WarmMicrophone(dictation.RecorderOptions{
+				Platform:           platform,
+				SampleRate:         dictation.DefaultSampleRate,
+				WindowsAudioDevice: opts.STT.WindowsAudioDevice,
+			})
+		},
+		sessionID: 1,
 	}
 }
 
@@ -177,7 +222,7 @@ func (d dictationController) active() bool { return d.phase != dictIdle }
 // startup/transcription is ignored (the machine is mid-transition).
 func (m model) toggleDictation() (model, tea.Cmd) {
 	if !m.dictation.available() {
-		return m.appendSystemNotice("Ditado não configurado. Veja docs/dictation.md para configurar um motor local ou uma chave Groq/OpenAI."), nil
+		return m.appendSystemNotice("Ditado não configurado. Rode /stt-model para escolher um motor local ou um provedor de nuvem."), nil
 	}
 	if m.dictation.downloading {
 		return m.appendDictationNotice("downloading", "Ainda configurando o motor de ditado — um momento."), nil
@@ -197,21 +242,152 @@ func (m model) toggleDictation() (model, tea.Cmd) {
 // Ctrl+Space records and ordinary Space continues to type normally.
 func (m model) toggleVoiceMode() (model, tea.Cmd) {
 	if !m.dictation.available() {
-		return m.appendSystemNotice("Ditado não configurado. Veja docs/dictation.md para configurar um motor local ou uma chave Groq/OpenAI."), nil
+		return m.appendSystemNotice("Ditado não configurado. Rode /stt-model para escolher um motor local ou um provedor de nuvem."), nil
 	}
-	m.dictation.voiceModeEnabled = !m.dictation.voiceModeEnabled
-	if m.dictation.voiceModeEnabled {
-		return m.showTransientNoticeInline("Modo de voz ligado — "+voiceCaptureUsage+". Rode /voice de novo para desligar.", transientNoticeSuccess), nil
+	if !m.dictation.voiceModeEnabled {
+		return m.enableVoiceSetup()
 	}
+	m.dictation.voiceModeEnabled = false
+	saveErrText := m.persistVoiceMode()
 	// Turning voice off is the "done dictating" signal, so release the warm sherpa
 	// streaming server — otherwise a loaded model keeps idling in RAM (and holding
 	// its port) until the app exits. It respawns lazily on the next streaming
 	// recording. Skip while a recording is still in flight so we don't kill it.
-	next := m.showTransientNoticeInline("Modo de voz desligado.", transientNoticeInfo)
+	var next model
+	if saveErrText != "" {
+		next = m.appendSystemNotice("Modo de voz desligado." + saveErrText)
+	} else {
+		next = m.showTransientNoticeInline("Modo de voz desligado.", transientNoticeInfo)
+	}
 	if next.dictation.active() {
 		return next, nil
 	}
 	return next, next.releaseDictationServerCmd()
+}
+
+// enableVoiceSetup runs the /voice turn-on checks in order: an in-flight
+// download arms the auto-enable, then the capture tool and the transcription
+// backend must work before voice mode turns on. A failing step ends the
+// command with voice mode still off and nothing saved.
+func (m model) enableVoiceSetup() (model, tea.Cmd) {
+	if m.dictation.downloading {
+		m.dictation.voiceAfterSetup = true
+		return m.showTransientNoticeInline("O reconhecimento de fala ainda está baixando. O modo de voz liga sozinho quando terminar.", transientNoticeInfo), nil
+	}
+	if m.dictation.lookPath != nil {
+		if err := dictation.CheckCaptureTool(m.dictation.platform, m.dictation.lookPath); err != nil {
+			var setupErr *dictation.SetupError
+			if errors.As(err, &setupErr) {
+				return m.appendSystemNotice("Para usar o modo de voz, " + setupErr.Hint + ". Depois rode /voice de novo."), nil
+			}
+			return m.appendDictationNotice("setup:"+err.Error(), dictationErrorText(err)), nil
+		}
+	}
+	// The factory only builds objects; it starts nothing.
+	if _, _, err := m.dictation.build(m.dictation.cfg, m.dictation.wantStreaming()); err != nil {
+		// A missing model with a curated default opens the first-use panel.
+		if m.dictation.canOfferDownload(err) {
+			return m.openVoiceFirstUsePanel()
+		}
+		return m.appendDictationNotice("setup:"+err.Error(), dictationErrorText(err)), nil
+	}
+	return m.enableVoiceMode("")
+}
+
+// enableVoiceMode turns voice mode on, saves the setting, announces it with
+// the listening language and model, and (when wired and idle) checks the
+// microphone off the UI goroutine. prefix carries the ready-path lead
+// ("<Label> pronto. ") and is empty for a direct /voice.
+func (m model) enableVoiceMode(prefix string) (model, tea.Cmd) {
+	m.dictation.voiceModeEnabled = true
+	saveErrText := m.persistVoiceMode()
+	text := prefix + "Modo de voz ligado — " + voiceCaptureUsage + ". " + m.dictation.voiceSummary() + " Rode /voice de novo para desligar." + saveErrText + m.dictation.voiceMismatchWarning()
+	// The full turn-on line no longer fits a transient notice (it truncates
+	// past the terminal width), so it goes to the transcript, where it wraps.
+	m = m.appendSystemNotice(text)
+	if m.dictation.micCheck == nil || m.dictation.active() {
+		return m, nil
+	}
+	check := m.dictation.micCheck
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		res, err := check(ctx)
+		return sttMicCheckedMsg{check: res, err: err}
+	}
+}
+
+// voiceSummary describes the listening language and model for the turn-on
+// notice.
+func (d dictationController) voiceSummary() string {
+	if d.lang == "" {
+		return "Modelo: " + d.currentModelLabel() + "."
+	}
+	return "Idioma: " + voiceLanguageName(d.lang) + " · Modelo: " + d.currentModelLabel() + "."
+}
+
+// voiceMismatchWarning names the user's language when the configured local
+// model is curated but does not understand it; empty otherwise.
+func (d dictationController) voiceMismatchWarning() string {
+	if d.cfg.STTProvider() != config.STTProviderLocal || d.lang == "" {
+		return ""
+	}
+	base := filepath.Base(strings.TrimSpace(d.cfg.LocalModelPath))
+	if base == "" {
+		return ""
+	}
+	for _, v := range dictation.ModelVariants() {
+		if v.DirName != "" && v.DirName == base {
+			if dictation.LanguageRank(v, d.lang) == 2 {
+				return " Este modelo não entende " + voiceLanguageName(d.lang) + "; para trocar, rode /stt-model."
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// voiceLanguageName maps ISO-639-1 codes to Portuguese names; any other code
+// is shown as itself.
+func voiceLanguageName(lang string) string {
+	switch lang {
+	case "pt":
+		return "português"
+	case "en":
+		return "inglês"
+	case "es":
+		return "espanhol"
+	case "fr":
+		return "francês"
+	case "de":
+		return "alemão"
+	case "it":
+		return "italiano"
+	case "ja":
+		return "japonês"
+	case "zh":
+		return "chinês"
+	case "ko":
+		return "coreano"
+	case "ru":
+		return "russo"
+	default:
+		return lang
+	}
+}
+
+// persistVoiceMode saves the /voice setting to the user config. It returns the
+// text to append to the notice when saving fails; the session value applies
+// either way.
+func (m model) persistVoiceMode() string {
+	path := strings.TrimSpace(m.dictation.userConfigPath)
+	if path == "" {
+		return ""
+	}
+	if _, err := config.SetSTTVoiceMode(path, m.dictation.voiceModeEnabled); err != nil {
+		return " Não foi possível salvar na configuração: " + err.Error()
+	}
+	return ""
 }
 
 // releaseDictationServerCmd tears down the warm sherpa-onnx streaming server off
@@ -231,7 +407,19 @@ func (m model) releaseDictationServerCmd() tea.Cmd {
 }
 
 // startDictation builds the recorder + transcriber and kicks off capture.
+// The voice hold path presets spaceHeld/voiceStop before calling; the toggle
+// path relies on the prior full reset leaving them clean. Start preserves the
+// preset twins and only arms the session handles.
 func (m model) startDictation() (model, tea.Cmd) {
+	spaceHeld := m.dictation.spaceHeld
+	voiceStop := m.dictation.voiceStopPending
+	return m.startDictationWithVoice(spaceHeld, voiceStop)
+}
+
+// startDictationWithVoice is the single entry that arms a session: the voice
+// hold press passes spaceHeld=true, every other caller passes the current
+// (post-reset clean) twins. transition() is the only writer.
+func (m model) startDictationWithVoice(spaceHeld, voiceStop bool) (model, tea.Cmd) {
 	transcriber, streaming, err := m.dictation.build(m.dictation.cfg, m.dictation.wantStreaming())
 	if err != nil {
 		// A missing local engine on a platform we can auto-download for → point at
@@ -248,7 +436,7 @@ func (m model) startDictation() (model, tea.Cmd) {
 		Platform:           m.dictation.platform,
 		SampleRate:         dictation.RequiredSampleRate(transcriber),
 		MaxDuration:        m.dictation.maxDuration(),
-		SilenceAutoStop:    m.dictation.cfg.SilenceAutoStopEnabled(),
+		SilenceAutoStop:    m.dictation.silenceAutoStop(spaceHeld),
 		WindowsAudioDevice: m.dictation.cfg.WindowsAudioDevice,
 	})
 
@@ -258,12 +446,18 @@ func (m model) startDictation() (model, tea.Cmd) {
 	}
 	ctx, cancel := context.WithCancel(base)
 
-	m.dictation.recorder = rec
-	m.dictation.transcriber = transcriber
-	m.dictation.ctx = ctx
-	m.dictation.cancel = cancel
-	m.dictation.streaming = streaming
-	m.dictation.phase = dictStarting
+	if err := m.dictation.transition(DictEvStart, dictArgs{
+		recorder:    rec,
+		transcriber: transcriber,
+		ctx:         ctx,
+		cancel:      cancel,
+		streaming:   streaming,
+		spaceHeld:   spaceHeld,
+		voiceStop:   voiceStop,
+	}); err != nil {
+		cancel()
+		return m, nil
+	}
 
 	if streaming {
 		return m.startStreamingDictation()
@@ -275,12 +469,27 @@ func (m model) startDictation() (model, tea.Cmd) {
 // streaming it stops the recorder, which closes the chunk channel and lets the
 // in-flight StreamTranscribe return its final text.
 func (m model) stopDictation() (model, tea.Cmd) {
-	m.dictation.phase = dictTranscribing
+	if err := m.dictation.transition(DictEvStop, dictArgs{}); err != nil {
+		return m, nil
+	}
 	if m.dictation.streaming {
 		if m.dictation.streamStop != nil {
 			_ = m.dictation.streamStop()
 		}
 		return m, nil // final text arrives via the streaming command already running
+	}
+	return m, transcribeBatchCmd(m.dictation.sessionID, m.dictation.ctx, m.dictation.recorder, m.dictation.transcriber, m.dictation.cfg.AutoSubmitEnabled())
+}
+
+// transcribeAfterDeferredStop fires the batch transcribe after a deferred
+// voice stop already moved Starting straight to Transcribing via StartedOK.
+// Phase is already Transcribing, so no further transition is needed.
+func (m model) transcribeAfterDeferredStop() (model, tea.Cmd) {
+	if m.dictation.streaming {
+		if m.dictation.streamStop != nil {
+			_ = m.dictation.streamStop()
+		}
+		return m, nil
 	}
 	return m, transcribeBatchCmd(m.dictation.sessionID, m.dictation.ctx, m.dictation.recorder, m.dictation.transcriber, m.dictation.cfg.AutoSubmitEnabled())
 }
@@ -298,7 +507,7 @@ func (m model) cancelDictation() (model, tea.Cmd) {
 		go func(r Recorder) { _, _ = r.Stop() }(m.dictation.recorder)
 	}
 	m = m.discardDictationRegion()
-	m.dictation.reset()
+	_ = m.dictation.transition(DictEvCancel, dictArgs{})
 	return m.showTransientNoticeInline("Ditado cancelado.", transientNoticeInfo), nil
 }
 
@@ -316,19 +525,11 @@ func (d dictationController) maxDuration() time.Duration {
 	return dictation.DefaultMaxDuration
 }
 
-func (d *dictationController) reset() {
-	d.sessionID++
-	d.phase = dictIdle
-	d.recorder = nil
-	d.transcriber = nil
-	d.ctx = nil
-	d.cancel = nil
-	d.streaming = false
-	d.streamStop = nil
-	d.regionActive = false
-	d.regionPrefix = ""
-	d.waveBars = nil
-	d.waveTick = 0
+// silenceAutoStop reports whether the recorder may end the recording on
+// trailing silence. A hold recording never does: the user ends it by
+// releasing the key and may pause while speaking.
+func (d dictationController) silenceAutoStop(hold bool) bool {
+	return d.cfg.SilenceAutoStopEnabled() && !hold
 }
 
 // startBatchRecordingCmd starts the record-to-file capture off the UI goroutine
@@ -358,27 +559,24 @@ func transcribeBatchCmd(sessionID int64, ctx context.Context, rec Recorder, tran
 
 // handleDictationStarted transitions to recording (or reports a start failure).
 func (m model) handleDictationStarted(msg dictationStartedMsg) (model, tea.Cmd) {
-	if msg.sessionID != m.dictation.sessionID {
-		// Stale startup from a cancelled session must not reset or re-arm a
-		// newer recording that already owns the controller.
-		return m, nil
-	}
 	if msg.err != nil {
+		if err := m.dictation.transition(DictEvStartedErr, dictArgs{sessionID: msg.sessionID}); err != nil {
+			// Stale startup from a cancelled session must not reset or re-arm a
+			// newer recording that already owns the controller.
+			return m, nil
+		}
 		m = m.discardDictationRegion()
-		m.dictation.reset()
 		text := dictationErrorText(msg.err)
 		return m.appendDictationNotice("dicterr:"+text, text), nil
 	}
-	// A stop or cancel may have already advanced the phase; only arm recording if
-	// we are still starting.
-	if m.dictation.phase == dictStarting {
-		m.dictation.phase = dictRecording
+	if err := m.dictation.transition(DictEvStartedOK, dictArgs{sessionID: msg.sessionID}); err != nil {
+		return m, nil
 	}
-	// A voice-mode Ctrl+Space release that arrived mid-startup asked us to stop as soon
-	// as recording began.
-	if m.dictation.voiceStopPending && m.dictation.phase == dictRecording {
-		m.dictation.voiceStopPending = false
-		return m.stopDictation()
+	// A voice-mode Ctrl+Space release that arrived mid-startup asked us to stop
+	// as soon as recording began: the transition consumed the deferred flag by
+	// landing straight in Transcribing, so fire the transcribe command.
+	if m.dictation.phase == dictTranscribing {
+		return m.transcribeAfterDeferredStop()
 	}
 	// Kick off the recording waveform animation.
 	return m, recTickCmd()
@@ -387,25 +585,29 @@ func (m model) handleDictationStarted(msg dictationStartedMsg) (model, tea.Cmd) 
 // handleDictationTranscribed inserts the final transcript into the composer (or
 // submits it when stt.autoSubmit is on), then returns to idle.
 func (m model) handleDictationTranscribed(msg dictationTranscribedMsg) (tea.Model, tea.Cmd) {
-	if msg.sessionID != m.dictation.sessionID {
+	streaming := m.dictation.streaming || msg.streaming
+	streamStop := m.dictation.streamStop
+	cancel := m.dictation.cancel
+	if err := m.dictation.transition(DictEvTranscribed, dictArgs{sessionID: msg.sessionID}); err != nil {
+		// Stale completion from a cancelled session: the newer session already
+		// owns the controller; keep state, touch nothing.
 		return m, nil
 	}
-	streaming := m.dictation.streaming || msg.streaming
 	m = m.commitDictationRegion()
 	// A streaming session can end via a transcriber error (not just a user stop), so
-	// tear the capture down here BEFORE reset() drops the handles: stop the recorder
-	// (kills the mic subprocess) and cancel the context (unblocks the audio tap).
-	// Without this, an error path leaves the mic running and the next attempt hits
-	// "already recording". Both are idempotent, so this is safe on the happy path.
+	// tear the capture down here AFTER the transition validated the session but
+	// using the saved handles (the transition already dropped them): stop the
+	// recorder (kills the mic subprocess) and cancel the context (unblocks the
+	// audio tap). Without this, an error path leaves the mic running and the
+	// next attempt hits "already recording". Both are idempotent.
 	if streaming {
-		if m.dictation.streamStop != nil {
-			_ = m.dictation.streamStop()
+		if streamStop != nil {
+			_ = streamStop()
 		}
-		if m.dictation.cancel != nil {
-			m.dictation.cancel()
+		if cancel != nil {
+			cancel()
 		}
 	}
-	m.dictation.reset()
 
 	if errors.Is(msg.err, context.Canceled) {
 		// cancelDictation already discarded the live region, reset the

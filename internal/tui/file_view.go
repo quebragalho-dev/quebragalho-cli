@@ -41,32 +41,6 @@ type fileViewState struct {
 	parentScrollOffset int
 }
 
-// openFileView activates the drill-in for path in diff mode. Opening from an
-// already-open view (clicking another FILES row) keeps the original saved chat
-// scroll position rather than saving the file view's own offset as "parent".
-// Re-opening the file that is ALREADY being viewed is a no-op: a stray
-// re-click must not bounce the user from full mode back to diff or reset
-// their scroll position.
-func (m model) openFileView(path string) model {
-	if m.fileView.active && m.fileView.path == path {
-		return m
-	}
-	if !m.fileView.active {
-		m.fileView.parentScrollOffset = m.chatScrollOffset
-	}
-	m.fileView.active = true
-	m.fileView.path = path
-	m.fileView.mode = fileViewDiff
-	// A file only the git sweep knows about (bash/subagent mutation) has no edit
-	// cards to stack — open straight on the full file instead of a placeholder.
-	if len(m.fileViewResultRows()) == 0 {
-		m.fileView.mode = fileViewFull
-	}
-	m.chatScrollOffset = 0
-	m = m.clearHover() // bodyY numbering differs between the file body and the chat
-	return m
-}
-
 // exitFileView deactivates the view and restores the chat scroll position.
 func (m model) exitFileView() model {
 	if !m.fileView.active {

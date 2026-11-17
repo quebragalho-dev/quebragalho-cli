@@ -78,7 +78,7 @@ type SetupError struct {
 }
 
 func (e *SetupError) Error() string {
-	return fmt.Sprintf("%s not found — %s", e.Tool, e.Hint)
+	return fmt.Sprintf("%s não encontrado — %s", e.Tool, e.Hint)
 }
 
 // AuthError reports that a cloud provider rejected a transcription request for

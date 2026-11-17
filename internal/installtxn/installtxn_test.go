@@ -1163,3 +1163,146 @@ func TestRecoverRefusesTwoWorkspacesNamingOneTarget(t *testing.T) {
 		t.Errorf("nothing may be published while the claim is ambiguous: %v", statErr)
 	}
 }
+
+// killedRemoval runs RemoveDir with a publish that dies, which leaves on disk
+// what a process killed between the rename and the publish leaves.
+func killedRemoval(t *testing.T, target string) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("the publish was expected to die")
+		}
+	}()
+	_ = RemoveDir(target, func() error { panic("killed mid-removal") })
+}
+
+// A removal killed after its rename holds the only copy in the workspace, so
+// recovery must put it back at the target: without the marker nothing can tell
+// which install the retained tree is.
+func TestRecoverPutsBackARemovalKilledBeforeItsPublish(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "version"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	killedRemoval(t, target)
+
+	if err := Recover(dir, nil); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(target, "version"))
+	if err != nil || string(data) != "old" {
+		t.Fatalf("the removal that never published was not put back: got %q err %v", data, err)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(dir, workspacePrefix+"*"))
+	if err != nil || len(leftovers) != 0 {
+		t.Fatalf("the recovered workspace should be cleared, got %v err %v", leftovers, err)
+	}
+}
+
+// A published removal owes no restore, so the marker must be disowned before
+// the retained tree is deleted: a delete that stops partway would otherwise
+// leave a marked backup with nothing at the target, and recovery would publish
+// the half tree as the install.
+func TestRemoveDirDisownsTheBackupBeforeDeletingIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not block removal on windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory permissions this test relies on")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "demo")
+	sealed := filepath.Join(target, "sealed")
+	if err := os.MkdirAll(sealed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "a-first"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sealed, "kept"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealed, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		matches, _ := filepath.Glob(filepath.Join(dir, workspacePrefix+"*", "previous", "sealed"))
+		for _, m := range matches {
+			_ = os.Chmod(m, 0o755)
+		}
+		_ = os.Chmod(sealed, 0o755)
+	})
+
+	if err := RemoveDir(target, func() error { return nil }); err != nil {
+		t.Fatalf("RemoveDir: %v", err)
+	}
+	if err := Recover(dir, nil); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("a published removal was resurrected from a half deleted backup: %v", err)
+	}
+}
+
+// The backup is deleted only after the marker that attributes it is gone. With
+// the marker still in place and nothing at the target, recovery puts the backup
+// back without asking anyone, so a tree deleted first would come back emptied.
+// The publish seals the workspace here so the marker cannot be unlinked: the
+// removal must then stop and report, leaving the tree whole for recovery.
+func TestRemoveDirKeepsTheBackupWholeWhileItIsStillAttributed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not block unlinking on windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory permissions this test relies on")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "version"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var workspace string
+	t.Cleanup(func() {
+		if workspace != "" {
+			_ = os.Chmod(workspace, 0o755)
+		}
+	})
+
+	err := RemoveDir(target, func() error {
+		matches, globErr := filepath.Glob(filepath.Join(dir, workspacePrefix+"*"))
+		if globErr != nil || len(matches) != 1 {
+			return fmt.Errorf("expected one removal workspace, got %v err %v", matches, globErr)
+		}
+		workspace = matches[0]
+		return os.Chmod(workspace, 0o555)
+	})
+	if err == nil {
+		t.Fatal("a removal that could not release its marker must be reported")
+	}
+	if workspace == "" {
+		t.Fatalf("the publish never ran: %v", err)
+	}
+	if chmodErr := os.Chmod(workspace, 0o755); chmodErr != nil {
+		t.Fatal(chmodErr)
+	}
+
+	data, readErr := os.ReadFile(filepath.Join(workspace, "previous", "version"))
+	if readErr != nil || string(data) != "old" {
+		t.Fatalf("the backup was deleted while its marker still attributed it: got %q err %v", data, readErr)
+	}
+	if err := Recover(dir, nil); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	data, readErr = os.ReadFile(filepath.Join(target, "version"))
+	if readErr != nil || string(data) != "old" {
+		t.Fatalf("recovery did not put the whole tree back: got %q err %v", data, readErr)
+	}
+}

@@ -12,7 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/filelock"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
@@ -79,16 +82,16 @@ type GrantStore struct {
 var toolGrantNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 func ResolveGrantPath(env map[string]string) (string, error) {
-	override := strings.TrimSpace(envValue(env, "QG_SANDBOX_GRANTS_PATH"))
+	override := strings.TrimSpace(envstr.Value(env, "QG_SANDBOX_GRANTS_PATH"))
 	if override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
 		}
 		return filepath.Abs(override)
 	}
-	configHome := strings.TrimSpace(envValue(env, "XDG_CONFIG_HOME"))
+	configHome := strings.TrimSpace(envstr.Value(env, "XDG_CONFIG_HOME"))
 	if configHome == "" {
-		home := strings.TrimSpace(firstNonEmpty(envValue(env, "HOME"), envValue(env, "USERPROFILE")))
+		home := strings.TrimSpace(envstr.FirstNonEmpty(envstr.Value(env, "HOME"), envstr.Value(env, "USERPROFILE")))
 		var err error
 		if home == "" {
 			home, err = os.UserHomeDir()
@@ -907,12 +910,9 @@ func (store *GrantStore) writeState(state grantFile) error {
 	if err != nil {
 		return err
 	}
-	tempPath := fmt.Sprintf("%s.tmp-%d-%d", store.filePath, os.Getpid(), store.now().UnixNano())
-	if err := os.WriteFile(tempPath, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, store.filePath); err != nil {
-		_ = os.Remove(tempPath)
+	// Durable publish: fsync before the atomic rename (with retry on transient
+	// Windows sharing violations) so a power loss cannot leave an empty file.
+	if err := fsutil.WriteFileAtomically(store.filePath, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -929,14 +929,14 @@ func (store *GrantStore) lockStateFile() (func(), error) {
 	}
 	deadline := time.Now().Add(grantLockTimeout)
 	for {
-		locked, err := tryLockGrantFile(file)
+		locked, err := filelock.TryLockExclusive(file)
 		if err != nil {
 			_ = file.Close()
 			return nil, err
 		}
 		if locked {
 			return func() {
-				_ = unlockGrantFile(file)
+				_ = filelock.Unlock(file)
 				_ = file.Close()
 			}, nil
 		}
@@ -1002,11 +1002,4 @@ func emptyGrantState() grantFile {
 		Grants:          map[string][]Grant{},
 		CommandPrefixes: map[string][]CommandPrefixGrant{},
 	}
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }

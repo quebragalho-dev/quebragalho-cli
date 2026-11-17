@@ -261,7 +261,7 @@ func (tool execCommandTool) run(ctx context.Context, args map[string]any, engine
 		commandText: processResult.CommandText, output: processResult.Output,
 		outputBufferTruncated: processResult.OutputTruncated, sessionID: processResult.ProcessID,
 		exitCode: processResult.ExitCode, exited: processResult.Exited, relativeCwd: processResult.RelativeCwd,
-		tty: processResult.TTY, request: processResult.Request, enforcement: processResult.Enforcement,
+		tty: processResult.TTY, wrapped: plan.Wrapped, request: processResult.Request, enforcement: processResult.Enforcement,
 		report: processResult.Report, reportErr: processResult.ReportErr, changes: processResult.Changes,
 		sandboxMeta:     processResult.Metadata,
 		maxOutputTokens: maxOutputTokens,
@@ -403,7 +403,8 @@ func (tool writeStdinTool) RunWithOptions(ctx context.Context, args map[string]a
 		commandText: processResult.CommandText, output: processResult.Output,
 		outputBufferTruncated: processResult.OutputTruncated, sessionID: processResult.ProcessID,
 		exitCode: processResult.ExitCode, exited: processResult.Exited, relativeCwd: processResult.RelativeCwd,
-		tty: processResult.TTY, interrupted: processResult.Interrupted, request: processResult.Request,
+		tty: processResult.TTY, interrupted: processResult.Interrupted, wrapped: wrappedFromSandboxMeta(processResult.Metadata),
+		request:     processResult.Request,
 		enforcement: processResult.Enforcement, report: processResult.Report, reportErr: processResult.ReportErr,
 		changes: processResult.Changes, sandboxMeta: processResult.Metadata,
 		maxOutputTokens: maxOutputTokens,
@@ -445,6 +446,7 @@ type execToolResultInput struct {
 	relativeCwd           string
 	tty                   bool
 	interrupted           bool
+	wrapped               bool
 	request               execution.Request
 	enforcement           execution.Enforcement
 	sandboxMeta           map[string]string
@@ -459,6 +461,15 @@ func execToolResult(input execToolResultInput) Result {
 }
 
 func execToolResultWithBudget(input execToolResultInput, directBudget bool) Result {
+	return execToolResultWithBudgetForGOOS(input, directBudget, runtimeGOOS())
+}
+
+func execToolResultWithBudgetForGOOS(input execToolResultInput, directBudget bool, goos string) Result {
+	return execToolResultWithBudgetForRuntime(input, directBudget, detectShellRuntime(goos))
+}
+
+func execToolResultWithBudgetForRuntime(input execToolResultInput, directBudget bool, shell shellRuntime) Result {
+	input.output = normalizeWindowsProcessOutputForGOOS(input.output, shell.GOOS)
 	output := input.output
 	truncated := false
 	if directBudget {
@@ -493,7 +504,7 @@ func execToolResultWithBudget(input execToolResultInput, directBudget bool) Resu
 	}
 	body := formatExecCommandOutput(output, input.sessionID, input.exited, input.exitCode, input.interrupted, input.tty)
 	if status == StatusError && input.exited && !input.interrupted {
-		if issue := detectShellOutputIssueForRuntime(output, detectShellRuntime(runtimeGOOS())); issue != nil {
+		if issue := detectShellOutputIssueForRuntime(output, shell, input.exitCode, input.wrapped); issue != nil {
 			meta["shell_issue"] = issue.Kind
 			body = appendShellIssueHint(body, *issue)
 		}
@@ -614,6 +625,11 @@ func executionChangeSummaries(changes []execution.Change) []execution.Change {
 }
 
 func formatExecCommandOutput(output string, sessionID int, exited bool, exitCode int, interrupted bool, tty bool) string {
+	return formatExecCommandOutputForGOOS(output, sessionID, exited, exitCode, interrupted, tty, runtimeGOOS())
+}
+
+func formatExecCommandOutputForGOOS(output string, sessionID int, exited bool, exitCode int, interrupted bool, tty bool, goos string) string {
+	output = normalizeWindowsProcessOutputForGOOS(output, goos)
 	output = strings.TrimRight(output, "\r\n")
 	parts := []string{}
 	if output != "" {
@@ -713,6 +729,17 @@ func execDisplaySummary(commandText string, sessionID int, exited bool, exitCode
 
 func runtimeGOOS() string {
 	return runtime.GOOS
+}
+
+func wrappedFromSandboxMeta(meta map[string]string) bool {
+	if meta == nil {
+		return false
+	}
+	wrapped, err := strconv.ParseBool(meta["sandbox_wrapped"])
+	if err != nil {
+		return false
+	}
+	return wrapped
 }
 
 // execCommandDescription is exec_command's description as a host running goos

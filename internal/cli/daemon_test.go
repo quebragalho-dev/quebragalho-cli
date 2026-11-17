@@ -43,7 +43,7 @@ func TestDaemonUnknownSubcommand(t *testing.T) {
 	if code != exitUsage {
 		t.Fatalf("unknown subcommand exit = %d, want exitUsage", code)
 	}
-	if !strings.Contains(errb, "unknown daemon subcommand") {
+	if !strings.Contains(errb, "subcomando desconhecido do daemon") {
 		t.Fatalf("stderr = %q, want unknown-subcommand message", errb)
 	}
 }
@@ -76,8 +76,8 @@ func TestDaemonStopWhenNotRunning(t *testing.T) {
 	if code != exitSuccess {
 		t.Fatalf("stop (not running) exit = %d, want exitSuccess", code)
 	}
-	if !strings.Contains(out, "not running") {
-		t.Fatalf("stop output = %q, want 'not running'", out)
+	if !strings.Contains(out, "não está em execução") {
+		t.Fatalf("stop output = %q, want 'não está em execução'", out)
 	}
 }
 
@@ -87,8 +87,8 @@ func TestDaemonStatusWhenNotRunning(t *testing.T) {
 	if code != exitSuccess {
 		t.Fatalf("status (not running) exit = %d, want exitSuccess", code)
 	}
-	if !strings.Contains(out, "not running") {
-		t.Fatalf("status output = %q, want 'not running'", out)
+	if !strings.Contains(out, "não está em execução") {
+		t.Fatalf("status output = %q, want 'não está em execução'", out)
 	}
 }
 
@@ -109,8 +109,8 @@ func TestDaemonRunWhenNotRunning(t *testing.T) {
 	if code != exitCrash {
 		t.Fatalf("run (no daemon) exit = %d, want exitCrash", code)
 	}
-	if !strings.Contains(errb, "not running") {
-		t.Fatalf("stderr = %q, want 'not running'", errb)
+	if !strings.Contains(errb, "não está em execução") {
+		t.Fatalf("stderr = %q, want 'não está em execução'", errb)
 	}
 }
 

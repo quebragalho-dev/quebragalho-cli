@@ -17,8 +17,6 @@ import (
 // The escalated-shell reason stays canonical up to the approval; the card
 // renders Portuguese through the shared agent mapping.
 func TestPTBRPermissionEscalationReasonCard(t *testing.T) {
-	const wantPT = "Este comando precisa rodar fora do ambiente isolado."
-
 	for _, tc := range []struct{ reason, wantPT string }{
 		{agent.ReasonShellNeedsUnsandboxed, "Este comando precisa rodar fora do ambiente isolado."},
 		{"destructive shell command requires approval", "Comando destrutivo precisa de aprovação."},
@@ -179,17 +177,6 @@ func TestPTBREffortCanonicalStoredEnglish(t *testing.T) {
 }
 
 // The step-explanation prompt asks for Brazilian Portuguese.
-func TestPTBRPlanStepExplanationPrompt(t *testing.T) {
-	system, _ := planStepExplanationPrompt(planStep{content: "Wire the login form", status: "pending"}, nil, nil)
-	if !strings.Contains(system, "Brazilian Portuguese") {
-		t.Fatalf("system prompt missing Brazilian Portuguese:\n%s", system)
-	}
-	if strings.Contains(system, "plain-English") {
-		t.Fatalf("system prompt kept plain-English:\n%s", system)
-	}
-}
-
-// One table for the whole canonical -> Portuguese permission map.
 func TestPTBRDisplayPermissionReasonTable(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"destructive shell command requires approval", "Comando destrutivo precisa de aprovação."},

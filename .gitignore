@@ -12,8 +12,6 @@ coverage
 
 # logs
 logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # dotenv environment variable files
 .env
@@ -44,21 +42,14 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 /qg.exe
 /qg-windows-command-runner.exe
 /qg-windows-sandbox-setup.exe
-/qg-skills
 /.qg-binary-version
-/snake-game.html
 
 # Superpowers skill artifacts (brainstorm mockups, specs, plans) — local only
-.superpowers/
 docs/superpowers/
 
 # Termux/Android build artifacts
-qg-termux-arm64
-qg-linux-sandbox
-qg-seccomp
-
-# Generated benchmark reports are evidence for one configuration, never tree state
-internal/perfbench/reports/*.json
+/qg-linux-sandbox
+/qg-seccomp
 
 # Local disposable caches (lint/build scratch)
 .tmp-*/

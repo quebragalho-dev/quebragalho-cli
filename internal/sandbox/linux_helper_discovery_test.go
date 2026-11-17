@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -36,6 +37,11 @@ func TestSelectLinuxBackendResolvesHelper(t *testing.T) {
 		wantAvailable  bool
 		wantName       BackendName
 		wantMessage    string
+		// skipWindows names why the case cannot run on Windows: the
+		// adjacent-executable fixture relies on Unix exec bits
+		// (executableRegularFile checks Perm&0111, always zero there), so
+		// the beside-the-binary branch is unreachable on Windows.
+		skipWindows string
 	}{
 		{
 			name:           "adjacent executable wins over PATH",
@@ -44,6 +50,7 @@ func TestSelectLinuxBackendResolvesHelper(t *testing.T) {
 			wantExecutable: "adjacent",
 			wantAvailable:  true,
 			wantName:       BackendLinuxBwrap,
+			skipWindows:    "adjacent-executable fixture needs Unix exec bits",
 		},
 		{
 			name:           "helper beside binary without PATH entry is available",
@@ -52,6 +59,7 @@ func TestSelectLinuxBackendResolvesHelper(t *testing.T) {
 			wantExecutable: "adjacent",
 			wantAvailable:  true,
 			wantName:       BackendLinuxBwrap,
+			skipWindows:    "adjacent-executable fixture needs Unix exec bits",
 		},
 		{
 			name:           "helper on PATH without adjacent entry is available",
@@ -84,11 +92,15 @@ func TestSelectLinuxBackendResolvesHelper(t *testing.T) {
 			wantAvailable: false,
 			wantName:      BackendUnavailable,
 			wantMessage:   "bubblewrap is not installed",
+			skipWindows:   "reaching the bwrap-missing branch needs an adjacent-executable helper, which needs Unix exec bits",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.skipWindows != "" && runtime.GOOS == "windows" {
+				t.Skip(tc.skipWindows)
+			}
 			dir := t.TempDir()
 			switch tc.adjacent {
 			case "exec":

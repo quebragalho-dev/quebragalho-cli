@@ -195,6 +195,13 @@ func (s *WebhookSink) log(format string, args ...any) {
 	s.logf("%s", redaction.RedactString(line, options))
 }
 
+// logSinkPanic records a panic that escaped Emit through the same redacted
+// Logf channel as delivery failures, so a misbehaving sink shows up in the
+// same audit trail instead of vanishing silently.
+func (s *WebhookSink) logSinkPanic(recovered any, event Event) {
+	s.log("notify: webhook sink panicked (%s): %v", eventType(event), recovered)
+}
+
 // eventType maps an Event to its stable machine-readable string.
 func eventType(event Event) string {
 	switch event {

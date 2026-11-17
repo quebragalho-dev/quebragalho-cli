@@ -207,7 +207,7 @@ func (m model) setDoctorStatusRow(text string) model {
 func (m model) searchText(query string) string {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return "Search\nusage: /search <query>"
+		return "Busca\nuso: /search <termo>"
 	}
 	result, err := zsearch.Sessions(query, zsearch.Options{
 		Store:        m.sessionStore,
@@ -216,7 +216,7 @@ func (m model) searchText(query string) string {
 		Now:          m.now,
 	})
 	if err != nil {
-		return "Search\nerror: " + err.Error()
+		return "Busca\nerro: " + err.Error()
 	}
 	return zsearch.FormatResult(zsearch.RedactResult(result))
 }
@@ -736,7 +736,7 @@ func (m model) requestCompactionBeforeModelSwitch(request modelSwitchCompactionR
 
 func apiKeyState(set bool) string {
 	if set {
-		return "set"
+		return "definida"
 	}
-	return "not set"
+	return "não definida"
 }

@@ -43,7 +43,7 @@ func runDaemon(args []string, stdout io.Writer, stderr io.Writer, _ appDeps) int
 	case "-h", "--help", "help":
 		return writeDaemonUsage(stdout, exitSuccess)
 	default:
-		fmt.Fprintf(stderr, "unknown daemon subcommand %q\n", sub)
+		fmt.Fprintf(stderr, "subcomando desconhecido do daemon %q\n", sub)
 		return writeDaemonUsage(stderr, exitUsage)
 	}
 }
@@ -93,7 +93,7 @@ func runDaemonStart(args []string, stdout io.Writer, stderr io.Writer) int {
 		case "-h", "--help":
 			return writeDaemonUsage(stdout, exitSuccess)
 		default:
-			return writeExecUsageError(stderr, fmt.Sprintf("unknown flag %q for daemon start", a))
+			return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida %q para daemon start", a))
 		}
 	}
 	paths, err := daemon.DefaultPaths()
@@ -145,7 +145,7 @@ func runDaemonForeground(paths daemon.Paths, stdout io.Writer, stderr io.Writer)
 // process (its own process group, output to a log file) and waits for it to bind.
 func runDaemonStartDetached(paths daemon.Paths, stdout io.Writer, stderr io.Writer) int {
 	if daemonReachable(paths) {
-		fmt.Fprintln(stdout, "qg daemon is already running")
+		fmt.Fprintln(stdout, "o qg daemon já está em execução")
 		return exitSuccess
 	}
 	exe, err := os.Executable()
@@ -164,15 +164,15 @@ func runDaemonStartDetached(paths daemon.Paths, stdout io.Writer, stderr io.Writ
 	background.ConfigureChildProcessGroup(cmd) // own process group: outlives this shell
 	if err := startAndAwaitDaemonProcess(cmd, func() bool { return daemonReachable(paths) }, 5*time.Second, 25*time.Millisecond); err != nil {
 		if errors.Is(err, errDaemonStartTimeout) {
-			return writeAppError(stderr, err.Error()+"; see "+logPath, exitCrash)
+			return writeAppError(stderr, err.Error()+"; veja "+logPath, exitCrash)
 		}
 		return writeAppError(stderr, err.Error(), exitCrash)
 	}
-	fmt.Fprintf(stdout, "qg daemon started (socket %s)\n", paths.Socket)
+	fmt.Fprintf(stdout, "qg daemon iniciado (socket %s)\n", paths.Socket)
 	return exitSuccess
 }
 
-var errDaemonStartTimeout = errors.New("daemon did not come up within timeout")
+var errDaemonStartTimeout = errors.New("o daemon não subiu dentro do tempo limite")
 
 func startAndAwaitDaemonProcess(cmd *exec.Cmd, reachable func() bool, timeout time.Duration, pollInterval time.Duration) error {
 	if err := cmd.Start(); err != nil {
@@ -182,14 +182,14 @@ func startAndAwaitDaemonProcess(cmd *exec.Cmd, reachable func() bool, timeout ti
 		if err := cmd.Process.Release(); err != nil {
 			cleanupErr := terminateAndReapDaemonProcess(cmd)
 			if cleanupErr != nil {
-				return fmt.Errorf("release daemon process: %w (cleanup failed: %v)", err, cleanupErr)
+				return fmt.Errorf("liberar o processo do daemon: %w (falha na limpeza: %v)", err, cleanupErr)
 			}
-			return fmt.Errorf("release daemon process: %w", err)
+			return fmt.Errorf("liberar o processo do daemon: %w", err)
 		}
 		return nil
 	}
 	if err := terminateAndReapDaemonProcess(cmd); err != nil {
-		return fmt.Errorf("%w; cleanup failed: %v", errDaemonStartTimeout, err)
+		return fmt.Errorf("%w; falha na limpeza: %v", errDaemonStartTimeout, err)
 	}
 	return errDaemonStartTimeout
 }
@@ -224,7 +224,7 @@ func runDaemonStop(args []string, stdout io.Writer, stderr io.Writer) int {
 		return writeDaemonUsage(stdout, exitSuccess)
 	}
 	if len(args) > 0 {
-		return writeExecUsageError(stderr, "daemon stop takes no arguments")
+		return writeExecUsageError(stderr, "daemon stop não aceita argumentos")
 	}
 	paths, err := daemon.DefaultPaths()
 	if err != nil {
@@ -232,14 +232,14 @@ func runDaemonStop(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	client, err := daemon.Dial(paths.Socket)
 	if err != nil {
-		fmt.Fprintln(stdout, "qg daemon is not running")
+		fmt.Fprintln(stdout, "o qg daemon não está em execução")
 		return exitSuccess
 	}
 	defer client.Close()
 	if err := client.Shutdown(); err != nil {
 		return writeAppError(stderr, err.Error(), exitCrash)
 	}
-	fmt.Fprintln(stdout, "qg daemon stopped")
+	fmt.Fprintln(stdout, "qg daemon parado")
 	return exitSuccess
 }
 
@@ -248,7 +248,7 @@ func runDaemonStatus(args []string, stdout io.Writer, stderr io.Writer) int {
 		return writeDaemonUsage(stdout, exitSuccess)
 	}
 	if len(args) > 0 {
-		return writeExecUsageError(stderr, "daemon status takes no arguments")
+		return writeExecUsageError(stderr, "daemon status não aceita argumentos")
 	}
 	paths, err := daemon.DefaultPaths()
 	if err != nil {
@@ -256,7 +256,7 @@ func runDaemonStatus(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	client, err := daemon.Dial(paths.Socket)
 	if err != nil {
-		fmt.Fprintln(stdout, "qg daemon is not running")
+		fmt.Fprintln(stdout, "o qg daemon não está em execução")
 		return exitSuccess
 	}
 	defer client.Close()
@@ -264,10 +264,10 @@ func runDaemonStatus(args []string, stdout io.Writer, stderr io.Writer) int {
 	if err != nil {
 		return writeAppError(stderr, err.Error(), exitCrash)
 	}
-	fmt.Fprintf(stdout, "daemon pid=%d version=%d socket=%s\n", report.PID, report.Version, report.Socket)
-	fmt.Fprintf(stdout, "pool size=%d busy=%d queue=%d\n", report.PoolSize, len(report.Workers), report.QueueDepth)
+	fmt.Fprintf(stdout, "daemon pid=%d versão=%d socket=%s\n", report.PID, report.Version, report.Socket)
+	fmt.Fprintf(stdout, "pool tamanho=%d ocupados=%d fila=%d\n", report.PoolSize, len(report.Workers), report.QueueDepth)
 	for _, s := range report.Sessions {
-		fmt.Fprintf(stdout, "  session %s state=%s lines=%d\n", s.ID, s.State, s.Lines)
+		fmt.Fprintf(stdout, "  sessão %s estado=%s linhas=%d\n", s.ID, s.State, s.Lines)
 	}
 	return exitSuccess
 }
@@ -291,7 +291,7 @@ func runDaemonRun(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--remote":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--remote requires a value")
+				return writeExecUsageError(stderr, "--remote exige um valor")
 			}
 			remoteFlags.Addr = v
 		case strings.HasPrefix(a, "--remote="):
@@ -299,7 +299,7 @@ func runDaemonRun(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--token":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--token requires a value")
+				return writeExecUsageError(stderr, "--token exige um valor")
 			}
 			remoteFlags.Token = v
 		case strings.HasPrefix(a, "--token="):
@@ -307,7 +307,7 @@ func runDaemonRun(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--ca-cert":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--ca-cert requires a value")
+				return writeExecUsageError(stderr, "--ca-cert exige um valor")
 			}
 			remoteFlags.CACert = v
 		case strings.HasPrefix(a, "--ca-cert="):
@@ -315,7 +315,7 @@ func runDaemonRun(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--server-name":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--server-name requires a value")
+				return writeExecUsageError(stderr, "--server-name exige um valor")
 			}
 			remoteFlags.ServerName = v
 		case strings.HasPrefix(a, "--server-name="):
@@ -323,7 +323,7 @@ func runDaemonRun(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--session":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--session requires a value")
+				return writeExecUsageError(stderr, "--session exige um valor")
 			}
 			session = v
 		case strings.HasPrefix(a, "--session="):
@@ -331,7 +331,7 @@ func runDaemonRun(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--cwd":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--cwd requires a value")
+				return writeExecUsageError(stderr, "--cwd exige um valor")
 			}
 			cwd = v
 		case strings.HasPrefix(a, "--cwd="):
@@ -339,7 +339,7 @@ func runDaemonRun(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--prompt" || a == "-p":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--prompt requires a value")
+				return writeExecUsageError(stderr, "--prompt exige um valor")
 			}
 			prompt = v
 		case strings.HasPrefix(a, "--prompt="):
@@ -351,10 +351,10 @@ func runDaemonRun(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 	}
 	if strings.TrimSpace(session) == "" {
-		return writeExecUsageError(stderr, "daemon run requires --session <id>")
+		return writeExecUsageError(stderr, "daemon run exige --session <id>")
 	}
 	if prompt == "" && len(forward) == 0 {
-		return writeExecUsageError(stderr, "daemon run requires --prompt <text> or exec args")
+		return writeExecUsageError(stderr, "daemon run exige --prompt <texto> ou argumentos do exec")
 	}
 	client, err := dialForCLI(remoteFlags)
 	if err != nil {
@@ -386,7 +386,7 @@ func runDaemonAttach(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--remote":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--remote requires a value")
+				return writeExecUsageError(stderr, "--remote exige um valor")
 			}
 			remoteFlags.Addr = v
 		case strings.HasPrefix(a, "--remote="):
@@ -394,7 +394,7 @@ func runDaemonAttach(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--token":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--token requires a value")
+				return writeExecUsageError(stderr, "--token exige um valor")
 			}
 			remoteFlags.Token = v
 		case strings.HasPrefix(a, "--token="):
@@ -402,7 +402,7 @@ func runDaemonAttach(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--ca-cert":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--ca-cert requires a value")
+				return writeExecUsageError(stderr, "--ca-cert exige um valor")
 			}
 			remoteFlags.CACert = v
 		case strings.HasPrefix(a, "--ca-cert="):
@@ -410,7 +410,7 @@ func runDaemonAttach(args []string, stdout io.Writer, stderr io.Writer) int {
 		case a == "--server-name":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--server-name requires a value")
+				return writeExecUsageError(stderr, "--server-name exige um valor")
 			}
 			remoteFlags.ServerName = v
 		case strings.HasPrefix(a, "--server-name="):
@@ -422,10 +422,10 @@ func runDaemonAttach(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 	}
 	if strings.TrimSpace(session) == "" {
-		return writeExecUsageError(stderr, "daemon attach requires a <session> id")
+		return writeExecUsageError(stderr, "daemon attach exige um id <session>")
 	}
 	if extra > 0 {
-		return writeExecUsageError(stderr, "daemon attach accepts exactly one <session> id")
+		return writeExecUsageError(stderr, "daemon attach aceita exatamente um id <session>")
 	}
 	client, err := dialForCLI(remoteFlags)
 	if err != nil {
@@ -441,9 +441,9 @@ func runDaemonAttach(args []string, stdout io.Writer, stderr io.Writer) int {
 // daemonDialError tailors the connect-failure message for local vs remote.
 func daemonDialError(flags remoteDialFlags, err error) string {
 	if strings.TrimSpace(flags.Addr) != "" {
-		return "failed to reach remote daemon at " + flags.Addr + ": " + err.Error()
+		return "falha ao alcançar o daemon remoto em " + flags.Addr + ": " + err.Error()
 	}
-	return "qg daemon is not running (start it with `qg daemon start`)"
+	return "o qg daemon não está em execução (inicie com `qg daemon start`)"
 }
 
 // runDaemonServeRemote starts the local daemon plus an opt-in, TLS-only network
@@ -467,7 +467,7 @@ func runDaemonServeRemote(args []string, stdout io.Writer, stderr io.Writer) int
 		case a == "--addr":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--addr requires a value")
+				return writeExecUsageError(stderr, "--addr exige um valor")
 			}
 			addr = v
 		case strings.HasPrefix(a, "--addr="):
@@ -475,7 +475,7 @@ func runDaemonServeRemote(args []string, stdout io.Writer, stderr io.Writer) int
 		case a == "--tls-cert":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--tls-cert requires a value")
+				return writeExecUsageError(stderr, "--tls-cert exige um valor")
 			}
 			certFile = v
 		case strings.HasPrefix(a, "--tls-cert="):
@@ -483,7 +483,7 @@ func runDaemonServeRemote(args []string, stdout io.Writer, stderr io.Writer) int
 		case a == "--tls-key":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--tls-key requires a value")
+				return writeExecUsageError(stderr, "--tls-key exige um valor")
 			}
 			keyFile = v
 		case strings.HasPrefix(a, "--tls-key="):
@@ -491,29 +491,29 @@ func runDaemonServeRemote(args []string, stdout io.Writer, stderr io.Writer) int
 		case a == "--min-version":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--min-version requires a value")
+				return writeExecUsageError(stderr, "--min-version exige um valor")
 			}
 			minVersion = atoiOrZero(v)
 		case a == "--max-conns":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--max-conns requires a value")
+				return writeExecUsageError(stderr, "--max-conns exige um valor")
 			}
 			maxConns = atoiOrZero(v)
 		case a == "--bundle-dir":
 			v, ok := value()
 			if !ok {
-				return writeExecUsageError(stderr, "--bundle-dir requires a value")
+				return writeExecUsageError(stderr, "--bundle-dir exige um valor")
 			}
 			bundleDir = v
 		case strings.HasPrefix(a, "--bundle-dir="):
 			bundleDir = strings.TrimPrefix(a, "--bundle-dir=")
 		default:
-			return writeExecUsageError(stderr, fmt.Sprintf("unknown flag %q for daemon serve-remote", a))
+			return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida %q para daemon serve-remote", a))
 		}
 	}
 	if strings.TrimSpace(addr) == "" {
-		return writeExecUsageError(stderr, "daemon serve-remote requires --addr <host:port>")
+		return writeExecUsageError(stderr, "daemon serve-remote exige --addr <host:port>")
 	}
 	// Fail closed: TLS cert/key + a bearer token are mandatory.
 	tlsConfig, err := remote.ServerTLSConfig(certFile, keyFile)
@@ -569,7 +569,7 @@ func runDaemonServeRemote(args []string, stdout io.Writer, stderr io.Writer) int
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
-	fmt.Fprintf(stdout, "qg daemon remote bridge listening on %s (TLS)\n", addr)
+	fmt.Fprintf(stdout, "ponte remota do qg daemon escutando em %s (TLS)\n", addr)
 	select {
 	case <-sigCh:
 		srv.Shutdown()
@@ -604,14 +604,14 @@ func runDaemonLink(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 		dst, ok := flags[name]
 		if !ok {
-			return writeExecUsageError(stderr, fmt.Sprintf("unknown flag %q for daemon link", a))
+			return writeExecUsageError(stderr, fmt.Sprintf("flag desconhecida %q para daemon link", a))
 		}
 		if hasInline {
 			*dst = inlineVal
 			continue
 		}
 		if i+1 >= len(args) {
-			return writeExecUsageError(stderr, fmt.Sprintf("%s requires a value", name))
+			return writeExecUsageError(stderr, fmt.Sprintf("%s exige um valor", name))
 		}
 		i++
 		*dst = args[i]
@@ -622,12 +622,12 @@ func runDaemonLink(args []string, stdout io.Writer, stderr io.Writer) int {
 		if err != nil {
 			return writeAppError(stderr, err.Error(), exitCrash)
 		}
-		fmt.Fprintf(stdout, "link %s -> %s on %s\n", link.LinkID, link.RemotePath, link.Address)
+		fmt.Fprintf(stdout, "link %s -> %s em %s\n", link.LinkID, link.RemotePath, link.Address)
 		return exitSuccess
 	}
 
 	if strings.TrimSpace(addr) == "" || strings.TrimSpace(repo) == "" || strings.TrimSpace(id) == "" {
-		return writeExecUsageError(stderr, "daemon link requires --remote, --repo, and --id (or --show <file>)")
+		return writeExecUsageError(stderr, "daemon link exige --remote, --repo e --id (ou --show <file>)")
 	}
 	if strings.TrimSpace(token) == "" {
 		token, _ = remote.TokenFromEnv() // best effort; UploadRepoBundle rejects an empty token
@@ -641,13 +641,13 @@ func runDaemonLink(args []string, stdout io.Writer, stderr io.Writer) int {
 	if err != nil {
 		return writeAppError(stderr, err.Error(), exitCrash)
 	}
-	fmt.Fprintf(stdout, "uploaded %s; remote repo at %s\n", link.LinkID, link.RemotePath)
-	fmt.Fprintf(stdout, "run it with: qg daemon run --remote %s --cwd %s ...\n", link.Address, link.RemotePath)
+	fmt.Fprintf(stdout, "%s enviado; repo remoto em %s\n", link.LinkID, link.RemotePath)
+	fmt.Fprintf(stdout, "rode com: qg daemon run --remote %s --cwd %s ...\n", link.Address, link.RemotePath)
 	if strings.TrimSpace(out) != "" {
 		if err := link.Save(out); err != nil {
 			return writeAppError(stderr, err.Error(), exitCrash)
 		}
-		fmt.Fprintf(stdout, "saved session link to %s\n", out)
+		fmt.Fprintf(stdout, "link de sessão salvo em %s\n", out)
 	}
 	return exitSuccess
 }

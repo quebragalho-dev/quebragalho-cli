@@ -106,10 +106,6 @@ const (
 	initializeTimeout = 30 * time.Second
 )
 
-func Connect(ctx context.Context, server Server) (ToolClient, error) {
-	return ConnectWithOptions(ctx, server, ConnectOptions{})
-}
-
 type ConnectOptions struct {
 	Execution     *execution.Runner
 	WorkspaceRoot string
@@ -399,10 +395,6 @@ func (client *Client) request(ctx context.Context, method string, params any, ta
 		}
 		return nil
 	}
-}
-
-func (client *Client) ensureWriter() {
-	_ = client.startWriter()
 }
 
 func (client *Client) startWriter() error {

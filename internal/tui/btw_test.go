@@ -15,6 +15,9 @@ import (
 func newBTWTestModel(t *testing.T) model {
 	t.Helper()
 	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+	// A test that resumes the session takes its presence lease; drop it
+	// before TempDir removal (see releaseSessionLocksUnder).
+	releaseSessionLocksUnder(t, store.RootDir)
 	parent, err := store.Create(sessions.CreateInput{
 		SessionID: "main-session",
 		Title:     "Main task",
@@ -234,10 +237,13 @@ func TestBTWBlocksPersistentConfigurationCommands(t *testing.T) {
 		"/model other",
 		"/provider add",
 		"/turns 100",
+		"/autocompact",
+		"/autocompact 400k",
 		"/profile fast",
 		"/theme dark",
 		"/config recaps off",
 		"/stt-model",
+		"/voice",
 		"/mcp",
 		"/rewind",
 		"/compact",
@@ -262,6 +268,7 @@ func TestBTWAllowsReadOnlyConfigurationCommands(t *testing.T) {
 		"/model list",
 		"/provider status",
 		"/turns",
+		"/autocompact status",
 		"/profile status",
 		"/theme list",
 		"/config",

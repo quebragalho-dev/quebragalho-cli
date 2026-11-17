@@ -141,28 +141,6 @@ func TestSidebarFilesLivePulseRow(t *testing.T) {
 // sidebarFileSelectables must land exactly on the rendered FILES rows in
 // renderContextSidebar's output — the same invariant the mouse hit-test relies
 // on. Asserted against the real render, not a re-derivation of the math.
-func TestSidebarFileSelectablesMatchRenderedRows(t *testing.T) {
-	m := filesPanelTestModel()
-	width := sidebarWidth(m.width)
-	rendered := m.renderContextSidebar(width, m.height)
-	hits := m.sidebarFileSelectables(width)
-	if len(hits) == 0 {
-		t.Fatal("expected clickable FILES rows")
-	}
-	for _, hit := range hits {
-		if hit.lineOffset >= len(rendered) {
-			t.Fatalf("hit offset %d beyond rendered sidebar (%d lines)", hit.lineOffset, len(rendered))
-		}
-		line := plainRender(t, rendered[hit.lineOffset])
-		base := hit.path[strings.LastIndex(hit.path, "/")+1:]
-		if !strings.Contains(line, base) {
-			t.Errorf("hit for %q points at line %d which reads %q", hit.path, hit.lineOffset, line)
-		}
-	}
-}
-
-// TestRunDetailsListsTouchedFiles keeps edited files discoverable without a
-// permanent column beside the conversation.
 func TestRunDetailsListsTouchedFiles(t *testing.T) {
 	m := filesPanelTestModel()
 	m.runDetailsOpen = true

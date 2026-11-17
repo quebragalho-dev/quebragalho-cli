@@ -498,10 +498,6 @@ func (plan CommandPlan) WriteNetworkDenialReport(blocks []string) error {
 	return nil
 }
 
-func sandboxEnvironmentForCommand(specEnv []string, policy Policy, backend BackendName, workspaceRoot string) []string {
-	return sandboxEnvironmentForCommandWithSensitiveEnv(specEnv, policy, backend, workspaceRoot, nil)
-}
-
 func sandboxEnvironmentForCommandWithSensitiveEnv(specEnv []string, policy Policy, backend BackendName, workspaceRoot string, sensitiveEnvKeys []string) []string {
 	env := cloneStrings(specEnv)
 	if specEnv == nil {
@@ -1195,6 +1191,14 @@ func scrubSensitiveEnv(env []string, additionalKeys ...string) []string {
 		"GOOGLE_APPLICATION_CREDENTIALS",
 		"QG_WEBSEARCH_API_KEY",
 		"QG_DAEMON_REMOTE_TOKEN",
+		// The notify webhook URL typically embeds a token (see
+		// internal/notify/webhook_wire.go: a webhook URL is a bearer
+		// secret). Sandbox children are arbitrary commands, so they must
+		// not inherit it. QG_NOTIFY_WEBHOOK_SUMMARY stays: it is a
+		// free-text run label ("nightly audit run"), not a credential.
+		// qg's own delivery reads the URL in the parent process (see
+		// internal/notify.MaybeAddWebhookSink) and is unaffected.
+		"QG_NOTIFY_WEBHOOK_URL",
 		// The file form of the same bridge token. TokenFromEnv accepts either,
 		// so scrubbing only the inline variable left the pointer readable, and
 		// the default sandbox posture is read-all. There is no fallback

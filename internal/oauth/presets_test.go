@@ -66,7 +66,7 @@ func TestEnvWithPresetsAllowedEnablesPreset(t *testing.T) {
 }
 
 // The helper copies the base map (never mutating it) and keeps QG_OAUTH_<NAME>_*
-// overrides — critical because envValue treats a non-nil map as hermetic, so a
+// overrides — critical because envstr.Value treats a non-nil map as hermetic, so a
 // partial map would silently drop them.
 func TestEnvWithPresetsAllowedPreservesOverrides(t *testing.T) {
 	base := map[string]string{"QG_OAUTH_XAI_CLIENT_ID": "custom-id"}

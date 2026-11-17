@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/specmode"
@@ -231,7 +232,7 @@ func runSpecApprove(store *sessions.Store, draft sessions.Metadata, options spec
 		Cwd:                 draft.Cwd,
 		ModelID:             draft.ModelID,
 		Provider:            draft.Provider,
-		RootSessionID:       firstNonEmptyString(draft.RootSessionID, draft.SessionID),
+		RootSessionID:       envstr.FirstNonEmpty(draft.RootSessionID, draft.SessionID),
 		SpecID:              draft.SpecID,
 		SpecFilePath:        path,
 		SpecDraftModelID:    draft.SpecDraftModelID,
@@ -334,15 +335,6 @@ func specImplementationTitle(draft sessions.Metadata) string {
 		return "Spec implementation"
 	}
 	return title + " implementation"
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }
 
 func writeSpecHelp(w io.Writer) error {

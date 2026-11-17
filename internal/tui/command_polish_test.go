@@ -77,7 +77,7 @@ func TestProviderAndConfigCommandsUseStableStatusOutput(t *testing.T) {
 		t.Fatal("expected /config to be handled without starting an agent run")
 	}
 	configText := transcriptText(next.transcript)
-	for _, want := range []string{"Config", "status: ok", "runtime: go", "max turns: 42", "permission mode:", "recaps: on"} {
+	for _, want := range []string{"Configuração", "status: ok", "runtime: go", "turnos máximos: 42", "modo de permissão:", "recaps: ativado"} {
 		assertContains(t, configText, want)
 	}
 	assertNotContains(t, configText, "sk-sensitive")
@@ -124,10 +124,10 @@ func TestToolsCommandRendersCommandCard(t *testing.T) {
 	}
 	emptyText := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Tools",
-		"0 registered | no tools available",
-		"Registry",
-		"registered  0",
+		"Ferramentas",
+		"0 registradas | nenhuma ferramenta disponível",
+		"Registro",
+		"registradas  0",
 		"ações: /mcp manage servers | /permissions manage access",
 	} {
 		assertContains(t, emptyText, want)
@@ -150,11 +150,11 @@ func TestToolsCommandRendersCommandCard(t *testing.T) {
 	}
 	toolsText := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Tools",
-		"1 registered | registered catalog",
-		"Registry",
-		"registered  1",
-		"Available",
+		"Ferramentas",
+		"1 registrada | catálogo registrado",
+		"Registro",
+		"registradas  1",
+		"Disponíveis",
 		"- read_file",
 		"ações: /mcp manage servers | /permissions manage access",
 	} {
@@ -168,9 +168,9 @@ func TestToolsCommandCardHandlesNilRegistry(t *testing.T) {
 	text := model{}.toolsText()
 
 	for _, want := range []string{
-		"Tools",
-		"0 registered | no tools available",
-		"registered  0",
+		"Ferramentas",
+		"0 registradas | nenhuma ferramenta disponível",
+		"registradas  0",
 	} {
 		assertContains(t, text, want)
 	}
@@ -205,7 +205,7 @@ func TestToolsCommandShowsFullSortedCatalog(t *testing.T) {
 	}
 	text := transcriptText(next.transcript)
 	for _, want := range []string{
-		"9 registered | registered catalog",
+		"9 registradas | catálogo registrado",
 		"- apply_patch",
 		"- bash",
 		"- edit_file",
@@ -276,17 +276,17 @@ func TestContextAndPermissionsCommandsRenderProductState(t *testing.T) {
 	}
 	contextText := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Context",
-		"go runtime | ask permissions | 1 tool",
-		"Runtime",
-		"cwd        D:\\codings\\Opensource\\QG",
-		"provider   openai",
-		"model      gpt-4.1",
-		"Session",
-		"active      none",
-		"compaction  idle",
-		"Tools",
-		"registered  1",
+		"Contexto",
+		"runtime go | ask permissões | 1 ferramenta",
+		"Execução",
+		"cwd             D:\\codings\\Opensource\\QG",
+		"provedor        openai",
+		"modelo          gpt-4.1",
+		"Sessão",
+		"ativa        nenhuma",
+		"compactação  ociosa",
+		"Ferramentas",
+		"registradas  1",
 		"ações: /permissions manage access | /tools inspect catalog",
 	} {
 		assertContains(t, contextText, want)
@@ -302,12 +302,12 @@ func TestContextAndPermissionsCommandsRenderProductState(t *testing.T) {
 	}
 	permissionText := transcriptText(next.transcript)
 	for _, want := range []string{
-		"Permissions",
-		"ask permissions",
-		"1 persistent grant",
-		"State",
-		"mode  ask",
-		"Grants",
+		"Permissões",
+		"ask permissões",
+		"1 autorização persistente",
+		"Estado",
+		"modo  ask",
+		"Autorizações",
 		"bash [allow]",
 		"[REDACTED]",
 	} {
@@ -332,11 +332,11 @@ func (store *stubGrantStore) List() ([]sandbox.Grant, error) {
 func TestPermissionsCommandCardHandlesNilStoreAndEmptyGrants(t *testing.T) {
 	nilStore := model{permissionMode: agent.PermissionModeAuto}.permissionsText()
 	for _, want := range []string{
-		"Permissions",
-		"auto permissions",
-		"grants unavailable",
-		"mode  auto",
-		"persistent grants: unavailable",
+		"Permissões",
+		"auto permissões",
+		"autorizações indisponíveis",
+		"modo  auto",
+		"autorizações persistentes: indisponíveis",
 	} {
 		assertContains(t, nilStore, want)
 	}
@@ -348,11 +348,11 @@ func TestPermissionsCommandCardHandlesNilStoreAndEmptyGrants(t *testing.T) {
 	}
 	emptyText := model{permissionMode: agent.PermissionModeAsk, sandboxStore: store}.permissionsText()
 	for _, want := range []string{
-		"Permissions",
-		"ask permissions",
-		"no persistent grants",
-		"mode  ask",
-		"none",
+		"Permissões",
+		"ask permissões",
+		"nenhuma autorização persistente",
+		"modo  ask",
+		"nenhuma",
 	} {
 		assertContains(t, emptyText, want)
 	}
@@ -361,11 +361,11 @@ func TestPermissionsCommandCardHandlesNilStoreAndEmptyGrants(t *testing.T) {
 	errStore := &stubGrantStore{listErr: errors.New("storage failure")}
 	errText := model{permissionMode: agent.PermissionModeAsk}.permissionsTextWithStore(errStore)
 	for _, want := range []string{
-		"Permissions",
-		"ask permissions",
-		"grants error",
-		"mode  ask",
-		"error: storage failure",
+		"Permissões",
+		"ask permissões",
+		"erro de autorizações",
+		"modo  ask",
+		"erro: storage failure",
 	} {
 		assertContains(t, errText, want)
 	}
@@ -376,10 +376,10 @@ func TestContextCommandCardHandlesNilRegistryAndStableStyle(t *testing.T) {
 	text := model{}.contextText()
 
 	for _, want := range []string{
-		"Context",
-		"0 tools",
-		"style      concise",
-		"root        unknown",
+		"Contexto",
+		"0 ferramentas",
+		"estilo          concise",
+		"raiz         desconhecida",
 	} {
 		assertContains(t, text, want)
 	}

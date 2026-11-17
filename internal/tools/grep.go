@@ -33,10 +33,6 @@ type grepMatch struct {
 
 var errGrepLimitReached = errors.New("grep head limit reached")
 
-func NewGrepTool(workspaceRoot string) Tool {
-	return NewScopedGrepTool(workspaceRoot, nil)
-}
-
 func NewScopedGrepTool(workspaceRoot string, scope PathScope) Tool {
 	return grepTool{
 		baseTool: baseTool{

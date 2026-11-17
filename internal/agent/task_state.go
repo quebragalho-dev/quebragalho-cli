@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
@@ -279,7 +280,7 @@ func (state *taskState) observePermission(event PermissionEvent) {
 	}
 	state.snapshotValue.Approvals = appendBoundedUnique(state.snapshotValue.Approvals, taskApprovalState{
 		Tool: event.ToolName, Decision: decision, Scope: capTaskEvidence(event.Scope),
-		Reason: capTaskEvidence(firstNonEmptyString(event.DecisionReason, event.Reason)),
+		Reason: capTaskEvidence(envstr.FirstNonEmpty(event.DecisionReason, event.Reason)),
 	}, maxTaskEvidenceEntries)
 }
 

@@ -128,7 +128,7 @@ func NewExecLauncher(cfg ExecLauncherConfig) (Launcher, error) {
 	if exe == "" {
 		resolved, err := os.Executable()
 		if err != nil {
-			return nil, fmt.Errorf("daemon: locate qg executable: %w", err)
+			return nil, fmt.Errorf("daemon: localizar o executável do qg: %w", err)
 		}
 		exe = resolved
 	}
@@ -165,10 +165,10 @@ func NewExecLauncher(cfg ExecLauncherConfig) (Launcher, error) {
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			return nil, fmt.Errorf("daemon: worker stdout pipe: %w", err)
+			return nil, fmt.Errorf("daemon: pipe de stdout do worker: %w", err)
 		}
 		if err := cmd.Start(); err != nil {
-			return nil, fmt.Errorf("daemon: start worker: %w", err)
+			return nil, fmt.Errorf("daemon: iniciar worker: %w", err)
 		}
 
 		return &execWorker{

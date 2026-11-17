@@ -6,14 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// fakeProvider is an httptest server that plays a token + device endpoint.
+// fakeProvider is an httptest server that plays a token endpoint.
 type fakeProvider struct {
 	server    *httptest.Server
 	tokenHits atomic.Int32
@@ -27,25 +26,20 @@ func newFakeProvider(t *testing.T, tokenJSON string) *fakeProvider {
 		fp.tokenHits.Add(1)
 		_, _ = io.WriteString(w, tokenJSON)
 	})
-	mux.HandleFunc("/device", func(w http.ResponseWriter, _ *http.Request) {
-		// Approve immediately on poll; short interval so the test is fast.
-		_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"U-1","verification_uri":"https://example/dev","expires_in":600,"interval":1}`)
-	})
 	fp.server = httptest.NewServer(mux)
 	t.Cleanup(fp.server.Close)
 	return fp
 }
 
-func managerFor(t *testing.T, env map[string]string, openBrowser func(string) error) *Manager {
+func managerFor(t *testing.T, env map[string]string) *Manager {
 	t.Helper()
 	store, err := NewStore(StoreOptions{FilePath: filepath.Join(t.TempDir(), "tok.json")})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
 	m, err := NewManager(ManagerOptions{
-		Store:       store,
-		Env:         env,
-		OpenBrowser: openBrowser,
+		Store: store,
+		Env:   env,
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
@@ -77,95 +71,6 @@ func TestNewManagerAllowPresetsForcesOptIn(t *testing.T) {
 	}
 }
 
-func TestManagerLoginLoopback(t *testing.T) {
-	fp := newFakeProvider(t, `{"access_token":"at","refresh_token":"rt","token_type":"Bearer","expires_in":3600}`)
-	env := map[string]string{
-		"QG_OAUTH_DEMO_CLIENT_ID":     "client",
-		"QG_OAUTH_DEMO_AUTHORIZE_URL": "https://auth.example.com/authorize",
-		"QG_OAUTH_DEMO_TOKEN_URL":     fp.server.URL + "/token",
-	}
-	// The fake browser drives the loopback redirect with the captured state.
-	openBrowser := func(authURL string) error {
-		u, err := url.Parse(authURL)
-		if err != nil {
-			return err
-		}
-		redirect := u.Query().Get("redirect_uri")
-		state := u.Query().Get("state")
-		_, err = http.Get(redirect + "?code=the-code&state=" + url.QueryEscape(state))
-		return err
-	}
-	m := managerFor(t, env, openBrowser)
-
-	status, err := m.Login(context.Background(), LoginOptions{Provider: "demo"})
-	if err != nil {
-		t.Fatalf("Login: %v", err)
-	}
-	if !status.HasToken || status.Key != ProviderKey("demo") {
-		t.Fatalf("status = %+v", status)
-	}
-	// The token is persisted and GetFresh returns it without a needless refresh.
-	access, err := m.GetFresh(context.Background(), ProviderKey("demo"))
-	if err != nil {
-		t.Fatalf("GetFresh: %v", err)
-	}
-	if access != "at" {
-		t.Fatalf("access = %q, want at", access)
-	}
-}
-
-func TestManagerLoginDevice(t *testing.T) {
-	fp := newFakeProvider(t, `{"access_token":"dev-at","token_type":"Bearer","expires_in":3600}`)
-	env := map[string]string{
-		"QG_OAUTH_DEMODEV_CLIENT_ID":  "client",
-		"QG_OAUTH_DEMODEV_TOKEN_URL":  fp.server.URL + "/token",
-		"QG_OAUTH_DEMODEV_DEVICE_URL": fp.server.URL + "/device",
-	}
-	m := managerFor(t, env, nil)
-	status, err := m.Login(context.Background(), LoginOptions{Provider: "demodev", Device: true})
-	if err != nil {
-		t.Fatalf("device Login: %v", err)
-	}
-	if !status.HasToken {
-		t.Fatalf("device status = %+v", status)
-	}
-}
-
-func TestManagerPrepareAndCompleteDeviceLogin(t *testing.T) {
-	fp := newFakeProvider(t, `{"access_token":"two-phase-at","token_type":"Bearer","expires_in":3600}`)
-	env := map[string]string{
-		"QG_OAUTH_DEMO2_CLIENT_ID":  "client",
-		"QG_OAUTH_DEMO2_TOKEN_URL":  fp.server.URL + "/token",
-		"QG_OAUTH_DEMO2_DEVICE_URL": fp.server.URL + "/device",
-	}
-	m := managerFor(t, env, nil)
-
-	// Phase 1: request the device code (what the UI displays to the user).
-	auth, cfg, err := m.PrepareDeviceLogin(context.Background(), LoginOptions{Provider: "demo2"})
-	if err != nil {
-		t.Fatalf("PrepareDeviceLogin: %v", err)
-	}
-	if auth.UserCode != "U-1" || auth.VerificationURI == "" {
-		t.Fatalf("device auth missing user code/uri: %+v", auth)
-	}
-
-	// Phase 2: poll for the token and persist it.
-	status, err := m.CompleteDeviceLogin(context.Background(), "demo2", cfg, auth)
-	if err != nil {
-		t.Fatalf("CompleteDeviceLogin: %v", err)
-	}
-	if !status.HasToken || status.Key != ProviderKey("demo2") {
-		t.Fatalf("status = %+v", status)
-	}
-	access, err := m.GetFresh(context.Background(), ProviderKey("demo2"))
-	if err != nil {
-		t.Fatalf("GetFresh: %v", err)
-	}
-	if access != "two-phase-at" {
-		t.Fatalf("access = %q, want two-phase-at", access)
-	}
-}
-
 // A provider configured with only an issuer URL (no TOKEN_URL) must still be
 // refreshable: GetFresh resolves the token endpoint via discovery before
 // refreshing. Guards resolveConfigForKey calling resolveEndpoints.
@@ -185,7 +90,7 @@ func TestManagerGetFreshDiscoversIssuerEndpoints(t *testing.T) {
 		"QG_OAUTH_ISSUERONLY_CLIENT_ID":  "client",
 		"QG_OAUTH_ISSUERONLY_ISSUER_URL": server.URL, // no TOKEN_URL → discovered
 	}
-	m := managerFor(t, env, nil)
+	m := managerFor(t, env)
 	if err := m.store.Save(ProviderKey("issueronly"), Token{AccessToken: "stale", RefreshToken: "rt", ExpiresAt: time.Now().Add(-time.Hour)}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -212,7 +117,7 @@ func TestResolveEndpointsRejectsInsecureDiscoveredEndpoint(t *testing.T) {
 		// Loopback issuer, but an attacker-controlled http authorization endpoint.
 		_, _ = io.WriteString(w, `{"issuer":"`+server.URL+`","token_endpoint":"`+server.URL+`/token","authorization_endpoint":"http://evil.example/authorize"}`)
 	})
-	m := managerFor(t, map[string]string{}, nil)
+	m := managerFor(t, map[string]string{})
 	_, err := m.resolveEndpoints(context.Background(), Config{IssuerURL: server.URL})
 	if !errors.Is(err, ErrInsecureTokenEndpoint) {
 		t.Fatalf("resolveEndpoints err = %v, want ErrInsecureTokenEndpoint", err)
@@ -225,7 +130,7 @@ func TestManagerGetFreshRefreshesExpired(t *testing.T) {
 		"QG_OAUTH_DEMO_CLIENT_ID": "client",
 		"QG_OAUTH_DEMO_TOKEN_URL": fp.server.URL + "/token",
 	}
-	m := managerFor(t, env, nil)
+	m := managerFor(t, env)
 	// Seed an expired token with a refresh token.
 	if err := m.store.Save(ProviderKey("demo"), Token{AccessToken: "stale", RefreshToken: "rt", ExpiresAt: time.Now().Add(-time.Hour)}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -253,7 +158,7 @@ func TestManagerGetFreshSkipsValidToken(t *testing.T) {
 		"QG_OAUTH_DEMO_CLIENT_ID": "client",
 		"QG_OAUTH_DEMO_TOKEN_URL": fp.server.URL + "/token",
 	}
-	m := managerFor(t, env, nil)
+	m := managerFor(t, env)
 	_ = m.store.Save(ProviderKey("demo"), Token{AccessToken: "valid", RefreshToken: "rt", ExpiresAt: time.Now().Add(time.Hour)})
 	access, err := m.GetFresh(context.Background(), ProviderKey("demo"))
 	if err != nil {
@@ -270,7 +175,7 @@ func TestManagerHandle401ForcesRefresh(t *testing.T) {
 		"QG_OAUTH_DEMO_CLIENT_ID": "client",
 		"QG_OAUTH_DEMO_TOKEN_URL": fp.server.URL + "/token",
 	}
-	m := managerFor(t, env, nil)
+	m := managerFor(t, env)
 	// Token is still valid by clock, but Handle401 forces a refresh anyway.
 	_ = m.store.Save(ProviderKey("demo"), Token{AccessToken: "valid", RefreshToken: "rt", ExpiresAt: time.Now().Add(time.Hour)})
 	access, err := m.Handle401(context.Background(), ProviderKey("demo"))
@@ -283,7 +188,7 @@ func TestManagerHandle401ForcesRefresh(t *testing.T) {
 }
 
 func TestManagerLogout(t *testing.T) {
-	m := managerFor(t, map[string]string{"QG_OAUTH_DEMO_CLIENT_ID": "c"}, nil)
+	m := managerFor(t, map[string]string{"QG_OAUTH_DEMO_CLIENT_ID": "c"})
 	_ = m.store.Save(ProviderKey("demo"), Token{AccessToken: "a"})
 	removed, err := m.Logout("demo")
 	if err != nil || !removed {

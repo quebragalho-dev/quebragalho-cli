@@ -22,6 +22,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
@@ -359,7 +360,7 @@ func newSLModel(t *testing.T, env slEnv, provider *slProvider) model {
 	}
 	notes = append(notes, resolved.StatusLineWarnings...)
 	warning := strings.Join(notes, "\n")
-	return newModel(context.Background(), Options{
+	m := newModel(context.Background(), Options{
 		Cwd:               env.workspace,
 		Version:           "9.9.9-accept",
 		UserConfigPath:    userConfigPath,
@@ -379,6 +380,11 @@ func newSLModel(t *testing.T, env slEnv, provider *slProvider) model {
 		ReasoningEffort: "high",
 		AltScreen:       true,
 	})
+	// No SessionStore above, so turns take their presence lease in the
+	// default store under the fake XDG_DATA_HOME; drop it before TempDir
+	// removal (an open locked presence.lock cannot be unlinked on Windows).
+	releaseSessionLocksUnder(t, sessions.DefaultRoot(nil))
+	return m
 }
 
 // slPump drives the model the way tea.Program does: every tea.Cmd runs on its
@@ -629,6 +635,16 @@ var slGoldenDefault = []struct {
 	{true, 120, "  \x1b[1;38;2;183;254;96m●\x1b[m \x1b[38;2;245;184;61maprovação\x1b[m\x1b[38;2;163;163;163m · \x1b[m\x1b[1;38;2;183;254;96malto\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;163;163;163m\ue0a0 feat/rodape-x\x1b[m\x1b[38;2;34;34;34m │ \x1b[m\x1b[38;2;138;138;138m~/workspace\x1b[m                                                             \x1b[38;2;163;163;163mcache —\x1b[m"},
 }
 
+// slNativeCwd is how shortenPath renders the workspace on this OS: "~"
+// plus the OS separator plus "workspace". The goldens below are written
+// with the Unix "/", so comparisons go through this: on Windows the footer
+// shows `~\workspace`, which is the correct product behaviour (a literal "/"
+// would fail spuriously in positive checks and pass vacuously in negative
+// ones there).
+func slNativeCwd() string {
+	return filepath.Join("~", "workspace")
+}
+
 // 1. Sem config, a statusline é a de hoje, byte a byte.
 func TestStatusLineAcceptance_NoConfigIsByteIdentical(t *testing.T) {
 	useTrueColor(t)
@@ -645,8 +661,11 @@ func TestStatusLineAcceptance_NoConfigIsByteIdentical(t *testing.T) {
 				}
 				next, _ := m.Update(tea.WindowSizeMsg{Width: tc.width, Height: 30})
 				got := lastLine(renderContent(next.(model).View()))
-				if got != tc.want {
-					t.Errorf("ask=%v width=%d: statusline changed without config\n got=%q\nwant=%q", tc.ask, tc.width, got, tc.want)
+				// The golden rows render "~/workspace"; the footer uses the
+				// OS separator, so compare against the native form.
+				want := strings.ReplaceAll(tc.want, "~/workspace", slNativeCwd())
+				if got != want {
+					t.Errorf("ask=%v width=%d: statusline changed without config\n got=%q\nwant=%q", tc.ask, tc.width, got, want)
 				}
 			}
 		})
@@ -676,7 +695,7 @@ func TestStatusLineAcceptance_ConfigOrdersFieldsSidesAndSeparator(t *testing.T) 
 	if !strings.HasSuffix(row, "alto") {
 		t.Errorf("effort is configured on the right side, so the row must end with it; row=%q", row)
 	}
-	if strings.Contains(row, "~/workspace") {
+	if strings.Contains(row, slNativeCwd()) {
 		t.Errorf("cwd is not in the config, so it must not render; row=%q", row)
 	}
 }
@@ -701,9 +720,9 @@ func TestStatusLineAcceptance_ConfigRendersThreeLines(t *testing.T) {
 		want    string
 		notWant []string
 	}{
-		{0, "automático", []string{slBranch, "~/workspace"}},
-		{1, slBranch, []string{"automático", "~/workspace"}},
-		{2, "~/workspace", []string{"automático", slBranch}},
+		{0, "automático", []string{slBranch, slNativeCwd()}},
+		{1, slBranch, []string{"automático", slNativeCwd()}},
+		{2, slNativeCwd(), []string{"automático", slBranch}},
 	}
 	for _, c := range checks {
 		if !strings.Contains(tail[c.row], c.want) {
@@ -1203,12 +1222,17 @@ func TestStatusLineAcceptance_RequestStartsDedicatedTurn(t *testing.T) {
 	adds := func(want string) bool {
 		return strings.Count(strings.ToLower(text), strings.ToLower(want)) > strings.Count(strings.ToLower(baseline), strings.ToLower(want))
 	}
+	// The stdin example is JSON-encoded: on Windows the workspace backslashes
+	// reach the instruction escaped (C:\\Users\\...), so compare against the
+	// encoded form. Encoding is a no-op for Unix paths, where no byte needs
+	// escaping, so what Linux asserts stays byte-identical.
+	wantCwdJSON, _ := json.Marshal(env.workspace)
 	must := map[string]string{
 		"user request":         request,
 		"current config":       " ⁂ ",
 		"terminal width":       "117",
 		"session JSON example": `"cost_brl"`,
-		"real session cwd":     env.workspace,
+		"real session cwd":     strings.Trim(string(wantCwdJSON), `"`),
 		"real session branch":  slBranch,
 		"scripts directory":    env.scriptsDir,
 	}
@@ -1247,9 +1271,11 @@ func TestStatusLineAcceptance_RequestStartsDedicatedTurn(t *testing.T) {
 }
 
 // slStagingPath finds the staging file the instruction tells the model to
-// write: a .json path inside the user statusline directory.
+// write: a .json path inside the user statusline directory. The separator in
+// the instruction is the OS one (filepath.Join), so the pattern accepts both
+// slashes: a literal "/" never matches on Windows.
 func slStagingPath(env slEnv, instruction string) string {
-	pattern := regexp.MustCompile(regexp.QuoteMeta(env.scriptsDir) + `/[^\s"'` + "`" + `]+\.json`)
+	pattern := regexp.MustCompile(regexp.QuoteMeta(env.scriptsDir) + `[\\/][^\s"'` + "`" + `]+\.json`)
 	return pattern.FindString(instruction)
 }
 
@@ -1501,10 +1527,18 @@ func TestStatusLineAcceptance_EscapedGrandchildDoesNotStallRunner(t *testing.T) 
 			env := newSLEnv(t)
 			counter := filepath.Join(env.root, "count")
 			grandchildPID := filepath.Join(env.root, "grandchild.pid")
-			command := writeScript(t, env, "escape.sh", `n=$(cat '`+counter+`' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '`+counter+`'
-if [ "$n" -eq 1 ]; then
-  perl -e 'setpgrp(0,0); sleep 30' `+tc.redirect+` &
-  echo $! > '`+grandchildPID+`'
+			// The grandchild only counts as escaped once it reports its own
+			// pid AFTER setpgrp: a $!-file written by the shell races the
+			// 300ms group kill (the kill can land before perl runs setpgrp,
+			// leaving a pid file for a dead child). Retrying every run while
+			// the file is missing turns that race into a slow first escape
+			// instead of a precondition failure. The pid file appears via an
+			// atomic rename, so existence implies complete content (no
+			// empty-file race between creat and write under load). The same
+			// holds for the counter below.
+			command := writeScript(t, env, "escape.sh", `n=$(cat '`+counter+`' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '`+counter+`.tmp' && mv '`+counter+`.tmp' '`+counter+`'
+if [ ! -f '`+grandchildPID+`' ]; then
+  perl -e 'setpgrp(0,0); open my $fh, ">", $ARGV[0].".tmp"; print $fh "$$\n"; close $fh; rename $ARGV[0].".tmp", $ARGV[0]; sleep 30' '`+grandchildPID+`' `+tc.redirect+` &
   sleep 5
 fi
 printf 'SL-GC-RUN-%s\n' "$n"`)
@@ -1513,8 +1547,11 @@ printf 'SL-GC-RUN-%s\n' "$n"`)
 			if !waitForFile(p, grandchildPID, 4*time.Second) {
 				t.Fatal("statusline command never ran")
 			}
+			base := slReadCounter(t, counter)
 			pid := readPID(t, grandchildPID)
-			frame, ok := p.waitFor(4*time.Second, containsPlain("SL-GC-RUN-2"))
+			frame, ok := p.waitFor(4*time.Second, func(frame string) bool {
+				return slGCRunAfter(plainFrame(frame), base)
+			})
 			if !processAlive(pid) {
 				t.Fatalf("precondition: the grandchild (pid %d) did not outlive the group kill, so nothing escaped", pid)
 			}
@@ -1523,6 +1560,32 @@ printf 'SL-GC-RUN-%s\n' "$n"`)
 			}
 		})
 	}
+}
+
+// slGCRunAfter reports whether the frame shows a statusline run newer than
+// base: SL-GC-RUN-<n> with n > base.
+func slGCRunAfter(plain string, base int) bool {
+	for _, m := range slGCRunPattern.FindAllStringSubmatch(plain, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > base {
+			return true
+		}
+	}
+	return false
+}
+
+var slGCRunPattern = regexp.MustCompile(`SL-GC-RUN-(\d+)`)
+
+func slReadCounter(t *testing.T, path string) int {
+	t.Helper()
+	lines := fileLines(path)
+	if len(lines) == 0 {
+		t.Fatalf("counter file %s is empty", path)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(lines[len(lines)-1]))
+	if err != nil {
+		t.Fatalf("counter file %s: %v", path, err)
+	}
+	return n
 }
 
 // 27. Comando aplicado pelo /statusline roda na hora e segue o refreshMs, sem

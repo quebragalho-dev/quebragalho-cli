@@ -33,6 +33,12 @@ func acceptanceHermeticEnv(t *testing.T) string {
 		}
 	}
 	t.Setenv("HOME", root)
+	// Windows resolves the user config and state under APPDATA/LOCALAPPDATA
+	// (os.UserConfigDir, userStateDir), ignoring HOME and XDG_*, so those
+	// point at the fixture root too; on other platforms they are inert.
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("APPDATA", root)
+	t.Setenv("LOCALAPPDATA", root)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg-config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "xdg-data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "xdg-state"))

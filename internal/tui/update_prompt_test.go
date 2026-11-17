@@ -381,7 +381,9 @@ func TestApplyUpdatePromptThemeLightUsesLightAccent(t *testing.T) {
 		t.Fatal("prompt Init must request the terminal background color")
 	}
 	updated, _ := model.Update(tea.BackgroundColorMsg{Color: color.White})
-	model = updated.(updatePromptModel)
+	if _, ok := updated.(updatePromptModel); !ok {
+		t.Fatalf("background probe must keep the update prompt model, got %T", updated)
+	}
 	if got := colorHex(t, qgTheme.accentColor); got != "#54700a" {
 		t.Fatalf("QG_THEME=light on a light terminal accent = %q, want #54700a", got)
 	}
@@ -405,7 +407,7 @@ func TestUpdatePromptNoColorContract(t *testing.T) {
 		{"1", true},
 		{"yes", true},
 	} {
-		if got := updatePromptNoColor(func(string) string { return tc.value }); got != tc.want {
+		if got := noColorRequested(func(string) string { return tc.value }); got != tc.want {
 			t.Fatalf("NO_COLOR=%q -> %v, want %v", tc.value, got, tc.want)
 		}
 	}

@@ -30,12 +30,8 @@ guide to extending QG with specialists, hooks, plugins, MCP, and skills, see
 - Keep tests beside their source files (`foo_test.go` next to `foo.go`). Add a
   regression test for behavior changes and run affected concurrent code under
   the race detector.
-- Never edit files under `third_party/`; they are vendored.
 - Prefer one cross-platform function with small conditional checks over
   duplicated platform-specific helpers when the behavior can remain unified.
-- Do not commit generated benchmark reports from
-  `internal/perfbench/reports/*.json`; reports are configuration-specific
-  evidence, not repository state.
 - Preserve the user's working tree. Do not overwrite, delete, stage, or commit
   unrelated tracked or untracked files.
 
@@ -51,16 +47,12 @@ request, or completing an implementation task:
    or run focused tests with `-race`, when concurrency is affected.
 4. **Build**: `go run ./cmd/qg-release build`.
 5. **Smoke test**: `go run ./cmd/qg-release smoke`.
-6. **Advisory lint**: `make lint-static`.
+6. **Lint**: `make lint-static`.
 7. **Security**: `make vulncheck`.
 8. **Diff hygiene**: `git diff HEAD --check` (covers staged and unstaged
    tracked changes).
 
-`make lint` currently runs the formatting check and `go vet`; it does **not**
-run golangci-lint. The pinned golangci-lint job is advisory in CI while the
-existing repository-wide backlog is cleaned up. Fix findings introduced by or
-related to the current change. Unrelated pre-existing advisory findings do not
-justify expanding a focused pull request; report them separately.
+`make lint` runs the formatting check and `go vet`; `make lint-static` (golangci-lint) is blocking in CI, so fix every finding it reports.
 
 Formatting, vet, tests, build, smoke, diff hygiene, and govulncheck are hard
 requirements. If a related check fails, fix it. If a required check cannot run

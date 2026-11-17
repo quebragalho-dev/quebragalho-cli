@@ -3,6 +3,7 @@ package sessions
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
@@ -37,8 +38,13 @@ func TestContinuationWriteReadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat snapshot: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("snapshot perm = %o, want 600", perm)
+	// Unix permission bits do not exist on Windows (Go reports 0666/0444
+	// there), so the 0600 assertion is Unix-only. The write/read round-trip
+	// below still runs everywhere.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("snapshot perm = %o, want 600", perm)
+		}
 	}
 	loaded, err := store.ReadContinuation(session.SessionID)
 	if err != nil {

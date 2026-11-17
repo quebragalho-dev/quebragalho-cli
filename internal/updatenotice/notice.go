@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/update"
 )
 
@@ -40,7 +41,7 @@ func ChangelogURL(version string) string {
 // Enabled reports whether update checking, the startup prompt, and the footer
 // notice may run at all: never for dev builds or Homebrew installs (the
 // formula is not published, so there is nothing to offer), and never with
-// QG_NO_UPDATE_CHECK=1/true.
+// QG_NO_UPDATE_CHECK set to a truthy value (1/true/yes/on).
 func Enabled(config Config) bool {
 	if strings.TrimSpace(config.CurrentVersion) == "dev" {
 		return false
@@ -48,8 +49,7 @@ func Enabled(config Config) bool {
 	if config.InstallMethod == update.InstallMethodHomebrew {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(lookupEnv(config.Env, "QG_NO_UPDATE_CHECK"))) {
-	case "1", "true":
+	if envbool.Parse(lookupEnv(config.Env, "QG_NO_UPDATE_CHECK"), false) {
 		return false
 	}
 	return true

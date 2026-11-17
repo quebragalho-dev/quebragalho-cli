@@ -49,13 +49,6 @@ func runBashEscape(cwd, command string) tea.Cmd {
 	}
 }
 
-// escapeShell returns the platform shell and arguments for tests and display.
-// Execution itself uses tools.NewHostShellCommandContext so the cmd.exe
-// fallback receives its required raw Windows command line.
-func escapeShell(command string) (string, []string) {
-	return tools.HostShellCommand(command)
-}
-
 func appendNote(text, note string) string {
 	if text == "" {
 		return note

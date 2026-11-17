@@ -238,7 +238,7 @@ func (d *streamingDecoder) tailLines() []string {
 // curated shortlist. The full model list from the release is fetched
 // asynchronously and merged in (see fetchSTTModelsCmd / handleSTTModelsFetched).
 func (m model) newSTTDownloadPicker() *commandPicker {
-	return newSTTDownloadPickerFrom(dictation.ModelVariants(), true, m.dictation.downloadRoot, m.engineDownloaded(), m.dictation.cfg.LocalModelPath)
+	return newSTTDownloadPickerFrom(dictation.ModelVariants(), true, m.dictation.downloadRoot, m.engineDownloaded(), m.dictation.cfg.LocalModelPath, m.dictation.lang)
 }
 
 func toolBodyRendererFor(name string) toolBodyRenderer {

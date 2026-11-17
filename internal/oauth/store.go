@@ -18,7 +18,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/keyring"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/securefile"
 )
 
 const (
@@ -43,7 +46,7 @@ func ValidateKey(key string) error {
 }
 
 // ProviderKey builds the store key for a provider login, normalizing the name
-// to lower case. Every write (Manager.Login, the ChatGPT flow) and every
+// to lower case. Every write and every
 // lookup (FirstStored, GetFresh, logout, status filters) funnels through here,
 // so normalizing at this one choke point keeps them symmetric: without it,
 // `qg auth login xAI` stored "provider:xAI" while the profile scaffolded for
@@ -155,7 +158,7 @@ const (
 // is AES-256-GCM ciphertext at rest.
 type Store struct {
 	blob    blobStore
-	crypter *aesGCMCrypter // nil => plaintext blob
+	crypter *securefile.Crypter // nil => plaintext blob
 	now     func() time.Time
 	mu      sync.Mutex
 }
@@ -168,15 +171,15 @@ type storeFile struct {
 // ResolveStorePath determines the on-disk location for provider OAuth tokens,
 // honoring QG_OAUTH_TOKENS_PATH, then XDG_CONFIG_HOME, then the home dir.
 func ResolveStorePath(env map[string]string) (string, error) {
-	if override := strings.TrimSpace(envValue(env, "QG_OAUTH_TOKENS_PATH")); override != "" {
+	if override := strings.TrimSpace(envstr.Value(env, "QG_OAUTH_TOKENS_PATH")); override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
 		}
 		return filepath.Abs(override)
 	}
-	configHome := strings.TrimSpace(envValue(env, "XDG_CONFIG_HOME"))
+	configHome := strings.TrimSpace(envstr.Value(env, "XDG_CONFIG_HOME"))
 	if configHome == "" {
-		home := strings.TrimSpace(firstNonEmpty(envValue(env, "HOME"), envValue(env, "USERPROFILE")))
+		home := strings.TrimSpace(firstNonEmpty(envstr.Value(env, "HOME"), envstr.Value(env, "USERPROFILE")))
 		if home == "" {
 			var err error
 			home, err = os.UserHomeDir()
@@ -201,7 +204,7 @@ func ResolveStorePath(env map[string]string) (string, error) {
 // for that OS user, regardless of file-store overrides such as
 // QG_OAUTH_TOKENS_PATH, FilePath, or XDG_CONFIG_HOME.
 func ResolveKeyringLockPath(env map[string]string) (string, error) {
-	if override := strings.TrimSpace(envValue(env, "QG_OAUTH_KEYRING_LOCK_PATH")); override != "" {
+	if override := strings.TrimSpace(envstr.Value(env, "QG_OAUTH_KEYRING_LOCK_PATH")); override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
 		}
@@ -226,7 +229,7 @@ func NewStore(options StoreOptions) (*Store, error) {
 	}
 	storage := strings.TrimSpace(options.Storage)
 	if storage == "" {
-		storage = strings.TrimSpace(envValue(options.Env, "QG_OAUTH_STORAGE"))
+		storage = strings.TrimSpace(envstr.Value(options.Env, "QG_OAUTH_STORAGE"))
 	}
 	if storage == "" && options.Encrypted {
 		storage = "encrypted-file" // legacy alias
@@ -244,8 +247,10 @@ func NewStore(options StoreOptions) (*Store, error) {
 			return nil, err
 		}
 		// The file blob holds AES-256-GCM ciphertext; the per-user secret lives in
-		// a sibling ".secret" file (see encrypt.go).
-		return &Store{blob: fileBlob{path: path}, crypter: newAESGCMCrypter(path + ".secret"), now: now}, nil
+		// a sibling ".secret" file managed by internal/securefile. The secret's
+		// temp file is published through "<secret>.publish", the directory
+		// sandbox profiles deny by name, exactly like the pre-migration backend.
+		return &Store{blob: fileBlob{path: path}, crypter: securefile.NewCrypterWithTempDir(path+".secret", PublicationDir(path+".secret")), now: now}, nil
 	case "keyring":
 		kr := options.Keyring
 		if kr == nil {
@@ -405,7 +410,7 @@ func (s *Store) readState() (storeFile, error) {
 	}
 	if s.crypter != nil {
 		// Encrypted backend: the blob is AES-256-GCM ciphertext, not JSON.
-		data, err = s.crypter.open(data)
+		data, err = s.crypter.Open(data)
 		if err != nil {
 			return storeFile{}, fmt.Errorf("oauth: decrypt token store at %s: %w", s.blob.location(), err)
 		}
@@ -437,7 +442,7 @@ func (s *Store) writeState(state storeFile) error {
 	// writes opaque ciphertext instead.
 	payload := append(data, '\n')
 	if s.crypter != nil {
-		payload, err = s.crypter.seal(data)
+		payload, err = s.crypter.Seal(data)
 		if err != nil {
 			return err
 		}
@@ -515,19 +520,14 @@ func (b fileBlob) write(data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(b.path), 0o700); err != nil {
 		return err
 	}
-	temp, tempPath, err := createPublicationFile(b.path)
-	if err != nil {
+	// Durable publish through the dedicated publication directory (same
+	// filesystem, random name): fsync before the atomic rename, retried on
+	// transient Windows sharing violations, so a power loss cannot leave an
+	// empty token file.
+	if err := fsutil.WriteFileAtomicallyInDir(PublicationDir(b.path), b.path, data, 0o600); err != nil {
 		return err
 	}
-	defer os.Remove(tempPath)
-	if _, err := temp.Write(data); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, b.path)
+	return nil
 }
 
 // PublicationDirSuffix names the per-store directory a token store publishes new
@@ -541,28 +541,6 @@ const PublicationDirSuffix = ".publish"
 
 // PublicationDir returns the publication directory for a store path.
 func PublicationDir(path string) string { return path + PublicationDirSuffix }
-
-// createPublicationFile creates the randomly-named 0600 file that path's next
-// contents are written to before being renamed into place. It lives in
-// PublicationDir(path) — same filesystem as path, so the rename stays atomic —
-// and the directory is created 0700 if it does not exist yet.
-func createPublicationFile(path string) (*os.File, string, error) {
-	dir := PublicationDir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, "", err
-	}
-	temp, err := os.CreateTemp(dir, "publish-*")
-	if err != nil {
-		return nil, "", err
-	}
-	if err := temp.Chmod(0o600); err != nil {
-		name := temp.Name()
-		_ = temp.Close()
-		_ = os.Remove(name)
-		return nil, "", err
-	}
-	return temp, temp.Name(), nil
-}
 
 func (b fileBlob) withLock(now func() time.Time, fn func() error) error {
 	unlock, err := acquireFileLock(b.path+".lockfile", now)
@@ -1049,17 +1027,6 @@ func FormatStatuses(statuses []Status) string {
 		}
 	}
 	return b.String()
-}
-
-// envValue reads a variable. A non-nil env map is authoritative (hermetic): a
-// missing key returns "" rather than falling back to the process environment, so
-// a caller/test that passes a controlled map can never pick up ambient
-// QG_OAUTH_* / HOME / XDG_CONFIG_HOME values. Only a nil map uses os.Getenv.
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func firstNonEmpty(values ...string) string {

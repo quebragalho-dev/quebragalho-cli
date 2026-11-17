@@ -613,12 +613,15 @@ func downloadFile(ctx context.Context, url string, destPath string) error {
 	if url == "" {
 		return fmt.Errorf("missing download URL")
 	}
+	if err := requireSecureURL(url); err != nil {
+		return err
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 	request.Header.Set("User-Agent", "qg/update")
-	response, err := http.DefaultClient.Do(request)
+	response, err := updateHTTPClient.Do(request)
 	if err != nil {
 		return err
 	}

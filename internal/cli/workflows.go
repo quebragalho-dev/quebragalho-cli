@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qggit"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
@@ -998,7 +999,7 @@ func runChangesPush(args []string, stdout io.Writer, stderr io.Writer, deps appD
 	// preflight budget elapsed; a large push can legitimately take longer.
 	result, err := deps.pushChanges(context.Background(), qggit.PushOptions{
 		Cwd:                    workspaceRoot,
-		Remote:                 firstNonEmptyString(options.remote, remote),
+		Remote:                 envstr.FirstNonEmpty(options.remote, remote),
 		Branch:                 branch,
 		Force:                  options.force,
 		DryRun:                 options.dryRun,
@@ -1102,7 +1103,7 @@ func runChangesPR(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 	// push must not be cancelled mid-transfer if that budget elapsed.
 	pushResult, err := deps.pushChanges(context.Background(), qggit.PushOptions{
 		Cwd:                    workspaceRoot,
-		Remote:                 firstNonEmptyString(options.remote, remote),
+		Remote:                 envstr.FirstNonEmpty(options.remote, remote),
 		Branch:                 branch,
 		Force:                  options.force,
 		RequireNewRemoteBranch: created,
@@ -1254,7 +1255,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 				RequireNewRemoteBranch: true,
 			}, nil
 		}
-		targetRemote := firstNonEmptyString(requestedRemote, remote)
+		targetRemote := envstr.FirstNonEmpty(requestedRemote, remote)
 		exists, existsErr := deps.remoteHasBranch(ctx, workspaceRoot, targetRemote, currentBranch)
 		if existsErr != nil {
 			return branchPushPlan{}, fmt.Errorf("não foi possível verificar se %s já existe no remoto %s: %w", currentBranch, targetRemote, existsErr)
@@ -1313,7 +1314,7 @@ func resolveBranchPushPlan(ctx context.Context, stdout io.Writer, workspaceRoot 
 	// becomes the destination's first ref and its HEAD is left pointing at it.
 	// This is checked once, here, against the push destination, before resolving
 	// commit tips or creating any branches.
-	pushRemote := firstNonEmptyString(requestedRemote, remote)
+	pushRemote := envstr.FirstNonEmpty(requestedRemote, remote)
 	if deps.isUnbornRemote != nil {
 		if unbornDest, unbornDestErr := deps.isUnbornRemote(ctx, workspaceRoot, pushRemote); unbornDestErr == nil && unbornDest {
 			return branchPushPlan{}, fmt.Errorf("o remoto %s ainda não tem branches; publique a branch padrão inicial primeiro com --yes (`qg changes push --yes`) e use auto-branch nos próximos", pushRemote)

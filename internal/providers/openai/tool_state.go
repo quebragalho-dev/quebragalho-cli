@@ -23,15 +23,128 @@ type toolState struct {
 	// FinishReason*) when the response ended abnormally (length/content_filter),
 	// so the provider can attach it to the done event. Empty for a normal finish.
 	finishReason string
-	// terminated is set once any finish_reason arrives. [DONE] needs no flag:
-	// the shared scan ends the stream silently on it, so a nil scan error
-	// with terminated unset still means a clean, terminated end. A scan
-	// error of io.ErrUnexpectedEOF with terminated unset means the stream
-	// was cut before either marker: truncated, not complete.
-	terminated bool
-	// done is set once a terminal event (error) has been emitted so the post-scan
-	// path does not emit a second done after the stream already ended.
-	done bool
+	// phase is the explicit terminal state of the stream. It replaces the
+	// former terminated/done bools: terminated == (phase == streamFinished),
+	// done == phase is terminal (doneOK/doneErr/truncated).
+	//
+	//	text diagram:
+	//	  streaming --finish--> finished --cleanEnd--> doneOK
+	//	  streaming/finished --error--> doneErr
+	//	  streaming --truncated--> truncated
+	//	  doneOK/doneErr/truncated --any--> refused (single terminal)
+	phase streamPhase
+}
+
+// streamPhase is the explicit terminal state of one provider stream.
+type streamPhase int
+
+const (
+	streamStreaming streamPhase = iota
+	streamFinished
+	streamDoneOK
+	streamDoneErr
+	streamTruncated
+)
+
+func (p streamPhase) String() string {
+	switch p {
+	case streamStreaming:
+		return "streaming"
+	case streamFinished:
+		return "finished"
+	case streamDoneOK:
+		return "doneOK"
+	case streamDoneErr:
+		return "doneErr"
+	case streamTruncated:
+		return "truncated"
+	default:
+		return "unknown"
+	}
+}
+
+// streamEvent drives the terminal table. finish records a finish_reason and
+// stays non-terminal; cleanEnd emits Done; error/truncated emit Error.
+type streamEvent int
+
+const (
+	streamEvFinish streamEvent = iota
+	streamEvCleanEnd
+	streamEvError
+	streamEvTruncated
+)
+
+func (e streamEvent) String() string {
+	switch e {
+	case streamEvFinish:
+		return "finish"
+	case streamEvCleanEnd:
+		return "cleanEnd"
+	case streamEvError:
+		return "error"
+	case streamEvTruncated:
+		return "truncated"
+	default:
+		return "unknown"
+	}
+}
+
+// streamTransitions is the single legal-transition table. Absent entries are
+// illegal: refused at runtime without panicking (state kept, no emit).
+var streamTransitions = map[streamPhase]map[streamEvent]streamPhase{
+	streamStreaming: {
+		streamEvFinish:    streamFinished,
+		streamEvCleanEnd:  streamDoneOK,
+		streamEvError:     streamDoneErr,
+		streamEvTruncated: streamTruncated,
+	},
+	streamFinished: {
+		streamEvFinish:   streamFinished,
+		streamEvCleanEnd: streamDoneOK,
+		streamEvError:    streamDoneErr,
+	},
+	streamDoneOK:    {},
+	streamDoneErr:   {},
+	streamTruncated: {},
+}
+
+// isTerminated reports whether any finish_reason arrived (model finished
+// generating, awaiting DONE/EOF).
+func (s *toolState) isTerminated() bool {
+	return s.phase == streamFinished
+}
+
+// isDone reports whether a terminal event was already emitted.
+func (s *toolState) isDone() bool {
+	switch s.phase {
+	case streamDoneOK, streamDoneErr, streamTruncated:
+		return true
+	default:
+		return false
+	}
+}
+
+// transition is the only writer of phase/finishReason. It moves to the next
+// phase when legal and reports whether the caller should emit the terminal
+// event (Done for cleanEnd, Error for error/truncated). Finish only records
+// a non-empty reason (exact dev semantics: stop/tool_calls map to "" and must
+// not erase a previous length/content_filter) and never emits. Illegal
+// transitions keep the state and report ok=false, never panicking in
+// production, guaranteeing at most one terminal event per stream.
+func (s *toolState) transition(ev streamEvent, reason string) (emit bool, ok bool) {
+	next, legal := streamTransitions[s.phase][ev]
+	if !legal {
+		return false, false
+	}
+	if ev == streamEvFinish {
+		if reason != "" {
+			s.finishReason = reason
+		}
+		s.phase = next
+		return false, true
+	}
+	s.phase = next
+	return true, true
 }
 
 type pendingToolCall struct {

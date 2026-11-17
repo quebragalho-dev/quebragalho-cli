@@ -18,6 +18,30 @@ amber accent.
 
 A neon-on-black palette: pitch-black surface, bright green ink, and a cyan accent.
 
+## Built-in themes
+
+Dark themes first (picker order), then light themes:
+
+| Theme | Mode | Palette |
+| --- | --- | --- |
+| `dark` | dark | Brand default dark |
+| `dracula` | dark | Dracula |
+| `nord` | dark | Nord |
+| `gruvbox` | dark | Gruvbox |
+| `tokyo-night` | dark | Tokyo Night |
+| `catppuccin` | dark | Catppuccin |
+| `one-dark` | dark | One Dark |
+| `solarized-dark` | dark | Solarized Dark |
+| `rose-pine` | dark | Rosé Pine |
+| `everforest` | dark | Everforest |
+| `neon` | dark | Neon on black |
+| `light` | light | Brand default light |
+| `solarized-light` | light | Solarized Light |
+| `dune` | light | Sand and cream |
+
+The table above mirrors `themeRegistry` in `internal/tui/theme_palettes.go`,
+which is the source of truth for every selectable name.
+
 ## Adding a theme
 
 Every theme is a `palette` (a table of color hex tokens) plus one entry in

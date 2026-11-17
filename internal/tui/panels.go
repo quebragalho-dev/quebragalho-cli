@@ -253,7 +253,7 @@ func (m model) effortPanelOverlay(width int) string {
 }
 
 func (m model) modelPanelOverlay(width int) string {
-	if m.picker == nil || !(m.picker.kind == pickerModel && m.picker.panel) {
+	if m.picker == nil || m.picker.kind != pickerModel || !m.picker.panel {
 		return m.modelPickerOverlay(width)
 	}
 	return m.modelPaletteOverlay(width)

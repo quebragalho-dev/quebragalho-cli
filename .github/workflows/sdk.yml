@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "sdk/**"
+      - "internal/streamjson/**"
       - ".github/workflows/sdk.yml"
       - "docs/STREAM_JSON_PROTOCOL.md"
   push:
@@ -11,6 +12,7 @@ on:
       - main
     paths:
       - "sdk/**"
+      - "internal/streamjson/**"
       - ".github/workflows/sdk.yml"
 
 concurrency:

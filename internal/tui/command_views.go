@@ -19,12 +19,12 @@ func (m model) toolsText() string {
 	count := len(registered)
 	if len(registered) == 0 {
 		return renderCommandCardTranscript(commandCard{
-			Title:   "Tools",
-			Summary: []string{"0 registered", "no tools available"},
+			Title:   "Ferramentas",
+			Summary: []string{"0 registradas", "nenhuma ferramenta disponível"},
 			Sections: []commandCardSection{{
-				Title: "Registry",
+				Title: "Registro",
 				Fields: []commandField{
-					{Key: "registered", Value: "0"},
+					{Key: "registradas", Value: "0"},
 				},
 			}},
 			Actions: []string{"/mcp manage servers", "/permissions manage access"},
@@ -41,18 +41,23 @@ func (m model) toolsText() string {
 		available = append(available, commandBullet(name))
 	}
 
+	registeredSummary := fmt.Sprintf("%d registradas", count)
+	if count == 1 {
+		registeredSummary = "1 registrada"
+	}
+
 	return renderCommandCardTranscript(commandCard{
-		Title:   "Tools",
-		Summary: []string{fmt.Sprintf("%d registered", count), "registered catalog"},
+		Title:   "Ferramentas",
+		Summary: []string{registeredSummary, "catálogo registrado"},
 		Sections: []commandCardSection{
 			{
-				Title: "Registry",
+				Title: "Registro",
 				Fields: []commandField{
-					{Key: "registered", Value: fmt.Sprint(count)},
+					{Key: "registradas", Value: fmt.Sprint(count)},
 				},
 			},
 			{
-				Title: "Available",
+				Title: "Disponíveis",
 				Lines: available,
 			},
 		},
@@ -290,18 +295,18 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 	mode := string(m.permissionMode)
 	if store == nil {
 		return renderCommandCardTranscript(commandCard{
-			Title:   "Permissions",
-			Summary: []string{mode + " permissions", "grants unavailable"},
+			Title:   "Permissões",
+			Summary: []string{mode + " permissões", "autorizações indisponíveis"},
 			Sections: []commandCardSection{
 				{
-					Title: "State",
+					Title: "Estado",
 					Fields: []commandField{
-						{Key: "mode", Value: mode},
+						{Key: "modo", Value: mode},
 					},
 				},
 				{
-					Title: "Grants",
-					Lines: []string{"persistent grants: unavailable"},
+					Title: "Autorizações",
+					Lines: []string{"autorizações persistentes: indisponíveis"},
 				},
 			},
 		})
@@ -310,18 +315,18 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 	grants, err := store.List()
 	if err != nil {
 		return renderCommandCardTranscript(commandCard{
-			Title:   "Permissions",
-			Summary: []string{mode + " permissions", "grants error"},
+			Title:   "Permissões",
+			Summary: []string{mode + " permissões", "erro de autorizações"},
 			Sections: []commandCardSection{
 				{
-					Title: "State",
+					Title: "Estado",
 					Fields: []commandField{
-						{Key: "mode", Value: mode},
+						{Key: "modo", Value: mode},
 					},
 				},
 				{
-					Title: "Grants",
-					Lines: []string{"error: " + err.Error()},
+					Title: "Autorizações",
+					Lines: []string{"erro: " + err.Error()},
 				},
 			},
 		})
@@ -332,18 +337,18 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 		prefixes, prefixErr = prefixStore.ListCommandPrefixes()
 		if prefixErr != nil {
 			return renderCommandCardTranscript(commandCard{
-				Title:   "Permissions",
-				Summary: []string{mode + " permissions", "grants error"},
+				Title:   "Permissões",
+				Summary: []string{mode + " permissões", "erro de autorizações"},
 				Sections: []commandCardSection{
 					{
-						Title: "State",
+						Title: "Estado",
 						Fields: []commandField{
-							{Key: "mode", Value: mode},
+							{Key: "modo", Value: mode},
 						},
 					},
 					{
-						Title: "Grants",
-						Lines: []string{"error: " + prefixErr.Error()},
+						Title: "Autorizações",
+						Lines: []string{"erro: " + prefixErr.Error()},
 					},
 				},
 			})
@@ -353,12 +358,12 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 	snapshots := qgcommands.SandboxGrantSnapshots(grants)
 	grantRows := []commandRow{}
 	if len(snapshots) == 0 && len(prefixes) == 0 {
-		grantRows = append(grantRows, commandRow{Text: "none"})
+		grantRows = append(grantRows, commandRow{Text: "nenhuma"})
 	} else {
 		for _, grant := range snapshots {
 			line := fmt.Sprintf("%s [%s]", grant.ToolName, grant.Decision)
 			if grant.ApprovedAt != "" {
-				line += " approved " + grant.ApprovedAt
+				line += " aprovada em " + grant.ApprovedAt
 			}
 			if grant.Reason != "" {
 				line += " - " + grant.Reason
@@ -368,7 +373,7 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 		for _, grant := range prefixes {
 			line := fmt.Sprintf("%s `%s` [command-prefix]", grant.ToolName, strings.Join(grant.Prefix, " "))
 			if grant.ApprovedAt != "" {
-				line += " approved " + grant.ApprovedAt
+				line += " aprovada em " + grant.ApprovedAt
 			}
 			if grant.Reason != "" {
 				line += " - " + grant.Reason
@@ -378,17 +383,17 @@ func (m model) permissionsTextWithStore(store grantLister) string {
 	}
 
 	return renderCommandCardTranscript(commandCard{
-		Title:   "Permissions",
-		Summary: []string{mode + " permissions", formatGrantCount(len(snapshots) + len(prefixes))},
+		Title:   "Permissões",
+		Summary: []string{mode + " permissões", formatGrantCount(len(snapshots) + len(prefixes))},
 		Sections: []commandCardSection{
 			{
-				Title: "State",
+				Title: "Estado",
 				Fields: []commandField{
-					{Key: "mode", Value: mode},
+					{Key: "modo", Value: mode},
 				},
 			},
 			{
-				Title: "Grants",
+				Title: "Autorizações",
 				Rows:  grantRows,
 			},
 		},
@@ -408,12 +413,12 @@ type commandPrefixGrantLister interface {
 
 func formatGrantCount(count int) string {
 	if count == 0 {
-		return "no persistent grants"
+		return "nenhuma autorização persistente"
 	}
 	if count == 1 {
-		return "1 persistent grant"
+		return "1 autorização persistente"
 	}
-	return fmt.Sprintf("%d persistent grants", count)
+	return fmt.Sprintf("%d autorizações persistentes", count)
 }
 
 func firstProviderDisplayValue(values ...string) string {
@@ -449,50 +454,58 @@ func (m model) avgTurnLatencyText() string {
 	if m.turnLatencyCount == 0 {
 		return "n/a"
 	}
+	turns := turnCountText(m.turnLatencyCount)
 	avgSeconds := m.turnLatencySum.Seconds() / float64(m.turnLatencyCount)
 	if m.turnTTFTCount > 0 {
 		ttftSeconds := m.turnTTFTSum.Seconds() / float64(m.turnTTFTCount)
-		return fmt.Sprintf("%.1fs avg (%.1fs to first token, %d turns)", avgSeconds, ttftSeconds, m.turnLatencyCount)
+		return fmt.Sprintf("%.1fs de média (%.1fs até o primeiro token, %s)", avgSeconds, ttftSeconds, turns)
 	}
-	return fmt.Sprintf("%.1fs avg (%d turns)", avgSeconds, m.turnLatencyCount)
+	return fmt.Sprintf("%.1fs de média (%s)", avgSeconds, turns)
+}
+
+func turnCountText(count int) string {
+	if count == 1 {
+		return "1 turno"
+	}
+	return fmt.Sprintf("%d turnos", count)
 }
 
 func (m model) contextText() string {
 	toolCount := len(m.registeredTools())
 	return renderCommandCardTranscript(commandCard{
-		Title: "Context",
+		Title: "Contexto",
 		Summary: []string{
-			"go runtime",
-			string(m.permissionMode) + " permissions",
-			pluralizeCount(toolCount, "tool", "tools"),
+			"runtime go",
+			string(m.permissionMode) + " permissões",
+			pluralizeCount(toolCount, "ferramenta", "ferramentas"),
 		},
 		Sections: []commandCardSection{
 			{
-				Title: "Runtime",
+				Title: "Execução",
 				Fields: []commandField{
-					{Key: "cwd", Value: displayValue(m.cwd, "unknown")},
-					{Key: "provider", Value: displayValue(m.providerName, "none")},
-					{Key: "model", Value: displayValue(m.modelName, "none")},
-					{Key: "effort", Value: m.effortDisplay()},
-					{Key: "style", Value: displayValue(m.responseStyle, defaultResponseStyle)},
-					{Key: "usage", Value: m.usageSummaryText()},
+					{Key: "cwd", Value: displayValue(m.cwd, "desconhecido")},
+					{Key: "provedor", Value: displayValue(m.providerName, "nenhum")},
+					{Key: "modelo", Value: displayValue(m.modelName, "nenhum")},
+					{Key: "nível", Value: m.effortDisplay()},
+					{Key: "estilo", Value: displayValue(m.responseStyle, defaultResponseStyle)},
+					{Key: "uso", Value: m.usageSummaryText()},
 					{Key: "cache", Value: m.cacheEfficiencyText()},
-					{Key: "latency", Value: m.avgTurnLatencyText()},
-					{Key: "max turns", Value: fmt.Sprint(m.agentOptions.MaxTurns)},
+					{Key: "latência", Value: m.avgTurnLatencyText()},
+					{Key: "turnos máximos", Value: fmt.Sprint(m.agentOptions.MaxTurns)},
 				},
 			},
 			{
-				Title: "Session",
+				Title: "Sessão",
 				Fields: []commandField{
-					{Key: "active", Value: displayValue(m.activeSession.SessionID, "none")},
-					{Key: "root", Value: displayValue(m.sessionRootDir(), "unknown")},
-					{Key: "compaction", Value: contextCompactionStatus(m.compactionStatus())},
+					{Key: "ativa", Value: displayValue(m.activeSession.SessionID, "nenhuma")},
+					{Key: "raiz", Value: displayValue(m.sessionRootDir(), "desconhecida")},
+					{Key: "compactação", Value: contextCompactionStatus(m.compactionStatus())},
 				},
 			},
 			{
-				Title: "Tools",
+				Title: "Ferramentas",
 				Fields: []commandField{
-					{Key: "registered", Value: fmt.Sprint(toolCount)},
+					{Key: "registradas", Value: fmt.Sprint(toolCount)},
 				},
 			},
 		},
@@ -523,40 +536,52 @@ func pluralizeCount(count int, singular string, plural string) string {
 }
 
 func contextCompactionStatus(status string) string {
-	if status == "not compacted" {
-		return "idle"
+	switch status {
+	case "not compacted":
+		return "ociosa"
+	case "compacting context":
+		return "compactando contexto"
+	case "compacted manually":
+		return "compactada manualmente"
+	case "manual compactor completed without changes":
+		return "compactação manual concluída sem alterações"
+	case "manual compaction failed":
+		return "falha na compactação manual"
+	case "requested, awaiting manual compactor":
+		return "solicitada, aguardando compactador manual"
+	default:
+		return status
 	}
-	return status
 }
 
-// onOff renders a boolean preference as "on"/"off" for config display.
+// onOff renders a boolean preference as "ativado"/"desativado" for config display.
 func onOff(v bool) string {
 	if v {
-		return "on"
+		return "ativado"
 	}
-	return "off"
+	return "desativado"
 }
 
 func (m model) configText() string {
 	return renderCommandOutput(commandOutput{
-		Title:  "Config",
+		Title:  "Configuração",
 		Status: commandStatusOK,
 		Sections: []commandSection{
 			{
-				Title: "Runtime",
+				Title: "Execução",
 				Lines: []string{
 					"runtime: go",
-					fmt.Sprintf("max turns: %d", m.agentOptions.MaxTurns),
-					"permission mode: " + string(m.permissionMode),
+					fmt.Sprintf("turnos máximos: %d", m.agentOptions.MaxTurns),
+					"modo de permissão: " + string(m.permissionMode),
 					"recaps: " + onOff(m.recapsEnabled),
 				},
 			},
 			{
-				Title: "Provider",
+				Title: "Provedor",
 				Lines: []string{
-					"provider: " + displayValue(m.providerName, "none"),
-					"model: " + displayValue(m.modelName, "none"),
-					"api key: " + apiKeyState(strings.TrimSpace(m.providerProfile.APIKey) != "" || m.providerProfile.APIKeyStored),
+					"provedor: " + displayValue(m.providerName, "nenhum"),
+					"modelo: " + displayValue(m.modelName, "nenhum"),
+					"chave de API: " + apiKeyState(strings.TrimSpace(m.providerProfile.APIKey) != "" || m.providerProfile.APIKeyStored),
 				},
 			},
 		},
@@ -564,19 +589,23 @@ func (m model) configText() string {
 }
 
 func (m model) debugText() string {
-	state := "idle"
+	state := "ociosa"
 	if m.pending {
-		state = "running"
+		state = "em execução"
+	}
+	pending := "não"
+	if m.pendingPermission != nil {
+		pending = "sim"
 	}
 	return renderCommandOutput(commandOutput{
-		Title:  "Debug",
+		Title:  "Depuração",
 		Status: commandStatusInfo,
 		Sections: []commandSection{{
-			Title: "Runtime",
+			Title: "Execução",
 			Lines: []string{
-				"run state: " + state,
-				"active run: " + fmt.Sprint(m.activeRunID),
-				"pending permission: " + boolText(m.pendingPermission != nil),
+				"estado da execução: " + state,
+				"execução ativa: " + fmt.Sprint(m.activeRunID),
+				"permissão pendente: " + pending,
 			},
 		}},
 	})

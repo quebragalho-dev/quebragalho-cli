@@ -31,6 +31,15 @@ Output events also include `runId`.
 QG combines accepted input event content in order, separated by blank lines.
 Unknown fields are rejected so protocol clients catch drift early.
 
+`message` events may also carry images: an `images` array of
+`{ "mediaType", "data" }` objects, where `mediaType` is a MIME type (for
+example `"image/png"`) and `data` is the standard base64 encoding of the raw
+image bytes (no `data:` URI prefix).
+
+```json
+{ "schemaVersion": 2, "type": "message", "role": "user", "content": "What is wrong here?", "images": [{ "mediaType": "image/png", "data": "<base64>" }] }
+```
+
 Schema version `2` renamed sandbox permission metadata from `violation` to
 `block`. Clients should read the optional `block` object on permission and tool
 events when present.
@@ -47,6 +56,10 @@ events when present.
 { "schemaVersion": 2, "type": "permission_request", "runId": "run_20260603_abc123", "id": "call_2", "name": "write_file", "action": "prompt", "permission": "prompt", "permissionMode": "ask", "sideEffect": "write", "reason": "Creates or overwrites files." }
 { "schemaVersion": 2, "type": "permission_decision", "runId": "run_20260603_abc123", "id": "call_2", "name": "write_file", "action": "allow", "permission": "prompt", "permissionGranted": true, "decisionReason": "approved in TUI" }
 { "schemaVersion": 2, "type": "tool_result", "runId": "run_20260603_abc123", "id": "call_1", "status": "ok", "output": "...", "truncated": false }
+{ "schemaVersion": 2, "type": "permission", "runId": "run_20260603_abc123", "id": "call_4", "name": "bash", "action": "allow", "permission": "allow", "sideEffect": "shell", "reason": "Pre-approved by grant." }
+{ "schemaVersion": 2, "type": "checkpoint", "runId": "run_20260603_abc123", "checkpoint": { "sequence": 7, "tool": "edit_file", "files": ["README.md"] } }
+{ "schemaVersion": 2, "type": "restore", "runId": "run_20260603_abc123", "checkpoint": { "sequence": 7, "tool": "edit_file", "filesRestored": 1, "filesDeleted": 0 } }
+{ "schemaVersion": 2, "type": "warning", "runId": "run_20260603_abc123", "message": "network unavailable, retrying" }
 { "schemaVersion": 2, "type": "usage", "runId": "run_20260603_abc123", "promptTokens": 12, "completionTokens": 8, "totalTokens": 20, "costBrl": 0.0021, "costUsd": 0.0004 }
 { "schemaVersion": 2, "type": "final", "runId": "run_20260603_abc123", "text": "..." }
 { "schemaVersion": 2, "type": "run_end", "runId": "run_20260603_abc123", "status": "success", "exitCode": 0 }
@@ -74,6 +87,20 @@ Headless `exec` has no interactive permission responder. If a prompt-gated tool
 is not pre-approved, QG may emit `permission_request` followed by a denied
 `tool_result`; interactive surfaces emit `permission_decision` when the user
 allows, denies, or always-allows the request.
+
+`permission` is the third permission shape: it carries a resolved gate outcome
+for actions other than prompt/allow/deny (same `id`, `name`, `action`,
+`permission`, `sideEffect`, `reason` fields as the other permission events,
+plus the optional `risk`/`block` sandbox metadata).
+
+`checkpoint` fires when the before-mutation state of a mutating tool call is
+captured; `restore` fires when a captured checkpoint is applied. Both carry a
+`checkpoint` object: captures report `sequence`, `tool`, and `files`;
+restores report `sequence`, `tool`, `filesRestored`, `filesDeleted`, and any
+`skipped` paths.
+
+`warning` carries a non-fatal `message` (for example a retried network error).
+Warnings never end the run; only `error` is followed by `run_end`.
 
 ```json
 { "schemaVersion": 2, "type": "error", "runId": "run_20260603_abc123", "code": "provider_error", "message": "...", "recoverable": false }

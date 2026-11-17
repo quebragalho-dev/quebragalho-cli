@@ -94,21 +94,6 @@ func TestSwarmMemberRowCarriesSessionID(t *testing.T) {
 	}
 }
 
-func TestSidebarAgentSelectablesMapToScreenRows(t *testing.T) {
-	m := swarmSidebarTestModel(t, map[string]string{"subagent-1": "sess-1", "subagent-2": "sess-2"})
-	sel := m.sidebarAgentSelectables(sidebarWidth(m.width))
-	if len(sel) != 2 {
-		t.Fatalf("expected 2 selectable member rows, got %d: %+v", len(sel), sel)
-	}
-	// AGENTS header occupies sidebar index 0, so the two members are at 1 and 2.
-	if sel[0].lineOffset != 1 || sel[1].lineOffset != 2 {
-		t.Fatalf("selectable offsets = %d,%d, want 1,2", sel[0].lineOffset, sel[1].lineOffset)
-	}
-	if sel[0].sessionID != "sess-1" || sel[1].sessionID != "sess-2" {
-		t.Fatalf("selectable session ids = %q,%q", sel[0].sessionID, sel[1].sessionID)
-	}
-}
-
 func TestSidebarMemberClickDoesNotInterceptFullWidthChat(t *testing.T) {
 	// A real member session proves that a stale rail coordinate cannot open it.
 	store := testSessionStore(t)
@@ -125,7 +110,7 @@ func TestSidebarMemberClickDoesNotInterceptFullWidthChat(t *testing.T) {
 
 	m := swarmSidebarTestModel(t, map[string]string{"subagent-1": session.SessionID})
 	m.sessionStore = store
-	x := m.width - sidebarWidth(m.width) + 2
+	x := m.width - 2 // former sidebar rail: must stay inside full-width chat
 	next, _, handled := m.handleTranscriptSelectionMouse(testMouseClick(tea.MouseLeft, x, 1))
 	if handled {
 		t.Fatal("an invisible rail coordinate must not be handled")
@@ -168,79 +153,6 @@ func sidebarTestModel() model {
 	return m
 }
 
-func TestSidebarWidthClampsAndSuppresses(t *testing.T) {
-	if got := sidebarWidth(40); got != 0 {
-		t.Fatalf("sidebarWidth(40) = %d, want 0 (too narrow for a second column)", got)
-	}
-	if got := sidebarWidth(100); got < sidebarMinWidth || got > sidebarMaxWidth {
-		t.Fatalf("sidebarWidth(100) = %d, want within [%d,%d]", got, sidebarMinWidth, sidebarMaxWidth)
-	}
-	if got := sidebarWidth(400); got != sidebarMaxWidth {
-		t.Fatalf("sidebarWidth(400) = %d, want clamped to %d", got, sidebarMaxWidth)
-	}
-}
-
-func TestSidebarActiveGating(t *testing.T) {
-	m := sidebarTestModel()
-	if !m.sidebarActive() {
-		t.Fatalf("expected sidebar active for wide alt-screen model")
-	}
-
-	// Home/welcome screen (no real conversation yet): single column.
-	home := m
-	home.transcript = nil
-	if home.sidebarActive() {
-		t.Fatalf("sidebar should be inactive on the empty home screen")
-	}
-
-	// Too narrow: single column only.
-	narrow := m
-	narrow.width = 50
-	if narrow.sidebarActive() {
-		t.Fatalf("sidebar should be inactive on a narrow terminal")
-	}
-
-	// Inline (non-alt-screen) mode keeps the legacy single-column layout.
-	inline := m
-	inline.altScreen = false
-	if inline.sidebarActive() {
-		t.Fatalf("sidebar should be inactive in inline mode")
-	}
-
-	// Subchat drill-in owns the full width.
-	sub := m
-	sub.subchat.active = true
-	if sub.sidebarActive() {
-		t.Fatalf("sidebar should be inactive during subchat drill-in")
-	}
-}
-
-func TestSidebarToggleHidesAndShows(t *testing.T) {
-	m := sidebarTestModel()
-	if !m.sidebarActive() || !m.sidebarAvailable() {
-		t.Fatal("sidebar should be active and available for the test model")
-	}
-
-	// Ctrl+B hide preference suppresses the sidebar even though it's available.
-	m.sidebarHidden = true
-	if m.sidebarActive() {
-		t.Fatal("sidebar should be inactive when hidden by the user")
-	}
-	if !m.sidebarAvailable() {
-		t.Fatal("sidebarAvailable must ignore the hide preference (so Ctrl+B can re-show)")
-	}
-	// Hidden → the chat reflows to full width.
-	if got, want := m.chatColumnWidth(), chatWidth(m.width); got != want {
-		t.Fatalf("hidden sidebar: chat width = %d, want full %d", got, want)
-	}
-
-	// Toggling back restores the two-column layout.
-	m.sidebarHidden = false
-	if !m.sidebarActive() {
-		t.Fatal("sidebar should be active again after un-hiding")
-	}
-}
-
 func TestChatColumnWidthUsesFullConversationWidth(t *testing.T) {
 	m := sidebarTestModel()
 	if got, want := m.chatColumnWidth(), chatWidth(m.width); got != want {
@@ -255,60 +167,6 @@ func TestChatColumnWidthUsesFullConversationWidth(t *testing.T) {
 	}
 }
 
-func TestRenderContextSidebarDimensions(t *testing.T) {
-	m := sidebarTestModel()
-	width := sidebarWidth(m.width)
-	const height = 20
-	lines := m.renderContextSidebar(width, height)
-	if len(lines) != height {
-		t.Fatalf("sidebar produced %d lines, want exactly %d", len(lines), height)
-	}
-	for i, line := range lines {
-		if w := lipgloss.Width(line); w != width {
-			t.Fatalf("sidebar line %d width = %d, want exactly %d", i, w, width)
-		}
-	}
-	// Section headers and the token floor should be present.
-	plain := stripSidebar(lines)
-	if !strings.Contains(plain, "AGENTS") {
-		t.Fatalf("sidebar missing AGENTS header:\n%s", plain)
-	}
-	if !strings.Contains(plain, "PLAN") {
-		t.Fatalf("sidebar missing PLAN header:\n%s", plain)
-	}
-	if !strings.Contains(plain, "tokens") {
-		t.Fatalf("sidebar missing token floor:\n%s", plain)
-	}
-}
-
-// TestSidebarAutoHidesWhenEmpty: with no agents and no active plan the panel
-// auto-hides and the chat reclaims the full width; adding a plan or an agent
-// brings it back.
-func TestSidebarAutoHidesWhenEmpty(t *testing.T) {
-	m := sidebarTestModel() // has a plan -> sidebar active
-	if !m.sidebarActive() {
-		t.Fatal("expected sidebar active when the model has a plan")
-	}
-
-	// Clear the only content (the plan) -> empty -> auto-hidden.
-	m.plan.steps = nil
-	if m.sidebarHasContent() {
-		t.Fatal("model should have no sidebar content after clearing the plan")
-	}
-	if m.sidebarActive() {
-		t.Error("sidebar should auto-hide with no agents and no active plan")
-	}
-	if got, want := m.chatColumnWidth(), chatWidth(m.width); got != want {
-		t.Errorf("empty sidebar: chat width = %d, want full %d", got, want)
-	}
-
-	// A spawned agent brings the panel back.
-	m.specialists.start("explorer", "look around", "sess-x", time.Now())
-	if !m.sidebarHasContent() || !m.sidebarActive() {
-		t.Error("sidebar should return once an agent spawns")
-	}
-}
-
 func TestSidebarShowsSpawnedAgents(t *testing.T) {
 	m := sidebarTestModel()
 	now := time.Now()
@@ -319,7 +177,7 @@ func TestSidebarShowsSpawnedAgents(t *testing.T) {
 	m.specialists.start("reviewer", "review diff", "sess-2", now)
 	m.specialists.complete("sess-2", specialistCompleted, 0, "", now)
 
-	width := sidebarWidth(m.width)
+	width := 40
 	plain := stripSidebar(m.sidebarAgentLines(width))
 	if !strings.Contains(plain, "explorer") {
 		t.Fatalf("running subagent name missing:\n%s", plain)
@@ -362,7 +220,7 @@ func TestSidebarShowsSwarmSpawnedAgents(t *testing.T) {
 	if agents[1].id != "subagent-2" || agents[1].name != "write integration" {
 		t.Fatalf("member 1 = %+v, want id subagent-2 named 'write integration' (short task name)", agents[1])
 	}
-	width := sidebarWidth(m.width)
+	width := 40
 	plain := stripSidebar(m.sidebarAgentLines(width))
 	// The sidebar shows the short task-derived names, not the raw ids or full task.
 	if !strings.Contains(plain, "audit auth") || !strings.Contains(plain, "write integration") {
@@ -535,7 +393,7 @@ func TestSwarmAgentsStayVisibleWhileCollectRunsMidFlight(t *testing.T) {
 		}
 	}
 
-	plain := stripSidebar(m.sidebarAgentLines(sidebarWidth(m.width)))
+	plain := stripSidebar(m.sidebarAgentLines(40))
 	if !strings.Contains(plain, "homepage") || !strings.Contains(plain, "stylesheet") {
 		t.Fatalf("sidebar should list the running members and their tasks:\n%s", plain)
 	}
@@ -554,7 +412,7 @@ func TestSidebarHidesNotFoundSpecialistMisroutes(t *testing.T) {
 	if len(got) != 1 || got[0].name != "worker" {
 		t.Fatalf("not-found misroute should be filtered; want only worker, got %+v", got)
 	}
-	plain := stripSidebar(m.sidebarAgentLines(sidebarWidth(m.width)))
+	plain := stripSidebar(m.sidebarAgentLines(40))
 	if strings.Contains(plain, "swarm_send") {
 		t.Fatalf("bogus swarm_send specialist should not appear:\n%s", plain)
 	}
@@ -581,22 +439,6 @@ func TestSidebarPlanReflectsState(t *testing.T) {
 	joined := stripSidebar(lines)
 	if !strings.Contains(joined, "✓") || !strings.Contains(joined, "•") || !strings.Contains(joined, "○") {
 		t.Fatalf("plan lines missing status glyphs:\n%s", joined)
-	}
-}
-
-func TestJoinColumnsAligns(t *testing.T) {
-	chat := []string{"hello", "world", "third row that is longer"}
-	sidebar := []string{"A", "B"}
-	const chatW, sidebarW = 12, 6
-	rows := joinColumns(chat, sidebar, chatW, sidebarW)
-	if len(rows) != 3 {
-		t.Fatalf("joined %d rows, want max(3,2)=3", len(rows))
-	}
-	want := chatW + 3 + sidebarW // " │ " padded divider
-	for i, row := range rows {
-		if w := lipgloss.Width(row); w != want {
-			t.Fatalf("row %d width = %d, want %d", i, w, want)
-		}
 	}
 }
 

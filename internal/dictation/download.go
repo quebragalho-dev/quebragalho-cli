@@ -80,13 +80,21 @@ type ModelVariant struct {
 	Streaming   bool
 	// Recommended marks a curated, checksum-pinned, validated model (shown first).
 	Recommended bool
+	// Language is the ISO-639-1 code the model understands ("en", "pt"), or ""
+	// for multilingual models (they follow any language).
+	Language string
+	// Languages lists what a multilingual model (Language == "") understands.
+	// nil means any language.
+	Languages []string
 }
 
-// ModelVariants returns the curated English models the download picker offers.
-// This is a hand-picked shortlist (each pinned by SHA256 since the model release
-// predates GitHub's per-asset digests), NOT the whole sherpa-onnx model zoo —
-// many more models (other languages, sizes, and streaming/batch families) work
-// via a manual stt.localModelPath. Streaming (live) options come first.
+// ModelVariants returns the curated models the download picker offers: English
+// batch/streaming models plus multilingual models covering Portuguese and other
+// languages. This is a hand-picked shortlist (each pinned by SHA256 since the
+// model release predates GitHub's per-asset digests), NOT the whole sherpa-onnx
+// model zoo — many more models (other languages, sizes, and streaming/batch
+// families) work via a manual stt.localModelPath. Streaming (live) options
+// come first.
 func ModelVariants() []ModelVariant {
 	return []ModelVariant{
 		// Live / streaming — transcript builds up as you speak.
@@ -105,6 +113,7 @@ func ModelVariants() []ModelVariant {
 			DirName:     "model-streaming-zipformer-en-kroko-2025-08-06",
 			Streaming:   true,
 			Recommended: true,
+			Language:    "en",
 		},
 		{
 			ID: "streaming-zipformer-20m", Label: "Zipformer 20M",
@@ -113,6 +122,7 @@ func ModelVariants() []ModelVariant {
 			Digest:    "9c559283e8498d3fe95913c79ca1cb454bb26281ac2b102b41306c7d752765d9",
 			DirName:   "model-streaming-zipformer-en-20M-2023-02-17",
 			Streaming: true,
+			Language:  "en",
 		},
 		{
 			ID: "streaming-zipformer", Label: "Zipformer",
@@ -121,6 +131,7 @@ func ModelVariants() []ModelVariant {
 			Digest:    "639e25b578e9e997131402199419c13a941f8e4e198e2da1ce57dbf5cf401282",
 			DirName:   "model-streaming-zipformer-en-2023-06-26",
 			Streaming: true,
+			Language:  "en",
 		},
 		{
 			ID: "nemo-streaming-fast-conformer-transducer-en-80ms-int8", Label: "NeMo streaming (fast)",
@@ -130,14 +141,26 @@ func ModelVariants() []ModelVariant {
 			DirName:     "model-nemo-streaming-fast-conformer-transducer-en-80ms-int8",
 			Streaming:   true,
 			Recommended: true,
+			Language:    "en",
 		},
 		// Batch — transcribes once when you stop.
+		// nvidia/parakeet-tdt-0.6b-v3, CC BY 4.0 (attribution: NVIDIA).
+		{
+			ID: "nemo-parakeet-tdt-0.6b-v3-int8", Label: "Parakeet v3",
+			Description: "português e mais 24 idiomas, com pontuação", Bytes: 487211443,
+			AssetName:   "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+			Digest:      "1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9",
+			DirName:     "model-nemo-parakeet-tdt-0.6b-v3-int8",
+			Recommended: true,
+			Languages:   []string{"bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"},
+		},
 		{
 			ID: "moonshine-tiny", Label: "Moonshine tiny",
 			Description: "fast, smallest", Bytes: 103 << 20,
 			AssetName: "sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
 			Digest:    pinnedModelDigest,
 			DirName:   "model-moonshine-tiny-en-int8",
+			Language:  "en",
 		},
 		{
 			ID: "moonshine-base", Label: "Moonshine base",
@@ -146,6 +169,7 @@ func ModelVariants() []ModelVariant {
 			Digest:      "21870cecaa2e44e4e2bf63e02d1072bed183ccd10284871353bd9d24dad14e5e",
 			DirName:     "model-moonshine-base-en-int8",
 			Recommended: true,
+			Language:    "en",
 		},
 		{
 			ID: "sense-voice-zh-en-ja-ko-yue-int8-2025-09-09", Label: "SenseVoice",
@@ -154,6 +178,7 @@ func ModelVariants() []ModelVariant {
 			Digest:      "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
 			DirName:     "model-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",
 			Recommended: true,
+			Languages:   []string{"zh", "en", "ja", "ko"},
 		},
 		{
 			// Heavy (~1 GB) but the best transcription quality — recommended when
@@ -167,6 +192,46 @@ func ModelVariants() []ModelVariant {
 			Recommended: true,
 		},
 	}
+}
+
+// defaultDictationModelID is the curated model QG offers to download on the
+// first /voice: NVIDIA Parakeet TDT 0.6B v3 (CC BY 4.0, attribution: NVIDIA) —
+// free, on-device, and understanding Portuguese plus 24 other European
+// languages with punctuation.
+const defaultDictationModelID = "nemo-parakeet-tdt-0.6b-v3-int8"
+
+// DefaultVariantFor returns the model QG offers to download on the first
+// /voice for a user who dictates in lang ("" when unknown): the default
+// curated model, unless lang is known and the model does not cover it.
+func DefaultVariantFor(lang string) (ModelVariant, bool) {
+	for _, v := range ModelVariants() {
+		if v.ID != defaultDictationModelID {
+			continue
+		}
+		if lang == "" || variantCoversLanguage(v, lang) {
+			return v, true
+		}
+		return ModelVariant{}, false
+	}
+	return ModelVariant{}, false
+}
+
+// variantCoversLanguage reports whether a curated model understands lang: a
+// monolingual model covers exactly its language, a multilingual one covers
+// every language when Languages is nil, else only the listed ones.
+func variantCoversLanguage(v ModelVariant, lang string) bool {
+	if v.Language != "" {
+		return v.Language == lang
+	}
+	if v.Languages == nil {
+		return true
+	}
+	for _, l := range v.Languages {
+		if l == lang {
+			return true
+		}
+	}
+	return false
 }
 
 // recommendedModelIDs marks the curated variants flagged Recommended so the full
@@ -276,6 +341,8 @@ func ListModels(ctx context.Context, client *http.Client, apiBase string) ([]Mod
 			DirName:     "model-" + id,
 			Streaming:   strings.Contains(strings.ToLower(a.Name), "streaming-"),
 			Recommended: recommendedModelIDs[a.Name],
+			Language:    curatedLanguages[a.Name],
+			Languages:   curatedModelLanguages[a.Name],
 		})
 	}
 	return out, nil
@@ -402,6 +469,32 @@ var curatedDescriptions = func() map[string]string {
 	return m
 }()
 
+// curatedLanguages maps a curated model's asset name to the language it
+// understands, so the fetched full list carries the same language as the
+// curated shortlist. Non-curated models keep Language "" (unknown).
+var curatedLanguages = func() map[string]string {
+	m := map[string]string{}
+	for _, v := range ModelVariants() {
+		if v.Language != "" {
+			m[v.AssetName] = v.Language
+		}
+	}
+	return m
+}()
+
+// curatedModelLanguages maps a curated multilingual model's asset name to the
+// languages it understands, so the fetched full list carries the same coverage
+// as the curated shortlist. Non-curated models keep Languages nil.
+var curatedModelLanguages = func() map[string][]string {
+	m := map[string][]string{}
+	for _, v := range ModelVariants() {
+		if v.Language == "" && v.Languages != nil {
+			m[v.AssetName] = v.Languages
+		}
+	}
+	return m
+}()
+
 // EngineComponents identifies the resolved local-engine paths.
 type EngineComponents struct {
 	BinaryPath string // extracted sherpa-onnx-offline
@@ -430,6 +523,10 @@ type DownloadOptions struct {
 	// Progress receives live status strings for the UI, including a percentage
 	// while downloading (e.g. "Engine 45% · 57/126 MB").
 	Progress func(status string)
+	// ProgressBytes reports the bytes of the file being downloaded. label is
+	// the same label Progress uses ("motor", the model's label). total is 0
+	// when the size is unknown. Called at most once per whole percent.
+	ProgressBytes func(label string, done, total int64)
 	// platformKey overrides runtime detection (tests).
 	platformKey string
 	// skipPinned disables the pinned-digest cross-check (tests, which use fixture
@@ -462,8 +559,8 @@ func EnsureLocalEngine(ctx context.Context, opts DownloadOptions) (EngineCompone
 	suffix, ok := engineAssetSuffix[key]
 	if !ok {
 		return EngineComponents{}, &SetupError{
-			Tool: "sherpa-onnx auto-download",
-			Hint: fmt.Sprintf("no prebuilt engine is known for %s — install sherpa-onnx manually or use a cloud provider (see docs/dictation.md)", key),
+			Tool: "download do sherpa-onnx",
+			Hint: fmt.Sprintf("nenhum motor pronto para %s — instale o sherpa-onnx manualmente ou use um provedor de nuvem (rode /stt-model para ver as opções)", key),
 		}
 	}
 	version := strings.TrimSpace(opts.EngineVersion)
@@ -497,7 +594,7 @@ func EnsureLocalEngine(ctx context.Context, opts DownloadOptions) (EngineCompone
 		if err != nil {
 			return EngineComponents{}, err
 		}
-		if err := downloadVerifyExtract(ctx, client, asset, pinned, false, "Engine", engineDir, progress); err != nil {
+		if err := downloadVerifyExtract(ctx, client, asset, pinned, false, "Engine", engineDir, progress, opts.ProgressBytes); err != nil {
 			return EngineComponents{}, err
 		}
 		binPath, serverPath = resolveEnginePaths(engineDir, targetWindows)
@@ -538,7 +635,7 @@ func EnsureLocalEngine(ctx context.Context, opts DownloadOptions) (EngineCompone
 		// download (the model release predates GitHub's per-asset digests). The
 		// engine BINARY above never allows this — a native executable is always
 		// digest-verified.
-		if err := downloadVerifyExtract(ctx, client, asset, modelPinned, true, modelLabel, modelDir, progress); err != nil {
+		if err := downloadVerifyExtract(ctx, client, asset, modelPinned, true, modelLabel, modelDir, progress, opts.ProgressBytes); err != nil {
 			return EngineComponents{}, err
 		}
 	}
@@ -606,8 +703,8 @@ func resolveAsset(ctx context.Context, client *http.Client, apiBase, tag, namePr
 		return resolvedAsset{url: a.DownloadURL, sha256: digest, size: a.Size, name: a.Name}, nil
 	}
 	return resolvedAsset{}, &SetupError{
-		Tool: "sherpa-onnx auto-download",
-		Hint: fmt.Sprintf("release %s has no asset matching %s*%s — try a different stt.engineVersion or install manually", tag, namePrefix, nameSuffix),
+		Tool: "download do sherpa-onnx",
+		Hint: fmt.Sprintf("a versão %s não tem asset %s*%s — tente outro stt.engineVersion ou instale manualmente", tag, namePrefix, nameSuffix),
 	}
 }
 
@@ -615,7 +712,7 @@ func resolveAsset(ctx context.Context, client *http.Client, apiBase, tag, namePr
 // (against the API digest, and — when pinned is set — a cross-check that the
 // resolved digest equals the audited value), and extracts the tar.bz2. A
 // mismatch aborts before anything is extracted or run.
-func downloadVerifyExtract(ctx context.Context, client *http.Client, asset resolvedAsset, pinned string, allowUnverified bool, label, destDir string, progress func(string)) error {
+func downloadVerifyExtract(ctx context.Context, client *http.Client, asset resolvedAsset, pinned string, allowUnverified bool, label, destDir string, progress func(string), progressBytes func(string, int64, int64)) error {
 	// Determine the digest to verify against: the API digest and the pinned digest
 	// must agree when both exist; at least one must exist unless allowUnverified
 	// (models are data files from the official release — TLS-only is acceptable;
@@ -679,7 +776,7 @@ func downloadVerifyExtract(ctx context.Context, client *http.Client, asset resol
 	}
 	src := io.Reader(resp.Body)
 	if total > 0 {
-		src = &progressReader{r: resp.Body, total: total, label: label, report: progress, lastPct: -1}
+		src = &progressReader{r: resp.Body, total: total, label: label, report: progress, reportBytes: progressBytes, lastPct: -1}
 	}
 	if _, err := io.Copy(io.MultiWriter(tmp, hasher), src); err != nil {
 		tmp.Close()
@@ -708,14 +805,18 @@ func downloadVerifyExtract(ctx context.Context, client *http.Client, asset resol
 }
 
 // progressReader reports download progress as a percentage on each whole-percent
-// change, formatted "<label> NN% · X/Y MB".
+// change, formatted "<label> NN% · X/Y MB". reportBytes (when non-nil) fires at
+// the same moments with the raw byte counts, so byte progress and text progress
+// stay in lockstep; both callbacks are optional. Extraction and verification do
+// not report byte progress.
 type progressReader struct {
-	r       io.Reader
-	total   int64
-	read    int64
-	label   string
-	report  func(string)
-	lastPct int
+	r           io.Reader
+	total       int64
+	read        int64
+	label       string
+	report      func(string)
+	reportBytes func(string, int64, int64)
+	lastPct     int
 }
 
 func (p *progressReader) Read(b []byte) (int, error) {
@@ -725,7 +826,12 @@ func (p *progressReader) Read(b []byte) (int, error) {
 		pct := int(p.read * 100 / p.total)
 		if pct != p.lastPct {
 			p.lastPct = pct
-			p.report(fmt.Sprintf("%s %d%% · %d/%d MB", p.label, pct, p.read>>20, p.total>>20))
+			if p.report != nil {
+				p.report(fmt.Sprintf("%s %d%% · %d/%d MB", p.label, pct, p.read>>20, p.total>>20))
+			}
+			if p.reportBytes != nil {
+				p.reportBytes(p.label, p.read, p.total)
+			}
 		}
 	}
 	return n, err

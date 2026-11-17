@@ -1,4 +1,0 @@
-first line of d.txt
-second line of d.txt
-third line of d.txt
-delta delta delta

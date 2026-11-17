@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -175,7 +176,12 @@ func TestStatuslineChildEnvScrubbed(t *testing.T) {
 			t.Fatalf("child env leaks %s:\n%s", banned, joined)
 		}
 	}
-	if !strings.Contains(joined, "PATH=") {
+	names := joined
+	if runtime.GOOS == "windows" {
+		// Windows names the variable "Path"; names are case-insensitive there.
+		names = strings.ToUpper(joined)
+	}
+	if !strings.Contains(names, "PATH=") {
 		t.Fatalf("child env lacks PATH:\n%s", joined)
 	}
 }
@@ -376,7 +382,9 @@ func TestStatuslineKillSyncWaitsForRunner(t *testing.T) {
 // A grandchild that outlives the shell holding stdout open must not wedge
 // the runner: the timeout kills the tree and the next cycle runs.
 func TestStatuslineCommandKillsTreeOnTimeout(t *testing.T) {
-	restore := stubStatuslineShell(leakHelperCommand())
+	pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
+	reapStatuslineTestHelper(t, pidFile)
+	restore := stubStatuslineShell(leakHelperCommand(pidFile))
 	defer restore()
 	start := time.Now()
 	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 200*time.Millisecond)
@@ -406,6 +414,7 @@ func TestStatuslineCommandKillsTreeOnTimeout(t *testing.T) {
 func TestStatuslineCommandKeepsOutputOnWaitDelay(t *testing.T) {
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "grandchild.pid")
+	reapStatuslineTestHelper(t, pidFile)
 	restore := stubStatuslineShell(leakPrintHelperCommand(pidFile, "SL-PARTIAL-OK"))
 	defer restore()
 	msg := execStatuslineRun(context.Background(), "whatever", "{}", statuslineChildEnv(80, 24), 30*time.Second)
@@ -418,6 +427,12 @@ func TestStatuslineCommandKeepsOutputOnWaitDelay(t *testing.T) {
 	grandchild := statuslineTestWaitPID(t, pidFile)
 	if grandchild == 0 {
 		t.Fatal("grandchild never recorded its pid")
+	}
+	if runtime.GOOS == "windows" {
+		// Windows has no process groups: once the shell has exited, the
+		// tree kill cannot find its orphan (execution.KillProcessGroup).
+		// The kept output above is what this test can assert there.
+		return
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for statuslineTestProcessAlive(grandchild) && time.Now().Before(deadline) {
@@ -517,7 +532,33 @@ func echoHelperCommand(text string) []string { return []string{"echo", text} }
 // stdout pipe open, then exits at once: without tree kill + WaitDelay, the
 // run below would block until the grandchild's hold expires (30s, far past
 // the test bound).
-func leakHelperCommand() []string { return []string{"leak", "hold", "30s"} }
+func leakHelperCommand(pidFile string) []string {
+	return []string{"leak", "holdpid", pidFile, "30s"}
+}
+
+// reapStatuslineTestHelper kills the grandchild recorded in pidFile when the
+// test ends. On Windows an orphaned grandchild survives the tree kill and,
+// being a copy of the test binary, keeps go test from deleting that binary.
+func reapStatuslineTestHelper(t *testing.T, pidFile string) {
+	t.Helper()
+	t.Cleanup(func() {
+		deadline := time.Now().Add(500 * time.Millisecond)
+		for {
+			if raw, err := os.ReadFile(pidFile); err == nil {
+				if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 1 {
+					if proc, err := os.FindProcess(pid); err == nil {
+						_ = proc.Kill()
+					}
+					return
+				}
+			}
+			if time.Now().After(deadline) {
+				return
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	})
+}
 
 // leakPrintHelperCommand orphans a grandchild holding stdout open (recorded
 // in a pid file), then prints text and exits at once: Wait can only unblock

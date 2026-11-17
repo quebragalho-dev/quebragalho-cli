@@ -15,10 +15,7 @@ func containsWorkingWord(s string) bool {
 			return true
 		}
 	}
-	if strings.Contains(s, workingFireWordAscii) {
-		return true
-	}
-	return false
+	return strings.Contains(s, workingFireWordAscii)
 }
 
 func workingWordIndex(word string) int {

@@ -15,7 +15,7 @@ import (
 // stale metadata needs no rename/remove recovery protocol.
 
 // ErrAlreadyRunning is returned when a live daemon already holds the lock.
-var ErrAlreadyRunning = errors.New("daemon: another instance is already running")
+var ErrAlreadyRunning = errors.New("daemon: já há outra instância em execução")
 
 // fileLock is an acquired single-instance lock.
 type fileLock struct {

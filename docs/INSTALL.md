@@ -12,11 +12,12 @@ Escolha o método que já faz parte da sua rotina. Nenhum deles é o "oficial".
 | `go install` (requer acesso) | `go install github.com/quebragalho-dev/quebragalho-cli/cmd/qg@latest` | rode de novo |
 | Fonte (requer acesso) | `make build` | recompile |
 
-`qg upgrade` segue quem é dono do binário, com uma única exceção que ele não
-consegue detectar: delega ao npm quando a instalação é npm, recusa e manda no
-`brew upgrade qg` para keg do Homebrew, e substitui o binário no lugar para
-todo o resto — inclusive instalação gerenciada pelo mise (a exceção: use
-`mise upgrade`).
+`qg upgrade` segue quem é dono do binário: delega ao npm quando a instalação
+é npm e substitui o binário no lugar para todo o resto — inclusive
+instalação gerenciada pelo mise (a exceção: use `mise upgrade`). Se o
+binário estiver dentro de um keg do Homebrew (detecção defensiva; não há
+fórmula publicada), o `qg upgrade` recusa substituir para não brigar com os
+registros do brew — a mensagem de erro manda rodar `brew upgrade qg`.
 
 Os arquivos de release são a base da maioria dos métodos acima: o script de
 instalação baixa o arquivo da plataforma publicada no GitHub Release e verifica
@@ -63,7 +64,16 @@ curl -fsSL https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/mai
 
 Flags úteis: `--version <versão>` fixa a release (padrão: `latest`),
 `--repo <owner/repo>` muda o repositório, `--install-dir <caminho>` é o mesmo
-que `QG_INSTALL_DIR`.
+que `QG_INSTALL_DIR`. As mesmas opções existem como variáveis de ambiente:
+`QG_VERSION` (padrão: `latest`), `QG_REPO` (padrão:
+`quebragalho-dev/quebragalho-cli`) e `QG_INSTALL_DIR` (padrão:
+`/usr/local/bin`).
+
+Sem `--install-dir`/`QG_INSTALL_DIR`, o padrão `/usr/local/bin` exige escrita
+de administrador. Se ele não tiver escrita, o script cai sozinho para um
+diretório do usuário com escrita, preferindo quem já está no `PATH`, nesta
+ordem: `$HOME/.local/bin`, `/opt/homebrew/bin`, `$HOME/.bin`. O script avisa
+qual diretório escolheu e se ele não está no `PATH`.
 
 ## PATH
 
@@ -142,10 +152,10 @@ rm -rf ~/.config/qg         # config, tema e plugins (some com as chaves salvas)
 rm -rf ~/.local/share/qg    # sessões, skills, cron e tarefas (XDG_DATA_HOME)
 rm -rf ~/.local/state/qg    # worktrees locais (XDG_STATE_HOME)
 rm -rf ~/Library/Caches/qg  # cache (Linux: ~/.cache/qg)
+```
 
 Quem usou o pet pode apagar à mão o que ele deixou: `pets/` dentro da pasta
-de config do qg e `pets/frame-cache` na pasta de cache.
-```
+de config do qg e `images/frame-cache` na mesma pasta de config.
 
 Instalações via npm, mise ou `go install` devem ser removidas pelo próprio
 gerenciador (`npm uninstall -g @quebragalho/cli`, `mise uninstall …`).
@@ -158,7 +168,7 @@ qg
 ```
 
 O pacote instala **os dois nomes de comando**: `qg` e o alias `quebragalho`.
-Suporta Linux e macOS em x64 e arm64 (e Windows em x64). Não há scripts de
+Suporta Linux e macOS em x64 e arm64 (e Windows em x64 e arm64). Não há scripts de
 instalação nem downloads fora do registro npm. Se as dependências opcionais
 forem puladas (`--omit=optional`), o wrapper baixa o binário da release
 compatível com a sua plataforma, com verificação de checksum.
@@ -187,7 +197,7 @@ novo.
 
 ## go install
 
-O módulo está no repositório privado (requer acesso).
+O módulo é público; não é preciso acesso especial.
 
 ```bash
 go install github.com/quebragalho-dev/quebragalho-cli/cmd/qg@latest
@@ -205,7 +215,7 @@ Requer Go 1.26.11+.
 
 ## A partir do código-fonte
 
-O clone usa o repositório privado (requer acesso).
+O repositório é público; o clone não exige acesso especial.
 
 Requer Go 1.26.11+.
 
@@ -237,6 +247,10 @@ Coloque `qg` e `qg-linux-sandbox` no mesmo diretório do `PATH`. No macOS não
 irm https://raw.githubusercontent.com/quebragalho-dev/quebragalho-cli/main/scripts/install.ps1 | iex
 ```
 
+Por padrão instala em `%LOCALAPPDATA%\qg\bin` (ou em `$env:QG_INSTALL_DIR`,
+se definido) e acrescenta esse diretório ao `PATH` do usuário; reabra o
+terminal para usar `qg` de qualquer lugar.
+
 Se o PowerShell bloquear o `qg.ps1` ("não pode ser carregado porque a
 execução de scripts foi desabilitada neste sistema"), use `qg.cmd`
 (ou rode pelo `cmd`), ou libere scripts locais com:
@@ -247,7 +261,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## mise
 
-Este método usa o repositório privado (requer acesso).
+O repositório é público; este método não exige acesso especial.
 
 ```bash
 mise use -g ubi:quebragalho-dev/quebragalho-cli
@@ -291,7 +305,8 @@ plataforma.
 O `qg upgrade` comporta-se diferente conforme o dono do binário:
 
 - **npm**: roda `npm install -g @quebragalho/cli@latest` para você.
-- **Homebrew**: recusa e manda no `brew upgrade qg` (substituir o binário do
-  keg seria revertido no próximo `brew upgrade`).
+- **Keg do Homebrew (sem fórmula publicada; só detecção defensiva)**: recusa
+  e manda rodar `brew upgrade qg` (substituir o binário do keg seria
+  revertido no próximo `brew upgrade`).
 - **todo o resto** (inclusive `/usr/local/bin` do script curl): baixa o
   arquivo de release verificado e substitui o binário no lugar.

@@ -56,6 +56,79 @@ func TestStartupBackgroundRetryAdoptsRecoveredServer(t *testing.T) {
 	}
 }
 
+// A startup failure that is qg's own handshake budget (the initialize timeout
+// winning the race against the startup bound when MCP_TIMEOUT collapses both
+// to the same value) is a slow server, not a permanent failure: the background
+// retry must still be scheduled. Without this, the slow-CI race silently
+// schedules no retry and the server is never adopted.
+func TestStartupBackgroundRetryAdoptsAfterConnectBudgetError(t *testing.T) {
+	var calls atomic.Int32
+	factory := func(context.Context, Server) (ToolClient, error) {
+		if calls.Add(1) == 1 {
+			return nil, &connectBudgetError{err: context.DeadlineExceeded}
+		}
+		return &fakeToolClient{listed: []RemoteTool{{Name: "lookup"}}}, nil
+	}
+	registry := tools.NewRegistry()
+	runtime, err := RegisterTools(context.Background(), registry,
+		startupTestServer("http://127.0.0.1:9/mcp"), RegisterOptions{ClientFactory: factory})
+	if err != nil {
+		t.Fatalf("RegisterTools() error = %v", err)
+	}
+	defer runtime.Close()
+	if _, ok := registry.Get("mcp_s_lookup"); ok {
+		t.Fatal("failed server must not publish tools at startup")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, ok := registry.Get("mcp_s_lookup"); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background retry never adopted the server after a connect budget error at startup")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	for _, skipped := range runtime.Skipped() {
+		if skipped.Name == "s" {
+			t.Fatalf("adopted server must drop its skip, still present: %v", skipped.Err)
+		}
+	}
+}
+
+// A background attempt cut by qg's own handshake budget (the initialize
+// timeout winning the race against the attempt bound) costs only that attempt:
+// the loop continues and adopts the server on the next one.
+func TestBackgroundRetryContinuesAfterConnectBudgetError(t *testing.T) {
+	var calls atomic.Int32
+	factory := func(context.Context, Server) (ToolClient, error) {
+		switch calls.Add(1) {
+		case 1:
+			return nil, &MCPHTTPStatusError{Server: "s", Status: 503}
+		case 2:
+			return nil, &connectBudgetError{err: context.DeadlineExceeded}
+		}
+		return &fakeToolClient{listed: []RemoteTool{{Name: "lookup"}}}, nil
+	}
+	registry := tools.NewRegistry()
+	runtime, err := RegisterTools(context.Background(), registry,
+		startupTestServer("http://127.0.0.1:9/mcp"), RegisterOptions{ClientFactory: factory})
+	if err != nil {
+		t.Fatalf("RegisterTools() error = %v", err)
+	}
+	defer runtime.Close()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if _, ok := registry.Get("mcp_s_lookup"); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("background retry stopped at a connect budget error (%d connects)", calls.Load())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // A stdio server that fails at startup must not gain a background respawn:
 // the background loop is HTTP/SSE only, like connectWithRetry.
 func TestStartupNeverRetriesStdioInBackground(t *testing.T) {

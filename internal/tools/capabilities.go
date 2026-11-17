@@ -1,7 +1,5 @@
 package tools
 
-import "strings"
-
 // EffectClass classifies a tool's side effects for concurrency safety.
 // Concurrent execution (a later PR) must only consider tools that are both
 // ThreadSafe and EffectReadOnly; this package only declares metadata.
@@ -108,20 +106,6 @@ func (tool baseTool) Capabilities() ToolCapabilities {
 	return normalizeCapabilities(tool.capabilities)
 }
 
-// declaredCapabilities returns the constructor-set metadata without runtime
-// normalization. Catalog validation uses this so a mis-declared
-// ThreadSafe=true on a mutator is still reported even though CapabilitiesOf
-// clears it for callers.
-func (tool baseTool) declaredCapabilities() ToolCapabilities {
-	return tool.capabilities
-}
-
-// declaredCapabilityProvider is implemented by tools that can report their
-// raw constructor metadata (baseTool embedders).
-type declaredCapabilityProvider interface {
-	declaredCapabilities() ToolCapabilities
-}
-
 // Registry.Capabilities looks up a registered tool's capabilities by name.
 // Unknown tools return the fail-closed default (not an error) so callers can
 // treat missing tools as non-concurrent without panicking.
@@ -134,31 +118,4 @@ func (registry *Registry) Capabilities(name string) ToolCapabilities {
 		return UnknownCapabilities()
 	}
 	return CapabilitiesOf(tool)
-}
-
-// ValidateCapabilities checks a single capability record for consistency.
-// It returns a non-empty slice of human-readable problems when invalid.
-// Note: CapabilitiesOf already normalizes ThreadSafe away for non-ReadOnly
-// effects; validation still rejects the raw combination so catalog tests
-// catch mis-declared constructors.
-func ValidateCapabilities(name string, caps ToolCapabilities) []string {
-	var problems []string
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "<unnamed>"
-	}
-	if !caps.Effect.Valid() {
-		problems = append(problems, name+": invalid effect value")
-	}
-	if caps.Effect == EffectUnknown && caps.ThreadSafe {
-		problems = append(problems, name+": ThreadSafe=true is forbidden with EffectUnknown")
-	}
-	// Mutating / interactive / process-read effects are never concurrency-eligible.
-	switch caps.Effect {
-	case EffectWorkspaceWrite, EffectExternalWrite, EffectInteractive, EffectProcessRead:
-		if caps.ThreadSafe {
-			problems = append(problems, name+": ThreadSafe=true is not permitted for effect "+caps.Effect.String())
-		}
-	}
-	return problems
 }

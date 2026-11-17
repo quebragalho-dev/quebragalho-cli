@@ -712,6 +712,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		MaxTurns:             resolved.MaxTurns,
 		BetweenTurns:         mcpBetweenTurns(mcpRuntime),
 		ContextWindow:        resolveAgentContextWindow(runCtx, modelRegistry, resolved.Provider),
+		AutoCompactLimit:     resolved.Preferences.AutoCompactLimit,
 		DeferThreshold:       effectiveDeferThreshold,
 		Specialists:          specialistRuntime.specialistInfos(),
 		Skills:               pluginActivation.skillInfos(deps.skillsDir()),

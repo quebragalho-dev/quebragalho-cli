@@ -14,7 +14,7 @@ func TestSummaryCacheHitRate(t *testing.T) {
 
 func TestFormatCacheEfficiency(t *testing.T) {
 	s := Summary{InputTokens: 13100, CachedInputTokens: 8200}
-	if got := FormatCacheEfficiency(s); got != "63% (8,200 cached / 13,100 input)" {
+	if got := FormatCacheEfficiency(s); got != "63% (8,200 em cache / 13,100 de entrada)" {
 		t.Fatalf("FormatCacheEfficiency = %q", got)
 	}
 	if got := FormatCacheEfficiency(Summary{}); got != "n/a" {

@@ -2,6 +2,7 @@ package notify
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -227,6 +228,40 @@ func TestNotifierSinkFailSoft(t *testing.T) {
 	}
 	if good.count() != 1 {
 		t.Fatalf("sibling sink starved by panicking sink, got %d", good.count())
+	}
+}
+
+// panicLoggingSink panics in Emit and records recovered panics through the
+// sinkPanicLogger seam, modeling how WebhookSink reports its own faults.
+type panicLoggingSink struct {
+	mu     sync.Mutex
+	logged []string
+}
+
+func (s *panicLoggingSink) Emit(Event, string) { panic("sink boom") }
+
+func (s *panicLoggingSink) logSinkPanic(recovered any, event Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logged = append(s.logged, eventType(event)+": "+fmt.Sprint(recovered))
+}
+
+func TestEmitToSinkRecordsPanic(t *testing.T) {
+	sink := &panicLoggingSink{}
+
+	// Must not propagate the panic.
+	emitToSink(sink, Completion, "hi")
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.logged) != 1 {
+		t.Fatalf("recovered panic not recorded, got %d records", len(sink.logged))
+	}
+	if !strings.Contains(sink.logged[0], "sink boom") {
+		t.Fatalf("recorded panic drops the value, got %q", sink.logged[0])
+	}
+	if !strings.Contains(sink.logged[0], "completion") {
+		t.Fatalf("recorded panic drops the event, got %q", sink.logged[0])
 	}
 }
 

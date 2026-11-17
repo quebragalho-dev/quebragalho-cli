@@ -432,15 +432,28 @@ func gitOptionHasInlineValue(arg string) bool {
 }
 
 func gitHasUnsafeGlobalOption(args []string) bool {
-	for index := 0; index < len(args); index++ {
-		arg := args[index]
-		switch {
-		case strings.HasPrefix(arg, "--upload-pack"):
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--upload-pack") || gitOptionConsumesValue(arg) || gitOptionHasInlineValue(arg) {
 			return true
-		case arg == "-C" || strings.HasPrefix(arg, "-C"):
+		}
+	}
+	return false
+}
+
+// gitUnsafeLongOptions are subcommand options that write a file or run an
+// external program. git accepts any unique prefix of a long option, so
+// "--outp=x" is "--output=x"; a prefix match fails closed.
+var gitUnsafeLongOptions = []string{"--output", "--exec", "--ext-diff", "--textconv"}
+
+func gitArgIsUnsafeLongOption(arg string) bool {
+	name, _, _ := strings.Cut(arg, "=")
+	if len(name) < 3 || !strings.HasPrefix(name, "--") {
+		return false
+	}
+	for _, option := range gitUnsafeLongOptions {
+		if strings.HasPrefix(option, name) {
+			// Note: "--text" fails closed as a prefix of "--textconv".
 			return true
-		case gitOptionConsumesValue(arg):
-			index++
 		}
 	}
 	return false
@@ -448,10 +461,7 @@ func gitHasUnsafeGlobalOption(args []string) bool {
 
 func gitArgsReadOnly(args []string) bool {
 	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--output="), strings.HasPrefix(arg, "--exec="):
-			return false
-		case arg == "--output", arg == "--exec":
+		if gitArgIsUnsafeLongOption(arg) {
 			return false
 		}
 	}

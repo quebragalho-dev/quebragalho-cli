@@ -10,11 +10,6 @@ import (
 // ViewImageToolName is the canonical registry name of the image viewer.
 const ViewImageToolName = "view_image"
 
-// NewViewImageTool builds the workspace-scoped image viewer.
-func NewViewImageTool(workspaceRoot string) Tool {
-	return NewScopedViewImageTool(workspaceRoot, nil)
-}
-
 // NewScopedViewImageTool builds the image viewer bound to a path scope.
 //
 // The scope is not optional decoration. imageinput.LoadFile resolves a relative

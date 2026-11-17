@@ -9,6 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/filelock"
 )
 
 const WindowsSandboxCommandRunnerName = "qg-windows-command-runner.exe"
@@ -451,7 +455,7 @@ type WindowsCapabilitySIDs struct {
 }
 
 func ResolveWindowsSandboxHome(env map[string]string) (string, error) {
-	if override := strings.TrimSpace(envValue(env, "QG_WINDOWS_SANDBOX_HOME")); override != "" {
+	if override := strings.TrimSpace(envstr.Value(env, "QG_WINDOWS_SANDBOX_HOME")); override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
 		}
@@ -474,6 +478,18 @@ func LoadOrCreateWindowsCapabilitySIDs(sandboxHome string) (WindowsCapabilitySID
 		return WindowsCapabilitySIDs{}, errors.New("windows sandbox home is required")
 	}
 	path := WindowsCapabilitySIDPath(sandboxHome)
+	// Serialized across processes with the stable lockfile sibling: concurrent
+	// runner spawns otherwise race between the read and the atomic save, so one
+	// of them hits a Windows sharing violation or mints disagreeing SIDs.
+	unlock, err := lockWindowsCapabilitySIDFile(path)
+	if err != nil {
+		return WindowsCapabilitySIDs{}, err
+	}
+	defer unlock()
+	return loadOrCreateWindowsCapabilitySIDsLocked(path)
+}
+
+func loadOrCreateWindowsCapabilitySIDsLocked(path string) (WindowsCapabilitySIDs, error) {
 	if bytes, err := os.ReadFile(path); err == nil {
 		var caps WindowsCapabilitySIDs
 		if err := json.Unmarshal(bytes, &caps); err != nil {
@@ -538,13 +554,23 @@ func windowsRuntimeTokenSIDs(capabilitySIDs []string, offlineSID string, mode Ne
 }
 
 func WindowsWorkspaceCapabilitySID(sandboxHome string, root string) (string, error) {
-	caps, err := LoadOrCreateWindowsCapabilitySIDs(sandboxHome)
-	if err != nil {
-		return "", err
+	sandboxHome = strings.TrimSpace(sandboxHome)
+	if sandboxHome == "" {
+		return "", errors.New("windows sandbox home is required")
 	}
 	key := windowsCapabilityPathKey(root)
 	if key == "" {
 		return "", errors.New("workspace root is required")
+	}
+	path := WindowsCapabilitySIDPath(sandboxHome)
+	unlock, err := lockWindowsCapabilitySIDFile(path)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	caps, err := loadOrCreateWindowsCapabilitySIDsLocked(path)
+	if err != nil {
+		return "", err
 	}
 	if sid := caps.WorkspaceByRoot[key]; sid != "" {
 		return sid, nil
@@ -554,17 +580,27 @@ func WindowsWorkspaceCapabilitySID(sandboxHome string, root string) (string, err
 	}
 	sid := randomWindowsCapabilitySID()
 	caps.WorkspaceByRoot[key] = sid
-	return sid, saveWindowsCapabilitySIDs(WindowsCapabilitySIDPath(sandboxHome), caps)
+	return sid, saveWindowsCapabilitySIDs(path, caps)
 }
 
 func WindowsWritableRootCapabilitySID(sandboxHome string, root string) (string, error) {
-	caps, err := LoadOrCreateWindowsCapabilitySIDs(sandboxHome)
-	if err != nil {
-		return "", err
+	sandboxHome = strings.TrimSpace(sandboxHome)
+	if sandboxHome == "" {
+		return "", errors.New("windows sandbox home is required")
 	}
 	key := windowsCapabilityPathKey(root)
 	if key == "" {
 		return "", errors.New("writable root is required")
+	}
+	path := WindowsCapabilitySIDPath(sandboxHome)
+	unlock, err := lockWindowsCapabilitySIDFile(path)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	caps, err := loadOrCreateWindowsCapabilitySIDsLocked(path)
+	if err != nil {
+		return "", err
 	}
 	if sid := caps.WritableRootByPath[key]; sid != "" {
 		return sid, nil
@@ -574,7 +610,42 @@ func WindowsWritableRootCapabilitySID(sandboxHome string, root string) (string, 
 	}
 	sid := randomWindowsCapabilitySID()
 	caps.WritableRootByPath[key] = sid
-	return sid, saveWindowsCapabilitySIDs(WindowsCapabilitySIDPath(sandboxHome), caps)
+	return sid, saveWindowsCapabilitySIDs(path, caps)
+}
+
+// lockWindowsCapabilitySIDFile serializes access to the capability SID file
+// across processes with the stable "<file>.lockfile" sibling, mirroring
+// GrantStore.lockStateFile: the lock covers the whole read-mint-save sequence
+// and is never held while a sandboxed command runs. Timeout fails closed and
+// names the lock path.
+func lockWindowsCapabilitySIDFile(path string) (func(), error) {
+	lockPath := path + ".lockfile"
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(grantLockTimeout)
+	for {
+		locked, err := filelock.TryLockExclusive(file)
+		if err != nil {
+			_ = file.Close()
+			return nil, err
+		}
+		if locked {
+			return func() {
+				_ = filelock.Unlock(file)
+				_ = file.Close()
+			}, nil
+		}
+		if time.Now().After(deadline) {
+			_ = file.Close()
+			return nil, fmt.Errorf("timed out waiting for windows capability SID lock at %s", lockPath)
+		}
+		time.Sleep(grantLockRetry)
+	}
 }
 
 func WindowsCapabilitySIDsForConfig(config WindowsSandboxCommandConfig) ([]string, error) {

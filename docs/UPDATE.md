@@ -9,7 +9,7 @@ already open, a quiet footer notice. Both read the same stored check result;
 see "Interactive startup check" below.
 
 Os exemplos com `--repo quebragalho-dev/quebragalho-cli` usam o repositório
-privado (requer acesso), inclusive com `--check`.
+público, inclusive com `--check`.
 
 ```bash
 qg update --check
@@ -87,7 +87,13 @@ Endpoint resolution order:
 1. `--endpoint`
 2. `QG_UPDATE_RELEASE_URL`
 3. `--repo`
-4. `https://api.github.com/repos/quebragalho-dev/quebragalho-cli/releases/latest` (requer acesso)
+4. `https://api.github.com/repos/quebragalho-dev/quebragalho-cli/releases/latest` (public repository)
+
+A custom endpoint, and every URL the release points to, must be `https://`.
+Plain `http://` is accepted only for a loopback address (`localhost`,
+`127.0.0.1`, `[::1]`), and a redirect from https to http is refused: the
+checksum comes from the same origin as the archive, so TLS is what
+authenticates the download.
 
 Installer scripts download the matching release asset for the local platform and
 verify its `.sha256` file. If QG is already installed, run `qg upgrade`
@@ -162,7 +168,9 @@ or any non-interactive use.
   carrying on with the current version. A failed install records nothing,
   so the screen asks again on the next launch.
 - `QG_NO_UPDATE_CHECK=1` (or `true`) disables the check, the screen, and the
-  notice. Dev builds (version `dev`) and Homebrew installs never check.
+  notice. Dev builds (version `dev`) never check, and neither do binaries
+  detected inside a Homebrew keg (there is no published formula; the
+  detection is defensive).
 - Endpoint overrides for mirrors and tests: `QG_UPDATE_RELEASE_URL` (GitHub
   releases, already honored by `qg update`) and `QG_UPDATE_NPM_ENDPOINT`
   (npm registry base URL, used for npm installs).

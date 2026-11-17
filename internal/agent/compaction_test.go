@@ -158,7 +158,7 @@ func TestCompactPropagatesSummarizeError(t *testing.T) {
 
 // scriptedSummaryProvider returns, per StreamCompletion call, either an error
 // event (when the script entry is non-empty) or a success text, so a test can
-// drive the recursive summarizeWithFallback split/reduce path deterministically.
+// drive the recursive summarizeWithPlanner split/reduce path deterministically.
 type scriptedSummaryProvider struct {
 	calls   int
 	scripts []string
@@ -186,7 +186,7 @@ func TestSummarizeWithFallbackPropagatesNonContextReduceError(t *testing.T) {
 	// call 4 (reduce of the two partials): a NON-context provider error that must
 	// surface unchanged rather than be masked by the joined-text fallback.
 	provider := &scriptedSummaryProvider{scripts: []string{ctxLimit, "", "", "provider request failed: 401 unauthorized"}}
-	if _, err := summarizeWithFallback(context.Background(), provider, msgs, func(Usage) {}); err == nil || !strings.Contains(err.Error(), "401") {
+	if _, err := summarizeWithPlanner(context.Background(), provider, msgs, func(Usage) {}, newContextPlanner(contextPlannerConfig{}), nil); err == nil || !strings.Contains(err.Error(), "401") {
 		t.Fatalf("a non-context reduce error must surface, got %v", err)
 	}
 }
@@ -200,7 +200,7 @@ func TestSummarizeWithFallbackUsesJoinedTextOnContextLimitReduce(t *testing.T) {
 	// Same split, but the reduce also hits a context-limit: fall back to the joined
 	// partial summaries instead of failing.
 	provider := &scriptedSummaryProvider{scripts: []string{ctxLimit, "", "", ctxLimit}}
-	got, err := summarizeWithFallback(context.Background(), provider, msgs, func(Usage) {})
+	got, err := summarizeWithPlanner(context.Background(), provider, msgs, func(Usage) {}, newContextPlanner(contextPlannerConfig{}), nil)
 	if err != nil {
 		t.Fatalf("a context-limit reduce must fall back to joined text, got error %v", err)
 	}
@@ -427,6 +427,7 @@ func TestMaybeCompactStopsAfterSupersededReadsReachThreshold(t *testing.T) {
 		enabled:      true,
 		threshold:    prunedSize,
 		preserveLast: 2,
+		phase:        phaseBelow,
 	}
 	got := state.maybeCompact(context.Background(), provider, messages, nil)
 

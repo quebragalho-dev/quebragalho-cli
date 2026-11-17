@@ -48,10 +48,21 @@ func approveTestDeps(cwd string, servers map[string]config.MCPServerConfig, spaw
 	}
 }
 
+// isolateMCPApprovalsState points the approvals store at a throwaway dir on
+// every platform: on Windows it resolves under LOCALAPPDATA (falling back to
+// USERPROFILE), so XDG-only isolation leaves the real approvals file in play.
+func isolateMCPApprovalsState(t *testing.T) {
+	t.Helper()
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("LOCALAPPDATA", stateHome)
+	t.Setenv("USERPROFILE", stateHome)
+}
+
 // `mcp approve` records the approval; a second registration then runs the
 // project server instead of skipping it.
 func TestRunMCPApproveGrantsProjectServer(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	isolateMCPApprovalsState(t)
 	cwd := t.TempDir()
 	servers := map[string]config.MCPServerConfig{
 		"proj": {Type: "stdio", Command: "mini", ProjectConfigured: true},
@@ -82,7 +93,7 @@ func TestRunMCPApproveGrantsProjectServer(t *testing.T) {
 // Without approval, the project server never connects: it is skipped with
 // the approve command as the reason.
 func TestRegisterSkipsUnapprovedProjectServer(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	isolateMCPApprovalsState(t)
 	cwd := t.TempDir()
 	var spawned bool
 	runtime, _, err := registerMCPToolsForWorkspace(context.Background(), cwd, tools.NewRegistry(), approveTestDeps(cwd, map[string]config.MCPServerConfig{
@@ -113,6 +124,8 @@ func TestRegisterSkipsUnapprovedProjectServer(t *testing.T) {
 func TestRunMCPApproveRequiresConfirmation(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("LOCALAPPDATA", state)
+	t.Setenv("USERPROFILE", state)
 	cwd := t.TempDir()
 	var spawned bool
 	deps := approveTestDeps(cwd, map[string]config.MCPServerConfig{

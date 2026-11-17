@@ -30,7 +30,6 @@ Both files use the same format. YAML frontmatter is optional; the markdown body 
 - Build with `make`, not `go build` directly.
 - Tests live next to the source file (`foo_test.go` next to `foo.go`).
 - Run `make lint` before opening a PR.
-- Never edit files under `third_party/` — those are vendored.
 ```
 
 Tips:
@@ -64,7 +63,9 @@ A specialist is a markdown manifest with frontmatter and a system prompt:
 ```markdown
 ---
 description: Reviews API changes for breaking-change risk and missing tests.
-tools: read-only,plan
+tools:
+  - read-only
+  - plan
 ---
 
 You review API changes. For every changed hunk in `internal/api/` or any file
@@ -210,7 +211,10 @@ Events the agent emits (in dispatch order):
 
 A hook's exit code decides what happens next: `0` continues, non-zero blocks the tool call (`beforeTool`) or surfaces an error (`afterTool`). Hook execution is recorded in the audit log; the audit is reachable from the agent's view of past actions, not from a dedicated `qg doctor` check.
 
-> **Roadmap.** An in-UI hooks manager is on the backlog. Today you edit the JSON directly.
+> **Hooks CLI.** Manage hooks with `qg hooks add`, `qg hooks remove`,
+> `qg hooks enable`, and `qg hooks disable` (`--user` targets the user scope
+> instead of `<cwd>/.qg/hooks.json`, `--json` for scripting). Editing the JSON
+> file directly remains equivalent.
 
 ## 5. MCP — Model Context Protocol
 

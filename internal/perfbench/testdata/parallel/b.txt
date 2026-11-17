@@ -1,4 +1,0 @@
-first line of b.txt
-second line of b.txt
-third line of b.txt
-beta beta beta

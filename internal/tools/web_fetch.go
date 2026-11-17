@@ -312,7 +312,7 @@ func webFetchSafeTransport(roundTripper http.RoundTripper, resolver webFetchReso
 	case *proxydial.Transport:
 		// Already guarded: rebuild from the inner transport so a second pass
 		// installs one dialer rather than nesting wrappers.
-		transport = typed.Transport.Clone()
+		transport = typed.Clone()
 	default:
 		return roundTripper
 	}

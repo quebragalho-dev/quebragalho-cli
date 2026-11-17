@@ -16,27 +16,23 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-// TestFileViewOpenExitRestoresScroll: opening saves the chat scroll position,
-// resets it for the file body, and Esc restores it; switching files while open
-// keeps the ORIGINAL saved position (not the file view's own).
-func TestFileViewOpenExitRestoresScroll(t *testing.T) {
+// activateFileViewForTest puts the drill-in into its live rendering state
+// directly (the production opener is gone): the body, nav bar and key handling
+// all read this state, so render coverage does not need the opener.
+func activateFileViewForTest(m model, path string, mode int) model {
+	m.fileView = fileViewState{active: true, path: path, mode: mode, parentScrollOffset: m.chatScrollOffset}
+	m.chatScrollOffset = 0
+	return m.clearHover()
+}
+
+// TestFileViewExitRestoresScroll: Esc (exitFileView) restores the saved chat
+// scroll position.
+func TestFileViewExitRestoresScroll(t *testing.T) {
 	m := filesPanelTestModel()
 	m.chatScrollOffset = 12
-
-	m = m.openFileView("web/app.js")
-	if !m.fileView.active || m.fileView.mode != fileViewDiff {
-		t.Fatalf("open should activate in diff mode: %+v", m.fileView)
-	}
-	if m.chatScrollOffset != 0 || m.fileView.parentScrollOffset != 12 {
-		t.Fatalf("open should reset scroll and save the parent offset: offset=%d saved=%d", m.chatScrollOffset, m.fileView.parentScrollOffset)
-	}
+	m = activateFileViewForTest(m, "web/app.js", fileViewDiff)
 
 	m.chatScrollOffset = 5 // scrolled within the file body
-	m = m.openFileView("internal/tui/sidebar.go")
-	if m.fileView.parentScrollOffset != 12 {
-		t.Fatalf("switching files must keep the original parent offset, got %d", m.fileView.parentScrollOffset)
-	}
-
 	m = m.exitFileView()
 	if m.fileView.active || m.chatScrollOffset != 12 {
 		t.Fatalf("exit should restore the chat scroll: active=%v offset=%d", m.fileView.active, m.chatScrollOffset)
@@ -47,7 +43,7 @@ func TestFileViewOpenExitRestoresScroll(t *testing.T) {
 // d/f switch modes while the composer is empty and never while typing.
 func TestFileViewEscAndModeKeys(t *testing.T) {
 	m := filesPanelTestModel()
-	m = m.openFileView("web/app.js")
+	m = activateFileViewForTest(m, "web/app.js", fileViewDiff)
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	m = updated.(model)
@@ -81,7 +77,7 @@ func TestFileViewEscAndModeKeys(t *testing.T) {
 // placeholder.
 func TestFileViewDiffBody(t *testing.T) {
 	m := filesPanelTestModel()
-	m = m.openFileView("internal/tui/sidebar.go")
+	m = activateFileViewForTest(m, "internal/tui/sidebar.go", fileViewDiff)
 	body := plainRender(t, m.renderFileViewDiff(78))
 	if !strings.Contains(body, "edit 1 of 2") || !strings.Contains(body, "edit 2 of 2") {
 		t.Fatalf("expected chronological edit labels:\n%s", body)
@@ -111,7 +107,7 @@ func TestFileViewFullBody(t *testing.T) {
 		detail:       "+let a = 1",
 		changedFiles: []string{"app.js"},
 	})
-	m = m.openFileView("app.js")
+	m = activateFileViewForTest(m, "app.js", fileViewDiff)
 	m = m.setFileViewMode(fileViewFull)
 
 	body := m.renderFileViewFull(78)
@@ -141,7 +137,7 @@ func TestFileViewFullBody(t *testing.T) {
 // columns the old "… · esc voltar" order dropped Esc entirely.
 func TestFileViewNavBarKeepsEscVisibleAtNarrowWidths(t *testing.T) {
 	m := filesPanelTestModel()
-	m = m.openFileView("internal/tui/sidebar.go")
+	m = activateFileViewForTest(m, "internal/tui/sidebar.go", fileViewDiff)
 	for _, width := range []int{50, 80, 120} {
 		nav := plainRender(t, m.fileViewNavBar(width))
 		if !strings.Contains(nav, "esc voltar") {
@@ -156,7 +152,7 @@ func TestFileViewNavBarKeepsEscVisibleAtNarrowWidths(t *testing.T) {
 // relies on.
 func TestFileViewSwapsTranscriptBody(t *testing.T) {
 	m := filesPanelTestModel()
-	m = m.openFileView("internal/tui/sidebar.go")
+	m = activateFileViewForTest(m, "internal/tui/sidebar.go", fileViewDiff)
 
 	items := m.transcriptBodyItems(m.chatColumnWidth(), "", false)
 	if len(items) != 1 {
@@ -191,14 +187,12 @@ func TestSidebarAgentClickIsIgnoredWithoutRail(t *testing.T) {
 		transcriptRow{kind: rowToolResult, tool: "swarm_spawn", detail: "Spawned subagent as task subagent-1 on team default.", runID: 1},
 	)
 	m.activeRunID = 1
-	m = m.openFileView("web/app.js")
+	m = activateFileViewForTest(m, "web/app.js", fileViewDiff)
 
-	width := sidebarWidth(m.width)
-	agents := m.sidebarAgentSelectables(width)
-	if len(agents) == 0 {
-		t.Fatal("expected a clickable agent row")
+	if len(m.sidebarAgentLines(40)) == 0 {
+		t.Fatal("expected an agent row for the rail-coordinate regression")
 	}
-	click := testMouseClick(tea.MouseLeft, m.chatColumnWidth()+3, agents[0].lineOffset)
+	click := testMouseClick(tea.MouseLeft, m.chatColumnWidth()+3, 1)
 	updated, _, handled := m.handleTranscriptSelectionMouse(click)
 	if handled {
 		t.Fatal("invisible rail coordinates must not handle clicks")
@@ -255,32 +249,6 @@ func TestResumedFileEditUsesPersistedDisplayPreview(t *testing.T) {
 	}
 }
 
-// TestOpenFileViewSamePathIsNoOp: re-clicking the FILES row of the file already
-// being viewed must not clobber the user's mode or scroll — the old
-// unconditional openFileView bounced full mode back to diff and reset scroll.
-func TestOpenFileViewSamePathIsNoOp(t *testing.T) {
-	m := filesPanelTestModel()
-	m = m.openFileView("web/app.js")
-	m = m.setFileViewMode(fileViewFull)
-	m.chatScrollOffset = 7 // scrolled within the file body
-
-	m = m.openFileView("web/app.js")
-	if m.fileView.mode != fileViewFull {
-		t.Fatal("re-opening the same file must keep full mode")
-	}
-	if m.chatScrollOffset != 7 {
-		t.Fatalf("re-opening the same file must keep the scroll, got %d", m.chatScrollOffset)
-	}
-	// A DIFFERENT file still switches (and resets to diff mode as documented).
-	m = m.openFileView("internal/tui/sidebar.go")
-	if m.fileView.path != "internal/tui/sidebar.go" || m.fileView.mode != fileViewDiff {
-		t.Fatalf("opening another file should switch views: %+v", m.fileView)
-	}
-}
-
-// TestFileViewFullBodyTruncatesLongFile: the full view stops reading at
-// fileViewMaxLines (bounded read — a giant file must not be loaded wholesale)
-// and appends the truncation trailer.
 func TestFileViewFullBodyTruncatesLongFile(t *testing.T) {
 	dir := t.TempDir()
 	var b strings.Builder
@@ -293,7 +261,7 @@ func TestFileViewFullBodyTruncatesLongFile(t *testing.T) {
 	m := filesPanelTestModel()
 	m.cwd = dir
 	m.gitTouched = []gitSweepFile{{path: "big.txt"}}
-	m = m.openFileView("big.txt")
+	m = activateFileViewForTest(m, "big.txt", fileViewFull)
 
 	plain := plainRender(t, m.renderFileViewFull(80))
 	lines := strings.Split(plain, "\n")
@@ -311,10 +279,10 @@ func TestFileViewFullBodyTruncatesLongFile(t *testing.T) {
 func TestDetailedTranscriptClosesFileView(t *testing.T) {
 	m := filesPanelTestModel()
 	m.altScreen = true
-	m = m.openFileView("web/app.js")
+	m = activateFileViewForTest(m, "web/app.js", fileViewDiff)
 
 	if !m.fileView.active {
-		t.Fatal("sanity check: openFileView should activate the file view")
+		t.Fatal("sanity check: the file view should be active")
 	}
 
 	updated, _ := m.Update(testKeyCtrl('o'))
@@ -338,7 +306,7 @@ func TestDetailedTranscriptClosesFileView(t *testing.T) {
 func TestDetailedTranscriptStaysClosedOnSecondToggle(t *testing.T) {
 	m := filesPanelTestModel()
 	m.altScreen = true
-	m = m.openFileView("web/app.js")
+	m = activateFileViewForTest(m, "web/app.js", fileViewDiff)
 
 	updated, _ := m.Update(testKeyCtrl('o'))
 	m = updated.(model)
@@ -359,7 +327,7 @@ func TestDetailedTranscriptStaysClosedOnSecondToggle(t *testing.T) {
 // (Esc exiting the view instead of reaching the prompt's deny handling).
 func TestFileViewKeysDeferToBlockingModal(t *testing.T) {
 	m := filesPanelTestModel()
-	m = m.openFileView("web/app.js")
+	m = activateFileViewForTest(m, "web/app.js", fileViewDiff)
 	m.pendingPermission = &pendingPermissionPrompt{
 		request: agent.PermissionRequest{ToolName: "write_file"},
 		decide:  func(agent.PermissionDecision) {},

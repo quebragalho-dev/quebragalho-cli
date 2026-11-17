@@ -64,12 +64,12 @@ func Wrap(transport *http.Transport) *Transport {
 // RoundTrip resolves the route for this request and passes the decision down to
 // the dialer through the request context.
 func (transport *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if transport.Transport.Proxy != nil {
+	if transport.Proxy != nil {
 		// A Proxy error is left for the transport to report: it fails the
 		// request before dialing, so there is no dial to classify. The function
 		// is called once here and once by the transport, which is what a
 		// host-dependent callback already expects from redirects and retries.
-		if proxyURL, err := transport.Transport.Proxy(request); err == nil && proxyURL != nil {
+		if proxyURL, err := transport.Proxy(request); err == nil && proxyURL != nil {
 			request = request.WithContext(context.WithValue(request.Context(), selectedProxyKey{}, proxyURL))
 		}
 	}

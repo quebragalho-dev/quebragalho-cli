@@ -19,10 +19,6 @@ func (listDirectoryTool) outputCategory(map[string]any) outputCategory {
 	return outputCategorySearch
 }
 
-func NewListDirectoryTool(workspaceRoot string) Tool {
-	return NewScopedListDirectoryTool(workspaceRoot, nil)
-}
-
 func NewScopedListDirectoryTool(workspaceRoot string, scope PathScope) Tool {
 	return listDirectoryTool{
 		baseTool: baseTool{

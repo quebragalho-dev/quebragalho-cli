@@ -170,7 +170,10 @@ Those events are required by adding keys such as `tool:read_file` and
 `verify:go-test` to `requiredTraceEvents`.
 
 For deterministic offline testing, point `--agent-command` at a local script
-that edits the copied workspace without calling a model:
+that edits the copied workspace without calling a model. The
+`./scripts/fake-agent` path below is a placeholder example, not a shipped
+script — write your own stub that follows the same
+`--workspace/--task/--prompt` calling convention:
 
 ```bash
 go run ./cmd/qg eval bench \

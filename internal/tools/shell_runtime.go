@@ -152,6 +152,28 @@ func HostShellCommand(command string) (string, []string) {
 	return shell.Executable, shell.arguments(command)
 }
 
+// HostExecCommandShellGuidance returns the shell guidance appended to
+// exec_command's description on this host, or "" where none is appended.
+//
+// Exported for the per-turn token ratchet in internal/agent. That budget has to
+// separate what every host pays for the tool schemas from what THIS host pays
+// for its shell guidance, because the guidance varies by shell and by
+// PowerShell version, and a single number covering both silently means a
+// different thing on each machine.
+func HostExecCommandShellGuidance() string {
+	return hostExecCommandShellGuidance(runtimeGOOS())
+}
+
+// hostExecCommandShellGuidance is the guidance a host running goos appends. It
+// is the pair of execCommandDescription, so the two can be checked against each
+// other for every platform rather than only for the running one.
+func hostExecCommandShellGuidance(goos string) string {
+	if goos != "windows" {
+		return ""
+	}
+	return shellGuidanceForGOOS(goos)
+}
+
 // NewHostShellCommandContext constructs a direct host-shell command. The
 // cmd.exe fallback needs a Windows-specific raw command line, while PowerShell
 // and POSIX shells use normal argv handling.
@@ -179,28 +201,6 @@ func shellGuidanceForRuntime(shell shellRuntime) string {
 		guidance += " To find or stop a process, use `lsof -i :PORT` (or `lsof -nP -iTCP -sTCP:LISTEN`) for the PID then `kill <pid>`; `ps` and `pgrep` do not work under the sandbox."
 	}
 	return guidance
-}
-
-// HostExecCommandShellGuidance returns the shell guidance appended to
-// exec_command's description on this host, or "" where none is appended.
-//
-// Exported for the per-turn token ratchet in internal/agent. That budget has to
-// separate what every host pays for the tool schemas from what THIS host pays
-// for its shell guidance, because the guidance varies by shell and by
-// PowerShell version, and a single number covering both silently means a
-// different thing on each machine.
-func HostExecCommandShellGuidance() string {
-	return hostExecCommandShellGuidance(runtimeGOOS())
-}
-
-// hostExecCommandShellGuidance is the guidance a host running goos appends. It
-// is the pair of execCommandDescription, so the two can be checked against each
-// other for every platform rather than only for the running one.
-func hostExecCommandShellGuidance(goos string) string {
-	if goos != "windows" {
-		return ""
-	}
-	return shellGuidanceForGOOS(goos)
 }
 
 // HostShellEnvironmentGuidance returns the concise, model-facing shell rule
@@ -335,14 +335,6 @@ func msysProneCommandWord(word string) bool {
 	}
 	word = strings.TrimSuffix(strings.ToLower(word), ".exe")
 	return MsysProneCommandName(word)
-}
-
-func detectShellCommandIssue(command string, goos string) *shellIssue {
-	shell := shellRuntime{GOOS: goos, Executable: "/bin/sh", Syntax: "/bin/sh", Kind: shellKindPOSIX}
-	if goos == "windows" {
-		shell = shellRuntime{GOOS: goos, Executable: "cmd.exe", Syntax: "Windows cmd.exe", Kind: shellKindCmd}
-	}
-	return detectShellCommandIssueForRuntime(command, shell)
 }
 
 func detectShellCommandIssueForRuntime(command string, shell shellRuntime) *shellIssue {
@@ -556,15 +548,8 @@ func stripCmdCaretEscapes(command string) string {
 // produced, so treating it as evidence would reintroduce the same
 // quoted-text false positives the preflight command-position check exists to
 // avoid, just after execution instead of before it.
-func detectShellOutputIssue(output string, goos string) *shellIssue {
-	shell := shellRuntime{GOOS: goos, Executable: "/bin/sh", Syntax: "/bin/sh", Kind: shellKindPOSIX}
-	if goos == "windows" {
-		shell = shellRuntime{GOOS: goos, Executable: "cmd.exe", Syntax: "Windows cmd.exe", Kind: shellKindCmd}
-	}
-	return detectShellOutputIssueForRuntime(output, shell)
-}
 
-func detectShellOutputIssueForRuntime(output string, shell shellRuntime) *shellIssue {
+func detectShellOutputIssueForRuntime(output string, shell shellRuntime, exitCode int, wrapped bool) *shellIssue {
 	if shell.GOOS != "windows" {
 		return nil
 	}
@@ -583,7 +568,65 @@ func detectShellOutputIssueForRuntime(output string, shell shellRuntime) *shellI
 			Suggestion: "Use Windows cmd.exe syntax. Quote args with | using double quotes (e.g. --jq \".a | b\"). Avoid | head; use --jq or PowerShell Select-Object -First N instead. Prefer native tools.",
 		}
 	}
+	if startupIssue := detectWindowsSandboxStartupIssue(lower, shell, exitCode, wrapped); startupIssue != nil {
+		return startupIssue
+	}
 	return nil
+}
+
+const windowsSandboxStartupKind = "windows_sandbox_startup"
+
+const windowsSandboxStartupSuggestion = "This is not a problem with your command; do not retry it unchanged. If the command is safe and necessary, rerun it with sandbox_permissions: \"require_escalated\" and a narrow justification."
+
+const windowsSandboxStartupShellSentence = " Other commands through this shell fail the same way inside the sandbox."
+
+// detectWindowsSandboxStartupIssue matches programs that cannot start inside
+// QG's write-restricted Windows sandbox. The restricted token blocks CLR
+// initialization (powershell 5.1, 0xFFFF0000), .NET/BCrypt startup (pwsh,
+// 0xE0434352 with its DLL marker) and some system tools at DLL init
+// (0xC0000142). It requires the wrapped (sandboxed) run, a non-zero startup
+// exit code and, for the .NET crash that also happens outside the sandbox,
+// its startup marker. MSYS/WSL markers above keep precedence.
+func detectWindowsSandboxStartupIssue(lower string, shell shellRuntime, exitCode int, wrapped bool) *shellIssue {
+	if shell.GOOS != "windows" || !wrapped || exitCode == 0 {
+		return nil
+	}
+	code := uint32(exitCode)
+	isPowerShellShell := shell.Kind == shellKindPowerShell
+	switch code {
+	case 0xFFFF0000:
+		return windowsSandboxStartupIssue(isPowerShellShell)
+	case 0xE0434352:
+		if strings.Contains(lower, "bcrypt.dll") ||
+			strings.Contains(lower, "dllnotfoundexception") ||
+			strings.Contains(lower, "8007045a") {
+			return windowsSandboxStartupIssue(isPowerShellShell)
+		}
+		return nil
+	case 0xC0000142:
+		// A generic tool failing at DLL init: never generalize to the shell.
+		return windowsSandboxStartupIssue(false)
+	default:
+		// 80070005 alone is generic E_ACCESSDENIED: a command that ran but
+		// had a write denied by the jail can print it, and "could not
+		// start" would then be false. Require the CLR marker with it.
+		if strings.Contains(lower, "80070005") && strings.Contains(lower, "clr") {
+			return windowsSandboxStartupIssue(false)
+		}
+		return nil
+	}
+}
+
+func windowsSandboxStartupIssue(powerShellShell bool) *shellIssue {
+	suggestion := windowsSandboxStartupSuggestion
+	if powerShellShell {
+		suggestion += windowsSandboxStartupShellSentence
+	}
+	return &shellIssue{
+		Kind:       windowsSandboxStartupKind,
+		Message:    "The program could not start inside QG's Windows sandbox (restricted-token limitation affecting PowerShell, .NET and some system tools).",
+		Suggestion: suggestion,
+	}
 }
 
 func msysRuntimeFailedInOutput(lower string) bool {

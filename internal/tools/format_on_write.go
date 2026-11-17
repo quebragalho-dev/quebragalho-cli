@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
 
@@ -117,10 +118,11 @@ var formatterCommands = map[string][]string{
 	".lua":   {"stylua"},
 }
 
-// formatOnWriteEnabled reports whether the opt-in env toggle is set.
+// formatOnWriteEnabled reports whether the opt-in env toggle is set. Any
+// non-empty value but an explicit false word (0/false/no/off) enables it, so
+// unrecognized values keep the legacy "set means on" behavior.
 func formatOnWriteEnabled() bool {
-	value := strings.TrimSpace(os.Getenv("QG_FORMAT_ON_WRITE"))
-	return value != "" && value != "0" && !strings.EqualFold(value, "false")
+	return envbool.Loose(os.Getenv("QG_FORMAT_ON_WRITE"))
 }
 
 var runFormatOnWriteCommand = func(ctx context.Context, binaryPath string, arguments []string, directory string) error {
@@ -131,17 +133,6 @@ var runFormatOnWriteCommand = func(ctx context.Context, binaryPath string, argum
 }
 
 var readFormattedFile = readRootedFile
-
-// maybeFormatWrittenFile is the unscoped test-facing wrapper. Production
-// callers use maybeFormatWrittenFileScoped so a formatter cannot redirect the
-// final read or recovery write outside the configured write roots.
-func maybeFormatWrittenFile(ctx context.Context, absolutePath string, writtenContent string) formatOnWriteResult {
-	restoreMode := os.FileMode(0o644)
-	if info, err := os.Stat(absolutePath); err == nil {
-		restoreMode = info.Mode().Perm()
-	}
-	return maybeFormatWrittenFileScoped(ctx, filepath.Dir(absolutePath), nil, absolutePath, writtenContent, restoreMode)
-}
 
 // maybeFormatWrittenFileScoped runs the configured formatter and returns only
 // content verified through a descriptor-bound root. Formatter failures restore

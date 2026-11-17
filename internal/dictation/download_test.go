@@ -34,14 +34,14 @@ func fakeReleaseServer(t *testing.T, engineDigest, modelDigest string) *httptest
 	modelBytes, _ := base64.StdEncoding.DecodeString(modelTarB64)
 	mux := http.NewServeMux()
 	base := ""
-	release := func(assetName, digest, dlPath string) string {
+	release := func(assetName, digest, dlPath string, size int64) string {
 		body, _ := json.Marshal(map[string]any{
 			"tag_name": "test",
 			"assets": []map[string]any{{
 				"name":                 assetName,
 				"browser_download_url": base + dlPath,
 				"digest":               "sha256:" + digest,
-				"size":                 123,
+				"size":                 size,
 			}},
 		})
 		return string(body)
@@ -52,10 +52,10 @@ func fakeReleaseServer(t *testing.T, engineDigest, modelDigest string) *httptest
 	mux.HandleFunc("/repos/k2-fsa/sherpa-onnx/releases/tags/", func(w http.ResponseWriter, r *http.Request) {
 		base = srv.URL
 		if strings.HasSuffix(r.URL.Path, "/asr-models") {
-			fmt.Fprint(w, release(modelAssetName, modelDigest, "/model.tar.bz2"))
+			fmt.Fprint(w, release(modelAssetName, modelDigest, "/model.tar.bz2", int64(len(modelBytes))))
 			return
 		}
-		fmt.Fprint(w, release("sherpa-onnx-test-linux-x64-shared-no-tts.tar.bz2", engineDigest, "/engine.tar.bz2"))
+		fmt.Fprint(w, release("sherpa-onnx-test-linux-x64-shared-no-tts.tar.bz2", engineDigest, "/engine.tar.bz2", int64(len(engineBytes))))
 	})
 	mux.HandleFunc("/engine.tar.bz2", func(w http.ResponseWriter, r *http.Request) { w.Write(engineBytes) })
 	mux.HandleFunc("/model.tar.bz2", func(w http.ResponseWriter, r *http.Request) { w.Write(modelBytes) })

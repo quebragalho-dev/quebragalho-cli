@@ -33,18 +33,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Check formatting
-        run: make fmt-check
+      - name: Lint
+        run: make lint
 
-      - name: Vet
-        run: go vet ./...
-
-      - name: deadcode (advisory)
-        continue-on-error: true
-        run: make deadcode
-
-      - name: golangci-lint (advisory)
-        continue-on-error: true
+      - name: golangci-lint
         run: make lint-static
 
   test:
@@ -127,10 +119,38 @@ jobs:
       - name: Test (macOS, no race)
         run: go test -count=1 ./...
 
+  test-windows:
+    name: Unit Tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      # The runner's git converts line endings on checkout by default, and
+      # .gitattributes pins LF only for source files. Fixtures and scripts must
+      # reach the tests with the bytes that are in the repository.
+      - name: Keep repository line endings
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test (Windows, no race)
+        run: go test -count=1 -timeout 35m ./...
+
   smoke:
     name: Smoke + cross-compile
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     permissions:
       contents: read
@@ -147,17 +167,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Test (Fast Non-Race)
-        run: go test ./...
-
       - name: Build binary
         run: go run ./cmd/qg-release build
 
       - name: Smoke binary
         run: go run ./cmd/qg-release smoke
 
-      # All CI jobs run on Linux: darwin/windows coverage here is a
-      # cross-compile check, and native macOS tests live in test-macos.
+      # This job runs on Linux: darwin/windows coverage here is a
+      # cross-compile check. Native tests live in test-macos and test-windows.
       # darwin-amd64 is included for the Intel package.
       - name: Cross-compile release targets
         shell: bash
@@ -205,41 +222,6 @@ jobs:
       # setup step.
       - name: Test with the race detector
         run: make test
-
-  performance:
-    name: Performance Smoke
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
-        with:
-          persist-credentials: false
-
-      - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.3.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build binary
-        run: go run ./cmd/qg-release build
-
-      - name: Performance smoke
-        run: |
-          mkdir -p dist/perf
-          go run ./cmd/qg-perf-bench --output dist/perf/perf-bench.json --ci
-
-      - name: Upload performance report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: qg-performance-smoke
-          path: dist/perf/perf-bench.json
-          if-no-files-found: warn
 
   security:
     name: Security & Code Health

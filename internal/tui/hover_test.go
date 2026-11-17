@@ -115,37 +115,6 @@ func TestDiffHeaderDoesNotHoverOrToggle(t *testing.T) {
 	}
 }
 
-func TestUpdateHoverTargetIgnoresFormerSidebarAgentRail(t *testing.T) {
-	m := swarmSidebarTestModel(t, map[string]string{"subagent-1": "sess-1"})
-	hits := m.sidebarAgentSelectables(sidebarWidth(m.width))
-	if len(hits) == 0 {
-		t.Fatal("expected a legacy sidebar row for the rail-coordinate regression")
-	}
-
-	updated, _ := m.Update(testMouseMotion(tea.MouseNone, m.width-sidebarWidth(m.width)+2, hits[0].lineOffset))
-	m = updated.(model)
-	if m.hover.kind != hoverNone {
-		t.Fatalf("former sidebar rail must not create a hover target, got %#v", m.hover)
-	}
-}
-
-func TestUpdateHoverTargetIgnoresFormerSidebarPlanRail(t *testing.T) {
-	m := runningPlanModel(t, 3)
-	m.altScreen = true
-	m.height = 40
-	m.transcript = appendRow(m.transcript, rowUser, "do something")
-	hits := m.sidebarPlanSelectables(sidebarWidth(m.width))
-	if len(hits) == 0 {
-		t.Fatal("expected a legacy plan row for the rail-coordinate regression")
-	}
-
-	updated, _ := m.Update(testMouseMotion(tea.MouseNone, m.width-sidebarWidth(m.width)+2, hits[0].lineOffset))
-	m = updated.(model)
-	if m.hover.kind != hoverNone {
-		t.Fatalf("former sidebar rail must not create a hover target, got %#v", m.hover)
-	}
-}
-
 func TestUpdateHoverTargetOnPermissionOptionMovesCursor(t *testing.T) {
 	m := mouseTestModel()
 	m.pending = true // the permission prompt only renders into the transcript body while m.pending
@@ -244,20 +213,3 @@ func TestHoverClearsOnSubchatExit(t *testing.T) {
 // re-target the hover. hoveredSidebarLineOffset must not paint a highlight on
 // whatever unrelated row now occupies that identity's old slot — it must find
 // nothing and skip painting entirely.
-func TestHoveredSidebarLineOffsetSelfHealsWhenRowDisappears(t *testing.T) {
-	m := swarmSidebarTestModel(t, map[string]string{"subagent-1": "sess-1"})
-	hits := m.sidebarAgentSelectables(sidebarWidth(m.width))
-	if len(hits) == 0 {
-		t.Fatal("expected at least one clickable sidebar agent row")
-	}
-	m.hover = hoverTarget{kind: hoverSidebarAgent, sessionID: hits[0].sessionID}
-
-	// Simulate the member disappearing (a fresh model with no swarm member at all,
-	// same identity no longer present) without any mouse motion clearing m.hover.
-	m2 := swarmSidebarTestModel(t, nil)
-	m2.hover = m.hover
-
-	if _, ok := m2.hoveredSidebarLineOffset(sidebarWidth(m2.width)); ok {
-		t.Fatal("hoveredSidebarLineOffset should find nothing once the identity no longer resolves, not fall back to a stale/coincidental row")
-	}
-}

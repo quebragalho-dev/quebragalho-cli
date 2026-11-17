@@ -163,7 +163,7 @@ func (manager *ProcessManager) Start(ctx context.Context, input ProcessStart, wa
 	manager.removeCompletedLater(process)
 	go func() {
 		waitErr := command.Wait()
-		close(process.reaped)
+		process.transition(procEvWaitReturned, nil)
 		if input.AfterWait != nil {
 			if diagnostic := input.AfterWait(); len(diagnostic) > 0 {
 				_, _ = buffer.Write(diagnostic)
@@ -426,6 +426,7 @@ type managedProcess struct {
 	done         chan struct{}
 	kill         func(int) error
 	mu           sync.Mutex
+	state        procState
 	exitCode     *int
 	waitErr      error
 	resultReport AdapterReport
@@ -435,22 +436,17 @@ type managedProcess struct {
 }
 
 func (process *managedProcess) markDone(err error, exitCode int, report AdapterReport, reportErr error, changes []Change) {
-	process.mu.Lock()
-	process.waitErr = err
-	process.exitCode = &exitCode
-	process.resultReport = report
-	process.reportErr = reportErr
-	process.changes = append([]Change(nil), changes...)
-	process.mu.Unlock()
-	process.doneOnce.Do(func() { close(process.done) })
+	process.transition(procEvPublished, &procDonePayload{
+		waitErr: err, exitCode: exitCode, report: report, reportErr: reportErr, changes: changes,
+	})
 }
 
 func (process *managedProcess) collectResult(ctx context.Context, wait time.Duration, interrupted bool) ProcessResult {
 	output, truncated := process.collect(ctx, wait)
 	process.mu.Lock()
 	exitCode := 0
-	exited := process.exitCode != nil
-	if exited {
+	exited := process.state == procDone
+	if exited && process.exitCode != nil {
 		exitCode = *process.exitCode
 	}
 	result := ProcessResult{
@@ -568,12 +564,9 @@ func appendBoundedProcessOutputString(output string, chunk string) (string, bool
 }
 
 func (process *managedProcess) doneClosed() bool {
-	select {
-	case <-process.done:
-		return true
-	default:
-		return false
-	}
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	return process.state == procDone
 }
 
 func (process *managedProcess) touch() {
@@ -587,7 +580,7 @@ func (process *managedProcess) lastUsed() time.Time {
 	return process.lastUsedAt
 }
 func (process *managedProcess) terminate() {
-	if process.reapedClosed() || process.command.Process == nil {
+	if process.reapedClosed() || process.command == nil || process.command.Process == nil {
 		return
 	}
 	kill := process.kill
@@ -598,15 +591,9 @@ func (process *managedProcess) terminate() {
 }
 
 func (process *managedProcess) reapedClosed() bool {
-	if process.reaped == nil {
-		return false
-	}
-	select {
-	case <-process.reaped:
-		return true
-	default:
-		return false
-	}
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	return process.state == procReaped || process.state == procDone
 }
 
 func (process *managedProcess) snapshot() ProcessSnapshot {
@@ -618,7 +605,7 @@ func (process *managedProcess) snapshot() ProcessSnapshot {
 		exit = &value
 	}
 	status := "running"
-	if exit != nil {
+	if process.state == procDone {
 		status = "exited"
 	}
 	return ProcessSnapshot{ID: process.id, Command: process.commandText, Cwd: process.cwd, RelativeCwd: process.relativeCwd,

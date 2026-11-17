@@ -26,11 +26,11 @@ const (
 )
 
 // ErrPoolDraining is returned by Run once the pool is shutting down.
-var ErrPoolDraining = errors.New("daemon: pool is draining")
+var ErrPoolDraining = errors.New("daemon: o pool está encerrando")
 
 // ErrPermanent is returned when a worker exits ExitPermanent or the attempt cap
 // is exhausted; the request must not be retried.
-var ErrPermanent = errors.New("daemon: worker failed permanently")
+var ErrPermanent = errors.New("daemon: o worker falhou em definitivo")
 
 // WorkerSpec describes the worker to launch for one session attempt.
 type WorkerSpec struct {
@@ -99,6 +99,12 @@ type Pool struct {
 
 	drainOnce sync.Once
 	drained   chan struct{}
+
+	// preSelectHook is a minimal test seam: when non-nil it runs after the
+	// draining check and before the lease select, so a test can force Drain
+	// into that window deterministically. Nil in production (no behavior
+	// change). Per-pool, so one test's hook never leaks into another pool.
+	preSelectHook func()
 }
 
 // workerStat tracks one in-flight request's restart count (local to Run).
@@ -110,7 +116,7 @@ type workerStat struct {
 // NewPool builds a pool from opts, filling defaults.
 func NewPool(opts PoolOptions) (*Pool, error) {
 	if opts.Launcher == nil {
-		return nil, errors.New("daemon: pool requires a Launcher")
+		return nil, errors.New("daemon: o pool exige um Launcher")
 	}
 	if opts.Size <= 0 {
 		opts.Size = defaultPoolSize
@@ -153,8 +159,21 @@ func (p *Pool) acquire(ctx context.Context) error {
 	if draining {
 		return ErrPoolDraining
 	}
+	if p.preSelectHook != nil {
+		p.preSelectHook()
+	}
 	select {
 	case p.slots <- struct{}{}:
+		// The drain may have closed between the pre-check and the select win:
+		// re-check under mu so a post-drain admit never escapes. Releasing the
+		// just-won slot keeps the depth exact.
+		p.mu.Lock()
+		draining = p.draining
+		p.mu.Unlock()
+		if draining {
+			<-p.slots
+			return ErrPoolDraining
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -269,7 +288,7 @@ func (p *Pool) runOnce(ctx context.Context, id int, spec WorkerSpec, sink Sink) 
 		// worker can't block writing to the now-unread pipe and hang Wait (D2).
 		_ = handle.Kill()
 		_, _ = handle.Wait()
-		return -1, fmt.Errorf("daemon: worker %d stdout read failed: %w", id, readErr)
+		return -1, fmt.Errorf("daemon: falha ao ler o stdout do worker %d: %w", id, readErr)
 	}
 	return handle.Wait()
 }

@@ -51,7 +51,7 @@ func TestSandboxEnvironmentMarksSandboxed(t *testing.T) {
 }
 
 func TestSandboxEnvironmentPreservesCallerEnv(t *testing.T) {
-	env := sandboxEnvironmentForCommand(
+	env := sandboxEnvironmentForCommandWithSensitiveEnv(
 		[]string{
 			"PATH=/custom/bin",
 			"TERM=xterm-256color",
@@ -62,6 +62,7 @@ func TestSandboxEnvironmentPreservesCallerEnv(t *testing.T) {
 		DefaultPolicy(),
 		BackendMacOSSeatbelt,
 		"",
+		nil,
 	)
 
 	for _, want := range []string{

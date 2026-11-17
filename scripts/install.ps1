@@ -18,12 +18,28 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
   $InstallDir = Join-Path $env:LOCALAPPDATA "qg\bin"
 }
 
+# O .sha256 vem da mesma origem do pacote, entao o TLS e o unico controle real
+# de integridade: so https, a menos que QG_ALLOW_INSECURE_DOWNLOAD=1 libere um
+# espelho local de teste.
+function Assert-QGSecureUrl {
+  param([string]$Url)
+
+  if ($env:QG_ALLOW_INSECURE_DOWNLOAD -eq "1") {
+    return
+  }
+  if (-not $Url.StartsWith("https://", [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Origem de download insegura recusada para ${Url}: so https:// e permitido (defina QG_ALLOW_INSECURE_DOWNLOAD=1 para liberar em testes locais)"
+  }
+}
+
 function Get-QGLatestTag {
   param([string]$Repository, [string]$GitHubApi)
 
   $apiBase = $GitHubApi.TrimEnd([char[]]"/")
+  $latestUrl = "$apiBase/repos/$Repository/releases/latest"
+  Assert-QGSecureUrl -Url $latestUrl
   $release = Invoke-RestMethod `
-    -Uri "$apiBase/repos/$Repository/releases/latest" `
+    -Uri $latestUrl `
     -Headers @{ Accept = "application/vnd.github+json" } `
     -TimeoutSec 15
 
@@ -132,6 +148,7 @@ $archiveName = "qg-v$releaseVersion-windows-$arch.zip"
 $checksumName = "$archiveName.sha256"
 $releaseBase = $GitHubBaseUrl.TrimEnd([char[]]"/")
 $releaseUrl = "$releaseBase/$Repository/releases/download/$tag"
+Assert-QGSecureUrl -Url $releaseUrl
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("qg-install-" + [System.Guid]::NewGuid().ToString("N"))
 $extractDir = Join-Path $tempDir "extract"
 $archivePath = Join-Path $tempDir $archiveName
@@ -144,8 +161,17 @@ try {
   Invoke-WebRequest -Uri "$releaseUrl/$archiveName" -OutFile $archivePath -UseBasicParsing -TimeoutSec 300
   Invoke-WebRequest -Uri "$releaseUrl/$checksumName" -OutFile $checksumPath -UseBasicParsing -TimeoutSec 300
 
-  $checksumLine = Get-Content -Path $checksumPath -TotalCount 1
-  $expectedChecksum = ($checksumLine -split "\s+")[0].ToLowerInvariant()
+  # Entre aspas: um arquivo vazio devolve nada, e a linha tem de ser texto.
+  $checksumLine = "$(Get-Content -Path $checksumPath -TotalCount 1)"
+  $checksumMatch = [regex]::Match($checksumLine.Trim(), '^([0-9a-fA-F]{64})(?:\s+\*?(.+))?$')
+  if (-not $checksumMatch.Success) {
+    throw "Arquivo de checksum invalido para $archiveName"
+  }
+  $expectedChecksum = $checksumMatch.Groups[1].Value.ToLowerInvariant()
+  $checksumFileName = $checksumMatch.Groups[2].Value.Trim()
+  if ($checksumFileName -and ($checksumFileName -cne $archiveName)) {
+    throw "Arquivo de checksum nao corresponde a $archiveName"
+  }
   $actualChecksum = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
 
   if ($expectedChecksum -ne $actualChecksum) {

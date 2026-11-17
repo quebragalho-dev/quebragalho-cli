@@ -15,6 +15,7 @@ jobs:
   package:
     name: Package (cross)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write # create/upload the GitHub Release on a tag push
     # One GitHub-hosted Linux runner builds every target. `qg-release
@@ -24,14 +25,9 @@ jobs:
     # assets over HTTPS before anything reaches npm.
 
     steps:
+      # An empty ref falls back to the triggering ref, so one checkout covers
+      # both the tag push and the manual dispatch (with or without a ref).
       - name: Checkout
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.ref == '' }}
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ref != '' }}
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.ref }}
@@ -101,7 +97,8 @@ jobs:
       # Release assets so the documented `scripts/install.sh` / `install.ps1` path
       # (which reads /releases/latest) works. Uses the preinstalled `gh` (no new
       # action dependency); creates the release if absent, then uploads its
-      # own assets with --clobber.
+      # own assets with --clobber. An existing release is reused; a real
+      # creation failure still fails the job.
       - name: Publish to GitHub Release
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         shell: bash
@@ -109,7 +106,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF_NAME}"
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes 2>/dev/null || true
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes
+          fi
           gh release upload "$tag" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber
 
   # Publishes @quebragalho/cli to npm: first the six platform payloads (versions
@@ -132,6 +131,7 @@ jobs:
     needs: package
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Manual approval gate: this environment carries a required-reviewer rule
     # (Settings -> Environments -> npm-publish), so the job pauses until a
     # maintainer approves it in the Actions UI before anything reaches npm.

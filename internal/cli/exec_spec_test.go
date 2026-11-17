@@ -98,6 +98,71 @@ func TestRunExecUseSpecCreatesDraftSession(t *testing.T) {
 	}
 }
 
+func TestRunExecUseSpecJSONInterruptEmitsErrorAndDone(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir(), Now: fixedCLISpecTime})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := runWithDeps([]string{
+		"exec",
+		"--cwd", workspaceRoot,
+		"--use-spec",
+		"--spec-model", "draft-model",
+		"-o", "json",
+		"plan the review flow",
+	}, &stdout, &stderr, appDeps{
+		getwd: func() (string, error) {
+			return workspaceRoot, nil
+		},
+		resolveConfig: func(_ string, overrides config.Overrides) (config.ResolvedConfig, error) {
+			model := "default-model"
+			if overrides.Provider.Model != "" {
+				model = overrides.Provider.Model
+			}
+			return config.ResolvedConfig{
+				ActiveProvider: "test",
+				Provider: config.ProviderProfile{
+					Name:         "test",
+					ProviderKind: config.ProviderKindOpenAICompatible,
+					BaseURL:      "http://127.0.0.1/v1",
+					Model:        model,
+				},
+				MaxTurns: 3,
+			}, nil
+		},
+		resolveMCPConfig: func(string, bool) (config.MCPConfig, error) {
+			return config.MCPConfig{}, nil
+		},
+		newProvider: func(config.ProviderProfile) (qgruntime.Provider, error) {
+			return canceledExecProvider{}, nil
+		},
+		newSessionStore: func() *sessions.Store {
+			return store
+		},
+		newSandboxStore: func() (*sandbox.GrantStore, error) {
+			return sandbox.NewGrantStore(sandbox.StoreOptions{FilePath: t.TempDir() + "/grants.json"})
+		},
+		now: fixedCLISpecTime,
+	})
+
+	if exitCode != exitInterrupted {
+		t.Fatalf("exit = %d, want %d stderr=%s stdout=%s", exitCode, exitInterrupted, stderr.String(), stdout.String())
+	}
+	events := decodeJSONLines(t, stdout.String())
+	if len(events) < 2 {
+		t.Fatalf("expected terminal error+done on -o json interruption, got %#v", events)
+	}
+	errEvent := events[len(events)-2]
+	doneEvent := events[len(events)-1]
+	if errEvent["type"] != "error" || errEvent["code"] != "interrupted" {
+		t.Fatalf("expected interrupted error event, got %#v", errEvent)
+	}
+	if doneEvent["type"] != "done" || doneEvent["exit_code"] != float64(exitInterrupted) {
+		t.Fatalf("expected done event with interrupted exit code, got %#v", doneEvent)
+	}
+}
+
 func TestParseExecUseSpecRejectsResume(t *testing.T) {
 	_, _, err := parseExecArgs([]string{"--use-spec", "--resume", "qg_1", "plan"})
 	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {

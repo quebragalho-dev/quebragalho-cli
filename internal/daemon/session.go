@@ -30,10 +30,10 @@ const (
 )
 
 // ErrSessionExists is returned when starting a session ID already in use.
-var ErrSessionExists = errors.New("daemon: session already exists")
+var ErrSessionExists = errors.New("daemon: a sessão já existe")
 
 // ErrSessionNotFound is returned by Get/Attach for an unknown session ID.
-var ErrSessionNotFound = errors.New("daemon: session not found")
+var ErrSessionNotFound = errors.New("daemon: sessão não encontrada")
 
 const defaultSessionBuffer = 1024
 
@@ -111,11 +111,7 @@ func (s *Session) State() SessionState {
 
 // Started marks the session running once the pool leases a worker (lease hook).
 func (s *Session) Started() {
-	s.mu.Lock()
-	if s.state == SessionQueued {
-		s.state = SessionRunning
-	}
-	s.mu.Unlock()
+	_, _, _ = s.transition(sessEventStart, 0, nil)
 }
 
 // Line records and broadcasts one stream-json output line.
@@ -157,23 +153,55 @@ func (s *Session) Line(line string) {
 	}
 }
 
-func (s *Session) finish(exitCode int, err error) {
+// transition is the single writer of the session twins (state, finished,
+// exitCode, err) and the done close. It holds mu, consults
+// legalSessTransition, and returns the subscribers and done flag to close
+// outside mu. Terminal finishes are idempotent: the first one closes, later
+// ones keep the first result without re-closing.
+func (s *Session) transition(event sessEvent, code int, err error) (subs map[int]*subscriber, closeDone bool, ok bool) {
 	s.mu.Lock()
-	s.finished = true
-	s.exitCode = exitCode
-	s.err = err
-	if err != nil {
-		s.state = SessionFailed
-	} else {
-		s.state = SessionDone
+	defer s.mu.Unlock()
+	next, legal := legalSessTransition(s.state, event)
+	if !legal {
+		return nil, false, false
 	}
-	subs := s.subscribers
+	// Idempotent terminal re-finish and running re-start: no mutation, no close.
+	if (s.state == SessionRunning && event == sessEventStart) ||
+		((s.state == SessionDone || s.state == SessionFailed) &&
+			(event == sessEventFinishDone || event == sessEventFinishFailed)) {
+		return nil, false, true
+	}
+	if event == sessEventStart {
+		s.state = next
+		return nil, false, true
+	}
+	s.finished = true
+	s.exitCode = code
+	s.err = err
+	s.state = next
+	subs = s.subscribers
 	s.subscribers = map[int]*subscriber{}
-	s.mu.Unlock()
+	return subs, true, true
+}
+
+func (s *Session) finish(exitCode int, err error) {
+	event := sessEventFinishDone
+	if err != nil {
+		event = sessEventFinishFailed
+	}
+	subs, closeDone, ok := s.transition(event, exitCode, err)
+	if !ok {
+		return
+	}
+	if subs == nil && !closeDone {
+		return
+	}
 	for _, sub := range subs {
 		close(sub.ch)
 	}
-	close(s.done)
+	if closeDone {
+		close(s.done)
+	}
 }
 
 // Subscribe returns the buffered history plus a channel of subsequent live lines
@@ -245,7 +273,7 @@ type SessionManagerOptions struct {
 // NewSessionManager builds a manager over pool.
 func NewSessionManager(opts SessionManagerOptions) (*SessionManager, error) {
 	if opts.Pool == nil {
-		return nil, errors.New("daemon: session manager requires a Pool")
+		return nil, errors.New("daemon: o gerenciador de sessões exige um Pool")
 	}
 	maxSessions := opts.MaxSessions
 	if maxSessions <= 0 {

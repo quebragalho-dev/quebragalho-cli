@@ -218,9 +218,10 @@ func (store *Store) CheckContinuationFresh(sessionID string, snap *ContinuationS
 		}
 	}
 	for _, event := range delta {
-		switch event.Type {
-		case EventUsage, EventError, EventPermission, EventPermissionRequest, EventPermissionDecision, EventSessionCheckpoint:
+		if continuationToleratedEvents[event.Type] {
 			continue
+		}
+		switch event.Type {
 		case EventToolCall, EventToolResult:
 			if id := eventToolCallID(event.Payload); id != "" && covered[id] {
 				continue
@@ -233,10 +234,12 @@ func (store *Store) CheckContinuationFresh(sessionID string, snap *ContinuationS
 	return true, delta, nil
 }
 
-// interruptedToolResultNotice is the synthetic tool result closing an orphaned
-// tool_call when a turn was interrupted (Ctrl+C, SIGHUP, kill, crash), mirroring
-// what Claude/Codex do so the provider still sees a valid tool_use/tool_result
-// pair on the next turn.
+// interruptedToolResultNotice is the single shared synthetic tool result
+// closing an orphaned tool_call when a turn was interrupted (Ctrl+C, SIGHUP,
+// kill, crash), mirroring what Claude/Codex do so the provider still sees a
+// valid tool_use/tool_result pair on the next turn. Both the wire repair
+// (RepairOrphanToolCalls) and the log backfill (BackfillOrphanResults) embed
+// this exact byte sequence; the value never changes.
 const interruptedToolResultNotice = "interrupted: run halted before the tool result was recorded"
 
 // RepairOrphanToolCalls inserts a synthetic error tool_result for every

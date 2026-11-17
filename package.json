@@ -1,6 +1,6 @@
 {
   "name": "@quebragalho/cli",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "QG, o agente de programação no terminal do Quebra-Galho.",
   "keywords": [
     "quebragalho",

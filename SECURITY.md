@@ -34,3 +34,6 @@ Please include, where possible:
   out of scope — but please report anything you are unsure about.
 - QG sends no telemetry. Network calls go to the model/tool providers you configure (and, for
   keyless web search, to Exa's hosted MCP endpoint at `https://mcp.exa.ai/mcp`).
+- To warn about a newer version, the TUI queries the GitHub releases API — and, for npm
+  installs, the npm registry — for the latest published version. Set `QG_NO_UPDATE_CHECK=1`
+  to disable the check entirely.

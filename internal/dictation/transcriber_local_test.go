@@ -224,7 +224,7 @@ func TestDetectUnknownFamilyFailsCleanly(t *testing.T) {
 	if !errors.As(err, &setupErr) {
 		t.Fatalf("want a clean *SetupError, got %v", err)
 	}
-	if !strings.Contains(setupErr.Error(), "could not recognize") {
+	if !strings.Contains(setupErr.Error(), "não reconheci") {
 		t.Errorf("expected a recognizable failure message, got %q", setupErr.Error())
 	}
 }

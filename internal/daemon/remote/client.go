@@ -56,11 +56,11 @@ func DialRemote(cfg RemoteConfig) (*daemon.Client, error) {
 func dialAuthenticated(cfg RemoteConfig, mode string) (net.Conn, error) {
 	address := strings.TrimSpace(cfg.Address)
 	if address == "" {
-		return nil, errors.New("remote: address is required")
+		return nil, errors.New("remote: o endereço é obrigatório")
 	}
 	token := strings.TrimSpace(cfg.Token)
 	if token == "" {
-		return nil, errors.New("remote: a non-empty token is required")
+		return nil, errors.New("remote: é necessário um token não vazio")
 	}
 	tlsConfig, err := clientTLSConfig(cfg)
 	if err != nil {
@@ -78,18 +78,18 @@ func dialAuthenticated(cfg RemoteConfig, mode string) (net.Conn, error) {
 	dialer := &tls.Dialer{NetDialer: &net.Dialer{}, Config: tlsConfig}
 	conn, err := dialer.DialContext(dialCtx, "tcp", address)
 	if err != nil {
-		return nil, fmt.Errorf("remote: dial %s: %w", address, err)
+		return nil, fmt.Errorf("remote: discar %s: %w", address, err)
 	}
 	// Bound the auth handshake; the daemon handshake + stream run without a deadline.
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	if err := writeAuthRequest(conn, authRequest{Token: token, Version: daemon.ProtoVersion, Mode: mode}); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("remote: send auth: %w", err)
+		return nil, fmt.Errorf("remote: enviar autenticação: %w", err)
 	}
 	resp, err := readAuthResponse(conn)
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("remote: auth handshake: %w", err)
+		return nil, fmt.Errorf("remote: handshake de autenticação: %w", err)
 	}
 	if !resp.OK {
 		_ = conn.Close()
@@ -113,11 +113,11 @@ func clientTLSConfig(cfg RemoteConfig) (*tls.Config, error) {
 	if ca := strings.TrimSpace(cfg.CACertFile); ca != "" {
 		pem, err := os.ReadFile(ca)
 		if err != nil {
-			return nil, fmt.Errorf("remote: read CA cert: %w", err)
+			return nil, fmt.Errorf("remote: ler o cert da CA: %w", err)
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pem) {
-			return nil, errors.New("remote: CA cert file contained no certificates")
+			return nil, errors.New("remote: o arquivo de cert da CA não continha certificados")
 		}
 		tc.RootCAs = pool
 	}

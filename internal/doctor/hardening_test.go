@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -39,6 +40,13 @@ func stubLookup(present ...string) func(string) (string, error) {
 }
 
 func TestSandboxCheckPassesWhenBackendPresent(t *testing.T) {
+	// The fake bwrap is a shell script executed by the real probe: it
+	// cannot run on Windows, so the Linux-backend-present subject does not
+	// exist there. (The broken-bwrap warning test below still runs on
+	// Windows: an unexecutable fake reports unavailable either way.)
+	if runtime.GOOS == "windows" {
+		t.Skip("fake bwrap is a shell script; the Linux probe cannot run on Windows")
+	}
 	report := Run(Options{
 		Now:              fixedDoctorClock("2026-06-12T10:00:00Z"),
 		Runtime:          "go",

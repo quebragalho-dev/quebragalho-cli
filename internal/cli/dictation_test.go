@@ -1,12 +1,126 @@
 package cli
 
 import (
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/dictation"
 )
+
+// namedModelDir creates a model directory whose base name carries the family
+// signature (how sherpa-onnx distributes models), holding the given files.
+func namedModelDir(t *testing.T, base string, files ...string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), base)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestFactoryRollingForBatchModelDir(t *testing.T) {
+	// A batch model directory (no "streaming" in its installed name) with
+	// preferStreaming gets live text through the rolling transcriber — even
+	// with no server manager (the rolling path needs no server).
+	modelDir := namedModelDir(t, "model-nemo-parakeet-tdt-0.6b-v3-int8",
+		"encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+	stt := config.STTConfig{Provider: config.STTProviderLocal, LocalModelPath: modelDir}
+	resolved := config.ResolvedConfig{STT: stt}
+	factory := newDictationTranscriberFactory(resolved, "", nil)
+
+	tr, streaming, err := factory(stt, true)
+	if err != nil {
+		t.Fatalf("factory with a batch model: %v", err)
+	}
+	if !streaming {
+		t.Fatal("a batch model with preferStreaming must use the live (rolling) pipeline")
+	}
+	if tr == nil {
+		t.Fatal("expected a rolling transcriber")
+	}
+	// The rolling transcriber streams (an empty stream yields no text and no
+	// error), unlike the batch transcriber's ErrStreamingUnsupported.
+	chunks := make(chan []byte)
+	close(chunks)
+	text, err := tr.StreamTranscribe(context.Background(), chunks, func(string, bool) {})
+	if err != nil {
+		t.Fatalf("rolling StreamTranscribe: %v", err)
+	}
+	if errors.Is(err, dictation.ErrStreamingUnsupported) {
+		t.Fatal("a batch model must not report ErrStreamingUnsupported on the live pipeline")
+	}
+	if text != "" {
+		t.Errorf("empty stream text = %q, want \"\"", text)
+	}
+}
+
+func TestFactoryServerForStreamingModelDir(t *testing.T) {
+	// A streaming model directory keeps the server-based transcriber, as today.
+	modelDir := namedModelDir(t, "model-nemo-streaming-fast-conformer-transducer-en-80ms-int8",
+		"encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+	stt := config.STTConfig{
+		Provider:          config.STTProviderLocal,
+		LocalModelPath:    modelDir,
+		LocalServerBinary: filepath.Join(t.TempDir(), "no-such-server"),
+	}
+	resolved := config.ResolvedConfig{STT: stt}
+	factory := newDictationTranscriberFactory(resolved, "", newDictationServerManager(stt))
+
+	tr, streaming, err := factory(stt, true)
+	if err != nil {
+		t.Fatalf("factory with a streaming model: %v", err)
+	}
+	if !streaming {
+		t.Fatal("a streaming model must use the server pipeline")
+	}
+	// The server backend fails here (no server binary), which proves this is
+	// not the rolling transcriber (empty stream → "", nil) nor the batch one
+	// (ErrStreamingUnsupported).
+	chunks := make(chan []byte)
+	close(chunks)
+	_, err = tr.StreamTranscribe(context.Background(), chunks, func(string, bool) {})
+	if err == nil {
+		t.Fatal("expected the missing server binary to fail the stream")
+	}
+	if errors.Is(err, dictation.ErrStreamingUnsupported) {
+		t.Fatalf("a streaming model must not report ErrStreamingUnsupported, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "no-such-server") {
+		t.Fatalf("the stream should fail on the configured server binary, got %v", err)
+	}
+}
+
+func TestFactoryBatchWhenStreamingNotPreferred(t *testing.T) {
+	// preferStreaming false keeps the batch transcriber, even for a local model.
+	modelDir := namedModelDir(t, "model-nemo-parakeet-tdt-0.6b-v3-int8",
+		"encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+	stt := config.STTConfig{Provider: config.STTProviderLocal, LocalModelPath: modelDir}
+	resolved := config.ResolvedConfig{STT: stt}
+	factory := newDictationTranscriberFactory(resolved, "", nil)
+
+	tr, streaming, err := factory(stt, false)
+	if err != nil {
+		t.Fatalf("factory batch: %v", err)
+	}
+	if streaming {
+		t.Error("preferStreaming false must use the batch pipeline")
+	}
+	chunks := make(chan []byte)
+	close(chunks)
+	if _, err := tr.StreamTranscribe(context.Background(), chunks, func(string, bool) {}); !errors.Is(err, dictation.ErrStreamingUnsupported) {
+		t.Errorf("batch transcriber StreamTranscribe = %v, want ErrStreamingUnsupported", err)
+	}
+}
 
 func TestFactoryFallsBackToBatchWhenLocalStreamingNotConfigured(t *testing.T) {
 	t.Setenv("GROQ_API_KEY", "gsk-test")

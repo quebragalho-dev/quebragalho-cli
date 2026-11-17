@@ -37,7 +37,7 @@ path:
 
 ```bash
 # platform-package path
-mkdir -p /tmp/qg-sim/node_modules/@quebragalho-dev
+mkdir -p /tmp/qg-sim/node_modules/@quebragalho
 cp -R dist/npm/wrapper /tmp/qg-sim/node_modules/@quebragalho/cli
 cp -R dist/npm/platforms/qg-<platform>-<arch> \
   "/tmp/qg-sim/node_modules/@quebragalho/cli-<platform>-<arch>"

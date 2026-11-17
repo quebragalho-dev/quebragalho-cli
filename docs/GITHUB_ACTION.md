@@ -5,13 +5,13 @@ Run QG headlessly inside a GitHub workflow. The action is a thin wrapper around
 repository, surfaces QG's exit code as the step status, captures the output as a
 file, and can optionally post a summary to the triggering pull request or to Slack.
 
-QG is model- and provider-agnostic, and so is this action: **you** choose the
-provider and supply the API key. Nothing is hardcoded to any single provider.
+QG talks to its single OpenAI-compatible provider, and so does this action:
+**you** supply the API key. Nothing is hardcoded to any other provider.
 
 ## Quick start
 
-A action `quebragalho-dev/quebragalho-cli@v1` está no repositório privado
-(requer acesso). Os exemplos `uses:` abaixo mantêm esse destino.
+A action `quebragalho-dev/quebragalho-cli@v1` está no repositório público.
+Os exemplos `uses:` abaixo mantêm esse destino.
 
 ```yaml
 # .github/workflows/qg.yml
@@ -40,8 +40,8 @@ jobs:
           model: muse-spark-1.3-contributor
 ```
 
-> The `provider`, `api-key-env`, and `api-key` trio is how you stay
-> provider-neutral: `api-key-env` is the environment variable name the chosen
+> The `provider`, `api-key-env`, and `api-key` trio is how the key reaches QG
+> without being logged: `api-key-env` is the environment variable name the
 > provider reads its key from (for example `QUEBRAGALHO_API_KEY`), and
 > `api-key` is the secret value. The action exports
 > that variable only for the QG step and never prints it. If your repository
@@ -58,7 +58,7 @@ jobs:
 | `api-key` | no | `""` | The provider API key. Pass from a secret; exported only for the QG step and never logged. |
 | `api-key-env` | no | `""` | Env var name the provider reads its key from (e.g. `QUEBRAGALHO_API_KEY`). Exported only for the QG step when used with `api-key`. |
 | `model` | no | `""` | Model id. Defaults to the resolved provider's default. |
-| `mode` | no | `""` | Run mode (`qg exec --mode`), e.g. `smart`, `deep`, `fast`. |
+| `mode` | no | `""` | Run mode (`qg exec --mode`), e.g. `smart`. |
 | `auto` | no | `low` | Autonomy ceiling (`qg exec --auto`): `low`, `medium`, or `high`. Conservative by default. |
 | `self-correct` | no | `false` | Allow mid-run model escalation (`qg exec --allow-escalation`). |
 | `add-dir` | no | `""` | Newline-/comma-separated extra write roots (`qg exec --add-dir`). |
@@ -193,8 +193,8 @@ webhook after the run. QG also has a built-in webhook notifier sink
 "finished / needs input / verify failed after N retries" to Slack or any generic
 webhook:
 
-- Configure the destination with the `QG_SLACK_WEBHOOK_URL` environment variable
-  (or settings). A blank URL disables the sink.
+- Configure the destination with the `QG_NOTIFY_WEBHOOK_URL` environment variable.
+  A blank URL disables the sink.
 - The sink POSTs a JSON body `{ "text", "type", "message", "summary?", "links?" }`.
   The `text` field is what Slack renders; the structured fields carry the
   machine-readable detail.

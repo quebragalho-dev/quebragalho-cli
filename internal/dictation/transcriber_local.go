@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -40,8 +41,8 @@ type localTranscriber struct {
 func NewLocalTranscriber(cfg LocalConfig) (Transcriber, error) {
 	if strings.TrimSpace(cfg.ModelPath) == "" {
 		return nil, &SetupError{
-			Tool: "local STT model",
-			Hint: "set stt.localModelPath to a sherpa-onnx model directory (see docs/dictation.md)",
+			Tool: "modelo de ditado local",
+			Hint: "defina stt.localModelPath para uma pasta de modelo sherpa-onnx (rode /stt-model para escolher e baixar um)",
 		}
 	}
 	if cfg.Binary == "" {
@@ -89,9 +90,7 @@ func (l *localTranscriber) Transcribe(ctx context.Context, audio []byte) (string
 
 	args := make([]string, 0, len(modelArgs)+3)
 	args = append(args, modelArgs...)
-	if l.cfg.NumThreads > 0 {
-		args = append(args, "--num-threads="+strconv.Itoa(l.cfg.NumThreads))
-	}
+	args = append(args, "--num-threads="+strconv.Itoa(effectiveNumThreads(l.cfg.NumThreads)))
 	args = append(args, path)
 
 	// Fail fast if already cancelled; ctx also propagates into the exec below so a
@@ -104,7 +103,7 @@ func (l *localTranscriber) Transcribe(ctx context.Context, audio []byte) (string
 		if errors.Is(err, exec.ErrNotFound) {
 			return "", &SetupError{
 				Tool: l.cfg.Binary,
-				Hint: "install sherpa-onnx and put its offline binary on PATH (see docs/dictation.md)",
+				Hint: "instale o sherpa-onnx e coloque o binário offline no PATH (ou rode /stt-model para baixar o motor)",
 			}
 		}
 		return "", fmt.Errorf("sherpa-onnx transcription failed: %w (%s)", err, lastLines(out, 3))
@@ -116,6 +115,27 @@ func (l *localTranscriber) Transcribe(ctx context.Context, audio []byte) (string
 	return text, nil
 }
 
+// localNumCPU reports the machine's CPU count. A variable (not a direct
+// runtime.NumCPU call) so tests pin it without depending on the host.
+var localNumCPU = runtime.NumCPU
+
+// effectiveNumThreads resolves the --num-threads flag: an explicit
+// stt.numThreads wins, otherwise the engine gets min(4, NumCPU) (at least 1)
+// instead of its single-threaded default.
+func effectiveNumThreads(cfgNum int) int {
+	if cfgNum > 0 {
+		return cfgNum
+	}
+	n := localNumCPU()
+	if n < 1 {
+		n = 1
+	}
+	if n > 4 {
+		n = 4
+	}
+	return n
+}
+
 // detectModelArgs inspects a sherpa-onnx model directory and builds the
 // family-specific --*=path flags. Supports the families sherpa-onnx-offline
 // accepts; Moonshine (the design's default/standard/high-end tiers) is the
@@ -124,8 +144,8 @@ func detectModelArgs(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, &SetupError{
-			Tool: "local STT model",
-			Hint: fmt.Sprintf("stt.localModelPath %q is not readable: %v", dir, err),
+			Tool: "modelo de ditado local",
+			Hint: fmt.Sprintf("stt.localModelPath %q não pode ser lido: %v", dir, err),
 		}
 	}
 	files := map[string]string{} // lowercased basename -> absolute path
@@ -139,8 +159,8 @@ func detectModelArgs(dir string) ([]string, error) {
 	tokens := findTokensFile(files)
 	if tokens == "" {
 		return nil, &SetupError{
-			Tool: "local STT model",
-			Hint: fmt.Sprintf("no tokens.txt found in stt.localModelPath %q — is it a sherpa-onnx model directory?", dir),
+			Tool: "modelo de ditado local",
+			Hint: fmt.Sprintf("nenhum tokens.txt em stt.localModelPath %q — é uma pasta de modelo sherpa-onnx?", dir),
 		}
 	}
 
@@ -210,8 +230,8 @@ func detectModelArgs(dir string) ([]string, error) {
 	}
 
 	return nil, &SetupError{
-		Tool: "local STT model",
-		Hint: fmt.Sprintf("could not recognize the model family in %q (supported: Moonshine, Whisper, transducer/Zipformer, Paraformer, SenseVoice, and the CTC families FireRedASR/NeMo/TeleSpeech/WeNet/Zipformer-CTC/Dolphin/Omnilingual). See docs/dictation.md", dir),
+		Tool: "modelo de ditado local",
+		Hint: fmt.Sprintf("não reconheci o modelo em %q (rode /stt-model para baixar um modelo suportado)", dir),
 	}
 }
 

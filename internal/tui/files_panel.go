@@ -310,31 +310,6 @@ func (m model) renderFileRow(f touchedFile, room int) string {
 	return line
 }
 
-// sidebarFileSelectables returns the clickable FILES rows with their ABSOLUTE
-// index inside the rendered sidebar. The FILES section renders after PLAN in
-// renderContextSidebar: AGENTS header + body, blank + PLAN header + body, then
-// blank + FILES header, then the file rows. The offset accounting mirrors
-// sidebarPlanSelectables exactly, extended one section down.
-func (m model) sidebarFileSelectables(width int) []fileHit {
-	lines, hits := m.sidebarFileLines(width)
-	if len(lines) == 0 {
-		return nil
-	}
-	agentBody := len(m.sidebarAgentLines(width))
-	if agentBody == 0 {
-		agentBody = 1 // the "no agents spawned" placeholder occupies one line
-	}
-	planBody := len(m.sidebarPlanLines(width))
-	if planBody == 0 {
-		planBody = 1 // the "no active plan" placeholder occupies one line
-	}
-	base := 1 + agentBody + 2 + planBody + 2 // sections above + (blank + FILES header)
-	for i := range hits {
-		hits[i].lineOffset += base
-	}
-	return hits
-}
-
 // rowTouchesSelectedFile reports whether a transcript row's mutation touched
 // the currently selected file, so its card renders with the selection tint.
 func (m model) rowTouchesSelectedFile(row transcriptRow) bool {
@@ -347,23 +322,6 @@ func (m model) rowTouchesSelectedFile(row transcriptRow) bool {
 		}
 	}
 	return false
-}
-
-// lastRowIndexForFile returns the transcript index of the most recent
-// tool-result row that touched path, or -1.
-func (m model) lastRowIndexForFile(path string) int {
-	for i := len(m.transcript) - 1; i >= 0; i-- {
-		row := m.transcript[i]
-		if row.kind != rowToolResult {
-			continue
-		}
-		for _, p := range row.changedFiles {
-			if p == path {
-				return i
-			}
-		}
-	}
-	return -1
 }
 
 func (m *model) setSelectedFile(path string) {
@@ -380,53 +338,6 @@ func (m *model) setSelectedFile(path string) {
 			}
 		}
 	}
-}
-
-// selectFile marks path as the selected file and scrolls the transcript so its
-// most recent edit card is in view; the card tint comes from the renderers
-// reading selectedFile (rowTouchesSelectedFile).
-func (m model) selectFile(path string) model {
-	rowIndex := m.lastRowIndexForFile(path)
-	m.setSelectedFile(path)
-	if offset, ok := m.scrollOffsetForTranscriptRow(rowIndex); ok {
-		m.chatScrollOffset = offset
-		if offset == 0 {
-			m.chatBodyLines = 0
-		}
-	}
-	return m
-}
-
-// scrollOffsetForTranscriptRow computes the chatScrollOffset that places the
-// given transcript row's first rendered line at the top of the viewport (with
-// one line of breathing room), using the same layout metrics the scroll engine
-// itself uses. ok is false outside alt-screen or when the row isn't rendered
-// (e.g. skipped/collapsed).
-func (m model) scrollOffsetForTranscriptRow(rowIndex int) (int, bool) {
-	if rowIndex < 0 || !m.altScreen || m.height <= 0 {
-		return 0, false
-	}
-	width := m.chatColumnWidth()
-	items := m.transcriptBodyItems(width, "", false)
-	metrics := measureTranscriptBodyItems(items, m.transcriptBodyHeights)
-	startY := -1
-	for index := 0; index < metrics.spanCount(); index++ {
-		span := metrics.spanAt(index)
-		if span.kind == transcriptBodyItemRow && span.rowIndex == rowIndex {
-			startY = span.startY
-			break
-		}
-	}
-	if startY < 0 {
-		return 0, false
-	}
-	frame := m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width))
-	viewport := transcriptViewportForLayout(metrics, frame, m.chatScrollOffset)
-	// The offset counts lines below the fold: window.start == total-height-offset,
-	// so placing startY at the window top (minus one context line) means
-	// offset = total - height - (startY - 1), clamped to the scroll range.
-	offset := metrics.totalLines() - frame.bodyRect.height - (startY - 1)
-	return clampInt(offset, 0, viewport.maxOffset()), true
 }
 
 // truncatePathLeft fits a path into room cells by dropping leading components

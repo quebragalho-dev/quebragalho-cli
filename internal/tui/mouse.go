@@ -497,17 +497,29 @@ func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget
 	}
 	maxVisible := minInt(pickerOverlayMaxVisible, len(m.picker.items))
 	start := selectableListStart(len(m.picker.items), maxVisible, clampInt(m.picker.selected, 0, len(m.picker.items)-1))
-	rowStart := 3
-	if m.modelPickerLoadError != "" {
-		rowStart++
+	// Mirror modelPickerOverlay: search line, optional load-error line,
+	// separator, then one header line per group before its items.
+	y := 3
+	if strings.TrimSpace(m.modelPickerLoadError) != "" {
+		y++
 	}
-	row := hit.y - rowStart
-	if row < 0 || row >= maxVisible {
-		return mouseSelectionTarget{}, false
+	lastGroup := ""
+	for offset := 0; offset < maxVisible; offset++ {
+		item := m.picker.items[start+offset]
+		if item.Group != "" && item.Group != lastGroup {
+			if hit.y == y {
+				return mouseSelectionTarget{}, false
+			}
+			y++
+			lastGroup = item.Group
+		}
+		if hit.y == y {
+			m.picker.selected = start + offset
+			return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: item.Value, Index: start + offset}, true
+		}
+		y++
 	}
-	index := start + row
-	m.picker.selected = index
-	return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: m.picker.items[index].Value, Index: index}, true
+	return mouseSelectionTarget{}, false
 }
 
 func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget, bool) {
@@ -541,8 +553,13 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 	start := selectableListStart(len(m.picker.items), maxVisible, selected)
 	visible := m.picker.items[start : start+maxVisible]
 	details := pickerShowsDetails(m.picker, width)
-	// y=0 titled top border, y=1 search line, y=2 separator; rows begin at y=3.
-	line := 3
+	// y=0 titled top border, y=1 search line, y=2 separator; rows begin after
+	// the optional header lines (only the voice first-use panel has any).
+	overlayWidth := minInt(width, pickerOverlayMaxWidth)
+	if overlayWidth < pickerOverlayMinWidth {
+		overlayWidth = width
+	}
+	line := 3 + len(m.picker.wrappedHeader(maxInt(1, overlayWidth-4)))
 	lastGroup := ""
 	for offset, item := range visible {
 		if item.Group != "" && item.Group != lastGroup {

@@ -114,11 +114,7 @@ func (m model) choosePermissionOption(choice permissionDecision) (tea.Model, tea
 		return m, nil
 	}
 	if choice == permissionDecisionCancel {
-		m.pendingPermission.typing = true
-		// Preserve whatever the user had drafted/queued in the composer so it is
-		// restored when they leave feedback mode (submit or cancel).
-		m.pendingPermission.savedDraft = m.input.Value()
-		m.input.SetValue("")
+		_ = m.promptTransition(PromptEvEnterTyping, promptArgs{})
 		return m, nil
 	}
 	return m.resolvePermission(choice)
@@ -134,10 +130,6 @@ func (m model) submitPermissionFeedback() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	feedback := strings.TrimSpace(m.input.Value())
-	// Restore the composer draft the user had before entering feedback mode; the
-	// feedback text itself is delivered via the decision Reason, not the composer.
-	m.input.SetValue(m.pendingPermission.savedDraft)
-	m.pendingPermission.typing = false
 	if feedback == "" {
 		return m.resolvePermission(permissionDecisionCancel)
 	}
@@ -150,8 +142,6 @@ func (m model) cancelPermissionTyping() (tea.Model, tea.Cmd) {
 	if m.pendingPermission == nil || !m.pendingPermission.typing {
 		return m, nil
 	}
-	m.pendingPermission.typing = false
-	m.input.SetValue(m.pendingPermission.savedDraft)
-	m.pendingPermission.savedDraft = ""
+	_ = m.promptTransition(PromptEvCancelTyping, promptArgs{})
 	return m, nil
 }

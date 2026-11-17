@@ -274,7 +274,7 @@ func TestQuietHintShownWithRunDetails(t *testing.T) {
 	if line := plainRender(t, m.workingStatusLine()); !strings.Contains(line, "still generating") {
 		t.Errorf("working line should carry the quiet hint:\n%s", line)
 	}
-	if act := plainRender(t, strings.Join(m.sidebarActivityLines(sidebarWidth(m.width), 10), "\n")); !strings.Contains(act, "generating") {
+	if act := plainRender(t, strings.Join(m.sidebarActivityLines(40, 10), "\n")); !strings.Contains(act, "generating") {
 		t.Errorf("run details should retain the generating pulse:\n%s", act)
 	}
 }

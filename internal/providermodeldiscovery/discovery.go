@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodelcatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providers/providerio"
@@ -235,7 +236,7 @@ func parseModelsResponse(body []byte) ([]Model, error) {
 	}
 	models := make([]Model, 0, len(items))
 	for index, item := range items {
-		id := firstNonEmptyDiscovery(item.ID, item.Slug)
+		id := envstr.FirstNonEmpty(item.ID, item.Slug)
 		if id == "" || seen[id] {
 			continue
 		}
@@ -247,7 +248,7 @@ func parseModelsResponse(body []byte) ([]Model, error) {
 			continue
 		}
 		seen[id] = true
-		description := firstNonEmptyDiscovery(
+		description := envstr.FirstNonEmpty(
 			item.DisplayName,
 			item.Name,
 			item.Description,
@@ -377,15 +378,6 @@ func discoveryContainsFold(values []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func firstNonEmptyDiscovery(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func firstPositiveDiscovery(values ...int) int {

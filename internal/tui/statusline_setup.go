@@ -356,12 +356,9 @@ func (m model) resetStatusline() model {
 	m.statuslineCfg = config.StatusLineConfig{}
 	m.statuslineCmdOutput = ""
 	m.statuslineCmdErr = ""
-	m = m.cancelStatuslineRun()
-	m.statuslineCmdStartedAt = time.Time{}
-	m.statuslineCmdSeq++
+	_, _ = m.statusTransition(StatusEvReconfig, statusArgs{})
 	// The old cadence dies here: any tick armed before the reset carries the
 	// previous generation and is discarded on arrival.
-	m.statuslineTickGen++
 	return m.appendStatuslineNotice("Statusline\nvoltou ao padrão.")
 }
 
@@ -866,10 +863,7 @@ func (m model) applyStatuslinePending() (model, tea.Cmd) {
 	// the old window happened to elapse.
 	m.statuslineCmdOutput = ""
 	m.statuslineCmdErr = ""
-	m = m.cancelStatuslineRun()
-	m.statuslineCmdStartedAt = time.Time{}
-	m.statuslineCmdSeq++
-	m.statuslineTickGen++
+	_, _ = m.statusTransition(StatusEvReconfig, statusArgs{})
 	m = m.appendStatuslineNotice("Statusline\natualizada.")
 	if m.statuslineCommandActive() {
 		return m, statuslineInitCmd(m.statuslineTickGen)

@@ -65,3 +65,33 @@ func TestListModelsFiltersAndFlags(t *testing.T) {
 		t.Errorf("expected the API digest, got %q", byID["streaming-zipformer-en-2023-06-26"].Digest)
 	}
 }
+
+func TestListModelsFillsCuratedLanguage(t *testing.T) {
+	assets := []map[string]any{
+		{"name": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2", "size": 158 << 20},
+		{"name": "sherpa-onnx-moonshine-base-en-int8.tar.bz2", "size": 239 << 20},
+		{"name": "sherpa-onnx-whisper-small.tar.bz2", "size": 300 << 20},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"id": 1, "assets": assets})
+	}))
+	defer srv.Close()
+
+	vs, err := ListModels(context.Background(), http.DefaultClient, srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byAsset := map[string]ModelVariant{}
+	for _, v := range vs {
+		byAsset[v.AssetName] = v
+	}
+	if multi := byAsset["sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2"]; multi.Language != "" {
+		t.Errorf("multilingual curated asset Language = %q, want empty", multi.Language)
+	}
+	if en := byAsset["sherpa-onnx-moonshine-base-en-int8.tar.bz2"]; en.Language != "en" {
+		t.Errorf("English curated asset Language = %q, want en", en.Language)
+	}
+	if other := byAsset["sherpa-onnx-whisper-small.tar.bz2"]; other.Language != "" {
+		t.Errorf("non-curated asset Language = %q, want empty", other.Language)
+	}
+}

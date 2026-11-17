@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 )
 
 // DefaultNpmRegistry is the npm registry queried for the latest published
@@ -25,13 +27,13 @@ type npmLatestVersion struct {
 // reuses Result, the semver comparison, and the timeout behavior of Check;
 // asset verification does not apply (npm serves no GitHub archives).
 func CheckNpm(ctx context.Context, options Options) (Result, error) {
-	rawVersion := strings.TrimSpace(firstNonEmpty(options.CurrentVersion, "0.0.0"))
+	rawVersion := strings.TrimSpace(envstr.FirstNonEmpty(options.CurrentVersion, "0.0.0"))
 	currentVersion, err := normalizeVersionTag(rawVersion)
 	if err != nil {
 		// Same convention as Check: dev builds compare as 0.0.0.
 		currentVersion = "0.0.0"
 	}
-	base := strings.TrimSpace(firstNonEmpty(options.Endpoint, DefaultNpmRegistry))
+	base := strings.TrimSpace(envstr.FirstNonEmpty(options.Endpoint, DefaultNpmRegistry))
 	parsed, err := url.ParseRequestURI(strings.TrimSuffix(base, "/"))
 	if err != nil || parsed.Scheme == "" {
 		return Result{}, fmt.Errorf("invalid npm registry endpoint %q: use a base URL like %s", base, DefaultNpmRegistry)

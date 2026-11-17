@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 )
 
@@ -76,7 +77,7 @@ type tokenFile struct {
 // file, honoring an explicit override, XDG_CONFIG_HOME, then the user home dir.
 // It is used to locate a pre-unification file for migration.
 func ResolveTokenStorePath(env map[string]string) (string, error) {
-	override := strings.TrimSpace(envValue(env, "QG_MCP_OAUTH_TOKENS_PATH"))
+	override := strings.TrimSpace(envstr.Value(env, "QG_MCP_OAUTH_TOKENS_PATH"))
 	if override != "" {
 		if filepath.IsAbs(override) {
 			return filepath.Clean(override), nil
@@ -84,9 +85,9 @@ func ResolveTokenStorePath(env map[string]string) (string, error) {
 		return filepath.Abs(override)
 	}
 
-	configHome := strings.TrimSpace(envValue(env, "XDG_CONFIG_HOME"))
+	configHome := strings.TrimSpace(envstr.Value(env, "XDG_CONFIG_HOME"))
 	if configHome == "" {
-		home := strings.TrimSpace(firstNonEmpty(envValue(env, "HOME"), envValue(env, "USERPROFILE")))
+		home := strings.TrimSpace(firstNonEmpty(envstr.Value(env, "HOME"), envstr.Value(env, "USERPROFILE")))
 		var err error
 		if home == "" {
 			home, err = os.UserHomeDir()

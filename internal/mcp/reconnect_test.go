@@ -38,6 +38,26 @@ func TestIsTransientConnectError(t *testing.T) {
 	}
 }
 
+// TestConnectBackoffSchedule pins the production retry schedule: 1s, 2s,
+// 4s, 8s, doubling per attempt. The acceptance tests below shrink the seam
+// for speed, so this is the test that fails if the real values stop
+// doubling.
+func TestConnectBackoffSchedule(t *testing.T) {
+	want := []time.Duration{
+		1 * time.Second,
+		2 * time.Second,
+		4 * time.Second,
+		8 * time.Second,
+		16 * time.Second,
+		32 * time.Second,
+	}
+	for attempt, wantBackoff := range want {
+		if got := connectBackoffFor(attempt + 1); got != wantBackoff {
+			t.Fatalf("connectBackoffFor(%d) = %v, want %v", attempt+1, got, wantBackoff)
+		}
+	}
+}
+
 func TestConnectWithRetrySucceedsAfterTransient(t *testing.T) {
 	attempts := 0
 	factory := func(context.Context, Server) (ToolClient, error) {

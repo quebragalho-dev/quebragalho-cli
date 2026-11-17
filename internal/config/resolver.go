@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/notify"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
@@ -45,11 +46,20 @@ func (e *setupFixableError) Unwrap() []error { return []error{e.err, e.sentinel}
 // later steps); 50 was still too low for larger tasks spanning several files (agents
 // hit the ceiling and stopped with a "remaining work" summary instead of finishing).
 // Raise per-session with /turns.
+//
+// This is the INTERACTIVE default: the TUI resolves it straight into the session
+// budget. Headless exec replaces it with MaxTurnsCeiling when unset (see
+// cli.execTurnBudget), and a bare agent.Run without any resolved config falls
+// back further to agent.FallbackMaxTurns. Explicit sources (--max-turns, mode
+// presets, QG_MAX_TURNS, config files) always win over this default.
 const defaultMaxTurns = 80
 
 // MaxTurnsCeiling caps the per-run tool-turn budget so a stray env value or typo
 // can't set an absurd ceiling. Shared between applyEnv (read site) and the /turns
 // command (write site) so the bound holds even if the env is set by a raw shell.
+// It doubles as the headless exec default (cli.defaultExecMaxTurns): an exec run
+// has nobody to unstick it, so an unconfigured budget starts at the ceiling
+// instead of truncating mid-task at the interactive default.
 const MaxTurnsCeiling = 500
 
 // defaultDeferThreshold is the number of deferred-eligible (MCP) tools at which
@@ -289,6 +299,12 @@ func mergeConfig(dst *FileConfig, src FileConfig) {
 	}
 	if strings.TrimSpace(src.Preferences.Theme) != "" {
 		dst.Preferences.Theme = strings.TrimSpace(src.Preferences.Theme)
+	}
+	if strings.TrimSpace(src.Preferences.CompactionModel) != "" {
+		dst.Preferences.CompactionModel = strings.TrimSpace(src.Preferences.CompactionModel)
+	}
+	if src.Preferences.AutoCompactLimit != 0 {
+		dst.Preferences.AutoCompactLimit = NormalizeAutoCompactLimit(src.Preferences.AutoCompactLimit)
 	}
 	mergeLocalControlConfig(&dst.LocalControl, src.LocalControl)
 	mergeKeyBindings(&dst.KeyBindings, src.KeyBindings)
@@ -621,11 +637,11 @@ func SetMaxTurnsEnv(n int) {
 }
 
 func applyEnv(cfg *FileConfig, env map[string]string) {
-	activeProvider := strings.TrimSpace(envValue(env, ActiveProviderEnv))
+	activeProvider := strings.TrimSpace(envstr.Value(env, ActiveProviderEnv))
 	if activeProvider != "" {
 		cfg.ActiveProvider = activeProvider
 	}
-	if maxTurns := strings.TrimSpace(envValue(env, MaxTurnsEnv)); maxTurns != "" {
+	if maxTurns := strings.TrimSpace(envstr.Value(env, MaxTurnsEnv)); maxTurns != "" {
 		if n, err := strconv.Atoi(maxTurns); err == nil && n > 0 {
 			if n > MaxTurnsCeiling {
 				n = MaxTurnsCeiling
@@ -637,21 +653,21 @@ func applyEnv(cfg *FileConfig, env map[string]string) {
 
 	applyProviderEnv(cfg, ProviderKindOpenAI, envProfile{
 		Name:    string(ProviderKindOpenAI),
-		APIKey:  envValue(env, "OPENAI_API_KEY"),
-		BaseURL: envValue(env, "OPENAI_BASE_URL"),
-		Model:   envValue(env, "OPENAI_MODEL"),
+		APIKey:  envstr.Value(env, "OPENAI_API_KEY"),
+		BaseURL: envstr.Value(env, "OPENAI_BASE_URL"),
+		Model:   envstr.Value(env, "OPENAI_MODEL"),
 	})
 	applyProviderEnv(cfg, ProviderKindAnthropic, envProfile{
 		Name:    string(ProviderKindAnthropic),
-		APIKey:  envValue(env, "ANTHROPIC_API_KEY"),
-		BaseURL: envValue(env, "ANTHROPIC_BASE_URL"),
-		Model:   envValue(env, "ANTHROPIC_MODEL"),
+		APIKey:  envstr.Value(env, "ANTHROPIC_API_KEY"),
+		BaseURL: envstr.Value(env, "ANTHROPIC_BASE_URL"),
+		Model:   envstr.Value(env, "ANTHROPIC_MODEL"),
 	})
 	applyProviderEnv(cfg, ProviderKindGoogle, envProfile{
 		Name:    string(ProviderKindGoogle),
-		APIKey:  firstNonEmpty(envValue(env, "GEMINI_API_KEY"), envValue(env, "GOOGLE_API_KEY")),
-		BaseURL: firstNonEmpty(envValue(env, "GEMINI_BASE_URL"), envValue(env, "GOOGLE_BASE_URL")),
-		Model:   firstNonEmpty(envValue(env, "GEMINI_MODEL"), envValue(env, "GOOGLE_MODEL")),
+		APIKey:  envstr.FirstNonEmpty(envstr.Value(env, "GEMINI_API_KEY"), envstr.Value(env, "GOOGLE_API_KEY")),
+		BaseURL: envstr.FirstNonEmpty(envstr.Value(env, "GEMINI_BASE_URL"), envstr.Value(env, "GOOGLE_BASE_URL")),
+		Model:   envstr.FirstNonEmpty(envstr.Value(env, "GEMINI_MODEL"), envstr.Value(env, "GOOGLE_MODEL")),
 	})
 }
 
@@ -737,13 +753,6 @@ func normalizedProfileKind(profile ProviderProfile) ProviderKind {
 		kind = strings.TrimSpace(profile.Provider)
 	}
 	return ProviderKind(strings.ToLower(kind))
-}
-
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
 }
 
 func applyOverrides(cfg *FileConfig, overrides Overrides) {
@@ -893,6 +902,9 @@ func mergeSTTConfig(dst *STTConfig, src STTConfig) {
 	}
 	if src.AutoSubmit != nil {
 		dst.AutoSubmit = src.AutoSubmit
+	}
+	if src.VoiceMode {
+		dst.VoiceMode = true
 	}
 	if src.WindowsAudioDevice != "" {
 		dst.WindowsAudioDevice = src.WindowsAudioDevice
@@ -1060,7 +1072,7 @@ func normalizeProvider(profile ProviderProfile, env map[string]string, options n
 		profile.ProviderKind = ProviderKindOpenAI
 	}
 	if strings.TrimSpace(profile.APIKey) == "" {
-		profile.APIKey = profile.EnvAPIKey(func(key string) string { return envValue(env, key) })
+		profile.APIKey = profile.EnvAPIKey(func(key string) string { return envstr.Value(env, key) })
 	}
 
 	switch profile.ProviderKind {
@@ -1192,12 +1204,6 @@ func providerKindForCatalogTransport(transport providercatalog.Transport) Provid
 	switch transport {
 	case providercatalog.TransportOpenAI:
 		return ProviderKindOpenAI
-	case providercatalog.TransportAnthropic:
-		return ProviderKindAnthropic
-	case providercatalog.TransportAnthropicCompatible:
-		return ProviderKindAnthropicCompat
-	case providercatalog.TransportGoogle:
-		return ProviderKindGoogle
 	case providercatalog.TransportOpenAICompatible:
 		return ProviderKindOpenAICompatible
 	default:

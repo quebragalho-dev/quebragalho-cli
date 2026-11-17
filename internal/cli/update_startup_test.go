@@ -34,12 +34,6 @@ func newSleepingUpdateServer(t *testing.T, release <-chan struct{}) *httptest.Se
 
 var errUpdateStartupTest = errors.New("browser unavailable in test")
 
-type updatePromptCall struct {
-	current      string
-	latest       string
-	changelogURL string
-}
-
 func writeUpdateState(t *testing.T, state updatenotice.State) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "qg", "update.json")
@@ -350,6 +344,10 @@ func TestExecNeverPrompts(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// updatenotice.StatePath resolves under LOCALAPPDATA on Windows, ignoring
+	// XDG_*; keep the state lookup off the real profile too.
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	state := updatenotice.State{LastCheck: updateStartupTestNow, LatestVersion: "0.0.11"}
 	stateFile := writeUpdateState(t, state)
 

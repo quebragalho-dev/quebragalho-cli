@@ -144,12 +144,11 @@ func validateAuthFlags(sub string, a authArgs) error {
 	return nil
 }
 
-// newAuthManager builds an oauth.Manager backed by the file store, printing the
-// authorization URL / device code to stdout. The store path honors
-// QG_OAUTH_TOKENS_PATH (env), so callers/tests can redirect it. Setting
-// QG_OAUTH_STORAGE=encrypted-file selects the AES-256-GCM encrypted-at-rest
-// backend (a per-user secret is created beside the token file).
-func newAuthManager(deps appDeps, out io.Writer) (*oauth.Manager, error) {
+// newAuthManager builds an oauth.Manager backed by the file store.
+// The store path honors QG_OAUTH_TOKENS_PATH (env), so callers/tests can
+// redirect it. Setting QG_OAUTH_STORAGE=encrypted-file selects the AES-256-GCM
+// encrypted-at-rest backend (a per-user secret is created beside the token file).
+func newAuthManager(deps appDeps) (*oauth.Manager, error) {
 	// Validate QG_OAUTH_STORAGE up front: a mistyped value must fail fast rather
 	// than silently change the backend. Empty = default (plaintext 0600 file);
 	// "encrypted-file" = AES-256-GCM; "keyring" = the OS keyring.
@@ -170,11 +169,6 @@ func newAuthManager(deps appDeps, out io.Writer) (*oauth.Manager, error) {
 		Store:      store,
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		Now:        deps.now,
-		Out:        out,
-		// The opener prints the URL so headless shells can copy it; the URL
-		// carries no token material. A real browser launch is intentionally not
-		// performed (the sandbox/headless contexts make printing the safer default).
-		OpenBrowser: func(string) error { return nil },
 	})
 }
 
@@ -197,7 +191,7 @@ func runAuthLogout(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 		}
 		return runLogout(nil, stdout, stderr, deps)
 	}
-	manager, err := newAuthManager(deps, stdout)
+	manager, err := newAuthManager(deps)
 	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
@@ -250,7 +244,7 @@ func runAuthStatus(args []string, stdout io.Writer, stderr io.Writer, deps appDe
 	if len(parsed.positional) > 1 {
 		return writeExecUsageError(stderr, "usage: qg auth status [provider]")
 	}
-	manager, err := newAuthManager(deps, stdout)
+	manager, err := newAuthManager(deps)
 	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
@@ -289,7 +283,7 @@ func runAuthRefresh(args []string, stdout io.Writer, stderr io.Writer, deps appD
 		return writeExecUsageError(stderr, "usage: qg auth refresh <provider>")
 	}
 	provider := parsed.positional[0]
-	manager, err := newAuthManager(deps, stdout)
+	manager, err := newAuthManager(deps)
 	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}
@@ -343,7 +337,7 @@ func runAuthReset(args []string, stdout io.Writer, stderr io.Writer, deps appDep
 	if !parsed.confirm {
 		return writeExecUsageError(stderr, "qg auth reset apaga todos os logins OAuth guardados e os tokens MCP compartilhados; rode de novo com --confirm para confirmar")
 	}
-	manager, err := newAuthManager(deps, stdout)
+	manager, err := newAuthManager(deps)
 	if err != nil {
 		return writeAppError(stderr, redaction.ErrorMessage(err, redaction.Options{}), exitCrash)
 	}

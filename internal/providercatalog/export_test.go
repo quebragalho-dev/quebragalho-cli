@@ -21,17 +21,12 @@ func ListByTransport(transport Transport) []Descriptor {
 }
 
 func ValidAPIFormat(format APIFormat) bool {
-	switch format {
-	case APIFormatOpenAIChatCompletions, APIFormatBedrockConverse, APIFormatVertexGenerateContent:
-		return true
-	default:
-		return false
-	}
+	return format == APIFormatOpenAIChatCompletions
 }
 
 func ValidTransport(transport Transport) bool {
 	switch Transport(NormalizeID(string(transport))) {
-	case TransportOpenAI, TransportAnthropic, TransportGoogle, TransportBedrock, TransportVertex, TransportOpenAICompatible, TransportAnthropicCompatible:
+	case TransportOpenAI, TransportOpenAICompatible:
 		return true
 	default:
 		return false

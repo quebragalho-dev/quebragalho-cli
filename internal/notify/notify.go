@@ -124,11 +124,25 @@ func (n *Notifier) Notify(event Event, message string) {
 	}
 }
 
+// sinkPanicLogger is implemented by sinks that can record their own faults
+// through the package's failure channel (the same redacted Logf used for
+// delivery failures). emitToSink reports a recovered panic here; a sink that
+// does not implement it stays silent, exactly like a nil Logf.
+type sinkPanicLogger interface {
+	logSinkPanic(recovered any, event Event)
+}
+
 // emitToSink invokes one sink, isolating a panic so a misbehaving sink cannot
 // crash the run or starve its siblings. A well-behaved Sink already fails soft;
 // this is defense in depth.
 func emitToSink(sink Sink, event Event, message string) {
-	defer func() { _ = recover() }()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if logger, ok := sink.(sinkPanicLogger); ok {
+				logger.logSinkPanic(recovered, event)
+			}
+		}
+	}()
 	sink.Emit(event, message)
 }
 

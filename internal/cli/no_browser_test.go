@@ -70,3 +70,32 @@ func TestNoBrowserFlagRejectedOutsideInteractiveLaunch(t *testing.T) {
 		t.Fatalf("stderr = %q, want a --no-browser error", stderr.String())
 	}
 }
+
+// TestTUILaunchNoBrowserUnifiesBooleanParsing locks the shared boolean
+// vocabulary for QG_NO_BROWSER: the legacy "1" still suppresses the browser,
+// the new true words (true/yes/on, any case) suppress it too, and false
+// words, empty, and unrecognized values keep opening it.
+func TestTUILaunchNoBrowserUnifiesBooleanParsing(t *testing.T) {
+	cases := []struct {
+		name     string
+		env      string
+		wantOpen bool
+	}{
+		{name: "legacy 1 suppresses", env: "1"},
+		{name: "new true suppresses", env: "true"},
+		{name: "new yes suppresses", env: "YES"},
+		{name: "new on suppresses", env: " on "},
+		{name: "default opens", env: "", wantOpen: true},
+		{name: "false word opens", env: "0", wantOpen: true},
+		{name: "off opens", env: "off", wantOpen: true},
+		{name: "garbage opens", env: "banana", wantOpen: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setup := launchedSetupOptions(t, tc.env)
+			if (setup.OpenBrowser != nil) != tc.wantOpen {
+				t.Fatalf("QG_NO_BROWSER=%q: OpenBrowser set = %v, want %v", tc.env, setup.OpenBrowser != nil, tc.wantOpen)
+			}
+		})
+	}
+}

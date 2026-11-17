@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
@@ -250,8 +251,8 @@ func NewStore(options StoreOptions) *Store {
 }
 
 func DefaultRoot(env map[string]string) string {
-	dataHome := strings.TrimSpace(envValue(env, "XDG_DATA_HOME"))
-	home := strings.TrimSpace(envValue(env, "HOME"))
+	dataHome := strings.TrimSpace(envstr.Value(env, "XDG_DATA_HOME"))
+	home := strings.TrimSpace(envstr.Value(env, "HOME"))
 	if home == "" {
 		if userHome, err := os.UserHomeDir(); err == nil {
 			home = userHome
@@ -460,12 +461,12 @@ func (store *Store) Fork(parentSessionID string, input ForkInput) (Metadata, err
 		SessionID:          input.SessionID,
 		SessionKind:        kind,
 		Title:              title,
-		Cwd:                firstNonEmpty(input.Cwd, parent.Cwd),
-		ModelID:            firstNonEmpty(input.ModelID, parent.ModelID),
-		Provider:           firstNonEmpty(input.Provider, parent.Provider),
+		Cwd:                envstr.FirstNonEmpty(input.Cwd, parent.Cwd),
+		ModelID:            envstr.FirstNonEmpty(input.ModelID, parent.ModelID),
+		Provider:           envstr.FirstNonEmpty(input.Provider, parent.Provider),
 		Tag:                input.Tag,
 		ParentSessionID:    parent.SessionID,
-		RootSessionID:      firstNonEmpty(parent.RootSessionID, parent.SessionID),
+		RootSessionID:      envstr.FirstNonEmpty(parent.RootSessionID, parent.SessionID),
 		ForkedFromEventID:  last.ID,
 		ForkedFromSequence: last.Sequence,
 	})
@@ -531,12 +532,15 @@ func (store *Store) RecordSpec(sessionID string, input RecordSpecInput) (Metadat
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
-	applySpecRecord(&session, input, status)
+	eventType, err := transitionSpecRecord(&session, input, status)
+	if err != nil {
+		return Metadata{}, Event{}, err
+	}
 	if err := store.writeMetadata(session); err != nil {
 		return Metadata{}, Event{}, err
 	}
 	event, err := store.appendEventLocked(sessionID, AppendEventInput{
-		Type: specEventType(status),
+		Type: eventType,
 		Payload: map[string]any{
 			"specId":              session.SpecID,
 			"specFilePath":        session.SpecFilePath,
@@ -1135,22 +1139,6 @@ func prepareAppendEventInputs(inputs []AppendEventInput) ([]preparedAppendEvent,
 	return prepared, nil
 }
 
-func envValue(env map[string]string, key string) string {
-	if env != nil {
-		return env[key]
-	}
-	return os.Getenv(key)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
-
 func normalizeSpecStatus(status SpecStatus) SpecStatus {
 	switch SpecStatus(strings.ToLower(strings.TrimSpace(string(status)))) {
 	case SpecStatusDraft:
@@ -1172,33 +1160,5 @@ func specEventType(status SpecStatus) EventType {
 		return EventSpecRejected
 	default:
 		return EventSpecDraft
-	}
-}
-
-func applySpecRecord(session *Metadata, input RecordSpecInput, status SpecStatus) {
-	if specID := strings.TrimSpace(input.SpecID); specID != "" {
-		session.SpecID = specID
-	}
-	if path := strings.TrimSpace(input.SpecFilePath); path != "" {
-		session.SpecFilePath = path
-	}
-	session.SpecStatus = status
-	if modelID := strings.TrimSpace(input.SpecDraftModelID); modelID != "" {
-		session.SpecDraftModelID = modelID
-	}
-	if reasoning := strings.TrimSpace(input.SpecDraftReasoning); reasoning != "" {
-		session.SpecDraftReasoning = reasoning
-	}
-	if comment := strings.TrimSpace(input.SpecUserComment); comment != "" {
-		session.SpecUserComment = comment
-	}
-	if reason := strings.TrimSpace(input.SpecRejectReason); reason != "" {
-		session.SpecRejectReason = reason
-	}
-	if sourceID := strings.TrimSpace(input.SpecSourceSessionID); sourceID != "" {
-		session.SpecSourceSessionID = sourceID
-	}
-	if implID := strings.TrimSpace(input.SpecImplSessionID); implID != "" {
-		session.SpecImplSessionID = implID
 	}
 }

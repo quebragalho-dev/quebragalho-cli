@@ -3,13 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
-	"net"
-	"net/url"
 	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/oauth"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providerhealth"
@@ -285,9 +284,9 @@ type setupSaveOptions struct {
 func saveSetupProvider(deps appDeps, selection tui.SetupSelection, options setupSaveOptions) (tui.SetupResult, error) {
 	profile, err := providerProfileForAdd(providerAddOptions{
 		catalogID: selection.CatalogID,
-		name:      firstNonEmptyCLI(options.name, selection.Name),
-		model:     firstNonEmptyCLI(selection.Model),
-		baseURL:   firstNonEmptyCLI(options.baseURL, selection.BaseURL),
+		name:      envstr.FirstNonEmpty(options.name, selection.Name),
+		model:     envstr.FirstNonEmpty(selection.Model),
+		baseURL:   envstr.FirstNonEmpty(options.baseURL, selection.BaseURL),
 		apiKeyEnv: options.apiKeyEnv,
 		setActive: true,
 	})
@@ -354,27 +353,6 @@ func setupProviderEnvVar(descriptor providercatalog.Descriptor) string {
 // setup UI is removed (Etapa 4): the provider argument is the only form left.
 func setupUnavailableMessage() string {
 	return "interactive setup is not available: configure the provider with `qg setup qg` (see `qg setup --help`)"
-}
-
-// missingProviderKeyMessage is the launch-time error replacing the removed
-// onboarding wizard (Etapa 4). It names the credential env var the profile
-// expects and, when no profile exists yet, the command that creates one.
-func missingProviderKeyMessage(profile config.ProviderProfile) string {
-	envVar := providercatalog.DisplayKeyEnv(mustMissingCredentialEnv(profile))
-	if strings.TrimSpace(envVar) == "" {
-		envVar = providercatalog.KeyEnvHint
-	}
-	if !config.HasProviderProfile(profile) {
-		return "no provider configured: set " + envVar + " in your environment or run `qg login`, then run `qg setup qg`"
-	}
-	return "no API key configured: set " + envVar + " in your environment or run `qg login`"
-}
-
-// mustMissingCredentialEnv ignores the missing-flag: this helper only wants
-// the env-var name the profile expects, present or not.
-func mustMissingCredentialEnv(profile config.ProviderProfile) string {
-	envVar, _ := profile.MissingCredentialEnv()
-	return envVar
 }
 
 // isQGProfile is the one definition of "a Quebra Galho profile", shared by the
@@ -493,35 +471,6 @@ func usableSavedProviders(providers []config.ProviderProfile) []config.ProviderP
 		}
 	}
 	return usable
-}
-
-// providerProfileIsLocal reports whether a provider points at a local endpoint
-// (a loopback URL or a catalog entry flagged Local), so the fallback prefers a
-// remote keyed provider that is more likely reachable.
-func providerProfileIsLocal(profile config.ProviderProfile) bool {
-	if catalogID := strings.TrimSpace(profile.CatalogID); catalogID != "" {
-		if descriptor, err := providercatalog.Require(catalogID); err == nil && descriptor.Local {
-			return true
-		}
-	}
-	base := strings.TrimSpace(profile.BaseURL)
-	if base == "" {
-		return false
-	}
-	parsed, err := url.Parse(base)
-	if err != nil {
-		return false
-	}
-	switch strings.ToLower(parsed.Hostname()) {
-	case "localhost", "127.0.0.1", "::1":
-		return true
-	}
-	// Also treat explicit private-network IPs (192.168.x.y, 10.x.y.z,
-	// 172.16-31.x.y) as local — the user is pointing at their own LAN box.
-	if ip := net.ParseIP(parsed.Hostname()); ip != nil && ip.IsPrivate() {
-		return true
-	}
-	return false
 }
 
 func formatSetupComplete(result tui.SetupResult) string {

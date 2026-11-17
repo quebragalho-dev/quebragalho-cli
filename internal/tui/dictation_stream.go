@@ -26,11 +26,11 @@ type sttPartialMsg struct {
 func (m model) startStreamingDictation() (model, tea.Cmd) {
 	chunks, stop, err := m.dictation.recorder.StartStreaming()
 	if err != nil {
-		m.dictation.reset()
+		sid := m.dictation.sessionID
+		_ = m.dictation.transition(DictEvStartedErr, dictArgs{sessionID: sid})
 		return m.appendSystemNotice(dictationErrorText(err)), nil
 	}
-	m.dictation.streamStop = stop
-	m.dictation.phase = dictRecording
+	_ = m.dictation.transition(DictEvStartedOK, dictArgs{sessionID: m.dictation.sessionID, streamStop: stop})
 
 	sink := m.runtimeMessageSink
 	ctx := m.dictation.ctx

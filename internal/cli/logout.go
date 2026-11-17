@@ -58,7 +58,7 @@ func logoutQG(deps appDeps, stdout io.Writer) (LogoutResult, error) {
 			return result, fmt.Errorf("invalid config JSON %s: %w", configPath, err)
 		}
 	}
-	manager, err := newAuthManager(deps, stdout)
+	manager, err := newAuthManager(deps)
 	if err != nil {
 		return result, err
 	}
@@ -87,7 +87,7 @@ func logoutQG(deps appDeps, stdout io.Writer) (LogoutResult, error) {
 		result.InlineCleared = result.InlineCleared || inlineCleared
 	}
 	result.Removed = result.KeyRemoved || result.InlineCleared || result.OAuthRemoved
-	for _, name := range []string{"QG_API_KEY", "QUEBRAGALHO_API_KEY"} {
+	for _, name := range providercatalog.QGCredentialEnvVars() {
 		if strings.TrimSpace(os.Getenv(name)) != "" {
 			result.EnvStillActive = name
 			break

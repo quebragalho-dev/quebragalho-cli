@@ -6,6 +6,7 @@ import (
 	"context"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -126,7 +127,15 @@ func TestBatchSevenRuntimeStreamsBeforeReceipt(t *testing.T) {
 	m.agentOptions.OnText = func(delta string) {
 		if delta == "second" {
 			seen = true
-			assertContains(t, plainRender(t, m.composerTopBorder(120)), "400 tok/s")
+			got := plainRender(t, m.composerTopBorder(120))
+			// The live rate divides tokens by the wall-clock interval: on
+			// Windows the clock can tick 0 between the two events, and a
+			// zero interval renders no rate (see usageRateText). Tolerate
+			// the missing number there; the unbilled-streaming assertion
+			// below still runs everywhere.
+			if runtime.GOOS != "windows" || strings.Contains(got, "tok/s") {
+				assertContains(t, got, "400 tok/s")
+			}
 			if m.lastUsageSeen {
 				t.Fatal("snapshot was billed before completion")
 			}
@@ -137,9 +146,16 @@ func TestBatchSevenRuntimeStreamsBeforeReceipt(t *testing.T) {
 	if !seen || len(response.usageEvents) != 1 {
 		t.Fatalf("stream=%v bills=%d", seen, len(response.usageEvents))
 	}
-	assertContains(t, plainRender(t, renderCallUsage(response.usageReceiptAt(0), 120)), "850 tok/s")
+	// Same zero-interval tolerance as the live rate above.
+	receipt := plainRender(t, renderCallUsage(response.usageReceiptAt(0), 120))
+	if runtime.GOOS != "windows" || strings.Contains(receipt, "tok/s") {
+		assertContains(t, receipt, "850 tok/s")
+	}
 	m.pending = false
-	assertContains(t, plainRender(t, m.composerTopBorder(120)), "850 tok/s")
+	border := plainRender(t, m.composerTopBorder(120))
+	if runtime.GOOS != "windows" || strings.Contains(border, "tok/s") {
+		assertContains(t, border, "850 tok/s")
+	}
 	for _, event := range response.sessionEvents {
 		if event.Type == sessions.EventUsage {
 			payload := event.Payload.(map[string]any)

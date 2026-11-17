@@ -21,7 +21,7 @@ func TestHandleConfigCommandReportsPersistError(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := model{userConfigPath: filepath.Join(parent, "config.json")}
-	if _, text := m.handleConfigCommand("recaps off"); !strings.Contains(text, "Failed to save") {
+	if _, text := m.handleConfigCommand("recaps off"); !strings.Contains(text, "Falha ao salvar") {
 		t.Errorf("a failed persist should report failure, got %q", text)
 	}
 }
@@ -197,14 +197,14 @@ func TestIdleRecapRendersAboveComposer(t *testing.T) {
 func TestHandleConfigCommandTogglesRecaps(t *testing.T) {
 	m := model{recapsEnabled: true, idleRecap: "old recap"}
 	m, text := m.handleConfigCommand("recaps off")
-	if m.recapsEnabled || m.idleRecap != "" || !strings.Contains(text, "recaps: off") {
+	if m.recapsEnabled || m.idleRecap != "" || !strings.Contains(text, "recaps: desativado") {
 		t.Errorf("recaps off: enabled=%v recap=%q text=%q", m.recapsEnabled, m.idleRecap, text)
 	}
 	m, text = m.handleConfigCommand("recaps on")
-	if !m.recapsEnabled || !strings.Contains(text, "recaps: on") {
+	if !m.recapsEnabled || !strings.Contains(text, "recaps: ativado") {
 		t.Errorf("recaps on: enabled=%v text=%q", m.recapsEnabled, text)
 	}
-	if _, text := m.handleConfigCommand("bogus"); !strings.Contains(text, "Unknown setting") {
+	if _, text := m.handleConfigCommand("bogus"); !strings.Contains(text, "Ajuste desconhecido") {
 		t.Errorf("unknown arg should be rejected, got %q", text)
 	}
 }

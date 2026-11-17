@@ -257,7 +257,7 @@ func TestLoginHelpDocumentsPrecedence(t *testing.T) {
 	inline := strings.Index(out, "inline")
 	env := strings.Index(out, "QG_API_KEY")
 	saved := strings.LastIndex(out, "chave salva")
-	if inline < 0 || env < 0 || saved < 0 || !(inline < env && env < saved) {
+	if inline < 0 || env < 0 || saved < 0 || inline >= env || env >= saved {
 		t.Fatalf("help must order inline > env > chave salva (idx %d, %d, %d):\n%s", inline, env, saved, out)
 	}
 }

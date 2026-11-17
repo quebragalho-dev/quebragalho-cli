@@ -94,11 +94,11 @@ func Inspect(ctx context.Context, options InspectOptions) (ChangeSummary, error)
 
 	base := strings.TrimSpace(options.BaseRef)
 	if base != "" {
-		nameStatus, err := gitRawOutput(ctx, runGit, root, "diff", "--name-status", base+"...HEAD", "--")
+		nameStatus, err := gitRawOutput(ctx, runGit, root, "diff", "--name-status", "-z", base+"...HEAD", "--")
 		if err != nil {
 			return ChangeSummary{}, fmt.Errorf("inspect base diff status: %w", err)
 		}
-		diffStat, err := gitRawOutput(ctx, runGit, root, "diff", "--stat", base+"...HEAD", "--")
+		diffStat, err := gitRawOutputEnv(ctx, runGitEnv, root, parseableLocaleEnv, "diff", "--stat", base+"...HEAD", "--")
 		if err != nil {
 			return ChangeSummary{}, fmt.Errorf("inspect base diff stat: %w", err)
 		}
@@ -265,21 +265,27 @@ func parseStatus(status string) []FileChange {
 	return files
 }
 
+// parseNameStatus parses NUL-delimited `git diff --name-status -z` output.
+// A normal entry is `X\0path\0`; a rename/copy is `Rnnn\0source\0destination\0`
+// and reports the destination. Paths are taken verbatim: -z never C-quotes or
+// pads them (see parseStatus).
 func parseNameStatus(output string) []FileChange {
 	files := []FileChange{}
-	for _, line := range strings.Split(output, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 2 {
-			continue
-		}
-		code := strings.TrimSpace(fields[0])
+	fields := strings.Split(output, "\x00")
+	for i := 0; i+1 < len(fields); i++ {
+		code := fields[i]
 		if code == "" {
 			continue
 		}
-		path := strings.TrimSpace(fields[len(fields)-1])
+		i++
+		path := fields[i]
+		if code[0] == 'R' || code[0] == 'C' {
+			i++
+			if i >= len(fields) {
+				break
+			}
+			path = fields[i]
+		}
 		if path == "" {
 			continue
 		}
@@ -383,6 +389,11 @@ func gitResultOutput(result CommandResult, err error) (string, error) {
 	return result.Stdout, nil
 }
 
+// parseableLocaleEnv pins git's messages to English for the calls whose
+// output ParseDiffStat reads. Scoped to those calls on purpose: commit and
+// push run user hooks through the same runner and must keep the user's locale.
+var parseableLocaleEnv = []string{"LC_ALL=C", "LANG=C"}
+
 func stagedSnapshotDiff(ctx context.Context, runGit EnvRunner, root string) (string, string, error) {
 	tempDir, err := os.MkdirTemp("", "qg-git-index-")
 	if err != nil {
@@ -401,7 +412,7 @@ func stagedSnapshotDiff(ctx context.Context, runGit EnvRunner, root string) (str
 	if _, err := gitRawOutputEnv(ctx, runGit, root, env, "add", "-A"); err != nil {
 		return "", "", fmt.Errorf("stage preview index: %w", err)
 	}
-	diffStat, err := gitRawOutputEnv(ctx, runGit, root, env, "diff", "--cached", "--stat", "--")
+	diffStat, err := gitRawOutputEnv(ctx, runGit, root, append(append([]string{}, env...), parseableLocaleEnv...), "diff", "--cached", "--stat", "--")
 	if err != nil {
 		return "", "", fmt.Errorf("inspect git diff stat: %w", err)
 	}
@@ -1098,39 +1109,6 @@ func UpstreamRef(ctx context.Context, cwd, branch string, runGit Runner) string 
 		return ""
 	}
 	return strings.TrimSpace(out)
-}
-
-// HasUpstream reports whether branch has a published upstream tracking the same
-// branch name on a remote (the relationship `git push -u <remote> <branch>`
-// records). ensureFeatureBranch consults this when it is called again with a
-// non-default current branch: a generated branch that just lost a
-// force-with-lease race against a concurrent creator is left checked out
-// locally without that relationship, so a retry must not treat it the same as
-// an ordinary, already-published feature branch and drop the nonexistence
-// lease.
-//
-// An inherited upstream to a different branch (branch.autoSetupMerge=inherit
-// copies origin/main onto a new user/slug) is not publication state and reports
-// false. Any failure to resolve the upstream (including "no upstream
-// configured") also reports false so the caller keeps requiring the lease.
-func HasUpstream(ctx context.Context, cwd, branch string, runGit Runner) (bool, error) {
-	branch = strings.TrimSpace(branch)
-	if branch == "" {
-		return false, nil
-	}
-	ref := UpstreamRef(ctx, cwd, branch, runGit)
-	if ref == "" {
-		return false, nil
-	}
-	// rev-parse --abbrev-ref prints "<remote>/<branch>". Both remote names
-	// (e.g. team/upstream) and branch names (e.g. user/slug) may contain
-	// slashes, so verify that the upstream ref ends with "/" + branch and
-	// has a non-empty remote prefix.
-	suffix := "/" + branch
-	if strings.HasSuffix(ref, suffix) && len(ref) > len(suffix) {
-		return true, nil
-	}
-	return false, nil
 }
 
 // UpstreamRemote returns the configured upstream remote name for branch (e.g. "origin"),

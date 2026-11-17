@@ -274,12 +274,30 @@ func (w *watchBuffer) String() string {
 // TestRunAuthRefreshWatchStatesStopHint locks the --watch banner: it must name
 // the provider, promise renewal before expiry, and tell the user Ctrl+C stops
 // the foreground wait. Removing the stop hint must fail this test.
+// TestTopLevelHelpDoesNotPromiseOAuthLogin locks the top-level help contract:
+// `qg auth login` was removed, so the command list must not promise an OAuth
+// login flow. It must describe `auth` as maintenance of legacy logins instead.
+func TestTopLevelHelpDoesNotPromiseOAuthLogin(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithDeps([]string{"--help"}, &stdout, &stderr, appDeps{}); code != exitSuccess {
+		t.Fatalf("exit = %d stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, "via OAuth") {
+		t.Fatalf("top-level help still promises an OAuth login flow: %q", out)
+	}
+	if !strings.Contains(out, "auth        Gerencia logins OAuth antigos (status, logout, refresh, reset)") {
+		t.Fatalf("top-level help missing legacy auth description: %q", out)
+	}
+}
+
 func TestRunAuthRefreshWatchStatesStopHint(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("SIGTERM cannot interrupt signal.NotifyContext on Windows (os.Process.Signal only supports Kill there), so the watch goroutine would hang")
 	}
 	path := withAuthStore(t)
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	store, err := oauth.NewStore(oauth.StoreOptions{FilePath: path})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)

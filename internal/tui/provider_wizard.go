@@ -122,12 +122,6 @@ func providerWizardProviderKind(provider providercatalog.Descriptor) config.Prov
 	switch provider.Transport {
 	case providercatalog.TransportOpenAI:
 		return config.ProviderKindOpenAI
-	case providercatalog.TransportAnthropic:
-		return config.ProviderKindAnthropic
-	case providercatalog.TransportAnthropicCompatible:
-		return config.ProviderKindAnthropicCompat
-	case providercatalog.TransportGoogle:
-		return config.ProviderKindGoogle
 	case providercatalog.TransportOpenAICompatible:
 		return config.ProviderKindOpenAICompatible
 	default:

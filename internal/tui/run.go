@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -59,7 +60,7 @@ func Run(ctx context.Context, options Options) int {
 		tea.WithContext(ctx),
 		tea.WithInput(os.Stdin),
 		tea.WithOutput(imageOutput),
-		tea.WithFilter(mouseEventFilter()),
+		tea.WithFilter(programEventFilter(runtime.GOOS)),
 	}
 	// Honor the no-color.org spec ourselves: NO_COLOR set to ANY non-empty value
 	// disables color. bubbletea/colorprofile only respects strconv.ParseBool-style

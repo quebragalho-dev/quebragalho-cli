@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 )
 
@@ -24,15 +25,12 @@ func (state ProviderState) Actions() []Action {
 	return ProviderActions(state.Profile, state.Active)
 }
 
-func SetupCommand(descriptor providercatalog.Descriptor, name string, setActive bool) string {
-	return setupCommand(descriptor, name, "", setActive)
-}
-
-// SetupCommandWithModel is SetupCommand with an explicit --model. A local
+// SetupCommandWithModel builds the `qg providers add` command with an explicit
+// --model. A local
 // runtime serves whichever model the user loaded, so its catalog DefaultModel is
 // only a placeholder: an adopt command that omits --model persists that
 // placeholder and the first completion fails with an unknown-model response.
-// An empty model falls back to SetupCommand's behaviour. Commands that cannot
+// An empty model omits --model. Commands that cannot
 // be represented safely across supported shells are omitted.
 func SetupCommandWithModel(descriptor providercatalog.Descriptor, name string, model string, setActive bool) string {
 	return setupCommand(descriptor, name, model, setActive)
@@ -135,18 +133,18 @@ func credentialAdviceForProfile(profile config.ProviderProfile) credentialAdvice
 		if descriptor, err := providercatalog.Require(catalogID); err == nil {
 			return credentialAdvice{
 				requiresAuth: descriptor.RequiresAuth,
-				envVar:       firstNonEmpty(profileEnv, firstAuthEnvVar(descriptor)),
+				envVar:       envstr.FirstNonEmpty(profileEnv, firstAuthEnvVar(descriptor)),
 			}
 		}
 	}
 
 	switch effectiveProviderKind(profile) {
 	case config.ProviderKindOpenAI:
-		return credentialAdvice{requiresAuth: true, envVar: firstNonEmpty(profileEnv, "OPENAI_API_KEY")}
+		return credentialAdvice{requiresAuth: true, envVar: envstr.FirstNonEmpty(profileEnv, "OPENAI_API_KEY")}
 	case config.ProviderKindAnthropic:
-		return credentialAdvice{requiresAuth: true, envVar: firstNonEmpty(profileEnv, "ANTHROPIC_API_KEY")}
+		return credentialAdvice{requiresAuth: true, envVar: envstr.FirstNonEmpty(profileEnv, "ANTHROPIC_API_KEY")}
 	case config.ProviderKindGoogle:
-		return credentialAdvice{requiresAuth: true, envVar: firstNonEmpty(profileEnv, "GEMINI_API_KEY")}
+		return credentialAdvice{requiresAuth: true, envVar: envstr.FirstNonEmpty(profileEnv, "GEMINI_API_KEY")}
 	default:
 		return credentialAdvice{requiresAuth: profileEnv != "", envVar: profileEnv}
 	}
@@ -170,15 +168,6 @@ func firstAuthEnvVar(descriptor providercatalog.Descriptor) string {
 	for _, env := range descriptor.AuthEnvVars {
 		if env = strings.TrimSpace(env); env != "" {
 			return env
-		}
-	}
-	return ""
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
 		}
 	}
 	return ""

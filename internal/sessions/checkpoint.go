@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/envbool"
 )
 
 // CheckpointsDir is the per-session subdirectory holding content-addressed blobs.
@@ -26,6 +28,107 @@ type CheckpointFile struct {
 	Mode    uint32 `json:"mode,omitempty"` // unix permission bits of the prior file; 0 if unknown (restore preserves existing mode)
 }
 
+// checkpointKind is the explicit sum of the variants a CheckpointFile can
+// carry on disk. The JSON shape above is unchanged (one struct with optional
+// fields, byte-identical on disk); kindOf classifies it in a single place so
+// restore never grows a silent fallthrough again.
+//
+//	invalid --report--> skipped (file untouched, path listed)
+//	skipped --skip----> skipped (file untouched, path listed)
+//	absent  --delete--> deleted (missing file is fine)
+//	blob    --restore-> restored (hash-verified content)
+type checkpointKind int
+
+const (
+	checkpointInvalid checkpointKind = iota
+	checkpointAbsent
+	checkpointSkipped
+	checkpointBlob
+)
+
+// String names the checkpoint variant for reports and debugging.
+func (k checkpointKind) String() string {
+	switch k {
+	case checkpointAbsent:
+		return "absent"
+	case checkpointSkipped:
+		return "skipped"
+	case checkpointBlob:
+		return "blob"
+	default:
+		return "invalid"
+	}
+}
+
+// kindOf classifies f without touching its JSON encoding: exactly one of
+// Blob (non-empty) / Absent / Skipped is a valid variant; anything else —
+// including the all-zero entry the producer never emits — is invalid.
+func (f CheckpointFile) kindOf() checkpointKind {
+	hasBlob := f.Blob != ""
+	switch {
+	case hasBlob && !f.Absent && !f.Skipped:
+		return checkpointBlob
+	case f.Absent && !hasBlob && !f.Skipped:
+		return checkpointAbsent
+	case f.Skipped && !hasBlob && !f.Absent:
+		return checkpointSkipped
+	default:
+		return checkpointInvalid
+	}
+}
+
+// restoreAction is the single decision the restore loop can take for one file.
+type restoreAction int
+
+const (
+	actionReportInvalid restoreAction = iota
+	actionSkip
+	actionDeleteAbsent
+	actionRestoreBlob
+)
+
+// String names the restore action for reports and debugging.
+func (a restoreAction) String() string {
+	switch a {
+	case actionSkip:
+		return "skip"
+	case actionDeleteAbsent:
+		return "delete"
+	case actionRestoreBlob:
+		return "restore"
+	default:
+		return "report-invalid"
+	}
+}
+
+// checkpointRestoreTable is the ONLY legal kind -> action mapping. A kind
+// missing here (including out-of-range values) is refused as
+// actionReportInvalid: the file is reported, never touched, and the rewind
+// continues — an illegal transition never panics in production.
+var checkpointRestoreTable = map[checkpointKind]restoreAction{
+	checkpointBlob:    actionRestoreBlob,
+	checkpointAbsent:  actionDeleteAbsent,
+	checkpointSkipped: actionSkip,
+	checkpointInvalid: actionReportInvalid,
+}
+
+// transitionKind maps one checkpoint kind to its restore action. It is the
+// single owner of the kind -> action decision; unknown kinds are refused as
+// report-invalid (file untouched, rewind continues).
+func transitionKind(kind checkpointKind) restoreAction {
+	if action, ok := checkpointRestoreTable[kind]; ok {
+		return action
+	}
+	return actionReportInvalid
+}
+
+// transitionCheckpointFile is the single point that maps a stored file entry
+// to its restore action.
+func transitionCheckpointFile(f CheckpointFile) (checkpointKind, restoreAction) {
+	kind := f.kindOf()
+	return kind, transitionKind(kind)
+}
+
 // CheckpointPayload is the payload of an EventSessionCheckpoint event. It indexes
 // the before-state blobs captured for one mutating tool call.
 type CheckpointPayload struct {
@@ -34,9 +137,9 @@ type CheckpointPayload struct {
 }
 
 // CheckpointsEnabled reports whether checkpoint capture is enabled (default on;
-// disabled with QG_CHECKPOINTS=off).
+// QG_CHECKPOINTS=0/false/no/off disables).
 func CheckpointsEnabled() bool {
-	return os.Getenv("QG_CHECKPOINTS") != "off"
+	return envbool.Parse(os.Getenv("QG_CHECKPOINTS"), true)
 }
 
 func maxCheckpointBytes() int {

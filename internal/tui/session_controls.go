@@ -756,6 +756,12 @@ func (m model) handleRewindCommand(args string) (model, string) {
 	if m.pending {
 		return m, "Rewind\ncannot rewind while a run is in progress."
 	}
+	// The compaction result rewrites the session log and the in-memory
+	// transcript; a rewind in between would be undone or applied to a log the
+	// compaction is about to replace.
+	if m.compactInFlight {
+		return m, "Rewind\nCompactação em andamento. Tente de novo quando ela terminar."
+	}
 	// A cancelled run's late flush hasn't appended its checkpoint events yet:
 	// ApplyRewind would prune those checkpoint blobs as unreferenced, then the
 	// flush would re-append pre-rewind events after the rewind marker.
@@ -868,7 +874,7 @@ func (m model) compactText(requested bool) string {
 				"requested: " + boolText(m.compactRequests > 0),
 				"model: " + displayValue(request.ModelName, "none"),
 				"context window: " + compactContextWindowText(request.ContextWindow),
-				"auto compaction: model adaptive at ~80% of context window",
+				"auto compaction: " + m.autoCompactSummary() + " (/autocompact)",
 				fmt.Sprintf("estimated transcript: %d tokens", request.EstimatedTokens),
 				fmt.Sprintf("visible transcript rows: %d", request.VisibleTranscriptRows),
 				m.compactabilityText(request),
@@ -1241,11 +1247,11 @@ func isUnpricedUsageError(err error) bool {
 
 func (m model) usageSummaryText() string {
 	if m.usageTracker == nil {
-		return "usage unavailable"
+		return "uso indisponível"
 	}
 	summary := m.usageTracker.Summary()
 	if summary.RecordCount == 0 && m.unpricedRequests == 0 {
-		return "no usage yet"
+		return "ainda sem uso"
 	}
 	if summary.RecordCount == 0 {
 		return formatUnpricedUsage(m.unpricedRequests, m.unpricedTokens)
@@ -1262,7 +1268,7 @@ func (m model) usageSummaryText() string {
 // that shifts mid-session), so it flags that case to make slowness diagnosable.
 func (m model) cacheEfficiencyText() string {
 	if m.usageTracker == nil {
-		return "usage unavailable"
+		return "uso indisponível"
 	}
 	summary := m.usageTracker.Summary()
 	if summary.InputTokens <= 0 {
@@ -1270,15 +1276,15 @@ func (m model) cacheEfficiencyText() string {
 	}
 	text := usage.FormatCacheEfficiency(summary)
 	if summary.RecordCount > 5 && summary.CacheHitRate() < 0.5 {
-		text += " — low; prefix may be unstable"
+		text += " — baixa; o prefixo pode estar instável"
 	}
 	return text
 }
 
 func formatUnpricedUsage(requests int, tokens int) string {
-	requestLabel := "requests"
+	requestLabel := "chamadas"
 	if requests == 1 {
-		requestLabel = "request"
+		requestLabel = "chamada"
 	}
-	return fmt.Sprintf("%d %s, %d tokens, cost unavailable", requests, requestLabel, tokens)
+	return fmt.Sprintf("%d %s, %d tokens, custo indisponível", requests, requestLabel, tokens)
 }

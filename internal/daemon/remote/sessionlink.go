@@ -33,13 +33,13 @@ type SessionLink struct {
 // Validate checks the fields required to use a link.
 func (l SessionLink) Validate() error {
 	if strings.TrimSpace(l.Address) == "" {
-		return errors.New("remote: session link address is required")
+		return errors.New("remote: o endereço do link de sessão é obrigatório")
 	}
 	if strings.TrimSpace(l.LinkID) == "" {
-		return errors.New("remote: session link id is required")
+		return errors.New("remote: o id do link de sessão é obrigatório")
 	}
 	if strings.TrimSpace(l.RemotePath) == "" {
-		return errors.New("remote: session link remote path is required")
+		return errors.New("remote: o caminho remoto do link de sessão é obrigatório")
 	}
 	return nil
 }
@@ -65,7 +65,7 @@ func LoadSessionLink(path string) (*SessionLink, error) {
 	}
 	var l SessionLink
 	if err := json.Unmarshal(data, &l); err != nil {
-		return nil, fmt.Errorf("remote: decode session link: %w", err)
+		return nil, fmt.Errorf("remote: decodificar link de sessão: %w", err)
 	}
 	if err := l.Validate(); err != nil {
 		return nil, err

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 )
@@ -205,8 +206,12 @@ func ResolvePrompt(events []InputEvent) (string, error) {
 	return strings.Join(parts, "\n\n"), nil
 }
 
-// maxStreamImageBytes caps a single decoded image at 10 MiB to bound request bodies.
-const maxStreamImageBytes = 10 << 20
+// maxStreamImageBytes is the single-image cap for stream-json input, shared
+// with imageinput.MaxImageBytes (the same per-image decoded-size limit the
+// CLI --image path and the TUI attachment path enforce) so every input
+// surface rejects oversized images at the same bound. Kept as a local alias
+// so the protocol error text keeps naming the stream-json surface.
+const maxStreamImageBytes = imageinput.MaxImageBytes
 
 // ResolveImages decodes every base64 image attached to the input events into
 // raw-byte ImageBlocks. Each image's media type is normalized and validated
@@ -303,9 +308,11 @@ func isValidID(value string) bool {
 }
 
 var secretPatterns = []*regexp.Regexp{
-	// OpenAI-style keys: anchor on a word boundary and require a long key body so
-	// "sk-" inside ordinary words (e.g. "task-list") is never redacted while real
-	// keys ("sk-proj-…", "sk-…") still are.
+	// OpenAI-style keys: anchor on a word boundary and require a 16-char body
+	// so "sk-" inside ordinary words (e.g. "task-list") or short fragments is
+	// never redacted while real keys ("sk-proj-…", "sk-…") still are.
+	// Digit-free kebab-case matches (sk-learn-…) are dropped by the filter in
+	// redactString unless they carry a known OpenAI-issued prefix.
 	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{16,}`),
 	// api_key=/api-key:/apiKey "…": require a real assignment delimiter (= or :) and
 	// a credential-length body so ordinary prose ("the api_key: setting", "apiKey
@@ -392,8 +399,33 @@ func redactString(value string) string {
 					return match[:len(prefix)] + "[REDACTED]"
 				}
 			}
+			// Drop digit-free kebab-case false positives (sk-learn-…),
+			// mirroring secrets.Scan: known OpenAI-issued prefixes are
+			// always credentials even without a digit.
+			if strings.HasPrefix(match, "sk-") && !knownOpenAIKeyPrefix(match) &&
+				!secretMatchHasDigit(match) && strings.Contains(strings.TrimPrefix(match, "sk-"), "-") {
+				return match
+			}
 			return "[REDACTED]"
 		})
 	}
 	return redacted
+}
+
+// knownOpenAIKeyPrefix mirrors secrets.knownOpenAIKeyPrefix: known
+// OpenAI-issued forms redact even with an alphabet-only body.
+func knownOpenAIKeyPrefix(match string) bool {
+	return strings.HasPrefix(match, "sk-proj-") ||
+		strings.HasPrefix(match, "sk-svcacct-") ||
+		strings.HasPrefix(match, "sk-admin-")
+}
+
+// secretMatchHasDigit mirrors secrets.containsDigit.
+func secretMatchHasDigit(s string) bool {
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			return true
+		}
+	}
+	return false
 }

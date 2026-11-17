@@ -549,6 +549,10 @@ func spawnLockSidecarChild(t *testing.T, root, sessionID string) (*exec.Cmd, int
 // of the lock file fail with ERROR_LOCK_VIOLATION, so a refusal would drop
 // the holder's PID exactly when it is needed. The lock file is corrupted to
 // a string Atoi rejects, which also proves the refusal never consults it.
+// The corruption is written before the holder spawns: on Windows the lease
+// is a mandatory byte-range lock, so writing while the child holds it fails
+// and the test would die before proving anything. The holder opens the lock
+// file without truncating (O_RDWR, no O_TRUNC), so "corrupt" is still there.
 func TestSessionLockRefusalReadsHolderPIDFromSidecar(t *testing.T) {
 	root := t.TempDir()
 	store := NewStore(StoreOptions{RootDir: root})
@@ -556,15 +560,15 @@ func TestSessionLockRefusalReadsHolderPIDFromSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lockPath := filepath.Join(root, session.SessionID, presenceLockName)
+	if err := os.WriteFile(lockPath, []byte("corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cmd, childPID := spawnLockSidecarChild(t, root, session.SessionID)
 	defer func() {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
 	}()
-	lockPath := filepath.Join(root, session.SessionID, presenceLockName)
-	if err := os.WriteFile(lockPath, []byte("corrupt"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 
 	_, err = store.TryAcquireSessionLock(session.SessionID)
 	if err == nil {
@@ -586,6 +590,10 @@ func TestSessionLockRefusalReadsHolderPIDFromSidecar(t *testing.T) {
 // contract: with no usable sidecar the refusal still happens in pt-BR and
 // omits the PID — even when the lock file carries a valid-looking, foreign
 // "12345" the refusal must not surface.
+// The foreign PID is written before the holder spawns: on Windows the lease
+// is a mandatory byte-range lock, so writing while the child holds it fails.
+// The holder opens the lock file without truncating, so "12345" is still
+// there when the refusal (which must ignore it) happens.
 func TestSessionLockRefusalFailsClosedWithoutSidecar(t *testing.T) {
 	root := t.TempDir()
 	store := NewStore(StoreOptions{RootDir: root})
@@ -593,15 +601,15 @@ func TestSessionLockRefusalFailsClosedWithoutSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lockPath := filepath.Join(root, session.SessionID, presenceLockName)
+	if err := os.WriteFile(lockPath, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cmd, _ := spawnLockSidecarChild(t, root, session.SessionID)
 	defer func() {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
 	}()
-	lockPath := filepath.Join(root, session.SessionID, presenceLockName)
-	if err := os.WriteFile(lockPath, []byte("12345"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Remove(filepath.Join(root, session.SessionID, presenceSidecarName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}

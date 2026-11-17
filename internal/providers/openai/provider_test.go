@@ -1674,6 +1674,9 @@ func TestStreamCompletionSerializesNonMapPropertiesAsEmptyObject(t *testing.T) {
 
 func TestUsageCarriesCallIdentityAndDurationThroughCollector(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Longer than one tick of the coarse Windows clock (about 16ms), so
+		// the measured duration is never zero on a loopback round trip.
+		time.Sleep(40 * time.Millisecond)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\ndata: [DONE]\n\n")
 	}))
