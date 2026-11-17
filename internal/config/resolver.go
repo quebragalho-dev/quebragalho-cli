@@ -164,6 +164,9 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 	if err := validateSTTConfig(cfg.STT); err != nil {
 		return ResolvedConfig{}, err
 	}
+	if err := ValidateGoalConfig(cfg.Goal); err != nil {
+		return ResolvedConfig{}, err
+	}
 	// Cosmetic statusline values never block startup: clamp with warnings.
 	statusLine, statusLineWarnings := cfg.StatusLine.Adjusted()
 	cfg.StatusLine = statusLine
@@ -193,6 +196,7 @@ func Resolve(options ResolveOptions) (ResolvedConfig, error) {
 		LocalControl:        cfg.LocalControl,
 		STT:                 cfg.STT,
 		CrossSessionInbound: cfg.CrossSessionInbound,
+		Goal:                cfg.Goal,
 		StatusLine:          statusLine,
 		// StatusLineWarnings reports cosmetic adjustments (clamped cadences,
 		// trimmed layouts) surfaced once at startup.
@@ -312,6 +316,12 @@ func mergeConfig(dst *FileConfig, src FileConfig) {
 	if inbound := strings.TrimSpace(src.CrossSessionInbound); inbound != "" {
 		dst.CrossSessionInbound = inbound
 	}
+	if src.Goal.AutoSplit != nil {
+		dst.Goal.AutoSplit = src.Goal.AutoSplit
+	}
+	if strings.TrimSpace(src.Goal.BetweenTasks) != "" {
+		dst.Goal.BetweenTasks = strings.TrimSpace(src.Goal.BetweenTasks)
+	}
 	if src.StatusLine.IsCustom() {
 		dst.StatusLine = src.StatusLine.normalize()
 	}
@@ -393,6 +403,14 @@ func mergeProjectConfig(dst *FileConfig, src FileConfig) error {
 		dst.StatusLine.Lines = src.StatusLine.normalize().Lines
 	}
 	mergeKeyBindings(&dst.KeyBindings, src.KeyBindings)
+	// Goal task-list preferences are inoffensive display/autonomy defaults, so
+	// project config may set them like notify and statusline layout.
+	if src.Goal.AutoSplit != nil {
+		dst.Goal.AutoSplit = src.Goal.AutoSplit
+	}
+	if strings.TrimSpace(src.Goal.BetweenTasks) != "" {
+		dst.Goal.BetweenTasks = strings.TrimSpace(src.Goal.BetweenTasks)
+	}
 	// Local control is intentionally user-config/override only. A cloned project
 	// must not be able to make browser, desktop, or terminal automation tools
 	// appear in the model's tool surface.
@@ -636,6 +654,24 @@ func SetMaxTurnsEnv(n int) {
 	}
 }
 
+// GoalAutoSplitEnv overrides the goal autoSplit file setting (read in applyEnv).
+const GoalAutoSplitEnv = "QG_GOAL_AUTO_SPLIT"
+
+// GoalBetweenTasksEnv overrides the goal betweenTasks file setting (read in applyEnv).
+const GoalBetweenTasksEnv = "QG_GOAL_BETWEEN_TASKS"
+
+func applyGoalEnv(cfg *FileConfig, env map[string]string) {
+	if raw := strings.TrimSpace(envstr.Value(env, GoalAutoSplitEnv)); raw != "" {
+		if enabled, err := strconv.ParseBool(raw); err == nil {
+			value := enabled
+			cfg.Goal.AutoSplit = &value
+		}
+	}
+	if mode := strings.TrimSpace(envstr.Value(env, GoalBetweenTasksEnv)); mode != "" {
+		cfg.Goal.BetweenTasks = mode
+	}
+}
+
 func applyEnv(cfg *FileConfig, env map[string]string) {
 	activeProvider := strings.TrimSpace(envstr.Value(env, ActiveProviderEnv))
 	if activeProvider != "" {
@@ -650,6 +686,7 @@ func applyEnv(cfg *FileConfig, env map[string]string) {
 			cfg.maxTurnsSet = true
 		}
 	}
+	applyGoalEnv(cfg, env)
 
 	applyProviderEnv(cfg, ProviderKindOpenAI, envProfile{
 		Name:    string(ProviderKindOpenAI),

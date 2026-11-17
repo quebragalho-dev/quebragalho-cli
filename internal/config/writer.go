@@ -523,6 +523,77 @@ func SetTheme(path string, theme string) (result FileConfig, err error) {
 	return cfg, nil
 }
 
+// SetGoalAutoSplit persists the /goal autoSplit preference, mirroring SetTheme
+// (read-modify-atomic-write). A nil value clears the stored preference back
+// to the default (on).
+func SetGoalAutoSplit(path string, autoSplit *bool) (result FileConfig, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	// Joined, not chosen between: a release failure annotates the result
+	// instead of masking the mutation error that actually explains what went
+	// wrong. Reporting success after a failed unlock would claim a state the
+	// next mutation cannot reproduce.
+	defer func() { err = errors.Join(err, unlock()) }()
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg.Goal.AutoSplit = autoSplit
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
+}
+
+// SetGoalBetweenTasks persists the /goal betweenTasks preference, mirroring
+// SetTheme (read-modify-atomic-write). A blank mode clears the stored
+// preference back to the default (compact).
+func SetGoalBetweenTasks(path string, mode string) (result FileConfig, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	mode = strings.TrimSpace(mode)
+	if mode != "" {
+		if err := ValidateGoalConfig(GoalConfig{BetweenTasks: mode}); err != nil {
+			return FileConfig{}, err
+		}
+		mode = GoalConfig{BetweenTasks: mode}.BetweenTasksMode()
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	// Joined, not chosen between: a release failure annotates the result
+	// instead of masking the mutation error that actually explains what went
+	// wrong. Reporting success after a failed unlock would claim a state the
+	// next mutation cannot reproduce.
+	defer func() { err = errors.Join(err, unlock()) }()
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg.Goal.BetweenTasks = mode
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
+}
+
 // SetStatusLine persists the TUI statusline customization, mirroring SetTheme
 // (read-modify-atomic-write with the config lock). Cosmetic values are
 // adjusted the same way Resolve adjusts them, so what the preview accepts
