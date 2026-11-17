@@ -460,6 +460,34 @@ func SetRecapsEnabled(path string, enabled bool) (result FileConfig, err error) 
 	return cfg, nil
 }
 
+// SetDesktopControlEnabled persists localControl.desktop.enabled in the user
+// config file (read-modify-atomic-write).
+func SetDesktopControlEnabled(path string, enabled bool) (result FileConfig, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg.LocalControl.Desktop.Enabled = enabled
+	cfg.LocalControl.Desktop.enabledSet = true
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
+}
+
 // SetAutoCompactLimit persists the /autocompact limit preference, mirroring
 // SetFavoriteModels (read-modify-atomic-write). The stored value is
 // normalized (see NormalizeAutoCompactLimit); 0 clears the key.

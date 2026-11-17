@@ -53,6 +53,7 @@ type Options struct {
 	FavoriteModels       []string
 	RecentModels         []config.RecentModelEntry
 	RecapsEnabled        bool
+	LocalControl         config.LocalControlConfig
 	// CompactionModel is the resolved preferences.compactionModel value; see
 	// providers.CompactionModelID for how it combines with the env override
 	// (no curated default: empty means the main model).

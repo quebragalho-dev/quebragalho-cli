@@ -1084,6 +1084,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		FavoriteModels:        resolved.Preferences.FavoriteModels,
 		RecentModels:          resolved.Preferences.RecentModels,
 		RecapsEnabled:         resolved.Preferences.RecapsEnabled(),
+		LocalControl:          resolved.LocalControl,
 		CompactionModel:       resolved.Preferences.CompactionModel,
 		AutoCompactLimit:      resolved.Preferences.AutoCompactLimit,
 		StatusLine:            resolved.StatusLine,
@@ -1171,7 +1172,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		// newly installed skills work without a restart.
 		LoadSkills: cachedSkillsLoader(func() []skills.Skill {
 			merged, _ := plugins.MergedSkillsLoaded(deps.skillsDir(), pluginActivation.skillRoots)
-			return merged
+			return skills.MergeBuiltins(merged)
 		}),
 		PermissionMode:            permissionMode,
 		Notify:                    resolved.Notify,

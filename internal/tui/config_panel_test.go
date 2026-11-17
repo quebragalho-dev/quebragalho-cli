@@ -11,6 +11,8 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 func configPanelTestModel() model {
@@ -55,8 +57,8 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 	if title := strings.TrimSpace(m.picker.title); title != "Configurações" {
 		t.Fatalf("panel title wrong: %q", title)
 	}
-	if len(m.picker.items) != 13 {
-		t.Fatalf("expected 13 config rows, got %d", len(m.picker.items))
+	if len(m.picker.items) != 14 {
+		t.Fatalf("expected 14 config rows, got %d", len(m.picker.items))
 	}
 	wantGroups := []string{"MODELO", "EXECUÇÃO", "VOZ", "APARÊNCIA", "CONEXÕES"}
 	seen := map[string]bool{}
@@ -162,6 +164,81 @@ func TestConfigPanelToggleRecapsPersists(t *testing.T) {
 	}
 	if decoded.Preferences["recaps"] != false {
 		t.Fatalf("config file should persist recaps:false, got %s", raw)
+	}
+}
+
+func TestConfigPanelToggleDesktopControlPersistsAndUpdatesRegistry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	reg := tools.NewRegistry()
+	for _, tool := range tools.NewLocalDesktopTools(localcontrol.DesktopOptions{Enabled: true}) {
+		reg.Register(tool)
+	}
+	m := configPanelTestModel()
+	m.userConfigPath = path
+	m.registry = reg
+	m = openConfigPanel(t, m)
+
+	if got := findConfigRow(t, m, configRowDesktop).Meta; got != "ligado" {
+		t.Fatalf("initial desktop row = %q, want ligado", got)
+	}
+
+	// Turn OFF.
+	updated, cmd := m.chooseConfigRow(findConfigRow(t, m, configRowDesktop))
+	if cmd != nil {
+		t.Fatal("expected desktop toggle without a background command")
+	}
+	next := updated.(model)
+	if next.desktopControlEnabled {
+		t.Fatal("desktopControlEnabled should be false after toggle")
+	}
+	if got := findConfigRow(t, next, configRowDesktop).Meta; got != "desligado" {
+		t.Fatalf("desktop row after toggle = %q, want desligado", got)
+	}
+	for _, name := range []string{"desktop_snapshot", "desktop_action"} {
+		tool, ok := reg.Get(name)
+		if !ok {
+			t.Fatalf("%s missing from registry", name)
+		}
+		if tool.Safety().Permission != tools.PermissionDeny {
+			t.Fatalf("%s permission = %s, want deny when desktop control disabled", name, tool.Safety().Permission)
+		}
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		LocalControl struct {
+			Desktop struct {
+				Enabled *bool `json:"enabled"`
+			} `json:"desktop"`
+		} `json:"localControl"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.LocalControl.Desktop.Enabled == nil || *decoded.LocalControl.Desktop.Enabled {
+		t.Fatalf("config file should persist localControl.desktop.enabled=false, got %s", raw)
+	}
+
+	// Turn ON again.
+	updated2, _ := next.chooseConfigRow(findConfigRow(t, next, configRowDesktop))
+	reEnabled := updated2.(model)
+	if !reEnabled.desktopControlEnabled {
+		t.Fatal("desktopControlEnabled should be true after second toggle")
+	}
+	if got := findConfigRow(t, reEnabled, configRowDesktop).Meta; got != "ligado" {
+		t.Fatalf("desktop row after re-enable = %q, want ligado", got)
+	}
+	for _, name := range []string{"desktop_snapshot", "desktop_action"} {
+		tool, ok := reg.Get(name)
+		if !ok {
+			t.Fatalf("%s missing from registry", name)
+		}
+		if tool.Safety().Permission != tools.PermissionPrompt {
+			t.Fatalf("%s permission = %s, want prompt when desktop control re-enabled", name, tool.Safety().Permission)
+		}
 	}
 }
 

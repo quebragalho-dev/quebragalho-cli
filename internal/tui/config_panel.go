@@ -1,9 +1,14 @@
 package tui
 
 import (
+	"context"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 // configRowValue identifies a /config panel row. It is passed through the
@@ -15,6 +20,7 @@ const (
 	configRowEffort      = "nivel"
 	configRowAutoCompact = "autocompact"
 	configRowPermission  = "permissao"
+	configRowDesktop     = "desktop"
 	configRowVoice       = "voz"
 	configRowSTT         = "ditado"
 	configRowTheme       = "tema"
@@ -46,6 +52,7 @@ func (m model) newConfigPicker() *commandPicker {
 		{Group: "MODELO", Label: "Nível de raciocínio", Value: configRowEffort, Meta: effortDisplayLabel(m.effortDisplay())},
 		{Group: "MODELO", Label: "Resumir conversa a partir de", Value: configRowAutoCompact, Meta: m.configAutoCompactValue()},
 		{Group: "EXECUÇÃO", Label: "Modo de permissão", Value: configRowPermission, Meta: permissionLabel, Detail: "Shift+Tab alterna"},
+		{Group: "EXECUÇÃO", Label: "Controle do computador", Value: configRowDesktop, Meta: ligadoDesligado(m.desktopControlEnabled)},
 		{Group: "VOZ", Label: "Modo de voz", Value: configRowVoice, Meta: ligadoDesligado(m.dictation.voiceModeEnabled)},
 		{Group: "VOZ", Label: "Modelo de ditado", Value: configRowSTT, Meta: m.dictation.currentModelLabel()},
 		{Group: "APARÊNCIA", Label: "Tema", Value: configRowTheme, Meta: m.themeDisplayLabel()},
@@ -131,6 +138,15 @@ func (m model) chooseConfigRow(item pickerItem) (tea.Model, tea.Cmd) {
 			m = m.showTransientNoticeInline("Resumo ao voltar "+ligadoDesligado(m.recapsEnabled)+".", transientNoticeSuccess)
 		}
 		return m.refreshConfigPicker(), nil
+	case configRowDesktop:
+		m.desktopControlEnabled = !m.desktopControlEnabled
+		m.syncDesktopControlTools()
+		if err := m.persistDesktopControlEnabled(); err != nil {
+			m = m.appendSystemNotice("Controle do computador: falha ao salvar: " + err.Error())
+		} else {
+			m = m.showTransientNoticeInline("Controle do computador "+ligadoDesligado(m.desktopControlEnabled)+".", transientNoticeSuccess)
+		}
+		return m.refreshConfigPicker(), nil
 	case configRowVoice:
 		next, cmd := m.toggleVoiceMode()
 		m = next
@@ -186,4 +202,29 @@ func renderConfigPickerFooter(innerWidth int) string {
 		qgTheme.faint.Render("digite para buscar") + sep +
 		qgTheme.ink.Render("Esc") + qgTheme.faint.Render(" fechar")
 	return fitStyledLine(full, innerWidth)
+}
+
+func (m model) syncDesktopControlTools() {
+	if m.registry == nil {
+		return
+	}
+	options := localcontrol.DesktopOptions{
+		Enabled:    m.desktopControlEnabled && !m.localControl.Disabled(),
+		Driver:     m.localControl.Desktop.Driver,
+		HelperPath: m.localControl.Desktop.HelperPath,
+	}
+	if driver := strings.TrimSpace(options.Driver); driver == "" || driver == localcontrol.DefaultDesktopDriver {
+		options.Ensure = func(ctx context.Context) (string, error) {
+			return localcontrol.EnsureAgentDesktop(ctx, localcontrol.AgentDesktopInstallOptions{})
+		}
+	}
+	m.registry.RegisterBatch(tools.NewLocalDesktopTools(options))
+}
+
+func (m model) persistDesktopControlEnabled() error {
+	if strings.TrimSpace(m.userConfigPath) == "" {
+		return nil
+	}
+	_, err := config.SetDesktopControlEnabled(m.userConfigPath, m.desktopControlEnabled)
+	return err
 }

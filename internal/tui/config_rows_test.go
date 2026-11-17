@@ -15,6 +15,7 @@ var configRowsPanelLabels = []string{
 	"Nível de raciocínio",
 	"Resumir conversa a partir de",
 	"Modo de permissão",
+	"Controle do computador",
 	"Modo de voz",
 	"Modelo de ditado",
 	"Tema",
@@ -102,7 +103,7 @@ func TestConfigPanelFullViewOnTallTerminal(t *testing.T) {
 // selected row and the footer, with a "↓ mais N" tail for the hidden rows.
 func TestConfigPanelFullViewOnShortTerminal(t *testing.T) {
 	got := renderConfigRowsView(t, 80, 24, 0)
-	for _, want := range []string{"Configurações", "buscar >", "❯ Provedor", "Esc fechar", "↓ mais 7"} {
+	for _, want := range []string{"Configurações", "buscar >", "❯ Provedor", "Esc fechar", "↓ mais 8"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("80x24 view should show %q, got:\n%s", want, got)
 		}

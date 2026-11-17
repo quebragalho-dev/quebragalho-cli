@@ -624,8 +624,10 @@ type model struct {
 	// first, capped to config.MaxRecentModels. Unlike favoriteModels (manual
 	// pins), this is maintained by recordRecentModel on every successful
 	// switch and persisted via config.SetRecentModels.
-	recentModels  []config.RecentModelEntry
-	recapsEnabled bool // idle orientation note (config: recaps on|off)
+	recentModels          []config.RecentModelEntry
+	recapsEnabled         bool // idle orientation note (config: recaps on|off)
+	localControl          config.LocalControlConfig
+	desktopControlEnabled bool
 	// statuslineCfg is the resolved statusline customization (user layout
 	// plus command, optionally with project layout underneath). Zero value
 	// renders the built-in line byte for byte.
@@ -1359,6 +1361,8 @@ func newModel(ctx context.Context, options Options) model {
 		autoCompactLimit:            options.AutoCompactLimit,
 		statuslineCfg:               options.StatusLine,
 		recapsEnabled:               options.RecapsEnabled,
+		localControl:                options.LocalControl,
+		desktopControlEnabled:       options.LocalControl.DesktopEnabled(),
 		provider:                    options.Provider,
 		newProvider:                 options.NewProvider,
 		newTurnSessionProvider:      options.NewTurnSessionProvider,

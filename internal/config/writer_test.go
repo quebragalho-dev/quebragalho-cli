@@ -439,6 +439,37 @@ func TestRecapsPreferenceRoundTrips(t *testing.T) {
 	}
 }
 
+func TestSetDesktopControlEnabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "qg.json")
+	writeConfigFixture(t, path, FileConfig{ActiveProvider: "openai"}, 0o600)
+
+	cfg, err := SetDesktopControlEnabled(path, false)
+	if err != nil {
+		t.Fatalf("SetDesktopControlEnabled(false) error = %v", err)
+	}
+	if cfg.LocalControl.DesktopEnabled() {
+		t.Error("after SetDesktopControlEnabled(false), DesktopEnabled() should be false")
+	}
+	persisted := readConfigFixture(t, path)
+	if persisted.LocalControl.DesktopEnabled() {
+		t.Error("persisted DesktopEnabled() should be false")
+	}
+	if persisted.ActiveProvider != "openai" {
+		t.Errorf("unrelated config must be preserved, got %q", persisted.ActiveProvider)
+	}
+
+	cfg, err = SetDesktopControlEnabled(path, true)
+	if err != nil {
+		t.Fatalf("SetDesktopControlEnabled(true) error = %v", err)
+	}
+	if !cfg.LocalControl.DesktopEnabled() {
+		t.Error("after SetDesktopControlEnabled(true), DesktopEnabled() should be true")
+	}
+	if reread := readConfigFixture(t, path); !reread.LocalControl.DesktopEnabled() {
+		t.Error("re-enable should persist localControl.desktop.enabled=true")
+	}
+}
+
 func TestSetFavoriteModelsCreatesMissingConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "qg", "config.json")
 
