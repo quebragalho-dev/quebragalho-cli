@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
