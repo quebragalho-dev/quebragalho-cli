@@ -200,9 +200,6 @@ func (m model) statusLine(width int) string {
 		return m.statusReadout(left, width)
 	}
 
-	if m.activeServiceTier() == "priority" {
-		left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render("rápido")
-	}
 	showWorkspace := false
 	if m.exitConfirmActive {
 		left = prefix + btwChip + qgTheme.amber.Render("●") + " " + qgTheme.amber.Render(ctrlCExitConfirmText)

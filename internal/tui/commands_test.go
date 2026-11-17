@@ -49,7 +49,6 @@ func TestFormatCommandHelpLinesGroupsCommandsByStableOrder(t *testing.T) {
 		"model:",
 		"  /model [list|id] - Mostra ou troca o modelo ativo.",
 		"  /effort [list|level|auto] - Mostra ou ajusta o nível de raciocínio nos modelos suportados.",
-		"  /fast - Liga ou desliga o modo rápido nos modelos ChatGPT suportados.",
 		"session:",
 		"  /plan [status|on|off] - Entra no modo de planejamento; status consulta e off sai.",
 		"runtime:",
@@ -1075,11 +1074,8 @@ func TestSlashHelpPTDescriptionsFit80Cells(t *testing.T) {
 	if got := byName["/spec"]; got != "Escreve uma spec para revisar antes de editar." {
 		t.Fatalf("/spec description = %q", got)
 	}
-	// These two descriptions were shortened once to fit, losing information
-	// (the profile scopes and the /loop example). Any shortening must fail.
-	if got := byName["/profile"]; got != "Mostra ou troca o perfil de execução (turnos, raciocínio, autocorreção, escalação; o modelo não muda)." {
-		t.Fatalf("/profile description = %q", got)
-	}
+	// The /loop description was shortened once to fit, losing the example.
+	// Any shortening must fail.
 	if got := byName["/loop"]; got != "Repete uma mensagem ou comando em intervalo (ex.: /loop 5m /babysit-prs); sem intervalo roda no próprio ritmo." {
 		t.Fatalf("/loop description = %q", got)
 	}
@@ -1144,7 +1140,6 @@ func TestSlashHelpPTDescriptionsFit80Cells(t *testing.T) {
 var slashHelpOver80BaseWidths = map[string]int{
 	"/selfcorrect": 186,
 	"/loop":        184,
-	"/profile":     147,
 	"/voice":       124,
 	"/goal":        124,
 	"/theme":       115,
@@ -1152,7 +1147,6 @@ var slashHelpOver80BaseWidths = map[string]int{
 	"/image":       112,
 	"/rewind":      109,
 	"/doctor":      108,
-	"/turns":       98,
 	"/style":       92,
 	"/effort":      92,
 	"/compact":     90,
@@ -1176,7 +1170,7 @@ func slashHelpRenderedRow(c commandDefinition) string {
 // already truncates with "…" in the real /help card. The current cut set must
 // stay within these sets: any newly cut command fails the test.
 var slashHelpBaseCuts = map[int][]string{
-	50:  {"/model", "/stt-model", "/voice", "/plan", "/permissions", "/stop", "/attach", "/sandbox-setup", "/skills", "/usage", "/context", "/image", "/add-dir", "/new", "/btw", "/search", "/resume", "/rename", "/spec", "/init", "/compact", "/autocompact", "/transcript", "/rewind", "/effort", "/fast", "/style", "/selfcorrect", "/turns", "/profile", "/edit", "/export", "/loop", "/goal", "/doctor", "/logout", "/config", "/theme", "/statusline"},
-	80:  {"/voice", "/plan", "/attach", "/skills", "/image", "/add-dir", "/btw", "/search", "/compact", "/rewind", "/effort", "/style", "/selfcorrect", "/turns", "/profile", "/loop", "/goal", "/doctor", "/config", "/theme", "/statusline"},
-	120: {"/image", "/add-dir", "/selfcorrect", "/profile", "/loop", "/goal", "/statusline"},
+	50:  {"/model", "/stt-model", "/voice", "/plan", "/permissions", "/stop", "/attach", "/sandbox-setup", "/skills", "/usage", "/context", "/image", "/add-dir", "/new", "/btw", "/search", "/resume", "/rename", "/spec", "/init", "/compact", "/autocompact", "/transcript", "/rewind", "/effort", "/style", "/selfcorrect", "/edit", "/export", "/loop", "/goal", "/doctor", "/logout", "/config", "/theme", "/statusline"},
+	80:  {"/voice", "/plan", "/attach", "/skills", "/image", "/add-dir", "/btw", "/search", "/compact", "/rewind", "/effort", "/style", "/selfcorrect", "/loop", "/goal", "/doctor", "/config", "/theme", "/statusline"},
+	120: {"/image", "/add-dir", "/selfcorrect", "/loop", "/goal", "/statusline"},
 }

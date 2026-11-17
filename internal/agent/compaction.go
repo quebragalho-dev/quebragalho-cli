@@ -732,7 +732,7 @@ func newCompactionState(options Options, task *taskState) *compactionState {
 		phase:             phase,
 		onUsage:           tagSummarizerUsage(options.OnUsage),
 		task:              task,
-		planner:           newContextPlanner(contextPlannerConfig{contextWindow: options.ContextWindow, serviceTier: options.ServiceTier}),
+		planner:           newContextPlanner(contextPlannerConfig{contextWindow: options.ContextWindow}),
 		trace:             options.Trace,
 		summarizerFactory: options.Summarizer,
 		onCompacted:       options.OnCompaction,

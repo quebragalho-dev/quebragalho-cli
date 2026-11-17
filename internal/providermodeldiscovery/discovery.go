@@ -29,8 +29,6 @@ type Model struct {
 	Reasoning              bool
 	ReasoningEfforts       []string
 	DefaultReasoningEffort string
-	ServiceTiers           []string
-	DefaultServiceTier     string
 	InputModalities        []string
 	OutputModalities       []string
 	InputCost              float64
@@ -200,12 +198,7 @@ type modelsResponseItem struct {
 	SupportedReasoning []struct {
 		Effort string `json:"effort"`
 	} `json:"supported_reasoning_levels"`
-	ServiceTiers []struct {
-		ID string `json:"id"`
-	} `json:"service_tiers"`
-	AdditionalSpeedTiers []string `json:"additional_speed_tiers"`
-	DefaultServiceTier   string   `json:"default_service_tier"`
-	SupportedParameters  []string `json:"supported_parameters"`
+	SupportedParameters []string `json:"supported_parameters"`
 }
 
 type modelsResponse struct {
@@ -271,7 +264,6 @@ func parseModelsResponse(body []byte) ([]Model, error) {
 			discoveryContainsFold(item.SupportedParameters, "reasoning_effort") ||
 			discoveryContainsFold(item.SupportedParameters, "include_reasoning")
 		efforts := reasoningEfforts(item)
-		serviceTiers := modelServiceTiers(item)
 		var info *qgaccount.ModelInfo
 		decoded := new(qgaccount.ModelInfo)
 		if json.Unmarshal(apiModels[index], decoded) == nil {
@@ -289,8 +281,6 @@ func parseModelsResponse(body []byte) ([]Model, error) {
 			Reasoning:              reasoning || len(efforts) > 0,
 			ReasoningEfforts:       efforts,
 			DefaultReasoningEffort: strings.TrimSpace(item.DefaultReasoning),
-			ServiceTiers:           serviceTiers,
-			DefaultServiceTier:     normalizeServiceTier(item.DefaultServiceTier),
 			Source:                 "live",
 		})
 	}
@@ -301,32 +291,6 @@ func parseModelsResponse(body []byte) ([]Model, error) {
 		return nil, fmt.Errorf("models endpoint returned no model ids")
 	}
 	return models, nil
-}
-
-func modelServiceTiers(item modelsResponseItem) []string {
-	values := append([]string{}, item.AdditionalSpeedTiers...)
-	for _, tier := range item.ServiceTiers {
-		values = append(values, tier.ID)
-	}
-	seen := map[string]bool{}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = normalizeServiceTier(value)
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		result = append(result, value)
-	}
-	return result
-}
-
-func normalizeServiceTier(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "fast" {
-		return "priority"
-	}
-	return value
 }
 
 func reasoningEfforts(item modelsResponseItem) []string {
@@ -358,8 +322,6 @@ func modelsFromCatalog(models []providermodelcatalog.Model) []Model {
 			Reasoning:              model.Reasoning,
 			ReasoningEfforts:       append([]string{}, model.ReasoningEfforts...),
 			DefaultReasoningEffort: model.DefaultReasoningEffort,
-			ServiceTiers:           append([]string{}, model.ServiceTiers...),
-			DefaultServiceTier:     model.DefaultServiceTier,
 			InputModalities:        append([]string{}, model.InputModalities...),
 			OutputModalities:       append([]string{}, model.OutputModalities...),
 			InputCost:              model.InputCost,

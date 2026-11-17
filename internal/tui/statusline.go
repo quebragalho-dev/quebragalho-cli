@@ -14,7 +14,7 @@ import (
 // command is not a field: its output appends as its own footer lines (see
 // statusLineCustom).
 var statuslineFieldIDs = []string{
-	"mode", "effort", "fast", "voice", "background", "goal",
+	"mode", "effort", "voice", "background", "goal",
 	"context", "branch", "update", "cwd", "cache",
 	"model", "speed", "cost", "time",
 }
@@ -152,11 +152,6 @@ func (m model) statuslineSegment(id string, width int) string {
 		return chip
 	case "effort":
 		return qgTheme.accent.Render(m.statusEffort())
-	case "fast":
-		if m.activeServiceTier() == "priority" {
-			return qgTheme.accent.Render("rápido")
-		}
-		return ""
 	case "voice":
 		// An active recording takes over, like the built-in line: the mic is
 		// the most time-sensitive thing on screen.

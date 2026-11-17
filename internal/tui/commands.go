@@ -36,7 +36,6 @@ const (
 	commandCompact
 	commandRewind
 	commandEffort
-	commandFast
 	commandStyle
 	commandTheme
 	commandStatusline
@@ -45,8 +44,6 @@ const (
 	commandImage
 	commandAddDir
 	commandSelfCorrect
-	commandTurns
-	commandProfile
 	commandRetry
 	commandEdit
 	commandCopy
@@ -298,13 +295,6 @@ var commandDefinitions = []commandDefinition{
 		kind:        commandEffort,
 	},
 	{
-		name:        "/fast",
-		usage:       "/fast",
-		group:       commandGroupModel,
-		description: "Liga ou desliga o modo rápido nos modelos ChatGPT suportados.",
-		kind:        commandFast,
-	},
-	{
 		name:        "/style",
 		usage:       "/style [list|balanced|concise|explanatory|review]",
 		group:       commandGroupSession,
@@ -318,20 +308,6 @@ var commandDefinitions = []commandDefinition{
 		group:       commandGroupSession,
 		description: "Mostra ou ajusta a autocorreção após editar (padrão só LSP; on/tests/full incluem os testes do projeto; off/lsp desligam os testes).",
 		kind:        commandSelfCorrect,
-	},
-	{
-		name:        "/turns",
-		usage:       "/turns [n]",
-		group:       commandGroupSession,
-		description: "Mostra ou ajusta os turnos com ferramenta por execução (aumente em tarefas longas).",
-		kind:        commandTurns,
-	},
-	{
-		name:        "/profile",
-		usage:       "/profile [status|balanced|fast|thorough]",
-		group:       commandGroupSession,
-		description: "Mostra ou troca o perfil de execução (turnos, raciocínio, autocorreção, escalação; o modelo não muda).",
-		kind:        commandProfile,
 	},
 	{
 		name:        "/retry",
