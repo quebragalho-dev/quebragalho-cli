@@ -163,7 +163,10 @@ func parseGoalObjective(input string) (string, int, error) {
 			return "", 0, fmt.Errorf("o orçamento de tokens da meta deve ser um inteiro não negativo")
 		}
 		budget = value
-		input = strings.TrimSpace(strings.Join(fields[2:], " "))
+		// Strip only the "--tokens N" prefix, preserving the rest of the
+		// text verbatim (newlines included) so a multi-line goal still
+		// parses into tasks.
+		input = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(input[len("--tokens"):]), fields[1]))
 	}
 	if input == "" {
 		return "", 0, fmt.Errorf("é preciso informar o objetivo da meta")
