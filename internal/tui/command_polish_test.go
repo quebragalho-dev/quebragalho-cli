@@ -76,11 +76,12 @@ func TestProviderAndConfigCommandsUseStableStatusOutput(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected /config to be handled without starting an agent run")
 	}
-	configText := transcriptText(next.transcript)
-	for _, want := range []string{"Configuração", "status: ok", "runtime: go", "turnos máximos: 42", "modo de permissão:", "recaps: ativado"} {
-		assertContains(t, configText, want)
+	if next.picker == nil || next.picker.kind != pickerConfig {
+		t.Fatal("expected bare /config to open the settings panel")
 	}
-	assertNotContains(t, configText, "sk-sensitive")
+	if got := transcriptText(next.transcript); strings.Contains(got, "sk-sensitive") {
+		t.Fatalf("/config panel leaked credential into transcript: %q", got)
+	}
 }
 
 func TestProviderCommandRedactsCredentialBearingBaseURL(t *testing.T) {
