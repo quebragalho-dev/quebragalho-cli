@@ -541,9 +541,24 @@ func (m model) cutGoalWireToBoundary() model {
 }
 
 // goalTaskSwitched reports whether a finished run moved the goal to another
-// task (or finished every task). Blocked and legacy goals never switch.
+// task (or finished every task). Blocked and legacy goals never switch. A
+// run that starts taskless (the /goal create run before set_goal_tasks)
+// still switches when it leaves a done task behind with work still ahead.
 func goalTaskSwitched(before, after *sessions.Goal) (switched bool, finished bool) {
-	if before == nil || after == nil || len(before.Tasks) == 0 {
+	if before == nil || after == nil {
+		return false, false
+	}
+	if len(before.Tasks) == 0 {
+		if len(after.Tasks) == 0 {
+			return false, false
+		}
+		if after.Status == sessions.GoalStatusComplete {
+			return true, true
+		}
+		done, _ := sessions.GoalTaskProgress(after)
+		if done > 0 && sessions.CurrentGoalTask(after) != nil {
+			return true, false
+		}
 		return false, false
 	}
 	if after.Status == sessions.GoalStatusComplete && before.Status != sessions.GoalStatusComplete {
@@ -555,6 +570,26 @@ func goalTaskSwitched(before, after *sessions.Goal) (switched bool, finished boo
 		return false, false
 	}
 	return current.ID != previous.ID, false
+}
+
+// switchedGoalTask names the task a finished run just left: the current task
+// of the pre-run goal, or — when the checklist was born mid-run and the
+// pre-run goal has no current task — the latest done task of the post-run
+// goal.
+func switchedGoalTask(before, after *sessions.Goal) *sessions.GoalTask {
+	if previous := sessions.CurrentGoalTask(before); previous != nil {
+		return previous
+	}
+	if after == nil {
+		return nil
+	}
+	var latest *sessions.GoalTask
+	for i := range after.Tasks {
+		if after.Tasks[i].Status == sessions.GoalTaskDone {
+			latest = &after.Tasks[i]
+		}
+	}
+	return latest
 }
 
 func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
@@ -714,7 +749,7 @@ func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error
 				kind: rowSystem,
 				text: fmt.Sprintf("Meta concluída: %d de %d tarefas feitas.", done, total),
 			})
-		} else if previous := sessions.CurrentGoalTask(before); previous != nil {
+		} else if previous := switchedGoalTask(before, loaded.Goal); previous != nil {
 			if current := sessions.CurrentGoalTask(loaded.Goal); current != nil {
 				done, total := sessions.GoalTaskProgress(loaded.Goal)
 				m.transcript = appendTranscriptRow(m.transcript, transcriptRow{

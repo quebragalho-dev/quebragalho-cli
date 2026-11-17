@@ -806,3 +806,138 @@ func TestGoalAutoSplitOffSkipsSplitInstruction(t *testing.T) {
 		t.Fatalf("disabled autoSplit should not instruct the split:\n%s", contents)
 	}
 }
+
+// The checklist can be born mid-run: /goal create with a single-sentence
+// objective leaves the goal taskless and the model splits it with
+// set_goal_tasks before finishing the first task. The 1->2 switch must still
+// trigger the between-tasks mode even though the run started taskless.
+func TestGoalFirstSwitchFromCreateRunCompacts(t *testing.T) {
+	store := testSessionStore(t)
+	session, err := store.Create(sessions.CreateInput{SessionID: "goal_create_first_switch_compact"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A manual title keeps the background auto-titler from spending provider
+	// requests mid-test (it would shift the scripted provider's script index).
+	session, err = store.UpdateTitle(session.SessionID, "Manual test title")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "set-1", ToolName: "set_goal_tasks"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "set-1", ArgumentsFragment: `{"tasks":["First","Second","Third"]}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "set-1"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		completeCurrentTaskWithHistoryScript("feito", goalHistoryMarker),
+		{
+			{Type: qgruntime.StreamEventText, Content: "second task"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	compactor := &fakeGoalCompactor{}
+	m := goalTaskTestModel(store, session, provider)
+	m.sessionCompactor = compactor
+
+	created, cmd := m.handleGoalCommand("Single sentence objective")
+	if cmd == nil || !created.pending {
+		t.Fatal("goal creation did not start its first run")
+	}
+	if len(created.activeSession.Goal.Tasks) != 0 {
+		t.Fatalf("precondition: create-run goal must start taskless, tasks = %#v", created.activeSession.Goal.Tasks)
+	}
+	run1, nextCmd := updatedModel(t, created, execCmd(cmd))
+	if nextCmd == nil {
+		t.Fatal("first switch returned no command")
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2 (split turn plus task turn)", len(provider.requests))
+	}
+	if !transcriptContains(run1.transcript, "Tarefa concluída: First. Próxima (2/3): Second.") {
+		t.Fatalf("first switch missing from transcript: %#v", run1.transcript)
+	}
+	compactMsg := execCmd(nextCmd)
+	if compactor.calls != 1 {
+		t.Fatalf("compactor calls = %d, want 1 (first switch compacts)", compactor.calls)
+	}
+	if compactMsg == nil {
+		t.Fatal("compaction returned no message")
+	}
+	after, _ := updatedModel(t, run1, compactMsg)
+	if !after.pending {
+		t.Fatal("continuation did not launch after between-tasks compaction")
+	}
+}
+
+func TestGoalFirstSwitchFromCreateRunResets(t *testing.T) {
+	store := testSessionStore(t)
+	session, err := store.Create(sessions.CreateInput{SessionID: "goal_create_first_switch_reset"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err = store.UpdateTitle(session.SessionID, "Manual test title")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		{
+			{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "set-1", ToolName: "set_goal_tasks"},
+			{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "set-1", ArgumentsFragment: `{"tasks":["First","Second","Third"]}`},
+			{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "set-1"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		completeCurrentTaskWithHistoryScript("feito", goalHistoryMarker),
+		{
+			{Type: qgruntime.StreamEventText, Content: "second task"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	m := goalTaskTestModel(store, session, provider)
+	m.goalBetweenTasks = "reset"
+
+	created, cmd := m.handleGoalCommand("Single sentence objective")
+	if cmd == nil || !created.pending {
+		t.Fatal("goal creation did not start its first run")
+	}
+	if len(created.activeSession.Goal.Tasks) != 0 {
+		t.Fatalf("precondition: create-run goal must start taskless, tasks = %#v", created.activeSession.Goal.Tasks)
+	}
+	run1, nextCmd := updatedModel(t, created, execCmd(cmd))
+	if nextCmd == nil {
+		t.Fatal("first switch returned no command")
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2 (split turn plus task turn)", len(provider.requests))
+	}
+	if !transcriptContains(run1.transcript, "Tarefa concluída: First. Próxima (2/3): Second.") {
+		t.Fatalf("first switch missing from transcript: %#v", run1.transcript)
+	}
+	if !transcriptContains(run1.transcript, "Contexto limpo entre tarefas") {
+		t.Fatalf("reset notice missing: %#v", run1.transcript)
+	}
+	loaded, err := store.Get(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Goal.TaskBoundary <= 0 {
+		t.Fatal("first switch did not record a task boundary")
+	}
+	if cutContents := continuationContents(run1.continuation.messages); strings.Contains(cutContents, goalHistoryMarker) {
+		t.Fatalf("cut wire replays previous task history:\n%s", cutContents)
+	}
+	// The task-two run sees only the new era.
+	taskTwoResp := execCmd(nextCmd)
+	if taskTwoResp == nil {
+		t.Fatal("task-two continuation returned no response")
+	}
+	latest := requestContents(provider.requests[len(provider.requests)-1])
+	for _, want := range []string{"Objective: Single sentence objective", "First", "Second", "Third", "[done]", "Current task context"} {
+		if !strings.Contains(latest, want) {
+			t.Fatalf("reset request missing %q:\n%s", want, latest)
+		}
+	}
+	if strings.Contains(latest, goalHistoryMarker) {
+		t.Fatalf("task-two request replays previous task history:\n%s", latest)
+	}
+}
