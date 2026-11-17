@@ -55,8 +55,8 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 	if title := strings.TrimSpace(m.picker.title); title != "Configurações" {
 		t.Fatalf("panel title wrong: %q", title)
 	}
-	if len(m.picker.items) != 13 {
-		t.Fatalf("expected 13 config rows, got %d", len(m.picker.items))
+	if len(m.picker.items) != 11 {
+		t.Fatalf("expected 11 config rows, got %d", len(m.picker.items))
 	}
 	wantGroups := []string{"MODELO", "EXECUÇÃO", "VOZ", "APARÊNCIA", "CONEXÕES"}
 	seen := map[string]bool{}
@@ -77,8 +77,6 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 		configRowModel:       "muse-spark-1.3-contributor",
 		configRowEffort:      "automático",
 		configRowAutoCompact: "automático",
-		configRowProfile:     "balanced (padrão)",
-		configRowTurns:       "80 · só sessão",
 		configRowPermission:  "auto",
 		configRowVoice:       "desligado",
 		configRowTheme:       "Sistema",

@@ -1,12 +1,9 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/quebragalho-dev/quebragalho-cli/internal/execprofile"
 )
 
 // configRowValue identifies a /config panel row. It is passed through the
@@ -16,8 +13,6 @@ const (
 	configRowModel       = "modelo"
 	configRowEffort      = "nivel"
 	configRowAutoCompact = "autocompact"
-	configRowProfile     = "perfil"
-	configRowTurns       = "turnos"
 	configRowPermission  = "permissao"
 	configRowVoice       = "voz"
 	configRowSTT         = "ditado"
@@ -46,8 +41,6 @@ func (m model) newConfigPicker() *commandPicker {
 		{Group: "MODELO", Label: "Modelo", Value: configRowModel, Meta: displayValue(m.modelName, "nenhum")},
 		{Group: "MODELO", Label: "Nível de raciocínio", Value: configRowEffort, Meta: effortDisplayLabel(m.effortDisplay())},
 		{Group: "MODELO", Label: "Resumir conversa a partir de", Value: configRowAutoCompact, Meta: m.configAutoCompactValue()},
-		{Group: "EXECUÇÃO", Label: "Perfil", Value: configRowProfile, Meta: m.configProfileValue()},
-		{Group: "EXECUÇÃO", Label: "Turnos máximos", Value: configRowTurns, Meta: fmt.Sprintf("%d · só sessão", m.agentOptions.MaxTurns)},
 		{Group: "EXECUÇÃO", Label: "Modo de permissão", Value: configRowPermission, Meta: string(m.permissionMode), Detail: "Shift+Tab alterna"},
 		{Group: "VOZ", Label: "Modo de voz", Value: configRowVoice, Meta: ligadoDesligado(m.dictation.voiceModeEnabled)},
 		{Group: "VOZ", Label: "Modelo de ditado", Value: configRowSTT, Meta: m.dictation.currentModelLabel()},
@@ -70,15 +63,6 @@ func (m model) newConfigPicker() *commandPicker {
 func (m model) configAutoCompactValue() string {
 	value, _ := m.autoCompactSummaryParts()
 	return value
-}
-
-// configProfileValue names the active execution profile, or the balanced
-// default when none is armed.
-func (m model) configProfileValue() string {
-	if name := strings.TrimSpace(m.execProfileName); name != "" {
-		return name
-	}
-	return execprofile.Balanced.Name + " (padrão)"
 }
 
 // configStatuslineValue summarizes the statusline customization without
@@ -161,10 +145,6 @@ func (m model) openConfigRowTarget(item pickerItem) (tea.Model, tea.Cmd) {
 		target = parsedCommand{kind: commandEffort, name: "/effort"}
 	case configRowAutoCompact:
 		target = parsedCommand{kind: commandAutoCompact, name: "/autocompact"}
-	case configRowProfile:
-		target = parsedCommand{kind: commandProfile, name: "/profile"}
-	case configRowTurns:
-		target = parsedCommand{kind: commandTurns, name: "/turns"}
 	case configRowPermission:
 		target = parsedCommand{kind: commandPermissions, name: "/permissions"}
 	case configRowSTT:
