@@ -17,7 +17,7 @@ import (
 
 const (
 	DefaultBrowserDriver  = "agent-browser"
-	DefaultDesktopDriver  = "cua-driver"
+	DefaultDesktopDriver  = "agent-desktop"
 	DefaultTerminalDriver = "tuistory"
 	DefaultTimeout        = 30 * time.Second
 	EnvHelperManifest     = "QG_LOCAL_CONTROL_HELPERS"
@@ -32,6 +32,7 @@ type HelperOptions struct {
 	MissingHint     string
 	Timeout         time.Duration
 	Runner          CommandRunner
+	Ensure          func(ctx context.Context) (string, error)
 }
 
 type BrowserOptions = HelperOptions
@@ -63,6 +64,13 @@ func (result CommandResult) Output() string {
 
 type CommandRunner interface {
 	Run(ctx context.Context, path string, args []string, env []string, timeout time.Duration) (CommandResult, error)
+}
+
+// StdinCommandRunner is an optional CommandRunner extension for helpers that
+// accept text on standard input (such as agent-desktop --stdin).
+type StdinCommandRunner interface {
+	CommandRunner
+	RunWithStdin(ctx context.Context, path string, args []string, env []string, stdin string, timeout time.Duration) (CommandResult, error)
 }
 
 type ResolvedHelper struct {
@@ -112,8 +120,8 @@ func NewDesktop(options DesktopOptions) Desktop {
 		options.Driver = DefaultDesktopDriver
 	}
 	options.ConfigPath = "localControl.desktop.helperPath"
-	options.DisabledMessage = "local desktop control is disabled; enable localControl.desktop.enabled in user config"
-	options.MissingHint = "install cua-driver or set localControl.desktop.helperPath"
+	options.DisabledMessage = "local desktop control is disabled by user config"
+	options.MissingHint = "install agent-desktop or set localControl.desktop.helperPath"
 	return Desktop{helper: NewHelper(options)}
 }
 
@@ -132,23 +140,43 @@ func (helper Helper) Enabled() bool {
 }
 
 func (helper Helper) Run(ctx context.Context, args ...string) (CommandResult, error) {
+	resolved, runArgs, err := helper.prepareRun(ctx, args)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	return helper.options.Runner.Run(ctx, resolved.Command, runArgs, resolved.Env, helper.options.Timeout)
+}
+
+func (helper Helper) RunWithStdin(ctx context.Context, stdin string, args ...string) (CommandResult, error) {
+	resolved, runArgs, err := helper.prepareRun(ctx, args)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	stdinRunner, ok := helper.options.Runner.(StdinCommandRunner)
+	if !ok {
+		return CommandResult{}, fmt.Errorf("%s helper runner does not support stdin", helper.helperLabel())
+	}
+	return stdinRunner.RunWithStdin(ctx, resolved.Command, runArgs, resolved.Env, stdin, helper.options.Timeout)
+}
+
+func (helper Helper) prepareRun(ctx context.Context, args []string) (ResolvedHelper, []string, error) {
 	if !helper.options.Enabled {
 		message := strings.TrimSpace(helper.options.DisabledMessage)
 		if message == "" {
 			message = "local control helper is disabled"
 		}
-		return CommandResult{}, errors.New(message)
+		return ResolvedHelper{}, nil, errors.New(message)
 	}
-	resolved, err := helper.resolvedHelper()
+	resolved, err := helper.resolvedHelper(ctx)
 	if err != nil {
-		return CommandResult{}, err
+		return ResolvedHelper{}, nil, err
 	}
 	runArgs := append([]string{}, resolved.PrefixArgs...)
 	runArgs = append(runArgs, args...)
-	return helper.options.Runner.Run(ctx, resolved.Command, runArgs, resolved.Env, helper.options.Timeout)
+	return resolved, runArgs, nil
 }
 
-func (helper Helper) resolvedHelper() (ResolvedHelper, error) {
+func (helper Helper) resolvedHelper(ctx context.Context) (ResolvedHelper, error) {
 	label := helper.helperLabel()
 	if helperPath := strings.TrimSpace(helper.options.HelperPath); helperPath != "" {
 		if !filepath.IsAbs(helperPath) {
@@ -173,6 +201,25 @@ func (helper Helper) resolvedHelper() (ResolvedHelper, error) {
 	}
 	if resolved, ok, err := adjacentHelper(driver); ok || err != nil {
 		return resolved, err
+	}
+	if helper.options.Ensure != nil {
+		ensuredPath, err := helper.options.Ensure(ctx)
+		if err != nil {
+			return ResolvedHelper{}, err
+		}
+		if ensuredPath = strings.TrimSpace(ensuredPath); ensuredPath != "" {
+			if !filepath.IsAbs(ensuredPath) {
+				abs, err := filepath.Abs(ensuredPath)
+				if err != nil {
+					return ResolvedHelper{}, fmt.Errorf("resolve %s helper path: %w", label, err)
+				}
+				ensuredPath = abs
+			}
+			if err := validateHelperFile(label, ensuredPath); err != nil {
+				return ResolvedHelper{}, err
+			}
+			return ResolvedHelper{Command: ensuredPath}, nil
+		}
 	}
 	path, err := exec.LookPath(driver)
 	if err != nil {
@@ -205,6 +252,10 @@ func (desktop Desktop) Run(ctx context.Context, args ...string) (CommandResult, 
 	return desktop.helper.Run(ctx, args...)
 }
 
+func (desktop Desktop) RunWithStdin(ctx context.Context, stdin string, args ...string) (CommandResult, error) {
+	return desktop.helper.RunWithStdin(ctx, stdin, args...)
+}
+
 func (desktop Desktop) Enabled() bool {
 	return desktop.helper.Enabled()
 }
@@ -221,7 +272,15 @@ type ExecRunner struct{}
 
 var executablePath = os.Executable
 
-func (ExecRunner) Run(ctx context.Context, path string, args []string, env []string, timeout time.Duration) (CommandResult, error) {
+func (r ExecRunner) Run(ctx context.Context, path string, args []string, env []string, timeout time.Duration) (CommandResult, error) {
+	return r.run(ctx, path, args, env, "", false, timeout)
+}
+
+func (r ExecRunner) RunWithStdin(ctx context.Context, path string, args []string, env []string, stdin string, timeout time.Duration) (CommandResult, error) {
+	return r.run(ctx, path, args, env, stdin, true, timeout)
+}
+
+func (ExecRunner) run(ctx context.Context, path string, args []string, env []string, stdin string, hasStdin bool, timeout time.Duration) (CommandResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -233,6 +292,9 @@ func (ExecRunner) Run(ctx context.Context, path string, args []string, env []str
 
 	cmd := exec.CommandContext(runCtx, path, args...)
 	cmd.Env = mergeEnv(os.Environ(), env)
+	if hasStdin {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -316,7 +316,7 @@ func (cfg LocalControlConfig) BrowserEnabled() bool {
 }
 
 func (cfg LocalControlConfig) DesktopEnabled() bool {
-	return !cfg.Disabled() && cfg.Desktop.enabledSet && cfg.Desktop.Enabled
+	return !cfg.Disabled() && (!cfg.Desktop.enabledSet || cfg.Desktop.Enabled)
 }
 
 func (cfg LocalControlConfig) TerminalEnabled() bool {

@@ -44,7 +44,7 @@ func TestResolveLocalControlFromUserConfig(t *testing.T) {
 
 func TestResolveLocalControlIgnoresProjectOptIn(t *testing.T) {
 	projectPath := filepath.Join(t.TempDir(), "project.json")
-	if err := os.WriteFile(projectPath, []byte(`{"localControl":{"enabled":true,"desktop":{"enabled":true}}}`), 0o600); err != nil {
+	if err := os.WriteFile(projectPath, []byte(`{"localControl":{"enabled":false,"desktop":{"enabled":false}}}`), 0o600); err != nil {
 		t.Fatalf("write project config: %v", err)
 	}
 
@@ -52,15 +52,15 @@ func TestResolveLocalControlIgnoresProjectOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
-	if resolved.LocalControl.Enabled || resolved.LocalControl.DesktopEnabled() {
-		t.Fatalf("project config enabled gated local control: %#v", resolved.LocalControl)
+	if resolved.LocalControl.Enabled {
+		t.Fatalf("project config mutated localControl.enabled: %#v", resolved.LocalControl)
 	}
-	if !resolved.LocalControl.BrowserEnabled() || !resolved.LocalControl.TerminalEnabled() {
-		t.Fatalf("browser/terminal should remain available by default: %#v", resolved.LocalControl)
+	if !resolved.LocalControl.BrowserEnabled() || !resolved.LocalControl.DesktopEnabled() || !resolved.LocalControl.TerminalEnabled() {
+		t.Fatalf("local control defaults should remain available when project config overrides them: %#v", resolved.LocalControl)
 	}
 }
 
-func TestLocalControlDefaultsBrowserAndTerminalOn(t *testing.T) {
+func TestLocalControlDefaultsAllOn(t *testing.T) {
 	resolved, err := Resolve(ResolveOptions{Env: map[string]string{}})
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
@@ -68,11 +68,28 @@ func TestLocalControlDefaultsBrowserAndTerminalOn(t *testing.T) {
 	if !resolved.LocalControl.BrowserEnabled() {
 		t.Fatal("BrowserEnabled = false, want default true")
 	}
+	if !resolved.LocalControl.DesktopEnabled() {
+		t.Fatal("DesktopEnabled = false, want default true")
+	}
 	if !resolved.LocalControl.TerminalEnabled() {
 		t.Fatal("TerminalEnabled = false, want default true")
 	}
+}
+
+func TestLocalControlExplicitDesktopDisable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"localControl":{"desktop":{"enabled":false}}}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	resolved, err := Resolve(ResolveOptions{UserConfigPath: path, Env: map[string]string{}})
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
 	if resolved.LocalControl.DesktopEnabled() {
-		t.Fatal("DesktopEnabled = true, want explicit opt-in")
+		t.Fatalf("DesktopEnabled = true, want false when localControl.desktop.enabled=false: %#v", resolved.LocalControl)
+	}
+	if !resolved.LocalControl.BrowserEnabled() || !resolved.LocalControl.TerminalEnabled() {
+		t.Fatalf("browser/terminal should stay enabled when only desktop is disabled: %#v", resolved.LocalControl)
 	}
 }
 
@@ -98,6 +115,7 @@ func TestLocalControlExplicitFalseSurvivesConfigRewrite(t *testing.T) {
 		"localControl": {
 			"enabled": true,
 			"browser": {"enabled": false},
+			"desktop": {"enabled": false},
 			"terminal": {"enabled": false}
 		}
 	}`), 0o600); err != nil {
@@ -113,6 +131,9 @@ func TestLocalControlExplicitFalseSurvivesConfigRewrite(t *testing.T) {
 	}
 	if !persisted.LocalControl.Browser.enabledSet || persisted.LocalControl.Browser.Enabled {
 		t.Fatalf("browser explicit false not preserved: %#v", persisted.LocalControl.Browser)
+	}
+	if !persisted.LocalControl.Desktop.enabledSet || persisted.LocalControl.Desktop.Enabled {
+		t.Fatalf("desktop explicit false not preserved: %#v", persisted.LocalControl.Desktop)
 	}
 	if !persisted.LocalControl.Terminal.enabledSet || persisted.LocalControl.Terminal.Enabled {
 		t.Fatalf("terminal explicit false not preserved: %#v", persisted.LocalControl.Terminal)
