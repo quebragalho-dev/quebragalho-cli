@@ -555,10 +555,8 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 	upMore := 0
 	if m.picker.kind == pickerConfig {
 		// Mirror pickerOverlay: the /config panel windows by display rows
-		// from the terminal height, with a paging line on top when scrolled.
-		var downMore int
-		start, visible, upMore, downMore = configPickerWindow(m.picker.items, selected, configPickerRowBudget(m.height), details)
-		_ = downMore
+		// from the frame body height, with a paging line on top when scrolled.
+		start, visible, upMore, _ = configPickerWindow(m.picker.items, selected, m.configPickerViewportBudget(width), details)
 	} else {
 		maxVisible := pickerMaxVisible(m.picker, width)
 		start = selectableListStart(len(m.picker.items), maxVisible, selected)

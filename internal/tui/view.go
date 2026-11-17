@@ -650,9 +650,10 @@ func (m model) pickerOverlay(width int) string {
 		m.picker.selected = clampInt(m.picker.selected, 0, len(m.picker.items)-1)
 		if m.picker.kind == pickerConfig {
 			// The /config panel budgets display rows (items plus section
-			// headers and detail lines) from the terminal height instead of
-			// the fixed item cap, so every row that fits is shown.
-			start, visible, upMore, downMore = configPickerWindow(m.picker.items, m.picker.selected, configPickerRowBudget(m.height), showDetails)
+			// headers and detail lines) from the frame body it actually
+			// occupies instead of the fixed item cap, so every row that
+			// fits is shown and the viewport never clips the panel top.
+			start, visible, upMore, downMore = configPickerWindow(m.picker.items, m.picker.selected, m.configPickerViewportBudget(width), showDetails)
 		} else {
 			maxVisible := pickerMaxVisible(m.picker, width)
 			start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
@@ -768,19 +769,38 @@ func pickerShowsDetails(p *commandPicker, width int) bool {
 const configPickerChromeRows = 6
 
 // configPickerMinRows floors the /config row budget so short terminals still
-// show a useful window instead of a single row.
-const configPickerMinRows = 10
+// show the selection with context; the paging indicators cover the rest.
+const configPickerMinRows = 3
 
 // configPickerRowBudget returns how many display rows the /config panel may
 // use for its rows (items plus section headers and detail lines): whatever
-// fits the terminal height after the chrome, never fewer than
+// fits the given frame body height after the chrome, never fewer than
 // configPickerMinRows. A non-positive height means "unknown": show
 // everything rather than clipping blindly.
-func configPickerRowBudget(height int) int {
-	if height <= 0 {
+func configPickerRowBudget(bodyHeight int) int {
+	if bodyHeight <= 0 {
 		return 1 << 30
 	}
-	return maxInt(configPickerMinRows, height-configPickerChromeRows)
+	return maxInt(configPickerMinRows, bodyHeight-configPickerChromeRows)
+}
+
+// overlayBodyHeight returns the frame body height an overlay really occupies:
+// the terminal height minus the pinned title bar and the footer. It mirrors
+// the frame transcriptView composites into, so a budgeted overlay always fits
+// the viewport instead of overflowing past it (which bottom-anchors the cut
+// onto the overlay top). With no known height, report huge so callers show
+// everything rather than clipping blindly.
+func (m model) overlayBodyHeight(width int) int {
+	if m.height <= 0 {
+		return 1 << 30
+	}
+	return m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width)).bodyHeight
+}
+
+// configPickerViewportBudget budgets the /config rows from the frame body the
+// panel really occupies.
+func (m model) configPickerViewportBudget(width int) int {
+	return configPickerRowBudget(m.overlayBodyHeight(width))
 }
 
 // configPickerWindow slices the visible /config items so their rendered rows
@@ -804,7 +824,9 @@ func configPickerWindow(items []pickerItem, selected, maxRows int, showDetails b
 		if end < total {
 			need++
 		}
-		if configPickerRows(items, start, end, showDetails)+need <= maxRows {
+		// A single item is the smallest shrinkable window: accept the
+		// overflow (the indicators name it) instead of looping forever.
+		if configPickerRows(items, start, end, showDetails)+need <= maxRows || end-start <= 1 {
 			break
 		}
 		budget--

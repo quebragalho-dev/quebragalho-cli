@@ -93,6 +93,11 @@ func (m model) emptyStateWithOverlay(width int, overlay string) string {
 		available -= 2
 	}
 	gap := maxInt(0, (available-len(lines))/2)
+	// Never pad past the frame body: the viewport is bottom-anchored, so the
+	// excess would cut the overlay top instead of the padding.
+	if body := m.overlayBodyHeight(width); 2*gap+len(lines) > body {
+		gap = maxInt(0, (body-len(lines))/2)
+	}
 	return strings.Repeat("\n", gap) + strings.Join(lines, "\n") + strings.Repeat("\n", gap)
 }
 
