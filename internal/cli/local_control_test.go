@@ -114,3 +114,20 @@ func TestRegisterLocalControlToolsAppliesDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalDesktopOptionsInstallAgentDesktopOnlyForDefaultDriver(t *testing.T) {
+	for _, tc := range []struct {
+		driver     string
+		wantEnsure bool
+	}{
+		{driver: "", wantEnsure: true},
+		{driver: "agent-desktop", wantEnsure: true},
+		{driver: "custom-driver", wantEnsure: false},
+	} {
+		var cfg config.LocalControlConfig
+		cfg.Desktop.Driver = tc.driver
+		if got := localDesktopOptionsFromConfig(cfg).Ensure != nil; got != tc.wantEnsure {
+			t.Fatalf("driver %q: Ensure set = %v, want %v", tc.driver, got, tc.wantEnsure)
+		}
+	}
+}

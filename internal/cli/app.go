@@ -1360,11 +1360,17 @@ func localBrowserOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.B
 }
 
 func localDesktopOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.DesktopOptions {
-	return localcontrol.DesktopOptions{
+	options := localcontrol.DesktopOptions{
 		Enabled:    cfg.DesktopEnabled(),
 		Driver:     cfg.Desktop.Driver,
 		HelperPath: cfg.Desktop.HelperPath,
 	}
+	if driver := strings.TrimSpace(cfg.Desktop.Driver); driver == "" || driver == localcontrol.DefaultDesktopDriver {
+		options.Ensure = func(ctx context.Context) (string, error) {
+			return localcontrol.EnsureAgentDesktop(ctx, localcontrol.AgentDesktopInstallOptions{})
+		}
+	}
+	return options
 }
 
 func localTerminalOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.TerminalOptions {
