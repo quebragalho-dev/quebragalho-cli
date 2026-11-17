@@ -647,6 +647,7 @@ func (m model) pickerOverlay(width int) string {
 	visible := []pickerItem{}
 	upMore, downMore := 0, 0
 	compact := false
+	details := showDetails
 	if len(m.picker.items) > 0 {
 		m.picker.selected = clampInt(m.picker.selected, 0, len(m.picker.items)-1)
 		if m.picker.kind == pickerConfig {
@@ -656,7 +657,7 @@ func (m model) pickerOverlay(width int) string {
 			// fits is shown and the viewport never clips the panel top.
 			// When not even the selection fits beside the chrome, fall
 			// back to a compact title frame around the selection.
-			compact, start, visible, upMore, downMore = m.configPickerPlan(width, showDetails)
+			compact, start, visible, upMore, downMore, details = m.configPickerPlan(width, showDetails)
 		} else {
 			maxVisible := pickerMaxVisible(m.picker, width)
 			start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
@@ -686,8 +687,10 @@ func (m model) pickerOverlay(width int) string {
 		for _, headerLine := range m.picker.wrappedHeader(innerWidth) {
 			lines = append(lines, qgTheme.faint.Render(headerLine))
 		}
-		if upMore > 0 {
-			lines = append(lines, fitStyledLine(qgTheme.faint.Render("↑ mais "+strconv.Itoa(upMore)), innerWidth))
+		// Both paging sides share one line, so the freed row fits one more
+		// item beside the selection.
+		if upMore > 0 || downMore > 0 {
+			lines = append(lines, renderConfigPickerPagingLine(upMore, downMore, innerWidth))
 		}
 		lastGroup := ""
 		for index, item := range visible {
@@ -696,7 +699,7 @@ func (m model) pickerOverlay(width int) string {
 				lines = append(lines, qgTheme.accent.Render(item.Group))
 				lastGroup = item.Group
 			}
-			lines = append(lines, renderPickerItemLines(item, absoluteIndex == m.picker.selected, innerWidth, showDetails)...)
+			lines = append(lines, renderPickerItemLines(item, absoluteIndex == m.picker.selected, innerWidth, details)...)
 		}
 		if len(visible) == 0 {
 			if m.picker.loading {
@@ -704,9 +707,6 @@ func (m model) pickerOverlay(width int) string {
 			} else {
 				lines = append(lines, qgTheme.faint.Render("  nenhum item encontrado"))
 			}
-		}
-		if downMore > 0 {
-			lines = append(lines, fitStyledLine(qgTheme.faint.Render("↓ mais "+strconv.Itoa(downMore)), innerWidth))
 		}
 	}
 	if compact {
@@ -790,29 +790,35 @@ func (m model) configPickerViewportBudget(width int) int {
 // (section headers, items, detail lines) plus the paging indicators fit
 // maxRows, following the selection. It returns the window start, the visible
 // items, and how many items hide above/below the window.
+// configPickerNeed counts the paging lines a window needs: both hidden sides
+// share a single faint line, so it is ever 0 or 1.
+func configPickerNeed(start, end, total int) int {
+	if start > 0 || end < total {
+		return 1
+	}
+	return 0
+}
+
 func configPickerWindow(items []pickerItem, selected, maxRows int, showDetails bool) (int, []pickerItem, int, int) {
 	total := len(items)
 	if total == 0 || maxRows <= 0 {
 		return 0, nil, 0, 0
 	}
 	selected = clampInt(selected, 0, total-1)
-	budget := maxRows
-	var start, end int
-	for {
-		start, end = configPickerWindowRows(items, selected, budget, showDetails)
-		need := 0
-		if start > 0 {
-			need++
+	count := minInt(total, maxInt(1, maxRows))
+	// The shared anchor assumes room for three rows above the selection; with
+	// tiny windows that pushes the start past the selection itself, so clamp
+	// the anchor to the window. Trims below only drop rows away from the
+	// selection, so it stays inside [start, end) throughout.
+	anchor := minInt(selectableListAnchorRow, maxInt(0, count-1))
+	start := clampInt(selected-anchor, 0, total-count)
+	end := start + count
+	for end-start > 1 && configPickerRows(items, start, end, showDetails)+configPickerNeed(start, end, total) > maxRows {
+		if end-1 > selected {
+			end--
+		} else {
+			start++
 		}
-		if end < total {
-			need++
-		}
-		// A single item is the smallest shrinkable window: accept the
-		// overflow (the indicators name it) instead of looping forever.
-		if configPickerRows(items, start, end, showDetails)+need <= maxRows || end-start <= 1 {
-			break
-		}
-		budget--
 	}
 	return start, items[start:end], start, total - end
 }
@@ -884,51 +890,28 @@ func renderConfigPickerPagingLine(upMore, downMore, innerWidth int) string {
 // paging lines) when its rows fit the frame body, else a compact title frame
 // around the selection with a single paging line. Either way the selection is
 // visible and the overlay fits the body, so the title never scrolls off.
-func (m model) configPickerPlan(width int, showDetails bool) (bool, int, []pickerItem, int, int) {
+func (m model) configPickerPlan(width int, showDetails bool) (bool, int, []pickerItem, int, int, bool) {
 	if len(m.picker.items) == 0 {
-		return false, 0, nil, 0, 0
+		return false, 0, nil, 0, 0, showDetails
 	}
 	selected := clampInt(m.picker.selected, 0, len(m.picker.items)-1)
 	body := m.overlayBodyHeight(width)
-	budget := configPickerRowBudget(body)
-	start, visible, upMore, downMore := configPickerWindow(m.picker.items, selected, budget, showDetails)
-	rows := configPickerRows(m.picker.items, start, start+len(visible), showDetails)
-	indicators := 0
-	if upMore > 0 {
-		indicators++
-	}
-	if downMore > 0 {
-		indicators++
-	}
-	if rows+indicators+configPickerChromeRows <= body {
-		return false, start, visible, upMore, downMore
-	}
-	// Compact: only the selection fits beside the title, so the paging sides
-	// share one line and headers, details and chrome give way.
-	return true, selected, m.picker.items[selected : selected+1], selected, len(m.picker.items) - 1 - selected
-}
-
-// configPickerWindowRows grows an item window around the selection until its
-// rendered rows fill maxRows, trimming the side away from the selection when
-// headers and detail lines overflow.
-func configPickerWindowRows(items []pickerItem, selected, maxRows int, showDetails bool) (int, int) {
-	total := len(items)
-	count := minInt(total, maxInt(1, maxRows))
-	// The shared anchor assumes room for three rows above the selection; with
-	// tiny windows that pushes the start past the selection itself, so clamp
-	// the anchor to the window. Trims below only drop rows after the
-	// selection, so it stays inside [start, end) throughout.
-	anchor := minInt(selectableListAnchorRow, maxInt(0, count-1))
-	start := clampInt(selected-anchor, 0, total-count)
-	end := start + count
-	for end-start > 1 && configPickerRows(items, start, end, showDetails) > maxRows {
-		if end-1 > selected {
-			end--
-		} else {
-			start++
+	// Paging sides share a single line, so the full frame needs the selected
+	// block beside the chrome plus at most one indicator line. Details give
+	// way when they are what overflows; compact is only for bodies where not
+	// even the bare selection fits.
+	if configPickerRows(m.picker.items, selected, selected+1, showDetails)+configPickerNeed(selected, selected+1, len(m.picker.items))+configPickerChromeRows > body {
+		if configPickerRows(m.picker.items, selected, selected+1, false)+configPickerNeed(selected, selected+1, len(m.picker.items))+configPickerChromeRows > body {
+			return true, selected, m.picker.items[selected : selected+1], selected, len(m.picker.items) - 1 - selected, false
 		}
+		showDetails = false
 	}
-	return start, end
+	budget := maxInt(1, body-configPickerChromeRows)
+	start, visible, upMore, downMore := configPickerWindow(m.picker.items, selected, budget, showDetails)
+	if configPickerRows(m.picker.items, start, start+len(visible), showDetails)+configPickerNeed(start, start+len(visible), len(m.picker.items))+configPickerChromeRows > body {
+		return true, selected, m.picker.items[selected : selected+1], selected, len(m.picker.items) - 1 - selected, false
+	}
+	return false, start, visible, upMore, downMore, showDetails
 }
 
 // configPickerRows counts the display rows an item window renders: one per

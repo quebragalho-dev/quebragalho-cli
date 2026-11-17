@@ -128,6 +128,22 @@ func TestConfigPanelFullViewOnShortTerminal(t *testing.T) {
 	assertConfigRowsNoOverflow(t, 80, got)
 }
 
+// Rolling through every row on a short terminal never switches panel modes:
+// search and footer stay on screen from the first row to the last, with the
+// title and the selection always visible and the frame within the height.
+func TestConfigPanelKeepsFullModeWhileScrollingShortTerminal(t *testing.T) {
+	for sel := 0; sel < len(configRowsPanelLabels); sel++ {
+		got := renderConfigRowsView(t, 80, 16, sel)
+		for _, want := range []string{"Configurações", "buscar >", "Esc fechar", configRowsPanelLabels[sel]} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("80x16 sel=%d should show %q in full mode, got:\n%s", sel, want, got)
+			}
+		}
+		assertConfigRowsLineCount(t, 16, got)
+		assertConfigRowsNoOverflow(t, 80, got)
+	}
+}
+
 // Going down to the last row and back up keeps the title and the selected
 // row on screen at every step, on any height: the window always contains the
 // selection and the overlay always fits the frame body.

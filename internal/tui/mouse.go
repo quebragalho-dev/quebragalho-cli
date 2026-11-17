@@ -557,7 +557,7 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 	if m.picker.kind == pickerConfig {
 		// Mirror pickerOverlay: full window or compact title frame, same plan.
 		var compact bool
-		compact, start, visible, upMore, downMore = m.configPickerPlan(width, details)
+		compact, start, visible, upMore, downMore, details = m.configPickerPlan(width, details)
 		if compact {
 			return m.selectCompactConfigPickerAtMouse(hit, visible, start, upMore, downMore)
 		}
@@ -573,7 +573,7 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 		overlayWidth = width
 	}
 	line := 3 + len(m.picker.wrappedHeader(maxInt(1, overlayWidth-4)))
-	if upMore > 0 {
+	if upMore > 0 || downMore > 0 {
 		line++
 	}
 	lastGroup := ""
