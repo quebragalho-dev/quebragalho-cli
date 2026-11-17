@@ -420,24 +420,51 @@ func goalTaskProgressSuffix(goal *sessions.Goal) string {
 	return fmt.Sprintf(" (%d/%d tarefas feitas)", done, total)
 }
 
-// goalResetContinuationPrompt builds the minimal prompt for a reset-mode task
-// switch: objective, task list, and notes only — no conversation history.
-func goalResetContinuationPrompt(goal *sessions.Goal) string {
-	var prompt strings.Builder
-	prompt.WriteString("Continue pursuing the active goal. The previous turn context was cleared between tasks; " +
-		"only the objective, task list, and notes below are available. Make concrete progress on the current task, " +
-		"and use update_goal with task_status when it is done or genuinely blocked.")
+// goalResetBoundary returns the event sequence where the current task era
+// starts, for reset mode. Zero disables filtering: legacy goals, taskless
+// goals, and other between-tasks modes see the full history.
+func (m model) goalResetBoundary() int {
+	goal := m.activeSession.Goal
+	if goal == nil || len(goal.Tasks) == 0 {
+		return 0
+	}
+	if m.goalBetweenTasksMode() != config.GoalBetweenTasksReset {
+		return 0
+	}
+	if goal.TaskBoundary <= 0 {
+		return 0
+	}
+	return goal.TaskBoundary
+}
+
+// goalEraEvents restricts events to the current task era in reset mode: the
+// boundary sequence starts the next run, so everything before it belongs to
+// an older task. Outside reset mode (or without a boundary) it returns events
+// unchanged. An empty result is honest — the new task simply has no history
+// yet — and every caller already handles it (bare prompt, rebuilt wire miss).
+func (m model) goalEraEvents(events []sessions.Event) []sessions.Event {
+	if boundary := m.goalResetBoundary(); boundary > 0 {
+		return sessions.EventsFromSeq(events, boundary)
+	}
+	return events
+}
+
+// goalEraBlock renders the objective, task list, and notes appended to reset
+// prompts: the only pre-switch context the model receives.
+func goalEraBlock(goal *sessions.Goal) string {
+	var block strings.Builder
+	block.WriteString("Current task context (earlier history was cleared between tasks):")
 	if goal != nil {
-		fmt.Fprintf(&prompt, "\nObjective: %s", goal.Objective)
+		fmt.Fprintf(&block, "\nObjective: %s", goal.Objective)
 		for i, task := range goal.Tasks {
 			line := fmt.Sprintf("\n%d. [%s] %s", i+1, goalTaskStateEN(task.Status), task.Title)
 			if strings.TrimSpace(task.Note) != "" {
 				line += " — " + strings.TrimSpace(task.Note)
 			}
-			prompt.WriteString(line)
+			block.WriteString(line)
 		}
 	}
-	return prompt.String()
+	return block.String()
 }
 
 // appendGoalTaskListRow surfaces a freshly set checklist (from /goal create,
@@ -453,6 +480,44 @@ func (m model) appendGoalTaskListRow() model {
 		text: strings.Join(lines, "\n"),
 	})
 	return m
+}
+
+// cutGoalWireToBoundary drops pre-task history from the structured wire after
+// a reset-mode task switch, so later user submits replay only the current
+// task. The snapshot is rewritten with the cut wire (or dropped when nothing
+// post-boundary exists yet) so restarting the session cannot restore the
+// cleared history; resume falls back to the boundary-filtered log either way.
+func (m model) cutGoalWireToBoundary() {
+	if m.goalResetBoundary() <= 0 {
+		return
+	}
+	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(
+		m.goalEraEvents(m.sessionEvents)))
+	loaded := append([]string(nil), m.continuation.loadedTools...)
+	m.continuation = turnContinuation{}
+	if len(msgs) == 0 {
+		if m.sessionStore != nil && m.activeSession.SessionID != "" {
+			_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
+		}
+		return
+	}
+	m.continuation = turnContinuation{
+		sessionID:   m.activeSession.SessionID,
+		modelID:     m.modelName,
+		goalKey:     goalKeyForSession(m.activeSession),
+		messages:    msgs,
+		loadedTools: loaded,
+	}
+	m.persistSnapshot(sessions.ContinuationSnapshot{
+		SessionID:       m.activeSession.SessionID,
+		ModelID:         m.modelName,
+		Provider:        m.providerName,
+		ReasoningEffort: string(m.reasoningEffort),
+		GoalKey:         goalKeyForSession(m.activeSession),
+		EventSeq:        m.activeSession.EventCount,
+		Messages:        msgs,
+		LoadedTools:     loaded,
+	})
 }
 
 // goalTaskSwitched reports whether a finished run moved the goal to another
@@ -505,12 +570,6 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 		text: "Continuando meta: " + goal.Objective + goalTaskProgressSuffix(goal),
 	})
 	prompt := m.sessionPrompt(goalContinuationPrompt)
-	if m.goalResetPrompt {
-		m.goalResetPrompt = false
-		if len(goal.Tasks) > 0 {
-			prompt = goalResetContinuationPrompt(goal)
-		}
-	}
 	m, err = m.appendSessionEvent(sessions.EventMessage, map[string]any{
 		"role":    "goal",
 		"content": goalContinuationPrompt,
@@ -535,7 +594,6 @@ func (m model) launchGoalNextStepIfReady() (model, tea.Cmd) {
 	case config.GoalBetweenTasksKeep:
 		return m.launchGoalContinuationIfReady()
 	case config.GoalBetweenTasksReset:
-		m.goalResetPrompt = true
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 			kind: rowSystem,
 			text: "Contexto limpo entre tarefas: a próxima tarefa começa só com objetivo, lista e notas.",
@@ -619,6 +677,17 @@ func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error
 	}
 	if switched, finished := goalTaskSwitched(before, loaded.Goal); switched {
 		m.goalTaskAdvanced = true
+		if !finished && m.goalBetweenTasksMode() == config.GoalBetweenTasksReset {
+			// The new era starts at the next run: everything logged so far
+			// belongs to the old task.
+			if bounded, err := m.sessionStore.SetGoalTaskBoundary(loaded.SessionID, loaded.EventCount+1); err != nil {
+				m = m.appendGoalError("registrar fronteira da tarefa: " + err.Error())
+			} else {
+				loaded = &bounded
+				m.activeSession = bounded
+			}
+			m.cutGoalWireToBoundary()
+		}
 		if finished {
 			done, total := sessions.GoalTaskProgress(loaded.Goal)
 			m.transcript = appendTranscriptRow(m.transcript, transcriptRow{

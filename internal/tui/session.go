@@ -662,7 +662,7 @@ func (m model) rewriteSnapshotFromEvents() model {
 	if m.sessionStore == nil || m.activeSession.SessionID == "" {
 		return m
 	}
-	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(m.sessionEvents))
+	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(m.goalEraEvents(m.sessionEvents)))
 	if len(msgs) == 0 {
 		m.continuation = turnContinuation{}
 		_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
@@ -711,7 +711,7 @@ func (m model) persistSnapshot(snap sessions.ContinuationSnapshot) {
 func (m model) setReconstructedContinuation(events []sessions.Event, notice string) model {
 	m.continuation = turnContinuation{}
 	m.resumedExact = false
-	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(events))
+	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(m.goalEraEvents(events)))
 	if len(msgs) > 0 {
 		m.continuation = turnContinuation{
 			sessionID: m.activeSession.SessionID,
@@ -736,10 +736,13 @@ func (m model) sessionPrompt(prompt string) string {
 	if m.activeSession.SessionID == "" || len(m.sessionEvents) == 0 {
 		return prompt
 	}
+	if m.goalResetBoundary() > 0 {
+		prompt = prompt + "\n\n" + goalEraBlock(m.activeSession.Goal)
+	}
 	formatted := sessions.FormatExecPrompt(prompt, sessions.PreparedExec{
 		Mode:          sessions.ModeResume,
 		Session:       m.activeSession,
-		ContextEvents: append([]sessions.Event{}, m.sessionEvents...),
+		ContextEvents: append([]sessions.Event{}, m.goalEraEvents(m.sessionEvents)...),
 	})
 	if m.activeSession.SessionKind == sessions.SessionKindSide {
 		return btwContextBoundary + "\n\n" + formatted

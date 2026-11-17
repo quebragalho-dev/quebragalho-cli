@@ -680,7 +680,6 @@ type model struct {
 	goalBetweenTasks             string // resolved goal.betweenTasks; empty defaults to compact
 	goalTaskAdvanced             bool   // a task finished mid-run; the next step applies the between-tasks mode
 	goalContinueAfterCompact     bool   // run the next task continuation once the between-tasks compaction lands
-	goalResetPrompt              bool   // next goal continuation starts with objective+tasks only, no history
 	modelPickerLoading           bool
 	modelPickerLoadingProviderID string
 	modelPickerLoadError         string
@@ -1200,7 +1199,7 @@ func (m model) rebuiltContinuation() (model, turnContinuation, bool) {
 	if err != nil || len(events) == 0 {
 		return m, turnContinuation{}, false
 	}
-	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(events))
+	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(m.goalEraEvents(events)))
 	if len(msgs) == 0 {
 		return m, turnContinuation{}, false
 	}

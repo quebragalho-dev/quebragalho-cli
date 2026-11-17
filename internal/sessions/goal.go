@@ -187,6 +187,10 @@ func (store *Store) EditGoal(sessionID, objective string, tokenBudget int) (Meta
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
+	loaded, err = store.readMetadata(sessionID)
+	if err != nil {
+		return Metadata{}, Event{}, err
+	}
 	return loaded, event, nil
 }
 
@@ -482,6 +486,10 @@ func (store *Store) SetGoalTasks(sessionID string, titles []string) (Metadata, E
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
+	loaded, err = store.readMetadata(sessionID)
+	if err != nil {
+		return Metadata{}, Event{}, err
+	}
 	return loaded, event, nil
 }
 
@@ -536,6 +544,10 @@ func (store *Store) CompleteGoalTask(sessionID, note string) (Metadata, Event, e
 		return Metadata{}, Event{}, err
 	}
 	loaded, err := store.readMetadata(sessionID)
+	if err != nil {
+		return Metadata{}, Event{}, err
+	}
+	loaded, err = store.readMetadata(sessionID)
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
@@ -633,6 +645,38 @@ func (store *Store) ReactivateGoalTask(sessionID string) (Metadata, Event, error
 		return Metadata{}, Event{}, err
 	}
 	return loaded, event, nil
+}
+
+// SetGoalTaskBoundary records where the current task era starts (the
+// first sequence of the next run) so reset mode can filter pre-task history.
+// A zero seq clears the boundary. It writes metadata only, appending no
+// event, so the head the boundary was derived from does not move.
+func (store *Store) SetGoalTaskBoundary(sessionID string, seq int) (Metadata, error) {
+	if !ValidSessionID(sessionID) {
+		return Metadata{}, fmt.Errorf("invalid qg session id %q", sessionID)
+	}
+	unlock, err := store.lockSession(sessionID)
+	if err != nil {
+		return Metadata{}, err
+	}
+	defer unlock()
+
+	session, err := store.readMetadata(sessionID)
+	if err != nil {
+		return Metadata{}, err
+	}
+	if session.Goal == nil {
+		return Metadata{}, fmt.Errorf("session has no goal")
+	}
+	if seq < 0 {
+		return Metadata{}, fmt.Errorf("goal task boundary cannot be negative")
+	}
+	session.Goal.TaskBoundary = seq
+	session.Goal.UpdatedAt = store.timestamp()
+	if err := store.writeMetadata(session); err != nil {
+		return Metadata{}, err
+	}
+	return session, nil
 }
 
 func validGoalStatus(status GoalStatus) bool {

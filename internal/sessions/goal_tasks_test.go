@@ -273,3 +273,55 @@ func TestSetGoalTasksValidatesBounds(t *testing.T) {
 		t.Fatal("second split should be refused")
 	}
 }
+
+func TestSetGoalTaskBoundaryRoundTrip(t *testing.T) {
+	store := NewStore(StoreOptions{RootDir: t.TempDir()})
+	session, err := store.Create(CreateInput{SessionID: "goal_boundary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreateGoal(session.SessionID, "Work\n1. First\n2. Second", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetGoalTaskBoundary(session.SessionID, 7); err != nil {
+		t.Fatal(err)
+	}
+	// Boundary survives a disk reload.
+	loaded, err := NewStore(StoreOptions{RootDir: store.RootDir}).Get(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Goal.TaskBoundary != 7 {
+		t.Fatalf("reloaded boundary = %d, want 7", loaded.Goal.TaskBoundary)
+	}
+	if _, err := store.SetGoalTaskBoundary(session.SessionID, 0); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := store.Get(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Goal.TaskBoundary != 0 {
+		t.Fatalf("cleared boundary = %d, want 0", cleared.Goal.TaskBoundary)
+	}
+	if _, err := store.SetGoalTaskBoundary(session.SessionID, -1); err == nil {
+		t.Fatal("negative boundary should be rejected")
+	}
+}
+
+func TestEventsFromSeqFiltersPreTaskHistory(t *testing.T) {
+	events := []Event{{Sequence: 1}, {Sequence: 2}, {Sequence: 3}}
+	if got := EventsFromSeq(events, 0); len(got) != 3 {
+		t.Fatalf("seq 0 = %v, want all", got)
+	}
+	if got := EventsFromSeq(events, -5); len(got) != 3 {
+		t.Fatalf("negative seq = %v, want all", got)
+	}
+	got := EventsFromSeq(events, 2)
+	if len(got) != 2 || got[0].Sequence != 2 {
+		t.Fatalf("seq 2 = %+v, want events 2-3", got)
+	}
+	if got := EventsFromSeq(events, 9); len(got) != 0 {
+		t.Fatalf("seq past head = %+v, want empty", got)
+	}
+}

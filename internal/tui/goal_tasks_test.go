@@ -283,7 +283,11 @@ func TestGoalResetModeClearsHistoryBetweenTasks(t *testing.T) {
 		completeCurrentTaskScript("feito"),
 		goalFillerScript(),
 		{
-			{Type: qgruntime.StreamEventText, Content: "second task"},
+			{Type: qgruntime.StreamEventText, Content: "second task, turn one"},
+			{Type: qgruntime.StreamEventDone},
+		},
+		{
+			{Type: qgruntime.StreamEventText, Content: "second task, turn two"},
 			{Type: qgruntime.StreamEventDone},
 		},
 	}}
@@ -299,21 +303,136 @@ func TestGoalResetModeClearsHistoryBetweenTasks(t *testing.T) {
 	if !transcriptContains(updated.transcript, "Contexto limpo entre tarefas") {
 		t.Fatalf("reset notice missing: %#v", updated.transcript)
 	}
+	// The cut wire backing later user submits must not replay task one.
+	wireContents := ""
+	for _, message := range updated.continuation.messages {
+		wireContents += "\n" + message.Content
+	}
+	if strings.Contains(wireContents, goalHistoryMarker) {
+		t.Fatalf("cut wire replays previous task history:\n%s", wireContents)
+	}
+	// Drive two more continuations of the same task: history must stay out.
 	resp2 := execCmd(goalCmd)
 	if resp2 == nil {
 		t.Fatal("second run returned no response")
 	}
-	if len(provider.requests) != 3 {
-		t.Fatalf("provider requests = %d, want 3", len(provider.requests))
+	second, secondCmd := updatedModel(t, updated, resp2)
+	if secondCmd == nil {
+		t.Fatal("third continuation did not launch")
 	}
-	contents := requestContents(provider.requests[len(provider.requests)-1])
-	if strings.Contains(contents, goalHistoryMarker) {
-		t.Fatalf("reset mode should not replay history, request =\n%s", contents)
+	resp3 := execCmd(secondCmd)
+	if resp3 == nil {
+		t.Fatal("third run returned no response")
 	}
-	for _, want := range []string{"Objective: Work", "First", "Second", "[done]"} {
-		if !strings.Contains(contents, want) {
-			t.Fatalf("reset request missing %q:\n%s", want, contents)
+	if len(provider.requests) != 4 {
+		t.Fatalf("provider requests = %d, want 4", len(provider.requests))
+	}
+	for i, request := range provider.requests[1:] {
+		contents := requestContents(request)
+		if strings.Contains(contents, goalHistoryMarker) {
+			t.Fatalf("request %d replays previous task history:\n%s", i+1, contents)
 		}
+	}
+	latest := requestContents(provider.requests[len(provider.requests)-1])
+	for _, want := range []string{"Objective: Work", "First", "Second", "[done]", "Current task context"} {
+		if !strings.Contains(latest, want) {
+			t.Fatalf("reset request missing %q:\n%s", want, latest)
+		}
+	}
+	// A user message sent after the switch replays the cut wire, not the log.
+	userCmd := second.runAgentWithOptions(999, context.Background(), "user question", nil,
+		tuiAgentRunOptions{continuation: second.continuation.messages})
+	userResp := execCmd(userCmd)
+	if userResp == nil {
+		t.Fatal("user submit returned no response")
+	}
+	userContents := requestContents(provider.requests[len(provider.requests)-1])
+	if strings.Contains(userContents, goalHistoryMarker) {
+		t.Fatalf("user submit replays previous task history:\n%s", userContents)
+	}
+	if !strings.Contains(userContents, "user question") {
+		t.Fatalf("user submit lost its prompt:\n%s", userContents)
+	}
+}
+
+func TestGoalResetSurvivesSessionReload(t *testing.T) {
+	store, session := goalTaskTestSetup(t, "Work\n1. First\n2. Second")
+	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
+		completeCurrentTaskScript("feito"),
+		goalFillerScript(),
+		{
+			{Type: qgruntime.StreamEventText, Content: "second task"},
+			{Type: qgruntime.StreamEventDone},
+		},
+	}}
+	m := goalTaskTestModel(store, session, provider)
+	m.goalBetweenTasks = "reset"
+
+	next, cmd := m.launchGoalContinuationIfReady()
+	updated, goalCmd := updatedModel(t, next, execCmd(cmd))
+	if goalCmd == nil || !updated.pending {
+		t.Fatal("reset-mode next task did not launch")
+	}
+	if nextRun := execCmd(goalCmd); nextRun == nil {
+		t.Fatal("second run returned no response")
+	}
+	// The persisted snapshot must hold the cut wire, not the full history.
+	snap, err := store.ReadContinuation(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap == nil {
+		t.Fatal("no continuation snapshot persisted after the switch")
+	}
+	snapContents := ""
+	for _, message := range snap.Messages {
+		snapContents += "\n" + message.Content
+	}
+	if strings.Contains(snapContents, goalHistoryMarker) {
+		t.Fatalf("persisted snapshot replays previous task history:\n%s", snapContents)
+	}
+	// Reload the session from disk like /resume does: continuations and wire
+	// rebuilds still filter the previous task out.
+	reloaded, err := store.Get(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := store.ReadEvents(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := newModel(context.Background(), Options{
+		Provider:         &scriptedProvider{scripts: [][]qgruntime.StreamEvent{{{Type: qgruntime.StreamEventText, Content: "resumed work"}, {Type: qgruntime.StreamEventDone}}}},
+		Registry:         tools.NewRegistry(),
+		SessionStore:     store,
+		GoalBetweenTasks: "reset",
+	})
+	resumed.activeSession = *reloaded
+	resumed.sessionEvents = append([]sessions.Event{}, events...)
+	rebuilt, wire, ok := resumed.rebuiltContinuation()
+	if !ok {
+		t.Fatal("rebuilt continuation missing after reload")
+	}
+	_ = rebuilt
+	wireContents := ""
+	for _, message := range wire.messages {
+		wireContents += "\n" + message.Content
+	}
+	if strings.Contains(wireContents, goalHistoryMarker) {
+		t.Fatalf("rebuilt wire replays previous task history:\n%s", wireContents)
+	}
+	_, resumeCmd := resumed.launchGoalContinuationIfReady()
+	resumeResp := execCmd(resumeCmd)
+	if resumeResp == nil {
+		t.Fatal("resumed continuation returned no response")
+	}
+	resumedProvider := resumed.provider.(*scriptedProvider)
+	resumeContents := requestContents(resumedProvider.requests[0])
+	if strings.Contains(resumeContents, goalHistoryMarker) {
+		t.Fatalf("resumed continuation replays previous task history:\n%s", resumeContents)
+	}
+	if !strings.Contains(resumeContents, "Current task context") {
+		t.Fatalf("resumed continuation missing task block:\n%s", resumeContents)
 	}
 }
 

@@ -123,6 +123,22 @@ func summarizeGoalTaskTitles(titles []string) string {
 	return summary
 }
 
+// EventsFromSeq returns the events at or after seq: the current task era
+// for reset mode. A non-positive seq returns events unchanged; a seq past the
+// log head returns nothing. Callers handle the empty case (bare prompt,
+// missed wire rebuild) instead of resurrecting filtered-out history.
+func EventsFromSeq(events []Event, seq int) []Event {
+	if seq <= 0 {
+		return events
+	}
+	for i, event := range events {
+		if event.Sequence >= seq {
+			return events[i:]
+		}
+	}
+	return nil
+}
+
 // normalizeGoalTaskStatus maps legacy/empty states to pending.
 func normalizeGoalTaskStatus(status GoalTaskStatus) GoalTaskStatus {
 	switch GoalTaskStatus(strings.ToLower(strings.TrimSpace(string(status)))) {
