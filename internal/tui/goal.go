@@ -692,7 +692,7 @@ func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error
 			done, total := sessions.GoalTaskProgress(loaded.Goal)
 			m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 				kind: rowSystem,
-				text: fmt.Sprintf("Meta concluída: todas as %d tarefas feitas (eram %d).", done, total),
+				text: fmt.Sprintf("Meta concluída: %d de %d tarefas feitas.", done, total),
 			})
 		} else if previous := sessions.CurrentGoalTask(before); previous != nil {
 			if current := sessions.CurrentGoalTask(loaded.Goal); current != nil {
