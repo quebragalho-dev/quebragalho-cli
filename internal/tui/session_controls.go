@@ -811,12 +811,20 @@ func sessionEventsForRefs(events []sessions.Event, refs []sessions.EventRef) ([]
 }
 
 func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []qgruntime.Message) (agent.CompactionSummaryResult, error) {
-	return agent.SummarizeCompactionMessages(messages, func(projected []qgruntime.Message) (string, error) {
+	var promptChars int
+	result, err := agent.SummarizeCompactionMessages(messages, func(projected []qgruntime.Message) (string, error) {
 		if m.provider == nil {
 			return deterministicCompactionSummary(plan), nil
 		}
+		// Build the summarizer request exactly like the agent's automatic
+		// compaction: [system, user] with the conversation rendered to plain
+		// text. Forwarding the projected wire messages can end the request
+		// on an assistant tool call or a tool result; with no tools declared
+		// the provider then answers with empty text.
+		requestMessages := agent.CompactionSummaryRequestMessages(projected)
+		promptChars = compactionRequestChars(requestMessages)
 		stream, streamErr := m.provider.StreamCompletion(m.ctx, qgruntime.CompletionRequest{
-			Messages: append([]qgruntime.Message{{Role: qgruntime.MessageRoleSystem, Content: agent.CompactionSummaryInstructions}}, projected...),
+			Messages: requestMessages,
 		})
 		if streamErr != nil {
 			return "", fmt.Errorf("summarize compacted session: %w", streamErr)
@@ -831,6 +839,29 @@ func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []
 		}
 		return result, nil
 	})
+	if err != nil {
+		return result, err
+	}
+	if promptChars > 0 {
+		// ProjectedChars feeds plan.PromptChars below: count what was actually
+		// sent (system instruction plus rendered user message), not the
+		// projected wire messages.
+		result.ProjectedChars = promptChars - len(agent.CompactionSummaryInstructions)
+	}
+	return result, nil
+}
+
+// compactionRequestChars counts the text content of a provider request,
+// excluding protocol framing.
+func compactionRequestChars(messages []qgruntime.Message) int {
+	total := 0
+	for _, message := range messages {
+		total += len(message.Content)
+		for _, call := range message.ToolCalls {
+			total += len(call.Name) + len(call.Arguments)
+		}
+	}
+	return total
 }
 
 func deterministicCompactionSummary(plan sessions.CompactionPlan) string {
