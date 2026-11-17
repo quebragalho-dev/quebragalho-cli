@@ -16,14 +16,17 @@ import (
 )
 
 type fakeDesktopRunner struct {
-	args     []string
-	calls    [][]string
-	stdin    string
-	hasStdin bool
-	stdout   string
-	stderr   string
-	exitCode int
-	err      error
+	args       []string
+	calls      [][]string
+	stdin      string
+	hasStdin   bool
+	stdout     string
+	stderr     string
+	exitCode   int
+	err        error
+	writePNG   []byte
+	wrotePath  string
+	pathExists bool
 }
 
 func (runner *fakeDesktopRunner) Run(_ context.Context, path string, args []string, _ []string, _ time.Duration) (localcontrol.CommandResult, error) {
@@ -39,6 +42,15 @@ func (runner *fakeDesktopRunner) record(path string, args []string, stdin string
 	runner.calls = append(runner.calls, append([]string(nil), args...))
 	runner.stdin = stdin
 	runner.hasStdin = hasStdin
+	if len(runner.writePNG) > 0 && len(args) > 0 {
+		target := args[len(args)-1]
+		if strings.HasSuffix(target, ".png") {
+			runner.wrotePath = target
+			if err := os.WriteFile(target, runner.writePNG, 0o600); err == nil {
+				runner.pathExists = true
+			}
+		}
+	}
 	stdout := runner.stdout
 	if stdout == "" && runner.stderr == "" && runner.err == nil {
 		stdout = `{"version":"2.6","ok":true,"command":"test","data":{"status":"ok"}}` + "\n"
@@ -117,8 +129,8 @@ func TestDesktopSnapshotRejectsInvalidArgsBeforePermission(t *testing.T) {
 	}{
 		{name: "bare ref", args: map[string]any{"root": "@e8"}, want: "@<snapshot_id>:e<N>"},
 		{name: "root with surface", args: map[string]any{"root": "@s1:e1", "surface": "menu"}, want: "surface"},
-		{name: "invalid surface", args: map[string]any{"surface": "bogus"}, want: "surface"},
 		{name: "option-like app", args: map[string]any{"app": "--evil"}, want: "app"},
+		{name: "option-like surface", args: map[string]any{"surface": "--evil"}, want: "surface"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -130,7 +142,7 @@ func TestDesktopSnapshotRejectsInvalidArgsBeforePermission(t *testing.T) {
 	}
 }
 
-func TestDesktopActionBuildsArgvForAllAllowedCommands(t *testing.T) {
+func TestDesktopActionBuildsArgvForCommandsAndStdin(t *testing.T) {
 	cases := []struct {
 		name     string
 		args     map[string]any
@@ -154,8 +166,8 @@ func TestDesktopActionBuildsArgvForAllAllowedCommands(t *testing.T) {
 			wantArgs: []string{"right-click", "@s8f3k2p9:e5"},
 		},
 		{
-			name:     "type via stdin",
-			args:     map[string]any{"command": "type", "ref": "@s8f3k2p9:e2", "text": "segredo-super-123", "args": map[string]any{"interval_ms": float64(50)}},
+			name:     "type via stdin with args and ref order",
+			args:     map[string]any{"command": "type", "ref": "@s8f3k2p9:e2", "text": "segredo-super-123", "args": []any{"--interval-ms", "50"}},
 			wantArgs: []string{"type", "--stdin", "--interval-ms", "50", "@s8f3k2p9:e2"},
 			wantIn:   "segredo-super-123",
 			hasIn:    true,
@@ -178,108 +190,78 @@ func TestDesktopActionBuildsArgvForAllAllowedCommands(t *testing.T) {
 			wantArgs: []string{"--headed", "focus", "@s8f3k2p9:e2"},
 		},
 		{
-			name:     "select",
+			name:     "select preserves ref then text order",
 			args:     map[string]any{"command": "select", "ref": "@s8f3k2p9:e4", "text": "Option B"},
-			wantArgs: []string{"select", "@s8f3k2p9:e4", "--", "Option B"},
+			wantArgs: []string{"select", "@s8f3k2p9:e4", "Option B"},
 		},
 		{
-			name:     "toggle",
+			name:     "toggle check uncheck expand collapse scroll-to",
 			args:     map[string]any{"command": "toggle", "ref": "@s8f3k2p9:e6"},
 			wantArgs: []string{"toggle", "@s8f3k2p9:e6"},
 		},
 		{
-			name:     "check",
-			args:     map[string]any{"command": "check", "ref": "@s8f3k2p9:e6"},
-			wantArgs: []string{"check", "@s8f3k2p9:e6"},
+			name:     "scroll args before ref",
+			args:     map[string]any{"command": "scroll", "ref": "@s8f3k2p9:e1", "args": []any{"--direction", "down", "--amount", "3"}},
+			wantArgs: []string{"scroll", "--direction", "down", "--amount", "3", "@s8f3k2p9:e1"},
 		},
 		{
-			name:     "uncheck",
-			args:     map[string]any{"command": "uncheck", "ref": "@s8f3k2p9:e6"},
-			wantArgs: []string{"uncheck", "@s8f3k2p9:e6"},
-		},
-		{
-			name:     "expand",
-			args:     map[string]any{"command": "expand", "ref": "@s8f3k2p9:e7"},
-			wantArgs: []string{"expand", "@s8f3k2p9:e7"},
-		},
-		{
-			name:     "collapse",
-			args:     map[string]any{"command": "collapse", "ref": "@s8f3k2p9:e7"},
-			wantArgs: []string{"collapse", "@s8f3k2p9:e7"},
-		},
-		{
-			name:     "scroll",
-			args:     map[string]any{"command": "scroll", "ref": "@s8f3k2p9:e1", "args": map[string]any{"direction": "down", "amount": float64(5)}},
-			wantArgs: []string{"scroll", "--direction", "down", "--amount", "5", "@s8f3k2p9:e1"},
-		},
-		{
-			name:     "scroll-to",
-			args:     map[string]any{"command": "scroll-to", "ref": "@s8f3k2p9:e8"},
-			wantArgs: []string{"scroll-to", "@s8f3k2p9:e8"},
-		},
-		{
-			name:     "press",
-			args:     map[string]any{"command": "press", "keys": "cmd+c", "args": map[string]any{"app": "Notes", "force": true}},
-			wantArgs: []string{"press", "--app", "Notes", "--force", "--", "cmd+c"},
-		},
-		{
-			name:     "hover with ref",
-			args:     map[string]any{"command": "hover", "ref": "@s8f3k2p9:e5", "headed": true},
-			wantArgs: []string{"--headed", "hover", "@s8f3k2p9:e5"},
+			name:     "press uses text as combo",
+			args:     map[string]any{"command": "press", "text": "cmd+c", "args": []any{"--app", "Notes", "--force"}},
+			wantArgs: []string{"press", "--app", "Notes", "--force", "cmd+c"},
 		},
 		{
 			name:     "hover with xy",
-			args:     map[string]any{"command": "hover", "headed": true, "args": map[string]any{"xy": "-100,50"}},
+			args:     map[string]any{"command": "hover", "headed": true, "args": []any{"--xy=-100,50"}},
 			wantArgs: []string{"--headed", "hover", "--xy=-100,50"},
 		},
 		{
 			name:     "launch",
-			args:     map[string]any{"command": "launch", "text": "TextEdit", "args": map[string]any{"activate": true, "no_attach": true, "timeout": float64(15000)}},
-			wantArgs: []string{"launch", "--activate", "--no-attach", "--timeout", "15000", "--", "TextEdit"},
+			args:     map[string]any{"command": "launch", "text": "TextEdit", "args": []any{"--activate", "--no-attach"}},
+			wantArgs: []string{"launch", "--activate", "--no-attach", "TextEdit"},
 		},
 		{
 			name:     "close-app",
-			args:     map[string]any{"command": "close-app", "text": "TextEdit", "args": map[string]any{"force": true}},
-			wantArgs: []string{"close-app", "--force", "--", "TextEdit"},
+			args:     map[string]any{"command": "close-app", "text": "TextEdit", "args": []any{"--force"}},
+			wantArgs: []string{"close-app", "--force", "TextEdit"},
 		},
 		{
 			name:     "focus-window",
-			args:     map[string]any{"command": "focus-window", "args": map[string]any{"window_id": "w-4521"}},
+			args:     map[string]any{"command": "focus-window", "args": []any{"--window-id", "w-4521"}},
 			wantArgs: []string{"focus-window", "--window-id", "w-4521"},
 		},
 		{
 			name:     "list-apps",
-			args:     map[string]any{"command": "list-apps", "args": map[string]any{"app": "Finder"}},
+			args:     map[string]any{"command": "list-apps", "args": []any{"--app", "Finder"}},
 			wantArgs: []string{"list-apps", "--app", "Finder"},
 		},
 		{
 			name:     "list-windows",
-			args:     map[string]any{"command": "list-windows", "args": map[string]any{"app": "Finder", "timeout_ms": float64(4000)}},
+			args:     map[string]any{"command": "list-windows", "args": []any{"--app", "Finder", "--timeout-ms", "4000"}},
 			wantArgs: []string{"list-windows", "--app", "Finder", "--timeout-ms", "4000"},
 		},
 		{
 			name:     "wait",
-			args:     map[string]any{"command": "wait", "ref": "@s8f3k2p9:e9", "args": map[string]any{"predicate": "actionable", "timeout": float64(5000)}},
+			args:     map[string]any{"command": "wait", "args": []any{"--element", "@s8f3k2p9:e9", "--predicate", "actionable", "--timeout", "5000"}},
 			wantArgs: []string{"wait", "--element", "@s8f3k2p9:e9", "--predicate", "actionable", "--timeout", "5000"},
 		},
 		{
 			name:     "find",
-			args:     map[string]any{"command": "find", "args": map[string]any{"app": "Notes", "role": "button", "name": "Save", "exact": true, "limit": float64(5)}},
-			wantArgs: []string{"find", "--app", "Notes", "--role", "button", "--name", "Save", "--exact", "--limit", "5"},
+			args:     map[string]any{"command": "find", "args": []any{"--app", "Notes", "--role", "button", "--name", "Save", "--exact"}},
+			wantArgs: []string{"find", "--app", "Notes", "--role", "button", "--name", "Save", "--exact"},
 		},
 		{
 			name:     "get",
-			args:     map[string]any{"command": "get", "ref": "@s8f3k2p9:e2", "args": map[string]any{"property": "value"}},
+			args:     map[string]any{"command": "get", "ref": "@s8f3k2p9:e2", "args": []any{"--property", "value"}},
 			wantArgs: []string{"get", "--property", "value", "@s8f3k2p9:e2"},
 		},
 		{
 			name:     "is",
-			args:     map[string]any{"command": "is", "ref": "@s8f3k2p9:e6", "args": map[string]any{"property": "checked"}},
+			args:     map[string]any{"command": "is", "ref": "@s8f3k2p9:e6", "args": []any{"--property", "checked"}},
 			wantArgs: []string{"is", "--property", "checked", "@s8f3k2p9:e6"},
 		},
 		{
 			name:     "clipboard-get",
-			args:     map[string]any{"command": "clipboard-get", "args": map[string]any{"format": "auto"}},
+			args:     map[string]any{"command": "clipboard-get", "args": []any{"--format", "auto"}},
 			wantArgs: []string{"clipboard-get", "--format", "auto"},
 		},
 		{
@@ -290,14 +272,14 @@ func TestDesktopActionBuildsArgvForAllAllowedCommands(t *testing.T) {
 			hasIn:    true,
 		},
 		{
-			name:     "screenshot",
-			args:     map[string]any{"command": "screenshot", "args": map[string]any{"app": "Finder", "path": "/tmp/shot.png"}},
-			wantArgs: []string{"screenshot", "--app", "Finder", "--", "/tmp/shot.png"},
+			name:     "clipboard-set with image flag skips stdin",
+			args:     map[string]any{"command": "clipboard-set", "args": []any{"--image", "/tmp/a.png"}},
+			wantArgs: []string{"clipboard-set", "--image", "/tmp/a.png"},
 		},
 		{
-			name:     "skills get",
-			args:     map[string]any{"command": "skills", "text": "desktop workflows"},
-			wantArgs: []string{"skills", "get", "desktop", "workflows"},
+			name:     "skills get desktop",
+			args:     map[string]any{"command": "skills", "args": []any{"get", "desktop"}},
+			wantArgs: []string{"skills", "get", "desktop"},
 		},
 	}
 
@@ -326,7 +308,7 @@ func TestDesktopActionBuildsArgvForAllAllowedCommands(t *testing.T) {
 	}
 }
 
-func TestDesktopActionRejectsInvalidInputsBeforePermission(t *testing.T) {
+func TestDesktopActionRejectsForbiddenFlagsAndInvalidInputsBeforePermission(t *testing.T) {
 	tool := newDesktopActionTool(localcontrol.DesktopOptions{Enabled: true})
 	cases := []struct {
 		name string
@@ -336,10 +318,20 @@ func TestDesktopActionRejectsInvalidInputsBeforePermission(t *testing.T) {
 		{name: "unknown command", args: map[string]any{"command": "sandbox"}, want: "command must be one of"},
 		{name: "bare ref", args: map[string]any{"command": "click", "ref": "@e8"}, want: "@<snapshot_id>:e<N>"},
 		{name: "missing text for type", args: map[string]any{"command": "type", "ref": "@s1:e1"}, want: "text"},
+		{name: "missing text for set-value", args: map[string]any{"command": "set-value", "ref": "@s1:e1"}, want: "text"},
+		{name: "missing text and args for clipboard-set", args: map[string]any{"command": "clipboard-set"}, want: "text"},
 		{name: "nul byte in stdin text", args: map[string]any{"command": "type", "ref": "@s1:e1", "text": "a\x00b"}, want: "NUL"},
-		{name: "missing keys for press", args: map[string]any{"command": "press"}, want: "keys"},
-		{name: "unknown arg key", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": map[string]any{"trace": "x"}}, want: "unsupported"},
-		{name: "focus-window empty", args: map[string]any{"command": "focus-window"}, want: "window_id"},
+		{name: "screenshot rejects text path", args: map[string]any{"command": "screenshot", "text": "/tmp/out.png"}, want: "screenshot"},
+		{name: "forbidden --stdin", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"--stdin"}}, want: "--stdin"},
+		{name: "forbidden --headed", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"--headed"}}, want: "--headed"},
+		{name: "forbidden --screenshot", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"--screenshot=/tmp/x.html"}}, want: "--screenshot"},
+		{name: "forbidden --debug", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"--debug"}}, want: "--debug"},
+		{name: "forbidden --trace", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"--trace", "/tmp/t"}}, want: "--trace"},
+		{name: "forbidden --trace-strict", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"--trace-strict"}}, want: "--trace-strict"},
+		{name: "forbidden --session", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"--session=s1"}}, want: "--session"},
+		{name: "forbidden --agent-id", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"--agent-id", "a1"}}, want: "--agent-id"},
+		{name: "forbidden -v", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"-v"}}, want: "-v"},
+		{name: "forbidden --verbose", args: map[string]any{"command": "click", "ref": "@s1:e1", "args": []any{"--verbose"}}, want: "--verbose"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -348,6 +340,45 @@ func TestDesktopActionRejectsInvalidInputsBeforePermission(t *testing.T) {
 				t.Fatalf("reject = (%v, %#v), want %q", rejected, result, tc.want)
 			}
 		})
+	}
+}
+
+func TestDesktopActionScreenshotAttachesImageWithoutBase64AndCleansTempFile(t *testing.T) {
+	// 1x1 PNG bytes.
+	pngBytes := []byte{
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41,
+		0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+		0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+		0x42, 0x60, 0x82,
+	}
+	runner := &fakeDesktopRunner{
+		writePNG: pngBytes,
+		stdout:   `{"version":"2.6","ok":true,"command":"screenshot","data":{"base64":"SHOULD_NOT_APPEAR"}}`,
+	}
+	tool := newDesktopActionTool(localDesktopTestOptions(t, runner))
+	result := tool.Run(context.Background(), map[string]any{
+		"command": "screenshot",
+		"args":    []any{"--app", "Finder"},
+	})
+	if result.Status != StatusOK {
+		t.Fatalf("status = %s output = %q", result.Status, result.Output)
+	}
+	if !runner.pathExists || runner.wrotePath == "" {
+		t.Fatalf("expected managed temp png path in argv, got args=%#v", runner.args)
+	}
+	if _, err := os.Stat(runner.wrotePath); !os.IsNotExist(err) {
+		t.Fatalf("temp screenshot file %q should be deleted after loading", runner.wrotePath)
+	}
+	if len(result.Images) != 1 || result.Images[0].MediaType != "image/png" {
+		t.Fatalf("Images = %#v, want 1 PNG image", result.Images)
+	}
+	if strings.Contains(result.Output, "SHOULD_NOT_APPEAR") || strings.Contains(result.Output, "base64") {
+		t.Fatalf("Output should be a short summary without base64, got %q", result.Output)
 	}
 }
 

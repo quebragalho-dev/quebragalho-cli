@@ -51,10 +51,9 @@ func newCaptureArtifactTool(options LocalControlArtifactOptions) Tool {
 					"name":      {Type: "string", Description: "Optional artifact basename. Path separators are ignored."},
 					"full":      {Type: "boolean", Description: "Capture a full-page browser screenshot for browser_screenshot.", Default: false},
 					"annotate":  {Type: "boolean", Description: "Annotate browser screenshots with interactive element labels.", Default: false},
-					"pid":       {Type: "integer", Description: "Target process id for desktop_window_state.", Minimum: intPtr(1)},
-					"window_id": {Type: "integer", Description: "Target window id for desktop_window_state.", Minimum: intPtr(1)},
-					"query":     {Type: "string", Description: "Optional desktop snapshot query/filter."},
-					"session":   {Type: "string", Description: "Terminal session id for terminal_snapshot, or desktop session id for desktop_window_state."},
+					"app":       {Type: "string", Description: "Optional application name for desktop_screenshot or desktop_window_state."},
+					"window_id": {Type: "string", Description: "Optional window id for desktop_screenshot or desktop_window_state."},
+					"session":   {Type: "string", Description: "Terminal session id for terminal_snapshot."},
 					"trim":      {Type: "boolean", Description: "Trim trailing blank terminal screen lines for terminal_snapshot.", Default: true},
 				},
 				Required:             []string{"action"},
@@ -151,26 +150,25 @@ func (tool captureArtifactTool) captureBrowserPDF(ctx context.Context, request c
 }
 
 func (tool captureArtifactTool) captureDesktopScreenshot(ctx context.Context, request captureArtifactRequest, path string) Result {
-	payload, err := json.Marshal(map[string]any{"out_file": path})
-	if err != nil {
-		return errorResult("Error: Failed to encode desktop screenshot input: " + err.Error())
-	}
-	return tool.captureHelperArtifact(ctx, tool.desktop, "desktop", request, path, []string{"screenshot", string(payload)})
+	commandArgs := desktopScopedArtifactArgs("screenshot", request.app, request.windowID)
+	commandArgs = append(commandArgs, path)
+	return tool.captureHelperArtifact(ctx, tool.desktop, "desktop", request, path, commandArgs)
 }
 
 func (tool captureArtifactTool) captureDesktopWindowState(ctx context.Context, request captureArtifactRequest, path string) Result {
-	input := map[string]any{"pid": request.pid, "window_id": request.windowID}
-	if strings.TrimSpace(request.query) != "" {
-		input["query"] = request.query
+	commandArgs := desktopScopedArtifactArgs("snapshot", request.app, request.windowID, "-i", "--compact")
+	result, err := tool.desktop.Run(ctx, commandArgs...)
+	if env, hasEnv := parseDesktopEnvelope(result.Stdout); err != nil || (hasEnv && (!env.OK || env.Error != nil)) {
+		if err == nil {
+			err = fmt.Errorf("desktop snapshot failed")
+		}
+		return captureErrorResult("desktop", request, result, err)
 	}
-	if strings.TrimSpace(request.session) != "" {
-		input["session"] = request.session
+	content := strings.TrimRight(result.Stdout, "\n")
+	if content == "" {
+		content = result.Output()
 	}
-	payload, err := json.Marshal(input)
-	if err != nil {
-		return errorResult("Error: Failed to encode desktop window state input: " + err.Error())
-	}
-	return tool.captureHelperArtifact(ctx, tool.desktop, "desktop", request, path, []string{"get_window_state", string(payload), "--screenshot-out-file", path})
+	return writeCapturedTextArtifact("desktop", request, path, commandArgs, content, result)
 }
 
 func (tool captureArtifactTool) captureTerminalSnapshot(ctx context.Context, request captureArtifactRequest, path string) Result {
@@ -179,22 +177,38 @@ func (tool captureArtifactTool) captureTerminalSnapshot(ctx context.Context, req
 		commandArgs = append(commandArgs, "--trim")
 	}
 	result, err := tool.terminal.Run(ctx, commandArgs...)
-	output := result.Output()
 	if err != nil {
 		return captureErrorResult("terminal", request, result, err)
 	}
-	if err := os.WriteFile(path, []byte(output), 0o600); err != nil {
-		return errorResult("Error: Failed to write terminal artifact: " + err.Error())
+	return writeCapturedTextArtifact("terminal", request, path, commandArgs, result.Output(), result)
+}
+
+func desktopScopedArtifactArgs(subcommand string, app string, windowID string, extraFlags ...string) []string {
+	args := make([]string, 0, 1+len(extraFlags)+4)
+	args = append(args, subcommand)
+	args = append(args, extraFlags...)
+	if app != "" {
+		args = append(args, "--app", app)
+	}
+	if windowID != "" {
+		args = append(args, "--window-id", windowID)
+	}
+	return args
+}
+
+func writeCapturedTextArtifact(driver string, request captureArtifactRequest, path string, commandArgs []string, content string, result localcontrol.CommandResult) Result {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return errorResult("Error: Failed to write " + driver + " artifact: " + err.Error())
 	}
 	if err := writeArtifactMetadata(path, artifactMetadata{
 		Action: request.action,
-		Driver: "terminal",
+		Driver: driver,
 		Path:   path,
 		Args:   commandArgs,
 	}); err != nil {
 		return errorResult("Error: Failed to write artifact metadata: " + err.Error())
 	}
-	return captureOKResult("terminal", request, path, result)
+	return captureOKResult(driver, request, path, result)
 }
 
 func (tool captureArtifactTool) captureHelperArtifact(ctx context.Context, runner localControlRunner, driver string, request captureArtifactRequest, path string, args []string) Result {
@@ -221,9 +235,8 @@ type captureArtifactRequest struct {
 	name     string
 	full     bool
 	annotate bool
-	pid      int
-	windowID int
-	query    string
+	app      string
+	windowID string
 	session  string
 	trim     bool
 }
@@ -232,6 +245,8 @@ func (request captureArtifactRequest) extension() string {
 	switch request.action {
 	case "browser_pdf":
 		return ".pdf"
+	case "desktop_window_state":
+		return ".json"
 	case "terminal_snapshot":
 		return ".txt"
 	default:
@@ -280,20 +295,12 @@ func captureArtifactArgs(args map[string]any) (captureArtifactRequest, error) {
 		if err != nil {
 			return captureArtifactRequest{}, err
 		}
-	case "desktop_window_state":
-		request.pid, err = requiredIntArg(args, "pid", 1, 0)
+	case "desktop_screenshot", "desktop_window_state":
+		request.app, err = optionalDesktopFlagValue(args, "app")
 		if err != nil {
 			return captureArtifactRequest{}, err
 		}
-		request.windowID, err = requiredIntArg(args, "window_id", 1, 0)
-		if err != nil {
-			return captureArtifactRequest{}, err
-		}
-		request.query, err = stringArgWithEmpty(args, "query", "", false, false)
-		if err != nil {
-			return captureArtifactRequest{}, err
-		}
-		request.session, err = stringArgWithEmpty(args, "session", "", false, false)
+		request.windowID, err = optionalDesktopFlagValue(args, "window_id")
 		if err != nil {
 			return captureArtifactRequest{}, err
 		}
