@@ -78,7 +78,7 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 		configRowModel:       "muse-spark-1.3-contributor",
 		configRowEffort:      "automático",
 		configRowAutoCompact: "automático",
-		configRowPermission:  "auto",
+		configRowPermission:  "automático",
 		configRowVoice:       "desligado",
 		configRowTheme:       "Sistema",
 		configRowStatusline:  "padrão",

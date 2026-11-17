@@ -39,12 +39,13 @@ func ligadoDesligado(v bool) string {
 // setting on the right (Meta). It reuses the pickerOverlay frame (92/56,
 // lineStrong, "buscar > " search line, "❯ " marker) instead of a new frame.
 func (m model) newConfigPicker() *commandPicker {
+	permissionLabel, _ := m.modeLabel()
 	items := []pickerItem{
 		{Group: "MODELO", Label: "Provedor", Value: configRowProvider, Meta: displayValue(m.providerName, "nenhum")},
 		{Group: "MODELO", Label: "Modelo", Value: configRowModel, Meta: displayValue(m.modelName, "nenhum")},
 		{Group: "MODELO", Label: "Nível de raciocínio", Value: configRowEffort, Meta: effortDisplayLabel(m.effortDisplay())},
 		{Group: "MODELO", Label: "Resumir conversa a partir de", Value: configRowAutoCompact, Meta: m.configAutoCompactValue()},
-		{Group: "EXECUÇÃO", Label: "Modo de permissão", Value: configRowPermission, Meta: string(m.permissionMode), Detail: "Shift+Tab alterna"},
+		{Group: "EXECUÇÃO", Label: "Modo de permissão", Value: configRowPermission, Meta: permissionLabel, Detail: "Shift+Tab alterna"},
 		{Group: "VOZ", Label: "Modo de voz", Value: configRowVoice, Meta: ligadoDesligado(m.dictation.voiceModeEnabled)},
 		{Group: "VOZ", Label: "Modelo de ditado", Value: configRowSTT, Meta: m.dictation.currentModelLabel()},
 		{Group: "APARÊNCIA", Label: "Tema", Value: configRowTheme, Meta: m.themeDisplayLabel()},
