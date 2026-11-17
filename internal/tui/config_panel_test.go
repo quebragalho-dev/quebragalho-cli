@@ -55,8 +55,8 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 	if title := strings.TrimSpace(m.picker.title); title != "Configurações" {
 		t.Fatalf("panel title wrong: %q", title)
 	}
-	if len(m.picker.items) != 11 {
-		t.Fatalf("expected 11 config rows, got %d", len(m.picker.items))
+	if len(m.picker.items) != 13 {
+		t.Fatalf("expected 13 config rows, got %d", len(m.picker.items))
 	}
 	wantGroups := []string{"MODELO", "EXECUÇÃO", "VOZ", "APARÊNCIA", "CONEXÕES"}
 	seen := map[string]bool{}
@@ -74,6 +74,7 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 		t.Fatalf("section order wrong: %v", order)
 	}
 	wantMeta := map[string]string{
+		configRowProvider:    "qg",
 		configRowModel:       "muse-spark-1.3-contributor",
 		configRowEffort:      "automático",
 		configRowAutoCompact: "automático",
@@ -84,6 +85,7 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 		configRowStyle:       "concise",
 		configRowRecaps:      "ligado",
 		configRowMCP:         "nenhum",
+		configRowAPIKey:      "não definida",
 	}
 	for value, want := range wantMeta {
 		if got := findConfigRow(t, m, value).Meta; got != want {
@@ -160,6 +162,32 @@ func TestConfigPanelToggleRecapsPersists(t *testing.T) {
 	}
 	if decoded.Preferences["recaps"] != false {
 		t.Fatalf("config file should persist recaps:false, got %s", raw)
+	}
+}
+
+// Enter em "Provedor" fecha o painel e abre o mesmo seletor do /model.
+// Enter em "Chave de API" mostra o guia do /provider sem expor a chave.
+func TestConfigPanelProviderRowsDelegate(t *testing.T) {
+	m := openConfigPanel(t, configPanelTestModel())
+
+	updated, _ := m.chooseConfigRow(findConfigRow(t, m, configRowProvider))
+	next := updated.(model)
+	if next.picker == nil || next.picker.kind != pickerModel {
+		t.Fatalf("expected the model picker, got %+v", next.picker)
+	}
+
+	m = openConfigPanel(t, configPanelTestModel())
+	updated, _ = m.chooseConfigRow(findConfigRow(t, m, configRowAPIKey))
+	next = updated.(model)
+	if next.picker != nil {
+		t.Fatal("API key row should close the panel")
+	}
+	got := transcriptText(next.transcript)
+	if !strings.Contains(got, "qg login") {
+		t.Fatalf("API key row should show the provider guide, got:\n%s", got)
+	}
+	if strings.Contains(got, "sk-") {
+		t.Fatalf("API key row must never leak a key:\n%s", got)
 	}
 }
 

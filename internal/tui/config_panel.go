@@ -10,6 +10,7 @@ import (
 // generic pickerItem.Value slot so Enter can route back to the setting the
 // row was built from.
 const (
+	configRowProvider    = "provedor"
 	configRowModel       = "modelo"
 	configRowEffort      = "nivel"
 	configRowAutoCompact = "autocompact"
@@ -21,6 +22,7 @@ const (
 	configRowStyle       = "estilo"
 	configRowRecaps      = "recaps"
 	configRowMCP         = "mcp"
+	configRowAPIKey      = "chave-api"
 )
 
 // ligadoDesligado renders a toggle state as "ligado"/"desligado" for the
@@ -38,6 +40,7 @@ func ligadoDesligado(v bool) string {
 // lineStrong, "buscar > " search line, "❯ " marker) instead of a new frame.
 func (m model) newConfigPicker() *commandPicker {
 	items := []pickerItem{
+		{Group: "MODELO", Label: "Provedor", Value: configRowProvider, Meta: displayValue(m.providerName, "nenhum")},
 		{Group: "MODELO", Label: "Modelo", Value: configRowModel, Meta: displayValue(m.modelName, "nenhum")},
 		{Group: "MODELO", Label: "Nível de raciocínio", Value: configRowEffort, Meta: effortDisplayLabel(m.effortDisplay())},
 		{Group: "MODELO", Label: "Resumir conversa a partir de", Value: configRowAutoCompact, Meta: m.configAutoCompactValue()},
@@ -49,6 +52,7 @@ func (m model) newConfigPicker() *commandPicker {
 		{Group: "APARÊNCIA", Label: "Estilo de resposta", Value: configRowStyle, Meta: displayValue(m.responseStyle, defaultResponseStyle)},
 		{Group: "APARÊNCIA", Label: "Resumo ao voltar", Value: configRowRecaps, Meta: ligadoDesligado(m.recapsEnabled)},
 		{Group: "CONEXÕES", Label: "Servidores MCP", Value: configRowMCP, Meta: m.configMCPValue()},
+		{Group: "CONEXÕES", Label: "Chave de API", Value: configRowAPIKey, Meta: m.configAPIKeyValue()},
 	}
 	return &commandPicker{
 		kind:     pickerConfig,
@@ -63,6 +67,13 @@ func (m model) newConfigPicker() *commandPicker {
 func (m model) configAutoCompactValue() string {
 	value, _ := m.autoCompactSummaryParts()
 	return value
+}
+
+// configAPIKeyValue reports whether an API key is configured without ever
+// revealing it: the same apiKeyState readout the old /config card used.
+func (m model) configAPIKeyValue() string {
+	set := strings.TrimSpace(m.providerProfile.APIKey) != "" || m.providerProfile.APIKeyStored
+	return apiKeyState(set)
 }
 
 // configStatuslineValue summarizes the statusline customization without
@@ -139,7 +150,7 @@ func (m model) openConfigRowTarget(item pickerItem) (tea.Model, tea.Cmd) {
 	m.picker = nil
 	target := parsedCommand{}
 	switch strings.TrimSpace(item.Value) {
-	case configRowModel:
+	case configRowProvider, configRowModel:
 		target = parsedCommand{kind: commandModel, name: "/model"}
 	case configRowEffort:
 		target = parsedCommand{kind: commandEffort, name: "/effort"}
@@ -157,6 +168,8 @@ func (m model) openConfigRowTarget(item pickerItem) (tea.Model, tea.Cmd) {
 		target = parsedCommand{kind: commandStyle, name: "/style"}
 	case configRowMCP:
 		target = parsedCommand{kind: commandMCP, name: "/mcp"}
+	case configRowAPIKey:
+		target = parsedCommand{kind: commandProvider, name: "/provider"}
 	default:
 		return m, nil
 	}
