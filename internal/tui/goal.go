@@ -470,9 +470,6 @@ func goalEraBlock(goal *sessions.Goal) string {
 	return block.String()
 }
 
-// appendGoalTaskListRow surfaces a freshly set checklist (from /goal create,
-// /goal edit, or a set_goal_tasks tool call) in the transcript. Taskless
-// goals add nothing.
 // goalTaskBoundaryAnswer is the short user-facing line shown when a run ends
 // right after update_goal closes the current task with work still pending.
 // A blocked task pauses the goal, so it points at /goal resume; otherwise
@@ -489,6 +486,9 @@ func (m model) goalTaskBoundaryAnswer() string {
 	return "Tarefa concluída. A próxima começa em seguida."
 }
 
+// appendGoalTaskListRow surfaces a freshly set checklist (from /goal create,
+// /goal edit, or a set_goal_tasks tool call) in the transcript. Taskless
+// goals add nothing.
 func (m model) appendGoalTaskListRow() model {
 	lines := goalTaskListLines(m.activeSession.Goal)
 	if len(lines) == 0 {
