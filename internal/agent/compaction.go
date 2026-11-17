@@ -1083,12 +1083,22 @@ func summarizeWithPlanner(ctx context.Context, provider Provider, messages []qgr
 	return reduced, nil
 }
 
-// summarizeMessagesOnce performs a single tool-less summarization call.
-func summarizeMessagesOnce(ctx context.Context, provider Provider, messages []qgruntime.Message, onUsage func(Usage), planner *contextPlanner, recorder *trace.Recorder) (string, error) {
-	requestMessages := []qgruntime.Message{
+// CompactionSummaryRequestMessages builds the tool-less [system, user]
+// summarizer request shared by automatic context-pressure compaction and
+// manual session compaction. The conversation is rendered to plain text with
+// clamped tool payloads (see renderTranscript) so the request always ends on
+// a user message: some providers answer a raw history ending in an assistant
+// tool call or a tool result with empty text when no tools are declared.
+func CompactionSummaryRequestMessages(messages []qgruntime.Message) []qgruntime.Message {
+	return []qgruntime.Message{
 		{Role: qgruntime.MessageRoleSystem, Content: CompactionSummaryInstructions},
 		{Role: qgruntime.MessageRoleUser, Content: "Summarize this conversation:\n\n" + renderTranscript(messages)},
 	}
+}
+
+// summarizeMessagesOnce performs a single tool-less summarization call.
+func summarizeMessagesOnce(ctx context.Context, provider Provider, messages []qgruntime.Message, onUsage func(Usage), planner *contextPlanner, recorder *trace.Recorder) (string, error) {
+	requestMessages := CompactionSummaryRequestMessages(messages)
 	parts := systemPromptParts{prompt: CompactionSummaryInstructions, baseInstructions: CompactionSummaryInstructions}
 	plan := planner.planWithPromptParts(requestMessages, nil, "", parts)
 	recordContextPlanTrace(recorder, plan)
