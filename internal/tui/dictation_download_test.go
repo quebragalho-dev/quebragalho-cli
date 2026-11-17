@@ -161,7 +161,13 @@ func stageInstalledModel(t *testing.T, root string, v dictation.ModelVariant) {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(binDir, "sherpa-onnx-offline"), []byte("x"), 0o755); err != nil {
+	// The engine binary carries .exe on Windows, where EngineDownloaded looks
+	// for that name.
+	bin := "sherpa-onnx-offline"
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	if err := os.WriteFile(filepath.Join(binDir, bin), []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	modelDir := filepath.Join(root, v.DirName)
