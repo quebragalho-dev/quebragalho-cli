@@ -169,11 +169,22 @@ func TestConfigPanelToggleRecapsPersists(t *testing.T) {
 
 func TestConfigPanelToggleDesktopControlPersistsAndUpdatesRegistry(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
+	cwd := t.TempDir()
 	reg := tools.NewRegistry()
-	for _, tool := range tools.NewLocalDesktopTools(localcontrol.DesktopOptions{Enabled: true}) {
+	desktopOpts := localcontrol.DesktopOptions{Enabled: true}
+	for _, tool := range tools.NewLocalDesktopTools(desktopOpts) {
+		reg.Register(tool)
+	}
+	for _, tool := range tools.NewLocalControlArtifactTools(tools.LocalControlArtifactOptions{
+		Browser:      localcontrol.BrowserOptions{Enabled: true},
+		Desktop:      desktopOpts,
+		Terminal:     localcontrol.TerminalOptions{Enabled: true},
+		ArtifactsDir: filepath.Join(cwd, ".qg", "artifacts"),
+	}) {
 		reg.Register(tool)
 	}
 	m := configPanelTestModel()
+	m.cwd = cwd
 	m.userConfigPath = path
 	m.registry = reg
 	m = openConfigPanel(t, m)
@@ -201,6 +212,12 @@ func TestConfigPanelToggleDesktopControlPersistsAndUpdatesRegistry(t *testing.T)
 		}
 		if tool.Safety().Permission != tools.PermissionDeny {
 			t.Fatalf("%s permission = %s, want deny when desktop control disabled", name, tool.Safety().Permission)
+		}
+	}
+	for _, action := range []string{"desktop_screenshot", "desktop_window_state"} {
+		res := reg.Run(context.Background(), "capture_artifact", map[string]any{"action": action})
+		if res.Status != tools.StatusError || !strings.Contains(res.Output, "disabled") {
+			t.Fatalf("capture_artifact action=%s should refuse when desktop disabled, got status=%s output=%q", action, res.Status, res.Output)
 		}
 	}
 

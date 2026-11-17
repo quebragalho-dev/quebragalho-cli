@@ -1353,44 +1353,19 @@ func registerLocalControlTools(registry *tools.Registry, workspaceRoot string, c
 }
 
 func localBrowserOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.BrowserOptions {
-	return localcontrol.BrowserOptions{
-		Enabled:    cfg.BrowserEnabled(),
-		Driver:     cfg.Browser.Driver,
-		HelperPath: cfg.Browser.HelperPath,
-	}
+	return localcontrol.BrowserOptionsFromConfig(cfg)
 }
 
 func localDesktopOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.DesktopOptions {
-	options := localcontrol.DesktopOptions{
-		Enabled:    cfg.DesktopEnabled(),
-		Driver:     cfg.Desktop.Driver,
-		HelperPath: cfg.Desktop.HelperPath,
-	}
-	if driver := strings.TrimSpace(cfg.Desktop.Driver); driver == "" || driver == localcontrol.DefaultDesktopDriver {
-		options.Ensure = func(ctx context.Context) (string, error) {
-			return localcontrol.EnsureAgentDesktop(ctx, localcontrol.AgentDesktopInstallOptions{})
-		}
-	}
-	return options
+	return localcontrol.DesktopOptionsFromConfig(cfg, cfg.DesktopEnabled())
 }
 
 func localTerminalOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.TerminalOptions {
-	return localcontrol.TerminalOptions{
-		Enabled:    cfg.TerminalEnabled(),
-		Driver:     cfg.Terminal.Driver,
-		HelperPath: cfg.Terminal.HelperPath,
-	}
+	return localcontrol.TerminalOptionsFromConfig(cfg)
 }
 
 func localArtifactsDirFromConfig(workspaceRoot string, cfg config.LocalControlConfig) string {
-	dir := strings.TrimSpace(cfg.ArtifactsDir)
-	if dir == "" {
-		dir = filepath.Join(".qg", "artifacts")
-	}
-	if filepath.IsAbs(dir) {
-		return dir
-	}
-	return filepath.Join(workspaceRoot, dir)
+	return localcontrol.ArtifactsDirFromConfig(workspaceRoot, cfg)
 }
 
 // agentToolRuntime bundles the specialist runtime with the swarm it backs so

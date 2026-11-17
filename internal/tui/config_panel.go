@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -208,17 +207,16 @@ func (m model) syncDesktopControlTools() {
 	if m.registry == nil {
 		return
 	}
-	options := localcontrol.DesktopOptions{
-		Enabled:    m.desktopControlEnabled && !m.localControl.Disabled(),
-		Driver:     m.localControl.Desktop.Driver,
-		HelperPath: m.localControl.Desktop.HelperPath,
-	}
-	if driver := strings.TrimSpace(options.Driver); driver == "" || driver == localcontrol.DefaultDesktopDriver {
-		options.Ensure = func(ctx context.Context) (string, error) {
-			return localcontrol.EnsureAgentDesktop(ctx, localcontrol.AgentDesktopInstallOptions{})
-		}
-	}
-	m.registry.RegisterBatch(tools.NewLocalDesktopTools(options))
+	desktopOptions := localcontrol.DesktopOptionsFromConfig(m.localControl, m.desktopControlEnabled)
+	batch := make([]tools.Tool, 0, 3)
+	batch = append(batch, tools.NewLocalDesktopTools(desktopOptions)...)
+	batch = append(batch, tools.NewLocalControlArtifactTools(tools.LocalControlArtifactOptions{
+		Browser:      localcontrol.BrowserOptionsFromConfig(m.localControl),
+		Desktop:      desktopOptions,
+		Terminal:     localcontrol.TerminalOptionsFromConfig(m.localControl),
+		ArtifactsDir: localcontrol.ArtifactsDirFromConfig(m.cwd, m.localControl),
+	})...)
+	m.registry.RegisterBatch(batch)
 }
 
 func (m model) persistDesktopControlEnabled() error {
