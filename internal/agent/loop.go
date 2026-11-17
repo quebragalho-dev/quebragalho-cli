@@ -36,8 +36,9 @@ const maxTurnsFinalAnswerPrompt = "You have reached the tool-turn limit. Do not 
 const FallbackMaxTurns = 12
 
 const (
-	toolResultMetaControl       = "control"
-	toolResultControlSpecReview = "spec_review_required"
+	toolResultMetaControl             = "control"
+	toolResultControlSpecReview       = "spec_review_required"
+	toolResultControlGoalTaskBoundary = "goal_task_boundary"
 )
 
 // ErrPermissionApprovalCanceled ends a run because the caller cancelled a
@@ -3521,6 +3522,9 @@ func stopReasonFromToolResult(result ToolResult) StopReason {
 	}
 	if result.Meta[toolResultMetaControl] == toolResultControlSpecReview {
 		return StopReasonSpecReviewRequired
+	}
+	if result.Meta[toolResultMetaControl] == toolResultControlGoalTaskBoundary {
+		return StopReasonGoalTaskBoundary
 	}
 	return ""
 }
