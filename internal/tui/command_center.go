@@ -561,7 +561,6 @@ func (m model) applySwitchedProvider(nextProfile config.ProviderProfile, metadat
 	// showing the last figure against the new model's window, and the next
 	// completed call corrects it. (A compaction before the switch already
 	// zeroed the meter, which stays zero until that next call.)
-	m.serviceTier = ""
 	return m, nil
 }
 

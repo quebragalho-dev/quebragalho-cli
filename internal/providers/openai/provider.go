@@ -515,9 +515,6 @@ func (provider *Provider) openAIRequest(request qgruntime.CompletionRequest) cha
 	if effort := openAIReasoningEffort(request.ReasoningEffort); effort != "" {
 		mapped.ReasoningEffort = effort
 	}
-	if tier := openAIServiceTier(request.ServiceTier); tier != "" {
-		mapped.ServiceTier = tier
-	}
 	// prompt_cache_key is a documented OpenAI parameter for server-side prefix
 	// cache routing. Official OpenAI accepts it; many openai-compatible
 	// gateways (NVIDIA NIM, strict local proxies) reject unknown fields with a
@@ -571,15 +568,6 @@ func promptCacheKeyDisabled() bool {
 func openAIReasoningEffort(requested string) string {
 	switch strings.ToLower(strings.TrimSpace(requested)) {
 	case "minimal", "low", "medium", "high", "xhigh", "max", "ultra":
-		return strings.ToLower(strings.TrimSpace(requested))
-	default:
-		return ""
-	}
-}
-
-func openAIServiceTier(requested string) string {
-	switch strings.ToLower(strings.TrimSpace(requested)) {
-	case "priority", "flex":
 		return strings.ToLower(strings.TrimSpace(requested))
 	default:
 		return ""

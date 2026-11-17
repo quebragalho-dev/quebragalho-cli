@@ -86,7 +86,7 @@ func TestStatusLineCustomMultiline(t *testing.T) {
 // Only registered ids validate; the reporter names every unknown id so
 // /statusline can show one actionable warning.
 func TestStatusLineFieldValidation(t *testing.T) {
-	for _, id := range []string{"mode", "effort", "fast", "voice", "background", "goal", "context", "branch", "update", "cwd", "cache", "model", "speed", "cost", "time"} {
+	for _, id := range []string{"mode", "effort", "voice", "background", "goal", "context", "branch", "update", "cwd", "cache", "model", "speed", "cost", "time"} {
 		if !statuslineFieldKnown(id) {
 			t.Fatalf("catalog id %q unknown", id)
 		}

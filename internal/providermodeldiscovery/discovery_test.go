@@ -82,7 +82,7 @@ func TestParseModelsResponseCapturesContextAndFree(t *testing.T) {
 func TestParseModelsResponseSupportsChatGPTCatalog(t *testing.T) {
 	models, err := parseModelsResponse([]byte(`{
 		"models": [
-			{"slug":"gpt-5.6-sol","display_name":"GPT-5.6 Sol","description":"Frontier coding model","visibility":"list","context_window":400000,"default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"}],"service_tiers":[{"id":"priority"}],"default_service_tier":"standard"},
+			{"slug":"gpt-5.6-sol","display_name":"GPT-5.6 Sol","description":"Frontier coding model","visibility":"list","context_window":400000,"default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"}]},
 			{"slug":"gpt-5.6-terra","display_name":"GPT-5.6 Terra","visibility":"list"},
 			{"slug":"internal-router","display_name":"Internal","visibility":"hide"},
 			{"slug":"server-only","display_name":"Server only","visibility":"none"}
@@ -102,19 +102,6 @@ func TestParseModelsResponseSupportsChatGPTCatalog(t *testing.T) {
 	}
 	if models[0].DefaultReasoningEffort != "high" || !models[0].Reasoning {
 		t.Fatalf("reasoning metadata = %#v", models[0])
-	}
-	if got := strings.Join(models[0].ServiceTiers, ","); got != "priority" || models[0].DefaultServiceTier != "standard" {
-		t.Fatalf("service tier metadata = %#v", models[0])
-	}
-}
-
-func TestParseModelsResponseNormalizesLegacyFastTier(t *testing.T) {
-	models, err := parseModelsResponse([]byte(`{"data":[{"id":"gpt-test","additional_speed_tiers":["fast","priority"]}]}`))
-	if err != nil {
-		t.Fatalf("parseModelsResponse: %v", err)
-	}
-	if got := strings.Join(models[0].ServiceTiers, ","); got != "priority" {
-		t.Fatalf("service tiers = %q, want priority", got)
 	}
 }
 

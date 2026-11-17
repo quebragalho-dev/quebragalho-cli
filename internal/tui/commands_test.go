@@ -49,7 +49,6 @@ func TestFormatCommandHelpLinesGroupsCommandsByStableOrder(t *testing.T) {
 		"model:",
 		"  /model [list|id] - Mostra ou troca o modelo ativo.",
 		"  /effort [list|level|auto] - Mostra ou ajusta o nível de raciocínio nos modelos suportados.",
-		"  /fast - Liga ou desliga o modo rápido nos modelos ChatGPT suportados.",
 		"session:",
 		"  /plan [status|on|off] - Entra no modo de planejamento; status consulta e off sai.",
 		"runtime:",
@@ -1176,7 +1175,7 @@ func slashHelpRenderedRow(c commandDefinition) string {
 // already truncates with "…" in the real /help card. The current cut set must
 // stay within these sets: any newly cut command fails the test.
 var slashHelpBaseCuts = map[int][]string{
-	50:  {"/model", "/stt-model", "/voice", "/plan", "/permissions", "/stop", "/attach", "/sandbox-setup", "/skills", "/usage", "/context", "/image", "/add-dir", "/new", "/btw", "/search", "/resume", "/rename", "/spec", "/init", "/compact", "/autocompact", "/transcript", "/rewind", "/effort", "/fast", "/style", "/selfcorrect", "/turns", "/profile", "/edit", "/export", "/loop", "/goal", "/doctor", "/logout", "/config", "/theme", "/statusline"},
+	50:  {"/model", "/stt-model", "/voice", "/plan", "/permissions", "/stop", "/attach", "/sandbox-setup", "/skills", "/usage", "/context", "/image", "/add-dir", "/new", "/btw", "/search", "/resume", "/rename", "/spec", "/init", "/compact", "/autocompact", "/transcript", "/rewind", "/effort", "/style", "/selfcorrect", "/turns", "/profile", "/edit", "/export", "/loop", "/goal", "/doctor", "/logout", "/config", "/theme", "/statusline"},
 	80:  {"/voice", "/plan", "/attach", "/skills", "/image", "/add-dir", "/btw", "/search", "/compact", "/rewind", "/effort", "/style", "/selfcorrect", "/turns", "/profile", "/loop", "/goal", "/doctor", "/config", "/theme", "/statusline"},
 	120: {"/image", "/add-dir", "/selfcorrect", "/profile", "/loop", "/goal", "/statusline"},
 }

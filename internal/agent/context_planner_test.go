@@ -26,7 +26,6 @@ func TestContextPlannerPreservesProviderRequest(t *testing.T) {
 	planner := newContextPlanner(contextPlannerConfig{
 		contextWindow:  128_000,
 		promptCacheKey: "session-1",
-		serviceTier:    "priority",
 		promptParts:    systemPromptParts{prompt: "system", baseInstructions: "system"},
 	})
 
@@ -35,7 +34,6 @@ func TestContextPlannerPreservesProviderRequest(t *testing.T) {
 		Messages:        copyMessages(messages),
 		Tools:           toolDefs,
 		ReasoningEffort: "medium",
-		ServiceTier:     "priority",
 		PromptCacheKey:  "session-1",
 	}
 	if !reflect.DeepEqual(plan.Request, want) {

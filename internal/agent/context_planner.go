@@ -9,7 +9,6 @@ import (
 type contextPlannerConfig struct {
 	contextWindow  int
 	promptCacheKey string
-	serviceTier    string
 	promptParts    systemPromptParts
 }
 
@@ -63,7 +62,6 @@ func (planner *contextPlanner) plan(messages []qgruntime.Message, toolDefs []qgr
 		Messages:        requestMessages,
 		Tools:           planner.snapshotTools(toolDefs, fingerprint),
 		ReasoningEffort: reasoningEffort,
-		ServiceTier:     planner.config.serviceTier,
 		PromptCacheKey:  planner.config.promptCacheKey,
 	}
 	breakdown := MeasureContext(request.Messages, request.Tools, planner.config.contextWindow)

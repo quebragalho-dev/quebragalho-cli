@@ -195,7 +195,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	planner := newContextPlanner(contextPlannerConfig{
 		contextWindow:  options.ContextWindow,
 		promptCacheKey: options.SessionID,
-		serviceTier:    options.ServiceTier,
 		promptParts:    promptParts,
 	})
 	messages := qgruntime.SeedMessagesWithImages(promptParts.prompt, prompt, options.Images)
@@ -949,11 +948,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					_ = session.Prewarm(ctx)
 					provider = sessionProvider{session: session}
 					options.Model = turnRequestedModel
-					// Service tiers are model capabilities. A successful escalation may
-					// target a model that does not support the tier selected before the
-					// switch, so let the destination use its default.
-					options.ServiceTier = ""
-					planner.config.serviceTier = ""
 					options.Trace.Counter(trace.CounterModelSwitches, 1)
 					// Re-derive the context window for the new model so compaction and
 					// the OnContext budget report track the model actually in force —

@@ -28,13 +28,6 @@ func (m model) effortAppliedNotice() string {
 	return "Nível de raciocínio: " + effortDisplayLabel(m.effortDisplay())
 }
 
-func (m model) fastAppliedNotice() string {
-	if m.activeServiceTier() == "priority" {
-		return "Modo rápido: ativado"
-	}
-	return "Modo rápido: desativado"
-}
-
 func (m model) selfCorrectAppliedNotice() string {
 	if m.selfCorrectTests {
 		return "Autocorreção: ativada"

@@ -36,7 +36,6 @@ const (
 	commandCompact
 	commandRewind
 	commandEffort
-	commandFast
 	commandStyle
 	commandTheme
 	commandStatusline
@@ -296,13 +295,6 @@ var commandDefinitions = []commandDefinition{
 		group:       commandGroupModel,
 		description: "Mostra ou ajusta o nível de raciocínio nos modelos suportados.",
 		kind:        commandEffort,
-	},
-	{
-		name:        "/fast",
-		usage:       "/fast",
-		group:       commandGroupModel,
-		description: "Liga ou desliga o modo rápido nos modelos ChatGPT suportados.",
-		kind:        commandFast,
 	},
 	{
 		name:        "/style",
