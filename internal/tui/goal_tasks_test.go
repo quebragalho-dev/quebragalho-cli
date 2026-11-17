@@ -188,11 +188,23 @@ func TestGoalStatuslineShowsTaskProgress(t *testing.T) {
 	}
 }
 
-// completeCurrentTaskScript ends the current task. The loop re-prompts the
-// provider after a tool call, so pair it with goalFillerScript: the filler
-// (not pre-tool text) is what reliably lands in the recorded history.
+// completeCurrentTaskScript ends the current task. The run stops right
+// after update_goal when more tasks remain, so this script is one turn.
 func completeCurrentTaskScript(reason string) []qgruntime.StreamEvent {
 	return []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "task_done", ToolName: "update_goal"},
+		{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "task_done", ArgumentsFragment: `{"status":"complete","task_status":"complete","reason":"` + reason + `"}`},
+		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "task_done"},
+		{Type: qgruntime.StreamEventDone},
+	}
+}
+
+// completeCurrentTaskWithHistoryScript ends the current task after streaming
+// historyText in the same turn, so the finished task era carries history the
+// between-tasks mode must then cut (reset) or preserve (keep).
+func completeCurrentTaskWithHistoryScript(reason, historyText string) []qgruntime.StreamEvent {
+	return []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: historyText},
 		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "task_done", ToolName: "update_goal"},
 		{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "task_done", ArgumentsFragment: `{"status":"complete","task_status":"complete","reason":"` + reason + `"}`},
 		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "task_done"},
@@ -220,7 +232,7 @@ func requestContents(request qgruntime.CompletionRequest) string {
 func TestGoalKeepModePreservesHistoryBetweenTasks(t *testing.T) {
 	store, session := goalTaskTestSetup(t, "Work\n1. First\n2. Second")
 	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
-		completeCurrentTaskScript("feito"),
+		completeCurrentTaskWithHistoryScript("feito", goalHistoryMarker),
 		goalFillerScript(),
 		{
 			{Type: qgruntime.StreamEventText, Content: "second task"},
@@ -238,9 +250,16 @@ func TestGoalKeepModePreservesHistoryBetweenTasks(t *testing.T) {
 	if resp == nil {
 		t.Fatal("first run returned no response")
 	}
+	// The task boundary ends the run: one provider call, no second turn.
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 (run ends at update_goal)", len(provider.requests))
+	}
 	updated, goalCmd := updatedModel(t, next, resp)
 	if goalCmd == nil || !updated.pending {
 		t.Fatalf("next task did not launch: pending=%v transcript=%#v", updated.pending, updated.transcript)
+	}
+	if !transcriptContains(updated.transcript, "Tarefa concluída. A próxima começa em seguida.") {
+		t.Fatalf("boundary closing line missing from transcript: %#v", updated.transcript)
 	}
 	if !transcriptContains(updated.transcript, "Tarefa concluída: First. Próxima (2/2): Second.") {
 		t.Fatalf("task switch missing from transcript: %#v", updated.transcript)
@@ -255,13 +274,25 @@ func TestGoalKeepModePreservesHistoryBetweenTasks(t *testing.T) {
 	if loaded.Goal.ContinuationCount != 1 {
 		t.Fatalf("continuation count = %d, want 1 (reset on switch, reserved by next run)", loaded.Goal.ContinuationCount)
 	}
-	// Drive the second run to inspect what the provider received.
+	// Drive the next-task run, then the one it queues: the last request
+	// still carries the finished task era, one task per run.
 	resp2 := execCmd(goalCmd)
 	if resp2 == nil {
 		t.Fatal("second run returned no response")
 	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2 (one turn per run)", len(provider.requests))
+	}
+	second, thirdCmd := updatedModel(t, updated, resp2)
+	if thirdCmd == nil || !second.pending {
+		t.Fatal("second run did not queue the next step")
+	}
+	resp3 := execCmd(thirdCmd)
+	if resp3 == nil {
+		t.Fatal("third run returned no response")
+	}
 	if len(provider.requests) != 3 {
-		t.Fatalf("provider requests = %d, want 3 (first run takes two turns around the tool call)", len(provider.requests))
+		t.Fatalf("provider requests = %d, want 3 (one turn per run)", len(provider.requests))
 	}
 	contents := requestContents(provider.requests[len(provider.requests)-1])
 	if !strings.Contains(contents, goalHistoryMarker) {
@@ -270,9 +301,9 @@ func TestGoalKeepModePreservesHistoryBetweenTasks(t *testing.T) {
 	if !strings.Contains(contents, "Second") {
 		t.Fatalf("keep mode request should name the current task:\n%s", contents)
 	}
-	// The second run sees an unfinished goal, so it queues a third run; drop
+	// The third run sees an unfinished goal, so it queues a fourth run; drop
 	// it without executing — the request assertions above are the point.
-	finished := updatedModel2(t, updated, resp2)
+	finished := updatedModel2(t, second, resp3)
 	if !finished.pending {
 		t.Fatal("unfinished goal should keep working")
 	}
@@ -293,8 +324,7 @@ func TestGoalResetModeClearsHistoryBetweenTasks(t *testing.T) {
 			{Type: qgruntime.StreamEventText, Content: "ok, anotado"},
 			{Type: qgruntime.StreamEventDone},
 		},
-		completeCurrentTaskScript("feito"),
-		goalFillerScript(),
+		completeCurrentTaskWithHistoryScript("feito", goalHistoryMarker),
 		{
 			{Type: qgruntime.StreamEventText, Content: "second task, turn one"},
 			{Type: qgruntime.StreamEventDone},
@@ -321,10 +351,14 @@ func TestGoalResetModeClearsHistoryBetweenTasks(t *testing.T) {
 	if wireContents := continuationContents(afterSubmit.continuation.messages); !strings.Contains(wireContents, goalHistoryMarker) {
 		t.Fatalf("precondition: submit wire missing task-one marker:\n%s", wireContents)
 	}
-	// The auto-launched continuation completes task one: the switch cuts it.
+	// The auto-launched continuation completes task one in a single turn:
+	// the run ends at the task boundary and the switch cuts it.
 	switched, taskTwoCmd := updatedModel(t, afterSubmit, execCmd(goalCmd))
 	if taskTwoCmd == nil || !switched.pending {
 		t.Fatal("reset-mode next task did not launch")
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2 (submit plus one single-turn continuation)", len(provider.requests))
 	}
 	if !transcriptContains(switched.transcript, "Contexto limpo entre tarefas") {
 		t.Fatalf("reset notice missing: %#v", switched.transcript)
@@ -374,8 +408,7 @@ func TestGoalResetModeClearsHistoryBetweenTasks(t *testing.T) {
 func TestGoalResetSurvivesSessionReload(t *testing.T) {
 	store, session := goalTaskTestSetup(t, "Work\n1. First\n2. Second")
 	provider := &scriptedProvider{scripts: [][]qgruntime.StreamEvent{
-		completeCurrentTaskScript("feito"),
-		goalFillerScript(),
+		completeCurrentTaskWithHistoryScript("feito", goalHistoryMarker),
 		{
 			{Type: qgruntime.StreamEventText, Content: "second task"},
 			{Type: qgruntime.StreamEventDone},
@@ -388,6 +421,11 @@ func TestGoalResetSurvivesSessionReload(t *testing.T) {
 	updated, goalCmd := updatedModel(t, next, execCmd(cmd))
 	if goalCmd == nil || !updated.pending {
 		t.Fatal("reset-mode next task did not launch")
+	}
+	// The task boundary ends the first run: one provider call, no follow-up
+	// turn inside the finished task era.
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 (run ends at update_goal)", len(provider.requests))
 	}
 	if nextRun := execCmd(goalCmd); nextRun == nil {
 		t.Fatal("second run returned no response")
@@ -569,6 +607,10 @@ func TestGoalCompactModeCompactsBetweenTasks(t *testing.T) {
 
 	next, cmd := m.launchGoalContinuationIfReady()
 	resp := execCmd(cmd)
+	// The task boundary ends the run before any follow-up provider call.
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 (run ends at update_goal)", len(provider.requests))
+	}
 	updated, goalCmd := updatedModel(t, next, resp)
 	if goalCmd == nil {
 		t.Fatal("compact-mode switch returned no command")
@@ -615,6 +657,9 @@ func TestGoalCompactErrorContinuesWithoutCompacting(t *testing.T) {
 
 	next, cmd := m.launchGoalContinuationIfReady()
 	resp := execCmd(cmd)
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 (run ends at update_goal)", len(provider.requests))
+	}
 	updated, goalCmd := updatedModel(t, next, resp)
 	if goalCmd == nil {
 		t.Fatal("compact-mode switch returned no command")
@@ -657,6 +702,14 @@ func TestGoalBlockedPausesAndResumeRetriesBlockedTask(t *testing.T) {
 	updated, _ := updatedModel(t, next, execCmd(cmd))
 	if updated.pending {
 		t.Fatal("blocked task must not launch another continuation")
+	}
+	// The block ends the run in a single turn: the model never gets a
+	// follow-up call to keep working on the blocked task.
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 (run ends at update_goal)", len(provider.requests))
+	}
+	if !transcriptContains(updated.transcript, "Tarefa pausada aqui. Use /goal resume para continuar.") {
+		t.Fatalf("boundary pause line missing from transcript: %#v", updated.transcript)
 	}
 	loaded, err := store.Get(session.SessionID)
 	if err != nil {

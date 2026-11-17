@@ -7536,6 +7536,13 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			flushReasoning(m.now())
 			return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, specReview: specReview, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: m.activeTurnElapsed(started), persistErr: liveAppendErr, flushedEvents: flushedLive}
 		}
+		if result.StopReason == agent.StopReasonGoalTaskBoundary {
+			// The run ended right after update_goal closed the current task
+			// with work still pending. The raw tool output (the checklist)
+			// is already on the tool result; the closing assistant line only
+			// says what happens next, in the user's language.
+			result.FinalAnswer = m.goalTaskBoundaryAnswer()
+		}
 		flushReasoning(m.now())
 		elapsed := m.activeTurnElapsed(started)
 		rows = append(rows, transcriptRow{
