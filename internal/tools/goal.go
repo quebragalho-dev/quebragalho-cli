@@ -231,13 +231,13 @@ func (tool *goalTool) Run(_ context.Context, args map[string]any) Result {
 				if err != nil {
 					return errorResult("Error: Complete goal task: " + err.Error())
 				}
-				return goalTasksResult(session.Goal)
+				return goalTaskBoundaryResult(session.Goal)
 			}
 			session, _, err := tool.store.BlockGoalTask(tool.sessionID, reason)
 			if err != nil {
 				return errorResult("Error: Block goal task: " + err.Error())
 			}
-			return goalTasksResult(session.Goal)
+			return goalTaskBoundaryResult(session.Goal)
 		}
 		if status == sessions.GoalStatusBlocked && strings.TrimSpace(reason) == "" {
 			return errorResult("Error: Invalid arguments for update_goal: blocked goals require a reason")
@@ -250,6 +250,27 @@ func (tool *goalTool) Run(_ context.Context, args map[string]any) Result {
 	default:
 		return errorResult("Error: Unknown goal action.")
 	}
+}
+
+// goalTaskBoundaryControl is the Meta["control"] value the agent loop maps
+// to its goal-task-boundary stop: the run ends right after update_goal
+// closes the current task while more tasks remain. It is never set for
+// set_goal_tasks (the first task starts in the same run) nor for the last
+// task (the goal closes itself and the model writes its own summary).
+const goalTaskBoundaryControl = "goal_task_boundary"
+
+// goalTaskBoundaryResult reports the updated checklist, ending the run when
+// more tasks remain: the TUI continuation then applies the between-tasks
+// mode and opens the next task.
+func goalTaskBoundaryResult(goal *sessions.Goal) Result {
+	result := goalTasksResult(goal)
+	if goal != nil && goal.Status != sessions.GoalStatusComplete && sessions.CurrentGoalTask(goal) != nil {
+		if result.Meta == nil {
+			result.Meta = map[string]string{}
+		}
+		result.Meta["control"] = goalTaskBoundaryControl
+	}
+	return result
 }
 
 func goalTaskTitlesArg(args map[string]any) ([]string, error) {
