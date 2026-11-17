@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -138,8 +139,12 @@ func TestBatchRecordDarwinArgv(t *testing.T) {
 	r := NewRecorder(RecorderOptions{
 		Platform:        PlatformDarwin,
 		SilenceAutoStop: true,
-		starter:         fileWritingStarter(t, cap, wavFixture()),
-		tempDir:         testTempDir(t),
+		// The native microphone would open a real device: force the fallback
+		// so this pins the program argv.
+		openMic:  failingOpenMic(),
+		lookPath: okLookPath,
+		starter:  fileWritingStarter(t, cap, wavFixture()),
+		tempDir:  testTempDir(t),
 	})
 	if err := r.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -160,8 +165,11 @@ func TestBatchRecordWindowsArgv(t *testing.T) {
 	r := NewRecorder(RecorderOptions{
 		Platform:           PlatformWindows,
 		WindowsAudioDevice: "Microphone (Realtek)",
-		starter:            fileWritingStarter(t, cap, wavFixture()),
-		tempDir:            testTempDir(t),
+		// A named device keeps the FFmpeg path even with a working
+		// microphone: openMic must never be consulted.
+		openMic: refuseOpenMic(t),
+		starter: fileWritingStarter(t, cap, wavFixture()),
+		tempDir: testTempDir(t),
 	})
 	if err := r.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -497,5 +505,44 @@ func TestChunkLevel(t *testing.T) {
 	}
 	if lvl := ChunkLevel(quiet); lvl <= 0 || lvl > 0.35 {
 		t.Errorf("quiet level = %f, want a small non-zero value", lvl)
+	}
+}
+
+func TestCheckCaptureTool(t *testing.T) {
+	found := func(string) (string, error) { return "/usr/bin/tool", nil }
+	missing := func(string) (string, error) { return "", exec.ErrNotFound }
+	// macOS and Windows record from inside the binary: nothing to install.
+	for _, platform := range []Platform{PlatformDarwin, PlatformWindows} {
+		if err := CheckCaptureTool(platform, missing); err != nil {
+			t.Errorf("%s with no program should be nil, got %v", platform, err)
+		}
+		if err := CheckCaptureTool(platform, found); err != nil {
+			t.Errorf("%s with the program should be nil, got %v", platform, err)
+		}
+	}
+	cases := []struct {
+		platform Platform
+		tool     string
+		command  string
+	}{
+		{PlatformLinux, "arecord", "sudo apt install alsa-utils (ou sudo dnf install alsa-utils)"},
+		{PlatformTermux, "termux-microphone-record", "pkg install termux-api"},
+	}
+	for _, tc := range cases {
+		if err := CheckCaptureTool(tc.platform, found); err != nil {
+			t.Errorf("%s with the tool installed should be nil, got %v", tc.platform, err)
+		}
+		err := CheckCaptureTool(tc.platform, missing)
+		var setupErr *SetupError
+		if !errors.As(err, &setupErr) {
+			t.Errorf("%s with a missing tool should be a *SetupError, got %v", tc.platform, err)
+			continue
+		}
+		if setupErr.Tool != tc.tool {
+			t.Errorf("%s SetupError.Tool = %q, want %q", tc.platform, setupErr.Tool, tc.tool)
+		}
+		if !strings.Contains(setupErr.Hint, tc.command) {
+			t.Errorf("%s hint = %q, want it to contain the install command %q", tc.platform, setupErr.Hint, tc.command)
+		}
 	}
 }

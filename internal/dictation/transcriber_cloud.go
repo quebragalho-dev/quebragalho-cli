@@ -40,8 +40,8 @@ type cloudTranscriber struct {
 func NewCloudTranscriber(cfg CloudConfig) (Transcriber, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return nil, &SetupError{
-			Tool: cfg.Provider + " API key",
-			Hint: fmt.Sprintf("set a %s API key (run `qg auth`) to use cloud dictation", cfg.Provider),
+			Tool: "chave de API " + cfg.Provider,
+			Hint: fmt.Sprintf("rode `qg auth` para definir uma chave %s e usar o ditado na nuvem", cfg.Provider),
 		}
 	}
 	if cfg.Model == "" {

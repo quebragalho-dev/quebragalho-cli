@@ -460,6 +460,38 @@ func SetRecapsEnabled(path string, enabled bool) (result FileConfig, err error) 
 	return cfg, nil
 }
 
+// SetAutoCompactLimit persists the /autocompact limit preference, mirroring
+// SetFavoriteModels (read-modify-atomic-write). The stored value is
+// normalized (see NormalizeAutoCompactLimit); 0 clears the key.
+func SetAutoCompactLimit(path string, limit int) (result FileConfig, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	// Joined, not chosen between: a release failure annotates the result
+	// instead of masking the mutation error that actually explains what went
+	// wrong. Reporting success after a failed unlock would claim a state the
+	// next mutation cannot reproduce.
+	defer func() { err = errors.Join(err, unlock()) }()
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg.Preferences.AutoCompactLimit = NormalizeAutoCompactLimit(limit)
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
+}
+
 // SetTheme persists the TUI theme preference, mirroring SetFavoriteModels
 // (read-modify-atomic-write). A blank theme clears the stored preference.
 func SetTheme(path string, theme string) (result FileConfig, err error) {
@@ -646,6 +678,37 @@ func SetSTTProvider(path string, provider STTProviderKind) (result FileConfig, e
 	if err := validateSTTConfig(cfg.STT); err != nil {
 		return FileConfig{}, err
 	}
+	if err := writeConfigFile(path, cfg); err != nil {
+		return FileConfig{}, err
+	}
+	return cfg, nil
+}
+
+// SetSTTVoiceMode persists the /voice dictation-mode flag, mirroring
+// SetRecapsEnabled (read-modify-atomic-write). false clears the key.
+func SetSTTVoiceMode(path string, enabled bool) (result FileConfig, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return FileConfig{}, fmt.Errorf("config path is required")
+	}
+	unlock, err := lockConfigFileFn(path)
+	if err != nil {
+		return FileConfig{}, err
+	}
+	// Joined, not chosen between: a release failure annotates the result
+	// instead of masking the mutation error that actually explains what went
+	// wrong. Reporting success after a failed unlock would claim a state the
+	// next mutation cannot reproduce.
+	defer func() { err = errors.Join(err, unlock()) }()
+	cfg := FileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return FileConfig{}, fmt.Errorf("invalid config JSON %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg.STT.VoiceMode = enabled
 	if err := writeConfigFile(path, cfg); err != nil {
 		return FileConfig{}, err
 	}

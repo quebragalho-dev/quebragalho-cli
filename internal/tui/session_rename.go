@@ -99,6 +99,7 @@ func (m model) sessionRenamePromptView(width int) string {
 		m.composerCursorVisible,
 		composerSelectionState{},
 		nil, // rename prompt: no skill tokens to highlight
+		composerDimRange{},
 	)
 	lines := append(strings.Split(line, "\n"),
 		qgTheme.line.Render(strings.Repeat("─", innerWidth)),

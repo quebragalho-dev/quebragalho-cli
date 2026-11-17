@@ -37,11 +37,19 @@ func TestToggleVoiceModeFlips(t *testing.T) {
 	if !next.dictation.voiceModeEnabled {
 		t.Fatal("first /voice should enable voice mode")
 	}
-	if next.transientNotice.text != "Modo de voz ligado — segure Ctrl+Space para gravar; se não funcionar, pressione para alternar. Rode /voice de novo para desligar." {
-		t.Errorf("voice-mode-on notice = %q", next.transientNotice.text)
+	// The turn-on line carries the usage and the language/model summary as a
+	// durable transcript row (it no longer fits a transient notice).
+	for _, want := range []string{
+		"Modo de voz ligado — " + voiceCaptureUsage + ".",
+		"Modelo: Local (sem modelo).",
+		"Rode /voice de novo para desligar.",
+	} {
+		if !transcriptHasText(next, want) {
+			t.Errorf("voice-mode-on notice missing %q", want)
+		}
 	}
-	if transcriptHasText(next, "Modo de voz ligado") {
-		t.Error("voice-mode-on confirmation should not be persisted in the transcript")
+	if next.transientNotice.text != "" {
+		t.Errorf("voice-mode-on confirmation should not flash a transient notice, got %q", next.transientNotice.text)
 	}
 	off, _ := next.toggleVoiceMode()
 	if off.dictation.voiceModeEnabled {
@@ -208,10 +216,10 @@ func TestVoiceModeIndicatorDescribesTierAndPhase(t *testing.T) {
 		spaceHeld     bool
 		want          string
 	}{
-		{name: "toggle idle", want: "pressione Ctrl+Space para gravar"},
-		{name: "hold idle", releaseEvents: true, want: "segure Ctrl+Space para gravar"},
+		{name: "toggle idle", want: "segure Espaço para ditar"},
+		{name: "hold idle", releaseEvents: true, want: "segure Espaço para ditar"},
 		{name: "toggle recording", phase: dictRecording, want: "pressione Ctrl+Space para parar"},
-		{name: "hold recording", releaseEvents: true, phase: dictRecording, spaceHeld: true, want: "solte Ctrl+Space para parar"},
+		{name: "hold recording", releaseEvents: true, phase: dictRecording, spaceHeld: true, want: "solte para parar"},
 		{name: "transcribing", phase: dictTranscribing, want: "transcrevendo"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -231,16 +239,18 @@ func TestDictationStatusChipUsesVoiceCaptureShortcut(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		releaseEvents bool
+		spaceHeld     bool
 		want          string
 	}{
 		{name: "toggle", want: "pressione Ctrl+Space para parar"},
-		{name: "hold", releaseEvents: true, want: "solte Ctrl+Space para parar"},
+		{name: "hold", releaseEvents: true, spaceHeld: true, want: "solte para parar"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			m := model{dictation: batchOnlyController()}
 			m.dictation.voiceModeEnabled = true
 			m.dictation.eventTypesSupported = test.releaseEvents
 			m.dictation.phase = dictRecording
+			m.dictation.spaceHeld = test.spaceHeld
 			if got := m.dictationStatusChip(); !strings.Contains(got, test.want) {
 				t.Fatalf("dictation status = %q, want %q", got, test.want)
 			}
@@ -251,7 +261,11 @@ func TestDictationStatusChipUsesVoiceCaptureShortcut(t *testing.T) {
 func TestVoiceCommandDescriptionExplainsBothTerminalTiers(t *testing.T) {
 	for _, command := range commandDefinitions {
 		if command.kind == commandVoice {
-			for _, want := range []string{"segure Ctrl+Space", "se não funcionar", "pressione para alternar"} {
+			wants := []string{"segure Espaço"}
+			if strings.Contains(voiceCaptureUsage, "Ctrl+Space") {
+				wants = append(wants, "Ctrl+Space")
+			}
+			for _, want := range wants {
 				if !strings.Contains(command.description, want) {
 					t.Fatalf("voice command description = %q, want %q", command.description, want)
 				}

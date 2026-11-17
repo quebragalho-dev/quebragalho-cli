@@ -60,6 +60,7 @@ const (
 	commandVoice
 	commandSTTModel
 	commandUnknown
+	commandAutoCompact
 )
 
 type commandGroup string
@@ -266,6 +267,13 @@ var commandDefinitions = []commandDefinition{
 		group:       commandGroupSession,
 		description: "Compacta o histórico agora ou mostra o estado (/compact status).",
 		kind:        commandCompact,
+	},
+	{
+		name:        "/autocompact",
+		usage:       "/autocompact [n|off|auto]",
+		group:       commandGroupSession,
+		description: "Compacta sozinho em n tokens (ex.: 400k).",
+		kind:        commandAutoCompact,
 	},
 	{
 		name:        "/transcript",

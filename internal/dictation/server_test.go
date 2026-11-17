@@ -6,11 +6,15 @@ import (
 	"errors"
 	"io"
 	"math"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func streamingModelDir(t *testing.T) string {
@@ -172,6 +176,142 @@ func TestParseSherpaStreamResult(t *testing.T) {
 	}
 	if _, _, _, ok := parseSherpaStreamResult([]byte("not json")); ok {
 		t.Error("non-JSON should not parse")
+	}
+}
+
+func TestServerManagerSetBinaryTakesEffectOnNextStart(t *testing.T) {
+	var got string
+	m := NewServerManager(ServerConfig{
+		ModelPath: streamingModelDir(t),
+		Port:      6006,
+		starter: func(spec commandSpec) (processHandle, io.ReadCloser, error) {
+			got = spec.name
+			return newFakeProcess(), nil, nil
+		},
+		healthCheck: func(context.Context, int) error { return nil },
+		aliveCheck:  func(int) bool { return false },
+	})
+	m.SetBinary("/opt/x/server")
+	if _, err := m.EnsureRunning(context.Background()); err != nil {
+		t.Fatalf("EnsureRunning: %v", err)
+	}
+	if got != "/opt/x/server" {
+		t.Errorf("binary = %q, want %q", got, "/opt/x/server")
+	}
+}
+
+func TestServerManagerSetBinaryEmptyKeepsCurrent(t *testing.T) {
+	var got string
+	m := NewServerManager(ServerConfig{
+		Binary:    "orig-server",
+		ModelPath: streamingModelDir(t),
+		starter: func(spec commandSpec) (processHandle, io.ReadCloser, error) {
+			got = spec.name
+			return newFakeProcess(), nil, nil
+		},
+		healthCheck: func(context.Context, int) error { return nil },
+		aliveCheck:  func(int) bool { return false },
+	})
+	m.SetBinary("")
+	if _, err := m.EnsureRunning(context.Background()); err != nil {
+		t.Fatalf("EnsureRunning: %v", err)
+	}
+	if got != "orig-server" {
+		t.Errorf("binary = %q, want %q (empty SetBinary must not overwrite)", got, "orig-server")
+	}
+}
+
+func TestServerManagerSetBinaryWhileRunningDoesNotRestart(t *testing.T) {
+	var startCount int
+	alive := true
+	m := NewServerManager(ServerConfig{
+		ModelPath: streamingModelDir(t),
+		starter: func(commandSpec) (processHandle, io.ReadCloser, error) {
+			startCount++
+			return newFakeProcess(), nil, nil
+		},
+		healthCheck: func(context.Context, int) error { return nil },
+		aliveCheck:  func(int) bool { return alive },
+	})
+	url, err := m.EnsureRunning(context.Background())
+	if err != nil {
+		t.Fatalf("EnsureRunning: %v", err)
+	}
+	m.SetBinary("/other/server")
+	url2, err := m.EnsureRunning(context.Background())
+	if err != nil {
+		t.Fatalf("EnsureRunning after SetBinary: %v", err)
+	}
+	if startCount != 1 {
+		t.Errorf("SetBinary on a running server must not restart it (starts = %d)", startCount)
+	}
+	if url2 != url {
+		t.Errorf("url changed across a no-restart EnsureRunning: %q -> %q", url, url2)
+	}
+}
+
+func TestWaitPortListeningAlreadyOpen(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if err := waitPortListening(context.Background(), ln.Addr().(*net.TCPAddr).Port, 5*time.Second); err != nil {
+		t.Errorf("open port should be ready at once: %v", err)
+	}
+}
+
+func TestWaitPortListeningTimeout(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	start := time.Now()
+	err = waitPortListening(context.Background(), port, 300*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected a timeout error for a closed port")
+	}
+	if !strings.Contains(err.Error(), "300ms") {
+		t.Errorf("error should name the timeout duration, got: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("300ms timeout took %s, want under 2s", elapsed)
+	}
+}
+
+func TestWaitPortListeningBecomesReady(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	lnCh := make(chan net.Listener, 1)
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		if late, err := net.Listen("tcp", addr); err == nil {
+			lnCh <- late
+		}
+	}()
+	if err := waitPortListening(context.Background(), port, 5*time.Second); err != nil {
+		t.Errorf("port that opens after 400ms should become ready: %v", err)
+	}
+	select {
+	case late := <-lnCh:
+		late.Close()
+	case <-time.After(2 * time.Second):
+		t.Fatal("listener goroutine never opened the port")
+	}
+}
+
+func TestWaitPortListeningCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := waitPortListening(ctx, 6006, 5*time.Second); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled context should return the context error, got: %v", err)
 	}
 }
 

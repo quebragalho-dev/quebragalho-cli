@@ -29,7 +29,8 @@ import (
 const defaultCompactionPreserveLast = 6
 
 // compactionTriggerRatio is the fraction of the context window at which
-// proactive compaction kicks in (top of each turn). NOTE: this is speculative
+// proactive compaction kicks in (top of each turn). It is the automatic
+// trigger and also the ceiling for a user limit. NOTE: this is speculative
 // tuning — validate against the per-turn latency/compaction metrics (roadmap 5.2)
 // before trusting it. Measured fixed overhead is ~7.4k tokens (not the ~16k the
 // roadmap assumed), so context fills slower; if data shows 0.7 triggers redundant
@@ -169,6 +170,29 @@ func compactionThreshold(contextWindow int) int {
 		return 0
 	}
 	return int(float64(contextWindow) * compactionTriggerRatio)
+}
+
+// autoCompactThreshold is the proactive trigger for a window and a user
+// limit (Options.AutoCompactLimit). A positive limit below the automatic
+// threshold wins; anything else (automatic, or a limit the window cannot
+// hold) falls back to the automatic threshold. A negative limit (off) is
+// enforced by maybeCompact, not here.
+func autoCompactThreshold(contextWindow int, limit int) int {
+	automatic := compactionThreshold(contextWindow)
+	if limit > 0 && limit < automatic {
+		return limit
+	}
+	return automatic
+}
+
+// AutoCompactThreshold reports where proactive compaction triggers for a
+// context window and a user limit (Options.AutoCompactLimit). It returns 0
+// when the limit turns proactive compaction off or the window is unknown.
+func AutoCompactThreshold(contextWindow int, limit int) int {
+	if limit < 0 {
+		return 0
+	}
+	return autoCompactThreshold(contextWindow, limit)
 }
 
 // Compact summarizes the oldest middle of a conversation, keeping the leading
@@ -376,8 +400,11 @@ func isStreamTimeoutError(message string) bool {
 // are written ONLY by transition, so the one-shot budget and the watermark
 // can never drift apart in one path and not another.
 type compactionState struct {
-	enabled      bool
-	threshold    int
+	enabled   bool
+	threshold int
+	// limit is the user limit the threshold is derived from; kept so a
+	// window change re-derives it.
+	limit        int
 	preserveLast int
 	// phase is the explicit lifecycle phase; written only by transition.
 	phase compactPhase
@@ -630,7 +657,7 @@ func (state *compactionState) transition(ev compactEvent) (notify bool) {
 	if row.enable {
 		state.enabled = true
 		state.window = ev.window
-		state.threshold = compactionThreshold(ev.window)
+		state.threshold = autoCompactThreshold(ev.window, state.limit)
 	}
 	if row.clearWatermark {
 		state.lowWaterMark = 0
@@ -697,7 +724,8 @@ func newCompactionState(options Options, task *taskState) *compactionState {
 	}
 	state := &compactionState{
 		enabled:           options.ContextWindow > 0,
-		threshold:         compactionThreshold(options.ContextWindow),
+		threshold:         autoCompactThreshold(options.ContextWindow, options.AutoCompactLimit),
+		limit:             options.AutoCompactLimit,
 		window:            options.ContextWindow,
 		mainModel:         options.Model,
 		preserveLast:      options.CompactionPreserveLast,
@@ -812,7 +840,7 @@ func (state *compactionState) maybeCompact(
 	messages []qgruntime.Message,
 	tools []qgruntime.ToolDefinition,
 ) []qgruntime.Message {
-	if !state.enabled {
+	if !state.enabled || state.limit < 0 {
 		return messages
 	}
 	// Tool definitions are part of every request's input, so every size below

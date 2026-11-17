@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/atotto/clipboard"
@@ -77,6 +79,14 @@ func (m model) routePaste(content string) (tea.Model, tea.Cmd) {
 	// toggle instead of going solid.
 	m.lastCharTime = m.now()
 	m.composerCursorVisible = true
+	// The /autocompact panel owns the paste while open: it edits the panel
+	// input, never the composer behind it.
+	if m.autoCompactPrompt != nil {
+		if content != "" {
+			m.autoCompactPrompt.appendInput(strings.TrimSpace(content))
+		}
+		return m, nil
+	}
 	if m.renamePrompt != nil {
 		if content == "" {
 			return m, nil

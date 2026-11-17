@@ -32,8 +32,8 @@ type deepgramTranscriber struct {
 func NewDeepgramTranscriber(cfg DeepgramConfig) (Transcriber, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return nil, &SetupError{
-			Tool: "Deepgram API key",
-			Hint: "set a Deepgram API key (DEEPGRAM_API_KEY, or `qg auth`) to use Deepgram streaming dictation",
+			Tool: "chave de API Deepgram",
+			Hint: "defina DEEPGRAM_API_KEY ou rode `qg auth` para usar o ditado com streaming",
 		}
 	}
 	if cfg.Model == "" {

@@ -303,6 +303,9 @@ func mergeConfig(dst *FileConfig, src FileConfig) {
 	if strings.TrimSpace(src.Preferences.CompactionModel) != "" {
 		dst.Preferences.CompactionModel = strings.TrimSpace(src.Preferences.CompactionModel)
 	}
+	if src.Preferences.AutoCompactLimit != 0 {
+		dst.Preferences.AutoCompactLimit = NormalizeAutoCompactLimit(src.Preferences.AutoCompactLimit)
+	}
 	mergeLocalControlConfig(&dst.LocalControl, src.LocalControl)
 	mergeKeyBindings(&dst.KeyBindings, src.KeyBindings)
 	mergeSTTConfig(&dst.STT, src.STT)
@@ -899,6 +902,9 @@ func mergeSTTConfig(dst *STTConfig, src STTConfig) {
 	}
 	if src.AutoSubmit != nil {
 		dst.AutoSubmit = src.AutoSubmit
+	}
+	if src.VoiceMode {
+		dst.VoiceMode = true
 	}
 	if src.WindowsAudioDevice != "" {
 		dst.WindowsAudioDevice = src.WindowsAudioDevice

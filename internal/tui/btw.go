@@ -215,7 +215,7 @@ func btwCommandUnavailable(command parsedCommand) bool {
 	arg := strings.ToLower(strings.TrimSpace(command.text))
 	switch command.kind {
 	case commandNew, commandClear, commandResume, commandRename, commandSpec, commandLoop, commandGoal,
-		commandRewind, commandCompact, commandSTTModel, commandMCP:
+		commandRewind, commandCompact, commandSTTModel, commandVoice, commandMCP:
 		return true
 	case commandModel:
 		return arg != "list" && arg != "ls"
@@ -223,6 +223,10 @@ func btwCommandUnavailable(command parsedCommand) bool {
 		return arg != "status"
 	case commandTurns, commandProfile:
 		return arg != "" && arg != "status"
+	case commandAutoCompact:
+		// The side conversation runs on a copy of the session: a limit set
+		// there would be saved to the config while the parent kept the old one.
+		return arg != "status"
 	case commandTheme:
 		return arg != "list"
 	case commandConfig:

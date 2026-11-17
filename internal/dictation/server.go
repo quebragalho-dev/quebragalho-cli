@@ -97,7 +97,7 @@ func (m *ServerManager) EnsureRunning(ctx context.Context) (string, error) {
 		if errors.Is(err, exec.ErrNotFound) {
 			return "", &SetupError{
 				Tool: m.cfg.Binary,
-				Hint: "install sherpa-onnx and put its online-websocket-server binary on PATH (see docs/dictation.md)",
+				Hint: "instale o sherpa-onnx e coloque o servidor online-websocket-server no PATH (ou rode /stt-model para baixar o motor)",
 			}
 		}
 		return "", fmt.Errorf("starting sherpa-onnx server: %w", err)
@@ -174,19 +174,30 @@ func (m *ServerManager) SetModelPath(path string) {
 	}
 }
 
+// SetBinary updates the server executable, for a mid-session config change
+// (the engine was just downloaded). It takes effect the next time the server
+// (re)starts; a running server is left as-is.
+func (m *ServerManager) SetBinary(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if path != "" {
+		m.cfg.Binary = path
+	}
+}
+
 // onlineServerCommand builds the streaming-server argv from the model directory.
 // The online server uses a streaming transducer (encoder/decoder/joiner) plus
 // tokens — the shape the sherpa-onnx docs' example uses (§6a).
 func onlineServerCommand(cfg ServerConfig) (commandSpec, error) {
 	if strings.TrimSpace(cfg.ModelPath) == "" {
 		return commandSpec{}, &SetupError{
-			Tool: "local STT streaming model",
-			Hint: "set stt.localModelPath to a sherpa-onnx streaming model directory (see docs/dictation.md)",
+			Tool: "modelo de ditado ao vivo",
+			Hint: "defina stt.localModelPath para uma pasta de modelo de streaming sherpa-onnx (rode /stt-model para escolher e baixar um)",
 		}
 	}
 	files, err := onnxFilesIn(cfg.ModelPath)
 	if err != nil {
-		return commandSpec{}, &SetupError{Tool: "local STT streaming model", Hint: err.Error()}
+		return commandSpec{}, &SetupError{Tool: "modelo de ditado ao vivo", Hint: err.Error()}
 	}
 	tokens := findTokensFile(files)
 	// A streaming model ships encoder/decoder/joiner, often BOTH an int8 and an
@@ -200,8 +211,8 @@ func onlineServerCommand(cfg ServerConfig) (commandSpec, error) {
 	}
 	if tokens == "" || encoder == "" || decoder == "" || joiner == "" {
 		return commandSpec{}, &SetupError{
-			Tool: "local STT streaming model",
-			Hint: fmt.Sprintf("streaming needs a transducer model (encoder/decoder/joiner .onnx + tokens.txt) in %q; see docs/dictation.md", cfg.ModelPath),
+			Tool: "modelo de ditado ao vivo",
+			Hint: fmt.Sprintf("streaming precisa de um modelo transducer (encoder/decoder/joiner .onnx + tokens.txt) em %q (rode /stt-model para baixar um)", cfg.ModelPath),
 		}
 	}
 	args := []string{
@@ -221,7 +232,7 @@ func onlineServerCommand(cfg ServerConfig) (commandSpec, error) {
 func onnxFilesIn(dir string) (map[string]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("stt.localModelPath %q is not readable: %v", dir, err)
+		return nil, fmt.Errorf("stt.localModelPath %q não pode ser lido: %v", dir, err)
 	}
 	files := map[string]string{}
 	for _, e := range entries {
@@ -233,11 +244,25 @@ func onnxFilesIn(dir string) (map[string]string, error) {
 	return files, nil
 }
 
+// serverReadyTimeout bounds the first-start readiness wait. A cold first start
+// loads a ~70 MB model and may also wait on a slow disk or an antivirus scan
+// of a just-downloaded executable, so 5 s is too short; waiting longer costs
+// nothing when the server is fast because the loop returns as soon as the
+// port accepts a connection.
+const serverReadyTimeout = 15 * time.Second
+
 // dialHealthCheck polls the server's TCP port until it accepts a connection or
 // the deadline passes.
 func dialHealthCheck(ctx context.Context, port int) error {
+	return waitPortListening(ctx, port, serverReadyTimeout)
+}
+
+// waitPortListening polls the TCP port until it accepts a connection, the
+// timeout elapses, or ctx is cancelled. The timeout is a parameter so tests
+// can use a short one.
+func waitPortListening(ctx context.Context, port int, timeout time.Duration) error {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(timeout)
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -248,7 +273,7 @@ func dialHealthCheck(ctx context.Context, port int) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("port %d not listening after 5s", port)
+			return fmt.Errorf("port %d not listening after %s", port, timeout)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

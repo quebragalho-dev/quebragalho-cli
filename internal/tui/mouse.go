@@ -553,8 +553,13 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 	start := selectableListStart(len(m.picker.items), maxVisible, selected)
 	visible := m.picker.items[start : start+maxVisible]
 	details := pickerShowsDetails(m.picker, width)
-	// y=0 titled top border, y=1 search line, y=2 separator; rows begin at y=3.
-	line := 3
+	// y=0 titled top border, y=1 search line, y=2 separator; rows begin after
+	// the optional header lines (only the voice first-use panel has any).
+	overlayWidth := minInt(width, pickerOverlayMaxWidth)
+	if overlayWidth < pickerOverlayMinWidth {
+		overlayWidth = width
+	}
+	line := 3 + len(m.picker.wrappedHeader(maxInt(1, overlayWidth-4)))
 	lastGroup := ""
 	for offset, item := range visible {
 		if item.Group != "" && item.Group != lastGroup {

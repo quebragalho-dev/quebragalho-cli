@@ -130,6 +130,12 @@ type PreferencesConfig struct {
 	// curated cheap model on official endpoints, the main model elsewhere.
 	// "main" forces the main model. QG_COMPACTION_MODEL overrides.
 	CompactionModel string `json:"compactionModel,omitempty"`
+	// AutoCompactLimit is the /autocompact setting, in tokens. 0 (or absent) =
+	// automatic: the agent compacts at its own threshold for the model's
+	// context window. > 0 = compact when the conversation nears that many
+	// tokens, even on a model with a larger window. AutoCompactOff = never
+	// compact proactively. See NormalizeAutoCompactLimit.
+	AutoCompactLimit int `json:"autoCompactLimit,omitempty"`
 }
 
 // RecentModelEntry is one provider-qualified model selection recorded in
@@ -231,6 +237,9 @@ type STTConfig struct {
 	// review. Defaults OFF — insert-for-review is the safety net for a misheard
 	// prompt (§3).
 	AutoSubmit *bool `json:"autoSubmit,omitempty"`
+	// VoiceMode is the /voice setting: dictation mode is on at startup and
+	// stays on until /voice turns it off. Absent means off.
+	VoiceMode bool `json:"voiceMode,omitempty"`
 	// WindowsAudioDevice names the dshow capture device (auto-detected when empty).
 	WindowsAudioDevice string `json:"windowsAudioDevice,omitempty"`
 }
@@ -275,7 +284,7 @@ func (c STTConfig) Empty() bool {
 		c.LocalBinary == "" && c.LocalServerBinary == "" && c.LocalServerPort == 0 &&
 		c.EngineVersion == "" && c.NumThreads == 0 && c.Language == "" &&
 		c.MaxDurationSeconds == 0 && c.SilenceAutoStop == nil && c.AutoSubmit == nil &&
-		c.WindowsAudioDevice == ""
+		!c.VoiceMode && c.WindowsAudioDevice == ""
 }
 
 // LocalControlConfig controls local browser/desktop/terminal automation helpers.

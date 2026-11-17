@@ -10,8 +10,10 @@ const DefaultModelID = "muse-spark-1.3-contributor"
 // FallbackContextWindow is the assumed context window (max input tokens) for a
 // model that isn't in the curated registry and wasn't resolved from live provider
 // discovery — e.g. proxy/custom models like the GPT-5 Codex, xAI, or Ollama-cloud
-// variants. A positive value here is what enables agent-loop compaction (both the
-// proactive ~80% trigger and the reactive post-overflow recovery) for those models;
+// variants. A positive value here is what enables agent-loop compaction (both
+// the proactive trigger — the automatic threshold at about 70% of the window,
+// or the user's /autocompact limit — and the reactive post-overflow recovery)
+// for those models;
 // without it compaction stays disabled and long sessions overflow. It is only a
 // backstop: an exact window from the registry or live discovery always wins.
 const FallbackContextWindow = 200_000

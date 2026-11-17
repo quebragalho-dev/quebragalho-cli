@@ -272,6 +272,7 @@ type model struct {
 	composerSelection      composerSelectionState
 	dictation              dictationController
 	sttKeyPrompt           *sttKeyPromptState
+	autoCompactPrompt      *autoCompactPromptState
 	terminalAttach         *terminalAttachState
 	terminalAutoAttach     *terminalAutoAttachState
 	terminalAttachSeen     map[int]bool
@@ -692,6 +693,7 @@ type model struct {
 	recapIdleRunID               int
 	idleRecap                    string
 	compactionModel              string // preferences.compactionModel (see providers.CompactionModelID)
+	autoCompactLimit             int    // resolved preferences.autoCompactLimit; 0 automatic, > 0 tokens, < 0 off
 	modelPickerLoading           bool
 	modelPickerLoadingProviderID string
 	modelPickerLoadError         string
@@ -1372,6 +1374,7 @@ func newModel(ctx context.Context, options Options) model {
 		favoriteModels:              favoriteModelSet(options.FavoriteModels),
 		recentModels:                normalizeRecentModelEntries(options.RecentModels),
 		compactionModel:             options.CompactionModel,
+		autoCompactLimit:            options.AutoCompactLimit,
 		statuslineCfg:               options.StatusLine,
 		recapsEnabled:               options.RecapsEnabled,
 		provider:                    options.Provider,
@@ -1646,7 +1649,7 @@ func (m model) prRefreshCmd() tea.Cmd {
 func (m model) noBlockingModal() bool {
 	return m.promptPhase() == PromptNone &&
 		m.mcpAddWizard == nil && m.mcpManager == nil && m.picker == nil &&
-		m.sttKeyPrompt == nil && m.renamePrompt == nil && m.terminalAttach == nil
+		m.sttKeyPrompt == nil && m.autoCompactPrompt == nil && m.renamePrompt == nil && m.terminalAttach == nil
 }
 
 func (m model) quit() (tea.Model, tea.Cmd) {
@@ -1681,6 +1684,12 @@ func (m model) shutdownLSPManager() {
 }
 
 func (m model) handleCtrlC() (tea.Model, tea.Cmd) {
+	// A dictation in progress owns Ctrl+C, like Esc: it stops the microphone
+	// and discards the transcript. The composer, the run and the exit
+	// confirmation are left alone.
+	if m.dictation.active() {
+		return m.cancelDictation()
+	}
 	if m.btw.active {
 		if !m.pending && m.composerValue() != "" && m.noBlockingModal() && !m.transcriptDetailed && !m.subchat.active {
 			m.clearComposer()
@@ -1982,17 +1991,28 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleDictationPartial(msg), nil
 	case sttDownloadProgressMsg:
 		return m.handleDictationDownloadProgress(msg), nil
+	case sttDownloadProgressBytesMsg:
+		return m.handleDictationDownloadProgressBytes(msg), nil
 	case dictationDownloadedMsg:
 		return m.handleDictationDownloaded(msg)
+	case sttMicCheckedMsg:
+		return m.handleSTTMicChecked(msg), nil
 	case sttModelsFetchedMsg:
 		return m.handleSTTModelsFetched(msg), nil
 	case recTickMsg:
 		return m.handleRecTick()
+	case voiceHoldTickMsg:
+		return m.handleVoiceHoldTick(msg)
 	case sttLevelMsg:
 		return m.handleDictationLevel(msg), nil
 	case tea.KeyboardEnhancementsMsg:
 		return m.handleKeyboardEnhancements(msg), nil
 	case tea.KeyReleaseMsg:
+		// A bare Space release ends the run and clears the activation latch; a
+		// held key's timing gap does the rest on terminals without release events.
+		if voiceHoldKey(msg) {
+			m.dictation.hold.keyUp()
+		}
 		// Voice mode's hold-to-record ends on Ctrl+Space release; every other
 		// release event is ignored (dispatch elsewhere is press-based).
 		if m.dictation.voiceModeEnabled && voiceCaptureReleaseKey(msg) {
@@ -2037,9 +2057,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the caret, the typed character would render caret-less for up to a
 		// full tick before the timer catches up.
 		m.composerCursorVisible = true
+		if !voiceHoldKey(msg) {
+			// Any other key ends a Space hold: the system only repeats the
+			// last key pressed, so a latched activation must not swallow the
+			// next Space the user types.
+			m.dictation.hold.keyUp()
+		}
 		// Keyboard dispatch order (this if/case chain is the priority spec):
-		// setup wizard, STT key prompt, terminal attach, session rename,
-		// statusline proposal preview, help overlay, leader-help overlay,
+		// setup wizard, STT key prompt, auto-compact prompt, terminal attach,
+		// session rename, statusline proposal preview, help overlay, leader-help overlay,
 		// picker panel keys, Ctrl+C, pending leader chord, Ctrl+X arming,
 		// Ctrl+P/Ctrl+N menu moves, then the switch (run details, detailed
 		// toggle, file-view mode keys, mouse toggle, voice capture, Esc
@@ -2054,6 +2080,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// input) until Enter saves or Esc cancels.
 		if m.sttKeyPrompt != nil {
 			return m.handleSTTKeyPromptKey(msg)
+		}
+		// The /autocompact panel is modal: it owns every keystroke (typing,
+		// stepping, Enter/Esc) until Enter applies or Esc/Ctrl+C dismiss it.
+		if m.autoCompactPrompt != nil {
+			return m.handleAutoCompactPromptKey(msg)
 		}
 		// Attached to a live terminal session: keystrokes (including Ctrl+C,
 		// which maps to 0x03 for the process) go to the PTY until Esc detaches.
@@ -2101,6 +2132,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if next, cmd, handled := m.handlePanelKey(msg); handled {
 			return next, cmd
 		}
+		// A voice-setup picker (first-use panel, or download chooser with the
+		// auto-enable armed) closes on Ctrl+C without touching the exit
+		// confirmation or any other picker. Gated on a quiet dictation: an
+		// in-flight recording still owns Ctrl+C (plan 032).
+		if keyCtrl(msg, 'c') && !m.dictation.active() && m.voiceSetupPickerOpen() {
+			m.picker = nil
+			m.dictation.voiceAfterSetup = false
+			return m, nil
+		}
 		if keyCtrl(msg, 'c') {
 			if m.leaderPending {
 				m = m.clearLeader()
@@ -2129,6 +2169,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyCtrl(msg, 'n') {
 				return m, nil
 			}
+		}
+		// Voice mode: a held Space starts dictation. It runs before the switch
+		// so a consumed auto-repeat never reaches the composer; an ordinary
+		// press falls through and types.
+		if m.dictation.voiceModeEnabled && !m.transcriptDetailed && !m.runDetailsOpen && voiceHoldKey(msg) && m.noBlockingModal() && !m.subchatReadOnly() {
+			next, cmd, handled := m.handleVoiceHoldSpace(msg, now)
+			if handled {
+				return next, cmd
+			}
+			m = next
 		}
 		switch {
 		case m.runDetailsOpen:
@@ -2267,6 +2317,13 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.picker != nil {
 				if m.picker.kind == pickerModel {
 					m.clearModelPickerLoadState()
+				}
+				if m.picker.kind == pickerSTTDownload {
+					// A dismissed voice-setup picker (first-use panel or
+					// download chooser) cancels the voice-mode auto-enable:
+					// a later manual download stays manual. Clearing an
+					// already-false flag is a no-op for other flows.
+					m.dictation.voiceAfterSetup = false
 				}
 				m.picker = nil
 				return m, nil
@@ -3666,7 +3723,7 @@ func (m model) View() tea.View {
 	// regardless of notification config. A standard, widely supported DEC
 	// private mode (CSI ?1004h) that unsupported terminals silently ignore.
 	view.ReportFocus = true
-	// Voice mode's Space-hold gesture needs key-release events (Kitty protocol).
+	// Voice mode's Ctrl+Space hold needs key-release events (Kitty protocol).
 	// Request them only while voice mode is on — the renderer re-sends the request
 	// only when the value changes, so gating this costs nothing (§10).
 	view.KeyboardEnhancements.ReportEventTypes = m.dictation.voiceModeEnabled
@@ -3734,6 +3791,7 @@ func (m model) transcriptView() string {
 	mcpOverlay := m.mcpManagerOverlay(width)
 	pickerOverlay := m.pickerOverlay(width)
 	sttKeyOverlay := m.sttKeyPromptOverlay(width)
+	autoCompactOverlay := m.autoCompactPromptOverlay(width)
 	terminalAttachOverlay := m.terminalAttachOverlay(width)
 	viewportOverlay := ""
 	switch {
@@ -3741,6 +3799,8 @@ func (m model) transcriptView() string {
 		viewportOverlay = terminalAttachOverlay
 	case sttKeyOverlay != "":
 		viewportOverlay = sttKeyOverlay
+	case autoCompactOverlay != "":
+		viewportOverlay = autoCompactOverlay
 	case helpOverlayContent != "":
 		viewportOverlay = helpOverlayContent
 	case leaderHelpOverlayContent != "":
@@ -4649,7 +4709,15 @@ func (m model) composerLine(width int) string {
 		}
 	}
 	spans := scanSkillTokens(displayState.text, m.installedSkills())
-	return renderComposerInput(input, displayState, width, m.composerCursorVisible, displaySelection, spans)
+	dim := composerDimRange{}
+	if m.dictation.regionActive && !hideInputForSuggestions {
+		dim = composerDimRange{
+			active: true,
+			start:  composerDisplayCursorForPastePreviews(m.dictation.regionStart, previews),
+			end:    composerDisplayCursorForPastePreviews(m.dictation.regionEnd, previews),
+		}
+	}
+	return renderComposerInput(input, displayState, width, m.composerCursorVisible, displaySelection, spans, dim)
 }
 
 type composerVisualLine struct {
@@ -4658,7 +4726,19 @@ type composerVisualLine struct {
 	end   int
 }
 
-func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan) string {
+// composerDimRange marks the display cells of the live dictation transcript,
+// drawn dimmed until the transcript is final.
+type composerDimRange struct {
+	active bool
+	start  int
+	end    int
+}
+
+func (r composerDimRange) contains(index int) bool {
+	return r.active && index >= r.start && index < r.end
+}
+
+func renderComposerInput(input textinput.Model, state composerState, width int, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan, dim composerDimRange) string {
 	state = normalizeComposerState(state)
 	if width <= 0 {
 		return ""
@@ -4677,7 +4757,7 @@ func renderComposerInput(input textinput.Model, state composerState, width int, 
 	segments, cursorLine := composerVisibleVisualLines(input, state, width)
 	lines := make([]string, 0, len(segments))
 	for index, segment := range segments {
-		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible, selection, skillSpans), width))
+		lines = append(lines, fitStyledLine(renderComposerVisualLine(input, state, segment, index == cursorLine, cursorVisible, selection, skillSpans, dim), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -4759,10 +4839,11 @@ func composerCursorVisualLine(segments []composerVisualLine, cursor int) int {
 	return len(segments) - 1
 }
 
-func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan) string {
+func renderComposerVisualLine(input textinput.Model, state composerState, segment composerVisualLine, hasCursor bool, cursorVisible bool, selection composerSelectionState, skillSpans []skillTokenSpan, dim composerDimRange) string {
 	runes := []rune(state.text)
 	prefix := composerVisualLinePrefix(input, segment.first)
 	textStyle := qgTheme.ink.Inline(true)
+	dimStyle := qgTheme.faint.Inline(true)
 	skillStyle := qgTheme.accent.Inline(true)
 	skillCell := map[int]bool{}
 	for _, span := range skillSpans {
@@ -4780,13 +4861,15 @@ func renderComposerVisualLine(input textinput.Model, state composerState, segmen
 	line.WriteString(prefix)
 	// Cells render in runs of one style: the token must appear contiguously
 	// (the highlight is observable), and the terminal repaints with fewer
-	// escapes. Precedence: cursor > selection > skill token > plain ink.
+	// escapes. Precedence: cursor > selection > live dictation > skill token > plain ink.
 	classOf := func(index int) int {
 		switch {
 		case index == cursorIndex && cursorVisible:
 			return 0
 		case hasSelection && index >= selectionStart && index < selectionEnd:
 			return 1
+		case dim.contains(index):
+			return 4
 		case skillCell[index]:
 			return 2
 		default:
@@ -4805,6 +4888,8 @@ func renderComposerVisualLine(input textinput.Model, state composerState, segmen
 		case 2:
 			// Known skill tokens render in the command color.
 			line.WriteString(skillStyle.Render(cells.String()))
+		case 4:
+			line.WriteString(dimStyle.Render(cells.String()))
 		default:
 			line.WriteString(textStyle.Render(cells.String()))
 		}
@@ -5905,6 +5990,10 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
+	case commandAutoCompact:
+		// Unlike /turns, the limit is read when a run starts, so changing it
+		// mid-run is safe: it applies to the next message, never this run.
+		return m.handleAutoCompactCommand(command.text)
 	case commandProfile:
 		// Same idle-session rule as /turns: switching the profile mutates the
 		// turn budget (and its QG_MAX_TURNS propagation), so a change needs
@@ -6933,6 +7022,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		// compaction (proactive + reactive) is enabled for every model, not just
 		// catalogued ones.
 		options.ContextWindow = modelregistry.AgentContextWindow(m.modelContextWindow(m.modelName))
+		options.AutoCompactLimit = m.autoCompactLimit
 		// Route compaction summarization to an opted-in model when one applies
 		// (env > config; no curated default). The factory is lazy, re-evaluated
 		// against the model in force when the compactor asks, and the agent falls
