@@ -82,7 +82,7 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 		configRowVoice:       "desligado",
 		configRowTheme:       "Sistema",
 		configRowStatusline:  "padrão",
-		configRowStyle:       "concise",
+		configRowStyle:       "conciso",
 		configRowRecaps:      "ligado",
 		configRowMCP:         "nenhum",
 		configRowAPIKey:      "não definida",

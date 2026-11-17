@@ -49,7 +49,7 @@ func (m model) newConfigPicker() *commandPicker {
 		{Group: "VOZ", Label: "Modelo de ditado", Value: configRowSTT, Meta: m.dictation.currentModelLabel()},
 		{Group: "APARÊNCIA", Label: "Tema", Value: configRowTheme, Meta: m.themeDisplayLabel()},
 		{Group: "APARÊNCIA", Label: "Barra de status", Value: configRowStatusline, Meta: m.configStatuslineValue()},
-		{Group: "APARÊNCIA", Label: "Estilo de resposta", Value: configRowStyle, Meta: displayValue(m.responseStyle, defaultResponseStyle)},
+		{Group: "APARÊNCIA", Label: "Estilo de resposta", Value: configRowStyle, Meta: responseStyleLabel(displayValue(m.responseStyle, defaultResponseStyle))},
 		{Group: "APARÊNCIA", Label: "Resumo ao voltar", Value: configRowRecaps, Meta: ligadoDesligado(m.recapsEnabled)},
 		{Group: "CONEXÕES", Label: "Servidores MCP", Value: configRowMCP, Meta: m.configMCPValue()},
 		{Group: "CONEXÕES", Label: "Chave de API", Value: configRowAPIKey, Meta: m.configAPIKeyValue()},
