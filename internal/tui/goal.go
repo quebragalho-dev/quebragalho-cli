@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/errhint"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
@@ -155,11 +157,35 @@ func parseGoalObjective(input string) (string, int, error) {
 	if input == "" {
 		return "", 0, fmt.Errorf("é preciso informar o objetivo da meta")
 	}
+	if count := utf8.RuneCountInString(input); count > sessions.GoalObjectiveMaxLength {
+		return "", 0, fmt.Errorf(
+			"o objetivo tem %s caracteres e o limite é %s; coloque os detalhes num arquivo (ex.: SPEC.md) e cite o arquivo na meta",
+			qgaccount.GroupThousands(strconv.Itoa(count)),
+			qgaccount.GroupThousands(strconv.Itoa(sessions.GoalObjectiveMaxLength)),
+		)
+	}
 	return input, budget, nil
 }
 
 func goalBudgetSpecified(input string) bool {
 	return strings.HasPrefix(strings.TrimSpace(input), "--tokens")
+}
+
+// goalContinuationSummary renders the "Continuando meta:" row: only the
+// first non-empty line, cut at 80 runes with "…" when truncated, so a
+// long multi-line objective does not flood the transcript on every
+// continuation.
+func goalContinuationSummary(objective string) string {
+	for _, line := range strings.Split(objective, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			runes := []rune(trimmed)
+			if len(runes) <= 80 {
+				return trimmed
+			}
+			return string(runes[:80]) + "…"
+		}
+	}
+	return strings.TrimSpace(objective)
 }
 
 func (m model) appendGoalStatus() model {
@@ -333,7 +359,7 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 	goal = updated.Goal
 	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 		kind: rowSystem,
-		text: "Continuando meta: " + goal.Objective,
+		text: "Continuando meta: " + goalContinuationSummary(goal.Objective),
 	})
 	prompt := m.sessionPrompt(goalContinuationPrompt)
 	m, err = m.appendSessionEvent(sessions.EventMessage, map[string]any{
