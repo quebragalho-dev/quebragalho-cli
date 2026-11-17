@@ -3379,6 +3379,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cacheCompactedPending = true
 		}
 		m.lastCompactResult = &msg.result
+		// The summarizer request ran on the compact goroutine, which must
+		// not touch model state: record its usage here, through the same
+		// tracker and provider_usage path as agent turns.
+		if msg.hasCompactionUsage && msg.compactionUsage.TotalTokens() > 0 {
+			m = m.recordCompactionUsage(msg.compactionModel, msg.compactionUsage)
+		}
 		m = m.setCompactStatusRow(m.compactText(true))
 		m, parkedCmd := m.launchParkedSendNowAfterCompaction()
 		if m.goalContinueAfterCompact {

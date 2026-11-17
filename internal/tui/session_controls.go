@@ -12,6 +12,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
@@ -52,6 +53,13 @@ type compactResultMsg struct {
 	sessionEvents      []sessions.Event
 	transcript         []transcriptRow
 	hasSessionSnapshot bool
+	// compactionUsage carries the summarizer provider call's usage back to
+	// the Update loop (runCompact runs async and must not touch model
+	// state). Empty when the provider reported no usage: then no usage
+	// event is recorded.
+	compactionUsage    qgruntime.Usage
+	compactionModel    string
+	hasCompactionUsage bool
 }
 
 func (m model) handleEffortCommand(args string) (model, string) {
@@ -477,17 +485,28 @@ func (m model) runCompact() tea.Cmd {
 		}
 	}
 	return func() tea.Msg {
-		next, result, err := m.compactActiveSession()
+		next, result, summaryUsage, err := m.compactActiveSession()
 		if err != nil {
 			return compactResultMsg{err: err}
 		}
-		return compactResultMsg{
+		msg := compactResultMsg{
 			result:             result,
 			activeSession:      next.activeSession,
 			sessionEvents:      append([]sessions.Event{}, next.sessionEvents...),
 			transcript:         append([]transcriptRow{}, next.transcript...),
 			hasSessionSnapshot: true,
 		}
+		// The summarizer request is a real provider call: carry its usage
+		// back to the Update loop, which records it through the same
+		// tracker and provider_usage path as agent turns. The goroutine
+		// must not touch model state itself. A provider that reports no
+		// usage leaves no trace (no empty event).
+		if summaryUsage.TotalTokens() > 0 {
+			msg.compactionUsage = summaryUsage
+			msg.compactionModel = request.ModelName
+			msg.hasCompactionUsage = true
+		}
+		return msg
 	}
 }
 
@@ -727,9 +746,9 @@ func (m model) hasSessionBackedCompactor() bool {
 	return m.sessionStore != nil && strings.TrimSpace(m.activeSession.SessionID) != ""
 }
 
-func (m model) compactActiveSession() (model, CompactResult, error) {
+func (m model) compactActiveSession() (model, CompactResult, qgruntime.Usage, error) {
 	if m.sessionStore == nil || strings.TrimSpace(m.activeSession.SessionID) == "" {
-		return m, CompactResult{}, fmt.Errorf("no active session to compact")
+		return m, CompactResult{}, qgruntime.Usage{}, fmt.Errorf("no active session to compact")
 	}
 	beforeEvents := append([]sessions.Event{}, m.sessionEvents...)
 	beforeTokens := estimateTranscriptTokens(m.transcript)
@@ -738,7 +757,7 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 		SkipPrompt:   true,
 	})
 	if err != nil {
-		return m, CompactResult{}, err
+		return m, CompactResult{}, qgruntime.Usage{}, err
 	}
 	if plan.CompactableCount == 0 {
 		return m, CompactResult{
@@ -746,20 +765,20 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 			BeforeTokens: beforeTokens,
 			AfterTokens:  beforeTokens,
 			Summary:      "not enough session history to compact yet",
-		}, nil
+		}, qgruntime.Usage{}, nil
 	}
 
 	rawEvents, err := m.sessionStore.ReadEvents(m.activeSession.SessionID)
 	if err != nil {
-		return m, CompactResult{}, fmt.Errorf("read session events for compaction: %w", err)
+		return m, CompactResult{}, qgruntime.Usage{}, fmt.Errorf("read session events for compaction: %w", err)
 	}
 	compactableEvents, err := sessionEventsForRefs(rawEvents, plan.CompactableEvents)
 	if err != nil {
-		return m, CompactResult{}, err
+		return m, CompactResult{}, qgruntime.Usage{}, err
 	}
-	summaryResult, err := m.summarizeCompactionPlan(plan, sessions.CompactionMessages(compactableEvents))
+	summaryResult, summaryUsage, err := m.summarizeCompactionPlan(plan, sessions.CompactionMessages(compactableEvents))
 	if err != nil {
-		return m, CompactResult{}, err
+		return m, CompactResult{}, qgruntime.Usage{}, err
 	}
 	// PromptChars counts the text content sent to the provider: the shared
 	// system instruction plus projected message/tool payloads. Provider protocol
@@ -770,7 +789,7 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 		Plan:    plan,
 		Summary: summaryResult.SummaryText,
 	}); err != nil {
-		return m, CompactResult{}, err
+		return m, CompactResult{}, qgruntime.Usage{}, err
 	}
 	if meta, err := m.sessionStore.Get(m.activeSession.SessionID); err == nil && meta != nil {
 		m.activeSession = *meta
@@ -778,7 +797,7 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 	events, err := m.sessionStore.ReadRehydratedEvents(m.activeSession.SessionID)
 	if err != nil {
 		m.sessionEvents = nil
-		return m, CompactResult{}, fmt.Errorf("reload compacted session: %w", err)
+		return m, CompactResult{}, qgruntime.Usage{}, fmt.Errorf("reload compacted session: %w", err)
 	}
 	m.sessionEvents = append([]sessions.Event{}, events...)
 	rows := initialTranscript()
@@ -791,7 +810,7 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 		BeforeTokens: beforeTokens,
 		AfterTokens:  estimateTranscriptTokens(m.transcript),
 		Summary:      summaryResult.SummaryText,
-	}, nil
+	}, summaryUsage, nil
 }
 
 func sessionEventsForRefs(events []sessions.Event, refs []sessions.EventRef) ([]sessions.Event, error) {
@@ -810,8 +829,9 @@ func sessionEventsForRefs(events []sessions.Event, refs []sessions.EventRef) ([]
 	return selected, nil
 }
 
-func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []qgruntime.Message) (agent.CompactionSummaryResult, error) {
+func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []qgruntime.Message) (agent.CompactionSummaryResult, qgruntime.Usage, error) {
 	var promptChars int
+	var summaryUsage qgruntime.Usage
 	result, err := agent.SummarizeCompactionMessages(messages, func(projected []qgruntime.Message) (string, error) {
 		if m.provider == nil {
 			return deterministicCompactionSummary(plan), nil
@@ -833,6 +853,11 @@ func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []
 		if collected.Error != "" {
 			return "", fmt.Errorf("summarize compacted session: %s", collected.Error)
 		}
+		// The summary request is a compaction-summarizer call like the
+		// agent's automatic compaction: tag it so its cost still counts
+		// while the session-cache stats skip it.
+		summaryUsage = collected.Usage
+		summaryUsage.Summarizer = true
 		result := strings.TrimSpace(collected.Text)
 		if result == "" {
 			return "", fmt.Errorf("summarize compacted session: empty summary")
@@ -840,7 +865,7 @@ func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []
 		return result, nil
 	})
 	if err != nil {
-		return result, err
+		return result, qgruntime.Usage{}, err
 	}
 	if promptChars > 0 {
 		// ProjectedChars feeds plan.PromptChars below: count what was actually
@@ -848,7 +873,7 @@ func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []
 		// projected wire messages.
 		result.ProjectedChars = promptChars - len(agent.CompactionSummaryInstructions)
 	}
-	return result, nil
+	return result, summaryUsage, nil
 }
 
 // compactionRequestChars counts the text content of a provider request,
@@ -937,6 +962,54 @@ func (m model) setCompactStatusRow(text string) model {
 		}
 	}
 	m.transcript = appendTranscriptRow(m.transcript, row)
+	return m
+}
+
+// recordCompactionUsage records the compaction summarizer's provider call
+// through the same path as agent turns: the usage tracker (so the call's
+// cost counts) plus a provider_usage session event in the agent's format,
+// labeled with the model id like every other call. The summarizer tag is
+// what identifies the compaction; it keeps the call out of the
+// session-cache stats, exactly like the agent's automatic compaction. The
+// receipt row goes to the live transcript too, so the live view matches
+// the resumed one. Must run on the Update loop, never in runCompact's
+// goroutine.
+func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) model {
+	callModelID := strings.TrimSpace(event.ModelID)
+	if callModelID == "" {
+		callModelID = strings.TrimSpace(modelID)
+	}
+	if callModelID == "" {
+		callModelID = strings.TrimSpace(m.modelName)
+	}
+	if callModelID == "" {
+		return m
+	}
+	event.Summarizer = true
+	var info qgaccount.ModelInfo
+	if found := m.apiModel(callModelID); found != nil {
+		info = *found
+	}
+	receipt := callUsageRow(0, m.compactRequests, callModelID, event, info)
+	m.transcript = appendTranscriptRow(m.transcript, receipt)
+	m, usageRows := m.recordUsageEvent(callModelID, event, receipt)
+	for _, row := range usageRows {
+		m.transcript = appendTranscriptRow(m.transcript, row)
+	}
+	payload := usage.EventUsagePayload(event)
+	payload["model"] = callModelID
+	payload["summarizer"] = true
+	payload["call_id"] = receipt.id
+	payload["call_label"] = receipt.text
+	payload["call_tokens"] = receipt.meta["tokens"]
+	payload["cost_exact"] = receipt.meta["amount"]
+	payload["cost_currency"] = receipt.meta["currency"]
+	payload["call_elapsed_ns"] = event.Elapsed.Nanoseconds()
+	var err error
+	m, err = m.appendSessionEvent(sessions.EventUsage, payload)
+	if err != nil {
+		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "erro ao gravar a sessão: " + err.Error()})
+	}
 	return m
 }
 

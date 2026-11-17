@@ -85,7 +85,7 @@ func TestCompactSummaryRequestEndsWithRenderedUserMessage(t *testing.T) {
 		}},
 		{Role: qgruntime.MessageRoleTool, ToolCallID: "ask-1", Content: "Postgres only"},
 	}
-	summary, err := m.summarizeCompactionPlan(sessions.CompactionPlan{}, messages)
+	summary, _, err := m.summarizeCompactionPlan(sessions.CompactionPlan{}, messages)
 	if err != nil {
 		t.Fatalf("summarizeCompactionPlan() = %v", err)
 	}
@@ -115,7 +115,7 @@ func TestCompactSummaryRequestRendersToolOnlyHistory(t *testing.T) {
 		{Role: qgruntime.MessageRoleTool, ToolCallID: "call-1", Content: "routine ok"},
 		{Role: qgruntime.MessageRoleTool, ToolCallID: "call-2", Content: bigOutput},
 	}
-	summary, err := m.summarizeCompactionPlan(sessions.CompactionPlan{}, messages)
+	summary, _, err := m.summarizeCompactionPlan(sessions.CompactionPlan{}, messages)
 	if err != nil {
 		t.Fatalf("summarizeCompactionPlan() = %v", err)
 	}

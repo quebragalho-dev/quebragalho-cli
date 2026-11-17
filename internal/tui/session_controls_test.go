@@ -652,7 +652,7 @@ func TestManualCompactionPersistsStructuralTruncationMetadata(t *testing.T) {
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowUser, text: content})
 	}
 
-	next, result, err := m.compactActiveSession()
+	next, result, _, err := m.compactActiveSession()
 	if err != nil || !result.Compacted {
 		t.Fatalf("compactActiveSession() = (%#v, %v)", result, err)
 	}
