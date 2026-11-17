@@ -1383,7 +1383,7 @@ func newModel(ctx context.Context, options Options) model {
 		runtimeMessageSink:          options.RuntimeMessageSink,
 		permissionMode:              permissionMode,
 		reasoningEffort:             options.ReasoningEffort,
-		responseStyle:               defaultedResponseStyle(options.ResponseStyle),
+		responseStyle:               defaultedResponseStyle(firstNonEmptyString(options.ResponseStyle, options.SavedResponseStyle)),
 		keyBindings:                 resolvedKeyBindings,
 		themeMode:                   resolveThemeMode(options.Theme, os.Getenv("QG_THEME"), options.SavedTheme),
 		hasDarkBg:                   true,
@@ -5261,6 +5261,16 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 		if text != "" { // empty when a key prompt opened instead of finalizing
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		}
+	case pickerStyle:
+		previous := m.responseStyle
+		text := ""
+		var saveErr error
+		m, text, saveErr = m.handleStyleCommand(item.Value)
+		if m.responseStyle != previous {
+			notice, tone := m.styleResultNotice(saveErr)
+			return m.showTransientNoticeInline(notice, tone), cmd
+		}
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 	case pickerSTTDownload:
 		return m.handleSTTDownloadSelection(item.Value)
 	case pickerTheme:
@@ -5930,11 +5940,19 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
 	case commandStyle:
+		// Bare `/style` opens the style picker; `/style <valor>` (or
+		// `/style list`) still runs the text handler.
+		if strings.TrimSpace(command.text) == "" {
+			m.picker = m.newStylePicker()
+			return m, nil
+		}
 		previous := m.responseStyle
 		text := ""
-		m, text = m.handleStyleCommand(command.text)
+		var saveErr error
+		m, text, saveErr = m.handleStyleCommand(command.text)
 		if m.responseStyle != previous {
-			return m.showTransientNoticeInline("Style: "+m.responseStyle, transientNoticeSuccess), nil
+			notice, tone := m.styleResultNotice(saveErr)
+			return m.showTransientNoticeInline(notice, tone), nil
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil

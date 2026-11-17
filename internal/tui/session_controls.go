@@ -274,34 +274,119 @@ func reasoningEffortIndex(efforts []modelregistry.ReasoningEffort, want modelreg
 	return -1
 }
 
-func (m model) handleStyleCommand(args string) (model, string) {
-	args = strings.TrimSpace(strings.ToLower(args))
-	if args == "" || args == "list" {
-		return m, m.styleText()
+// canonicalResponseStyleInput maps a /style argument to its stored English
+// value, accepting the Portuguese display names as synonyms. Unknown values
+// pass through unchanged so the caller can report them.
+func canonicalResponseStyleInput(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "equilibrado":
+		return "balanced"
+	case "conciso":
+		return "concise"
+	case "explicativo":
+		return "explanatory"
+	case "revisão", "revisao":
+		return "review"
+	default:
+		return strings.ToLower(strings.TrimSpace(raw))
 	}
-	if !responseStyleAllowed(args) {
-		return m, "Style\nUnknown response style: " + args
+}
+
+// responseStyleLabel renders a stored style value with its Portuguese name.
+func responseStyleLabel(value string) string {
+	switch value {
+	case "balanced":
+		return "equilibrado"
+	case "concise":
+		return "conciso"
+	case "explanatory":
+		return "explicativo"
+	case "review":
+		return "revisão"
+	default:
+		return value
 	}
-	m.responseStyle = args
-	return m, strings.Join([]string{
-		"Style",
-		"active style: " + m.responseStyle,
-		"Style preference is stored for this TUI session.",
-	}, "\n")
+}
+
+func (m model) handleStyleCommand(args string) (model, string, error) {
+	raw := strings.TrimSpace(args)
+	arg := canonicalResponseStyleInput(raw)
+	// Bare `/style` opens the picker at the dispatch layer, so it never
+	// reaches here empty; keep the card as the fallback.
+	if arg == "" || arg == "list" {
+		return m, m.styleText(), nil
+	}
+	if !responseStyleAllowed(arg) {
+		return m, "Estilo\nEstilo desconhecido: " + raw, nil
+	}
+	m.responseStyle = arg
+	saveErr := m.saveResponseStyle()
+	lines := []string{
+		"Estilo",
+		"estilo ativo: " + responseStyleLabel(m.responseStyle),
+	}
+	switch {
+	case saveErr != nil:
+		lines = append(lines, "nota: não foi possível salvar a preferência de estilo ("+saveErr.Error()+")")
+	case strings.TrimSpace(m.userConfigPath) == "":
+		lines = append(lines, "Vale só nesta sessão: sem caminho de config, a preferência não foi salva.")
+	default:
+		lines = append(lines, "Estilo: "+responseStyleLabel(m.responseStyle)+" · salvo")
+	}
+	return m, strings.Join(lines, "\n"), saveErr
+}
+
+// styleAppliedNotice returns the compact confirmation used after a successful
+// style switch. The full state card remains available through /style list.
+func (m model) styleAppliedNotice() string {
+	if strings.TrimSpace(m.userConfigPath) == "" {
+		return "Estilo: " + responseStyleLabel(m.responseStyle) + " · só nesta sessão"
+	}
+	return "Estilo: " + responseStyleLabel(m.responseStyle) + " · salvo"
+}
+
+// saveResponseStyle writes the active style to user config so it is applied
+// again at startup (via Options.SavedResponseStyle). Best-effort: nil means
+// saved, or session-only when there is no config path (not a failure).
+func (m model) saveResponseStyle() error {
+	if strings.TrimSpace(m.userConfigPath) == "" {
+		return nil
+	}
+	_, err := config.SetResponseStyle(m.userConfigPath, m.responseStyle)
+	return err
+}
+
+// styleResultNotice builds the transient confirmation for an applied style
+// from the real persist outcome: a clean save (or session-only scope) keeps
+// the success tone, while a failed write reports it with the warning tone.
+func (m model) styleResultNotice(saveErr error) (string, transientNoticeTone) {
+	if saveErr != nil {
+		return "Estilo: " + responseStyleLabel(m.responseStyle) + " · não salvo (" + shortErrorText(saveErr) + ")", transientNoticeWarning
+	}
+	return m.styleAppliedNotice(), transientNoticeSuccess
+}
+
+// shortErrorText keeps only the first line of an error for inline notices.
+func shortErrorText(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	if i := strings.Index(msg, "\n"); i >= 0 {
+		msg = strings.TrimSpace(msg[:i])
+	}
+	return msg
 }
 
 func (m model) styleText() string {
 	return renderCommandOutput(commandOutput{
-		Title:  "Style",
+		Title:  "Estilo",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
-			Title: "State",
+			Title: "Estado",
 			Lines: []string{
-				"active style: " + m.responseStyle,
-				"available: " + strings.Join(responseStyles, ", "),
+				"estilo ativo: " + responseStyleLabel(m.responseStyle),
+				"disponíveis: balanced (equilibrado), concise (conciso), explanatory (explicativo), review (revisão)",
 			},
 		}},
-		Hints: []string{"use /style <value> to update this TUI session"},
+		Hints: []string{"use /style sem argumento para abrir o seletor, ou /style <valor> para trocar direto"},
 	})
 }
 

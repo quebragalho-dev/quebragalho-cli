@@ -1071,6 +1071,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		Version:               version,
 		Theme:                 theme,
 		SavedTheme:            resolved.Preferences.Theme,
+		SavedResponseStyle:    resolved.Preferences.ResponseStyle,
 		UpdateNotice:          updateNotice,
 		UpdateNoticeStateFile: updateNoticeState,
 		UserConfigPath:        userConfigPath,

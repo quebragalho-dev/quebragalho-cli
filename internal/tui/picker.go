@@ -28,6 +28,7 @@ const (
 	pickerSTTModel
 	pickerSTTDownload
 	pickerUsage
+	pickerStyle
 )
 
 // pickerItem is one selectable row: Label is shown, Value is passed to the
@@ -1026,6 +1027,28 @@ func (m model) newEffortPickerFor(modelID string, preselect string, resume *comm
 		}
 	}
 	return &commandPicker{kind: pickerEffort, title: "Nível", items: items, allItems: append([]pickerItem{}, items...), selected: selected, resume: resume, effortModel: modelID}
+}
+
+// newStylePicker lists the four reply styles with their Portuguese names and a
+// one-line description each, preselecting the active style. The chosen value is
+// applied through handleStyleCommand, which also persists it to user config.
+func (m model) newStylePicker() *commandPicker {
+	items := []pickerItem{
+		{Label: "Equilibrado", Value: "balanced", Detail: "respostas diretas com o contexto essencial"},
+		{Label: "Conciso", Value: "concise", Detail: "vai direto ao resultado, sem rodeios"},
+		{Label: "Explicativo", Value: "explanatory", Detail: "explica o raciocínio, as trocas e o contexto"},
+		{Label: "Revisão", Value: "review", Detail: "olhar crítico: riscos, premissas e evidências"},
+	}
+	selected := 0
+	for index, item := range items {
+		if item.Value == m.responseStyle {
+			selected = index
+			break
+		}
+	}
+	// allItems lets the query filter restore rows on Backspace (one-way narrowing
+	// otherwise, since applyQuery falls back to the current items without it).
+	return &commandPicker{kind: pickerStyle, title: "Escolher estilo", items: items, allItems: append([]pickerItem{}, items...), selected: selected}
 }
 
 // newThemePicker lists the terminal-native system theme followed by named palettes
