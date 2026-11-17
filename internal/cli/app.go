@@ -2019,11 +2019,6 @@ Opções:
                                      prefira --plan / --auto no uso interativo.
                                      Para filhos de especialista/swarm.
       --max-turns <number>           Troca o máximo de turnos do loop do agente
-      --exec-profile <name>          Perfil de execução (balanced, fast,
-                                     thorough): postura do loop (turnos,
-                                     esforço, autocorreção, escalação); combina
-                                     com --mode (que escolhe o modelo); flags
-                                     explícitas vencem
       --auto <low|medium|high>       Autonomia (high libera sem confirmar)
       --enabled-tools <tools>        Expõe só estas ferramentas, por vírgula
                                      ou espaço

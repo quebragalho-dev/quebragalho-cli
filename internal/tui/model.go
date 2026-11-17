@@ -181,44 +181,27 @@ type model struct {
 	notifier                    *notify.Notifier
 	permissionMode              agent.PermissionMode
 	// permissionModeBeforePlan holds whatever mode was active when /plan on
-	// entered PermissionModePlan, so /plan off can restore it exactly (mirrors
-	// the execProfile displaced/applied pattern below).
+	// entered PermissionModePlan, so /plan off can restore it exactly.
 	permissionModeBeforePlan agent.PermissionMode
 	selfCorrectTests         bool
 	reasoningEffort          modelregistry.ReasoningEffort
-	// Active execution profile (set by /profile; applies to the NEXT run).
-	// The displaced/applied pairs let a switch or /profile balanced restore
-	// exactly what the profile replaced while leaving later manual overrides
-	// (Ctrl+T, /selfcorrect) alone: each knob is only reverted when it
-	// still holds the value the profile applied.
-	execProfileName              string
-	execProfileDisplacedMaxTurns int
-	execProfileAppliedMaxTurns   int
-	execProfileAppliedEffort     modelregistry.ReasoningEffort
-	execProfileArmedSelfCorrect  bool
-	// The touched bits record explicit user choices made while a profile is
-	// active (/effort, Ctrl+T, /selfcorrect); a touched knob is never
-	// reverted, even when its value coincides with what the profile applied.
-	execProfileTurnsTouched       bool
-	execProfileEffortTouched      bool
-	execProfileSelfCorrectTouched bool
-	responseStyle                 string
-	attachmentRenderers           []*termimage.ImageRenderer
-	keyBindings                   keyBindings
-	themeMode                     themeMode // palette preference: system (default) or named palette
-	hasDarkBg                     bool      // last terminal background-detection result, if one is delivered
-	updateNotice                  *updatenotice.Config
-	updateNoticeState             string // state file the footer check reads and merges
-	updateAvailable               string // version shown in the footer notice, "" hides it
-	userAgent                     string
-	compactRequests               int
-	compactInFlight               bool
-	compactFrame                  int
-	lastCompactResult             *CompactResult
-	lastCompactError              string
-	unpricedRequests              int
-	unpricedTokens                int
-	streamUsage                   qgruntime.Usage
+	responseStyle            string
+	attachmentRenderers      []*termimage.ImageRenderer
+	keyBindings              keyBindings
+	themeMode                themeMode // palette preference: system (default) or named palette
+	hasDarkBg                bool      // last terminal background-detection result, if one is delivered
+	updateNotice             *updatenotice.Config
+	updateNoticeState        string // state file the footer check reads and merges
+	updateAvailable          string // version shown in the footer notice, "" hides it
+	userAgent                string
+	compactRequests          int
+	compactInFlight          bool
+	compactFrame             int
+	lastCompactResult        *CompactResult
+	lastCompactError         string
+	unpricedRequests         int
+	unpricedTokens           int
+	streamUsage              qgruntime.Usage
 	// streamEstimateChars counts streamed output runes (text, reasoning and
 	// tool-call arguments) since streamEstimateStart, the live speed estimate
 	// behind the composer border. liveEstimateRate divides by the elapsed
@@ -5968,22 +5951,6 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// Unlike the turn budget, the limit is read when a run starts, so changing it
 		// mid-run is safe: it applies to the next message, never this run.
 		return m.handleAutoCompactCommand(command.text)
-	case commandProfile:
-		// Same idle-session rule as the turn budget: switching the profile mutates the
-		// turn budget (and its QG_MAX_TURNS propagation), so a change needs
-		// an idle session; bare /profile (status) is always allowed.
-		if m.pending && strings.TrimSpace(command.text) != "" && !strings.EqualFold(strings.TrimSpace(command.text), "status") {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Profile\nFinish or stop the current run before switching the execution profile."})
-			return m, nil
-		}
-		previous := m.execProfileName
-		text := ""
-		m, text = m.handleProfileCommand(command.text)
-		if m.execProfileName != previous {
-			return m.showTransientNoticeInline(m.profileAppliedNotice(), transientNoticeSuccess), nil
-		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
-		return m, nil
 	case commandTheme:
 		// Bare `/theme` opens a picker with a contained candidate preview. An
 		// explicit `/theme <name>` (or `/theme list`) still runs the text handler.

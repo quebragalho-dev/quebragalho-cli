@@ -268,33 +268,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// guarantees their aggregate counts are present even on an early return.
 		task.emit()
 	}()
-	// The execution-profile posture controller. nil Options.Profile (every
-	// existing caller) makes every observe/decide call a no-op, keeping the
-	// loop byte-identical for unprofiled runs.
-	posture := newProfileController(options.Profile)
-	// applyPosture applies at most one posture escalation when an armed trigger
-	// has fired: raise the hoisted turn ceiling, restore effort and the
-	// completion gate, stamp the counter. Shared by the end-of-turn tail and
-	// the completion-gate uncertain path (which continues the loop before the
-	// tail runs). No-op forever after the first escalation and for unprofiled
-	// runs.
-	applyPosture := func() {
-		if target, fired := posture.maybeEscalate(); fired {
-			if target.MaxTurns > maxTurns {
-				maxTurns = target.MaxTurns
-			}
-			if target.ReasoningEffort != "" {
-				options.ReasoningEffort = target.ReasoningEffort
-			} else if target.RestoreDefaultEffort {
-				options.ReasoningEffort = ""
-			}
-			if target.RestoreCompletionGate {
-				options.RequireCompletionSignal = true
-			}
-			options.Trace.Counter(trace.CounterPostureEscalations, 1)
-		}
-	}
-
 	// Background post-edit diagnostics: files changed by mutating tools are
 	// checked off the tool-call critical path and any errors are appended as a
 	// nudge before the NEXT request (see async_diagnostics.go). nil when no
@@ -677,11 +650,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					emitStep()
 					return result, nil
 				case CompletionUncertain:
-					// Observe the uncertainty signal and apply any escalation NOW:
-					// this branch continues the turn loop before the end-of-turn
-					// act point, so deferring would skip escalation entirely.
-					posture.observeUncertain()
-					applyPosture()
 					switch evaluation.Action {
 					case completionActionContinue:
 						options.Trace.Counter(trace.CounterCompletionNudges, 1)
@@ -845,7 +813,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// would misdirect the model toward JSON shape or blocked behavior.
 			retriableFailure := isRetriableToolError(toolResult)
 			outcome := guards.observeToolResult(call.Name, retriableFailure, toolResult.ModelOutput())
-			posture.observeToolOutcome(outcome, toolResult)
 			if outcome.Stop {
 				// The assistant message advertised EVERY collected tool call, but
 				// the guard halts mid-turn so the calls after this one never run.
@@ -902,7 +869,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// tool_results breaks strict provider replay). nil SelfCorrect is a no-op.
 		if options.SelfCorrect != nil && len(changedFilesThisBatch) > 0 {
 			feedback, selfCorrectOutcome := options.SelfCorrect.AfterEdit(ctx, dedupeStrings(changedFilesThisBatch))
-			posture.observeSelfCorrect(selfCorrectOutcome)
 			task.observe(taskStateEvent{kind: taskStateEventVerification, verification: selfCorrectOutcome})
 			if feedback != "" {
 				appendSuffixNote(feedback)
@@ -987,12 +953,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			appendSuffixNote(reminder)
 		}
 
-		// One-shot posture escalation: when an armed profile trigger fired this
-		// turn, restore the stricter knob values the profile displaced. Mutates
-		// only per-turn-read policy (the hoisted turn ceiling, reasoning effort,
-		// completion gate); never messages, model, or session. No-op forever
-		// after the first escalation and for every unprofiled run.
-		applyPosture()
 		emitStep()
 	}
 

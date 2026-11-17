@@ -495,13 +495,11 @@ func (m model) handleModelCommandScope(args string, persist bool) (model, string
 	} else {
 		m = m.recordRecentModels(recent...)
 	}
-	// Drop a known-unsupported preference, void any profile bookkeeping the
-	// drop erased, and re-derive an active profile's per-model effort fill.
-	// The ring is authoritative only for catalog-resolved targets
-	// (target.entry non-nil); live-discovered/custom targets carry no support
-	// knowledge, so an explicit preference survives onto them. resetEffort
-	// reports a dropped preference nothing refilled (shown as a reset to
-	// auto).
+	// Drop a known-unsupported preference. The ring is authoritative only for
+	// catalog-resolved targets (target.entry non-nil); live-discovered/custom
+	// targets carry no support knowledge, so an explicit preference survives
+	// onto them. resetEffort reports a dropped preference (shown as a reset
+	// to auto).
 	var resetEffort bool
 	m, resetEffort = m.reconcileEffortForModelSwitch(target.reasoningEfforts, target.entry != nil)
 	effortLine := "nível: " + effortDisplayLabel(m.effortDisplay())

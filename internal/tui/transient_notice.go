@@ -34,10 +34,6 @@ func (m model) selfCorrectAppliedNotice() string {
 	return "Autocorreção: desativada"
 }
 
-func (m model) profileAppliedNotice() string {
-	return "Perfil: " + profileDisplayLabel(m.execProfileName)
-}
-
 // transientNoticeDuration is deliberately long enough to read at a glance but
 // short enough that routine command confirmations do not become transcript
 // clutter. Details, actions, and diagnostics remain normal transcript rows.
@@ -107,22 +103,6 @@ func (m model) setTransientNotice(text string, tone transientNoticeTone) (model,
 	}
 	m.transientNoticeSeq++
 	return m, true
-}
-
-// profileDisplayLabel maps an execution-profile name to its Portuguese
-// display label. Unknown (custom) names pass through; empty means the
-// balanced restore profile.
-func profileDisplayLabel(name string) string {
-	switch strings.TrimSpace(name) {
-	case "", "balanced":
-		return "equilibrado"
-	case "fast":
-		return "rápido"
-	case "thorough":
-		return "minucioso"
-	default:
-		return name
-	}
 }
 
 func (m model) transientNoticeLine(width int) string {

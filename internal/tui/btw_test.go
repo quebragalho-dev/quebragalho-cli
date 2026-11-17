@@ -238,7 +238,6 @@ func TestBTWBlocksPersistentConfigurationCommands(t *testing.T) {
 		"/provider add",
 		"/autocompact",
 		"/autocompact 400k",
-		"/profile fast",
 		"/theme dark",
 		"/config recaps off",
 		"/stt-model",
@@ -267,7 +266,6 @@ func TestBTWAllowsReadOnlyConfigurationCommands(t *testing.T) {
 		"/model list",
 		"/provider status",
 		"/autocompact status",
-		"/profile status",
 		"/theme list",
 		"/config",
 	} {

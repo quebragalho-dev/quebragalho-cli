@@ -44,7 +44,6 @@ const (
 	commandImage
 	commandAddDir
 	commandSelfCorrect
-	commandProfile
 	commandRetry
 	commandEdit
 	commandCopy
@@ -309,13 +308,6 @@ var commandDefinitions = []commandDefinition{
 		group:       commandGroupSession,
 		description: "Mostra ou ajusta a autocorreção após editar (padrão só LSP; on/tests/full incluem os testes do projeto; off/lsp desligam os testes).",
 		kind:        commandSelfCorrect,
-	},
-	{
-		name:        "/profile",
-		usage:       "/profile [status|balanced|fast|thorough]",
-		group:       commandGroupSession,
-		description: "Mostra ou troca o perfil de execução (turnos, raciocínio, autocorreção, escalação; o modelo não muda).",
-		kind:        commandProfile,
 	},
 	{
 		name:        "/retry",

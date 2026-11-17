@@ -3,15 +3,12 @@ package tui
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/execprofile"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
@@ -64,7 +61,6 @@ func (m model) handleEffortCommand(args string) (model, string) {
 	}
 	if normalized == "auto" {
 		m.reasoningEffort = ""
-		m = m.markProfileEffortTouched()
 		return m, m.effortStatusCard("auto", "Auto é a preferência local: não envia reasoning_effort. O esforço aplicado pelo servidor não é informado.")
 	}
 
@@ -82,7 +78,6 @@ func (m model) handleEffortCommand(args string) (model, string) {
 	}
 
 	m.reasoningEffort = requested
-	m = m.markProfileEffortTouched()
 	return m, m.effortStatusCard(string(requested), "Preferência de nível de raciocínio salva nesta sessão.")
 }
 
@@ -165,102 +160,25 @@ func joinReasoningEffortLabels(efforts []modelregistry.ReasoningEffort) string {
 	return strings.Join(values, ", ")
 }
 
-// markProfileEffortTouched records an explicit effort choice made while a
-// profile is active: the touched bit protects the choice from a later profile
-// revert, and disarming the policy's RestoreDefaultEffort stops a mid-run
-// escalation from clearing an effort the user pinned by hand.
-func (m model) markProfileEffortTouched() model {
-	if m.execProfileName == "" {
-		return m
-	}
-	m.execProfileEffortTouched = true
-	return m.setProfileEffortRestore(false)
-}
-
-// setProfileEffortRestore rewrites the armed policy's RestoreDefaultEffort on
-// a clone (an in-flight run may hold the current pointer), like the pinned
-// turn-budget disarm. No-op when no escalation policy is armed or the flag
-// already matches.
-func (m model) setProfileEffortRestore(restore bool) model {
-	if m.agentOptions.Profile == nil || m.agentOptions.Profile.Escalate == nil ||
-		m.agentOptions.Profile.Escalate.RestoreDefaultEffort == restore {
-		return m
-	}
-	policy := *m.agentOptions.Profile
-	escalate := *policy.Escalate
-	escalate.RestoreDefaultEffort = restore
-	policy.Escalate = &escalate
-	m.agentOptions.Profile = &policy
-	return m
-}
-
 // reconcileEffortForModelSwitch applies the effort rules for a model switch.
 // efforts is the destination's supported ring and ringKnown whether that ring
 // is authoritative (a catalog entry, whose ring may be legitimately empty) or
 // missing knowledge (a live-discovered/custom model the catalog cannot vouch
 // for either way).
 //
-// First the pre-existing generic rule: a KNOWN-unsupported preference is
-// dropped — the TUI run path forwards the effort to the provider unfiltered,
-// so it must not survive the switch, for a profile-touched effort exactly as
-// for a plain one. An UNKNOWN ring never drops an explicit preference: the
-// model may well support it, matching the cross-provider picker's behavior
-// for custom models. When a drop voids a choice living under an active
-// profile (the profile's own fill or a user override of it), the profile's
-// effort bookkeeping resets so a choice that no longer exists stops binding
-// and no stale applied/restore state remains.
-//
-// Then the profile rule: an active, untouched profile re-derives its fill for
-// the destination (conservative in both directions — the fill only ever
-// applies where support is known). The second return reports whether an
-// unsupported preference was dropped and nothing refilled (the caller's
-// "(unsupported preference reset)" display case).
+// A KNOWN-unsupported preference is dropped — the TUI run path forwards the
+// effort to the provider unfiltered, so it must not survive the switch. An
+// UNKNOWN ring never drops an explicit preference: the model may well support
+// it, matching the cross-provider picker's behavior for custom models. The
+// second return reports whether an unsupported preference was dropped (the
+// caller's "(unsupported preference reset)" display case).
 func (m model) reconcileEffortForModelSwitch(efforts []modelregistry.ReasoningEffort, ringKnown bool) (model, bool) {
 	dropped := false
 	if ringKnown && m.reasoningEffort != "" && !reasoningEffortAllowed(efforts, m.reasoningEffort) {
 		m.reasoningEffort = ""
 		dropped = true
-		if m.execProfileName != "" {
-			m.execProfileEffortTouched = false
-			m.execProfileAppliedEffort = ""
-			m = m.setProfileEffortRestore(false)
-		}
 	}
-	m = m.reconcileProfileAfterModelSwitch(efforts)
 	return m, dropped && m.reasoningEffort == ""
-}
-
-// reconcileProfileAfterModelSwitch re-derives an active profile's effort fill
-// for the model the session just switched to, whose supported ring is passed
-// in. The fill is per-model, not a session preference: fast selected on a
-// model without "low" fills nothing, and switching to a model that supports
-// it should behave exactly like selecting the profile there (and the reverse
-// switch must not keep sending a level the destination does not support). An
-// explicitly touched effort is the user's choice and is never reconciled; the
-// escalation's RestoreDefaultEffort tracks whether the profile currently
-// governs the effort.
-func (m model) reconcileProfileAfterModelSwitch(efforts []modelregistry.ReasoningEffort) model {
-	if m.execProfileName == "" || m.execProfileEffortTouched {
-		return m
-	}
-	profile, ok := execprofile.Lookup(m.execProfileName)
-	if !ok || profile.ReasoningEffort == "" {
-		return m
-	}
-	want := modelregistry.ReasoningEffort(profile.ReasoningEffort)
-	supported := reasoningEffortAllowed(efforts, want)
-	filled := m.execProfileAppliedEffort != ""
-	switch {
-	case supported && !filled && m.reasoningEffort == "":
-		m.reasoningEffort = want
-		m.execProfileAppliedEffort = want
-		m = m.setProfileEffortRestore(true)
-	case !supported && filled && m.reasoningEffort == m.execProfileAppliedEffort:
-		m.reasoningEffort = ""
-		m.execProfileAppliedEffort = ""
-		m = m.setProfileEffortRestore(false)
-	}
-	return m
 }
 
 func (m model) availableReasoningEfforts() []modelregistry.ReasoningEffort {
@@ -320,10 +238,8 @@ func (m model) cycleReasoningEffort() (model, tea.Cmd) {
 	if len(efforts) == 0 {
 		return m, nil
 	}
-	// Every branch below changes the effort; a cycle while a profile is active
-	// is an explicit user choice that must survive both a later profile revert
-	// and any mid-run escalation.
-	m = m.markProfileEffortTouched()
+	// Every branch below changes the effort; a cycle is an explicit user
+	// choice for this session.
 	if m.reasoningEffort == "" {
 		m.reasoningEffort = efforts[0]
 		return m, nil
@@ -409,134 +325,7 @@ func (m model) handleSelfCorrectCommand(args string) (model, string) {
 	default:
 		return m, "Self-correct\nUsage: /selfcorrect [status|on|off|tests|full|lsp]"
 	}
-	// An explicit choice while a profile is active must survive a later
-	// profile revert, even when it lands on the value the profile applied
-	// (e.g. /selfcorrect off then on under thorough).
-	if m.execProfileName != "" {
-		m.execProfileSelfCorrectTouched = true
-	}
 	return m, m.selfCorrectText()
-}
-
-// handleProfileCommand shows or switches the session's execution profile: a
-// loop-posture bundle (turn budget, reasoning effort, self-correction,
-// escalation triggers) applied to the NEXT run, composing with the selected
-// model rather than replacing it. Switching first restores whatever the
-// previous profile displaced (profiles never stack), and balanced IS that
-// restore: the empty profile, so selecting it just clears the posture.
-func (m model) handleProfileCommand(args string) (model, string) {
-	args = strings.TrimSpace(args)
-	if args == "" || strings.EqualFold(args, "status") {
-		return m, m.profileText()
-	}
-	profile, ok := execprofile.Lookup(args)
-	if !ok {
-		return m, "Profile\nUsage: /profile [status|" + strings.Join(execprofile.Names(), "|") + "] — switch the next run's loop posture."
-	}
-	m = m.revertExecProfile()
-	if profile.Name == execprofile.Balanced.Name {
-		return m, m.profileText()
-	}
-	// Turn budget: displace the session's current budget. The displaced value
-	// becomes the escalation restore target, exactly like headless exec, and
-	// the new budget propagates to spawned sub-agents the same way /turns does.
-	displacedMaxTurns := 0
-	if profile.MaxTurns > 0 {
-		displacedMaxTurns = m.agentOptions.MaxTurns
-		m.agentOptions.MaxTurns = profile.MaxTurns
-		m.execProfileAppliedMaxTurns = profile.MaxTurns
-		m.execProfileDisplacedMaxTurns = displacedMaxTurns
-		config.SetMaxTurnsEnv(profile.MaxTurns)
-	}
-	// Reasoning effort: fill only when the session is on auto AND the active
-	// model supports the profile's level, mirroring exec's supported-effort
-	// gating. An explicit user choice always wins over the profile.
-	if want := modelregistry.ReasoningEffort(profile.ReasoningEffort); want != "" && m.reasoningEffort == "" {
-		if reasoningEffortAllowed(m.availableReasoningEfforts(), want) {
-			m.reasoningEffort = want
-			m.execProfileAppliedEffort = want
-		}
-	}
-	// Self-correction is presence-only: a profile can arm it but never disarm
-	// an explicit /selfcorrect choice.
-	if profile.SelfCorrect && !m.selfCorrectTests {
-		m.selfCorrectTests = true
-		m.execProfileArmedSelfCorrect = true
-	}
-	m.agentOptions.Profile = profile.Policy(displacedMaxTurns, m.execProfileAppliedEffort != "")
-	m.execProfileName = profile.Name
-	return m, m.profileText()
-}
-
-// revertExecProfile restores what the active profile displaced. Each knob is
-// restored only when the user has not explicitly touched it since the profile
-// was applied (the touched bits, set by /turns, /effort, Ctrl+T, and
-// /selfcorrect) AND it still holds the value the profile applied — so manual
-// overrides survive the revert even when they coincide with the profile's own
-// value (e.g. /turns 30 under fast, or /selfcorrect off-then-on under
-// thorough).
-func (m model) revertExecProfile() model {
-	if m.execProfileName == "" {
-		return m
-	}
-	if !m.execProfileTurnsTouched && m.execProfileAppliedMaxTurns > 0 && m.agentOptions.MaxTurns == m.execProfileAppliedMaxTurns {
-		m.agentOptions.MaxTurns = m.execProfileDisplacedMaxTurns
-		if m.execProfileDisplacedMaxTurns > 0 {
-			config.SetMaxTurnsEnv(m.execProfileDisplacedMaxTurns)
-		} else {
-			// The profile's apply exported its budget to QG_MAX_TURNS (for
-			// sub-agents), and SetMaxTurnsEnv ignores qg — so restoring a
-			// qg displaced budget must clear the env explicitly or spawned
-			// children would keep the removed profile's budget.
-			_ = os.Unsetenv(config.MaxTurnsEnv)
-		}
-	}
-	if !m.execProfileEffortTouched && m.execProfileAppliedEffort != "" && m.reasoningEffort == m.execProfileAppliedEffort {
-		m.reasoningEffort = ""
-	}
-	if !m.execProfileSelfCorrectTouched && m.execProfileArmedSelfCorrect && m.selfCorrectTests {
-		m.selfCorrectTests = false
-	}
-	m.agentOptions.Profile = nil
-	m.execProfileName = ""
-	m.execProfileDisplacedMaxTurns = 0
-	m.execProfileAppliedMaxTurns = 0
-	m.execProfileAppliedEffort = ""
-	m.execProfileArmedSelfCorrect = false
-	m.execProfileTurnsTouched = false
-	m.execProfileEffortTouched = false
-	m.execProfileSelfCorrectTouched = false
-	return m
-}
-
-func (m model) profileText() string {
-	name := m.execProfileName
-	if name == "" {
-		name = execprofile.Balanced.Name + " (padrão)"
-	}
-	lines := []string{
-		"perfil de execução: " + name,
-		fmt.Sprintf("máximo de turnos de ferramenta por execução: %d", m.agentOptions.MaxTurns),
-		"nível de raciocínio: " + effortDisplayLabel(m.effortDisplay()),
-	}
-	if m.agentOptions.Profile != nil && m.agentOptions.Profile.Escalate != nil {
-		turnTarget := "mantém o orçamento de turnos fixado"
-		if target := m.agentOptions.Profile.Escalate.MaxTurns; target > 0 {
-			turnTarget = fmt.Sprintf("restaura o orçamento de turnos para %d", target)
-		}
-		lines = append(lines,
-			"escalonamento: armado — uma vez, após falhas seguidas de ferramenta, um ciclo de autocorreção que falha ou uma mutação de risco crítico; "+turnTarget,
-			"nota: o sinal de conclusão incerta só existe sem TUI (o portão de conclusão nunca roda no modo interativo), então não dispara aqui")
-	}
-	return renderCommandOutput(commandOutput{
-		Title:  "Perfil",
-		Status: commandStatusOK,
-		Sections: []commandSection{{
-			Title: "Estado",
-			Lines: lines,
-		}},
-		Hints: []string{"use /profile " + strings.Join(execprofile.Names(), "|") + " para alternar a postura da próxima execução (orçamento de turnos, nível, autocorreção, escalonamento); escolha o modelo separadamente com /model"},
-	})
 }
 
 func (m model) selfCorrectText() string {

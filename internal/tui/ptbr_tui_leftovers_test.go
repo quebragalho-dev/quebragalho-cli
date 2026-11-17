@@ -43,23 +43,17 @@ func TestPTBRPermissionEscalationReasonCard(t *testing.T) {
 	}
 }
 
-// /model and /profile cards render Portuguese at 50 and 80 columns.
-func TestPTBRModelAndProfileCards(t *testing.T) {
+// /model cards render Portuguese at 50 and 80 columns.
+func TestPTBRModelCards(t *testing.T) {
 	// Switching provider exports QG_PROVIDER through the real process env:
 	// pin it so the export cannot leak into later tests (hermetic suite).
 	t.Setenv(config.ActiveProviderEnv, "")
 	m := newModel(context.Background(), Options{ModelName: "gpt-test", ProviderName: "qg"})
-	pmRestore := model{}
-	pmRestore.agentOptions.Profile = &agent.ProfilePolicy{Escalate: &agent.PostureEscalation{MaxTurns: 80}}
-	pmKeep := model{}
-	pmKeep.agentOptions.Profile = &agent.ProfilePolicy{Escalate: &agent.PostureEscalation{}}
 	cards := []struct {
 		name, text string
 		pts, ens   []string
 	}{
 		{"model", m.modelText(""), []string{"Ativo", "modelo:", "provedor:", "nível: automático"}, []string{"Active", "model:", "provider:", "effort:"}},
-		{"profile", pmRestore.profileText(), []string{"Estado", "escalonamento:", "nota:"}, []string{"State", "escalation:", "note:"}},
-		{"profile-keep", pmKeep.profileText(), []string{"Estado", "escalonamento:", "nota:"}, []string{"State", "escalation:", "note:"}},
 	}
 	for _, c := range cards {
 		for _, width := range []int{50, 80} {
@@ -84,34 +78,6 @@ func TestPTBRModelAndProfileCards(t *testing.T) {
 	}
 	if strings.Contains(wide, "to inspect models") || strings.Contains(wide, "to switch this TUI session") {
 		t.Fatalf("model hint kept English at 120:\n%s", wide)
-	}
-
-	// Full escalation sentences are pinned on the raw card text: the 50/80
-	// renders cut these long lines exactly like the base did.
-	for _, tc := range []struct {
-		text     string
-		pts, ens []string
-	}{
-		{pmRestore.profileText(),
-			[]string{
-				"escalonamento: armado — uma vez, após falhas seguidas de ferramenta, um ciclo de autocorreção que falha ou uma mutação de risco crítico; restaura o orçamento de turnos para 80",
-				"nota: o sinal de conclusão incerta só existe sem TUI (o portão de conclusão nunca roda no modo interativo), então não dispara aqui",
-			},
-			[]string{"escalation:", "note:", "restores the turn budget", "cannot fire", "headless-only"}},
-		{pmKeep.profileText(),
-			[]string{"mantém o orçamento de turnos fixado"},
-			[]string{"keeps the pinned turn budget"}},
-	} {
-		for _, want := range tc.pts {
-			if !strings.Contains(tc.text, want) {
-				t.Fatalf("profile text missing %q:\n%s", want, tc.text)
-			}
-		}
-		for _, unwanted := range tc.ens {
-			if strings.Contains(tc.text, unwanted) {
-				t.Fatalf("profile text kept %q:\n%s", unwanted, tc.text)
-			}
-		}
 	}
 
 	// The /model switch summary keeps the note when persistence fails.
