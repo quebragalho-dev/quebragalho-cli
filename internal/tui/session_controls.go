@@ -178,8 +178,8 @@ func (m model) markProfileEffortTouched() model {
 }
 
 // setProfileEffortRestore rewrites the armed policy's RestoreDefaultEffort on
-// a clone (an in-flight run may hold the current pointer), like the /turns
-// turn-target disarm. No-op when no escalation policy is armed or the flag
+// a clone (an in-flight run may hold the current pointer), like the pinned
+// turn-budget disarm. No-op when no escalation policy is armed or the flag
 // already matches.
 func (m model) setProfileEffortRestore(restore bool) model {
 	if m.agentOptions.Profile == nil || m.agentOptions.Profile.Escalate == nil ||
@@ -418,46 +418,6 @@ func (m model) handleSelfCorrectCommand(args string) (model, string) {
 	return m, m.selfCorrectText()
 }
 
-// maxTurnsCeiling caps the per-session /turns budget so a typo (e.g. /turns 99999)
-// can't set an absurd ceiling; real multi-step tasks fit comfortably under it. Shared
-// with config so applyEnv enforces the same bound on an inherited QG_MAX_TURNS.
-const maxTurnsCeiling = config.MaxTurnsCeiling
-
-func (m model) handleTurnsCommand(args string) (model, string) {
-	args = strings.TrimSpace(args)
-	if args == "" || strings.EqualFold(args, "status") {
-		return m, m.turnsText()
-	}
-	n, err := strconv.Atoi(args)
-	if err != nil || n < 1 {
-		return m, "Turns\nUsage: /turns <n> — set the per-run tool-turn budget for this session (a positive number, e.g. /turns 150)."
-	}
-	if n > maxTurnsCeiling {
-		n = maxTurnsCeiling
-	}
-	m.agentOptions.MaxTurns = n
-	// Propagate the budget to spawned sub-agents / swarm members (which inherit the
-	// environment) so a delegated task gets the same budget, not config.json's default.
-	config.SetMaxTurnsEnv(n)
-	// An explicit /turns while a profile is active is a pinned budget: mirror
-	// headless exec's rule (an explicit --max-turns leaves nothing displaced)
-	// by disarming the escalation's turn target, so a mid-run escalation can
-	// never raise the budget the user just pinned. The other escalation
-	// triggers stay armed. Mark the knob touched so a later profile revert
-	// leaves this choice alone even if n coincides with the profile's value.
-	if m.execProfileName != "" {
-		m.execProfileTurnsTouched = true
-		if m.agentOptions.Profile != nil && m.agentOptions.Profile.Escalate != nil {
-			policy := *m.agentOptions.Profile
-			escalate := *policy.Escalate
-			escalate.MaxTurns = 0
-			policy.Escalate = &escalate
-			m.agentOptions.Profile = &policy
-		}
-	}
-	return m, m.turnsText()
-}
-
 // handleProfileCommand shows or switches the session's execution profile: a
 // loop-posture bundle (turn budget, reasoning effort, self-correction,
 // escalation triggers) applied to the NEXT run, composing with the selected
@@ -576,18 +536,6 @@ func (m model) profileText() string {
 			Lines: lines,
 		}},
 		Hints: []string{"use /profile " + strings.Join(execprofile.Names(), "|") + " para alternar a postura da próxima execução (orçamento de turnos, nível, autocorreção, escalonamento); escolha o modelo separadamente com /model"},
-	})
-}
-
-func (m model) turnsText() string {
-	return renderCommandOutput(commandOutput{
-		Title:  "Turns",
-		Status: commandStatusOK,
-		Sections: []commandSection{{
-			Title: "State",
-			Lines: []string{fmt.Sprintf("max tool-turns per run: %d", m.agentOptions.MaxTurns)},
-		}},
-		Hints: []string{fmt.Sprintf("/turns <n> sets this session's tool-turn budget (max %d); raise it for long multi-step tasks like delegation/swarm runs", maxTurnsCeiling)},
 	})
 }
 

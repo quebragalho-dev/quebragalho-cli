@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -33,10 +32,6 @@ func (m model) selfCorrectAppliedNotice() string {
 		return "Autocorreção: ativada"
 	}
 	return "Autocorreção: desativada"
-}
-
-func (m model) turnsAppliedNotice() string {
-	return fmt.Sprintf("Limite de turnos: %d", m.agentOptions.MaxTurns)
 }
 
 func (m model) profileAppliedNotice() string {

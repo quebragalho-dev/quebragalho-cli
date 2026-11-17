@@ -189,7 +189,7 @@ type model struct {
 	// Active execution profile (set by /profile; applies to the NEXT run).
 	// The displaced/applied pairs let a switch or /profile balanced restore
 	// exactly what the profile replaced while leaving later manual overrides
-	// (/turns, Ctrl+T, /selfcorrect) alone: each knob is only reverted when it
+	// (Ctrl+T, /selfcorrect) alone: each knob is only reverted when it
 	// still holds the value the profile applied.
 	execProfileName              string
 	execProfileDisplacedMaxTurns int
@@ -197,7 +197,7 @@ type model struct {
 	execProfileAppliedEffort     modelregistry.ReasoningEffort
 	execProfileArmedSelfCorrect  bool
 	// The touched bits record explicit user choices made while a profile is
-	// active (/turns, /effort, Ctrl+T, /selfcorrect); a touched knob is never
+	// active (/effort, Ctrl+T, /selfcorrect); a touched knob is never
 	// reverted, even when its value coincides with what the profile applied.
 	execProfileTurnsTouched       bool
 	execProfileEffortTouched      bool
@@ -5964,28 +5964,12 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
-	case commandTurns:
-		// Changing the budget mid-run would mutate the inherited QG_MAX_TURNS env
-		// that sub-agents spawned later in THIS run read, making the run's budget
-		// inconsistent. Require an idle session (the new budget applies next run).
-		if m.pending && strings.TrimSpace(command.text) != "" {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Turns\nFinish or stop the current run before changing the tool-turn budget."})
-			return m, nil
-		}
-		previous := m.agentOptions.MaxTurns
-		text := ""
-		m, text = m.handleTurnsCommand(command.text)
-		if m.agentOptions.MaxTurns != previous {
-			return m.showTransientNoticeInline(m.turnsAppliedNotice(), transientNoticeSuccess), nil
-		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
-		return m, nil
 	case commandAutoCompact:
-		// Unlike /turns, the limit is read when a run starts, so changing it
+		// Unlike the turn budget, the limit is read when a run starts, so changing it
 		// mid-run is safe: it applies to the next message, never this run.
 		return m.handleAutoCompactCommand(command.text)
 	case commandProfile:
-		// Same idle-session rule as /turns: switching the profile mutates the
+		// Same idle-session rule as the turn budget: switching the profile mutates the
 		// turn budget (and its QG_MAX_TURNS propagation), so a change needs
 		// an idle session; bare /profile (status) is always allowed.
 		if m.pending && strings.TrimSpace(command.text) != "" && !strings.EqualFold(strings.TrimSpace(command.text), "status") {

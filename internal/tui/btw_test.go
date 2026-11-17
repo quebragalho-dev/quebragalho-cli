@@ -236,7 +236,6 @@ func TestBTWBlocksPersistentConfigurationCommands(t *testing.T) {
 	for _, input := range []string{
 		"/model other",
 		"/provider add",
-		"/turns 100",
 		"/autocompact",
 		"/autocompact 400k",
 		"/profile fast",
@@ -267,7 +266,6 @@ func TestBTWAllowsReadOnlyConfigurationCommands(t *testing.T) {
 	for _, input := range []string{
 		"/model list",
 		"/provider status",
-		"/turns",
 		"/autocompact status",
 		"/profile status",
 		"/theme list",

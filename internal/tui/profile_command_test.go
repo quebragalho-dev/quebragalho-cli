@@ -11,6 +11,24 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
+// pinTurnsBudget reproduz o efeito do removido /turns <n> com um perfil ativo:
+// fixa o orçamento, exporta para os subagentes e desarma o alvo de turnos da
+// escalada. Os testes de revert usam-no para continuar cobrindo a semântica
+// de "orçamento fixado" sem o comando.
+func pinTurnsBudget(m model, n int) model {
+	m.agentOptions.MaxTurns = n
+	config.SetMaxTurnsEnv(n)
+	m.execProfileTurnsTouched = true
+	if m.agentOptions.Profile != nil && m.agentOptions.Profile.Escalate != nil {
+		policy := *m.agentOptions.Profile
+		escalate := *policy.Escalate
+		escalate.MaxTurns = 0
+		policy.Escalate = &escalate
+		m.agentOptions.Profile = &policy
+	}
+	return m
+}
+
 // profileSwitchModel builds a session on a model whose catalog entry supports
 // the fast profile's "low" effort, with a second saved profile carrying an
 // inline key and a custom model that has no catalog entry (so no effort ring)
@@ -290,16 +308,16 @@ func TestProfileCommandSwitchDoesNotStack(t *testing.T) {
 	}
 }
 
-// An explicit /turns while a profile is active is a pinned budget: it must
-// disarm the escalation's turn target (mirroring headless exec, where an
-// explicit --max-turns leaves nothing displaced) while the other triggers
-// stay armed, and it must survive a later revert.
+// A pinned budget while a profile is active must disarm the escalation's turn
+// target (mirroring headless exec, where an explicit --max-turns leaves nothing
+// displaced) while the other triggers stay armed, and it must survive a later
+// revert.
 func TestProfileCommandTurnsPinDisarmsEscalationTarget(t *testing.T) {
 	m := model{}
 	m.agentOptions.MaxTurns = 80
 
 	m, _ = m.handleProfileCommand("fast")
-	m, _ = m.handleTurnsCommand("20")
+	m = pinTurnsBudget(m, 20)
 	if m.agentOptions.MaxTurns != 20 {
 		t.Fatalf("MaxTurns = %d, want the pinned 20", m.agentOptions.MaxTurns)
 	}
@@ -326,10 +344,10 @@ func TestProfileCommandRevertLeavesCoincidingOverride(t *testing.T) {
 	m.agentOptions.MaxTurns = 80
 
 	m, _ = m.handleProfileCommand("fast")
-	m, _ = m.handleTurnsCommand("30") // explicit, happens to equal fast's 30
+	m = pinTurnsBudget(m, 30) // explicit, happens to equal fast's 30
 	m, _ = m.handleProfileCommand("balanced")
 	if m.agentOptions.MaxTurns != 30 {
-		t.Fatalf("MaxTurns = %d, the explicit /turns 30 must survive even though it equals fast's value", m.agentOptions.MaxTurns)
+		t.Fatalf("MaxTurns = %d, the pinned 30 must survive even though it equals fast's value", m.agentOptions.MaxTurns)
 	}
 
 	// Same for self-correct: /selfcorrect off then on under thorough is an
@@ -366,7 +384,7 @@ func TestProfileCommandRevertFromZeroClearsMaxTurnsEnv(t *testing.T) {
 }
 
 // An explicit effort choice after /profile must disarm the escalation's
-// effort restore (the effort analog of the /turns pin): a mid-run escalation
+// effort restore (the effort analog of the pinned-budget pin): a mid-run escalation
 // must never clear an effort the user pinned by hand. Needs a catalog model
 // with an effort ring so the profile's fill actually applies.
 func TestProfileCommandExplicitEffortDisarmsRestore(t *testing.T) {
@@ -410,10 +428,10 @@ func TestProfileCommandRevertLeavesManualOverride(t *testing.T) {
 	m.agentOptions.MaxTurns = 80
 
 	m, _ = m.handleProfileCommand("fast")
-	m, _ = m.handleTurnsCommand("100")
+	m = pinTurnsBudget(m, 100)
 	got, _ := m.handleProfileCommand("balanced")
 	if got.agentOptions.MaxTurns != 100 {
-		t.Fatalf("MaxTurns = %d, the user's explicit /turns 100 must survive the revert", got.agentOptions.MaxTurns)
+		t.Fatalf("MaxTurns = %d, the user's pinned 100 must survive the revert", got.agentOptions.MaxTurns)
 	}
 	// An explicit /selfcorrect choice armed BEFORE thorough must survive too.
 	m2 := model{selfCorrectTests: true}

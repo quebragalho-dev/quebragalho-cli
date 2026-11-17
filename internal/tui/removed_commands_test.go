@@ -5,16 +5,17 @@ import (
 )
 
 // Comandos removidos não podem reaparecer na lista: /fast saiu sem
-// substituto (o QG não tem modo rápido).
+// substituto (o QG não tem modo rápido); /turns saiu e o orçamento de
+// turnos passou a vir só do config/flag/env (sem ajuste pela TUI).
 func TestRemovedCommandsAbsent(t *testing.T) {
-	for _, name := range []string{"/fast"} {
+	for _, name := range []string{"/fast", "/turns"} {
 		if _, ok := resolveCommand(name); ok {
 			t.Fatalf("%s voltou à lista de comandos, want ausente", name)
 		}
 	}
 	for _, c := range commandDefinitions {
-		if c.name == "/fast" {
-			t.Fatalf("commandDefinitions ainda contém /fast: %#v", c)
+		if c.name == "/fast" || c.name == "/turns" {
+			t.Fatalf("commandDefinitions ainda contém %s: %#v", c.name, c)
 		}
 	}
 	if statuslineFieldKnown("fast") {

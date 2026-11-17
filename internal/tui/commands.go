@@ -44,7 +44,6 @@ const (
 	commandImage
 	commandAddDir
 	commandSelfCorrect
-	commandTurns
 	commandProfile
 	commandRetry
 	commandEdit
@@ -310,13 +309,6 @@ var commandDefinitions = []commandDefinition{
 		group:       commandGroupSession,
 		description: "Mostra ou ajusta a autocorreção após editar (padrão só LSP; on/tests/full incluem os testes do projeto; off/lsp desligam os testes).",
 		kind:        commandSelfCorrect,
-	},
-	{
-		name:        "/turns",
-		usage:       "/turns [n]",
-		group:       commandGroupSession,
-		description: "Mostra ou ajusta os turnos com ferramenta por execução (aumente em tarefas longas).",
-		kind:        commandTurns,
 	},
 	{
 		name:        "/profile",
