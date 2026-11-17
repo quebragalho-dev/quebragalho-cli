@@ -548,11 +548,22 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 			return mouseSelectionTarget{}, false
 		}
 	}
-	maxVisible := pickerMaxVisible(m.picker, width)
 	selected := clampInt(m.picker.selected, 0, len(m.picker.items)-1)
-	start := selectableListStart(len(m.picker.items), maxVisible, selected)
-	visible := m.picker.items[start : start+maxVisible]
 	details := pickerShowsDetails(m.picker, width)
+	start := 0
+	visible := []pickerItem{}
+	upMore := 0
+	if m.picker.kind == pickerConfig {
+		// Mirror pickerOverlay: the /config panel windows by display rows
+		// from the terminal height, with a paging line on top when scrolled.
+		var downMore int
+		start, visible, upMore, downMore = configPickerWindow(m.picker.items, selected, configPickerRowBudget(m.height), details)
+		_ = downMore
+	} else {
+		maxVisible := pickerMaxVisible(m.picker, width)
+		start = selectableListStart(len(m.picker.items), maxVisible, selected)
+		visible = m.picker.items[start : start+maxVisible]
+	}
 	// y=0 titled top border, y=1 search line, y=2 separator; rows begin after
 	// the optional header lines (only the voice first-use panel has any).
 	overlayWidth := minInt(width, pickerOverlayMaxWidth)
@@ -560,6 +571,9 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 		overlayWidth = width
 	}
 	line := 3 + len(m.picker.wrappedHeader(maxInt(1, overlayWidth-4)))
+	if upMore > 0 {
+		line++
+	}
 	lastGroup := ""
 	for offset, item := range visible {
 		if item.Group != "" && item.Group != lastGroup {

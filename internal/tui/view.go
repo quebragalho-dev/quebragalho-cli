@@ -642,15 +642,23 @@ func (m model) pickerOverlay(width int) string {
 		overlayWidth = width
 	}
 	innerWidth := maxInt(1, overlayWidth-4)
-	maxVisible := pickerMaxVisible(m.picker, width)
+	showDetails := pickerShowsDetails(m.picker, width)
 	start := 0
 	visible := []pickerItem{}
+	upMore, downMore := 0, 0
 	if len(m.picker.items) > 0 {
 		m.picker.selected = clampInt(m.picker.selected, 0, len(m.picker.items)-1)
-		start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
-		visible = m.picker.items[start : start+maxVisible]
+		if m.picker.kind == pickerConfig {
+			// The /config panel budgets display rows (items plus section
+			// headers and detail lines) from the terminal height instead of
+			// the fixed item cap, so every row that fits is shown.
+			start, visible, upMore, downMore = configPickerWindow(m.picker.items, m.picker.selected, configPickerRowBudget(m.height), showDetails)
+		} else {
+			maxVisible := pickerMaxVisible(m.picker, width)
+			start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
+			visible = m.picker.items[start : start+maxVisible]
+		}
 	}
-	showDetails := pickerShowsDetails(m.picker, width)
 
 	lines := make([]string, 0, len(visible)+7)
 	title := strings.TrimSpace(m.picker.title)
@@ -662,6 +670,9 @@ func (m model) pickerOverlay(width int) string {
 	// picker leaves header empty, so this renders nothing for them.
 	for _, headerLine := range m.picker.wrappedHeader(innerWidth) {
 		lines = append(lines, qgTheme.faint.Render(headerLine))
+	}
+	if upMore > 0 {
+		lines = append(lines, fitStyledLine(qgTheme.faint.Render("↑ mais "+strconv.Itoa(upMore)), innerWidth))
 	}
 	lastGroup := ""
 	for index, item := range visible {
@@ -714,6 +725,9 @@ func (m model) pickerOverlay(width int) string {
 			lines = append(lines, qgTheme.faint.Render("  nenhum item encontrado"))
 		}
 	}
+	if downMore > 0 {
+		lines = append(lines, fitStyledLine(qgTheme.faint.Render("↓ mais "+strconv.Itoa(downMore)), innerWidth))
+	}
 	// Hints live in the footer (a separator + faint keys), matching the /model
 	// picker and the other bordered boxes.
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
@@ -746,6 +760,93 @@ func pickerShowsDetails(p *commandPicker, width int) bool {
 		}
 	}
 	return false
+}
+
+// configPickerChromeRows is the /config overlay chrome surrounding its rows:
+// the search line, two separators, the footer, and the titled top+bottom
+// borders. The row budget is whatever the terminal height leaves after them.
+const configPickerChromeRows = 6
+
+// configPickerMinRows floors the /config row budget so short terminals still
+// show a useful window instead of a single row.
+const configPickerMinRows = 10
+
+// configPickerRowBudget returns how many display rows the /config panel may
+// use for its rows (items plus section headers and detail lines): whatever
+// fits the terminal height after the chrome, never fewer than
+// configPickerMinRows. A non-positive height means "unknown": show
+// everything rather than clipping blindly.
+func configPickerRowBudget(height int) int {
+	if height <= 0 {
+		return 1 << 30
+	}
+	return maxInt(configPickerMinRows, height-configPickerChromeRows)
+}
+
+// configPickerWindow slices the visible /config items so their rendered rows
+// (section headers, items, detail lines) plus the paging indicators fit
+// maxRows, following the selection. It returns the window start, the visible
+// items, and how many items hide above/below the window.
+func configPickerWindow(items []pickerItem, selected, maxRows int, showDetails bool) (int, []pickerItem, int, int) {
+	total := len(items)
+	if total == 0 || maxRows <= 0 {
+		return 0, nil, 0, 0
+	}
+	selected = clampInt(selected, 0, total-1)
+	budget := maxRows
+	var start, end int
+	for {
+		start, end = configPickerWindowRows(items, selected, budget, showDetails)
+		need := 0
+		if start > 0 {
+			need++
+		}
+		if end < total {
+			need++
+		}
+		if configPickerRows(items, start, end, showDetails)+need <= maxRows {
+			break
+		}
+		budget--
+	}
+	return start, items[start:end], start, total - end
+}
+
+// configPickerWindowRows grows an item window around the selection until its
+// rendered rows fill maxRows, trimming the side away from the selection when
+// headers and detail lines overflow.
+func configPickerWindowRows(items []pickerItem, selected, maxRows int, showDetails bool) (int, int) {
+	total := len(items)
+	count := minInt(total, maxInt(1, maxRows))
+	start := selectableListStart(total, count, selected)
+	end := start + count
+	for end-start > 1 && configPickerRows(items, start, end, showDetails) > maxRows {
+		if end-1 > selected {
+			end--
+		} else {
+			start++
+		}
+	}
+	return start, end
+}
+
+// configPickerRows counts the display rows an item window renders: one per
+// item plus its section header when the group changes and its detail line
+// when details render, mirroring the overlay loop below.
+func configPickerRows(items []pickerItem, start, end int, showDetails bool) int {
+	rows := 0
+	lastGroup := ""
+	for _, item := range items[start:end] {
+		if item.Group != "" && item.Group != lastGroup {
+			rows++
+			lastGroup = item.Group
+		}
+		rows++
+		if showDetails && item.Detail != "" {
+			rows++
+		}
+	}
+	return rows
 }
 
 // pickerMaxVisible caps the visible window in items. When detail lines render,
