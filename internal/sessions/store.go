@@ -81,12 +81,7 @@ const (
 )
 
 type Goal struct {
-	Objective string     `json:"objective"`
-	Tasks     []GoalTask `json:"tasks,omitempty"`
-	// TaskBoundary is the sequence of the event that opened the current task
-	// era (task split or switch). Reset mode shows the model only events at
-	// or after it. Zero means unset (legacy goals).
-	TaskBoundary      int        `json:"taskBoundary,omitempty"`
+	Objective         string     `json:"objective"`
 	Status            GoalStatus `json:"status"`
 	StatusReason      string     `json:"statusReason,omitempty"`
 	TokenBudget       int        `json:"tokenBudget,omitempty"`

@@ -60,12 +60,6 @@ type Options struct {
 	// AutoCompactLimit is the resolved preferences.autoCompactLimit value; 0
 	// means automatic, > 0 a limit in tokens, < 0 proactive compaction off.
 	AutoCompactLimit int
-	// GoalAutoSplit is the resolved goal.autoSplit value; nil defaults to on:
-	// a single-sentence goal is split into tasks on its first run.
-	GoalAutoSplit *bool
-	// GoalBetweenTasks is the resolved goal.betweenTasks value; empty defaults
-	// to compact. One of compact, keep, or reset (validated at Resolve).
-	GoalBetweenTasks string
 	// StatusLine carries resolved.Preferences-independent TUI customization:
 	// user layout plus command, optionally with project layout underneath.
 	// Zero renders the built-in line byte for byte.

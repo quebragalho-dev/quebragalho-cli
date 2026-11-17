@@ -676,10 +676,6 @@ type model struct {
 	idleRecap                    string
 	compactionModel              string // preferences.compactionModel (see providers.CompactionModelID)
 	autoCompactLimit             int    // resolved preferences.autoCompactLimit; 0 automatic, > 0 tokens, < 0 off
-	goalAutoSplit                *bool  // resolved goal.autoSplit; nil defaults to on
-	goalBetweenTasks             string // resolved goal.betweenTasks; empty defaults to compact
-	goalTaskAdvanced             bool   // a task finished mid-run; the next step applies the between-tasks mode
-	goalContinueAfterCompact     bool   // run the next task continuation once the between-tasks compaction lands
 	modelPickerLoading           bool
 	modelPickerLoadingProviderID string
 	modelPickerLoadError         string
@@ -1199,7 +1195,7 @@ func (m model) rebuiltContinuation() (model, turnContinuation, bool) {
 	if err != nil || len(events) == 0 {
 		return m, turnContinuation{}, false
 	}
-	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(m.goalEraEvents(events)))
+	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(events))
 	if len(msgs) == 0 {
 		return m, turnContinuation{}, false
 	}
@@ -1361,8 +1357,6 @@ func newModel(ctx context.Context, options Options) model {
 		recentModels:                normalizeRecentModelEntries(options.RecentModels),
 		compactionModel:             options.CompactionModel,
 		autoCompactLimit:            options.AutoCompactLimit,
-		goalAutoSplit:               options.GoalAutoSplit,
-		goalBetweenTasks:            options.GoalBetweenTasks,
 		statuslineCfg:               options.StatusLine,
 		recapsEnabled:               options.RecapsEnabled,
 		provider:                    options.Provider,
@@ -3312,7 +3306,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var goalCmd tea.Cmd
 		if msg.goalAware && !hadQueuedMessage && peerCmd == nil && next.pendingPermission == nil && msg.specReview == nil {
-			next, goalCmd = next.launchGoalNextStepIfReady()
+			next, goalCmd = next.launchGoalContinuationIfReady()
 		}
 		// A finished turn may have rewritten files, switched branches, or
 		// landed on a new head: re-check the header off the UI goroutine.
@@ -3340,17 +3334,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.lastCompactError = msg.err.Error()
 			m = m.setCompactStatusRow(m.compactText(true))
-			m, parkedCmd := m.launchParkedSendNowAfterCompaction()
-			if m.goalContinueAfterCompact {
-				m.goalContinueAfterCompact = false
-				m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
-					kind: rowSystem,
-					text: "Compactação falhou; seguindo para a próxima tarefa sem compactar.",
-				})
-				next, goalCmd := m.launchGoalContinuationIfReady()
-				return next, tea.Batch(parkedCmd, goalCmd)
-			}
-			return m, parkedCmd
+			return m.launchParkedSendNowAfterCompaction()
 		}
 		if msg.hasSessionSnapshot {
 			m.activeSession = msg.activeSession
@@ -3386,13 +3370,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.recordCompactionUsage(msg.compactionModel, msg.compactionUsage)
 		}
 		m = m.setCompactStatusRow(m.compactText(true))
-		m, parkedCmd := m.launchParkedSendNowAfterCompaction()
-		if m.goalContinueAfterCompact {
-			m.goalContinueAfterCompact = false
-			next, goalCmd := m.launchGoalContinuationIfReady()
-			return next, tea.Batch(parkedCmd, goalCmd)
-		}
-		return m, parkedCmd
+		return m.launchParkedSendNowAfterCompaction()
 	case planUpdateMsg:
 		if msg.runID != m.activeRunID {
 			return m, nil
@@ -7541,13 +7519,6 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 			}
 			flushReasoning(m.now())
 			return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, specReview: specReview, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: m.activeTurnElapsed(started), persistErr: liveAppendErr, flushedEvents: flushedLive}
-		}
-		if result.StopReason == agent.StopReasonGoalTaskBoundary {
-			// The run ended right after update_goal closed the current task
-			// with work still pending. The raw tool output (the checklist)
-			// is already on the tool result; the closing assistant line only
-			// says what happens next, in the user's language.
-			result.FinalAnswer = m.goalTaskBoundaryAnswer()
 		}
 		flushReasoning(m.now())
 		elapsed := m.activeTurnElapsed(started)

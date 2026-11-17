@@ -2,7 +2,6 @@ package sessions
 
 import (
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -260,7 +259,7 @@ func TestResetGoalContinuationsPersistsOnlyActiveChanges(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if reloaded.Goal == nil || !reflect.DeepEqual(reloaded.Goal, updated.Goal) {
+		if reloaded.Goal == nil || *reloaded.Goal != *updated.Goal {
 			t.Fatalf("active reset was not durable: updated=%#v reloaded=%#v", updated.Goal, reloaded.Goal)
 		}
 	})
@@ -334,7 +333,7 @@ func TestEditGoalUpdatesStateAndRejectsInvalidInputWithoutMutation(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after == nil || after.Goal == nil || !reflect.DeepEqual(after.Goal, &before) {
+	if after == nil || after.Goal == nil || *after.Goal != before {
 		t.Fatalf("invalid edit mutated goal: before=%#v after=%#v", before, after)
 	}
 	eventsAfter, err := store.ReadEvents(session.SessionID)

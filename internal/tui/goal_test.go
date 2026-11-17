@@ -83,7 +83,7 @@ func TestGoalRunRegistryContainsSessionBoundTools(t *testing.T) {
 	m.activeSession = session
 
 	registry := m.goalRegistry()
-	for _, name := range []string{"get_goal", "create_goal", "set_goal_tasks", "update_goal"} {
+	for _, name := range []string{"get_goal", "create_goal", "update_goal"} {
 		if _, ok := registry.Get(name); !ok {
 			t.Fatalf("goal registry missing %q", name)
 		}
@@ -359,65 +359,6 @@ func TestParseGoalObjectivePreservesMultilineAfterTokens(t *testing.T) {
 	}
 	if objective != "Obj\n1. A\n2. B" || budget != 5000 {
 		t.Fatalf("parsed objective/budget = %q/%d", objective, budget)
-	}
-}
-
-func TestGoalCommandTokensMultilineCreatesTasks(t *testing.T) {
-	store := testSessionStore(t)
-	session, err := store.Create(sessions.CreateInput{SessionID: "goal_tokens_tasks"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := newModel(context.Background(), Options{
-		Provider:     &scriptedProvider{},
-		Registry:     tools.NewRegistry(),
-		SessionStore: store,
-	})
-	m.activeSession = session
-
-	next, cmd := m.handleGoalCommand("--tokens 5000 Obj\n1. A\n2. B")
-	if cmd == nil || !next.pending {
-		t.Fatal("creating a goal should start its first run")
-	}
-	goal := next.activeSession.Goal
-	if goal == nil || goal.Objective != "Obj" || goal.TokenBudget != 5000 {
-		t.Fatalf("active goal = %#v", goal)
-	}
-	if len(goal.Tasks) != 2 || goal.Tasks[0].Title != "A" || goal.Tasks[1].Title != "B" {
-		t.Fatalf("goal tasks = %#v", goal.Tasks)
-	}
-	if next.runCancel != nil {
-		next.runCancel()
-	}
-}
-
-func TestGoalEditTokensMultilineReplacesTasks(t *testing.T) {
-	store := testSessionStore(t)
-	session, err := store.Create(sessions.CreateInput{SessionID: "goal_tokens_edit"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	session, _, err = store.CreateGoal(session.SessionID, "Old", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := newModel(context.Background(), Options{
-		Provider:     &scriptedProvider{},
-		Registry:     tools.NewRegistry(),
-		SessionStore: store,
-	})
-	m.activeSession = session
-
-	next, _ := m.handleGoalCommand("edit --tokens 5000 New\n1. X\n2. Y")
-	goal := next.activeSession.Goal
-	if goal == nil || goal.Objective != "New" || goal.TokenBudget != 5000 {
-		t.Fatalf("edited goal = %#v", goal)
-	}
-	if len(goal.Tasks) != 2 || goal.Tasks[0].Title != "X" || goal.Tasks[1].Title != "Y" {
-		t.Fatalf("edited tasks = %#v", goal.Tasks)
-	}
-	if next.runCancel != nil {
-		next.runCancel()
 	}
 }
 

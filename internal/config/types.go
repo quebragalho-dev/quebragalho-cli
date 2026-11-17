@@ -160,56 +160,6 @@ func (p PreferencesConfig) RecapsEnabled() bool {
 	return p.Recaps == nil || *p.Recaps
 }
 
-// Goal between-tasks modes: what a goal run does when one task finishes and
-// the next begins. compact runs the existing context compaction, reset starts
-// the next task with only the objective, task list, and notes, and keep
-// continues on the full conversation like goals always did.
-const (
-	GoalBetweenTasksCompact = "compact"
-	GoalBetweenTasksKeep    = "keep"
-	GoalBetweenTasksReset   = "reset"
-)
-
-// GoalConfig carries the /goal task-list preferences. AutoSplit nil (unset)
-// means on: a single-sentence goal is split into tasks on its first run.
-// BetweenTasks empty means compact.
-type GoalConfig struct {
-	AutoSplit    *bool  `json:"autoSplit,omitempty"`
-	BetweenTasks string `json:"betweenTasks,omitempty"`
-}
-
-// AutoSplitEnabled reports whether a single-sentence goal is split into
-// tasks on its first run. Unset defaults to on.
-func (g GoalConfig) AutoSplitEnabled() bool {
-	return g.AutoSplit == nil || *g.AutoSplit
-}
-
-// BetweenTasksMode normalizes the between-tasks mode, defaulting to compact.
-// It does not validate: Resolve rejects unknown values.
-func (g GoalConfig) BetweenTasksMode() string {
-	switch mode := strings.ToLower(strings.TrimSpace(g.BetweenTasks)); mode {
-	case GoalBetweenTasksKeep:
-		return GoalBetweenTasksKeep
-	case GoalBetweenTasksReset:
-		return GoalBetweenTasksReset
-	case GoalBetweenTasksCompact, "":
-		return GoalBetweenTasksCompact
-	default:
-		return mode
-	}
-}
-
-// ValidateGoalConfig rejects unknown between-tasks modes like the other
-// config enums.
-func ValidateGoalConfig(goal GoalConfig) error {
-	switch goal.BetweenTasksMode() {
-	case GoalBetweenTasksCompact, GoalBetweenTasksKeep, GoalBetweenTasksReset:
-		return nil
-	default:
-		return fmt.Errorf("invalid goal.betweenTasks %q: expected compact, keep, or reset", goal.BetweenTasks)
-	}
-}
-
 // KeyBindingDef defines one key binding string (e.g. "ctrl+o") that the TUI
 // can remap. An empty string means "use the built-in default" for that action.
 type KeyBindingDef string
@@ -436,7 +386,6 @@ type FileConfig struct {
 	// command. The zero value renders the built-in layout. Layout fields may
 	// come from project config; Command is user-config only (see Resolve).
 	StatusLine StatusLineConfig `json:"statusline,omitempty"`
-	Goal       GoalConfig       `json:"goal,omitempty"`
 	// maxTurnsSet records that some merge source supplied a positive maxTurns —
 	// i.e. the value is configured, not the built-in default. Unexported like
 	// Tools.deferThresholdSet: merge bookkeeping, not a config key.
@@ -461,7 +410,6 @@ func (cfg FileConfig) MarshalJSON() ([]byte, error) {
 		LocalControl        *LocalControlConfig `json:"localControl,omitempty"`
 		STT                 *STTConfig          `json:"stt,omitempty"`
 		StatusLine          *StatusLineConfig   `json:"statusline,omitempty"`
-		Goal                *GoalConfig         `json:"goal,omitempty"`
 		CrossSessionInbound string              `json:"crossSessionInbound,omitempty"`
 	}
 	raw := rawConfig{
@@ -485,10 +433,6 @@ func (cfg FileConfig) MarshalJSON() ([]byte, error) {
 	}
 	if cfg.StatusLine.IsCustom() {
 		raw.StatusLine = &cfg.StatusLine
-	}
-	if cfg.Goal.AutoSplit != nil || strings.TrimSpace(cfg.Goal.BetweenTasks) != "" {
-		goal := cfg.Goal
-		raw.Goal = &goal
 	}
 	known, err := json.Marshal(raw)
 	if err != nil || len(cfg.Extra) == 0 {
@@ -569,8 +513,6 @@ type ResolvedConfig struct {
 	// StatusLine is the resolved statusline customization (user layout plus
 	// command, optionally with project layout underneath). Zero means default.
 	StatusLine StatusLineConfig
-	// Goal carries the /goal task-list preferences (autoSplit, betweenTasks).
-	Goal GoalConfig
 	// StatusLineWarnings reports cosmetic adjustments applied at Resolve
 	// (clamped cadences, trimmed layouts), surfaced once at startup.
 	StatusLineWarnings []string
@@ -647,7 +589,6 @@ func (cfg *FileConfig) UnmarshalJSON(data []byte) error {
 		LocalControl        LocalControlConfig         `json:"localControl"`
 		STT                 STTConfig                  `json:"stt"`
 		CrossSessionInbound string                     `json:"crossSessionInbound"`
-		Goal                GoalConfig                 `json:"goal"`
 		StatusLine          StatusLineConfig           `json:"statusline"`
 		MCPServers          map[string]MCPServerConfig `json:"mcpServers"`
 		MCPServersSnake     map[string]MCPServerConfig `json:"mcp_servers"`
@@ -690,7 +631,6 @@ func (cfg *FileConfig) UnmarshalJSON(data []byte) error {
 	cfg.LocalControl = raw.LocalControl
 	cfg.STT = raw.STT
 	cfg.CrossSessionInbound = raw.CrossSessionInbound
-	cfg.Goal = raw.Goal
 	cfg.StatusLine = raw.StatusLine
 	cfg.Extra = extra
 	if cfg.MCP.Servers == nil && (len(raw.MCPServers) > 0 || len(raw.MCPServersSnake) > 0) {

@@ -8,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/errhint"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -47,19 +46,6 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 			return m.appendGoalError("O orçamento de tokens esgotou. Aumente com /goal edit --tokens N <objective>."), nil
 		}
 		m = m.setGoalStatus(sessions.GoalStatusActive, "")
-		if task := sessions.CurrentGoalTask(m.activeSession.Goal); task != nil &&
-			task.Status == sessions.GoalTaskBlocked {
-			updated, event, err := m.sessionStore.ReactivateGoalTask(m.activeSession.SessionID)
-			if err != nil {
-				return m.appendGoalError(err.Error()), nil
-			}
-			m.activeSession = updated
-			m.sessionEvents = append(m.sessionEvents, event)
-			m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
-				kind: rowSystem,
-				text: "Retomando tarefa bloqueada: " + task.Title,
-			})
-		}
 		return m.launchGoalContinuationIfReady()
 	case "clear":
 		if m.activeSession.Goal == nil {
@@ -96,7 +82,6 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 		}
 		m.activeSession = updated
 		m.sessionEvents = append(m.sessionEvents, event)
-		m = m.appendGoalTaskListRow()
 		message := "Meta atualizada e retomada: " + objective
 		if updated.Goal.Status == sessions.GoalStatusBudgetLimited {
 			message = "Meta atualizada, mas o orçamento de tokens segue esgotado. Aumente o orçamento ou use --tokens 0 para remover o limite."
@@ -124,7 +109,6 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 		}
 		m.activeSession = updated
 		m.sessionEvents = append(m.sessionEvents, event)
-		m = m.appendGoalTaskListRow()
 		return m.launchPrompt(objective)
 	default:
 		return m.appendGoalError("Ação desconhecida. Use /goal, /goal pause, /goal resume, /goal edit <objective> ou /goal clear."), nil
@@ -204,7 +188,6 @@ func (m model) appendGoalStatus() model {
 			goalContinuationLimit(goal),
 		),
 	}
-	lines = append(lines, goalTaskListLines(goal)...)
 	if goal.StatusReason != "" {
 		lines = append(lines, "motivo: "+goal.StatusReason)
 	}
@@ -220,19 +203,10 @@ func goalContinuationLimit(goal *sessions.Goal) int {
 }
 
 func (m model) goalFooterSummary() string {
-	goal := m.activeSession.Goal
-	if goal == nil {
+	if m.activeSession.Goal == nil {
 		return ""
 	}
-	if len(goal.Tasks) == 0 {
-		return "meta " + goalStatusDisplay(goal.Status)
-	}
-	done, total := sessions.GoalTaskProgress(goal)
-	title := ""
-	if current := sessions.CurrentGoalTask(goal); current != nil {
-		title = " " + truncateDisplayWidth(current.Title, 24)
-	}
-	return fmt.Sprintf("meta %d/%d%s · %s", done, total, title, goalStatusDisplay(goal.Status))
+	return "meta " + goalStatusDisplay(m.activeSession.Goal.Status)
 }
 
 // goalStatusDisplay renders a goal status in Portuguese for display. The
@@ -309,287 +283,23 @@ func (m model) goalRegistry() *tools.Registry {
 	return registry
 }
 
-// goalAutoSplitEnabled reports whether a single-sentence goal is split into
-// tasks on its first run. Unset defaults to on.
-func (m model) goalAutoSplitEnabled() bool {
-	return m.goalAutoSplit == nil || *m.goalAutoSplit
-}
-
-// goalBetweenTasksMode normalizes the between-tasks mode, defaulting to
-// compact. Resolve rejects unknown values; anything unexpected here still
-// compacts rather than silently keeping a growing context.
-func (m model) goalBetweenTasksMode() string {
-	return config.GoalConfig{BetweenTasks: m.goalBetweenTasks}.BetweenTasksMode()
-}
-
 func (m model) goalSystemPrompt(base string) string {
 	goal := m.activeSession.Goal
 	if goal == nil {
 		return base
 	}
-	var instruction strings.Builder
-	fmt.Fprintf(&instruction,
-		"Persistent goal for this session:\nObjective: %s\nStatus: %s",
+	instruction := fmt.Sprintf(
+		"Persistent goal for this session:\nObjective: %s\nStatus: %s\n"+
+			"When the status is active, keep pursuing this objective across turns. "+
+			"Call update_goal with complete only after the objective is genuinely achieved, "+
+			"or blocked with a concrete reason when progress requires user input or an external change.",
 		goal.Objective,
 		goal.Status,
 	)
-	if len(goal.Tasks) > 0 {
-		instruction.WriteString("\nTasks:")
-		for i, task := range goal.Tasks {
-			line := fmt.Sprintf("\n%d. [%s] %s", i+1, goalTaskStateEN(task.Status), task.Title)
-			if strings.TrimSpace(task.Note) != "" {
-				line += " — " + strings.TrimSpace(task.Note)
-			}
-			instruction.WriteString(line)
-		}
-		instruction.WriteString("\nWork ONLY on the current task; do not start other tasks. " +
-			"Call update_goal with task_status \"complete\" (optional note in reason) when the current task is done, " +
-			"or task_status \"blocked\" with a concrete reason when it cannot proceed. " +
-			"Never call update_goal with status \"complete\" while tasks are pending; " +
-			"the goal completes automatically once every task is done.")
-	} else {
-		instruction.WriteString("\nWhen the status is active, keep pursuing this objective across turns. " +
-			"Call update_goal with complete only after the objective is genuinely achieved, " +
-			"or blocked with a concrete reason when progress requires user input or an external change.")
-		if m.goalAutoSplitEnabled() && goal.ContinuationCount == 0 {
-			instruction.WriteString("\nBefore starting work, break this objective into 2-12 concrete tasks " +
-				"by calling set_goal_tasks with short titles, then proceed with the first task without waiting. " +
-				"If the objective is trivially a single step, skip the split and work directly.")
-		}
-	}
 	if strings.TrimSpace(base) == "" {
-		return instruction.String()
+		return instruction
 	}
-	return base + "\n\n" + instruction.String()
-}
-
-// goalTaskStateEN renders a task state for model instructions (English, like
-// the other model-facing goal text).
-func goalTaskStateEN(status sessions.GoalTaskStatus) string {
-	switch status {
-	case sessions.GoalTaskActive:
-		return "active"
-	case sessions.GoalTaskDone:
-		return "done"
-	case sessions.GoalTaskBlocked:
-		return "blocked"
-	default:
-		return "pending"
-	}
-}
-
-// goalTaskStateDisplay renders a task state in Portuguese for display.
-func goalTaskStateDisplay(status sessions.GoalTaskStatus) string {
-	switch status {
-	case sessions.GoalTaskActive:
-		return "ativa"
-	case sessions.GoalTaskDone:
-		return "feita"
-	case sessions.GoalTaskBlocked:
-		return "bloqueada"
-	default:
-		return "pendente"
-	}
-}
-
-// goalTaskListLines renders the checklist for /goal status and transcript
-// rows, in Portuguese.
-func goalTaskListLines(goal *sessions.Goal) []string {
-	if goal == nil || len(goal.Tasks) == 0 {
-		return nil
-	}
-	done, total := sessions.GoalTaskProgress(goal)
-	lines := []string{fmt.Sprintf("tarefas (%d/%d feitas):", done, total)}
-	for i, task := range goal.Tasks {
-		line := fmt.Sprintf("%d. [%s] %s", i+1, goalTaskStateDisplay(task.Status), task.Title)
-		if strings.TrimSpace(task.Note) != "" {
-			line += " — " + strings.TrimSpace(task.Note)
-		}
-		lines = append(lines, line)
-	}
-	return lines
-}
-
-// goalTaskProgressSuffix appends " (tarefa i/N: title)" to continuation
-// rows for goals with tasks.
-func goalTaskProgressSuffix(goal *sessions.Goal) string {
-	if goal == nil || len(goal.Tasks) == 0 {
-		return ""
-	}
-	done, total := sessions.GoalTaskProgress(goal)
-	if current := sessions.CurrentGoalTask(goal); current != nil {
-		return fmt.Sprintf(" (tarefa %d/%d: %s)", done+1, total, truncateDisplayWidth(current.Title, 40))
-	}
-	return fmt.Sprintf(" (%d/%d tarefas feitas)", done, total)
-}
-
-// goalResetBoundary returns the event sequence where the current task era
-// starts, for reset mode. Zero disables filtering: legacy goals, taskless
-// goals, and other between-tasks modes see the full history.
-func (m model) goalResetBoundary() int {
-	goal := m.activeSession.Goal
-	if goal == nil || len(goal.Tasks) == 0 {
-		return 0
-	}
-	if m.goalBetweenTasksMode() != config.GoalBetweenTasksReset {
-		return 0
-	}
-	if goal.TaskBoundary <= 0 {
-		return 0
-	}
-	return goal.TaskBoundary
-}
-
-// goalEraEvents restricts events to the current task era in reset mode: the
-// boundary sequence starts the next run, so everything before it belongs to
-// an older task. Outside reset mode (or without a boundary) it returns events
-// unchanged. An empty result is honest — the new task simply has no history
-// yet — and every caller already handles it (bare prompt, rebuilt wire miss).
-func (m model) goalEraEvents(events []sessions.Event) []sessions.Event {
-	if boundary := m.goalResetBoundary(); boundary > 0 {
-		return sessions.EventsFromSeq(events, boundary)
-	}
-	return events
-}
-
-// goalEraBlock renders the objective, task list, and notes appended to reset
-// prompts: the only pre-switch context the model receives.
-func goalEraBlock(goal *sessions.Goal) string {
-	var block strings.Builder
-	block.WriteString("Current task context (earlier history was cleared between tasks):")
-	if goal != nil {
-		fmt.Fprintf(&block, "\nObjective: %s", goal.Objective)
-		for i, task := range goal.Tasks {
-			line := fmt.Sprintf("\n%d. [%s] %s", i+1, goalTaskStateEN(task.Status), task.Title)
-			if strings.TrimSpace(task.Note) != "" {
-				line += " — " + strings.TrimSpace(task.Note)
-			}
-			block.WriteString(line)
-		}
-	}
-	return block.String()
-}
-
-// goalTaskBoundaryAnswer is the short user-facing line shown when a run ends
-// right after update_goal closes the current task with work still pending.
-// A blocked task pauses the goal, so it points at /goal resume; otherwise
-// the between-tasks mode opens the next task next.
-func (m model) goalTaskBoundaryAnswer() string {
-	if m.sessionStore != nil && m.activeSession.SessionID != "" {
-		if loaded, err := m.sessionStore.Get(m.activeSession.SessionID); err == nil && loaded != nil && loaded.Goal != nil {
-			switch loaded.Goal.Status {
-			case sessions.GoalStatusPaused, sessions.GoalStatusBlocked:
-				return "Tarefa pausada aqui. Use /goal resume para continuar."
-			}
-		}
-	}
-	return "Tarefa concluída. A próxima começa em seguida."
-}
-
-// appendGoalTaskListRow surfaces a freshly set checklist (from /goal create,
-// /goal edit, or a set_goal_tasks tool call) in the transcript. Taskless
-// goals add nothing.
-func (m model) appendGoalTaskListRow() model {
-	lines := goalTaskListLines(m.activeSession.Goal)
-	if len(lines) == 0 {
-		return m
-	}
-	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
-		kind: rowSystem,
-		text: strings.Join(lines, "\n"),
-	})
-	return m
-}
-
-// cutGoalWireToBoundary drops pre-task history from the structured wire after
-// a reset-mode task switch, so later user submits replay only the current
-// task. The snapshot is rewritten with the cut wire (or dropped when nothing
-// post-boundary exists yet) so restarting the session cannot restore the
-// cleared history; resume falls back to the boundary-filtered log either way.
-func (m model) cutGoalWireToBoundary() model {
-	if m.goalResetBoundary() <= 0 {
-		return m
-	}
-	msgs := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(
-		m.goalEraEvents(m.sessionEvents)))
-	loaded := append([]string(nil), m.continuation.loadedTools...)
-	m.continuation = turnContinuation{}
-	if len(msgs) == 0 {
-		if m.sessionStore != nil && m.activeSession.SessionID != "" {
-			_ = m.sessionStore.InvalidateContinuation(m.activeSession.SessionID)
-		}
-		return m
-	}
-	m.continuation = turnContinuation{
-		sessionID:   m.activeSession.SessionID,
-		modelID:     m.modelName,
-		goalKey:     goalKeyForSession(m.activeSession),
-		messages:    msgs,
-		loadedTools: loaded,
-	}
-	m.persistSnapshot(sessions.ContinuationSnapshot{
-		SessionID:       m.activeSession.SessionID,
-		ModelID:         m.modelName,
-		Provider:        m.providerName,
-		ReasoningEffort: string(m.reasoningEffort),
-		GoalKey:         goalKeyForSession(m.activeSession),
-		EventSeq:        m.activeSession.EventCount,
-		Messages:        msgs,
-		LoadedTools:     loaded,
-	})
-	return m
-}
-
-// goalTaskSwitched reports whether a finished run moved the goal to another
-// task (or finished every task). Blocked and legacy goals never switch. A
-// run that starts taskless (the /goal create run before set_goal_tasks)
-// still switches when it leaves a done task behind with work still ahead.
-func goalTaskSwitched(before, after *sessions.Goal) (switched bool, finished bool) {
-	if before == nil || after == nil {
-		return false, false
-	}
-	if len(before.Tasks) == 0 {
-		if len(after.Tasks) == 0 {
-			return false, false
-		}
-		if after.Status == sessions.GoalStatusComplete {
-			return true, true
-		}
-		done, _ := sessions.GoalTaskProgress(after)
-		if done > 0 && sessions.CurrentGoalTask(after) != nil {
-			return true, false
-		}
-		return false, false
-	}
-	if after.Status == sessions.GoalStatusComplete && before.Status != sessions.GoalStatusComplete {
-		return true, true
-	}
-	previous := sessions.CurrentGoalTask(before)
-	current := sessions.CurrentGoalTask(after)
-	if previous == nil || current == nil {
-		return false, false
-	}
-	return current.ID != previous.ID, false
-}
-
-// switchedGoalTask names the task a finished run just left: the current task
-// of the pre-run goal, or — when the checklist was born mid-run and the
-// pre-run goal has no current task — the latest done task of the post-run
-// goal.
-func switchedGoalTask(before, after *sessions.Goal) *sessions.GoalTask {
-	if previous := sessions.CurrentGoalTask(before); previous != nil {
-		return previous
-	}
-	if after == nil {
-		return nil
-	}
-	var latest *sessions.GoalTask
-	for i := range after.Tasks {
-		if after.Tasks[i].Status == sessions.GoalTaskDone {
-			latest = &after.Tasks[i]
-		}
-	}
-	return latest
+	return base + "\n\n" + instruction
 }
 
 func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
@@ -622,7 +332,7 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 	goal = updated.Goal
 	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 		kind: rowSystem,
-		text: "Continuando meta: " + goal.Objective + goalTaskProgressSuffix(goal),
+		text: "Continuando meta: " + goal.Objective,
 	})
 	prompt := m.sessionPrompt(goalContinuationPrompt)
 	m, err = m.appendSessionEvent(sessions.EventMessage, map[string]any{
@@ -637,49 +347,7 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 	return m, tea.Batch(m.runAgentWithOptions(m.activeRunID, runCtx, prompt, nil, tuiAgentRunOptions{goalContinuation: true}), m.spinner.Tick)
 }
 
-// launchGoalNextStepIfReady continues a goal after a run, applying the
-// between-tasks mode when the run just moved to another task. Legacy goals
-// and mid-task continuations follow the historical path unchanged.
-func (m model) launchGoalNextStepIfReady() (model, tea.Cmd) {
-	if !m.goalTaskAdvanced {
-		return m.launchGoalContinuationIfReady()
-	}
-	m.goalTaskAdvanced = false
-	switch m.goalBetweenTasksMode() {
-	case config.GoalBetweenTasksKeep:
-		return m.launchGoalContinuationIfReady()
-	case config.GoalBetweenTasksReset:
-		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
-			kind: rowSystem,
-			text: "Contexto limpo entre tarefas: a próxima tarefa começa só com objetivo, lista e notas.",
-		})
-		return m.launchGoalContinuationIfReady()
-	default:
-		if m.compactInFlight || m.sessionStore == nil || m.activeSession.SessionID == "" {
-			return m.launchGoalContinuationIfReady()
-		}
-		if m.sessionCompactor == nil && !m.hasSessionBackedCompactor() {
-			return m.launchGoalContinuationIfReady()
-		}
-		m.goalContinueAfterCompact = true
-		m.compactRequests++
-		m.lastCompactError = ""
-		m.lastCompactResult = nil
-		m.compactInFlight = true
-		m.compactFrame = 0
-		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
-			kind: rowSystem,
-			text: "Compactando contexto antes da próxima tarefa…",
-		})
-		return m, tea.Batch(m.runCompact(), m.spinner.Tick)
-	}
-}
-
 func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error) model {
-	before := m.activeSession.Goal
-	// Consumed here so a skipped continuation (queued message, permission
-	// prompt) cannot retrigger the between-tasks mode after a later run.
-	m.goalTaskAdvanced = false
 	if m.sessionStore == nil || m.activeSession.SessionID == "" {
 		return m
 	}
@@ -729,38 +397,6 @@ func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error
 	m.activeSession = *loaded
 	if events, readErr := m.sessionStore.ReadEvents(loaded.SessionID); readErr == nil {
 		m.sessionEvents = events
-	}
-	if switched, finished := goalTaskSwitched(before, loaded.Goal); switched {
-		// A finished goal has no next task: keep goalTaskAdvanced cleared
-		// so launchGoalNextStepIfReady skips the between-tasks mode.
-		m.goalTaskAdvanced = !finished
-		if !finished && m.goalBetweenTasksMode() == config.GoalBetweenTasksReset {
-			// The new era starts at the next run: everything logged so far
-			// belongs to the old task.
-			if bounded, err := m.sessionStore.SetGoalTaskBoundary(loaded.SessionID, loaded.EventCount+1); err != nil {
-				m = m.appendGoalError("registrar fronteira da tarefa: " + err.Error())
-			} else {
-				loaded = &bounded
-				m.activeSession = bounded
-			}
-			m = m.cutGoalWireToBoundary()
-		}
-		if finished {
-			done, total := sessions.GoalTaskProgress(loaded.Goal)
-			m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
-				kind: rowSystem,
-				text: fmt.Sprintf("Meta concluída: %d de %d tarefas feitas.", done, total),
-			})
-		} else if previous := switchedGoalTask(before, loaded.Goal); previous != nil {
-			if current := sessions.CurrentGoalTask(loaded.Goal); current != nil {
-				done, total := sessions.GoalTaskProgress(loaded.Goal)
-				m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
-					kind: rowSystem,
-					text: fmt.Sprintf("Tarefa concluída: %s. Próxima (%d/%d): %s.",
-						previous.Title, done+1, total, current.Title),
-				})
-			}
-		}
 	}
 	return m
 }

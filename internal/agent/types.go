@@ -53,11 +53,6 @@ type StopReason string
 
 const (
 	StopReasonSpecReviewRequired StopReason = "spec_review_required"
-	// StopReasonGoalTaskBoundary ends a run right after update_goal closes
-	// the current task while more tasks remain. The TUI continuation then
-	// applies the between-tasks mode and opens the next task, so one run
-	// never works through several tasks.
-	StopReasonGoalTaskBoundary StopReason = "goal_task_boundary"
 )
 
 const (
