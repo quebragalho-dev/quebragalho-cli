@@ -1,9 +1,14 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -377,8 +382,80 @@ func TestDesktopActionScreenshotAttachesImageWithoutBase64AndCleansTempFile(t *t
 	if len(result.Images) != 1 || result.Images[0].MediaType != "image/png" {
 		t.Fatalf("Images = %#v, want 1 PNG image", result.Images)
 	}
+	if !strings.Contains(result.Output, "1x1") || !strings.Contains(result.Output, "scale 1.000") {
+		t.Fatalf("Output = %q, want dimensions and scale", result.Output)
+	}
 	if strings.Contains(result.Output, "SHOULD_NOT_APPEAR") || strings.Contains(result.Output, "base64") {
 		t.Fatalf("Output should be a short summary without base64, got %q", result.Output)
+	}
+}
+
+func TestDesktopActionScreenshotDownscalesOversizedPNG(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(0, 0, 3932, 2190))
+	for y := 0; y < 2190; y += 64 {
+		for x := 0; x < 3932; x += 64 {
+			src.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), B: 128, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, src); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+
+	runner := &fakeDesktopRunner{writePNG: buf.Bytes()}
+	tool := newDesktopActionTool(localDesktopTestOptions(t, runner))
+	result := tool.Run(context.Background(), map[string]any{"command": "screenshot"})
+	if result.Status != StatusOK {
+		t.Fatalf("status = %s output = %q", result.Status, result.Output)
+	}
+	if len(result.Images) != 1 || result.Images[0].MediaType != "image/png" {
+		t.Fatalf("Images = %#v, want 1 resized PNG", result.Images)
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(result.Images[0].Data))
+	if err != nil {
+		t.Fatalf("decode resized png: %v", err)
+	}
+	if cfg.Width != 1568 || cfg.Height != 873 {
+		t.Fatalf("resized dimensions = %dx%d, want 1568x873", cfg.Width, cfg.Height)
+	}
+	if !strings.Contains(result.Output, "3932x2190 -> 1568x873, scale 0.399") {
+		t.Fatalf("Output = %q, want scale summary", result.Output)
+	}
+}
+
+func TestDesktopActionScreenshotFallsBackToJPEGWhenPNGExceedsLimit(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 1568, 1200))
+	var s uint32 = 0x12345678
+	for i := 0; i < len(img.Pix); i += 4 {
+		s = s*1664525 + 1013904223
+		img.Pix[i] = uint8(s >> 24)
+		img.Pix[i+1] = uint8(s >> 16)
+		img.Pix[i+2] = uint8(s >> 8)
+		img.Pix[i+3] = 255
+	}
+	var buf bytes.Buffer
+	if err := (&png.Encoder{CompressionLevel: png.NoCompression}).Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+
+	runner := &fakeDesktopRunner{writePNG: buf.Bytes()}
+	tool := newDesktopActionTool(localDesktopTestOptions(t, runner))
+	result := tool.Run(context.Background(), map[string]any{"command": "screenshot"})
+	if result.Status != StatusOK {
+		t.Fatalf("status = %s output = %q", result.Status, result.Output)
+	}
+	if len(result.Images) != 1 || result.Images[0].MediaType != "image/jpeg" {
+		t.Fatalf("MediaType = %q, want image/jpeg fallback", result.Images[0].MediaType)
+	}
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(result.Images[0].Data))
+	if err != nil {
+		t.Fatalf("decode fallback jpeg: %v", err)
+	}
+	if cfg.Width != 1568 || cfg.Height != 1200 {
+		t.Fatalf("jpeg dimensions = %dx%d, want 1568x1200", cfg.Width, cfg.Height)
+	}
+	if !strings.Contains(result.Output, "1568x1200") || !strings.Contains(result.Output, "scale 1.000") {
+		t.Fatalf("Output = %q, want dimensions and scale", result.Output)
 	}
 }
 

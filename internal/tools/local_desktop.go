@@ -1,9 +1,14 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,12 +17,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
+	xdraw "golang.org/x/image/draw"
+
 	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
-const localDesktopOutputBudgetBytes = localBrowserOutputBudgetBytes
+const (
+	localDesktopOutputBudgetBytes = localBrowserOutputBudgetBytes
+	desktopScreenshotMaxDim       = 1568
+	desktopScreenshotMaxPNGBytes  = 3500 * 1024
+	desktopScreenshotJPEGQuality  = 85
+)
 
 var (
 	desktopQualifiedRefPattern = regexp.MustCompile(`^@[A-Za-z0-9_-]+:e[1-9][0-9]*$`)
@@ -434,11 +445,11 @@ func desktopCommandResult(ctx context.Context, desktop localcontrol.Desktop, pla
 	}
 
 	if plan.managedScreenshot {
-		img, loadErr := imageinput.LoadFile(shotPath, "")
+		img, summary, loadErr := prepareDesktopScreenshot(shotPath)
 		if loadErr != nil {
 			return errorResult("Error loading desktop screenshot: " + loadErr.Error())
 		}
-		return Result{Status: StatusOK, Output: "Desktop screenshot captured and attached.", Images: []qgruntime.ImageBlock{img}, Meta: meta, Display: Display{Summary: "screenshot completed", Kind: "desktop"}}
+		return Result{Status: StatusOK, Output: summary, Images: []qgruntime.ImageBlock{img}, Meta: meta, Display: Display{Summary: "screenshot completed", Kind: "desktop"}}
 	}
 
 	output := result.Output()
@@ -446,6 +457,60 @@ func desktopCommandResult(ctx context.Context, desktop localcontrol.Desktop, pla
 		output = "desktop command completed."
 	}
 	return desktopBudgetedResult(StatusOK, plan.command, "completed", output, "narrow the desktop snapshot with skeleton=true, root, app, or window_id", meta)
+}
+
+func prepareDesktopScreenshot(path string) (qgruntime.ImageBlock, string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return qgruntime.ImageBlock{}, "", err
+	}
+	src, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return qgruntime.ImageBlock{}, "", fmt.Errorf("decode png: %w", err)
+	}
+	bounds := src.Bounds()
+	origW, origH := bounds.Dx(), bounds.Dy()
+	if origW <= 0 || origH <= 0 {
+		return qgruntime.ImageBlock{}, "", fmt.Errorf("empty screenshot dimensions %dx%d", origW, origH)
+	}
+
+	target := src
+	newW, newH, scale := origW, origH, 1.0
+	pngBytes := raw
+	if origW > desktopScreenshotMaxDim || origH > desktopScreenshotMaxDim {
+		if origW >= origH {
+			newW = desktopScreenshotMaxDim
+			newH = max(1, int(math.Round(float64(origH)*float64(desktopScreenshotMaxDim)/float64(origW))))
+			scale = float64(newW) / float64(origW)
+		} else {
+			newH = desktopScreenshotMaxDim
+			newW = max(1, int(math.Round(float64(origW)*float64(desktopScreenshotMaxDim)/float64(origH))))
+			scale = float64(newH) / float64(origH)
+		}
+		scaled := image.NewNRGBA(image.Rect(0, 0, newW, newH))
+		xdraw.CatmullRom.Scale(scaled, scaled.Bounds(), src, bounds, xdraw.Over, nil)
+		var pngBuf bytes.Buffer
+		if err := png.Encode(&pngBuf, scaled); err != nil {
+			return qgruntime.ImageBlock{}, "", fmt.Errorf("encode resized png: %w", err)
+		}
+		target = scaled
+		pngBytes = pngBuf.Bytes()
+	}
+
+	mediaType, outBytes := "image/png", pngBytes
+	if len(pngBytes) > desktopScreenshotMaxPNGBytes {
+		var jpgBuf bytes.Buffer
+		if err := jpeg.Encode(&jpgBuf, target, &jpeg.Options{Quality: desktopScreenshotJPEGQuality}); err != nil {
+			return qgruntime.ImageBlock{}, "", fmt.Errorf("encode fallback jpeg: %w", err)
+		}
+		mediaType, outBytes = "image/jpeg", jpgBuf.Bytes()
+	}
+
+	summary := fmt.Sprintf("Desktop screenshot attached (%dx%d, scale 1.000).", origW, origH)
+	if newW != origW || newH != origH {
+		summary = fmt.Sprintf("Desktop screenshot attached (%dx%d -> %dx%d, scale %.3f).", origW, origH, newW, newH, scale)
+	}
+	return qgruntime.ImageBlock{MediaType: mediaType, Data: outBytes}, summary, nil
 }
 
 func desktopBudgetedResult(status Status, command string, verb string, output string, hint string, meta map[string]string) Result {
