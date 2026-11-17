@@ -470,28 +470,32 @@ func responseStyleLabel(value string) string {
 	}
 }
 
-func (m model) handleStyleCommand(args string) (model, string) {
+func (m model) handleStyleCommand(args string) (model, string, error) {
 	raw := strings.TrimSpace(args)
 	arg := canonicalResponseStyleInput(raw)
 	// Bare `/style` opens the picker at the dispatch layer, so it never
 	// reaches here empty; keep the card as the fallback.
 	if arg == "" || arg == "list" {
-		return m, m.styleText()
+		return m, m.styleText(), nil
 	}
 	if !responseStyleAllowed(arg) {
-		return m, "Estilo\nEstilo desconhecido: " + raw
+		return m, "Estilo\nEstilo desconhecido: " + raw, nil
 	}
 	m.responseStyle = arg
+	saveErr := m.saveResponseStyle()
 	lines := []string{
 		"Estilo",
 		"estilo ativo: " + responseStyleLabel(m.responseStyle),
 	}
-	if note := m.persistResponseStylePreference(); note != "" {
-		lines = append(lines, note)
-	} else {
+	switch {
+	case saveErr != nil:
+		lines = append(lines, "nota: não foi possível salvar a preferência de estilo ("+saveErr.Error()+")")
+	case strings.TrimSpace(m.userConfigPath) == "":
+		lines = append(lines, "Vale só nesta sessão: sem caminho de config, a preferência não foi salva.")
+	default:
 		lines = append(lines, "Estilo: "+responseStyleLabel(m.responseStyle)+" · salvo")
 	}
-	return m, strings.Join(lines, "\n")
+	return m, strings.Join(lines, "\n"), saveErr
 }
 
 // styleAppliedNotice returns the compact confirmation used after a successful
@@ -503,18 +507,34 @@ func (m model) styleAppliedNotice() string {
 	return "Estilo: " + responseStyleLabel(m.responseStyle) + " · salvo"
 }
 
-// persistResponseStylePreference writes the committed style to user config so
-// it is applied again at startup (via Options.SavedResponseStyle). Best-
-// effort: returns a short note to surface when nothing was saved (no config
-// path) or the write failed, or "" after a successful save.
-func (m model) persistResponseStylePreference() string {
+// saveResponseStyle writes the active style to user config so it is applied
+// again at startup (via Options.SavedResponseStyle). Best-effort: nil means
+// saved, or session-only when there is no config path (not a failure).
+func (m model) saveResponseStyle() error {
 	if strings.TrimSpace(m.userConfigPath) == "" {
-		return "Vale só nesta sessão: sem caminho de config, a preferência não foi salva."
+		return nil
 	}
-	if _, err := config.SetResponseStyle(m.userConfigPath, m.responseStyle); err != nil {
-		return "nota: não foi possível salvar a preferência de estilo (" + err.Error() + ")"
+	_, err := config.SetResponseStyle(m.userConfigPath, m.responseStyle)
+	return err
+}
+
+// styleResultNotice builds the transient confirmation for an applied style
+// from the real persist outcome: a clean save (or session-only scope) keeps
+// the success tone, while a failed write reports it with the warning tone.
+func (m model) styleResultNotice(saveErr error) (string, transientNoticeTone) {
+	if saveErr != nil {
+		return "Estilo: " + responseStyleLabel(m.responseStyle) + " · não salvo (" + shortErrorText(saveErr) + ")", transientNoticeWarning
 	}
-	return ""
+	return m.styleAppliedNotice(), transientNoticeSuccess
+}
+
+// shortErrorText keeps only the first line of an error for inline notices.
+func shortErrorText(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	if i := strings.Index(msg, "\n"); i >= 0 {
+		msg = strings.TrimSpace(msg[:i])
+	}
+	return msg
 }
 
 func (m model) styleText() string {

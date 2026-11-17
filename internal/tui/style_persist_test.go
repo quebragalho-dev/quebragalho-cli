@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -181,6 +182,44 @@ func TestStyleCommandUnknownValue(t *testing.T) {
 	if !transcriptContains(m.transcript, "Estilo desconhecido: prolixo") {
 		t.Fatalf("expected Portuguese unknown-style message, got %#v", m.transcript)
 	}
+}
+
+func TestStyleCommandSaveFailureWarns(t *testing.T) {
+	// A directory as config path forces config.SetResponseStyle to fail, both
+	// for the typed command and for the picker selection.
+	checkNotSaved := func(t *testing.T, m model) {
+		t.Helper()
+		if m.responseStyle != "explanatory" {
+			t.Fatalf("responseStyle = %q, want explanatory (still applied in session)", m.responseStyle)
+		}
+		const wantPrefix = "Estilo: explicativo · não salvo ("
+		if !strings.HasPrefix(m.transientNotice.text, wantPrefix) || !strings.HasSuffix(m.transientNotice.text, ")") {
+			t.Fatalf("notice = %q, want prefix %q", m.transientNotice.text, wantPrefix)
+		}
+		if m.transientNotice.tone != transientNoticeWarning {
+			t.Fatalf("notice tone = %v, want warning", m.transientNotice.tone)
+		}
+	}
+
+	t.Run("typed command", func(t *testing.T) {
+		m := newModel(context.Background(), Options{UserConfigPath: t.TempDir()})
+		checkNotSaved(t, runStyleCommand(m, "/style explicativo"))
+	})
+
+	t.Run("picker selection", func(t *testing.T) {
+		m := newModel(context.Background(), Options{UserConfigPath: t.TempDir()})
+		m = runStyleCommand(m, "/style")
+		if m.picker == nil || m.picker.kind != pickerStyle {
+			t.Fatalf("expected style picker to open, got %#v", m.picker)
+		}
+		m.picker.selected = 2 // Explicativo.
+		updated, _ := m.choosePicker()
+		next, ok := updated.(model)
+		if !ok {
+			t.Fatal("choosePicker did not return a TUI model")
+		}
+		checkNotSaved(t, next)
+	})
 }
 
 func TestStyleCommandWithoutConfigPathIsSessionOnly(t *testing.T) {

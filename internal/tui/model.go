@@ -5282,9 +5282,11 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 	case pickerStyle:
 		previous := m.responseStyle
 		text := ""
-		m, text = m.handleStyleCommand(item.Value)
+		var saveErr error
+		m, text, saveErr = m.handleStyleCommand(item.Value)
 		if m.responseStyle != previous {
-			return m.showTransientNoticeInline(m.styleAppliedNotice(), transientNoticeSuccess), cmd
+			notice, tone := m.styleResultNotice(saveErr)
+			return m.showTransientNoticeInline(notice, tone), cmd
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 	case pickerSTTDownload:
@@ -5973,9 +5975,11 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		}
 		previous := m.responseStyle
 		text := ""
-		m, text = m.handleStyleCommand(command.text)
+		var saveErr error
+		m, text, saveErr = m.handleStyleCommand(command.text)
 		if m.responseStyle != previous {
-			return m.showTransientNoticeInline(m.styleAppliedNotice(), transientNoticeSuccess), nil
+			notice, tone := m.styleResultNotice(saveErr)
+			return m.showTransientNoticeInline(notice, tone), nil
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
