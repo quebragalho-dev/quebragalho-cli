@@ -149,7 +149,7 @@ func (m model) chooseConfigRow(item pickerItem) (tea.Model, tea.Cmd) {
 // row's setting, reusing its current handler (picker, panel, or status card).
 func (m model) openConfigRowTarget(item pickerItem) (tea.Model, tea.Cmd) {
 	m.picker = nil
-	target := parsedCommand{}
+	var target parsedCommand
 	switch strings.TrimSpace(item.Value) {
 	case configRowProvider, configRowModel:
 		target = parsedCommand{kind: commandModel, name: "/model"}

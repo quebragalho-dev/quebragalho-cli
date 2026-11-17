@@ -716,9 +716,10 @@ func (m model) pickerOverlay(width int) string {
 	// picker and the other bordered boxes.
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
 	footer := qgTheme.faint.Render("↑/↓ mover   Enter selecionar   Esc fechar")
-	if m.picker.kind == pickerConfig {
+	switch m.picker.kind {
+	case pickerConfig:
 		footer = renderConfigPickerFooter(innerWidth)
-	} else if m.picker.kind == pickerSession {
+	case pickerSession:
 		position := 0
 		if len(m.picker.items) > 0 {
 			position = clampInt(m.picker.selected, 0, len(m.picker.items)-1) + 1
@@ -751,22 +752,6 @@ func pickerShowsDetails(p *commandPicker, width int) bool {
 // borders. The row budget is whatever the terminal height leaves after them.
 const configPickerChromeRows = 6
 
-// configPickerMinRows floors the /config row budget so short terminals still
-// show the selection with context; the paging indicators cover the rest.
-const configPickerMinRows = 3
-
-// configPickerRowBudget returns how many display rows the /config panel may
-// use for its rows (items plus section headers and detail lines): whatever
-// fits the given frame body height after the chrome, never fewer than
-// configPickerMinRows. A non-positive height means "unknown": show
-// everything rather than clipping blindly.
-func configPickerRowBudget(bodyHeight int) int {
-	if bodyHeight <= 0 {
-		return 1 << 30
-	}
-	return maxInt(configPickerMinRows, bodyHeight-configPickerChromeRows)
-}
-
 // overlayBodyHeight returns the frame body height an overlay really occupies:
 // the terminal height minus the pinned title bar and the footer. It mirrors
 // the frame transcriptView composites into, so a budgeted overlay always fits
@@ -778,12 +763,6 @@ func (m model) overlayBodyHeight(width int) int {
 		return 1 << 30
 	}
 	return m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width)).bodyHeight
-}
-
-// configPickerViewportBudget budgets the /config rows from the frame body the
-// panel really occupies.
-func (m model) configPickerViewportBudget(width int) int {
-	return configPickerRowBudget(m.overlayBodyHeight(width))
 }
 
 // configPickerWindow slices the visible /config items so their rendered rows

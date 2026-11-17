@@ -551,7 +551,7 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 	selected := clampInt(m.picker.selected, 0, len(m.picker.items)-1)
 	details := pickerShowsDetails(m.picker, width)
 	start := 0
-	visible := []pickerItem{}
+	var visible []pickerItem
 	upMore := 0
 	downMore := 0
 	if m.picker.kind == pickerConfig {
