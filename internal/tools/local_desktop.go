@@ -246,10 +246,10 @@ func desktopActionPlan(args map[string]any) (desktopCommandPlan, error) {
 		plan.managedScreenshot = true
 	}
 
-	plan.args = append(plan.args, extraArgs...)
 	if hasRef {
 		plan.args = append(plan.args, ref)
 	}
+	plan.args = append(plan.args, extraArgs...)
 	if hasText && text != "" && !plan.hasStdin && command != "screenshot" {
 		if strings.HasPrefix(text, "-") && !slices.Contains(extraArgs, "--") {
 			plan.args = append(plan.args, "--")
@@ -389,6 +389,27 @@ func desktopUserGuidance(goos string, code string) string {
 	}
 }
 
+// desktopHelperFailureGuidance explains helper failures that produce no JSON
+// envelope. The upstream Windows build links VCRUNTIME140.dll dynamically
+// (vercel-labs/agent-desktop#542), so a clean Windows exits with
+// STATUS_DLL_NOT_FOUND before printing anything.
+func desktopHelperFailureGuidance(goos string, goarch string, message string) string {
+	lower := strings.ToLower(message)
+	if goos == "windows" && strings.Contains(lower, "0xc0000135") {
+		arch := "x64"
+		if goarch == "arm64" {
+			arch = "arm64"
+		}
+		return "Orientação ao usuário (Windows): falta o Microsoft Visual C++ Redistributable (VCRUNTIME140.dll), que o agent-desktop exige. " +
+			"Peça permissão ao usuário e instale com `winget install --id Microsoft.VCRedist.2015+." + arch + " -e` (o Windows pede confirmação de administrador) " +
+			"ou baixe o instalador oficial em https://aka.ms/vs/17/release/vc_redist." + arch + ".exe; depois tente de novo."
+	}
+	if strings.Contains(lower, "unsupported platform") || strings.Contains(lower, "platform not supported") || strings.Contains(lower, "not supported on") {
+		return desktopUserGuidance("unsupported", "PLATFORM_NOT_SUPPORTED")
+	}
+	return ""
+}
+
 func desktopCommandResult(ctx context.Context, desktop localcontrol.Desktop, plan desktopCommandPlan) Result {
 	runArgs := plan.args
 	var shotPath string
@@ -436,9 +457,8 @@ func desktopCommandResult(ctx context.Context, desktop localcontrol.Desktop, pla
 			if extraOut := strings.TrimSpace(result.Output()); extraOut != "" {
 				rawMsg += "\n\n" + extraOut
 			}
-			lower := strings.ToLower(rawMsg)
-			if strings.Contains(lower, "unsupported platform") || strings.Contains(lower, "platform not supported") || strings.Contains(lower, "not supported on") {
-				rawMsg += "\n\n" + desktopUserGuidance("unsupported", "PLATFORM_NOT_SUPPORTED")
+			if guidance := desktopHelperFailureGuidance(runtime.GOOS, runtime.GOARCH, rawMsg); guidance != "" {
+				rawMsg += "\n\n" + guidance
 			}
 		}
 		return desktopBudgetedResult(StatusError, plan.command, "failed", rawMsg, "narrow the desktop query or request a scoped snapshot", meta)

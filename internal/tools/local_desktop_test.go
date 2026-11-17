@@ -171,9 +171,9 @@ func TestDesktopActionBuildsArgvForCommandsAndStdin(t *testing.T) {
 			wantArgs: []string{"right-click", "@s8f3k2p9:e5"},
 		},
 		{
-			name:     "type via stdin with args and ref order",
+			name:     "type via stdin puts ref before args",
 			args:     map[string]any{"command": "type", "ref": "@s8f3k2p9:e2", "text": "segredo-super-123", "args": []any{"--interval-ms", "50"}},
-			wantArgs: []string{"type", "--stdin", "--interval-ms", "50", "@s8f3k2p9:e2"},
+			wantArgs: []string{"type", "--stdin", "@s8f3k2p9:e2", "--interval-ms", "50"},
 			wantIn:   "segredo-super-123",
 			hasIn:    true,
 		},
@@ -205,9 +205,9 @@ func TestDesktopActionBuildsArgvForCommandsAndStdin(t *testing.T) {
 			wantArgs: []string{"toggle", "@s8f3k2p9:e6"},
 		},
 		{
-			name:     "scroll args before ref",
+			name:     "scroll ref before args",
 			args:     map[string]any{"command": "scroll", "ref": "@s8f3k2p9:e1", "args": []any{"--direction", "down", "--amount", "3"}},
-			wantArgs: []string{"scroll", "--direction", "down", "--amount", "3", "@s8f3k2p9:e1"},
+			wantArgs: []string{"scroll", "@s8f3k2p9:e1", "--direction", "down", "--amount", "3"},
 		},
 		{
 			name:     "press uses text as combo",
@@ -257,12 +257,12 @@ func TestDesktopActionBuildsArgvForCommandsAndStdin(t *testing.T) {
 		{
 			name:     "get",
 			args:     map[string]any{"command": "get", "ref": "@s8f3k2p9:e2", "args": []any{"--property", "value"}},
-			wantArgs: []string{"get", "--property", "value", "@s8f3k2p9:e2"},
+			wantArgs: []string{"get", "@s8f3k2p9:e2", "--property", "value"},
 		},
 		{
 			name:     "is",
 			args:     map[string]any{"command": "is", "ref": "@s8f3k2p9:e6", "args": []any{"--property", "checked"}},
-			wantArgs: []string{"is", "--property", "checked", "@s8f3k2p9:e6"},
+			wantArgs: []string{"is", "@s8f3k2p9:e6", "--property", "checked"},
 		},
 		{
 			name:     "clipboard-get",
@@ -570,3 +570,18 @@ func TestDesktopHelperRunsOutsideSandbox(t *testing.T) {
 }
 
 var _ = json.Valid
+
+func TestDesktopHelperFailureGuidanceExplainsMissingWindowsRuntime(t *testing.T) {
+	msg := "Error running desktop helper: exit status 0xc0000135"
+	for goarch, want := range map[string]string{"arm64": "Microsoft.VCRedist.2015+.arm64", "amd64": "vc_redist.x64.exe"} {
+		if got := desktopHelperFailureGuidance("windows", goarch, msg); !strings.Contains(got, want) || !strings.Contains(got, "VCRUNTIME140.dll") {
+			t.Fatalf("%s guidance = %q, want %q", goarch, got, want)
+		}
+	}
+	if got := desktopHelperFailureGuidance("linux", "arm64", msg); got != "" {
+		t.Fatalf("linux guidance = %q, want empty", got)
+	}
+	if got := desktopHelperFailureGuidance("plan9", "amd64", "unsupported platform"); !strings.Contains(got, "sem suporte") {
+		t.Fatalf("unsupported guidance = %q", got)
+	}
+}
