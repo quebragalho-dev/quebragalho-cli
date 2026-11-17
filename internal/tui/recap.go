@@ -256,7 +256,15 @@ func (m model) handleConfigCommand(arg string) (model, string) {
 		}
 		return m, "Configuração\nrecaps: " + onOff(m.recapsEnabled)
 	default:
-		return m, "Configuração\nAjuste desconhecido: " + arg + " (uso: recaps on|off)"
+		return m, renderCommandOutput(commandOutput{
+			Title:  "Configuração",
+			Status: commandStatusWarning,
+			Sections: []commandSection{{
+				Title: "Uso",
+				Lines: []string{"Ajuste desconhecido: " + arg + " (uso: recaps on|off)"},
+			}},
+			Hints: []string{"abra /config para ajustar com busca"},
+		})
 	}
 }
 

@@ -562,32 +562,6 @@ func onOff(v bool) string {
 	return "desativado"
 }
 
-func (m model) configText() string {
-	return renderCommandOutput(commandOutput{
-		Title:  "Configuração",
-		Status: commandStatusOK,
-		Sections: []commandSection{
-			{
-				Title: "Execução",
-				Lines: []string{
-					"runtime: go",
-					fmt.Sprintf("turnos máximos: %d", m.agentOptions.MaxTurns),
-					"modo de permissão: " + string(m.permissionMode),
-					"recaps: " + onOff(m.recapsEnabled),
-				},
-			},
-			{
-				Title: "Provedor",
-				Lines: []string{
-					"provedor: " + displayValue(m.providerName, "nenhum"),
-					"modelo: " + displayValue(m.modelName, "nenhum"),
-					"chave de API: " + apiKeyState(strings.TrimSpace(m.providerProfile.APIKey) != "" || m.providerProfile.APIKeyStored),
-				},
-			},
-		},
-	})
-}
-
 func (m model) debugText() string {
 	state := "ociosa"
 	if m.pending {

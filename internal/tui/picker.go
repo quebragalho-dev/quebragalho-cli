@@ -28,6 +28,7 @@ const (
 	pickerSTTModel
 	pickerSTTDownload
 	pickerUsage
+	pickerConfig
 	pickerStyle
 )
 

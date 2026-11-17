@@ -718,7 +718,9 @@ func (m model) pickerOverlay(width int) string {
 	// picker and the other bordered boxes.
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
 	footer := qgTheme.faint.Render("↑/↓ mover   Enter selecionar   Esc fechar")
-	if m.picker.kind == pickerSession {
+	if m.picker.kind == pickerConfig {
+		footer = renderConfigPickerFooter(innerWidth)
+	} else if m.picker.kind == pickerSession {
 		position := 0
 		if len(m.picker.items) > 0 {
 			position = clampInt(m.picker.selected, 0, len(m.picker.items)-1) + 1
