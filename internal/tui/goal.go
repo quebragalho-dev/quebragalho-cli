@@ -333,17 +333,17 @@ func (m model) goalSystemPrompt(base string) string {
 	if len(goal.Tasks) > 0 {
 		instruction.WriteString("\nTasks:")
 		for i, task := range goal.Tasks {
-		line := fmt.Sprintf("\n%d. [%s] %s", i+1, goalTaskStateEN(task.Status), task.Title)
+			line := fmt.Sprintf("\n%d. [%s] %s", i+1, goalTaskStateEN(task.Status), task.Title)
 			if strings.TrimSpace(task.Note) != "" {
 				line += " — " + strings.TrimSpace(task.Note)
 			}
 			instruction.WriteString(line)
 		}
 		instruction.WriteString("\nWork ONLY on the current task; do not start other tasks. " +
-				"Call update_goal with task_status \"complete\" (optional note in reason) when the current task is done, " +
-				"or task_status \"blocked\" with a concrete reason when it cannot proceed. " +
-				"Never call update_goal with status \"complete\" while tasks are pending; " +
-				"the goal completes automatically once every task is done.")
+			"Call update_goal with task_status \"complete\" (optional note in reason) when the current task is done, " +
+			"or task_status \"blocked\" with a concrete reason when it cannot proceed. " +
+			"Never call update_goal with status \"complete\" while tasks are pending; " +
+			"the goal completes automatically once every task is done.")
 	} else {
 		instruction.WriteString("\nWhen the status is active, keep pursuing this objective across turns. " +
 			"Call update_goal with complete only after the objective is genuinely achieved, " +
@@ -434,7 +434,7 @@ func goalResetContinuationPrompt(goal *sessions.Goal) string {
 			if strings.TrimSpace(task.Note) != "" {
 				line += " — " + strings.TrimSpace(task.Note)
 			}
-		prompt.WriteString(line)
+			prompt.WriteString(line)
 		}
 	}
 	return prompt.String()
@@ -624,7 +624,7 @@ func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error
 			m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 				kind: rowSystem,
 				text: fmt.Sprintf("Meta concluída: todas as %d tarefas feitas (eram %d).", done, total),
-				})
+			})
 		} else if previous := sessions.CurrentGoalTask(before); previous != nil {
 			if current := sessions.CurrentGoalTask(loaded.Goal); current != nil {
 				done, total := sessions.GoalTaskProgress(loaded.Goal)

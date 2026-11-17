@@ -694,11 +694,11 @@ type model struct {
 	idleRecap                    string
 	compactionModel              string // preferences.compactionModel (see providers.CompactionModelID)
 	autoCompactLimit             int    // resolved preferences.autoCompactLimit; 0 automatic, > 0 tokens, < 0 off
-	goalAutoSplit              *bool  // resolved goal.autoSplit; nil defaults to on
-	goalBetweenTasks           string // resolved goal.betweenTasks; empty defaults to compact
-	goalTaskAdvanced           bool   // a task finished mid-run; the next step applies the between-tasks mode
-	goalContinueAfterCompact   bool   // run the next task continuation once the between-tasks compaction lands
-	goalResetPrompt            bool   // next goal continuation starts with objective+tasks only, no history
+	goalAutoSplit                *bool  // resolved goal.autoSplit; nil defaults to on
+	goalBetweenTasks             string // resolved goal.betweenTasks; empty defaults to compact
+	goalTaskAdvanced             bool   // a task finished mid-run; the next step applies the between-tasks mode
+	goalContinueAfterCompact     bool   // run the next task continuation once the between-tasks compaction lands
+	goalResetPrompt              bool   // next goal continuation starts with objective+tasks only, no history
 	modelPickerLoading           bool
 	modelPickerLoadingProviderID string
 	modelPickerLoadError         string
