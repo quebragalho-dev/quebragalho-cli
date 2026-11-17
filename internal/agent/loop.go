@@ -29,7 +29,7 @@ const maxTurnsFinalAnswerPrompt = "You have reached the tool-turn limit. Do not 
 // FallbackMaxTurns is the loop's last-resort tool-turn budget, used only when
 // the caller leaves Options.MaxTurns unset (<= 0) — direct agent.Run users
 // without a resolved config. Resolved CLI/TUI runs always carry an explicit
-// budget (interactive default 80, headless default 500, see config), so this
+// budget (interactive default 400, headless default 500, see config), so this
 // never overrides them; it only keeps bare programmatic runs finite. Pinned
 // budgets (explicit --max-turns, mode presets, QG_MAX_TURNS, config files,
 // exec profiles) always win over this fallback.
@@ -195,7 +195,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 	planner := newContextPlanner(contextPlannerConfig{
 		contextWindow:  options.ContextWindow,
 		promptCacheKey: options.SessionID,
-		serviceTier:    options.ServiceTier,
 		promptParts:    promptParts,
 	})
 	messages := qgruntime.SeedMessagesWithImages(promptParts.prompt, prompt, options.Images)
@@ -269,33 +268,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// guarantees their aggregate counts are present even on an early return.
 		task.emit()
 	}()
-	// The execution-profile posture controller. nil Options.Profile (every
-	// existing caller) makes every observe/decide call a no-op, keeping the
-	// loop byte-identical for unprofiled runs.
-	posture := newProfileController(options.Profile)
-	// applyPosture applies at most one posture escalation when an armed trigger
-	// has fired: raise the hoisted turn ceiling, restore effort and the
-	// completion gate, stamp the counter. Shared by the end-of-turn tail and
-	// the completion-gate uncertain path (which continues the loop before the
-	// tail runs). No-op forever after the first escalation and for unprofiled
-	// runs.
-	applyPosture := func() {
-		if target, fired := posture.maybeEscalate(); fired {
-			if target.MaxTurns > maxTurns {
-				maxTurns = target.MaxTurns
-			}
-			if target.ReasoningEffort != "" {
-				options.ReasoningEffort = target.ReasoningEffort
-			} else if target.RestoreDefaultEffort {
-				options.ReasoningEffort = ""
-			}
-			if target.RestoreCompletionGate {
-				options.RequireCompletionSignal = true
-			}
-			options.Trace.Counter(trace.CounterPostureEscalations, 1)
-		}
-	}
-
 	// Background post-edit diagnostics: files changed by mutating tools are
 	// checked off the tool-call critical path and any errors are appended as a
 	// nudge before the NEXT request (see async_diagnostics.go). nil when no
@@ -678,11 +650,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					emitStep()
 					return result, nil
 				case CompletionUncertain:
-					// Observe the uncertainty signal and apply any escalation NOW:
-					// this branch continues the turn loop before the end-of-turn
-					// act point, so deferring would skip escalation entirely.
-					posture.observeUncertain()
-					applyPosture()
 					switch evaluation.Action {
 					case completionActionContinue:
 						options.Trace.Counter(trace.CounterCompletionNudges, 1)
@@ -846,7 +813,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			// would misdirect the model toward JSON shape or blocked behavior.
 			retriableFailure := isRetriableToolError(toolResult)
 			outcome := guards.observeToolResult(call.Name, retriableFailure, toolResult.ModelOutput())
-			posture.observeToolOutcome(outcome, toolResult)
 			if outcome.Stop {
 				// The assistant message advertised EVERY collected tool call, but
 				// the guard halts mid-turn so the calls after this one never run.
@@ -903,7 +869,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		// tool_results breaks strict provider replay). nil SelfCorrect is a no-op.
 		if options.SelfCorrect != nil && len(changedFilesThisBatch) > 0 {
 			feedback, selfCorrectOutcome := options.SelfCorrect.AfterEdit(ctx, dedupeStrings(changedFilesThisBatch))
-			posture.observeSelfCorrect(selfCorrectOutcome)
 			task.observe(taskStateEvent{kind: taskStateEventVerification, verification: selfCorrectOutcome})
 			if feedback != "" {
 				appendSuffixNote(feedback)
@@ -949,11 +914,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					_ = session.Prewarm(ctx)
 					provider = sessionProvider{session: session}
 					options.Model = turnRequestedModel
-					// Service tiers are model capabilities. A successful escalation may
-					// target a model that does not support the tier selected before the
-					// switch, so let the destination use its default.
-					options.ServiceTier = ""
-					planner.config.serviceTier = ""
 					options.Trace.Counter(trace.CounterModelSwitches, 1)
 					// Re-derive the context window for the new model so compaction and
 					// the OnContext budget report track the model actually in force —
@@ -993,12 +953,6 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 			appendSuffixNote(reminder)
 		}
 
-		// One-shot posture escalation: when an armed profile trigger fired this
-		// turn, restore the stricter knob values the profile displaced. Mutates
-		// only per-turn-read policy (the hoisted turn ceiling, reasoning effort,
-		// completion gate); never messages, model, or session. No-op forever
-		// after the first escalation and for every unprofiled run.
-		applyPosture()
 		emitStep()
 	}
 

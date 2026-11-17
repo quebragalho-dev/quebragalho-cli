@@ -9,7 +9,6 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/execprofile"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
@@ -22,13 +21,13 @@ import (
 //	12  agent loop fallback: bare agent.Run with MaxTurns unset (<= 0).
 //	    Never overrides a resolved CLI/TUI run; only keeps direct
 //	    programmatic runs finite.
-//	80  interactive default: resolved config budget (TUI sessions).
-//	500 absolute ceiling: clamps QG_MAX_TURNS, /turns, and config values, and
-//	    doubles as the headless exec default when nothing is configured.
+//	400 interactive default: resolved config budget (TUI sessions).
+//	500 absolute ceiling: clamps QG_MAX_TURNS and config values, and doubles
+//	    as the headless exec default when nothing is configured.
 //
 // Precedence, highest first: explicit pin (--max-turns, mode preset fill,
-// QG_MAX_TURNS, config file) > exec profile (only when unpinned) > mode
-// default (exec 500 / interactive 80) > loop fallback 12 (only when unset).
+// QG_MAX_TURNS, config file) > mode default (exec 500 / interactive 400)
+// > loop fallback 12 (only when unset).
 func TestTurnBudgetsPinnedValues(t *testing.T) {
 	// The single definitions must hold these exact values.
 	if config.MaxTurnsCeiling != 500 {
@@ -43,8 +42,8 @@ func TestTurnBudgetsPinnedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if resolved.MaxTurns != 80 || resolved.MaxTurnsSet {
-		t.Fatalf("unconfigured resolve = (%d, set=%v), want (80, false)", resolved.MaxTurns, resolved.MaxTurnsSet)
+	if resolved.MaxTurns != 400 || resolved.MaxTurnsSet {
+		t.Fatalf("unconfigured resolve = (%d, set=%v), want (400, false)", resolved.MaxTurns, resolved.MaxTurnsSet)
 	}
 
 	// Env beats the file; garbage env is ignored; over-ceiling env clamps.
@@ -97,24 +96,12 @@ func TestTurnBudgetsPinnedValues(t *testing.T) {
 	}
 
 	// Headless default: unconfigured resolves to the ceiling; a set budget
-	// (even 80, the interactive default chosen on purpose) passes through.
-	if got := execTurnBudget(config.ResolvedConfig{MaxTurns: 80, MaxTurnsSet: false}); got != 500 {
+	// (even 400, the interactive default, when explicitly set) passes through.
+	if got := execTurnBudget(config.ResolvedConfig{MaxTurns: 400, MaxTurnsSet: false}); got != 500 {
 		t.Fatalf("execTurnBudget unset = %d, want 500", got)
 	}
-	if got := execTurnBudget(config.ResolvedConfig{MaxTurns: 80, MaxTurnsSet: true}); got != 80 {
-		t.Fatalf("execTurnBudget set 80 = %d, want 80", got)
-	}
-
-	// Exec profile: displaces the resolved budget only when nothing is pinned.
-	// A pin reaches the resolved budget through overrides (asserted above), so
-	// the profile sees it in resolvedMaxTurns and backs off entirely; without
-	// a pin the profile displaces the resolved budget.
-	fast, _ := execprofile.Lookup("fast")
-	if effective, displaced := applyProfileTurnBudget(fast, 0, 80); effective != 30 || displaced != 80 {
-		t.Fatalf("fast over resolved 80 = (%d, %d), want (30, 80)", effective, displaced)
-	}
-	if effective, displaced := applyProfileTurnBudget(fast, resolved.MaxTurns, resolved.MaxTurns); effective != 60 || displaced != 0 {
-		t.Fatalf("fast over pinned 60 = (%d, %d), want (60, 0)", effective, displaced)
+	if got := execTurnBudget(config.ResolvedConfig{MaxTurns: 400, MaxTurnsSet: true}); got != 400 {
+		t.Fatalf("execTurnBudget set 400 = %d, want 400", got)
 	}
 }
 

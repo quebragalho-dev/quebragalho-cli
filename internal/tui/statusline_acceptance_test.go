@@ -1186,7 +1186,7 @@ func TestStatusLineAcceptance_BareCommandShowsConfigAndHelp(t *testing.T) {
 	}
 }
 
-var slCatalog = []string{"mode", "effort", "fast", "voice", "background", "goal", "context", "branch", "update", "cwd", "cache", "model", "speed", "cost", "time"}
+var slCatalog = []string{"mode", "effort", "voice", "background", "goal", "context", "branch", "update", "cwd", "cache", "model", "speed", "cost", "time"}
 
 // 18. /statusline <pedido> dispara um turno com a instrução dedicada.
 func TestStatusLineAcceptance_RequestStartsDedicatedTurn(t *testing.T) {

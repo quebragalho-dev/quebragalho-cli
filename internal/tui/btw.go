@@ -221,8 +221,6 @@ func btwCommandUnavailable(command parsedCommand) bool {
 		return arg != "list" && arg != "ls"
 	case commandProvider:
 		return arg != "status"
-	case commandTurns, commandProfile:
-		return arg != "" && arg != "status"
 	case commandAutoCompact:
 		// The side conversation runs on a copy of the session: a limit set
 		// there would be saved to the config while the parent kept the old one.
