@@ -82,6 +82,7 @@ const (
 
 type Goal struct {
 	Objective         string     `json:"objective"`
+	Tasks             []GoalTask `json:"tasks,omitempty"`
 	Status            GoalStatus `json:"status"`
 	StatusReason      string     `json:"statusReason,omitempty"`
 	TokenBudget       int        `json:"tokenBudget,omitempty"`
