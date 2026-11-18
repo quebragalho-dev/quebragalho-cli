@@ -23,8 +23,9 @@ const (
 // via rename, so the open fails with ERROR_SHARING_VIOLATION) or a transient
 // scanner/indexer lock. A missing file and every other error return
 // immediately, as on every other OS — only the transient lock errors retry.
-// read overrides os.ReadFile so tests can exercise the retry path; pass nil
-// to use os.ReadFile.
+// read overrides the default shared-access open so tests can exercise the
+// retry path; pass nil to read through readFileShared (which on Windows
+// opens with delete share so a concurrent rename can proceed).
 func ReadFileWithRetry(path string, read func(string) ([]byte, error)) ([]byte, error) {
 	return readFileWithRetry(runtime.GOOS, path, read, time.Sleep)
 }
@@ -35,7 +36,7 @@ func ReadFileWithRetry(path string, read func(string) ([]byte, error)) ([]byte, 
 // rather than the wall clock, so a fake sleeper keeps the test loop bounded.
 func readFileWithRetry(goos string, path string, read func(string) ([]byte, error), sleep func(time.Duration)) ([]byte, error) {
 	if read == nil {
-		read = os.ReadFile
+		read = readFileShared
 	}
 	if sleep == nil {
 		sleep = time.Sleep
