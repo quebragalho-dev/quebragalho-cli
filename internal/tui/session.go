@@ -145,6 +145,7 @@ func (m model) startNewSession() model {
 	m.pendingImageThumbnails = nil
 	m.discardPendingImageTemps()
 	m.pendingDocuments = nil
+	m.pendingVideoInfos = nil
 	m.queuedMessages = nil
 	// The interleave buffer belongs to the run, never the session: the fresh
 	// session gets its own so a stranded push from the old turn cannot ride

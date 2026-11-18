@@ -45,7 +45,8 @@ done
 if [ "$frames" -gt 0 ] 2>/dev/null; then
   i=1
   while [ "$i" -le "$frames" ]; do
-    out=$(printf '%s' "$pattern" | sed "s/%03d/$(printf '%03d' "$i")/")
+    # Sem sed de propósito: o teste pode rodar com PATH só com o falso.
+    out=$(printf "$pattern" "$i")
     printf '\377\330\377\331' > "$out"
     i=$((i + 1))
   done
@@ -115,13 +116,16 @@ func TestExtractFramesSpacesFramesEvenly(t *testing.T) {
 	clip := touchClip(t, dir)
 
 	// Probe finge 7,3 s; 4 quadros em 1024 px: fps=0,5479, t=0 / 1,825 / 3,65 / 5,475.
-	frames, err := ExtractFrames(context.Background(), ffmpeg, ffprobe, clip,
+	frames, duration, err := ExtractFrames(context.Background(), ffmpeg, ffprobe, clip,
 		ExtractOptions{MaxFrames: 4, MaxSide: 1024})
 	if err != nil {
 		t.Fatalf("ExtractFrames falhou: %v", err)
 	}
 	if len(frames) != 4 {
 		t.Fatalf("len(frames) = %d, want 4", len(frames))
+	}
+	if duration < 7.29 || duration > 7.31 {
+		t.Fatalf("duração = %v, want ~7.3s", duration)
 	}
 	want := []float64{0, 1.825, 3.65, 5.475}
 	for i, frame := range frames {
@@ -141,13 +145,56 @@ func TestExtractFramesSpacesFramesEvenly(t *testing.T) {
 	}
 }
 
+func TestExtractAttachmentFramesCoversVideoAndGIF(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(dir, "argv.log"))
+	ffmpeg := writeFakeFFmpeg(t, dir, "ffmpeg")
+	ffprobe := writeFakeFFmpeg(t, dir, "ffprobe")
+	clip := touchClip(t, dir)
+
+	frames, duration, err := ExtractAttachmentFrames(context.Background(), ffmpeg, ffprobe, clip, dir, ExtractOptions{MaxFrames: 2})
+	if err != nil {
+		t.Fatalf("ExtractAttachmentFrames (vídeo) falhou: %v", err)
+	}
+	if len(frames) != 2 || duration < 7.29 || duration > 7.31 {
+		t.Fatalf("frames=%d duração=%v, want 2 e ~7.3s", len(frames), duration)
+	}
+	if got := SummarizeFrames("clip.mov", duration, frames); !strings.Contains(got, "Attached video: clip.mov") || !strings.Contains(got, "2 frames") {
+		t.Fatalf("linha de contexto inesperada: %q", got)
+	}
+
+	gifPath := filepath.Join(dir, "anim.gif")
+	if err := os.WriteFile(gifPath, tinyGIF(t, 5), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gframes, gduration, err := ExtractAttachmentFrames(context.Background(), "", "", gifPath, dir, ExtractOptions{MaxFrames: 2})
+	if err != nil {
+		t.Fatalf("ExtractAttachmentFrames (GIF) falhou: %v", err)
+	}
+	if len(gframes) != 2 || gduration <= 0 {
+		t.Fatalf("gif: frames=%d duração=%v", len(gframes), gduration)
+	}
+}
+
+func TestExtractAttachmentFramesRejectsSingleFrameGIF(t *testing.T) {
+	dir := t.TempDir()
+	gifPath := filepath.Join(dir, "still.gif")
+	if err := os.WriteFile(gifPath, tinyGIF(t, 1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := ExtractAttachmentFrames(context.Background(), "", "", gifPath, dir, ExtractOptions{})
+	if err == nil || !strings.Contains(err.Error(), "1 quadro") {
+		t.Fatalf("GIF de 1 quadro deveria voltar ao caminho de imagem, foi: %v", err)
+	}
+}
+
 func TestExtractFramesRejectsOversizedVideo(t *testing.T) {
 	dir := t.TempDir()
 	big := filepath.Join(dir, "grande.mov")
 	if err := os.WriteFile(big, make([]byte, 1<<20), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := ExtractFrames(context.Background(), "ffmpeg", "", big, ExtractOptions{MaxBytes: 100})
+	_, _, err := ExtractFrames(context.Background(), "ffmpeg", "", big, ExtractOptions{MaxBytes: 100})
 	if err == nil || !strings.Contains(err.Error(), "grande demais") {
 		t.Fatalf("vídeo acima do limite deveria recusar em português, foi: %v", err)
 	}
@@ -163,7 +210,7 @@ func TestExtractFramesRespectsCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, err := ExtractFrames(ctx, ffmpeg, ffprobe, clip, ExtractOptions{MaxFrames: 2})
+	_, _, err := ExtractFrames(ctx, ffmpeg, ffprobe, clip, ExtractOptions{MaxFrames: 2})
 	if err == nil || !strings.Contains(err.Error(), "tempo esgotado") {
 		t.Fatalf("cancelamento deveria falhar com timeout em português, foi: %v", err)
 	}
@@ -236,7 +283,7 @@ func TestExtractFramesRealFFmpegWhenAvailable(t *testing.T) {
 	if info.Width != 320 || info.Height != 240 {
 		t.Fatalf("dimensões = %dx%d, want 320x240", info.Width, info.Height)
 	}
-	frames, err := ExtractFrames(context.Background(), ffmpeg, ffprobe, src, ExtractOptions{MaxFrames: 4, MaxSide: 256})
+	frames, _, err := ExtractFrames(context.Background(), ffmpeg, ffprobe, src, ExtractOptions{MaxFrames: 4, MaxSide: 256})
 	if err != nil {
 		t.Fatalf("ExtractFrames no vídeo real falhou: %v", err)
 	}
@@ -260,7 +307,7 @@ func TestExtractFramesKeepsSpacedAccentPathIntact(t *testing.T) {
 	if err := os.WriteFile(clip, []byte("fake-video-bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	frames, err := ExtractFrames(context.Background(), ffmpeg, ffprobe, clip, ExtractOptions{MaxFrames: 2, MaxSide: 256})
+	frames, _, err := ExtractFrames(context.Background(), ffmpeg, ffprobe, clip, ExtractOptions{MaxFrames: 2, MaxSide: 256})
 	if err != nil {
 		t.Fatalf("ExtractFrames com acento falhou: %v", err)
 	}

@@ -500,6 +500,7 @@ type model struct {
 	lastImages      []qgruntime.ImageBlock
 	lastImageLabels []string
 	lastDocuments   []pendingDocument
+	lastVideos      []pendingVideoInfo
 	// historyIdx == len(inputHistory) means "not navigating"; historyDraft
 	// preserves whatever was typed before recall started.
 	inputHistory []string
@@ -703,6 +704,10 @@ type model struct {
 	// discarded, consumed, or the program quits. Invariant: same length as
 	// pendingImages whenever images are staged.
 	pendingImageTemps []string
+	// pendingVideoInfos holds staged video attachments (context lines + frame
+	// counts); their frames ride pendingImages like ordinary images. Both are
+	// cleared after a prompt is submitted (or /image clear).
+	pendingVideoInfos []pendingVideoInfo
 	// pendingImageThumbnails are decoded previews for a bounded gallery of staged
 	// images. They are only rendered by terminals with an inline-image protocol;
 	// every other terminal continues to use the compact text attachment row.
@@ -6138,6 +6143,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// so re-stage with no temps to keep the lockstep invariant.
 		m.pendingImageTemps = make([]string, len(m.pendingImages))
 		m.pendingDocuments = m.lastDocuments
+		m.pendingVideoInfos = m.lastVideos
 		m.refreshPendingImageThumbnail()
 		// The last-prompt slot may hold a pre-expanded wire (a non-typable
 		// skill's body from the picker), not a command line: resend it as-is.
@@ -6170,6 +6176,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// Same as /retry above: bytes are in memory, temps were deleted.
 		m.pendingImageTemps = make([]string, len(m.pendingImages))
 		m.pendingDocuments = m.lastDocuments
+		m.pendingVideoInfos = m.lastVideos
 		m.refreshPendingImageThumbnail()
 		m.input.SetValue(m.lastPrompt)
 		return m, nil
@@ -6260,6 +6267,7 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 		m.lastImages = m.pendingImages
 		m.lastImageLabels = m.pendingImageLabels
 		m.lastDocuments = m.pendingDocuments
+		m.lastVideos = m.pendingVideoInfos
 		attachments = transcriptAttachmentSummary{
 			images:    len(m.pendingImages),
 			documents: len(m.pendingDocuments),
@@ -6339,6 +6347,9 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 	// visible transcript above keeps the user's clean prompt; the agent (and the
 	// recorded session, for resume fidelity) sees the document text first.
 	if peer == nil {
+		if preamble := m.consumePendingVideos(); preamble != "" {
+			prompt = preamble + prompt
+		}
 		if preamble := m.consumePendingDocuments(); preamble != "" {
 			prompt = preamble + prompt
 		}
@@ -6452,6 +6463,7 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 		m.pendingImageLabels = nil
 		m.pendingImageThumbnails = nil
 		m.discardPendingImageTemps()
+		m.pendingVideoInfos = nil
 	}
 	runCtx, cancel := context.WithCancel(m.ctx)
 	if peer != nil {

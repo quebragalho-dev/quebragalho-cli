@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/media"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
@@ -28,7 +30,7 @@ var droppableImageExts = map[string]bool{
 }
 
 // droppedAttachmentPath recognizes a single drag-dropped (or pasted) file path
-// that points at an existing image or PDF, returning the cleaned path. Terminals
+// that points at an existing image, video or PDF, returning the cleaned path. Terminals
 // deliver a dropped file as its path with spaces/special chars backslash-escaped
 // (or the whole path quoted); this undoes that so "Screenshot 2026 at 1.png"
 // resolves. ok is false for anything that is not a single existing image/PDF
@@ -65,7 +67,7 @@ func droppedAttachmentPath(content, cwd string) (string, bool) {
 		return "", false
 	}
 	ext := strings.ToLower(filepath.Ext(s))
-	if droppableImageExts[ext] || ext == ".pdf" || imageinput.LooksLikeDocumentFile(s, cwd) {
+	if droppableImageExts[ext] || media.IsVideoPath(s) || ext == ".pdf" || imageinput.LooksLikeDocumentFile(s, cwd) {
 		return s, true
 	}
 	return "", false
@@ -263,7 +265,15 @@ func (m model) handleImageCommand(arg string) model {
 		m.pendingImageLabels = nil
 		m.pendingImageThumbnails = nil
 		m.pendingDocuments = nil
+		m.pendingVideoInfos = nil
 		return m.appendImageNotice("Cleared pending attachments.")
+	}
+
+	// Vídeo e GIF animado viram quadros (handleVideoAttach, isolado para
+	// facilitar junção com a colagem da área de transferência); GIF de um
+	// quadro só cai no caminho de imagem abaixo.
+	if media.IsVideoPath(trimmed) || media.IsAnimatedGIFFile(trimmed, m.cwd) {
+		return m.handleVideoAttach(trimmed)
 	}
 
 	// A PDF carries a text layer every model can read, so it is not gated on
@@ -326,6 +336,79 @@ func (m model) handleDocumentAttach(path string) model {
 	return m
 }
 
+// pendingVideoInfo is a staged video attachment: its frames ride pendingImages
+// like ordinary images, and text names the video plus when each frame was
+// taken so the model can attribute them.
+type pendingVideoInfo struct {
+	label  string
+	text   string
+	frames int
+}
+
+// handleVideoAttach stages a video file (or animated GIF) as image frames for
+// the next user turn, with a context line (duration, frame count, instants).
+// Single-frame GIFs never reach here: they follow the plain image path.
+// Failure (no vision, no ffmpeg, oversize, undecodable) surfaces an inline
+// notice in Portuguese and attaches nothing.
+func (m model) handleVideoAttach(path string) model {
+	if !m.modelSupportsVisionTUI() {
+		name := displayValue(m.modelName, "ativo")
+		return m.appendImageNotice("Modelo " + name + " não aceita imagens; anexo de vídeo recusado.")
+	}
+	label := filepath.Base(path)
+	var frames []media.Frame
+	var duration float64
+	if media.IsVideoPath(path) {
+		ffmpegPath, ffprobePath, ok := media.ResolveFFmpeg()
+		if !ok {
+			return m.appendImageNotice("ffmpeg não encontrado para extrair os quadros do vídeo. Baixe com: qg ffmpeg baixar (download único, ~115–170 MB conforme a plataforma). Ou instale manualmente: brew install ffmpeg (macOS), winget install Gyan.FFmpeg (Windows) ou sudo apt install ffmpeg (Linux).")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), media.VideoAttachTimeout)
+		defer cancel()
+		extracted, extractedDuration, err := media.ExtractAttachmentFrames(ctx, ffmpegPath, ffprobePath, path, m.cwd, media.ExtractOptions{})
+		if err != nil {
+			return m.appendImageNotice(err.Error())
+		}
+		frames, duration = extracted, extractedDuration
+	} else {
+		extracted, extractedDuration, err := media.ExtractAttachmentFrames(context.Background(), "", "", path, m.cwd, media.ExtractOptions{})
+		if err != nil {
+			return m.appendImageNotice(err.Error())
+		}
+		frames, duration = extracted, extractedDuration
+	}
+	for _, frame := range frames {
+		m.pendingImages = append(m.pendingImages, qgruntime.ImageBlock{MediaType: "image/jpeg", Data: frame.Data})
+		m.pendingImageLabels = append(m.pendingImageLabels, label)
+	}
+	m.pendingVideoInfos = append(m.pendingVideoInfos, pendingVideoInfo{
+		label:  label,
+		text:   media.SummarizeFrames(label, duration, frames),
+		frames: len(frames),
+	})
+	m.refreshPendingImageThumbnail()
+	return m
+}
+
+// consumePendingVideos returns the staged video context lines formatted as a
+// prompt preamble and clears the pending video infos. Empty when nothing was
+// staged; videos whose frames were all removed are skipped.
+func (m *model) consumePendingVideos() string {
+	if len(m.pendingVideoInfos) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, info := range m.pendingVideoInfos {
+		if info.frames <= 0 || strings.TrimSpace(info.text) == "" {
+			continue
+		}
+		b.WriteString(info.text)
+		b.WriteString("\n")
+	}
+	m.pendingVideoInfos = nil
+	return b.String()
+}
+
 // consumePendingDocuments returns the staged document text formatted as a prompt
 // preamble and clears the pending documents. The preamble names each document so
 // the model can attribute the text; an empty result means nothing was staged.
@@ -365,6 +448,24 @@ func (m model) removeLastAttachment() (model, bool) {
 	if n := len(m.pendingDocuments); n > 0 {
 		m.pendingDocuments = m.pendingDocuments[:n-1]
 		return m, true
+	}
+	if n := len(m.pendingVideoInfos); n > 0 {
+		info := m.pendingVideoInfos[n-1]
+		removed := 0
+		for removed < info.frames && len(m.pendingImageLabels) > 0 && m.pendingImageLabels[len(m.pendingImageLabels)-1] == info.label {
+			m.pendingImageLabels = m.pendingImageLabels[:len(m.pendingImageLabels)-1]
+			if len(m.pendingImages) > 0 {
+				m.pendingImages = m.pendingImages[:len(m.pendingImages)-1]
+			}
+			removed++
+		}
+		if removed > 0 {
+			m.pendingVideoInfos = m.pendingVideoInfos[:n-1]
+			m.refreshPendingImageThumbnail()
+			return m, true
+		}
+		// A cauda não é deste vídeo (ex. imagem anexada depois): cai no
+		// caminho de imagem avulsa abaixo.
 	}
 	if n := len(m.pendingImageLabels); n > 0 {
 		// A clipboard-pasted image owns a private temp file: delete exactly

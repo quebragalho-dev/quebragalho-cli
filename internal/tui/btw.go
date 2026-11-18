@@ -140,6 +140,7 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 	side.lastImages = nil
 	side.lastImageLabels = nil
 	side.lastDocuments = nil
+	side.lastVideos = nil
 	side.inputHistory = nil
 	side.historyIdx = 0
 	side.historyDraft = ""
@@ -149,6 +150,7 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 		side.pendingImageTemps = nil // sem delete: os temporários pertencem ao pai
 		side.pendingImageThumbnails = nil
 		side.pendingDocuments = nil
+		side.pendingVideoInfos = nil
 	}
 	side.loops = nil
 	side.activeLoopID = ""

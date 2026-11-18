@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -215,23 +216,78 @@ func compactExecError(what string, err error) error {
 	return fmt.Errorf("%s: tempo esgotado ou cancelado (%v)", what, err)
 }
 
+// VideoAttachTimeout limita probe+extração no anexo interativo.
+const VideoAttachTimeout = 3 * time.Minute
+
+// ExtractAttachmentFrames extrai quadros JPEG espaçados de um anexo de vídeo
+// (via ffmpeg) ou GIF animado (stdlib, sem ffmpeg). Devolve os quadros e a
+// duração em segundos. GIF de 1 quadro não é vídeo: use o caminho de imagem.
+func ExtractAttachmentFrames(ctx context.Context, ffmpegPath, ffprobePath, path, workspaceRoot string, opts ExtractOptions) ([]Frame, float64, error) {
+	resolved := strings.TrimSpace(path)
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(workspaceRoot, resolved)
+	}
+	if IsVideoPath(resolved) {
+		return ExtractFrames(ctx, ffmpegPath, ffprobePath, resolved, opts)
+	}
+	data, err := readCappedFile(resolved, maxGIFBytes+1)
+	if err != nil {
+		return nil, 0, err
+	}
+	animated, err := IsAnimatedGIF(bytes.NewReader(data))
+	if err != nil {
+		return nil, 0, err
+	}
+	if !animated {
+		return nil, 0, fmt.Errorf("GIF de 1 quadro: anexe como imagem normal")
+	}
+	return ExtractGIFFrames(data, opts.MaxFrames, opts.MaxSide)
+}
+
+func readCappedFile(path string, limit int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("não foi possível ler %s: %w", filepath.Base(path), err)
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, limit))
+	if err != nil {
+		return nil, fmt.Errorf("não foi possível ler %s: %w", filepath.Base(path), err)
+	}
+	return data, nil
+}
+
+// SummarizeFrames monta a linha de contexto enviada junto aos quadros:
+// nome, duração, quantidade e instantes.
+func SummarizeFrames(label string, durationSec float64, frames []Frame) string {
+	instants := make([]string, 0, len(frames))
+	for _, frame := range frames {
+		instants = append(instants, "t="+formatSeconds(frame.TimestampSec))
+	}
+	return fmt.Sprintf("Attached video: %s (%ss, %d frames at %s)", label, formatSeconds(durationSec), len(frames), strings.Join(instants, ", "))
+}
+
+func formatSeconds(value float64) string {
+	return strconv.FormatFloat(value, 'f', 1, 64) + "s"
+}
+
 // ExtractFrames extrai até MaxFrames quadros JPEG espaçados pela duração,
 // escalados para caber em MaxSide no lado maior. O contexto limita e cancela
 // tudo (o ffmpeg morre junto via CommandContext).
-func ExtractFrames(ctx context.Context, ffmpegPath, ffprobePath, videoPath string, opts ExtractOptions) ([]Frame, error) {
+func ExtractFrames(ctx context.Context, ffmpegPath, ffprobePath, videoPath string, opts ExtractOptions) ([]Frame, float64, error) {
 	opts = opts.withDefaults()
 	if err := checkVideoSize(videoPath, opts.MaxBytes); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("extração de quadros cancelada antes de começar: tempo esgotado ou cancelado")
+		return nil, 0, fmt.Errorf("extração de quadros cancelada antes de começar: tempo esgotado ou cancelado")
 	}
 	info, err := Probe(ctx, ffmpegPath, ffprobePath, videoPath)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if info.DurationSec > opts.MaxDuration {
-		return nil, fmt.Errorf("vídeo %s longo demais (%.0f s, limite %.0f s) para extrair quadros", filepath.Base(videoPath), info.DurationSec, opts.MaxDuration)
+		return nil, 0, fmt.Errorf("vídeo %s longo demais (%.0f s, limite %.0f s) para extrair quadros", filepath.Base(videoPath), info.DurationSec, opts.MaxDuration)
 	}
 	frames := opts.MaxFrames
 	fps := 0.0
@@ -245,7 +301,7 @@ func ExtractFrames(ctx context.Context, ffmpegPath, ffprobePath, videoPath strin
 
 	outDir, err := os.MkdirTemp("", "qg-video-frames-*")
 	if err != nil {
-		return nil, fmt.Errorf("preparar extração de quadros: %w", err)
+		return nil, 0, fmt.Errorf("preparar extração de quadros: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(outDir) }()
 	pattern := filepath.Join(outDir, "frame%03d.jpg")
@@ -265,18 +321,18 @@ func ExtractFrames(ctx context.Context, ffmpegPath, ffprobePath, videoPath strin
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("extração de quadros do vídeo %s: tempo esgotado ou cancelado", filepath.Base(videoPath))
+			return nil, 0, fmt.Errorf("extração de quadros do vídeo %s: tempo esgotado ou cancelado", filepath.Base(videoPath))
 		}
 		firstLine, _, _ := strings.Cut(strings.TrimSpace(stderr.String()), "\n")
 		if firstLine == "" {
 			firstLine = err.Error()
 		}
-		return nil, fmt.Errorf("extração de quadros do vídeo %s falhou: %s", filepath.Base(videoPath), firstLine)
+		return nil, 0, fmt.Errorf("extração de quadros do vídeo %s falhou: %s", filepath.Base(videoPath), firstLine)
 	}
 
 	entries, err := os.ReadDir(outDir)
 	if err != nil {
-		return nil, fmt.Errorf("ler quadros extraídos: %w", err)
+		return nil, 0, fmt.Errorf("ler quadros extraídos: %w", err)
 	}
 	result := []Frame{}
 	for index, entry := range entries {
@@ -285,7 +341,7 @@ func ExtractFrames(ctx context.Context, ffmpegPath, ffprobePath, videoPath strin
 		}
 		data, err := os.ReadFile(filepath.Join(outDir, entry.Name()))
 		if err != nil {
-			return nil, fmt.Errorf("ler quadro extraído: %w", err)
+			return nil, 0, fmt.Errorf("ler quadro extraído: %w", err)
 		}
 		if len(data) == 0 {
 			continue
@@ -297,7 +353,7 @@ func ExtractFrames(ctx context.Context, ffmpegPath, ffprobePath, videoPath strin
 		result = append(result, Frame{Data: data, TimestampSec: timestamp})
 	}
 	if len(result) == 0 {
-		return nil, fmt.Errorf("ffmpeg não gerou quadros do vídeo %s", filepath.Base(videoPath))
+		return nil, 0, fmt.Errorf("ffmpeg não gerou quadros do vídeo %s", filepath.Base(videoPath))
 	}
-	return result, nil
+	return result, info.DurationSec, nil
 }

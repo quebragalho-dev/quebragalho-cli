@@ -7,6 +7,9 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"golang.org/x/image/draw"
 )
@@ -24,6 +27,23 @@ func IsAnimatedGIF(data io.Reader) (bool, error) {
 		return false, fmt.Errorf("não foi possível ler o GIF: %w", err)
 	}
 	return len(decoded.Image) > 1, nil
+}
+
+// IsAnimatedGIFFile diz se o arquivo é um GIF com mais de um quadro.
+// Erro de leitura ou formato devolve false: quem chama cai no caminho de
+// imagem normal, que já reporta o problema direito.
+func IsAnimatedGIFFile(path, workspaceRoot string) bool {
+	resolved := strings.TrimSpace(path)
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(workspaceRoot, resolved)
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = file.Close() }()
+	animated, err := IsAnimatedGIF(io.LimitReader(file, maxGIFBytes+1))
+	return err == nil && animated
 }
 
 // ExtractGIFFrames decodifica até maxFrames quadros espaçados do GIF animado

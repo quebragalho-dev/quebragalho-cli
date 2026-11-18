@@ -163,12 +163,40 @@ func isExecutableFile(path string) bool {
 // LookPathFFmpeg procura ffmpeg (e ffprobe, opcional) no PATH do sistema —
 // argumentos diretos, sem shell, então caminhos com espaço ou acento passam
 // intactos no Windows. Devolve ok=false quando não há ffmpeg no PATH.
+// VideoExtensions são os contêineres de vídeo anexáveis (quadros via ffmpeg).
+var VideoExtensions = map[string]bool{
+	".mov": true, ".mp4": true, ".webm": true, ".mkv": true, ".m4v": true,
+}
+
+// IsVideoPath diz se o caminho é um vídeo anexável pela extensão.
+func IsVideoPath(path string) bool {
+	return VideoExtensions[strings.ToLower(filepath.Ext(strings.TrimSpace(path)))]
+}
+
 func LookPathFFmpeg() (ffmpegPath, ffprobePath string, ok bool) {
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		return "", "", false
 	}
 	ffprobePath, _ = exec.LookPath("ffprobe")
+	return ffmpegPath, ffprobePath, true
+}
+
+// ResolveFFmpeg devolve o ffmpeg do sistema ou o gerenciado já instalado,
+// sem nunca baixar nada. É o que o anexo de vídeo usa; baixar é decisão explícita do operador (qg ffmpeg baixar).
+func ResolveFFmpeg() (ffmpegPath, ffprobePath string, ok bool) {
+	if ffmpegPath, ffprobePath, ok := LookPathFFmpeg(); ok {
+		return ffmpegPath, ffprobePath, true
+	}
+	root, err := DefaultFFmpegRoot()
+	if err != nil {
+		return "", "", false
+	}
+	goos, goarch := runtime.GOOS, runtime.GOARCH
+	if !managedFFmpegInstalled(root, goos, goarch) {
+		return "", "", false
+	}
+	ffmpegPath, ffprobePath = FFmpegManagedPaths(root, goos, goarch)
 	return ffmpegPath, ffprobePath, true
 }
 
