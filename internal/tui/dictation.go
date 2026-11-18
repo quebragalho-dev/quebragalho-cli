@@ -144,10 +144,10 @@ type dictationTranscribedMsg struct {
 func newDictationController(opts Options) dictationController {
 	platform := dictation.DetectPlatform()
 	return dictationController{
-		cfg:          opts.STT,
-		build:        opts.BuildDictationTranscriber,
-		keyAvailable: opts.STTKeyStatus,
-		saveKey:      opts.SaveSTTKey,
+		cfg:            opts.STT,
+		build:          opts.BuildDictationTranscriber,
+		keyAvailable:   opts.STTKeyStatus,
+		saveKey:        opts.SaveSTTKey,
 		platform:       platform,
 		downloadRoot:   opts.STTDownloadRoot,
 		userConfigPath: opts.UserConfigPath,

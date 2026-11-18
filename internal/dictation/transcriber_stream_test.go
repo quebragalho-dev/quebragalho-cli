@@ -3,10 +3,8 @@ package dictation
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -143,71 +141,6 @@ func TestOpenAIRealtimeStreamTranscribe(t *testing.T) {
 	}
 	if final != "the answer" {
 		t.Errorf("final = %q, want 'the answer'", final)
-	}
-}
-
-// TestLocalStreamingAccumulatesSegments is the regression for the "text vanishes
-// on stop" bug: the sherpa server reports text PER SEGMENT and resets it to "" when
-// it endpoints, so the transcriber must accumulate across segments rather than let
-// a new (empty) segment overwrite everything already recognized.
-func TestLocalStreamingAccumulatesSegments(t *testing.T) {
-	url := wsTestServer(t, func(ctx context.Context, c *websocket.Conn) {
-		defer c.Close(websocket.StatusNormalClosure, "")
-		go func() { // drain the client's audio + "Done"
-			for {
-				if _, _, err := c.Read(ctx); err != nil {
-					return
-				}
-			}
-		}()
-		for _, m := range []string{
-			`{"text":" hello","segment":0,"is_final":false}`,
-			`{"text":" hello world","segment":0,"is_final":true}`,
-			`{"text":"","segment":1,"is_final":false}`, // endpoint reset — must NOT wipe seg 0
-			`{"text":" foo bar","segment":1,"is_final":true}`,
-			`{"text":"","segment":2,"is_final":true}`, // trailing empty segment at stop
-		} {
-			_ = c.Write(ctx, websocket.MessageText, []byte(m))
-		}
-		_ = c.Write(ctx, websocket.MessageText, []byte("Done!"))
-	})
-
-	colon := strings.LastIndex(url, ":")
-	port, err := strconv.Atoi(url[colon+1:])
-	if err != nil {
-		t.Fatalf("parsing test server port from %q: %v", url, err)
-	}
-	mgr := NewServerManager(ServerConfig{
-		ModelPath:   streamingModelDir(t),
-		Port:        port,
-		starter:     func(commandSpec) (processHandle, io.ReadCloser, error) { return newFakeProcess(), nil, nil },
-		healthCheck: func(context.Context, int) error { return nil },
-		aliveCheck:  func(int) bool { return false },
-	})
-	tr := NewLocalStreamingTranscriber(mgr)
-
-	chunks := make(chan []byte)
-	close(chunks) // no audio; the writer immediately sends "Done"
-	var partials []string
-	text, err := tr.StreamTranscribe(context.Background(), chunks, func(s string, _ bool) {
-		partials = append(partials, s)
-	})
-	if err != nil {
-		t.Fatalf("StreamTranscribe: %v", err)
-	}
-	if text != "hello world foo bar" {
-		t.Errorf("final text = %q, want %q", text, "hello world foo bar")
-	}
-	// Once text has appeared, no later partial may go empty — that would be the
-	// segment-reset wiping the transcript, the exact bug this guards.
-	seen := false
-	for _, p := range partials {
-		if p != "" {
-			seen = true
-		}
-		if seen && p == "" {
-			t.Errorf("transcript went empty after text appeared; partials=%v", partials)
-		}
 	}
 }
 

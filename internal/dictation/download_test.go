@@ -17,10 +17,10 @@ import (
 )
 
 // Tiny tar.bz2 fixtures (generated in-repo): the engine has top/bin/sherpa-onnx-
-// offline + server; the model has top/tokens.txt.
+// offline + sherpa-onnx; the model has top/tokens.txt.
 const (
-	engineTarB64 = "QlpoOTFBWSZTWW+fEfAAAW1/hMGRAIBAA/+AAgAgRH9v3+AAAQCoMAEYAYA00NGjEZANABoYYA00NGjEZANABoYIpE0TRoTGkA2poGgxqepl1H6w5anW3tY2OggUi1AW/d29pO0GLUoOtnQsrGFNowIEh0cImtQ9gyHqYH7unm+/wZSLXsBuBDDCfHiahCsGEgGL9/pUG+RQZo76xlaDIGKWDErPKuyhXYOlzJMG3iNa56kiluctzUqgZ2A1AGwgcB3jtB5PB7pYYlDHH8OvOznM6B6MHPRqa7sTE1vwDBc0LjmG4ah5F+YYaXHTZpGmcemWW1yMh1adhdrB6A3nAQP8XckU4UJBvnxHwA=="
-	engineSHA    = "97b5cb6a417705860f8940e1bf9ffec8cc60e8666a0d228cd60f1de7607d503d"
+	engineTarB64 = "QlpoOTFBWSZTWX6Z5zcAAR5/gMmACABAA++AAgIgRHNl3kAICDAAuaGDTRpphMTJgIGmDJCaAAANNAAIpIj0IaDQAB6mmmXT970u1vQzqmZgmqpuzRGBQd9SaQb3BgdA2g3ECBIBhdHYjv8oMpHBmCExgBJc5z3hoJN9URzKB6LUiJiMG4MoMKlkMaQtGWxOuRUlUA7TEaHVjCh3piYvRixrsDOWE6Nw1j7PA/C4+/htHHLAgyG+TG6sQP4u5IpwoSD9M85u"
+	engineSHA    = "fdab0b2152b44470039eb7f9169cf843839badefc99215f59de25789e6f2c105"
 	modelTarB64  = "QlpoOTFBWSZTWTtAoX4AANp/hMOQBIBAAf+AAAIQBHoJ3mAAAQAIMAC5sG1SNMhNqGmQwIyeKEagam1DQ0AAABFRT0T0mg0aeoDQHpH7Nzrs24wsbVW8hMQHClNI0LuLhKMGY4sEQi6N2qQWP1id8o1KtprGd4hll4uQkMGA1nFMXAwohEZOnIMIPQKQl2k0GbSGwkC0lJb2IWOQ57ETYbmxFGspaRp1QyT6q4sKj855st7GzOGj5eIwmWt6wRajEQl/F3JFOFCQO0Chfg=="
 	modelSHA     = "16c6b1dcb40f6b21c0de70bc1a8edab95375e4de90dac7c076fd2cc7a34fc59a"
 )
@@ -66,17 +66,18 @@ func fakeReleaseServer(t *testing.T, engineDigest, modelDigest string) *httptest
 }
 
 func TestResolveEnginePathsHonorsTargetPlatform(t *testing.T) {
-	// The engine binary name follows the TARGET platform, not the host: a Windows
+	// The engine binary names follow the TARGET platform, not the host: a Windows
 	// engine has ".exe", a Linux one doesn't. Resolution must find each regardless
 	// of the OS the test runs on (this is what makes the cross-platform download
 	// test pass on Windows CI).
 	for _, tc := range []struct {
-		name    string
-		target  bool
-		binName string
+		name      string
+		target    bool
+		binName   string
+		onlineBin string
 	}{
-		{"linux target", false, "sherpa-onnx-offline"},
-		{"windows target", true, "sherpa-onnx-offline.exe"},
+		{"linux target", false, "sherpa-onnx-offline", "sherpa-onnx"},
+		{"windows target", true, "sherpa-onnx-offline.exe", "sherpa-onnx.exe"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -84,15 +85,17 @@ func TestResolveEnginePathsHonorsTargetPlatform(t *testing.T) {
 			if err := os.MkdirAll(binDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(binDir, tc.binName), []byte("x"), 0o755); err != nil {
-				t.Fatal(err)
+			for _, name := range []string{tc.binName, tc.onlineBin} {
+				if err := os.WriteFile(filepath.Join(binDir, name), []byte("x"), 0o755); err != nil {
+					t.Fatal(err)
+				}
 			}
-			bin, _ := resolveEnginePaths(dir, tc.target)
-			if !fileExists(bin) {
-				t.Errorf("resolveEnginePaths(target-windows=%v) = %q; not found", tc.target, bin)
+			bin, online := resolveEnginePaths(dir, tc.target)
+			if !fileExists(bin) || !strings.HasSuffix(bin, tc.binName) {
+				t.Errorf("resolveEnginePaths(target-windows=%v) bin = %q, want suffix %q", tc.target, bin, tc.binName)
 			}
-			if !strings.HasSuffix(bin, tc.binName) {
-				t.Errorf("bin = %q, want suffix %q", bin, tc.binName)
+			if !fileExists(online) || !strings.HasSuffix(online, tc.onlineBin) {
+				t.Errorf("resolveEnginePaths(target-windows=%v) online = %q, want suffix %q", tc.target, online, tc.onlineBin)
 			}
 		})
 	}
@@ -116,8 +119,8 @@ func TestEnsureLocalEngineDownloadsAndExtracts(t *testing.T) {
 	if !fileExists(comp.BinaryPath) || !strings.HasSuffix(comp.BinaryPath, "sherpa-onnx-offline") {
 		t.Errorf("binary path wrong: %q", comp.BinaryPath)
 	}
-	if !fileExists(comp.ServerPath) {
-		t.Errorf("server path missing: %q", comp.ServerPath)
+	if !fileExists(comp.OnlineBinaryPath) || !strings.HasSuffix(comp.OnlineBinaryPath, "sherpa-onnx") {
+		t.Errorf("online binary path wrong: %q", comp.OnlineBinaryPath)
 	}
 	if !fileExists(filepath.Join(comp.ModelPath, "tokens.txt")) {
 		t.Errorf("model tokens.txt missing under %q", comp.ModelPath)

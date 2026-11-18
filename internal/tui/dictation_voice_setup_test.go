@@ -385,9 +385,9 @@ func TestVoiceSetupDownloadSuccessEnables(t *testing.T) {
 	d.voiceAfterSetup = true
 	d.cfg.LocalModelPath = filepath.Join("/models", variant.DirName)
 	comp := dictation.EngineComponents{
-		BinaryPath: "/x/bin/sherpa-onnx-offline",
-		ServerPath: "/x/bin/sherpa-onnx-online-websocket-server",
-		ModelPath:  filepath.Join("/models", variant.DirName),
+		BinaryPath:       "/x/bin/sherpa-onnx-offline",
+		OnlineBinaryPath: "/x/bin/sherpa-onnx",
+		ModelPath:        filepath.Join("/models", variant.DirName),
 	}
 
 	next, cmd := model{dictation: d}.handleDictationDownloaded(dictationDownloadedMsg{components: comp, label: variant.Label})

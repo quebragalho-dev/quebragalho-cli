@@ -197,13 +197,15 @@ func (m model) handleDictationDownloaded(msg dictationDownloadedMsg) (model, tea
 // live pipeline is always switched on here.
 func (m model) applyEngineComponents(comp dictation.EngineComponents) (model, error) {
 	if path := m.dictation.userConfigPath; path != "" {
-		if _, err := config.SetSTTLocalEngine(path, comp.BinaryPath, comp.ServerPath, comp.ModelPath, true); err != nil {
+		if _, err := config.SetSTTLocalEngine(path, comp.BinaryPath, comp.OnlineBinaryPath, comp.ModelPath, true); err != nil {
 			return m, err
 		}
 	}
 	m.dictation.cfg.Provider = config.STTProviderLocal
+	m.dictation.cfg.StreamProvider = config.STTProviderLocal
 	m.dictation.cfg.LocalBinary = comp.BinaryPath
-	m.dictation.cfg.LocalServerBinary = comp.ServerPath
+	m.dictation.cfg.LocalOnlineBinary = comp.OnlineBinaryPath
+	m.dictation.cfg.LocalServerBinary = ""
 	m.dictation.cfg.LocalModelPath = comp.ModelPath
 	s := true
 	m.dictation.cfg.Streaming = &s

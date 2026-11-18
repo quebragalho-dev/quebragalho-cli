@@ -461,8 +461,8 @@ func TestSetupErrorToolsRenamed(t *testing.T) {
 		!strings.Contains(err.Error(), "download do sherpa-onnx") {
 		t.Errorf("unsupported platform should mention 'download do sherpa-onnx', got %v", err)
 	}
-	if _, err := onlineServerCommand(ServerConfig{}); err == nil ||
-		!strings.Contains(err.Error(), "modelo de ditado ao vivo") {
-		t.Errorf("missing streaming model should mention 'modelo de ditado ao vivo', got %v", err)
+	if _, err := NewLocalTranscriber(LocalConfig{Online: true}); err == nil ||
+		!strings.Contains(err.Error(), "modelo de ditado local") {
+		t.Errorf("missing online model path should mention 'modelo de ditado local', got %v", err)
 	}
 }

@@ -2,40 +2,44 @@ package dictation
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"testing"
 	"time"
 )
 
-// TestLocalStreamingRealServer drives the full local streaming path against a
-// REAL sherpa-onnx-online-websocket-server + streaming model: spawn the server,
-// connect, feed a wav's PCM in 50ms chunks, and check the transcript. Opt-in:
+// TestLocalStreamingRealBinary drives the full local live path against a REAL
+// sherpa-onnx binary + streaming model: wrap the online file decoder in
+// rollingTranscriber, feed a wav's PCM in 50ms chunks, and check the transcript.
+// Opt-in:
 //
-//	QG_STT_STREAM_SERVER=/path/to/sherpa-onnx-online-websocket-server \
+//	QG_STT_STREAM_BINARY=/path/to/sherpa-onnx \
 //	QG_STT_STREAM_MODEL=/path/to/streaming-model-dir \
-//	QG_STT_STREAM_WAV=/path/to/16k-mono.wav \
-//	go test ./internal/dictation/ -run RealServer -v -timeout 5m
-func TestLocalStreamingRealServer(t *testing.T) {
-	server := os.Getenv("QG_STT_STREAM_SERVER")
+//	QG_STT_STREAM_WAV=/path/to/mono-pcm16.wav \
+//	go test ./internal/dictation/ -run RealBinary -v -timeout 5m
+func TestLocalStreamingRealBinary(t *testing.T) {
+	bin := os.Getenv("QG_STT_STREAM_BINARY")
 	model := os.Getenv("QG_STT_STREAM_MODEL")
 	wav := os.Getenv("QG_STT_STREAM_WAV")
-	if server == "" || model == "" || wav == "" {
-		t.Skip("set QG_STT_STREAM_SERVER, QG_STT_STREAM_MODEL, QG_STT_STREAM_WAV to run the streaming smoke test")
+	if bin == "" || model == "" || wav == "" {
+		t.Skip("set QG_STT_STREAM_BINARY, QG_STT_STREAM_MODEL, QG_STT_STREAM_WAV to run the streaming smoke test")
 	}
 	raw, err := os.ReadFile(wav)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pcm := stripWavHeader(raw)
+	sampleRate, pcm := parseWavPCM(raw)
 
-	mgr := NewServerManager(ServerConfig{Binary: server, ModelPath: model, Port: 6100})
-	defer mgr.Shutdown(context.Background())
-	tr := NewLocalStreamingTranscriber(mgr)
+	inner, err := NewLocalTranscriber(LocalConfig{Binary: bin, ModelPath: model, Online: true})
+	if err != nil {
+		t.Fatalf("NewLocalTranscriber: %v", err)
+	}
+	tr := NewRollingTranscriber(inner, RollingOptions{SampleRate: sampleRate})
 
 	chunks := make(chan []byte)
 	go func() {
 		defer close(chunks)
-		size := chunkSizeBytes(DefaultSampleRate) // 50ms
+		size := chunkSizeBytes(sampleRate) // 50ms
 		for off := 0; off < len(pcm); off += size {
 			end := off + size
 			if end > len(pcm) {
@@ -57,11 +61,13 @@ func TestLocalStreamingRealServer(t *testing.T) {
 	t.Logf("streaming transcript (%d partials): %q", partials, final)
 }
 
-// stripWavHeader drops a standard 44-byte PCM WAV header, returning the raw
-// int16 samples. Good enough for the canonical 16kHz/mono/16-bit test wavs.
-func stripWavHeader(b []byte) []byte {
+func parseWavPCM(b []byte) (int, []byte) {
 	if len(b) > 44 && string(b[:4]) == "RIFF" {
-		return b[44:]
+		rate := int(binary.LittleEndian.Uint32(b[24:28]))
+		if rate <= 0 {
+			rate = DefaultSampleRate
+		}
+		return rate, b[44:]
 	}
-	return b
+	return DefaultSampleRate, b
 }
