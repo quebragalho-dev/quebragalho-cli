@@ -5,7 +5,7 @@ package execution
 // Text diagram:
 //
 //	running --Wait returned--> reaped --markDone--> done
-//	removed = leaving the map (no state; List filters done, Len counts all)
+//	removed = leaving the map (no state; List and Len both report !done)
 //
 // running: Wait has not returned yet (reaped open, done open, exitCode nil).
 // reaped:  Wait returned (reaped closed, done open, exitCode still nil).

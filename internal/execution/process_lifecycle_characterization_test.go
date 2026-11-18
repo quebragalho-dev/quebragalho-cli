@@ -49,7 +49,8 @@ func waitForDone(t *testing.T, manager *ProcessManager, id int) *managedProcess 
 }
 
 // Snapshot/List/Len per phase, including the reaped-but-not-done window.
-// The Len x List divergence (Len counts retained, List filters) is current behavior.
+// Len and List share one active-process source of truth (!doneClosed), so
+// manager.Len() == len(manager.List()) holds in every phase.
 func TestProcessSnapshotListLenPerPhase(t *testing.T) {
 	root := testRoot(t)
 	manager := NewProcessManager(ProcessManagerOptions{CompletedRetention: time.Hour})
@@ -160,14 +161,17 @@ func TestProcessSnapshotListLenPerPhase(t *testing.T) {
 	if !ok || snap.Status != "exited" || snap.ExitCode == nil {
 		t.Fatalf("snapshot done = %#v ok=%v, want exited com exit", snap, ok)
 	}
-	// Documented divergence: List filters retained done, Len counts it.
+	// Single source of truth: both List and Len exclude retained done entries.
 	if got := len(manager2.List()); got != 0 {
 		t.Fatalf("List em done retido = %d, want 0 (filtra)", got)
 	}
-	if got := manager2.Len(); got != 1 {
-		t.Fatalf("Len em done retido = %d, want 1 (conta retido)", got)
+	if got := manager2.Len(); got != 0 {
+		t.Fatalf("Len em done retido = %d, want 0 (igual a len(List))", got)
 	}
 	manager2.Remove(id)
+	if got := manager2.Len(); got != len(manager2.List()) || got != 0 {
+		t.Fatalf("Len/List apos Remove divergiram: Len=%d List=%d", got, len(manager2.List()))
+	}
 }
 
 // Stop per phase: 1 kill while running, 0 after reaped and when done.
@@ -385,7 +389,8 @@ func TestRemovePerPhase(t *testing.T) {
 	}
 }
 
-// Full capacity with retained done: Len counts retained, prune drops the oldest.
+// Full capacity with retained done: map capacity prunes the oldest done entry,
+// while Len and List both report only active processes.
 func TestCapacityCountsRetainedCompleted(t *testing.T) {
 	root := testRoot(t)
 	manager := NewProcessManager(ProcessManagerOptions{CompletedRetention: time.Hour, MaxProcesses: 2})
@@ -408,13 +413,13 @@ func TestCapacityCountsRetainedCompleted(t *testing.T) {
 
 	id1 := mkDoneRetained()
 	id2 := mkDoneRetained()
-	if got := manager.Len(); got != 2 {
-		t.Fatalf("Len com 2 retidos = %d, want 2", got)
-	}
 	if got := len(manager.List()); got != 0 {
 		t.Fatalf("List com 2 retidos = %d, want 0 (filtra done)", got)
 	}
-	// Third Start must prune the oldest done and keep Len == max.
+	if got := manager.Len(); got != 0 {
+		t.Fatalf("Len com 2 retidos = %d, want 0 (igual a len(List))", got)
+	}
+	// Third Start must prune the oldest done (id1) from the map and report 1 active process.
 	cmd := exec.Command("/bin/sh", "-c", "sleep 30")
 	r3, err := manager.Start(context.Background(), ProcessStart{
 		Prepared: PreparedCommand{Command: cmd},
@@ -423,8 +428,8 @@ func TestCapacityCountsRetainedCompleted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start3: %v", err)
 	}
-	if got := manager.Len(); got != 2 {
-		t.Fatalf("Len apos prune com retidos = %d, want 2 (max)", got)
+	if got := manager.Len(); got != 1 || got != len(manager.List()) {
+		t.Fatalf("Len/List apos prune com retidos = %d/%d, want 1/1", got, len(manager.List()))
 	}
 	if _, ok := manager.Snapshot(id1); ok {
 		t.Fatalf("id1 (%d) deveria ter sido podado (mais antigo)", id1)
