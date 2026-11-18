@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
@@ -86,7 +87,7 @@ func TestStatusLineCustomMultiline(t *testing.T) {
 // Only registered ids validate; the reporter names every unknown id so
 // /statusline can show one actionable warning.
 func TestStatusLineFieldValidation(t *testing.T) {
-	for _, id := range []string{"mode", "effort", "voice", "background", "goal", "context", "branch", "update", "cwd", "cache", "model", "speed", "cost", "time"} {
+	for _, id := range []string{"mode", "effort", "voice", "background", "goal", "loop", "context", "branch", "update", "cwd", "cache", "model", "speed", "cost", "time"} {
 		if !statuslineFieldKnown(id) {
 			t.Fatalf("catalog id %q unknown", id)
 		}
@@ -122,5 +123,103 @@ func TestSessionCostBRL(t *testing.T) {
 	empty := limeTestModel()
 	if _, ok := empty.sessionCostBRLRat(); ok {
 		t.Fatal("empty sessionCostBRLRat reported costs")
+	}
+}
+
+func TestStatusLineCustomShowsMissingNoticesOnOwnLine(t *testing.T) {
+	base := func() model {
+		m := limeTestModel()
+		m.gitBranch = "main"
+		m.statuslineCfg = config.StatusLineConfig{
+			Lines: []config.StatusLineLine{{Left: []string{"mode", "branch"}}},
+		}
+		return m
+	}
+
+	t.Run("active loop on own line", func(t *testing.T) {
+		m := base()
+		m.loops = []*loopState{{id: "L1", nextRunAt: time.Date(2026, 11, 18, 15, 5, 0, 0, time.UTC)}}
+		lines := strings.Split(plainRender(t, m.statusLine(160)), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("expected 2 lines (custom layout + loop notice), got %d:\n%s", len(lines), strings.Join(lines, "\n"))
+		}
+		if !strings.Contains(lines[0], "automático") || strings.Contains(lines[0], "1 loop") {
+			t.Fatalf("line 0 should keep custom layout only, got %q", lines[0])
+		}
+		if !strings.Contains(lines[1], "↻ 1 loop · próximo 3:05pm") {
+			t.Fatalf("line 1 missing active loop notice, got %q", lines[1])
+		}
+	})
+
+	t.Run("dictation model download on own line", func(t *testing.T) {
+		m := base()
+		m.dictation.downloading = true
+		m.dictation.downloadLabel = "Motor"
+		m.dictation.downloadDone = 11 << 20
+		m.dictation.downloadTotal = 22 << 20
+		lines := strings.Split(plainRender(t, m.statusLine(160)), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("expected 2 lines (custom layout + download notice), got %d:\n%s", len(lines), strings.Join(lines, "\n"))
+		}
+		if !strings.Contains(lines[1], "⬇ Motor") || !strings.Contains(lines[1], "50%") {
+			t.Fatalf("line 1 missing dictation download progress, got %q", lines[1])
+		}
+	})
+
+	t.Run("update notice on own line even with three field lines", func(t *testing.T) {
+		m := base()
+		m.statuslineCfg = config.StatusLineConfig{
+			Lines: []config.StatusLineLine{
+				{Left: []string{"mode"}},
+				{Left: []string{"branch"}},
+				{Left: []string{"cwd"}},
+			},
+		}
+		m.updateAvailable = "v0.9.9"
+		lines := strings.Split(plainRender(t, m.statusLine(160)), "\n")
+		if len(lines) != 4 {
+			t.Fatalf("expected 4 lines (3 field lines + update notice), got %d:\n%s", len(lines), strings.Join(lines, "\n"))
+		}
+		if !strings.Contains(lines[3], "nova versão v0.9.9") {
+			t.Fatalf("last line missing update notice, got %q", lines[3])
+		}
+	})
+}
+
+func TestStatusLineCustomKeepsIncludedNoticeFieldsUnchanged(t *testing.T) {
+	// Update notice already included in layout stays single-line, byte-identical.
+	withUpdate := limeTestModel()
+	withUpdate.statuslineCfg = config.StatusLineConfig{
+		Lines: []config.StatusLineLine{{Left: []string{"mode"}, Right: []string{"update"}}},
+	}
+	withUpdate.updateAvailable = "v0.9.9"
+	gotUpdate := strings.Split(plainRender(t, withUpdate.statusLine(160)), "\n")
+	if len(gotUpdate) != 1 || !strings.Contains(gotUpdate[0], "nova versão v0.9.9") {
+		t.Fatalf("layout including update should stay 1 line with update in place, got %d:\n%s", len(gotUpdate), strings.Join(gotUpdate, "\n"))
+	}
+
+	// Voice field already included in layout renders download in-place without extra line.
+	withVoice := limeTestModel()
+	withVoice.statuslineCfg = config.StatusLineConfig{
+		Lines: []config.StatusLineLine{{Left: []string{"mode", "voice"}}},
+	}
+	withVoice.dictation.downloading = true
+	withVoice.dictation.downloadLabel = "Motor"
+	withVoice.dictation.downloadDone = 5 << 20
+	withVoice.dictation.downloadTotal = 10 << 20
+	gotVoice := strings.Split(plainRender(t, withVoice.statusLine(160)), "\n")
+	if len(gotVoice) != 1 || !strings.Contains(gotVoice[0], "⬇ Motor") {
+		t.Fatalf("layout including voice should render download in-place on 1 line, got %d:\n%s", len(gotVoice), strings.Join(gotVoice, "\n"))
+	}
+
+	// Loop field already included in layout renders active loop in-place without extra line.
+	withLoop := limeTestModel()
+	withLoop.statuslineCfg = config.StatusLineConfig{
+		Lines: []config.StatusLineLine{{Left: []string{"mode", "loop"}}},
+	}
+	withLoop.loops = []*loopState{{id: "L1", nextRunAt: time.Date(2026, 11, 18, 15, 5, 0, 0, time.UTC)}}
+	gotLoop := strings.Split(plainRender(t, withLoop.statusLine(160)), "\n")
+	if len(gotLoop) != 1 || !strings.Contains(gotLoop[0], "↻ 1 loop") {
+		t.Fatalf("layout including loop should render loop in-place on 1 line, got %d:\n%s", len(gotLoop), strings.Join(gotLoop, "\n"))
 	}
 }

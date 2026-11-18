@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
 )
 
@@ -14,7 +16,7 @@ import (
 // command is not a field: its output appends as its own footer lines (see
 // statusLineCustom).
 var statuslineFieldIDs = []string{
-	"mode", "effort", "voice", "background", "goal",
+	"mode", "effort", "voice", "background", "goal", "loop",
 	"context", "branch", "update", "cwd", "cache",
 	"model", "speed", "cost", "time",
 }
@@ -97,11 +99,60 @@ func (m model) statusLineCustom(width int) string {
 	// When the confirmation expires the user layout returns untouched.
 	if hint, ok := m.customConfirmHintLine(width); ok {
 		if len(out) == 0 {
-			return hint
+			out = []string{hint}
+		} else {
+			out[0] = hint
 		}
-		out[0] = hint
+	}
+	if notice := m.customMissingNoticesLine(lines, sep, width); notice != "" {
+		out = append(out, notice)
 	}
 	return strings.Join(out, "\n")
+}
+
+func statuslineHasField(lines []config.StatusLineLine, target string) bool {
+	for _, line := range lines {
+		for _, id := range line.Left {
+			if id == target {
+				return true
+			}
+		}
+		for _, id := range line.Right {
+			if id == target {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (m model) dictationDownloadActive() bool {
+	return m.dictation.downloading && (m.dictation.downloadStatus != "" || m.dictation.downloadLabel != "")
+}
+
+func (m model) customMissingNoticesLine(lines []config.StatusLineLine, sep string, width int) string {
+	var parts []string
+	if !statuslineHasField(lines, "voice") && m.dictationDownloadActive() {
+		parts = append(parts, qgTheme.accent.Render("⬇ ")+qgTheme.muted.Render(m.dictationDownloadBarText(width, "  ", "")))
+	}
+	if !statuslineHasField(lines, "loop") && !m.exitConfirmActive && !m.cancelConfirmActive {
+		if loopSummary := m.loopFooterSummary(); loopSummary != "" {
+			parts = append(parts, qgTheme.accent.Render("↻ ")+qgTheme.muted.Render(loopSummary))
+		}
+	}
+	if !statuslineHasField(lines, "update") {
+		used := 2
+		if len(parts) > 0 {
+			used += lipgloss.Width(strings.Join(parts, sep)) + lipgloss.Width(sep)
+		}
+		if upd := m.updateNoticeSegment(maxInt(0, width-used)); upd != "" {
+			parts = append(parts, upd)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fitStyledLine("  "+strings.Join(parts, sep), width)
 }
 
 // customConfirmHintLine renders the armed exit/cancel hint with the same
@@ -153,8 +204,10 @@ func (m model) statuslineSegment(id string, width int) string {
 	case "effort":
 		return qgTheme.accent.Render(m.statusEffort())
 	case "voice":
-		// An active recording takes over, like the built-in line: the mic is
-		// the most time-sensitive thing on screen.
+		// A model download or active recording takes over, like the built-in line.
+		if m.dictationDownloadActive() {
+			return qgTheme.accent.Render("⬇ ") + qgTheme.muted.Render(m.dictationDownloadBarText(width, "  ", ""))
+		}
 		if chip := m.dictationStatusChip(); chip != "" && m.dictation.active() {
 			return chip
 		}
@@ -164,6 +217,11 @@ func (m model) statuslineSegment(id string, width int) string {
 	case "goal":
 		if summary := m.goalFooterSummary(); summary != "" {
 			return qgTheme.accent.Render("◎ ") + qgTheme.muted.Render(summary)
+		}
+		return ""
+	case "loop":
+		if summary := m.loopFooterSummary(); summary != "" {
+			return qgTheme.accent.Render("↻ ") + qgTheme.muted.Render(summary)
 		}
 		return ""
 	case "context":
