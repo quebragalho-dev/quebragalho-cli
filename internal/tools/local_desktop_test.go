@@ -585,3 +585,17 @@ func TestDesktopHelperFailureGuidanceExplainsMissingWindowsRuntime(t *testing.T)
 		t.Fatalf("unsupported guidance = %q", got)
 	}
 }
+
+func TestDesktopActionDescriptionGuidesWindowsStoreLaunch(t *testing.T) {
+	tool := newDesktopActionTool(localcontrol.DesktopOptions{Enabled: true})
+	desc := tool.Description()
+	for _, want := range []string{"calc.exe", "notepad", "--no-attach", "list-windows"} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("desktop_action description = %q, want %q guidance for Windows Store apps", desc, want)
+		}
+	}
+	argsDesc := tool.Parameters().Properties["args"].Description
+	if !strings.Contains(argsDesc, "--no-attach") || !strings.Contains(argsDesc, "list-windows") {
+		t.Fatalf("desktop_action args description = %q, want --no-attach and list-windows hint", argsDesc)
+	}
+}
