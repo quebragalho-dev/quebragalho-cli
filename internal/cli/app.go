@@ -540,6 +540,8 @@ func runWithDeps(args []string, stdout io.Writer, stderr io.Writer, deps appDeps
 		return runSandbox(args[1:], stdout, stderr, deps)
 	case "update":
 		return runUpdate(args[1:], stdout, stderr, deps)
+	case "ffmpeg":
+		return runFFmpegCommand(args[1:], stdout, stderr)
 	case "upgrade":
 		return runUpgrade(args[1:], stdout, stderr, deps)
 	case "worktrees", "worktree":

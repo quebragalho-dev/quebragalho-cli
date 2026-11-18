@@ -102,6 +102,7 @@ var completionRoot = completionNode{
 		{names: []string{"usage"}, children: leafNodes("report")},
 		{names: []string{"cron"}, children: leafNodes("add", "list", "rm", "pause", "resume", "run")},
 		{names: []string{"repo-info", "repoinfo"}},
+		{names: []string{"ffmpeg"}, children: leafNodes("status", "baixar")},
 		{names: []string{"serve"}},
 		{names: []string{"acp"}},
 		{names: []string{"help"}},
