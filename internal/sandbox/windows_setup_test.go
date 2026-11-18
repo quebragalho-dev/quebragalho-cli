@@ -230,3 +230,176 @@ func TestWindowsACLPlanHashIsStableAcrossEntryOrder(t *testing.T) {
 		t.Fatalf("ACL plan hashes differ: %q vs %q", left, right)
 	}
 }
+
+// ONE SETUP MUST SERVE EVERY WORKSPACE: THE MARKER RECORDS APPLIED PLANS, NOT
+// ONE PLAN.
+//
+// Setup in folder A fingerprints A's workspace plan. A command in folder B
+// builds a different plan; instead of bricking with "out of date", the runner
+// applies B's plan on demand (user-owned paths need no elevation) and records
+// it, so the next B command validates without re-applying.
+func TestWindowsSandboxSetupMarkerServesMultipleWorkspaces(t *testing.T) {
+	home := t.TempDir()
+	workspaceA := t.TempDir()
+	workspaceB := t.TempDir()
+	configA := WindowsSandboxSetupConfig{
+		SandboxHome:    home,
+		CommandCWD:     workspaceA,
+		WorkspaceRoots: []string{workspaceA},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{Kind: FileSystemRestricted, WriteRoots: []WritableRoot{{Root: workspaceA}}},
+			Network:    NetworkPolicy{Mode: NetworkDeny},
+		},
+	}
+	if _, err := WriteWindowsSandboxSetupMarker(configA); err != nil {
+		t.Fatalf("WriteWindowsSandboxSetupMarker A: %v", err)
+	}
+	if err := ValidateWindowsSandboxSetupMarker(configA); err != nil {
+		t.Fatalf("ValidateWindowsSandboxSetupMarker A: %v", err)
+	}
+
+	configB := configA
+	configB.CommandCWD = workspaceB
+	configB.WorkspaceRoots = []string{workspaceB}
+	configB.PermissionProfile.FileSystem.WriteRoots = []WritableRoot{{Root: workspaceB}}
+	err := ValidateWindowsSandboxSetupMarker(configB)
+	if err == nil {
+		t.Fatal("ValidateWindowsSandboxSetupMarker B = nil, want a plan-mismatch: B was never set up")
+	}
+	if !IsWindowsSandboxSetupPlanMismatch(err) {
+		t.Fatalf("ValidateWindowsSandboxSetupMarker B = %v, want a plan-mismatch (not a stale-setup error)", err)
+	}
+
+	// Simulating the runner's on-demand apply: recording B's plan must make B
+	// validate while keeping A valid.
+	applied, _, err := buildWindowsSandboxSetupAppliedPlan(configB.commandConfig())
+	if err != nil {
+		t.Fatalf("buildWindowsSandboxSetupAppliedPlan B: %v", err)
+	}
+	if err := recordWindowsSandboxSetupAppliedPlan(home, applied); err != nil {
+		t.Fatalf("recordWindowsSandboxSetupAppliedPlan B: %v", err)
+	}
+	if err := ValidateWindowsSandboxSetupMarker(configB); err != nil {
+		t.Fatalf("ValidateWindowsSandboxSetupMarker B after recording: %v", err)
+	}
+	if err := ValidateWindowsSandboxSetupMarker(configA); err != nil {
+		t.Fatalf("ValidateWindowsSandboxSetupMarker A after recording B: %v", err)
+	}
+}
+
+// A V5 SINGLE-PLAN MARKER MIGRATES INSTEAD OF BRICKING.
+//
+// v5 stored one plan hash; v6 stores a plan set. A host set up before the
+// upgrade must not be told to re-run setup: the old plan seeds the set.
+func TestWindowsSandboxSetupMarkerMigratesV5SinglePlan(t *testing.T) {
+	config := WindowsSandboxSetupConfig{
+		SandboxHome:    t.TempDir(),
+		CommandCWD:     t.TempDir(),
+		WorkspaceRoots: []string{`C:\workspace`},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind:       FileSystemRestricted,
+				WriteRoots: []WritableRoot{{Root: `C:\workspace`}},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	}
+	plan, err := BuildWindowsACLPlan(config.commandConfig())
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+	hash, err := WindowsACLPlanHash(plan)
+	if err != nil {
+		t.Fatalf("WindowsACLPlanHash: %v", err)
+	}
+	infra, err := BuildWindowsNetworkInfraPlan(config.commandConfig())
+	if err != nil {
+		t.Fatalf("BuildWindowsNetworkInfraPlan: %v", err)
+	}
+	infraHash, err := WindowsNetworkInfraHash(infra)
+	if err != nil {
+		t.Fatalf("WindowsNetworkInfraHash: %v", err)
+	}
+	legacy := map[string]any{
+		"schemaVersion":    5,
+		"aclPlanHash":      hash,
+		"aclPlanEntries":   len(plan.Entries),
+		"networkInfraHash": infraHash,
+		"offlineFilterSid": infra.IdentitySIDs[0],
+		"networkFilters":   len(infra.Filters),
+	}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy marker: %v", err)
+	}
+	if err := os.WriteFile(WindowsSandboxSetupMarkerPath(config.SandboxHome), raw, 0o600); err != nil {
+		t.Fatalf("write legacy marker: %v", err)
+	}
+	if err := ValidateWindowsSandboxSetupMarker(config); err != nil {
+		t.Fatalf("ValidateWindowsSandboxSetupMarker migrated v5 = %v, want nil (no forced re-setup)", err)
+	}
+}
+
+// THE RUNNER MUST KNOW WHICH RUNTIME DIRS TO HEAL.
+//
+// The QG runtime tree (TEMP/TMP point inside it) is recreated by
+// prepareSandboxRuntime, but a 30-day cleanup between setup and the next
+// command deletes the capability grant with the directory. The ensure step
+// re-grants exactly these dirs under the write-root capability SID; nothing
+// else on the host is in scope.
+func TestWindowsSandboxRuntimeDirGrantsCoverTheRuntimeTree(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runtimeState := SandboxRuntime{
+		Root:  filepath.Join(home, "runtime"),
+		Cache: filepath.Join(home, "runtime", "cache"),
+		Data:  filepath.Join(home, "runtime", "data"),
+		Temp:  filepath.Join(home, "runtime", "tmp"),
+	}
+	config := WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind:       FileSystemRestricted,
+				WriteRoots: []WritableRoot{{Root: workspace}, {Root: runtimeState.Root}},
+				AllowTemp:  true,
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	}
+	config.PermissionProfile.Runtime = &runtimeState
+	grants, err := windowsSandboxRuntimeDirGrants(config)
+	if err != nil {
+		t.Fatalf("windowsSandboxRuntimeDirGrants: %v", err)
+	}
+	if len(grants) != 4 {
+		t.Fatalf("runtime dir grants = %#v, want the 4 runtime tree dirs", grants)
+	}
+	want := map[string]bool{
+		filepath.Clean(runtimeState.Root):  false,
+		filepath.Clean(runtimeState.Cache): false,
+		filepath.Clean(runtimeState.Data):  false,
+		filepath.Clean(runtimeState.Temp):  false,
+	}
+	for _, grant := range grants {
+		key := filepath.Clean(grant.Path)
+		if _, ok := want[key]; !ok {
+			t.Fatalf("unexpected runtime dir grant for %q", grant.Path)
+		}
+		want[key] = true
+		if grant.Capability == "" {
+			t.Fatalf("runtime dir grant for %q has no capability SID", grant.Path)
+		}
+	}
+	// Without a runtime state there is nothing to heal.
+	plain := config
+	plain.PermissionProfile.Runtime = nil
+	grants, err = windowsSandboxRuntimeDirGrants(plain)
+	if err != nil {
+		t.Fatalf("windowsSandboxRuntimeDirGrants without runtime: %v", err)
+	}
+	if len(grants) != 0 {
+		t.Fatalf("runtime dir grants without runtime = %#v, want none", grants)
+	}
+}

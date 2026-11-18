@@ -66,3 +66,28 @@ func windowsProcessIsElevated() bool {
 	defer token.Close()
 	return token.IsElevated()
 }
+
+// ensureWindowsSandboxSetup validates the setup marker and heals a
+// plan-membership miss by applying the current workspace plan on demand, so
+// one `qg sandbox setup` serves every folder instead of bricking all but one
+// with "out of date". DACL edits on user-owned workspace and temp roots need
+// no Administrator rights; only the machine-global WFP network filters do, and
+// those stay gated behind the elevated setup (a network-infrastructure
+// mismatch still fails with the setup hint). The apply rollback is deliberately
+// discarded: the grants name synthetic capability SIDs no other token carries.
+func ensureWindowsSandboxSetup(config WindowsSandboxCommandConfig) error {
+	setup := WindowsSandboxSetupConfigFromCommand(config)
+	if err := ValidateWindowsSandboxSetupMarker(setup); err == nil {
+		return nil
+	} else if !IsWindowsSandboxSetupPlanMismatch(err) {
+		return err
+	}
+	applied, plan, err := buildWindowsSandboxSetupAppliedPlan(setup.commandConfig())
+	if err != nil {
+		return err
+	}
+	if _, err := applyWindowsACLPlan(plan); err != nil {
+		return fmt.Errorf("apply windows sandbox workspace ACLs: %w — run `qg sandbox setup` from an elevated (Administrator) terminal, or re-run with `--sandbox forbid` to skip OS sandboxing", err)
+	}
+	return recordWindowsSandboxSetupAppliedPlan(setup.SandboxHome, applied)
+}

@@ -17,7 +17,7 @@ func runWindowsSandboxCommand(config WindowsSandboxCommandConfig, stderr io.Writ
 	// profiles, deliberately and narrowly — the same posture as every profile.
 	switch config.SandboxLevel {
 	case WindowsSandboxLevelRestrictedToken:
-		if err := ValidateWindowsSandboxSetupMarker(WindowsSandboxSetupConfigFromCommand(config)); err != nil {
+		if err := ensureWindowsSandboxSetup(config); err != nil {
 			fmt.Fprintln(stderr, WindowsSandboxCommandRunnerName+": "+err.Error())
 			return 1
 		}
@@ -28,6 +28,13 @@ func runWindowsSandboxCommand(config WindowsSandboxCommandConfig, stderr io.Writ
 		}
 	default:
 		fmt.Fprintf(stderr, "%s: unsupported Windows sandbox level %q\n", WindowsSandboxCommandRunnerName, config.SandboxLevel)
+		return 1
+	}
+	// The QG runtime tree (TEMP/TMP live inside it) may have been cleaned up
+	// after the grants were applied, or never granted at all on this tier;
+	// recreate what's missing and re-grant it before the token is minted.
+	if err := ensureWindowsSandboxRuntimeDirs(config); err != nil {
+		fmt.Fprintln(stderr, WindowsSandboxCommandRunnerName+": "+err.Error())
 		return 1
 	}
 	if err := ValidateWindowsNetworkPolicy(config.PermissionProfile.Network); err != nil {
