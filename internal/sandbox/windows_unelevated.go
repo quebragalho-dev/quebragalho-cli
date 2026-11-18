@@ -73,7 +73,10 @@ func loadWindowsUnelevatedSetupMarker(sandboxHome string) (WindowsUnelevatedSetu
 		return WindowsUnelevatedSetupMarker{}, errors.New("windows sandbox home is required")
 	}
 	path := WindowsUnelevatedSetupMarkerPath(sandboxHome)
-	bytes, err := os.ReadFile(path)
+	// Concurrent runner spawns replace this file via rename while a sibling
+	// process reads it; on Windows that open fails with a sharing violation.
+	// Retry briefly instead of failing the command (e.g. MCP server startup).
+	bytes, err := fsutil.ReadFileWithRetry(path, nil)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return WindowsUnelevatedSetupMarker{SchemaVersion: windowsUnelevatedSetupMarkerSchemaVersion}, nil

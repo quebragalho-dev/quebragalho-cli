@@ -13,6 +13,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/filelock"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 const WindowsSandboxCommandRunnerName = "qg-windows-command-runner.exe"
@@ -494,7 +495,10 @@ func LoadOrCreateWindowsCapabilitySIDs(sandboxHome string) (WindowsCapabilitySID
 }
 
 func loadOrCreateWindowsCapabilitySIDsLocked(path string) (WindowsCapabilitySIDs, error) {
-	if bytes, err := os.ReadFile(path); err == nil {
+	// The inter-process lock above serializes our own writers, but antivirus
+	// scanners and indexers can still hold the file transiently; retry those
+	// Windows lock errors like the sibling marker readers do.
+	if bytes, err := fsutil.ReadFileWithRetry(path, nil); err == nil {
 		var caps WindowsCapabilitySIDs
 		if err := json.Unmarshal(bytes, &caps); err != nil {
 			return WindowsCapabilitySIDs{}, fmt.Errorf("parse windows capability SIDs %s: %w", path, err)

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 const WindowsSandboxSetupName = "qg-windows-sandbox-setup.exe"
@@ -245,7 +247,10 @@ func ValidateWindowsSandboxSetupMarker(config WindowsSandboxSetupConfig) error {
 		return err
 	}
 	path := WindowsSandboxSetupMarkerPath(config.SandboxHome)
-	bytes, err := os.ReadFile(path)
+	// The setup helper replaces this file via rename; a concurrent runner
+	// validating mid-replace hits a Windows sharing violation without a
+	// brief retry (same race as the unelevated marker).
+	bytes, err := fsutil.ReadFileWithRetry(path, nil)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("windows sandbox is not initialized for this workspace — run `qg sandbox setup` from an elevated (Administrator) terminal (missing %s)", filepath.Base(path))
