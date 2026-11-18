@@ -1024,16 +1024,21 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 	if event.ModelID != "" {
 		modelID = event.ModelID
 	}
-	m.lastUsage = normalized
-	if receipt.meta == nil {
-		receipt.meta = map[string]string{"model": modelID}
+	m.summarizerRecordedLast = event.Summarizer
+	if !event.Summarizer {
+		m.lastUsage = normalized
+		if receipt.meta == nil {
+			receipt.meta = map[string]string{"model": modelID}
+		}
+		if _, ok := receipt.meta["model"]; !ok {
+			receipt.meta["model"] = modelID
+		}
+		m.lastUsageReceipt = receipt
+		m.lastUsageSeen = true
+		m.meterLive = true
+		m.postCompactTokens = 0
+		m.hasPostCompactTokens = false
 	}
-	if _, ok := receipt.meta["model"]; !ok {
-		receipt.meta["model"] = modelID
-	}
-	m.lastUsageReceipt = receipt
-	m.lastUsageSeen = true
-	m.meterLive = true
 	callsBefore := len(m.cacheCalls)
 	boundary := m.cacheClearBoundary
 	m.cacheClearBoundary = false
@@ -1065,14 +1070,48 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 	return m, nil
 }
 
-func (m model) latestUsageTokens(summary usage.Summary) int {
+func compactedContextTokens(messages []qgruntime.Message, events []sessions.Event, fallback int) int {
+	if len(messages) > 0 {
+		if n := agent.MeasureContext(messages, nil, 0).MessageTokens; n > 0 {
+			return n
+		}
+	}
+	if len(events) > 0 {
+		rebuilt := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(events))
+		if n := agent.MeasureContext(rebuilt, nil, 0).MessageTokens; n > 0 {
+			return n
+		}
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return 0
+}
+
+func (m model) contextFootprintTokens() int {
+	if m.hasPostCompactTokens {
+		return m.postCompactTokens
+	}
 	if m.lastUsageSeen && m.lastUsage.TotalTokens > 0 {
 		return m.lastUsage.TotalTokens
 	}
-	if summary.LastRecord != nil && summary.LastRecord.Usage.TotalTokens > 0 {
+	return 0
+}
+
+func (m model) latestUsageTokens(summary usage.Summary) int {
+	if m.hasPostCompactTokens && m.postCompactTokens > 0 {
+		return m.postCompactTokens
+	}
+	if m.lastUsageSeen && m.lastUsage.TotalTokens > 0 {
+		return m.lastUsage.TotalTokens
+	}
+	if !m.summarizerRecordedLast && summary.LastRecord != nil && summary.LastRecord.Usage.TotalTokens > 0 {
 		return summary.LastRecord.Usage.TotalTokens
 	}
-	return m.unpricedTokens
+	if !m.hasPostCompactTokens && !m.summarizerRecordedLast {
+		return m.unpricedTokens
+	}
+	return 0
 }
 
 func isUnpricedUsageError(err error) bool {
