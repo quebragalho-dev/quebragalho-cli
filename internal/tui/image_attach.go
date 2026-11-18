@@ -142,6 +142,9 @@ func (m model) modelSupportsVisionTUI() bool {
 // attachClipboardImage attaches an image read from the OS clipboard (a
 // screenshot paste). Runs through the same vision gate + size cap as
 // /image <path>, but the bytes come from the clipboard instead of a file.
+// The bytes are also staged in a private temp file (deleted when the
+// attachment is discarded, consumed, or qg quits) so a pasted screenshot never
+// sits in the shared system temp dir.
 func (m model) attachClipboardImage(data []byte, mediaType string) model {
 	if !m.modelSupportsVisionTUI() {
 		name := m.modelName
@@ -153,13 +156,88 @@ func (m model) attachClipboardImage(data []byte, mediaType string) model {
 	if len(data) > imageinput.MaxImageBytes {
 		return m.appendImageNotice("Clipboard image is larger than the 10 MiB limit.")
 	}
-	m.pendingImages = append(m.pendingImages, qgruntime.ImageBlock{
-		MediaType: mediaType,
-		Data:      data,
-	})
-	m.pendingImageLabels = append(m.pendingImageLabels, "clipboard")
+	tempPath := ""
+	if p, err := saveClipboardTempFile(data, clipboardMediaTypeExt(mediaType)); err == nil {
+		tempPath = p
+	}
+	m.appendPendingImage(qgruntime.ImageBlock{MediaType: mediaType, Data: data}, "clipboard", tempPath)
 	m.refreshPendingImageThumbnail()
 	return m
+}
+
+// clipboardMediaTypeExt maps a sniffed clipboard media type to a temp-file
+// extension. Unknown types fall back to .png; the bytes were already sniffed,
+// so this only names the staging file.
+func clipboardMediaTypeExt(mediaType string) string {
+	switch mediaType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
+}
+
+// appendPendingImage stages one image with its display label, keeping
+// pendingImageTemps in lockstep ("" when the image came from a real file and
+// owns no temp). Every image-staging site must go through here so the
+// temp-file invariant holds and discard can clean up exactly what qg created.
+func (m *model) appendPendingImage(block qgruntime.ImageBlock, label, tempPath string) {
+	m.pendingImages = append(m.pendingImages, block)
+	m.pendingImageLabels = append(m.pendingImageLabels, label)
+	m.pendingImageTemps = append(m.pendingImageTemps, tempPath)
+}
+
+// discardPendingImageTemps deletes the private temp files backing staged
+// clipboard images and forgets them. Call it wherever pendingImages is
+// cleared or an entry is popped; paths qg did not create ("") are skipped.
+// Best-effort: a removal failure leaves a stray file for quit-time cleanup,
+// never an error in the user's face.
+func (m *model) discardPendingImageTemps() {
+	for _, p := range m.pendingImageTemps {
+		if p != "" {
+			_ = os.Remove(p)
+		}
+	}
+	m.pendingImageTemps = nil
+}
+
+// attachClipboardFiles attaches files copied in the OS clipboard (a
+// Finder/Explorer/file-manager copy) the same way a drag-drop does: images
+// and PDFs stage as attachments with the preview chips that already exist.
+// Video files are classified at the imageinput.VideoExtensions extension
+// point and refused with a notice (another engineer owns video attachments);
+// anything else is ignored. All user-facing text is in Portuguese.
+func (m model) attachClipboardFiles(paths []string) model {
+	attached := 0
+	videos := 0
+	for _, p := range paths {
+		if imageinput.IsVideoPath(p) {
+			videos++
+			continue
+		}
+		before := len(m.pendingImages) + len(m.pendingDocuments)
+		if _, ok := droppedAttachmentPath(p, m.cwd); !ok {
+			continue
+		}
+		m = m.handleImageCommand(p)
+		if len(m.pendingImages)+len(m.pendingDocuments) > before {
+			attached++
+		}
+	}
+	switch {
+	case attached > 0 && videos > 0:
+		return m.appendImageNotice("Vídeo ainda não é suportado como anexo — as imagens foram anexadas e o(s) vídeo(s) ignorado(s).")
+	case attached > 0:
+		return m // chips ([Image #N]/[Doc #N]) confirmam, como no arrastar
+	case videos > 0:
+		return m.appendImageNotice("Vídeo ainda não é suportado como anexo no qg — copie uma imagem ou PDF.")
+	default:
+		return m.appendImageNotice("Nenhum arquivo copiado pôde ser anexado — o qg anexa imagens e PDFs.")
+	}
 }
 
 // handleImageCommand processes "/image <path>" and "/image clear". A bare
@@ -173,6 +251,7 @@ func (m model) handleImageCommand(arg string) model {
 	case trimmed == "":
 		return m.appendImageNotice("Usage: /image <path>  (image or PDF; or /image clear)")
 	case strings.EqualFold(trimmed, "clear"):
+		m.discardPendingImageTemps()
 		m.pendingImages = nil
 		m.pendingImageLabels = nil
 		m.pendingImageThumbnails = nil
@@ -202,8 +281,7 @@ func (m model) handleImageCommand(arg string) model {
 		return m.appendImageNotice(err.Error())
 	}
 
-	m.pendingImages = append(m.pendingImages, block)
-	m.pendingImageLabels = append(m.pendingImageLabels, filepath.Base(trimmed))
+	m.appendPendingImage(block, filepath.Base(trimmed), "")
 	m.refreshPendingImageThumbnail()
 	// No "attached" system message: the composer attachment chip ([Image #N]) is
 	// the confirmation, matching the compact attach UX.
@@ -236,8 +314,7 @@ func (m model) handleDocumentAttach(path string) model {
 		m.pendingDocuments = append(m.pendingDocuments, pendingDocument{label: label, text: doc.Text})
 	}
 	for _, block := range doc.Images {
-		m.pendingImages = append(m.pendingImages, block)
-		m.pendingImageLabels = append(m.pendingImageLabels, label)
+		m.appendPendingImage(block, label, "")
 	}
 	m.refreshPendingImageThumbnail()
 	// The composer attachment chip ([Doc #N] / [Image #N]) is the confirmation; no
@@ -286,9 +363,17 @@ func (m model) removeLastAttachment() (model, bool) {
 		return m, true
 	}
 	if n := len(m.pendingImageLabels); n > 0 {
+		// A clipboard-pasted image owns a private temp file: delete exactly
+		// what qg created, never pre-existing user files ("" = real file).
+		if len(m.pendingImageTemps) == len(m.pendingImageLabels) && m.pendingImageTemps[n-1] != "" {
+			_ = os.Remove(m.pendingImageTemps[n-1])
+		}
 		m.pendingImageLabels = m.pendingImageLabels[:n-1]
 		if len(m.pendingImages) > 0 {
 			m.pendingImages = m.pendingImages[:len(m.pendingImages)-1]
+		}
+		if len(m.pendingImageTemps) > 0 {
+			m.pendingImageTemps = m.pendingImageTemps[:len(m.pendingImageTemps)-1]
 		}
 		m.refreshPendingImageThumbnail()
 		return m, true

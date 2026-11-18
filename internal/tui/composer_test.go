@@ -157,10 +157,12 @@ func TestCtrlVProbesClipboardForImage(t *testing.T) {
 	// Asserting only that some command came back, then running a freshly built
 	// probe, would pass even if the key never reached the image route at all.
 	original := readClipboardImage
-	t.Cleanup(func() { readClipboardImage = original })
+	originalFiles := readClipboardFiles
+	t.Cleanup(func() { readClipboardImage = original; readClipboardFiles = originalFiles })
 	readClipboardImage = func() ([]byte, string, error) {
 		return []byte("png-bytes"), "image/png", nil
 	}
+	readClipboardFiles = func() ([]string, error) { return nil, nil }
 
 	// Both modifiers: macOS reports Command as ModSuper, so a handler matching
 	// only ModCtrl leaves Cmd+V doing nothing on the platform where screenshots
@@ -192,8 +194,10 @@ func TestCtrlVProbesClipboardForImage(t *testing.T) {
 // and not just the command in isolation.
 func TestClipboardImageProbeSilentWithoutImage(t *testing.T) {
 	original := readClipboardImage
-	t.Cleanup(func() { readClipboardImage = original })
+	originalFiles := readClipboardFiles
+	t.Cleanup(func() { readClipboardImage = original; readClipboardFiles = originalFiles })
 	readClipboardImage = func() ([]byte, string, error) { return nil, "", nil }
+	readClipboardFiles = func() ([]string, error) { return nil, nil }
 
 	m := newModel(context.Background(), Options{})
 	_, cmd := m.Update(testKeyCtrl('v'))
@@ -530,10 +534,12 @@ func TestComposerTerminalWordKeybindings(t *testing.T) {
 // condition the user can act on.
 func TestClipboardImageUnreadableSurfacesToUser(t *testing.T) {
 	original := readClipboardImage
-	t.Cleanup(func() { readClipboardImage = original })
+	originalFiles := readClipboardFiles
+	t.Cleanup(func() { readClipboardImage = original; readClipboardFiles = originalFiles })
 	readClipboardImage = func() ([]byte, string, error) {
 		return nil, "", imageinput.ErrClipboardImageUnreadable
 	}
+	readClipboardFiles = func() ([]string, error) { return nil, nil }
 
 	m := newModel(context.Background(), Options{})
 	_, cmd := m.Update(testKeyCtrl('v'))

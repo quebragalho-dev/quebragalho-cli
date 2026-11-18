@@ -47,6 +47,7 @@ func (m model) buildKeybindingGroups() []keybindingGroup {
 				{"Ctrl+Enter, Ctrl+X Ctrl+S", "envia a fila e o rascunho agora"},
 				{"Shift+Enter / Alt+Enter", "insere uma quebra de linha (multilinha)"},
 				{"Esc (\u00d72)", "cancela a execução / fecha o pop-up / limpa a entrada"},
+				{"Ctrl+V", "cola imagem/arquivo da área de transferência como anexo"},
 				{"?", "mostra esta ajuda (com a entrada vazia)"},
 				{"Ctrl+C", ctrlCDescription},
 				{"Ctrl+X e letra", "comandos com / comuns (m=/model, r=/resume, \u2026)"},

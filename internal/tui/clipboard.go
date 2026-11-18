@@ -16,32 +16,50 @@ type clipboardReadMsg struct {
 	err     error
 }
 
-// clipboardImageMsg carries image bytes read from the OS clipboard (a
-// screenshot). Sent when the text clipboard is empty — the user pasted an
-// image, not text. data is nil when no image was found.
+// clipboardImageMsg carries clipboard content read from the OS: image bytes
+// (a screenshot) and/or copied file paths (a Finder/Explorer/file-manager
+// copy). Sent when the text clipboard is empty — the user pasted an image or
+// files, not text. Both data and files are empty when there is nothing to
+// attach.
 type clipboardImageMsg struct {
 	data      []byte
 	mediaType string
+	files     []string
 	err       error
 }
 
-// readClipboardImage is the OS clipboard image reader. A var so tests can
-// substitute a stub instead of depending on the developer's real clipboard.
-var readClipboardImage = imageinput.ReadClipboardImage
+var (
+	// readClipboardImage is the OS clipboard image reader. A var so tests can
+	// substitute a stub instead of depending on the developer's real clipboard.
+	readClipboardImage = imageinput.ReadClipboardImage
+	// readClipboardFiles lists files copied in the OS clipboard. Same
+	// injectable seam as the image reader above.
+	readClipboardFiles = imageinput.ReadClipboardFiles
+	// saveClipboardTempFile stages clipboard image bytes in the private qg
+	// dir. Stubbed in tests to keep them hermetic (no ~/.config writes).
+	saveClipboardTempFile = imageinput.WriteClipboardTemp
+)
 
-// readClipboardImageCmd reads the OS clipboard for image content off the
-// Update goroutine. Returns a clipboardImageMsg with the bytes, or nil (no
-// command) if there is no image — the caller treats nil as a silent no-op.
+// readClipboardImageCmd reads the OS clipboard for image and file content off
+// the Update goroutine. Returns a clipboardImageMsg with whatever was found,
+// or nil (no command) when the clipboard holds neither — the caller treats nil
+// as a silent no-op. A file lookup failure stays silent unless there is no
+// image either, so a stray Ctrl+V with text on the clipboard never nags; only
+// an actionable error (e.g. the Linux clipboard tool missing) surfaces.
 func readClipboardImageCmd() tea.Cmd {
 	return func() tea.Msg {
-		data, mediaType, err := readClipboardImage()
-		if err != nil {
-			return clipboardImageMsg{err: err}
+		data, mediaType, imgErr := readClipboardImage()
+		files, filesErr := readClipboardFiles()
+		if imgErr != nil {
+			return clipboardImageMsg{err: imgErr}
 		}
-		if data == nil {
-			return nil // no image — silent no-op
+		if data == nil && filesErr != nil {
+			return clipboardImageMsg{err: filesErr}
 		}
-		return clipboardImageMsg{data: data, mediaType: mediaType}
+		if data == nil && len(files) == 0 {
+			return nil // nothing to attach — silent no-op
+		}
+		return clipboardImageMsg{data: data, mediaType: mediaType, files: files}
 	}
 }
 

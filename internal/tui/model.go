@@ -696,6 +696,13 @@ type model struct {
 	// no attachments = today's text-only behavior exactly.
 	pendingImages      []qgruntime.ImageBlock
 	pendingImageLabels []string
+	// pendingImageTemps tracks the private temp files backing clipboard-pasted
+	// images, parallel to pendingImages ("" where the image came from a real
+	// file). Clipboard screenshots live here (<config>/qg/clipboard) instead of
+	// the shared temp dir; each entry is deleted when its attachment is
+	// discarded, consumed, or the program quits. Invariant: same length as
+	// pendingImages whenever images are staged.
+	pendingImageTemps []string
 	// pendingImageThumbnails are decoded previews for a bounded gallery of staged
 	// images. They are only rendered by terminals with an inline-image protocol;
 	// every other terminal continues to use the compact text attachment row.
@@ -1665,6 +1672,9 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 	// and wait (bounded) for the runner, so the exit below cannot slip
 	// ahead of the tree kill. Same helper as the post-Run cleanup.
 	m.killStatuslineSync()
+	// Pasted screenshots stage in private temp files: delete what is still
+	// staged so quitting never leaves clipboard bytes behind.
+	m.discardPendingImageTemps()
 	// The presence lease is released in writeFarewell (after the program
 	// exits and the final snapshot has been flushed), not here: the
 	// farewell write happens after tea.Quit returns, and a new qg process
@@ -1964,12 +1974,15 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.routePaste(msg.content)
 	case clipboardImageMsg:
 		if msg.err != nil {
-			return m.appendImageNotice("Falha ao ler a imagem da área de transferência: " + msg.err.Error()), nil
+			m = m.appendImageNotice("Falha ao ler a imagem da área de transferência: " + msg.err.Error())
 		}
-		if msg.data == nil {
-			return m, nil // no image — silent no-op
+		if msg.data != nil {
+			m = m.attachClipboardImage(msg.data, msg.mediaType)
 		}
-		return m.attachClipboardImage(msg.data, msg.mediaType), nil
+		if len(msg.files) > 0 {
+			m = m.attachClipboardFiles(msg.files)
+		}
+		return m, nil
 	case tea.PasteMsg:
 		// While attached to a live terminal, a paste forwards verbatim to the
 		// PTY stdin — never into the composer or transcript.
@@ -6121,6 +6134,9 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// silently dropping the image/PDF context and answering a different task.
 		m.pendingImages = m.lastImages
 		m.pendingImageLabels = m.lastImageLabels
+		// Bytes live in memory; the private temp files were deleted at submit,
+		// so re-stage with no temps to keep the lockstep invariant.
+		m.pendingImageTemps = make([]string, len(m.pendingImages))
 		m.pendingDocuments = m.lastDocuments
 		m.refreshPendingImageThumbnail()
 		// The last-prompt slot may hold a pre-expanded wire (a non-typable
@@ -6151,6 +6167,8 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// answer a different task (the same gap /retry guards against).
 		m.pendingImages = m.lastImages
 		m.pendingImageLabels = m.lastImageLabels
+		// Same as /retry above: bytes are in memory, temps were deleted.
+		m.pendingImageTemps = make([]string, len(m.pendingImages))
 		m.pendingDocuments = m.lastDocuments
 		m.refreshPendingImageThumbnail()
 		m.input.SetValue(m.lastPrompt)
@@ -6433,6 +6451,7 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 		m.pendingImages = nil
 		m.pendingImageLabels = nil
 		m.pendingImageThumbnails = nil
+		m.discardPendingImageTemps()
 	}
 	runCtx, cancel := context.WithCancel(m.ctx)
 	if peer != nil {
