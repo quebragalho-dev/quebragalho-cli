@@ -690,7 +690,14 @@ func TestLoadResumeContinuationExactAndReconstructed(t *testing.T) {
 	exactMsgs := []qgruntime.Message{
 		{Role: qgruntime.MessageRoleSystem, Content: "frozen-sys"},
 		{Role: qgruntime.MessageRoleUser, Content: "q1"},
-		{Role: qgruntime.MessageRoleAssistant, Content: "a1", Reasoning: []qgruntime.ReasoningBlock{{Provider: "p1", Type: "thinking", Text: "r"}}},
+		{
+			Role:      qgruntime.MessageRoleAssistant,
+			Content:   "",
+			Reasoning: []qgruntime.ReasoningBlock{{Provider: "p1", Type: "thinking", Text: "r", Signature: "sig-r"}},
+			ToolCalls: []qgruntime.ToolCall{{ID: "c1", Name: "read_file", Arguments: "{}", ProviderCallID: "fc_1", Signature: "sig-c"}},
+		},
+		{Role: qgruntime.MessageRoleTool, Content: "ok", ToolCallID: "c1", ToolCallProviderID: "fc_1"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "a1"},
 	}
 	if err := store.WriteContinuation(ContinuationSnapshot{
 		SessionID:   session.SessionID,
@@ -708,19 +715,34 @@ func TestLoadResumeContinuationExactAndReconstructed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Exact same model + provider preserves frozen system, reasoning, and loaded tools.
-	msgs, loaded, exact := LoadResumeContinuation(prepared, "m1", "p1", "")
-	if !exact || len(msgs) != 3 || msgs[0].Content != "frozen-sys" || len(msgs[2].Reasoning) != 1 {
+	// Exact same model + provider (including case-insensitive provider match)
+	// preserves frozen system, reasoning, provider call IDs, and loaded tools.
+	msgs, loaded, exact := LoadResumeContinuation(prepared, "m1", "P1", "")
+	if !exact || len(msgs) != 5 || msgs[0].Content != "frozen-sys" || len(msgs[2].Reasoning) != 1 || msgs[2].ToolCalls[0].ProviderCallID != "fc_1" || msgs[3].ToolCallProviderID != "fc_1" {
 		t.Fatalf("same-model exact continuation = (%v, %#v)", exact, msgs)
 	}
 	if len(loaded) != 1 || loaded[0] != "mcp_tool" {
 		t.Fatalf("loaded tools = %#v, want [mcp_tool]", loaded)
 	}
 
-	// Cross-provider switch strips frozen system and reasoning even if model alias matches.
+	// Missing provider on one side compares only the model ID.
+	noProvMsgs, _, exactNoProv := LoadResumeContinuation(prepared, "m1", "", "")
+	if !exactNoProv || len(noProvMsgs) != 5 || noProvMsgs[0].Content != "frozen-sys" || len(noProvMsgs[2].Reasoning) != 1 {
+		t.Fatalf("missing-provider same-model continuation must keep wire: (%v, %#v)", exactNoProv, noProvMsgs)
+	}
+	noProvModelSwitch, _, exactNoProvSwitch := LoadResumeContinuation(prepared, "m2", "", "")
+	if !exactNoProvSwitch || len(noProvModelSwitch) != 4 || noProvModelSwitch[0].Role == qgruntime.MessageRoleSystem {
+		t.Fatalf("missing-provider model switch must strip frozen system: (%v, %#v)", exactNoProvSwitch, noProvModelSwitch)
+	}
+
+	// Cross-provider switch with the exact same model ID ("p1/m1" vs "p2/m1")
+	// strips frozen system, foreign reasoning, signatures, and provider-native call IDs.
 	switched, _, exactSwitch := LoadResumeContinuation(prepared, "m1", "p2", "")
-	if !exactSwitch || len(switched) != 2 || switched[0].Role == qgruntime.MessageRoleSystem || len(switched[1].Reasoning) != 0 {
-		t.Fatalf("cross-provider continuation must strip foreign system/reasoning: %#v", switched)
+	if !exactSwitch || len(switched) != 4 || switched[0].Role == qgruntime.MessageRoleSystem {
+		t.Fatalf("cross-provider same-model continuation must drop frozen system: %#v", switched)
+	}
+	if len(switched[1].Reasoning) != 0 || switched[1].ToolCalls[0].ProviderCallID != "" || switched[1].ToolCalls[0].Signature != "" || switched[2].ToolCallProviderID != "" {
+		t.Fatalf("cross-provider same-model continuation must strip foreign reasoning/native IDs: %#v", switched)
 	}
 
 	// Appending a new event invalidates the snapshot and reconstructs from ContextEvents.

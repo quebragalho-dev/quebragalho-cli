@@ -408,12 +408,13 @@ func LoadResumeContinuation(prepared PreparedExec, effectiveModel, effectiveProv
 	goalMatch := snap != nil && snap.GoalKey == goalKey
 	if DecideResumeVerdict(snap, snapErr, fresh, goalMatch) == ContExact {
 		repaired := RepairOrphanToolCalls(snap.Messages)
-		fromModel := snap.ModelID
-		toModel := effectiveModel
-		if strings.TrimSpace(snap.Provider) != "" && strings.TrimSpace(effectiveProvider) != "" &&
-			!strings.EqualFold(strings.TrimSpace(snap.Provider), strings.TrimSpace(effectiveProvider)) {
-			fromModel = "provider-a"
-			toModel = "provider-b"
+		fromModel := strings.TrimSpace(snap.ModelID)
+		toModel := strings.TrimSpace(effectiveModel)
+		snapProvider := strings.ToLower(strings.TrimSpace(snap.Provider))
+		curProvider := strings.ToLower(strings.TrimSpace(effectiveProvider))
+		if snapProvider != "" && curProvider != "" {
+			fromModel = snapProvider + "/" + fromModel
+			toModel = curProvider + "/" + toModel
 		}
 		filtered := FilterContinuationForModel(repaired, fromModel, toModel)
 		if len(filtered) > 0 {
