@@ -108,7 +108,7 @@ func (l *localTranscriber) Transcribe(ctx context.Context, audio []byte) (string
 	}
 	out, err := l.cfg.runOutput(ctx, l.cfg.Binary, args...)
 	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
+		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			hint := "instale o sherpa-onnx e coloque o binário sherpa-onnx-offline no PATH (ou rode /stt-model para baixar o motor)"
 			if l.cfg.Online {
 				hint = "instale o sherpa-onnx e coloque o binário sherpa-onnx no PATH (ou rode /stt-model para baixar o motor)"

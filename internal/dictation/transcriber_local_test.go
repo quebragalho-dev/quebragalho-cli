@@ -305,26 +305,42 @@ func TestLocalTranscribeOnlineDefaultsToSherpaOnnx(t *testing.T) {
 
 func TestLocalTranscribeOnlineMissingBinarySetupError(t *testing.T) {
 	dir := writeModelDir(t, "encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
-	runOutput := func(context.Context, string, ...string) ([]byte, error) { return nil, exec.ErrNotFound }
-	tr, err := NewLocalTranscriber(LocalConfig{
-		ModelPath: dir,
-		Online:    true,
-		runOutput: runOutput,
-		tempDir:   func() (string, error) { return t.TempDir(), nil },
-	})
-	if err != nil {
-		t.Fatalf("NewLocalTranscriber: %v", err)
-	}
-	_, err = tr.Transcribe(context.Background(), wavFixture())
-	var setupErr *SetupError
-	if !errors.As(err, &setupErr) {
-		t.Fatalf("want *SetupError, got %v", err)
-	}
-	if setupErr.Tool != "sherpa-onnx" {
-		t.Errorf("Tool = %q, want %q", setupErr.Tool, "sherpa-onnx")
-	}
-	if !strings.Contains(setupErr.Hint, "sherpa-onnx") || strings.Contains(setupErr.Hint, "online-websocket-server") || strings.Contains(setupErr.Hint, "offline") {
-		t.Errorf("Hint = %q, want mention of sherpa-onnx without websocket server or offline", setupErr.Hint)
+	for _, tc := range []struct {
+		name string
+		bin  string
+		err  error
+	}{
+		{"path lookup", "", exec.ErrNotFound},
+		{"explicit path", "/tmp/no-such-sherpa-onnx", os.ErrNotExist},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runOutput := func(context.Context, string, ...string) ([]byte, error) { return nil, tc.err }
+			tr, err := NewLocalTranscriber(LocalConfig{
+				Binary:    tc.bin,
+				ModelPath: dir,
+				Online:    true,
+				runOutput: runOutput,
+				tempDir:   func() (string, error) { return t.TempDir(), nil },
+			})
+			if err != nil {
+				t.Fatalf("NewLocalTranscriber: %v", err)
+			}
+			_, err = tr.Transcribe(context.Background(), wavFixture())
+			var setupErr *SetupError
+			if !errors.As(err, &setupErr) {
+				t.Fatalf("want *SetupError, got %v", err)
+			}
+			wantTool := tc.bin
+			if wantTool == "" {
+				wantTool = "sherpa-onnx"
+			}
+			if setupErr.Tool != wantTool {
+				t.Errorf("Tool = %q, want %q", setupErr.Tool, wantTool)
+			}
+			if !strings.Contains(setupErr.Hint, "sherpa-onnx") || strings.Contains(setupErr.Hint, "online-websocket-server") || strings.Contains(setupErr.Hint, "offline") {
+				t.Errorf("Hint = %q, want mention of sherpa-onnx without websocket server or offline", setupErr.Hint)
+			}
+		})
 	}
 }
 
